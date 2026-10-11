@@ -47,6 +47,7 @@ func restrictedCredential(t *testing.T, user, policy string) (akid, secret strin
 // region reached the condition context, the key was absent and the grant
 // matched nothing at all.
 func TestEC2_RegionConditionKeyScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	akid, secret := restrictedCredential(t, "ec2-one-region",
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"ec2:DescribeVolumes","Resource":"*",
 		  "Condition":{"StringEquals":{"ec2:Region":"us-east-1"}}}]}`)
@@ -71,6 +72,7 @@ func TestEC2_RegionConditionKeyScopesTheGrant(t *testing.T) {
 // SDK makes, and they differ only in how the signature travels, so the key has
 // to describe the request that actually arrived.
 func TestS3_AuthTypeConditionKeyScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	bucket := "s3-authtype-bucket"
 	admin := s3Client()
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
@@ -108,6 +110,7 @@ func TestS3_AuthTypeConditionKeyScopesTheGrant(t *testing.T) {
 // the signature is fresh and lapses once it is not. A context without the key
 // cannot express either half.
 func TestS3_SignatureAgeConditionKeyScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	bucket := "s3-sigage-bucket"
 	admin := s3Client()
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
@@ -143,6 +146,7 @@ func TestS3_SignatureAgeConditionKeyScopesTheGrant(t *testing.T) {
 // which is how a policy grants a read of the objects somebody tagged one way
 // and refuses the ones tagged another.
 func TestS3_ExistingObjectTagConditionKeyScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	bucket := "s3-existing-tag-bucket"
 	admin := s3Client()
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
@@ -179,6 +183,7 @@ func TestS3_ExistingObjectTagConditionKeyScopesTheGrant(t *testing.T) {
 // secretsmanager:SecretId, which AWS documents for scoping a grant to the one
 // secret a request may name.
 func TestSecretsManager_SecretIdConditionKeyScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	admin := secretsmanager.NewFromConfig(sdkConfig(),
 		func(o *secretsmanager.Options) { o.BaseEndpoint = aws.String(baseURL) })
 	permitted, refused := "cond-permitted-secret", "cond-refused-secret"
@@ -213,6 +218,7 @@ func TestSecretsManager_SecretIdConditionKeyScopesTheGrant(t *testing.T) {
 // iam:PermissionsBoundary, the key an administrator uses to delegate user
 // creation while requiring every created user to carry a boundary.
 func TestIAM_PermissionsBoundaryConditionKeyScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	iamc := iamClient()
 	boundary, err := iamc.CreatePolicy(ctx, &iam.CreatePolicyInput{
 		PolicyName: aws.String("cond-boundary"),
@@ -248,6 +254,7 @@ func TestIAM_PermissionsBoundaryConditionKeyScopesTheGrant(t *testing.T) {
 // which is Amazon RDS's own spelling of the tags a request carries — the key a
 // policy uses to require that everything created be labelled.
 func TestRDS_RequestTagConditionKeyScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	untaggedGroup := uniqueName("cond-untagged-group")
 	taggedGroup := uniqueName("cond-tagged-group")
 	akid, secret := restrictedCredential(t, "rds-must-tag-env",
@@ -279,6 +286,7 @@ func TestRDS_RequestTagConditionKeyScopesTheGrant(t *testing.T) {
 // alias a request named the key by, which is how a policy grants use of a key
 // through one alias and not another.
 func TestKMS_RequestAliasConditionKeyScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	admin := kmsClient()
 	key, err := admin.CreateKey(ctx, &kms.CreateKeyInput{Description: aws.String("alias condition")})
 	require.NoError(t, err)

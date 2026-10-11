@@ -13,6 +13,7 @@ import (
 )
 
 func TestECS_TaskDefEnvironment(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 
 	envVars := []ecstypes.KeyValuePair{
@@ -56,6 +57,7 @@ func TestECS_TaskDefEnvironment(t *testing.T) {
 }
 
 func TestECS_TaskDefCPUMemory(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 
 	regOut, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
@@ -89,6 +91,7 @@ func TestECS_TaskDefCPUMemory(t *testing.T) {
 }
 
 func TestECS_TaskDefMountPoints(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 
 	regOut, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
@@ -159,6 +162,7 @@ func TestECS_TaskDefMountPoints(t *testing.T) {
 }
 
 func TestECS_RunTaskTags(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 
 	clusterName := "tags-test-cluster"
@@ -227,6 +231,7 @@ func TestECS_RunTaskTags(t *testing.T) {
 }
 
 func TestECS_RunTaskNetworkConfig(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 
 	clusterName := "netcfg-test-cluster"

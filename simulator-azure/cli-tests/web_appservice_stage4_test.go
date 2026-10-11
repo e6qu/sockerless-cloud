@@ -90,6 +90,7 @@ func stage4CLIThumbprint(leaf *x509.Certificate) string {
 // hostname surfaces through the native az commands and moves the site
 // between resource groups with `az resource move`.
 func TestWebAppStage4_NativeSSLHostnameAndMove(t *testing.T) {
+	t.Parallel()
 	env := startAzLoginSimulator(t)
 
 	runCLI(t, env.command("cloud", "register", "-n", "sockerless-stage4",
@@ -195,6 +196,7 @@ func TestWebAppStage4_NativeSSLHostnameAndMove(t *testing.T) {
 // hostname analyzers, the configuration snapshots and the provider
 // singletons through az rest.
 func TestWebAppStage4_RestSurfaces(t *testing.T) {
+	t.Parallel()
 	planBody := `{"location":"eastus","sku":{"name":"B1","tier":"Basic"}}`
 	runCLI(t, azRest("PUT", webMoreURL("serverfarms/cli-s4-plan"), planBody))
 	siteBody := fmt.Sprintf(

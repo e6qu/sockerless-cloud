@@ -9,6 +9,7 @@ import (
 )
 
 func TestKinesisCLI_StreamAndRecords(t *testing.T) {
+	t.Parallel()
 	stream := "cli-kinesis-stream"
 
 	runCLI(t, awsCLI("kinesis", "create-stream",
@@ -69,6 +70,7 @@ func TestKinesisCLI_StreamAndRecords(t *testing.T) {
 // CLI's --max-results / --next-token params and confirms the page cap, the
 // truncation token, and that the NextToken-only resume recovers the stream.
 func TestKinesisCLI_ListShardsPagination(t *testing.T) {
+	t.Parallel()
 	stream := "cli-kinesis-shard-paging"
 	runCLI(t, awsCLI("kinesis", "create-stream",
 		"--stream-name", stream,

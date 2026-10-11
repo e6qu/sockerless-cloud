@@ -53,6 +53,7 @@ import (
 const moreProject = "test-project"
 
 func TestCompute_Images_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	img := &compute.Image{Name: "sdk-image-1", SourceType: "RAW", DiskSizeGb: 10}
 	_, err := svc.Images.Insert(moreProject, img).Do()
@@ -78,6 +79,7 @@ func TestCompute_Images_CRUD(t *testing.T) {
 }
 
 func TestCompute_Snapshots_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.Snapshots.Insert(moreProject, &compute.Snapshot{Name: "sdk-snap-1"}).Do()
 	require.NoError(t, err)
@@ -92,6 +94,7 @@ func TestCompute_Snapshots_CRUD(t *testing.T) {
 }
 
 func TestCompute_MachineImages_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.MachineImages.Insert(moreProject, &compute.MachineImage{Name: "sdk-mi-1"}).Do()
 	require.NoError(t, err)
@@ -106,6 +109,7 @@ func TestCompute_MachineImages_CRUD(t *testing.T) {
 }
 
 func TestCompute_RegionDisks_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const region = "us-central1"
 	_, err := svc.RegionDisks.Insert(moreProject, region, &compute.Disk{Name: "sdk-rdisk-1", SizeGb: 20}).Do()
@@ -127,6 +131,7 @@ func TestCompute_RegionDisks_CRUD(t *testing.T) {
 }
 
 func TestCompute_GlobalAddresses_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.GlobalAddresses.Insert(moreProject, &compute.Address{Name: "sdk-gaddr-1", AddressType: "EXTERNAL"}).Do()
 	require.NoError(t, err)
@@ -141,6 +146,7 @@ func TestCompute_GlobalAddresses_CRUD(t *testing.T) {
 }
 
 func TestCompute_Routes_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	route := &compute.Route{
 		Name:           "sdk-route-1",
@@ -162,6 +168,7 @@ func TestCompute_Routes_CRUD(t *testing.T) {
 }
 
 func TestCompute_TargetPools_CRUD_Aggregated(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const region = "us-central1"
 	_, err := svc.TargetPools.Insert(moreProject, region, &compute.TargetPool{Name: "sdk-tp-1"}).Do()
@@ -181,6 +188,7 @@ func TestCompute_TargetPools_CRUD_Aggregated(t *testing.T) {
 }
 
 func TestCompute_RegionLBResources_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const region = "us-central1"
 
@@ -229,6 +237,7 @@ func TestCompute_RegionLBResources_CRUD(t *testing.T) {
 }
 
 func TestCompute_GlobalLBResources_CRUD_Aggregated(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 
 	_, err := svc.HttpHealthChecks.Insert(moreProject, &compute.HttpHealthCheck{Name: "sdk-hhc-1"}).Do()
@@ -274,6 +283,7 @@ func TestCompute_GlobalLBResources_CRUD_Aggregated(t *testing.T) {
 }
 
 func TestCompute_InstanceGroupManagers_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const zone = "us-central1-a"
 	igm := &compute.InstanceGroupManager{
@@ -322,6 +332,7 @@ func TestCompute_InstanceGroupManagers_CRUD(t *testing.T) {
 }
 
 func TestCompute_RegionInstanceGroupManagers_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const region = "us-central1"
 	igm := &compute.InstanceGroupManager{Name: "sdk-rigm-1", BaseInstanceName: "sdk-rigm"}
@@ -343,6 +354,7 @@ func TestCompute_RegionInstanceGroupManagers_CRUD(t *testing.T) {
 }
 
 func TestCompute_Catalog_Regions_DiskTypes_Accelerators(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const zone = "us-central1-a"
 
@@ -382,6 +394,7 @@ func TestCompute_Catalog_Regions_DiskTypes_Accelerators(t *testing.T) {
 // it never handed out. A zonal disk, a regional disk and a global image are all
 // metadata writes, so the three scopes are covered on every host.
 func TestCompute_Operations_ListDelete(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const zone = "us-central1-a"
 	const region = "us-central1"
@@ -453,6 +466,7 @@ func TestCompute_Operations_ListDelete(t *testing.T) {
 // service declares for the response. Reading the endpoints without first
 // creating anything proves only that the routes exist.
 func TestCompute_AggregatedLists_Existing(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const zone = "us-central1-a"
 
@@ -552,6 +566,7 @@ func TestCompute_AggregatedLists_Existing(t *testing.T) {
 }
 
 func TestCompute_InstanceActions(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 	svc := computeService(t)
 	const zone = "us-central1-a"

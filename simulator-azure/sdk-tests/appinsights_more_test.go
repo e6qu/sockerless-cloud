@@ -10,6 +10,7 @@ import (
 )
 
 func TestAzureAppInsights_ListUpdateTagsAndPurge(t *testing.T) {
+	t.Parallel()
 	rg := "appinsights-more-rg"
 	name := "appinsights-more-comp"
 	createResourceGroup(t, rg)

@@ -20,6 +20,7 @@ func ssmClient() *ssm.Client {
 // flow runner setups use: write a config value, fetch it from a
 // workflow step, delete it on tear-down.
 func TestSSMParameter_PutGetDelete(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 
 	// PUT a String parameter.
@@ -73,6 +74,7 @@ func TestSSMParameter_PutGetDelete(t *testing.T) {
 // terraform's `aws_ssm_parameters_by_path` data source and runner
 // bulk-fetch flows use.
 func TestSSMParameter_GetParametersByPath(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 
 	// Seed: /env/prod/db, /env/prod/cache, /env/staging/db
@@ -114,6 +116,7 @@ func TestSSMParameter_GetParametersByPath(t *testing.T) {
 }
 
 func TestSSMParameter_Describe(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	defer c.DeleteParameter(ctx, &ssm.DeleteParameterInput{Name: aws.String("/desc/p1")})
 
@@ -139,6 +142,7 @@ func TestSSMParameter_Describe(t *testing.T) {
 }
 
 func TestSSMParameter_DeleteParameters(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	for _, n := range []string{"/del/a", "/del/b"} {
 		_, err := c.PutParameter(ctx, &ssm.PutParameterInput{
@@ -155,6 +159,7 @@ func TestSSMParameter_DeleteParameters(t *testing.T) {
 }
 
 func TestSSMParameter_GetParametersAndRemoveTags(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 
 	for _, p := range []struct{ name, val string }{
@@ -218,6 +223,7 @@ func TestSSMParameter_GetParametersAndRemoveTags(t *testing.T) {
 // provider to treat the parameter as untagged and removes the tags on the next
 // plan, causing perpetual drift.
 func TestSSMParameter_ListTagsForResource(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 
 	paramName := uniqueName("/tag-test/list-tags")
@@ -265,6 +271,7 @@ func TestSSMParameter_ListTagsForResource(t *testing.T) {
 }
 
 func TestSSMParameter_ListTagsForResourceWithoutLeadingSlash(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	paramName := "terraform-compatible-parameter"
 	_, err := c.PutParameter(ctx, &ssm.PutParameterInput{Name: aws.String(paramName), Type: ssmtypes.ParameterTypeString, Value: aws.String("v")})
@@ -275,6 +282,7 @@ func TestSSMParameter_ListTagsForResourceWithoutLeadingSlash(t *testing.T) {
 }
 
 func TestSSM_DescribeParameters_Pagination(t *testing.T) {
+	t.Parallel()
 	client := ssmClient()
 	names := []string{"/pag/ssm/a", "/pag/ssm/b", "/pag/ssm/c"}
 	for _, n := range names {

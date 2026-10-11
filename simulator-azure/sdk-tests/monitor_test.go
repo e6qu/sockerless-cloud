@@ -258,6 +258,7 @@ func acaLogsCustomerID(t *testing.T) string {
 }
 
 func TestMonitor_KQLOverIngestedRows(t *testing.T) {
+	t.Parallel()
 	p := newLogsPipeline(t, "monitor-kql-rg", "SimJobs_CL", "Job", "Log")
 	now := time.Now().UTC()
 	job := uniqueName("myjob")
@@ -295,6 +296,7 @@ func TestMonitor_KQLOverIngestedRows(t *testing.T) {
 // flow runs the transform over the rows and writes what comes out to the
 // output table of the destination workspace, and no other workspace sees it.
 func TestMonitor_LogsIngestionRoutesThroughTheRule(t *testing.T) {
+	t.Parallel()
 	rg := "monitor-dcr-rg"
 	target := createLogWorkspace(t, rg, "monitor-dcr-target")
 	other := createLogWorkspace(t, rg, "monitor-dcr-other")
@@ -462,6 +464,7 @@ func TestMonitor_LogsIngestionRoutesThroughTheRule(t *testing.T) {
 // A workspace's tables: the Azure tables it holds from the start, and the
 // custom log tables a customer creates, changes and deletes.
 func TestMonitor_WorkspaceTables(t *testing.T) {
+	t.Parallel()
 	ws := createLogWorkspace(t, "monitor-tables-rg", "monitor-tables-ws")
 	client, err := armoperationalinsights.NewTablesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)

@@ -18,6 +18,7 @@ import (
 // Using direct HTTP calls for simpler testing against the simulator.
 
 func TestStorage_CreateAccount(t *testing.T) {
+	t.Parallel()
 	// Ensure resource group
 	rgBody := `{"location":"eastus"}`
 	rgReq, _ := http.NewRequestWithContext(ctx, "PUT",
@@ -55,6 +56,7 @@ func TestStorage_CreateAccount(t *testing.T) {
 // order the package happens to run in, and `go test -run TestStorage_GetAccount`
 // fails outright — so the read proved nothing about the read.
 func TestStorage_GetAccount(t *testing.T) {
+	t.Parallel()
 	createStorageAccountInGroup(t, "storage-get-rg", "getstorageacct")
 
 	req, _ := http.NewRequestWithContext(ctx, "GET",
@@ -123,6 +125,7 @@ func createStorageAccountInGroup(t *testing.T, rg, name string) {
 }
 
 func TestStorage_ARMListKeysCanonical512BitPerAccount(t *testing.T) {
+	t.Parallel()
 	rg := "storage-keys-rg"
 	ensureRG(t, rg)
 	accountA := "keystoragea"
@@ -151,6 +154,7 @@ func TestStorage_ARMListKeysCanonical512BitPerAccount(t *testing.T) {
 }
 
 func TestStorageTable_ARMOfficialSDKLifecycle(t *testing.T) {
+	t.Parallel()
 	rg := "storage-table-arm-rg"
 	account := "sdkarmtableacct"
 	table := "sdkarmtable"
@@ -182,7 +186,8 @@ func TestStorageTable_ARMOfficialSDKLifecycle(t *testing.T) {
 }
 
 func TestStorage_ARMPatchAdvertisedEndpointsAndResourceEnumeration(t *testing.T) {
-	rg := "storage-patch-rg"
+	t.Parallel()
+	rg := "storage-patch-rg-dc0f"
 	ensureRG(t, rg)
 	accountName := "patchstorage"
 

@@ -17,6 +17,7 @@ import (
 // policy holds callers to a shape with them — only small tasks, only on Fargate
 // Spot, never with exec enabled.
 func TestECS_RequestShapeConditionKeysScopeTheGrant(t *testing.T) {
+	t.Parallel()
 	admin := ecsClient()
 	const family = "cond-shape-task"
 	_, err := admin.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{

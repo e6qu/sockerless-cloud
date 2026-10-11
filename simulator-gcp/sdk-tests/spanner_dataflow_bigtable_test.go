@@ -30,6 +30,7 @@ func awaitSpannerLRO(t *testing.T, name string, get func() (*spanner.Operation, 
 }
 
 func TestSpanner_InstanceDatabaseSessionSDK(t *testing.T) {
+	t.Parallel()
 	svc, err := spanner.NewService(ctx, option.WithEndpoint(baseURL+"/spanner/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -95,6 +96,7 @@ func TestSpanner_InstanceDatabaseSessionSDK(t *testing.T) {
 }
 
 func TestSpanner_InstanceConfigSDK(t *testing.T) {
+	t.Parallel()
 	svc, err := spanner.NewService(ctx, option.WithEndpoint(baseURL+"/spanner/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -210,6 +212,7 @@ func TestSpanner_InstanceConfigSDK(t *testing.T) {
 // behaviour. The assertion here is the route and the response shape the generated
 // client has to decode.
 func TestSpanner_ScansListSDK(t *testing.T) {
+	t.Parallel()
 	svc, err := spanner.NewService(ctx, option.WithEndpoint(baseURL+"/spanner/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -220,6 +223,7 @@ func TestSpanner_ScansListSDK(t *testing.T) {
 }
 
 func TestDataflow_RegionalJobSDK(t *testing.T) {
+	t.Parallel()
 	svc, err := dataflow.NewService(ctx, option.WithEndpoint(baseURL+"/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -285,6 +289,7 @@ func TestDataflow_RegionalJobSDK(t *testing.T) {
 }
 
 func TestDataflow_GlobalJobSDK(t *testing.T) {
+	t.Parallel()
 	svc, err := dataflow.NewService(ctx, option.WithEndpoint(baseURL+"/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -313,6 +318,7 @@ func TestDataflow_GlobalJobSDK(t *testing.T) {
 }
 
 func TestDataflow_SnapshotsSDK(t *testing.T) {
+	t.Parallel()
 	svc, err := dataflow.NewService(ctx, option.WithEndpoint(baseURL+"/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -356,6 +362,7 @@ func TestDataflow_SnapshotsSDK(t *testing.T) {
 }
 
 func TestDataflow_TemplatesSDK(t *testing.T) {
+	t.Parallel()
 	svc, err := dataflow.NewService(ctx, option.WithEndpoint(baseURL+"/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -427,6 +434,7 @@ func TestDataflow_TemplatesSDK(t *testing.T) {
 }
 
 func TestBigtable_InstanceClusterTableSDK(t *testing.T) {
+	t.Parallel()
 	svc, err := bigtableadmin.NewService(ctx, option.WithEndpoint(baseURL+"/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -481,6 +489,7 @@ func TestBigtable_InstanceClusterTableSDK(t *testing.T) {
 // logical & materialized views, and locations / operations — via the official
 // bigtableadmin/v2 SDK against the simulator.
 func TestBigtable_AdminSurfaceSDK(t *testing.T) {
+	t.Parallel()
 	svc, err := bigtableadmin.NewService(ctx, option.WithEndpoint(baseURL+"/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 

@@ -55,7 +55,7 @@ func crossDoorBytes(t *testing.T, encoded string) []byte {
 }
 
 func TestCrossDoor_BigtableAdminAndData(t *testing.T) {
-	t.Setenv("BIGTABLE_EMULATOR_HOST", grpcAddr)
+	t.Parallel()
 	const project, instanceID, family = "cross-door-bt", "inst", "cf"
 	ia, ta, _ := bigtableAdminGRPCConn(t)
 
@@ -116,6 +116,7 @@ func TestCrossDoor_BigtableAdminAndData(t *testing.T) {
 }
 
 func TestCrossDoor_CloudKMS(t *testing.T) {
+	t.Parallel()
 	grpcClient := newKMSGRPCClient(t)
 	rest := kmsService(t)
 	ringName := kmsKeyRingForTest(t, grpcClient, "cross-door")
@@ -157,6 +158,7 @@ func TestCrossDoor_CloudKMS(t *testing.T) {
 }
 
 func TestCrossDoor_SecretManager(t *testing.T) {
+	t.Parallel()
 	rest := secretManagerService(t)
 	grpcClient := newSecretManagerGRPCClient(t)
 	const parent = "projects/cross-door-secrets"
@@ -187,6 +189,7 @@ func TestCrossDoor_SecretManager(t *testing.T) {
 }
 
 func TestCrossDoor_Firestore(t *testing.T) {
+	t.Parallel()
 	rest, err := firestore.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	grpcClient := fsRawGRPCClient(t)
@@ -225,6 +228,7 @@ func TestCrossDoor_Firestore(t *testing.T) {
 }
 
 func TestCrossDoor_PubSub(t *testing.T) {
+	t.Parallel()
 	rest := pubsubService(t)
 	const project = "projects/cross-door-pubsub"
 	topicName := project + "/topics/" + uniqueName("crossing")
@@ -265,6 +269,7 @@ func TestCrossDoor_PubSub(t *testing.T) {
 }
 
 func TestCrossDoor_CloudLogging(t *testing.T) {
+	t.Parallel()
 	rest, err := logging.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	grpcClient := newLoggingV2Client(t)
@@ -304,6 +309,7 @@ func TestCrossDoor_CloudLogging(t *testing.T) {
 }
 
 func TestCrossDoor_PubSubSchemas(t *testing.T) {
+	t.Parallel()
 	rest := pubsubService(t)
 	const project = "cross-door-ps-schemas"
 	parent := "projects/" + project
@@ -343,6 +349,7 @@ func TestCrossDoor_PubSubSchemas(t *testing.T) {
 // TestCrossDoor_Operations crosses the long-running Operations service: an
 // operation minted by a gRPC call is one the REST operations door reports.
 func TestCrossDoor_Operations(t *testing.T) {
+	t.Parallel()
 	ia, ta, _ := bigtableAdminGRPCConn(t)
 	const project = "cross-door-ops"
 	instance, _ := bigtableAdminGRPCInstance(t, ia, project, "inst", "c1")
@@ -374,6 +381,7 @@ func TestCrossDoor_Operations(t *testing.T) {
 }
 
 func TestCrossDoor_Spanner(t *testing.T) {
+	t.Parallel()
 	const project, instanceID, databaseID = "cross-door-spanner", "inst", "db"
 	rest := spannerAdminService(t, ctx)
 	spannerProvision(t, ctx, project, instanceID, databaseID,

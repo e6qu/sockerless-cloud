@@ -20,6 +20,7 @@ func assertEventBridgeCLIEnvelope(t *testing.T, body, source, detailType string,
 }
 
 func TestEventBridgeCLI_RuleTargetPutEvents(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("sqs", "create-queue", "--queue-name", "eb-cli-q"))
 	t.Cleanup(func() {
 		out := runCLI(t, awsCLI("sqs", "get-queue-url", "--queue-name", "eb-cli-q"))
@@ -95,6 +96,7 @@ func TestEventBridgeCLI_RuleTargetPutEvents(t *testing.T) {
 }
 
 func TestEventBridgeCLI_BusArchiveReplay(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("events", "create-event-bus",
 		"--name", "eb-cli-bus",
 		"--description", "cli bus"))
@@ -215,6 +217,7 @@ func TestEventBridgeCLI_BusArchiveReplay(t *testing.T) {
 // TestEventBridgeCLI_TestEventPattern exercises the test-event-pattern verb:
 // a matching event returns Result=true and a near-miss returns Result=false.
 func TestEventBridgeCLI_TestEventPattern(t *testing.T) {
+	t.Parallel()
 	pattern := `{"source":["sockerless.cli.tep"],"detail":{"code":[{"numeric":[">",200]}]}}`
 
 	out := runCLI(t, awsCLI("events", "test-event-pattern",
@@ -239,6 +242,7 @@ func TestEventBridgeCLI_TestEventPattern(t *testing.T) {
 // TestEventBridgeCLI_ListRuleNamesByTarget creates a rule with a target and
 // asserts list-rule-names-by-target returns that rule's name for the ARN.
 func TestEventBridgeCLI_ListRuleNamesByTarget(t *testing.T) {
+	t.Parallel()
 	targetARN := "arn:aws:sqs:us-east-1:000000000000:eb-cli-lrnbt-target"
 	runCLI(t, awsCLI("events", "put-rule",
 		"--name", "eb-cli-lrnbt-rule",
@@ -262,6 +266,7 @@ func TestEventBridgeCLI_ListRuleNamesByTarget(t *testing.T) {
 // TestEventBridgeCLI_UpdateEventBus creates a custom bus and asserts
 // update-event-bus mutates its description, observable via describe-event-bus.
 func TestEventBridgeCLI_UpdateEventBus(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("events", "create-event-bus",
 		"--name", "eb-cli-update-bus",
 		"--description", "initial"))
@@ -293,6 +298,7 @@ func TestEventBridgeCLI_UpdateEventBus(t *testing.T) {
 // numeric matchers. It asserts a matching event is delivered and a near-miss
 // (right source, wrong detail) is correctly rejected.
 func TestEventBridgeCLI_ContentFilterPattern(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("sqs", "create-queue", "--queue-name", "eb-cli-content-q"))
 	out := runCLI(t, awsCLI("sqs", "get-queue-url", "--queue-name", "eb-cli-content-q"))
 	var q struct {

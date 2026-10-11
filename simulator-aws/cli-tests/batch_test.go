@@ -9,6 +9,7 @@ import (
 )
 
 func TestBatch_ComputeEnvironment_CLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("batch", "create-compute-environment",
 		"--compute-environment-name", "batch-cli-ce",
 		"--type", "MANAGED",
@@ -52,6 +53,7 @@ func TestBatch_ComputeEnvironment_CLI(t *testing.T) {
 }
 
 func TestBatch_JobQueue_CLI(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("batch", "create-compute-environment",
 		"--compute-environment-name", "batch-cli-ce-q",
 		"--type", "MANAGED",
@@ -94,6 +96,7 @@ func TestBatch_JobQueue_CLI(t *testing.T) {
 }
 
 func TestBatch_JobDefinition_CLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("batch", "register-job-definition",
 		"--job-definition-name", "batch-cli-jd",
 		"--type", "container",
@@ -142,6 +145,7 @@ func TestBatch_JobDefinition_CLI(t *testing.T) {
 }
 
 func TestBatch_SubmitJob_CLI(t *testing.T) {
+	t.Parallel()
 	// Setup
 	runCLI(t, awsCLI("batch", "create-compute-environment",
 		"--compute-environment-name", "batch-cli-ce-job",
@@ -225,6 +229,7 @@ func TestBatch_SubmitJob_CLI(t *testing.T) {
 }
 
 func TestBatch_SchedulingPolicy_CLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("batch", "create-scheduling-policy",
 		"--name", "batch-cli-sp",
 		"--fairshare-policy", `{"shareDecaySeconds":3600,"computeReservation":50,"shareDistribution":[{"shareIdentifier":"teamA","weightFactor":0.5}]}`,
@@ -316,6 +321,7 @@ func TestBatch_SchedulingPolicy_CLI(t *testing.T) {
 }
 
 func TestBatch_ConsumableResource_CLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("batch", "create-consumable-resource",
 		"--consumable-resource-name", "batch-cli-cr",
 		"--resource-type", "REPLENISHABLE",
@@ -374,6 +380,7 @@ func TestBatch_ConsumableResource_CLI(t *testing.T) {
 }
 
 func TestBatch_ServiceEnvironment_CLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("batch", "create-service-environment",
 		"--service-environment-name", "batch-cli-se",
 		"--service-environment-type", "SAGEMAKER_TRAINING",
@@ -416,6 +423,7 @@ func TestBatch_ServiceEnvironment_CLI(t *testing.T) {
 }
 
 func TestBatch_ServiceJob_CLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("batch", "create-job-queue",
 		"--job-queue-name", "batch-cli-svc-jq",
 		"--priority", "1",
@@ -471,6 +479,7 @@ func TestBatch_ServiceJob_CLI(t *testing.T) {
 }
 
 func TestBatch_QuotaShare_CLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("batch", "create-job-queue",
 		"--job-queue-name", "batch-cli-qs-jq",
 		"--priority", "1",
@@ -539,6 +548,7 @@ func TestBatch_QuotaShare_CLI(t *testing.T) {
 }
 
 func TestBatch_JobQueueSnapshot_CLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("batch", "create-job-queue",
 		"--job-queue-name", "batch-cli-snap-jq",
 		"--priority", "1",
@@ -565,6 +575,7 @@ func TestBatch_JobQueueSnapshot_CLI(t *testing.T) {
 // with its AWS_BATCH_JOB_ARRAY_INDEX, a failed attempt is retried in a new
 // container, and list-jobs --array-job-id lists the children.
 func TestBatch_SubmitArrayJobWithRetries_CLI(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("batch", "create-compute-environment",
 		"--compute-environment-name", "batch-cli-ce-array",
 		"--type", "MANAGED",

@@ -15,6 +15,7 @@ import (
 // record set; the sim must honor the query params, not return the
 // whole zone.
 func TestDNS_RrsetsListNameTypeFilter(t *testing.T) {
+	t.Parallel()
 	svc := dnsService(t)
 	const project = "rrset-filter-proj"
 

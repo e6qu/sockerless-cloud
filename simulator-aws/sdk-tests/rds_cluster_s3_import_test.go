@@ -58,6 +58,7 @@ func takeXtraBackup(t *testing.T, name string, statements ...string) []byte {
 // data to the master user the request names. A bucket the ingestion role
 // cannot read, or a prefix without objects, is refused.
 func TestRDS_AuroraClusterRestoresFromS3XtraBackup(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	backup := takeXtraBackup(t, "sdk-xtrabackup-source",

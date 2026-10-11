@@ -73,6 +73,7 @@ func createRunV2Instance(t *testing.T, id string) string {
 // official Discovery REST client and requires that the v1 and v2 collections
 // address one resource's single policy.
 func TestSDK_RunV1REST_Instances_IAMVerbs(t *testing.T) {
+	t.Parallel()
 	name := createRunV2Instance(t, "rest-inst-v1-iam")
 	v1svc := newRunV1RESTService(t)
 	v2svc := newRunV2RESTService(t)
@@ -110,6 +111,7 @@ func TestSDK_RunV1REST_Instances_IAMVerbs(t *testing.T) {
 // returns for an instance that was never created: NOT_FOUND, never an empty
 // policy for a name that does not exist.
 func TestSDK_RunV1REST_Instances_IAMOnMissingInstance(t *testing.T) {
+	t.Parallel()
 	v1svc := newRunV1RESTService(t)
 	_, err := v1svc.Projects.Locations.Instances.GetIamPolicy(crV2Parent + "/instances/never-created").Do()
 	require.Error(t, err)
@@ -120,6 +122,7 @@ func TestSDK_RunV1REST_Instances_IAMOnMissingInstance(t *testing.T) {
 // `/v1/.../instances/…` prefix answers as whichever service the request's
 // `Host` names, and that both services keep working on it.
 func TestSDK_RunV1Instances_HostResolvesOwningService(t *testing.T) {
+	t.Parallel()
 	id := uniqueName("host-split-inst")
 	createRunV2Instance(t, id)
 

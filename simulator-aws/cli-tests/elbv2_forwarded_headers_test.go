@@ -18,6 +18,7 @@ import (
 // routing.http.xff_client_port.enabled set through
 // modify-load-balancer-attributes it appends the client's port as well.
 func TestELBv2ForwardedHeadersCLI(t *testing.T) {
+	t.Parallel()
 	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(r.Header)
 	}))

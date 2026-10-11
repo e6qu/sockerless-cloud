@@ -18,6 +18,7 @@ import (
 // `aws_kms_key { is_enabled = ... }`: DisableKey moves the key to Disabled,
 // EnableKey returns it to Enabled — both reflected in DescribeKey.
 func TestKMS_EnableDisableKey(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	out, err := c.CreateKey(ctx, &kms.CreateKeyInput{Description: aws.String("enable-disable")})
@@ -42,6 +43,7 @@ func TestKMS_EnableDisableKey(t *testing.T) {
 // TestKMS_CancelKeyDeletion covers ScheduleKeyDeletion → CancelKeyDeletion:
 // cancellation returns the key to Disabled and reports the KeyId.
 func TestKMS_CancelKeyDeletion(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	out, err := c.CreateKey(ctx, &kms.CreateKeyInput{Description: aws.String("cancel-deletion")})
@@ -71,6 +73,7 @@ func TestKMS_CancelKeyDeletion(t *testing.T) {
 // TestKMS_UpdateKeyDescription verifies the description round-trips through
 // DescribeKey after UpdateKeyDescription.
 func TestKMS_UpdateKeyDescription(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	out, err := c.CreateKey(ctx, &kms.CreateKeyInput{Description: aws.String("original")})
@@ -90,6 +93,7 @@ func TestKMS_UpdateKeyDescription(t *testing.T) {
 
 // TestKMS_UpdateAlias re-points an existing alias at a new target key.
 func TestKMS_UpdateAlias(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	keyA, err := c.CreateKey(ctx, &kms.CreateKeyInput{Description: aws.String("alias-target-a")})
@@ -118,6 +122,7 @@ func TestKMS_UpdateAlias(t *testing.T) {
 // TestKMS_GenerateRandom asserts GenerateRandom returns exactly the requested
 // number of cryptographically random bytes and rejects out-of-range sizes.
 func TestKMS_GenerateRandom(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	out, err := c.GenerateRandom(ctx, &kms.GenerateRandomInput{NumberOfBytes: aws.Int32(64)})
@@ -135,6 +140,7 @@ func TestKMS_GenerateRandom(t *testing.T) {
 // TestKMS_ListKeyPolicies pins the single "default" policy name real KMS
 // exposes per key.
 func TestKMS_ListKeyPolicies(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	out, err := c.CreateKey(ctx, &kms.CreateKeyInput{Description: aws.String("list-policies")})
@@ -150,6 +156,7 @@ func TestKMS_ListKeyPolicies(t *testing.T) {
 // TestKMS_RotateKeyOnDemandAndList covers RotateKeyOnDemand recording an
 // ON_DEMAND rotation that ListKeyRotations then reports.
 func TestKMS_RotateKeyOnDemandAndList(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	out, err := c.CreateKey(ctx, &kms.CreateKeyInput{Description: aws.String("rotate-on-demand")})
@@ -177,6 +184,7 @@ func TestKMS_RotateKeyOnDemandAndList(t *testing.T) {
 // hands back a real RSA wrapping key + token, ImportKeyMaterial enables the
 // key, DeleteImportedKeyMaterial returns it to PendingImport.
 func TestKMS_ImportKeyMaterialCycle(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	created, err := c.CreateKey(ctx, &kms.CreateKeyInput{

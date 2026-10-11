@@ -30,6 +30,7 @@ import (
 // recorded; the rule details are Microsoft's published copy and are declared
 // unimplemented rather than invented.
 func TestSDK_Recommendations_SubscriptionAndSiteScopes(t *testing.T) {
+	t.Parallel()
 	rg, name := "sdk-recommendation-rg", "sdk-recommendation-app"
 	ensureRG(t, rg)
 
@@ -96,6 +97,7 @@ func TestSDK_Recommendations_SubscriptionAndSiteScopes(t *testing.T) {
 // The App Service Environment scope answers the same way, against the
 // environment rather than a site.
 func TestSDK_Recommendations_HostingEnvironmentScope(t *testing.T) {
+	t.Parallel()
 	// An App Service Environment is placed in a virtual network subnet, and
 	// creating a real subnet needs the Linux network capabilities the
 	// simulator's fabric is built on. A host that cannot provide them skips;

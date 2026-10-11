@@ -25,6 +25,7 @@ import (
 // are no short-circuits; the notification travels the same SNS publish
 // pipeline a client-side Publish uses.
 func TestCloudWatch_AlarmActionsDispatchedToSNS(t *testing.T) {
+	t.Parallel()
 	cw := cloudwatchClient()
 	snsC := snsClient()
 	sqsC := sqsClient()
@@ -134,6 +135,7 @@ func TestCloudWatch_AlarmActionsDispatchedToSNS(t *testing.T) {
 // evaluation period transitions the evaluator to OK and dispatches the
 // OKActions topics.
 func TestCloudWatch_OKActionsDispatchedToSNS(t *testing.T) {
+	t.Parallel()
 	cw := cloudwatchClient()
 	snsC := snsClient()
 	sqsC := sqsClient()
@@ -264,6 +266,7 @@ func TestCloudWatch_OKActionsDispatchedToSNS(t *testing.T) {
 // ActionsEnabled is false, state transitions do not publish to action
 // topics. This guards the real-CloudWatch invariant the evaluator honours.
 func TestCloudWatch_ActionsDisabledSkipsDispatch(t *testing.T) {
+	t.Parallel()
 	cw := cloudwatchClient()
 	snsC := snsClient()
 	sqsC := sqsClient()

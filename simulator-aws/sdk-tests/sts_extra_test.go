@@ -22,6 +22,7 @@ import (
 // TestSTS_GetFederationToken mints credentials for a named federated user and
 // asserts the FederatedUser identity is returned alongside them.
 func TestSTS_GetFederationToken(t *testing.T) {
+	t.Parallel()
 	client := stsClient()
 	out, err := client.GetFederationToken(ctx, &sts.GetFederationTokenInput{
 		Name: aws.String("Bob"),
@@ -41,6 +42,7 @@ func TestSTS_GetFederationToken(t *testing.T) {
 // it, and the response names the role, the provider and the session. Every
 // field AWS STS reports comes from the assertion.
 func TestSTS_AssumeRoleWithSAML(t *testing.T) {
+	t.Parallel()
 	idp, err := samlidp.New("https://idp.example.test/saml")
 	require.NoError(t, err)
 	admin := iamClient()
@@ -136,6 +138,7 @@ func TestSTS_AssumeRoleWithSAML(t *testing.T) {
 // the account issuer publishes at its own host. The HTTP client reaches that
 // host at the simulator's address, the one coordinate a relocated issuer has.
 func TestSTS_GetWebIdentityToken(t *testing.T) {
+	t.Parallel()
 	admin := iamClient()
 	client := stsClient()
 	_, err := client.GetWebIdentityToken(ctx, &sts.GetWebIdentityTokenInput{
@@ -201,6 +204,7 @@ func TestSTS_GetWebIdentityToken(t *testing.T) {
 // TestSTS_GetDelegatedAccessToken trades a token in for temporary credentials
 // and asserts the assumed principal is returned.
 func TestSTS_GetDelegatedAccessToken(t *testing.T) {
+	t.Parallel()
 	client := stsClient()
 	out, err := client.GetDelegatedAccessToken(ctx, &sts.GetDelegatedAccessTokenInput{
 		TradeInToken: aws.String("sim-trade-in-token"),
@@ -213,6 +217,7 @@ func TestSTS_GetDelegatedAccessToken(t *testing.T) {
 
 // TestSTS_AssumeRoot mints credentials for a member account's root user.
 func TestSTS_AssumeRoot(t *testing.T) {
+	t.Parallel()
 	client := stsClient()
 	out, err := client.AssumeRoot(ctx, &sts.AssumeRootInput{
 		TargetPrincipal: aws.String("123456789012"),
@@ -227,6 +232,7 @@ func TestSTS_AssumeRoot(t *testing.T) {
 // TestSTS_DecodeAuthorizationMessage decodes a base64 JSON authorization message
 // and asserts the decoded message round-trips.
 func TestSTS_DecodeAuthorizationMessage(t *testing.T) {
+	t.Parallel()
 	client := stsClient()
 	original := `{"allowed":false,"explicitDeny":true}`
 	out, err := client.DecodeAuthorizationMessage(ctx, &sts.DecodeAuthorizationMessageInput{
@@ -238,6 +244,7 @@ func TestSTS_DecodeAuthorizationMessage(t *testing.T) {
 
 // TestSTS_GetAccessKeyInfo resolves an access key id to its owning account.
 func TestSTS_GetAccessKeyInfo(t *testing.T) {
+	t.Parallel()
 	client := stsClient()
 	out, err := client.GetAccessKeyInfo(ctx, &sts.GetAccessKeyInfoInput{
 		AccessKeyId: aws.String("AKIAIOSFODNN7EXAMPLE"),

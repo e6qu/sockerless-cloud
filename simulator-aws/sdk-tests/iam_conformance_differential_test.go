@@ -33,6 +33,7 @@ type iamConformanceVector struct {
 // decisions against ground truth — the external oracle. The test differs only
 // in coordinates (the endpoint + credentials), never in code.
 func TestIAMConformance_Differential(t *testing.T) {
+	t.Parallel()
 	data, err := os.ReadFile("../testdata/iam_conformance_vectors.json")
 	require.NoError(t, err)
 	var vectors []iamConformanceVector

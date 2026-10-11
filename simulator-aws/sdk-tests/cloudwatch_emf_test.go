@@ -20,6 +20,7 @@ import (
 // ordinary metric APIs with no PutMetricData call (the standard
 // EMF-over-stdout → awslogs → CloudWatch Logs path).
 func TestCloudWatch_EMFExtraction(t *testing.T) {
+	t.Parallel()
 	logs := cwLogsClient()
 	cw := cloudwatchClient()
 	ns := "edd/emf-sdk"

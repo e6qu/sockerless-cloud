@@ -8,6 +8,7 @@ import (
 // TestEC2SecurityGroupRuleTargetsCLI covers the IPv6 SecurityGroupRule row (the
 // P1 gap) and revoke removing only the matching rule, via the aws CLI.
 func TestEC2SecurityGroupRuleTargetsCLI(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	vpcID := q("ec2", "create-vpc", "--cidr-block", "10.123.0.0/16",

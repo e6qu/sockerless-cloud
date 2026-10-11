@@ -24,6 +24,7 @@ import (
 //	az webapp deployment slot swap --action swap
 
 func TestWebAppRuntime_ConnectionStringsHomeStopAndSwapPreview(t *testing.T) {
+	t.Parallel()
 	az := kuduCLILogin(t)
 	rg, plan, app, slot := "runtime-cli-rg", "runtime-cli-plan", "runtime-cli-app", "staging"
 	runCLI(t, az.command("group", "create", "-n", rg, "-l", "eastus", "-o", "json"))

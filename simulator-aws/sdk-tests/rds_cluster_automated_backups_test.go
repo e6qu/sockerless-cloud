@@ -22,6 +22,7 @@ import (
 // starts from it and replays the log written since, rows committed while the
 // snapshot was taken included, exactly once.
 func TestRDS_AuroraAutomatedBackups(t *testing.T) {
+	t.Parallel()
 	for _, engine := range []string{"aurora-postgresql", "aurora-mysql"} {
 		t.Run(engine, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -126,6 +127,7 @@ func TestRDS_AuroraAutomatedBackups(t *testing.T) {
 // to a time from the start; the restored cluster takes its own first
 // automated backup the same way.
 func TestRDS_AuroraClusterTakesItsFirstAutomatedBackupWithoutAClient(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	f := auroraClusterFixture{t: t, ctx: ctx, client: rdsClient(), engine: "aurora-postgresql", family: "postgres"}

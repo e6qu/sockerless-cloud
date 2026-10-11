@@ -38,6 +38,7 @@ func cliAvailableMultiAZInstance(t *testing.T, instanceID string) cliMultiAZInst
 // the rows committed before the failover, the Availability Zones swap, and
 // aws rds describe-events lists the failover's start and completion.
 func TestRDSCLI_MultiAZFailover(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
 	defer cancel()
 	id := fmt.Sprintf("cli-maz-%d", time.Now().UnixNano())

@@ -16,6 +16,7 @@ import (
 const networkManagerAPIVersion = "2025-03-01"
 
 func TestNetworkManagerCLI(t *testing.T) {
+	t.Parallel()
 	managerURL := armURL("Microsoft.Network", "networkManagers/cli-manager", networkManagerAPIVersion)
 	body := fmt.Sprintf(`{
       "location": "eastus",

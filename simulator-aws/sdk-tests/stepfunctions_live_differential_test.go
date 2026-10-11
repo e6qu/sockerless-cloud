@@ -29,6 +29,7 @@ import (
 // The clients differ only in endpoint and credentials. This suite is compiled
 // only by the live-aws-conformance workflow, where credentials are mandatory.
 func TestSFNTestStateDifferentialAgainstAWS(t *testing.T) {
+	t.Parallel()
 	liveConfig, err := config.LoadDefaultConfig(ctx)
 	require.NoError(t, err, "live AWS credentials must load")
 	_, err = liveConfig.Credentials.Retrieve(ctx)
@@ -129,6 +130,7 @@ func TestSFNTestStateDifferentialAgainstAWS(t *testing.T) {
 }
 
 func TestSFNExecutionHistoryDifferentialAgainstAWS(t *testing.T) {
+	t.Parallel()
 	roleARN := os.Getenv("AWS_LIVE_SFN_ROLE_ARN")
 	require.NotEmpty(t, roleARN, "AWS_LIVE_SFN_ROLE_ARN is required")
 	liveConfig, err := config.LoadDefaultConfig(ctx)
@@ -202,6 +204,7 @@ func TestSFNExecutionHistoryDifferentialAgainstAWS(t *testing.T) {
 }
 
 func TestSFNLambdaTaskHistoryDifferentialAgainstAWS(t *testing.T) {
+	t.Parallel()
 	stateMachineRoleARN := os.Getenv("AWS_LIVE_SFN_ROLE_ARN")
 	lambdaRoleARN := os.Getenv("AWS_LIVE_LAMBDA_ROLE_ARN")
 	require.NotEmpty(t, stateMachineRoleARN, "AWS_LIVE_SFN_ROLE_ARN is required")
@@ -310,6 +313,7 @@ func TestSFNLambdaTaskHistoryDifferentialAgainstAWS(t *testing.T) {
 }
 
 func TestSFNNestedWorkflowDifferentialAgainstAWS(t *testing.T) {
+	t.Parallel()
 	roleARN := os.Getenv("AWS_LIVE_SFN_ROLE_ARN")
 	require.NotEmpty(t, roleARN, "AWS_LIVE_SFN_ROLE_ARN is required")
 	liveConfig, err := config.LoadDefaultConfig(ctx)
@@ -386,6 +390,7 @@ func TestSFNNestedWorkflowDifferentialAgainstAWS(t *testing.T) {
 }
 
 func TestSFNDistributedMapDifferentialAgainstAWS(t *testing.T) {
+	t.Parallel()
 	roleARN := os.Getenv("AWS_LIVE_SFN_ROLE_ARN")
 	require.NotEmpty(t, roleARN, "AWS_LIVE_SFN_ROLE_ARN is required")
 	liveConfig, err := config.LoadDefaultConfig(ctx)
@@ -482,6 +487,7 @@ func TestSFNDistributedMapDifferentialAgainstAWS(t *testing.T) {
 }
 
 func TestSFNControlPlaneDifferentialAgainstAWS(t *testing.T) {
+	t.Parallel()
 	roleARN := os.Getenv("AWS_LIVE_SFN_ROLE_ARN")
 	require.NotEmpty(t, roleARN, "AWS_LIVE_SFN_ROLE_ARN is required")
 	liveConfig, err := config.LoadDefaultConfig(ctx)
@@ -669,11 +675,13 @@ func TestSFNControlPlaneDifferentialAgainstAWS(t *testing.T) {
 // TestAWSLiveEnvironmentIsExplicit prevents an accidental local invocation
 // from silently using an unintended account or Region.
 func TestAWSLiveEnvironmentIsExplicit(t *testing.T) {
+	t.Parallel()
 	require.NotEmpty(t, os.Getenv("AWS_REGION"), "AWS_REGION is required for live AWS conformance")
 	require.NotEmpty(t, os.Getenv("AWS_LIVE_LAMBDA_ROLE_ARN"), "AWS_LIVE_LAMBDA_ROLE_ARN is required for live AWS Lambda conformance")
 }
 
 func TestLambdaZIPAndLayerDifferentialAgainstAWS(t *testing.T) {
+	t.Parallel()
 	roleARN := os.Getenv("AWS_LIVE_LAMBDA_ROLE_ARN")
 	require.NotEmpty(t, roleARN, "AWS_LIVE_LAMBDA_ROLE_ARN is required")
 	liveConfig, err := config.LoadDefaultConfig(ctx)
@@ -798,6 +806,7 @@ func TestLambdaZIPAndLayerDifferentialAgainstAWS(t *testing.T) {
 // version, and current configuration fields round-trip identically through
 // the same official SDK calls against real AWS Lambda and the simulator.
 func TestLambdaVersionAliasDifferentialAgainstAWS(t *testing.T) {
+	t.Parallel()
 	roleARN := os.Getenv("AWS_LIVE_LAMBDA_ROLE_ARN")
 	require.NotEmpty(t, roleARN, "AWS_LIVE_LAMBDA_ROLE_ARN is required")
 	liveConfig, err := config.LoadDefaultConfig(ctx)

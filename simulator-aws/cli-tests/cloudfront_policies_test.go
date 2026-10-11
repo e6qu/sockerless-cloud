@@ -10,6 +10,7 @@ import (
 )
 
 func TestCloudFront_CachePolicy_Lifecycle(t *testing.T) {
+	t.Parallel()
 	name := "cli-cp-" + time.Now().Format("150405.000000")
 	cfgJSON := fmt.Sprintf(`{
 		"Name": "%s",
@@ -48,6 +49,7 @@ func TestCloudFront_CachePolicy_Lifecycle(t *testing.T) {
 }
 
 func TestCloudFront_OriginRequestPolicy_Lifecycle(t *testing.T) {
+	t.Parallel()
 	name := "cli-orp-" + time.Now().Format("150405.000000")
 	cfgJSON := fmt.Sprintf(`{
 		"Name": "%s",
@@ -78,6 +80,7 @@ func TestCloudFront_OriginRequestPolicy_Lifecycle(t *testing.T) {
 }
 
 func TestCloudFront_ResponseHeadersPolicy_Lifecycle(t *testing.T) {
+	t.Parallel()
 	name := "cli-rhp-" + time.Now().Format("150405.000000")
 	cfgJSON := fmt.Sprintf(`{
 		"Name": "%s",

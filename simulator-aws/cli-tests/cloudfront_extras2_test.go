@@ -17,6 +17,7 @@ import (
 
 // TestCloudFrontFieldLevelEncryptionCLILifecycle covers the FLE config CRUD.
 func TestCloudFrontFieldLevelEncryptionCLILifecycle(t *testing.T) {
+	t.Parallel()
 	caller := "cli-fle-" + time.Now().Format("150405.000000")
 	cfg := fmt.Sprintf(`{"CallerReference":"%s","Comment":"cli fle","QueryArgProfileConfig":{"ForwardWhenQueryArgProfileIsUnknown":true},"ContentTypeProfileConfig":{"ForwardWhenContentTypeIsUnknown":true}}`, caller)
 
@@ -81,6 +82,7 @@ func TestCloudFrontFieldLevelEncryptionCLILifecycle(t *testing.T) {
 
 // TestCloudFrontFieldLevelEncryptionProfileCLILifecycle covers the FLE profile CRUD.
 func TestCloudFrontFieldLevelEncryptionProfileCLILifecycle(t *testing.T) {
+	t.Parallel()
 	// Seed a public key the profile references.
 	pkCaller := "cli-pk-" + time.Now().Format("150405.000000")
 	pkName := "cli-fle-pk-" + time.Now().Format("150405000")
@@ -154,6 +156,7 @@ func TestCloudFrontFieldLevelEncryptionProfileCLILifecycle(t *testing.T) {
 
 // TestCloudFrontKeyValueStoreCLILifecycle covers the key value store CRUD.
 func TestCloudFrontKeyValueStoreCLILifecycle(t *testing.T) {
+	t.Parallel()
 	name := "clikvs" + time.Now().Format("150405000")
 	out := runCLI(t, awsCLI("cloudfront", "create-key-value-store",
 		"--name", name, "--comment", "cli kvs", "--output", "json"))
@@ -222,6 +225,7 @@ func TestCloudFrontKeyValueStoreCLILifecycle(t *testing.T) {
 
 // TestCloudFrontRealtimeLogConfigCLILifecycle covers the real-time log config CRUD.
 func TestCloudFrontRealtimeLogConfigCLILifecycle(t *testing.T) {
+	t.Parallel()
 	name := "clirlc" + time.Now().Format("150405000")
 	endpoints := `[{"StreamType":"Kinesis","KinesisStreamConfig":{"RoleARN":"arn:aws:iam::123456789012:role/cf-rt-log","StreamARN":"arn:aws:kinesis:us-east-1:123456789012:stream/cf-rt-log"}}]`
 	out := runCLI(t, awsCLI("cloudfront", "create-realtime-log-config",
@@ -281,6 +285,7 @@ func TestCloudFrontRealtimeLogConfigCLILifecycle(t *testing.T) {
 
 // TestCloudFrontStreamingDistributionCLILifecycle covers the streaming distribution CRUD.
 func TestCloudFrontStreamingDistributionCLILifecycle(t *testing.T) {
+	t.Parallel()
 	caller := "cli-sd-" + time.Now().Format("150405.000000")
 	cfg := func(comment string) string {
 		return fmt.Sprintf(`{"CallerReference":"%s","Comment":"%s","Enabled":true,"S3Origin":{"DomainName":"example.s3.amazonaws.com","OriginAccessIdentity":""},"TrustedSigners":{"Enabled":false,"Quantity":0}}`, caller, comment)
@@ -333,6 +338,7 @@ func TestCloudFrontStreamingDistributionCLILifecycle(t *testing.T) {
 
 // TestCloudFrontVpcOriginCLILifecycle covers the VPC origin CRUD.
 func TestCloudFrontVpcOriginCLILifecycle(t *testing.T) {
+	t.Parallel()
 	name := "clivo" + time.Now().Format("150405000")
 	cfg := fmt.Sprintf(`{"Name":"%s","Arn":"arn:aws:ec2:us-east-1:123456789012:vpc-lattice/service/svc-123","HTTPPort":80,"HTTPSPort":443,"OriginProtocolPolicy":"https-only"}`, name)
 	out := runCLI(t, awsCLI("cloudfront", "create-vpc-origin",
@@ -399,6 +405,7 @@ func TestCloudFrontVpcOriginCLILifecycle(t *testing.T) {
 
 // TestCloudFrontAnycastIpListCLILifecycle covers the Anycast IP list create/get/list/delete.
 func TestCloudFrontAnycastIpListCLILifecycle(t *testing.T) {
+	t.Parallel()
 	name := "cliail" + time.Now().Format("150405000")
 	out := runCLI(t, awsCLI("cloudfront", "create-anycast-ip-list",
 		"--name", name, "--ip-count", "3", "--output", "json"))

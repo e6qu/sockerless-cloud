@@ -15,6 +15,7 @@ import (
 // Register -> Describe -> List -> Deregister, asserting the ARN shape and the
 // status transitions a real client reads back.
 func TestKinesisSDK_Consumers(t *testing.T) {
+	t.Parallel()
 	client := kinesisClient()
 	streamName := "sdk-kinesis-consumers"
 	_, err := client.CreateStream(ctx, &kinesis.CreateStreamInput{
@@ -134,6 +135,7 @@ func pollKinesisConsumer(t *testing.T, client *kinesis.Client, consumerARN strin
 // it: each validates the request, answers DryRunOperationException instead of
 // acting, and still refuses a request that would fail.
 func TestKinesisSDK_DryRun(t *testing.T) {
+	t.Parallel()
 	client := kinesisClient()
 	streamName := "sdk-kinesis-dry-run"
 	_, err := client.CreateStream(ctx, &kinesis.CreateStreamInput{
@@ -185,6 +187,7 @@ func TestKinesisSDK_DryRun(t *testing.T) {
 // TestKinesisSDK_ResourcePolicy round-trips a stream resource policy through
 // Put/Get/Delete.
 func TestKinesisSDK_ResourcePolicy(t *testing.T) {
+	t.Parallel()
 	client := kinesisClient()
 	streamName := "sdk-kinesis-resource-policy"
 	_, err := client.CreateStream(ctx, &kinesis.CreateStreamInput{
@@ -229,6 +232,7 @@ func TestKinesisSDK_ResourcePolicy(t *testing.T) {
 // asserting the shard list mutates faithfully (split parent closes, two open
 // children appear; an adjacent merge collapses two open shards into one child).
 func TestKinesisSDK_MergeAndSplitShards(t *testing.T) {
+	t.Parallel()
 	client := kinesisClient()
 	streamName := "sdk-kinesis-merge-split"
 	_, err := client.CreateStream(ctx, &kinesis.CreateStreamInput{
@@ -280,6 +284,7 @@ func TestKinesisSDK_MergeAndSplitShards(t *testing.T) {
 // UpdateShardCount and reads a closed parent to its end: the parent's last
 // GetRecords carries no NextShardIterator and names the children to read next.
 func TestKinesisSDK_UpdateShardCountReshardsByLineage(t *testing.T) {
+	t.Parallel()
 	client := kinesisClient()
 	streamName := "sdk-kinesis-reshard-lineage"
 	_, err := client.CreateStream(ctx, &kinesis.CreateStreamInput{
@@ -352,6 +357,7 @@ func openShards(shards []ktypes.Shard) []ktypes.Shard {
 
 // TestKinesisSDK_TagResource covers the resource-ARN tagging trio.
 func TestKinesisSDK_TagResource(t *testing.T) {
+	t.Parallel()
 	client := kinesisClient()
 	streamName := "sdk-kinesis-tag-resource"
 	_, err := client.CreateStream(ctx, &kinesis.CreateStreamInput{
@@ -403,6 +409,7 @@ func TestKinesisSDK_TagResource(t *testing.T) {
 // TestKinesisSDK_UpdateStreamMode toggles a stream between capacity modes and
 // confirms the new mode reads back on the summary.
 func TestKinesisSDK_UpdateStreamMode(t *testing.T) {
+	t.Parallel()
 	client := kinesisClient()
 	streamName := "sdk-kinesis-stream-mode"
 	_, err := client.CreateStream(ctx, &kinesis.CreateStreamInput{
@@ -465,6 +472,7 @@ func TestKinesisSDK_AccountSettings(t *testing.T) {
 // TestKinesisSDK_UpdateMaxRecordSize sets the per-record max size and rejects
 // out-of-range values.
 func TestKinesisSDK_UpdateMaxRecordSize(t *testing.T) {
+	t.Parallel()
 	client := kinesisClient()
 	streamName := "sdk-kinesis-max-record-size"
 	_, err := client.CreateStream(ctx, &kinesis.CreateStreamInput{
@@ -497,6 +505,7 @@ func TestKinesisSDK_UpdateMaxRecordSize(t *testing.T) {
 // TestKinesisSDK_UpdateStreamWarmThroughput sets a warm-throughput target and
 // reads the echoed configuration back.
 func TestKinesisSDK_UpdateStreamWarmThroughput(t *testing.T) {
+	t.Parallel()
 	client := kinesisClient()
 	streamName := "sdk-kinesis-warm-throughput"
 	_, err := client.CreateStream(ctx, &kinesis.CreateStreamInput{

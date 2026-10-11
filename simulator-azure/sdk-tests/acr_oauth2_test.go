@@ -19,7 +19,8 @@ import (
 // /oauth2/token (refresh token + scope → scoped access token) — and that the
 // access token they yield is the credential the /v2/ data plane accepts.
 func TestACR_OAuth2TokenService(t *testing.T) {
-	fixture := newACRRegistryFixture(t, "acr-auth-rg", "acroauth2registry",
+	t.Parallel()
+	fixture := newACRRegistryFixture(t, "acr-auth-rg-aa82", "acroauth2registry",
 		&armcontainerregistry.RegistryProperties{AdminUserEnabled: to.Ptr(true)})
 
 	post := func(path string, form url.Values) (int, map[string]any) {

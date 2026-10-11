@@ -13,6 +13,7 @@ import (
 // TestLambda_EventInvokeConfig exercises Put/Get/Update/Delete/List of the
 // function event-invoke config (async-invoke retry/age/destinations).
 func TestLambda_EventInvokeConfig(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	fn := "eic-fn"
 	lambdaExtrasFunc(t, lc, fn)
@@ -56,6 +57,7 @@ func TestLambda_EventInvokeConfig(t *testing.T) {
 // TestLambda_ProvisionedConcurrency exercises Put/Get/Delete/List of the
 // per-qualifier provisioned concurrency config against a published version.
 func TestLambda_ProvisionedConcurrency(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	fn := "pc-fn"
 	lambdaExtrasFunc(t, lc, fn)
@@ -96,6 +98,7 @@ func TestLambda_ProvisionedConcurrency(t *testing.T) {
 // TestLambda_CodeSigningConfigs exercises the account-level code-signing
 // config CRUD plus the per-function attachment ops.
 func TestLambda_CodeSigningConfigs(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	unconfiguredFn := "csc-unconfigured-fn"
 	lambdaExtrasFunc(t, lc, unconfiguredFn)
@@ -170,6 +173,7 @@ func TestLambda_CodeSigningConfigs(t *testing.T) {
 // PutRuntimeManagementConfig and GetFunctionRecursionConfig /
 // PutFunctionRecursionConfig.
 func TestLambda_RuntimeManagementAndRecursion(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	fn := "rtm-fn"
 	lambdaExtrasFunc(t, lc, fn)
@@ -213,6 +217,7 @@ func TestLambda_RuntimeManagementAndRecursion(t *testing.T) {
 
 // TestLambda_AccountSettings covers GetAccountSettings.
 func TestLambda_AccountSettings(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	got, err := lc.GetAccountSettings(ctx, &lambda.GetAccountSettingsInput{})
 	require.NoError(t, err)
@@ -224,6 +229,7 @@ func TestLambda_AccountSettings(t *testing.T) {
 // TestLambda_LayerVersionPermissions covers Add/Get/Remove of a layer-version
 // resource policy statement.
 func TestLambda_LayerVersionPermissions(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	layer := "perm-layer"
 

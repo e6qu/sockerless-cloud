@@ -33,6 +33,7 @@ func portFromBaseURL(t *testing.T) string {
 // list-activities / get-activity-task / send-task-success /
 // send-task-failure / send-task-heartbeat / delete-activity.
 func TestSFNCLI_Activities(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("stepfunctions", "create-activity", "--name", "sfn-cli-activity"))
 	var created struct {
 		ActivityArn string `json:"activityArn"`
@@ -148,6 +149,7 @@ func TestSFNCLI_Activities(t *testing.T) {
 // list-state-machine-aliases, update-state-machine-alias,
 // delete-state-machine-alias, delete-state-machine-version.
 func TestSFNCLI_VersionsAndAliases(t *testing.T) {
+	t.Parallel()
 	definition := `{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}`
 	out := runCLI(t, awsCLI("stepfunctions", "create-state-machine",
 		"--name", "sfn-cli-ver-sm",
@@ -236,6 +238,7 @@ func TestSFNCLI_VersionsAndAliases(t *testing.T) {
 // TestSFNCLI_TestState runs a single Pass state synchronously. test-state
 // carries a `sync-` host prefix, so it targets the sync endpoint.
 func TestSFNCLI_TestState(t *testing.T) {
+	t.Parallel()
 	endpoint := sfnSyncEndpoint(t)
 	out := runCLI(t, awsCLIHostPrefixed("stepfunctions", "test-state",
 		"--definition", `{"Type":"Pass","Result":{"hello":"world"},"End":true}`,
@@ -255,6 +258,7 @@ func TestSFNCLI_TestState(t *testing.T) {
 // synchronously. start-sync-execution carries a `sync-` host prefix, so it
 // targets the sync endpoint.
 func TestSFNCLI_StartSyncExecution(t *testing.T) {
+	t.Parallel()
 	endpoint := sfnSyncEndpoint(t)
 	definition := `{"StartAt":"P","States":{"P":{"Type":"Pass","Result":{"ok":true},"End":true}}}`
 	out := runCLI(t, awsCLI("stepfunctions", "create-state-machine",
@@ -286,6 +290,7 @@ func TestSFNCLI_StartSyncExecution(t *testing.T) {
 // states:startExecution.sync:2 Task resource with state machines created,
 // started, described, and listed exclusively through the AWS CLI.
 func TestSFNCLI_NestedWorkflowIntegration(t *testing.T) {
+	t.Parallel()
 	childDefinition := `{"StartAt":"Complete","States":{"Complete":{"Type":"Pass","Parameters":{"child.$":"$"},"End":true}}}`
 	out := runCLI(t, awsCLI("stepfunctions", "create-state-machine",
 		"--name", "sfn-cli-nested-child",
@@ -344,6 +349,7 @@ func TestSFNCLI_NestedWorkflowIntegration(t *testing.T) {
 // describe-state-machine-for-execution and redrive-execution, plus
 // list-map-runs (empty).
 func TestSFNCLI_DescribeForExecutionAndRedrive(t *testing.T) {
+	t.Parallel()
 	definition := `{"StartAt":"F","States":{"F":{"Type":"Fail","Error":"E","Cause":"boom"}}}`
 	out := runCLI(t, awsCLI("stepfunctions", "create-state-machine",
 		"--name", "sfn-cli-redrive-sm",
@@ -425,6 +431,7 @@ const (
 // TestSFNCLI_DistributedMapRun drives a real Distributed Map through the
 // vendor CLI, then observes and updates its Map Run while child workflows run.
 func TestSFNCLI_DistributedMapRun(t *testing.T) {
+	t.Parallel()
 	definition := `{
 		"StartAt":"Distributed",
 		"States":{"Distributed":{

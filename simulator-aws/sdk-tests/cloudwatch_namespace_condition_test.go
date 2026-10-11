@@ -24,6 +24,7 @@ import (
 // did not contain the key it tests: the allow never matched and the policy
 // denied the very writes it was written to permit.
 func TestCloudWatch_PutMetricDataIsScopedByItsNamespaceCondition(t *testing.T) {
+	t.Parallel()
 	iamc := iamClient()
 	user := uniqueName("cw-namespace-writer")
 

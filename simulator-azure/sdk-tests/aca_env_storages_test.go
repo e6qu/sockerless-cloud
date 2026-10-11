@@ -21,6 +21,7 @@ import (
 //	DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.App/managedEnvironments/{envName}/storages/{storageName}
 //	GET    /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.App/managedEnvironments/{envName}/storages
 func TestSDK_ManagedEnvironmentsStorages_CRUD(t *testing.T) {
+	t.Parallel()
 	rg := "aca-envstorage-rg"
 	env := "envstorage-env"
 	ensureRG(t, rg)
@@ -95,7 +96,8 @@ func TestSDK_ManagedEnvironmentsStorages_CRUD(t *testing.T) {
 // storage write under an environment that does not exist, the way real ARM
 // does, rather than silently creating an orphan row.
 func TestSDK_ManagedEnvironmentsStorages_ParentValidation(t *testing.T) {
-	rg := "aca-envstorage-rg"
+	t.Parallel()
+	rg := "aca-envstorage-rg-cd5c"
 	ensureRG(t, rg)
 
 	client, err := armappcontainers.NewManagedEnvironmentsStoragesClient(subscriptionID, &fakeCredential{}, clientOpts())

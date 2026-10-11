@@ -66,6 +66,7 @@ func seedLogGroupWithEvents(t *testing.T, cw *cloudwatchlogs.Client, group, stre
 // reassembles its sessionStart and sessionUpdate frames: the session carries
 // the events ingested after it started, and not the history stored before it.
 func TestLogs_StartLiveTail(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsStreamClient()
 	group := uniqueName("livetail-group")
 	stream := "livetail-stream"
@@ -126,6 +127,7 @@ func TestLogs_StartLiveTail(t *testing.T) {
 // CloudWatch Logs filter-pattern syntax: a JSON pattern selects on a field, so
 // a plain-text line that merely contains the value is not streamed.
 func TestLogs_StartLiveTail_FilterPattern(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsStreamClient()
 	group := uniqueName("livetail-filter-group")
 	stream := "livetail-filter-stream"
@@ -172,6 +174,7 @@ func TestLogs_StartLiveTail_FilterPattern(t *testing.T) {
 // TestLogs_StartLiveTail_MalformedFilterPattern refuses an unparseable
 // structured pattern before the stream opens.
 func TestLogs_StartLiveTail_MalformedFilterPattern(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsStreamClient()
 	groupArn := seedLogGroupWithEvents(t, cw, uniqueName("livetail-bad-filter-group"), "s", []string{"x"})
 	_, err := cw.StartLiveTail(ctx, &cloudwatchlogs.StartLiveTailInput{
@@ -239,6 +242,7 @@ func awaitLogLineTailing(t *testing.T, cw, tailClient *cloudwatchlogs.Client, gr
 // TestLogs_StartLiveTail_UnknownGroup returns a ResourceNotFoundException
 // before the stream opens for an unresolvable log group.
 func TestLogs_StartLiveTail_UnknownGroup(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsStreamClient()
 	_, err := cw.StartLiveTail(ctx, &cloudwatchlogs.StartLiveTailInput{
 		LogGroupIdentifiers: []string{"arn:aws:logs:us-east-1:123456789012:log-group:no-such-group"},
@@ -249,6 +253,7 @@ func TestLogs_StartLiveTail_UnknownGroup(t *testing.T) {
 // TestLogs_GetLogObject streams a stored log object back over the event stream
 // and asserts the FieldsData carries the referenced event's bytes.
 func TestLogs_GetLogObject(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsStreamClient()
 	group := uniqueName("getlogobject-group")
 	stream := "getlogobject-stream"

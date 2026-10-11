@@ -15,6 +15,7 @@ import (
 // disaster recovery + migration configuration, and the authorization-rule
 // key surfaces through the official armservicebus SDK.
 func TestServiceBusARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
+	t.Parallel()
 	rg := "sb-msg-rg"
 	ns := uniqueName("sdk-sb-msg-ns")
 

@@ -17,6 +17,7 @@ import (
 // governance retention, COMPLIANCE retention and a legal hold refuse every
 // version delete, and a bucket without Object Lock refuses the operations.
 func TestS3CLI_ObjectLockProtectsVersions(t *testing.T) {
+	t.Parallel()
 	bucket := "cli-object-lock-protects"
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", bucket, "--object-lock-enabled-for-bucket"))
 	assert.Contains(t, runCLI(t, awsCLI("s3api", "get-bucket-versioning", "--bucket", bucket)), `"Enabled"`)

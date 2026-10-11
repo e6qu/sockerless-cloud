@@ -61,6 +61,7 @@ func sessionSTS(creds *ststypes.Credentials) *sts.Client {
 // policy does not allow sts:TagSession refuses them, and a chained session
 // keeps only the transitive ones.
 func TestSTS_AssumeRoleSessionTagsArePrincipalTags(t *testing.T) {
+	t.Parallel()
 	akid, secret := restrictedCredential(t, "session-tagger",
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["sts:AssumeRole","sts:TagSession"],"Resource":"*"}]}`)
 	caller := sts.NewFromConfig(keyConfig(akid, secret), func(o *sts.Options) { o.BaseEndpoint = aws.String(baseURL) })
@@ -110,6 +111,7 @@ func TestSTS_AssumeRoleSessionTagsArePrincipalTags(t *testing.T) {
 // assertion's PrincipalTag attributes, authorizing sts:TagSession against a
 // trust policy conditioned on saml:aud.
 func TestSTS_AssumeRoleWithSAMLSessionTags(t *testing.T) {
+	t.Parallel()
 	idp, err := samlidp.New("https://idp.tags.example.test/saml")
 	require.NoError(t, err)
 	admin := iamClient()
@@ -157,6 +159,7 @@ func TestSTS_AssumeRoleWithSAMLSessionTags(t *testing.T) {
 // TestSTS_AssumeRoleWithWebIdentitySessionTags reads session tags from a
 // token's https://aws.amazon.com/tags claim.
 func TestSTS_AssumeRoleWithWebIdentitySessionTags(t *testing.T) {
+	t.Parallel()
 	issuer := newWebIdentityIssuer(t)
 	const audience = "session-tags"
 	admin := iamClient()

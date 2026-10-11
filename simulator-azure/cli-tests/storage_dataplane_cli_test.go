@@ -63,6 +63,7 @@ func azStorageTable(group string, args ...string) *exec.Cmd {
 // TestBlobCopyCLI drives Copy Blob through `az storage blob copy start` with
 // a path-style source URI, then reads the destination back.
 func TestBlobCopyCLI(t *testing.T) {
+	t.Parallel()
 	container := "cli-copy-container"
 	srcName := "copy-source.txt"
 	dstName := "copy-dest.txt"
@@ -100,6 +101,7 @@ func TestBlobCopyCLI(t *testing.T) {
 // through `az rest` against the path-style Blob endpoint — the same wire
 // requests the SDK's block upload issues.
 func TestBlobBlockStagingCLI(t *testing.T) {
+	t.Parallel()
 	container := "cli-block-container"
 	blobName := "staged.txt"
 
@@ -156,6 +158,7 @@ func TestBlobBlockStagingCLI(t *testing.T) {
 
 // TestFilesShareListCLI drives List Shares through `az storage share list`.
 func TestFilesShareListCLI(t *testing.T) {
+	t.Parallel()
 	const share = "cli-share-list"
 	runCLI(t, azStorageFile("share", "create", "--name", share))
 	t.Cleanup(func() {
@@ -179,6 +182,7 @@ func TestFilesShareListCLI(t *testing.T) {
 // TestQueueListAndClearMessagesCLI drives List Queues and Clear Messages
 // through `az storage queue list` and `az storage message clear`.
 func TestQueueListAndClearMessagesCLI(t *testing.T) {
+	t.Parallel()
 	queue := "cli-clear-queue"
 
 	runCLI(t, azStorageQueue("queue", "create", "--name", queue))
@@ -223,6 +227,7 @@ func TestQueueListAndClearMessagesCLI(t *testing.T) {
 // (replace + merge modes) through `az storage table list`, `az storage entity
 // replace` and `az storage entity merge`.
 func TestTableListAndUpsertEntityCLI(t *testing.T) {
+	t.Parallel()
 	table := "CliUpsertTable"
 
 	runCLI(t, azStorageTable("table", "create", "--name", table))

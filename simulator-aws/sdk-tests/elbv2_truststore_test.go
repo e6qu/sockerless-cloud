@@ -32,6 +32,7 @@ import (
 // RemoveTrustStoreRevocations, DescribeTrustStoreAssociations,
 // DeleteSharedTrustStoreAssociation, GetResourcePolicy, DeleteTrustStore.
 func TestELBv2_TrustStoreLifecycle(t *testing.T) {
+	t.Parallel()
 	c := elbv2Client()
 	s3c := s3Client()
 	caBucket := uniqueName("my-ca-bucket")
@@ -170,6 +171,7 @@ func TestELBv2_TrustStoreLifecycle(t *testing.T) {
 // list Amazon S3 does not hold, and one that is not what it should be, and
 // reads the object version a trust store names rather than the current one.
 func TestELBv2_TrustStoreReadsItsBundleFromS3(t *testing.T) {
+	t.Parallel()
 	c := elbv2Client()
 	s3c := s3Client()
 	bucket := s3VersionedBucket(t, s3c, "ts-bundles", s3types.BucketVersioningStatusEnabled)
@@ -312,6 +314,7 @@ func elbv2PEM(blockType string, der []byte) []byte {
 // catalog: the full set, a name-filtered lookup, and a load-balancer-type
 // filter — each policy carries real Ciphers and SslProtocols.
 func TestELBv2_DescribeSSLPolicies(t *testing.T) {
+	t.Parallel()
 	c := elbv2Client()
 
 	all, err := c.DescribeSSLPolicies(ctx, &elbv2.DescribeSSLPoliciesInput{})
@@ -341,6 +344,7 @@ func TestELBv2_DescribeSSLPolicies(t *testing.T) {
 // TestELBv2_ModifyCapacityReservationAndIpPools verifies ModifyCapacityReservation
 // records a configured minimum and ModifyIpPools assigns/removes an IPAM pool.
 func TestELBv2_ModifyCapacityReservationAndIpPools(t *testing.T) {
+	t.Parallel()
 	ec2c := ec2Client()
 	vpc, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.74.0.0/16")})
 	require.NoError(t, err)

@@ -16,6 +16,7 @@ import (
 // endpoint, which answers the standard token payload DefaultAzureCredential
 // reads.
 func TestMSI_TokenEndpoint_VMShape(t *testing.T) {
+	t.Parallel()
 	resp, err := http.Get(baseURL + "/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fmanagement.azure.com%2F")
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -55,6 +56,7 @@ func decodeJWTClaims(t *testing.T, token string) map[string]any {
 }
 
 func TestMSI_TokenEndpoint_RejectsMissingResource(t *testing.T) {
+	t.Parallel()
 	resp, err := http.Get(baseURL + "/metadata/identity/oauth2/token?api-version=2018-02-01")
 	require.NoError(t, err)
 	defer resp.Body.Close()

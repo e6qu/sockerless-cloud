@@ -43,6 +43,7 @@ func projectsV3Client(t *testing.T) *resourcemanager.ProjectsClient {
 }
 
 func TestResourceManagerProjects_APIv3Lifecycle(t *testing.T) {
+	t.Parallel()
 	c := projectsV3Client(t)
 	const projectID = "apiv3-proj-lifecycle"
 
@@ -192,6 +193,7 @@ func TestResourceManagerProjects_APIv3Lifecycle(t *testing.T) {
 }
 
 func TestResourceManagerProjects_APIv3UnknownProjectDenied(t *testing.T) {
+	t.Parallel()
 	c := projectsV3Client(t)
 	_, err := c.GetProject(ctx, &resourcemanagerpb.GetProjectRequest{Name: "projects/never-created-proj"})
 	require.Error(t, err)

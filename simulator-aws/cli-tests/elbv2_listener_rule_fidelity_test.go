@@ -11,6 +11,7 @@ import (
 // the weighted forward rule, SetRulePriorities, and the listener-certificate
 // lifecycle via the aws CLI.
 func TestELBv2ListenerRuleFidelityCLI(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	vpcID := q("ec2", "create-vpc", "--cidr-block", "10.162.0.0/16", "--query", "Vpc.VpcId", "--output", "text")

@@ -67,6 +67,7 @@ func (e azLoginEnv) command(args ...string) *exec.Cmd {
 // service principal, and then drive native `az` commands whose bearer token the
 // CLI acquired and attached itself.
 func TestAzLogin_ServicePrincipalAgainstSimulatorCloud(t *testing.T) {
+	t.Parallel()
 	env := startAzLoginSimulator(t)
 
 	// Register the simulator's coordinates as an Azure CLI cloud.
@@ -146,6 +147,7 @@ func TestAzLogin_ServicePrincipalAgainstSimulatorCloud(t *testing.T) {
 // Entra and on the simulator alike, and answers which authority hosts this
 // identity service vouches for.
 func TestAzLogin_InstanceDiscoveryThroughCLI(t *testing.T) {
+	t.Parallel()
 	env := startAzLoginSimulator(t)
 	host := strings.TrimPrefix(env.baseURL, "https://")
 

@@ -9,6 +9,7 @@ import (
 // (#-1 rules report no ports) and the bare referenced-sg-id (no account prefix,
 // no UserId) via the aws CLI.
 func TestEC2CLI_SecurityGroupRuleFidelity(t *testing.T) {
+	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.81.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	mkSG := func(name string) string {

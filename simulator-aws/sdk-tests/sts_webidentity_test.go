@@ -113,6 +113,7 @@ func registerWebIdentityRole(t *testing.T, issuerURL, audience string) string {
 // Service verifies the token against the registered provider and returns
 // credentials whose subject is the token's, exactly as against real AWS.
 func TestSTS_AssumeRoleWithWebIdentity(t *testing.T) {
+	t.Parallel()
 	issuer := newWebIdentityIssuer(t)
 	const audience = "sockerless-console"
 	roleArn := registerWebIdentityRole(t, issuer.server.URL, audience)
@@ -147,6 +148,7 @@ func TestSTS_AssumeRoleWithWebIdentity(t *testing.T) {
 // TestSTS_AssumeRoleWithWebIdentity_RejectsUnregisteredIssuer proves a token
 // from an issuer with no registered provider is refused.
 func TestSTS_AssumeRoleWithWebIdentity_RejectsUnregisteredIssuer(t *testing.T) {
+	t.Parallel()
 	issuer := newWebIdentityIssuer(t)
 	const audience = "sockerless-console"
 	// A role that trusts nothing in particular; the issuer has no provider.
@@ -171,6 +173,7 @@ func TestSTS_AssumeRoleWithWebIdentity_RejectsUnregisteredIssuer(t *testing.T) {
 // TestSTS_AssumeRoleWithWebIdentity_RejectsExpiredToken proves an expired token
 // is refused rather than exchanged.
 func TestSTS_AssumeRoleWithWebIdentity_RejectsExpiredToken(t *testing.T) {
+	t.Parallel()
 	issuer := newWebIdentityIssuer(t)
 	const audience = "sockerless-console"
 	roleArn := registerWebIdentityRole(t, issuer.server.URL, audience)
@@ -190,6 +193,7 @@ func TestSTS_AssumeRoleWithWebIdentity_RejectsExpiredToken(t *testing.T) {
 // subject admits one operator and refuses another, and a role that trusts a
 // different provider refuses a token this provider signed.
 func TestSTS_AssumeRoleWithWebIdentity_EnforcesTheTrustPolicy(t *testing.T) {
+	t.Parallel()
 	issuer := newWebIdentityIssuer(t)
 	const audience = "sockerless-console"
 	c := iamClient()

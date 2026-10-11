@@ -10,6 +10,7 @@ import (
 // (round-tripping the data), delete. This is the fck-nat aws_launch_template
 // shape exercised through botocore's query protocol.
 func TestEC2LaunchTemplateCLI(t *testing.T) {
+	t.Parallel()
 	data := `{"ImageId":"ami-12345678","InstanceType":"t4g.nano",` +
 		`"IamInstanceProfile":{"Name":"fck-nat-profile"},` +
 		`"NetworkInterfaces":[{"DeviceIndex":0,"AssociatePublicIpAddress":true,"Groups":["sg-0abc1234"]}],` +

@@ -9,6 +9,7 @@ import (
 // describe-task-definition --include TAGS surfaces top-level tags (the TF
 // provider's path), while without --include TAGS there are none.
 func TestECSCLI_TaskDefinitionTagsIncludePath(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("ecs", "register-task-definition",
 		"--family", "cli-taskdef-tags",
 		"--network-mode", "awsvpc",

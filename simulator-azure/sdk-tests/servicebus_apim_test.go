@@ -14,8 +14,9 @@ import (
 // TestAzureServiceBus_ARMLifecycle exercises namespace + queue +
 // topic + subscription CRUD on the Microsoft.ServiceBus surface.
 func TestAzureServiceBus_ARMLifecycle(t *testing.T) {
+	t.Parallel()
 	sub := "00000000-0000-0000-0000-000000000000"
-	rg := "test-rg"
+	rg := "test-rg-cea0"
 	ns := uniqueName("lifecycle-sb")
 	nsPath := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ServiceBus/namespaces/%s", sub, rg, ns)
 
@@ -79,6 +80,7 @@ func TestAzureServiceBus_ARMLifecycle(t *testing.T) {
 // TestAzureAPIM_ARMLifecycle exercises service + api + product +
 // subscription CRUD on the Microsoft.ApiManagement surface.
 func TestAzureAPIM_ARMLifecycle(t *testing.T) {
+	t.Parallel()
 	sub := "00000000-0000-0000-0000-000000000000"
 	rg := "test-rg"
 	name := "lifecycle-apim"

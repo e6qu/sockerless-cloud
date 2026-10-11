@@ -22,6 +22,7 @@ import (
 // policy grants (resource-scoped) and denied the one it doesn't — while
 // unregistered test credentials remain permissive.
 func TestS3_RESTEnforcement(t *testing.T) {
+	t.Parallel()
 	admin := s3Client()
 	iamc := iamClient()
 	bucket := uniqueName("s3-enf-bucket")
@@ -64,6 +65,7 @@ func TestS3_RESTEnforcement(t *testing.T) {
 // explicitly denies a principal is enforced even when the identity policy
 // allows the action.
 func TestS3_BucketPolicyDenyEnforced(t *testing.T) {
+	t.Parallel()
 	admin := s3Client()
 	iamc := iamClient()
 	bucket := uniqueName("s3-bp-deny")

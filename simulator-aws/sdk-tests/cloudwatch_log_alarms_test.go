@@ -75,6 +75,7 @@ func seedLogAlarmLogGroup(t *testing.T, logs *cloudwatchlogs.Client, group strin
 // reads it back under the LogAlarm alarm type with the state its scheduled
 // query's results imply, and DeleteAlarms removes both.
 func TestCloudWatch_PutLogAlarm(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	logs := cwLogsClient()
 	name := "sdk-log-alarm"
@@ -149,6 +150,7 @@ func TestCloudWatch_PutLogAlarm(t *testing.T) {
 // QueryResultsToAlarm may not exceed QueryResultsToEvaluate, and a name already
 // held by a metric alarm conflicts.
 func TestCloudWatch_PutLogAlarmRejectsBadRequest(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	logs := cwLogsClient()
 	group := "/sdk/log-alarm-invalid/" + fmt.Sprint(time.Now().UnixNano())

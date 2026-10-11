@@ -16,6 +16,7 @@ import (
 // terraform-provider-aws stores the resolved version in state and
 // drifts on the next plan if the sim echoes empty.
 func TestRDS_EngineVersionDefault(t *testing.T) {
+	t.Parallel()
 	explicitID := uniqueName("explicit-engine-pg")
 	defaultID := uniqueName("default-engine-pg")
 	c := rds.NewFromConfig(sdkConfig(), func(o *rds.Options) {
@@ -53,6 +54,7 @@ func TestRDS_EngineVersionDefault(t *testing.T) {
 
 // TestElastiCache_EngineVersionDefault — same shape for redis cluster.
 func TestElastiCache_EngineVersionDefault(t *testing.T) {
+	t.Parallel()
 	explicitID := uniqueName("explicit-engine-redis")
 	defaultID := uniqueName("default-engine-redis")
 	c := elasticache.NewFromConfig(sdkConfig(), func(o *elasticache.Options) {

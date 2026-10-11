@@ -13,6 +13,7 @@ import (
 // event-subscription filter surface (subject filter + advanced filter) that
 // azurerm_eventgrid_event_subscription configures and reads back.
 func TestEventGrid_EventSubscriptionFilterRoundTrip(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-eg-filter-rg"
 	ensureRG(t, rg)
 

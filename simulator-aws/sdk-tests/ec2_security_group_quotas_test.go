@@ -42,6 +42,7 @@ func validateSecurityGroupQuotas(t *testing.T, groupIDs ...string) (int, string)
 }
 
 func TestEC2_ValidateSecurityGroupQuotasForInterface(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 
 	vpc, err := client.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.90.0.0/16")})

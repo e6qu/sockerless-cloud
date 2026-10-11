@@ -50,6 +50,7 @@ func frontEndEchoedHeaders(t *testing.T, env azLoginEnv, host string) http.Heade
 // and port to X-Forwarded-For and names the client's protocol in
 // X-Forwarded-Proto and X-AppService-Proto.
 func TestWebApp_CLI_ForwardedRequestHeaders(t *testing.T) {
+	t.Parallel()
 	env := loginForwardedHeadersCLI(t, "sockerless-web-xff")
 	rg, app := "web-xff-cli-rg", "web-xff-cli-app"
 	runCLI(t, env.command("group", "create", "-n", rg, "-l", "eastus", "-o", "json"))
@@ -86,6 +87,7 @@ func TestWebApp_CLI_ForwardedRequestHeaders(t *testing.T) {
 // client's IP to X-Forwarded-For and overwrites X-Forwarded-Proto with the
 // protocol the client used.
 func TestContainerAppsCLI_IngressForwardedRequestHeaders(t *testing.T) {
+	t.Parallel()
 	env := loginForwardedHeadersCLI(t, "sockerless-aca-xff")
 	rg, app := "aca-xff-cli-rg", "aca-xff-cli-app"
 	runCLI(t, env.command("group", "create", "-n", rg, "-l", "eastus", "-o", "json"))

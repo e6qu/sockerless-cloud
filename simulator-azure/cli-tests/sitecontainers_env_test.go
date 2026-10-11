@@ -19,6 +19,7 @@ import (
 // setting's value under the variable's name, and an empty string once
 // `az webapp config appsettings delete` removes the setting.
 func TestSiteContainers_CLI_EnvironmentVariablesNameAppSettings(t *testing.T) {
+	t.Parallel()
 	az := kuduCLILogin(t)
 	rg, plan, app := "sc-env-cli-rg", "sc-env-cli-plan", "sc-env-cli-app"
 	runCLI(t, az.command("group", "create", "-n", rg, "-l", "eastus", "-o", "json"))
@@ -75,6 +76,7 @@ func TestSiteContainers_CLI_EnvironmentVariablesNameAppSettings(t *testing.T) {
 // gets neither. The main relays requests to each sidecar over the shared
 // loopback.
 func TestSiteContainers_CLI_InheritAppSettingsAndConnectionStrings(t *testing.T) {
+	t.Parallel()
 	az := kuduCLILogin(t)
 	rg, plan, app := "sc-inherit-cli-rg", "sc-inherit-cli-plan", "sc-inherit-cli-app"
 	runCLI(t, az.command("group", "create", "-n", rg, "-l", "eastus", "-o", "json"))

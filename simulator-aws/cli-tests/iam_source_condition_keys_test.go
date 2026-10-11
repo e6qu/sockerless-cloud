@@ -39,6 +39,7 @@ func cliAs(akid, secret string, args ...string) *exec.Cmd {
 // does, and aws:ResourceTag on get-dataset reports the tags tag-resource gives
 // it.
 func TestCloudWatch_DefaultDatasetResourceTagCLI(t *testing.T) {
+	t.Parallel()
 	var dataset struct{ DatasetId, Arn string }
 	parseJSON(t, runCLI(t, awsCLI("cloudwatch", "get-dataset", "--dataset-identifier", "default", "--output", "json")), &dataset)
 	assert.Equal(t, "default", dataset.DatasetId)
@@ -63,6 +64,7 @@ func TestCloudWatch_DefaultDatasetResourceTagCLI(t *testing.T) {
 // add-permission writes for a function URL: the auth type a public URL is
 // opened with, and lambda:InvokedViaFunctionUrl on the invoke it needs too.
 func TestLambda_FunctionURLPermissionConditionsCLI(t *testing.T) {
+	t.Parallel()
 	zipPath := createDummyZip(t)
 	fn := fmt.Sprintf("cli-url-perm-%d", time.Now().UnixNano())
 	var created struct{ FunctionArn string }
@@ -98,6 +100,7 @@ func TestLambda_FunctionURLPermissionConditionsCLI(t *testing.T) {
 // TestRDSCLI_BlueGreenSourceConditionKeys covers the keys a blue/green
 // deployment settles from the DB cluster it clones.
 func TestRDSCLI_BlueGreenSourceConditionKeys(t *testing.T) {
+	t.Parallel()
 	cluster := func(team string) string {
 		id := fmt.Sprintf("cli-bg-source-%s-%d", team, time.Now().UnixNano())
 		var out struct{ DBCluster struct{ DBClusterArn string } }

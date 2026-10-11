@@ -177,6 +177,7 @@ func arCreateRepositoryFrom(t *testing.T, project, location, repoID string, repo
 // the same code against a real Artifact Registry differs only in the host it
 // is pointed at and the source of the access token.
 func TestArtifactRegistry_DockerLoginTokenExchange(t *testing.T) {
+	t.Parallel()
 	arCreateRepository(t, "test-project", "us-central1", "login-repo")
 	repo := "test-project/login-repo/app"
 
@@ -269,6 +270,7 @@ func TestArtifactRegistry_DockerLoginTokenExchange(t *testing.T) {
 // the credential helpers produce, and the `_json_key` / `_json_key_base64`
 // service-account key forms.
 func TestArtifactRegistry_AcceptedCredentialForms(t *testing.T) {
+	t.Parallel()
 	arCreateRepository(t, "test-project", "us-central1", "creds-repo")
 	manifestURL := baseURL + "/v2/test-project/creds-repo/app/manifests/latest"
 
@@ -302,6 +304,7 @@ func TestArtifactRegistry_AcceptedCredentialForms(t *testing.T) {
 // that makes the credential a credential is the private key inside it. A file
 // whose private half was replaced with another account's must not authenticate.
 func TestArtifactRegistry_RefusesAForgedServiceAccountKey(t *testing.T) {
+	t.Parallel()
 	arCreateRepository(t, "test-project", "us-central1", "forged-repo")
 	manifestURL := baseURL + "/v2/test-project/forged-repo/app/manifests/latest"
 
@@ -335,6 +338,7 @@ func TestArtifactRegistry_RefusesAForgedServiceAccountKey(t *testing.T) {
 // permission and the repository resource, and says "(or it may not exist)"
 // rather than telling the caller which of the two it is.
 func TestArtifactRegistry_RefusesAnUnreachableRepository(t *testing.T) {
+	t.Parallel()
 	accessToken := strings.TrimPrefix(simBearerHeader(t), "Bearer ")
 	bearer := "Bearer " + accessToken
 
@@ -386,6 +390,7 @@ func TestArtifactRegistry_RefusesAnUnreachableRepository(t *testing.T) {
 // resource, and the registry refuses without naming one at a location the
 // request never supplied.
 func TestArtifactRegistry_RefusesARepositoryNoLocationHolds(t *testing.T) {
+	t.Parallel()
 	bearer := simBearerHeader(t)
 
 	resp, body := arRawDo(t, http.MethodGet,
@@ -410,6 +415,7 @@ func TestArtifactRegistry_RefusesARepositoryNoLocationHolds(t *testing.T) {
 //	HTTP/2 403
 //	{"errors":[{"code":"DENIED","message":"Unauthenticated request. …"}]}
 func TestArtifactRegistry_UnauthenticatedPullIsDeniedAtTheMint(t *testing.T) {
+	t.Parallel()
 	arCreateRepository(t, "test-project", "us-central1", "anon-repo")
 	repo := "test-project/anon-repo/app"
 
@@ -500,6 +506,7 @@ func arServiceAccountKey(t *testing.T, accountID string) ([]byte, map[string]any
 // live service sends for a credential it cannot accept — with no challenge
 // header, which would only send the client back for the same rejected token.
 func TestArtifactRegistry_RefusesAnExpiredMintedCredential(t *testing.T) {
+	t.Parallel()
 	arCreateRepository(t, "test-project", "us-central1", "expired-cred-repo")
 
 	iamSvc, err := iamadmin.NewService(ctx,

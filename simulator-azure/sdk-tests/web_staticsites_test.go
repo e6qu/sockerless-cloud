@@ -45,7 +45,8 @@ func staticSitesCreate(t *testing.T, client *armappservice.StaticSitesClient, rg
 }
 
 func TestSDK_StaticSites_CRUDSettingsSecrets(t *testing.T) {
-	rg := "swa-sdk-rg"
+	t.Parallel()
+	rg := "swa-sdk-rg-bceb"
 	ensureRG(t, rg)
 	client := staticSitesClient(t)
 	name := "sdk-swa-crud"
@@ -161,7 +162,8 @@ func TestSDK_StaticSites_CRUDSettingsSecrets(t *testing.T) {
 }
 
 func TestSDK_StaticSites_BuildsAndZipDeploy(t *testing.T) {
-	rg := "swa-sdk-rg"
+	t.Parallel()
+	rg := "swa-sdk-rg-b7c5"
 	ensureRG(t, rg)
 	client := staticSitesClient(t)
 	name := "sdk-swa-builds"
@@ -253,7 +255,8 @@ func TestSDK_StaticSites_BuildsAndZipDeploy(t *testing.T) {
 }
 
 func TestSDK_StaticSites_CustomDomains(t *testing.T) {
-	swaSdkRgName := uniqueName("swa-sdk-rg")
+	t.Parallel()
+	swaSdkRgName := uniqueName("swa-sdk-rg-2fb8")
 	rg := swaSdkRgName
 	ensureRG(t, rg)
 	client := staticSitesClient(t)
@@ -356,7 +359,8 @@ func TestSDK_StaticSites_CustomDomains(t *testing.T) {
 }
 
 func TestSDK_StaticSites_UsersRolesBasicAuth(t *testing.T) {
-	swaSdkRgName := uniqueName("swa-sdk-rg")
+	t.Parallel()
+	swaSdkRgName := uniqueName("swa-sdk-rg-cd9d")
 	rg := swaSdkRgName
 	ensureRG(t, rg)
 	client := staticSitesClient(t)
@@ -456,7 +460,8 @@ func TestSDK_StaticSites_UsersRolesBasicAuth(t *testing.T) {
 }
 
 func TestSDK_StaticSites_DatabaseConnections(t *testing.T) {
-	rg := "swa-sdk-rg"
+	t.Parallel()
+	rg := "swa-sdk-rg-28db"
 	ensureRG(t, rg)
 	client := staticSitesClient(t)
 	name := "sdk-swa-dbconn"
@@ -565,6 +570,7 @@ func TestSDK_StaticSites_DatabaseConnections(t *testing.T) {
 }
 
 func TestSDK_StaticSites_BackendsAndFunctionApps(t *testing.T) {
+	t.Parallel()
 	rg := "swa-sdk-rg"
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "swa-backend-plan")
@@ -728,7 +734,8 @@ func TestSDK_StaticSites_BackendsAndFunctionApps(t *testing.T) {
 }
 
 func TestSDK_StaticSites_PrivateEndpointsAndWorkflow(t *testing.T) {
-	rg := "swa-sdk-rg"
+	t.Parallel()
+	rg := "swa-sdk-rg-17bd"
 	ensureRG(t, rg)
 	client := staticSitesClient(t)
 	name := "sdk-swa-pec"

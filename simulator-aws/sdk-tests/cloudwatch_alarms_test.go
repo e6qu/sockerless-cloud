@@ -18,6 +18,7 @@ import (
 // evaluated from the live metric data — ALARM when a breaching datapoint
 // exists, OK when missing data is treated as not-breaching — and tags round-trip.
 func TestCloudWatch_MetricAlarms(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	ns := "Custom/AlarmsSDK"
 
@@ -90,6 +91,7 @@ func TestCloudWatch_MetricAlarms(t *testing.T) {
 // single-metric alarm (MetricName set) requires Period. EvaluationPeriods/Period
 // are not model-required, so the SDK passes a 0 straight through to the service.
 func TestCloudWatch_MetricAlarmValidation(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	ns := "Custom/AlarmValidation"
 

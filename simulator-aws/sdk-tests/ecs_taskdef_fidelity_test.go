@@ -16,6 +16,7 @@ import (
 // the provider reads back (runtime_platform, ephemeral_storage, pid_mode,
 // ipc_mode, placement_constraints) and the AWS-computed compatibilities list.
 func TestECS_TaskDefinitionFidelitySDK(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 
 	out, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{

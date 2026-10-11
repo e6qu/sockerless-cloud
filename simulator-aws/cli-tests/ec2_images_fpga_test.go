@@ -10,6 +10,7 @@ import (
 // copy-fpga-image, the attribute set (describe/modify load-permission/reset),
 // and delete-fpga-image.
 func TestEC2CLI_FpgaImageLifecycle(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	afi := q("ec2", "create-fpga-image",
@@ -72,6 +73,7 @@ func TestEC2CLI_FpgaImageLifecycle(t *testing.T) {
 // settings via the aws CLI: enable (audit-mode), get, replace-image-criteria,
 // get again, disable.
 func TestEC2CLI_AllowedImagesSettings(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	t.Cleanup(func() { runCLI(t, awsCLI("ec2", "disable-allowed-images-settings")) })
 
@@ -121,6 +123,7 @@ func TestEC2CLI_ImageBlockPublicAccess(t *testing.T) {
 // TestEC2CLI_ImageDeregistrationProtection covers per-AMI deregistration
 // protection via the aws CLI on a real registered AMI.
 func TestEC2CLI_ImageDeregistrationProtection(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	ami := ec2RegisterTestAMICLI(t, q)
 
@@ -138,6 +141,7 @@ func TestEC2CLI_ImageDeregistrationProtection(t *testing.T) {
 // the describe-store-image-tasks read-back; bundle/conversion task lists are
 // asserted honest-empty.
 func TestEC2CLI_StoreImageTask(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	ami := ec2RegisterTestAMICLI(t, q)
 

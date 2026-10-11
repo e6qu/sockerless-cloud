@@ -14,6 +14,7 @@ import (
 // list and the blob-container management actions (update, legal hold,
 // immutability policy lifecycle, lease, object-level WORM migration).
 func TestStorageARM_BlobServicesAndContainers(t *testing.T) {
+	t.Parallel()
 	rg := "storagearm-blob-rg"
 	account := "storagearmblob"
 	createStorageAccountForARM(t, rg, account)
@@ -104,6 +105,7 @@ func TestStorageARM_BlobServicesAndContainers(t *testing.T) {
 // surface (list/set/get + service usages) and the file-share update/lease/restore
 // actions.
 func TestStorageARM_FileServicesAndShares(t *testing.T) {
+	t.Parallel()
 	rg := "storagearm-file-rg"
 	account := "storagearmfile"
 	createStorageAccountForARM(t, rg, account)
@@ -179,6 +181,7 @@ func TestStorageARM_FileServicesAndShares(t *testing.T) {
 // TestStorageARM_QueueAndTableServices exercises queueServices + storage queues
 // and the tableServices service surface.
 func TestStorageARM_QueueAndTableServices(t *testing.T) {
+	t.Parallel()
 	rg := "storagearm-qt-rg"
 	account := "storagearmqt"
 	createStorageAccountForARM(t, rg, account)

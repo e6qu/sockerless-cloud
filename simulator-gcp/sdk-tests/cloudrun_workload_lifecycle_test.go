@@ -34,6 +34,7 @@ func countLogMessages(messages []string, line string) int {
 // the operation with the start error, and the pool reports the failure on its
 // Ready condition and keeps no ready revision.
 func TestSDK_CloudRun_WorkerPoolDeployWaitsForItsInstances(t *testing.T) {
+	t.Parallel()
 	pools := newWorkerPoolsClient(t)
 	parent := "projects/test-project/locations/us-central1"
 	count := int32(1)
@@ -140,6 +141,7 @@ func TestSDK_CloudRun_WorkerPoolDeployWaitsForItsInstances(t *testing.T) {
 // starting: the operation ends CANCELLED and the pool's Ready condition fails
 // with the reason gcloud's cancellation poller reads.
 func TestSDK_CloudRun_WorkerPoolDeployCancel(t *testing.T) {
+	t.Parallel()
 	pools := newWorkerPoolsClient(t)
 	parent := "projects/test-project/locations/us-central1"
 	count := int32(1)
@@ -199,6 +201,7 @@ exit %d`, line, code)}
 // times in a row; the fourth exit fails it. NEVER leaves it stopped after a
 // clean exit.
 func TestSDK_CloudRun_InstanceRestartPolicy(t *testing.T) {
+	t.Parallel()
 	instances := newInstancesClient(t)
 	parent := "projects/test-project/locations/us-central1"
 
@@ -265,6 +268,7 @@ func TestSDK_CloudRun_InstanceRestartPolicy(t *testing.T) {
 // process started go on serving, under the new process's management, and none
 // of their output reaches Cloud Logging twice.
 func TestSDK_CloudRun_WorkloadsResumeAfterSimulatorRestart(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 	httpPort, grpcPort := freePersistentSimPorts(t)
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", httpPort)

@@ -18,6 +18,7 @@ import (
 // `properties` but applied only sku/kind/tags, silently dropping property
 // updates (e.g. allowBlobPublicAccess) → terraform drift on the next plan.
 func TestStorageAccount_PatchMergesProperties(t *testing.T) {
+	t.Parallel()
 	const rg = "storage-patch-rg"
 	const acct = "stpatchmerge01"
 	doPUT(t, fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s?api-version=2023-07-01", baseURL, subscriptionID, rg),

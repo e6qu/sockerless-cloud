@@ -26,6 +26,7 @@ func functionsBaseURL() string {
 }
 
 func TestFunctions_CreateAndGet(t *testing.T) {
+	t.Parallel()
 	url := functionsBaseURL() + "?functionId=cli-test-func"
 	out := httpDoJSON(t, "POST", url, `{
 		"description": "CLI test function",
@@ -78,6 +79,7 @@ func TestFunctions_CreateAndGet(t *testing.T) {
 }
 
 func TestFunctions_List(t *testing.T) {
+	t.Parallel()
 	// Create a function
 	url := functionsBaseURL() + "?functionId=list-test-func"
 	httpDoJSON(t, "POST", url, `{
@@ -114,6 +116,7 @@ func TestFunctions_List(t *testing.T) {
 // and at its cloudfunctions.net url, and reads the container's request log
 // back with gcloud logging read.
 func TestFunctions_CLI_InvokeAndCheckLogs(t *testing.T) {
+	t.Parallel()
 	const functionID = "cli-invoke-fn"
 	httpDoJSON(t, "POST", functionsBaseURL()+"?functionId="+functionID, `{
 		"buildConfig": {"runtime": "go121", "entryPoint": "Handler"},
@@ -172,6 +175,7 @@ func TestFunctions_CLI_InvokeAndCheckLogs(t *testing.T) {
 }
 
 func TestFunctions_Delete(t *testing.T) {
+	t.Parallel()
 	url := functionsBaseURL() + "?functionId=delete-test-func"
 	httpDoJSON(t, "POST", url, `{
 		"buildConfig": {"runtime": "go121", "entryPoint": "Handler"},

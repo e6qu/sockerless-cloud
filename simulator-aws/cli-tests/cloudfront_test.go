@@ -13,6 +13,7 @@ import (
 // surface via the real `aws` CLI. The CLI accepts JSON on input (--cli-input-json
 // or --distribution-config '{...}') and emits JSON output even though the wire is XML.
 func TestCloudFront_Distribution_Lifecycle(t *testing.T) {
+	t.Parallel()
 	caller := "cli-test-" + time.Now().Format("150405.000000")
 	cfgJSON := fmt.Sprintf(`{
 		"CallerReference": "%s",
@@ -150,6 +151,7 @@ func TestCloudFront_Distribution_Lifecycle(t *testing.T) {
 }
 
 func TestCloudFront_OAC_Lifecycle(t *testing.T) {
+	t.Parallel()
 	name := "cli-oac-" + time.Now().Format("150405.000000")
 	cfgJSON := fmt.Sprintf(`{
 		"Name": "%s",

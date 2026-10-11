@@ -31,6 +31,7 @@ func cloudTrailClient() *cloudtrail.Client {
 }
 
 func TestAutoScalingGroupLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	asgClient := autoScalingClient()
 	ec2Client := ec2Client()
 
@@ -167,6 +168,7 @@ func TestAutoScalingGroupLifecycleSDK(t *testing.T) {
 // scheduled-action, lifecycle-hook, and per-instance verbs of EC2 Auto
 // Scaling against a real group, asserting round-trip read-back.
 func TestAutoScalingPoliciesAndHooksSDK(t *testing.T) {
+	t.Parallel()
 	asgClient := autoScalingClient()
 	ec2Client := ec2Client()
 
@@ -333,6 +335,7 @@ func TestAutoScalingPoliciesAndHooksSDK(t *testing.T) {
 }
 
 func TestCloudTrailRecordsAPICallsToS3SDK(t *testing.T) {
+	t.Parallel()
 	ctClient := cloudTrailClient()
 	s3Client := s3Client()
 	ec2Client := ec2Client()

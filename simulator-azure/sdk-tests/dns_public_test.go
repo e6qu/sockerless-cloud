@@ -10,6 +10,7 @@ import (
 )
 
 func TestPublicDNS_CreateZoneAndRecordSet(t *testing.T) {
+	t.Parallel()
 	zone := uniqueName("sdk-public") + ".example.com"
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)

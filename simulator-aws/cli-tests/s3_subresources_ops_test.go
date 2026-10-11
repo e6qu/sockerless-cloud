@@ -22,6 +22,7 @@ func s3PutObjectCLI(t *testing.T, bucket, key, content string) {
 }
 
 func TestS3CLI_ObjectAcl(t *testing.T) {
+	t.Parallel()
 	bucket, key := "cli-obj-acl-bucket", "acl.txt"
 	s3PutObjectCLI(t, bucket, key, "acl body")
 
@@ -37,6 +38,7 @@ func TestS3CLI_ObjectAcl(t *testing.T) {
 }
 
 func TestS3CLI_ObjectAttributes(t *testing.T) {
+	t.Parallel()
 	bucket, key := "cli-obj-attrs-bucket", "attrs.txt"
 	s3PutObjectCLI(t, bucket, key, "attributes")
 
@@ -57,6 +59,7 @@ func TestS3CLI_ObjectAttributes(t *testing.T) {
 }
 
 func TestS3CLI_ObjectLegalHold(t *testing.T) {
+	t.Parallel()
 	bucket, key := "cli-obj-legalhold-bucket", "lh.txt"
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", bucket, "--object-lock-enabled-for-bucket"))
 	f := filepath.Join(tmpDir, "cli-lh-body")
@@ -81,6 +84,7 @@ func TestS3CLI_ObjectLegalHold(t *testing.T) {
 }
 
 func TestS3CLI_ObjectRetention(t *testing.T) {
+	t.Parallel()
 	bucket, key := "cli-obj-retention-bucket", "ret.txt"
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", bucket, "--object-lock-enabled-for-bucket"))
 	f := filepath.Join(tmpDir, "cli-ret-body")
@@ -106,6 +110,7 @@ func TestS3CLI_ObjectRetention(t *testing.T) {
 }
 
 func TestS3CLI_ObjectLockConfiguration(t *testing.T) {
+	t.Parallel()
 	bucket := "cli-obj-lock-cfg-bucket"
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", bucket, "--object-lock-enabled-for-bucket"))
 
@@ -135,6 +140,7 @@ func TestS3CLI_ObjectLockConfiguration(t *testing.T) {
 }
 
 func TestS3CLI_ObjectTorrent(t *testing.T) {
+	t.Parallel()
 	bucket, key := "cli-obj-torrent-bucket", "torrent.txt"
 	s3PutObjectCLI(t, bucket, key, "torrent payload")
 
@@ -150,6 +156,7 @@ func TestS3CLI_ObjectTorrent(t *testing.T) {
 }
 
 func TestS3CLI_RestoreObject(t *testing.T) {
+	t.Parallel()
 	bucket, key := "cli-obj-restore-bucket", "restore.txt"
 	s3PutObjectCLI(t, bucket, key, "restore payload")
 	// Only an archived object can be restored; a copy onto itself changes the
@@ -170,6 +177,7 @@ func TestS3CLI_RestoreObject(t *testing.T) {
 }
 
 func TestS3CLI_UploadPartCopy(t *testing.T) {
+	t.Parallel()
 	bucket := "cli-uploadpartcopy-bucket"
 	srcKey, dstKey := "src.txt", "dst.txt"
 	s3PutObjectCLI(t, bucket, srcKey, "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123")
@@ -204,6 +212,7 @@ func TestS3CLI_UploadPartCopy(t *testing.T) {
 }
 
 func TestS3CLI_ListObjectsV1(t *testing.T) {
+	t.Parallel()
 	bucket := "cli-list-v1-bucket"
 	_ = awsCLI("s3api", "create-bucket", "--bucket", bucket).Run()
 	for _, key := range []string{"apple", "banana", "dir/one", "dir/two"} {

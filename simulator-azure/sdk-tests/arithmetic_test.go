@@ -10,6 +10,7 @@ import (
 )
 
 func TestContainerApps_JobArithmetic(t *testing.T) {
+	t.Parallel()
 	rg, jobName := "arith-aca-rg", "arith-aca-job"
 	acaCreateJobWithImageAndCommand(t, rg, jobName, evalImageName, []string{"(10 + 5) * 2"})
 	execName := acaStartExecution(t, rg, jobName)
@@ -57,7 +58,8 @@ func TestContainerApps_JobArithmetic(t *testing.T) {
 }
 
 func TestContainerApps_JobArithmeticInvalid(t *testing.T) {
-	rg, jobName := "arith-aca-rg", "arith-aca-fail-job"
+	t.Parallel()
+	rg, jobName := "arith-aca-rg-8e21", "arith-aca-fail-job"
 	acaCreateJobWithImageAndCommand(t, rg, jobName, evalImageName, []string{"3 +"})
 	execName := acaStartExecution(t, rg, jobName)
 
@@ -74,7 +76,8 @@ func TestContainerApps_JobArithmeticInvalid(t *testing.T) {
 }
 
 func TestContainerApps_JobArithmeticLogs(t *testing.T) {
-	rg, jobName := "arith-aca-rg", "arith-aca-log-job"
+	t.Parallel()
+	rg, jobName := "arith-aca-rg-0e0a", "arith-aca-log-job"
 	acaCreateJobWithImageAndCommand(t, rg, jobName, evalImageName, []string{"10 / 3"})
 	_ = acaStartExecution(t, rg, jobName)
 

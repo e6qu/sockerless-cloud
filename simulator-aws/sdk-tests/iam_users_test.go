@@ -15,6 +15,7 @@ import (
 // DeleteAccessKey, PutUserPolicy/GetUserPolicy/ListUserPolicies/DeleteUserPolicy,
 // and AttachUserPolicy/ListAttachedUserPolicies/DetachUserPolicy.
 func TestIAM_UserLifecycle(t *testing.T) {
+	t.Parallel()
 	managedPolicy := uniqueName("managed-lifecycle")
 	c := iamClient()
 	user := uniqueName("lifecycle-user")

@@ -34,6 +34,7 @@ import (
 // from the document a request names — the key a policy uses to allow one kind
 // of document and refuse another.
 func TestSSM_DocumentTypeConditionKeyScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	admin := ssmClient()
 	documents := map[string]ssmtypes.DocumentType{
 		"cond-automation": ssmtypes.DocumentTypeAutomation,
@@ -70,6 +71,7 @@ func TestSSM_DocumentTypeConditionKeyScopesTheGrant(t *testing.T) {
 // TestEventBridge_CreatorAccountConditionKeyScopesTheGrant covers
 // events:creatorAccount, the account that created the rule a request names.
 func TestEventBridge_CreatorAccountConditionKeyScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	admin := eventbridgeClient()
 	const rule = "cond-creator-rule"
 	_, err := admin.PutRule(ctx, &eventbridge.PutRuleInput{
@@ -101,6 +103,7 @@ func restrictedEventBridge(t *testing.T, user, account string) *eventbridge.Clie
 // where a request asks Amazon ECS to copy tags from — the key a policy uses to
 // require that they come from the service rather than the task definition.
 func TestECS_PropagateTagsConditionKeyScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	akid, secret := restrictedCredential(t, "ecs-service-tags-only",
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"ecs:CreateService",
 		  "Resource":"*","Condition":{"StringEquals":{"ecs:propagate-tags":"SERVICE"}}}]}`)
@@ -132,6 +135,7 @@ func TestECS_PropagateTagsConditionKeyScopesTheGrant(t *testing.T) {
 // rds:ManageMasterUserPassword, which a policy uses to require that a master
 // password be managed in AWS Secrets Manager rather than supplied by hand.
 func TestRDS_ManageMasterUserPasswordConditionKeyScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	akid, secret := restrictedCredential(t, "rds-managed-passwords-only",
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"rds:ModifyDBInstance",
 		  "Resource":"*","Condition":{"Bool":{"rds:ManageMasterUserPassword":"true"}}}]}`)
@@ -158,6 +162,7 @@ func TestRDS_ManageMasterUserPasswordConditionKeyScopesTheGrant(t *testing.T) {
 // states:StateMachineQualifier, the version or alias a request names — the key
 // a policy uses to allow a call against one published version and not another.
 func TestSFN_StateMachineQualifierConditionKeyScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	machineName := uniqueName("cond-qualifier-sm")
 	admin := sfnClient()
 	machine, err := admin.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
@@ -195,6 +200,7 @@ func TestSFN_StateMachineQualifierConditionKeyScopesTheGrant(t *testing.T) {
 // the function an event-source mapping or a function URL is about — the key a
 // policy uses to let a principal wire up one function and not another.
 func TestLambda_FunctionArnConditionKeyScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	admin := lambdaClient()
 	permitted := lambdaConditionFunction(t, admin, "cond-url-permitted")
 	refused := lambdaConditionFunction(t, admin, "cond-url-refused")
@@ -237,6 +243,7 @@ func lambdaConditionFunction(t *testing.T, client *lambda.Client, name string) s
 // servicediscovery:ServiceCreatedByAccount, the account that created the AWS
 // Cloud Map service a request names.
 func TestCloudMap_ServiceCreatedByAccountConditionKeyScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	admin := cmClient()
 	namespace, err := admin.CreateHttpNamespace(ctx, &servicediscovery.CreateHttpNamespaceInput{
 		Name: aws.String(uniqueName("cond-created-ns"))})
@@ -280,6 +287,7 @@ func TestCloudMap_ServiceCreatedByAccountConditionKeyScopesTheGrant(t *testing.T
 // much of a matched item a read returns — the key a policy pins so a caller can
 // count rows without reading them.
 func TestDynamoDB_SelectConditionKeyScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	admin := ddbClient()
 	const table = "cond-select-table"
 	_, err := admin.CreateTable(ctx, &dynamodb.CreateTableInput{
@@ -315,6 +323,7 @@ func TestDynamoDB_SelectConditionKeyScopesTheGrant(t *testing.T) {
 // CUSTOMER_PROVIDED for one the caller imported, AWS_MANAGED for one ACM
 // issued. AddTagsToCertificate is one of the actions that declare it.
 func TestACM_CertificateKeyPairOriginConditionKeyScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	admin := acmClient()
 
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)

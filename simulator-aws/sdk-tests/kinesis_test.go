@@ -17,6 +17,7 @@ func kinesisClient() *kinesis.Client {
 }
 
 func TestKinesisSDK_StreamLifecycleAndRecords(t *testing.T) {
+	t.Parallel()
 	client := kinesisClient()
 	streamName := "sdk-kinesis-stream"
 
@@ -192,6 +193,7 @@ func TestKinesisSDK_StreamLifecycleAndRecords(t *testing.T) {
 // via MaxResults + NextToken, asserting the page caps, the truncation token,
 // the strictly-after resume, and that the union covers every shard exactly once.
 func TestKinesisSDK_ListShardsPagination(t *testing.T) {
+	t.Parallel()
 	client := kinesisClient()
 	streamName := "sdk-kinesis-shard-paging"
 
@@ -255,6 +257,7 @@ func TestKinesisSDK_ListShardsPagination(t *testing.T) {
 // TestKinesisSDK_ListStreamsPagination drives ListStreams across pages via
 // Limit + NextToken and asserts HasMoreStreams + the cursor advance.
 func TestKinesisSDK_ListStreamsPagination(t *testing.T) {
+	t.Parallel()
 	client := kinesisClient()
 	names := []string{
 		"sdk-paging-stream-aaa",
@@ -307,6 +310,7 @@ func TestKinesisSDK_ListStreamsPagination(t *testing.T) {
 // Limit + ExclusiveStartShardId and sets HasMoreShards (it previously returned
 // every shard with HasMoreShards hardcoded false).
 func TestKinesisSDK_DescribeStreamShardPagination(t *testing.T) {
+	t.Parallel()
 	client := kinesisClient()
 	streamName := "sdk-kinesis-describe-paging"
 	_, err := client.CreateStream(ctx, &kinesis.CreateStreamInput{

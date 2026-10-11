@@ -122,6 +122,7 @@ func doROPC(t *testing.T, tenant, clientID, username string) map[string]any {
 }
 
 func TestEntra_GraphGroupCRUD(t *testing.T) {
+	t.Parallel()
 	grp := createGraphGroup(t, "SDK-Test-Group")
 
 	// GET by ID
@@ -138,6 +139,7 @@ func TestEntra_GraphGroupCRUD(t *testing.T) {
 }
 
 func TestEntra_GraphUserCRUD(t *testing.T) {
+	t.Parallel()
 	u := createGraphUser(t, "SDK Test User", "sdktest@example.com")
 
 	// GET by ID
@@ -154,6 +156,7 @@ func TestEntra_GraphUserCRUD(t *testing.T) {
 }
 
 func TestEntra_GraphGroupMembership(t *testing.T) {
+	t.Parallel()
 	grp := createGraphGroup(t, "SDK-Membership-Group")
 	u := createGraphUser(t, "Member User", "member@example.com")
 	addGroupMember(t, grp.ID, u.ID)
@@ -179,6 +182,7 @@ func TestEntra_GraphGroupMembership(t *testing.T) {
 }
 
 func TestEntra_ROPCIDTokenGroupsClaim(t *testing.T) {
+	t.Parallel()
 	grp := createGraphGroup(t, "ROPC-Admins")
 	u := createGraphUser(t, "ROPC User", "ropc-user@example.com")
 	addGroupMember(t, grp.ID, u.ID)
@@ -195,6 +199,7 @@ func TestEntra_ROPCIDTokenGroupsClaim(t *testing.T) {
 }
 
 func TestEntra_DuplicateUPNRejectedAndROPCClaimsStayDeterministic(t *testing.T) {
+	t.Parallel()
 	grp := createGraphGroup(t, "ROPC-Duplicate-UPN")
 	u := createGraphUser(t, "Duplicate UPN User", "duplicate-upn-sdk@example.com")
 	addGroupMember(t, grp.ID, u.ID)
@@ -236,6 +241,7 @@ func TestEntra_DuplicateUPNRejectedAndROPCClaimsStayDeterministic(t *testing.T) 
 }
 
 func TestEntra_ROPCUnknownUserReturns400(t *testing.T) {
+	t.Parallel()
 	tokenResp, err := http.PostForm(baseURL+"/tenant-ropc-unknown/oauth2/v2.0/token", url.Values{
 		"grant_type": {"password"},
 		"client_id":  {"client-ropc"},
@@ -249,6 +255,7 @@ func TestEntra_ROPCUnknownUserReturns400(t *testing.T) {
 }
 
 func TestEntra_IDTokenGroupsClaim(t *testing.T) {
+	t.Parallel()
 	grp := createGraphGroup(t, "Auth-Admins")
 	u := createGraphUser(t, "Auth Groups User", "authgroups@example.com")
 	addGroupMember(t, grp.ID, u.ID)
@@ -266,6 +273,7 @@ func TestEntra_IDTokenGroupsClaim(t *testing.T) {
 }
 
 func TestEntra_IDTokenNoGroupsClaimWhenUserHasNoGroups(t *testing.T) {
+	t.Parallel()
 	u := createGraphUser(t, "No Groups User", "nogroups@example.com")
 	payload := doROPC(t, "tenant-entra-nogroups", "client-entra-nogroups", "nogroups@example.com")
 	assert.Equal(t, u.ID, payload["oid"])
@@ -274,6 +282,7 @@ func TestEntra_IDTokenNoGroupsClaimWhenUserHasNoGroups(t *testing.T) {
 }
 
 func TestEntra_GraphMemberOf(t *testing.T) {
+	t.Parallel()
 	grp1 := createGraphGroup(t, "Engineering")
 	grp2 := createGraphGroup(t, "Platform")
 	u := createGraphUser(t, "Graph User", "graph-user@example.com")
@@ -316,6 +325,7 @@ func TestEntra_GraphMemberOf(t *testing.T) {
 }
 
 func TestEntra_GraphTransitiveMemberOf(t *testing.T) {
+	t.Parallel()
 	grp := createGraphGroup(t, "Infra")
 	u := createGraphUser(t, "Transitive User", "transitive@example.com")
 	addGroupMember(t, grp.ID, u.ID)
@@ -424,6 +434,7 @@ func createGraphServicePrincipal(t *testing.T, appID, displayName string) string
 }
 
 func TestEntra_ApplicationAndServicePrincipal(t *testing.T) {
+	t.Parallel()
 	objectID, appID := createGraphApplication(t, "SDK-App")
 
 	// GET the application by object ID.
@@ -494,6 +505,7 @@ func TestEntra_ApplicationAndServicePrincipal(t *testing.T) {
 }
 
 func TestEntra_ServicePrincipalAddPassword(t *testing.T) {
+	t.Parallel()
 	_, appID := createGraphApplication(t, "SDK-Secret-App")
 	spID := createGraphServicePrincipal(t, appID, "SDK-Secret-App")
 
@@ -579,6 +591,7 @@ func addApplicationPassword(t *testing.T, appObjectID, displayName string) (keyI
 // read the ARM control plane through the Azure SDK with the issued token. A
 // wrong secret and a removed secret are rejected with invalid_client.
 func TestEntra_ApplicationClientSecretEndToEnd(t *testing.T) {
+	t.Parallel()
 	objectID, appID := createGraphApplication(t, "SDK-CC-App")
 	spID := createGraphServicePrincipal(t, appID, "SDK-CC-App")
 
@@ -669,6 +682,7 @@ func TestEntra_ApplicationClientSecretEndToEnd(t *testing.T) {
 // seeded bootstrap application's secret must not authenticate a different,
 // unregistered client_id.
 func TestEntra_UnregisteredClientCredentialsRejected(t *testing.T) {
+	t.Parallel()
 	resp, err := http.PostForm(baseURL+"/"+simTenantID+"/oauth2/v2.0/token", url.Values{
 		"grant_type":    {"client_credentials"},
 		"client_id":     {"no-such-registered-app"},
@@ -723,6 +737,7 @@ func (c *appSecretCredential) GetToken(_ context.Context, opts policy.TokenReque
 }
 
 func TestEntra_UserPatch(t *testing.T) {
+	t.Parallel()
 	u := createGraphUser(t, "Patch Me", "patch-me@example.com")
 
 	patch, _ := json.Marshal(map[string]any{
@@ -750,6 +765,7 @@ func TestEntra_UserPatch(t *testing.T) {
 }
 
 func TestEntra_GroupMemberODataID(t *testing.T) {
+	t.Parallel()
 	grp := createGraphGroup(t, "OData-Group")
 	u := createGraphUser(t, "OData Member", "odata-member@example.com")
 	addGroupMember(t, grp.ID, u.ID)
@@ -771,6 +787,7 @@ func TestEntra_GroupMemberODataID(t *testing.T) {
 }
 
 func TestEntra_DiscoveryAdvertisesGroupsClaimAndROPC(t *testing.T) {
+	t.Parallel()
 	resp, err := http.Get(baseURL + "/tenant-groups-discovery/.well-known/openid-configuration")
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -789,6 +806,7 @@ func TestEntra_DiscoveryAdvertisesGroupsClaimAndROPC(t *testing.T) {
 // delegated token and refuses an app-only token, and a service principal is
 // found by the servicePrincipalNames its appId is one of.
 func TestEntra_GraphMeAndServicePrincipalNames(t *testing.T) {
+	t.Parallel()
 	u := createGraphUser(t, "Me User", "me-user@example.com")
 	delegated := requestAzureToken(t, simTenantID, "oauth2/v2.0/token", url.Values{
 		"grant_type": {"password"},

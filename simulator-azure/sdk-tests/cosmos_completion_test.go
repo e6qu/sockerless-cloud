@@ -31,6 +31,7 @@ func ensureCosmosMultiRegionAccount(t *testing.T, rg, account string) {
 // metric, usage and metric-definition list surfaces through the armcosmos
 // clients that call them.
 func TestAzureCosmosDB_MetricsAndUsagesSDK(t *testing.T) {
+	t.Parallel()
 	rg, account := "sdk-cosmos-metrics-rg", "sdkcosmosmetrics"
 	ensureCosmosAccount(t, rg, account)
 	db, coll := "appdb", "users"
@@ -87,6 +88,7 @@ func TestAzureCosmosDB_MetricsAndUsagesSDK(t *testing.T) {
 // TestAzureCosmosDB_PartitionAndPercentileMetricsSDK drives the partition-,
 // partition-key-range-, region- and percentile-scoped metric list surfaces.
 func TestAzureCosmosDB_PartitionAndPercentileMetricsSDK(t *testing.T) {
+	t.Parallel()
 	rg, account := "sdk-cosmos-partmetrics-rg", "sdkcosmospartmetrics"
 	ensureCosmosAccount(t, rg, account)
 	db, coll, region := "appdb", "users", "East US"
@@ -158,6 +160,7 @@ func TestAzureCosmosDB_PartitionAndPercentileMetricsSDK(t *testing.T) {
 // TestAzureCosmosDB_OnlineOfflineRegionSDK exercises the online-/offline-region
 // long-running operations and the write-region offline rejection.
 func TestAzureCosmosDB_OnlineOfflineRegionSDK(t *testing.T) {
+	t.Parallel()
 	rg, account := "sdk-cosmos-region-rg", "sdkcosmosregion"
 	ensureCosmosMultiRegionAccount(t, rg, account)
 
@@ -182,6 +185,7 @@ func TestAzureCosmosDB_OnlineOfflineRegionSDK(t *testing.T) {
 // TestAzureCosmosDB_PrivateEndpointConnectionsSDK exercises the private
 // endpoint connection list/get/create-or-update/delete surface.
 func TestAzureCosmosDB_PrivateEndpointConnectionsSDK(t *testing.T) {
+	t.Parallel()
 	rg, account, pecName := "sdk-cosmos-pec-rg", "sdkcosmospec", "pe-conn-1"
 	ensureCosmosAccount(t, rg, account)
 

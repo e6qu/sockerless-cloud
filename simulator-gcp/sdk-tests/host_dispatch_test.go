@@ -42,6 +42,7 @@ var execCallForms = []string{
 // modules of test drivers — they shell out to `gcloud`, `terraform` and the
 // simulator binary by design — and are outside the invariant.
 func TestNoOsExecOfWorkloads(t *testing.T) {
+	t.Parallel()
 	allowed := []execCallSite{
 		{
 			file: filepath.Join("sim", "workload", "build.go"),

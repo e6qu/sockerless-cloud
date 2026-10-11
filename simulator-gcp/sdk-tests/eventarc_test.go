@@ -69,6 +69,7 @@ func eventarcRunService(t *testing.T, project, region, id string) {
 }
 
 func TestEventarc_TriggerLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	client := eventarcClient(t)
 	parent := "projects/test-project/locations/us-central1"
 	name := parent + "/triggers/sdk-trigger"
@@ -131,6 +132,7 @@ func TestEventarc_TriggerLifecycleSDK(t *testing.T) {
 }
 
 func TestEventarc_ChannelProviderConnectionSDK(t *testing.T) {
+	t.Parallel()
 	client := eventarcClient(t)
 	parent := "projects/test-project/locations/us-central1"
 	channelName := parent + "/channels/sdk-channel"
@@ -213,6 +215,7 @@ func TestEventarc_ChannelProviderConnectionSDK(t *testing.T) {
 }
 
 func TestEventarc_MessageBusAndEnrollmentSDK(t *testing.T) {
+	t.Parallel()
 	client := eventarcClient(t)
 	parent := "projects/test-project/locations/us-central1"
 	busName := parent + "/messageBuses/sdk-bus"
@@ -298,6 +301,7 @@ func TestEventarc_MessageBusAndEnrollmentSDK(t *testing.T) {
 }
 
 func TestEventarc_PipelineSDK(t *testing.T) {
+	t.Parallel()
 	client := eventarcClient(t)
 	parent := "projects/test-project/locations/us-central1"
 	pipelineName := parent + "/pipelines/sdk-pipeline"
@@ -350,6 +354,7 @@ func TestEventarc_PipelineSDK(t *testing.T) {
 }
 
 func TestEventarc_GoogleApiSourceSDK(t *testing.T) {
+	t.Parallel()
 	client := eventarcClient(t)
 	parent := "projects/test-project/locations/us-central1"
 	sourceName := parent + "/googleApiSources/sdk-source"
@@ -394,6 +399,7 @@ func TestEventarc_GoogleApiSourceSDK(t *testing.T) {
 }
 
 func TestEventarc_GoogleChannelConfigSDK(t *testing.T) {
+	t.Parallel()
 	client := eventarcClient(t)
 	parent := "projects/test-project/locations/us-central1"
 	configName := parent + "/googleChannelConfig"
@@ -414,6 +420,7 @@ func TestEventarc_GoogleChannelConfigSDK(t *testing.T) {
 }
 
 func TestEventarc_IamPolicySDK(t *testing.T) {
+	t.Parallel()
 	client := eventarcClient(t)
 	parent := "projects/test-project/locations/us-central1"
 	triggerName := parent + "/triggers/iam-trigger"
@@ -472,6 +479,7 @@ func TestEventarc_IamPolicySDK(t *testing.T) {
 }
 
 func TestEventarc_LocationsSDK(t *testing.T) {
+	t.Parallel()
 	client := eventarcClient(t)
 
 	locations := eventarcCollect(t,
@@ -491,6 +499,7 @@ func TestEventarc_LocationsSDK(t *testing.T) {
 // one path. Each service's list holds only its own triggers, because each
 // client names its service by host.
 func TestEventarc_GlobalTriggersApartFromCloudBuild(t *testing.T) {
+	t.Parallel()
 	const project = "eventarc-global-project"
 	client := eventarcClient(t)
 	parent := "projects/" + project + "/locations/global"
@@ -528,7 +537,7 @@ func TestEventarc_GlobalTriggersApartFromCloudBuild(t *testing.T) {
 	build, err := builds.Projects.Locations.Triggers.Create(parent, &cloudbuild.BuildTrigger{
 		Name:            "sdk-global-build-trigger",
 		Filename:        "cloudbuild.yaml",
-		TriggerTemplate: &cloudbuild.RepoSource{RepoName: "sdk-repo", BranchName: "main"},
+		TriggerTemplate: &cloudbuild.RepoSource{RepoName: "sdk-repo-8018", BranchName: "main"},
 	}).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() {

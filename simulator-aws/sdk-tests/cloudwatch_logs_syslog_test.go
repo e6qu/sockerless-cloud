@@ -11,6 +11,7 @@ import (
 )
 
 func TestCloudWatchLogs_StorageTierAndSyslog_SDK(t *testing.T) {
+	t.Parallel()
 	client := cwLogsStreamClient()
 	group := "/sdk/syslog"
 	_, err := client.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(group)})

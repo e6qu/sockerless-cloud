@@ -13,6 +13,7 @@ import (
 // TestDynamoDB_SSEDescriptionRoundTrip verifies a table created with
 // server-side encryption reports the full SSEDescription on DescribeTable.
 func TestDynamoDB_SSEDescriptionRoundTrip(t *testing.T) {
+	t.Parallel()
 	table := uniqueName("sse-table")
 	c := ddbClient()
 	keyArn := "arn:aws:kms:us-east-1:123456789012:key/test-key"

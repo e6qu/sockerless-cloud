@@ -50,6 +50,7 @@ func appIdentityTokenFor(t *testing.T, app string, query url.Values) appIdentity
 }
 
 func TestSDK_WebApps_IdentityEndpointMintsTheAppsOwnIdentity(t *testing.T) {
+	t.Parallel()
 	rg, name := "sdk-identity-endpoint-rg", "sdk-identity-endpoint-app"
 	client := createFilesWebApp(t, rg, name, nil)
 

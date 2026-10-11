@@ -55,6 +55,7 @@ func ecsNetworkModeCluster(t *testing.T, client *ecs.Client, name string) {
 // task on the container instance's default networking would give it an address
 // that is not its ENI's.
 func TestECS_RunTask_AwsvpcRequiresNetworkConfiguration(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 	cluster := "netmode-awsvpc-required"
 	ecsNetworkModeCluster(t, client, cluster)
@@ -74,6 +75,7 @@ func TestECS_RunTask_AwsvpcRequiresNetworkConfiguration(t *testing.T) {
 // networkConfiguration is refused for a task definition that does not use the
 // awsvpc network mode, rather than being accepted and ignored.
 func TestECS_RunTask_NetworkConfigurationRejectedForBridgeNetworkMode(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 	cluster := "netmode-bridge-reject"
 	ecsNetworkModeCluster(t, client, cluster)
@@ -98,6 +100,7 @@ func TestECS_RunTask_NetworkConfigurationRejectedForBridgeNetworkMode(t *testing
 // networkInterfaces — only an awsvpc task is allocated an elastic network
 // interface.
 func TestECS_RunTask_BridgeNetworkModeHasNoElasticNetworkInterface(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 	cluster := "netmode-bridge-eni"
 	ecsNetworkModeCluster(t, client, cluster)
@@ -136,6 +139,7 @@ func TestECS_RunTask_BridgeNetworkModeHasNoElasticNetworkInterface(t *testing.T)
 // keeps the ENI attachment, carrying the subnet it was created in and the
 // private address assigned from that subnet's CIDR.
 func TestECS_RunTask_AwsvpcAttachesElasticNetworkInterface(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 	cluster := "netmode-awsvpc-eni"
 	ecsNetworkModeCluster(t, client, cluster)

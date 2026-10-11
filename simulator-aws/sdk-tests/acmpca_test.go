@@ -78,6 +78,7 @@ func activateRootPrivateCA(t *testing.T, name string) string {
 }
 
 func TestPrivateCA_CompleteLifecycleAndACMIntegration(t *testing.T) {
+	t.Parallel()
 	client := acmpcaClient()
 	arn := activateRootPrivateCA(t, "sdk-private-root")
 

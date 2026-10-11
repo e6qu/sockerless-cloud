@@ -33,6 +33,7 @@ func ddbSortTable(t *testing.T, c *dynamodb.Client, name string) {
 // TestDDBQueryScanIndexForwardAndCount covers ScanIndexForward (descending) and
 // Select=COUNT.
 func TestDDBQueryScanIndexForwardAndCount(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "sweep-query"
 	ddbSortTable(t, c, tbl)
@@ -65,6 +66,7 @@ func TestDDBQueryScanIndexForwardAndCount(t *testing.T) {
 
 // TestDDBNumericKeyCanonicalization — "01" and "1" address the same item.
 func TestDDBNumericKeyCanonicalization(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "sweep-numkey"
 	ddbSortTable(t, c, tbl)
@@ -80,6 +82,7 @@ func TestDDBNumericKeyCanonicalization(t *testing.T) {
 
 // TestDDBNestedSetAndContains covers nested SET (map path) + contains() on a set.
 func TestDDBNestedSetAndContains(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "sweep-nested"
 	ddbSimpleTable(t, c, tbl)
@@ -111,6 +114,7 @@ func TestDDBNestedSetAndContains(t *testing.T) {
 
 // TestDDBItemDepthLimit — an item nested past 32 levels is rejected.
 func TestDDBItemDepthLimit(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "sweep-depth"
 	ddbSimpleTable(t, c, tbl)
@@ -127,6 +131,7 @@ func TestDDBItemDepthLimit(t *testing.T) {
 
 // TestDDBParallelScanDisjoint — TotalSegments partitions the table with no overlap.
 func TestDDBParallelScanDisjoint(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "sweep-parscan"
 	ddbSimpleTable(t, c, tbl)

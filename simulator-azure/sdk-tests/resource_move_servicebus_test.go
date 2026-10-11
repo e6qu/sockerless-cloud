@@ -80,6 +80,7 @@ func sbMoveReceive(t *testing.T, client *azservicebus.Client, queue string) stri
 // records: a re-derived key produces a different SAS signature, and the data
 // plane rejects it.
 func TestAzureResources_MoveServiceBusNamespace(t *testing.T) {
+	t.Parallel()
 	srcRG, dstRG := uniqueName("sb-move-src-rg"), uniqueName("sb-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)

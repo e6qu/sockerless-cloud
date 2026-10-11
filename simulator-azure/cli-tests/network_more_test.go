@@ -15,6 +15,7 @@ const networkMoreAPIVersion = "2024-05-01"
 // TestNetwork_PublicIPDdosStatus exercises the public-IP DDoS protection status
 // operation through `az rest`.
 func TestNetwork_PublicIPDdosStatus(t *testing.T) {
+	t.Parallel()
 	pipURL := armURL("Microsoft.Network", "publicIPAddresses/cli-ddos-pip", networkMoreAPIVersion)
 	runCLI(t, azRest("PUT", pipURL, `{"location":"eastus","sku":{"name":"Standard"},"properties":{"publicIPAllocationMethod":"Dynamic"}}`))
 	defer runCLI(t, azRest("DELETE", pipURL, ""))
@@ -35,6 +36,7 @@ func TestNetwork_PublicIPDdosStatus(t *testing.T) {
 // inbound-NAT port-mapping query, the per-rule health, and the NIC→IP-based
 // pool migration.
 func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
+	t.Parallel()
 	pipURL := armURL("Microsoft.Network", "publicIPAddresses/cli-lbx-pip", networkMoreAPIVersion)
 	runCLI(t, azRest("PUT", pipURL, `{"location":"eastus","sku":{"name":"Standard"},"properties":{"publicIPAllocationMethod":"Dynamic"}}`))
 	defer runCLI(t, azRest("DELETE", pipURL, ""))
@@ -110,6 +112,7 @@ func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 // real on the CI Linux cell — a better trade than the version it replaces,
 // which ran everywhere and proved nothing because its subject existed nowhere.
 func TestNetwork_SubnetLinksAndVnetDdos(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	vnetURL := armURL("Microsoft.Network", "virtualNetworks/cli-links-vnet", networkMoreAPIVersion)
 	runCLI(t, azRest("PUT", vnetURL,

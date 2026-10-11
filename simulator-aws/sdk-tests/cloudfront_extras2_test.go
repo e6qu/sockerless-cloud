@@ -25,6 +25,7 @@ func cfExtras2Caller() string {
 // encryption config CRUD (create → get → get-config → update → list → delete),
 // asserting the ETag round-trips as the If-Match precondition.
 func TestCloudFront_FieldLevelEncryption_Lifecycle(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -98,6 +99,7 @@ func TestCloudFront_FieldLevelEncryption_Lifecycle(t *testing.T) {
 // TestCloudFront_FieldLevelEncryptionProfile_Lifecycle exercises the FLE
 // profile CRUD round-trip.
 func TestCloudFront_FieldLevelEncryptionProfile_Lifecycle(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -199,6 +201,7 @@ func TestCloudFront_FieldLevelEncryptionProfile_Lifecycle(t *testing.T) {
 
 // TestCloudFront_KeyValueStore_Lifecycle exercises the key value store CRUD.
 func TestCloudFront_KeyValueStore_Lifecycle(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -255,6 +258,7 @@ func TestCloudFront_KeyValueStore_Lifecycle(t *testing.T) {
 // configuration CRUD. These ops identify the resource by Name or ARN in the
 // request body rather than a path label.
 func TestCloudFront_RealtimeLogConfig_Lifecycle(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -319,6 +323,7 @@ func TestCloudFront_RealtimeLogConfig_Lifecycle(t *testing.T) {
 // TestCloudFront_StreamingDistribution_Lifecycle exercises the streaming
 // distribution CRUD round-trip.
 func TestCloudFront_StreamingDistribution_Lifecycle(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -389,6 +394,7 @@ func TestCloudFront_StreamingDistribution_Lifecycle(t *testing.T) {
 
 // TestCloudFront_VpcOrigin_Lifecycle exercises the VPC origin CRUD round-trip.
 func TestCloudFront_VpcOrigin_Lifecycle(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -449,6 +455,7 @@ func TestCloudFront_VpcOrigin_Lifecycle(t *testing.T) {
 // TestCloudFront_AnycastIpList_Lifecycle exercises the Anycast IP list CRUD
 // (no update op exists for this resource).
 func TestCloudFront_AnycastIpList_Lifecycle(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

@@ -10,6 +10,7 @@ import (
 )
 
 func TestSSMParameterCLI_PutGetDelete(t *testing.T) {
+	t.Parallel()
 	name := "/cli/param/" + strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "-")
 	putOut := runCLI(t, awsCLI("ssm", "put-parameter",
 		"--name", name,
@@ -62,6 +63,7 @@ func TestSSMParameterCLI_PutGetDelete(t *testing.T) {
 }
 
 func TestSSMParameterCLI_ListTagsForResource(t *testing.T) {
+	t.Parallel()
 	name := "/cli-tag-test/param"
 	runCLI(t, awsCLI("ssm", "put-parameter",
 		"--name", name,
@@ -116,6 +118,7 @@ func TestSSMParameterCLI_ListTagsForResource(t *testing.T) {
 // read back is what proves the name resolved — an unresolved id would answer
 // with an empty list just as convincingly.
 func TestSSMParameterCLI_ListTagsForResourceWithoutLeadingSlash(t *testing.T) {
+	t.Parallel()
 	name := "terraform-compatible-parameter"
 	runCLI(t, awsCLI("ssm", "put-parameter", "--name", name, "--type", "String", "--value", "v", "--output", "json"))
 	t.Cleanup(func() { _ = awsCLI("ssm", "delete-parameter", "--name", name).Run() })

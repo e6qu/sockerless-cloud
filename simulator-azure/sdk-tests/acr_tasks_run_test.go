@@ -55,13 +55,14 @@ func acrTasksSchedule(t *testing.T, rg, registry string, request armcontainerreg
 // share what they write, its build step builds the source, and its push step
 // pushes into the registry as the run, which reports the image it pushed.
 func TestACRTasks_FileTaskRunFromUploadedSource(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "linux" {
 		t.Skip("platform gate: the container engine pushes to the registry's login server itself, and on a host whose engine runs inside its own virtual machine it has no route to this host's loopback, where the simulator's registry listens.")
 	}
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatalf("docker CLI required for ACR Tasks runs (no fallback): %v", err)
 	}
-	const rg, regName = "acr-tasks-run-rg", "acrtaskfilerunreg"
+	const rg, regName = "acr-tasks-run-rg-b2d6", "acrtaskfilerunreg"
 	acrEnsureRegistry(t, rg, regName)
 	pullImageWithRetry(t, "public.ecr.aws/docker/library/alpine:3.20")
 
@@ -121,10 +122,11 @@ steps:
 // encoded task file, runs it through a TaskRunRequest with an overriding
 // value, and reads the run's task name and output.
 func TestACRTasks_TaskRunRequestRunsTheTask(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatalf("docker CLI required for ACR Tasks runs (no fallback): %v", err)
 	}
-	const rg, regName, taskName = "acr-tasks-run-rg", "acrtaskrunreqreg", "greet"
+	const rg, regName, taskName = "acr-tasks-run-rg-e15a", "acrtaskrunreqreg", "greet"
 	acrEnsureRegistry(t, rg, regName)
 	pullImageWithRetry(t, "public.ecr.aws/docker/library/alpine:3.20")
 
@@ -167,6 +169,7 @@ func TestACRTasks_TaskRunRequestRunsTheTask(t *testing.T) {
 // agent pool of one agent: the second waits Queued while the first runs, and
 // AgentPools_GetQueueStatus counts it, until a cancel frees the agent.
 func TestACRTasks_AgentPoolQueuesRunsBeyondItsAgents(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatalf("docker CLI required for ACR Tasks runs (no fallback): %v", err)
 	}

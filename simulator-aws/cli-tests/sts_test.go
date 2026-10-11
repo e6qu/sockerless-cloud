@@ -8,6 +8,7 @@ import (
 )
 
 func TestSTS_GetCallerIdentity(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("sts", "get-caller-identity", "--output", "json"))
 
 	var result struct {

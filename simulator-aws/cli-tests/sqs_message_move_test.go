@@ -26,6 +26,7 @@ func sqsCLIQueueARN(t *testing.T, queueURL string) string {
 // TestSQSCLI_DeadLetterSourceQueues asserts `aws sqs list-dead-letter-source-queues`
 // returns the source queues wired to a dead-letter queue via their RedrivePolicy.
 func TestSQSCLI_DeadLetterSourceQueues(t *testing.T) {
+	t.Parallel()
 	dlqOut := runCLI(t, awsCLI("sqs", "create-queue", "--queue-name", "cli-dls-dlq"))
 	var dlq struct {
 		QueueUrl string `json:"QueueUrl"`
@@ -61,6 +62,7 @@ func TestSQSCLI_DeadLetterSourceQueues(t *testing.T) {
 // `start-message-move-task`, then listed with `list-message-move-tasks`, and a
 // `cancel-message-move-task` against the settled task is rejected.
 func TestSQSCLI_MessageMoveTask(t *testing.T) {
+	t.Parallel()
 	dlqOut := runCLI(t, awsCLI("sqs", "create-queue", "--queue-name", "cli-mmt-dlq"))
 	var dlq struct {
 		QueueUrl string `json:"QueueUrl"`

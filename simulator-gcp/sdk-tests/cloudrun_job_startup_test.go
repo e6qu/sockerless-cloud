@@ -35,6 +35,7 @@ func createRunJob(t *testing.T, client *run.JobsClient, jobID string, template *
 // passed its startup probe: the main container makes one connection attempt to
 // a server that opens its port three seconds after it starts, and succeeds.
 func TestSDK_CloudRun_RunJob_DependsOnWaitsForStartupProbe(t *testing.T) {
+	t.Parallel()
 	jobs := newJobsClient(t)
 	name := createRunJob(t, jobs, uniqueName("sdk-job-depends"), &runpb.TaskTemplate{
 		Containers: []*runpb.Container{
@@ -72,6 +73,7 @@ func TestSDK_CloudRun_RunJob_DependsOnWaitsForStartupProbe(t *testing.T) {
 // A task whose container fails its startup probe fails, and the attempt's
 // status says so.
 func TestSDK_CloudRun_RunJob_StartupProbeFailureFailsTask(t *testing.T) {
+	t.Parallel()
 	jobs := newJobsClient(t)
 	name := createRunJob(t, jobs, uniqueName("sdk-job-probe-fail"), &runpb.TaskTemplate{
 		Containers: []*runpb.Container{{
@@ -112,6 +114,7 @@ func TestSDK_CloudRun_RunJob_StartupProbeFailureFailsTask(t *testing.T) {
 // A dependsOn that names no container of the template, or that forms a cycle,
 // is refused when the job is created.
 func TestSDK_CloudRun_CreateJob_RefusesUnresolvableDependsOn(t *testing.T) {
+	t.Parallel()
 	jobs := newJobsClient(t)
 	for _, containers := range [][]*runpb.Container{
 		{{Name: "main", Image: "public.ecr.aws/docker/library/alpine:latest", DependsOn: []string{"absent"}}},
@@ -136,6 +139,7 @@ func TestSDK_CloudRun_CreateJob_RefusesUnresolvableDependsOn(t *testing.T) {
 // a running execution ends once its container has stopped, reporting the
 // execution gone.
 func TestSDK_CloudRun_DeleteJobStopsItsRunningExecution(t *testing.T) {
+	t.Parallel()
 	jobs := newJobsClient(t)
 	jobID := uniqueName("sdk-job-delete-running")
 	const marker = "sdk-delete-running-marker"
@@ -167,6 +171,7 @@ func TestSDK_CloudRun_DeleteJobStopsItsRunningExecution(t *testing.T) {
 
 // Cancelling an execution that has already completed leaves it as it is.
 func TestSDK_CloudRun_CancelCompletedExecutionLeavesIt(t *testing.T) {
+	t.Parallel()
 	jobs := newJobsClient(t)
 	name := createRunJob(t, jobs, uniqueName("sdk-job-cancel-done"), &runpb.TaskTemplate{
 		Containers: []*runpb.Container{{Image: "public.ecr.aws/docker/library/alpine:latest"}},

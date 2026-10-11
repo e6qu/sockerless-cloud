@@ -54,6 +54,7 @@ func rdsCreateReplicationSource(f rdsInstanceFixture, prefix, engine string) (st
 // stopped while it replicates. PromoteReadReplica ends the replication and
 // reopens the replica as a standalone instance that accepts writes.
 func TestRDS_ReadReplicaReplicatesItsSource(t *testing.T) {
+	t.Parallel()
 	for _, engine := range []string{"mysql", "postgres", "mariadb"} {
 		t.Run(engine, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -123,6 +124,7 @@ func TestRDS_ReadReplicaReplicatesItsSource(t *testing.T) {
 // Deleting a read replica's source promotes the replica to a standalone
 // instance, and a source without automated backups takes no replica.
 func TestRDS_DeletingASourcePromotesItsReadReplica(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	f := rdsInstanceFixture{t: t, ctx: ctx, client: rdsClient(), family: "postgres"}

@@ -22,6 +22,7 @@ func appAutoScalingClient() *applicationautoscaling.Client {
 // Application Auto Scaling (AnyScaleFrontendService), distinct from EC2 Auto
 // Scaling.
 func TestAppAutoScaling_TargetAndPolicyLifecycle(t *testing.T) {
+	t.Parallel()
 	c := appAutoScalingClient()
 	const (
 		ns         = aastypes.ServiceNamespaceEcs
@@ -126,6 +127,7 @@ func TestAppAutoScaling_TargetAndPolicyLifecycle(t *testing.T) {
 // register with tags, list them, add one, remove one. terraform-provider-aws
 // reads tags via ListTagsForResource on every refresh of a tagged target.
 func TestAppAutoScaling_Tags(t *testing.T) {
+	t.Parallel()
 	c := appAutoScalingClient()
 	const (
 		ns         = aastypes.ServiceNamespaceEcs
@@ -185,6 +187,7 @@ func TestAppAutoScaling_Tags(t *testing.T) {
 // TestAppAutoScaling_PolicyRequiresTarget verifies a scaling policy cannot be
 // attached to a resource with no registered scalable target.
 func TestAppAutoScaling_PolicyRequiresTarget(t *testing.T) {
+	t.Parallel()
 	c := appAutoScalingClient()
 	_, err := c.PutScalingPolicy(ctx, &applicationautoscaling.PutScalingPolicyInput{
 		PolicyName:        aws.String("orphan"),

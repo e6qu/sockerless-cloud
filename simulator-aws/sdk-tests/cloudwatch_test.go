@@ -16,6 +16,7 @@ import (
 // so events from every stream leaked in), and supplying both logStreamNames and
 // logStreamNamePrefix is rejected, matching real CloudWatch Logs.
 func TestCloudWatch_FilterLogEventsByStreamPrefix(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	group := "/test/prefix-filter"
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(group)})
@@ -59,6 +60,7 @@ func TestCloudWatch_FilterLogEventsByStreamPrefix(t *testing.T) {
 }
 
 func TestCloudWatch_GetLogEventsPagination(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 
 	logGroup := "/test/pagination"
@@ -146,6 +148,7 @@ func TestCloudWatch_GetLogEventsPagination(t *testing.T) {
 }
 
 func TestCloudWatch_PutRetentionPolicy_SDK(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	logGroup := "/test/retention"
 
@@ -171,6 +174,7 @@ func TestCloudWatch_PutRetentionPolicy_SDK(t *testing.T) {
 }
 
 func TestCloudWatch_DescribeLogStreamsOrdering(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 
 	logGroup := "/test/stream-ordering"
@@ -251,6 +255,7 @@ func TestCloudWatch_DescribeLogStreamsOrdering(t *testing.T) {
 }
 
 func TestCW_DescribeLogGroups_Pagination(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	names := []string{"/pag/cw/a", "/pag/cw/b", "/pag/cw/c"}
 	for _, n := range names {

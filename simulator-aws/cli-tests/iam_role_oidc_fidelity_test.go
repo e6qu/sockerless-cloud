@@ -8,6 +8,7 @@ import (
 // TestIAMRoleOIDCFidelityCLI covers the role attribute round-trip + UpdateRole +
 // TagRole/UntagRole and the OIDC provider tag lifecycle via the aws CLI.
 func TestIAMRoleOIDCFidelityCLI(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	assumeDoc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
 

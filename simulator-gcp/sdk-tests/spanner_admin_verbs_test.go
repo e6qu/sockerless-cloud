@@ -12,6 +12,7 @@ import (
 // splits, which quorum it is in, the samples it has produced, and the sessions
 // a wire-protocol adapter drives.
 func TestSpanner_SplitPointsQuorumScansAndAdapter(t *testing.T) {
+	t.Parallel()
 	svc := spannerAdminService(t, ctx)
 	const project, instance, database = "spanner-verbs", "prod", "app"
 	parent := "projects/" + project + "/instances/" + instance

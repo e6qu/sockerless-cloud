@@ -14,6 +14,7 @@ import (
 
 // TestECS_ListTaskDefinitions_SortAndStatus covers issue #630.
 func TestECS_ListTaskDefinitions_SortAndStatus(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	fam := uniqueName("ltd-probe-630")
 	var arns []string
@@ -52,6 +53,7 @@ func TestECS_ListTaskDefinitions_SortAndStatus(t *testing.T) {
 
 // TestSM_ListSecrets_TagKeyFilter covers issue #629.
 func TestSM_ListSecrets_TagKeyFilter(t *testing.T) {
+	t.Parallel()
 	nameB := uniqueName("sm629-b")
 	nameA := uniqueName("sm629-a")
 	c := smClient()

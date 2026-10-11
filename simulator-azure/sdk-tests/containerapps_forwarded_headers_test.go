@@ -18,6 +18,7 @@ import (
 // Container Apps ingress appends the client's IP to X-Forwarded-For and
 // overwrites X-Forwarded-Proto with the protocol the client used.
 func TestSDK_ContainerAppsIngress_ForwardedRequestHeaders(t *testing.T) {
+	t.Parallel()
 	rg, name := uniqueName("sdk-aca-xff-rg"), uniqueName("acaxff")
 	ensureRG(t, rg)
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())

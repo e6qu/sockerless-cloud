@@ -28,6 +28,7 @@ import (
 // the Docker protocol moves them. The one thing they add is the attributes a
 // client sets, which the registry then honours.
 func TestACR_DataPlanePropertiesReadTheRegistry(t *testing.T) {
+	t.Parallel()
 	fixture := newACRRegistryFixture(t, "acr-props-rg", "acrpropsregistry",
 		&armcontainerregistry.RegistryProperties{AdminUserEnabled: to.Ptr(true)})
 

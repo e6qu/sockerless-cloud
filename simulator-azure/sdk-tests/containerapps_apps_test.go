@@ -24,6 +24,7 @@ import (
 // backend uses.
 
 func TestSDK_ContainerAppsApps_CreateGetDelete(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-app-rg"
 	ensureRG(t, rg)
 
@@ -104,6 +105,7 @@ func TestSDK_ContainerAppsApps_CreateGetDelete(t *testing.T) {
 }
 
 func TestSDK_ContainerAppsApps_StartsRealReplicaAndLogs(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-app-exec-rg"
 	ensureRG(t, rg)
 
@@ -276,6 +278,7 @@ func readContainerAppStream(t *testing.T, endpoint, token, follow string) []stri
 }
 
 func TestSDK_ContainerAppsApps_MultiContainerSharesLocalhost(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-app-pod-rg"
 	appName := "sdk-app-pod-localhost"
 	ensureRG(t, rg)
@@ -335,6 +338,7 @@ func TestSDK_ContainerAppsApps_MultiContainerSharesLocalhost(t *testing.T) {
 // every update breaks audit trails and surfaces in azure-cli `--query
 // systemData` output.
 func TestSDK_ContainerAppsApps_SystemDataPreservedAcrossUpdates(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-systemdata-rg"
 	ensureRG(t, rg)
 
@@ -394,6 +398,7 @@ func TestSDK_ContainerAppsApps_SystemDataPreservedAcrossUpdates(t *testing.T) {
 // shares via this call; without it, function apps cannot mount user
 // volumes.
 func TestSDK_WebApps_UpdateAzureStorageAccounts(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-azf-storage-rg"
 	ensureRG(t, rg)
 
@@ -451,6 +456,7 @@ func TestSDK_WebApps_UpdateAzureStorageAccounts(t *testing.T) {
 // preserve the existing secrets, ingress, and scale. Uses raw HTTP
 // because the Azure SDK only exposes CreateOrUpdate (PUT), not PATCH.
 func TestSDK_ContainerAppsApps_PatchMergesNotReplaces(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-patch-rg"
 	ensureRG(t, rg)
 
@@ -565,6 +571,7 @@ func TestSDK_ContainerAppsApps_PatchMergesNotReplaces(t *testing.T) {
 // nested object merges member-wise (patching scale.minReplicas preserves
 // maxReplicas), and an explicit null removes the member (deleting a tag).
 func TestSDK_ContainerAppsApps_PatchRFC7396Semantics(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-rfc7396-rg"
 	ensureRG(t, rg)
 
@@ -658,6 +665,7 @@ func TestSDK_ContainerAppsApps_PatchRFC7396Semantics(t *testing.T) {
 // carrying id/name/status, and a final GET that 404s once the operation
 // reports Succeeded.
 func TestSDK_ContainerAppsApps_DeleteLROEnvelope(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-dellro-rg"
 	ensureRG(t, rg)
 

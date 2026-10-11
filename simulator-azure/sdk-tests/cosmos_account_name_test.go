@@ -25,6 +25,7 @@ import (
 // a data-plane request names its account the way every real client does — in
 // the host it dialled.
 func TestCosmos_AccountNameIsGlobal(t *testing.T) {
+	t.Parallel()
 	const account = "globalnamecosmos"
 	const subscription = "00000000-0000-0000-0000-000000000000"
 
@@ -60,6 +61,7 @@ func TestCosmos_AccountNameIsGlobal(t *testing.T) {
 // account, which made a misaddressed request succeed against somebody else's
 // data.
 func TestCosmos_DataPlaneNeedsTheAccountHost(t *testing.T) {
+	t.Parallel()
 	const account = "hostroutedcosmos"
 	key := cosmosAccountKey(t, account)
 

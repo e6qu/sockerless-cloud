@@ -8,6 +8,7 @@ import (
 )
 
 func TestKMSCLI_KeyAliasAndCrypto(t *testing.T) {
+	t.Parallel()
 	createOut := runCLI(t, awsCLI("kms", "create-key",
 		"--description", "cli-kms-key",
 		"--output", "json"))
@@ -60,6 +61,7 @@ func TestKMSCLI_KeyAliasAndCrypto(t *testing.T) {
 }
 
 func TestKMSCLI_KeyRotation(t *testing.T) {
+	t.Parallel()
 	createOut := runCLI(t, awsCLI("kms", "create-key", "--output", "json"))
 	var created struct {
 		KeyMetadata struct {
@@ -97,6 +99,7 @@ func TestKMSCLI_KeyRotation(t *testing.T) {
 }
 
 func TestKMSCLI_Tagging(t *testing.T) {
+	t.Parallel()
 	createOut := runCLI(t, awsCLI("kms", "create-key",
 		"--tags", "TagKey=edd:managed,TagValue=true",
 		"--output", "json"))
@@ -140,6 +143,7 @@ func TestKMSCLI_Tagging(t *testing.T) {
 }
 
 func TestKMSCLI_GetKeyPolicy(t *testing.T) {
+	t.Parallel()
 	createOut := runCLI(t, awsCLI("kms", "create-key", "--output", "json"))
 	var created struct {
 		KeyMetadata struct {

@@ -13,6 +13,7 @@ import (
 )
 
 func TestECS_ARecordServiceRegistryRejectsPort(t *testing.T) {
+	t.Parallel()
 	invalidService := uniqueName("invalid-a-record-registry")
 	validService := uniqueName("valid-a-record-registry")
 	family := uniqueName("a-record-registry-task")
@@ -87,6 +88,7 @@ func TestECS_ARecordServiceRegistryRejectsPort(t *testing.T) {
 // UpdateCapacityProvider, and DeleteCapacityProvider (DescribeCapacityProviders
 // already covered elsewhere) — the aws_ecs_capacity_provider control-plane CRUD.
 func TestECS_CapacityProviderLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	name := "sdk-cap-provider"
 
@@ -130,6 +132,7 @@ func TestECS_CapacityProviderLifecycle(t *testing.T) {
 // UpdateTaskSet, UpdateServicePrimaryTaskSet and DeleteTaskSet — the
 // aws_ecs_task_set blue/green primitive on an EXTERNAL-controller service.
 func TestECS_TaskSetLifecycle(t *testing.T) {
+	t.Parallel()
 	family := uniqueName("ts-task")
 	serviceName := uniqueName("ts-svc")
 	c := ecsClient()
@@ -198,6 +201,7 @@ func TestECS_TaskSetLifecycle(t *testing.T) {
 // DeregisterContainerInstance, plus the agent-poll ops SubmitContainerStateChange /
 // SubmitTaskStateChange / SubmitAttachmentStateChanges / DiscoverPollEndpoint.
 func TestECS_ContainerInstanceLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	cluster := "ci-cluster"
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
@@ -302,6 +306,7 @@ func TestECS_AccountSettings(t *testing.T) {
 // TestECS_Attributes exercises PutAttributes, ListAttributes and
 // DeleteAttributes — the placement-constraint label surface.
 func TestECS_Attributes(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	cluster := "attr-cluster"
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
@@ -341,6 +346,7 @@ func TestECS_Attributes(t *testing.T) {
 // TestECS_TaskProtection exercises GetTaskProtection and UpdateTaskProtection
 // against a running task.
 func TestECS_TaskProtection(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	cluster := "prot-cluster"
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
@@ -386,6 +392,7 @@ func TestECS_TaskProtection(t *testing.T) {
 
 // TestECS_StartTask runs a task on a specific registered container instance.
 func TestECS_StartTask(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	cluster := "start-cluster"
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
@@ -433,6 +440,7 @@ func TestECS_StartTask(t *testing.T) {
 // TestECS_DeleteTaskDefinitions deletes a deregistered (INACTIVE) revision and
 // surfaces the ACTIVE-revision failure shape.
 func TestECS_DeleteTaskDefinitions(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	reg, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family:               aws.String("del-task"),
@@ -459,6 +467,7 @@ func TestECS_DeleteTaskDefinitions(t *testing.T) {
 // DescribeDaemon, UpdateDaemon, ListDaemons, DeleteDaemon, the daemon-deployment
 // + daemon-revision read-backs, and the daemon-task-definition family.
 func TestECS_DaemonLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	cluster := "daemon-cluster"
 	clOut, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
@@ -549,6 +558,7 @@ func TestECS_DaemonLifecycle(t *testing.T) {
 // ListServiceDeployments, DescribeServiceDeployments, DescribeServiceRevisions,
 // StopServiceDeployment, ContinueServiceDeployment, and ListServicesByNamespace.
 func TestECS_ServiceDeployments(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	cluster := "sd-cluster"
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})

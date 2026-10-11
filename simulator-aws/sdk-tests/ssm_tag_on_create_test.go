@@ -15,6 +15,7 @@ import (
 // Manager create tags, and reads each one's tags back through
 // ListTagsForResource.
 func TestSSM_CreateCarriesTags(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	tags := []ssmtypes.Tag{{Key: aws.String("owner"), Value: aws.String("platform")}}
 	assertTagged := func(resourceType ssmtypes.ResourceTypeForTagging, id string) {

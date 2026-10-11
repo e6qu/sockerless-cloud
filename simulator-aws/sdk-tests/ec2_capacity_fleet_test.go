@@ -31,6 +31,7 @@ func createFleetLaunchTemplate(t *testing.T, c *ec2.Client, name string) string 
 // with AvailableInstanceCount == count; Describe reads it back; Modify changes
 // the count; usage and groups read back; Cancel transitions it to "cancelled".
 func TestEC2_CapacityReservationLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	cr, err := c.CreateCapacityReservation(ctx, &ec2.CreateCapacityReservationInput{
@@ -110,6 +111,7 @@ func TestEC2_CapacityReservationLifecycle(t *testing.T) {
 // fleet control plane: a fleet aggregates per-instance-type reservations toward
 // a target, settles "active", reads back, modifies, and cancels.
 func TestEC2_CapacityReservationFleetLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	crf, err := c.CreateCapacityReservationFleet(ctx, &ec2.CreateCapacityReservationFleetInput{
@@ -161,6 +163,7 @@ func TestEC2_CapacityReservationFleetLifecycle(t *testing.T) {
 // backing instances; Describe / DescribeFleetInstances / DescribeFleetHistory
 // read it back; ModifyFleet adjusts target; DeleteFleets removes it.
 func TestEC2_FleetLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	ltID := createFleetLaunchTemplate(t, c, uniqueName("fleet-lt-sdk"))
 
@@ -228,6 +231,7 @@ func TestEC2_FleetLifecycle(t *testing.T) {
 // settles active/fulfilled with a backing instance and spot price; Describe
 // reads it back; Cancel transitions it to cancelled.
 func TestEC2_SpotInstanceRequestLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	req, err := c.RequestSpotInstances(ctx, &ec2.RequestSpotInstancesInput{
@@ -271,6 +275,7 @@ func TestEC2_SpotInstanceRequestLifecycle(t *testing.T) {
 // active/fulfilled against its target; Describe / instances / history read it
 // back; Modify adjusts target; Cancel transitions it to cancelled.
 func TestEC2_SpotFleetLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	req, err := c.RequestSpotFleet(ctx, &ec2.RequestSpotFleetInput{
@@ -330,6 +335,7 @@ func TestEC2_SpotFleetLifecycle(t *testing.T) {
 // (create/describe/delete) plus the read-only spot price history and placement
 // scores, and the scheduled-instance + host-reservation read/purchase ops.
 func TestEC2_SpotDatafeedAndReadOnly(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	sub, err := c.CreateSpotDatafeedSubscription(ctx, &ec2.CreateSpotDatafeedSubscriptionInput{
@@ -367,6 +373,7 @@ func TestEC2_SpotDatafeedAndReadOnly(t *testing.T) {
 // TestEC2_ScheduledInstances covers the scheduled-instance ops: availability,
 // purchase, describe read-back, and run.
 func TestEC2_ScheduledInstances(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	avail, err := c.DescribeScheduledInstanceAvailability(ctx, &ec2.DescribeScheduledInstanceAvailabilityInput{
@@ -416,6 +423,7 @@ func TestEC2_ScheduledInstances(t *testing.T) {
 // TestEC2_HostReservations covers the Dedicated Host Reservation ops: offerings,
 // purchase preview, purchase, and describe read-back.
 func TestEC2_HostReservations(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	offerings, err := c.DescribeHostReservationOfferings(ctx, &ec2.DescribeHostReservationOfferingsInput{})

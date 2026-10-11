@@ -10,6 +10,7 @@ import (
 // fails loudly instead of returning an empty result. Uses CombinedOutput because
 // the calls are expected to exit non-zero (runCLI fatals on non-zero exit).
 func TestCloudWatchLogsCLI_FailLoud(t *testing.T) {
+	t.Parallel()
 	group := "/cli/failloud"
 	runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", group))
 	t.Cleanup(func() { _ = awsCLI("logs", "delete-log-group", "--log-group-name", group).Run() })

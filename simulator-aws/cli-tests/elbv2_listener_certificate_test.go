@@ -9,6 +9,7 @@ import (
 // round-trip: the cert ARN attached at CreateListener must come back from
 // DescribeListeners (the structured Certificates.member.N.CertificateArn parse).
 func TestELBv2CLI_HTTPSListenerCertificate(t *testing.T) {
+	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.84.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	sub := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-subnet",

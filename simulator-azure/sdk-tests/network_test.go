@@ -11,6 +11,7 @@ import (
 )
 
 func TestNetwork_CreateVirtualNetwork(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	// Create resource group first
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -38,6 +39,7 @@ func TestNetwork_CreateVirtualNetwork(t *testing.T) {
 }
 
 func TestNetwork_CreateSubnet(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -77,6 +79,7 @@ func TestNetwork_CreateSubnet(t *testing.T) {
 }
 
 func TestNetwork_CreateNSG(t *testing.T) {
+	t.Parallel()
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "nsg-rg", armresources.ResourceGroup{
@@ -101,6 +104,7 @@ func TestNetwork_CreateNSG(t *testing.T) {
 // a security rule via the per-rule client, and confirms the rule is
 // reflected in the parent NSG's properties.
 func TestNetwork_NSGSecurityRulesCRUD(t *testing.T) {
+	t.Parallel()
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "nsg-rules-rg", armresources.ResourceGroup{
@@ -171,6 +175,7 @@ func TestNetwork_NSGSecurityRulesCRUD(t *testing.T) {
 // Direction; otherwise the second create returns
 // SecurityRuleParameterPriorityAlreadyTaken (HTTP 400).
 func TestNetwork_NSGRule_RejectsDuplicatePriority(t *testing.T) {
+	t.Parallel()
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "nsg-prio-rg", armresources.ResourceGroup{Location: ptrStr("eastus")}, nil)
@@ -226,6 +231,7 @@ func TestNetwork_NSGRule_RejectsDuplicatePriority(t *testing.T) {
 }
 
 func TestNetwork_LoadBalancerLifecycle(t *testing.T) {
+	t.Parallel()
 	rg := "lb-rg"
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -311,6 +317,7 @@ func TestNetwork_LoadBalancerLifecycle(t *testing.T) {
 }
 
 func TestNetwork_PublicIPPrefixNatGatewaySubnetAssociation(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	rg := "nat-rg"
 	location := "eastus"
@@ -396,6 +403,7 @@ func TestNetwork_PublicIPPrefixNatGatewaySubnetAssociation(t *testing.T) {
 // remoteVirtualNetwork cross-reference reads back as the remote VNet's ARM
 // ID, then lists and deletes the peering.
 func TestNetwork_VirtualNetworkPeering(t *testing.T) {
+	t.Parallel()
 	rg := "peering-rg"
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -458,6 +466,7 @@ func TestNetwork_VirtualNetworkPeering(t *testing.T) {
 // configuration reads back through both the per-route client and the parent
 // route table.
 func TestNetwork_RouteTableAndRoutes(t *testing.T) {
+	t.Parallel()
 	rg := "rt-rg"
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -530,6 +539,7 @@ func TestNetwork_RouteTableAndRoutes(t *testing.T) {
 // path on a gateway with no attached subnets or public IPs (so it needs no
 // real-network host).
 func TestNetwork_NatGatewayUpdateTags(t *testing.T) {
+	t.Parallel()
 	rg := "nat-tags-rg"
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -561,6 +571,7 @@ func TestNetwork_NatGatewayUpdateTags(t *testing.T) {
 // backendAddressPools client (CreateOrUpdate / Get / List) against an
 // existing load balancer.
 func TestNetwork_LoadBalancerBackendPoolClient(t *testing.T) {
+	t.Parallel()
 	rg := "lb-pool-rg"
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)

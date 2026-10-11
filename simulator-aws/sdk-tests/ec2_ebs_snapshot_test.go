@@ -63,6 +63,7 @@ func TestEC2_EbsEncryptionByDefaultSDK(t *testing.T) {
 // TestEC2_FastSnapshotRestoresSDK enables fast snapshot restores for a
 // (snapshot, AZ), reads them back (must settle to enabled), then disables them.
 func TestEC2_FastSnapshotRestoresSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	snapID := createSnapshotForEBS(t, c)
 
@@ -108,6 +109,7 @@ func TestEC2_FastSnapshotRestoresSDK(t *testing.T) {
 // TestEC2_SnapshotTierSDK archives a snapshot then restores it, asserting the
 // tiering/restore start times and the temporary-vs-permanent restore flags.
 func TestEC2_SnapshotTierSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	snapID := createSnapshotForEBS(t, c)
 
@@ -170,6 +172,7 @@ func TestEC2_SnapshotBlockPublicAccessSDK(t *testing.T) {
 
 // TestEC2_VolumeAttributeSDK round-trips the autoEnableIO volume attribute.
 func TestEC2_VolumeAttributeSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vol, err := c.CreateVolume(ctx, &ec2.CreateVolumeInput{
 		AvailabilityZone: aws.String("us-east-1a"), Size: aws.Int32(8),

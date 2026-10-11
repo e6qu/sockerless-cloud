@@ -17,6 +17,7 @@ import (
 // TestCloudTrail_NoDynamoDataEventsInLookup (#651) — DynamoDB item-level ops are
 // DATA events and must not appear in LookupEvents; CreateTable (management) must.
 func TestCloudTrail_NoDynamoDataEventsInLookup(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	ct := cloudTrailClient()
 	tbl := "ct-data-events"
@@ -46,6 +47,7 @@ func TestCloudTrail_NoDynamoDataEventsInLookup(t *testing.T) {
 // container healthcheck's shape, which the S3 slice routes to ListBuckets) must
 // not generate phantom CloudTrail events.
 func TestCloudTrail_NoPhantomListBuckets(t *testing.T) {
+	t.Parallel()
 	ct := cloudTrailClient()
 	before := len(ctLookup(t, ct, cttypes.LookupAttributeKeyEventName, "ListBuckets"))
 	for i := 0; i < 3; i++ {
@@ -61,6 +63,7 @@ func TestCloudTrail_NoPhantomListBuckets(t *testing.T) {
 // classification holds across services: a client-initiated SQS SendMessage (a
 // data event) is excluded from LookupEvents while CreateQueue (management) is not.
 func TestCloudTrail_NoCrossServiceDataEvents(t *testing.T) {
+	t.Parallel()
 	sqsc := sqsClient()
 	ct := cloudTrailClient()
 	cq, err := sqsc.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("ct-guard-queue")})

@@ -14,6 +14,7 @@ import (
 // (CreateOrUpdateAtScope / GetAtScope / UpdateAtScope / DeleteAtScope) and
 // resource-provider registration at management-group scope.
 func TestAzureResources_CompletionSurfaces(t *testing.T) {
+	t.Parallel()
 	rg := "resources-completion-rg"
 	createResourceGroup(t, rg)
 	cred := &fakeCredential{}

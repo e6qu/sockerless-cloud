@@ -16,6 +16,7 @@ import (
 // ModifyVpnTunnelOptions, GetActiveVpnTunnelStatus, the device-type catalog and
 // sample-configuration generator, and the tolerant teardown.
 func TestEC2_VPNSiteToSite(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	// Customer gateway.
@@ -171,6 +172,7 @@ func TestEC2_VPNSiteToSite(t *testing.T) {
 // ApplySecurityGroupsToClientVpnTargetNetwork, the connection list +
 // terminate, and a tolerant teardown.
 func TestEC2_ClientVPNLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.210.0.0/16")})

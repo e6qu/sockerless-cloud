@@ -11,6 +11,7 @@ import (
 // serverless cache snapshots through the aws CLI. Grouped to keep the
 // appdata shard lean.
 func TestElastiCacheCLI_Serverless(t *testing.T) {
+	t.Parallel()
 	cacheName := "cli-sl-cache"
 	out := runCLI(t, awsCLI("elasticache", "create-serverless-cache",
 		"--serverless-cache-name", cacheName,
@@ -114,6 +115,7 @@ func TestElastiCacheCLI_Serverless(t *testing.T) {
 // TestElastiCacheCLI_GlobalReplicationGroup exercises the Global
 // Datastore control-plane operations through the aws CLI.
 func TestElastiCacheCLI_GlobalReplicationGroup(t *testing.T) {
+	t.Parallel()
 	primary := "cli-grg-primary"
 	runCLI(t, awsCLI("elasticache", "create-replication-group",
 		"--replication-group-id", primary,
@@ -208,6 +210,7 @@ func TestElastiCacheCLI_GlobalReplicationGroup(t *testing.T) {
 // TestElastiCacheCLI_SecurityGroupsAndUpdates exercises cache security
 // groups and service-update actions through the aws CLI.
 func TestElastiCacheCLI_SecurityGroupsAndUpdates(t *testing.T) {
+	t.Parallel()
 	// Cache security group.
 	csgName := "cli-csg"
 	out := runCLI(t, awsCLI("elasticache", "create-cache-security-group",
@@ -292,6 +295,7 @@ func TestElastiCacheCLI_SecurityGroupsAndUpdates(t *testing.T) {
 // reconfiguration, online migration, node-type modifications, and
 // reserved-node purchase through the aws CLI.
 func TestElastiCacheCLI_ReplicaShardAndReserved(t *testing.T) {
+	t.Parallel()
 	rgID := "cli-rsc-group"
 	runCLI(t, awsCLI("elasticache", "create-replication-group",
 		"--replication-group-id", rgID,

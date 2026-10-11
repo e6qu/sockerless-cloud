@@ -27,6 +27,7 @@ func queueSDKService(t *testing.T, account string) *azqueue.ServiceClient {
 // so the pop-receipt check, the extension and the fresh receipt all have to be
 // real.
 func TestQueueSDK_UpdateMessageExtendsInvisibility(t *testing.T) {
+	t.Parallel()
 	const (
 		account   = "sdkqueueupdate"
 		queueName = "sdkupdatequeue"
@@ -88,6 +89,7 @@ func TestQueueSDK_UpdateMessageExtendsInvisibility(t *testing.T) {
 // TestQueueSDK_UpdateMessageMakesAMessageVisibleAgain: a zero visibility
 // timeout is how a consumer that cannot finish hands the message straight back.
 func TestQueueSDK_UpdateMessageMakesAMessageVisibleAgain(t *testing.T) {
+	t.Parallel()
 	const (
 		account   = "sdkqueuereturn"
 		queueName = "sdkreturnqueue"
@@ -124,6 +126,7 @@ func TestQueueSDK_UpdateMessageMakesAMessageVisibleAgain(t *testing.T) {
 // TestQueueSDK_AccessPolicyRoundTrip drives the queue's stored access policies,
 // the signed identifiers a shared access signature is issued against.
 func TestQueueSDK_AccessPolicyRoundTrip(t *testing.T) {
+	t.Parallel()
 	const (
 		account   = "sdkqueueacl"
 		queueName = "sdkaclqueue"
@@ -177,6 +180,7 @@ func TestQueueSDK_AccessPolicyRoundTrip(t *testing.T) {
 // configuration a write has to actually change, and the replication statistics
 // a client reads from the secondary endpoint.
 func TestQueueSDK_ServicePropertiesAndStatistics(t *testing.T) {
+	t.Parallel()
 	const account = "sdkqueueservice"
 	serviceClient := queueSDKService(t, account)
 

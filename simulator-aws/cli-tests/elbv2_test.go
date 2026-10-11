@@ -11,6 +11,7 @@ import (
 )
 
 func TestELBv2LoadBalancerCLI(t *testing.T) {
+	t.Parallel()
 	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/healthz" {
 			_, _ = w.Write([]byte("ok"))
@@ -249,6 +250,7 @@ func TestELBv2LoadBalancerCLI(t *testing.T) {
 // did not return an expected HTTP code" — and the description names the code
 // the target returned.
 func TestELBv2HealthCheckMatcherCLI(t *testing.T) {
+	t.Parallel()
 	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
 	}))

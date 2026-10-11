@@ -19,6 +19,7 @@ import (
 // whether the engine has started yet or not, and moves the cluster's
 // endpoints to a new port with the data on the cluster volume intact.
 func TestRDS_AuroraModifyClusterRotatesPasswordAndMovesPort(t *testing.T) {
+	t.Parallel()
 	testContext, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	c := rdsClient()

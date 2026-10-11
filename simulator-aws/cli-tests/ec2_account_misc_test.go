@@ -13,6 +13,7 @@ import (
 // describe-identity-id-format, modify-identity-id-format,
 // describe-aggregate-id-format, describe-principal-id-format.
 func TestEC2CLI_IdFormatRoundTrip(t *testing.T) {
+	t.Parallel()
 	useLong := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-id-format",
 		"--resource", "vpc",
 		"--query", "Statuses[0].UseLongIds", "--output", "text")))
@@ -52,6 +53,7 @@ func TestEC2CLI_IdFormatRoundTrip(t *testing.T) {
 // reset-address-attribute, and the EC2-Classic ↔ VPC domain transitions
 // (move-address-to-vpc, restore-address-to-classic, describe-moving-addresses).
 func TestEC2CLI_AddressAttributeRoundTrip(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("ec2", "allocate-address", "--domain", "vpc",
 		"--query", "[AllocationId,PublicIp]", "--output", "text"))
 	f := strings.Fields(out)
@@ -100,6 +102,7 @@ func TestEC2CLI_AddressAttributeRoundTrip(t *testing.T) {
 // TestEC2CLI_ClassicLinkRoundTrip exercises attach-classic-link-vpc and
 // detach-classic-link-vpc on a real instance + VPC.
 func TestEC2CLI_ClassicLinkRoundTrip(t *testing.T) {
+	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.73.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	defer func() { _ = awsCLI("ec2", "delete-vpc", "--vpc-id", vpcID).Run() }()
@@ -129,6 +132,7 @@ func TestEC2CLI_ClassicLinkRoundTrip(t *testing.T) {
 // get-associated-enclave-certificate-iam-roles, and
 // disassociate-enclave-certificate-iam-role.
 func TestEC2CLI_EnclaveCertificateRoundTrip(t *testing.T) {
+	t.Parallel()
 	const certArn = "arn:aws:acm:us-east-1:000000000000:certificate/cli-1234"
 	const roleArn = "arn:aws:iam::000000000000:role/cli-enclave-role"
 
@@ -153,6 +157,7 @@ func TestEC2CLI_EnclaveCertificateRoundTrip(t *testing.T) {
 // TestEC2CLI_TgwConnectPeerRoundTrip exercises create/describe/delete of a
 // transit-gateway Connect peer over a real Connect attachment.
 func TestEC2CLI_TgwConnectPeerRoundTrip(t *testing.T) {
+	t.Parallel()
 	tgwID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-transit-gateway",
 		"--query", "TransitGateway.TransitGatewayId", "--output", "text")))
 	defer func() { _ = awsCLI("ec2", "delete-transit-gateway", "--transit-gateway-id", tgwID).Run() }()
@@ -197,6 +202,7 @@ func TestEC2CLI_TgwConnectPeerRoundTrip(t *testing.T) {
 // TestEC2CLI_VpcPeeringOptionsRoundTrip exercises
 // modify-vpc-peering-connection-options and reject-vpc-peering-connection.
 func TestEC2CLI_VpcPeeringOptionsRoundTrip(t *testing.T) {
+	t.Parallel()
 	vpcA := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.95.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	defer func() { _ = awsCLI("ec2", "delete-vpc", "--vpc-id", vpcA).Run() }()
@@ -236,6 +242,7 @@ func TestEC2CLI_VpcPeeringOptionsRoundTrip(t *testing.T) {
 // TestEC2CLI_NetworkAclAssociationRoundTrip exercises
 // replace-network-acl-association.
 func TestEC2CLI_NetworkAclAssociationRoundTrip(t *testing.T) {
+	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.98.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	defer func() { _ = awsCLI("ec2", "delete-vpc", "--vpc-id", vpcID).Run() }()
@@ -280,6 +287,7 @@ func TestEC2CLI_NetworkAclAssociationRoundTrip(t *testing.T) {
 // get-vpc-resources-blocking-encryption-enforcement, and
 // get-flow-logs-integration-template.
 func TestEC2CLI_MiscHonestEmpty(t *testing.T) {
+	t.Parallel()
 	// The two readers answer with the empty collection the account really has,
 	// and the emptiness is asserted rather than assumed: a handler answering
 	// with someone else's resources would fail here.
@@ -309,6 +317,7 @@ func TestEC2CLI_MiscHonestEmpty(t *testing.T) {
 // import-client-vpn-client-certificate-revocation-list, and
 // export-client-vpn-client-certificate-revocation-list.
 func TestEC2CLI_ClientVpnExportRoundTrip(t *testing.T) {
+	t.Parallel()
 	epID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-client-vpn-endpoint",
 		"--client-cidr-block", "10.210.0.0/22",
 		"--server-certificate-arn", "arn:aws:acm:us-east-1:000000000000:certificate/server",

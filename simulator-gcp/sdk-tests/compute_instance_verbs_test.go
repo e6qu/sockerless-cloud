@@ -34,6 +34,7 @@ func createVerbInstance(t *testing.T, svc *compute.Service, project, zone, name 
 }
 
 func TestCompute_InstanceSetVerbsAreRememberedByTheInstance(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, zone, name = "verbs-project", "us-central1-a", "worker"
@@ -65,6 +66,7 @@ func TestCompute_InstanceSetVerbsAreRememberedByTheInstance(t *testing.T) {
 }
 
 func TestCompute_InstanceResourcePolicies(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, zone, name = "verbs-policies", "us-central1-a", "scheduled"
@@ -100,6 +102,7 @@ func TestCompute_InstanceResourcePolicies(t *testing.T) {
 }
 
 func TestCompute_InstanceAccessConfigsAndInterfaces(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, zone, name = "verbs-network", "us-central1-a", "fronted"
@@ -143,6 +146,7 @@ func TestCompute_InstanceAccessConfigsAndInterfaces(t *testing.T) {
 }
 
 func TestCompute_InstanceSuspendAndResume(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, zone, name = "verbs-suspend", "us-central1-a", "batch"
@@ -171,6 +175,7 @@ func TestCompute_InstanceSuspendAndResume(t *testing.T) {
 }
 
 func TestCompute_InstanceDiskAutoDeleteAndShieldedConfig(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, zone, name = "verbs-disk", "us-central1-a", "stateful"
@@ -199,6 +204,7 @@ func TestCompute_InstanceDiskAutoDeleteAndShieldedConfig(t *testing.T) {
 
 // The reads derived from state the project already holds.
 func TestCompute_InstanceReferrersAndEffectiveFirewalls(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, zone, name = "verbs-reads", "us-central1-a", "member"
@@ -216,6 +222,7 @@ func TestCompute_InstanceReferrersAndEffectiveFirewalls(t *testing.T) {
 // The four that can only be answered by inventing what the hardware or the
 // guest would have said are declared gaps on the wire.
 func TestCompute_InstanceHardwareReadsAreDeclaredGaps(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, zone, name = "verbs-gaps", "us-central1-a", "opaque"

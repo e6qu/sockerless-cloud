@@ -16,6 +16,7 @@ func stsClient() *sts.Client {
 }
 
 func TestSTS_GetCallerIdentity(t *testing.T) {
+	t.Parallel()
 	client := stsClient()
 	out, err := client.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
 	require.NoError(t, err)

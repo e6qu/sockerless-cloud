@@ -35,6 +35,7 @@ func cbCLICreateProject(t *testing.T, name, buildspec string) {
 // list-build-batches, list-build-batches-for-project, stop-build-batch,
 // retry-build-batch, delete-build-batch, and batch-delete-builds.
 func TestCodeBuildCLI_BuildBatches(t *testing.T) {
+	t.Parallel()
 	proj := "cb-cli-batch-proj"
 	cbCLICreateProject(t, proj, "version: 0.2\\nphases:\\n  build:\\n    commands:\\n      - printf ok\\n")
 
@@ -108,6 +109,7 @@ func TestCodeBuildCLI_BuildBatches(t *testing.T) {
 // TestCodeBuildCLI_Fleets covers create-fleet, update-fleet, batch-get-fleets,
 // list-fleets, delete-fleet.
 func TestCodeBuildCLI_Fleets(t *testing.T) {
+	t.Parallel()
 	name := "cb-cli-fleet"
 	out := runCLI(t, awsCLI("codebuild", "create-fleet",
 		"--name", name,
@@ -165,6 +167,7 @@ func TestCodeBuildCLI_Fleets(t *testing.T) {
 // start-command-execution, batch-get-command-executions,
 // list-command-executions-for-sandbox, stop-sandbox.
 func TestCodeBuildCLI_SandboxesAndCommands(t *testing.T) {
+	t.Parallel()
 	proj := "cb-cli-sandbox-proj"
 	cbCLICreateProject(t, proj, "version: 0.2\\nphases:\\n  build:\\n    commands:\\n      - printf ok\\n")
 
@@ -263,6 +266,7 @@ func TestCodeBuildCLI_SandboxesAndCommands(t *testing.T) {
 
 // TestCodeBuildCLI_Webhooks covers create-webhook, update-webhook, delete-webhook.
 func TestCodeBuildCLI_Webhooks(t *testing.T) {
+	t.Parallel()
 	proj := "cb-cli-webhook-proj"
 	cbCLICreateProject(t, proj, "version: 0.2\\nphases:\\n  build:\\n    commands:\\n      - printf ok\\n")
 
@@ -297,6 +301,7 @@ func TestCodeBuildCLI_Webhooks(t *testing.T) {
 // TestCodeBuildCLI_ReportInsights covers describe-test-cases, describe-code-coverages,
 // get-report-group-trend, and delete-report against a real report.
 func TestCodeBuildCLI_ReportInsights(t *testing.T) {
+	t.Parallel()
 	rgName := "cb-cli-insights-rg"
 	out := runCLI(t, awsCLI("codebuild", "create-report-group",
 		"--name", rgName, "--type", "TEST", "--export-config", `{"exportConfigType":"NO_EXPORT"}`))
@@ -412,6 +417,7 @@ func TestCodeBuildCLI_ReportInsights(t *testing.T) {
 // list-shared-report-groups, update-project-visibility, invalidate-project-cache,
 // and list-curated-environment-images.
 func TestCodeBuildCLI_ResourcePolicyAndControls(t *testing.T) {
+	t.Parallel()
 	proj := "cb-cli-policy-proj"
 	cbCLICreateProject(t, proj, "version: 0.2\\nphases:\\n  build:\\n    commands:\\n      - printf ok\\n")
 	projARN := "arn:aws:codebuild:us-east-1:123456789012:project/" + proj

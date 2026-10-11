@@ -7,6 +7,7 @@ import (
 )
 
 func TestRedisCLI_ARMResources(t *testing.T) {
+	t.Parallel()
 	name := "cliredis"
 
 	cacheURL := armURL("Microsoft.Cache", "Redis/"+name, "2024-11-01")

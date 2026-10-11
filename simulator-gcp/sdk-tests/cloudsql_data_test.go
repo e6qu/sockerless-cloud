@@ -28,6 +28,7 @@ import (
 // The declared user is real inside the engine too: the session runs as the
 // user the client named, not as a shared superuser.
 func TestCloudSQL_BackupCapturesDataAndRestoreReturnsToIt(t *testing.T) {
+	t.Parallel()
 	testContext, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	svc := sqlAdminService(t)

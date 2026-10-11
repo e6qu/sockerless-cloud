@@ -37,6 +37,7 @@ const (
 )
 
 func TestCompute3_RegionalForwardingRules_CRUD_SetTarget(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.ForwardingRules.Insert(more3Project, more3Region, &compute.ForwardingRule{
 		Name:       "sdk-fr-1",
@@ -68,6 +69,7 @@ func TestCompute3_RegionalForwardingRules_CRUD_SetTarget(t *testing.T) {
 }
 
 func TestCompute3_RegionalTargetTcpProxies_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.RegionTargetTcpProxies.Insert(more3Project, more3Region, &compute.TargetTcpProxy{
 		Name:        "sdk-rtcp-1",
@@ -88,6 +90,7 @@ func TestCompute3_RegionalTargetTcpProxies_CRUD(t *testing.T) {
 }
 
 func TestCompute3_Commitments_CRUD_Aggregated(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.RegionCommitments.Insert(more3Project, more3Region, &compute.Commitment{
 		Name: "sdk-cmt-1",
@@ -123,6 +126,7 @@ func TestCompute3_Commitments_CRUD_Aggregated(t *testing.T) {
 }
 
 func TestCompute3_ZonalNetworkEndpointGroups_Members(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.NetworkEndpointGroups.Insert(more3Project, more3Zone, &compute.NetworkEndpointGroup{
 		Name: "sdk-neg-1",
@@ -161,6 +165,7 @@ func TestCompute3_ZonalNetworkEndpointGroups_Members(t *testing.T) {
 }
 
 func TestCompute3_GlobalFirewallPolicies_Rules_Associations_IAM(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.NetworkFirewallPolicies.Insert(more3Project, &compute.FirewallPolicy{
 		Name: "sdk-fp-1",
@@ -235,6 +240,7 @@ func TestCompute3_GlobalFirewallPolicies_Rules_Associations_IAM(t *testing.T) {
 }
 
 func TestCompute3_Routers_Update_RoutePolicies(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.Routers.Insert(more3Project, more3Region, &compute.Router{
 		Name:    "sdk-router-1",
@@ -300,6 +306,7 @@ func TestCompute3_Routers_Update_RoutePolicies(t *testing.T) {
 }
 
 func TestCompute3_Snapshots_IAM(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.Snapshots.Insert(more3Project, &compute.Snapshot{Name: "sdk-snap-1"}).Do()
 	require.NoError(t, err)
@@ -325,6 +332,7 @@ func TestCompute3_Snapshots_IAM(t *testing.T) {
 }
 
 func TestCompute3_GlobalAddresses_TestIamPermissions(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.GlobalAddresses.Insert(more3Project, &compute.Address{Name: "sdk-addr-1"}).Do()
 	require.NoError(t, err)

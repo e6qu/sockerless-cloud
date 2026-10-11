@@ -13,6 +13,7 @@ import (
 // Manager exposes alongside the certificate-scoped AddTagsToCertificate family:
 // TagResource / ListTagsForResource / UntagResource addressed by ARN.
 func TestACM_ResourceTagging(t *testing.T) {
+	t.Parallel()
 	c := acmClient()
 
 	requested, err := c.RequestCertificate(ctx, &acm.RequestCertificateInput{

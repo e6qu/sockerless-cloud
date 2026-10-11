@@ -496,6 +496,7 @@ func TestOrgPolicy_BooleanConstraintIsEnforcedByTheServiceItGoverns(t *testing.T
 // PATCH /v2/folders/{folder}, DELETE /v2/folders/{folder},
 // POST /v2/folders:search, POST /v2/folders/{folderAction}.
 func TestResourceManagerV2_Folders(t *testing.T) {
+	t.Parallel()
 	svc, err := crmv2.NewService(ctx,
 		option.WithEndpoint(baseURL),
 		option.WithTokenSource(simTokenSource()),
@@ -623,6 +624,7 @@ func TestResourceManagerV2_Folders(t *testing.T) {
 }
 
 func TestResourceManagerV1_OrganizationsAndAncestry(t *testing.T) {
+	t.Parallel()
 	svc := crmV1Service(t)
 
 	org, err := svc.Organizations.Get("organizations/123456789012").Do()
@@ -713,6 +715,7 @@ func TestResourceManagerV1_OrganizationsAndAncestry(t *testing.T) {
 }
 
 func TestResourceManagerLiens_BothAPIVersionsShareOneCollection(t *testing.T) {
+	t.Parallel()
 	v1 := crmV1Service(t)
 	v3 := crmV3Service(t)
 

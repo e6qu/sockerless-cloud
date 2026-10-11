@@ -14,6 +14,7 @@ import (
 // Records payload to the outfile positional. The test asserts the outfile
 // round-trips the stored rows faithfully for both CSV and JSON-Lines input.
 func TestS3CLI_SelectObjectContent(t *testing.T) {
+	t.Parallel()
 	t.Run("CSV", func(t *testing.T) {
 		bucket, key := "cli-select-csv-bucket", "people.csv"
 		csvBody := "alice,30\nbob,25\ncarol,42\n"

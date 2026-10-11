@@ -17,6 +17,7 @@ import (
 // TestIntegration_CloudRunJobLifecycle exercises the full Cloud Run backend
 // flow against the simulator: create → run → verify running → logs → cancel → verify cancelled → delete.
 func TestIntegration_CloudRunJobLifecycle(t *testing.T) {
+	t.Parallel()
 	jobID := uniqueName("integ-crj")
 	const marker = "integ-crj-running"
 
@@ -118,6 +119,7 @@ func TestIntegration_CloudRunJobLifecycle(t *testing.T) {
 // TestIntegration_CloudFunctionsLifecycle exercises the full Cloud Functions
 // flow: create → deploy → invoke at serviceConfig.uri → logs → delete.
 func TestIntegration_CloudFunctionsLifecycle(t *testing.T) {
+	t.Parallel()
 	const fnID = "integ-gcf"
 	client := newFunctionsClient(t)
 	fn := deployFunction(t, client, fnID, &runpb.Container{Image: httpProbeImageName, Args: []string{"log-request"}})

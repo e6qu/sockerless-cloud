@@ -24,6 +24,7 @@ import (
 // execution environments running until the function timeout or failing the
 // executions with the interrupted invocation's error.
 func TestLambdaWorkInFlightEndsWithTheSimulatorAndResumes_SDK(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 	tcpPort, udpPort := persistentSimulatorPorts(t)
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", tcpPort)

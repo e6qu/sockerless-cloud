@@ -62,6 +62,7 @@ func serviceBusHTTPStatus(t *testing.T, namespace, authorization string) (int, s
 // TestServiceBusHTTP_RefusesUnverifiableTokens drives the Service Bus HTTP
 // data plane with tokens that must not authenticate, and one that must.
 func TestServiceBusHTTP_RefusesUnverifiableTokens(t *testing.T) {
+	t.Parallel()
 	namespace := uniqueName("sdk-sb-authns")
 	realKey := serviceBusNamespaceKey(t, namespace)
 	audience := "https://" + namespace + ".servicebus.localhost/"
@@ -124,6 +125,7 @@ func TestServiceBusHTTP_RefusesUnverifiableTokens(t *testing.T) {
 // what makes rotation meaningful — a simulator that ignored rotation would
 // keep accepting the old token forever.
 func TestServiceBusHTTP_RotatedKeyInvalidatesToken(t *testing.T) {
+	t.Parallel()
 	rg := "messaging-dataplane-rg"
 	namespace := uniqueName("sdk-sb-rotateauth")
 	ensureRG(t, rg)
@@ -179,6 +181,7 @@ func TestServiceBusHTTP_RotatedKeyInvalidatesToken(t *testing.T) {
 // put-token handshake must refuse it, and the official client must surface the
 // failure rather than proceeding to send.
 func TestServiceBusAMQP_RefusesUnverifiableToken(t *testing.T) {
+	t.Parallel()
 	namespace := uniqueName("sdk-sb-amqpauth")
 	// Provision the namespace so the only thing wrong is the key.
 	serviceBusNamespaceKey(t, namespace)

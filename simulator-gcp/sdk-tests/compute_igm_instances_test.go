@@ -27,6 +27,7 @@ func createManagedGroup(t *testing.T, svc *compute.Service, project, zone, name 
 }
 
 func TestCompute_ManagedInstanceGroupInstanceLifecycle(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, zone, group = "mig-project", "us-central1-a", "workers"
 	createManagedGroup(t, svc, project, zone, group)
@@ -99,6 +100,7 @@ func TestCompute_ManagedInstanceGroupInstanceLifecycle(t *testing.T) {
 }
 
 func TestCompute_ManagedInstanceGroupPerInstanceConfigs(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, zone, group = "mig-config", "us-central1-a", "stateful"
 	createManagedGroup(t, svc, project, zone, group)
@@ -151,6 +153,7 @@ func TestCompute_ManagedInstanceGroupPerInstanceConfigs(t *testing.T) {
 }
 
 func TestCompute_ManagedInstanceGroupResizeRequests(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, zone, group = "mig-resize", "us-central1-a", "batch"
 	createManagedGroup(t, svc, project, zone, group)

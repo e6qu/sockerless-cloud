@@ -13,6 +13,7 @@ import (
 )
 
 func TestIntegration_ACAJobLifecycle(t *testing.T) {
+	t.Parallel()
 	rg := "int-aca-rg"
 	jobName := "int-aca-job"
 
@@ -87,6 +88,7 @@ func TestIntegration_ACAJobLifecycle(t *testing.T) {
 }
 
 func TestIntegration_AzureFunctionsLifecycle(t *testing.T) {
+	t.Parallel()
 	rg := "int-func-rg"
 	siteName := "int-func-app"
 

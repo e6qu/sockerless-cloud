@@ -10,6 +10,7 @@ import (
 )
 
 func TestDNS_CreateAndDescribeZone(t *testing.T) {
+	t.Parallel()
 	runCLI(t, gcloudCLI("dns", "managed-zones", "create", "cli-test-zone",
 		"--dns-name=cli-test.example.com.",
 		"--description=CLI test zone",
@@ -34,6 +35,7 @@ func TestDNS_CreateAndDescribeZone(t *testing.T) {
 }
 
 func TestDNS_CreateAndListRecordSets(t *testing.T) {
+	t.Parallel()
 	// Create zone first
 	runCLI(t, gcloudCLI("dns", "managed-zones", "create", "record-test-zone",
 		"--dns-name=records.example.com.",
@@ -90,6 +92,7 @@ func TestDNS_CreateAndListRecordSets(t *testing.T) {
 }
 
 func TestDNS_RecordSetTransactionAndUpdateCLI(t *testing.T) {
+	t.Parallel()
 	zone := "cli-change-zone"
 	recordName := "www.cli-change.example.com."
 	transactionFile := filepath.Join(tmpDir, "dns-change-transaction.yaml")
@@ -175,6 +178,7 @@ func TestDNS_RecordSetTransactionAndUpdateCLI(t *testing.T) {
 }
 
 func TestDNS_DeleteZone(t *testing.T) {
+	t.Parallel()
 	runCLI(t, gcloudCLI("dns", "managed-zones", "create", "delete-test-zone",
 		"--dns-name=delete.example.com.",
 		"--description=Delete test zone",

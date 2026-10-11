@@ -43,6 +43,7 @@ func sbReq(t *testing.T, method, namespace, path string, body []byte, headers ma
 // TestServiceBus_QueueRESTRoundTrip exercises the canonical
 // SendMessage → ReceiveAndDelete flow with real status codes.
 func TestServiceBus_QueueRESTRoundTrip(t *testing.T) {
+	t.Parallel()
 	ns := uniqueName("ns1")
 	queue := uniqueName("myqueue")
 
@@ -79,6 +80,7 @@ func TestServiceBus_QueueRESTRoundTrip(t *testing.T) {
 // (the read-with-lock-then-ack flow that gives at-least-once delivery
 // guarantees in real Service Bus).
 func TestServiceBus_PeekLockComplete(t *testing.T) {
+	t.Parallel()
 	ns := uniqueName("ns2")
 	queue := uniqueName("lockqueue")
 
@@ -141,6 +143,7 @@ func TestServiceBus_PeekLockComplete(t *testing.T) {
 // subscription variant: POST /{topic}/messages then DELETE
 // /{topic}/subscriptions/{sub}/messages/head.
 func TestServiceBus_TopicSubscriptionRoundTrip(t *testing.T) {
+	t.Parallel()
 	ns := uniqueName("ns3")
 	topic := uniqueName("mytopic")
 	sub := "mysub"
@@ -170,6 +173,7 @@ func TestServiceBus_TopicSubscriptionRoundTrip(t *testing.T) {
 // empty queue, then sends through azservicebus; the waiting receive answers
 // with the message.
 func TestServiceBus_RESTReceiveWaitsForASend(t *testing.T) {
+	t.Parallel()
 	ns, queue := "sb-rest-wait", "waitqueue"
 	req, err := http.NewRequest("DELETE", baseURL+"/"+queue+"/messages/head?timeout=60", nil)
 	require.NoError(t, err)
@@ -208,6 +212,7 @@ func TestServiceBus_RESTReceiveWaitsForASend(t *testing.T) {
 // TestServiceBus_RESTReceiveTimesOut answers a Peek-Lock on an empty
 // subscription with 204 once its timeout ends.
 func TestServiceBus_RESTReceiveTimesOut(t *testing.T) {
+	t.Parallel()
 	start := time.Now()
 	resp := sbReq(t, "POST", "sb-rest-timeout", "/idletopic/subscriptions/idlesub/messages/head?timeout=1", nil, nil)
 	resp.Body.Close()
@@ -265,6 +270,7 @@ func sbRawAMQPClient(t *testing.T, namespace string) *azservicebus.Client {
 }
 
 func TestServiceBus_AMQPSDKQueueSendReceive(t *testing.T) {
+	t.Parallel()
 	client := sbAMQPClient(t, uniqueName("sdk-amqp-data"))
 	t.Cleanup(func() { _ = client.Close(context.Background()) })
 
@@ -295,6 +301,7 @@ func TestServiceBus_AMQPSDKQueueSendReceive(t *testing.T) {
 }
 
 func TestServiceBus_AMQPSDKTopicSubscriptionSendReceive(t *testing.T) {
+	t.Parallel()
 	namespace := uniqueName("sdk-amqp-topic")
 	topic := uniqueName("amqptopic")
 	sub := "sub1"
@@ -334,6 +341,7 @@ func TestServiceBus_AMQPSDKTopicSubscriptionSendReceive(t *testing.T) {
 }
 
 func TestServiceBus_RawAMQPSDKQueueSendReceive(t *testing.T) {
+	t.Parallel()
 	client := sbRawAMQPClient(t, uniqueName("sdk-raw-amqp-data"))
 	t.Cleanup(func() { _ = client.Close(context.Background()) })
 
@@ -364,6 +372,7 @@ func TestServiceBus_RawAMQPSDKQueueSendReceive(t *testing.T) {
 }
 
 func TestServiceBus_RawAMQPSDKTopicSubscriptionSendReceive(t *testing.T) {
+	t.Parallel()
 	namespace := uniqueName("sdk-raw-amqp-topic")
 	topic := uniqueName("rawamqptopic")
 	sub := "sub1"
@@ -407,6 +416,7 @@ func TestServiceBus_RawAMQPSDKTopicSubscriptionSendReceive(t *testing.T) {
 // messages reach the receiver, not the management link the SDK attaches
 // beside it.
 func TestServiceBus_AMQPSDKSubscriptionReceiverOnItsOwnClient(t *testing.T) {
+	t.Parallel()
 	namespace := uniqueName("sdk-amqp-sub-own")
 	topic := uniqueName("owntopic")
 	sub := "sub1"

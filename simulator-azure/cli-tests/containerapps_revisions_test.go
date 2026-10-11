@@ -25,6 +25,7 @@ type cliRevision struct {
 // app: a template change creates a revision, the traffic split moves between
 // them, and a revision is deactivated, activated and restarted on its own.
 func TestContainerAppsCLI_RevisionsFollowTheTemplate(t *testing.T) {
+	t.Parallel()
 	env := startAzTLSSimulator(t)
 	runCLI(t, env.command("cloud", "register", "-n", "sockerless-aca-revisions",
 		"--endpoint-resource-manager", env.baseURL,

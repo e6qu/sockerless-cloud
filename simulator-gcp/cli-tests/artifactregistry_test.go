@@ -10,6 +10,7 @@ import (
 )
 
 func TestArtifactRegistryDockerHubRemoteRepositoryCLIAndOCI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, gcloudCLI("artifacts", "repositories", "create", "docker-hub",
 		"--location="+location,
 		"--repository-format=docker",

@@ -22,6 +22,7 @@ func ecrClient() *ecr.Client {
 }
 
 func TestECR_CreateRepository(t *testing.T) {
+	t.Parallel()
 	repo := uniqueName("test-repo")
 	client := ecrClient()
 	out, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
@@ -33,6 +34,7 @@ func TestECR_CreateRepository(t *testing.T) {
 }
 
 func TestECR_DescribeRepositories(t *testing.T) {
+	t.Parallel()
 	repo := uniqueName("describe-repo")
 	client := ecrClient()
 
@@ -50,6 +52,7 @@ func TestECR_DescribeRepositories(t *testing.T) {
 }
 
 func TestECR_GetAuthorizationToken(t *testing.T) {
+	t.Parallel()
 	client := ecrClient()
 	out, err := client.GetAuthorizationToken(ctx, &ecr.GetAuthorizationTokenInput{})
 	require.NoError(t, err)
@@ -83,6 +86,7 @@ func TestECR_GetAuthorizationToken(t *testing.T) {
 }
 
 func TestECR_PutImageDigestIsContentAddressed(t *testing.T) {
+	t.Parallel()
 	repo := uniqueName("content-digest-repo")
 	client := ecrClient()
 	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
@@ -116,6 +120,7 @@ func TestECR_PutImageDigestIsContentAddressed(t *testing.T) {
 // sockerless's image resolver and terraform's
 // aws_ecr_pull_through_cache_rule both take.
 func TestECR_PullThroughCacheCreate(t *testing.T) {
+	t.Parallel()
 	prefix := uniqueName("docker-hub")
 	client := ecrClient()
 	out, err := client.CreatePullThroughCacheRule(ctx, &ecr.CreatePullThroughCacheRuleInput{
@@ -131,6 +136,7 @@ func TestECR_PullThroughCacheCreate(t *testing.T) {
 // TestECR_PullThroughCacheCreateAlreadyExists verifies the simulator
 // returns the same error shape AWS does when a prefix is reused.
 func TestECR_PullThroughCacheCreateAlreadyExists(t *testing.T) {
+	t.Parallel()
 	prefix := uniqueName("already-exists")
 	client := ecrClient()
 	_, err := client.CreatePullThroughCacheRule(ctx, &ecr.CreatePullThroughCacheRuleInput{
@@ -152,6 +158,7 @@ func TestECR_PullThroughCacheCreateAlreadyExists(t *testing.T) {
 // TestECR_PullThroughCacheDescribe verifies list-all and filtered list
 // paths both round-trip.
 func TestECR_PullThroughCacheDescribe(t *testing.T) {
+	t.Parallel()
 	prefix := uniqueName("describe-ptc")
 	client := ecrClient()
 	_, err := client.CreatePullThroughCacheRule(ctx, &ecr.CreatePullThroughCacheRuleInput{
@@ -185,6 +192,7 @@ func TestECR_PullThroughCacheDescribe(t *testing.T) {
 // TestECR_PullThroughCacheDelete verifies delete removes the rule and
 // that re-deleting produces the not-found error shape.
 func TestECR_PullThroughCacheDelete(t *testing.T) {
+	t.Parallel()
 	client := ecrClient()
 	_, err := client.CreatePullThroughCacheRule(ctx, &ecr.CreatePullThroughCacheRuleInput{
 		EcrRepositoryPrefix: aws.String("delete-prefix"),
@@ -210,6 +218,7 @@ func TestECR_PullThroughCacheDelete(t *testing.T) {
 }
 
 func TestECR_LifecyclePolicy(t *testing.T) {
+	t.Parallel()
 	repo := uniqueName("lifecycle-repo")
 	client := ecrClient()
 
@@ -235,6 +244,7 @@ func TestECR_LifecyclePolicy(t *testing.T) {
 }
 
 func TestECR_DescribeRepositories_Pagination(t *testing.T) {
+	t.Parallel()
 	client := ecrClient()
 	names := []string{"pag-ecr-repo-a", "pag-ecr-repo-b", "pag-ecr-repo-c"}
 	for _, n := range names {
@@ -266,6 +276,7 @@ func TestECR_DescribeRepositories_Pagination(t *testing.T) {
 // request sets force, keeps the repository and its image, and deletes both once
 // force is set.
 func TestECR_DeleteRepositoryRefusesANonEmptyRepositoryWithoutForce(t *testing.T) {
+	t.Parallel()
 	repo := uniqueName("not-empty-repo")
 	client := ecrClient()
 	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
@@ -298,6 +309,7 @@ func TestECR_DeleteRepositoryRefusesANonEmptyRepositoryWithoutForce(t *testing.T
 // TestECR_DeleteRepositoryDeletesAnEmptyRepositoryWithoutForce deletes a
 // repository whose images were all removed: an empty repository needs no force.
 func TestECR_DeleteRepositoryDeletesAnEmptyRepositoryWithoutForce(t *testing.T) {
+	t.Parallel()
 	repo := uniqueName("emptied-repo")
 	client := ecrClient()
 	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})

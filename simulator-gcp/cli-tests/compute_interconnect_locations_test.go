@@ -13,6 +13,7 @@ import (
 // this drives the read the way an operator does when choosing where to order a
 // cross-connect: list the facilities, then describe the one they picked.
 func TestGcloudComputeInterconnectLocations(t *testing.T) {
+	t.Parallel()
 	out, err := gcloudCLI("compute", "interconnects", "locations", "list",
 		"--format=value(name)").CombinedOutput()
 	require.NoError(t, err, "list: %s", out)

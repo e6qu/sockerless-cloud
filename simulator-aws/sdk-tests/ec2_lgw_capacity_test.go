@@ -16,6 +16,7 @@ import (
 // route-table, virtual-interface-group, virtual-interface, VPC-association, and
 // virtual-interface-group-association CRUD round-trips.
 func TestEC2_LocalGateway(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 
 	// Discover the seeded local gateway.
@@ -141,6 +142,7 @@ func TestEC2_LocalGateway(t *testing.T) {
 // lifecycle, monitored-tag-key updates, data-export CRUD, and the metric reads
 // computed from the underlying capacity-reservation store.
 func TestEC2_CapacityManager(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 
 	enOut, err := client.EnableCapacityManager(ctx, &ec2.EnableCapacityManagerInput{
@@ -255,6 +257,7 @@ func TestEC2_CapacityManager(t *testing.T) {
 // TestEC2_DeclarativePolicies drives the declarative-policies report lifecycle:
 // start → describe (running → complete) → summary, plus the cancel path.
 func TestEC2_DeclarativePolicies(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 
 	startOut, err := client.StartDeclarativePoliciesReport(ctx, &ec2.StartDeclarativePoliciesReportInput{
@@ -298,6 +301,7 @@ func TestEC2_DeclarativePolicies(t *testing.T) {
 // TestEC2_NetworkPerformance drives the AWS Network Performance metric
 // subscription lifecycle and GetAwsNetworkPerformanceData metric-point read.
 func TestEC2_NetworkPerformance(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 
 	enOut, err := client.EnableAwsNetworkPerformanceMetricSubscription(ctx, &ec2.EnableAwsNetworkPerformanceMetricSubscriptionInput{

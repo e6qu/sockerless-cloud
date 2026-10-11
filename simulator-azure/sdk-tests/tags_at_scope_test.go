@@ -33,6 +33,7 @@ func tagsOf(tags map[string]*string) map[string]string {
 // so a divergence between the planes shows up as a client-visible
 // disagreement, which is exactly how it would surface against real Azure.
 func TestAzureResources_TagsAtResourceScopeAreTheResourcesOwnTags(t *testing.T) {
+	t.Parallel()
 	rg := "tags-scope-rg"
 	ensureRG(t, rg)
 
@@ -133,6 +134,7 @@ func TestAzureResources_TagsAtResourceScopeAreTheResourcesOwnTags(t *testing.T) 
 // other scope that owns a record of its own: `az tag` on a resource group and
 // `az group show` are two spellings of one set.
 func TestAzureResources_TagsAtResourceGroupScopeAreTheGroupsOwnTags(t *testing.T) {
+	t.Parallel()
 	rg := "tags-scope-group-rg"
 	groups, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -166,6 +168,7 @@ func TestAzureResources_TagsAtResourceGroupScopeAreTheGroupsOwnTags(t *testing.T
 // its tags or to none at all, so a write against a scope with no holder is
 // refused rather than accepted into a plane nothing else reads.
 func TestAzureResources_TagsAtScopeRefusesAScopeHoldingNoResource(t *testing.T) {
+	t.Parallel()
 	rg := "tags-scope-404-rg"
 	ensureRG(t, rg)
 

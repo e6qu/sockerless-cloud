@@ -15,6 +15,7 @@ import (
 // link gcloud writes is the one the project describe reads back, and
 // unlinking disables billing.
 func TestCloudBillingCLI_AccountsAndProjectLink(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, gcloudCLI("billing", "accounts", "list", "--format=json"))
 	var before []struct {
 		Name string `json:"name"`

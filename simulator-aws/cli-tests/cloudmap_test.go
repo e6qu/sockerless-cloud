@@ -11,6 +11,7 @@ import (
 )
 
 func TestCloudMap_CreateAndListNamespaces(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("servicediscovery", "create-private-dns-namespace",
 		"--name", "cli-test.local",
 		"--vpc", "vpc-12345678",
@@ -49,6 +50,7 @@ func TestCloudMap_CreateAndListNamespaces(t *testing.T) {
 }
 
 func TestCloudMap_CreateService(t *testing.T) {
+	t.Parallel()
 	// Create namespace first
 	runCLI(t, awsCLI("servicediscovery", "create-private-dns-namespace",
 		"--name", "svc-test.local",
@@ -98,6 +100,7 @@ func TestCloudMap_CreateService(t *testing.T) {
 }
 
 func TestCloudMap_RegisterAndListInstances(t *testing.T) {
+	t.Parallel()
 	// Setup: namespace + service
 	runCLI(t, awsCLI("servicediscovery", "create-private-dns-namespace",
 		"--name", "discover-test.local",
@@ -177,6 +180,7 @@ func TestCloudMap_RegisterAndListInstances(t *testing.T) {
 // the aws CLI. awsvpc task registrations resolve to the registered task ENI
 // address, and one task can resolve the other's service name.
 func TestCloudMap_CrossTaskDNS_CLI(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatalf("docker CLI required for cross-task DNS test (no fallback): %v", err)
 	}
@@ -366,6 +370,7 @@ func TestCloudMap_CrossTaskDNS_CLI(t *testing.T) {
 }
 
 func TestCloudMap_DeregisterInstance(t *testing.T) {
+	t.Parallel()
 	// Setup
 	runCLI(t, awsCLI("servicediscovery", "create-private-dns-namespace",
 		"--name", "dereg-test.local",

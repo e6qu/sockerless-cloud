@@ -17,6 +17,7 @@ import (
 // the simulator serves must answer on that protocol, timestamps and blobs in
 // their CBOR form.
 func TestCloudWatch_EveryOperationAnswersOverCBOR(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	now := time.Now().UTC().Truncate(time.Second)
 	_, err := client.PutMetricData(ctx, &cloudwatch.PutMetricDataInput{

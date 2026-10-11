@@ -54,6 +54,7 @@ func newExecutionsClient(t *testing.T) *run.ExecutionsClient {
 }
 
 func TestSDK_CloudRun_CreateJob(t *testing.T) {
+	t.Parallel()
 	client := newJobsClient(t)
 	jobID := uniqueName("sdk-create-job")
 
@@ -87,6 +88,7 @@ func TestSDK_CloudRun_CreateJob(t *testing.T) {
 // Previously the sim returned a synthetic `done=true` Operation for any op
 // id, which masked client bugs and dropped LRO inspection by name.
 func TestSDK_CloudRun_CreateJob_OperationsPersisted(t *testing.T) {
+	t.Parallel()
 	client := newJobsClient(t)
 	jobID := uniqueName("sdk-ops-persist-job")
 
@@ -122,6 +124,7 @@ func TestSDK_CloudRun_CreateJob_OperationsPersisted(t *testing.T) {
 }
 
 func TestSDK_CloudRun_RunJob(t *testing.T) {
+	t.Parallel()
 	jobsClient := newJobsClient(t)
 	jobID := uniqueName("sdk-run-job")
 
@@ -168,6 +171,7 @@ func TestSDK_CloudRun_RunJob(t *testing.T) {
 }
 
 func TestSDK_CloudRun_RunJob_MultiContainerSharesLocalhost(t *testing.T) {
+	t.Parallel()
 	jobsClient := newJobsClient(t)
 	jobID := uniqueName("sdk-run-job-sidecar")
 
@@ -225,6 +229,7 @@ func TestSDK_CloudRun_RunJob_MultiContainerSharesLocalhost(t *testing.T) {
 }
 
 func TestSDK_CloudRun_GetExecution(t *testing.T) {
+	t.Parallel()
 	jobsClient := newJobsClient(t)
 	execClient := newExecutionsClient(t)
 	jobID := uniqueName("sdk-getexec-job")
@@ -266,6 +271,7 @@ func TestSDK_CloudRun_GetExecution(t *testing.T) {
 }
 
 func TestSDK_CloudRun_CancelExecution(t *testing.T) {
+	t.Parallel()
 	jobsClient := newJobsClient(t)
 	execClient := newExecutionsClient(t)
 	jobID := uniqueName("sdk-cancel-job")
@@ -332,6 +338,7 @@ func TestSDK_CloudRun_CancelExecution(t *testing.T) {
 }
 
 func TestSDK_CloudRun_DeleteJob(t *testing.T) {
+	t.Parallel()
 	client := newJobsClient(t)
 	jobID := uniqueName("sdk-delete-job")
 
@@ -365,6 +372,7 @@ func TestSDK_CloudRun_DeleteJob(t *testing.T) {
 }
 
 func TestSDK_CloudRun_ListJobs(t *testing.T) {
+	t.Parallel()
 	client := newJobsClient(t)
 
 	nameA, nameB := uniqueName("sdk-list-job-a"), uniqueName("sdk-list-job-b")
@@ -418,6 +426,7 @@ func TestSDK_CloudRun_ListJobs(t *testing.T) {
 }
 
 func TestSDK_CloudRun_ListJobsPaginationAndEmptyWireShape(t *testing.T) {
+	t.Parallel()
 	client := newJobsClient(t)
 	parent := "projects/test-project/locations/us-east1"
 

@@ -14,6 +14,7 @@ import (
 // runtime via the AWS CLI: a real failed task trips a count-based circuit
 // breaker, and the service returns to its last completed task definition.
 func TestECSCLI_DeploymentConfiguration(t *testing.T) {
+	t.Parallel()
 	cluster := "cli-deploycfg-cluster"
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", cluster))
 	stable := strings.TrimSpace(runCLI(t, awsCLI("ecs", "register-task-definition",

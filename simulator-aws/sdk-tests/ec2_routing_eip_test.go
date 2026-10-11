@@ -14,6 +14,7 @@ import (
 // and the full CreateRoute target set (previously only gateway/nat/eni were
 // parsed; IPv6, prefix-list, peering, egress-only targets were dropped).
 func TestEC2_ReplaceRouteAndTargetsSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.110.0.0/16")})
 	require.NoError(t, err)
@@ -75,6 +76,7 @@ func TestEC2_ReplaceRouteAndTargetsSDK(t *testing.T) {
 // DisassociateAddress operations and the Address response fields (association_id,
 // instance, private_ip, public_ipv4_pool) that aws_eip reads back.
 func TestEC2_ElasticIPAssociationSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	alloc, err := c.AllocateAddress(ctx, &ec2.AllocateAddressInput{Domain: types.DomainTypeVpc})
 	require.NoError(t, err)
@@ -116,6 +118,7 @@ func TestEC2_ElasticIPAssociationSDK(t *testing.T) {
 // TestEC2_NatGatewayAddressFieldsSDK covers the NatGatewayAddress fields
 // (association_id, network_interface_id) aws_nat_gateway reads back.
 func TestEC2_NatGatewayAddressFieldsSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.111.0.0/16")})
 	require.NoError(t, err)
@@ -138,6 +141,7 @@ func TestEC2_NatGatewayAddressFieldsSDK(t *testing.T) {
 // (read by aws_vpc.main_route_table_id / aws_default_route_table via the
 // association.main filter).
 func TestEC2_MainRouteTableSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.112.0.0/16")})
 	require.NoError(t, err)

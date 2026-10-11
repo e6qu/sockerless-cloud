@@ -13,6 +13,7 @@ import (
 // list, the zone and record-set PATCH (Update) operations, and the
 // getDnsResourceReference lookup.
 func TestPublicDNS_ListUpdateAndResourceReference(t *testing.T) {
+	t.Parallel()
 	zoneURL := armURL("Microsoft.Network", "dnsZones/cli-more.example.com", "2018-05-01")
 	runCLI(t, azRest("PUT", zoneURL, `{"location":"global"}`))
 	defer runCLI(t, azRest("DELETE", zoneURL, ""))
@@ -82,6 +83,7 @@ func TestPublicDNS_ListUpdateAndResourceReference(t *testing.T) {
 // list, the zone / virtual-network-link PATCH (Update) operations, and the
 // list-all-record-sets read.
 func TestPrivateDNS_ListUpdateAllAndLinkUpdate(t *testing.T) {
+	t.Parallel()
 	zoneURL := dnsURL("privateDnsZones/cli-more.private")
 	runCLI(t, azRest("PUT", zoneURL, `{"location":"global"}`))
 	defer runCLI(t, azRest("DELETE", zoneURL, ""))

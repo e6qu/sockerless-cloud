@@ -16,6 +16,7 @@ import (
 // CancelScheduledMessages removes them before it; a message scheduled a moment
 // out reaches a receiver once its time comes.
 func TestServiceBus_AMQPSDKScheduleAndCancel(t *testing.T) {
+	t.Parallel()
 	namespace := uniqueName("sdk-amqp-schedule")
 	queue := uniqueName("schedq")
 	adminClient := sbAdminClient(t, namespace)
@@ -63,6 +64,7 @@ func TestServiceBus_AMQPSDKScheduleAndCancel(t *testing.T) {
 // accepted it, keeps the session's state, and refuses a second receiver the
 // lock of a session already accepted.
 func TestServiceBus_AMQPSDKSessions(t *testing.T) {
+	t.Parallel()
 	namespace := uniqueName("sdk-amqp-sessions")
 	queue := uniqueName("sessionq")
 	adminClient := sbAdminClient(t, namespace)

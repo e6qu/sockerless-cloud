@@ -33,6 +33,7 @@ func kmsCreateKeyCLI(t *testing.T, args ...string) string {
 }
 
 func TestKMSCLI_EnableDisableKey(t *testing.T) {
+	t.Parallel()
 	keyId := kmsCreateKeyCLI(t)
 
 	runCLI(t, awsCLI("kms", "disable-key", "--key-id", keyId))
@@ -52,6 +53,7 @@ func TestKMSCLI_EnableDisableKey(t *testing.T) {
 }
 
 func TestKMSCLI_CancelKeyDeletion(t *testing.T) {
+	t.Parallel()
 	keyId := kmsCreateKeyCLI(t)
 
 	runCLI(t, awsCLI("kms", "schedule-key-deletion", "--key-id", keyId, "--pending-window-in-days", "7"))
@@ -73,6 +75,7 @@ func TestKMSCLI_CancelKeyDeletion(t *testing.T) {
 }
 
 func TestKMSCLI_UpdateKeyDescription(t *testing.T) {
+	t.Parallel()
 	keyId := kmsCreateKeyCLI(t)
 
 	runCLI(t, awsCLI("kms", "update-key-description", "--key-id", keyId, "--description", "cli-updated"))
@@ -87,6 +90,7 @@ func TestKMSCLI_UpdateKeyDescription(t *testing.T) {
 }
 
 func TestKMSCLI_UpdateAlias(t *testing.T) {
+	t.Parallel()
 	idA := kmsCreateKeyCLI(t)
 	idB := kmsCreateKeyCLI(t)
 	aliasName := "alias/cli-update-alias"
@@ -106,6 +110,7 @@ func TestKMSCLI_UpdateAlias(t *testing.T) {
 }
 
 func TestKMSCLI_GenerateRandom(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("kms", "generate-random", "--number-of-bytes", "48", "--output", "json"))
 	var res struct {
 		Plaintext string `json:"Plaintext"`
@@ -117,6 +122,7 @@ func TestKMSCLI_GenerateRandom(t *testing.T) {
 }
 
 func TestKMSCLI_ListKeyPolicies(t *testing.T) {
+	t.Parallel()
 	keyId := kmsCreateKeyCLI(t)
 	out := runCLI(t, awsCLI("kms", "list-key-policies", "--key-id", keyId, "--output", "json"))
 	var res struct {
@@ -127,6 +133,7 @@ func TestKMSCLI_ListKeyPolicies(t *testing.T) {
 }
 
 func TestKMSCLI_RotateKeyOnDemandAndList(t *testing.T) {
+	t.Parallel()
 	keyId := kmsCreateKeyCLI(t)
 
 	listOut := runCLI(t, awsCLI("kms", "list-key-rotations", "--key-id", keyId, "--output", "json"))
@@ -152,6 +159,7 @@ func TestKMSCLI_RotateKeyOnDemandAndList(t *testing.T) {
 }
 
 func TestKMSCLI_ImportKeyMaterialCycle(t *testing.T) {
+	t.Parallel()
 	keyId := kmsCreateKeyCLI(t, "--origin", "EXTERNAL")
 
 	paramsOut := runCLI(t, awsCLI("kms", "get-parameters-for-import", "--key-id", keyId,

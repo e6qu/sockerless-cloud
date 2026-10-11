@@ -15,6 +15,7 @@ import (
 // application CRUD (create → get/list → set → delete) plus the endpoint CRUD
 // nested under it.
 func TestSNS_PlatformApplicationLifecycle(t *testing.T) {
+	t.Parallel()
 	c := snsClient()
 
 	create, err := c.CreatePlatformApplication(ctx, &sns.CreatePlatformApplicationInput{
@@ -117,6 +118,7 @@ func TestSNS_PlatformApplicationLifecycle(t *testing.T) {
 
 // TestSNS_GetEndpointAttributes_NotFound confirms the canonical NotFound shape.
 func TestSNS_GetEndpointAttributes_NotFound(t *testing.T) {
+	t.Parallel()
 	c := snsClient()
 	_, err := c.GetEndpointAttributes(ctx, &sns.GetEndpointAttributesInput{
 		EndpointArn: aws.String("arn:aws:sns:us-east-1:000000000000:endpoint/GCM/none/x"),
@@ -130,6 +132,7 @@ func TestSNS_GetEndpointAttributes_NotFound(t *testing.T) {
 // TestSNS_SMSSandboxFailsWithoutCarrier proves the cloud slice does not
 // manufacture or disclose an OTP when no telecommunications carrier exists.
 func TestSNS_SMSSandboxFailsWithoutCarrier(t *testing.T) {
+	t.Parallel()
 	c := snsClient()
 	phone := "+12065550100"
 
@@ -163,6 +166,7 @@ func sandboxStatusIs(nums []snstypes.SMSSandboxPhoneNumber, phone string, want s
 // store, the opt-out list (CheckIfPhoneNumberIsOptedOut / ListPhoneNumbersOptedOut /
 // OptInPhoneNumber), and ListOriginationNumbers.
 func TestSNS_SMSAttributesAndOptOut(t *testing.T) {
+	t.Parallel()
 	c := snsClient()
 
 	_, err := c.SetSMSAttributes(ctx, &sns.SetSMSAttributesInput{
@@ -213,6 +217,7 @@ func TestSNS_SMSAttributesAndOptOut(t *testing.T) {
 // TestSNS_DataProtectionPolicy stores and reads back a per-topic
 // data-protection policy.
 func TestSNS_DataProtectionPolicy(t *testing.T) {
+	t.Parallel()
 	c := snsClient()
 	tpc, err := c.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String("sdk-dpp-topic")})
 	require.NoError(t, err)

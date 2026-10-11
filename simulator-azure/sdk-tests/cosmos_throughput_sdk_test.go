@@ -20,6 +20,7 @@ import (
 //
 // — wired in cosmos_throughput.go.
 func TestCosmos_ThroughputOffers(t *testing.T) {
+	t.Parallel()
 	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
 	client := cosmosSimClient(t, dataPlaneAccount)
 
@@ -78,6 +79,7 @@ func TestCosmos_ThroughputOffers(t *testing.T) {
 // round-trips through the same offers data plane (DatabaseClient.ReadThroughput /
 // ReplaceThroughput key off the database `_rid`).
 func TestCosmos_DatabaseThroughputOffers(t *testing.T) {
+	t.Parallel()
 	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
 	client := cosmosSimClient(t, dataPlaneAccount)
 	dbThroughput := azcosmos.NewManualThroughputProperties(400)
@@ -108,6 +110,7 @@ func TestCosmos_DatabaseThroughputOffers(t *testing.T) {
 // more than a point read of the same item — the core invariant of the RU model
 // in cosmos_throughput.go (writes ~5x reads).
 func TestCosmos_RequestCharge(t *testing.T) {
+	t.Parallel()
 	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
 	client := cosmosSimClient(t, dataPlaneAccount)
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "rudb"}, nil)

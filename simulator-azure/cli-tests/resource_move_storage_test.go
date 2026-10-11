@@ -41,6 +41,7 @@ func azMoveStorageBlobCmd(env azLoginEnv, account, accountKey string, args ...st
 // only, `az storage account keys list` serves the same key material, and
 // `az storage blob download` reads back the bytes uploaded before the move.
 func TestResourceMoveStorageAccountCLI(t *testing.T) {
+	t.Parallel()
 	env := startAzLoginSimulator(t)
 
 	runCLI(t, env.command("cloud", "register", "-n", "sockerless-move",

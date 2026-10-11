@@ -23,6 +23,7 @@ func computeService(t *testing.T) *compute.Service {
 }
 
 func TestCompute_CreateNetwork(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	svc := computeService(t)
 
@@ -39,6 +40,7 @@ func TestCompute_CreateNetwork(t *testing.T) {
 }
 
 func TestCompute_CreateSubnetwork(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	svc := computeService(t)
 
@@ -65,6 +67,7 @@ func TestCompute_CreateSubnetwork(t *testing.T) {
 }
 
 func TestCompute_ListNetworks(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	svc := computeService(t)
 
@@ -98,6 +101,7 @@ func computeTestNetwork(t *testing.T, svc *compute.Service, project, name string
 }
 
 func TestCompute_RegionalAddressAndManualRouterNAT(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	svc := computeService(t)
 	const project = "test-project"
@@ -173,6 +177,7 @@ func TestCompute_RegionalAddressAndManualRouterNAT(t *testing.T) {
 // this test provisions, so it never rides on a network another test left
 // behind.
 func TestCompute_Firewall_CreateGetListDelete(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	network := computeTestNetwork(t, svc, "test-project", "fw-crud-network")
 
@@ -221,6 +226,7 @@ func TestCompute_Firewall_CreateGetListDelete(t *testing.T) {
 }
 
 func TestCompute_Firewall_DefaultsToIngressPriority1000(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	network := computeTestNetwork(t, svc, "test-project", "fw-defaults-network")
 
@@ -249,6 +255,7 @@ func TestCompute_Firewall_DefaultsToIngressPriority1000(t *testing.T) {
 // inside its request, so its operation is DONE when the client receives it
 // and the SDK's polling loop finishes in one round.
 func TestCompute_Disks_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project = "test-project"
 	const zone = "us-central1-a"
@@ -299,6 +306,7 @@ func TestCompute_Disks_CRUD(t *testing.T) {
 // surface terraform's `data "google_compute_disks"` uses. Real GCP
 // groups by `zones/<zone>` keys; sim mirrors that shape.
 func TestCompute_Disks_AggregatedList(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project = "test-project"
 
@@ -333,6 +341,7 @@ func TestCompute_Disks_AggregatedList(t *testing.T) {
 }
 
 func TestCompute_Disks_Get_NotFound(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.Disks.Get("test-project", "us-central1-a", "does-not-exist").Context(ctx).Do()
 	requireGoogleErrCode(t, err, http.StatusNotFound)
@@ -343,6 +352,7 @@ func TestCompute_Disks_Get_NotFound(t *testing.T) {
 // Terraform: Insert/Get/List/Delete for HealthChecks, BackendServices,
 // UrlMaps, TargetHttpProxies, and GlobalForwardingRules.
 func TestCompute_GlobalHTTPLoadBalancerChain(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project = "test-project"
 
@@ -430,6 +440,7 @@ func TestCompute_GlobalHTTPLoadBalancerChain(t *testing.T) {
 }
 
 func TestCompute_InstanceGroups_Lifecycle(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project = "test-project"
 	const zone = "us-central1-a"
@@ -487,6 +498,7 @@ func TestCompute_InstanceGroups_Lifecycle(t *testing.T) {
 }
 
 func TestCompute_Instances_Lifecycle(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project = "test-project"
@@ -583,6 +595,7 @@ func TestCompute_Instances_Lifecycle(t *testing.T) {
 }
 
 func TestCompute_InstanceTemplateCRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	project := "tmpl-test-project"
 
@@ -633,6 +646,7 @@ func TestCompute_InstanceTemplateCRUD(t *testing.T) {
 }
 
 func TestCompute_ListNetworks_Pagination(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	const project = "test-project"
 	svc := computeService(t)
@@ -675,6 +689,7 @@ func TestCompute_ListNetworks_Pagination(t *testing.T) {
 // `gcloud compute networks subnets list --region` and the console's VPC
 // network detail page.
 func TestCompute_ListSubnetworks(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	svc := computeService(t)
 	const project = "test-project"
@@ -717,6 +732,7 @@ func TestCompute_ListSubnetworks(t *testing.T) {
 // subnets rather than a 404. The read touches no real-execution host
 // capability, so unlike the round trip above it runs on every host.
 func TestCompute_ListSubnetworks_EmptyRegion(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	resp, err := svc.Subnetworks.List("test-project", "europe-west4").Context(ctx).Do()
 	require.NoError(t, err)
@@ -751,6 +767,7 @@ func awaitZoneOperation(t *testing.T, svc *compute.Service, project, zone, name 
 // could not show the instance in PROVISIONING or STAGING at all, because the
 // response would not exist until the boot had finished.
 func TestCompute_InsertReturnsARunningOperation(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project = "test-project"
@@ -851,6 +868,7 @@ func TestCompute_InsertReturnsARunningOperation(t *testing.T) {
 // control for the operation registry: a name the simulator never handed out is
 // not answered with an invented DONE.
 func TestCompute_ZoneOperationGetIsNotFoundForAnUnknownName(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.ZoneOperations.Get("test-project", "us-central1-a", "operation-never-issued").Context(ctx).Do()
 	require.Error(t, err)

@@ -19,6 +19,7 @@ import (
 // The SDK silently drops unknown members, so the absence is asserted at
 // the wire level alongside the SDK view of the ENI attachment.
 func TestECS_TaskWireShapeOmitsNetworkConfiguration(t *testing.T) {
+	t.Parallel()
 	client, clusterName, taskArn := ecsRunTaskHelper(t, "task-wire-shape", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("main"),

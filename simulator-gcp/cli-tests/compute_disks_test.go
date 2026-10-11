@@ -13,6 +13,7 @@ import (
 // the real gcloud CLI (external-validation principle).
 
 func TestGcloudComputeDisks_CRUD(t *testing.T) {
+	t.Parallel()
 	zone := "us-central1-a"
 	name := "sim-disk-cli-1"
 

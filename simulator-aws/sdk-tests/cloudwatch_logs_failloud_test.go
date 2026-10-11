@@ -18,6 +18,7 @@ import (
 // query string raises MalformedQueryException — never a silently empty result
 // that a consumer reads as "no matching logs".
 func TestCloudWatchLogs_FilterAndQueryFailLoud(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	group := "/test/failloud"
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(group)})
@@ -62,6 +63,7 @@ func TestCloudWatchLogs_FilterAndQueryFailLoud(t *testing.T) {
 // PutMetricFilter validates its FilterPattern up front, matching the
 // InvalidParameterException error shape in the CloudWatch Logs Smithy model.
 func TestCloudWatchLogs_PutMetricFilterRejectsInvalidPattern(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	group := "/test/put-metric-filter-invalid"
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(group)})
@@ -100,6 +102,7 @@ func TestCloudWatchLogs_PutMetricFilterRejectsInvalidPattern(t *testing.T) {
 // TestCloudWatchLogs_PutSubscriptionFilterRejectsInvalidPattern verifies the
 // same validation is applied to PutSubscriptionFilter.
 func TestCloudWatchLogs_PutSubscriptionFilterRejectsInvalidPattern(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	group := "/test/put-subscription-filter-invalid"
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(group)})

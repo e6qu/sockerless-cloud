@@ -99,6 +99,7 @@ var (
 // instance's shared default bridge — the elastic-network-interface-per-task
 // model real ECS implements.
 func TestECSNetworkModeAwsvpcKeepsTaskOffTheDefaultBridge(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	octet := unusedDockerVPCOctet(t, 180, nil)
@@ -135,6 +136,7 @@ func TestECSNetworkModeAwsvpcKeepsTaskOffTheDefaultBridge(t *testing.T) {
 // task runs on the container instance's default Docker bridge and is allocated
 // no elastic network interface.
 func TestECSNetworkModeBridgeUsesTheContainerInstanceBridge(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	q("ecs", "create-cluster", "--cluster-name", "default", "--query", "cluster.clusterName", "--output", "text")
@@ -170,6 +172,7 @@ func TestECSNetworkModeBridgeUsesTheContainerInstanceBridge(t *testing.T) {
 // TestECSNetworkModeHostUsesTheContainerInstanceNetworkStack proves a host-mode
 // task's container runs in the container instance's own network namespace.
 func TestECSNetworkModeHostUsesTheContainerInstanceNetworkStack(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	q("ecs", "create-cluster", "--cluster-name", "default", "--query", "cluster.clusterName", "--output", "text")
@@ -200,6 +203,7 @@ func TestECSNetworkModeHostUsesTheContainerInstanceNetworkStack(t *testing.T) {
 // TestECSNetworkModeNoneHasNoConnectivity proves a none-mode task's container
 // gets no network at all.
 func TestECSNetworkModeNoneHasNoConnectivity(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	q("ecs", "create-cluster", "--cluster-name", "default", "--query", "cluster.clusterName", "--output", "text")
@@ -219,6 +223,7 @@ func TestECSNetworkModeNoneHasNoConnectivity(t *testing.T) {
 // enforces the networkMode ↔ networkConfiguration contract in both directions:
 // awsvpc requires it, every other mode refuses it.
 func TestECSNetworkModeRejectsMismatchedNetworkConfiguration(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	octet := unusedDockerVPCOctet(t, 185, nil)

@@ -21,6 +21,7 @@ func registerCLIAMI(t *testing.T, q func(args ...string) string, name string) st
 // TestEC2CLI_FastLaunch covers enable-fast-launch (state enabled, config echoed),
 // describe-fast-launch-images, and disable-fast-launch via the aws CLI.
 func TestEC2CLI_FastLaunch(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	ami := registerCLIAMI(t, q, "cli-fast-launch-ami")
 
@@ -71,6 +72,7 @@ func TestEC2CLI_ImageDeprecation(t *testing.T) {
 // describe-export-image-tasks / describe-import-image-tasks (honest-empty read
 // sides), and list-images-in-recycle-bin (honest-empty) via the aws CLI.
 func TestEC2CLI_LaunchPermissionExportRecycleBin(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	ami := registerCLIAMI(t, q, "cli-cancel-perm-ami")
 

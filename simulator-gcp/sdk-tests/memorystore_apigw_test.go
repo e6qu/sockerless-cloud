@@ -67,6 +67,7 @@ func awaitAPIGatewayLRO(t *testing.T, svc *apigateway.Service, op *apigateway.Ap
 // Redis instance lifecycle: create (LRO) → get → list → patch (LRO)
 // → delete (LRO).
 func TestMemorystoreRedis_InstanceLifecycle(t *testing.T) {
+	t.Parallel()
 	svc := redisService(t)
 	parent := "projects/test-project/locations/us-central1"
 	id := "test-cache"
@@ -125,6 +126,7 @@ func TestMemorystoreRedis_InstanceLifecycle(t *testing.T) {
 // surface: create (LRO) → get → list → patch (LRO) → certificate
 // authority read → delete (LRO).
 func TestMemorystoreRedis_ClusterLifecycle(t *testing.T) {
+	t.Parallel()
 	svc := redisService(t)
 	parent := "projects/test-project/locations/us-central1"
 	id := "test-cluster"
@@ -186,6 +188,7 @@ func TestMemorystoreRedis_ClusterLifecycle(t *testing.T) {
 // materializes a BackupCollection + Backup, then reads them back through the
 // backupCollections / backups list+get APIs and deletes the backup.
 func TestMemorystoreRedis_BackupCollections(t *testing.T) {
+	t.Parallel()
 	svc := redisService(t)
 	parent := "projects/test-project/locations/us-east1"
 	id := "backup-cluster"
@@ -261,6 +264,7 @@ func TestMemorystoreRedis_BackupCollections(t *testing.T) {
 // TestMemorystoreRedis_AclPolicies exercises ACL policy CRUD plus the
 // token-auth-user sub-resource and its auth tokens.
 func TestMemorystoreRedis_AclPolicies(t *testing.T) {
+	t.Parallel()
 	svc := redisService(t)
 	parent := "projects/test-project/locations/us-west1"
 
@@ -339,6 +343,7 @@ func TestMemorystoreRedis_AclPolicies(t *testing.T) {
 
 // TestAPIGateway_Lifecycle exercises Api + ApiConfig + Gateway CRUD.
 func TestAPIGateway_Lifecycle(t *testing.T) {
+	t.Parallel()
 	svc := apigatewayService(t)
 	project := "test-project"
 	parentGlobal := "projects/" + project + "/locations/global"

@@ -43,6 +43,7 @@ func knativeListContinue(meta *run.ListMeta) string {
 }
 
 func TestCloudRunV1_ServicesList_LabelSelectorAndPaging(t *testing.T) {
+	t.Parallel()
 	svc := newRunV1(t)
 	const namespace = "test-project-knative-list-params"
 	parent := "namespaces/" + namespace
@@ -127,6 +128,7 @@ func TestCloudRunV1_ServicesList_LabelSelectorAndPaging(t *testing.T) {
 }
 
 func TestCloudRunV1_ReconciledChildrenList_LabelSelectorAndPaging(t *testing.T) {
+	t.Parallel()
 	svc := newRunV1(t)
 	const namespace = "test-project-knative-children-list-params"
 	parent := "namespaces/" + namespace
@@ -212,6 +214,7 @@ func TestCloudRunV1_ReconciledChildrenList_LabelSelectorAndPaging(t *testing.T) 
 }
 
 func TestCloudRunV1_DomainMappingsList_LabelSelectorAndPaging(t *testing.T) {
+	t.Parallel()
 	svc := newRunV1(t)
 	const namespace = "test-project-knative-domainmappings-list-params"
 	parent := "namespaces/" + namespace
@@ -257,6 +260,7 @@ func TestCloudRunV1_DomainMappingsList_LabelSelectorAndPaging(t *testing.T) {
 // naming the etag the client last read proceeds; one naming an etag the job
 // has moved past is a modification conflict, which Cloud Run answers ABORTED.
 func TestSDK_RunV2REST_Job_RunEtagOptimisticConcurrency(t *testing.T) {
+	t.Parallel()
 	svc := newRunV2RESTService(t)
 	id := uniqueName("etag-job")
 	name := crV2Parent + "/jobs/" + id

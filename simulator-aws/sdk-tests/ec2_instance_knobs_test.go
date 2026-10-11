@@ -24,6 +24,7 @@ func describeOneInstance(t *testing.T, c *ec2.Client, id string) types.Instance 
 // metadata_options / iam_instance_profile / ebs_optimized / monitoring /
 // key_name / cpu_options all drifted every plan.
 func TestEC2_InstanceKnobFidelitySDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.130.0.0/16")})
 	require.NoError(t, err)
@@ -86,6 +87,7 @@ func TestEC2_InstanceKnobFidelitySDK(t *testing.T) {
 // (IAM profile, metadata options) is applied to the launched instance, not just
 // image/type.
 func TestEC2_RunInstancesAppliesLaunchTemplateSDK(t *testing.T) {
+	t.Parallel()
 	ltName := uniqueName("knob-lt")
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.131.0.0/16")})

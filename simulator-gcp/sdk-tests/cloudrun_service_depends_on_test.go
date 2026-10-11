@@ -17,6 +17,7 @@ import (
 // seconds after it starts. The request reaches the ingress only when the
 // instance started its containers in that order.
 func TestSDK_CloudRunV2Services_DependsOnWaitsForTheSidecarsStartupProbe(t *testing.T) {
+	t.Parallel()
 	client := newServicesClient(t)
 	svc := createInvokableService(t, client, "v2-svc-depends-on", &runpb.Service{
 		Template: &runpb.RevisionTemplate{Containers: []*runpb.Container{
@@ -49,6 +50,7 @@ func TestSDK_CloudRunV2Services_DependsOnWaitsForTheSidecarsStartupProbe(t *test
 // A dependsOn that names no container of the template, or that forms a cycle,
 // is refused when the service is created.
 func TestSDK_CloudRunV2Services_CreateRefusesUnresolvableDependsOn(t *testing.T) {
+	t.Parallel()
 	client := newServicesClient(t)
 	for _, containers := range [][]*runpb.Container{
 		{{Name: "ingress", Image: httpProbeImageName, DependsOn: []string{"absent"}}},

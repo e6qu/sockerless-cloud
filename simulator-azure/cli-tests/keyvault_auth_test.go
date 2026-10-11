@@ -22,6 +22,7 @@ import (
 var kvClientAddress = regexp.MustCompile(`Client address: ([0-9a-fA-F:.]+)`)
 
 func TestKeyVaultCLI_DataPlaneAuthorization(t *testing.T) {
+	t.Parallel()
 	env := startAzLoginSimulator(t)
 	runCLI(t, env.command("cloud", "register", "-n", "sockerless-kv-auth",
 		"--endpoint-resource-manager", env.baseURL,

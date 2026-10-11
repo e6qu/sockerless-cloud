@@ -19,6 +19,7 @@ import (
 // per-secret counter is reserved atomically, so no two versions collide and
 // none is silently overwritten.
 func TestSecretManager_ConcurrentAddVersion_UniqueIDs(t *testing.T) {
+	t.Parallel()
 	svc := secretManagerService(t)
 	parent := "projects/sdk-sm-concurrency"
 	secretID := "concurrent-versions"
@@ -75,6 +76,7 @@ func TestSecretManager_ConcurrentAddVersion_UniqueIDs(t *testing.T) {
 // TestSecretManager_ListFilter asserts ListSecrets honors the `filter` query
 // param (label match), instead of returning the full set.
 func TestSecretManager_ListFilter(t *testing.T) {
+	t.Parallel()
 	svc := secretManagerService(t)
 	parent := "projects/sdk-sm-filter"
 
@@ -101,6 +103,7 @@ func TestSecretManager_ListFilter(t *testing.T) {
 // TestCloudKMS_ConcurrentCreateVersion_UniqueIDs asserts concurrent
 // CreateCryptoKeyVersion calls each reserve a distinct version ID atomically.
 func TestCloudKMS_ConcurrentCreateVersion_UniqueIDs(t *testing.T) {
+	t.Parallel()
 	svc := kmsService(t)
 	parent := "projects/sdk-kms-concurrency/locations/global"
 	ringID := "concurrency-ring"

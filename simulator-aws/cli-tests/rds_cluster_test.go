@@ -8,6 +8,7 @@ import (
 )
 
 func TestRDSCLI_DBClusterLifecycle(t *testing.T) {
+	t.Parallel()
 	id := "cli-aurora-cluster"
 	out := runCLI(t, awsCLI("rds", "create-db-cluster",
 		"--db-cluster-identifier", id,
@@ -82,6 +83,7 @@ func TestRDSCLI_DBClusterLifecycle(t *testing.T) {
 }
 
 func TestRDSCLI_RebootDBInstance(t *testing.T) {
+	t.Parallel()
 	id := "cli-reboot-db"
 	runCLI(t, awsCLI("rds", "create-db-instance",
 		"--db-instance-identifier", id,
@@ -110,6 +112,7 @@ func TestRDSCLI_RebootDBInstance(t *testing.T) {
 }
 
 func TestRDSCLI_DBSubnetGroupLifecycle(t *testing.T) {
+	t.Parallel()
 	name := "cli-subnet-group"
 	out := runCLI(t, awsCLI("rds", "create-db-subnet-group",
 		"--db-subnet-group-name", name,
@@ -170,6 +173,7 @@ func TestRDSCLI_DBSubnetGroupLifecycle(t *testing.T) {
 }
 
 func TestRDSCLI_DBParameterGroupLifecycle(t *testing.T) {
+	t.Parallel()
 	name := "cli-param-group"
 	out := runCLI(t, awsCLI("rds", "create-db-parameter-group",
 		"--db-parameter-group-name", name,

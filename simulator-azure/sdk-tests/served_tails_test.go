@@ -20,6 +20,7 @@ import (
 // same resource the typed provider owns, so a write through one door is
 // visible through the other.
 func TestResources_ByResourceIDAddressesTheSameResource(t *testing.T) {
+	t.Parallel()
 	const group = "generic-id-rg"
 	createResourceGroup(t, group)
 
@@ -81,6 +82,7 @@ func TestResources_ByResourceIDAddressesTheSameResource(t *testing.T) {
 // caller's assignments name actually carry, at the resource-group scope and
 // at a resource's own scope.
 func TestAuthorization_PermissionListings(t *testing.T) {
+	t.Parallel()
 	const group = "permissions-rg"
 	createResourceGroup(t, group)
 

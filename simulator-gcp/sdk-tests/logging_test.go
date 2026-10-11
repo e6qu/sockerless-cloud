@@ -41,6 +41,7 @@ func logadminClientFor(t *testing.T, project string) *logadmin.Client {
 }
 
 func TestLogging_SeverityFilterUsesCloudOrdering(t *testing.T) {
+	t.Parallel()
 	client := logadminClient(t)
 	writeClient, err := newLoggingWriteClient(t)
 	require.NoError(t, err)
@@ -67,6 +68,7 @@ func TestLogging_SeverityFilterUsesCloudOrdering(t *testing.T) {
 }
 
 func TestLogging_WriteAndListEntries(t *testing.T) {
+	t.Parallel()
 	client := logadminClient(t)
 
 	// Write entries via gRPC using the logging.Client (write client)
@@ -121,6 +123,7 @@ func loggingPayloads(t *testing.T, client *logadmin.Client, filter string) []str
 }
 
 func TestLogging_FilterByResourceType(t *testing.T) {
+	t.Parallel()
 	client := logadminClient(t)
 
 	writeClient, err := newLoggingWriteClient(t)
@@ -158,6 +161,7 @@ func TestLogging_FilterByResourceType(t *testing.T) {
 // wrote, and a shared log would hand a cutoff-before-everything query its
 // entries too.
 func TestLogging_FilterByTimestamp(t *testing.T) {
+	t.Parallel()
 	client := logadminClient(t)
 
 	writeClient, err := newLoggingWriteClient(t)
@@ -189,6 +193,7 @@ func TestLogging_FilterByTimestamp(t *testing.T) {
 // a follower uses, timestamp>"<cutoff>": an entry stamped exactly at the
 // cutoff is excluded.
 func TestLogging_FilterByTimestampStrictGT(t *testing.T) {
+	t.Parallel()
 	client := logadminClient(t)
 	writeClient, err := newLoggingWriteClient(t)
 	require.NoError(t, err)
@@ -213,6 +218,7 @@ func TestLogging_FilterByTimestampStrictGT(t *testing.T) {
 // refuses a timestamp that is not RFC 3339 rather than storing an entry no
 // timestamp filter or ordering could place.
 func TestLogging_RESTWriteRejectsAnUnreadableTimestamp(t *testing.T) {
+	t.Parallel()
 	svc := loggingRESTService(t)
 	logName := fmt.Sprintf("projects/test-project/logs/rest-bad-ts-%d", time.Now().UnixNano())
 
@@ -250,6 +256,7 @@ func loggingRESTService(t *testing.T) *loggingrpc.Service {
 }
 
 func TestLogging_SinkCRUD(t *testing.T) {
+	t.Parallel()
 	svc := loggingRESTService(t)
 	project := "sink-test-project"
 	parent := "projects/" + project
@@ -305,6 +312,7 @@ func TestLogging_SinkCRUD(t *testing.T) {
 }
 
 func TestLogging_MetricCRUD(t *testing.T) {
+	t.Parallel()
 	svc := loggingRESTService(t)
 	project := "metric-test-project"
 	parent := "projects/" + project
@@ -388,6 +396,7 @@ func loggingSinkPage(t *testing.T, listURL, pageToken string) (names []string, n
 }
 
 func TestLogging_ListSinks_Pagination(t *testing.T) {
+	t.Parallel()
 	const project = "test-project"
 	want := []string{"pag-sink-a", "pag-sink-b", "pag-sink-c"}
 	for _, name := range want {

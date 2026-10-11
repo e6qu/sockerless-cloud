@@ -171,7 +171,8 @@ const acrAuthTestManifest = `{"schemaVersion":2,"mediaType":"application/vnd.doc
 // tells a client where its token service is, and with the registry's error
 // envelope.
 func TestACR_DataPlaneRefusesUnauthenticatedRequests(t *testing.T) {
-	fixture := newACRRegistryFixture(t, "acr-auth-rg", "acrauthregistry",
+	t.Parallel()
+	fixture := newACRRegistryFixture(t, "acr-auth-rg-4177", "acrauthregistry",
 		&armcontainerregistry.RegistryProperties{AdminUserEnabled: to.Ptr(true)})
 
 	resp := acrDoRequest(t, http.MethodGet, fixture.endpoint()+"/v2/", "", "", nil)
@@ -215,7 +216,8 @@ func TestACR_DataPlaneRefusesUnauthenticatedRequests(t *testing.T) {
 // credential traded for a scoped access token at the challenge's realm, and
 // the push and pull that token authorizes — and no other.
 func TestACR_DockerLoginTokenFlow(t *testing.T) {
-	fixture := newACRRegistryFixture(t, "acr-auth-rg", "acrdockerloginregistry",
+	t.Parallel()
+	fixture := newACRRegistryFixture(t, "acr-auth-rg-f6bc", "acrdockerloginregistry",
 		&armcontainerregistry.RegistryProperties{AdminUserEnabled: to.Ptr(true)})
 
 	const repo = "team/service"
@@ -269,7 +271,8 @@ func TestACR_DockerLoginTokenFlow(t *testing.T) {
 // access token at /oauth2/token, retry — so a green run is proof the flow is
 // the one the real client performs.
 func TestACR_SDKChallengeFlow(t *testing.T) {
-	fixture := newACRRegistryFixture(t, "acr-auth-rg", "acrsdkflowregistry",
+	t.Parallel()
+	fixture := newACRRegistryFixture(t, "acr-auth-rg-511a", "acrsdkflowregistry",
 		&armcontainerregistry.RegistryProperties{AdminUserEnabled: to.Ptr(true)})
 
 	client, err := azcontainerregistry.NewClient(fixture.endpoint(), &fakeCredential{}, acrClientOptions())
@@ -326,7 +329,8 @@ func TestACR_SDKChallengeFlow(t *testing.T) {
 // the Microsoft Entra credential it is handed instead of minting a refresh
 // token for anything presented.
 func TestACR_ExchangeRefusesForeignEntraToken(t *testing.T) {
-	fixture := newACRRegistryFixture(t, "acr-auth-rg", "acrexchangeregistry",
+	t.Parallel()
+	fixture := newACRRegistryFixture(t, "acr-auth-rg-404e", "acrexchangeregistry",
 		&armcontainerregistry.RegistryProperties{AdminUserEnabled: to.Ptr(true)})
 
 	exchange := func(accessToken string) (int, string) {
@@ -374,7 +378,8 @@ func TestACR_ExchangeRefusesForeignEntraToken(t *testing.T) {
 // password stops authenticating, and takes the access tokens it had already
 // produced with it.
 func TestACR_RegenerateCredentialRevokesDerivedTokens(t *testing.T) {
-	fixture := newACRRegistryFixture(t, "acr-auth-rg", "acrrotationregistry",
+	t.Parallel()
+	fixture := newACRRegistryFixture(t, "acr-auth-rg-23c1", "acrrotationregistry",
 		&armcontainerregistry.RegistryProperties{AdminUserEnabled: to.Ptr(true)})
 
 	params := map[string]string{
@@ -419,7 +424,8 @@ func TestACR_RegenerateCredentialRevokesDerivedTokens(t *testing.T) {
 // that scope buys, holding the repositories pushed to this registry and no
 // other, and paged with `n` and `last` the way the registry pages it.
 func TestACR_DockerRegistryCatalog(t *testing.T) {
-	fixture := newACRRegistryFixture(t, "acr-auth-rg", "acrcatalogregistry",
+	t.Parallel()
+	fixture := newACRRegistryFixture(t, "acr-auth-rg-db54", "acrcatalogregistry",
 		&armcontainerregistry.RegistryProperties{AdminUserEnabled: to.Ptr(true)})
 
 	for _, repo := range []string{"catalog/alpha", "catalog/beta"} {

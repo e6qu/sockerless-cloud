@@ -18,6 +18,7 @@ import (
 // and product↔group associations), the GetEntityTag HEAD operations, and the
 // subscription / namedValue / backend POST actions.
 func TestAzureAPIM_MoreOperations(t *testing.T) {
+	t.Parallel()
 	sub := "00000000-0000-0000-0000-000000000010"
 	rg := "apim-more-rg"
 	name := "more-apim"

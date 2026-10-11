@@ -9,6 +9,7 @@ import (
 // The in-guest operations over the real az CLI. Each runs against a machine
 // that really booted, and asserts on what the guest produced.
 func TestComputeVirtualMachineGuestOperationsCLI(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 
 	vnetURL := armURL("Microsoft.Network", "virtualNetworks/cli-guest-vnet", "2024-05-01")

@@ -23,6 +23,7 @@ import (
 // the access point's scope refuses what it does not name — whatever the
 // caller's own policies allow on the bucket behind it.
 func TestS3_AccessPointFrontsItsBucketAndNarrowsWhatGoesThroughIt(t *testing.T) {
+	t.Parallel()
 	bucket := "ap-data-bucket"
 	admin := s3Client()
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
@@ -87,6 +88,7 @@ func TestS3_AccessPointFrontsItsBucketAndNarrowsWhatGoesThroughIt(t *testing.T) 
 // through one access point, which is how an administrator requires that data be
 // reached through a front door rather than at the bucket.
 func TestS3_DataAccessPointConditionKeysScopeTheGrant(t *testing.T) {
+	t.Parallel()
 	bucket := "ap-condition-bucket"
 	admin := s3Client()
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})

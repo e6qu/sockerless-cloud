@@ -19,8 +19,9 @@ import (
 // call happened — a machine reported fully patched because nothing looked is
 // indistinguishable from a real answer unless the test reads the guest.
 func TestCompute_VirtualMachinePatchOperations(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
-	const rg = "vm-patch-rg"
+	const rg = "vm-patch-rg-e4fd"
 	const vmName = "vm-patch"
 	nicID := vmOperationsFixture(t, rg, "vm-patch", "10.98")
 	// A capture writes the image into a storage account, and the machine names

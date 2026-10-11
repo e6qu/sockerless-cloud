@@ -16,6 +16,7 @@ import (
 // listed on the marketplace, the listing is cancelled, and a queued-deletion
 // attempt fails honestly because the RI is active.
 func TestEC2_ReservedInstancesLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	offers, err := c.DescribeReservedInstancesOfferings(ctx, &ec2.DescribeReservedInstancesOfferingsInput{
@@ -116,6 +117,7 @@ func TestEC2_ReservedInstancesLifecycle(t *testing.T) {
 // Instance exchange quote / accept flow: a quote is computed against a target
 // offering, then the exchange is accepted and yields an exchange id.
 func TestEC2_ReservedInstancesExchangeQuote(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	offers, err := c.DescribeReservedInstancesOfferings(ctx, &ec2.DescribeReservedInstancesOfferingsInput{
@@ -166,6 +168,7 @@ func TestEC2_ReservedInstancesExchangeQuote(t *testing.T) {
 // read-back, and the cancellation-quote ops, all operating on a real capacity
 // reservation.
 func TestEC2_CapacityReservationBillingAndTopology(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	cr, err := c.CreateCapacityReservation(ctx, &ec2.CreateCapacityReservationInput{
@@ -262,6 +265,7 @@ func TestEC2_CapacityReservationBillingAndTopology(t *testing.T) {
 // reservation into a new one and moving instances between two reservations,
 // plus the per-instance attribute modify.
 func TestEC2_CapacityReservationSplitAndMove(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	src, err := c.CreateCapacityReservation(ctx, &ec2.CreateCapacityReservationInput{
@@ -309,6 +313,7 @@ func TestEC2_CapacityReservationSplitAndMove(t *testing.T) {
 // are described, an offering is purchased into a capacity-block-backed capacity
 // reservation, the block reads back via describe + status, and it is extended.
 func TestEC2_CapacityBlockLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	offers, err := c.DescribeCapacityBlockOfferings(ctx, &ec2.DescribeCapacityBlockOfferingsInput{

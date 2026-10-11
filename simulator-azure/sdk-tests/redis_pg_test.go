@@ -81,8 +81,9 @@ func waitAzureAsyncOperation(t *testing.T, opURL string) {
 // TestAzureRedisCache_ARMLifecycle exercises CRUD on the
 // Microsoft.Cache/Redis ARM surface.
 func TestAzureRedisCache_ARMLifecycle(t *testing.T) {
+	t.Parallel()
 	sub := "00000000-0000-0000-0000-000000000000"
-	rg := "test-rg"
+	rg := "test-rg-d436"
 	name := "lifecycle-redis"
 	path := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Cache/Redis/%s", sub, rg, name)
 
@@ -124,8 +125,9 @@ func TestAzureRedisCache_ARMLifecycle(t *testing.T) {
 // TestAzurePGFlexibleServer_ARMLifecycle exercises Postgres
 // FlexibleServer + Database + FirewallRule.
 func TestAzurePGFlexibleServer_ARMLifecycle(t *testing.T) {
+	t.Parallel()
 	sub := "00000000-0000-0000-0000-000000000000"
-	rg := "test-rg"
+	rg := "test-rg-96e5"
 	name := "lifecycle-pg"
 	armBase := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.DBforPostgreSQL/flexibleServers/%s",
 		sub, rg, name)

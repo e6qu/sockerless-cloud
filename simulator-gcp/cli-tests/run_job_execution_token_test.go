@@ -40,6 +40,7 @@ spec:
 // succeeded when the command returns. A job name and token of 63 characters
 // or more are refused.
 func TestCloudRunJobs_CLI_ReplaceWithRunExecutionToken(t *testing.T) {
+	t.Parallel()
 	const job = "cli-token-job"
 	runCLI(t, gcloudRegionalRunCLI("run", "jobs", "replace", tokenJobManifest(t, job, "first", "echo ran"),
 		"--region="+location, "--quiet"))

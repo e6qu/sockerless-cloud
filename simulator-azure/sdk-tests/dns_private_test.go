@@ -13,6 +13,7 @@ import (
 // TestPrivateDNS_RecordSetsCRUD exercises armprivatedns.RecordSetsClient
 // for A-record Create / Get / List / Delete operations.
 func TestPrivateDNS_RecordSetsCRUD(t *testing.T) {
+	t.Parallel()
 	const rg = "dns-rs-sdk-rg"
 	ensureRG(t, rg)
 	const zoneName = "sdk-records.internal"
@@ -74,6 +75,7 @@ func TestPrivateDNS_RecordSetsCRUD(t *testing.T) {
 }
 
 func TestPrivateDNS_RecordSetsUpdate(t *testing.T) {
+	t.Parallel()
 	const rg = "dns-rs-update-rg"
 	ensureRG(t, rg)
 	const zoneName = "update-test.internal"
@@ -109,6 +111,7 @@ func TestPrivateDNS_RecordSetsUpdate(t *testing.T) {
 }
 
 func TestPrivateDNS_ListZonesAndVirtualNetworkLinks(t *testing.T) {
+	t.Parallel()
 	rg := "dns-private-rg"
 	ensureRG(t, rg)
 	zoneName := "sdk-private.example.internal"

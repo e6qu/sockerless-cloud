@@ -52,6 +52,7 @@ func webWorkflowsDeploy(t *testing.T, client *armappservice.WebAppsClient, rg, s
 }
 
 func TestSDK_WebWorkflows_DeployAndEnvelopes(t *testing.T) {
+	t.Parallel()
 	rg := "webwf-envelope-rg"
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "webwf-env-plan")
@@ -149,6 +150,7 @@ func TestSDK_WebWorkflows_DeployAndEnvelopes(t *testing.T) {
 }
 
 func TestSDK_WebWorkflows_HostruntimeBridge(t *testing.T) {
+	t.Parallel()
 	rg := uniqueName("webwf-runtime-rg")
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "webwf-rt-plan")

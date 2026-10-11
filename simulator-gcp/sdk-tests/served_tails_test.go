@@ -34,6 +34,7 @@ import (
 // the policy set on it is the policy read back, and testIamPermissions
 // answers against it.
 func TestDNS_ManagedZoneIAM(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	svc, err := dns.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
@@ -78,6 +79,7 @@ func TestDNS_ManagedZoneIAM(t *testing.T) {
 // key, disable and enable flip the stored key's state, and the three
 // catalog reads answer from what this installation actually holds.
 func TestIAM_ServiceAccountKeyUploadEnableDisableAndCatalogs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	svc, err := iamv1.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
@@ -159,6 +161,7 @@ func iamUploadCertificatePEM(t *testing.T) string {
 // connector performs before dialling, and the point-in-time restore that
 // creates a new instance from the backup covering the requested moment.
 func TestCloudSQL_ResolveConnectSettingsAndPointInTimeRestore(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	svc, err := sqladmin.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
@@ -220,6 +223,7 @@ func TestCloudSQL_ResolveConnectSettingsAndPointInTimeRestore(t *testing.T) {
 // client has no rapidCaches collection yet, so these speak the JSON API
 // directly — the same wire a client will speak once it does.
 func TestGCS_RapidCachesAndManagedFolderPatch(t *testing.T) {
+	t.Parallel()
 	bucket := uniqueName("rapid-cache-bucket")
 	gcpRawJSON(t, http.MethodPost, "/storage/v1/b?project=test-project",
 		map[string]any{"name": bucket}, http.StatusOK)

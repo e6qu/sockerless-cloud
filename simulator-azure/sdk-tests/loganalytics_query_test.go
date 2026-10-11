@@ -43,6 +43,7 @@ func logsClientOpts() *azquery.LogsClientOptions {
 // TestLogAnalytics_QueryWorkspaceSDK runs a KQL query through the azquery Logs
 // client (POST /v1/workspaces/{workspaceId}/query).
 func TestLogAnalytics_QueryWorkspaceSDK(t *testing.T) {
+	t.Parallel()
 	p := newLogsPipeline(t, "la-azquery-rg", "SimJobs_CL", "Job", "Log")
 	azqueryjobName := uniqueName("azqueryjob")
 	ts := time.Now().UTC().Format(time.RFC3339)
@@ -63,6 +64,7 @@ func TestLogAnalytics_QueryWorkspaceSDK(t *testing.T) {
 // TestLogAnalytics_QueryBatchSDK runs a batch of queries through the azquery
 // Logs client (POST /v1/$batch).
 func TestLogAnalytics_QueryBatchSDK(t *testing.T) {
+	t.Parallel()
 	p := newLogsPipeline(t, "la-batch-rg", "SimJobs_CL", "Job", "Log")
 	batchjobName := uniqueName("batchjob")
 	ts := time.Now().UTC().Format(time.RFC3339)
@@ -93,6 +95,7 @@ func TestLogAnalytics_QueryBatchSDK(t *testing.T) {
 // TestLogAnalytics_QueryBooleanOperatorsSDK runs where clauses joined with and
 // and or, and a string literal holding a pipe, through the azquery Logs client.
 func TestLogAnalytics_QueryBooleanOperatorsSDK(t *testing.T) {
+	t.Parallel()
 	p := newLogsPipeline(t, "la-and-or-rg", "SimTraces_CL", "AppRoleName", "Message")
 	role := uniqueName("azquery-and-or-role")
 	ts := time.Now().UTC().Format(time.RFC3339)
@@ -128,6 +131,7 @@ func TestLogAnalytics_QueryBooleanOperatorsSDK(t *testing.T) {
 // TestLogAnalytics_QuerySyntaxErrorSDK sends a query that does not parse and
 // reads back the service's BadArgumentError, alone and inside a batch.
 func TestLogAnalytics_QuerySyntaxErrorSDK(t *testing.T) {
+	t.Parallel()
 	ws := createLogWorkspace(t, "la-syntax-rg", "la-syntax-ws")
 	client, err := azquery.NewLogsClient(&fakeCredential{}, logsClientOpts())
 	require.NoError(t, err)
@@ -164,6 +168,7 @@ func TestLogAnalytics_QuerySyntaxErrorSDK(t *testing.T) {
 // the workspace metadata endpoints, which the official azquery SDK does not
 // wrap but which `az monitor log-analytics` and the data-plane REST API call.
 func TestLogAnalytics_GetQueryAndMetadataREST(t *testing.T) {
+	t.Parallel()
 	p := newLogsPipeline(t, "la-get-rg", "SimJobs_CL", "Job", "Log")
 	ts := time.Now().UTC().Format(time.RFC3339)
 	p.upload(t, []map[string]any{{"TimeGenerated": ts, "Job": "getjob", "Log": "get line"}})

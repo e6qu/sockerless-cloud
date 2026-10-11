@@ -15,6 +15,7 @@ import (
 // TestECS_RequestValidation covers issue #618 — three documented ECS request
 // constraints the sim previously under-validated.
 func TestECS_RequestValidation(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 
 	// Case 1: Fargate task def without task-level cpu/memory → ClientException.
@@ -56,6 +57,7 @@ func TestECS_RequestValidation(t *testing.T) {
 // TestScheduler_ExpressionValidation covers issue #619 — CreateSchedule must
 // reject a ScheduleExpression that isn't a valid at()/rate()/cron() form.
 func TestScheduler_ExpressionValidation(t *testing.T) {
+	t.Parallel()
 	c := schedulerClient()
 	mk := func(name, expr string) error {
 		_, err := c.CreateSchedule(ctx, &scheduler.CreateScheduleInput{

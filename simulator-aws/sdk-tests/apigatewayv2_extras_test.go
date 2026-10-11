@@ -15,6 +15,7 @@ import (
 // child surface: CreateIntegrationResponse, GetIntegrationResponse,
 // GetIntegrationResponses, UpdateIntegrationResponse, DeleteIntegrationResponse.
 func TestAPIGatewayV2_IntegrationResponsesSDK(t *testing.T) {
+	t.Parallel()
 	c := apigwv2Client()
 	api, err := c.CreateApi(ctx, &apigatewayv2.CreateApiInput{
 		Name:                     aws.String("ir-api"),
@@ -78,6 +79,7 @@ func TestAPIGatewayV2_IntegrationResponsesSDK(t *testing.T) {
 // CreateRouteResponse, GetRouteResponse, GetRouteResponses, UpdateRouteResponse,
 // DeleteRouteResponse.
 func TestAPIGatewayV2_RouteResponsesSDK(t *testing.T) {
+	t.Parallel()
 	c := apigwv2Client()
 	api, err := c.CreateApi(ctx, &apigatewayv2.CreateApiInput{
 		Name:                     aws.String("rr-api"),
@@ -135,6 +137,7 @@ func TestAPIGatewayV2_RouteResponsesSDK(t *testing.T) {
 // TestAPIGatewayV2_ImportExportTagsTemplateSDK exercises ImportApi, ReimportApi,
 // ExportApi, GetModelTemplate, and GetTags.
 func TestAPIGatewayV2_ImportExportTagsTemplateSDK(t *testing.T) {
+	t.Parallel()
 	c := apigwv2Client()
 
 	openapi := `{"openapi":"3.0.1","info":{"title":"imported-http-api","version":"1.0"},"paths":{"/pets":{"get":{"responses":{"200":{"description":"ok"}}}}}}`
@@ -198,6 +201,7 @@ func TestAPIGatewayV2_ImportExportTagsTemplateSDK(t *testing.T) {
 // deletes: DeleteAccessLogSettings, DeleteCorsConfiguration,
 // DeleteRouteRequestParameter, DeleteRouteSettings.
 func TestAPIGatewayV2_ConfigDeletesSDK(t *testing.T) {
+	t.Parallel()
 	c := apigwv2Client()
 	api, err := c.CreateApi(ctx, &apigatewayv2.CreateApiInput{
 		Name:         aws.String("cfg-api"),

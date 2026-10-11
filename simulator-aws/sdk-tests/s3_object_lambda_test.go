@@ -42,6 +42,7 @@ const s3ObjectLambdaAccount = "123456789012"
 // TestS3_AccessPointLifecycle covers the standard access point an Object
 // Lambda access point is built on: create, read, list, its policy, and delete.
 func TestS3_AccessPointLifecycle(t *testing.T) {
+	t.Parallel()
 	sc := s3ControlClient()
 	s3c := s3Client()
 	bucket, apName := "ap-lifecycle-bucket", "ap-lifecycle"
@@ -111,6 +112,7 @@ func TestS3_AccessPointLifecycle(t *testing.T) {
 // TestS3_CreateAccessPointRejectsMissingBucket holds the create to a bucket
 // that exists: an access point over nothing would serve reads of nothing.
 func TestS3_CreateAccessPointRejectsMissingBucket(t *testing.T) {
+	t.Parallel()
 	_, err := s3ControlClient().CreateAccessPoint(ctx, &s3control.CreateAccessPointInput{
 		AccountId: aws.String(s3ObjectLambdaAccount),
 		Name:      aws.String("ap-no-bucket"),
@@ -126,6 +128,7 @@ func TestS3_CreateAccessPointRejectsMissingBucket(t *testing.T) {
 // through WriteGetObjectResponse. The caller receives what the function wrote
 // — never the stored bytes.
 func TestS3_ObjectLambdaGetObject(t *testing.T) {
+	t.Parallel()
 	sc, s3c, lc := s3ControlClient(), s3Client(), lambdaClient()
 	bucket, apName, olapName := "olap-bucket", "olap-supporting-ap", "olap-uppercase"
 	key, stored := "greeting.txt", "hello from the stored object"
@@ -231,6 +234,7 @@ func TestS3_ObjectLambdaGetObject(t *testing.T) {
 // TestS3_CreateObjectLambdaRejectsDanglingConfiguration holds the create to a
 // supporting access point and a transformation function that both exist.
 func TestS3_CreateObjectLambdaRejectsDanglingConfiguration(t *testing.T) {
+	t.Parallel()
 	sc := s3ControlClient()
 	_, err := sc.CreateAccessPointForObjectLambda(ctx, &s3control.CreateAccessPointForObjectLambdaInput{
 		AccountId: aws.String(s3ObjectLambdaAccount),
@@ -259,6 +263,7 @@ func TestS3_CreateObjectLambdaRejectsDanglingConfiguration(t *testing.T) {
 // read that is actually in flight. The route token is what proves the caller
 // is the function that read was routed to.
 func TestS3_WriteGetObjectResponseRejectsUnknownRoute(t *testing.T) {
+	t.Parallel()
 	_, err := s3ObjectLambdaS3Client().WriteGetObjectResponse(ctx, &s3.WriteGetObjectResponseInput{
 		RequestRoute: aws.String("a-route-nobody-is-waiting-on"),
 		RequestToken: aws.String("a-token-nobody-issued"),

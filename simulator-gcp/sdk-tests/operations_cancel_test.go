@@ -89,6 +89,7 @@ func loggingOpsService(t *testing.T) *logging.Service {
 // operation; cancelling it answers Empty and the operation's recorded result
 // survives, because the API was already created.
 func TestSDK_APIGateway_OperationsCancel(t *testing.T) {
+	t.Parallel()
 	svc := apigatewayService(t)
 	parent := fmt.Sprintf("projects/%s/locations/global", cancelProject)
 
@@ -119,6 +120,7 @@ func TestSDK_APIGateway_OperationsCancel(t *testing.T) {
 // TestSDK_ArtifactRegistry_OperationsCancel drives
 // artifactregistry.projects.locations.operations.cancel.
 func TestSDK_ArtifactRegistry_OperationsCancel(t *testing.T) {
+	t.Parallel()
 	svc := artifactRegistryOpsService(t)
 	parent := fmt.Sprintf("projects/%s/locations/us-central1", cancelProject)
 
@@ -145,6 +147,7 @@ func TestSDK_ArtifactRegistry_OperationsCancel(t *testing.T) {
 // TestSDK_MemorystoreRedis_OperationsCancel drives
 // redis.projects.locations.operations.cancel.
 func TestSDK_MemorystoreRedis_OperationsCancel(t *testing.T) {
+	t.Parallel()
 	svc := redisOpsService(t)
 	parent := fmt.Sprintf("projects/%s/locations/us-central1", cancelProject)
 
@@ -171,6 +174,7 @@ func TestSDK_MemorystoreRedis_OperationsCancel(t *testing.T) {
 // TestSDK_Eventarc_OperationsCancel drives
 // eventarc.projects.locations.operations.cancel.
 func TestSDK_Eventarc_OperationsCancel(t *testing.T) {
+	t.Parallel()
 	svc, err := eventarcapi.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	parent := fmt.Sprintf("projects/%s/locations/us-central1", cancelProject)
@@ -232,6 +236,7 @@ func TestSDK_ServiceUsage_OperationsCancel(t *testing.T) {
 // path must resolve a real Cloud Logging operation and refuse a name no
 // operation was minted under.
 func TestSDK_CloudLogging_OperationsCancel(t *testing.T) {
+	t.Parallel()
 	svc := loggingOpsService(t)
 
 	type scopeOps struct {
@@ -307,6 +312,7 @@ func TestSDK_CloudLogging_OperationsCancel(t *testing.T) {
 // operation that is not in progress rather than answering Empty — the answer
 // the service publishes for that case.
 func TestSDK_CloudSQL_OperationsCancel(t *testing.T) {
+	t.Parallel()
 	svc := sqlAdminService(t)
 
 	insertOp, err := svc.Instances.Insert(cancelProject, &sqladmin.DatabaseInstance{
@@ -348,6 +354,7 @@ func TestSDK_CloudSQL_OperationsCancel(t *testing.T) {
 // deadline — which is what deleting the terminating call in cancelCloudBuild
 // produces.
 func TestSDK_CloudBuild_CancelStopsARunningBuild(t *testing.T) {
+	t.Parallel()
 	svc := cloudbuildService(t)
 
 	const image = "sockerless-cloudbuild-cancel-probe:gcp-sdk"
@@ -450,6 +457,7 @@ func TestSDK_CloudBuild_CancelStopsARunningBuild(t *testing.T) {
 // operations live in the regional operations collection, so the operation a
 // create returns is pollable and cancellable by the name it carries.
 func TestSDK_CloudBuild_RegionalOperationsCancel(t *testing.T) {
+	t.Parallel()
 	svc := cloudbuildService(t)
 	parent := fmt.Sprintf("projects/%s/locations/us-central1", cancelProject)
 
@@ -496,6 +504,7 @@ func buildStatus(t *testing.T, svc *cloudbuild.Service, id string) string {
 // the same build cancellation. A build that has already settled keeps its
 // verdict; a build operation that was never minted is NOT_FOUND.
 func TestSDK_CloudBuild_OperationsCancel(t *testing.T) {
+	t.Parallel()
 	svc := cloudbuildService(t)
 
 	bucket := "cloudbuild-cancel-op-src"

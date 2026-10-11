@@ -68,6 +68,7 @@ func crmV3Service(t *testing.T) *crm.Service {
 // its own name and an empty map; what the method decides is whether the name it
 // was handed is a full resource name at all, and that is what this covers.
 func TestResourceManagerV3_FetchResourceSemanticsNameValidation(t *testing.T) {
+	t.Parallel()
 	const fullName = "//cloudresourcemanager.googleapis.com/projects/735298346210"
 	resp, err := simAuthHTTPClient().Get(baseURL + "/v3:fetchResourceSemantics?fullResourceName=" + url.QueryEscape(fullName))
 	require.NoError(t, err)
@@ -111,6 +112,7 @@ func TestResourceManagerV3_FetchResourceSemanticsNameValidation(t *testing.T) {
 }
 
 func TestResourceManagerV3_ProjectLifecycle(t *testing.T) {
+	t.Parallel()
 	svc := crmV3Service(t)
 
 	// Create returns a settled long-running Operation embedding the project.
@@ -207,6 +209,7 @@ func TestResourceManagerV3_ProjectIAM(t *testing.T) {
 }
 
 func TestResourceManagerV3_FolderLifecycle(t *testing.T) {
+	t.Parallel()
 	svc := crmV3Service(t)
 
 	op, err := svc.Folders.Create(&crm.Folder{
@@ -276,6 +279,7 @@ func TestResourceManagerV3_FolderLifecycle(t *testing.T) {
 }
 
 func TestResourceManagerV3_Liens(t *testing.T) {
+	t.Parallel()
 	svc := crmV3Service(t)
 
 	lien, err := svc.Liens.Create(&crm.Lien{
@@ -303,6 +307,7 @@ func TestResourceManagerV3_Liens(t *testing.T) {
 }
 
 func TestResourceManagerV3_TagKeys(t *testing.T) {
+	t.Parallel()
 	svc := crmV3Service(t)
 
 	op, err := svc.TagKeys.Create(&crm.TagKey{
@@ -353,6 +358,7 @@ func TestResourceManagerV3_TagKeys(t *testing.T) {
 }
 
 func TestResourceManagerV3_TagValues(t *testing.T) {
+	t.Parallel()
 	svc := crmV3Service(t)
 
 	kop, err := svc.TagKeys.Create(&crm.TagKey{
@@ -397,6 +403,7 @@ func TestResourceManagerV3_TagValues(t *testing.T) {
 // PATCH stored nothing, and a folder capability whose read always said false.
 // Every one of those contradicts the write that came before it.
 func TestResourceManagerV3_TagsInForceAreTheOnesBound(t *testing.T) {
+	t.Parallel()
 	svc := crmV3Service(t)
 
 	kop, err := svc.TagKeys.Create(&crm.TagKey{
@@ -464,6 +471,7 @@ func TestResourceManagerV3_TagsInForceAreTheOnesBound(t *testing.T) {
 // signature against it. That is the whole point of a signature — a caller that
 // only checked the encoding of the bytes would accept any bytes at all.
 func TestIAMCredentials_SignBlobAndJwt(t *testing.T) {
+	t.Parallel()
 	// The credential ops require the service account to exist; create it via
 	// the IAM SDK first (same flow a real caller's IaC would have run).
 	iamSvc := iamService(t)

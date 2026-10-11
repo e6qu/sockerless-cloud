@@ -91,6 +91,7 @@ func amplifyDeployZip(t *testing.T, ctx context.Context, c *amplify.Client, appI
 }
 
 func TestAmplifyHostingStaticE2E(t *testing.T) {
+	t.Parallel()
 	c := amplifyClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -161,6 +162,7 @@ func TestAmplifyHostingStaticE2E(t *testing.T) {
 }
 
 func TestAmplifyHostingSSRComputeE2E(t *testing.T) {
+	t.Parallel()
 	c := amplifyClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
@@ -232,6 +234,7 @@ func amplifyServePrivateGitRepo(t *testing.T, branch string, files map[string]st
 }
 
 func TestAmplifyRealBuildE2E(t *testing.T) {
+	t.Parallel()
 	c := amplifyClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -357,6 +360,7 @@ frontend:
 }
 
 func TestAmplifyPrivateRepositoryPythonBuildE2E(t *testing.T) {
+	t.Parallel()
 	c := amplifyClient()
 	testContext, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -467,6 +471,7 @@ applications:
 }
 
 func TestAmplifyDomainVerificationRoute53Flow(t *testing.T) {
+	t.Parallel()
 	c := amplifyClient()
 	r53 := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -584,6 +589,7 @@ func TestAmplifyDomainVerificationRoute53Flow(t *testing.T) {
 // real Amplify rejects it: the job lands FAILED with the DEPLOY step's log
 // carrying the validation error, and the bundle never becomes servable.
 func TestAmplifyDeploymentInvalidManifestFailsE2E(t *testing.T) {
+	t.Parallel()
 	c := amplifyClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -644,6 +650,7 @@ func TestAmplifyDeploymentInvalidManifestFailsE2E(t *testing.T) {
 // is a 404 falls back to the route's declared fallback target, for GET
 // requests without a body.
 func TestAmplifyHostingRouteFallbacksE2E(t *testing.T) {
+	t.Parallel()
 	c := amplifyClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()

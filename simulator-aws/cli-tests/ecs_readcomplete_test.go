@@ -8,6 +8,7 @@ import (
 // TestECSCLI_CapacityProvidersAndFamilies drives the two ECS read ops via the
 // aws CLI.
 func TestECSCLI_CapacityProvidersAndFamilies(t *testing.T) {
+	t.Parallel()
 	status := strings.TrimSpace(runCLI(t, awsCLI("ecs", "describe-capacity-providers",
 		"--capacity-providers", "FARGATE",
 		"--query", "capacityProviders[0].status", "--output", "text")))

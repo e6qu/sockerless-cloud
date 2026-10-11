@@ -45,6 +45,7 @@ type cosmosDiffDivergence struct {
 var cosmosDiffKnownDivergences = map[string]cosmosDiffDivergence{}
 
 func TestCosmos_DifferentialVsEmulator(t *testing.T) {
+	t.Parallel()
 	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
 	emuEndpoint, stop := startCosmosEmulator(t)
 	defer stop()

@@ -19,6 +19,7 @@ import (
 // pool; get/list/patch/delete operate on the regional resource. The pool
 // has a state lifecycle (CREATING → RUNNING) the simulator must report.
 func TestCloudBuild_WorkerPoolCRUD(t *testing.T) {
+	t.Parallel()
 	svc := cloudbuildService(t)
 	parent := "projects/cb-wp-project/locations/us-central1"
 	poolID := fmt.Sprintf("pool-%d", time.Now().UnixNano())
@@ -103,6 +104,7 @@ func TestCloudBuild_WorkerPoolCRUD(t *testing.T) {
 // TestCloudBuild_GitHubEnterpriseConfigCRUD round-trips a GitHub Enterprise
 // source-host config through the global githubEnterpriseConfigs collection.
 func TestCloudBuild_GitHubEnterpriseConfigCRUD(t *testing.T) {
+	t.Parallel()
 	svc := cloudbuildService(t)
 	parent := "projects/cb-ghe-project"
 	cfgID := fmt.Sprintf("ghe-%d", time.Now().UnixNano())
@@ -167,6 +169,7 @@ func TestCloudBuild_GitHubEnterpriseConfigCRUD(t *testing.T) {
 // TestCloudBuild_GitHubEnterpriseConfigRegional covers the regional
 // githubEnterpriseConfigs collection (locations/{loc}/...).
 func TestCloudBuild_GitHubEnterpriseConfigRegional(t *testing.T) {
+	t.Parallel()
 	svc := cloudbuildService(t)
 	parent := "projects/cb-ghe-rgn/locations/us-east1"
 	cfgID := fmt.Sprintf("ghe-rgn-%d", time.Now().UnixNano())
@@ -206,6 +209,7 @@ func TestCloudBuild_GitHubEnterpriseConfigRegional(t *testing.T) {
 // TestCloudBuild_BitbucketServerConfigCRUD round-trips a Bitbucket Server
 // source-host config plus its repos-list endpoint.
 func TestCloudBuild_BitbucketServerConfigCRUD(t *testing.T) {
+	t.Parallel()
 	svc := cloudbuildService(t)
 	parent := "projects/cb-bb-project/locations/us-central1"
 	cfgID := fmt.Sprintf("bb-%d", time.Now().UnixNano())
@@ -259,6 +263,7 @@ func TestCloudBuild_BitbucketServerConfigCRUD(t *testing.T) {
 // endpoint, then reads it back through the regional builds list + get
 // endpoints (which mirror the global ones).
 func TestCloudBuild_RegionalBuildsReadback(t *testing.T) {
+	t.Parallel()
 	project := "cb-regional-builds"
 	bucket := "cb-regional-bucket"
 	createBucket(t, project, bucket)
@@ -293,6 +298,7 @@ func TestCloudBuild_RegionalBuildsReadback(t *testing.T) {
 // service account used for builds, named for the project number Cloud
 // Resource Manager holds, and is refused for a project that does not exist.
 func TestCloudBuild_DefaultServiceAccount(t *testing.T) {
+	t.Parallel()
 	svc := cloudbuildService(t)
 	number := requireProject(t, "cb-dsa-project")
 	name := "projects/cb-dsa-project/locations/us-central1/defaultServiceAccount"

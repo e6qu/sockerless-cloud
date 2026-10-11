@@ -19,6 +19,7 @@ func monitorURL(path string) string {
 }
 
 func TestMonitorWorkspace_CreateAndShow(t *testing.T) {
+	t.Parallel()
 	url := monitorURL("workspaces/cli-test-workspace")
 
 	out := runCLI(t, azRest("PUT", url,
@@ -54,6 +55,7 @@ func TestMonitorWorkspace_CreateAndShow(t *testing.T) {
 }
 
 func TestMonitorWorkspace_Delete(t *testing.T) {
+	t.Parallel()
 	url := monitorURL("workspaces/delete-test-ws")
 	runCLI(t, azRest("PUT", url, `{"location":"eastus","properties":{}}`))
 	runCLI(t, azRest("DELETE", url, ""))
@@ -72,6 +74,7 @@ func insightsURL(path string) string {
 }
 
 func TestAppInsights_CreateAndShow(t *testing.T) {
+	t.Parallel()
 	url := insightsURL("components/cli-test-appinsights")
 
 	out := runCLI(t, azRest("PUT", url,
@@ -106,6 +109,7 @@ func TestAppInsights_CreateAndShow(t *testing.T) {
 }
 
 func TestAppInsights_InstrumentationKeyInConnectionString(t *testing.T) {
+	t.Parallel()
 	url := insightsURL("components/ikey-check-appinsights")
 
 	out := runCLI(t, azRest("PUT", url,
@@ -185,6 +189,7 @@ func cliQueryWorkspace(t *testing.T, customerID, kql string) string {
 // not parse is refused with. The rows arrive through the Logs Ingestion API,
 // by way of a data collection rule writing a custom table.
 func TestLogAnalytics_QueryBooleanOperatorsCLI(t *testing.T) {
+	t.Parallel()
 	const role = "cli-and-or-role"
 	wsID, customerID := cliLogWorkspace(t, "cli-and-or-ws")
 	runCLI(t, azRest("PUT", monitorURL("workspaces/cli-and-or-ws/tables/SimTraces_CL"),

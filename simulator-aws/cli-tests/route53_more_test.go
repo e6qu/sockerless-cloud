@@ -35,6 +35,7 @@ func r53MoreCLIZone(t *testing.T, name string) string {
 }
 
 func TestRoute53_CLIReusableDelegationSets(t *testing.T) {
+	t.Parallel()
 	caller := "cli-ds-" + time.Now().Format("150405.000000")
 	out := runCLI(t, awsCLI("route53", "create-reusable-delegation-set",
 		"--caller-reference", caller, "--output", "json"))
@@ -72,6 +73,7 @@ func TestRoute53_CLIReusableDelegationSets(t *testing.T) {
 }
 
 func TestRoute53_CLICidrCollections(t *testing.T) {
+	t.Parallel()
 	caller := "cli-cidr-" + time.Now().Format("150405.000000")
 	name := "cli-cidr-" + time.Now().Format("150405")
 	out := runCLI(t, awsCLI("route53", "create-cidr-collection",
@@ -104,6 +106,7 @@ func TestRoute53_CLICidrCollections(t *testing.T) {
 }
 
 func TestRoute53_CLIDNSSECKeySigningKeys(t *testing.T) {
+	t.Parallel()
 	zoneID := r53MoreCLIZone(t, "cli-dnssec.local")
 	kskName := "cli_ksk_" + time.Now().Format("150405")
 	kmsArn := "arn:aws:kms:us-east-1:123456789012:key/cli-route53-dnssec"
@@ -139,6 +142,7 @@ func TestRoute53_CLIDNSSECKeySigningKeys(t *testing.T) {
 }
 
 func TestRoute53_CLITrafficPolicyInstances(t *testing.T) {
+	t.Parallel()
 	zoneID := r53MoreCLIZone(t, "cli-tpi.local")
 	doc := `{"AWSPolicyFormatVersion":"2015-10-01","RecordType":"A","Endpoints":{"e":{"Type":"value","Value":"192.0.2.1"}},"StartEndpoint":"e"}`
 	tpOut := runCLI(t, awsCLI("route53", "create-traffic-policy",
@@ -203,6 +207,7 @@ func TestRoute53_CLITrafficPolicyInstances(t *testing.T) {
 }
 
 func TestRoute53_CLIVPCAssociationAuthorizations(t *testing.T) {
+	t.Parallel()
 	zoneID := r53MoreCLIZone(t, "cli-vpcauthz.local")
 	vpcJSON := `{"VPCRegion":"us-east-1","VPCId":"vpc-cli0123456789"}`
 
@@ -223,6 +228,7 @@ func TestRoute53_CLIVPCAssociationAuthorizations(t *testing.T) {
 }
 
 func TestRoute53_CLILimitsCheckerRangesAndTags(t *testing.T) {
+	t.Parallel()
 	zoneID := r53MoreCLIZone(t, "cli-limits.local")
 
 	acctOut := runCLI(t, awsCLI("route53", "get-account-limit",
@@ -272,6 +278,7 @@ func TestRoute53_CLILimitsCheckerRangesAndTags(t *testing.T) {
 }
 
 func TestRoute53_CLITestDNSAnswerAndZoneUpdates(t *testing.T) {
+	t.Parallel()
 	zoneID := r53MoreCLIZone(t, "cli-dnsanswer.local")
 
 	changeJSON := `{"Changes":[{"Action":"CREATE","ResourceRecordSet":{"Name":"www.cli-dnsanswer.local.","Type":"A","TTL":300,"ResourceRecords":[{"Value":"192.0.2.55"}]}}]}`

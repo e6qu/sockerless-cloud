@@ -42,6 +42,7 @@ func storageDataplaneReq(t *testing.T, method, account, service, path string, bo
 // weren't serviced — the ARM response had advertised these URLs
 // fixed Blob; this commit fixes the remaining 3).
 func TestFilesDataPlane(t *testing.T) {
+	t.Parallel()
 	account := "testacct"
 	share := "myshare"
 
@@ -98,6 +99,7 @@ func TestFilesDataPlane(t *testing.T) {
 
 // TestQueuesDataPlane exercises queue + message enqueue/dequeue/ack.
 func TestQueuesDataPlane(t *testing.T) {
+	t.Parallel()
 	account := "testacct"
 	queue := "myqueue"
 
@@ -166,6 +168,7 @@ func TestQueuesDataPlane(t *testing.T) {
 
 // TestTablesDataPlane exercises Tables + entity CRUD.
 func TestTablesDataPlane(t *testing.T) {
+	t.Parallel()
 	account := "testacct"
 	table := "MyTable"
 
@@ -283,6 +286,7 @@ func pathStyleStorageReq(t *testing.T, method, prefix, path string, body []byte,
 // is NOT required). Reserved segments (`subscriptions`, `providers`,
 // `v1`, `v1.NN`, `storage`, etc.) fall through to the normal mux.
 func TestStorageDataPlane_PathStyleBlob(t *testing.T) {
+	t.Parallel()
 	container := "path-style-blob-container"
 	// Account is `azurite-style-acct` — never registered via ARM.
 	// Real Azurite consumers point `BlobEndpoint=http://localhost:.../<account>`
@@ -327,6 +331,7 @@ func TestStorageDataPlane_PathStyleBlob(t *testing.T) {
 // per-port; sim runs on one port, so a path prefix discriminates).
 // Like the blob path-style form, no prior ARM registration required.
 func TestStorageDataPlane_PathStyleFileQueueTable(t *testing.T) {
+	t.Parallel()
 	account := "azurite-style-acct"
 
 	// Files.
@@ -368,6 +373,7 @@ func TestStorageDataPlane_PathStyleFileQueueTable(t *testing.T) {
 // path-style storage handler. The path-style dispatcher accepts any
 // other first segment as an account name.
 func TestStorageDataPlane_PathStyleARMPrefixExclusion(t *testing.T) {
+	t.Parallel()
 	// ARM-shaped path — should fall through to ARM handler.
 	resp := pathStyleStorageReq(t, "GET",
 		"/subscriptions/00000000-0000-0000-0000-000000000001",

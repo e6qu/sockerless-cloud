@@ -94,6 +94,7 @@ func smGRPCCreateSecret(t *testing.T, c *secretmanager.Client, parent, secretID 
 // payload, and reads it back — asserting the bytes the sim served match what
 // was written, byte-for-byte.
 func TestSecretManager_GRPC_CreateAddAccess(t *testing.T) {
+	t.Parallel()
 	c := newSecretManagerGRPCClient(t)
 	parent := smGRPCProjectParent(t)
 	secretName := smGRPCCreateSecret(t, c, parent, "data-plane")
@@ -118,6 +119,7 @@ func TestSecretManager_GRPC_CreateAddAccess(t *testing.T) {
 }
 
 func TestSecretManager_GRPC_ManagedCloudSQLRotation(t *testing.T) {
+	t.Parallel()
 	const (
 		project      = "sm-managed-rotation"
 		location     = "us-central1"
@@ -204,6 +206,7 @@ func TestSecretManager_GRPC_ManagedCloudSQLRotation(t *testing.T) {
 // alias across version adds: a second AddSecretVersion becomes the new
 // "latest", and pinning an explicit version name returns its own payload.
 func TestSecretManager_GRPC_LatestAliasAndMultipleVersions(t *testing.T) {
+	t.Parallel()
 	c := newSecretManagerGRPCClient(t)
 	parent := smGRPCProjectParent(t)
 	secretName := smGRPCCreateSecret(t, c, parent, "latest-alias")
@@ -237,6 +240,7 @@ func TestSecretManager_GRPC_LatestAliasAndMultipleVersions(t *testing.T) {
 // irretrievable (FAILED_PRECONDITION); a disabled version is also inaccessible
 // until re-enabled.
 func TestSecretManager_GRPC_VersionLifecycle_DestroyDisableEnable(t *testing.T) {
+	t.Parallel()
 	c := newSecretManagerGRPCClient(t)
 	parent := smGRPCProjectParent(t)
 	secretName := smGRPCCreateSecret(t, c, parent, "lifecycle")
@@ -284,6 +288,7 @@ func TestSecretManager_GRPC_VersionLifecycle_DestroyDisableEnable(t *testing.T) 
 // UpdateSecret (labels patch) is reflected on a re-read, and DeleteSecret
 // removes it from subsequent Get + List calls.
 func TestSecretManager_GRPC_SecretAdminCRUDAndList(t *testing.T) {
+	t.Parallel()
 	c := newSecretManagerGRPCClient(t)
 	parent := smGRPCProjectParent(t)
 	secretName := smGRPCCreateSecret(t, c, parent, "admin-crud")
@@ -332,6 +337,7 @@ func TestSecretManager_GRPC_SecretAdminCRUDAndList(t *testing.T) {
 // payload bytes. This matches real Secret Manager, where the payload appears
 // only in AccessSecretVersion responses.
 func TestSecretManager_GRPC_VersionMetadataPayloadRedaction(t *testing.T) {
+	t.Parallel()
 	c := newSecretManagerGRPCClient(t)
 	parent := smGRPCProjectParent(t)
 	secretName := smGRPCCreateSecret(t, c, parent, "redaction")
@@ -370,6 +376,7 @@ func TestSecretManager_GRPC_VersionMetadataPayloadRedaction(t *testing.T) {
 // persists; a follow-up GetIamPolicy round-trips the binding; TestIamPermissions
 // echoes the requested set (the documented admin-echo behaviour the sim models).
 func TestSecretManager_GRPC_IamPolicy(t *testing.T) {
+	t.Parallel()
 	c := newSecretManagerGRPCClient(t)
 	parent := smGRPCProjectParent(t)
 	secretName := smGRPCCreateSecret(t, c, parent, "iam")
@@ -438,6 +445,7 @@ func TestSecretManager_GRPC_IamPolicy(t *testing.T) {
 // (project is a path component, not a modelled resource); AddSecretVersion on
 // a missing secret fails NotFound.
 func TestSecretManager_GRPC_NotFoundCodes(t *testing.T) {
+	t.Parallel()
 	c := newSecretManagerGRPCClient(t)
 
 	_, err := c.GetSecret(ctx, &smpb.GetSecretRequest{Name: "projects/sm-grpc-missing/secrets/never"})

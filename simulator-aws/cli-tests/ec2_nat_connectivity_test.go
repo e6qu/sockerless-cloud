@@ -8,6 +8,7 @@ import (
 // TestEC2CLI_NatGatewayConnectivityType drives the ConnectivityType round-trip
 // (explicit "public" and the omitted default) via the aws CLI.
 func TestEC2CLI_NatGatewayConnectivityType(t *testing.T) {
+	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.82.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	sub := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-subnet",

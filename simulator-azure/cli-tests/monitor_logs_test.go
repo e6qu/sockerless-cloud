@@ -29,6 +29,7 @@ import (
 //	POST /dataCollectionRules/{ruleId}/streams/{stream}
 
 func TestLogAnalytics_CLI_TablesRulesAndIngestion(t *testing.T) {
+	t.Parallel()
 	env := startAzLoginSimulator(t)
 	tagCLILogin(t, env, "sockerless-logs")
 	rg := "cli-logs-rg"

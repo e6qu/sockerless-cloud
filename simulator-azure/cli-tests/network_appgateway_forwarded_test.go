@@ -19,6 +19,7 @@ import (
 // it received, and sends a request at the gateway's frontend address. The
 // backend sees the six headers the gateway inserts into every request.
 func TestNetworkApplicationGatewayForwardedHeadersCLI(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

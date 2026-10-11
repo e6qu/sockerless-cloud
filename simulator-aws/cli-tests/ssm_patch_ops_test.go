@@ -29,6 +29,7 @@ func ssmCLICreateBaseline(t *testing.T, name string) string {
 }
 
 func TestSSMCLI_PatchGroupRegistration(t *testing.T) {
+	t.Parallel()
 	blID := ssmCLICreateBaseline(t, "cli-patchgroup-baseline")
 	group := "cli-group-" + strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "-")
 
@@ -85,6 +86,7 @@ func TestSSMCLI_PatchGroupRegistration(t *testing.T) {
 }
 
 func TestSSMCLI_AvailablePatches(t *testing.T) {
+	t.Parallel()
 	blID := ssmCLICreateBaseline(t, "cli-patchread-baseline")
 
 	availOut := runCLI(t, awsCLI("ssm", "describe-available-patches", "--output", "json"))
@@ -130,6 +132,7 @@ func TestSSMCLI_AvailablePatches(t *testing.T) {
 }
 
 func TestSSMCLI_InstancePatchStates(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("ssm", "describe-instance-patch-states",
 		"--instance-ids", "i-0123456789abcdef0", "--output", "json"))
 	var res struct {
@@ -156,6 +159,7 @@ func TestSSMCLI_InstancePatchStates(t *testing.T) {
 }
 
 func TestSSMCLI_OpsMetadata(t *testing.T) {
+	t.Parallel()
 	resourceID := "arn:aws:resource-groups:us-east-1:123456789012:group/cli-app-" +
 		strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "-")
 
@@ -225,6 +229,7 @@ func TestSSMCLI_OpsMetadata(t *testing.T) {
 }
 
 func TestSSMCLI_ResourcePolicy(t *testing.T) {
+	t.Parallel()
 	resourceArn := "arn:aws:ssm:us-east-1:123456789012:opsitemgroup/default"
 	policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::222222222222:root"},"Action":["ssm:GetOpsItem"],"Resource":"*"}]}`
 
@@ -259,6 +264,7 @@ func TestSSMCLI_ResourcePolicy(t *testing.T) {
 }
 
 func TestSSMCLI_ParameterHistory(t *testing.T) {
+	t.Parallel()
 	name := "/cli/history/" + strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "-")
 	t.Cleanup(func() { _ = awsCLI("ssm", "delete-parameter", "--name", name).Run() })
 
@@ -291,6 +297,7 @@ func TestSSMCLI_ParameterHistory(t *testing.T) {
 }
 
 func TestSSMCLI_ParameterLabel(t *testing.T) {
+	t.Parallel()
 	name := "/cli/label/" + strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "-")
 	t.Cleanup(func() { _ = awsCLI("ssm", "delete-parameter", "--name", name).Run() })
 

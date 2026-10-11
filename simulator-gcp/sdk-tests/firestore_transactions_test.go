@@ -15,6 +15,7 @@ import (
 // high-level client's RunTransaction — the read-modify-write pattern that
 // previously 404'd because the transaction endpoints were unimplemented.
 func TestFirestore_RunTransaction(t *testing.T) {
+	t.Parallel()
 	c := newFSClient(t, "fs-txn")
 	doc := c.Collection("accounts").Doc("a1")
 
@@ -51,6 +52,7 @@ func TestFirestore_RunTransaction(t *testing.T) {
 // TestFirestore_TransactionRollback asserts that returning an error from the
 // transaction function rolls the transaction back: no write is applied.
 func TestFirestore_TransactionRollback(t *testing.T) {
+	t.Parallel()
 	c := newFSClient(t, "fs-txn-rollback")
 	doc := c.Collection("accounts").Doc("a2")
 	if _, err := doc.Set(ctx, map[string]any{"balance": int64(50)}); err != nil {
@@ -81,6 +83,7 @@ func TestFirestore_TransactionRollback(t *testing.T) {
 // plumbing doesn't lose committed writes: a committed Create makes a second
 // Create of the same document fail with AlreadyExists.
 func TestFirestore_WritesDurableAcrossTransactions(t *testing.T) {
+	t.Parallel()
 	c := newFSClient(t, "fs-txn-durable")
 	doc := c.Collection("accounts").Doc("a3")
 	if _, err := doc.Create(ctx, map[string]any{"n": int64(1)}); err != nil {

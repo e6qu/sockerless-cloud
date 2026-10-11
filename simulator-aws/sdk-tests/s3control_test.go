@@ -57,6 +57,7 @@ func s3ControlCallerARN(t *testing.T) string {
 // configuration comes back as it was written, its tags round-trip, and the
 // listing reports it.
 func TestS3Control_StorageLensConfiguration(t *testing.T) {
+	t.Parallel()
 	sc := s3ControlClient()
 	configID := "sl-config"
 
@@ -116,6 +117,7 @@ func TestS3Control_StorageLensConfiguration(t *testing.T) {
 // TestS3Control_StorageLensGroup covers a custom segment: create, read back
 // the filter as written, update it, list, delete.
 func TestS3Control_StorageLensGroup(t *testing.T) {
+	t.Parallel()
 	sc := s3ControlClient()
 	name := "logs-segment"
 
@@ -179,6 +181,7 @@ func TestS3Control_StorageLensGroup(t *testing.T) {
 // a location behind a real role, a grant inside it, and the credentials
 // GetDataAccess vends by assuming that role.
 func TestS3Control_AccessGrants(t *testing.T) {
+	t.Parallel()
 	sc := s3ControlClient()
 	s3c := s3Client()
 	bucket := "grants-bucket"
@@ -304,6 +307,7 @@ func TestS3Control_AccessGrants(t *testing.T) {
 // create returns a token whose poll reports what happened, the endpoint reads
 // back, and a routes update moves the traffic dials.
 func TestS3Control_MultiRegionAccessPoint(t *testing.T) {
+	t.Parallel()
 	sc := s3ControlClient()
 	s3c := s3Client()
 	bucket, name := "mrap-bucket", "reports"
@@ -401,6 +405,7 @@ func TestS3Control_MultiRegionAccessPoint(t *testing.T) {
 // asynchronous contract: a create that cannot succeed is still accepted, and
 // the poll is where the caller learns it failed.
 func TestS3Control_MultiRegionAccessPointCreateReportsFailure(t *testing.T) {
+	t.Parallel()
 	sc := s3ControlClient()
 	created, err := sc.CreateMultiRegionAccessPoint(ctx, &s3control.CreateMultiRegionAccessPointInput{
 		AccountId: aws.String(s3ObjectLambdaAccount), ClientToken: aws.String("token-missing"),
@@ -419,6 +424,7 @@ func TestS3Control_MultiRegionAccessPointCreateReportsFailure(t *testing.T) {
 // TestS3Control_BatchJob runs a real batch job: the manifest lists objects,
 // the job tags each one, and the tags are readable afterwards.
 func TestS3Control_BatchJob(t *testing.T) {
+	t.Parallel()
 	sc := s3ControlClient()
 	s3c := s3Client()
 	bucket := "batch-job-bucket"
@@ -565,6 +571,7 @@ func TestS3Control_BatchJob(t *testing.T) {
 // TestS3Control_AccessPointScope covers narrowing an access point to a set of
 // prefixes and operations.
 func TestS3Control_AccessPointScope(t *testing.T) {
+	t.Parallel()
 	sc := s3ControlClient()
 	s3c := s3Client()
 	bucket, apName := "scope-bucket", "scoped-ap"
@@ -620,6 +627,7 @@ func TestS3Control_AccessPointScope(t *testing.T) {
 // TestS3Control_ListRegionalBuckets reports the account's regional buckets,
 // and reports nothing for an Outpost this simulator does not serve.
 func TestS3Control_ListRegionalBuckets(t *testing.T) {
+	t.Parallel()
 	sc := s3ControlClient()
 	s3c := s3Client()
 	bucket := "regional-listing-bucket"
@@ -653,6 +661,7 @@ func TestS3Control_ListRegionalBuckets(t *testing.T) {
 // "GET /v20180820/tags/{resourceArn...}" and
 // "DELETE /v20180820/tags/{resourceArn...}".
 func TestS3Control_ResourceTagging(t *testing.T) {
+	t.Parallel()
 	sc := s3ControlClient()
 	groupName := "sl-tagged-group"
 
@@ -713,6 +722,7 @@ func TestS3Control_ResourceTagging(t *testing.T) {
 // DeleteStorageLensConfigurationTagging empties it. TagResource and
 // ListTagsForResource do not serve the configuration type and refuse its ARN.
 func TestS3Control_StorageLensConfigurationTagging(t *testing.T) {
+	t.Parallel()
 	sc := s3ControlClient()
 	configID := "sl-config-tagging"
 	_, err := sc.PutStorageLensConfiguration(ctx, &s3control.PutStorageLensConfigurationInput{
@@ -839,6 +849,7 @@ func s3BatchLambdaJob(t *testing.T, name string, keys []string, invoke *s3ctypes
 // and each task's outcome and message are the resultCode and resultString
 // the function returns for it.
 func TestS3Control_BatchJobLambdaInvoke(t *testing.T) {
+	t.Parallel()
 	sc := s3ControlClient()
 	jobID, bucket, _ := s3BatchLambdaJob(t, "batch-lambda-v1", []string{"one.txt", "q3 report,é.txt"},
 		&s3ctypes.LambdaInvokeOperation{})
@@ -863,6 +874,7 @@ func TestS3Control_BatchJobLambdaInvoke(t *testing.T) {
 // %20 and + each name a space, %2C a comma, %C3%A9 an é and %2B a plus, so
 // the job tags the objects those decoded keys name and no other.
 func TestS3Control_BatchJobURLEncodedKeys(t *testing.T) {
+	t.Parallel()
 	sc := s3ControlClient()
 	s3c := s3Client()
 	bucket := uniqueName("batch-encoded-keys")
@@ -953,6 +965,7 @@ func TestS3Control_BatchJobURLEncodedKeys(t *testing.T) {
 // it failed, and the progress summary and completion report carry each
 // task's resultCode and resultString.
 func TestS3Control_BatchJobLambdaResultCodes(t *testing.T) {
+	t.Parallel()
 	sc := s3ControlClient()
 	jobID, bucket, functionName := s3BatchLambdaJob(t, "batch-lambda-v2",
 		[]string{"ok.txt", "permanent.txt", "temporary.txt"},
@@ -1002,6 +1015,7 @@ func TestS3Control_BatchJobLambdaResultCodes(t *testing.T) {
 // confirmation: it ends Cancelled without running a task, and a job in a
 // final status refuses any further move.
 func TestS3Control_BatchJobCancelledBeforeConfirmation(t *testing.T) {
+	t.Parallel()
 	sc := s3ControlClient()
 	s3c := s3Client()
 	bucket := uniqueName("batch-cancel")

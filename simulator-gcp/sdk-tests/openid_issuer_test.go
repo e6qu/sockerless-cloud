@@ -30,6 +30,7 @@ func getJSON(t *testing.T, url string, into any) {
 // signature verifies against a key of the JWKS that document names. Google
 // issues identity tokens as https://accounts.google.com.
 func TestOpenIDDiscoveryVerifiesIdentityTokens(t *testing.T) {
+	t.Parallel()
 	created, err := iamService(t).Projects.ServiceAccounts.Create("projects/test-project",
 		&iam.CreateServiceAccountRequest{AccountId: uniqueName("oidc-rp")}).Do()
 	require.NoError(t, err)

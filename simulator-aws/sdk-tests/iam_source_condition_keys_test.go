@@ -43,6 +43,7 @@ func notAuthorized(err error) bool {
 // TestECS_DaemonTaskDefinitionSizeScopesTheGrant covers ecs:task-cpu and
 // ecs:task-memory on CreateDaemon: the size is the daemon task definition's.
 func TestECS_DaemonTaskDefinitionSizeScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	admin := ecsClient()
 	register := func(family, cpu, memory string) string {
 		out, err := admin.RegisterDaemonTaskDefinition(ctx, &ecs.RegisterDaemonTaskDefinitionInput{
@@ -77,6 +78,7 @@ func TestECS_DaemonTaskDefinitionSizeScopesTheGrant(t *testing.T) {
 // held to the version it names, and a refused entry is that entry's
 // AccessDenied in the DeleteResult.
 func TestS3_DeleteObjectsVersionScopesEachEntry(t *testing.T) {
+	t.Parallel()
 	admin := s3Client()
 	bucket := uniqueName("delete-objects-versions")
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
@@ -110,6 +112,7 @@ func TestS3_DeleteObjectsVersionScopesEachEntry(t *testing.T) {
 // aws:ResourceTag/${TagKey} on GetAccessPoint, which authorizes against "*"
 // yet reports the tags of the access point its path names.
 func TestS3Control_GetAccessPointResourceTagScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	admin := s3Client()
 	bucket := uniqueName("ap-tagged-bucket")
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
@@ -147,6 +150,7 @@ func TestS3Control_GetAccessPointResourceTagScopesTheGrant(t *testing.T) {
 // parameter groups it names, the backup target of the DB instance a snapshot
 // is taken of, and the storage of the DB cluster a point-in-time restore reads.
 func TestRDS_SourceConditionKeysScopeTheGrant(t *testing.T) {
+	t.Parallel()
 	admin := rdsClient()
 	tags := func(team string) []rdstypes.Tag {
 		return []rdstypes.Tag{{Key: aws.String("team"), Value: aws.String(team)}}
@@ -280,6 +284,7 @@ func TestOrganizations_PolicyTypeAndTransferTypeScopeTheGrant(t *testing.T) {
 // TestGlue_IntegrationResourceTagScopesTheGrant covers aws:ResourceTag on the
 // requests that name a zero-ETL integration.
 func TestGlue_IntegrationResourceTagScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	admin := glueClient()
 	create := func(team string) string {
 		name := uniqueName("integration")
@@ -313,6 +318,7 @@ func TestGlue_IntegrationResourceTagScopesTheGrant(t *testing.T) {
 // created, it carries the tags TagResource gives it, and aws:ResourceTag on
 // GetDataset reports them.
 func TestCloudWatch_DefaultDatasetResourceTagScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	admin := cloudwatchClient()
 	got, err := admin.GetDataset(ctx, &cloudwatch.GetDatasetInput{DatasetIdentifier: aws.String("default")})
 	require.NoError(t, err)
@@ -347,6 +353,7 @@ func TestCloudWatch_DefaultDatasetResourceTagScopesTheGrant(t *testing.T) {
 // keeps on a session for the AssumeRole it chains to: a role trusting the first
 // role only for one SAML subject admits that person's session and no other's.
 func TestSTS_ChainedAssumeRoleCarriesTheSAMLSubject(t *testing.T) {
+	t.Parallel()
 	idp, err := samlidp.New("https://idp.chain.example.test/saml")
 	require.NoError(t, err)
 	admin := iamClient()

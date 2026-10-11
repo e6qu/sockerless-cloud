@@ -18,6 +18,7 @@ import (
 // flush-stage-cache, flush-stage-authorizers-cache, test-invoke-method,
 // test-invoke-authorizer.
 func TestAPIGatewayCompleteCLIUpdateLifecycle(t *testing.T) {
+	t.Parallel()
 	var api struct {
 		ID             string `json:"id"`
 		RootResourceID string `json:"rootResourceId"`
@@ -153,6 +154,7 @@ func TestAPIGatewayCompleteCLIUpdateLifecycle(t *testing.T) {
 // TestAPIGatewayCompleteCLIImportAndTag covers import-rest-api, put-rest-api,
 // import-api-keys, tag-resource, and untag-resource via the aws CLI.
 func TestAPIGatewayCompleteCLIImportAndTag(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	openapi := filepath.Join(dir, "api.json")
 	require.NoError(t, os.WriteFile(openapi,
@@ -225,6 +227,7 @@ func TestAPIGatewayCompleteCLIImportAndTag(t *testing.T) {
 // (create-domain-name-access-association, get-domain-name-access-associations,
 // reject-domain-name-access-association, delete-domain-name-access-association).
 func TestAPIGatewayCompleteCLIDomainVpcUsageAndAccess(t *testing.T) {
+	t.Parallel()
 	var domain struct {
 		CertificateName string `json:"certificateName"`
 	}

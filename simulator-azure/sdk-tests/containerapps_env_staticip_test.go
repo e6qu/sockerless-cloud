@@ -14,6 +14,7 @@ import (
 // env) and stable across re-reads of the same environment. A single hardcoded
 // value made every environment collide.
 func TestContainerAppsEnv_StaticIPUniqueAndStable(t *testing.T) {
+	t.Parallel()
 	rg := "env-staticip-rg"
 	doPUT(t, fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s?api-version=2023-07-01",
 		baseURL, subscriptionID, rg), `{"location":"eastus"}`)

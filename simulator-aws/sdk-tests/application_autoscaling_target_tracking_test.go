@@ -31,6 +31,7 @@ import (
 // Scaling engine (AnyScaleFrontendService) reading CloudWatch Metrics and
 // driving ECS UpdateService — the runner-platform autoscaling flow end-to-end.
 func TestAppScaling_TargetTrackingScalesECSService(t *testing.T) {
+	t.Parallel()
 	family := uniqueName("as-track-task")
 	ecsC := ecsClient()
 	cwC := cloudwatchClient()
@@ -196,6 +197,7 @@ func TestAppScaling_TargetTrackingScalesECSService(t *testing.T) {
 // the ResourceLabel names, and the Application Load Balancer publishes that
 // metric for the requests it routes there.
 func TestAppScaling_ALBRequestCountPerTargetTracksTheLoadBalancer(t *testing.T) {
+	t.Parallel()
 	ec2c := ec2Client()
 	elb := elbv2Client()
 	ecsC := ecsClient()

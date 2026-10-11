@@ -19,6 +19,7 @@ import (
 // filter pattern produces a queryable datapoint, while a non-matching event
 // does not.
 func TestCloudWatch_MetricFilterPublishesMetric(t *testing.T) {
+	t.Parallel()
 	logs := cwLogsClient()
 	cw := cloudwatchClient()
 
@@ -91,6 +92,7 @@ func TestCloudWatch_MetricFilterPublishesMetric(t *testing.T) {
 // TestCloudWatch_MetricFilterJSONValue proves a MetricTransformation can pull
 // the published value out of the matched event via a "$." JSON selector.
 func TestCloudWatch_MetricFilterJSONValue(t *testing.T) {
+	t.Parallel()
 	logs := cwLogsClient()
 	cw := cloudwatchClient()
 

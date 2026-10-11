@@ -87,6 +87,7 @@ func functionsHostRequest(t *testing.T, siteName, path string, headers map[strin
 // against the keys the ARM key operations serve, since those operations read
 // and write the host's own file secret store.
 func TestSDK_FunctionApps_NodeHostRunsTheDeployedFunctions(t *testing.T) {
+	t.Parallel()
 	rg, name := "sdk-func-host-rg", "sdk-func-host-app"
 	client := createStackFunctionApp(t, rg, name, "Node|22", map[string]string{
 		"FUNCTIONS_WORKER_RUNTIME":      "node",
@@ -180,6 +181,7 @@ func TestSDK_FunctionApps_NodeHostRunsTheDeployedFunctions(t *testing.T) {
 // blobs: a key the host writes there is the key ARM lists, and a key ARM
 // creates lands there, protected as the host protects it on App Service.
 func TestSDK_FunctionApps_BlobSecretStoreHoldsTheKeys(t *testing.T) {
+	t.Parallel()
 	rg, name, account := "sdk-func-blob-secrets-rg", "sdk-func-blob-secrets", "sdkfuncblobsecrets"
 	accounts := createStorageAccountForARM(t, rg, account)
 	keys, err := accounts.ListKeys(ctx, rg, account, nil)

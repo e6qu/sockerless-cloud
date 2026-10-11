@@ -15,6 +15,7 @@ import (
 // protocol_version, and ip_address_type round-trip that aws_lb_target_group
 // reads back.
 func TestELBv2_TargetGroupFidelitySDK(t *testing.T) {
+	t.Parallel()
 	tcpHTTPTGName := uniqueName("tg-tcp-hhc")
 	tcpTGName := uniqueName("tg-tcp-fid")
 	httpTGName := uniqueName("tg-http-fid")
@@ -77,6 +78,7 @@ func TestELBv2_TargetGroupFidelitySDK(t *testing.T) {
 // TestELBv2_LoadBalancerFidelitySDK covers the NLB enforce-SG field and the
 // SetIpAddressType in-place update.
 func TestELBv2_LoadBalancerFidelitySDK(t *testing.T) {
+	t.Parallel()
 	lbName := uniqueName("nlb-fid")
 	c := elbv2Client()
 	ec2c := ec2Client()

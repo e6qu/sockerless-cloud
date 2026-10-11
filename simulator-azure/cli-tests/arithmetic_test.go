@@ -12,6 +12,7 @@ import (
 )
 
 func TestContainerApps_CLI_ArithmeticEval(t *testing.T) {
+	t.Parallel()
 	jobName := "cli-arith-aca-job"
 	jobURL := acaURL("jobs/" + jobName)
 	envID, _ := cliLogsEnvironment(t)
@@ -139,6 +140,7 @@ func containerAppLogLines(t *testing.T, filterColumn, name string) []string {
 }
 
 func TestContainerApps_CLI_ArithmeticInvalid(t *testing.T) {
+	t.Parallel()
 	jobName := "cli-arith-aca-fail"
 	jobURL := acaURL("jobs/" + jobName)
 	envID, _ := cliLogsEnvironment(t)

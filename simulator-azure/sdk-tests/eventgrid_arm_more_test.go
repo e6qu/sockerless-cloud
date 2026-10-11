@@ -17,6 +17,7 @@ import (
 // regional-/topic-type-scoped event subscription list views, event types by
 // resource, and private link resources / private endpoint connections.
 func TestEventGrid_ARMControlPlaneMore(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-eventgrid-more-rg"
 	ensureRG(t, rg)
 	cred := &fakeCredential{}

@@ -40,6 +40,7 @@ func createVMImportRole(t *testing.T, name, bucket string) {
 // Amazon S3: the task completes behind the call, the SDK's SnapshotImported
 // waiter observes it, and the snapshot is sized from the image.
 func TestEC2_ImportSnapshotReadsTheDiskImage(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	s3c := s3Client()
 	suffix := fmt.Sprint(time.Now().UnixNano())
@@ -101,6 +102,7 @@ func TestEC2_ImportSnapshotReadsTheDiskImage(t *testing.T) {
 // the task fails with the disk validation error, which the SDK's
 // SnapshotImported waiter reports as its failure state.
 func TestEC2_ImportSnapshotRejectsAnImageNotInItsFormat(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	s3c := s3Client()
 	suffix := fmt.Sprint(time.Now().UnixNano())

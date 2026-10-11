@@ -67,6 +67,7 @@ func (l *rdsCommitLog) awaitAbove(ctx context.Context, t *testing.T, above int) 
 // and includes every transaction committed before CreateDBSnapshot was
 // called. The writer's connection outlives the capture and keeps committing.
 func TestRDS_SnapshotUnderWriteLoadIsOnePointInTime(t *testing.T) {
+	t.Parallel()
 	testContext, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
 	c := rdsClient()
@@ -211,6 +212,7 @@ func TestRDS_SnapshotUnderWriteLoadIsOnePointInTime(t *testing.T) {
 // the capture's brief I/O suspension, or the capture waits for the change —
 // and the snapshot still completes.
 func TestRDS_MasterPasswordChangeDuringSnapshot(t *testing.T) {
+	t.Parallel()
 	testContext, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	c := rdsClient()

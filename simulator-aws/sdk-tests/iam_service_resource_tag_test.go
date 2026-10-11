@@ -49,6 +49,7 @@ func restrictedConfig(t *testing.T, iamc *iam.Client, user, policyName, policyDo
 // TestIAM_SQSResourceTagCondition: sqs:DeleteQueue scoped to
 // aws:ResourceTag/team=blue is denied on an untagged queue, allowed once tagged.
 func TestIAM_SQSResourceTagCondition(t *testing.T) {
+	t.Parallel()
 	admin := sqsClient()
 	iamc := iamClient()
 
@@ -78,6 +79,7 @@ func TestIAM_SQSResourceTagCondition(t *testing.T) {
 // TestIAM_SNSResourceTagCondition: sns:DeleteTopic scoped to
 // aws:ResourceTag/env=prod (awsQuery protocol).
 func TestIAM_SNSResourceTagCondition(t *testing.T) {
+	t.Parallel()
 	admin := snsClient()
 	iamc := iamClient()
 
@@ -107,6 +109,7 @@ func TestIAM_SNSResourceTagCondition(t *testing.T) {
 // TestIAM_DynamoDBResourceTagCondition: dynamodb:DeleteTable scoped to
 // aws:ResourceTag/owner=x (awsJson protocol).
 func TestIAM_DynamoDBResourceTagCondition(t *testing.T) {
+	t.Parallel()
 	admin := ddbClient()
 	iamc := iamClient()
 

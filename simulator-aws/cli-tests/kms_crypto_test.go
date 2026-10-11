@@ -39,6 +39,7 @@ func kmsCLICreateKey(t *testing.T, extraFlags ...string) string {
 // TestKMSCLI_SignVerifyAndGetPublicKey exercises Sign → Verify → GetPublicKey
 // over the aws CLI with real RSA crypto, and confirms a tampered message fails.
 func TestKMSCLI_SignVerifyAndGetPublicKey(t *testing.T) {
+	t.Parallel()
 	keyId := kmsCLICreateKey(t,
 		"--key-spec", "RSA_2048",
 		"--key-usage", "SIGN_VERIFY")
@@ -94,6 +95,7 @@ func TestKMSCLI_SignVerifyAndGetPublicKey(t *testing.T) {
 // TestKMSCLI_GenerateVerifyMac covers GenerateMac → VerifyMac over the CLI with
 // real HMAC, plus a tampered-message failure.
 func TestKMSCLI_GenerateVerifyMac(t *testing.T) {
+	t.Parallel()
 	keyId := kmsCLICreateKey(t,
 		"--key-spec", "HMAC_256",
 		"--key-usage", "GENERATE_VERIFY_MAC")
@@ -135,6 +137,7 @@ func TestKMSCLI_GenerateVerifyMac(t *testing.T) {
 // TestKMSCLI_DataKeyPair covers generate-data-key-pair and
 // generate-data-key-pair-without-plaintext over the CLI.
 func TestKMSCLI_DataKeyPair(t *testing.T) {
+	t.Parallel()
 	keyId := kmsCLICreateKey(t)
 
 	pairOut := runCLI(t, awsCLI("kms", "generate-data-key-pair",
@@ -167,6 +170,7 @@ func TestKMSCLI_DataKeyPair(t *testing.T) {
 // TestKMSCLI_DeriveSharedSecret asserts a KEY_AGREEMENT EC key derives a shared
 // secret against its own public key (a self-ECDH still yields a valid secret).
 func TestKMSCLI_DeriveSharedSecret(t *testing.T) {
+	t.Parallel()
 	keyId := kmsCLICreateKey(t,
 		"--key-spec", "ECC_NIST_P256",
 		"--key-usage", "KEY_AGREEMENT")
@@ -198,6 +202,7 @@ func TestKMSCLI_DeriveSharedSecret(t *testing.T) {
 // TestKMSCLI_CustomKeyStores covers the custom-key-store CRUD + connection-state
 // machine over the CLI.
 func TestKMSCLI_CustomKeyStores(t *testing.T) {
+	t.Parallel()
 	createOut := runCLI(t, awsCLI("kms", "create-custom-key-store",
 		"--custom-key-store-name", "cli-cks",
 		"--custom-key-store-type", "EXTERNAL_KEY_STORE",
@@ -246,6 +251,7 @@ func TestKMSCLI_CustomKeyStores(t *testing.T) {
 // (create → replicate → update-primary-region → get-key-last-usage) plus grant
 // retirement (retire-grant + list-retirable-grants) over the CLI.
 func TestKMSCLI_MultiRegionAndRetireGrant(t *testing.T) {
+	t.Parallel()
 	keyId := kmsCLICreateKey(t, "--multi-region")
 
 	repOut := runCLI(t, awsCLI("kms", "replicate-key",

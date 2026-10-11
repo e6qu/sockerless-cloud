@@ -38,6 +38,7 @@ func webMoreEnsurePlan(t *testing.T, rg, plan string) string {
 }
 
 func TestSDK_WebMore_Plans(t *testing.T) {
+	t.Parallel()
 	rg := "webmore-plans-rg"
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wm-plan")
@@ -109,6 +110,7 @@ func webMoreCreateSite(t *testing.T, client *armappservice.WebAppsClient, rg, na
 }
 
 func TestSDK_WebMore_SiteConfigAndLifecycle(t *testing.T) {
+	t.Parallel()
 	rg := "webmore-site-rg"
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wm-site-plan")
@@ -182,6 +184,7 @@ func TestSDK_WebMore_SiteConfigAndLifecycle(t *testing.T) {
 }
 
 func TestSDK_WebMore_SiteSubResources(t *testing.T) {
+	t.Parallel()
 	rg := "webmore-subres-rg"
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wm-subres-plan")
@@ -294,6 +297,7 @@ func TestSDK_WebMore_SiteSubResources(t *testing.T) {
 }
 
 func TestSDK_WebMore_Slots(t *testing.T) {
+	t.Parallel()
 	rg := "webmore-slot-rg"
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wm-slot-plan")
@@ -381,6 +385,7 @@ func TestSDK_WebMore_Slots(t *testing.T) {
 }
 
 func TestSDK_WebMore_StaticSitesAndGlobal(t *testing.T) {
+	t.Parallel()
 	rg := "webmore-static-rg"
 	ensureRG(t, rg)
 

@@ -15,6 +15,7 @@ import (
 // than the one the SDK test hand-assembles. Each of those members is read back
 // off the described policy and has to resolve to the resource the flag named.
 func TestGcloudComputePacketMirroring_CRUD(t *testing.T) {
+	t.Parallel()
 	// The policy references a network and subnetwork, and creating those
 	// provisions real Linux network fabric — so this runs where that fabric
 	// exists, exactly as the other gcloud Compute networking tests do.

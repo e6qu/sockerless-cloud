@@ -31,6 +31,7 @@ func lambdaCreateFn(t *testing.T, c *lambda.Client, name string) string {
 // a Version field; the Nth call gives "N". ListVersionsByFunction
 // includes $LATEST followed by published versions.
 func TestLambda_PublishVersion(t *testing.T) {
+	t.Parallel()
 	c := lambdaClient()
 	ctx := context.Background()
 	name := uniqueName("subres-publish")
@@ -62,6 +63,7 @@ func TestLambda_PublishVersion(t *testing.T) {
 // with FunctionVersion=ALL returns both $LATEST and every published version,
 // while the default call returns only $LATEST.
 func TestLambda_ListFunctions_FunctionVersionAll(t *testing.T) {
+	t.Parallel()
 	c := lambdaClient()
 	ctx := context.Background()
 	name := uniqueName("listfn-all-ver")
@@ -102,6 +104,7 @@ func TestLambda_ListFunctions_FunctionVersionAll(t *testing.T) {
 
 // TestLambda_AliasCRUD exercises the full alias lifecycle.
 func TestLambda_AliasCRUD(t *testing.T) {
+	t.Parallel()
 	c := lambdaClient()
 	ctx := context.Background()
 	name := uniqueName("subres-alias")
@@ -156,6 +159,7 @@ func TestLambda_AliasCRUD(t *testing.T) {
 // statement CRUD (AddPermission appends, GetPolicy reads the doc,
 // RemovePermission deletes by Sid).
 func TestLambda_AddRemovePermission(t *testing.T) {
+	t.Parallel()
 	c := lambdaClient()
 	ctx := context.Background()
 	name := uniqueName("subres-perm")
@@ -189,6 +193,7 @@ func TestLambda_AddRemovePermission(t *testing.T) {
 // TestLambda_FunctionUrlConfigCRUD exercises the FunctionUrlConfig
 // lifecycle (Create→Get→Update→Delete).
 func TestLambda_FunctionUrlConfigCRUD(t *testing.T) {
+	t.Parallel()
 	c := lambdaClient()
 	ctx := context.Background()
 	name := uniqueName("subres-url")

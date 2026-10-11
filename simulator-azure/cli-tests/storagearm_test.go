@@ -14,6 +14,7 @@ import (
 // account create + the regenerateKey / listKeys / checkNameAvailability / skus /
 // operations endpoints are exercised end to end.
 func TestStorageARMManagementCLI(t *testing.T) {
+	t.Parallel()
 	const apiVersion = "2024-01-01"
 	account := "clistoragearm"
 

@@ -170,6 +170,13 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: parallel-tests
+        name: Every SDK and CLI test runs in parallel or says why it cannot
+        entry: go run scripts/check-parallel-tests.go
+        language: system
+        pass_filenames: false
+        files: ^(simulator-(aws|gcp|azure)/(sdk|cli)-tests/|scripts/check-parallel-tests\.go$)
+
       - id: readonly-locks
         name: No read path holds an exclusive lock
         entry: bash scripts/check-readonly-locks.sh

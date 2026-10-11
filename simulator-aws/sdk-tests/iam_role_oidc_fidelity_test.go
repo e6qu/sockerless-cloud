@@ -15,6 +15,7 @@ import (
 // dropped, drifting aws_iam_role every plan), plus UpdateRole and TagRole/
 // UntagRole (post-create attribute + tag changes were UnknownOperation).
 func TestIAM_RoleFidelitySDK(t *testing.T) {
+	t.Parallel()
 	roleName := uniqueName("fidelity-role")
 	boundaryName := uniqueName("fidelity-boundary")
 	c := iamClient()
@@ -84,6 +85,7 @@ func TestIAM_RoleFidelitySDK(t *testing.T) {
 // TestIAM_OIDCProviderTagsSDK proves the OIDC provider tags round-trip (they
 // were stored but GetOpenIDConnectProvider dropped them) plus Tag/Untag.
 func TestIAM_OIDCProviderTagsSDK(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 
 	created, err := c.CreateOpenIDConnectProvider(ctx, &iam.CreateOpenIDConnectProviderInput{

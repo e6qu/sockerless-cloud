@@ -42,6 +42,7 @@ func createV2Function(t *testing.T, svc *cloudfunctions.Service, parent, id stri
 }
 
 func TestSDK_CloudFunctionsV2_ListLocations(t *testing.T) {
+	t.Parallel()
 	svc := newCloudFunctionsV2Service(t)
 
 	const parent = "projects/test-project"
@@ -67,6 +68,7 @@ func TestSDK_CloudFunctionsV2_ListLocations(t *testing.T) {
 }
 
 func TestSDK_CloudFunctionsV2_ListRuntimes(t *testing.T) {
+	t.Parallel()
 	svc := newCloudFunctionsV2Service(t)
 
 	resp, err := svc.Projects.Locations.Runtimes.List("projects/test-project/locations/us-central1").Do()
@@ -88,6 +90,7 @@ func TestSDK_CloudFunctionsV2_ListRuntimes(t *testing.T) {
 }
 
 func TestSDK_CloudFunctionsV2_ListAndGetOperations(t *testing.T) {
+	t.Parallel()
 	svc := newCloudFunctionsV2Service(t)
 	parent := "projects/test-project/locations/us-central1"
 
@@ -117,6 +120,7 @@ func TestSDK_CloudFunctionsV2_ListAndGetOperations(t *testing.T) {
 }
 
 func TestSDK_CloudFunctionsV2_IAMPolicy(t *testing.T) {
+	t.Parallel()
 	svc := newCloudFunctionsV2Service(t)
 	parent := "projects/test-project/locations/us-central1"
 	name := createV2Function(t, svc, parent, "sdk-v2-iam-fn")
@@ -169,6 +173,7 @@ func endpointHost(t *testing.T) string {
 }
 
 func TestSDK_CloudFunctionsV2_GenerateUploadUrl(t *testing.T) {
+	t.Parallel()
 	svc := newCloudFunctionsV2Service(t)
 	parent := "projects/test-project/locations/us-central1"
 
@@ -202,6 +207,7 @@ func TestSDK_CloudFunctionsV2_GenerateUploadUrl(t *testing.T) {
 }
 
 func TestSDK_CloudFunctionsV2_GenerateDownloadUrl(t *testing.T) {
+	t.Parallel()
 	svc := newCloudFunctionsV2Service(t)
 	parent := "projects/test-project/locations/us-central1"
 	name := createV2Function(t, svc, parent, "sdk-v2-download-fn")
@@ -239,6 +245,7 @@ func TestSDK_CloudFunctionsV2_GenerateDownloadUrl(t *testing.T) {
 }
 
 func TestSDK_CloudFunctionsV2_UpgradeLifecycle(t *testing.T) {
+	t.Parallel()
 	svc := newCloudFunctionsV2Service(t)
 	parent := "projects/test-project/locations/us-central1"
 	name := createV2Function(t, svc, parent, "sdk-v2-upgrade-fn")

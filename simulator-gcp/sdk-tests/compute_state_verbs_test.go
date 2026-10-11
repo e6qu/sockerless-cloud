@@ -12,6 +12,7 @@ import (
 // report what its parts are doing.
 
 func TestCompute_PublicAdvertisedPrefixAnnounceAndWithdraw(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, name = "advertised", "owned-range"
 
@@ -44,6 +45,7 @@ func TestCompute_PublicAdvertisedPrefixAnnounceAndWithdraw(t *testing.T) {
 }
 
 func TestCompute_FutureReservationCancel(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, zone, name = "future-res", "us-central1-a", "capacity"
 
@@ -69,6 +71,7 @@ func TestCompute_FutureReservationCancel(t *testing.T) {
 // A status read is derived from the resource, so it cannot claim more than the
 // resource says.
 func TestCompute_StatusReadsReportWhatTheResourceHolds(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, region = "status-reads", "us-central1"
 

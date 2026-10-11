@@ -93,6 +93,7 @@ func awaitDeploymentRuntime(t *testing.T, client *armappservice.WebAppsClient, r
 }
 
 func TestSDK_WebApps_KuduDeploymentAPI(t *testing.T) {
+	t.Parallel()
 	rg, name := "sdk-kudu-rg", "sdk-kudu-app"
 	client := createStackWebApp(t, rg, name, "NODE|20-lts", nil)
 

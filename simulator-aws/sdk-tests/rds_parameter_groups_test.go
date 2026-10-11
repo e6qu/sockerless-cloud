@@ -63,6 +63,7 @@ func rdsParameterApplyStatus(t *testing.T, ctx context.Context, c *rds.Client, i
 // RebootDBInstance with the instance's group pending-reboot, and a reset
 // returns a dynamic parameter to its default at once.
 func TestRDS_DBParameterGroupsConfigureTheEngine(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	c := rdsClient()
@@ -173,6 +174,7 @@ func TestRDS_DBParameterGroupsConfigureTheEngine(t *testing.T) {
 // An RDS for MySQL engine starts with its group's static and dynamic
 // parameters, and takes a dynamic change while it runs.
 func TestRDS_DBParameterGroupsConfigureTheMySQLEngine(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	c := rdsClient()
@@ -236,6 +238,7 @@ func rdsWindowAfterNow() (maintenance, backup string) {
 // ApplyImmediately applies every pending change at once, and the window
 // applies what it holds when it opens.
 func TestRDS_DBInstanceModificationsWaitForTheMaintenanceWindow(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	c := rdsClient()

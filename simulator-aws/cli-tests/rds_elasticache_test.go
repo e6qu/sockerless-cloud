@@ -16,6 +16,7 @@ func waitForRDSSnapshotAvailableCLI(t *testing.T, snapshotID string) {
 }
 
 func TestRDSCLI_DBInstanceLifecycle(t *testing.T) {
+	t.Parallel()
 	id := "cli-rds-db"
 
 	out := runCLI(t, awsCLI("rds", "create-db-instance",
@@ -176,6 +177,7 @@ func TestRDSCLI_DBInstanceLifecycle(t *testing.T) {
 }
 
 func TestElastiCacheCLI_ClusterLifecycle(t *testing.T) {
+	t.Parallel()
 	id := "cli-cache"
 
 	out := runCLI(t, awsCLI("elasticache", "create-cache-cluster",
@@ -238,6 +240,7 @@ func TestElastiCacheCLI_ClusterLifecycle(t *testing.T) {
 }
 
 func TestElastiCacheCLI_ReplicationGroupAndReboot(t *testing.T) {
+	t.Parallel()
 	// Reboot a standalone cluster.
 	clusterID := "cli-reboot-cache"
 	runCLI(t, awsCLI("elasticache", "create-cache-cluster",
@@ -325,6 +328,7 @@ func TestElastiCacheCLI_ReplicationGroupAndReboot(t *testing.T) {
 }
 
 func TestElastiCacheCLI_SubnetAndParameterGroups(t *testing.T) {
+	t.Parallel()
 	// Cache subnet group lifecycle.
 	sgName := "cli-cache-subnet-group"
 	out := runCLI(t, awsCLI("elasticache", "create-cache-subnet-group",

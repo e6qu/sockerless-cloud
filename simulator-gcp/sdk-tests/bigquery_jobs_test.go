@@ -67,6 +67,7 @@ func bqRunJob(t *testing.T, run func() (*bigquery.Job, error)) *bigquery.JobStat
 // and extract jobs write them back to Cloud Storage, each as a job the client
 // waits on.
 func TestBigQuery_LoadCopyExtractThroughCloudStorage(t *testing.T) {
+	t.Parallel()
 	const project = "sock-proj"
 	client := bqClient(t, project)
 	gcs := storageClient(t)

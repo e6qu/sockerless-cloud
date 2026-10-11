@@ -23,6 +23,7 @@ import (
 // create → describe → list → update → delete → undelete. Custom-role CRUD
 // rides the IAM endpoint override (CLOUDSDK_API_ENDPOINT_OVERRIDES_IAM).
 func TestIAMCustomRoleLifecycleCLI(t *testing.T) {
+	t.Parallel()
 	const roleID = "cliCustomRole"
 
 	out := runCLI(t, gcloudCLI("iam", "roles", "create", roleID,
@@ -104,6 +105,7 @@ func TestIAMCustomRoleLifecycleCLI(t *testing.T) {
 // IAM's 409 ALREADY_EXISTS, instead of gcloud silently reporting success over
 // a silently overwritten account.
 func TestIAMServiceAccountCreateDuplicateCLI(t *testing.T) {
+	t.Parallel()
 	const accountID = "cli-dup-sa"
 	email := accountID + "@" + project + ".iam.gserviceaccount.com"
 
@@ -128,6 +130,7 @@ func TestIAMServiceAccountCreateDuplicateCLI(t *testing.T) {
 // add-iam-policy-binding on a service account (the SA-as-resource IAM triple),
 // plus :testIamPermissions directly against the wire path.
 func TestIAMServiceAccountAsResourceIAMCLI(t *testing.T) {
+	t.Parallel()
 	const accountID = "cli-iam-sa"
 	email := accountID + "@" + project + ".iam.gserviceaccount.com"
 
@@ -184,6 +187,7 @@ func TestIAMServiceAccountAsResourceIAMCLI(t *testing.T) {
 // TestIAMServiceAccountDisableEnableUpdateCLI exercises :disable, :enable, and
 // PATCH (update) on a service account.
 func TestIAMServiceAccountDisableEnableUpdateCLI(t *testing.T) {
+	t.Parallel()
 	const accountID = "cli-toggle-sa"
 	email := accountID + "@" + project + ".iam.gserviceaccount.com"
 
@@ -228,6 +232,7 @@ func TestIAMServiceAccountDisableEnableUpdateCLI(t *testing.T) {
 // private key was swapped for one the IAM API never registered is rejected by
 // the token endpoint with invalid_grant.
 func TestIAMServiceAccountKeysActivateCLI(t *testing.T) {
+	t.Parallel()
 	const accountID = "cli-keys-sa"
 	email := accountID + "@" + project + ".iam.gserviceaccount.com"
 
@@ -331,6 +336,7 @@ func generateUnregisteredKeyPEM(t *testing.T) string {
 // A reduced lifetime must produce a token that is genuinely short-lived, and
 // an extension the org policy has not granted must be refused.
 func TestIAMCredentialsPrintAccessTokenLifetimeCLI(t *testing.T) {
+	t.Parallel()
 	const accountID = "cli-lifetime-sa"
 	email := fmt.Sprintf("%s@%s.iam.gserviceaccount.com", accountID, project)
 

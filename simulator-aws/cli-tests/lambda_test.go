@@ -44,6 +44,7 @@ func createLambdaSourceZip(t *testing.T, name, source string) string {
 }
 
 func TestLambda_CreateAndGetFunction(t *testing.T) {
+	t.Parallel()
 	zipPath := createDummyZip(t)
 
 	out := runCLI(t, awsCLI("lambda", "create-function",
@@ -88,6 +89,7 @@ func TestLambda_CreateAndGetFunction(t *testing.T) {
 // CheckpointDurableExecution, SendDurableExecutionCallbackHeartbeat, and
 // SendDurableExecutionCallbackSuccess operations against a running function.
 func TestLambda_CheckpointAndCallbackOperationsCLI(t *testing.T) {
+	t.Parallel()
 	const fn = "cli-durable-callback-fn"
 	source := `
 exports.handler = async (event) => {
@@ -235,6 +237,7 @@ exports.handler = async (event) => {
 }
 
 func TestLambda_GetFunctionCodeSigningConfigWithoutAttachment(t *testing.T) {
+	t.Parallel()
 	zipPath := createDummyZip(t)
 	fnName := "cli-csc-unconfigured-func"
 
@@ -263,6 +266,7 @@ func TestLambda_GetFunctionCodeSigningConfigWithoutAttachment(t *testing.T) {
 }
 
 func TestLambda_ListFunctions(t *testing.T) {
+	t.Parallel()
 	zipPath := createDummyZip(t)
 
 	runCLI(t, awsCLI("lambda", "create-function",
@@ -295,6 +299,7 @@ func TestLambda_ListFunctions(t *testing.T) {
 }
 
 func TestLambda_InvokeFunction(t *testing.T) {
+	t.Parallel()
 	zipPath := createDummyZip(t)
 
 	runCLI(t, awsCLI("lambda", "create-function",
@@ -324,6 +329,7 @@ func TestLambda_InvokeFunction(t *testing.T) {
 }
 
 func TestLambda_UpdateFunctionConfiguration(t *testing.T) {
+	t.Parallel()
 	zipPath := createDummyZip(t)
 
 	runCLI(t, awsCLI("lambda", "create-function",
@@ -354,6 +360,7 @@ func TestLambda_UpdateFunctionConfiguration(t *testing.T) {
 }
 
 func TestLambda_CLI_InvokeAndCheckLogs(t *testing.T) {
+	t.Parallel()
 	zipPath := createDummyZip(t)
 
 	fnName := "cli-log-invoke-func"
@@ -417,6 +424,7 @@ func TestLambda_CLI_InvokeAndCheckLogs(t *testing.T) {
 // image speaks the real Lambda Runtime API, invokes with a payload,
 // and verifies the payload round-trips via /next + /response.
 func TestLambda_InvokeRuntimeAPI_CLI(t *testing.T) {
+	t.Parallel()
 	fnName := "cli-runtime-api-fn"
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.79.0.0/16",
@@ -447,6 +455,7 @@ func TestLambda_InvokeRuntimeAPI_CLI(t *testing.T) {
 		"--package-type", "Image",
 		"--role", "arn:aws:iam::123456789012:role/test-role",
 		"--code", "ImageUri="+lambdaHandlerImageName,
+		"--architectures", nativeLambdaArchitecture(),
 		"--vpc-config", "SubnetIds="+subnetID+",SecurityGroupIds="+securityGroupID,
 	))
 	defer runCLI(t, awsCLI("lambda", "delete-function", "--function-name", fnName))
@@ -480,6 +489,7 @@ func TestLambda_InvokeRuntimeAPI_CLI(t *testing.T) {
 // the aws CLI. Payload with "cause":"error" triggers the handler to
 // POST /invocation/{id}/error; caller sees FunctionError=Unhandled.
 func TestLambda_InvokeRuntimeAPIError_CLI(t *testing.T) {
+	t.Parallel()
 	fnName := "cli-runtime-api-error-fn"
 
 	runCLI(t, awsCLI("lambda", "create-function",
@@ -487,6 +497,7 @@ func TestLambda_InvokeRuntimeAPIError_CLI(t *testing.T) {
 		"--package-type", "Image",
 		"--role", "arn:aws:iam::123456789012:role/test-role",
 		"--code", "ImageUri="+lambdaHandlerImageName,
+		"--architectures", nativeLambdaArchitecture(),
 	))
 	defer runCLI(t, awsCLI("lambda", "delete-function", "--function-name", fnName))
 
@@ -515,6 +526,7 @@ func TestLambda_InvokeRuntimeAPIError_CLI(t *testing.T) {
 }
 
 func TestLambda_DeleteFunction(t *testing.T) {
+	t.Parallel()
 	zipPath := createDummyZip(t)
 
 	runCLI(t, awsCLI("lambda", "create-function",

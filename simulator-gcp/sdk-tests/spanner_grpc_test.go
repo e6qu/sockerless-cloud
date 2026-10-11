@@ -28,6 +28,7 @@ import (
 // write below rides the gRPC data plane through SPANNER_EMULATOR_HOST, the same
 // coordinate the real Spanner emulator honors.
 func TestSpanner_GRPC(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	const (
@@ -44,7 +45,6 @@ func TestSpanner_GRPC(t *testing.T) {
 
 	// Point the high-level client at the simulator's gRPC port — the same env
 	// var the real Spanner emulator uses.
-	t.Setenv("SPANNER_EMULATOR_HOST", grpcAddr)
 
 	client, err := spanner.NewClient(ctx, database)
 	require.NoError(t, err)
@@ -209,6 +209,7 @@ func TestSpanner_GRPC(t *testing.T) {
 }
 
 func TestSpanner_GRPCBatchDMLAndBatchWrite(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	const (
 		project  = "test-project"

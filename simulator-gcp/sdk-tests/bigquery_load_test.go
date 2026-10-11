@@ -40,6 +40,7 @@ func bqFinishedJob(t *testing.T, svc *bigquery.Service, project string, job *big
 }
 
 func TestBigQuery_LoadJobFromMedia(t *testing.T) {
+	t.Parallel()
 	svc := bqService(t)
 	project, dataset := "sock-proj", strings.ReplaceAll(uniqueName("ds_loads"), "-", "_")
 	bqMakeDataset(t, svc, project, dataset)

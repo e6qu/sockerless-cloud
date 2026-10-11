@@ -18,6 +18,7 @@ import (
 // the project's Cloud Run service agent. The registry's data plane is the one
 // the job's image names, reached at this simulator's own coordinate.
 func TestCloudRun_JobPullsItsImageFromArtifactRegistryAsTheServiceAgent(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "linux" {
 		t.Skip("platform gate: the container engine pulls the image itself, and on a host whose engine runs inside its own virtual machine it has no route to this host's loopback, where the simulator's registry listens. Linux hosts — and the repository's Linux container path, `make docker-test` — share one loopback between engine, simulator and client.")
 	}

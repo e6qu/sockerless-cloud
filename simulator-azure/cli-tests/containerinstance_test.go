@@ -14,6 +14,7 @@ const aciAPIVersion = "2021-10-01"
 // TestACILocationUsages_CLI exercises the per-region Azure Container Instances
 // usage endpoint (Location_ListUsage) through the az-rest CLI.
 func TestACILocationUsages_CLI(t *testing.T) {
+	t.Parallel()
 	url := fmt.Sprintf("%s/subscriptions/%s/providers/Microsoft.ContainerInstance/locations/eastus/usages?api-version=%s",
 		baseURL, subscriptionID, aciAPIVersion)
 	out := runCLI(t, azRest("GET", url, ""))
@@ -49,6 +50,7 @@ func TestACILocationUsages_CLI(t *testing.T) {
 // the same host-capability gate the Microsoft.Network suite does and runs for
 // real on the CI Linux cell.
 func TestACISubnetServiceAssociationLinkDelete(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	const networkAPIVersion = "2024-05-01"
 	vnetURL := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/aci-vnet?api-version=%s",

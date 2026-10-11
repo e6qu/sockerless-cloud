@@ -22,6 +22,7 @@ func snsClient() *sns.Client {
 // TestSNS_TopicLifecycle exercises the Create / Get / List / Delete
 // flow that every runner integration tutorial runs against SNS.
 func TestSNS_TopicLifecycle(t *testing.T) {
+	t.Parallel()
 	client := snsClient()
 	create, err := client.CreateTopic(ctx, &sns.CreateTopicInput{
 		Name: aws.String("life-topic"),
@@ -58,6 +59,7 @@ func TestSNS_TopicLifecycle(t *testing.T) {
 // TestSNS_SubscribeAndUnsubscribe asserts subscription CRUD against
 // an SQS endpoint protocol.
 func TestSNS_SubscribeAndUnsubscribe(t *testing.T) {
+	t.Parallel()
 	snsC := snsClient()
 	sqsC := sqsClient()
 
@@ -110,6 +112,7 @@ func TestSNS_SubscribeAndUnsubscribe(t *testing.T) {
 }
 
 func TestSNS_SubscribeConfirmationRequiredProtocols(t *testing.T) {
+	t.Parallel()
 	snsC := snsClient()
 	tpc, err := snsC.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String("confirm-t")})
 	require.NoError(t, err)
@@ -144,6 +147,7 @@ func TestSNS_SubscribeConfirmationRequiredProtocols(t *testing.T) {
 // pattern: SNS topic with SQS subscriber, Publish message lands in
 // the subscriber queue's Messages.
 func TestSNS_PublishFanoutToSQS(t *testing.T) {
+	t.Parallel()
 	snsC := snsClient()
 	sqsC := sqsClient()
 
@@ -200,6 +204,7 @@ func TestSNS_PublishFanoutToSQS(t *testing.T) {
 
 // TestSNS_NonExistentTopic confirms canonical error shape.
 func TestSNS_NonExistentTopic(t *testing.T) {
+	t.Parallel()
 	client := snsClient()
 	_, err := client.GetTopicAttributes(ctx, &sns.GetTopicAttributesInput{
 		TopicArn: aws.String("arn:aws:sns:us-east-1:000000000000:nope"),
@@ -212,6 +217,7 @@ func TestSNS_NonExistentTopic(t *testing.T) {
 }
 
 func TestSNS_ListTopics_Pagination(t *testing.T) {
+	t.Parallel()
 	client := snsClient()
 	var arns []string
 	for _, n := range []string{"pag-topic-a", "pag-topic-b", "pag-topic-c"} {
@@ -251,6 +257,7 @@ func TestSNS_ListTopics_Pagination(t *testing.T) {
 // rejected as a missing TopicArn, which sends a reader hunting a defect in
 // their own request instead of telling them where the simulator stops.
 func TestSNS_ExternalDeliveryFailsWithItsOwnReason(t *testing.T) {
+	t.Parallel()
 	c := snsClient()
 
 	t.Run("publishing an SMS names the carrier", func(t *testing.T) {

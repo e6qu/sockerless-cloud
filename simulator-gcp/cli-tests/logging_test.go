@@ -17,6 +17,7 @@ import (
 // logging write` and `gcloud logging read` expose. The CLI round trip over the
 // same two routes is TestLogging_CLI_WriteAndRead.
 func TestLogging_Wire_WriteAndRead(t *testing.T) {
+	t.Parallel()
 	writeURL := fmt.Sprintf("%s/v2/entries:write", baseURL)
 	httpDoJSON(t, "POST", writeURL, fmt.Sprintf(`{
 		"logName": "projects/%s/logs/cli-test-log",
@@ -56,6 +57,7 @@ func TestLogging_Wire_WriteAndRead(t *testing.T) {
 // CLOUDSDK_API_ENDPOINT_OVERRIDES_LOGGING coordinate, so the write and the
 // read that finds it are real gcloud invocations.
 func TestLogging_CLI_WriteAndRead(t *testing.T) {
+	t.Parallel()
 	const logID = "cli-gcloud-write-log"
 	const payload = "written by the gcloud CLI"
 
@@ -100,6 +102,7 @@ func TestLogging_CLI_WriteAndRead(t *testing.T) {
 }
 
 func TestLogging_ReadWithFilter(t *testing.T) {
+	t.Parallel()
 	writeURL := fmt.Sprintf("%s/v2/entries:write", baseURL)
 	httpDoJSON(t, "POST", writeURL, fmt.Sprintf(`{
 		"logName": "projects/%s/logs/filter-test-log",

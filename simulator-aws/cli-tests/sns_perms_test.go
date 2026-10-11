@@ -13,6 +13,7 @@ import (
 // set-subscription-attributes / get-subscription-attributes against an SQS
 // subscription.
 func TestSNSCLI_SubscriptionAttributes(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("sns", "create-topic", "--name", "cli-subattr-t"))
 	var topic struct{ TopicArn string }
 	parseJSON(t, out, &topic)
@@ -68,6 +69,7 @@ func TestSNSCLI_SubscriptionAttributes(t *testing.T) {
 // TestSNSCLI_ConfirmSubscription confirms a confirmation-required (https)
 // subscription using the deterministic token (the ARN with colons stripped).
 func TestSNSCLI_ConfirmSubscription(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("sns", "create-topic", "--name", "cli-confirm-t"))
 	var topic struct{ TopicArn string }
 	parseJSON(t, out, &topic)
@@ -106,6 +108,7 @@ func TestSNSCLI_ConfirmSubscription(t *testing.T) {
 // into the topic Policy (read via get-topic-attributes) and remove-permission
 // drops it.
 func TestSNSCLI_AddRemovePermission(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("sns", "create-topic", "--name", "cli-perm-t"))
 	var topic struct{ TopicArn string }
 	parseJSON(t, out, &topic)

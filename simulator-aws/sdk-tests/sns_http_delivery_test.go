@@ -85,6 +85,7 @@ func verifySNSHTTPEnvelope(t *testing.T, envelope map[string]any) {
 // signed confirmation, ConfirmSubscription, signed notification, and raw
 // message delivery.
 func TestSNS_HTTPSubscriptionDelivery_SDK(t *testing.T) {
+	t.Parallel()
 	deliveries := make(chan snsHTTPDelivery, 4)
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)

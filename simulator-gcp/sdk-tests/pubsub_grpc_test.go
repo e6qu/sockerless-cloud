@@ -18,12 +18,12 @@ import (
 
 // newPSGRPCClient builds the high-level cloud.google.com/go/pubsub client over
 // gRPC (its only transport), pointed at the simulator's Pub/Sub gRPC data plane
-// via PUBSUB_EMULATOR_HOST — the same coordinate the client uses to reach
-// Google's own Pub/Sub emulator.
+// by endpoint rather than through the process-wide PUBSUB_EMULATOR_HOST.
 func newPSGRPCClient(t *testing.T, project string) *pubsub.Client {
 	t.Helper()
-	t.Setenv("PUBSUB_EMULATOR_HOST", grpcAddr)
 	c, err := pubsub.NewClient(ctx, project,
+		option.WithEndpoint(grpcAddr),
+		option.WithoutAuthentication(),
 		option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
 		option.WithTelemetryDisabled(),
 	)
@@ -58,6 +58,7 @@ func psRawSubscriber(t *testing.T) pubsubpb.SubscriberClient {
 // TestPubSub_GRPC_TopicAndSubscriptionCRUD exercises the full topic + subscription
 // CRUD round-trip over gRPC via the high-level client.
 func TestPubSub_GRPC_TopicAndSubscriptionCRUD(t *testing.T) {
+	t.Parallel()
 	c := newPSGRPCClient(t, "ps-grpc-proj")
 	topicID := "crud-topic"
 
@@ -130,6 +131,7 @@ func TestPubSub_GRPC_TopicAndSubscriptionCRUD(t *testing.T) {
 // batch with data + attributes, raw Pull the messages back, assert fidelity, then
 // Acknowledge and confirm the queue is drained.
 func TestPubSub_GRPC_PublishPull(t *testing.T) {
+	t.Parallel()
 	c := newPSGRPCClient(t, "ps-grpc-proj")
 	pc, sc := psRawClient(t)
 
@@ -197,6 +199,7 @@ func TestPubSub_GRPC_PublishPull(t *testing.T) {
 // message that is NOT acknowledged is returned to the queue by the ack-deadline
 // sweeper and redelivered on the next pull.
 func TestPubSub_GRPC_AckDeadlineRedelivery(t *testing.T) {
+	t.Parallel()
 	c := newPSGRPCClient(t, "ps-grpc-proj")
 	_, sc := psRawClient(t)
 
@@ -238,6 +241,7 @@ func TestPubSub_GRPC_AckDeadlineRedelivery(t *testing.T) {
 // must not have redelivered it: the extension held it. Dropping its deadline to
 // zero then returns it on the same stream at once.
 func TestPubSub_GRPC_ModifyAckDeadline(t *testing.T) {
+	t.Parallel()
 	c := newPSGRPCClient(t, "ps-grpc-proj")
 	sc := psRawSubscriber(t)
 
@@ -334,6 +338,7 @@ func psStreamUntil(t *testing.T, stream pubsubpb.Subscriber_StreamingPullClient,
 // (StreamingPull) and asserts it receives the published messages, then acks them
 // via the handler so they are not redelivered.
 func TestPubSub_GRPC_StreamingPull(t *testing.T) {
+	t.Parallel()
 	c := newPSGRPCClient(t, "ps-grpc-proj")
 	topic := c.Topic("sp-topic")
 	_, err := c.CreateTopic(ctx, topic.ID())
@@ -387,6 +392,7 @@ func TestPubSub_GRPC_StreamingPull(t *testing.T) {
 // acks everything, then seeks to the snapshot and confirms all messages are
 // replayed.
 func TestPubSub_GRPC_SeekSnapshot(t *testing.T) {
+	t.Parallel()
 	c := newPSGRPCClient(t, "ps-grpc-proj")
 	sc := psRawSubscriber(t)
 
@@ -443,6 +449,7 @@ func TestPubSub_GRPC_SeekSnapshot(t *testing.T) {
 
 // TestPubSub_GRPC_Schema exercises SchemaService CRUD + ValidateSchema.
 func TestPubSub_GRPC_Schema(t *testing.T) {
+	t.Parallel()
 	newPSGRPCClient(t, "ps-grpc-proj") // ensures the emulator env is set + project wiring
 	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
@@ -521,6 +528,7 @@ func psPullAll(t *testing.T, sc pubsubpb.SubscriberClient, sub string, count int
 // contract: a page token the service did not issue, or a negative page size,
 // is an INVALID_ARGUMENT, not a silent restart from the first page.
 func TestPubSubGRPC_ListRefusesAMalformedPage(t *testing.T) {
+	t.Parallel()
 	pub, _ := psRawClient(t)
 	project := "projects/" + uniqueName("ps-grpc-paging")
 	for _, id := range []string{"a", "b", "c"} {

@@ -23,6 +23,7 @@ import (
 // health probe, an Application Load Balancer forwards to it, and replacement
 // swaps the target without losing the service endpoint.
 func TestECS_ServiceRegistersHealthyLoadBalancerTargets(t *testing.T) {
+	t.Parallel()
 	ecsC := ecsClient()
 	elbC := elbv2Client()
 	const (

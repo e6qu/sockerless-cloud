@@ -34,6 +34,7 @@ func rdsServerVersion(t *testing.T, database auroraSnapshotClient) string {
 // ModifyDBInstance upgrades the engine in place, keeping the data, while it
 // refuses a downgrade.
 func TestRDS_EngineVersionsRunTheirOwnRelease(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	f := rdsInstanceFixture{t: t, ctx: ctx, client: rdsClient(), family: "postgres"}
@@ -136,6 +137,7 @@ func TestRDS_EngineVersionsRunTheirOwnRelease(t *testing.T) {
 // DescribeDBParameters read and which cannot be modified or deleted; a group
 // of another family is refused.
 func TestRDS_DefaultDBParameterGroup(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	c := rdsClient()
 	id := uniqueName("sdk-default-group")

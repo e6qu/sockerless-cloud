@@ -48,6 +48,7 @@ import (
 const stage5CLIAPIVersion = "2024-04-01"
 
 func TestWebAppStage5_VnetIntegrationAndNetworkingTail(t *testing.T) {
+	t.Parallel()
 	// The full workload runtime: a Microsoft.Web/serverFarms-delegated subnet
 	// is realized as a real Docker network, which SIM_RUNTIME=process cannot do.
 	env := startAzTLSSimulator(t)

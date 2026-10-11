@@ -75,6 +75,7 @@ func lambdaInvokeForMemoryReport(t *testing.T, name, source string, memorySize i
 // for the whole invocation and one holding nothing, report memory that differs
 // by about that allocation.
 func TestLambda_ReportMaxMemoryUsedIsMeasured(t *testing.T) {
+	t.Parallel()
 	// The configured memory size is far above what either function can reach,
 	// so a figure derived from it — the configured size, or a share of it —
 	// cannot be mistaken for either measurement.

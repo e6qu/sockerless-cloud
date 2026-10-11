@@ -80,6 +80,7 @@ func acrTasksPushImage(t *testing.T, rg, regName, account, repository string) (s
 // registry refuses an anonymous read, and the image the run pushed is there
 // for a client that authenticates.
 func TestACRTasks_RunPushesIntoItsRegistryAsTheRun(t *testing.T) {
+	t.Parallel()
 	loginServer, imageName := acrTasksPushImage(t, "acr-tasks-cred-rg", "acrtaskcredreg", "acrtaskcredacct", "sockerless-overlay/aca")
 
 	tag := imageName[strings.LastIndex(imageName, ":")+1:]

@@ -38,6 +38,7 @@ func networkResourceID(path string) string {
 // TestNetworkApplicationSecurityGroupCLI covers the application security group
 // surface: create, show, retag, both lists, delete.
 func TestNetworkApplicationSecurityGroupCLI(t *testing.T) {
+	t.Parallel()
 	url := armURL("Microsoft.Network", "applicationSecurityGroups/cli-asg", privateLinkAPIVersion)
 	out := runCLI(t, azRest("PUT", url, `{"location":"eastus","tags":{"tier":"web"}}`))
 	var asg struct {
@@ -83,6 +84,7 @@ func TestNetworkApplicationSecurityGroupCLI(t *testing.T) {
 // TestNetworkVirtualNetworkTapCLI covers the virtual network tap surface,
 // including the rejection of a tap that names no collector destination.
 func TestNetworkVirtualNetworkTapCLI(t *testing.T) {
+	t.Parallel()
 	url := armURL("Microsoft.Network", "virtualNetworkTaps/cli-tap", privateLinkAPIVersion)
 
 	out := runNetworkCLIExpectFailure(t, azRest("PUT", url, `{"location":"eastus","properties":{}}`))
@@ -125,6 +127,7 @@ func TestNetworkVirtualNetworkTapCLI(t *testing.T) {
 // its definition sub-resource, and proves a definition written through the
 // sub-resource path is reported by the policy's own read.
 func TestNetworkServiceEndpointPolicyCLI(t *testing.T) {
+	t.Parallel()
 	url := armURL("Microsoft.Network", "serviceEndpointPolicies/cli-sep", privateLinkAPIVersion)
 	account := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/cliallowed",
 		subscriptionID, resourceGroup)
@@ -200,6 +203,7 @@ func TestNetworkServiceEndpointPolicyCLI(t *testing.T) {
 // the CLI: a private link service, a private endpoint that connects to it, the
 // owner's approval on the service, and the endpoint reading that decision back.
 func TestNetworkPrivateLinkCLI(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 
 	vnetURL := armURL("Microsoft.Network", "virtualNetworks/cli-pl-vnet", privateLinkAPIVersion)
@@ -374,6 +378,7 @@ func TestNetworkPrivateLinkCLI(t *testing.T) {
 // in the vault's own collection, and a private DNS zone group publishes real A
 // records the private DNS record surface then serves.
 func TestNetworkPrivateEndpointKeyVaultAndDNSCLI(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 
 	vnetURL := armURL("Microsoft.Network", "virtualNetworks/cli-kvpe-vnet", privateLinkAPIVersion)
@@ -490,6 +495,7 @@ func TestNetworkPrivateEndpointKeyVaultAndDNSCLI(t *testing.T) {
 // TestNetworkProfileCLI covers the network profile surface and the subnet
 // validation its container network interface configurations are subject to.
 func TestNetworkProfileCLI(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 
 	vnetURL := armURL("Microsoft.Network", "virtualNetworks/cli-np-vnet", privateLinkAPIVersion)

@@ -11,6 +11,7 @@ import (
 // snapshot and DB cluster parameter group families end-to-end through
 // the aws CLI. Grouped into one round-trip func (appdata2 carries RDS).
 func TestRDSCLI_ClusterSnapshotAndParamGroup(t *testing.T) {
+	t.Parallel()
 	clusterID := "cli-ext-aurora-cluster"
 	runCLI(t, awsCLI("rds", "create-db-cluster",
 		"--db-cluster-identifier", clusterID,
@@ -119,6 +120,7 @@ func TestRDSCLI_ClusterSnapshotAndParamGroup(t *testing.T) {
 // TestRDSCLI_OptionGroupAndReplica covers option groups,
 // read replicas, and CopyDBSnapshot through the aws CLI.
 func TestRDSCLI_OptionGroupAndReplica(t *testing.T) {
+	t.Parallel()
 	ogName := "cli-ext-option-group"
 	out := runCLI(t, awsCLI("rds", "create-option-group",
 		"--option-group-name", ogName,
@@ -232,6 +234,7 @@ func TestRDSCLI_OptionGroupAndReplica(t *testing.T) {
 // DescribeEventCategories, DescribeDBEngineVersions, and
 // DescribeOrderableDBInstanceOptions.
 func TestRDSCLI_EventsAndEngineMetadata(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("rds", "describe-event-categories"))
 	var cats struct {
 		EventCategoriesMapList []struct {

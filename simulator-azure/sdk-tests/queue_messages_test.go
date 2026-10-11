@@ -15,6 +15,7 @@ import (
 // requested time to live, a message put invisible is not dequeued or peeked,
 // and the pop receipt Put Message returns deletes it.
 func TestQueueSDK_MessageTimeToLiveAndInitialVisibility(t *testing.T) {
+	t.Parallel()
 	const (
 		account   = "sdkqueuettl"
 		queueName = "sdkttlqueue"

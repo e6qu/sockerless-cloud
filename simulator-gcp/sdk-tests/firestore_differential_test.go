@@ -59,6 +59,7 @@ var fsDiffKnownDivergences = map[string]fsDiffDivergence{
 }
 
 func TestFirestore_DifferentialVsEmulator(t *testing.T) {
+	t.Parallel()
 	emuHost, stop := startFirestoreEmulator(t)
 	defer stop()
 

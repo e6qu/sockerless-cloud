@@ -74,6 +74,7 @@ func seedCloudSQLInstance(t *testing.T, project, name string) *sqladmin.Service 
 }
 
 func TestCloudSQL_BlueGreenDeploymentSwitchover(t *testing.T) {
+	t.Parallel()
 	const project, location, source = "bg-project", "us-central1", "orders-db"
 	svc := seedCloudSQLInstance(t, project, source)
 	base := fmt.Sprintf("/v1/projects/%s/locations/%s/blueGreenDeployments", project, location)
@@ -146,6 +147,7 @@ func TestCloudSQL_BlueGreenDeploymentSwitchover(t *testing.T) {
 }
 
 func TestCloudSQL_BlueGreenDeploymentReportsWhatIsWrong(t *testing.T) {
+	t.Parallel()
 	const project, location = "bg-errors", "us-central1"
 	seedCloudSQLInstance(t, project, "present-db")
 	base := fmt.Sprintf("/v1/projects/%s/locations/%s/blueGreenDeployments", project, location)

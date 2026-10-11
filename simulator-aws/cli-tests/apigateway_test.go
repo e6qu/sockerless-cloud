@@ -11,6 +11,7 @@ import (
 )
 
 func TestAPIGateway_RestApiLifecycle(t *testing.T) {
+	t.Parallel()
 	createdOut := runCLI(t, awsCLI("apigateway", "create-rest-api",
 		"--name", "cli-rest-api",
 		"--description", "cli coverage",
@@ -129,6 +130,7 @@ func TestAPIGateway_RestApiLifecycle(t *testing.T) {
 }
 
 func TestAPIGatewayV2_HttpApiLifecycle(t *testing.T) {
+	t.Parallel()
 	apiOut := runCLI(t, awsCLI("apigatewayv2", "create-api",
 		"--name", "cli-http-api",
 		"--protocol-type", "HTTP",
@@ -244,6 +246,7 @@ func TestAPIGatewayV2_HttpApiLifecycle(t *testing.T) {
 // update-usage-plan, create-usage-plan-key / get-usage-plan-key /
 // get-usage-plan-keys, plus the deletes.
 func TestAPIGateway_ApiKeysUsagePlansCLI(t *testing.T) {
+	t.Parallel()
 	keyOut := runCLI(t, awsCLI("apigateway", "create-api-key",
 		"--name", "cli-key", "--description", "cli", "--enabled",
 	))
@@ -308,6 +311,7 @@ func TestAPIGateway_ApiKeysUsagePlansCLI(t *testing.T) {
 // TestAPIGateway_ModelsValidatorsAuthorizersCLI exercises the v1 REST-API-scoped
 // model / request-validator / authorizer CRUD through the aws CLI.
 func TestAPIGateway_ModelsValidatorsAuthorizersCLI(t *testing.T) {
+	t.Parallel()
 	apiOut := runCLI(t, awsCLI("apigateway", "create-rest-api", "--name", "cli-mva-api"))
 	var api struct {
 		ID string `json:"id"`
@@ -365,6 +369,7 @@ func TestAPIGateway_ModelsValidatorsAuthorizersCLI(t *testing.T) {
 // TestAPIGatewayV2_AuthorizersModelsCLI exercises the v2 API-scoped authorizer
 // + model CRUD through the aws CLI (output is PascalCase).
 func TestAPIGatewayV2_AuthorizersModelsCLI(t *testing.T) {
+	t.Parallel()
 	apiOut := runCLI(t, awsCLI("apigatewayv2", "create-api",
 		"--name", "cli-v2-am", "--protocol-type", "HTTP"))
 	var api struct {
@@ -416,6 +421,7 @@ func TestAPIGatewayV2_AuthorizersModelsCLI(t *testing.T) {
 // TestAPIGatewayV2_DomainNamesMappingsVpcLinksCLI exercises the v2 domain-name +
 // API-mapping + VPC-link surface through the aws CLI.
 func TestAPIGatewayV2_DomainNamesMappingsVpcLinksCLI(t *testing.T) {
+	t.Parallel()
 	domain := fmt.Sprintf("cli-%d.example.com", time.Now().UnixNano())
 	dnOut := runCLI(t, awsCLI("apigatewayv2", "create-domain-name",
 		"--domain-name", domain,

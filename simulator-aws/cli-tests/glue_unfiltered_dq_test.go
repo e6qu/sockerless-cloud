@@ -11,6 +11,7 @@ import (
 // reads (get-unfiltered-table-metadata / get-unfiltered-partition-metadata /
 // get-unfiltered-partitions-metadata) through the aws CLI.
 func TestGlueUnfilteredMetadataCLI(t *testing.T) {
+	t.Parallel()
 	db := "glue-unf-cli-db"
 	tbl := "glue-unf-cli-tbl"
 
@@ -91,6 +92,7 @@ func TestGlueUnfilteredMetadataCLI(t *testing.T) {
 // put-data-quality-profile-annotation store,
 // list-data-quality-statistic-annotations reads back.
 func TestGlueDQAnnotationsCLI(t *testing.T) {
+	t.Parallel()
 	statisticID := "glue-dq-stat-cli"
 
 	// The profile an evaluation wrote its statistics to, obtained the only way

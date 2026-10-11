@@ -27,6 +27,7 @@ func bqService(t *testing.T) *bigquery.Service {
 // TestBQCoverage_DatasetReadUpdateDelete covers the untested dataset ops:
 // list, get, patch (incl. labels round-trip), delete.
 func TestBQCoverage_DatasetReadUpdateDelete(t *testing.T) {
+	t.Parallel()
 	svc := bqService(t)
 	const proj = "cov-project"
 	_, err := svc.Datasets.Insert(proj, &bigquery.Dataset{
@@ -69,6 +70,7 @@ func TestBQCoverage_DatasetReadUpdateDelete(t *testing.T) {
 // TestBQCoverage_TableReadUpdateDeleteLabels covers the untested table ops:
 // get, list, patch, delete — and the table labels round-trip.
 func TestBQCoverage_TableReadUpdateDeleteLabels(t *testing.T) {
+	t.Parallel()
 	svc := bqService(t)
 	const proj = "cov-project"
 	_, err := svc.Datasets.Insert(proj, &bigquery.Dataset{
@@ -108,6 +110,7 @@ func TestBQCoverage_TableReadUpdateDeleteLabels(t *testing.T) {
 // TestBQCoverage_TabledataAndJobs covers tabledata.list, jobs.insert,
 // jobs.list, jobs.get, and jobs.getQueryResults.
 func TestBQCoverage_TabledataAndJobs(t *testing.T) {
+	t.Parallel()
 	svc := bqService(t)
 	const proj = "cov-project"
 	_, err := svc.Datasets.Insert(proj, &bigquery.Dataset{
@@ -207,6 +210,7 @@ func bqGetQueryResultsMembers(t *testing.T, project, jobID string) []string {
 // TestFSCoverage_CreateUpdateDeleteBatchWrite covers the untested firestore
 // ops: createDocument (POST), patch (update), delete, and batchWrite.
 func TestFSCoverage_CreateUpdateDeleteBatchWrite(t *testing.T) {
+	t.Parallel()
 	svc, err := firestore.NewService(ctx,
 		option.WithEndpoint(baseURL+"/"),
 		option.WithTokenSource(simTokenSource()),

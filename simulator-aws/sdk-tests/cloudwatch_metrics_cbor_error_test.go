@@ -15,6 +15,7 @@ import (
 // awsJson error (which the Go SDK rejects as "unexpected smithy-protocol
 // response header"). These handlers previously used sim.AWSError.
 func TestCloudWatch_MetricsCBORErrorShape(t *testing.T) {
+	t.Parallel()
 	for _, op := range []string{"GetMetricData", "PutMetricData"} {
 		url := baseURL + "/service/GraniteServiceVersion20100801/operation/" + op
 		req, err := http.NewRequest("POST", url, strings.NewReader("not-valid-cbor"))

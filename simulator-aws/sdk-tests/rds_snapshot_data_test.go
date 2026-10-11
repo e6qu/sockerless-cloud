@@ -24,6 +24,7 @@ import (
 // engine's volume store supports block cloning and by full copy elsewhere,
 // with this test indifferent to which, because the API is.
 func TestRDS_SnapshotCapturesDataAndRestoreReturnsToIt(t *testing.T) {
+	t.Parallel()
 	testContext, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	c := rdsClient()

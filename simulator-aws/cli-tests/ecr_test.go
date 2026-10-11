@@ -12,6 +12,7 @@ import (
 // against the simulator. Together with the SDK test, it exercises
 // both real-world client paths for the pull-through cache rule API.
 func TestCLI_ECR_CreatePullThroughCache(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI(
 		"ecr", "create-pull-through-cache-rule",
 		"--ecr-repository-prefix", "cli-docker-hub",
@@ -30,6 +31,7 @@ func TestCLI_ECR_CreatePullThroughCache(t *testing.T) {
 // TestCLI_ECR_DescribePullThroughCache exercises the describe path
 // and confirms listing-all returns the rule the test created.
 func TestCLI_ECR_DescribePullThroughCache(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI(
 		"ecr", "create-pull-through-cache-rule",
 		"--ecr-repository-prefix", "cli-describe",
@@ -57,6 +59,7 @@ func TestCLI_ECR_DescribePullThroughCache(t *testing.T) {
 // TestCLI_ECR_DeletePullThroughCache deletes a registered rule and
 // confirms a second delete returns the not-found error.
 func TestCLI_ECR_DeletePullThroughCache(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI(
 		"ecr", "create-pull-through-cache-rule",
 		"--ecr-repository-prefix", "cli-delete",

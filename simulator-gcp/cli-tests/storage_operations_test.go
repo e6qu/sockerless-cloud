@@ -66,6 +66,7 @@ func assertStorageOperationStillDone(t *testing.T, name string) {
 }
 
 func TestGCSCLI_BucketRelocateAndOperations(t *testing.T) {
+	t.Parallel()
 	const bucket = "cli-storage-ops-bucket"
 	runCLI(t, gcloudCLI("storage", "buckets", "create", "gs://"+bucket, "--location=us"))
 	t.Cleanup(func() {

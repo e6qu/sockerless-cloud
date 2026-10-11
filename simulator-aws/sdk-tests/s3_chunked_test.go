@@ -28,6 +28,7 @@ import (
 // confirms the decoder is wired into handleS3PutObject and that the
 // stored object round-trips correctly.
 func TestS3_AWSChunkedPutObject_RoundTrip(t *testing.T) {
+	t.Parallel()
 	client := s3Client()
 	bucket := "chunked-test-bucket"
 	key := "chunked-key"

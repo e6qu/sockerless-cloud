@@ -12,6 +12,7 @@ import (
 // A network trace is recorded against the site that asked for it, so a read
 // reports the trace actually requested and a site that started none has none.
 func TestSDK_WebApps_NetworkTraces(t *testing.T) {
+	t.Parallel()
 	rg, name := "sdk-trace-rg", "sdk-trace-app"
 	ensureRG(t, rg)
 

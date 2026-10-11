@@ -58,6 +58,7 @@ func cmCLIService(t *testing.T, nsID, name string, extra ...string) (string, str
 // TestCloudMapListServicesCLI covers list-services: the NAMESPACE_ID filter and
 // MaxResults/NextToken paging.
 func TestCloudMapListServicesCLI(t *testing.T) {
+	t.Parallel()
 	nsID := cmCLIHTTPNamespace(t, "cli-list-svc-ns")
 	svcA, _ := cmCLIService(t, nsID, "cli-list-svc-a")
 	svcB, _ := cmCLIService(t, nsID, "cli-list-svc-b")
@@ -124,6 +125,7 @@ func TestCloudMapListServicesCLI(t *testing.T) {
 // TestCloudMapListNamespacesFiltersCLI covers list-namespaces filters and the
 // ServiceCount the NamespaceSummary carries.
 func TestCloudMapListNamespacesFiltersCLI(t *testing.T) {
+	t.Parallel()
 	nsID := cmCLIHTTPNamespace(t, "cli-filter-http-ns")
 	cmCLIService(t, nsID, "cli-filter-svc")
 
@@ -161,6 +163,7 @@ func TestCloudMapListNamespacesFiltersCLI(t *testing.T) {
 // TestCloudMapTagsCLI covers list-tags-for-resource against the tags a create
 // call carried and against tag-resource / untag-resource edits.
 func TestCloudMapTagsCLI(t *testing.T) {
+	t.Parallel()
 	nsID := cmCLIHTTPNamespace(t, "cli-tags-ns", "--tags", "Key=env,Value=cli", "Key=owner,Value=platform")
 
 	out := runCLI(t, awsCLI("servicediscovery", "get-namespace", "--id", nsID, "--output", "json"))
@@ -228,6 +231,7 @@ func TestCloudMapTagsCLI(t *testing.T) {
 // TestCloudMapNotFoundErrorsCLI covers the modeled errors the CLI surfaces for
 // unknown operations and services.
 func TestCloudMapNotFoundErrorsCLI(t *testing.T) {
+	t.Parallel()
 	errOut := runCLIExpectError(t, awsCLI("servicediscovery", "get-operation",
 		"--operation-id", "op-does-not-exist"))
 	assert.Contains(t, errOut, "OperationNotFound")
@@ -251,6 +255,7 @@ func TestCloudMapNotFoundErrorsCLI(t *testing.T) {
 // discover-instances-revision, the two Cloud Map data-plane operations the CLI
 // sends to the `data-` prefixed host.
 func TestCloudMapDiscoverInstancesCLI(t *testing.T) {
+	t.Parallel()
 	endpoint := cmDataEndpoint(t)
 
 	nsID := cmCLIHTTPNamespace(t, "cli-discover-ns")

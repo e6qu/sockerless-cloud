@@ -48,6 +48,7 @@ func createRunInstanceForCLI(t *testing.T, id string) {
 }
 
 func TestCloudRunInstances_CLI_IAMPolicyLifecycle(t *testing.T) {
+	t.Parallel()
 	const id = "cli-inst-iam"
 	createRunInstanceForCLI(t, id)
 
@@ -135,6 +136,7 @@ func TestCloudRunInstances_CLI_IAMPolicyLifecycle(t *testing.T) {
 // error for an instance that was never created: the IAM verb is NOT_FOUND, not
 // an empty policy.
 func TestCloudRunInstances_CLI_IAMPolicyOnMissingInstance(t *testing.T) {
+	t.Parallel()
 	cmd := gcloudCLI("alpha", "run", "instances", "get-iam-policy", "cli-inst-never-created",
 		"--region="+location, "--format=json")
 	out, err := cmd.CombinedOutput()
@@ -148,6 +150,7 @@ func TestCloudRunInstances_CLI_IAMPolicyOnMissingInstance(t *testing.T) {
 // instances get-iam-policy` and `gcloud redis instances describe` — against one
 // simulator origin, with the same instance id on both services.
 func TestCloudRunInstances_CLI_CoexistWithMemorystore(t *testing.T) {
+	t.Parallel()
 	const id = "cli-shared-instances"
 	createRunInstanceForCLI(t, id)
 
@@ -189,6 +192,7 @@ func TestCloudRunInstances_CLI_CoexistWithMemorystore(t *testing.T) {
 // mints a token for until `gcloud alpha run instances add-iam-policy-binding`
 // grants it roles/run.invoker on the instance.
 func TestCloudRunInstances_CLI_InvokerBindingGatesTheInstanceURL(t *testing.T) {
+	t.Parallel()
 	const id = "cli-inst-url"
 	body := `{"containers": [{"image": "` + httpProbeImageName + `", "args": ["echo-request"]}]}`
 	created := httpDoJSON(t, "POST", runInstancesBaseURL()+"?instanceId="+id, body)

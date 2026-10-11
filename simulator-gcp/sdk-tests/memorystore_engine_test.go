@@ -76,14 +76,16 @@ func patchRedisInstance(t *testing.T, svc *redis.Service, name, mask string, ins
 	return got
 }
 
-func discoveryAddress(cluster *redis.Cluster) string {
+func discoveryAddress(t *testing.T, cluster *redis.Cluster) string {
+	t.Helper()
+	require.NotEmpty(t, cluster.DiscoveryEndpoints, "cluster %s reports no discovery endpoint", cluster.Name)
 	return redisEndpoint(cluster.DiscoveryEndpoints[0].Address, cluster.DiscoveryEndpoints[0].Port)
 }
 
 // clusterClient connects to a cluster's discovery endpoint with options.
 func clusterClient(t *testing.T, cluster *redis.Cluster, options goredis.ClusterOptions) *goredis.ClusterClient {
 	t.Helper()
-	options.Addrs = []string{discoveryAddress(cluster)}
+	options.Addrs = []string{discoveryAddress(t, cluster)}
 	client := goredis.NewClusterClient(&options)
 	t.Cleanup(func() { client.Close() })
 	return client
@@ -137,6 +139,7 @@ func caPool(t *testing.T, pems ...string) *x509.CertPool {
 // certificate its reported server CA signed, and nothing in plaintext; an RDB
 // persistence config takes snapshots on the schedule it names.
 func TestMemorystoreRedis_InstanceTLSAndPersistence(t *testing.T) {
+	t.Parallel()
 	svc := redisService(t)
 	parent := "projects/redis-tls/locations/us-central1"
 	start := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
@@ -239,6 +242,7 @@ func TestMemorystoreRedis_InstanceTLSAndPersistence(t *testing.T) {
 // A replicaCount update starts or stops replica nodes while the primary keeps
 // serving, and an authEnabled update makes the engine require the AUTH string.
 func TestMemorystoreRedis_InstanceReplicaCountAndAuthUpdate(t *testing.T) {
+	t.Parallel()
 	svc := redisService(t)
 	parent := "projects/redis-resize/locations/us-central1"
 	inst := createRedisInstance(t, svc, parent, "resized", &redis.Instance{
@@ -305,6 +309,7 @@ func TestMemorystoreRedis_InstanceReplicaCountAndAuthUpdate(t *testing.T) {
 
 // A Basic Tier instance has no replica, so the service refuses its failover.
 func TestMemorystoreRedis_BasicTierFailoverRefused(t *testing.T) {
+	t.Parallel()
 	svc := redisService(t)
 	parent := "projects/redis-failover/locations/us-central1"
 	inst := createRedisInstance(t, svc, parent, "basic", &redis.Instance{Tier: "BASIC", MemorySizeGb: 1, RedisVersion: "REDIS_7_2"})
@@ -323,6 +328,7 @@ func TestMemorystoreRedis_BasicTierFailoverRefused(t *testing.T) {
 // shards take slots and keys from the old ones, removed shards hand theirs
 // back, and every key stays readable throughout.
 func TestMemorystoreRedis_ClusterReshard(t *testing.T) {
+	t.Parallel()
 	svc := redisService(t)
 	parent := "projects/redis-reshard/locations/us-central1"
 	cluster := createRedisCluster(t, svc, parent, "reshaped", &redis.Cluster{
@@ -392,6 +398,7 @@ func TestMemorystoreRedis_ClusterReshard(t *testing.T) {
 // A cluster created from a managed backup or from RDB files in Cloud Storage
 // starts with their keys, spread over its own shards.
 func TestMemorystoreRedis_ClusterImportSources(t *testing.T) {
+	t.Parallel()
 	svc := redisService(t)
 	gcs := storageClient(t)
 	t.Cleanup(func() { gcs.Close() })
@@ -452,6 +459,7 @@ func TestMemorystoreRedis_ClusterImportSources(t *testing.T) {
 // from the CA getCertificateAuthority reports, and admits a client whose AUTH
 // password is an access token of a principal holding redis.clusters.connect.
 func TestMemorystoreRedis_ClusterTLSAndIAMAuth(t *testing.T) {
+	t.Parallel()
 	svc := redisService(t)
 	const project = "test-project"
 	parent := "projects/" + project + "/locations/us-central1"
@@ -516,7 +524,7 @@ func TestMemorystoreRedis_ClusterTLSAndIAMAuth(t *testing.T) {
 	bound := clusterClient(t, cluster, goredis.ClusterOptions{TLSConfig: tlsConfig, Password: accountToken.AccessToken})
 	requireKeys(t, bound, "iam", 50)
 
-	_, err = net.DialTimeout("tcp", discoveryAddress(cluster), 2*time.Second)
+	_, err = net.DialTimeout("tcp", discoveryAddress(t, cluster), 2*time.Second)
 	require.NoError(t, err)
 	plaintext := clusterClient(t, cluster, goredis.ClusterOptions{Password: token.AccessToken, MaxRetries: -1,
 		DialTimeout: 2 * time.Second, ReadTimeout: 2 * time.Second})
@@ -532,6 +540,7 @@ func TestMemorystoreRedis_ClusterTLSAndIAMAuth(t *testing.T) {
 // A cluster that authenticates with tokens admits a client as a token-auth
 // user with one of that user's active auth tokens, and no other.
 func TestMemorystoreRedis_ClusterTokenAuth(t *testing.T) {
+	t.Parallel()
 	svc := redisService(t)
 	parent := "projects/redis-token-auth/locations/us-central1"
 	cluster := createRedisCluster(t, svc, parent, "tokens", &redis.Cluster{
@@ -572,6 +581,7 @@ func TestMemorystoreRedis_ClusterTokenAuth(t *testing.T) {
 // caught up. A script spinning on the replica keeps it from applying the
 // replication stream while the primary takes a 40 MB write.
 func TestMemorystoreRedis_LimitedDataLossFailover(t *testing.T) {
+	t.Parallel()
 	svc := redisService(t)
 	parent := "projects/redis-failover/locations/us-central1"
 	inst := createRedisInstance(t, svc, parent, "lagging", &redis.Instance{
@@ -636,6 +646,7 @@ func TestMemorystoreRedis_LimitedDataLossFailover(t *testing.T) {
 // policy reaches the attached cluster, and detaching the policy removes its
 // users. A policy attached to a cluster cannot be deleted.
 func TestMemorystoreRedis_ClusterAclPolicy(t *testing.T) {
+	t.Parallel()
 	svc := redisService(t)
 	parent := "projects/redis-acl/locations/us-central1"
 	policy, err := svc.Projects.Locations.AclPolicies.Create(parent, &redis.AclPolicy{
@@ -707,6 +718,7 @@ func TestMemorystoreRedis_ClusterAclPolicy(t *testing.T) {
 // policy rule names connects as that policy user, and any other principal
 // connects as the default user.
 func TestMemorystoreRedis_ClusterAclPolicyMapsIAMPrincipals(t *testing.T) {
+	t.Parallel()
 	svc := redisService(t)
 	const project = "test-project"
 	parent := "projects/" + project + "/locations/us-central1"

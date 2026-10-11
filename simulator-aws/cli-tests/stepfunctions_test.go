@@ -11,6 +11,7 @@ import (
 )
 
 func TestSFN_GenericAWSSDKIntegrations_CLI(t *testing.T) {
+	t.Parallel()
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	roleName := "sfn-cli-sdk-" + suffix
 	apiName := "sfn-cli-sdk-" + suffix
@@ -127,6 +128,7 @@ func TestSFN_GenericAWSSDKIntegrations_CLI(t *testing.T) {
 }
 
 func TestSFN_StateMachineCRUD_CLI(t *testing.T) {
+	t.Parallel()
 	definition := `{"Comment":"cli test","StartAt":"Pass","States":{"Pass":{"Type":"Pass","End":true}}}`
 
 	out := runCLI(t, awsCLI("stepfunctions", "create-state-machine",
@@ -199,6 +201,7 @@ func TestSFN_StateMachineCRUD_CLI(t *testing.T) {
 }
 
 func TestSFN_ExecutionLifecycle_CLI(t *testing.T) {
+	t.Parallel()
 	definition := `{"StartAt":"Pass","States":{"Pass":{"Type":"Pass","End":true}}}`
 
 	out := runCLI(t, awsCLI("stepfunctions", "create-state-machine",

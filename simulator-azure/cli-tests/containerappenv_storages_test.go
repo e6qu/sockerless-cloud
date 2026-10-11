@@ -18,6 +18,7 @@ import (
 //	DELETE .../Microsoft.App/managedEnvironments/{envName}/storages/{storageName}
 //	GET    .../Microsoft.App/managedEnvironments/{envName}/storages
 func TestContainerAppEnvStorages_CRUD(t *testing.T) {
+	t.Parallel()
 	envURL := caeURL("managedEnvironments/cli-storage-env")
 	runCLI(t, azRest("PUT", envURL, `{"location":"eastus","properties":{}}`))
 	defer runCLI(t, azRest("DELETE", envURL, ""))
@@ -93,6 +94,7 @@ func TestContainerAppEnvStorages_CRUD(t *testing.T) {
 // missing environment is rejected the way real ARM rejects it, rather than
 // silently creating an orphan row.
 func TestContainerAppEnvStorages_ParentValidation(t *testing.T) {
+	t.Parallel()
 	orphanURL := caeURL("managedEnvironments/cli-no-such-env/storages/orphan")
 	body := `{"properties":{"azureFile":{"accountName":"simstorageacct",` +
 		`"shareName":"simshare","accessMode":"ReadOnly"}}}`

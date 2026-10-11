@@ -8,6 +8,7 @@ import (
 // TestECRCLI_UntagResource covers ecr untag-resource over the CLI surface (the
 // op was unimplemented → 400).
 func TestECRCLI_UntagResource(t *testing.T) {
+	t.Parallel()
 	repo := "cli-untag-repo"
 	runCLI(t, awsCLI("ecr", "create-repository", "--repository-name", repo,
 		"--tags", "Key=keep,Value=yes", "Key=drop,Value=soon"))
@@ -30,6 +31,7 @@ func TestECRCLI_UntagResource(t *testing.T) {
 // delete-repository against a repository holding an image: the CLI reports
 // RepositoryNotEmptyException until the call passes --force.
 func TestECRCLI_DeleteRepositoryRequiresForceWhileItHoldsImages(t *testing.T) {
+	t.Parallel()
 	repo := "cli-not-empty-repo"
 	runCLI(t, awsCLI("ecr", "create-repository", "--repository-name", repo))
 	manifest := `{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.v2+json","config":{"mediaType":"application/vnd.docker.container.image.v1+json","size":2,"digest":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},"layers":[]}`

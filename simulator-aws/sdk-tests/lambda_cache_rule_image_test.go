@@ -17,6 +17,7 @@ import (
 // cache rule runs the image the rule fetches from its upstream — here the
 // ECR Public Gallery — as Lambda runs it after ECR hydrates the cache.
 func TestLambda_ImageThroughPullThroughCacheRule(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	cw := cwLogsClient()
 	ec := ecrClient()

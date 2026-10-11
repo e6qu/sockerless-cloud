@@ -15,6 +15,7 @@ import (
 )
 
 func TestBigQuery_DatasetTableQueryLifecycle(t *testing.T) {
+	t.Parallel()
 	svc, err := bigquery.NewService(ctx,
 		option.WithEndpoint(baseURL+"/bigquery/v2/"),
 		option.WithTokenSource(simTokenSource()),
@@ -65,6 +66,7 @@ func TestBigQuery_DatasetTableQueryLifecycle(t *testing.T) {
 }
 
 func TestFirestore_DocumentCommitBatchGetRunQuery(t *testing.T) {
+	t.Parallel()
 	svc, err := firestore.NewService(ctx,
 		option.WithEndpoint(baseURL+"/"),
 		option.WithTokenSource(simTokenSource()),

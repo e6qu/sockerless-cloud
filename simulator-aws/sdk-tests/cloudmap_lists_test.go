@@ -77,6 +77,7 @@ func cmService(t *testing.T, client *servicediscovery.Client, nsID, name string)
 // shape (including ServiceCount), the TYPE / NAME / HTTP_NAME filters the ECS
 // backend's network-state recovery relies on, and MaxResults/NextToken paging.
 func TestCloudMap_ListNamespaces(t *testing.T) {
+	t.Parallel()
 	client := cmClient()
 	prefix := uniqueName("list-ns")
 	httpName := prefix + "-http"
@@ -202,6 +203,7 @@ func TestCloudMap_ListNamespaces(t *testing.T) {
 // isolation (the same instance ID may back several services), paging, and the
 // ServiceNotFound error for an unknown service.
 func TestCloudMap_ListInstances(t *testing.T) {
+	t.Parallel()
 	client := cmClient()
 
 	nsID := cmHTTPNamespace(t, client, "list-inst-ns")
@@ -288,6 +290,7 @@ func TestCloudMap_ListInstances(t *testing.T) {
 // Create* request carries — the path the ECS backend's network-state recovery
 // uses to find its namespace by the sockerless:network-id tag.
 func TestCloudMap_ResourceTags(t *testing.T) {
+	t.Parallel()
 	client := cmClient()
 
 	nsOut, err := client.CreatePrivateDnsNamespace(ctx, &servicediscovery.CreatePrivateDnsNamespaceInput{
@@ -383,6 +386,7 @@ func TestCloudMap_ResourceTags(t *testing.T) {
 // over the operations every mutating Cloud Map call records — including the
 // instance operations a caller polls after RegisterInstance.
 func TestCloudMap_OperationsLifecycle(t *testing.T) {
+	t.Parallel()
 	client := cmClient()
 
 	nsID := cmHTTPNamespace(t, client, "ops-ns")
@@ -475,6 +479,7 @@ func TestCloudMap_OperationsLifecycle(t *testing.T) {
 // OptionalParameters attribute filters, MaxResults, and the custom health
 // status a caller sets through UpdateInstanceCustomHealthStatus.
 func TestCloudMap_DiscoverInstancesFiltering(t *testing.T) {
+	t.Parallel()
 	client := cmClient()
 
 	nsID := cmHTTPNamespace(t, client, "discover-filter-ns")
@@ -593,6 +598,7 @@ func TestCloudMap_DiscoverInstancesFiltering(t *testing.T) {
 // Cloud Map raises for duplicate names and for a custom health update against
 // a service that has no HealthCheckCustomConfig.
 func TestCloudMap_UniquenessAndCustomHealthErrors(t *testing.T) {
+	t.Parallel()
 	client := cmClient()
 
 	nsID := cmHTTPNamespace(t, client, "unique-ns")
@@ -674,6 +680,7 @@ func TestCloudMap_UniquenessAndCustomHealthErrors(t *testing.T) {
 // TestCloudMap_PrivateNamespaceSOARoundTrip proves the SOA a client configures
 // on a private DNS namespace survives into GetNamespace.
 func TestCloudMap_PrivateNamespaceSOARoundTrip(t *testing.T) {
+	t.Parallel()
 	client := cmClient()
 
 	out, err := client.CreatePrivateDnsNamespace(ctx, &servicediscovery.CreatePrivateDnsNamespaceInput{
@@ -704,6 +711,7 @@ func TestCloudMap_PrivateNamespaceSOARoundTrip(t *testing.T) {
 // carry exactly the modeled members — no simulator bookkeeping — and a private
 // namespace created without the required Vpc must be rejected.
 func TestCloudMap_WireShape(t *testing.T) {
+	t.Parallel()
 	client := cmClient()
 
 	nsID := cmHTTPNamespace(t, client, "wire-shape-ns")

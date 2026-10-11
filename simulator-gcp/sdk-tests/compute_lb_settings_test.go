@@ -12,6 +12,7 @@ import (
 // singletons, and the regional instance group a regional manager keeps.
 
 func TestCompute_URLMapValidateChecksItsTestsAgainstItsOwnRouting(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project = "validate-project"
 
@@ -85,6 +86,7 @@ func TestCompute_URLMapValidateChecksItsTestsAgainstItsOwnRouting(t *testing.T) 
 }
 
 func TestCompute_URLMapUpdateDropsWhatPatchKeeps(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, name = "rewrite-project", "rules"
 
@@ -127,6 +129,7 @@ func TestCompute_URLMapUpdateDropsWhatPatchKeeps(t *testing.T) {
 }
 
 func TestCompute_HealthCheckPatchAndUpdate(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, name = "hc-project", "probe"
 
@@ -157,6 +160,7 @@ func TestCompute_HealthCheckPatchAndUpdate(t *testing.T) {
 }
 
 func TestCompute_SettingsSingletonsAnswerDefaultsBeforeAnyPatch(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, region, zone = "settings-project", "us-central1", "us-central1-a"
 
@@ -196,6 +200,7 @@ func TestCompute_SettingsSingletonsAnswerDefaultsBeforeAnyPatch(t *testing.T) {
 }
 
 func TestCompute_RegionInstanceGroupFollowsItsManager(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, region, name = "rig-project", "us-central1", "fleet"
 

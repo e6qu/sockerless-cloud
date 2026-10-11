@@ -19,6 +19,7 @@ import (
 // switches in-app MySQL on with, so the refusal and the acceptance are both
 // read from the site rather than declared.
 func TestSDK_WebApps_MigrateMySql(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-mysql-rg"
 	ensureRG(t, rg)
 
@@ -115,6 +116,7 @@ func TestSDK_WebApps_MigrateMySql(t *testing.T) {
 // simulator holds; no bytes move, because these sites are served out of a
 // container image rather than out of a share.
 func TestSDK_WebApps_MigrateStorage(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-migrate-rg"
 	ensureRG(t, rg)
 

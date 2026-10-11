@@ -20,6 +20,7 @@ import (
 // control-plane replacement. The restarted simulator adopts the original
 // workload container and does not launch a duplicate replacement task.
 func TestAmazonECSServiceAdoptsItsTaskAcrossSimulatorRestart_SDK(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 	tcpPort, udpPort := persistentSimulatorPorts(t)
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", tcpPort)
@@ -93,6 +94,7 @@ func TestAmazonECSServiceAdoptsItsTaskAcrossSimulatorRestart_SDK(t *testing.T) {
 // its VPC network. The official Amazon EC2 client must then delete the subnet
 // and VPC instead of remaining in DependencyViolation retries.
 func TestAmazonECSServiceReleasesItsVPCNetworkAcrossSimulatorRestart_SDK(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 	tcpPort, udpPort := persistentSimulatorPorts(t)
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", tcpPort)
@@ -178,6 +180,7 @@ func TestAmazonECSServiceReleasesItsVPCNetworkAcrossSimulatorRestart_SDK(t *test
 // failed launch still reaches the configured threshold exactly once and rolls
 // back to the last completed task definition.
 func TestAmazonECSServiceDeploymentFailureStateSurvivesSimulatorRestart_SDK(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 	tcpPort, udpPort := persistentSimulatorPorts(t)
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", tcpPort)

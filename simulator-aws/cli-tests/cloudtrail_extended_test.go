@@ -11,6 +11,7 @@ import (
 // put/get-event-selectors → put/get-insight-selectors → add/list/remove-tags →
 // delete-trail.
 func TestCloudTrailCLI_TrailLifecycle(t *testing.T) {
+	t.Parallel()
 	const bucket = "cli-ct-ext-bucket"
 	const trail = "cli-ct-ext-trail"
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", bucket))
@@ -104,6 +105,7 @@ func TestCloudTrailCLI_TrailLifecycle(t *testing.T) {
 // TestCloudTrailCLI_ChannelLifecycle drives CloudTrail Lake channel CRUD through
 // the aws CLI: create-channel → get-channel / list-channels → delete-channel.
 func TestCloudTrailCLI_ChannelLifecycle(t *testing.T) {
+	t.Parallel()
 	const name = "cli-ct-ext-channel"
 	const eds = "arn:aws:cloudtrail:us-east-1:123456789012:eventdatastore/EXAMPLE-eds"
 

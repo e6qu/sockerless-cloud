@@ -20,6 +20,7 @@ import (
 // TestEC2_DescribeSecurityGroupRulesFilters covers the is-egress filter (only
 // group-id was honored before, so a scoped query returned every rule).
 func TestEC2_DescribeSecurityGroupRulesFilters(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.92.0.0/16")})
 	require.NoError(t, err)
@@ -79,6 +80,7 @@ func TestEC2_DescribeSecurityGroupRulesFilters(t *testing.T) {
 // round-trip: CreateEventBus echoed it but never stored it, so DescribeEventBus
 // returned empty and terraform's aws_cloudwatch_event_bus drifted every plan.
 func TestEventBridge_CreateEventBusPersistsKMS(t *testing.T) {
+	t.Parallel()
 	c := eventbridgeClient()
 	kms := "arn:aws:kms:us-east-1:123456789012:key/eb-bus-key"
 	name := "fidelity-kms-bus"
@@ -96,6 +98,7 @@ func TestEventBridge_CreateEventBusPersistsKMS(t *testing.T) {
 // TestCloudMap_DiscoverInstancesHealth covers real per-instance health +
 // the HealthStatus filter (the handler hardcoded HEALTHY and ignored the filter).
 func TestCloudMap_DiscoverInstancesHealth(t *testing.T) {
+	t.Parallel()
 	client := cmClient()
 	nsName := uniqueName("health-test") + ".local"
 	createOut, err := client.CreatePrivateDnsNamespace(ctx, &servicediscovery.CreatePrivateDnsNamespaceInput{
@@ -151,6 +154,7 @@ func TestCloudMap_DiscoverInstancesHealth(t *testing.T) {
 // TestLambda_GetFunctionRepositoryType covers the documented Code.RepositoryType
 // field ("S3" for a ZIP package), previously omitted from GetFunction.
 func TestLambda_GetFunctionRepositoryType(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	name := "fidelity-repotype"
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
@@ -172,6 +176,7 @@ func TestLambda_GetFunctionRepositoryType(t *testing.T) {
 // TestECS_ListTasksLaunchTypeFilter covers the launchType filter, previously
 // ignored (only family + desiredStatus were honored).
 func TestECS_ListTasksLaunchTypeFilter(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	cluster := "fidelity-launchtype"
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})

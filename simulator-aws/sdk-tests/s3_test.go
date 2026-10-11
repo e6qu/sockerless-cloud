@@ -27,6 +27,7 @@ func s3Client() *s3.Client {
 }
 
 func TestS3_CreateBucket(t *testing.T) {
+	t.Parallel()
 	client := s3Client()
 	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
 		Bucket: aws.String("test-bucket"),
@@ -50,6 +51,7 @@ func TestS3_CreateBucket(t *testing.T) {
 }
 
 func TestS3_PutAndGetObject(t *testing.T) {
+	t.Parallel()
 	client := s3Client()
 
 	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
@@ -78,6 +80,7 @@ func TestS3_PutAndGetObject(t *testing.T) {
 }
 
 func TestS3_ListObjects(t *testing.T) {
+	t.Parallel()
 	client := s3Client()
 
 	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
@@ -107,6 +110,7 @@ func TestS3_ListObjects(t *testing.T) {
 }
 
 func TestS3_ListObjectsV2OrderingPaginationAndDelimiter(t *testing.T) {
+	t.Parallel()
 	client := s3Client()
 	bucket := "list-v2-contract"
 	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
@@ -200,6 +204,7 @@ func TestS3_ListObjectsV2OrderingPaginationAndDelimiter(t *testing.T) {
 }
 
 func TestS3_DeleteObject(t *testing.T) {
+	t.Parallel()
 	client := s3Client()
 
 	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
@@ -252,6 +257,7 @@ func TestS3_DeleteObject(t *testing.T) {
 }
 
 func TestS3_GetObject_NoSuchKey_ErrorClassification(t *testing.T) {
+	t.Parallel()
 	client := s3Client()
 	bucket := "error-class-bucket"
 	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
@@ -269,6 +275,7 @@ func TestS3_GetObject_NoSuchKey_ErrorClassification(t *testing.T) {
 }
 
 func TestS3_HeadBucket_NoSuchBucket_ErrorClassification(t *testing.T) {
+	t.Parallel()
 	client := s3Client()
 	_, err := client.HeadBucket(ctx, &s3.HeadBucketInput{
 		Bucket: aws.String("totally-nonexistent-bucket-xyz"),
@@ -284,6 +291,7 @@ func TestS3_HeadBucket_NoSuchBucket_ErrorClassification(t *testing.T) {
 // trailing slash on CreateBucket where earlier versions sent none, and the
 // simulator answered 404 to every bucket operation addressed that way.
 func TestS3_BucketIsAddressedWithOrWithoutATrailingSlash(t *testing.T) {
+	t.Parallel()
 	client := s3Client()
 	bucket := "trailing-slash-bucket"
 	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})

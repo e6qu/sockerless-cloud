@@ -13,6 +13,7 @@ import (
 // Issue #591: CreateVolume requires AvailabilityZone — real EC2 rejects a
 // request without it (MissingParameter) rather than defaulting the AZ.
 func TestEC2_CreateVolumeRequiresAZ(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	_, err := c.CreateVolume(ctx, &ec2.CreateVolumeInput{Size: aws.Int32(8)})
 	assertAWSAPIErrorCode(t, err, "MissingParameter")
@@ -27,6 +28,7 @@ func TestEC2_CreateVolumeRequiresAZ(t *testing.T) {
 // an unknown cluster (so a deleted/unknown cluster is distinguishable from an
 // empty cluster or a missing task).
 func TestECS_UnknownClusterRaisesClusterNotFound(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	const missing = "edd-nonexistent-xyz"
 	taskARN := "arn:aws:ecs:us-east-1:123456789012:task/" + missing + "/abc123"
@@ -48,6 +50,7 @@ func TestECS_UnknownClusterRaisesClusterNotFound(t *testing.T) {
 // Issue #590: DescribeSnapshots honors MaxResults and returns a NextToken when
 // results remain; the remainder is retrievable via the token.
 func TestEC2_DescribeSnapshotsPagination(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vol, err := c.CreateVolume(ctx, &ec2.CreateVolumeInput{
 		Size: aws.Int32(1), AvailabilityZone: aws.String("us-east-1a"),

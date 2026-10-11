@@ -72,6 +72,7 @@ func buildDNSQuery(name string, qtype dnsmessage.Type) ([]byte, error) {
 }
 
 func TestRoute53DNSServesARecord(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -110,6 +111,7 @@ func TestRoute53DNSServesARecord(t *testing.T) {
 }
 
 func TestRoute53DNSServesCNAME(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -152,6 +154,7 @@ func TestRoute53DNSServesCNAME(t *testing.T) {
 }
 
 func TestRoute53DNSServesTXT(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -186,6 +189,7 @@ func TestRoute53DNSServesTXT(t *testing.T) {
 }
 
 func TestRoute53DNSApexSOA(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -202,6 +206,7 @@ func TestRoute53DNSApexSOA(t *testing.T) {
 }
 
 func TestRoute53DNSNS(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -218,6 +223,7 @@ func TestRoute53DNSNS(t *testing.T) {
 }
 
 func TestRoute53DNSNXDOMAIN(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -231,6 +237,7 @@ func TestRoute53DNSNXDOMAIN(t *testing.T) {
 }
 
 func TestRoute53DNSWildcardARecord(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -264,6 +271,7 @@ func TestRoute53DNSWildcardARecord(t *testing.T) {
 }
 
 func TestRoute53DNSWildcardExactBeatsWildcard(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

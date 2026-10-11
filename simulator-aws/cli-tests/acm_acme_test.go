@@ -16,6 +16,7 @@ import (
 )
 
 func TestACM_ACMEControlPlaneAndAccountRegistration(t *testing.T) {
+	t.Parallel()
 	zoneOutput := runCLI(t, awsCLI("route53", "create-hosted-zone",
 		"--name", "acme-cli.example.",
 		"--caller-reference", fmt.Sprintf("acme-cli-%d", time.Now().UnixNano()),

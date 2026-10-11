@@ -15,6 +15,7 @@ import (
 // armnetwork client: create, get, retag, list by resource group, list by
 // subscription, delete.
 func TestNetworkApplicationSecurityGroups_CRUD(t *testing.T) {
+	t.Parallel()
 	rg := "asg-rg"
 	requireResourceGroup(t, rg)
 
@@ -89,6 +90,7 @@ func applicationSecurityGroupNames(t *testing.T, client *armnetwork.ApplicationS
 // destination side of the rule, which is what the packet filter resolves
 // membership from.
 func TestNetworkApplicationSecurityGroup_NSGRuleReference(t *testing.T) {
+	t.Parallel()
 	rg := "asg-nsg-rg"
 	requireResourceGroup(t, rg)
 
@@ -147,6 +149,7 @@ func TestNetworkApplicationSecurityGroup_NSGRuleReference(t *testing.T) {
 // Microsoft.Network/virtualNetworkTaps surface, including the rejection of a
 // tap that names no collector destination.
 func TestNetworkVirtualNetworkTaps_CRUD(t *testing.T) {
+	t.Parallel()
 	rg := "tap-rg"
 	requireResourceGroup(t, rg)
 
@@ -232,6 +235,7 @@ func TestNetworkVirtualNetworkTaps_CRUD(t *testing.T) {
 // interface tap configurations that actually reference the tap: attaching one
 // makes it appear, removing it takes it away.
 func TestNetworkVirtualNetworkTap_ReportsMirroringInterfaces(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	rg := "tap-attach-rg"
 	requireResourceGroup(t, rg)
@@ -301,6 +305,7 @@ func TestNetworkVirtualNetworkTap_ReportsMirroringInterfaces(t *testing.T) {
 // surface and its definition sub-resource, and proves a definition written
 // through the sub-resource client is reported by the policy's own read.
 func TestNetworkServiceEndpointPolicies_CRUDAndDefinitions(t *testing.T) {
+	t.Parallel()
 	rg := "sep-rg"
 	requireResourceGroup(t, rg)
 
@@ -419,6 +424,7 @@ func TestNetworkServiceEndpointPolicies_CRUDAndDefinitions(t *testing.T) {
 // read-only subnets collection is resolved from the subnets that reference it,
 // which is where the policy is actually enforced.
 func TestNetworkServiceEndpointPolicy_ReportsEnforcingSubnets(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	rg := "sep-subnet-rg"
 	requireResourceGroup(t, rg)

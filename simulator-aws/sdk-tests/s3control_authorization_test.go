@@ -45,6 +45,7 @@ func s3ControlARN(resource string) string {
 // Access Grants surface, whose reads and writes AWS authorizes against the
 // account's instance ARN.
 func TestS3Control_AccessGrantsInstanceIsAuthorizedAgainstTheInstance(t *testing.T) {
+	t.Parallel()
 	admin := s3ControlClient()
 	_, err := admin.CreateAccessGrantsInstance(ctx, &s3control.CreateAccessGrantsInstanceInput{
 		AccountId: aws.String(s3ObjectLambdaAccount)})
@@ -84,6 +85,7 @@ func TestS3Control_AccessGrantsInstanceIsAuthorizedAgainstTheInstance(t *testing
 // role itself. The role arrives in an XML document, which is the only place the
 // request names it.
 func TestS3Control_AccessGrantsLocationAlsoAuthorizesPassingItsRole(t *testing.T) {
+	t.Parallel()
 	admin := s3ControlClient()
 	s3c := s3Client()
 	bucket := "grants-passrole-bucket"
@@ -135,6 +137,7 @@ func TestS3Control_AccessGrantsLocationAlsoAuthorizesPassingItsRole(t *testing.T
 // TestS3Control_BatchJobIsAuthorizedAgainstTheJob covers Batch Operations,
 // where everything addressed to one job is authorized against that job's ARN.
 func TestS3Control_BatchJobIsAuthorizedAgainstTheJob(t *testing.T) {
+	t.Parallel()
 	admin := s3ControlClient()
 	s3c := s3Client()
 	bucket := "batch-auth-bucket"
@@ -198,6 +201,7 @@ func TestS3Control_BatchJobIsAuthorizedAgainstTheJob(t *testing.T) {
 // TestS3Control_AccessPointIsAuthorizedAgainstTheAccessPoint covers the access
 // point routes, authorized against the access point's own ARN.
 func TestS3Control_AccessPointIsAuthorizedAgainstTheAccessPoint(t *testing.T) {
+	t.Parallel()
 	admin := s3ControlClient()
 	s3c := s3Client()
 	bucket, point := "ap-auth-bucket", "ap-auth-point"
@@ -231,6 +235,7 @@ func TestS3Control_AccessPointIsAuthorizedAgainstTheAccessPoint(t *testing.T) {
 // TestS3Control_StorageLensIsAuthorizedAgainstTheConfiguration covers Storage
 // Lens, authorized against the dashboard configuration's own ARN.
 func TestS3Control_StorageLensIsAuthorizedAgainstTheConfiguration(t *testing.T) {
+	t.Parallel()
 	admin := s3ControlClient()
 	configID := "sl-auth-config"
 
@@ -287,6 +292,7 @@ func TestS3Control_StorageLensIsAuthorizedAgainstTheConfiguration(t *testing.T) 
 // Multi-Region Access Point ARN, which names the endpoint by the alias S3
 // assigned it and carries no region at all.
 func TestS3Control_MultiRegionAccessPointIsAuthorizedAgainstItsAlias(t *testing.T) {
+	t.Parallel()
 	admin := s3ControlClient()
 	s3c := s3Client()
 	bucket, name := "mrap-auth-bucket", "authpoint"
@@ -337,6 +343,7 @@ func TestS3Control_MultiRegionAccessPointIsAuthorizedAgainstItsAlias(t *testing.
 // s3 access-point ARN — the one every other access-point route takes — does not
 // reach it.
 func TestS3Control_AccessPointScopeIsAnS3ExpressAction(t *testing.T) {
+	t.Parallel()
 	admin := s3ControlClient()
 	bucket, apName := "scope-auth-bucket", "scope-auth-ap"
 	_, err := s3Client().CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})

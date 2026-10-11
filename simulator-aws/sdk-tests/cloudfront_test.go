@@ -20,6 +20,7 @@ func cfClient() *cloudfront.Client {
 }
 
 func TestCloudFrontDistributionLifecycle(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -145,6 +146,7 @@ func TestCloudFrontDistributionLifecycle(t *testing.T) {
 }
 
 func TestCloudFrontOriginAccessControlLifecycle(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -189,6 +191,7 @@ func TestCloudFrontOriginAccessControlLifecycle(t *testing.T) {
 }
 
 func TestCloudFrontDistributionRejectsInvalidConfig(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

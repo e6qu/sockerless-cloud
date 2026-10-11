@@ -60,6 +60,7 @@ func rdsOptionGroupStatuses(instance types.DBInstance) map[string]string {
 // against the rules the reference states, and a group or certificate that
 // does not exist is refused with its own error.
 func TestRDS_ModifyDBInstanceStorageGroupsAndCertificate(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	c := rdsClient()
@@ -234,6 +235,7 @@ func rdsAwaitRenamed(t *testing.T, ctx context.Context, c *rds.Client, newID str
 // window or, with ApplyImmediately, at once: the ARN and the endpoint follow
 // the new identifier and the data stays.
 func TestRDS_ModifyDBInstanceMovesThePortAndRenames(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	c := rdsClient()

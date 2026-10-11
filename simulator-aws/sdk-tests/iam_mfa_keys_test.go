@@ -25,6 +25,7 @@ func iamMFAUser(t *testing.T, c *iam.Client, name string) {
 // ListVirtualMFADevices (Assigned/Unassigned filter), the tag ops, ResyncMFADevice,
 // DeactivateMFADevice, and DeleteVirtualMFADevice.
 func TestIAM_VirtualMFADevice(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	user := "mfa-user"
 	iamMFAUser(t, c, user)
@@ -137,6 +138,7 @@ func hasTag(tags []types.Tag, k, v string) bool {
 // GetSSHPublicKey (SSH + PEM encoding), ListSSHPublicKeys, UpdateSSHPublicKey,
 // and DeleteSSHPublicKey.
 func TestIAM_SSHPublicKey(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	user := "ssh-user"
 	iamMFAUser(t, c, user)
@@ -194,6 +196,7 @@ func TestIAM_SSHPublicKey(t *testing.T) {
 // TestIAM_SigningCertificate exercises UploadSigningCertificate (CertificateId),
 // ListSigningCertificates, UpdateSigningCertificate, DeleteSigningCertificate.
 func TestIAM_SigningCertificate(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	user := "cert-user"
 	iamMFAUser(t, c, user)
@@ -235,6 +238,7 @@ func TestIAM_SigningCertificate(t *testing.T) {
 // (username + password + id), ListServiceSpecificCredentials, ResetServiceSpecificCredential
 // (new password), UpdateServiceSpecificCredential, DeleteServiceSpecificCredential.
 func TestIAM_ServiceSpecificCredential(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	user := "svccred-user"
 	iamMFAUser(t, c, user)

@@ -15,6 +15,7 @@ import (
 // DescribeNetworkAcls read-back of the entries, DeleteNetworkAclEntry, and
 // DeleteNetworkAcl.
 func TestEC2_NetworkAclLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.200.0.0/16")})
@@ -98,6 +99,7 @@ func TestEC2_NetworkAclLifecycleSDK(t *testing.T) {
 // DescribeVpcPeeringConnections, AcceptVpcPeeringConnection (pending-acceptance
 // -> active), and DeleteVpcPeeringConnection.
 func TestEC2_VpcPeeringLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	a, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.201.0.0/16")})
@@ -137,6 +139,7 @@ func TestEC2_VpcPeeringLifecycleSDK(t *testing.T) {
 // DescribeManagedPrefixLists, GetManagedPrefixListEntries, and
 // DeleteManagedPrefixList.
 func TestEC2_ManagedPrefixListLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	created, err := c.CreateManagedPrefixList(ctx, &ec2.CreateManagedPrefixListInput{
@@ -180,6 +183,7 @@ func TestEC2_ManagedPrefixListLifecycleSDK(t *testing.T) {
 // TestEC2_FlowLogsLifecycleSDK covers CreateFlowLogs against a VPC,
 // DescribeFlowLogs read-back, and DeleteFlowLogs.
 func TestEC2_FlowLogsLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.203.0.0/16")})
@@ -216,6 +220,7 @@ func TestEC2_FlowLogsLifecycleSDK(t *testing.T) {
 // CreateEgressOnlyInternetGateway, DescribeEgressOnlyInternetGateways, and
 // DeleteEgressOnlyInternetGateway.
 func TestEC2_EgressOnlyInternetGatewayLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.204.0.0/16")})

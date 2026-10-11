@@ -8,6 +8,7 @@ import (
 )
 
 func TestGcloudComputeGlobalHTTPLoadBalancer(t *testing.T) {
+	t.Parallel()
 	hc := "cli-lb-hc"
 	backend := "cli-lb-backend"
 	urlMap := "cli-lb-url-map"

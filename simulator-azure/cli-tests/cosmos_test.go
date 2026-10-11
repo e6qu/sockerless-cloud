@@ -43,6 +43,7 @@ func cosmosSignDataPlane(t *testing.T, req *http.Request, key string) {
 }
 
 func TestAzureCosmosDB_ARMAndDataPlaneRESTCLIFlows(t *testing.T) {
+	t.Parallel()
 	account := "clicosmos"
 	armBase := armURL("Microsoft.DocumentDB", "databaseAccounts/"+account, "2024-05-15")
 	createOut := runCLI(t, azRest("PUT", armBase, `{"location":"eastus","kind":"GlobalDocumentDB","properties":{"databaseAccountOfferType":"Standard"}}`))
@@ -135,6 +136,7 @@ func TestAzureCosmosDB_ARMAndDataPlaneRESTCLIFlows(t *testing.T) {
 }
 
 func TestAzureStorageTables_ARMRESTCLIFlows(t *testing.T) {
+	t.Parallel()
 	account := "clitableacct"
 	accountURL := armURL("Microsoft.Storage", "storageAccounts/"+account, "2023-05-01")
 	runCLI(t, azRest("PUT", accountURL, `{"location":"eastus","kind":"StorageV2","sku":{"name":"Standard_LRS"}}`))

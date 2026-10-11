@@ -10,6 +10,7 @@ import (
 // modify-ipam, create-ipam-scope / modify-ipam-scope / describe-ipam-scopes,
 // the resource-discovery + association ops, and the Organizations admin ops.
 func TestEC2CLI_IPAMLifecycle(t *testing.T) {
+	t.Parallel()
 	ipamID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-ipam",
 		"--description", "cli-ipam",
 		"--operating-regions", "RegionName=us-east-1",
@@ -103,6 +104,7 @@ func TestEC2CLI_IPAMLifecycle(t *testing.T) {
 // deprovision-ipam-pool-cidr, plus get-ipam-resource-cidrs / get-ipam-address-history
 // / modify-ipam-resource-cidr.
 func TestEC2CLI_IPAMPoolAllocation(t *testing.T) {
+	t.Parallel()
 	ipamID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-ipam",
 		"--operating-regions", "RegionName=us-east-1",
 		"--query", "Ipam.IpamId", "--output", "text")))

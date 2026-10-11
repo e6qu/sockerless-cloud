@@ -14,6 +14,7 @@ import (
 // create, get content back, update to a new version, flip the default
 // version, list versions, and delete.
 func TestSSM_DocumentLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	name := "sockerless-doc-sdk"
 
@@ -88,6 +89,7 @@ func TestSSM_DocumentLifecycle(t *testing.T) {
 // TestSSM_MaintenanceWindowLifecycle pins window CRUD plus target/task
 // registration and describe.
 func TestSSM_MaintenanceWindowLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 
 	cw, err := c.CreateMaintenanceWindow(ctx, &ssm.CreateMaintenanceWindowInput{
@@ -195,6 +197,7 @@ func TestSSM_MaintenanceWindowLifecycle(t *testing.T) {
 // TestSSM_PatchBaselineLifecycle pins patch-baseline CRUD plus the
 // default-baseline registration.
 func TestSSM_PatchBaselineLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 
 	cb, err := c.CreatePatchBaseline(ctx, &ssm.CreatePatchBaselineInput{
@@ -300,6 +303,7 @@ func TestSSM_ServiceSetting(t *testing.T) {
 
 // TestSSM_ResourceDataSync pins create/list/update/delete of a sync.
 func TestSSM_ResourceDataSync(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	syncName := "sockerless-rds-sdk"
 

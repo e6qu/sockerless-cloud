@@ -102,6 +102,7 @@ func assertEventGridUnauthorized(t *testing.T, err error) {
 // decorative: a caller with no credential, with the wrong key, or with an
 // expired or foreign-resource signature is refused with the service's own 401.
 func TestEventGridPublisher_SDKCredentialContract(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-eg-auth-rg"
 	ensureRG(t, rg)
 

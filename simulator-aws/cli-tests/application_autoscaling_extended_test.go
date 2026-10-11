@@ -26,6 +26,7 @@ func appASCLIRegister(t *testing.T, ns, resourceID, dim string) {
 }
 
 func TestApplicationAutoScalingCLI_ScheduledAction(t *testing.T) {
+	t.Parallel()
 	const (
 		ns         = "ecs"
 		resourceID = "service/cli-sched-cluster/cli-sched-svc"
@@ -94,6 +95,7 @@ func TestApplicationAutoScalingCLI_ScheduledAction(t *testing.T) {
 }
 
 func TestApplicationAutoScalingCLI_DescribeScalingActivities(t *testing.T) {
+	t.Parallel()
 	const (
 		ns         = "ecs"
 		resourceID = "service/cli-activity-cluster/cli-activity-svc"
@@ -117,6 +119,7 @@ func TestApplicationAutoScalingCLI_DescribeScalingActivities(t *testing.T) {
 }
 
 func TestApplicationAutoScalingCLI_GetPredictiveScalingForecast(t *testing.T) {
+	t.Parallel()
 	const (
 		ns         = "ecs"
 		resourceID = "service/cli-forecast-cluster/cli-forecast-svc"

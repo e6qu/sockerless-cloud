@@ -98,6 +98,7 @@ func TestECR_RegistryScanningConfiguration(t *testing.T) {
 // TestECR_RepositoryCreationTemplates exercises the full Create / Describe /
 // Update / Delete lifecycle of a repository creation template keyed by prefix.
 func TestECR_RepositoryCreationTemplates(t *testing.T) {
+	t.Parallel()
 	client := ecrClient()
 	prefix := "ecr-tmpl-prefix"
 
@@ -170,6 +171,7 @@ func TestECR_RepositoryCreationTemplates(t *testing.T) {
 // (Put / Get / Delete) and confirms DescribeImageSigningStatus reports an
 // honest empty signing status for a stored image.
 func TestECR_SigningConfiguration(t *testing.T) {
+	t.Parallel()
 	client := ecrClient()
 
 	// GetSigningConfiguration before any Put raises NotFound.
@@ -222,6 +224,7 @@ func TestECR_SigningConfiguration(t *testing.T) {
 // TestECR_PullTimeUpdateExclusions round-trips Register / List / Deregister
 // of pull-time update exclusions keyed by IAM principal ARN.
 func TestECR_PullTimeUpdateExclusions(t *testing.T) {
+	t.Parallel()
 	client := ecrClient()
 	principal := "arn:aws:iam::123456789012:role/ECRAccess"
 
@@ -262,6 +265,7 @@ func TestECR_PullTimeUpdateExclusions(t *testing.T) {
 // TestECR_PullThroughCacheUpdateValidate exercises UpdatePullThroughCacheRule
 // and ValidatePullThroughCacheRule against an existing rule.
 func TestECR_PullThroughCacheUpdateValidate(t *testing.T) {
+	t.Parallel()
 	client := ecrClient()
 	prefix := "ecr-ptc-update"
 
@@ -306,6 +310,7 @@ func TestECR_PullThroughCacheUpdateValidate(t *testing.T) {
 // (honest empty referrer list for a stored subject image) and
 // UpdateImageStorageClass (transition between STANDARD and ARCHIVE).
 func TestECR_ListImageReferrersAndStorageClass(t *testing.T) {
+	t.Parallel()
 	client := ecrClient()
 	repo := "ecr-referrers-repo"
 	digest := ecrPutTestImage(t, client, repo, "v1")

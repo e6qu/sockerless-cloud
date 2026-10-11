@@ -13,6 +13,7 @@ import (
 )
 
 func TestCloudFrontFunctionLifecycle(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -108,6 +109,7 @@ func TestCloudFrontFunctionLifecycle(t *testing.T) {
 }
 
 func TestCloudFrontPublicKeyLifecycle(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -173,6 +175,7 @@ func TestCloudFrontPublicKeyLifecycle(t *testing.T) {
 }
 
 func TestCloudFrontKeyGroupLifecycle(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -220,6 +223,7 @@ func TestCloudFrontKeyGroupLifecycle(t *testing.T) {
 }
 
 func TestCloudFrontInvalidationLifecycle(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

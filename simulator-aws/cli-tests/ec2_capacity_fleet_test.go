@@ -9,6 +9,7 @@ import (
 // capacity-reservation-fleet control planes via the aws CLI: create → describe
 // → modify → usage → cancel, and the fleet create → describe → modify → cancel.
 func TestEC2CLI_CapacityReservations(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	id := q("ec2", "create-capacity-reservation",
@@ -81,6 +82,7 @@ func TestEC2CLI_CapacityReservations(t *testing.T) {
 // template, create-fleet → describe-fleets → describe-fleet-instances →
 // describe-fleet-history → modify-fleet → delete-fleets.
 func TestEC2CLI_Fleets(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	ltID := q("ec2", "create-launch-template", "--launch-template-name", "cli-fleet-lt",
@@ -132,6 +134,7 @@ func TestEC2CLI_Fleets(t *testing.T) {
 // modify → cancel; the data feed subscription; and the read-only price-history /
 // placement-scores ops.
 func TestEC2CLI_Spot(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	sirID := q("ec2", "request-spot-instances",
@@ -212,6 +215,7 @@ func TestEC2CLI_Spot(t *testing.T) {
 // → purchase → describe → run, and the dedicated-host reservation offerings →
 // purchase-preview → purchase → describe.
 func TestEC2CLI_ScheduledAndHostReservations(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	token := q("ec2", "describe-scheduled-instance-availability",

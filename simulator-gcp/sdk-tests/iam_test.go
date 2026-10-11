@@ -48,6 +48,7 @@ func requireGoogleAPIRefusal(t *testing.T, err error, status int, contains, what
 }
 
 func TestIAM_CreateServiceAccount(t *testing.T) {
+	t.Parallel()
 	svc := iamService(t)
 
 	sa, err := svc.Projects.ServiceAccounts.Create("projects/test-project",
@@ -67,6 +68,7 @@ func TestIAM_CreateServiceAccount(t *testing.T) {
 // returns 409 ALREADY_EXISTS like real Cloud IAM, instead of silently
 // overwriting the existing account.
 func TestIAM_CreateServiceAccountDuplicateConflict(t *testing.T) {
+	t.Parallel()
 	svc := iamService(t)
 
 	sa, err := svc.Projects.ServiceAccounts.Create("projects/dup-sa-project",
@@ -94,6 +96,7 @@ func TestIAM_CreateServiceAccountDuplicateConflict(t *testing.T) {
 }
 
 func TestIAM_GetServiceAccount(t *testing.T) {
+	t.Parallel()
 	svc := iamService(t)
 
 	created, err := svc.Projects.ServiceAccounts.Create("projects/test-project",
@@ -120,6 +123,7 @@ func iamAccountNames(resp *iam.ListServiceAccountsResponse) []string {
 }
 
 func TestIAM_ListServiceAccounts(t *testing.T) {
+	t.Parallel()
 	svc := iamService(t)
 
 	created, err := svc.Projects.ServiceAccounts.Create("projects/test-project",
@@ -140,6 +144,7 @@ func TestIAM_ListServiceAccounts(t *testing.T) {
 // TestIAM_ListServiceAccountsPagination covers the pageSize/pageToken support
 // ListServiceAccounts previously dropped (it returned the whole set, no token).
 func TestIAM_ListServiceAccountsPagination(t *testing.T) {
+	t.Parallel()
 	svc := iamService(t)
 	const project = "projects/iam-page-project"
 	for _, id := range []string{"sa-a", "sa-b", "sa-c"} {
@@ -162,6 +167,7 @@ func TestIAM_ListServiceAccountsPagination(t *testing.T) {
 }
 
 func TestIAM_DeleteServiceAccount(t *testing.T) {
+	t.Parallel()
 	svc := iamService(t)
 
 	created, err := svc.Projects.ServiceAccounts.Create("projects/test-project",
@@ -213,6 +219,7 @@ func iamCredentialsService(t *testing.T) *iamcredentials.Service {
 // SDKs that pre-decode the token accept its structure and a verifier can
 // check its signature.
 func TestIAMCredentials_GenerateIdToken(t *testing.T) {
+	t.Parallel()
 	iamSvc := iamService(t)
 	credSvc := iamCredentialsService(t)
 
@@ -257,6 +264,7 @@ func TestIAMCredentials_GenerateIdToken(t *testing.T) {
 }
 
 func TestIAMCredentials_GenerateIdToken_RejectsUnknownSA(t *testing.T) {
+	t.Parallel()
 	credSvc := iamCredentialsService(t)
 	_, err := credSvc.Projects.ServiceAccounts.GenerateIdToken(
 		"projects/test-project/serviceAccounts/missing@test-project.iam.gserviceaccount.com",
@@ -267,6 +275,7 @@ func TestIAMCredentials_GenerateIdToken_RejectsUnknownSA(t *testing.T) {
 }
 
 func TestIAMCredentials_GenerateIdToken_RequiresAudience(t *testing.T) {
+	t.Parallel()
 	iamSvc := iamService(t)
 	credSvc := iamCredentialsService(t)
 
@@ -285,6 +294,7 @@ func TestIAMCredentials_GenerateIdToken_RequiresAudience(t *testing.T) {
 }
 
 func TestIAM_ServiceAccountKeysCRUD(t *testing.T) {
+	t.Parallel()
 	svc := iamService(t)
 
 	// Create a parent service account.
@@ -345,6 +355,7 @@ func TestIAM_ServiceAccountKeysCRUD(t *testing.T) {
 // principal identifier (a long decimal string), not a hex UUID. A consumer
 // that parses uniqueId as a number must not choke on hex digits.
 func TestIAM_ServiceAccountUniqueIdNumeric(t *testing.T) {
+	t.Parallel()
 	svc := iamService(t)
 
 	sa, err := svc.Projects.ServiceAccounts.Create("projects/uid-project",
@@ -375,6 +386,7 @@ func TestIAM_ServiceAccountUniqueIdNumeric(t *testing.T) {
 // GET /v1/roles/{role...}. roles.list defaults to the BASIC view (no
 // includedPermissions); roles.get returns the FULL role.
 func TestIAM_PredefinedRolesGetList(t *testing.T) {
+	t.Parallel()
 	svc := iamService(t)
 
 	list, err := svc.Roles.List().Do()
@@ -573,6 +585,7 @@ func TestIAM_ProjectIAMPolicyInvalidMember(t *testing.T) {
 // TestIAM_CustomRoleCRUD covers projects.roles create/get/list/patch(etag)/
 // delete/undelete — the full custom-role lifecycle.
 func TestIAM_CustomRoleCRUD(t *testing.T) {
+	t.Parallel()
 	svc := iamService(t)
 	const parent = "projects/custom-role-project"
 
@@ -654,6 +667,7 @@ func TestIAM_CustomRoleCRUD(t *testing.T) {
 // TestIAM_OrganizationCustomRole covers the organizations.roles mirror of the
 // custom-role surface.
 func TestIAM_OrganizationCustomRole(t *testing.T) {
+	t.Parallel()
 	svc := iamService(t)
 	const parent = "organizations/123456"
 
@@ -680,6 +694,7 @@ func TestIAM_OrganizationCustomRole(t *testing.T) {
 // TestIAM_ServiceAccountAsResourceIAM covers the SA-as-resource IAM triple:
 // getIamPolicy / setIamPolicy / testIamPermissions on a service account.
 func TestIAM_ServiceAccountAsResourceIAM(t *testing.T) {
+	t.Parallel()
 	svc := iamService(t)
 
 	sa, err := svc.Projects.ServiceAccounts.Create("projects/sa-iam-project",
@@ -751,6 +766,7 @@ func TestIAM_ServiceAccountAsResourceIAM(t *testing.T) {
 //	PATCH /v1/projects/{project}/serviceAccounts/{email}
 //	POST /v1/permissions:queryTestablePermissions
 func TestIAM_ServiceAccountDisableEnablePatch(t *testing.T) {
+	t.Parallel()
 	svc := iamService(t)
 
 	sa, err := svc.Projects.ServiceAccounts.Create("projects/sa-toggle-project",
@@ -800,6 +816,7 @@ func TestIAM_ServiceAccountDisableEnablePatch(t *testing.T) {
 // (serviceAccounts.update → PUT). Real GCP replaces the mutable fields from the
 // body without an updateMask.
 func TestIAM_ServiceAccountUpdatePut(t *testing.T) {
+	t.Parallel()
 	svc := iamService(t)
 
 	sa, err := svc.Projects.ServiceAccounts.Create("projects/sa-put-project",
@@ -836,6 +853,7 @@ func iamPoolFromOp(t *testing.T, op *iam.Operation) iam.WorkloadIdentityPool {
 // pool and a provider beneath it: create (LRO) → get → list → patch → delete →
 // undelete, plus the providers sub-collection.
 func TestIAM_WorkloadIdentityPoolCRUD(t *testing.T) {
+	t.Parallel()
 	svc := iamService(t)
 	parent := "projects/wif-project/locations/global"
 
@@ -920,6 +938,7 @@ func TestIAM_WorkloadIdentityPoolCRUD(t *testing.T) {
 // TestIAM_WorkforcePoolCRUD round-trips a location-scoped workforce pool and a
 // provider beneath it: create (LRO) → get → list → delete → undelete.
 func TestIAM_WorkforcePoolCRUD(t *testing.T) {
+	t.Parallel()
 	svc := iamService(t)
 	location := "locations/global"
 
@@ -979,6 +998,7 @@ func TestIAM_WorkforcePoolCRUD(t *testing.T) {
 // it. Unlike pools, oauthClients return the resource directly (no LRO); a
 // created credential carries a clientSecret.
 func TestIAM_OAuthClientCRUD(t *testing.T) {
+	t.Parallel()
 	svc := iamService(t)
 	parent := "projects/oauth-project/locations/global"
 
@@ -1057,6 +1077,7 @@ func TestIAM_OAuthClientCRUD(t *testing.T) {
 // so expireTime must track what the request asked for, the default must be an
 // hour, and anything past the ceiling in force must be refused.
 func TestIAMCredentials_GenerateAccessTokenHonoursTheRequestedLifetime(t *testing.T) {
+	t.Parallel()
 	iamSvc := iamService(t)
 	credSvc := iamCredentialsService(t)
 
@@ -1110,6 +1131,7 @@ func TestIAMCredentials_GenerateAccessTokenHonoursTheRequestedLifetime(t *testin
 // ImpersonatedCredentials refuses locally: "lifetime must be less than or equal
 // to 43200").
 func TestIAMCredentials_GenerateAccessTokenRefusesAnOverLongLifetime(t *testing.T) {
+	t.Parallel()
 	iamSvc := iamService(t)
 	credSvc := iamCredentialsService(t)
 

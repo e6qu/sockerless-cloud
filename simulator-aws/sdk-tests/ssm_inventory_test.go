@@ -19,6 +19,7 @@ import (
 // the async schema-deletion job. The reporting node also shows up as a
 // managed instance (asserted in TestSSM_InstanceInformation).
 func TestSSM_Inventory(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	instanceID := "i-0inventory0sdk001"
 	typeName := "Custom:SockerlessApp"
@@ -109,6 +110,7 @@ func TestSSM_Inventory(t *testing.T) {
 // ListComplianceItems reads them, and the two summary ops roll up
 // compliant/non-compliant counts.
 func TestSSM_Compliance(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	resourceID := "i-0compliance0sdk01"
 	complianceType := "Custom:SockerlessCheck"
@@ -191,6 +193,7 @@ func TestSSM_Compliance(t *testing.T) {
 // ListNodesSummary) over the same managed-instance set a node joins when
 // it reports inventory.
 func TestSSM_Nodes(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	instanceID := "i-0nodes0sdk0000001"
 
@@ -237,6 +240,7 @@ func TestSSM_Nodes(t *testing.T) {
 // (DescribeInstanceInformation / DescribeInstanceProperties) plus
 // UpdateManagedInstanceRole and DeregisterManagedInstance.
 func TestSSM_InstanceInformation(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	instanceID := "mi-0instinfo0sdk0001"
 
@@ -311,6 +315,7 @@ func TestSSM_InstanceInformation(t *testing.T) {
 // TestSSM_DocumentPermission pins the account-share list plus the review
 // metadata ops layered over an existing document.
 func TestSSM_DocumentPermission(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	name := uniqueName("sockerless-perm-doc-sdk")
 	content := `{"schemaVersion":"2.2","mainSteps":[{"action":"aws:runShellScript","name":"s","inputs":{"runCommand":["echo hi"]}}]}`
@@ -388,6 +393,7 @@ func TestSSM_DocumentPermission(t *testing.T) {
 // TestSSM_CalendarState pins GetCalendarState reading a Change-Calendar
 // document's default state.
 func TestSSM_CalendarState(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 
 	// An open-by-default calendar.
@@ -432,6 +438,7 @@ func TestSSM_CalendarState(t *testing.T) {
 // StartAccessRequest issues a request id, GetAccessToken returns the
 // short-lived credentials for an approved request.
 func TestSSM_AccessRequest(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 
 	sr, err := c.StartAccessRequest(ctx, &ssm.StartAccessRequestInput{

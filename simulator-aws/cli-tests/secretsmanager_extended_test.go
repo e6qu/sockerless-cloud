@@ -29,6 +29,7 @@ func smCLICreate(t *testing.T, name, value string) {
 }
 
 func TestSecretsManagerCLI_ResourcePolicy(t *testing.T) {
+	t.Parallel()
 	name := smCLIName("cli-rp")
 	smCLICreate(t, name, "v1")
 
@@ -65,6 +66,7 @@ func TestSecretsManagerCLI_ResourcePolicy(t *testing.T) {
 }
 
 func TestSecretsManagerCLI_ValidateResourcePolicy(t *testing.T) {
+	t.Parallel()
 	name := smCLIName("cli-vrp")
 	smCLICreate(t, name, "v1")
 
@@ -84,6 +86,7 @@ func TestSecretsManagerCLI_ValidateResourcePolicy(t *testing.T) {
 }
 
 func TestSecretsManagerCLI_DeleteRestore(t *testing.T) {
+	t.Parallel()
 	name := smCLIName("cli-restore")
 	smCLICreate(t, name, "v1")
 
@@ -123,6 +126,7 @@ func TestSecretsManagerCLI_DeleteRestore(t *testing.T) {
 }
 
 func TestSecretsManagerCLI_RotateAndCancel(t *testing.T) {
+	t.Parallel()
 	name := smCLIName("cli-rotate")
 	smCLICreate(t, name, "v1")
 
@@ -158,6 +162,7 @@ func TestSecretsManagerCLI_RotateAndCancel(t *testing.T) {
 }
 
 func TestSecretsManagerCLI_BatchGetSecretValue(t *testing.T) {
+	t.Parallel()
 	n1 := smCLIName("cli-batch1")
 	n2 := smCLIName("cli-batch2")
 	smCLICreate(t, n1, "one")
@@ -182,6 +187,7 @@ func TestSecretsManagerCLI_BatchGetSecretValue(t *testing.T) {
 }
 
 func TestSecretsManagerCLI_UpdateSecretVersionStage(t *testing.T) {
+	t.Parallel()
 	name := smCLIName("cli-stage")
 	smCLICreate(t, name, "v1")
 
@@ -222,6 +228,7 @@ func TestSecretsManagerCLI_UpdateSecretVersionStage(t *testing.T) {
 }
 
 func TestSecretsManagerCLI_Replication(t *testing.T) {
+	t.Parallel()
 	name := smCLIName("cli-replica")
 	smCLICreate(t, name, "v1")
 

@@ -38,6 +38,7 @@ func grpcOperation(t *testing.T, ops longrunningpb.OperationsClient, name string
 // response and metadata messages its method declares — naming the method it
 // ran and the resource it acted on, for deletes too.
 func TestOperations_RESTServiceOperationsReadOverGRPC(t *testing.T) {
+	t.Parallel()
 	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })

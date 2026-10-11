@@ -19,6 +19,7 @@ import (
 // own slot, listSecrets observes the rotation, and delete → recreate under the
 // same name resets both keys.
 func TestAPIMSubscription_RegenerateKeyRotation(t *testing.T) {
+	t.Parallel()
 	rg := "apim-rotation-rg"
 	service := "apimrotationsvc"
 	sid := "apim-rotation-sub"
@@ -96,6 +97,7 @@ func TestAPIMSubscription_RegenerateKeyRotation(t *testing.T) {
 // password slot, listCredentials observes the rotation, and delete → recreate
 // resets both passwords.
 func TestACR_RegenerateCredentialRotation(t *testing.T) {
+	t.Parallel()
 	rg := "acr-rotation-rg"
 	registry := "acrrotationreg"
 	ensureRG(t, rg)
@@ -192,6 +194,7 @@ func logicCallbackSig(t *testing.T, callbackURL string) string {
 // Apps invalidating outstanding callback URLs. The integration account
 // behaves the same way, and delete → recreate resets the signature.
 func TestLogicApps_RegenerateAccessKeyRotation(t *testing.T) {
+	t.Parallel()
 	rg := "logic-rotation-rg"
 	wfName := "logic-rotation-workflow"
 	ensureRG(t, rg)
@@ -282,6 +285,7 @@ func TestLogicApps_RegenerateAccessKeyRotation(t *testing.T) {
 // TestLogicIntegrationAccount_RegenerateAccessKeyRotation covers the
 // integration-account half of the same contract.
 func TestLogicIntegrationAccount_RegenerateAccessKeyRotation(t *testing.T) {
+	t.Parallel()
 	rg := "logic-ia-rotation-rg"
 	acctName := "logic-ia-rotation"
 	ensureRG(t, rg)

@@ -15,6 +15,7 @@ import (
 // path with other REST-JSON services, so this also pins the sim's SigV4-signing-
 // service routing of scheduler-signed tag traffic.
 func TestScheduler_ScheduleGroupTags(t *testing.T) {
+	t.Parallel()
 	c := schedulerClient()
 	group := uniqueName("tagged-group")
 
@@ -68,6 +69,7 @@ func TestScheduler_ScheduleGroupTags(t *testing.T) {
 // TestScheduler_ScheduleTags tags a schedule (not a group), exercising the
 // schedule ARN form `.../schedule/{group}/{name}` on the tag route.
 func TestScheduler_ScheduleTags(t *testing.T) {
+	t.Parallel()
 	c := schedulerClient()
 	const name = "tagged-schedule"
 

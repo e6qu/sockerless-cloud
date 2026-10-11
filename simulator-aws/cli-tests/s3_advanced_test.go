@@ -17,6 +17,7 @@ import (
 // SDK round-trips in sdk-tests/s3_advanced_test.go (which exercise the
 // same simulator handlers and the conformance hook).
 func TestS3CLI_BucketMetadataTableConfiguration(t *testing.T) {
+	t.Parallel()
 	bucket := "cli-metadata-table-bucket"
 	_ = awsCLI("s3api", "create-bucket", "--bucket", bucket).Run()
 	t.Cleanup(func() {

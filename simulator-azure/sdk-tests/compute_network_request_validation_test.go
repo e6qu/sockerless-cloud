@@ -24,7 +24,8 @@ import (
 // happens before the host capabilities matter, so both run on every host.
 
 func TestCompute_VirtualMachineWithoutNetworkProfileIsRejected(t *testing.T) {
-	const rg = "vm-request-validation-rg"
+	t.Parallel()
+	const rg = "vm-request-validation-rg-8518"
 
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -50,6 +51,7 @@ func TestCompute_VirtualMachineWithoutNetworkProfileIsRejected(t *testing.T) {
 }
 
 func TestCompute_VirtualMachineWithUnknownNetworkInterfaceIsRejected(t *testing.T) {
+	t.Parallel()
 	const rg = "vm-request-validation-rg"
 
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -82,6 +84,7 @@ func TestCompute_VirtualMachineWithUnknownNetworkInterfaceIsRejected(t *testing.
 }
 
 func TestNetwork_SubnetInAbsentVirtualNetworkIsNotFound(t *testing.T) {
+	t.Parallel()
 	const rg = "subnet-request-validation-rg"
 
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())

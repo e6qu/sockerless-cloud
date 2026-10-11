@@ -46,6 +46,7 @@ func apigwCLINewAPIWithStage(t *testing.T, name string) (string, string) {
 // TestAPIGatewayCLI_BasePathMappings drives the base-path-mapping CRUD cycle
 // via the aws CLI.
 func TestAPIGatewayCLI_BasePathMappings(t *testing.T) {
+	t.Parallel()
 	apiID, stage := apigwCLINewAPIWithStage(t, "cli-bpm-api")
 	domain := "cli-bpm.example.com"
 
@@ -78,6 +79,7 @@ func TestAPIGatewayCLI_BasePathMappings(t *testing.T) {
 
 // TestAPIGatewayCLI_ClientCertificates drives the client-certificate cycle.
 func TestAPIGatewayCLI_ClientCertificates(t *testing.T) {
+	t.Parallel()
 	genOut := runCLI(t, awsCLI("apigateway", "generate-client-certificate", "--description", "cli cert"))
 	var cert struct {
 		ID  string `json:"clientCertificateId"`
@@ -107,6 +109,7 @@ func TestAPIGatewayCLI_ClientCertificates(t *testing.T) {
 
 // TestAPIGatewayCLI_Documentation drives documentation parts + versions.
 func TestAPIGatewayCLI_Documentation(t *testing.T) {
+	t.Parallel()
 	apiID, _ := apigwCLINewAPIWithStage(t, "cli-doc-api")
 
 	partOut := runCLI(t, awsCLI("apigateway", "create-documentation-part",
@@ -153,6 +156,7 @@ func TestAPIGatewayCLI_Documentation(t *testing.T) {
 
 // TestAPIGatewayCLI_GatewayResponses drives the gateway-response slice.
 func TestAPIGatewayCLI_GatewayResponses(t *testing.T) {
+	t.Parallel()
 	apiID, _ := apigwCLINewAPIWithStage(t, "cli-gr-api")
 
 	listOut := runCLI(t, awsCLI("apigateway", "get-gateway-responses", "--rest-api-id", apiID))

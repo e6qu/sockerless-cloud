@@ -14,6 +14,7 @@ import (
 // VPC attachments, and the association/propagation/route plumbing — the core
 // CRUD path a typical aws_ec2_transit_gateway Terraform stack relies on.
 func TestEC2_TransitGatewayCore(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 
 	tgwOut, err := client.CreateTransitGateway(ctx, &ec2.CreateTransitGatewayInput{
@@ -219,7 +220,7 @@ func TestEC2_TransitGatewayCore(t *testing.T) {
 
 	export, err := client.ExportTransitGatewayRoutes(ctx, &ec2.ExportTransitGatewayRoutesInput{
 		TransitGatewayRouteTableId: aws.String(rtID),
-		S3Bucket:                   aws.String("my-bucket"),
+		S3Bucket:                   aws.String("my-bucket-9c0b"),
 	})
 	require.NoError(t, err)
 	assert.Contains(t, aws.ToString(export.S3Location), "s3://my-bucket")
@@ -241,6 +242,7 @@ func TestEC2_TransitGatewayCore(t *testing.T) {
 // TestEC2_TransitGatewayPrefixListPeeringConnectMulticast covers prefix-list
 // references, peering attachments, connect attachments, and multicast domains.
 func TestEC2_TransitGatewayPrefixListPeeringConnectMulticast(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 
 	tgwOut, err := client.CreateTransitGateway(ctx, &ec2.CreateTransitGatewayInput{

@@ -11,6 +11,7 @@ import (
 // + DeletePlacementGroup; CreateDhcpOptions + DescribeDhcpOptions +
 // AssociateDhcpOptions + DeleteDhcpOptions.
 func TestEC2CLI_AMIPlacementDhcp(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	vpc := q("ec2", "create-vpc", "--cidr-block", "10.150.0.0/16",

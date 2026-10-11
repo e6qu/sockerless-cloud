@@ -66,6 +66,7 @@ func kmsMacSign(t *testing.T, c *kms.KeyManagementClient, versionName string, da
 }
 
 func TestCloudKMS_GRPC_ImportJobLifecycle(t *testing.T) {
+	t.Parallel()
 	c := newKMSGRPCClient(t)
 	ringName := kmsKeyRingForTest(t, c, "grpc-import-jobs")
 
@@ -152,6 +153,7 @@ func TestCloudKMS_GRPC_ImportJobLifecycle(t *testing.T) {
 // into two independent CryptoKeys, and both versions produce the HMAC the test
 // computes locally from those bytes.
 func TestCloudKMS_GRPC_ImportCryptoKeyVersionKeepsTheCallersMaterial(t *testing.T) {
+	t.Parallel()
 	c := newKMSGRPCClient(t)
 	ringName := kmsKeyRingForTest(t, c, "grpc-import-material")
 
@@ -255,6 +257,7 @@ func TestCloudKMS_GRPC_ImportCryptoKeyVersionKeepsTheCallersMaterial(t *testing.
 // into another CryptoKey, and the imported version MACs identically to the
 // source — which it only can if the export/import moved the exact material.
 func TestCloudKMS_GRPC_TrustedKeyWrappedExportImport(t *testing.T) {
+	t.Parallel()
 	c := newKMSGRPCClient(t)
 	ringName := kmsKeyRingForTest(t, c, "grpc-trusted-wrap")
 
@@ -364,6 +367,7 @@ func TestCloudKMS_GRPC_TrustedKeyWrappedExportImport(t *testing.T) {
 // schedules completes inside the test. That is the same field an operator sets
 // to shorten the wait in the real service, not a simulator affordance.
 func TestCloudKMS_GRPC_DeleteCryptoKeyAndVersion(t *testing.T) {
+	t.Parallel()
 	c := newKMSGRPCClient(t)
 	ringName := kmsKeyRingForTest(t, c, "grpc-deletes")
 
@@ -478,6 +482,7 @@ func kmsAwaitVersionState(t *testing.T, c *kms.KeyManagementClient, name string,
 // deletion in this simulator records none, so the reads report an empty
 // location and a missing record — the same answer the REST reads give.
 func TestCloudKMS_GRPC_RetiredResources(t *testing.T) {
+	t.Parallel()
 	c := newKMSGRPCClient(t)
 	location := "projects/kms-grpc-project/locations/global"
 
@@ -499,6 +504,7 @@ func TestCloudKMS_GRPC_RetiredResources(t *testing.T) {
 // refusal it serves: post-quantum key encapsulation is not available, and the
 // method says so instead of returning invented shared-secret bytes.
 func TestCloudKMS_GRPC_DecapsulateIsRefusedWithItsReason(t *testing.T) {
+	t.Parallel()
 	c := newKMSGRPCClient(t)
 	ringName := kmsKeyRingForTest(t, c, "grpc-decapsulate")
 

@@ -45,6 +45,7 @@ func runCLIExpectFailure(t *testing.T, cmd *exec.Cmd) string {
 }
 
 func TestComputeVirtualMachineWithoutNetworkProfileRejectedCLI(t *testing.T) {
+	t.Parallel()
 	vmURL := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/virtualMachines/cli-vm-no-nic?api-version=2024-07-01",
 		baseURL, subscriptionID, resourceGroup)
 	body := `{"location":"eastus","properties":{"hardwareProfile":{"vmSize":"Standard_B1s"}}}`
@@ -62,6 +63,7 @@ func TestComputeVirtualMachineWithoutNetworkProfileRejectedCLI(t *testing.T) {
 }
 
 func TestNetworkSubnetInAbsentVirtualNetworkNotFoundCLI(t *testing.T) {
+	t.Parallel()
 	subnetURL := armURL("Microsoft.Network",
 		"virtualNetworks/cli-vnet-never-created/subnets/cli-orphan-subnet", "2024-05-01")
 

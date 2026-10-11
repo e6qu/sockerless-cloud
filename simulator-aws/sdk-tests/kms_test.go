@@ -23,6 +23,7 @@ func kmsClient() *kms.Client {
 // material; the sim's envelope is opaque to SDK callers but reversible
 // — same wire shape.
 func TestKMS_CreateEncryptDecryptCycle(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	createOut, err := c.CreateKey(ctx, &kms.CreateKeyInput{
@@ -53,6 +54,7 @@ func TestKMS_CreateEncryptDecryptCycle(t *testing.T) {
 // TestKMS_AliasResolution covers the alias path callers commonly use:
 // CreateAlias → Encrypt(KeyId=alias/...) → ListAliases → DeleteAlias.
 func TestKMS_AliasResolution(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	createOut, err := c.CreateKey(ctx, &kms.CreateKeyInput{Description: aws.String("alias-target")})
@@ -97,6 +99,7 @@ func TestKMS_AliasResolution(t *testing.T) {
 // returning only aliases pointing at that key. The sim used to ignore KeyId and
 // return every alias in the account.
 func TestKMS_ListAliasesKeyIdFilter(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	keyA, err := c.CreateKey(ctx, &kms.CreateKeyInput{Description: aws.String("filter-a")})
@@ -137,6 +140,7 @@ func TestKMS_ListAliasesKeyIdFilter(t *testing.T) {
 // the plaintext data key (to use locally) and a wrapped ciphertext (to
 // store alongside the encrypted payload).
 func TestKMS_GenerateDataKey(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	createOut, err := c.CreateKey(ctx, &kms.CreateKeyInput{})
@@ -168,6 +172,7 @@ func TestKMS_GenerateDataKey(t *testing.T) {
 }
 
 func TestKMS_DescribeAndScheduleDeletion(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 	createOut, err := c.CreateKey(ctx, &kms.CreateKeyInput{})
 	require.NoError(t, err)
@@ -201,6 +206,7 @@ func TestKMS_DescribeAndScheduleDeletion(t *testing.T) {
 // the `policy` attribute; PutKeyPolicy is called when the operator sets a
 // custom policy document.
 func TestKMS_GetKeyPolicyRoundTrip(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	createOut, err := c.CreateKey(ctx, &kms.CreateKeyInput{Description: aws.String("policy-test-key")})
@@ -234,6 +240,7 @@ func TestKMS_GetKeyPolicyRoundTrip(t *testing.T) {
 }
 
 func TestKMS_ListKeys_Pagination(t *testing.T) {
+	t.Parallel()
 	client := kmsClient()
 	var created []string
 	for i := 0; i < 3; i++ {
@@ -269,6 +276,7 @@ func TestKMS_ListKeys_Pagination(t *testing.T) {
 // = true }`: GetKeyRotationStatus defaults false, EnableKeyRotation flips
 // it true and reports the rotation period, DisableKeyRotation reverts it.
 func TestKMS_KeyRotation(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	createOut, err := c.CreateKey(ctx, &kms.CreateKeyInput{Description: aws.String("rotation-key")})
@@ -323,6 +331,7 @@ func TestKMS_KeyRotation(t *testing.T) {
 // under the Secrets Manager Key/Value shape so KMS TagKey/TagValue came back
 // empty, and TagResource/UntagResource were unregistered.
 func TestKMS_Tagging(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	createOut, err := c.CreateKey(ctx, &kms.CreateKeyInput{
@@ -377,6 +386,7 @@ func TestKMS_Tagging(t *testing.T) {
 }
 
 func TestKMS_DescribeKey_NotFound_ErrorClassification(t *testing.T) {
+	t.Parallel()
 	client := kmsClient()
 	_, err := client.DescribeKey(ctx, &kms.DescribeKeyInput{
 		KeyId: aws.String("nonexistent-key-id"),

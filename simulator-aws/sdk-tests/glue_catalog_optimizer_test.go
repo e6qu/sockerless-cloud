@@ -13,6 +13,7 @@ import (
 // TestGlue_Catalog_SDK exercises the Glue multi-catalog CRUD: Create / Get /
 // GetCatalogs / Update / Delete.
 func TestGlue_Catalog_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 	const name = "glue-sdk-catalog"
 
@@ -63,6 +64,7 @@ func TestGlue_Catalog_SDK(t *testing.T) {
 // TestGlue_TableOptimizer_SDK exercises Create / Get / Update / BatchGet /
 // ListTableOptimizerRuns / Delete on a table optimizer attached to a table.
 func TestGlue_TableOptimizer_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 	db := uniqueName("glue-sdk-opt-db")
 	tbl := uniqueName("glue-sdk-opt-tbl")
@@ -165,6 +167,7 @@ func TestGlue_TableOptimizer_SDK(t *testing.T) {
 // BatchGetTriggers / BatchGetWorkflows / BatchGetCustomEntityTypes /
 // BatchDeleteConnection / BatchUpdatePartition against pre-created resources.
 func TestGlue_BatchGet_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	// Crawler.
@@ -302,6 +305,7 @@ func TestGlue_BatchGet_SDK(t *testing.T) {
 // TestGlue_Integration_SDK exercises the zero-ETL Integration family plus
 // resource/table properties round-trips.
 func TestGlue_Integration_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 	const name = "glue-sdk-integration"
 	const src = "arn:aws:rds:us-east-1:123456789012:db:source"

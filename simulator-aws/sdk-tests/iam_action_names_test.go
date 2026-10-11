@@ -17,6 +17,7 @@ import (
 // s3:ListBucket, a multipart upload is s3:PutObject, and a copy also reads its
 // source with s3:GetObject.
 func TestS3_OperationsAreAuthorizedByTheirIAMActions(t *testing.T) {
+	t.Parallel()
 	admin := s3Client()
 	for _, bucket := range []string{"iam-action-names-src", "iam-action-names-dst"} {
 		_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
@@ -52,6 +53,7 @@ func TestS3_OperationsAreAuthorizedByTheirIAMActions(t *testing.T) {
 
 // PartiQL statements are authorized as the verb they are.
 func TestDynamoDB_PartiQLIsAuthorizedByItsVerb(t *testing.T) {
+	t.Parallel()
 	admin := dynamodb.NewFromConfig(sdkConfig(), func(o *dynamodb.Options) { o.BaseEndpoint = aws.String(baseURL) })
 	_, err := admin.CreateTable(ctx, &dynamodb.CreateTableInput{
 		TableName:            aws.String("partiql-verbs"),

@@ -32,6 +32,7 @@ func requireEtagRotates(t *testing.T, before, after string) {
 // TestSDK_RunV2REST_Service_EtagOptimisticConcurrency covers Service and,
 // through the revision each deploy materializes, Revision.
 func TestSDK_RunV2REST_Service_EtagOptimisticConcurrency(t *testing.T) {
+	t.Parallel()
 	svc := newRunV2RESTService(t)
 	id := uniqueName("etag-service")
 	name := crV2Parent + "/services/" + id
@@ -99,6 +100,7 @@ func TestSDK_RunV2REST_Service_EtagOptimisticConcurrency(t *testing.T) {
 // TestSDK_RunV2REST_WorkerPool_EtagOptimisticConcurrency covers WorkerPool and
 // its revisions.
 func TestSDK_RunV2REST_WorkerPool_EtagOptimisticConcurrency(t *testing.T) {
+	t.Parallel()
 	svc := newRunV2RESTService(t)
 	id := uniqueName("etag-workerpool")
 	name := crV2Parent + "/workerPools/" + id
@@ -161,6 +163,7 @@ func TestSDK_RunV2REST_WorkerPool_EtagOptimisticConcurrency(t *testing.T) {
 // TestSDK_RunV2REST_Instance_EtagOptimisticConcurrency covers Instance,
 // including the etag StartInstanceRequest and StopInstanceRequest carry.
 func TestSDK_RunV2REST_Instance_EtagOptimisticConcurrency(t *testing.T) {
+	t.Parallel()
 	svc := newRunV2RESTService(t)
 	id := uniqueName("etag-instance")
 	name := crV2Parent + "/instances/" + id
@@ -234,6 +237,7 @@ func TestSDK_RunV2REST_Instance_EtagOptimisticConcurrency(t *testing.T) {
 // and Task — both output-only-etag resources — and the etag
 // CancelExecutionRequest carries.
 func TestSDK_RunV2REST_ExecutionTask_EtagOptimisticConcurrency(t *testing.T) {
+	t.Parallel()
 	svc := newRunV2RESTService(t)
 	id := uniqueName("etag-exec-job")
 	jobName := crV2Parent + "/jobs/" + id

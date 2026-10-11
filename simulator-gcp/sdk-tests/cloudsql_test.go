@@ -28,6 +28,7 @@ func sqlAdminService(t *testing.T) *sqladmin.Service {
 // Insert instance → Get → List → Patch → Insert database → Insert
 // user → List databases → List users → Delete instance.
 func TestCloudSQL_InstanceDatabaseUserLifecycle(t *testing.T) {
+	t.Parallel()
 	svc := sqlAdminService(t)
 	project := "test-project"
 	instanceName := "lifecycle-pg"
@@ -93,6 +94,7 @@ func TestCloudSQL_InstanceDatabaseUserLifecycle(t *testing.T) {
 }
 
 func TestCloudSQL_NewPublishedInstanceFieldsRoundTrip(t *testing.T) {
+	t.Parallel()
 	const (
 		project  = "published-fields-project"
 		instance = "published-fields"
@@ -152,6 +154,7 @@ func TestCloudSQL_NewPublishedInstanceFieldsRoundTrip(t *testing.T) {
 }
 
 func TestCloudSQL_SQLServerRolesUpdateSemantics(t *testing.T) {
+	t.Parallel()
 	svc := sqlAdminService(t)
 	project := "test-project"
 	instanceName := "roles-sqlserver"
@@ -199,6 +202,7 @@ func TestCloudSQL_SQLServerRolesUpdateSemantics(t *testing.T) {
 }
 
 func TestCloudSQL_BackupRunsReturnOperations(t *testing.T) {
+	t.Parallel()
 	svc := sqlAdminService(t)
 	project := "test-project"
 	instanceName := "backup-pg"
@@ -235,6 +239,7 @@ func TestCloudSQL_BackupRunsReturnOperations(t *testing.T) {
 // a representative instances.* action verb (restart), both of which return
 // the canonical DONE Operation.
 func TestCloudSQL_InstanceUpdateAndActions(t *testing.T) {
+	t.Parallel()
 	svc := sqlAdminService(t)
 	project := "test-project"
 	instanceName := "update-pg"
@@ -272,6 +277,7 @@ func TestCloudSQL_InstanceUpdateAndActions(t *testing.T) {
 // TestCloudSQL_FlagsAndTiers exercises the static reference surfaces
 // flags.list and tiers.list, asserting real Cloud SQL flag/tier shapes.
 func TestCloudSQL_FlagsAndTiers(t *testing.T) {
+	t.Parallel()
 	svc := sqlAdminService(t)
 
 	flags, err := svc.Flags.List().Do()
@@ -304,6 +310,7 @@ func TestCloudSQL_FlagsAndTiers(t *testing.T) {
 // (distinct from the per-instance backupRuns): CreateBackup → ListBackups →
 // GetBackup → UpdateBackup → DeleteBackup.
 func TestCloudSQL_BackupsLifecycle(t *testing.T) {
+	t.Parallel()
 	svc := sqlAdminService(t)
 	project := "test-project"
 	parent := "projects/" + project
@@ -360,6 +367,7 @@ func TestCloudSQL_BackupsLifecycle(t *testing.T) {
 // TestCloudSQL_SslCertsAndConnect exercises the sslCerts resource lifecycle
 // plus connect.get (connectSettings) and instances.listServerCas.
 func TestCloudSQL_SslCertsAndConnect(t *testing.T) {
+	t.Parallel()
 	svc := sqlAdminService(t)
 	project := "test-project"
 	instanceName := "ssl-pg"
@@ -406,6 +414,7 @@ func TestCloudSQL_SslCertsAndConnect(t *testing.T) {
 // runs no SQL Server engine, so a SQL Server instance, its connect settings
 // and its clone carry no address at all.
 func TestCloudSQL_InstanceWithoutADataPlaneHasNoAddress(t *testing.T) {
+	t.Parallel()
 	svc := sqlAdminService(t)
 	const project, instanceName = "test-project", "no-address-mssql"
 

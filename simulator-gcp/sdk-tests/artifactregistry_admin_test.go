@@ -33,6 +33,7 @@ func arAdminService(t *testing.T) *artifactregistry.Service {
 // list/get reads (empty repository) plus the tag CRUD lifecycle the SDK can
 // drive directly.
 func TestArtifactRegistry_PackagesVersionsTagsFiles(t *testing.T) {
+	t.Parallel()
 	svc := arAdminService(t)
 	parent := "projects/ar-admin/locations/us-central1"
 	repoID := uniqueName("subres-repo")
@@ -88,6 +89,7 @@ func TestArtifactRegistry_PackagesVersionsTagsFiles(t *testing.T) {
 
 // TestArtifactRegistry_Rules drives the repository cleanup/access rules CRUD.
 func TestArtifactRegistry_Rules(t *testing.T) {
+	t.Parallel()
 	svc := arAdminService(t)
 	parent := "projects/ar-admin/locations/us-central1"
 	repoID := uniqueName("rules-repo")
@@ -121,6 +123,7 @@ func TestArtifactRegistry_Rules(t *testing.T) {
 }
 
 func TestArtifactRegistry_RepositoryIAM(t *testing.T) {
+	t.Parallel()
 	svc := arAdminService(t)
 	parent := "projects/ar-admin/locations/us-central1"
 	repoID := uniqueName("iam-repo")
@@ -161,6 +164,7 @@ func TestArtifactRegistry_RepositoryIAM(t *testing.T) {
 // TestArtifactRegistry_ProjectSettingsAndVPCSC covers the project-scoped
 // projectSettings, vpcscConfig and projectConfig singletons.
 func TestArtifactRegistry_ProjectSettingsAndVPCSC(t *testing.T) {
+	t.Parallel()
 	svc := arAdminService(t)
 	project := "ar-admin-settings"
 	location := "us-central1"

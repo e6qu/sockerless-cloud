@@ -9,6 +9,7 @@ import (
 
 // TestGlueMLTransformCLI exercises the ML transform CRUD family via the aws CLI.
 func TestGlueMLTransformCLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("glue", "create-ml-transform",
 		"--name", "glue-cli-mlt",
 		"--description", "cli ml transform",
@@ -76,6 +77,7 @@ func TestGlueMLTransformCLI(t *testing.T) {
 // TestGlueDataQualityCLI exercises Data Quality rulesets, evaluation and
 // recommendation runs, results, statistics and models via the aws CLI.
 func TestGlueDataQualityCLI(t *testing.T) {
+	t.Parallel()
 	const rulesetName = "glue-cli-dqr"
 	ruleset := "Rules = [ ColumnExists \"id\" ]"
 
@@ -201,6 +203,7 @@ func TestGlueDataQualityCLI(t *testing.T) {
 // TestGlueColumnStatisticsTaskCLI exercises the column-statistics task settings
 // and runs family via the aws CLI.
 func TestGlueColumnStatisticsTaskCLI(t *testing.T) {
+	t.Parallel()
 	const dbName = "glue-cli-cst-db"
 	const tblName = "glue-cli-cst-tbl"
 

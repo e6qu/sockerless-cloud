@@ -20,6 +20,7 @@ import (
 // written furthest-first. Storage order and the correct answer disagree, so
 // only a real search can produce this result.
 func TestDynamoDB_VectorSearchReturnsNearestNeighbours_SDK(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	c := ddbClient()
 	table := "vector-search-sdk"
@@ -91,6 +92,7 @@ func TestDynamoDB_VectorSearchReturnsNearestNeighbours_SDK(t *testing.T) {
 // not a neighbour however near it lies. The nearest document here is archived,
 // and asking for live ones must answer with the next nearest instead.
 func TestDynamoDB_VectorSearchHonoursItsCondition_SDK(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	c := ddbClient()
 	table := "vector-condition-sdk"
@@ -146,6 +148,7 @@ func TestDynamoDB_VectorSearchHonoursItsCondition_SDK(t *testing.T) {
 // A vector index can be added to and dropped from a live table through
 // UpdateTable, which is how one arrives on a table that did not declare it.
 func TestDynamoDB_VectorIndexLifecycleThroughUpdateTable_SDK(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	c := ddbClient()
 	table := "vector-lifecycle-sdk"

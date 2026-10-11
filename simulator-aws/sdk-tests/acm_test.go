@@ -30,6 +30,7 @@ func acmClient() *acm.Client {
 }
 
 func TestACMRequestDescribeDelete(t *testing.T) {
+	t.Parallel()
 	c := acmClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -84,6 +85,7 @@ func TestACMRequestDescribeDelete(t *testing.T) {
 }
 
 func TestACMUpdateOptionsRenewResendValidation(t *testing.T) {
+	t.Parallel()
 	c := acmClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -124,6 +126,7 @@ func TestACMUpdateOptionsRenewResendValidation(t *testing.T) {
 }
 
 func TestACMImportCertificate(t *testing.T) {
+	t.Parallel()
 	c := acmClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -164,6 +167,7 @@ func TestACMImportCertificate(t *testing.T) {
 }
 
 func TestACMTagsLifecycle(t *testing.T) {
+	t.Parallel()
 	c := acmClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -223,6 +227,7 @@ func TestACMTagsLifecycle(t *testing.T) {
 // we synthesise a bogus non-us-east-1 ARN that points at a real
 // cert ID in the sim's store, and confirm CloudFront rejects it.
 func TestCloudFrontRejectsNonUSEast1ACMCert(t *testing.T) {
+	t.Parallel()
 	a := acmClient()
 	cf := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -8,6 +8,7 @@ import (
 // TestECSCLI_ContainerHealthCheckAndSecrets drives the healthCheck + secrets
 // containerDefinitions round-trip via the aws CLI.
 func TestECSCLI_ContainerHealthCheckAndSecrets(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("ecs", "register-task-definition",
 		"--family", "cli-hc-secrets",
 		"--network-mode", "awsvpc",

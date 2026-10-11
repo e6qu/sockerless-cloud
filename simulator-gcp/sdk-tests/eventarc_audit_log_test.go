@@ -142,6 +142,7 @@ func auditLogEntries(t *testing.T, logID, filter string) []*audit.AuditLog {
 // names the caller, and the service receives the
 // google.cloud.audit.log.v1.written CloudEvent carrying it.
 func TestEventarc_AuditLogTriggerDeliversToCloudRun(t *testing.T) {
+	t.Parallel()
 	const project, region = "test-project", "us-central1"
 	runClient := newServicesClient(t)
 	svc := createInvokableServiceIn(t, runClient, "projects/"+project+"/locations/"+region, "audit-recv",

@@ -12,6 +12,7 @@ import (
 // organization-scoped call produces.
 
 func TestCompute_RouterNamedSets(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, region, router = "named-sets", "us-central1", "border"
 
@@ -65,11 +66,12 @@ func TestCompute_RouterNamedSets(t *testing.T) {
 // backend holds and never the key material, which is the whole point of it
 // being a signing key.
 func TestCompute_BackendBucketSignedUrlKeys(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, name = "signed-keys", "assets"
 
 	_, err := svc.BackendBuckets.Insert(project, &compute.BackendBucket{
-		Name: name, BucketName: "assets-bucket", EnableCdn: true,
+		Name: name, BucketName: "assets-bucket-9df6", EnableCdn: true,
 	}).Do()
 	require.NoError(t, err)
 
@@ -113,6 +115,7 @@ func TestCompute_BackendBucketSignedUrlKeys(t *testing.T) {
 // project, because the resource they acted on has none. They come out of the
 // same store every other Compute operation is recorded in.
 func TestCompute_OrganizationOperations(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 
 	listed, err := svc.GlobalOrganizationOperations.List().Do()
@@ -131,6 +134,7 @@ func TestCompute_OrganizationOperations(t *testing.T) {
 
 // The verbs the global load-balancing collections carry beyond their lifecycle.
 func TestCompute_GlobalBackendServiceSecurityAndSigning(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, name = "lb-verbs", "origin"
 
@@ -178,6 +182,7 @@ func TestCompute_GlobalBackendServiceSecurityAndSigning(t *testing.T) {
 }
 
 func TestCompute_ForwardingRuleTargetLabelsAndProxyUrlMap(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project = "lb-more"
 

@@ -14,6 +14,7 @@ import (
 // group rule's attributes (the path the AWS provider uses to change an existing
 // rule rather than revoke + re-authorize).
 func TestEC2_ModifySecurityGroupRules(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.71.0.0/16")})
 	require.NoError(t, err)

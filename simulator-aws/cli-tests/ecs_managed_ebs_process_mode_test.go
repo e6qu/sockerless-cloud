@@ -51,6 +51,7 @@ func startProcessModeSim(t *testing.T) string {
 // run-task transition, subsequent CLI calls must still succeed (a panic would
 // crash the process and every later call would get a connection error).
 func TestECS_CLI_ManagedEBSProcessMode(t *testing.T) {
+	t.Parallel()
 	url := startProcessModeSim(t)
 	cli := func(args ...string) *exec.Cmd {
 		cmd := exec.Command("aws", args...)

@@ -26,6 +26,7 @@ func runV2AdminService(t *testing.T) *run.Service {
 //	POST /v1/projects/{project}/locations/{location}/instances/{id}:rescheduleMaintenance
 
 func TestCloudRun_SubmitBuild(t *testing.T) {
+	t.Parallel()
 	runSvc := runV2AdminService(t)
 	project := uniqueName("cr-build")
 	parent := "projects/" + project + "/locations/us-central1"
@@ -74,6 +75,7 @@ func TestCloudRun_SubmitBuild(t *testing.T) {
 }
 
 func TestMemorystore_RescheduleMaintenance(t *testing.T) {
+	t.Parallel()
 	svc := redisService(t)
 	parent := "projects/ms-reschedule/locations/us-central1"
 

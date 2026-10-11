@@ -9,6 +9,7 @@ import (
 // control plane via the aws CLI: create-instance-connect-endpoint in a subnet,
 // describe-instance-connect-endpoints read-back, modify, and delete.
 func TestEC2CLI_InstanceConnectEndpoint(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	vpc := q("ec2", "create-vpc", "--cidr-block", "10.182.0.0/16",
@@ -71,6 +72,7 @@ func TestEC2CLI_SerialConsoleAndMetadataDefaults(t *testing.T) {
 // of tag keys registered for instance-event notifications via the aws CLI:
 // register, describe, deregister.
 func TestEC2CLI_InstanceEventNotificationAttributes(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	runCLI(t, awsCLI("ec2", "register-instance-event-notification-attributes",
@@ -97,6 +99,7 @@ func TestEC2CLI_InstanceEventNotificationAttributes(t *testing.T) {
 // reboot/report-status/reset-attribute instance-management ops on a launched
 // instance, and the honest-empty describe-classic-link-instances.
 func TestEC2CLI_MonitorAndInstanceOps(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	vpc := q("ec2", "create-vpc", "--cidr-block", "10.183.0.0/16",

@@ -13,6 +13,7 @@ import (
 // records in Route53, and confirm the cert transitions to ISSUED. Also asserts
 // the wildcard SAN's record name is de-wildcarded.
 func TestACM_DNSValidationIssuesCert(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("acm", "request-certificate",
 		"--domain-name", "app.cli.example.test",
 		"--subject-alternative-names", "*.devbox.cli.example.test",

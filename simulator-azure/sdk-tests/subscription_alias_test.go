@@ -30,6 +30,7 @@ import (
 // subscription through the subscriptions list, a resource group created
 // inside the new subscription, and the rename/cancel/enable actions.
 func TestSubscriptionAlias_CreateLifecycle(t *testing.T) {
+	t.Parallel()
 	aliasClient, err := armsubscription.NewAliasClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
@@ -165,6 +166,7 @@ func TestSubscriptionAlias_CreateLifecycle(t *testing.T) {
 // answering with the same subscription id, and the subscription must stay
 // Enabled once the creation operation has settled.
 func TestSubscriptionAlias_ProviderRefreshReadPath(t *testing.T) {
+	t.Parallel()
 	aliasClient, err := armsubscription.NewAliasClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	subsClient, err := armsubscriptions.NewClient(&fakeCredential{}, clientOpts())
@@ -231,6 +233,7 @@ func TestSubscriptionAlias_ProviderRefreshReadPath(t *testing.T) {
 // already-existing subscription id — the second creation mode the alias API
 // supports (properties.subscriptionId instead of a billing scope).
 func TestSubscriptionAlias_AdoptExistingSubscription(t *testing.T) {
+	t.Parallel()
 	aliasClient, err := armsubscription.NewAliasClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
@@ -256,6 +259,7 @@ func TestSubscriptionAlias_AdoptExistingSubscription(t *testing.T) {
 // documented request contract: an alias PUT must carry either a billing
 // scope (creation) or a subscription id (adoption).
 func TestSubscriptionAlias_RequiresBillingScopeOrSubscriptionID(t *testing.T) {
+	t.Parallel()
 	aliasClient, err := armsubscription.NewAliasClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 

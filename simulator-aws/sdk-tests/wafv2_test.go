@@ -33,6 +33,7 @@ func wafClient() *wafv2.Client {
 }
 
 func TestWAFv2RevenueSurfacesForAccountWithoutSettlements(t *testing.T) {
+	t.Parallel()
 	c := wafClient()
 	testCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -81,6 +82,7 @@ func TestWAFv2RevenueSurfacesForAccountWithoutSettlements(t *testing.T) {
 }
 
 func TestWAFv2WebACLLifecycle(t *testing.T) {
+	t.Parallel()
 	c := wafClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -148,6 +150,7 @@ func TestWAFv2WebACLLifecycle(t *testing.T) {
 }
 
 func TestWAFv2IPSetLifecycle(t *testing.T) {
+	t.Parallel()
 	c := wafClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -192,6 +195,7 @@ func TestWAFv2IPSetLifecycle(t *testing.T) {
 }
 
 func TestWAFv2RuleGroupAndRegexPatternSet(t *testing.T) {
+	t.Parallel()
 	c := wafClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -263,6 +267,7 @@ func TestWAFv2RuleGroupAndRegexPatternSet(t *testing.T) {
 // ListRegexPatternSets, TagResource, UntagResource, ListTagsForResource,
 // GetSampledRequests. One test covers the whole cluster.
 func TestWAFv2UpdatesAndListsAndTags(t *testing.T) {
+	t.Parallel()
 	c := wafClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -418,6 +423,7 @@ func TestWAFv2UpdatesAndListsAndTags(t *testing.T) {
 }
 
 func TestWAFv2AssociateWebACLWithCloudFront(t *testing.T) {
+	t.Parallel()
 	c := wafClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -537,6 +543,7 @@ func TestWAFv2AssociateWebACLWithCloudFront(t *testing.T) {
 }
 
 func TestWAFv2AssociateRegionalWebACLWithApplicationLoadBalancer(t *testing.T) {
+	t.Parallel()
 	c := wafClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -592,6 +599,7 @@ func TestWAFv2AssociateRegionalWebACLWithApplicationLoadBalancer(t *testing.T) {
 // Real WAFv2 ListWebACLs returns at most Limit summaries plus a NextMarker that
 // the caller passes back to fetch the next page.
 func TestWAFv2ListWebACLsPagination(t *testing.T) {
+	t.Parallel()
 	c := wafClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -648,6 +656,7 @@ func TestWAFv2ListWebACLsPagination(t *testing.T) {
 // it appears in ListLoggingConfigurations (scoped), then remove it with
 // DeleteLoggingConfiguration. Logging configurations key on the web ACL ARN.
 func TestWAFv2LoggingConfiguration(t *testing.T) {
+	t.Parallel()
 	c := wafClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -729,6 +738,7 @@ func TestWAFv2LoggingConfiguration(t *testing.T) {
 // (CreateAPIKey, ListAPIKeys, GetDecryptedAPIKey, DeleteAPIKey) and the
 // CheckCapacity WCU estimator in one round-trip.
 func TestWAFv2APIKeysAndCapacity(t *testing.T) {
+	t.Parallel()
 	c := wafClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -818,6 +828,7 @@ func TestWAFv2APIKeysAndCapacity(t *testing.T) {
 // ListAvailableManagedRuleGroupVersions, DescribeManagedRuleGroup,
 // DescribeAllManagedProducts, DescribeManagedProductsByVendor.
 func TestWAFv2ManagedRuleGroupCatalog(t *testing.T) {
+	t.Parallel()
 	c := wafClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -874,6 +885,7 @@ func TestWAFv2ManagedRuleGroupCatalog(t *testing.T) {
 // set CRUD: PutManagedRuleSetVersions (create + publish), GetManagedRuleSet,
 // ListManagedRuleSets, UpdateManagedRuleSetVersionExpiryDate.
 func TestWAFv2ManagedRuleSetLifecycle(t *testing.T) {
+	t.Parallel()
 	c := wafClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -934,6 +946,7 @@ func TestWAFv2ManagedRuleSetLifecycle(t *testing.T) {
 // ListMobileSdkReleases), DeleteFirewallManagerRuleGroups,
 // GetRateBasedStatementManagedKeys, and GetTopPathStatisticsByTraffic.
 func TestWAFv2PermissionPolicyAndStats(t *testing.T) {
+	t.Parallel()
 	c := wafClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

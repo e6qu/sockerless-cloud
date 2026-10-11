@@ -93,6 +93,7 @@ func stage4Thumbprint(leaf *x509.Certificate) string {
 }
 
 func TestSDK_WebCertificates_PfxLifecycle(t *testing.T) {
+	t.Parallel()
 	rg := "stage4-cert-rg"
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "s4-cert-plan")
@@ -278,6 +279,7 @@ func stage4SetVaultSecret(t *testing.T, vault, name, value string) {
 }
 
 func TestSDK_WebCertificates_KeyVaultSourced(t *testing.T) {
+	t.Parallel()
 	rg := "stage4-kvcert-rg"
 	ensureRG(t, rg)
 
@@ -368,6 +370,7 @@ func TestSDK_WebCertificates_KeyVaultSourced(t *testing.T) {
 }
 
 func TestSDK_WebApps_HostnameTruth(t *testing.T) {
+	t.Parallel()
 	s4HostSiteName := uniqueName("s4-host-site")
 	s4HostOtherName := uniqueName("s4-host-other")
 	zone := uniqueName("stage4-zone") + ".test"
@@ -494,6 +497,7 @@ func TestSDK_WebApps_HostnameTruth(t *testing.T) {
 }
 
 func TestSDK_WebApps_ConfigSnapshotsAndRecover(t *testing.T) {
+	t.Parallel()
 	rg := "stage4-snap-rg"
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "s4-snap-plan")
@@ -570,6 +574,7 @@ func TestSDK_WebApps_ConfigSnapshotsAndRecover(t *testing.T) {
 }
 
 func TestSDK_WebApps_ContainerLogs(t *testing.T) {
+	t.Parallel()
 	s4LogsQuietName := uniqueName("s4-logs-quiet")
 	rg := uniqueName("stage4-logs-rg")
 	name := uniqueName("s4-logs-site")
@@ -627,6 +632,7 @@ func TestSDK_WebApps_ContainerLogs(t *testing.T) {
 }
 
 func TestSDK_Web_ProviderAndGlobalSingletons(t *testing.T) {
+	t.Parallel()
 	rg := "stage4-glob-rg"
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "s4-glob-plan")
@@ -746,6 +752,7 @@ func TestSDK_Web_ProviderAndGlobalSingletons(t *testing.T) {
 }
 
 func TestSDK_Web_MoveResources(t *testing.T) {
+	t.Parallel()
 	s4MoveSiteName := uniqueName("s4-move-site")
 	srcRG, dstRG := uniqueName("stage4-move-src-rg"), uniqueName("stage4-move-dst-rg")
 	ensureRG(t, srcRG)
@@ -791,6 +798,7 @@ func TestSDK_Web_MoveResources(t *testing.T) {
 }
 
 func TestSDK_Web_GetSubscriptionOperation(t *testing.T) {
+	t.Parallel()
 	rg := "stage4-op-rg"
 	ensureRG(t, rg)
 

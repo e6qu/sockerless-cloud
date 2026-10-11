@@ -16,6 +16,7 @@ import (
 // described before being torn down. It also covers the resource-discovery
 // association ops and the IPAM Organizations delegated-admin ops.
 func TestEC2_IPAMLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	created, err := c.CreateIpam(ctx, &ec2.CreateIpamInput{
@@ -150,6 +151,7 @@ func TestEC2_IPAMLifecycleSDK(t *testing.T) {
 // ReleaseIpamPoolAllocation, DeprovisionIpamPoolCidr, ModifyIpamPool, and the
 // GetIpamResourceCidrs / GetIpamAddressHistory / ModifyIpamResourceCidr reads.
 func TestEC2_IPAMPoolAllocationSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	ipam, err := c.CreateIpam(ctx, &ec2.CreateIpamInput{

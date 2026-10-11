@@ -23,6 +23,7 @@ import (
 )
 
 func TestNetworkLoadBalancerDataPlaneSurvivesSimulatorRestart_SDK(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 	tcpPort, udpPort := persistentSimulatorPorts(t)
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", tcpPort)
@@ -211,6 +212,7 @@ func assertPersistentTCPEcho(t *testing.T, port int, message string) {
 }
 
 func TestAmazonRDSDataAndEndpointSurviveSimulatorRestart_SDK(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 	tcpPort, udpPort := persistentSimulatorPorts(t)
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", tcpPort)

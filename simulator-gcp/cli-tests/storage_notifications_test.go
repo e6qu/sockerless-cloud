@@ -15,6 +15,7 @@ import (
 // Cloud Storage accepts only when the agent it checks is the one gcloud
 // granted.
 func TestGCSCLI_NotificationGrantsTheServiceAgent(t *testing.T) {
+	t.Parallel()
 	bucket := "cli-notified-bucket"
 	topic := "cli-gcs-notifications"
 	runCLI(t, gcloudCLI("storage", "buckets", "create", "gs://"+bucket, "--location=us"))

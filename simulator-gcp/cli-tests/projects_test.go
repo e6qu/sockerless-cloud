@@ -19,6 +19,7 @@ import (
 )
 
 func TestProjectsLifecycleCLI(t *testing.T) {
+	t.Parallel()
 	const projectID = "cli-proj-lifecycle"
 
 	out := runCLI(t, gcloudCLI("projects", "create", projectID,
@@ -103,6 +104,7 @@ func TestProjectsLifecycleCLI(t *testing.T) {
 }
 
 func TestProjectsDescribeUnknownCLI(t *testing.T) {
+	t.Parallel()
 	out, err := gcloudCLI("projects", "describe", "cli-never-created-proj").CombinedOutput()
 	require.Error(t, err, "describing a project that does not exist must fail, got: %s", out)
 	assert.Contains(t, string(out), "does not have permission", "the real API answers 403 PERMISSION_DENIED: %s", out)

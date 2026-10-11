@@ -21,6 +21,7 @@ func cloudwatchClient() *cloudwatch.Client {
 // via PutMetricData is returned by GetMetricData, bucketed by Period and
 // reduced by the requested statistic (the real CloudWatch behaviour).
 func TestCloudWatch_PutGetMetricDataRoundTrip(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	ns := "Custom/AuditMetrics"
 	metric := "Requests"
@@ -65,6 +66,7 @@ func TestCloudWatch_PutGetMetricDataRoundTrip(t *testing.T) {
 // are no longer fabricated: with nothing pushed they report no datapoints, and
 // after PutMetricData they return the real pushed value.
 func TestCloudWatch_ECSMetricsServeStoredData(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	ns := "ECS/ContainerInsights"
 	base := time.Now().UTC().Truncate(time.Minute)

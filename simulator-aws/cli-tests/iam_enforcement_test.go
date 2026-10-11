@@ -14,6 +14,7 @@ import (
 // CLI call made with the restricted user's minted key is denied
 // UnauthorizedOperation for an action its policy doesn't grant.
 func TestIAM_UserLifecycleAndEnforcementCLI(t *testing.T) {
+	t.Parallel()
 	user := "cli-restricted"
 	runCLI(t, awsCLI("iam", "create-user", "--user-name", user))
 	t.Cleanup(func() { _ = awsCLI("iam", "delete-user", "--user-name", user).Run() })
@@ -91,6 +92,7 @@ func TestIAM_UserLifecycleAndEnforcementCLI(t *testing.T) {
 // user. The same access key ID presented with a wrong secret is rejected by the
 // Signature Version 4 verifier with SignatureDoesNotMatch.
 func TestIAM_MintedKeyCallerIdentityAndWrongSecretCLI(t *testing.T) {
+	t.Parallel()
 	user := "cli-minted-operator"
 	created := runCLI(t, awsCLI("iam", "create-user", "--user-name", user, "--output", "json"))
 	t.Cleanup(func() { _ = awsCLI("iam", "delete-user", "--user-name", user).Run() })
@@ -144,6 +146,7 @@ func TestIAM_MintedKeyCallerIdentityAndWrongSecretCLI(t *testing.T) {
 // TableName (GitHub issue #870). A transaction touching an ungranted table is
 // denied AccessDeniedException.
 func TestIAM_DynamoDBTransactionsResourceScopedCLI(t *testing.T) {
+	t.Parallel()
 	for _, table := range []string{"cli-txn-scoped", "cli-txn-other"} {
 		runCLI(t, awsCLI("dynamodb", "create-table",
 			"--table-name", table,
@@ -195,6 +198,7 @@ func TestIAM_DynamoDBTransactionsResourceScopedCLI(t *testing.T) {
 // slashes and IAM's `*` spans them, so a nested name under the granted prefix
 // is allowed; a repository outside the prefix is denied AccessDeniedException.
 func TestIAM_ECRResourceScopedCLI(t *testing.T) {
+	t.Parallel()
 	for _, repo := range []string{"cli-scoped-ns/app", "cli-scoped-ns/golden/omnibus", "cli-other-ns/app"} {
 		runCLI(t, awsCLI("ecr", "create-repository", "--repository-name", repo))
 		repo := repo
@@ -257,6 +261,7 @@ func withCreds(env []string, akid, secret string) []string {
 // authorizes against the alarm it names, so the grant allows it and one
 // scoped to dashboards does not.
 func TestIAM_TagOnCreateIsScopedToTheCreatedAlarmCLI(t *testing.T) {
+	t.Parallel()
 	credentials := func(user, tagging string) (string, string) {
 		runCLI(t, awsCLI("iam", "create-user", "--user-name", user))
 		t.Cleanup(func() { _ = awsCLI("iam", "delete-user", "--user-name", user).Run() })

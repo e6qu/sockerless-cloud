@@ -24,6 +24,7 @@ import (
 //	GET {IDENTITY_ENDPOINT}?api-version=2019-08-01&resource={resource}[&client_id]
 
 func TestWebAppIdentityEndpoint_MintsTheAssignedIdentities(t *testing.T) {
+	t.Parallel()
 	const app = "identity-endpoint-cli-app"
 	runCLI(t, azRest("PUT", aspURL("serverfarms/identity-endpoint-cli-plan"),
 		`{"location":"eastus","kind":"linux","sku":{"name":"S1","tier":"Standard"},"properties":{"reserved":true}}`))

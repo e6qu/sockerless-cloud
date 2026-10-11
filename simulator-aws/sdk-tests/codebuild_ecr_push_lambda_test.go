@@ -29,6 +29,7 @@ import (
 // path a backend's bootstrap overlay takes: CodeBuild builds and pushes,
 // Lambda pulls.
 func TestCodeBuild_PrivilegedBuildPushesToECRAndLambdaRunsIt(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "linux" {
 		t.Skip("platform gate: the container engine performs the registry push and pull itself, and on a host whose engine runs inside its own virtual machine it has no route to this host's loopback, where the simulator's registry listens. Linux hosts share one loopback between engine and simulator.")
 	}

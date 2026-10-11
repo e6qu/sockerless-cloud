@@ -28,6 +28,7 @@ func newTableClient(t *testing.T, account, table string) *aztables.Client {
 // aztables SDK: UpdateModeMerge overlays only the supplied properties (omitted
 // ones survive), while UpdateModeReplace drops omitted properties wholesale.
 func TestTableMergeVsReplace(t *testing.T) {
+	t.Parallel()
 	client := newTableClient(t, "sdktablemerge", "MergeTable")
 
 	// Seed an entity with two non-key properties.
@@ -71,6 +72,7 @@ func TestTableMergeVsReplace(t *testing.T) {
 // a `Timestamp gt datetime'…'` filter (the aztables EDMDateTime form) selects by
 // the unwrapped value, not by comparing against the literal word "datetime".
 func TestTableFilterDatetimeLiteral(t *testing.T) {
+	t.Parallel()
 	client := newTableClient(t, "sdktablefilter", "FilterTable")
 
 	// Two entities carrying an explicit EDM datetime property at different times.
@@ -108,6 +110,7 @@ func TestTableFilterDatetimeLiteral(t *testing.T) {
 // multi-op change-set (two inserts) is replayed and the entities are queryable
 // afterwards.
 func TestTableTransactionalBatch(t *testing.T) {
+	t.Parallel()
 	client := newTableClient(t, "sdktablebatch", "BatchTable")
 
 	mk := func(rk, v string) []byte {
@@ -135,6 +138,7 @@ func TestTableTransactionalBatch(t *testing.T) {
 // non-key column returns only that column (plus the system keys), dropping the
 // others.
 func TestTableSelectProjection(t *testing.T) {
+	t.Parallel()
 	client := newTableClient(t, "sdktableselect", "SelectTable")
 
 	b, _ := json.Marshal(map[string]any{"PartitionKey": "p", "RowKey": "r", "Keep": "yes", "Drop": "no"})
@@ -161,6 +165,7 @@ func ptr[T any](v T) *T { return &v }
 // update or delete conditioned on a superseded ETag fails with
 // UpdateConditionNotSatisfied, and the default `*` condition always applies.
 func TestTableConditionalWrites(t *testing.T) {
+	t.Parallel()
 	client := newTableClient(t, "sdktableifmatch", "IfMatchTable")
 	entity := func(v int) []byte {
 		b, _ := json.Marshal(map[string]any{"PartitionKey": "p", "RowKey": "r", "V": v})
@@ -198,6 +203,7 @@ func TestTableConditionalWrites(t *testing.T) {
 // group transaction's rules: a change set spanning two partitions is refused,
 // and one whose last operation fails leaves none of its earlier writes.
 func TestTableTransactionalBatchRollsBackAndStaysInOnePartition(t *testing.T) {
+	t.Parallel()
 	client := newTableClient(t, "sdktablebatchtx", "BatchTxTable")
 	mk := func(pk, rk string) []byte {
 		b, _ := json.Marshal(map[string]any{"PartitionKey": pk, "RowKey": rk, "Val": rk})

@@ -20,6 +20,7 @@ import (
 // TestIAMAccountReportsCLI_SummaryAndAuthDetails drives get-account-summary and
 // get-account-authorization-details against the real IAM stores.
 func TestIAMAccountReportsCLI_SummaryAndAuthDetails(t *testing.T) {
+	t.Parallel()
 	user := "iamar-cli-user"
 	runCLI(t, awsCLI("iam", "create-user", "--user-name", user))
 	t.Cleanup(func() {
@@ -53,6 +54,7 @@ func TestIAMAccountReportsCLI_SummaryAndAuthDetails(t *testing.T) {
 // TestIAMAccountReportsCLI_CredentialReport drives the generate→get credential
 // report flow and asserts the CSV enumerates the real users.
 func TestIAMAccountReportsCLI_CredentialReport(t *testing.T) {
+	t.Parallel()
 	user := "iamar-cli-credrep"
 	runCLI(t, awsCLI("iam", "create-user", "--user-name", user))
 	t.Cleanup(func() { runCLIIgnore(awsCLI("iam", "delete-user", "--user-name", user)) })
@@ -78,6 +80,7 @@ func TestIAMAccountReportsCLI_CredentialReport(t *testing.T) {
 // last-accessed flow plus the with-entities variant and the Organizations
 // access report.
 func TestIAMAccountReportsCLI_ServiceLastAccessed(t *testing.T) {
+	t.Parallel()
 	role := "iamar-cli-sla-role"
 	runCLI(t, awsCLI("iam", "create-role",
 		"--role-name", role,

@@ -9,6 +9,7 @@ import (
 // the aws CLI: gateway → route table → VPC attachment → association /
 // propagation / routes, with tolerant teardown.
 func TestEC2CLI_TransitGatewayCore(t *testing.T) {
+	t.Parallel()
 	tgwID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-transit-gateway",
 		"--description", "cli-core-tgw",
 		"--options", "AmazonSideAsn=64514,DnsSupport=enable,MulticastSupport=enable",
@@ -143,6 +144,7 @@ func TestEC2CLI_TransitGatewayCore(t *testing.T) {
 // TestEC2CLI_TransitGatewayExtras covers prefix-list references, connect
 // attachments, multicast domains, and peering attachments over the aws CLI.
 func TestEC2CLI_TransitGatewayExtras(t *testing.T) {
+	t.Parallel()
 	tgwID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-transit-gateway",
 		"--options", "MulticastSupport=enable",
 		"--query", "TransitGateway.TransitGatewayId", "--output", "text")))

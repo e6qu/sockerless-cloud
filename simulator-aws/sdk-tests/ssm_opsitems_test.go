@@ -14,6 +14,7 @@ import (
 // back, list it via DescribeOpsItems, update its status to Resolved, associate
 // and list a related item, list the activity events, then disassociate.
 func TestSSM_OpsItemLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 
 	created, err := c.CreateOpsItem(ctx, &ssm.CreateOpsItemInput{
@@ -122,6 +123,7 @@ func TestSSM_OpsItemLifecycle(t *testing.T) {
 // one task-execution and invocation, plus the GetMaintenanceWindowTask read and
 // the target/task update operations.
 func TestSSM_MaintenanceWindowExecution(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 
 	cw, err := c.CreateMaintenanceWindow(ctx, &ssm.CreateMaintenanceWindowInput{
@@ -274,6 +276,7 @@ func TestSSM_MaintenanceWindowExecution(t *testing.T) {
 // confirm its connection status, list active sessions, terminate, and confirm
 // it moves to the history view.
 func TestSSM_SessionLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	target := "i-0123456789sockerless"
 
@@ -338,6 +341,7 @@ func TestSSM_SessionLifecycle(t *testing.T) {
 // TestSSM_ConnectionStatusNotConnected pins notconnected for an instance with
 // no active session.
 func TestSSM_ConnectionStatusNotConnected(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	cs, err := c.GetConnectionStatus(ctx, &ssm.GetConnectionStatusInput{
 		Target: aws.String("i-never-had-a-session-sockerless"),
@@ -349,6 +353,7 @@ func TestSSM_ConnectionStatusNotConnected(t *testing.T) {
 // TestSSM_ActivationLifecycle pins the hybrid-activation slice: create an
 // activation (id + code), list it back, and delete it.
 func TestSSM_ActivationLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 
 	created, err := c.CreateActivation(ctx, &ssm.CreateActivationInput{

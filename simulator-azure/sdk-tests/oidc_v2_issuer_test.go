@@ -20,6 +20,7 @@ import (
 // client. UserInfo requires a valid bearer token (OIDC Core §5.3); there is no
 // fallback identity.
 func TestAzureEntra_V2UserInfoEndpoint(t *testing.T) {
+	t.Parallel()
 	tenant := "edd-e2e-tenant"
 	clientID := "pomerium-userinfo-client"
 	v2Issuer := baseURL + "/" + tenant + "/v2.0"
@@ -67,6 +68,7 @@ func TestAzureEntra_V2UserInfoEndpoint(t *testing.T) {
 // initialise. The v1 discovery keeps the real AAD sts.windows.net issuer that
 // the Azure SDK expects.
 func TestAzureEntra_V2DiscoveryIssuerMatchesFetchURL(t *testing.T) {
+	t.Parallel()
 	tenant := "edd-e2e-tenant"
 
 	// v2.0 discovery: issuer == the v2.0 base URL it was fetched from.

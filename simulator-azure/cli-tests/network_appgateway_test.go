@@ -25,6 +25,7 @@ func subscriptionURL(provider, resourcePath, apiVersion string) string {
 // TestNetworkApplicationGatewayCatalogsCLI covers the six subscription-scoped
 // catalogs a rewrite rule set and an SSL policy are written against.
 func TestNetworkApplicationGatewayCatalogsCLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, azRest("GET", subscriptionURL("Microsoft.Network",
 		"applicationGatewayAvailableServerVariables", applicationGatewayAPIVersion), ""))
 	var serverVariables []string
@@ -101,6 +102,7 @@ func TestNetworkApplicationGatewayCatalogsCLI(t *testing.T) {
 // TestNetworkApplicationGatewayCLI covers the gateway resource itself: create,
 // show, retag, both lists, stop and start, backend health and delete.
 func TestNetworkApplicationGatewayCLI(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 
 	vnetURL := armURL("Microsoft.Network", "virtualNetworks/cli-appgw-vnet", applicationGatewayAPIVersion)
@@ -228,6 +230,7 @@ func TestNetworkApplicationGatewayCLI(t *testing.T) {
 // web application firewall rule-set catalog: all nine managed rule sets with
 // their full rule-group and rule contents.
 func TestNetworkApplicationGatewayWafRuleSetsCLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, azRest("GET", subscriptionURL("Microsoft.Network",
 		"applicationGatewayAvailableWafRuleSets", applicationGatewayAPIVersion), ""))
 	var ruleSets struct {

@@ -28,6 +28,7 @@ import (
 const kvSecretsUserRole = "4633458b-17de-408a-b874-0445c86b69e6"
 
 func TestSDK_WebApps_KeyVaultReferencesReachTheWorkload(t *testing.T) {
+	t.Parallel()
 	rg, name := "sdk-kvref-env-rg", "sdk-kvref-env-app"
 	rbacVault, policyVault := "sdkkvrefrbac", "sdkkvrefpolicy"
 	ensureRG(t, rg)

@@ -13,6 +13,7 @@ import (
 // are the ones where a set can be read back.
 
 func TestCompute_TestIamPermissionsAcrossCollections(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, region, zone = "iam-verbs", "us-central1", "us-central1-a"
 	want := &compute.TestPermissionsRequest{Permissions: []string{"compute.instances.get"}}
@@ -44,6 +45,7 @@ func TestCompute_TestIamPermissionsAcrossCollections(t *testing.T) {
 }
 
 func TestCompute_NodeTemplateIamPolicyRoundTrips(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, region, name = "iam-templates", "us-central1", "tenant"
 
@@ -66,6 +68,7 @@ func TestCompute_NodeTemplateIamPolicyRoundTrips(t *testing.T) {
 // router, so both go through a single handler. Each still has to answer as its
 // own method, and a tail that is neither has to be refused.
 func TestCompute_ImageFamilyAndIamShareARouteWithoutShadowingEachOther(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, name = "iam-images", "golden"
 

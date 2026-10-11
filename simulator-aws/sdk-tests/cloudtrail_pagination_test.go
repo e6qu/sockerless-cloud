@@ -15,6 +15,7 @@ import (
 // returned events to a [start, end] window. The sim used to ignore both bounds
 // and return all matching events regardless of time.
 func TestCloudTrail_LookupEventsTimeWindowSDK(t *testing.T) {
+	t.Parallel()
 	ct := cloudTrailClient()
 	ec2c := ec2Client()
 
@@ -49,6 +50,7 @@ func TestCloudTrail_LookupEventsTimeWindowSDK(t *testing.T) {
 // every offset and page 2 overlapped page 1; the cursor resumes after the
 // last-seen (EventTime, EventId) key, so each event is returned exactly once.
 func TestCloudTrail_LookupEventsPaginationStableCursorSDK(t *testing.T) {
+	t.Parallel()
 	ct := cloudTrailClient()
 	ec2c := ec2Client()
 

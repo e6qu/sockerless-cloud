@@ -19,6 +19,7 @@ func cloudKMSService(t *testing.T) *cloudkms.Service {
 // The effective Key Access Justifications configuration a project is under, and
 // the enrolment behind it. Neither reports a policy nobody set.
 func TestCloudKMS_EffectiveKeyAccessJustificationsConfig(t *testing.T) {
+	t.Parallel()
 	svc := cloudKMSService(t)
 	const project = "kaj-project"
 

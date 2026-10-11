@@ -22,6 +22,7 @@ func budgetsClient() *budgets.Client {
 }
 
 func TestBudgetsCRUDSDK(t *testing.T) {
+	t.Parallel()
 	c := budgetsClient()
 	const name = "sdk-budget-crud"
 
@@ -144,6 +145,7 @@ func TestBudgetsCRUDSDK(t *testing.T) {
 }
 
 func TestBudgetsCreateBudgetDerivesAccountId(t *testing.T) {
+	t.Parallel()
 	// terraform-provider-aws with skip_requesting_account_id = true sends
 	// CreateBudget without AccountId. The SDK validates it locally, so we
 	// exercise the server-side fallback through a raw HTTP POST with the
@@ -189,6 +191,7 @@ func TestBudgetsCreateBudgetDerivesAccountId(t *testing.T) {
 }
 
 func TestBudgetsDescribeAndDeleteDeriveAccountId(t *testing.T) {
+	t.Parallel()
 	// The SDK marks AccountId as required for DescribeBudget/DeleteBudget too,
 	// but the simulator should derive it from the configured account when it is
 	// omitted. Exercise those paths through raw HTTP calls matching the provider.
@@ -234,6 +237,7 @@ func TestBudgetsDescribeAndDeleteDeriveAccountId(t *testing.T) {
 }
 
 func TestBudgetsNotificationsAndSubscribersSDK(t *testing.T) {
+	t.Parallel()
 	c := budgetsClient()
 	const name = "sdk-budget-notif"
 

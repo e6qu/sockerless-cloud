@@ -11,6 +11,7 @@ import (
 // user, and user-group control-plane operations through the aws CLI.
 // Grouped into a single test to keep the appdata shard lean.
 func TestElastiCacheCLI_SnapshotsUsersGroups(t *testing.T) {
+	t.Parallel()
 	clusterID := "cli-snap-cluster"
 	runCLI(t, awsCLI("elasticache", "create-cache-cluster",
 		"--cache-cluster-id", clusterID,
@@ -149,6 +150,7 @@ func TestElastiCacheCLI_SnapshotsUsersGroups(t *testing.T) {
 // versions, reserved nodes, offerings, service updates, security
 // groups). Grouped to keep the appdata shard lean.
 func TestElastiCacheCLI_ParametersAndDescribes(t *testing.T) {
+	t.Parallel()
 	pgName := "cli-param-detail"
 	runCLI(t, awsCLI("elasticache", "create-cache-parameter-group",
 		"--cache-parameter-group-name", pgName,
@@ -237,8 +239,9 @@ func TestElastiCacheCLI_ParametersAndDescribes(t *testing.T) {
 	require.NotEmpty(t, versions.CacheEngineVersions)
 	assert.Equal(t, "redis", versions.CacheEngineVersions[0].Engine)
 
-	// DescribeReservedCacheNodes (empty list).
-	out = runCLI(t, awsCLI("elasticache", "describe-reserved-cache-nodes"))
+	// DescribeReservedCacheNodes, filtered to a node type no test reserves.
+	out = runCLI(t, awsCLI("elasticache", "describe-reserved-cache-nodes",
+		"--cache-node-type", "cache.r6g.large"))
 	var reserved struct {
 		ReservedCacheNodes []any `json:"ReservedCacheNodes"`
 	}

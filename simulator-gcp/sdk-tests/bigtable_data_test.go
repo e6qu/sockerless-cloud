@@ -18,7 +18,7 @@ import (
 // emulator): MutateRow, ReadRow/ReadRows with a RowFilter, ReadModifyWrite
 // increment, CheckAndMutateRow, a row-range scan, and DeleteFromRow.
 func TestBigtable_DataPlane(t *testing.T) {
-	t.Setenv("BIGTABLE_EMULATOR_HOST", grpcAddr)
+	t.Parallel()
 	const (
 		project  = "bt-data-proj"
 		instance = "bt-data-inst"
@@ -139,7 +139,6 @@ var btFilterCounter int
 // caller-supplied so every test owns a private keyspace.
 func btSetupDataPlane(t *testing.T, project, instance, table string, families ...string) *bigtable.Table {
 	t.Helper()
-	t.Setenv("BIGTABLE_EMULATOR_HOST", grpcAddr)
 
 	iac, err := bigtable.NewInstanceAdminClient(ctx, project)
 	require.NoError(t, err)
@@ -203,7 +202,7 @@ func btCellStr(row bigtable.Row) []string {
 // filters, the original TestBigtable_DataPlane exercised only ColumnFilter +
 // LatestNFilter; this test covers the rest.
 func TestBigtable_DataPlane_Filters(t *testing.T) {
-	t.Setenv("BIGTABLE_EMULATOR_HOST", grpcAddr)
+	t.Parallel()
 	const (
 		project  = "bt-filt-proj"
 		instance = "bt-filt-inst"
@@ -426,7 +425,7 @@ func TestBigtable_DataPlane_Filters(t *testing.T) {
 // original test never exercised: DeleteCellsInColumn, DeleteCellsInFamily,
 // and DeleteTimestampRange (the time-bounded DeleteFromColumn variant).
 func TestBigtable_DataPlane_Mutations(t *testing.T) {
-	t.Setenv("BIGTABLE_EMULATOR_HOST", grpcAddr)
+	t.Parallel()
 	const (
 		project  = "bt-mut-proj"
 		instance = "bt-mut-inst"
@@ -500,7 +499,7 @@ func TestBigtable_DataPlane_Mutations(t *testing.T) {
 // TestBigtable_DataPlane_AppendValue covers the ReadModifyWrite AppendValue
 // rule (the original test only exercised Increment).
 func TestBigtable_DataPlane_AppendValue(t *testing.T) {
-	t.Setenv("BIGTABLE_EMULATOR_HOST", grpcAddr)
+	t.Parallel()
 	tbl := btSetupDataPlane(t, "bt-append-proj", "bt-append-inst", "app", "cf")
 
 	// Seed an initial value, then append twice — the returned row carries the
@@ -533,7 +532,7 @@ func TestBigtable_DataPlane_AppendValue(t *testing.T) {
 // (ApplyBulk in the Go SDK), which returns a per-row error slice in addition
 // to the top-level error. The original test only used single-row Apply.
 func TestBigtable_DataPlane_ApplyBulk(t *testing.T) {
-	t.Setenv("BIGTABLE_EMULATOR_HOST", grpcAddr)
+	t.Parallel()
 	tbl := btSetupDataPlane(t, "bt-bulk-proj", "bt-bulk-inst", "bulk", "cf")
 
 	mk := func(val string) *bigtable.Mutation {
@@ -577,7 +576,7 @@ func TestBigtable_DataPlane_ApplyBulk(t *testing.T) {
 // the client uses it internally to shard parallel scans, but no test asserted
 // the gRPC method directly.
 func TestBigtable_DataPlane_SampleRowKeys(t *testing.T) {
-	t.Setenv("BIGTABLE_EMULATOR_HOST", grpcAddr)
+	t.Parallel()
 	tbl := btSetupDataPlane(t, "bt-samp-proj", "bt-samp-inst", "samp", "cf")
 
 	// 150 rows spans the sampler's every-100-rows cadence, so the sample set is

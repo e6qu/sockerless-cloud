@@ -20,6 +20,7 @@ import (
 // to CreateBucket would surface as 409 BucketAlreadyOwnedByYou
 // and fail this test.
 func TestS3_Bucket_Versioning_RoundTrip(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	ctx := context.Background()
 	bucket := "versioning-bucket"
@@ -43,6 +44,7 @@ func TestS3_Bucket_Versioning_RoundTrip(t *testing.T) {
 // the bucket lifecycle subresource — the lifecycle config has both
 // PUT and DELETE shapes; both must be wired (not just PUT).
 func TestS3_Bucket_Lifecycle_RoundTrip(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	ctx := context.Background()
 	bucket := "lifecycle-bucket"
@@ -95,6 +97,7 @@ func TestS3_Bucket_Lifecycle_RoundTrip(t *testing.T) {
 
 // TestS3_Bucket_Cors_RoundTrip covers the bucket CORS subresource.
 func TestS3_Bucket_Cors_RoundTrip(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	ctx := context.Background()
 	bucket := "cors-bucket"
@@ -127,6 +130,7 @@ func TestS3_Bucket_Cors_RoundTrip(t *testing.T) {
 // subresource — PUT body is a JSON IAM policy document (not XML);
 // the dispatcher must accept either content type.
 func TestS3_Bucket_Policy_RoundTrip(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	ctx := context.Background()
 	bucket := "policy-bucket"
@@ -155,6 +159,7 @@ func TestS3_Bucket_Policy_RoundTrip(t *testing.T) {
 // TestS3_Bucket_Encryption_RoundTrip covers
 // PutBucketEncryption / GetBucketEncryption / DeleteBucketEncryption.
 func TestS3_Bucket_Encryption_RoundTrip(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	ctx := context.Background()
 	bucket := "encryption-bucket"
@@ -187,6 +192,7 @@ func TestS3_Bucket_Encryption_RoundTrip(t *testing.T) {
 // TestS3_Bucket_Tagging_RoundTrip covers the bucket-level tagging
 // subresource. Distinct from object tagging (which already worked).
 func TestS3_Bucket_Tagging_RoundTrip(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	ctx := context.Background()
 	bucket := "btagging-bucket"
@@ -215,6 +221,7 @@ func TestS3_Bucket_Tagging_RoundTrip(t *testing.T) {
 // subresource — locks in the per-subresource success-status fidelity
 // (Website is 200 OK, distinct from Policy's 204 No Content).
 func TestS3_Bucket_Website_RoundTrip(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	ctx := context.Background()
 	bucket := "website-bucket"
@@ -238,6 +245,7 @@ func TestS3_Bucket_Website_RoundTrip(t *testing.T) {
 }
 
 func TestS3_Bucket_Replication_RoundTrip(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	ctx := context.Background()
 	bucket := "replication-bucket"
@@ -275,6 +283,7 @@ func TestS3_Bucket_Replication_RoundTrip(t *testing.T) {
 }
 
 func TestS3_Bucket_LoggingAclRequestPaymentAccelerate_RoundTrip(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	ctx := context.Background()
 	bucket := "misc-config-bucket"
@@ -341,6 +350,7 @@ func TestS3_Bucket_LoggingAclRequestPaymentAccelerate_RoundTrip(t *testing.T) {
 }
 
 func TestS3_Bucket_OwnershipNotificationPublicAccessObjectLock_RoundTrip(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	ctx := context.Background()
 	bucket := "controls-bucket"
@@ -422,6 +432,7 @@ func TestS3_Bucket_OwnershipNotificationPublicAccessObjectLock_RoundTrip(t *test
 }
 
 func TestS3_Bucket_NamedConfiguration_RoundTrips(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	ctx := context.Background()
 	bucket := "named-config-bucket"
@@ -546,6 +557,7 @@ func TestS3_Bucket_NamedConfiguration_RoundTrips(t *testing.T) {
 }
 
 func TestS3_Bucket_LifecycleHeadDeleteListAndLocation(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	ctx := context.Background()
 	bucket := "bucket-lifecycle-ops"

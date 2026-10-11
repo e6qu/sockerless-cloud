@@ -20,6 +20,7 @@ const clientVpnCedarPolicy = `permit (principal, action, resource) when { contex
 // change answers with the policy's transitional status and settles behind the
 // request.
 func TestEC2_ClientVpnEndpointAuthorizationPolicy(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	ep, err := c.CreateClientVpnEndpoint(ctx, &ec2.CreateClientVpnEndpointInput{
 		ClientCidrBlock:      aws.String("10.230.0.0/22"),

@@ -13,6 +13,7 @@ import (
 // the regions catalog read — each round-trips through the real gcloud CLI.
 
 func TestGcloudComputeGlobalAddress_CRUD(t *testing.T) {
+	t.Parallel()
 	name := "sim-gaddr-cli-1"
 	out, err := gcloudCLI("compute", "addresses", "create", name,
 		"--global", "--format=value(name)").CombinedOutput()
@@ -34,6 +35,7 @@ func TestGcloudComputeGlobalAddress_CRUD(t *testing.T) {
 }
 
 func TestGcloudComputeTargetPool_CRUD(t *testing.T) {
+	t.Parallel()
 	region := "us-central1"
 	name := "sim-tp-cli-1"
 	out, err := gcloudCLI("compute", "target-pools", "create", name,
@@ -51,6 +53,7 @@ func TestGcloudComputeTargetPool_CRUD(t *testing.T) {
 }
 
 func TestGcloudComputeRegions_List(t *testing.T) {
+	t.Parallel()
 	out, err := gcloudCLI("compute", "regions", "list",
 		"--format=value(name)").CombinedOutput()
 	require.NoError(t, err, "list: %s", out)
@@ -68,6 +71,7 @@ func TestGcloudComputeRegions_List(t *testing.T) {
 // everywhere; the create → list round trip lives with the other real-network
 // CLI coverage in compute_nat_test.go.
 func TestGcloudComputeSubnetsList_EmptyRegion(t *testing.T) {
+	t.Parallel()
 	out, err := gcloudCLI("compute", "networks", "subnets", "list",
 		"--regions=europe-west4",
 		"--format=value(name)").CombinedOutput()

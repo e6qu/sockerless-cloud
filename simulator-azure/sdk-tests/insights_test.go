@@ -9,6 +9,7 @@ import (
 )
 
 func TestAppInsights_ComponentCRUD(t *testing.T) {
+	t.Parallel()
 	const (
 		rgName        = "insights-sdk-rg"
 		componentName = "sdk-test-appinsights"
@@ -50,6 +51,7 @@ func TestAppInsights_ComponentCRUD(t *testing.T) {
 }
 
 func TestAppInsights_InstrumentationKeyStableOnUpsert(t *testing.T) {
+	t.Parallel()
 	const (
 		rgName = "insights-key-rg"
 		name   = "stable-key-component"
@@ -86,6 +88,7 @@ func TestAppInsights_InstrumentationKeyStableOnUpsert(t *testing.T) {
 // the SDK silently deserialized CurrentBillingFeatures/DataVolumeCap to nil
 // , which this test would have caught.
 func TestAppInsights_BillingFeatures(t *testing.T) {
+	t.Parallel()
 	rgName, componentName := "insights-billing-rg", uniqueName("billing-component")
 	ensureRG(t, rgName)
 
@@ -140,6 +143,7 @@ func ptrApplicationType(s armapplicationinsights.ApplicationType) *armapplicatio
 // the Enterprise plan used to decode straight into the default's own slice,
 // and every component created afterwards started on Enterprise.
 func TestAppInsights_OneComponentsPlanIsNotAnothersDefault(t *testing.T) {
+	t.Parallel()
 	const rgName = "insights-default-rg"
 	ensureRG(t, rgName)
 

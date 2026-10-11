@@ -9,6 +9,7 @@ import (
 // aws CLI, using the CLI `Field=...,Values=...` condition
 // shorthand.
 func TestELBv2CLI_ListenerRules(t *testing.T) {
+	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.92.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	sn1 := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-subnet",

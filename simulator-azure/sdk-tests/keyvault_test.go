@@ -16,6 +16,7 @@ import (
 // list, delete. Real Azure: PUT / GET / DELETE on
 // `Microsoft.KeyVault/vaults/{name}`.
 func TestKeyVault_ARM_CRUD(t *testing.T) {
+	t.Parallel()
 	rg := "kv-rg"
 	ensureRG(t, rg)
 
@@ -71,6 +72,7 @@ func TestKeyVault_ARM_CRUD(t *testing.T) {
 }
 
 func TestKeyVault_ARMPatchAccessPolicyAdvertisedEndpointAndDeletedVault(t *testing.T) {
+	t.Parallel()
 	rg := "kv-patch-rg"
 	ensureRG(t, rg)
 	vaultName := "sdkpatchvault"
@@ -167,6 +169,7 @@ func TestKeyVault_ARMPatchAccessPolicyAdvertisedEndpointAndDeletedVault(t *testi
 // set to `<vault>.vault.<sim-host>` matching real-Azure subdomain
 // routing.
 func TestKeyVault_DataPlane_SetGetDelete(t *testing.T) {
+	t.Parallel()
 	rg := "kv-data-rg"
 	ensureRG(t, rg)
 	vaultName := uniqueAlnumName("datavault")

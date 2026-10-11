@@ -15,6 +15,7 @@ import (
 // ignoring MaxResults). A unique tag isolates this test's instances from any
 // others in the shared sim state.
 func TestEC2_DescribeInstancesPagination(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	tagValue := uniqueName("page-test")
 

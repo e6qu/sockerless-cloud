@@ -129,6 +129,7 @@ func batchAttemptLog(t *testing.T, stream string) string {
 // AWS_BATCH_JOB_ATTEMPT; the request's retryStrategy overrides the job
 // definition's.
 func TestBatch_RetryStrategyRunsEachAttemptInANewContainer_SDK(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 	queue := createBatchQueue(t, c, "batch-sdk-retry", batchtypes.CEStateEnabled, 0)
 	definition := registerBatchJobDefinition(t, c, &batch.RegisterJobDefinitionInput{
@@ -174,6 +175,7 @@ func TestBatch_RetryStrategyRunsEachAttemptInANewContainer_SDK(t *testing.T) {
 // evaluateOnExit conditions apply in order and the first match decides; an
 // EXIT match fails the job although attempts remain.
 func TestBatch_EvaluateOnExitFailsTheJobOnAMatchingExit_SDK(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 	queue := createBatchQueue(t, c, "batch-sdk-exit", batchtypes.CEStateEnabled, 0)
 	definition := registerBatchJobDefinition(t, c, &batch.RegisterJobDefinitionInput{
@@ -205,6 +207,7 @@ func TestBatch_EvaluateOnExitFailsTheJobOnAMatchingExit_SDK(t *testing.T) {
 // with AWS_BATCH_JOB_ARRAY_INDEX set; the parent waits in PENDING and fails
 // once a child has failed and the rest have finished.
 func TestBatch_ArrayJobRunsAChildPerIndex_SDK(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 	queue := createBatchQueue(t, c, "batch-sdk-array", batchtypes.CEStateEnabled, 0)
 	definition := registerBatchJobDefinition(t, c, &batch.RegisterJobDefinitionInput{
@@ -273,6 +276,7 @@ func TestBatch_ArrayJobRunsAChildPerIndex_SDK(t *testing.T) {
 // A job waits in RUNNABLE while its queue's compute environments cannot place
 // it — here the only one is DISABLED, later full — and runs once one can.
 func TestBatch_JobWaitsRunnableUntilAComputeEnvironmentPlacesIt_SDK(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 	queue := createBatchQueue(t, c, "batch-sdk-capacity", batchtypes.CEStateDisabled, 1)
 	holding := registerBatchJobDefinition(t, c, &batch.RegisterJobDefinitionInput{
@@ -332,6 +336,7 @@ func TestBatch_JobWaitsRunnableUntilAComputeEnvironmentPlacesIt_SDK(t *testing.T
 // Terminating an array parent terminates every child, and the parent fails
 // once the stopped children have exited.
 func TestBatch_TerminatingAnArrayParentTerminatesItsChildren_SDK(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 	queue := createBatchQueue(t, c, "batch-sdk-array-stop", batchtypes.CEStateEnabled, 0)
 	definition := registerBatchJobDefinition(t, c, &batch.RegisterJobDefinitionInput{
@@ -371,6 +376,7 @@ func TestBatch_TerminatingAnArrayParentTerminatesItsChildren_SDK(t *testing.T) {
 }
 
 func TestBatch_SubmitJobRejectsOutOfRangeArrayAndRetryProperties_SDK(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 	queue := createBatchQueue(t, c, "batch-sdk-invalid", batchtypes.CEStateDisabled, 0)
 	definition := registerBatchJobDefinition(t, c, &batch.RegisterJobDefinitionInput{
@@ -396,6 +402,7 @@ func TestBatch_SubmitJobRejectsOutOfRangeArrayAndRetryProperties_SDK(t *testing.
 // A job with dependsOn waits in PENDING while a dependency runs, and fails
 // without running once that dependency fails.
 func TestBatch_DependentJobWaitsPendingAndFailsWithItsDependency_SDK(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 	queue := createBatchQueue(t, c, uniqueName("batch-sdk-deps"), batchtypes.CEStateEnabled, 0)
 	definition := registerBatchJobDefinition(t, c, &batch.RegisterJobDefinitionInput{
@@ -438,6 +445,7 @@ func TestBatch_DependentJobWaitsPendingAndFailsWithItsDependency_SDK(t *testing.
 
 // A SEQUENTIAL array job runs child i only after child i-1 has finished.
 func TestBatch_SequentialArrayRunsOneChildAfterAnother_SDK(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 	queue := createBatchQueue(t, c, uniqueName("batch-sdk-seq"), batchtypes.CEStateEnabled, 0)
 	definition := registerBatchJobDefinition(t, c, &batch.RegisterJobDefinitionInput{
@@ -473,6 +481,7 @@ func TestBatch_SequentialArrayRunsOneChildAfterAnother_SDK(t *testing.T) {
 // the compute environment waits while a share that has held none runs, even
 // though its job arrived later.
 func TestBatch_FairshareQueueRunsTheLeastUsedShareFirst_SDK(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 	policy, err := c.CreateSchedulingPolicy(ctx, &batch.CreateSchedulingPolicyInput{
 		Name:            aws.String(uniqueName("batch-sdk-fairshare")),

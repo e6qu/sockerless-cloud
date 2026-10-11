@@ -16,6 +16,7 @@ import (
 // spent the message moves to the dead-letter topic with the attributes Pub/Sub
 // adds to a forwarded message.
 func TestPubSub_GRPC_DeadLetterPolicy(t *testing.T) {
+	t.Parallel()
 	pub, sc := psRawClient(t)
 	project := "projects/ps-grpc-dlq"
 	topic, dlt := project+"/topics/work", project+"/topics/dead"
@@ -75,6 +76,7 @@ func TestPubSub_GRPC_DeadLetterPolicy(t *testing.T) {
 // messages it rejects and message ordering holds a key's later messages until
 // the earlier one is acknowledged.
 func TestPubSub_GRPC_FilterAndOrdering(t *testing.T) {
+	t.Parallel()
 	pub, sc := psRawClient(t)
 	project := "projects/ps-grpc-order"
 	topic := project + "/topics/events"

@@ -16,6 +16,7 @@ func iamClient() *iam.Client {
 }
 
 func TestIAM_CreateRole(t *testing.T) {
+	t.Parallel()
 	roleName := uniqueName("test-role")
 	client := iamClient()
 	policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
@@ -30,6 +31,7 @@ func TestIAM_CreateRole(t *testing.T) {
 }
 
 func TestIAM_GetRole(t *testing.T) {
+	t.Parallel()
 	roleName := uniqueName("get-role")
 	client := iamClient()
 	policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
@@ -48,6 +50,7 @@ func TestIAM_GetRole(t *testing.T) {
 }
 
 func TestIAM_PutRolePolicy(t *testing.T) {
+	t.Parallel()
 	roleName := uniqueName("policy-role")
 	client := iamClient()
 	assumePolicy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]}`

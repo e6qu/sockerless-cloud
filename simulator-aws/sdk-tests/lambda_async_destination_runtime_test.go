@@ -19,6 +19,7 @@ import (
 // with zero retries emits the canonical invocation record to its Amazon SQS
 // OnFailure destination.
 func TestLambda_AsyncFailureDestinationRuntime_SDK(t *testing.T) {
+	t.Parallel()
 	lambdaClient := lambdaClient()
 	sqsClient := sqsClient()
 	functionName := "async-failure-destination"

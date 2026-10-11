@@ -100,6 +100,7 @@ func pgReadLedger(t *testing.T, testCtx context.Context, conn *pgx.Conn) []strin
 // through the operation's own poll, Get and List read the same record back,
 // and a name that was never started does not exist — Get and List agree.
 func TestAzurePGFlexibleServer_LtrBackupLifecycle(t *testing.T) {
+	t.Parallel()
 	testContext, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
 	const (
@@ -186,6 +187,7 @@ func TestAzurePGFlexibleServer_LtrBackupLifecycle(t *testing.T) {
 // under the primary's credential, marks the pair with the replication
 // properties ServerProperties defines, and Replicas_ListByServer lists it.
 func TestAzurePGFlexibleServer_ReplicaCloneAndListing(t *testing.T) {
+	t.Parallel()
 	testContext, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
 	const (
@@ -270,6 +272,7 @@ func TestAzurePGFlexibleServer_ReplicaCloneAndListing(t *testing.T) {
 // point in time: rows from before the backup are present, rows written after
 // it are not.
 func TestAzurePGFlexibleServer_GeoRestoreRestoresLatestBackup(t *testing.T) {
+	t.Parallel()
 	testContext, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
 	const (
@@ -334,6 +337,7 @@ func TestAzurePGFlexibleServer_GeoRestoreRestoresLatestBackup(t *testing.T) {
 // createMode values the create cannot serve are refused with the reason,
 // never silently treated as a plain create.
 func TestAzurePGFlexibleServer_CreateModeRejections(t *testing.T) {
+	t.Parallel()
 	const rg = "pg-mode-rg"
 	armBase := pgFlexArmBase(rg)
 	refuse := func(name, body, reason string) {

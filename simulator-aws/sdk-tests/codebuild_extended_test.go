@@ -33,6 +33,7 @@ func cbCreateBuildspecProject(t *testing.T, c *codebuild.Client, name, buildspec
 // ListBuildBatches, ListBuildBatchesForProject, StopBuildBatch, RetryBuildBatch,
 // DeleteBuildBatch, plus BatchDeleteBuilds.
 func TestCodeBuild_BuildBatches_SDK(t *testing.T) {
+	t.Parallel()
 	c := codebuildClient()
 	proj := "cb-sdk-batch-project"
 	cbCreateBuildspecProject(t, c, proj, "version: 0.2\nphases:\n  build:\n    commands:\n      - printf ok\n")
@@ -92,6 +93,7 @@ func TestCodeBuild_BuildBatches_SDK(t *testing.T) {
 // TestCodeBuild_Fleets_SDK covers CreateFleet, UpdateFleet, BatchGetFleets,
 // ListFleets, DeleteFleet.
 func TestCodeBuild_Fleets_SDK(t *testing.T) {
+	t.Parallel()
 	c := codebuildClient()
 	name := "cb-sdk-fleet"
 	create, err := c.CreateFleet(ctx, &codebuild.CreateFleetInput{
@@ -135,6 +137,7 @@ func TestCodeBuild_Fleets_SDK(t *testing.T) {
 // StartCommandExecution, BatchGetCommandExecutions,
 // ListCommandExecutionsForSandbox, StopSandbox.
 func TestCodeBuild_SandboxesAndCommands_SDK(t *testing.T) {
+	t.Parallel()
 	c := codebuildClient()
 	proj := "cb-sdk-sandbox-project"
 	cbCreateBuildspecProject(t, c, proj, "version: 0.2\nphases:\n  build:\n    commands:\n      - printf ok\n")
@@ -197,6 +200,7 @@ func TestCodeBuild_SandboxesAndCommands_SDK(t *testing.T) {
 
 // TestCodeBuild_Webhooks_SDK covers CreateWebhook, UpdateWebhook, DeleteWebhook.
 func TestCodeBuild_Webhooks_SDK(t *testing.T) {
+	t.Parallel()
 	c := codebuildClient()
 	proj := "cb-sdk-webhook-project"
 	cbCreateBuildspecProject(t, c, proj, "version: 0.2\nphases:\n  build:\n    commands:\n      - printf ok\n")
@@ -294,6 +298,7 @@ func cbWaitForBuildReports(t *testing.T, c *codebuild.Client, project string) []
 // not run, or a coverage figure no file reported, is the defect this test
 // exists to catch.
 func TestCodeBuild_ReportInsights_SDK(t *testing.T) {
+	t.Parallel()
 	c := codebuildClient()
 	rg, err := c.CreateReportGroup(ctx, &codebuild.CreateReportGroupInput{
 		Name:         aws.String("cb-sdk-insights-rg"),
@@ -387,6 +392,7 @@ func TestCodeBuild_ReportInsights_SDK(t *testing.T) {
 // the figures the JaCoCo file held, and that naming a new report group by name
 // creates "<project-name>-<report-group-name>" the way the service documents.
 func TestCodeBuild_CodeCoverageReport_SDK(t *testing.T) {
+	t.Parallel()
 	c := codebuildClient()
 	proj := "cb-sdk-coverage-project"
 	cbCreateBuildspecProject(t, c, proj, cbReportBuildspec(
@@ -434,6 +440,7 @@ func TestCodeBuild_CodeCoverageReport_SDK(t *testing.T) {
 // and a reports entry whose files match nothing produces an INCOMPLETE report
 // carrying nothing. Neither may answer with an invented test case.
 func TestCodeBuild_ReportsWithoutRawData_SDK(t *testing.T) {
+	t.Parallel()
 	c := codebuildClient()
 
 	noReports := "cb-sdk-noreports-project"
@@ -470,6 +477,7 @@ func TestCodeBuild_ReportsWithoutRawData_SDK(t *testing.T) {
 // TestCodeBuild_ResourcePolicy_SDK covers PutResourcePolicy, GetResourcePolicy,
 // DeleteResourcePolicy, ListSharedProjects, ListSharedReportGroups.
 func TestCodeBuild_ResourcePolicy_SDK(t *testing.T) {
+	t.Parallel()
 	c := codebuildClient()
 	proj := "cb-sdk-policy-project"
 	_, err := c.CreateProject(ctx, &codebuild.CreateProjectInput{
@@ -521,6 +529,7 @@ func TestCodeBuild_ResourcePolicy_SDK(t *testing.T) {
 // TestCodeBuild_ProjectControls_SDK covers UpdateProjectVisibility,
 // InvalidateProjectCache, and ListCuratedEnvironmentImages.
 func TestCodeBuild_ProjectControls_SDK(t *testing.T) {
+	t.Parallel()
 	c := codebuildClient()
 	proj := "cb-sdk-controls-project"
 	cbCreateBuildspecProject(t, c, proj, "version: 0.2\nphases:\n  build:\n    commands:\n      - printf ok\n")

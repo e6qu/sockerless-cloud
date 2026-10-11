@@ -16,6 +16,7 @@ import (
 // the first step writes a file the second reads, and the build succeeds only
 // if it did.
 func TestCloudBuildCLI_SubmitRunsContainerStepsOverAZipSource(t *testing.T) {
+	t.Parallel()
 	const bucket = "cli-cloudbuild-container-steps"
 	runCLI(t, gcloudCLI("storage", "buckets", "create", "gs://"+bucket, "--location=us", "--format=json"))
 

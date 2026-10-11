@@ -29,6 +29,7 @@ func cmClient() *servicediscovery.Client {
 }
 
 func TestCloudMap_CreateNamespaceAndGetOperation(t *testing.T) {
+	t.Parallel()
 	client := cmClient()
 
 	// Create a private DNS namespace
@@ -70,6 +71,7 @@ func TestCloudMap_CreateNamespaceAndGetOperation(t *testing.T) {
 }
 
 func TestCloudMap_CreateServiceAndListWithFilter(t *testing.T) {
+	t.Parallel()
 	client := cmClient()
 
 	// Create namespace
@@ -153,6 +155,7 @@ func TestCloudMap_CreateServiceAndListWithFilter(t *testing.T) {
 }
 
 func TestCloudMap_RegisterAndDiscoverInstances(t *testing.T) {
+	t.Parallel()
 	client := cmClient()
 
 	// Create namespace
@@ -256,6 +259,7 @@ func TestCloudMap_RegisterAndDiscoverInstances(t *testing.T) {
 // `data-servicediscovery.<endpoint>`, exactly as they would on
 // `data-servicediscovery.us-east-1.amazonaws.com`.
 func TestCloudMap_DataPlaneUsesModeledHostPrefix(t *testing.T) {
+	t.Parallel()
 	client := cmClient()
 
 	createOut, err := client.CreateHttpNamespace(ctx, &servicediscovery.CreateHttpNamespaceInput{
@@ -328,6 +332,7 @@ func TestCloudMap_DataPlaneUsesModeledHostPrefix(t *testing.T) {
 // awsvpc/Fargate-style tasks resolve to the registered task ENI address, so
 // tasks in the namespace can resolve each other by service name.
 func TestECS_CrossTaskDNS(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatalf("docker CLI required for cross-task DNS test (no fallback): %v", err)
 	}
@@ -499,6 +504,7 @@ func ecsTaskPrivateIPv4(t *testing.T, client *ecs.Client, clusterName, taskArn s
 }
 
 func TestCloudMap_DeleteServiceAndNamespace(t *testing.T) {
+	t.Parallel()
 	client := cmClient()
 
 	// Create namespace
@@ -562,6 +568,7 @@ func TestCloudMap_DeleteServiceAndNamespace(t *testing.T) {
 // the fix, the second registration's Docker network-connect failed ("already
 // connected") and only one name resolved.
 func TestECS_MultiServiceDNS(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatalf("docker CLI required for multi-service DNS test (no fallback): %v", err)
 	}

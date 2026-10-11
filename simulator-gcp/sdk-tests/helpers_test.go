@@ -127,6 +127,19 @@ func TestMain(m *testing.M) {
 	baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)
 	grpcAddr = fmt.Sprintf("127.0.0.1:%d", grpcPort)
 
+	// The Cloud Storage, Bigtable and Spanner clients read their endpoint from
+	// these variables. Set them once for the process, since every test talks to
+	// the same simulator and a test that sets one cannot run in parallel.
+	for name, value := range map[string]string{
+		"STORAGE_EMULATOR_HOST":  strings.TrimPrefix(baseURL, "http://"),
+		"BIGTABLE_EMULATOR_HOST": grpcAddr,
+		"SPANNER_EMULATOR_HOST":  grpcAddr,
+	} {
+		if err := os.Setenv(name, value); err != nil {
+			log.Fatalf("set %s: %v", name, err)
+		}
+	}
+
 	// The data plane now verifies an OAuth2 access token on every request, so
 	// the tests that reach it through raw net/http calls (rather than an SDK
 	// client, which carries its own token source) must present a real token.

@@ -23,6 +23,7 @@ func writeTempFile(t *testing.T, name string, content []byte) string {
 // TestCloudFront_ConnectionFunction_CLI exercises the connection-function CRUD +
 // lifecycle through the real aws CLI.
 func TestCloudFront_ConnectionFunction_CLI(t *testing.T) {
+	t.Parallel()
 	name := "clifn-" + time.Now().Format("150405.000000")
 	codePath := writeTempFile(t, "code.js", []byte("function handler(event) { return event; }"))
 	objPath := writeTempFile(t, "obj.json", []byte(`{"request":{}}`))
@@ -108,6 +109,7 @@ func TestCloudFront_ConnectionFunction_CLI(t *testing.T) {
 // TestCloudFront_TestFunction_CLI exercises the CloudFront Functions
 // test-function op through the real aws CLI.
 func TestCloudFront_TestFunction_CLI(t *testing.T) {
+	t.Parallel()
 	name := "clifn-tf-" + time.Now().Format("150405.000000")
 	codePath := writeTempFile(t, "code.js", []byte("function handler(event) { return event.request; }"))
 	eventPath := writeTempFile(t, "event.json", []byte(`{"version":"1.0","request":{"uri":"/"}}`))
@@ -146,6 +148,7 @@ func TestCloudFront_TestFunction_CLI(t *testing.T) {
 // TestCloudFront_Tagging_CLI exercises tag-resource / untag-resource /
 // list-tags-for-resource on a stored distribution ARN through the aws CLI.
 func TestCloudFront_Tagging_CLI(t *testing.T) {
+	t.Parallel()
 	arn, id, etag := cfCLICreateMinimalDistribution(t)
 	defer runCLIIgnoreErr(awsCLI("cloudfront", "delete-distribution", "--id", id, "--if-match", etag))
 
@@ -167,6 +170,7 @@ func TestCloudFront_Tagging_CLI(t *testing.T) {
 // TestCloudFront_CreateStreamingDistributionWithTags_CLI exercises the
 // create-streaming-distribution-with-tags variant through the aws CLI.
 func TestCloudFront_CreateStreamingDistributionWithTags_CLI(t *testing.T) {
+	t.Parallel()
 	caller := "cli-stream-wt-" + time.Now().Format("150405.000000")
 	cfgJSON := fmt.Sprintf(`{
 		"StreamingDistributionConfig": {

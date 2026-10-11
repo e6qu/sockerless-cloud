@@ -17,6 +17,7 @@ const iamTrustDoc = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Pri
 const iamPermDoc = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"ec2:DescribeInstances","Resource":"*"}]}`
 
 func TestIAM_RoleManagedPolicyAttachDetach(t *testing.T) {
+	t.Parallel()
 	policyName := uniqueName("cov-attach-pol")
 	roleName := uniqueName("cov-attach-role")
 	c := iamClient()
@@ -48,6 +49,7 @@ func TestIAM_RoleManagedPolicyAttachDetach(t *testing.T) {
 }
 
 func TestIAM_RoleInlinePolicyLifecycle(t *testing.T) {
+	t.Parallel()
 	roleName := uniqueName("cov-inline-role")
 	c := iamClient()
 	_, err := c.CreateRole(ctx, &iam.CreateRoleInput{RoleName: aws.String(roleName), AssumeRolePolicyDocument: aws.String(iamTrustDoc)})
@@ -67,6 +69,7 @@ func TestIAM_RoleInlinePolicyLifecycle(t *testing.T) {
 }
 
 func TestIAM_UpdateAssumeRolePolicy(t *testing.T) {
+	t.Parallel()
 	roleName := uniqueName("cov-trust-role")
 	c := iamClient()
 	_, err := c.CreateRole(ctx, &iam.CreateRoleInput{RoleName: aws.String(roleName), AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[]}`)})
@@ -79,6 +82,7 @@ func TestIAM_UpdateAssumeRolePolicy(t *testing.T) {
 }
 
 func TestIAM_ListInstanceProfiles(t *testing.T) {
+	t.Parallel()
 	profileName := uniqueName("cov-profile")
 	c := iamClient()
 	_, err := c.CreateInstanceProfile(ctx, &iam.CreateInstanceProfileInput{InstanceProfileName: aws.String(profileName)})

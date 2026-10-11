@@ -9,6 +9,7 @@ import (
 
 // TestGlue_CatalogCRUD_CLI exercises create/get/get-catalogs/update/delete-catalog.
 func TestGlue_CatalogCRUD_CLI(t *testing.T) {
+	t.Parallel()
 	const name = "glue-cli-catalog"
 	runCLI(t, awsCLI("glue", "create-catalog",
 		"--name", name,
@@ -58,6 +59,7 @@ func TestGlue_CatalogCRUD_CLI(t *testing.T) {
 // TestGlue_TableOptimizerCRUD_CLI exercises create/get/update/batch-get/
 // list-table-optimizer-runs/delete on a table optimizer.
 func TestGlue_TableOptimizerCRUD_CLI(t *testing.T) {
+	t.Parallel()
 	const db = "glue-cli-opt-db"
 	const tbl = "glue-cli-opt-tbl"
 	const cat = "123456789012"
@@ -125,6 +127,7 @@ func TestGlue_TableOptimizerCRUD_CLI(t *testing.T) {
 // TestGlue_BatchGetFamilies_CLI exercises batch-get-crawlers/jobs/triggers/
 // workflows/custom-entity-types, batch-delete-connection and batch-update-partition.
 func TestGlue_BatchGetFamilies_CLI(t *testing.T) {
+	t.Parallel()
 	const crawler = "glue-cli-batch-crawler"
 	runCLI(t, awsCLI("glue", "create-crawler",
 		"--name", crawler, "--role", "arn:aws:iam::123456789012:role/glue", "--targets", `{}`))
@@ -220,6 +223,7 @@ func TestGlue_BatchGetFamilies_CLI(t *testing.T) {
 // TestGlue_IntegrationCRUD_CLI exercises the zero-ETL integration family plus
 // resource/table properties.
 func TestGlue_IntegrationCRUD_CLI(t *testing.T) {
+	t.Parallel()
 	const name = "glue-cli-integration"
 	const src = "arn:aws:rds:us-east-1:123456789012:db:source"
 	const tgt = "arn:aws:glue:us-east-1:123456789012:catalog"

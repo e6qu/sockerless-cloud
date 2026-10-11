@@ -16,6 +16,7 @@ import (
 // subscriber receives the canonical CloudWatch alarm notification through one
 // long-poll receive-message.
 func TestCloudWatchCLI_AlarmSNSActionToSQS_ProcessMode(t *testing.T) {
+	t.Parallel()
 	url := startProcessModeSim(t)
 	cli := func(args ...string) *exec.Cmd {
 		cmd := exec.Command("aws", args...)

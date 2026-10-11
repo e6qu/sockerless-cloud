@@ -40,6 +40,7 @@ func filesSDKService(t *testing.T, account string) *fileservice.Client {
 // everything is removed — and the whole time the share's backing directory,
 // which a mounting workload sees, agrees with what the data plane reports.
 func TestFilesSDK_NestedDirectoryTreeEndToEnd(t *testing.T) {
+	t.Parallel()
 	const (
 		account = "sdkfilenested"
 		share   = "sdk-nested-share"
@@ -160,6 +161,7 @@ func TestFilesSDK_NestedDirectoryTreeEndToEnd(t *testing.T) {
 // contract a client depends on when a directory holds more entries than one
 // page.
 func TestFilesSDK_DirectoryListingPagesWithPrefixAndMarker(t *testing.T) {
+	t.Parallel()
 	const (
 		account = "sdkfilepaging"
 		share   = "sdk-paging-share"
@@ -203,6 +205,7 @@ func TestFilesSDK_DirectoryListingPagesWithPrefixAndMarker(t *testing.T) {
 // without the matching lease id is refused with the service's own precondition
 // failure.
 func TestFilesSDK_ShareLeaseGuardsWrites(t *testing.T) {
+	t.Parallel()
 	const (
 		account = "sdkfilesharelease"
 		share   = "sdk-share-lease"
@@ -263,6 +266,7 @@ func TestFilesSDK_ShareLeaseGuardsWrites(t *testing.T) {
 // TestFilesSDK_FileLeaseGuardsWrites is the file-level lock: an unleased write
 // is refused and leaves the bytes alone.
 func TestFilesSDK_FileLeaseGuardsWrites(t *testing.T) {
+	t.Parallel()
 	const (
 		account  = "sdkfilefilelease"
 		share    = "sdk-file-lease"
@@ -311,6 +315,7 @@ func TestFilesSDK_FileLeaseGuardsWrites(t *testing.T) {
 // TestFilesSDK_FilePropertiesRangesAndHandles drives Set File Properties,
 // Resize, Clear Range, List Ranges and the handle operations.
 func TestFilesSDK_FilePropertiesRangesAndHandles(t *testing.T) {
+	t.Parallel()
 	const (
 		account  = "sdkfileranges"
 		share    = "sdk-range-share"
@@ -406,6 +411,7 @@ func TestFilesSDK_FilePropertiesRangesAndHandles(t *testing.T) {
 // would keep being reported — the caller would be told a range it cleared is
 // still there.
 func TestFilesSDK_ClearRangeDeallocatesTheRange(t *testing.T) {
+	t.Parallel()
 	const (
 		account  = "sdkfileclear"
 		share    = "sdk-clear-share"
@@ -477,6 +483,7 @@ func TestFilesSDK_ClearRangeDeallocatesTheRange(t *testing.T) {
 // TestFilesSDK_CopyAndUploadRangeFromURL drives Copy File and Upload Range from
 // URL against a source in the same share.
 func TestFilesSDK_CopyAndUploadRangeFromURL(t *testing.T) {
+	t.Parallel()
 	const (
 		account = "sdkfilecopy"
 		share   = "sdk-copy-share"
@@ -528,6 +535,7 @@ func TestFilesSDK_CopyAndUploadRangeFromURL(t *testing.T) {
 // Link and Read Symbolic Link, which are real links in the share's directory
 // tree.
 func TestFilesSDK_HardAndSymbolicLinks(t *testing.T) {
+	t.Parallel()
 	const (
 		account = "sdkfilelinks"
 		share   = "sdk-link-share"
@@ -586,6 +594,7 @@ func TestFilesSDK_HardAndSymbolicLinks(t *testing.T) {
 // operations an administrator uses: stored security descriptors, usage
 // statistics, quota and the metadata round trip.
 func TestFilesSDK_SharePermissionsStatisticsAndProperties(t *testing.T) {
+	t.Parallel()
 	const (
 		account = "sdkfileshareops"
 		share   = "sdk-shareops-share"
@@ -643,6 +652,7 @@ func TestFilesSDK_SharePermissionsStatisticsAndProperties(t *testing.T) {
 // TestFilesSDK_ShareSnapshotFreezesContents: a snapshot is a real copy, so it
 // keeps answering with the bytes the share held when it was taken.
 func TestFilesSDK_ShareSnapshotFreezesContents(t *testing.T) {
+	t.Parallel()
 	const (
 		account  = "sdkfilesnapshot"
 		share    = "sdk-snapshot-share"
@@ -712,6 +722,7 @@ func TestFilesSDK_ShareSnapshotFreezesContents(t *testing.T) {
 // TestFilesSDK_ServicePropertiesAndUserDelegationKey drives the two
 // service-level operations beyond listing shares.
 func TestFilesSDK_ServicePropertiesAndUserDelegationKey(t *testing.T) {
+	t.Parallel()
 	const account = "sdkfileservice"
 	serviceClient := filesSDKService(t, account)
 
@@ -760,6 +771,7 @@ func TestFilesSDK_ServicePropertiesAndUserDelegationKey(t *testing.T) {
 // carrying a share delete-retention policy, Delete Share keeps the share and
 // Restore Share brings it back with its contents.
 func TestFilesSDK_ShareSoftDeleteAndRestore(t *testing.T) {
+	t.Parallel()
 	const (
 		account  = "sdkfilesoftdel"
 		share    = "sdk-softdelete-share"

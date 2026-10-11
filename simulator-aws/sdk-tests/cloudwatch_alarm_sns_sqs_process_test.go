@@ -28,6 +28,7 @@ import (
 // This proves delivery works in API-only process mode, independent of the
 // shared TestMain simulator's runtime.
 func TestCloudWatch_AlarmSNSActionToSQS_ProcessMode(t *testing.T) {
+	t.Parallel()
 	url := startProcessModeSim(t)
 
 	cw := cloudwatch.NewFromConfig(sdkConfig(), func(o *cloudwatch.Options) {
@@ -134,6 +135,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_ProcessMode(t *testing.T) {
 // new incarnation transitions from INSUFFICIENT_DATA and dispatches its
 // AlarmActions again.
 func TestCloudWatch_AlarmSNSActionToSQS_RecreatedAlarmResetsState(t *testing.T) {
+	t.Parallel()
 	url := startProcessModeSim(t)
 
 	cw := cloudwatch.NewFromConfig(sdkConfig(), func(o *cloudwatch.Options) {
@@ -258,6 +260,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_RecreatedAlarmResetsState(t *testing.T) 
 // not kill the background evaluator goroutine; subsequent alarms must still
 // dispatch their AlarmActions.
 func TestCloudWatch_AlarmSNSActionToSQS_ResilientToOneBadAlarm(t *testing.T) {
+	t.Parallel()
 	url := startProcessModeSim(t)
 
 	cw := cloudwatch.NewFromConfig(sdkConfig(), func(o *cloudwatch.Options) {
@@ -368,6 +371,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_ResilientToOneBadAlarm(t *testing.T) {
 // targets no longer exist (a common result of Terraform apply/destroy churn),
 // then creates a fresh alarm and asserts its AlarmActions still dispatch.
 func TestCloudWatch_AlarmSNSActionToSQS_AfterDanglingAlarms(t *testing.T) {
+	t.Parallel()
 	url := startProcessModeSim(t)
 
 	cw := cloudwatch.NewFromConfig(sdkConfig(), func(o *cloudwatch.Options) {
@@ -502,6 +506,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_AfterDanglingAlarms(t *testing.T) {
 // deleting an alarm and then recreating it with the same name does not leave
 // stale evaluator state that prevents the new alarm from dispatching.
 func TestCloudWatch_AlarmSNSActionToSQS_AfterDeleteAndRecreate(t *testing.T) {
+	t.Parallel()
 	url := startProcessModeSim(t)
 
 	cw := cloudwatch.NewFromConfig(sdkConfig(), func(o *cloudwatch.Options) {
@@ -636,6 +641,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_AfterDeleteAndRecreate(t *testing.T) {
 // whose action topic has no subscribers delivers nothing, and that the fan-out
 // path logs the empty subscription set rather than silently doing nothing.
 func TestCloudWatch_AlarmSNSActionToSQS_NoSubscription(t *testing.T) {
+	t.Parallel()
 	url := startProcessModeSim(t)
 
 	cw := cloudwatch.NewFromConfig(sdkConfig(), func(o *cloudwatch.Options) {
@@ -701,6 +707,7 @@ func TestCloudWatch_AlarmSNSActionToSQS_NoSubscription(t *testing.T) {
 // subscriber queue policy denies sns:SendMessage delivers nothing. Real AWS
 // drops the message; the sim must do the same and must log the denial.
 func TestCloudWatch_AlarmSNSActionToSQS_PolicyDenied(t *testing.T) {
+	t.Parallel()
 	url := startProcessModeSim(t)
 
 	cw := cloudwatch.NewFromConfig(sdkConfig(), func(o *cloudwatch.Options) {

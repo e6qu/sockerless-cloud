@@ -18,6 +18,7 @@ import (
 // faithfully and that a Stats event (with real byte counts) and a terminal
 // End event arrive.
 func TestS3_SelectObjectContent(t *testing.T) {
+	t.Parallel()
 	client := s3Client()
 
 	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{

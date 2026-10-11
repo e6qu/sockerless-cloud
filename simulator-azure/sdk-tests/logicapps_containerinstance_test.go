@@ -17,6 +17,7 @@ import (
 )
 
 func TestLogicApps_WorkflowLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	client, err := armlogic.NewWorkflowsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	triggers, err := armlogic.NewWorkflowTriggersClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -31,7 +32,7 @@ func TestLogicApps_WorkflowLifecycleSDK(t *testing.T) {
 		"actions":        map[string]any{},
 		"outputs":        map[string]any{},
 	}
-	created, err := client.CreateOrUpdate(ctx, "sdk-rg", "sdk-logic", armlogic.Workflow{
+	created, err := client.CreateOrUpdate(ctx, "sdk-rg-73bd", "sdk-logic", armlogic.Workflow{
 		Location: to.Ptr("eastus"),
 		Tags:     map[string]*string{"env": to.Ptr("sdk")},
 		Properties: &armlogic.WorkflowProperties{
@@ -41,48 +42,48 @@ func TestLogicApps_WorkflowLifecycleSDK(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = client.Delete(ctx, "sdk-rg", "sdk-logic", nil)
+		_, _ = client.Delete(ctx, "sdk-rg-73bd", "sdk-logic", nil)
 	})
 	require.NotNil(t, created.Properties)
 	assert.Equal(t, "sdk-logic", ptrVal(created.Name))
 	assert.Equal(t, armlogic.WorkflowStateEnabled, ptrVal(created.Properties.State))
 	assert.Equal(t, armlogic.WorkflowProvisioningStateSucceeded, ptrVal(created.Properties.ProvisioningState))
 
-	_, err = client.ValidateByResourceGroup(ctx, "sdk-rg", "sdk-logic", armlogic.Workflow{
+	_, err = client.ValidateByResourceGroup(ctx, "sdk-rg-73bd", "sdk-logic", armlogic.Workflow{
 		Location:   to.Ptr("eastus"),
 		Properties: &armlogic.WorkflowProperties{Definition: definition},
 	}, nil)
 	require.NoError(t, err)
 
-	_, err = client.Disable(ctx, "sdk-rg", "sdk-logic", nil)
+	_, err = client.Disable(ctx, "sdk-rg-73bd", "sdk-logic", nil)
 	require.NoError(t, err)
-	got, err := client.Get(ctx, "sdk-rg", "sdk-logic", nil)
+	got, err := client.Get(ctx, "sdk-rg-73bd", "sdk-logic", nil)
 	require.NoError(t, err)
 	require.NotNil(t, got.Properties)
 	assert.Equal(t, armlogic.WorkflowStateDisabled, ptrVal(got.Properties.State))
 
-	_, err = client.Enable(ctx, "sdk-rg", "sdk-logic", nil)
+	_, err = client.Enable(ctx, "sdk-rg-73bd", "sdk-logic", nil)
 	require.NoError(t, err)
-	got, err = client.Get(ctx, "sdk-rg", "sdk-logic", nil)
+	got, err = client.Get(ctx, "sdk-rg-73bd", "sdk-logic", nil)
 	require.NoError(t, err)
 	assert.Equal(t, armlogic.WorkflowStateEnabled, ptrVal(got.Properties.State))
 
-	runName := fireLogicTrigger(t, triggers, "sdk-rg", "sdk-logic", "manual")
-	run := awaitLogicRun(t, runs, "sdk-rg", "sdk-logic", runName)
+	runName := fireLogicTrigger(t, triggers, "sdk-rg-73bd", "sdk-logic", "manual")
+	run := awaitLogicRun(t, runs, "sdk-rg-73bd", "sdk-logic", runName)
 	assert.Equal(t, armlogic.WorkflowStatusSucceeded, ptrVal(run.Properties.Status))
-	runPager := runs.NewListPager("sdk-rg", "sdk-logic", nil)
+	runPager := runs.NewListPager("sdk-rg-73bd", "sdk-logic", nil)
 	require.True(t, runPager.More())
 	runPage, err := runPager.NextPage(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, runPage.Value)
 	assert.Equal(t, runName, ptrVal(runPage.Value[0].Name))
 	assert.Equal(t, armlogic.WorkflowStatusSucceeded, ptrVal(runPage.Value[0].Properties.Status))
-	_, err = runs.Cancel(ctx, "sdk-rg", "sdk-logic", runName, nil)
+	_, err = runs.Cancel(ctx, "sdk-rg-73bd", "sdk-logic", runName, nil)
 	var cancelErr *azcore.ResponseError
 	require.ErrorAs(t, err, &cancelErr, "a finished run refuses a cancel")
 	assert.Equal(t, http.StatusConflict, cancelErr.StatusCode)
 
-	pager := client.NewListByResourceGroupPager("sdk-rg", nil)
+	pager := client.NewListByResourceGroupPager("sdk-rg-73bd", nil)
 	found := false
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
@@ -97,6 +98,7 @@ func TestLogicApps_WorkflowLifecycleSDK(t *testing.T) {
 }
 
 func TestContainerInstances_GroupLogsExecSDK(t *testing.T) {
+	t.Parallel()
 	groups, err := armcontainerinstance.NewContainerGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	containers, err := armcontainerinstance.NewContainersClient(subscriptionID, &fakeCredential{}, clientOpts())

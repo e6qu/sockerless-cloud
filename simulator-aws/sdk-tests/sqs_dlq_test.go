@@ -17,6 +17,7 @@ import (
 // matching real SQS behavior. Visibility timeouts are reset to zero between
 // receives so the message reappears for each pick-up within the test.
 func TestSQS_DLQ_RedriveOnMaxReceiveCount(t *testing.T) {
+	t.Parallel()
 	client := sqsClient()
 
 	dlq, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("dlq-redrive-dlq")})

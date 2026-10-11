@@ -21,6 +21,7 @@ func r53Client() *route53.Client {
 }
 
 func TestRoute53HostedZoneLifecycle(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -73,6 +74,7 @@ func TestRoute53HostedZoneLifecycle(t *testing.T) {
 }
 
 func TestRoute53ListHostedZonesByName(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -128,6 +130,7 @@ func TestRoute53ListHostedZonesByName(t *testing.T) {
 }
 
 func TestRoute53RecordCRUD(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -233,6 +236,7 @@ func TestRoute53RecordCRUD(t *testing.T) {
 }
 
 func TestRoute53ListResourceRecordSetsSortedCursor(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -315,6 +319,7 @@ func TestRoute53ListResourceRecordSetsSortedCursor(t *testing.T) {
 }
 
 func TestRoute53AliasTargetForCloudFront(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -402,6 +407,7 @@ func r53MakeZone(t *testing.T, c *route53.Client, ctx context.Context) string {
 }
 
 func TestRoute53_HealthChecks(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -464,6 +470,7 @@ func TestRoute53_HealthChecks(t *testing.T) {
 }
 
 func TestRoute53_TrafficPolicies(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -516,6 +523,7 @@ func TestRoute53_TrafficPolicies(t *testing.T) {
 }
 
 func TestRoute53_VPCAndQueryLogging(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
@@ -580,6 +588,7 @@ func TestRoute53_VPCAndQueryLogging(t *testing.T) {
 }
 
 func TestRoute53_CountsAndGeo(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

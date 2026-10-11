@@ -47,6 +47,7 @@ func acrCLIBasic(username, password string) string {
 }
 
 func TestACRCLI_DataPlaneCredentialContract(t *testing.T) {
+	t.Parallel()
 	const registryName = "cliauthregistry"
 	registryURL := acrURL("registries/" + registryName)
 	out := runCLI(t, azRest("PUT", registryURL,
@@ -150,6 +151,7 @@ func TestACRCLI_DataPlaneCredentialContract(t *testing.T) {
 // `az acr update --anonymous-pull-enabled` sets is what decides whether an
 // unauthenticated client may pull from the registry.
 func TestACRCLI_AnonymousPullProperty(t *testing.T) {
+	t.Parallel()
 	const registryName = "clianonymousregistry"
 	registryURL := acrURL("registries/" + registryName)
 	out := runCLI(t, azRest("PUT", registryURL,

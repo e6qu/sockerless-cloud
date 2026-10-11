@@ -17,6 +17,7 @@ import (
 // TestECS_TaskRoleCredentialsAuthorizeWorkloadAWSCLI exercises the real
 // "GET /v4/{id}/credentials" metadata route from a launched workload.
 func TestECS_TaskRoleCredentialsAuthorizeWorkloadAWSCLI(t *testing.T) {
+	t.Parallel()
 	iamc := iamClient()
 	roleName := "ecs-task-role-credentials"
 	trust := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]}`

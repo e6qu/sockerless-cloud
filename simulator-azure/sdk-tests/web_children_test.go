@@ -65,6 +65,7 @@ func webChildrenCreateSlot(t *testing.T, client *armappservice.WebAppsClient, rg
 }
 
 func TestSDK_WebChildren_PublicCertificates(t *testing.T) {
+	t.Parallel()
 	rg := "webchild-cert-rg"
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wc-cert-plan")
@@ -145,6 +146,7 @@ func TestSDK_WebChildren_PublicCertificates(t *testing.T) {
 }
 
 func TestSDK_WebChildren_DomainOwnershipIdentifiers(t *testing.T) {
+	t.Parallel()
 	rg := "webchild-doi-rg"
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wc-doi-plan")
@@ -217,6 +219,7 @@ func TestSDK_WebChildren_DomainOwnershipIdentifiers(t *testing.T) {
 }
 
 func TestSDK_WebChildren_PremierAddOns(t *testing.T) {
+	t.Parallel()
 	rg := "webchild-addon-rg"
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wc-addon-plan")
@@ -284,6 +287,7 @@ func TestSDK_WebChildren_PremierAddOns(t *testing.T) {
 }
 
 func TestSDK_WebChildren_PushSettings(t *testing.T) {
+	t.Parallel()
 	wcPushSiteName := uniqueName("wc-push-site")
 	rg := uniqueName("webchild-push-rg")
 	ensureRG(t, rg)
@@ -329,6 +333,7 @@ func TestSDK_WebChildren_PushSettings(t *testing.T) {
 }
 
 func TestSDK_WebChildren_ConfigKeyVaultReferences(t *testing.T) {
+	t.Parallel()
 	rg := "webchild-kvref-rg"
 	vault := "wc-kvref-vault"
 	ensureRG(t, rg)
@@ -462,6 +467,7 @@ func TestSDK_WebChildren_ConfigKeyVaultReferences(t *testing.T) {
 }
 
 func TestSDK_WebChildren_SiteContainersSlot(t *testing.T) {
+	t.Parallel()
 	rg := "webchild-sc-rg"
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wc-sc-plan")

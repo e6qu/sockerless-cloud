@@ -64,6 +64,7 @@ func runLongLivedECSTaskIn(t *testing.T, client *ecs.Client, cluster, family str
 // TestECS_ExecuteCommandOnRunningTask covers ECS ExecuteCommand against a live
 // RUNNING task started with enableExecuteCommand: it returns an SSM session.
 func TestECS_ExecuteCommandOnRunningTask(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 	taskArn := runLongLivedECSTask(t, client, "exec-cmd-enabled", "exec-cmd-enabled", true)
 
@@ -90,6 +91,7 @@ func TestECS_ExecuteCommandOnRunningTask(t *testing.T) {
 // exec is rejected on a RUNNING task that was NOT started with
 // enableExecuteCommand (the SSM exec agent is only injected when enabled).
 func TestECS_ExecuteCommandRejectedWhenNotEnabled(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 	taskArn := runLongLivedECSTask(t, client, "exec-cmd-disabled", "exec-cmd-disabled", false)
 
@@ -105,6 +107,7 @@ func TestECS_ExecuteCommandRejectedWhenNotEnabled(t *testing.T) {
 }
 
 func TestECS_ExecuteCommandRejectsNonInteractive(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 	taskArn := runLongLivedECSTask(t, client, "exec-cmd-noninteractive", "exec-cmd-noninteractive", true)
 
@@ -120,6 +123,7 @@ func TestECS_ExecuteCommandRejectsNonInteractive(t *testing.T) {
 }
 
 func TestECS_ExecuteCommandRejectsUnknownContainer(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 	taskArn := runLongLivedECSTask(t, client, "exec-cmd-container", "exec-cmd-container", true)
 

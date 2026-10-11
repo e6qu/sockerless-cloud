@@ -8,6 +8,7 @@ import (
 )
 
 func TestACM_RequestDescribeDelete(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("acm", "request-certificate",
 		"--domain-name", "cli.example.com",
 		"--validation-method", "DNS",
@@ -80,6 +81,7 @@ func TestACM_RequestDescribeDelete(t *testing.T) {
 }
 
 func TestACM_Tags(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("acm", "request-certificate",
 		"--domain-name", "cli-tags.example.com",
 		"--validation-method", "DNS",

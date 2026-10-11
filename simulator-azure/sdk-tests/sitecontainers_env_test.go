@@ -20,6 +20,7 @@ import (
 // will be set to an empty string in the container at runtime." An app setting
 // that is a Key Vault reference reaches the container as the secret's value.
 func TestSDK_SiteContainers_EnvironmentVariablesNameAppSettings(t *testing.T) {
+	t.Parallel()
 	rg, name, vault := "sdk-sc-env-rg", "sdk-sc-env-app", "sdkscenvvault"
 	ensureRG(t, rg)
 	vaults, err := armkeyvault.NewVaultsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -144,6 +145,7 @@ func createInheritanceSite(t *testing.T, rg, name string) *armappservice.WebApps
 // container as environment variables; false otherwise." A main that sets it
 // false gets neither, and still gets the platform's own variables.
 func TestSDK_SiteContainers_MainThatDoesNotInheritGetsNoAppSettings(t *testing.T) {
+	t.Parallel()
 	rg, name := "sdk-sc-noinherit-rg", "sdk-sc-noinherit-app"
 	client := createInheritanceSite(t, rg, name)
 	_, err := client.CreateOrUpdateSiteContainer(ctx, rg, name, "main", armappservice.SiteContainer{
@@ -173,6 +175,7 @@ func TestSDK_SiteContainers_MainThatDoesNotInheritGetsNoAppSettings(t *testing.T
 // inheritAppSettingsAndConnectionStrings is false; unset, it defaults to true. The main relays requests to
 // each sidecar's files-http over the shared loopback.
 func TestSDK_SiteContainers_SidecarInheritsAppSettingsUnlessFalse(t *testing.T) {
+	t.Parallel()
 	rg, name := "sdk-sc-inherit-rg", "sdk-sc-inherit-app"
 	client := createInheritanceSite(t, rg, name)
 	for _, sc := range []struct {

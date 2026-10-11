@@ -18,6 +18,7 @@ import (
 // so we use direct HTTP calls against the REST API.
 
 func TestCloudRun_CreateJob(t *testing.T) {
+	t.Parallel()
 	jobID := uniqueName("test-job")
 	job := map[string]any{
 		"template": map[string]any{
@@ -87,6 +88,7 @@ func createCloudRunJob(t *testing.T, jobID string) {
 }
 
 func TestCloudRun_GetJob(t *testing.T) {
+	t.Parallel()
 	jobID := uniqueName("get-job")
 	createCloudRunJob(t, jobID)
 
@@ -106,6 +108,7 @@ func TestCloudRun_GetJob(t *testing.T) {
 }
 
 func TestCloudRun_ListJobs(t *testing.T) {
+	t.Parallel()
 	// A list method is only worth anything if a job that exists reaches the
 	// caller, so the list must carry the job this test just created.
 	jobID := uniqueName("list-job")
@@ -134,6 +137,7 @@ func TestCloudRun_ListJobs(t *testing.T) {
 }
 
 func TestCloudRun_DeleteJob(t *testing.T) {
+	t.Parallel()
 	jobID := uniqueName("del-job")
 	createCloudRunJob(t, jobID)
 
@@ -156,6 +160,7 @@ func TestCloudRun_DeleteJob(t *testing.T) {
 }
 
 func TestCloudRun_RunJobInjectsLogEntries(t *testing.T) {
+	t.Parallel()
 	jobID := uniqueName("log-inject-job")
 	job := map[string]any{
 		"template": map[string]any{
@@ -352,6 +357,7 @@ func runHeldJob(t *testing.T, jobID, marker string) heldJob {
 }
 
 func TestCloudRun_ExecutionRunningState(t *testing.T) {
+	t.Parallel()
 	jobID := uniqueName("status-running-job")
 	const marker = "status-running-marker"
 
@@ -379,6 +385,7 @@ func TestCloudRun_ExecutionRunningState(t *testing.T) {
 }
 
 func TestCloudRun_ExecutionSucceededState(t *testing.T) {
+	t.Parallel()
 	run := createAndRunJob(t, uniqueName("status-succeeded-job"))
 
 	exec, err := waitJobRun(t, run)
@@ -390,6 +397,7 @@ func TestCloudRun_ExecutionSucceededState(t *testing.T) {
 }
 
 func TestCloudRun_ExecutionCancelledState(t *testing.T) {
+	t.Parallel()
 	jobID := uniqueName("status-cancel-job")
 	const marker = "status-cancel-marker"
 
@@ -474,6 +482,7 @@ func createAndRunJobInProject(t *testing.T, project, jobID string, image string,
 }
 
 func TestCloudRun_ExecutionRunsCommand(t *testing.T) {
+	t.Parallel()
 	run := createAndRunJobWithCommand(t, uniqueName("exec-cmd-job"), []string{"echo", "hello"}, "5s")
 
 	exec, err := waitJobRun(t, run)
@@ -485,6 +494,7 @@ func TestCloudRun_ExecutionRunsCommand(t *testing.T) {
 }
 
 func TestCloudRun_ExecutionFailedState(t *testing.T) {
+	t.Parallel()
 	run := createAndRunJobWithCommand(t, uniqueName("exec-fail-job"), []string{"sh", "-c", "exit 1"}, "5s")
 
 	exec, err := waitJobRun(t, run)
@@ -497,6 +507,7 @@ func TestCloudRun_ExecutionFailedState(t *testing.T) {
 }
 
 func TestCloudRun_ExecutionLogsRealOutput(t *testing.T) {
+	t.Parallel()
 	jobID := uniqueName("exec-log-job")
 	_ = createAndRunJobWithCommand(t, jobID, []string{"echo", "real output from process"}, "5s")
 

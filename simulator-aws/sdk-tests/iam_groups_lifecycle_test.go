@@ -15,6 +15,7 @@ import (
 // AddUserToGroup/RemoveUserFromGroup/ListGroupsForUser, the group inline +
 // attached policy ops, and DeleteGroup.
 func TestIAM_GroupLifecycle(t *testing.T) {
+	t.Parallel()
 	managedPolicy := uniqueName("g-managed")
 	c := iamClient()
 	user, group := uniqueName("gl-user"), uniqueName("gl-group")
@@ -80,6 +81,7 @@ func TestIAM_GroupLifecycle(t *testing.T) {
 
 // TestIAM_PermissionBoundaryPutDelete covers Put/DeleteUserPermissionsBoundary.
 func TestIAM_PermissionBoundaryPutDelete(t *testing.T) {
+	t.Parallel()
 	boundaryPolicy := uniqueName("pb-policy")
 	c := iamClient()
 	user := uniqueName("pb-user")
@@ -104,6 +106,7 @@ func TestIAM_PermissionBoundaryPutDelete(t *testing.T) {
 // AssumeRoleWithWebIdentity, which now verifies the web identity token against
 // a registered OpenID Connect provider, is covered in sts_webidentity_test.go.
 func TestSTS_GetSessionToken(t *testing.T) {
+	t.Parallel()
 	stsc := sts.NewFromConfig(sdkConfig(), func(o *sts.Options) { o.BaseEndpoint = aws.String(baseURL) })
 
 	st, err := stsc.GetSessionToken(ctx, &sts.GetSessionTokenInput{})

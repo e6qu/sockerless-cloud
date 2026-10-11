@@ -12,6 +12,7 @@ import (
 // completion ratchet through the `az rest` CLI surface. Kept lean: one resource
 // group, one APIM service, and one PostgreSQL server back a handful of calls.
 func TestCLI_CompletionSurfaces(t *testing.T) {
+	t.Parallel()
 	const apimAPIVersion = "2022-08-01"
 	rgURL := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s?api-version=%s", baseURL, subscriptionID, resourceGroup, resourcesAPIVersion)
 	runCLI(t, azRest("PUT", rgURL, `{"location":"eastus"}`))

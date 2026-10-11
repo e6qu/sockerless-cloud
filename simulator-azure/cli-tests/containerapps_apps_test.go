@@ -14,6 +14,7 @@ import (
 // Smoke-test the CRUD via az rest so a regression in the route
 // registration is caught at the wire level.
 func TestContainerAppsApps_CLI_CreateGetDelete(t *testing.T) {
+	t.Parallel()
 	appURL := acaURL("containerApps/cli-test-app")
 	body := `{
 		"location": "eastus",
@@ -73,6 +74,7 @@ func TestContainerAppsApps_CLI_CreateGetDelete(t *testing.T) {
 // contract over az rest: a null tag member deletes the tag, and a nested
 // scale patch merges member-wise instead of replacing the object.
 func TestContainerAppsApps_CLI_PatchMergeSemantics(t *testing.T) {
+	t.Parallel()
 	appURL := acaURL("containerApps/cli-patch-app")
 	body := `{
 		"location": "eastus",
@@ -110,6 +112,7 @@ func TestContainerAppsApps_CLI_PatchMergeSemantics(t *testing.T) {
 }
 
 func TestContainerAppsApps_CLI_StartsRealReplicaAndLogs(t *testing.T) {
+	t.Parallel()
 	appName := "cli-exec-app"
 	appURL := acaURL("containerApps/" + appName)
 	envID, customerID := cliLogsEnvironment(t)
@@ -155,6 +158,7 @@ func TestContainerAppsApps_CLI_StartsRealReplicaAndLogs(t *testing.T) {
 // runtime, and service — through az rest PUT/GET/PATCH, pinning the raw
 // ARM wire spelling of each member.
 func TestContainerAppsApps_CLI_ConfigurationRoundTrip(t *testing.T) {
+	t.Parallel()
 	appURL := acaURL("containerApps/cli-cfg-app")
 	body := `{
 		"location": "eastus",
@@ -261,6 +265,7 @@ func TestContainerAppsApps_CLI_ConfigurationRoundTrip(t *testing.T) {
 // WebApps.UpdateAzureStorageAccounts is what the azure-functions
 // backend uses to bind named volumes to Azure Files.
 func TestWebApps_CLI_UpdateAzureStorageAccounts(t *testing.T) {
+	t.Parallel()
 	const azfAPIVersion = "2024-04-01"
 	siteURL := armURL("Microsoft.Web", "sites/cli-storage-site", azfAPIVersion)
 	siteBody := `{"location":"eastus","kind":"functionapp","properties":{"serverFarmId":"/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Web/serverFarms/test"}}`

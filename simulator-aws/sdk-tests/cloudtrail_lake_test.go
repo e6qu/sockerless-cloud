@@ -18,6 +18,7 @@ import (
 // StartEventDataStoreIngestion → EnableFederation / DisableFederation →
 // DeleteEventDataStore → RestoreEventDataStore.
 func TestCloudTrail_EventDataStoreLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	ct := cloudTrailClient()
 	name := uniqueName("ct-eds-lifecycle")
 
@@ -99,6 +100,7 @@ func TestCloudTrail_EventDataStoreLifecycleSDK(t *testing.T) {
 // an event data store ingested: StartQuery → DescribeQuery / GetQueryResults /
 // ListQueries → CancelQuery, plus GenerateQuery and SearchSampleQueries.
 func TestCloudTrail_LakeQuerySDK(t *testing.T) {
+	t.Parallel()
 	edsName := uniqueName("lake-query-eds")
 	ct := cloudTrailClient()
 	created, err := ct.CreateEventDataStore(ctx, &cloudtrail.CreateEventDataStoreInput{
@@ -170,6 +172,7 @@ func TestCloudTrail_LakeQuerySDK(t *testing.T) {
 // TestCloudTrail_DashboardLifecycleSDK exercises CreateDashboard →
 // UpdateDashboard → StartDashboardRefresh → DeleteDashboard.
 func TestCloudTrail_DashboardLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	ct := cloudTrailClient()
 	const name = "ct-dashboard"
 
@@ -225,6 +228,7 @@ func TestCloudTrail_DashboardLifecycleSDK(t *testing.T) {
 // TestCloudTrail_ImportLifecycleSDK exercises StartImport → GetImport →
 // ListImports / ListImportFailures → StopImport.
 func TestCloudTrail_ImportLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	ct := cloudTrailClient()
 	const eds = "arn:aws:cloudtrail:us-east-1:123456789012:eventdatastore/import-eds"
 
@@ -275,6 +279,7 @@ func TestCloudTrail_ImportLifecycleSDK(t *testing.T) {
 // PutEventConfiguration / GetEventConfiguration, ListPublicKeys,
 // ListInsightsMetricData / ListInsightsData, UpdateChannel.
 func TestCloudTrail_GovernanceSDK(t *testing.T) {
+	t.Parallel()
 	channelName := uniqueName("ct-gov-channel")
 	renamedChannel := uniqueName("ct-gov-channel-renamed")
 	ct := cloudTrailClient()

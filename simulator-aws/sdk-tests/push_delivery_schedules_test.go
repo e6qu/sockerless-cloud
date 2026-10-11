@@ -55,6 +55,7 @@ func messageAttribute(m sqstypes.Message, name string) string {
 // deliver to sends the event to the target's DeadLetterConfig queue with the
 // RULE_ARN, TARGET_ARN and ERROR_CODE attributes.
 func TestEventBridge_TargetDeadLetterConfigSDK(t *testing.T) {
+	t.Parallel()
 	eb := eventbridgeClient()
 	sqsC := sqsClient()
 	dlq, err := sqsC.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("eb-sdk-target-dlq")})
@@ -102,6 +103,7 @@ func TestEventBridge_TargetDeadLetterConfigSDK(t *testing.T) {
 // ScheduleExpression: a schedule only on the default bus, and a rate() whose
 // unit agrees with its value.
 func TestEventBridge_ScheduledRuleValidationSDK(t *testing.T) {
+	t.Parallel()
 	eb := eventbridgeClient()
 	_, err := eb.PutRule(ctx, &eventbridge.PutRuleInput{
 		Name: aws.String("eb-sdk-bad-rate"), ScheduleExpression: aws.String("rate(1 minutes)"),
@@ -132,6 +134,7 @@ func TestEventBridge_ScheduledRuleValidationSDK(t *testing.T) {
 // ScheduleExpressionTimezone: an IANA zone round-trips, an unknown one and a
 // cron() naming both day fields are refused.
 func TestScheduler_ExpressionTimezoneValidationSDK(t *testing.T) {
+	t.Parallel()
 	c := schedulerClient()
 	target := &schedtypes.Target{
 		Arn:     aws.String("arn:aws:sqs:us-east-1:123456789012:scheduler-tz-target"),
@@ -163,6 +166,7 @@ func TestScheduler_ExpressionTimezoneValidationSDK(t *testing.T) {
 // DeliveryPolicy governs its retries — numRetries after the first attempt —
 // and that the message then reaches the RedrivePolicy dead-letter queue.
 func TestSNS_HTTPDeliveryPolicyAndRedrivePolicySDK(t *testing.T) {
+	t.Parallel()
 	var notifications atomic.Int32
 	confirmations := make(chan map[string]any, 1)
 	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -235,6 +239,7 @@ func TestSNS_HTTPDeliveryPolicyAndRedrivePolicySDK(t *testing.T) {
 // takes effect at its time: an at() action a few seconds out sets the
 // scalable target's MinCapacity and MaxCapacity.
 func TestApplicationAutoScaling_ScheduledActionRunsSDK(t *testing.T) {
+	t.Parallel()
 	c := appAutoScalingClient()
 	const (
 		ns         = aastypes.ServiceNamespaceEcs

@@ -17,6 +17,7 @@ import (
 // aws CLI, waits with `aws ec2 wait snapshot-imported`, and reads the task and
 // the snapshot back.
 func TestEC2CLI_ImportSnapshot(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	suffix := fmt.Sprint(time.Now().UnixNano())
 	bucket := "cli-import-snap-" + suffix

@@ -21,6 +21,7 @@ import (
 // The high-level SDK buffers the whole array, so this drives the endpoints with
 // a raw HTTP client that inspects the transport framing.
 func TestFirestore_RunQueryStreamsChunked(t *testing.T) {
+	t.Parallel()
 	const db = "/v1/projects/test-project/databases/(default)/documents"
 
 	// Seed three documents in a collection so runQuery returns multiple stream

@@ -13,6 +13,7 @@ import (
 )
 
 func TestGlue_DatabaseCRUD_CLI(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("glue", "create-database",
 		"--database-input", `{"Name":"glue-cli-db","Description":"cli test"}`,
 	))
@@ -46,6 +47,7 @@ func TestGlue_DatabaseCRUD_CLI(t *testing.T) {
 }
 
 func TestGlue_TableCRUD_CLI(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("glue", "create-database",
 		"--database-input", `{"Name":"glue-cli-tbl-db"}`,
 	))
@@ -86,6 +88,7 @@ func TestGlue_TableCRUD_CLI(t *testing.T) {
 }
 
 func TestGlue_DatabaseUpdate_CLI(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("glue", "create-database",
 		"--database-input", `{"Name":"glue-cli-updb","Description":"before"}`,
 	))
@@ -111,6 +114,7 @@ func TestGlue_DatabaseUpdate_CLI(t *testing.T) {
 }
 
 func TestGlue_TableUpdateAndBatchDelete_CLI(t *testing.T) {
+	t.Parallel()
 	db := "glue-cli-tblupd-db"
 	runCLI(t, awsCLI("glue", "create-database", "--database-input", `{"Name":"`+db+`"}`))
 	t.Cleanup(func() {
@@ -156,6 +160,7 @@ func TestGlue_TableUpdateAndBatchDelete_CLI(t *testing.T) {
 }
 
 func TestGlue_PartitionLifecycle_CLI(t *testing.T) {
+	t.Parallel()
 	db := "glue-cli-part-db"
 	tbl := "glue-cli-part-tbl"
 	runCLI(t, awsCLI("glue", "create-database", "--database-input", `{"Name":"`+db+`"}`))
@@ -271,6 +276,7 @@ func TestGlue_PartitionLifecycle_CLI(t *testing.T) {
 const glueJobRunCompletionBudget = 4 * time.Minute
 
 func TestGlue_JobCRUD_CLI(t *testing.T) {
+	t.Parallel()
 	// The interpreter this job run executes in, fetched before the clock the
 	// run is timed by starts.
 	ensureGluePythonShellImage(t)
@@ -371,6 +377,7 @@ func TestGlue_JobCRUD_CLI(t *testing.T) {
 }
 
 func TestGlue_JobUpdateListBatchStop_CLI(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("glue", "create-job",
 		"--name", "glue-cli-upd-job",
 		"--role", "arn:aws:iam::123456789012:role/glue-role",
@@ -420,6 +427,7 @@ func TestGlue_JobUpdateListBatchStop_CLI(t *testing.T) {
 }
 
 func TestGlue_CrawlerCRUD_CLI(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("glue", "create-crawler",
 		"--name", "glue-cli-crawler",
 		"--role", "arn:aws:iam::123456789012:role/glue-crawler-role",
@@ -491,6 +499,7 @@ func TestGlue_CrawlerCRUD_CLI(t *testing.T) {
 }
 
 func TestGlue_TriggerCRUD_CLI(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("glue", "create-job",
 		"--name", "glue-cli-trigger-job",
 		"--role", "arn:aws:iam::123456789012:role/glue-role",
@@ -556,6 +565,7 @@ func TestGlue_TriggerCRUD_CLI(t *testing.T) {
 }
 
 func TestGlue_ConnectionCRUD_CLI(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("glue", "create-connection",
 		"--connection-input", `{"Name":"glue-cli-conn","Description":"cli connection","ConnectionType":"JDBC","ConnectionProperties":{"JDBC_CONNECTION_URL":"jdbc:mysql://host:3306/db","USERNAME":"admin"}}`,
 	))
@@ -601,6 +611,7 @@ func TestGlue_ConnectionCRUD_CLI(t *testing.T) {
 }
 
 func TestGlue_SecurityConfigurationCRUD_CLI(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("glue", "create-security-configuration",
 		"--name", "glue-cli-secconf",
 		"--encryption-configuration", `{"S3Encryption":[{"S3EncryptionMode":"SSE-S3"}]}`,
@@ -642,6 +653,7 @@ func TestGlue_SecurityConfigurationCRUD_CLI(t *testing.T) {
 }
 
 func TestGlue_WorkflowLifecycle_CLI(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("glue", "create-workflow",
 		"--name", "glue-cli-wf",
 		"--description", "cli workflow",
@@ -697,6 +709,7 @@ func TestGlue_WorkflowLifecycle_CLI(t *testing.T) {
 }
 
 func TestGlue_ClassifierCRUD_CLI(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("glue", "create-classifier",
 		"--csv-classifier", `{"Name":"glue-cli-classifier","Delimiter":",","ContainsHeader":"PRESENT","Header":["a","b"]}`,
 	))
@@ -743,6 +756,7 @@ func TestGlue_ClassifierCRUD_CLI(t *testing.T) {
 }
 
 func TestGlue_UserDefinedFunctionCRUD_CLI(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("glue", "create-database", "--database-input", `{"Name":"glue-cli-udf-db"}`))
 	t.Cleanup(func() {
 		runCLIIgnore(awsCLI("glue", "delete-user-defined-function",
@@ -790,6 +804,7 @@ func TestGlue_UserDefinedFunctionCRUD_CLI(t *testing.T) {
 }
 
 func TestGlue_SchemaRegistry_CLI(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("glue", "create-registry",
 		"--registry-name", "glue-cli-registry", "--description", "cli registry"))
 	t.Cleanup(func() {
@@ -853,6 +868,7 @@ func TestGlue_SchemaRegistry_CLI(t *testing.T) {
 }
 
 func TestGlue_TableVersionsAndIndexes_CLI(t *testing.T) {
+	t.Parallel()
 	db := "glue-cli-ver-db"
 	tbl := "glue-cli-ver-tbl"
 	runCLI(t, awsCLI("glue", "create-database", "--database-input", `{"Name":"`+db+`"}`))
@@ -941,6 +957,7 @@ func TestGlue_TableVersionsAndIndexes_CLI(t *testing.T) {
 }
 
 func TestGlue_ColumnStatistics_CLI(t *testing.T) {
+	t.Parallel()
 	db := "glue-cli-stats-db"
 	tbl := "glue-cli-stats-tbl"
 	runCLI(t, awsCLI("glue", "create-database", "--database-input", `{"Name":"`+db+`"}`))
@@ -1011,6 +1028,7 @@ func TestGlue_ColumnStatistics_CLI(t *testing.T) {
 }
 
 func TestGlue_ResourcePolicyAndCatalog_CLI(t *testing.T) {
+	t.Parallel()
 	policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::123456789012:root"},"Action":"glue:GetTable","Resource":"*"}]}`
 	out := runCLI(t, awsCLI("glue", "put-resource-policy", "--policy-in-json", policy))
 	var put struct {
@@ -1061,6 +1079,7 @@ func TestGlue_ResourcePolicyAndCatalog_CLI(t *testing.T) {
 }
 
 func TestGlue_SchemaVersions_CLI(t *testing.T) {
+	t.Parallel()
 	reg := "glue-cli-sv-registry"
 	sch := "glue-cli-sv-schema"
 	runCLI(t, awsCLI("glue", "create-registry", "--registry-name", reg))

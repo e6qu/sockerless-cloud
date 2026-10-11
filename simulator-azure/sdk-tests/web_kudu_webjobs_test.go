@@ -75,6 +75,7 @@ func kuduAwait[T any](t *testing.T, rawURL string, auth func(*http.Request), don
 }
 
 func TestSDK_WebApps_KuduWebJobsAPI(t *testing.T) {
+	t.Parallel()
 	rg, name := "sdk-kudu-webjobs-rg", "sdk-kudu-webjobs-app"
 	client := createStackWebApp(t, rg, name, "NODE|20-lts", nil)
 

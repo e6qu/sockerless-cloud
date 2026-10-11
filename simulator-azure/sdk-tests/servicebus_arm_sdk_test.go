@@ -12,6 +12,7 @@ import (
 )
 
 func TestServiceBusARM_SDKNetworkRuleSetsAndAdjunctReads(t *testing.T) {
+	t.Parallel()
 	rg := "sb-sdk-rg"
 	ns := uniqueName("sdk-servicebus-ns")
 

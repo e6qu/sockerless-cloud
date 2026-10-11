@@ -17,6 +17,7 @@ import (
 )
 
 func TestGlueBusinessContextLifecycle_SDK(t *testing.T) {
+	t.Parallel()
 	client := glueClient()
 
 	formType, err := client.PutFormType(ctx, &glue.PutFormTypeInput{
@@ -231,6 +232,7 @@ func TestGlueBusinessContextLifecycle_SDK(t *testing.T) {
 }
 
 func TestGlueEntityRecordsAndBatchEvaluationRuns_SDK(t *testing.T) {
+	t.Parallel()
 	rulesetName := uniqueName("business-context-rules")
 	databaseName := uniqueName("business_entities")
 	connectionName := uniqueName("glue-dynamodb-connection")
@@ -372,6 +374,7 @@ func TestGlueEntityRecordsAndBatchEvaluationRuns_SDK(t *testing.T) {
 // carries that table's columns, and PutAttachment and AssociateGlossaryTerms
 // annotate the items that are already there.
 func TestGlueIterableFormsOfATableAsset_SDK(t *testing.T) {
+	t.Parallel()
 	client := glueClient()
 
 	_, err := client.CreateDatabase(ctx, &glue.CreateDatabaseInput{

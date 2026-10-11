@@ -15,6 +15,7 @@ import (
 // else, and then the pop-receipt rules that make the update the dequeuer's
 // alone.
 func TestQueueMessageUpdateCLI(t *testing.T) {
+	t.Parallel()
 	const queue = "cli-update-queue"
 
 	runCLI(t, azStorageQueue("queue", "create", "--name", queue))
@@ -75,6 +76,7 @@ func TestQueueMessageUpdateCLI(t *testing.T) {
 // `az storage queue policy`, the signed identifiers a shared access signature
 // is issued against.
 func TestQueueAccessPolicyCLI(t *testing.T) {
+	t.Parallel()
 	const queue = "cli-acl-queue"
 
 	runCLI(t, azStorageQueue("queue", "create", "--name", queue))

@@ -18,6 +18,7 @@ import (
 // DescribeConnection returns only the non-secret descriptor (ApiKeyName) plus a
 // SecretArn, matching real EventBridge.
 func TestEventBridge_ConnectionApiDestinationSDK(t *testing.T) {
+	t.Parallel()
 	eb := eventbridgeClient()
 
 	connName := "eb-sdk-conn"
@@ -132,6 +133,7 @@ func TestEventBridge_ConnectionApiDestinationSDK(t *testing.T) {
 // list → update → delete, asserting the RoutingConfig / EventBuses round-trip
 // byte-exact through the describe shape.
 func TestEventBridge_EndpointSDK(t *testing.T) {
+	t.Parallel()
 	eb := eventbridgeClient()
 
 	bus, err := eb.CreateEventBus(ctx, &eventbridge.CreateEventBusInput{Name: aws.String("eb-sdk-endpoint-bus")})
@@ -205,6 +207,7 @@ func TestEventBridge_EndpointSDK(t *testing.T) {
 // activates it (ACTIVE) then deactivates it (PENDING). PutPartnerEvents emits
 // events, and DeletePartnerEventSource removes the offer.
 func TestEventBridge_PartnerEventSourceSDK(t *testing.T) {
+	t.Parallel()
 	eb := eventbridgeClient()
 
 	account := "123456789012"
@@ -296,6 +299,7 @@ func TestEventBridge_PartnerEventSourceSDK(t *testing.T) {
 // COMPLETED replay cannot be cancelled — CancelReplay faithfully returns
 // IllegalStatusException, exactly as real EventBridge.
 func TestEventBridge_UpdateArchiveCancelReplaySDK(t *testing.T) {
+	t.Parallel()
 	eb := eventbridgeClient()
 
 	busName := "eb-sdk-uacr-bus"

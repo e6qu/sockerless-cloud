@@ -14,6 +14,7 @@ import (
 // settings and the executeCommand KMS configuration round-trip through
 // DescribeClusters --include SETTINGS CONFIGURATIONS, and are omitted otherwise.
 func TestECS_ClusterSettingsAndConfiguration(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	name := "probe-cluster-config"
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{

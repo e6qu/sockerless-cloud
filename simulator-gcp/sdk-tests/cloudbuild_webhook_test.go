@@ -18,6 +18,7 @@ import (
 // is the only evidence the delivery did anything — which is why the listing
 // below is the assertion rather than the status code.
 func TestCloudBuild_TriggerWebhookStartsTheBuild(t *testing.T) {
+	t.Parallel()
 	svc := cloudbuildService(t)
 	secrets := secretManagerService(t)
 	const project = "cb-webhook"
@@ -64,6 +65,7 @@ func TestCloudBuild_TriggerWebhookStartsTheBuild(t *testing.T) {
 // receiver a source host posts to: the delivery is authenticated by the host's
 // webhook key, and the triggers watching the repository it names build.
 func TestCloudBuild_SharedWebhookStartsTheTriggersWatchingTheRepository(t *testing.T) {
+	t.Parallel()
 	svc := cloudbuildService(t)
 	const project = "cb-shared-webhook"
 	parent := "projects/" + project + "/locations/us-central1"

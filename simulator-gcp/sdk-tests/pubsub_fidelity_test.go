@@ -14,6 +14,7 @@ import (
 // dead_letter_policy / retry_policy — all were dropped before, drifting every
 // plan.
 func TestPubSub_TopicSubscriptionFidelity(t *testing.T) {
+	t.Parallel()
 	svc := pubsubService(t)
 	const project = "test-project"
 	base := "projects/" + project

@@ -16,6 +16,7 @@ import (
 // app what it saw: X-Forwarded-For gains the client's address with its port,
 // and X-Forwarded-Proto and X-AppService-Proto name the client's protocol.
 func TestSDK_WebApps_ForwardedRequestHeaders(t *testing.T) {
+	t.Parallel()
 	rg, name := uniqueName("sdk-web-xff-rg"), uniqueName("sdk-web-xff")
 	ensureRG(t, rg)
 	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())

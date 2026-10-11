@@ -39,6 +39,7 @@ func rdsInstanceEventMessages(t *testing.T, ctx context.Context, c *rds.Client, 
 // primary takes the next failover. ForceFailover of a Single-AZ instance is
 // refused, and ModifyDBInstance converts an instance either way.
 func TestRDS_MultiAZFailoverPromotesTheStandby(t *testing.T) {
+	t.Parallel()
 	for _, engine := range []string{"postgres", "mysql", "mariadb"} {
 		t.Run(engine, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)

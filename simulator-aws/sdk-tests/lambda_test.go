@@ -37,6 +37,7 @@ func lambdaClient() *lambda.Client {
 // bundled AWS SDK and standard endpoint coordinate to authenticate to another
 // AWS service.
 func TestLambdaExplicitDeploymentEnvironmentAndDownstreamSDK(t *testing.T) {
+	t.Parallel()
 	lambdaAPI := lambdaClient()
 	queueAPI := sqsClient()
 	queue, err := queueAPI.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("lambda-downstream-sdk")})
@@ -107,6 +108,7 @@ func cwLogsClient() *cloudwatchlogs.Client {
 }
 
 func TestLambda_FunctionConfigurationOmitsCodeAndTags(t *testing.T) {
+	t.Parallel()
 	rawFn := uniqueName("raw-shape-fn")
 	lc := lambdaClient()
 	fnName := "shape-fn"
@@ -210,6 +212,7 @@ func TestLambda_FunctionConfigurationOmitsCodeAndTags(t *testing.T) {
 }
 
 func TestLambda_InvokeCreatesLogStream(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	cw := cwLogsClient()
 
@@ -286,6 +289,7 @@ func TestLambda_InvokeCreatesLogStream(t *testing.T) {
 // host.docker.internal + host gateway + /response propagation back
 // to the SDK caller).
 func TestLambda_InvokeRoundTrip(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 
 	fnName := "roundtrip-fn"
@@ -312,6 +316,7 @@ func TestLambda_InvokeRoundTrip(t *testing.T) {
 }
 
 func TestLambda_InvokeZIPDeploymentPackage(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	fnName := "zip-roundtrip-fn"
 	deployment := lambdaNodeDeploymentZip(t, `{received:event, functionName:process.env.AWS_LAMBDA_FUNCTION_NAME}`)
@@ -346,6 +351,7 @@ func TestLambda_InvokeZIPDeploymentPackage(t *testing.T) {
 // Runtime API: payload with "cause":"error" triggers a POST to
 // invocation/{id}/error; caller sees X-Amz-Function-Error: Unhandled.
 func TestLambda_InvokeHandlerError(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 
 	fnName := "error-fn"
@@ -378,6 +384,7 @@ func TestLambda_InvokeHandlerError(t *testing.T) {
 // never talks the Runtime API; the simulator detects container exit
 // without response and surfaces a proper Lambda error.
 func TestLambda_InvokeContainerCrash(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	cw := cwLogsClient()
 
@@ -430,6 +437,7 @@ func TestLambda_InvokeContainerCrash(t *testing.T) {
 // stderr describing the invocation; it should appear in the
 // function's CloudWatch log stream.
 func TestLambda_RuntimeAPILogsToCloudWatch(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	cw := cwLogsClient()
 
@@ -486,6 +494,7 @@ func TestLambda_RuntimeAPILogsToCloudWatch(t *testing.T) {
 }
 
 func TestLambda_MultipleInvokesCreateMultipleStreams(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	cw := cwLogsClient()
 
@@ -537,6 +546,7 @@ func TestLambda_MultipleInvokesCreateMultipleStreams(t *testing.T) {
 // per subnet from the subnet's CidrBlock — matches real Lambda behavior
 // (sim must validate the subnet exists, not return a fake ENI).
 func TestLambda_VpcConfig_AllocatesENIPerSubnet(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	ec2C := ec2Client()
 
@@ -595,6 +605,7 @@ func TestLambda_VpcConfig_AllocatesENIPerSubnet(t *testing.T) {
 // function reaches that private address through its configured subnet and
 // security group using the same public APIs and identifiers used on AWS.
 func TestLambda_VpcConfig_RuntimeReachesVpcResource(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	ec2c := ec2Client()
 	ecsc := ecsClient()
@@ -734,6 +745,7 @@ func TestLambda_VpcConfig_RuntimeReachesVpcResource(t *testing.T) {
 // TestLambda_VpcConfig_RejectsUnknownSubnet matches real Lambda's
 // InvalidParameterValueException when the subnet doesn't exist in EC2.
 func TestLambda_VpcConfig_RejectsUnknownSubnet(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String("vpc-bad-fn"),
@@ -751,6 +763,7 @@ func TestLambda_VpcConfig_RejectsUnknownSubnet(t *testing.T) {
 }
 
 func TestLambda_ListFunctions_Pagination(t *testing.T) {
+	t.Parallel()
 	client := lambdaClient()
 	names := []string{"pag-fn-a", "pag-fn-b", "pag-fn-c"}
 	for _, n := range names {
@@ -782,6 +795,7 @@ func TestLambda_ListFunctions_Pagination(t *testing.T) {
 }
 
 func TestLambda_GetFunction_NotFound_ErrorClassification(t *testing.T) {
+	t.Parallel()
 	client := lambdaClient()
 	_, err := client.GetFunction(ctx, &lambda.GetFunctionInput{
 		FunctionName: aws.String("nonexistent-function"),

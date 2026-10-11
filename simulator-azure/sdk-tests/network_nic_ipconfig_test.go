@@ -39,6 +39,7 @@ func nicAddresses(nic armnetwork.Interface) map[string]string {
 // configurations it keeps and returns the dropped ones to the subnet, and that
 // the subnet refuses an address another interface holds.
 func TestNetwork_InterfaceSecondaryIPConfigurations(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	rg, vnet, nicName, otherName := uniqueName("ipcfg-rg"), uniqueName("ipcfg-vnet"), uniqueName("ipcfg-nic"), uniqueName("ipcfg-other")
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())

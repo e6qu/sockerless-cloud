@@ -23,6 +23,7 @@ func describeOneVolume(t *testing.T, c *ec2.Client, id string) types.Volume {
 // previously dropped, so aws_ebs_volume drifted on non-default configs and
 // volume resize updates errored (UnknownOperation).
 func TestEC2_EBSVolumeFidelitySDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	env := uniqueName("prod")
 
@@ -82,6 +83,7 @@ func TestEC2_EBSVolumeFidelitySDK(t *testing.T) {
 // TestEC2_EBSSnapshotFidelitySDK covers Snapshot.Encrypted/KmsKeyId (inherited
 // from the source volume) and DescribeSnapshots filtering.
 func TestEC2_EBSSnapshotFidelitySDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vol, err := c.CreateVolume(ctx, &ec2.CreateVolumeInput{
 		AvailabilityZone: aws.String("us-east-1a"), Size: aws.Int32(8), VolumeType: types.VolumeTypeGp3,
@@ -108,6 +110,7 @@ func TestEC2_EBSSnapshotFidelitySDK(t *testing.T) {
 // primitive: a copy gets a fresh snapshot id, inherits the source's size +
 // encryption, takes the supplied description, and lists via DescribeSnapshots.
 func TestEC2_CopySnapshotFidelitySDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vol, err := c.CreateVolume(ctx, &ec2.CreateVolumeInput{
 		AvailabilityZone: aws.String("us-east-1a"), Size: aws.Int32(4), VolumeType: types.VolumeTypeGp3,

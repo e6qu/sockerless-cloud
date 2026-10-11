@@ -10,6 +10,7 @@ import (
 // that attaches/detaches, a group with a Cedar policy document, and an endpoint
 // with its own policy document, with read-backs of each resource.
 func TestEC2CLI_VerifiedAccessLifecycle(t *testing.T) {
+	t.Parallel()
 	instID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-verified-access-instance",
 		"--description", "cli-vai",
 		"--tag-specifications", "ResourceType=verified-access-instance,Tags=[{Key=Name,Value=cli-vai}]",
@@ -137,6 +138,7 @@ func TestEC2CLI_VerifiedAccessLifecycle(t *testing.T) {
 // TestEC2CLI_VerifiedAccessLogging covers the per-instance access-log
 // configuration and the client-config export command.
 func TestEC2CLI_VerifiedAccessLogging(t *testing.T) {
+	t.Parallel()
 	instID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-verified-access-instance",
 		"--description", "cli-vai-logging",
 		"--query", "VerifiedAccessInstance.VerifiedAccessInstanceId", "--output", "text")))
@@ -174,6 +176,7 @@ func TestEC2CLI_VerifiedAccessLogging(t *testing.T) {
 // aws CLI: a target, a filter with an ingress rule + mirrored network services,
 // and a session binding a source ENI to the target through the filter.
 func TestEC2CLI_TrafficMirrorLifecycle(t *testing.T) {
+	t.Parallel()
 	tgtID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-traffic-mirror-target",
 		"--network-interface-id", "eni-1234567890abcdef0",
 		"--description", "cli-tmt",

@@ -67,6 +67,7 @@ func TestCLI_ECR_RegistryScanningConfiguration(t *testing.T) {
 // TestCLI_ECR_RepositoryCreationTemplates exercises the Create / Describe /
 // Update / Delete lifecycle of a repository creation template.
 func TestCLI_ECR_RepositoryCreationTemplates(t *testing.T) {
+	t.Parallel()
 	prefix := "cli-tmpl-prefix"
 
 	// Tolerant cleanup of a leftover template.
@@ -124,6 +125,7 @@ func TestCLI_ECR_RepositoryCreationTemplates(t *testing.T) {
 // TestCLI_ECR_SigningConfiguration round-trips the managed-signing
 // configuration (put / get / delete) and the image-signing-status path.
 func TestCLI_ECR_SigningConfiguration(t *testing.T) {
+	t.Parallel()
 	// Tolerant cleanup of a leftover config.
 	runCLIIgnore(awsCLI("ecr", "delete-signing-configuration"))
 
@@ -165,6 +167,7 @@ func TestCLI_ECR_SigningConfiguration(t *testing.T) {
 // TestCLI_ECR_PullTimeUpdateExclusions round-trips register / list /
 // deregister of pull-time update exclusions.
 func TestCLI_ECR_PullTimeUpdateExclusions(t *testing.T) {
+	t.Parallel()
 	principal := "arn:aws:iam::123456789012:role/CLIECRAccess"
 
 	// Tolerant cleanup.
@@ -196,6 +199,7 @@ func TestCLI_ECR_PullTimeUpdateExclusions(t *testing.T) {
 // TestCLI_ECR_PullThroughCacheUpdateValidate exercises
 // update-pull-through-cache-rule and validate-pull-through-cache-rule.
 func TestCLI_ECR_PullThroughCacheUpdateValidate(t *testing.T) {
+	t.Parallel()
 	prefix := "cli-ptc-update"
 	runCLIIgnore(awsCLI(
 		"ecr", "delete-pull-through-cache-rule", "--ecr-repository-prefix", prefix,
@@ -240,6 +244,7 @@ func TestCLI_ECR_PullThroughCacheUpdateValidate(t *testing.T) {
 // TestCLI_ECR_ListImageReferrersAndStorageClass exercises list-image-referrers
 // (honest empty) and update-image-storage-class.
 func TestCLI_ECR_ListImageReferrersAndStorageClass(t *testing.T) {
+	t.Parallel()
 	repo := "cli-referrers-repo"
 	digest := cliECRPutTestImage(t, repo, "v1")
 

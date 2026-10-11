@@ -16,6 +16,7 @@ import (
 // (Modify/Describe…Permissions), payer responsibility, private-DNS verification,
 // DescribeVpcEndpointServices, and the tolerant delete unsuccessful set.
 func TestEC2_VpcEndpointServiceRoundTrip(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	const nlbArn = "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/net/vpes/abc"
@@ -128,6 +129,7 @@ func TestEC2_VpcEndpointServiceRoundTrip(t *testing.T) {
 // TestEC2_VpcCidrBlockRoundTrip exercises AssociateVpcCidrBlock /
 // DisassociateVpcCidrBlock — adding and removing a secondary IPv4 CIDR on a VPC.
 func TestEC2_VpcCidrBlockRoundTrip(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.20.0.0/16")})
 	require.NoError(t, err)
@@ -158,6 +160,7 @@ func TestEC2_VpcCidrBlockRoundTrip(t *testing.T) {
 // DisassociateSubnetCidrBlock, and the subnet CIDR reservation ops
 // (Create/Get/Delete).
 func TestEC2_SubnetCidrRoundTrip(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.30.0.0/16")})
 	require.NoError(t, err)
@@ -215,6 +218,7 @@ func TestEC2_SubnetCidrRoundTrip(t *testing.T) {
 // TestEC2_SecondaryNetworkRoundTrip exercises Create/Describe/Delete
 // SecondaryNetwork and its nested secondary subnets.
 func TestEC2_SecondaryNetworkRoundTrip(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	sn, err := c.CreateSecondaryNetwork(ctx, &ec2.CreateSecondaryNetworkInput{
@@ -267,6 +271,7 @@ func TestEC2_SecondaryNetworkRoundTrip(t *testing.T) {
 // TestEC2_SecurityGroupVpcRoundTrip exercises Associate/Disassociate/Describe
 // SecurityGroupVpc — attaching a security group to an additional VPC.
 func TestEC2_SecurityGroupVpcRoundTrip(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.40.0.0/16")})
 	require.NoError(t, err)
@@ -309,6 +314,7 @@ func TestEC2_SecurityGroupVpcRoundTrip(t *testing.T) {
 // TestEC2_VpcEncryptionControlRoundTrip exercises Create/Modify/Describe/Delete
 // VpcEncryptionControl — a per-VPC enforce/monitor mode with resource exclusions.
 func TestEC2_VpcEncryptionControlRoundTrip(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.50.0.0/16")})
 	require.NoError(t, err)
@@ -355,6 +361,7 @@ func TestEC2_VpcEncryptionControlRoundTrip(t *testing.T) {
 // Amazon VPC encryption policy and the per-endpoint AWS PrivateLink payer
 // lifecycle through the official Amazon EC2 SDK.
 func TestEC2_AccountVpcEncryptionAndEndpointPayerRoundTrip(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	explicit, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{

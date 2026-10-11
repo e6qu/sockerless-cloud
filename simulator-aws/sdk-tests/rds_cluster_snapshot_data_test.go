@@ -101,6 +101,7 @@ func (a auroraMySQL) entries(t *testing.T) []string {
 // restores the cluster as it was deleted. Each restored cluster serves its
 // data under the source's master credential through a stock driver.
 func TestRDS_AuroraClusterSnapshotsCaptureAndRestoreTheClusterVolume(t *testing.T) {
+	t.Parallel()
 	const (
 		username = "dbadmin"
 		password = "MasterPassword-123!"

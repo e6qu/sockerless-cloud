@@ -19,12 +19,13 @@ import (
 
 // newFSGRPCClient builds the high-level cloud.google.com/go/firestore client
 // over gRPC (its only transport), pointed at the simulator's Firestore gRPC
-// data plane via FIRESTORE_EMULATOR_HOST — the same coordinate the client uses
-// to reach Google's own Firestore emulator.
+// data plane by endpoint. FIRESTORE_EMULATOR_HOST would do the same, but it is
+// process-wide and the REST client refuses to start while it is set.
 func newFSGRPCClient(t *testing.T, project string) *firestore.Client {
 	t.Helper()
-	t.Setenv("FIRESTORE_EMULATOR_HOST", grpcAddr)
 	c, err := firestore.NewClient(ctx, project,
+		option.WithEndpoint(grpcAddr),
+		option.WithoutAuthentication(),
 		option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
 	)
 	if err != nil {
@@ -37,6 +38,7 @@ func newFSGRPCClient(t *testing.T, project string) *firestore.Client {
 // TestFirestore_GRPC_CreateGetRoundTrip exercises CreateDocument + GetDocument
 // over gRPC with nested maps, arrays, integers, timestamps, strings, and bytes.
 func TestFirestore_GRPC_CreateGetRoundTrip(t *testing.T) {
+	t.Parallel()
 	c := newFSGRPCClient(t, "fs-grpc-proj")
 	doc := c.Collection("roundtrip").Doc("d1")
 
@@ -97,6 +99,7 @@ func TestFirestore_GRPC_CreateGetRoundTrip(t *testing.T) {
 // TestFirestore_GRPC_UpdateMerge asserts UpdateDocument with a field mask
 // (merge) preserves unmasked fields.
 func TestFirestore_GRPC_UpdateMerge(t *testing.T) {
+	t.Parallel()
 	c := newFSGRPCClient(t, "fs-grpc-proj")
 	doc := c.Collection("merge").Doc("m1")
 
@@ -144,6 +147,7 @@ func TestFirestore_GRPC_UpdateMerge(t *testing.T) {
 // TestFirestore_GRPC_DeletePrecondition asserts DeleteDocument honors a
 // precondition and succeeds when none is set.
 func TestFirestore_GRPC_DeletePrecondition(t *testing.T) {
+	t.Parallel()
 	c := newFSGRPCClient(t, "fs-grpc-proj")
 	doc := c.Collection("del").Doc("x1")
 	if _, err := doc.Create(ctx, map[string]any{"k": "v"}); err != nil {
@@ -183,6 +187,7 @@ func TestFirestore_GRPC_DeletePrecondition(t *testing.T) {
 // TestFirestore_GRPC_RunQuery exercises RunQuery (where, order, limit, cursor)
 // over gRPC via the high-level client's Query.
 func TestFirestore_GRPC_RunQuery(t *testing.T) {
+	t.Parallel()
 	c := newFSGRPCClient(t, "fs-grpc-proj")
 	coll := c.Collection("query")
 	for _, n := range []int{5, 1, 3, 2, 4} {
@@ -224,6 +229,7 @@ func collectField(t *testing.T, iter *firestore.DocumentIterator, field string) 
 // TestFirestore_GRPC_Transaction drives BeginTransaction/Commit (and Rollback)
 // via the high-level client's RunTransaction read-modify-write.
 func TestFirestore_GRPC_Transaction(t *testing.T) {
+	t.Parallel()
 	c := newFSGRPCClient(t, "fs-grpc-proj")
 	doc := c.Collection("txnacct").Doc("t1")
 	if _, err := doc.Set(ctx, map[string]any{"balance": int64(100)}); err != nil {
@@ -271,6 +277,7 @@ func TestFirestore_GRPC_Transaction(t *testing.T) {
 // TestFirestore_GRPC_BatchGetDocuments exercises the BatchGetDocuments server
 // stream via GetAll, mixing existing and missing documents.
 func TestFirestore_GRPC_BatchGetDocuments(t *testing.T) {
+	t.Parallel()
 	c := newFSGRPCClient(t, "fs-grpc-proj")
 	existing := c.Collection("batchget").Doc("e1")
 	missing := c.Collection("batchget").Doc("m1")
@@ -295,6 +302,7 @@ func TestFirestore_GRPC_BatchGetDocuments(t *testing.T) {
 // TestFirestore_GRPC_BatchWrite exercises BatchWrite (non-atomic batch) via the
 // high-level client's WriteBatch.
 func TestFirestore_GRPC_BatchWrite(t *testing.T) {
+	t.Parallel()
 	c := newFSGRPCClient(t, "fs-grpc-proj")
 	d1 := c.Collection("batch").Doc("b1")
 	d2 := c.Collection("batch").Doc("b2")
@@ -316,6 +324,7 @@ func TestFirestore_GRPC_BatchWrite(t *testing.T) {
 
 // TestFirestore_GRPC_ListDocuments exercises ListDocuments over gRPC.
 func TestFirestore_GRPC_ListDocuments(t *testing.T) {
+	t.Parallel()
 	c := newFSGRPCClient(t, "fs-grpc-proj")
 	coll := c.Collection("listdocs")
 	ids := []string{"l1", "l2", "l3"}
@@ -355,6 +364,7 @@ func collectDocIDs(t *testing.T, iter *firestore.DocumentIterator) []string {
 
 // TestFirestore_GRPC_Aggregation exercises RunAggregationQuery (COUNT) over gRPC.
 func TestFirestore_GRPC_Aggregation(t *testing.T) {
+	t.Parallel()
 	c := newFSGRPCClient(t, "fs-grpc-proj")
 	coll := c.Collection("agg")
 	for i := 0; i < 5; i++ {
@@ -377,6 +387,7 @@ func TestFirestore_GRPC_Aggregation(t *testing.T) {
 
 // TestFirestore_GRPC_ListCollectionIds exercises ListCollectionIds over gRPC.
 func TestFirestore_GRPC_ListCollectionIds(t *testing.T) {
+	t.Parallel()
 	c := newFSGRPCClient(t, "fs-grpc-proj")
 	parent := c.Collection("rootcol").Doc("root")
 	if _, err := parent.Create(ctx, map[string]any{"x": 1}); err != nil {

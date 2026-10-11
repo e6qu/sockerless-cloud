@@ -23,6 +23,7 @@ const (
 )
 
 func TestCompute2_BackendBuckets_CRUD_IAM(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.BackendBuckets.Insert(more2Project, &compute.BackendBucket{Name: "sdk-bb-1", BucketName: "gcs-bucket"}).Do()
 	require.NoError(t, err)
@@ -65,6 +66,7 @@ func TestCompute2_BackendBuckets_CRUD_IAM(t *testing.T) {
 }
 
 func TestCompute2_Licenses_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.Licenses.Insert(more2Project, &compute.License{
 		Name: "sdk-lic-1", Description: "an SDK licence", Transferable: true,
@@ -98,6 +100,7 @@ func TestCompute2_Licenses_CRUD(t *testing.T) {
 }
 
 func TestCompute2_SslPolicies_CRUD_AvailableFeatures(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.SslPolicies.Insert(more2Project, &compute.SslPolicy{Name: "sdk-ssl-1", MinTlsVersion: "TLS_1_2", Profile: "MODERN"}).Do()
 	require.NoError(t, err)
@@ -124,6 +127,7 @@ func TestCompute2_SslPolicies_CRUD_AvailableFeatures(t *testing.T) {
 }
 
 func TestCompute2_TargetSslProxies_CRUD_Setters(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.TargetSslProxies.Insert(more2Project, &compute.TargetSslProxy{Name: "sdk-tsp-1"}).Do()
 	require.NoError(t, err)
@@ -152,6 +156,7 @@ func TestCompute2_TargetSslProxies_CRUD_Setters(t *testing.T) {
 }
 
 func TestCompute2_ExternalVpnGateways_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.ExternalVpnGateways.Insert(more2Project, &compute.ExternalVpnGateway{Name: "sdk-evpn-1", RedundancyType: "FOUR_IPS_REDUNDANCY"}).Do()
 	require.NoError(t, err)
@@ -172,6 +177,7 @@ func TestCompute2_ExternalVpnGateways_CRUD(t *testing.T) {
 }
 
 func TestCompute2_ResourcePolicies_CRUD_IAM_Aggregated(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.ResourcePolicies.Insert(more2Project, more2Region, &compute.ResourcePolicy{Name: "sdk-rp-1"}).Do()
 	require.NoError(t, err)
@@ -202,6 +208,7 @@ func TestCompute2_ResourcePolicies_CRUD_IAM_Aggregated(t *testing.T) {
 }
 
 func TestCompute2_NodeTemplates_CRUD_Aggregated(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.NodeTemplates.Insert(more2Project, more2Region, &compute.NodeTemplate{Name: "sdk-nt-1"}).Do()
 	require.NoError(t, err)
@@ -220,6 +227,7 @@ func TestCompute2_NodeTemplates_CRUD_Aggregated(t *testing.T) {
 }
 
 func TestCompute2_NotificationEndpoints_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.RegionNotificationEndpoints.Insert(more2Project, more2Region, &compute.NotificationEndpoint{Name: "sdk-ne-1"}).Do()
 	require.NoError(t, err)
@@ -234,6 +242,7 @@ func TestCompute2_NotificationEndpoints_CRUD(t *testing.T) {
 }
 
 func TestCompute2_VpnGateways_CRUD_Aggregated(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.VpnGateways.Insert(more2Project, more2Region, &compute.VpnGateway{Name: "sdk-vpngw-1"}).Do()
 	require.NoError(t, err)
@@ -254,6 +263,7 @@ func TestCompute2_VpnGateways_CRUD_Aggregated(t *testing.T) {
 }
 
 func TestCompute2_VpnTunnels_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.VpnTunnels.Insert(more2Project, more2Region, &compute.VpnTunnel{Name: "sdk-vpnt-1"}).Do()
 	require.NoError(t, err)
@@ -268,6 +278,7 @@ func TestCompute2_VpnTunnels_CRUD(t *testing.T) {
 }
 
 func TestCompute2_TargetVpnGateways_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.TargetVpnGateways.Insert(more2Project, more2Region, &compute.TargetVpnGateway{Name: "sdk-tvgw-1"}).Do()
 	require.NoError(t, err)
@@ -282,6 +293,7 @@ func TestCompute2_TargetVpnGateways_CRUD(t *testing.T) {
 }
 
 func TestCompute2_ServiceAttachments_CRUD_IAM_Aggregated(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.ServiceAttachments.Insert(more2Project, more2Region, &compute.ServiceAttachment{Name: "sdk-sa-1"}).Do()
 	require.NoError(t, err)
@@ -308,6 +320,7 @@ func TestCompute2_ServiceAttachments_CRUD_IAM_Aggregated(t *testing.T) {
 }
 
 func TestCompute2_PacketMirrorings_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.PacketMirrorings.Insert(more2Project, more2Region, &compute.PacketMirroring{Name: "sdk-pm-1"}).Do()
 	require.NoError(t, err)
@@ -328,6 +341,7 @@ func TestCompute2_PacketMirrorings_CRUD(t *testing.T) {
 // mirroredResources, collectorIlb and filter to start the sessions, so a
 // dropped member is a policy that mirrors the wrong traffic or none.
 func TestCompute2_PacketMirrorings_PolicyShapeRoundTrips(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const name = "sdk-pm-policy"
 	base := "https://www.googleapis.com/compute/v1/projects/" + more2Project
@@ -400,6 +414,7 @@ func TestCompute2_PacketMirrorings_PolicyShapeRoundTrips(t *testing.T) {
 }
 
 func TestCompute2_NetworkAttachments_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.NetworkAttachments.Insert(more2Project, more2Region, &compute.NetworkAttachment{Name: "sdk-na-1"}).Do()
 	require.NoError(t, err)
@@ -416,6 +431,7 @@ func TestCompute2_NetworkAttachments_CRUD(t *testing.T) {
 }
 
 func TestCompute2_RegionSecurityPolicies_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.RegionSecurityPolicies.Insert(more2Project, more2Region, &compute.SecurityPolicy{Name: "sdk-rsp-1"}).Do()
 	require.NoError(t, err)
@@ -432,6 +448,7 @@ func TestCompute2_RegionSecurityPolicies_CRUD(t *testing.T) {
 }
 
 func TestCompute2_RegionSslCertificates_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.RegionSslCertificates.Insert(more2Project, more2Region, &compute.SslCertificate{Name: "sdk-rsc-1"}).Do()
 	require.NoError(t, err)
@@ -446,6 +463,7 @@ func TestCompute2_RegionSslCertificates_CRUD(t *testing.T) {
 }
 
 func TestCompute2_RegionTargetHttpsProxies_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.RegionTargetHttpsProxies.Insert(more2Project, more2Region, &compute.TargetHttpsProxy{Name: "sdk-rthp-1"}).Do()
 	require.NoError(t, err)
@@ -464,6 +482,7 @@ func TestCompute2_RegionTargetHttpsProxies_CRUD(t *testing.T) {
 }
 
 func TestCompute2_RegionSslPolicies_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.RegionSslPolicies.Insert(more2Project, more2Region, &compute.SslPolicy{Name: "sdk-rssl-1", MinTlsVersion: "TLS_1_2"}).Do()
 	require.NoError(t, err)
@@ -481,6 +500,7 @@ func TestCompute2_RegionSslPolicies_CRUD(t *testing.T) {
 }
 
 func TestCompute2_Autoscalers_CRUD_PatchUpdate(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.Autoscalers.Insert(more2Project, more2Zone, &compute.Autoscaler{Name: "sdk-as-1"}).Do()
 	require.NoError(t, err)
@@ -512,6 +532,7 @@ func TestCompute2_Autoscalers_CRUD_PatchUpdate(t *testing.T) {
 }
 
 func TestCompute2_NodeGroups_CRUD_IAM_Aggregated(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.NodeGroups.Insert(more2Project, more2Zone, 0, &compute.NodeGroup{Name: "sdk-ng-1"}).Do()
 	require.NoError(t, err)
@@ -538,6 +559,7 @@ func TestCompute2_NodeGroups_CRUD_IAM_Aggregated(t *testing.T) {
 }
 
 func TestCompute2_Reservations_CRUD_Aggregated(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.Reservations.Insert(more2Project, more2Zone, &compute.Reservation{Name: "sdk-rsv-1"}).Do()
 	require.NoError(t, err)
@@ -552,6 +574,7 @@ func TestCompute2_Reservations_CRUD_Aggregated(t *testing.T) {
 }
 
 func TestCompute2_StoragePools_CRUD_IAM_Aggregated(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.StoragePools.Insert(more2Project, more2Zone, &compute.StoragePool{Name: "sdk-sp-1"}).Do()
 	require.NoError(t, err)
@@ -573,6 +596,7 @@ func TestCompute2_StoragePools_CRUD_IAM_Aggregated(t *testing.T) {
 }
 
 func TestCompute2_TargetInstances_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.TargetInstances.Insert(more2Project, more2Zone, &compute.TargetInstance{Name: "sdk-ti-1"}).Do()
 	require.NoError(t, err)
@@ -587,6 +611,7 @@ func TestCompute2_TargetInstances_CRUD(t *testing.T) {
 }
 
 func TestCompute2_FutureReservations_CRUD_Aggregated(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.FutureReservations.Insert(more2Project, more2Zone, &compute.FutureReservation{Name: "sdk-fr-1"}).Do()
 	require.NoError(t, err)
@@ -601,6 +626,7 @@ func TestCompute2_FutureReservations_CRUD_Aggregated(t *testing.T) {
 }
 
 func TestCompute2_InstantSnapshots_CRUD_SetLabels(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.InstantSnapshots.Insert(more2Project, more2Zone, &compute.InstantSnapshot{Name: "sdk-isnap-1"}).Do()
 	require.NoError(t, err)
@@ -620,6 +646,7 @@ func TestCompute2_InstantSnapshots_CRUD_SetLabels(t *testing.T) {
 }
 
 func TestCompute2_NodeTypes_Catalog(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	list, err := svc.NodeTypes.List(more2Project, more2Zone).Do()
 	require.NoError(t, err)
@@ -634,6 +661,7 @@ func TestCompute2_NodeTypes_Catalog(t *testing.T) {
 }
 
 func TestCompute2_StoragePoolTypes_Catalog(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	list, err := svc.StoragePoolTypes.List(more2Project, more2Zone).Do()
 	require.NoError(t, err)
@@ -648,6 +676,7 @@ func TestCompute2_StoragePoolTypes_Catalog(t *testing.T) {
 }
 
 func TestCompute2_NetworkProfiles_Catalog(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	list, err := svc.NetworkProfiles.List(more2Project).Do()
 	require.NoError(t, err)
@@ -659,6 +688,7 @@ func TestCompute2_NetworkProfiles_Catalog(t *testing.T) {
 }
 
 func TestCompute2_RegionDiskTypes_Catalog(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	list, err := svc.RegionDiskTypes.List(more2Project, more2Region).Do()
 	require.NoError(t, err)

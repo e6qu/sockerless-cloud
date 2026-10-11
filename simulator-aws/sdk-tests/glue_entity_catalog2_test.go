@@ -13,6 +13,7 @@ import (
 // TestGlue_CustomEntityType_SDK round-trips a custom entity type through
 // Create/Get/List/Delete.
 func TestGlue_CustomEntityType_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 	name := "glue-sdk-cet"
 
@@ -53,6 +54,7 @@ func TestGlue_CustomEntityType_SDK(t *testing.T) {
 // TestGlue_UsageProfile_SDK round-trips a usage profile through
 // Create/Get/List/Update/Delete.
 func TestGlue_UsageProfile_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 	name := "glue-sdk-profile"
 
@@ -115,6 +117,7 @@ func TestGlue_UsageProfile_SDK(t *testing.T) {
 // (Put/Query/Remove), and GetSchemaVersionsDiff against the schema/registry
 // stores.
 func TestGlue_SchemaMetadata_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 	reg := "glue-sdk-meta-reg"
 	sch := "glue-sdk-meta-schema"
@@ -242,6 +245,7 @@ func TestGlue_SchemaMetadata_SDK(t *testing.T) {
 
 // TestGlue_SearchTables_SDK creates tables and searches the catalog store.
 func TestGlue_SearchTables_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 	db := "glue-sdk-search-db"
 
@@ -290,6 +294,7 @@ func TestGlue_SearchTables_SDK(t *testing.T) {
 // sync (UpdateJobFromSourceControl / UpdateSourceControlFromJob),
 // UpdateUserDefinedFunction, and GetResourcePolicies.
 func TestGlue_CodeGen_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 	db := "glue-sdk-codegen-db"
 	srcTable := "src"
@@ -440,6 +445,7 @@ func TestGlue_CodeGen_SDK(t *testing.T) {
 // TestGlue_IdentityCenter_SDK round-trips the singleton Glue Identity Center
 // configuration through Create/Get/Update/Delete.
 func TestGlue_IdentityCenter_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	_, err := c.CreateGlueIdentityCenterConfiguration(ctx, &glue.CreateGlueIdentityCenterConfigurationInput{

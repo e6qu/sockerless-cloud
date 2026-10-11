@@ -10,6 +10,7 @@ import (
 )
 
 func TestECS_CLI_ServiceFamily(t *testing.T) {
+	t.Parallel()
 	cluster := "cli-ecs-svc-cluster"
 	subnetID := createCLIECSTestSubnet(t, "cli-ecs-svc-cluster", 141)
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", cluster))
@@ -107,6 +108,7 @@ func cleanupCLIService(t *testing.T, cluster, service string) {
 }
 
 func TestECS_CLI_RunTaskAndCheckLogs(t *testing.T) {
+	t.Parallel()
 	subnetID := createCLIECSTestSubnet(t, "cli-ecs-cluster", 142)
 
 	// Create cluster
@@ -206,6 +208,7 @@ func TestECS_CLI_RunTaskAndCheckLogs(t *testing.T) {
 }
 
 func TestECS_CLI_RunTaskContainerOverrideEnvironment(t *testing.T) {
+	t.Parallel()
 	subnetID := createCLIECSTestSubnet(t, "cli-ecs-override", 148)
 	cluster := "cli-ecs-override"
 	logGroup := "/ecs/cli-override"
@@ -311,6 +314,7 @@ func TestECS_CLI_RunTaskContainerOverrideEnvironment(t *testing.T) {
 }
 
 func TestECS_CLI_ExecuteCommandRejectedWhenNotEnabled(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("session-manager-plugin"); err != nil {
 		t.Fatalf("session-manager-plugin is required because aws ecs execute-command checks it before calling the API; install it (the CI job installs the .deb): %v", err)
 	}
@@ -364,6 +368,7 @@ func TestECS_CLI_ExecuteCommandRejectedWhenNotEnabled(t *testing.T) {
 }
 
 func TestECS_CLI_FargateSandboxAllowsChroot(t *testing.T) {
+	t.Parallel()
 	subnetID := createCLIECSTestSubnet(t, "cli-ecs-chroot", 146)
 
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", "cli-ecs-chroot"))
@@ -439,6 +444,7 @@ func TestECS_CLI_FargateSandboxAllowsChroot(t *testing.T) {
 }
 
 func TestECS_CLI_ManagedEBSVolumeSnapshotRoundTrip(t *testing.T) {
+	t.Parallel()
 	subnetID := createCLIECSTestSubnet(t, "cli-ebs-roundtrip", 143)
 
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", "cli-ebs-roundtrip"))
@@ -588,6 +594,7 @@ func TestECS_CLI_ManagedEBSVolumeSnapshotRoundTrip(t *testing.T) {
 }
 
 func TestECS_CLI_RunTaskNonZeroExit(t *testing.T) {
+	t.Parallel()
 	subnetID := createCLIECSTestSubnet(t, "cli-ecs-fail-cluster", 144)
 
 	// Create cluster
@@ -665,6 +672,7 @@ func TestECS_CLI_RunTaskNonZeroExit(t *testing.T) {
 
 // CLI-level coverage for the ECS Tag/Untag handlers.
 func TestECS_CLI_TagAndUntagTask(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", "cli-tag-cluster"))
 
 	out := runCLI(t, awsCLI("ecs", "register-task-definition",

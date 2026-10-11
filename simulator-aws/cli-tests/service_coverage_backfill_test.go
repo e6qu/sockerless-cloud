@@ -12,6 +12,7 @@ import (
 // Each function's name routes it to the matching CI shard.
 
 func TestECRCLI_ListDescribeDeleteImages(t *testing.T) {
+	t.Parallel()
 	const manifest = `{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.v2+json","config":{"mediaType":"application/vnd.docker.container.image.v1+json","size":7,"digest":"sha256:clicfg"},"layers":[]}`
 	runCLI(t, awsCLI("ecr", "create-repository", "--repository-name", "cli-cov-img"))
 	runCLI(t, awsCLI("ecr", "put-image", "--repository-name", "cli-cov-img", "--image-tag", "v1", "--image-manifest", manifest))
@@ -32,6 +33,7 @@ func TestECRCLI_ListDescribeDeleteImages(t *testing.T) {
 }
 
 func TestSSMCLI_GetParameters(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("ssm", "put-parameter", "--name", "/cli-cov/p1", "--value", "v1", "--type", "String"))
 	runCLI(t, awsCLI("ssm", "put-parameter", "--name", "/cli-cov/p2", "--value", "v2", "--type", "String"))
 	vals := strings.Fields(runCLI(t, awsCLI("ssm", "get-parameters", "--names", "/cli-cov/p1", "/cli-cov/p2", "--query", "Parameters[].Value", "--output", "text")))
@@ -45,6 +47,7 @@ func TestSSMCLI_GetParameters(t *testing.T) {
 }
 
 func TestGlueCLI_GetPartitionIndexes(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("glue", "create-database", "--database-input", "Name=clicovdb"))
 	runCLI(t, awsCLI("glue", "create-table", "--database-name", "clicovdb",
 		"--table-input", `{"Name":"clicovt","PartitionKeys":[{"Name":"dt","Type":"string"}],"StorageDescriptor":{"Columns":[{"Name":"c","Type":"string"}]}}`))
@@ -82,6 +85,7 @@ func TestGlueCLI_GetPartitionIndexes(t *testing.T) {
 }
 
 func TestCodeBuildCLI_ListBuilds(t *testing.T) {
+	t.Parallel()
 	project := "cli-cov-listbuilds"
 	runCLI(t, awsCLI("codebuild", "create-project", "--name", project,
 		"--source", `{"type":"NO_SOURCE","buildspec":"version: 0.2\nphases:\n  build:\n    commands:\n      - printf ok\n"}`,
@@ -111,6 +115,7 @@ func TestCodeBuildCLI_ListBuilds(t *testing.T) {
 }
 
 func TestSFNCLI_VersionsAndValidate(t *testing.T) {
+	t.Parallel()
 	const def = `{"StartAt":"x","States":{"x":{"Type":"Pass","End":true}}}`
 	sm := strings.TrimSpace(runCLI(t, awsCLI("stepfunctions", "create-state-machine", "--name", "cli-cov-sm",
 		"--definition", def, "--role-arn", "arn:aws:iam::123456789012:role/r", "--query", "stateMachineArn", "--output", "text")))
@@ -138,6 +143,7 @@ func TestSFNCLI_VersionsAndValidate(t *testing.T) {
 }
 
 func TestLogsCLI_PutRetentionPolicy(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", "/cli-cov/retention"))
 	runCLI(t, awsCLI("logs", "put-retention-policy", "--log-group-name", "/cli-cov/retention", "--retention-in-days", "14"))
 	got := strings.TrimSpace(runCLI(t, awsCLI("logs", "describe-log-groups", "--log-group-name-prefix", "/cli-cov/retention",
@@ -148,6 +154,7 @@ func TestLogsCLI_PutRetentionPolicy(t *testing.T) {
 }
 
 func TestSQSCLI_SetQueueAttributes(t *testing.T) {
+	t.Parallel()
 	q := strings.TrimSpace(runCLI(t, awsCLI("sqs", "create-queue", "--queue-name", "cli-cov-q", "--query", "QueueUrl", "--output", "text")))
 	runCLI(t, awsCLI("sqs", "set-queue-attributes", "--queue-url", q, "--attributes", "VisibilityTimeout=120"))
 	got := strings.TrimSpace(runCLI(t, awsCLI("sqs", "get-queue-attributes", "--queue-url", q, "--attribute-names", "VisibilityTimeout",
@@ -158,6 +165,7 @@ func TestSQSCLI_SetQueueAttributes(t *testing.T) {
 }
 
 func TestElastiCacheCLI_RemoveTagsFromResource(t *testing.T) {
+	t.Parallel()
 	arn := strings.TrimSpace(runCLI(t, awsCLI("elasticache", "create-cache-cluster", "--cache-cluster-id", "cli-cov-cc",
 		"--engine", "redis", "--cache-node-type", "cache.t3.micro", "--num-cache-nodes", "1",
 		"--tags", "Key=Name,Value=cov", "--query", "CacheCluster.ARN", "--output", "text")))

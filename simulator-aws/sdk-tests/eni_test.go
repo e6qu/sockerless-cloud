@@ -14,6 +14,7 @@ import (
 // lifecycle (create → describe → attach → modify source/dest check → detach →
 // delete), the fck-nat NAT-instance shape.
 func TestEC2_NetworkInterfaceLifecycle(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 
 	vpc, err := client.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.77.0.0/16")})
@@ -100,6 +101,7 @@ func TestEC2_NetworkInterfaceLifecycle(t *testing.T) {
 }
 
 func TestEC2DeleteSubnetRejectsNetworkInterfaceDependency(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 	vpc, err := client.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.79.0.0/16")})
 	require.NoError(t, err)

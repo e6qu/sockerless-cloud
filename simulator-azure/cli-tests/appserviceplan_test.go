@@ -13,6 +13,7 @@ func aspURL(path string) string {
 }
 
 func TestAppServicePlan_CreateAndShow(t *testing.T) {
+	t.Parallel()
 	url := aspURL("serverfarms/cli-test-plan")
 
 	out := runCLI(t, azRest("PUT", url,
@@ -45,6 +46,7 @@ func TestAppServicePlan_CreateAndShow(t *testing.T) {
 }
 
 func TestAppServicePlan_Delete(t *testing.T) {
+	t.Parallel()
 	url := aspURL("serverfarms/delete-test-plan")
 	runCLI(t, azRest("PUT", url, `{"location":"eastus"}`))
 	runCLI(t, azRest("DELETE", url, ""))
@@ -62,6 +64,7 @@ func TestAppServicePlan_Delete(t *testing.T) {
 // mounted, and the resource IDs they return are normalized to the lowercase
 // form, so a client that writes through one casing reads a canonical ID back.
 func TestAppServicePlan_ServerFarmsCasing(t *testing.T) {
+	t.Parallel()
 	upperURL := aspURL("serverFarms/cli-casing-plan")
 	lowerURL := aspURL("serverfarms/cli-casing-plan")
 

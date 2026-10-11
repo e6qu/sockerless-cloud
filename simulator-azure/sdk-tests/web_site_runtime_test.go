@@ -75,6 +75,7 @@ func siteEnv(t *testing.T, host, name string) string {
 }
 
 func TestSDK_WebApps_ConnectionStringsReachTheWorkload(t *testing.T) {
+	t.Parallel()
 	rg, name := "sdk-connstr-rg", "sdk-connstr-app"
 	client := createFilesWebApp(t, rg, name, nil)
 
@@ -112,6 +113,7 @@ func TestSDK_WebApps_ConnectionStringsReachTheWorkload(t *testing.T) {
 }
 
 func TestSDK_WebApps_StoppedAppServesTheStoppedPage(t *testing.T) {
+	t.Parallel()
 	rg, name := "sdk-stop-rg", "sdk-stop-app"
 	client := createFilesWebApp(t, rg, name, nil)
 	status, body := siteGet(t, name, "/")
@@ -155,6 +157,7 @@ func TestSDK_WebApps_StoppedAppServesTheStoppedPage(t *testing.T) {
 }
 
 func TestSDK_WebApps_FilesTheAppWritesPersist(t *testing.T) {
+	t.Parallel()
 	rg, name := "sdk-home-rg", "sdk-home-app"
 	client := createFilesWebApp(t, rg, name, nil)
 
@@ -186,6 +189,7 @@ func TestSDK_WebApps_FilesTheAppWritesPersist(t *testing.T) {
 }
 
 func TestSDK_WebApps_SwapWithPreviewAndSlotDifferences(t *testing.T) {
+	t.Parallel()
 	rg, name, slot := "sdk-preview-rg", "sdk-preview-app", "staging"
 	client := createFilesWebApp(t, rg, name, map[string]string{"STICKY": "production", "SWAPPED": "from-production"})
 	slotHost := name + "-" + slot

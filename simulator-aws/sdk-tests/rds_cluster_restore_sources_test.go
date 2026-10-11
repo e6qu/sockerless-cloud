@@ -150,6 +150,7 @@ func nextSecondThenWait(t *testing.T, ctx context.Context, database auroraSnapsh
 // committed after it, and accepts writes of its own. The window opens when
 // the cluster's engine first serves, and a time outside it is refused.
 func TestRDS_AuroraClusterRestoresToAPointInTime(t *testing.T) {
+	t.Parallel()
 	for _, engine := range []string{"aurora-postgresql", "aurora-mysql"} {
 		t.Run(engine, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -217,6 +218,7 @@ func TestRDS_AuroraClusterRestoresToAPointInTime(t *testing.T) {
 // DB snapshot, named by its ARN, into a new Aurora cluster that serves the
 // instance's data under its master credential.
 func TestRDS_AuroraClusterRestoresFromADBInstanceSnapshot(t *testing.T) {
+	t.Parallel()
 	for _, engine := range []string{"postgres", "mysql"} {
 		t.Run(engine, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)

@@ -18,6 +18,7 @@ func firestoreAdminService(t *testing.T) *firestore.Service {
 
 // A change stream watches a database or one collection group for changes.
 func TestFirestore_ChangeStreams(t *testing.T) {
+	t.Parallel()
 	svc := firestoreAdminService(t)
 	const project, database = "streams-project", "(default)"
 	parent := "projects/" + project + "/databases/" + database
@@ -69,6 +70,7 @@ func TestFirestore_ChangeStreams(t *testing.T) {
 // listen reports the target it was given; executePipeline runs the pipeline it
 // was given. Neither reports data the database does not hold.
 func TestFirestore_ListenAndExecutePipeline(t *testing.T) {
+	t.Parallel()
 	svc := firestoreAdminService(t)
 	const project, database = "listen-project", "(default)"
 	documents := "projects/" + project + "/databases/" + database + "/documents"

@@ -70,6 +70,7 @@ func tokenSourceFromKeyFile(t *testing.T, keyFile map[string]any) *google.Creden
 }
 
 func TestOAuth2_MintedServiceAccountKey_EndToEnd(t *testing.T) {
+	t.Parallel()
 	_, _, keyFile := mintServiceAccountKeyFile(t, "minted-key-sa")
 	creds := tokenSourceFromKeyFile(t, keyFile)
 
@@ -97,6 +98,7 @@ func TestOAuth2_MintedServiceAccountKey_EndToEnd(t *testing.T) {
 }
 
 func TestOAuth2_TamperedKeyRejected(t *testing.T) {
+	t.Parallel()
 	_, _, keyFile := mintServiceAccountKeyFile(t, "tampered-key-sa")
 
 	// Swap the private key for a fresh one the IAM API never registered,
@@ -115,6 +117,7 @@ func TestOAuth2_TamperedKeyRejected(t *testing.T) {
 }
 
 func TestOAuth2_UnknownServiceAccountRejected(t *testing.T) {
+	t.Parallel()
 	_, _, keyFile := mintServiceAccountKeyFile(t, "known-sa-for-unknown-test")
 
 	// The minted key is genuine, but the assertion claims an account that
@@ -129,6 +132,7 @@ func TestOAuth2_UnknownServiceAccountRejected(t *testing.T) {
 }
 
 func TestOAuth2_DeletedKeyRejected(t *testing.T) {
+	t.Parallel()
 	_, keyName, keyFile := mintServiceAccountKeyFile(t, "revoked-key-sa")
 
 	// The key works while it is registered…
@@ -147,6 +151,7 @@ func TestOAuth2_DeletedKeyRejected(t *testing.T) {
 }
 
 func TestOAuth2_ExpiredAssertionRejected(t *testing.T) {
+	t.Parallel()
 	_, keyName, keyFile := mintServiceAccountKeyFile(t, "expired-assertion-sa")
 
 	// Sign an assertion with the genuine minted key, expired an hour ago. The

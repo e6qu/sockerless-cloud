@@ -14,6 +14,7 @@ import (
 // support ListRepositories previously dropped (it returned every repository in
 // one page with no nextPageToken).
 func TestArtifactRegistry_ListRepositoriesPagination(t *testing.T) {
+	t.Parallel()
 	svc, err := artifactregistry.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 

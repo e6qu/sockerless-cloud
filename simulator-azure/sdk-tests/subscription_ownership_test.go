@@ -74,6 +74,7 @@ func createDirectedAlias(t *testing.T, client *armsubscription.AliasClient, alia
 // returned, and the settled state is visible both on the ownership status and
 // on the alias the provider reads.
 func TestSubscriptionOwnershipAcceptance(t *testing.T) {
+	t.Parallel()
 	aliasClient, err := armsubscription.NewAliasClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	subClient, err := armsubscription.NewClient(&fakeCredential{}, clientOpts())
@@ -153,6 +154,7 @@ func TestSubscriptionOwnershipAcceptance(t *testing.T) {
 // a subscription that never had an ownership request: there is nothing to
 // report, and the service says so rather than inventing a state.
 func TestSubscriptionAcceptOwnershipStatusUnknown(t *testing.T) {
+	t.Parallel()
 	subClient, err := armsubscription.NewClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = subClient.AcceptOwnershipStatus(ctx, "00000000-0000-0000-0000-0000000d0e5f", nil)
@@ -165,6 +167,7 @@ func TestSubscriptionAcceptOwnershipStatusUnknown(t *testing.T) {
 // through its client: read the default, replace it, and read it back through
 // both the get and the list operation.
 func TestSubscriptionTenantPolicyLifecycle(t *testing.T) {
+	t.Parallel()
 	policyClient, err := armsubscription.NewPolicyClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	t.Cleanup(func() { resetTenantPolicy(t, policyClient) })
@@ -220,6 +223,7 @@ func TestSubscriptionTenantPolicyLifecycle(t *testing.T) {
 // another tenant is refused, and the same request from a principal the policy
 // exempts succeeds.
 func TestSubscriptionPolicyBlocksTenantTransfer(t *testing.T) {
+	t.Parallel()
 	policyClient, err := armsubscription.NewPolicyClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	aliasClient, err := armsubscription.NewAliasClient(&fakeCredential{}, clientOpts())
@@ -276,6 +280,7 @@ func TestSubscriptionPolicyBlocksTenantTransfer(t *testing.T) {
 // asserts it reports the tenants the account actually serves — the tenants
 // holding the subscriptions created under it.
 func TestSubscriptionBillingAccountPolicy(t *testing.T) {
+	t.Parallel()
 	billingClient, err := armsubscription.NewBillingAccountClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	aliasClient, err := armsubscription.NewAliasClient(&fakeCredential{}, clientOpts())
@@ -309,6 +314,7 @@ func TestSubscriptionBillingAccountPolicy(t *testing.T) {
 // TestSubscriptionOperationsList reads the resource provider's operation
 // catalog — the actions a role assignment can name.
 func TestSubscriptionOperationsList(t *testing.T) {
+	t.Parallel()
 	operationsClient, err := armsubscription.NewOperationsClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 

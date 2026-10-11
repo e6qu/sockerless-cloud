@@ -8,6 +8,7 @@ import (
 // TestLambda_GetFunctionRepositoryTypeCLI: get-function reports the documented
 // Code.RepositoryType ("S3" for a ZIP package).
 func TestLambda_GetFunctionRepositoryTypeCLI(t *testing.T) {
+	t.Parallel()
 	zipPath := createDummyZip(t)
 	name := "cli-repotype-func"
 	runCLI(t, awsCLI("lambda", "create-function",
@@ -26,6 +27,7 @@ func TestLambda_GetFunctionRepositoryTypeCLI(t *testing.T) {
 // TestEventBridgeCLI_EventBusKMS: create-event-bus persists kms-key-identifier
 // so describe-event-bus returns it (was echoed-but-not-stored → terraform drift).
 func TestEventBridgeCLI_EventBusKMS(t *testing.T) {
+	t.Parallel()
 	name := "cli-kms-bus"
 	kms := "arn:aws:kms:us-east-1:123456789012:key/cli-eb"
 	runCLI(t, awsCLI("events", "create-event-bus", "--name", name, "--kms-key-identifier", kms))

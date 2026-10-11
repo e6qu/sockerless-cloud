@@ -1,0 +1,33 @@
+# Tests that cannot share the simulator with the rest of the suite, with
+# the reason; scripts/check-parallel-tests.go holds every other test to
+# starting with t.Parallel().
+TestACMCLI_AccountConfiguration	changes an account-wide setting other tests read
+TestAPIGatewayCLI_AccountExportSdkUsageTags	changes an account-wide setting other tests read
+TestAWSServiceStateSurvivesSimulatorRestart_CLI	restarts the simulator every other test talks to
+TestCLI_ECR_AccountSettings	changes an account-wide setting other tests read
+TestCLI_ECR_RegistryScanningConfiguration	changes a service-wide setting other tests read
+TestEC2CLI_EbsEncryptionByDefault	changes a service-wide setting other tests read
+TestEC2CLI_ImageBlockPublicAccess	changes a service-wide setting other tests read
+TestEC2CLI_ImageDeprecation	changes a service-wide setting other tests read
+TestEC2CLI_SerialConsoleAndMetadataDefaults	changes an account-wide setting other tests read
+TestEC2CLI_SnapshotBlockPublicAccess	changes a service-wide setting other tests read
+TestECRCLI_RegistryPolicyAndReplication	changes a service-wide setting other tests read
+TestECSCLI_AccountSettings	changes an account-wide setting other tests read
+TestIAMAccountReportsCLI_OrganizationsRootAndSTS	changes an account-wide setting other tests read
+TestIAMCLI_AccountPasswordPolicy	changes an account-wide setting other tests read
+TestIAM_AccountAlias_CLI	changes an account-wide setting other tests read
+TestKinesisCLI_AccountSettings	changes an account-wide setting other tests read
+TestLogsAccountAndQueryPolicyCLI	changes an account-wide setting other tests read
+TestOrganizationsCLI_DelegatedAdminAndServiceAccess	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizationsCLI_DescribeAndList	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizationsCLI_EnableAllFeatures	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizationsCLI_GovCloudAccount	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizationsCLI_Handshakes	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizationsCLI_LeaveOrganization	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizationsCLI_OUTreeAndAccounts	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizationsCLI_Policies	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizationsCLI_ResourcePolicy	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizationsCLI_Tags	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizationsCLI_zzCreateDeleteOrganization	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizations_ListPoliciesFilterCLI	creates, changes or deletes the account's one organization, which other tests read
+TestSSMCLI_ServiceSetting	changes a service-wide setting other tests read

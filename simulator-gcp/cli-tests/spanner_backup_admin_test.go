@@ -15,6 +15,7 @@ import (
 // restored from the copy, and queried again. The restored query must return the
 // rows the backup captured.
 func TestSpannerCLI_BackupRestoreCrossPlane(t *testing.T) {
+	t.Parallel()
 	const (
 		instance = "cli-backup"
 		database = "clibackupdb"
@@ -130,6 +131,7 @@ func spannerListNames(t *testing.T, args ...string) []string {
 // backup schedules, instance partitions, database roles and operations — through
 // gcloud.
 func TestSpannerCLI_AdminSurface(t *testing.T) {
+	t.Parallel()
 	const (
 		instance = "cli-admin"
 		database = "cliadmindb"

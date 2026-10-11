@@ -20,6 +20,7 @@ import (
 // absent, and the schema requires none of it. A number invented for any of them
 // would be indistinguishable from a reading.
 func TestCompute_InterconnectDiagnosticsComeFromTheInterconnect(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project = "interconnect-diagnostics-project"
 

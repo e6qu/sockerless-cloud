@@ -19,6 +19,7 @@ import (
 // back, and DisassociateDatasetKmsKey clears it. Any other dataset does not
 // exist.
 func TestCloudWatch_DatasetKmsKey(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	id := "default"
 	kms := "arn:aws:kms:us-east-1:000000000000:key/11111111-2222-3333-4444-555555555555"
@@ -58,6 +59,7 @@ func TestCloudWatch_DatasetKmsKey(t *testing.T) {
 // enrichment state: Start flips the status to Running, Stop flips it to Stopped,
 // and Get reads the current value.
 func TestCloudWatch_OTelEnrichment(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 
 	_, err := client.StartOTelEnrichment(ctx, &cloudwatch.StartOTelEnrichmentInput{})
@@ -77,6 +79,7 @@ func TestCloudWatch_OTelEnrichment(t *testing.T) {
 // managed rule over a resource ARN and ListManagedInsightRules reading it back
 // with its template name and rule state.
 func TestCloudWatch_ManagedInsightRules(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	resourceARN := "arn:aws:ec2:us-east-1:000000000000:vpc/vpc-abc123"
 
@@ -107,6 +110,7 @@ func TestCloudWatch_ManagedInsightRules(t *testing.T) {
 // and per-period metric datapoints with zero counts (no contributor data is
 // ingested by the sim).
 func TestCloudWatch_InsightRuleReport(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	name := "sdk-report-rule"
 	def := `{"Schema":{"Name":"CloudWatchLogRule","Version":1},"LogGroupNames":["/aws/lambda/x"],"Contribution":{"Keys":["$.requestId"]},"AggregateOn":"Count"}`
@@ -148,6 +152,7 @@ func TestCloudWatch_InsightRuleReport(t *testing.T) {
 // existing alarm: the contributor list is honestly empty for a single-metric
 // alarm, and an unknown alarm is a not-found error.
 func TestCloudWatch_AlarmContributors(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	name := "sdk-alarm-contributors"
 	_, err := client.PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
@@ -178,6 +183,7 @@ func TestCloudWatch_AlarmContributors(t *testing.T) {
 // TestCloudWatch_MetricWidgetImage verifies GetMetricWidgetImage returns real,
 // decodable PNG bytes sized from the widget definition's width/height.
 func TestCloudWatch_MetricWidgetImage(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	widget := `{"metrics":[["AWS/EC2","CPUUtilization","InstanceId","i-1234567890abcdef0"]],"width":300,"height":200,"period":300,"stat":"Average"}`
 

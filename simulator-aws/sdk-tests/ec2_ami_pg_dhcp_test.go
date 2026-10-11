@@ -17,6 +17,7 @@ import (
 // root device / backing snapshot), distinct from the synthesized vendor-AMI
 // lookup the sim keeps for `data.aws_ami`.
 func TestEC2_AMILifecycleSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.140.0.0/16")})
@@ -120,6 +121,7 @@ func describeOneImage(t *testing.T, c *ec2.Client, id string) types.Image {
 // / DeletePlacementGroup, including the strategy + partition-count round-trip and
 // a strategy filter.
 func TestEC2_PlacementGroupSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	_, err := c.CreatePlacementGroup(ctx, &ec2.CreatePlacementGroupInput{
@@ -172,6 +174,7 @@ func TestEC2_PlacementGroupSDK(t *testing.T) {
 // AssociateDhcpOptions / DeleteDhcpOptions, including the dhcp-configuration
 // key/value round-trip and the VPC association that updates dhcpOptionsId.
 func TestEC2_DhcpOptionsSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	created, err := c.CreateDhcpOptions(ctx, &ec2.CreateDhcpOptionsInput{

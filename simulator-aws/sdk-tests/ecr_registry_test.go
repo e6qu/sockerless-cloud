@@ -32,6 +32,7 @@ func ecrPutTestImage(t *testing.T, client *ecr.Client, repo, tag string) string 
 // and PutImageScanningConfiguration, then reads the settings back through
 // DescribeRepositories to confirm they round-trip.
 func TestECR_ImageTagMutabilityAndScanningConfig(t *testing.T) {
+	t.Parallel()
 	client := ecrClient()
 	repo := uniqueName("ecr-config-repo")
 	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
@@ -68,6 +69,7 @@ func TestECR_ImageTagMutabilityAndScanningConfig(t *testing.T) {
 // The simulator runs no scanner, so the scan completes with an honest
 // empty findings result (no fabricated CVEs).
 func TestECR_ImageScan(t *testing.T) {
+	t.Parallel()
 	client := ecrClient()
 	repo := "ecr-scan-repo"
 	ecrPutTestImage(t, client, repo, "scanme")
@@ -94,6 +96,7 @@ func TestECR_ImageScan(t *testing.T) {
 // TestECR_LifecyclePolicyPreview puts a lifecycle policy, starts a preview,
 // then reads the preview back.
 func TestECR_LifecyclePolicyPreview(t *testing.T) {
+	t.Parallel()
 	client := ecrClient()
 	repo := uniqueName("ecr-lifecycle-preview-repo")
 	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{

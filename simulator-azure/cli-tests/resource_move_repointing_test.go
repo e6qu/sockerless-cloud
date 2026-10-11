@@ -31,6 +31,7 @@ func cliResourceID(rg, provider, typeName, name string) string {
 // and the connection string `az cosmosdb keys list` prints are identical
 // afterwards, which is what every application's connection string carries.
 func TestResourceMoveCosmosAccountCLI(t *testing.T) {
+	t.Parallel()
 	env := startAzLoginSimulator(t)
 	tagCLILogin(t, env, "sockerless-cosmos-move")
 
@@ -85,6 +86,7 @@ func TestResourceMoveCosmosAccountCLI(t *testing.T) {
 // included, because the workflow is addressed on the Logic Apps service host
 // by an identifier no resource group appears in.
 func TestResourceMoveLogicWorkflowCLI(t *testing.T) {
+	t.Parallel()
 	env := startAzLoginSimulator(t)
 	tagCLILogin(t, env, "sockerless-logic-move")
 
@@ -130,6 +132,7 @@ func TestResourceMoveLogicWorkflowCLI(t *testing.T) {
 // Partner Events resource that carries access keys and proves both keys
 // survive, and that the namespace's channel moved with it.
 func TestResourceMoveEventGridPartnerNamespaceCLI(t *testing.T) {
+	t.Parallel()
 	env := startAzLoginSimulator(t)
 	tagCLILogin(t, env, "sockerless-eg-partner-move")
 
@@ -183,6 +186,7 @@ func TestResourceMoveEventGridPartnerNamespaceCLI(t *testing.T) {
 // proves the private DNS zone's virtual network link — which did not move —
 // names the moved virtual network afterwards rather than the address it left.
 func TestResourceMoveVirtualNetworkRepointsLinkCLI(t *testing.T) {
+	t.Parallel()
 	env := startAzLoginSimulator(t)
 	tagCLILogin(t, env, "sockerless-vnet-move")
 
@@ -224,6 +228,7 @@ func TestResourceMoveVirtualNetworkRepointsLinkCLI(t *testing.T) {
 // not move between resource groups, so `az resource invoke-action`-style
 // validation answers ResourceMoveNotSupported.
 func TestResourceMoveRefusesUnsupportedTypesCLI(t *testing.T) {
+	t.Parallel()
 	env := startAzLoginSimulator(t)
 	tagCLILogin(t, env, "sockerless-move-refusals")
 
@@ -260,6 +265,7 @@ func TestResourceMoveRefusesUnsupportedTypesCLI(t *testing.T) {
 // of the same type and name: the move is refused, and the resource already
 // there is still the one that answers.
 func TestResourceMoveOntoOccupiedIdentifierCLI(t *testing.T) {
+	t.Parallel()
 	env := startAzLoginSimulator(t)
 	tagCLILogin(t, env, "sockerless-move-conflict")
 

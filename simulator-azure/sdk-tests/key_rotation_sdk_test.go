@@ -37,6 +37,7 @@ func storageAccountKeyValues(t *testing.T, keys []*armstorage.AccountKey) (key1,
 // observes the rotation, a second regenerate yields yet another value, and
 // deleting the account resets the keys for a later account of the same name.
 func TestStorageARM_RegenerateKeyRotation(t *testing.T) {
+	t.Parallel()
 	rg := "storagearm-rotation-rg"
 	account := "storagearmrotation"
 	client := createStorageAccountForARM(t, rg, account)
@@ -82,6 +83,7 @@ func TestStorageARM_RegenerateKeyRotation(t *testing.T) {
 // observes the rotation, repeated regenerates keep producing new values, and
 // delete + recreate resets the keys.
 func TestRedis_RegenerateKeyRotation(t *testing.T) {
+	t.Parallel()
 	rg := "redis-rotation-rg"
 	name := "redis-rotation"
 	ensureRedisResourceGroup(t, rg)
@@ -131,6 +133,7 @@ func TestRedis_RegenerateKeyRotation(t *testing.T) {
 // key field pins caller-supplied material, and deleting the rule resets its
 // keys for a later rule of the same name.
 func TestEventHubsARM_RegenerateKeysRotation(t *testing.T) {
+	t.Parallel()
 	rg := "eh-rotation-rg"
 	ns := "sdk-eh-rotation-ns"
 	rule := "sdk-eh-rotation-rule"
@@ -254,6 +257,7 @@ func TestEventHubsARM_RegenerateKeysRotation(t *testing.T) {
 // strings embed the rotated key, listKeys observes the rotation, and deleting
 // the queue resets the keys of its scoped rules.
 func TestServiceBusARM_RegenerateKeysRotation(t *testing.T) {
+	t.Parallel()
 	rg := "sb-rotation-rg"
 	ns := "sdk-sb-rotation-ns"
 

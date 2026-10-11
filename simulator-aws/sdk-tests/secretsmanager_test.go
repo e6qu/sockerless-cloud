@@ -21,6 +21,7 @@ func smClient() *secretsmanager.Client {
 // secret-fetching flow: workflow creates a secret, the runner fetches
 // it, the workflow rotates the value, then deletes it on cleanup.
 func TestSecretsManager_CreateGetUpdateDelete(t *testing.T) {
+	t.Parallel()
 	c := smClient()
 
 	createOut, err := c.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
@@ -86,6 +87,7 @@ func TestSecretsManager_CreateGetUpdateDelete(t *testing.T) {
 }
 
 func TestSecretsManager_DuplicateNameRejected(t *testing.T) {
+	t.Parallel()
 	c := smClient()
 	defer c.DeleteSecret(ctx, &secretsmanager.DeleteSecretInput{
 		SecretId:                   aws.String("dup-name"),
@@ -104,6 +106,7 @@ func TestSecretsManager_DuplicateNameRejected(t *testing.T) {
 }
 
 func TestSecretsManager_ListAndTag(t *testing.T) {
+	t.Parallel()
 	c := smClient()
 
 	defer c.DeleteSecret(ctx, &secretsmanager.DeleteSecretInput{
@@ -164,6 +167,7 @@ func TestSecretsManager_ListAndTag(t *testing.T) {
 // is attached; returning an empty string causes the provider to crash with
 // "unexpected end of JSON input".
 func TestSecretsManager_GetResourcePolicy(t *testing.T) {
+	t.Parallel()
 	c := smClient()
 
 	createOut, err := c.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
@@ -197,6 +201,7 @@ func TestSecretsManager_GetResourcePolicy(t *testing.T) {
 }
 
 func TestSM_ListSecrets_Pagination(t *testing.T) {
+	t.Parallel()
 	client := smClient()
 	names := []string{"pag-sm-a", "pag-sm-b", "pag-sm-c"}
 	for _, n := range names {
@@ -228,6 +233,7 @@ func TestSM_ListSecrets_Pagination(t *testing.T) {
 }
 
 func TestSM_GetSecret_NotFound_ErrorClassification(t *testing.T) {
+	t.Parallel()
 	client := smClient()
 	_, err := client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
 		SecretId: aws.String("nonexistent-secret"),

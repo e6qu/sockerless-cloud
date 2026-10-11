@@ -21,6 +21,7 @@ import (
 // action succeeds. Unregistered (test) credentials remain permissive, which is
 // why the setup calls (run with the default creds) work.
 func TestIAM_CallTimeEnforcement(t *testing.T) {
+	t.Parallel()
 	admin := iamClient()
 	user := uniqueName("restricted-user")
 
@@ -86,6 +87,7 @@ func TestIAM_CallTimeEnforcement(t *testing.T) {
 // monitoring.amazonaws.com CloudTrail event source is authorized through the
 // service's real cloudwatch:* IAM namespace.
 func TestIAM_CloudWatchNamespaceEnforcement(t *testing.T) {
+	t.Parallel()
 	cfg := restrictedConfig(t, iamClient(), "cloudwatch-restricted-user", "cloudwatch-only",
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"cloudwatch:ListDashboards","Resource":"*"}]}`)
 	cw := cloudwatch.NewFromConfig(cfg, func(o *cloudwatch.Options) {

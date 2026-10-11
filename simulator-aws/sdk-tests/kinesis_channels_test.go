@@ -16,6 +16,7 @@ import (
 // description, an update of what an update may change, the listing and its
 // stream filter, and the delete.
 func TestKinesisSDK_ChannelLifecycle(t *testing.T) {
+	t.Parallel()
 	kc := kinesisClient()
 	streamName, channelName := "channel-source-stream", "delivery-channel"
 

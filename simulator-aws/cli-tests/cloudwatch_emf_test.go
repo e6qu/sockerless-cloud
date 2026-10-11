@@ -12,6 +12,7 @@ import (
 // EMF message (an _aws.CloudWatchMetrics block) surfaces the metric via
 // list-metrics + get-metric-statistics, with no put-metric-data call.
 func TestCloudWatchCLI_EMFExtraction(t *testing.T) {
+	t.Parallel()
 	group := "/cli/emf"
 	stream := "emf-stream"
 	ns := "edd/emf-cli"

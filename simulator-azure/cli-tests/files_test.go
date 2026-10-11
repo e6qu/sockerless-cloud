@@ -43,6 +43,7 @@ func azStorageFile(group string, args ...string) *exec.Cmd {
 // Create File followed by Upload Range, so a share is only useful as a mounted
 // volume if those two land the bytes on the host path the executor binds.
 func TestFilesUploadLandsInTheContainerAppsMountCLI(t *testing.T) {
+	t.Parallel()
 	const share = "cli-mount-share"
 	const fileName = "uploaded.txt"
 	payload := "bytes uploaded with the az CLI"
@@ -103,6 +104,7 @@ func TestFilesUploadLandsInTheContainerAppsMountCLI(t *testing.T) {
 // its files with it, so a container that mounts a share of the same name later
 // never sees the previous share's data.
 func TestFilesShareDeleteRemovesTheMountedContentsCLI(t *testing.T) {
+	t.Parallel()
 	const share = "cli-deleted-share"
 	const fileName = "gone.txt"
 
@@ -120,6 +122,7 @@ func TestFilesShareDeleteRemovesTheMountedContentsCLI(t *testing.T) {
 }
 
 func TestFilesShareStoredAccessPolicyCLI(t *testing.T) {
+	t.Parallel()
 	const (
 		share  = "cli-policy-share"
 		policy = "cli-policy"

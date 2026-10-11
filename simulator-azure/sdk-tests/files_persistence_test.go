@@ -21,6 +21,7 @@ import (
 // restart that reattaches the same data directory must answer exactly as the
 // process that wrote it did.
 func TestAzureStorageDataPlaneStateSurvivesSimulatorRestart_SDK(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 	port := freeAzureSimPort(t)
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", port)

@@ -13,6 +13,7 @@ import (
 // pre-OAC origin access identity via the aws CLI:
 // create → get → get-config → update → list → delete.
 func TestCloudFront_OriginAccessIdentity_Lifecycle(t *testing.T) {
+	t.Parallel()
 	caller := "cli-oai-" + time.Now().Format("150405.000000")
 	cfgJSON := fmt.Sprintf(`{"CallerReference": "%s", "Comment": "cli oai"}`, caller)
 
@@ -81,6 +82,7 @@ func TestCloudFront_OriginAccessIdentity_Lifecycle(t *testing.T) {
 // TestCloudFront_ContinuousDeploymentPolicy_Lifecycle exercises CDP via
 // the aws CLI: create → get → get-config → update → list → delete.
 func TestCloudFront_ContinuousDeploymentPolicy_Lifecycle(t *testing.T) {
+	t.Parallel()
 	cfgJSON := `{
 		"StagingDistributionDnsNames": {"Quantity": 1, "Items": ["staging.example.com"]},
 		"Enabled": true,
@@ -163,6 +165,7 @@ func TestCloudFront_ContinuousDeploymentPolicy_Lifecycle(t *testing.T) {
 // per-distribution monitoring subscription via the aws CLI:
 // create → get → delete.
 func TestCloudFront_MonitoringSubscription_Lifecycle(t *testing.T) {
+	t.Parallel()
 	distID := cliCreateTestDistribution(t)
 
 	subJSON := `{"RealtimeMetricsSubscriptionConfig": {"RealtimeMetricsSubscriptionStatus": "Enabled"}}`

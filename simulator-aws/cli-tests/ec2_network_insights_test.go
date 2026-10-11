@@ -9,6 +9,7 @@ import (
 // Access Analyzer families over the aws CLI: path → analysis, and access
 // scope → content → scope analysis → findings, with tolerant teardown.
 func TestEC2CLI_NetworkInsights(t *testing.T) {
+	t.Parallel()
 	pathID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-network-insights-path",
 		"--source", "eni-cli-source", "--destination", "eni-cli-destination",
 		"--protocol", "tcp", "--destination-port", "443",
@@ -83,6 +84,7 @@ func TestEC2CLI_NetworkInsights(t *testing.T) {
 // route server → association → endpoint → peer → propagation → routing
 // database, with tolerant teardown.
 func TestEC2CLI_RouteServer(t *testing.T) {
+	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.71.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	subnetID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-subnet",
@@ -176,6 +178,7 @@ func TestEC2CLI_RouteServer(t *testing.T) {
 // TestEC2CLI_LocalGatewayRoute drives the local-gateway-route CRUD path over
 // the aws CLI: create → search → modify → delete.
 func TestEC2CLI_LocalGatewayRoute(t *testing.T) {
+	t.Parallel()
 	rtID := "lgw-rtb-0fedcba9876543210"
 
 	cidr := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-local-gateway-route",

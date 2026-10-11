@@ -632,6 +632,7 @@ var routeCoveragePathParam = regexp.MustCompile(`\{[^}]*\}`)
 // that the route is real. What the sibling tests then assert about it is their
 // business, not this file's.
 func TestRouteCoveragePathsAreServed(t *testing.T) {
+	t.Parallel()
 	_, thisFile, _, ok := runtime.Caller(0)
 	require.True(t, ok, "locate this file to read the route list out of it")
 	source, err := os.ReadFile(thisFile)

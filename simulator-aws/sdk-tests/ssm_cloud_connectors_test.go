@@ -33,6 +33,7 @@ func ssmCloudConnectorAzureConfig(tenant, subscription string) ssmtypes.CloudCon
 // GetCloudConnector → ListCloudConnectors (with the SubscriptionId filter) →
 // UpdateCloudConnector → DeleteCloudConnector.
 func TestSSM_CloudConnectorLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	iamc := iamClient()
 
@@ -111,6 +112,7 @@ func TestSSM_CloudConnectorLifecycle(t *testing.T) {
 // role trusts Systems Manager reports only the informational tenant /
 // subscription findings.
 func TestSSM_ValidateCloudConnector(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	iamc := iamClient()
 

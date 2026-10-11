@@ -13,6 +13,7 @@ import (
 // Run front end, which admits a caller only with an ID token for the URL
 // whose principal holds run.routes.invoke on the instance.
 func TestSDK_CloudRun_InstanceURLServesThroughTheFrontEnd(t *testing.T) {
+	t.Parallel()
 	name := createRunV2Instance(t, "rest-inst-url")
 	svc := newRunV2RESTService(t)
 	inst, err := svc.Projects.Locations.Instances.Get(name).Do()

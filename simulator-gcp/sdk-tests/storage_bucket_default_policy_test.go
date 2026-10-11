@@ -16,6 +16,7 @@ import (
 // revokes it — the Terraform google_storage_bucket_iam_member lifecycle —
 // sets the defaults back, never an empty policy.
 func TestGCS_BucketCarriesDefaultPolicyFromCreation(t *testing.T) {
+	t.Parallel()
 	svc := storageService(t)
 	bucket := uniqueName("default-policy-bucket")
 	requireProject(t, "default-policy-project")

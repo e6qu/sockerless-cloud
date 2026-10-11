@@ -11,6 +11,7 @@ import (
 // undelete <unique-id>`, which calls projects.serviceAccounts.undelete on
 // projects/-/serviceAccounts/{uniqueId}:undelete.
 func TestIAMServiceAccountUndeleteCLI(t *testing.T) {
+	t.Parallel()
 	const accountID = "cli-undelete-sa"
 	email := accountID + "@" + project + ".iam.gserviceaccount.com"
 

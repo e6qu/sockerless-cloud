@@ -93,6 +93,7 @@ func (i *workforceIssuer) mintAssertion(t *testing.T, subject, audience string) 
 // credential — all against the simulator, differing from real Google only in
 // the endpoint coordinates inside the credential file.
 func TestWorkforceExternalAccountGcloudLogin(t *testing.T) {
+	t.Parallel()
 	issuer := newWorkforceIssuer(t)
 	const subject = "operator@example.test"
 	const audience = "sockerless-cli"

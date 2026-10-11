@@ -58,6 +58,7 @@ func asxSetupGroupCLI(t *testing.T, lcName, groupName string, desired int) {
 // through the real aws CLI, grouped into one test so the EDGE shard regex
 // (^TestAutoScaling) keeps them together.
 func TestAutoScalingCLI_ExtendedOps(t *testing.T) {
+	t.Parallel()
 	const group = "asx-cli-grp"
 	asxSetupGroupCLI(t, "asx-cli-lc", group, 1)
 

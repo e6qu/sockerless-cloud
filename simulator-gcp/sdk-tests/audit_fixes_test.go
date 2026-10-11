@@ -25,6 +25,7 @@ func requireGoogleErrCode(t *testing.T, err error, code int) {
 // must honor updateMask and preserve unmentioned fields (DocumentRef.Update /
 // Set MergeAll) instead of replacing the whole document.
 func TestFirestore_UpdateMaskPreservesFields(t *testing.T) {
+	t.Parallel()
 	svc, err := firestore.NewService(ctx, option.WithEndpoint(baseURL+"/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
@@ -77,6 +78,7 @@ func TestFirestore_UpdateMaskPreservesFields(t *testing.T) {
 // DISABLED version (or "latest" when the highest version is disabled) must
 // return FAILED_PRECONDITION (400), not the payload.
 func TestSecretManager_AccessDisabledVersionFails(t *testing.T) {
+	t.Parallel()
 	svc := secretManagerService(t)
 	parent := "projects/sdk-disabled-project"
 	secretID := "disabled-access-secret"

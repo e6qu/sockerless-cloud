@@ -14,6 +14,7 @@ import (
 // TestEC2_KeyPairsSDK covers CreateKeyPair/ImportKeyPair/DeleteKeyPair and a
 // real DescribeKeyPairs (previously always empty) — backs aws_key_pair.
 func TestEC2_KeyPairsSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	created, err := c.CreateKeyPair(ctx, &ec2.CreateKeyPairInput{KeyName: aws.String("sdk-created-key")})
@@ -51,6 +52,7 @@ func TestEC2_KeyPairsSDK(t *testing.T) {
 // TestEC2_ModifyInstanceMetadataOptionsSDK covers in-place metadata_options
 // updates (the aws_instance.metadata_options update path).
 func TestEC2_ModifyInstanceMetadataOptionsSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.140.0.0/16")})
 	require.NoError(t, err)
@@ -78,6 +80,7 @@ func TestEC2_ModifyInstanceMetadataOptionsSDK(t *testing.T) {
 // TestEC2_LaunchTemplateMarketCreditSDK covers the launch-template
 // instance_market_options + credit_specification round-trip.
 func TestEC2_LaunchTemplateMarketCreditSDK(t *testing.T) {
+	t.Parallel()
 	ltName := uniqueName("market-credit-lt")
 	c := ec2Client()
 	lt, err := c.CreateLaunchTemplate(ctx, &ec2.CreateLaunchTemplateInput{
@@ -114,6 +117,7 @@ func TestEC2_LaunchTemplateMarketCreditSDK(t *testing.T) {
 // TestEC2_DescribeImagesFiltersSDK covers DescribeImages honouring filters so
 // data.aws_ami resolves by name/architecture (was ignored).
 func TestEC2_DescribeImagesFiltersSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	out, err := c.DescribeImages(ctx, &ec2.DescribeImagesInput{
 		Owners: []string{"amazon"},

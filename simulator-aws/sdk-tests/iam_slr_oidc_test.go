@@ -14,6 +14,7 @@ import (
 )
 
 func TestIAMServiceLinkedRoleLifecycle(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -48,6 +49,7 @@ func TestIAMServiceLinkedRoleLifecycle(t *testing.T) {
 }
 
 func TestIAMServiceLinkedRoleForAmplify(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -67,6 +69,7 @@ func TestIAMServiceLinkedRoleForAmplify(t *testing.T) {
 }
 
 func TestIAMOpenIDConnectProviderLifecycle(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

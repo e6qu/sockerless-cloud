@@ -35,6 +35,7 @@ func s3ControlCLICommand(args ...string) *exec.Cmd {
 // TestS3ControlCLI_AccessPointAndObjectLambda covers the access point family
 // the CLI manages, and the Object Lambda access point layered over it.
 func TestS3ControlCLI_AccessPointAndObjectLambda(t *testing.T) {
+	t.Parallel()
 	bucket, apName, olapName := "cli-olap-bucket", "cli-olap-support", "cli-olap"
 	fnName := "cli-olap-transform"
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", bucket))
@@ -42,6 +43,7 @@ func TestS3ControlCLI_AccessPointAndObjectLambda(t *testing.T) {
 		"--function-name", fnName,
 		"--package-type", "Image",
 		"--code", "ImageUri="+lambdaHandlerImageName,
+		"--architectures", nativeLambdaArchitecture(),
 		"--role", "arn:aws:iam::"+s3ControlCLIAccount+":role/cli-olap"))
 	t.Cleanup(func() {
 		_ = awsCLI("lambda", "delete-function", "--function-name", fnName).Run()
@@ -108,6 +110,7 @@ func TestS3ControlCLI_AccessPointAndObjectLambda(t *testing.T) {
 // TestS3ControlCLI_StorageLens covers a Storage Lens dashboard configuration
 // and a Storage Lens group.
 func TestS3ControlCLI_StorageLens(t *testing.T) {
+	t.Parallel()
 	configID, groupName := "cli-storage-lens", "cli-lens-group"
 
 	configPath := filepath.Join(tmpDir, "storage-lens.json")
@@ -169,6 +172,7 @@ func TestS3ControlCLI_StorageLens(t *testing.T) {
 // TestS3ControlCLI_AccessGrants covers the Access Grants instance, a location,
 // and a grant inside it.
 func TestS3ControlCLI_AccessGrants(t *testing.T) {
+	t.Parallel()
 	bucket, roleName := "cli-grants-bucket", "cli-grants-role"
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", bucket))
 	runCLI(t, awsCLI("iam", "create-role", "--role-name", roleName,
@@ -218,6 +222,7 @@ func TestS3ControlCLI_AccessGrants(t *testing.T) {
 // the create hands back a token, and describing that token is where the CLI
 // learns the outcome.
 func TestS3ControlCLI_MultiRegionAccessPoint(t *testing.T) {
+	t.Parallel()
 	bucket, name := "cli-mrap-bucket", "cli-mrap"
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", bucket))
 
@@ -272,6 +277,7 @@ func TestS3ControlCLI_MultiRegionAccessPoint(t *testing.T) {
 // lists two objects, one by a URL-encoded key holding a space, a comma and an
 // é, the job tags them, and the tags are readable afterwards.
 func TestS3ControlCLI_BatchJob(t *testing.T) {
+	t.Parallel()
 	bucket, roleName := "cli-batch-bucket", "cli-batch-role"
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", bucket))
 	runCLI(t, awsCLI("iam", "create-role", "--role-name", roleName,
@@ -367,6 +373,7 @@ func awaitCLIS3BatchJob(t *testing.T, jobID, want string) cliS3BatchJob {
 
 // TestS3ControlCLI_ListRegionalBuckets lists the account's regional buckets.
 func TestS3ControlCLI_ListRegionalBuckets(t *testing.T) {
+	t.Parallel()
 	bucket := "cli-regional-bucket"
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", bucket))
 	listed := s3ControlCLI(t, "list-regional-buckets")

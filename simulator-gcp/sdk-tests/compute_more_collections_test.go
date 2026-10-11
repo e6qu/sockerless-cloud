@@ -21,6 +21,7 @@ import (
 //	POST /compute/v1/projects/{project}/global/vmExtensionPolicies/{name}/delete
 
 func TestCompute_CrossSiteNetworkLifecycle(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project = "xsn-project"
 
@@ -46,6 +47,7 @@ func TestCompute_CrossSiteNetworkLifecycle(t *testing.T) {
 }
 
 func TestCompute_RegionalSnapshotLifecycle(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, region = "regional-snap", "us-central1"
 
@@ -69,6 +71,7 @@ func TestCompute_RegionalSnapshotLifecycle(t *testing.T) {
 }
 
 func TestCompute_RegionalBackendBucketCarriesItsUsableSubset(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, region = "regional-bb", "us-central1"
 
@@ -85,6 +88,7 @@ func TestCompute_RegionalBackendBucketCarriesItsUsableSubset(t *testing.T) {
 }
 
 func TestCompute_InterconnectAndItsGroups(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project = "interconnect-project"
 
@@ -159,6 +163,7 @@ func TestCompute_InterconnectAndItsGroups(t *testing.T) {
 }
 
 func TestCompute_RegionalHealthSourceAndCompositeCheck(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, region = "health-project", "us-central1"
 
@@ -182,6 +187,7 @@ func TestCompute_RegionalHealthSourceAndCompositeCheck(t *testing.T) {
 }
 
 func TestCompute_VmExtensionPolicyZonalAndGlobal(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, zone = "vmext-project", "us-central1-a"
 
@@ -214,6 +220,7 @@ func TestCompute_VmExtensionPolicyZonalAndGlobal(t *testing.T) {
 // exist is Google's to say and is not vendored here; what this project has done
 // about one is the caller's own.
 func TestCompute_PreviewFeatureEnrolment(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project = "preview-project"
 
@@ -262,6 +269,7 @@ func TestCompute_PreviewFeatureEnrolment(t *testing.T) {
 // binding and needs no licence behind it — a policy can be written for a code
 // Google issued for one of its published images.
 func TestCompute_LicenceCodePolicy(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, code = "licence-project", "1000205"
 
@@ -305,6 +313,7 @@ func TestCompute_LicenceCodePolicy(t *testing.T) {
 // not a set it publishes. This simulator runs no such analysis, so it has
 // detected none — which is an answer, not a refusal.
 func TestCompute_ReliabilityRisksAreObservedNotPublished(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project = "risk-project"
 

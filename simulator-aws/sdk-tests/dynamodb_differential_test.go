@@ -62,6 +62,7 @@ type diffDivergence struct {
 var diffKnownDivergences = map[string]diffDivergence{}
 
 func TestDynamoDB_DifferentialVsLocal(t *testing.T) {
+	t.Parallel()
 	endpoint, stop := startDynamoDBLocal(t)
 	defer stop()
 

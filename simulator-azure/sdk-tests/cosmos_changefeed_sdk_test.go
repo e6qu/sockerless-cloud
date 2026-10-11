@@ -88,6 +88,7 @@ func cosmosSeedDoc(t *testing.T, account, coll, doc string) {
 // continuation, only a newly-created document comes back; and a read with the
 // current continuation when nothing changed is 304 Not Modified.
 func TestCosmosChangeFeed_Incremental(t *testing.T) {
+	t.Parallel()
 	account := uniqueAlnumName("sdkcosmoschangefeed")
 	coll := "events"
 
@@ -122,6 +123,7 @@ func TestCosmosChangeFeed_Incremental(t *testing.T) {
 // TestCosmosChangeFeed_Paginated proves max-item-count paging: the feed walks
 // every document one page at a time via the advancing continuation, in order.
 func TestCosmosChangeFeed_Paginated(t *testing.T) {
+	t.Parallel()
 	account := uniqueAlnumName("sdkcosmoschangefeedpage")
 	coll := "log"
 
@@ -154,6 +156,7 @@ func TestCosmosChangeFeed_Paginated(t *testing.T) {
 // exists and returns an empty, correctly-shaped feed for the single-region sim.
 // References /dbs/{database}/colls/{container}/conflicts (the route token).
 func TestCosmosConflictFeed_EmptySingleRegion(t *testing.T) {
+	t.Parallel()
 	account := "sdkcosmosconflicts"
 
 	req, err := http.NewRequest("GET", baseURL+"/dbs/cfdb/colls/items/conflicts", nil)

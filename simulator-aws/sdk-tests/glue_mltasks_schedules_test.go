@@ -13,6 +13,7 @@ import (
 // TestGlue_MLTaskRunLifecycle_SDK exercises the machine-learning task-run family:
 // start each task-run type against an ML transform, then Get/List/Cancel.
 func TestGlue_MLTaskRunLifecycle_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	create, err := c.CreateMLTransform(ctx, &glue.CreateMLTransformInput{
@@ -87,6 +88,7 @@ func TestGlue_MLTaskRunLifecycle_SDK(t *testing.T) {
 // schedule toggles plus GetCrawlerMetrics, ListCrawls and the materialized-view
 // refresh family.
 func TestGlue_CrawlerScheduleLifecycle_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	crawler := uniqueName("glue-sdk-sched-crawler")
@@ -194,6 +196,7 @@ func TestGlue_CrawlerScheduleLifecycle_SDK(t *testing.T) {
 // TestGlue_WorkflowRunProperties_SDK exercises workflow-run reads/writes plus
 // UpdateWorkflow, ListTriggers, UpdateTrigger and the job-bookmark family.
 func TestGlue_WorkflowRunProperties_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	wf := uniqueName("glue-sdk-wfrun")
@@ -310,6 +313,7 @@ func TestGlue_WorkflowRunProperties_SDK(t *testing.T) {
 // TestGlue_ConnectionTypeRegistry_SDK exercises the connection-type registry and
 // TestConnection against a stored connection.
 func TestGlue_ConnectionTypeRegistry_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	const ctName = "REST-glue-sdk-conntype"

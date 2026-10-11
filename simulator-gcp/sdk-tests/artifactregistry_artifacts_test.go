@@ -74,6 +74,7 @@ func arDownloadFile(t *testing.T, svc *artifactregistry.Service, name string) []
 // A generic upload stores the bytes as the named File under the named Package
 // and Version; exportArtifact writes that file into Cloud Storage.
 func TestArtifactRegistry_GenericUploadDownloadAndExport(t *testing.T) {
+	t.Parallel()
 	svc := arAdminService(t)
 	parent := "projects/ar-generic/locations/us-central1"
 	repo := arCreateFormatRepository(t, svc, parent, uniqueName("generic-repo"), "GENERIC")
@@ -127,7 +128,8 @@ func TestArtifactRegistry_GenericUploadDownloadAndExport(t *testing.T) {
 // A pushed Docker image's version is its manifest digest; exporting it by tag
 // writes the manifest and every blob the manifest references.
 func TestArtifactRegistry_ExportPushedDockerImage(t *testing.T) {
-	project, repoID := "ar-export-docker", uniqueName("docker-repo")
+	t.Parallel()
+	project, repoID := "ar-export-docker", uniqueName("docker-repo-121e")
 	arCreateRepository(t, project, "us-central1", repoID)
 	repo := "projects/" + project + "/locations/us-central1/repositories/" + repoID
 	image := project + "/" + repoID + "/app"
@@ -218,6 +220,7 @@ func arTestDebPackage(t *testing.T, pkg, version, arch string) []byte {
 // importAptArtifacts reads the Debian packages a Cloud Storage URI names and
 // publishes each under the package and version its control file declares.
 func TestArtifactRegistry_ImportAptArtifactsFromCloudStorage(t *testing.T) {
+	t.Parallel()
 	svc := arAdminService(t)
 	parent := "projects/ar-apt-import/locations/us-central1"
 	repo := arCreateFormatRepository(t, svc, parent, uniqueName("apt-repo"), "APT")

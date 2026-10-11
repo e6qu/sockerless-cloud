@@ -50,6 +50,7 @@ func cliDescribeMaintainedInstance(t *testing.T, instanceID string) cliMaintaine
 // CLI has, so the test reads it at the db-instance-available waiter's
 // 30-second cadence.
 func TestRDSCLI_MaintenanceWindowAppliesPendingModifications(t *testing.T) {
+	t.Parallel()
 	id := fmt.Sprintf("cli-maintenance-%d", time.Now().UnixNano())
 	runCLI(t, awsCLI("rds", "create-db-instance",
 		"--db-instance-identifier", id,
@@ -113,6 +114,7 @@ func TestRDSCLI_MaintenanceWindowAppliesPendingModifications(t *testing.T) {
 // pending-reboot. describe-engine-default-parameters pages through the
 // engine's whole catalog.
 func TestRDSCLI_ModifiedDBParameterGroupsReachTheEngine(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	var defaults struct {

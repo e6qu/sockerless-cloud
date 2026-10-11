@@ -11,6 +11,7 @@ const cliTrustDoc = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Pri
 const cliPermDoc = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"ec2:DescribeInstances","Resource":"*"}]}`
 
 func TestIAMCLI_RoleManagedPolicyAttachDetach(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("iam", "create-role", "--role-name", "cli-cov-attach", "--assume-role-policy-document", cliTrustDoc))
 	arn := strings.TrimSpace(runCLI(t, awsCLI("iam", "create-policy", "--policy-name", "cli-cov-pol", "--policy-document", cliPermDoc, "--query", "Policy.Arn", "--output", "text")))
 
@@ -30,6 +31,7 @@ func TestIAMCLI_RoleManagedPolicyAttachDetach(t *testing.T) {
 }
 
 func TestIAMCLI_RoleInlinePolicyLifecycle(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("iam", "create-role", "--role-name", "cli-cov-inline", "--assume-role-policy-document", cliTrustDoc))
 	runCLI(t, awsCLI("iam", "put-role-policy", "--role-name", "cli-cov-inline", "--policy-name", "inline-1", "--policy-document", cliPermDoc))
 
@@ -48,6 +50,7 @@ func TestIAMCLI_RoleInlinePolicyLifecycle(t *testing.T) {
 }
 
 func TestIAMCLI_UpdateAssumeRolePolicyAndListProfiles(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("iam", "create-role", "--role-name", "cli-cov-trust", "--assume-role-policy-document", `{"Version":"2012-10-17","Statement":[]}`))
 	runCLI(t, awsCLI("iam", "update-assume-role-policy", "--role-name", "cli-cov-trust", "--policy-document", cliTrustDoc))
 	doc := runCLI(t, awsCLI("iam", "get-role", "--role-name", "cli-cov-trust", "--query", "Role.AssumeRolePolicyDocument", "--output", "json"))

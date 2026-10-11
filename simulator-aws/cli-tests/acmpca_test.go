@@ -10,6 +10,7 @@ import (
 )
 
 func TestPrivateCACLI_RootAuthorityLifecycle(t *testing.T) {
+	t.Parallel()
 	config := `{"KeyAlgorithm":"RSA_2048","SigningAlgorithm":"SHA256WITHRSA","Subject":{"CommonName":"CLI Private Root","Organization":"Sockerless"}}`
 	created := runCLI(t, awsCLI("acm-pca", "create-certificate-authority",
 		"--certificate-authority-configuration", config,

@@ -16,6 +16,7 @@ import (
 // views answer from one record, so this asserts they agree rather than
 // asserting a shape of their own.
 func TestACMListCertificateDomainValidationsMatchesDescribe(t *testing.T) {
+	t.Parallel()
 	acmC := acmClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

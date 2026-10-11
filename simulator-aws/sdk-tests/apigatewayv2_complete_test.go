@@ -16,6 +16,7 @@ import (
 // CreatePortal, GetPortal, ListPortals, UpdatePortal, PublishPortal,
 // PreviewPortal, DisablePortal, DeletePortal.
 func TestAPIGatewayV2_PortalsSDK(t *testing.T) {
+	t.Parallel()
 	c := apigwv2Client()
 	create, err := c.CreatePortal(ctx, &apigatewayv2.CreatePortalInput{
 		Authorization:         &apigwv2types.Authorization{None: &apigwv2types.None{}},
@@ -92,6 +93,7 @@ func TestAPIGatewayV2_PortalsSDK(t *testing.T) {
 // GetPortalProductSharingPolicy, DeletePortalProductSharingPolicy,
 // DeletePortalProduct.
 func TestAPIGatewayV2_PortalProductsSDK(t *testing.T) {
+	t.Parallel()
 	c := apigwv2Client()
 	create, err := c.CreatePortalProduct(ctx, &apigatewayv2.CreatePortalProductInput{
 		DisplayName: aws.String("orders-api"),
@@ -154,6 +156,7 @@ func TestAPIGatewayV2_PortalProductsSDK(t *testing.T) {
 // REST-endpoint pages: Create/Get/List/Update/Delete ProductPage +
 // Create/Get/List/Update/Delete ProductRestEndpointPage.
 func TestAPIGatewayV2_ProductPagesSDK(t *testing.T) {
+	t.Parallel()
 	c := apigwv2Client()
 	prod, err := c.CreatePortalProduct(ctx, &apigatewayv2.CreatePortalProductInput{
 		DisplayName: aws.String("pages-product"),
@@ -265,6 +268,7 @@ func TestAPIGatewayV2_ProductPagesSDK(t *testing.T) {
 // CreateRoutingRule, GetRoutingRule, ListRoutingRules, PutRoutingRule,
 // DeleteRoutingRule.
 func TestAPIGatewayV2_RoutingRulesSDK(t *testing.T) {
+	t.Parallel()
 	c := apigwv2Client()
 	dn := fmt.Sprintf("rr-%d.example.com", time.Now().UnixNano())
 	_, err := c.CreateDomainName(ctx, &apigatewayv2.CreateDomainNameInput{DomainName: aws.String(dn)})
@@ -334,6 +338,7 @@ func TestAPIGatewayV2_RoutingRulesSDK(t *testing.T) {
 // TestAPIGatewayV2_ApiUpdatesSDK exercises UpdateApi, UpdateApiMapping, and
 // ResetAuthorizersCache against the existing api / api-mapping / stage stores.
 func TestAPIGatewayV2_ApiUpdatesSDK(t *testing.T) {
+	t.Parallel()
 	c := apigwv2Client()
 	api, err := c.CreateApi(ctx, &apigatewayv2.CreateApiInput{
 		Name:         aws.String("update-api"),

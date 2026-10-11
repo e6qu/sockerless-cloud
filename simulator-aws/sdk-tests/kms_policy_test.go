@@ -19,6 +19,7 @@ import (
 // Decrypt, while an Allow on Encrypt still succeeds. This locks issue #732:
 // the simulator must evaluate key-policy Deny at call time.
 func TestKMS_KeyPolicyDenyBlocksDecrypt(t *testing.T) {
+	t.Parallel()
 	adminIAM := iamClient()
 	adminKMS := kmsClient()
 	user := uniqueName("kms-deny-user")

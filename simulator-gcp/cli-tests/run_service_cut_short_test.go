@@ -15,6 +15,7 @@ import (
 // the container's status and headers, so it ends the caller's response where
 // the container stopped rather than appending an error page.
 func TestCloudRun_CLI_ServiceAbortsAResponseTheContainerCutsShort(t *testing.T) {
+	t.Parallel()
 	const service = "cli-svc-cut-short"
 	runCLI(t, gcloudRegionalRunCLI("run", "deploy", service,
 		"--region="+location,

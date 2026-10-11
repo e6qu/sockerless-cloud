@@ -30,6 +30,7 @@ const ecsControlPlaneBudget = 5 * time.Second
 // steady state through the scheduler — observed the way a client observes it,
 // by polling DescribeServices.
 func TestECS_Service_ControlPlaneAnswersWhileTheSchedulerConverges(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 	const cluster = "async-scheduler-cluster"
 	const serviceName = "async-scheduler-svc"

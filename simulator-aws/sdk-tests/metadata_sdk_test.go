@@ -26,6 +26,7 @@ func imdsSDKClient(t *testing.T) *imds.Client {
 }
 
 func TestIMDSSDK_GetInstanceID(t *testing.T) {
+	t.Parallel()
 	c := imdsSDKClient(t)
 	out, err := c.GetMetadata(ctx, &imds.GetMetadataInput{Path: "instance-id"})
 	require.NoError(t, err)
@@ -36,6 +37,7 @@ func TestIMDSSDK_GetInstanceID(t *testing.T) {
 }
 
 func TestIMDSSDK_GetRegion(t *testing.T) {
+	t.Parallel()
 	c := imdsSDKClient(t)
 	out, err := c.GetRegion(ctx, &imds.GetRegionInput{})
 	require.NoError(t, err)
@@ -43,6 +45,7 @@ func TestIMDSSDK_GetRegion(t *testing.T) {
 }
 
 func TestIMDSSDK_GetIAMSecurityCredentials(t *testing.T) {
+	t.Parallel()
 	c := imdsSDKClient(t)
 
 	// First list role names.
@@ -77,6 +80,7 @@ func TestIMDSSDK_GetIAMSecurityCredentials(t *testing.T) {
 }
 
 func TestIMDSSDK_TokenAutomaticRefresh(t *testing.T) {
+	t.Parallel()
 	// The SDK manages the token TTL internally. We make two back-to-back
 	// reads and verify both succeed (proves token is reused/refreshed).
 	c := imdsSDKClient(t)

@@ -42,6 +42,7 @@ type psPullResult struct {
 // subscription without returnImmediately and receives the messages a later
 // Publish delivers, at most maxMessages of them.
 func TestPubSub_GRPC_PullWaitsForPublish(t *testing.T) {
+	t.Parallel()
 	pub, sub := psGapicClients(t)
 	topic := "projects/ps-pull-wait/topics/" + uniqueName("wait-topic")
 	subName := "projects/ps-pull-wait/subscriptions/" + uniqueName("wait-sub")
@@ -82,6 +83,7 @@ func TestPubSub_GRPC_PullWaitsForPublish(t *testing.T) {
 // TestPubSub_GRPC_PullWaitsForNack holds a Pull open while the only message is
 // leased, and receives the message once a negative acknowledgement releases it.
 func TestPubSub_GRPC_PullWaitsForNack(t *testing.T) {
+	t.Parallel()
 	pub, sub := psGapicClients(t)
 	topic := "projects/ps-pull-wait/topics/" + uniqueName("nack-topic")
 	subName := "projects/ps-pull-wait/subscriptions/" + uniqueName("nack-sub")
@@ -120,6 +122,7 @@ func TestPubSub_GRPC_PullWaitsForNack(t *testing.T) {
 // empty subscription without returnImmediately and receives the message a
 // later projects.topics.publish delivers.
 func TestPubSub_REST_PullWaitsForPublish(t *testing.T) {
+	t.Parallel()
 	svc := pubsubService(t)
 	topic := "projects/ps-pull-wait/topics/" + uniqueName("rest-wait-topic")
 	subName := "projects/ps-pull-wait/subscriptions/" + uniqueName("rest-wait-sub")

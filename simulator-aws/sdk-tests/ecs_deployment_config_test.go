@@ -14,6 +14,7 @@ import (
 // configuration (circuit breaker + percentages) round-trips through
 // DescribeServices.
 func TestECS_DeploymentConfigurationRoundTrip(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	cluster := "deploycfg-cluster"
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})

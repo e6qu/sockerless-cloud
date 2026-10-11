@@ -8,6 +8,7 @@ import (
 )
 
 func TestServiceBusCLI_ARMResources(t *testing.T) {
+	t.Parallel()
 	ns := "cli-servicebus-ns"
 	queue := "cliqueue"
 

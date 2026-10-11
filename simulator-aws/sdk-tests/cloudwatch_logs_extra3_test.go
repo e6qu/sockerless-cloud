@@ -14,6 +14,7 @@ import (
 // TestLogs_IntegrationRoundTrip covers PutIntegration, GetIntegration,
 // ListIntegrations, and DeleteIntegration for an OpenSearch integration.
 func TestLogs_IntegrationRoundTrip(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	name := "test-opensearch-integration"
 	defer cw.DeleteIntegration(ctx, &cloudwatchlogs.DeleteIntegrationInput{
@@ -65,6 +66,7 @@ func TestLogs_IntegrationRoundTrip(t *testing.T) {
 // TestLogs_LookupTableRoundTrip covers CreateLookupTable, GetLookupTable,
 // UpdateLookupTable, DescribeLookupTables, and DeleteLookupTable.
 func TestLogs_LookupTableRoundTrip(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	name := "test_lookup_table"
 	body := "key,value\nfoo,bar\n"
@@ -115,6 +117,7 @@ func TestLogs_LookupTableRoundTrip(t *testing.T) {
 // UpdateScheduledQuery, ListScheduledQueries, GetScheduledQueryHistory, and
 // DeleteScheduledQuery.
 func TestLogs_ScheduledQueryRoundTrip(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	name := "test-scheduled-query"
 	dest := &cwlogtypes.DestinationConfiguration{
@@ -181,6 +184,7 @@ func TestLogs_ScheduledQueryRoundTrip(t *testing.T) {
 // TestLogs_TransformerRoundTrip covers PutTransformer, GetTransformer,
 // TestTransformer, and DeleteTransformer.
 func TestLogs_TransformerRoundTrip(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	lg := "test-transformer-lg"
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(lg)})
@@ -218,6 +222,7 @@ func TestLogs_TransformerRoundTrip(t *testing.T) {
 // TestLogs_ImportTaskRoundTrip covers CreateImportTask, DescribeImportTasks,
 // DescribeImportTaskBatches, and CancelImportTask.
 func TestLogs_ImportTaskRoundTrip(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	create, err := cw.CreateImportTask(ctx, &cloudwatchlogs.CreateImportTaskInput{
 		ImportSourceArn: aws.String("arn:aws:s3:::test-import-bucket"),
@@ -253,6 +258,7 @@ func TestLogs_ImportTaskRoundTrip(t *testing.T) {
 // PutLogGroupDeletionProtection. With no stored events the fields/record are
 // honestly empty.
 func TestLogs_LogStructureReads(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	lg := "test-structure-lg"
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(lg)})
@@ -281,6 +287,7 @@ func TestLogs_LogStructureReads(t *testing.T) {
 // TestLogs_AnomalyOps covers UpdateLogAnomalyDetector, ListAnomalies, and
 // UpdateAnomaly over a real log anomaly detector.
 func TestLogs_AnomalyOps(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	lg := "test-anomaly-lg"
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(lg)})
@@ -324,6 +331,7 @@ func TestLogs_AnomalyOps(t *testing.T) {
 
 // TestLogs_ListLogGroupsOps covers ListLogGroups and ListAggregateLogGroupSummaries.
 func TestLogs_ListLogGroupsOps(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	lg := "test-listlg-group"
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(lg)})

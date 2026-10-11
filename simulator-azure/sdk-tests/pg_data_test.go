@@ -35,6 +35,7 @@ import (
 // same driver without TLS is refused with SQLSTATE 28000, and the ARM
 // surface never echoes administratorLoginPassword back.
 func TestAzurePGFlexibleServer_BackupCapturesDataAndRestoreReturnsToIt(t *testing.T) {
+	t.Parallel()
 	testContext, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
 	const (

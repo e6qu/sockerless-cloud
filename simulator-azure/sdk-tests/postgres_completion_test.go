@@ -16,6 +16,7 @@ import (
 // backups, server threat protection, migrations, and private endpoint
 // connections / private link resources — through the official SDK clients.
 func TestAzurePGFlexibleServer_CompletionSurfaces(t *testing.T) {
+	t.Parallel()
 	rg := "pg-completion-rg"
 	server := uniqueName("pg-completion-srv")
 	loc := "eastus"

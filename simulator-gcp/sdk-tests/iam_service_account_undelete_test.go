@@ -23,6 +23,7 @@ func iamUserManagedKeyNames(t *testing.T, svc *iam.Service, account string) []st
 // unique ID, and undelete brings it back with that unique ID, its settings and
 // its keys.
 func TestIAM_UndeleteServiceAccountRestoresItByUniqueID(t *testing.T) {
+	t.Parallel()
 	svc := iamService(t)
 	sa, err := svc.Projects.ServiceAccounts.Create("projects/undelete-project",
 		&iam.CreateServiceAccountRequest{
@@ -75,6 +76,7 @@ func TestIAM_UndeleteServiceAccountRestoresItByUniqueID(t *testing.T) {
 // with a new unique ID and none of the old one's keys, and the old one cannot
 // be restored while the new one holds the email.
 func TestIAM_RecreatedServiceAccountIsANewAccount(t *testing.T) {
+	t.Parallel()
 	svc := iamService(t)
 	create := func() *iam.ServiceAccount {
 		t.Helper()

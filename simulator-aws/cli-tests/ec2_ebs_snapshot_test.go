@@ -49,6 +49,7 @@ func TestEC2CLI_EbsEncryptionByDefault(t *testing.T) {
 // TestEC2CLI_FastSnapshotRestores enables, describes (settles to enabled), and
 // disables fast snapshot restores via the aws CLI.
 func TestEC2CLI_FastSnapshotRestores(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	snap := snapshotForEBSCLI(t, q)
 
@@ -77,6 +78,7 @@ func TestEC2CLI_FastSnapshotRestores(t *testing.T) {
 // TestEC2CLI_SnapshotTier archives a snapshot then restores it via the aws CLI,
 // and confirms a live snapshot is rejected by restore-snapshot-from-recycle-bin.
 func TestEC2CLI_SnapshotTier(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	snap := snapshotForEBSCLI(t, q)
 
@@ -127,6 +129,7 @@ func TestEC2CLI_SnapshotBlockPublicAccess(t *testing.T) {
 // TestEC2CLI_VolumeAttribute round-trips the autoEnableIO volume attribute via
 // the aws CLI (describe-volume-attribute + modify-volume-attribute).
 func TestEC2CLI_VolumeAttribute(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	vol := q("ec2", "create-volume", "--availability-zone", "us-east-1a", "--size", "8",

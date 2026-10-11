@@ -16,6 +16,7 @@ import (
 )
 
 func TestCloudRun_JobArithmetic(t *testing.T) {
+	t.Parallel()
 	jobID := uniqueName("arith-crj")
 	run := createAndRunJobWithImageAndCommand(t, jobID, evalImageName, []string{"(10 + 5) * 2"}, "10s")
 
@@ -31,6 +32,7 @@ func TestCloudRun_JobArithmetic(t *testing.T) {
 }
 
 func TestCloudRun_JobArithmeticInvalid(t *testing.T) {
+	t.Parallel()
 	run := createAndRunJobWithImageAndCommand(t, uniqueName("arith-crj-fail"), evalImageName, []string{"3 +"}, "10s")
 
 	exec, err := waitJobRun(t, run)
@@ -40,6 +42,7 @@ func TestCloudRun_JobArithmeticInvalid(t *testing.T) {
 }
 
 func TestCloudRun_JobArithmeticLogs(t *testing.T) {
+	t.Parallel()
 	jobID := uniqueName("arith-crj-logs")
 	_ = createAndRunJobWithImageAndCommand(t, jobID, evalImageName, []string{"10 / 3"}, "10s")
 

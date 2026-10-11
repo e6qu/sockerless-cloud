@@ -14,6 +14,7 @@ import (
 // path → analysis CRUD: create a path, run an analysis (settles succeeded with
 // a reachable path), describe, then tear both down.
 func TestEC2_NetworkInsightsReachability(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 
 	pathOut, err := client.CreateNetworkInsightsPath(ctx, &ec2.CreateNetworkInsightsPathInput{
@@ -74,6 +75,7 @@ func TestEC2_NetworkInsightsReachability(t *testing.T) {
 // access-scope path: create scope → get content → run scope analysis → get
 // findings (none) → teardown.
 func TestEC2_NetworkInsightsAccessScope(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 
 	scopeOut, err := client.CreateNetworkInsightsAccessScope(ctx, &ec2.CreateNetworkInsightsAccessScopeInput{
@@ -143,6 +145,7 @@ func TestEC2_NetworkInsightsAccessScope(t *testing.T) {
 // VPC association → endpoint → BGP peer → route-table propagation → routing
 // database, plus modify and tolerant teardown.
 func TestEC2_RouteServerCore(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 
 	// VPC + subnet to anchor the endpoint.
@@ -291,6 +294,7 @@ func TestEC2_RouteServerCore(t *testing.T) {
 // TestEC2_LocalGatewayRouteCRUD exercises the local-gateway-route CRUD path on
 // a local-gateway-route-table id: create → search → modify → delete.
 func TestEC2_LocalGatewayRouteCRUD(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 
 	rtID := "lgw-rtb-0123456789abcdef0"

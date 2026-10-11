@@ -13,6 +13,7 @@ import (
 // written once over both so the two cannot serve the same verb differently.
 
 func TestCompute_ZonalDiskVerbs(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, zone, name = "disk-verbs", "us-central1-a", "data"
 
@@ -55,6 +56,7 @@ func TestCompute_ZonalDiskVerbs(t *testing.T) {
 }
 
 func TestCompute_ZonalDiskAsyncReplication(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, zone, name = "disk-replica", "us-central1-a", "primary"
 
@@ -84,6 +86,7 @@ func TestCompute_ZonalDiskAsyncReplication(t *testing.T) {
 }
 
 func TestCompute_RegionalDiskVerbsMatchTheZonalOnes(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, region, name = "disk-regional", "us-central1", "shared"
 

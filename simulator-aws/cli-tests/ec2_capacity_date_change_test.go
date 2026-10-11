@@ -10,6 +10,7 @@ import (
 // Capacity Reservation the way the EC2 user guide describes: quote, review,
 // then modify with the quote and its terms accepted.
 func TestEC2CLI_CapacityReservationDateChangeQuote(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	start := time.Now().Add(20 * 24 * time.Hour).UTC().Truncate(time.Second)
 	id := q("ec2", "create-capacity-reservation",
@@ -51,6 +52,7 @@ func TestEC2CLI_CapacityReservationDateChangeQuote(t *testing.T) {
 // Capacity Reservation to its 32-vCPU minimum, counted from the instance
 // type's vCPUs: seven 4-vCPU m5.xlarge instances are refused, eight accepted.
 func TestEC2CLI_FutureDatedCapacityReservationVCpuMinimum(t *testing.T) {
+	t.Parallel()
 	start := time.Now().Add(10 * 24 * time.Hour).UTC().Truncate(time.Second).Format(time.RFC3339)
 	args := func(count string) []string {
 		return []string{"ec2", "create-capacity-reservation",

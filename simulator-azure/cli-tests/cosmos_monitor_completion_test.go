@@ -9,6 +9,7 @@ import (
 // usage, metric-definition, percentile and private-endpoint-connection surfaces
 // through `az rest` against the simulator.
 func TestAzureCosmosDB_MetricsUsagesAndPECCLIFlows(t *testing.T) {
+	t.Parallel()
 	account := "climetricscosmos"
 	const ver = "2024-08-15"
 	acctURL := armURL("Microsoft.DocumentDB", "databaseAccounts/"+account, ver)
@@ -50,6 +51,7 @@ func TestAzureCosmosDB_MetricsUsagesAndPECCLIFlows(t *testing.T) {
 // TestLogAnalytics_QueryAndMetadataCLIFlows drives the Log Analytics query (GET
 // + batch) and metadata data-plane endpoints through `az rest`.
 func TestLogAnalytics_QueryAndMetadataCLIFlows(t *testing.T) {
+	t.Parallel()
 	_, customerID := cliLogWorkspace(t, "cli-query-flows-ws")
 	// GET /v1/workspaces/{workspaceId}/query (KQL via the query parameter).
 	queryURL := baseURL + "/v1/workspaces/" + customerID + "/query?query=AppTraces%20%7C%20take%201"

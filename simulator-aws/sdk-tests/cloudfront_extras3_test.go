@@ -87,6 +87,7 @@ func cfExtras3MakeDistribution(t *testing.T, c *cloudfront.Client, ctx context.C
 // TestCloudFront_CopyAndStaging covers CopyDistribution and
 // UpdateDistributionWithStagingConfig (promote-staging-config).
 func TestCloudFront_CopyAndStaging(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -133,6 +134,7 @@ func TestCloudFront_CopyAndStaging(t *testing.T) {
 // by-domain lookup, list, WebACL associate/disassociate, the tenant
 // invalidation trio, and GetManagedCertificateDetails.
 func TestCloudFront_DistributionTenant(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -235,6 +237,7 @@ func TestCloudFront_DistributionTenant(t *testing.T) {
 // TestCloudFront_ConnectionGroup covers connection-group CRUD, by-routing-endpoint
 // lookup, and list.
 func TestCloudFront_ConnectionGroup(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -286,6 +289,7 @@ func TestCloudFront_ConnectionGroup(t *testing.T) {
 // TestCloudFront_TrustStore covers trust-store CRUD, list, and
 // ListDistributionsByTrustStore.
 func TestCloudFront_TrustStore(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -347,6 +351,7 @@ func TestCloudFront_TrustStore(t *testing.T) {
 
 // TestCloudFront_ResourcePolicy covers Put/Get/DeleteResourcePolicy.
 func TestCloudFront_ResourcePolicy(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -376,6 +381,7 @@ func TestCloudFront_ResourcePolicy(t *testing.T) {
 // associate/disassociate, AssociateAlias, ListConflictingAliases,
 // ListDomainConflicts, UpdateDomainAssociation, and VerifyDnsConfiguration.
 func TestCloudFront_DistributionWebACLAndAlias(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -461,6 +467,7 @@ func TestCloudFront_DistributionWebACLAndAlias(t *testing.T) {
 // the other, and each list's Quantity is asserted against the items in it,
 // which is the wire contract a paginating client reads.
 func TestCloudFront_ListDistributionsByResource(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -636,6 +643,7 @@ func cfExtras3MakeReferencingDistribution(t *testing.T, c *cloudfront.Client, ct
 // TestCloudFront_UpdateAnycastIpList covers UpdateAnycastIpList over a created
 // Anycast IP list.
 func TestCloudFront_UpdateAnycastIpList(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

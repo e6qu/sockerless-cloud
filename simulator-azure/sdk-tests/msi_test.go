@@ -18,6 +18,7 @@ func ensureMSIResourceGroup(t *testing.T, name string) {
 }
 
 func TestMSI_UpdateAndList(t *testing.T) {
+	t.Parallel()
 	rg := "msi-list-rg"
 	ensureMSIResourceGroup(t, rg)
 	client, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -57,6 +58,7 @@ func TestMSI_UpdateAndList(t *testing.T) {
 }
 
 func TestMSI_FederatedIdentityCredentials(t *testing.T) {
+	t.Parallel()
 	rg := "msi-fic-rg"
 	ensureMSIResourceGroup(t, rg)
 	uaClient, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -98,6 +100,7 @@ func TestMSI_FederatedIdentityCredentials(t *testing.T) {
 }
 
 func TestMSI_OperationsAndSystemAssigned(t *testing.T) {
+	t.Parallel()
 	opsClient, err := armmsi.NewOperationsClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	pager := opsClient.NewListPager(nil)

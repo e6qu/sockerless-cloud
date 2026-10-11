@@ -18,6 +18,7 @@ import (
 // answer `backend service "listUsable" not found`.
 
 func TestCompute_BackendServicesListUsable(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project = "usable-backends"
 
@@ -44,6 +45,7 @@ func TestCompute_BackendServicesListUsable(t *testing.T) {
 }
 
 func TestCompute_BackendBucketsListUsable(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project = "usable-buckets"
 
@@ -60,6 +62,7 @@ func TestCompute_BackendBucketsListUsable(t *testing.T) {
 }
 
 func TestCompute_RegionBackendServicesListUsable(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project = "usable-region-backends"
 

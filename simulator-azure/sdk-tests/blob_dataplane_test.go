@@ -127,6 +127,7 @@ func requireBlobErrorCode(t *testing.T, err error, code, what string) {
 // Leases
 
 func TestStorageSDK_BlobLeaseLifecycleAndEnforcement(t *testing.T) {
+	t.Parallel()
 	account, containerName, blobName := "sdkleaseacct", "lease-container", "leased.txt"
 	client := newBlobTestClient(t, account)
 	containerClient := newBlobTestContainer(t, client, containerName)
@@ -215,6 +216,7 @@ func TestStorageSDK_BlobLeaseLifecycleAndEnforcement(t *testing.T) {
 }
 
 func TestStorageSDK_BlobLeaseBreakAndFiniteExpiry(t *testing.T) {
+	t.Parallel()
 	account, containerName, blobName := "sdkleaseexpacct", "lease-expiry", "short.txt"
 	client := newBlobTestClient(t, account)
 	containerClient := newBlobTestContainer(t, client, containerName)
@@ -260,6 +262,7 @@ func TestStorageSDK_BlobLeaseBreakAndFiniteExpiry(t *testing.T) {
 }
 
 func TestStorageSDK_ContainerLeaseLifecycleAndEnforcement(t *testing.T) {
+	t.Parallel()
 	account, containerName := "sdkctrleaseacct", "lease-on-container"
 	client := newBlobTestClient(t, account)
 	containerClient := newBlobTestContainer(t, client, containerName)
@@ -309,6 +312,7 @@ func TestStorageSDK_ContainerLeaseLifecycleAndEnforcement(t *testing.T) {
 // Metadata, HTTP headers, tier, expiry, tags
 
 func TestStorageSDK_BlobSystemPropertiesAndTier(t *testing.T) {
+	t.Parallel()
 	account, containerName, blobName := "sdkblobpropsacct", "props-container", "props.txt"
 	client := newBlobTestClient(t, account)
 	containerClient := newBlobTestContainer(t, client, containerName)
@@ -372,6 +376,7 @@ func TestStorageSDK_BlobSystemPropertiesAndTier(t *testing.T) {
 }
 
 func TestStorageSDK_BlobSetExpiryAndTags(t *testing.T) {
+	t.Parallel()
 	account, containerName, blobName := "sdkblobexpacct", "expiry-container", "expiring.txt"
 	client := newBlobTestClient(t, account)
 	containerClient := newBlobTestContainer(t, client, containerName)
@@ -427,6 +432,7 @@ func TestStorageSDK_BlobSetExpiryAndTags(t *testing.T) {
 // Snapshots, soft delete, undelete, container restore
 
 func TestStorageSDK_BlobSnapshotsAreAddressableCopies(t *testing.T) {
+	t.Parallel()
 	account, containerName, blobName := "sdksnapacct", "snapshot-container", "versioned.txt"
 	client := newBlobTestClient(t, account)
 	containerClient := newBlobTestContainer(t, client, containerName)
@@ -492,6 +498,7 @@ func TestStorageSDK_BlobSnapshotsAreAddressableCopies(t *testing.T) {
 }
 
 func TestStorageSDK_BlobSoftDeleteAndUndelete(t *testing.T) {
+	t.Parallel()
 	account, containerName, blobName := "sdksoftdelacct", "softdelete-container", "recoverable.txt"
 	client := newBlobTestClient(t, account)
 	serviceClient := client.ServiceClient()
@@ -552,6 +559,7 @@ func TestStorageSDK_BlobSoftDeleteAndUndelete(t *testing.T) {
 }
 
 func TestStorageSDK_ContainerSoftDeleteAndRestore(t *testing.T) {
+	t.Parallel()
 	rg, account, containerName := "sdk-blob-restore-rg", uniqueAlnumName("sdkctrrestore"), "restorable-container"
 	ensureRG(t, rg)
 
@@ -620,6 +628,7 @@ func TestStorageSDK_ContainerSoftDeleteAndRestore(t *testing.T) {
 // Immutability policy and legal hold
 
 func TestStorageSDK_BlobImmutabilityPolicyAndLegalHold(t *testing.T) {
+	t.Parallel()
 	account, containerName := "sdkimmutableacct", "immutable-container"
 	client := newBlobTestClient(t, account)
 	containerClient := newBlobTestContainer(t, client, containerName)
@@ -683,6 +692,7 @@ func TestStorageSDK_BlobImmutabilityPolicyAndLegalHold(t *testing.T) {
 // Copy
 
 func TestStorageSDK_BlobCopyFromURLAndAbort(t *testing.T) {
+	t.Parallel()
 	account, containerName := "sdkcopyacct", "copy-container"
 	client := newBlobTestClient(t, account)
 	containerClient := newBlobTestContainer(t, client, containerName)
@@ -728,6 +738,7 @@ func TestStorageSDK_BlobCopyFromURLAndAbort(t *testing.T) {
 }
 
 func TestStorageSDK_PageBlobIncrementalCopy(t *testing.T) {
+	t.Parallel()
 	account, containerName := "sdkincrcopyacct", "incremental-container"
 	client := newBlobTestClient(t, account)
 	containerClient := newBlobTestContainer(t, client, containerName)
@@ -766,6 +777,7 @@ func TestStorageSDK_PageBlobIncrementalCopy(t *testing.T) {
 }
 
 func TestStorageSDK_BlockBlobStageBlockFromURL(t *testing.T) {
+	t.Parallel()
 	account, containerName := "sdkstagefromurlacct", "stage-from-url"
 	client := newBlobTestClient(t, account)
 	containerClient := newBlobTestContainer(t, client, containerName)
@@ -794,6 +806,7 @@ func TestStorageSDK_BlockBlobStageBlockFromURL(t *testing.T) {
 // Page blob ranges
 
 func TestStorageSDK_PageBlobRangesAndResize(t *testing.T) {
+	t.Parallel()
 	account, containerName, blobName := "sdkpageacct", "page-container", "sparse.vhd"
 	client := newBlobTestClient(t, account)
 	containerClient := newBlobTestContainer(t, client, containerName)
@@ -900,6 +913,7 @@ func TestStorageSDK_PageBlobRangesAndResize(t *testing.T) {
 }
 
 func TestStorageSDK_PageBlobUploadPagesFromURL(t *testing.T) {
+	t.Parallel()
 	account, containerName := "sdkpagefromurlacct", "page-from-url"
 	client := newBlobTestClient(t, account)
 	containerClient := newBlobTestContainer(t, client, containerName)
@@ -931,6 +945,7 @@ func TestStorageSDK_PageBlobUploadPagesFromURL(t *testing.T) {
 // Append blob
 
 func TestStorageSDK_AppendBlobBlocksAndSeal(t *testing.T) {
+	t.Parallel()
 	account, containerName, blobName := "sdkappendacct", "append-container", "log.txt"
 	client := newBlobTestClient(t, account)
 	containerClient := newBlobTestContainer(t, client, containerName)
@@ -993,6 +1008,7 @@ func TestStorageSDK_AppendBlobBlocksAndSeal(t *testing.T) {
 // Container administration
 
 func TestStorageSDK_ContainerMetadataAndAccessPolicy(t *testing.T) {
+	t.Parallel()
 	account, containerName := "sdkctradminacct", "admin-container"
 	client := newBlobTestClient(t, account)
 	containerClient := newBlobTestContainer(t, client, containerName)
@@ -1044,6 +1060,7 @@ func TestStorageSDK_ContainerMetadataAndAccessPolicy(t *testing.T) {
 // client, so the request is issued directly at the coordinate the specification
 // defines — the only surface a client has for it.
 func TestStorageSDK_ContainerRename(t *testing.T) {
+	t.Parallel()
 	account := "sdkctrrenameacct"
 	client := newBlobTestClient(t, account)
 
@@ -1075,6 +1092,7 @@ func TestStorageSDK_ContainerRename(t *testing.T) {
 // Blob batch
 
 func TestStorageSDK_BlobBatchDeleteAndSetTier(t *testing.T) {
+	t.Parallel()
 	account, containerName := "sdkbatchacct", "batch-container"
 	client := newBlobTestClient(t, account)
 	containerClient := newBlobTestContainer(t, client, containerName)
@@ -1132,6 +1150,7 @@ func TestStorageSDK_BlobBatchDeleteAndSetTier(t *testing.T) {
 // Service-level operations
 
 func TestStorageSDK_BlobServiceStatisticsAndAccountInfo(t *testing.T) {
+	t.Parallel()
 	account, containerName := "sdksvcacct", "service-container"
 	client := newBlobTestClient(t, account)
 	containerClient := newBlobTestContainer(t, client, containerName)
@@ -1168,6 +1187,7 @@ func TestStorageSDK_BlobServiceStatisticsAndAccountInfo(t *testing.T) {
 // client is built with a token credential and the key's identity claims come
 // from the token — the same path a real caller takes.
 func TestStorageSDK_BlobUserDelegationKey(t *testing.T) {
+	t.Parallel()
 	account := "sdkudkacct"
 	serviceClient, err := service.NewClient(storageSDKURL(t, account, "blob"), &fakeCredential{},
 		&service.ClientOptions{ClientOptions: azcore.ClientOptions{
@@ -1226,6 +1246,7 @@ func TestStorageSDK_BlobUserDelegationKey(t *testing.T) {
 // coordinate the specification defines, and the Avro-framed response is decoded
 // the way a client's reader decodes it.
 func TestStorageSDK_BlobQuery(t *testing.T) {
+	t.Parallel()
 	account, containerName, blobName := "sdkqueryacct", "query-container", "rows.csv"
 	client := newBlobTestClient(t, account)
 	newBlobTestContainer(t, client, containerName)
@@ -1329,6 +1350,7 @@ func storageReadBody(t *testing.T, resp *http.Response) string {
 // enabled soft delete through ARM got a permanent delete and a point-in-time
 // restore with nothing to bring back.
 func TestStorageSDK_BlobSoftDeleteThroughARM(t *testing.T) {
+	t.Parallel()
 	const (
 		rg            = "blob-armsoftdelete-rg"
 		account       = "armsoftdelacct"
@@ -1414,6 +1436,7 @@ func TestStorageSDK_BlobSoftDeleteThroughARM(t *testing.T) {
 // beside another whose name extends it, the pair a listing by key prefix could
 // confuse, with a snapshot under the prefix.
 func TestStorageSDK_ListBlobsStaysInsideItsContainerAndPrefix(t *testing.T) {
+	t.Parallel()
 	account := "sdklistscopeacct"
 	client := newBlobTestClient(t, account)
 	scoped := newBlobTestContainer(t, client, "scope")
@@ -1452,6 +1475,7 @@ func TestStorageSDK_ListBlobsStaysInsideItsContainerAndPrefix(t *testing.T) {
 // TestStorageSDK_PageBlobShrinkDropsPagesPastTheEnd shrinks a page blob below
 // a written page far past the new end, which must leave no range there.
 func TestStorageSDK_PageBlobShrinkDropsPagesPastTheEnd(t *testing.T) {
+	t.Parallel()
 	client := newBlobTestClient(t, "sdkpageshrinkacct")
 	pageClient := newBlobTestContainer(t, client, "page-shrink").NewPageBlobClient("shrunk.vhd")
 	_, err := pageClient.Create(ctx, 4096, nil)

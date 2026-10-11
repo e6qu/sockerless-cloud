@@ -13,6 +13,7 @@ import (
 // TestElastiCache_Snapshots covers CreateSnapshot, DescribeSnapshots,
 // CopySnapshot, and DeleteSnapshot against a real cache cluster.
 func TestElastiCache_Snapshots(t *testing.T) {
+	t.Parallel()
 	c := ecClient()
 	ctx := t.Context()
 
@@ -72,6 +73,7 @@ func TestElastiCache_Snapshots(t *testing.T) {
 // TestElastiCache_UsersAndGroups covers CreateUser, DescribeUsers,
 // ModifyUser, DeleteUser and the matching user-group operations.
 func TestElastiCache_UsersAndGroups(t *testing.T) {
+	t.Parallel()
 	c := ecClient()
 	ctx := t.Context()
 
@@ -144,6 +146,7 @@ func TestElastiCache_UsersAndGroups(t *testing.T) {
 // ModifyCacheParameterGroup, ResetCacheParameterGroup, and
 // DescribeEngineDefaultParameters.
 func TestElastiCache_ParameterDetail(t *testing.T) {
+	t.Parallel()
 	c := ecClient()
 	ctx := t.Context()
 
@@ -207,6 +210,7 @@ func TestElastiCache_ParameterDetail(t *testing.T) {
 // events, engine versions, reserved nodes, offerings, service updates, and
 // cache security groups.
 func TestElastiCache_DescribeReadOnly(t *testing.T) {
+	t.Parallel()
 	c := ecClient()
 	ctx := t.Context()
 

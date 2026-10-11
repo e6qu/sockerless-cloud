@@ -27,6 +27,7 @@ import (
 // Actions exercised: ModifyLoadBalancerAttributes,
 // DescribeLoadBalancerAttributes, and the load balancer's data plane.
 func TestELBv2_IdleTimeoutBoundsASilentTarget(t *testing.T) {
+	t.Parallel()
 	ec2c := ec2Client()
 	elb := elbv2Client()
 	targetDone := make(chan struct{})

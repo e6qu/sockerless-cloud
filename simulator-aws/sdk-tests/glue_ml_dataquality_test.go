@@ -13,6 +13,7 @@ import (
 // TestGlue_MLTransformLifecycle_SDK exercises the full ML transform CRUD family:
 // Create -> Get -> GetMLTransforms -> ListMLTransforms -> Update -> Delete.
 func TestGlue_MLTransformLifecycle_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	create, err := c.CreateMLTransform(ctx, &glue.CreateMLTransformInput{
@@ -75,6 +76,7 @@ func TestGlue_MLTransformLifecycle_SDK(t *testing.T) {
 // TestGlue_DataQualityLifecycle_SDK exercises the Data Quality ruleset family
 // plus evaluation/recommendation runs and the results they settle into.
 func TestGlue_DataQualityLifecycle_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	const rulesetName = "glue-sdk-dqr"
@@ -253,6 +255,7 @@ func TestGlue_DataQualityLifecycle_SDK(t *testing.T) {
 // TestGlue_ColumnStatisticsTaskLifecycle_SDK exercises the column-statistics
 // task settings + runs family, keyed by database+table.
 func TestGlue_ColumnStatisticsTaskLifecycle_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	const dbName = "glue-sdk-cst-db"

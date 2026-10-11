@@ -34,6 +34,7 @@ func sS(v string) ddbtypes.AttributeValue { return &ddbtypes.AttributeValueMembe
 // TransactWriteItems must mutate AND evaluate its ConditionExpression (it was
 // silently dropped). Runs the atomic-counter-with-cap repro.
 func TestDDBIssue641_TransactWriteUpdateApplies(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "tx-update-641"
 	ddbSimpleTable(t, c, tbl)
@@ -74,6 +75,7 @@ func TestDDBIssue641_TransactWriteUpdateApplies(t *testing.T) {
 // TestDDBIssue642_CancellationReasons — a cancelled transaction must carry the
 // per-item CancellationReasons array.
 func TestDDBIssue642_CancellationReasons(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "tx-reasons-642"
 	ddbSimpleTable(t, c, tbl)
@@ -99,6 +101,7 @@ func TestDDBIssue642_CancellationReasons(t *testing.T) {
 // TestDDBIssue643_IfNotExistsArithmetic — SET with an if_not_exists() operand in
 // arithmetic must compute, not store null.
 func TestDDBIssue643_IfNotExistsArithmetic(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "ine-arith-643"
 	ddbSimpleTable(t, c, tbl)
@@ -135,6 +138,7 @@ func TestDDBIssue643_IfNotExistsArithmetic(t *testing.T) {
 // of its parentheses and evaluate as the unparenthesized form (ElectroDB always
 // wraps the arithmetic RHS of .subtract()/.add() in parens).
 func TestDDBIssue648_ParenthesizedSetRHS(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "paren-rhs-648"
 	ddbSimpleTable(t, c, tbl)
@@ -168,6 +172,7 @@ func TestDDBIssue648_ParenthesizedSetRHS(t *testing.T) {
 
 // TestDDBIssue644_DeleteTablePurgesItems — items must not survive a drop+recreate.
 func TestDDBIssue644_DeleteTablePurgesItems(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "drop-recreate-644"
 	ddbSimpleTable(t, c, tbl)
@@ -185,6 +190,7 @@ func TestDDBIssue644_DeleteTablePurgesItems(t *testing.T) {
 
 // TestDDBListAppend — SET with list_append() concatenates lists (was unimplemented).
 func TestDDBListAppend(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "list-append"
 	ddbSimpleTable(t, c, tbl)

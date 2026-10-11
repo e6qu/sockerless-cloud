@@ -11,6 +11,7 @@ import (
 // application-autoscaling` verbs a runner platform uses to autoscale an ECS
 // service. Distinct from `aws autoscaling` (EC2 Auto Scaling).
 func TestApplicationAutoScalingCLI_TargetAndPolicy(t *testing.T) {
+	t.Parallel()
 	const (
 		ns         = "ecs"
 		resourceID = "service/cli-cluster/cli-svc"

@@ -17,6 +17,7 @@ import (
 // Operation, and an Operation says nothing about whether anything changed.
 
 func TestCompute_SecurityPolicyRuleLifecycle(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project = "armor-project"
 
@@ -75,6 +76,7 @@ func TestCompute_SecurityPolicyRuleLifecycle(t *testing.T) {
 }
 
 func TestCompute_RegionalSecurityPolicyIsItsOwnResource(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, region = "armor-regional", "us-central1"
 
@@ -112,6 +114,7 @@ func TestCompute_RegionalSecurityPolicyIsItsOwnResource(t *testing.T) {
 }
 
 func TestCompute_OrganizationFirewallPolicyAssociations(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 
 	_, err := svc.FirewallPolicies.Insert(&compute.FirewallPolicy{
@@ -140,6 +143,7 @@ func TestCompute_OrganizationFirewallPolicyAssociations(t *testing.T) {
 }
 
 func TestCompute_OrganizationFirewallPolicyClonesAnotherPolicysRules(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 
 	_, err := svc.FirewallPolicies.Insert(&compute.FirewallPolicy{
@@ -178,6 +182,7 @@ func TestCompute_OrganizationFirewallPolicyClonesAnotherPolicysRules(t *testing.
 // swallowed by the {policy} read beside it and reported as a policy that does
 // not exist, which is a gap disguised as a served read.
 func TestCompute_PreconfiguredExpressionSetsAreNotSwallowedByThePolicyRead(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	response, err := svc.SecurityPolicies.ListPreconfiguredExpressionSets("expr-project").Do()
 	require.NoError(t, err, "the catalogue answers rather than being read as a policy name")

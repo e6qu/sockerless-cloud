@@ -28,6 +28,7 @@ func newFSAdminClient(t *testing.T) *admin.FirestoreAdminClient {
 // TestFirestoreAdmin_Databases exercises the database admin CRUD: CreateDatabase
 // (a long-running operation), GetDatabase, and ListDatabases.
 func TestFirestoreAdmin_Databases(t *testing.T) {
+	t.Parallel()
 	c := newFSAdminClient(t)
 	parent := "projects/fs-admin-db"
 
@@ -77,6 +78,7 @@ func TestFirestoreAdmin_Databases(t *testing.T) {
 // TestFirestoreAdmin_Indexes exercises the index admin surface: CreateIndex (a
 // long-running operation), GetIndex, ListIndexes, and DeleteIndex.
 func TestFirestoreAdmin_Indexes(t *testing.T) {
+	t.Parallel()
 	c := newFSAdminClient(t)
 	cgParent := "projects/fs-admin-idx/databases/(default)/collectionGroups/users"
 
@@ -140,6 +142,7 @@ func TestFirestoreAdmin_Indexes(t *testing.T) {
 // TestFirestoreAdmin_Fields exercises the field admin surface: UpdateField (a
 // long-running operation), GetField, and ListFields.
 func TestFirestoreAdmin_Fields(t *testing.T) {
+	t.Parallel()
 	c := newFSAdminClient(t)
 	fieldName := "projects/fs-admin-field/databases/(default)/collectionGroups/users/fields/email"
 
@@ -196,6 +199,7 @@ func TestFirestoreAdmin_Fields(t *testing.T) {
 // CreateBackupSchedule, GetBackupSchedule, ListBackupSchedules,
 // UpdateBackupSchedule, and DeleteBackupSchedule.
 func TestFirestoreAdmin_BackupSchedules(t *testing.T) {
+	t.Parallel()
 	c := newFSAdminClient(t)
 	dbParent := "projects/fs-admin-bs/databases/(default)"
 

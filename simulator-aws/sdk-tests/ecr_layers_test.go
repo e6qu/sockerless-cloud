@@ -15,6 +15,7 @@ import (
 // TestECR_RepositoryPolicy covers the `aws_ecr_repository_policy` surface
 // : Set → Get round-trip + Delete.
 func TestECR_RepositoryPolicy(t *testing.T) {
+	t.Parallel()
 	c := ecrClient()
 	repo := uniqueName("policy-repo")
 	_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
@@ -42,6 +43,7 @@ func TestECR_RepositoryPolicy(t *testing.T) {
 // Initiate → UploadPart → Complete (content-addressed) → GetDownloadUrl, with
 // BatchCheckLayerAvailability reflecting the real store before/after.
 func TestECR_LayerUploadPipeline(t *testing.T) {
+	t.Parallel()
 	c := ecrClient()
 	repo := uniqueName("layer-repo")
 	_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
@@ -124,6 +126,7 @@ func ecrLayerDigest(b []byte) string {
 // — image tag mutability, scan-on-push, and encryption config
 // round-trip through CreateRepository + DescribeRepositories.
 func TestECR_RepositoryConfiguration(t *testing.T) {
+	t.Parallel()
 	defaultRepo := uniqueName("config-default-repo")
 	c := ecrClient()
 

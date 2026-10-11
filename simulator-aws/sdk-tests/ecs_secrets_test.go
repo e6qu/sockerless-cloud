@@ -18,6 +18,7 @@ import (
 // resolved at task launch and injected as the named environment variable,
 // indistinguishable from a plain `environment` entry to the container.
 func TestECS_TaskDefinitionSecretsInjected(t *testing.T) {
+	t.Parallel()
 	family := uniqueName("ecs-secrets")
 	secretName := uniqueName("ecs/inject-secret")
 	client := ecsClient()

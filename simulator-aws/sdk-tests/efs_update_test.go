@@ -14,6 +14,7 @@ import (
 // throughput and back, asserting the FileSystemDescription round-trips the
 // updated ThroughputMode + ProvisionedThroughputInMibps.
 func TestEFS_UpdateFileSystem(t *testing.T) {
+	t.Parallel()
 	client := efsClient()
 
 	createOut, err := client.CreateFileSystem(ctx, &efs.CreateFileSystemInput{
@@ -54,6 +55,7 @@ func TestEFS_UpdateFileSystem(t *testing.T) {
 // ReplicationOverwriteProtection and asserts the returned
 // FileSystemProtectionDescription carries the new status.
 func TestEFS_UpdateFileSystemProtection(t *testing.T) {
+	t.Parallel()
 	client := efsClient()
 
 	createOut, err := client.CreateFileSystem(ctx, &efs.CreateFileSystemInput{

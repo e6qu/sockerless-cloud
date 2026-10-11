@@ -38,6 +38,7 @@ func waitCloudRunV1ExecutionDone(t *testing.T, svc *run.APIService, executionID 
 }
 
 func TestCloudRunV1_JobsLifecycle(t *testing.T) {
+	t.Parallel()
 	svc := newRunV1(t)
 	id := uniqueName("v1-knative-job")
 	parent := "namespaces/" + cloudRunV1Namespace
@@ -121,6 +122,7 @@ func TestCloudRunV1_JobsLifecycle(t *testing.T) {
 // through the Knative run method and asserts the container's non-zero exit
 // reaches the execution's failedCount and the task's lastAttemptResult.
 func TestCloudRunV1_JobRunPropagatesNonZeroExit(t *testing.T) {
+	t.Parallel()
 	svc := newRunV1(t)
 	id := uniqueName("v1-run-failing-job")
 	parent := "namespaces/" + cloudRunV1Namespace
@@ -182,6 +184,7 @@ func TestCloudRunV1_JobRunPropagatesNonZeroExit(t *testing.T) {
 // that only rewrote the execution record would leave the container ticking and
 // its task unsettled.
 func TestCloudRunV1_ExecutionCancelStopsTheContainer(t *testing.T) {
+	t.Parallel()
 	svc := newRunV1(t)
 	// Cloud Logging keeps a deleted job's entries, so a reused job name would
 	// read an earlier run's ticks.
@@ -277,6 +280,7 @@ func conditionReasons(conditions []*run.GoogleCloudRunV1Condition) []string {
 // TestCloudRunV1_JobRunOverrides drives the Knative run method's per-run
 // overrides against a real container and shows the job resource is untouched.
 func TestCloudRunV1_JobRunOverrides(t *testing.T) {
+	t.Parallel()
 	svc := newRunV1(t)
 	id := uniqueName("v1-overrides-job")
 	parent := "namespaces/" + cloudRunV1Namespace
@@ -329,6 +333,7 @@ func TestCloudRunV1_JobRunOverrides(t *testing.T) {
 // TestCloudRunV1_JobsDryRun pins that a Knative job dry run validates without
 // persisting, and that an unsupported dryRun value is rejected.
 func TestCloudRunV1_JobsDryRun(t *testing.T) {
+	t.Parallel()
 	svc := newRunV1(t)
 	id := uniqueName("v1-dryrun-job")
 	parent := "namespaces/" + cloudRunV1Namespace
@@ -355,6 +360,7 @@ func TestCloudRunV1_JobsDryRun(t *testing.T) {
 // TestCloudRunV1_ExecutionDeleteRemovesItsTasks pins the Knative execution
 // delete: the execution and the tasks it owns both go.
 func TestCloudRunV1_ExecutionDeleteRemovesItsTasks(t *testing.T) {
+	t.Parallel()
 	svc := newRunV1(t)
 	jobID := uniqueName("v1-exec-delete-job")
 	execName := createAndRunJobWithImageAndCommand(t, jobID, simWorkloadImage, []string{"true"}, "30s").Execution
@@ -381,6 +387,7 @@ func TestCloudRunV1_ExecutionDeleteRemovesItsTasks(t *testing.T) {
 // fan-in: setIamPolicy sets a policy. It must never fall through to RunJob and
 // start a container.
 func TestCloudRunV2_JobSetIamPolicyDoesNotRunTheJob(t *testing.T) {
+	t.Parallel()
 	id := uniqueName("v2-iam-not-run")
 	createCloudRunV2JobLRO(t, id)
 	base := fmt.Sprintf("%s/v2/projects/%s/locations/us-central1/jobs/%s", baseURL, cloudRunV1Namespace, id)
@@ -409,6 +416,7 @@ func TestCloudRunV2_JobSetIamPolicyDoesNotRunTheJob(t *testing.T) {
 // TestCloudRunV2_JobRunValidateOnly pins that a validate-only RunJob starts no
 // execution and reports no resource it did not create.
 func TestCloudRunV2_JobRunValidateOnly(t *testing.T) {
+	t.Parallel()
 	id := uniqueName("v2-run-validate-only")
 	createCloudRunV2JobLRO(t, id)
 	base := fmt.Sprintf("%s/v2/projects/%s/locations/us-central1/jobs/%s", baseURL, cloudRunV1Namespace, id)

@@ -22,6 +22,7 @@ import (
 // (no `describe-serverless-v2-platform-versions` subcommand), so its
 // contract hook is covered SDK-side only.
 func TestRDSCLI_Complete(t *testing.T) {
+	t.Parallel()
 	cevEngine := "custom-oracle-ee"
 	cevVersion := "19.cev.cli.1"
 	t.Cleanup(func() {

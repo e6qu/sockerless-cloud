@@ -10,6 +10,7 @@ import (
 // TestSchedulerCLI_ScheduleLifecycle drives `aws scheduler` create/get/delete
 // against the REST-JSON EventBridge Scheduler surface.
 func TestSchedulerCLI_ScheduleLifecycle(t *testing.T) {
+	t.Parallel()
 	const name = "cli-schedule"
 
 	createOut := runCLI(t, awsCLI("scheduler", "create-schedule",
@@ -54,6 +55,7 @@ func TestSchedulerCLI_ScheduleLifecycle(t *testing.T) {
 // TestSchedulerCLI_EventBridgeAndUniversalTargets round-trips an EventBridge
 // PutEvents target and a universal target through `aws scheduler`.
 func TestSchedulerCLI_EventBridgeAndUniversalTargets(t *testing.T) {
+	t.Parallel()
 	for name, target := range map[string]string{
 		"cli-eventbridge-target": `{"Arn":"arn:aws:events:us-east-1:123456789012:event-bus/default","RoleArn":"arn:aws:iam::123456789012:role/scheduler-role","Input":"{\"run\":\"nightly\"}","EventBridgeParameters":{"DetailType":"Nightly Run","Source":"scheduler.cli"}}`,
 		"cli-universal-target":   `{"Arn":"arn:aws:scheduler:::aws-sdk:sqs:sendMessage","RoleArn":"arn:aws:iam::123456789012:role/scheduler-role","Input":"{\"QueueUrl\":\"https://sqs.us-east-1.amazonaws.com/123456789012/cli\",\"MessageBody\":\"hello\"}"}`,
@@ -92,6 +94,7 @@ func TestSchedulerCLI_EventBridgeAndUniversalTargets(t *testing.T) {
 // TestSchedulerCLI_RetryPolicyRange proves `aws scheduler create-schedule` is
 // refused a MaximumRetryAttempts above the model's 185.
 func TestSchedulerCLI_RetryPolicyRange(t *testing.T) {
+	t.Parallel()
 	out := runCLIExpectError(t, awsCLI("scheduler", "create-schedule", "--name", "cli-retry-range",
 		"--schedule-expression", "rate(1 hour)", "--flexible-time-window", `{"Mode":"OFF"}`,
 		"--target", `{"Arn":"arn:aws:lambda:us-east-1:123456789012:function:cli","RoleArn":"arn:aws:iam::123456789012:role/scheduler-role","RetryPolicy":{"MaximumRetryAttempts":186}}`))

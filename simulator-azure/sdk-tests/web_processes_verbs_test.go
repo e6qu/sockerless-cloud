@@ -19,6 +19,7 @@ import (
 // one removes it from the table the reads beside it return, and the modules
 // reported are the ones the process actually loaded.
 func TestSDK_WebApps_ProcessModulesAndKill(t *testing.T) {
+	t.Parallel()
 	rg, name := "sdk-proc-verbs-rg", "sdk-proc-verbs-app"
 	host := createSiteForContainers(t, rg, name)
 

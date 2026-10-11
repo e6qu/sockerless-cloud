@@ -27,6 +27,7 @@ func ssmCLIEnsureDoc(t *testing.T, name string) {
 // via update, list-versions, execution history, targets, effective-instance,
 // status, run-once, delete.
 func TestSSMCLI_AssociationLifecycle(t *testing.T) {
+	t.Parallel()
 	docName := "cli-assoc-doc-" + ssmStamp()
 	ssmCLIEnsureDoc(t, docName)
 	instanceID := "i-0123456789abcdef0"
@@ -147,6 +148,7 @@ func TestSSMCLI_AssociationLifecycle(t *testing.T) {
 }
 
 func TestSSMCLI_AssociationBatch(t *testing.T) {
+	t.Parallel()
 	docName := "cli-assoc-batch-doc-" + ssmStamp()
 	ssmCLIEnsureDoc(t, docName)
 
@@ -174,6 +176,7 @@ func TestSSMCLI_AssociationBatch(t *testing.T) {
 // TestSSMCLI_AutomationLifecycle pins the Automation control plane through the
 // CLI plus the execution-preview surface.
 func TestSSMCLI_AutomationLifecycle(t *testing.T) {
+	t.Parallel()
 	docName := "cli-automation-doc-" + ssmStamp()
 	ssmCLIEnsureDoc(t, docName)
 
@@ -247,6 +250,7 @@ func TestSSMCLI_AutomationLifecycle(t *testing.T) {
 // TestSSMCLI_CommandLifecycle pins Run Command through the CLI: send, list,
 // list-invocations, get-command-invocation, cancel.
 func TestSSMCLI_CommandLifecycle(t *testing.T) {
+	t.Parallel()
 	docName := "cli-command-doc-" + ssmStamp()
 	ssmCLIEnsureDoc(t, docName)
 	instanceID := "i-cccc3333dddd44440"

@@ -48,6 +48,7 @@ import (
 // CreateAutoScalingGroup then DescribeAutoScalingGroups must surface the
 // group ARN and the (defaulted) HealthCheckType, which terraform reads back.
 func TestConformanceAutoScalingGroupARNAndHealthCheck(t *testing.T) {
+	t.Parallel()
 	c := autoScalingClient()
 	ec2c := ec2Client()
 	lcName := "conf-asg-lc"
@@ -105,6 +106,7 @@ func TestConformanceAutoScalingGroupARNAndHealthCheck(t *testing.T) {
 // SubmitJob then DescribeJobs must return the same jobArn DescribeJobs is
 // expected to echo (terraform/SDK read it back).
 func TestConformanceBatchDescribeJobsArn(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 
 	_, err := c.CreateComputeEnvironment(ctx, &batch.CreateComputeEnvironmentInput{
@@ -168,6 +170,7 @@ func TestConformanceBatchDescribeJobsArn(t *testing.T) {
 // CreateRestApi must surface the auto-created root resource id, and that id
 // must be usable as a CreateResource ParentId.
 func TestConformanceAPIGatewayRootResourceId(t *testing.T) {
+	t.Parallel()
 	c := apigwClient()
 	create, err := c.CreateRestApi(ctx, &apigateway.CreateRestApiInput{
 		Name: aws.String("conf-rest-root"),
@@ -197,6 +200,7 @@ func TestConformanceAPIGatewayRootResourceId(t *testing.T) {
 
 // CreateApi (HTTP) must return ApiEndpoint.
 func TestConformanceAPIGatewayV2ApiEndpoint(t *testing.T) {
+	t.Parallel()
 	c := apigwv2Client()
 	create, err := c.CreateApi(ctx, &apigatewayv2.CreateApiInput{
 		Name:         aws.String("conf-http-api"),
@@ -215,6 +219,7 @@ func TestConformanceAPIGatewayV2ApiEndpoint(t *testing.T) {
 // RequestCertificate without Options must default CT logging to ENABLED, and
 // DescribeCertificate must return it.
 func TestConformanceACMDefaultCertificateOptions(t *testing.T) {
+	t.Parallel()
 	c := acmClient()
 	req, err := c.RequestCertificate(ctx, &acm.RequestCertificateInput{
 		DomainName:       aws.String("conf-acm.example.com"),
@@ -239,6 +244,7 @@ func TestConformanceACMDefaultCertificateOptions(t *testing.T) {
 // CreateStream (unencrypted) then DescribeStreamSummary must report
 // EncryptionType=NONE, not the empty stored value.
 func TestConformanceKinesisEncryptionTypeNone(t *testing.T) {
+	t.Parallel()
 	c := kinesisClient()
 	streamName := "conf-kinesis-enc"
 	_, err := c.CreateStream(ctx, &kinesis.CreateStreamInput{
@@ -263,6 +269,7 @@ func TestConformanceKinesisEncryptionTypeNone(t *testing.T) {
 // surface the image config under ImageConfigResponse, the field the SDK
 // FunctionConfiguration shape reads.
 func TestConformanceLambdaImageConfigResponse(t *testing.T) {
+	t.Parallel()
 	c := lambdaClient()
 	fnName := "conf-lambda-imageconfig"
 	_, err := c.CreateFunction(ctx, &lambda.CreateFunctionInput{
@@ -297,6 +304,7 @@ func TestConformanceLambdaImageConfigResponse(t *testing.T) {
 // ALL_NEW the full new item, UPDATED_NEW only the changed attrs, ALL_OLD
 // the pre-update item.
 func TestConformanceDynamoDBUpdateItemReturnValues(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tableName := "conf-ddb-returnvalues"
 	_, err := c.CreateTable(ctx, &dynamodb.CreateTableInput{
@@ -390,6 +398,7 @@ func TestConformanceDynamoDBUpdateItemReturnValues(t *testing.T) {
 // PutTargets with structured target parameters then ListTargetsByRule must
 // round-trip EcsParameters and RetryPolicy, which terraform reads back.
 func TestConformanceEventBridgeTargetParameters(t *testing.T) {
+	t.Parallel()
 	eb := eventbridgeClient()
 	busName := "conf-eb-target-bus"
 	ruleName := "conf-eb-target-rule"
@@ -455,6 +464,7 @@ func TestConformanceEventBridgeTargetParameters(t *testing.T) {
 // empty 200. A no-filter Describe (list all) must still succeed with whatever
 // is present.
 func TestConformanceELBv2DescribeMissingExplicitIdentifier(t *testing.T) {
+	t.Parallel()
 	c := elbv2Client()
 
 	_, err := c.DescribeLoadBalancers(ctx, &elbv2.DescribeLoadBalancersInput{
@@ -501,6 +511,7 @@ func TestConformanceELBv2DescribeMissingExplicitIdentifier(t *testing.T) {
 // DescribeServices against a cluster that does not exist must short-circuit
 // with ClusterNotFoundException, not return per-service MISSING failures.
 func TestConformanceECSDescribeServicesGhostCluster(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 
 	_, err := c.DescribeServices(ctx, &ecs.DescribeServicesInput{
@@ -516,6 +527,7 @@ func TestConformanceECSDescribeServicesGhostCluster(t *testing.T) {
 // CreateRole with a name that already exists must raise
 // EntityAlreadyExistsException on the second call.
 func TestConformanceIAMCreateRoleDuplicate(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	name := "conf-dup-role"
 	policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
@@ -542,6 +554,7 @@ func TestConformanceIAMCreateRoleDuplicate(t *testing.T) {
 // Batch client errors must be typed as ClientException so the restJson1 SDK
 // classifies them rather than falling back to a generic error.
 func TestConformanceBatchTypedClientException(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 	name := "conf-dup-ce"
 
@@ -571,6 +584,7 @@ func TestConformanceBatchTypedClientException(t *testing.T) {
 // servicediscovery GetService for a missing id must return HTTP 400 (modeled
 // awsJson1.1 exception) and deserialize to the typed ServiceNotFound.
 func TestConformanceCloudMapServiceNotFoundStatus(t *testing.T) {
+	t.Parallel()
 	c := cmClient()
 
 	_, err := c.GetService(ctx, &servicediscovery.GetServiceInput{
@@ -591,6 +605,7 @@ func TestConformanceCloudMapServiceNotFoundStatus(t *testing.T) {
 // CreateWebACL with a name+scope that already exists must raise
 // WAFDuplicateItemException on the second call.
 func TestConformanceWAFv2CreateWebACLDuplicate(t *testing.T) {
+	t.Parallel()
 	c := wafClient()
 	name := uniqueName("conf-dup-acl")
 	visibility := &wafv2types.VisibilityConfig{
@@ -629,6 +644,7 @@ func TestConformanceWAFv2CreateWebACLDuplicate(t *testing.T) {
 // IAM ListAttachedRolePolicies is role-scoped, so the two attachments are the
 // whole result set and pagination round-trips exactly.
 func TestConformanceIAMListAttachedRolePoliciesPagination(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	role := "conf-page-role"
 	_, err := c.CreateRole(ctx, &iam.CreateRoleInput{
@@ -683,6 +699,7 @@ func TestConformanceIAMListAttachedRolePoliciesPagination(t *testing.T) {
 
 // IAM ListPolicies is account-global; assert the structural page-size contract.
 func TestConformanceIAMListPoliciesPagination(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	for _, name := range []string{"conf-lp-page-1", "conf-lp-page-2"} {
 		n := name
@@ -712,6 +729,7 @@ func TestConformanceIAMListPoliciesPagination(t *testing.T) {
 
 // IAM ListInstanceProfiles is account-global; assert the structural contract.
 func TestConformanceIAMListInstanceProfilesPagination(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	for _, name := range []string{"conf-ip-page-1", "conf-ip-page-2"} {
 		n := name
@@ -739,6 +757,7 @@ func TestConformanceIAMListInstanceProfilesPagination(t *testing.T) {
 // EventBridge ListRules is event-bus-scoped, so a fresh bus with two rules is
 // the whole result set and pagination round-trips exactly.
 func TestConformanceEventBridgeListRulesPagination(t *testing.T) {
+	t.Parallel()
 	eb := eventbridgeClient()
 	bus := "conf-page-rules-bus"
 	_, err := eb.CreateEventBus(ctx, &eventbridge.CreateEventBusInput{Name: aws.String(bus)})
@@ -780,6 +799,7 @@ func TestConformanceEventBridgeListRulesPagination(t *testing.T) {
 // Batch DescribeComputeEnvironments list-all path is process-global; assert the
 // structural page-size contract.
 func TestConformanceBatchDescribeComputeEnvironmentsPagination(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 	for _, name := range []string{"conf-page-ce-1", "conf-page-ce-2"} {
 		n := name
@@ -817,6 +837,7 @@ func TestConformanceBatchDescribeComputeEnvironmentsPagination(t *testing.T) {
 // EC2 Auto Scaling DescribeAutoScalingGroups list-all path is process-global;
 // assert the structural MaxRecords/NextToken contract.
 func TestConformanceAutoScalingDescribeGroupsPagination(t *testing.T) {
+	t.Parallel()
 	c := autoScalingClient()
 	lc := "conf-page-asg-lc"
 	_, err := c.CreateLaunchConfiguration(ctx, &autoscaling.CreateLaunchConfigurationInput{
@@ -862,6 +883,7 @@ func TestConformanceAutoScalingDescribeGroupsPagination(t *testing.T) {
 // Application Auto Scaling DescribeScalableTargets is namespace+resource
 // scoped, so the two targets are the whole result set and round-trip exactly.
 func TestConformanceAppAutoScalingDescribeTargetsPagination(t *testing.T) {
+	t.Parallel()
 	c := appAutoScalingClient()
 	const ns = aastypes.ServiceNamespaceEcs
 	ids := []string{"service/conf-page/svc-a", "service/conf-page/svc-b"}
@@ -910,6 +932,7 @@ func TestConformanceAppAutoScalingDescribeTargetsPagination(t *testing.T) {
 // EFS DescribeAccessPoints is file-system-scoped, so the two access points are
 // the whole result set and pagination round-trips exactly (NextToken scheme).
 func TestConformanceEFSDescribeAccessPointsPagination(t *testing.T) {
+	t.Parallel()
 	c := efsClient()
 	fs, err := c.CreateFileSystem(ctx, &efs.CreateFileSystemInput{
 		CreationToken:   aws.String("conf-page-ap-fs"),
@@ -952,6 +975,7 @@ func TestConformanceEFSDescribeAccessPointsPagination(t *testing.T) {
 // EFS DescribeFileSystems list-all path is process-global; assert the
 // structural Marker/MaxItems/NextMarker contract.
 func TestConformanceEFSDescribeFileSystemsPagination(t *testing.T) {
+	t.Parallel()
 	c := efsClient()
 	for i := 0; i < 2; i++ {
 		fs, err := c.CreateFileSystem(ctx, &efs.CreateFileSystemInput{
@@ -981,6 +1005,7 @@ func TestConformanceEFSDescribeFileSystemsPagination(t *testing.T) {
 // CloudTrail LookupEvents draws on a process-global, time-ordered event log;
 // assert the structural MaxResults/NextToken contract.
 func TestConformanceCloudTrailLookupEventsPagination(t *testing.T) {
+	t.Parallel()
 	ct := cloudTrailClient()
 	ecsc := ecsClient()
 	for _, name := range []string{"conf-page-ct-1", "conf-page-ct-2"} {

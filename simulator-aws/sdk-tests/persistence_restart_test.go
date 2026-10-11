@@ -76,6 +76,7 @@ func persistentSDKConfig() aws.Config {
 }
 
 func TestAWSServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 	tcpPort, udpPort := persistentSimulatorPorts(t)
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", tcpPort)
@@ -755,6 +756,7 @@ func TestAWSServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 }
 
 func TestAmplifyBuildResumesAfterSimulatorRestart_SDK(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 	tcpPort, udpPort := persistentSimulatorPorts(t)
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", tcpPort)
@@ -870,6 +872,7 @@ frontend:
 }
 
 func TestLambdaDurableCallbackResumesAfterSimulatorRestart_SDK(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 	tcpPort, udpPort := persistentSimulatorPorts(t)
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", tcpPort)

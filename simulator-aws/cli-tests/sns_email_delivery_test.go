@@ -10,6 +10,7 @@ import (
 )
 
 func TestSNSCLI_EmailDeliveryUsesRealSMTP(t *testing.T) {
+	t.Parallel()
 	messages := acmCLIStartSMTPReceiver(t)
 	topicJSON := runCLI(t, awsCLI("sns", "create-topic", "--name", "cli-smtp-delivery", "--output", "json"))
 	var topic struct {

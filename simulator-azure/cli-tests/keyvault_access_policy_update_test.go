@@ -17,6 +17,7 @@ import (
 // application, replace sets that policy's permissions, and remove takes
 // permissions away, dropping a policy left with none.
 func TestKeyVault_CLI_AccessPolicyUpdatesWorkPerPermission(t *testing.T) {
+	t.Parallel()
 	const (
 		vault = "cli-kv-policy-update"
 		alice = "a1a1a1a1-0000-0000-0000-000000000001"

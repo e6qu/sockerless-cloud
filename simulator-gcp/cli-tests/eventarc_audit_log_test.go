@@ -18,6 +18,7 @@ import (
 // returns the Admin Activity entry Cloud Storage wrote, and the service
 // receives the entry as a google.cloud.audit.log.v1.written CloudEvent.
 func TestEventarcCLI_AuditLogTrigger(t *testing.T) {
+	t.Parallel()
 	const (
 		serviceID = "cli-audit-receiver"
 		trigger   = "cli-audit-trigger"

@@ -107,6 +107,7 @@ func resourceListIDs(rows []*armresources.GenericResourceExpanded) map[string]bo
 }
 
 func TestResourcesList_ScopesAndFilters(t *testing.T) {
+	t.Parallel()
 	client, err := armresources.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
@@ -190,6 +191,7 @@ func TestResourcesList_ScopesAndFilters(t *testing.T) {
 }
 
 func TestResourcesListByResourceGroup_ScopeExpandAndPaging(t *testing.T) {
+	t.Parallel()
 	client, err := armresources.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
@@ -254,6 +256,7 @@ func TestResourcesListByResourceGroup_ScopeExpandAndPaging(t *testing.T) {
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/managedHSMs
 //	PUT+GET+DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/managedHSMs/{name}
 func TestManagedHSMs_ListIsEmptyNotMissing(t *testing.T) {
+	t.Parallel()
 	const rg = "managedhsm-rg"
 	ensureKVResourceGroup(t, rg)
 

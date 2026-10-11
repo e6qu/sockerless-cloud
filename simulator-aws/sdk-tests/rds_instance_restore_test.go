@@ -61,6 +61,7 @@ func (f rdsInstanceFixture) connect(instanceID string) auroraSnapshotClient {
 // backup retention does not restore to a time. MariaDB's binary log dates a
 // transaction in whole seconds, so its restore time falls on a second.
 func TestRDS_InstanceRestoresToAPointInTime(t *testing.T) {
+	t.Parallel()
 	for _, engine := range []string{"postgres", "mysql", "mariadb"} {
 		t.Run(engine, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -160,6 +161,7 @@ func TestRDS_InstanceRestoresToAPointInTime(t *testing.T) {
 // creating until it is available with that backup taken, and takes one again
 // when ModifyDBInstance turns automated backups back on.
 func TestRDS_InstanceTakesItsFirstAutomatedBackupWithoutAClient(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	f := rdsInstanceFixture{t: t, ctx: ctx, client: rdsClient(), family: "postgres"}
@@ -235,6 +237,7 @@ func TestRDS_InstanceTakesItsFirstAutomatedBackupWithoutAClient(t *testing.T) {
 // data to the master user the request names. A bucket the ingestion role
 // cannot read is refused.
 func TestRDS_InstanceRestoresFromS3XtraBackup(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	backup := takeXtraBackup(t, "sdk-instance-xtrabackup-source",
@@ -318,6 +321,7 @@ func TestRDS_InstanceRestoresFromS3XtraBackup(t *testing.T) {
 // SourceDbClusterResourceId, each holding the rows committed by the restore
 // time. A deleted retained backup no longer restores.
 func TestRDS_RetainedAutomatedBackupsRestoreDeletedResources(t *testing.T) {
+	t.Parallel()
 	t.Run("db-instance", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()

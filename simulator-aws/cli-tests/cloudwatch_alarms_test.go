@@ -9,6 +9,7 @@ import (
 // surface the aws CLI uses: put-metric-alarm, describe-alarms (with the
 // metric-derived StateValue), and delete-alarms.
 func TestCloudWatchCLI_MetricAlarms(t *testing.T) {
+	t.Parallel()
 	ns := "Custom/AlarmsCLI"
 	runCLI(t, awsCLI("cloudwatch", "put-metric-data", "--namespace", ns,
 		"--metric-data", `[{"MetricName":"Latency","Value":5,"Unit":"Milliseconds"}]`))

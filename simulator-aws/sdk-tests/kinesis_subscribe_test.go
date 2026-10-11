@@ -128,6 +128,7 @@ func kinesisRecordData(records []kinesistypes.Record) []string {
 // TestKinesis_SubscribeToShard subscribes an enhanced fan-out consumer, then
 // puts records and receives them over the held event stream as they land.
 func TestKinesis_SubscribeToShard(t *testing.T) {
+	t.Parallel()
 	f := newKinesisSubscribeFixture(t, "subscribe-stream")
 	f.put(t, "efo-record-0")
 	second := f.put(t, "efo-record-1")
@@ -170,6 +171,7 @@ func TestKinesis_SubscribeToShard(t *testing.T) {
 // TestKinesis_SubscribeToShardStartingPositions opens one subscription per
 // StartingPosition type and checks where each starts reading.
 func TestKinesis_SubscribeToShardStartingPositions(t *testing.T) {
+	t.Parallel()
 	f := newKinesisSubscribeFixture(t, "subscribe-positions")
 	f.put(t, "r1")
 	s2 := f.put(t, "r2")
@@ -218,6 +220,7 @@ func TestKinesis_SubscribeToShardStartingPositions(t *testing.T) {
 // TestKinesis_SubscribeToShardEndsAtShardEnd splits the subscribed shard: the
 // subscription delivers the event that names the children and then ends.
 func TestKinesis_SubscribeToShardEndsAtShardEnd(t *testing.T) {
+	t.Parallel()
 	f := newKinesisSubscribeFixture(t, "subscribe-shard-end")
 	es := f.subscribe(t, f.register(t, "shard-end", nil), kinesistypes.StartingPosition{
 		Type: kinesistypes.ShardIteratorTypeTrimHorizon,
@@ -244,6 +247,7 @@ func TestKinesis_SubscribeToShardEndsAtShardEnd(t *testing.T) {
 // subscribed consumer, which ends the subscription with
 // ResourceNotFoundException.
 func TestKinesis_SubscribeToShardEndsWhenConsumerDeregisters(t *testing.T) {
+	t.Parallel()
 	f := newKinesisSubscribeFixture(t, "subscribe-deregister")
 	consumerARN := f.register(t, "leaving", nil)
 	es := f.subscribe(t, consumerARN, kinesistypes.StartingPosition{Type: kinesistypes.ShardIteratorTypeLatest})

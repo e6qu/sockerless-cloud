@@ -57,6 +57,7 @@ type cliOrgPolicy struct {
 }
 
 func TestOrgPoliciesProjectScopeCLI(t *testing.T) {
+	t.Parallel()
 	const projectID = "cli-orgpol-project"
 	runCLI(t, gcloudCLI("projects", "create", projectID,
 		"--organization="+cliOrganizationID, "--format=json"))
@@ -159,6 +160,7 @@ func TestOrgPoliciesProjectScopeCLI(t *testing.T) {
 }
 
 func TestOrgPoliciesOrganizationAndFolderScopeCLI(t *testing.T) {
+	t.Parallel()
 	// Organization scope.
 	out := runCLI(t, gcloudCLI("resource-manager", "org-policies", "enable-enforce",
 		cliOrgPolicyBoolean, "--organization="+cliOrganizationID, "--format=json"))
@@ -202,6 +204,7 @@ func TestOrgPoliciesOrganizationAndFolderScopeCLI(t *testing.T) {
 // PATCH /v2/folders/{folder}, DELETE /v2/folders/{folder},
 // POST /v2/folders:search, POST /v2/folders/{folderAction}.
 func TestFoldersV2CLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, gcloudCLI("resource-manager", "folders", "create",
 		"--display-name=cli-folders-v2", "--organization="+cliOrganizationID, "--format=json"))
 	// gcloud settles the create operation and prints the folder the response
@@ -251,6 +254,7 @@ func TestFoldersV2CLI(t *testing.T) {
 }
 
 func TestOrganizationsAndAncestryCLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, gcloudCLI("organizations", "describe", cliOrganizationID, "--format=json"))
 	var org struct {
 		Name           string `json:"name"`
@@ -286,6 +290,7 @@ func TestOrganizationsAndAncestryCLI(t *testing.T) {
 }
 
 func TestResourceManagerLiensCLI(t *testing.T) {
+	t.Parallel()
 	const projectID = "cli-lien-proj"
 	runCLI(t, gcloudCLI("projects", "create", projectID,
 		"--organization="+cliOrganizationID, "--format=json"))

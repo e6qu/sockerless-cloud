@@ -10,6 +10,7 @@ import (
 // describe-mac-hosts) and the Instance Event Window CRUD (create / describe /
 // modify / associate / disassociate / delete) via the aws CLI.
 func TestEC2CLI_HostsAndEventWindows(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	hostID := q("ec2", "allocate-hosts", "--availability-zone", "us-east-1a",
@@ -89,6 +90,7 @@ func TestEC2CLI_HostsAndEventWindows(t *testing.T) {
 // enable / export / import / restore), and per-snapshot createVolumePermission
 // + tier/lock/import ops via the aws CLI.
 func TestEC2CLI_ImageAndSnapshotAttributes(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	ami := q("ec2", "register-image", "--name", "cli-attr-ami", "--architecture", "x86_64",
@@ -179,6 +181,7 @@ func TestEC2CLI_ImageAndSnapshotAttributes(t *testing.T) {
 // flags, VPC endpoint connection notifications, and the VPC Block Public Access
 // options + exclusions via the aws CLI.
 func TestEC2CLI_VpcClassicLinkAndBpa(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	vpc := q("ec2", "create-vpc", "--cidr-block", "10.182.0.0/16",

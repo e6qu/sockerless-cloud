@@ -71,6 +71,7 @@ func manualScaling(count int32) *runpb.WorkerPoolScaling {
 // instances; lowering it stops the surplus with the stop signal before the
 // update completes, and deleting the pool stops the rest.
 func TestSDK_CloudRun_WorkerPoolRunsItsInstances(t *testing.T) {
+	t.Parallel()
 	client := storageClient(t)
 	defer client.Close()
 	bucketName := uniqueName("sdk-run-wp-volume")
@@ -149,6 +150,7 @@ func TestSDK_CloudRun_WorkerPoolRunsItsInstances(t *testing.T) {
 // entries. StopInstance stops the containers with the stop signal,
 // StartInstance runs them again, and deleting the instance stops them.
 func TestSDK_CloudRun_InstanceRunsItsContainers(t *testing.T) {
+	t.Parallel()
 	client := storageClient(t)
 	defer client.Close()
 	bucketName := uniqueName("sdk-run-inst-volume")

@@ -33,6 +33,7 @@ func ddbMakeTable(t *testing.T, c *dynamodb.Client, name string) string {
 // DeleteBackup / RestoreTableFromBackup as a faithful round-trip: a backup of a
 // populated table restores into a new table that carries the original item.
 func TestDDB_BackupLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	table := "ddb-bk-src"
 	ddbMakeTable(t, c, table)
@@ -99,6 +100,7 @@ func TestDDB_BackupLifecycle(t *testing.T) {
 
 // TestDDB_RestoreToPointInTime restores a PITR-enabled table to a new table.
 func TestDDB_RestoreToPointInTime(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	table := "ddb-pitr-src"
 	ddbMakeTable(t, c, table)
@@ -138,6 +140,7 @@ func TestDDB_RestoreToPointInTime(t *testing.T) {
 // TestDDB_GlobalTables covers CreateGlobalTable / DescribeGlobalTable /
 // ListGlobalTables / UpdateGlobalTable and the settings + autoscaling reads.
 func TestDDB_GlobalTables(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	table := uniqueName("ddb-gt")
 	ddbMakeTable(t, c, table)
@@ -205,6 +208,7 @@ func TestDDB_GlobalTables(t *testing.T) {
 // TestDDB_ResourcePolicy covers PutResourcePolicy / GetResourcePolicy /
 // DeleteResourcePolicy on a table ARN.
 func TestDDB_ResourcePolicy(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	table := "ddb-rp"
 	arn := ddbMakeTable(t, c, table)
@@ -230,6 +234,7 @@ func TestDDB_ResourcePolicy(t *testing.T) {
 // TestDDB_KinesisStreaming covers Enable/Describe/Update/Disable Kinesis
 // streaming destination.
 func TestDDB_KinesisStreaming(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	table := "ddb-kinesis"
 	ddbMakeTable(t, c, table)
@@ -275,6 +280,7 @@ func TestDDB_KinesisStreaming(t *testing.T) {
 // TestDDB_ExportImport covers ExportTableToPointInTime / DescribeExport /
 // ListExports and ImportTable / DescribeImport / ListImports.
 func TestDDB_ExportImport(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	table := "ddb-export"
 	arn := ddbMakeTable(t, c, table)
@@ -334,6 +340,7 @@ func TestDDB_ExportImport(t *testing.T) {
 
 // TestDDB_ContributorInsights covers Update/Describe/List contributor insights.
 func TestDDB_ContributorInsights(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	table := "ddb-ci"
 	ddbMakeTable(t, c, table)
@@ -364,6 +371,7 @@ func TestDDB_ContributorInsights(t *testing.T) {
 }
 
 func TestDDB_DescribeEndpoints(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	out, err := c.DescribeEndpoints(ctx, &dynamodb.DescribeEndpointsInput{})
 	require.NoError(t, err)

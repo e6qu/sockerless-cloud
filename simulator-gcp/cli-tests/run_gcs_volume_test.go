@@ -16,6 +16,7 @@ import (
 // as Cloud Storage FUSE makes them. The second volume mounts one directory of
 // the bucket through the only-dir mount option.
 func TestCloudRun_CLI_JobWritesThroughCloudStorageVolume(t *testing.T) {
+	t.Parallel()
 	const bucket = "cli-run-gcs-volume"
 	const job = "cli-gcs-volume-job"
 	runCLI(t, gcloudCLI("storage", "buckets", "create", "gs://"+bucket, "--location=us", "--format=json"))

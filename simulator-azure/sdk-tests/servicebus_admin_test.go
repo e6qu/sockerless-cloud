@@ -21,6 +21,7 @@ type sbAdminTransport struct {
 }
 
 func TestServiceBusARM_AdvertisedEndpointAndConnectionStrings(t *testing.T) {
+	t.Parallel()
 	rg := "sb-endpoint-rg"
 	ensureRG(t, rg)
 	namespace := uniqueName("sdkshimns")
@@ -108,6 +109,7 @@ func assertSBAdminRawMissing(t *testing.T, namespace, target string) {
 }
 
 func TestServiceBusAdmin_QueueSDKLifecycle(t *testing.T) {
+	t.Parallel()
 	namespace := uniqueName("sdk-admin-queue")
 	client := sbAdminClient(t, namespace)
 	ctx := context.Background()
@@ -149,6 +151,7 @@ func TestServiceBusAdmin_QueueSDKLifecycle(t *testing.T) {
 }
 
 func TestServiceBusAdmin_QueueListPagingIsNamespaceScoped(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	other := sbAdminClient(t, uniqueName("sdk-admin-queue-other"))
 	target := sbAdminClient(t, uniqueName("sdk-admin-queue-target"))
@@ -168,6 +171,7 @@ func TestServiceBusAdmin_QueueListPagingIsNamespaceScoped(t *testing.T) {
 }
 
 func TestServiceBusAdmin_TopicSubscriptionRuleSDKLifecycle(t *testing.T) {
+	t.Parallel()
 	namespace := uniqueName("sdk-admin-topic")
 	client := sbAdminClient(t, namespace)
 	ctx := context.Background()

@@ -17,6 +17,7 @@ func efsClient() *efs.Client {
 }
 
 func TestEFS_CreateAndDescribeFileSystem(t *testing.T) {
+	t.Parallel()
 	client := efsClient()
 
 	createOut, err := client.CreateFileSystem(ctx, &efs.CreateFileSystemInput{
@@ -66,6 +67,7 @@ func TestEFS_CreateAndDescribeFileSystem(t *testing.T) {
 }
 
 func TestEFS_CreateAndDescribeMountTargets(t *testing.T) {
+	t.Parallel()
 	client := efsClient()
 
 	// Create file system first
@@ -116,6 +118,7 @@ func TestEFS_CreateAndDescribeMountTargets(t *testing.T) {
 }
 
 func TestEFS_CreateAndDescribeAccessPoints(t *testing.T) {
+	t.Parallel()
 	client := efsClient()
 
 	// Create file system
@@ -180,6 +183,7 @@ func TestEFS_CreateAndDescribeAccessPoints(t *testing.T) {
 }
 
 func TestEFS_PoliciesAndBackup(t *testing.T) {
+	t.Parallel()
 	client := efsClient()
 
 	createOut, err := client.CreateFileSystem(ctx, &efs.CreateFileSystemInput{
@@ -243,6 +247,7 @@ func TestEFS_PoliciesAndBackup(t *testing.T) {
 }
 
 func TestEFS_Replication(t *testing.T) {
+	t.Parallel()
 	client := efsClient()
 
 	srcOut, err := client.CreateFileSystem(ctx, &efs.CreateFileSystemInput{
@@ -293,6 +298,7 @@ func TestEFS_Replication(t *testing.T) {
 }
 
 func TestEFS_AccountPreferencesAndTagging(t *testing.T) {
+	t.Parallel()
 	client := efsClient()
 
 	// Account preferences round-trip.
@@ -358,6 +364,7 @@ func TestEFS_AccountPreferencesAndTagging(t *testing.T) {
 }
 
 func TestEFS_FullLifecycle(t *testing.T) {
+	t.Parallel()
 	client := efsClient()
 
 	// Create file system
@@ -410,6 +417,7 @@ func TestEFS_FullLifecycle(t *testing.T) {
 }
 
 func TestEFS_CreateAccessPointRefusesUnparsablePermissions(t *testing.T) {
+	t.Parallel()
 	client := efsClient()
 	fs, err := client.CreateFileSystem(ctx, &efs.CreateFileSystemInput{
 		CreationToken: aws.String("ap-bad-permissions-fs"),

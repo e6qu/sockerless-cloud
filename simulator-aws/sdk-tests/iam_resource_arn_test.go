@@ -17,6 +17,7 @@ import (
 // resource ARN for an awsJson service (DynamoDB, from the body's TableName), so a
 // policy scoped to one table's ARN allows that table and denies another.
 func TestIAM_ResourceARN_DynamoDB(t *testing.T) {
+	t.Parallel()
 	admin := iamClient()
 	ddbAdmin := dynamodb.NewFromConfig(sdkConfig(), func(o *dynamodb.Options) { o.BaseEndpoint = aws.String(baseURL) })
 
@@ -67,6 +68,7 @@ func TestIAM_ResourceARN_DynamoDB(t *testing.T) {
 // pattern (Resource scoped to one table ARN) allows single-table transactions
 // and denies any that touch an ungranted table (GitHub issue #870).
 func TestIAM_ResourceARN_DynamoDBTransactionsAndBatches(t *testing.T) {
+	t.Parallel()
 	admin := iamClient()
 	ddbAdmin := dynamodb.NewFromConfig(sdkConfig(), func(o *dynamodb.Options) { o.BaseEndpoint = aws.String(baseURL) })
 
@@ -159,6 +161,7 @@ func TestIAM_ResourceARN_DynamoDBTransactionsAndBatches(t *testing.T) {
 // the rest. Repository names contain slashes and IAM's `*` spans them, so a
 // nested name under the granted prefix is allowed too.
 func TestIAM_ResourceARN_ECR(t *testing.T) {
+	t.Parallel()
 	admin := iamClient()
 	ecrAdmin := ecrClient()
 

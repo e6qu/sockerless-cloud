@@ -79,6 +79,7 @@ func startProcessModeSim(t *testing.T) string {
 // same in-memory model ec2:CreateVolume uses), so the transition completes and
 // the simulator keeps serving.
 func TestECS_ManagedEBSRunTaskProcessMode(t *testing.T) {
+	t.Parallel()
 	url := startProcessModeSim(t)
 	ecsc := ecs.NewFromConfig(sdkConfig(), func(o *ecs.Options) { o.BaseEndpoint = aws.String(url) })
 	ec2c := ec2.NewFromConfig(sdkConfig(), func(o *ec2.Options) { o.BaseEndpoint = aws.String(url) })

@@ -34,6 +34,7 @@ func ingressRules(rules []types.SecurityGroupRule) []types.SecurityGroupRule {
 // aws_vpc_security_group_*_rule with cidr_ipv6/prefix_list_id drifted/recreated
 // every plan), plus the securityGroupRuleArn field.
 func TestEC2_SecurityGroupRuleTargetsSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.120.0.0/16")})
 	require.NoError(t, err)
@@ -86,6 +87,7 @@ func TestEC2_SecurityGroupRuleTargetsSDK(t *testing.T) {
 // of several rules sharing a port range must remove only the matching rule (not
 // all of them) and must delete its SecurityGroupRule row (no orphan).
 func TestEC2_RevokeRemovesOnlyMatchingRuleSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.121.0.0/16")})
 	require.NoError(t, err)
@@ -126,6 +128,7 @@ func TestEC2_RevokeRemovesOnlyMatchingRuleSDK(t *testing.T) {
 // UpdateSecurityGroupRuleDescriptions{Ingress,Egress} operations (legacy
 // aws_security_group inline-block description path).
 func TestEC2_UpdateSecurityGroupRuleDescriptionsSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.124.0.0/16")})
 	require.NoError(t, err)
@@ -185,6 +188,7 @@ func TestEC2_UpdateSecurityGroupRuleDescriptionsSDK(t *testing.T) {
 
 // TestEC2_NetworkInterfaceTypeSDK covers the omitted interface_type field.
 func TestEC2_NetworkInterfaceTypeSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.122.0.0/16")})
 	require.NoError(t, err)

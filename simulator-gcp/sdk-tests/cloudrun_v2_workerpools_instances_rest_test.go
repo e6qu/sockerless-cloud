@@ -89,6 +89,7 @@ func lroResponseName(t *testing.T, op *runv2.GoogleLongrunningOperation) string 
 }
 
 func TestSDK_RunV2REST_WorkerPools_FullSurface(t *testing.T) {
+	t.Parallel()
 	svc := newRunV2RESTService(t)
 	id := uniqueName("rest-wp-surface")
 	name := crV2Parent + "/workerPools/" + id
@@ -184,6 +185,7 @@ func TestSDK_RunV2REST_WorkerPools_FullSurface(t *testing.T) {
 }
 
 func TestSDK_RunV2REST_WorkerPools_IAMVerbs(t *testing.T) {
+	t.Parallel()
 	svc := newRunV2RESTService(t)
 	id := uniqueName("rest-wp-iam")
 	name := crV2Parent + "/workerPools/" + id
@@ -234,6 +236,7 @@ func TestSDK_RunV2REST_WorkerPools_IAMVerbs(t *testing.T) {
 // surface the gcloud CLI calls, and it must address the same resource the v2
 // methods do: a policy written through v1 reads back through v2.
 func TestSDK_RunV1REST_WorkerPools_IAMVerbs(t *testing.T) {
+	t.Parallel()
 	v2svc := newRunV2RESTService(t)
 	v1svc := newRunV1RESTService(t)
 	id := uniqueName("rest-wp-v1-iam")
@@ -284,6 +287,7 @@ func TestSDK_RunV1REST_WorkerPools_IAMVerbs(t *testing.T) {
 }
 
 func TestSDK_RunV2REST_Instances_FullSurface(t *testing.T) {
+	t.Parallel()
 	svc := newRunV2RESTService(t)
 	id := uniqueName("rest-inst-surface")
 	name := crV2Parent + "/instances/" + id
@@ -364,6 +368,7 @@ func TestSDK_RunV2REST_Instances_FullSurface(t *testing.T) {
 }
 
 func TestSDK_RunV2REST_Instances_IAMVerbs(t *testing.T) {
+	t.Parallel()
 	svc := newRunV2RESTService(t)
 	id := uniqueName("rest-inst-iam")
 	name := crV2Parent + "/instances/" + id
@@ -410,6 +415,7 @@ func TestSDK_RunV2REST_Instances_IAMVerbs(t *testing.T) {
 // makes terraform re-plan the resource forever, so the round-trip is asserted
 // field by field.
 func TestSDK_RunV2REST_WorkerPool_FullBodyRoundTrip(t *testing.T) {
+	t.Parallel()
 	svc := newRunV2RESTService(t)
 	id := uniqueName("rest-wp-full-body")
 	name := crV2Parent + "/workerPools/" + id
@@ -562,6 +568,7 @@ func TestSDK_RunV2REST_WorkerPool_FullBodyRoundTrip(t *testing.T) {
 // TestSDK_RunV2REST_Instance_FullBodyRoundTrip is the Instance counterpart of
 // the worker-pool full-body round-trip.
 func TestSDK_RunV2REST_Instance_FullBodyRoundTrip(t *testing.T) {
+	t.Parallel()
 	svc := newRunV2RESTService(t)
 	id := uniqueName("rest-inst-full-body")
 	name := crV2Parent + "/instances/" + id
@@ -654,6 +661,7 @@ func TestSDK_RunV2REST_Instance_FullBodyRoundTrip(t *testing.T) {
 // collections return for an absent resource: HTTP 404, not a 200 with an
 // empty body.
 func TestSDK_RunV2REST_WorkerPoolsInstances_NotFound(t *testing.T) {
+	t.Parallel()
 	svc := newRunV2RESTService(t)
 
 	_, err := svc.Projects.Locations.WorkerPools.Get(crV2Parent + "/workerPools/no-such-pool").Do()

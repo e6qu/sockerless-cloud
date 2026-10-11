@@ -23,6 +23,7 @@ func glueClient() *glue.Client {
 }
 
 func TestGlue_DatabaseCRUD_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	_, err := c.CreateDatabase(ctx, &glue.CreateDatabaseInput{
@@ -52,6 +53,7 @@ func TestGlue_DatabaseCRUD_SDK(t *testing.T) {
 }
 
 func TestGlue_TableCRUD_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	_, err := c.CreateDatabase(ctx, &glue.CreateDatabaseInput{
@@ -98,6 +100,7 @@ func TestGlue_TableCRUD_SDK(t *testing.T) {
 }
 
 func TestGlue_DatabaseUpdate_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	_, err := c.CreateDatabase(ctx, &glue.CreateDatabaseInput{
@@ -128,6 +131,7 @@ func TestGlue_DatabaseUpdate_SDK(t *testing.T) {
 }
 
 func TestGlue_TableUpdateAndBatchDelete_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 	db := "glue-sdk-tblupd-db"
 
@@ -183,6 +187,7 @@ func TestGlue_TableUpdateAndBatchDelete_SDK(t *testing.T) {
 }
 
 func TestGlue_PartitionLifecycle_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 	db := "glue-sdk-part-db"
 	tbl := "glue-sdk-part-tbl"
@@ -321,6 +326,7 @@ func TestGlue_PartitionLifecycle_SDK(t *testing.T) {
 }
 
 func TestGlue_GetPartitionIndexes_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	_, err := c.CreateDatabase(ctx, &glue.CreateDatabaseInput{
@@ -402,6 +408,7 @@ func TestGlue_GetPartitionIndexes_SDK(t *testing.T) {
 const glueJobRunCompletionBudget = 4 * time.Minute
 
 func TestGlue_JobCRUD_SDK(t *testing.T) {
+	t.Parallel()
 	// The interpreter this job run executes in, fetched before the clock the
 	// run is timed by starts.
 	ensureGluePythonShellImage(t)
@@ -547,6 +554,7 @@ func TestGlue_JobCRUD_SDK(t *testing.T) {
 }
 
 func TestGlue_Tags_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	_, err := c.CreateDatabase(ctx, &glue.CreateDatabaseInput{
@@ -602,6 +610,7 @@ func TestGlue_Tags_SDK(t *testing.T) {
 }
 
 func TestGlue_JobUpdateListAndBatchStop_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	create, err := c.CreateJob(ctx, &glue.CreateJobInput{
@@ -654,6 +663,7 @@ func TestGlue_JobUpdateListAndBatchStop_SDK(t *testing.T) {
 }
 
 func TestGlue_CrawlerCRUD_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	_, err := c.CreateCrawler(ctx, &glue.CreateCrawlerInput{
@@ -727,6 +737,7 @@ func TestGlue_CrawlerCRUD_SDK(t *testing.T) {
 }
 
 func TestGlue_TriggerCRUD_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	// A dependent job for the trigger action.
@@ -795,6 +806,7 @@ func TestGlue_TriggerCRUD_SDK(t *testing.T) {
 }
 
 func TestGlue_ConnectionCRUD_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	_, err := c.CreateConnection(ctx, &glue.CreateConnectionInput{
@@ -851,6 +863,7 @@ func TestGlue_ConnectionCRUD_SDK(t *testing.T) {
 }
 
 func TestGlue_SecurityConfigurationCRUD_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	_, err := c.CreateSecurityConfiguration(ctx, &glue.CreateSecurityConfigurationInput{
@@ -886,6 +899,7 @@ func TestGlue_SecurityConfigurationCRUD_SDK(t *testing.T) {
 }
 
 func TestGlue_WorkflowLifecycle_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	_, err := c.CreateWorkflow(ctx, &glue.CreateWorkflowInput{
@@ -936,6 +950,7 @@ func TestGlue_WorkflowLifecycle_SDK(t *testing.T) {
 }
 
 func TestGlue_ClassifierCRUD_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	_, err := c.CreateClassifier(ctx, &glue.CreateClassifierInput{
@@ -981,6 +996,7 @@ func TestGlue_ClassifierCRUD_SDK(t *testing.T) {
 }
 
 func TestGlue_UserDefinedFunctionCRUD_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	_, err := c.CreateDatabase(ctx, &glue.CreateDatabaseInput{
@@ -1036,6 +1052,7 @@ func TestGlue_UserDefinedFunctionCRUD_SDK(t *testing.T) {
 }
 
 func TestGlue_SchemaRegistry_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	_, err := c.CreateRegistry(ctx, &glue.CreateRegistryInput{
@@ -1096,6 +1113,7 @@ func TestGlue_SchemaRegistry_SDK(t *testing.T) {
 }
 
 func TestGlue_TableVersions_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 	db := "glue-sdk-ver-db"
 	tbl := "glue-sdk-ver-tbl"
@@ -1185,6 +1203,7 @@ func TestGlue_TableVersions_SDK(t *testing.T) {
 }
 
 func TestGlue_ColumnStatistics_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 	db := uniqueName("glue-sdk-stats-db")
 	tbl := uniqueName("glue-sdk-stats-tbl")
@@ -1308,6 +1327,7 @@ func TestGlue_ColumnStatistics_SDK(t *testing.T) {
 }
 
 func TestGlue_ResourcePolicy_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::123456789012:root"},"Action":"glue:GetTable","Resource":"*"}]}`
@@ -1335,6 +1355,7 @@ func TestGlue_ResourcePolicy_SDK(t *testing.T) {
 }
 
 func TestGlue_DataCatalogEncryptionAndImport_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 
 	_, err := c.PutDataCatalogEncryptionSettings(ctx, &glue.PutDataCatalogEncryptionSettingsInput{
@@ -1370,6 +1391,7 @@ func TestGlue_DataCatalogEncryptionAndImport_SDK(t *testing.T) {
 }
 
 func TestGlue_SchemaVersions_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 	reg := "glue-sdk-sv-registry"
 	sch := "glue-sdk-sv-schema"

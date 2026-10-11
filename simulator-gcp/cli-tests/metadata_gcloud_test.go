@@ -76,6 +76,7 @@ func gcloudMetadataCLI(t *testing.T, configDir string, args ...string) *exec.Cmd
 // command with it — all against the simulator, differing from real Google only
 // in the GCE_METADATA_HOST coordinate.
 func TestGCEMetadataServerGcloudCredentials(t *testing.T) {
+	t.Parallel()
 	const accountID = "metadata-adc-sa"
 	email := accountID + "@" + project + ".iam.gserviceaccount.com"
 	runCLI(t, gcloudCLI("iam", "service-accounts", "create", accountID,
@@ -130,6 +131,7 @@ func assertTokenAuthenticates(t *testing.T, token string) {
 // the CLI, the URL it builds and the credential it presents are all unmodified;
 // only where the bytes are delivered differs.
 func TestGCloudRegionPrefixedEndpointHost(t *testing.T) {
+	t.Parallel()
 	const serviceName = "region-prefixed-host-svc"
 	httpDoJSON(t, http.MethodPost,
 		fmt.Sprintf("%s/apis/serving.knative.dev/v1/namespaces/%s/services", baseURL, project),

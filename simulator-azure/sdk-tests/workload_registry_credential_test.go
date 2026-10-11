@@ -14,6 +14,7 @@ import (
 // identity pulls its image as that identity, as the platform does; a job that
 // names no credential pulls anonymously and the registry refuses it.
 func TestContainerApps_JobPullsFromItsRegistryAsItsIdentity(t *testing.T) {
+	t.Parallel()
 	const rg = "aca-registry-identity-rg"
 	loginServer, image := acrTasksPushImage(t, rg, "acaregidentityreg", "acaregidentityacct", "sockerless-overlay/aca")
 	identity := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.ManagedIdentity/userAssignedIdentities/aca-pull-identity"
@@ -70,6 +71,7 @@ func acaPutJob(t *testing.T, rg, jobName, image string, args []string, configura
 // managed-identity credentials pulls its image as that identity when its
 // host starts, as App Service does.
 func TestFunctions_SitePullsFromItsRegistryAsItsIdentity(t *testing.T) {
+	t.Parallel()
 	const rg = "functions-registry-identity-rg"
 	loginServer, image := acrTasksPushImage(t, rg, "funcregidentityreg", "funcregidentityacct", "functions/site")
 

@@ -15,6 +15,7 @@ import (
 // Previously these handlers only inspected Filter.1, so a vpc-id filter sent
 // after another filter was ignored and ALL resources were returned.
 func TestEC2_DescribeFiltersPositionIndependent(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 
 	vpc1, err := client.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.91.0.0/16")})

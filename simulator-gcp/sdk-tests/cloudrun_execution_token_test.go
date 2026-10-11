@@ -29,6 +29,7 @@ func tokenJobTemplate(script string) *runpb.ExecutionTemplate {
 // has started. An execution that fails fails the job and its operation, and a
 // job name and token of 63 characters or more are refused.
 func TestSDK_CloudRun_JobExecutionTokens(t *testing.T) {
+	t.Parallel()
 	jobs := newJobsClient(t)
 	executions := newExecutionsClient(t)
 	parent := "projects/test-project/locations/us-central1"

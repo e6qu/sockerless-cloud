@@ -20,6 +20,7 @@ import (
 // TestEC2CLI_VolumesSnapshots covers create-snapshots, describe-volume-status,
 // and enable-volume-io over a running instance with an attached data volume.
 func TestEC2CLI_VolumesSnapshots(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	vpc := q("ec2", "create-vpc", "--cidr-block", "10.220.0.0/16",
@@ -54,6 +55,7 @@ func TestEC2CLI_VolumesSnapshots(t *testing.T) {
 // the locked-snapshots read-back, and the replace-root-volume
 // task lifecycle.
 func TestEC2CLI_RecycleBinTasks(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	if out := q("ec2", "list-snapshots-in-recycle-bin", "--query", "Snapshots", "--output", "json"); out != "[]" {
@@ -86,6 +88,7 @@ func TestEC2CLI_RecycleBinTasks(t *testing.T) {
 // TestEC2CLI_CoipDefaultVpc covers CoIP CIDR add/delete and the
 // default-VPC/subnet surface.
 func TestEC2CLI_CoipDefaultVpc(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	pool := q("ec2", "create-coip-pool", "--local-gateway-route-table-id", "lgw-rtb-0123456789abcdef0",
@@ -117,6 +120,7 @@ func TestEC2CLI_CoipDefaultVpc(t *testing.T) {
 // prefix-list association / version-restore surface, and the SG reference /
 // stale / for-vpc surfaces.
 func TestEC2CLI_PrefixListsSecurityGroups(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	names := q("ec2", "describe-prefix-lists",
@@ -165,6 +169,7 @@ func TestEC2CLI_PrefixListsSecurityGroups(t *testing.T) {
 // VPC-endpoint / route-table-association / ENI-attribute / diagnostic-interrupt
 // surfaces.
 func TestEC2CLI_LaunchTemplateDnsEni(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	vpc := q("ec2", "create-vpc", "--cidr-block", "10.223.0.0/16",
@@ -235,6 +240,7 @@ func TestEC2CLI_LaunchTemplateDnsEni(t *testing.T) {
 // the IPv6-pool describe surface, default credit specification, AZ-group opt-in,
 // and the export/import-task surfaces.
 func TestEC2CLI_Ipv6Credit(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	vpc := q("ec2", "create-vpc", "--cidr-block", "10.224.0.0/16",

@@ -23,6 +23,7 @@ import (
 // collides always, or returns a coordinate the simulator cannot bind, fails
 // here immediately.
 func TestFreeSimulatorPortPairIsSimultaneouslyBindable(t *testing.T) {
+	t.Parallel()
 	for range 50 {
 		httpPort, dnsPort, err := freeSimulatorPortPair()
 		require.NoError(t, err)
@@ -43,6 +44,7 @@ func TestFreeSimulatorPortPairIsSimultaneouslyBindable(t *testing.T) {
 }
 
 func TestFreeTCPUDPPortSupportsRoute53DualProtocolBind(t *testing.T) {
+	t.Parallel()
 	port, err := freeTCPUDPPort()
 	require.NoError(t, err)
 

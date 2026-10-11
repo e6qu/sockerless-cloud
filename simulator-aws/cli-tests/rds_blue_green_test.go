@@ -48,6 +48,7 @@ func cliAwaitBlueGreenStatus(t *testing.T, id, status string) cliBlueGreenDeploy
 // committed and keeps the blue instance as -old1; delete-blue-green-deployment
 // then ends the deployment and leaves both instances.
 func TestRDSCLI_BlueGreenSwitchover(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	blueID := fmt.Sprintf("cli-bg-%d", time.Now().UnixNano())

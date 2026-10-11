@@ -59,6 +59,7 @@ func queueARNOf(t *testing.T, sqsC *sqs.Client, queueURL *string) string {
 // sns.amazonaws.com sqs:SendMessage from the topic, a Publish actually lands a
 // message in the queue (a subsequent ReceiveMessage returns it).
 func TestSNS_DeliverToSQS_AuthorizedByQueuePolicy(t *testing.T) {
+	t.Parallel()
 	snsC := snsClient()
 	sqsC := sqsClient()
 
@@ -101,6 +102,7 @@ func TestSNS_DeliverToSQS_AuthorizedByQueuePolicy(t *testing.T) {
 }
 
 func TestSNS_FilterPolicyAndRawSQSMessageAttributes(t *testing.T) {
+	t.Parallel()
 	snsC := snsClient()
 	sqsC := sqsClient()
 
@@ -165,6 +167,7 @@ func TestSNS_FilterPolicyAndRawSQSMessageAttributes(t *testing.T) {
 // authorization gates real delivery: a queue with NO resource policy never
 // receives the message (real AWS drops the unauthorized delivery).
 func TestSNS_DeliverToSQS_DeniedNoQueuePolicy(t *testing.T) {
+	t.Parallel()
 	snsC := snsClient()
 	sqsC := sqsClient()
 
@@ -205,6 +208,7 @@ func TestSNS_DeliverToSQS_DeniedNoQueuePolicy(t *testing.T) {
 // load-bearing: a queue whose policy admits SNS only from a DIFFERENT topic
 // does not receive messages published to this topic.
 func TestSNS_DeliverToSQS_DeniedWrongSourceArn(t *testing.T) {
+	t.Parallel()
 	snsC := snsClient()
 	sqsC := sqsClient()
 
@@ -250,6 +254,7 @@ func TestSNS_DeliverToSQS_DeniedWrongSourceArn(t *testing.T) {
 // invoke — observable as the invocation's START line in the function's
 // CloudWatch Logs log group (`/aws/lambda/<name>`).
 func TestSNS_DeliverToLambda_AuthorizedByFunctionPolicy(t *testing.T) {
+	t.Parallel()
 	topicName := uniqueName("sns-deliver-lambda-t")
 	snsC := snsClient()
 	lc := lambdaClient()
@@ -316,6 +321,7 @@ func TestSNS_DeliverToLambda_AuthorizedByFunctionPolicy(t *testing.T) {
 // SNS→Lambda delivery when the function has no resource policy admitting SNS:
 // no invoke happens, so no per-invocation log group is created.
 func TestSNS_DeliverToLambda_DeniedNoPermission(t *testing.T) {
+	t.Parallel()
 	snsC := snsClient()
 	lc := lambdaClient()
 	logs := cwLogsClient()

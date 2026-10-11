@@ -94,6 +94,7 @@ func mustCreateBucket(t *testing.T, svc *storageapi.Service, name string) {
 }
 
 func TestGCS_BucketACL_RoundTrip(t *testing.T) {
+	t.Parallel()
 	bucketAclBucket := uniqueName("acl-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketAclBucket)
@@ -134,6 +135,7 @@ func TestGCS_BucketACL_RoundTrip(t *testing.T) {
 }
 
 func TestGCS_DefaultObjectACL_RoundTrip(t *testing.T) {
+	t.Parallel()
 	bucketDefaclBucket := uniqueName("defacl-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketDefaclBucket)
@@ -182,6 +184,7 @@ func defaultACLEntities(items []*storageapi.ObjectAccessControl) []string {
 }
 
 func TestGCS_Notifications_RoundTrip(t *testing.T) {
+	t.Parallel()
 	svc := storageService(t)
 	bucket := uniqueName("notif-bucket")
 	mustCreateBucket(t, svc, bucket)
@@ -242,6 +245,7 @@ func TestGCS_Notifications_RoundTrip(t *testing.T) {
 }
 
 func TestGCS_HmacKeys_RoundTrip(t *testing.T) {
+	t.Parallel()
 	svc := storageService(t)
 
 	const sa = "svc@test-project.iam.gserviceaccount.com"
@@ -281,6 +285,7 @@ func TestGCS_HmacKeys_RoundTrip(t *testing.T) {
 // caller names the project by ID or by number, and a bucket in the project
 // carries the same number.
 func TestGCS_ServiceAccount(t *testing.T) {
+	t.Parallel()
 	svc := storageService(t)
 	number := requireProject(t, "test-project")
 	want := "service-" + number + "@gs-project-accounts.iam.gserviceaccount.com"
@@ -305,6 +310,7 @@ func TestGCS_ServiceAccount(t *testing.T) {
 }
 
 func TestGCS_Folders_RoundTrip(t *testing.T) {
+	t.Parallel()
 	bucketFoldersBucket := uniqueName("folders-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketFoldersBucket)
@@ -347,6 +353,7 @@ func TestGCS_Folders_RoundTrip(t *testing.T) {
 }
 
 func TestGCS_ManagedFolders_RoundTrip(t *testing.T) {
+	t.Parallel()
 	bucketMfBucket := uniqueName("mf-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketMfBucket)
@@ -389,6 +396,7 @@ func TestGCS_ManagedFolders_RoundTrip(t *testing.T) {
 }
 
 func TestGCS_BucketIAM_TestPermissions(t *testing.T) {
+	t.Parallel()
 	bucketIamPermsBucket := uniqueName("iam-perms-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketIamPermsBucket)
@@ -419,6 +427,7 @@ func TestGCS_BucketIAM_TestPermissions(t *testing.T) {
 // the retention policy the caller put on it, and a bucket the service does not
 // hold is NOT_FOUND from both rather than an invented resource.
 func TestGCS_BucketLockRetentionPolicy(t *testing.T) {
+	t.Parallel()
 	bucketLockBucket := uniqueName("lock-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketLockBucket)
@@ -453,6 +462,7 @@ func TestGCS_BucketLockRetentionPolicy(t *testing.T) {
 }
 
 func TestGCS_AnywhereCaches_RoundTrip(t *testing.T) {
+	t.Parallel()
 	bucketCacheBucket := uniqueName("cache-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketCacheBucket)
@@ -504,6 +514,7 @@ func TestGCS_AnywhereCaches_RoundTrip(t *testing.T) {
 // minted is NOT_FOUND, from get, from cancel and from advanceRelocateBucket
 // alike.
 func TestGCS_BucketOperations_ReportRecordedWork(t *testing.T) {
+	t.Parallel()
 	bucketOpsBucket := uniqueName("ops-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketOpsBucket)
@@ -591,6 +602,7 @@ func TestGCS_BucketOperations_ReportRecordedWork(t *testing.T) {
 // Operations are parented by their bucket: one bucket's relocation is not in
 // another bucket's collection.
 func TestGCS_BucketOperations_AreParentedByTheirBucket(t *testing.T) {
+	t.Parallel()
 	bucketOpsParentA := uniqueName("ops-parent-a")
 	bucketOpsParentB := uniqueName("ops-parent-b")
 	svc := storageService(t)
@@ -615,6 +627,7 @@ func TestGCS_BucketOperations_AreParentedByTheirBucket(t *testing.T) {
 // The folder and Anywhere Cache long-running methods record their operations
 // in the same collection the relocation does.
 func TestGCS_BucketOperations_RecordEveryLongRunningMethod(t *testing.T) {
+	t.Parallel()
 	bucketOpsLroBucket := uniqueName("ops-lro-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketOpsLroBucket)
@@ -643,6 +656,7 @@ func TestGCS_BucketOperations_RecordEveryLongRunningMethod(t *testing.T) {
 // buckets.relocate moves the bucket; validateOnly checks the request and
 // leaves it where it is.
 func TestGCS_BucketRelocate(t *testing.T) {
+	t.Parallel()
 	bucketRelocateBucket := uniqueName("relocate-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketRelocateBucket)
@@ -683,6 +697,7 @@ func TestGCS_BucketRelocate(t *testing.T) {
 // empty 200 — asserted both through the SDK round-trip and on the wire, because
 // a body here would break the generated client's decode.
 func TestGCS_ChannelsStop(t *testing.T) {
+	t.Parallel()
 	svc := storageService(t)
 	require.NoError(t, svc.Channels.Stop(&storageapi.Channel{
 		Id:         "channel-1",
@@ -704,6 +719,7 @@ func TestGCS_ChannelsStop(t *testing.T) {
 }
 
 func TestGCS_ObjectInsertMetadataOnly(t *testing.T) {
+	t.Parallel()
 	bucketObjInsertBucket := uniqueName("obj-insert-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketObjInsertBucket)

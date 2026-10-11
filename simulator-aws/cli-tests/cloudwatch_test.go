@@ -10,6 +10,7 @@ import (
 )
 
 func TestLogs_CreateAndDescribeLogGroup(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", "/cli/test-group"))
 
 	out := runCLI(t, awsCLI("logs", "describe-log-groups",
@@ -32,6 +33,7 @@ func TestLogs_CreateAndDescribeLogGroup(t *testing.T) {
 }
 
 func TestLogs_CreateLogStream(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", "/cli/stream-test"))
 	runCLI(t, awsCLI("logs", "create-log-stream",
 		"--log-group-name", "/cli/stream-test",
@@ -57,6 +59,7 @@ func TestLogs_CreateLogStream(t *testing.T) {
 }
 
 func TestLogs_PutAndGetLogEvents(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", "/cli/events-test"))
 	runCLI(t, awsCLI("logs", "create-log-stream",
 		"--log-group-name", "/cli/events-test",
@@ -94,6 +97,7 @@ func TestLogs_PutAndGetLogEvents(t *testing.T) {
 }
 
 func TestLogs_FilterLogEvents(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", "/cli/filter-test"))
 	runCLI(t, awsCLI("logs", "create-log-stream",
 		"--log-group-name", "/cli/filter-test",
@@ -132,6 +136,7 @@ func TestLogs_FilterLogEvents(t *testing.T) {
 // scopes the searched streams (previously ignored, so every stream's events
 // leaked in).
 func TestLogs_FilterLogEventsByStreamPrefix(t *testing.T) {
+	t.Parallel()
 	group := "/cli/prefix-filter"
 	runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", group))
 	defer runCLI(t, awsCLI("logs", "delete-log-group", "--log-group-name", group))
@@ -160,6 +165,7 @@ func TestLogs_FilterLogEventsByStreamPrefix(t *testing.T) {
 }
 
 func TestLogs_DeleteLogGroup(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", "/cli/delete-test"))
 	runCLI(t, awsCLI("logs", "delete-log-group", "--log-group-name", "/cli/delete-test"))
 

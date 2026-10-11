@@ -122,6 +122,7 @@ func readOnlyS3ObjectWithPrefix(t *testing.T, bucket, prefix string) string {
 }
 
 func TestFirehose_CompleteLifecycleAndS3Delivery(t *testing.T) {
+	t.Parallel()
 	const name = "sdk-firehose-lifecycle"
 	arn, bucket := createImmediateFirehose(t, name)
 	client := firehoseClient()
@@ -239,6 +240,7 @@ func TestFirehose_CompleteLifecycleAndS3Delivery(t *testing.T) {
 }
 
 func TestFirehose_SNSAndCloudWatchDeliverThroughPublicAPIs(t *testing.T) {
+	t.Parallel()
 	const name = "sdk-firehose-services"
 	arn, bucket := createImmediateFirehose(t, name)
 
@@ -305,6 +307,7 @@ func TestFirehose_SNSAndCloudWatchDeliverThroughPublicAPIs(t *testing.T) {
 }
 
 func TestFirehose_DocumentedS3CompressionFormats(t *testing.T) {
+	t.Parallel()
 	const bucket = "sdk-firehose-compression-bucket"
 	s3c := s3Client()
 	_, err := s3c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})

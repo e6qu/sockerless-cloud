@@ -147,6 +147,7 @@ func stage5Subnet(t *testing.T, rg, vnetName, vnetCIDR, subnetName, subnetCIDR s
 // does), a classic PUT surfaces on the swift GET, and a classic DELETE clears
 // the swift view. Also covers connection gateways and the slot spellings.
 func TestSDK_WebVnet_SwiftClassicCoherence(t *testing.T) {
+	t.Parallel()
 	rg := "stage5-vnet-rg"
 	ensureRG(t, rg)
 	planID := stage5EnsurePlan(t, rg, "s5-vnet-plan", "S1", "Standard")
@@ -299,6 +300,7 @@ func TestSDK_WebVnet_SwiftClassicCoherence(t *testing.T) {
 // plan's sites really have; the instance surface answers from real container
 // state (this plan runs none, so it answers the honest empty set).
 func TestSDK_WebVnet_PlanNetworkingTail(t *testing.T) {
+	t.Parallel()
 	rg := "stage5-plan-rg"
 	ensureRG(t, rg)
 	planID := stage5EnsurePlan(t, rg, "s5-tail-plan", "S1", "Standard")
@@ -420,6 +422,7 @@ func TestSDK_WebVnet_PlanNetworkingTail(t *testing.T) {
 // its container, and deleting the classic connection really disconnects — the
 // same probe then fails.
 func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
+	t.Parallel()
 	rg := "stage5-join-rg"
 	ensureRG(t, rg)
 	planID := stage5EnsurePlan(t, rg, "s5-join-plan", "S1", "Standard")
@@ -500,6 +503,7 @@ func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 // TestSDK_WebHybridConnections_SiteAndPlanViews covers both hybrid connection
 // families on a site and the plan-level views assembled from the same store.
 func TestSDK_WebHybridConnections_SiteAndPlanViews(t *testing.T) {
+	t.Parallel()
 	rg := "stage5-hybrid-rg"
 	ensureRG(t, rg)
 	planID := stage5EnsurePlan(t, rg, "s5-hyb-plan", "S1", "Standard")
@@ -673,6 +677,7 @@ func TestSDK_WebHybridConnections_SiteAndPlanViews(t *testing.T) {
 // and slot: absent reads as disabled with no Virtual Networks, and a PUT
 // round-trips exactly.
 func TestSDK_WebPrivateAccess_RoundTrip(t *testing.T) {
+	t.Parallel()
 	s5PaAppName := uniqueName("s5-pa-app")
 	rg := uniqueName("stage5-pa-rg")
 	ensureRG(t, rg)
@@ -737,6 +742,7 @@ func TestSDK_WebPrivateAccess_RoundTrip(t *testing.T) {
 // against the site — approval lifecycle and LRO delete included — plus the
 // site's private link resource catalog.
 func TestSDK_WebSitePrivateEndpointConnections(t *testing.T) {
+	t.Parallel()
 	// The connection is opened by a real Microsoft.Network private endpoint,
 	// which the simulator provisions into a network namespace — the same host
 	// capability every other private-endpoint test requires.

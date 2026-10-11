@@ -13,6 +13,7 @@ import (
 // A query returns a partition's items in sort-key order, numbers by value:
 // 9 before 10, and -2.5 before -2.
 func TestDynamoDB_QueryOrdersNumericSortKeysByValue(t *testing.T) {
+	t.Parallel()
 	client := ddbClient()
 	table := "sdk-numeric-order"
 	_, err := client.CreateTable(ctx, &dynamodb.CreateTableInput{

@@ -32,6 +32,7 @@ func vpcServerScriptServing(body string) string {
 // privateIPv4Address is the container's REAL eth0 address, reachable from
 // another task in the same VPC and isolated from a task in a different VPC.
 func TestECSVPCNetworking(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	octetA := unusedDockerVPCOctet(t, 120, nil)
@@ -76,6 +77,7 @@ func TestECSVPCNetworking(t *testing.T) {
 }
 
 func TestECSManagedEBSAwsvpcReachability(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	octet := unusedDockerVPCOctet(t, 150, nil)
@@ -436,6 +438,7 @@ func rmDockerNetworks(names ...string) {
 // terraform destroy/apply cycle: once the task and subnet are gone, DeleteVpc
 // removes the real backing fabric so a new VPC can reuse the same CIDR.
 func TestECSVPCDeleteVpcAllowsCIDRReuse(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	q("ecs", "create-cluster", "--cluster-name", "default", "--query", "cluster.clusterName", "--output", "text")
@@ -485,6 +488,7 @@ func TestECSVPCDeleteVpcAllowsCIDRReuse(t *testing.T) {
 // own bridge with an allocator-assigned subnet, the shared ENI address riding
 // as a per-container secondary, so neither bridge can see the other's.
 func TestECSVPCOverlappingCIDR(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	vpcA, subnetA := mkVPCSubnet(t, q, "10.50.0.0/16", "10.50.0.0/24")
@@ -540,6 +544,7 @@ func TestECSVPCOverlappingCIDR(t *testing.T) {
 }
 
 func TestECSVPCNetnsTaskMetadataLinkLocal(t *testing.T) {
+	t.Parallel()
 	requireECSNetnsTier(t)
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
@@ -570,6 +575,7 @@ func TestECSVPCNetnsTaskMetadataLinkLocal(t *testing.T) {
 }
 
 func TestECSVPCNetnsRouteTableEgress(t *testing.T) {
+	t.Parallel()
 	requireECSNetnsTier(t)
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	probeURL := startHostProbeServer(t)
@@ -701,6 +707,7 @@ func startSourceProbeServer(t *testing.T) string {
 // VPC from the NAT gateway's Elastic IP address. Moving the explicit subnet to
 // a route table with no NAT route stops its translation.
 func TestECSVPCNetnsNATRouteFollowsRouteTableAssociations(t *testing.T) {
+	t.Parallel()
 	requireECSNetnsTier(t)
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	probeURL := startSourceProbeServer(t)

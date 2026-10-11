@@ -13,6 +13,7 @@ import (
 //	aws ecs update-express-gateway-service
 //	aws ecs delete-express-gateway-service
 func TestECS_CLI_ExpressModeLifecycle(t *testing.T) {
+	t.Parallel()
 	cluster := "cli-express-cluster"
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", cluster))
 	t.Cleanup(func() { _ = awsCLI("ecs", "delete-cluster", "--cluster", cluster).Run() })
@@ -118,6 +119,7 @@ func TestECS_CLI_ExpressModeLifecycle(t *testing.T) {
 // TestECS_CLI_ExpressModeErrors covers the documented Create error cases via
 // the CLI.
 func TestECS_CLI_ExpressModeErrors(t *testing.T) {
+	t.Parallel()
 	cluster := "cli-express-err-cluster"
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", cluster))
 	t.Cleanup(func() { _ = awsCLI("ecs", "delete-cluster", "--cluster", cluster).Run() })

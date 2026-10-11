@@ -18,10 +18,12 @@ func acmRequestUnknownPrivateCACLI(t *testing.T, domain string) {
 }
 
 func TestACMCLI_RejectsUnknownPrivateCertificateAuthority(t *testing.T) {
+	t.Parallel()
 	acmRequestUnknownPrivateCACLI(t, "unknown-ca.cli.private.example.com")
 }
 
 func TestACMCLI_ExportCertificate(t *testing.T) {
+	t.Parallel()
 	created := runCLI(t, awsCLI("acm", "request-certificate",
 		"--domain-name", "export.cli.public.example.com",
 		"--validation-method", "DNS",
@@ -40,6 +42,7 @@ func TestACMCLI_ExportCertificate(t *testing.T) {
 }
 
 func TestACMCLI_RevokeCertificate(t *testing.T) {
+	t.Parallel()
 	created := runCLI(t, awsCLI("acm", "request-certificate",
 		"--domain-name", "revoke.cli.public.example.com",
 		"--validation-method", "DNS",
@@ -72,6 +75,7 @@ func TestACMCLI_AccountConfiguration(t *testing.T) {
 }
 
 func TestACMCLI_SearchCertificates(t *testing.T) {
+	t.Parallel()
 	acmRequestUnknownPrivateCACLI(t, "search.cli.private.example.com")
 
 	out := runCLI(t, awsCLI("acm", "search-certificates",

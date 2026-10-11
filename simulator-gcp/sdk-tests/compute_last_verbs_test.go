@@ -13,6 +13,7 @@ import (
 // check has observed.
 
 func TestCompute_AddressMoveBetweenScopes(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, region = "address-move", "us-central1"
 
@@ -42,6 +43,7 @@ func TestCompute_AddressMoveBetweenScopes(t *testing.T) {
 }
 
 func TestCompute_UpdateReplacesAFirewallAndABackendService(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project = "typed-updates"
 
@@ -85,6 +87,7 @@ func TestCompute_UpdateReplacesAFirewallAndABackendService(t *testing.T) {
 }
 
 func TestCompute_SubnetworkRangeOnlyExpands(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	svc := computeService(t)
 	const project, region = "subnet-writes", "us-central1"
@@ -125,6 +128,7 @@ func TestCompute_SubnetworkRangeOnlyExpands(t *testing.T) {
 // service naming none reports none, rather than claiming health nothing has
 // observed.
 func TestCompute_RegionBackendServiceHealth(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, region = "health-reads", "us-central1"
 
@@ -148,6 +152,7 @@ func TestCompute_RegionBackendServiceHealth(t *testing.T) {
 // which is what its operational status is then derived from — so creating them
 // changes what the status read reports.
 func TestCompute_InterconnectGroupCreateMembers(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, name = "group-members", "sites"
 
@@ -178,6 +183,7 @@ func TestCompute_InterconnectGroupCreateMembers(t *testing.T) {
 // narrow it with, and a narrower window would be a forecast invented out of
 // nothing.
 func TestCompute_AdviceCalendarMode(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, region = "advice-project", "us-central1"
 
@@ -198,6 +204,7 @@ func TestCompute_AdviceCalendarMode(t *testing.T) {
 // Starting an instance whose disks are customer-encrypted, and replacing an
 // instance whole. Both are zonal, so both answer with a zone operation.
 func TestCompute_InstanceStartWithEncryptionKeyAndUpdate(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, zone, name = "encrypted-boot", "us-central1-a", "sealed"

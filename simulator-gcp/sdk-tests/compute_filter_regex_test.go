@@ -15,6 +15,7 @@ import (
 // compute.networks.insert refuses a network without the name the Discovery
 // document requires, with the field error whose reason a client branches on.
 func TestCompute_NetworkInsertRequiresAName(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	_, err := svc.Networks.Insert("test-project", &compute.Network{AutoCreateSubnetworks: true}).Do()
 	var gerr *googleapi.Error
@@ -41,6 +42,7 @@ func TestCompute_NetworkInsertRequiresAName(t *testing.T) {
 // A Compute Engine list filter written as `field eq|ne literal` matches the
 // literal as a regular expression against the whole field.
 func TestCompute_ListFilterRegexForm(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project = "regex-filter-project"
 	for _, name := range []string{"web-check", "web-check-2", "db-check"} {

@@ -24,6 +24,7 @@ import (
 // end-to-end no-drift proof lives in the terraform-tests worker pool.
 
 func TestSDK_RunV2_WorkerPoolAutomaticScaling(t *testing.T) {
+	t.Parallel()
 	id := uniqueName("sdk-wp-autoscaling")
 	base := "/v2/projects/" + crV2Project + "/locations/" + crV2Location + "/workerPools"
 

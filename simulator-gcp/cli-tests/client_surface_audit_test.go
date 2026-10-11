@@ -16,6 +16,7 @@ import (
 )
 
 func TestCLI_IAMServiceAccounts(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, gcloudCLI("iam", "service-accounts", "create", "cli-audit-sa",
 		"--display-name=CLI Audit SA",
 		"--format=json",
@@ -31,6 +32,7 @@ func TestCLI_IAMServiceAccounts(t *testing.T) {
 }
 
 func TestCLI_PubSubTopicSubscriptionLifecycle(t *testing.T) {
+	t.Parallel()
 	runCLI(t, gcloudCLI("pubsub", "topics", "create", "cli-audit-topic", "--format=json", "--quiet"))
 	t.Cleanup(func() {
 		_ = gcloudCLI("pubsub", "topics", "delete", "cli-audit-topic", "--quiet").Run()
@@ -62,6 +64,7 @@ func TestCLI_PubSubTopicSubscriptionLifecycle(t *testing.T) {
 }
 
 func TestCLI_APIGatewayApis(t *testing.T) {
+	t.Parallel()
 	runCLI(t, gcloudCLI("api-gateway", "apis", "create", "cli-audit-api",
 		"--display-name=CLI Audit API",
 		"--async",
@@ -76,6 +79,7 @@ func TestCLI_APIGatewayApis(t *testing.T) {
 }
 
 func TestCLI_CloudBuildTriggers(t *testing.T) {
+	t.Parallel()
 	configPath := filepath.Join(tmpDir, "cloudbuild-trigger.json")
 	err := os.WriteFile(configPath, []byte(`{
   "name": "cli-audit-build-trigger",
@@ -105,6 +109,7 @@ func TestCLI_CloudBuildTriggers(t *testing.T) {
 }
 
 func TestCLI_LoggingSinkCRUD(t *testing.T) {
+	t.Parallel()
 	const destination = "bigquery.googleapis.com/projects/test-project/datasets/audit_logs"
 	runCLI(t, gcloudCLI("logging", "sinks", "create", "cli-audit-sink",
 		destination,
@@ -147,6 +152,7 @@ type cliLoggingMetric struct {
 }
 
 func TestCLI_LoggingMetricCRUD(t *testing.T) {
+	t.Parallel()
 	runCLI(t, gcloudCLI("logging", "metrics", "create", "cli-audit-metric",
 		"--description=CLI audit metric",
 		"--log-filter=severity >= ERROR",
@@ -231,6 +237,7 @@ func TestCLI_ProjectIAMPolicy(t *testing.T) {
 }
 
 func TestCLI_IAMServiceAccountKeys(t *testing.T) {
+	t.Parallel()
 	// Create a service account to own the keys.
 	runCLI(t, gcloudCLI("iam", "service-accounts", "create", "cli-key-sa",
 		"--display-name=CLI Key SA",
@@ -285,6 +292,7 @@ func TestCLI_IAMServiceAccountKeys(t *testing.T) {
 }
 
 func TestCLI_ComputeInstanceTemplate(t *testing.T) {
+	t.Parallel()
 	// Create instance template.
 	created := runCLI(t, gcloudCLI("compute", "instance-templates", "create", "cli-audit-tmpl",
 		"--machine-type=n1-standard-1",

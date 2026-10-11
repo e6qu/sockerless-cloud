@@ -71,6 +71,7 @@ func tgwMcastFixture(t *testing.T) (string, string, string, string) {
 // TestEC2_TGWMulticastDomainAssociations exercises associate/disassociate/accept/
 // reject of a multicast domain plus GetTransitGatewayMulticastDomainAssociations.
 func TestEC2_TGWMulticastDomainAssociations(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 	_, domainID, attID, subnetID := tgwMcastFixture(t)
 
@@ -130,6 +131,7 @@ func TestEC2_TGWMulticastDomainAssociations(t *testing.T) {
 // TestEC2_TGWMulticastGroups exercises register/deregister of multicast group
 // members and sources plus SearchTransitGatewayMulticastGroups.
 func TestEC2_TGWMulticastGroups(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 	_, domainID, _, _ := tgwMcastFixture(t)
 	const groupIP = "224.0.1.0"
@@ -195,6 +197,7 @@ func TestEC2_TGWMulticastGroups(t *testing.T) {
 // TestEC2_TGWPolicyTable exercises the policy-table CRUD, association, and
 // entries read-back path.
 func TestEC2_TGWPolicyTable(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 	tgwID, _, attID, _ := tgwMcastFixture(t)
 
@@ -258,6 +261,7 @@ func TestEC2_TGWPolicyTable(t *testing.T) {
 // answer with a fixed empty list because the API modelled no way to put a rule
 // in a table; it now reports what the table actually holds.
 func TestEC2_TGWPolicyTableEntries(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 	tgwID, _, _, _ := tgwMcastFixture(t)
 
@@ -370,6 +374,7 @@ func TestEC2_TGWPolicyTableEntries(t *testing.T) {
 
 // TestEC2_TGWMeteringPolicy exercises metering policy CRUD + entries.
 func TestEC2_TGWMeteringPolicy(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 	tgwID, _, attID, _ := tgwMcastFixture(t)
 
@@ -433,6 +438,7 @@ func TestEC2_TGWMeteringPolicy(t *testing.T) {
 // TestEC2_TGWRouteTableAnnouncement exercises the route table announcement
 // create/describe/delete path (needs a peering attachment).
 func TestEC2_TGWRouteTableAnnouncement(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 	tgwID, _, _, _ := tgwMcastFixture(t)
 

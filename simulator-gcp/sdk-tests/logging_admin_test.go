@@ -31,6 +31,7 @@ import (
 // parent paths.
 
 func TestLogging_ExclusionCRUD_ProjectScope(t *testing.T) {
+	t.Parallel()
 	svc := loggingRESTService(t)
 	parent := "projects/excl-test-project"
 	name := parent + "/exclusions/sdk-exclusion"
@@ -72,6 +73,7 @@ func TestLogging_ExclusionCRUD_ProjectScope(t *testing.T) {
 }
 
 func TestLogging_ExclusionCRUD_OrganizationScope(t *testing.T) {
+	t.Parallel()
 	svc := loggingRESTService(t)
 	parent := "organizations/123456789"
 	name := parent + "/exclusions/org-exclusion"
@@ -92,6 +94,7 @@ func TestLogging_ExclusionCRUD_OrganizationScope(t *testing.T) {
 }
 
 func TestLogging_SinkCRUD_OrganizationScope(t *testing.T) {
+	t.Parallel()
 	svc := loggingRESTService(t)
 	parent := "organizations/987654321"
 	resourceName := parent + "/sinks/org-sink"
@@ -136,6 +139,7 @@ func TestLogging_SinkCRUD_OrganizationScope(t *testing.T) {
 }
 
 func TestLogging_BucketAndViewCRUD_ProjectScope(t *testing.T) {
+	t.Parallel()
 	svc := loggingRESTService(t)
 	parent := "projects/bucket-test-project/locations/global"
 	bucketName := parent + "/buckets/sdk-bucket"
@@ -210,6 +214,7 @@ func TestLogging_BucketAndViewCRUD_ProjectScope(t *testing.T) {
 }
 
 func TestLogging_BucketCRUD_OrganizationScope(t *testing.T) {
+	t.Parallel()
 	svc := loggingRESTService(t)
 	parent := "organizations/555000111/locations/global"
 	bucketName := parent + "/buckets/org-bucket"
@@ -229,6 +234,7 @@ func TestLogging_BucketCRUD_OrganizationScope(t *testing.T) {
 }
 
 func TestLogging_LinkCreateAndList_ProjectScope(t *testing.T) {
+	t.Parallel()
 	svc := loggingRESTService(t)
 	locParent := "projects/link-test-project/locations/global"
 	bucketName := locParent + "/buckets/link-bucket"
@@ -270,6 +276,7 @@ func TestLogging_LinkCreateAndList_ProjectScope(t *testing.T) {
 // Resource Manager holds: sinks with a unique writer identity write as it, and
 // the settings and CMEK settings name it.
 func TestLogging_ServiceAgentNamedForProjectNumber(t *testing.T) {
+	t.Parallel()
 	svc := loggingRESTService(t)
 	const project = "logging-agent-project"
 	number := requireProject(t, project)
@@ -298,6 +305,7 @@ func TestLogging_ServiceAgentNamedForProjectNumber(t *testing.T) {
 }
 
 func TestLogging_EntriesCopy(t *testing.T) {
+	t.Parallel()
 	svc := loggingRESTService(t)
 	const project = "copy-test-project"
 	const logID = "copy-source"
@@ -444,6 +452,7 @@ func restTail(t *testing.T, filter string) func(last string) []*loggingrpc.LogEn
 // it opened that are at or above the filter's severity, carrying the payload,
 // severity and log name they were written with.
 func TestLogging_EntriesTail(t *testing.T) {
+	t.Parallel()
 	writeClient, err := newLoggingWriteClient(t)
 	require.NoError(t, err)
 	logID := uniqueName("tail-test")
@@ -495,6 +504,7 @@ func TestLogging_EntriesTail(t *testing.T) {
 }
 
 func TestLogging_MonitoredResourceDescriptors_List(t *testing.T) {
+	t.Parallel()
 	svc := loggingRESTService(t)
 	list, err := svc.MonitoredResourceDescriptors.List().Do()
 	require.NoError(t, err)

@@ -13,6 +13,7 @@ import (
 )
 
 func TestArtifactRegistryDockerHubRemoteRepositorySDKAndOCI(t *testing.T) {
+	t.Parallel()
 	service, err := artifactregistry.NewService(ctx,
 		option.WithEndpoint(baseURL+"/"),
 		option.WithTokenSource(simTokenSource()),

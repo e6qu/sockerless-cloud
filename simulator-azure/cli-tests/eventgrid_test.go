@@ -40,6 +40,7 @@ func newEventGridCLIWebhook(t *testing.T) (*httptest.Server, chan []map[string]a
 }
 
 func TestEventGridCLI_TopicSubscriptionPublish(t *testing.T) {
+	t.Parallel()
 	hook, deliveries := newEventGridCLIWebhook(t)
 
 	topicURL := baseURL + "/subscriptions/" + subscriptionID + "/resourceGroups/" + resourceGroup +
@@ -103,6 +104,7 @@ func TestEventGridCLI_TopicSubscriptionPublish(t *testing.T) {
 }
 
 func TestEventGridCLI_DomainAndSystemTopic(t *testing.T) {
+	t.Parallel()
 	domainURL := baseURL + "/subscriptions/" + subscriptionID + "/resourceGroups/" + resourceGroup +
 		"/providers/Microsoft.EventGrid/domains/cli-domain?api-version=2021-12-01"
 	out := runCLI(t, azRest("PUT", domainURL, `{"location":"eastus","properties":{"publicNetworkAccess":"Enabled"}}`))
@@ -188,6 +190,7 @@ func TestEventGridCLI_DomainAndSystemTopic(t *testing.T) {
 }
 
 func TestEventGridCLI_PartnerTopicLifecycle(t *testing.T) {
+	t.Parallel()
 	partnerTopicURL := baseURL + "/subscriptions/" + subscriptionID + "/resourceGroups/" + resourceGroup +
 		"/providers/Microsoft.EventGrid/partnerTopics/cli-partner-topic?api-version=2022-06-15"
 	out := runCLI(t, azRest("PUT", partnerTopicURL, `{"location":"eastus","properties":{"partnerRegistrationImmutableId":"registration-id","source":"partner-source"}}`))

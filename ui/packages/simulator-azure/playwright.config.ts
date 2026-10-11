@@ -8,6 +8,7 @@ const chromiumExecutable = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
 export default defineConfig({
   testDir: "./e2e",
   testMatch: "**/*.spec.ts",
+  fullyParallel: true,
   timeout: 30_000,
   retries: 0,
   use: {

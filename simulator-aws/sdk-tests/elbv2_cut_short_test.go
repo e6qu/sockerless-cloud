@@ -22,6 +22,7 @@ import (
 // has already relayed the target's status and headers, so it ends the client's
 // response where the target stopped rather than appending an error to it.
 func TestELBv2_AbortsAResponseTheTargetCutsShort(t *testing.T) {
+	t.Parallel()
 	ec2c := ec2Client()
 	elb := elbv2Client()
 	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

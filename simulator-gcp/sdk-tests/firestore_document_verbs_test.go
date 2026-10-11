@@ -38,6 +38,7 @@ func strValue(v string) firestore.Value  { return firestore.Value{StringValue: v
 func dblValue(v float64) firestore.Value { return firestore.Value{DoubleValue: v} }
 
 func TestFirestore_ListCollectionIds(t *testing.T) {
+	t.Parallel()
 	svc := firestoreVerbService(t)
 	parent := "projects/fs-verbs/databases/(default)"
 
@@ -51,6 +52,7 @@ func TestFirestore_ListCollectionIds(t *testing.T) {
 }
 
 func TestFirestore_RunAggregationQuery(t *testing.T) {
+	t.Parallel()
 	svc := firestoreVerbService(t)
 	parent := "projects/fs-agg/databases/(default)"
 
@@ -88,6 +90,7 @@ func TestFirestore_RunAggregationQuery(t *testing.T) {
 // The aggregation runs over the documents runQuery selects, so a filter must
 // narrow it exactly as it narrows the query.
 func TestFirestore_AggregationHonoursTheQueryFilter(t *testing.T) {
+	t.Parallel()
 	svc := firestoreVerbService(t)
 	parent := "projects/fs-agg-filter/databases/(default)"
 
@@ -124,6 +127,7 @@ func TestFirestore_AggregationHonoursTheQueryFilter(t *testing.T) {
 
 // Averaging no documents has no value, which the service reports as null.
 func TestFirestore_AggregationOverNoDocuments(t *testing.T) {
+	t.Parallel()
 	svc := firestoreVerbService(t)
 	parent := "projects/fs-agg-empty/databases/(default)"
 
@@ -146,6 +150,7 @@ func TestFirestore_AggregationOverNoDocuments(t *testing.T) {
 }
 
 func TestFirestore_PartitionQuery(t *testing.T) {
+	t.Parallel()
 	svc := firestoreVerbService(t)
 	parent := "projects/fs-partition/databases/(default)"
 
@@ -177,6 +182,7 @@ func TestFirestore_PartitionQuery(t *testing.T) {
 }
 
 func TestFirestore_DocumentsWrite(t *testing.T) {
+	t.Parallel()
 	svc := firestoreVerbService(t)
 	parent := "projects/fs-write/databases/(default)"
 	docName := parent + "/documents/streamed/one"
@@ -201,6 +207,7 @@ func TestFirestore_DocumentsWrite(t *testing.T) {
 }
 
 func TestFirestore_CloneAndRestoreDatabase(t *testing.T) {
+	t.Parallel()
 	svc := firestoreVerbService(t)
 
 	_, err := svc.Projects.Databases.Create("projects/fs-clone",

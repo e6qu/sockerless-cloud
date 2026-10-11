@@ -9,6 +9,7 @@ import (
 // distribution strategy and reads it back, and is refused AUTO on a
 // provisioned stream.
 func TestKinesisCLI_RecordDistributionStrategy(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	stream := "cli-kinesis-distribution"
 	runCLI(t, awsCLI("kinesis", "create-stream", "--stream-name", stream,

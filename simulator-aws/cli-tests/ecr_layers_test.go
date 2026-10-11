@@ -8,6 +8,7 @@ import (
 // TestECRCLI_RepositoryPolicy drives the ECR repository-policy ops via the aws
 // CLI: set → get → delete.
 func TestECRCLI_RepositoryPolicy(t *testing.T) {
+	t.Parallel()
 	repo := "cli-policy-repo"
 	runCLI(t, awsCLI("ecr", "create-repository", "--repository-name", repo))
 
@@ -28,6 +29,7 @@ func TestECRCLI_RepositoryPolicy(t *testing.T) {
 // the aws CLI — the full binary part-upload round-trip is covered
 // by the SDK test; here we assert the op returns an uploadId.
 func TestECRCLI_InitiateLayerUpload(t *testing.T) {
+	t.Parallel()
 	repo := "cli-layer-repo"
 	runCLI(t, awsCLI("ecr", "create-repository", "--repository-name", repo))
 	uploadID := strings.TrimSpace(runCLI(t, awsCLI("ecr", "initiate-layer-upload",

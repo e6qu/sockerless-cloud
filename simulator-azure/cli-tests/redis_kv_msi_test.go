@@ -21,6 +21,7 @@ func createCLIRedisCache(t *testing.T, name string) string {
 }
 
 func TestRedisCLI_KeysRebootAndSubResources(t *testing.T) {
+	t.Parallel()
 	name := "cliredissub"
 	createCLIRedisCache(t, name)
 
@@ -81,6 +82,7 @@ func TestRedisCLI_KeysRebootAndSubResources(t *testing.T) {
 }
 
 func TestRedisCLI_OperationsAndNameAvailability(t *testing.T) {
+	t.Parallel()
 	opsOut := runCLI(t, azRest("GET", baseURL+"/providers/Microsoft.Cache/operations?api-version=2024-11-01", ""))
 	require.Contains(t, opsOut, "Microsoft.Cache/redis/read")
 
@@ -91,6 +93,7 @@ func TestRedisCLI_OperationsAndNameAvailability(t *testing.T) {
 }
 
 func TestKeyVaultCLI_MgmtSubResources(t *testing.T) {
+	t.Parallel()
 	name := "clikvmgmt"
 	vaultURL := armURL("Microsoft.KeyVault", "vaults/"+name, "2023-07-01")
 	runCLI(t, azRest("PUT", vaultURL, `{
@@ -116,6 +119,7 @@ func TestKeyVaultCLI_MgmtSubResources(t *testing.T) {
 }
 
 func TestManagedIdentityCLI_FederatedAndList(t *testing.T) {
+	t.Parallel()
 	name := "climsi"
 	idURL := armURL("Microsoft.ManagedIdentity", "userAssignedIdentities/"+name, "2024-11-30")
 	runCLI(t, azRest("PUT", idURL, `{"location":"eastus"}`))

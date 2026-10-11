@@ -28,6 +28,7 @@ import (
 // what real clients sign.
 
 func TestQueueSDK_ServiceSASSignedByTheSDKAuthorizes(t *testing.T) {
+	t.Parallel()
 	const account, queueName = "sdkqueuesasacct", "sdk-sas-queue"
 	key := storageAccountPrimaryKey(account)
 	require.NotEmpty(t, key, "the account must serve a key to sign with")
@@ -70,6 +71,7 @@ func TestQueueSDK_ServiceSASSignedByTheSDKAuthorizes(t *testing.T) {
 }
 
 func TestFilesSDK_ServiceSASSignedByTheSDKAuthorizes(t *testing.T) {
+	t.Parallel()
 	const account, share, fileName = "sdkfilesasacct", "sdk-sas-share", "signed.txt"
 	key := storageAccountPrimaryKey(account)
 	require.NotEmpty(t, key, "the account must serve a key to sign with")
@@ -141,6 +143,7 @@ func storageRawRequestSASWithBody(t *testing.T, method, account, service_, targe
 // `storage_account_url` — to azblob's own account signer, ten fields and the
 // terminating newline the account form alone carries.
 func TestBlobSDK_AccountSASSignedByTheSDKAuthorizes(t *testing.T) {
+	t.Parallel()
 	const account, containerName, blobName = "sdkacctsasacct", "acct-sas-container", "signed.txt"
 	client := newBlobTestClient(t, account)
 	newBlobTestContainer(t, client, containerName)

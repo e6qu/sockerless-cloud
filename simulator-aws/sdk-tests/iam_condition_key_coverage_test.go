@@ -27,6 +27,7 @@ func keyConfig(akid, secret string) aws.Config {
 // request, which names the keys it removes: a policy lets a caller remove the
 // team tag and no other.
 func TestSQS_UntagQueueTagKeysScopeTheGrant(t *testing.T) {
+	t.Parallel()
 	admin := sqsClient()
 	created, err := admin.CreateQueue(ctx, &sqs.CreateQueueInput{
 		QueueName: aws.String(uniqueName("untag-keys")),
@@ -57,6 +58,7 @@ func TestSQS_UntagQueueTagKeysScopeTheGrant(t *testing.T) {
 // ecs:task-memory on RegisterTaskDefinition, which states the size outright: a
 // policy lets a caller register small task definitions only.
 func TestECS_RegisterTaskDefinitionSizeScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	akid, secret := restrictedCredential(t, "ecs-small-definitions",
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"ecs:RegisterTaskDefinition","Resource":"*",
 		  "Condition":{"StringEquals":{"ecs:task-cpu":"256","ecs:task-memory":"512"}}}]}`)
@@ -88,6 +90,7 @@ func TestECS_RegisterTaskDefinitionSizeScopesTheGrant(t *testing.T) {
 // boundary the named role already carries, which is how an administrator lets
 // a delegate edit only the roles that stay inside the boundary.
 func TestIAM_PermissionsBoundaryOfTheNamedRoleScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	admin := iamClient()
 	trust := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
 	boundary, err := admin.CreatePolicy(ctx, &iam.CreatePolicyInput{
@@ -127,6 +130,7 @@ func TestIAM_PermissionsBoundaryOfTheNamedRoleScopesTheGrant(t *testing.T) {
 // object whose tags arrived with the PutObject that wrote it, in the
 // x-amz-tagging header: a policy lets a caller read objects tagged public only.
 func TestS3_ObjectTaggedOnPutScopesReads(t *testing.T) {
+	t.Parallel()
 	admin := s3Client()
 	bucket := strings.ToLower(uniqueName("tagged-on-put"))
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})

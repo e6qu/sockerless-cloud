@@ -31,6 +31,7 @@ func expressCreateCluster(t *testing.T, c *ecs.Client, name string) string {
 // underlying ALB, scalable target, and Fargate service all exist via their own
 // service APIs, and Delete tears them down.
 func TestECSExpress_CreateAssemblyAndLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	elb := elbv2Client()
 	aa := appAutoScalingClient()
@@ -217,6 +218,7 @@ func TestECSExpress_CreateAssemblyAndLifecycle(t *testing.T) {
 
 // TestECSExpress_Errors covers the documented Create/Describe error cases.
 func TestECSExpress_Errors(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	cluster := expressCreateCluster(t, c, "express-err-cluster")
 
@@ -259,6 +261,7 @@ func TestECSExpress_Errors(t *testing.T) {
 // TestECSExpress_ALBConsolidation asserts two Express services with identical
 // network configuration share one ALB (the documented 25-per-ALB consolidation).
 func TestECSExpress_ALBConsolidation(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	cluster := expressCreateCluster(t, c, "express-consolidate")
 	ec2c := ec2Client()

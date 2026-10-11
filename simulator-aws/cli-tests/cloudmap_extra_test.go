@@ -27,6 +27,7 @@ func cmCLINamespaceID(t *testing.T, operationID string) string {
 // create-public-dns-namespace, update-http-namespace,
 // update-public-dns-namespace and update-private-dns-namespace via the aws CLI.
 func TestCloudMapNamespacesCLI(t *testing.T) {
+	t.Parallel()
 	// HTTP namespace.
 	out := runCLI(t, awsCLI("servicediscovery", "create-http-namespace",
 		"--name", "cli-http-ns", "--output", "json"))
@@ -120,6 +121,7 @@ func TestCloudMapNamespacesCLI(t *testing.T) {
 // TestCloudMapServiceAttributesCLI covers update-service, get/update/delete
 // service-attributes and list-operations via the aws CLI.
 func TestCloudMapServiceAttributesCLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("servicediscovery", "create-http-namespace",
 		"--name", "cli-attr-ns", "--output", "json"))
 	var nsCreate struct {
@@ -205,6 +207,7 @@ func TestCloudMapServiceAttributesCLI(t *testing.T) {
 // update-instance-custom-health-status, get-instances-health-status and
 // discover-instances-revision via the aws CLI.
 func TestCloudMapInstanceHealthCLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("servicediscovery", "create-http-namespace",
 		"--name", "cli-inst-ns", "--output", "json"))
 	var nsCreate struct {

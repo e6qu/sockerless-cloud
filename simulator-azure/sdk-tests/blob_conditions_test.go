@@ -33,6 +33,7 @@ func absentCondition() *blob.AccessConditions {
 }
 
 func TestStorageSDK_BlobConditionalReads(t *testing.T) {
+	t.Parallel()
 	account, containerName := "sdkcondreadacct", "cond-read"
 	client := newBlobTestClient(t, account)
 	containerClient := newBlobTestContainer(t, client, containerName)
@@ -81,6 +82,7 @@ func TestStorageSDK_BlobConditionalReads(t *testing.T) {
 }
 
 func TestStorageSDK_BlobConditionalWrites(t *testing.T) {
+	t.Parallel()
 	account, containerName := "sdkcondwriteacct", "cond-write"
 	client := newBlobTestClient(t, account)
 	containerClient := newBlobTestContainer(t, client, containerName)
@@ -136,6 +138,7 @@ func TestStorageSDK_BlobConditionalWrites(t *testing.T) {
 // the state they read. Azure evaluates a write's conditions and applies it as
 // one step, so exactly one writer of each round succeeds.
 func TestStorageSDK_BlobConditionalWritesArbitrate(t *testing.T) {
+	t.Parallel()
 	account, containerName := "sdkcondraceacct", "cond-race"
 	client := newBlobTestClient(t, account)
 	containerClient := newBlobTestContainer(t, client, containerName)
@@ -188,6 +191,7 @@ func TestStorageSDK_BlobConditionalWritesArbitrate(t *testing.T) {
 }
 
 func TestStorageSDK_BlobCopyOfAMissingSourceNamesTheSourceFailure(t *testing.T) {
+	t.Parallel()
 	account, containerName := "sdkcopymissacct", "copy-missing"
 	client := newBlobTestClient(t, account)
 	containerClient := newBlobTestContainer(t, client, containerName)
