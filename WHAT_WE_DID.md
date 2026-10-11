@@ -2267,8 +2267,9 @@ The SDK and CLI suites run their tests in parallel. Every top-level test in the
 six suites starts with `t.Parallel()`, or names itself in its suite's
 `serial-tests.txt` with the reason it cannot share the simulator: it changes an
 account-, project- or subscription-wide setting other tests read, owns the
-account's one AWS Organizations organization, sets an environment variable of
-the test process, or restarts the simulator. `scripts/check-parallel-tests.go`
+account's one AWS Organizations organization, sets an organization policy every
+project inherits, sets an environment variable of the test process, or restarts
+the simulator. `scripts/check-parallel-tests.go`
 holds the suites to that in pre-commit and CI's build gates, and fails a listed
 test that no longer exists or already runs in parallel, and a parallel test that
 reaches `t.Setenv` or `t.Chdir` through any function of its suite. A parallel
@@ -2284,6 +2285,23 @@ Every SDK and CLI suite target runs `go test -v` through
 own lines grouped under its `--- FAIL`. A suite's output runs to megabytes and
 its parallel tests interleave, so the tail a CI log reader sees otherwise held a
 bare FAIL.
+
+The gcloud suite installs the `alpha` and `beta` release tracks in `TestMain`
+when the CLI lacks them, and CI and `Dockerfile.test` install them with the CLI:
+gcloud installs a missing track on the first command that names it, inside that
+test's per-command budget and alongside every other parallel test doing the
+same. A test that cancels a Cloud Run execution to exercise its workload's
+SIGTERM handler waits for the workload's own log line, matched whole, because
+the job's log also holds lines the service writes before any container runs. A
+cancel that lands while an execution's containers are still starting stops the
+start and settles the execution cancelled, with no attempt failure recorded or
+logged.
+
+Cloud Storage's lists resume strictly after the last name (or access ID, or
+cache ID) a page returned, so a bucket created or deleted between two page reads
+moves no other bucket onto a second page or off every page. `buckets.list`
+requires `project`, lists only that project's buckets and honours `prefix`; a
+test walking a shared project's buckets lists its own under a prefix of its own.
 
 An Amazon ECS test that deletes its subnet first stops its own cluster's tasks
 in that subnet and waits with `aws ecs wait tasks-stopped`, scanning only its

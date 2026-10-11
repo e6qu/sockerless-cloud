@@ -81,15 +81,16 @@ func TestCompute_Images_CRUD(t *testing.T) {
 func TestCompute_Snapshots_CRUD(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
-	_, err := svc.Snapshots.Insert(moreProject, &compute.Snapshot{Name: "sdk-snap-1"}).Do()
+	name := uniqueName("sdk-snap-crud")
+	_, err := svc.Snapshots.Insert(moreProject, &compute.Snapshot{Name: name}).Do()
 	require.NoError(t, err)
-	got, err := svc.Snapshots.Get(moreProject, "sdk-snap-1").Do()
+	got, err := svc.Snapshots.Get(moreProject, name).Do()
 	require.NoError(t, err)
-	assert.Equal(t, "sdk-snap-1", got.Name)
+	assert.Equal(t, name, got.Name)
 	list, err := svc.Snapshots.List(moreProject).Do()
 	require.NoError(t, err)
-	assertComputeListHasName(t, list.Items, func(s *compute.Snapshot) string { return s.Name }, "sdk-snap-1")
-	_, err = svc.Snapshots.Delete(moreProject, "sdk-snap-1").Do()
+	assertComputeListHasName(t, list.Items, func(s *compute.Snapshot) string { return s.Name }, name)
+	_, err = svc.Snapshots.Delete(moreProject, name).Do()
 	require.NoError(t, err)
 }
 

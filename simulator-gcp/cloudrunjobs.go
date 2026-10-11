@@ -1293,11 +1293,17 @@ func settleCloudRunJobExecution(execName string, taskCount int32, project, jobID
 		}
 		group, releaseMounts, err := startCloudRunJobContainers(startCtx, execName, execShort, taskTmpl, timeout, sink)
 		crjStartups.Delete(execName)
+		stopped := startCtx.Err() != nil
 		cancelStart()
-		if err != nil {
+		switch {
+		case err != nil && stopped:
+			// A cancel or a delete stopped the start; the execution's end
+			// is theirs to record, and no container failed.
+			outcome = cloudRunExecutionOutcome{}
+		case err != nil:
 			fmt.Fprintf(os.Stderr, "ERROR: failed to start containers for execution: err=%v\n", err)
 			outcome = cloudRunExecutionOutcome{attemptMessage: err.Error()}
-		} else {
+		default:
 			outcome = awaitCloudRunJobExecution(execName, group, releaseMounts)
 		}
 	}

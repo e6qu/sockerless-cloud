@@ -308,26 +308,27 @@ func TestCompute3_Routers_Update_RoutePolicies(t *testing.T) {
 func TestCompute3_Snapshots_IAM(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
-	_, err := svc.Snapshots.Insert(more3Project, &compute.Snapshot{Name: "sdk-snap-1"}).Do()
+	name := uniqueName("sdk-snap-iam")
+	_, err := svc.Snapshots.Insert(more3Project, &compute.Snapshot{Name: name}).Do()
 	require.NoError(t, err)
 
-	pol, err := svc.Snapshots.GetIamPolicy(more3Project, "sdk-snap-1").Do()
+	pol, err := svc.Snapshots.GetIamPolicy(more3Project, name).Do()
 	require.NoError(t, err)
 	assert.NotEmpty(t, pol.Etag)
 
-	_, err = svc.Snapshots.SetIamPolicy(more3Project, "sdk-snap-1", &compute.GlobalSetPolicyRequest{
+	_, err = svc.Snapshots.SetIamPolicy(more3Project, name, &compute.GlobalSetPolicyRequest{
 		Policy: &compute.Policy{
 			Bindings: []*compute.Binding{{Role: "roles/compute.storageAdmin", Members: []string{"user:example@example.com"}}},
 		},
 	}).Do()
 	require.NoError(t, err)
 
-	pol2, err := svc.Snapshots.GetIamPolicy(more3Project, "sdk-snap-1").Do()
+	pol2, err := svc.Snapshots.GetIamPolicy(more3Project, name).Do()
 	require.NoError(t, err)
 	require.Len(t, pol2.Bindings, 1)
 	assert.Equal(t, "roles/compute.storageAdmin", pol2.Bindings[0].Role)
 
-	_, err = svc.Snapshots.Delete(more3Project, "sdk-snap-1").Do()
+	_, err = svc.Snapshots.Delete(more3Project, name).Do()
 	require.NoError(t, err)
 }
 

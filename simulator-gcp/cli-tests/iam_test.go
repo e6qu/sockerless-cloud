@@ -233,7 +233,7 @@ func TestIAMServiceAccountDisableEnableUpdateCLI(t *testing.T) {
 // the token endpoint with invalid_grant.
 func TestIAMServiceAccountKeysActivateCLI(t *testing.T) {
 	t.Parallel()
-	const accountID = "cli-keys-sa"
+	accountID := uniqueName("cli-keys-sa")
 	email := accountID + "@" + project + ".iam.gserviceaccount.com"
 
 	runCLI(t, gcloudCLI("iam", "service-accounts", "create", accountID,

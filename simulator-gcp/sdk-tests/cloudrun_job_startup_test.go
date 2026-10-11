@@ -169,6 +169,74 @@ func TestSDK_CloudRun_DeleteJobStopsItsRunningExecution(t *testing.T) {
 	assert.Equal(t, codes.NotFound, status.Code(err), "RunJob operation error: %v", err)
 }
 
+// Cancelling an execution while its containers are still starting stops the
+// start: the main container waits on a dependency whose startup probe never
+// passes, the cancel lands during that wait, and the execution settles
+// cancelled with no container having failed and the main container never run.
+func TestSDK_CloudRun_CancelWhileItsContainersStart(t *testing.T) {
+	t.Parallel()
+	jobs := newJobsClient(t)
+	jobID := uniqueName("sdk-job-cancel-starting")
+	const marker, mainRan = "sdk-cancel-starting-dependency", "sdk-cancel-starting-main"
+	name := createRunJob(t, jobs, jobID, &runpb.TaskTemplate{
+		Containers: []*runpb.Container{
+			{
+				Name:      "main",
+				Image:     commandImageName,
+				Args:      []string{"log", mainRan},
+				DependsOn: []string{"dependency"},
+			},
+			{
+				Name:  "dependency",
+				Image: commandImageName,
+				Args:  []string{"log", marker, "600"},
+				StartupProbe: &runpb.Probe{
+					PeriodSeconds:    1,
+					TimeoutSeconds:   1,
+					FailureThreshold: 600,
+					ProbeType:        &runpb.Probe_TcpSocket{TcpSocket: &runpb.TCPSocketAction{Port: 9393}},
+				},
+			},
+		},
+		Timeout: durationpb.New(600 * time.Second),
+	})
+
+	runOp, err := jobs.RunJob(ctx, &runpb.RunJobRequest{Name: name})
+	require.NoError(t, err)
+	started, err := runOp.Metadata()
+	require.NoError(t, err)
+	waitForJobLogMessage(t, jobID, marker)
+
+	executions := newExecutionsClient(t)
+	cancelOp, err := executions.CancelExecution(ctx, &runpb.CancelExecutionRequest{Name: started.GetName()})
+	require.NoError(t, err)
+	_, err = cancelOp.Wait(ctx)
+	require.NoError(t, err)
+
+	_, err = runOp.Wait(ctx)
+	require.Error(t, err)
+	assert.Equal(t, codes.Canceled, status.Code(err), "RunJob operation error: %v", err)
+
+	exec, err := executions.GetExecution(ctx, &runpb.GetExecutionRequest{Name: started.GetName()})
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), exec.GetCancelledCount())
+	assert.Equal(t, int32(0), exec.GetRunningCount())
+	assert.Equal(t, int32(0), exec.GetSucceededCount())
+	assert.Equal(t, int32(0), exec.GetFailedCount(), "no container failed: the cancel stopped the start")
+	assert.NotNil(t, exec.GetCompletionTime())
+
+	task, err := newTasksClient(t).ListTasks(ctx, &runpb.ListTasksRequest{Parent: exec.GetName()}).Next()
+	require.NoError(t, err)
+	require.NotNil(t, task.GetCompletionTime(), "the cancelled execution's task settled")
+	require.NotNil(t, task.GetLastAttemptResult())
+	assert.Equal(t, int32(codes.Canceled), task.GetLastAttemptResult().GetStatus().GetCode())
+	assert.Empty(t, task.GetLastAttemptResult().GetStatus().GetMessage(),
+		"the attempt was cancelled, not failed")
+
+	assert.NotContains(t, jobLogMessages(readJobLogEntries(t, logadminClient(t), jobID)), mainRan,
+		"the main container waited on its dependency and never ran")
+}
+
 // Cancelling an execution that has already completed leaves it as it is.
 func TestSDK_CloudRun_CancelCompletedExecutionLeavesIt(t *testing.T) {
 	t.Parallel()
