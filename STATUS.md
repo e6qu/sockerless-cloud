@@ -623,11 +623,12 @@ shape, and one whose scan set can go empty exits non-zero.
   programs that link it; `simulators-dupl.sh` and `simulators-jscpd.sh` for
   copy-paste.
 - `check-latest-deps.sh` holding Go modules, Terraform providers, GitHub
-  Actions, installed tools and the consoles' npm packages to the newest
-  release past a 24-hour adoption quarantine, with the repository's own modules
-  excluded and covered by the pin gate instead.
-  Its self-test serves the module proxy, the Terraform registry and the GitHub
-  API from fixtures with fixed publication times.
+  Actions, installed tools, the consoles' npm packages and the digest-pinned
+  container images to the newest release past a 24-hour adoption quarantine,
+  with the repository's own modules excluded and covered by the pin gate
+  instead. Its self-test serves the module proxy, the Terraform registry, the
+  GitHub API, Docker Hub and the image copies from fixtures with fixed
+  publication times.
 - The race detector over every module on every pull request, with zero
   races held by `simGo`/`simAfterFunc`/`simJoinedGo` accounting.
 - Spec conformance in every simulator's unit tests, and the runtime

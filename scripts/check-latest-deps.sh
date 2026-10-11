@@ -17,6 +17,11 @@
 #   4. Go tools a workflow installs — every `go install <pkg>@<version>` must
 #      name a version, never `@latest`, and that version is held to the same
 #      quarantine as everything else.
+#   5. Container images pinned as public.ecr.aws/docker/library/<name> or
+#      mirror.gcr.io/<repository> at <tag>@sha256:<digest> — the digest must be
+#      the one Docker Hub serves for the tag, no newer release of the same
+#      variant and major version may have cleared the quarantine, and the copy
+#      the image is pulled from must serve the pinned digest.
 #
 # Exit code: 0 only when every direct dependency is on the newest adoptable
 # version. 1 on any drift, and on any dependency whose publication time cannot
@@ -84,7 +89,12 @@ readonly go_proxy_deadline
 # names them.
 terraform_registry=${DEPS_TERRAFORM_REGISTRY_URL:-https://registry.terraform.io}
 github_api=${DEPS_GITHUB_API_URL:-https://api.github.com}
-readonly terraform_registry github_api
+# Container image pins are compared with Docker Hub and with the copy they are
+# pulled from; the self-test points these at fixtures the same way.
+docker_hub=${DEPS_DOCKER_HUB_URL:-https://hub.docker.com}
+ecr_public=${DEPS_ECR_PUBLIC_URL:-https://public.ecr.aws}
+gcr_mirror=${DEPS_GCR_MIRROR_URL:-https://mirror.gcr.io}
+readonly terraform_registry github_api docker_hub ecr_public gcr_mirror
 
 # --- Baseline attribution --------------------------------------------------
 #
@@ -931,6 +941,181 @@ while IFS= read -r manifest; do
       | "\(.key)|\(.value)"' "$manifest")
 done < <(git ls-files 'ui/package.json' 'ui/packages/*/package.json' | sort)
 
+# 5. Container image pins -------------------------------------------------
+# Every image this repository pulls is a copy of a Docker Hub image, pinned by
+# tag and digest: public.ecr.aws/docker/library/<name> for official images and
+# mirror.gcr.io/<repository> for the rest, because Docker Hub limits anonymous
+# pulls per address and the shared runners exhaust it. A digest that never
+# moves rots like any other pin, and nothing else watches these: there is no
+# Dependabot here, and Dependabot's anonymous lookups on public.ecr.aws exceed
+# ECR Public's limit of one unauthenticated request per second anyway.
+#
+# Per pin, Docker Hub's tag API gives the digest it serves for the tag and when
+# it pushed it, and its tag list gives newer releases with their push times. A
+# newer release counts when it keeps the pin's variant (the suffix after the
+# version, such as -alpine), its number of version components and its major
+# version, and Docker Hub has pushed it since it last rebuilt the pinned tag:
+# Ubuntu 24.10 is "newer" than 24.04 by number, but Docker Hub stopped
+# rebuilding it while 24.04 still gets rebuilds, so it is an abandoned line,
+# not an upgrade. The copy's own digest for the tag is the SHA-256 of the
+# manifest it serves, which is what a digest is.
+
+# sha256_file prints the sha256:<hex> digest of a file's bytes.
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf 'sha256:%s\n' "$(sha256sum "$1" | cut -d' ' -f1)"
+  else
+    printf 'sha256:%s\n' "$(shasum -a 256 "$1" | cut -d' ' -f1)"
+  fi
+}
+
+# image_fetch <output file> <url> [curl arguments...] downloads one registry
+# document, retrying a registry that does not answer as the npm lookup does.
+image_fetch() {
+  local out=$1 url=$2
+  shift 2
+  curl -fsS --retry 2 --retry-all-errors --max-time 30 -A sockerless-cloud-image-pins \
+    -o "$out" "$@" "$url" 2>/dev/null
+}
+
+# ECR Public allows one unauthenticated request per second, so every request
+# to it waits that long first.
+ecr_fetch() {
+  sleep 1.1
+  image_fetch "$@"
+}
+
+manifest_types='application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json'
+
+# copy_digest <registry> <repository> <tag> prints the digest the copy serves.
+copy_digest() {
+  local registry=$1 repository=$2 tag=$3 token
+  if [[ $registry == public.ecr.aws/docker/library ]]; then
+    ecr_fetch "$work/ecr-token.json" \
+      "$ecr_public/token/?scope=repository:docker/library/$repository:pull&service=public.ecr.aws" || return 1
+    token=$(jq -r '.token // empty' "$work/ecr-token.json")
+    [[ -n $token ]] || return 1
+    ecr_fetch "$work/manifest" "$ecr_public/v2/docker/library/$repository/manifests/$tag" \
+      -H "Accept: $manifest_types" -H "Authorization: Bearer $token" || return 1
+  else
+    image_fetch "$work/manifest" "$gcr_mirror/v2/$repository/manifests/$tag" \
+      -H "Accept: $manifest_types" || return 1
+  fi
+  sha256_file "$work/manifest"
+}
+
+# newer_releases <pinned tag> <tag list document> <pinned tag's push time>
+# prints "<tag> <push time>" for each newer release, newest first.
+newer_releases() {
+  jq -r --arg tag "$1" --arg since "$3" '
+    def parse: capture("^(?<p>v?)(?<n>[0-9]+(\\.[0-9]+)*)(?<s>-.*)?$")
+      | .s = (.s // "") | .n = (.n | split(".") | map(tonumber));
+    ([$tag | parse] | first) as $pin
+    | if $pin == null then empty else
+        [ .results[]
+          | select(.tag_last_pushed != null and .tag_last_pushed > $since)
+          | . as $row
+          | ([.name | parse] | first) as $c
+          | select($c != null and $c.p == $pin.p and $c.s == $pin.s
+              and ($c.n | length) == ($pin.n | length)
+              and $c.n[0] == $pin.n[0] and $c.n > $pin.n)
+          | {n: $c.n, name: $row.name, pushed: $row.tag_last_pushed} ]
+        | sort_by(.n) | reverse | .[] | "\(.name) \(.pushed)"
+      end' "$2"
+}
+
+echo "=== Container image pin freshness (adoption quarantine ${quarantine_seconds}s) ==="
+image_pattern='(public\.ecr\.aws/docker/library|mirror\.gcr\.io)/[a-z0-9._/-]+:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}'
+git grep -oE "$image_pattern" -- ':!*.md' >"$work/image-pins" || true
+while IFS= read -r ref; do
+  [[ -z $ref ]] && continue
+  files=$(grep -F ":$ref" "$work/image-pins" | cut -d: -f1 | sort -u | tr '\n' ' ')
+  registry=${ref%%/*}
+  rest=${ref#*/}
+  if [[ $registry == public.ecr.aws ]]; then
+    registry=public.ecr.aws/docker/library
+    rest=${ref#public.ecr.aws/docker/library/}
+  fi
+  digest=${rest##*@}
+  rest=${rest%@*}
+  tag=${rest##*:}
+  repository=${rest%:*}
+  hub=$repository
+  [[ $hub == */* ]] || hub="library/$hub"
+  label="$registry/$repository:$tag (${files% })"
+
+  if ! image_fetch "$work/hub-tag.json" "$docker_hub/v2/repositories/$hub/tags/$tag" ||
+    ! image_fetch "$work/hub-tags.json" \
+      "$docker_hub/v2/repositories/$hub/tags?page_size=100&ordering=last_updated&name=$(printf '%s' "$tag" | sed -E 's/^(v?[0-9]+).*/\1./')"; then
+    echo "  FAIL  $label could not be read from Docker Hub after three attempts — this is the registry being unreachable, not a stale pin"
+    fail=$((fail + 1))
+    continue
+  fi
+  hub_digest=$(jq -r '.digest // empty' "$work/hub-tag.json")
+  hub_pushed=$(jq -r '.tag_last_pushed // empty' "$work/hub-tag.json")
+  if [[ -z $hub_digest ]] || ! hub_epoch=$(rfc3339_epoch "$hub_pushed"); then
+    echo "  FAIL  $label: Docker Hub gave no digest or push time for the tag (a digest of unknown age is never adopted)"
+    fail=$((fail + 1))
+    continue
+  fi
+  if ! mirrored=$(copy_digest "$registry" "$repository" "$tag"); then
+    echo "  FAIL  $label could not be read from $registry after three attempts — this is the registry being unreachable, not a stale pin"
+    fail=$((fail + 1))
+    continue
+  fi
+
+  problems=""
+  notes=""
+  if [[ $hub_digest != "$digest" ]]; then
+    age=$((now_epoch - hub_epoch))
+    if ((age >= quarantine_seconds)); then
+      problems="Docker Hub has served $hub_digest for the tag since $hub_pushed"
+    else
+      notes="Docker Hub moved the tag to $hub_digest at $hub_pushed ($(describe_age "$age") ago)"
+    fi
+  elif [[ $mirrored != "$digest" ]]; then
+    problems="$registry serves $mirrored for the tag, not the pinned digest"
+  fi
+  while read -r newer pushed; do
+    [[ -z $newer ]] && continue
+    if ! newer_epoch=$(rfc3339_epoch "$pushed"); then
+      problems="${problems:+$problems; }newer release $newer has an unreadable push time \"$pushed\""
+      break
+    fi
+    age=$((now_epoch - newer_epoch))
+    if ((age >= quarantine_seconds)); then
+      problems="${problems:+$problems; }newer release $newer has been on Docker Hub since $pushed"
+      break
+    fi
+    notes="${notes:+$notes; }newer release $newer pushed $pushed ($(describe_age "$age") ago)"
+  done < <(newer_releases "$tag" "$work/hub-tags.json" "$hub_pushed")
+
+  if [[ -n $problems ]]; then
+    # Inherited only when every file pinning it pins it exactly as the
+    # baseline does. A while-read loop rather than `for file in $files`,
+    # because zsh does not split an unquoted variable into words.
+    attributed=1
+    while IFS= read -r file; do
+      baseline_holds_pin "$file" "$repository:$tag" "$digest" || attributed=0
+    done < <(grep -F ":$ref" "$work/image-pins" | cut -d: -f1 | sort -u)
+    if ((attributed)); then
+      echo "  INHERITED  $label: $problems"
+      echo "      pin unchanged from $BASELINE; the scheduled dependency freshness run holds this one"
+      if [ -n "${GITHUB_ACTIONS:-}" ]; then
+        echo "::warning title=Container image pin is behind Docker Hub::${label}: ${problems} — inherited from ${BASELINE} rather than caused by this branch, so it does not fail here. Bundle the bump into this pull request; the scheduled run has nowhere else to put it."
+      fi
+      inherited=$((inherited + 1))
+    else
+      echo "  FAIL  $label: $problems"
+      fail=$((fail + 1))
+    fi
+  elif [[ -n $notes ]]; then
+    echo "  HELD  $label stays on $digest: $notes — inside the ${quarantine_seconds}s adoption quarantine, so it is not drift yet"
+    held=$((held + 1))
+  fi
+done < <(cut -d: -f2- "$work/image-pins" | sort -u)
+echo "  $(cut -d: -f2- "$work/image-pins" | sort -u | grep -c .) pinned image(s) compared with Docker Hub and the copy they are pulled from"
+
 echo
 if [[ -s "$work/go-proxy-stalled" ]]; then
   echo "The module proxy never answered these queries, so the versions they would have checked are unknown; re-run once it answers:" >&2
@@ -944,7 +1129,7 @@ if [[ $inherited -gt 0 ]]; then
   echo "$inherited dependency drift(s) inherited from $BASELINE: upstream moved under this branch rather than this branch letting the pin rot, so they do not fail here. The scheduled dependency freshness run carries no baseline and fails on them there; bundling the bump into the open pull request is what clears it."
 fi
 if [[ $fail -gt 0 ]]; then
-  echo "$fail dependency drift(s) detected. Run \`make upgrade-deps\` from the affected module dirs (Go), update the provider constraint + \`terraform init -upgrade\` (TF), or pin GitHub Actions to the newest adoptable semantic tag, then re-run this check." >&2
+  echo "$fail dependency drift(s) detected. Run \`make upgrade-deps\` from the affected module dirs (Go), update the provider constraint + \`terraform init -upgrade\` (TF), pin GitHub Actions to the newest adoptable semantic tag, or move a container image pin to the digest (or newer release) Docker Hub serves once its copy serves the same digest, then re-run this check." >&2
   exit 1
 fi
 echo "OK: every dependency this branch owns is on the newest version that has cleared the ${quarantine_seconds}s adoption quarantine."
