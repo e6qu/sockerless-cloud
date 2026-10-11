@@ -1238,6 +1238,11 @@ jobs:
             tf_timeout: 600s
             tf_run: TestTerraformWebAppSlotApplyDestroy
             timeout_minutes: 12
+          - suite: azure front-end forwarded headers
+            cloud: azure
+            tf_timeout: 600s
+            tf_run: TestTerraformFrontEndForwardedHeaders
+            timeout_minutes: 12
           - suite: azure web app key vault references and source control
             cloud: azure
             tf_timeout: 780s

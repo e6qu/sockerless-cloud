@@ -272,6 +272,31 @@ Current state of the sockerless-cloud repository.
   `X-AppGW-Trace-Id` before its rewrite rule set runs, and serves the
   `add_x_forwarded_for_proxy` and `client_port` server variables. A Network
   Load Balancer and Azure Load Balancer forward at layer 4 and add nothing.
+- **Platform front ends add the headers their documentation states.** The
+  Cloud Run front end, which serves Cloud Run functions too, removes every
+  `X-Google-*` header the client sent, appends the client's IP to
+  `X-Forwarded-For`, sets `X-Forwarded-Proto` to the client's protocol and
+  starts an `X-Cloud-Trace-Context` for a request without one. The App Service
+  front end appends the client's `IP:port` to `X-Forwarded-For` and sets
+  `X-Forwarded-Proto` and `X-AppService-Proto`. Container Apps ingress appends
+  the client's IP to `X-Forwarded-For` and overwrites `X-Forwarded-Proto`. The
+  test workload's `echo-headers` mode answers with the headers it received.
+- **Each Elastic Load Balancing type has its own attributes.**
+  DescribeLoadBalancerAttributes reports exactly the keys the
+  LoadBalancerAttribute reference lists for the load balancer's type, each at
+  its stated default: a Gateway Load Balancer has
+  `deletion_protection.enabled` and `load_balancing.cross_zone.enabled`; a
+  Network Load Balancer adds the access-log keys,
+  `ipv6.deny_all_igw_traffic`, `zonal_shift.config.enabled`,
+  `dns_record.client_routing_policy` (`any_availability_zone`) and
+  `secondary_ips.auto_assigned.per_subnet` (`0`); an Application Load
+  Balancer adds the connection- and health-check-log keys,
+  `client_keep_alive.seconds`, `idle_timeout.timeout_seconds`, `waf.fail_open.enabled`
+  and the `routing.http*` keys, with cross-zone load balancing on.
+  ModifyLoadBalancerAttributes refuses another type's key with
+  `InvalidConfigurationRequest` `Key <key> not valid`, and checks each
+  enumerated, boolean and ranged value. A Gateway Load Balancer's ARN names
+  `loadbalancer/gwy/`.
 - **Amazon EC2 instance types carry AWS's published facts.** The simulator
   embeds the AWS Price List offer file's Compute Instance products for
   us-east-1 (`simulator-aws/ec2_instance_types_vendored.json`, written by

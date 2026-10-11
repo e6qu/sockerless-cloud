@@ -84,6 +84,21 @@ func acaAppByIngressFqdn(host string) (ContainerApp, bool) {
 // on an HTTP request: it cancels one not complete within 240 seconds.
 const acaIngressRequestTimeout = 240 * time.Second
 
+// acaIngressForwardedHeaders adds the headers the ingress documents: the
+// client's IP appended to X-Forwarded-For, and X-Forwarded-Proto overwritten
+// with the protocol the client used.
+func acaIngressForwardedHeaders(r *http.Request) func(http.Header) {
+	clientIP, _ := lbplane.ClientAddress(r)
+	proto := "http"
+	if r.TLS != nil {
+		proto = "https"
+	}
+	return func(h http.Header) {
+		lbplane.AppendToHeaderList(h, "X-Forwarded-For", ", ", clientIP)
+		h.Set("X-Forwarded-Proto", proto)
+	}
+}
+
 // proxyACAIngress forwards the request to a running replica container of the
 // revision's target port (8080), preserving method, path, query, headers and
 // body, and copies the response back — the App-ingress equivalent of Azure's
@@ -111,11 +126,12 @@ func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp, r
 	// ACA ingress forwards to (the container's listening port). Ingress passes
 	// the client's Host header and carries WebSocket upgrades through.
 	up := lbplane.Upstream{
-		Scheme:   "http",
-		Address:  net.JoinHostPort(ip, strconv.Itoa(int(acaIngressTargetPort(app)))),
-		Path:     r.URL.EscapedPath(),
-		RawQuery: r.URL.RawQuery,
-		Timeout:  acaIngressRequestTimeout,
+		Scheme:        "http",
+		Address:       net.JoinHostPort(ip, strconv.Itoa(int(acaIngressTargetPort(app)))),
+		Path:          r.URL.EscapedPath(),
+		RawQuery:      r.URL.RawQuery,
+		RequestHeader: acaIngressForwardedHeaders(r),
+		Timeout:       acaIngressRequestTimeout,
 	}
 	sim.DeclareWait(r.Context(), up.Timeout)
 
