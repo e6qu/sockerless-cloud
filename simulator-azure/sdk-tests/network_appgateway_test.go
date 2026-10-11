@@ -42,6 +42,12 @@ func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
 		}
 		w.Header().Set("X-Served-By", "blue")
 		fmt.Fprintf(w, "blue %s host=%s", r.URL.Path, r.Host)
+		if r.URL.Path == "/echo" {
+			for _, name := range []string{"X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Port",
+				"X-Original-Host", "X-Original-URL", "X-AppGW-Trace-Id", "X-Gateway-Region"} {
+				fmt.Fprintf(w, "\n%s: %s", name, r.Header.Get(name))
+			}
+		}
 	}))
 	defer blue.Close()
 	green := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -312,9 +318,17 @@ func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
 
 	// The rewrite rule set also reaches the request: the backend sees the header
 	// it added, and the host header the settings pinned.
-	body, _ = gatewayRequest(t, http.MethodGet, frontendAddress, "/echo", nil)
+	body, _ = gatewayRequest(t, http.MethodGet, frontendAddress, "/echo?via=gateway", nil)
 	assert.Contains(t, body, "host="+frontendAddress,
 		"a settings member with no host name forwards the client's own host")
+	assert.True(t, strings.HasSuffix(body, "\nX-Gateway-Region: eastus"), "the rewrite rule set adds its request header: %s", body)
+	// The gateway inserts its six forwarded-request headers into every request.
+	assert.Regexp(t, `\nX-Forwarded-For: 127\.0\.0\.1:\d+\n`, body)
+	assert.Contains(t, body, "\nX-Forwarded-Proto: http\n")
+	assert.Contains(t, body, "\nX-Forwarded-Port: 80\n")
+	assert.Contains(t, body, "\nX-Original-Host: "+frontendAddress+"\n")
+	assert.Contains(t, body, "\nX-Original-URL: /echo?via=gateway\n")
+	assert.Regexp(t, `\nX-AppGW-Trace-Id: [0-9a-f]{32}\n`, body)
 
 	// The second listener's rule redirects rather than forwarding, and carries
 	// the incoming path and query over.

@@ -213,7 +213,7 @@ func handleRDSRestoreInstanceToPointInTime(w http.ResponseWriter, r *http.Reques
 	}
 	inst, code, message := rdsInstanceFromSource(r, newID, src, src.Engine)
 	if code != "" {
-		rdsErrorXML(w, code, message, rdsParameterGroupErrorStatus(code), requestID)
+		rdsErrorXML(w, code, message, rdsInstanceSettingsErrorStatus(code), requestID)
 		return
 	}
 	// A live source restores from its own volume, a retained automated backup
@@ -405,7 +405,7 @@ func handleRDSRestoreInstanceFromS3(w http.ResponseWriter, r *http.Request) {
 	}
 	inst, code, message := rdsInstanceFromSource(r, newID, RDSInstance{}, "mysql")
 	if code != "" {
-		rdsErrorXML(w, code, message, rdsParameterGroupErrorStatus(code), requestID)
+		rdsErrorXML(w, code, message, rdsInstanceSettingsErrorStatus(code), requestID)
 		return
 	}
 	inst.MasterUsername = r.FormValue("MasterUsername")

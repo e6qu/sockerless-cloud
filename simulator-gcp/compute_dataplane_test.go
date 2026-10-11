@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -174,7 +176,7 @@ func newGCPLBFixture(t *testing.T, target http.Handler, healthPath string) gcpLB
 	}
 	urlMap := ComputeURLMap{Name: "um", SelfLink: "projects/test-project/global/urlMaps/um", DefaultService: bs.SelfLink}
 	proxy := ComputeTargetHTTPProxy{Name: "proxy", SelfLink: "projects/test-project/global/targetHttpProxies/proxy", UrlMap: urlMap.SelfLink}
-	fr := ComputeForwardingRule{Name: "fr", SelfLink: "projects/test-project/global/forwardingRules/fr", IPAddress: "8.34.210.44", PortRange: "80", Target: proxy.SelfLink}
+	fr := ComputeForwardingRule{Name: "fr", SelfLink: "projects/test-project/global/forwardingRules/fr", IPAddress: "8.34.210.44", PortRange: "80", Target: proxy.SelfLink, LoadBalancingScheme: "EXTERNAL"}
 
 	gcpInstances.Put(instance.SelfLink, instance)
 	gcpInstanceGroups.Put(group.SelfLink, group)
@@ -335,5 +337,65 @@ func TestGCPComputeLoadBalancerDataPlaneAbortsAResponseTheBackendCutsShort(t *te
 	}
 	if string(body) != "partial" {
 		t.Fatalf("body = %q, want only what the backend sent", body)
+	}
+}
+
+// An external Application Load Balancer appends "<client-ip>,<load-balancer-ip>"
+// to the X-Forwarded-For the client sent, names the client's protocol, adds
+// "Via: 1.1 google" to the request and the response, and starts an
+// X-Cloud-Trace-Context only for a request that carries none.
+func TestGCPComputeLoadBalancerDataPlaneAddsForwardedHeaders(t *testing.T) {
+	f := newGCPLBFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(r.Header)
+	}), "/healthz")
+	f.sweep(time.Now(), 2)
+
+	received := func(header http.Header) (http.Header, http.Header) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "http://simulator/work", nil)
+		req.Host = f.fr.IPAddress
+		req.RemoteAddr = "198.51.100.23:41000"
+		for name, values := range header {
+			req.Header[name] = values
+		}
+		rr := httptest.NewRecorder()
+		f.srv.Mux().ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("status = %d, body = %q", rr.Code, rr.Body.String())
+		}
+		var seen http.Header
+		if err := json.Unmarshal(rr.Body.Bytes(), &seen); err != nil {
+			t.Fatal(err)
+		}
+		return seen, rr.Header()
+	}
+
+	seen, response := received(http.Header{
+		"X-Forwarded-For":   {"203.0.113.9"},
+		"X-Forwarded-Proto": {"https"},
+		"Via":               {"1.0 corporate-proxy"},
+	})
+	if got := seen.Get("X-Forwarded-For"); got != "203.0.113.9,198.51.100.23,8.34.210.44" {
+		t.Errorf("X-Forwarded-For = %q", got)
+	}
+	if got := seen.Get("X-Forwarded-Proto"); got != "http" {
+		t.Errorf("X-Forwarded-Proto = %q, want the protocol the client used", got)
+	}
+	if got := seen.Get("Via"); got != "1.0 corporate-proxy, 1.1 google" {
+		t.Errorf("request Via = %q", got)
+	}
+	if got := response.Get("Via"); got != "1.1 google" {
+		t.Errorf("response Via = %q", got)
+	}
+	if got := seen.Get("X-Cloud-Trace-Context"); !regexp.MustCompile(`^[0-9a-f]{32}/\d+;o=0$`).MatchString(got) {
+		t.Errorf("X-Cloud-Trace-Context = %q", got)
+	}
+
+	seen, _ = received(http.Header{"X-Cloud-Trace-Context": {"105445aa7843bc8bf206b12000100000/1;o=1"}})
+	if got := seen.Get("X-Cloud-Trace-Context"); got != "105445aa7843bc8bf206b12000100000/1;o=1" {
+		t.Errorf("client X-Cloud-Trace-Context = %q, want it passed through", got)
+	}
+	if got := seen.Get("X-Forwarded-For"); got != "198.51.100.23,8.34.210.44" {
+		t.Errorf("X-Forwarded-For without a client value = %q", got)
 	}
 }

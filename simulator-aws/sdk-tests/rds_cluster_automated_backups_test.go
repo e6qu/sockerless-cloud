@@ -71,7 +71,7 @@ func TestRDS_AuroraAutomatedBackups(t *testing.T) {
 			})
 			require.True(t, errors.As(err, &apiErr), "a malformed backup window is refused, got %v", err)
 			assert.Equal(t, "InvalidParameterValue", apiErr.ErrorCode())
-			windowStart := time.Now().UTC().Truncate(time.Minute).Add(time.Minute)
+			windowStart := time.Now().UTC().Truncate(time.Minute).Add(2 * time.Minute)
 			window := windowStart.Format("15:04") + "-" + windowStart.Add(30*time.Minute).Format("15:04")
 			modified, err := f.client.ModifyDBCluster(ctx, &rds.ModifyDBClusterInput{
 				DBClusterIdentifier: aws.String(sourceID), PreferredBackupWindow: aws.String(window), ApplyImmediately: aws.Bool(true),

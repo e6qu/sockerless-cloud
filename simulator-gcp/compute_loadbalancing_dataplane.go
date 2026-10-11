@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"strconv"
@@ -84,14 +85,19 @@ func handleGCPComputeLoadBalancerDataPlane(w http.ResponseWriter, r *http.Reques
 	// validate the certificate an HTTPS backend presents.
 	timeout := time.Duration(gcpDefaultBackendTimeout(bs.TimeoutSec)) * time.Second
 	sim.DeclareWait(r.Context(), timeout)
-	err := lbplane.Forward(w, r, lbplane.Upstream{
+	up := lbplane.Upstream{
 		Scheme:                 scheme,
 		Address:                target.Address,
 		Path:                   r.URL.EscapedPath(),
 		RawQuery:               r.URL.RawQuery,
 		Timeout:                timeout,
 		SkipTargetVerification: true,
-	})
+	}
+	if gcpExternalLoadBalancingScheme(fr.LoadBalancingScheme) {
+		up.RequestHeader = gcpExternalForwardedHeaders(r, fr)
+		up.ResponseHeader = func(_ int, h http.Header) { lbplane.AppendToHeaderList(h, "Via", ", ", gcpLoadBalancerVia) }
+	}
+	err := lbplane.Forward(w, r, up)
 	abortStartedForward(w, err)
 	switch {
 	case err == nil:
@@ -100,6 +106,41 @@ func handleGCPComputeLoadBalancerDataPlane(w http.ResponseWriter, r *http.Reques
 	default:
 		http.Error(w, err.Error(), http.StatusBadGateway)
 	}
+}
+
+// gcpLoadBalancerVia is the Via entry an external Application Load Balancer
+// adds to every request and response it proxies.
+const gcpLoadBalancerVia = "1.1 google"
+
+func gcpExternalLoadBalancingScheme(scheme string) bool {
+	return scheme == "EXTERNAL" || scheme == "EXTERNAL_MANAGED"
+}
+
+// gcpExternalForwardedHeaders adds the request headers an external Application
+// Load Balancer sends its backends: "<client-ip>,<load-balancer-ip>" appended
+// to any X-Forwarded-For the client supplied, the client's protocol,
+// "Via: 1.1 google", and an X-Cloud-Trace-Context when the client sent none.
+func gcpExternalForwardedHeaders(r *http.Request, fr ComputeForwardingRule) func(http.Header) {
+	clientIP, _ := lbplane.ClientAddress(r)
+	proto := "http"
+	if r.TLS != nil {
+		proto = "https"
+	}
+	return func(h http.Header) {
+		lbplane.AppendToHeaderList(h, "X-Forwarded-For", ",", clientIP+","+lbplane.Hostname(fr.IPAddress))
+		h.Set("X-Forwarded-Proto", proto)
+		lbplane.AppendToHeaderList(h, "Via", ", ", gcpLoadBalancerVia)
+		if h.Get("X-Cloud-Trace-Context") == "" {
+			h.Set("X-Cloud-Trace-Context", gcpNewTraceContext())
+		}
+	}
+}
+
+// gcpNewTraceContext starts a Cloud Trace context, TRACE_ID/SPAN_ID;o=OPTIONS:
+// a 32-digit hexadecimal trace, a decimal span, and o=0 because the simulator
+// records no trace for Cloud Trace to sample.
+func gcpNewTraceContext() string {
+	return fmt.Sprintf("%s/%d;o=0", lbplane.RandomHex(16), rand.Uint64())
 }
 
 func gcpForwardingRuleMatchesRequest(fr ComputeForwardingRule, r *http.Request) bool {

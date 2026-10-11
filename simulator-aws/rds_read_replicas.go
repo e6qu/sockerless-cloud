@@ -919,6 +919,14 @@ func handleRDSCreateReadReplica(w http.ResponseWriter, r *http.Request) {
 		EnableIAMDatabaseAuthentication: iamAuthentication,
 		DeletionProtection:              strings.EqualFold(r.FormValue("DeletionProtection"), "true"),
 		AutoMinorVersionUpgrade:         rdsRequestedBool(r, "AutoMinorVersionUpgrade"),
+		StorageType:                     src.StorageType,
+		Iops:                            src.Iops,
+		StorageThroughput:               src.StorageThroughput,
+		OptionGroupName:                 src.OptionGroupName,
+	}
+	if code, message := rdsRequestedInstanceSettings(r, &replica); code != "" {
+		rdsErrorXML(w, code, message, rdsInstanceSettingsErrorStatus(code), requestID)
+		return
 	}
 	if served {
 		replica.DBInstanceStatus = "creating"

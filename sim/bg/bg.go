@@ -30,6 +30,10 @@ var (
 	draining atomic.Bool
 	timers   sync.Map // *Timer -> struct{}
 	watches  sync.Map // *Watch -> struct{}
+	// arming spans a timer's or watch's admission and its entry in timers or
+	// watches, so a drain that starts ranging those maps has seen every piece
+	// of stoppable work it counted.
+	arming sync.RWMutex
 )
 
 func admit() bool {
@@ -97,6 +101,8 @@ type Timer struct {
 // drain cancels a timer that has not fired rather than waiting it out: the
 // stores it would read belong to a test that is over.
 func AfterFunc(d time.Duration, f func()) *Timer {
+	arming.RLock()
+	defer arming.RUnlock()
 	// Work that re-arms itself from inside its own run would otherwise hand
 	// every round of a drain a fresh timer.
 	if !admit() {
@@ -152,6 +158,8 @@ type Watch struct {
 // then never runs: waiting on a container nobody stops would hang the drain.
 // It returns nil when a drain refused to arm it.
 func WatchThen(wait func(), f func()) *Watch {
+	arming.RLock()
+	defer arming.RUnlock()
 	if !admit() {
 		return nil
 	}
@@ -197,7 +205,9 @@ func (w *Watch) detach() {
 // Await blocks until no counted work is left. It drains to quiescence rather
 // than waiting once, because work finishing inside one round can request more.
 func Await() {
+	arming.Lock()
 	draining.Store(true)
+	arming.Unlock()
 	defer draining.Store(false)
 	for range 100 {
 		before := started.Load()

@@ -503,14 +503,7 @@ jobs:
         # registry.
         if: matrix.cloud == 'gcp' && matrix.suite == 'cli'
         run: |
-          # The jobs run caddy themselves; the package's caddy.service is not
-          # wanted, and starting it once held "Setting up caddy" for three
-          # minutes. A policy-rc.d that answers 101 tells the package scripts
-          # not to start services.
-          printf '#!/bin/sh\nexit 101\n' | sudo tee /usr/sbin/policy-rc.d > /dev/null
-          sudo chmod 0755 /usr/sbin/policy-rc.d
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y caddy
-          caddy version
+          bash scripts/install-caddy.sh
       # Module download + test-binary compilation get their own budget so the
       # timed run below isn't eaten by a cold module cache after a dep change
       # busts the shared **/go.sum Go cache.
@@ -614,7 +607,11 @@ jobs:
           - suite: services-a-m
             run: '^Test[A-CF-M]'
           - suite: services-n-z
-            run: '^Test([N-QS-Z]|R[^D]|RD[^S]|RDS[^_]|RDS_[^A-I])'
+            run: '^Test([N-QS-Z]|R[^D]|RD[^S]|RDS[^_]|RDS_([^A-IM]|M[^o]|Modify[^D]))'
+          # The ModifyDBInstance tests restart engines on a new CA, a new port
+          # and a renamed volume, which the services-n-z shard has no room for.
+          - suite: rds-modify
+            run: '^Test(RDS_ModifyDB)'
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-go@v7.0.0
@@ -950,11 +947,12 @@ jobs:
             run: '^Test(RDSCLI_(ReadReplica|ReleasedEngineVersion))'
             timeout: 1200s
             timeout_minutes: 15
-          # The DB parameter group and maintenance window tests start and
-          # reboot engines and wait for a maintenance window that opens at the
-          # next minute, read at the CLI waiter's 30-second cadence.
+          # The DB parameter group, maintenance window and ModifyDBInstance
+          # tests start, reboot and rename engines and wait for a maintenance
+          # window that opens at the next minute, read at the CLI waiter's
+          # 30-second cadence.
           - suite: rds-parameters
-            run: '^Test(RDSCLI_(Maintenance|ModifiedDBParameterGroup))'
+            run: '^Test(RDSCLI_(Maintenance|ModifiedDBParameterGroup|ModifyDBInstance))'
             timeout: 1200s
             timeout_minutes: 15
           - suite: appdata5
@@ -1020,14 +1018,7 @@ jobs:
         # matches '^Test(...|ECR|...)', so only the compute shard runs it.
         if: matrix.suite == 'compute'
         run: |
-          # The jobs run caddy themselves; the package's caddy.service is not
-          # wanted, and starting it once held "Setting up caddy" for three
-          # minutes. A policy-rc.d that answers 101 tells the package scripts
-          # not to start services.
-          printf '#!/bin/sh\nexit 101\n' | sudo tee /usr/sbin/policy-rc.d > /dev/null
-          sudo chmod 0755 /usr/sbin/policy-rc.d
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y caddy
-          caddy version
+          bash scripts/install-caddy.sh
       - name: Install latest AWS CLI v2
         # The ubuntu-runner-bundled aws CLI lags; newer service operations (e.g.
         # ECS Express Mode, launched 2025-11-21) need a current CLI. Install the
@@ -1163,6 +1154,13 @@ jobs:
             tf_packages: "./rds-parameter-group"
             tf_timeout: 720s
             timeout_minutes: 15
+          # The provider waits on the create, on the rename and port move,
+          # and on the destroy.
+          - suite: aws Amazon RDS instance settings
+            cloud: aws
+            tf_packages: "./rds-instance-settings"
+            tf_timeout: 720s
+            timeout_minutes: 15
           - suite: aws Amazon RDS snapshot
             cloud: aws
             tf_packages: "./rds-snapshot ./rds-cluster-snapshot"
@@ -1196,9 +1194,9 @@ jobs:
             cloud: aws
             tf_packages: "./s3control ./s3-versioning ./s3-object-lock"
             timeout_minutes: 12
-          - suite: aws Elastic Load Balancing trust store
+          - suite: aws Elastic Load Balancing
             cloud: aws
-            tf_packages: "./elb-trust-store"
+            tf_packages: "./elb-trust-store ./alb-forwarded-headers"
             timeout_minutes: 12
           - suite: aws Amazon ECR force delete
             cloud: aws
@@ -1317,13 +1315,7 @@ jobs:
           bash scripts/install-firecracker.sh
       - name: Install Caddy
         run: |
-          # The jobs run caddy themselves; the package's caddy.service is not
-          # wanted, and starting it once held "Setting up caddy" for three
-          # minutes. A policy-rc.d that answers 101 tells the package scripts
-          # not to start services.
-          printf '#!/bin/sh\nexit 101\n' | sudo tee /usr/sbin/policy-rc.d > /dev/null
-          sudo chmod 0755 /usr/sbin/policy-rc.d
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y caddy
+          bash scripts/install-caddy.sh
       - name: Run terraform tests
         run: |
           cd simulator-${{ matrix.cloud }}

@@ -561,7 +561,7 @@ func rdsInstanceFromSource(r *http.Request, newID string, src RDSInstance, engin
 	if v := atoiOrZero(r.FormValue("AllocatedStorage")); v > 0 {
 		storage = v
 	}
-	return RDSInstance{
+	inst := RDSInstance{
 		DBParameterGroupName: paramGroup,
 		DBInstanceIdentifier: newID,
 		DbiResourceId:        rdsResourceID(),
@@ -579,7 +579,15 @@ func rdsInstanceFromSource(r *http.Request, newID string, src RDSInstance, engin
 		ARN:                  rdsInstanceARN(newID),
 		Tags:                 parseAWSQueryTagMap(r, "Tags.Tag"),
 		BackupTarget:         rdsRequestedBackupTarget(r),
-	}, "", ""
+		StorageType:          src.StorageType,
+		Iops:                 src.Iops,
+		StorageThroughput:    src.StorageThroughput,
+		OptionGroupName:      src.OptionGroupName,
+	}
+	if code, message := rdsRequestedInstanceSettings(r, &inst); code != "" {
+		return RDSInstance{}, code, message
+	}
+	return inst, "", ""
 }
 
 // Reserved instances

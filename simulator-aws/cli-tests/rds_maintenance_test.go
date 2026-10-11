@@ -44,10 +44,11 @@ func cliDescribeMaintainedInstance(t *testing.T, instanceID string) cliMaintaine
 // aws rds modify-db-instance without --apply-immediately holds a class and a
 // storage change for the instance's maintenance window, which
 // describe-db-instances reports as pending modified values; a later
-// --apply-immediately applies them, and a window opening at the next minute
-// applies what it holds when it opens. describe-db-instances is the only
-// signal of the window's work the CLI has, so the test reads it at the
-// db-instance-available waiter's 30-second cadence.
+// --apply-immediately applies them, and a window opening two minutes out,
+// still closed when the request arrives, applies what it holds when it
+// opens. describe-db-instances is the only signal of the window's work the
+// CLI has, so the test reads it at the db-instance-available waiter's
+// 30-second cadence.
 func TestRDSCLI_MaintenanceWindowAppliesPendingModifications(t *testing.T) {
 	id := fmt.Sprintf("cli-maintenance-%d", time.Now().UnixNano())
 	runCLI(t, awsCLI("rds", "create-db-instance",
@@ -76,7 +77,7 @@ func TestRDSCLI_MaintenanceWindowAppliesPendingModifications(t *testing.T) {
 	assert.Equal(t, 30, modified.DBInstance.AllocatedStorage, "--apply-immediately applies the pending changes")
 	assert.Zero(t, modified.DBInstance.PendingModifiedValues.AllocatedStorage)
 
-	start := time.Now().UTC().Truncate(time.Minute).Add(time.Minute)
+	start := time.Now().UTC().Truncate(time.Minute).Add(2 * time.Minute)
 	weekly := func(at time.Time) string { return strings.ToLower(at.Format("Mon")) + ":" + at.Format("15:04") }
 	backup := start.Add(12 * time.Hour)
 	window := weekly(start) + "-" + weekly(start.Add(30*time.Minute))
