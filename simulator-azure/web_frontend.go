@@ -151,7 +151,7 @@ func siteContainerAddress(ctx context.Context, site *Site) (string, error) {
 		return address, nil
 	}
 	containerID, candidates, port := inst.containerID, inst.candidates, inst.port
-	exited, logsDone := inst.exited, inst.logsDone
+	exit, logsDone := inst.exit, inst.logsDone
 	inst.mu.Unlock()
 
 	limit := siteStartTimeLimit(site)
@@ -160,19 +160,19 @@ func siteContainerAddress(ctx context.Context, site *Site) (string, error) {
 	// A container the engine reports no address for has already stopped.
 	if len(candidates) == 0 {
 		select {
-		case <-exited:
+		case <-exit.done:
 			select {
 			case <-logsDone:
 			case <-ctx.Done():
 			}
-			return "", fmt.Errorf("site %q container exited before it answered on port %d", site.Name, port)
+			return "", exit.exitedBeforeAnswering(site.Name, port)
 		case <-waitCtx.Done():
 			return "", fmt.Errorf("site %q container has no address to reach port %d at", site.Name, port)
 		}
 	}
 	go func() {
 		select {
-		case <-exited:
+		case <-exit.done:
 			cancel()
 		case <-waitCtx.Done():
 		}
@@ -180,14 +180,14 @@ func siteContainerAddress(ctx context.Context, site *Site) (string, error) {
 	reached, err := appServiceWarmupPing(waitCtx, candidates)
 	if err != nil {
 		select {
-		case <-exited:
+		case <-exit.done:
 			// The container's last output reaches its log before the
 			// failure is reported.
 			select {
 			case <-logsDone:
 			case <-ctx.Done():
 			}
-			return "", fmt.Errorf("site %q container exited before it answered on port %d", site.Name, port)
+			return "", exit.exitedBeforeAnswering(site.Name, port)
 		default:
 		}
 		if ctx.Err() != nil {

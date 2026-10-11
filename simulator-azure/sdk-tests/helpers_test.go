@@ -9,7 +9,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
-	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -348,22 +347,15 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to read the caller's object ID: %v", err)
 	}
 
-	// The Cosmos emulator takes minutes to initialise and only two tests need
-	// it, so it is started here and initialises alongside everything else
-	// rather than inside the first test that asks — which is where its
-	// readiness budget kept expiring on a loaded runner.
-	//
-	// A run that cannot reach those tests does not pay for it: warming is
-	// skipped when -run names a filter no Cosmos test matches. The tests call
-	// startCosmosEmulator either way, and it boots the emulator itself if this
-	// did not, so the filter decides when the cost is paid and never whether
-	// the oracle is available.
-	if cosmosSuiteMayRun() {
+	// The Cosmos DB emulator takes minutes to initialise, so it starts here,
+	// alongside the rest of the start-up, and only when -run selects a test
+	// that needs it; such a test boots it itself if this did not.
+	if cosmosEmulatorSelected() > 0 {
 		go warmCosmosEmulator()
-		defer stopCosmosEmulator()
 	}
 
 	code := m.Run()
+	stopCosmosEmulator()
 	if err := simready.Stop(simCmd, simShutdownGrace); err != nil {
 		log.Printf("stop the simulator: %v", err)
 	}
@@ -539,26 +531,6 @@ ENTRYPOINT ["/usr/local/bin/%s"]
 	if out, err := dockerBuild.CombinedOutput(); err != nil {
 		log.Fatalf("Failed to build %s Docker image: %v\n%s", imageName, err, out)
 	}
-}
-
-// cosmosSuiteMayRun reports whether this run can reach a test that needs the
-// Cosmos emulator, so TestMain knows whether warming one is worth it. An
-// unfiltered run can; a filtered one can only if its pattern matches a name
-// the Cosmos tests carry.
-func cosmosSuiteMayRun() bool {
-	filter := flag.Lookup("test.run")
-	if filter == nil || filter.Value.String() == "" {
-		return true
-	}
-	matched, err := regexp.MatchString(filter.Value.String(), "TestCosmos_DifferentialVsEmulator")
-	if err != nil {
-		return true // an unparsable filter is go test's to reject, not ours
-	}
-	if matched {
-		return true
-	}
-	matched, err = regexp.MatchString(filter.Value.String(), "TestCosmosScripts_DifferentialVsEmulator")
-	return err != nil || matched
 }
 
 // pullImageBeforeRun fetches a public image before m.Run so a transient

@@ -45,10 +45,9 @@ type cosmosDiffDivergence struct {
 var cosmosDiffKnownDivergences = map[string]cosmosDiffDivergence{}
 
 func TestCosmos_DifferentialVsEmulator(t *testing.T) {
-	t.Parallel()
 	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
-	emuEndpoint, stop := startCosmosEmulator(t)
-	defer stop()
+	emuEndpoint, release := startCosmosEmulator(t)
+	defer release()
 
 	simC := cosmosSimClient(t, dataPlaneAccount)
 	oracle := newCosmosSDKClient(t, emuEndpoint, cosmosEmulatorKey, "")
@@ -470,51 +469,80 @@ func cosmosEmulatorEngine(bound time.Duration, args ...string) ([]byte, error) {
 	return out, err
 }
 
-// One Cosmos emulator serves the whole suite, and it is started before the
-// suite runs rather than when the first test asks for it.
-//
-// Two tests need the oracle, and each used to start an emulator of its own.
-// The engine then ran two of them at once on a two-core runner, which is
-// exactly the contention the reaper comment below describes: the second one's
-// pgcosmos extension is starved and answers "still starting" until the
-// readiness budget runs out. Sharing one removes the contention, and warming
-// it from TestMain overlaps its initialisation with the suite's own setup and
-// with every test that does not need it, which is the time the emulator was
-// short of.
+// cosmosEmulatorTests are the tests that compare the simulator with the
+// Microsoft Azure Cosmos DB emulator. They run serially, so they finish before
+// the parallel phase starts: the emulator initialises and serves them on a
+// runner nothing else is loading, and the last of them removes it before the
+// parallel tests need the CPU.
+var cosmosEmulatorTests = []string{"TestCosmos_DifferentialVsEmulator", "TestCosmosScripts_DifferentialVsEmulator"}
+
+// One emulator serves every selected oracle test; TestMain starts it before the
+// tests run so its initialisation overlaps the suite's start-up.
 var cosmosEmulator struct {
 	once     sync.Once
 	endpoint string
 	stop     func()
 	err      error
+
+	mu    sync.Mutex
+	users int
 }
 
-// warmCosmosEmulator boots the shared emulator. TestMain calls it in a
-// goroutine so initialisation runs alongside the rest of the suite; a test that
-// needs the oracle calls startCosmosEmulator, which waits for this to finish.
+// cosmosEmulatorSelected counts the oracle tests this run's -run filter selects.
+func cosmosEmulatorSelected() int {
+	n := 0
+	for _, name := range cosmosEmulatorTests {
+		if testRunSelects(name) {
+			n++
+		}
+	}
+	return n
+}
+
+// warmCosmosEmulator boots the shared emulator for the selected oracle tests.
 func warmCosmosEmulator() {
 	cosmosEmulator.once.Do(func() {
+		cosmosEmulator.mu.Lock()
+		cosmosEmulator.users = cosmosEmulatorSelected()
+		cosmosEmulator.mu.Unlock()
 		cosmosEmulator.endpoint, cosmosEmulator.stop, cosmosEmulator.err = bootCosmosEmulator()
 	})
 }
 
-// stopCosmosEmulator removes the shared emulator. TestMain calls it after the
-// suite, because no single test owns it any more.
+// stopCosmosEmulator removes the shared emulator if a test has not already.
 func stopCosmosEmulator() {
+	cosmosEmulator.mu.Lock()
+	defer cosmosEmulator.mu.Unlock()
 	if cosmosEmulator.stop != nil {
 		cosmosEmulator.stop()
+		cosmosEmulator.stop = nil
 	}
 }
 
 // startCosmosEmulator returns the shared emulator, waiting for the warm-up
-// that TestMain began. The returned stop is a no-op: the emulator outlives any
-// one test now, and TestMain removes it.
-func startCosmosEmulator(t *testing.T) (endpoint string, stop func()) {
+// TestMain began. The returned release removes the emulator once every selected
+// oracle test has released it.
+func startCosmosEmulator(t *testing.T) (endpoint string, release func()) {
 	t.Helper()
 	warmCosmosEmulator()
 	if cosmosEmulator.err != nil {
 		t.Fatalf("%v", cosmosEmulator.err)
 	}
-	return cosmosEmulator.endpoint, func() {}
+	cosmosEmulator.mu.Lock()
+	stopped := cosmosEmulator.stop == nil
+	cosmosEmulator.mu.Unlock()
+	if stopped {
+		t.Fatalf("the shared Cosmos DB emulator was removed before %s ran: list the test in cosmosEmulatorTests", t.Name())
+	}
+	return cosmosEmulator.endpoint, func() {
+		cosmosEmulator.mu.Lock()
+		cosmosEmulator.users--
+		last := cosmosEmulator.users <= 0
+		cosmosEmulator.mu.Unlock()
+		if last {
+			stopCosmosEmulator()
+		}
+	}
 }
 
 func bootCosmosEmulator() (endpoint string, stop func(), err error) {

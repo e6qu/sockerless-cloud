@@ -660,7 +660,9 @@ main sitecontainer's `targetPort` — and passes the answer back untouched. A
 request starts the container when none runs, and Always On starts it without
 one; the start waits until the port accepts, the container exits, or
 `WEBSITES_CONTAINER_START_TIME_LIMIT` (230 seconds unset) passes, and fails
-with 503. A restart, a configuration write and an app-settings write restart
+with 503. A container that exits before it answers fails the start as having
+exited, with its exit code from the engine's wait, also when it stopped before
+the start read its published port. A restart, a configuration write and an app-settings write restart
 the container and keep its VNet integration; `PATCH config/web` merges onto
 the stored configuration. The simulator reads no setting named after a
 consumer.
@@ -2279,8 +2281,9 @@ the simulator. `scripts/check-parallel-tests.go`
 holds the suites to that in pre-commit and CI's build gates, and fails a listed
 test that no longer exists or already runs in parallel, and a parallel test that
 reaches `t.Setenv` or `t.Chdir` through any function of its suite. A parallel
-test names its resources apart from every other test's and never asserts the
-length of a whole account-wide list. The Google Cloud SDK suite sets
+test names its resources apart from every other test's, globally unique names
+such as an Azure Container Registry's included, and never asserts the length of
+a whole account-wide list. The Google Cloud SDK suite sets
 `STORAGE_EMULATOR_HOST`, `BIGTABLE_EMULATOR_HOST` and `SPANNER_EMULATOR_HOST`
 once in `TestMain`; its Firestore and Pub/Sub gRPC clients take the simulator's
 address as their endpoint, because the Firestore REST client refuses to start
@@ -2404,7 +2407,11 @@ readiness wait is a wall-clock deadline with a single-attempt probe, and the
 container is kept until the test removes it, so a failure reports the last probe
 error, the container's state and its log. Microsoft's Cosmos DB emulator starts
 once for the Azure SDK suite, from `TestMain`, because two emulators on a
-two-core runner starve each other. Every Terraform harness runs `init -upgrade`
+two-core runner starve each other. The two tests that compare against it run
+serially, before the parallel phase, so the emulator initialises on a runner
+nothing else loads, and the last of them removes it before the parallel tests
+start; `TestMain` removes it explicitly as well, since `os.Exit` skips a
+deferred removal. Every Terraform harness runs `init -upgrade`
 against exactly pinned providers, a pre-commit hook holds `.tf` files to
 `terraform fmt`, and a suite's Lambda image declares the machine's architecture.
 The Google Cloud gRPC door listens on the HTTP port plus two (`:4569`), so the

@@ -18,7 +18,7 @@ import (
 // Properties and Get Blob Properties through the official azblob clients.
 func TestStorageSDK_BlobContainerAndBlobProperties(t *testing.T) {
 	t.Parallel()
-	account := "sdkblobpropsacct"
+	account := "sdkctrpropsacct"
 	container := "sdk-props-container"
 	blobName := "props.txt"
 	payload := []byte("blob properties payload")

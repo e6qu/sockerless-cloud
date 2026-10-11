@@ -344,15 +344,19 @@ func TestACRTasks_ScheduleRunMissingContextFails(t *testing.T) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatalf("docker CLI required for ACR Tasks build test (no fallback): %v", err)
 	}
-	acrEnsureRegistry(t, "acr-tasks-rg-0107", "acrbuildreg")
+	const (
+		rg      = "acr-tasks-rg-0107"
+		regName = "acrmissingctxreg"
+	)
+	acrEnsureRegistry(t, rg, regName)
 	regClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	poller, err := regClient.BeginScheduleRun(ctx, "acr-tasks-rg-0107", "acrbuildreg", &armcontainerregistry.DockerBuildRequest{
+	poller, err := regClient.BeginScheduleRun(ctx, rg, regName, &armcontainerregistry.DockerBuildRequest{
 		Type:           to.Ptr("DockerBuildRequest"),
 		DockerFilePath: to.Ptr("Dockerfile"),
-		ImageNames:     []*string{to.Ptr("acrbuildreg.azurecr.io/sockerless-overlay/aca:missing")},
-		SourceLocation: to.Ptr("https://acrbuildacct.blob.core.windows.net/build-context/does-not-exist.tar.gz"),
+		ImageNames:     []*string{to.Ptr(regName + ".azurecr.io/sockerless-overlay/aca:missing")},
+		SourceLocation: to.Ptr("https://acrmissingctxacct.blob.core.windows.net/build-context/does-not-exist.tar.gz"),
 		IsPushEnabled:  to.Ptr(true),
 	}, nil)
 	require.NoError(t, err)
@@ -365,7 +369,7 @@ func TestACRTasks_ScheduleRunMissingContextFails(t *testing.T) {
 
 	runsClient, err := armcontainerregistry.NewRunsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
-	result := awaitACRRun(t, runsClient, "acr-tasks-rg-0107", "acrbuildreg", *queued.Properties.RunID)
+	result := awaitACRRun(t, runsClient, rg, regName, *queued.Properties.RunID)
 	assert.Equal(t, armcontainerregistry.RunStatusFailed, ptrVal(result.Properties.Status),
 		"missing build context must report the run as Failed")
 	assert.Contains(t, ptrVal(result.Properties.RunErrorMessage), "not found",

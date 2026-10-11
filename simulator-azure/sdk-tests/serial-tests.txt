@@ -1,0 +1,5 @@
+# Tests that cannot share the simulator with the rest of the suite, with
+# the reason; scripts/check-parallel-tests.go holds every other test to
+# starting with t.Parallel().
+TestCosmosScripts_DifferentialVsEmulator	initialises the Cosmos DB emulator, which a two-core runner starves while the parallel suite runs
+TestCosmos_DifferentialVsEmulator	initialises the Cosmos DB emulator, which a two-core runner starves while the parallel suite runs
