@@ -576,6 +576,119 @@ printf 'HTTP/2 403\r\nx-ratelimit-remaining: 0\r\nx-ratelimit-reset: %s\r\n\r\n'
 	"$((throttle_now - 5))" >"$throttle_headers"
 expect_wait 1 'throttle: a reset already past yields once'
 
+# --- Container image pins -----------------------------------------------------
+# Docker Hub's tag API, ECR Public's token and manifest endpoints and Google's
+# mirror are all served from the fixture registry, so every digest and push
+# time compared below is one written here. A copy's digest is the SHA-256 of
+# the manifest it serves, as for a real registry. The references are assembled
+# from variables so that this file pins no image the real check would read.
+ecr_library="public.ecr.aws/docker/library"
+gcr="mirror.gcr.io"
+hub_root="hub/v2/repositories"
+fixture_doc 'ecr/token/.index' "{\"token\":\"$fixture_token\"}"
+registry_env+=(
+	"DEPS_DOCKER_HUB_URL=$registry_url/hub"
+	"DEPS_ECR_PUBLIC_URL=$registry_url/ecr"
+	"DEPS_GCR_MIRROR_URL=$registry_url/gcr"
+)
+long_ago=2026-01-05T10:00:00.123456Z
+
+# image_fixture <hub repository> <tag> <push time> <manifest path> <body>
+# publishes one tag on Docker Hub and its manifest on the copy, and prints the
+# copy's digest, which Docker Hub reports too.
+image_fixture() {
+	local hub="$1" tag="$2" pushed="$3" manifest="$4" body="$5" digest
+	fixture_doc "$manifest" "$body"
+	digest="sha256:$(python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$registry_root/$manifest")"
+	fixture_doc "$hub_root/$hub/tags/$tag" "{\"digest\":\"$digest\",\"tag_last_pushed\":\"$pushed\"}"
+	printf '%s\n' "$digest"
+}
+
+# hub_tag_list <hub repository> <name|push time>... writes the tag list.
+hub_tag_list() {
+	local hub="$1" rows="" row
+	shift
+	for row in "$@"; do
+		rows="${rows:+$rows,}{\"name\":\"${row%%|*}\",\"tag_last_pushed\":\"${row#*|}\"}"
+	done
+	fixture_doc "$hub_root/$hub/tags/.index" "{\"results\":[$rows]}"
+}
+
+# image_repo <name> <reference> lays out a repository pinning one image.
+image_repo() {
+	local dir
+	dir="$(new_repo "$1")"
+	printf 'FROM %s\n' "$2" >"$dir/Dockerfile"
+	commit_repo "$dir"
+	printf '%s\n' "$dir"
+}
+
+# Current: the pin is what Docker Hub serves and what the copy serves, and the
+# only newer number (3.21) stopped being rebuilt before the pinned tag was
+# last rebuilt, so it is an abandoned line rather than an upgrade.
+current_digest="$(image_fixture library/current 3.20 "$long_ago" \
+	ecr/v2/docker/library/current/manifests/3.20 '{"current":1}')"
+hub_tag_list library/current "3.20|$long_ago" '3.21|2025-12-01T00:00:00Z'
+current_repo="$(image_repo image-current "$ecr_library/current:3.20@$current_digest")"
+for shell in bash zsh; do
+	run_check_with "$shell" "$current_repo"
+	expect_status 0 "image ($shell): a current pin passes"
+	expect_says '1 pinned image(s) compared' "image ($shell): a current pin passes"
+	expect_silent_about 'FAIL' "image ($shell): a current pin passes"
+	expect_silent_about 'HELD' "image ($shell): a current pin passes"
+done
+
+# Docker Hub moved the tag an hour ago: held. The same move long ago: drift.
+old_digest="sha256:$(printf '0%.0s' {1..64})"
+recent="$(rfc3339_ago 3600)"
+image_fixture library/moved 1.2-alpine "$recent" \
+	ecr/v2/docker/library/moved/manifests/1.2-alpine '{"moved":1}' >/dev/null
+hub_tag_list library/moved "1.2-alpine|$recent"
+moved_repo="$(image_repo image-moved "$ecr_library/moved:1.2-alpine@$old_digest")"
+run_check "$moved_repo"
+expect_status 0 'image: a tag moved inside the window is held'
+expect_says 'HELD  public.ecr.aws/docker/library/moved:1.2-alpine' 'image: a tag moved inside the window is held'
+image_fixture library/moved 1.2-alpine "$long_ago" \
+	ecr/v2/docker/library/moved/manifests/1.2-alpine '{"moved":1}' >/dev/null
+run_check "$moved_repo"
+expect_status 1 'image: a tag moved long ago is drift'
+expect_says 'FAIL  public.ecr.aws/docker/library/moved:1.2-alpine' 'image: a tag moved long ago is drift'
+expect_says "Docker Hub has served sha256:" 'image: a tag moved long ago is drift'
+
+# Drift the baseline already pinned is inherited, not this branch's.
+set +e
+CHECK_OUT="$(cd "$moved_repo" && env "${registry_env[@]}" bash scripts/check-latest-deps.sh --baseline HEAD 2>&1)"
+CHECK_STATUS=$?
+set -e
+expect_status 0 'image: drift the baseline carried is inherited'
+expect_says 'INHERITED  public.ecr.aws/docker/library/moved:1.2-alpine' 'image: drift the baseline carried is inherited'
+
+# A newer release of the same variant and major version, on the mirror.gcr.io
+# path: held while it is young, drift once it ages out. Other variants and
+# majors are not upgrades of this pin.
+release_digest="$(image_fixture example/tool v1.4.0 "$long_ago" gcr/v2/example/tool/manifests/v1.4.0 '{"tool":1}')"
+hub_tag_list example/tool "v1.4.0|$long_ago" "v1.5.0|$recent" "v2.0.0|$long_ago" "v1.9.0-rc|$long_ago"
+release_repo="$(image_repo image-release "$gcr/example/tool:v1.4.0@$release_digest")"
+run_check "$release_repo"
+expect_status 0 'image: a newer release inside the window is held'
+expect_says 'newer release v1.5.0 pushed' 'image: a newer release inside the window is held'
+hub_tag_list example/tool "v1.4.0|$long_ago" "v1.5.0|2026-02-01T00:00:00Z" "v2.0.0|2026-02-02T00:00:00Z" "v1.6.0-alpine|2026-02-02T00:00:00Z"
+run_check_with zsh "$release_repo"
+expect_status 1 'image (zsh): a newer release past the window is drift'
+expect_says 'newer release v1.5.0 has been on Docker Hub since' 'image (zsh): a newer release past the window is drift'
+expect_silent_about 'v2.0.0' 'image (zsh): a newer release past the window is drift'
+expect_silent_about "v1.6.0-alpine" "image (zsh): a newer release past the window is drift"
+
+# The copy serving another digest than the pin fails even when Docker Hub
+# agrees with the pin: the pin is not what gets pulled.
+stale_digest="$(image_fixture library/stale 9 "$long_ago" ecr/v2/docker/library/stale/manifests/9 '{"stale":1}')"
+fixture_doc ecr/v2/docker/library/stale/manifests/9 '{"stale":2}'
+hub_tag_list library/stale "9|$long_ago"
+stale_repo="$(image_repo image-stale "$ecr_library/stale:9@$stale_digest")"
+run_check "$stale_repo"
+expect_status 1 'image: a copy serving another digest fails'
+expect_says 'serves sha256:' 'image: a copy serving another digest fails'
+
 if ((failures > 0)); then
 	echo "$failures adoption quarantine test(s) failed" >&2
 	exit 1

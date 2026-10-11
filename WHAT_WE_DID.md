@@ -3305,6 +3305,22 @@ digest's local tag (`repo:sha256-<hex>`) by both the warm script and
 Terraform harness stops when its simulator does not build, where it had gone
 on to run whatever binary an earlier build left.
 
+Those digest pins are held to the adoption quarantine like every other
+dependency. `scripts/check-latest-deps.sh` finds every
+`public.ecr.aws/docker/library/...` or `mirror.gcr.io/...` reference that spells
+a tag and a digest, outside Markdown, and reads Docker Hub's tag API and the
+copy's manifest for each. A pin fails when Docker Hub has served another digest
+for its tag for a day, when a newer release with the same variant and major
+version has been on Docker Hub for a day, or when the copy serves another
+digest than the pin; anything younger is held. A newer number that Docker Hub
+stopped rebuilding before it last rebuilt the pinned tag, such as Ubuntu 24.10
+next to 24.04, is an abandoned line rather than an upgrade. Requests to ECR
+Public are spaced a second apart, its limit for unauthenticated callers. The
+first run moved the simulator images from `alpine:3.20`, out of support since
+April 2026, to `alpine:3.24`, their Go builder from `golang:1.26-alpine` to
+`golang:1.27-alpine`, and the Amazon ECS Terraform workload from
+`hashicorp/terraform:1.15.8` to `1.16.5`.
+
 A differential oracle is pinned by its multi-platform index digest, never a
 tag or one platform's manifest, and the harness refuses an image built for
 another architecture than the engine's, naming the pin. Its readiness wait is
