@@ -190,12 +190,13 @@ func serveCloudRunService(w http.ResponseWriter, r *http.Request, svc ServiceV2,
 // for the caller to answer or, once the answer has started, abort.
 func forwardToCloudRunContainer(w http.ResponseWriter, r *http.Request, address string, timeout time.Duration) error {
 	err := lbplane.Forward(w, r, lbplane.Upstream{
-		Scheme:   "http",
-		Address:  address,
-		Path:     r.URL.EscapedPath(),
-		RawQuery: r.URL.RawQuery,
-		Header:   cloudRunForwardedHeader(r.Header),
-		Timeout:  timeout,
+		Scheme:        "http",
+		Address:       address,
+		Path:          r.URL.EscapedPath(),
+		RawQuery:      r.URL.RawQuery,
+		Header:        cloudRunForwardedHeader(r.Header),
+		RequestHeader: cloudRunRequestHeaders(r),
+		Timeout:       timeout,
 	})
 	switch {
 	case err == nil:
@@ -257,6 +258,31 @@ func cloudRunForwardedHeader(in http.Header) http.Header {
 		header.Set(name, prefix+strings.Join(parts, "."))
 	}
 	return header
+}
+
+// cloudRunRequestHeaders edits the headers a container receives as the Request
+// Headers reference states: the front end removes every X-Google-* header the
+// client sent, appends the client's IP to X-Forwarded-For, sets
+// X-Forwarded-Proto to the protocol the client used, and adds an
+// X-Cloud-Trace-Context to a request that carries none.
+func cloudRunRequestHeaders(r *http.Request) func(http.Header) {
+	clientIP, _ := lbplane.ClientAddress(r)
+	proto := "http"
+	if r.TLS != nil {
+		proto = "https"
+	}
+	return func(h http.Header) {
+		for name := range h {
+			if strings.HasPrefix(name, "X-Google-") {
+				delete(h, name)
+			}
+		}
+		lbplane.AppendToHeaderList(h, "X-Forwarded-For", ",", clientIP)
+		h.Set("X-Forwarded-Proto", proto)
+		if h.Get("X-Cloud-Trace-Context") == "" {
+			h.Set("X-Cloud-Trace-Context", gcpNewTraceContext())
+		}
+	}
 }
 
 // cloudRunCredentialHeader names the header Cloud Run authenticates a request

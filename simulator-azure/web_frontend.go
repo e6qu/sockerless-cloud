@@ -100,11 +100,12 @@ func serveSiteRequest(w http.ResponseWriter, r *http.Request, site *Site) {
 		return
 	}
 	err = lbplane.Forward(w, r, lbplane.Upstream{
-		Scheme:   "http",
-		Address:  address,
-		Path:     r.URL.EscapedPath(),
-		RawQuery: r.URL.RawQuery,
-		Timeout:  azureFunctionsHTTPRequestLimit,
+		Scheme:        "http",
+		Address:       address,
+		Path:          r.URL.EscapedPath(),
+		RawQuery:      r.URL.RawQuery,
+		RequestHeader: appServiceForwardedHeaders(r),
+		Timeout:       azureFunctionsHTTPRequestLimit,
 	})
 	abortStartedForward(w, err)
 	switch {
@@ -113,6 +114,23 @@ func serveSiteRequest(w http.ResponseWriter, r *http.Request, site *Site) {
 		w.WriteHeader(lbplane.StatusClientClosedRequest)
 	default:
 		AzureErrorf(w, "BadGateway", http.StatusBadGateway, "site %q: %v", site.Name, err)
+	}
+}
+
+// appServiceForwardedHeaders adds the headers App Service's front end, which
+// terminates TLS, documents for the app: the protocol the client used as
+// X-Forwarded-Proto and X-AppService-Proto, and the client's address appended
+// to X-Forwarded-For with its port, as Application Request Routing writes it.
+func appServiceForwardedHeaders(r *http.Request) func(http.Header) {
+	client := r.RemoteAddr
+	proto := "http"
+	if r.TLS != nil {
+		proto = "https"
+	}
+	return func(h http.Header) {
+		lbplane.AppendToHeaderList(h, "X-Forwarded-For", ", ", client)
+		h.Set("X-Forwarded-Proto", proto)
+		h.Set("X-AppService-Proto", proto)
 	}
 }
 

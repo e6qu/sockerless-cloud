@@ -801,7 +801,7 @@ func expressEnsureLoadBalancer(serviceName, scheme string, subnets, sgs []string
 		IpAddressType:  "ipv4",
 		CreatedTime:    time.Now().UTC().Format(time.RFC3339),
 		Tags:           map[string]string{},
-		Attributes:     defaultELBv2LoadBalancerAttributes(),
+		Attributes:     defaultELBv2LoadBalancerAttributes("application", scheme),
 	}
 	elbv2LoadBalancers.Put(arn, lb)
 	expressLoadBalancerRefs[arn] = 1

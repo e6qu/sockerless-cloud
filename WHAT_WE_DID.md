@@ -733,6 +733,25 @@ through hooks:
   the client sent `X-Forwarded-Proto: https`, so a plaintext request could
   claim the port-443 listener; it now selects by the port the client reached,
   and the listener's own protocol and port become the forwarded values.
+- **Platform front ends add only the headers their documentation states.**
+  The Cloud Run, App Service and Container Apps front ends forwarded the
+  client's headers untouched. Each now passes its own `RequestHeader` builder,
+  holding exactly the headers its platform documents: the Cloud Functions
+  request-headers reference for Cloud Run, the App Service language and
+  TLS-binding guides (`X-Forwarded-Proto`, `X-AppService-Proto`,
+  `X-Forwarded-For`, which Application Request Routing writes as `IP:port`),
+  and the Container Apps ingress table. Headers seen on the real platforms but
+  absent from the published documentation, such as Cloud Run's `traceparent`
+  and `Forwarded` and the App Service server variables Microsoft keeps in a
+  commented-out table, stay out until a source states them; so do Amplify
+  Hosting compute's, whose documentation names none.
+- **Load balancer attributes belong to a type.** One default map served every
+  load balancer, so a Network or Gateway Load Balancer reported and accepted
+  the Application Load Balancer's `routing.http.*` keys, and an Application
+  Load Balancer reported cross-zone load balancing off although the reference
+  says it is always on. The defaults are now built per type from the
+  LoadBalancerAttribute reference in the vendored Smithy model, and the keys a
+  type reports are the keys it accepts.
 - **Every Elastic Load Balancing resource keeps its tags.** CreateListener
   and CreateRule store the tags they carry, and AddTags, RemoveTags,
   DescribeTags and the IAM gate's `aws:ResourceTag/<k>` read and write the tag

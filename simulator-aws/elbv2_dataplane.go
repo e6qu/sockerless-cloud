@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"strconv"
@@ -254,12 +255,12 @@ func elbv2TargetHostHeader(incomingHost string, listener ELBv2Listener) string {
 }
 
 func elbv2LoadBalancerAttributes(lbArn string) map[string]string {
-	attrs := defaultELBv2LoadBalancerAttributes()
-	if lb, ok := elbv2LoadBalancers.Get(lbArn); ok {
-		for key, value := range lb.Attributes {
-			attrs[key] = value
-		}
+	lb, ok := elbv2LoadBalancers.Get(lbArn)
+	if !ok {
+		return defaultELBv2LoadBalancerAttributes("application", "")
 	}
+	attrs := defaultELBv2LoadBalancerAttributes(lb.Type, lb.Scheme)
+	maps.Copy(attrs, lb.Attributes)
 	return attrs
 }
 

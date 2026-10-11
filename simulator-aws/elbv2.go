@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"slices"
@@ -273,11 +274,7 @@ func handleELBv2CreateLoadBalancer(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	id := sim.RandomHex(16)
-	resourceKind := "app"
-	if lbType == "network" {
-		resourceKind = "net"
-	}
-	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:%s:%s:loadbalancer/%s/%s/%s", awsRegion(), awsAccountID(), resourceKind, name, id)
+	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:%s:%s:loadbalancer/%s/%s/%s", awsRegion(), awsAccountID(), elbv2LoadBalancerKind(ELBv2LoadBalancer{Type: lbType}), name, id)
 	lb := ELBv2LoadBalancer{
 		Arn:            arn,
 		Name:           name,
@@ -295,7 +292,7 @@ func handleELBv2CreateLoadBalancer(w http.ResponseWriter, r *http.Request) {
 		CustomerOwnedIpv4Pool:     r.FormValue("CustomerOwnedIpv4Pool"),
 		CreatedTime:               time.Now().UTC().Format(time.RFC3339),
 		Tags:                      parseELBv2Tags(r, "Tags"),
-		Attributes:                defaultELBv2LoadBalancerAttributes(),
+		Attributes:                defaultELBv2LoadBalancerAttributes(lbType, scheme),
 	}
 	elbv2LoadBalancers.Put(arn, lb)
 	elbv2XMLResponse(w, "CreateLoadBalancer", "<LoadBalancers>"+elbv2LoadBalancerXML(lb)+"</LoadBalancers>", sim.RequestID(r.Context()))
@@ -333,41 +330,54 @@ func handleELBv2DeleteLoadBalancer(w http.ResponseWriter, r *http.Request) {
 func handleELBv2ModifyLoadBalancerAttributes(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("LoadBalancerArn")
 	modified := parseELBv2Attributes(r, "Attributes")
-	if _, ok := elbv2LoadBalancers.Get(arn); !ok {
+	lb, ok := elbv2LoadBalancers.Get(arn)
+	if !ok {
 		elbv2ErrorXML(w, "LoadBalancerNotFound", "Load balancer not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
-	if value, ok := modified["idle_timeout.timeout_seconds"]; ok {
-		if seconds, err := strconv.Atoi(value); err != nil || seconds < elbv2MinIdleTimeoutSeconds || seconds > elbv2MaxIdleTimeoutSeconds {
-			elbv2ErrorXML(w, "InvalidConfigurationRequest",
-				fmt.Sprintf("Load balancer attribute value '%s' for key 'idle_timeout.timeout_seconds' is not valid; it must be an integer from %d to %d",
-					value, elbv2MinIdleTimeoutSeconds, elbv2MaxIdleTimeoutSeconds),
-				http.StatusBadRequest, sim.RequestID(r.Context()))
-			return
-		}
+	if message := elbv2InvalidLoadBalancerAttribute(lb.Type, modified); message != "" {
+		elbv2ErrorXML(w, "InvalidConfigurationRequest", message, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
 	}
-	for key, allowed := range elbv2EnumeratedLoadBalancerAttributes {
-		if value, ok := modified[key]; ok && !slices.Contains(allowed, value) {
-			elbv2ErrorXML(w, "InvalidConfigurationRequest",
-				fmt.Sprintf("Load balancer attribute value '%s' for key '%s' is not valid; it must be one of '%s'",
-					value, key, strings.Join(allowed, "', '")),
-				http.StatusBadRequest, sim.RequestID(r.Context()))
-			return
-		}
-	}
+	var attrs map[string]string
 	if !elbv2LoadBalancers.Update(arn, func(lb *ELBv2LoadBalancer) {
 		for k, v := range modified {
 			lb.Attributes[k] = v
 		}
+		attrs = maps.Clone(lb.Attributes)
 	}) {
 		elbv2ErrorXML(w, "LoadBalancerNotFound", "Load balancer not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
-	attrs := defaultELBv2LoadBalancerAttributes()
-	if lb, ok := elbv2LoadBalancers.Get(arn); ok {
-		attrs = lb.Attributes
-	}
 	elbv2XMLResponse(w, "ModifyLoadBalancerAttributes", elbv2AttributesXML("Attributes", attrs), sim.RequestID(r.Context()))
+}
+
+// elbv2InvalidLoadBalancerAttribute returns the message ELB refuses modified
+// with, or "" when every key belongs to the load balancer type and every value
+// is one the key accepts.
+func elbv2InvalidLoadBalancerAttribute(lbType string, modified map[string]string) string {
+	valid := defaultELBv2LoadBalancerAttributes(lbType, "")
+	for _, key := range slices.Sorted(maps.Keys(modified)) {
+		value := modified[key]
+		if _, ok := valid[key]; !ok {
+			return fmt.Sprintf("Key %s not valid", key)
+		}
+		if bounds, ok := elbv2RangedLoadBalancerAttributes[key]; ok {
+			if n, err := strconv.Atoi(value); err != nil || n < bounds[0] || n > bounds[1] {
+				return fmt.Sprintf("Load balancer attribute value '%s' for key '%s' is not valid; it must be an integer from %d to %d",
+					value, key, bounds[0], bounds[1])
+			}
+		}
+		allowed, ok := elbv2EnumeratedLoadBalancerAttributes[key]
+		if !ok && strings.HasSuffix(key, ".enabled") {
+			allowed = []string{"true", "false"}
+		}
+		if allowed != nil && !slices.Contains(allowed, value) {
+			return fmt.Sprintf("Load balancer attribute value '%s' for key '%s' is not valid; it must be one of '%s'",
+				value, key, strings.Join(allowed, "', '"))
+		}
+	}
+	return ""
 }
 
 func handleELBv2DescribeLoadBalancerAttributes(w http.ResponseWriter, r *http.Request) {
@@ -1596,24 +1606,65 @@ const (
 )
 
 // elbv2EnumeratedLoadBalancerAttributes lists the values each load balancer
-// attribute with a closed set of values accepts.
+// attribute with a closed set of values beyond true and false accepts.
 var elbv2EnumeratedLoadBalancerAttributes = map[string][]string{
 	"routing.http.xff_header_processing.mode": {"append", "preserve", "remove"},
-	"routing.http.xff_client_port.enabled":    {"true", "false"},
+	"routing.http.desync_mitigation_mode":     {"monitor", "defensive", "strictest"},
+	"dns_record.client_routing_policy":        {"availability_zone_affinity", "partial_availability_zone_affinity", "any_availability_zone"},
 }
 
-func defaultELBv2LoadBalancerAttributes() map[string]string {
-	return map[string]string{
-		"deletion_protection.enabled":                     "false",
-		"load_balancing.cross_zone.enabled":               "false",
-		"access_logs.s3.enabled":                          "false",
-		"idle_timeout.timeout_seconds":                    strconv.Itoa(elbv2DefaultIdleTimeoutSeconds),
-		"routing.http2.enabled":                           "true",
-		"routing.http.drop_invalid_header_fields.enabled": "false",
-		"routing.http.preserve_host_header.enabled":       "false",
-		"routing.http.xff_header_processing.mode":         "append",
-		"routing.http.xff_client_port.enabled":            "false",
+// elbv2RangedLoadBalancerAttributes holds the inclusive integer range each
+// numeric load balancer attribute accepts.
+var elbv2RangedLoadBalancerAttributes = map[string][2]int{
+	"idle_timeout.timeout_seconds":           {elbv2MinIdleTimeoutSeconds, elbv2MaxIdleTimeoutSeconds},
+	"client_keep_alive.seconds":              {60, 604800},
+	"secondary_ips.auto_assigned.per_subnet": {0, 7},
+}
+
+// defaultELBv2LoadBalancerAttributes holds every attribute the LoadBalancerAttribute
+// reference lists for the load balancer type, at its stated default; a bucket
+// or prefix with no default is empty. ipv6.deny_all_igw_traffic is true only
+// on an internal load balancer.
+func defaultELBv2LoadBalancerAttributes(lbType, scheme string) map[string]string {
+	attrs := map[string]string{
+		"deletion_protection.enabled":       "false",
+		"load_balancing.cross_zone.enabled": "false",
 	}
+	if lbType == "gateway" {
+		return attrs
+	}
+	maps.Copy(attrs, map[string]string{
+		"access_logs.s3.enabled":     "false",
+		"access_logs.s3.bucket":      "",
+		"access_logs.s3.prefix":      "",
+		"ipv6.deny_all_igw_traffic":  strconv.FormatBool(scheme == "internal"),
+		"zonal_shift.config.enabled": "false",
+	})
+	if lbType == "network" {
+		attrs["dns_record.client_routing_policy"] = "any_availability_zone"
+		attrs["secondary_ips.auto_assigned.per_subnet"] = "0"
+		return attrs
+	}
+	maps.Copy(attrs, map[string]string{
+		"load_balancing.cross_zone.enabled":                        "true",
+		"idle_timeout.timeout_seconds":                             strconv.Itoa(elbv2DefaultIdleTimeoutSeconds),
+		"client_keep_alive.seconds":                                "3600",
+		"connection_logs.s3.enabled":                               "false",
+		"connection_logs.s3.bucket":                                "",
+		"connection_logs.s3.prefix":                                "",
+		"health_check_logs.s3.enabled":                             "false",
+		"health_check_logs.s3.bucket":                              "",
+		"health_check_logs.s3.prefix":                              "",
+		"routing.http.desync_mitigation_mode":                      "defensive",
+		"routing.http.drop_invalid_header_fields.enabled":          "false",
+		"routing.http.preserve_host_header.enabled":                "false",
+		"routing.http.x_amzn_tls_version_and_cipher_suite.enabled": "false",
+		"routing.http.xff_client_port.enabled":                     "false",
+		"routing.http.xff_header_processing.mode":                  "append",
+		"routing.http2.enabled":                                    "true",
+		"waf.fail_open.enabled":                                    "false",
+	})
+	return attrs
 }
 
 func defaultELBv2TargetGroupAttributes() map[string]string {
@@ -1655,8 +1706,11 @@ func elbv2VPCFromSubnets(subnets []string) string {
 }
 
 func elbv2LoadBalancerKind(lb ELBv2LoadBalancer) string {
-	if lb.Type == "network" {
+	switch lb.Type {
+	case "network":
 		return "net"
+	case "gateway":
+		return "gwy"
 	}
 	return "app"
 }

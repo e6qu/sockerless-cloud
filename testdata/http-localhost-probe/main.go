@@ -13,7 +13,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: http-localhost-probe server|probe|probe-retry|probe-once|after-sidecar|relay-local|echo-request|log-request|metadata|teapot|cut-short [MESSAGE]")
+		fmt.Fprintln(os.Stderr, "usage: http-localhost-probe server|probe|probe-retry|probe-once|after-sidecar|relay-local|echo-request|echo-headers|log-request|metadata|teapot|cut-short [MESSAGE]")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -107,6 +107,15 @@ func main() {
 	case "echo-request":
 		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			_, _ = fmt.Fprintf(w, "%s %s", r.Method, r.URL.RequestURI())
+		})
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "echo-headers":
+		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(r.Header)
 		})
 		if err := http.ListenAndServe(":8080", nil); err != nil {
 			fmt.Fprintln(os.Stderr, err)

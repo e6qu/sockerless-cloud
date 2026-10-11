@@ -170,7 +170,7 @@ func TestELBv2TargetHostHeaderMatchesALBDefaults(t *testing.T) {
 		Name:       "test-lb",
 		DNSName:    "test-lb-abc123.elb.us-east-1.amazonaws.com",
 		Type:       "application",
-		Attributes: defaultELBv2LoadBalancerAttributes(),
+		Attributes: defaultELBv2LoadBalancerAttributes("application", "internet-facing"),
 	}
 	elbv2LoadBalancers.Put(lb.Arn, lb)
 
