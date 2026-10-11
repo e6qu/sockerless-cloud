@@ -2933,7 +2933,7 @@ gateway's Caddyfile routes to standard error at debug level, reports each one
 as it enters the cache handshakes read. The harness returns once every managed
 name is cached and then makes one health request, because certmagic logs
 `certificate obtained successfully` before it caches the certificate, so that
-line leaves a window in which a handshake still finds none. The AWS suites wait
+line leaves a window in which a handshake still finds none. The gateway's Caddyfile turns off Caddy's storage check and storage clean-up, because each gateway starts on an empty data directory: the clean-up ran alongside the first issuance, deleted a certificate whose key file was still empty because it was being written, and the issuer's first retry came sixty seconds later, at the start-up bound. The AWS suites wait
 for an alarm state with the AlarmExists waiter filtered by StateValue, for a
 target with TargetInService, and watch a queue that must stay empty with one
 long poll for the window instead of receives in a loop.
