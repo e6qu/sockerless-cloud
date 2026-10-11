@@ -3298,6 +3298,18 @@ itself boots with. The Azure gates had skipped on a missing command and had not
 looked at `/dev/kvm`, so a host without either failed or silently dropped the
 virtual machine tests.
 
+A Google provider release that adds a resource over an API the simulator
+already serves gets a fixture of its own under
+`simulator-gcp/terraform-tests/fixtures/`, applied, read back and re-planned
+for drift by `applyFixture` and `requireNoDrift`, with only the custom
+endpoints that resource reaches. The 8.6.0 batch covered
+`google_resource_manager_capability_config`,
+`google_compute_network_edge_security_service`, the
+`google_compute_service_attachments` and `google_cloudbuild_worker_pool` data
+sources, and the Eventarc pipeline IAM binding, member, policy and policy data
+source; the capability-config SDK test moved from raw requests onto the
+`cloudresourcemanager/v3` client once `google.golang.org/api` generated it.
+
 `scripts/check-repo-config-sane.sh` fails a commit whose checkout has acquired
 `core.bare = true` or a test fixture's identity — the corruption a `git config`
 run without `-C` in a linked worktree writes into the shared `.git/config`.
