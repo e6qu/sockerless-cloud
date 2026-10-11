@@ -457,7 +457,8 @@ func (inst *cloudRunServiceInstance) startContainers(ctx context.Context, contai
 			}
 			if i == 0 || containers[i].StartupProbe != nil {
 				exited, releaseWait := watchCloudRunContainerExit(id)
-				err := runStartupProbe(ctx, cloudRunStartupProbe(containers[i]), route, ingressPort, cloudRunContainerPort(containers[i]), exited)
+				namespaceRoute := func(port int) (string, error) { return cloudRunContainerRoute(ctx, inst.ownerID, port) }
+				err := runStartupProbe(ctx, cloudRunStartupProbe(containers[i]), namespaceRoute, cloudRunContainerPort(containers[i]), exited)
 				releaseWait()
 				if err != nil {
 					fail(fmt.Errorf("container %q failed its startup probe: %w", containers[i].Name, err))
@@ -589,6 +590,7 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 		Labels:       owner.Labels,
 		Binds:        owner.Binds,
 		ExtraHosts:   extraHosts,
+		PublishPorts: cloudRunNamespacePorts(containers, true),
 		Sandbox:      SandboxCloudRun,
 	})
 	if err != nil {

@@ -1438,8 +1438,9 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 			"sockerless-sim-type": "azure-site",
 			"sockerless-site":     site.Name,
 		},
-		ExtraHosts: workloadhost.ExtraHosts(),
-		Sandbox:    SandboxAZF,
+		ExtraHosts:   workloadhost.ExtraHosts(),
+		PublishPorts: []int{port},
+		Sandbox:      SandboxAZF,
 	})
 	if err != nil {
 		return fmt.Errorf("start site container: %w", err)
@@ -1464,17 +1465,24 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	}
 
 	// The container's bridge address reaches the port from the host and from a
-	// harness container alike; the engine publishes 8080 on the host's
-	// loopback, which also reaches it where bridge addresses are not routed.
+	// harness container alike; the engine publishes the site's port on the
+	// host's loopback, which also reaches it where bridge addresses are not
+	// routed.
 	var candidates []string
 	if ip := sim.ContainerIPv4(containerID); ip != "" {
 		candidates = append(candidates, "http://"+net.JoinHostPort(ip, strconv.Itoa(port)))
 	}
-	if port == 8080 {
-		if hostPort, err := sim.PublishedHostPort(ctx, containerID, 8080); err == nil {
-			candidates = append(candidates, fmt.Sprintf("http://127.0.0.1:%d", hostPort))
+	hostPort, err := sim.PublishedHostPort(ctx, containerID, port)
+	if err != nil {
+		stopWait()
+		cancelLogs()
+		for _, handle := range sidecarHandles {
+			handle.Cancel()
 		}
+		sim.StopAndRemoveContainer(containerID, siteStopGrace(site))
+		return fmt.Errorf("read the site's published port: %w", err)
 	}
+	candidates = append(candidates, fmt.Sprintf("http://127.0.0.1:%d", hostPort))
 
 	inst.connectNetworksLocked(containerID, site)
 

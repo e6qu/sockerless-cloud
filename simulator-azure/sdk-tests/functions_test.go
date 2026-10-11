@@ -198,14 +198,16 @@ func TestAzureFunctions_ImageCMDUntilAStartupCommandReplacesIt(t *testing.T) {
 }
 
 // WEBSITES_PORT names the port the front end forwards to, and the platform
-// tells the container that port in PORT.
+// tells the container that port in PORT. A port other than 8080 is reached on
+// a host that routes no container address too, through the port the engine
+// publishes for it.
 func TestAzureFunctions_WebsitesPortRoutesRequests(t *testing.T) {
 	rg, name := "func-port-rg", "port-func-app"
-	azureCreateContainerSite(t, rg, name, commandImageName, "serve 8080 on-8080",
-		map[string]string{"WEBSITES_PORT": "8080"})
+	azureCreateContainerSite(t, rg, name, commandImageName, "serve 9090 on-9090",
+		map[string]string{"WEBSITES_PORT": "9090"})
 	defer azureDeleteSite(rg, name)
 
-	assert.Equal(t, "on-8080", string(azureInvokeFunction(t, name)))
+	assert.Equal(t, "on-9090", string(azureInvokeFunction(t, name)))
 }
 
 // A container that exits without answering on its port fails the site's
