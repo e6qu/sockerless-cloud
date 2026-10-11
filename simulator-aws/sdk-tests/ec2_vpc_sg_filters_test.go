@@ -13,6 +13,7 @@ import (
 // TestEC2_DescribeVpcsFiltering covers vpc-id filter / multi-id
 // return the right VPC(s), and CidrBlockAssociationSet is populated.
 func TestEC2_DescribeVpcsFiltering(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	a, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.61.0.0/16")})
 	require.NoError(t, err)
@@ -46,6 +47,7 @@ func TestEC2_DescribeVpcsFiltering(t *testing.T) {
 // TestEC2_DescribeSecurityGroupsVpcFilter covers the vpc-id filter
 // must not leak SGs from other VPCs.
 func TestEC2_DescribeSecurityGroupsVpcFilter(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	a, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.63.0.0/16")})
 	require.NoError(t, err)

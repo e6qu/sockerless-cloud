@@ -16,6 +16,7 @@ import (
 // record-set PATCH (Update) operations, and the cross-resource
 // getDnsResourceReference lookup.
 func TestPublicDNS_ZonesListUpdateAndResourceReference(t *testing.T) {
+	t.Parallel()
 	rg := "dns-more-rg"
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -95,6 +96,7 @@ func TestPublicDNS_ZonesListUpdateAndResourceReference(t *testing.T) {
 // virtual-network-link PATCH (Update) operations, and the list-all-record-sets
 // read.
 func TestPrivateDNS_ListUpdateAllAndLinkUpdate(t *testing.T) {
+	t.Parallel()
 	rg := "pdns-more-rg"
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)

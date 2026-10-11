@@ -10,6 +10,7 @@ import (
 // TestEC2NetworkInterfaceCLI drives the standalone ENI ops via the aws CLI
 // : create, disable source/dest check, describe, delete.
 func TestEC2NetworkInterfaceCLI(t *testing.T) {
+	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.78.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	subnetID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-subnet",

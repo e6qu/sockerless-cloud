@@ -20,6 +20,7 @@ import (
 // Records event, CloudWatch Logs contains the application output, and the
 // successfully processed message is deleted.
 func TestLambda_SQSEventSourceMappingRuntime_SDK(t *testing.T) {
+	t.Parallel()
 	lambdaClient := lambdaClient()
 	sqsClient := sqsClient()
 	logsClient := cwLogsClient()

@@ -16,6 +16,7 @@ import (
 // GetTrailStatus / StopLogging → UpdateTrail → DeleteTrail, plus the tag and
 // event/insight-selector surfaces hung off a trail.
 func TestCloudTrail_TrailLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	ct := cloudTrailClient()
 	s3c := s3Client()
 	const bucket = "ct-ext-bucket"
@@ -146,6 +147,7 @@ func ctTrailInDescribe(trails []cttypes.Trail, name string) bool {
 // TestCloudTrail_ChannelLifecycleSDK exercises CloudTrail Lake channel CRUD:
 // CreateChannel → GetChannel / ListChannels → DeleteChannel.
 func TestCloudTrail_ChannelLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	ct := cloudTrailClient()
 	const name = "ct-ext-channel"
 	const eds = "arn:aws:cloudtrail:us-east-1:123456789012:eventdatastore/EXAMPLE-eds"

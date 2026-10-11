@@ -152,6 +152,7 @@ const federatedClientAssertionType = "urn:ietf:params:oauth:client-assertion-typ
 // Entra verifies the client assertion against the identity's federated identity
 // credential and issues an access token, exactly as against real Azure.
 func TestFederation_ClientAssertion(t *testing.T) {
+	t.Parallel()
 	issuer := newExternalIssuer(t)
 	clientID := registerFederatedIdentity(t, "console-fed-rg", issuer.server.URL, "operator@example.test")
 	assertion := issuer.mint(t, "operator@example.test", federationAudience, time.Now().Add(10*time.Minute))
@@ -171,6 +172,7 @@ func TestFederation_ClientAssertion(t *testing.T) {
 // TestFederation_RejectsUnregisteredIssuer proves an assertion from an issuer no
 // federated identity credential trusts is refused.
 func TestFederation_RejectsUnregisteredIssuer(t *testing.T) {
+	t.Parallel()
 	registered := newExternalIssuer(t)
 	clientID := registerFederatedIdentity(t, "console-fed-unreg-rg", registered.server.URL, "operator@example.test")
 
@@ -185,6 +187,7 @@ func TestFederation_RejectsUnregisteredIssuer(t *testing.T) {
 // TestFederation_RejectsExpiredAssertion proves an expired assertion is refused
 // rather than exchanged.
 func TestFederation_RejectsExpiredAssertion(t *testing.T) {
+	t.Parallel()
 	issuer := newExternalIssuer(t)
 	clientID := registerFederatedIdentity(t, "console-fed-exp-rg", issuer.server.URL, "operator@example.test")
 	expired := issuer.mint(t, "operator@example.test", federationAudience, time.Now().Add(-time.Minute))

@@ -18,6 +18,7 @@ import (
 // virtual-interface-group, virtual-interface, and the VPC + virtual-interface-
 // group associations.
 func TestEC2CLI_LocalGateway(t *testing.T) {
+	t.Parallel()
 	lgwID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-local-gateways",
 		"--query", "LocalGateways[0].LocalGatewayId", "--output", "text")))
 	if !strings.HasPrefix(lgwID, "lgw-") {
@@ -112,6 +113,7 @@ func TestEC2CLI_LocalGateway(t *testing.T) {
 // lifecycle over the aws CLI: start → describe (running → complete) → summary,
 // plus the cancel path.
 func TestEC2CLI_DeclarativePolicies(t *testing.T) {
+	t.Parallel()
 	reportID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "start-declarative-policies-report",
 		"--s3-bucket", "my-dp-report-bucket", "--s3-prefix", "reports/", "--target-id", "r-abcd",
 		"--query", "ReportId", "--output", "text")))
@@ -146,6 +148,7 @@ func TestEC2CLI_DeclarativePolicies(t *testing.T) {
 // TestEC2CLI_NetworkPerformance drives the AWS Network Performance metric
 // subscription lifecycle and the GetAwsNetworkPerformanceData read over the CLI.
 func TestEC2CLI_NetworkPerformance(t *testing.T) {
+	t.Parallel()
 	enOut := strings.TrimSpace(runCLI(t, awsCLI("ec2", "enable-aws-network-performance-metric-subscription",
 		"--source", "us-east-1", "--destination", "eu-west-1",
 		"--metric", "aggregate-latency", "--statistic", "p50",

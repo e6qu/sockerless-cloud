@@ -28,6 +28,7 @@ func acrEnsureRegistry(t *testing.T, rg, registryName string) {
 // TestACR_ReplicationCRUD round-trips the `replications` sub-resource via
 // armcontainerregistry.ReplicationsClient against the simulator.
 func TestACR_ReplicationCRUD(t *testing.T) {
+	t.Parallel()
 	const (
 		rg           = "acr-repl-rg"
 		registryName = "aclreplregistry"
@@ -90,6 +91,7 @@ func TestACR_ReplicationCRUD(t *testing.T) {
 // write-only serviceUri the response schema must NOT echo (getCallbackConfig
 // returns it instead).
 func TestACR_WebhookCRUD(t *testing.T) {
+	t.Parallel()
 	const (
 		rg           = "acr-webhook-rg"
 		registryName = "aclwebhookregistry"
@@ -144,6 +146,7 @@ func TestACR_WebhookCRUD(t *testing.T) {
 // TestACR_ScopeMapAndTokenCRUD round-trips the `scopeMaps` and `tokens`
 // sub-resources, which back ACR's repository-scoped token authentication.
 func TestACR_ScopeMapAndTokenCRUD(t *testing.T) {
+	t.Parallel()
 	const (
 		rg           = "acr-token-rg"
 		registryName = "acltokenregistry"
@@ -212,6 +215,7 @@ func TestACR_ScopeMapAndTokenCRUD(t *testing.T) {
 // TestACR_TaskAndTaskRunCRUD round-trips the registry-tasks `tasks` and
 // `taskRuns` children via armcontainerregistry.{TasksClient,TaskRunsClient}.
 func TestACR_TaskAndTaskRunCRUD(t *testing.T) {
+	t.Parallel()
 	const (
 		rg           = "acr-task-rg"
 		registryName = "acltaskregistry"

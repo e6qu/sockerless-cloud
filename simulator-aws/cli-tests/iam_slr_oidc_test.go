@@ -10,6 +10,7 @@ import (
 )
 
 func TestIAM_ServiceLinkedRole_Lifecycle(t *testing.T) {
+	t.Parallel()
 	suffix := "cli" + time.Now().Format("150405")
 	out := runCLI(t, awsCLI("iam", "create-service-linked-role",
 		"--aws-service-name", "cloudfront.amazonaws.com",
@@ -45,6 +46,7 @@ func TestIAM_ServiceLinkedRole_Lifecycle(t *testing.T) {
 }
 
 func TestIAM_OIDCProvider_Lifecycle(t *testing.T) {
+	t.Parallel()
 	url := "https://oidc.eks.us-east-1.amazonaws.com/id/cli" + time.Now().Format("150405")
 	out := runCLI(t, awsCLI("iam", "create-open-id-connect-provider",
 		"--url", url,

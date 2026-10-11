@@ -20,6 +20,7 @@ import (
 // envelope. Post-fix, the v2 deployment endpoint is registered AND
 // S3 gates by known-bucket so a regression here can't slip through.
 func TestAPIGwV2_CreateDeployment_RoutesPastS3(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	c := apigwv2Client()
 

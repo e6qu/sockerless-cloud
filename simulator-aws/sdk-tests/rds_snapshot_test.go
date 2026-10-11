@@ -35,6 +35,7 @@ func waitForRDSSnapshotAvailable(t *testing.T, c *rds.Client, ctx context.Contex
 }
 
 func TestRDS_Snapshot_Lifecycle(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	ctx := context.Background()
 
@@ -129,6 +130,7 @@ func TestRDS_Snapshot_Lifecycle(t *testing.T) {
 // the new instance's port from the source engine, not a hardcoded 5432. A MySQL
 // snapshot must restore to port 3306.
 func TestRDS_RestoreFromSnapshot_PortFromEngine(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	ctx := context.Background()
 
@@ -201,6 +203,7 @@ func TestRDS_RestoreFromSnapshot_PortFromEngine(t *testing.T) {
 // and that a requested final snapshot is a real snapshot: it settles to
 // available and remains after the instance is gone.
 func TestRDS_DeleteDBInstance_FinalSnapshotContract(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	ctx := context.Background()
 
@@ -276,6 +279,7 @@ func TestRDS_DeleteDBInstance_FinalSnapshotContract(t *testing.T) {
 // enforces the same parameter contract and records the final cluster
 // snapshot.
 func TestRDS_DeleteDBCluster_FinalSnapshotContract(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	ctx := context.Background()
 

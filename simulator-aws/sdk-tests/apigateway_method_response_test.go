@@ -15,6 +15,7 @@ import (
 // GetMethodResponse → DeleteMethodResponse. Same shape for
 // integration responses.
 func TestAPIGW_MethodResponse_RoundTrip(t *testing.T) {
+	t.Parallel()
 	c := apigwClient()
 
 	api, err := c.CreateRestApi(ctx, &apigateway.CreateRestApiInput{Name: aws.String("mr-test")})
@@ -77,6 +78,7 @@ func TestAPIGW_MethodResponse_RoundTrip(t *testing.T) {
 // TestAPIGW_IntegrationResponse_RoundTrip exercises the same shape
 // for integration responses.
 func TestAPIGW_IntegrationResponse_RoundTrip(t *testing.T) {
+	t.Parallel()
 	c := apigwClient()
 
 	api, err := c.CreateRestApi(ctx, &apigateway.CreateRestApiInput{Name: aws.String("ir-test")})

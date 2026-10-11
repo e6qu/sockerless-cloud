@@ -13,6 +13,7 @@ import (
 // TestIAM_ListRolesAndTags covers ListRoles + ListRoleTags: a role
 // created with tags is enumerable and its tags read back.
 func TestIAM_ListRolesAndTags(t *testing.T) {
+	t.Parallel()
 	roleName := uniqueName("eddsim-list-role")
 	c := iamClient()
 	_, err := c.CreateRole(ctx, &iam.CreateRoleInput{
@@ -42,6 +43,7 @@ func TestIAM_ListRolesAndTags(t *testing.T) {
 // TestIAM_ListPolicyVersionsAndTags covers ListPolicyVersions and
 // ListPolicyTags.
 func TestIAM_ListPolicyVersionsAndTags(t *testing.T) {
+	t.Parallel()
 	policyName := uniqueName("list-versions-policy")
 	c := iamClient()
 	created, err := c.CreatePolicy(ctx, &iam.CreatePolicyInput{

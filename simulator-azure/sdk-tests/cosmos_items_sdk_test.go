@@ -21,6 +21,7 @@ import (
 // items through the azcosmos SDK: an expired item reads as 404 and leaves
 // queries, while an item whose own ttl is -1 never expires.
 func TestCosmos_TimeToLiveExpiresItems(t *testing.T) {
+	t.Parallel()
 	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
 	client := cosmosSimClient(t, dataPlaneAccount)
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "ttldb"}, nil)
@@ -73,6 +74,7 @@ func TestCosmos_TimeToLiveExpiresItems(t *testing.T) {
 // x-ms-retry-after-ms, and the SDK's retry of exactly that carries a burst
 // larger than the budget through.
 func TestCosmos_ProvisionedThroughputThrottles(t *testing.T) {
+	t.Parallel()
 	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
 	client := cosmosSimClient(t, dataPlaneAccount)
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "throttledb"}, nil)
@@ -121,6 +123,7 @@ func TestCosmos_ProvisionedThroughputThrottles(t *testing.T) {
 // returns every create, replace and delete since the continuation, where the
 // latest-version feed shows only surviving items once.
 func TestCosmos_AllVersionsAndDeletesChangeFeed(t *testing.T) {
+	t.Parallel()
 	account := uniqueAlnumName("sdkcosmosavad")
 	cosmosAccountKey(t, account)
 	status, body := cosmosARM(t, baseURL, http.MethodPut, cosmosAccountPath(account),
@@ -204,6 +207,7 @@ func cosmosChangeFeedPageIn(t *testing.T, account, coll, continuation string) ([
 // GET, PUT, PATCH and DELETE /dbs/{database}/colls/{container}/docs/{doc} —
 // and holds replace to its ETag and to the item existing.
 func TestCosmos_ItemVerbsHonourETagsAndExistence(t *testing.T) {
+	t.Parallel()
 	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
 	client := cosmosSimClient(t, dataPlaneAccount)
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "verbdb"}, nil)

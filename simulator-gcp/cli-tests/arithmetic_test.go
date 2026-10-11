@@ -13,6 +13,7 @@ import (
 )
 
 func TestCloudRun_CLI_ArithmeticEval(t *testing.T) {
+	t.Parallel()
 	jobID := "cli-arith-crj"
 	createBody := fmt.Sprintf(`{
 		"template": {
@@ -98,6 +99,7 @@ func runJobToCompletion(t *testing.T, jobID string) (cloudRunExecutionCounts, ru
 }
 
 func TestCloudRun_CLI_ArithmeticInvalid(t *testing.T) {
+	t.Parallel()
 	jobID := "cli-arith-crj-fail"
 	createBody := fmt.Sprintf(`{
 		"template": {

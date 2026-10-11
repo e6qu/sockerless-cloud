@@ -17,6 +17,7 @@ import (
 // route returns the canonical paged ListParts shape instead of falling
 // through to object reads.
 func TestS3_Multipart_ListParts(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	ctx := context.Background()
 	bucket := "lp-bucket"
@@ -74,6 +75,7 @@ func TestS3_Multipart_ListParts(t *testing.T) {
 }
 
 func TestS3_Multipart_ListMultipartUploadsPaginator(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	ctx := context.Background()
 	bucket := "lmu-bucket"

@@ -63,6 +63,7 @@ func ecrRegistryTag(t *testing.T, repo, tag string) name.Tag {
 // a client with no credential, a wrong password, a user other than AWS, or a
 // credential it stopped presenting is refused.
 func TestECR_RegistryClientPushPullWithAuthorizationToken(t *testing.T) {
+	t.Parallel()
 	const repo = "ecr-registry-client/app"
 	client := ecrClient()
 	ecrCreateRepository(t, repo)

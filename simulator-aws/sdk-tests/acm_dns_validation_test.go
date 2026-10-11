@@ -19,6 +19,7 @@ import (
 // the "*.". The cert stays PENDING until its _acm-challenge records exist in
 // Route53, then issues — mirroring real ACM.
 func TestACMDNSCertWildcardAndIssuance(t *testing.T) {
+	t.Parallel()
 	acmC := acmClient()
 	r53C := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

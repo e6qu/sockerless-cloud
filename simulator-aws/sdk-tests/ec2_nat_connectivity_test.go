@@ -15,6 +15,7 @@ import (
 // an absent value vs the configured "public" forces destroy+create every plan.
 // An omitted connectivity type defaults to "public" (matching real AWS).
 func TestEC2_NatGatewayConnectivityType(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.72.0.0/16")})
 	require.NoError(t, err)

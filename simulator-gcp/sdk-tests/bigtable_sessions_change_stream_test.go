@@ -41,7 +41,6 @@ type btFixture struct {
 
 func newBTFixture(t *testing.T, project, instanceID, tableID, family string) btFixture {
 	t.Helper()
-	t.Setenv("BIGTABLE_EMULATOR_HOST", grpcAddr)
 
 	instanceAdmin, err := bigtable.NewInstanceAdminClient(ctx, project)
 	require.NoError(t, err)
@@ -90,6 +89,7 @@ func btSetCellMutation(family, qualifier, value string) *btpb.Mutation {
 // TestBigtable_PingAndWarm warms a channel against a real instance and refuses
 // one that does not exist.
 func TestBigtable_PingAndWarm(t *testing.T) {
+	t.Parallel()
 	f := newBTFixture(t, "bt-ping-proj", "bt-ping-inst", "events", "cf")
 
 	_, err := f.data.PingAndWarm(ctx, &btpb.PingAndWarmRequest{Name: f.instance})
@@ -109,6 +109,7 @@ func TestBigtable_PingAndWarm(t *testing.T) {
 // implies: the server serves the session API and its configuration never
 // changes, so the client is told to route sessions and stop polling.
 func TestBigtable_GetClientConfiguration(t *testing.T) {
+	t.Parallel()
 	f := newBTFixture(t, "bt-config-proj", "bt-config-inst", "events", "cf")
 
 	config, err := f.data.GetClientConfiguration(ctx, &btpb.GetClientConfigurationRequest{InstanceName: f.instance})
@@ -128,6 +129,7 @@ func TestBigtable_GetClientConfiguration(t *testing.T) {
 // The high-level client reads the same row afterwards, which is what proves the
 // session writes the store the rest of the data plane serves.
 func TestBigtable_OpenTableSession(t *testing.T) {
+	t.Parallel()
 	f := newBTFixture(t, "bt-session-proj", "bt-session-inst", "events", "cf")
 
 	streamCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -185,6 +187,7 @@ func TestBigtable_OpenTableSession(t *testing.T) {
 // TestBigtable_OpenTableSessionPermissions holds a read-only session to reads
 // and refuses a session on a table that does not exist.
 func TestBigtable_OpenTableSessionPermissions(t *testing.T) {
+	t.Parallel()
 	f := newBTFixture(t, "bt-session-perm-proj", "bt-session-perm-inst", "events", "cf")
 
 	streamCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -223,6 +226,7 @@ func TestBigtable_OpenTableSessionPermissions(t *testing.T) {
 // TestBigtable_OpenAuthorizedViewSession opens a session on an authorized view
 // and holds it to the subset the view was created with.
 func TestBigtable_OpenAuthorizedViewSession(t *testing.T) {
+	t.Parallel()
 	const project = "bt-view-proj"
 	f := newBTFixture(t, project, "bt-view-inst", "events", "cf")
 
@@ -313,6 +317,7 @@ func TestBigtable_OpenAuthorizedViewSession(t *testing.T) {
 // stream opened is delivered from its start time, a mutation applied while it
 // is open follows, and a heartbeat carries a resumable position.
 func TestBigtable_ChangeStream(t *testing.T) {
+	t.Parallel()
 	f := newBTFixture(t, "bt-changes-proj", "bt-changes-inst", "events", "cf")
 	table := f.client.Open("events")
 
@@ -396,6 +401,7 @@ func TestBigtable_ChangeStream(t *testing.T) {
 // TestBigtable_ChangeStreamEndTime closes a stream that has run past its end
 // time, handing back the position to resume from.
 func TestBigtable_ChangeStreamEndTime(t *testing.T) {
+	t.Parallel()
 	f := newBTFixture(t, "bt-changes-end-proj", "bt-changes-end-inst", "events", "cf")
 
 	streamCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -419,6 +425,7 @@ func TestBigtable_ChangeStreamEndTime(t *testing.T) {
 // client's PreparedStatement API: the schema comes from the table's real column
 // families and the rows come from the table's real cells.
 func TestBigtable_ExecuteQuery(t *testing.T) {
+	t.Parallel()
 	f := newBTFixture(t, "bt-sql-proj", "bt-sql-inst", "events", "cf")
 	table := f.client.Open("events")
 

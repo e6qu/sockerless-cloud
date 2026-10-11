@@ -9,6 +9,7 @@ import (
 // ModifyVpcAttribute silent-no-op fixes and the new computed subnet fields via
 // the aws CLI.
 func TestEC2SubnetVpcAttributeFidelityCLI(t *testing.T) {
+	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.98.0.0/16", "--instance-tenancy", "default",
 		"--query", "Vpc.VpcId", "--output", "text")))

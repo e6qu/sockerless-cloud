@@ -22,6 +22,7 @@ import (
 // Amazon Aurora starts and stops a member only through its cluster and
 // deletes a cluster only once its instances are gone.
 func TestRDS_AuroraMemberLifecycleFollowsTheCluster(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	clusterID, instanceID := "sdk-aurora-lifecycle", "sdk-aurora-lifecycle-1"
 	_, err := c.CreateDBCluster(ctx, &rds.CreateDBClusterInput{
@@ -84,6 +85,7 @@ func TestRDS_AuroraMemberLifecycleFollowsTheCluster(t *testing.T) {
 // endpoints write; the reader endpoint and the Aurora Replica's instance
 // endpoint refuse a write with the engine's read-only transaction error.
 func TestRDS_AuroraEndpointsShareTheClusterVolume(t *testing.T) {
+	t.Parallel()
 	testContext, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	c := rdsClient()
@@ -214,6 +216,7 @@ func TestRDS_AuroraEndpointsShareTheClusterVolume(t *testing.T) {
 // AWSAuthenticationPlugin on Aurora MySQL, signs in only with an IAM
 // authentication token, which no other user can sign in with.
 func TestRDS_AuroraDatabaseUsersSignInThroughTheEngine(t *testing.T) {
+	t.Parallel()
 	testContext, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	const (

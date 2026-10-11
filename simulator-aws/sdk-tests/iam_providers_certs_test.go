@@ -34,6 +34,7 @@ MIIBVgIBADANBgkqhkiG9w0BAQEFAASCAUAwggE8AgEAAkEA0fakekeyfakekeyfk
 )
 
 func TestIAM_SAMLProvider(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	name := "sdk-saml-" + time.Now().Format("150405")
 
@@ -96,6 +97,7 @@ func TestIAM_SAMLProvider(t *testing.T) {
 }
 
 func TestIAM_ServerCertificate(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	name := "sdk-cert-" + time.Now().Format("150405")
 
@@ -187,6 +189,7 @@ func TestIAM_AccountAlias(t *testing.T) {
 }
 
 func TestIAM_OIDCProviderTags(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	url := "https://oidc.eks.us-east-1.amazonaws.com/id/sdktags" + time.Now().Format("150405")
 

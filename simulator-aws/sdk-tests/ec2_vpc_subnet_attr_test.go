@@ -25,6 +25,7 @@ func describeOneSubnet(t *testing.T, c *ec2.Client, id string) types.Subnet {
 // computed fields (availableIpAddressCount, availabilityZoneId, subnetArn) must
 // be populated.
 func TestEC2_SubnetAttributeFidelitySDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.95.0.0/16")})
@@ -79,6 +80,7 @@ func TestEC2_SubnetAttributeFidelitySDK(t *testing.T) {
 // handled only a single SubnetId.1 + vpc-id, returning ALL subnets for any other
 // filter. tag: / cidr-block / availability-zone must now scope the result.
 func TestEC2_SubnetFiltersSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.96.0.0/16")})
 	require.NoError(t, err)
@@ -119,6 +121,7 @@ func TestEC2_SubnetFiltersSDK(t *testing.T) {
 // the dhcp_options_id computed attribute, and the ModifyVpcAttribute
 // EnableNetworkAddressUsageMetrics silent no-op.
 func TestEC2_VpcAttributeFidelitySDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{
 		CidrBlock:       aws.String("10.97.0.0/16"),

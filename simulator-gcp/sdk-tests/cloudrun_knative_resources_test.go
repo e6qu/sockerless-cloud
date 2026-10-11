@@ -32,6 +32,7 @@ func newRunV1(t *testing.T) *run.APIService {
 }
 
 func TestCloudRunV1_KnativeChildResources_RoundTrip(t *testing.T) {
+	t.Parallel()
 	svc := newRunV1(t)
 	const namespace = "test-project-knative-children"
 
@@ -108,6 +109,7 @@ func TestCloudRunV1_KnativeChildResources_RoundTrip(t *testing.T) {
 }
 
 func TestCloudRunV1_DomainMappings_RoundTrip(t *testing.T) {
+	t.Parallel()
 	svc := newRunV1(t)
 	const namespace = "test-project-domainmappings"
 
@@ -146,6 +148,7 @@ func TestCloudRunV1_DomainMappings_RoundTrip(t *testing.T) {
 // no domains, serialized as an empty JSON array rather than a null a ranging
 // client would have to guard against.
 func TestCloudRunV1_AuthorizedDomains_List(t *testing.T) {
+	t.Parallel()
 	svc := newRunV1(t)
 	// Namespaces surface.
 	resp, err := svc.Namespaces.Authorizeddomains.List("namespaces/test-project-ad").Do()
@@ -196,6 +199,7 @@ func TestCloudRunV1_AuthorizedDomains_List(t *testing.T) {
 // /v1/projects/{p}/locations/{loc}/... regional Service surface and its
 // auto-created children, asserting the regional path shape round-trips.
 func TestCloudRunV1_RegionalMirror_RoundTrip(t *testing.T) {
+	t.Parallel()
 	svc := newRunV1(t)
 	const project = "test-project-regional"
 	const location = "us-central1"

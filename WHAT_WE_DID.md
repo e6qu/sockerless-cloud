@@ -3454,3 +3454,43 @@ a new cluster primary.
 `*.test` and was never committed, so every `make docker-test` failed. It is
 committed, un-ignored by name, with every toolchain pinned to a version and a
 digest, because the image decides what a test result means.
+
+The SDK and CLI suites run their tests in parallel. Every top-level test in
+the six suites starts with `t.Parallel()`, or names itself in its suite's
+`serial-tests.txt` with the reason it cannot share the simulator: it changes
+an account-, project- or subscription-wide setting other tests read, owns the
+account's one AWS Organizations organization, sets an environment variable of
+the test process, or restarts the simulator. `scripts/check-parallel-tests.go`
+holds the suites to that in pre-commit and in CI's build gates. It also fails
+a listed test that no longer exists or already runs in parallel, and a
+parallel test that reaches `t.Setenv` or `t.Chdir` through any function of
+its suite, which the testing package would report only by panicking mid-run. A test that
+runs in parallel names its resources apart from every other test's and never
+asserts the length of a whole account-wide list: it filters the list to what
+it created, or to something no test creates. The Google Cloud SDK suite sets
+`STORAGE_EMULATOR_HOST`, `BIGTABLE_EMULATOR_HOST` and `SPANNER_EMULATOR_HOST`
+once in `TestMain`, since every test talks to the same simulator and a test
+that sets one cannot run in parallel. Its Firestore and Pub/Sub gRPC clients
+take the simulator's address as their endpoint instead, because the Firestore
+REST client refuses to start while `FIRESTORE_EMULATOR_HOST` is set.
+
+An `aws <service> wait` call is bounded only by the test's deadline. The
+waiter polls on its own delay, 30 seconds for Amazon RDS, and fails by itself
+once its attempts run out, so the 60-second bound on a single CLI call cut
+it off at its second poll: any instance whose creation and first automated
+backup took longer than 30 seconds failed the test.
+
+The console browser suites run fully parallel, with Playwright's default of
+one worker per two cores. Locally the Google Cloud console's 237 checks took
+1.3 minutes on one worker and 20.8 seconds in parallel, the AWS console's 247
+took 2.6 minutes and 1.3 minutes, and the Azure portal's 265 took 2.2 minutes
+and 39.1 seconds.
+
+The AWS CLI tests create their AWS Lambda functions with the architecture of
+the images `TestMain` builds, which match the host's, as the SDK tests
+already did; on an arm64 host the functions had defaulted to x86_64 and could
+not pull their arm64 image.
+
+`sim.SyncContainerHostEntries` rewrites a container's whole hosts file from
+what it read, so it holds a mutex: two Cloud Map namespace syncs reaching one
+task at once had each dropped the block the other wrote.

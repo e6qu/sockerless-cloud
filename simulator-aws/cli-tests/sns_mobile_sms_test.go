@@ -11,6 +11,7 @@ import (
 // TestSNSCLI_PlatformApplicationAndEndpoint exercises the mobile-push platform
 // application + endpoint CRUD through the aws CLI.
 func TestSNSCLI_PlatformApplicationAndEndpoint(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("sns", "create-platform-application",
 		"--name", "cli-gcm-app",
 		"--platform", "GCM",
@@ -80,6 +81,7 @@ func TestSNSCLI_PlatformApplicationAndEndpoint(t *testing.T) {
 // TestSNSCLI_SMSSandboxFailsWithoutCarrier proves the AWS CLI receives a
 // fail-loud service error and no state when no SMS carrier exists.
 func TestSNSCLI_SMSSandboxFailsWithoutCarrier(t *testing.T) {
+	t.Parallel()
 	phone := "+12065550111"
 	errOut := runCLIExpectError(t, awsCLI("sns", "create-sms-sandbox-phone-number",
 		"--phone-number", phone,
@@ -96,6 +98,7 @@ func TestSNSCLI_SMSSandboxFailsWithoutCarrier(t *testing.T) {
 // TestSNSCLI_SMSAttributesAndOptOut exercises the account SMS attribute store,
 // the opt-out checks, opt-in, and list-origination-numbers.
 func TestSNSCLI_SMSAttributesAndOptOut(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("sns", "set-sms-attributes",
 		"--attributes", "DefaultSMSType=Transactional,MonthlySpendLimit=10"))
 
@@ -131,6 +134,7 @@ func TestSNSCLI_SMSAttributesAndOptOut(t *testing.T) {
 // TestSNSCLI_DataProtectionPolicy stores and reads a per-topic
 // data-protection policy via the CLI.
 func TestSNSCLI_DataProtectionPolicy(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("sns", "create-topic", "--name", "cli-dpp-topic"))
 	var topic struct {
 		TopicArn string `json:"TopicArn"`

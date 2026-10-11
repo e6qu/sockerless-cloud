@@ -21,6 +21,7 @@ import (
 // Those operations are covered by the SDK suite (TestAPIGatewayV2_* in
 // sdk-tests), which exercises the same handlers and the testing-contract hook.
 func TestAPIGatewayV2CompleteCLI(t *testing.T) {
+	t.Parallel()
 	apiOut := runCLI(t, awsCLI("apigatewayv2", "create-api",
 		"--name", "cli-update-api",
 		"--protocol-type", "HTTP",

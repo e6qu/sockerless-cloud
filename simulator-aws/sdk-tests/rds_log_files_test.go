@@ -76,6 +76,7 @@ func rdsAwaitLogFileHolding(ctx context.Context, t *testing.T, client *rds.Clien
 // DownloadDBLogFilePortion returns. A log file for an hour before the instance
 // existed is not found.
 func TestRDSLogFilesServeTheEngineOutput_SDK(t *testing.T) {
+	t.Parallel()
 	testContext, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
 	client := rdsClient()

@@ -13,6 +13,7 @@ import (
 // publishes, one per cloud provider, and this drives the read an operator makes
 // when picking where to land a Cross-Cloud Interconnect.
 func TestGcloudComputeInterconnectRemoteLocations(t *testing.T) {
+	t.Parallel()
 	out, err := gcloudCLI("compute", "interconnects", "remote-locations", "list",
 		"--format=value(name)").CombinedOutput()
 	require.NoError(t, err, "list: %s", out)

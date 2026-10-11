@@ -17,6 +17,7 @@ import (
 // projects — with getBillingInfo and updateBillingInfo answering from the
 // same store, so the two halves of the surface never disagree.
 func TestCloudBilling_AccountLifecycleAndProjectLink(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	svc, err := cloudbilling.NewService(ctx,
 		option.WithEndpoint(baseURL),
@@ -136,6 +137,7 @@ func TestCloudBilling_AccountLifecycleAndProjectLink(t *testing.T) {
 // this deployment publishes no price sheet — that emptiness is the
 // catalog's truth, pinned here so it never becomes fabricated pricing.
 func TestCloudBilling_ServiceCatalogIsTheInstallationsOwn(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	svc, err := cloudbilling.NewService(ctx,
 		option.WithEndpoint(baseURL),

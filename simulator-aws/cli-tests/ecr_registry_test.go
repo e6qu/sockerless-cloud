@@ -13,6 +13,7 @@ import (
 // scan-findings read-back paths. The simulator runs no scanner, so the scan
 // completes with an honest empty findings result.
 func TestECRCLI_ImageScanAndConfig(t *testing.T) {
+	t.Parallel()
 	repo := "cli-ecr-scan-repo"
 	runCLI(t, awsCLI("ecr", "create-repository", "--repository-name", repo))
 
@@ -40,6 +41,7 @@ func TestECRCLI_ImageScanAndConfig(t *testing.T) {
 // TestECRCLI_LifecyclePolicyPreview puts a lifecycle policy and drives the
 // preview start + get paths.
 func TestECRCLI_LifecyclePolicyPreview(t *testing.T) {
+	t.Parallel()
 	repo := "cli-ecr-lifecycle-preview-repo"
 	runCLI(t, awsCLI("ecr", "create-repository", "--repository-name", repo))
 

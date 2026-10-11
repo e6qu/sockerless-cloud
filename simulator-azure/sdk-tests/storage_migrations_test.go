@@ -24,6 +24,7 @@ import (
 // is the SKU the account reports afterwards, and the hierarchical-namespace
 // migration turns the namespace on.
 func TestSDK_StorageAccount_Migrations(t *testing.T) {
+	t.Parallel()
 	rg, account := "storage-migration-rg", uniqueAlnumName("storagemigration")
 	createStorageAccountForARM(t, rg, account)
 
@@ -116,6 +117,7 @@ func TestSDK_StorageAccount_Migrations(t *testing.T) {
 // ones inside the ranges it names that were deleted after the instant it
 // restores to — and leaves everything else where it is.
 func TestSDK_StorageAccount_RestoreBlobRanges(t *testing.T) {
+	t.Parallel()
 	rg, account := "storage-restore-rg", uniqueAlnumName("storagerestore")
 	createStorageAccountForARM(t, rg, account)
 

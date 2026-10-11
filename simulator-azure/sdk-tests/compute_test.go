@@ -13,6 +13,7 @@ import (
 )
 
 func TestCompute_VirtualMachineLifecycle(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 	const rg = "compute-rg"
 	const vnetName = "compute-vnet"
@@ -268,6 +269,7 @@ func containsVMStatus(statuses []*armcompute.InstanceViewStatus, code string) bo
 // VirtualMachines_Update against a machine that does not exist, which must
 // come back as ARM's own ResourceNotFound rather than silently succeeding.
 func TestCompute_VirtualMachinesSubscriptionScope(t *testing.T) {
+	t.Parallel()
 	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 

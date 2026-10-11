@@ -82,6 +82,7 @@ func kvMoveVaultListed(t *testing.T, env azLoginEnv, rg, vault string) bool {
 // group, the secret written before the move still reads back, and a type real
 // Azure Resource Manager refuses to move is still refused.
 func TestResourceMoveKeyVaultCLI(t *testing.T) {
+	t.Parallel()
 	env := startAzLoginSimulator(t)
 
 	runCLI(t, env.command("cloud", "register", "-n", "sockerless-kv-move",

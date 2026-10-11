@@ -180,6 +180,7 @@ func aseAppStates(apps []*armappservice.Site) map[string]string {
 // reports Linux workers only once a Linux plan is placed in it, and subtracts
 // the capacity those plans take from its stamp capacity.
 func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
+	t.Parallel()
 	// An App Service Environment is placed in a virtual network subnet, and
 	// creating a real subnet needs the Linux network capabilities the
 	// simulator's fabric is built on. A host that cannot provide them skips;
@@ -730,6 +731,7 @@ func pagerAll[P any, T any](t *testing.T, pager *runtime.Pager[P], value func(P)
 // own, and the Arc cluster's kubeConfig is a declared secret that a read never
 // hands back.
 func TestSDK_KubeEnvironment_Lifecycle(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-kube-rg"
 	requireResourceGroup(t, rg)
 	client, err := armappservice.NewKubeEnvironmentsClient(subscriptionID, &fakeCredential{}, clientOpts())

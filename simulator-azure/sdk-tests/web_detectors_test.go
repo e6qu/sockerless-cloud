@@ -41,6 +41,7 @@ import (
 //     hold answers a declared gap naming that input, and a name that is not a
 //     detector at all is a 404.
 func TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer(t *testing.T) {
+	t.Parallel()
 	rg := uniqueName("sdk-detector-rg")
 	site := uniqueName("detector-app")
 	host := createSiteForContainers(t, rg, site)
@@ -244,6 +245,7 @@ func TestSDK_Diagnostics_DetectorsMeasureTheWorkloadContainer(t *testing.T) {
 // none of its own, so it publishes an empty collection and reports any name
 // asked of it as absent.
 func TestSDK_Diagnostics_HostingEnvironmentPublishesNoDetectors(t *testing.T) {
+	t.Parallel()
 	// An App Service Environment is placed in a virtual network subnet, and
 	// creating a real subnet needs the Linux network capabilities the
 	// simulator's fabric is built on. A host that cannot provide them skips;

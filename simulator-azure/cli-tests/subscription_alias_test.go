@@ -43,6 +43,7 @@ type cliSubscription struct {
 // the rename/cancel/enable actions exactly as `az account alias` and
 // `az account subscription` shape them on the wire.
 func TestCLISubscriptionAliasLifecycle(t *testing.T) {
+	t.Parallel()
 	const aliasName = "cli-test-sub-alias"
 	aliasURL := fmt.Sprintf("%s/providers/Microsoft.Subscription/aliases/%s?api-version=2021-10-01", baseURL, aliasName)
 

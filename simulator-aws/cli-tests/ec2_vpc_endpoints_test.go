@@ -10,6 +10,7 @@ import (
 // gateway endpoint (route tables) and an interface endpoint (subnets + security
 // groups + DNS).
 func TestEC2CLI_VpcEndpointsRoundTrip(t *testing.T) {
+	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.91.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	rt := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-route-table",

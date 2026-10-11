@@ -11,6 +11,7 @@ import (
 // TestECSCLI_CapacityProviders exercises create-capacity-provider,
 // describe-capacity-providers, update-capacity-provider, delete-capacity-provider.
 func TestECSCLI_CapacityProviders(t *testing.T) {
+	t.Parallel()
 	name := "cli-cap-provider"
 	asg := "arn:aws:autoscaling:us-east-1:000000000000:autoScalingGroup:uuid:autoScalingGroupName/asg"
 
@@ -39,6 +40,7 @@ func TestECSCLI_CapacityProviders(t *testing.T) {
 // TestECSCLI_TaskSets exercises create-task-set, describe-task-sets,
 // update-task-set, update-service-primary-task-set, delete-task-set.
 func TestECSCLI_TaskSets(t *testing.T) {
+	t.Parallel()
 	cluster := "cli-ts-cluster"
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", cluster))
 	t.Cleanup(func() { _ = awsCLI("ecs", "delete-cluster", "--cluster", cluster).Run() })
@@ -81,6 +83,7 @@ func TestECSCLI_TaskSets(t *testing.T) {
 // deregister-container-instance, and the agent-poll submit ops +
 // discover-poll-endpoint.
 func TestECSCLI_ContainerInstances(t *testing.T) {
+	t.Parallel()
 	cluster := "cli-ci-cluster"
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", cluster))
 	t.Cleanup(func() { _ = awsCLI("ecs", "delete-cluster", "--cluster", cluster).Run() })
@@ -203,6 +206,7 @@ func TestECSCLI_AccountSettings(t *testing.T) {
 
 // TestECSCLI_Attributes exercises put-attributes, list-attributes, delete-attributes.
 func TestECSCLI_Attributes(t *testing.T) {
+	t.Parallel()
 	cluster := "cli-attr-cluster"
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", cluster))
 	t.Cleanup(func() { _ = awsCLI("ecs", "delete-cluster", "--cluster", cluster).Run() })
@@ -224,6 +228,7 @@ func TestECSCLI_Attributes(t *testing.T) {
 
 // TestECSCLI_TaskProtection exercises update-task-protection and get-task-protection.
 func TestECSCLI_TaskProtection(t *testing.T) {
+	t.Parallel()
 	cluster := "cli-prot-cluster"
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", cluster))
 	t.Cleanup(func() { _ = awsCLI("ecs", "delete-cluster", "--cluster", cluster).Run() })
@@ -259,6 +264,7 @@ func TestECSCLI_TaskProtection(t *testing.T) {
 
 // TestECSCLI_StartTask runs a task on a named registered container instance.
 func TestECSCLI_StartTask(t *testing.T) {
+	t.Parallel()
 	cluster := "cli-start-cluster"
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", cluster))
 	t.Cleanup(func() { _ = awsCLI("ecs", "delete-cluster", "--cluster", cluster).Run() })
@@ -297,6 +303,7 @@ func TestECSCLI_StartTask(t *testing.T) {
 
 // TestECSCLI_DeleteTaskDefinitions deletes an INACTIVE revision.
 func TestECSCLI_DeleteTaskDefinitions(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("ecs", "register-task-definition",
 		"--family", "cli-del-task",
 		"--container-definitions", `[{"name":"app","image":"public.ecr.aws/docker/library/alpine:latest","stopTimeout":2}]`,
@@ -324,6 +331,7 @@ func TestECSCLI_DeleteTaskDefinitions(t *testing.T) {
 // describe-service-deployments, describe-service-revisions, list-services-by-namespace.
 // (stop/continue-service-deployment have no public CLI surface — SDK-tested only.)
 func TestECSCLI_ServiceDeployments(t *testing.T) {
+	t.Parallel()
 	cluster := "cli-sd-cluster"
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", cluster))
 	t.Cleanup(func() { _ = awsCLI("ecs", "delete-cluster", "--cluster", cluster).Run() })

@@ -45,6 +45,7 @@ func eventReceiver(t *testing.T) (string, <-chan deliveredEvent) {
 // object, carrying the object resource as its data. An object written to
 // another bucket reaches it not at all.
 func TestEventarc_StorageTriggerDeliversObjectFinalized(t *testing.T) {
+	t.Parallel()
 	client := eventarcClient(t)
 	parent := "projects/test-project/locations/us-central1"
 	name := parent + "/triggers/storage-trigger"
@@ -121,6 +122,7 @@ func TestEventarc_StorageTriggerDeliversObjectFinalized(t *testing.T) {
 // whose destination Cloud Run service, or whose Cloud Storage bucket, does not
 // exist.
 func TestEventarc_TriggerNeedsItsDestination(t *testing.T) {
+	t.Parallel()
 	client := eventarcClient(t)
 	parent := "projects/test-project/locations/us-central1"
 

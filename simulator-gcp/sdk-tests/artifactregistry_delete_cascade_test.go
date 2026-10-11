@@ -35,6 +35,7 @@ func arPushImage(t *testing.T, repo, tag, content string) string {
 // and tags the control plane shows for it, and deleting a package deletes its
 // Docker images and their manifests.
 func TestArtifactRegistry_DeletesCascadeAcrossPlanes(t *testing.T) {
+	t.Parallel()
 	repoID := uniqueName("cascade-repo")
 	arCreateRepository(t, "test-project", "us-central1", repoID)
 	svc := arAdminService(t)

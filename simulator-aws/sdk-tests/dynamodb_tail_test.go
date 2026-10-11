@@ -17,6 +17,7 @@ import (
 // TestDDBPartiQLExecuteStatement covers INSERT / SELECT / UPDATE / DELETE through
 // ExecuteStatement.
 func TestDDBPartiQLExecuteStatement(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "partiql-exec"
 	ddbSimpleTable(t, c, tbl)
@@ -73,6 +74,7 @@ func TestDDBPartiQLExecuteStatement(t *testing.T) {
 // TestDDBPartiQLSelectFilterAndOrder covers a non-key SELECT (scan + filter) with
 // ORDER BY.
 func TestDDBPartiQLSelectFilterAndOrder(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "partiql-select"
 	ddbSortTable(t, c, tbl)
@@ -94,6 +96,7 @@ func TestDDBPartiQLSelectFilterAndOrder(t *testing.T) {
 // TestDDBPartiQLBatch covers BatchExecuteStatement — per-statement errors don't
 // fail the batch.
 func TestDDBPartiQLBatch(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "partiql-batch"
 	ddbSimpleTable(t, c, tbl)
@@ -114,6 +117,7 @@ func TestDDBPartiQLBatch(t *testing.T) {
 
 // TestDDBPartiQLTransaction covers ExecuteTransaction — all-or-nothing.
 func TestDDBPartiQLTransaction(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "partiql-tx"
 	ddbSimpleTable(t, c, tbl)
@@ -143,6 +147,7 @@ func TestDDBPartiQLTransaction(t *testing.T) {
 
 // TestDDBDescribeLimits covers the DescribeLimits op.
 func TestDDBDescribeLimits(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	out, err := c.DescribeLimits(ctx, &dynamodb.DescribeLimitsInput{})
 	require.NoError(t, err)
@@ -152,6 +157,7 @@ func TestDDBDescribeLimits(t *testing.T) {
 
 // TestDDBConsumedCapacity — ReturnConsumedCapacity yields a ConsumedCapacity block.
 func TestDDBConsumedCapacity(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "cc"
 	ddbSimpleTable(t, c, tbl)
@@ -167,6 +173,7 @@ func TestDDBConsumedCapacity(t *testing.T) {
 }
 
 func TestDDBStoredByteAccountingAndItemLimit(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "item-byte-accounting"
 	ddbSimpleTable(t, c, tbl)
@@ -209,6 +216,7 @@ func TestDDBStoredByteAccountingAndItemLimit(t *testing.T) {
 // TestDDBCreateTableKeySchemaValidation — a key attr missing from
 // AttributeDefinitions is rejected.
 func TestDDBCreateTableKeySchemaValidation(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	_, err := c.CreateTable(ctx, &dynamodb.CreateTableInput{
 		TableName:            aws.String("bad-schema"),
@@ -222,6 +230,7 @@ func TestDDBCreateTableKeySchemaValidation(t *testing.T) {
 
 // TestDDBLegacyAttributeUpdatesAdd — AttributeUpdates with Action ADD increments.
 func TestDDBLegacyAttributeUpdatesAdd(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "legacy-add"
 	ddbSimpleTable(t, c, tbl)
@@ -241,6 +250,7 @@ func TestDDBLegacyAttributeUpdatesAdd(t *testing.T) {
 
 // TestDDBNestedProjection — ProjectionExpression a.b returns only the nested attr.
 func TestDDBNestedProjection(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "nested-proj"
 	ddbSimpleTable(t, c, tbl)
@@ -269,6 +279,7 @@ func TestDDBNestedProjection(t *testing.T) {
 
 // TestDDBLegacyExpected — the legacy Expected map gates a write.
 func TestDDBLegacyExpected(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "legacy-expected"
 	ddbSimpleTable(t, c, tbl)
@@ -290,6 +301,7 @@ func TestDDBLegacyExpected(t *testing.T) {
 
 // TestDDBConsistentReadOnGSI — ConsistentRead against a GSI is rejected.
 func TestDDBConsistentReadOnGSI(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "gsi-consistent"
 	_, err := c.CreateTable(ctx, &dynamodb.CreateTableInput{
@@ -325,6 +337,7 @@ func TestDDBConsistentReadOnGSI(t *testing.T) {
 // TestDDBNestedIfNotExists — if_not_exists() and a bare-path copy resolve NESTED
 // document paths, not just top-level attrs (BUG-2150, follow-on to #648).
 func TestDDBNestedIfNotExists(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "nested-ine"
 	ddbSimpleTable(t, c, tbl)
@@ -350,6 +363,7 @@ func TestDDBNestedIfNotExists(t *testing.T) {
 // TestDDBNumberEqualityCanonical — N equality compares by value (5 == 5.0) in a
 // FilterExpression (BUG-2151).
 func TestDDBNumberEqualityCanonical(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "num-eq"
 	ddbSimpleTable(t, c, tbl)
@@ -368,6 +382,7 @@ func TestDDBNumberEqualityCanonical(t *testing.T) {
 // TestDDBBigNumberArithmetic — arithmetic SET keeps full integer precision past
 // 2^53 (BUG-2152).
 func TestDDBBigNumberArithmetic(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "big-num"
 	ddbSimpleTable(t, c, tbl)
@@ -385,6 +400,7 @@ func TestDDBBigNumberArithmetic(t *testing.T) {
 // TestDDBArithmeticNonNumericRejected — +/- on a non-numeric operand errors
 // instead of silently storing 0 (BUG-2153).
 func TestDDBArithmeticNonNumericRejected(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tbl := "arith-type"
 	ddbSimpleTable(t, c, tbl)

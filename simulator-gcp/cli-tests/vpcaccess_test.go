@@ -20,6 +20,7 @@ func vpcAccessBaseURL() string {
 }
 
 func TestVPCAccess_CreateAndDescribe(t *testing.T) {
+	t.Parallel()
 	url := vpcAccessBaseURL() + "?connectorId=cli-test-connector"
 	out := httpDoJSON(t, "POST", url, `{
 		"network": "default",
@@ -53,6 +54,7 @@ func TestVPCAccess_CreateAndDescribe(t *testing.T) {
 }
 
 func TestVPCAccess_List(t *testing.T) {
+	t.Parallel()
 	url := vpcAccessBaseURL() + "?connectorId=list-test-connector"
 	httpDoJSON(t, "POST", url, `{
 		"network": "my-network",
@@ -78,6 +80,7 @@ func TestVPCAccess_List(t *testing.T) {
 // connector that specifies neither (network + ipCidrRange) nor a subnet, the
 // way real Cloud VPC Access does (INVALID_ARGUMENT / 400).
 func TestVPCAccess_CreateRequiresNetworkOrSubnet(t *testing.T) {
+	t.Parallel()
 	url := vpcAccessBaseURL() + "?connectorId=invalid-connector"
 	resp, err := httpDo("POST", url, `{}`)
 	require.NoError(t, err)
@@ -88,6 +91,7 @@ func TestVPCAccess_CreateRequiresNetworkOrSubnet(t *testing.T) {
 // TestVPCAccess_ListPagination asserts the List handler honors pageSize +
 // pageToken instead of dumping the full set.
 func TestVPCAccess_ListPagination(t *testing.T) {
+	t.Parallel()
 	ids := []string{"page-conn-a", "page-conn-b", "page-conn-c"}
 	for _, id := range ids {
 		httpDoJSON(t, "POST", vpcAccessBaseURL()+"?connectorId="+id,
@@ -138,6 +142,7 @@ func TestVPCAccess_ListPagination(t *testing.T) {
 }
 
 func TestVPCAccess_Delete(t *testing.T) {
+	t.Parallel()
 	url := vpcAccessBaseURL() + "?connectorId=delete-test-connector"
 	httpDoJSON(t, "POST", url, `{
 		"network": "default",

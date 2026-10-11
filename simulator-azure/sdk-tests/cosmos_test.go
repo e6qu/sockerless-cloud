@@ -15,8 +15,9 @@ import (
 )
 
 func TestAzureCosmosDB_ARMAndDataPlaneLifecycle(t *testing.T) {
+	t.Parallel()
 	sub := "00000000-0000-0000-0000-000000000000"
-	rg := "test-rg"
+	rg := "test-rg-3fd8"
 	account := uniqueName("sdkcosmos")
 	armBase := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.DocumentDB/databaseAccounts/%s", sub, rg, account)
 
@@ -80,6 +81,7 @@ func TestAzureCosmosDB_ARMAndDataPlaneLifecycle(t *testing.T) {
 }
 
 func TestAzureCosmosDB_TableARMOfficialSDKLifecycle(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-cosmos-table-rg"
 	account := "sdkcosmostable"
 	table := "sdkUsers"

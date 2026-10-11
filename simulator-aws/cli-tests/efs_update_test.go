@@ -10,6 +10,7 @@ import (
 // TestEFS_UpdateFileSystem_CLI switches an existing file system to provisioned
 // throughput and asserts the returned FileSystemDescription reflects it.
 func TestEFS_UpdateFileSystem_CLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("efs", "create-file-system",
 		"--creation-token", "cli-efs-update",
 		"--output", "json",
@@ -40,6 +41,7 @@ func TestEFS_UpdateFileSystem_CLI(t *testing.T) {
 
 // TestEFS_UpdateFileSystemProtection_CLI toggles replication overwrite protection.
 func TestEFS_UpdateFileSystemProtection_CLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("efs", "create-file-system",
 		"--creation-token", "cli-efs-protection",
 		"--output", "json",

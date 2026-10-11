@@ -26,6 +26,7 @@ func requireS3ErrorCode(t *testing.T, err error, code string) {
 // not readable or copyable until RestoreObject makes a temporary copy, and
 // the restore reports its state and expiry the way Amazon S3 does.
 func TestS3_StorageClassAndRestoreLifecycle(t *testing.T) {
+	t.Parallel()
 	client := s3Client()
 	bucket := "sdk-storage-class-restore"
 	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})

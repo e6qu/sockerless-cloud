@@ -10,6 +10,7 @@ import (
 // endpoint's Cedar authorization policy through the aws CLI: modify creates it,
 // a second modify merges a change into it, and delete removes it.
 func TestEC2CLI_ClientVpnEndpointAuthorizationPolicy(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	ep := q("ec2", "create-client-vpn-endpoint",
 		"--client-cidr-block", "10.231.0.0/22",

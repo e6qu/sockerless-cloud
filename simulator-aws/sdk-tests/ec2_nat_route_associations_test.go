@@ -78,6 +78,7 @@ func startSourceProbe(t *testing.T) (string, <-chan [2]string) {
 // one in a subnet the main route table governs implicitly; each reports to a
 // probe on the host, which must see the NAT gateway's Elastic IP address.
 func TestEC2_NATRouteFollowsRouteTableAssociations(t *testing.T) {
+	t.Parallel()
 	requireNetnsFabric(t)
 	probe, seen := startSourceProbe(t)
 	c := ec2Client()

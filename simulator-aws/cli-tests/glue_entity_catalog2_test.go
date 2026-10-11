@@ -10,6 +10,7 @@ import (
 // TestGlueCustomEntityTypeCLI round-trips a custom entity type through the
 // create/get/list/delete CLI verbs.
 func TestGlueCustomEntityTypeCLI(t *testing.T) {
+	t.Parallel()
 	name := "glue-cli-cet"
 	runCLI(t, awsCLI("glue", "create-custom-entity-type",
 		"--name", name,
@@ -57,6 +58,7 @@ func TestGlueCustomEntityTypeCLI(t *testing.T) {
 // TestGlueUsageProfileCLI round-trips a usage profile through
 // create/get/list/update/delete.
 func TestGlueUsageProfileCLI(t *testing.T) {
+	t.Parallel()
 	name := "glue-cli-profile"
 	runCLI(t, awsCLI("glue", "create-usage-profile",
 		"--name", name,
@@ -113,6 +115,7 @@ func TestGlueUsageProfileCLI(t *testing.T) {
 // update-registry, check-schema-version-validity, schema-version metadata, and
 // get-schema-versions-diff via the CLI.
 func TestGlueSchemaMetadataCLI(t *testing.T) {
+	t.Parallel()
 	reg := "glue-cli-meta-reg"
 	sch := "glue-cli-meta-schema"
 	runCLI(t, awsCLI("glue", "create-registry", "--registry-name", reg))
@@ -227,6 +230,7 @@ func TestGlueSchemaMetadataCLI(t *testing.T) {
 // TestGlueSearchTablesCLI creates tables then searches the catalog store, and
 // also covers the code-generation / source-control / resource-policy verbs.
 func TestGlueSearchTablesCLI(t *testing.T) {
+	t.Parallel()
 	db := "glue-cli-search-db"
 	runCLI(t, awsCLI("glue", "create-database", "--database-input", `{"Name":"`+db+`"}`))
 	t.Cleanup(func() {
@@ -368,6 +372,7 @@ func TestGlueSearchTablesCLI(t *testing.T) {
 // TestGlueIdentityCenterCLI round-trips the singleton Glue Identity Center
 // configuration through create/get/update/delete.
 func TestGlueIdentityCenterCLI(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("glue", "create-glue-identity-center-configuration",
 		"--instance-arn", "arn:aws:sso:::instance/ssoins-1234567890abcdef",
 		"--scopes", "glue:read"))

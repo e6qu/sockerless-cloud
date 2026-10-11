@@ -50,6 +50,7 @@ func createOneTimeSchedule(t *testing.T, name string, target *schedtypes.Target)
 // event detail, under the target's DetailType and Source, where a rule routes
 // it on to an Amazon SQS queue.
 func TestScheduler_EventBridgeTargetPutsTheEvent_SDK(t *testing.T) {
+	t.Parallel()
 	const source = "scheduler.sdk-events"
 	eb := eventbridgeClient()
 	queueURL, queueARN := createSchedulerTestQueue(t, "scheduler-sdk-bus-events")
@@ -89,6 +90,7 @@ func TestScheduler_EventBridgeTargetPutsTheEvent_SDK(t *testing.T) {
 // A universal target calls the API action its ARN names, as the execution
 // role, with the Input as the request.
 func TestScheduler_UniversalTargetCallsTheAction_SDK(t *testing.T) {
+	t.Parallel()
 	queueURL, _ := createSchedulerTestQueue(t, "scheduler-sdk-universal")
 	input, err := json.Marshal(map[string]string{"QueueUrl": aws.ToString(queueURL), "MessageBody": "universal-target"})
 	require.NoError(t, err)
@@ -106,6 +108,7 @@ func TestScheduler_UniversalTargetCallsTheAction_SDK(t *testing.T) {
 // A target whose execution role does not allow the call its invocation makes
 // never reaches the target; the refusal goes to the dead-letter queue.
 func TestScheduler_TargetRunsAsTheExecutionRole_SDK(t *testing.T) {
+	t.Parallel()
 	queueURL, queueARN := createSchedulerTestQueue(t, "scheduler-sdk-role-target")
 	dlqURL, dlqARN := createSchedulerTestQueue(t, "scheduler-sdk-role-dlq")
 	role := createServiceRole(t, "scheduler-sdk-no-send", "scheduler.amazonaws.com", "sns:Publish")
@@ -135,6 +138,7 @@ func TestScheduler_TargetRunsAsTheExecutionRole_SDK(t *testing.T) {
 // CreateSchedule and UpdateSchedule refuse a RetryPolicy outside the ranges
 // the model declares.
 func TestScheduler_RetryPolicyRanges_SDK(t *testing.T) {
+	t.Parallel()
 	sched := schedulerClient()
 	target := func(policy *schedtypes.RetryPolicy) *schedtypes.Target {
 		return &schedtypes.Target{

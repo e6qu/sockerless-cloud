@@ -14,6 +14,7 @@ import (
 // TestELBv2_ListenerRulesAndModifyListener covers listener-rule
 // CRUD (host-header routing) plus ModifyListener changing the default action.
 func TestELBv2_ListenerRulesAndModifyListener(t *testing.T) {
+	t.Parallel()
 	tgName := uniqueName("rule-tg")
 	lbName := uniqueName("rule-lb")
 	ec2c := ec2Client()
@@ -142,6 +143,7 @@ func TestELBv2_ListenerRulesAndModifyListener(t *testing.T) {
 // a requested RuleArn doesn't exist, instead of silently returning a short list
 // (which made terraform refresh see destroyed rules as still present).
 func TestELBv2_DescribeRulesNotFound(t *testing.T) {
+	t.Parallel()
 	elb := elbv2Client()
 	_, err := elb.DescribeRules(ctx, &elbv2.DescribeRulesInput{
 		RuleArns: []string{"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener-rule/app/x/0/0/does-not-exist"},

@@ -73,6 +73,7 @@ func waitRunOperation(t *testing.T, name string) runOperationResult {
 }
 
 func TestCloudRun_CLI_RunJobAndCheckLogs(t *testing.T) {
+	t.Parallel()
 	// Create a Cloud Run Job with echo command
 	createBody := `{
 		"template": {
@@ -122,6 +123,7 @@ func TestCloudRun_CLI_RunJobAndCheckLogs(t *testing.T) {
 }
 
 func TestCloudRun_CLI_RunJobFailure(t *testing.T) {
+	t.Parallel()
 	createBody := `{
 		"template": {
 			"taskCount": 1,

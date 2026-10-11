@@ -10,6 +10,7 @@ import (
 )
 
 func TestSecretsManagerCLI_SecretLifecycle(t *testing.T) {
+	t.Parallel()
 	name := "cli-secret-" + strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "-")
 	createOut := runCLI(t, awsCLI("secretsmanager", "create-secret",
 		"--name", name,
@@ -62,6 +63,7 @@ func TestSecretsManagerCLI_SecretLifecycle(t *testing.T) {
 }
 
 func TestSecretsManagerCLI_GetResourcePolicy(t *testing.T) {
+	t.Parallel()
 	createOut := runCLI(t, awsCLI("secretsmanager", "create-secret",
 		"--name", "grp-cli-secret",
 		"--secret-string", "value",

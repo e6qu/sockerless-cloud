@@ -18,6 +18,7 @@ import (
 // removed — and the share's backing directory, which a mounting workload sees,
 // agrees with the CLI at each step.
 func TestFilesNestedDirectoryTreeCLI(t *testing.T) {
+	t.Parallel()
 	const share = "cli-nested-share"
 	payload := "bytes uploaded into a nested directory"
 
@@ -85,6 +86,7 @@ func TestFilesNestedDirectoryTreeCLI(t *testing.T) {
 // round trip and the share-level operations `az storage share` exposes:
 // snapshots, quota, usage statistics and stored access policies.
 func TestFilesDirectoryMetadataAndShareOperationsCLI(t *testing.T) {
+	t.Parallel()
 	const share = "cli-shareops-share"
 	payload := "bytes counted by az storage share stats"
 

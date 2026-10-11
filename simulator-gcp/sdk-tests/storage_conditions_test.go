@@ -49,6 +49,7 @@ func requirePreconditionFailed(t *testing.T, err error, what string) {
 }
 
 func TestGCS_GenerationPreconditions(t *testing.T) {
+	t.Parallel()
 	bucketPreconditionsBucket := uniqueName("preconditions-bucket")
 	client := storageClient(t)
 	defer client.Close()
@@ -95,6 +96,7 @@ func TestGCS_GenerationPreconditions(t *testing.T) {
 // they read. Cloud Storage evaluates a write's preconditions and applies it as
 // one step, so exactly one writer of each round succeeds.
 func TestGCS_ConditionalWritesArbitrate(t *testing.T) {
+	t.Parallel()
 	bucketArbitrateBucket := uniqueName("arbitrate-bucket")
 	client := storageClient(t)
 	defer client.Close()
@@ -152,6 +154,7 @@ func TestGCS_ConditionalWritesArbitrate(t *testing.T) {
 // way the client library does, through the XML API, which describes the object
 // in the headers of the read itself.
 func TestGCS_RangedReadCarriesTheObjectsDescription(t *testing.T) {
+	t.Parallel()
 	bucketRangedReadBucket := uniqueName("ranged-read-bucket")
 	client := storageClient(t)
 	defer client.Close()
@@ -178,6 +181,7 @@ func TestGCS_RangedReadCarriesTheObjectsDescription(t *testing.T) {
 // through the IAM API, as a deployment would, and reads the object with no
 // credential but the URL.
 func TestGCS_V4SignedURLReadsWithoutCredentials(t *testing.T) {
+	t.Parallel()
 	bucketSignedUrlBucket := uniqueName("signed-url-bucket")
 	client := storageClient(t)
 	defer client.Close()
@@ -260,6 +264,7 @@ func TestGCS_V4SignedURLReadsWithoutCredentials(t *testing.T) {
 // TestGCS_BatchDeletesAnswerEachCall sends object deletes in one JSON API batch
 // and reads each call's answer back by its Content-ID.
 func TestGCS_BatchDeletesAnswerEachCall(t *testing.T) {
+	t.Parallel()
 	bucketBatchBucket := uniqueName("batch-bucket")
 	client := storageClient(t)
 	defer client.Close()

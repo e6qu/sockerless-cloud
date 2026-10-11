@@ -149,6 +149,7 @@ func createKVViaARM(t *testing.T, rg, vault string) {
 // `http://<host>` form panics. This test fails — by SDK panic —
 // against any sim build that emits the 3-segment form.
 func TestKeyVault_SDK_Secrets_ChallengeRoundTrip(t *testing.T) {
+	t.Parallel()
 	rg := "kv-sdk-secrets-rg"
 	vault := "kv-sdk-secrets"
 	createKVViaARM(t, rg, vault)
@@ -217,6 +218,7 @@ func TestKeyVault_SDK_Secrets_ChallengeRoundTrip(t *testing.T) {
 // `parts[3]` parse panic surfaces here too if the authorization
 // URL is malformed.
 func TestKeyVault_SDK_Keys_ChallengeRoundTrip(t *testing.T) {
+	t.Parallel()
 	rg := "kv-sdk-keys-rg"
 	vault := "kv-sdk-keys"
 	createKVViaARM(t, rg, vault)
@@ -298,6 +300,7 @@ func TestKeyVault_SDK_Keys_ChallengeRoundTrip(t *testing.T) {
 // the official Azure SDK uses for create, pending operation polling,
 // update, import, merge, backup, restore, and list pagers.
 func TestKeyVault_SDK_Certificates_ChallengeRoundTrip(t *testing.T) {
+	t.Parallel()
 	rg := "kv-sdk-certs-rg"
 	vault := "kv-sdk-certs"
 	createKVViaARM(t, rg, vault)
@@ -539,6 +542,7 @@ func followKVNextLink(t *testing.T, nextLink, host string) (int, []byte) {
 }
 
 func TestKV_ListSecrets_Pagination(t *testing.T) {
+	t.Parallel()
 	rg := "kv-pag-rg"
 	vault := "pag-secret-vault"
 	createKVViaARM(t, rg, vault)
@@ -578,6 +582,7 @@ func TestKV_ListSecrets_Pagination(t *testing.T) {
 
 // Key Vault's data-plane lists declare maxresults from 1 to 25.
 func TestKV_Lists_RefuseMaxResultsAboveTwentyFive(t *testing.T) {
+	t.Parallel()
 	vault := "maxres-secret-vault"
 	createKVViaARM(t, "kv-maxres-rg", vault)
 	host := kvDataPlaneHost(vault)
@@ -603,6 +608,7 @@ func TestKV_Lists_RefuseMaxResultsAboveTwentyFive(t *testing.T) {
 }
 
 func TestKV_ListKeys_Pagination(t *testing.T) {
+	t.Parallel()
 	rg := "kv-key-pag-rg"
 	vault := "pag-key-vault"
 	createKVViaARM(t, rg, vault)
@@ -641,6 +647,7 @@ func TestKV_ListKeys_Pagination(t *testing.T) {
 }
 
 func TestKV_GetSecret_NotFound_ErrorClassification(t *testing.T) {
+	t.Parallel()
 	rg := "kv-err-rg"
 	vault := "kv-err-vault"
 	createKVViaARM(t, rg, vault)
@@ -673,7 +680,8 @@ func TestKV_GetSecret_NotFound_ErrorClassification(t *testing.T) {
 // non-pointer decode previously zero-filled enabled→false, disabling the
 // secret on a single-field update).
 func TestKeyVault_SDK_UpdateSecretPartialPreservesEnabled(t *testing.T) {
-	rg := "kv-patch-rg"
+	t.Parallel()
+	rg := "kv-patch-rg-5d0b"
 	vault := "kv-patch-vault"
 	createKVViaARM(t, rg, vault)
 	client, err := azsecrets.NewClient(kvVaultURL(vault), &fakeCredential{},

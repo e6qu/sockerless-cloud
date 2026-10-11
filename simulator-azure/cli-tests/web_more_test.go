@@ -18,6 +18,7 @@ func webMoreURL(resourcePath string) string {
 // deployment slot, a static site, and the subscription-global geo-region
 // catalog.
 func TestWebMore_CLI(t *testing.T) {
+	t.Parallel()
 	// App Service plan + web app.
 	runCLI(t, azRest("PUT", webMoreURL("serverfarms/cli-wm-plan"),
 		`{"location":"eastus","sku":{"name":"B1","tier":"Basic"}}`))

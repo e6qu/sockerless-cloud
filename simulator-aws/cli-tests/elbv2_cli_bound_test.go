@@ -12,6 +12,7 @@ import (
 // log and the simulator's diagnostics, instead of holding the test until the
 // binary's -timeout panics with neither.
 func TestELBv2CLIHarnessEndsAStalledCallWithDiagnostics(t *testing.T) {
+	t.Parallel()
 	silent, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

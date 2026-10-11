@@ -16,6 +16,7 @@ import (
 // a Cloud Armor rule, so the answer has to carry the signature identifiers a
 // rule would name and the sensitivity each is filed under.
 func TestCompute_PreconfiguredExpressionSetsAreTheVendoredCatalog(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project = "waf-expression-project"
 

@@ -15,6 +15,7 @@ import (
 // deployed, and `az webapp deploy --src-url --type zip` deploys a package the
 // platform image then runs.
 func TestWebApp_CLI_NodeStackRunsTheDeployedZip(t *testing.T) {
+	t.Parallel()
 	env := startAzTLSSimulator(t)
 
 	runCLI(t, env.command("cloud", "register", "-n", "sockerless-stacks",

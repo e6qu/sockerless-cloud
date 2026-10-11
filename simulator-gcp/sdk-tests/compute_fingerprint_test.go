@@ -16,6 +16,7 @@ import (
 // rejected with 412 (conditionNotMet), and the fingerprint rotates on every
 // successful write so the previously-current value becomes stale.
 func TestCompute_Disks_SetLabelsFingerprintValidation(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project = "test-project"
 	const zone = "us-central1-a"

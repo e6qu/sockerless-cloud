@@ -27,6 +27,7 @@ import (
 // TestLogsListLogGroupsForQueryCLI starts an Insights query against a log group
 // and reads the query's processed log groups back via list-log-groups-for-query.
 func TestLogsListLogGroupsForQueryCLI(t *testing.T) {
+	t.Parallel()
 	group, stream := "/cli/lgforquery", "s1"
 	runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", group))
 	defer runCLIIgnore(awsCLI("logs", "delete-log-group", "--log-group-name", group))
@@ -57,6 +58,7 @@ func TestLogsListLogGroupsForQueryCLI(t *testing.T) {
 // TestLogsUpdateDeliveryConfigurationCLI creates a vended-log delivery and
 // updates its record fields and delimiter via update-delivery-configuration.
 func TestLogsUpdateDeliveryConfigurationCLI(t *testing.T) {
+	t.Parallel()
 	srcName := "cli-update-delivery-source"
 	dstName := "cli-update-delivery-destination"
 	defer runCLIIgnore(awsCLI("logs", "delete-delivery-source", "--name", srcName))

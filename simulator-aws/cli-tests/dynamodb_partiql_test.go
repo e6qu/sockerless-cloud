@@ -19,6 +19,7 @@ func ddbCLICreateTable(t *testing.T, table string) {
 
 // TestDynamoDBCLI_PartiQL drives ExecuteStatement (INSERT/SELECT/UPDATE/DELETE).
 func TestDynamoDBCLI_PartiQL(t *testing.T) {
+	t.Parallel()
 	table := "cli-partiql"
 	ddbCLICreateTable(t, table)
 
@@ -52,6 +53,7 @@ func TestDynamoDBCLI_PartiQL(t *testing.T) {
 
 // TestDynamoDBCLI_PartiQLBatch drives BatchExecuteStatement.
 func TestDynamoDBCLI_PartiQLBatch(t *testing.T) {
+	t.Parallel()
 	table := "cli-partiql-batch"
 	ddbCLICreateTable(t, table)
 	runCLI(t, awsCLI("dynamodb", "execute-statement",
@@ -77,6 +79,7 @@ func TestDynamoDBCLI_PartiQLBatch(t *testing.T) {
 
 // TestDynamoDBCLI_PartiQLTransaction drives ExecuteTransaction.
 func TestDynamoDBCLI_PartiQLTransaction(t *testing.T) {
+	t.Parallel()
 	table := "cli-partiql-tx"
 	ddbCLICreateTable(t, table)
 
@@ -94,6 +97,7 @@ func TestDynamoDBCLI_PartiQLTransaction(t *testing.T) {
 }
 
 func TestDynamoDBCLI_DescribeLimits(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("dynamodb", "describe-limits"))
 	var lim struct {
 		AccountMaxReadCapacityUnits  int64 `json:"AccountMaxReadCapacityUnits"`

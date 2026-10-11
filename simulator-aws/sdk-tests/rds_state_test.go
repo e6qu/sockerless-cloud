@@ -49,6 +49,7 @@ func waitForRDSClusterStatus(t *testing.T, c *rds.Client, ctx context.Context, i
 // transition ops (Start/Stop instance, Start/Stop/Failover cluster) and
 // PromoteReadReplica end-to-end through the AWS SDK for Go v2.
 func TestRDS_InstanceClusterState(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 
 	instID := "state-pg-db"
@@ -189,6 +190,7 @@ func TestRDS_InstanceClusterState(t *testing.T) {
 // TestRDS_GlobalClusterLifecycle exercises the Aurora global cluster
 // family: Create → Describe → Modify → Delete.
 func TestRDS_GlobalClusterLifecycle(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 
 	gid := "sdk-global-cluster"
@@ -238,6 +240,7 @@ func TestRDS_GlobalClusterLifecycle(t *testing.T) {
 // TestRDS_EventSubscriptionLifecycle exercises the event subscription
 // family: Create → Describe → Modify → Delete.
 func TestRDS_EventSubscriptionLifecycle(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 
 	name := "sdk-rds-events"
@@ -290,6 +293,7 @@ func TestRDS_EventSubscriptionLifecycle(t *testing.T) {
 // parameters) plus snapshot attribute sharing (Modify/Describe
 // DBSnapshotAttribute).
 func TestRDS_ParameterDetailAndSnapshotAttributes(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 
 	pgName := "sdk-detail-pg"
@@ -454,6 +458,7 @@ func TestRDS_ParameterDetailAndSnapshotAttributes(t *testing.T) {
 // cluster endpoints (Create → Describe → Delete) and
 // CopyDBClusterSnapshot.
 func TestRDS_ClusterEndpointAndCopyClusterSnapshot(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 
 	clusterID := "sdk-endpoint-cluster"

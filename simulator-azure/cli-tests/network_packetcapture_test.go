@@ -17,6 +17,7 @@ const packetCaptureAPIVersion = "2025-03-01"
 // target the simulator cannot record is refused, with a reason, rather than
 // answered with an empty capture file a caller could not tell from a real one.
 func TestNetworkWatcher_PacketCaptureRefusesAnUnrunnableTarget(t *testing.T) {
+	t.Parallel()
 	watcherURL := armURL("Microsoft.Network", "networkWatchers/cli-pcap-watcher", packetCaptureAPIVersion)
 	runCLI(t, azRest("PUT", watcherURL, `{"location":"eastus","properties":{}}`))
 	defer runCLI(t, azRest("DELETE", watcherURL, ""))
@@ -41,6 +42,7 @@ func TestNetworkWatcher_PacketCaptureRefusesAnUnrunnableTarget(t *testing.T) {
 // surface: a watcher with no captures lists none, and reading a capture that
 // does not exist is a not-found rather than an invented session.
 func TestNetworkWatcher_PacketCaptureListIsEmptyBeforeAnyCapture(t *testing.T) {
+	t.Parallel()
 	watcherURL := armURL("Microsoft.Network", "networkWatchers/cli-pcap-empty", packetCaptureAPIVersion)
 	runCLI(t, azRest("PUT", watcherURL, `{"location":"eastus","properties":{}}`))
 	defer runCLI(t, azRest("DELETE", watcherURL, ""))

@@ -20,6 +20,7 @@ import (
 // inside it, a backup captures the data, and instances.restoreBackup returns
 // to it — all through the stock go-sql-driver client.
 func TestCloudSQL_MySQLBackupCapturesDataAndRestoreReturnsToIt(t *testing.T) {
+	t.Parallel()
 	testContext, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
 	svc := sqlAdminService(t)

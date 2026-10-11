@@ -18,6 +18,7 @@ import (
 // returned the wrong envelope shape; SDK paged iterators returned zero
 // items.
 func TestKeyVault_State_FullVersionChain(t *testing.T) {
+	t.Parallel()
 	rg := "kv-state-versions-rg"
 	vault := uniqueAlnumName("kvversions")
 	createKVViaARM(t, rg, vault)
@@ -83,6 +84,7 @@ func TestKeyVault_State_FullVersionChain(t *testing.T) {
 // (a stable sort over the append-ordered version slice), giving deterministic
 // oldest-first results.
 func TestKeyVault_State_VersionListOrder(t *testing.T) {
+	t.Parallel()
 	rg := "kv-state-order-rg"
 	vault := uniqueAlnumName("kvorder")
 	createKVViaARM(t, rg, vault)
@@ -136,6 +138,7 @@ func TestKeyVault_State_VersionListOrder(t *testing.T) {
 // RecoveryId / ScheduledPurgeDate fields the state-machine-completeness
 // skill mandates.
 func TestKeyVault_State_SoftDeleteRoundTrip(t *testing.T) {
+	t.Parallel()
 	rg := "kv-state-softdel-rg"
 	vault := uniqueAlnumName("kvsoftdel")
 	createKVViaARM(t, rg, vault)

@@ -51,6 +51,7 @@ func kvPolicyViews(t *testing.T, vaults *armkeyvault.VaultsClient, rg, vault str
 // permissions, and remove takes permissions away, dropping a policy left with
 // none — each leaving every other policy as it was.
 func TestKeyVault_AccessPolicyUpdatesWorkPerPermission(t *testing.T) {
+	t.Parallel()
 	rg := "kv-policy-update-rg"
 	vault := uniqueAlnumName("kvpolicyupd")
 	alice, bob, carol, app := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()

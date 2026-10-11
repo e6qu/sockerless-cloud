@@ -18,6 +18,7 @@ import (
 // refuses anonymously builds, and the built image pushes into the registry
 // under the same credential.
 func TestCloudBuild_DockerStepsPullAndPushAsTheBuildServiceAccount(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "linux" {
 		t.Skip("platform gate: the container engine pulls the base image itself, and on a host whose engine runs inside its own virtual machine it has no route to this host's loopback, where the simulator's registry listens. Linux hosts — and the repository's Linux container path, `make docker-test` — share one loopback between engine, simulator and client.")
 	}

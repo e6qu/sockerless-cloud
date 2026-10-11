@@ -32,6 +32,7 @@ func kinesisRecordsPerShard(t *testing.T, client *kinesis.Client, streamName str
 // means: USER_PARTITION_KEY, the default, keeps one partition key on one
 // shard; AUTO spreads records across every open shard whatever their key.
 func TestKinesisSDK_RecordDistributionStrategy(t *testing.T) {
+	t.Parallel()
 	client := kinesisClient()
 	streamName := "sdk-kinesis-distribution"
 	_, err := client.CreateStream(ctx, &kinesis.CreateStreamInput{

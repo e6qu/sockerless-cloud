@@ -77,6 +77,7 @@ func simAuthorityHost(t *testing.T) string {
 // carries every field MSAL reads: the tenant discovery endpoint it fetches
 // next, and the alias metadata it caches an authority under.
 func TestInstanceDiscovery_ServesTheContractMSALDecodes(t *testing.T) {
+	t.Parallel()
 	host := simAuthorityHost(t)
 	resp, err := http.Get(instanceDiscoveryURL(url.Values{
 		"api-version": {"1.1"},
@@ -143,6 +144,7 @@ func TestInstanceDiscovery_ServesTheContractMSALDecodes(t *testing.T) {
 // 400 whose body names invalid_instance. The simulator is a single authority
 // instance and vouches for its own host alone.
 func TestInstanceDiscovery_RejectsForeignAuthority(t *testing.T) {
+	t.Parallel()
 	resp, err := http.Get(instanceDiscoveryURL(url.Values{
 		"api-version":            {"1.1"},
 		"authorization_endpoint": {"https://not-this-authority.test/" + simTenantID + "/oauth2/v2.0/authorize"},
@@ -184,6 +186,7 @@ func TestInstanceDiscovery_RejectsForeignAuthority(t *testing.T) {
 // MSAL requires an https authority, so this test runs its own TLS-terminated
 // simulator rather than the plain-HTTP one the rest of the suite shares.
 func TestEntraAuthority_MSALGoAcquiresTokenThroughTenantDiscovery(t *testing.T) {
+	t.Parallel()
 	const authorityHost = "login.microsoftonline.com"
 
 	dir := t.TempDir()

@@ -31,6 +31,7 @@ func metadataReq(t *testing.T, path string) *http.Response {
 }
 
 func TestMetadata_ProjectID(t *testing.T) {
+	t.Parallel()
 	resp := metadataReq(t, "/computeMetadata/v1/project/project-id")
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -40,6 +41,7 @@ func TestMetadata_ProjectID(t *testing.T) {
 }
 
 func TestMetadata_RequiresFlavorHeader(t *testing.T) {
+	t.Parallel()
 	req, _ := http.NewRequestWithContext(ctx, "GET", baseURL+"/computeMetadata/v1/project/project-id", nil)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
@@ -48,6 +50,7 @@ func TestMetadata_RequiresFlavorHeader(t *testing.T) {
 }
 
 func TestMetadata_InstanceZone(t *testing.T) {
+	t.Parallel()
 	resp := metadataReq(t, "/computeMetadata/v1/instance/zone")
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -57,6 +60,7 @@ func TestMetadata_InstanceZone(t *testing.T) {
 }
 
 func TestMetadata_DefaultServiceAccountToken(t *testing.T) {
+	t.Parallel()
 	resp := metadataReq(t, "/computeMetadata/v1/instance/service-accounts/default/token")
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -73,6 +77,7 @@ func TestMetadata_DefaultServiceAccountToken(t *testing.T) {
 }
 
 func TestMetadata_DefaultServiceAccountIDToken(t *testing.T) {
+	t.Parallel()
 	resp := metadataReq(t, "/computeMetadata/v1/instance/service-accounts/default/identity?audience=https://example.com")
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -110,12 +115,14 @@ func TestMetadata_DefaultServiceAccountIDToken(t *testing.T) {
 }
 
 func TestMetadata_IDTokenRequiresAudience(t *testing.T) {
+	t.Parallel()
 	resp := metadataReq(t, "/computeMetadata/v1/instance/service-accounts/default/identity")
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func TestMetadata_DefaultServiceAccountEmail(t *testing.T) {
+	t.Parallel()
 	resp := metadataReq(t, "/computeMetadata/v1/instance/service-accounts/default/email")
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)

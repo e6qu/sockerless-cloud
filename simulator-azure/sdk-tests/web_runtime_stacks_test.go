@@ -57,6 +57,7 @@ func createStackWebApp(t *testing.T, rg, name, linuxFxVersion string, appSetting
 // lands, the deployment restarts the site and the image runs the deployed
 // server.js.
 func TestSDK_WebApps_NodeStackRunsTheDeployedContent(t *testing.T) {
+	t.Parallel()
 	rg, name := "sdk-node-stack-rg", "sdk-node-stack-app"
 	client := createStackWebApp(t, rg, name, "NODE|20-lts", nil)
 
@@ -84,6 +85,7 @@ func TestSDK_WebApps_NodeStackRunsTheDeployedContent(t *testing.T) {
 // package URL runs that package: the image detects app.py and serves its WSGI
 // app with gunicorn.
 func TestSDK_WebApps_PythonStackRunsFromPackage(t *testing.T) {
+	t.Parallel()
 	pkg := makeJobsZip(t, map[string]string{
 		"app.py": "import sys\n" +
 			"def app(environ, start_response):\n" +
@@ -104,6 +106,7 @@ func TestSDK_WebApps_PythonStackRunsFromPackage(t *testing.T) {
 // neither a built-in stack nor a container image, here — answers 503 naming
 // what it lacks, never a made-up success.
 func TestSDK_WebApps_SiteWithNothingToRunAnswersServiceUnavailable(t *testing.T) {
+	t.Parallel()
 	rg, name := "func-nothing-rg", "nothing-func-app"
 	azureCreateSite(t, rg, name)
 	defer azureDeleteSite(rg, name)

@@ -40,6 +40,7 @@ func route53Client() *route53.Client {
 // TestBehavioralGate_CloudWatchAlarmSNSActionToSQS asserts that a metric alarm
 // transition dispatches its AlarmActions through SNS to an SQS subscriber.
 func TestBehavioralGate_CloudWatchAlarmSNSActionToSQS(t *testing.T) {
+	t.Parallel()
 	queueName := uniqueName("behavioral-queue")
 	topicName := uniqueName("behavioral-topic")
 	cw := cloudwatchClient()
@@ -115,6 +116,7 @@ func TestBehavioralGate_CloudWatchAlarmSNSActionToSQS(t *testing.T) {
 // TestBehavioralGate_SQS_DLQ_Redrive asserts that a message exceeding
 // maxReceiveCount is moved from the source queue to the dead-letter queue.
 func TestBehavioralGate_SQS_DLQ_Redrive(t *testing.T) {
+	t.Parallel()
 	srcName := uniqueName("bg-src")
 	dlqName := uniqueName("bg-dlq")
 	client := sqsClient()
@@ -170,6 +172,7 @@ func TestBehavioralGate_SQS_DLQ_Redrive(t *testing.T) {
 // TestBehavioralGate_AppAutoScaling_AdjustsECSDesiredCount asserts that a
 // target-tracking policy on an ECS service actually changes DesiredCount.
 func TestBehavioralGate_AppAutoScaling_AdjustsECSDesiredCount(t *testing.T) {
+	t.Parallel()
 	ecsC := ecsClient()
 	cwC := cloudwatchClient()
 	asC := appAutoScalingClient()
@@ -267,6 +270,7 @@ func TestBehavioralGate_AppAutoScaling_AdjustsECSDesiredCount(t *testing.T) {
 // TestBehavioralGate_Route53DNS_ResolvesRecord asserts that a record set created
 // via ChangeResourceRecordSets is answerable by the sim's DNS server.
 func TestBehavioralGate_Route53DNS_ResolvesRecord(t *testing.T) {
+	t.Parallel()
 	r53 := route53Client()
 
 	createResp, err := r53.CreateHostedZone(ctx, &route53.CreateHostedZoneInput{
@@ -313,6 +317,7 @@ func TestBehavioralGate_Route53DNS_ResolvesRecord(t *testing.T) {
 // modeled control-plane steady state (reached synchronously, no background
 // scheduler launching containers).
 func TestBehavioralGate_ECSService_ConvergesRunningCount(t *testing.T) {
+	t.Parallel()
 	ecsC := ecsClient()
 
 	cluster := "bg-scheduler-cluster"
@@ -346,6 +351,7 @@ func TestBehavioralGate_ECSService_ConvergesRunningCount(t *testing.T) {
 // TestBehavioralGate_CloudWatchLogs_MetricFilterPublishesMetric asserts that a
 // metric filter on a log group turns matching log events into a queryable metric.
 func TestBehavioralGate_CloudWatchLogs_MetricFilterPublishesMetric(t *testing.T) {
+	t.Parallel()
 	logsC := cwLogsClient()
 	cwC := cloudwatchClient()
 
@@ -416,6 +422,7 @@ func TestBehavioralGate_CloudWatchLogs_MetricFilterPublishesMetric(t *testing.T)
 // service deletes an item once its TTL attribute has passed, and keeps an item
 // whose TTL is in the future and one whose TTL attribute is not a Number.
 func TestBehavioralGate_DynamoDBTimeToLive_DeletesExpiredItems(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	table := uniqueName("behavioral-ttl")
 	ddbCoverageTable(t, c, table)

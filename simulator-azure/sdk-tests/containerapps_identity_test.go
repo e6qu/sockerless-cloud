@@ -89,6 +89,7 @@ func requireSecretInvalid(t *testing.T, err error, identity string) {
 }
 
 func TestSDK_ContainerAppsApps_ManagedIdentityAndKeyVaultSecrets(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-identity-rg"
 	ensureRG(t, rg)
 	vaults, secretURL, firstVersionURL, vault, uai := acaIdentityVault(t, rg, "acaappid")
@@ -212,6 +213,7 @@ func TestSDK_ContainerAppsApps_ManagedIdentityAndKeyVaultSecrets(t *testing.T) {
 }
 
 func TestSDK_ContainerAppsJobs_ManagedIdentityAndKeyVaultSecrets(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-job-identity-rg"
 	ensureRG(t, rg)
 	vaults, secretURL, _, vault, uai := acaIdentityVault(t, rg, "acajobid")
@@ -325,6 +327,7 @@ func acaJobConsoleLines(t *testing.T, job, want string) []string {
 // ingress has already relayed the status and headers, so it ends the client's
 // response there rather than appending an error document to the body.
 func TestSDK_ContainerAppsApps_IngressAbortsAResponseItsReplicaCutsShort(t *testing.T) {
+	t.Parallel()
 	rg, name := "sdk-aca-ingress-abort-rg", uniqueName("ingressabort")
 	ensureRG(t, rg)
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())

@@ -13,6 +13,7 @@ import (
 // discovery. A site joins a Microsoft.Web-delegated subnet; the connection
 // round-trips on GET and is removable.
 func TestSiteVNetIntegration_CLI_RoundTrip(t *testing.T) {
+	t.Parallel()
 	// A site that is not Always On and receives no request runs no container,
 	// so VNet integration only records the connection — keeping this an ARM
 	// round-trip test, not a workload test.

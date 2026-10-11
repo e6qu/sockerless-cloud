@@ -43,6 +43,7 @@ func createStorageAccountForARM(t *testing.T, rg, name string) *armstorage.Accou
 // TestStorageARM_AccountActions exercises the storage-account action verbs and
 // the subscription/provider-scoped catalog operations the armstorage SDK drives.
 func TestStorageARM_AccountActions(t *testing.T) {
+	t.Parallel()
 	rg := "storagearm-actions-rg"
 	account := "storagearmactions"
 	client := createStorageAccountForARM(t, rg, account)
@@ -102,6 +103,7 @@ func TestStorageARM_AccountActions(t *testing.T) {
 }
 
 func TestStorageARM_Catalog(t *testing.T) {
+	t.Parallel()
 	opsClient, err := armstorage.NewOperationsClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	opsPager := opsClient.NewListPager(nil)
@@ -145,6 +147,7 @@ func TestStorageARM_Catalog(t *testing.T) {
 // resources (managementPolicies, inventoryPolicies, privateEndpointConnections,
 // privateLinkResources, objectReplicationPolicies, encryptionScopes, localUsers).
 func TestStorageARM_AccountChildResources(t *testing.T) {
+	t.Parallel()
 	rg := "storagearm-children-rg"
 	account := "storagearmchildren"
 	createStorageAccountForARM(t, rg, account)

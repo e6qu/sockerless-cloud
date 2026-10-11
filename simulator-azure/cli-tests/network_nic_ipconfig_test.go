@@ -32,6 +32,7 @@ func cliNICAddresses(t *testing.T, env azLoginEnv, rg, nic string) map[string]st
 // holds an address of its own and that deleting one returns its address to
 // the subnet.
 func TestNetwork_NICSecondaryIPConfigurationsCLI(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	env := startAzLoginSimulator(t)
 	tagCLILogin(t, env, "sockerless-nic-ipconfig")

@@ -45,12 +45,13 @@ import (
 // stand-in for the ACR `/v2/` endpoint a workload would pull from) and
 // assert the image landed there and is gone from the local daemon.
 func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatalf("docker CLI required for ACR Tasks build test (no fallback): %v", err)
 	}
 
 	const (
-		rg      = "acr-tasks-rg"
+		rg      = "acr-tasks-rg-2966"
 		account = "acrbuildacct"
 		regName = "acrbuildreg"
 		ctr     = "build-context"
@@ -339,14 +340,15 @@ func registryClient(t *testing.T, authority []byte) *http.Client {
 // failed), which is exactly what backends/aca's ACRBuildService checks to
 // surface the error.
 func TestACRTasks_ScheduleRunMissingContextFails(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatalf("docker CLI required for ACR Tasks build test (no fallback): %v", err)
 	}
-	acrEnsureRegistry(t, "acr-tasks-rg", "acrbuildreg")
+	acrEnsureRegistry(t, "acr-tasks-rg-0107", "acrbuildreg")
 	regClient, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	poller, err := regClient.BeginScheduleRun(ctx, "acr-tasks-rg", "acrbuildreg", &armcontainerregistry.DockerBuildRequest{
+	poller, err := regClient.BeginScheduleRun(ctx, "acr-tasks-rg-0107", "acrbuildreg", &armcontainerregistry.DockerBuildRequest{
 		Type:           to.Ptr("DockerBuildRequest"),
 		DockerFilePath: to.Ptr("Dockerfile"),
 		ImageNames:     []*string{to.Ptr("acrbuildreg.azurecr.io/sockerless-overlay/aca:missing")},
@@ -363,7 +365,7 @@ func TestACRTasks_ScheduleRunMissingContextFails(t *testing.T) {
 
 	runsClient, err := armcontainerregistry.NewRunsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
-	result := awaitACRRun(t, runsClient, "acr-tasks-rg", "acrbuildreg", *queued.Properties.RunID)
+	result := awaitACRRun(t, runsClient, "acr-tasks-rg-0107", "acrbuildreg", *queued.Properties.RunID)
 	assert.Equal(t, armcontainerregistry.RunStatusFailed, ptrVal(result.Properties.Status),
 		"missing build context must report the run as Failed")
 	assert.Contains(t, ptrVal(result.Properties.RunErrorMessage), "not found",
@@ -374,6 +376,7 @@ func TestACRTasks_ScheduleRunMissingContextFails(t *testing.T) {
 // ten minutes, waits until it is Running, and cancels it: Runs_Cancel answers
 // once the build has stopped, the run reads Canceled, and no image was built.
 func TestACRTasks_CancelStopsARunningBuild(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatalf("docker CLI required for ACR Tasks build test (no fallback): %v", err)
 	}

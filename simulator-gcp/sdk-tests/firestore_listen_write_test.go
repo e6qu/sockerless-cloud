@@ -42,6 +42,7 @@ func fsStringValue(s string) *firestorepb.Value {
 // handshake that mints a stream id and token, writes that land in the same
 // store the unary RPCs read, a delete, and a resume from the last token.
 func TestFirestore_GRPC_WriteStream(t *testing.T) {
+	t.Parallel()
 	c := fsRawGRPCClient(t)
 	const database = "projects/fs-write-stream/databases/(default)"
 	const docName = database + "/documents/inbox/msg1"
@@ -115,6 +116,7 @@ func TestFirestore_GRPC_WriteStream(t *testing.T) {
 // TestFirestore_GRPC_WriteStreamRejections covers the handshake contract: the
 // first request carries no writes, and an unknown stream cannot be resumed.
 func TestFirestore_GRPC_WriteStreamRejections(t *testing.T) {
+	t.Parallel()
 	c := fsRawGRPCClient(t)
 	const database = "projects/fs-write-stream-bad/databases/(default)"
 
@@ -150,6 +152,7 @@ func TestFirestore_GRPC_WriteStreamRejections(t *testing.T) {
 // documents target reports the document that exists, later writes and deletes
 // arrive as changes, and removing the target closes it out.
 func TestFirestore_GRPC_ListenStream(t *testing.T) {
+	t.Parallel()
 	c := fsRawGRPCClient(t)
 	const database = "projects/fs-listen-raw/databases/(default)"
 	const parent = database + "/documents"
@@ -237,6 +240,7 @@ func TestFirestore_GRPC_ListenStream(t *testing.T) {
 // start matching arrive as changes and documents that stop matching are
 // reported as removed from the target's view.
 func TestFirestore_GRPC_ListenQueryTarget(t *testing.T) {
+	t.Parallel()
 	c := fsRawGRPCClient(t)
 	const database = "projects/fs-listen-query/databases/(default)"
 	const parent = database + "/documents"
@@ -314,6 +318,7 @@ func TestFirestore_GRPC_ListenQueryTarget(t *testing.T) {
 // is the simulator's, not this stream's — the stream reports every write the
 // store records, which is what the raw test asserts.
 func TestFirestore_Snapshots_HighLevelClient(t *testing.T) {
+	t.Parallel()
 	c := newFSGRPCClient(t, "fs-listen-hl")
 	doc := c.Collection("live").Doc("d1")
 	_, err := doc.Create(ctx, map[string]any{"n": int64(1)})
@@ -339,6 +344,7 @@ func TestFirestore_Snapshots_HighLevelClient(t *testing.T) {
 // TestFirestore_QuerySnapshots_HighLevelClient watches a query through the
 // high-level client and reads the change list it derives from the stream.
 func TestFirestore_QuerySnapshots_HighLevelClient(t *testing.T) {
+	t.Parallel()
 	c := newFSGRPCClient(t, "fs-listen-hl-query")
 	collection := c.Collection("queue")
 

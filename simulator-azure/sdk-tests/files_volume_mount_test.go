@@ -22,6 +22,7 @@ import (
 // alpine container mounting the share reads — so nothing but agreement on the
 // bytes can make it pass.
 func TestStorageSDK_FilesDataPlaneBytesReachAContainerAppsMount(t *testing.T) {
+	t.Parallel()
 	const (
 		account     = "mountfileacct"
 		share       = "mounted-share"

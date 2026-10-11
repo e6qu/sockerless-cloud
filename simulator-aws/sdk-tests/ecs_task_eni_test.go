@@ -18,6 +18,7 @@ import (
 // DependencyViolation while the task holds it, and the interface is gone once
 // the task has stopped.
 func TestECS_AwsvpcTaskHoldsItsSubnet(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 	ec2c := ec2Client()
 	name := "eni-holds-subnet"

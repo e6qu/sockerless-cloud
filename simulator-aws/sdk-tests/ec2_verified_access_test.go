@@ -17,6 +17,7 @@ import (
 // It read-backs every resource via the Describe / Get* ops and tears the family
 // down.
 func TestEC2_VerifiedAccessLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	inst, err := c.CreateVerifiedAccessInstance(ctx, &ec2.CreateVerifiedAccessInstanceInput{
@@ -205,6 +206,7 @@ func TestEC2_VerifiedAccessLifecycleSDK(t *testing.T) {
 // TestEC2_VerifiedAccessLoggingSDK covers the per-instance access-log
 // configuration and the client-config export op.
 func TestEC2_VerifiedAccessLoggingSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	inst, err := c.CreateVerifiedAccessInstance(ctx, &ec2.CreateVerifiedAccessInstanceInput{
@@ -254,6 +256,7 @@ func TestEC2_VerifiedAccessLoggingSDK(t *testing.T) {
 // a target, a filter with an ingress rule + mirrored network services, and a
 // session binding a source ENI to the target through the filter.
 func TestEC2_TrafficMirrorLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	tgt, err := c.CreateTrafficMirrorTarget(ctx, &ec2.CreateTrafficMirrorTargetInput{

@@ -60,6 +60,7 @@ func filesWebAppCLI(t *testing.T, az kuduCLIEnv, rg, plan, app string) func(path
 }
 
 func TestWebAppKeyVaultReferences_ResolveThroughTheAppIdentity(t *testing.T) {
+	t.Parallel()
 	az := kuduCLILogin(t)
 	rg, plan, app, vault := "kvref-cli-rg", "kvref-cli-plan", "kvref-cli-app", "kvrefclivault"
 	read := filesWebAppCLI(t, az, rg, plan, app)
@@ -129,6 +130,7 @@ func TestWebAppKeyVaultReferences_ResolveThroughTheAppIdentity(t *testing.T) {
 }
 
 func TestWebAppSourceControl_DeploysAndSyncsTheRepository(t *testing.T) {
+	t.Parallel()
 	az := kuduCLILogin(t)
 	rg, plan, app := "scm-cli-rg", "scm-cli-plan", "scm-cli-app"
 	read := filesWebAppCLI(t, az, rg, plan, app)

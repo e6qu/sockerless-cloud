@@ -48,6 +48,7 @@ func elbv2FidLoadBalancer(t *testing.T, elb *elbv2.Client, subnetID, name string
 // action (the Pomerium/IAP proxy ALB shape), the weighted ForwardConfig on a
 // rule, and SetRulePriorities — none of which round-tripped before.
 func TestELBv2_ListenerAuthAndForwardSDK(t *testing.T) {
+	t.Parallel()
 	elb := elbv2Client()
 	vpcID, subnetID := elbv2FidVPCSubnet(t, "10.160.0.0/16", "10.160.1.0/24")
 	tg1 := elbv2FidTargetGroup(t, elb, vpcID, "fid-auth-tg1")
@@ -148,6 +149,7 @@ func TestELBv2_ListenerAuthAndForwardSDK(t *testing.T) {
 // aws_lb_listener_certificate resource), ModifyListener SslPolicy, and the
 // mutual_authentication round-trip.
 func TestELBv2_ListenerCertsAndMutualAuthSDK(t *testing.T) {
+	t.Parallel()
 	elb := elbv2Client()
 	vpcID, subnetID := elbv2FidVPCSubnet(t, "10.161.0.0/16", "10.161.1.0/24")
 	tg := elbv2FidTargetGroup(t, elb, vpcID, "fid-cert-tg")

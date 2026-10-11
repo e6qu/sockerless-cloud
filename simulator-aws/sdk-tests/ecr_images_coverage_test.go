@@ -16,6 +16,7 @@ const ecrManifest = `{"schemaVersion":2,"mediaType":"application/vnd.docker.dist
 // (both were unregistered) and the BatchDeleteImage alias-delete fix (deleting
 // by tag must drop the image's digest alias too).
 func TestECR_ListAndDescribeAndDeleteImages(t *testing.T) {
+	t.Parallel()
 	repo := uniqueName("cov-images")
 	c := ecrClient()
 	_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
@@ -62,6 +63,7 @@ func TestECR_ListAndDescribeAndDeleteImages(t *testing.T) {
 // /nextToken support that ListImages/DescribeImages silently dropped (a TAGGED/
 // UNTAGGED filter previously returned every image).
 func TestECR_ListImagesFilterAndPagination(t *testing.T) {
+	t.Parallel()
 	repo := uniqueName("cov-filter")
 	c := ecrClient()
 	_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
@@ -120,6 +122,7 @@ func TestECR_ListImagesFilterAndPagination(t *testing.T) {
 
 // TestECR_LifecyclePolicyLifecycle covers Put/Get/DeleteLifecyclePolicy.
 func TestECR_LifecyclePolicyLifecycle(t *testing.T) {
+	t.Parallel()
 	repo := uniqueName("cov-lifecycle")
 	c := ecrClient()
 	_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
@@ -142,6 +145,7 @@ func TestECR_LifecyclePolicyLifecycle(t *testing.T) {
 // repository's images are its own even when another repository's name begins
 // with its name.
 func TestECR_DescribeImagesReportsLayerSizesPerRepository(t *testing.T) {
+	t.Parallel()
 	c := ecrClient()
 	repo, otherRepo := uniqueName("cov-size"), uniqueName("cov-size-other")
 	for _, name := range []string{repo, otherRepo} {
@@ -206,6 +210,7 @@ const ecrClusterAutoscalerManifest = `{
 // The size Amazon ECR reports for an image AWS documents both the manifest and
 // the imageSizeInBytes of.
 func TestECR_DescribeImagesSizesTheDocumentedImage(t *testing.T) {
+	t.Parallel()
 	c := ecrClient()
 	repo := uniqueName("cluster-autoscaler")
 	_, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})

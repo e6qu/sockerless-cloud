@@ -24,6 +24,7 @@ import (
 // Actions exercised: CreateLoadBalancer, DescribeLoadBalancerAttributes,
 // ModifyLoadBalancerAttributes.
 func TestELBv2_LoadBalancerAttributesPerType(t *testing.T) {
+	t.Parallel()
 	ec2c := ec2Client()
 	elb := elbv2Client()
 	vpcOut, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.87.0.0/16")})

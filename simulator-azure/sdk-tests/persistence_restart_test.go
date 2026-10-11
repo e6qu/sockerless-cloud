@@ -213,6 +213,7 @@ func sbSequenceNumber(t *testing.T, resp *http.Response) int64 {
 }
 
 func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
+	t.Parallel()
 	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
 	stateDir := t.TempDir()
 	port := freeAzureSimPort(t)

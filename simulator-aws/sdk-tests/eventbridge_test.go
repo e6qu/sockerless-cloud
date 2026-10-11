@@ -33,6 +33,7 @@ func assertEventBridgeSQSEnvelope(t *testing.T, body, source, detailType string,
 }
 
 func TestEventBridge_BusArchiveReplaySDK(t *testing.T) {
+	t.Parallel()
 	eb := eventbridgeClient()
 	sqsC := sqsClient()
 
@@ -212,6 +213,7 @@ func TestEventBridge_BusArchiveReplaySDK(t *testing.T) {
 }
 
 func TestEventBridge_RuleTargetPutEventsSDK(t *testing.T) {
+	t.Parallel()
 	eb := eventbridgeClient()
 	sqsC := sqsClient()
 
@@ -344,6 +346,7 @@ func TestEventBridge_RuleTargetPutEventsSDK(t *testing.T) {
 // near-miss (right source, detail value out of range) returns Result=false,
 // using the same evaluator a live rule fires on.
 func TestEventBridge_TestEventPatternSDK(t *testing.T) {
+	t.Parallel()
 	eb := eventbridgeClient()
 
 	pattern := `{"source":["sockerless.tep"],"detail":{"code":[{"numeric":[">",200]}]}}`
@@ -375,6 +378,7 @@ func TestEventBridge_TestEventPatternSDK(t *testing.T) {
 // asserts ListRuleNamesByTarget returns that rule's name for the target ARN,
 // and nothing for an unrelated ARN.
 func TestEventBridge_ListRuleNamesByTargetSDK(t *testing.T) {
+	t.Parallel()
 	eb := eventbridgeClient()
 
 	targetARN := "arn:aws:sqs:us-east-1:000000000000:eb-sdk-lrnbt-target"
@@ -416,6 +420,7 @@ func TestEventBridge_ListRuleNamesByTargetSDK(t *testing.T) {
 // UpdateEventBus mutates its Description and DeadLetterConfig, and that the
 // change is observable via DescribeEventBus.
 func TestEventBridge_UpdateEventBusSDK(t *testing.T) {
+	t.Parallel()
 	eb := eventbridgeClient()
 
 	busName := "eb-sdk-update-bus"
@@ -451,6 +456,7 @@ func TestEventBridge_UpdateEventBusSDK(t *testing.T) {
 // It asserts a faithfully-matching event is delivered and a near-miss event
 // (right source, wrong detail) is correctly REJECTED.
 func TestEventBridge_ContentFilterPatternSDK(t *testing.T) {
+	t.Parallel()
 	eb := eventbridgeClient()
 	sqsC := sqsClient()
 
@@ -570,6 +576,7 @@ func setEBQueuePolicy(t *testing.T, sqsC *sqs.Client, queueURL *string, queueARN
 // receives nothing — matching real AWS, which silently drops an unauthorized
 // delivery rather than enqueuing it.
 func TestEventBridge_SQSDeliveryAuthorizationSDK(t *testing.T) {
+	t.Parallel()
 	eb := eventbridgeClient()
 	sqsC := sqsClient()
 

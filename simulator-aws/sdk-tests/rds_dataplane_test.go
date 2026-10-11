@@ -29,6 +29,7 @@ import (
 // users its engine holds under their own passwords, and RDS for PostgreSQL
 // signs in a user granted rds_iam only with an IAM authentication token.
 func TestRDSNativeDataPlanesWithIAMAuthentication_SDK(t *testing.T) {
+	t.Parallel()
 	testContext, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	rdsAPI := rdsClient()

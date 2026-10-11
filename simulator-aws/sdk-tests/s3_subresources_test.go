@@ -26,6 +26,7 @@ func s3CreateBucket(t *testing.T, c *s3.Client, bucket string) {
 // Initiate → UploadPart × N → CompleteMultipartUpload → GetObject
 // asserts the assembled bytes equal the concatenation of the parts.
 func TestS3_Multipart(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	ctx := context.Background()
 	bucket := "mp-bucket"
@@ -97,6 +98,7 @@ func TestS3_Multipart(t *testing.T) {
 // TestS3_ListObjectsStaysInsideItsBucket lists a bucket beside another whose
 // name extends it, the pair a listing by key prefix could confuse.
 func TestS3_ListObjectsStaysInsideItsBucket(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	ctx := context.Background()
 	s3CreateBucket(t, c, "list-scope")
@@ -128,6 +130,7 @@ func TestS3_ListObjectsStaysInsideItsBucket(t *testing.T) {
 // TestS3_AbortMultipart confirms AbortMultipartUpload cleanly cancels
 // an in-flight upload.
 func TestS3_AbortMultipart(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	ctx := context.Background()
 	bucket := "abort-bucket"
@@ -161,6 +164,7 @@ func TestS3_AbortMultipart(t *testing.T) {
 // TestS3_ObjectTagging exercises PutObjectTagging → GetObjectTagging
 // → DeleteObjectTagging on a regular (single-shot) object.
 func TestS3_ObjectTagging(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	ctx := context.Background()
 	bucket := "tag-bucket"
@@ -211,6 +215,7 @@ func TestS3_ObjectTagging(t *testing.T) {
 
 // TestS3_CopyObject exercises the x-amz-copy-source header flow.
 func TestS3_CopyObject(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	ctx := context.Background()
 	bucket := "copy-bucket"

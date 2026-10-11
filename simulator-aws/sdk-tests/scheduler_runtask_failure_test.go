@@ -21,6 +21,7 @@ import (
 // CloudTrail records the RunTask attempt WITH an errorCode, and — because
 // RunTask failed — no task is created and none ever transitions to STOPPED.
 func TestScheduler_ECSRunTaskFailureSurfaced(t *testing.T) {
+	t.Parallel()
 	ecsc := ecsClient()
 	sched := schedulerClient()
 	ct := cloudTrailClient()

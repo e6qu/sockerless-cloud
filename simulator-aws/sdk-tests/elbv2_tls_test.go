@@ -31,6 +31,7 @@ import (
 // (verifying the handshake completes against the cert), and the target
 // receives a plain-HTTP request, proving termination + forwarding.
 func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
+	t.Parallel()
 	lbName := uniqueName("alb-tls")
 	tgName := uniqueName("alb-tls-tg")
 	elb := elbv2Client()
@@ -188,6 +189,7 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 // handshake completes against the cert, and the decrypted line round-trips to
 // the target.
 func TestELBv2_NLBTLSListenerTerminatesTLS(t *testing.T) {
+	t.Parallel()
 	lbName := uniqueName("nlb-tls")
 	tgName := uniqueName("nlb-tls-tg")
 	elb := elbv2Client()

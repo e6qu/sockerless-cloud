@@ -32,6 +32,7 @@ import (
 // image in a registry a workload pulls from — is exercised in
 // TestCloudBuild_FaithfulBuildPush.
 func TestCloudBuild_DockerBuild(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatalf("docker CLI required for Cloud Build test (no fallback): %v", err)
 	}
@@ -86,6 +87,7 @@ func TestCloudBuild_DockerBuild(t *testing.T) {
 // Dockerfile compares it against the payload. Dropping the secretEnv injection
 // leaves the argument empty, the RUN exits non-zero, and the build turns red.
 func TestCloudBuild_SecretEnvExpansion(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatalf("docker CLI required for Cloud Build test (no fallback): %v", err)
 	}
@@ -146,6 +148,7 @@ func TestCloudBuild_SecretEnvExpansion(t *testing.T) {
 // refuse the build turns this red, and the refusal is then what the test should
 // assert.
 func TestCloudBuild_SecretEnvWithoutMatchingAvailableSecret(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatalf("docker CLI required for Cloud Build test (no fallback): %v", err)
 	}
@@ -225,6 +228,7 @@ func cbBuildBody(t *testing.T, bucket, object string, steps []any, availableSecr
 // Secret Manager reference fails the build with a clear error (rather
 // than silently dropping the secret env var).
 func TestCloudBuild_MissingSecretFails(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatalf("docker CLI required for Cloud Build test (no fallback): %v", err)
 	}
@@ -326,6 +330,7 @@ func cloudbuildService(t *testing.T) *cloudbuild.Service {
 }
 
 func TestCloudBuild_TriggerCRUD(t *testing.T) {
+	t.Parallel()
 	svc := cloudbuildService(t)
 	project := "cb-trigger-project"
 
@@ -380,6 +385,7 @@ func TestCloudBuild_TriggerCRUD(t *testing.T) {
 }
 
 func TestCloudBuild_ListTriggers_Pagination(t *testing.T) {
+	t.Parallel()
 	const project = "test-project"
 	// A create whose status went unread would let a rejected create pass as a
 	// success while the walk below found a trigger an earlier run had left

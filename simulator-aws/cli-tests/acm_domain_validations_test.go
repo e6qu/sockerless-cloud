@@ -11,6 +11,7 @@ import (
 // AWS added beside describe-certificate. Both views answer from one record, so
 // this asserts the CLI sees them agree.
 func TestACMCLI_ListCertificateDomainValidations(t *testing.T) {
+	t.Parallel()
 	const domain = "list-dv.cli.example.test"
 	createdJSON := runCLI(t, awsCLI("acm", "request-certificate",
 		"--domain-name", domain,

@@ -18,6 +18,7 @@ import (
 //	PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/certificates/{name}
 //	GET /v1.0/servicePrincipals?$filter=servicePrincipalNames/any(c:c eq '{appId}')
 func TestWebAppSSLImport_CLI_AuthorizesAppServicePrincipal(t *testing.T) {
+	t.Parallel()
 	const appServiceAppID = "abfa0a7c-a6b6-4736-8310-5855508787cd"
 	env := startAzLoginSimulator(t)
 	tagCLILogin(t, env, "sockerless-ssl-import")

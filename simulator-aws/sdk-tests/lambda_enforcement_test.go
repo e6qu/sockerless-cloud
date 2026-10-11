@@ -25,6 +25,7 @@ import (
 // seeded administrator credential still succeeds, proving the SDK/CLI/
 // Terraform surfaces that already sign every request keep working.
 func TestLambda_UnsignedAndWrongSecretRejected(t *testing.T) {
+	t.Parallel()
 	// Unsigned: no Authorization header at all.
 	req, err := http.NewRequest(http.MethodGet, baseURL+"/2015-03-31/functions", nil)
 	require.NoError(t, err)
@@ -61,6 +62,7 @@ func TestLambda_UnsignedAndWrongSecretRejected(t *testing.T) {
 // does — the same call-time enforcement contract iam_enforcement_test.go
 // proves for EC2/ECS, now covering Lambda's REST control plane.
 func TestLambda_CallTimeIAMEnforcement(t *testing.T) {
+	t.Parallel()
 	admin := iamClient()
 	user := uniqueName("lambda-restricted-user")
 
@@ -234,6 +236,7 @@ var lambdaControlPlaneRoutes = []lambdaControlPlaneRoute{
 // than a 404 — the assertion is on the AUTH failure, not on resource
 // existence.
 func TestLambda_AllControlPlaneRoutesRejectUnauthenticated(t *testing.T) {
+	t.Parallel()
 	for _, rt := range lambdaControlPlaneRoutes {
 		t.Run(rt.method+"_"+rt.path, func(t *testing.T) {
 			// Unsigned: no Authorization header at all.

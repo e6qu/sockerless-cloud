@@ -14,6 +14,7 @@ func caeURL(path string) string {
 }
 
 func TestContainerAppEnv_CreateAndShow(t *testing.T) {
+	t.Parallel()
 	url := caeURL("managedEnvironments/cli-test-env")
 
 	out := runCLI(t, azRest("PUT", url,
@@ -43,6 +44,7 @@ func TestContainerAppEnv_CreateAndShow(t *testing.T) {
 }
 
 func TestContainerAppEnv_Delete(t *testing.T) {
+	t.Parallel()
 	url := caeURL("managedEnvironments/delete-test-env")
 	runCLI(t, azRest("PUT", url, `{"location":"eastus","properties":{}}`))
 	azRestLongRunning(t, "DELETE", url, "")

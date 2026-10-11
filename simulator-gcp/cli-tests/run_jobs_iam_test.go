@@ -51,6 +51,7 @@ func createRunJobForCLI(t *testing.T, id string) {
 }
 
 func TestCloudRunJobs_CLI_IAMPolicyLifecycle(t *testing.T) {
+	t.Parallel()
 	const id = "cli-job-iam"
 	createRunJobForCLI(t, id)
 
@@ -121,6 +122,7 @@ func TestCloudRunJobs_CLI_IAMPolicyLifecycle(t *testing.T) {
 // TestCloudRunJobs_CLI_IAMPolicyOnMissingJob pins the CLI-visible error for a
 // job that was never created: the IAM verb is NOT_FOUND, not an empty policy.
 func TestCloudRunJobs_CLI_IAMPolicyOnMissingJob(t *testing.T) {
+	t.Parallel()
 	cmd := gcloudCLI("run", "jobs", "get-iam-policy", "cli-job-never-created",
 		"--region="+location, "--format=json")
 	out, err := cmd.CombinedOutput()

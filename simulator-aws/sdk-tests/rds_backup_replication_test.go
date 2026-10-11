@@ -23,6 +23,7 @@ import (
 // retained and after the source is deleted. A retained replicated backup is
 // deleted like any other.
 func TestRDS_AutomatedBackupsReplicateToAnotherRegion(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	f := rdsInstanceFixture{t: t, ctx: ctx, client: rdsClient(), family: "postgres"}
@@ -166,6 +167,7 @@ func TestRDS_AutomatedBackupsReplicateToAnotherRegion(t *testing.T) {
 // to, still takes its first automated backup replicates that backup once
 // Amazon RDS has taken it, as the Terraform provider's create waiter expects.
 func TestRDS_AutomatedBackupsReplicationTakesTheSourcesFirstBackup(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	f := rdsInstanceFixture{t: t, ctx: ctx, client: rdsClient(), family: "postgres"}

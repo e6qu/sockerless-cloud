@@ -45,6 +45,7 @@ func knativeServiceURL(name string) string {
 // contract — the version a concurrent client is still holding — is the same PUT
 // with the version from before that replace.
 func TestCloudRunV1_CLI_ServicesReplaceSendsResourceVersion(t *testing.T) {
+	t.Parallel()
 	const name = "cli-rv-service"
 	body := func(image string) string {
 		return fmt.Sprintf(`{
@@ -122,6 +123,7 @@ spec:
 // own call is the proof that tightening those handlers to the verbs Cloud Run
 // publishes left the published one working.
 func TestCloudRunV1_CLI_ExecutionsCancel(t *testing.T) {
+	t.Parallel()
 	// Cloud Logging keeps a deleted job's entries, so a reused job name would
 	// read an earlier run's lines.
 	jobID := fmt.Sprintf("cli-verb-job-%d", time.Now().UnixNano())

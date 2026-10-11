@@ -47,6 +47,7 @@ func amplifyWaitJobStatus(t *testing.T, ctx context.Context, c *amplify.Client, 
 }
 
 func TestAmplifyWAFv2Association(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	amplifyAPI := amplifyClient()
@@ -136,6 +137,7 @@ func TestAmplifyWAFv2Association(t *testing.T) {
 }
 
 func TestAmplifyWAFv2RequestEvaluation(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	amplifyAPI := amplifyClient()
@@ -249,6 +251,7 @@ func TestAmplifyWAFv2RequestEvaluation(t *testing.T) {
 }
 
 func TestAmplifyAppLifecycle(t *testing.T) {
+	t.Parallel()
 	c := amplifyClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -341,6 +344,7 @@ func TestAmplifyAppLifecycle(t *testing.T) {
 }
 
 func TestAmplifyBranchLifecycle(t *testing.T) {
+	t.Parallel()
 	c := amplifyClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -414,6 +418,7 @@ func TestAmplifyBranchLifecycle(t *testing.T) {
 }
 
 func TestAmplifyWebhookLifecycle(t *testing.T) {
+	t.Parallel()
 	c := amplifyClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -468,6 +473,7 @@ func TestAmplifyWebhookLifecycle(t *testing.T) {
 }
 
 func TestAmplifyJobLifecycle(t *testing.T) {
+	t.Parallel()
 	c := amplifyClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -727,6 +733,7 @@ func amplifyRequireJobStep(t *testing.T, job *amplifytypes.Job, name string) amp
 }
 
 func TestAmplifyDeploymentFlow(t *testing.T) {
+	t.Parallel()
 	c := amplifyClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -849,6 +856,7 @@ func TestAmplifyDeploymentFlow(t *testing.T) {
 }
 
 func TestAmplifyDeploymentFileMapUploads(t *testing.T) {
+	t.Parallel()
 	c := amplifyClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -967,6 +975,7 @@ func TestAmplifyDeploymentFileMapUploads(t *testing.T) {
 }
 
 func TestAmplifyListPagination(t *testing.T) {
+	t.Parallel()
 	c := amplifyClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

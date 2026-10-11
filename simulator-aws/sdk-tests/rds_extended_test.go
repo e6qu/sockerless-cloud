@@ -17,6 +17,7 @@ import (
 // DeleteDBClusterParameterGroup), including tag round-trips via
 // ListTagsForResource for each new resource ARN type.
 func TestRDS_ClusterSnapshotAndParamGroup(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 
 	clusterID := "ext-aurora-cluster"
@@ -121,6 +122,7 @@ func TestRDS_ClusterSnapshotAndParamGroup(t *testing.T) {
 // TestRDS_OptionGroupLifecycle exercises CreateOptionGroup →
 // DescribeOptionGroups → tag round-trip → DeleteOptionGroup.
 func TestRDS_OptionGroupLifecycle(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	name := "ext-option-group"
 
@@ -169,6 +171,7 @@ func TestRDS_OptionGroupLifecycle(t *testing.T) {
 // TestRDS_ReadReplicaAndCopySnapshot exercises CreateDBInstanceReadReplica
 // (with source/replica back-linking) and CopyDBSnapshot.
 func TestRDS_ReadReplicaAndCopySnapshot(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 
 	srcID := "ext-replica-src"
@@ -268,6 +271,7 @@ func TestRDS_ReadReplicaAndCopySnapshot(t *testing.T) {
 // DescribeEventCategories, DescribeDBEngineVersions, and
 // DescribeOrderableDBInstanceOptions.
 func TestRDS_EventsAndEngineMetadata(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 
 	cats, err := c.DescribeEventCategories(ctx, &rds.DescribeEventCategoriesInput{})

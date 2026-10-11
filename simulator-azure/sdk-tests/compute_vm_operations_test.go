@@ -110,6 +110,7 @@ func createOperationsVM(t *testing.T, rg, vmName, nicID string, mutate func(*arm
 
 // The reads that answer off the machine's own state.
 func TestCompute_VirtualMachineStateOperations(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 	const rg = "vm-ops-rg"
 	const vmName = "vm-ops"
@@ -192,6 +193,7 @@ func TestCompute_VirtualMachineStateOperations(t *testing.T) {
 // The operations that move the real guest. Each ends with the machine running
 // again, which is what the operation means on real hardware.
 func TestCompute_VirtualMachineGuestOperations(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 	const rg = "vm-guest-rg"
 	const vmName = "vm-guest"
@@ -251,6 +253,7 @@ func TestCompute_VirtualMachineGuestOperations(t *testing.T) {
 // A Spot machine is evicted, and its eviction policy decides what that leaves
 // behind.
 func TestCompute_VirtualMachineSimulateEvictionDeallocatesASpotMachine(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 	const rg = "vm-spot-rg"
 	const vmName = "vm-spot"
@@ -294,6 +297,7 @@ func TestCompute_VirtualMachineSimulateEvictionDeallocatesASpotMachine(t *testin
 // produced, stored in the account the machine names and readable back through
 // the Blob data plane.
 func TestCompute_VirtualMachineBootDiagnostics(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 	const rg = "vm-bootdiag-rg"
 	const vmName = "vm-bootdiag"

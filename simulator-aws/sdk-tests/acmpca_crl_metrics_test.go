@@ -25,6 +25,7 @@ import (
 // a bucket the CRL cannot be written to counts MisconfiguredCRLBucket while
 // the revocation itself stands, as AWS Private CA reports it.
 func TestPrivateCA_CRLPublicationIsCountedInCloudWatch(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, bucket, metric string
 		createBucket         bool

@@ -47,6 +47,7 @@ func newTasksClient(t *testing.T) *run.TasksClient {
 }
 
 func TestSDK_CloudRunV2_WorkerPools_RoundTrip(t *testing.T) {
+	t.Parallel()
 	pools := newWorkerPoolsClient(t)
 	revisions := newRevisionsClient(t)
 	parent := "projects/test-project/locations/us-central1"
@@ -134,6 +135,7 @@ func TestSDK_CloudRunV2_WorkerPools_RoundTrip(t *testing.T) {
 }
 
 func TestSDK_CloudRunV2_WorkerPools_IAM(t *testing.T) {
+	t.Parallel()
 	pools := newWorkerPoolsClient(t)
 	parent := "projects/test-project/locations/us-central1"
 	id := uniqueName("v2-wp-iam")
@@ -180,6 +182,7 @@ func TestSDK_CloudRunV2_WorkerPools_IAM(t *testing.T) {
 }
 
 func TestSDK_CloudRunV2_Instances_RoundTrip(t *testing.T) {
+	t.Parallel()
 	inst := newInstancesClient(t)
 	parent := "projects/test-project/locations/us-central1"
 	id := uniqueName("v2-inst-roundtrip")
@@ -236,6 +239,7 @@ func TestSDK_CloudRunV2_Instances_RoundTrip(t *testing.T) {
 }
 
 func TestSDK_CloudRunV2_Instances_IAM(t *testing.T) {
+	t.Parallel()
 	inst := newInstancesClient(t)
 	parent := "projects/test-project/locations/us-central1"
 	id := uniqueName("v2-inst-iam")
@@ -293,6 +297,7 @@ func TestSDK_CloudRunV2_Instances_IAM(t *testing.T) {
 }
 
 func TestSDK_CloudRunV2_JobUpdate_And_ExecutionTasks(t *testing.T) {
+	t.Parallel()
 	jobs := newJobsClient(t)
 	execs := newExecutionsClient(t)
 	tasks := newTasksClient(t)

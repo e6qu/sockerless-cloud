@@ -17,6 +17,7 @@ import (
 // backend takes its reuse-by-name branch. Real AWS rejects same-name
 // groups within one VPC; different VPCs may reuse a name.
 func TestEC2_SecurityGroupDuplicateNameRejected(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.71.0.0/16")})
 	require.NoError(t, err)
@@ -56,6 +57,7 @@ func TestEC2_SecurityGroupDuplicateNameRejected(t *testing.T) {
 // that code), and DescribeSecurityGroups must NOT accumulate duplicate
 // permissions.
 func TestEC2_AuthorizeIngressDuplicateRejected(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.73.0.0/16")})
 	require.NoError(t, err)

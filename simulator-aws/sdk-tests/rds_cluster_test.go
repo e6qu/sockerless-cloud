@@ -11,6 +11,7 @@ import (
 )
 
 func TestRDS_DBClusterLifecycle(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	id := "test-aurora-cluster"
 	_, err := c.CreateDBCluster(ctx, &rds.CreateDBClusterInput{
@@ -101,6 +102,7 @@ func TestRDS_DBClusterLifecycle(t *testing.T) {
 }
 
 func TestRDS_RebootDBInstance(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	id := "test-reboot-db"
 	_, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
@@ -135,6 +137,7 @@ func TestRDS_RebootDBInstance(t *testing.T) {
 }
 
 func TestRDS_DBSubnetGroupLifecycle(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	name := "test-subnet-group"
 	_, err := c.CreateDBSubnetGroup(ctx, &rds.CreateDBSubnetGroupInput{
@@ -201,6 +204,7 @@ func TestRDS_DBSubnetGroupLifecycle(t *testing.T) {
 }
 
 func TestRDS_DBParameterGroupLifecycle(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	name := "test-param-group"
 	_, err := c.CreateDBParameterGroup(ctx, &rds.CreateDBParameterGroupInput{

@@ -16,6 +16,7 @@ import (
 // launch-template data submitted on create must round-trip verbatim through
 // DescribeLaunchTemplateVersions, so the Terraform provider sees no drift.
 func TestEC2_LaunchTemplateLifecycle(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 
 	data := &types.RequestLaunchTemplateData{

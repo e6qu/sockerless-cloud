@@ -21,6 +21,7 @@ import (
 // The listings report the sites their scope actually holds, and the singleton
 // is the same resource the site's own listing carries.
 func TestSDK_ResourceHealthMetadata(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-rhm-rg"
 	ensureRG(t, rg)
 

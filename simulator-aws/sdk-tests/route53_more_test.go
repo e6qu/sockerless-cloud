@@ -31,6 +31,7 @@ func r53MoreZone(t *testing.T, c *route53.Client, ctx context.Context, name stri
 }
 
 func TestRoute53_ReusableDelegationSets(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -75,6 +76,7 @@ func TestRoute53_ReusableDelegationSets(t *testing.T) {
 }
 
 func TestRoute53_CidrCollections(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -139,6 +141,7 @@ func TestRoute53_CidrCollections(t *testing.T) {
 }
 
 func TestRoute53_DNSSECKeySigningKeys(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -179,6 +182,7 @@ func TestRoute53_DNSSECKeySigningKeys(t *testing.T) {
 }
 
 func TestRoute53_TrafficPolicyInstances(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -255,6 +259,7 @@ func TestRoute53_TrafficPolicyInstances(t *testing.T) {
 }
 
 func TestRoute53_VPCAssociationAuthorizations(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -286,6 +291,7 @@ func TestRoute53_VPCAssociationAuthorizations(t *testing.T) {
 }
 
 func TestRoute53_LimitsAndCheckerRanges(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -311,6 +317,7 @@ func TestRoute53_LimitsAndCheckerRanges(t *testing.T) {
 }
 
 func TestRoute53_HealthCheckLastFailureAndTags(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -355,6 +362,7 @@ func TestRoute53_HealthCheckLastFailureAndTags(t *testing.T) {
 }
 
 func TestRoute53_TestDNSAnswerAndZoneUpdates(t *testing.T) {
+	t.Parallel()
 	c := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

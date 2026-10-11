@@ -27,6 +27,7 @@ func arChunkedMedia() []byte {
 }
 
 func TestArtifactRegistry_ResumableFileUpload(t *testing.T) {
+	t.Parallel()
 	svc := arAdminService(t)
 	repo := arCreateFormatRepository(t, svc, "projects/ar-resumable/locations/us-central1", uniqueName("files-repo"), "GENERIC")
 	content := arChunkedMedia()
@@ -54,8 +55,9 @@ func TestArtifactRegistry_ResumableFileUpload(t *testing.T) {
 }
 
 func TestArtifactRegistry_ResumableGenericUpload(t *testing.T) {
+	t.Parallel()
 	svc := arAdminService(t)
-	repo := arCreateFormatRepository(t, svc, "projects/ar-resumable/locations/us-central1", uniqueName("generic-repo"), "GENERIC")
+	repo := arCreateFormatRepository(t, svc, "projects/ar-resumable/locations/us-central1", uniqueName("generic-repo-19a5"), "GENERIC")
 	content := arChunkedMedia()
 
 	uploaded, err := svc.Projects.Locations.Repositories.GenericArtifacts.Upload(repo,
@@ -77,6 +79,7 @@ func TestArtifactRegistry_ResumableGenericUpload(t *testing.T) {
 // A Docker push records each manifest and blob as a File named by its digest;
 // files.delete is refused outside generic repositories.
 func TestArtifactRegistry_DockerPushFilesAndRegistryURI(t *testing.T) {
+	t.Parallel()
 	svc := arAdminService(t)
 	project, repoID := "ar-push-files", uniqueName("docker-repo")
 	arCreateRepository(t, project, "us-central1", repoID)

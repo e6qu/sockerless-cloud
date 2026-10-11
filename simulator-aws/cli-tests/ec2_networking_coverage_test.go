@@ -10,6 +10,7 @@ import (
 // that hid CloudWatch's protocol break).
 
 func TestEC2CLI_RouteTableAssociationLifecycle(t *testing.T) {
+	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc", "--cidr-block", "10.114.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	sub := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-subnet", "--vpc-id", vpc, "--cidr-block", "10.114.1.0/24", "--query", "Subnet.SubnetId", "--output", "text")))
 	rt := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-route-table", "--vpc-id", vpc, "--query", "RouteTable.RouteTableId", "--output", "text")))
@@ -34,6 +35,7 @@ func TestEC2CLI_RouteTableAssociationLifecycle(t *testing.T) {
 }
 
 func TestEC2CLI_InternetGatewayAttachDetachDelete(t *testing.T) {
+	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc", "--cidr-block", "10.115.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	igw := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-internet-gateway", "--query", "InternetGateway.InternetGatewayId", "--output", "text")))
 
@@ -54,6 +56,7 @@ func TestEC2CLI_InternetGatewayAttachDetachDelete(t *testing.T) {
 }
 
 func TestEC2CLI_VpcAndSubnetAttributes(t *testing.T) {
+	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc", "--cidr-block", "10.116.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	sub := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-subnet", "--vpc-id", vpc, "--cidr-block", "10.116.1.0/24", "--query", "Subnet.SubnetId", "--output", "text")))
 
@@ -73,6 +76,7 @@ func TestEC2CLI_VpcAndSubnetAttributes(t *testing.T) {
 }
 
 func TestEC2CLI_RevokeSecurityGroupRules(t *testing.T) {
+	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc", "--cidr-block", "10.117.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	sg := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-security-group", "--group-name", "cli-revoke-cov", "--description", "r", "--vpc-id", vpc, "--query", "GroupId", "--output", "text")))
 
@@ -104,6 +108,7 @@ func TestEC2CLI_RevokeSecurityGroupRules(t *testing.T) {
 }
 
 func TestEC2CLI_RevokeSecurityGroupRulesByID(t *testing.T) {
+	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc", "--cidr-block", "10.118.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	sg := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-security-group", "--group-name", "cli-revoke-by-id", "--description", "r", "--vpc-id", vpc, "--query", "GroupId", "--output", "text")))
 

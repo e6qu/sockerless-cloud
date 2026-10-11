@@ -8,6 +8,7 @@ import (
 // TestIAMCLI_UpdateUserAndGroup renames a user and a group through the aws CLI,
 // asserting the ARN re-keys to the new name/path.
 func TestIAMCLI_UpdateUserAndGroup(t *testing.T) {
+	t.Parallel()
 	user := "uc-cli-user"
 	newUser := "uc-cli-user-renamed"
 	runCLI(t, awsCLI("iam", "create-user", "--user-name", user))
@@ -46,6 +47,7 @@ func TestIAMCLI_UpdateUserAndGroup(t *testing.T) {
 // TestIAMCLI_LoginProfile drives the console-password profile lifecycle through
 // the aws CLI.
 func TestIAMCLI_LoginProfile(t *testing.T) {
+	t.Parallel()
 	user := "uc-cli-login-user"
 	runCLI(t, awsCLI("iam", "create-user", "--user-name", user))
 	t.Cleanup(func() {
@@ -77,6 +79,7 @@ func TestIAMCLI_LoginProfile(t *testing.T) {
 // TestIAMCLI_AccessKeyLastUsed updates a key's status and reads its last-used
 // metadata through the aws CLI.
 func TestIAMCLI_AccessKeyLastUsed(t *testing.T) {
+	t.Parallel()
 	user := "uc-cli-key-user"
 	runCLI(t, awsCLI("iam", "create-user", "--user-name", user))
 	t.Cleanup(func() { runCLIIgnore(awsCLI("iam", "delete-user", "--user-name", user)) })
@@ -105,6 +108,7 @@ func TestIAMCLI_AccessKeyLastUsed(t *testing.T) {
 
 // TestIAMCLI_UserTags exercises tag-user / list-user-tags / untag-user.
 func TestIAMCLI_UserTags(t *testing.T) {
+	t.Parallel()
 	user := "uc-cli-tag-user"
 	runCLI(t, awsCLI("iam", "create-user", "--user-name", user))
 	t.Cleanup(func() { runCLIIgnore(awsCLI("iam", "delete-user", "--user-name", user)) })

@@ -49,6 +49,7 @@ func pgCreateServer(t *testing.T, rg, name string) {
 }
 
 func TestAzurePGFlexibleServer_LifecycleActions(t *testing.T) {
+	t.Parallel()
 	rg := "pg-actions-rg"
 	server := "pg-actions-srv"
 	createResourceGroup(t, rg)
@@ -116,6 +117,7 @@ func TestAzurePGFlexibleServer_LifecycleActions(t *testing.T) {
 }
 
 func TestAzurePGFlexibleServer_NestedResources(t *testing.T) {
+	t.Parallel()
 	rg := "pg-nested-rg"
 	server := "pg-nested-srv"
 	createResourceGroup(t, rg)
@@ -244,6 +246,7 @@ func TestAzurePGFlexibleServer_NestedResources(t *testing.T) {
 }
 
 func TestAzurePGFlexibleServer_CheckNameAvailability(t *testing.T) {
+	t.Parallel()
 	rg := "pg-cna-rg"
 	server := "pg-cna-srv"
 	createResourceGroup(t, rg)

@@ -24,6 +24,7 @@ import (
 // The Microsoft.Compute action catalog is the provider's own surface, and its
 // per-location usage is counted from what the subscription holds there.
 func TestSDK_Compute_OperationsAndUsage(t *testing.T) {
+	t.Parallel()
 	operations, err := armcompute.NewOperationsClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	catalog, err := operations.NewListPager(nil).NextPage(ctx)
@@ -70,6 +71,7 @@ func TestSDK_Compute_OperationsAndUsage(t *testing.T) {
 // machine moves it. A machine needs a real network interface, so this half
 // needs the Linux network capabilities the simulator's fabric is built on.
 func TestSDK_Compute_UsageCountsWhatIsHeld(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 
 	const rg, location = "compute-usage-rg", "eastus"
@@ -112,6 +114,7 @@ func TestSDK_Compute_UsageCountsWhatIsHeld(t *testing.T) {
 // An extension topic is derived from the scope it is asked about, and names the
 // system topic whose source is that resource.
 func TestSDK_EventGrid_ExtensionTopic(t *testing.T) {
+	t.Parallel()
 	rg := uniqueName("eventgrid-extension-rg")
 	ensureRG(t, rg)
 
@@ -159,6 +162,7 @@ func TestSDK_EventGrid_ExtensionTopic(t *testing.T) {
 // A workspace's shared keys are its own pair, and regenerating them replaces
 // the pair rather than reporting that it did.
 func TestSDK_OperationalInsights_RegenerateSharedKey(t *testing.T) {
+	t.Parallel()
 	const rg, workspace = "loganalytics-keys-rg", "keys-workspace"
 	ensureRG(t, rg)
 

@@ -11,6 +11,7 @@ import (
 // machine that exists and, for the guest-moving operations, one that is really
 // running.
 func TestComputeVirtualMachineOperationsCLI(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 
 	vnetURL := armURL("Microsoft.Network", "virtualNetworks/cli-vmops-vnet", "2024-05-01")

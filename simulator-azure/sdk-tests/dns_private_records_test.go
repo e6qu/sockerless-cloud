@@ -14,6 +14,7 @@ import (
 // were already covered; these types share a separate code path that maps each
 // type's distinct properties, so they each need a round-trip assertion.
 func TestPrivateDNS_NonARecordTypes(t *testing.T) {
+	t.Parallel()
 	const rg = "dns-rs-nonA-rg"
 	ensureRG(t, rg)
 	const zoneName = "sdk-nonrecords.internal"

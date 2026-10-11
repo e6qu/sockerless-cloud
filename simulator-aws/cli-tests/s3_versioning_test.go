@@ -56,6 +56,7 @@ type s3VersionListingCLI struct {
 // address reads, copies and deletes, and a suspended bucket writes the null
 // version.
 func TestS3_ObjectVersioningCLI(t *testing.T) {
+	t.Parallel()
 	const bucket = "cli-object-versioning"
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", bucket))
 	runCLI(t, awsCLI("s3api", "put-bucket-versioning", "--bucket", bucket,
@@ -121,6 +122,7 @@ func TestS3_ObjectVersioningCLI(t *testing.T) {
 // TestS3_DeleteObjectsRefusesEntriesCLI deletes two keys as a caller that may
 // delete one: delete-objects succeeds and reports the other as AccessDenied.
 func TestS3_DeleteObjectsRefusesEntriesCLI(t *testing.T) {
+	t.Parallel()
 	const bucket = "cli-delete-objects-partial"
 	const user = "cli-s3-delete-scratch"
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", bucket))
@@ -167,6 +169,7 @@ func TestS3_DeleteObjectsRefusesEntriesCLI(t *testing.T) {
 // TestLambda_CreateFunctionFromS3ObjectVersionCLI deploys a function from a
 // noncurrent version of its package with `--code S3ObjectVersion=…`.
 func TestLambda_CreateFunctionFromS3ObjectVersionCLI(t *testing.T) {
+	t.Parallel()
 	const bucket = "cli-lambda-code-versions"
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", bucket))
 	runCLI(t, awsCLI("s3api", "put-bucket-versioning", "--bucket", bucket,

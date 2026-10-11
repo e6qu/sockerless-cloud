@@ -47,6 +47,7 @@ type webProcessCollection struct {
 // CLI. The negative control comes first: before the site's container starts,
 // the CLI reads an empty instance list and an empty process list.
 func TestWebApps_CLI_InstancesAndProcesses(t *testing.T) {
+	t.Parallel()
 	const apiVersion = "2025-03-01"
 	url := func(path string) string { return armURL("Microsoft.Web", path, apiVersion) }
 	const site = "cli-webproc-app"

@@ -8,6 +8,7 @@ import (
 // TestEC2InstanceKnobFidelityCLI covers the RunInstances knobs + Instance
 // response fields and the ModifyInstanceAttribute persist via the aws CLI.
 func TestEC2InstanceKnobFidelityCLI(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	vpcID := q("ec2", "create-vpc", "--cidr-block", "10.132.0.0/16", "--query", "Vpc.VpcId", "--output", "text")

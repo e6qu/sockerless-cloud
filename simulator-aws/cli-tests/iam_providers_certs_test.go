@@ -25,6 +25,7 @@ MIIBVgIBADANBgkqhkiG9w0BAQEFAASCAUAwggE8AgEAAkEA0fakekeyfakekeyfk
 )
 
 func TestIAM_SAMLProvider_CLI(t *testing.T) {
+	t.Parallel()
 	name := "cli-saml-" + time.Now().Format("150405")
 	createOut := runCLI(t, awsCLI("iam", "create-saml-provider",
 		"--name", name,
@@ -71,6 +72,7 @@ func TestIAM_SAMLProvider_CLI(t *testing.T) {
 }
 
 func TestIAM_ServerCertificate_CLI(t *testing.T) {
+	t.Parallel()
 	name := "cli-cert-" + time.Now().Format("150405")
 	upOut := runCLI(t, awsCLI("iam", "upload-server-certificate",
 		"--server-certificate-name", name,
@@ -139,6 +141,7 @@ func TestIAM_AccountAlias_CLI(t *testing.T) {
 }
 
 func TestIAM_OIDCProviderTags_CLI(t *testing.T) {
+	t.Parallel()
 	url := "https://oidc.eks.us-east-1.amazonaws.com/id/clitags" + time.Now().Format("150405")
 	createOut := runCLI(t, awsCLI("iam", "create-open-id-connect-provider",
 		"--url", url,

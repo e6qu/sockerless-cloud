@@ -166,6 +166,7 @@ func TestCompute_SharedVPCHostAndServiceProjects(t *testing.T) {
 // afterwards — same name, same contents — so it has to be gone from the zone it
 // left, which is the half a re-create would get wrong.
 func TestCompute_MoveDiskBetweenZones(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, from, to, name = "move-project", "us-central1-a", "us-central1-b", "workspace"
 
@@ -205,6 +206,7 @@ func TestCompute_MoveDiskBetweenZones(t *testing.T) {
 }
 
 func TestCompute_MoveInstanceBetweenZones(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, from, to, name = "move-instance", "us-central1-a", "us-central1-b", "worker"
@@ -280,6 +282,7 @@ func TestCompute_ProjectVerbsResolveThroughResourceManager(t *testing.T) {
 // exists in IAM once the project does, under the project and through the -
 // wildcard, which is how terraform-provider-google reads it back.
 func TestCompute_DefaultServiceAccountIsAnIAMServiceAccount(t *testing.T) {
+	t.Parallel()
 	const project = "compute-default-sa"
 	number := requireProject(t, project)
 	got, err := computeService(t).Projects.Get(project).Do()

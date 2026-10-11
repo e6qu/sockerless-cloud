@@ -19,6 +19,7 @@ import (
 // policy: refuse a public ACL, require server-side encryption, hold a caller to
 // one storage class. Each reads a header of the request, verbatim.
 func TestS3_RequestHeaderConditionKeysScopeTheGrant(t *testing.T) {
+	t.Parallel()
 	bucket := "s3-request-header-bucket"
 	admin := s3Client()
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
@@ -57,6 +58,7 @@ func TestS3_RequestHeaderConditionKeysScopeTheGrant(t *testing.T) {
 // TestS3_RequestObjectTagConditionKeyScopesTheGrant covers
 // s3:RequestObjectTag/<key>, the tags a write puts on the object it creates.
 func TestS3_RequestObjectTagConditionKeyScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	bucket := "s3-request-tag-bucket"
 	admin := s3Client()
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
@@ -87,6 +89,7 @@ func TestS3_RequestObjectTagConditionKeyScopesTheGrant(t *testing.T) {
 // lambda:FunctionUrlAuthType, which a policy pins so no function URL is left
 // reachable without authentication.
 func TestLambda_FunctionUrlAuthTypeConditionKeyScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	admin := lambdaClient()
 	lambdaConditionFunction(t, admin, "cond-authtype-fn")
 

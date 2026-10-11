@@ -18,6 +18,7 @@ import (
 //     account prefix; the sim is single-account, so ReferencedGroupInfo
 //     omits UserId (the provider only prefixes when UserId != its account).
 func TestEC2_SecurityGroupRuleFidelity(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.71.0.0/16")})
 	require.NoError(t, err)

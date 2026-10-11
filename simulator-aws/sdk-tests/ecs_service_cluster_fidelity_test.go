@@ -14,6 +14,7 @@ import (
 // round-trip on both create and update — each was dropped before, drifting
 // aws_ecs_service every plan.
 func TestECS_ServiceFidelitySDK(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String("svc-fidelity-cluster")})
@@ -81,6 +82,7 @@ func TestECS_ServiceFidelitySDK(t *testing.T) {
 // which were unregistered — so aws_ecs_cluster setting/configuration changes
 // forced recreation.
 func TestECS_ClusterUpdateFidelitySDK(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{

@@ -53,6 +53,7 @@ func bqCLI(args ...string) *exec.Cmd {
 // `gcloud storage cp` sends a file past its resumable threshold through
 // /resumable/upload/storage/v1/b/{bucket}/o, and the object holds its bytes.
 func TestGCSCLI_ResumableUpload(t *testing.T) {
+	t.Parallel()
 	const bucket = "cli-resumable-bucket"
 	runCLI(t, gcloudCLI("storage", "buckets", "create", "gs://"+bucket, "--location=us"))
 	t.Cleanup(func() { runCLI(t, gcloudCLI("storage", "rm", "--recursive", "gs://"+bucket)) })
@@ -69,6 +70,7 @@ func TestGCSCLI_ResumableUpload(t *testing.T) {
 // file past 5 MiB through the resumable upload paths of genericArtifacts.upload
 // and files.upload, and the downloaded file holds its bytes.
 func TestArtifactRegistryCLI_ResumableUploads(t *testing.T) {
+	t.Parallel()
 	const repo = "cli-resumable-generic"
 	runCLI(t, gcloudCLI("artifacts", "repositories", "create", repo,
 		"--repository-format=generic", "--location="+location))
@@ -99,6 +101,7 @@ func TestArtifactRegistryCLI_ResumableUploads(t *testing.T) {
 // `bq load` sends a local file past 5 MiB through the resumable upload path of
 // jobs.insert, waits for the load job, and the table holds every row.
 func TestBigQueryCLI_ResumableLoad(t *testing.T) {
+	t.Parallel()
 	const dataset = "cli_resumable_load"
 	var csv bytes.Buffer
 	rows := 0

@@ -28,6 +28,7 @@ func acmHostedZoneID(route53ID *string) string {
 }
 
 func TestACMAcmeControlAndRFC8555DataPlane(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 

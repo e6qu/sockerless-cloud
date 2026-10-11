@@ -8,6 +8,7 @@ import (
 )
 
 func TestLogicAppsCLI_WorkflowLifecycle(t *testing.T) {
+	t.Parallel()
 	url := armURL("Microsoft.Logic", "workflows/cli-logic", "2019-05-01")
 	body := `{"location":"eastus","properties":{"definition":{"$schema":"https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#","contentVersion":"1.0.0.0","triggers":{"manual":{"type":"Request","kind":"Http"}},"actions":{},"outputs":{}},"parameters":{}},"tags":{"env":"cli"}}`
 	runCLI(t, azRest("PUT", url, body))
@@ -34,6 +35,7 @@ func TestLogicAppsCLI_WorkflowLifecycle(t *testing.T) {
 }
 
 func TestContainerInstancesCLI_GroupLogsLifecycle(t *testing.T) {
+	t.Parallel()
 	url := armURL("Microsoft.ContainerInstance", "containerGroups/cli-aci", "2023-05-01")
 	body := fmt.Sprintf(`{"location":"eastus","properties":{"osType":"Linux","restartPolicy":"Never","containers":[{"name":"main","properties":{"image":%q,"command":["/usr/local/bin/container-command","log","aci-cli"],"resources":{"requests":{"cpu":1,"memoryInGB":1}}}}]}}`, commandImageName)
 	runCLI(t, azRest("PUT", url, body))

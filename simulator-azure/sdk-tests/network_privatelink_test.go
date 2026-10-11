@@ -18,6 +18,7 @@ import (
 // connection on the service, the service's owner approves it there, and the
 // endpoint's own read reports the owner's decision.
 func TestNetworkPrivateLink_ServiceAndEndpointShareOneConnection(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	rg := "plink-rg"
 	requireResourceGroup(t, rg)
@@ -172,6 +173,7 @@ func TestNetworkPrivateLink_ServiceAndEndpointShareOneConnection(t *testing.T) {
 // service that auto-approves the caller's subscription connects an endpoint
 // without the owner acting, and one that does not leaves it pending.
 func TestNetworkPrivateLinkService_VisibilityAndAutoApproval(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	rg := "plink-visibility-rg"
 	requireResourceGroup(t, rg)
@@ -296,6 +298,7 @@ func TestNetworkPrivateLinkService_VisibilityAndAutoApproval(t *testing.T) {
 // there is what the endpoint reads back, and the endpoint publishes the vault's
 // name under a custom DNS configuration.
 func TestNetworkPrivateEndpoint_KeyVaultConnectionIsOneObject(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	rg := "plink-kv-rg"
 	requireResourceGroup(t, rg)
@@ -423,6 +426,7 @@ func TestNetworkPrivateEndpoint_KeyVaultConnectionIsOneObject(t *testing.T) {
 // the private DNS zone's own record surface serves, and deleting the group
 // takes them back out.
 func TestNetworkPrivateEndpoint_DNSZoneGroupPublishesRecords(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	rg := "plink-dns-rg"
 	requireResourceGroup(t, rg)
@@ -533,6 +537,7 @@ func TestNetworkPrivateEndpoint_DNSZoneGroupPublishesRecords(t *testing.T) {
 // operations and the available-private-endpoint-type catalog, which reports the
 // resource types an endpoint can actually terminate on.
 func TestNetworkPrivateEndpoint_ListsAndAvailableTypes(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	rg := "plink-list-rg"
 	requireResourceGroup(t, rg)
@@ -655,6 +660,7 @@ func TestNetworkPrivateEndpoint_ListsAndAvailableTypes(t *testing.T) {
 // surface and the subnet validation its container network interface
 // configurations are subject to.
 func TestNetworkProfiles_CRUD(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	rg := "netprofile-rg"
 	requireResourceGroup(t, rg)

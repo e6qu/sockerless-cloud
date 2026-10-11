@@ -20,6 +20,7 @@ import (
 //	GET /v1/projects/{project}/locations/{location}/repositories/{repo}/prewarmedArtifacts
 
 func TestArtifactRegistry_PrewarmedArtifactLifecycle(t *testing.T) {
+	t.Parallel()
 	svc := arAdminService(t)
 	parent := "projects/ar-prewarm/locations/us-central1"
 	repoID := uniqueName("prewarm-repo")
@@ -95,6 +96,7 @@ func TestArtifactRegistry_PrewarmedArtifactLifecycle(t *testing.T) {
 
 // streamLocation is optional: an unset one caches the artifact where it lives.
 func TestArtifactRegistry_PrewarmDefaultsToTheRepositoryLocation(t *testing.T) {
+	t.Parallel()
 	svc := arAdminService(t)
 	parent := "projects/ar-prewarm-default/locations/europe-west1"
 	repoID := uniqueName("dflt-repo")
@@ -120,6 +122,7 @@ func TestArtifactRegistry_PrewarmDefaultsToTheRepositoryLocation(t *testing.T) {
 }
 
 func TestArtifactRegistry_PrewarmRejectsWhatItCannotSelect(t *testing.T) {
+	t.Parallel()
 	svc := arAdminService(t)
 	parent := "projects/ar-prewarm-bad/locations/us-central1"
 	repoID := uniqueName("bad-repo")
@@ -163,6 +166,7 @@ func TestArtifactRegistry_PrewarmRejectsWhatItCannotSelect(t *testing.T) {
 // The repository colon-verb fan-in serves the IAM triple as well as these
 // custom methods, so the two must not shadow each other.
 func TestArtifactRegistry_RepositoryIAMStillWorksBesideTheCustomVerbs(t *testing.T) {
+	t.Parallel()
 	svc := arAdminService(t)
 	parent := "projects/ar-verb-share/locations/us-central1"
 	repoID := uniqueName("share-repo")

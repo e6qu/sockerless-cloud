@@ -23,6 +23,7 @@ import (
 // official SDK for the rule and a real registry client for the pull, and
 // asserts the image that comes back is the upstream image's own content.
 func TestECR_PullThroughCacheHydratesFromTheUpstreamRegistry(t *testing.T) {
+	t.Parallel()
 	client := ecrClient()
 	prefix := uniqueName("ecr-pub-cache")
 	repo := prefix + "/docker/library/alpine"

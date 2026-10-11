@@ -16,6 +16,7 @@ import (
 // return ResourceNotFoundException (a declared error for each) when the group
 // does not exist, not an empty result that masks misconfiguration.
 func TestCWLogs_ReadOpsRejectMissingGroup(t *testing.T) {
+	t.Parallel()
 	c := cwLogsClient()
 	const missing = "/does-not-exist-rnfe"
 

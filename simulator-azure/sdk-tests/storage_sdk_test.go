@@ -89,6 +89,7 @@ func storageRawRequest(t *testing.T, method, account, service, target string) *h
 }
 
 func TestStorageSDK_BlobLifecycleAndPagedLists(t *testing.T) {
+	t.Parallel()
 	account := "sdkblobacct"
 	container := "sdk-blob-container"
 	blobName := "one.txt"
@@ -149,6 +150,7 @@ func TestStorageSDK_BlobLifecycleAndPagedLists(t *testing.T) {
 }
 
 func TestStorageDataPlane_XMLErrors(t *testing.T) {
+	t.Parallel()
 	account := "sdkstorageerrors"
 
 	blobResp := storageRawRequest(t, http.MethodGet, account, "blob", "/missing-container/missing-blob.txt")
@@ -175,6 +177,7 @@ func assertStorageXMLError(t *testing.T, resp *http.Response, status int, code s
 }
 
 func TestBlobDataPlane_Pagination(t *testing.T) {
+	t.Parallel()
 	account := "sdkblobpaginate"
 	container := "paginate-container"
 
@@ -237,6 +240,7 @@ func TestBlobDataPlane_Pagination(t *testing.T) {
 }
 
 func TestStorageSDK_BlobStartCopyFromURL(t *testing.T) {
+	t.Parallel()
 	account := "sdkcopyblobacct"
 	container := "sdk-copy-container"
 	srcName := "nested/source blob.txt"
@@ -315,6 +319,7 @@ func TestStorageSDK_BlobStartCopyFromURL(t *testing.T) {
 }
 
 func TestStorageSDK_BlobBlockStaging(t *testing.T) {
+	t.Parallel()
 	account := "sdkblockblobacct"
 	container := "sdk-block-container"
 	blobName := "staged.txt"
@@ -371,6 +376,7 @@ func TestStorageSDK_BlobBlockStaging(t *testing.T) {
 }
 
 func TestStorageSDK_FileLifecycleAndPagedLists(t *testing.T) {
+	t.Parallel()
 	account := "sdkfileacct"
 	share := "sdk-file-share"
 	fileName := "one.txt"
@@ -418,6 +424,7 @@ func TestStorageSDK_FileLifecycleAndPagedLists(t *testing.T) {
 }
 
 func TestStorageSDK_FileShareStoredAccessPolicy(t *testing.T) {
+	t.Parallel()
 	const (
 		account = "sdkfileaclacct"
 		name    = "sdk-file-acl-share"
@@ -460,6 +467,7 @@ func TestStorageSDK_FileShareStoredAccessPolicy(t *testing.T) {
 }
 
 func TestStorageSDK_QueueLifecycleAndPagedLists(t *testing.T) {
+	t.Parallel()
 	account := "sdkqueueacct"
 	queueName := "sdkqueue"
 	message := "hello from azqueue"
@@ -506,6 +514,7 @@ func TestStorageSDK_QueueLifecycleAndPagedLists(t *testing.T) {
 }
 
 func TestStorageSDK_TableLifecycleAndPagedLists(t *testing.T) {
+	t.Parallel()
 	account := "sdktableacct"
 	tableName := "SdkTable"
 
@@ -553,6 +562,7 @@ func TestStorageSDK_TableLifecycleAndPagedLists(t *testing.T) {
 // endpoint honors server-side $filter and pages results via $top + the
 // x-ms-continuation-* tokens, the way aztables drives the data plane.
 func TestStorageSDK_TableQueryFilterAndPaging(t *testing.T) {
+	t.Parallel()
 	account := "sdktablequeryacct"
 	tableName := "QueryTable"
 
@@ -649,6 +659,7 @@ func storageMetadataValue(metadata map[string]*string, name string) string {
 // Set Queue ACL was. The Blob plane serves its whole documented surface, so it
 // has no arm here; its operations are covered in blob_dataplane_test.go.
 func TestStorageDataPlane_UnservedOperationsDeclareGaps(t *testing.T) {
+	t.Parallel()
 	t.Run("file", func(t *testing.T) {
 		account, share, fileName := "sdkgapfile", "gap-share", "kept.txt"
 		payload := []byte("kept files payload")

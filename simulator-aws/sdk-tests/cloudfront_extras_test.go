@@ -16,6 +16,7 @@ import (
 // pre-OAC origin access identity CRUD:
 // Create → Get(+ETag) → GetConfig → Update → List → Delete.
 func TestCloudFrontOriginAccessIdentityLifecycle(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -83,6 +84,7 @@ func TestCloudFrontOriginAccessIdentityLifecycle(t *testing.T) {
 // TestCloudFrontContinuousDeploymentPolicyLifecycle exercises CDP CRUD:
 // Create → Get(+ETag) → GetConfig → Update → List → Delete.
 func TestCloudFrontContinuousDeploymentPolicyLifecycle(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -159,6 +161,7 @@ func TestCloudFrontContinuousDeploymentPolicyLifecycle(t *testing.T) {
 // TestCloudFrontMonitoringSubscriptionLifecycle exercises the
 // per-distribution monitoring subscription: Create → Get → Delete.
 func TestCloudFrontMonitoringSubscriptionLifecycle(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

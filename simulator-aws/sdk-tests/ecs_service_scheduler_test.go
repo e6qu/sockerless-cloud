@@ -20,6 +20,7 @@ import (
 // service task is stopped, rolling task-definition replacement, scale-out,
 // scale-in, and delete-time draining through the official ECS client.
 func TestECS_Service_ReconcilesRealTasks(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 	cluster := "sched-cluster"
 	const serviceName = "sched-svc"
@@ -144,6 +145,7 @@ func TestECS_Service_ReconcilesRealTasks(t *testing.T) {
 // network interface address of a running task, replaced that registration when
 // the task was replaced, and deregistered it when the service was deleted.
 func TestECS_Service_RegistersRunningTasksInCloudMap(t *testing.T) {
+	t.Parallel()
 	family := uniqueName("discovery-scheduler-task")
 	client := ecsClient()
 	cloudMap := cmClient()
@@ -280,6 +282,7 @@ func TestECS_Service_RegistersRunningTasksInCloudMap(t *testing.T) {
 // Regression: service tasks reached CloudWatch with nothing but the synthetic
 // "container started" event, which made every service in the simulator opaque.
 func TestECS_ServiceTaskStreamsLogsLive(t *testing.T) {
+	t.Parallel()
 	family := uniqueName("svc-live-logs-task")
 	client := ecsClient()
 	cluster := uniqueName("svc-live-logs-cluster")

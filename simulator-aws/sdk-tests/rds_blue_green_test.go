@@ -77,6 +77,7 @@ func rdsWriteFails(t *testing.T, database auroraSnapshotClient, statement string
 // instance committed, and keeps the blue instance under -old1 on an endpoint
 // of its own; Terraform deletes that instance by the deployment's Source.
 func TestRDS_BlueGreenDeploymentSwitchesOver(t *testing.T) {
+	t.Parallel()
 	for _, engine := range []string{"mysql", "postgres"} {
 		t.Run(engine, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -205,6 +206,7 @@ func TestRDS_BlueGreenDeploymentSwitchesOver(t *testing.T) {
 // same name, and a DB parameter group that does not exist, as ModifyDBInstance
 // does; an instance upgrades minor versions automatically unless told not to.
 func TestRDS_BlueGreenDeploymentDeletion(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	f := rdsInstanceFixture{t: t, ctx: ctx, client: rdsClient(), family: "mysql"}

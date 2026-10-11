@@ -34,6 +34,7 @@ func ipamExtrasFixtureIpam(t *testing.T, c *ec2.Client) (ipamID, scopeID string)
 // create, describe read-back, enable/disable with the enabled-policy query,
 // allocation-rule modify+get, and the organization-targets read.
 func TestEC2_IpamPolicyLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	ipamID, _ := ipamExtrasFixtureIpam(t, c)
 
@@ -145,6 +146,7 @@ func ipamExtrasFixturePool(t *testing.T, c *ec2.Client, ipamID string) string {
 // into the IPAM, describe it, associate/disassociate it to a CIDR, deprovision
 // it, and move a BYOIP CIDR into an IPAM pool.
 func TestEC2_IpamByoasnLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	ipamID, _ := ipamExtrasFixtureIpam(t, c)
 	poolID := ipamExtrasFixturePool(t, c, ipamID)
@@ -212,6 +214,7 @@ func TestEC2_IpamByoasnLifecycleSDK(t *testing.T) {
 // create a target, describe + modify the target, read the resolver rules and
 // versioned entries, then delete everything.
 func TestEC2_IpamPrefixListResolverLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	ipamID, _ := ipamExtrasFixtureIpam(t, c)
 
@@ -314,6 +317,7 @@ func TestEC2_IpamPrefixListResolverLifecycleSDK(t *testing.T) {
 // resource verification token family: create a token, describe it, and delete
 // it.
 func TestEC2_IpamExternalResourceVerificationTokenSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	ipamID, _ := ipamExtrasFixtureIpam(t, c)
 
@@ -348,6 +352,7 @@ func TestEC2_IpamExternalResourceVerificationTokenSDK(t *testing.T) {
 // which return honest-empty result sets since the sim has no cross-account
 // discovery backend.
 func TestEC2_IpamDiscoveredResourcesSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	ipamID, _ := ipamExtrasFixtureIpam(t, c)
 	desc, err := c.DescribeIpams(ctx, &ec2.DescribeIpamsInput{IpamIds: []string{ipamID}})
@@ -382,6 +387,7 @@ func TestEC2_IpamDiscoveredResourcesSDK(t *testing.T) {
 // CIDR is provisioned and allocated, then the allocation's description is
 // modified and read back.
 func TestEC2_IpamModifyPoolAllocationSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	ipamID, _ := ipamExtrasFixtureIpam(t, c)
 	poolID := ipamExtrasFixturePool(t, c, ipamID)

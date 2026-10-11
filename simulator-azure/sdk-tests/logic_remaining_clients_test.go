@@ -21,6 +21,7 @@ import (
 // TestLogicApps_IntegrationAccountArtifactsSDK covers the partner, agreement,
 // and certificate artifacts under an integration account.
 func TestLogicApps_IntegrationAccountArtifactsSDK(t *testing.T) {
+	t.Parallel()
 	rg := "logic-ia-artifacts-rg"
 	iaName := "logic-ia-artifacts"
 	cred := &fakeCredential{}
@@ -143,6 +144,7 @@ func TestLogicApps_IntegrationAccountArtifactsSDK(t *testing.T) {
 // trigger callback URL — the versions/{versionId}/triggers/{name}/listCallbackUrl
 // route, which is a distinct client from the live-trigger callback URL.
 func TestLogicApps_WorkflowVersionTriggerCallbackSDK(t *testing.T) {
+	t.Parallel()
 	rg := "logic-verstrig-rg"
 	wfName := "logic-verstrig-wf"
 	cred := &fakeCredential{}
@@ -185,6 +187,7 @@ func TestLogicApps_WorkflowVersionTriggerCallbackSDK(t *testing.T) {
 // TestLogicApps_ServiceEnvironmentCatalogsSDK covers the integration-service-
 // environment SKU catalog and the managed-API operation catalog.
 func TestLogicApps_ServiceEnvironmentCatalogsSDK(t *testing.T) {
+	t.Parallel()
 	rg := "logic-ise-catalog-rg"
 	iseName := "logic-ise-catalog"
 	cred := &fakeCredential{}
@@ -241,6 +244,7 @@ func TestLogicApps_ServiceEnvironmentCatalogsSDK(t *testing.T) {
 // their item reads are 404s — the assertions pin exactly that, which is the
 // contract a client sees for a run with no repeated or scoped actions.
 func TestLogicApps_RunActionSubReadsSDK(t *testing.T) {
+	t.Parallel()
 	rg := "logic-runsub-rg"
 	wfName := "logic-runsub-wf"
 	cred := &fakeCredential{}

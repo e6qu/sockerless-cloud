@@ -99,6 +99,7 @@ func ociDoAuthorized(t *testing.T, method, url string, body []byte, contentType,
 // a full chunked blob push + manifest push, then pull, against an ECR
 // multi-segment repository.
 func TestECR_OCIDataPlane(t *testing.T) {
+	t.Parallel()
 	repo := "oci-test-repo/app"
 	ecrCreateRepository(t, repo)
 
@@ -188,6 +189,7 @@ func TestECR_OCIDataPlane(t *testing.T) {
 // including this 404, also carries Docker-Distribution-Api-Version (real
 // registries set it on all responses, not just the base ping).
 func TestECR_OCIManifestHeadMissing(t *testing.T) {
+	t.Parallel()
 	repo := uniqueName("shim/registry")
 	ecrCreateRepository(t, repo)
 	const apiVersionHeader = "Docker-Distribution-Api-Version"
@@ -240,6 +242,7 @@ func TestECR_OCIManifestHeadMissing(t *testing.T) {
 // `unexpected status code 401 Unauthorized: Not Authorized`
 // (google/go-containerregistry#861).
 func TestECR_RegistryDataPlaneAuthentication(t *testing.T) {
+	t.Parallel()
 	repo := "ecr-auth/app"
 	ecrCreateRepository(t, repo)
 	credential := ecrRegistryCredential(t)

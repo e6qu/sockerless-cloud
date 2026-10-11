@@ -100,6 +100,7 @@ func putVolumeObject(t *testing.T, bucket *storage.BucketHandle, name, contentTy
 // is deleted and a renamed file's object moves to the new name. The volume
 // with only-dir mounts one directory of the bucket.
 func TestSDK_CloudRun_JobWritesThroughCloudStorageVolumes(t *testing.T) {
+	t.Parallel()
 	client := storageClient(t)
 	defer client.Close()
 	bucketName := uniqueName("sdk-run-gcs-volume")
@@ -167,6 +168,7 @@ test "$(cat /mnt/bucket/results/copy.txt)" = "seed"`)
 // A read-only Cloud Storage volume refuses the workload's writes, and nothing
 // it tried reaches the bucket.
 func TestSDK_CloudRun_JobReadOnlyCloudStorageVolume(t *testing.T) {
+	t.Parallel()
 	client := storageClient(t)
 	defer client.Close()
 	bucketName := uniqueName("sdk-run-gcs-readonly")

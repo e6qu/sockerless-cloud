@@ -19,6 +19,7 @@ import (
 // result set or flip a condition. The string-munging-evaluator class of
 // consumer bugs (#629 / #643 / #648) all stemmed from the opposite posture.
 func TestDynamoDB_ExpressionsFailLoud(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	table := "failloud-exprs"
 

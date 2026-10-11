@@ -292,6 +292,7 @@ func cosmosSimClientAt(t *testing.T, base, account string) *azcosmos.Client {
 // control plane mints: the account's own keys authorize the operations they are
 // allowed to, and a key the account never issued authorizes nothing.
 func TestCosmos_DataPlaneAuthorization(t *testing.T) {
+	t.Parallel()
 	const account = "authsdkcosmos"
 	keys := cosmosAccountKeys(t, account)
 	endpoint := cosmosDocumentEndpoint(t, account)
@@ -351,6 +352,7 @@ func TestCosmos_DataPlaneAuthorization(t *testing.T) {
 // current key material: after regenerateKey the retired key stops authorizing
 // and the key listKeys now serves starts.
 func TestCosmos_DataPlaneHonoursRegeneratedKeys(t *testing.T) {
+	t.Parallel()
 	const account = "rotatesdkcosmos"
 	before := cosmosAccountKeys(t, account)
 	endpoint := cosmosDocumentEndpoint(t, account)
@@ -385,6 +387,7 @@ func TestCosmos_DataPlaneHonoursRegeneratedKeys(t *testing.T) {
 // data plane hangs off: ARM advertises a per-account document endpoint, and it
 // is the account's hostname that tells the service whose keys sign a request.
 func TestCosmos_DocumentEndpointIsTheAccountsOwn(t *testing.T) {
+	t.Parallel()
 	const account = "endpointsdkcosmos"
 	endpoint := cosmosDocumentEndpoint(t, account)
 	parsed, err := url.Parse(endpoint)

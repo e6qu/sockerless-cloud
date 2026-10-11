@@ -9,6 +9,7 @@ import (
 // the ResourceName / ResourceType / EventId / ReadOnly attribute keys, not only
 // EventName.
 func TestCloudTrailLookupFilterKeysCLI(t *testing.T) {
+	t.Parallel()
 	const cluster = "cli-ct-filter-cluster"
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", cluster))
 	t.Cleanup(func() { _ = awsCLI("ecs", "delete-cluster", "--cluster", cluster).Run() })
@@ -56,6 +57,7 @@ func TestCloudTrailLookupFilterKeysCLI(t *testing.T) {
 // TestCloudTrailRecordsSchedulerAPICallCLI verifies EventBridge Scheduler API
 // calls are recorded in CloudTrail against scheduler.amazonaws.com.
 func TestCloudTrailRecordsSchedulerAPICallCLI(t *testing.T) {
+	t.Parallel()
 	const name = "cli-ct-schedule"
 	runCLI(t, awsCLI("scheduler", "create-schedule",
 		"--name", name,
@@ -74,6 +76,7 @@ func TestCloudTrailRecordsSchedulerAPICallCLI(t *testing.T) {
 }
 
 func TestCloudTrailRecordsRESTServiceAPICallsCLI(t *testing.T) {
+	t.Parallel()
 	const bucket = "cli-ct-rest-bucket"
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", bucket))
 	t.Cleanup(func() { _ = awsCLI("s3api", "delete-bucket", "--bucket", bucket).Run() })
@@ -126,6 +129,7 @@ func TestCloudTrailRecordsRESTServiceAPICallsCLI(t *testing.T) {
 // returned EventId reappear on a later page (the old absolute-offset token
 // overlapped pages on head-insertion).
 func TestCloudTrailLookupEventsPaginationCLI(t *testing.T) {
+	t.Parallel()
 	for i := 0; i < 6; i++ {
 		runCLI(t, awsCLI("ec2", "create-volume", "--availability-zone", "us-east-1a", "--size", "1"))
 	}

@@ -26,6 +26,7 @@ func ssmInstanceID(prefix string) string {
 }
 
 func TestSSMCLI_DocumentLifecycle(t *testing.T) {
+	t.Parallel()
 	name := "cli-doc-" + ssmStamp()
 	content := `{"schemaVersion":"2.2","mainSteps":[{"action":"aws:runShellScript","name":"s","inputs":{"runCommand":["echo hi"]}}]}`
 
@@ -94,6 +95,7 @@ func TestSSMCLI_DocumentLifecycle(t *testing.T) {
 }
 
 func TestSSMCLI_MaintenanceWindowLifecycle(t *testing.T) {
+	t.Parallel()
 	createOut := runCLI(t, awsCLI("ssm", "create-maintenance-window",
 		"--name", "cli-mw-"+ssmStamp(),
 		"--schedule", "cron(0 16 ? * TUE *)",
@@ -180,6 +182,7 @@ func TestSSMCLI_MaintenanceWindowLifecycle(t *testing.T) {
 }
 
 func TestSSMCLI_PatchBaselineLifecycle(t *testing.T) {
+	t.Parallel()
 	createOut := runCLI(t, awsCLI("ssm", "create-patch-baseline",
 		"--name", "cli-pb-"+ssmStamp(),
 		"--operating-system", "UBUNTU",
@@ -264,6 +267,7 @@ func TestSSMCLI_ServiceSetting(t *testing.T) {
 }
 
 func TestSSMCLI_ResourceDataSync(t *testing.T) {
+	t.Parallel()
 	syncName := "cli-rds-" + ssmStamp()
 
 	runCLI(t, awsCLI("ssm", "create-resource-data-sync",

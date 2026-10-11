@@ -14,6 +14,7 @@ import (
 // TestIAM_AccountSummary drives GetAccountSummary and asserts the SummaryMap
 // reflects the real entity counts computed from the IAM stores.
 func TestIAM_AccountSummary(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 
 	// Seed a user so the Users count is non-zero and deterministic-relative.
@@ -35,6 +36,7 @@ func TestIAM_AccountSummary(t *testing.T) {
 // TestIAM_AccountAuthorizationDetails drives GetAccountAuthorizationDetails and
 // asserts the enumerated user carries its inline + attached managed policies.
 func TestIAM_AccountAuthorizationDetails(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	user := "aad-user"
 	_, err := c.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
@@ -70,6 +72,7 @@ func TestIAM_AccountAuthorizationDetails(t *testing.T) {
 // TestIAM_CredentialReport drives the GenerateCredentialReport →
 // GetCredentialReport flow and asserts the CSV report enumerates the real users.
 func TestIAM_CredentialReport(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	user := "credreport-user"
 	_, err := c.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
@@ -97,6 +100,7 @@ func TestIAM_CredentialReport(t *testing.T) {
 // GetServiceLastAccessedDetails(/WithEntities) flow plus the Organizations
 // access report. The rows are derived from the principal's policy namespaces.
 func TestIAM_ServiceLastAccessed(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	role := "sla-role"
 	_, err := c.CreateRole(ctx, &iam.CreateRoleInput{
@@ -232,6 +236,7 @@ func TestIAM_OrganizationsRoot(t *testing.T) {
 // AssociateDelegationRequest → UpdateDelegationRequest → SendDelegationToken,
 // plus a second request that is rejected.
 func TestIAM_DelegationRequest(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 
 	created, err := c.CreateDelegationRequest(ctx, &iam.CreateDelegationRequestInput{

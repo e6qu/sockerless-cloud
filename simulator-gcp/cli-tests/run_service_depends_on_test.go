@@ -16,6 +16,7 @@ import (
 // seconds after it starts, so the service answers only when its instance
 // starts the ingress after the sidecar passed its startup probe.
 func TestCloudRun_CLI_ServiceContainerDependsOnStartupProbe(t *testing.T) {
+	t.Parallel()
 	const service = "cli-svc-depends-on"
 	runCLI(t, gcloudRegionalRunCLI("run", "deploy", service,
 		"--region="+location,

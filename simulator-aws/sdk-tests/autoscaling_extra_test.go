@@ -85,6 +85,7 @@ func asxSetupGroup(t *testing.T, asg *autoscaling.Client, lcName, groupName stri
 }
 
 func TestAutoScaling_LoadBalancersAndTargetGroups(t *testing.T) {
+	t.Parallel()
 	c := autoScalingClient()
 	const group = "asx-lb-grp"
 	asxSetupGroup(t, c, "asx-lb-lc", group, 0)
@@ -135,6 +136,7 @@ func TestAutoScaling_LoadBalancersAndTargetGroups(t *testing.T) {
 }
 
 func TestAutoScaling_TrafficSources(t *testing.T) {
+	t.Parallel()
 	c := autoScalingClient()
 	const group = "asx-ts-grp"
 	asxSetupGroup(t, c, "asx-ts-lc", group, 0)
@@ -226,6 +228,7 @@ func asxWarmingUp(r astypes.InstanceRefresh) bool {
 // template one member at a time and checks both members were replaced by
 // instances launched from the template, which the group then launches from.
 func TestAutoScaling_InstanceRefresh(t *testing.T) {
+	t.Parallel()
 	c := autoScalingClient()
 	const group = "asx-ir-grp"
 	asxSetupGroup(t, c, "asx-ir-lc", group, 2)
@@ -290,6 +293,7 @@ func TestAutoScaling_InstanceRefresh(t *testing.T) {
 // refresh launched from the group's launch configuration, which the group
 // keeps.
 func TestAutoScaling_InstanceRefreshRollback(t *testing.T) {
+	t.Parallel()
 	c := autoScalingClient()
 	const group = "asx-irb-grp"
 	asxSetupGroup(t, c, "asx-irb-lc", group, 2)
@@ -347,6 +351,7 @@ func TestAutoScaling_InstanceRefreshRollback(t *testing.T) {
 // TestAutoScaling_CancelInstanceRefresh cancels a refresh held in its instance
 // warmup; without a desired configuration it cannot be rolled back.
 func TestAutoScaling_CancelInstanceRefresh(t *testing.T) {
+	t.Parallel()
 	c := autoScalingClient()
 	const group = "asx-irc-grp"
 	asxSetupGroup(t, c, "asx-irc-lc", group, 2)
@@ -376,6 +381,7 @@ func TestAutoScaling_CancelInstanceRefresh(t *testing.T) {
 }
 
 func TestAutoScaling_WarmPool(t *testing.T) {
+	t.Parallel()
 	c := autoScalingClient()
 	const group = "asx-wp-grp"
 	asxSetupGroup(t, c, "asx-wp-lc", group, 0)
@@ -407,6 +413,7 @@ func TestAutoScaling_WarmPool(t *testing.T) {
 }
 
 func TestAutoScaling_NotificationsMetricsAndProcesses(t *testing.T) {
+	t.Parallel()
 	c := autoScalingClient()
 	const group = "asx-nmp-grp"
 	asxSetupGroup(t, c, "asx-nmp-lc", group, 0)
@@ -456,6 +463,7 @@ func TestAutoScaling_NotificationsMetricsAndProcesses(t *testing.T) {
 }
 
 func TestAutoScaling_InstancesStandbyProtection(t *testing.T) {
+	t.Parallel()
 	c := autoScalingClient()
 	const group = "asx-inst-grp"
 	instanceID := asxSetupGroup(t, c, "asx-inst-lc", group, 1)
@@ -499,6 +507,7 @@ func TestAutoScaling_InstancesStandbyProtection(t *testing.T) {
 }
 
 func TestAutoScaling_LifecycleActionAndBatch(t *testing.T) {
+	t.Parallel()
 	c := autoScalingClient()
 	const group = "asx-life-grp"
 	asxSetupGroup(t, c, "asx-life-lc", group, 0)
@@ -639,6 +648,7 @@ func TestAutoScaling_LifecycleActionAndBatch(t *testing.T) {
 }
 
 func TestAutoScaling_PredictiveForecastAndLaunch(t *testing.T) {
+	t.Parallel()
 	c := autoScalingClient()
 	const group = "asx-fl-grp"
 	asxSetupGroup(t, c, "asx-fl-lc", group, 0)
@@ -664,6 +674,7 @@ func TestAutoScaling_PredictiveForecastAndLaunch(t *testing.T) {
 }
 
 func TestAutoScaling_StaticDescribes(t *testing.T) {
+	t.Parallel()
 	c := autoScalingClient()
 
 	limOut, err := c.DescribeAccountLimits(ctx, &autoscaling.DescribeAccountLimitsInput{})
@@ -709,6 +720,7 @@ func TestAutoScaling_StaticDescribes(t *testing.T) {
 }
 
 func TestAutoScaling_CancelInstanceRefreshNotFound(t *testing.T) {
+	t.Parallel()
 	c := autoScalingClient()
 	const group = "asx-cir-grp"
 	asxSetupGroup(t, c, "asx-cir-lc", group, 0)
@@ -725,6 +737,7 @@ func TestAutoScaling_CancelInstanceRefreshNotFound(t *testing.T) {
 // version the template's selector picks and reports the template back, and an
 // update moves it to another template version.
 func TestAutoScaling_GroupFromLaunchTemplate(t *testing.T) {
+	t.Parallel()
 	c := autoScalingClient()
 	ec2c := ec2Client()
 	templateID := asxRefreshTemplate(t, "asx-lt-grp-lt", "ami-asxlt1")

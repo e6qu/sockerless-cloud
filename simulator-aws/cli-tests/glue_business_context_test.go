@@ -13,6 +13,7 @@ import (
 // business-context surface and the DynamoDB connection metadata/preview path
 // through the official AWS Command Line Interface.
 func TestGlueBusinessContextAndEntityRecords_CLI(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("glue", "put-form-type",
 		"--name", "CliBusinessMetadata",
 		"--schema", "structure CliBusinessMetadata { owner: String }"))

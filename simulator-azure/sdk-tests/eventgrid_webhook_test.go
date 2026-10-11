@@ -49,6 +49,7 @@ func newEventGridWebhook(t *testing.T) (*httptest.Server, chan []map[string]any)
 // validationUrl, and an endpoint that refuses it fails the create with Url
 // validation.
 func TestEventGrid_WebhookValidationHandshakeSDK(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-eventgrid-handshake-rg"
 	ensureRG(t, rg)
 	cred := &fakeCredential{}

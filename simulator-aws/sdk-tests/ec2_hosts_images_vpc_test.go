@@ -16,6 +16,7 @@ import (
 // + recovery, DescribeMacHosts filters mac-only hosts (empty here), and
 // ReleaseHosts decommissions them.
 func TestEC2_HostsLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	alloc, err := c.AllocateHosts(ctx, &ec2.AllocateHostsInput{
@@ -82,6 +83,7 @@ func TestEC2_HostsLifecycleSDK(t *testing.T) {
 // flips DisableImage/EnableImage state and runs the image import/export +
 // restore tasks.
 func TestEC2_ImageAttrLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	reg, err := c.RegisterImage(ctx, &ec2.RegisterImageInput{
@@ -159,7 +161,7 @@ func TestEC2_ImageAttrLifecycleSDK(t *testing.T) {
 		ImageId:         aws.String(amiID),
 		DiskImageFormat: types.DiskImageFormatVmdk,
 		S3ExportLocation: &types.ExportTaskS3LocationRequest{
-			S3Bucket: aws.String("my-bucket"),
+			S3Bucket: aws.String("my-bucket-0051"),
 		},
 	})
 	require.NoError(t, err)
@@ -175,7 +177,7 @@ func TestEC2_ImageAttrLifecycleSDK(t *testing.T) {
 
 	cr, err := c.CreateRestoreImageTask(ctx, &ec2.CreateRestoreImageTaskInput{
 		ObjectKey: aws.String("ami-backup"),
-		Bucket:    aws.String("my-bucket"),
+		Bucket:    aws.String("my-bucket-0051"),
 		Name:      aws.String("restored"),
 	})
 	require.NoError(t, err)
@@ -189,6 +191,7 @@ func TestEC2_ImageAttrLifecycleSDK(t *testing.T) {
 // TestEC2_SnapshotAttrLifecycleSDK covers per-snapshot createVolumePermission
 // state and the snapshot tier/lock/import ops over a real snapshot.
 func TestEC2_SnapshotAttrLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	vol, err := c.CreateVolume(ctx, &ec2.CreateVolumeInput{
@@ -259,6 +262,7 @@ func TestEC2_SnapshotAttrLifecycleSDK(t *testing.T) {
 // CRUD: create with a weekly time range, describe, modify the name, associate
 // + disassociate an instance target, and delete.
 func TestEC2_InstanceEventWindowLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	cw, err := c.CreateInstanceEventWindow(ctx, &ec2.CreateInstanceEventWindowInput{
@@ -332,6 +336,7 @@ func TestEC2_InstanceEventWindowLifecycleSDK(t *testing.T) {
 // TestEC2_VpcClassicLinkSDK covers the per-VPC ClassicLink + ClassicLink-DNS
 // flags through enable/describe/disable.
 func TestEC2_VpcClassicLinkSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.180.0.0/16")})
@@ -376,6 +381,7 @@ func TestEC2_VpcClassicLinkSDK(t *testing.T) {
 // notification CRUD (the endpoint connection accept/reject ops are covered by
 // their empty-list happy path here too).
 func TestEC2_VpcEndpointConnectionNotificationsSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	cn, err := c.CreateVpcEndpointConnectionNotification(ctx, &ec2.CreateVpcEndpointConnectionNotificationInput{
@@ -438,6 +444,7 @@ func TestEC2_VpcEndpointConnectionNotificationsSDK(t *testing.T) {
 // TestEC2_VpcBlockPublicAccessSDK covers the account-level BPA options
 // (modify/describe) and the per-resource BPA exclusions CRUD.
 func TestEC2_VpcBlockPublicAccessSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.181.0.0/16")})
@@ -498,6 +505,7 @@ func TestEC2_VpcBlockPublicAccessSDK(t *testing.T) {
 // them for the family, places an instance on it with RunInstances, and sees
 // the placement take one slot and the host refuse a type it does not run.
 func TestEC2_DedicatedHostCapacitySDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	alloc, err := c.AllocateHosts(ctx, &ec2.AllocateHostsInput{
 		AvailabilityZone: aws.String("us-east-1a"),

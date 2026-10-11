@@ -8,6 +8,7 @@ import (
 // TestEC2CLI_InstanceTypeOfferings drives DescribeInstanceTypeOfferings via the
 // aws CLI — the fck-nat AZ-availability pre-flight.
 func TestEC2CLI_InstanceTypeOfferings(t *testing.T) {
+	t.Parallel()
 	it := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-instance-type-offerings",
 		"--location-type", "availability-zone",
 		"--filters", "Name=instance-type,Values=t4g.nano",
@@ -21,6 +22,7 @@ func TestEC2CLI_InstanceTypeOfferings(t *testing.T) {
 // memory and architecture through describe-instance-types, and refuses an
 // instance type that does not exist.
 func TestEC2CLI_DescribeInstanceTypes(t *testing.T) {
+	t.Parallel()
 	got := strings.Fields(runCLI(t, awsCLI("ec2", "describe-instance-types",
 		"--instance-types", "c5.2xlarge",
 		"--query", "InstanceTypes[0].[VCpuInfo.DefaultVCpus,MemoryInfo.SizeInMiB,ProcessorInfo.SupportedArchitectures[0]]",

@@ -33,6 +33,7 @@ func newFSClient(t *testing.T, project string) *firestore.Client {
 // high-level client emits (Increment, ArrayUnion, ArrayRemove, ServerTimestamp)
 // through Set(..., MergeAll) and Update writes.
 func TestFirestore_FieldTransforms(t *testing.T) {
+	t.Parallel()
 	c := newFSClient(t, "fs-transforms")
 	doc := c.Collection("counters").Doc("c1")
 
@@ -116,6 +117,7 @@ func TestFirestore_FieldTransforms(t *testing.T) {
 // on an absent field, doc created by Set) applies, and that increment of a
 // missing field treats it as 0.
 func TestFirestore_IncrementMissingField(t *testing.T) {
+	t.Parallel()
 	c := newFSClient(t, "fs-incr-missing")
 	doc := c.Collection("counters").Doc("fresh")
 
@@ -139,6 +141,7 @@ func TestFirestore_IncrementMissingField(t *testing.T) {
 // This is the genuine behavior of the high-level REST client against real
 // Firestore as well — only the gRPC transport would surface AlreadyExists.
 func TestFirestore_CreatePrecondition(t *testing.T) {
+	t.Parallel()
 	c := newFSClient(t, "fs-create-pre")
 	doc := c.Collection("users").Doc("u1")
 
@@ -157,6 +160,7 @@ func TestFirestore_CreatePrecondition(t *testing.T) {
 // TestFirestore_UpdatePrecondition: Update on a missing doc must fail with
 // NotFound (the high-level Update emits currentDocument.exists=true).
 func TestFirestore_UpdatePrecondition(t *testing.T) {
+	t.Parallel()
 	c := newFSClient(t, "fs-update-pre")
 	doc := c.Collection("users").Doc("ghost")
 
@@ -172,6 +176,7 @@ func TestFirestore_UpdatePrecondition(t *testing.T) {
 // TestFirestore_NumericEqualityQuery: Where("n","==",1) must match a doc whose n
 // was stored as an integer, exercising the unified numeric equality.
 func TestFirestore_NumericEqualityQuery(t *testing.T) {
+	t.Parallel()
 	c := newFSClient(t, "fs-num-eq")
 	col := c.Collection("nums")
 
@@ -193,6 +198,7 @@ func TestFirestore_NumericEqualityQuery(t *testing.T) {
 // TestFirestore_CursorPagination: OrderBy(...).StartAfter(...) must slice the
 // ordered result by the cursor.
 func TestFirestore_CursorPagination(t *testing.T) {
+	t.Parallel()
 	c := newFSClient(t, "fs-cursor")
 	col := c.Collection("ranked")
 	for i := 1; i <= 5; i++ {
@@ -219,6 +225,7 @@ func TestFirestore_CursorPagination(t *testing.T) {
 // document-snapshot StartAfter cursor must tie-break by document name
 // (referenceValue).
 func TestFirestore_CursorTieBreakByName(t *testing.T) {
+	t.Parallel()
 	c := newFSClient(t, "fs-cursor-tie")
 	col := c.Collection("tied")
 	// Two docs at rank 1 (a, b) and one at rank 2 (c).
@@ -243,6 +250,7 @@ func TestFirestore_CursorTieBreakByName(t *testing.T) {
 // TestFirestore_SelectProjection: Select("a") must return only the projected
 // field.
 func TestFirestore_SelectProjection(t *testing.T) {
+	t.Parallel()
 	c := newFSClient(t, "fs-select")
 	col := c.Collection("docs")
 	if _, err := col.Doc("d1").Set(ctx, map[string]any{

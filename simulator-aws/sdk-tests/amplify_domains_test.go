@@ -13,6 +13,7 @@ import (
 )
 
 func TestAmplifyDomainAssociationLifecycle(t *testing.T) {
+	t.Parallel()
 	c := amplifyClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -75,6 +76,7 @@ func TestAmplifyDomainAssociationLifecycle(t *testing.T) {
 }
 
 func TestAmplifyBackendEnvironmentLifecycle(t *testing.T) {
+	t.Parallel()
 	c := amplifyClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -116,6 +118,7 @@ func TestAmplifyBackendEnvironmentLifecycle(t *testing.T) {
 }
 
 func TestAmplifyDeleteAppCascadesDomainsAndBackends(t *testing.T) {
+	t.Parallel()
 	c := amplifyClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -161,6 +164,7 @@ func TestAmplifyDeleteAppCascadesDomainsAndBackends(t *testing.T) {
 }
 
 func TestAmplifyAppCustomRulesRoundTrip(t *testing.T) {
+	t.Parallel()
 	c := amplifyClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

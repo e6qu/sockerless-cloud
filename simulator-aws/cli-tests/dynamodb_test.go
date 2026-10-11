@@ -12,6 +12,7 @@ import (
 )
 
 func TestDynamoDBCLI_ExactItemSizeBoundary(t *testing.T) {
+	t.Parallel()
 	const maxItemBytes = 400 * 1024
 	table := "cli-ddb-item-size"
 	runCLI(t, awsCLI("dynamodb", "create-table",
@@ -46,6 +47,7 @@ func TestDynamoDBCLI_ExactItemSizeBoundary(t *testing.T) {
 }
 
 func TestDynamoDBCLI_GlobalSecondaryIndexes(t *testing.T) {
+	t.Parallel()
 	table := "cli-ddb-gsi"
 	runCLI(t, awsCLI("dynamodb", "create-table",
 		"--table-name", table,
@@ -75,6 +77,7 @@ func TestDynamoDBCLI_GlobalSecondaryIndexes(t *testing.T) {
 }
 
 func TestDynamoDBCLI_TableAndItems(t *testing.T) {
+	t.Parallel()
 	table := "cli-ddb-table"
 
 	runCLI(t, awsCLI("dynamodb", "create-table",

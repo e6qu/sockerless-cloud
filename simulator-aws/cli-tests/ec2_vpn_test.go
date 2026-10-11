@@ -12,6 +12,7 @@ import (
 // get-active-vpn-tunnel-status, the device-type catalog and sample
 // configuration, and the route/connection/gateway teardown.
 func TestEC2CLI_VPNSiteToSite(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	// Customer gateway.
@@ -103,6 +104,7 @@ func TestEC2CLI_VPNSiteToSite(t *testing.T) {
 // describe, apply-security-groups, the connection list + terminate, and a
 // tolerant teardown.
 func TestEC2CLI_ClientVPN(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	vpc := q("ec2", "create-vpc", "--cidr-block", "10.212.0.0/16", "--query", "Vpc.VpcId", "--output", "text")

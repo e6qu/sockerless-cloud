@@ -20,17 +20,16 @@ import (
 
 func storageClient(t *testing.T) *storage.Client {
 	t.Helper()
-	// Use STORAGE_EMULATOR_HOST for proper download URL construction, and a
-	// real simulator-minted token so the client authenticates against the data
-	// plane the way it does against Google.
-	host := strings.TrimPrefix(baseURL, "http://")
-	t.Setenv("STORAGE_EMULATOR_HOST", host)
+	// TestMain points STORAGE_EMULATOR_HOST at the simulator for download URL
+	// construction; a simulator-minted token authenticates the client against
+	// the data plane the way it does against Google.
 	client, err := storage.NewClient(ctx, option.WithHTTPClient(simAuthHTTPClient()))
 	require.NoError(t, err)
 	return client
 }
 
 func TestGCS_CreateBucket(t *testing.T) {
+	t.Parallel()
 	bucketSdkTestBucket := uniqueName("sdk-test-bucket")
 	client := storageClient(t)
 	defer client.Close()
@@ -44,6 +43,7 @@ func TestGCS_CreateBucket(t *testing.T) {
 }
 
 func TestGCS_UploadAndDownload(t *testing.T) {
+	t.Parallel()
 	bucketUploadBucket := uniqueName("upload-bucket")
 	client := storageClient(t)
 	defer client.Close()
@@ -68,6 +68,7 @@ func TestGCS_UploadAndDownload(t *testing.T) {
 }
 
 func TestGCS_ResumableWriterFollowsCustomEndpoint(t *testing.T) {
+	t.Parallel()
 	bucketResumableSdkBucket := uniqueName("resumable-sdk-bucket")
 	client := storageClient(t)
 	defer client.Close()
@@ -99,6 +100,7 @@ func TestGCS_ResumableWriterFollowsCustomEndpoint(t *testing.T) {
 }
 
 func TestGCS_JSONAPIObjectGetAltMedia(t *testing.T) {
+	t.Parallel()
 	bucketJsonApiMediaBucket := uniqueName("json-api-media-bucket")
 	client := storageClient(t)
 	defer client.Close()
@@ -126,6 +128,7 @@ func TestGCS_JSONAPIObjectGetAltMedia(t *testing.T) {
 }
 
 func TestGCS_ListObjects(t *testing.T) {
+	t.Parallel()
 	bucketListObjBucket := uniqueName("list-obj-bucket")
 	client := storageClient(t)
 	defer client.Close()
@@ -158,6 +161,7 @@ func TestGCS_ListObjects(t *testing.T) {
 // page must be capped at the requested size, and paging through must still yield
 // every object exactly once.
 func TestGCS_ListObjectsPaged(t *testing.T) {
+	t.Parallel()
 	bucketPagedObjBucket := uniqueName("paged-obj-bucket")
 	client := storageClient(t)
 	defer client.Close()
@@ -198,6 +202,7 @@ func TestGCS_ListObjectsPaged(t *testing.T) {
 }
 
 func TestGCS_CopierFromRewriteTo(t *testing.T) {
+	t.Parallel()
 	bucketCopyObjBucket := uniqueName("copy-obj-bucket")
 	client := storageClient(t)
 	defer client.Close()
@@ -247,6 +252,7 @@ func TestGCS_CopierFromRewriteTo(t *testing.T) {
 }
 
 func TestGCS_CopierFromRewriteToRejectsInvalidMetadata(t *testing.T) {
+	t.Parallel()
 	bucketCopyInvalidMetadataBucket := uniqueName("copy-invalid-metadata-bucket")
 	client := storageClient(t)
 	defer client.Close()
@@ -269,6 +275,7 @@ func TestGCS_CopierFromRewriteToRejectsInvalidMetadata(t *testing.T) {
 }
 
 func TestGCS_DeleteObject(t *testing.T) {
+	t.Parallel()
 	bucketDelObjBucket := uniqueName("del-obj-bucket")
 	client := storageClient(t)
 	defer client.Close()
@@ -303,6 +310,7 @@ func TestGCS_DeleteObject(t *testing.T) {
 // The build helpers treat that conflict as "the bucket is there", so the
 // simulator has to keep reporting it for that reading to stay true.
 func TestGCS_CreateBucketTwiceConflicts(t *testing.T) {
+	t.Parallel()
 	client := storageClient(t)
 	defer client.Close()
 
@@ -321,6 +329,7 @@ func TestGCS_CreateBucketTwiceConflicts(t *testing.T) {
 // delete a bucket that still holds a live object, and keeps both, while a
 // bucket whose only objects are soft-deleted deletes.
 func TestGCS_DeleteNonEmptyBucketConflicts(t *testing.T) {
+	t.Parallel()
 	client := storageClient(t)
 	defer client.Close()
 

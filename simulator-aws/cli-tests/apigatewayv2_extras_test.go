@@ -15,6 +15,7 @@ import (
 // create/get/get-list/update/delete-integration-response and the route-response
 // counterparts.
 func TestAPIGatewayV2IntegrationRouteResponsesCLI(t *testing.T) {
+	t.Parallel()
 	apiOut := runCLI(t, awsCLI("apigatewayv2", "create-api",
 		"--name", "cli-ws-api",
 		"--protocol-type", "WEBSOCKET",
@@ -112,6 +113,7 @@ func TestAPIGatewayV2IntegrationRouteResponsesCLI(t *testing.T) {
 // TestAPIGatewayV2ImportExportTagsTemplateCLI exercises import-api, reimport-api,
 // export-api, get-model-template, and get-tags through the aws CLI.
 func TestAPIGatewayV2ImportExportTagsTemplateCLI(t *testing.T) {
+	t.Parallel()
 	openapi := `{"openapi":"3.0.1","info":{"title":"cli-imported-api","version":"1.0"},"paths":{"/pets":{"get":{"responses":{"200":{"description":"ok"}}}}}}`
 	bodyFile := filepath.Join(t.TempDir(), "openapi.json")
 	require.NoError(t, os.WriteFile(bodyFile, []byte(openapi), 0o600))
@@ -177,6 +179,7 @@ func TestAPIGatewayV2ImportExportTagsTemplateCLI(t *testing.T) {
 // deletes: delete-cors-configuration, delete-access-log-settings,
 // delete-route-request-parameter, delete-route-settings.
 func TestAPIGatewayV2ConfigDeletesCLI(t *testing.T) {
+	t.Parallel()
 	apiOut := runCLI(t, awsCLI("apigatewayv2", "create-api",
 		"--name", "cli-cfg-api",
 		"--protocol-type", "HTTP",

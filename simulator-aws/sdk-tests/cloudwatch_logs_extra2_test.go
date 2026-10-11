@@ -55,6 +55,7 @@ func TestLogs_AccountPolicyRoundTrip(t *testing.T) {
 // TestLogs_QueryDefinitionRoundTrip covers PutQueryDefinition, DescribeQueryDefinitions,
 // and DeleteQueryDefinition.
 func TestLogs_QueryDefinitionRoundTrip(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	put, err := cw.PutQueryDefinition(ctx, &cloudwatchlogs.PutQueryDefinitionInput{
 		Name:        aws.String("test-query-def"),
@@ -99,6 +100,7 @@ func TestLogs_QueryDefinitionRoundTrip(t *testing.T) {
 // TestLogs_ResourcePolicyRoundTrip covers PutResourcePolicy, DescribeResourcePolicies,
 // and DeleteResourcePolicy.
 func TestLogs_ResourcePolicyRoundTrip(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	name := "test-resource-policy"
 	doc := `{"Version":"2012-10-17","Statement":[{"Sid":"Route53","Effect":"Allow","Principal":{"Service":"route53.amazonaws.com"},"Action":"logs:PutLogEvents","Resource":"*"}]}`
@@ -129,6 +131,7 @@ func TestLogs_ResourcePolicyRoundTrip(t *testing.T) {
 // TestLogs_DestinationRoundTrip covers PutDestination, DescribeDestinations,
 // PutDestinationPolicy, and DeleteDestination for a cross-account destination.
 func TestLogs_DestinationRoundTrip(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	name := "test-destination"
 	defer cw.DeleteDestination(ctx, &cloudwatchlogs.DeleteDestinationInput{DestinationName: aws.String(name)})
@@ -170,6 +173,7 @@ func TestLogs_DestinationRoundTrip(t *testing.T) {
 // delivery sources, delivery destinations (+ their policies), and the delivery
 // that links a source to a destination.
 func TestLogs_DeliveryRoundTrip(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	srcName := "test-delivery-source"
 	dstName := "test-delivery-destination"
@@ -261,6 +265,7 @@ func TestLogs_DeliveryRoundTrip(t *testing.T) {
 // TestLogs_AnomalyDetectorRoundTrip covers CreateLogAnomalyDetector,
 // GetLogAnomalyDetector, ListLogAnomalyDetectors, and DeleteLogAnomalyDetector.
 func TestLogs_AnomalyDetectorRoundTrip(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	group := "/test/anomaly-detector"
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(group)})
@@ -305,6 +310,7 @@ func TestLogs_AnomalyDetectorRoundTrip(t *testing.T) {
 // TestLogs_IndexPolicyRoundTrip covers PutIndexPolicy, DescribeIndexPolicies,
 // DescribeFieldIndexes, and DeleteIndexPolicy.
 func TestLogs_IndexPolicyRoundTrip(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	group := "/test/index-policy"
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(group)})
@@ -341,6 +347,7 @@ func TestLogs_IndexPolicyRoundTrip(t *testing.T) {
 // TestLogs_ConfigurationTemplates covers DescribeConfigurationTemplates, which
 // returns the delivery configuration templates AWS publishes per log source.
 func TestLogs_ConfigurationTemplates(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	resp, err := cw.DescribeConfigurationTemplates(ctx, &cloudwatchlogs.DescribeConfigurationTemplatesInput{})
 	require.NoError(t, err)

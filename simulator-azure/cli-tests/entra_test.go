@@ -102,6 +102,7 @@ func pkceChallenge(verifier string) string {
 // standard Graph endpoints and verifies GET /v1.0/me/memberOf returns the correct
 // groups when the access token is obtained via ROPC.
 func TestEntra_StandardProvisioningAndGraphMemberOf(t *testing.T) {
+	t.Parallel()
 	groupID := createEntraGroup(t, "CLI-Alpha")
 	_ = createEntraGroup(t, "CLI-Beta") // second group, user not a member
 	userID := createEntraUser(t, "CLI User", "cli-user@example.com")
@@ -147,6 +148,7 @@ func TestEntra_StandardProvisioningAndGraphMemberOf(t *testing.T) {
 // TestEntra_IDTokenGroupsViaROPC provisions a user and group via standard Graph
 // endpoints and verifies the id_token returned by ROPC carries the groups claim.
 func TestEntra_IDTokenGroupsViaROPC(t *testing.T) {
+	t.Parallel()
 	groupID := createEntraGroup(t, "CLI-Viewers")
 	userID := createEntraUser(t, "IDToken ROPC User", "idtoken-ropc@example.com")
 	addEntraGroupMember(t, groupID, userID)
@@ -186,6 +188,7 @@ func TestEntra_IDTokenGroupsViaROPC(t *testing.T) {
 }
 
 func TestEntra_DuplicateUPNRejectedAndROPCClaimsStayDeterministicCLI(t *testing.T) {
+	t.Parallel()
 	groupID := createEntraGroup(t, "CLI-Duplicate-UPN")
 	userID := createEntraUser(t, "CLI Duplicate UPN User", "duplicate-upn-cli@example.com")
 	addEntraGroupMember(t, groupID, userID)
@@ -248,6 +251,7 @@ func TestEntra_DuplicateUPNRejectedAndROPCClaimsStayDeterministicCLI(t *testing.
 // service principal via the standard Graph endpoints (endpoint-only, swappable
 // with real cloud), then PATCHes a user — covering the new Graph surface.
 func TestEntra_ApplicationServicePrincipalAndUserPatch(t *testing.T) {
+	t.Parallel()
 	// Create an application.
 	appBody, _ := json.Marshal(map[string]any{"displayName": "CLI-App", "signInAudience": "AzureADMyOrg"})
 	appReq, err := http.NewRequest(http.MethodPost, baseURL+"/v1.0/applications", bytes.NewReader(appBody))
@@ -325,6 +329,7 @@ func TestEntra_ApplicationServicePrincipalAndUserPatch(t *testing.T) {
 // TestMSI_TokenIsSignedJWT verifies the IMDS/MSI token endpoint returns a real
 // signed JWT carrying the identity's oid/aud claims, not a synthetic string.
 func TestMSI_TokenIsSignedJWT(t *testing.T) {
+	t.Parallel()
 	resp, err := http.Get(baseURL + "/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fmanagement.azure.com%2F")
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -355,6 +360,7 @@ func TestMSI_TokenIsSignedJWT(t *testing.T) {
 // uses to resolve the account a silent authorize request signs in — and
 // verifies the id_token carries the groups claim from the membership store.
 func TestEntra_IDTokenGroupsViaAuthCodeFlow(t *testing.T) {
+	t.Parallel()
 	groupID := createEntraGroup(t, "CLI-AuthCode-Group")
 	userID := createEntraUser(t, "AuthCode User", "authcode@example.com")
 	addEntraGroupMember(t, groupID, userID)
@@ -475,6 +481,7 @@ func createEntraApplicationWithSP(t *testing.T, displayName string) (objectID, a
 // is rejected with invalid_client, and a removed secret stops authenticating
 // (POST /v1.0/applications/{appObjectId}/removePassword).
 func TestEntra_AppRegistrationSecretAuthenticatesAzRest(t *testing.T) {
+	t.Parallel()
 	objectID, appID := createEntraApplicationWithSP(t, "CLI-Secret-App")
 
 	credBody, _ := json.Marshal(map[string]any{

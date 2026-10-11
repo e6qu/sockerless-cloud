@@ -10,6 +10,7 @@ import (
 )
 
 func TestFirehoseCLI_DeliveryStreamWritesS3(t *testing.T) {
+	t.Parallel()
 	const (
 		name   = "cli-firehose-stream"
 		bucket = "cli-firehose-bucket"

@@ -64,6 +64,7 @@ func ensureManagedEnv(t *testing.T, rg, env string) {
 }
 
 func TestSDK_ContainerApps_StartStopUpdate(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-startstop-rg"
 	ensureRG(t, rg)
 
@@ -71,7 +72,7 @@ func TestSDK_ContainerApps_StartStopUpdate(t *testing.T) {
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, cred, clientOpts())
 	require.NoError(t, err)
 
-	newACAApp(t, client, rg, "sdk-startstop-app", acaEnvID(rg, "sim-env"))
+	newACAApp(t, client, rg, "sdk-startstop-app", acaEnvID(rg, "sim-env-cdcb"))
 	defer func() {
 		if dp, derr := client.BeginDelete(ctx, rg, "sdk-startstop-app", nil); derr == nil {
 			_, _ = dp.PollUntilDone(ctx, nil)
@@ -109,6 +110,7 @@ func TestSDK_ContainerApps_StartStopUpdate(t *testing.T) {
 }
 
 func TestSDK_ContainerApps_ListBySubscription_AuthToken_HostnameAnalysis(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-listsub-rg"
 	ensureRG(t, rg)
 
@@ -155,6 +157,7 @@ func TestSDK_ContainerApps_ListBySubscription_AuthToken_HostnameAnalysis(t *test
 }
 
 func TestSDK_Jobs_UpdateListStopMultiple(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-jobops-rg"
 	ensureRG(t, rg)
 
@@ -166,7 +169,7 @@ func TestSDK_Jobs_UpdateListStopMultiple(t *testing.T) {
 		return armappcontainers.Job{
 			Location: to.Ptr("eastus"),
 			Properties: &armappcontainers.JobProperties{
-				EnvironmentID: to.Ptr(acaEnvID(rg, "sim-env")),
+				EnvironmentID: to.Ptr(acaEnvID(rg, "sim-env-67bf")),
 				Configuration: &armappcontainers.JobConfiguration{
 					TriggerType:       to.Ptr(armappcontainers.TriggerTypeManual),
 					ReplicaTimeout:    to.Ptr[int32](60),
@@ -232,6 +235,7 @@ func TestSDK_Jobs_UpdateListStopMultiple(t *testing.T) {
 }
 
 func TestSDK_ManagedEnvironments_ListUpdateAuthTokenWorkloadProfiles(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-envops-rg"
 	env := "sdk-envops-env"
 	ensureRG(t, rg)
@@ -304,6 +308,7 @@ func TestSDK_ManagedEnvironments_ListUpdateAuthTokenWorkloadProfiles(t *testing.
 }
 
 func TestSDK_ManagedEnvironments_CheckNameAvailability(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-checkname-rg"
 	env := "sdk-checkname-env"
 	ensureRG(t, rg)
@@ -323,6 +328,7 @@ func TestSDK_ManagedEnvironments_CheckNameAvailability(t *testing.T) {
 }
 
 func TestSDK_Certificates_CRUD(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-cert-rg"
 	env := "sdk-cert-env"
 	ensureRG(t, rg)
@@ -382,6 +388,7 @@ func TestSDK_Certificates_CRUD(t *testing.T) {
 }
 
 func TestSDK_ManagedCertificates_CRUD(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-mcert-rg"
 	env := "sdk-mcert-env"
 	ensureRG(t, rg)

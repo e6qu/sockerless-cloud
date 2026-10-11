@@ -73,6 +73,7 @@ func putEventBridgeEvent(t *testing.T, source, detail string) {
 // An Amazon ECS target runs its task definition as the target's role, started
 // by events-rule/<rule>.
 func TestEventBridge_ECSTargetRunsTheTask_SDK(t *testing.T) {
+	t.Parallel()
 	ecsC := ecsClient()
 	cluster, rule := uniqueName("eb-target-cluster"), uniqueName("eb-ecs-target")
 	created, err := ecsC.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
@@ -106,6 +107,7 @@ func TestEventBridge_ECSTargetRunsTheTask_SDK(t *testing.T) {
 
 // An AWS Batch target submits a job to the job queue the target names.
 func TestEventBridge_BatchTargetSubmitsTheJob_SDK(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 	const rule = "eb-batch-target"
 	_, err := c.CreateComputeEnvironment(ctx, &batch.CreateComputeEnvironmentInput{
@@ -158,6 +160,7 @@ func TestEventBridge_BatchTargetSubmitsTheJob_SDK(t *testing.T) {
 // An API destination target calls the endpoint with the connection's API key
 // and the event as its body.
 func TestEventBridge_ApiDestinationTargetCallsTheEndpoint_SDK(t *testing.T) {
+	t.Parallel()
 	eb := eventbridgeClient()
 	const rule = "eb-api-target"
 	type call struct{ key, body string }
@@ -204,6 +207,7 @@ func TestEventBridge_ApiDestinationTargetCallsTheEndpoint_SDK(t *testing.T) {
 
 // A Kinesis target puts the event on the stream as the target's role.
 func TestEventBridge_KinesisTargetPutsTheEvent_SDK(t *testing.T) {
+	t.Parallel()
 	k := kinesisClient()
 	const rule, stream = "eb-kinesis-target", "eb-target-stream"
 	_, err := k.CreateStream(ctx, &kinesis.CreateStreamInput{StreamName: aws.String(stream), ShardCount: aws.Int32(1)})
@@ -240,6 +244,7 @@ func TestEventBridge_KinesisTargetPutsTheEvent_SDK(t *testing.T) {
 // An EventBridge Scheduler invocation its target refuses reaches the target's
 // dead-letter queue with the attributes naming the schedule and the error.
 func TestScheduler_TargetFailureGoesToTheDeadLetterQueue_SDK(t *testing.T) {
+	t.Parallel()
 	sched := schedulerClient()
 	sqsC := sqsClient()
 	dlq, err := sqsC.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("scheduler-sdk-dlq")})

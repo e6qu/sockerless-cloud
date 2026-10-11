@@ -41,6 +41,7 @@ import (
 )
 
 func TestSFN_GenericAWSSDKIntegrations_SDK(t *testing.T) {
+	t.Parallel()
 	statesAPI := sfnClient()
 	dynamoAPI := ddbClient()
 	secretsAPI := smClient()
@@ -343,6 +344,7 @@ func TestSFN_GenericAWSSDKIntegrations_SDK(t *testing.T) {
 // Amazon States Language definitions. Every resource and observation travels
 // through an official AWS SDK client at the simulator coordinate.
 func TestSFN_EventingAndObservabilityIntegrations_SDK(t *testing.T) {
+	t.Parallel()
 	namespace := uniqueName("Sockerless/StepFunctions")
 	machineName := uniqueName("sfn-service-integrations")
 	integrationName := uniqueName("sfn-integrations")
@@ -500,6 +502,7 @@ func TestSFN_EventingAndObservabilityIntegrations_SDK(t *testing.T) {
 // standard global endpoint coordinate to send a message back through Amazon
 // SQS; no simulator-only endpoint or execution branch participates.
 func TestSFN_AmazonECSAndCodeBuildIntegrations_SDK(t *testing.T) {
+	t.Parallel()
 	statesAPI := sfnClient()
 	ecsAPI := ecsClient()
 	buildAPI := codebuildClient()
@@ -781,6 +784,7 @@ phases:
 // uses the AWS provider's standard AWS_ENDPOINT_URL coordinate; the state
 // machine supplies no simulator-aware path, provider block, or custom broker.
 func TestSFN_AmazonECSRunsTerraformAgainstSimulator_SDK(t *testing.T) {
+	t.Parallel()
 	statesAPI := sfnClient()
 	ecsAPI := ecsClient()
 	queueAPI := sqsClient()

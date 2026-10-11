@@ -33,6 +33,7 @@ func rdsAccountAttributes(t *testing.T) map[string][2]int64 {
 // and track the account's real resources, so the test measures a baseline,
 // creates a DB instance, and asserts the exact usage deltas.
 func TestRDSCLI_AccountAttributes(t *testing.T) {
+	t.Parallel()
 	base := rdsAccountAttributes(t)
 	for _, name := range []string{
 		"DBInstances", "ReservedDBInstances", "AllocatedStorage", "DBSecurityGroups",

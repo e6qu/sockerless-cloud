@@ -35,6 +35,7 @@ func errCode(t *testing.T, err error) string {
 // that already exists must be rejected (real ELBv2 behavior), not silently
 // create a second resource.
 func TestELBv2_DuplicateNames(t *testing.T) {
+	t.Parallel()
 	tgName := uniqueName("dup-tg")
 	lbName := uniqueName("dup-lb")
 	c := elbv2Client()
@@ -68,6 +69,7 @@ func TestELBv2_DuplicateNames(t *testing.T) {
 // TestRoute53_CallerReferenceIdempotency — a reused CallerReference returns
 // HostedZoneAlreadyExists, the idempotency key Terraform relies on for retries.
 func TestRoute53_CallerReferenceIdempotency(t *testing.T) {
+	t.Parallel()
 	callerRef := uniqueName("audit-ref")
 	c := r53Client()
 	_, err := c.CreateHostedZone(ctx, &route53.CreateHostedZoneInput{
@@ -85,6 +87,7 @@ func TestRoute53_CallerReferenceIdempotency(t *testing.T) {
 // TestEC2_DeleteSecurityGroupNotFound — DeleteSecurityGroup is not idempotent;
 // a missing group returns InvalidGroup.NotFound, not <return>true</return>.
 func TestEC2_DeleteSecurityGroupNotFound(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	_, err := c.DeleteSecurityGroup(ctx, &ec2.DeleteSecurityGroupInput{
 		GroupId: aws.String("sg-doesnotexist0"),
@@ -95,6 +98,7 @@ func TestEC2_DeleteSecurityGroupNotFound(t *testing.T) {
 // TestECR_DescribeRepositoriesNotFound — naming a missing repo errors instead of
 // silently returning only the found ones.
 func TestECR_DescribeRepositoriesNotFound(t *testing.T) {
+	t.Parallel()
 	c := ecrClient()
 	_, err := c.DescribeRepositories(ctx, &ecr.DescribeRepositoriesInput{
 		RepositoryNames: []string{"no-such-repo-xyz"},
@@ -105,6 +109,7 @@ func TestECR_DescribeRepositoriesNotFound(t *testing.T) {
 // TestECR_UntagResource — tag removal round-trips (the op was unimplemented, so
 // terraform tag removal 400'd).
 func TestECR_UntagResource(t *testing.T) {
+	t.Parallel()
 	c := ecrClient()
 	repo := "untag-probe-repo"
 	out, err := c.CreateRepository(ctx, &ecr.CreateRepositoryInput{
@@ -134,6 +139,7 @@ func TestECR_UntagResource(t *testing.T) {
 // TestS3_ConditionalPut — If-None-Match:* fails when the object exists;
 // If-Match:<etag> fails on a stale etag (optimistic concurrency).
 func TestS3_ConditionalPut(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	bucket := "cond-put-bucket"
 	_, err := c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
@@ -171,6 +177,7 @@ func TestS3_ConditionalPut(t *testing.T) {
 // key to be absent, exactly one creates it, and the stored object is the one
 // that writer sent.
 func TestS3_ConcurrentConditionalPutsHaveOneWinner(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	bucket := fmt.Sprintf("cond-put-race-%d", time.Now().UnixNano())
 	_, err := c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
@@ -216,6 +223,7 @@ func TestS3_ConcurrentConditionalPutsHaveOneWinner(t *testing.T) {
 // TestLambda_DeleteAliasNotFound — deleting a missing alias errors with
 // ResourceNotFoundException instead of a silent 204.
 func TestLambda_DeleteAliasNotFound(t *testing.T) {
+	t.Parallel()
 	c := lambdaClient()
 	_, err := c.DeleteAlias(ctx, &lambda.DeleteAliasInput{
 		FunctionName: aws.String("no-such-fn-for-alias"),

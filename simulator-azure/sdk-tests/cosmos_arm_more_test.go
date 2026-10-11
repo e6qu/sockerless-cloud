@@ -24,6 +24,7 @@ func ensureCosmosAccount(t *testing.T, rg, account string) {
 }
 
 func TestAzureCosmosDB_MongoDBResourcesSDKLifecycle(t *testing.T) {
+	t.Parallel()
 	rg, account, db, coll := "sdk-cosmos-mongo-rg", "sdkcosmosmongo", "appdb", "users"
 	ensureCosmosAccount(t, rg, account)
 
@@ -85,6 +86,7 @@ func TestAzureCosmosDB_MongoDBResourcesSDKLifecycle(t *testing.T) {
 }
 
 func TestAzureCosmosDB_CassandraResourcesSDKLifecycle(t *testing.T) {
+	t.Parallel()
 	rg, account, keyspace, table := "sdk-cosmos-cassandra-rg", "sdkcosmoscassandra", "ks1", "tbl1"
 	ensureCosmosAccount(t, rg, account)
 
@@ -141,6 +143,7 @@ func TestAzureCosmosDB_CassandraResourcesSDKLifecycle(t *testing.T) {
 }
 
 func TestAzureCosmosDB_GremlinResourcesSDKLifecycle(t *testing.T) {
+	t.Parallel()
 	rg, account, db, graph := "sdk-cosmos-gremlin-rg", "sdkcosmosgremlin", "graphdb", "g1"
 	ensureCosmosAccount(t, rg, account)
 
@@ -192,6 +195,7 @@ func TestAzureCosmosDB_GremlinResourcesSDKLifecycle(t *testing.T) {
 }
 
 func TestAzureCosmosDB_SQLScriptsSDKLifecycle(t *testing.T) {
+	t.Parallel()
 	rg, account, db, container := "sdk-cosmos-sqlscripts-rg", "sdkcosmossqlscripts", "appdb", "users"
 	ensureCosmosAccount(t, rg, account)
 	armBase := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.DocumentDB/databaseAccounts/%s", subscriptionID, rg, account)
@@ -267,6 +271,7 @@ func TestAzureCosmosDB_SQLScriptsSDKLifecycle(t *testing.T) {
 }
 
 func TestAzureCosmosDB_SQLThroughputMigrateSDK(t *testing.T) {
+	t.Parallel()
 	rg, account, db := "sdk-cosmos-sqlmigrate-rg", "sdkcosmossqlmigrate", "appdb"
 	ensureCosmosAccount(t, rg, account)
 
@@ -301,6 +306,7 @@ func TestAzureCosmosDB_SQLThroughputMigrateSDK(t *testing.T) {
 // A SQL database created without dedicated throughput has no offer to read or
 // migrate; armcosmos surfaces the resource provider's 404 NotFound.
 func TestAzureCosmosDB_SQLThroughputWithoutAnOfferIsNotFoundSDK(t *testing.T) {
+	t.Parallel()
 	rg, account, db := "sdk-cosmos-nooffer-rg", "sdkcosmosnooffer", "shared"
 	ensureCosmosAccount(t, rg, account)
 
@@ -331,6 +337,7 @@ func TestAzureCosmosDB_SQLThroughputWithoutAnOfferIsNotFoundSDK(t *testing.T) {
 }
 
 func TestAzureCosmosDB_AccountOperationsSDK(t *testing.T) {
+	t.Parallel()
 	rg, account := "sdk-cosmos-acct-rg", "sdkcosmosacct"
 	ensureCosmosAccount(t, rg, account)
 
@@ -387,6 +394,7 @@ func TestAzureCosmosDB_AccountOperationsSDK(t *testing.T) {
 }
 
 func TestAzureCosmosDB_OperationsAndLocationsSDK(t *testing.T) {
+	t.Parallel()
 	opsClient, err := armcosmos.NewOperationsClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	opsPager := opsClient.NewListPager(nil)
@@ -411,6 +419,7 @@ func TestAzureCosmosDB_OperationsAndLocationsSDK(t *testing.T) {
 // control plane (the armcosmos v1.0.0 release predates a typed client for it, so
 // the REST surface the SDK would call is driven directly).
 func TestAzureCosmosDB_ClientEncryptionKeysREST(t *testing.T) {
+	t.Parallel()
 	rg, account, db, cek := "sdk-cosmos-cek-rg", "sdkcosmoscek", "appdb", "cek1"
 	ensureCosmosAccount(t, rg, account)
 	armBase := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.DocumentDB/databaseAccounts/%s", subscriptionID, rg, account)

@@ -11,6 +11,7 @@ import (
 // family and the reserved-instance catalog/purchase flow through the
 // aws CLI. Grouped because appdata2 carries RDS.
 func TestRDSCLI_RestoreAndReserved(t *testing.T) {
+	t.Parallel()
 	srcCluster := "cli-rext-src-cluster"
 	runCLI(t, awsCLI("rds", "create-db-cluster",
 		"--db-cluster-identifier", srcCluster,
@@ -155,6 +156,7 @@ func TestRDSCLI_RestoreAndReserved(t *testing.T) {
 // TestRDSCLI_DeploymentsAndIntegrations covers zero-ETL integrations, tenant
 // databases, and Aurora Limitless shard groups through the aws CLI.
 func TestRDSCLI_DeploymentsAndIntegrations(t *testing.T) {
+	t.Parallel()
 	intSrc := "arn:aws:rds:us-east-1:123456789012:cluster:cli-int-source"
 	intTgt := "arn:aws:redshift-serverless:us-east-1:123456789012:namespace/ns-1"
 	intOut := runCLI(t, awsCLI("rds", "create-integration",
@@ -295,6 +297,7 @@ func TestRDSCLI_DeploymentsAndIntegrations(t *testing.T) {
 // export tasks, the assorted cluster operations, snapshot attributes,
 // and the static catalog describes through the aws CLI.
 func TestRDSCLI_ClusterOpsAndStatics(t *testing.T) {
+	t.Parallel()
 	dasArn := "arn:aws:rds:us-east-1:123456789012:cluster:cli-das"
 	saOut := runCLI(t, awsCLI("rds", "start-activity-stream",
 		"--resource-arn", dasArn,

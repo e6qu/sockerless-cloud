@@ -15,6 +15,7 @@ import (
 // TestCloudWatch_Dashboards covers PutDashboard / GetDashboard / ListDashboards /
 // DeleteDashboards (issue #608 — the API was unrouted → 404).
 func TestCloudWatch_Dashboards(t *testing.T) {
+	t.Parallel()
 	c := cloudwatchClient()
 	body := `{"widgets":[{"type":"text","x":0,"y":0,"width":6,"height":2,"properties":{"markdown":"hi"}}]}`
 
@@ -55,6 +56,7 @@ func TestCloudWatch_Dashboards(t *testing.T) {
 // round-trip (issue #609 — it was dropped → terraform perpetual diff). A
 // percentile alarm returns ExtendedStatistic and no Statistic.
 func TestCloudWatch_AlarmExtendedStatistic(t *testing.T) {
+	t.Parallel()
 	c := cloudwatchClient()
 	_, err := c.PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
 		AlarmName:          aws.String("p99-probe"),

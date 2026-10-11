@@ -16,6 +16,7 @@ func ddbCovTable(t *testing.T, name string) {
 // TestDynamoDBCLI_UpdateItemExpression drives UpdateExpression via the aws CLI —
 // the path that was a silent no-op (only legacy AttributeUpdates was handled).
 func TestDynamoDBCLI_UpdateItemExpression(t *testing.T) {
+	t.Parallel()
 	ddbCovTable(t, "cli-cov-update")
 	get := func(q string) string {
 		return strings.TrimSpace(runCLI(t, awsCLI("dynamodb", "get-item", "--table-name", "cli-cov-update",
@@ -45,6 +46,7 @@ func TestDynamoDBCLI_UpdateItemExpression(t *testing.T) {
 
 // TestDynamoDBCLI_TimeToLiveAndContinuousBackups covers the TTL + PITR read/write paths.
 func TestDynamoDBCLI_TimeToLiveAndContinuousBackups(t *testing.T) {
+	t.Parallel()
 	ddbCovTable(t, "cli-cov-ttl")
 	runCLI(t, awsCLI("dynamodb", "update-time-to-live", "--table-name", "cli-cov-ttl",
 		"--time-to-live-specification", "Enabled=true,AttributeName=ttl"))

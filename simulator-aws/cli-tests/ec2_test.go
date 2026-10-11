@@ -16,6 +16,7 @@ func terminateCLIInstanceOnCleanup(t *testing.T, instanceID string) {
 }
 
 func TestEC2InstanceLifecycleCLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.77.0.0/16",
 		"--query", "Vpc.VpcId",
@@ -57,6 +58,7 @@ func TestEC2InstanceLifecycleCLI(t *testing.T) {
 }
 
 func TestEC2NatGatewayCLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.78.0.0/16",
 		"--query", "Vpc.VpcId",
@@ -130,6 +132,7 @@ func TestEC2NatGatewayCLI(t *testing.T) {
 }
 
 func TestEC2EBSVolumeSnapshotCLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.81.0.0/16",
 		"--query", "Vpc.VpcId",
@@ -206,6 +209,7 @@ func TestEC2EBSVolumeSnapshotCLI(t *testing.T) {
 }
 
 func TestEC2CopySnapshotCLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("ec2", "create-volume",
 		"--availability-zone", "us-east-1a", "--size", "1", "--volume-type", "gp3",
 		"--query", "VolumeId", "--output", "text"))

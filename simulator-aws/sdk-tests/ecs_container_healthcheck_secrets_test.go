@@ -16,6 +16,7 @@ import (
 // dropped field forces a new revision (and a cascading service update) on
 // every plan.
 func TestECS_ContainerHealthCheckAndSecretsRoundTrip(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	reg, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family:                  aws.String("hc-secrets-task"),

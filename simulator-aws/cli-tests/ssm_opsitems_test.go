@@ -37,6 +37,7 @@ func ssmAWSJSON(t *testing.T, action string, in, out any) {
 
 // TestSSMCLI_OpsItemLifecycle pins the OpsCenter slice through the aws CLI.
 func TestSSMCLI_OpsItemLifecycle(t *testing.T) {
+	t.Parallel()
 	createOut := runCLI(t, awsCLI("ssm", "create-ops-item",
 		"--title", "cli disk full",
 		"--description", "root volume at 95%",
@@ -126,6 +127,7 @@ func TestSSMCLI_OpsItemLifecycle(t *testing.T) {
 
 // TestSSMCLI_MaintenanceWindowExecution pins the execution-side reads + updates.
 func TestSSMCLI_MaintenanceWindowExecution(t *testing.T) {
+	t.Parallel()
 	cwOut := runCLI(t, awsCLI("ssm", "create-maintenance-window",
 		"--name", "cli-mwexec-"+ssmStamp(),
 		"--schedule", "cron(0 16 ? * TUE *)",
@@ -291,6 +293,7 @@ func TestSSMCLI_MaintenanceWindowExecution(t *testing.T) {
 // shells out to the session-manager-plugin for the WebSocket, out of scope);
 // the CLI then exercises GetConnectionStatus / DescribeSessions / TerminateSession.
 func TestSSMCLI_Session(t *testing.T) {
+	t.Parallel()
 	target := "i-cli" + ssmStamp()
 	var start struct {
 		SessionId  string `json:"SessionId"`
@@ -352,6 +355,7 @@ func TestSSMCLI_Session(t *testing.T) {
 
 // TestSSMCLI_Activation pins the hybrid-activation slice.
 func TestSSMCLI_Activation(t *testing.T) {
+	t.Parallel()
 	createOut := runCLI(t, awsCLI("ssm", "create-activation",
 		"--iam-role", "SSMServiceRole",
 		"--description", "cli on-prem fleet",

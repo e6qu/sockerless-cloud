@@ -1,0 +1,40 @@
+# Tests that cannot share the simulator with the rest of the suite, with
+# the reason; scripts/check-parallel-tests.go holds every other test to
+# starting with t.Parallel().
+TestACM_AccountConfiguration	changes an account-wide setting other tests read
+TestAPIGateway_AccountAndMisc	changes an account-wide setting other tests read
+TestEC2_AllowedImagesSettingsSDK	changes a service-wide setting other tests read
+TestEC2_DefaultCreditSpecificationSDK	changes an account-wide setting other tests read
+TestEC2_EbsEncryptionByDefaultSDK	changes a service-wide setting other tests read
+TestEC2_ImageBlockPublicAccessSDK	changes a service-wide setting other tests read
+TestEC2_ImageDeprecationSDK	changes a service-wide setting other tests read
+TestEC2_InstanceMetadataDefaults	changes an account-wide setting other tests read
+TestEC2_SerialConsoleAccess	changes a service-wide setting other tests read
+TestEC2_SnapshotBlockPublicAccessSDK	changes an account-wide setting other tests read
+TestECR_AccountSettings	changes an account-wide setting other tests read
+TestECR_RegistryPolicyAndReplication	changes a service-wide setting other tests read
+TestECR_RegistryScanningConfiguration	changes a service-wide setting other tests read
+TestECS_AccountSettings	changes an account-wide setting other tests read
+TestIAM_AccountAlias	changes an account-wide setting other tests read
+TestIAM_AccountPasswordPolicy	changes an account-wide setting other tests read
+TestIAM_ChangePassword	changes an account-wide setting other tests read
+TestIAM_OrganizationsRoot	changes a service-wide setting other tests read
+TestKinesisSDK_AccountSettings	changes an account-wide setting other tests read
+TestLogs_AccountPolicyRoundTrip	changes an account-wide setting other tests read
+TestOrganizations_DelegatedAdminAndServiceAccess	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizations_DescribeAndList	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizations_EffectivePolicyValidation	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizations_EnableAllFeatures	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizations_GovCloudAccount	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizations_Handshakes	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizations_LeaveOrganization	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizations_OUTreeAndAccounts	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizations_Policies	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizations_PolicyTypeAndTransferTypeScopeTheGrant	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizations_PolicyTypeConditionKeyScopesTheGrant	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizations_ResourcePolicy	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizations_ResponsibilityTransfer	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizations_Roots	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizations_Tags	creates, changes or deletes the account's one organization, which other tests read
+TestOrganizations_zzCreateDeleteOrganization	creates, changes or deletes the account's one organization, which other tests read
+TestSSM_ServiceSetting	changes a service-wide setting other tests read

@@ -51,6 +51,7 @@ func arDo(t *testing.T, method, url string, body []byte, contentType string) *ht
 // repository is created through the control plane first because the data plane
 // refuses a repository that does not exist.
 func TestArtifactRegistry_OCIMonolithicPush(t *testing.T) {
+	t.Parallel()
 	arCreateRepository(t, "test-project", "us-central1", "my-repo")
 	repo := "test-project/my-repo/app"
 

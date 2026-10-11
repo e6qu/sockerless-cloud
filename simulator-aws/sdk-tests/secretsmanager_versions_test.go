@@ -24,6 +24,7 @@ import (
 //
 // Regression guard.
 func TestSecretsManager_ListSecretVersionIds(t *testing.T) {
+	t.Parallel()
 	client := smClient()
 	name := "versioning-test-secret"
 
@@ -121,6 +122,7 @@ func TestSecretsManager_ListSecretVersionIds(t *testing.T) {
 // TestSecretsManager_GetRandomPassword exercises the stateless
 // password-generation helper used by rotation logic.
 func TestSecretsManager_GetRandomPassword(t *testing.T) {
+	t.Parallel()
 	client := smClient()
 
 	// Default length (32).

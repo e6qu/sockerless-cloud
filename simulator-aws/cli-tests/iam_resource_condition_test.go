@@ -9,6 +9,7 @@ import (
 // `DeleteVolume` grant conditioned on `aws:ResourceTag/edd:managed=true` is
 // denied on an untagged volume and allowed once the volume carries the tag.
 func TestIAM_ResourceTagConditionCLI(t *testing.T) {
+	t.Parallel()
 	user := "rt-cond-cli"
 	runCLI(t, awsCLI("iam", "create-user", "--user-name", user))
 	t.Cleanup(func() { _ = awsCLI("iam", "delete-user", "--user-name", user).Run() })

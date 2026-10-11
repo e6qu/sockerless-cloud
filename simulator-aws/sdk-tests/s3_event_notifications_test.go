@@ -54,6 +54,7 @@ func receiveOne(t *testing.T, sqsClient *sqs.Client, url string, wait int32) (st
 // policy admits s3.amazonaws.com (Principal:{Service} + ArnLike SourceArn), and
 // delivers nothing when the policy is absent.
 func TestS3_EventNotification_SQSDelivery(t *testing.T) {
+	t.Parallel()
 	s3c := s3Client()
 	sqsc := sqsClient()
 

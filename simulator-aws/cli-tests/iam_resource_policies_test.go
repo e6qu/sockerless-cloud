@@ -15,6 +15,7 @@ import (
 // consults.
 
 func TestS3CLI_BucketPolicyRoundtrip(t *testing.T) {
+	t.Parallel()
 	bucket := "cli-bucket-policy"
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", bucket))
 	t.Cleanup(func() {
@@ -36,6 +37,7 @@ func TestS3CLI_BucketPolicyRoundtrip(t *testing.T) {
 }
 
 func TestLambdaCLI_AddGetRemovePermission(t *testing.T) {
+	t.Parallel()
 	zipPath := createDummyZip(t)
 	fn := "cli-policy-func"
 	runCLI(t, awsCLI("lambda", "create-function",
@@ -73,6 +75,7 @@ func TestLambdaCLI_AddGetRemovePermission(t *testing.T) {
 }
 
 func TestSNSCLI_TopicPolicyAttribute(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("sns", "create-topic", "--name", "cli-policy-topic", "--output", "json"))
 	var topic struct {
 		TopicArn string `json:"TopicArn"`
@@ -96,6 +99,7 @@ func TestSNSCLI_TopicPolicyAttribute(t *testing.T) {
 }
 
 func TestSQSCLI_QueuePolicyAttribute(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("sqs", "create-queue", "--queue-name", "cli-policy-queue", "--output", "json"))
 	var created struct {
 		QueueUrl string `json:"QueueUrl"`

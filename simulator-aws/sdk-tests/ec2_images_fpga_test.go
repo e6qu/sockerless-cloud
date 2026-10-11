@@ -16,6 +16,7 @@ import (
 // (DescribeFpgaImageAttribute / ModifyFpgaImageAttribute loadPermission grant /
 // ResetFpgaImageAttribute), and DeleteFpgaImage.
 func TestEC2_FpgaImageLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	create, err := c.CreateFpgaImage(ctx, &ec2.CreateFpgaImageInput{
@@ -177,6 +178,7 @@ func TestEC2_ImageBlockPublicAccessSDK(t *testing.T) {
 // TestEC2_ImageDeregistrationProtectionSDK covers per-AMI deregistration
 // protection: Enable on a real registered AMI, then Disable.
 func TestEC2_ImageDeregistrationProtectionSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	amiID := ec2RegisterTestAMI(t, c)
 
@@ -202,6 +204,7 @@ func TestEC2_ImageDeregistrationProtectionSDK(t *testing.T) {
 // TestEC2_BundleTasksSDK and TestEC2_ConversionTasksSDK assert the honest-empty
 // task lists (no live bundling / import-export backend).
 func TestEC2_BundleTasksSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	bt, err := c.DescribeBundleTasks(ctx, &ec2.DescribeBundleTasksInput{})
 	require.NoError(t, err)
@@ -212,6 +215,7 @@ func TestEC2_BundleTasksSDK(t *testing.T) {
 }
 
 func TestEC2_ConversionTasksSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	ct, err := c.DescribeConversionTasks(ctx, &ec2.DescribeConversionTasksInput{})
 	require.NoError(t, err)
@@ -226,6 +230,7 @@ func TestEC2_ConversionTasksSDK(t *testing.T) {
 // TestEC2_StoreImageTaskSDK covers CreateStoreImageTask on a real AMI to an S3
 // bucket and the DescribeStoreImageTasks read-back.
 func TestEC2_StoreImageTaskSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	amiID := ec2RegisterTestAMI(t, c)
 

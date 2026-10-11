@@ -17,6 +17,7 @@ import (
 // matching Describe), so future drift fails loudly.
 
 func TestEC2_RouteTableAssociationLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.110.0.0/16")})
 	require.NoError(t, err)
@@ -61,6 +62,7 @@ func TestEC2_RouteTableAssociationLifecycle(t *testing.T) {
 }
 
 func TestEC2_InternetGatewayAttachDetachDelete(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.111.0.0/16")})
 	require.NoError(t, err)
@@ -87,6 +89,7 @@ func TestEC2_InternetGatewayAttachDetachDelete(t *testing.T) {
 }
 
 func TestEC2_VpcAndSubnetAttributes(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.112.0.0/16")})
 	require.NoError(t, err)
@@ -113,6 +116,7 @@ func TestEC2_VpcAndSubnetAttributes(t *testing.T) {
 }
 
 func TestEC2_RevokeSecurityGroupRules(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.113.0.0/16")})
 	require.NoError(t, err)
@@ -155,6 +159,7 @@ func TestEC2_RevokeSecurityGroupRules(t *testing.T) {
 }
 
 func TestEC2_RevokeSecurityGroupRulesByID(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.114.0.0/16")})
 	require.NoError(t, err)

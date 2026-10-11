@@ -14,6 +14,7 @@ import (
 // workflow on its schedule: every second, runs accumulate, each started by
 // the recurrence trigger, and a malformed recurrence is refused.
 func TestLogicApps_RecurrenceTriggerRunsSDK(t *testing.T) {
+	t.Parallel()
 	rg := "logic-recurrence-rg"
 	wfName := "logic-recurrence-wf"
 	cred := &fakeCredential{}

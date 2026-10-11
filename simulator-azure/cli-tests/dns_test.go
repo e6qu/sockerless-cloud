@@ -14,6 +14,7 @@ func dnsURL(path string) string {
 }
 
 func TestPrivateDNS_CreateAndShowZone(t *testing.T) {
+	t.Parallel()
 	url := dnsURL("privateDnsZones/cli-test.local")
 
 	out := runCLI(t, azRest("PUT", url, `{"location":"global"}`))
@@ -37,6 +38,7 @@ func TestPrivateDNS_CreateAndShowZone(t *testing.T) {
 }
 
 func TestPrivateDNS_ListZonesByResourceGroup(t *testing.T) {
+	t.Parallel()
 	zoneURL := dnsURL("privateDnsZones/cli-list.local")
 	runCLI(t, azRest("PUT", zoneURL, `{"location":"global"}`))
 
@@ -61,6 +63,7 @@ func TestPrivateDNS_ListZonesByResourceGroup(t *testing.T) {
 }
 
 func TestPrivateDNS_CreateRecordSet(t *testing.T) {
+	t.Parallel()
 	zoneURL := dnsURL("privateDnsZones/record-test.local")
 	runCLI(t, azRest("PUT", zoneURL, `{"location":"global"}`))
 
@@ -88,6 +91,7 @@ func TestPrivateDNS_CreateRecordSet(t *testing.T) {
 }
 
 func TestPrivateDNS_VNetLink(t *testing.T) {
+	t.Parallel()
 	zoneURL := dnsURL("privateDnsZones/link-test.local")
 	runCLI(t, azRest("PUT", zoneURL, `{"location":"global"}`))
 
@@ -128,6 +132,7 @@ func TestPrivateDNS_VNetLink(t *testing.T) {
 }
 
 func TestPrivateDNS_DeleteZone(t *testing.T) {
+	t.Parallel()
 	zoneURL := dnsURL("privateDnsZones/delete-test.local")
 	runCLI(t, azRest("PUT", zoneURL, `{"location":"global"}`))
 	runCLI(t, azRest("DELETE", zoneURL, ""))
@@ -139,6 +144,7 @@ func TestPrivateDNS_DeleteZone(t *testing.T) {
 }
 
 func TestPrivateDNS_RecordSetListAndDelete(t *testing.T) {
+	t.Parallel()
 	// Create zone
 	zoneURL := dnsURL("privateDnsZones/list-delete.local")
 	runCLI(t, azRest("PUT", zoneURL, `{"location":"global"}`))
@@ -182,6 +188,7 @@ func TestPrivateDNS_RecordSetListAndDelete(t *testing.T) {
 }
 
 func TestPublicDNS_CreateZoneAndRecordSet(t *testing.T) {
+	t.Parallel()
 	zoneURL := armURL("Microsoft.Network", "dnsZones/cli-public.example.com", "2018-05-01")
 	out := runCLI(t, azRest("PUT", zoneURL, `{"location":"global","tags":{"env":"cli"}}`))
 

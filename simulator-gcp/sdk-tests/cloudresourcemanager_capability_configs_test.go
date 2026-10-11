@@ -42,6 +42,7 @@ func requireCapabilityConfigRefusal(t *testing.T, err error, status int, contain
 // under a folder: create, get, list, patch and delete, plus the refusals that
 // make the stored record one the service would have accepted.
 func TestResourceManagerV3_CapabilityConfigsOnAFolder(t *testing.T) {
+	t.Parallel()
 	svc := crmV3Service(t)
 	folderOp, err := svc.Folders.Create(&crm.Folder{
 		DisplayName: "capability-config-folder",
@@ -154,6 +155,7 @@ func TestResourceManagerV3_CapabilityConfigsOnAFolder(t *testing.T) {
 // other two parents: the organization spelling, and the project one, which the
 // API requires to name its own management project.
 func TestResourceManagerV3_CapabilityConfigsOnAnOrganizationAndProject(t *testing.T) {
+	t.Parallel()
 	svc := crmV3Service(t)
 	const organization = "organizations/123456789012"
 

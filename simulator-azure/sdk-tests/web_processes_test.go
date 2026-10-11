@@ -35,6 +35,7 @@ import (
 //     list is the engine's process table for that container, with the command
 //     line the container was started with.
 func TestSDK_WebApps_InstancesAndProcesses(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-webproc-rg"
 	site := "webproc-app"
 	host := createSiteForContainers(t, rg, site)

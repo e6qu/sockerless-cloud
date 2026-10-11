@@ -70,6 +70,7 @@ func spannerQueryRows(t *testing.T, svc *spanneradmin.Service, database, query s
 // through the data plane. The restored database must produce the same rows,
 // which is only possible if the backup captured the database's real bytes.
 func TestSpanner_BackupRestoreCrossPlane(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	svc := spannerAdminService(t, ctx)
 
@@ -206,6 +207,7 @@ func TestSpanner_BackupRestoreCrossPlane(t *testing.T) {
 // from the database's own DDL, the IAM triple, backup schedules and the
 // operations collections.
 func TestSpanner_DatabaseAdminSurface(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	svc := spannerAdminService(t, ctx)
 
@@ -366,6 +368,7 @@ func TestSpanner_DatabaseAdminSurface(t *testing.T) {
 // instance partitions and MoveInstance, both of which change instance state the
 // subsequent reads report.
 func TestSpanner_InstancePartitionsAndMove(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	svc := spannerAdminService(t, ctx)
 

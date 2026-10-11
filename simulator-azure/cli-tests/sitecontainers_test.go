@@ -12,6 +12,7 @@ import (
 // matching the other azure CLI tests): create a site, attach a main and a
 // sidecar sitecontainer, read them back, list, and delete.
 func TestSiteContainers_CLI_CRUD(t *testing.T) {
+	t.Parallel()
 	const apiVersion = "2024-11-01"
 	scURL := func(path string) string {
 		return armURL("Microsoft.Web", path, apiVersion)

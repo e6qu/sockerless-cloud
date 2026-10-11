@@ -83,6 +83,7 @@ func ecrDeleteRepository(t *testing.T, repo string) {
 // then deletes it and shows they stop again. A push that lands in a repository
 // nobody created is the defect this locks out.
 func TestECR_RegistryRefusesARepositoryThatDoesNotExist(t *testing.T) {
+	t.Parallel()
 	const repo = "ecr-absent/app"
 	ecrDeleteRepository(t, repo)
 	t.Cleanup(func() { ecrDeleteRepository(t, repo) })
@@ -186,6 +187,7 @@ func TestECR_RegistryRefusesARepositoryThatDoesNotExist(t *testing.T) {
 // covered by a template applied for CREATE_ON_PUSH creates the repository with
 // that template's settings, and nothing else does.
 func TestECR_RegistryCreatesOnPushFromARepositoryCreationTemplate(t *testing.T) {
+	t.Parallel()
 	client := ecrClient()
 	const prefix = "ecr-create-on-push"
 	const pushed = prefix + "/app"

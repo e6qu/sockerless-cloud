@@ -15,6 +15,7 @@ import (
 // body carries a different value for it. Before the fix the handler did a
 // wholesale replace, dropping unmasked fields → terraform drift.
 func TestCloudBuild_TriggerPatchUpdateMask(t *testing.T) {
+	t.Parallel()
 	svc := cloudbuildService(t)
 	project := "cb-mask-project"
 

@@ -13,6 +13,7 @@ import (
 // with the resources it describes.
 
 func TestCompute_RegionZonesAndImageFamilyView(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, region, zone = "reads-project", "us-central1", "us-central1-a"
 
@@ -37,6 +38,7 @@ func TestCompute_RegionZonesAndImageFamilyView(t *testing.T) {
 }
 
 func TestCompute_StoragePoolListsTheDisksThatNameIt(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, zone, pool = "pool-reads", "us-central1-a", "fast"
 
@@ -65,6 +67,7 @@ func TestCompute_StoragePoolListsTheDisksThatNameIt(t *testing.T) {
 }
 
 func TestCompute_UsableSubnetworks(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	svc := computeService(t)
 	const project, region = "usable-subnets", "us-central1"
@@ -90,6 +93,7 @@ func TestCompute_UsableSubnetworks(t *testing.T) {
 }
 
 func TestCompute_SnapshotKeyImageDeprecationAndRegionalResize(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, region = "writes-project", "us-central1"
 

@@ -12,6 +12,7 @@ import (
 )
 
 func TestGCSCLI_BucketAndObjectLifecycle(t *testing.T) {
+	t.Parallel()
 	bucket := "cli-gcs-bucket"
 	object := "hello.txt"
 
@@ -45,6 +46,7 @@ func TestGCSCLI_BucketAndObjectLifecycle(t *testing.T) {
 // under the bucket's policy, `--soft-deleted` lists what can be brought back,
 // and `gcloud storage restore` brings it back with its bytes.
 func TestGCSCLI_SoftDeleteListAndRestore(t *testing.T) {
+	t.Parallel()
 	bucket := "cli-soft-delete-bucket"
 	object := "retired.txt"
 
@@ -116,6 +118,7 @@ func cliObjectGeneration(t *testing.T, listing string) string {
 // away; both read the object's ACL back, which is the surface that used to be
 // answered by the object handler.
 func TestGCSCLI_ObjectACLGrants(t *testing.T) {
+	t.Parallel()
 	bucket := "cli-object-acl-bucket"
 	object := "granted.txt"
 

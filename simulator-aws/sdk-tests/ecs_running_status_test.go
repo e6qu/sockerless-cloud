@@ -21,6 +21,7 @@ import (
 // that waits for RUNNING times out and stops a task that was serving perfectly
 // well (GitHub issue #904).
 func TestECS_RunTask_RunningDoesNotWaitForTheApplication(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 
 	const clusterName = "running-status-sdk"

@@ -14,6 +14,7 @@ import (
 // providers — the built-in FARGATE/FARGATE_SPOT always resolve ACTIVE,
 // and an unknown name comes back as a failure rather than a phantom ACTIVE.
 func TestECS_DescribeCapacityProviders(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	out, err := c.DescribeCapacityProviders(ctx, &ecs.DescribeCapacityProvidersInput{
 		CapacityProviders: []string{"FARGATE", "FARGATE_SPOT"},
@@ -38,6 +39,7 @@ func TestECS_DescribeCapacityProviders(t *testing.T) {
 // after registering a task definition its family is listed, honouring
 // familyPrefix.
 func TestECS_ListTaskDefinitionFamilies(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	family := "readcomplete-family"
 	_, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{

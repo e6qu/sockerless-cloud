@@ -30,6 +30,7 @@ import (
 // The build's step sleeps for an hour, so the build is genuinely running when
 // the cancel lands.
 func TestCloudBuildCLI_CancelStopsARunningBuild(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		flags []string
@@ -61,6 +62,7 @@ func TestCloudBuildCLI_CancelStopsARunningBuild(t *testing.T) {
 // cancel` on the project scope, which shares its operation collection URI with
 // every other service the simulator serves under it.
 func TestCloudLoggingCLI_OperationsCancel(t *testing.T) {
+	t.Parallel()
 	createURL := fmt.Sprintf("%s/v2/projects/%s/locations/us-central1/buckets:createAsync?bucketId=cli-cancel-bucket",
 		baseURL, project)
 	out := httpDoJSON(t, "POST", createURL, `{}`)
@@ -103,6 +105,7 @@ func TestCloudLoggingCLI_OperationsCancel(t *testing.T) {
 // TestMemorystoreRedisCLI_OperationsCancel drives `gcloud redis operations
 // cancel`.
 func TestMemorystoreRedisCLI_OperationsCancel(t *testing.T) {
+	t.Parallel()
 	name := "cli-redis-cancel"
 	runCLI(t, gcloudCLI("redis", "instances", "create", name,
 		"--region", location,
@@ -200,6 +203,7 @@ func assertOperationSettledDespiteCancel(t *testing.T, out, wantName string, res
 // Cloud SQL's method is the service's own and refuses an operation that is not
 // in progress, so the CLI reports the failure rather than a silent success.
 func TestCloudSQLCLI_OperationsCancel(t *testing.T) {
+	t.Parallel()
 	instance := "cli-sql-cancel"
 	runCLI(t, gcloudCLI("sql", "instances", "create", instance,
 		"--database-version", "POSTGRES_15",
@@ -234,6 +238,7 @@ func TestCloudSQLCLI_OperationsCancel(t *testing.T) {
 // is issued the way a client without one does: against the published wire
 // path, with the CLI's own credential.
 func TestServiceUsageCLI_OperationsCancel(t *testing.T) {
+	t.Parallel()
 	enableURL := fmt.Sprintf("%s/v1/projects/%s/services/pubsub.googleapis.com:enable", baseURL, project)
 	out := httpDoJSON(t, "POST", enableURL, `{}`)
 	var op struct {

@@ -28,6 +28,7 @@ func buildFromOperation(t *testing.T, op *cloudbuild.Operation) cloudbuild.Build
 //	POST /v1/projects/{project}/locations/{location}/bitbucketServerConfigs/{config}/connectedRepositories:batchCreate
 
 func TestCloudBuild_RegionalBuildCreateAndRetry(t *testing.T) {
+	t.Parallel()
 	svc := cloudbuildService(t)
 	requireProject(t, "cb-regional")
 	parent := "projects/cb-regional/locations/us-central1"
@@ -59,6 +60,7 @@ func TestCloudBuild_RegionalBuildCreateAndRetry(t *testing.T) {
 
 // A build that was never pending approval has no decision to record.
 func TestCloudBuild_ApproveRejectsABuildThatIsNotPending(t *testing.T) {
+	t.Parallel()
 	svc := cloudbuildService(t)
 	requireProject(t, "cb-approve")
 	parent := "projects/cb-approve/locations/us-central1"
@@ -86,6 +88,7 @@ func TestCloudBuild_ApproveRejectsABuildThatIsNotPending(t *testing.T) {
 }
 
 func TestCloudBuild_RunTriggerStartsItsInlineBuild(t *testing.T) {
+	t.Parallel()
 	svc := cloudbuildService(t)
 	parent := "projects/cb-run/locations/us-central1"
 
@@ -121,6 +124,7 @@ func TestCloudBuild_RunTriggerStartsItsInlineBuild(t *testing.T) {
 }
 
 func TestCloudBuild_BitbucketConnectedRepositories(t *testing.T) {
+	t.Parallel()
 	svc := cloudbuildService(t)
 	parent := "projects/cb-bitbucket/locations/us-central1"
 

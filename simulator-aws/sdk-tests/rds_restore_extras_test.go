@@ -17,6 +17,7 @@ import (
 // creates a fresh cluster, an instance point-in-time restore creates a new
 // instance, and both S3 restores refuse a bucket that does not exist.
 func TestRDS_RestoreFamily(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 
 	srcCluster := "rext-src-cluster"
@@ -150,6 +151,7 @@ func TestRDS_RestoreFamily(t *testing.T) {
 // TestRDS_ReservedInstances covers the reserved-instance catalog and
 // purchase flow.
 func TestRDS_ReservedInstances(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 
 	offerings, err := c.DescribeReservedDBInstancesOfferings(ctx, &rds.DescribeReservedDBInstancesOfferingsInput{})
@@ -179,6 +181,7 @@ func TestRDS_ReservedInstances(t *testing.T) {
 
 // TestRDS_Integrations covers the zero-ETL integration CRUD family.
 func TestRDS_Integrations(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 
 	src := "arn:aws:rds:us-east-1:123456789012:cluster:int-source"
@@ -216,6 +219,7 @@ func TestRDS_Integrations(t *testing.T) {
 
 // TestRDS_TenantDatabases covers the tenant-database CRUD family.
 func TestRDS_TenantDatabases(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 
 	instID := "rext-oracle-cdb"
@@ -269,6 +273,7 @@ func TestRDS_TenantDatabases(t *testing.T) {
 
 // TestRDS_ShardGroups covers the Aurora Limitless shard-group family.
 func TestRDS_ShardGroups(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 
 	clusterID := "rext-limitless-cluster"
@@ -322,6 +327,7 @@ func TestRDS_ShardGroups(t *testing.T) {
 // TestRDS_ActivityStreams covers the per-cluster database activity
 // stream toggle.
 func TestRDS_ActivityStreams(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	arn := "arn:aws:rds:us-east-1:123456789012:cluster:das-cluster"
 
@@ -348,6 +354,7 @@ func TestRDS_ActivityStreams(t *testing.T) {
 
 // TestRDS_Backtrack covers Aurora backtrack record + describe.
 func TestRDS_Backtrack(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	clusterID := uniqueName("rext-backtrack-cluster")
 	_, err := c.CreateDBCluster(ctx, &rds.CreateDBClusterInput{
@@ -381,6 +388,7 @@ func TestRDS_Backtrack(t *testing.T) {
 
 // TestRDS_ExportTasks covers the snapshot-export task family.
 func TestRDS_ExportTasks(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	src := "arn:aws:rds:us-east-1:123456789012:snapshot:exp-snap"
 	taskID := uniqueName("rext-export-task")
@@ -413,6 +421,7 @@ func TestRDS_ExportTasks(t *testing.T) {
 // reset cluster param group, modify cluster endpoint, global-cluster
 // failover/remove, promote replica cluster, and HTTP-endpoint toggle.
 func TestRDS_ClusterOps(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 
 	clusterID := "rext-ops-cluster"
@@ -527,6 +536,7 @@ func TestRDS_ClusterOps(t *testing.T) {
 // TestRDS_SnapshotAttributesAndModify covers cluster-snapshot
 // attributes and ModifyDBSnapshot.
 func TestRDS_SnapshotAttributesAndModify(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 
 	clusterID := "rext-snapattr-cluster"
@@ -606,6 +616,7 @@ func TestRDS_SnapshotAttributesAndModify(t *testing.T) {
 
 // TestRDS_StaticDescribes covers the catalog/default describe ops.
 func TestRDS_StaticDescribes(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 
 	ogo, err := c.DescribeOptionGroupOptions(ctx, &rds.DescribeOptionGroupOptionsInput{

@@ -26,6 +26,7 @@ func ecClient() *elasticache.Client {
 }
 
 func TestRDS_DBInstanceLifecycle(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	id := "test-pg-db"
 	_, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
@@ -94,6 +95,7 @@ func assertAWSAPIErrorCode(t *testing.T, err error, code string) {
 }
 
 func TestElastiCache_ClusterLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ecClient()
 	id := "test-redis-cluster"
 	_, err := c.CreateCacheCluster(ctx, &elasticache.CreateCacheClusterInput{
@@ -171,6 +173,7 @@ func TestElastiCache_ClusterLifecycle(t *testing.T) {
 }
 
 func TestElastiCache_ReplicationGroupAndReboot(t *testing.T) {
+	t.Parallel()
 	c := ecClient()
 
 	// RebootCacheCluster on a standalone cluster.
@@ -261,6 +264,7 @@ func TestElastiCache_ReplicationGroupAndReboot(t *testing.T) {
 }
 
 func TestElastiCache_SubnetAndParameterGroups(t *testing.T) {
+	t.Parallel()
 	c := ecClient()
 
 	// Cache subnet group lifecycle.

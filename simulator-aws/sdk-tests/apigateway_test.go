@@ -30,6 +30,7 @@ func apigwv2Client() *apigatewayv2.Client {
 // CreateApi → CreateIntegration → CreateRoute → CreateStage →
 // GetApi → DeleteApi.
 func TestAPIGatewayV2_ApiLifecycle(t *testing.T) {
+	t.Parallel()
 	c := apigwv2Client()
 	create, err := c.CreateApi(ctx, &apigatewayv2.CreateApiInput{
 		Name:         aws.String("hello-api"),
@@ -106,6 +107,7 @@ func TestAPIGatewayV2_ApiLifecycle(t *testing.T) {
 // CreateRestApi → GetResources → PutMethod → PutIntegration →
 // CreateDeployment → CreateStage → DeleteRestApi.
 func TestAPIGateway_RestApiLifecycle(t *testing.T) {
+	t.Parallel()
 	c := apigwClient()
 	create, err := c.CreateRestApi(ctx, &apigateway.CreateRestApiInput{
 		Name:        aws.String("hello-rest"),
@@ -195,6 +197,7 @@ func TestAPIGateway_RestApiLifecycle(t *testing.T) {
 // TestAPIGatewayV2_UpdateRoute exercises the PATCH route update path:
 // CreateRoute → UpdateRoute (change RouteKey) → GetRoute reflects it.
 func TestAPIGatewayV2_UpdateRoute(t *testing.T) {
+	t.Parallel()
 	c := apigwv2Client()
 	create, err := c.CreateApi(ctx, &apigatewayv2.CreateApiInput{
 		Name:         aws.String("update-route-api"),
@@ -237,6 +240,7 @@ func TestAPIGatewayV2_UpdateRoute(t *testing.T) {
 // CreateUsagePlanKey → GetUsagePlanKey → GetUsagePlanKeys, then the matching
 // deletes.
 func TestAPIGateway_ApiKeysAndUsagePlans(t *testing.T) {
+	t.Parallel()
 	c := apigwClient()
 
 	key, err := c.CreateApiKey(ctx, &apigateway.CreateApiKeyInput{
@@ -340,6 +344,7 @@ func TestAPIGateway_ApiKeysAndUsagePlans(t *testing.T) {
 // GetModels, CreateRequestValidator → GetRequestValidators, CreateAuthorizer →
 // GetAuthorizer → GetAuthorizers, then the matching deletes.
 func TestAPIGateway_ModelsValidatorsAuthorizers(t *testing.T) {
+	t.Parallel()
 	c := apigwClient()
 	api, err := c.CreateRestApi(ctx, &apigateway.CreateRestApiInput{Name: aws.String("sdk-mva-api")})
 	require.NoError(t, err)
@@ -419,6 +424,7 @@ func TestAPIGateway_ModelsValidatorsAuthorizers(t *testing.T) {
 // + model CRUD: CreateAuthorizer → GetAuthorizer → GetAuthorizers →
 // UpdateAuthorizer, CreateModel → GetModel → GetModels, then deletes.
 func TestAPIGatewayV2_AuthorizersAndModels(t *testing.T) {
+	t.Parallel()
 	c := apigwv2Client()
 	api, err := c.CreateApi(ctx, &apigatewayv2.CreateApiInput{Name: aws.String("v2-am-api"), ProtocolType: "HTTP"})
 	require.NoError(t, err)
@@ -484,6 +490,7 @@ func TestAPIGatewayV2_AuthorizersAndModels(t *testing.T) {
 // GetDomainNames, CreateApiMapping → GetApiMapping → GetApiMappings,
 // CreateVpcLink → GetVpcLink → GetVpcLinks, then deletes.
 func TestAPIGatewayV2_DomainNamesMappingsVpcLinks(t *testing.T) {
+	t.Parallel()
 	c := apigwv2Client()
 	domain := fmt.Sprintf("sdk-%d.example.com", time.Now().UnixNano())
 

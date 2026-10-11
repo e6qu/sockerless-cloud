@@ -16,6 +16,7 @@ import (
 // via SetAlarmState shows through DescribeAlarms, action toggles persist, and
 // the state change is recorded in the alarm history.
 func TestCloudWatch_AlarmActionsAndState(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	name := "sdk-alarm-actions"
 
@@ -67,6 +68,7 @@ func TestCloudWatch_AlarmActionsAndState(t *testing.T) {
 
 // TestCloudWatch_DescribeAlarmsForMetric verifies the metric→alarm reverse lookup.
 func TestCloudWatch_DescribeAlarmsForMetric(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	ns := "Custom/ReverseLookup"
 	_, err := client.PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
@@ -96,6 +98,7 @@ func TestCloudWatch_DescribeAlarmsForMetric(t *testing.T) {
 // TestCloudWatch_CompositeAlarm covers PutCompositeAlarm + tag round-trip via the
 // cross-resource tagging API.
 func TestCloudWatch_CompositeAlarm(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	name := "sdk-composite"
 	_, err := client.PutCompositeAlarm(ctx, &cloudwatch.PutCompositeAlarmInput{
@@ -122,6 +125,7 @@ func TestCloudWatch_CompositeAlarm(t *testing.T) {
 // TestCloudWatch_MetricStreams covers the full stream lifecycle: put, get, list,
 // stop, start, delete — with the RUNNING/STOPPED state transitioning.
 func TestCloudWatch_MetricStreams(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	name := "sdk-stream"
 	firehoseARN, _ := createImmediateFirehose(t, "sdk-stream-firehose")
@@ -172,6 +176,7 @@ func TestCloudWatch_MetricStreams(t *testing.T) {
 // TestCloudWatch_AnomalyDetector covers put / describe / delete of a
 // single-metric anomaly detector.
 func TestCloudWatch_AnomalyDetector(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	ns := "Custom/AnomalySDK"
 	put := &cloudwatch.PutAnomalyDetectorInput{
@@ -210,6 +215,7 @@ func TestCloudWatch_AnomalyDetector(t *testing.T) {
 
 // TestCloudWatch_InsightRules covers put / describe / disable / enable / delete.
 func TestCloudWatch_InsightRules(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	name := "sdk-insight"
 	def := `{"Schema":{"Name":"CloudWatchLogRule","Version":1},"LogGroupNames":["/aws/lambda/x"],"Contribution":{"Keys":["$.requestId"]},"AggregateOn":"Count"}`
@@ -251,6 +257,7 @@ func TestCloudWatch_InsightRules(t *testing.T) {
 // against recorded metrics — real datapoints, and an empty result for a metric
 // with no data (no fabricated points).
 func TestCloudWatch_GetMetricData(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	ns := "Custom/GetMetricDataSDK"
 	base := time.Now().UTC().Truncate(time.Minute)
@@ -302,6 +309,7 @@ func TestCloudWatch_GetMetricData(t *testing.T) {
 // TestCloudWatch_AlarmMuteRules covers put / get / list / delete of an alarm mute
 // rule, including the derived Status and the Rule/MuteTargets round-trip.
 func TestCloudWatch_AlarmMuteRules(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	name := "sdk-mute"
 	_, err := client.PutAlarmMuteRule(ctx, &cloudwatch.PutAlarmMuteRuleInput{
@@ -339,6 +347,7 @@ func TestCloudWatch_AlarmMuteRules(t *testing.T) {
 // TestCloudWatch_TagResource covers the cross-resource tagging API over a metric
 // stream ARN: tag, list, untag.
 func TestCloudWatch_TagResource(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	name := "sdk-stream-tagged"
 	firehoseARN, _ := createImmediateFirehose(t, "sdk-stream-tagged-firehose")

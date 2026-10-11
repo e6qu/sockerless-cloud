@@ -11,6 +11,7 @@ import (
 // Update + actions, the API and Product child collections, the subscription /
 // namedValue / backend POST actions, and a GetEntityTag HEAD.
 func TestAPIMMoreCLI(t *testing.T) {
+	t.Parallel()
 	name := "cli-apim"
 	svc := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ApiManagement/service/%s",
 		baseURL, subscriptionID, resourceGroup, name)

@@ -16,6 +16,7 @@ import (
 // back: type, service name, state, route/subnet/security-group sets, DNS
 // entries, and the unsuccessful set on a bad delete.
 func TestEC2_VpcEndpointsRoundTrip(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.90.0.0/16")})

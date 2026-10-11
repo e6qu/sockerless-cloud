@@ -15,6 +15,7 @@ import (
 // and the per-region deployment status that commit produces.
 
 func TestNetworkManager_CommitAndDeploymentStatus(t *testing.T) {
+	t.Parallel()
 	rg := "netmanager-rg"
 	requireResourceGroup(t, rg)
 
@@ -125,6 +126,7 @@ func TestNetworkManager_CommitAndDeploymentStatus(t *testing.T) {
 // two things the resource provider refuses: a manager that governs nothing, and
 // a commit that names a configuration which does not exist.
 func TestNetworkManager_RejectsUnscopedManagerAndUnknownConfiguration(t *testing.T) {
+	t.Parallel()
 	rg := "netmanager-reject-rg"
 	requireResourceGroup(t, rg)
 

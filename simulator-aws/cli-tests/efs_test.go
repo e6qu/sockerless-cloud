@@ -8,6 +8,7 @@ import (
 )
 
 func TestEFS_CreateAndDescribeFileSystem(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("efs", "create-file-system",
 		"--creation-token", "cli-test-fs",
 		"--tags", "Key=Name,Value=cli-test-fs",
@@ -46,6 +47,7 @@ func TestEFS_CreateAndDescribeFileSystem(t *testing.T) {
 }
 
 func TestEFS_CreateMountTarget(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("efs", "create-file-system",
 		"--creation-token", "cli-mount-test",
 		"--output", "json",
@@ -93,6 +95,7 @@ func TestEFS_CreateMountTarget(t *testing.T) {
 }
 
 func TestEFS_CreateAccessPoint(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("efs", "create-file-system",
 		"--creation-token", "cli-ap-test",
 		"--output", "json",
@@ -144,6 +147,7 @@ func TestEFS_CreateAccessPoint(t *testing.T) {
 }
 
 func TestEFSCLI_PolicyBackupAndTags(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("efs", "create-file-system",
 		"--creation-token", "cli-policy-fs",
 		"--output", "json",
@@ -262,6 +266,7 @@ func TestEFSCLI_PolicyBackupAndTags(t *testing.T) {
 }
 
 func TestEFSCLI_Replication(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("efs", "create-file-system",
 		"--creation-token", "cli-repl-src",
 		"--output", "json",
@@ -310,6 +315,7 @@ func TestEFSCLI_Replication(t *testing.T) {
 }
 
 func TestEFSCLI_AccountPreferences(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("efs", "put-account-preferences",
 		"--resource-id-type", "LONG_ID",
 		"--output", "json",
@@ -333,6 +339,7 @@ func TestEFSCLI_AccountPreferences(t *testing.T) {
 }
 
 func TestEFS_DeleteFileSystem(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("efs", "create-file-system",
 		"--creation-token", "cli-delete-test",
 		"--output", "json",

@@ -149,6 +149,7 @@ func stage3Invoke(t *testing.T, siteName, key, carrier string) int {
 }
 
 func TestSDK_WebApps_HostAndFunctionKeys(t *testing.T) {
+	t.Parallel()
 	rg, name := "sdk-web-keys-rg", "sdk-keys-app"
 	azureCreateSite(t, rg, name)
 	defer azureDeleteSite(rg, name)
@@ -270,6 +271,7 @@ func TestSDK_WebApps_HostAndFunctionKeys(t *testing.T) {
 // Functions host does. The app runs a container that answers every request it
 // is let through.
 func TestSDK_WebApps_InvokeAuthLevelContract(t *testing.T) {
+	t.Parallel()
 	rg, name := "sdk-invoke-auth-rg", "invoke-auth-app"
 	azureCreateContainerSite(t, rg, name, commandImageName, "serve 80 invoked", nil)
 	defer azureDeleteSite(rg, name)
@@ -307,6 +309,7 @@ func TestSDK_WebApps_InvokeAuthLevelContract(t *testing.T) {
 }
 
 func TestSDK_WebApps_WebJobsRealRuns(t *testing.T) {
+	t.Parallel()
 	pullImageWithRetry(t, stage3AlpineImage)
 	rg, name := "sdk-webjobs-rg", "sdk-webjobs-app"
 	// The site's own container answers HTTP on port 80, so the deployment's
@@ -487,6 +490,7 @@ func stage3AwaitContinuousStatus(t *testing.T, client *armappservice.WebAppsClie
 }
 
 func TestSDK_WebApps_DeploymentExtras(t *testing.T) {
+	t.Parallel()
 	rg, name := "sdk-deploy-extra-rg", "sdk-deploy-extra-app"
 	client := createStackWebApp(t, rg, name, "NODE|20-lts", nil)
 	cred := &fakeCredential{}

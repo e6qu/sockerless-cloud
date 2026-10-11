@@ -15,6 +15,7 @@ import (
 // reading it back in the state the query results imply, and delete-alarms
 // removing it along with the service-managed scheduled query.
 func TestCloudWatchCLI_LogAlarms(t *testing.T) {
+	t.Parallel()
 	group := "/cli/log-alarm/" + fmt.Sprint(time.Now().UnixNano())
 	runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", group))
 	defer func() { _ = awsCLI("logs", "delete-log-group", "--log-group-name", group).Run() }()

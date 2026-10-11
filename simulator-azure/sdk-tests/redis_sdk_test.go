@@ -41,6 +41,7 @@ func newRedisCacheForTest(t *testing.T, rg, name string) *armredis.Client {
 }
 
 func TestRedis_CreateGetListLifecycle(t *testing.T) {
+	t.Parallel()
 	rg := "redis-lifecycle-rg"
 	ensureRedisResourceGroup(t, rg)
 	client := newRedisCacheForTest(t, rg, "redis-lifecycle")
@@ -71,6 +72,7 @@ func TestRedis_CreateGetListLifecycle(t *testing.T) {
 }
 
 func TestRedis_CheckNameAvailability(t *testing.T) {
+	t.Parallel()
 	rg := "redis-checkname-rg"
 	ensureRedisResourceGroup(t, rg)
 	client, err := armredis.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -94,6 +96,7 @@ func TestRedis_CheckNameAvailability(t *testing.T) {
 }
 
 func TestRedis_KeysAndReboot(t *testing.T) {
+	t.Parallel()
 	rg := "redis-keys-rg"
 	ensureRedisResourceGroup(t, rg)
 	client := newRedisCacheForTest(t, rg, "redis-keys")
@@ -120,6 +123,7 @@ func TestRedis_KeysAndReboot(t *testing.T) {
 }
 
 func TestRedis_DataActions(t *testing.T) {
+	t.Parallel()
 	rg := "redis-data-rg"
 	ensureRedisResourceGroup(t, rg)
 	client := newRedisCacheForTest(t, rg, "redis-data")
@@ -153,6 +157,7 @@ func TestRedis_DataActions(t *testing.T) {
 }
 
 func TestRedis_AccessPoliciesAndAssignments(t *testing.T) {
+	t.Parallel()
 	rg := "redis-ap-rg"
 	ensureRedisResourceGroup(t, rg)
 	newRedisCacheForTest(t, rg, "redis-ap")
@@ -221,6 +226,7 @@ func TestRedis_AccessPoliciesAndAssignments(t *testing.T) {
 }
 
 func TestRedis_LinkedServers(t *testing.T) {
+	t.Parallel()
 	rg := "redis-link-rg"
 	ensureRedisResourceGroup(t, rg)
 	newRedisCacheForTest(t, rg, "redis-primary")
@@ -258,6 +264,7 @@ func TestRedis_LinkedServers(t *testing.T) {
 }
 
 func TestRedis_PatchSchedules(t *testing.T) {
+	t.Parallel()
 	rg := "redis-patch-rg"
 	ensureRedisResourceGroup(t, rg)
 	newRedisCacheForTest(t, rg, "redis-patch")
@@ -290,6 +297,7 @@ func TestRedis_PatchSchedules(t *testing.T) {
 }
 
 func TestRedis_PrivateEndpointAndLink(t *testing.T) {
+	t.Parallel()
 	rg := "redis-pe-rg"
 	ensureRedisResourceGroup(t, rg)
 	newRedisCacheForTest(t, rg, "redis-pe")
@@ -338,6 +346,7 @@ func TestRedis_PrivateEndpointAndLink(t *testing.T) {
 }
 
 func TestRedis_OperationsList(t *testing.T) {
+	t.Parallel()
 	opsClient, err := armredis.NewOperationsClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	pager := opsClient.NewListPager(nil)

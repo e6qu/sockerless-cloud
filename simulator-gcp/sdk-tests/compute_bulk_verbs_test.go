@@ -13,6 +13,7 @@ import (
 // resources back rather than the operation.
 
 func TestCompute_InstancesBulkInsert(t *testing.T) {
+	t.Parallel()
 	// Every member of the run is a real virtual machine on a real network
 	// interface, so the run needs the host that can boot one — the same
 	// requirement a single instances.insert has.
@@ -77,6 +78,7 @@ func TestCompute_InstancesBulkInsert(t *testing.T) {
 }
 
 func TestCompute_DisksBulkInsertAndLabels(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, zone = "bulk-disks", "us-central1-a"
 

@@ -39,6 +39,7 @@ func storageEndpointRequest(t *testing.T, method, endpoint, target string) *http
 // a client that follows the advertised URL is told the simulator does not
 // implement that plane instead of being handed an empty 200.
 func TestStorageSDK_UnimplementedDataPlanesDeclareGap(t *testing.T) {
+	t.Parallel()
 	const (
 		rg      = "sdk-storage-endpoints-rg"
 		account = "sdkendpointacct"

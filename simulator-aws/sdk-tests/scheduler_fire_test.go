@@ -17,6 +17,7 @@ import (
 // at() expression a few seconds in the future so the firing loop launches the
 // ECS task, which then appears in ListTasks.
 func TestScheduler_FiresECSTarget(t *testing.T) {
+	t.Parallel()
 	ecsc := ecsClient()
 	sched := schedulerClient()
 

@@ -19,6 +19,7 @@ import (
 // → ModifyDBProxyTargetGroup → RegisterDBProxyTargets → DescribeDBProxyTargets
 // → DeregisterDBProxyTargets → DeleteDBProxyEndpoint → DeleteDBProxy.
 func TestRDS_DBProxyLifecycle(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 
 	// Backing instance the proxy will target.
@@ -160,6 +161,7 @@ func TestRDS_DBProxyLifecycle(t *testing.T) {
 // cluster and a DB instance plus the EC2-Classic-style DB security group
 // ingress surface.
 func TestRDS_RolesAndSecurityGroups(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 
 	clusterID := "roles-cluster"
@@ -258,6 +260,7 @@ func TestRDS_RolesAndSecurityGroups(t *testing.T) {
 // TestRDS_CertificatesAndBackups exercises the certificate surface,
 // per-instance and per-cluster automated backups, and DB log files.
 func TestRDS_CertificatesAndBackups(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 
 	certs, err := c.DescribeCertificates(ctx, &rds.DescribeCertificatesInput{})
@@ -409,6 +412,7 @@ func TestRDS_CertificatesAndBackups(t *testing.T) {
 // CopyDBClusterParameterGroup, CopyOptionGroup, and the event
 // subscription source-identifier add/remove surface.
 func TestRDS_CopyGroupsAndSourceIdentifiers(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 
 	// DB parameter group copy.
@@ -514,6 +518,7 @@ func TestRDS_CopyGroupsAndSourceIdentifiers(t *testing.T) {
 // DescribePendingMaintenanceActions and ApplyPendingMaintenanceAction
 // against a DB instance resource.
 func TestRDS_PendingMaintenanceActions(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 
 	instID := "pma-instance"

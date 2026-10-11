@@ -15,6 +15,7 @@ import (
 // metrics configuration through its life: one per resource, only for a
 // resource that exists, its selections replaced (not merged) on update.
 func TestCloudWatch_ResourceMetricsConfiguration(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	streams := kinesisClient()
 	stream := "sdk-cw-resource-metrics"
@@ -62,6 +63,7 @@ func TestCloudWatch_ResourceMetricsConfiguration(t *testing.T) {
 // filters to the documented rules: set at start, replaced as a pair on update,
 // and update refused while enrichment is stopped.
 func TestCloudWatch_OTelEnrichmentFilters(t *testing.T) {
+	t.Parallel()
 	client := cloudwatchClient()
 	_, err := client.StopOTelEnrichment(ctx, &cloudwatch.StopOTelEnrichmentInput{})
 	require.NoError(t, err)

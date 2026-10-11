@@ -7,6 +7,7 @@ import (
 )
 
 func TestSpannerCLI_InstanceDatabaseList(t *testing.T) {
+	t.Parallel()
 	runCLI(t, gcloudCLI("spanner", "instances", "create", "cli-spanner",
 		"--config=regional-us-central1",
 		"--description=CLI Spanner",
@@ -23,6 +24,7 @@ func TestSpannerCLI_InstanceDatabaseList(t *testing.T) {
 }
 
 func TestSpannerCLI_RESTDataPlane(t *testing.T) {
+	t.Parallel()
 	const (
 		instance = "cli-spanner-data"
 		database = "clidatadb"
@@ -55,6 +57,7 @@ func TestSpannerCLI_RESTDataPlane(t *testing.T) {
 }
 
 func TestDataflowCLI_ListRegionalJobs(t *testing.T) {
+	t.Parallel()
 	httpDoJSON(t, "POST", baseURL+"/v1b3/projects/"+project+"/locations/"+location+"/jobs",
 		`{"name":"cli-dataflow-job","type":"JOB_TYPE_BATCH"}`)
 
@@ -65,6 +68,7 @@ func TestDataflowCLI_ListRegionalJobs(t *testing.T) {
 }
 
 func TestBigtableCLI_InstanceTableList(t *testing.T) {
+	t.Parallel()
 	runCLI(t, gcloudCLI("bigtable", "instances", "create", "cli-bt",
 		"--display-name=CLI Bigtable",
 		"--cluster=cli-bt-c1",
@@ -91,6 +95,7 @@ func TestBigtableCLI_InstanceTableList(t *testing.T) {
 // admin-only; the data plane's CLI surface is cbt). cbt is built in TestMain
 // (see installCBT) so the test runs unconditionally.
 func TestBigtableCLI_DataPlane_cbt(t *testing.T) {
+	t.Parallel()
 	const (
 		instance = "cbt-dp"
 		table    = "cbt_table"

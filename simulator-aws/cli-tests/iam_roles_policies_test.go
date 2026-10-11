@@ -9,6 +9,7 @@ import (
 // and description ops via the aws CLI: put/delete-role-permissions-boundary
 // and update-role-description (the aws_iam_role.permissions_boundary path).
 func TestIAMCLI_RoleBoundaryAndDescription(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("iam", "create-role",
 		"--role-name", "cli-rpb-role",
 		"--assume-role-policy-document", `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`))
@@ -46,6 +47,7 @@ func TestIAMCLI_RoleBoundaryAndDescription(t *testing.T) {
 // ops via the aws CLI: create-policy-version (--set-as-default),
 // set-default-policy-version, delete-policy-version, tag-policy, untag-policy.
 func TestIAMCLI_PolicyVersionsAndTags(t *testing.T) {
+	t.Parallel()
 	arn := strings.TrimSpace(runCLI(t, awsCLI("iam", "create-policy",
 		"--policy-name", "cli-pv-policy",
 		"--policy-document", `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}]}`,
@@ -87,6 +89,7 @@ func TestIAMCLI_PolicyVersionsAndTags(t *testing.T) {
 // TestIAMCLI_InstanceProfileTags drives tag/untag/list-instance-profile-tags
 // via the aws CLI (the aws_iam_instance_profile.tags path).
 func TestIAMCLI_InstanceProfileTags(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("iam", "create-instance-profile",
 		"--instance-profile-name", "cli-ipt-profile"))
 	t.Cleanup(func() {
@@ -120,6 +123,7 @@ func TestIAMCLI_InstanceProfileTags(t *testing.T) {
 // list-policies-granting-service-access, get-context-keys-for-custom-policy,
 // and get-context-keys-for-principal-policy via the aws CLI.
 func TestIAMCLI_EntitiesAndContextKeys(t *testing.T) {
+	t.Parallel()
 	arn := strings.TrimSpace(runCLI(t, awsCLI("iam", "create-policy",
 		"--policy-name", "cli-efp-policy",
 		"--policy-document", `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}]}`,

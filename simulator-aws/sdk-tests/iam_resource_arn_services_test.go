@@ -47,6 +47,7 @@ func scopedCredentials(t *testing.T, user, policyName, policyDocument string) aw
 // build loop: the control plane describes the repository, then starts the
 // build, and both were denied for the same reason.
 func TestIAM_ResourceARN_CodeBuild(t *testing.T) {
+	t.Parallel()
 	admin := codebuildClient()
 	mkProject := func(name string) {
 		_, err := admin.CreateProject(ctx, &codebuild.CreateProjectInput{
@@ -87,6 +88,7 @@ func TestIAM_ResourceARN_CodeBuild(t *testing.T) {
 // the ":*" form that covers its streams — must therefore allow both a
 // group-scoped read and a stream write, and still deny another group.
 func TestIAM_ResourceARN_CloudWatchLogsGroupAndStream(t *testing.T) {
+	t.Parallel()
 	admin := cloudwatchlogs.NewFromConfig(sdkConfig(), func(o *cloudwatchlogs.Options) {
 		o.BaseEndpoint = aws.String(baseURL)
 	})
@@ -143,6 +145,7 @@ func TestIAM_ResourceARN_CloudWatchLogsGroupAndStream(t *testing.T) {
 // definition but allowed to pass only one role is denied when it passes
 // another — which is the entire purpose of scoping PassRole.
 func TestIAM_PassRole_IsAuthorizedAgainstTheRolePassed(t *testing.T) {
+	t.Parallel()
 	admin := iamClient()
 	for _, role := range []string{"ecs-task-allowed", "ecs-task-forbidden"} {
 		_, err := admin.CreateRole(ctx, &iam.CreateRoleInput{

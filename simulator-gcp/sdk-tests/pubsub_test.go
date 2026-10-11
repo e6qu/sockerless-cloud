@@ -24,6 +24,7 @@ func pubsubService(t *testing.T) *pubsub.Service {
 // fan-out flow: create topic → create subscription → publish → pull
 // → ack. Regression guard (Pub/Sub slice).
 func TestPubSub_TopicAndSubscriptionLifecycle(t *testing.T) {
+	t.Parallel()
 	svc := pubsubService(t)
 	project := "test-project"
 	topicName := "projects/" + project + "/topics/lifecycle-topic"
@@ -108,6 +109,7 @@ func TestPubSub_TopicAndSubscriptionLifecycle(t *testing.T) {
 
 // TestPubSub_NonExistentTopic confirms canonical 404 envelope.
 func TestPubSub_NonExistentTopic(t *testing.T) {
+	t.Parallel()
 	svc := pubsubService(t)
 	_, err := svc.Projects.Topics.Get("projects/test-project/topics/missing").Do()
 	require.Error(t, err)
@@ -120,6 +122,7 @@ func TestPubSub_NonExistentTopic(t *testing.T) {
 // pushConfig, etc. without recreating the subscription. updateMask
 // selects which fields apply; fields not in the mask retain prior values.
 func TestPubSub_PatchSubscription(t *testing.T) {
+	t.Parallel()
 	svc := pubsubService(t)
 	project := "test-project"
 	topicName := "projects/" + project + "/topics/patch-topic"
@@ -183,6 +186,7 @@ func TestPubSub_PatchSubscription(t *testing.T) {
 // TestPubSub_PatchTopic exercises projects.topics.patch. The only
 // mutable field on real Pub/Sub topics today is `labels`.
 func TestPubSub_PatchTopic(t *testing.T) {
+	t.Parallel()
 	svc := pubsubService(t)
 	topicName := "projects/test-project/topics/patch-topic-labels"
 	_, err := svc.Projects.Topics.Create(topicName, &pubsub.Topic{
@@ -205,6 +209,7 @@ func TestPubSub_PatchTopic(t *testing.T) {
 }
 
 func TestPubSub_TopicListPagination(t *testing.T) {
+	t.Parallel()
 	svc := pubsubService(t)
 	proj := "pagination-ps-project"
 
@@ -248,6 +253,7 @@ func TestPubSub_TopicListPagination(t *testing.T) {
 }
 
 func TestPubSub_SubscriptionListPagination(t *testing.T) {
+	t.Parallel()
 	svc := pubsubService(t)
 	proj := "pagination-ps-sub-project"
 	topicName := "projects/" + proj + "/topics/pagination-topic"

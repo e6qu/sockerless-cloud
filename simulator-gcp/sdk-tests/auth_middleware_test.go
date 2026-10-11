@@ -20,6 +20,7 @@ var rawClient = &http.Client{}
 // simulator did not sign, in Google's UNAUTHENTICATED error shape, and admits a
 // request bearing a real simulator-minted token.
 func TestDataPlaneAuth_RejectsMissingAndInvalidTokens(t *testing.T) {
+	t.Parallel()
 	// A real Google data-plane read: list Cloud Run services.
 	url := baseURL + "/v2/projects/test-project/locations/us-central1/services"
 
@@ -65,6 +66,7 @@ func TestDataPlaneAuth_RejectsMissingAndInvalidTokens(t *testing.T) {
 // does not serve as one that merely rejected the caller — the absence of a
 // route and an authentication failure would be indistinguishable.
 func TestDataPlaneAuth_UnroutedPathsAnswerNotFoundAnonymously(t *testing.T) {
+	t.Parallel()
 	for _, path := range []string{
 		"/api/sessions/me",
 		"/api/definitely-not-a-real-path",
@@ -95,6 +97,7 @@ func TestDataPlaneAuth_UnroutedPathsAnswerNotFoundAnonymously(t *testing.T) {
 // reaches without an OAuth2 token stay reachable without one: the health check,
 // OpenID Connect discovery, and the JSON Web Key Set.
 func TestDataPlaneAuth_ExemptEndpoints(t *testing.T) {
+	t.Parallel()
 	for _, path := range []string{"/health", "/.well-known/openid-configuration", "/.well-known/jwks.json"} {
 		req, err := http.NewRequest(http.MethodGet, baseURL+path, nil)
 		require.NoError(t, err)

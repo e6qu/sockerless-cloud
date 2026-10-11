@@ -34,6 +34,7 @@ func kmsService(t *testing.T) *cloudkms.Service {
 }
 
 func TestCloudKMSShowEffectiveAutokeyConfigSDK(t *testing.T) {
+	t.Parallel()
 	// The official client drives GET /v1/folders/{folderAction} for both
 	// GetAutokeyConfig and ShowEffectiveAutokeyConfig below.
 	resourceManager := crmV3Service(t)
@@ -81,6 +82,7 @@ func TestCloudKMSShowEffectiveAutokeyConfigSDK(t *testing.T) {
 }
 
 func TestCloudKMSTrustedWrappedKeyExportImportSDK(t *testing.T) {
+	t.Parallel()
 	// The generated method below drives POST /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/cryptoKeys/{cryptoKey}/cryptoKeyVersions:importTrustedKeyWrappedCryptoKeyVersion.
 	svc := kmsService(t)
 	_, ringName := kmsNewRing(t, svc, "sdk-ring-trusted-wrap")
@@ -166,6 +168,7 @@ func requireKMSErrorCode(t *testing.T, err error, code int) {
 }
 
 func TestCloudKMSKeyRingLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	svc := kmsService(t)
 	parent := "projects/sdk-kms-project/locations/global"
 	ringID := "sdk-ring-lifecycle"
@@ -208,6 +211,7 @@ func TestCloudKMSKeyRingLifecycleSDK(t *testing.T) {
 }
 
 func TestCloudKMSEncryptDecryptSDK(t *testing.T) {
+	t.Parallel()
 	svc := kmsService(t)
 	parent := "projects/sdk-kms-project/locations/global"
 	ringID := "sdk-ring-crypto"
@@ -285,6 +289,7 @@ func TestCloudKMSEncryptDecryptSDK(t *testing.T) {
 }
 
 func TestCloudKMSCryptoKeyManagementSDK(t *testing.T) {
+	t.Parallel()
 	svc := kmsService(t)
 	parent := "projects/sdk-kms-project/locations/global"
 	ringID := "sdk-ring-mgmt"
@@ -344,6 +349,7 @@ func kmsNewRing(t *testing.T, svc *cloudkms.Service, ringID string) (string, str
 }
 
 func TestCloudKMSIamPolicySDK(t *testing.T) {
+	t.Parallel()
 	svc := kmsService(t)
 	_, ringName := kmsNewRing(t, svc, "sdk-ring-iam")
 
@@ -387,6 +393,7 @@ func TestCloudKMSIamPolicySDK(t *testing.T) {
 }
 
 func TestCloudKMSGenerateRandomBytesSDK(t *testing.T) {
+	t.Parallel()
 	svc := kmsService(t)
 	location := "projects/sdk-kms-project/locations/global"
 
@@ -412,6 +419,7 @@ func TestCloudKMSGenerateRandomBytesSDK(t *testing.T) {
 }
 
 func TestCloudKMSMacSignVerifySDK(t *testing.T) {
+	t.Parallel()
 	svc := kmsService(t)
 	_, ringName := kmsNewRing(t, svc, "sdk-ring-mac")
 
@@ -453,6 +461,7 @@ func TestCloudKMSMacSignVerifySDK(t *testing.T) {
 }
 
 func TestCloudKMSRawEncryptDecryptSDK(t *testing.T) {
+	t.Parallel()
 	svc := kmsService(t)
 	_, ringName := kmsNewRing(t, svc, "sdk-ring-raw")
 
@@ -487,6 +496,7 @@ func TestCloudKMSRawEncryptDecryptSDK(t *testing.T) {
 }
 
 func TestCloudKMSAsymmetricSignSDK(t *testing.T) {
+	t.Parallel()
 	svc := kmsService(t)
 	_, ringName := kmsNewRing(t, svc, "sdk-ring-asym")
 
@@ -529,6 +539,7 @@ func TestCloudKMSAsymmetricSignSDK(t *testing.T) {
 }
 
 func TestCloudKMSAsymmetricDecryptSDK(t *testing.T) {
+	t.Parallel()
 	svc := kmsService(t)
 	_, ringName := kmsNewRing(t, svc, "sdk-ring-asymdec")
 
@@ -565,6 +576,7 @@ func TestCloudKMSAsymmetricDecryptSDK(t *testing.T) {
 }
 
 func TestCloudKMSImportJobSDK(t *testing.T) {
+	t.Parallel()
 	svc := kmsService(t)
 	_, ringName := kmsNewRing(t, svc, "sdk-ring-import")
 
@@ -643,6 +655,7 @@ func TestCloudKMSImportJobSDK(t *testing.T) {
 }
 
 func TestCloudKMSEkmConnectionSDK(t *testing.T) {
+	t.Parallel()
 	svc := kmsService(t)
 	location := "projects/sdk-kms-project/locations/us-central1"
 
@@ -674,6 +687,7 @@ func TestCloudKMSEkmConnectionSDK(t *testing.T) {
 }
 
 func TestCloudKMSKeyHandleSDK(t *testing.T) {
+	t.Parallel()
 	svc := kmsService(t)
 	location := "projects/sdk-kms-project/locations/us-east1"
 
@@ -694,6 +708,7 @@ func TestCloudKMSKeyHandleSDK(t *testing.T) {
 }
 
 func TestCloudKMSUpdatePrimaryVersionSDK(t *testing.T) {
+	t.Parallel()
 	svc := kmsService(t)
 	_, ringName := kmsNewRing(t, svc, "sdk-ring-primary")
 
@@ -715,6 +730,7 @@ func TestCloudKMSUpdatePrimaryVersionSDK(t *testing.T) {
 }
 
 func TestCloudKMSDeleteCryptoKeyAndVersionSDK(t *testing.T) {
+	t.Parallel()
 	svc := kmsService(t)
 	_, ringName := kmsNewRing(t, svc, "sdk-ring-delete")
 

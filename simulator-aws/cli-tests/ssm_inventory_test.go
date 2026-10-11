@@ -22,6 +22,7 @@ func ssmHexSuffix() string {
 // type, and delete-inventory + describe-inventory-deletions model the
 // async deletion job.
 func TestSSMCLI_Inventory(t *testing.T) {
+	t.Parallel()
 	instanceID := ssmInstanceID("0cliinv")
 	typeName := "Custom:SockerlessCLI"
 	capture := time.Now().UTC().Format("2006-01-02T15:04:05Z")
@@ -104,6 +105,7 @@ func TestSSMCLI_Inventory(t *testing.T) {
 // records items, list-compliance-items reads them, and the two summary
 // ops roll up counts.
 func TestSSMCLI_Compliance(t *testing.T) {
+	t.Parallel()
 	resourceID := ssmInstanceID("0clicmp")
 	complianceType := "Custom:SockerlessCLICheck"
 	execTime := time.Now().UTC().Format("2006-01-02T15:04:05Z")
@@ -177,6 +179,7 @@ func TestSSMCLI_Compliance(t *testing.T) {
 // update-managed-instance-role and deregister-managed-instance over the
 // same set a node joins by reporting inventory.
 func TestSSMCLI_NodesAndInstances(t *testing.T) {
+	t.Parallel()
 	// The CLI validates the managed-instance ID as "mi-" plus 17 hex
 	// chars (total length 20), so build a deterministic 17-hex suffix
 	// from the timestamp.
@@ -271,6 +274,7 @@ func TestSSMCLI_NodesAndInstances(t *testing.T) {
 // TestSSMCLI_DocumentPermission pins the account-share list plus the
 // review-metadata ops and Change-Calendar state over the document store.
 func TestSSMCLI_DocumentPermission(t *testing.T) {
+	t.Parallel()
 	name := "cli-perm-doc-" + ssmStamp()
 	content := `{"schemaVersion":"2.2","mainSteps":[{"action":"aws:runShellScript","name":"s","inputs":{"runCommand":["echo hi"]}}]}`
 
@@ -348,6 +352,7 @@ func TestSSMCLI_DocumentPermission(t *testing.T) {
 // TestSSMCLI_CalendarState pins get-calendar-state reading a
 // Change-Calendar document's default state.
 func TestSSMCLI_CalendarState(t *testing.T) {
+	t.Parallel()
 	name := "cli-cal-" + ssmStamp()
 	content := "BEGIN:VCALENDAR\nPRODID:-//AWS//Change Calendar 1.0//EN\nVERSION:2.0\nX-CALENDAR-TYPE:DEFAULT-OPEN\nEND:VCALENDAR\n"
 	runCLI(t, awsCLI("ssm", "create-document",

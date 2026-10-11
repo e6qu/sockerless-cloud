@@ -13,6 +13,7 @@ import (
 // Interconnect peers with for Cross-Cloud Interconnect, vendored from the four
 // provider pages Google publishes them on.
 func TestCompute_InterconnectRemoteLocationsAreTheVendoredCatalog(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project = "interconnect-remote-project"
 

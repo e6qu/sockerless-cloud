@@ -106,6 +106,7 @@ func lambdaReportMillis(t *testing.T, report, field string) float64 {
 // returns immediately — must still succeed, and the REPORT must account for the
 // initialisation separately from the duration the timeout limits.
 func TestLambda_InitPhaseIsOutsideTheFunctionTimeout(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	const fnName = "slow-init-inside-init-limit"
 
@@ -151,6 +152,7 @@ func TestLambda_InitPhaseIsOutsideTheFunctionTimeout(t *testing.T) {
 // invocation with the configured function timeout", so the retried attempt is
 // the one the three-second timeout bounds and the invocation ends as a timeout.
 func TestLambda_InitPhaseBeyondItsLimitIsRetriedInsideTheFunctionTimeout(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	const fnName = "slow-init-beyond-init-limit"
 

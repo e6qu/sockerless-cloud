@@ -20,6 +20,7 @@ func wafStamp() string {
 }
 
 func TestWAFv2_WebACL_Lifecycle(t *testing.T) {
+	t.Parallel()
 	name := "cli-acl-" + wafStamp()
 	out := runCLI(t, awsCLI("wafv2", "create-web-acl",
 		"--name", name,
@@ -63,6 +64,7 @@ func TestWAFv2_WebACL_Lifecycle(t *testing.T) {
 }
 
 func TestWAFv2_RevenueSurfacesWithoutSettlements_CLI(t *testing.T) {
+	t.Parallel()
 	start := time.Now().Add(-time.Hour).UTC().Format("2006-01-02T15:04:05Z")
 	end := time.Now().UTC().Format("2006-01-02T15:04:05Z")
 	window := fmt.Sprintf(`{"StartTime":"%s","EndTime":"%s"}`, start, end)
@@ -121,6 +123,7 @@ func TestWAFv2_RevenueSurfacesWithoutSettlements_CLI(t *testing.T) {
 }
 
 func TestWAFv2_IPSet_Lifecycle(t *testing.T) {
+	t.Parallel()
 	name := "cli-ipset-" + wafStamp()
 	out := runCLI(t, awsCLI("wafv2", "create-ip-set",
 		"--name", name, "--scope", "CLOUDFRONT",
@@ -172,6 +175,7 @@ func TestWAFv2_IPSet_Lifecycle(t *testing.T) {
 }
 
 func TestWAFv2_LoggingConfiguration_Lifecycle(t *testing.T) {
+	t.Parallel()
 	name := "cli-log-" + wafStamp()
 	out := runCLI(t, awsCLI("wafv2", "create-web-acl",
 		"--name", name,
@@ -233,6 +237,7 @@ func TestWAFv2_LoggingConfiguration_Lifecycle(t *testing.T) {
 // CheckCapacity estimator: create-api-key, list-api-keys, get-decrypted-api-key,
 // check-capacity, delete-api-key.
 func TestWAFv2_APIKeys_And_Capacity(t *testing.T) {
+	t.Parallel()
 	createOut := runCLI(t, awsCLI("wafv2", "create-api-key",
 		"--scope", "CLOUDFRONT",
 		"--token-domains", "example.com", "app.example.com",
@@ -292,6 +297,7 @@ func TestWAFv2_APIKeys_And_Capacity(t *testing.T) {
 // list-available-managed-rule-group-versions, describe-managed-rule-group,
 // describe-all-managed-products, describe-managed-products-by-vendor.
 func TestWAFv2_ManagedRuleGroupCatalog(t *testing.T) {
+	t.Parallel()
 	listOut := runCLI(t, awsCLI("wafv2", "list-available-managed-rule-groups",
 		"--scope", "CLOUDFRONT", "--output", "json"))
 	var listResult struct {
@@ -355,6 +361,7 @@ func TestWAFv2_ManagedRuleGroupCatalog(t *testing.T) {
 // list-managed-rule-sets, get-managed-rule-set, put-managed-rule-set-versions,
 // update-managed-rule-set-version-expiry-date.
 func TestWAFv2_ManagedRuleSet(t *testing.T) {
+	t.Parallel()
 	listOut := runCLI(t, awsCLI("wafv2", "list-managed-rule-sets",
 		"--scope", "CLOUDFRONT", "--output", "json"))
 	var listResult struct {
@@ -413,6 +420,7 @@ func TestWAFv2_ManagedRuleSet(t *testing.T) {
 // group, the mobile SDK release catalog, delete-firewall-manager-rule-groups,
 // get-rate-based-statement-managed-keys, and get-top-path-statistics-by-traffic.
 func TestWAFv2_PermissionPolicyAndStats(t *testing.T) {
+	t.Parallel()
 	ts := wafStamp()
 
 	rgOut := runCLI(t, awsCLI("wafv2", "create-rule-group",

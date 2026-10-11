@@ -22,6 +22,7 @@ import (
 //	GET /vfs/{path}
 
 func TestWebAppKudu_VFSCommandSettingsAndSchedule(t *testing.T) {
+	t.Parallel()
 	stage3PullImage(t, stage3CLIAlpine)
 	az := kuduCLILogin(t)
 	rg, plan, app := "kudu-files-cli-rg", "kudu-files-cli-plan", "kudu-files-cli-app"

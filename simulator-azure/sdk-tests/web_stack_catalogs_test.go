@@ -26,6 +26,7 @@ import (
 //	GetWebAppStacksForLocation       GET /providers/Microsoft.Web/locations/{location}/webAppStacks
 //	GetFunctionAppStacksForLocation  GET /providers/Microsoft.Web/locations/{location}/functionAppStacks
 func TestSDK_Web_RuntimeStackCatalogsListTheStacksSitesRun(t *testing.T) {
+	t.Parallel()
 	provider, err := armappservice.NewProviderClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	want := []string{"NODE|22-lts", "NODE|20-lts", "PYTHON|3.12"}

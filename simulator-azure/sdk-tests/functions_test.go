@@ -160,6 +160,7 @@ func createAppInsightsComponent(t *testing.T, rg, name, workspaceID string) arma
 // the binary, and "serve 80 …" are its arguments. The request reaches the
 // container verbatim on port 80, App Service's default.
 func TestAzureFunctions_StartupCommandRunsOnTheImageEntrypoint(t *testing.T) {
+	t.Parallel()
 	rg, name := "func-startup-rg", "startup-func-app"
 	azureCreateContainerSite(t, rg, name, commandImageName, "serve 80 hello-from-azure", nil)
 	defer azureDeleteSite(rg, name)
@@ -177,6 +178,7 @@ func TestAzureFunctions_StartupCommandRunsOnTheImageEntrypoint(t *testing.T) {
 // startup command set afterwards through the configuration API restarts the
 // site with that command in place of the CMD.
 func TestAzureFunctions_ImageCMDUntilAStartupCommandReplacesIt(t *testing.T) {
+	t.Parallel()
 	rg, name := "func-imagecmd-rg", "imagecmd-func-app"
 	azureCreateContainerSite(t, rg, name, servingImageName, "", nil)
 	defer azureDeleteSite(rg, name)
@@ -202,6 +204,7 @@ func TestAzureFunctions_ImageCMDUntilAStartupCommandReplacesIt(t *testing.T) {
 // a host that routes no container address too, through the port the engine
 // publishes for it.
 func TestAzureFunctions_WebsitesPortRoutesRequests(t *testing.T) {
+	t.Parallel()
 	rg, name := "func-port-rg", "port-func-app"
 	azureCreateContainerSite(t, rg, name, commandImageName, "serve 9090 on-9090",
 		map[string]string{"WEBSITES_PORT": "9090"})
@@ -214,6 +217,7 @@ func TestAzureFunctions_WebsitesPortRoutesRequests(t *testing.T) {
 // start: the front end answers 503, and the container's own output is in the
 // site's log.
 func TestAzureFunctions_ContainerThatExitsFailsTheSiteStart(t *testing.T) {
+	t.Parallel()
 	rg, name := "func-fail-rg", "fail-func-app"
 	azureCreateContainerSite(t, rg, name, commandImageName, "log site-start-output", nil)
 	defer azureDeleteSite(rg, name)
@@ -228,6 +232,7 @@ func TestAzureFunctions_ContainerThatExitsFailsTheSiteStart(t *testing.T) {
 // Application Insights component its connection string names, in the
 // workspace that component names, and no other workspace.
 func TestAzureFunctions_ContainerOutputReachesTheConnectedComponent(t *testing.T) {
+	t.Parallel()
 	rg, name := "func-out-rg", "out-func-app"
 	ws := createLogWorkspace(t, rg, "func-out-ws")
 	other := createLogWorkspace(t, rg, "func-out-other-ws")
@@ -258,6 +263,7 @@ func TestAzureFunctions_ContainerOutputReachesTheConnectedComponent(t *testing.T
 }
 
 func TestAzureFunctions_DefaultHostNameReachability(t *testing.T) {
+	t.Parallel()
 	rg, name := "func-host-rg", "host-func-app"
 	azureCreateContainerSite(t, rg, name, commandImageName, "serve 80 reached-by-hostname", nil)
 	defer azureDeleteSite(rg, name)
@@ -297,6 +303,7 @@ func TestAzureFunctions_DefaultHostNameReachability(t *testing.T) {
 }
 
 func TestSDK_Functions_CreateAndGet(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-func-create-rg"
 	ensureRG(t, rg)
 
@@ -327,6 +334,7 @@ func TestSDK_Functions_CreateAndGet(t *testing.T) {
 }
 
 func TestSDK_Functions_ListByResourceGroup(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-func-list-rg"
 	ensureRG(t, rg)
 
@@ -366,6 +374,7 @@ func TestSDK_Functions_ListByResourceGroup(t *testing.T) {
 }
 
 func TestSDK_Functions_Delete(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-func-del-rg"
 	ensureRG(t, rg)
 
@@ -396,6 +405,7 @@ func TestSDK_Functions_Delete(t *testing.T) {
 }
 
 func TestSDK_Functions_GetNonExistentSite(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-func-err-rg"
 	ensureRG(t, rg)
 

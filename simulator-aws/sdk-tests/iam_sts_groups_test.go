@@ -26,6 +26,7 @@ func errCodeOf(err error) string {
 // credentials that resolve, under call-time enforcement, to the assumed role's
 // policies — and that GetCallerIdentity reports the assumed-role ARN.
 func TestSTS_AssumeRoleEnforcement(t *testing.T) {
+	t.Parallel()
 	admin := iamClient()
 	role := uniqueName("sts-enf-role")
 
@@ -73,6 +74,7 @@ func TestSTS_AssumeRoleEnforcement(t *testing.T) {
 // TestIAM_GroupInheritanceEnforcement proves a user inherits its group's
 // policies under enforcement.
 func TestIAM_GroupInheritanceEnforcement(t *testing.T) {
+	t.Parallel()
 	admin := iamClient()
 	user, group := uniqueName("grp-user"), uniqueName("describe-group")
 
@@ -108,6 +110,7 @@ func TestIAM_GroupInheritanceEnforcement(t *testing.T) {
 // TestIAM_PermissionBoundaryEnforcement proves a permission boundary caps a
 // user whose identity policy is broader than the boundary.
 func TestIAM_PermissionBoundaryEnforcement(t *testing.T) {
+	t.Parallel()
 	boundaryPolicy := uniqueName("describe-boundary")
 	admin := iamClient()
 	user := uniqueName("boundary-user")

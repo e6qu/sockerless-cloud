@@ -14,6 +14,7 @@ import (
 // DescribeServerlessCaches, ModifyServerlessCache, and
 // DeleteServerlessCache.
 func TestElastiCache_Serverless(t *testing.T) {
+	t.Parallel()
 	c := ecClient()
 	ctx := t.Context()
 
@@ -81,6 +82,7 @@ func TestElastiCache_Serverless(t *testing.T) {
 // CopyServerlessCacheSnapshot, ExportServerlessCacheSnapshot, and
 // DeleteServerlessCacheSnapshot.
 func TestElastiCache_ServerlessSnapshots(t *testing.T) {
+	t.Parallel()
 	c := ecClient()
 	ctx := t.Context()
 
@@ -135,7 +137,7 @@ func TestElastiCache_ServerlessSnapshots(t *testing.T) {
 
 	exp, err := c.ExportServerlessCacheSnapshot(ctx, &elasticache.ExportServerlessCacheSnapshotInput{
 		ServerlessCacheSnapshotName: aws.String(snapName),
-		S3BucketName:                aws.String("my-export-bucket"),
+		S3BucketName:                aws.String("my-export-bucket-c732"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, snapName, aws.ToString(exp.ServerlessCacheSnapshot.ServerlessCacheSnapshotName))
@@ -151,6 +153,7 @@ func TestElastiCache_ServerlessSnapshots(t *testing.T) {
 // failover, node-group increase/decrease, rebalance, disassociate, and
 // delete.
 func TestElastiCache_GlobalReplicationGroup(t *testing.T) {
+	t.Parallel()
 	globalSuffix := uniqueName("myglobal")
 	c := ecClient()
 	ctx := t.Context()
@@ -251,6 +254,7 @@ func TestElastiCache_GlobalReplicationGroup(t *testing.T) {
 // AuthorizeCacheSecurityGroupIngress, RevokeCacheSecurityGroupIngress,
 // and DeleteCacheSecurityGroup.
 func TestElastiCache_CacheSecurityGroups(t *testing.T) {
+	t.Parallel()
 	c := ecClient()
 	ctx := t.Context()
 
@@ -309,6 +313,7 @@ func TestElastiCache_CacheSecurityGroups(t *testing.T) {
 // BatchApplyUpdateAction, and BatchStopUpdateAction against a real
 // cache cluster.
 func TestElastiCache_UpdateActions(t *testing.T) {
+	t.Parallel()
 	c := ecClient()
 	ctx := t.Context()
 
@@ -357,6 +362,7 @@ func TestElastiCache_UpdateActions(t *testing.T) {
 // TestFailover, and the online-migration operations on an existing
 // replication group.
 func TestElastiCache_ReplicaAndShardConfig(t *testing.T) {
+	t.Parallel()
 	c := ecClient()
 	ctx := t.Context()
 
@@ -436,6 +442,7 @@ func TestElastiCache_ReplicaAndShardConfig(t *testing.T) {
 // ListAllowedNodeTypeModifications and
 // PurchaseReservedCacheNodesOffering.
 func TestElastiCache_NodeTypeModificationsAndReserved(t *testing.T) {
+	t.Parallel()
 	reservationID := uniqueName("my-reservation")
 	c := ecClient()
 	ctx := t.Context()

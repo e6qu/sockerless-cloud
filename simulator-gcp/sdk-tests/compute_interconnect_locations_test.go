@@ -19,6 +19,7 @@ import (
 // absent what the source does not state, rather than filling those fields with
 // something a client could not tell from a reading.
 func TestCompute_InterconnectLocationsAreTheVendoredCatalog(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project = "interconnect-location-project"
 

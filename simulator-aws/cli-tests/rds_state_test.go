@@ -14,6 +14,7 @@ import (
 // Aurora global cluster family end-to-end through the aws CLI. Grouped
 // into one round-trip func (appdata2 carries RDS).
 func TestRDSCLI_StateAndGlobalCluster(t *testing.T) {
+	t.Parallel()
 	instID := "cli-state-pg-db"
 	runCLI(t, awsCLI("rds", "create-db-instance",
 		"--db-instance-identifier", instID,
@@ -151,6 +152,7 @@ func TestRDSCLI_StateAndGlobalCluster(t *testing.T) {
 // DB cluster endpoints, and copy-db-cluster-snapshot end-to-end through
 // the aws CLI. Grouped into one round-trip func (appdata2 carries RDS).
 func TestRDSCLI_EventSubParamDetailEndpoint(t *testing.T) {
+	t.Parallel()
 	subName := "cli-rds-events"
 	out := runCLI(t, awsCLI("rds", "create-event-subscription",
 		"--subscription-name", subName,

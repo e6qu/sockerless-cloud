@@ -34,6 +34,7 @@ func elbv2Client() *elbv2.Client {
 // AddTags, RemoveTags, DescribeTags, DescribeAccountLimits,
 // DeleteTargetGroup, DeleteLoadBalancer.
 func TestELBv2_LoadBalancerTargetGroupListenerLifecycle(t *testing.T) {
+	t.Parallel()
 	ec2c := ec2Client()
 	elb := elbv2Client()
 	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -383,6 +384,7 @@ func TestELBv2_LoadBalancerTargetGroupListenerLifecycle(t *testing.T) {
 // Actions exercised: CreateTargetGroup (Matcher), CreateRule,
 // DescribeTargetHealth, DeleteRule.
 func TestELBv2_HealthCheckMatcherGradesTheResponseCode(t *testing.T) {
+	t.Parallel()
 	ec2c := ec2Client()
 	elb := elbv2Client()
 	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

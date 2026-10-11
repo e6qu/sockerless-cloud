@@ -16,6 +16,7 @@ import (
 //	GET /storage/v1/b/{bucket}/o/{object}/iam/testPermissions
 
 func TestGCS_ObjectIamPolicyRoundTrip(t *testing.T) {
+	t.Parallel()
 	bucketObjectIamBucket := uniqueName("object-iam-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketObjectIamBucket)
@@ -62,6 +63,7 @@ func TestGCS_ObjectIamPolicyRoundTrip(t *testing.T) {
 // catch-all, so an absent object reports itself and an absent bucket reports
 // the bucket.
 func TestGCS_ObjectIamReportsWhatIsMissing(t *testing.T) {
+	t.Parallel()
 	bucketObjectIamAbsent := uniqueName("object-iam-absent")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketObjectIamAbsent)
@@ -79,6 +81,7 @@ func TestGCS_ObjectIamReportsWhatIsMissing(t *testing.T) {
 // the object — the bucket's, the object's own and, while uniform bucket-level
 // access is off, the object's ACL — and not from what it asks about.
 func TestGCS_ObjectTestPermissionsAnswerFromPoliciesAndACLs(t *testing.T) {
+	t.Parallel()
 	owner := storageService(t)
 	bucket := uniqueName("object-perms")
 	mustCreateBucket(t, owner, bucket)

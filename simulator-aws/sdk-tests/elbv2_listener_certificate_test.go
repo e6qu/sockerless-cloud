@@ -17,6 +17,7 @@ import (
 // Certificates.member.N.CertificateArn parameter; reading it as a flat scalar
 // dropped it, so the standard "read cert off the listener" pattern got nothing.
 func TestELBv2_HTTPSListenerCertificateRoundTrip(t *testing.T) {
+	t.Parallel()
 	tgName := uniqueName("https-lis-tg")
 	lbName := uniqueName("https-lis-lb")
 	ec2c := ec2Client()

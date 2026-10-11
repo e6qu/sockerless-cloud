@@ -9,6 +9,7 @@ import (
 // ListPolicyVersions via the aws CLI — the audit-enumeration and
 // aws_iam_policy destroy paths.
 func TestIAMCLI_ListRolesAndPolicyVersions(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("iam", "create-role",
 		"--role-name", "eddsim-cli-role",
 		"--assume-role-policy-document", `{"Version":"2012-10-17","Statement":[]}`))

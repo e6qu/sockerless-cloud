@@ -14,6 +14,7 @@ import (
 // CreateLaunchTemplateVersion appends a version (latest, not
 // default) and ModifyLaunchTemplate moves the default version.
 func TestEC2_LaunchTemplateVersions(t *testing.T) {
+	t.Parallel()
 	ltName := uniqueName("lt-versions")
 	client := ec2Client()
 

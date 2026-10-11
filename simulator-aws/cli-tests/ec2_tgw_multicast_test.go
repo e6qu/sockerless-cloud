@@ -49,6 +49,7 @@ func tgwMcastCLIFixture(t *testing.T) (tgwID, domainID, attID, subnetID string) 
 // TestEC2CLI_TGWMulticast drives the multicast domain association + group
 // register/search/deregister path over the aws CLI.
 func TestEC2CLI_TGWMulticast(t *testing.T) {
+	t.Parallel()
 	_, domainID, attID, subnetID := tgwMcastCLIFixture(t)
 
 	gotAtt := strings.TrimSpace(runCLI(t, awsCLI("ec2", "associate-transit-gateway-multicast-domain",
@@ -106,6 +107,7 @@ func TestEC2CLI_TGWMulticast(t *testing.T) {
 
 // TestEC2CLI_TGWPolicyTable drives the policy-table CRUD + association path.
 func TestEC2CLI_TGWPolicyTable(t *testing.T) {
+	t.Parallel()
 	tgwID, _, attID, _ := tgwMcastCLIFixture(t)
 
 	ptID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-transit-gateway-policy-table",
@@ -204,6 +206,7 @@ func TestEC2CLI_TGWPolicyTable(t *testing.T) {
 // TestMain, so an unsupported operation surfaces explicitly rather than
 // silently passing or failing cryptically.
 func TestEC2CLI_TGWMeteringPolicy(t *testing.T) {
+	t.Parallel()
 	tgwID, _, attID, _ := tgwMcastCLIFixture(t)
 
 	createCmd := awsCLI("ec2", "create-transit-gateway-metering-policy",
@@ -247,6 +250,7 @@ func TestEC2CLI_TGWMeteringPolicy(t *testing.T) {
 // TestEC2CLI_TGWRouteTableAnnouncement drives the route-table-announcement
 // create/describe/delete path over the aws CLI.
 func TestEC2CLI_TGWRouteTableAnnouncement(t *testing.T) {
+	t.Parallel()
 	tgwID, _, _, _ := tgwMcastCLIFixture(t)
 
 	peerTGWID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-transit-gateway",

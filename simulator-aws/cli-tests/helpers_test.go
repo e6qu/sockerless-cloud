@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -414,7 +415,7 @@ func runCLI(t *testing.T, cmd *exec.Cmd) string {
 	var stdout, stderr lockedBuffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	switch err := runCLIBounded(t, cmd, cliBound(t)); {
+	switch err := runCLIBounded(t, cmd, cliBound(t, cmd)); {
 	case errors.Is(err, errCLIBoundExceeded):
 		t.Fatalf("CLI command did not finish within its bound\nCommand: %s\nSimulator in-flight requests:\n%s\nSimulator goroutines:\n%s\nCLI --debug output (last %d bytes):\n%s",
 			strings.Join(cmd.Args, " "), simulatorDiagnostics("/debug/inflight"),
@@ -445,9 +446,15 @@ var errCLIBoundExceeded = errors.New("CLI command exceeded its bound")
 const cmdWaitDelay = 5 * time.Second
 
 // cliBound is cliCommandBound or the test's deadline less
-// cliDiagnosticsMargin, whichever comes first.
-func cliBound(t *testing.T) time.Duration {
+// cliDiagnosticsMargin, whichever comes first. An `aws <service> wait` call
+// polls on its waiter's own delay, 30 seconds for Amazon RDS, and fails by
+// itself once the waiter's attempts run out, so only the test's deadline
+// bounds it: cliCommandBound would cut a waiter off at its second poll.
+func cliBound(t *testing.T, cmd *exec.Cmd) time.Duration {
 	bound := cliCommandBound
+	if len(cmd.Args) > 2 && cmd.Args[2] == "wait" {
+		bound = time.Duration(math.MaxInt64)
+	}
 	if deadline, ok := t.Deadline(); ok {
 		if remaining := time.Until(deadline) - cliDiagnosticsMargin; remaining < bound {
 			bound = max(remaining, time.Second)
@@ -534,7 +541,7 @@ func runCLIExpectError(t *testing.T, cmd *exec.Cmd) string {
 	var combined lockedBuffer
 	cmd.Stdout = &combined
 	cmd.Stderr = &combined
-	switch err := runCLIBounded(t, cmd, cliBound(t)); {
+	switch err := runCLIBounded(t, cmd, cliBound(t, cmd)); {
 	case errors.Is(err, errCLIBoundExceeded):
 		t.Fatalf("CLI command did not finish within its bound\nCommand: %s\nOutput: %s", strings.Join(cmd.Args, " "), combined.String())
 	case err == nil:
@@ -816,4 +823,13 @@ func ensureGluePythonShellImage(t *testing.T) {
 		t.Fatalf("could not pull %s, which every AWS Glue Python shell job run executes in: %v",
 			gluePythonShellImage, err)
 	}
+}
+
+// nativeLambdaArchitecture is the AWS Lambda instruction set architecture of
+// the images TestMain builds, which match the host's.
+func nativeLambdaArchitecture() string {
+	if runtime.GOARCH == "arm64" {
+		return "arm64"
+	}
+	return "x86_64"
 }

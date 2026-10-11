@@ -18,6 +18,7 @@ import (
 )
 
 func TestAzureEntra_AuthorizationCodeFlow(t *testing.T) {
+	t.Parallel()
 	tenant := "tenant-auth-code"
 	clientID := "client-auth-code"
 	redirectURI := "http://127.0.0.1/callback"
@@ -96,6 +97,7 @@ func TestAzureEntra_AuthorizationCodeFlow(t *testing.T) {
 }
 
 func TestAzureEntra_AuthorizationCodeRequiresMatchingPKCE(t *testing.T) {
+	t.Parallel()
 	tenant := "tenant-pkce"
 	redirectURI := "http://127.0.0.1/callback"
 	authURL := baseURL + "/" + tenant + "/oauth2/v2.0/authorize?" + url.Values{
@@ -132,6 +134,7 @@ func TestAzureEntra_AuthorizationCodeRequiresMatchingPKCE(t *testing.T) {
 }
 
 func TestAzureEntra_DiscoveryAdvertisesServedAuthCodeEndpoints(t *testing.T) {
+	t.Parallel()
 	tenant := "tenant-discovery"
 	resp, err := http.Get(baseURL + "/" + tenant + "/.well-known/openid-configuration")
 	require.NoError(t, err)
@@ -164,6 +167,7 @@ func TestAzureEntra_DiscoveryAdvertisesServedAuthCodeEndpoints(t *testing.T) {
 }
 
 func TestAzureEntra_AuthorizeRejectsUnsupportedAndMissingFields(t *testing.T) {
+	t.Parallel()
 	tenant := "tenant-authorize-errors"
 	redirectURI := "http://127.0.0.1/callback"
 	client := http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
@@ -211,6 +215,7 @@ func TestAzureEntra_AuthorizeRejectsUnsupportedAndMissingFields(t *testing.T) {
 }
 
 func TestAzureEntra_TokenRejectsUnsupportedGrantType(t *testing.T) {
+	t.Parallel()
 	resp, err := http.PostForm(baseURL+"/tenant-grant/oauth2/v2.0/token", url.Values{
 		"grant_type": {"urn:ietf:params:oauth:grant-type:jwt-bearer"},
 		"client_id":  {"client"},
@@ -223,6 +228,7 @@ func TestAzureEntra_TokenRejectsUnsupportedGrantType(t *testing.T) {
 }
 
 func TestAzureEntra_TokenRS256VerifiesWithJWKS(t *testing.T) {
+	t.Parallel()
 	tenant := "tenant-rs256"
 	tokenBody := requestAzureToken(t, tenant, "oauth2/v2.0/token", url.Values{
 		"grant_type":    {"client_credentials"},
@@ -288,6 +294,7 @@ func TestAzureEntra_TokenRS256VerifiesWithJWKS(t *testing.T) {
 }
 
 func TestAzureEntra_TokenAudienceFollowsScopeAndResource(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		tenant   string

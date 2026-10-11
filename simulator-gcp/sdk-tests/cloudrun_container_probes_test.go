@@ -109,6 +109,7 @@ func assertProbedContainer(t *testing.T, got *runv2.GoogleCloudRunV2Container) {
 }
 
 func TestSDK_RunV2REST_Job_ProbesAndEnvValueSource(t *testing.T) {
+	t.Parallel()
 	svc := newRunV2RESTService(t)
 	id := uniqueName("probe-job")
 	name := crV2Parent + "/jobs/" + id
@@ -149,6 +150,7 @@ func TestSDK_RunV2REST_Job_ProbesAndEnvValueSource(t *testing.T) {
 }
 
 func TestSDK_RunV2REST_Service_ProbesAndEnvValueSource(t *testing.T) {
+	t.Parallel()
 	svc := newRunV2RESTService(t)
 	id := uniqueName("probe-svc")
 	name := crV2Parent + "/services/" + id
@@ -187,6 +189,7 @@ func TestSDK_RunV2REST_Service_ProbesAndEnvValueSource(t *testing.T) {
 }
 
 func TestSDK_RunV2REST_WorkerPool_ProbesAndEnvValueSource(t *testing.T) {
+	t.Parallel()
 	svc := newRunV2RESTService(t)
 	id := uniqueName("probe-wp")
 	name := crV2Parent + "/workerPools/" + id
@@ -219,6 +222,7 @@ func TestSDK_RunV2REST_WorkerPool_ProbesAndEnvValueSource(t *testing.T) {
 }
 
 func TestSDK_RunV2REST_Instance_ProbesAndEnvValueSource(t *testing.T) {
+	t.Parallel()
 	svc := newRunV2RESTService(t)
 	id := uniqueName("probe-inst")
 	name := crV2Parent + "/instances/" + id

@@ -15,6 +15,7 @@ import (
 // connection / network rule set surfaces plus the authorization-rule key
 // operations through the official armeventhub SDK.
 func TestEventHubsARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
+	t.Parallel()
 	rg := "eh-msg-rg"
 	ns := uniqueName("sdk-eh-msg-ns")
 

@@ -114,6 +114,7 @@ func requestService(t *testing.T, uri, path, idToken string) (int, string) {
 // `gcloud auth print-identity-token` mints: the service refuses the principal
 // until the binding exists and again once it is removed.
 func TestCloudRunServices_CLI_InvokerBindingGatesTheServiceURL(t *testing.T) {
+	t.Parallel()
 	const id = "cli-svc-invoker"
 	uri := createEchoService(t, id, "")
 	email := cliInvokerEmail(t)

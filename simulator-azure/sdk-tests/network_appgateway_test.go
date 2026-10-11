@@ -30,6 +30,7 @@ import (
 // create, get, retag, both lists, start/stop, backend health, backend health on
 // demand and delete, with the data plane exercised between them.
 func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	rg := "appgw-rg"
 	requireResourceGroup(t, rg)
@@ -426,6 +427,7 @@ func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
 // surface: the groups it publishes, and the connection a consumer's private
 // endpoint opens on it, which the gateway's owner then approves and removes.
 func TestNetworkApplicationGateway_PrivateLink(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	rg := "appgw-plink-rg"
 	requireResourceGroup(t, rg)
@@ -583,6 +585,7 @@ func TestNetworkApplicationGateway_PrivateLink(t *testing.T) {
 // catalogs: the server variables and headers a rewrite rule set may name, and
 // the TLS options a gateway's SSL policy is built from.
 func TestNetworkApplicationGateway_Catalogs(t *testing.T) {
+	t.Parallel()
 	client, err := armnetwork.NewApplicationGatewaysClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
@@ -632,6 +635,7 @@ func TestNetworkApplicationGateway_Catalogs(t *testing.T) {
 // provider validates the references a gateway names before it provisions
 // anything. It needs no real-execution host: the request never gets that far.
 func TestNetworkApplicationGateway_RejectsUnknownSubnet(t *testing.T) {
+	t.Parallel()
 	rg := "appgw-reject-rg"
 	requireResourceGroup(t, rg)
 	client, err := armnetwork.NewApplicationGatewaysClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -756,6 +760,7 @@ func stringValues(values []*string) []string {
 // scoped web application firewall rule-set catalog: all nine managed rule sets
 // Application Gateway WAF offers, with their full rule-group and rule contents.
 func TestNetworkApplicationGateway_AvailableWafRuleSets(t *testing.T) {
+	t.Parallel()
 	client, err := armnetwork.NewApplicationGatewaysClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 

@@ -9,6 +9,7 @@ import (
 
 // TestGlueMLTaskRunCLI exercises the machine-learning task-run family via the CLI.
 func TestGlueMLTaskRunCLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("glue", "create-ml-transform",
 		"--name", "glue-cli-mltask-tf",
 		"--input-record-tables", `[{"DatabaseName":"db","TableName":"tbl"}]`,
@@ -69,6 +70,7 @@ func TestGlueMLTaskRunCLI(t *testing.T) {
 // TestGlueCrawlerScheduleCLI exercises crawler/column-statistics schedule toggles,
 // GetCrawlerMetrics, ListCrawls and the materialized-view refresh family.
 func TestGlueCrawlerScheduleCLI(t *testing.T) {
+	t.Parallel()
 	const crawler = "glue-cli-sched-crawler"
 	runCLI(t, awsCLI("glue", "create-crawler",
 		"--name", crawler,
@@ -151,6 +153,7 @@ func TestGlueCrawlerScheduleCLI(t *testing.T) {
 // TestGlueWorkflowRunCLI exercises workflow-run properties, UpdateWorkflow,
 // ListTriggers/UpdateTrigger and the job-bookmark family.
 func TestGlueWorkflowRunCLI(t *testing.T) {
+	t.Parallel()
 	const wf = "glue-cli-wfrun"
 	runCLI(t, awsCLI("glue", "create-workflow", "--name", wf))
 	t.Cleanup(func() {
@@ -259,6 +262,7 @@ func TestGlueWorkflowRunCLI(t *testing.T) {
 // TestGlueConnectionTypeCLI exercises the connection-type registry and
 // TestConnection via the CLI.
 func TestGlueConnectionTypeCLI(t *testing.T) {
+	t.Parallel()
 	const ctName = "REST-glue-cli-conntype"
 	out := runCLI(t, awsCLI("glue", "register-connection-type",
 		"--connection-type", ctName,

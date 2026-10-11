@@ -41,6 +41,7 @@ func sqsQueueARNFor(t *testing.T, client *sqs.Client, url string) string {
 // TestSQS_DeadLetterSourceQueues asserts ListDeadLetterSourceQueues returns the
 // source queues whose RedrivePolicy targets a given dead-letter queue.
 func TestSQS_DeadLetterSourceQueues(t *testing.T) {
+	t.Parallel()
 	client := sqsClient()
 
 	dlq, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("dls-dlq")})
@@ -74,6 +75,7 @@ func TestSQS_DeadLetterSourceQueues(t *testing.T) {
 // message-move task, then the task is listed and its already-settled state is
 // reported. It also asserts that cancelling a COMPLETED task is rejected.
 func TestSQS_MessageMoveTask(t *testing.T) {
+	t.Parallel()
 	client := sqsClient()
 
 	dlq, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("mmt-dlq")})

@@ -10,6 +10,7 @@ import (
 // the allowed-principal permission set, payer responsibility, private-DNS
 // verification, describe-vpc-endpoint-services, and the tolerant delete.
 func TestEC2CLI_VpcEndpointServiceRoundTrip(t *testing.T) {
+	t.Parallel()
 	const nlbArn = "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/net/cli-vpes/abc"
 	svcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc-endpoint-service-configuration",
 		"--network-load-balancer-arns", nlbArn, "--acceptance-required",
@@ -77,6 +78,7 @@ func TestEC2CLI_VpcEndpointServiceRoundTrip(t *testing.T) {
 // account policy and proves that newly created VPCs inherit it through the
 // official AWS Command Line Interface.
 func TestEC2CLI_AccountVpcEncryptionControlRoundTrip(t *testing.T) {
+	t.Parallel()
 	initial := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-account-vpc-encryption-control",
 		"--query", "AccountVpcEncryptionControl.[State,Mode,ManagedBy]", "--output", "text")))
 	if initial != "default-state\tunmanaged\taccount" {
@@ -102,6 +104,7 @@ func TestEC2CLI_AccountVpcEncryptionControlRoundTrip(t *testing.T) {
 
 // TestEC2CLI_VpcCidrBlockRoundTrip drives associate/disassociate-vpc-cidr-block.
 func TestEC2CLI_VpcCidrBlockRoundTrip(t *testing.T) {
+	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.60.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	assocID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "associate-vpc-cidr-block",
@@ -121,6 +124,7 @@ func TestEC2CLI_VpcCidrBlockRoundTrip(t *testing.T) {
 // TestEC2CLI_SubnetCidrRoundTrip drives associate/disassociate-subnet-cidr-block
 // (IPv6) and the subnet CIDR reservation ops.
 func TestEC2CLI_SubnetCidrRoundTrip(t *testing.T) {
+	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.70.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	sub := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-subnet",
@@ -156,6 +160,7 @@ func TestEC2CLI_SubnetCidrRoundTrip(t *testing.T) {
 // TestEC2CLI_SecurityGroupVpcRoundTrip drives associate/disassociate/describe
 // -security-group-vpc-associations.
 func TestEC2CLI_SecurityGroupVpcRoundTrip(t *testing.T) {
+	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.80.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	other := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",

@@ -50,6 +50,7 @@ func resetCLITenantPolicy(t *testing.T) {
 // TestCLISubscriptionTenantPolicy round-trips the tenant policy singleton and
 // reads it back through both the get and the list operation.
 func TestCLISubscriptionTenantPolicy(t *testing.T) {
+	t.Parallel()
 	t.Cleanup(func() { resetCLITenantPolicy(t) })
 
 	type policyResponse struct {
@@ -107,6 +108,7 @@ func TestCLISubscriptionTenantPolicy(t *testing.T) {
 // directed alias leaves the subscription Pending, the acceptance is accepted,
 // and the ownership status settles Completed with the name the new owner gave.
 func TestCLISubscriptionOwnershipAcceptance(t *testing.T) {
+	t.Parallel()
 	const aliasName = "cli-test-ownership-alias"
 	const aliasPath = "/providers/Microsoft.Subscription/aliases/" + aliasName
 	body := fmt.Sprintf(`{"properties":{"displayName":"CLI Directed Subscription","workload":"Production",`+
@@ -189,6 +191,7 @@ func readCLIOwnershipStatus(t *testing.T, statusPath string) cliOwnershipStatus 
 // TestCLISubscriptionOperationUnknown asserts the Microsoft.Subscription
 // operation registry answers for its own operations only.
 func TestCLISubscriptionOperationUnknown(t *testing.T) {
+	t.Parallel()
 	cmd := azRest("GET",
 		microsoftSubscriptionURL("/providers/Microsoft.Subscription/subscriptionOperations/00000000-0000-0000-0000-0000000d0e5f"), "")
 	out, err := cmd.CombinedOutput()
@@ -203,6 +206,7 @@ func TestCLISubscriptionOperationUnknown(t *testing.T) {
 // TestCLISubscriptionBillingAccountPolicy reads a billing account's policy and
 // asserts it reports the tenants the account actually serves.
 func TestCLISubscriptionBillingAccountPolicy(t *testing.T) {
+	t.Parallel()
 	const billingAccountID = "cli-billing-account-policy"
 	const aliasName = "cli-test-billing-account-alias"
 	const aliasPath = "/providers/Microsoft.Subscription/aliases/" + aliasName
@@ -258,6 +262,7 @@ func TestCLISubscriptionBillingAccountPolicy(t *testing.T) {
 // TestCLISubscriptionOperationsList reads the resource provider's operation
 // catalog — the actions a role assignment can name.
 func TestCLISubscriptionOperationsList(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, azRest("GET", microsoftSubscriptionURL("/providers/Microsoft.Subscription/operations"), ""))
 	var list struct {
 		Value []struct {

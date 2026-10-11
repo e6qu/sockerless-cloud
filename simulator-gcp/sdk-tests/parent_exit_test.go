@@ -27,6 +27,7 @@ import (
 // the point: a simulator is started watching a process that is not this test,
 // that process is killed, and the simulator has to go with it.
 func TestSimulatorExitsWithItsParent(t *testing.T) {
+	t.Parallel()
 	standIn := exec.Command("sleep", "120")
 	require.NoError(t, standIn.Start(), "start the stand-in parent")
 	defer func() { _ = standIn.Process.Kill() }()

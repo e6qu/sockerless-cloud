@@ -37,6 +37,7 @@ func mustUploadObject(t *testing.T, svc *storageapi.Service, bucket, name, body 
 }
 
 func TestGCS_SoftDeleteAndRestore(t *testing.T) {
+	t.Parallel()
 	bucketSoftDeleteBucket := uniqueName("soft-delete-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketSoftDeleteBucket)
@@ -91,6 +92,7 @@ func TestGCS_SoftDeleteAndRestore(t *testing.T) {
 // replace: 0 refuses while one exists, its generation lets the restore replace
 // it.
 func TestGCS_RestorePreconditionOnTheLiveObject(t *testing.T) {
+	t.Parallel()
 	bucketRestorePreconditionBucket := uniqueName("restore-precondition-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketRestorePreconditionBucket)
@@ -112,6 +114,7 @@ func TestGCS_RestorePreconditionOnTheLiveObject(t *testing.T) {
 }
 
 func TestGCS_SoftDeleteDisabledDestroysTheObject(t *testing.T) {
+	t.Parallel()
 	bucketHardDeleteBucket := uniqueName("hard-delete-bucket")
 	svc := storageService(t)
 	_, err := svc.Buckets.Insert("test-project", &storageapi.Bucket{
@@ -136,6 +139,7 @@ func TestGCS_SoftDeleteDisabledDestroysTheObject(t *testing.T) {
 }
 
 func TestGCS_BulkRestore(t *testing.T) {
+	t.Parallel()
 	bucketBulkRestoreBucket := uniqueName("bulk-restore-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketBulkRestoreBucket)
@@ -158,6 +162,7 @@ func TestGCS_BulkRestore(t *testing.T) {
 
 // `**` must cross "/": path.Match semantics would silently restore too little.
 func TestGCS_BulkRestoreHonoursMatchGlobs(t *testing.T) {
+	t.Parallel()
 	bucketGlobRestoreBucket := uniqueName("glob-restore-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketGlobRestoreBucket)
@@ -182,6 +187,7 @@ func TestGCS_BulkRestoreHonoursMatchGlobs(t *testing.T) {
 }
 
 func TestGCS_BulkRestoreSingleStarDoesNotCrossSeparators(t *testing.T) {
+	t.Parallel()
 	bucketStarRestoreBucket := uniqueName("star-restore-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketStarRestoreBucket)
@@ -202,6 +208,7 @@ func TestGCS_BulkRestoreSingleStarDoesNotCrossSeparators(t *testing.T) {
 }
 
 func TestGCS_ObjectMoveRequiresHierarchicalNamespace(t *testing.T) {
+	t.Parallel()
 	bucketFlatBucket := uniqueName("flat-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketFlatBucket)
@@ -213,6 +220,7 @@ func TestGCS_ObjectMoveRequiresHierarchicalNamespace(t *testing.T) {
 }
 
 func TestGCS_ObjectMove(t *testing.T) {
+	t.Parallel()
 	bucketHnsBucket := uniqueName("hns-bucket")
 	svc := storageService(t)
 	_, err := svc.Buckets.Insert("test-project", &storageapi.Bucket{
@@ -235,6 +243,7 @@ func TestGCS_ObjectMove(t *testing.T) {
 }
 
 func TestGCS_ObjectACL_RoundTrip(t *testing.T) {
+	t.Parallel()
 	bucketObjectAclBucket := uniqueName("object-acl-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketObjectAclBucket)
@@ -279,6 +288,7 @@ func TestGCS_ObjectACL_RoundTrip(t *testing.T) {
 // \"doc.txt/acl\" not found", which is what let five unserved methods count
 // as covered.
 func TestGCS_ObjectACLIsNotTheObjectHandler(t *testing.T) {
+	t.Parallel()
 	bucketAclNotObjectBucket := uniqueName("acl-not-object-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketAclNotObjectBucket)
@@ -291,6 +301,7 @@ func TestGCS_ObjectACLIsNotTheObjectHandler(t *testing.T) {
 }
 
 func TestGCS_ObjectACLSeededFromTheBucketDefault(t *testing.T) {
+	t.Parallel()
 	bucketSeededAclBucket := uniqueName("seeded-acl-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketSeededAclBucket)
@@ -325,6 +336,7 @@ func TestGCS_ObjectACLSeededFromTheBucketDefault(t *testing.T) {
 }
 
 func TestGCS_ObjectACLRejectedUnderUniformBucketLevelAccess(t *testing.T) {
+	t.Parallel()
 	bucketUblaBucket := uniqueName("ubla-bucket")
 	svc := storageService(t)
 	_, err := svc.Buckets.Insert("test-project", &storageapi.Bucket{

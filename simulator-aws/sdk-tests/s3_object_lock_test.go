@@ -43,6 +43,7 @@ func s3DeleteVersion(c *s3.Client, bucket, key, version string, bypass bool) err
 // versioning on for good, and on an existing bucket, which needs versioning
 // enabled first; a bucket without it refuses every Object Lock operation.
 func TestS3_ObjectLockEnablement(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	locked := s3LockedBucket(t, c, "lock-enabled")
 	versioning, err := c.GetBucketVersioning(ctx, &s3.GetBucketVersioningInput{Bucket: aws.String(locked)})
@@ -99,6 +100,7 @@ func TestS3_ObjectLockEnablement(t *testing.T) {
 // until the request bypasses governance retention, and a delete without a
 // version only adds a delete marker.
 func TestS3_ObjectLockDefaultGovernanceRetention(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	bucket := s3LockedBucket(t, c, "lock-default")
 	_, err := c.PutObjectLockConfiguration(ctx, &s3.PutObjectLockConfigurationInput{Bucket: aws.String(bucket),
@@ -132,6 +134,7 @@ func TestS3_ObjectLockDefaultGovernanceRetention(t *testing.T) {
 // retention, with the checksum such a write needs: nothing deletes it or
 // shortens its retention, while extending it succeeds.
 func TestS3_ObjectLockComplianceRetention(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	bucket := s3LockedBucket(t, c, "lock-compliance")
 	until := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
@@ -175,6 +178,7 @@ func TestS3_ObjectLockComplianceRetention(t *testing.T) {
 // TestS3_ObjectLockGovernanceRetentionChanges shortens and removes a GOVERNANCE
 // retention, which only a request bypassing governance retention may do.
 func TestS3_ObjectLockGovernanceRetentionChanges(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	bucket := s3LockedBucket(t, c, "lock-governance")
 	until := time.Now().UTC().Add(2 * time.Hour).Truncate(time.Second)
@@ -202,6 +206,7 @@ func TestS3_ObjectLockGovernanceRetentionChanges(t *testing.T) {
 // TestS3_ObjectLockLegalHold puts a legal hold on a version: DeleteObjects
 // refuses that entry, whatever the retention, until the hold is lifted.
 func TestS3_ObjectLockLegalHold(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	bucket := s3LockedBucket(t, c, "lock-hold")
 	version := aws.ToString(s3Put(t, c, bucket, "evidence", "evidence").VersionId)

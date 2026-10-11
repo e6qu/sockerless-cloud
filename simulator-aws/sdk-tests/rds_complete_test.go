@@ -14,6 +14,7 @@ import (
 // (CEV) lifecycle: CreateCustomDBEngineVersion → ModifyCustomDBEngineVersion
 // → DeleteCustomDBEngineVersion, all of which return a DBEngineVersion.
 func TestRDS_CustomEngineVersions(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	engine := "custom-oracle-ee"
 	version := "19.cev.cust.1"
@@ -60,6 +61,7 @@ func TestRDS_CustomEngineVersions(t *testing.T) {
 // surfaces a recommendation scoped to a DB instance ARN) and
 // ModifyDBRecommendation (which flips the recommendation status).
 func TestRDS_DBRecommendations(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	instID := uniqueName("rec-pg-db")
 	created, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
@@ -106,6 +108,7 @@ func TestRDS_DBRecommendations(t *testing.T) {
 // DescribeDBSnapshotTenantDatabases — it reads the tenant databases off
 // the source instance of a stored snapshot.
 func TestRDS_SnapshotTenantDatabases(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	instID := uniqueName("stdb-oracle-db")
 	_, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
@@ -161,6 +164,7 @@ func TestRDS_SnapshotTenantDatabases(t *testing.T) {
 // DescribeServerlessV2PlatformVersions, returning AWS's real default
 // platform-version shape.
 func TestRDS_ServerlessV2PlatformVersions(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	out, err := c.DescribeServerlessV2PlatformVersions(ctx, &rds.DescribeServerlessV2PlatformVersionsInput{
 		Engine: aws.String("aurora-postgresql"),
@@ -177,6 +181,7 @@ func TestRDS_ServerlessV2PlatformVersions(t *testing.T) {
 // DescribeValidDBInstanceModifications — it returns the real storage
 // envelopes (gp2 / io1) for an existing DB instance.
 func TestRDS_ValidDBInstanceModifications(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	instID := "vmod-pg-db"
 	_, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
@@ -210,6 +215,7 @@ func TestRDS_ValidDBInstanceModifications(t *testing.T) {
 // TestRDS_CurrentDBClusterCapacity covers ModifyCurrentDBClusterCapacity
 // on a Serverless v1 cluster.
 func TestRDS_CurrentDBClusterCapacity(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	clusterID := "cap-aurora-cluster"
 	_, err := c.CreateDBCluster(ctx, &rds.CreateDBClusterInput{
@@ -239,6 +245,7 @@ func TestRDS_CurrentDBClusterCapacity(t *testing.T) {
 // TestRDS_ModifyOptionGroup covers ModifyOptionGroup adding then
 // removing an option on an existing option group.
 func TestRDS_ModifyOptionGroup(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	ogName := "mog-options"
 	_, err := c.CreateOptionGroup(ctx, &rds.CreateOptionGroupInput{
@@ -281,6 +288,7 @@ func TestRDS_ModifyOptionGroup(t *testing.T) {
 // instance's automated backups there; a stopped replication leaves its
 // replicated automated backup retained.
 func TestRDS_AutomatedBackupsReplication(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	destination := rds.NewFromConfig(sdkConfig(), func(o *rds.Options) {
 		o.BaseEndpoint = aws.String(baseURL)
@@ -333,6 +341,7 @@ func TestRDS_AutomatedBackupsReplication(t *testing.T) {
 // TestRDS_SwitchoverReadReplica covers SwitchoverReadReplica swapping the
 // primary and standby roles of an RDS for Oracle read replica.
 func TestRDS_SwitchoverReadReplica(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	primaryID := "sw-primary-db"
 	replicaID := "sw-replica-db"
@@ -383,6 +392,7 @@ func TestRDS_SwitchoverReadReplica(t *testing.T) {
 // TestRDS_SwitchoverGlobalCluster covers SwitchoverGlobalCluster
 // promoting a secondary regional cluster to writer.
 func TestRDS_SwitchoverGlobalCluster(t *testing.T) {
+	t.Parallel()
 	c := rdsClient()
 	writerID := "swg-writer-cluster"
 	secondaryID := "swg-secondary-cluster"

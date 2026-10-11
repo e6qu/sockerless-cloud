@@ -9,6 +9,7 @@ import (
 // Gremlin resource families, throughput autoscale migration, and the provider
 // operations/locations surfaces through `az rest` against the simulator.
 func TestAzureCosmosDB_MultiAPIFamiliesCLIFlows(t *testing.T) {
+	t.Parallel()
 	account := "clicosmosapis"
 	const ver = "2024-08-15"
 	acctURL := armURL("Microsoft.DocumentDB", "databaseAccounts/"+account, ver)

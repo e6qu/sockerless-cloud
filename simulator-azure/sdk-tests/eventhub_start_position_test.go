@@ -19,6 +19,7 @@ import (
 // StartPosition says — the latest event, or a sequence number — and receives
 // events published after it attached.
 func TestEventHubsSDK_StartPositions(t *testing.T) {
+	t.Parallel()
 	rg, ns, hub := "eh-start-rg", uniqueName("sdk-eventhub-start"), "starthub"
 	nsClient, err := armeventhub.NewNamespacesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)

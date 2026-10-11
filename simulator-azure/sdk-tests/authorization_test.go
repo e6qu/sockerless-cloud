@@ -12,6 +12,7 @@ import (
 // TestRoleDefinitionCustomCRUD exercises RoleDefinitions_CreateOrUpdate,
 // RoleDefinitions_Get and RoleDefinitions_Delete for a custom role definition.
 func TestRoleDefinitionCustomCRUD(t *testing.T) {
+	t.Parallel()
 	scope := "/subscriptions/" + subscriptionID
 	roleDefID := "11111111-2222-3333-4444-555555555555"
 
@@ -53,6 +54,7 @@ func TestRoleDefinitionCustomCRUD(t *testing.T) {
 // RoleAssignments_Get, RoleAssignments_ListForSubscription and
 // RoleAssignments_Delete at subscription scope.
 func TestRoleAssignmentSubscriptionScope(t *testing.T) {
+	t.Parallel()
 	scope := "/subscriptions/" + subscriptionID
 	raName := "22222222-3333-4444-5555-666666666666"
 	principalID := "33333333-4444-5555-6666-777777777777"
@@ -101,6 +103,7 @@ func TestRoleAssignmentSubscriptionScope(t *testing.T) {
 // custom role definition to verify custom roles are accepted as assignment
 // targets.
 func TestRoleAssignmentResourceGroupScope(t *testing.T) {
+	t.Parallel()
 	rg := "rbac-rg"
 	ensureRG(t, rg)
 	scope := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg

@@ -28,6 +28,7 @@ func sbReceiveOne(t *testing.T, receiver *azservicebus.Receiver) *azservicebus.R
 // maxDeliveryCount moves it to the dead-letter sub-queue, and an explicit
 // dead-letter carries its reason there.
 func TestServiceBus_AMQPPeekLockSettlement(t *testing.T) {
+	t.Parallel()
 	namespace := uniqueName("sdk-amqp-peeklock")
 	queue := uniqueName("locked")
 	adminClient := sbAdminClient(t, namespace)
@@ -91,6 +92,7 @@ func TestServiceBus_AMQPPeekLockSettlement(t *testing.T) {
 // TestServiceBus_DuplicateDetection proves a queue that requires duplicate
 // detection accepts one message per MessageId inside its history window.
 func TestServiceBus_DuplicateDetection(t *testing.T) {
+	t.Parallel()
 	namespace := uniqueName("sdk-amqp-dedup")
 	queue := uniqueName("dedup")
 	adminClient := sbAdminClient(t, namespace)

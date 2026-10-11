@@ -119,6 +119,7 @@ func (s staticSubjectToken) SubjectToken(context.Context, externalaccount.Suppli
 // OpenID Connect assertion for a federated access token at the simulator's
 // Security Token Service, exactly as a client would against Google.
 func TestSTS_WorkforceFederationExchange(t *testing.T) {
+	t.Parallel()
 	issuer := newOIDCIssuer(t)
 	const audience = "sockerless-console"
 	providerName := createWorkforceProvider(t, issuer.server.URL, audience)
@@ -147,6 +148,7 @@ func TestSTS_WorkforceFederationExchange(t *testing.T) {
 // names a provider that was never created, rather than issuing a token for an
 // unconfigured federation.
 func TestSTS_RejectsUnknownProvider(t *testing.T) {
+	t.Parallel()
 	issuer := newOIDCIssuer(t)
 	assertion := issuer.mintAssertion(t, "operator@example.test", "sockerless-console", time.Now().Add(10*time.Minute))
 
@@ -163,6 +165,7 @@ func TestSTS_RejectsUnknownProvider(t *testing.T) {
 // TestSTS_RejectsExpiredAssertion proves a subject token past its expiry is
 // refused, so a stale assertion cannot be exchanged for a live token.
 func TestSTS_RejectsExpiredAssertion(t *testing.T) {
+	t.Parallel()
 	issuer := newOIDCIssuer(t)
 	const audience = "sockerless-console"
 	providerName := createWorkforceProvider(t, issuer.server.URL, audience)
@@ -181,6 +184,7 @@ func TestSTS_RejectsExpiredAssertion(t *testing.T) {
 // TestSTS_RejectsDisallowedAudience proves an assertion minted for an audience
 // the provider does not permit is refused.
 func TestSTS_RejectsDisallowedAudience(t *testing.T) {
+	t.Parallel()
 	issuer := newOIDCIssuer(t)
 	providerName := createWorkforceProvider(t, issuer.server.URL, "sockerless-console")
 	wrongAudience := issuer.mintAssertion(t, "operator@example.test", "some-other-client", time.Now().Add(10*time.Minute))
@@ -204,6 +208,7 @@ func TestSTS_RejectsDisallowedAudience(t *testing.T) {
 // carry the workforce principal as `username` — the value gcloud stores as
 // the account name.
 func TestSTS_IntrospectFederatedToken(t *testing.T) {
+	t.Parallel()
 	issuer := newOIDCIssuer(t)
 	const audience = "sockerless-console"
 	providerName := createWorkforceProvider(t, issuer.server.URL, audience)
@@ -238,6 +243,7 @@ func TestSTS_IntrospectFederatedToken(t *testing.T) {
 // RFC 7662 §2.2 and real Google's observed response for an unrecognised
 // token.
 func TestSTS_IntrospectUnknownTokenInactive(t *testing.T) {
+	t.Parallel()
 	status, body := postIntrospect(t, url.Values{"token": {"not-a-token-this-service-issued"}}, true)
 	assert.Equal(t, http.StatusOK, status)
 	assert.Equal(t, false, body["active"])
@@ -249,6 +255,7 @@ func TestSTS_IntrospectUnknownTokenInactive(t *testing.T) {
 // endpoint refuses an unauthenticated request (RFC 7662 §2.1), so token
 // contents cannot be scanned anonymously.
 func TestSTS_IntrospectRequiresClientAuthentication(t *testing.T) {
+	t.Parallel()
 	status, body := postIntrospect(t, url.Values{"token": {"anything"}}, false)
 	assert.Equal(t, http.StatusUnauthorized, status)
 	assert.Equal(t, "invalid_client", body["error"])
@@ -302,6 +309,7 @@ func postTokenExchange(t *testing.T, form map[string]string) tokenExchangeRespon
 // issued to that subject: introspection reports the token inactive, and a
 // fresh exchange issues a token that works.
 func TestSTS_RevokeSessionsRevokesTheSubjectsTokens(t *testing.T) {
+	t.Parallel()
 	issuer := newOIDCIssuer(t)
 	const audience = "sockerless-console"
 	providerName := createWorkforceProvider(t, issuer.server.URL, audience)

@@ -8,6 +8,7 @@ import (
 )
 
 func TestCloudWatchLogsStorageTierAndSyslogCLI(t *testing.T) {
+	t.Parallel()
 	group := "/cli/syslog"
 	runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", group))
 	defer runCLIIgnore(awsCLI("logs", "delete-log-group", "--log-group-name", group))

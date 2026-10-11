@@ -16,6 +16,7 @@ import (
 // DisassociateSourceFromS3TableIntegration for an S3 Table Integration
 // data-source association.
 func TestLogs_S3TableIntegrationSourceRoundTrip(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	integrationArn := "arn:aws:logs:us-east-1:123456789012:integration:test-s3-table"
 	var identifier string
@@ -73,6 +74,7 @@ func TestLogs_S3TableIntegrationSourceRoundTrip(t *testing.T) {
 // TestLogs_GetLogFields derives the field set from a log group's stored JSON
 // events; GetLogFields exposes the structural @-fields plus the parsed keys.
 func TestLogs_GetLogFields(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	group, stream := "/test/getlogfields", "s1"
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(group)})
@@ -120,6 +122,7 @@ func TestLogs_GetLogFields(t *testing.T) {
 // TestLogs_ListLogGroupsForQuery reads the log groups a stored Insights query
 // was started against back through ListLogGroupsForQuery.
 func TestLogs_ListLogGroupsForQuery(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	group, stream := "/test/lgforquery", "s1"
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(group)})
@@ -157,6 +160,7 @@ func TestLogs_ListLogGroupsForQuery(t *testing.T) {
 // TestLogs_PutBearerTokenAuthentication enables bearer-token authentication for
 // an existing log group.
 func TestLogs_PutBearerTokenAuthentication(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	group := "/test/bearer-token"
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(group)})
@@ -181,6 +185,7 @@ func TestLogs_PutBearerTokenAuthentication(t *testing.T) {
 // updates its record fields and field delimiter via
 // UpdateDeliveryConfiguration.
 func TestLogs_UpdateDeliveryConfiguration(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	srcName := "test-update-delivery-source"
 	dstName := "test-update-delivery-destination"

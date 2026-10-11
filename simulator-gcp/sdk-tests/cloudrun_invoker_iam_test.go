@@ -156,6 +156,7 @@ const cloudRunForbiddenRoot = "Your client does not have permission to get URL <
 // answers 403 to one that does not, 401 to a bearer that is not an ID token
 // for the service, and 403 to a request without a credential.
 func TestSDK_CloudRunV2Services_InvokerIAMOnTheService(t *testing.T) {
+	t.Parallel()
 	client := newServicesClient(t)
 	svc := createInvokableServiceIn(t, client, "projects/test-project/locations/us-central1", "v2-svc-invoker", echoService())
 	email := createServiceAccount(t, "test-project", uniqueName("sdk-inv"))
@@ -224,6 +225,7 @@ func TestSDK_CloudRunV2Services_InvokerIAMOnTheService(t *testing.T) {
 
 // A role granted on the project reaches every service in it.
 func TestSDK_CloudRunV2Services_InvokerInheritedFromTheProject(t *testing.T) {
+	t.Parallel()
 	project := uniqueName("run-inv")
 	ensureV1Project(t, crmService(t), project)
 	client := newServicesClient(t)
@@ -254,6 +256,7 @@ func TestSDK_CloudRunV2Services_InvokerInheritedFromTheProject(t *testing.T) {
 // A conditional binding grants the role only while its condition holds,
 // evaluated against the service and the time of the request.
 func TestSDK_CloudRunV2Services_InvokerBindingConditions(t *testing.T) {
+	t.Parallel()
 	client := newServicesClient(t)
 	svc := createInvokableServiceIn(t, client, "projects/test-project/locations/us-central1", "v2-svc-cond", echoService())
 	other := createInvokableServiceIn(t, client, "projects/test-project/locations/us-central1", "v2-svc-cond-other", echoService())
@@ -303,6 +306,7 @@ func TestSDK_CloudRunV2Services_InvokerBindingConditions(t *testing.T) {
 // with a target_audience at the token endpoint — mints the ID token a backend
 // presents to the service it invokes.
 func TestSDK_CloudRunV2Services_IDTokenClientInvokes(t *testing.T) {
+	t.Parallel()
 	saPath, email := writeServiceAccountJSON(t)
 	client := newServicesClient(t)
 	svc := createInvokableServiceIn(t, client, "projects/test-project/locations/us-central1", "v2-svc-idtoken", echoService())

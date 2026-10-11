@@ -15,6 +15,7 @@ import (
 // follows this path on every plan/apply; pre-fix the sim returned
 // InvalidAction.
 func TestIAM_CreatePolicy_RoundTrip(t *testing.T) {
+	t.Parallel()
 	client := iamClient()
 	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}]}`
 
@@ -52,6 +53,7 @@ func TestIAM_CreatePolicy_RoundTrip(t *testing.T) {
 // DeleteInstanceProfile. Required by aws_iam_instance_profile +
 // referenced by EC2 / ECS launch templates.
 func TestIAM_InstanceProfile_RoundTrip(t *testing.T) {
+	t.Parallel()
 	client := iamClient()
 
 	rolePolicy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
@@ -103,6 +105,7 @@ func TestIAM_InstanceProfile_RoundTrip(t *testing.T) {
 // TestIAM_ListPolicies asserts the sim's ListPolicies returns the
 // managed policies created via CreatePolicy.
 func TestIAM_ListPolicies(t *testing.T) {
+	t.Parallel()
 	client := iamClient()
 	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 

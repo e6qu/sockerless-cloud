@@ -31,6 +31,7 @@ func makeZip(t *testing.T, files map[string]string) []byte {
 // entrypoint, args and environment. A file one step writes is there for the
 // next step, a docker step included, and the source may be a zip archive.
 func TestCloudBuild_ContainerStepsShareTheWorkspace(t *testing.T) {
+	t.Parallel()
 	project := "cb-container-steps-project"
 	bucket := "cb-container-steps-bucket"
 	createBucket(t, project, bucket)
@@ -68,8 +69,9 @@ func TestCloudBuild_ContainerStepsShareTheWorkspace(t *testing.T) {
 // A container step that exits non-zero fails its build with the exit status
 // and what the step printed last, and the steps after it never run.
 func TestCloudBuild_FailingContainerStepFailsTheBuild(t *testing.T) {
+	t.Parallel()
 	project := "cb-container-steps-project"
-	bucket := "cb-container-steps-bucket"
+	bucket := "cb-container-steps-bucket-f95f"
 	createBucket(t, project, bucket)
 	object := fmt.Sprintf("failing-step-%d.tar.gz", time.Now().UnixNano())
 	uploadGCSObject(t, bucket, object, makeTarGz(t, map[string]string{"README": "source\n"}))

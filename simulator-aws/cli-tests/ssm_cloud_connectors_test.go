@@ -9,6 +9,7 @@ import (
 // the AWS Command Line Interface: create, get, list (with the Azure
 // subscription filter), update, validate and delete.
 func TestSSMCLI_CloudConnectors(t *testing.T) {
+	t.Parallel()
 	const tenant = "1c11e0a0-0000-4000-8000-000000001111"
 	const subscription = "1c11e0a0-0000-4000-8000-000000003333"
 

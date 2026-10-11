@@ -15,6 +15,7 @@ import (
 // client that wrote it plans a change on every refresh (the integration looks
 // absent) and the graph is never idempotent.
 func TestSDK_WebSite_SubnetInEnvelopeReadsBack(t *testing.T) {
+	t.Parallel()
 	rg := "site-subnet-envelope-rg"
 	ensureRG(t, rg)
 	planID := stage5EnsurePlan(t, rg, "sse-plan", "S1", "Standard")

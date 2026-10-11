@@ -17,6 +17,7 @@ import (
 // TestStorageSDK_BlobContainerAndBlobProperties drives Get Container
 // Properties and Get Blob Properties through the official azblob clients.
 func TestStorageSDK_BlobContainerAndBlobProperties(t *testing.T) {
+	t.Parallel()
 	account := "sdkblobpropsacct"
 	container := "sdk-props-container"
 	blobName := "props.txt"
@@ -50,6 +51,7 @@ func TestStorageSDK_BlobContainerAndBlobProperties(t *testing.T) {
 // TestStorageSDK_FileShareAndFileProperties drives Get Share Properties and
 // Get File Properties through the official azfile clients.
 func TestStorageSDK_FileShareAndFileProperties(t *testing.T) {
+	t.Parallel()
 	account := "sdkfilepropsacct"
 	share := "sdk-props-share"
 	fileName := "props.txt"
@@ -85,6 +87,7 @@ func TestStorageSDK_FileShareAndFileProperties(t *testing.T) {
 // TestStorageSDK_QueueMetadataPeekAndClear drives Get Queue Metadata, Peek
 // Messages and Clear Messages through the official azqueue client.
 func TestStorageSDK_QueueMetadataPeekAndClear(t *testing.T) {
+	t.Parallel()
 	account := "sdkqueuepropsacct"
 	queueName := "sdkpropsqueue"
 
@@ -132,6 +135,7 @@ func TestStorageSDK_QueueMetadataPeekAndClear(t *testing.T) {
 // TestStorageSDK_TableUpsertEntity drives Upsert Entity in both replace and
 // merge modes through the official aztables client.
 func TestStorageSDK_TableUpsertEntity(t *testing.T) {
+	t.Parallel()
 	account := "sdktableupsertacct"
 	tableName := "UpsertTable"
 

@@ -36,6 +36,7 @@ func registerImageMgmtAMI(t *testing.T, c *ec2.Client, name string) string {
 // types, the scoped account), DescribeImageUsageReportEntries (per-resource-type
 // usage counts), and DeleteImageUsageReport.
 func TestEC2_ImageUsageReportSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	amiID := registerImageMgmtAMI(t, c, "usage-report-ami")
 
@@ -88,6 +89,7 @@ func TestEC2_ImageUsageReportSDK(t *testing.T) {
 // enabled, snapshot/launch-template config echoed), the DescribeFastLaunchImages
 // read-back, and DisableFastLaunch (the config leaves the describe set).
 func TestEC2_FastLaunchSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	amiID := registerImageMgmtAMI(t, c, "fast-launch-ami")
 
@@ -153,6 +155,7 @@ func TestEC2_ImageDeprecationSDK(t *testing.T) {
 // TestEC2_ImageWatermarkSDK covers AttachImageWatermark (returns a watermark
 // key), DetachImageWatermark, and CancelImageLaunchPermission on an AMI.
 func TestEC2_ImageWatermarkSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	amiID := registerImageMgmtAMI(t, c, "watermark-ami")
 
@@ -188,6 +191,7 @@ func TestEC2_ImageWatermarkSDK(t *testing.T) {
 // reference an AMI) and DescribeInstanceImageMetadata, derived from the
 // instance + AMI stores.
 func TestEC2_ImageReferencesSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.150.0.0/16")})
@@ -226,6 +230,7 @@ func TestEC2_ImageReferencesSDK(t *testing.T) {
 // TestEC2_ImageAncestrySDK covers GetImageAncestry: a CopyImage chain walks back
 // to the root AMI through the sourceImageId entries.
 func TestEC2_ImageAncestrySDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	rootID := registerImageMgmtAMI(t, c, "ancestry-root-ami")
 
@@ -247,6 +252,7 @@ func TestEC2_ImageAncestrySDK(t *testing.T) {
 // TestEC2_ImagesInRecycleBinSDK covers ListImagesInRecycleBin, which is
 // honest-empty when no AMI has been sent to the Recycle Bin.
 func TestEC2_ImagesInRecycleBinSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	out, err := c.ListImagesInRecycleBin(ctx, &ec2.ListImagesInRecycleBinInput{})
 	require.NoError(t, err)
@@ -256,6 +262,7 @@ func TestEC2_ImagesInRecycleBinSDK(t *testing.T) {
 // TestEC2_ExportImageTasksSDK covers ExportImage and the DescribeExportImageTasks
 // read-back; DescribeImportImageTasks is honest-empty unless an import ran.
 func TestEC2_ExportImageSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	amiID := registerImageMgmtAMI(t, c, "export-ami")
 
@@ -301,6 +308,7 @@ func TestEC2_ExportImageSDK(t *testing.T) {
 // the task converts the disk into a snapshot and registers an EBS-backed image
 // whose root device restores from it.
 func TestEC2_ImportImageSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	s3c := s3Client()
 	suffix := fmt.Sprint(time.Now().UnixNano())

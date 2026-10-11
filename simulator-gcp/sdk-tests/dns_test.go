@@ -21,6 +21,7 @@ func dnsService(t *testing.T) *dns.Service {
 }
 
 func TestDNS_CreateManagedZone(t *testing.T) {
+	t.Parallel()
 	svc := dnsService(t)
 
 	zone := &dns.ManagedZone{
@@ -34,6 +35,7 @@ func TestDNS_CreateManagedZone(t *testing.T) {
 }
 
 func TestDNS_GetManagedZone(t *testing.T) {
+	t.Parallel()
 	svc := dnsService(t)
 
 	zone := &dns.ManagedZone{
@@ -49,6 +51,7 @@ func TestDNS_GetManagedZone(t *testing.T) {
 }
 
 func TestDNS_ListManagedZones(t *testing.T) {
+	t.Parallel()
 	svc := dnsService(t)
 
 	zone := &dns.ManagedZone{
@@ -74,6 +77,7 @@ func dnsZoneNames(resp *dns.ManagedZonesListResponse) []string {
 }
 
 func TestDNS_DeleteManagedZone(t *testing.T) {
+	t.Parallel()
 	svc := dnsService(t)
 
 	zone := &dns.ManagedZone{
@@ -104,6 +108,7 @@ func TestDNS_DeleteManagedZone(t *testing.T) {
 }
 
 func TestDNS_ChangesAndPatchRecordSet(t *testing.T) {
+	t.Parallel()
 	svc := dnsService(t)
 	project := "test-project"
 	zoneName := "changes-zone"
@@ -165,6 +170,7 @@ func TestDNS_ChangesAndPatchRecordSet(t *testing.T) {
 }
 
 func TestDNS_ChangesCreatePreconditionUsesCanonicalStatus(t *testing.T) {
+	t.Parallel()
 	svc := dnsService(t)
 	project := "test-project"
 	zoneName := "precondition-zone"

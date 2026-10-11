@@ -12,6 +12,7 @@ import (
 // update / deauthorize, then create-api-destination / describe / list / update /
 // delete. The connection's API key value is stored but never echoed on read.
 func TestEventBridgeCLI_ConnectionApiDestination(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("events", "create-connection",
 		"--name", "eb-cli-conn",
 		"--authorization-type", "API_KEY",
@@ -113,6 +114,7 @@ func TestEventBridgeCLI_ConnectionApiDestination(t *testing.T) {
 
 // TestEventBridgeCLI_Endpoint round-trips a global endpoint via the CLI.
 func TestEventBridgeCLI_Endpoint(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("events", "create-event-bus", "--name", "eb-cli-endpoint-bus"))
 	var bus struct {
 		EventBusArn string `json:"EventBusArn"`
@@ -181,6 +183,7 @@ func TestEventBridgeCLI_Endpoint(t *testing.T) {
 // TestEventBridgeCLI_PartnerEventSource round-trips a partner event source and
 // its consumer-side event source via the CLI.
 func TestEventBridgeCLI_PartnerEventSource(t *testing.T) {
+	t.Parallel()
 	account := "123456789012"
 	name := "sockerlesspartnercli/jobs/example"
 	out := runCLI(t, awsCLI("events", "create-partner-event-source",
@@ -270,6 +273,7 @@ func TestEventBridgeCLI_PartnerEventSource(t *testing.T) {
 // cancel-replay via the CLI. A completed replay cannot be cancelled —
 // cancel-replay fails with IllegalStatusException, matching real EventBridge.
 func TestEventBridgeCLI_UpdateArchiveCancelReplay(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("events", "create-event-bus", "--name", "eb-cli-uacr-bus"))
 	var bus struct {
 		EventBusArn string `json:"EventBusArn"`

@@ -72,6 +72,7 @@ func arCLIRegistryError(t *testing.T, body string) (string, string) {
 // with a credential minted by the real gcloud CLI, through the same challenge →
 // token service → retry exchange a container client performs.
 func TestArtifactRegistryDataPlaneAuthWithGcloudPrintedToken(t *testing.T) {
+	t.Parallel()
 	runCLI(t, gcloudCLI("artifacts", "repositories", "create", "cli-auth-repo",
 		"--location="+location,
 		"--repository-format=docker",

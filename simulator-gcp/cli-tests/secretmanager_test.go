@@ -11,6 +11,7 @@ import (
 )
 
 func TestSecretManagerSecretLifecycleCLI(t *testing.T) {
+	t.Parallel()
 	secretID := "cli-lifecycle-secret"
 
 	out := runCLI(t, gcloudCLI("secrets", "create", secretID,
@@ -92,6 +93,7 @@ func TestSecretManagerSecretLifecycleCLI(t *testing.T) {
 // gcloud: add-iam-policy-binding (setIamPolicy after a getIamPolicy read)
 // then get-iam-policy reads the binding back.
 func TestSecretManagerIamPolicyCLI(t *testing.T) {
+	t.Parallel()
 	secretID := "cli-iam-secret"
 
 	runCLI(t, gcloudCLI("secrets", "create", secretID,

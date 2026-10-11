@@ -89,6 +89,7 @@ func createCLICloudWatchMetricStreamDestination(t *testing.T, suffix string) (st
 // TestCloudWatchCLI_AlarmActionsAndState covers enable/disable-alarm-actions,
 // set-alarm-state and describe-alarm-history over the CLI surface.
 func TestCloudWatchCLI_AlarmActionsAndState(t *testing.T) {
+	t.Parallel()
 	name := "cli-alarm-actions"
 	runCLI(t, awsCLI("cloudwatch", "put-metric-alarm",
 		"--alarm-name", name, "--namespace", "Custom/ActionsCLI", "--metric-name", "M",
@@ -122,6 +123,7 @@ func TestCloudWatchCLI_AlarmActionsAndState(t *testing.T) {
 
 // TestCloudWatchCLI_DescribeAlarmsForMetric covers the metric→alarm reverse lookup.
 func TestCloudWatchCLI_DescribeAlarmsForMetric(t *testing.T) {
+	t.Parallel()
 	ns := "Custom/ReverseCLI"
 	runCLI(t, awsCLI("cloudwatch", "put-metric-alarm",
 		"--alarm-name", "cli-reverse", "--namespace", ns, "--metric-name", "L",
@@ -140,6 +142,7 @@ func TestCloudWatchCLI_DescribeAlarmsForMetric(t *testing.T) {
 // TestCloudWatchCLI_CompositeAlarm covers put-composite-alarm and its appearance
 // in describe-alarms --alarm-types CompositeAlarm.
 func TestCloudWatchCLI_CompositeAlarm(t *testing.T) {
+	t.Parallel()
 	name := "cli-composite"
 	runCLI(t, awsCLI("cloudwatch", "put-composite-alarm",
 		"--alarm-name", name, "--alarm-rule", "ALARM(a) OR ALARM(b)"))
@@ -155,6 +158,7 @@ func TestCloudWatchCLI_CompositeAlarm(t *testing.T) {
 
 // TestCloudWatchCLI_MetricStreams covers the stream lifecycle over the CLI.
 func TestCloudWatchCLI_MetricStreams(t *testing.T) {
+	t.Parallel()
 	name := "cli-stream"
 	firehoseARN, roleARN := createCLICloudWatchMetricStreamDestination(t, "lifecycle")
 	runCLI(t, awsCLI("cloudwatch", "put-metric-stream",
@@ -188,6 +192,7 @@ func TestCloudWatchCLI_MetricStreams(t *testing.T) {
 
 // TestCloudWatchCLI_AnomalyDetector covers put / describe / delete.
 func TestCloudWatchCLI_AnomalyDetector(t *testing.T) {
+	t.Parallel()
 	ns := "Custom/AnomalyCLI"
 	runCLI(t, awsCLI("cloudwatch", "put-anomaly-detector",
 		"--single-metric-anomaly-detector",
@@ -213,6 +218,7 @@ func TestCloudWatchCLI_AnomalyDetector(t *testing.T) {
 
 // TestCloudWatchCLI_InsightRules covers put / describe / disable / enable / delete.
 func TestCloudWatchCLI_InsightRules(t *testing.T) {
+	t.Parallel()
 	name := "cli-insight"
 	def := `{"Schema":{"Name":"CloudWatchLogRule","Version":1},"LogGroupNames":["/aws/lambda/x"],"Contribution":{"Keys":["$.id"]},"AggregateOn":"Count"}`
 	runCLI(t, awsCLI("cloudwatch", "put-insight-rule", "--rule-name", name, "--rule-definition", def))
@@ -236,6 +242,7 @@ func TestCloudWatchCLI_InsightRules(t *testing.T) {
 // TestCloudWatchCLI_GetMetricData verifies get-metric-data evaluates the queries
 // against pushed metrics (real datapoints; empty for a metric with no data).
 func TestCloudWatchCLI_GetMetricData(t *testing.T) {
+	t.Parallel()
 	ns := "Custom/GetMetricDataCLI"
 	runCLI(t, awsCLI("cloudwatch", "put-metric-data", "--namespace", ns,
 		"--metric-data", `[{"MetricName":"Hits","Value":3},{"MetricName":"Hits","Value":5}]`))
@@ -262,6 +269,7 @@ func TestCloudWatchCLI_GetMetricData(t *testing.T) {
 
 // TestCloudWatchCLI_AlarmMuteRules covers put / get / list / delete.
 func TestCloudWatchCLI_AlarmMuteRules(t *testing.T) {
+	t.Parallel()
 	name := "cli-mute"
 	runCLI(t, awsCLI("cloudwatch", "put-alarm-mute-rule",
 		"--name", name, "--description", "maint",
@@ -298,6 +306,7 @@ func TestCloudWatchCLI_AlarmMuteRules(t *testing.T) {
 // TestCloudWatchCLI_TagResource covers the cross-resource tagging API over a
 // metric-stream ARN.
 func TestCloudWatchCLI_TagResource(t *testing.T) {
+	t.Parallel()
 	name := "cli-stream-tagged"
 	firehoseARN, roleARN := createCLICloudWatchMetricStreamDestination(t, "tags")
 	runCLI(t, awsCLI("cloudwatch", "put-metric-stream",

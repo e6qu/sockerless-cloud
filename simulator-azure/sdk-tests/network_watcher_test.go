@@ -26,6 +26,7 @@ import (
 // report the groups actually attached, and the topology must report what
 // contains what.
 func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	rg := "netwatcher-rg"
 	requireResourceGroup(t, rg)
@@ -323,6 +324,7 @@ func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 // configuration, which reads and writes the same record the flow log resource
 // serves.
 func TestNetworkWatcher_FlowLogsAndConnectionMonitors(t *testing.T) {
+	t.Parallel()
 	rg := "netwatcher-config-rg"
 	requireResourceGroup(t, rg)
 
@@ -497,6 +499,7 @@ func TestNetworkWatcher_FlowLogsAndConnectionMonitors(t *testing.T) {
 // type this deployment does not hold, and the internet-provider measurements
 // Azure collects with its own fleet.
 func TestNetworkWatcher_ReportsWhatItCannotObserve(t *testing.T) {
+	t.Parallel()
 	rg := "netwatcher-gaps-rg"
 	requireResourceGroup(t, rg)
 	watcherClient, err := armnetwork.NewWatchersClient(subscriptionID, &fakeCredential{}, clientOpts())

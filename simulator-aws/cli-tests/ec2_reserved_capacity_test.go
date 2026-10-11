@@ -11,6 +11,7 @@ import (
 // cancel the listing, describe modifications, attempt a queued-deletion (fails
 // honestly for an active RI), and run the exchange quote / accept flow.
 func TestEC2CLI_ReservedInstances(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	offeringID := q("ec2", "describe-reserved-instances-offerings",
@@ -100,6 +101,7 @@ func TestEC2CLI_ReservedInstances(t *testing.T) {
 // The topology and cancellation-quote ops are SDK-only (missing from aws CLI
 // 2.26.6); the SDK test covers their contract hook.
 func TestEC2CLI_CapacityReservationBilling(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	crID := q("ec2", "create-capacity-reservation",
@@ -188,6 +190,7 @@ func TestEC2CLI_CapacityReservationBilling(t *testing.T) {
 // history. describe-capacity-blocks and describe-capacity-block-status are
 // SDK-only (missing from aws CLI 2.26.6); the SDK test covers their hook.
 func TestEC2CLI_CapacityBlock(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	offeringID := q("ec2", "describe-capacity-block-offerings",

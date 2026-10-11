@@ -91,6 +91,7 @@ func acmCLIAwaitEmail(t *testing.T, messages <-chan string) string {
 }
 
 func TestACMCLI_EmailValidationAndResendUseRealSMTP(t *testing.T) {
+	t.Parallel()
 	messages := acmCLIStartSMTPReceiver(t)
 	const domain = "email-validation.cli.example.test"
 	createdJSON := runCLI(t, awsCLI("acm", "request-certificate",

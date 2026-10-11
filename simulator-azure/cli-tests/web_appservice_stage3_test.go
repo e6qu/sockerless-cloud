@@ -108,6 +108,7 @@ func stage3ServeZip(t *testing.T, pkg []byte) string {
 // the full workload runtime, so a triggered run and a continuous start
 // execute real containers.
 func TestWebAppStage3_NativeAzKeysAndWebJobs(t *testing.T) {
+	t.Parallel()
 	stage3PullImage(t, stage3CLIAlpine)
 	env := startAzTLSSimulator(t)
 
@@ -318,6 +319,7 @@ func stage3AwaitCLI(t *testing.T, check func() (string, bool), what string) {
 // OneDeploy, deploymentStatus, sourcecontrols, host sync actions, the
 // functions admin token, and the authLevel contract on the real invoke path.
 func TestWebAppStage3_RestDeploymentExtrasAndInvokeAuth(t *testing.T) {
+	t.Parallel()
 	app := "stage3-rest-app"
 	siteURL := funcURL("sites/" + app)
 	// The app runs a container that answers every request the authLevel

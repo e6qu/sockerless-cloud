@@ -30,6 +30,7 @@ func ssmCreateBaseline(t *testing.T, c *ssm.Client, name string) string {
 // registration round trip: register, read it back via
 // GetPatchBaselineForPatchGroup + DescribePatchGroups, then deregister.
 func TestSSM_PatchGroupRegistration(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	blID := ssmCreateBaseline(t, c, "sdk-patchgroup-baseline")
 	const group = "sdk-prod-group"
@@ -91,6 +92,7 @@ func TestSSM_PatchGroupRegistration(t *testing.T) {
 // effective patches for a baseline, instance patch states/patches, patch
 // properties, and the deployable snapshot.
 func TestSSM_AvailablePatches(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	blID := ssmCreateBaseline(t, c, "sdk-patchread-baseline")
 
@@ -129,6 +131,7 @@ func TestSSM_AvailablePatches(t *testing.T) {
 // deployable snapshot. The sim has no managed nodes, so the state/patch
 // reads are honest-empty.
 func TestSSM_InstancePatchReads(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 
 	patches, err := c.DescribeInstancePatches(ctx, &ssm.DescribeInstancePatchesInput{
@@ -162,6 +165,7 @@ func TestSSM_InstancePatchReads(t *testing.T) {
 // TestSSM_OpsMetadata exercises the OpsMetadata CRUD round trip:
 // create, get, update (add + delete keys), list, delete.
 func TestSSM_OpsMetadata(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	resourceID := "arn:aws:resource-groups:us-east-1:123456789012:group/sdk-app"
 
@@ -218,6 +222,7 @@ func TestSSM_OpsMetadata(t *testing.T) {
 // TestSSM_OpsSummary verifies GetOpsSummary returns the real shape. The
 // sim has no OpsData ingest pipeline, so the entity list is honest-empty.
 func TestSSM_OpsSummary(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	out, err := c.GetOpsSummary(ctx, &ssm.GetOpsSummaryInput{
 		ResultAttributes: []ssmtypes.OpsResultAttribute{
@@ -232,6 +237,7 @@ func TestSSM_OpsSummary(t *testing.T) {
 // PolicyId/PolicyHash optimistic-concurrency contract: put, get, update,
 // delete.
 func TestSSM_ResourcePolicy(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	resourceArn := "arn:aws:ssm:us-east-1:123456789012:opsitemgroup/default"
 	const policy = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::222222222222:root"},"Action":["ssm:GetOpsItem"],"Resource":"*"}]}`
@@ -294,6 +300,7 @@ func TestSSM_ResourcePolicy(t *testing.T) {
 // TestSSM_ParameterHistory verifies GetParameterHistory returns one entry
 // per observed parameter version.
 func TestSSM_ParameterHistory(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	name := "/sdk/history/param"
 	t.Cleanup(func() { _, _ = c.DeleteParameter(ctx, &ssm.DeleteParameterInput{Name: aws.String(name)}) })
@@ -327,6 +334,7 @@ func TestSSM_ParameterHistory(t *testing.T) {
 // version, including label uniqueness (relabel moves a label off the old
 // version) and Unlabel.
 func TestSSM_ParameterLabel(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	name := "/sdk/label/param"
 	t.Cleanup(func() { _, _ = c.DeleteParameter(ctx, &ssm.DeleteParameterInput{Name: aws.String(name)}) })

@@ -18,6 +18,7 @@ import (
 // values a request may name) and only some of their columns
 // (dynamodb:Attributes). Both are settled by the request.
 func TestDynamoDB_LeadingKeysAndAttributesScopeTheGrant(t *testing.T) {
+	t.Parallel()
 	admin := ddbClient()
 	table := "ddb-fine-grained"
 	_, err := admin.CreateTable(ctx, &dynamodb.CreateTableInput{
@@ -75,6 +76,7 @@ func TestDynamoDB_LeadingKeysAndAttributesScopeTheGrant(t *testing.T) {
 // only for data labelled a particular way — the label travels with the request
 // and is bound into the ciphertext.
 func TestKMS_EncryptionContextConditionKeyScopesTheGrant(t *testing.T) {
+	t.Parallel()
 	admin := kmsClient()
 	key, err := admin.CreateKey(ctx, &kms.CreateKeyInput{Description: aws.String("encryption context")})
 	require.NoError(t, err)

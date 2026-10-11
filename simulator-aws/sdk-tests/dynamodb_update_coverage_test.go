@@ -29,6 +29,7 @@ func ddbKey(v string) map[string]ddbtypes.AttributeValue {
 // modern client uses (the legacy AttributeUpdates path was the only one
 // implemented, so update-item with an UpdateExpression was a silent no-op).
 func TestDynamoDB_UpdateItemExpression(t *testing.T) {
+	t.Parallel()
 	table := uniqueName("cov-update-expr")
 	c := ddbClient()
 	ddbCoverageTable(t, c, table)
@@ -90,6 +91,7 @@ func TestDynamoDB_UpdateItemExpression(t *testing.T) {
 }
 
 func TestDynamoDB_TimeToLiveAndContinuousBackups(t *testing.T) {
+	t.Parallel()
 	table := uniqueName("cov-ttl-pitr")
 	c := ddbClient()
 	ddbCoverageTable(t, c, table)
@@ -122,6 +124,7 @@ func TestDynamoDB_TimeToLiveAndContinuousBackups(t *testing.T) {
 // the service. The unterminated-if_not_exists( forms previously panicked the
 // sim process with "slice bounds out of range".
 func TestDynamoDB_UpdateItemMalformedExpression(t *testing.T) {
+	t.Parallel()
 	table := uniqueName("cov-update-malformed")
 	c := ddbClient()
 	ddbCoverageTable(t, c, table)

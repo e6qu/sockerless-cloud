@@ -9,6 +9,7 @@ import (
 )
 
 func TestGcloudComputeInstances_Lifecycle(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 	zone := "us-central1-a"
 	name := "sim-instance-cli-1"
@@ -89,6 +90,7 @@ func computeInstanceStatus(t *testing.T, name, zone string) string {
 // all: --async would still have blocked for the whole boot, and the operation
 // it printed would already have been DONE.
 func TestGcloudComputeInstances_AsyncInsertOperation(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 	zone := "us-central1-a"
 	name := "sim-instance-cli-async"

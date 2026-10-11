@@ -9,6 +9,7 @@ import (
 )
 
 func TestCodeBuild_ProjectCRUD_CLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("codebuild", "create-project",
 		"--name", "cb-cli-project",
 		"--source", `{"type":"NO_SOURCE"}`,
@@ -56,6 +57,7 @@ func TestCodeBuild_ProjectCRUD_CLI(t *testing.T) {
 }
 
 func TestCodeBuild_Build_CLI(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("codebuild", "create-project",
 		"--name", "cb-cli-build-proj",
 		"--source", `{"type":"NO_SOURCE","buildspec":"version: 0.2\nphases:\n  build:\n    commands:\n      - printf codebuild-cli-ready\n"}`,
@@ -111,6 +113,7 @@ func TestCodeBuild_Build_CLI(t *testing.T) {
 }
 
 func TestCodeBuildCLI_StopAndRetryBuild(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("codebuild", "create-project",
 		"--name", "cb-cli-stop-proj",
 		"--source", `{"type":"NO_SOURCE","buildspec":"version: 0.2\nphases:\n  build:\n    commands:\n      - sleep 5\n"}`,
@@ -156,6 +159,7 @@ func TestCodeBuildCLI_StopAndRetryBuild(t *testing.T) {
 // TestCodeBuildCLI_ReportGroupsAndReports covers report-group CRUD and the
 // reports a build produces when its buildspec references the group.
 func TestCodeBuildCLI_ReportGroupsAndReports(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("codebuild", "create-report-group",
 		"--name", "cb-cli-rg",
 		"--type", "TEST",
@@ -277,6 +281,7 @@ func TestCodeBuildCLI_ReportGroupsAndReports(t *testing.T) {
 
 // TestCodeBuildCLI_SourceCredentials covers import/list/delete source credentials.
 func TestCodeBuildCLI_SourceCredentials(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("codebuild", "import-source-credentials",
 		"--token", "ghp_clitoken",
 		"--server-type", "GITHUB",

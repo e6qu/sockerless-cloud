@@ -24,6 +24,7 @@ import (
 // byte stream round-trips through to the target (the SSH-through-NLB shape). No
 // HTTP is involved on the data path.
 func TestELBv2_NLBRawTCPRoundTrip(t *testing.T) {
+	t.Parallel()
 	lbName := uniqueName("nlb-rawtcp")
 	tgName := uniqueName("nlb-rawtcp-tg")
 	elb := elbv2Client()
@@ -151,6 +152,7 @@ func resolveNLBHostname(dnsName string) string {
 // host:port), unchanged across calls, and a CanonicalHostedZoneId is present so
 // a Route53 alias target can reference it.
 func TestELBv2_NLBDescribeStableHostname(t *testing.T) {
+	t.Parallel()
 	lbName := uniqueName("nlb-stable")
 	tgName := uniqueName("nlb-stable-tg")
 	elb := elbv2Client()

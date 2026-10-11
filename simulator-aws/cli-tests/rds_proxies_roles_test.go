@@ -17,6 +17,7 @@ import (
 // end through the aws CLI. Grouped into one round-trip func (the appdata
 // shard is already heavy).
 func TestRDSCLI_ProxiesRolesAndExtras(t *testing.T) {
+	t.Parallel()
 	instID := "cli-px-target-db"
 	runCLI(t, awsCLI("rds", "create-db-instance",
 		"--db-instance-identifier", instID,

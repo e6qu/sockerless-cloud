@@ -93,6 +93,7 @@ func kmsFirstVersionName(t *testing.T, c *kms.KeyManagementClient, keyName strin
 }
 
 func TestCloudKMS_GRPC_KeyRingCryptoKeyCRUD(t *testing.T) {
+	t.Parallel()
 	c := newKMSGRPCClient(t)
 	ringName := kmsKeyRingForTest(t, c, "grpc-ring-crud")
 
@@ -169,6 +170,7 @@ func TestCloudKMS_GRPC_KeyRingCryptoKeyCRUD(t *testing.T) {
 }
 
 func TestCloudKMS_GRPC_SymmetricEncryptDecrypt(t *testing.T) {
+	t.Parallel()
 	c := newKMSGRPCClient(t)
 	ringName := kmsKeyRingForTest(t, c, "grpc-sym-ed")
 	keyName := ringName + "/cryptoKeys/sym"
@@ -218,6 +220,7 @@ func TestCloudKMS_GRPC_SymmetricEncryptDecrypt(t *testing.T) {
 }
 
 func TestCloudKMS_GRPC_AsymmetricSignAndVerify(t *testing.T) {
+	t.Parallel()
 	c := newKMSGRPCClient(t)
 	ringName := kmsKeyRingForTest(t, c, "grpc-asym-sign")
 	keyName := ringName + "/cryptoKeys/signer"
@@ -268,6 +271,7 @@ func TestCloudKMS_GRPC_AsymmetricSignAndVerify(t *testing.T) {
 }
 
 func TestCloudKMS_GRPC_AsymmetricDecrypt(t *testing.T) {
+	t.Parallel()
 	c := newKMSGRPCClient(t)
 	ringName := kmsKeyRingForTest(t, c, "grpc-asym-decrypt")
 	keyName := ringName + "/cryptoKeys/decryptor"
@@ -307,6 +311,7 @@ func TestCloudKMS_GRPC_AsymmetricDecrypt(t *testing.T) {
 }
 
 func TestCloudKMS_GRPC_MacSignVerify(t *testing.T) {
+	t.Parallel()
 	c := newKMSGRPCClient(t)
 	ringName := kmsKeyRingForTest(t, c, "grpc-mac")
 	keyName := ringName + "/cryptoKeys/mac"
@@ -358,6 +363,7 @@ func TestCloudKMS_GRPC_MacSignVerify(t *testing.T) {
 }
 
 func TestCloudKMS_GRPC_RawEncryptDecrypt(t *testing.T) {
+	t.Parallel()
 	c := newKMSGRPCClient(t)
 	ringName := kmsKeyRingForTest(t, c, "grpc-raw")
 
@@ -414,6 +420,7 @@ func TestCloudKMS_GRPC_RawEncryptDecrypt(t *testing.T) {
 }
 
 func TestCloudKMS_GRPC_GenerateRandomBytes(t *testing.T) {
+	t.Parallel()
 	c := newKMSGRPCClient(t)
 	location := "projects/kms-grpc-project/locations/global"
 
@@ -443,6 +450,7 @@ func TestCloudKMS_GRPC_GenerateRandomBytes(t *testing.T) {
 }
 
 func TestCloudKMS_GRPC_CreateCryptoKeyVersionAndDestroyRestore(t *testing.T) {
+	t.Parallel()
 	c := newKMSGRPCClient(t)
 	ringName := kmsKeyRingForTest(t, c, "grpc-ckv-lifecycle")
 	keyName := ringName + "/cryptoKeys/sym"
@@ -499,6 +507,7 @@ func TestCloudKMS_GRPC_CreateCryptoKeyVersionAndDestroyRestore(t *testing.T) {
 }
 
 func TestCloudKMS_GRPC_DecryptWrongKeyFails(t *testing.T) {
+	t.Parallel()
 	c := newKMSGRPCClient(t)
 	ringName := kmsKeyRingForTest(t, c, "grpc-wrong-key")
 	keyName := ringName + "/cryptoKeys/sym"
@@ -540,6 +549,7 @@ func TestCloudKMS_GRPC_DecryptWrongKeyFails(t *testing.T) {
 }
 
 func TestCloudKMS_GRPC_UpdateCryptoKeyLabels(t *testing.T) {
+	t.Parallel()
 	c := newKMSGRPCClient(t)
 	ringName := kmsKeyRingForTest(t, c, "grpc-update-ck")
 	keyName := ringName + "/cryptoKeys/labeled"

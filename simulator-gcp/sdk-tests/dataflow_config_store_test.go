@@ -20,6 +20,7 @@ func dataflowService(t *testing.T) *dataflow.Service {
 // organization. They inherit down the hierarchy, and resolve is where a caller
 // asks which one actually applies.
 func TestDataflow_ConfigStoreSettingsAreResolvedWhereTheyAreSet(t *testing.T) {
+	t.Parallel()
 	svc := dataflowService(t)
 	const location, id = "us-central1", "max-workers"
 	const project, folder, org = "settings-project", "1234", "5678"

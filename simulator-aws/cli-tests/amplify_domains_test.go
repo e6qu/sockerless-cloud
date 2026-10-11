@@ -9,6 +9,7 @@ import (
 )
 
 func TestAmplify_DomainAndBackend_Lifecycle(t *testing.T) {
+	t.Parallel()
 	name := "cli-dom-" + time.Now().Format("150405.000000")
 	appOut := runCLI(t, awsCLI("amplify", "create-app",
 		"--name", name, "--output", "json"))

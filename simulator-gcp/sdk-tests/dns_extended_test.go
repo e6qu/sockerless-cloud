@@ -14,6 +14,7 @@ import (
 // TestDNS_PolicyCRUD round-trips a Cloud DNS server Policy (create/get/list/
 // patch/update/delete) through the Google Cloud Go SDK.
 func TestDNS_PolicyCRUD(t *testing.T) {
+	t.Parallel()
 	svc := dnsService(t)
 	project := "test-project"
 
@@ -76,6 +77,7 @@ func TestDNS_PolicyCRUD(t *testing.T) {
 // TestDNS_ResponsePolicyAndRulesCRUD round-trips a ResponsePolicy and its
 // nested ResponsePolicyRule subresource.
 func TestDNS_ResponsePolicyAndRulesCRUD(t *testing.T) {
+	t.Parallel()
 	svc := dnsService(t)
 	project := "test-project"
 
@@ -171,6 +173,7 @@ func TestDNS_ResponsePolicyAndRulesCRUD(t *testing.T) {
 // exposes no DnsKeys, and a DNSSEC-on zone exposes the derived KSK + ZSK with
 // real key tags and DS digests.
 func TestDNS_DnsKeysReflectDnssecState(t *testing.T) {
+	t.Parallel()
 	svc := dnsService(t)
 	project := "test-project"
 
@@ -219,6 +222,7 @@ func TestDNS_DnsKeysReflectDnssecState(t *testing.T) {
 // TestDNS_ManagedZonePatchAndOperations exercises managedZones.patch/update
 // (returning an Operation) and the managedZoneOperations audit-log read-back.
 func TestDNS_ManagedZonePatchAndOperations(t *testing.T) {
+	t.Parallel()
 	svc := dnsService(t)
 	project := "test-project"
 
@@ -267,6 +271,7 @@ func TestDNS_ManagedZonePatchAndOperations(t *testing.T) {
 // TestDNS_GetProject reads the Cloud DNS Project resource: the project's ID
 // and the number Cloud Resource Manager holds, by either, with its quotas.
 func TestDNS_GetProject(t *testing.T) {
+	t.Parallel()
 	svc := dnsService(t)
 	number := requireProject(t, "test-project")
 	for _, ref := range []string{"test-project", number} {

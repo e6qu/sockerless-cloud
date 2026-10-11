@@ -53,6 +53,7 @@ func createV2Service(t *testing.T, client *run.ServicesClient, parent, id string
 }
 
 func TestSDK_CloudRunV2_ServiceRevisions_RoundTrip(t *testing.T) {
+	t.Parallel()
 	services := newServicesClient(t)
 	revisions := newRevisionsClient(t)
 	parent := "projects/test-project/locations/us-central1"
@@ -93,6 +94,7 @@ func TestSDK_CloudRunV2_ServiceRevisions_RoundTrip(t *testing.T) {
 }
 
 func TestSDK_CloudRunV2_ServiceIAM_RoundTrip(t *testing.T) {
+	t.Parallel()
 	services := newServicesClient(t)
 	parent := "projects/test-project/locations/us-central1"
 	id := uniqueName("v2-svc-iam")
@@ -139,6 +141,7 @@ func TestSDK_CloudRunV2_ServiceIAM_RoundTrip(t *testing.T) {
 // delete + wait endpoints via raw REST (the LRO completes synchronously
 // in the sim, so wait returns the done operation immediately).
 func TestSDK_CloudRunV2_Operations_DeleteAndWait(t *testing.T) {
+	t.Parallel()
 	services := newServicesClient(t)
 	parent := "projects/test-project-ops/locations/us-central1"
 	id := uniqueName("v2-svc-ops")

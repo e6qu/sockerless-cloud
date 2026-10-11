@@ -30,6 +30,7 @@ func lambdaExtrasFunc(t *testing.T, lc *lambda.Client, name string) {
 }
 
 func TestLambda_EventSourceMappings(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	sqsC := sqsClient()
 	fn := "esm-fn"
@@ -67,6 +68,7 @@ func TestLambda_EventSourceMappings(t *testing.T) {
 }
 
 func TestLambda_Layers(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	archive := lambdaDeploymentZip(t)
 
@@ -106,6 +108,7 @@ func TestLambda_Layers(t *testing.T) {
 }
 
 func TestLambda_ConcurrencyAndUrlList(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	fn := "conc-fn"
 	lambdaExtrasFunc(t, lc, fn)

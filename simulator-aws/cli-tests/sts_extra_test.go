@@ -11,6 +11,7 @@ import (
 
 // TestSTS_GetFederationToken_CLI mints credentials for a federated user.
 func TestSTS_GetFederationToken_CLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("sts", "get-federation-token",
 		"--name", "Bob",
 		"--output", "json",
@@ -33,6 +34,7 @@ func TestSTS_GetFederationToken_CLI(t *testing.T) {
 }
 
 func TestSTS_AssumeRoleWithSAML_CLI(t *testing.T) {
+	t.Parallel()
 	idp, err := samlidp.New("https://idp.example.test/cli-saml")
 	require.NoError(t, err)
 	var provider struct {
@@ -85,6 +87,7 @@ func TestSTS_AssumeRoleWithSAML_CLI(t *testing.T) {
 	assert.Equal(t, idp.EntityID, res.Issuer)
 }
 func TestSTS_AssumeRoot_CLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("sts", "assume-root",
 		"--target-principal", "123456789012",
 		"--task-policy-arn", "arn=arn:aws:iam::aws:policy/root-task/IAMAuditRootUserCredentials",
@@ -103,6 +106,7 @@ func TestSTS_AssumeRoot_CLI(t *testing.T) {
 
 // TestSTS_DecodeAuthorizationMessage_CLI round-trips a base64 JSON message.
 func TestSTS_DecodeAuthorizationMessage_CLI(t *testing.T) {
+	t.Parallel()
 	original := `{"allowed":false}`
 	out := runCLI(t, awsCLI("sts", "decode-authorization-message",
 		"--encoded-message", base64.StdEncoding.EncodeToString([]byte(original)),
@@ -117,6 +121,7 @@ func TestSTS_DecodeAuthorizationMessage_CLI(t *testing.T) {
 
 // TestSTS_GetAccessKeyInfo_CLI resolves an access key id to its account.
 func TestSTS_GetAccessKeyInfo_CLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("sts", "get-access-key-info",
 		"--access-key-id", "AKIAIOSFODNN7EXAMPLE",
 		"--output", "json",

@@ -17,6 +17,7 @@ import (
 // AuthorizeSecurityGroupIngress must reject a syntactically invalid IPv4 CIDR
 // with InvalidPermission.Malformed, matching real AWS' Authorize boundary.
 func TestEC2_SecurityGroupEnforce_RejectsMalformedCIDR(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc := mustCreateVpc(t, c, "10.150.0.0/16")
 	sg := mustCreateSG(t, c, "enforce-malformed-cidr", vpc)
@@ -35,6 +36,7 @@ func TestEC2_SecurityGroupEnforce_RejectsMalformedCIDR(t *testing.T) {
 // TestEC2_SecurityGroupEnforce_RejectsMalformedIPv6CIDR verifies IPv6 CIDR
 // validation.
 func TestEC2_SecurityGroupEnforce_RejectsMalformedIPv6CIDR(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc := mustCreateVpc(t, c, "10.151.0.0/16")
 	sg := mustCreateSG(t, c, "enforce-malformed-v6", vpc)
@@ -53,6 +55,7 @@ func TestEC2_SecurityGroupEnforce_RejectsMalformedIPv6CIDR(t *testing.T) {
 // TestEC2_SecurityGroupEnforce_RejectsUnknownSGRef covers Tier 1: a UserIdGroupPair
 // referencing a non-existent SG must come back as InvalidGroup.NotFound.
 func TestEC2_SecurityGroupEnforce_RejectsUnknownSGRef(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc := mustCreateVpc(t, c, "10.152.0.0/16")
 	sg := mustCreateSG(t, c, "enforce-unknown-ref", vpc)
@@ -71,6 +74,7 @@ func TestEC2_SecurityGroupEnforce_RejectsUnknownSGRef(t *testing.T) {
 // TestEC2_SecurityGroupEnforce_RejectsBadProtocol verifies unsupported protocol
 // names are rejected with InvalidPermission.Malformed.
 func TestEC2_SecurityGroupEnforce_RejectsBadProtocol(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc := mustCreateVpc(t, c, "10.153.0.0/16")
 	sg := mustCreateSG(t, c, "enforce-bad-proto", vpc)
@@ -88,6 +92,7 @@ func TestEC2_SecurityGroupEnforce_RejectsBadProtocol(t *testing.T) {
 // TestEC2_SecurityGroupEnforce_RejectsInvertedPortRange verifies FromPort>ToPort
 // for TCP is rejected.
 func TestEC2_SecurityGroupEnforce_RejectsInvertedPortRange(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc := mustCreateVpc(t, c, "10.154.0.0/16")
 	sg := mustCreateSG(t, c, "enforce-inverted-ports", vpc)
@@ -105,6 +110,7 @@ func TestEC2_SecurityGroupEnforce_RejectsInvertedPortRange(t *testing.T) {
 // TestEC2_SecurityGroupEnforce_RejectsUnknownGroup verifies the Authorize
 // boundary rejects an Authorize against a non-existent group itself.
 func TestEC2_SecurityGroupEnforce_RejectsUnknownGroup(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	_, err := c.AuthorizeSecurityGroupIngress(ctx, &ec2.AuthorizeSecurityGroupIngressInput{
@@ -121,6 +127,7 @@ func TestEC2_SecurityGroupEnforce_RejectsUnknownGroup(t *testing.T) {
 // without real-exec capabilities, SG rules are stored, queryable via the API,
 // and reference-resolvable. This runs on every platform.
 func TestEC2_SecurityGroupEnforce_StoresAndQueries(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc := mustCreateVpc(t, c, "10.155.0.0/16")
 	webSG := mustCreateSG(t, c, "enforce-web", vpc)
@@ -190,6 +197,7 @@ func TestEC2_SecurityGroupEnforce_StoresAndQueries(t *testing.T) {
 // TestEC2_SecurityGroupEnforce_IPv6IngressStored verifies IPv6 ingress rules
 // survive the validation boundary and round-trip through Describe.
 func TestEC2_SecurityGroupEnforce_IPv6IngressStored(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc := mustCreateVpc(t, c, "10.156.0.0/16")
 	sg := mustCreateSG(t, c, "enforce-v6", vpc)

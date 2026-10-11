@@ -7,6 +7,7 @@ import (
 )
 
 func TestNetworkLoadBalancerCLI(t *testing.T) {
+	t.Parallel()
 	pipURL := armURL("Microsoft.Network", "publicIPAddresses/cli-lb-pip", "2024-05-01")
 	pipBody := `{"location":"eastus","sku":{"name":"Standard"},"properties":{"publicIPAllocationMethod":"Static","publicIPAddressVersion":"IPv4"}}`
 	out := runCLI(t, azRest("PUT", pipURL, pipBody))

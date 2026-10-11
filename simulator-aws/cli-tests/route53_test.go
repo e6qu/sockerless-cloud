@@ -10,6 +10,7 @@ import (
 )
 
 func TestRoute53_ZoneAndRecord(t *testing.T) {
+	t.Parallel()
 	caller := "cli-r53-" + time.Now().Format("150405.000000")
 	out := runCLI(t, awsCLI("route53", "create-hosted-zone",
 		"--name", "cli-route53-test.local",
@@ -103,6 +104,7 @@ func TestRoute53_ZoneAndRecord(t *testing.T) {
 }
 
 func TestRoute53_ListResourceRecordSetsSortedCursor(t *testing.T) {
+	t.Parallel()
 	caller := "cli-r53-cursor-" + time.Now().Format("150405.000000")
 	out := runCLI(t, awsCLI("route53", "create-hosted-zone",
 		"--name", "cli-cursor-sort.example.com.",
@@ -153,6 +155,7 @@ func TestRoute53_ListResourceRecordSetsSortedCursor(t *testing.T) {
 }
 
 func TestRoute53_ListHostedZonesByName(t *testing.T) {
+	t.Parallel()
 	suffix := strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "-")
 	alphaName := "alpha.cli-r53-by-name-" + suffix + ".example.com"
 	betaName := "beta.cli-r53-by-name-" + suffix + ".example.com"
@@ -196,6 +199,7 @@ func TestRoute53_ListHostedZonesByName(t *testing.T) {
 }
 
 func TestRoute53_HealthCheckCLI(t *testing.T) {
+	t.Parallel()
 	caller := "cli-hc-" + time.Now().Format("150405.000000")
 	cfgJSON := `{"Type":"HTTPS","FullyQualifiedDomainName":"example.com","Port":443,"ResourcePath":"/health","RequestInterval":30,"FailureThreshold":3}`
 	out := runCLI(t, awsCLI("route53", "create-health-check",
@@ -240,6 +244,7 @@ func TestRoute53_HealthCheckCLI(t *testing.T) {
 }
 
 func TestRoute53_TrafficPolicyCLI(t *testing.T) {
+	t.Parallel()
 	doc := `{"AWSPolicyFormatVersion":"2015-10-01","RecordType":"A","Endpoints":{"e1":{"Type":"value","Value":"203.0.113.1"}},"StartEndpoint":"e1"}`
 	name := "cli-tp-" + time.Now().Format("150405.000000")
 	out := runCLI(t, awsCLI("route53", "create-traffic-policy",
@@ -278,6 +283,7 @@ func TestRoute53_TrafficPolicyCLI(t *testing.T) {
 }
 
 func TestRoute53_VPCQueryLoggingGeoCLI(t *testing.T) {
+	t.Parallel()
 	caller := "cli-r53m-" + time.Now().Format("150405.000000")
 	zoneOut := runCLI(t, awsCLI("route53", "create-hosted-zone",
 		"--name", "cli-r53m-test.local", "--caller-reference", caller, "--output", "json"))

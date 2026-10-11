@@ -83,6 +83,7 @@ func cfExtras3DeleteDistributionCLI(id string) {
 // TestCloudFrontCopyAndStagingCLI covers copy-distribution and
 // update-distribution-with-staging-config.
 func TestCloudFrontCopyAndStagingCLI(t *testing.T) {
+	t.Parallel()
 	id, etag := cfExtras3CreateDistributionCLI(t)
 
 	out := runCLI(t, awsCLI("cloudfront", "copy-distribution",
@@ -120,6 +121,7 @@ func TestCloudFrontCopyAndStagingCLI(t *testing.T) {
 // by-domain lookup, list, WebACL associate/disassociate, the tenant invalidation
 // trio, and get-managed-certificate-details.
 func TestCloudFrontDistributionTenantCLI(t *testing.T) {
+	t.Parallel()
 	distID, _ := cfExtras3CreateDistributionCLI(t)
 	domain := "cli-tenant-" + time.Now().Format("150405") + ".example.com"
 
@@ -223,6 +225,7 @@ func TestCloudFrontDistributionTenantCLI(t *testing.T) {
 // TestCloudFrontConnectionGroupCLI covers connection-group CRUD,
 // by-routing-endpoint lookup, and list.
 func TestCloudFrontConnectionGroupCLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("cloudfront", "create-connection-group",
 		"--name", "cli-cg-"+time.Now().Format("150405.000"), "--enabled", "--output", "json"))
 	var create struct {
@@ -273,6 +276,7 @@ func TestCloudFrontConnectionGroupCLI(t *testing.T) {
 // TestCloudFrontTrustStoreCLI covers trust-store CRUD, list, and
 // list-distributions-by-trust-store.
 func TestCloudFrontTrustStoreCLI(t *testing.T) {
+	t.Parallel()
 	bundle := `{"CaCertificatesBundleS3Location":{"Bucket":"my-bucket","Key":"ca-bundle.pem","Region":"us-east-1"}}`
 	out := runCLI(t, awsCLI("cloudfront", "create-trust-store",
 		"--name", "cli-ts-"+time.Now().Format("150405.000"),
@@ -316,6 +320,7 @@ func TestCloudFrontTrustStoreCLI(t *testing.T) {
 
 // TestCloudFrontResourcePolicyCLI covers put/get/delete-resource-policy.
 func TestCloudFrontResourcePolicyCLI(t *testing.T) {
+	t.Parallel()
 	arn := "arn:aws:cloudfront::111122223333:distribution-tenant/DT" + time.Now().Format("150405")
 	doc := `{"Version":"2012-10-17","Statement":[]}`
 
@@ -341,6 +346,7 @@ func TestCloudFrontResourcePolicyCLI(t *testing.T) {
 // associate-alias, list-conflicting-aliases, list-domain-conflicts,
 // update-domain-association, and verify-dns-configuration.
 func TestCloudFrontWebACLAndAliasCLI(t *testing.T) {
+	t.Parallel()
 	id, etag := cfExtras3CreateDistributionCLI(t)
 
 	aw := runCLI(t, awsCLI("cloudfront", "associate-distribution-web-acl",
@@ -393,6 +399,7 @@ func TestCloudFrontWebACLAndAliasCLI(t *testing.T) {
 // carries, so a projection that ignores its filter — answering with everything,
 // or with nothing — fails one arm or the other.
 func TestCloudFrontListDistributionsByResourceCLI(t *testing.T) {
+	t.Parallel()
 	stamp := time.Now().Format("150405.000000000")
 	cachePolicy := "cp-" + stamp
 	originPolicy := "orp-" + stamp
@@ -514,6 +521,7 @@ func cfDistributionSummaryIDsCLI(t *testing.T, args ...string) []string {
 }
 
 func TestCloudFrontUpdateAnycastIpListCLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("cloudfront", "create-anycast-ip-list",
 		"--name", "cli-aipl-"+time.Now().Format("150405.000"), "--ip-count", "2", "--output", "json"))
 	var create struct {

@@ -16,6 +16,7 @@ import (
 // and ListTagsForResource. Without include=TAGS, Describe returns no tags
 // (matching real AWS), so the provider only sees them on the include path.
 func TestECS_TaskDefinitionTagsIncludePath(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	tags := []ecstypes.Tag{
 		{Key: aws.String("Name"), Value: aws.String("test")},
@@ -66,6 +67,7 @@ func tagPairs(tags []ecstypes.Tag) [][2]string {
 // task tags only when Include=[TAGS] is passed, matching real AWS. Without
 // Include, the tags field is absent from each task object.
 func TestECS_DescribeTasksTagsIncludePath(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 
 	reg, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{

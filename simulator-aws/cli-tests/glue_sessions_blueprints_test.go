@@ -14,6 +14,7 @@ import (
 // list-sessions -> get-session-endpoint -> run-statement -> get-statement ->
 // list-statements -> cancel-statement -> stop-session -> delete-session.
 func TestGlueSessionAndStatementsCLI(t *testing.T) {
+	t.Parallel()
 	id := "glue-cli-session"
 	t.Cleanup(func() {
 		runCLIIgnore(awsCLI("glue", "delete-session", "--id", id))
@@ -122,6 +123,7 @@ func TestGlueSessionAndStatementsCLI(t *testing.T) {
 // batch-get-dev-endpoints -> list-dev-endpoints -> update-dev-endpoint ->
 // delete-dev-endpoint.
 func TestGlueDevEndpointCLI(t *testing.T) {
+	t.Parallel()
 	name := "glue-cli-devep"
 	t.Cleanup(func() {
 		runCLIIgnore(awsCLI("glue", "delete-dev-endpoint", "--endpoint-name", name))
@@ -199,6 +201,7 @@ func TestGlueDevEndpointCLI(t *testing.T) {
 // list-blueprints -> update-blueprint -> start-blueprint-run ->
 // get-blueprint-run -> get-blueprint-runs -> delete-blueprint.
 func TestGlueBlueprintCLI(t *testing.T) {
+	t.Parallel()
 	name := "glue-cli-blueprint"
 	t.Cleanup(func() {
 		runCLIIgnore(awsCLI("glue", "delete-blueprint", "--name", name))

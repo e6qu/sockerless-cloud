@@ -25,6 +25,7 @@ func iamClientWithCreds(akid, secret string) *iam.Client {
 // TestIAM_UpdateUser renames a user and changes its path, asserting the ARN
 // re-keys to the new name/path.
 func TestIAM_UpdateUser(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	user := "uc-rename-user"
 	newUser := "uc-renamed-user"
@@ -56,6 +57,7 @@ func TestIAM_UpdateUser(t *testing.T) {
 
 // TestIAM_UpdateGroup renames a group and changes its path.
 func TestIAM_UpdateGroup(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	group := "uc-rename-group"
 	newGroup := "uc-renamed-group"
@@ -84,6 +86,7 @@ func TestIAM_UpdateGroup(t *testing.T) {
 // TestIAM_LoginProfile exercises the console-password profile lifecycle plus
 // ChangePassword for the calling user.
 func TestIAM_LoginProfile(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	user := "uc-login-user"
 
@@ -128,6 +131,7 @@ func TestIAM_LoginProfile(t *testing.T) {
 // TestIAM_AccessKeyLastUsed updates an access key's status and reads back its
 // last-used info (the never-used "N/A" sentinel shape).
 func TestIAM_AccessKeyLastUsed(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	user := "uc-key-user"
 
@@ -165,6 +169,7 @@ func TestIAM_AccessKeyLastUsed(t *testing.T) {
 
 // TestIAM_UserTags exercises TagUser / ListUserTags / UntagUser.
 func TestIAM_UserTags(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	user := "uc-tag-user"
 

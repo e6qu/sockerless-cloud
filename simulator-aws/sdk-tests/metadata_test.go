@@ -45,16 +45,19 @@ func imdsRead(t *testing.T, path, token string) (*http.Response, []byte) {
 }
 
 func TestIMDS_TokenRequired(t *testing.T) {
+	t.Parallel()
 	resp, _ := imdsRead(t, "/latest/meta-data/instance-id", "")
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
 func TestIMDS_UnknownTokenRejected(t *testing.T) {
+	t.Parallel()
 	resp, _ := imdsRead(t, "/latest/meta-data/instance-id", "AQbogus")
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 
 func TestIMDS_InstanceID(t *testing.T) {
+	t.Parallel()
 	tok := imdsToken(t)
 	resp, body := imdsRead(t, "/latest/meta-data/instance-id", tok)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -62,6 +65,7 @@ func TestIMDS_InstanceID(t *testing.T) {
 }
 
 func TestIMDS_PlacementRegion(t *testing.T) {
+	t.Parallel()
 	tok := imdsToken(t)
 	resp, body := imdsRead(t, "/latest/meta-data/placement/region", tok)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -69,6 +73,7 @@ func TestIMDS_PlacementRegion(t *testing.T) {
 }
 
 func TestIMDS_IAMSecurityCredentials(t *testing.T) {
+	t.Parallel()
 	tok := imdsToken(t)
 
 	resp, body := imdsRead(t, "/latest/meta-data/iam/security-credentials/", tok)
@@ -94,6 +99,7 @@ func TestIMDS_IAMSecurityCredentials(t *testing.T) {
 }
 
 func TestECSTaskMetadataV4(t *testing.T) {
+	t.Parallel()
 	resp, err := http.Get(baseURL + "/v4/abc123/task")
 	require.NoError(t, err)
 	defer resp.Body.Close()

@@ -170,6 +170,7 @@ func TestMetadataSDK_ApplicationDefaultCredentials(t *testing.T) {
 // Clients pinned to that host, and `gcloud`'s auth/token_host override, still
 // name it.
 func TestOAuth2_LegacyTokenEndpoint(t *testing.T) {
+	t.Parallel()
 	_, _, keyFile := mintServiceAccountKeyFile(t, "legacy-token-endpoint-sa")
 	keyFile["token_uri"] = baseURL + "/o/oauth2/token"
 
@@ -189,6 +190,7 @@ func TestOAuth2_LegacyTokenEndpoint(t *testing.T) {
 // Manager, and the service account the revision runs as — the one it names,
 // or the project's Compute Engine default service account.
 func TestMetadataSDK_CloudRunWorkloadIdentity(t *testing.T) {
+	t.Parallel()
 	client := newServicesClient(t)
 	runner := createServiceAccount(t, "test-project", uniqueName("md-runner"))
 	for _, tc := range []struct {

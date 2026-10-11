@@ -14,6 +14,7 @@ import (
 // list-object-annotations (with the name-prefix filter) and
 // delete-object-annotation.
 func TestS3CLI_ObjectAnnotations(t *testing.T) {
+	t.Parallel()
 	bucket := fmt.Sprintf("cli-annotations-%d", time.Now().UnixNano())
 	key := "reports/q1.csv"
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", bucket))
@@ -91,6 +92,7 @@ func TestS3CLI_ObjectAnnotations(t *testing.T) {
 // update-bucket-metadata-annotation-table-configuration and reading the state
 // back from get-bucket-metadata-configuration.
 func TestS3CLI_MetadataAnnotationTableConfiguration(t *testing.T) {
+	t.Parallel()
 	bucket := fmt.Sprintf("cli-annotation-table-%d", time.Now().UnixNano())
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", bucket))
 

@@ -28,6 +28,7 @@ func ddbCLICreateTableArn(t *testing.T, table string) string {
 }
 
 func TestDynamoDBCLI_BackupLifecycle(t *testing.T) {
+	t.Parallel()
 	table := "cli-ddb-bk"
 	ddbCLICreateTableArn(t, table)
 
@@ -80,6 +81,7 @@ func TestDynamoDBCLI_BackupLifecycle(t *testing.T) {
 }
 
 func TestDynamoDBCLI_RestoreTableToPointInTime(t *testing.T) {
+	t.Parallel()
 	table := "cli-ddb-pitr"
 	ddbCLICreateTableArn(t, table)
 	runCLI(t, awsCLI("dynamodb", "update-continuous-backups",
@@ -101,6 +103,7 @@ func TestDynamoDBCLI_RestoreTableToPointInTime(t *testing.T) {
 }
 
 func TestDynamoDBCLI_GlobalTables(t *testing.T) {
+	t.Parallel()
 	table := "cli-ddb-gt"
 	ddbCLICreateTableArn(t, table)
 
@@ -174,6 +177,7 @@ func TestDynamoDBCLI_GlobalTables(t *testing.T) {
 }
 
 func TestDynamoDBCLI_ResourcePolicy(t *testing.T) {
+	t.Parallel()
 	table := "cli-ddb-rp"
 	arn := ddbCLICreateTableArn(t, table)
 	policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"*"},"Action":"dynamodb:GetItem","Resource":"` + arn + `"}]}`
@@ -193,6 +197,7 @@ func TestDynamoDBCLI_ResourcePolicy(t *testing.T) {
 }
 
 func TestDynamoDBCLI_KinesisStreaming(t *testing.T) {
+	t.Parallel()
 	table := "cli-ddb-kinesis"
 	ddbCLICreateTableArn(t, table)
 	streamArn := "arn:aws:kinesis:us-east-1:000000000000:stream/cli-ddb-changes"
@@ -220,6 +225,7 @@ func TestDynamoDBCLI_KinesisStreaming(t *testing.T) {
 }
 
 func TestDynamoDBCLI_ExportImport(t *testing.T) {
+	t.Parallel()
 	table := "cli-ddb-export"
 	arn := ddbCLICreateTableArn(t, table)
 
@@ -272,6 +278,7 @@ func TestDynamoDBCLI_ExportImport(t *testing.T) {
 }
 
 func TestDynamoDBCLI_ContributorInsights(t *testing.T) {
+	t.Parallel()
 	table := "cli-ddb-ci"
 	ddbCLICreateTableArn(t, table)
 
@@ -303,6 +310,7 @@ func TestDynamoDBCLI_ContributorInsights(t *testing.T) {
 }
 
 func TestDynamoDBCLI_DescribeEndpoints(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("dynamodb", "describe-endpoints", "--output", "json"))
 	var resp struct {
 		Endpoints []struct {

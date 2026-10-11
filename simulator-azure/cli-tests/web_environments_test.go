@@ -54,6 +54,7 @@ func aseCLIOperationResult(t *testing.T, resource, body string) string {
 // moved into another subnet, refuses an upgrade until one is announced, and
 // names the two families it does not implement instead of answering them.
 func TestAppServiceEnvironmentCLI(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 
 	runCLI(t, azRest("PUT", armURL("Microsoft.Network", "virtualNetworks/cli-ase-vnet", "2024-05-01"),
@@ -141,6 +142,7 @@ func TestAppServiceEnvironmentCLI(t *testing.T) {
 
 // TestKubeEnvironmentCLI drives a Kubernetes Environment through the CLI.
 func TestKubeEnvironmentCLI(t *testing.T) {
+	t.Parallel()
 	kubeURL := aseCLIURL("kubeEnvironments/cli-kube")
 	out := runCLI(t, azRest("PUT", kubeURL,
 		`{"location":"eastus","properties":{"staticIp":"10.81.0.9","internalLoadBalancerEnabled":true,"arcConfiguration":{"artifactStorageClassName":"default","kubeConfig":"apiVersion: v1"}}}`))
@@ -163,6 +165,7 @@ func TestKubeEnvironmentCLI(t *testing.T) {
 // run on a site with no workload container, and the declared gap a detector
 // the simulator cannot measure answers with.
 func TestSiteDiagnosticsCLI(t *testing.T) {
+	t.Parallel()
 	siteURL := aseCLIURL("sites/cli-diag-app")
 	runCLI(t, azRest("PUT", siteURL,
 		`{"location":"eastus","kind":"functionapp,linux,container","properties":{}}`))

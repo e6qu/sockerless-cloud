@@ -17,6 +17,7 @@ import (
 // are returned by the per-service tag-list APIs for CloudWatch Logs, DynamoDB,
 // and ECR. Dropping create-time tags makes every terraform plan re-add them.
 func TestResourceTags_CreateTimeRoundTrip(t *testing.T) {
+	t.Parallel()
 	repoName := uniqueName("tags-repo")
 	tableName := uniqueName("tags-tbl")
 	t.Run("CloudWatchLogs", func(t *testing.T) {

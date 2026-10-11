@@ -6,6 +6,7 @@ import (
 )
 
 func TestBudgetsCLI_CRUD(t *testing.T) {
+	t.Parallel()
 	const accountID = "123456789012"
 	const budgetName = "cli-budget-crud"
 

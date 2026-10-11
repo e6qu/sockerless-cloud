@@ -16,6 +16,7 @@ import (
 // restrict the VPC a project uses and refuse a build that overrides its
 // buildspec.
 func TestCodeBuild_RequestConditionKeysScopeTheGrant(t *testing.T) {
+	t.Parallel()
 	akid, secret := restrictedCredential(t, "codebuild-vpc-and-buildspec",
 		`{"Version":"2012-10-17","Statement":[
 		  {"Effect":"Allow","Action":"codebuild:CreateProject","Resource":"*","Condition":{

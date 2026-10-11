@@ -27,6 +27,7 @@ import (
 // the endpoint must see exactly the rejected attempt, the accepted retry and
 // then the second message, with nothing pushed again in between.
 func TestPubSub_PushSubscriptionDeliversSDK(t *testing.T) {
+	t.Parallel()
 	svc := pubsubService(t)
 	type pushed struct {
 		auth string

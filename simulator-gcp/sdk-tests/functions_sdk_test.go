@@ -25,6 +25,7 @@ func newFunctionsClient(t *testing.T) *functions.FunctionClient {
 }
 
 func TestSDK_CloudFunctions_CreateFunction(t *testing.T) {
+	t.Parallel()
 	client := newFunctionsClient(t)
 
 	op, err := client.CreateFunction(ctx, &functionspb.CreateFunctionRequest{
@@ -48,6 +49,7 @@ func TestSDK_CloudFunctions_CreateFunction(t *testing.T) {
 }
 
 func TestSDK_CloudFunctions_GetFunction(t *testing.T) {
+	t.Parallel()
 	client := newFunctionsClient(t)
 
 	// Create first
@@ -76,6 +78,7 @@ func TestSDK_CloudFunctions_GetFunction(t *testing.T) {
 }
 
 func TestSDK_CloudFunctions_ListFunctions(t *testing.T) {
+	t.Parallel()
 	client := newFunctionsClient(t)
 
 	// Create two functions
@@ -124,6 +127,7 @@ func TestSDK_CloudFunctions_ListFunctions(t *testing.T) {
 }
 
 func TestSDK_CloudFunctions_DeleteFunction(t *testing.T) {
+	t.Parallel()
 	client := newFunctionsClient(t)
 
 	// Create

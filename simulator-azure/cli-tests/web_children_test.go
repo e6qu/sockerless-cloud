@@ -30,6 +30,7 @@ const webChildrenCertThumb = "67A203A735B08E10D349C6E91F178233EEA9F8AB"
 // premier add-ons, push settings, and the Key Vault config references derived
 // from app settings — each on the production site, plus a slot twin check.
 func TestWebChildren_CLI(t *testing.T) {
+	t.Parallel()
 	runCLI(t, azRest("PUT", webChildURL("serverfarms/cli-wc-plan"),
 		`{"location":"eastus","sku":{"name":"B1","tier":"Basic"}}`))
 	runCLI(t, azRest("PUT", webChildURL("sites/cli-wc-site"),
@@ -165,6 +166,7 @@ func TestWebChildren_CLI(t *testing.T) {
 // reads, listWorkflowsConnections, and the hostruntime bridge (trigger run,
 // runs, trigger histories, versions).
 func TestWebWorkflows_CLI(t *testing.T) {
+	t.Parallel()
 	runCLI(t, azRest("PUT", webChildURL("serverfarms/cli-wf-plan"),
 		`{"location":"eastus","sku":{"name":"WS1","tier":"WorkflowStandard"}}`))
 	runCLI(t, azRest("PUT", webChildURL("sites/cli-wf-site"),

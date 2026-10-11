@@ -21,6 +21,7 @@ func egURL(t *testing.T, resourcePath string) string {
 // Events control plane (registrations, namespaces + channels + keys,
 // configurations + authorization, verified partners) through the az CLI.
 func TestEventGridCLI_PartnerFamily(t *testing.T) {
+	t.Parallel()
 	// Partner registration: create → get → list-by-subscription → delete.
 	regURL := egURL(t, "partnerRegistrations/cli-partner-reg")
 	out := runCLI(t, azRest("PUT", regURL, `{"location":"global","properties":{}}`))
@@ -99,6 +100,7 @@ func TestEventGridCLI_PartnerFamily(t *testing.T) {
 // 2022-06-15 nested (non-provider) per-resource EventSubscriptions URL form
 // plus the operations / topic-type registries through the az CLI.
 func TestEventGridCLI_NestedEventSubscriptionsAndRegistries(t *testing.T) {
+	t.Parallel()
 	// Operations + topic types.
 	opsURL := baseURL + "/providers/Microsoft.EventGrid/operations?api-version=" + egMoreAPI
 	out := runCLI(t, azRest("GET", opsURL, ""))

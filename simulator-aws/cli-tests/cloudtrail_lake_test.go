@@ -11,6 +11,7 @@ import (
 // stop/start-event-data-store-ingestion → enable/disable-federation →
 // delete-event-data-store → restore-event-data-store.
 func TestCloudTrailCLI_EventDataStoreLifecycle(t *testing.T) {
+	t.Parallel()
 	const name = "cli-ct-eds"
 
 	arn := strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "create-event-data-store",
@@ -76,6 +77,7 @@ func TestCloudTrailCLI_EventDataStoreLifecycle(t *testing.T) {
 // start-query → describe-query / get-query-results / list-queries →
 // cancel-query, plus generate-query and search-sample-queries.
 func TestCloudTrailCLI_LakeQuery(t *testing.T) {
+	t.Parallel()
 	eds := strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "create-event-data-store",
 		"--name", "cli-lake-query", "--retention-period", "7", "--no-termination-protection-enabled",
 		"--query", "EventDataStoreArn", "--output", "text")))
@@ -144,6 +146,7 @@ func TestCloudTrailCLI_LakeQuery(t *testing.T) {
 // delete-dashboard; start-import → get-import → list-imports /
 // list-import-failures → stop-import.
 func TestCloudTrailCLI_DashboardAndImport(t *testing.T) {
+	t.Parallel()
 	const dash = "cli-ct-dashboard"
 	arn := strings.TrimSpace(runCLI(t, awsCLI("cloudtrail", "create-dashboard",
 		"--name", dash,
@@ -212,6 +215,7 @@ func TestCloudTrailCLI_DashboardAndImport(t *testing.T) {
 // TestCloudTrailCLI_Governance drives the resource-policy, org delegated-admin,
 // event-configuration, public-keys, insight-metric, and update-channel surfaces.
 func TestCloudTrailCLI_Governance(t *testing.T) {
+	t.Parallel()
 	const channelArn = "arn:aws:cloudtrail:us-east-1:123456789012:channel/cli-gov-channel"
 	const policy = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"cloudtrail.amazonaws.com"},"Action":"cloudtrail:GetChannel","Resource":"*"}]}`
 

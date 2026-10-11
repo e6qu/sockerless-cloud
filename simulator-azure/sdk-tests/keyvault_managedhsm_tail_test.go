@@ -26,6 +26,7 @@ import (
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/managedHSMs/{name}/privateLinkResources
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.KeyVault/managedHSMs/{name}/regions
 func TestManagedHSMs_SoftDeleteRecoverAndPurge(t *testing.T) {
+	t.Parallel()
 	rg, hsm := uniqueName("managedhsm-tail-rg"), uniqueAlnumName("tailhsm")
 	ensureKVResourceGroup(t, rg)
 
@@ -117,6 +118,7 @@ func deletedManagedHSMNamed(deleted []*armkeyvault.DeletedManagedHsm, name strin
 
 // Purge protection exists to refuse the purge, so it must.
 func TestManagedHSMs_PurgeProtectionRefusesThePurge(t *testing.T) {
+	t.Parallel()
 	const rg = "managedhsm-protected-rg"
 	ensureKVResourceGroup(t, rg)
 

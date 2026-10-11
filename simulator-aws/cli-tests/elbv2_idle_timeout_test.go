@@ -15,6 +15,7 @@ import (
 // a target silent past the idle timeout draws a 504 Gateway Timeout, and a
 // target that answers within it is served.
 func TestELBv2IdleTimeoutCLI(t *testing.T) {
+	t.Parallel()
 	targetDone := make(chan struct{})
 	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/silent" {

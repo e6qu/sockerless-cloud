@@ -20,6 +20,7 @@ func ec2Client() *ec2.Client {
 }
 
 func TestEC2_CreateVpc(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 	out, err := client.CreateVpc(ctx, &ec2.CreateVpcInput{
 		CidrBlock: aws.String("10.0.0.0/16"),
@@ -30,6 +31,7 @@ func TestEC2_CreateVpc(t *testing.T) {
 }
 
 func TestEC2_CreateSubnet(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 
 	vpcOut, err := client.CreateVpc(ctx, &ec2.CreateVpcInput{
@@ -47,6 +49,7 @@ func TestEC2_CreateSubnet(t *testing.T) {
 }
 
 func TestEC2_SecurityGroup(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 
 	vpcOut, err := client.CreateVpc(ctx, &ec2.CreateVpcInput{
@@ -71,6 +74,7 @@ func TestEC2_SecurityGroup(t *testing.T) {
 }
 
 func TestEC2_InternetGateway(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 
 	igwOut, err := client.CreateInternetGateway(ctx, &ec2.CreateInternetGatewayInput{})
@@ -85,6 +89,7 @@ func TestEC2_InternetGateway(t *testing.T) {
 }
 
 func TestEC2_ElasticIPNatGatewayAndRoute(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 
 	vpcOut, err := client.CreateVpc(ctx, &ec2.CreateVpcInput{
@@ -178,6 +183,7 @@ func TestEC2_ElasticIPNatGatewayAndRoute(t *testing.T) {
 }
 
 func TestEC2_InstanceLifecycle(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 
 	images, err := client.DescribeImages(ctx, &ec2.DescribeImagesInput{
@@ -367,6 +373,7 @@ func TestEC2_InstanceLifecycle(t *testing.T) {
 }
 
 func TestEC2_RunInstancesHonorsMaxCount(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 	vpcOut, err := client.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.67.0.0/16")})
 	require.NoError(t, err)
@@ -399,6 +406,7 @@ func TestEC2_RunInstancesHonorsMaxCount(t *testing.T) {
 // the control plane has transitioned it to "running". A replay that re-read the
 // live state instead raced that transition and could report "running".
 func TestEC2_RunInstancesClientTokenReplayReportsLaunchState(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 	vpcOut, err := client.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.68.0.0/16")})
 	require.NoError(t, err)
@@ -439,6 +447,7 @@ func TestEC2_RunInstancesClientTokenReplayReportsLaunchState(t *testing.T) {
 }
 
 func TestEC2_EBSSnapshotCompletesWithoutVPCSDK(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 
 	created, err := client.CreateVolume(ctx, &ec2.CreateVolumeInput{
@@ -488,6 +497,7 @@ func TestEC2_EBSSnapshotCompletesWithoutVPCSDK(t *testing.T) {
 }
 
 func TestEC2_EBSVolumeSnapshotLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 	vpcOut, err := client.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.68.0.0/16")})
 	require.NoError(t, err)

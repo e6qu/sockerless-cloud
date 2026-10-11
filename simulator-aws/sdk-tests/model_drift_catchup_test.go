@@ -24,6 +24,7 @@ import (
 // alone.
 
 func TestGlue_DataCatalogExportConfigurationRoundTrips(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 	put, err := c.PutDataCatalogExportConfiguration(ctx, &glue.PutDataCatalogExportConfigurationInput{
 		ExportSetting: gluetypes.ExportSettingEnabled,
@@ -39,6 +40,7 @@ func TestGlue_DataCatalogExportConfigurationRoundTrips(t *testing.T) {
 }
 
 func TestIAM_AccountPropertiesRoundTripAndTemplatesNameTheirCatalog(t *testing.T) {
+	t.Parallel()
 	c := iamClient()
 	// The model is explicit about the key: "Each key uses the format
 	// Namespace/PropertyName ... exactly one / ... cannot start or end with
@@ -87,6 +89,7 @@ func TestIAM_AccountPropertiesRoundTripAndTemplatesNameTheirCatalog(t *testing.T
 }
 
 func TestBudgets_ActionExecutesThroughTheSimulatorsOwnServices(t *testing.T) {
+	t.Parallel()
 	c := budgetsClient()
 	iamC := iamClient()
 	account := budgetsAccountID
@@ -230,6 +233,7 @@ func TestBudgets_ActionExecutesThroughTheSimulatorsOwnServices(t *testing.T) {
 }
 
 func TestEC2_IpamInternetRegistryIsRealStateAndNamesTheRIR(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	ipam, err := c.CreateIpam(ctx, &ec2.CreateIpamInput{})
 	require.NoError(t, err)
@@ -413,6 +417,7 @@ func TestEC2_IpamInternetRegistryIsRealStateAndNamesTheRIR(t *testing.T) {
 }
 
 func TestEC2_ApplicationStatusIsMeasuredNotDeclared(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	instance := runDriftTestInstance(t, c)
@@ -548,6 +553,7 @@ func runDriftTestInstance(t *testing.T, c *ec2.Client) string {
 }
 
 func TestBudgets_NotificationUpdatesMoveTheirSubscribers(t *testing.T) {
+	t.Parallel()
 	c := budgetsClient()
 	account := budgetsAccountID
 	const budgetName = "drift-notification-budget"
@@ -661,6 +667,7 @@ func TestBudgets_NotificationUpdatesMoveTheirSubscribers(t *testing.T) {
 }
 
 func TestEC2_IpamDiscoveredRoutesComeFromTheAccountsRouteTables(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.99.0.0/16")})
 	require.NoError(t, err)

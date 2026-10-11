@@ -10,6 +10,7 @@ import (
 // TestLogsIntegrationAndLookupCLI exercises OpenSearch integrations and lookup
 // tables through the aws CLI.
 func TestLogsIntegrationAndLookupCLI(t *testing.T) {
+	t.Parallel()
 	// OpenSearch integration.
 	integName := "cli-opensearch-integration"
 	defer runCLIIgnore(awsCLI("logs", "delete-integration",
@@ -100,6 +101,7 @@ func TestLogsIntegrationAndLookupCLI(t *testing.T) {
 // TestLogsScheduledQueryAndTransformerCLI exercises scheduled queries and
 // per-log-group transformers through the aws CLI.
 func TestLogsScheduledQueryAndTransformerCLI(t *testing.T) {
+	t.Parallel()
 	// Scheduled query.
 	sqName := "cli-scheduled-query"
 	dest := `{"s3Configuration":{"destinationIdentifier":"s3://cli-sq-bucket","roleArn":"arn:aws:iam::123456789012:role/sq-role"}}`
@@ -198,6 +200,7 @@ func TestLogsScheduledQueryAndTransformerCLI(t *testing.T) {
 // TestLogsImportAndStructureCLI exercises import tasks, log-structure reads,
 // deletion protection, anomalies, and log-group listing through the aws CLI.
 func TestLogsImportAndStructureCLI(t *testing.T) {
+	t.Parallel()
 	// Import task.
 	create := runCLI(t, awsCLI("logs", "create-import-task",
 		"--import-source-arn", "arn:aws:s3:::cli-import-bucket",

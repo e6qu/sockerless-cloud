@@ -26,6 +26,7 @@ func pgURL(path string) string {
 }
 
 func TestCLI_PGFlexibleServer_Actions(t *testing.T) {
+	t.Parallel()
 	rgURL := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s?api-version=%s", baseURL, subscriptionID, resourceGroup, resourcesAPIVersion)
 	runCLI(t, azRest("PUT", rgURL, `{"location":"eastus"}`))
 
@@ -53,6 +54,7 @@ func TestCLI_PGFlexibleServer_Actions(t *testing.T) {
 }
 
 func TestCLI_Resources_ProvidersAndTags(t *testing.T) {
+	t.Parallel()
 	// Provider registration + get.
 	out := runCLI(t, azRest("POST", subURL("providers/Microsoft.DBforPostgreSQL/register", resourcesAPIVersion), ""))
 	assert.Contains(t, out, "Registered")
@@ -79,6 +81,7 @@ func TestCLI_Resources_ProvidersAndTags(t *testing.T) {
 }
 
 func TestCLI_Resources_ResourceGroupUpdate(t *testing.T) {
+	t.Parallel()
 	rg := "cli-rg-update"
 	rgURL := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s?api-version=%s", baseURL, subscriptionID, rg, resourcesAPIVersion)
 	runCLI(t, azRest("PUT", rgURL, `{"location":"eastus"}`))
@@ -97,6 +100,7 @@ func TestCLI_Resources_ResourceGroupUpdate(t *testing.T) {
 }
 
 func TestCLI_Subscriptions(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, azRest("GET", tenantScopeURL("subscriptions", subscriptionsAPIVersion), ""))
 	assert.Contains(t, out, subscriptionID)
 
@@ -116,6 +120,7 @@ func TestCLI_Subscriptions(t *testing.T) {
 }
 
 func TestCLI_AppInsights_ListUpdateTagsPurge(t *testing.T) {
+	t.Parallel()
 	rgURL := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s?api-version=%s", baseURL, subscriptionID, resourceGroup, resourcesAPIVersion)
 	runCLI(t, azRest("PUT", rgURL, `{"location":"eastus"}`))
 

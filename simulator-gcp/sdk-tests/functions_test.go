@@ -71,6 +71,7 @@ func deployFunction(t *testing.T, client *functions.FunctionClient, functionID s
 // service as serviceConfig.uri and the cloudfunctions.net URL as url, and
 // serves the function on both.
 func TestCloudFunctions_ServedOnItsURLs(t *testing.T) {
+	t.Parallel()
 	client := newFunctionsClient(t)
 	const functionID = "sdk-served-fn"
 	fn := deployFunction(t, client, functionID, &runpb.Container{Image: httpProbeImageName, Args: []string{"log-request"}})
@@ -105,6 +106,7 @@ func TestCloudFunctions_ServedOnItsURLs(t *testing.T) {
 // The function's caller gets whatever the container answered: its status,
 // its headers and its body, on both URLs.
 func TestCloudFunctions_PassesTheContainersAnswerThrough(t *testing.T) {
+	t.Parallel()
 	client := newFunctionsClient(t)
 	const functionID = "sdk-teapot-fn"
 	fn := deployFunction(t, client, functionID, &runpb.Container{Image: httpProbeImageName, Args: []string{"teapot"}})
@@ -127,6 +129,7 @@ func TestCloudFunctions_PassesTheContainersAnswerThrough(t *testing.T) {
 // roles/run.invoker on the service. An ID token minted for another audience
 // is answered 401, and granting allUsers the role makes the function public.
 func TestCloudFunctions_InvokerAuthentication(t *testing.T) {
+	t.Parallel()
 	client := newFunctionsClient(t)
 	const functionID = "sdk-private-fn"
 	fn := deployFunction(t, client, functionID, &runpb.Container{Image: httpProbeImageName, Args: []string{"log-request"}})
@@ -162,6 +165,7 @@ func TestCloudFunctions_InvokerAuthentication(t *testing.T) {
 // deleted function's URLs, service and the service's IAM policy are gone with
 // it: a function deployed again under the same name is private again.
 func TestCloudFunctions_DeletedFunctionIsNoLongerServed(t *testing.T) {
+	t.Parallel()
 	const missing = "https://us-central1-test-project.cloudfunctions.net/no-such-fn"
 	code, _, _ := invokeService(t, invokerIDToken(t, missing), missing, http.MethodGet, "/no-such-fn", "")
 	assert.Equal(t, http.StatusNotFound, code)
@@ -192,6 +196,7 @@ func TestCloudFunctions_DeletedFunctionIsNoLongerServed(t *testing.T) {
 // UpdateFunction redeploys the function's service with the serviceConfig it
 // sets, while the output-only uri and service stay as they were.
 func TestCloudFunctions_UpdateRedeploysTheService(t *testing.T) {
+	t.Parallel()
 	client := newFunctionsClient(t)
 	fn := deployFunction(t, client, "sdk-update-fn", &runpb.Container{Image: httpProbeImageName, Args: []string{"log-request"}})
 

@@ -8,6 +8,7 @@ import (
 // TestEC2EBSFidelityCLI covers the EBS volume performance fields, filters, and
 // DescribeVolumesModifications via the aws CLI.
 func TestEC2EBSFidelityCLI(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	// gp3 defaults: iops 3000, throughput 125.

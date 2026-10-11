@@ -19,6 +19,7 @@ import (
 // without the attribute (and the attribute without a .fifo name) is
 // rejected with InvalidParameterValue.
 func TestSQS_FifoNameAttributeCoupling(t *testing.T) {
+	t.Parallel()
 	c := sqsClient()
 
 	// .fifo name without FifoQueue=true → rejected.
@@ -55,6 +56,7 @@ func TestSQS_FifoNameAttributeCoupling(t *testing.T) {
 // rejects SendMessage without MessageGroupId (MissingParameter) and
 // accepts it when supplied.
 func TestSQS_FifoSendRequiresMessageGroupId(t *testing.T) {
+	t.Parallel()
 	c := sqsClient()
 	out, err := c.CreateQueue(ctx, &sqs.CreateQueueInput{
 		QueueName: aws.String("fifo-group.fifo"),
@@ -88,6 +90,7 @@ func TestSQS_FifoSendRequiresMessageGroupId(t *testing.T) {
 // TestSQS_FifoSendRequiresDedup asserts that a FIFO queue without
 // ContentBasedDeduplication requires an explicit MessageDeduplicationId.
 func TestSQS_FifoSendRequiresDedup(t *testing.T) {
+	t.Parallel()
 	c := sqsClient()
 	out, err := c.CreateQueue(ctx, &sqs.CreateQueueInput{
 		QueueName:  aws.String("fifo-dedup.fifo"),
@@ -120,6 +123,7 @@ func TestSQS_FifoSendRequiresDedup(t *testing.T) {
 // TestSQS_SendMessageBatch exercises the happy path plus each batch-level
 // error (empty, too many, duplicate Ids) and a per-entry FIFO failure.
 func TestSQS_SendMessageBatch(t *testing.T) {
+	t.Parallel()
 	c := sqsClient()
 	out, err := c.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("batch-q")})
 	require.NoError(t, err)
@@ -182,6 +186,7 @@ func TestSQS_SendMessageBatch(t *testing.T) {
 // validation failure lands in the Failed array (HTTP 200, not a
 // top-level error).
 func TestSQS_SendMessageBatch_FifoPerEntryFailure(t *testing.T) {
+	t.Parallel()
 	c := sqsClient()
 	out, err := c.CreateQueue(ctx, &sqs.CreateQueueInput{
 		QueueName: aws.String("batch-fifo.fifo"),
@@ -213,6 +218,7 @@ func TestSQS_SendMessageBatch_FifoPerEntryFailure(t *testing.T) {
 }
 
 func TestSQS_FIFODeduplicationAndMessageGroupOrdering(t *testing.T) {
+	t.Parallel()
 	c := sqsClient()
 	out, err := c.CreateQueue(ctx, &sqs.CreateQueueInput{
 		QueueName: aws.String("fifo-runtime.fifo"),
@@ -294,6 +300,7 @@ func TestSQS_FIFODeduplicationAndMessageGroupOrdering(t *testing.T) {
 }
 
 func TestSQSDelayAndMaximumSizeRuntime(t *testing.T) {
+	t.Parallel()
 	c := sqsClient()
 	out, err := c.CreateQueue(ctx, &sqs.CreateQueueInput{
 		QueueName: aws.String("runtime-attributes"),
@@ -401,6 +408,7 @@ func TestSQSMessageRetentionPeriodDropsExpiredMessages(t *testing.T) {
 // TestSNS_FifoTopicCoupling locks the SNS .fifo-name ↔ FifoTopic=true
 // coupling at CreateTopic.
 func TestSNS_FifoTopicCoupling(t *testing.T) {
+	t.Parallel()
 	c := snsClient()
 
 	// .fifo name without FifoTopic=true → rejected.
@@ -432,6 +440,7 @@ func TestSNS_FifoTopicCoupling(t *testing.T) {
 // TestSNS_FifoPublishRequiresMessageGroupId asserts a FIFO topic rejects
 // Publish without MessageGroupId and accepts it when supplied.
 func TestSNS_FifoPublishRequiresMessageGroupId(t *testing.T) {
+	t.Parallel()
 	c := snsClient()
 	out, err := c.CreateTopic(ctx, &sns.CreateTopicInput{
 		Name: aws.String("sns-fifo-pub.fifo"),
@@ -463,6 +472,7 @@ func TestSNS_FifoPublishRequiresMessageGroupId(t *testing.T) {
 // TestSNS_PublishBatch exercises the happy path, fan-out to an SQS
 // subscriber, and the batch-level errors.
 func TestSNS_PublishBatch(t *testing.T) {
+	t.Parallel()
 	snsC := snsClient()
 	sqsC := sqsClient()
 

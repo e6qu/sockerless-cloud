@@ -21,6 +21,7 @@ func lambdaFunctionArn(name string) string {
 // TestLambda_ConfigAndCode exercises GetFunctionConfiguration and
 // UpdateFunctionCode against a real stored function.
 func TestLambda_ConfigAndCode(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	fn := "extras3-config-fn"
 	lambdaExtrasFunc(t, lc, fn)
@@ -51,6 +52,7 @@ func TestLambda_ConfigAndCode(t *testing.T) {
 // TestLambda_FunctionScalingConfig exercises Put/Get of the per-function
 // scaling config (2025-11-30).
 func TestLambda_FunctionScalingConfig(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	fn := "extras3-scaling-fn"
 	lambdaExtrasFunc(t, lc, fn)
@@ -92,6 +94,7 @@ func TestLambda_FunctionScalingConfig(t *testing.T) {
 // TestLambda_ListFunctionsByCodeSigningConfig wires a function to a
 // code-signing config and reads the membership back.
 func TestLambda_ListFunctionsByCodeSigningConfig(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	fn := "extras3-csc-fn"
 	lambdaExtrasFunc(t, lc, fn)
@@ -129,6 +132,7 @@ func TestLambda_ListFunctionsByCodeSigningConfig(t *testing.T) {
 // TestLambda_CapacityProviders runs the full create/get/list/update/delete
 // round-trip plus the function-versions read-back (2025-11-30).
 func TestLambda_CapacityProviders(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	cpName := "extras3-cp"
 
@@ -235,6 +239,7 @@ func TestLambda_CapacityProviders(t *testing.T) {
 
 // TestLambda_InvokeAsync exercises the deprecated InvokeAsync entry point (202).
 func TestLambda_InvokeAsync(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	fn := "extras3-async-fn"
 	lambdaExtrasFunc(t, lc, fn)
@@ -250,6 +255,7 @@ func TestLambda_InvokeAsync(t *testing.T) {
 // TestLambda_InvokeWithResponseStream exercises the streaming invoke entry
 // point and reassembles the event stream the handler emits.
 func TestLambda_InvokeWithResponseStream(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	fn := "extras3-stream-fn"
 	lambdaExtrasFunc(t, lc, fn)
@@ -280,6 +286,7 @@ func TestLambda_InvokeWithResponseStream(t *testing.T) {
 // real Invoke entry point, then observes its result, history, listing, and
 // idempotent execution-name behavior through the official SDK.
 func TestLambda_DurableExecutionLifecycle(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	fn := uniqueName("extras3-durable-fn")
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
@@ -425,6 +432,7 @@ func TestLambda_DurableExecutionLifecycle(t *testing.T) {
 // The synchronous Invoke remains open until callback completion causes Lambda
 // to replay the function and return its customer result.
 func TestLambda_DurableCheckpointAndCallbackReplay(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	fn := uniqueName("extras3-durable-callback-fn")
 	source := `

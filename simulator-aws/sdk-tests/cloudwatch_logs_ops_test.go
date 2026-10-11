@@ -13,6 +13,7 @@ import (
 // TestLogs_MetricFilterRoundTrip covers PutMetricFilter, DescribeMetricFilters,
 // TestMetricFilter, and DeleteMetricFilter against a real log group.
 func TestLogs_MetricFilterRoundTrip(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	group := "/test/metric-filter"
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(group)})
@@ -73,6 +74,7 @@ func TestLogs_MetricFilterRoundTrip(t *testing.T) {
 // TestLogs_SubscriptionFilterRoundTrip covers PutSubscriptionFilter,
 // DescribeSubscriptionFilters, and DeleteSubscriptionFilter.
 func TestLogs_SubscriptionFilterRoundTrip(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	group := "/test/sub-filter"
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(group)})
@@ -115,6 +117,7 @@ func TestLogs_SubscriptionFilterRoundTrip(t *testing.T) {
 // the legacy TagLogGroup/UntagLogGroup/ListTagsLogGroup verbs plus the newer
 // TagResource/UntagResource ARN-based verbs.
 func TestLogs_RetentionAndTags(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	group := "/test/retention-tags"
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(group)})
@@ -187,6 +190,7 @@ func TestLogs_RetentionAndTags(t *testing.T) {
 // TestLogs_DeleteLogStream covers CreateLogStream then DeleteLogStream removing
 // the stream and its events.
 func TestLogs_DeleteLogStream(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	group := "/test/delete-stream"
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(group)})
@@ -219,6 +223,7 @@ func TestLogs_DeleteLogStream(t *testing.T) {
 // TestLogs_ExportTaskRoundTrip covers CreateExportTask, DescribeExportTasks, and
 // CancelExportTask.
 func TestLogs_ExportTaskRoundTrip(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	group := "/test/export-task"
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(group)})
@@ -230,7 +235,7 @@ func TestLogs_ExportTaskRoundTrip(t *testing.T) {
 		TaskName:     aws.String("export-1"),
 		From:         aws.Int64(1000),
 		To:           aws.Int64(2000),
-		Destination:  aws.String("my-export-bucket"),
+		Destination:  aws.String("my-export-bucket-d7f7"),
 	})
 	require.NoError(t, err)
 	taskId := aws.ToString(out.TaskId)
@@ -242,7 +247,7 @@ func TestLogs_ExportTaskRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, desc.ExportTasks, 1)
 	assert.Equal(t, group, aws.ToString(desc.ExportTasks[0].LogGroupName))
-	assert.Equal(t, "my-export-bucket", aws.ToString(desc.ExportTasks[0].Destination))
+	assert.Equal(t, "my-export-bucket-d7f7", aws.ToString(desc.ExportTasks[0].Destination))
 	require.NotNil(t, desc.ExportTasks[0].Status)
 	assert.Equal(t, cwlogtypes.ExportTaskStatusCodeCompleted, desc.ExportTasks[0].Status.Code)
 
@@ -255,6 +260,7 @@ func TestLogs_ExportTaskRoundTrip(t *testing.T) {
 
 // TestLogs_DataProtectionPolicy covers Put/Get/DeleteDataProtectionPolicy.
 func TestLogs_DataProtectionPolicy(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	group := "/test/data-protection"
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(group)})
@@ -290,6 +296,7 @@ func TestLogs_DataProtectionPolicy(t *testing.T) {
 // TestLogs_TestMetricFilterJSONKeywordTests runs the JSON pattern tests IS
 // NULL, NOT EXISTS, IS TRUE and IS FALSE through TestMetricFilter.
 func TestLogs_TestMetricFilterJSONKeywordTests(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	events := []string{
 		`{"user":"alice","admin":true,"sourceIp":null}`,

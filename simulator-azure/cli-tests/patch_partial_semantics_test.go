@@ -31,6 +31,7 @@ const (
 // .../Microsoft.ContainerRegistry/registries/{registryName} — the request
 // `az acr update` sends.
 func TestCLI_ACRRegistryUpdatePartial(t *testing.T) {
+	t.Parallel()
 	url := acrURL("registries/clipatchregistry")
 
 	type registryShape struct {
@@ -87,6 +88,7 @@ func TestCLI_ACRRegistryUpdatePartial(t *testing.T) {
 // TestCLI_ACAJobUpdatePartial covers PATCH .../Microsoft.App/jobs/{jobName} —
 // the request `az containerapp job update` sends.
 func TestCLI_ACAJobUpdatePartial(t *testing.T) {
+	t.Parallel()
 	envURL := armURL("Microsoft.App", "managedEnvironments/cli-jobpatch-env", jobPatchAPIVersion)
 	runCLI(t, azRest("PUT", envURL, `{"location":"eastus","properties":{}}`))
 	defer runCLI(t, azRest("DELETE", envURL, ""))
@@ -153,6 +155,7 @@ func TestCLI_ACAJobUpdatePartial(t *testing.T) {
 // .../Microsoft.Web/sites/{name} — the request `az webapp update` sends — and
 // pins the merge semantics: a body that omits httpsOnly must leave it alone.
 func TestCLI_WebAppUpdatePartialPreservesHTTPSOnly(t *testing.T) {
+	t.Parallel()
 	planURL := armURL("Microsoft.Web", "serverfarms/cli-patch-plan", webPatchAPIVersion)
 	runCLI(t, azRest("PUT", planURL,
 		`{"location":"eastus","kind":"functionapp","sku":{"name":"Y1","tier":"Dynamic"},"properties":{"reserved":true}}`))

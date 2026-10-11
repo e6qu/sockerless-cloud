@@ -49,6 +49,7 @@ func readAuditEntry(t *testing.T, methodName, resourceName string) cliAuditEntry
 // KMS key ring, a service account and a Cloud DNS zone with gcloud, and reads
 // each service's Admin Activity entry back with gcloud logging read.
 func TestAuditLogsCLI_ComputeKMSIAMDNS(t *testing.T) {
+	t.Parallel()
 	const (
 		network = "cli-audit-net"
 		ring    = "cli-audit-ring"

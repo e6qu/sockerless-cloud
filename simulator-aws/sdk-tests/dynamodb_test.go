@@ -20,6 +20,7 @@ func ddbClient() *dynamodb.Client {
 // TestDynamoDB_TableLifecycle covers Create/Describe/List/Delete on
 // the table surface terraform's `aws_dynamodb_table` exercises.
 func TestDynamoDB_TableLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tableName := "runner-state-test"
 
@@ -73,6 +74,7 @@ func TestDynamoDB_TableLifecycle(t *testing.T) {
 // DescribeTable must report the same. Pre-fix the sim dropped all GSIs
 // (returned null), so terraform-provider-aws waited for GSI ACTIVE forever.
 func TestDynamoDB_GlobalSecondaryIndexes(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tableName := "gsi-probe"
 	defer c.DeleteTable(ctx, &dynamodb.DeleteTableInput{TableName: aws.String(tableName)})
@@ -136,6 +138,7 @@ func TestDynamoDB_GlobalSecondaryIndexes(t *testing.T) {
 // add a GSI (declaring its new attribute), confirm it goes ACTIVE, then delete
 // it. Pre-fix UpdateTable was unregistered (404 UnknownOperation).
 func TestDynamoDB_UpdateTableGSI(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	table := "update-gsi"
 	defer c.DeleteTable(ctx, &dynamodb.DeleteTableInput{TableName: aws.String(table)})
@@ -190,6 +193,7 @@ func TestDynamoDB_UpdateTableGSI(t *testing.T) {
 // whose GSI key matches, that an unknown index is rejected, and that
 // ScannedCount is reported.
 func TestDynamoDB_QueryOnGSI(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	table := "gsi-query"
 	defer c.DeleteTable(ctx, &dynamodb.DeleteTableInput{TableName: aws.String(table)})
@@ -246,6 +250,7 @@ func TestDynamoDB_QueryOnGSI(t *testing.T) {
 // TestDynamoDB_BatchAndTransact covers BatchWriteItem/BatchGetItem and the
 // transactional ops, plus a richer ConditionExpression than the state-lock case.
 func TestDynamoDB_BatchAndTransact(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	table := "batch-tx"
 	defer c.DeleteTable(ctx, &dynamodb.DeleteTableInput{TableName: aws.String(table)})
@@ -323,6 +328,7 @@ func TestDynamoDB_BatchAndTransact(t *testing.T) {
 // the first time and fail with ConditionalCheckFailedException on
 // the second concurrent acquire.
 func TestDynamoDB_TerraformStateLockSemantics(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tableName := "tf-lock-test"
 
@@ -396,6 +402,7 @@ func TestDynamoDB_TerraformStateLockSemantics(t *testing.T) {
 }
 
 func TestDynamoDB_DeleteItemReturnValuesAllOld(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tableName := "delete-all-old-test"
 
@@ -445,6 +452,7 @@ func TestDynamoDB_DeleteItemReturnValuesAllOld(t *testing.T) {
 }
 
 func TestDynamoDB_QueryAndScan(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	tableName := "query-scan-test"
 	_, err := c.CreateTable(ctx, &dynamodb.CreateTableInput{
@@ -501,6 +509,7 @@ func TestDynamoDB_QueryAndScan(t *testing.T) {
 }
 
 func TestDDB_Scan_Pagination(t *testing.T) {
+	t.Parallel()
 	client := ddbClient()
 	table := "pag-scan-table"
 	_, err := client.CreateTable(ctx, &dynamodb.CreateTableInput{
@@ -542,6 +551,7 @@ func TestDDB_Scan_Pagination(t *testing.T) {
 }
 
 func TestDDB_ListTables_Pagination(t *testing.T) {
+	t.Parallel()
 	client := ddbClient()
 	names := []string{"pag-tbl-a", "pag-tbl-b", "pag-tbl-c"}
 	for _, n := range names {
@@ -574,6 +584,7 @@ func TestDDB_ListTables_Pagination(t *testing.T) {
 }
 
 func TestDDB_GetItem_TableNotFound_ErrorClassification(t *testing.T) {
+	t.Parallel()
 	client := ddbClient()
 	_, err := client.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: aws.String("nonexistent-table"),

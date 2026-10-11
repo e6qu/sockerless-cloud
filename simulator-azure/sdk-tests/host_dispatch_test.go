@@ -13,6 +13,7 @@ import (
 // Firecracker/Linux-networking real-execution substrate described in
 // specs/SIMULATOR_REAL_EXECUTION.md and feedback_sim_host_model.md.
 func TestNoOsExecOfWorkloads(t *testing.T) {
+	t.Parallel()
 	allowList := map[string]struct{}{
 		// Queries Podman machine routing to discover the real host callback
 		// address; workloads still dispatch through Docker/Podman containers.

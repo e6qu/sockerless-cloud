@@ -20,6 +20,7 @@ import (
 // TestIntegration_ECSFullLifecycle exercises the complete ECS backend flow:
 // RegisterTaskDefinition → RunTask → wait RUNNING → logs → StopTask → verify STOPPED → Deregister
 func TestIntegration_ECSFullLifecycle(t *testing.T) {
+	t.Parallel()
 	ecsC := ecsClient()
 	cwC := cwLogsClient()
 
@@ -151,6 +152,7 @@ func TestIntegration_ECSFullLifecycle(t *testing.T) {
 // TestIntegration_LambdaFullLifecycle exercises the complete Lambda backend flow:
 // CreateFunction → Invoke → DescribeLogStreams → GetLogEvents → DeleteFunction
 func TestIntegration_LambdaFullLifecycle(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	cwC := cwLogsClient()
 
@@ -233,6 +235,7 @@ func TestIntegration_LambdaFullLifecycle(t *testing.T) {
 
 // TestIntegration_ECRAuthToken verifies the ECR GetAuthorizationToken flow.
 func TestIntegration_ECRAuthToken(t *testing.T) {
+	t.Parallel()
 	ecrC := ecr.NewFromConfig(sdkConfig(), func(o *ecr.Options) {
 		o.BaseEndpoint = aws.String(baseURL)
 	})

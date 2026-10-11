@@ -68,6 +68,7 @@ func startQuotaIsolatedSim(t *testing.T, budget float64) string {
 // the canonical "Quota exceeded for total allowable CPU per project
 // per region" error.
 func TestSDK_RegionalCPUQuota_RejectsCloudRunDeployOverBudget(t *testing.T) {
+	t.Parallel()
 	url := startQuotaIsolatedSim(t, 2)
 
 	client, err := run.NewServicesRESTClient(ctx,
@@ -117,6 +118,7 @@ func TestSDK_RegionalCPUQuota_RejectsCloudRunDeployOverBudget(t *testing.T) {
 // per-(project, region) so simulator parity matters for tests that
 // exercise multi-region deployment patterns.
 func TestSDK_RegionalCPUQuota_PartitionedByRegion(t *testing.T) {
+	t.Parallel()
 	url := startQuotaIsolatedSim(t, 1)
 
 	client, err := run.NewServicesRESTClient(ctx,
@@ -165,6 +167,7 @@ func TestSDK_RegionalCPUQuota_PartitionedByRegion(t *testing.T) {
 // container CPU limit on that backing service — so the same regional
 // quota check fires, just one layer deeper.
 func TestSDK_RegionalCPUQuota_RejectsCloudFunctionsDeploy(t *testing.T) {
+	t.Parallel()
 	url := startQuotaIsolatedSim(t, 1)
 
 	fnClient, err := functions.NewFunctionRESTClient(ctx,

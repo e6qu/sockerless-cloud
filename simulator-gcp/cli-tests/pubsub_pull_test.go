@@ -20,6 +20,7 @@ type gcloudPulledMessage struct {
 // on an empty subscription, which waits by default, and receives the message a
 // later `gcloud pubsub topics publish` delivers.
 func TestCLI_PubSubPullWaitsForPublish(t *testing.T) {
+	t.Parallel()
 	runCLI(t, gcloudCLI("pubsub", "topics", "create", "cli-pull-wait-topic", "--format=json", "--quiet"))
 	t.Cleanup(func() {
 		_ = gcloudCLI("pubsub", "topics", "delete", "cli-pull-wait-topic", "--quiet").Run()

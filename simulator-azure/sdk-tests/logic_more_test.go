@@ -16,6 +16,7 @@ import (
 // every response shape (including the list pagers) is validated against the
 // vendored Microsoft.Logic Swagger.
 func TestLogicApps_WorkflowExtrasSDK(t *testing.T) {
+	t.Parallel()
 	rg := "logic-more-rg"
 	wfName := "logic-more-wf"
 	cred := &fakeCredential{}
@@ -154,6 +155,7 @@ func TestLogicApps_WorkflowExtrasSDK(t *testing.T) {
 // its artifact collections through armlogic, including the subscription- and
 // resource-group-wide list pagers and the callback-url / key actions.
 func TestLogicApps_IntegrationAccountsSDK(t *testing.T) {
+	t.Parallel()
 	rg := "logic-ia-rg"
 	iaName := "logic-ia"
 	cred := &fakeCredential{}
@@ -305,6 +307,7 @@ func TestLogicApps_IntegrationAccountsSDK(t *testing.T) {
 // TestLogicApps_ServiceEnvironmentsSDK exercises the integration service
 // environment long-running operations and its managed-API child collection.
 func TestLogicApps_ServiceEnvironmentsSDK(t *testing.T) {
+	t.Parallel()
 	rg := "logic-ise-rg"
 	iseName := "logic-ise"
 	cred := &fakeCredential{}

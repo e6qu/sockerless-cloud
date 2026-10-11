@@ -64,6 +64,7 @@ func (l *shutdownLog) String() string {
 // process that serves them, and the Live Tail session ends, so their clients
 // call the next process again.
 func TestSimulatorStopsWithLifecycleWorkInFlight_SDK(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 	tcpPort, udpPort := persistentSimulatorPorts(t)
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", tcpPort)

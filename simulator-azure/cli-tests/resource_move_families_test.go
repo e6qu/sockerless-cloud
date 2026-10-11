@@ -26,6 +26,7 @@ import (
 // strings `az eventhubs namespace authorization-rule keys list` prints are
 // byte-identical afterwards, and the event hub child moved with the namespace.
 func TestResourceMoveEventHubNamespaceCLI(t *testing.T) {
+	t.Parallel()
 	env := startAzLoginSimulator(t)
 	tagCLILogin(t, env, "sockerless-eh-move")
 
@@ -92,6 +93,7 @@ func TestResourceMoveEventHubNamespaceCLI(t *testing.T) {
 // simulator implements no Redis data plane, so the keys the control plane
 // serves are as far as the credential proof reaches.
 func TestResourceMoveRedisCacheCLI(t *testing.T) {
+	t.Parallel()
 	env := startAzLoginSimulator(t)
 	tagCLILogin(t, env, "sockerless-redis-move")
 
@@ -131,6 +133,7 @@ func TestResourceMoveRedisCacheCLI(t *testing.T) {
 // `az acr credential show` serves the same admin username and passwords
 // afterwards, so a docker login captured before the move still works.
 func TestResourceMoveContainerRegistryCLI(t *testing.T) {
+	t.Parallel()
 	env := startAzLoginSimulator(t)
 	tagCLILogin(t, env, "sockerless-acr-move")
 
@@ -175,6 +178,7 @@ func TestResourceMoveContainerRegistryCLI(t *testing.T) {
 // same keys afterwards, and the event subscription's inbound reference to the
 // topic was rewritten onto the destination resource ID.
 func TestResourceMoveEventGridTopicCLI(t *testing.T) {
+	t.Parallel()
 	env := startAzLoginSimulator(t)
 	tagCLILogin(t, env, "sockerless-eg-move")
 

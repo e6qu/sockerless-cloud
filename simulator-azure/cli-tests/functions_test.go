@@ -17,6 +17,7 @@ func funcURL(path string) string {
 }
 
 func TestFunctionApp_CreateAndShow(t *testing.T) {
+	t.Parallel()
 	// Create an app service plan first
 	planURL := aspURL("serverfarms/func-test-plan")
 	runCLI(t, azRest("PUT", planURL, `{"location":"eastus","sku":{"name":"Y1","tier":"Dynamic"}}`))
@@ -67,6 +68,7 @@ func TestFunctionApp_CreateAndShow(t *testing.T) {
 // Insights component its connection string names, in that component's
 // workspace.
 func TestFunctionApp_CLI_InvokeReachesTheContainer(t *testing.T) {
+	t.Parallel()
 	wsID, customerID := cliLogWorkspace(t, "cli-invoke-ws")
 	var component struct {
 		Properties struct {
@@ -111,6 +113,7 @@ func TestFunctionApp_CLI_InvokeReachesTheContainer(t *testing.T) {
 }
 
 func TestFunctionApp_Delete(t *testing.T) {
+	t.Parallel()
 	url := funcURL("sites/delete-test-funcapp")
 	runCLI(t, azRest("PUT", url, `{"location":"eastus","properties":{}}`))
 	runCLI(t, azRest("DELETE", url, ""))

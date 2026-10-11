@@ -42,6 +42,7 @@ func fetchDiscoveryDocument(t *testing.T, host, version string) (int, []byte) {
 //
 //	GET /$discovery/rest
 func TestDiscovery_EachAPIServesItsVendoredDocument(t *testing.T) {
+	t.Parallel()
 	files, err := filepath.Glob("../../specs/cloud-api/gcp/*.discovery.json.gz")
 	require.NoError(t, err)
 	require.NotEmpty(t, files)
@@ -82,6 +83,7 @@ func TestDiscovery_EachAPIServesItsVendoredDocument(t *testing.T) {
 //	GET /discovery/v1/apis
 //	GET /discovery/v1/apis/{api}/{version}/rest
 func TestDiscovery_DirectoryListAndGetRest(t *testing.T) {
+	t.Parallel()
 	svc, err := discovery.NewService(ctx, option.WithEndpoint(baseURL+"/discovery/v1/"), option.WithoutAuthentication())
 	require.NoError(t, err)
 

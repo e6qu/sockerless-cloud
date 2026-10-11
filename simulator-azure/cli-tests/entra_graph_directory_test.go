@@ -71,6 +71,7 @@ func azGraphIDs(t *testing.T, body map[string]any) []string {
 }
 
 func TestEntraGraphDirectoryCLI(t *testing.T) {
+	t.Parallel()
 	for _, version := range []string{"v1.0", "beta"} {
 		t.Run(version, func(t *testing.T) {
 			runEntraGraphDirectoryCLI(t, version)

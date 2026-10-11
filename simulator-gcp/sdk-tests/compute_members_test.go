@@ -14,6 +14,7 @@ import (
 // proves the write landed.
 
 func TestCompute_TargetPoolMembership(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, region, pool = "pool-project", "us-central1", "web"
 
@@ -82,6 +83,7 @@ func TestCompute_TargetPoolMembership(t *testing.T) {
 }
 
 func TestCompute_NetworkPeering(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	svc := computeService(t)
 	const project = "peering-project"
@@ -137,6 +139,7 @@ func TestCompute_NetworkPeering(t *testing.T) {
 }
 
 func TestCompute_NetworkSwitchToCustomMode(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	svc := computeService(t)
 	const project, name = "custom-mode", "auto"
@@ -159,6 +162,7 @@ func TestCompute_NetworkSwitchToCustomMode(t *testing.T) {
 }
 
 func TestCompute_NodeGroupNodes(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, zone, group = "node-project", "us-central1-a", "tenant"
 

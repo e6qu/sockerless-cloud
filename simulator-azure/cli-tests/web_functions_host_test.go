@@ -23,6 +23,7 @@ import (
 // are the keys the running host accepts. list-runtimes reads
 // GET /providers/Microsoft.Web/functionAppStacks.
 func TestFunctionApp_CLI_NodeHostRunsTheDeployedFunctions(t *testing.T) {
+	t.Parallel()
 	env := startAzTLSSimulator(t)
 
 	runCLI(t, env.command("cloud", "register", "-n", "sockerless-funchost",
@@ -139,6 +140,7 @@ func TestFunctionApp_CLI_NodeHostRunsTheDeployedFunctions(t *testing.T) {
 // azure-webjobs-secrets/<app>/host.json that `az storage blob download` reads
 // from that account.
 func TestFunctionApp_CLI_BlobSecretStoreHoldsTheKeys(t *testing.T) {
+	t.Parallel()
 	env := startAzLoginSimulator(t)
 
 	runCLI(t, env.command("cloud", "register", "-n", "sockerless-funcblob",

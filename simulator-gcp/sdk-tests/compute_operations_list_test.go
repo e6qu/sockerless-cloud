@@ -22,6 +22,7 @@ import (
 // global and regional listings are checked wherever that kernel support exists —
 // the same gate every other Compute networking test here uses.
 func TestCompute_OperationListsReportTheWorkTheProjectDid(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const (
 		project = "test-project"
@@ -117,6 +118,7 @@ func operationNames(items []*compute.Operation) []string {
 //	GET /compute/v1/projects/{project}/regions/{region}/operations
 //	GET /compute/v1/projects/{project}/global/operations
 func TestCompute_OperationListsAnswerWithTheDeclaredKind(t *testing.T) {
+	t.Parallel()
 	for _, path := range []string{
 		"/compute/v1/projects/test-project/zones/us-central1-a/operations",
 		"/compute/v1/projects/test-project/regions/us-central1/operations",

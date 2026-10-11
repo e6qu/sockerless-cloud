@@ -19,6 +19,7 @@ import (
 // back, ListObjectAnnotations enumerates and prefix-filters them, and
 // DeleteObjectAnnotation removes one.
 func TestS3_ObjectAnnotations(t *testing.T) {
+	t.Parallel()
 	client := s3Client()
 	bucket := fmt.Sprintf("sdk-annotations-%d", time.Now().UnixNano())
 	key := "reports/q1.csv"
@@ -135,6 +136,7 @@ func TestS3_ObjectAnnotations(t *testing.T) {
 // turned on for a bucket with an S3 Metadata configuration, and the state is
 // read back from GetBucketMetadataConfiguration.
 func TestS3_UpdateBucketMetadataAnnotationTableConfiguration(t *testing.T) {
+	t.Parallel()
 	client := s3Client()
 	bucket := fmt.Sprintf("sdk-annotation-table-%d", time.Now().UnixNano())
 	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})

@@ -12,6 +12,7 @@ import (
 // TestACIOperationsList exercises the Microsoft.ContainerInstance provider
 // operation metadata endpoint (Operations_List).
 func TestACIOperationsList(t *testing.T) {
+	t.Parallel()
 	client, err := armcontainerinstance.NewOperationsClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
@@ -35,6 +36,7 @@ func TestACIOperationsList(t *testing.T) {
 // (Location_ListUsage): the simulator reports container-group consumption
 // computed from the groups it actually holds.
 func TestACILocationUsages(t *testing.T) {
+	t.Parallel()
 	client, err := armcontainerinstance.NewLocationClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
@@ -57,6 +59,7 @@ func TestACILocationUsages(t *testing.T) {
 // TestACILocationCapabilities exercises the per-region capability endpoint
 // (Location_ListCapabilities).
 func TestACILocationCapabilities(t *testing.T) {
+	t.Parallel()
 	client, err := armcontainerinstance.NewLocationClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
@@ -81,6 +84,7 @@ func TestACILocationCapabilities(t *testing.T) {
 // (Location_ListCachedImages). The simulator maintains no platform image cache,
 // so the pager simply iterates without error.
 func TestACILocationCachedImages(t *testing.T) {
+	t.Parallel()
 	client, err := armcontainerinstance.NewLocationClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
@@ -96,6 +100,7 @@ func TestACILocationCachedImages(t *testing.T) {
 // handshake (Containers_Attach), which returns a websocket URI for a running
 // container.
 func TestACIOutboundNetworkDependenciesAndAttach(t *testing.T) {
+	t.Parallel()
 	rg := "aci-ops-rg"
 	groupName := "aci-ops-group"
 	ensureRG(t, rg)

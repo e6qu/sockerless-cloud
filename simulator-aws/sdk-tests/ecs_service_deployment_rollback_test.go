@@ -154,6 +154,7 @@ func serviceEventMessages(service ecstypes.Service) []string {
 // failures feed the persisted scheduler failure counter and restore the last
 // completed task definition when the configured threshold is reached.
 func TestECS_ServiceDeploymentCircuitBreakerRollsBack(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 	const (
 		cluster     = "circuit-breaker-cluster"
@@ -204,6 +205,7 @@ func TestECS_ServiceDeploymentCircuitBreakerRollsBack(t *testing.T) {
 // consumes the real CloudWatch alarm state, rather than a simulator-only flag,
 // and rolls the deployment back through the same durable state machine.
 func TestECS_ServiceDeploymentCloudWatchAlarmRollsBack(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 	cloudWatch := cloudwatchClient()
 	const (

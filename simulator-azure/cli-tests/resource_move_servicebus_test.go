@@ -37,6 +37,7 @@ type sbMoveKeys struct {
 // only, the queue child moved with it, the tags moved with it, and every
 // authorization rule serves byte-identical keys and connection strings.
 func TestResourceMoveServiceBusNamespaceCLI(t *testing.T) {
+	t.Parallel()
 	env := startAzLoginSimulator(t)
 	tagCLILogin(t, env, "sockerless-sb-move")
 

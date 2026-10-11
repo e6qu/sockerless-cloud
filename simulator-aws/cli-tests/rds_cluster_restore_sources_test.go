@@ -97,6 +97,7 @@ func cliLedger(t *testing.T, ctx context.Context, conn *pgx.Conn) []string {
 // Aurora PostgreSQL cluster to the rows committed by that time, inside the
 // window describe-db-clusters reports, and refuses a time before it.
 func TestRDSCLI_AuroraClusterRestoresToAPointInTime(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	sourceID, restoredID := "cli-pitr-source", "cli-pitr-restored"
@@ -157,6 +158,7 @@ func TestRDSCLI_AuroraClusterRestoresToAPointInTime(t *testing.T) {
 // snapshot, named by its ARN, into an Aurora PostgreSQL cluster that serves
 // the instance's data.
 func TestRDSCLI_AuroraClusterRestoresFromADBInstanceSnapshot(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	instanceID, snapshotID, clusterID := "cli-migrate-source", "cli-migrate-snap", "cli-migrated"

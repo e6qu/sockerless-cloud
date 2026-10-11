@@ -11,6 +11,7 @@ import (
 // integration service environment, the provider operations list, and the
 // workflow version/trigger read collections.
 func TestLogicAppsCLI_MoreOperations(t *testing.T) {
+	t.Parallel()
 	const apiVersion = "2019-05-01"
 
 	iaURL := armURL("Microsoft.Logic", "integrationAccounts/cli-ia", apiVersion)

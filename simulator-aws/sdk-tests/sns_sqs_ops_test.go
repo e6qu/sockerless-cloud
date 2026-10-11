@@ -17,6 +17,7 @@ import (
 // it. Pre-fix the action returned InvalidAction and tf-provider-aws
 // failed to set DeliveryPolicy / Policy on aws_sns_topic.
 func TestSNS_SetTopicAttributes_RoundTrip(t *testing.T) {
+	t.Parallel()
 	c := snsClient()
 	ctx := context.Background()
 
@@ -47,6 +48,7 @@ func TestSNS_SetTopicAttributes_RoundTrip(t *testing.T) {
 // queue itself. Pre-fix the action returned UnknownOperationException
 // and tests had to delete + recreate the queue between runs.
 func TestSQS_PurgeQueue_RemovesMessages(t *testing.T) {
+	t.Parallel()
 	c := sqsClient()
 	ctx := context.Background()
 

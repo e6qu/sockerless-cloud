@@ -17,6 +17,7 @@ func acrURL(path string) string {
 }
 
 func TestACR_CreateAndShow(t *testing.T) {
+	t.Parallel()
 	url := acrURL("registries/clitestregistry")
 
 	out := runCLI(t, azRest("PUT", url,
@@ -86,6 +87,7 @@ func TestACR_CreateAndShow(t *testing.T) {
 // but route through the same ARM endpoints, so exercising via az rest
 // covers both paths.
 func TestACR_CacheRuleCRUD(t *testing.T) {
+	t.Parallel()
 	regURL := acrURL("registries/cliregforcache")
 	runCLI(t, azRest("PUT", regURL,
 		`{"location":"eastus","sku":{"name":"Basic"},"properties":{}}`))
@@ -141,6 +143,7 @@ func TestACR_CacheRuleCRUD(t *testing.T) {
 // verifies the ACR data-plane catalog and tags endpoints that
 // `az acr repository list` and `az acr repository show-tags` wrap.
 func TestACR_ImageCatalogAndTags(t *testing.T) {
+	t.Parallel()
 	const (
 		registryName = "catalogtestregistry"
 		imageName    = "cli-catalog-image"
@@ -258,6 +261,7 @@ func readBody(t *testing.T, resp *http.Response) string {
 // it. Driven through `az rest` because the operation is a preview surface the
 // pinned Go management SDK does not expose, while the CLI does.
 func TestACR_ConnectedRegistryDeactivateTakesEffect(t *testing.T) {
+	t.Parallel()
 	const registryName = "connectedhostregistry"
 	const connected = "edge-one"
 

@@ -8,6 +8,7 @@ import (
 )
 
 func TestEventHubsCLI_ARMResources(t *testing.T) {
+	t.Parallel()
 	ns := "cli-eventhub-ns"
 	hub := "clihub"
 	group := "clicg"

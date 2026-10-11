@@ -15,6 +15,7 @@ import (
 )
 
 func TestAmplify_WAFv2_Association_CLI(t *testing.T) {
+	t.Parallel()
 	appOut := runCLI(t, awsCLI("amplify", "create-app",
 		"--name", "cli-amplify-waf-"+wafStamp(),
 		"--output", "json",
@@ -128,6 +129,7 @@ func amplifyCLIServeGitRepo(t *testing.T, files map[string]string) string {
 }
 
 func TestAmplify_App_Lifecycle(t *testing.T) {
+	t.Parallel()
 	name := "cli-app-" + time.Now().Format("150405.000000")
 	repository := amplifyCLIServeGitRepo(t, map[string]string{
 		"index.html": "<html>CLI real build</html>",
@@ -354,6 +356,7 @@ test:
 }
 
 func TestAmplify_Deployment_Flow(t *testing.T) {
+	t.Parallel()
 	name := "cli-dep-" + time.Now().Format("150405.000000")
 	out := runCLI(t, awsCLI("amplify", "create-app", "--name", name, "--output", "json"))
 	var createResult struct {

@@ -69,6 +69,7 @@ func TestServiceUsage_OperationDelete(t *testing.T) {
 // TestVPCAccess_ConnectorPatch exercises the connector update path: create a
 // connector, PATCH its scaling fields, then read the mutation back.
 func TestVPCAccess_ConnectorPatch(t *testing.T) {
+	t.Parallel()
 	svc := vpcAccessService(t)
 	parent := "projects/test-project/locations/us-central1"
 

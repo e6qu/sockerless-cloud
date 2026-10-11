@@ -12,6 +12,7 @@ import (
 // derived from the reservation's own count, so a resize is visible in them —
 // which is what keeps the two from disagreeing.
 func TestCompute_ReservationResizeAndBlocks(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, zone, name = "reservation-project", "us-central1-a", "batch"
 
@@ -102,6 +103,7 @@ func TestCompute_ReservationResizeAndBlocks(t *testing.T) {
 // three association spellings each report the capacity of the thing addressed —
 // the reservation, one of its blocks, or one of that block's sub-blocks.
 func TestCompute_ReservationHosts(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, zone, name = "reservation-project", "us-central1-a", "hosts-batch"
 

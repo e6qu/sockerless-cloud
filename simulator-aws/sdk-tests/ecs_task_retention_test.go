@@ -21,6 +21,7 @@ import (
 // and moving the clock is not something a client can ask for. The aging itself
 // is pinned by the unit regressions next to the retention window.
 func TestECS_ListTasks_StillReportsARecentlyStoppedTask(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 
 	const clusterName = "retention-sdk"

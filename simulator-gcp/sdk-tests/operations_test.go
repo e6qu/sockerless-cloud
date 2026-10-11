@@ -46,6 +46,7 @@ func awaitLRO[T any](t *testing.T, name string, get func() (T, error), isDone fu
 //     (i.e. `/v1/unknown` must not come back shaped like
 //     "object 'unknown' not found in bucket 'v1'").
 func TestGCP_Operations_List(t *testing.T) {
+	t.Parallel()
 	// Empty list — fresh sim with no LROs.
 	req, _ := http.NewRequest("GET", baseURL+"/v1/operations", nil)
 	resp, err := http.DefaultClient.Do(req)
@@ -149,6 +150,7 @@ func TestGCP_Operations_List(t *testing.T) {
 // TestGCP_Operations_ListPagesAndFiltersDone pages the AIP-151 collection with
 // pageSize and nextPageToken, and filters `done` as the proto bool it is.
 func TestGCP_Operations_ListPagesAndFiltersDone(t *testing.T) {
+	t.Parallel()
 	const location = "asia-south2"
 	const scoped = "projects/p1/locations/" + location + "/operations/"
 	created := map[string]bool{}
@@ -252,6 +254,7 @@ func gcpListOperations(t *testing.T, rawQuery string) []map[string]any {
 // must NOT come back as "object xyz not found in bucket v1", which would
 // tell a client the path resolved to a bucket that does not exist.
 func TestGCP_UnknownV1PathNotGCSShape(t *testing.T) {
+	t.Parallel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/v1/this-does-not-exist", nil)
 	require.NoError(t, err)
 	resp, err := http.DefaultClient.Do(req)

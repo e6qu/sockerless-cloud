@@ -26,6 +26,7 @@ import (
 // get-resource-policy, describe-ssl-policies, modify-capacity-reservation,
 // modify-ip-pools, delete-trust-store.
 func TestELBv2TrustStoreCLI(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", "cli-ca-bucket"))
 	firstCA, firstKey := elbv2CLITestCA(t, "first")
 	secondCA, _ := elbv2CLITestCA(t, "second")
@@ -162,6 +163,7 @@ func TestELBv2TrustStoreCLI(t *testing.T) {
 // TestELBv2DescribeSSLPoliciesCLI verifies the predefined SSL security policy
 // catalog through the aws CLI.
 func TestELBv2DescribeSSLPoliciesCLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("elbv2", "describe-ssl-policies",
 		"--names", "ELBSecurityPolicy-2016-08",
 		"--query", "SslPolicies[0].Name",

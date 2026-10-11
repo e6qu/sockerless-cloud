@@ -15,6 +15,7 @@ import (
 )
 
 func TestLambda_InvokeArithmetic(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	fnName := "arith-basic-fn"
 
@@ -37,6 +38,7 @@ func TestLambda_InvokeArithmetic(t *testing.T) {
 }
 
 func TestLambda_InvokeArithmeticParentheses(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	fnName := "arith-paren-fn"
 
@@ -59,6 +61,7 @@ func TestLambda_InvokeArithmeticParentheses(t *testing.T) {
 }
 
 func TestLambda_InvokeArithmeticInvalid(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	cw := cwLogsClient()
 	fnName := "arith-invalid-fn"
@@ -98,6 +101,7 @@ func TestLambda_InvokeArithmeticInvalid(t *testing.T) {
 }
 
 func TestLambda_InvokeArithmeticLogs(t *testing.T) {
+	t.Parallel()
 	lc := lambdaClient()
 	cw := cwLogsClient()
 	fnName := "arith-logs-fn"
@@ -138,6 +142,7 @@ func TestLambda_InvokeArithmeticLogs(t *testing.T) {
 }
 
 func TestECS_TaskArithmetic(t *testing.T) {
+	t.Parallel()
 	client, cluster, taskArn := ecsRunTaskHelper(t, "arith-ecs", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),
@@ -182,6 +187,7 @@ func TestECS_TaskArithmetic(t *testing.T) {
 }
 
 func TestECS_TaskArithmeticInvalid(t *testing.T) {
+	t.Parallel()
 	client, cluster, taskArn := ecsRunTaskHelper(t, "arith-ecs-fail", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),
@@ -214,6 +220,7 @@ func TestECS_TaskArithmeticInvalid(t *testing.T) {
 }
 
 func TestECS_TaskArithmeticLogs(t *testing.T) {
+	t.Parallel()
 	client, clusterName, taskArn := ecsRunTaskHelper(t, "arith-ecs-logs", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),

@@ -17,6 +17,7 @@ import (
 // TestSFN_LambdaTaskHistory_SDK verifies the real direct-Lambda integration
 // lifecycle, including the service events that surround the Task state.
 func TestSFN_LambdaTaskHistory_SDK(t *testing.T) {
+	t.Parallel()
 	lambdaAPI := lambdaClient()
 	functionName := "sfn-sdk-history-lambda"
 	_, err := lambdaAPI.CreateFunction(ctx, &lambda.CreateFunctionInput{
@@ -117,6 +118,7 @@ func TestSFN_LambdaTaskHistory_SDK(t *testing.T) {
 // machine and verifies both the parent result and the independently
 // discoverable child execution.
 func TestSFN_NestedWorkflowIntegration_SDK(t *testing.T) {
+	t.Parallel()
 	parentName := uniqueName("sfn-sdk-nested-parent")
 	childName := uniqueName("sfn-sdk-nested-child")
 	c := sfnClient()
@@ -159,6 +161,7 @@ func TestSFN_NestedWorkflowIntegration_SDK(t *testing.T) {
 // ListActivities / DeleteActivity and the GetActivityTask + SendTask*
 // task-token lifecycle.
 func TestSFN_Activities_SDK(t *testing.T) {
+	t.Parallel()
 	c := sfnClient()
 
 	create, err := c.CreateActivity(ctx, &sfn.CreateActivityInput{
@@ -256,6 +259,7 @@ func TestSFN_Activities_SDK(t *testing.T) {
 // ListStateMachineAliases, UpdateStateMachineAlias,
 // DeleteStateMachineAlias, DeleteStateMachineVersion.
 func TestSFN_VersionsAndAliases_SDK(t *testing.T) {
+	t.Parallel()
 	c := sfnClient()
 
 	sm, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
@@ -337,6 +341,7 @@ func TestSFN_VersionsAndAliases_SDK(t *testing.T) {
 // TestSFN_TestState_SDK runs a single Pass state synchronously and asserts the
 // real evaluated output.
 func TestSFN_TestState_SDK(t *testing.T) {
+	t.Parallel()
 	c := sfnClient()
 
 	out, err := c.TestState(ctx, &sfn.TestStateInput{
@@ -352,6 +357,7 @@ func TestSFN_TestState_SDK(t *testing.T) {
 // TestSFN_StartSyncExecution_SDK runs a whole EXPRESS-shaped state machine
 // synchronously and returns the terminal result inline.
 func TestSFN_StartSyncExecution_SDK(t *testing.T) {
+	t.Parallel()
 	c := sfnClient()
 
 	sm, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
@@ -385,6 +391,7 @@ func TestSFN_StartSyncExecution_SDK(t *testing.T) {
 
 // TestSFN_DescribeStateMachineForExecution_SDK + RedriveExecution.
 func TestSFN_DescribeForExecutionAndRedrive_SDK(t *testing.T) {
+	t.Parallel()
 	c := sfnClient()
 
 	sm, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
@@ -460,6 +467,7 @@ func TestSFN_DescribeForExecutionAndRedrive_SDK(t *testing.T) {
 // ListMapRuns, DescribeMapRun, and UpdateMapRun control plane while its child
 // workflows are running.
 func TestSFN_MapRuns_SDK(t *testing.T) {
+	t.Parallel()
 	c := sfnClient()
 
 	sm, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{

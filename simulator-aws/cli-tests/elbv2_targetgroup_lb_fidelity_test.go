@@ -8,6 +8,7 @@ import (
 // TestELBv2TargetGroupLBFidelityCLI covers the target-group Matcher/protocol_version
 // round-trip and the load-balancer SetIpAddressType via the aws CLI.
 func TestELBv2TargetGroupLBFidelityCLI(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	vpcID := q("ec2", "create-vpc", "--cidr-block", "10.152.0.0/16", "--query", "Vpc.VpcId", "--output", "text")

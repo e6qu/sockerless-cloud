@@ -48,6 +48,7 @@ func cliTeamRole(t *testing.T, name, trust string) string {
 // TestSTS_AssumeRoleSessionTags_CLI passes session tags with `aws sts
 // assume-role --tags`: the session's tag decides what its role lets it do.
 func TestSTS_AssumeRoleSessionTags_CLI(t *testing.T) {
+	t.Parallel()
 	roleArn := cliTeamRole(t, "cli-session-tags", `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",`+
 		`"Principal":{"AWS":"*"},"Action":["sts:AssumeRole","sts:TagSession"]}]}`)
 	assume := func(team string) cliSessionCredentials {
@@ -65,6 +66,7 @@ func TestSTS_AssumeRoleSessionTags_CLI(t *testing.T) {
 // assertion's PrincipalTag attributes, which the role's trust policy must
 // allow with sts:TagSession.
 func TestSTS_AssumeRoleWithSAMLSessionTags_CLI(t *testing.T) {
+	t.Parallel()
 	idp, err := samlidp.New("https://idp.example.test/cli-saml-tags")
 	require.NoError(t, err)
 	var provider struct {

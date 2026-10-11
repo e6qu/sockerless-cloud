@@ -33,6 +33,7 @@ func appASRegisterTarget(t *testing.T, c *applicationautoscaling.Client, ns aast
 }
 
 func TestApplicationAutoScaling_ScheduledActionLifecycle(t *testing.T) {
+	t.Parallel()
 	c := appAutoScalingClient()
 	const (
 		ns         = aastypes.ServiceNamespaceEcs
@@ -99,6 +100,7 @@ func TestApplicationAutoScaling_ScheduledActionLifecycle(t *testing.T) {
 }
 
 func TestApplicationAutoScaling_DescribeScalingActivities(t *testing.T) {
+	t.Parallel()
 	c := appAutoScalingClient()
 	const (
 		ns         = aastypes.ServiceNamespaceEcs
@@ -119,6 +121,7 @@ func TestApplicationAutoScaling_DescribeScalingActivities(t *testing.T) {
 }
 
 func TestApplicationAutoScaling_GetPredictiveScalingForecast(t *testing.T) {
+	t.Parallel()
 	c := appAutoScalingClient()
 	const (
 		ns         = aastypes.ServiceNamespaceEcs

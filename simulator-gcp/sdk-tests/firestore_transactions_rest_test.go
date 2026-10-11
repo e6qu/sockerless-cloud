@@ -20,6 +20,7 @@ import (
 //	POST /v1/projects/{project}/databases/{database}/documents:rollback
 //	POST /v1/projects/{project}/databases/{database}/documents:commit (transactional)
 func TestFirestore_TransactionRESTEndpoints(t *testing.T) {
+	t.Parallel()
 	const db = "/v1/projects/test-project/databases/(default)/documents"
 
 	post := func(suffix, body string) (*http.Response, []byte) {

@@ -13,6 +13,7 @@ func serviceURL(service string) string {
 }
 
 func TestServiceUsage_EnableAndList(t *testing.T) {
+	t.Parallel()
 	// Enable a service
 	enableURL := serviceURL("compute.googleapis.com:enable")
 	httpDoJSON(t, "POST", enableURL, `{}`)
@@ -45,6 +46,7 @@ func TestServiceUsage_EnableAndList(t *testing.T) {
 // TestServiceUsage_ListPagination asserts the ListServices handler honors
 // pageSize + pageToken rather than returning the whole set.
 func TestServiceUsage_ListPagination(t *testing.T) {
+	t.Parallel()
 	svcs := []string{"page-a.googleapis.com", "page-b.googleapis.com", "page-c.googleapis.com"}
 	for _, s := range svcs {
 		httpDoJSON(t, "POST", serviceURL(s+":enable"), `{}`)
@@ -90,6 +92,7 @@ func TestServiceUsage_ListPagination(t *testing.T) {
 }
 
 func TestServiceUsage_Disable(t *testing.T) {
+	t.Parallel()
 	// Enable first
 	enableURL := serviceURL("storage.googleapis.com:enable")
 	httpDoJSON(t, "POST", enableURL, `{}`)

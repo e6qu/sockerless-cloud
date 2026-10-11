@@ -7,6 +7,7 @@ import (
 )
 
 func TestCLIAzureARMFoundationEndpoints(t *testing.T) {
+	t.Parallel()
 	port := strings.TrimPrefix(baseURL, "http://127.0.0.1:")
 	storageName := "clishimsa"
 	storageURL := armURL("Microsoft.Storage", "storageAccounts/"+storageName, "2023-05-01")
@@ -68,6 +69,7 @@ func TestCLIAzureARMFoundationEndpoints(t *testing.T) {
 }
 
 func TestCLIAzureARMRequiresAPIVersion(t *testing.T) {
+	t.Parallel()
 	cmd := azRest("GET", fmt.Sprintf("%s/subscriptions/%s/resourceGroups", baseURL, subscriptionID), "")
 	out, err := cmd.CombinedOutput()
 	if err == nil {

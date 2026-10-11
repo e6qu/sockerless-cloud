@@ -13,6 +13,7 @@ import (
 )
 
 func TestIdentity_CreateUserAssigned(t *testing.T) {
+	t.Parallel()
 	// Ensure resource group
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -39,6 +40,7 @@ func TestIdentity_CreateUserAssigned(t *testing.T) {
 }
 
 func TestIdentity_GetUserAssigned(t *testing.T) {
+	t.Parallel()
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "get-id-rg", armresources.ResourceGroup{
@@ -60,6 +62,7 @@ func TestIdentity_GetUserAssigned(t *testing.T) {
 }
 
 func TestIdentity_DeleteUserAssigned(t *testing.T) {
+	t.Parallel()
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "del-id-rg", armresources.ResourceGroup{
@@ -85,6 +88,7 @@ func TestIdentity_DeleteUserAssigned(t *testing.T) {
 // GET /v1.0/servicePrincipals/{principalId} resolves it with
 // servicePrincipalType "ManagedIdentity", exactly as real Azure does.
 func TestIdentity_PrincipalResolvesAsServicePrincipal(t *testing.T) {
+	t.Parallel()
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "sp-id-rg", armresources.ResourceGroup{
@@ -120,6 +124,7 @@ func TestIdentity_PrincipalResolvesAsServicePrincipal(t *testing.T) {
 // TestIdentity_DeletedPrincipalUnregistersServicePrincipal verifies the
 // directory SP is removed when the backing managed identity is deleted.
 func TestIdentity_DeletedPrincipalUnregistersServicePrincipal(t *testing.T) {
+	t.Parallel()
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "sp-del-rg", armresources.ResourceGroup{
@@ -150,6 +155,7 @@ func TestIdentity_DeletedPrincipalUnregistersServicePrincipal(t *testing.T) {
 // same resource is updated. The armmsi SDK hides the status code, so this
 // drives the endpoint over raw HTTP.
 func TestIdentity_CreateOrUpdateStatusCodes(t *testing.T) {
+	t.Parallel()
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, "id-status-rg", armresources.ResourceGroup{

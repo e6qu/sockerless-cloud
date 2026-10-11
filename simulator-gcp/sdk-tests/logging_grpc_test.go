@@ -74,6 +74,7 @@ func loggingListLogNames(t *testing.T, c *vkit.Client, parent string) []string {
 }
 
 func TestCloudLogging_GRPC_ListLogsAndDeleteLog(t *testing.T) {
+	t.Parallel()
 	c := newLoggingV2Client(t)
 	parent := "projects/logging-grpc-listlogs"
 	kept := parent + "/logs/kept"
@@ -117,6 +118,7 @@ func TestCloudLogging_GRPC_ListLogsAndDeleteLog(t *testing.T) {
 }
 
 func TestCloudLogging_GRPC_ListLogsPaginates(t *testing.T) {
+	t.Parallel()
 	c := newLoggingV2Client(t)
 	parent := "projects/logging-grpc-paging"
 	want := []string{parent + "/logs/a", parent + "/logs/b", parent + "/logs/c"}
@@ -146,6 +148,7 @@ func TestCloudLogging_GRPC_ListLogsPaginates(t *testing.T) {
 }
 
 func TestCloudLogging_GRPC_ListMonitoredResourceDescriptors(t *testing.T) {
+	t.Parallel()
 	c := newLoggingV2Client(t)
 
 	it := c.ListMonitoredResourceDescriptors(ctx, &loggingpb.ListMonitoredResourceDescriptorsRequest{})
@@ -207,6 +210,7 @@ func TestCloudLogging_GRPC_ListMonitoredResourceDescriptors(t *testing.T) {
 // opened never arrives, the entries written afterwards do, and a write the
 // filter excludes does not.
 func TestCloudLogging_GRPC_TailLogEntries(t *testing.T) {
+	t.Parallel()
 	c := newLoggingV2Client(t)
 	parent := "projects/" + uniqueName("logging-grpc-tail")
 	logName := parent + "/logs/tailed"
@@ -293,6 +297,7 @@ probing:
 // TestCloudLogging_GRPC_TailLogEntriesRejectsAnOutOfRangeBufferWindow holds the
 // tail to the 0-60000ms buffer window the API documents.
 func TestCloudLogging_GRPC_TailLogEntriesRejectsAnOutOfRangeBufferWindow(t *testing.T) {
+	t.Parallel()
 	c := newLoggingV2Client(t)
 	tailCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()

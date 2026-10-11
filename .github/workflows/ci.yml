@@ -1673,6 +1673,9 @@ jobs:
       - name: No test passes without exercising what it names
         run: bash scripts/check-fake-tests.sh
         timeout-minutes: 5
+      - name: Every SDK and CLI test runs in parallel or says why it cannot
+        run: go run scripts/check-parallel-tests.go
+        timeout-minutes: 5
       - name: No read path holds an exclusive lock
         run: bash scripts/check-readonly-locks.sh
         timeout-minutes: 5

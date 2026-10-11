@@ -26,6 +26,7 @@ import (
 // elbv2, acm, application_autoscaling, and ec2 against silently dropping fields
 // or failing to filter by the assembly's identifiers.
 func TestECSExpress_UnderlyingResourcesDescribeFaithfully(t *testing.T) {
+	t.Parallel()
 	ecsc := ecsClient()
 	elb := elbv2Client()
 	aa := appAutoScalingClient()

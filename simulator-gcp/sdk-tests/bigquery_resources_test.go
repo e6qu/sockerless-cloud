@@ -32,6 +32,7 @@ func bqMakeTable(t *testing.T, svc *bigquery.Service, project, dataset, table st
 }
 
 func TestBigQueryRoutines_CRUD(t *testing.T) {
+	t.Parallel()
 	svc := bqService(t)
 	const project, dataset, routine = "sock-proj", "ds_routines", "add_one"
 	bqMakeDataset(t, svc, project, dataset)
@@ -77,6 +78,7 @@ func TestBigQueryRoutines_CRUD(t *testing.T) {
 }
 
 func TestBigQueryRoutines_IAM(t *testing.T) {
+	t.Parallel()
 	svc := bqService(t)
 	const project, dataset, routine = "sock-proj", "ds_routine_iam", "scored"
 	bqMakeDataset(t, svc, project, dataset)
@@ -113,6 +115,7 @@ func TestBigQueryRoutines_IAM(t *testing.T) {
 }
 
 func TestBigQueryRowAccessPolicies(t *testing.T) {
+	t.Parallel()
 	svc := bqService(t)
 	const project, dataset, table = "sock-proj", "ds_rap", "sales"
 	const p1, p2 = "eu_only", "us_only"
@@ -184,6 +187,7 @@ func TestBigQueryRowAccessPolicies(t *testing.T) {
 }
 
 func TestBigQueryProjectsAndServiceAccount(t *testing.T) {
+	t.Parallel()
 	svc := bqService(t)
 	const project, dataset = "sock-proj-list", "ds_for_proj_list"
 	bqMakeDataset(t, svc, project, dataset)
@@ -208,6 +212,7 @@ func TestBigQueryProjectsAndServiceAccount(t *testing.T) {
 }
 
 func TestBigQueryModels(t *testing.T) {
+	t.Parallel()
 	svc := bqService(t)
 	const project, dataset = "sock-proj", "ds_models"
 	bqMakeDataset(t, svc, project, dataset)
@@ -223,6 +228,7 @@ func TestBigQueryModels(t *testing.T) {
 }
 
 func TestBigQueryTablesIAM(t *testing.T) {
+	t.Parallel()
 	svc := bqService(t)
 	const project, dataset, table = "sock-proj", "ds_table_iam", "secured"
 	bqMakeDataset(t, svc, project, dataset)
@@ -252,6 +258,7 @@ func TestBigQueryTablesIAM(t *testing.T) {
 }
 
 func TestBigQueryDatasetUndelete(t *testing.T) {
+	t.Parallel()
 	svc := bqService(t)
 	const project, dataset = "sock-proj", "ds_undelete"
 
@@ -286,6 +293,7 @@ func TestBigQueryDatasetUndelete(t *testing.T) {
 }
 
 func TestBigQueryJobCancelAndDelete(t *testing.T) {
+	t.Parallel()
 	svc := bqService(t)
 	const project, dataset, table = "sock-proj", "ds_jobs", "events"
 	bqMakeDataset(t, svc, project, dataset)

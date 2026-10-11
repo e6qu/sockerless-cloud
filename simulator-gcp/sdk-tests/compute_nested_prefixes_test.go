@@ -14,6 +14,7 @@ import (
 // nothing about what was stored.
 
 func TestCompute_WireGroupsLiveInsideTheirCrossSiteNetwork(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, network, group = "wire-project", "sites", "east-west"
 
@@ -65,6 +66,7 @@ func TestCompute_WireGroupsLiveInsideTheirCrossSiteNetwork(t *testing.T) {
 }
 
 func TestCompute_RegionalPublicDelegatedPrefixAnnounceAndWithdraw(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, region, name = "prefix-project", "us-central1", "delegated"
 

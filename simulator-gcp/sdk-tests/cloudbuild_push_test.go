@@ -26,6 +26,7 @@ import (
 // can reach (a stand-in for the AR /v2/ a workload would pull from) and assert
 // the image landed there and is gone from the local daemon.
 func TestCloudBuild_FaithfulBuildPush(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatalf("docker CLI required for Cloud Build push test (no fallback): %v", err)
 	}

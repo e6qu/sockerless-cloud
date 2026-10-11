@@ -34,6 +34,7 @@ import (
 // material from the resource ID: the ciphertext only decrypts if the stored
 // RSA key is literally the same key.
 func TestAzureResources_MoveKeyVault(t *testing.T) {
+	t.Parallel()
 	srcRG, dstRG := uniqueName("kv-move-src-rg"), uniqueName("kv-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)

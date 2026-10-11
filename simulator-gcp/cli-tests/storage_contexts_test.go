@@ -18,6 +18,7 @@ import (
 // empty custom map, which Cloud Storage's patch treats as no change, so the
 // test removes the last context by name.
 func TestGCSCLI_ObjectContexts(t *testing.T) {
+	t.Parallel()
 	const bucket = "cli-contexts-bucket"
 	runCLI(t, gcloudCLI("storage", "buckets", "create", "gs://"+bucket, "--location=us"))
 	t.Cleanup(func() { runCLI(t, gcloudCLI("storage", "rm", "--recursive", "gs://"+bucket)) })

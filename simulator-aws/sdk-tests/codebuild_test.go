@@ -34,6 +34,7 @@ func codebuildClient() *codebuild.Client {
 const cbBuildCompletionBudget = 4 * time.Minute
 
 func TestCodeBuild_ProjectCRUD_SDK(t *testing.T) {
+	t.Parallel()
 	c := codebuildClient()
 
 	create, err := c.CreateProject(ctx, &codebuild.CreateProjectInput{
@@ -106,6 +107,7 @@ func TestCodeBuild_ProjectCRUD_SDK(t *testing.T) {
 }
 
 func TestCodeBuild_BuildLifecycle_SDK(t *testing.T) {
+	t.Parallel()
 	c := codebuildClient()
 
 	_, err := c.CreateProject(ctx, &codebuild.CreateProjectInput{
@@ -191,6 +193,7 @@ func TestCodeBuild_BuildLifecycle_SDK(t *testing.T) {
 // host. The private repository, official AWS SDK, Git smart-HTTP server, and
 // Docker image are all independent boundaries.
 func TestCodeBuild_PrivateGitSourceRealContainer_SDK(t *testing.T) {
+	t.Parallel()
 	c := codebuildClient()
 	secretsAPI := smClient()
 	testContext, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -315,6 +318,7 @@ phases:
 // builds first, ASCENDING reverses it. The sim used to ignore sortOrder and
 // always sort alphabetically by build ID.
 func TestCodeBuild_ListBuildsSortOrder_SDK(t *testing.T) {
+	t.Parallel()
 	c := codebuildClient()
 	proj := uniqueName("cb-sortorder-project")
 	_, err := c.CreateProject(ctx, &codebuild.CreateProjectInput{
@@ -356,6 +360,7 @@ func TestCodeBuild_ListBuildsSortOrder_SDK(t *testing.T) {
 // lives on the Build shape: the BUILD phase's contexts (PhaseContext),
 // not the LogsLocation.
 func TestCodeBuild_FailedBuildPhaseContext_SDK(t *testing.T) {
+	t.Parallel()
 	c := codebuildClient()
 
 	_, err := c.CreateProject(ctx, &codebuild.CreateProjectInput{
@@ -411,6 +416,7 @@ func TestCodeBuild_FailedBuildPhaseContext_SDK(t *testing.T) {
 // TestCodeBuild_StopAndRetryBuild_SDK exercises StopBuild (a long-running build
 // settles to STOPPED) and RetryBuild (a new build of the same project).
 func TestCodeBuild_StopAndRetryBuild_SDK(t *testing.T) {
+	t.Parallel()
 	c := codebuildClient()
 	proj := "cb-sdk-stop-project"
 	_, err := c.CreateProject(ctx, &codebuild.CreateProjectInput{
@@ -446,6 +452,7 @@ func TestCodeBuild_StopAndRetryBuild_SDK(t *testing.T) {
 // then ListReports / ListReportsForReportGroup / BatchGetReports, then
 // DeleteReportGroup.
 func TestCodeBuild_ReportGroupsAndReports_SDK(t *testing.T) {
+	t.Parallel()
 	c := codebuildClient()
 	rgName := "cb-sdk-rg"
 	rg, err := c.CreateReportGroup(ctx, &codebuild.CreateReportGroupInput{
@@ -540,6 +547,7 @@ func TestCodeBuild_ReportGroupsAndReports_SDK(t *testing.T) {
 // ListSourceCredentials, and DeleteSourceCredentials. The token is never echoed
 // back; only the ARN, serverType, and authType are readable.
 func TestCodeBuild_SourceCredentials_SDK(t *testing.T) {
+	t.Parallel()
 	c := codebuildClient()
 	imp, err := c.ImportSourceCredentials(ctx, &codebuild.ImportSourceCredentialsInput{
 		Token:      aws.String("ghp_exampletoken"),

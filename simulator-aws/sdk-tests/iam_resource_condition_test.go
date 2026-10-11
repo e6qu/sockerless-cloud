@@ -18,6 +18,7 @@ import (
 // tag, then allowed — proving the gate resolves the resource's tags into the
 // condition context.
 func TestIAM_ResourceTagCondition(t *testing.T) {
+	t.Parallel()
 	admin := iamClient()
 	user := uniqueName("rt-cond-user")
 	_, err := admin.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
@@ -63,6 +64,7 @@ func TestIAM_ResourceTagCondition(t *testing.T) {
 // TestIAM_ECSClusterCondition proves the ecs:cluster condition key: an
 // ecs:StopTask grant scoped to one cluster denies a call targeting another.
 func TestIAM_ECSClusterCondition(t *testing.T) {
+	t.Parallel()
 	admin := iamClient()
 	user := uniqueName("ecs-cond-user")
 	_, err := admin.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})

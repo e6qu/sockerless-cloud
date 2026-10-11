@@ -15,6 +15,7 @@ import (
 // TestCloudWatchLogs_InsightsQuery covers StartQuery / GetQueryResults: the
 // Insights query language runs over the log events and returns rows.
 func TestCloudWatchLogs_InsightsQuery(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	group, stream := "/test/insights", "s1"
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(group)})

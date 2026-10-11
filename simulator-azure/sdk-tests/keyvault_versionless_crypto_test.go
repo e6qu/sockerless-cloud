@@ -14,6 +14,7 @@ import (
 // the fix the sim returned 405 for the 3-segment path; real Key Vault applies
 // the key's current version.
 func TestKeyVault_VersionlessKeyCrypto(t *testing.T) {
+	t.Parallel()
 	rg := "kv-versionless-rg"
 	vault := "kv-versionless"
 	createKVViaARM(t, rg, vault)

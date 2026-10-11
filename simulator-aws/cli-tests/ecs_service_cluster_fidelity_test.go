@@ -8,6 +8,7 @@ import (
 // TestECSServiceClusterFidelityCLI covers the service knobs that round-trip on
 // create + update and the cluster-settings update path via the aws CLI.
 func TestECSServiceClusterFidelityCLI(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	q("ecs", "create-cluster", "--cluster-name", "cli-svc-cluster", "--query", "cluster.clusterName", "--output", "text")

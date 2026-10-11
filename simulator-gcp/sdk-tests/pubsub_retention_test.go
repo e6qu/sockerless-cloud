@@ -40,6 +40,7 @@ func psAckAll(t *testing.T, sc pubsubpb.SubscriberClient, sub string, msgs []*pu
 // again, and leaves the earlier ones acknowledged. The same seek on a
 // subscription that does not retain acknowledged messages replays nothing.
 func TestPubSub_GRPC_SeekReplaysRetainedAcknowledgedMessages(t *testing.T) {
+	t.Parallel()
 	c := newPSGRPCClient(t, "ps-retain-proj")
 	_, sc := psRawClient(t)
 	topic, err := c.CreateTopic(ctx, "retain-topic")
@@ -110,6 +111,7 @@ func TestPubSub_GRPC_SeekReplaysRetainedAcknowledgedMessages(t *testing.T) {
 // declares for ackDeadlineSeconds holds at create and at update, and that an
 // update names its fields the way the client library sends a FieldMask.
 func TestPubSub_GRPC_AckDeadlineRange(t *testing.T) {
+	t.Parallel()
 	c := newPSGRPCClient(t, "ps-deadline-proj")
 	_, sc := psRawClient(t)
 	topic, err := c.CreateTopic(ctx, "deadline-topic")

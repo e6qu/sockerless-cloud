@@ -21,6 +21,7 @@ import (
 // GetCertificate, with the domain name (and SAN) present in the leaf's
 // DNSNames. Mirrors what a real ACM caller sees post-issuance.
 func TestACMIssuedCertHasPEMMaterial(t *testing.T) {
+	t.Parallel()
 	acmC := acmClient()
 	r53C := r53Client()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

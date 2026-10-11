@@ -23,6 +23,7 @@ import (
 // aws-sdk-go-v2 client validates MD5OfMessageAttributes, so a wrong digest here
 // would error — this also pins the MD5 algorithm.
 func TestSQS_MessageAttributesAndFirstReceive(t *testing.T) {
+	t.Parallel()
 	c := sqsClient()
 	q, err := c.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("fidelity-attrs-q")})
 	require.NoError(t, err)
@@ -56,6 +57,7 @@ func TestSQS_MessageAttributesAndFirstReceive(t *testing.T) {
 // TestDynamoDB_ProjectionExpression covers GetItem/Query/Scan honoring
 // ProjectionExpression (previously the whole item came back).
 func TestDynamoDB_ProjectionExpression(t *testing.T) {
+	t.Parallel()
 	c := ddbClient()
 	table := "fidelity-projection"
 	_, err := c.CreateTable(ctx, &dynamodb.CreateTableInput{
@@ -96,6 +98,7 @@ func TestDynamoDB_ProjectionExpression(t *testing.T) {
 // TestCloudWatch_GetLogEventsStartFromHead covers startFromHead: the default
 // (false) returns the latest events first, true returns the earliest.
 func TestCloudWatch_GetLogEventsStartFromHead(t *testing.T) {
+	t.Parallel()
 	cw := cwLogsClient()
 	group, stream := "/test/startfromhead", "s1"
 	_, err := cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(group)})
@@ -132,6 +135,7 @@ func TestCloudWatch_GetLogEventsStartFromHead(t *testing.T) {
 // TestEC2_NetworkInterfaceFilters covers DescribeNetworkInterfaces filters
 // (previously every filter was ignored).
 func TestEC2_NetworkInterfaceFilters(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.94.0.0/16")})
 	require.NoError(t, err)

@@ -15,6 +15,7 @@ import (
 // refuses an instance type that does not exist, filters over the facts, and
 // pages through the whole catalog.
 func TestEC2_DescribeInstanceTypesReportsPublishedFacts(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	out, err := c.DescribeInstanceTypes(ctx, &ec2.DescribeInstanceTypesInput{
 		InstanceTypes: []types.InstanceType{types.InstanceTypeM5Xlarge, types.InstanceTypeT4gNano, types.InstanceTypeT1Micro},

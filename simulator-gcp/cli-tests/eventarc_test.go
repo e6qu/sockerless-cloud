@@ -11,6 +11,7 @@ import (
 )
 
 func TestEventarcCLI_TriggerLifecycle(t *testing.T) {
+	t.Parallel()
 	// Eventarc refuses a trigger whose destination Cloud Run service does not
 	// exist, so the service comes first.
 	services := baseURL + "/v2/projects/" + project + "/locations/" + location + "/services"
@@ -66,6 +67,7 @@ func TestEventarcCLI_TriggerLifecycle(t *testing.T) {
 }
 
 func TestEventarcCLI_ChannelProviderConnection(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, gcloudCLI("eventarc", "providers", "list",
 		"--location", location,
 		"--format", "json"))
@@ -127,6 +129,7 @@ func TestEventarcCLI_ChannelProviderConnection(t *testing.T) {
 // list names the collection by its own host, so it holds only that service's
 // triggers.
 func TestEventarcCLI_GlobalTriggersApartFromCloudBuild(t *testing.T) {
+	t.Parallel()
 	const (
 		serviceID      = "cli-global-trigger-svc"
 		eventarcID     = "cli-global-eventarc-trigger"
@@ -158,7 +161,7 @@ func TestEventarcCLI_GlobalTriggersApartFromCloudBuild(t *testing.T) {
 	require.NoError(t, os.WriteFile(configPath, []byte(`{
   "name": "`+buildTriggerID+`",
   "filename": "cloudbuild.yaml",
-  "triggerTemplate": {"repoName": "cli-repo", "branchName": "main"}
+  "triggerTemplate": {"repoName": "cli-repo-94ef", "branchName": "main"}
 }`), 0o644))
 	var build struct {
 		ID string `json:"id"`

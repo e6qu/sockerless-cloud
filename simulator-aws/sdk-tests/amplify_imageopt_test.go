@@ -86,6 +86,7 @@ func amplifyImageOptManifestJSON(t *testing.T, imageOptCacheControl string, dang
 }
 
 func TestAmplifyHostingImageOptimizationE2E(t *testing.T) {
+	t.Parallel()
 	c := amplifyClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()

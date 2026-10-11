@@ -29,6 +29,7 @@ func putTestObject(t *testing.T, bucket, key string, body []byte) *s3.Client {
 }
 
 func TestS3_ObjectAcl(t *testing.T) {
+	t.Parallel()
 	bucket, key := "obj-acl-bucket", "acl-obj.txt"
 	client := putTestObject(t, bucket, key, []byte("acl body"))
 
@@ -68,6 +69,7 @@ func TestS3_ObjectAcl(t *testing.T) {
 }
 
 func TestS3_ObjectAttributes(t *testing.T) {
+	t.Parallel()
 	bucket, key := "obj-attrs-bucket", "attrs-obj.txt"
 	body := []byte("attributes payload")
 	client := putTestObject(t, bucket, key, body)
@@ -89,6 +91,7 @@ func TestS3_ObjectAttributes(t *testing.T) {
 }
 
 func TestS3_ObjectLegalHold(t *testing.T) {
+	t.Parallel()
 	bucket, key := "obj-legalhold-bucket", "lh-obj.txt"
 	client := s3Client()
 	_, _ = client.CreateBucket(ctx, &s3.CreateBucketInput{
@@ -122,6 +125,7 @@ func TestS3_ObjectLegalHold(t *testing.T) {
 }
 
 func TestS3_ObjectRetention(t *testing.T) {
+	t.Parallel()
 	bucket, key := "obj-retention-bucket", "ret-obj.txt"
 	client := s3Client()
 	_, _ = client.CreateBucket(ctx, &s3.CreateBucketInput{
@@ -160,6 +164,7 @@ func TestS3_ObjectRetention(t *testing.T) {
 }
 
 func TestS3_ObjectLockConfiguration(t *testing.T) {
+	t.Parallel()
 	bucket := "obj-lock-cfg-bucket"
 	client := s3Client()
 	_, _ = client.CreateBucket(ctx, &s3.CreateBucketInput{
@@ -193,6 +198,7 @@ func TestS3_ObjectLockConfiguration(t *testing.T) {
 }
 
 func TestS3_ObjectTorrent(t *testing.T) {
+	t.Parallel()
 	bucket, key := "obj-torrent-bucket", "torrent-obj.txt"
 	client := putTestObject(t, bucket, key, []byte("torrent payload"))
 
@@ -211,6 +217,7 @@ func TestS3_ObjectTorrent(t *testing.T) {
 }
 
 func TestS3_RestoreObject(t *testing.T) {
+	t.Parallel()
 	bucket, key := "obj-restore-bucket", "restore-obj.txt"
 	client := putTestObject(t, bucket, key, []byte("restore payload"))
 	// Only an archived object can be restored.
@@ -242,6 +249,7 @@ func TestS3_RestoreObject(t *testing.T) {
 }
 
 func TestS3_UploadPartCopy(t *testing.T) {
+	t.Parallel()
 	bucket := "obj-uploadpartcopy-bucket"
 	srcKey, dstKey := "source-object.txt", "multipart-target.txt"
 	srcBody := bytes.Repeat([]byte("ABCDEFGH"), 16) // 128 bytes
@@ -289,6 +297,7 @@ func TestS3_UploadPartCopy(t *testing.T) {
 }
 
 func TestS3_ListObjectsV1(t *testing.T) {
+	t.Parallel()
 	bucket := "list-v1-bucket"
 	client := s3Client()
 	_, _ = client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})

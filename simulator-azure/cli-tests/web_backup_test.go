@@ -71,6 +71,7 @@ func backupCLIURL(resourcePath string) string {
 // the container, change the app's content, restore it back, and confirm the
 // restore removed what the backup did not carry.
 func TestWebAppBackupRestore_CLI(t *testing.T) {
+	t.Parallel()
 	site := "cli-backup-app"
 
 	// The container the backup writes into, and a genuine container SAS signed

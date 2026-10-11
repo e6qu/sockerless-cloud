@@ -21,6 +21,7 @@ func schedulerClient() *scheduler.Client {
 // implicit "default" group, read back the round-tripped target + flexible
 // time window, update the expression, then delete.
 func TestScheduler_ScheduleLifecycle(t *testing.T) {
+	t.Parallel()
 	c := schedulerClient()
 	const name = "runner-nightly"
 
@@ -101,6 +102,7 @@ func TestScheduler_ScheduleLifecycle(t *testing.T) {
 // TestScheduler_ScheduleGroups covers the custom-group path: create a group,
 // place a schedule in it, and list both group and schedule scoped to it.
 func TestScheduler_ScheduleGroups(t *testing.T) {
+	t.Parallel()
 	c := schedulerClient()
 	const group = "runner-group"
 
@@ -153,6 +155,7 @@ func TestScheduler_ScheduleGroups(t *testing.T) {
 // ListSchedules pages by MaxResults and NextToken, and refuses a token it never
 // issued.
 func TestScheduler_ListSchedulesPages_SDK(t *testing.T) {
+	t.Parallel()
 	c := schedulerClient()
 	group := uniqueName("page-group")
 	_, err := c.CreateScheduleGroup(ctx, &scheduler.CreateScheduleGroupInput{Name: aws.String(group)})

@@ -12,6 +12,7 @@ import (
 // the aws CLI uses the legacy query protocol, which previously returned
 // InvalidAction.
 func TestCloudWatchCLI_QueryMetrics(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("cloudwatch", "put-metric-data",
 		"--namespace", "MyApp/CLI",
 		"--metric-data", `[{"MetricName":"Requests","Value":42,"Unit":"Count","Dimensions":[{"Name":"svc","Value":"api"}]}]`))

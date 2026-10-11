@@ -26,6 +26,7 @@ import (
 // simulator is built on, because the container reaper lives there and is named
 // below; paths are repository-relative so both roots share one allow list.
 func TestNoHostProcessDispatchOfWorkloads(t *testing.T) {
+	t.Parallel()
 	// Each entry is a file allowed to reach the host, with the reason. Nothing
 	// runs a workload as a host process: there is no process substrate, and
 	// SIM_RUNTIME=process means API-only — serving the API surface without a

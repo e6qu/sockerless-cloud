@@ -49,6 +49,7 @@ func cliMySQLLedger(t *testing.T, ctx context.Context, db *sql.DB) []string {
 // MariaDB dates a transaction in whole seconds, so the restore time falls on
 // the second the later row was committed in.
 func TestRDSCLI_MariaDBInstanceRestoresToAPointInTime(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	sourceID, restoredID := "cli-mariadb-pitr-source", "cli-mariadb-pitr-restored"
@@ -103,6 +104,7 @@ func TestRDSCLI_MariaDBInstanceRestoresToAPointInTime(t *testing.T) {
 // generate-db-auth-token makes for it, as itself, and never with a password;
 // a token for any other user, the master user's included, is refused.
 func TestRDSCLI_MySQLIAMDatabaseUsers(t *testing.T) {
+	t.Parallel()
 	for _, engine := range []string{"mysql", "mariadb"} {
 		t.Run(engine, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)

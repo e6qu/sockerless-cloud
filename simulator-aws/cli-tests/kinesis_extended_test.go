@@ -30,6 +30,7 @@ func kinesisStreamARNCLI(t *testing.T, stream string) string {
 // TestKinesisCLI_Consumers drives the enhanced fan-out consumer lifecycle over
 // the CLI: register, describe, list, deregister.
 func TestKinesisCLI_Consumers(t *testing.T) {
+	t.Parallel()
 	stream := "cli-kinesis-consumers"
 	streamARN := kinesisStreamARNCLI(t, stream)
 
@@ -106,6 +107,7 @@ func waitForKinesisConsumerCLI(t *testing.T, consumerARN, want string) {
 // TestKinesisCLI_DryRun passes --dry-run to the data-plane commands that take
 // it: each answers DryRunOperationException instead of acting.
 func TestKinesisCLI_DryRun(t *testing.T) {
+	t.Parallel()
 	stream := "cli-kinesis-dry-run"
 	kinesisStreamARNCLI(t, stream)
 	runCLI(t, awsCLI("kinesis", "wait", "stream-exists", "--stream-name", stream))
@@ -132,6 +134,7 @@ func TestKinesisCLI_DryRun(t *testing.T) {
 
 // TestKinesisCLI_ResourcePolicy round-trips a stream resource policy.
 func TestKinesisCLI_ResourcePolicy(t *testing.T) {
+	t.Parallel()
 	stream := "cli-kinesis-resource-policy"
 	streamARN := kinesisStreamARNCLI(t, stream)
 
@@ -153,6 +156,7 @@ func TestKinesisCLI_ResourcePolicy(t *testing.T) {
 
 // TestKinesisCLI_MergeAndSplitShards exercises split-then-merge over the CLI.
 func TestKinesisCLI_MergeAndSplitShards(t *testing.T) {
+	t.Parallel()
 	stream := "cli-kinesis-merge-split"
 	runCLI(t, awsCLI("kinesis", "create-stream", "--stream-name", stream, "--shard-count", "1"))
 	t.Cleanup(func() { _ = awsCLI("kinesis", "delete-stream", "--stream-name", stream).Run() })
@@ -207,6 +211,7 @@ func TestKinesisCLI_MergeAndSplitShards(t *testing.T) {
 
 // TestKinesisCLI_TagResource covers the resource-ARN tagging trio.
 func TestKinesisCLI_TagResource(t *testing.T) {
+	t.Parallel()
 	stream := "cli-kinesis-tag-resource"
 	streamARN := kinesisStreamARNCLI(t, stream)
 
@@ -239,6 +244,7 @@ func TestKinesisCLI_TagResource(t *testing.T) {
 
 // TestKinesisCLI_UpdateStreamMode toggles capacity mode over the CLI.
 func TestKinesisCLI_UpdateStreamMode(t *testing.T) {
+	t.Parallel()
 	stream := "cli-kinesis-stream-mode"
 	streamARN := kinesisStreamARNCLI(t, stream)
 
@@ -287,6 +293,7 @@ func TestKinesisCLI_AccountSettings(t *testing.T) {
 // TestKinesisCLI_UpdateMaxRecordSize sets the per-record size and rejects
 // out-of-range values.
 func TestKinesisCLI_UpdateMaxRecordSize(t *testing.T) {
+	t.Parallel()
 	stream := "cli-kinesis-max-record-size"
 	streamARN := kinesisStreamARNCLI(t, stream)
 
@@ -300,6 +307,7 @@ func TestKinesisCLI_UpdateMaxRecordSize(t *testing.T) {
 }
 
 func TestKinesisCLI_UpdateStreamWarmThroughput(t *testing.T) {
+	t.Parallel()
 	stream := "cli-kinesis-warm-throughput"
 	streamARN := kinesisStreamARNCLI(t, stream)
 

@@ -13,6 +13,7 @@ const authAPIVersion = "2022-04-01"
 // TestRoleDefinition_CustomCreateGetDelete exercises the custom-role-definition
 // lifecycle (RoleDefinitions_CreateOrUpdate / Get / Delete) via az-rest.
 func TestRoleDefinition_CustomCreateGetDelete(t *testing.T) {
+	t.Parallel()
 	roleDefID := "77777777-8888-9999-aaaa-bbbbbbbbbbbb"
 	url := fmt.Sprintf("%s/subscriptions/%s/providers/Microsoft.Authorization/roleDefinitions/%s?api-version=%s",
 		baseURL, subscriptionID, roleDefID, authAPIVersion)
@@ -51,6 +52,7 @@ func TestRoleDefinition_CustomCreateGetDelete(t *testing.T) {
 }
 
 func TestRoleAssignment_CreateAndShow(t *testing.T) {
+	t.Parallel()
 	raName := "00000000-0000-0000-0000-000000000099"
 	url := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Authorization/roleAssignments/%s?api-version=%s",
 		baseURL, subscriptionID, resourceGroup, raName, authAPIVersion)
@@ -86,6 +88,7 @@ func TestRoleAssignment_CreateAndShow(t *testing.T) {
 }
 
 func TestRoleAssignment_Delete(t *testing.T) {
+	t.Parallel()
 	raName := "00000000-0000-0000-0000-000000000098"
 	url := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Authorization/roleAssignments/%s?api-version=%s",
 		baseURL, subscriptionID, resourceGroup, raName, authAPIVersion)
@@ -110,6 +113,7 @@ func TestRoleAssignment_Delete(t *testing.T) {
 // referencing a role definition GUID that isn't a known built-in is rejected
 // with 400, as real Azure does (RoleDefinitionDoesNotExist).
 func TestRoleAssignment_RejectsUnknownRoleDefinition(t *testing.T) {
+	t.Parallel()
 	raName := "00000000-0000-0000-0000-000000000097"
 	url := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Authorization/roleAssignments/%s?api-version=%s",
 		baseURL, subscriptionID, resourceGroup, raName, authAPIVersion)
@@ -129,6 +133,7 @@ func TestRoleAssignment_RejectsUnknownRoleDefinition(t *testing.T) {
 // TestRoleAssignment_RejectsNonGUIDName pins that a role assignment whose name
 // is not a GUID is rejected with 400 (real Azure requires the name be a GUID).
 func TestRoleAssignment_RejectsNonGUIDName(t *testing.T) {
+	t.Parallel()
 	url := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Authorization/roleAssignments/not-a-guid?api-version=%s",
 		baseURL, subscriptionID, resourceGroup, authAPIVersion)
 
@@ -147,6 +152,7 @@ func TestRoleAssignment_RejectsNonGUIDName(t *testing.T) {
 // TestRoleAssignment_List exercises the collection list endpoint, including the
 // $filter=principalId eq 'X' OData filter.
 func TestRoleAssignment_List(t *testing.T) {
+	t.Parallel()
 	principalID := "00000000-0000-0000-0000-0000000000ee"
 	raName := "00000000-0000-0000-0000-000000000096"
 	url := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Authorization/roleAssignments/%s?api-version=%s",
@@ -187,6 +193,7 @@ func TestRoleAssignment_List(t *testing.T) {
 // TestRoleDefinition_ReaderHasReadOnlyPermissions pins that the Reader built-in
 // role returns its real granular permission (*/read), not a wildcard.
 func TestRoleDefinition_ReaderHasReadOnlyPermissions(t *testing.T) {
+	t.Parallel()
 	url := fmt.Sprintf("%s/subscriptions/%s/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7?api-version=%s",
 		baseURL, subscriptionID, authAPIVersion)
 	out := runCLI(t, azRest("GET", url, ""))

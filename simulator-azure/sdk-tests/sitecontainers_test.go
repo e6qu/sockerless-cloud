@@ -34,6 +34,7 @@ func createSiteForContainers(t *testing.T, rg, name string) string {
 }
 
 func TestSDK_SiteContainers_CRUD(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-sitecontainers-rg"
 	site := "sc-crud-app"
 	createSiteForContainers(t, rg, site)
@@ -97,6 +98,7 @@ func TestSDK_SiteContainers_CRUD(t *testing.T) {
 // sidecar (an HTTP server on :9090) over the shared loopback and echoes a
 // success token.
 func TestSDK_AzureFunctions_MultiContainerSharesLocalhost(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-sc-localhost-rg"
 	site := "sc-localhost-app"
 	host := createSiteForContainers(t, rg, site)
@@ -147,6 +149,7 @@ func TestSDK_AzureFunctions_MultiContainerSharesLocalhost(t *testing.T) {
 // invoke is refused and names the sidecar, rather than running the main
 // without it.
 func TestSDK_AzureFunctions_SidecarThatCannotStartFailsTheSite(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-sc-badsidecar-rg"
 	site := "sc-badsidecar-app"
 	host := createSiteForContainers(t, rg, site)

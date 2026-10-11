@@ -14,6 +14,7 @@ import (
 // pre-flight that validates the chosen instance type is offered in the target
 // availability zones.
 func TestEC2_DescribeInstanceTypeOfferings(t *testing.T) {
+	t.Parallel()
 	client := ec2Client()
 
 	out, err := client.DescribeInstanceTypeOfferings(ctx, &ec2.DescribeInstanceTypeOfferingsInput{

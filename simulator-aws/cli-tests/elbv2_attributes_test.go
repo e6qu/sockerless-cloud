@@ -12,6 +12,7 @@ import (
 // a Gateway Load Balancer report only their own type's attributes, and
 // `modify-load-balancer-attributes` refuses a key that belongs to another type.
 func TestELBv2CLI_LoadBalancerAttributesPerType(t *testing.T) {
+	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.88.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	subnet1 := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-subnet",

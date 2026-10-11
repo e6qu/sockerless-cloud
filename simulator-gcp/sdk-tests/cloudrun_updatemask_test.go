@@ -17,6 +17,7 @@ import (
 // request body carries a different value for them. Before the fix the handler
 // did a wholesale replace, dropping unmasked fields → terraform drift.
 func TestCloudRun_UpdateServiceHonorsUpdateMask(t *testing.T) {
+	t.Parallel()
 	parent := "projects/test-project/locations/us-central1"
 	base := baseURL + "/v2/" + parent + "/services"
 	sid := uniqueName("mask-svc")
@@ -71,6 +72,7 @@ func TestCloudRun_UpdateServiceHonorsUpdateMask(t *testing.T) {
 // scaling. Before the fix the handler swapped the whole template when
 // any "template.*" mask path appeared.
 func TestCloudRun_UpdateServiceSubPathMask(t *testing.T) {
+	t.Parallel()
 	parent := "projects/test-project/locations/us-central1"
 	base := baseURL + "/v2/" + parent + "/services"
 	sid := uniqueName("subpath-mask-svc")
@@ -140,6 +142,7 @@ func TestCloudRun_UpdateServiceSubPathMask(t *testing.T) {
 // not exist on the Service resource fails with 400 INVALID_ARGUMENT and
 // leaves the service untouched — it is not silently ignored.
 func TestCloudRun_UpdateServiceRejectsUnknownMaskPath(t *testing.T) {
+	t.Parallel()
 	parent := "projects/test-project/locations/us-central1"
 	base := baseURL + "/v2/" + parent + "/services"
 	sid := uniqueName("badmask-svc")
@@ -199,6 +202,7 @@ func TestCloudRun_UpdateServiceRejectsUnknownMaskPath(t *testing.T) {
 // masks arrive) must update the service account while preserving the rest of
 // the template — never discard the submitted template wholesale.
 func TestCloudRun_UpdateServiceTemplateFieldMask(t *testing.T) {
+	t.Parallel()
 	parent := "projects/test-project/locations/us-central1"
 	base := baseURL + "/v2/" + parent + "/services"
 	sid := uniqueName("tmpl-sa-svc")

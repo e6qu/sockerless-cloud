@@ -13,6 +13,7 @@ import (
 )
 
 func TestCloudFront_Function_Lifecycle(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	codeFile := filepath.Join(dir, "fn.js")
 	code := `function handler(event) { return event.request; }`
@@ -57,6 +58,7 @@ func TestCloudFront_Function_Lifecycle(t *testing.T) {
 }
 
 func TestCloudFront_PublicKey_Lifecycle(t *testing.T) {
+	t.Parallel()
 	name := "cli-pk-" + time.Now().Format("150405.000000")
 	encoded := base64.StdEncoding.EncodeToString([]byte("test-key-bytes"))
 	pem := "-----BEGIN PUBLIC KEY-----\n" + encoded + "\n-----END PUBLIC KEY-----\n"
@@ -83,6 +85,7 @@ func TestCloudFront_PublicKey_Lifecycle(t *testing.T) {
 }
 
 func TestCloudFront_KeyGroup_Lifecycle(t *testing.T) {
+	t.Parallel()
 	pkName := "cli-kg-pk-" + time.Now().Format("150405.000000")
 	encoded := base64.StdEncoding.EncodeToString([]byte("kg-key-bytes"))
 	pem := "-----BEGIN PUBLIC KEY-----\n" + encoded + "\n-----END PUBLIC KEY-----\n"

@@ -15,6 +15,7 @@ import (
 // and [] to a len-0 slice, so the check is at the wire level — where the strict
 // clients that reported #313 break.
 func TestContainerApps_ListSecretsEmptyArrayNotNull(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-secrets-empty-rg"
 	ensureRG(t, rg)
 	cred := &fakeCredential{}

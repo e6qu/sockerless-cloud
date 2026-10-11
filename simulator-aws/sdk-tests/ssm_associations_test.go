@@ -32,6 +32,7 @@ func ssmEnsureDoc(t *testing.T, c *ssm.Client, name string) {
 // it via update, read execution history + targets + effective-instance views,
 // run it once, and delete.
 func TestSSM_AssociationLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	docName := "sockerless-assoc-doc-sdk"
 	ssmEnsureDoc(t, c, docName)
@@ -138,6 +139,7 @@ func TestSSM_AssociationLifecycle(t *testing.T) {
 // TestSSM_AssociationBatch pins CreateAssociationBatch — one entry referencing
 // a real document succeeds, one referencing a missing document fails.
 func TestSSM_AssociationBatch(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	docName := "sockerless-assoc-batch-doc-sdk"
 	ssmEnsureDoc(t, c, docName)
@@ -167,6 +169,7 @@ func TestSSM_AssociationBatch(t *testing.T) {
 // execution against a document, read it back (Success with a step), list,
 // inspect step executions, signal, stop, plus a change-request execution.
 func TestSSM_AutomationLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	docName := "sockerless-automation-doc-sdk"
 	ssmEnsureDoc(t, c, docName)
@@ -229,6 +232,7 @@ func TestSSM_AutomationLifecycle(t *testing.T) {
 // TestSSM_AutomationExecutionPreview pins StartExecutionPreview /
 // GetExecutionPreview.
 func TestSSM_AutomationExecutionPreview(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	docName := "sockerless-preview-doc-sdk"
 	ssmEnsureDoc(t, c, docName)
@@ -251,6 +255,7 @@ func TestSSM_AutomationExecutionPreview(t *testing.T) {
 // TestSSM_CommandLifecycle pins Run Command: send a command to instances,
 // list it, list invocations, fetch a per-instance invocation, then cancel.
 func TestSSM_CommandLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ssmClient()
 	docName := "sockerless-command-doc-sdk"
 	ssmEnsureDoc(t, c, docName)

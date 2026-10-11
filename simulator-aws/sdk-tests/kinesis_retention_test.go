@@ -15,6 +15,7 @@ import (
 // period to the range and direction each operation allows, and reads a shard
 // from an AT_TIMESTAMP iterator.
 func TestKinesisSDK_RetentionBoundsAndTimestampIterators(t *testing.T) {
+	t.Parallel()
 	client := kinesisClient()
 	streamName := "sdk-kinesis-retention"
 	_, err := client.CreateStream(ctx, &kinesis.CreateStreamInput{StreamName: aws.String(streamName), ShardCount: aws.Int32(1)})

@@ -65,6 +65,7 @@ type kuduCommandResult struct {
 }
 
 func TestSDK_WebApps_KuduVFSCommandAndSettings(t *testing.T) {
+	t.Parallel()
 	pullImageWithRetry(t, kuduAlpineImage)
 	rg, name := "sdk-kudu-vfs-rg", "sdk-kudu-vfs-app"
 	client := createStackWebApp(t, rg, name, "DOCKER|"+kuduAlpineImage, map[string]string{"GREETING": "from-app-settings"})
@@ -195,6 +196,7 @@ func TestSDK_WebApps_KuduVFSCommandAndSettings(t *testing.T) {
 }
 
 func TestSDK_WebApps_KuduLogStream(t *testing.T) {
+	t.Parallel()
 	rg, name := "sdk-kudu-logstream-rg", "sdk-kudu-logstream-app"
 	client := createStackWebApp(t, rg, name, "DOCKER|"+servingImageName, nil)
 	scm, auth := kuduSCM(t, client, rg, name)
@@ -224,6 +226,7 @@ func TestSDK_WebApps_KuduLogStream(t *testing.T) {
 }
 
 func TestSDK_WebApps_KuduWebJobLogsAndSchedule(t *testing.T) {
+	t.Parallel()
 	pullImageWithRetry(t, kuduAlpineImage)
 	rg, name := "sdk-kudu-schedule-rg", "sdk-kudu-schedule-app"
 	client := createStackWebApp(t, rg, name, "DOCKER|"+kuduAlpineImage, nil)

@@ -92,6 +92,7 @@ func bigtableLROResource[T proto.Message](t *testing.T, op *longrunningpb.Operat
 }
 
 func TestBigtableAdminGRPC_AppProfiles(t *testing.T) {
+	t.Parallel()
 	ia, _, _ := bigtableAdminGRPCConn(t)
 	instance, _ := bigtableAdminGRPCInstance(t, ia, "bt-grpc-profiles", "inst", "c1")
 
@@ -168,6 +169,7 @@ func TestBigtableAdminGRPC_AppProfiles(t *testing.T) {
 }
 
 func TestBigtableAdminGRPC_LogicalAndMaterializedViews(t *testing.T) {
+	t.Parallel()
 	ia, _, _ := bigtableAdminGRPCConn(t)
 	instance, _ := bigtableAdminGRPCInstance(t, ia, "bt-grpc-views", "inst", "c1")
 
@@ -253,6 +255,7 @@ func TestBigtableAdminGRPC_LogicalAndMaterializedViews(t *testing.T) {
 }
 
 func TestBigtableAdminGRPC_InstanceAndClusterUpdates(t *testing.T) {
+	t.Parallel()
 	ia, _, _ := bigtableAdminGRPCConn(t)
 	instance, cluster := bigtableAdminGRPCInstance(t, ia, "bt-grpc-updates", "inst", "c1")
 
@@ -312,6 +315,7 @@ func TestBigtableAdminGRPC_InstanceAndClusterUpdates(t *testing.T) {
 }
 
 func TestBigtableAdminGRPC_IAMPolicies(t *testing.T) {
+	t.Parallel()
 	ia, ta, _ := bigtableAdminGRPCConn(t)
 	instance, _ := bigtableAdminGRPCInstance(t, ia, "bt-grpc-iam", "inst", "c1")
 	table := bigtableAdminGRPCTable(t, ta, instance, "events", "cf")
@@ -395,9 +399,9 @@ func TestBigtableAdminGRPC_IAMPolicies(t *testing.T) {
 }
 
 func TestBigtableAdminGRPC_BackupsAndRestore(t *testing.T) {
+	t.Parallel()
 	// The data client reaches the simulator through the coordinate a real
 	// client uses for the Cloud Bigtable emulator.
-	t.Setenv("BIGTABLE_EMULATOR_HOST", grpcAddr)
 	ia, ta, _ := bigtableAdminGRPCConn(t)
 	const project, instanceID, family = "bt-grpc-backups", "inst", "cf"
 	instance, cluster := bigtableAdminGRPCInstance(t, ia, project, instanceID, "c1")
@@ -542,6 +546,7 @@ func TestBigtableAdminGRPC_BackupsAndRestore(t *testing.T) {
 }
 
 func TestBigtableAdminGRPC_AuthorizedViewsAndSchemaBundles(t *testing.T) {
+	t.Parallel()
 	ia, ta, _ := bigtableAdminGRPCConn(t)
 	instance, _ := bigtableAdminGRPCInstance(t, ia, "bt-grpc-tableviews", "inst", "c1")
 	table := bigtableAdminGRPCTable(t, ta, instance, "events", "cf")
@@ -674,7 +679,7 @@ func bigtableTestDescriptorSet(t *testing.T, message string) []byte {
 }
 
 func TestBigtableAdminGRPC_TableUpdatesConsistencyAndDropRowRange(t *testing.T) {
-	t.Setenv("BIGTABLE_EMULATOR_HOST", grpcAddr)
+	t.Parallel()
 	ia, ta, _ := bigtableAdminGRPCConn(t)
 	const (
 		project    = "bt-grpc-tables"
@@ -785,9 +790,9 @@ func bigtableRowKeys(t *testing.T, tbl *bigtable.Table) []string {
 // declare — it is served on the gRPC door alone, out of the same capture the
 // backups use.
 func TestBigtableAdminGRPC_SnapshotsAndCreateTableFromSnapshot(t *testing.T) {
+	t.Parallel()
 	// The data client reaches the simulator through the coordinate a real
 	// client uses for the Cloud Bigtable emulator.
-	t.Setenv("BIGTABLE_EMULATOR_HOST", grpcAddr)
 	ia, ta, _ := bigtableAdminGRPCConn(t)
 	const project, instanceID, family = "bt-grpc-snapshots", "inst", "cf"
 	instance, cluster := bigtableAdminGRPCInstance(t, ia, project, instanceID, "c1")
@@ -867,6 +872,7 @@ func TestBigtableAdminGRPC_SnapshotsAndCreateTableFromSnapshot(t *testing.T) {
 }
 
 func TestBigtableAdminGRPC_Operations(t *testing.T) {
+	t.Parallel()
 	ia, _, ops := bigtableAdminGRPCConn(t)
 	instance, _ := bigtableAdminGRPCInstance(t, ia, "bt-grpc-ops", "inst", "c1")
 
@@ -939,6 +945,7 @@ func TestBigtableAdminGRPC_Operations(t *testing.T) {
 // layer, refuses a stale etag, and lists one cluster's layer and every
 // cluster's.
 func TestBigtableAdminGRPC_MemoryLayers(t *testing.T) {
+	t.Parallel()
 	ia, _, _ := bigtableAdminGRPCConn(t)
 	instance, cluster := bigtableAdminGRPCInstance(t, ia, "bt-grpc-memory", "inst", "c1")
 	name := cluster + "/memoryLayer"

@@ -63,6 +63,7 @@ func writeServiceAccountJSON(t *testing.T) (path, email string) {
 // endpoint answers with an RS256 id_token whose single `aud` is that audience —
 // the service URL the backend presents it to.
 func TestOAuth2IDToken_InvokeBearerAccepted(t *testing.T) {
+	t.Parallel()
 	saPath, email := writeServiceAccountJSON(t)
 	const audience = "https://target-service-abcdefghij-us-central1.a.run.app"
 

@@ -51,6 +51,7 @@ func cliDescribeReplicaInstance(t *testing.T, instanceID string) cliReplicaInsta
 // replica for writes. The instances use their engine family's default DB
 // parameter group.
 func TestRDSCLI_ReadReplicaReplicatesAndPromotes(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
 	defer cancel()
 	sourceID := fmt.Sprintf("cli-rr-src-%d", time.Now().UnixNano())
@@ -142,6 +143,7 @@ func TestRDSCLI_ReadReplicaReplicatesAndPromotes(t *testing.T) {
 // upgrades the engine in place, and describe-db-engine-versions names the
 // default version an instance created without one runs.
 func TestRDSCLI_ReleasedEngineVersions(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	var defaults struct {

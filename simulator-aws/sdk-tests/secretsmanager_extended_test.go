@@ -37,6 +37,7 @@ func smCreate(t *testing.T, c *secretsmanager.Client, name, value string) string
 }
 
 func TestSecretsManager_ResourcePolicyLifecycle(t *testing.T) {
+	t.Parallel()
 	c := smClient()
 	name := smUniqueName("rp")
 	smCreate(t, c, name, "v1")
@@ -72,6 +73,7 @@ func TestSecretsManager_ResourcePolicyLifecycle(t *testing.T) {
 }
 
 func TestSecretsManager_ValidateResourcePolicy(t *testing.T) {
+	t.Parallel()
 	c := smClient()
 	name := smUniqueName("vrp")
 	smCreate(t, c, name, "v1")
@@ -95,6 +97,7 @@ func TestSecretsManager_ValidateResourcePolicy(t *testing.T) {
 }
 
 func TestSecretsManager_DeleteRestore(t *testing.T) {
+	t.Parallel()
 	c := smClient()
 	name := smUniqueName("restore")
 	smCreate(t, c, name, "v1")
@@ -133,6 +136,7 @@ func TestSecretsManager_DeleteRestore(t *testing.T) {
 }
 
 func TestSecretsManager_RotateAndCancel(t *testing.T) {
+	t.Parallel()
 	c := smClient()
 	name := smUniqueName("rotate")
 	smCreate(t, c, name, "v1")
@@ -173,6 +177,7 @@ func TestSecretsManager_RotateAndCancel(t *testing.T) {
 }
 
 func TestSecretsManager_BatchGetSecretValue(t *testing.T) {
+	t.Parallel()
 	c := smClient()
 	n1 := smUniqueName("batch1")
 	n2 := smUniqueName("batch2")
@@ -205,6 +210,7 @@ func TestSecretsManager_BatchGetSecretValue(t *testing.T) {
 }
 
 func TestSecretsManager_UpdateSecretVersionStage(t *testing.T) {
+	t.Parallel()
 	c := smClient()
 	name := smUniqueName("stage")
 	smCreate(t, c, name, "v1")
@@ -236,6 +242,7 @@ func TestSecretsManager_UpdateSecretVersionStage(t *testing.T) {
 }
 
 func TestSecretsManager_Replication(t *testing.T) {
+	t.Parallel()
 	c := smClient()
 	regionalClient := func(region string) *secretsmanager.Client {
 		config := sdkConfig()
@@ -342,6 +349,7 @@ func TestSecretsManager_Replication(t *testing.T) {
 }
 
 func TestSecretsManager_CreateWithReplication(t *testing.T) {
+	t.Parallel()
 	primary := smClient()
 	config := sdkConfig()
 	config.Region = "us-west-2"

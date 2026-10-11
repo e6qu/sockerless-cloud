@@ -21,6 +21,7 @@ import (
 // response selects, and an action type the simulator cannot execute fails the
 // run and names the type.
 func TestLogicApps_RunExecutesActionsSDK(t *testing.T) {
+	t.Parallel()
 	rg := "logic-exec-rg"
 	ensureRG(t, rg)
 	cred := &fakeCredential{}

@@ -17,6 +17,7 @@ import (
 // Test, List, Delete) plus ListDistributionsByConnectionFunction, all through
 // the real aws-sdk-go-v2 CloudFront client against the simulator.
 func TestCloudFront_ConnectionFunction_Lifecycle(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -121,6 +122,7 @@ func TestCloudFront_ConnectionFunction_Lifecycle(t *testing.T) {
 // TestCloudFront_TestFunction exercises the CloudFront Functions TestFunction
 // op against a real stored function.
 func TestCloudFront_TestFunction(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -158,6 +160,7 @@ func TestCloudFront_TestFunction(t *testing.T) {
 // TestCloudFront_TagResource exercises Tag/UntagResource + ListTagsForResource
 // against a stored distribution ARN.
 func TestCloudFront_TagResource(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -199,6 +202,7 @@ func TestCloudFront_TagResource(t *testing.T) {
 // CreateDistributionWithTags (both serviced by the shared POST /distribution
 // dynamic dispatcher) plus CreateStreamingDistributionWithTags.
 func TestCloudFront_CreateDistributionVariants(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

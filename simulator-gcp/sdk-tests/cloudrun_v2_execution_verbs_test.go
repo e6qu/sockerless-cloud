@@ -27,6 +27,7 @@ import (
 // method would put on the wire.
 
 func TestCloudRunV2_Executions_CancelIsServedAndUnknownVerbsAreNot(t *testing.T) {
+	t.Parallel()
 	svc := newRunV2RESTService(t)
 	jobID := uniqueName("exec-verb-job")
 	jobName := crV2Parent + "/jobs/" + jobID

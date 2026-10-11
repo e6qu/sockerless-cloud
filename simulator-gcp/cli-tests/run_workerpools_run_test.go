@@ -65,6 +65,7 @@ func startedHosts(out, prefix string) []string {
 // simulator does not serve, so the pool is deployed over the v2 REST
 // collection.
 func TestCloudRunWorkerPools_CLI_LogsAndVolumeOfRunningInstances(t *testing.T) {
+	t.Parallel()
 	const bucket = "cli-run-wp-volume"
 	const pool = "cli-wp-run"
 	runCLI(t, gcloudCLI("storage", "buckets", "create", "gs://"+bucket, "--location=us", "--format=json"))
@@ -112,6 +113,7 @@ func TestCloudRunWorkerPools_CLI_LogsAndVolumeOfRunningInstances(t *testing.T) {
 // instances logs read` reads what they log. Stopping the instance stops them
 // with the stop signal before the call answers.
 func TestCloudRunInstances_CLI_LogsAndVolumeOfRunningInstance(t *testing.T) {
+	t.Parallel()
 	const bucket = "cli-run-inst-volume"
 	const instance = "cli-inst-run"
 	runCLI(t, gcloudCLI("storage", "buckets", "create", "gs://"+bucket, "--location=us", "--format=json"))
@@ -147,6 +149,7 @@ func TestCloudRunInstances_CLI_LogsAndVolumeOfRunningInstance(t *testing.T) {
 // the pool's Ready condition False with that error, where a pool whose
 // instances started reports it True.
 func TestCloudRunWorkerPools_CLI_DescribeReportsTheDeployOutcome(t *testing.T) {
+	t.Parallel()
 	const failing = "cli-wp-missing-image"
 	failedOp := awaitRunOperation(t, httpDoJSON(t, "POST", workerPoolsBaseURL()+"?workerPoolId="+failing, `{
 		"scaling": {"manualInstanceCount": 1},

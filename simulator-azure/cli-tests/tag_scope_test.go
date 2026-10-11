@@ -70,6 +70,7 @@ func tagCLIList(t *testing.T, env azLoginEnv, scope string) map[string]string {
 // written by the resource's own create is reported by `az tag list`, and
 // `az tag delete` clears the resource's own tags.
 func TestTagAtScopeCLI(t *testing.T) {
+	t.Parallel()
 	env := startAzLoginSimulator(t)
 	tagCLILogin(t, env, "sockerless-tag-scope")
 

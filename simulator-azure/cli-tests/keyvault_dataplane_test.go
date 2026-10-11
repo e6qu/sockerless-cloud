@@ -58,6 +58,7 @@ func createKVVaultCLI(t *testing.T, vaultName string) {
 // TestKVDataPlane_Secrets_CLI exercises the KV secrets data-plane via az rest:
 // SetSecret → GetSecret → ListSecrets → DeleteSecret.
 func TestKVDataPlane_Secrets_CLI(t *testing.T) {
+	t.Parallel()
 	vault := "cli-dp-secrets"
 	createKVVaultCLI(t, vault)
 
@@ -102,6 +103,7 @@ func TestKVDataPlane_Secrets_CLI(t *testing.T) {
 // TestKVDataPlane_Keys_CLI exercises the KV keys data-plane via az rest:
 // CreateKey → GetKey → ListKeys → DeleteKey.
 func TestKVDataPlane_Keys_CLI(t *testing.T) {
+	t.Parallel()
 	vault := "cli-dp-keys"
 	createKVVaultCLI(t, vault)
 
@@ -170,6 +172,7 @@ func TestKVDataPlane_Keys_CLI(t *testing.T) {
 // via az rest: CreateCertificate → GetCertificate → ListCertificates →
 // DeleteCertificate.
 func TestKVDataPlane_Certificates_CLI(t *testing.T) {
+	t.Parallel()
 	vault := "cli-dp-certs"
 	createKVVaultCLI(t, vault)
 

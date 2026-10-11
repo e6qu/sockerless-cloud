@@ -18,6 +18,7 @@ import (
 // Instance object itself has no launch-template field). Their absence forces a
 // destroy+create every plan. The image/type are also inherited from the template.
 func TestEC2_LaunchTemplateProvenanceTags(t *testing.T) {
+	t.Parallel()
 	ltName := uniqueName("readback-lt")
 	c := ec2Client()
 	lt, err := c.CreateLaunchTemplate(ctx, &ec2.CreateLaunchTemplateInput{
@@ -56,6 +57,7 @@ func TestEC2_LaunchTemplateProvenanceTags(t *testing.T) {
 // TestEC2_RouteNetworkInterfaceId verifies a route created targeting an ENI
 // reports NetworkInterfaceId on DescribeRouteTables (else aws_route drifts).
 func TestEC2_RouteNetworkInterfaceId(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.41.0.0/16")})
 	require.NoError(t, err)
@@ -88,6 +90,7 @@ func TestEC2_RouteNetworkInterfaceId(t *testing.T) {
 // TestEC2_SecurityGroupEgressIpv6Ranges verifies an egress rule created with
 // both IPv4 and IPv6 CIDRs reports Ipv6Ranges on DescribeSecurityGroups.
 func TestEC2_SecurityGroupEgressIpv6Ranges(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.42.0.0/16")})
 	require.NoError(t, err)
@@ -128,6 +131,7 @@ func TestEC2_SecurityGroupEgressIpv6Ranges(t *testing.T) {
 // TestELBv2_ListenerSslPolicy verifies an HTTPS listener created with an
 // SslPolicy reports it on DescribeListeners (else aws_lb_listener drifts).
 func TestELBv2_ListenerSslPolicy(t *testing.T) {
+	t.Parallel()
 	tgName := uniqueName("sslpolicy-tg")
 	lbName := uniqueName("sslpolicy-lb")
 	ec2c := ec2Client()

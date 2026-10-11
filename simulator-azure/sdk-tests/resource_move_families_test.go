@@ -47,6 +47,7 @@ func moveResourceToGroup(t *testing.T, srcRG, dstRG, resourceID string) {
 // the move still sends and receives over AMQP afterwards, which is what a
 // hook that only re-homed the ARM records would break.
 func TestAzureResources_MoveEventHubNamespace(t *testing.T) {
+	t.Parallel()
 	srcRG, dstRG := uniqueName("eh-move-src-rg"), uniqueName("eh-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
@@ -171,6 +172,7 @@ func eventHubMoveProducer(t *testing.T, connectionString string) *azeventhubs.Pr
 // keys — the password a Redis client authenticates with — read back identical
 // after the move, and the cache's children re-home with it.
 func TestAzureResources_MoveRedisCache(t *testing.T) {
+	t.Parallel()
 	srcRG, dstRG := uniqueName("redis-move-src-rg"), uniqueName("redis-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
@@ -232,6 +234,7 @@ func TestAzureResources_MoveRedisCache(t *testing.T) {
 // derived from its resource ID, so the move pins them: listCredentials serves
 // the same username and passwords afterwards, and the child subtree re-homes.
 func TestAzureResources_MoveContainerRegistry(t *testing.T) {
+	t.Parallel()
 	srcRG, dstRG := uniqueName("acr-move-src-rg"), uniqueName("acr-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
@@ -301,6 +304,7 @@ func TestAzureResources_MoveContainerRegistry(t *testing.T) {
 // the move still publishes afterwards, and the subscription answers under the
 // destination scope.
 func TestAzureResources_MoveEventGridTopic(t *testing.T) {
+	t.Parallel()
 	srcRG, dstRG := uniqueName("eg-move-src-rg"), uniqueName("eg-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)

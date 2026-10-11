@@ -97,6 +97,7 @@ func TestLogsAccountAndQueryPolicyCLI(t *testing.T) {
 
 // TestLogsDestinationCLI exercises cross-account destinations.
 func TestLogsDestinationCLI(t *testing.T) {
+	t.Parallel()
 	name := "cli-destination"
 	defer runCLIIgnore(awsCLI("logs", "delete-destination", "--destination-name", name))
 
@@ -142,6 +143,7 @@ func TestLogsDestinationCLI(t *testing.T) {
 // TestLogsDeliveryCLI exercises the vended-log delivery surface: delivery
 // sources, delivery destinations (+ policy), and a delivery linking them.
 func TestLogsDeliveryCLI(t *testing.T) {
+	t.Parallel()
 	srcName := "cli-delivery-source"
 	dstName := "cli-delivery-destination"
 	defer runCLIIgnore(awsCLI("logs", "delete-delivery-source", "--name", srcName))
@@ -231,6 +233,7 @@ func TestLogsDeliveryCLI(t *testing.T) {
 // TestLogsAnomalyAndIndexCLI exercises log anomaly detectors, index policies,
 // field indexes, and the published configuration templates.
 func TestLogsAnomalyAndIndexCLI(t *testing.T) {
+	t.Parallel()
 	group := "/cli/anomaly-index"
 	runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", group))
 	defer runCLIIgnore(awsCLI("logs", "delete-log-group", "--log-group-name", group))

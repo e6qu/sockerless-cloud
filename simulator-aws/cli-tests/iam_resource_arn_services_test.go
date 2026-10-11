@@ -43,6 +43,7 @@ func asUser(cmd *exec.Cmd, id, secret string) *exec.Cmd {
 // the gate requests the group ARN without a trailing wildcard and the stream
 // ARN for the four stream-scoped actions.
 func TestIAM_CloudWatchLogsResourceScopedCLI(t *testing.T) {
+	t.Parallel()
 	for _, group := range []string{"/cli-scoped/app", "/cli-other/app"} {
 		runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", group))
 		group := group
@@ -74,6 +75,7 @@ func TestIAM_CloudWatchLogsResourceScopedCLI(t *testing.T) {
 // `aws codebuild start-build` under a project-scoped grant is the call that
 // follows an Amazon ECR read in an image-source build loop.
 func TestIAM_CodeBuildResourceScopedCLI(t *testing.T) {
+	t.Parallel()
 	for _, project := range []string{"cli-scoped-build", "cli-other-build"} {
 		runCLI(t, awsCLI("codebuild", "create-project",
 			"--name", project,
@@ -102,6 +104,7 @@ func TestIAM_CodeBuildResourceScopedCLI(t *testing.T) {
 // role is denied when it passes another, because iam:PassRole is authorized
 // against the role the request hands to the service.
 func TestIAM_PassRoleResourceScopedCLI(t *testing.T) {
+	t.Parallel()
 	const trust = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
 		`"Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
 	for _, role := range []string{"cli-task-allowed", "cli-task-forbidden"} {
@@ -138,6 +141,7 @@ func TestIAM_PassRoleResourceScopedCLI(t *testing.T) {
 // concludes the workload is silent, which is why the default page is bounded
 // and anchored at the tail rather than returning everything from the oldest.
 func TestCloudWatchLogsGetLogEventsReadsTheTailByDefaultCLI(t *testing.T) {
+	t.Parallel()
 	const group, stream = "/cli-tail/app", "s1"
 	runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", group))
 	t.Cleanup(func() { _ = awsCLI("logs", "delete-log-group", "--log-group-name", group).Run() })

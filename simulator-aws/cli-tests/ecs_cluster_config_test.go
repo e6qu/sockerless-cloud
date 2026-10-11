@@ -8,6 +8,7 @@ import (
 // TestECSCLI_ClusterSettingsAndConfig drives DescribeClusters --include
 // SETTINGS CONFIGURATIONS via the aws CLI.
 func TestECSCLI_ClusterSettingsAndConfig(t *testing.T) {
+	t.Parallel()
 	cluster := "probe-cli-cluster-config"
 	runCLI(t, awsCLI("ecs", "create-cluster",
 		"--cluster-name", cluster,

@@ -20,6 +20,7 @@ import (
 //	DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/sourcecontrols/web
 
 func TestSDK_WebApps_SourceControlDeploysTheRepository(t *testing.T) {
+	t.Parallel()
 	rg, name := "sdk-scm-rg", "sdk-scm-app"
 	repo := startGitHTTPRepo(t, "site")
 	first := repo.commit("main", "First page", map[string]string{

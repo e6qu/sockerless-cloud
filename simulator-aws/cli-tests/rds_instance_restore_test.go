@@ -56,6 +56,7 @@ func cliCleanupDBInstance(t *testing.T, instanceID string) {
 // a user granted rds_iam with the token aws rds generate-db-auth-token makes,
 // and the restored instance signs in the users the engine holds.
 func TestRDSCLI_InstanceRestoresToAPointInTime(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	sourceID, restoredID := "cli-instance-pitr-source", "cli-instance-pitr-restored"
@@ -160,6 +161,7 @@ func TestRDSCLI_InstanceRestoresToAPointInTime(t *testing.T) {
 // backup describe-db-instance-automated-backups lists turns active and the
 // automated snapshot is available.
 func TestRDSCLI_InstanceTakesItsFirstAutomatedBackupWithoutAClient(t *testing.T) {
+	t.Parallel()
 	instanceID := "cli-instance-first-backup"
 	runCLI(t, awsCLI("rds", "create-db-instance",
 		"--db-instance-identifier", instanceID,
@@ -201,6 +203,7 @@ func TestRDSCLI_InstanceTakesItsFirstAutomatedBackupWithoutAClient(t *testing.T)
 // Amazon S3 prefix the ingestion role reads into a new RDS for MySQL
 // instance, which serves the backup's data to its master user.
 func TestRDSCLI_InstanceRestoresFromS3XtraBackup(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	backup := cliTakeXtraBackup(t, "cli-instance-xtrabackup-source",

@@ -7,6 +7,7 @@ import (
 )
 
 func TestMemorystoreRedisCLI_InstanceLifecycle(t *testing.T) {
+	t.Parallel()
 	name := "cli-redis"
 
 	runCLI(t, gcloudCLI("redis", "instances", "create", name,
@@ -48,6 +49,7 @@ func TestMemorystoreRedisCLI_InstanceLifecycle(t *testing.T) {
 }
 
 func TestCloudSQLCLI_InstanceDatabaseUserLifecycle(t *testing.T) {
+	t.Parallel()
 	instance := "cli-sql"
 
 	runCLI(t, gcloudCLI("sql", "instances", "create", instance,

@@ -11,6 +11,7 @@ import (
 )
 
 func TestSpanner_RESTDataPlane(t *testing.T) {
+	t.Parallel()
 	svc, err := spanner.NewService(ctx, option.WithEndpoint(baseURL+"/spanner/"), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 

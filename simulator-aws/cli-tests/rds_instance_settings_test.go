@@ -59,6 +59,7 @@ func cliDescribeInstanceSettings(t *testing.T, instanceID string) cliInstanceSet
 // applies them, moves the endpoint to --db-port-number and renames the
 // instance with --new-db-instance-identifier, which keeps its data.
 func TestRDSCLI_ModifyDBInstanceSettingsPortAndRename(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	suffix := strconv.FormatInt(time.Now().UnixNano(), 36)

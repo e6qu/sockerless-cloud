@@ -18,6 +18,7 @@ import (
 // X-Forwarded-Proto, and adds an X-Cloud-Trace-Context to a request that
 // carries none while passing on one that does.
 func TestSDK_CloudRunV2Services_ForwardedRequestHeaders(t *testing.T) {
+	t.Parallel()
 	client := newServicesClient(t)
 	svc := createInvokableService(t, client, "v2-svc-xff", &runpb.Service{
 		Template: &runpb.RevisionTemplate{Containers: []*runpb.Container{{

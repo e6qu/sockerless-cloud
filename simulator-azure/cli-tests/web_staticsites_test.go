@@ -28,6 +28,7 @@ import (
 // StringDictionary keeps a nested "properties" map.
 
 func TestAzStaticWebApp_CLIFlow(t *testing.T) {
+	t.Parallel()
 	env := startAzLoginSimulator(t)
 
 	// az logger warnings ("Waiting for validation to finish...", the

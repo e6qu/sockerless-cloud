@@ -12,6 +12,7 @@ import (
 // data". Uses CombinedOutput directly because the calls are expected to exit
 // non-zero (runCLI fatals on a non-zero exit).
 func TestDynamoDBCLI_ExpressionsFailLoud(t *testing.T) {
+	t.Parallel()
 	table := "cli-ddb-failloud"
 	runCLI(t, awsCLI("dynamodb", "create-table",
 		"--table-name", table,

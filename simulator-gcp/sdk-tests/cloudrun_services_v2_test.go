@@ -46,6 +46,7 @@ func cleanupService(t *testing.T, client *run.ServicesClient, name string) {
 }
 
 func TestSDK_CloudRunV2Services_ListPaginationAndWireShape(t *testing.T) {
+	t.Parallel()
 	client := newServicesClient(t)
 	parent := "projects/test-project/locations/us-central1"
 
@@ -97,6 +98,7 @@ func TestSDK_CloudRunV2Services_ListPaginationAndWireShape(t *testing.T) {
 }
 
 func TestSDK_CloudRunServiceV1V2AreOneResource(t *testing.T) {
+	t.Parallel()
 	const (
 		project  = "cross-version-project"
 		location = "us-central1"
@@ -154,6 +156,7 @@ func TestSDK_CloudRunServiceV1V2AreOneResource(t *testing.T) {
 }
 
 func TestSDK_CloudRunV2Service_OperationMetadataAndTimestampShape(t *testing.T) {
+	t.Parallel()
 	serviceID := uniqueName("v2-svc-lro-shape")
 	cleanupService(t, newServicesClient(t), "projects/test-project/locations/us-central1/services/"+serviceID)
 	body := strings.NewReader(`{"template":{"containers":[{"image":"gcr.io/test-project/raw"}]}}`)
@@ -175,6 +178,7 @@ func TestSDK_CloudRunV2Service_OperationMetadataAndTimestampShape(t *testing.T) 
 }
 
 func TestSDK_CloudRunV2Services_CreateGetListDelete(t *testing.T) {
+	t.Parallel()
 	client := newServicesClient(t)
 	serviceID := uniqueName("v2-svc-roundtrip")
 
@@ -271,6 +275,7 @@ func TestSDK_CloudRunV2Services_CreateGetListDelete(t *testing.T) {
 }
 
 func TestSDK_CloudRunV2Services_MultiContainerSharesLocalhost(t *testing.T) {
+	t.Parallel()
 	client := newServicesClient(t)
 
 	svc := createInvokableService(t, client, "v2-svc-pod-localhost", &runpb.Service{
@@ -299,6 +304,7 @@ func TestSDK_CloudRunV2Services_MultiContainerSharesLocalhost(t *testing.T) {
 }
 
 func TestSDK_CloudRunV2Services_ForwardsRequestPath(t *testing.T) {
+	t.Parallel()
 	client := newServicesClient(t)
 	svc := createInvokableService(t, client, "v2-svc-forward-path", echoService())
 
@@ -354,6 +360,7 @@ func createInvokableService(t *testing.T, client *run.ServicesClient, prefix str
 // Cloud Run hands the caller whatever the container answered: its status,
 // its headers and its body.
 func TestSDK_CloudRunV2Services_PassesTheContainersAnswerThrough(t *testing.T) {
+	t.Parallel()
 	client := newServicesClient(t)
 	svc := createInvokableService(t, client, "v2-svc-teapot", &runpb.Service{
 		Template: &runpb.RevisionTemplate{Containers: []*runpb.Container{{
@@ -372,6 +379,7 @@ func TestSDK_CloudRunV2Services_PassesTheContainersAnswerThrough(t *testing.T) {
 // already had its status and headers relayed, so Cloud Run ends the caller's
 // response where the container stopped rather than appending an error page.
 func TestSDK_CloudRunV2Services_AbortsAResponseTheContainerCutsShort(t *testing.T) {
+	t.Parallel()
 	client := newServicesClient(t)
 	svc := createInvokableService(t, client, "v2-svc-cut-short", &runpb.Service{
 		Template: &runpb.RevisionTemplate{Containers: []*runpb.Container{{
@@ -398,6 +406,7 @@ func TestSDK_CloudRunV2Services_AbortsAResponseTheContainerCutsShort(t *testing.
 // A configured HTTP startup probe gates the instance: traffic reaches the
 // container once the probe's GET answers 2xx.
 func TestSDK_CloudRunV2Services_HTTPStartupProbeAdmitsTraffic(t *testing.T) {
+	t.Parallel()
 	client := newServicesClient(t)
 	svc := createInvokableService(t, client, "v2-svc-http-probe", &runpb.Service{
 		Template: &runpb.RevisionTemplate{Containers: []*runpb.Container{{
@@ -423,6 +432,7 @@ func TestSDK_CloudRunV2Services_HTTPStartupProbeAdmitsTraffic(t *testing.T) {
 // A startup probe that keeps failing fails the instance, and the request it
 // was started for gets 503 instead of reaching the container.
 func TestSDK_CloudRunV2Services_FailingStartupProbeAnswers503(t *testing.T) {
+	t.Parallel()
 	client := newServicesClient(t)
 	cases := map[string]*runpb.Probe{
 		// The teapot answers every GET with 418, which is not a success.
@@ -455,6 +465,7 @@ func TestSDK_CloudRunV2Services_FailingStartupProbeAnswers503(t *testing.T) {
 // A private service refuses a request without a credential; one whose invoker
 // IAM check is disabled admits it.
 func TestSDK_CloudRunV2Services_InvokerAuthentication(t *testing.T) {
+	t.Parallel()
 	client := newServicesClient(t)
 
 	private := createInvokableService(t, client, "v2-svc-private", &runpb.Service{
@@ -478,11 +489,13 @@ func TestSDK_CloudRunV2Services_InvokerAuthentication(t *testing.T) {
 
 // A run.app host that names no service is not found.
 func TestSDK_CloudRunV2Services_UnknownHostIsNotFound(t *testing.T) {
+	t.Parallel()
 	status, _, _ := invokeService(t, "", "https://no-such-service-abcdefghij-us-central1.a.run.app", http.MethodGet, "/", "")
 	assert.Equal(t, http.StatusNotFound, status)
 }
 
 func TestSDK_CloudRunV2Services_UpdateBumpsGeneration(t *testing.T) {
+	t.Parallel()
 	client := newServicesClient(t)
 
 	createOp, err := client.CreateService(ctx, &runpb.CreateServiceRequest{

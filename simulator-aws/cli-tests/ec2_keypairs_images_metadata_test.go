@@ -8,6 +8,7 @@ import (
 // TestEC2KeyPairsImagesMetadataCLI covers key pairs, DescribeImages filters, and
 // ModifyInstanceMetadataOptions via the aws CLI.
 func TestEC2KeyPairsImagesMetadataCLI(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	// Key pair create -> describe -> delete.

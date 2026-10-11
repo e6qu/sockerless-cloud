@@ -20,6 +20,7 @@ func apigwPatch(path, value string) apigwtypes.PatchOperation {
 // UpdateMethodResponse, UpdateIntegration, UpdateModel, UpdateRequestValidator,
 // UpdateDeployment, UpdateStage — each a PATCH against the stored resource.
 func TestAPIGateway_UpdateLifecycle(t *testing.T) {
+	t.Parallel()
 	c := apigwClient()
 
 	api, err := c.CreateRestApi(ctx, &apigateway.CreateRestApiInput{Name: aws.String("update-lifecycle")})
@@ -167,6 +168,7 @@ func TestAPIGateway_UpdateLifecycle(t *testing.T) {
 // TestAPIGateway_ImportAndTag covers ImportRestApi, PutRestApi, ImportApiKeys,
 // TagResource and UntagResource.
 func TestAPIGateway_ImportAndTag(t *testing.T) {
+	t.Parallel()
 	c := apigwClient()
 
 	openapi := []byte(`{"openapi":"3.0.1","info":{"title":"imported-api","version":"1.0"},"paths":{"/ping":{"get":{"responses":{"200":{"description":"ok"}}}}}}`)
@@ -245,6 +247,7 @@ func TestAPIGateway_ImportAndTag(t *testing.T) {
 // (CreateDomainNameAccessAssociation, GetDomainNameAccessAssociations,
 // RejectDomainNameAccessAssociation, DeleteDomainNameAccessAssociation).
 func TestAPIGateway_DomainVpcUsageAndAccess(t *testing.T) {
+	t.Parallel()
 	c := apigwClient()
 
 	// UpdateDomainName patches a custom domain's certificate settings.

@@ -11,6 +11,7 @@ import (
 // TestPubSub_SnapshotLifecycle covers the previously-untested snapshot ops:
 // create (off a subscription), get, list, seek-to-snapshot, and delete.
 func TestPubSub_SnapshotLifecycle(t *testing.T) {
+	t.Parallel()
 	svc := pubsubService(t)
 	const project = "snap-project"
 	topic := "projects/" + project + "/topics/" + uniqueName("snap-topic")

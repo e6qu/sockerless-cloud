@@ -27,6 +27,7 @@ func sfnClient() *sfn.Client {
 }
 
 func TestSFN_StateMachineCRUD_SDK(t *testing.T) {
+	t.Parallel()
 	c := sfnClient()
 
 	create, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
@@ -118,6 +119,7 @@ func TestSFN_StateMachineCRUD_SDK(t *testing.T) {
 }
 
 func TestSFN_ExecutionLifecycle_SDK(t *testing.T) {
+	t.Parallel()
 	machineName := uniqueName("sfn-sdk-exec-sm")
 	c := sfnClient()
 
@@ -160,6 +162,7 @@ func TestSFN_ExecutionLifecycle_SDK(t *testing.T) {
 }
 
 func TestSFN_StopExecution_SDK(t *testing.T) {
+	t.Parallel()
 	c := sfnClient()
 
 	create, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
@@ -193,6 +196,7 @@ func TestSFN_StopExecution_SDK(t *testing.T) {
 }
 
 func TestSFN_FailState_SDK(t *testing.T) {
+	t.Parallel()
 	c := sfnClient()
 
 	create, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
@@ -226,6 +230,7 @@ func TestSFN_FailState_SDK(t *testing.T) {
 // ListTagsForResource. The SDK silently drops unknown members, so the
 // describe response is probed raw.
 func TestSFNDescribeStateMachineOmitsTags(t *testing.T) {
+	t.Parallel()
 	machineName := uniqueName("sfn-tags-shape")
 	c := sfnClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -264,6 +269,7 @@ func TestSFNDescribeStateMachineOmitsTags(t *testing.T) {
 // TestSFN_GetExecutionHistory_SDK covers GetExecutionHistory and exercises the
 // Choice interpreter end-to-end (input routes to the >5 branch).
 func TestSFN_GetExecutionHistory_SDK(t *testing.T) {
+	t.Parallel()
 	machineName := uniqueName("sfn-sdk-history-sm")
 	c := sfnClient()
 	create, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{

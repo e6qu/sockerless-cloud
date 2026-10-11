@@ -17,6 +17,7 @@ import (
 // eventStreamEndpoint, resolves the latest revision's first replica and its
 // container, and follows that container's console until the container exits.
 func TestContainerAppsCLI_LogsShowFollowsTheReplica(t *testing.T) {
+	t.Parallel()
 	env := startAzTLSSimulator(t)
 	runCLI(t, env.command("cloud", "register", "-n", "sockerless-aca-logs",
 		"--endpoint-resource-manager", env.baseURL,

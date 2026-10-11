@@ -16,6 +16,7 @@ const avroDef = `{"type":"record","name":"Avro","fields":[{"name":"id","type":"s
 // create → get → list → commit (new revision) → listRevisions →
 // rollback → deleteRevision → delete.
 func TestPubSub_SchemaLifecycle(t *testing.T) {
+	t.Parallel()
 	svc := pubsubService(t)
 	const project = "schema-project"
 	parent := "projects/" + project
@@ -109,6 +110,7 @@ func TestPubSub_SchemaLifecycle(t *testing.T) {
 // each rejects with INVALID_ARGUMENT / NOT_FOUND. A verb that accepted
 // everything would pass the acceptance half alone.
 func TestPubSub_SchemaValidate(t *testing.T) {
+	t.Parallel()
 	svc := pubsubService(t)
 	const project = "schema-validate-project"
 	parent := "projects/" + project
@@ -184,6 +186,7 @@ func TestPubSub_SchemaValidate(t *testing.T) {
 // TestPubSub_SchemaIAM round-trips an IAM policy on a schema resource
 // and verifies testIamPermissions echoes the requested set.
 func TestPubSub_SchemaIAM(t *testing.T) {
+	t.Parallel()
 	svc := pubsubService(t)
 	const project = "schema-iam-project"
 	parent := "projects/" + project
@@ -207,6 +210,7 @@ func TestPubSub_SchemaIAM(t *testing.T) {
 // TestPubSub_ResourceIAM round-trips IAM policies on topics,
 // subscriptions, and snapshots — the AIP-141 three-verb cluster on each.
 func TestPubSub_ResourceIAM(t *testing.T) {
+	t.Parallel()
 	svc := pubsubService(t)
 	const project = "ps-iam-project"
 	parent := "projects/" + project
@@ -303,6 +307,7 @@ func assertIAMRoundTrip(
 // TestPubSub_TopicSubCollections lists the snapshots and subscriptions
 // that reference a topic via the topic sub-collection endpoints.
 func TestPubSub_TopicSubCollections(t *testing.T) {
+	t.Parallel()
 	svc := pubsubService(t)
 	const project = "ps-subcoll-project"
 	parent := "projects/" + project
@@ -329,6 +334,7 @@ func TestPubSub_TopicSubCollections(t *testing.T) {
 // TestPubSub_ModifyPushConfigAndDetach exercises the modifyPushConfig and
 // detach verbs on a subscription.
 func TestPubSub_ModifyPushConfigAndDetach(t *testing.T) {
+	t.Parallel()
 	svc := pubsubService(t)
 	const project = "ps-detach-project"
 	parent := "projects/" + project
@@ -366,6 +372,7 @@ func TestPubSub_ModifyPushConfigAndDetach(t *testing.T) {
 
 // TestPubSub_SnapshotPatch updates a snapshot's labels via the patch verb.
 func TestPubSub_SnapshotPatch(t *testing.T) {
+	t.Parallel()
 	svc := pubsubService(t)
 	const project = "ps-snappatch-project"
 	parent := "projects/" + project

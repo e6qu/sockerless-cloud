@@ -9,6 +9,7 @@ import (
 // the top-level task-def knobs (runtime_platform / ephemeral_storage / pid_mode
 // / ipc_mode / placement_constraints) via the aws CLI.
 func TestECSTaskDefFidelityCLI(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	containerDefs := `[

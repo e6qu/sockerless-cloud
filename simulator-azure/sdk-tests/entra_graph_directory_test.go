@@ -156,6 +156,7 @@ func graphIDs(t *testing.T, body map[string]any) []string {
 // polymorphic directoryObjects read — against both the v1.0 and the beta
 // endpoint, over the same directory.
 func TestEntraGraphDirectorySurface(t *testing.T) {
+	t.Parallel()
 	visited := map[string]bool{}
 	for version, label := range []string{"v1.0", "beta"} {
 		t.Run(label, func(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 // TestResourceTagsCLI_CreateTimeRoundTrip drives the create-time tag round-trip
 // for CloudWatch Logs, DynamoDB, and ECR via the aws CLI.
 func TestResourceTagsCLI_CreateTimeRoundTrip(t *testing.T) {
+	t.Parallel()
 	t.Run("CloudWatchLogs", func(t *testing.T) {
 		name := "/cli-tags/app"
 		runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", name,

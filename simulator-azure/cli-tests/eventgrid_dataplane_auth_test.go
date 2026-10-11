@@ -37,6 +37,7 @@ func eventGridCLISASToken(t *testing.T, resource string, expiry time.Time, key s
 }
 
 func TestEventGridCLI_PublishCredentialContract(t *testing.T) {
+	t.Parallel()
 	topicURL := baseURL + "/subscriptions/" + subscriptionID + "/resourceGroups/" + resourceGroup +
 		"/providers/Microsoft.EventGrid/topics/cli-auth-topic?api-version=2021-12-01"
 	out := runCLI(t, azRest("PUT", topicURL, `{"location":"eastus"}`))

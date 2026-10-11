@@ -17,6 +17,7 @@ import (
 // TestValidationSweep covers the fidelity gaps surfaced by the sweep: the sim
 // must reject inputs real AWS rejects.
 func TestValidationSweep(t *testing.T) {
+	t.Parallel()
 	t.Run("SQS_CreateQueue_idempotency", func(t *testing.T) {
 		c := sqsClient()
 		_, err := c.CreateQueue(ctx, &sqs.CreateQueueInput{

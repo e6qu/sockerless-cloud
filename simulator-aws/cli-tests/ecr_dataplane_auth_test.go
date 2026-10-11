@@ -58,6 +58,7 @@ func ecrCLIRegistryRequest(t *testing.T, method, path string, body []byte, conte
 }
 
 func TestECRCLI_RegistryDataPlaneCredentialContract(t *testing.T) {
+	t.Parallel()
 	const repo = "ecr-cli-auth/app"
 	runCLI(t, awsCLI("ecr", "create-repository", "--repository-name", repo))
 	t.Cleanup(func() {

@@ -18,6 +18,7 @@ import (
 // client's protocol in X-Forwarded-Proto, and an X-Cloud-Trace-Context; an
 // X-Google-* header the client sends never reaches it.
 func TestCloudRun_CLI_ServiceReceivesForwardedRequestHeaders(t *testing.T) {
+	t.Parallel()
 	const service = "cli-svc-xff"
 	runCLI(t, gcloudRegionalRunCLI("run", "deploy", service,
 		"--region="+location,

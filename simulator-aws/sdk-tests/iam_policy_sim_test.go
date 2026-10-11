@@ -24,6 +24,7 @@ func decisionFor(t *testing.T, results []iamtypes.EvaluationResult, action strin
 // TestIAM_SimulateCustomPolicy covers evaluate inline policies for
 // explicit-deny-wins, resource scoping, action wildcards, and conditions.
 func TestIAM_SimulateCustomPolicy(t *testing.T) {
+	t.Parallel()
 	client := iamClient()
 
 	// Explicit deny.
@@ -87,6 +88,7 @@ func TestIAM_SimulateCustomPolicy(t *testing.T) {
 // TestIAM_SimulatePrincipalPolicy covers resolving a role's inline policy from
 // the store and evaluating against it.
 func TestIAM_SimulatePrincipalPolicy(t *testing.T) {
+	t.Parallel()
 	client := iamClient()
 	roleName := uniqueName("sim-princ-role")
 	_, err := client.CreateRole(ctx, &iam.CreateRoleInput{

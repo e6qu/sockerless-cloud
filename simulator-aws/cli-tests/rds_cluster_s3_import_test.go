@@ -55,6 +55,7 @@ func cliTakeXtraBackup(t *testing.T, name string, statements ...string) string {
 // Amazon S3 prefix the ingestion role reads into a new Aurora MySQL cluster,
 // which serves the backup's data to its master user.
 func TestRDSCLI_AuroraClusterRestoresFromS3XtraBackup(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	backup := cliTakeXtraBackup(t, "cli-xtrabackup-source",
@@ -125,6 +126,7 @@ func TestRDSCLI_AuroraClusterRestoresFromS3XtraBackup(t *testing.T) {
 // delete-db-cluster-snapshot refuses to delete, and refuses a malformed
 // backup window.
 func TestRDSCLI_AuroraAutomatedSnapshots(t *testing.T) {
+	t.Parallel()
 	clusterID := "cli-automated-backups"
 	runCLI(t, awsCLI("rds", "create-db-cluster",
 		"--db-cluster-identifier", clusterID,

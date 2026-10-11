@@ -19,6 +19,7 @@ func iamMFACLIUser(t *testing.T, name string) {
 // blob to --outfile), enable-mfa-device, get-mfa-device, list-mfa-devices,
 // list-virtual-mfa-devices, the tag ops, resync, deactivate, and delete.
 func TestIAMCLI_VirtualMFADevice(t *testing.T) {
+	t.Parallel()
 	user := "cli-mfa-user"
 	iamMFACLIUser(t, user)
 
@@ -80,6 +81,7 @@ func TestIAMCLI_VirtualMFADevice(t *testing.T) {
 
 // TestIAMCLI_SSHPublicKey drives upload/get/list/update/delete-ssh-public-key.
 func TestIAMCLI_SSHPublicKey(t *testing.T) {
+	t.Parallel()
 	user := "cli-ssh-user"
 	iamMFACLIUser(t, user)
 
@@ -118,6 +120,7 @@ func TestIAMCLI_SSHPublicKey(t *testing.T) {
 
 // TestIAMCLI_SigningCertificate drives upload/list/update/delete-signing-certificate.
 func TestIAMCLI_SigningCertificate(t *testing.T) {
+	t.Parallel()
 	user := "cli-cert-user"
 	iamMFACLIUser(t, user)
 
@@ -148,6 +151,7 @@ func TestIAMCLI_SigningCertificate(t *testing.T) {
 
 // TestIAMCLI_ServiceSpecificCredential drives create/list/reset/update/delete-service-specific-credential.
 func TestIAMCLI_ServiceSpecificCredential(t *testing.T) {
+	t.Parallel()
 	user := "cli-svccred-user"
 	iamMFACLIUser(t, user)
 

@@ -27,6 +27,7 @@ func ec2LaunchInstanceCLI(t *testing.T, q func(args ...string) string, base stri
 // association lifecycle via the aws CLI: associate over a running instance,
 // describe read-back + instance-id filter, replace, and disassociate.
 func TestEC2CLI_IamInstanceProfileAssociation(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	inst := ec2LaunchInstanceCLI(t, q, "10.210")
 
@@ -65,6 +66,7 @@ func TestEC2CLI_IamInstanceProfileAssociation(t *testing.T) {
 // TestEC2CLI_InstanceCreditSpecification covers the credit-option modify/read
 // plus the CPU-options modification via the aws CLI.
 func TestEC2CLI_InstanceCreditSpecification(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	inst := ec2LaunchInstanceCLI(t, q, "10.211")
 
@@ -92,6 +94,7 @@ func TestEC2CLI_InstanceCreditSpecification(t *testing.T) {
 // TestEC2CLI_InstancePlacement covers the placement / maintenance / network-
 // performance / event-start-time modifications via the aws CLI.
 func TestEC2CLI_InstancePlacement(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	inst := ec2LaunchInstanceCLI(t, q, "10.212")
 
@@ -122,6 +125,7 @@ func TestEC2CLI_InstancePlacement(t *testing.T) {
 // TestEC2CLI_ConsoleOutput covers the console / screenshot / password / TPM /
 // UEFI reads plus topology and image-metadata via the aws CLI.
 func TestEC2CLI_ConsoleOutput(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	inst := ec2LaunchInstanceCLI(t, q, "10.213")
 
@@ -166,6 +170,7 @@ func TestEC2CLI_ConsoleOutput(t *testing.T) {
 // sql-ha-standby-detections) are absent from aws CLI 2.26.6, so they are
 // exercised via the SDK test (which satisfies the contract hook).
 func TestEC2CLI_BundleAndExport(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	inst := ec2LaunchInstanceCLI(t, q, "10.214")
 

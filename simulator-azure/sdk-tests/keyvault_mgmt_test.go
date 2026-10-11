@@ -41,6 +41,7 @@ func createKVVault(t *testing.T, rg, name string) {
 }
 
 func TestKeyVaultMgmt_CheckNameAvailability(t *testing.T) {
+	t.Parallel()
 	rg := "kv-checkname-rg"
 	ensureKVResourceGroup(t, rg)
 	client, err := armkeyvault.NewVaultsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -63,6 +64,7 @@ func TestKeyVaultMgmt_CheckNameAvailability(t *testing.T) {
 }
 
 func TestKeyVaultMgmt_PrivateEndpointConnections(t *testing.T) {
+	t.Parallel()
 	rg := "kv-pe-rg"
 	ensureKVResourceGroup(t, rg)
 	createKVVault(t, rg, "kv-pe-vault")
@@ -101,6 +103,7 @@ func TestKeyVaultMgmt_PrivateEndpointConnections(t *testing.T) {
 }
 
 func TestKeyVaultMgmt_PrivateLinkResources(t *testing.T) {
+	t.Parallel()
 	rg := "kv-plr-rg"
 	ensureKVResourceGroup(t, rg)
 	createKVVault(t, rg, "kv-plr-vault")

@@ -47,6 +47,7 @@ func apigwNewRestAPIWithStage(t *testing.T, c *apigateway.Client, name string) (
 // under a custom domain name: CreateBasePathMapping → GetBasePathMappings →
 // GetBasePathMapping → UpdateBasePathMapping → DeleteBasePathMapping.
 func TestAPIGateway_BasePathMappings(t *testing.T) {
+	t.Parallel()
 	c := apigwClient()
 	apiID, stage := apigwNewRestAPIWithStage(t, c, "bpm-api")
 	domain := "bpm.example.com"
@@ -93,6 +94,7 @@ func TestAPIGateway_BasePathMappings(t *testing.T) {
 // GetClientCertificates → GetClientCertificate → UpdateClientCertificate →
 // DeleteClientCertificate, asserting the generated PEM is real-shaped.
 func TestAPIGateway_ClientCertificates(t *testing.T) {
+	t.Parallel()
 	c := apigwClient()
 	gen, err := c.GenerateClientCertificate(ctx, &apigateway.GenerateClientCertificateInput{
 		Description: aws.String("integration cert"),
@@ -138,6 +140,7 @@ func TestAPIGateway_ClientCertificates(t *testing.T) {
 // CreateDocumentationVersion → GetDocumentationVersions →
 // GetDocumentationVersion → UpdateDocumentationVersion → Delete{Part,Version}.
 func TestAPIGateway_Documentation(t *testing.T) {
+	t.Parallel()
 	c := apigwClient()
 	apiID, _ := apigwNewRestAPIWithStage(t, c, "doc-api")
 
@@ -224,6 +227,7 @@ func TestAPIGateway_Documentation(t *testing.T) {
 // its seeded defaults: GetGatewayResponses → PutGatewayResponse →
 // GetGatewayResponse → UpdateGatewayResponse → DeleteGatewayResponse.
 func TestAPIGateway_GatewayResponses(t *testing.T) {
+	t.Parallel()
 	c := apigwClient()
 	apiID, _ := apigwNewRestAPIWithStage(t, c, "gr-api")
 
@@ -334,6 +338,7 @@ func TestAPIGateway_AccountAndMisc(t *testing.T) {
 // deployed stage, GetUsage off a usage plan, and GetTags off a stored
 // resource ARN.
 func TestAPIGateway_ExportSdkUsageTags(t *testing.T) {
+	t.Parallel()
 	c := apigwClient()
 	apiID, stage := apigwNewRestAPIWithStage(t, c, "export-api")
 

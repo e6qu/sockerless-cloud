@@ -19,6 +19,7 @@ import (
 // EventBridge Scheduler one-time schedule each start a real AWS Step Functions
 // execution that reaches SUCCEEDED.
 func TestEventBridgeAndScheduler_StartStepFunctionsExecutions_SDK(t *testing.T) {
+	t.Parallel()
 	stepFunctions := sfnClient()
 	events := eventbridgeClient()
 	schedules := schedulerClient()

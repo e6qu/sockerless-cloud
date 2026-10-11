@@ -27,6 +27,7 @@ import (
 //	POST /api/continuouswebjobs/{job}/stop
 
 func TestWebAppKudu_WebJobsAPI(t *testing.T) {
+	t.Parallel()
 	rg, app := "kudu-webjobs-cli-rg", "kudu-webjobs-cli-app"
 	az, scmHost := kuduCLIWebApp(t, rg, "kudu-webjobs-cli-plan", app)
 	scm := "https://" + scmHost

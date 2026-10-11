@@ -9,6 +9,7 @@ import (
 // CLI: create-network-acl, create-network-acl-entry, replace-network-acl-entry,
 // describe-network-acls read-back, delete-network-acl-entry, delete-network-acl.
 func TestEC2CLI_NetworkAclLifecycle(t *testing.T) {
+	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.210.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	if vpcID == "" {
@@ -56,6 +57,7 @@ func TestEC2CLI_NetworkAclLifecycle(t *testing.T) {
 // TestEC2CLI_VpcPeeringLifecycle exercises create/describe/accept/delete of a
 // VPC peering connection through the aws CLI.
 func TestEC2CLI_VpcPeeringLifecycle(t *testing.T) {
+	t.Parallel()
 	vpcA := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.211.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	vpcB := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
@@ -94,6 +96,7 @@ func TestEC2CLI_VpcPeeringLifecycle(t *testing.T) {
 // TestEC2CLI_ManagedPrefixListLifecycle exercises create/describe/get-entries/
 // delete of a managed prefix list through the aws CLI.
 func TestEC2CLI_ManagedPrefixListLifecycle(t *testing.T) {
+	t.Parallel()
 	plID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-managed-prefix-list",
 		"--prefix-list-name", "cli-corp", "--address-family", "IPv4", "--max-entries", "4",
 		"--entries", "Cidr=172.16.0.0/12,Description=corp", "Cidr=10.1.0.0/16",
@@ -120,6 +123,7 @@ func TestEC2CLI_ManagedPrefixListLifecycle(t *testing.T) {
 // TestEC2CLI_FlowLogsLifecycle exercises create/describe/delete flow logs
 // against a VPC through the aws CLI.
 func TestEC2CLI_FlowLogsLifecycle(t *testing.T) {
+	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.213.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	if vpcID == "" {
@@ -149,6 +153,7 @@ func TestEC2CLI_FlowLogsLifecycle(t *testing.T) {
 // TestEC2CLI_EgressOnlyInternetGatewayLifecycle exercises create/describe/delete
 // of an egress-only internet gateway through the aws CLI.
 func TestEC2CLI_EgressOnlyInternetGatewayLifecycle(t *testing.T) {
+	t.Parallel()
 	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.214.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	if vpcID == "" {

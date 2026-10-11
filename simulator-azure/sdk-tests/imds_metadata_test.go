@@ -45,11 +45,13 @@ func readAll(r interface{ Read(p []byte) (int, error) }) ([]byte, error) {
 }
 
 func TestIMDS_InstanceRequiresMetadataHeader(t *testing.T) {
+	t.Parallel()
 	resp, _ := imdsRead(t, "/metadata/instance?api-version=2021-02-01", false)
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 func TestIMDS_InstanceComputeAndNetwork(t *testing.T) {
+	t.Parallel()
 	resp, body := imdsRead(t, "/metadata/instance?api-version=2021-02-01", true)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -82,6 +84,7 @@ func TestIMDS_InstanceComputeAndNetwork(t *testing.T) {
 }
 
 func TestIMDS_InstanceComputeShortcut(t *testing.T) {
+	t.Parallel()
 	resp, body := imdsRead(t, "/metadata/instance/compute?api-version=2021-02-01", true)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	var c map[string]any
@@ -91,6 +94,7 @@ func TestIMDS_InstanceComputeShortcut(t *testing.T) {
 }
 
 func TestIMDS_IdentityToken(t *testing.T) {
+	t.Parallel()
 	// Existing /metadata/identity/oauth2/token (managedidentity.go).
 	// Verify it round-trips with the resource query.
 	req, _ := http.NewRequestWithContext(ctx, "GET",

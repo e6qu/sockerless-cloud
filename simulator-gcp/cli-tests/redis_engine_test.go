@@ -62,6 +62,7 @@ func readRedisReply(t *testing.T, reader *bufio.Reader) string {
 // TLS on port 6378 with the CA describe reports; a replica-count update and a
 // failover run on the engine.
 func TestMemorystoreRedisCLI_InstanceTLSPersistenceAndFailover(t *testing.T) {
+	t.Parallel()
 	name := "cli-redis-tls"
 	runCLI(t, gcloudCLI("redis", "instances", "create", name,
 		"--region", location,
@@ -118,6 +119,7 @@ func TestMemorystoreRedisCLI_InstanceTLSPersistenceAndFailover(t *testing.T) {
 }
 
 func TestMemorystoreRedisCLI_BasicTierFailoverRefused(t *testing.T) {
+	t.Parallel()
 	name := "cli-redis-basic"
 	runCLI(t, gcloudCLI("redis", "instances", "create", name,
 		"--region", location, "--size", "1", "--tier", "basic", "--redis-version", "redis_7_2", "--quiet", "--format=json"))
@@ -131,6 +133,7 @@ func TestMemorystoreRedisCLI_BasicTierFailoverRefused(t *testing.T) {
 
 // A shard-count update reshards the running cluster.
 func TestMemorystoreRedisCLI_ClusterReshard(t *testing.T) {
+	t.Parallel()
 	name := "cli-redis-cluster"
 	runCLI(t, gcloudCLI("redis", "clusters", "create", name,
 		"--region", location,
@@ -181,6 +184,7 @@ func TestMemorystoreRedisCLI_ClusterReshard(t *testing.T) {
 // A cluster created with an ACL policy runs the policy's users on its engine,
 // and an update of the policy's rules reaches the running cluster.
 func TestMemorystoreRedisCLI_ClusterAclPolicy(t *testing.T) {
+	t.Parallel()
 	policy := "cli-acl"
 	policyName := "projects/" + project + "/locations/" + location + "/aclPolicies/" + policy
 	runCLI(t, gcloudCLI("redis", "acl-policies", "create", policy, "--region", location,

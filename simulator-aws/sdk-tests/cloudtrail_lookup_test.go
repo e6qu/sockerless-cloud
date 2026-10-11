@@ -44,6 +44,7 @@ func ctHasEventNamed(events []cttypes.Event, name string) bool {
 // cluster — a resource-bearing management event — and exercises the EventId /
 // ResourceName / ResourceType / ReadOnly filters.
 func TestCloudTrailLookupFilterKeysSDK(t *testing.T) {
+	t.Parallel()
 	ct := cloudTrailClient()
 	ecsc := ecsClient()
 	const cluster = "ct-filter-cluster"
@@ -101,6 +102,7 @@ func TestCloudTrailLookupFilterKeysSDK(t *testing.T) {
 // POST / router, so CreateSchedule and the other Scheduler operations must
 // appear in LookupEvents against scheduler.amazonaws.com.
 func TestCloudTrailRecordsSchedulerAPICallsSDK(t *testing.T) {
+	t.Parallel()
 	ct := cloudTrailClient()
 	sched := schedulerClient()
 	const name = "ct-api-schedule"
@@ -141,6 +143,7 @@ func TestCloudTrailRecordsSchedulerAPICallsSDK(t *testing.T) {
 // Service-initiated MANAGEMENT targets (e.g. ECS RunTask) are still recorded with
 // invokedBy=scheduler.amazonaws.com; that path is covered by the RunTask tests.
 func TestCloudTrailRecordsSchedulerFiredTargetSDK(t *testing.T) {
+	t.Parallel()
 	ct := cloudTrailClient()
 	sched := schedulerClient()
 	sqsc := sqsClient()
@@ -184,6 +187,7 @@ func TestCloudTrailRecordsSchedulerFiredTargetSDK(t *testing.T) {
 }
 
 func TestCloudTrailRecordsRESTServiceAPICallsSDK(t *testing.T) {
+	t.Parallel()
 	ct := cloudTrailClient()
 	s3c := s3Client()
 	lambdac := lambdaClient()

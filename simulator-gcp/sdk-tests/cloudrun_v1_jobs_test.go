@@ -58,6 +58,7 @@ func createCloudRunV2JobLRO(t *testing.T, jobID string) string {
 // TestCloudRunV1_ExecutionAndTaskProjection runs a job over the v2 API and
 // reads the execution and its task back through the Knative v1 surface.
 func TestCloudRunV1_ExecutionAndTaskProjection(t *testing.T) {
+	t.Parallel()
 	svc := newRunV1(t)
 	jobID := uniqueName("v1-proj-job")
 	execName := createAndRunJobWithImageAndCommand(t, jobID, simWorkloadImage, []string{"true"}, "30s").Execution
@@ -125,6 +126,7 @@ func TestCloudRunV1_ExecutionAndTaskProjection(t *testing.T) {
 // TestCloudRunV1_ExecutionAndTaskNotFound pins the answer for names that were
 // never created: NOT_FOUND from a handler that looked, not a mux miss.
 func TestCloudRunV1_ExecutionAndTaskNotFound(t *testing.T) {
+	t.Parallel()
 	svc := newRunV1(t)
 
 	_, err := svc.Namespaces.Executions.Get(
@@ -140,6 +142,7 @@ func TestCloudRunV1_ExecutionAndTaskNotFound(t *testing.T) {
 
 // TestCloudRunV1_ExecutionsListPaging drives the Knative limit/continue cursor.
 func TestCloudRunV1_ExecutionsListPaging(t *testing.T) {
+	t.Parallel()
 	svc := newRunV1(t)
 	jobID := uniqueName("v1-paging-job")
 	first := createAndRunJobWithImageAndCommand(t, jobID, simWorkloadImage, []string{"true"}, "30s").Execution
@@ -171,6 +174,7 @@ func TestCloudRunV1_ExecutionsListPaging(t *testing.T) {
 // against the operation record the v2 CreateJob returned. One operation store,
 // two API-version spellings of the poll.
 func TestCloudRunV1_OperationsWait(t *testing.T) {
+	t.Parallel()
 	svc := newRunV1(t)
 	opName := createCloudRunV2JobLRO(t, uniqueName("v1-wait-job"))
 
@@ -189,6 +193,7 @@ func TestCloudRunV1_OperationsWait(t *testing.T) {
 // — the global-path IAM read `gcloud run jobs get-iam-policy` calls — and shows
 // that it reads the policy the v2 collection writes.
 func TestCloudRunV1_JobsGetIamPolicy(t *testing.T) {
+	t.Parallel()
 	svc := newRunV1(t)
 	jobID := uniqueName("v1-iam-job")
 	createCloudRunV2JobLRO(t, jobID)

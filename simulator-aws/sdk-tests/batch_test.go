@@ -19,6 +19,7 @@ func batchClient() *batch.Client {
 }
 
 func TestBatch_ComputeEnvironment_SDK(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 
 	create, err := c.CreateComputeEnvironment(ctx, &batch.CreateComputeEnvironmentInput{
@@ -66,6 +67,7 @@ func TestBatch_ComputeEnvironment_SDK(t *testing.T) {
 }
 
 func TestBatch_JobQueue_SDK(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 
 	// Need a compute environment first
@@ -121,6 +123,7 @@ func TestBatch_JobQueue_SDK(t *testing.T) {
 }
 
 func TestBatch_JobDefinition_SDK(t *testing.T) {
+	t.Parallel()
 	jdName := uniqueName("batch-sdk-jd")
 	c := batchClient()
 
@@ -159,6 +162,7 @@ func TestBatch_JobDefinition_SDK(t *testing.T) {
 // filter: DescribeJobDefinitions with an explicit list of name:revision / ARN
 // returns only those definitions, not every registered one.
 func TestBatch_DescribeJobDefinitions_FilterByList_SDK(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 
 	mk := func(name string) string {
@@ -200,6 +204,7 @@ func TestBatch_DescribeJobDefinitions_FilterByList_SDK(t *testing.T) {
 }
 
 func TestBatch_JobSubmitDescribe_SDK(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 
 	// Setup compute environment and queue
@@ -274,6 +279,7 @@ func TestBatch_JobSubmitDescribe_SDK(t *testing.T) {
 }
 
 func TestBatch_SchedulingPolicy_SDK(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 
 	create, err := c.CreateSchedulingPolicy(ctx, &batch.CreateSchedulingPolicyInput{
@@ -361,6 +367,7 @@ func TestBatch_SchedulingPolicy_SDK(t *testing.T) {
 }
 
 func TestBatch_JobQueueWithSchedulingPolicy_SDK(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 
 	sp, err := c.CreateSchedulingPolicy(ctx, &batch.CreateSchedulingPolicyInput{
@@ -418,6 +425,7 @@ func TestBatch_JobQueueWithSchedulingPolicy_SDK(t *testing.T) {
 }
 
 func TestBatch_ConsumableResource_SDK(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 
 	create, err := c.CreateConsumableResource(ctx, &batch.CreateConsumableResourceInput{
@@ -468,6 +476,7 @@ func TestBatch_ConsumableResource_SDK(t *testing.T) {
 }
 
 func TestBatch_ServiceEnvironment_SDK(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 
 	create, err := c.CreateServiceEnvironment(ctx, &batch.CreateServiceEnvironmentInput{
@@ -512,6 +521,7 @@ func TestBatch_ServiceEnvironment_SDK(t *testing.T) {
 }
 
 func TestBatch_ServiceJob_SDK(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 
 	cq, err := c.CreateJobQueue(ctx, &batch.CreateJobQueueInput{
@@ -569,6 +579,7 @@ func TestBatch_ServiceJob_SDK(t *testing.T) {
 }
 
 func TestBatch_QuotaShare_SDK(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 
 	cq, err := c.CreateJobQueue(ctx, &batch.CreateJobQueueInput{
@@ -633,6 +644,7 @@ func TestBatch_QuotaShare_SDK(t *testing.T) {
 }
 
 func TestBatch_JobQueueSnapshot_SDK(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 
 	cq, err := c.CreateJobQueue(ctx, &batch.CreateJobQueueInput{
@@ -660,6 +672,7 @@ func TestBatch_JobQueueSnapshot_SDK(t *testing.T) {
 // CancelJob cancels only a job that has not reached STARTING, so the queue's
 // only compute environment is DISABLED and holds the job RUNNABLE.
 func TestBatch_CancelJobs_SDK(t *testing.T) {
+	t.Parallel()
 	c := batchClient()
 
 	_, err := c.CreateComputeEnvironment(ctx, &batch.CreateComputeEnvironmentInput{

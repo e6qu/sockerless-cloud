@@ -37,6 +37,7 @@ func tagOnCreateConfig(t *testing.T, user, policy string) aws.Config {
 }
 
 func TestTagOnCreate_ECSCreateWithTagsNeedsTagResource(t *testing.T) {
+	t.Parallel()
 	cfg := tagOnCreateConfig(t, "ecs-create-no-tag",
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"ecs:CreateCluster","Resource":"*"}]}`)
 	restricted := ecs.NewFromConfig(cfg, func(o *ecs.Options) { o.BaseEndpoint = aws.String(baseURL) })
@@ -55,6 +56,7 @@ func TestTagOnCreate_ECSCreateWithTagsNeedsTagResource(t *testing.T) {
 }
 
 func TestTagOnCreate_ECSCreateActionScopesTheTaggingGrant(t *testing.T) {
+	t.Parallel()
 	cfg := tagOnCreateConfig(t, "ecs-tag-on-create-only",
 		`{"Version":"2012-10-17","Statement":[
 		  {"Effect":"Allow","Action":["ecs:CreateCluster","ecs:RegisterTaskDefinition"],"Resource":"*"},
@@ -89,6 +91,7 @@ func TestTagOnCreate_ECSCreateActionScopesTheTaggingGrant(t *testing.T) {
 }
 
 func TestTagOnCreate_ELBCreateActionScopesTheTaggingGrant(t *testing.T) {
+	t.Parallel()
 	vpc, err := ec2Client().CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.91.0.0/16")})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = ec2Client().DeleteVpc(ctx, &ec2.DeleteVpcInput{VpcId: vpc.Vpc.VpcId}) })
@@ -134,6 +137,7 @@ func TestTagOnCreate_ELBCreateActionScopesTheTaggingGrant(t *testing.T) {
 }
 
 func TestTagOnCreate_EC2CreateActionScopesTheTaggingGrant(t *testing.T) {
+	t.Parallel()
 	scoped := ec2.NewFromConfig(tagOnCreateConfig(t, "ec2-tag-on-create-only",
 		`{"Version":"2012-10-17","Statement":[
 		  {"Effect":"Allow","Action":["ec2:CreateVolume","ec2:CreateVpc"],"Resource":"*"},
@@ -169,6 +173,7 @@ func TestTagOnCreate_EC2CreateActionScopesTheTaggingGrant(t *testing.T) {
 // The Go SDK speaks RPC v2 CBOR to Amazon CloudWatch, so the tags it carries
 // have to be read from that encoding.
 func TestTagOnCreate_CloudWatchAlarmWithTagsNeedsTagResource(t *testing.T) {
+	t.Parallel()
 	restricted := cloudwatch.NewFromConfig(tagOnCreateConfig(t, "cw-alarm-no-tag",
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"cloudwatch:PutMetricAlarm","Resource":"*"}]}`),
 		func(o *cloudwatch.Options) { o.BaseEndpoint = aws.String(baseURL) })
@@ -194,6 +199,7 @@ func TestTagOnCreate_CloudWatchAlarmWithTagsNeedsTagResource(t *testing.T) {
 }
 
 func TestTagOnCreate_LambdaFunctionWithTagsNeedsTagResource(t *testing.T) {
+	t.Parallel()
 	restricted := lambda.NewFromConfig(tagOnCreateConfig(t, "lambda-create-no-tag",
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["lambda:CreateFunction","iam:PassRole"],"Resource":"*"}]}`),
 		func(o *lambda.Options) { o.BaseEndpoint = aws.String(baseURL) })
@@ -213,6 +219,7 @@ func TestTagOnCreate_LambdaFunctionWithTagsNeedsTagResource(t *testing.T) {
 // Session tags on an assumption are an sts:TagSession, which the role's trust
 // policy has to allow as well as sts:AssumeRole.
 func TestTagOnCreate_AssumeRoleWithSessionTagsNeedsTagSession(t *testing.T) {
+	t.Parallel()
 	admin := iamClient()
 	cfg := tagOnCreateConfig(t, "sts-assume-no-tag",
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"sts:AssumeRole","Resource":"*"}]}`)
@@ -252,6 +259,7 @@ func TestTagOnCreate_AssumeRoleWithSessionTagsNeedsTagSession(t *testing.T) {
 // scoped to the created type allows the tagged create, and one scoped to the
 // parent does not.
 func TestTagOnCreate_ELBListenerAndRuleTaggingIsScopedToTheCreatedType(t *testing.T) {
+	t.Parallel()
 	ec2c, elb := ec2Client(), elbv2Client()
 	vpc, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.94.0.0/16")})
 	require.NoError(t, err)
@@ -323,6 +331,7 @@ func TestTagOnCreate_ELBListenerAndRuleTaggingIsScopedToTheCreatedType(t *testin
 // RunTask authorizes against the task definition and mints a task in the
 // cluster: its tagging authorizes against task/<cluster>/*.
 func TestTagOnCreate_ECSRunTaskTaggingIsScopedToTheTask(t *testing.T) {
+	t.Parallel()
 	admin := ecsClient()
 	cluster, family := uniqueName("toc-run"), uniqueName("toc-run-task")
 	_, err := admin.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
@@ -366,6 +375,7 @@ func TestTagOnCreate_ECSRunTaskTaggingIsScopedToTheTask(t *testing.T) {
 
 // CreateFunction authorizes, and tags, the function its body names.
 func TestTagOnCreate_LambdaTaggingIsScopedToTheFunction(t *testing.T) {
+	t.Parallel()
 	name := uniqueName("toc-fn-scoped")
 	restricted := lambda.NewFromConfig(tagOnCreateConfig(t, "lambda-create-tag-function", `{"Version":"2012-10-17","Statement":[
 	  {"Effect":"Allow","Action":["lambda:CreateFunction","lambda:TagResource"],"Resource":"arn:aws:lambda:*:*:function:`+name+`"},
@@ -402,6 +412,7 @@ func TestTagOnCreate_LambdaTaggingIsScopedToTheFunction(t *testing.T) {
 // The Go SDK's RPC v2 CBOR PutMetricAlarm names the alarm in its body, which
 // both the create and its tagging authorize against.
 func TestTagOnCreate_CloudWatchAlarmTaggingIsScopedToTheAlarm(t *testing.T) {
+	t.Parallel()
 	client := func(user, tagging string) *cloudwatch.Client {
 		return cloudwatch.NewFromConfig(tagOnCreateConfig(t, user, `{"Version":"2012-10-17","Statement":[
 		  {"Effect":"Allow","Action":"cloudwatch:PutMetricAlarm","Resource":"arn:aws:cloudwatch:*:*:alarm:toc-*"},

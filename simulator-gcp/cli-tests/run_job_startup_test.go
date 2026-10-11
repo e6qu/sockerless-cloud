@@ -15,6 +15,7 @@ import (
 // seconds after it starts, so `execute --wait` succeeds only when the main
 // container starts after the server passed its startup probe.
 func TestCloudRun_CLI_JobContainerDependsOnStartupProbe(t *testing.T) {
+	t.Parallel()
 	const job = "cli-job-depends-on"
 	runCLI(t, gcloudRegionalRunCLI("run", "jobs", "create", job,
 		"--region="+location,
@@ -67,6 +68,7 @@ func TestCloudRun_CLI_JobContainerDependsOnStartupProbe(t *testing.T) {
 // leaves it succeeded, and gcloud reports that it completed before it could be
 // cancelled.
 func TestCloudRun_CLI_CancelCompletedExecution(t *testing.T) {
+	t.Parallel()
 	const job = "cli-job-cancel-done"
 	runCLI(t, gcloudRegionalRunCLI("run", "jobs", "create", job,
 		"--region="+location,
@@ -94,6 +96,7 @@ func TestCloudRun_CLI_CancelCompletedExecution(t *testing.T) {
 // `gcloud run jobs delete` on a job whose execution still runs stops the
 // execution's container: the RunJob operation ends once it has stopped.
 func TestCloudRun_CLI_DeleteJobStopsItsRunningExecution(t *testing.T) {
+	t.Parallel()
 	const job = "cli-job-delete-running"
 	runCLI(t, gcloudRegionalRunCLI("run", "jobs", "create", job,
 		"--region="+location,

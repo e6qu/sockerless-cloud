@@ -26,6 +26,7 @@ import (
 // TestCloudRunServices_RunV1ClientRoundTrip exercises the knative
 // namespaces.services surface through the official run/v1 client.
 func TestCloudRunServices_RunV1ClientRoundTrip(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	svc, err := run.NewService(ctx,
 		option.WithEndpoint(baseURL+"/"),
@@ -64,6 +65,7 @@ func TestCloudRunServices_RunV1ClientRoundTrip(t *testing.T) {
 }
 
 func TestCloudRunServices_CreateGetListDelete(t *testing.T) {
+	t.Parallel()
 	namespace := "test-project"
 
 	// Create.
@@ -121,6 +123,7 @@ func TestCloudRunServices_CreateGetListDelete(t *testing.T) {
 }
 
 func TestCloudRunServices_ReplaceBumpsGeneration(t *testing.T) {
+	t.Parallel()
 	namespace := "test-project-replace"
 
 	createBody := `{
@@ -198,6 +201,7 @@ func doKnative(t *testing.T, method, path, body string) string {
 }
 
 func TestCloudRun_GetService_NotFound_ErrorClassification(t *testing.T) {
+	t.Parallel()
 	const project = "test-project"
 	const region = "us-central1"
 	resp, err := http.Get(baseURL + "/v2/projects/" + project + "/locations/" + region + "/services/nonexistent-service")

@@ -44,7 +44,8 @@ func acrDo(t *testing.T, method, url string, body []byte, contentType string, au
 // multi-segment repository — the whole exchange authenticated with the admin
 // credential a `docker login` presents.
 func TestACR_OCIChunkedPush(t *testing.T) {
-	fixture := newACRRegistryFixture(t, "acr-auth-rg", "acrocipushregistry",
+	t.Parallel()
+	fixture := newACRRegistryFixture(t, "acr-auth-rg-ad1f", "acrocipushregistry",
 		&armcontainerregistry.RegistryProperties{AdminUserEnabled: to.Ptr(true)})
 	auth := fixture.basic(fixture.passwords[0])
 	repo := "shim/registry/app"

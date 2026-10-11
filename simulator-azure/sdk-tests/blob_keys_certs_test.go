@@ -60,6 +60,7 @@ func blobReq(t *testing.T, method, account, path string, body []byte, headers ma
 // `storageAccounts` response advertises this exact endpoint URL, so
 // the data plane it points at must serve it.
 func TestBlobDataPlane_RoundTrip(t *testing.T) {
+	t.Parallel()
 	account := "testaccount"
 	container := "mycontainer"
 
@@ -113,6 +114,7 @@ func TestBlobDataPlane_RoundTrip(t *testing.T) {
 }
 
 func TestBlobDataPlane_ListContainersProperties(t *testing.T) {
+	t.Parallel()
 	account := uniqueAlnumName("listprops")
 	container := "probe"
 
@@ -160,6 +162,7 @@ func TestBlobDataPlane_ListContainersProperties(t *testing.T) {
 // from the Blob data-plane handler (not a mux fall-through to a
 // generic 404 page).
 func TestBlobDataPlane_404OnMissingContainer(t *testing.T) {
+	t.Parallel()
 	resp := blobReq(t, "GET", "noaccount", "/nope?restype=container", nil, nil)
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
@@ -197,6 +200,7 @@ func kvReq(t *testing.T, method, vault, path string, body []byte) *http.Response
 // ARM. Locks the symmetric "ARM-creates → data-plane-serves" wiring
 // the secrets handler already covered.
 func TestKeyVault_KeysAndCertificates(t *testing.T) {
+	t.Parallel()
 	// Vault must exist in the ARM control plane first.
 	vault := uniqueAlnumName("testvault")
 	createKVViaARM(t, "kv-keys-certs-rg", vault)

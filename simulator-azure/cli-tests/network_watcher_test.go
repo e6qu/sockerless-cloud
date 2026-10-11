@@ -18,6 +18,7 @@ import (
 const networkWatcherAPIVersion = "2025-03-01"
 
 func TestNetworkWatcherConfigurationCLI(t *testing.T) {
+	t.Parallel()
 	nsgURL := armURL("Microsoft.Network", "networkSecurityGroups/cli-watch-nsg", networkWatcherAPIVersion)
 	runCLI(t, azRest("PUT", nsgURL, `{"location":"eastus","properties":{"securityRules":[]}}`))
 	nsgID := networkResourceID("networkSecurityGroups/cli-watch-nsg")
@@ -152,6 +153,7 @@ func TestNetworkWatcherConfigurationCLI(t *testing.T) {
 // interface: IP flow verify against the rules on its subnet, and next hop
 // against the route table attached to it.
 func TestNetworkWatcherDiagnosticsCLI(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 
 	nsgURL := armURL("Microsoft.Network", "networkSecurityGroups/cli-diag-nsg", networkWatcherAPIVersion)

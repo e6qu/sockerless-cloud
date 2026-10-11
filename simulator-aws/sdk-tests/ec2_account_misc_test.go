@@ -14,6 +14,7 @@ import (
 // DescribeIdFormat, ModifyIdFormat, DescribeIdentityIdFormat,
 // ModifyIdentityIdFormat, DescribeAggregateIdFormat, DescribePrincipalIdFormat.
 func TestEC2_IdFormatRoundTripSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	desc, err := c.DescribeIdFormat(ctx, &ec2.DescribeIdFormatInput{Resource: aws.String("vpc")})
@@ -59,6 +60,7 @@ func TestEC2_IdFormatRoundTripSDK(t *testing.T) {
 // TestEC2_AddressAttributeRoundTripSDK covers ModifyAddressAttribute /
 // ResetAddressAttribute (the PTR/reverse-DNS record on an Elastic IP).
 func TestEC2_AddressAttributeRoundTripSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	eip, err := c.AllocateAddress(ctx, &ec2.AllocateAddressInput{Domain: types.DomainTypeVpc})
@@ -88,6 +90,7 @@ func TestEC2_AddressAttributeRoundTripSDK(t *testing.T) {
 // RestoreAddressToClassic, and DescribeMovingAddresses (EC2-Classic ↔ VPC EIP
 // domain transitions).
 func TestEC2_MovingAddressesRoundTripSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	eip, err := c.AllocateAddress(ctx, &ec2.AllocateAddressInput{Domain: types.DomainTypeVpc})
@@ -114,6 +117,7 @@ func TestEC2_MovingAddressesRoundTripSDK(t *testing.T) {
 // TestEC2_ClassicLinkRoundTripSDK covers AttachClassicLinkVpc /
 // DetachClassicLinkVpc on an existing instance + VPC.
 func TestEC2_ClassicLinkRoundTripSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.71.0.0/16")})
@@ -152,6 +156,7 @@ func TestEC2_ClassicLinkRoundTripSDK(t *testing.T) {
 // TestEC2_EnclaveCertificateRoundTripSDK covers AssociateEnclaveCertificateIamRole,
 // GetAssociatedEnclaveCertificateIamRoles, and DisassociateEnclaveCertificateIamRole.
 func TestEC2_EnclaveCertificateRoundTripSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	const certArn = "arn:aws:acm:us-east-1:000000000000:certificate/abcd1234-ef56-7890-abcd-ef1234567890"
 	const roleArn = "arn:aws:iam::000000000000:role/enclave-role"
@@ -189,6 +194,7 @@ func TestEC2_EnclaveCertificateRoundTripSDK(t *testing.T) {
 // ImportClientVpnClientCertificateRevocationList, and
 // ExportClientVpnClientCertificateRevocationList.
 func TestEC2_ClientVpnExportRoundTripSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	ep, err := c.CreateClientVpnEndpoint(ctx, &ec2.CreateClientVpnEndpointInput{
@@ -233,6 +239,7 @@ func TestEC2_ClientVpnExportRoundTripSDK(t *testing.T) {
 // TestEC2_TgwConnectPeerRoundTripSDK covers CreateTransitGatewayConnectPeer,
 // DescribeTransitGatewayConnectPeers, and DeleteTransitGatewayConnectPeer.
 func TestEC2_TgwConnectPeerRoundTripSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	tgw, err := c.CreateTransitGateway(ctx, &ec2.CreateTransitGatewayInput{})
@@ -295,6 +302,7 @@ func TestEC2_TgwConnectPeerRoundTripSDK(t *testing.T) {
 // RejectTransitGatewayClientVpnAttachment, DeleteTransitGatewayClientVpnAttachment,
 // and DescribeTransitGatewayMeteringPolicies.
 func TestEC2_TgwClientVpnAttachmentSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	const attID = "tgw-attach-0123456789abcdef0"
 
@@ -325,6 +333,7 @@ func TestEC2_TgwClientVpnAttachmentSDK(t *testing.T) {
 // TestEC2_VpcPeeringOptionsRoundTripSDK covers ModifyVpcPeeringConnectionOptions
 // and RejectVpcPeeringConnection on an existing peering connection.
 func TestEC2_VpcPeeringOptionsRoundTripSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	a, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.91.0.0/16")})
@@ -373,6 +382,7 @@ func TestEC2_VpcPeeringOptionsRoundTripSDK(t *testing.T) {
 // TestEC2_NetworkAclAssociationRoundTripSDK covers ReplaceNetworkAclAssociation,
 // swapping a subnet's network-ACL association to a new ACL.
 func TestEC2_NetworkAclAssociationRoundTripSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.94.0.0/16")})
@@ -430,6 +440,7 @@ func TestEC2_NetworkAclAssociationRoundTripSDK(t *testing.T) {
 // ModifyVpnTunnelCertificate, and ReplaceVpnTunnel against an existing
 // Site-to-Site VPN connection.
 func TestEC2_VpnTunnelReplacementSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	cgw, err := c.CreateCustomerGateway(ctx, &ec2.CreateCustomerGatewayInput{
@@ -488,6 +499,7 @@ func TestEC2_VpnTunnelReplacementSDK(t *testing.T) {
 // TestEC2_OutpostLagsAndFlowLogsTemplateSDK covers DescribeOutpostLags (too new
 // for the local aws CLI, so SDK-only) and GetFlowLogsIntegrationTemplate.
 func TestEC2_OutpostLagsAndFlowLogsTemplateSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	lags, err := c.DescribeOutpostLags(ctx, &ec2.DescribeOutpostLagsInput{})
@@ -535,6 +547,7 @@ func TestEC2_OutpostLagsAndFlowLogsTemplateSDK(t *testing.T) {
 // and ModifyManagedResourceVisibility. The latter six lack an aws CLI 2.26.6
 // verb, so the SDK suite owns the simulator-test-contract hook for them.
 func TestEC2_MiscHonestEmptySDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	assoc, err := c.DescribeVpcEndpointAssociations(ctx, &ec2.DescribeVpcEndpointAssociationsInput{})

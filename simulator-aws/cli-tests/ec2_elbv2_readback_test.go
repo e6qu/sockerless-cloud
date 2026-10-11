@@ -9,6 +9,7 @@ import (
 // TestEC2CLI_LaunchTemplateProvenanceTags drives the launch-template system tags
 // (aws:ec2launchtemplate:id/version) that the provider reads back.
 func TestEC2CLI_LaunchTemplateProvenanceTags(t *testing.T) {
+	t.Parallel()
 	lt := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-launch-template",
 		"--launch-template-name", "cli-readback-lt",
 		"--launch-template-data", `{"ImageId":"ami-0abc1234","InstanceType":"t4g.nano"}`,
@@ -33,6 +34,7 @@ func TestEC2CLI_LaunchTemplateProvenanceTags(t *testing.T) {
 
 // TestEC2CLI_RouteNetworkInterfaceId drives the route NetworkInterfaceId round-trip.
 func TestEC2CLI_RouteNetworkInterfaceId(t *testing.T) {
+	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc", "--cidr-block", "10.44.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	sub := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-subnet", "--vpc-id", vpc, "--cidr-block", "10.44.1.0/24", "--query", "Subnet.SubnetId", "--output", "text")))
 	eni := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-network-interface", "--subnet-id", sub, "--query", "NetworkInterface.NetworkInterfaceId", "--output", "text")))
@@ -48,6 +50,7 @@ func TestEC2CLI_RouteNetworkInterfaceId(t *testing.T) {
 
 // TestEC2CLI_SecurityGroupEgressIpv6Ranges drives the egress Ipv6Ranges round-trip.
 func TestEC2CLI_SecurityGroupEgressIpv6Ranges(t *testing.T) {
+	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc", "--cidr-block", "10.45.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	sg := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-security-group", "--group-name", "cli-ipv6-egress", "--description", "ipv6", "--vpc-id", vpc, "--query", "GroupId", "--output", "text")))
 	// Revoke the default ALLOW ALL IPv4 egress rule before authorizing a
@@ -66,6 +69,7 @@ func TestEC2CLI_SecurityGroupEgressIpv6Ranges(t *testing.T) {
 
 // TestELBv2CLI_ListenerSslPolicy drives the HTTPS listener SslPolicy round-trip.
 func TestELBv2CLI_ListenerSslPolicy(t *testing.T) {
+	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc", "--cidr-block", "10.46.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
 	subA := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-subnet", "--vpc-id", vpc, "--cidr-block", "10.46.1.0/24", "--availability-zone", "us-east-1a", "--query", "Subnet.SubnetId", "--output", "text")))
 	subB := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-subnet", "--vpc-id", vpc, "--cidr-block", "10.46.2.0/24", "--availability-zone", "us-east-1b", "--query", "Subnet.SubnetId", "--output", "text")))

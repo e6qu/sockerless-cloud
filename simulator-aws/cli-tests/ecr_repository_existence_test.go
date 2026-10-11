@@ -57,6 +57,7 @@ func ecrCLIRefusal(t *testing.T, body string) (code, message string) {
 }
 
 func TestECRCLI_RegistryRefusesARepositoryThatDoesNotExist(t *testing.T) {
+	t.Parallel()
 	const repo = "ecr-cli-absent/app"
 	const templatePrefix = "ecr-cli-create-on-push"
 	const templated = templatePrefix + "/app"

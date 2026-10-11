@@ -37,6 +37,7 @@ func azResourceListTypes(rows []azResourceListRow) map[string]int {
 // TestResourceListCLI proves `az resource list -g <rg>` answers with that
 // group's resources only, and with every provider's resources in it.
 func TestResourceListCLI(t *testing.T) {
+	t.Parallel()
 	env := startAzLoginSimulator(t)
 
 	runCLI(t, env.command("cloud", "register", "-n", "sockerless-reslist",

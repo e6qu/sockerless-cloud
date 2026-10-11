@@ -10,6 +10,7 @@ import (
 // add-tags-to-certificate family: tag-resource, list-tags-for-resource and
 // untag-resource.
 func TestACMCLI_ResourceTagging(t *testing.T) {
+	t.Parallel()
 	arn := strings.TrimSpace(runCLI(t, awsCLI("acm", "request-certificate",
 		"--domain-name", "cli-tagging.example.com",
 		"--validation-method", "DNS",

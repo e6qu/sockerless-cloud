@@ -18,6 +18,7 @@ import (
 //   - Query applies an optional FilterExpression after the key condition (it was
 //     silently dropped — the request field didn't exist).
 func TestDynamoDB_ScanLimitAndQueryFilter(t *testing.T) {
+	t.Parallel()
 	queryTable := uniqueName("qs-query")
 	scanTable := uniqueName("qs-scan")
 	c := ddbClient()

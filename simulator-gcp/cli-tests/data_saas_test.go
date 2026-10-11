@@ -10,6 +10,7 @@ import (
 // REST slices at the wire level: dataset + table create, streaming insert and
 // query, then a Firestore document write, read and structured query.
 func TestBigQueryAndFirestore_Wire_RESTFlows(t *testing.T) {
+	t.Parallel()
 	dsBody := `{"datasetReference":{"projectId":"test-project","datasetId":"cli_dataset"},"location":"US"}`
 	httpDoJSON(t, "POST", baseURL+"/bigquery/v2/projects/test-project/datasets", dsBody)
 
@@ -46,6 +47,7 @@ func TestBigQueryAndFirestore_Wire_RESTFlows(t *testing.T) {
 // (INVALID_ARGUMENT), as real BigQuery does, rather than silently parsing it to
 // 0. Absent params keep their defaults (start 0, all rows).
 func TestBigQuery_TableDataListInvalidParams(t *testing.T) {
+	t.Parallel()
 	ds := `{"datasetReference":{"projectId":"test-project","datasetId":"bq_validate"},"location":"US"}`
 	httpDoJSON(t, "POST", baseURL+"/bigquery/v2/projects/test-project/datasets", ds)
 	tbl := `{"tableReference":{"projectId":"test-project","datasetId":"bq_validate","tableId":"rows"},"schema":{"fields":[{"name":"id","type":"STRING"}]}}`

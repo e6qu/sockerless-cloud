@@ -10,6 +10,7 @@ import (
 // TestScheduler_ScheduleGroupTags_CLI exercises tag CRUD on a schedule group
 // through the aws CLI: tag, list, untag, list again.
 func TestScheduler_ScheduleGroupTags_CLI(t *testing.T) {
+	t.Parallel()
 	const group = "cli-tagged-group"
 	out := runCLI(t, awsCLI("scheduler", "create-schedule-group",
 		"--name", group,

@@ -22,6 +22,7 @@ import (
 // moves what each hostname serves and leaves the sticky settings in place.
 
 func TestWebAppSlots_NativeAzSlotSwap(t *testing.T) {
+	t.Parallel()
 	az := kuduCLILogin(t)
 	rg, plan, app, slot := "slots-cli-rg", "slots-cli-plan", "slots-cli-app", "staging"
 	runCLI(t, az.command("group", "create", "-n", rg, "-l", "eastus", "-o", "json"))

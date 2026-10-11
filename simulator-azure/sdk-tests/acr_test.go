@@ -37,6 +37,7 @@ const sampleManifestJSON = `{
 }`
 
 func TestACR_ImageManifestPushGetDelete(t *testing.T) {
+	t.Parallel()
 	const (
 		rgName       = "acr-imageops-rg"
 		registryName = "imageopsregistry"
@@ -118,6 +119,7 @@ func TestACR_ImageManifestPushGetDelete(t *testing.T) {
 // Create + Get + List + Delete round-trip via
 // `armcontainerregistry.CacheRulesClient` against the simulator.
 func TestACR_CacheRuleCRUD(t *testing.T) {
+	t.Parallel()
 	const (
 		rgName       = "acr-cache-rg"
 		registryName = "clitestcacheregistry"
@@ -197,6 +199,7 @@ func TestACR_CacheRuleCRUD(t *testing.T) {
 // erroring. Real ACR's BeginCreate behaves this way too (hence the
 // name, which matches the SDK method).
 func TestACR_CacheRuleIdempotentUpsert(t *testing.T) {
+	t.Parallel()
 	const (
 		rgName       = "acr-upsert-rg"
 		registryName = "upsertregistry"
@@ -256,6 +259,7 @@ func TestACR_CacheRuleIdempotentUpsert(t *testing.T) {
 // component, so any Host reaching this process's port is served, but the
 // value must no longer be the unreachable real-cloud host.
 func TestACR_LoginServerIsSimulatorCoordinate(t *testing.T) {
+	t.Parallel()
 	const (
 		rgName       = "acr-loginserver-rg"
 		registryName = "loginservertestreg"
@@ -307,6 +311,7 @@ func nopSeekCloser(r io.ReadSeeker) io.ReadSeekCloser { return nopSeekCloserT{r}
 // "available" for every name makes it worthless — the caller creates, and the
 // create is the thing that tells it the name was taken.
 func TestACR_NameAvailabilityAnswersFromTheRegistriesThatExist(t *testing.T) {
+	t.Parallel()
 	rgName, registryName := "acr-namecheck-rg", uniqueAlnumName("namecheckregistry")
 	ensureRG(t, rgName)
 

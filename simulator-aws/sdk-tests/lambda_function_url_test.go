@@ -74,6 +74,7 @@ func lambdaFunctionURLFunction(t *testing.T, authType lambdatypes.FunctionUrlAut
 // the HTTP response. A grant scoped by lambda:InvokedViaFunctionUrl lets the
 // URL invoke the function and nothing else.
 func TestLambda_FunctionURLIAMInvokeNeedsBothActions(t *testing.T) {
+	t.Parallel()
 	functionArn, functionURL := lambdaFunctionURLFunction(t, lambdatypes.FunctionUrlAuthTypeAwsIam, nil)
 
 	urlOnly, urlOnlySecret := restrictedCredential(t, "url-only",
@@ -138,6 +139,7 @@ func TestLambda_FunctionURLIAMInvokeNeedsBothActions(t *testing.T) {
 // resource-based policy allows anyone both actions, and its CORS preflight,
 // which the URL answers without invoking the function.
 func TestLambda_FunctionURLNoneAuthFollowsTheResourcePolicy(t *testing.T) {
+	t.Parallel()
 	functionArn, functionURL := lambdaFunctionURLFunction(t, lambdatypes.FunctionUrlAuthTypeNone, &lambdatypes.Cors{
 		AllowOrigins: []string{"https://app.example.test"}, AllowMethods: []string{"GET"}, MaxAge: aws.Int32(300)})
 	get := func() (int, []byte) {

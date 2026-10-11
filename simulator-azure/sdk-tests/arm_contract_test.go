@@ -12,6 +12,7 @@ import (
 )
 
 func TestAzureARMRequiresAPIVersion(t *testing.T) {
+	t.Parallel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups",
 		nil)
@@ -37,6 +38,7 @@ func TestAzureARMRequiresAPIVersion(t *testing.T) {
 }
 
 func TestAzureARMListResponsesUseEmptyArrays(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-empty-list-rg"
 	ensureRG(t, rg)
 

@@ -93,6 +93,7 @@ func updateContainerApp(t *testing.T, client *armappcontainers.ContainerAppsClie
 // after the one before it, sends all its traffic there, and keeps the previous
 // revision as an inactive one, up to maxInactiveRevisions.
 func TestSDK_ContainerAppsRevisions_SingleModeTemplateChangesCreateRevisions(t *testing.T) {
+	t.Parallel()
 	rg, name := uniqueName("sdk-aca-rev-single-rg"), uniqueName("revsingle")
 	ensureRG(t, rg)
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -180,6 +181,7 @@ func TestSDK_ContainerAppsRevisions_SingleModeTemplateChangesCreateRevisions(t *
 // traffic by the weights its configuration gives them, and lets a revision be
 // deactivated, activated and restarted on its own.
 func TestSDK_ContainerAppsRevisions_MultipleModeSplitsTraffic(t *testing.T) {
+	t.Parallel()
 	rg, name := uniqueName("sdk-aca-rev-multi-rg"), uniqueName("revmulti")
 	ensureRG(t, rg)
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())

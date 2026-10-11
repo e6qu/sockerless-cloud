@@ -45,6 +45,7 @@ func ec2cliIpamExtrasFixture(t *testing.T) (ipamID, poolID string) {
 // provision-ipam-byoasn, describe-ipam-byoasn, associate/disassociate, and
 // move-byoip-cidr-to-ipam.
 func TestEC2CLI_IpamByoasn(t *testing.T) {
+	t.Parallel()
 	ipamID, poolID := ec2cliIpamExtrasFixture(t)
 	const asn = "64513"
 
@@ -90,6 +91,7 @@ func TestEC2CLI_IpamByoasn(t *testing.T) {
 // TestEC2CLI_IpamExternalResourceVerificationToken drives the token family
 // through the aws CLI: create, describe read-back, delete.
 func TestEC2CLI_IpamExternalResourceVerificationToken(t *testing.T) {
+	t.Parallel()
 	ipamID, _ := ec2cliIpamExtrasFixture(t)
 
 	tokenID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-ipam-external-resource-verification-token",
@@ -114,6 +116,7 @@ func TestEC2CLI_IpamExternalResourceVerificationToken(t *testing.T) {
 // TestEC2CLI_IpamDiscoveredResources drives the read-only discovery probes
 // through the aws CLI; each returns an honest-empty result set.
 func TestEC2CLI_IpamDiscoveredResources(t *testing.T) {
+	t.Parallel()
 	ipamID, _ := ec2cliIpamExtrasFixture(t)
 	discoID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-ipams", "--ipam-ids", ipamID,
 		"--query", "Ipams[0].DefaultResourceDiscoveryId", "--output", "text")))

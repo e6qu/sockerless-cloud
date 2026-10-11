@@ -18,6 +18,7 @@ import (
 // short hostname via Docker's embedded DNS on the zone's backing
 // network.
 func TestDNS_CrossJobResolution_CLI(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatalf("docker CLI required for cross-job DNS test (no fallback): %v", err)
 	}

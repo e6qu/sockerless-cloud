@@ -15,6 +15,7 @@ import (
 // create-complete, an auto-created ENI, a DNS name), Describe read-back +
 // id-filter, Modify, and Delete.
 func TestEC2_InstanceConnectEndpointLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.180.0.0/16")})
@@ -123,6 +124,7 @@ func TestEC2_InstanceMetadataDefaults(t *testing.T) {
 // tag keys registered for instance-event notifications:
 // Register adds keys, Describe reads them, Deregister removes one.
 func TestEC2_InstanceEventNotificationAttributes(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	reg, err := c.RegisterInstanceEventNotificationAttributes(ctx, &ec2.RegisterInstanceEventNotificationAttributesInput{
@@ -154,6 +156,7 @@ func TestEC2_InstanceEventNotificationAttributes(t *testing.T) {
 // TestEC2_MonitorInstances covers detailed-monitoring toggling plus the
 // reboot/report/reset instance-management ops on a launched instance.
 func TestEC2_MonitorInstances(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.181.0.0/16")})
@@ -211,6 +214,7 @@ func TestEC2_MonitorInstances(t *testing.T) {
 // TestEC2_ClassicLinkInstances asserts the honest-empty EC2-Classic read: the
 // sim runs only in a VPC, so DescribeClassicLinkInstances returns no instances.
 func TestEC2_ClassicLinkInstances(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	out, err := c.DescribeClassicLinkInstances(ctx, &ec2.DescribeClassicLinkInstancesInput{})
 	require.NoError(t, err)

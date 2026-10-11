@@ -16,6 +16,7 @@ import (
 )
 
 func TestStepFunctionsAmazonECSSynchronousTaskSurvivesSimulatorRestart_SDK(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 	tcpPort, udpPort := persistentSimulatorPorts(t)
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", tcpPort)

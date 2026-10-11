@@ -47,6 +47,7 @@ func awaitCloudMapOperation(t *testing.T, client *servicediscovery.Client, opID 
 // CreatePublicDnsNamespace, UpdateHttpNamespace, UpdatePublicDnsNamespace and
 // UpdatePrivateDnsNamespace round-tripped through GetNamespace.
 func TestCloudMap_HttpAndPublicNamespaceLifecycle(t *testing.T) {
+	t.Parallel()
 	client := cmClient()
 
 	// HTTP namespace.
@@ -133,6 +134,7 @@ func TestCloudMap_HttpAndPublicNamespaceLifecycle(t *testing.T) {
 // TestCloudMap_ServiceUpdateAndAttributes exercises UpdateService,
 // GetServiceAttributes, UpdateServiceAttributes and DeleteServiceAttributes.
 func TestCloudMap_ServiceUpdateAndAttributes(t *testing.T) {
+	t.Parallel()
 	client := cmClient()
 
 	nsOut, err := client.CreateHttpNamespace(ctx, &servicediscovery.CreateHttpNamespaceInput{
@@ -201,6 +203,7 @@ func TestCloudMap_ServiceUpdateAndAttributes(t *testing.T) {
 // UpdateInstanceCustomHealthStatus, GetInstancesHealthStatus,
 // DiscoverInstancesRevision and ListOperations.
 func TestCloudMap_InstanceHealthAndRevision(t *testing.T) {
+	t.Parallel()
 	client := cmClient()
 
 	nsOut, err := client.CreateHttpNamespace(ctx, &servicediscovery.CreateHttpNamespaceInput{

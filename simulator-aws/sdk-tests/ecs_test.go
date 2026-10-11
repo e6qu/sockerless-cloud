@@ -28,6 +28,7 @@ func ecsClient() *ecs.Client {
 var ecsTestSubnetCounter atomic.Uint32
 
 func TestECS_CreateCluster(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 	out, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
 		ClusterName: aws.String("test-cluster"),
@@ -38,6 +39,7 @@ func TestECS_CreateCluster(t *testing.T) {
 }
 
 func TestECS_DescribeClusters(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
@@ -60,6 +62,7 @@ func TestECS_DescribeClusters(t *testing.T) {
 // UnknownOperationException, so aws_ecs_service / aws_ecs_cluster_capacity_providers
 // could not apply.
 func TestECS_ServiceLifecycle(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	cluster := "svc-cluster"
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
@@ -162,6 +165,7 @@ func waitForECSServiceInactive(t *testing.T, client *ecs.Client, cluster, servic
 // errored with "tag-target type not implemented"), plus ListClusters /
 // ListTaskDefinitions / ListServices.
 func TestECS_TagsAndListOps(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	cluster := "tag-ops-cluster"
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{
@@ -202,12 +206,12 @@ func TestECS_TagsAndListOps(t *testing.T) {
 	})
 	require.NoError(t, err)
 	svcOut, err := c.CreateService(ctx, &ecs.CreateServiceInput{
-		Cluster: aws.String(cluster), ServiceName: aws.String("tagged-svc"),
+		Cluster: aws.String(cluster), ServiceName: aws.String("tagged-svc-4c6e"),
 		TaskDefinition: aws.String("tag-svc-task"), DesiredCount: aws.Int32(1),
 		Tags: []ecstypes.Tag{{Key: aws.String("svc"), Value: aws.String("yes")}},
 	})
 	require.NoError(t, err)
-	cleanupECSService(t, c, cluster, "tagged-svc")
+	cleanupECSService(t, c, cluster, "tagged-svc-4c6e")
 	svcArn := aws.ToString(svcOut.Service.ServiceArn)
 	lt, err = c.ListTagsForResource(ctx, &ecs.ListTagsForResourceInput{ResourceArn: aws.String(svcArn)})
 	require.NoError(t, err)
@@ -236,6 +240,7 @@ func TestECS_TagsAndListOps(t *testing.T) {
 }
 
 func TestECS_RegisterTaskDefinition(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 	family := uniqueName("test-task")
 	out, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
@@ -254,6 +259,7 @@ func TestECS_RegisterTaskDefinition(t *testing.T) {
 }
 
 func TestECS_MultiContainerTaskSharesLocalhost(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 
 	clusterName := "pod-localhost"
@@ -330,6 +336,7 @@ func TestECS_MultiContainerTaskSharesLocalhost(t *testing.T) {
 }
 
 func TestECS_ManagedEBSVolumeSnapshotRoundTripSDK(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 	ec2c := ec2Client()
 	cw := cwLogsClient()
@@ -488,6 +495,7 @@ echo EBS_ROUNDTRIP_OK`},
 // formatted with the filesystem it named: the workload sees that capacity and
 // runs out of space where EBS would.
 func TestECS_ManagedEBSVolumeHasItsOwnSizeAndFilesystemSDK(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 	cw := cwLogsClient()
 
@@ -599,6 +607,7 @@ echo EBS_CAPACITY_OK`},
 }
 
 func TestECS_RunTaskContainerOverridesApplyToRuntimeSDK(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 	cw := cwLogsClient()
 
@@ -689,6 +698,7 @@ func TestECS_RunTaskContainerOverridesApplyToRuntimeSDK(t *testing.T) {
 }
 
 func TestECS_ExitCodeNilWhileRunning(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 
 	// Setup: cluster + task definition
@@ -771,6 +781,7 @@ func TestECS_ExitCodeNilWhileRunning(t *testing.T) {
 }
 
 func TestECS_StopCodeUserInitiated(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 
 	clusterName := "stopcode-user-cluster"
@@ -975,14 +986,26 @@ func stopECSTasksInSubnet(t *testing.T, client *ecs.Client, subnetID string) {
 // the SDK's TasksStopped waiter until each has stopped.
 func stopECSTasks(t *testing.T, client *ecs.Client, match func(ecstypes.Task) bool) {
 	t.Helper()
-	clusters, err := client.ListClusters(ctx, &ecs.ListClustersInput{})
-	require.NoError(t, err)
-	for _, cluster := range clusters.ClusterArns {
+	var clusterArns []string
+	for pages := ecs.NewListClustersPaginator(client, &ecs.ListClustersInput{}); pages.HasMorePages(); {
+		page, err := pages.NextPage(ctx)
+		require.NoError(t, err)
+		clusterArns = append(clusterArns, page.ClusterArns...)
+	}
+	// Another test can delete a listed cluster before it is read. Amazon ECS
+	// deletes only a cluster with no active tasks, so a cluster gone by then
+	// holds none to stop.
+	var gone *ecstypes.ClusterNotFoundException
+clusters:
+	for _, cluster := range clusterArns {
 		var taskArns []string
 		for _, desired := range []ecstypes.DesiredStatus{ecstypes.DesiredStatusRunning, ecstypes.DesiredStatusStopped} {
 			pages := ecs.NewListTasksPaginator(client, &ecs.ListTasksInput{Cluster: aws.String(cluster), DesiredStatus: desired})
 			for pages.HasMorePages() {
 				page, err := pages.NextPage(ctx)
+				if errors.As(err, &gone) {
+					continue clusters
+				}
 				require.NoError(t, err)
 				taskArns = append(taskArns, page.TaskArns...)
 			}
@@ -993,6 +1016,9 @@ func stopECSTasks(t *testing.T, client *ecs.Client, match func(ecstypes.Task) bo
 				Cluster: aws.String(cluster),
 				Tasks:   taskArns[start:min(start+100, len(taskArns))],
 			})
+			if errors.As(err, &gone) {
+				continue clusters
+			}
 			require.NoError(t, err)
 			for _, task := range described.Tasks {
 				if aws.ToString(task.LastStatus) == "STOPPED" || !match(task) {
@@ -1162,6 +1188,7 @@ func ebsVolumeIDFromTask(t *testing.T, task ecstypes.Task) string {
 }
 
 func TestECS_TaskExecutesCommand(t *testing.T) {
+	t.Parallel()
 	client, cluster, taskArn := ecsRunTaskHelper(t, "exec-cmd", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),
@@ -1186,6 +1213,7 @@ func TestECS_TaskExecutesCommand(t *testing.T) {
 }
 
 func TestECS_TaskExitCodeNonZero(t *testing.T) {
+	t.Parallel()
 	client, cluster, taskArn := ecsRunTaskHelper(t, "exec-fail", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),
@@ -1211,6 +1239,7 @@ func TestECS_TaskExitCodeNonZero(t *testing.T) {
 // no log group unless awslogs-create-group asks for one: the task fails to
 // start with a ResourceInitializationError instead.
 func TestECS_TaskFailsWhenAwslogsGroupIsMissing(t *testing.T) {
+	t.Parallel()
 	client, cluster, taskArn := ecsRunTaskHelper(t, "exec-no-group", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),
@@ -1238,6 +1267,7 @@ func TestECS_TaskFailsWhenAwslogsGroupIsMissing(t *testing.T) {
 }
 
 func TestECS_TaskLogsToCloudWatch(t *testing.T) {
+	t.Parallel()
 	logGroup := uniqueName("/ecs/exec-logs")
 	client, clusterName, taskArn := ecsRunTaskHelper(t, "exec-logs", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
@@ -1308,6 +1338,7 @@ func TestECS_TaskLogsToCloudWatch(t *testing.T) {
 // and the post-exit drain does not duplicate the lines the live stream
 // already delivered.
 func TestECS_RunningTaskStreamsLogsLive(t *testing.T) {
+	t.Parallel()
 	logGroup := uniqueName("/ecs/live-logs")
 	client, cluster, taskArn := ecsRunTaskHelper(t, "live-logs", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
@@ -1379,6 +1410,7 @@ func TestECS_RunningTaskStreamsLogsLive(t *testing.T) {
 }
 
 func TestECS_TaskNoCommandStaysRunning(t *testing.T) {
+	t.Parallel()
 	client, cluster, taskArn := ecsRunTaskHelper(t, "exec-nocmd", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),
@@ -1414,6 +1446,7 @@ func TestECS_TaskNoCommandStaysRunning(t *testing.T) {
 // TagResource/UntagResource contract: tag a running task, list tags,
 // untag, and confirm STOPPED tasks reject tagging.
 func TestECS_TagResource_OnRunningTask(t *testing.T) {
+	t.Parallel()
 	client, cluster, taskArn := ecsRunTaskHelper(t, "tag-task", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),
@@ -1484,6 +1517,7 @@ func TestECS_TagResource_OnRunningTask(t *testing.T) {
 }
 
 func TestECS_TagResource_RejectsStoppedTask(t *testing.T) {
+	t.Parallel()
 	client, cluster, taskArn := ecsRunTaskHelper(t, "tag-stopped", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),
@@ -1505,6 +1539,7 @@ func TestECS_TagResource_RejectsStoppedTask(t *testing.T) {
 }
 
 func TestECS_ListTasks_Pagination(t *testing.T) {
+	t.Parallel()
 	family := uniqueName("pag-family")
 	client := ecsClient()
 	cluster := uniqueName("pag-cluster")
@@ -1557,6 +1592,7 @@ func TestECS_ListTasks_Pagination(t *testing.T) {
 }
 
 func TestECS_RunTask_ClusterNotFound_ErrorClassification(t *testing.T) {
+	t.Parallel()
 	client := ecsClient()
 	// DescribeClusters returns 200 with a Failures list for missing clusters.
 	// RunTask is the reliable path to ClusterNotFoundException.
@@ -1574,6 +1610,7 @@ func TestECS_RunTask_ClusterNotFound_ErrorClassification(t *testing.T) {
 // and ServiceName filters narrow ListTasks to matching tasks, matching real
 // AWS which supports both filter dimensions.
 func TestECS_ListTasks_StartedByAndServiceFilters(t *testing.T) {
+	t.Parallel()
 	family := uniqueName("listtasks-filters-td")
 	client := ecsClient()
 	cluster := uniqueName("listtasks-filters")
@@ -1634,6 +1671,7 @@ func TestECS_ListTasks_StartedByAndServiceFilters(t *testing.T) {
 // ListTagsForResource cannot see is the failure this is really guarding
 // against.
 func TestECS_EveryTaggableResourceTypeRoundTripsItsTags(t *testing.T) {
+	t.Parallel()
 	daemonName := uniqueName("taggable-types-daemon")
 	daemonFamily := uniqueName("taggable-types-daemon-task")
 	family := uniqueName("taggable-types-task")
@@ -1798,6 +1836,7 @@ func TestECS_EveryTaggableResourceTypeRoundTripsItsTags(t *testing.T) {
 // whatever the scheduler last assumed. This drives each of them and reads the
 // result back through DescribeTasks.
 func TestECS_AgentStateChangesAreAppliedNotAcknowledged(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	const cluster = "agent-state-cluster"
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
@@ -1939,6 +1978,7 @@ func TestECS_AgentStateChangesAreAppliedNotAcknowledged(t *testing.T) {
 // DiscoverPollEndpoint must point the agent at this simulator. It had returned
 // real Amazon hostnames, which send an agent to AWS instead.
 func TestECS_DiscoverPollEndpointPointsAtTheSimulator(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	const cluster = "poll-endpoint-cluster"
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
@@ -1967,6 +2007,7 @@ func TestECS_DiscoverPollEndpointPointsAtTheSimulator(t *testing.T) {
 // AWS refuses succeeded here — and a caller relying on the refusal was never
 // told it had skipped a step.
 func TestECS_DestructiveCallsRefuseWhatAWSRefuses(t *testing.T) {
+	t.Parallel()
 	c := ecsClient()
 	const cluster = "refusal-rules-cluster"
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
@@ -2083,6 +2124,7 @@ func TestECS_DestructiveCallsRefuseWhatAWSRefuses(t *testing.T) {
 // reporting a gate it did not have, so this asserts the task count as well as
 // the deployment's own state.
 func TestECS_DeploymentLifecycleHookHoldsTheDeployment(t *testing.T) {
+	t.Parallel()
 	family := uniqueName("lifecycle-hook-task")
 	serviceName := uniqueName("lifecycle-hook-service")
 	c := ecsClient()

@@ -12,6 +12,7 @@ import (
 )
 
 func TestS3_MakeBucketAndList(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("s3", "mb", "s3://cli-test-bucket"))
 
 	out := runCLI(t, awsCLI("s3", "ls"))
@@ -22,6 +23,7 @@ func TestS3_MakeBucketAndList(t *testing.T) {
 }
 
 func TestS3_CopyUpload(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("s3", "mb", "s3://upload-test-bucket"))
 
 	// Create a local file
@@ -40,6 +42,7 @@ func TestS3_CopyUpload(t *testing.T) {
 }
 
 func TestS3API_CopyObjectListed(t *testing.T) {
+	t.Parallel()
 	bucket := "cli-copy-object-listed"
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", bucket))
 
@@ -57,6 +60,7 @@ func TestS3API_CopyObjectListed(t *testing.T) {
 }
 
 func TestS3_CopyDownload(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("s3", "mb", "s3://download-test-bucket"))
 
 	content := "download test content"
@@ -79,6 +83,7 @@ func TestS3_CopyDownload(t *testing.T) {
 }
 
 func TestS3_RemoveBucket(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("s3", "mb", "s3://remove-test-bucket"))
 	runCLI(t, awsCLI("s3", "rb", "s3://remove-test-bucket"))
 
@@ -88,6 +93,7 @@ func TestS3_RemoveBucket(t *testing.T) {
 }
 
 func TestS3APIMultipartLists(t *testing.T) {
+	t.Parallel()
 	bucket := "cli-multipart-list-bucket"
 	key := "object.txt"
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", bucket))
@@ -129,6 +135,7 @@ func TestS3APIMultipartLists(t *testing.T) {
 }
 
 func TestS3API_BucketSubresourceCoverage(t *testing.T) {
+	t.Parallel()
 	bucket := "cli-bucket-subresources"
 	destBucket := "cli-bucket-subresources-dest"
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", bucket))

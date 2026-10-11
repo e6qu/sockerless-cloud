@@ -14,6 +14,7 @@ import (
 )
 
 func TestEventGrid_TopicSubscriptionPublishSDK(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-eventgrid-rg"
 	ensureRG(t, rg)
 
@@ -123,6 +124,7 @@ func TestEventGrid_TopicSubscriptionPublishSDK(t *testing.T) {
 }
 
 func TestEventGrid_DomainAndSystemTopicSDK(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-eventgrid-advanced-rg"
 	ensureRG(t, rg)
 

@@ -15,6 +15,7 @@ import (
 // DeleteRolePermissionsBoundary. aws_iam_role.permissions_boundary drives the
 // Put/Delete pair; the description update returns the modified Role.
 func TestIAM_RolePermissionsBoundary(t *testing.T) {
+	t.Parallel()
 	client := iamClient()
 	trust := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
 
@@ -68,6 +69,7 @@ func TestIAM_RolePermissionsBoundary(t *testing.T) {
 // ListPolicyVersions → SetDefaultPolicyVersion (back to v1) →
 // DeletePolicyVersion (v2). aws_iam_policy uses this when the document changes.
 func TestIAM_PolicyVersions(t *testing.T) {
+	t.Parallel()
 	client := iamClient()
 	v1 := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}]}`
 
@@ -130,6 +132,7 @@ func TestIAM_PolicyVersions(t *testing.T) {
 // ListInstanceProfileTags → UntagInstanceProfile. aws_iam_instance_profile.tags
 // drives the tag/untag pair.
 func TestIAM_InstanceProfileTags(t *testing.T) {
+	t.Parallel()
 	client := iamClient()
 
 	_, err := client.CreateInstanceProfile(ctx, &iam.CreateInstanceProfileInput{
@@ -183,6 +186,7 @@ func TestIAM_InstanceProfileTags(t *testing.T) {
 // supplied JSON) and GetContextKeysForPrincipalPolicy (over a role's inline +
 // attached policies). Both return the distinct Condition context keys.
 func TestIAM_ContextKeys(t *testing.T) {
+	t.Parallel()
 	client := iamClient()
 
 	custom := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*","Condition":{"StringEquals":{"aws:PrincipalTag/team":"infra","s3:prefix":"docs/"}}}]}`
@@ -234,6 +238,7 @@ func TestIAM_ContextKeys(t *testing.T) {
 // ListPoliciesGrantingServiceAccess derives the granted namespace from the
 // attached policy's actions.
 func TestIAM_EntitiesForPolicy(t *testing.T) {
+	t.Parallel()
 	client := iamClient()
 
 	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}]}`
@@ -302,6 +307,7 @@ func TestIAM_EntitiesForPolicy(t *testing.T) {
 // TestIAM_PolicyTags exercises TagPolicy → ListPolicyTags → UntagPolicy on a
 // managed policy. aws_iam_policy.tags drives the tag/untag pair.
 func TestIAM_PolicyTags(t *testing.T) {
+	t.Parallel()
 	client := iamClient()
 	doc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
 	pol, err := client.CreatePolicy(ctx, &iam.CreatePolicyInput{

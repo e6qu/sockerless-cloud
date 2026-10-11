@@ -19,6 +19,7 @@ import (
 // Using direct HTTP calls for more reliable testing against the simulator.
 
 func TestContainerApps_CreateJob(t *testing.T) {
+	t.Parallel()
 	// Ensure resource group exists
 	rgBody := `{"location":"eastus"}`
 	rgReq, _ := http.NewRequestWithContext(ctx, "PUT",
@@ -67,6 +68,7 @@ func TestContainerApps_CreateJob(t *testing.T) {
 }
 
 func TestContainerApps_StartJobInjectsLogs(t *testing.T) {
+	t.Parallel()
 	// Ensure resource group exists
 	rgBody := `{"location":"eastus"}`
 	rgReq, _ := http.NewRequestWithContext(ctx, "PUT",
@@ -143,6 +145,7 @@ func TestContainerApps_StartJobInjectsLogs(t *testing.T) {
 }
 
 func TestContainerApps_MultiContainerJobSharesLocalhost(t *testing.T) {
+	t.Parallel()
 	rg := "aca-pod-rg"
 	rgBody := `{"location":"eastus"}`
 	rgReq, _ := http.NewRequestWithContext(ctx, "PUT",
@@ -326,6 +329,7 @@ func acaGetExecution(t *testing.T, rg, jobName, execName string) map[string]any 
 // state afterwards is what proves the status tracks the replica instead of
 // being frozen.
 func TestContainerApps_ExecutionRunningState(t *testing.T) {
+	t.Parallel()
 	acaCreateJobWithCommand(t, "status-rg", "running-job", []string{"sleep", "30"})
 	execName := acaStartExecution(t, "status-rg", "running-job")
 
@@ -348,18 +352,20 @@ func TestContainerApps_ExecutionRunningState(t *testing.T) {
 }
 
 func TestContainerApps_ExecutionSucceededState(t *testing.T) {
-	acaCreateJob(t, "status-rg", "succeed-job")
-	execName := acaStartExecution(t, "status-rg", "succeed-job")
+	t.Parallel()
+	acaCreateJob(t, "status-rg-2270", "succeed-job")
+	execName := acaStartExecution(t, "status-rg-2270", "succeed-job")
 
-	exec := acaWaitExecution(t, "status-rg", "succeed-job", execName)
+	exec := acaWaitExecution(t, "status-rg-2270", "succeed-job", execName)
 	props := exec["properties"].(map[string]any)
 	assert.Equal(t, "Succeeded", props["status"])
 	assert.NotEmpty(t, props["endTime"])
 }
 
 func TestContainerApps_ExecutionStoppedState(t *testing.T) {
-	acaCreateJob(t, "status-rg", "stop-job")
-	execName := acaStartExecution(t, "status-rg", "stop-job")
+	t.Parallel()
+	acaCreateJob(t, "status-rg-088d", "stop-job")
+	execName := acaStartExecution(t, "status-rg-088d", "stop-job")
 
 	// Stop the execution
 	stopReq, _ := http.NewRequestWithContext(ctx, "POST",
@@ -372,7 +378,7 @@ func TestContainerApps_ExecutionStoppedState(t *testing.T) {
 	stopResp.Body.Close()
 	require.Equal(t, http.StatusOK, stopResp.StatusCode)
 
-	exec := acaGetExecution(t, "status-rg", "stop-job", execName)
+	exec := acaGetExecution(t, "status-rg-088d", "stop-job", execName)
 	props := exec["properties"].(map[string]any)
 	assert.Equal(t, "Stopped", props["status"])
 	assert.NotEmpty(t, props["endTime"])
@@ -429,16 +435,18 @@ func acaCreateJobWithImageAndCommand(t *testing.T, rg, jobName, image string, cm
 }
 
 func TestContainerApps_ExecutionRunsCommand(t *testing.T) {
-	acaCreateJobWithCommand(t, "exec-rg", "exec-cmd-job", []string{"echo", "hello"})
-	execName := acaStartExecution(t, "exec-rg", "exec-cmd-job")
+	t.Parallel()
+	acaCreateJobWithCommand(t, "exec-rg-19e7", "exec-cmd-job", []string{"echo", "hello"})
+	execName := acaStartExecution(t, "exec-rg-19e7", "exec-cmd-job")
 
-	exec := acaWaitExecution(t, "exec-rg", "exec-cmd-job", execName)
+	exec := acaWaitExecution(t, "exec-rg-19e7", "exec-cmd-job", execName)
 	props := exec["properties"].(map[string]any)
 	assert.Equal(t, "Succeeded", props["status"])
 	assert.NotEmpty(t, props["endTime"])
 }
 
 func TestContainerApps_ExecutionFailedStatus(t *testing.T) {
+	t.Parallel()
 	acaCreateJobWithCommand(t, "exec-rg", "exec-fail-job", []string{"sh", "-c", "exit 1"})
 	execName := acaStartExecution(t, "exec-rg", "exec-fail-job")
 
@@ -449,8 +457,9 @@ func TestContainerApps_ExecutionFailedStatus(t *testing.T) {
 }
 
 func TestContainerApps_ExecutionLogsRealOutput(t *testing.T) {
-	acaCreateJobWithCommand(t, "exec-rg", "exec-log-job", []string{"echo", "real aca output"})
-	_ = acaStartExecution(t, "exec-rg", "exec-log-job")
+	t.Parallel()
+	acaCreateJobWithCommand(t, "exec-rg-b3ff", "exec-log-job", []string{"echo", "real aca output"})
+	_ = acaStartExecution(t, "exec-rg-b3ff", "exec-log-job")
 
 	// Poll until the process has run and its stdout is ingested (async in the
 	// sim) — a fixed sleep races a loaded runner.
@@ -498,6 +507,7 @@ func TestContainerApps_ExecutionLogsRealOutput(t *testing.T) {
 // TestContainerApps_GetJob` fails outright — so the read proves nothing about
 // the read.
 func TestContainerApps_GetJob(t *testing.T) {
+	t.Parallel()
 	acaCreateJob(t, "aca-get-rg", "get-job")
 
 	req, _ := http.NewRequestWithContext(ctx, "GET",
@@ -555,6 +565,7 @@ func ensureRG(t *testing.T, rg string) {
 }
 
 func TestSDK_ContainerApps_CreateAndGetJob(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-create-rg"
 	ensureRG(t, rg)
 
@@ -594,6 +605,7 @@ func TestSDK_ContainerApps_CreateAndGetJob(t *testing.T) {
 }
 
 func TestSDK_ContainerApps_StartAndListExecutions(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-exec-rg"
 	ensureRG(t, rg)
 
@@ -662,6 +674,7 @@ func TestSDK_ContainerApps_StartAndListExecutions(t *testing.T) {
 }
 
 func TestSDK_ContainerApps_ListByResourceGroup(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-list-rg"
 	ensureRG(t, rg)
 
@@ -708,6 +721,7 @@ func TestSDK_ContainerApps_ListByResourceGroup(t *testing.T) {
 }
 
 func TestSDK_ContainerApps_DeleteJob(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-del-rg"
 	ensureRG(t, rg)
 
@@ -747,7 +761,8 @@ func TestSDK_ContainerApps_DeleteJob(t *testing.T) {
 }
 
 func TestSDK_ContainerApps_GetNonExistentJob(t *testing.T) {
-	rg := "sdk-aca-err-rg"
+	t.Parallel()
+	rg := "sdk-aca-err-rg-0372"
 	ensureRG(t, rg)
 
 	cred := &fakeCredential{}
@@ -760,7 +775,8 @@ func TestSDK_ContainerApps_GetNonExistentJob(t *testing.T) {
 }
 
 func TestSDK_ContainerApps_StartNonExistentJob(t *testing.T) {
-	rg := "sdk-aca-err-rg"
+	t.Parallel()
+	rg := "sdk-aca-err-rg-c594"
 	ensureRG(t, rg)
 
 	cred := &fakeCredential{}
@@ -773,6 +789,7 @@ func TestSDK_ContainerApps_StartNonExistentJob(t *testing.T) {
 }
 
 func TestContainerApps_StopNonExistentExecution(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-err-rg"
 	ensureRG(t, rg)
 

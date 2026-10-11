@@ -65,6 +65,7 @@ func cliTokenClaims(t *testing.T, lines []string) []map[string]any {
 }
 
 func TestContainerApps_CLI_ManagedIdentityAndKeyVaultSecrets(t *testing.T) {
+	t.Parallel()
 	var uai struct {
 		ID         string `json:"id"`
 		Properties struct {

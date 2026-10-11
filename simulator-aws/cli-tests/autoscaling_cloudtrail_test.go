@@ -6,6 +6,7 @@ import (
 )
 
 func TestAutoScalingGroupLifecycleCLI(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.82.0.0/16",
 		"--query", "Vpc.VpcId",
@@ -78,6 +79,7 @@ func TestAutoScalingGroupLifecycleCLI(t *testing.T) {
 // scaling-policy, scheduled-action, lifecycle-hook, and per-instance verbs
 // against a real group.
 func TestAutoScalingCLI_PoliciesAndHooks(t *testing.T) {
+	t.Parallel()
 	out := runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.84.0.0/16",
 		"--query", "Vpc.VpcId",
@@ -198,6 +200,7 @@ func TestAutoScalingCLI_PoliciesAndHooks(t *testing.T) {
 }
 
 func TestCloudTrailRecordsAPICallsCLI(t *testing.T) {
+	t.Parallel()
 	runCLI(t, awsCLI("s3api", "create-bucket", "--bucket", "cli-cloudtrail-bucket"))
 	runCLI(t, awsCLI("cloudtrail", "create-trail",
 		"--name", "cli-trail",

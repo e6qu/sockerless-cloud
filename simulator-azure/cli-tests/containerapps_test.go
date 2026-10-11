@@ -17,6 +17,7 @@ func acaURL(path string) string {
 }
 
 func TestContainerApps_CLI_StartAndCheckLogs(t *testing.T) {
+	t.Parallel()
 	// Create a Container Apps Job with echo command
 	jobURL := acaURL("jobs/cli-aca-job")
 	envID, customerID := cliLogsEnvironment(t)
@@ -79,6 +80,7 @@ func TestContainerApps_CLI_StartAndCheckLogs(t *testing.T) {
 }
 
 func TestContainerApps_CLI_StartFailure(t *testing.T) {
+	t.Parallel()
 	jobURL := acaURL("jobs/cli-aca-fail-job")
 	envID, _ := cliLogsEnvironment(t)
 	jobBody := fmt.Sprintf(`{

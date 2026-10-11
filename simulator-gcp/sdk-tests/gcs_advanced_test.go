@@ -60,6 +60,7 @@ func gcsObjectMetadataRaw(t *testing.T, bucket, object string) map[string]any {
 // TestGCS_EmittedURLsHTTPS asserts the JSON API emits selfLink +
 // mediaLink with https://, matching real GCS (HTTPS-only).
 func TestGCS_EmittedURLsHTTPS(t *testing.T) {
+	t.Parallel()
 	bucket := uniqueName("https-bucket")
 	gcsRESTCreate(t, bucket)
 
@@ -96,6 +97,7 @@ func TestGCS_EmittedURLsHTTPS(t *testing.T) {
 //	POST /upload/storage/v1/b/{bucket}/o
 //	PUT /upload/storage/v1/b/{bucket}/o
 func TestGCS_ResumableUpload(t *testing.T) {
+	t.Parallel()
 	bucket := uniqueName("resumable-bucket")
 	gcsRESTCreate(t, bucket)
 
@@ -156,6 +158,7 @@ func TestGCS_ResumableUpload(t *testing.T) {
 // TestGCS_MultipartUploadBodyName exercises name-in-multipart-metadata
 // (the form the Go SDK uses when Object.Name is set on the struct).
 func TestGCS_MultipartUploadBodyName(t *testing.T) {
+	t.Parallel()
 	bucket := uniqueName("multipart-bucket")
 	gcsRESTCreate(t, bucket)
 
@@ -190,6 +193,7 @@ func TestGCS_MultipartUploadBodyName(t *testing.T) {
 
 // TestGCS_ObjectsCompose exercises POST /storage/v1/b/{bucket}/o/{name}/compose.
 func TestGCS_ObjectsCompose(t *testing.T) {
+	t.Parallel()
 	bucket := uniqueName("compose-bucket")
 	gcsRESTCreate(t, bucket)
 
@@ -234,6 +238,7 @@ func TestGCS_ObjectsCompose(t *testing.T) {
 }
 
 func TestGCS_ObjectMetadataCRC32CAndGeneration(t *testing.T) {
+	t.Parallel()
 	bucket := uniqueName("metadata-shape-bucket")
 	gcsRESTCreate(t, bucket)
 
@@ -270,6 +275,7 @@ func TestGCS_ObjectMetadataCRC32CAndGeneration(t *testing.T) {
 }
 
 func TestGCS_BucketIAMPolicyShape(t *testing.T) {
+	t.Parallel()
 	bucket := uniqueName("iam-policy-shape-bucket")
 	gcsRESTCreate(t, bucket)
 
@@ -319,6 +325,7 @@ func bucketIAMSet(t *testing.T, bucket string, policy map[string]any) int {
 // (409), an empty etag is a blind overwrite, and the default-policy etag is
 // stable across reads.
 func TestGCS_BucketIAMEtagConflict(t *testing.T) {
+	t.Parallel()
 	bucket := uniqueName("iam-etag-bucket")
 	gcsRESTCreate(t, bucket)
 
@@ -358,6 +365,7 @@ func TestGCS_BucketIAMEtagConflict(t *testing.T) {
 // TestGCS_BucketIAMInvalidMember — bucket setIamPolicy rejects a malformed
 // member with 400 INVALID_ARGUMENT.
 func TestGCS_BucketIAMInvalidMember(t *testing.T) {
+	t.Parallel()
 	bucket := uniqueName("iam-bad-member-bucket")
 	gcsRESTCreate(t, bucket)
 
@@ -370,6 +378,7 @@ func TestGCS_BucketIAMInvalidMember(t *testing.T) {
 }
 
 func TestGCS_ObjectsCopyToAndSortedPrefixes(t *testing.T) {
+	t.Parallel()
 	bucket := uniqueName("copyto-bucket")
 	gcsRESTCreate(t, bucket)
 
@@ -462,6 +471,7 @@ func TestGCS_ObjectsCopyToAndSortedPrefixes(t *testing.T) {
 }
 
 func TestGCS_ObjectMetadataValidation(t *testing.T) {
+	t.Parallel()
 	bucket := uniqueName("metadata-validation-bucket")
 	gcsRESTCreate(t, bucket)
 
@@ -616,6 +626,7 @@ func gcsRequireBadPageToken(t *testing.T, listURL string) {
 }
 
 func TestGCS_ListBuckets_Pagination(t *testing.T) {
+	t.Parallel()
 	names := []string{uniqueName("pag-bucket-a"), uniqueName("pag-bucket-b"), uniqueName("pag-bucket-c")}
 	for _, n := range names {
 		gcsRESTCreate(t, n)
@@ -637,6 +648,7 @@ func TestGCS_ListBuckets_Pagination(t *testing.T) {
 }
 
 func TestGCS_ListObjects_Pagination(t *testing.T) {
+	t.Parallel()
 	bucket := uniqueName("pag-obj-bucket")
 	gcsRESTCreate(t, bucket)
 	t.Cleanup(func() { gcsRESTDelete(t, "/storage/v1/b/"+bucket) })

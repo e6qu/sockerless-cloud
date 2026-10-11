@@ -16,6 +16,7 @@ import (
 // instance with an attached data volume is snapshotted via CreateSnapshots, and
 // the returned SnapshotInfo carries the volume id, owner, size, and tags.
 func TestEC2_CreateSnapshotsSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.210.0.0/16")})
@@ -89,6 +90,7 @@ func TestEC2_CreateSnapshotsSDK(t *testing.T) {
 // TestEC2_VolumeStatusSDK covers DescribeVolumeStatus + EnableVolumeIO + the
 // CopyVolumes duplication path over an existing volume.
 func TestEC2_VolumeStatusSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	vol, err := c.CreateVolume(ctx, &ec2.CreateVolumeInput{
@@ -125,6 +127,7 @@ func TestEC2_VolumeStatusSDK(t *testing.T) {
 // TestEC2_RecycleBinSDK covers the volume / snapshot Recycle Bin list + restore
 // surface, plus the DescribeLockedSnapshots read-back.
 func TestEC2_RecycleBinSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	// The list surfaces start empty (no resources in the bin), proving the shape
@@ -149,6 +152,7 @@ func TestEC2_RecycleBinSDK(t *testing.T) {
 // TestEC2_ReplaceRootVolumeSDK covers the replace-root-volume task + Mac
 // volume-ownership / SIP modification tasks (control-plane task records).
 func TestEC2_ReplaceRootVolumeSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.211.0.0/16")})
@@ -194,6 +198,7 @@ func TestEC2_ReplaceRootVolumeSDK(t *testing.T) {
 
 // TestEC2_CoipCidrSDK covers CoIP CIDR add/delete on an existing CoIP pool.
 func TestEC2_CoipCidrSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	pool, err := c.CreateCoipPool(ctx, &ec2.CreateCoipPoolInput{
@@ -222,6 +227,7 @@ func TestEC2_CoipCidrSDK(t *testing.T) {
 // CreateDefaultVpc reports DefaultVpcAlreadyExists and CreateDefaultSubnet lands
 // a default subnet in that VPC.
 func TestEC2_DefaultVpcSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	// The default VPC already exists for the account.
@@ -250,6 +256,7 @@ func TestEC2_DefaultVpcSDK(t *testing.T) {
 // TestEC2_PrefixListsSDK covers DescribePrefixLists (AWS-managed + customer
 // lists) and the managed-prefix-list association / version-restore surface.
 func TestEC2_PrefixListsSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	pls, err := c.DescribePrefixLists(ctx, &ec2.DescribePrefixListsInput{})
@@ -293,6 +300,7 @@ func TestEC2_PrefixListsSDK(t *testing.T) {
 // TestEC2_SecurityGroupReferencesSDK covers the security-group reference /
 // stale / for-vpc surfaces derived from the SG store.
 func TestEC2_SecurityGroupReferencesSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.212.0.0/16")})
@@ -329,6 +337,7 @@ func TestEC2_SecurityGroupReferencesSDK(t *testing.T) {
 // TestEC2_LaunchTemplateDataSDK covers GetLaunchTemplateData (derived from an
 // instance) and DeleteLaunchTemplateVersions.
 func TestEC2_LaunchTemplateDataSDK(t *testing.T) {
+	t.Parallel()
 	ltName := uniqueName("sdk-lt-data")
 	c := ec2Client()
 
@@ -380,6 +389,7 @@ func TestEC2_LaunchTemplateDataSDK(t *testing.T) {
 // TestEC2_Ipv6AddressesSDK covers IPv6 assign / unassign on an ENI plus
 // UnassignPrivateIpAddresses and the IPv6-pool describe surface.
 func TestEC2_Ipv6AddressesSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.214.0.0/16")})
@@ -520,6 +530,7 @@ func TestEC2_DefaultCreditSpecificationSDK(t *testing.T) {
 // TestEC2_InterruptibleAndTasksSDK covers the interruptible capacity-reservation
 // allocation and export/import-task surfaces.
 func TestEC2_InterruptibleAndTasksSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	alloc, err := c.CreateInterruptibleCapacityReservationAllocation(ctx, &ec2.CreateInterruptibleCapacityReservationAllocationInput{

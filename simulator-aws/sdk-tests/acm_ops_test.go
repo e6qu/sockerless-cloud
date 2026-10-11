@@ -31,6 +31,7 @@ func requestUnknownPrivateCA(t *testing.T, c *acm.Client, domain string) {
 }
 
 func TestACM_RejectsUnknownPrivateCertificateAuthority(t *testing.T) {
+	t.Parallel()
 	c := acmClient()
 	requestUnknownPrivateCA(t, c, "unknown-ca.private.example.com")
 }
@@ -76,6 +77,7 @@ func acmWireErrorCode(t *testing.T, target string, body map[string]any) string {
 // TestACM_ExportCertificate proves public Amazon-issued certificates cannot
 // expose their service-held private key.
 func TestACM_ExportCertificate(t *testing.T) {
+	t.Parallel()
 	c := acmClient()
 
 	reqOut, err := c.RequestCertificate(ctx, &acm.RequestCertificateInput{
@@ -118,6 +120,7 @@ func TestACM_ExportCertificate(t *testing.T) {
 // TestACM_RevokeCertificate proves the private-certificate-only operation
 // rejects an Amazon-issued request.
 func TestACM_RevokeCertificate(t *testing.T) {
+	t.Parallel()
 	c := acmClient()
 
 	req, err := c.RequestCertificate(ctx, &acm.RequestCertificateInput{
@@ -173,6 +176,7 @@ func TestACM_AccountConfiguration(t *testing.T) {
 // TestACM_SearchCertificates pins SearchCertificates filtering by metadata
 // (Type) and returning per-cert metadata results.
 func TestACM_SearchCertificates(t *testing.T) {
+	t.Parallel()
 	c := acmClient()
 
 	requestUnknownPrivateCA(t, c, "search-private.example.com")

@@ -13,6 +13,7 @@ import (
 )
 
 func TestCloudFrontCachePolicyLifecycle(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -73,6 +74,7 @@ func TestCloudFrontCachePolicyLifecycle(t *testing.T) {
 }
 
 func TestCloudFrontOriginRequestPolicyLifecycle(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -121,6 +123,7 @@ func TestCloudFrontOriginRequestPolicyLifecycle(t *testing.T) {
 }
 
 func TestCloudFrontResponseHeadersPolicyLifecycle(t *testing.T) {
+	t.Parallel()
 	c := cfClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

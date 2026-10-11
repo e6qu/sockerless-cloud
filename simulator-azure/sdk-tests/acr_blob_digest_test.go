@@ -15,6 +15,7 @@ import (
 // upload completion must reject a content/digest mismatch with DIGEST_INVALID
 // (400) instead of storing the bytes under the asserted (wrong) digest.
 func TestACR_BlobUploadRejectsWrongDigest(t *testing.T) {
+	t.Parallel()
 	const repo = "audit-blob-repo"
 	body := []byte("audit-blob-content")
 	fixture := newACRRegistryFixture(t, "acr-auth-rg", "acrblobdigestregistry",

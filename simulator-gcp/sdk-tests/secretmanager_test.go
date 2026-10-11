@@ -22,6 +22,7 @@ func secretManagerService(t *testing.T) *secretmanager.Service {
 }
 
 func TestSecretManagerSecretLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	svc := secretManagerService(t)
 	parent := "projects/sdk-secret-project"
 	secretID := "sdk-lifecycle-secret"
@@ -79,6 +80,7 @@ func TestSecretManagerSecretLifecycleSDK(t *testing.T) {
 }
 
 func TestSecretManager_ListPagination(t *testing.T) {
+	t.Parallel()
 	svc := secretManagerService(t)
 	proj := "pagination-sm-project"
 
@@ -125,6 +127,7 @@ func TestSecretManager_ListPagination(t *testing.T) {
 }
 
 func TestSecretManager_GetSecret_NotFound_ErrorClassification(t *testing.T) {
+	t.Parallel()
 	svc := secretManagerService(t)
 	_, err := svc.Projects.Secrets.Get("projects/test-project/secrets/nonexistent-secret").Do()
 	require.Error(t, err)
@@ -142,6 +145,7 @@ func TestSecretManager_GetSecret_NotFound_ErrorClassification(t *testing.T) {
 // versions under projects/{p}/locations/{loc}/secrets, the regional analogue
 // of the global surface.
 func TestSecretManager_RegionalLifecycleSDK(t *testing.T) {
+	t.Parallel()
 	svc := secretManagerService(t)
 	location := "us-central1"
 	parent := "projects/sdk-regional-project/locations/" + location
@@ -228,6 +232,7 @@ func TestSecretManager_RegionalLifecycleSDK(t *testing.T) {
 // binding read back by getIamPolicy, and testIamPermissions echoes the
 // caller's requested permissions.
 func TestSecretManager_IamPolicySDK(t *testing.T) {
+	t.Parallel()
 	svc := secretManagerService(t)
 	parent := "projects/sdk-iam-project"
 	secretID := "sdk-iam-secret"
@@ -278,6 +283,7 @@ func TestSecretManager_IamPolicySDK(t *testing.T) {
 // (ListLocations + GetLocation) the Secret Manager Discovery document
 // defines for region discovery.
 func TestSecretManager_LocationsSDK(t *testing.T) {
+	t.Parallel()
 	svc := secretManagerService(t)
 	project := "projects/sdk-loc-project"
 

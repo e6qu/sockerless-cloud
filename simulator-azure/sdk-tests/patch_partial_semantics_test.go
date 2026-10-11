@@ -25,6 +25,7 @@ import (
 // PATCH the console's registry-settings flow uses, and checks both that a sent
 // property is applied and that unsent properties are preserved.
 func TestSDK_ACR_RegistryUpdatePartial(t *testing.T) {
+	t.Parallel()
 	const (
 		rg           = "acr-patch-rg"
 		registryName = "acrpatchregistry"
@@ -107,6 +108,7 @@ func TestSDK_ACR_RegistryUpdatePartial(t *testing.T) {
 // console's job-edit flow uses — with a tags-only body, and asserts the job's
 // configuration and template survive.
 func TestSDK_ACAJob_UpdatePartial(t *testing.T) {
+	t.Parallel()
 	rg := "aca-jobpatch-rg"
 	ensureRG(t, rg)
 	ensureManagedEnv(t, rg, "jobpatch-env")
@@ -202,6 +204,7 @@ func TestSDK_ACAJob_UpdatePartial(t *testing.T) {
 // "properties" key at all) and a properties-subset PATCH, which are exactly the
 // shapes the SDK and the azurerm provider emit.
 func TestSDK_WebApp_UpdatePartialPreservesHTTPSOnly(t *testing.T) {
+	t.Parallel()
 	rg := "web-patchpartial-rg"
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "wm-patchpartial-plan")

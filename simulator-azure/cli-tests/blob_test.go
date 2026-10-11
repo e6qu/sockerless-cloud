@@ -30,6 +30,7 @@ func azStorageContainer(args ...string) *exec.Cmd {
 }
 
 func TestBlobListContainersPropertiesCLI(t *testing.T) {
+	t.Parallel()
 	container := "cli-list-props"
 
 	runCLI(t, azStorageContainer("create", "--name", container))
@@ -125,6 +126,7 @@ func downloadCLIBlob(t *testing.T, container, name string) string {
 // and Set Blob HTTP Headers through `az storage blob`, and reads each change
 // back through `az storage blob show` — the CLI's own view of the blob.
 func TestBlobTierMetadataAndPropertiesCLI(t *testing.T) {
+	t.Parallel()
 	container := "cli-props-container"
 	blobName := "props.txt"
 	payload := "cli property payload"
@@ -158,6 +160,7 @@ func TestBlobTierMetadataAndPropertiesCLI(t *testing.T) {
 // TestBlobLeaseCLI drives the blob lease verbs and their enforcement through
 // `az storage blob lease`.
 func TestBlobLeaseCLI(t *testing.T) {
+	t.Parallel()
 	container := "cli-lease-container"
 	blobName := "leased.txt"
 	payload := "cli lease payload"
@@ -214,6 +217,7 @@ func TestBlobLeaseCLI(t *testing.T) {
 // TestBlobContainerLeaseAndPolicyCLI drives the container lease verbs and the
 // container stored access policies through `az storage container`.
 func TestBlobContainerLeaseAndPolicyCLI(t *testing.T) {
+	t.Parallel()
 	container := "cli-container-admin"
 
 	runCLI(t, azStorageContainer("create", "--name", container))
@@ -251,6 +255,7 @@ func TestBlobContainerLeaseAndPolicyCLI(t *testing.T) {
 // TestBlobSnapshotSoftDeleteAndUndeleteCLI drives Snapshot Blob, the account's
 // blob service delete-retention policy, and Undelete Blob through the CLI.
 func TestBlobSnapshotSoftDeleteAndUndeleteCLI(t *testing.T) {
+	t.Parallel()
 	container := "cli-snapshot-container"
 	blobName := "versioned.txt"
 
@@ -307,6 +312,7 @@ func TestBlobSnapshotSoftDeleteAndUndeleteCLI(t *testing.T) {
 // TestBlobLegalHoldAndImmutabilityCLI drives Set Blob Legal Hold and the blob
 // immutability policy through the CLI, and asserts the protection is enforced.
 func TestBlobLegalHoldAndImmutabilityCLI(t *testing.T) {
+	t.Parallel()
 	container := "cli-immutable-container"
 	blobName := "held.txt"
 
@@ -336,6 +342,7 @@ func TestBlobLegalHoldAndImmutabilityCLI(t *testing.T) {
 // TestBlobQueryCLI drives Query Blob Contents through `az storage blob query`,
 // which decodes the Avro-framed response the operation streams back.
 func TestBlobQueryCLI(t *testing.T) {
+	t.Parallel()
 	container := "cli-query-container"
 	blobName := "rows.csv"
 

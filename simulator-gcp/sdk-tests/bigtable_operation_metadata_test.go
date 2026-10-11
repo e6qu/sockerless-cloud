@@ -41,7 +41,7 @@ func bigtableRequireInterval(t *testing.T, what string, start, end *timestamppb.
 // operation carries the metadata message the method's operation_info declares,
 // naming the request it tracks.
 func TestBigtableAdminGRPC_OperationMetadata(t *testing.T) {
-	t.Setenv("BIGTABLE_EMULATOR_HOST", grpcAddr)
+	t.Parallel()
 	ia, ta, ops := bigtableAdminGRPCConn(t)
 	const project = "bt-grpc-metadata"
 

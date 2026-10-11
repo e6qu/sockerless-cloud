@@ -97,6 +97,7 @@ func createWorkerPoolForCLI(t *testing.T, id string) {
 }
 
 func TestCloudRunWorkerPools_CLI_IAMPolicyLifecycle(t *testing.T) {
+	t.Parallel()
 	const id = "cli-wp-iam"
 	createWorkerPoolForCLI(t, id)
 
@@ -190,6 +191,7 @@ func TestCloudRunWorkerPools_CLI_IAMPolicyLifecycle(t *testing.T) {
 // error for a worker pool that was never deployed: the IAM verb is NOT_FOUND,
 // not an empty policy.
 func TestCloudRunWorkerPools_CLI_IAMPolicyOnMissingPool(t *testing.T) {
+	t.Parallel()
 	cmd := gcloudCLI("run", "worker-pools", "get-iam-policy", "cli-wp-never-deployed",
 		"--region="+location, "--format=json")
 	out, err := cmd.CombinedOutput()
@@ -199,6 +201,7 @@ func TestCloudRunWorkerPools_CLI_IAMPolicyOnMissingPool(t *testing.T) {
 }
 
 func TestCloudRunV2WorkerPools_Wire_CreateGetListPatchDelete(t *testing.T) {
+	t.Parallel()
 	createBody := `{
 		"template": {"containers": [{"image": "` + commandImageName + `", "args": ["hold"]}]},
 		"scaling": {"manualInstanceCount": 3}
@@ -290,6 +293,7 @@ func TestCloudRunV2WorkerPools_Wire_CreateGetListPatchDelete(t *testing.T) {
 // automatic-scaling members of WorkerPoolScaling through create, get and a
 // masked patch.
 func TestCloudRunV2WorkerPools_Wire_AutomaticScaling(t *testing.T) {
+	t.Parallel()
 	const id = "cli-wp-autoscaling"
 	createBody := `{
 		"template": {"containers": [{"image": "` + commandImageName + `", "args": ["hold"]}]},
@@ -337,6 +341,7 @@ func TestCloudRunV2WorkerPools_Wire_AutomaticScaling(t *testing.T) {
 // container health probes and the Secret Manager-sourced environment variable
 // through the worker-pool collection.
 func TestCloudRunV2WorkerPools_Wire_ProbesAndEnvValueSource(t *testing.T) {
+	t.Parallel()
 	const id = "cli-wp-probes"
 	createBody := `{
 		"template": {
@@ -442,6 +447,7 @@ func TestCloudRunV2WorkerPools_Wire_ProbesAndEnvValueSource(t *testing.T) {
 }
 
 func TestCloudRunV2Instances_Wire_CreatePatchStartStopDelete(t *testing.T) {
+	t.Parallel()
 	createBody := `{"containers": [{"image": "` + httpProbeImageName + `", "args": ["echo-request"]}], "labels": {"team": "cli"}}`
 	createOut := awaitRunOperation(t, httpDoJSON(t, "POST", instancesBaseURL()+"?instanceId=cli-inst-roundtrip", createBody))
 	var lro struct {

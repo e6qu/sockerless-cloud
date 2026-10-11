@@ -80,6 +80,7 @@ func writeWithContexts(t *testing.T, obj *storage.ObjectHandle, custom map[strin
 }
 
 func TestGCS_ObjectContextsWriteUpdateAndView(t *testing.T) {
+	t.Parallel()
 	client := storageClient(t)
 	defer client.Close()
 	bucket := uniqueName("contexts-bucket")
@@ -135,6 +136,7 @@ func TestGCS_ObjectContextsWriteUpdateAndView(t *testing.T) {
 }
 
 func TestGCS_ObjectContextsCopyAndCompose(t *testing.T) {
+	t.Parallel()
 	client := storageClient(t)
 	defer client.Close()
 	bucket := uniqueName("contexts-copy-bucket")
@@ -170,6 +172,7 @@ func TestGCS_ObjectContextsCopyAndCompose(t *testing.T) {
 }
 
 func TestGCS_ListObjectsFilteredByContexts(t *testing.T) {
+	t.Parallel()
 	client := storageClient(t)
 	defer client.Close()
 	bucket := uniqueName("contexts-list-bucket")

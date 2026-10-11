@@ -27,6 +27,7 @@ func sqsClient() *sqs.Client {
 // digest mismatch, so a successful subset receive proves the recompute (the sim
 // previously re-emitted the stored full-set digest).
 func TestSQS_ReceiveMessageAttributeSubsetMD5(t *testing.T) {
+	t.Parallel()
 	client := sqsClient()
 	create, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("attr-md5-q")})
 	require.NoError(t, err)
@@ -56,6 +57,7 @@ func TestSQS_ReceiveMessageAttributeSubsetMD5(t *testing.T) {
 // TestSQS_QueueLifecycle exercises the 90th-percentile produce-
 // consume-ack flow that real consumers run against SQS.
 func TestSQS_QueueLifecycle(t *testing.T) {
+	t.Parallel()
 	client := sqsClient()
 
 	// CreateQueue + GetQueueUrl round-trip.
@@ -150,6 +152,7 @@ func TestSQS_QueueLifecycle(t *testing.T) {
 
 // TestSQS_TagQueueRoundTrip asserts tag CRUD per the SDK shape.
 func TestSQS_TagQueueRoundTrip(t *testing.T) {
+	t.Parallel()
 	client := sqsClient()
 	out, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("tagq")})
 	require.NoError(t, err)
@@ -181,6 +184,7 @@ func TestSQS_TagQueueRoundTrip(t *testing.T) {
 // TestSQS_NonExistentQueue confirms the canonical error envelope
 // real callers handle on a missing queue.
 func TestSQS_NonExistentQueue(t *testing.T) {
+	t.Parallel()
 	client := sqsClient()
 	_, err := client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
 		QueueUrl: aws.String("https://sqs.us-east-1.amazonaws.com/000000000000/missing"),
@@ -192,6 +196,7 @@ func TestSQS_NonExistentQueue(t *testing.T) {
 }
 
 func TestSQS_ReceiveMessageRejectsInvalidMaxNumberOfMessages(t *testing.T) {
+	t.Parallel()
 	client := sqsClient()
 	out, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("max-invalid-q")})
 	require.NoError(t, err)
@@ -212,6 +217,7 @@ func TestSQS_ReceiveMessageRejectsInvalidMaxNumberOfMessages(t *testing.T) {
 }
 
 func TestSQS_ReceiveMessageHonorsLongPollingWaitTime(t *testing.T) {
+	t.Parallel()
 	client := sqsClient()
 	out, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("long-poll-q")})
 	require.NoError(t, err)
@@ -233,6 +239,7 @@ func TestSQS_ReceiveMessageHonorsLongPollingWaitTime(t *testing.T) {
 }
 
 func TestSQS_ReceiveMessageRejectsInvalidWaitTimeSeconds(t *testing.T) {
+	t.Parallel()
 	client := sqsClient()
 	out, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("wait-invalid-q")})
 	require.NoError(t, err)
@@ -255,6 +262,7 @@ func TestSQS_ReceiveMessageRejectsInvalidWaitTimeSeconds(t *testing.T) {
 // TestSQS_VisibilityTimeoutExpiry asserts a message returns to
 // visible state after the per-receive timeout elapses.
 func TestSQS_VisibilityTimeoutExpiry(t *testing.T) {
+	t.Parallel()
 	client := sqsClient()
 	out, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{
 		QueueName: aws.String("vtq"),
@@ -293,6 +301,7 @@ func TestSQS_VisibilityTimeoutExpiry(t *testing.T) {
 // invisible right after the first receive (default 30s timeout); a
 // ChangeMessageVisibility to 0 returns it to the visible pool.
 func TestSQS_ChangeMessageVisibility(t *testing.T) {
+	t.Parallel()
 	client := sqsClient()
 	create, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("cmv-q")})
 	require.NoError(t, err)
@@ -343,6 +352,7 @@ func TestSQS_ChangeMessageVisibility(t *testing.T) {
 // batch visibility change: a valid in-flight handle succeeds, an unknown handle
 // fails with ReceiptHandleIsInvalid.
 func TestSQS_ChangeMessageVisibilityBatch(t *testing.T) {
+	t.Parallel()
 	client := sqsClient()
 	create, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("cmvb-q")})
 	require.NoError(t, err)
@@ -381,6 +391,7 @@ func TestSQS_ChangeMessageVisibilityBatch(t *testing.T) {
 // TestSQS_DeleteMessageBatch asserts batch delete by receipt handle: two
 // messages received then batch-deleted leave the queue empty.
 func TestSQS_DeleteMessageBatch(t *testing.T) {
+	t.Parallel()
 	client := sqsClient()
 	create, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("dmb-q")})
 	require.NoError(t, err)
@@ -436,6 +447,7 @@ func TestSQS_DeleteMessageBatch(t *testing.T) {
 // statement into the queue's Policy attribute (readable via GetQueueAttributes)
 // and RemovePermission strips it back out.
 func TestSQS_AddRemovePermission(t *testing.T) {
+	t.Parallel()
 	client := sqsClient()
 	create, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("perm-q")})
 	require.NoError(t, err)
@@ -495,6 +507,7 @@ func TestSQS_AddRemovePermission(t *testing.T) {
 }
 
 func TestSQS_ListQueues_Pagination(t *testing.T) {
+	t.Parallel()
 	client := sqsClient()
 	names := []string{"pag-sqs-a", "pag-sqs-b", "pag-sqs-c"}
 	for _, n := range names {

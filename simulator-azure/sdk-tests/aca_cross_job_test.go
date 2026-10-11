@@ -20,6 +20,7 @@ import (
 // at execution-start time with the job short name as DNS alias. Two
 // jobs in the same env resolve each other via Docker's embedded DNS.
 func TestContainerApps_CrossJobDNS(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatalf("docker CLI required for cross-job DNS test (no fallback): %v", err)
 	}

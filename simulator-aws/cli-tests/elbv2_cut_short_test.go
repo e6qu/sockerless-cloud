@@ -17,6 +17,7 @@ import (
 // headers, so it ends the client's response where the target stopped rather
 // than appending an error to it.
 func TestELBv2CutShortTargetCLI(t *testing.T) {
+	t.Parallel()
 	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/healthz" {
 			_, _ = w.Write([]byte("ok"))

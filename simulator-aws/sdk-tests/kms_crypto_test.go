@@ -22,6 +22,7 @@ import (
 // Sign → Verify succeeds, and a tampered message fails Verify. The sim
 // generates a real RSA key, so the signature genuinely verifies.
 func TestKMS_AsymmetricSignVerify(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	created, err := c.CreateKey(ctx, &kms.CreateKeyInput{
@@ -76,6 +77,7 @@ func TestKMS_AsymmetricSignVerify(t *testing.T) {
 // TestKMS_ECDSASignVerify covers the EC signing path (ECC_NIST_P256 →
 // ECDSA_SHA_256) with real crypto.
 func TestKMS_ECDSASignVerify(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	created, err := c.CreateKey(ctx, &kms.CreateKeyInput{
@@ -109,6 +111,7 @@ func TestKMS_ECDSASignVerify(t *testing.T) {
 // TestKMS_GenerateVerifyMac exercises the HMAC flow: CreateKey(HMAC_256) →
 // GenerateMac → VerifyMac round-trips, and a tampered message fails VerifyMac.
 func TestKMS_GenerateVerifyMac(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	created, err := c.CreateKey(ctx, &kms.CreateKeyInput{
@@ -151,6 +154,7 @@ func TestKMS_GenerateVerifyMac(t *testing.T) {
 // wrapped private key + decryptable wrap) and GenerateDataKeyPairWithoutPlaintext
 // (wrapped private key only, no plaintext on the wire).
 func TestKMS_GenerateDataKeyPair(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	created, err := c.CreateKey(ctx, &kms.CreateKeyInput{Description: aws.String("dkp-cmk")})
@@ -192,6 +196,7 @@ func TestKMS_GenerateDataKeyPair(t *testing.T) {
 // TestKMS_DeriveSharedSecret runs a real ECDH between the CMK's EC key and a
 // peer EC public key, and asserts both sides derive the same secret.
 func TestKMS_DeriveSharedSecret(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	created, err := c.CreateKey(ctx, &kms.CreateKeyInput{
@@ -238,6 +243,7 @@ func TestKMS_DeriveSharedSecret(t *testing.T) {
 // TestKMS_CustomKeyStores covers the custom-key-store CRUD + connection-state
 // machine: Create → Describe → Connect → Disconnect → Update → Delete.
 func TestKMS_CustomKeyStores(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	created, err := c.CreateCustomKeyStore(ctx, &kms.CreateCustomKeyStoreInput{
@@ -283,6 +289,7 @@ func TestKMS_CustomKeyStores(t *testing.T) {
 // TestKMS_RetireAndListRetirableGrants covers RetireGrant (by grant id) and
 // ListRetirableGrants (filtering by RetiringPrincipal).
 func TestKMS_RetireAndListRetirableGrants(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	created, err := c.CreateKey(ctx, &kms.CreateKeyInput{Description: aws.String("grant-retire-cmk")})
@@ -323,6 +330,7 @@ func TestKMS_RetireAndListRetirableGrants(t *testing.T) {
 // CreateKey(MultiRegion=true) → ReplicateKey → UpdatePrimaryRegion, and
 // asserts DescribeKey surfaces the MultiRegionConfiguration.
 func TestKMS_MultiRegionReplicateAndPrimary(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	created, err := c.CreateKey(ctx, &kms.CreateKeyInput{
@@ -366,6 +374,7 @@ func TestKMS_MultiRegionReplicateAndPrimary(t *testing.T) {
 // TestKMS_GetKeyLastUsage asserts GetKeyLastUsage omits KeyLastUsage for a
 // never-used key, then reports it after a Sign operation.
 func TestKMS_GetKeyLastUsage(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	created, err := c.CreateKey(ctx, &kms.CreateKeyInput{
@@ -403,6 +412,7 @@ func TestKMS_GetKeyLastUsage(t *testing.T) {
 // halves belong together, a secret that changes with the peer — so a handler
 // that answers with an empty struct fails rather than counting as coverage.
 func TestKMS_AsymmetricOperationsRestored(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 
 	signKey, err := c.CreateKey(ctx, &kms.CreateKeyInput{

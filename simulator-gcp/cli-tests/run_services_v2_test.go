@@ -29,6 +29,7 @@ func runServiceURL(name string) string {
 // unknown field fails with 400 INVALID_ARGUMENT instead of silently
 // no-opping, while a valid masked patch merges only the masked field.
 func TestCloudRunV2Services_Wire_RejectsUnknownUpdateMask(t *testing.T) {
+	t.Parallel()
 	createBody := `{"labels":{"stage":"one"},"template":{"containers":[{"image":"gcr.io/test-project/mask"}]}}`
 	httpDoJSON(t, "POST", servicesBaseURL()+"?serviceId=cli-svc-badmask", createBody)
 
@@ -60,6 +61,7 @@ func TestCloudRunV2Services_Wire_RejectsUnknownUpdateMask(t *testing.T) {
 // which no endpoint coordinate points at a loopback simulator, so the requests
 // go on the wire directly — the same convention the worker-pool tests follow.
 func TestCloudRunV2Services_Wire_CreateGetDelete(t *testing.T) {
+	t.Parallel()
 	createBody := `{
 		"labels": {"sockerless_managed": "true"},
 		"template": {
@@ -143,6 +145,7 @@ func TestCloudRunV2Services_Wire_CreateGetDelete(t *testing.T) {
 // --startup-probe writes, and requests each at its run.app URL: a probe the
 // container passes admits the request, and one it keeps failing answers 503.
 func TestCloudRunV2Services_Wire_StartupProbeGatesTheServiceURL(t *testing.T) {
+	t.Parallel()
 	invoker := cliInvokerEmail(t)
 	create := func(id, probe string) string {
 		uri := createEchoService(t, id, `,"startupProbe":`+probe)

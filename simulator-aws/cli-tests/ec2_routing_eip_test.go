@@ -8,6 +8,7 @@ import (
 // TestEC2RoutingEIPFidelityCLI covers ReplaceRoute and the EIP association
 // lifecycle (AssociateAddress/DisassociateAddress) via the aws CLI.
 func TestEC2RoutingEIPFidelityCLI(t *testing.T) {
+	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	vpcID := q("ec2", "create-vpc", "--cidr-block", "10.114.0.0/16",

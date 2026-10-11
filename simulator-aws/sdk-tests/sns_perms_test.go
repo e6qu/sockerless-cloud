@@ -18,6 +18,7 @@ import (
 // with the fixed read-only fields (SubscriptionArn / TopicArn / Protocol /
 // Endpoint / Owner / PendingConfirmation).
 func TestSNS_SubscriptionAttributes(t *testing.T) {
+	t.Parallel()
 	snsC := snsClient()
 	sqsC := sqsClient()
 
@@ -101,6 +102,7 @@ func TestSNS_SubscriptionAttributes(t *testing.T) {
 // TestSNS_GetSubscriptionAttributes_NotFound asserts the canonical NotFound
 // shape for an unknown subscription ARN.
 func TestSNS_GetSubscriptionAttributes_NotFound(t *testing.T) {
+	t.Parallel()
 	snsC := snsClient()
 	_, err := snsC.GetSubscriptionAttributes(ctx, &sns.GetSubscriptionAttributesInput{
 		SubscriptionArn: aws.String("arn:aws:sns:us-east-1:000000000000:nope:00000000-0000-0000-0000-000000000000"),
@@ -116,6 +118,7 @@ func TestSNS_GetSubscriptionAttributes_NotFound(t *testing.T) {
 // the deterministic token the confirmation message carries; ConfirmSubscription
 // flips the subscription to confirmed and is idempotent.
 func TestSNS_ConfirmSubscription(t *testing.T) {
+	t.Parallel()
 	snsC := snsClient()
 	tpc, err := snsC.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String("confirm-sub-t")})
 	require.NoError(t, err)
@@ -175,6 +178,7 @@ func TestSNS_ConfirmSubscription(t *testing.T) {
 // into the topic's Policy attribute (readable via GetTopicAttributes) and that
 // RemovePermission drops it.
 func TestSNS_AddRemovePermission(t *testing.T) {
+	t.Parallel()
 	snsC := snsClient()
 	tpc, err := snsC.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String("perm-t")})
 	require.NoError(t, err)

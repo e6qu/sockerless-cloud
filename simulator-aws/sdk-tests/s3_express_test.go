@@ -47,6 +47,7 @@ func s3ExpressClient() *s3.Client {
 // half: a directory bucket carries the zone it sits in, its name has to agree
 // with the Location that placed it, and the two listings are separate surfaces.
 func TestS3_DirectoryBucketIsPlacedInItsZoneAndListedApart(t *testing.T) {
+	t.Parallel()
 	admin := s3ExpressClient()
 
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{
@@ -119,6 +120,7 @@ func TestS3_DirectoryBucketIsPlacedInItsZoneAndListedApart(t *testing.T) {
 // request signed with them authenticates as the caller who asked for them, and
 // the session's scope is enforced — one bucket, and the mode it was created in.
 func TestS3_SessionOpensTheOneBucketItWasCreatedFor(t *testing.T) {
+	t.Parallel()
 	admin := s3ExpressClient()
 	other := "sim-express-other--use1-az4--x-s3"
 
@@ -224,6 +226,7 @@ func withSessionTokenHeader(token string) func(*middleware.Stack) error {
 // SDK recognises the bucket, calls CreateSession on its own, signs with what
 // comes back and carries the session token, and the object round-trips.
 func TestS3_TheSDKEstablishesTheSessionItself(t *testing.T) {
+	t.Parallel()
 	client := s3ExpressClient()
 	bucket := "sim-express-sdk-managed--use1-az4--x-s3"
 

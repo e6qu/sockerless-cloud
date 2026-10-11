@@ -28,6 +28,7 @@ type acrTasksRun struct {
 // in the background and reads its terminal status and the reason it failed,
 // and its log link, the run and a cancel of the ended run stay consistent.
 func TestACRTasksCLI_ScheduleRunQueuesThenEnds(t *testing.T) {
+	t.Parallel()
 	const registry = "clitasksregistry"
 	runCLI(t, azRest("PUT", acrURL("registries/"+registry),
 		`{"location":"eastus","sku":{"name":"Standard"},"properties":{"adminUserEnabled":false}}`))

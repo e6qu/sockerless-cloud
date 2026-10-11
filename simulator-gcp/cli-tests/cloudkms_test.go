@@ -15,6 +15,7 @@ import (
 // clean round-trip proves the sim emits ciphertextCrc32c / plaintextCrc32c /
 // verifiedPlaintextCrc32c correctly.
 func TestKMSCLILifecycleAndCrypto(t *testing.T) {
+	t.Parallel()
 	const location = "global"
 	const ring = "cli-kms-ring"
 	const key = "cli-kms-key"

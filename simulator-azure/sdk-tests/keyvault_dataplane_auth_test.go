@@ -111,6 +111,7 @@ func kvErrorMessage(body map[string]any) (string, string) {
 // and a token for another resource or from another tenant is refused with the
 // same challenge.
 func TestKeyVault_AuthChallenge(t *testing.T) {
+	t.Parallel()
 	vault := uniqueAlnumName("challengevault")
 	createAuthTestVault(t, "kv-challenge-rg", vault, armkeyvault.VaultProperties{
 		AccessPolicies: []*armkeyvault.AccessPolicyEntry{{
@@ -174,6 +175,7 @@ func TestKeyVault_AuthChallenge(t *testing.T) {
 // the caller's object, and a compound identity policy applies only to tokens
 // its application obtained.
 func TestKeyVault_AccessPoliciesAuthorizeEachOperation(t *testing.T) {
+	t.Parallel()
 	rg := "kv-policy-auth-rg"
 	vault := uniqueAlnumName("kvpolicyauth")
 	policy := func(secrets ...armkeyvault.SecretPermissions) *armkeyvault.AccessPolicyEntry {
@@ -261,6 +263,7 @@ func TestKeyVault_AccessPoliciesAuthorizeEachOperation(t *testing.T) {
 // dataActions match less its notDataActions, and an assignment at one secret
 // grants that secret alone.
 func TestKeyVault_RBACAuthorizesDataActions(t *testing.T) {
+	t.Parallel()
 	rg := "kv-rbac-auth-rg"
 	vault := uniqueAlnumName("kvrbacauth")
 	createAuthTestVault(t, rg, vault, armkeyvault.VaultProperties{
@@ -332,6 +335,7 @@ func TestKeyVault_RBACAuthorizesDataActions(t *testing.T) {
 // Deny default action refuses an address no IP rule names, and disabled public
 // network access refuses every public request.
 func TestKeyVault_NetworkRulesRefuseOutsideAddresses(t *testing.T) {
+	t.Parallel()
 	rg := "kv-network-auth-rg"
 	vault := uniqueAlnumName("kvnetauth")
 	vaults := createAuthTestVault(t, rg, vault, armkeyvault.VaultProperties{

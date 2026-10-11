@@ -15,6 +15,7 @@ import (
 // uses for cloud-dns service discovery. A site joins a Microsoft.Web-delegated
 // subnet; the connection round-trips on GET and is removable.
 func TestSDK_SiteVNetIntegration_RoundTrip(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-sitevnet-rg"
 	site := "sitevnet-app"
 	ensureRG(t, rg)

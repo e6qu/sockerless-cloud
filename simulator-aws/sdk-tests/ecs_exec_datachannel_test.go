@@ -72,6 +72,7 @@ func sendOpenDataChannel(t *testing.T, conn *websocket.Conn, token string) {
 // the service rejects the channel. The sim must behave identically to real AWS
 // so one client works against both.
 func TestECS_ExecDataChannelHandshake(t *testing.T) {
+	t.Parallel()
 	conn, token := dialExecDataChannel(t, "exec-datachannel-ok", "echo hello")
 	sendOpenDataChannel(t, conn, token)
 
@@ -97,6 +98,7 @@ func TestECS_ExecDataChannelHandshake(t *testing.T) {
 // in it, creating it when the image does not hold it, and an ExecuteCommand
 // session inherits it, so `pwd` over the data channel reports that directory.
 func TestECS_ExecRunsInTaskWorkingDirectory(t *testing.T) {
+	t.Parallel()
 	const workDir = "/srv/sockerless-work"
 	conn, token := dialExecDataChannelIn(t, "exec-datachannel-workdir", "pwd", workDir)
 	sendOpenDataChannel(t, conn, token)
@@ -121,6 +123,7 @@ func TestECS_ExecRunsInTaskWorkingDirectory(t *testing.T) {
 // channel closes without streaming) — matching real AWS, which validates the
 // token before any AgentMessage flows.
 func TestECS_ExecDataChannelRejectsBadToken(t *testing.T) {
+	t.Parallel()
 	conn, _ := dialExecDataChannel(t, "exec-datachannel-badtoken", "echo hello")
 	sendOpenDataChannel(t, conn, "token-bogus-00000000")
 

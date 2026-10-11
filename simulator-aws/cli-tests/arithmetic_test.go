@@ -22,6 +22,7 @@ func waitECSTaskStoppedCLI(t *testing.T, cluster, taskArn string) string {
 }
 
 func TestECS_CLI_ArithmeticEval(t *testing.T) {
+	t.Parallel()
 	subnetID := createCLIECSTestSubnet(t, "cli-arith-cluster", 140)
 
 	// Create cluster
@@ -119,6 +120,7 @@ func TestECS_CLI_ArithmeticEval(t *testing.T) {
 }
 
 func TestECS_CLI_ArithmeticInvalid(t *testing.T) {
+	t.Parallel()
 	subnetID := createCLIECSTestSubnet(t, "cli-arith-fail-cluster", 141)
 
 	// Create cluster

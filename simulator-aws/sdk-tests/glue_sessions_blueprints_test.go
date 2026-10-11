@@ -17,6 +17,7 @@ import (
 // GetSessionEndpoint -> RunStatement -> GetStatement -> ListStatements ->
 // CancelStatement -> StopSession -> DeleteSession.
 func TestGlue_SessionAndStatements_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 	id := "glue-sdk-session"
 
@@ -123,6 +124,7 @@ func TestGlue_SessionAndStatements_SDK(t *testing.T) {
 // BatchGetDevEndpoints -> ListDevEndpoints -> UpdateDevEndpoint ->
 // DeleteDevEndpoint.
 func TestGlue_DevEndpointLifecycle_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 	name := "glue-sdk-devep"
 
@@ -189,6 +191,7 @@ func TestGlue_DevEndpointLifecycle_SDK(t *testing.T) {
 // UpdateBlueprint -> StartBlueprintRun -> GetBlueprintRun -> GetBlueprintRuns
 // -> DeleteBlueprint.
 func TestGlue_BlueprintLifecycle_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 	name := "glue-sdk-blueprint"
 

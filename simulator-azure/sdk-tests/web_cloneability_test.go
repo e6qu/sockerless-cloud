@@ -18,6 +18,7 @@ import (
 // the site is placed on decides whether a clone is possible at all, and the
 // deployment slots a clone would leave behind decide whether it is partial.
 func TestSDK_WebApps_IsCloneable(t *testing.T) {
+	t.Parallel()
 	sdkCloneablePremiumName := uniqueName("sdk-cloneable-premium")
 	sdkCloneableBasicName := uniqueName("sdk-cloneable-basic")
 	rg := uniqueName("sdk-cloneable-rg")
@@ -107,6 +108,7 @@ func TestSDK_WebApps_IsCloneable(t *testing.T) {
 // behind each declare what is missing, rather than missing the router and
 // answering a bare 404 that reads as "no such API".
 func TestSDK_WebApps_PlatformReadsDeclareWhatIsMissing(t *testing.T) {
+	t.Parallel()
 	rg, name := "sdk-webgap-rg", "sdk-webgap-app"
 	ensureRG(t, rg)
 

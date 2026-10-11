@@ -18,6 +18,7 @@ import (
 // An event subscription's advanced filters decide which published events reach
 // its endpoint: the filters are ANDed, the values of one filter ORed.
 func TestEventGrid_AdvancedFiltersSelectDeliveredEventsSDK(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-eventgrid-filter-rg"
 	ensureRG(t, rg)
 

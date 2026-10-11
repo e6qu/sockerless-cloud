@@ -16,6 +16,7 @@ import (
 )
 
 func TestAzureResources_Providers(t *testing.T) {
+	t.Parallel()
 	client, err := armresources.NewProvidersClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
@@ -53,6 +54,7 @@ func TestAzureResources_Providers(t *testing.T) {
 }
 
 func TestAzureResources_ProviderResourceTypes(t *testing.T) {
+	t.Parallel()
 	client, err := armresources.NewProviderResourceTypesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	resp, err := client.List(ctx, "Microsoft.DBforPostgreSQL", nil)
@@ -61,6 +63,7 @@ func TestAzureResources_ProviderResourceTypes(t *testing.T) {
 }
 
 func TestAzureResources_Operations(t *testing.T) {
+	t.Parallel()
 	client, err := armresources.NewOperationsClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	pager := client.NewListPager(nil)
@@ -70,6 +73,7 @@ func TestAzureResources_Operations(t *testing.T) {
 }
 
 func TestAzureResources_PredefinedTagNames(t *testing.T) {
+	t.Parallel()
 	client, err := armresources.NewTagsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
@@ -101,6 +105,7 @@ func TestAzureResources_PredefinedTagNames(t *testing.T) {
 }
 
 func TestAzureResources_ResourceGroupUpdateAndExport(t *testing.T) {
+	t.Parallel()
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	rg := "resources-rg-update"
@@ -123,6 +128,7 @@ func TestAzureResources_ResourceGroupUpdateAndExport(t *testing.T) {
 }
 
 func TestAzureResources_MoveResources(t *testing.T) {
+	t.Parallel()
 	srcRG, dstRG := uniqueName("move-src-rg"), uniqueName("move-dst-rg")
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -182,6 +188,7 @@ func TestAzureResources_MoveResources(t *testing.T) {
 // (an Azure Container Instances container group) still answers
 // ResourceMoveNotSupported.
 func TestAzureResources_MoveStorageAccountAndMixedBatch(t *testing.T) {
+	t.Parallel()
 	srcRG, dstRG := uniqueName("move-mixed-src-rg"), uniqueName("move-mixed-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)

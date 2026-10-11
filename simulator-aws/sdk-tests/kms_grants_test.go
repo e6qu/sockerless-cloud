@@ -14,6 +14,7 @@ import (
 // RevokeGrant — the `aws_kms_grant` surface AWS services use to delegate CMK
 // use for encryption at rest.
 func TestKMS_GrantsLifecycle(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 	key, err := c.CreateKey(ctx, &kms.CreateKeyInput{Description: aws.String("grant-test")})
 	require.NoError(t, err)
@@ -56,6 +57,7 @@ func TestKMS_GrantsLifecycle(t *testing.T) {
 // crypto ops: the encrypted-only data key, and re-wrapping ciphertext
 // under a new key (rotation).
 func TestKMS_GenerateDataKeyWithoutPlaintextAndReEncrypt(t *testing.T) {
+	t.Parallel()
 	c := kmsClient()
 	k1, err := c.CreateKey(ctx, &kms.CreateKeyInput{Description: aws.String("src")})
 	require.NoError(t, err)

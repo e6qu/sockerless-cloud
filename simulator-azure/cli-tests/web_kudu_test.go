@@ -160,6 +160,7 @@ func kuduCLIScmHost(t *testing.T, az kuduCLIEnv, rg, app string) string {
 }
 
 func TestWebAppKudu_NativeAzDeployAndConfigZip(t *testing.T) {
+	t.Parallel()
 	rg, app := "kudu-cli-rg", "kudu-cli-app"
 	az, _ := kuduCLIWebApp(t, rg, "kudu-cli-plan", app)
 	env := az.azLoginEnv

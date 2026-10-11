@@ -82,6 +82,7 @@ func s3ListVersions(t *testing.T, c *s3.Client, bucket string) (versions, marker
 // without a version leaves a delete marker, and deleting a version by id
 // makes the next newest current.
 func TestS3_VersioningKeepsEveryVersion(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	bucket := s3VersionedBucket(t, c, "versioned", types.BucketVersioningStatusEnabled)
 
@@ -156,6 +157,7 @@ func TestS3_VersioningKeepsEveryVersion(t *testing.T) {
 // a write replaces the null version and leaves the versions written while
 // versioning was enabled, and a delete puts a null delete marker in its place.
 func TestS3_VersioningSuspendedWritesTheNullVersion(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	bucket := s3VersionedBucket(t, c, "suspended", types.BucketVersioningStatusEnabled)
 	kept := aws.ToString(s3Put(t, c, bucket, "doc", "enabled").VersionId)
@@ -184,6 +186,7 @@ func TestS3_VersioningSuspendedWritesTheNullVersion(t *testing.T) {
 // TestS3_DeleteObjectsVersionedEntries deletes by version and by key in one
 // DeleteObjects request and reads back what each entry did.
 func TestS3_DeleteObjectsVersionedEntries(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	bucket := s3VersionedBucket(t, c, "batch-versions", types.BucketVersioningStatusEnabled)
 	old := aws.ToString(s3Put(t, c, bucket, "a", "a1").VersionId)
@@ -213,6 +216,7 @@ func TestS3_DeleteObjectsVersionedEntries(t *testing.T) {
 
 // TestS3_CopyObjectReadsTheNamedSourceVersion copies a noncurrent version.
 func TestS3_CopyObjectReadsTheNamedSourceVersion(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	bucket := s3VersionedBucket(t, c, "copy-versions", types.BucketVersioningStatusEnabled)
 	first := aws.ToString(s3Put(t, c, bucket, "src", "original").VersionId)
@@ -237,6 +241,7 @@ func TestS3_CopyObjectReadsTheNamedSourceVersion(t *testing.T) {
 // TestS3_ObjectTagsBelongToTheirVersion tags two versions differently and
 // reads each back by version.
 func TestS3_ObjectTagsBelongToTheirVersion(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	bucket := s3VersionedBucket(t, c, "tag-versions", types.BucketVersioningStatusEnabled)
 	first, err := c.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(bucket), Key: aws.String("k"),
@@ -264,6 +269,7 @@ func TestS3_ObjectTagsBelongToTheirVersion(t *testing.T) {
 // TestS3_ListObjectVersionsPages pages through a listing one entry at a time
 // with the key and version-id markers each page returns.
 func TestS3_ListObjectVersionsPages(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	bucket := s3VersionedBucket(t, c, "page-versions", types.BucketVersioningStatusEnabled)
 	a1 := aws.ToString(s3Put(t, c, bucket, "a", "1").VersionId)
@@ -290,6 +296,7 @@ func TestS3_ListObjectVersionsPages(t *testing.T) {
 // that may delete only one: the request succeeds, the other entry comes back
 // as an AccessDenied error, and its object stays.
 func TestS3_DeleteObjectsRefusesEachEntryOnItsOwn(t *testing.T) {
+	t.Parallel()
 	admin := s3Client()
 	bucket := uniqueName("delete-objects-partial")
 	s3CreateBucket(t, admin, bucket)
@@ -323,6 +330,7 @@ func TestS3_DeleteObjectsRefusesEachEntryOnItsOwn(t *testing.T) {
 // from a noncurrent version of its deployment package: AWS Lambda reads the
 // version S3ObjectVersion names, not the key's current object.
 func TestLambda_CreateFunctionReadsTheNamedS3ObjectVersion(t *testing.T) {
+	t.Parallel()
 	c := s3Client()
 	bucket := s3VersionedBucket(t, c, "lambda-code-versions", types.BucketVersioningStatusEnabled)
 	deployed := lambdaNodeDeploymentZip(t, "event")

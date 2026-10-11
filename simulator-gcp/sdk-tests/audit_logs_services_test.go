@@ -60,6 +60,7 @@ func auditPermission(t *testing.T, payload *audit.AuditLog) string {
 // call started, marked both first and last since the operation was done when
 // the call answered.
 func TestAuditLogs_ComputeEngine(t *testing.T) {
+	t.Parallel()
 	const project = "test-project"
 	svc := computeService(t)
 	name := uniqueName("audit-net")
@@ -90,6 +91,7 @@ func TestAuditLogs_ComputeEngine(t *testing.T) {
 // google.iam.admin.v1.DeleteServiceAccount on the account, which it names by
 // its unique ID.
 func TestAuditLogs_IAMServiceAccounts(t *testing.T) {
+	t.Parallel()
 	const project = "test-project"
 	svc := iamService(t)
 	accountID := uniqueName("audit-sa")
@@ -119,6 +121,7 @@ func TestAuditLogs_IAMServiceAccounts(t *testing.T) {
 // Cloud Resource Manager writes SetIamPolicy with the binding delta the call
 // made in its serviceData.
 func TestAuditLogs_ResourceManagerSetIamPolicy(t *testing.T) {
+	t.Parallel()
 	const project = "test-project"
 	member := "serviceAccount:" + uniqueName("audit-member") + "@test-project.iam.gserviceaccount.com"
 	grantOnProject(t, project, "roles/browser", member)
@@ -142,6 +145,7 @@ func TestAuditLogs_ResourceManagerSetIamPolicy(t *testing.T) {
 // TestAuditLogs_CloudDNS creates a managed zone: Cloud DNS writes
 // dns.managedZones.create on managedZones/{zone}.
 func TestAuditLogs_CloudDNS(t *testing.T) {
+	t.Parallel()
 	const project = "test-project"
 	svc := dnsService(t)
 	zone := uniqueName("audit-zone")
@@ -162,6 +166,7 @@ func TestAuditLogs_CloudDNS(t *testing.T) {
 // gRPC: each service writes its entry with the permission the call checked,
 // and the long-running calls carry their operation.
 func TestAuditLogs_RPCDefinedServices(t *testing.T) {
+	t.Parallel()
 	const project = "test-project"
 
 	kmsClient := newKMSGRPCClient(t)
@@ -223,6 +228,7 @@ func TestAuditLogs_RPCDefinedServices(t *testing.T) {
 // entries for one key ring to a Cloud Run service: creating the key ring over
 // gRPC delivers the google.cloud.audit.log.v1.written CloudEvent.
 func TestEventarc_AuditLogTriggerForCloudKMS(t *testing.T) {
+	t.Parallel()
 	const project, region = "test-project", "us-central1"
 	runClient := newServicesClient(t)
 	svc := createInvokableServiceIn(t, runClient, "projects/"+project+"/locations/"+region, "kms-audit",

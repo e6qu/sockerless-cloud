@@ -40,6 +40,7 @@ func armBody(t *testing.T, resp *http.Response) map[string]any {
 // path stamps the server-assigned defaults (lockDuration, defaultMessageTimeToLive,
 // etc.) real Azure returns on GET when the client omits them.
 func TestConformance_ServiceBusQueueServerDefaults(t *testing.T) {
+	t.Parallel()
 	rg := "conf-sb-rg"
 	ns := "conf-servicebus-ns"
 
@@ -80,6 +81,7 @@ func TestConformance_ServiceBusQueueServerDefaults(t *testing.T) {
 // PUT carries accessTier, allowBlobPublicAccess, and minimumTlsVersion through
 // to GET (terraform-provider-azurerm drift source otherwise).
 func TestConformance_StorageAccountWritableProperties(t *testing.T) {
+	t.Parallel()
 	rg := "conf-storage-rg"
 	account := "confstorageacct"
 	ensureRG(t, rg)
@@ -112,6 +114,7 @@ func TestConformance_StorageAccountWritableProperties(t *testing.T) {
 // TestConformance_ACRRegistryRoundTrip verifies the registry honors a client's
 // publicNetworkAccess and echoes sku.tier == sku.name when only the name is sent.
 func TestConformance_ACRRegistryRoundTrip(t *testing.T) {
+	t.Parallel()
 	rg := "conf-acr-rg"
 	registry := "confacrregistry"
 	ensureRG(t, rg)
@@ -144,6 +147,7 @@ func TestConformance_ACRRegistryRoundTrip(t *testing.T) {
 // osProfile.adminPassword is never echoed back on GET. Host-gated because VM
 // create requires the real-execution network host.
 func TestConformance_VMAdminPasswordStripped(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 	rg := "conf-vm-rg"
 	vnetName := "conf-vm-vnet"
@@ -244,6 +248,7 @@ func TestConformance_VMAdminPasswordStripped(t *testing.T) {
 // TestConformance_ACISecureValueStripped verifies env secureValue is accepted on
 // create but never returned on GET.
 func TestConformance_ACISecureValueStripped(t *testing.T) {
+	t.Parallel()
 	rg := "conf-aci-rg"
 	groupName := "conf-aci-group"
 	ensureRG(t, rg)
@@ -304,6 +309,7 @@ func TestConformance_ACISecureValueStripped(t *testing.T) {
 // off it). The record-set provisioningState is not exposed by the armprivatedns
 // SDK model, so it is not asserted here.
 func TestConformance_PrivateDNSAutoSOA(t *testing.T) {
+	t.Parallel()
 	rg := "conf-dns-rg"
 	zoneName := "conf.internal"
 	ensureRG(t, rg)
@@ -331,6 +337,7 @@ func TestConformance_PrivateDNSAutoSOA(t *testing.T) {
 // TestConformance_CosmosDefaultConsistencyPolicy verifies a create without a
 // consistencyPolicy reads back the default Session policy.
 func TestConformance_CosmosDefaultConsistencyPolicy(t *testing.T) {
+	t.Parallel()
 	rg := "conf-cosmos-rg"
 	account := "confcosmosacct"
 	ensureRG(t, rg)
@@ -355,6 +362,7 @@ func TestConformance_CosmosDefaultConsistencyPolicy(t *testing.T) {
 // TestConformance_RedisDefaultVersion verifies a Basic Redis without an explicit
 // redisVersion reads back 6.0 (the real Basic/Standard default).
 func TestConformance_RedisDefaultVersion(t *testing.T) {
+	t.Parallel()
 	rg := "conf-redis-rg"
 	name := "conf-redis"
 	ensureRG(t, rg)
@@ -380,6 +388,7 @@ func TestConformance_RedisDefaultVersion(t *testing.T) {
 // TestConformance_EventHubDefaultRetention verifies a hub created without an
 // explicit messageRetentionInDays reads back 7 (the real default).
 func TestConformance_EventHubDefaultRetention(t *testing.T) {
+	t.Parallel()
 	rg := "conf-eh-rg"
 	ns := "conf-eh-ns"
 	hub := "conf-hub"
@@ -412,6 +421,7 @@ func TestConformance_EventHubDefaultRetention(t *testing.T) {
 // TestConformance_EventGridTopicDefaultsAndValidation verifies the topic create
 // defaults publicNetworkAccess to Enabled and rejects an invalid inputSchema.
 func TestConformance_EventGridTopicDefaultsAndValidation(t *testing.T) {
+	t.Parallel()
 	rg := "conf-eg-rg"
 	ensureRG(t, rg)
 
@@ -435,6 +445,7 @@ func TestConformance_EventGridTopicDefaultsAndValidation(t *testing.T) {
 // the subscription-level pager surface a registry that was just created. Both
 // 404 without the list routes.
 func TestConformance_ACRRegistryList(t *testing.T) {
+	t.Parallel()
 	rg := "conf-acr-list-rg"
 	registry := "confacrlistreg"
 	ensureRG(t, rg)
@@ -483,6 +494,7 @@ func acrRegistryNames(regs []*armcontainerregistry.Registry) []string {
 // (RegistriesClient.ListCredentials, az acr credential show) returns the
 // username and two passwords terraform reads into admin_username/admin_password.
 func TestConformance_ACRListCredentials(t *testing.T) {
+	t.Parallel()
 	rg := "conf-acr-cred-rg"
 	registry := "confacrcredreg"
 	ensureRG(t, rg)
@@ -515,6 +527,7 @@ func TestConformance_ACRListCredentials(t *testing.T) {
 // with isVersioningEnabled reads back through GET (azurerm blob_properties
 // otherwise drifts). Raw armReq to mirror the existing storage conformance test.
 func TestConformance_StorageBlobServicesPut(t *testing.T) {
+	t.Parallel()
 	rg := "conf-blobsvc-rg"
 	account := "confblobsvcacct"
 	ensureRG(t, rg)
@@ -559,6 +572,7 @@ func TestConformance_StorageBlobServicesPut(t *testing.T) {
 // EntityNotFound (real Azure Tables uses the {"odata.error":{...}} envelope; the
 // ARM {"error":{...}} envelope yields the wrong code).
 func TestConformance_TableEntityNotFoundODataError(t *testing.T) {
+	t.Parallel()
 	account := "conftableerracct"
 	tableName := "ConfErrTable"
 
@@ -587,6 +601,7 @@ func TestConformance_TableEntityNotFoundODataError(t *testing.T) {
 // persisted state when called with different Host headers — the stored
 // properties must not accumulate or flip across reads.
 func TestConformance_EventGridGetTopicPure(t *testing.T) {
+	t.Parallel()
 	rg := "conf-eg-pure-rg"
 	topic := "conf-eg-pure-topic"
 	ensureRG(t, rg)
@@ -632,6 +647,7 @@ func TestConformance_EventGridGetTopicPure(t *testing.T) {
 // TestConformance_ServiceBusTopicListPagination verifies the ARM topic list
 // honors $top and emits a nextLink that walks the remaining topics.
 func TestConformance_ServiceBusTopicListPagination(t *testing.T) {
+	t.Parallel()
 	rg := "conf-sb-page-rg"
 	ns := "conf-sb-page-ns"
 
@@ -685,6 +701,7 @@ func TestConformance_ServiceBusTopicListPagination(t *testing.T) {
 // (NewListBlobsHierarchyPager): with a/1, a/2, b in a container, delimiter="/"
 // yields one BlobPrefix "a/" plus the blob "b".
 func TestConformance_ListBlobsHierarchyPrefixDelimiter(t *testing.T) {
+	t.Parallel()
 	account := "confhieracct"
 	containerName := "conf-hier-container"
 

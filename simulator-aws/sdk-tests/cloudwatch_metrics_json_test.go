@@ -16,6 +16,7 @@ import (
 // This is version-independent coverage: the CLI-driven test only exercises this
 // path when the installed CLI is new enough, so assert it at the wire level.
 func TestCloudWatch_AwsJsonMetrics(t *testing.T) {
+	t.Parallel()
 	namespace := uniqueName("MyApp/JSON")
 	cw := func(op string, body any) map[string]any {
 		t.Helper()

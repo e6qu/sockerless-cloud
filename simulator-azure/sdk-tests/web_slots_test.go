@@ -42,6 +42,7 @@ func slotServes(t *testing.T, host string) string {
 }
 
 func TestSDK_WebApps_SlotRunsItsOwnInstanceAndSwaps(t *testing.T) {
+	t.Parallel()
 	rg, name, slot := "sdk-slot-swap-rg", "sdk-slot-swap-app", "staging"
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "sdk-slot-swap-plan")

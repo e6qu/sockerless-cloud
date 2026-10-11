@@ -15,6 +15,7 @@ import (
 // resolver policies, API issues with their comments and attachments, API tag
 // descriptions, the API and Product wikis, and the operations-by-tag listing.
 func TestAzureAPIM_CompletionSurfaces(t *testing.T) {
+	t.Parallel()
 	sub := "00000000-0000-0000-0000-000000000011"
 	rg := "apim-completion-rg"
 	name := "completion-apim"

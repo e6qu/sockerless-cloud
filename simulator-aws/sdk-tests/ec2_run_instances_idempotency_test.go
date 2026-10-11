@@ -17,6 +17,7 @@ import (
 // idempotencyToken trait) and re-sends it on every retry, so without server-side
 // dedup a transient retry doubles the instance count.
 func TestEC2_RunInstancesClientTokenIdempotency(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.43.0.0/16")})

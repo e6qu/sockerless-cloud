@@ -15,6 +15,7 @@ import (
 // GetUnfilteredPartitionsMetadata). The simulator vends the full catalog row with
 // every column authorized and no Lake Formation registration.
 func TestGlue_UnfilteredMetadata_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 	db := uniqueName("glue-unf-db")
 	tbl := uniqueName("glue-unf-tbl")
@@ -101,6 +102,7 @@ func TestGlue_UnfilteredMetadata_SDK(t *testing.T) {
 // PutDataQualityProfileAnnotation store, ListDataQualityStatisticAnnotations
 // reads back, and a bad batch entry surfaces in FailedInclusionAnnotations.
 func TestGlue_DQAnnotations_SDK(t *testing.T) {
+	t.Parallel()
 	c := glueClient()
 	statisticID := "glue-dq-stat-sdk"
 

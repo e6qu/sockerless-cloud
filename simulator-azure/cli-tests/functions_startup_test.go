@@ -16,6 +16,7 @@ import (
 // reaches the container the image's entrypoint runs with that command, on that
 // port.
 func TestFunctionApp_CLI_StartupFileRunsTheContainer(t *testing.T) {
+	t.Parallel()
 	// The full workload runtime: the site runs a real container.
 	env := startAzTLSSimulator(t)
 

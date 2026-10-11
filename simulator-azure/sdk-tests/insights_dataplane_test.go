@@ -58,6 +58,7 @@ func insightsRead(t *testing.T, method, path string, body string) map[string]any
 // the query, the events and the metrics of the same data plane. All three move
 // when it writes, because all three read the one store.
 func TestSDK_ApplicationInsights_DataPlaneReadsTheTelemetry(t *testing.T) {
+	t.Parallel()
 	rg, site := "insights-dataplane-rg", "insights-dataplane-site"
 	// A classic component keeps the telemetry of the site connected to it.
 	component := createAppInsightsComponent(t, rg, "insights-dataplane-app", "")
@@ -190,6 +191,7 @@ func TestSDK_ApplicationInsights_DataPlaneReadsTheTelemetry(t *testing.T) {
 // rather than by the workspace they land in: a workspace-based component's
 // traces carry its resource id.
 func TestSDK_LogAnalytics_QueryByResourceID(t *testing.T) {
+	t.Parallel()
 	rg, site := "query-by-resource-rg", "query-by-resource-site"
 	ws := createLogWorkspace(t, rg, "query-by-resource-ws")
 	component := createAppInsightsComponent(t, rg, "query-by-resource-app", ws.id)
@@ -221,6 +223,7 @@ func TestSDK_LogAnalytics_QueryByResourceID(t *testing.T) {
 // The instance metadata service attests the instance it is asked on, and names
 // the tenant its managed identity belongs to.
 func TestSDK_InstanceMetadata_AttestationAndIdentity(t *testing.T) {
+	t.Parallel()
 	read := func(path string) (*http.Response, map[string]any) {
 		t.Helper()
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+path, nil)
@@ -272,6 +275,7 @@ func TestSDK_InstanceMetadata_AttestationAndIdentity(t *testing.T) {
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Insights/components/{resourceName}/getavailablebillingfeatures
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Insights/components/{resourceName}/quotastatus
 func TestSDK_ApplicationInsights_FeaturesAndPricing(t *testing.T) {
+	t.Parallel()
 	rg, component := "insights-features-rg", uniqueName("insights-features-component")
 	createAppInsightsComponent(t, rg, component, "")
 

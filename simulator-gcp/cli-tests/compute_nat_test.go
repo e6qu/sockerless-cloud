@@ -8,6 +8,7 @@ import (
 )
 
 func TestGcloudComputeAddressAndRouterNAT(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	region := "us-central1"
 	network := "cli-nat-network"
@@ -148,6 +149,7 @@ func computeRouterJSON(t *testing.T, router, region string) computeRouter {
 //
 //	GET /compute/v1/projects/{project}/regions/{region}/subnetworks
 func TestGcloudComputeSubnetsList(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	region := "us-central1"
 	network := "cli-subnet-list-net"

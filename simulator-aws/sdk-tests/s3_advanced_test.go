@@ -17,6 +17,7 @@ import (
 // inventory/journal table sub-config updates, and the legacy V1 metadata
 // table configuration feature (?metadataTable).
 func TestS3_BucketMetadataConfiguration(t *testing.T) {
+	t.Parallel()
 	client := s3Client()
 	bucket := "metadata-config-bucket"
 	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
@@ -130,6 +131,7 @@ func TestS3_BucketMetadataConfiguration(t *testing.T) {
 // TestS3_BucketAbac round-trips the attribute-based-access-control status
 // (?abac) for a general purpose bucket.
 func TestS3_BucketAbac(t *testing.T) {
+	t.Parallel()
 	client := s3Client()
 	bucket := uniqueName("abac-bucket")
 	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
@@ -156,6 +158,7 @@ func TestS3_BucketAbac(t *testing.T) {
 // TestS3_RenameObject moves a stored object key→key within a bucket
 // (?renameObject + x-amz-rename-source).
 func TestS3_RenameObject(t *testing.T) {
+	t.Parallel()
 	client := s3Client()
 	bucket := "rename-bucket"
 	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
@@ -198,6 +201,7 @@ func TestS3_RenameObject(t *testing.T) {
 // TestS3_ObjectEncryption updates a stored object's SSE settings
 // (object ?encryption) and verifies the encryption headers round-trip.
 func TestS3_ObjectEncryption(t *testing.T) {
+	t.Parallel()
 	client := s3Client()
 	bucket := "obj-encryption-bucket"
 	_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})

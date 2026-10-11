@@ -13,6 +13,7 @@ import (
 // says nothing about what was stored.
 
 func TestCompute_TargetHttpsProxySetVerbs(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, name = "set-verbs", "fronted"
 
@@ -52,6 +53,7 @@ func TestCompute_TargetHttpsProxySetVerbs(t *testing.T) {
 }
 
 func TestCompute_TargetTcpProxySetVerbs(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, name = "set-verbs-tcp", "tcp-front"
 
@@ -74,6 +76,7 @@ func TestCompute_TargetTcpProxySetVerbs(t *testing.T) {
 // A backend bucket's edge security policy arrives as a SecurityPolicyReference
 // — the body says securityPolicy, and the bucket stores edgeSecurityPolicy.
 func TestCompute_BackendBucketEdgeSecurityPolicyLandsOnItsOwnMember(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, name = "set-verbs-bucket", "assets"
 
@@ -92,6 +95,7 @@ func TestCompute_BackendBucketEdgeSecurityPolicyLandsOnItsOwnMember(t *testing.T
 }
 
 func TestCompute_RegionalSetVerbs(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, region = "set-verbs-region", "us-central1"
 
@@ -117,6 +121,7 @@ func TestCompute_RegionalSetVerbs(t *testing.T) {
 }
 
 func TestCompute_TargetInstanceSecurityPolicy(t *testing.T) {
+	t.Parallel()
 	svc := computeService(t)
 	const project, zone, name = "set-verbs-target", "us-central1-a", "forwarded"
 
@@ -132,6 +137,7 @@ func TestCompute_TargetInstanceSecurityPolicy(t *testing.T) {
 }
 
 func TestCompute_SubnetworkPrivateGoogleAccess(t *testing.T) {
+	t.Parallel()
 	requireNetworkHost(t)
 	svc := computeService(t)
 	const project, region, network = "set-verbs-subnet", "us-central1", "custom"
@@ -166,6 +172,7 @@ func TestCompute_SubnetworkPrivateGoogleAccess(t *testing.T) {
 // interfaces the request names, which is the member the Instance schema
 // carries it on.
 func TestCompute_InstanceSecurityPolicyLandsOnItsAccessConfigs(t *testing.T) {
+	t.Parallel()
 	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, zone, name = "set-verbs-instance", "us-central1-a", "armoured"

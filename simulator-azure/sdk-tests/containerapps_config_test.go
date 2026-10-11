@@ -96,6 +96,7 @@ func assertFullContainerAppConfiguration(t *testing.T, cfg *armappcontainers.Con
 // member to a non-default value and asserts both the create response and
 // a subsequent GET return them all unchanged.
 func TestSDK_ContainerAppsApps_ConfigurationFullFidelityRoundTrip(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-cfg-rg"
 	appName := "sdk-cfg-app"
 	ensureRG(t, rg)
@@ -137,6 +138,7 @@ func TestSDK_ContainerAppsApps_ConfigurationFullFidelityRoundTrip(t *testing.T) 
 // member and every sibling configuration member survives unchanged. Uses
 // raw HTTP because the SDK only exposes CreateOrUpdate (PUT), not PATCH.
 func TestSDK_ContainerAppsApps_PatchDaprMemberPreservesSiblings(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-cfg-patch-rg"
 	appName := "sdk-cfg-patch-app"
 	ensureRG(t, rg)
@@ -225,6 +227,7 @@ func TestSDK_ContainerAppsApps_PatchDaprMemberPreservesSiblings(t *testing.T) {
 // TestSDK_ContainerAppsApps_StartsRealReplicaAndLogs uses — reports the
 // configured appId and appPort, proving the configuration reached daprd.
 func TestSDK_ContainerAppsApps_DaprSidecarServesRealDaprAPI(t *testing.T) {
+	t.Parallel()
 	rg := "sdk-aca-dapr-exec-rg"
 	appName := "sdk-dapr-exec-app"
 	ensureRG(t, rg)

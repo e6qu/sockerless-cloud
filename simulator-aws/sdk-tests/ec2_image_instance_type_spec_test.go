@@ -28,6 +28,7 @@ func registerAMIForInstanceTypeSpec(t *testing.T, c *ec2.Client, name string) st
 // whole contract: DescribeImages reports it, RunInstances enforces it, wildcard
 // entries match a family, and omitting the specification removes it.
 func TestEC2_ReplaceImageInstanceTypeSpecificationSDK(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	imageID := registerAMIForInstanceTypeSpec(t, c, "instance-type-spec-ami")
 
@@ -69,6 +70,7 @@ func TestEC2_ReplaceImageInstanceTypeSpecificationSDK(t *testing.T) {
 // reason it exists — a stored specification nothing enforces would report a
 // restriction the simulator does not apply.
 func TestEC2_ImageInstanceTypeSpecificationGovernsRunInstances(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	imageID := registerAMIForInstanceTypeSpec(t, c, "instance-type-spec-launch-ami")
 
@@ -123,6 +125,7 @@ func TestEC2_ImageInstanceTypeSpecificationGovernsRunInstances(t *testing.T) {
 
 // Only unsupported entries set: everything launches except what they match.
 func TestEC2_ImageInstanceTypeSpecificationUnsupportedOnly(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	imageID := registerAMIForInstanceTypeSpec(t, c, "instance-type-spec-deny-ami")
 
@@ -155,6 +158,7 @@ func TestEC2_ImageInstanceTypeSpecificationUnsupportedOnly(t *testing.T) {
 
 // An AMI that does not exist reports itself rather than answering true.
 func TestEC2_ReplaceImageInstanceTypeSpecificationRejectsAbsentImage(t *testing.T) {
+	t.Parallel()
 	c := ec2Client()
 	_, err := c.ReplaceImageInstanceTypeSpecification(ctx, &ec2.ReplaceImageInstanceTypeSpecificationInput{
 		ImageId: aws.String("ami-0000000000000dead"),

@@ -1977,11 +1977,17 @@ type HostEntry struct {
 	Name string
 }
 
+var hostEntriesMu sync.Mutex
+
 // SyncContainerHostEntries rewrites a simulator-managed block in a container's
 // /etc/hosts. Docker exposes the backing hosts file path in ContainerInspect;
 // updating it gives netns-backed tasks real libc name resolution without
 // attaching another Docker network to the namespace.
 func SyncContainerHostEntries(containerName, marker string, entries []HostEntry) error {
+	// Each call rewrites the whole file from what it read, so two calls for one
+	// container at once would each drop the block the other wrote.
+	hostEntriesMu.Lock()
+	defer hostEntriesMu.Unlock()
 	cli := DockerClient()
 	if err := RequireContainerRuntime("writing a container's host entries"); err != nil {
 		return err

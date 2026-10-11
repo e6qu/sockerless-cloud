@@ -19,12 +19,14 @@ import (
 // AWS KMS answers a Marker it never issued with InvalidMarkerException rather
 // than listing from the first key.
 func TestKMS_ListKeysRejectsForeignMarker(t *testing.T) {
+	t.Parallel()
 	_, err := kmsClient().ListKeys(ctx, &kms.ListKeysInput{Marker: aws.String("not-a-marker")})
 	requireAWSErrorCode(t, err, "InvalidMarkerException")
 }
 
 // Amazon EventBridge validates a rule's event pattern when PutRule stores it.
 func TestEventBridge_PutRuleRejectsInvalidPattern(t *testing.T) {
+	t.Parallel()
 	_, err := eventbridgeClient().PutRule(ctx, &eventbridge.PutRuleInput{
 		Name:         aws.String("invalid-pattern-rule"),
 		EventPattern: aws.String(`{"source":[{"numeric":["!=",1]}]}`),
@@ -34,6 +36,7 @@ func TestEventBridge_PutRuleRejectsInvalidPattern(t *testing.T) {
 
 // A MessageAttributes-scoped Amazon SNS filter policy cannot nest keys.
 func TestSNS_SubscribeRejectsNestedAttributePolicy(t *testing.T) {
+	t.Parallel()
 	snsC := snsClient()
 	topic, err := snsC.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String("nested-policy-t")})
 	require.NoError(t, err)
@@ -55,6 +58,7 @@ func TestSNS_SubscribeRejectsNestedAttributePolicy(t *testing.T) {
 // deletes the Amazon SQS messages a valid one rejects without invoking the
 // function.
 func TestLambda_SQSEventSourceMappingFilterCriteria_SDK(t *testing.T) {
+	t.Parallel()
 	lambdaC := lambdaClient()
 	sqsC := sqsClient()
 	functionName := "sqs-event-source-filtered"
