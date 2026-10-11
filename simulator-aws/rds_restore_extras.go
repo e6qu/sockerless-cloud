@@ -257,6 +257,14 @@ func handleRDSRestoreClusterFromSnapshot(w http.ResponseWriter, r *http.Request)
 			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
+	releaseIdentifier, claimed := rdsClusterIdentifiers.claim(newID)
+	if !claimed {
+		rdsErrorXML(w, "DBClusterAlreadyExistsFault",
+			fmt.Sprintf("DBCluster %q already exists", newID),
+			http.StatusConflict, sim.RequestID(r.Context()))
+		return
+	}
+	defer releaseIdentifier()
 	snap, ok := rdsClusterSnapshots.Get(snapID)
 	if !ok {
 		snap, ok = findRDSClusterSnapshotByARN(snapID)
@@ -271,12 +279,6 @@ func handleRDSRestoreClusterFromSnapshot(w http.ResponseWriter, r *http.Request)
 				http.StatusNotFound, sim.RequestID(r.Context()))
 			return
 		}
-	}
-	if _, exists := rdsClusters.Get(newID); exists {
-		rdsErrorXML(w, "DBClusterAlreadyExistsFault",
-			fmt.Sprintf("DBCluster %q already exists", newID),
-			http.StatusConflict, sim.RequestID(r.Context()))
-		return
 	}
 	if snap.Status != "available" {
 		rdsErrorXML(w, "InvalidDBClusterSnapshotStateFault",
@@ -335,10 +337,6 @@ func rdsAuroraMigrationEngine(engine string) string {
 // credential the data was written with.
 func rdsRestoreClusterFromDBSnapshot(w http.ResponseWriter, r *http.Request, newID string, snap RDSSnapshot) {
 	requestID := sim.RequestID(r.Context())
-	if _, exists := rdsClusters.Get(newID); exists {
-		rdsErrorXML(w, "DBClusterAlreadyExistsFault", fmt.Sprintf("DBCluster %q already exists", newID), http.StatusConflict, requestID)
-		return
-	}
 	if snap.Status != "available" {
 		rdsErrorXML(w, "InvalidDBSnapshotState",
 			fmt.Sprintf("DBSnapshot %q is %s; it must be available to restore from", snap.DBSnapshotIdentifier, snap.Status),
@@ -415,12 +413,14 @@ func handleRDSRestoreClusterToPointInTime(w http.ResponseWriter, r *http.Request
 			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	if _, exists := rdsClusters.Get(newID); exists {
+	releaseIdentifier, claimed := rdsClusterIdentifiers.claim(newID)
+	if !claimed {
 		rdsErrorXML(w, "DBClusterAlreadyExistsFault",
 			fmt.Sprintf("DBCluster %q already exists", newID),
 			http.StatusConflict, sim.RequestID(r.Context()))
 		return
 	}
+	defer releaseIdentifier()
 	latest := strings.EqualFold(r.FormValue("UseLatestRestorableTime"), "true")
 	restoreToTime := r.FormValue("RestoreToTime")
 	switch {

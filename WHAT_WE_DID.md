@@ -808,6 +808,21 @@ through hooks:
 - **A page token proves where it came from.** Every listing tags the tokens it
   issues and refuses one it never issued with the service's invalid-argument
   error, instead of listing an empty page.
+- **A create is decided when it is accepted.** Amazon RDS records a DB
+  instance or DB cluster the moment it accepts the create, so a second create
+  under the identifier fails at once. The simulator checked the identifier,
+  provisioned for seconds and only then stored the resource, and the AWS SDK
+  retries a request its HTTP client stopped waiting for: the Terraform
+  harness gave its SDK clients a two-second overall timeout, a CreateDBInstance
+  that took 2.2 s on a loaded runner was sent again, both requests provisioned
+  a data plane, and two PostgreSQL containers ran initdb on one volume — the
+  second found the first's files ("directory exists but is not empty", or
+  "could not open file global/pg_control") and the instance landed `failed`.
+  Every RDS create and restore handler claims its identifier before it
+  checks for the resource and holds the claim until the resource is stored,
+  so a repeat answers DBInstanceAlreadyExists or DBClusterAlreadyExistsFault;
+  the harness's SDK client has no overall timeout, as the SDKs' own default
+  client has none.
 
 ## Execution
 

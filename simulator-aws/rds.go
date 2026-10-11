@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -596,17 +597,55 @@ func renderRDSInstance(i RDSInstance) string {
 	return b.String()
 }
 
+// rdsIdentifierClaims holds the identifiers a create request is provisioning
+// under. Amazon RDS records the resource the moment it accepts the request, so
+// a second create under the identifier while the first still provisions — an
+// SDK retrying a request it stopped waiting for — finds the identifier taken,
+// rather than provisioning a second engine on the resource's volume.
+type rdsIdentifierClaims struct {
+	mu     sync.Mutex
+	held   map[string]bool
+	stored func(id string) bool
+}
+
+// claim takes id for one create request unless a resource or another request
+// holds it. The request releases the claim once it stored the resource or
+// gave up.
+func (c *rdsIdentifierClaims) claim(id string) (release func(), claimed bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.held[id] || c.stored(id) {
+		return nil, false
+	}
+	if c.held == nil {
+		c.held = map[string]bool{}
+	}
+	c.held[id] = true
+	return func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		delete(c.held, id)
+	}, true
+}
+
+var (
+	rdsInstanceIdentifiers = &rdsIdentifierClaims{stored: func(id string) bool { _, ok := rdsInstances.Get(id); return ok }}
+	rdsClusterIdentifiers  = &rdsIdentifierClaims{stored: func(id string) bool { _, ok := rdsClusters.Get(id); return ok }}
+)
+
 func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBInstanceIdentifier")
 	if id == "" {
 		rdsErrorXML(w, "MissingParameter", "DBInstanceIdentifier is required", http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	if _, ok := rdsInstances.Get(id); ok {
+	releaseIdentifier, claimed := rdsInstanceIdentifiers.claim(id)
+	if !claimed {
 		rdsErrorXML(w, "DBInstanceAlreadyExists",
 			"DB instance already exists", http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
+	defer releaseIdentifier()
 	engine := r.FormValue("Engine")
 	port := rdsDefaultPort(engine)
 	if p := atoiOrZero(r.FormValue("Port")); p > 0 {
@@ -1475,12 +1514,14 @@ func handleRDSRestoreFromSnapshot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if _, exists := rdsInstances.Get(newInstID); exists {
+	releaseIdentifier, claimed := rdsInstanceIdentifiers.claim(newInstID)
+	if !claimed {
 		rdsErrorXML(w, "DBInstanceAlreadyExists",
 			fmt.Sprintf("DBInstance %q already exists", newInstID),
 			http.StatusConflict, sim.RequestID(r.Context()))
 		return
 	}
+	defer releaseIdentifier()
 	if snap.Status != "available" {
 		rdsErrorXML(w, "InvalidDBSnapshotState",
 			fmt.Sprintf("DBSnapshot %q is %s; it must be available to restore from", snapID, snap.Status),
@@ -1668,10 +1709,12 @@ func handleRDSCreateCluster(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "MissingParameter", "DBClusterIdentifier is required", http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	if _, ok := rdsClusters.Get(id); ok {
+	releaseIdentifier, claimed := rdsClusterIdentifiers.claim(id)
+	if !claimed {
 		rdsErrorXML(w, "DBClusterAlreadyExistsFault", "DB cluster already exists", http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
+	defer releaseIdentifier()
 	engine := r.FormValue("Engine")
 	port := rdsDefaultPort(engine)
 	if p := atoiOrZero(r.FormValue("Port")); p > 0 {

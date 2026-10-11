@@ -913,10 +913,12 @@ func handleRDSCreateReadReplica(w http.ResponseWriter, r *http.Request) {
 	if rdsRefuseUnavailableInstance(w, r, src) {
 		return
 	}
-	if _, exists := rdsInstances.Get(id); exists {
+	releaseIdentifier, claimed := rdsInstanceIdentifiers.claim(id)
+	if !claimed {
 		fail("DBInstanceAlreadyExists", fmt.Sprintf("DBInstance %s already exists.", id), http.StatusBadRequest)
 		return
 	}
+	defer releaseIdentifier()
 	if src.DBClusterIdentifier != "" {
 		fail("InvalidDBInstanceState", fmt.Sprintf("DB instance %s is a member of DB cluster %s; add an Aurora Replica to the cluster instead.",
 			src.DBInstanceIdentifier, src.DBClusterIdentifier), http.StatusBadRequest)

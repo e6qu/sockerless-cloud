@@ -180,10 +180,12 @@ func handleRDSRestoreInstanceToPointInTime(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	srcID := src.DBInstanceIdentifier
-	if _, exists := rdsInstances.Get(newID); exists {
+	releaseIdentifier, claimed := rdsInstanceIdentifiers.claim(newID)
+	if !claimed {
 		rdsErrorXML(w, "DBInstanceAlreadyExists", fmt.Sprintf("DBInstance %s already exists.", newID), http.StatusConflict, requestID)
 		return
 	}
+	defer releaseIdentifier()
 	if src.DBClusterIdentifier != "" {
 		rdsErrorXML(w, "InvalidParameterCombination",
 			fmt.Sprintf("DB instance %s is a member of DB cluster %s; restore the cluster with RestoreDBClusterToPointInTime.", srcID, src.DBClusterIdentifier),
@@ -365,10 +367,12 @@ func handleRDSRestoreInstanceFromS3(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if _, exists := rdsInstances.Get(newID); exists {
+	releaseIdentifier, claimed := rdsInstanceIdentifiers.claim(newID)
+	if !claimed {
 		rdsErrorXML(w, "DBInstanceAlreadyExists", fmt.Sprintf("DBInstance %s already exists.", newID), http.StatusConflict, requestID)
 		return
 	}
+	defer releaseIdentifier()
 	if engine := r.FormValue("Engine"); !strings.EqualFold(engine, "mysql") {
 		rdsErrorXML(w, "InvalidParameterValue",
 			fmt.Sprintf("Engine %s does not restore from Amazon S3; only mysql does.", engine), http.StatusBadRequest, requestID)
