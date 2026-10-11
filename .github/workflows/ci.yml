@@ -36,7 +36,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # verified-on-pr: a push to main whose tree already passed CI on its pull
+  # request records that run as its verdict instead of running every job again
+  # (scripts/ci-verified-on-pr.sh). Every other job needs it; `!cancelled()`
+  # keeps a failure of this job from skipping the suite.
+  verified-on-pr:
+    name: Verified on its pull request
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    outputs:
+      verified: ${{ steps.check.outputs.verified }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci-verified-on-pr.sh
+
   lint-go:
+    needs: verified-on-pr
+    if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     name: lint (${{ matrix.shard }})
     runs-on: ubuntu-latest
     timeout-minutes: ${{ matrix.timeout_minutes }}
@@ -76,6 +99,8 @@ jobs:
         timeout-minutes: ${{ matrix.timeout_minutes }}
 
   check-deps:
+    needs: verified-on-pr
+    if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     name: check-deps (deps + actions + scripts)
     runs-on: ubuntu-latest
     # Every step here queries a live upstream — the GitHub API for two clouds'
@@ -217,6 +242,8 @@ jobs:
           retention-days: 1
 
   single-open-pr:
+    needs: verified-on-pr
+    if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     name: At most one PR open
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -235,8 +262,9 @@ jobs:
   # in no release. The title arrives through env, never interpolated into the
   # script, so a crafted title cannot inject shell.
   pr-title:
+    needs: verified-on-pr
     name: PR title is a Conventional Commit
-    if: github.event_name == 'pull_request'
+    if: ${{ !cancelled() && (github.event_name == 'pull_request') && needs.verified-on-pr.outputs.verified != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -249,8 +277,9 @@ jobs:
   # rebased-on-main: fail if the PR branch has fallen behind origin/main, so
   # every PR is tested (and merges) on top of the latest base.
   rebased-on-main:
+    needs: verified-on-pr
     name: Branch rebased on origin/main
-    if: github.event_name == 'pull_request'
+    if: ${{ !cancelled() && (github.event_name == 'pull_request') && needs.verified-on-pr.outputs.verified != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -262,6 +291,8 @@ jobs:
         run: bash scripts/check-rebased-on-main.sh
 
   firecracker:
+    needs: verified-on-pr
+    if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     name: firecracker (microVM arithmetic)
     runs-on: ubuntu-24.04
     # A warm run takes 150-225 s. A change to any go.sum misses the build
@@ -290,6 +321,8 @@ jobs:
         run: make realexec-network-test
 
   sim:
+    needs: verified-on-pr
+    if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     # VM-backed simulator slices require /dev/kvm for real Firecracker guests.
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -569,6 +602,8 @@ jobs:
         run: bash scripts/check-spec-violations.sh ${{ matrix.cloud }} "$RUNNER_TEMP/${{ matrix.cloud }}-spec-violations.jsonl"
 
   sim-aws-sdk:
+    needs: verified-on-pr
+    if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     # The AWS SDK suite outgrew a single 15-minute job (the full run reached
     # the ceiling on runner-speed variance), so it fans out across four shards
     # the way the AWS CLI suite does. Shard regexes use the character-class form
@@ -837,6 +872,8 @@ jobs:
         run: bash scripts/check-spec-violations.sh aws "$RUNNER_TEMP/aws-spec-violations.jsonl"
 
   sim-aws-cli:
+    needs: verified-on-pr
+    if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     name: sim (aws cli ${{ matrix.suite }})
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -1102,6 +1139,8 @@ jobs:
         run: bash scripts/check-spec-violations.sh aws "$RUNNER_TEMP/aws-cli-spec-violations.jsonl"
 
   tf:
+    needs: verified-on-pr
+    if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     # Stock hashicorp/aws / hashicorp/google / hashicorp/azurerm
     # providers run against the sim binary via `terraform init` +
     # `terraform apply -auto-approve`. Exercises the provider's
@@ -1373,6 +1412,8 @@ jobs:
         run: bash scripts/check-spec-violations.sh ${{ matrix.cloud }} "$RUNNER_TEMP/${{ matrix.cloud }}-tf-spec-violations.jsonl"
 
   ui:
+    needs: verified-on-pr
+    if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
     # A one-shot run on a fresh checkout has no use for turbo's background
@@ -1398,6 +1439,8 @@ jobs:
         timeout-minutes: 6
 
   ui-browser:
+    needs: verified-on-pr
+    if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     name: browser (${{ matrix.package }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -1436,6 +1479,8 @@ jobs:
       - run: cd "ui/packages/${{ matrix.package }}" && bun run test:e2e
 
   race:
+    needs: verified-on-pr
+    if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     # The simulators' own unit tests under the race detector.
     #
     # Its own job rather than a step in `sim`: that job's 15-minute ceiling is
@@ -1526,6 +1571,8 @@ jobs:
         timeout-minutes: 11
 
   race-sim:
+    needs: verified-on-pr
+    if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     # The framework module's own unit tests under the race detector. They run
     # real containers — the reaper, the startup sweep, the memory observer, the
     # VPC network allocator — so the job warms the same image cache the
@@ -1573,6 +1620,8 @@ jobs:
         timeout-minutes: 11
 
   simulators-quality:
+    needs: verified-on-pr
+    if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     name: simulators (dead code + copy-paste)
     runs-on: ubuntu-latest
     timeout-minutes: 8
@@ -1601,6 +1650,8 @@ jobs:
         run: bash scripts/simulators-jscpd.sh
 
   build-gates:
+    needs: verified-on-pr
+    if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:

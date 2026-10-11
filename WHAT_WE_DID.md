@@ -3494,3 +3494,15 @@ not pull their arm64 image.
 `sim.SyncContainerHostEntries` rewrites a container's whole hosts file from
 what it read, so it holds a mutex: two Cloud Map namespace syncs reaching one
 task at once had each dropped the block the other wrote.
+
+A push to main runs CI only when its tree has not already passed on its pull
+request. Branch protection makes a pull request current with main before it
+merges, so a squash merge commits the tree its head carried; running every job
+again repeated about seventy-five jobs per merge, and a burst of merges queued
+enough of them to starve the runners of every repository on the account. The
+first CI job (`scripts/ci-verified-on-pr.sh`) finds the merged pull request,
+compares trees, and looks for a successful CI run on its head; when all three
+hold, every other job skips and the run's verdict is that pull request's run.
+A merge made before its CI finished, a push without a pull request, a tag push
+and any failed lookup run the full suite, and `!cancelled()` on every job keeps
+a failure of the check itself from skipping anything.
