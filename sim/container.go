@@ -995,6 +995,33 @@ func ContainerIPv4(id string) string {
 	return ""
 }
 
+// ContainerState is what InspectContainerState reads of a container.
+type ContainerState struct {
+	Running  bool
+	Status   string
+	ExitCode int
+}
+
+// InspectContainerState reads whether the container with the given id runs,
+// and how it exited when it does not. A container the engine no longer has
+// is an error, as is an engine that does not answer.
+func InspectContainerState(id string) (ContainerState, error) {
+	if err := RequireContainerRuntime("inspecting container " + id); err != nil {
+		return ContainerState{}, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	insp, err := dockerClient.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
+	if err != nil {
+		return ContainerState{}, fmt.Errorf("inspect container %s: %w", id, err)
+	}
+	if insp.Container.State == nil {
+		return ContainerState{}, fmt.Errorf("inspect container %s: the engine reported no state", id)
+	}
+	state := insp.Container.State
+	return ContainerState{Running: state.Running, Status: string(state.Status), ExitCode: state.ExitCode}, nil
+}
+
 // ContainerRunning reports whether the container with the given id exists and
 // is currently running, which is how a slice that keeps a long-lived workload
 // decides whether it is already up before routing an invoke to it.

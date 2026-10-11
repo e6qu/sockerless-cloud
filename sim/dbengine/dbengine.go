@@ -154,6 +154,48 @@ type Instance struct {
 	startMu   sync.Mutex
 	attempted bool
 	startErr  error
+
+	// output keeps the engine container's last lines, which an engine that
+	// stops before it accepts clients is reported with.
+	output engineOutput
+}
+
+// engineOutputLines is how many of the engine's last output lines a failed
+// start reports.
+const engineOutputLines = 40
+
+// engineOutput keeps the last engineOutputLines lines an engine container
+// wrote, passing each on to the instance's own sink.
+type engineOutput struct {
+	mu    sync.Mutex
+	next  sim.LogSink
+	lines []string
+}
+
+func (o *engineOutput) WriteLog(line sim.LogLine) {
+	o.mu.Lock()
+	o.lines = append(o.lines, line.Text)
+	if len(o.lines) > engineOutputLines {
+		o.lines = append([]string(nil), o.lines[len(o.lines)-engineOutputLines:]...)
+	}
+	next := o.next
+	o.mu.Unlock()
+	next.WriteLog(line)
+}
+
+// begin forgets the lines of an earlier container and passes the next one's
+// to next.
+func (o *engineOutput) begin(next sim.LogSink) *engineOutput {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.next, o.lines = next, nil
+	return o
+}
+
+func (o *engineOutput) last() string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return strings.Join(o.lines, "\n")
 }
 
 // Serve accepts clients on listener until Close.
@@ -248,7 +290,7 @@ func (i *Instance) Adopt() error {
 			return fmt.Errorf("resume database engine container %s: %w", existing[0].ID, err)
 		}
 	}
-	handle, err := sim.AdoptContainer(existing[0].ID, sim.ContainerConfig{CancelGracePeriod: stopGrace}, i.logSink())
+	handle, err := sim.AdoptContainer(existing[0].ID, sim.ContainerConfig{CancelGracePeriod: stopGrace}, i.output.begin(i.logSink()))
 	if err != nil {
 		return err
 	}
@@ -289,7 +331,7 @@ func (i *Instance) bringUp() error {
 			return err
 		}
 	}
-	if err := awaitReady(i.Engine, backend, handle, stopped); err != nil {
+	if err := i.awaitReady(backend, handle, stopped); err != nil {
 		_ = i.stopEngine()
 		return err
 	}
@@ -329,7 +371,7 @@ func (i *Instance) start() (string, *sim.ContainerHandle, chan struct{}, error) 
 		Binds:             []string{i.Volume + ":" + i.Engine.DataPath},
 		Labels:            i.Labels,
 		Sandbox:           i.Sandbox,
-	}, i.logSink())
+	}, i.output.begin(i.logSink()))
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("start %s database engine: %w", i.Engine.Family, err)
 	}
@@ -360,7 +402,8 @@ func (i *Instance) logSink() sim.LogSink {
 	return i.Log
 }
 
-func awaitReady(engine Engine, backend string, handle *sim.ContainerHandle, stopped <-chan struct{}) error {
+func (i *Instance) awaitReady(backend string, handle *sim.ContainerHandle, stopped <-chan struct{}) error {
+	engine := i.Engine
 	deadline := time.Now().Add(initializationBudget)
 	nextLivenessCheck := time.Now().Add(livenessInterval)
 	for !serving(engine.Family, backend) {
@@ -371,8 +414,13 @@ func awaitReady(engine Engine, backend string, handle *sim.ContainerHandle, stop
 		}
 		now := time.Now()
 		if !now.Before(nextLivenessCheck) {
-			if !sim.ContainerRunning(handle.ContainerID) {
-				return fmt.Errorf("%s database engine stopped before accepting connections: container %s is not running", engine.Family, handle.ContainerID)
+			state, err := sim.InspectContainerState(handle.ContainerID)
+			if err != nil {
+				return fmt.Errorf("%s database engine: %w", engine.Family, err)
+			}
+			if !state.Running {
+				return fmt.Errorf("%s database engine stopped before accepting connections: container %s exited with status %d (%s); its last output:\n%s",
+					engine.Family, handle.ContainerID, state.ExitCode, state.Status, i.output.last())
 			}
 			nextLivenessCheck = now.Add(livenessInterval)
 		}

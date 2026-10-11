@@ -1522,7 +1522,11 @@ capture now reads the binary log file and then runs the engine on the snapshot
 volume with its own arguments, binary log included, until it accepts
 connections, and shuts it down cleanly before the snapshot turns available.
 A base backup is stored recovered: every later start of it, with or without
-the binary log, opens exactly the transactions the offset assumes. Aurora PostgreSQL's engine runs with `archive_mode=on`
+the binary log, opens exactly the transactions the offset assumes. A database
+engine that stops before it accepts clients is reported with its container's
+exit status and its last 40 output lines: the engine's output otherwise goes
+only to the resource's own log store, and a CI job that saw a PostgreSQL
+engine stop three seconds after it started could not say why. Aurora PostgreSQL's engine runs with `archive_mode=on`
 and archives every completed write-ahead log segment into the cluster volume;
 Aurora MySQL's binary log is on by default. RestoreDBClusterToPointInTime with
 `RestoreToTime` refuses a time outside the window with `InvalidRestoreFault`,
