@@ -132,9 +132,15 @@ func rdsReplicationPassword(source RDSInstance) (string, error) {
 	return string(password), nil
 }
 
-// rdsEngineContainer is the running engine container of a DB instance.
-func rdsEngineContainer(instanceID string) (string, error) {
-	containers, err := sim.FindExistingContainers(map[string]string{"sockerless-rds-instance": instanceID})
+// rdsEngineLabels label the engine container of a DB instance.
+func rdsEngineLabels(instanceID string) map[string]string {
+	return map[string]string{"sockerless-rds-instance": instanceID}
+}
+
+// rdsRunningContainer is the running engine container labels names, which
+// name describes in errors.
+func rdsRunningContainer(labels map[string]string, name string) (string, error) {
+	containers, err := sim.FindExistingContainers(labels)
 	if err != nil {
 		return "", err
 	}
@@ -143,16 +149,22 @@ func rdsEngineContainer(instanceID string) (string, error) {
 			return container.ID, nil
 		}
 	}
-	return "", fmt.Errorf("the engine of DB instance %s is not running", instanceID)
+	return "", fmt.Errorf("the engine of %s is not running", name)
 }
 
 // rdsJoinReplicationNetwork attaches an instance's running engine to network,
 // answering there as aliases.
 func rdsJoinReplicationNetwork(instanceID, network string, aliases []string) error {
+	return rdsJoinNetwork(rdsEngineLabels(instanceID), "DB instance "+instanceID, network, aliases)
+}
+
+// rdsJoinNetwork attaches the running engine labels names to network,
+// answering there as aliases.
+func rdsJoinNetwork(labels map[string]string, name, network string, aliases []string) error {
 	if _, err := sim.EnsureDockerNetwork(network); err != nil {
 		return err
 	}
-	containerID, err := rdsEngineContainer(instanceID)
+	containerID, err := rdsRunningContainer(labels, name)
 	if err != nil {
 		return err
 	}
@@ -160,7 +172,7 @@ func rdsJoinReplicationNetwork(instanceID, network string, aliases []string) err
 	defer cancel()
 	inspected, err := sim.DockerClient().ContainerInspect(ctx, containerID, dockerclient.ContainerInspectOptions{})
 	if err != nil {
-		return fmt.Errorf("inspect the engine of DB instance %s: %w", instanceID, err)
+		return fmt.Errorf("inspect the engine of %s: %w", name, err)
 	}
 	if settings := inspected.Container.NetworkSettings; settings != nil {
 		if _, joined := settings.Networks[network]; joined {
@@ -173,7 +185,13 @@ func rdsJoinReplicationNetwork(instanceID, network string, aliases []string) err
 // rdsEngineOutput runs command in the instance's running engine and returns
 // what it wrote to standard output.
 func rdsEngineOutput(instanceID string, command []string) (string, error) {
-	containerID, err := rdsEngineContainer(instanceID)
+	return rdsContainerOutput(rdsEngineLabels(instanceID), "DB instance "+instanceID, command)
+}
+
+// rdsContainerOutput runs command in the running engine labels names and
+// returns what it wrote to standard output.
+func rdsContainerOutput(labels map[string]string, name string, command []string) (string, error) {
+	containerID, err := rdsRunningContainer(labels, name)
 	if err != nil {
 		return "", err
 	}
@@ -212,8 +230,14 @@ func rdsEngineOutput(instanceID string, command []string) (string, error) {
 // rdsInstanceSQL runs statements in the instance's engine as its
 // administrator: PostgreSQL's master user, or MySQL's and MariaDB's root.
 func rdsInstanceSQL(instance RDSInstance, engine dbengine.Engine, statements string) (string, error) {
+	return rdsEngineSQL(rdsEngineLabels(instance.DBInstanceIdentifier), "DB instance "+instance.DBInstanceIdentifier, instance, engine, statements)
+}
+
+// rdsEngineSQL runs statements as rdsInstanceSQL does in the running engine
+// labels names, which holds instance's data.
+func rdsEngineSQL(labels map[string]string, name string, instance RDSInstance, engine dbengine.Engine, statements string) (string, error) {
 	if engine.Family == dbengine.Postgres {
-		return rdsEngineOutput(instance.DBInstanceIdentifier, []string{engine.Client, "-v", "ON_ERROR_STOP=1", "-At", "-F", "|",
+		return rdsContainerOutput(labels, name, []string{engine.Client, "-v", "ON_ERROR_STOP=1", "-At", "-F", "|",
 			"-U", instance.MasterUsername, "-d", rdsDatabaseName(instance), "-c", statements})
 	}
 	secret := instance.BackendMasterUserSecret
@@ -224,7 +248,7 @@ func rdsInstanceSQL(instance RDSInstance, engine dbengine.Engine, statements str
 	if !ok {
 		return "", fmt.Errorf("decrypt the master-user credential")
 	}
-	return rdsEngineOutput(instance.DBInstanceIdentifier, []string{engine.Client, "--user=root", "--password=" + string(password),
+	return rdsContainerOutput(labels, name, []string{engine.Client, "--user=root", "--password=" + string(password),
 		"--batch", "--vertical", "--execute=" + statements})
 }
 
@@ -233,8 +257,8 @@ func rdsInstanceSQL(instance RDSInstance, engine dbengine.Engine, statements str
 // chain sets the replication user's password to the one it records, which a
 // restored or promoted instance's data may hold another of, and a PostgreSQL
 // source admits that user's replication connections and keeps a slot for the
-// replica.
-func rdsPrepareReplicationSource(source, replica RDSInstance, engine dbengine.Engine) error {
+// replica, which slot names.
+func rdsPrepareReplicationSource(source RDSInstance, slot string, engine dbengine.Engine) error {
 	plane, served := rdsLoadDataPlane(source.DBInstanceIdentifier)
 	if !served {
 		return fmt.Errorf("source DB instance %s serves no engine", source.DBInstanceIdentifier)
@@ -268,9 +292,9 @@ func rdsPrepareReplicationSource(source, replica RDSInstance, engine dbengine.En
 				return fmt.Errorf("reload the source's configuration: %w", err)
 			}
 		}
-		slot := dbengine.QuoteLiteral(rdsReplicationSlot(replica))
-		if _, err := rdsInstanceSQL(source, engine, "SELECT pg_create_physical_replication_slot("+slot+", true) "+
-			"WHERE NOT EXISTS (SELECT FROM pg_replication_slots WHERE slot_name = "+slot+")"); err != nil {
+		quoted := dbengine.QuoteLiteral(slot)
+		if _, err := rdsInstanceSQL(source, engine, "SELECT pg_create_physical_replication_slot("+quoted+", true) "+
+			"WHERE NOT EXISTS (SELECT FROM pg_replication_slots WHERE slot_name = "+quoted+")"); err != nil {
 			return fmt.Errorf("create the replication slot: %w", err)
 		}
 		return nil
@@ -321,41 +345,52 @@ func rdsSeedReadReplica(replica RDSInstance) (RDSInstance, error) {
 	if !ok {
 		return replica, fmt.Errorf("the simulator runs no %s %s engine", replica.Engine, replica.EngineVersion)
 	}
-	if err := rdsPrepareReplicationSource(source, replica, engine); err != nil {
-		return replica, err
-	}
-	volume := rdsInstanceVolume(replica.DBInstanceIdentifier)
 	// A seed an earlier process cut short starts again on an empty volume.
-	rdsRemoveEngineContainers("Amazon RDS "+replica.DBInstanceIdentifier, map[string]string{"sockerless-rds-instance": replica.DBInstanceIdentifier})
+	rdsRemoveEngineContainers("Amazon RDS "+replica.DBInstanceIdentifier, rdsEngineLabels(replica.DBInstanceIdentifier))
+	file, position, err := rdsSeedReplicaVolume(source, engine, rdsInstanceVolume(replica.DBInstanceIdentifier),
+		replica.DBInstanceIdentifier, rdsReplicationSlot(replica), replica.DBInstanceIdentifier)
+	replica.ReplicaSourceLogFile, replica.ReplicaSourceLogPos = file, position
+	return replica, err
+}
+
+// rdsSeedReplicaVolume captures source's volume into volume and prepares it
+// to replicate source: a PostgreSQL copy starts as a standby that streams
+// through slot as applicationName, and a MySQL-family copy takes a server
+// UUID of its own and answers the binary log file and position it
+// replicates from.
+func rdsSeedReplicaVolume(source RDSInstance, engine dbengine.Engine, volume, applicationName, slot, label string) (string, int, error) {
+	if err := rdsPrepareReplicationSource(source, slot, engine); err != nil {
+		return "", 0, err
+	}
 	sim.RemoveVolumeSettled(volume, "rds")
+	if sim.VolumeExists(volume) {
+		return "", 0, fmt.Errorf("remove the earlier copy in %s", volume)
+	}
 	if err := sim.CaptureVolume(context.Background(), rdsInstanceVolume(source.DBInstanceIdentifier), volume, "rds"); err != nil {
-		return replica, fmt.Errorf("capture the source volume: %w", err)
+		return "", 0, fmt.Errorf("capture the source volume: %w", err)
 	}
 	binds := []string{volume + ":" + engine.DataPath}
-	label := replica.DBInstanceIdentifier
 	if engine.Family == dbengine.Postgres {
 		password, err := rdsReplicationPassword(source)
 		if err != nil {
-			return replica, err
+			return "", 0, err
 		}
 		conninfo := fmt.Sprintf("host=%s port=%d user=%s password=%s application_name=%s",
-			rdsReplicationSourceHost, engine.Port, rdsReplicationUser, password, replica.DBInstanceIdentifier)
+			rdsReplicationSourceHost, engine.Port, rdsReplicationUser, password, applicationName)
 		_, err = rdsRunVolumeHelper(engine, rdsPostgresReplicaVolumeScript,
-			map[string]string{"CONNINFO": conninfo, "SLOT": rdsReplicationSlot(replica)}, rdsHelperSandbox, binds, label)
-		return replica, err
+			map[string]string{"CONNINFO": conninfo, "SLOT": slot}, rdsHelperSandbox, binds, label)
+		return "", 0, err
 	}
 	listing, err := rdsRunVolumeHelper(engine, rdsMySQLReplicaVolumeScript, nil, rdsHelperSandbox, binds, label)
 	if err != nil {
-		return replica, err
+		return "", 0, err
 	}
 	files, err := rdsReadBinaryLogListing(listing)
 	if err != nil {
-		return replica, err
+		return "", 0, err
 	}
 	last := files[len(files)-1]
-	replica.ReplicaSourceLogFile = last.name
-	replica.ReplicaSourceLogPos = rdsBinlogWholeTransactionsEnd(last.data, len(rdsBinlogMagic))
-	return replica, nil
+	return last.name, rdsBinlogWholeTransactionsEnd(last.data, len(rdsBinlogMagic)), nil
 }
 
 // rdsConfigureReplication points a MySQL-family replica's applier at its
@@ -374,18 +409,7 @@ func rdsConfigureReplication(plane *rdsDataPlane) error {
 	if err != nil {
 		return err
 	}
-	var statements string
-	if plane.engine.Engine.Client == dbengine.MariaDB114.Client {
-		statements = fmt.Sprintf("STOP SLAVE; RESET SLAVE ALL; CHANGE MASTER TO MASTER_HOST=%s, MASTER_PORT=%d, MASTER_USER=%s, "+
-			"MASTER_PASSWORD=%s, MASTER_LOG_FILE=%s, MASTER_LOG_POS=%d, MASTER_USE_GTID=no; START SLAVE",
-			dbengine.QuoteMySQLLiteral(rdsReplicationSourceHost), plane.engine.Engine.Port, dbengine.QuoteMySQLLiteral(rdsReplicationUser),
-			dbengine.QuoteMySQLLiteral(password), dbengine.QuoteMySQLLiteral(instance.ReplicaSourceLogFile), instance.ReplicaSourceLogPos)
-	} else {
-		statements = fmt.Sprintf("STOP REPLICA; RESET REPLICA ALL; CHANGE REPLICATION SOURCE TO SOURCE_HOST=%s, SOURCE_PORT=%d, "+
-			"SOURCE_USER=%s, SOURCE_PASSWORD=%s, SOURCE_LOG_FILE=%s, SOURCE_LOG_POS=%d, GET_SOURCE_PUBLIC_KEY=1; START REPLICA",
-			dbengine.QuoteMySQLLiteral(rdsReplicationSourceHost), plane.engine.Engine.Port, dbengine.QuoteMySQLLiteral(rdsReplicationUser),
-			dbengine.QuoteMySQLLiteral(password), dbengine.QuoteMySQLLiteral(instance.ReplicaSourceLogFile), instance.ReplicaSourceLogPos)
-	}
+	statements := rdsReplicateSourceStatements(plane.engine.Engine, password, instance.ReplicaSourceLogFile, instance.ReplicaSourceLogPos)
 	if _, err := rdsInstanceSQL(instance, plane.engine.Engine, statements); err != nil {
 		return fmt.Errorf("start replicating the source: %w", err)
 	}
@@ -397,6 +421,21 @@ func rdsConfigureReplication(plane *rdsDataPlane) error {
 		}
 	})
 	return nil
+}
+
+// rdsReplicateSourceStatements point a MySQL-family engine's applier at the
+// source on its replication network from file and position and start it.
+func rdsReplicateSourceStatements(engine dbengine.Engine, password, file string, position int) string {
+	if engine.Client == dbengine.MariaDB114.Client {
+		return fmt.Sprintf("STOP SLAVE; RESET SLAVE ALL; CHANGE MASTER TO MASTER_HOST=%s, MASTER_PORT=%d, MASTER_USER=%s, "+
+			"MASTER_PASSWORD=%s, MASTER_LOG_FILE=%s, MASTER_LOG_POS=%d, MASTER_USE_GTID=no, MASTER_CONNECT_RETRY=1; START SLAVE",
+			dbengine.QuoteMySQLLiteral(rdsReplicationSourceHost), engine.Port, dbengine.QuoteMySQLLiteral(rdsReplicationUser),
+			dbengine.QuoteMySQLLiteral(password), dbengine.QuoteMySQLLiteral(file), position)
+	}
+	return fmt.Sprintf("STOP REPLICA; RESET REPLICA ALL; CHANGE REPLICATION SOURCE TO SOURCE_HOST=%s, SOURCE_PORT=%d, "+
+		"SOURCE_USER=%s, SOURCE_PASSWORD=%s, SOURCE_LOG_FILE=%s, SOURCE_LOG_POS=%d, GET_SOURCE_PUBLIC_KEY=1, SOURCE_CONNECT_RETRY=1; START REPLICA",
+		dbengine.QuoteMySQLLiteral(rdsReplicationSourceHost), engine.Port, dbengine.QuoteMySQLLiteral(rdsReplicationUser),
+		dbengine.QuoteMySQLLiteral(password), dbengine.QuoteMySQLLiteral(file), position)
 }
 
 // replicaReady joins a replica's engine to its source's replication network
@@ -416,10 +455,10 @@ func (plane *rdsDataPlane) replicaReady() error {
 }
 
 // sourceReady attaches a source's engine, started again, to the network its
-// replicas reach it on.
+// read replicas and its Multi-AZ standby reach it on.
 func (plane *rdsDataPlane) sourceReady() error {
 	instance := plane.current()
-	if stored, ok := rdsInstances.Get(instance.DBInstanceIdentifier); !ok || len(rdsReadReplicasOf(stored)) == 0 {
+	if stored, ok := rdsInstances.Get(instance.DBInstanceIdentifier); !ok || (len(rdsReadReplicasOf(stored)) == 0 && !stored.MultiAZ) {
 		return nil
 	}
 	return rdsJoinReplicationNetwork(instance.DBInstanceIdentifier, rdsReplicationNetwork(instance), []string{rdsReplicationSourceHost})
@@ -433,11 +472,12 @@ type rdsReplicationState struct {
 	message string
 }
 
-// rdsObserveReplication reads the replica engine's own replication status.
-func rdsObserveReplication(instance RDSInstance, engine dbengine.Engine) (rdsReplicationState, error) {
+// rdsObserveReplication reads a replica engine's own replication status
+// through query, which runs a statement in that engine.
+func rdsObserveReplication(engine dbengine.Engine, query func(string) (string, error)) (rdsReplicationState, error) {
 	if engine.Family == dbengine.Postgres {
-		output, err := rdsInstanceSQL(instance, engine, "SELECT coalesce((SELECT status FROM pg_stat_wal_receiver), ''), "+
-			"CASE WHEN pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn() THEN 0 "+
+		output, err := query("SELECT coalesce((SELECT status FROM pg_stat_wal_receiver), ''), " +
+			"CASE WHEN pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn() THEN 0 " +
 			"ELSE coalesce(extract(epoch FROM now() - pg_last_xact_replay_timestamp()), 0) END")
 		if err != nil {
 			return rdsReplicationState{}, err
@@ -456,16 +496,11 @@ func rdsObserveReplication(instance RDSInstance, engine dbengine.Engine) (rdsRep
 	if engine.Client == dbengine.MariaDB114.Client {
 		statement, io, sql, behind = "SHOW SLAVE STATUS", "Slave_IO_Running", "Slave_SQL_Running", "Seconds_Behind_Master"
 	}
-	output, err := rdsInstanceSQL(instance, engine, statement)
+	output, err := query(statement)
 	if err != nil {
 		return rdsReplicationState{}, err
 	}
-	fields := map[string]string{}
-	for _, line := range strings.Split(output, "\n") {
-		if name, value, found := strings.Cut(strings.TrimSpace(line), ": "); found {
-			fields[name] = strings.TrimSpace(value)
-		}
-	}
+	fields := rdsVerticalFields(output)
 	for _, failure := range []string{fields["Last_IO_Error"], fields["Last_SQL_Error"]} {
 		if failure != "" {
 			return rdsReplicationState{lag: -1, message: failure}, nil
@@ -524,6 +559,24 @@ func (m *rdsReplicaMonitor) publish() {
 	}
 }
 
+// rdsVerticalFields reads the columns of one row the MySQL-family client
+// printed with --vertical.
+func rdsVerticalFields(output string) map[string]string {
+	fields := map[string]string{}
+	for _, line := range strings.Split(output, "\n") {
+		if name, value, found := strings.Cut(strings.TrimSpace(line), ": "); found {
+			fields[name] = strings.TrimSpace(value)
+		}
+	}
+	return fields
+}
+
+// rdsInstanceQuery runs statements in the instance's engine as its
+// administrator.
+func rdsInstanceQuery(instance RDSInstance, engine dbengine.Engine) func(string) (string, error) {
+	return func(statements string) (string, error) { return rdsInstanceSQL(instance, engine, statements) }
+}
+
 // rdsMonitorReplica starts publishing the replica's metrics each minute, the
 // first at once when now is set.
 func rdsMonitorReplica(instanceID string, now bool) {
@@ -553,7 +606,7 @@ func rdsPublishReplicaState(plane *rdsDataPlane) {
 	}
 	state := rdsReplicationState{lag: -1, message: "The replica engine is not running."}
 	if plane.engine.Running() {
-		observed, err := rdsObserveReplication(instance, plane.engine.Engine)
+		observed, err := rdsObserveReplication(plane.engine.Engine, rdsInstanceQuery(instance, plane.engine.Engine))
 		if err != nil {
 			observed = rdsReplicationState{lag: -1, message: err.Error()}
 		}
@@ -587,7 +640,7 @@ func rdsRecordReplicationState(instance RDSInstance, state rdsReplicationState) 
 func rdsAwaitReplicating(instance RDSInstance, engine dbengine.Engine) error {
 	deadline := time.Now().Add(rdsReplicationStartBudget)
 	for {
-		state, err := rdsObserveReplication(instance, engine)
+		state, err := rdsObserveReplication(engine, rdsInstanceQuery(instance, engine))
 		if err == nil && state.replicating {
 			rdsRecordReplicationState(instance, state)
 			return nil
@@ -732,15 +785,20 @@ func rdsEndReplication(replica RDSInstance, engine dbengine.Engine) error {
 // rdsDropReplicationSlot drops the slot a PostgreSQL source kept for a
 // replica that no longer replicates, so the source stops retaining its log.
 func rdsDropReplicationSlot(source, replica RDSInstance, engine dbengine.Engine) {
+	rdsDropReplicationSlotNamed(source, engine, rdsReplicationSlot(replica))
+}
+
+// rdsDropReplicationSlotNamed drops a running PostgreSQL source's slot.
+func rdsDropReplicationSlotNamed(source RDSInstance, engine dbengine.Engine, slot string) {
 	if engine.Family != dbengine.Postgres {
 		return
 	}
 	if plane, served := rdsLoadDataPlane(source.DBInstanceIdentifier); !served || !plane.engine.Running() {
 		return
 	}
-	slot := dbengine.QuoteLiteral(rdsReplicationSlot(replica))
-	if _, err := rdsInstanceSQL(source, engine, "SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = "+slot); err != nil {
-		log.Printf("Amazon RDS %s: drop the replication slot of %s: %v", source.DBInstanceIdentifier, replica.DBInstanceIdentifier, err)
+	quoted := dbengine.QuoteLiteral(slot)
+	if _, err := rdsInstanceSQL(source, engine, "SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = "+quoted); err != nil {
+		log.Printf("Amazon RDS %s: drop the replication slot %s: %v", source.DBInstanceIdentifier, slot, err)
 	}
 }
 

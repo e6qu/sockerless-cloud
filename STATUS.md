@@ -190,7 +190,12 @@ Current state of the sockerless-cloud repository.
   replication slot — over a container network the two engines share; it
   serves its sessions read-only, reports its read replication status and its
   ReplicaLag metric each minute, and PromoteReadReplica, or deleting its
-  source, reopens it standalone and writable.
+  source, reopens it standalone and writable. A Multi-AZ instance keeps a standby
+  engine in another Availability Zone, replicating synchronously (PostgreSQL
+  synchronous streaming replication, MySQL and MariaDB semisynchronous
+  replication), reports it as SecondaryAvailabilityZone, converts either way
+  through ModifyDBInstance, and fails over to it on RebootDBInstance with
+  ForceFailover; DescribeEvents lists the conversion and failover events.
 - **The registries answer their own service**: Amazon ECR's empty ping with
   no content type, Artifact Registry's `text/html`, Azure Container Registry's
   `{}`; ECR hydrates a pull through a cache rule from the rule's upstream;

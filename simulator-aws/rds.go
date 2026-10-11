@@ -117,12 +117,17 @@ type RDSInstance struct {
 	// green environment the instance is, which serves its sessions read-only.
 	BlueGreenDeploymentIdentifier string `json:",omitempty"`
 	MultiAZ                       bool   `json:",omitempty"`
-	StorageType                   string `json:",omitempty"`
-	Iops                          int    `json:",omitempty"`
-	StorageThroughput             int    `json:",omitempty"`
-	DBSubnetGroupName             string `json:",omitempty"`
-	OptionGroupName               string `json:",omitempty"`
-	CACertificateIdentifier       string `json:",omitempty"`
+	// SecondaryAvailabilityZone is where a Multi-AZ instance's standby runs.
+	SecondaryAvailabilityZone string `json:",omitempty"`
+	// AvailabilityConversion records a conversion between Single-AZ and
+	// Multi-AZ whose standby is not yet built or removed.
+	AvailabilityConversion  bool   `json:",omitempty"`
+	StorageType             string `json:",omitempty"`
+	Iops                    int    `json:",omitempty"`
+	StorageThroughput       int    `json:",omitempty"`
+	DBSubnetGroupName       string `json:",omitempty"`
+	OptionGroupName         string `json:",omitempty"`
+	CACertificateIdentifier string `json:",omitempty"`
 	// ServerCertificateValidTill is when the server certificate the endpoint
 	// last presented expires.
 	ServerCertificateValidTill string `json:",omitempty"`
@@ -407,6 +412,7 @@ const rdsAPIVersion = "2014-10-31"
 func registerRDS(r *AWSQueryRouter, srv *sim.Server) {
 	rdsInstances = sim.MakeStore[RDSInstance](srv.DB(), "rds_instances")
 	rdsSnapshots = sim.MakeStore[RDSSnapshot](srv.DB(), "rds_snapshots")
+	rdsEvents = sim.MakeStore[RDSEvent](srv.DB(), "rds_events")
 	r.RegisterVersioned(rdsAPIVersion, "CreateDBInstance", handleRDSCreate)
 	r.RegisterVersioned(rdsAPIVersion, "DescribeDBInstances", handleRDSDescribe)
 	r.RegisterVersioned(rdsAPIVersion, "ModifyDBInstance", handleRDSModify)
@@ -1568,7 +1574,15 @@ func handleRDSReboot(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "DBInstanceNotFound", "DB instance not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
+	failover := rdsRequestedBool(r, "ForceFailover")
+	if failover != nil && *failover && rdsRefuseFailover(w, r, inst) {
+		return
+	}
 	if !rdsRequireInstanceState(w, r, inst, "available", "rebooted") {
+		return
+	}
+	if failover != nil && *failover {
+		rdsXMLResponse(w, "RebootDBInstance", renderRDSInstance(rdsBeginFailover(inst)), sim.RequestID(r.Context()))
 		return
 	}
 	if len(inst.MasterUserSecret) > 0 {
@@ -2651,35 +2665,6 @@ func handleRDSDeleteOptionGroup(w http.ResponseWriter, r *http.Request) {
 	rdsXMLResponse(w, "DeleteOptionGroup", "", sim.RequestID(r.Context()))
 }
 
-// handleRDSDescribeEvents returns RDS service events. The sim does not
-// generate engine-level events (no engine is run), so the list is
-// empty unless an event source is being described — matching real RDS,
-// which returns an empty Events list for a source with no recent
-// activity. The response shape (Events list + Marker) is faithful.
-func handleRDSDescribeEvents(w http.ResponseWriter, r *http.Request) {
-	var b strings.Builder
-	b.WriteString("<Events>")
-	// Surface a single faithful creation event for a named instance
-	// source so consumers can read a non-empty list; real RDS records
-	// a "DB instance created" event at RunInstances time.
-	srcID := r.FormValue("SourceIdentifier")
-	srcType := r.FormValue("SourceType")
-	if srcID != "" && (srcType == "" || srcType == "db-instance") {
-		if inst, ok := rdsInstances.Get(srcID); ok {
-			b.WriteString("<Event>")
-			fmt.Fprintf(&b, "<SourceIdentifier>%s</SourceIdentifier>", xmlEscape(inst.DBInstanceIdentifier))
-			b.WriteString("<SourceType>db-instance</SourceType>")
-			b.WriteString("<Message>DB instance created</Message>")
-			b.WriteString("<EventCategories><EventCategory>creation</EventCategory></EventCategories>")
-			fmt.Fprintf(&b, "<Date>%s</Date>", xmlEscape(inst.InstanceCreateTime))
-			fmt.Fprintf(&b, "<SourceArn>%s</SourceArn>", xmlEscape(inst.ARN))
-			b.WriteString("</Event>")
-		}
-	}
-	b.WriteString("</Events>")
-	rdsXMLResponse(w, "DescribeEvents", b.String(), sim.RequestID(r.Context()))
-}
-
 // rdsEventCategories maps each RDS source type to its canonical set of
 // event categories (as published by real RDS). Static-but-real: these
 // values match the AWS-documented categories the SDK/CLI consume.
@@ -2726,7 +2711,7 @@ func handleRDSDescribeOrderableOptions(w http.ResponseWriter, r *http.Request) {
 	versions := rdsOrderableVersions(engine, r.FormValue("EngineVersion"))
 	wantClass := r.FormValue("DBInstanceClass")
 	classes := []string{"db.t3.micro", "db.t3.small", "db.t3.medium", "db.m5.large", "db.m5.xlarge", "db.r5.large"}
-	azs := []string{awsRegion() + "a", awsRegion() + "b", awsRegion() + "c"}
+	azs := rdsRegionAvailabilityZones()
 	var b strings.Builder
 	b.WriteString("<OrderableDBInstanceOptions>")
 	for _, version := range versions {
@@ -2789,7 +2774,8 @@ func rdsRequireStandaloneInstance(w http.ResponseWriter, r *http.Request, instan
 // promoting, or is deleting.
 func rdsRefuseUnavailableInstance(w http.ResponseWriter, r *http.Request, instance RDSInstance) bool {
 	switch {
-	case instance.DBInstanceStatus == "deleting", instance.DBInstanceStatus == "upgrading", instance.DBInstanceStatus == "modifying":
+	case instance.DBInstanceStatus == "deleting", instance.DBInstanceStatus == "upgrading", instance.DBInstanceStatus == "modifying",
+		instance.DBInstanceStatus == "rebooting":
 	case !rdsInstanceBringingUp(instance.DBInstanceStatus):
 		return false
 	}

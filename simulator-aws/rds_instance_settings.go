@@ -555,6 +555,9 @@ func rdsMoveInstanceVolume(oldID, newID string) error {
 func renderRDSInstanceSettings(i RDSInstance) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<MultiAZ>%t</MultiAZ>", i.MultiAZ)
+	if i.SecondaryAvailabilityZone != "" {
+		fmt.Fprintf(&b, "<SecondaryAvailabilityZone>%s</SecondaryAvailabilityZone>", xmlEscape(i.SecondaryAvailabilityZone))
+	}
 	if i.StorageType != "" {
 		fmt.Fprintf(&b, "<StorageType>%s</StorageType>", xmlEscape(i.StorageType))
 	}

@@ -179,6 +179,11 @@ through hooks:
   `modelAsString` enums permit other values). Discovery documents express
   required-ness only for requests, so `TestRequestsMissingARequiredPropertyAreRefused`
   drives each insert with the property removed and requires a refusal.
+- **A workload's answer is not the cloud's.** The Azure validator skips a
+  response served on an App Service site's host, its SCM host, or a container
+  app's or revision's ingress FQDN: the body is what the workload wrote, and
+  matching its path against the storage swagger reported a header-echoing app
+  as Get Blob Service Properties divergences.
 - **An error shape is attested, never invented.** Where the service documents a
   refusal but not its code — a resource move onto an occupied name — the
   simulator carries the attested message with no leaf code rather than a code
@@ -2001,6 +2006,51 @@ replicas and promotes the replica of a deleted source, the CLI suite does the
 same for RDS for MySQL and upgrades an RDS for PostgreSQL instance in its own
 `rds-read-replica` shard, and the Terraform suite creates an `aws_db_instance`
 with `replicate_source_db` in its own shard.
+
+A Multi-AZ DB instance deployment runs a real standby. The standby is an engine
+of its own on `sockerless-rds-standby_<DbiResourceId>`, a frozen capture of the
+primary's volume seeded with the read replica machinery
+(`rdsSeedReplicaVolume`: the replication user, a physical slot named after the
+instance's resource ID with `-standby`, the PostgreSQL standby configuration
+or the MySQL-family binary log position), labelled
+`sockerless-rds-standby=<DbiResourceId>` so a rename keeps it, and joined to
+the primary's replication network. Replication is synchronous: the PostgreSQL
+primary lists `rds_multi_az_standby` in `synchronous_standby_names` once the
+standby streams, and the MySQL and MariaDB standbys run with semisynchronous
+replication on, the MySQL primary installs `rpl_semi_sync_source` and both
+enable the source side, after which the standby's receiver reconnects so the
+primary's dump thread counts it. The PostgreSQL standby runs with
+`archive_mode=always`, so the WAL archive a restore to a time reads holds what
+it streamed once it is promoted, and the MariaDB standby logs what it applies
+(`log_slave_updates`, MySQL's default). Every PostgreSQL primary start first
+resets `synchronous_standby_names`, because the setting lives in the data
+directory a snapshot, replica or restore copies and the standby can reconnect
+only once the primary is back on its network; the control plane names the
+standby again once it streams. CreateDBInstance with MultiAZ lands `available`
+once the standby replicates synchronously, ModifyDBInstance converting either
+way holds the instance `modifying` (a class or CA change now records its
+restart in `Restart`, so a `modifying` instance without one is a conversion),
+StopDBInstance stops the standby and StartDBInstance resumes it, an engine
+upgrade rebuilds it, deleting the instance removes it, and a standby that no
+longer replicates gives way to a fresh capture. SecondaryAvailabilityZone is
+another zone of the `a`/`b`/`c` zones the RDS slice places instances in.
+RebootDBInstance with ForceFailover refuses a Single-AZ instance with
+InvalidDBInstanceState (the only applicable error the Smithy model lists for
+the operation), answers `rebooting`, stops the primary, promotes the standby
+(`pg_promote`, or stopping the MySQL-family receiver, waiting for the applier
+to reach the end of the relay log and `RESET REPLICA ALL`), moves the promoted
+volume onto the instance's, swaps the zones and starts the endpoint's engine
+on the promoted data; a new standby is then built from the new primary in the
+old primary's zone, and a failover a previous process left `rebooting` resumes
+from the standby's volume. DescribeEvents now reads recorded events
+(`rds_events`, kept 14 days) over the Duration, StartTime and EndTime window
+and EventCategories, beside the creation event derived from each instance:
+the conversions record RDS-EVENT-0024/0025 and 0030/0029 and the failover
+RDS-EVENT-0013/0015. The SDK suite converts, fails over twice and converts
+back RDS for PostgreSQL, MySQL and MariaDB instances, the CLI suite creates an
+RDS for PostgreSQL instance with `--multi-az` and runs
+`reboot-db-instance --force-failover`, and the Terraform suite creates an
+`aws_db_instance` with `multi_az`, each in its own `rds-multi-az` shard.
 
 RDS for MariaDB keeps automated backups and restores to a time as RDS for
 MySQL does. Its engine writes a binary log only when told to, so the instance

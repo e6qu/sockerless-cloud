@@ -28,10 +28,7 @@ import (
 func registerContainerAppsIngress(srv *sim.Server) {
 	srv.WrapHandler(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			host := r.Host
-			if i := strings.LastIndex(host, ":"); i >= 0 {
-				host = host[:i]
-			}
+			host := acaRequestHost(r.Host)
 			if app, ok := acaAppByIngressFqdn(host); ok {
 				rev, ok := acaPickRevision(app)
 				if !ok {
@@ -50,6 +47,24 @@ func registerContainerAppsIngress(srv *sim.Server) {
 			next.ServeHTTP(w, r)
 		})
 	})
+}
+
+func acaRequestHost(host string) string {
+	if i := strings.LastIndex(host, ":"); i >= 0 {
+		return host[:i]
+	}
+	return host
+}
+
+// acaIngressServesHost reports whether a request carrying host reaches a
+// container app or one of its revisions rather than the simulator's own APIs.
+func acaIngressServesHost(host string) bool {
+	host = acaRequestHost(host)
+	if _, ok := acaAppByIngressFqdn(host); ok {
+		return true
+	}
+	rev, ok := acaRevisionByFqdn(host)
+	return ok && rev.Active
 }
 
 // acaIngressTargetPort returns the App's configured ingress target port — the
