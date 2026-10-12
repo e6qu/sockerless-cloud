@@ -56,6 +56,7 @@ const (
 	sigErrSignatureMismatch  sigv4ErrKind = iota // signature did not verify
 	sigErrInvalidClientToken                     // unknown or inactive credential
 	sigErrExpiredToken                           // temporary credential past expiry
+	sigErrRequestExpired                         // presigned request past X-Amz-Expires
 )
 
 type sigv4Error struct {
@@ -103,7 +104,28 @@ func sigv4Verify(r *http.Request, body []byte) (sigv4Result, *sigv4Error) {
 // sigv4VerifyS3 is sigv4Verify for the S3 REST data plane, whose client
 // signer does not double-encode the canonical URI.
 func sigv4VerifyS3(r *http.Request, body []byte) (sigv4Result, *sigv4Error) {
-	return sigv4VerifyEncoding(r, body, false)
+	result, serr := sigv4VerifyEncoding(r, body, false)
+	if serr == nil && result == sigv4Verified && sigv4PresignedExpired(r.URL.Query(), time.Now()) {
+		return sigv4NoCredential, &sigv4Error{sigErrRequestExpired, "Request has expired"}
+	}
+	return result, serr
+}
+
+// sigv4PresignedExpired reports whether a query-signed request is past the
+// X-Amz-Expires seconds it was signed for, counted from X-Amz-Date.
+func sigv4PresignedExpired(q url.Values, now time.Time) bool {
+	if q.Get("X-Amz-Signature") == "" {
+		return false
+	}
+	expires, err := strconv.Atoi(q.Get("X-Amz-Expires"))
+	if err != nil {
+		return false
+	}
+	signedAt, err := time.Parse("20060102T150405Z", q.Get("X-Amz-Date"))
+	if err != nil {
+		return false
+	}
+	return now.After(signedAt.Add(time.Duration(expires) * time.Second))
 }
 
 func sigv4VerifyEncoding(r *http.Request, body []byte, doubleEncodePath bool) (sigv4Result, *sigv4Error) {
@@ -498,6 +520,8 @@ func sigv4WriteS3Error(w http.ResponseWriter, r *http.Request, serr *sigv4Error)
 	case sigErrExpiredToken:
 		S3ErrorXML(w, "ExpiredToken", "The provided token has expired.",
 			resource, sim.NewUUID(), http.StatusForbidden)
+	case sigErrRequestExpired:
+		S3ErrorXML(w, "AccessDenied", serr.message, resource, sim.NewUUID(), http.StatusForbidden)
 	default:
 		S3ErrorXML(w, "SignatureDoesNotMatch", serr.message,
 			resource, sim.NewUUID(), http.StatusForbidden)
