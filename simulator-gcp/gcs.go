@@ -2848,7 +2848,7 @@ func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], obje
 			return !filtered || op.Done == done
 		})
 		sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-		page, next, ok := paginateList(w, r, items)
+		page, next, ok := paginateList(w, r, items, gcpAsc(func(v Operation) string { return v.Name }))
 		if !ok {
 			return
 		}

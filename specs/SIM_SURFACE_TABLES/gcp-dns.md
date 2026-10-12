@@ -17,14 +17,14 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `PATCH /dns/v1/projects/{project}/responsePolicies/{responsePolicy}` | ✓ `simulator-gcp/dns.go:1018::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /dns/v1/projects/{project}/responsePolicies/{responsePolicy}` | ✓ `simulator-gcp/dns.go:1021::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /dns/v1/projects/{project}/responsePolicies/{responsePolicy}/rules` | ✓ `simulator-gcp/dns.go:1026::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /dns/v1/projects/{project}/responsePolicies/{responsePolicy}/rules` | ✓ `simulator-gcp/dns.go:1052::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /dns/v1/projects/{project}/responsePolicies/{responsePolicy}/rules/{rule}` | ✓ `simulator-gcp/dns.go:1080::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /dns/v1/projects/{project}/responsePolicies/{responsePolicy}/rules/{rule}` | ✓ `simulator-gcp/dns.go:1092::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /dns/v1/projects/{project}/responsePolicies/{responsePolicy}/rules/{rule}` | ✓ `simulator-gcp/dns.go:1122::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /dns/v1/projects/{project}/responsePolicies/{responsePolicy}/rules/{rule}` | ✓ `simulator-gcp/dns.go:1125::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /dns/v1/projects/{project}/responsePolicies/{responsePolicy}` | ✓ `simulator-gcp/dns.go:1013::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /dns/v1/projects/{project}/responsePolicies/{responsePolicy}` | ✓ `simulator-gcp/dns.go:1016::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /dns/v1/projects/{project}/responsePolicies/{responsePolicy}/rules` | ✓ `simulator-gcp/dns.go:1021::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /dns/v1/projects/{project}/responsePolicies/{responsePolicy}/rules` | ✓ `simulator-gcp/dns.go:1047::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /dns/v1/projects/{project}/responsePolicies/{responsePolicy}/rules/{rule}` | ✓ `simulator-gcp/dns.go:1075::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /dns/v1/projects/{project}/responsePolicies/{responsePolicy}/rules/{rule}` | ✓ `simulator-gcp/dns.go:1087::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /dns/v1/projects/{project}/responsePolicies/{responsePolicy}/rules/{rule}` | ✓ `simulator-gcp/dns.go:1117::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /dns/v1/projects/{project}/responsePolicies/{responsePolicy}/rules/{rule}` | ✓ `simulator-gcp/dns.go:1120::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /dns/v1/projects/{project}/locations` | 501 `simulator-gcp/dns.go:218::dnsUnserved` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /dns/v1/projects/{project}/locations/{location}` | 501 `simulator-gcp/dns.go:219::dnsUnserved` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /dns/v1/projects/{project}/locations/{location}/outboundEndpoints` | 501 `simulator-gcp/dns.go:220::dnsUnserved` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
@@ -48,24 +48,24 @@ The extractor reads the route out of a single string literal, so a registration 
 | `POST /dns/v1/projects/{project}/managedZones/{zone}/changes` | ✓ `simulator-gcp/dns.go:553::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /dns/v1/projects/{project}/managedZones/{zone}/changes/{change}` | ✓ `simulator-gcp/dns.go:616::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /dns/v1/projects/{project}/managedZones/{zone}/changes` | ✓ `simulator-gcp/dns.go:632::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /dns/v1/projects/{project}/managedZones/{zone}` | ✓ `simulator-gcp/dns.go:674::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /dns/v1/projects/{project}/managedZones/{zone}` | ✓ `simulator-gcp/dns.go:679::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /dns/v1/projects/{project}/managedZones/{zoneAction}` | ✓ `simulator-gcp/dns.go:691::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /dns/v1/projects/{project}/managedZones/{zone}/dnsKeys` | ✓ `simulator-gcp/dns.go:711::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /dns/v1/projects/{project}/managedZones/{zone}/dnsKeys/{dnsKeyId}` | ✓ `simulator-gcp/dns.go:738::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /dns/v1/projects/{project}/managedZones/{zone}/operations` | ✓ `simulator-gcp/dns.go:757::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /dns/v1/projects/{project}/managedZones/{zone}/operations/{operation}` | ✓ `simulator-gcp/dns.go:793::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /dns/v1/projects/{project}` | ✓ `simulator-gcp/dns.go:810::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /dns/v1/projects/{project}/policies` | ✓ `simulator-gcp/dns.go:826::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /dns/v1/projects/{project}/policies` | ✓ `simulator-gcp/dns.go:850::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /dns/v1/projects/{project}/policies/{policy}` | ✓ `simulator-gcp/dns.go:876::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /dns/v1/projects/{project}/policies/{policy}` | ✓ `simulator-gcp/dns.go:887::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /dns/v1/projects/{project}/policies/{policy}` | ✓ `simulator-gcp/dns.go:915::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /dns/v1/projects/{project}/policies/{policy}` | ✓ `simulator-gcp/dns.go:918::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /dns/v1/projects/{project}/responsePolicies` | ✓ `simulator-gcp/dns.go:926::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /dns/v1/projects/{project}/responsePolicies` | ✓ `simulator-gcp/dns.go:950::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /dns/v1/projects/{project}/responsePolicies/{responsePolicy}` | ✓ `simulator-gcp/dns.go:973::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /dns/v1/projects/{project}/responsePolicies/{responsePolicy}` | ✓ `simulator-gcp/dns.go:984::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /dns/v1/projects/{project}/managedZones/{zone}` | ✓ `simulator-gcp/dns.go:669::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /dns/v1/projects/{project}/managedZones/{zone}` | ✓ `simulator-gcp/dns.go:674::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /dns/v1/projects/{project}/managedZones/{zoneAction}` | ✓ `simulator-gcp/dns.go:686::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /dns/v1/projects/{project}/managedZones/{zone}/dnsKeys` | ✓ `simulator-gcp/dns.go:706::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /dns/v1/projects/{project}/managedZones/{zone}/dnsKeys/{dnsKeyId}` | ✓ `simulator-gcp/dns.go:733::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /dns/v1/projects/{project}/managedZones/{zone}/operations` | ✓ `simulator-gcp/dns.go:752::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /dns/v1/projects/{project}/managedZones/{zone}/operations/{operation}` | ✓ `simulator-gcp/dns.go:788::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /dns/v1/projects/{project}` | ✓ `simulator-gcp/dns.go:805::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /dns/v1/projects/{project}/policies` | ✓ `simulator-gcp/dns.go:821::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /dns/v1/projects/{project}/policies` | ✓ `simulator-gcp/dns.go:845::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /dns/v1/projects/{project}/policies/{policy}` | ✓ `simulator-gcp/dns.go:871::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /dns/v1/projects/{project}/policies/{policy}` | ✓ `simulator-gcp/dns.go:882::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /dns/v1/projects/{project}/policies/{policy}` | ✓ `simulator-gcp/dns.go:910::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /dns/v1/projects/{project}/policies/{policy}` | ✓ `simulator-gcp/dns.go:913::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /dns/v1/projects/{project}/responsePolicies` | ✓ `simulator-gcp/dns.go:921::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /dns/v1/projects/{project}/responsePolicies` | ✓ `simulator-gcp/dns.go:945::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /dns/v1/projects/{project}/responsePolicies/{responsePolicy}` | ✓ `simulator-gcp/dns.go:968::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /dns/v1/projects/{project}/responsePolicies/{responsePolicy}` | ✓ `simulator-gcp/dns.go:979::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

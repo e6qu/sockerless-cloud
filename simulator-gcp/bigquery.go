@@ -433,7 +433,7 @@ func handleBQListDatasets(w http.ResponseWriter, r *http.Request) {
 			"location":         d.Location,
 		})
 	}
-	page, next, ok := paginateListCompute(w, r, items)
+	page, next, ok := paginateListCompute(w, r, items, gcpAsc(gcpField("id")))
 	if !ok {
 		return
 	}
@@ -553,7 +553,7 @@ func handleBQListTables(w http.ResponseWriter, r *http.Request) {
 			"labels":         t.Labels,
 		})
 	}
-	page, next, ok := paginateListCompute(w, r, items)
+	page, next, ok := paginateListCompute(w, r, items, gcpAsc(gcpField("id")))
 	if !ok {
 		return
 	}
@@ -804,7 +804,7 @@ func handleBQListJobs(w http.ResponseWriter, r *http.Request) {
 			"user_email":    j.UserEmail,
 		})
 	}
-	page, next, ok := paginateListCompute(w, r, items)
+	page, next, ok := paginateListCompute(w, r, items, gcpAsc(gcpField("id")))
 	if !ok {
 		return
 	}
@@ -952,7 +952,7 @@ func handleBQListProjects(w http.ResponseWriter, r *http.Request) {
 			"friendlyName":     p,
 		})
 	}
-	page, next, ok := paginateListCompute(w, r, items)
+	page, next, ok := paginateListCompute(w, r, items, gcpAsc(gcpField("id")))
 	if !ok {
 		return
 	}
@@ -1070,11 +1070,7 @@ func handleBQListModels(w http.ResponseWriter, r *http.Request) {
 		return m.ModelReference.ProjectID == project && m.ModelReference.DatasetID == dataset
 	})
 	sort.Slice(all, func(i, j int) bool { return all[i].ModelReference.ModelID < all[j].ModelReference.ModelID })
-	items := make([]any, len(all))
-	for i, m := range all {
-		items[i] = m
-	}
-	page, next, ok := paginateListCompute(w, r, items)
+	page, next, ok := paginateListCompute(w, r, all, gcpAsc(func(m BQModel) string { return m.ModelReference.ModelID }))
 	if !ok {
 		return
 	}
@@ -1157,11 +1153,7 @@ func handleBQListRoutines(w http.ResponseWriter, r *http.Request) {
 		return rt.RoutineReference.ProjectID == project && rt.RoutineReference.DatasetID == dataset
 	})
 	sort.Slice(all, func(i, j int) bool { return all[i].RoutineReference.RoutineID < all[j].RoutineReference.RoutineID })
-	items := make([]any, len(all))
-	for i, rt := range all {
-		items[i] = rt
-	}
-	page, next, ok := paginateListCompute(w, r, items)
+	page, next, ok := paginateListCompute(w, r, all, gcpAsc(func(rt BQRoutine) string { return rt.RoutineReference.RoutineID }))
 	if !ok {
 		return
 	}
@@ -1277,11 +1269,7 @@ func handleBQListRAPs(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(all, func(i, j int) bool {
 		return all[i].RowAccessPolicyReference.PolicyID < all[j].RowAccessPolicyReference.PolicyID
 	})
-	items := make([]any, len(all))
-	for i, rap := range all {
-		items[i] = rap
-	}
-	page, next, ok := paginateListCompute(w, r, items)
+	page, next, ok := paginateListCompute(w, r, all, gcpAsc(func(rap BQRowAccessPolicy) string { return rap.RowAccessPolicyReference.PolicyID }))
 	if !ok {
 		return
 	}

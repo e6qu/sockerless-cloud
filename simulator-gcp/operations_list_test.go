@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	longrunningpb "cloud.google.com/go/longrunning/autogen/longrunningpb"
@@ -34,11 +35,16 @@ func gcpOperationsListFixture(t *testing.T) *sim.Server {
 	}
 	empty()
 	t.Cleanup(empty)
+	serviceUsage := map[string]any{"@type": serviceUsageOperationMetadataType}
 	for _, op := range []Operation{
 		{Name: "projects/p/locations/us-central1/operations/a", Done: true},
 		{Name: "projects/p/locations/us-central1/operations/b"},
 		{Name: "projects/p/locations/us-central1/operations/c", Done: true},
 		{Name: "projects/p/locations/europe-west1/operations/d"},
+		{Name: "operations/su-a", Done: true, Metadata: serviceUsage},
+		{Name: "operations/su-b", Metadata: serviceUsage},
+		{Name: "operations/su-c", Done: true, Metadata: serviceUsage},
+		{Name: "operations/su-d", Metadata: serviceUsage},
 	} {
 		crOperations.Put(op.Name, op)
 	}
@@ -84,24 +90,18 @@ func gcpEqualNames(got, want []string) bool {
 // never set it is not done, so every AIP-160 spelling of "not done" selects it.
 func TestGCPListOperationsFiltersDoneAsAProtoBool(t *testing.T) {
 	srv := gcpOperationsListFixture(t)
-	running := []string{
-		"projects/p/locations/europe-west1/operations/d",
-		"projects/p/locations/us-central1/operations/b",
-	}
-	finished := []string{
-		"projects/p/locations/us-central1/operations/a",
-		"projects/p/locations/us-central1/operations/c",
-	}
+	running := []string{"operations/su-b", "operations/su-d"}
+	finished := []string{"operations/su-a", "operations/su-c"}
 	for filter, want := range map[string][]string{
-		"done = false":             running,
-		"done:false":               running,
-		"NOT done":                 running,
-		"-done":                    running,
-		"done != true":             running,
-		"done = true":              finished,
-		"done:true":                finished,
-		"done":                     finished,
-		"done = false AND name:us": {"projects/p/locations/us-central1/operations/b"},
+		"done = false":               running,
+		"done:false":                 running,
+		"NOT done":                   running,
+		"-done":                      running,
+		"done != true":               running,
+		"done = true":                finished,
+		"done:true":                  finished,
+		"done":                       finished,
+		"done = false AND name:su-d": {"operations/su-d"},
 	} {
 		code, page, body := gcpListOperationsPage(t, srv, url.Values{"filter": {filter}})
 		if code != http.StatusOK {
@@ -174,7 +174,7 @@ func TestGCPListOperationsPagesInNameOrder(t *testing.T) {
 	token := ""
 	pages := 0
 	for {
-		query := url.Values{"pageSize": {"3"}, "name": {"projects/p/locations/"}}
+		query := url.Values{"pageSize": {"3"}, "name": {"operations/su-"}}
 		if token != "" {
 			query.Set("pageToken", token)
 		}
@@ -192,12 +192,7 @@ func TestGCPListOperationsPagesInNameOrder(t *testing.T) {
 		}
 		token = page.NextPageToken
 	}
-	want := []string{
-		"projects/p/locations/europe-west1/operations/d",
-		"projects/p/locations/us-central1/operations/a",
-		"projects/p/locations/us-central1/operations/b",
-		"projects/p/locations/us-central1/operations/c",
-	}
+	want := []string{"operations/su-a", "operations/su-b", "operations/su-c", "operations/su-d"}
 	if pages != 2 || !gcpEqualNames(seen, want) {
 		t.Fatalf("paged %d pages %v, want 2 pages %v", pages, seen, want)
 	}
@@ -209,34 +204,57 @@ func TestGCPListOperationsPagesInNameOrder(t *testing.T) {
 }
 
 // operations.list answers google.longrunning.Operation as Service Usage
-// declares it: a Cloud Storage bucket operation in the shared store lists
-// without the kind and selfLink of Cloud Storage's own Operation.
-func TestGCPListOperationsAnswersTheLongrunningShape(t *testing.T) {
+// declares it, for the operations Service Usage started only. Every other
+// service's operation stays in that service's own collection: a Cloud Storage
+// bucket operation under its bucket, a Cloud Run operation under its location.
+func TestGCPListOperationsAnswersServiceUsageOperationsOnly(t *testing.T) {
 	srv := gcpOperationsListFixture(t)
+	gcpTestCreateProject(t, srv, gcpTestProjectID)
+	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project="+gcpTestProjectID, `{"name":"relocated"}`)
 	storageOp := Operation{
-		Name:     "projects/_/buckets/b/operations/relocate-1",
+		Name:     gcsOperationName("relocated", "relocate-1"),
 		Done:     true,
 		Metadata: map[string]any{"@type": "type.googleapis.com/google.storage.control.v2.RelocateBucketMetadata"},
 		Kind:     "storage#operation",
-		SelfLink: "http://storage.googleapis.com/storage/v1/b/b/operations/relocate-1",
+		SelfLink: "http://storage.googleapis.com/storage/v1/b/relocated/operations/relocate-1",
 	}
 	crOperations.Put(storageOp.Name, storageOp)
-	code, page, body := gcpListOperationsPage(t, srv, url.Values{"name": {"projects/_/buckets/"}})
+
+	code, page, body := gcpListOperationsPage(t, srv, url.Values{})
 	if code != http.StatusOK {
 		t.Fatalf("list: %d %s", code, body)
 	}
-	if len(page.Operations) != 1 {
-		t.Fatalf("listed %v, want only %s", gcpOperationNames(page), storageOp.Name)
+	want := []string{"operations/su-a", "operations/su-b", "operations/su-c", "operations/su-d"}
+	if got := gcpOperationNames(page); !gcpEqualNames(got, want) {
+		t.Fatalf("Service Usage listed %v, want only its own operations %v", got, want)
 	}
-	op := page.Operations[0]
-	for field := range op {
-		switch field {
-		case "name", "metadata", "done", "response", "error":
-		default:
-			t.Errorf("operation lists undeclared field %q: %s", field, body)
+	for _, op := range page.Operations {
+		for field := range op {
+			switch field {
+			case "name", "metadata", "done", "response", "error":
+			default:
+				t.Errorf("operation lists undeclared field %q: %s", field, body)
+			}
 		}
 	}
-	if op["name"] != storageOp.Name || op["done"] != true || op["metadata"] == nil {
-		t.Errorf("operation lost its declared fields: %s", body)
+
+	bucketOps := gcpHostOK(t, srv, "storage.googleapis.com", http.MethodGet, "/storage/v1/b/relocated/operations", "")
+	if listed, _ := bucketOps["operations"].([]any); len(listed) != 1 || listed[0].(map[string]any)["name"] != storageOp.Name {
+		t.Fatalf("the bucket's own collection listed %v, want %s", bucketOps, storageOp.Name)
+	}
+	locationOps := gcpHostOK(t, srv, "run.googleapis.com", http.MethodGet, "/v2/projects/p/locations/europe-west1/operations", "")
+	if listed, _ := locationOps["operations"].([]any); len(listed) != 1 ||
+		listed[0].(map[string]any)["name"] != "projects/p/locations/europe-west1/operations/d" {
+		t.Fatalf("the location's own collection listed %v, want projects/p/locations/europe-west1/operations/d", locationOps)
+	}
+
+	projectOp := Operation{Name: "operations/cp.create-1", Done: true,
+		Metadata: map[string]any{"@type": "type.googleapis.com/google.cloud.resourcemanager.v3.CreateProjectMetadata"}}
+	crOperations.Put(projectOp.Name, projectOp)
+	for name, startedByServiceUsage := range map[string]bool{projectOp.Name: false, "operations/su-a": true} {
+		gcpHostOK(t, srv, "serviceusage.googleapis.com", http.MethodDelete, "/v1/operations/"+strings.TrimPrefix(name, "operations/"), "")
+		if _, kept := crOperations.Get(name); kept == startedByServiceUsage {
+			t.Errorf("Service Usage operations.delete on %s left it stored = %v", name, kept)
+		}
 	}
 }

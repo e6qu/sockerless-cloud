@@ -246,7 +246,7 @@ func secretManagerListSecrets(w http.ResponseWriter, r *http.Request, parent str
 		return
 	}
 	all = listed
-	page, next, ok := paginateList(w, r, all)
+	page, next, ok := paginateList(w, r, all, gcpAsc(func(v Secret) string { return v.Name }))
 	if !ok {
 		return
 	}
@@ -591,7 +591,8 @@ func secretManagerListVersions(w http.ResponseWriter, r *http.Request, parent st
 	if !ok {
 		return
 	}
-	page, next, ok := gcpOffsetPage(w, versions, r.URL.Query().Get("pageToken"), size, secretManagerMaxPageSize)
+	byVersion := gcpDescNumber(func(v SecretVersion) string { return strings.TrimPrefix(v.Name, prefix) })
+	page, next, ok := gcpKeyPage(w, versions, []gcpSortKey[SecretVersion]{byVersion}, r.URL.Query().Get("pageToken"), size, secretManagerMaxPageSize)
 	if !ok {
 		return
 	}

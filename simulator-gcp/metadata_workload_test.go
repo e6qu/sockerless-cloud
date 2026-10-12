@@ -51,7 +51,7 @@ func TestMetadataPlacesCloudRunWorkloads(t *testing.T) {
 		account string
 	}{
 		{map[string]string{cloudRunResourceLabel: service}, "test-project", "runner@test-project.iam.gserviceaccount.com"},
-		{map[string]string{cloudRunTaskExecutionLabel: execution}, "test-project", "735298346210-compute@developer.gserviceaccount.com"},
+		{map[string]string{cloudRunTaskExecutionLabel: execution}, "test-project", gcpTestProjectNumber(t) + "-compute@developer.gserviceaccount.com"},
 	} {
 		w, ok := cloudRunWorkloadFromLabels(tc.labels)
 		if !ok {
@@ -72,7 +72,7 @@ func TestMetadataPlacesCloudRunWorkloads(t *testing.T) {
 func TestComputeDefaultServiceAccountThroughTheWildcard(t *testing.T) {
 	srv := buildOperationsTestSimulator(t)
 	got := gcpHostOK(t, srv, "iam.googleapis.com", http.MethodGet,
-		"/v1/projects/-/serviceAccounts/735298346210-compute@developer.gserviceaccount.com", "")
+		"/v1/projects/-/serviceAccounts/"+gcpTestProjectNumber(t)+"-compute@developer.gserviceaccount.com", "")
 	if got["projectId"] != "test-project" || got["displayName"] != "Compute Engine default service account" ||
 		!strings.HasPrefix(got["name"].(string), "projects/test-project/serviceAccounts/") {
 		t.Fatalf("default service account %v", got)

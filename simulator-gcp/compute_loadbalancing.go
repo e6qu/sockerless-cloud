@@ -348,7 +348,7 @@ func computeWriteGlobalList[T computeNamedResource](w http.ResponseWriter, r *ht
 	if !ok {
 		return
 	}
-	page, next, ok := paginateListCompute(w, r, items)
+	page, next, ok := paginateListCompute(w, r, items, gcpAsc(func(resource T) string { return computeResourceSelfLink(resource) }))
 	if !ok {
 		return
 	}

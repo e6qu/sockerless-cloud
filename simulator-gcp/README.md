@@ -68,13 +68,18 @@ public half IAM registered, so only a genuinely minted key authenticates.
 
 Creating that first account is itself an authenticated call, so it is made with
 a token straight from the token endpoint — the simulator's stand-in for the
-administrator who bootstraps a real project:
+administrator who bootstraps a real project. The administrator creates the
+project first, since the simulator holds no project but its own `sockerless`:
 
 ```bash
 SIM=http://localhost:4567
 TOKEN=$(curl -s -X POST $SIM/token \
   -d grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"projectId":"test-project","parent":"organizations/123456789012"}' \
+  $SIM/v3/projects
 
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"accountId":"runner"}' \

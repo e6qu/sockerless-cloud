@@ -286,7 +286,7 @@ func handlePSListTopicSnapshots(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Strings(names)
-	page, next, ok := paginateList(w, r, names)
+	page, next, ok := paginateList(w, r, names, gcpAsc(func(v string) string { return v }))
 	if !ok {
 		return
 	}
@@ -315,7 +315,7 @@ func handlePSListTopicSubscriptions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Strings(names)
-	page, next, ok := paginateList(w, r, names)
+	page, next, ok := paginateList(w, r, names, gcpAsc(func(v string) string { return v }))
 	if !ok {
 		return
 	}
@@ -448,7 +448,7 @@ func handlePSListTopics(w http.ResponseWriter, r *http.Request) {
 		all = []PSTopic{}
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	page, next, ok := paginateList(w, r, all)
+	page, next, ok := paginateList(w, r, all, gcpAsc(func(v PSTopic) string { return v.Name }))
 	if !ok {
 		return
 	}
@@ -717,7 +717,7 @@ func handlePSListSubscriptions(w http.ResponseWriter, r *http.Request) {
 		all = []PSSubscription{}
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	page, next, ok := paginateList(w, r, all)
+	page, next, ok := paginateList(w, r, all, gcpAsc(func(v PSSubscription) string { return v.Name }))
 	if !ok {
 		return
 	}
@@ -1029,7 +1029,7 @@ func handlePSListSchemas(w http.ResponseWriter, r *http.Request) {
 		all = append(all, applySchemaView(s, r))
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	page, next, ok := paginateList(w, r, all)
+	page, next, ok := paginateList(w, r, all, gcpAsc(func(v PSSchema) string { return v.Name }))
 	if !ok {
 		return
 	}
@@ -1087,7 +1087,7 @@ func handlePSGetSchemaOrVerb(w http.ResponseWriter, r *http.Request) {
 		for _, s := range revs {
 			out = append(out, applySchemaView(s, r))
 		}
-		page, next, ok := paginateList(w, r, out)
+		page, next, ok := paginateList(w, r, out, gcpDesc(func(s PSSchema) string { return s.RevisionCreateTime }), gcpDesc(func(s PSSchema) string { return s.RevisionId }))
 		if !ok {
 			return
 		}

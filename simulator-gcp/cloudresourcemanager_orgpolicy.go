@@ -406,7 +406,7 @@ func crmOrgPolicyVerb(w http.ResponseWriter, r *http.Request, resource, action s
 
 	switch action {
 	case "listAvailableOrgPolicyConstraints":
-		page, next, ok := crmOrgPolicyPage(w, crmOrgPolicyCatalog, req.PageSize, req.PageToken)
+		page, next, ok := crmOrgPolicyPage(w, crmOrgPolicyCatalog, gcpAsc(func(c CRMConstraint) string { return c.Name }), req.PageSize, req.PageToken)
 		if !ok {
 			return true
 		}
@@ -424,7 +424,7 @@ func crmOrgPolicyVerb(w http.ResponseWriter, r *http.Request, resource, action s
 		for _, row := range rows {
 			policies = append(policies, row.Policy)
 		}
-		page, next, ok := crmOrgPolicyPage(w, policies, req.PageSize, req.PageToken)
+		page, next, ok := crmOrgPolicyPage(w, policies, gcpAsc(func(p CRMOrgPolicy) string { return p.Constraint }), req.PageSize, req.PageToken)
 		if !ok {
 			return true
 		}
@@ -570,6 +570,20 @@ func crmListValuesAdmissible(c CRMConstraint, l *CRMListPolicy) string {
 
 // crmOrgPolicyPage applies the page-size / page-token pair the org-policy list
 // methods carry in the request BODY rather than the query string.
-func crmOrgPolicyPage[T any](w http.ResponseWriter, items []T, pageSize int, pageToken string) ([]T, string, bool) {
-	return gcpOffsetPage(w, items, pageToken, pageSize, 0)
+func crmOrgPolicyPage[T any](w http.ResponseWriter, items []T, key gcpSortKey[T], pageSize int, pageToken string) ([]T, string, bool) {
+	return gcpKeyPage(w, items, []gcpSortKey[T]{key}, pageToken, pageSize, 0)
+}
+
+// crmWriteSearchPage writes one page of a search method's results under
+// member, paged by the page size and token its request body carries.
+func crmWriteSearchPage[T any](w http.ResponseWriter, member string, items []T, key gcpSortKey[T], pageSize int, pageToken string) {
+	page, next, ok := crmOrgPolicyPage(w, items, key, pageSize, pageToken)
+	if !ok {
+		return
+	}
+	resp := map[string]any{member: page}
+	if next != "" {
+		resp["nextPageToken"] = next
+	}
+	sim.WriteJSON(w, http.StatusOK, resp)
 }

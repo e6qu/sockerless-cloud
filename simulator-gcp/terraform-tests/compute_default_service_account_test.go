@@ -22,7 +22,7 @@ func TestTerraformComputeDefaultServiceAccount(t *testing.T) {
 	require.NoError(t, err, "terraform apply failed:\n%s", out)
 
 	outputs := readOutputsInDir(t, fixtureDir)
-	const email = "735298346210-compute@developer.gserviceaccount.com"
+	email := harnessProjectNumber + "-compute@developer.gserviceaccount.com"
 	assert.Equal(t, email, outputs.must(t, "email"))
 	assert.Equal(t, "projects/test-project/serviceAccounts/"+email, outputs.must(t, "name"))
 	assert.Equal(t, "Compute Engine default service account", outputs.must(t, "display_name"))

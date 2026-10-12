@@ -178,7 +178,7 @@ func registerVPCAccess(srv *sim.Server) {
 		})
 		sort.Slice(conns, func(i, j int) bool { return conns[i].Name < conns[j].Name })
 
-		page, next, ok := paginateList(w, r, conns)
+		page, next, ok := paginateList(w, r, conns, gcpAsc(func(v VPCAccessConnector) string { return v.Name }))
 		if !ok {
 			return
 		}

@@ -19,15 +19,35 @@ type ServiceUsageState struct {
 	Parent string `json:"parent"`
 }
 
+const serviceUsageOperationMetadataType = "type.googleapis.com/google.api.serviceusage.v1.OperationMetadata"
+
 // serviceUsageLRO records a finished Service Usage operation: its response is
 // the method's google.api.serviceusage.v1 response message, and its
 // google.api.serviceusage.v1.OperationMetadata names the services it acted on.
 func serviceUsageLRO(response map[string]any, responseType string, resourceNames ...string) Operation {
 	return newLRO("", "global", response, "type.googleapis.com/google.api.serviceusage.v1."+responseType,
 		gcpFixedOperationMetadata(map[string]any{
-			"@type":         "type.googleapis.com/google.api.serviceusage.v1.OperationMetadata",
+			"@type":         serviceUsageOperationMetadataType,
 			"resourceNames": resourceNames,
 		}))
+}
+
+// serviceUsageOperation reports whether Service Usage started op. The shared
+// operation store holds every service's operations, and Service Usage's own
+// carry its OperationMetadata.
+func serviceUsageOperation(op Operation) bool {
+	metadataType, _ := op.Metadata["@type"].(string)
+	return metadataType == serviceUsageOperationMetadataType
+}
+
+// gcpLongrunningOperation is google.longrunning.Operation as Service Usage's
+// operations.list declares it.
+type gcpLongrunningOperation struct {
+	Name     string          `json:"name"`
+	Metadata map[string]any  `json:"metadata,omitempty"`
+	Done     bool            `json:"done"`
+	Response any             `json:"response,omitempty"`
+	Error    *OperationError `json:"error,omitempty"`
 }
 
 func registerServiceUsage(srv *sim.Server) {
@@ -112,7 +132,7 @@ func registerServiceUsage(srv *sim.Server) {
 		}
 		svcs = listed
 
-		page, next, ok := paginateList(w, r, svcs)
+		page, next, ok := paginateList(w, r, svcs, gcpAsc(func(v ServiceUsageState) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -171,14 +191,44 @@ func registerServiceUsage(srv *sim.Server) {
 	// Delete a long-running operation (serviceusage.operations.delete).
 	// Per AIP / google.longrunning, this drops the client's interest in
 	// the operation result and returns google.protobuf.Empty ({}). It does
-	// not cancel the operation. The shared crOperations store backs every
-	// service's LROs, so the deletion is honored across the sim.
+	// not cancel the operation, and it reaches only the operations Service
+	// Usage started.
 	srv.HandleFunc("DELETE /v1/operations/{operation}", func(w http.ResponseWriter, r *http.Request) {
 		name := fmt.Sprintf("operations/%s", sim.PathParam(r, "operation"))
-		if crOperations != nil {
+		if op, ok := crOperations.Get(name); ok && serviceUsageOperation(op) {
 			crOperations.Delete(name)
 		}
 		sim.WriteJSON(w, http.StatusOK, struct{}{})
+	})
+
+	// operations.list answers the operations Service Usage started. `name`
+	// scopes to a prefix of the operation name, `filter` is AIP-160 over the
+	// google.longrunning.Operation message, and pageSize/pageToken page the
+	// result in name order. Every other service lists its operations in its
+	// own collection.
+	srv.HandleFunc("GET /v1/operations", func(w http.ResponseWriter, r *http.Request) {
+		filter, err := gcpParseFilterExpr(r.URL.Query().Get("filter"))
+		if err != nil {
+			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
+			return
+		}
+		namePrefix := r.URL.Query().Get("name")
+		out := crOperations.Filter(func(op Operation) bool {
+			return serviceUsageOperation(op) && strings.HasPrefix(op.Name, namePrefix) && filter.Eval(gcpOperationFilterDoc(op))
+		})
+		page, next, ok := paginateList(w, r, out, gcpAsc(func(op Operation) string { return op.Name }))
+		if !ok {
+			return
+		}
+		listed := make([]gcpLongrunningOperation, len(page))
+		for i, op := range page {
+			listed[i] = gcpLongrunningOperation{Name: op.Name, Metadata: op.Metadata, Done: op.Done, Response: op.Response, Error: op.Error}
+		}
+		resp := map[string]any{"operations": listed}
+		if next != "" {
+			resp["nextPageToken"] = next
+		}
+		sim.WriteJSON(w, http.StatusOK, resp)
 	})
 
 	// Batch enable services

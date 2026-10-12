@@ -19,6 +19,8 @@ import (
 	"testing"
 	"time"
 
+	resourcemanager "cloud.google.com/go/resourcemanager/apiv3"
+	"cloud.google.com/go/resourcemanager/apiv3/resourcemanagerpb"
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 
@@ -153,10 +155,46 @@ func TestMain(m *testing.M) {
 		ts:   simTokenSource(),
 	}
 
+	number, err := createHarnessProject()
+	if err != nil {
+		simCmd.Process.Kill()
+		log.Fatalf("Failed to create project %s: %v", harnessProject, err)
+	}
+	harnessProjectNumber = number
+
 	code := m.Run()
 	simCmd.Process.Kill()
 	simCmd.Wait()
 	os.Exit(code)
+}
+
+// harnessProject is the project the tests address. TestMain creates it the
+// way a user creates a project before working in it.
+const harnessProject = "test-project"
+
+// harnessProjectNumber is the project number Cloud Resource Manager assigned
+// harnessProject.
+var harnessProjectNumber string
+
+// createHarnessProject creates harnessProject through Cloud Resource Manager
+// projects.create, waits on the operation, and returns the project number.
+func createHarnessProject() (string, error) {
+	c, err := resourcemanager.NewProjectsRESTClient(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
+	if err != nil {
+		return "", err
+	}
+	defer c.Close()
+	op, err := c.CreateProject(ctx, &resourcemanagerpb.CreateProjectRequest{
+		Project: &resourcemanagerpb.Project{ProjectId: harnessProject, DisplayName: harnessProject, Parent: crmTestOrg},
+	})
+	if err != nil {
+		return "", err
+	}
+	project, err := op.Wait(ctx)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimPrefix(project.GetName(), "projects/"), nil
 }
 
 // simTokenSource returns an oauth2.TokenSource that fetches a real access token

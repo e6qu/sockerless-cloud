@@ -366,7 +366,7 @@ func registerArtifactRegistry(srv *sim.Server) {
 		}
 		result = listed
 		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-		page, next, ok := paginateList(w, r, result)
+		page, next, ok := paginateList(w, r, result, gcpAsc(func(v Repository) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -523,7 +523,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		result = listed
 		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-		page, next, ok := paginateList(w, r, result)
+		page, next, ok := paginateList(w, r, result, gcpAsc(func(v ARPackage) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -618,7 +618,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		result = listed
 		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-		page, next, ok := paginateList(w, r, result)
+		page, next, ok := paginateList(w, r, result, gcpAsc(func(v ARVersion) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -760,7 +760,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		result = listed
 		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-		page, next, ok := paginateList(w, r, result)
+		page, next, ok := paginateList(w, r, result, gcpAsc(func(v ARTag) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -858,7 +858,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		result = listed
 		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-		page, next, ok := paginateList(w, r, result)
+		page, next, ok := paginateList(w, r, result, gcpAsc(func(v ARFile) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -1007,7 +1007,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		result = listed
 		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-		page, next, ok := paginateList(w, r, result)
+		page, next, ok := paginateList(w, r, result, gcpAsc(func(v ARRule) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -1114,7 +1114,7 @@ func registerARSubresources(srv *sim.Server, repos sim.Store[Repository], docker
 		}
 		result = listed
 		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-		page, next, ok := paginateList(w, r, result)
+		page, next, ok := paginateList(w, r, result, gcpAsc(func(v ARAttachment) string { return v.Name }))
 		if !ok {
 			return
 		}

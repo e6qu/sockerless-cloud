@@ -156,7 +156,7 @@ func TestGCSNotificationsPublishObjectChanges(t *testing.T) {
 	for _, topic := range []string{"gcs-events", "other"} {
 		gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPut, "/v1/projects/p/topics/"+topic, `{}`)
 		gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPost, "/v1/projects/p/topics/"+topic+":setIamPolicy",
-			`{"policy":{"bindings":[{"role":"roles/pubsub.publisher","members":["serviceAccount:service-735298346210@gs-project-accounts.iam.gserviceaccount.com"]}]}}`)
+			`{"policy":{"bindings":[{"role":"roles/pubsub.publisher","members":["serviceAccount:service-`+gcpTestProjectNumber(t)+`@gs-project-accounts.iam.gserviceaccount.com"]}]}}`)
 	}
 	gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPut, "/v1/projects/p/subscriptions/gcs-events", `{"topic":"projects/p/topics/gcs-events"}`)
 	gcpHostOK(t, srv, host, http.MethodPost, "/storage/v1/b?project=test-project", `{"name":"watched"}`)

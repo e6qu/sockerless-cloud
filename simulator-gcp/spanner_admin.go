@@ -129,7 +129,7 @@ func handleSpannerListOperationsUnder(w http.ResponseWriter, r *http.Request, pr
 		return
 	}
 	out = listed
-	page, next, ok := paginateList(w, r, out)
+	page, next, ok := paginateList(w, r, out, gcpAsc(func(v Operation) string { return v.Name }))
 	if !ok {
 		return
 	}
@@ -456,7 +456,7 @@ func handleSpannerListDatabaseRoles(w http.ResponseWriter, r *http.Request, inst
 		return
 	}
 	roles = listed
-	page, next, ok := paginateList(w, r, roles)
+	page, next, ok := paginateList(w, r, roles, gcpAsc(func(role databaseRole) string { return role.Name }))
 	if !ok {
 		return
 	}
@@ -549,7 +549,7 @@ func handleSpannerListInstancePartitions(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	out = listed
-	page, next, ok := paginateList(w, r, out)
+	page, next, ok := paginateList(w, r, out, gcpAsc(func(v spannerInstancePartition) string { return v.Name }))
 	if !ok {
 		return
 	}

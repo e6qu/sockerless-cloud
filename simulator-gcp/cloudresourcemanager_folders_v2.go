@@ -124,20 +124,11 @@ func registerCloudResourceManagerV2(srv *sim.Server, resourcePolicies sim.Store[
 			return
 		}
 		rows := crmFolders.Filter(func(f CRMFolder) bool { return crmV2FolderMatch(f, req.Query) })
-		sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
 		out := make([]crmV2FolderMsg, 0, len(rows))
 		for _, f := range rows {
 			out = append(out, crmV2Folder(f))
 		}
-		page, next, ok := crmOrgPolicyPage(w, out, req.PageSize, req.PageToken)
-		if !ok {
-			return
-		}
-		resp := map[string]any{"folders": page}
-		if next != "" {
-			resp["nextPageToken"] = next
-		}
-		sim.WriteJSON(w, http.StatusOK, resp)
+		crmWriteSearchPage(w, "folders", out, gcpAsc(func(f crmV2FolderMsg) string { return f.Name }), req.PageSize, req.PageToken)
 	})
 
 	srv.HandleFunc("GET /v2/folders/{folder}", func(w http.ResponseWriter, r *http.Request) {
@@ -245,7 +236,7 @@ func crmFolderNotFound(w http.ResponseWriter) {
 // crmWriteV2FolderPage paginates and writes a v2 folder collection.
 func crmWriteV2FolderPage(w http.ResponseWriter, r *http.Request, rows []CRMFolder) {
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
-	page, next, ok := paginateList(w, r, rows)
+	page, next, ok := paginateList(w, r, rows, gcpAsc(func(v CRMFolder) string { return v.Name }))
 	if !ok {
 		return
 	}

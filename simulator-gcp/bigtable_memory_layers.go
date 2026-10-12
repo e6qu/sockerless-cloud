@@ -159,7 +159,7 @@ func handleBigtableListMemoryLayers(w http.ResponseWriter, r *http.Request) {
 		GCPStatusError(w, err)
 		return
 	}
-	page, next, ok := paginateList(w, r, layers)
+	page, next, ok := paginateList(w, r, layers, gcpAsc(func(l bigtableMemoryLayer) string { return l.Name }))
 	if !ok {
 		return
 	}

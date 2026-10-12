@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1266,12 +1265,7 @@ func handleMSRedisAclPolicyRevisionList(w http.ResponseWriter, r *http.Request) 
 			revisions = append(revisions, msRedisAclRevisionView(revision))
 		}
 	}
-	sort.Slice(revisions, func(i, j int) bool {
-		left, _ := strconv.Atoi(revisions[i].RevisionNumber)
-		right, _ := strconv.Atoi(revisions[j].RevisionNumber)
-		return left > right
-	})
-	page, next, ok := paginateList(w, r, revisions)
+	page, next, ok := paginateList(w, r, revisions, gcpDescNumber(func(v MSRedisAclPolicyRevision) string { return v.RevisionNumber }))
 	if !ok {
 		return
 	}

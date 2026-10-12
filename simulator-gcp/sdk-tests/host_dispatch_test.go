@@ -90,6 +90,7 @@ func TestNoOsExecOfWorkloads(t *testing.T) {
 	roots := []string{filepath.Join(repoRoot, "simulator-gcp"), filepath.Join(repoRoot, "sim")}
 
 	var scanned int
+	matched := map[execCallSite]bool{}
 	walk := func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -128,7 +129,6 @@ func TestNoOsExecOfWorkloads(t *testing.T) {
 			return nil
 		}
 
-		matched := map[string]bool{}
 		for lineNo, line := range strings.Split(text, "\n") {
 			if !containsAny(line, execCallForms) {
 				continue
@@ -139,7 +139,7 @@ func TestNoOsExecOfWorkloads(t *testing.T) {
 			residue := line
 			for _, site := range fileSites {
 				if strings.Contains(residue, site.call) {
-					matched[site.call] = true
+					matched[site] = true
 					residue = strings.Replace(residue, site.call, "", 1)
 				}
 			}
@@ -148,18 +148,20 @@ func TestNoOsExecOfWorkloads(t *testing.T) {
 					rel, lineNo+1, strings.TrimSpace(line))
 			}
 		}
-		// A sanctioned call site that no longer exists would silently widen the
-		// allowance for whatever is added to the file next.
-		for _, site := range fileSites {
-			if !matched[site.call] {
-				t.Errorf("%s no longer contains the sanctioned call site %q (%s) — drop the stale allowance", rel, site.call, site.why)
-			}
-		}
 		return nil
 	}
 	for _, root := range roots {
 		if walkErr := filepath.WalkDir(root, walk); walkErr != nil {
 			t.Fatalf("walk %s: %v", root, walkErr)
+		}
+	}
+
+	// A sanctioned call site that no longer exists, in a file that still
+	// imports os/exec or in one that no longer does, would silently widen the
+	// allowance for whatever is added to the file next.
+	for _, site := range allowed {
+		if !matched[site] {
+			t.Errorf("%s no longer contains the sanctioned call site %q (%s) — drop the stale allowance", site.file, site.call, site.why)
 		}
 	}
 

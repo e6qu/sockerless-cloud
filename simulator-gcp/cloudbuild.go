@@ -258,7 +258,7 @@ func registerCloudBuild(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		builds := cbBuilds.Filter(func(b Build) bool { return b.ProjectID == project })
 		sort.Slice(builds, func(i, j int) bool { return builds[i].CreateTime > builds[j].CreateTime })
-		page, next, ok := paginateList(w, r, builds)
+		page, next, ok := paginateList(w, r, builds, gcpDesc(func(b Build) string { return b.CreateTime }), gcpAsc(func(b Build) string { return b.ID }))
 		if !ok {
 			return
 		}
@@ -328,7 +328,7 @@ func registerCloudBuild(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		builds := cbBuilds.Filter(func(b Build) bool { return b.ProjectID == project })
 		sort.Slice(builds, func(i, j int) bool { return builds[i].CreateTime > builds[j].CreateTime })
-		page, next, ok := paginateList(w, r, builds)
+		page, next, ok := paginateList(w, r, builds, gcpDesc(func(b Build) string { return b.CreateTime }), gcpAsc(func(b Build) string { return b.ID }))
 		if !ok {
 			return
 		}
@@ -497,7 +497,7 @@ func handleListWorkerPools(w http.ResponseWriter, r *http.Request) {
 	prefix := fmt.Sprintf("projects/%s/locations/%s/workerPools/", sim.PathParam(r, "project"), sim.PathParam(r, "location"))
 	pools := cbWorkerPools.Filter(func(p WorkerPool) bool { return strings.HasPrefix(p.Name, prefix) })
 	sort.Slice(pools, func(i, j int) bool { return pools[i].Name < pools[j].Name })
-	page, next, ok := paginateListParam(w, r, pools, "pageSize")
+	page, next, ok := paginateListParam(w, r, pools, "pageSize", []gcpSortKey[WorkerPool]{gcpAsc(func(v WorkerPool) string { return v.Name })})
 	if !ok {
 		return
 	}
@@ -671,7 +671,7 @@ func handleListBitbucketConfigs(w http.ResponseWriter, r *http.Request) {
 	prefix := cbConfigKey(sim.PathParam(r, "project"), sim.PathParam(r, "location"), "bitbucketServerConfigs", "")
 	configs := cbBitbucketConfigs.Filter(func(c BitbucketServerConfig) bool { return strings.HasPrefix(c.Name, prefix) })
 	sort.Slice(configs, func(i, j int) bool { return configs[i].Name < configs[j].Name })
-	page, next, ok := paginateListParam(w, r, configs, "pageSize")
+	page, next, ok := paginateListParam(w, r, configs, "pageSize", []gcpSortKey[BitbucketServerConfig]{gcpAsc(func(v BitbucketServerConfig) string { return v.Name })})
 	if !ok {
 		return
 	}
@@ -799,7 +799,7 @@ func handleListBuildTriggers(w http.ResponseWriter, r *http.Request) {
 		return strings.HasPrefix(t.ResourceName, prefix)
 	})
 	sort.Slice(triggers, func(i, j int) bool { return triggers[i].Name < triggers[j].Name })
-	page, next, ok := paginateList(w, r, triggers)
+	page, next, ok := paginateList(w, r, triggers, gcpAsc(func(v BuildTrigger) string { return v.Name }))
 	if !ok {
 		return
 	}

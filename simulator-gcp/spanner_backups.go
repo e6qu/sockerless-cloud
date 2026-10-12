@@ -394,7 +394,7 @@ func handleSpannerListBackups(w http.ResponseWriter, r *http.Request, instance s
 		return
 	}
 	out = listed
-	page, next, ok := paginateList(w, r, out)
+	page, next, ok := paginateList(w, r, out, gcpAsc(func(v spannerBackup) string { return v.Name }))
 	if !ok {
 		return
 	}
@@ -669,7 +669,7 @@ func handleSpannerListBackupSchedules(w http.ResponseWriter, r *http.Request, in
 		return
 	}
 	out = listed
-	page, next, ok := paginateList(w, r, out)
+	page, next, ok := paginateList(w, r, out, gcpAsc(func(v spannerBackupSchedule) string { return v.Name }))
 	if !ok {
 		return
 	}

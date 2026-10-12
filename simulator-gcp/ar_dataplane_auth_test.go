@@ -33,6 +33,7 @@ func arTestServer(t *testing.T) (*sim.Server, string) {
 		t.Fatalf("buildSimulator: %v", err)
 	}
 	t.Cleanup(srv.StopBackground)
+	gcpTestCreateProject(t, srv, gcpTestProjectID)
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
 	return srv, ts.URL

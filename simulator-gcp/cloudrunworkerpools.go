@@ -216,7 +216,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 			result = []WorkerPoolV2{}
 		}
 		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-		page, next, ok := paginateList(w, r, result)
+		page, next, ok := paginateList(w, r, result, gcpAsc(func(v WorkerPoolV2) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -327,7 +327,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 			result = []RevisionV2{}
 		}
 		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-		page, next, ok := paginateList(w, r, result)
+		page, next, ok := paginateList(w, r, result, gcpAsc(func(v RevisionV2) string { return v.Name }))
 		if !ok {
 			return
 		}

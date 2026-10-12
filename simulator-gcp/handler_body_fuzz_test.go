@@ -78,6 +78,7 @@ func newFuzzSim(t testing.TB) *sim.Server {
 		t.Fatalf("build sim: %v", err)
 	}
 	t.Cleanup(srv.StopBackground)
+	gcpTestCreateProject(t, srv, gcpTestProjectID)
 	return srv
 }
 

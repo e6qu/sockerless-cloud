@@ -341,7 +341,7 @@ func (res computeMetaResource) register(srv *sim.Server) {
 				return
 			}
 			items = listed
-			page, next, ok := paginateListCompute(w, r, items)
+			page, next, ok := paginateListCompute(w, r, items, gcpAsc(gcpField("name")), gcpAsc(gcpField("selfLink")))
 			if !ok {
 				return
 			}
@@ -378,7 +378,7 @@ func (res computeMetaResource) register(srv *sim.Server) {
 				return
 			}
 			items = listed
-			page, next, ok := paginateListCompute(w, r, items)
+			page, next, ok := paginateListCompute(w, r, items, gcpAsc(gcpField("name")), gcpAsc(gcpField("selfLink")))
 			if !ok {
 				return
 			}

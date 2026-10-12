@@ -159,6 +159,13 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to mint simulator access token: %v", tokenErr)
 	}
 
+	number, err := createHarnessProject()
+	if err != nil {
+		simCmd.Process.Kill()
+		log.Fatalf("Failed to create project %s: %v", harnessProject, err)
+	}
+	harnessProjectNumber = number
+
 	if os.Getenv("SOCKERLESS_TF_HTTPS_GATEWAY") == "1" {
 		gatewayDir, err := os.MkdirTemp("", "gcp-https-gateway-*")
 		if err != nil {
@@ -218,6 +225,67 @@ func TestMain(m *testing.M) {
 	simCmd.Process.Kill()
 	simCmd.Wait()
 	os.Exit(code)
+}
+
+// harnessProject is the project main.tf and the fixtures address. TestMain
+// creates it the way a user creates a project before applying a
+// configuration into it.
+const harnessProject = "test-project"
+
+// harnessProjectNumber is the project number Cloud Resource Manager assigned
+// harnessProject.
+var harnessProjectNumber string
+
+// createHarnessProject creates harnessProject through Cloud Resource Manager
+// v3 projects.create, polls the operation's done field until the create
+// settles, and returns the project number.
+func createHarnessProject() (string, error) {
+	type operation struct {
+		Name  string `json:"name"`
+		Done  bool   `json:"done"`
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+		Response struct {
+			Name string `json:"name"`
+		} `json:"response"`
+	}
+	call := func(method, url, body string) (operation, error) {
+		var op operation
+		req, err := http.NewRequest(method, url, strings.NewReader(body))
+		if err != nil {
+			return op, err
+		}
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return op, err
+		}
+		defer resp.Body.Close()
+		raw, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return op, err
+		}
+		if resp.StatusCode != http.StatusOK {
+			return op, fmt.Errorf("%s %s answered %d: %s", method, url, resp.StatusCode, raw)
+		}
+		return op, json.Unmarshal(raw, &op)
+	}
+	op, err := call(http.MethodPost, baseURL+"/v3/projects",
+		`{"projectId":"`+harnessProject+`","displayName":"`+harnessProject+`","parent":"organizations/123456789012"}`)
+	for delay := time.Second; err == nil && !op.Done; delay = min(2*delay, 10*time.Second) {
+		time.Sleep(delay)
+		op, err = call(http.MethodGet, baseURL+"/v3/"+op.Name, "")
+	}
+	switch {
+	case err != nil:
+		return "", err
+	case op.Error != nil:
+		return "", fmt.Errorf("create operation failed: %d %s", op.Error.Code, op.Error.Message)
+	}
+	return strings.TrimPrefix(op.Response.Name, "projects/"), nil
 }
 
 // The dependency lock beside each configuration is untracked local state, so
