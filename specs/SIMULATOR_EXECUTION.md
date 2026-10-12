@@ -11,9 +11,9 @@ against, never as host processes.
 
 The framework module `sim` provides:
 
-- `StartContainerSync` to start a workload container and stream its output
-  into the cloud's log sink, and `AdoptContainer` / `StartExistingContainer`
-  for recovery (see [SIMULATOR_RECOVERY.md](SIMULATOR_RECOVERY.md)).
+- `StartContainerSyncContext` and `StartHTTPContainer` to start a workload
+  container and stream its output into the cloud's log sink, and
+  `AdoptContainer` / `StartExistingContainer` for recovery (see [SIMULATOR_RECOVERY.md](SIMULATOR_RECOVERY.md)).
 - `ContainerConfig.Architecture`, which every workload caller sets from the
   cloud resource that declares it.
 - `InitDocker`, which returns an error when no engine answers, and
@@ -34,11 +34,11 @@ The allow list is narrow, and each entry names its reason:
 
 - The container reaper in `sim/` removes the simulator's own containers
   through the docker CLI; it runs no workload.
-- Cloud Build and Azure Container Registry Tasks run the docker CLI for their
-  build steps, because those services are build services and the steps are
-  docker invocations.
-- The Azure simulator's `metadata.go` asks the Podman machine for its routing
-  to find the host callback address; it runs no workload.
+- The build services run the docker CLI for their build steps
+  (`sim/workload/build.go`, Cloud Build's `cloudbuild.go`, Azure Container
+  Registry Tasks' `acr_tasks.go`), because those steps are docker invocations.
+- `sim/workloadhost` asks the Podman machine for its default route to find the
+  address workloads reach the host at; it runs no workload.
 - VM-level real execution launches Firecracker and programs Linux networking
   through the real-execution substrate in
   [SIMULATOR_REAL_EXECUTION.md](SIMULATOR_REAL_EXECUTION.md).

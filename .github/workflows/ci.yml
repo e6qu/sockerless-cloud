@@ -499,8 +499,9 @@ jobs:
           echo "$HOME/google-cloud-sdk/bin" >> "$GITHUB_PATH"
           # The Firestore-emulator component is the differential-test oracle for
           # TestFirestore_DifferentialVsEmulator; the step above provides the
-          # Java runtime it runs on.
-          "$HOME/google-cloud-sdk/bin/gcloud" components install cloud-firestore-emulator beta --quiet
+          # Java runtime it runs on. The alpha and beta tracks are the ones the
+          # gcloud suite's commands name; installed here, no test installs them.
+          "$HOME/google-cloud-sdk/bin/gcloud" components install cloud-firestore-emulator alpha beta --quiet
       # The runner image ships an Azure CLI, and it lags Microsoft's releases —
       # the AWS CLI and gcloud steps above each fetch the newest build, so
       # testing Azure against whatever the image happened to bake in was the one
@@ -861,6 +862,9 @@ jobs:
           wait "$test_pid" || status=$?
           cat "$log"
           report
+          if [ "$status" != 0 ]; then
+            bash "$GITHUB_WORKSPACE/scripts/go-test-failure-summary.sh" "$log"
+          fi
           exit "$status"
         # The suite grows as services reach full op-coverage; give the step
         # headroom over the inner go-test deadline (SDK_TEST_TIMEOUT) so a hung

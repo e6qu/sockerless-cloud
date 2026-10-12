@@ -19,6 +19,18 @@ func gcpOperationFilterDoc(op Operation) listq.Doc {
 	return doc
 }
 
+// gcpLongrunningOperation is google.longrunning.Operation as Service Usage's
+// operations.list declares it. Cloud Storage records its bucket operations
+// with the kind and selfLink its own Operation carries, and this list must not
+// answer them.
+type gcpLongrunningOperation struct {
+	Name     string          `json:"name"`
+	Metadata map[string]any  `json:"metadata,omitempty"`
+	Done     bool            `json:"done"`
+	Response any             `json:"response,omitempty"`
+	Error    *OperationError `json:"error,omitempty"`
+}
+
 func registerOperations(srv *sim.Server) {
 	if crOperations == nil {
 		crOperations = sim.MakeStore[Operation](srv.DB(), "operations")
@@ -54,7 +66,11 @@ func registerOperations(srv *sim.Server) {
 		if !ok {
 			return
 		}
-		resp := map[string]any{"operations": page}
+		listed := make([]gcpLongrunningOperation, len(page))
+		for i, op := range page {
+			listed[i] = gcpLongrunningOperation{Name: op.Name, Metadata: op.Metadata, Done: op.Done, Response: op.Response, Error: op.Error}
+		}
+		resp := map[string]any{"operations": listed}
 		if next != "" {
 			resp["nextPageToken"] = next
 		}

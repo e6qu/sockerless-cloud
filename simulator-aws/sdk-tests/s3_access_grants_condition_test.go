@@ -27,7 +27,6 @@ import (
 // differs but how the credentials were obtained, which is exactly what the key
 // describes.
 func TestS3_AccessGrantsInstanceArnConditionKeyScopesTheGrant(t *testing.T) {
-	t.Parallel()
 	control := s3ControlClient()
 	admin := s3Client()
 	iamc := iamClient()
@@ -137,7 +136,6 @@ func TestS3_AccessGrantsInstanceArnConditionKeyScopesTheGrant(t *testing.T) {
 // request about the tagged grant and refuses the same request when the value
 // differs.
 func TestS3_AccessGrantTagsAreTheGrantsResourceTags(t *testing.T) {
-	t.Parallel()
 	control := s3ControlClient()
 	iamc := iamClient()
 	account := aws.String(s3ObjectLambdaAccount)

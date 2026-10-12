@@ -364,12 +364,12 @@ func TestContainerApps_ExecutionSucceededState(t *testing.T) {
 
 func TestContainerApps_ExecutionStoppedState(t *testing.T) {
 	t.Parallel()
-	acaCreateJob(t, "status-rg-088d", "stop-job")
-	execName := acaStartExecution(t, "status-rg-088d", "stop-job")
+	rg := "status-rg-088d"
+	acaCreateJob(t, rg, "stop-job")
+	execName := acaStartExecution(t, rg, "stop-job")
 
-	// Stop the execution
 	stopReq, _ := http.NewRequestWithContext(ctx, "POST",
-		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/status-rg/providers/Microsoft.App/jobs/stop-job/executions/"+execName+"/stop?api-version=2024-03-01",
+		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"/providers/Microsoft.App/jobs/stop-job/executions/"+execName+"/stop?api-version=2024-03-01",
 		strings.NewReader("{}"))
 	stopReq.Header.Set("Content-Type", "application/json")
 	stopReq.Header.Set("Authorization", simARMBearer)
@@ -378,7 +378,7 @@ func TestContainerApps_ExecutionStoppedState(t *testing.T) {
 	stopResp.Body.Close()
 	require.Equal(t, http.StatusOK, stopResp.StatusCode)
 
-	exec := acaGetExecution(t, "status-rg-088d", "stop-job", execName)
+	exec := acaGetExecution(t, rg, "stop-job", execName)
 	props := exec["properties"].(map[string]any)
 	assert.Equal(t, "Stopped", props["status"])
 	assert.NotEmpty(t, props["endTime"])

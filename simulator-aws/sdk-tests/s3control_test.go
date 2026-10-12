@@ -181,7 +181,6 @@ func TestS3Control_StorageLensGroup(t *testing.T) {
 // a location behind a real role, a grant inside it, and the credentials
 // GetDataAccess vends by assuming that role.
 func TestS3Control_AccessGrants(t *testing.T) {
-	t.Parallel()
 	sc := s3ControlClient()
 	s3c := s3Client()
 	bucket := "grants-bucket"

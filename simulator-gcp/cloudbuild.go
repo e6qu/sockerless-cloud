@@ -5,12 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -438,6 +440,10 @@ func handleCreateWorkerPool(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid workerPool body: %v", err)
 		return
 	}
+	if err := cbCanonicalWorkerConfig(pool.PrivatePoolV1Config); err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid workerPool body: %v", err)
+		return
+	}
 	pool.Name = fmt.Sprintf("projects/%s/locations/%s/workerPools/%s", project, location, id)
 	pool.UID = sim.NewUUID()
 	pool.State = "RUNNING"
@@ -447,6 +453,33 @@ func handleCreateWorkerPool(w http.ResponseWriter, r *http.Request) {
 	cbWorkerPools.Put(pool.Name, pool)
 	sim.WriteJSON(w, http.StatusOK, cbConfigLRO(project, location, "CreateWorkerPoolOperationMetadata", "workerPool", pool.Name,
 		pool, "type.googleapis.com/google.devtools.cloudbuild.v1.WorkerPool"))
+}
+
+// cbCanonicalWorkerConfig rewrites workerConfig.diskSizeGb, an int64, as the
+// decimal string proto3 JSON answers with; a request may send it as a number
+// or a string.
+func cbCanonicalWorkerConfig(cfg map[string]any) error {
+	worker, ok := cfg["workerConfig"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	switch v := worker["diskSizeGb"].(type) {
+	case nil:
+	case float64:
+		if v != math.Trunc(v) || math.Abs(v) > 1<<53 {
+			return fmt.Errorf("privatePoolV1Config.workerConfig.diskSizeGb: %v is not an int64", v)
+		}
+		worker["diskSizeGb"] = strconv.FormatInt(int64(v), 10)
+	case string:
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return fmt.Errorf("privatePoolV1Config.workerConfig.diskSizeGb: %q is not an int64", v)
+		}
+		worker["diskSizeGb"] = strconv.FormatInt(n, 10)
+	default:
+		return fmt.Errorf("privatePoolV1Config.workerConfig.diskSizeGb: %v is not an int64", v)
+	}
+	return nil
 }
 
 func handleGetWorkerPool(w http.ResponseWriter, r *http.Request) {
@@ -485,6 +518,10 @@ func handlePatchWorkerPool(w http.ResponseWriter, r *http.Request) {
 	}
 	var update WorkerPool
 	if err := sim.ReadJSON(r, &update); err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid workerPool body: %v", err)
+		return
+	}
+	if err := cbCanonicalWorkerConfig(update.PrivatePoolV1Config); err != nil {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid workerPool body: %v", err)
 		return
 	}

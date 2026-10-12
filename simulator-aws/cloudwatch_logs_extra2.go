@@ -110,6 +110,24 @@ type CWLogAnomalyDetector struct {
 	CreationTimeStamp     int64    `json:"creationTimeStamp"`
 	LastModifiedTimeStamp int64    `json:"lastModifiedTimeStamp"`
 	AnomalyVisibilityTime int64    `json:"anomalyVisibilityTime,omitempty"`
+	// StatusBeforePause holds the status UpdateLogAnomalyDetector restores
+	// when it restarts a paused detector.
+	StatusBeforePause string `json:"statusBeforePause,omitempty"`
+}
+
+func (d CWLogAnomalyDetector) wire() map[string]any {
+	return map[string]any{
+		"anomalyDetectorArn":    d.AnomalyDetectorArn,
+		"detectorName":          d.DetectorName,
+		"logGroupArnList":       d.LogGroupArnList,
+		"evaluationFrequency":   d.EvaluationFrequency,
+		"filterPattern":         d.FilterPattern,
+		"anomalyDetectorStatus": d.AnomalyDetectorStatus,
+		"kmsKeyId":              d.KmsKeyId,
+		"creationTimeStamp":     d.CreationTimeStamp,
+		"lastModifiedTimeStamp": d.LastModifiedTimeStamp,
+		"anomalyVisibilityTime": d.AnomalyVisibilityTime,
+	}
 }
 
 // CWIndexPolicy mirrors the SDK IndexPolicy shape. Keyed by logGroupIdentifier.
@@ -837,17 +855,9 @@ func handleCWGetLogAnomalyDetector(w http.ResponseWriter, r *http.Request) {
 			"The specified anomaly detector does not exist: %s", req.AnomalyDetectorArn)
 		return
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"detectorName":          det.DetectorName,
-		"logGroupArnList":       det.LogGroupArnList,
-		"evaluationFrequency":   det.EvaluationFrequency,
-		"filterPattern":         det.FilterPattern,
-		"anomalyDetectorStatus": det.AnomalyDetectorStatus,
-		"kmsKeyId":              det.KmsKeyId,
-		"creationTimeStamp":     det.CreationTimeStamp,
-		"lastModifiedTimeStamp": det.LastModifiedTimeStamp,
-		"anomalyVisibilityTime": det.AnomalyVisibilityTime,
-	})
+	out := det.wire()
+	delete(out, "anomalyDetectorArn")
+	sim.WriteJSON(w, http.StatusOK, out)
 }
 
 func handleCWListLogAnomalyDetectors(w http.ResponseWriter, r *http.Request) {
@@ -866,10 +876,11 @@ func handleCWListLogAnomalyDetectors(w http.ResponseWriter, r *http.Request) {
 		}
 		return false
 	})
-	if detectors == nil {
-		detectors = []CWLogAnomalyDetector{}
+	out := make([]map[string]any, 0, len(detectors))
+	for _, d := range detectors {
+		out = append(out, d.wire())
 	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"anomalyDetectors": detectors})
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"anomalyDetectors": out})
 }
 
 func handleCWDeleteLogAnomalyDetector(w http.ResponseWriter, r *http.Request) {

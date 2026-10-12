@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	mathrand "math/rand/v2"
 	"net"
 	"net/http"
 	"net/url"
@@ -102,6 +103,7 @@ func TestMain(m *testing.M) {
 	if out, err := exec.Command(gcloudPath, "version").CombinedOutput(); err != nil {
 		log.Fatalf("gcloud CLI is not runnable after setup: %v\n%s", err, out)
 	}
+	installGcloudComponents(gcloudPath, "alpha", "beta")
 
 	pullWorkloadImage(cliWorkloadImage)
 	// Every Memorystore instance and cluster the suite creates runs a real
@@ -312,6 +314,39 @@ func installGcloudCLI() string {
 	// Prepend to PATH so gcloudCLI() picks it up.
 	os.Setenv("PATH", filepath.Dir(gcloudBin)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return gcloudBin
+}
+
+// installGcloudComponents installs the release tracks the suite's commands
+// name before any test runs. A gcloud missing one installs it on the first
+// command that names it, and that download then runs against a test's
+// per-command budget, concurrently with every other parallel test doing the
+// same. The component manager records each installed component as
+// `.install/<id>.manifest` under the SDK root.
+func installGcloudComponents(gcloudPath string, components ...string) {
+	out, err := exec.Command(gcloudPath, "info", "--format=value(installation.sdk_root)").Output()
+	if err != nil {
+		log.Fatalf("gcloud info failed: %v", err)
+	}
+	sdkRoot := strings.TrimSpace(string(out))
+	var missing []string
+	for _, c := range components {
+		if _, err := os.Stat(filepath.Join(sdkRoot, ".install", c+".manifest")); err != nil {
+			missing = append(missing, c)
+		}
+	}
+	if len(missing) == 0 {
+		return
+	}
+	args := append(append([]string{"components", "install"}, missing...), "--quiet")
+	if out, err := exec.Command(gcloudPath, args...).CombinedOutput(); err != nil {
+		log.Fatalf("Failed to install gcloud components %v: %v\n%s", missing, err, out)
+	}
+}
+
+// uniqueName suffixes prefix with a random id, so tests running at once, or a
+// test run twice against one simulator, create resources of their own.
+func uniqueName(prefix string) string {
+	return fmt.Sprintf("%s-%08x", prefix, mathrand.Uint32())
 }
 
 // gcloudCLI creates a gcloud command with config isolation and endpoint overrides.

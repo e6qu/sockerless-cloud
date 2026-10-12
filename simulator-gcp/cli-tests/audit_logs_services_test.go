@@ -50,11 +50,11 @@ func readAuditEntry(t *testing.T, methodName, resourceName string) cliAuditEntry
 // each service's Admin Activity entry back with gcloud logging read.
 func TestAuditLogsCLI_ComputeKMSIAMDNS(t *testing.T) {
 	t.Parallel()
-	const (
-		network = "cli-audit-net"
-		ring    = "cli-audit-ring"
-		account = "cli-audit-sa"
-		zone    = "cli-audit-zone"
+	var (
+		network = uniqueName("cli-audit-net")
+		ring    = uniqueName("cli-audit-ring")
+		account = uniqueName("cli-audit-sa")
+		zone    = uniqueName("cli-audit-zone")
 	)
 
 	runCLI(t, gcloudCLI("compute", "networks", "create", network, "--subnet-mode=custom", "--format=json"))

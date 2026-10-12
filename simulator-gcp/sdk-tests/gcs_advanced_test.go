@@ -627,19 +627,22 @@ func gcsRequireBadPageToken(t *testing.T, listURL string) {
 
 func TestGCS_ListBuckets_Pagination(t *testing.T) {
 	t.Parallel()
-	names := []string{uniqueName("pag-bucket-a"), uniqueName("pag-bucket-b"), uniqueName("pag-bucket-c")}
+	// Other tests create and delete buckets in the same project meanwhile, so
+	// the walk lists only this test's own, under a prefix of its own.
+	prefix := uniqueName("pag-bucket")
+	names := []string{prefix + "-a", prefix + "-b", prefix + "-c"}
 	for _, n := range names {
 		gcsRESTCreate(t, n)
 		t.Cleanup(func() { gcsRESTDelete(t, "/storage/v1/b/"+n) })
 	}
 
-	listURL := baseURL + "/storage/v1/b?project=" + gcsRESTProject
+	listURL := baseURL + "/storage/v1/b?project=" + gcsRESTProject + "&prefix=" + prefix
 
 	// An unpaginated list is the ground truth: it must return every bucket and
 	// no token at all.
 	all, next := gcsListPage(t, listURL, "")
 	require.Empty(t, next, "a list without maxResults returns everything and no token")
-	require.Subset(t, all, names, "the buckets just created must be listed")
+	require.Equal(t, names, all, "the list holds exactly the buckets under the prefix, by name")
 
 	assert.Equal(t, all, gcsWalkOnePerPage(t, listURL, len(all)),
 		"the one-bucket-per-page walk must reproduce the unpaginated listing, in order")

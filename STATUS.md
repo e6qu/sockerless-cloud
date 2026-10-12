@@ -44,25 +44,19 @@ Current state of the sockerless-cloud repository.
 - **AWS**: the 42 vendored Smithy models are implemented or exempt in full, the
   exemptions being the Amazon S3 bucket subresources the query-parameter table
   routes, each verified against that table. IAM resource derivation covers
-  2,009 of 2,017 served operations; the eight that remain are requests naming
-  no resource, and `"*"` is the honest answer. Condition keys are ratcheted too:
-  every key the vendored Service References declare -- 653 over 1,917 actions --
-  is either named by the gate or classified as unmodelled with the reason, and a
-  classified key the gate later resolves fails its own row, and every key is
-  also measured per action: of 4,310 (action, key) pairs on served operations
-  the gate builds 3,695, and each of the other 615 is listed with its reason in
-  `testdata/iam_condition_key_gaps.tsv` (BUG-2965 holds the 16 that need a
-  container or microVM to seed). A create carrying tags is also authorized as its service's
-  tagging action with `<service>:CreateAction` naming it, for the 297
-  operations the references list one for, against the resource the create
-  mints. The Amazon S3 control plane is
-  authorized route by route, each in the namespace AWS publishes its action under — s3, s3express,
-  s3-outposts or s3-object-lambda. One route is tested as ungated and says why:
-  no vendored document declares an action for the control plane's
-  DeleteBucketLifecycleConfiguration. Each control-plane resource has one tag
-  set: a Storage Lens configuration's and a Batch Operations job's are kept by
-  their own tagging operations, every other type's by TagResource and the
-  creates that take tags.
+  2,009 of 2,017 served operations; the eight others name no resource and
+  authorize against `"*"`. Every condition key the vendored Service References
+  declare (653 over 1,917 actions) is resolved by the gate or classified as
+  unmodelled with the reason, and per action the gate builds 3,695 of 4,310
+  (action, key) pairs on served operations, the other 615 listed with reasons
+  in `testdata/iam_condition_key_gaps.tsv` (BUG-2965 holds the 16 that need a
+  container or microVM to seed). A create carrying tags is also authorized as
+  its service's tagging action, with `<service>:CreateAction` naming it, for
+  the 297 operations the references list one for. The Amazon S3 control plane
+  is authorized route by route in the namespace AWS publishes each action under
+  (s3, s3express, s3-outposts, s3-object-lambda); DeleteBucketLifecycleConfiguration
+  is tested as ungated because no vendored document declares its action. Each
+  control-plane resource has one tag set.
 - **Google Cloud**: 5,585 of 5,585 Discovery method spellings across 31
   documents reach a route that names them — 5,531 served and 54 answering a
   declared 501; the gRPC surfaces serve 213 of 216 methods, the three unserved
@@ -85,43 +79,29 @@ Current state of the sockerless-cloud repository.
 
 ## Fidelity
 
+`WHAT_WE_DID.md` records the rules behind each line below.
+
+### Every cloud
+
 - **Every workload is a real container** on the engine the simulator started
   against, under the cloud product's sandbox profile. Startup refuses to serve
   in any mode that executes workloads when no engine answers, after retrying
   the readiness ping for a budget. `SIM_RUNTIME=process` is API-only and says
   so.
-- **A workload starts where its definition says**: an Amazon ECS container
-  definition's `workingDirectory` reaches the engine, which creates the
-  directory when the image lacks it, and an ExecuteCommand session inherits it.
-- **A task is placed only where it fits.** Amazon ECS RunTask commits each
-  placed task's declared memory and CPU against what the simulator's own
-  cgroup (or the machine) can hold, and refuses a task that would not fit the
-  way the service does — HTTP 200, no task, a `failures[]` entry with
-  Fargate's capacity message or `RESOURCE:MEMORY`/`RESOURCE:CPU` — before any
-  ENI, volume or record exists. The simulator container's memory and CPU
-  limits are its capacity.
-- **Provisioned throughput is spent.** An Amazon DynamoDB PROVISIONED table
-  runs the service's token buckets — per table and per global secondary
-  index, refilled at the provisioned rate, holding 300 seconds of burst — and
-  a request the bucket cannot cover gets
-  `ProvisionedThroughputExceededException` (or comes back unprocessed from a
-  batch). On-demand tables are never throttled; `CreateTable` requires
-  capacity units exactly when the billing mode does.
 - **A stopped workload gets its cloud's grace** between SIGTERM and SIGKILL:
   an Amazon ECS container definition's `stopTimeout`, Cloud Run's ten seconds,
   a Container App template's `terminationGracePeriodSeconds`, App Service's
-  `WEBSITES_CONTAINER_STOP_TIME_LIMIT`, each with the platform's own default.
+  `WEBSITES_CONTAINER_STOP_TIME_LIMIT`, each with the platform's default.
 - **Persistent workloads survive a restart.** With `SIM_PERSIST`, shutdown
   leaves the containers running and the next process adopts them by label;
   without it, the detached reaper and the startup sweep collect a run's
   containers, scoped to the state directory so a concurrent suite is never
-  touched; a removed container takes its anonymous volumes with it and
-  leaves its named ones. A simulator exits when the process in
-  `SOCKERLESS_PARENT_PID` is gone. A stopping simulator does not wait out a
-  container's stop timeout or a function's timeout: interrupted Amazon ECS
-  and AWS Lambda work resumes in the next process, and an open long poll, a
-  Live Tail session or a synchronous AWS Lambda or Step Functions call ends
-  with the server.
+  touched; a removed container takes its anonymous volumes and leaves its named
+  ones. A simulator exits when the process in `SOCKERLESS_PARENT_PID` is gone.
+  A stopping simulator waits out no container stop timeout or function
+  timeout: interrupted Amazon ECS and AWS Lambda work resumes in the next
+  process, and an open long poll, a Live Tail session or a synchronous AWS
+  Lambda or Step Functions call ends with the server.
 - **Every credential is verified**: SigV4 against the principal's stored
   secret, from the header and from a presigned URL alike; Google Cloud and
   Microsoft Entra bearers against the simulator's signing keys; the Azure
@@ -129,507 +109,251 @@ Current state of the sockerless-cloud repository.
   layouts Microsoft's own signers produce; Cosmos DB's shared key on every
   path; each container registry against the credentials its control plane
   mints, with its own challenge shape.
-- **Managed databases run real engines** with volumes, credentials sealed
-  under the simulator's own key service, readiness classified by SQLSTATE, and
-  snapshots that capture the data copy-on-write where the volume store allows
-  it. An Aurora cluster takes its first automated backup when it is created
-  or restored, whether or not a client connects, and restores to any time in
-  its backup retention period since then, replaying PostgreSQL's archived write-ahead
-  log or MySQL's binary log onto the daily automated DB cluster snapshot taken
-  in its backup window, and expires the snapshots and log the period no longer
-  covers; an Aurora cluster restores from an RDS DB snapshot ARN, and an
-  Aurora MySQL cluster from a Percona XtraBackup in Amazon S3. An RDS for
-  PostgreSQL, RDS for MySQL or RDS for MariaDB instance keeps the same
-  automated backups, replaying MariaDB's binary log to the whole second,
-  taking the first when it is created whether or not a client connects and
-  reporting `creating`, `starting` and `backing-up` until it is `available`.
-  A create or restore repeated under an identifier another request is still
-  provisioning answers DBInstanceAlreadyExists or DBClusterAlreadyExistsFault,
-  as one under a stored identifier does.
-  RestoreDBInstanceToPointInTime seeds the new instance from the automated
-  backups, and RestoreDBInstanceFromS3 imports a Percona XtraBackup into RDS
-  for MySQL. A
-  deletion with `DeleteAutomatedBackups=false` retains the automated backups,
-  which restore the deleted instance or cluster to a time, and an instance's
-  automated backups replicate to another Region, where they restore after
-  the replication stops or the source is gone. A DB instance's or an Aurora
-  cluster's endpoint signs in the master user and IAM-authenticated users
-  itself and every other database user through the engine's own checks; on
-  PostgreSQL an IAM token signs in the role granted `rds_iam` that it names,
-  and on MySQL and MariaDB the user identified with the `AWSAuthenticationPlugin`
-  server plugin the simulator ships and loads from the data volume. Deleting a
-  database kills an engine still initialising its volume rather than waiting
-  out the stop grace. A blue/green deployment of a DB instance provisions a
-  green instance from a capture of the blue volume with the target engine
-  version, class, storage and DB parameter group, serves it read-only and
-  walks PROVISIONING to AVAILABLE as it comes up; the switchover, bounded by
-  SwitchoverTimeout, gives the green instance the blue identifier, ARN and
-  endpoint over the blue data and keeps the blue instance as `-old1`, and a
-  deletion before the switchover deletes the green instance with DeleteTarget
-  and otherwise leaves it standalone and writable. A Multi-AZ or Aurora DB
-  cluster source answers SourceClusterNotSupportedFault. Each RDS for
-  PostgreSQL, RDS for MySQL and RDS for MariaDB engine version runs that
-  release's own image (PostgreSQL 17.11, 16.15 and 16.14, MySQL 8.0.46,
-  MariaDB 11.4.13), which DescribeDBEngineVersions lists with the upgrades the
-  simulator runs; CreateDBInstance refuses another version and resolves a
-  major version alone to its newest, and ModifyDBInstance upgrades the engine
-  in place, `upgrading` until the new release runs on the volume. An instance
-  created without a DB parameter group is associated with its family's
-  `default.<family>` group, which cannot be modified or deleted. Each family's
-  parameters are the catalog its engine reports, captured into
-  `rds_parameter_catalogs_vendored.json`; an engine starts with its group's
-  parameters, a dynamic change reaches running engines at once, and a static
-  one waits for a reboot with the group `pending-reboot`. ModifyDBInstance
-  without ApplyImmediately holds class, storage, engine version, backup
-  on/off, Multi-AZ, DB subnet group, option group, CA certificate and rename
-  changes in PendingModifiedValues until a timer armed for the instance's
-  PreferredMaintenanceWindow applies them. The storage members are checked
-  against the rules the reference states; DBPortNumber restarts the engine on
-  the new port at once, a rename moves the record, ARN, endpoint and volume to
-  the new identifier, and each endpoint presents a server certificate issued
-  by the instance's CA, a real CA with its own key. A read
-  replica runs an engine of its own on a capture of its source's volume and
-  replicates the source with the engine's own replication — MySQL and MariaDB
-  binary log replication, PostgreSQL streaming replication through a physical
-  replication slot — over a container network the two engines share; it
-  serves its sessions read-only, reports its read replication status and its
-  ReplicaLag metric each minute, and PromoteReadReplica, or deleting its
-  source, reopens it standalone and writable. A Multi-AZ instance keeps a standby
-  engine in another Availability Zone, replicating synchronously (PostgreSQL
-  synchronous streaming replication, MySQL and MariaDB semisynchronous
-  replication), reports it as SecondaryAvailabilityZone, converts either way
-  through ModifyDBInstance, and fails over to it on RebootDBInstance with
-  ForceFailover; DescribeEvents lists the conversion and failover events.
-- **The registries answer their own service**: Amazon ECR's empty ping with
-  no content type, Artifact Registry's `text/html`, Azure Container Registry's
-  `{}`; ECR hydrates a pull through a cache rule from the rule's upstream;
-  Artifact Registry refuses the second write into an upload session; ACR keys
-  its content per registry and serves its catalog on `/v2/_catalog` as on
+- **Registries answer as their service does**: Amazon ECR's empty ping with no
+  content type, Artifact Registry's `text/html`, Azure Container Registry's
+  `{}`. ECR hydrates a pull-through cache from the rule's upstream, and the
+  Lambda and ECS hosts run a `<prefix>/<path>` reference from it; Artifact
+  Registry refuses the second write into an upload session; ACR keys its
+  content per registry and serves its catalog on `/v2/_catalog` and
   `/acr/v1/_catalog`.
-- **A build service's docker steps run as the build**: a Docker
-  configuration built on the host's own (the framework's
-  `sim.WriteDockerConfig`), whose credential helper answers the build's
-  registries — Artifact Registry and Container Registry with the Cloud Build
-  service account's token, an Azure Container Registry with an identity
-  token of the ACR Tasks run — names them outright for the legacy builder,
-  and hands other registries to the host's helper.
-- **A Cloud Build step of any builder image runs as a container** over the
-  build's `/workspace` (its `dir`, `entrypoint`, `args`, `env`, `secretEnv`),
-  sharing the workspace with the docker builder's steps; a source on Cloud
-  Storage may be a zip archive or a gzipped tarball.
-- **Future-dated Capacity Reservations are scheduled, committed and
-  postponed by quote.** A reservation requested for a future start is
-  `scheduled` with no instances and a commitment until its start date, derived
-  from the clock on every read; its start date moves only through an accepted
-  date-change quote, within 30 days of the original.
-- **Object stores arbitrate conditional writes.** Cloud Storage's generation
-  and metageneration preconditions and Azure Blob Storage's conditional
-  headers are evaluated on every read and write, a write's check and store are
-  one step under a per-object lock, and a Cloud Storage generation is never
-  reused; the XML download, V4 signed URLs and the JSON API batch endpoint
-  answer as the service does. Amazon S3 conditional writes take the same
-  per-object lock (`sim.KeyedLocks`), and all three object stores keep each
-  object's contents in a file of its own (`sim.Payloads`) that the row
+- **Workload hosts pull as the cloud pulls**: the Cloud Run hosts (which serve
+  Cloud Run functions too) present the project's Cloud Run service agent to
+  Artifact Registry and Container Registry and nothing elsewhere; Azure hosts
+  pull with what the workload declared — a Container App's or job's
+  `registries` entry, a site's ACR managed identity or
+  `DOCKER_REGISTRY_SERVER_*` settings — and nothing for an undeclared registry.
+- **Build services' docker steps run as the build** through a Docker
+  configuration built on the host's own (`sim.WriteDockerConfig`) whose
+  credential helper answers the build's registries with the build identity's
+  token. A Cloud Build step of any builder image runs as a container over the
+  build's `/workspace`, and a Cloud Storage source may be a zip archive or a
+  gzipped tarball.
+- **Object stores arbitrate conditional writes.** Cloud Storage's
+  preconditions, Azure Blob Storage's conditional headers and Amazon S3
+  conditional writes are evaluated and stored as one step under a per-object
+  lock (`sim.KeyedLocks`); a Cloud Storage generation is never reused. All
+  three keep each object's contents in a file of its own that the row
   references.
-- **Amazon S3 versions objects.** A versioning-enabled bucket gives every
-  write a version id and keeps the version it supersedes; a delete without a
-  version id leaves a delete marker as the key's latest version, and one with a
-  version id removes that version and makes the next newest current. A
-  suspended bucket writes and deletes the `null` version. GetObject,
-  HeadObject, the object subresources, CopyObject's and UploadPartCopy's
-  source, DeleteObject, DeleteObjects and AWS Lambda's `S3ObjectVersion` address
-  a version by id, ListObjectVersions pages versions and delete markers with
-  key and version-id markers, and noncurrent versions keep their own tags and
-  keep a bucket from being deleted. DeleteObjects refuses an entry the caller
-  may not delete as that entry's AccessDenied in the DeleteResult and deletes
-  the rest.
-- **Amazon S3 Object Lock protects object versions.** CreateBucket with
-  `x-amz-bucket-object-lock-enabled` enables Object Lock and versioning with
-  it, and PutObjectLockConfiguration enables it on a versioning-enabled bucket;
-  versioning then stays enabled. A new version takes the retention and legal
-  hold its write asks for, or the bucket's default retention. A legal hold, an
-  unexpired COMPLIANCE retention, and an unexpired GOVERNANCE retention without
-  `x-amz-bypass-governance-retention` (authorized as
-  s3:BypassGovernanceRetention) refuse a version delete with AccessDenied, and
-  an active retention only grows stricter. A bucket without Object Lock refuses
-  the Object Lock operations and headers with InvalidRequest.
-- **An Elastic Load Balancing trust store reads its contents from Amazon S3.**
-  CreateTrustStore and ModifyTrustStore read the CA certificates bundle from
-  the object version named (the current one when none is) and count its PEM
-  certificates; AddTrustStoreRevocations reads each certificate revocation list
-  and counts its entries. A missing object answers CaCertificatesBundleNotFound
-  or RevocationContentNotFound, and content that does not parse answers
-  InvalidCaCertificatesBundle or InvalidRevocationContent. The trust store
-  keeps its own copy of what it read, and GetTrustStoreCaCertificatesBundle
-  and GetTrustStoreRevocationContent answer a presigned Amazon S3 URL on the
-  simulator's endpoint that serves exactly that copy, whatever has since
-  happened to the customer's object.
-- **Layer-7 load balancers add each cloud's forwarded-request headers.**
-  `lbplane.Upstream.RequestHeader` edits the headers a target receives after
-  the client's hop-by-hop headers are gone. An Application Load Balancer
-  appends the client's IP to `X-Forwarded-For` as
-  `routing.http.xff_header_processing.mode` (`append`, `preserve`, `remove`)
-  and `routing.http.xff_client_port.enabled` direct, sets
-  `X-Forwarded-Proto` and `X-Forwarded-Port` from the listener the client
-  reached, and adds or extends `X-Amzn-Trace-Id`; it selects that listener by
-  the port the client connected to alone. An external Application Load
-  Balancer in Google Cloud appends `<client-ip>,<load-balancer-ip>`, sets
-  `X-Forwarded-Proto`, adds `Via: 1.1 google` to the request and the response,
-  and starts an `X-Cloud-Trace-Context` for a request without one. Application
-  Gateway inserts `X-Forwarded-For` (IP:port), `X-Forwarded-Port`,
-  `X-Forwarded-Proto`, `X-Original-Host`, `X-Original-URL` and
-  `X-AppGW-Trace-Id` before its rewrite rule set runs, and serves the
-  `add_x_forwarded_for_proxy` and `client_port` server variables. A Network
-  Load Balancer and Azure Load Balancer forward at layer 4 and add nothing.
-- **Platform front ends add the headers their documentation states.** The
-  Cloud Run front end, which serves Cloud Run functions too, removes every
-  `X-Google-*` header the client sent, appends the client's IP to
-  `X-Forwarded-For`, sets `X-Forwarded-Proto` to the client's protocol and
-  starts an `X-Cloud-Trace-Context` for a request without one. The App Service
-  front end appends the client's `IP:port` to `X-Forwarded-For` and sets
-  `X-Forwarded-Proto` and `X-AppService-Proto`. Container Apps ingress appends
-  the client's IP to `X-Forwarded-For` and overwrites `X-Forwarded-Proto`. The
-  test workload's `echo-headers` mode answers with the headers it received.
-- **Each Elastic Load Balancing type has its own attributes.**
-  DescribeLoadBalancerAttributes reports exactly the keys the
-  LoadBalancerAttribute reference lists for the load balancer's type, each at
-  its stated default: a Gateway Load Balancer has
-  `deletion_protection.enabled` and `load_balancing.cross_zone.enabled`; a
-  Network Load Balancer adds the access-log keys,
-  `ipv6.deny_all_igw_traffic`, `zonal_shift.config.enabled`,
-  `dns_record.client_routing_policy` (`any_availability_zone`) and
-  `secondary_ips.auto_assigned.per_subnet` (`0`); an Application Load
-  Balancer adds the connection- and health-check-log keys,
-  `client_keep_alive.seconds`, `idle_timeout.timeout_seconds`, `waf.fail_open.enabled`
-  and the `routing.http*` keys, with cross-zone load balancing on.
-  ModifyLoadBalancerAttributes refuses another type's key with
-  `InvalidConfigurationRequest` `Key <key> not valid`, refuses turning an
-  Application Load Balancer's cross-zone load balancing off with
-  `InvalidConfigurationRequest`, and checks each enumerated, boolean and
-  ranged value. A Gateway Load Balancer's ARN names
-  `loadbalancer/gwy/`.
-- **An Application Load Balancer publishes its request metrics.** Each
-  request a listener routes counts once toward `AWS/ApplicationELB`
-  `RequestCount` for the load balancer and for its target group, and toward
-  `RequestCountPerTarget` as its share across the targets in service, each
-  dimension value being the final portion of the resource's ARN. The data
-  plane only counts; a background publisher reports the counts to CloudWatch
-  as one datapoint per metric, dimension set and minute.
-- **Application Auto Scaling target tracking scales by the metric's
-  proportion.** A policy sets ceil(current × metric ÷ target) within the
-  scalable target's bounds. An ALBRequestCountPerTarget policy's alarms watch
-  the `Sum` of `RequestCountPerTarget` for the target group its ResourceLabel
-  names, so an Amazon ECS service scales on the requests its load balancer
-  routes.
-- **An AWS Glue job run keeps its logs.** A Python shell run's standard output
-  and standard error land in CloudWatch Logs `/aws-glue/jobs/output` and
-  `/aws-glue/jobs/error`, in a stream named by the run ID, and GetJobRun
-  reports `LogGroupName` `/aws-glue/jobs`. GetSystemLogsForJobRun answers a
-  presigned Amazon S3 URL that downloads every line the run wrote, and
-  GetSystemLogsForSession one for the session's log, which is empty because a
-  session runs no process.
-- **Amazon EC2 instance types carry AWS's published facts.** The simulator
-  embeds the AWS Price List offer file's Compute Instance products for
-  us-east-1 (`simulator-aws/ec2_instance_types_vendored.json`, written by
-  `scripts/fetch-aws-ec2-instance-types.go` with the offer version and
-  SHA-256 it read). DescribeInstanceTypes answers every listed type's vCPUs,
-  memory, architectures, network performance, generation and instance-storage
-  support, filters and pages over them, and refuses an unknown type with
-  InvalidInstanceType; DescribeInstanceTypeOfferings,
-  GetInstanceTypesFromInstanceRequirements, the Capacity Manager vCPU metrics,
-  the real-execution machine shape and the 32-vCPU minimum of a future-dated
-  Capacity Reservation read the same catalog.
-- **Amazon ECR sizes an image by the blobs its manifest references.**
-  DescribeImages' imageSizeInBytes is the compressed layers plus the config,
-  not the manifest document, and a manifest list's largest listed manifest.
-- **AWS STS sessions carry session tags.** AssumeRole's `Tags`, a SAML
-  assertion's `PrincipalTag:<key>` attributes and a web identity token's
-  `https://aws.amazon.com/tags` claim tag the session, each authorized as
-  sts:TagSession against the role's trust policy; the session reports them as
-  `aws:PrincipalTag/<key>` over its role's tags, and its transitive tags pass
-  to every session chained from it.
-- **A bucket carries Cloud Storage's default policy** from creation — the
-  four legacy bindings for the project's owners, editors and viewers — so a
-  client revoking what it granted sets the defaults back, never nothing.
-- **Uploads past 5 MiB take the resumable path from the vendor CLIs too**:
-  `gcloud storage cp`, `gcloud artifacts generic upload`,
-  `gcloud artifacts files upload` and `bq load` are tested over it. BigQuery
-  answers REST errors with BigQuery's `errors[]` reasons.
-- **Every implemented API serves its Discovery document** at
-  `GET /$discovery/rest?version=…` under its own host (regional and mTLS hosts
-  too), byte-identical to the vendored one, and without a version the API's
-  default version. A bare address:port answers a version one implemented API
-  publishes and `v2` with BigQuery's, which `bq` builds its client from. The
-  Discovery service's directory, `GET /discovery/v1/apis` and
-  `GET /discovery/v1/apis/{api}/{version}/rest`, serves the real directory's
-  entries for the embedded documents and each document where that host's
-  central path serves it (`simulator-gcp/discovery_directory_vendored.json`).
-  Discovery documents and the directory answer without a credential.
-- **A bucket belongs to a project Cloud Resource Manager holds.**
-  `buckets.insert` resolves its project by ID or number, refuses an unknown one
-  with `400 Unknown project id`, and stamps the project's own number;
-  `projects.serviceAccount.get` names the agent
-  `service-{projectNumber}@gs-project-accounts.iam.gserviceaccount.com`, the
-  identity the notification check evaluates, so gcloud's and Terraform's
-  notification flows grant publish to the agent Cloud Storage checks.
-- **Every identity a service names for a project carries the number Cloud
-  Resource Manager holds.** Cloud DNS `projects.get`, Cloud Build's default
-  service account (`{number}@cloudbuild.gserviceaccount.com`, also the
-  identity a build's docker steps pull and push as), the Cloud Run service
-  agent (`service-{number}@serverless-robot-prod…`), Compute Engine's
-  `projects.get` (`id` and `{number}-compute@developer.gserviceaccount.com`),
-  BigQuery's `bq-{number}@bigquery-encryption…` and Cloud Logging's
-  `service-{number}@gcp-sa-logging…` (settings, CMEK settings and unique writer
-  identities) resolve the project by ID or number and refuse one that does not
-  exist with the service's own error; build creation refuses it too.
-- **Compute Engine's default service account is an IAM service account** of
-  every project Cloud Resource Manager creates, so Terraform's
-  `google_compute_default_service_account` reads it back, and IAM resolves it
-  through the `-` wildcard by the number its email carries.
-- **The GCE metadata server answers for the workload that asks.** A Compute
-  Engine instance is placed by its private address and a Cloud Run container
-  by its network namespace's address; the server answers the resource's
-  project ID, the number Cloud Resource Manager holds, and the account the
-  resource runs as — the one it names, or the project's Compute Engine
-  default service account. A read from outside every workload is answered for
-  the default project, `sockerless`.
-- **Eventarc and Cloud Build are addressed by host.** Both publish
-  `/v1/projects/{p}/locations/{l}/triggers`; the CLI and SDK harnesses point
-  their endpoint overrides at `eventarc.googleapis.com` and
-  `cloudbuild.googleapis.com` and deliver them to the simulator through an HTTP
-  proxy, so the `Host` decides every request, a list at `locations/global`
-  included.
-- **A Cloud Run service instance starts its containers in `dependsOn`
-  order**, as a job task does: the first to start owns the network namespace
-  and publishes the ingress port, and each other container starts once those
-  it depends on have started and passed their startup probes. The Knative
-  surface carries the dependencies in the revision template's
-  `run.googleapis.com/container-dependencies` annotation (`gcloud run deploy
-  --depends-on`), and a create or update whose `dependsOn` names no container
-  or forms a cycle answers INVALID_ARGUMENT.
-- **A Cloud Storage volume mount writes back as Cloud Storage FUSE does.**
-  A Cloud Run job task, service instance, worker pool instance or instance
-  binds the bucket's host directory
-  (or its `only-dir` directory) into the container, read-only when the volume
-  is. While a workload mounts it writable, an inotify watch turns a close
-  after writing into a new generation conditioned on the generation the file
-  held, a `mkdir` into a placeholder object, an unlink or `rmdir` into a
-  delete and a rename into a copy and delete; the simulator's own mirror of
-  API writes is staged outside the bucket directories and renamed in, so the
-  watch never ingests it. Every Cloud Storage JSON API request first waits
-  for the events queued before it, and a task's execution completes only
-  after its writes are objects. Linux only; the rest is BUGS.md 3084.
-- **A deleted service account is held for IAM's 30 days.** Delete moves the
-  account, its keys, its system-managed key and its own IAM policy out of the
-  live stores into one held under the account's unique ID with its deletion
-  time; get and list no longer see it, and a create under the same email makes
-  a new account with a new unique ID. `projects.serviceAccounts.undelete`,
-  which gcloud sends to `projects/-/serviceAccounts/{uniqueId}:undelete`,
-  restores it with its unique ID while the window lasts and the email is free;
-  each delete and undelete purges the accounts whose window has lapsed against
-  the clock. Every service-account method accepts the unique ID in the name.
-- **Transitional states are served.** Amazon Kinesis Data Streams consumers
-  pass through CREATING and DELETING, Client VPN endpoint authorization
-  policies through creating, updating and deleting, and Amazon ECR refuses to
-  delete a repository holding images without `force`. An Amazon S3 Batch
-  Operations job runs as server background work from `New` through
-  `Preparing`, `Suspended` or `Ready`, and `Active` to `Complete`, `Failed` or
-  `Cancelled`, takes each LambdaInvoke task's outcome from the function's
-  `results[]`, writes its completion report, and resumes after a restart; it
-  reads its CSV manifest's keys URL-decoded.
-- **A NAT gateway route translates the subnets its route table governs**,
-  explicitly associated or implicitly through the main route table, recomputed
-  on every association change.
-- **An Amazon ECR pull-through-cache reference runs its rule's upstream
-  image**: the Lambda and ECS hosts resolve `<prefix>/<path>` through the
-  registered rule, as ECR hydrates the cache from that upstream.
-- **An App Service or Functions site runs its container as App Service
-  does**: the image's entrypoint with `siteConfig.appCommandLine` as its
-  command, on `WEBSITES_PORT` (80 unset), started by a request or by Always
-  On, with every request on the site's hostname forwarded to it; the host
-  reads no consumer-named setting and nothing from an image reference's
-  spelling.
-- **A Linux function app on `Node|22` runs the Azure Functions host** image
-  on its deployed content, with the App Service platform environment every
-  site container gets; the ARM key operations read and write the host's own
-  encrypted secret store — the file store under
-  `AzureWebJobsSecretStorageType=files`, and otherwise the
-  `azure-webjobs-secrets` blobs of the account `AzureWebJobsStorage` names —
-  so with the file store the keys they list are the keys the host accepts,
-  and `functionAppStacks` lists the stack. Other function stacks, the host's
-  own route to the Blob service, and code-defined functions stay open as
-  BUG-3237.
-- **Azure Monitor logs land where something names the workspace.** A
-  Container Apps environment's `appLogsConfiguration`, a site's Application
-  Insights connection, and a data collection rule's Log Analytics destination
-  (through the Logs Ingestion API and the rule's `transformKql`) route rows to
-  one workspace, whose queries read only its own rows; workspace tables, data
-  collection rules and endpoints are served.
-- **A web app's SCM site serves Kudu's deployment, WebJobs, VFS, command and
-  settings APIs and its log stream** at the Repository hostname it reports:
-  zip deploy and OneDeploy, authenticated with the publishing credentials or a
-  Microsoft Entra token, land the artifact through the placement the Azure
-  Resource Manager deployments use, restart the site and track its start in
-  deploymentStatus, as the Azure Resource Manager MSDeploy and OneDeploy
-  operations do; its WebJobs API lists, places, runs, starts, stops and
-  deletes the jobs the Microsoft.Web webjob resources read, a triggered job
-  runs on its `settings.job` schedule, and each run and continuous job logs
-  under `data/jobs`, which the job records name. The VFS reads and writes the
-  site's `/home`, the persistent share its containers mount; the command API
-  runs a shell command in the site's image over that `/home`, bounded by
-  `SCM_COMMAND_IDLE_TIMEOUT`; the log stream carries the site's container
-  output.
-- **Deployment slots run their own instances.** A slot's hostname reaches the
-  slot's own container, started from its own image or built-in stack, app
-  settings and content, and a deployment to the slot settles once that
-  container answers. A swap (WebApps_SwapSlot, WebApps_SwapSlotWithProduction)
-  exchanges the two slots' content, general settings and swappable app
-  settings, connection strings and storage mounts, keeps each slot's sticky
-  settings, hostnames and publishing endpoints, starts the destination on its
-  new content before it reports success, and records `slotSwapStatus`. Swap
-  with preview (`applySlotConfig`) restarts the source slot on the target's
-  slot settings until the swap completes it or `resetSlotConfig` cancels it,
-  and `slotsdiffs` lists the app settings, connection strings and general
-  settings the two slots hold differently, each with how the swap treats it.
-- **An App Service app runs as the platform runs it.** Its `/home` is one
-  persistent share — deployments, restores, swaps, Kudu and the app itself
-  write into the same `site/wwwroot`, so a file the app writes outlives a
-  restart; a custom container mounts it when
-  `WEBSITES_ENABLE_APP_SERVICE_STORAGE` is true. Each connection string
-  reaches the container's environment under its type's prefix
-  (`SQLAZURECONNSTR_`, `CUSTOMCONNSTR_`, …) and a change restarts the app. A
-  stopped app runs no container or webjob and its hostname answers App
-  Service's 403 stopped-site page until `WebApps_Start`.
-- **An App Service app reaches Key Vault as its own identity.** A site or
-  slot carries a system-assigned identity and user-assigned identities, and
-  each Key Vault reference in its app settings and connection strings resolves
-  through the identity `keyVaultReferenceIdentity` names when the vault's
-  access policies or Azure RBAC role assignments grant it the secret; the
-  workload sees the secret's value, an unresolved reference reaches it as
-  written, and `configreferences` reports each reference's status and why. A
-  running app re-fetches its references every 24 hours and restarts on the new
-  values when one changed, so a rotated secret reaches it without a restart.
-- **Sitecontainer environment variables name app settings.** Each
-  `environmentVariables` entry gives its container the named app setting's
-  value, a Key Vault reference resolved, and an empty string when the setting
-  does not exist.
-- **Front ends abort a response their target cuts short.** Every load balancer,
-  ingress and serverless front end of the three simulators relays what the
-  target sent and closes the stream when the target fails after its status and
-  headers reached the client, instead of appending an error to the body.
-- **An app's code gets tokens for its own identities.** An App Service or
-  Azure Functions app or slot with a managed identity gets `IDENTITY_ENDPOINT`
-  and an `IDENTITY_HEADER` secret of its own; the endpoint answers a request
-  presenting that secret with a token for the app's system-assigned identity,
-  or for the user-assigned identity `client_id`, `principal_id`/`object_id` or
-  `mi_res_id` names, and refuses an identity the app does not have.
-- **Container apps and jobs have managed identities.** A container app or
-  Container Apps job carries system-assigned and user-assigned identities; its
-  workload gets `IDENTITY_ENDPOINT` and an `IDENTITY_HEADER` of its own, and a
-  secret that references Key Vault is read as the identity it names, reaching
-  the workload through `secretRef` environment variables; a secret the identity
-  cannot read fails the request.
-- **App Service imports Key Vault certificates as its own service
-  principal.** The directory holds "Microsoft Azure App Service" in every
-  tenant, and a certificate imports only when the vault grants that principal
-  the secret.
-- **Key Vault access-policy updates work per permission.** `add`, `replace` and
-  `remove` merge, set and subtract the permissions of the policy with the same
-  tenant, object and application IDs, leaving every other policy alone.
-- **The Key Vault data plane authorizes every request.** It verifies the bearer
-  token's signature, expiry, Key Vault audience and the vault tenant's issuer
-  (401 with the `Bearer authorization=…, resource=…` challenge otherwise),
-  applies `publicNetworkAccess` and the `networkAcls` IP and virtual network
-  rules (403 `ForbiddenByConnection` / `ForbiddenByFirewall`), and authorizes
-  each operation against the vault's access policies — compound identities and
-  nested group membership included — or, with `enableRbacAuthorization`, the
-  Azure RBAC data actions of the caller's role assignments at the object, the
-  vault or above (403 `AccessDenied` / `ForbiddenByRbac`).
-- **Source control deploys the repository.** Configuring `sourcecontrols/web`
-  and each `WebApps_SyncRepository` fetch the branch's head over HTTP(S) and
-  deploy its tree into wwwroot with KuduSync's semantics, recorded as a Kudu
-  deployment under the commit's ID and author; `siteConfig.scmType` names the
-  repository's kind while source control is configured.
-- **A Cloud Run service is served at its run.app URL**: a request whose Host
-  is the service's `uri` host reaches the ingress container once its startup
-  probes (the configured `startupProbe`, or Cloud Run's default TCP probe)
-  pass against the container's own address, and gets the container's answer
-  untouched. Unless the service is public, the request carries a
-  Google-signed ID token for the service whose principal holds
-  `run.routes.invoke` through the service's policy or one it inherits,
-  conditions evaluated with Common Expression Language.
-- **A Cloud Run job task starts its containers in `dependsOn` order**, each
-  after its dependencies passed their startup probes, and fails when a
-  configured startup probe fails; deleting a job or execution stops its
-  running containers, and cancelling a completed execution leaves it as it is.
-  A job's `startExecutionToken` or `runExecutionToken` starts the execution
-  `<job>-<token>` and holds the job's create or update operation and its
-  `Ready` condition until that execution has started or completed.
-- **Cloud Run worker pools and instances run their containers.** A worker
-  pool runs its manual instance count of container groups through the job
-  task's start path (`dependsOn` order, startup probes, Cloud Storage volumes
-  with write ingestion); scaling changes start or stop the difference, and an
-  update or delete answers once the retired instances have stopped. A Cloud Run
-  instance runs through the service-instance path from creation or
-  `instances.start` until `instances.stop` or deletion. Their output reaches
-  Cloud Logging under `cloud_run_worker_pool` and `cloud_run_instance`. A
-  create, update or start holds its operation and the `Ready` condition until
-  the instances have passed their startup probes, and fails both with the
-  start error; an instance's exits restart it per its `restartPolicy`, up to
-  three times in a row; a simulator restart adopts the stored pools' and
-  instances' running containers and starts only what is missing, adopts the
-  instance serving each service, and lets each running job execution's task
-  run on to its outcome.
-  An instance's `urls` reach its ingress container through the Cloud Run front
-  end, behind the same invoker check a service's URL has.
-- **A Cloud Run function is served by its Cloud Run service**:
-  `serviceConfig.uri` is the service's run.app URL and `url` the function's
-  cloudfunctions.net URL, both served through the Cloud Run front end with
-  the container's answer passed through and invocation on both governed by
-  the service's IAM policy; DeleteFunction deletes the service and its
-  policy.
-- **Audited calls write Cloud Audit Logs entries**: Cloud Storage's JSON
-  API, Compute Engine, Cloud DNS, Cloud Resource Manager v1 projects and the
-  Cloud Run Admin v2, Pub/Sub, Secret Manager, Artifact Registry, Cloud
-  Functions v2, Cloud KMS, Cloud Build, Eventarc, Memorystore for Redis,
-  Spanner admin, Bigtable admin, Firestore admin and IAM admin APIs write
-  Admin Activity entries, and Data Access entries where the project's
-  `auditConfigs` enable them, naming the caller its token resolves to, the
-  permission the call checked and, for a long-running call, the operation's
-  first and last entries; Eventarc `google.cloud.audit.log.v1.written`
-  triggers deliver the matching entries as CloudEvents.
-- **Azure workload hosts pull with what the workload declared**: a
-  Container App's or Job's `registries` entry — a managed identity, as an
-  identity token the registry exchanges, or a username and password secret —
-  and a site's Azure Container Registry managed identity or
-  `DOCKER_REGISTRY_SERVER_*` settings; nothing for an undeclared registry.
-- **Workload hosts pull as the cloud pulls**: the Cloud Run job and service
-  hosts (which serve Cloud Functions too) present the project's Cloud Run service
-  agent to Artifact Registry and Container Registry, and nothing to any other
-  registry; the framework carries the credential as the engine's
-  `RegistryAuth`.
-- **VPC networks** allocate bridge subnets from a host-side pool with the
-  workload's elastic network interface address as a real secondary address,
-  so same-CIDR VPCs coexist; every simulator resource records its owning
-  process, and a slice is reclaimed only from an owner this host can see to
-  be gone.
-- **Azure network interfaces realize every IP configuration**: each secondary
-  holds its own address of the interface's subnet on the realized interface,
-  and the simulator tears its realized fabric down on SIGTERM; an interface
-  namespace a killed process left behind is reclaimed on the next attach.
+- **Load balancers and platform front ends add the forwarded-request headers
+  their documentation states**, after removing the client's hop-by-hop
+  headers: the Application Load Balancer (`X-Forwarded-For` per
+  `routing.http.xff_header_processing.mode` and `xff_client_port`,
+  `X-Forwarded-Proto` and `-Port` from the listener reached, `X-Amzn-Trace-Id`),
+  Google Cloud's external Application Load Balancer (`<client-ip>,<lb-ip>`,
+  `Via: 1.1 google`, `X-Cloud-Trace-Context`), Application Gateway (its six
+  headers before its rewrite rule set, and its server variables), the Cloud Run
+  front end (drops client `X-Google-*`), App Service (`IP:port` and
+  `X-AppService-Proto`) and Container Apps ingress. Network Load Balancer and
+  Azure Load Balancer add nothing. A front end whose target fails after the
+  status and headers reached the client closes the stream rather than
+  appending an error.
+- **VPC networks** allocate bridge subnets from a host-side pool, with the
+  elastic network interface address as a real secondary address, so same-CIDR
+  VPCs coexist; a slice is reclaimed only from an owner this host can see to be
+  gone. Azure network interfaces realize every IP configuration, and the Azure
+  simulator tears its fabric down on SIGTERM.
 - **Declined surfaces are the ones whose required content is somebody else's
-  data**: Cloud Spanner's Key Visualizer scans and wire-protocol adapter,
-  Cloud KMS Key Access Justifications, Firestore's streaming REST spellings,
-  and Amazon SNS SMS and mobile push. Each answers by naming what is missing.
-- **Memorystore for Redis** instances and Memorystore for Redis Cluster
-  clusters run a real Redis engine, one container per node, at the endpoints
-  the API reports; replica-count and shard-count updates reshape the running
-  engine, TLS comes from the server CA the API reports, IAM and token auth and
-  a cluster's ACL policy are enforced by the engine, a `LIMITED_DATA_LOSS`
-  failover refuses a replica more than 30 MB behind, persistence runs as
-  configured, and exports, imports, backups and
-  cluster import sources move the engine's own RDB snapshots through Cloud
-  Storage.
+  data**: Cloud Spanner's Key Visualizer scans and wire-protocol adapter, Cloud
+  KMS Key Access Justifications, Firestore's streaming REST spellings, and
+  Amazon SNS SMS and mobile push. Each answers by naming what is missing.
+
+### AWS
+
+- **Amazon ECS** passes a container definition's `workingDirectory` to the
+  engine (and ExecuteCommand inherits it), and RunTask commits each task's
+  declared memory and CPU against the simulator's own cgroup or machine,
+  refusing one that would not fit with Fargate's capacity message or
+  `RESOURCE:MEMORY`/`RESOURCE:CPU` in `failures[]` before any ENI, volume or
+  record exists.
+- **Amazon DynamoDB PROVISIONED tables spend their throughput** through token
+  buckets per table and per global secondary index, refilled at the provisioned
+  rate with 300 seconds of burst; an uncovered request gets
+  `ProvisionedThroughputExceededException` or comes back unprocessed from a
+  batch. On-demand tables are never throttled, and `CreateTable` requires
+  capacity units exactly when the billing mode does.
+- **Managed databases run real engines** — PostgreSQL 17.11, 16.15 and 16.14,
+  MySQL 8.0.46 and MariaDB 11.4.13, each version its release's own image, which
+  DescribeDBEngineVersions lists with the upgrades the simulator runs — with
+  volumes, credentials sealed under the simulator's key service, readiness
+  classified by SQLSTATE, and crash-consistent snapshots. Amazon RDS instances
+  and Aurora clusters:
+  - take automated backups whether or not a client connects, reporting
+    `creating`, `starting` and `backing-up` until `available`, and restore to
+    any time in the retention period by replaying PostgreSQL's archived WAL or
+    the MySQL or MariaDB binary log (MariaDB to the whole second) onto the daily
+    automated snapshot; `DeleteAutomatedBackups=false` retains the backups, and
+    an instance's backups replicate to another Region;
+  - restore an Aurora cluster from an RDS DB snapshot ARN, and Aurora MySQL or
+    RDS for MySQL from a Percona XtraBackup in Amazon S3;
+  - refuse a create or restore repeated under an identifier still provisioning,
+    as one under a stored identifier;
+  - sign in the master user and IAM-authenticated users at the endpoint
+    (PostgreSQL roles granted `rds_iam`; MySQL and MariaDB users identified with
+    the `AWSAuthenticationPlugin` server plugin the simulator ships) and every
+    other user through the engine's own checks;
+  - associate `default.<family>` parameter groups whose parameters are the
+    catalog each engine reports (`rds_parameter_catalogs_vendored.json`); a
+    dynamic change reaches running engines at once and a static one waits for a
+    reboot with the group `pending-reboot`;
+  - hold ModifyDBInstance changes without ApplyImmediately in
+    PendingModifiedValues until a timer for PreferredMaintenanceWindow applies
+    them; apply DBPortNumber at once; move record, ARN, endpoint and volume on a
+    rename; present a server certificate from the instance's CA, a real CA;
+  - run blue/green deployments of a DB instance with a real green instance and
+    a switchover bounded by SwitchoverTimeout that keeps the blue as `-old1`;
+  - run read replicas on the engine's own replication (MySQL and MariaDB binary
+    log replication, PostgreSQL streaming through a physical slot), read-only,
+    reporting ReplicaLag each minute, reopened writable by PromoteReadReplica or
+    the source's deletion;
+  - run a Multi-AZ instance's standby engine in another Availability Zone with
+    synchronous replication, converting either way through ModifyDBInstance and
+    failing over on RebootDBInstance with ForceFailover, with DescribeEvents
+    listing the events;
+  - kill an engine still initialising its volume on deletion rather than wait
+    out the stop grace.
+- **Amazon S3 versions objects and enforces Object Lock.** A versioned bucket
+  keeps superseded versions and delete markers, a suspended one writes the
+  `null` version, and every reader and writer — GetObject, HeadObject, the
+  object subresources, CopyObject's and UploadPartCopy's source, DeleteObjects,
+  ListObjectVersions, AWS Lambda's `S3ObjectVersion` — addresses a version by
+  id. Legal holds and COMPLIANCE or unbypassed GOVERNANCE retention refuse a
+  version delete with AccessDenied; a bucket without Object Lock refuses its
+  operations with InvalidRequest. DeleteObjects refuses an entry the caller may
+  not delete as that entry's AccessDenied and deletes the rest.
+- **Amazon S3 Batch Operations jobs run** as server background work from `New`
+  to `Complete`, `Failed` or `Cancelled`, taking LambdaInvoke outcomes from the
+  function's `results[]`, writing the completion report, reading CSV manifest
+  keys URL-decoded, and resuming after a restart.
+- **Elastic Load Balancing**: a trust store reads its CA bundle and revocation
+  lists from the Amazon S3 object version named and keeps its own copy, served
+  by presigned URL; DescribeLoadBalancerAttributes reports exactly the keys the
+  reference lists for the load balancer's type at their defaults, and
+  ModifyLoadBalancerAttributes refuses another type's key and checks each
+  value; a Gateway Load Balancer's ARN names `loadbalancer/gwy/`. An
+  Application Load Balancer publishes `AWS/ApplicationELB` `RequestCount` and
+  `RequestCountPerTarget` once a minute, and Application Auto Scaling target
+  tracking sets ceil(current × metric ÷ target), so an Amazon ECS service
+  scales on the requests its load balancer routes.
+- **AWS Glue** Python shell runs log to CloudWatch Logs `/aws-glue/jobs/output`
+  and `/aws-glue/jobs/error` under the run ID; GetSystemLogsForJobRun and
+  GetSystemLogsForSession answer presigned Amazon S3 URLs.
+- **Amazon EC2 instance types and Dedicated Hosts carry the AWS Price List's
+  facts** (`ec2_instance_types_vendored.json`, written by
+  `scripts/fetch-aws-ec2-instance-types.go` with the offer version and
+  SHA-256), which DescribeInstanceTypes, the offerings, Capacity Manager, the
+  real-execution machine shape and future-dated Capacity Reservations read. A
+  future-dated Capacity Reservation is `scheduled` until its start date, derived
+  on every read, and moves only through an accepted date-change quote within 30
+  days of the original.
+- **Amazon ECR** sizes an image by the compressed layers plus the config (a
+  manifest list by its largest manifest) and refuses to delete a repository
+  holding images without `force`.
+- **AWS STS sessions carry session tags** from AssumeRole's `Tags`, SAML
+  `PrincipalTag:<key>` attributes and the web identity
+  `https://aws.amazon.com/tags` claim, each authorized as sts:TagSession;
+  transitive tags pass to chained sessions.
+- **Transitional states are served**: Kinesis Data Streams consumers pass
+  through CREATING and DELETING, Client VPN endpoint authorization policies
+  through creating, updating and deleting.
+- **A NAT gateway route translates the subnets its route table governs**,
+  explicitly or through the main route table, recomputed on every association
+  change.
+
+### Google Cloud
+
+- **Every Discovery document is served** at `GET /$discovery/rest?version=…`
+  under its own host (regional and mTLS hosts too), byte-identical to the
+  vendored one, and the Discovery directory serves the real directory's entries
+  (`simulator-gcp/discovery_directory_vendored.json`), both without a
+  credential. A bare address:port answers `v2` with BigQuery's, which `bq`
+  builds its client from.
+- **Projects and identities agree.** A bucket's project must exist in Cloud
+  Resource Manager (`400 Unknown project id` otherwise) and carries its number;
+  the Cloud Storage service agent is
+  `service-{projectNumber}@gs-project-accounts.iam.gserviceaccount.com`. Cloud
+  DNS, Cloud Build's default service account, the Cloud Run service agent,
+  Compute Engine, BigQuery and Cloud Logging name identities by the number
+  Cloud Resource Manager holds and refuse unknown projects with their own
+  error. Every new project has the Compute Engine default service account in
+  IAM. A deleted service account is held for IAM's 30 days and undeleted by
+  unique ID.
+- **A bucket carries Cloud Storage's default policy** from creation — the four
+  legacy bindings for the project's owners, editors and viewers — so revoking
+  what a client granted restores the defaults.
+- **Uploads past 5 MiB take the resumable path** from `gcloud storage cp`,
+  `gcloud artifacts generic upload`, `gcloud artifacts files upload` and
+  `bq load`. BigQuery answers REST errors with its `errors[]` reasons.
+- **The GCE metadata server answers for the workload that asks**, placing a
+  Compute Engine instance by its private address and a Cloud Run container by
+  its namespace's address; a caller outside every workload is answered for the
+  default project, `sockerless`.
+- **Eventarc and Cloud Build are addressed by host**, since both publish
+  `/v1/projects/{p}/locations/{l}/triggers`.
+- **Cloud Run** serves a service at its run.app URL once startup probes pass,
+  behind a Google-signed ID token whose principal holds `run.routes.invoke`
+  (conditions evaluated with Common Expression Language) unless the service is
+  public; starts service, job and worker pool containers in `dependsOn` order;
+  holds a job's operation and `Ready` condition for its
+  `startExecutionToken`/`runExecutionToken` execution; runs worker pools and
+  instances (logging under `cloud_run_worker_pool` and `cloud_run_instance`,
+  restarting per `restartPolicy` up to three times, serving instance `urls`);
+  serves a Cloud Run function through its service at both its run.app and
+  cloudfunctions.net URLs; and adopts running workloads across a simulator
+  restart.
+- **A Cloud Storage volume mount writes back as Cloud Storage FUSE does**:
+  inotify turns a close after writing into a conditioned new generation, and
+  every JSON API request first waits for the events queued before it. Linux
+  only; the rest is BUG-3084.
+- **Audited calls write Cloud Audit Logs entries** for Cloud Storage's JSON API,
+  Compute Engine, Cloud DNS, Cloud Resource Manager v1 projects and the Cloud
+  Run Admin v2, Pub/Sub, Secret Manager, Artifact Registry, Cloud Functions v2,
+  Cloud KMS, Cloud Build, Eventarc, Memorystore for Redis, Spanner admin,
+  Bigtable admin, Firestore admin and IAM admin APIs — Admin Activity always,
+  Data Access where `auditConfigs` enable it — and Eventarc audit-log triggers
+  deliver them as CloudEvents.
+- **Memorystore for Redis** instances and Redis Cluster clusters run a real
+  Redis engine, one container per node, at the endpoints the API reports;
+  updates reshape the running engine, TLS comes from the reported server CA,
+  IAM and token auth and a cluster's ACL policy are enforced by the engine, a
+  `LIMITED_DATA_LOSS` failover refuses a replica more than 30 MB behind,
+  persistence runs as configured, and exports, imports and backups move the
+  engine's own RDB files through Cloud Storage.
+
+### Azure
+
+- **App Service and Azure Functions sites run their containers as App Service
+  does**: a custom image's entrypoint with `siteConfig.appCommandLine` on
+  `WEBSITES_PORT` (80 unset), started by a request or Always On; built-in
+  `NODE`/`PYTHON` stacks on the platform's images; a Linux `Node|22` function
+  app on the Azure Functions host with its secret store (the file store under
+  `AzureWebJobsSecretStorageType=files`, otherwise the `azure-webjobs-secrets`
+  blobs). Other function stacks, the host's own route to the Blob service and
+  code-defined functions stay open as BUG-3237.
+- **An app runs as the platform runs it**: one persistent `/home` share,
+  connection strings under their type prefixes, a stopped app answering the
+  403 stopped-site page, deployment slots running their own containers with
+  swap, swap with preview and `slotsdiffs`, and source control deploying the
+  repository's head.
+- **The SCM site serves Kudu** — zip deploy and OneDeploy with deploymentStatus,
+  WebJobs (scheduled by `settings.job`), the VFS over `/home`, the command API
+  bounded by `SCM_COMMAND_IDLE_TIMEOUT`, settings and the log stream — at the
+  Repository hostname the site reports.
+- **Managed identities and Key Vault**: an App Service app, slot, container app
+  or Container Apps job gets its own `IDENTITY_HEADER` for `IDENTITY_ENDPOINT`;
+  Key Vault references resolve as `keyVaultReferenceIdentity` under access
+  policies or Azure RBAC and are re-fetched every 24 hours; Container Apps
+  secrets read Key Vault as the named identity; sitecontainer
+  `environmentVariables` name app settings; App Service imports certificates as
+  its own service principal. The Key Vault data plane verifies the bearer's
+  signature, expiry, audience and tenant, applies `publicNetworkAccess` and
+  `networkAcls`, and authorizes each operation against access policies
+  (compound identities and nested groups included) or Azure RBAC data actions;
+  access-policy updates `add`, `replace` and `remove` per permission.
+- **Azure Monitor logs land where something names the workspace** — a
+  Container Apps environment's `appLogsConfiguration`, a site's Application
+  Insights connection, or a data collection rule's Log Analytics destination
+  through the Logs Ingestion API and `transformKql` — and a workspace's queries
+  read only its own rows.
 
 ## Gates
 
@@ -642,7 +366,7 @@ shape, and one whose scan set can go empty exits non-zero.
   object stores typed `sim.PrefixStore`, so no path can read one whole: a
   listing costs its bucket and prefix, not every stored object;
   `check-readonly-locks.sh` and `check-lock-pairing.sh` at zero;
-  `check-fake-tests.sh` holding five can't-fail shapes at zero and two at
+  `check-fake-tests.sh` holding six can't-fail shapes at zero and three at
   floors that may only fall; `check-casefold-slice.sh` and
   `check-locked-helpers.sh` scanning every module including `sim`.
 - `simulators-deadcode.sh` per simulator, judging the framework from the three
@@ -655,8 +379,8 @@ shape, and one whose scan set can go empty exits non-zero.
   instead. Its self-test serves the module proxy, the Terraform registry, the
   GitHub API, Docker Hub and the image copies from fixtures with fixed
   publication times.
-- The race detector over every module on every pull request, with zero
-  races held by `simGo`/`simAfterFunc`/`simJoinedGo` accounting.
+- The race detector over every module on every pull request, with background
+  work counted by `bg.Go`, `bg.AfterFunc` and `bg.JoinedGo`.
 - Spec conformance in every simulator's unit tests, and the runtime
   wire-shape validator over the SDK and CLI suites with allowlists that only
   shrink.
@@ -668,31 +392,34 @@ shape, and one whose scan set can go empty exits non-zero.
 
 ## Continuous integration
 
-Per-cloud lint and unit tests; the Google Cloud and Azure SDK and CLI suites;
-the AWS SDK suite in four shards and CLI suite in twenty; Terraform in
-twenty-three shards; console vitest, typecheck, build and Playwright; the race jobs per
-simulator and for `sim`; the quality gates; the one-open-pull-request and
-rebased-on-main checks; the nightly fuzz workflow across the four Go modules.
-Every job holds a fifteen-minute ceiling, and an AWS CLI call that stalls
-fails at its own bound with the simulator's in-flight requests, its goroutine
-profile and the CLI's `--debug` log. Base images are warmed from one
-cache entry per module, read out of the source by `scripts/base-images-for.sh`,
-and every suite takes a base image through `testutil/baseimage.Ensure`, which
-asks the host before a registry; `build-gates` runs the `testutil` tests, whose
-guard fails on a suite that pulls a base image itself. A harness that fronts a
+Per-cloud lint and unit tests; the AWS SDK suite in eight shards and its CLI
+suite in twenty-three; the Google Cloud SDK suite in two shards and its CLI
+suite in one; the Azure SDK and CLI suites in two shards each; Terraform in
+twenty-six shards; console vitest, typecheck, build and Playwright; the race
+jobs per simulator and for `sim`; the quality gates; the one-open-pull-request,
+rebased-on-main and Conventional Commit title checks; the nightly fuzz workflow
+across the four Go modules. A push to `main` whose tree already passed CI on
+its pull request skips the suites (`scripts/ci-verified-on-pr.sh`). Every job
+holds a fifteen-minute ceiling, and an AWS CLI call that stalls fails at its
+own bound with the simulator's in-flight requests, its goroutine profile and
+the CLI's `--debug` log. Base images are warmed from one cache entry per
+module, read out of the source by `scripts/base-images-for.sh`, and every
+suite takes a base image through `testutil/baseimage.Ensure`, which asks the
+host before a registry; `build-gates` runs the `testutil` tests, whose guard
+fails on a suite that pulls a base image itself. A harness that fronts a
 simulator with the Caddy HTTPS gateway starts it through
 `testutil/httpsgateway`, which returns once Caddy's log reports a cached
-certificate for every name the gateway manages. The Google Cloud SDK suite runs
-unsharded; its tests wait on events they can observe — a Cloud Run job's hold
-ends when the test writes a release object into a mounted Cloud Storage
-bucket — and the waits left are the cloud's or the engine's own, such as
-Pub/Sub's ten-second minimum ack deadline.
+certificate for every name the gateway manages. Tests wait on events they can
+observe — a Cloud Run job's hold ends when the test writes a release object
+into a mounted Cloud Storage bucket — and the waits left are the cloud's or the
+engine's own, such as Pub/Sub's ten-second minimum ack deadline (BUG-3154
+lists the rest).
 
 ## Releases
 
 One `vX.Y.Z` tag per release via release-please. The `Release` workflow ships
 binaries with consoles embedded for linux/darwin × amd64/arm64, the console
 bundles, and per-architecture container images composed into the unsuffixed
-manifest list. Release images are immortal; the short-SHA stream is pruned to
+OCI index. Release images are immortal; the short-SHA stream is pruned to
 twenty. Go consumers pin the release commit, since subdirectory modules cannot
 carry a plain tag under this policy.

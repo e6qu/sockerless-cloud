@@ -134,3 +134,64 @@ func TestGCSBucketProjectResolvesThroughResourceManager(t *testing.T) {
 		t.Fatalf("serviceAccount.get on an unknown project answered %d %v", code, body)
 	}
 }
+
+// buckets.list pages by name: a bucket created or deleted between two page
+// reads moves no other bucket onto a second page or off every page. It lists
+// only the named project's buckets, under the prefix when one is given.
+func TestGCSListBucketsPagesByName(t *testing.T) {
+	srv := buildOperationsTestSimulator(t)
+	const host = "storage.googleapis.com"
+	create := func(name string) {
+		gcpHostOK(t, srv, host, http.MethodPost, "/storage/v1/b?project=test-project", `{"name":"`+name+`"}`)
+	}
+	remove := func(name string) {
+		if code, body := gcpHostCall(t, srv, host, http.MethodDelete, "/storage/v1/b/"+name, ``); code != http.StatusNoContent {
+			t.Fatalf("delete %s answered %d: %v", name, code, body)
+		}
+	}
+	for _, name := range []string{"page-b", "page-d", "page-f", "page-h"} {
+		create(name)
+	}
+	create("other-bucket")
+	createTestProject(t, srv, "bucket-owner")
+	gcpHostOK(t, srv, host, http.MethodPost, "/storage/v1/b?project=bucket-owner", `{"name":"page-elsewhere"}`)
+
+	read := func(token string) ([]string, string) {
+		path := "/storage/v1/b?project=test-project&prefix=page-&maxResults=2"
+		if token != "" {
+			path += "&pageToken=" + token
+		}
+		out := gcpHostOK(t, srv, host, http.MethodGet, path, ``)
+		var names []string
+		items, _ := out["items"].([]any)
+		for _, item := range items {
+			names = append(names, item.(map[string]any)["name"].(string))
+		}
+		next, _ := out["nextPageToken"].(string)
+		return names, next
+	}
+
+	first, token := read("")
+	if strings.Join(first, ",") != "page-b,page-d" || token == "" {
+		t.Fatalf("first page = %v, token %q", first, token)
+	}
+	// Between the reads a listed bucket goes and one sorting after the cursor
+	// arrives; an offset would now skip page-f.
+	remove("page-b")
+	create("page-g")
+	second, token := read(token)
+	if strings.Join(second, ",") != "page-f,page-g" || token == "" {
+		t.Fatalf("second page = %v, token %q: the page resumes after page-d", second, token)
+	}
+	third, token := read(token)
+	if strings.Join(third, ",") != "page-h" || token != "" {
+		t.Fatalf("third page = %v, token %q", third, token)
+	}
+
+	if code, _ := gcpHostCall(t, srv, host, http.MethodGet, "/storage/v1/b", ``); code != http.StatusBadRequest {
+		t.Fatalf("a list naming no project answered %d", code)
+	}
+	if code, _ := gcpHostCall(t, srv, host, http.MethodGet, "/storage/v1/b?project=test-project&pageToken=bogus", ``); code != http.StatusBadRequest {
+		t.Fatalf("a page token the service never issued answered %d", code)
+	}
+}

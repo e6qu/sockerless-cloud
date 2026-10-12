@@ -2,5 +2,6 @@
 # the reason; scripts/check-parallel-tests.go holds every other test to
 # starting with t.Parallel().
 TestCLI_ProjectIAMPolicy	changes the project IAM policy every other test is authorized under
+TestOrgPoliciesOrganizationAndFolderScopeCLI	sets organization policy constraints other tests are governed by
 TestServiceAgentsCLI_ComputeDefaultServiceAccountInIAM	changes project-wide Compute Engine settings other tests read
 TestServiceAgentsCLI_NamedForTheProjectNumber	changes project-wide Compute Engine settings other tests read

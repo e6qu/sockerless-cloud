@@ -49,13 +49,6 @@ func paginateListCompute[T any](w http.ResponseWriter, r *http.Request, items []
 	return paginateListParam(w, r, items, "maxResults")
 }
 
-// paginateListGCS paginates using the GCS JSON API page-size parameter name
-// ("maxResults"). buckets.list / objects.list (and the Go storage client's
-// BucketIterator / ObjectIterator PageSize) send "maxResults", not "pageSize".
-func paginateListGCS[T any](w http.ResponseWriter, r *http.Request, items []T) ([]T, string, bool) {
-	return paginateListParam(w, r, items, "maxResults")
-}
-
 // paginateListParam pages items by a decimal offset token. It pages only when
 // the client names a positive size under sizeParam; otherwise it returns the
 // whole remaining list.

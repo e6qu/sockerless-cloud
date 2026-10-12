@@ -2,35 +2,46 @@
 
 ## Prerequisites
 
-- Python 3.8+
-- Google Cloud client libraries installed (see per-service examples below)
+- The Google Cloud client libraries for the services you use, `google-auth` and
+  `requests`
 - Simulator running on `http://localhost:4567`
 
 ## Setup
 
-Google Cloud Python libraries accept custom API endpoints and anonymous credentials:
+The simulator verifies an OAuth 2.0 access token on every request. Mint one
+from its token endpoint with the JWT-bearer grant and wrap it in a
+`google.oauth2.credentials.Credentials`:
 
 ```python
-from google.auth.credentials import AnonymousCredentials
+import requests
+from google.oauth2.credentials import Credentials
 
-# Common setup for all clients
 ENDPOINT = "http://localhost:4567"
-PROJECT = "my-project"
+PROJECT = "sockerless"  # the project every simulator starts with
 LOCATION = "us-central1"
-CREDENTIALS = AnonymousCredentials()
+
+TOKEN = requests.post(
+    f"{ENDPOINT}/token",
+    data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer"},
+).json()["access_token"]
+CREDENTIALS = Credentials(TOKEN)
+headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
 ```
 
-Most client libraries accept either `client_options` with `api_endpoint` or an environment variable for emulators.
+The REST APIs answer on the HTTP port; the gRPC services (Cloud Logging,
+Bigtable, Firestore, Pub/Sub, Spanner, Cloud KMS, Secret Manager) also answer
+on `:4569`. The examples below use `requests` with the same token where a
+client library would need its endpoint and transport configured per service.
 
 ## Examples
 
-### Google Cloud Storage (`google-cloud-storage`)
+### Cloud Storage (`google-cloud-storage`)
 
 ```sh
 pip install google-cloud-storage
 ```
 
-GCS supports the `STORAGE_EMULATOR_HOST` environment variable:
+The client reads the `STORAGE_EMULATOR_HOST` coordinate:
 
 ```sh
 export STORAGE_EMULATOR_HOST=localhost:4567
@@ -39,11 +50,7 @@ export STORAGE_EMULATOR_HOST=localhost:4567
 ```python
 from google.cloud import storage
 
-# Client picks up STORAGE_EMULATOR_HOST automatically
-client = storage.Client(
-    project="my-project",
-    credentials=AnonymousCredentials(),
-)
+client = storage.Client(project=PROJECT, credentials=CREDENTIALS)
 
 # Create a bucket
 bucket = client.create_bucket("my-bucket")
@@ -64,28 +71,9 @@ blob.delete()
 bucket.delete()
 ```
 
-### Cloud DNS (`google-cloud-dns`)
-
-```sh
-pip install google-api-python-client
-```
+### Cloud DNS
 
 ```python
-from googleapiclient import discovery
-from google.auth.credentials import AnonymousCredentials
-
-dns = discovery.build(
-    "dns", "v1",
-    credentials=AnonymousCredentials(),
-    discoveryServiceUrl=f"{ENDPOINT}/dns/v1/$discovery/rest?version=v1",
-    # Or use a static service URL:
-)
-
-# Since discovery may not work with the simulator, use requests directly:
-import requests
-
-headers = {"Authorization": "Bearer local-test-token", "Content-Type": "application/json"}
-
 # Create a managed zone
 resp = requests.post(
     f"{ENDPOINT}/dns/v1/projects/{PROJECT}/managedZones",
@@ -127,32 +115,9 @@ requests.delete(
 )
 ```
 
-### Compute Engine (`google-cloud-compute`)
-
-```sh
-pip install google-cloud-compute
-```
+### Compute Engine
 
 ```python
-from google.cloud.compute_v1 import NetworksClient, SubnetworksClient
-from google.api_core.client_options import ClientOptions
-
-options = ClientOptions(api_endpoint=ENDPOINT)
-
-networks = NetworksClient(credentials=CREDENTIALS, client_options=options)
-subnets = SubnetworksClient(credentials=CREDENTIALS, client_options=options)
-
-# Note: Compute client library may use gRPC by default.
-# For REST-based simulator, use the requests approach below.
-```
-
-For direct HTTP (recommended for simulators):
-
-```python
-import requests
-
-headers = {"Authorization": "Bearer local-test-token", "Content-Type": "application/json"}
-
 # Create a network
 resp = requests.post(
     f"{ENDPOINT}/compute/v1/projects/{PROJECT}/global/networks",
@@ -185,13 +150,9 @@ requests.delete(f"{ENDPOINT}/compute/v1/projects/{PROJECT}/regions/{LOCATION}/su
 requests.delete(f"{ENDPOINT}/compute/v1/projects/{PROJECT}/global/networks/my-network", headers=headers)
 ```
 
-### IAM (`google-cloud-iam`)
+### IAM
 
 ```python
-import requests
-
-headers = {"Authorization": "Bearer local-test-token", "Content-Type": "application/json"}
-
 # Create a service account
 resp = requests.post(
     f"{ENDPOINT}/v1/projects/{PROJECT}/serviceAccounts",
@@ -226,10 +187,6 @@ requests.delete(
 ### Cloud Run Jobs
 
 ```python
-import requests
-
-headers = {"Authorization": "Bearer local-test-token", "Content-Type": "application/json"}
-
 # Create a job
 resp = requests.post(
     f"{ENDPOINT}/v2/projects/{PROJECT}/locations/{LOCATION}/jobs?jobId=my-job",
@@ -268,10 +225,6 @@ requests.delete(
 ### Cloud Functions v2
 
 ```python
-import requests
-
-headers = {"Authorization": "Bearer local-test-token", "Content-Type": "application/json"}
-
 # Create a function
 resp = requests.post(
     f"{ENDPOINT}/v2/projects/{PROJECT}/locations/{LOCATION}/functions?functionId=my-func",
@@ -298,13 +251,9 @@ requests.delete(
 )
 ```
 
-### Cloud Logging (`google-cloud-logging`)
+### Cloud Logging
 
 ```python
-import requests
-
-headers = {"Authorization": "Bearer local-test-token", "Content-Type": "application/json"}
-
 # Write log entries
 requests.post(
     f"{ENDPOINT}/v2/entries:write",
@@ -332,23 +281,10 @@ for entry in resp.json().get("entries", []):
     print(entry.get("textPayload", ""))
 ```
 
-## Approach summary
-
-| Service | Recommended Client | Notes |
-|---------|-------------------|-------|
-| GCS | `google-cloud-storage` | Use `STORAGE_EMULATOR_HOST` env var |
-| DNS | `requests` (direct HTTP) | Discovery-based clients may not connect |
-| Compute | `requests` (direct HTTP) | gRPC clients won't work with HTTP simulator |
-| IAM | `requests` (direct HTTP) | |
-| Cloud Run Jobs | `requests` (direct HTTP) | |
-| Cloud Functions | `requests` (direct HTTP) | |
-| Cloud Logging | `requests` (direct HTTP) | |
-| Artifact Registry | `requests` or Docker CLI | OCI Distribution API at `/v2/` |
-
-For services beyond GCS, the simplest approach is using `requests` with direct HTTP calls. The simulator speaks REST/JSON, and most Google Cloud Python libraries default to gRPC transport which is not supported.
-
 ## Notes
 
-- Authentication is not validated. Any Bearer token or `AnonymousCredentials` will work.
-- All state is in-memory and resets when the simulator restarts.
-- The simulator is HTTP-only (REST/JSON). gRPC-based client libraries need either a REST transport option or direct HTTP calls.
+- State lives in memory unless the simulator runs with `SIM_PERSIST=true`, which
+  keeps it under `SIM_DATA_DIR` across restarts.
+- The [simulator README](../README.md#credentials) shows the service-account key
+  and metadata-server credential paths, which Application Default Credentials
+  resolve through.

@@ -17,18 +17,18 @@ import (
 
 func TestCLI_IAMServiceAccounts(t *testing.T) {
 	t.Parallel()
-	out := runCLI(t, gcloudCLI("iam", "service-accounts", "create", "cli-audit-sa",
+	account := uniqueName("cli-surface-sa")
+	email := account + "@test-project.iam.gserviceaccount.com"
+	out := runCLI(t, gcloudCLI("iam", "service-accounts", "create", account,
 		"--display-name=CLI Audit SA",
 		"--format=json",
 		"--quiet"))
-	assert.Contains(t, out, "cli-audit-sa@test-project.iam.gserviceaccount.com")
+	assert.Contains(t, out, email)
 
 	list := runCLI(t, gcloudCLI("iam", "service-accounts", "list", "--format=json"))
-	assert.Contains(t, list, "cli-audit-sa@test-project.iam.gserviceaccount.com")
+	assert.Contains(t, list, email)
 
-	runCLI(t, gcloudCLI("iam", "service-accounts", "delete",
-		"cli-audit-sa@test-project.iam.gserviceaccount.com",
-		"--quiet"))
+	runCLI(t, gcloudCLI("iam", "service-accounts", "delete", email, "--quiet"))
 }
 
 func TestCLI_PubSubTopicSubscriptionLifecycle(t *testing.T) {

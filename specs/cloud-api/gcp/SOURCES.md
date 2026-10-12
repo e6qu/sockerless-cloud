@@ -12,7 +12,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `firestore-v1.discovery.json.gz` | `firestore.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260928` | 2026-10-03T11:36:25Z |
 | `cloudbilling-v1.discovery.json.gz` | `cloudbilling.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261002` | 2026-10-06T13:40:44Z |
 | `spanner-v1.discovery.json.gz` | `spanner.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260928` | 2026-10-06T13:40:44Z |
-| `vpcaccess-v1.discovery.json.gz` | `vpcaccess.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260930` | 2026-10-06T13:40:44Z |
 | `discovery-v1.discovery.json.gz` | `discovery.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20200806` | 2026-10-06T10:43:37Z |
 | `cloudresourcemanager-v1.discovery.json.gz` | `cloudresourcemanager.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260930` | 2026-10-07T14:37:45Z |
 | `cloudresourcemanager-v2.discovery.json.gz` | `cloudresourcemanager.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20260930` | 2026-10-07T14:37:45Z |
@@ -36,3 +35,4 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `compute-v1.discovery.json.gz` | `www.googleapis.com` | `discovery/v1/apis/compute/v1/rest` | Apache-2.0 | `revision 20261007` | 2026-10-10T13:32:05Z |
 | `sqladmin-v1.discovery.json.gz` | `sqladmin.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260929` | 2026-10-10T13:32:06Z |
 | `sqladmin-v1beta4.discovery.json.gz` | `sqladmin.googleapis.com` | `$discovery/rest?version=v1beta4` | Apache-2.0 | `revision 20260929` | 2026-10-10T13:32:06Z |
+| `vpcaccess-v1.discovery.json.gz` | `vpcaccess.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261004` | 2026-10-11T17:51:08Z |

@@ -1115,10 +1115,14 @@ func handleCWUpdateLogAnomalyDetector(w http.ResponseWriter, r *http.Request) {
 		EvaluationFrequency   string `json:"evaluationFrequency"`
 		FilterPattern         string `json:"filterPattern"`
 		AnomalyVisibilityTime int64  `json:"anomalyVisibilityTime"`
-		Enabled               bool   `json:"enabled"`
+		Enabled               *bool  `json:"enabled"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.Enabled == nil {
+		AWSError(w, "InvalidParameterException", "enabled is required", http.StatusBadRequest)
 		return
 	}
 	now := time.Now().UnixMilli()
@@ -1132,10 +1136,13 @@ func handleCWUpdateLogAnomalyDetector(w http.ResponseWriter, r *http.Request) {
 		if req.AnomalyVisibilityTime != 0 {
 			d.AnomalyVisibilityTime = req.AnomalyVisibilityTime
 		}
-		if req.Enabled {
-			d.AnomalyDetectorStatus = "ENABLED"
-		} else {
+		switch {
+		case !*req.Enabled && d.AnomalyDetectorStatus != "PAUSED":
+			d.StatusBeforePause = d.AnomalyDetectorStatus
 			d.AnomalyDetectorStatus = "PAUSED"
+		case *req.Enabled && d.AnomalyDetectorStatus == "PAUSED":
+			d.AnomalyDetectorStatus = d.StatusBeforePause
+			d.StatusBeforePause = ""
 		}
 		d.LastModifiedTimeStamp = now
 	})

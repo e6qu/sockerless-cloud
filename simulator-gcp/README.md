@@ -1,6 +1,6 @@
 # simulator-gcp
 
-Local reimplementation of a slice of Google Cloud. Not a mock — Cloud Run job executions respect the task template `timeout` for completion, Cloud Functions serve requests from their own containers and log what those containers write, Cloud Logging entries are written and queryable with the standard filter syntax, and Artifact Registry stores real OCI manifests.
+Local reimplementation of a slice of Google Cloud. Cloud Run job executions honour the task template's `timeout`, Cloud Run services and functions serve requests from their own containers and log what those containers write, Cloud Logging entries are queryable with the standard filter syntax, and Artifact Registry stores real OCI images.
 
 ## Reference adaptor
 
@@ -8,9 +8,9 @@ The simulator exposes one HTTP endpoint (default `:4567`) that fronts all GCP se
 
 | Adaptor | Min version | What it proves |
 |---|---|---|
-| [GCP Go SDK](https://pkg.go.dev/cloud.google.com/go) (`cloud.google.com/go/{run,functions,storage,logging,...}`) | latest | Wire-level SDK compatibility — request/response shapes, error envelopes, pagination, long-running operation polling. |
-| [`gcloud` CLI](https://cloud.google.com/sdk/docs/install) | 480+ | Endpoint-override fidelity (`gcloud --api-endpoint-overrides`). The CLI uses the same SDK but exercises a different argument-marshaling path. |
-| [Terraform `google` provider](https://registry.terraform.io/providers/hashicorp/google/latest/docs) | v6+ | Full plan → apply → destroy round-trip across `google_cloud_run_v2_job`, `google_cloudfunctions2_function`, `google_storage_bucket`, `google_artifact_registry_repository`, `google_dns_managed_zone`, `google_compute_network`, `google_service_account`, etc. |
+| [GCP Go SDK](https://pkg.go.dev/cloud.google.com/go) (`cloud.google.com/go/{run,functions,storage,logging,...}`) | the releases `sdk-tests/go.mod` pins | Wire-level SDK compatibility — request/response shapes, error envelopes, pagination, long-running operation polling. |
+| [`gcloud` CLI](https://cloud.google.com/sdk/docs/install) | the host's gcloud, or 500.0.0, which `cli-tests` installs when absent | Endpoint-override fidelity (`CLOUDSDK_API_ENDPOINT_OVERRIDES_*`), through gcloud's own request building. |
+| [Terraform `google` provider](https://registry.terraform.io/providers/hashicorp/google/latest/docs) | the version `terraform-tests` pins | Full plan → apply → destroy round-trip across `google_cloud_run_v2_job`, `google_cloudfunctions2_function`, `google_storage_bucket`, `google_artifact_registry_repository`, `google_dns_managed_zone`, `google_compute_network`, `google_service_account`, etc. |
 
 Anything any of these three tools does against the real GCP endpoint, it must do against this simulator. Gaps from that contract are real bugs (see [BUGS.md](../BUGS.md)).
 
@@ -31,8 +31,8 @@ CI runs all four on every PR (`.github/workflows/ci.yml`).
 ```bash
 # 1. Build + start the sim (default :4567).
 cd simulator-gcp
-go build -o simulator-gcp .
-SIM_LISTEN_ADDR=:4567 ./simulator-gcp
+go build -tags noui -o simulator-gcp .
+./simulator-gcp
 ```
 
 With `SIM_PERSIST=true`, `SIM_DATA_DIR` is the persistence root: the SQLite
@@ -42,15 +42,18 @@ control-plane store plus the bulk-data roots that default beneath it —
 survive restarts alongside the metadata that describes them.
 
 ```bash
-# 2. Point any GCP client at it.
-export CLOUDSDK_API_ENDPOINT_OVERRIDES_RUN=http://localhost:4567/
-export CLOUDSDK_API_ENDPOINT_OVERRIDES_CLOUDFUNCTIONS=http://localhost:4567/
-export CLOUDSDK_API_ENDPOINT_OVERRIDES_ARTIFACTREGISTRY=http://localhost:4567/
-export STORAGE_EMULATOR_HOST=localhost:4567
+# 2. Point gcloud at it with a token the simulator minted (see Credentials).
+export CLOUDSDK_AUTH_ACCESS_TOKEN=$(curl -s -X POST http://localhost:4567/token \
+  -d grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+export CLOUDSDK_CORE_PROJECT=sockerless
+export CLOUDSDK_API_ENDPOINT_OVERRIDES_STORAGE=http://localhost:4567/
 
-gcloud run jobs list --region us-central1
 gcloud storage buckets list
 ```
+
+`sockerless` is the project every simulator starts with. The Go storage client
+reads `STORAGE_EMULATOR_HOST=localhost:4567`.
 
 ### Credentials
 
@@ -141,7 +144,7 @@ For Terraform:
 
 ```hcl
 provider "google" {
-  project = "my-project"
+  project = "sockerless"
   region  = "us-central1"
 
   endpoints = {
@@ -156,30 +159,20 @@ provider "google" {
 
 ## Services
 
-All services use REST/JSON routing with Go 1.22+ path patterns. Long-running operations return an LRO wrapper with `done: true` and the resource in `response` once their work has finished. Cloud Run's `RunJob` and Cloud Build's `CreateBuild` (and the methods that start a build) return their operation at once and complete it when the execution or build ends.
-
-| Service | Base Path | Endpoints |
-|---|---|---|
-| **Cloud Run Jobs** | `/v2/projects/.../jobs` | Create, Get, List, Delete, Run (create execution), Get/List/Cancel Executions |
-| **Cloud Functions v2** | `/v2/projects/.../functions` | Create, Get, List, Update, Delete; each function served on its Cloud Run service's run.app URL and its cloudfunctions.net URL |
-| **Cloud DNS** | `/dns/v1/projects/...` | Managed Zones (CRUD), Record Sets (CRUD) |
-| **GCS** | `/storage/v1/b/...` | Buckets (CRUD, list), Objects (upload, download, list, delete, compose, rewrite/copy) — JSON + XML APIs |
-| **BigQuery** | `/bigquery/v2/projects/...` | Datasets, Tables, streaming inserts, tabledata list, query jobs, synchronous queries |
-| **Firestore** | `/v1/projects/.../databases/.../documents` | Document CRUD, Commit, BatchGet, BatchWrite, structured RunQuery |
-| **Artifact Registry** | `/v1/projects/.../repositories` | Repositories (CRUD), Docker Images (list), [OCI Distribution](https://github.com/opencontainers/distribution-spec) (`/v2/` manifests + blobs) |
-| **Cloud Logging** | `/v2/entries` | Write entries, List entries (with filter) |
-| **Compute Engine** | `/compute/v1/projects/...` | Networks (CRUD), Subnetworks (CRUD), Operations |
-| **IAM** | `/v1/projects/.../serviceAccounts` | Service Accounts (CRUD), IAM Policies (get/set at any resource scope) |
-| **Cloud Resource Manager** | `/v1/projects`, `/v3/projects` | Project lifecycle on both API versions (create → LRO, get by ID or number, list/search with filters, update, soft-delete/undelete), folders, tags; unknown project → real 403, duplicate ID → real 409 |
-| **Cloud Billing** | `/v1/projects/.../billingInfo` | getBillingInfo (read by terraform's `google_project` Read) |
-| **VPC Access** | `/v1/projects/.../connectors` | Connectors (CRUD) |
-| **Service Usage** | `/v1/projects/.../services` | Enable, Disable, Get, List, Batch Enable |
-| **Operations** | `/v{1,2}/projects/.../operations` | Get (returns immediate DONE) |
+The simulator serves the Discovery documents vendored under
+[`specs/cloud-api/gcp`](../specs/cloud-api/gcp) — 31 APIs over REST, and the
+gRPC services on the HTTP port plus two (`:4569`, `SIM_GCP_GRPC_PORT`).
+[`specs/SIM_PARITY_MATRIX.md`](../specs/SIM_PARITY_MATRIX.md) lists them, and
+[`specs/SIM_SURFACE_TABLES/`](../specs/SIM_SURFACE_TABLES/README.md) holds the
+per-method tables. A long-running operation finishes when its work does: Cloud
+Run's `RunJob` and Cloud Build's `CreateBuild` return their operation at once and
+complete it when the execution or build ends, and `operations.wait` blocks until
+then.
 
 ## Building
 
 ```bash
-cd simulator-gcp && go build -o simulator-gcp .
+cd simulator-gcp && go build -tags noui -o simulator-gcp .
 ```
 
 ## Sample
@@ -191,13 +184,13 @@ $ SIM_LISTEN_ADDR=:4567 ./simulator-gcp &
 $ export CLOUDSDK_API_ENDPOINT_OVERRIDES_RUN=http://localhost:4567/
 
 # Create a job
-$ curl -s -X POST 'http://localhost:4567/v2/projects/my-project/locations/us-central1/jobs?jobId=hello-job' \
+$ curl -s -H "Authorization: Bearer $TOKEN" -X POST 'http://localhost:4567/v2/projects/sockerless/locations/us-central1/jobs?jobId=hello-job' \
     -H 'Content-Type: application/json' \
     -d '{"template":{"template":{"timeout":"10s","containers":[{"image":"alpine","command":["echo","hello"]}]}}}'
-{"done": true, "response": {"name":"projects/my-project/locations/us-central1/jobs/hello-job",...}}
+{"done": true, "response": {"name":"projects/sockerless/locations/us-central1/jobs/hello-job",...}}
 
 # Run it
-$ curl -s -X POST 'http://localhost:4567/v2/projects/my-project/locations/us-central1/jobs/hello-job:run' -d '{}'
+$ curl -s -H "Authorization: Bearer $TOKEN" -X POST 'http://localhost:4567/v2/projects/sockerless/locations/us-central1/jobs/hello-job:run' -d '{}'
 
 # Check via gcloud
 $ gcloud run jobs executions list --job hello-job --region us-central1
@@ -205,7 +198,7 @@ NAME             STATUS     COMPLETION_TIME
 hello-job-...    Succeeded  2026-...
 ```
 
-More inline examples (Cloud Run Jobs / Cloud Functions / Cloud Logging / Artifact Registry / GCS) live below; [API_SPEC.md](API_SPEC.md) captures the full per-verb wire shape, captured by the `sdk-tests/` package.
+[Extended examples](#extended-examples) below cover Cloud Run jobs, Cloud Run functions, Cloud Logging, Cloud Storage and Artifact Registry; [API_SPEC.md](API_SPEC.md) describes the wire shapes.
 
 ## Project structure
 
@@ -232,11 +225,11 @@ cd cli-tests && go test -v ./...
 cd terraform-tests && go test -v ./...
 ```
 
-Each test package's `TestMain` builds the simulator binary, finds a free port, boots the sim, waits for `/health`, runs the suite, then kills the sim. No external services needed.
+Each suite's `TestMain` builds the simulator, starts it on a free port, waits for its `Listening on` banner (`testutil/simready`), runs the tests and stops it. The suites need a container engine; the CLI suite installs its CLI when absent.
 
 ## Execution model
 
-Every Cloud Run job execution, Cloud Run service revision and Cloud Functions instance is a real container on the engine the simulator started against, under the Cloud Run sandbox profile, with its output streamed into Cloud Logging as it is produced. A job task runs until its container exits, is cancelled, or reaches the task template's `timeout`, which the simulator enforces the way Cloud Run does; a cancelled execution's container gets SIGTERM and, ten seconds later as on Cloud Run, SIGKILL. Cloud Functions and Cloud Run services are invoked over HTTP against the container's own listener.
+Every Cloud Run job execution, service instance, worker pool instance and Cloud Run function is a real container on the engine the simulator started against, under the Cloud Run sandbox profile, with its output streamed into Cloud Logging as it is produced. A job task runs until its container exits, is cancelled, or reaches the task template's `timeout`, which the simulator enforces the way Cloud Run does; a cancelled execution's container gets SIGTERM and, ten seconds later as on Cloud Run, SIGKILL. Services and functions are invoked over HTTP at their run.app (and cloudfunctions.net) URLs, which reach the container's own listener.
 
 ## Known issues
 
@@ -250,12 +243,13 @@ Open simulator bugs live in [BUGS.md](../BUGS.md).
   application-default login` are browser flows against accounts.google.com. The
   non-interactive credential paths — service-account keys, the metadata server,
   and workforce federation — all work; see [Credentials](#credentials).
-- **Multi-region**: sim is single-region.
-- **Billing / pricing / quota surfaces**: absent.
+- **Published price catalogs**: Cloud Billing's `services.skus.list` answers an
+  empty listing, since this installation publishes no price sheet.
 
 ## Extended examples
 
-(Quick start with full curl + Go SDK + gcloud + Terraform snippets per service.)
+Every request carries the token from [Credentials](#credentials) as
+`-H "Authorization: Bearer $TOKEN"`.
 
 ### Cloud Run Jobs
 
@@ -264,7 +258,7 @@ Create a job, run it (creating an execution), and check status.
 **Create a job:**
 
 ```bash
-curl -s -X POST 'http://localhost:4567/v2/projects/my-project/locations/us-central1/jobs?jobId=hello-job' \
+curl -s -H "Authorization: Bearer $TOKEN" -X POST 'http://localhost:4567/v2/projects/sockerless/locations/us-central1/jobs?jobId=hello-job' \
   -H 'Content-Type: application/json' \
   -d '{
     "template": {
@@ -281,7 +275,7 @@ The response is a long-running operation with `"done": true` and the job in the 
 **Run the job:**
 
 ```bash
-curl -s -X POST 'http://localhost:4567/v2/projects/my-project/locations/us-central1/jobs/hello-job:run' \
+curl -s -H "Authorization: Bearer $TOKEN" -X POST 'http://localhost:4567/v2/projects/sockerless/locations/us-central1/jobs/hello-job:run' \
   -H 'Content-Type: application/json' -d '{}'
 ```
 
@@ -291,14 +285,14 @@ the execution finishes: the Execution in `response` when every task succeeded,
 an `error` otherwise. `operations.wait` blocks until then:
 
 ```bash
-curl -s -X POST 'http://localhost:4567/v2/<operation-name>:wait' \
+curl -s -H "Authorization: Bearer $TOKEN" -X POST 'http://localhost:4567/v2/<operation-name>:wait' \
   -H 'Content-Type: application/json' -d '{"timeout":"120s"}'
 ```
 
 **Check execution status:**
 
 ```bash
-curl -s http://localhost:4567/v2/<exec-name>
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:4567/v2/<exec-name>
 # Running:  {"runningCount": 1, "succeededCount": 0, "failedCount": 0}
 # Done:     {"runningCount": 0, "succeededCount": 1, "completionTime": "2026-..."}
 ```
@@ -306,12 +300,12 @@ curl -s http://localhost:4567/v2/<exec-name>
 **Query execution logs via Cloud Logging:**
 
 ```bash
-curl -s -X POST 'http://localhost:4567/v2/entries:list' \
+curl -s -H "Authorization: Bearer $TOKEN" -X POST 'http://localhost:4567/v2/entries:list' \
   -H 'Content-Type: application/json' \
-  -d '{"resourceNames":["projects/my-project"],"filter":"resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"hello-job\""}'
+  -d '{"resourceNames":["projects/sockerless"],"filter":"resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"hello-job\""}'
 ```
 
-**Go SDK (direct HTTP, since the Run v2 SDK defaults to gRPC):**
+**Go over plain HTTP** (the Cloud Run v2 Go client defaults to gRPC, which the simulator does not serve for Cloud Run; `token` is an access token from the token endpoint):
 
 ```go
 import (
@@ -332,22 +326,26 @@ job := map[string]any{
 }
 body, _ := json.Marshal(job)
 req, _ := http.NewRequest("POST",
-    "http://localhost:4567/v2/projects/my-project/locations/us-central1/jobs?jobId=sdk-job",
+    "http://localhost:4567/v2/projects/sockerless/locations/us-central1/jobs?jobId=sdk-job",
     strings.NewReader(string(body)))
 req.Header.Set("Content-Type", "application/json")
+req.Header.Set("Authorization", "Bearer "+token)
 http.DefaultClient.Do(req)
 
 runReq, _ := http.NewRequest("POST",
-    "http://localhost:4567/v2/projects/my-project/locations/us-central1/jobs/sdk-job:run",
+    "http://localhost:4567/v2/projects/sockerless/locations/us-central1/jobs/sdk-job:run",
     strings.NewReader("{}"))
 runReq.Header.Set("Content-Type", "application/json")
+runReq.Header.Set("Authorization", "Bearer "+token)
 http.DefaultClient.Do(runReq)
 ```
 
 ### Cloud Functions
 
 Create a function, deploy a container to the Cloud Run service that serves it,
-and request it. CreateFunction creates that service and reports its run.app URL
+and request it with a Google-signed ID token for one of its URLs (`$ID_TOKEN`;
+an access token answers 401) whose principal holds `run.routes.invoke`, unless
+the service's policy grants `roles/run.invoker` to `allUsers`. CreateFunction creates that service and reports its run.app URL
 as `serviceConfig.uri`; the function's `url` is
 `https://<region>-<project>.cloudfunctions.net/<function>`. The simulator serves
 both hosts on its own endpoint and dispatches on the `Host` header, the address
@@ -356,66 +354,67 @@ end takes the function's name off the front of the path, and both pass the
 container's answer through.
 
 ```bash
-curl -s -X POST 'http://localhost:4567/v2/projects/my-project/locations/us-central1/functions?functionId=my-fn' \
+curl -s -H "Authorization: Bearer $TOKEN" -X POST 'http://localhost:4567/v2/projects/sockerless/locations/us-central1/functions?functionId=my-fn' \
   -H 'Content-Type: application/json' \
   -d '{"buildConfig":{"runtime":"go121","entryPoint":"Handler"}}'
-# serviceConfig.service: projects/my-project/locations/us-central1/services/my-fn
+# serviceConfig.service: projects/sockerless/locations/us-central1/services/my-fn
 # serviceConfig.uri:     https://my-fn-<hash>-us-central1.a.run.app
-# url:                   https://us-central1-my-project.cloudfunctions.net/my-fn
+# url:                   https://us-central1-sockerless.cloudfunctions.net/my-fn
 
-curl -s -X PATCH 'http://localhost:4567/v2/projects/my-project/locations/us-central1/services/my-fn' \
+curl -s -H "Authorization: Bearer $TOKEN" -X PATCH 'http://localhost:4567/v2/projects/sockerless/locations/us-central1/services/my-fn' \
   -H 'Content-Type: application/json' \
   -d '{"template":{"containers":[{"image":"my-function-image"}]}}'
 
 curl -s -X POST 'http://localhost:4567/my-fn/hello' \
-  -H 'Host: us-central1-my-project.cloudfunctions.net' \
-  -H "Authorization: Bearer $TOKEN" -d '{}'
+  -H 'Host: us-central1-sockerless.cloudfunctions.net' \
+  -H "Authorization: Bearer $ID_TOKEN" -d '{}'
 # The container receives POST /hello; its stdout reaches Cloud Logging under
 # resource.type="cloud_run_revision" AND resource.labels.service_name="my-fn".
 ```
 
 ### Cloud Logging
 
-Write and list log entries using the REST API (the Go SDK uses gRPC by default).
+Write and list log entries over REST; the gRPC `LoggingServiceV2` answers on `:4569`.
 
 ```bash
-curl -s -X POST 'http://localhost:4567/v2/entries:write' \
+curl -s -H "Authorization: Bearer $TOKEN" -X POST 'http://localhost:4567/v2/entries:write' \
   -H 'Content-Type: application/json' \
-  -d '{"logName":"projects/my-project/logs/my-app",
+  -d '{"logName":"projects/sockerless/logs/my-app",
        "resource":{"type":"global"},
        "entries":[{"textPayload":"Server started"}]}'
 
-curl -s -X POST 'http://localhost:4567/v2/entries:list' \
+curl -s -H "Authorization: Bearer $TOKEN" -X POST 'http://localhost:4567/v2/entries:list' \
   -H 'Content-Type: application/json' \
-  -d '{"resourceNames":["projects/my-project"],
-       "filter":"logName=\"projects/my-project/logs/my-app\""}'
+  -d '{"resourceNames":["projects/sockerless"],
+       "filter":"logName=\"projects/sockerless/logs/my-app\""}'
 ```
 
-Supported filter predicates: `logName=`, `resource.type=`, `resource.labels.<key>=`, `timestamp>=`.
+Filters follow the Logging query language: AND, OR, NOT and parentheses, comparisons on any field, `=~`/`!~` regular expressions, severity by level, timestamps as times, and bare values as global restrictions.
 
 ### GCS (Cloud Storage)
 
 ```bash
 export STORAGE_EMULATOR_HOST=localhost:4567
 
-curl -s -X POST 'http://localhost:4567/storage/v1/b?project=my-project' -d '{"name":"my-bucket"}'
-curl -s -X POST 'http://localhost:4567/upload/storage/v1/b/my-bucket/o?name=hello.txt' \
+curl -s -H "Authorization: Bearer $TOKEN" -X POST 'http://localhost:4567/storage/v1/b?project=sockerless' -d '{"name":"my-bucket"}'
+curl -s -H "Authorization: Bearer $TOKEN" -X POST 'http://localhost:4567/upload/storage/v1/b/my-bucket/o?name=hello.txt' \
   -H 'Content-Type: text/plain' -d 'hello world'
-curl -s http://localhost:4567/download/storage/v1/b/my-bucket/o/hello.txt
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:4567/download/storage/v1/b/my-bucket/o/hello.txt
 # => hello world
 
-curl -s -X POST \
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
   'http://localhost:4567/storage/v1/b/my-bucket/o/hello.txt/rewriteTo/b/my-bucket/o/copy.txt' \
   -H 'Content-Type: application/json' \
   -d '{"contentType":"text/plain","cacheControl":"no-cache","metadata":{"copied":"true"}}'
 ```
 
-Go SDK respects `STORAGE_EMULATOR_HOST`:
+The Go client reads `STORAGE_EMULATOR_HOST`; give it an HTTP client that carries the token:
 
 ```go
 os.Setenv("STORAGE_EMULATOR_HOST", "localhost:4567")
-client, _ := storage.NewClient(ctx)
-client.Bucket("sdk-bucket").Create(ctx, "my-project", nil)
+client, _ := storage.NewClient(ctx, option.WithHTTPClient(oauth2.NewClient(ctx,
+    oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token}))))
+client.Bucket("sdk-bucket").Create(ctx, "sockerless", nil)
 client.Bucket("sdk-bucket").Object("copy.txt").
     CopierFrom(client.Bucket("sdk-bucket").Object("hello.txt")).
     Run(ctx)
@@ -427,7 +426,7 @@ Copy/rewrite persists the destination object resource metadata that Cloud Storag
 
 ```bash
 # Create a Docker-format repository
-curl -s -X POST 'http://localhost:4567/v1/projects/my-project/locations/us-central1/repositories?repositoryId=my-repo' \
+curl -s -H "Authorization: Bearer $TOKEN" -X POST 'http://localhost:4567/v1/projects/sockerless/locations/us-central1/repositories?repositoryId=my-repo' \
   -H 'Content-Type: application/json' \
   -d '{"format":"DOCKER"}'
 ```

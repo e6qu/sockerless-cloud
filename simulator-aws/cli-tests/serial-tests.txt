@@ -30,4 +30,5 @@ TestOrganizationsCLI_ResourcePolicy	creates, changes or deletes the account's on
 TestOrganizationsCLI_Tags	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizationsCLI_zzCreateDeleteOrganization	creates, changes or deletes the account's one organization, which other tests read
 TestOrganizations_ListPoliciesFilterCLI	creates, changes or deletes the account's one organization, which other tests read
+TestRDSCLI_AccountAttributes	reads account-wide quota usage other tests change
 TestSSMCLI_ServiceSetting	changes a service-wide setting other tests read

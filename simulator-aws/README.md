@@ -1,6 +1,6 @@
 # simulator-aws
 
-Local reimplementation of a slice of AWS. Not a mock — workloads execute through real Docker, Amazon Elastic Container Service (ECS) / AWS Lambda tasks run with real exit semantics, Amazon Elastic Container Registry (ECR) stores real image manifests, and the broader CDN / DNS / cert / AWS WAF / AWS Amplify / AWS Identity and Access Management (IAM) surfaces respond on the real wire shapes that the AWS SDK v2 + AWS CLI + Terraform `aws` provider expect.
+Local reimplementation of a slice of AWS. Amazon Elastic Container Service (ECS) tasks and AWS Lambda functions run as real containers with real exit semantics, Amazon Elastic Container Registry (ECR) stores real images, and every other service answers in the wire shapes the AWS SDKs, the AWS CLI and the Terraform `aws` provider expect, behind real SigV4 verification and IAM authorization.
 
 ## Reference adaptor
 
@@ -8,9 +8,9 @@ The simulator exposes one HTTP endpoint (default `:4566`) that fronts all AWS se
 
 | Adaptor | Min version | What it proves |
 |---|---|---|
-| [AWS SDK for Go v2](https://github.com/aws/aws-sdk-go-v2) (`github.com/aws/aws-sdk-go-v2/service/*`) | the release `sdk-tests/go.mod` pins | Wire-level SDK compatibility — request/response shapes, error envelopes, pagination, optimistic concurrency tokens. Covers 30+ services. |
+| [AWS SDK for Go v2](https://github.com/aws/aws-sdk-go-v2) (`github.com/aws/aws-sdk-go-v2/service/*`) | the release `sdk-tests/go.mod` pins | Wire-level SDK compatibility — request/response shapes, error envelopes, pagination, optimistic concurrency tokens. |
 | [`aws` CLI](https://docs.aws.amazon.com/cli/latest/reference/) | the current v2 release (`cli-tests` installs it when absent) | Endpoint-override fidelity (`--endpoint-url`). CLI uses the same SDK but exercises a different argument-marshaling path. Some endpoints differ (e.g. Route 53 `/rrset/` with trailing slash). |
-| [Terraform `aws` provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) | the version `terraform-tests` pins | Full plan → apply → destroy round-trip across 60+ resource types (`aws_ecs_*`, `aws_lambda_*`, `aws_cloudfront_*`, `aws_route53_*`, `aws_wafv2_*`, `aws_amplify_*`, `aws_acm_*`, `aws_iam_*`, `aws_ecr_*`, `aws_s3_*`). Stresses cross-resource references, Lambda invocation through the Runtime API, and stateful drift detection. |
+| [Terraform `aws` provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) | the version `terraform-tests` pins | Full plan → apply → destroy round-trip across resource types such as (`aws_ecs_*`, `aws_lambda_*`, `aws_cloudfront_*`, `aws_route53_*`, `aws_wafv2_*`, `aws_amplify_*`, `aws_acm_*`, `aws_iam_*`, `aws_ecr_*`, `aws_s3_*`). Stresses cross-resource references, Lambda invocation through the Runtime API, and stateful drift detection. |
 
 Anything any of these three tools does against the real AWS endpoint, it must do against this simulator. Gaps from that contract are real bugs (see [BUGS.md](../BUGS.md)).
 
@@ -23,7 +23,7 @@ Anything any of these three tools does against the real AWS endpoint, it must do
 | `terraform-tests/` — `TestStackProductionShape` and per-resource packages | The real Terraform `aws` provider. Provisions CloudFront, ACM, WAFv2, Route 53 ALIAS, Amplify, IAM service-linked roles and OIDC providers, ECS, ECR, Cloud Map and Lambda resources together, asserts cross-resource outputs and Lambda Runtime API invocation output, then runs `terraform destroy`. |
 | `make simulator-aws/test` | The module's unit tests, per [`docs/MAKEFILE_STANDARD.md`](../docs/MAKEFILE_STANDARD.md). |
 
-CI runs all four on every pull request (`.github/workflows/ci.yml`).
+CI runs all four on every pull request (`.github/workflows/ci.yml`). `test`/`test` is the access key of the administrator the simulator starts with, as an AWS account starts with a root credential; STS reports account `123456789012` unless `SOCKERLESS_AWS_ACCOUNT_ID` names another.
 
 ## Wiring the adaptor
 
@@ -51,6 +51,7 @@ aws iam create-service-linked-role --aws-service-name cloudfront.amazonaws.com
 | `SIM_LISTEN_ADDR` | `:4566` | Listen address (`host:port`). |
 | `SIM_TLS_CERT`, `SIM_TLS_KEY` | unset | Enable HTTPS with the given cert/key. |
 | `SIM_RUNTIME` | `docker` | Initializes Docker/Podman for workload execution. Set `process` only for explicit API-only runs that do not invoke ECS/Lambda workload execution. |
+| `SIM_PERSIST` | `false` | `true` keeps state across restarts and leaves running workloads for the next process to adopt. |
 | `SIM_DATA_DIR` | unset | Persistence root: the SQLite control-plane store, plus the default location of every bulk-data root below (`<SIM_DATA_DIR>/efs`, `/ebs`, `/amplify-cache`), so file contents survive restarts alongside the metadata that describes them. |
 | `SIM_EBS_DATA_DIR` | `<SIM_DATA_DIR>/ebs`, else `$TMPDIR/sockerless-sim-ebs` | Explicit override for the EC2/Firecracker EBS block-image root (volume backing files and snapshots). Amazon ECS managed EBS volumes live in engine volumes instead (see below). |
 | `SIM_EFS_DATA_DIR` | `<SIM_DATA_DIR>/efs`, else `$TMPDIR/sockerless-sim-efs` | Explicit override for the EFS file-system content root. |
@@ -144,7 +145,9 @@ missing module named, and the task stops with that reason. Fix it on the host:
   own opt-out from the `raw` rules. That drops the direct-access hardening
   host-wide; it is the daemon operator's decision, never the simulator's.
 
-For Terraform:
+### Terraform
+
+See [`docs/terraform.md`](docs/terraform.md) for the full provider configuration:
 
 ```hcl
 provider "aws" {
@@ -245,7 +248,7 @@ The `terraform-tests` `TestStackProductionShape` test provisions a CloudFront-fr
 
 ```bash
 # Boot the sim
-$ AWS_ENDPOINT_URL=http://127.0.0.1:46241 ./simulator-aws &
+$ SIM_LISTEN_ADDR=:46241 ./simulator-aws &
 
 # Configure AWS SDK + Terraform
 $ export AWS_ENDPOINT_URL=http://127.0.0.1:46241
@@ -258,7 +261,7 @@ aws_cloudfront_distribution.tf_dist: Creation complete after 0.2s
 aws_wafv2_web_acl_association.tf_assoc: Creation complete after 0.03s
 aws_route53_record.tf_alias: Creation complete after 0.1s
 aws_acm_certificate.tf_cert: Creation complete after 0.03s
-  [arn=arn:aws:acm:us-east-1:000000000000:certificate/...]
+  [arn=arn:aws:acm:us-east-1:123456789012:certificate/...]
 aws_iam_service_linked_role.tf_slr_cloudfront: Creation complete after 0.02s
 aws_iam_openid_connect_provider.tf_oidc: Creation complete after 0.02s
 aws_amplify_app.tf_amplify: Creation complete after 0.01s
@@ -266,12 +269,12 @@ aws_amplify_app.tf_amplify: Creation complete after 0.01s
 # Verify cross-resource references
 $ terraform output -json | jq '. | with_entries(.value = .value.value)'
 {
-  "cloudfront_arn":             "arn:aws:cloudfront::000000000000:distribution/E8E549340297351",
+  "cloudfront_arn":             "arn:aws:cloudfront::123456789012:distribution/E8E549340297351",
   "cloudfront_domain_name":     "E8E549340297351.cloudfront.net",
-  "wafv2_assoc_resource_arn":   "arn:aws:cloudfront::000000000000:distribution/E8E549340297351",
+  "wafv2_assoc_resource_arn":   "arn:aws:cloudfront::123456789012:distribution/E8E549340297351",
   "route53_alias_target_name":  "E8E549340297351.cloudfront.net",
-  "acm_certificate_arn":        "arn:aws:acm:us-east-1:000000000000:certificate/...",
-  "iam_slr_arn":                "arn:aws:iam::000000000000:role/aws-service-role/cloudfront.amazonaws.com/AWSServiceRoleForCloudFrontLogger_tftest"
+  "acm_certificate_arn":        "arn:aws:acm:us-east-1:123456789012:certificate/...",
+  "iam_slr_arn":                "arn:aws:iam::123456789012:role/aws-service-role/cloudfront.amazonaws.com/AWSServiceRoleForCloudFrontLogger_tftest"
 }
 ```
 
@@ -302,7 +305,7 @@ cd cli-tests && go test -v ./...
 cd terraform-tests && go test -v ./...
 ```
 
-Each test package's `TestMain` builds the simulator binary, finds a free port, boots the sim, waits for `/health`, runs the suite, then kills the sim. No external services needed.
+Each suite's `TestMain` builds the simulator, starts it on a free port, waits for its `Listening on` banner (`testutil/simready`), runs the tests and stops it. The suites need a container engine; the CLI suite installs its CLI when absent.
 
 ## Known issues
 
@@ -310,11 +313,11 @@ Open simulator bugs live in [BUGS.md](../BUGS.md).
 
 ## What's out of scope
 
-- **Edge propagation timing** — CloudFront distributions report `Status: Deployed` immediately; invalidations report `Completed` immediately. Real CloudFront cycles `InProgress → Deployed` over 5–15 minutes.
+- **Edge propagation** — a CloudFront distribution or invalidation takes effect when its call returns, so it reports `Deployed` or `Completed` at once; real CloudFront spends minutes `InProgress`.
 - **Multi-region routing** — sim is single-region (defaults to `us-east-1`). Cross-region replication / failover is not modelled.
 - **Cost / billing surfaces** — `cur`, `pricing` and `cost-explorer` are absent; AWS Budgets is served.
 - **Outbound delivery to carriers and push services** — Amazon SNS SMS and mobile push need a telecommunications carrier or Apple's and Google's hosts, which no AWS API provisions; those publishes fail naming the missing dependency.
 
-A stopped Amazon ECS task's containers get SIGTERM and then SIGKILL after each container definition's `stopTimeout` (30 seconds when unset). Route 53 serves the zones it holds over UDP and TCP on `SIM_DNS_PORT` (default `5353`), a DNS-validated ACM certificate is issued once its validation CNAME is present in Route 53, WAFv2 web ACLs are evaluated against the traffic of the resources they are associated with, and every request is SigV4-verified against the principal's stored secret.
+A stopped Amazon ECS task's containers get SIGTERM and then SIGKILL after each container definition's `stopTimeout` (30 seconds when unset). Route 53 serves the zones it holds over UDP and TCP on `SIM_DNS_PORT` (a kernel-chosen port when unset; workload namespaces are redirected to it), a DNS-validated ACM certificate is issued once its validation CNAME is present in Route 53, WAFv2 web ACLs are evaluated against the traffic of the resources they are associated with, and every request is SigV4-verified against the principal's stored secret.
 
 See also: [API_SPEC.md](API_SPEC.md).

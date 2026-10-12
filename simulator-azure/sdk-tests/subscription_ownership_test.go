@@ -167,7 +167,6 @@ func TestSubscriptionAcceptOwnershipStatusUnknown(t *testing.T) {
 // through its client: read the default, replace it, and read it back through
 // both the get and the list operation.
 func TestSubscriptionTenantPolicyLifecycle(t *testing.T) {
-	t.Parallel()
 	policyClient, err := armsubscription.NewPolicyClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	t.Cleanup(func() { resetTenantPolicy(t, policyClient) })
@@ -223,7 +222,6 @@ func TestSubscriptionTenantPolicyLifecycle(t *testing.T) {
 // another tenant is refused, and the same request from a principal the policy
 // exempts succeeds.
 func TestSubscriptionPolicyBlocksTenantTransfer(t *testing.T) {
-	t.Parallel()
 	policyClient, err := armsubscription.NewPolicyClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	aliasClient, err := armsubscription.NewAliasClient(&fakeCredential{}, clientOpts())

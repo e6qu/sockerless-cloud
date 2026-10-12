@@ -25,6 +25,7 @@ provider "aws" {
   skip_credentials_validation = true
   skip_metadata_api_check     = true
   skip_requesting_account_id  = true
+  s3_use_path_style           = true
 
   endpoints {
     ecs            = "http://localhost:4566"
@@ -41,7 +42,12 @@ provider "aws" {
 }
 ```
 
-The `skip_*` flags prevent the provider from making calls that the simulator doesn't need to handle (metadata API, credential validation, account ID lookup).
+The provider signs with `test`/`test`, the administrator every simulator
+starts with. The `skip_*` flags keep it from probing the EC2 instance metadata
+service and calling AWS STS before each run; leave `skip_requesting_account_id`
+unset for resources addressed by account ID, such as the Amazon S3 control
+plane's. `s3_use_path_style` keeps bucket names in the URL path, since
+`<bucket>.localhost` does not resolve everywhere.
 
 ## Optional HTTPS gateway
 
@@ -143,24 +149,15 @@ variable "endpoint" {
 
 Then reference `var.endpoint` in the provider endpoints block.
 
-## Supported resources
+## Coverage
 
-The simulator supports the AWS API operations that these Terraform resources use:
-
-| Category | Resources |
-|----------|-----------|
-| ECS | `aws_ecs_cluster`, `aws_ecs_task_definition`, `aws_ecs_service` |
-| ECR | `aws_ecr_repository`, `aws_ecr_lifecycle_policy` |
-| Lambda | `aws_lambda_function`, `aws_lambda_alias`, `aws_lambda_permission`, `aws_lambda_function_url`, `aws_lambda_invocation` |
-| IAM | `aws_iam_role`, `aws_iam_role_policy`, `aws_iam_role_policy_attachment` |
-| EC2 | `aws_vpc`, `aws_subnet`, `aws_internet_gateway`, `aws_nat_gateway`, `aws_route_table`, `aws_security_group` |
-| S3 | `aws_s3_bucket`, `aws_s3_object` |
-| EFS | `aws_efs_file_system`, `aws_efs_mount_target`, `aws_efs_access_point` |
-| CloudWatch | `aws_cloudwatch_log_group` |
-| Cloud Map | `aws_service_discovery_private_dns_namespace`, `aws_service_discovery_service` |
+`simulator-aws/terraform-tests/` holds the stacks the provider is tested with
+(`main.tf` and one directory per focused stack), and
+[`specs/SIM_TEST_COVERAGE_MATRIX.md`](../../specs/SIM_TEST_COVERAGE_MATRIX.md)
+names the Terraform test of each surface.
 
 ## Notes
 
-- All state is in-memory and resets when the simulator restarts. Terraform state files will become stale after a restart.
-- S3 uses path-style addressing via `s3_use_path_style = true`, so bucket names stay in the URL path under the configured endpoint.
-- Authentication is not validated — any access key and secret will work.
+- State lives in memory unless the simulator runs with `SIM_PERSIST=true`, which
+  keeps it under `SIM_DATA_DIR`; restarting a non-persistent simulator leaves
+  Terraform state describing resources that no longer exist.

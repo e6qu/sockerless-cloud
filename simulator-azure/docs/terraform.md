@@ -3,179 +3,135 @@
 ## Prerequisites
 
 - Terraform installed (`terraform version`)
-- Simulator running behind the optional Caddy HTTPS gateway at `https://azure.sockerless.localhost:8443`, or running with direct TLS enabled.
+- The simulator reachable over HTTPS: behind the Caddy HTTPS gateway at
+  `https://azure.sockerless.localhost:8443`, or with its own TLS listener
 
-## TLS requirement
+## TLS
 
-The Azure Terraform providers (`azurestack`, `azurerm`) hardcode `https://` for metadata endpoint calls. The recommended local path is the repo's Caddy HTTPS gateway:
+The `azurerm` provider reads the cloud's metadata and calls Azure Resource
+Manager over HTTPS only. The repository's Caddy gateway fronts the Azure
+simulator at `https://azure.sockerless.localhost:8443` and keeps Azure's
+host-addressed data-plane names, such as `{account}.blob.azure.sockerless.localhost`
+and `{vault}.vault.azure.sockerless.localhost`:
 
 ```sh
-caddy run --config make/https-gateway/Caddyfile --adapter caddyfile
+caddy run --config make/https-gateway/Caddyfile --adapter caddyfile &
+# Caddy's local root CA; on macOS it lives under ~/Library/Application Support/Caddy/
+export SSL_CERT_FILE="$HOME/.local/share/caddy/pki/authorities/local/root.crt"
 ```
 
-The gateway fronts the Azure simulator at `https://azure.sockerless.localhost:8443` and preserves Azure host-addressed data-plane names such as `{account}.blob.azure.sockerless.localhost`, `{vault}.vault.azure.sockerless.localhost`, and `{account}.documents.azure.sockerless.localhost`. It is local transport infrastructure; the simulator's public ARM, metadata, and data-plane API shapes remain unchanged. The gateway configuration is [`make/https-gateway/Caddyfile`](../../make/https-gateway/Caddyfile).
-
-Direct simulator TLS remains supported when a test needs to exercise the simulator's own TLS listener:
-
-```sh
-SIM_TLS_CERT=server-cert.pem SIM_TLS_KEY=server-key.pem ./simulator-azure
-```
-
-Terraform must trust the CA that signed the server certificate:
+To use the simulator's own TLS listener instead, give it a certificate and have
+Terraform trust the CA that signed it:
 
 ```sh
-export SSL_CERT_FILE=/path/to/ca.pem
-```
-
-> **macOS note:** Go 1.20+ on macOS uses Security.framework for TLS and ignores `SSL_CERT_FILE`. The Azure Terraform test harness delegates direct macOS `go test` runs into the shared Linux Docker image so the real providers can trust the gateway CA.
-
-### Generating self-signed certificates
-
-For local testing, generate a CA and server certificate:
-
-```sh
-# Generate CA key and certificate
 openssl ecparam -genkey -name prime256v1 -out ca-key.pem
 openssl req -new -x509 -key ca-key.pem -out ca.pem -days 1 -subj "/CN=Test CA"
-
-# Generate server key and certificate signed by the CA
 openssl ecparam -genkey -name prime256v1 -out server-key.pem
 openssl req -new -key server-key.pem -out server.csr -subj "/CN=localhost"
 openssl x509 -req -in server.csr -CA ca.pem -CAkey ca-key.pem -CAcreateserial \
   -out server-cert.pem -days 1 \
   -extfile <(printf "subjectAltName=DNS:localhost,IP:127.0.0.1")
 
-# Start simulator with TLS
-SIM_TLS_CERT=server-cert.pem SIM_TLS_KEY=server-key.pem ./simulator-azure
-
-# Tell Terraform to trust the CA
+SIM_TLS_CERT=server-cert.pem SIM_TLS_KEY=server-key.pem ./simulator-azure &
 export SSL_CERT_FILE=$(pwd)/ca.pem
 ```
 
+Go on macOS verifies certificates through Security.framework and ignores
+`SSL_CERT_FILE`, so the Terraform harness runs inside the shared Linux test image
+there.
+
 ## Provider configuration
 
-Use the `hashicorp/azurerm` provider through the simulator's custom Azure cloud metadata and OAuth2 endpoints. The test suite also retains `azurestack` coverage for Azure Stack-compatible ARM resources.
+The provider bootstraps its cloud configuration from the simulator's
+`/metadata/endpoints` and signs in through its OAuth 2.0 token endpoint:
 
 ```hcl
 terraform {
   required_providers {
-    azurestack = {
-      source  = "hashicorp/azurestack"
-      version = "~> 1.0"
+    azurerm = {
+      source = "hashicorp/azurerm"
     }
   }
 }
 
-provider "azurestack" {
-  arm_endpoint    = "https://azure.sockerless.localhost:8443"
+variable "endpoint" {
+  type    = string
+  default = "https://azure.sockerless.localhost:8443"
+}
+
+provider "azurerm" {
   client_id       = "test-client-id"
   client_secret   = "test-client-secret"
   tenant_id       = "11111111-1111-1111-1111-111111111111"
   subscription_id = "00000000-0000-0000-0000-000000000001"
 
-  skip_provider_registration = true
+  metadata_host = trimprefix(trimprefix(var.endpoint, "https://"), "http://")
+
+  resource_provider_registrations = "none"
 
   features {}
 }
 ```
 
-`skip_provider_registration = true` prevents provider-registration calls that are outside the simulator slice.
-
-## Environment variables
-
-Set these before running `terraform`:
-
-```sh
-export ARM_CLIENT_ID=test-client-id
-export ARM_CLIENT_SECRET=test-client-secret
-export ARM_TENANT_ID=11111111-1111-1111-1111-111111111111
-export ARM_SUBSCRIPTION_ID=00000000-0000-0000-0000-000000000001
-export ARM_ENDPOINT=https://azure.sockerless.localhost:8443
-export SSL_CERT_FILE="$HOME/.local/share/caddy/pki/authorities/local/root.crt"  # Caddy's local root CA (macOS: ~/Library/Application Support/Caddy/)
-```
+`resource_provider_registrations = "none"` keeps the provider from registering
+resource providers before its first apply.
 
 ## Example resources
 
 ```hcl
-resource "azurestack_resource_group" "main" {
+resource "azurerm_resource_group" "main" {
   name     = "my-rg"
   location = "eastus"
 }
 
-resource "azurestack_virtual_network" "main" {
+resource "azurerm_virtual_network" "main" {
   name                = "my-vnet"
-  resource_group_name = azurestack_resource_group.main.name
-  location            = azurestack_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
   address_space       = ["10.0.0.0/16"]
 }
 
-resource "azurestack_subnet" "main" {
+resource "azurerm_subnet" "main" {
   name                 = "my-subnet"
-  resource_group_name  = azurestack_resource_group.main.name
-  virtual_network_name = azurestack_virtual_network.main.name
-  address_prefix       = "10.0.1.0/24"
+  resource_group_name  = azurerm_resource_group.main.name
+  virtual_network_name = azurerm_virtual_network.main.name
+  address_prefixes     = ["10.0.1.0/24"]
 }
 
-resource "azurestack_dns_zone" "main" {
-  name                = "example.local"
-  resource_group_name = azurestack_resource_group.main.name
+resource "azurerm_storage_account" "main" {
+  name                     = "mystorageacct"
+  resource_group_name      = azurerm_resource_group.main.name
+  location                 = azurerm_resource_group.main.location
+  account_tier             = "Standard"
+  account_replication_type = "LRS"
 }
 
-resource "azurerm_redis_cache" "cache" {
-  name                = "myredis"
-  location            = "eastus"
-  resource_group_name = "my-rg"
-  capacity            = 1
-  family              = "C"
-  sku_name            = "Basic"
-}
-
-resource "azurerm_redis_firewall_rule" "ci" {
-  name                = "allow-ci"
-  redis_cache_name    = azurerm_redis_cache.cache.name
-  resource_group_name = "my-rg"
-  start_ip            = "203.0.113.10"
-  end_ip              = "203.0.113.10"
+resource "azurerm_log_analytics_workspace" "main" {
+  name                = "my-workspace"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  sku                 = "PerGB2018"
+  retention_in_days   = 30
 }
 ```
-
-## Running
 
 ```sh
-# Using a variable for the endpoint
 terraform init
-terraform apply -auto-approve -var="endpoint=https://azure.sockerless.localhost:8443"
-terraform destroy -auto-approve -var="endpoint=https://azure.sockerless.localhost:8443"
+terraform apply -auto-approve
+terraform destroy -auto-approve
 ```
 
-With a `variables.tf`:
+## Coverage
 
-```hcl
-variable "endpoint" {
-  description = "Simulator endpoint URL"
-  type        = string
-  default     = "https://azure.sockerless.localhost:8443"
-}
-```
-
-## Supported resources
-
-The simulator supports the Azure API operations that these Terraform resources use:
-
-| Category | Resources |
-|----------|-----------|
-| Resource Groups | `azurestack_resource_group` |
-| Networking | `azurestack_virtual_network`, `azurestack_subnet`, `azurestack_network_security_group` |
-| DNS | `azurestack_dns_zone` |
-| Storage | `azurestack_storage_account` |
-| Azure Cache for Redis | `azurerm_redis_cache`, `azurerm_redis_firewall_rule` |
-
-The automated terraform tests cover both Azure Stack-compatible ARM resources and AzureRM resources, among them Azure Container Apps managed environments, jobs and apps, Azure Container Registry, Azure Cache for Redis, managed identity, Private DNS, Log Analytics, Application Insights, App Service plans, Linux Function Apps, and Storage Accounts.
+`simulator-azure/terraform-tests/` holds the configurations the provider is
+tested with (`main.tf` and one directory per focused stack), and
+[`specs/SIM_TEST_COVERAGE_MATRIX.md`](../../specs/SIM_TEST_COVERAGE_MATRIX.md)
+names the Terraform test of each surface.
 
 ## Notes
 
-- Use TLS: the Azure Terraform providers call metadata and ARM endpoints over HTTPS.
-- All state is in-memory and resets when the simulator restarts.
-- The OAuth2 endpoint accepts local-test credentials and returns Azure-shaped token responses, including per-resource JWT audiences from OAuth v2 `scope` and OAuth v1 `resource` requests.
-- Set `skip_provider_registration = true` to stop the provider issuing registration calls.
-- On macOS, direct `go test` delegates into the shared Linux Docker image due to TLS trust behavior (see TLS requirement section above).
+- State lives in memory unless the simulator runs with `SIM_PERSIST=true`, which
+  keeps it under `SIM_DATA_DIR`; restarting a non-persistent simulator leaves
+  Terraform state describing resources that no longer exist.
+- The token endpoint issues Azure-shaped tokens with per-resource audiences,
+  from an OAuth 2.0 v2 `scope` or a v1 `resource`.

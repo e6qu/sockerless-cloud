@@ -52,10 +52,9 @@ var cosmosScriptDiffKnownDivergences = map[string]cosmosDiffDivergence{
 }
 
 func TestCosmosScripts_DifferentialVsEmulator(t *testing.T) {
-	t.Parallel()
 	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
-	emuEndpoint, stop := startCosmosEmulator(t)
-	defer stop()
+	emuEndpoint, release := startCosmosEmulator(t)
+	defer release()
 
 	for _, sc := range cosmosScriptDiffScenarios() {
 		t.Run(sc.name, func(t *testing.T) {

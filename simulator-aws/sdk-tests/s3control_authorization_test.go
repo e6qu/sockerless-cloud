@@ -26,7 +26,7 @@ func s3ControlClientWithCreds(akid, secret string) *s3control.Client {
 	return s3control.NewFromConfig(aws.Config{
 		Region:      "us-east-1",
 		Credentials: credentials.NewStaticCredentialsProvider(akid, secret, ""),
-		HTTPClient:  simHTTPClient,
+		HTTPClient:  sdkHTTPClient,
 	}, func(o *s3control.Options) { o.BaseEndpoint = aws.String(simEndpoint("s3-control")) })
 }
 
@@ -45,7 +45,6 @@ func s3ControlARN(resource string) string {
 // Access Grants surface, whose reads and writes AWS authorizes against the
 // account's instance ARN.
 func TestS3Control_AccessGrantsInstanceIsAuthorizedAgainstTheInstance(t *testing.T) {
-	t.Parallel()
 	admin := s3ControlClient()
 	_, err := admin.CreateAccessGrantsInstance(ctx, &s3control.CreateAccessGrantsInstanceInput{
 		AccountId: aws.String(s3ObjectLambdaAccount)})
@@ -85,7 +84,6 @@ func TestS3Control_AccessGrantsInstanceIsAuthorizedAgainstTheInstance(t *testing
 // role itself. The role arrives in an XML document, which is the only place the
 // request names it.
 func TestS3Control_AccessGrantsLocationAlsoAuthorizesPassingItsRole(t *testing.T) {
-	t.Parallel()
 	admin := s3ControlClient()
 	s3c := s3Client()
 	bucket := "grants-passrole-bucket"

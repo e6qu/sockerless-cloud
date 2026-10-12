@@ -22,7 +22,7 @@ The substrate covers four resource families:
    and backend-service load balancing, and Azure Load Balancer.
 
 Container and FaaS surfaces stay on the container engine through
-`sim.StartContainerSync`; Firecracker serves only VM-level APIs.
+`sim.StartContainerSyncContext`; Firecracker serves only VM-level APIs.
 
 ## Capability model
 

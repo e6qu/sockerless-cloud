@@ -58,7 +58,7 @@ type cliOrgPolicy struct {
 
 func TestOrgPoliciesProjectScopeCLI(t *testing.T) {
 	t.Parallel()
-	const projectID = "cli-orgpol-project"
+	projectID := uniqueName("cli-orgpol")
 	runCLI(t, gcloudCLI("projects", "create", projectID,
 		"--organization="+cliOrganizationID, "--format=json"))
 
@@ -160,7 +160,6 @@ func TestOrgPoliciesProjectScopeCLI(t *testing.T) {
 }
 
 func TestOrgPoliciesOrganizationAndFolderScopeCLI(t *testing.T) {
-	t.Parallel()
 	// Organization scope.
 	out := runCLI(t, gcloudCLI("resource-manager", "org-policies", "enable-enforce",
 		cliOrgPolicyBoolean, "--organization="+cliOrganizationID, "--format=json"))

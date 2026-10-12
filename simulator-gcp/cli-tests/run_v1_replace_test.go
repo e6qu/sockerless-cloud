@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -165,11 +166,14 @@ func TestCloudRunV1_CLI_ExecutionsCancel(t *testing.T) {
 		parseJSON(t, httpDoJSON(t, "GET", baseURL+"/v2/"+run.Execution, ""), &execution)
 		return execution
 	}
-	// The container's own line in Cloud Logging is what says it is up.
+	// The container's own line in Cloud Logging is what says it is up with its
+	// SIGTERM handler in place. Match the whole line: the job's log also holds
+	// lines the service writes, and those say nothing about the container.
 	require.Eventually(t, func() bool {
-		return strings.Contains(runCLI(t, gcloudCLI("logging", "read",
+		out := runCLI(t, gcloudCLI("logging", "read",
 			`resource.type="cloud_run_job" AND resource.labels.job_name="`+jobID+`"`,
-			"--format=value(textPayload)")), "started")
+			"--format=value(textPayload)"))
+		return slices.Contains(strings.Split(out, "\n"), "started")
 	}, 60*time.Second, 250*time.Millisecond, "the execution's workload container never came up")
 	require.Equal(t, 1, readExecution().RunningCount,
 		"the execution's task must still be running when the cancel is sent")

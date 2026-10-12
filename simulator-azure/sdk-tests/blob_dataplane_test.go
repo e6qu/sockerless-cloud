@@ -34,8 +34,6 @@ import (
 // and each asserts that the operation CHANGED something the next read observes —
 // a status code alone would pass against a handler that did nothing.
 
-// newBlobTestClient builds an azblob client for one account, pointed at the
-// simulator by the same coordinate a real client is pointed at the cloud by.
 // newBlobTestClient builds a Blob client holding the account's real Shared Key
 // credential, which is what a client holds against the service: the data plane
 // authorizes every request against the account's keys, so a client with no

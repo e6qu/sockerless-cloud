@@ -1,16 +1,29 @@
 # Sockerless Cloud — simulators
 
-Local reimplementations of cloud-provider APIs. Not mocks — jobs run, functions execute, timeouts fire, logs land in the cloud-native sink, all driven by the same configuration knobs (replica timeouts, task timeouts, etc.) that the real cloud services honor. Code that works against the simulators works against the real cloud and vice versa.
+Local, wire-faithful reimplementations of slices of the AWS, Google Cloud and Microsoft Azure APIs. Jobs run, functions execute, timeouts fire and logs land in the cloud-native sink, driven by the configuration the real services honor, so code that works against a simulator works against the cloud.
 
-They are general-purpose: anything that speaks a cloud's API can be pointed at one and tested against it — the cloud's own SDKs, its official CLI, its Terraform provider, and the libraries built on top of them (boto for AWS, for instance). Each cloud's surface is validated against that cloud's published specification in the format the cloud publishes it: Smithy models for AWS, Discovery documents for Google Cloud, OpenAPI (Swagger) for Azure.
-
-This file is the **end-to-end showcase + navigation hub**. The canonical per-cloud documentation lives in the three sub-directories — read those for full per-service detail.
+Anything that speaks a cloud's API can be pointed at its simulator: the cloud's SDKs, its official CLI, its Terraform provider, and the libraries built on them (boto, for instance). Each surface is validated against the cloud's published specification in the format the cloud publishes: Smithy models for AWS, Discovery documents for Google Cloud, OpenAPI (Swagger) for Azure. Each simulator's own README covers its services in full.
 
 | Cloud | README | Published specification it is validated against |
 |---|---|---|
 | AWS | [`simulator-aws/README.md`](simulator-aws/README.md) | Smithy models ([`specs/cloud-api/aws`](specs/cloud-api/aws)) |
 | GCP | [`simulator-gcp/README.md`](simulator-gcp/README.md) | Discovery documents ([`specs/cloud-api/gcp`](specs/cloud-api/gcp)) |
 | Azure | [`simulator-azure/README.md`](simulator-azure/README.md) | OpenAPI/Swagger ([`specs/cloud-api/azure`](specs/cloud-api/azure)) |
+
+## Install
+
+Each release is one `vX.Y.Z` tag carrying the simulator binaries with their consoles embedded (linux and darwin, amd64 and arm64), the console bundles, and multi-architecture container images:
+
+```sh
+docker run -p 4566:4566 -v /var/run/docker.sock:/var/run/docker.sock \
+  ghcr.io/e6qu/sockerless-simulator-aws:vX.Y.Z
+```
+
+The simulators are subdirectory Go modules, which a plain `vX.Y.Z` tag cannot version, so a Go install pins the release commit:
+
+```sh
+go install github.com/e6qu/sockerless-cloud/simulator-aws@<release-commit>
+```
 
 ## Reference adaptors
 
@@ -50,14 +63,14 @@ Full statement and rationale in [AGENTS.md → Simulator architecture — cloud-
 docker compose up
 ```
 
-This starts all three simulators on their default ports with health checks. Each one logs to stdout in the same compose process.
+This builds and starts all three simulators on their default ports with health checks.
 
 Equivalent without compose:
 
 ```sh
-cd simulator-aws && go run . &
-cd simulator-gcp && go run . &
-cd simulator-azure && go run . &
+(cd simulator-aws && go run . &)
+(cd simulator-gcp && go run . &)
+(cd simulator-azure && go run . &)
 ```
 
 Environment knobs (per sim — full list in each sub-README):
@@ -68,6 +81,8 @@ Environment knobs (per sim — full list in each sub-README):
 | `SIM_AWS_PORT` / `SIM_GCP_PORT` / `SIM_AZURE_PORT` | `4566` / `4567` / `4568` | Provider-specific port override |
 | `SIM_TLS_CERT`, `SIM_TLS_KEY` | unset | Enable HTTPS (required by some Terraform providers — see [`simulator-azure/README.md § Special handling`](simulator-azure/README.md)) |
 | `SIM_RUNTIME` | `docker` | Workload runtime mode. The default initializes Docker/Podman for execution. Set `process` only for explicit API-only runs that do not invoke workload-execution APIs. |
+| `SIM_PERSIST` | `false` | `true` keeps state, payloads and running workloads across restarts. |
+| `SIM_DATA_DIR` | temporary directory | Root of the SQLite store and the bulk-data directories. |
 | `SIM_SERVICEBUS_AMQP_LISTEN_ADDR` | unset | Azure-only raw Service Bus AMQP/TLS listener; requires `SIM_SERVICEBUS_AMQP_TLS_CERT` / `SIM_SERVICEBUS_AMQP_TLS_KEY` or the shared TLS cert/key |
 | `SIM_LOG_LEVEL` | `info` | Log level (`trace`, `debug`, `info`, `warn`, `error`) |
 | `SIM_UI_OIDC_ISSUER` | unset | OpenID Connect issuer for the embedded operator UI. Configure all UI OIDC values together. |
@@ -167,48 +182,49 @@ export AWS_ENDPOINT_URL=http://localhost:4566 AWS_REGION=us-east-1 \
 aws ecs list-clusters
 aws cloudfront list-distributions
 
-export CLOUDSDK_API_ENDPOINT_OVERRIDES_RUN=http://localhost:4567/
-gcloud run jobs list --region us-central1
+export CLOUDSDK_AUTH_ACCESS_TOKEN=$(curl -s -X POST http://localhost:4567/token \
+  -d grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer | jq -r .access_token)
+export CLOUDSDK_CORE_PROJECT=sockerless CLOUDSDK_API_ENDPOINT_OVERRIDES_STORAGE=http://localhost:4567/
+gcloud storage buckets list
 
-az rest --method GET --url "http://localhost:4568/subscriptions/.../resourceGroups?api-version=2021-04-01"
+AZ_TOKEN=$(curl -s -X POST http://localhost:4568/11111111-1111-1111-1111-111111111111/oauth2/v2.0/token \
+  -d grant_type=client_credentials -d client_id=test-client-id -d client_secret=test-client-secret \
+  --data-urlencode scope=https://management.azure.com/.default | jq -r .access_token)
+az rest --method GET --headers "Authorization=Bearer $AZ_TOKEN" \
+  --url "http://localhost:4568/subscriptions/00000000-0000-0000-0000-000000000001/resourcegroups?api-version=2021-04-01"
 
 # 3. Run each cloud's Terraform suite (each starts its own simulator)
 (cd simulator-aws/terraform-tests   && go test -run TestStackProductionShape .)
 (cd simulator-gcp/terraform-tests   && go test ./...)
 (cd simulator-azure/terraform-tests && go test ./...)
-
 ```
 
 Per-simulator captured-output samples live in each simulator README. The most exercised production-shape integration test is `TestStackProductionShape` in [`simulator-aws/terraform-tests/apply_test.go`](simulator-aws/terraform-tests/apply_test.go); it provisions CloudFront + ACM + WAFv2 + Route 53 ALIAS + Amplify + IAM SLR/OIDC + ECS + Cloud Map in one `terraform apply` and asserts the cross-resource references resolve correctly.
 
 ## Validation
 
-Every simulator ships four test surfaces:
+Every simulator ships three client test suites, each a Go module whose `TestMain` builds and starts the simulator:
 
-- `sdk-tests/` — official cloud SDK against the running sim.
-- `cli-tests/` — official cloud CLI against the running sim.
-- `terraform-tests/` — real Terraform provider with `endpoints {}` overrides against the running sim.
-- `bash-tests/` — standalone bash scripts validating CLI behaviour in text + JSON modes.
-
-```sh
-# Per-cloud run-all
-cd simulator-aws/sdk-tests       && GOWORK=off go test -v ./...
-cd simulator-aws/cli-tests       && GOWORK=off go test -v ./...
-cd simulator-aws/terraform-tests && GOWORK=off go test -v ./...
-cd simulator-aws/bash-tests      && ./test_aws_cli.sh
-```
-
-Top-level Makefile entry points:
+- `sdk-tests/` — the cloud's official Go SDK.
+- `cli-tests/` — the cloud's official CLI (`aws`, `gcloud`, `az`), installed by `TestMain` when absent.
+- `terraform-tests/` — the cloud's Terraform provider, with endpoint overrides.
 
 ```sh
-make docker-test                  # Docker-based SDK/CLI/Terraform tests for all clouds
-make simulator-aws/docker-test   # Docker-based tests for one cloud
-make test-integration             # Integration-tagged tests across every Go module
+make simulator-aws/unit-test        # the module's own unit tests
+make simulator-aws/sdk-test
+make simulator-aws/cli-test
+make simulator-aws/terraform-test
 ```
 
-`make docker-test` builds the shared `Dockerfile.test` image, mounts the repository root and the host Docker socket, and runs each simulator's `test-all` target inside it — the same real-client suites, not a reduced smoke test.
+```sh
+make docker-test                  # every cloud's suites inside the shared test image
+make simulator-aws/docker-test    # one cloud's suites inside it
+make test-integration             # integration-tagged tests across every Go module
+```
 
-CI runs all of them on every PR — the `sim (<cloud> sdk …)`, `sim (<cloud> cli …)` and `tf (<cloud> …)` jobs in `.github/workflows/ci.yml`, sharded per cloud, with `race (simulator-<cloud>)` and `race (sim)` running the module unit tests under the race detector.
+`make docker-test` builds the shared `Dockerfile.test` image, mounts the repository root and the host Docker socket, and runs each simulator's `test-all` target inside it.
+
+CI runs every suite on each pull request — the `sim (<cloud> sdk …)`, `sim (<cloud> cli …)` and `tf (<cloud> …)` jobs in `.github/workflows/ci.yml`, sharded per cloud, with `race (simulator-<cloud>)` and `race (sim)` running the module unit tests under the race detector.
 
 ### Spec-based validation
 
@@ -246,14 +262,13 @@ The framework is cloud-neutral; each cloud's error shape, protocol router,
 sandbox profile and console coordinates live in its own module and reach the
 framework through hooks.
 
-## Design philosophy
+## Design
 
-Simulators are **real implementations**, not fakes. They don't approximate cloud behavior with synthetic timers or hardcoded responses — they reimplement the actual service semantics:
+The simulators reimplement each service's semantics rather than approximating them with synthetic timers or fixed answers:
 
 - **Cloud-native configuration drives the execution lifecycle.** Azure ACA jobs respect `replicaTimeout`. GCP Cloud Run jobs respect the task-template `timeout`. AWS ECS tasks run until the process exits or a caller invokes `StopTask`, because ECS has no native execution timeout, and a stopped container gets its definition's `stopTimeout` between SIGTERM and SIGKILL.
 - **Log injection** writes entries to the same tables and log groups that the real services would, queryable through the same APIs (KQL for Azure, Cloud Logging filters for GCP, CloudWatch for AWS).
 - **Exec and attach reach the real container.** Amazon ECS `ExecuteCommand` and the Azure App Service and Container Apps exec surfaces run their command inside the workload's own container through the engine's exec API, bridged over the same WebSocket protocol the real service uses.
-- **SDK + Terraform compatibility** rides on the real official clients, not custom HTTP calls.
 
 Each simulator runs on a single machine.
 

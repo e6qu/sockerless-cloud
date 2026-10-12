@@ -876,19 +876,27 @@ func registerGCS(srv *sim.Server) {
 
 	// List buckets
 	srv.HandleFunc("GET /storage/v1/b", func(w http.ResponseWriter, r *http.Request) {
-		all := buckets.List()
-		sort.Slice(all, func(i, j int) bool {
-			ni, _ := all[i].Data["name"].(string)
-			nj, _ := all[j].Data["name"].(string)
-			return ni < nj
-		})
-		items := make([]map[string]any, 0, len(all))
-		for _, b := range all {
-			items = append(items, b.Data)
+		project := r.URL.Query().Get("project")
+		if project == "" {
+			GCPError(w, http.StatusBadRequest, "Required parameter: project", "INVALID_ARGUMENT")
+			return
 		}
-		page, next, ok := paginateListGCS(w, r, items)
+		owner, ok := gcsResolveProject(w, project)
 		if !ok {
 			return
+		}
+		prefix := r.URL.Query().Get("prefix")
+		all := buckets.Filter(func(b Bucket) bool {
+			return b.Project == owner.ProjectId && strings.HasPrefix(gcsBucketName(b), prefix)
+		})
+		sort.Slice(all, func(i, j int) bool { return gcsBucketName(all[i]) < gcsBucketName(all[j]) })
+		listed, next, ok := gcsPageAfter(w, r, all, gcsBucketName)
+		if !ok {
+			return
+		}
+		page := make([]map[string]any, 0, len(listed))
+		for _, b := range listed {
+			page = append(page, b.Data)
 		}
 		resp := map[string]any{"kind": "storage#buckets", "items": page}
 		if next != "" {
@@ -946,7 +954,7 @@ func registerGCS(srv *sim.Server) {
 		marker := ""
 		if token := r.URL.Query().Get("pageToken"); token != "" {
 			var ok bool
-			if marker, ok = gcsObjectPageMarker(token); !ok {
+			if marker, ok = gcsPageMarker(token); !ok {
 				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageToken %q", token)
 				return
 			}
@@ -974,7 +982,7 @@ func registerGCS(srv *sim.Server) {
 			resp["prefixes"] = prefixes
 		}
 		if next != "" {
-			resp["nextPageToken"] = gcsObjectPageToken(next)
+			resp["nextPageToken"] = gcsPageToken(next)
 		}
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
@@ -1997,13 +2005,13 @@ func registerGCSFolders(srv *sim.Server, buckets sim.Store[Bucket], bucketExists
 			return f.Bucket == bucket && (prefix == "" || strings.HasPrefix(f.Name, prefix))
 		})
 		sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-		mapped := make([]map[string]any, 0, len(items))
-		for _, f := range items {
-			mapped = append(mapped, gcsStructToMap(f))
-		}
-		page, next, ok := paginateListGCS(w, r, mapped)
+		listed, next, ok := gcsPageAfter(w, r, items, func(f GCSFolder) string { return f.Name })
 		if !ok {
 			return
+		}
+		page := make([]map[string]any, 0, len(listed))
+		for _, f := range listed {
+			page = append(page, gcsStructToMap(f))
 		}
 		resp := map[string]any{"kind": "storage#folders", "items": page}
 		if next != "" {
@@ -2116,13 +2124,13 @@ func registerGCSManagedFolders(srv *sim.Server, buckets sim.Store[Bucket], bucke
 			return f.Bucket == bucket && (prefix == "" || strings.HasPrefix(f.Name, prefix))
 		})
 		sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-		mapped := make([]map[string]any, 0, len(items))
-		for _, f := range items {
-			mapped = append(mapped, gcsStructToMap(f))
-		}
-		page, next, ok := paginateListGCS(w, r, mapped)
+		listed, next, ok := gcsPageAfter(w, r, items, func(f GCSManagedFolder) string { return f.Name })
 		if !ok {
 			return
+		}
+		page := make([]map[string]any, 0, len(listed))
+		for _, f := range listed {
+			page = append(page, gcsStructToMap(f))
 		}
 		resp := map[string]any{"kind": "storage#managedFolders", "items": page}
 		if next != "" {
@@ -2382,13 +2390,13 @@ func registerGCSHmacKeys(srv *sim.Server) {
 			return true
 		})
 		sort.Slice(items, func(i, j int) bool { return items[i].AccessID < items[j].AccessID })
-		mapped := make([]map[string]any, 0, len(items))
-		for _, k := range items {
-			mapped = append(mapped, gcsStructToMap(k))
-		}
-		page, next, ok := paginateListGCS(w, r, mapped)
+		listed, next, ok := gcsPageAfter(w, r, items, func(k GCSHmacKey) string { return k.AccessID })
 		if !ok {
 			return
+		}
+		page := make([]map[string]any, 0, len(listed))
+		for _, k := range listed {
+			page = append(page, gcsStructToMap(k))
 		}
 		resp := map[string]any{"kind": "storage#hmacKeysMetadata", "items": page}
 		if next != "" {
@@ -2485,13 +2493,13 @@ func registerGCSAnywhereCaches(srv *sim.Server, buckets sim.Store[Bucket], bucke
 		}
 		items := caches.Filter(func(c GCSAnywhereCache) bool { return c.Bucket == bucket })
 		sort.Slice(items, func(i, j int) bool { return items[i].AnywhereCacheID < items[j].AnywhereCacheID })
-		mapped := make([]map[string]any, 0, len(items))
-		for _, c := range items {
-			mapped = append(mapped, gcsStructToMap(c))
-		}
-		page, next, ok := paginateListGCS(w, r, mapped)
+		listed, next, ok := gcsPageAfter(w, r, items, func(c GCSAnywhereCache) string { return c.AnywhereCacheID })
 		if !ok {
 			return
+		}
+		page := make([]map[string]any, 0, len(listed))
+		for _, c := range listed {
+			page = append(page, gcsStructToMap(c))
 		}
 		resp := map[string]any{"kind": "storage#anywhereCaches", "items": page}
 		if next != "" {
@@ -2618,13 +2626,13 @@ func registerGCSRapidCaches(srv *sim.Server, buckets sim.Store[Bucket], bucketEx
 		}
 		items := caches.Filter(func(c GCSRapidCache) bool { return c.Bucket == bucket })
 		sort.Slice(items, func(i, j int) bool { return items[i].RapidCacheID < items[j].RapidCacheID })
-		mapped := make([]map[string]any, 0, len(items))
-		for _, c := range items {
-			mapped = append(mapped, gcsStructToMap(c))
-		}
-		page, next, ok := paginateListGCS(w, r, mapped)
+		listed, next, ok := gcsPageAfter(w, r, items, func(c GCSRapidCache) string { return c.RapidCacheID })
 		if !ok {
 			return
+		}
+		page := make([]map[string]any, 0, len(listed))
+		for _, c := range listed {
+			page = append(page, gcsStructToMap(c))
 		}
 		resp := map[string]any{"kind": "storage#rapidCaches", "items": page}
 		if next != "" {
@@ -3051,18 +3059,48 @@ func gcsRandHex(n int) string {
 	return hex.EncodeToString(buf)[:n]
 }
 
-// gcsObjectPageTag marks an object-listing page token as one this simulator
-// issued, so a token that merely decodes as base64 is still refused.
-const gcsObjectPageTag = "objects\x00"
+// gcsPageTag marks a listing page token as one this simulator issued, so a
+// token that merely decodes as base64 is still refused.
+const gcsPageTag = "after\x00"
 
-func gcsObjectPageToken(marker string) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(gcsObjectPageTag + marker))
+// gcsPageToken resumes a listing strictly after the key it names, the way
+// Cloud Storage's tokens resume: a resource created or deleted between two
+// page reads moves no other resource onto a second page or off every page.
+func gcsPageToken(after string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(gcsPageTag + after))
 }
 
-func gcsObjectPageMarker(token string) (string, bool) {
+func gcsPageMarker(token string) (string, bool) {
 	decoded, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil {
 		return "", false
 	}
-	return strings.CutPrefix(string(decoded), gcsObjectPageTag)
+	return strings.CutPrefix(string(decoded), gcsPageTag)
+}
+
+// gcsPageAfter pages items, sorted ascending by key, by the JSON API's
+// maxResults and pageToken. Without maxResults it returns everything after the
+// token.
+func gcsPageAfter[T any](w http.ResponseWriter, r *http.Request, items []T, key func(T) string) ([]T, string, bool) {
+	size, ok := gcpPageSizeParam(w, r, "maxResults")
+	if !ok {
+		return nil, "", false
+	}
+	if token := r.URL.Query().Get("pageToken"); token != "" {
+		after, ok := gcsPageMarker(token)
+		if !ok {
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageToken %q", token)
+			return nil, "", false
+		}
+		items = items[sort.Search(len(items), func(i int) bool { return key(items[i]) > after }):]
+	}
+	if size == 0 || len(items) <= size {
+		return items, "", true
+	}
+	return items[:size], gcsPageToken(key(items[size-1])), true
+}
+
+func gcsBucketName(b Bucket) string {
+	name, _ := b.Data["name"].(string)
+	return name
 }

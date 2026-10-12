@@ -86,7 +86,8 @@ RUN case "${TARGETARCH}" in \
     && apt-get update && apt-get install -y --no-install-recommends /tmp/azure-cli.deb \
     && rm -rf /var/lib/apt/lists/* /tmp/azure-cli.deb
 
-# Google Cloud CLI, with the Firestore emulator the Google Cloud SDK suite starts.
+# Google Cloud CLI, with the Firestore emulator the Google Cloud SDK suite starts
+# and the alpha and beta tracks the gcloud suite's commands name.
 ARG GCLOUD_VERSION=576.0.0
 RUN case "${TARGETARCH}" in \
       amd64) gcloud_arch=x86_64; gcloud_sha256=7094a08e8fc3772cdbfb1a8a1920300f52fec5e370c9f9c803c2a3c8824a32c2 ;; \
@@ -101,7 +102,7 @@ RUN case "${TARGETARCH}" in \
     && /opt/google-cloud-sdk/install.sh --quiet --path-update=false --command-completion=false --usage-reporting=false \
     && apt-get update && apt-get install -y --no-install-recommends default-jre-headless \
     && rm -rf /var/lib/apt/lists/* \
-    && /opt/google-cloud-sdk/bin/gcloud components install cloud-firestore-emulator beta --quiet \
+    && /opt/google-cloud-sdk/bin/gcloud components install cloud-firestore-emulator alpha beta --quiet \
     && ln -s /opt/google-cloud-sdk/bin/gcloud /usr/local/bin/gcloud
 ENV CLOUDSDK_CORE_DISABLE_PROMPTS=1
 

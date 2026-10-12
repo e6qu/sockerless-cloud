@@ -583,8 +583,12 @@ echo EBS_CAPACITY_OK`},
 	for _, e := range events.Events {
 		messages = append(messages, aws.ToString(e.Message))
 	}
+	var exits []string
+	for _, c := range task.Containers {
+		exits = append(exits, fmt.Sprintf("%s exit %d %s", aws.ToString(c.Name), aws.ToInt32(c.ExitCode), aws.ToString(c.Reason)))
+	}
 	require.Contains(t, strings.Join(messages, "\n"), "EBS_CAPACITY_OK",
-		"stopped: %s; output: %s", aws.ToString(task.StoppedReason), strings.Join(messages, " | "))
+		"stopped: %s; containers: %s; output: %s", aws.ToString(task.StoppedReason), strings.Join(exits, ", "), strings.Join(messages, " | "))
 
 	_, err = client.RunTask(ctx, &ecs.RunTaskInput{
 		Cluster:        aws.String(clusterName),

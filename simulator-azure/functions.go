@@ -1140,9 +1140,9 @@ type azureFunctionInstance struct {
 	containerID    string
 	cancelLogs     context.CancelFunc
 	sidecarHandles []*sim.ContainerHandle
-	// exited closes when the main container stops running; logsDone closes
+	// exit reports when the main container stops running; logsDone closes
 	// once its output has been read to the end.
-	exited   <-chan struct{}
+	exit     *containerExit
 	logsDone <-chan struct{}
 	stopWait context.CancelFunc
 	// port is the container port the front end forwards the site's requests
@@ -1279,7 +1279,7 @@ func (inst *azureFunctionInstance) ensureStarted(site *Site) error {
 	}
 	if inst.containerID != "" {
 		select {
-		case <-inst.exited:
+		case <-inst.exit.done:
 			inst.teardownLocked()
 		default:
 			inst.connectNetworksLocked(inst.containerID, site)
@@ -1445,7 +1445,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	if err != nil {
 		return fmt.Errorf("start site container: %w", err)
 	}
-	exited, stopWait := watchContainerExit(containerID)
+	exit, stopWait := watchContainerExit(containerID)
 	logCtx, cancelLogs := context.WithCancel(context.Background())
 	logsDone := make(chan struct{})
 	go func() {
@@ -1464,15 +1464,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 		return fmt.Errorf("start sitecontainers: %w", err)
 	}
 
-	// The container's bridge address reaches the port from the host and from a
-	// harness container alike; the engine publishes the site's port on the
-	// host's loopback, which also reaches it where bridge addresses are not
-	// routed.
-	var candidates []string
-	if ip := sim.ContainerIPv4(containerID); ip != "" {
-		candidates = append(candidates, "http://"+net.JoinHostPort(ip, strconv.Itoa(port)))
-	}
-	hostPort, err := sim.PublishedHostPort(ctx, containerID, port)
+	candidates, err := siteContainerCandidates(ctx, containerID, port)
 	if err != nil {
 		stopWait()
 		cancelLogs()
@@ -1480,16 +1472,15 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 			handle.Cancel()
 		}
 		sim.StopAndRemoveContainer(containerID, siteStopGrace(site))
-		return fmt.Errorf("read the site's published port: %w", err)
+		return err
 	}
-	candidates = append(candidates, fmt.Sprintf("http://127.0.0.1:%d", hostPort))
 
 	inst.connectNetworksLocked(containerID, site)
 
 	inst.containerID = containerID
 	inst.cancelLogs = cancelLogs
 	inst.sidecarHandles = sidecarHandles
-	inst.exited = exited
+	inst.exit = exit
 	inst.logsDone = logsDone
 	inst.stopWait = stopWait
 	inst.port = port
@@ -1500,29 +1491,69 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	return nil
 }
 
-// watchContainerExit returns a channel the engine's own wait closes when the
-// container stops running, and the function that releases the wait.
-func watchContainerExit(containerID string) (<-chan struct{}, context.CancelFunc) {
-	exited := make(chan struct{})
+// siteContainerCandidates returns the addresses the site's port may answer at:
+// the container's bridge address, which reaches the port from the host and
+// from a harness container alike, and the port the engine publishes on the
+// host's loopback, which also reaches it where bridge addresses are not routed.
+// A container that has already stopped publishes no port and has no address,
+// so it has no candidates, and the start reports its exit.
+func siteContainerCandidates(ctx context.Context, containerID string, port int) ([]string, error) {
+	var candidates []string
+	if ip := sim.ContainerIPv4(containerID); ip != "" {
+		candidates = append(candidates, "http://"+net.JoinHostPort(ip, strconv.Itoa(port)))
+	}
+	hostPort, err := sim.PublishedHostPort(ctx, containerID, port)
+	if err != nil {
+		inspected, inspectErr := sim.DockerClient().ContainerInspect(ctx, containerID, mobyclient.ContainerInspectOptions{})
+		if inspectErr == nil && inspected.Container.State != nil && !inspected.Container.State.Running {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read the site's published port: %w", err)
+	}
+	return append(candidates, fmt.Sprintf("http://127.0.0.1:%d", hostPort)), nil
+}
+
+// containerExit tracks the engine's wait on a container: done closes when the
+// container stops running, and code then holds its exit status, or -1 when the
+// wait ended without one.
+type containerExit struct {
+	done chan struct{}
+	code int64
+}
+
+// exitedBeforeAnswering is the start failure of a site whose container stopped
+// before its port answered.
+func (e *containerExit) exitedBeforeAnswering(site string, port int) error {
+	if e.code < 0 {
+		return fmt.Errorf("site %q container exited before it answered on port %d", site, port)
+	}
+	return fmt.Errorf("site %q container exited before it answered on port %d: exit code %d", site, port, e.code)
+}
+
+// watchContainerExit starts the engine's own wait for the container to stop
+// running, and returns its tracker and the function that releases the wait.
+func watchContainerExit(containerID string) (*containerExit, context.CancelFunc) {
+	exit := &containerExit{done: make(chan struct{}), code: -1}
 	ctx, cancel := context.WithCancel(context.Background())
 	cli := sim.DockerClient()
 	if cli == nil {
-		close(exited)
-		return exited, cancel
+		close(exit.done)
+		return exit, cancel
 	}
 	wait := cli.ContainerWait(ctx, containerID, mobyclient.ContainerWaitOptions{Condition: mobycontainer.WaitConditionNotRunning})
 	go func() {
 		select {
-		case <-wait.Result:
-			close(exited)
+		case result := <-wait.Result:
+			exit.code = result.StatusCode
+			close(exit.done)
 		case err := <-wait.Error:
 			if ctx.Err() == nil && err != nil {
-				close(exited)
+				close(exit.done)
 			}
 		case <-ctx.Done():
 		}
 	}()
-	return exited, cancel
+	return exit, cancel
 }
 
 // teardownLocked stops the instance's main container, its sidecars, and its log
@@ -1548,7 +1579,7 @@ func (inst *azureFunctionInstance) teardownLocked() {
 	inst.containerID = ""
 	inst.cancelLogs = nil
 	inst.sidecarHandles = nil
-	inst.exited = nil
+	inst.exit = nil
 	inst.logsDone = nil
 	inst.stopWait = nil
 	inst.port = 0
