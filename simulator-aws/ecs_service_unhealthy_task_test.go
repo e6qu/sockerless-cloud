@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -164,10 +166,44 @@ func ecsHealthTestTaskAged(
 	return task
 }
 
+// ecsLaunchRecorder records, for each task put into the task store for the
+// first time, how many of the service's other tasks were still in flight — not
+// STOPPED — at that moment, leaving out the tasks the test names.
+type ecsLaunchRecorder struct {
+	sim.Store[ECSTask]
+	group  string
+	ignore map[string]bool
+
+	mu       sync.Mutex
+	inFlight []int
+}
+
+func (r *ecsLaunchRecorder) Put(id string, task ECSTask) {
+	if _, exists := r.Get(id); !exists && task.Group == r.group {
+		others := 0
+		for _, other := range r.Filter(func(other ECSTask) bool {
+			return other.Group == r.group && other.LastStatus != ECSTaskStatusStopped
+		}) {
+			if !r.ignore[other.TaskArn] {
+				others++
+			}
+		}
+		r.mu.Lock()
+		r.inFlight = append(r.inFlight, others)
+		r.mu.Unlock()
+	}
+	r.Store.Put(id, task)
+}
+
 // TestCompletedDeploymentSurvivesAFailedTargetHealthCheck proves the scheduler
 // answers a failed health check by replacing the task rather than by reopening
 // a finished rollout. Reporting IN_PROGRESS again is a state the service never
 // reports, and it hides the replacement the service is supposed to perform.
+//
+// The replacement's start fails here, because no server serves the metadata
+// callback it needs, and a replacement that stops is itself replaced. Each
+// launch is therefore recorded with the replacements still in flight when it
+// was made: one replacement per failed task means none.
 func TestCompletedDeploymentSurvivesAFailedTargetHealthCheck(t *testing.T) {
 	ecsSchedulerTestStores()
 	cluster, taskDefinitionArn := ecsSchedulerTestCluster("health-cluster", "health-task")
@@ -180,8 +216,15 @@ func TestCompletedDeploymentSurvivesAFailedTargetHealthCheck(t *testing.T) {
 	key := ecsHealthTestService(t, cluster, serviceName, taskDefinitionArn, containerPort)
 	failing := ecsHealthTestTaskAged(cluster, serviceName, taskDefinitionArn, taskAddress, time.Minute)
 	ecsHealthTestRecordTargetHealth(t, containerPort, map[string]string{taskAddress: elbv2TargetStateUnhealthy})
+	launches := &ecsLaunchRecorder{
+		Store:  ecsTasks,
+		group:  ecsServiceTaskGroup(serviceName),
+		ignore: map[string]bool{failing.TaskArn: true},
+	}
+	ecsTasks = launches
 
 	ecsReconcileService(key)
+	bg.Await()
 
 	service, ok := ecsServices.Get(key)
 	require.True(t, ok)
@@ -189,15 +232,15 @@ func TestCompletedDeploymentSurvivesAFailedTargetHealthCheck(t *testing.T) {
 	require.Equal(t, "COMPLETED", service.Deployments[0].RolloutState,
 		"a failed health check reopened a finished rollout instead of replacing the task")
 
-	group := ecsServiceTaskGroup(serviceName)
-	replacements := 0
-	for _, task := range ecsServiceTasksForGroup(cluster.ClusterArn, group) {
-		if task.TaskArn != failing.TaskArn {
-			replacements++
-		}
-	}
-	require.Equalf(t, 1, replacements,
+	launches.mu.Lock()
+	inFlight := slices.Clone(launches.inFlight)
+	launches.mu.Unlock()
+	require.NotEmpty(t, inFlight,
 		"the scheduler did not start a replacement for the task whose health check failed")
+	for launch, replacements := range inFlight {
+		require.Zerof(t, replacements,
+			"launch %d started while %d replacements for the one failed task were still in flight", launch, replacements)
+	}
 }
 
 // TestSchedulerStopsTheUnhealthyTaskOnceItsReplacementIsInService proves the

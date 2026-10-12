@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"slices"
+	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/listq"
@@ -41,6 +43,11 @@ func registerOperations(srv *sim.Server) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
 	})
 
+	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/operations", handleLocationOperationsList("v1"))
+	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/operations", handleLocationOperationsList("v2"))
+	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/operations/{operation}", handleLocationOperationDelete("v1"))
+	srv.HandleFunc("DELETE /v2/projects/{project}/locations/{location}/operations/{operation}", handleLocationOperationDelete("v2"))
+
 	// Get operation - v1 prefix
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/operations/{operation}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
@@ -73,4 +80,96 @@ func registerOperations(srv *sim.Server) {
 		}
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
 	})
+}
+
+// gcpLocationOperationPackages names, per API version, the services that
+// publish projects.locations.operations.list at that version's path — keyed
+// by the host Google serves each from — and the proto packages of the
+// metadata messages their operations carry. The Cloud Run Admin API's two
+// versions spell one collection of operation records.
+var gcpLocationOperationPackages = map[string]map[string][]string{
+	"v1": {
+		"apigateway": {"google.cloud.apigateway.v1"},
+		"eventarc":   {"google.cloud.eventarc.v1"},
+		"redis":      {"google.cloud.redis.v1", "google.cloud.redis.cluster.v1"},
+		"run":        {"google.cloud.run.v1", "google.cloud.run.v2"},
+		"vpcaccess":  {"google.cloud.vpcaccess.v1"},
+	},
+	"v2": {
+		"cloudfunctions": {"google.cloud.functions.v2"},
+		"logging":        {"google.logging.v2"},
+		"run":            {"google.cloud.run.v1", "google.cloud.run.v2"},
+	},
+}
+
+// gcpOperationPackage returns the proto package of the message an operation's
+// metadata carries: "google.cloud.eventarc.v1" for
+// type.googleapis.com/google.cloud.eventarc.v1.OperationMetadata.
+func gcpOperationPackage(op Operation) string {
+	typeURL, _ := op.Metadata["@type"].(string)
+	typeName := typeURL[strings.LastIndex(typeURL, "/")+1:]
+	if i := strings.LastIndex(typeName, "."); i >= 0 {
+		return typeName[:i]
+	}
+	return ""
+}
+
+// gcpLocationOperationOwned reports whether the projects.locations.operations
+// collection a request addresses at version holds op. Google serves each
+// service's collection from its own host, so a request whose Host names a
+// service reaches that service's operations only. A request to a bare address
+// names no service, and reaches the operations of every service publishing
+// the collection at that version.
+func gcpLocationOperationOwned(r *http.Request, version string, op Operation) bool {
+	services := gcpLocationOperationPackages[version]
+	if host := gcpServiceFromHost(r); host != "" {
+		return slices.Contains(services[host], gcpOperationPackage(op))
+	}
+	pkg := gcpOperationPackage(op)
+	for _, packages := range services {
+		if slices.Contains(packages, pkg) {
+			return true
+		}
+	}
+	return false
+}
+
+// handleLocationOperationsList serves projects.locations.operations.list at
+// version, in operation name order.
+func handleLocationOperationsList(version string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		prefix := gcpLocationOperationName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), "")
+		owned := func(op Operation) bool {
+			return strings.HasPrefix(op.Name, prefix) && gcpLocationOperationOwned(r, version, op)
+		}
+		out := crOperations.Filter(owned)
+		if logOperations != nil {
+			out = append(out, logOperations.Filter(owned)...)
+		}
+		page, next, ok := paginateList(w, r, out, gcpAsc(func(v Operation) string { return v.Name }))
+		if !ok {
+			return
+		}
+		resp := map[string]any{"operations": page}
+		if next != "" {
+			resp["nextPageToken"] = next
+		}
+		sim.WriteJSON(w, http.StatusOK, resp)
+	}
+}
+
+// handleLocationOperationDelete serves projects.locations.operations.delete at
+// version over the operations its collection holds.
+func handleLocationOperationDelete(version string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := gcpLocationOperationName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "operation"))
+		op, ok := crOperations.Get(name)
+		if !ok || !gcpLocationOperationOwned(r, version, op) {
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
+			return
+		}
+		crOperations.Delete(name)
+		// google.longrunning.DeleteOperation returns google.protobuf.Empty.
+		sim.WriteJSON(w, http.StatusOK, map[string]any{})
+	}
 }

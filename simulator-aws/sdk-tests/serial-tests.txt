@@ -1,6 +1,7 @@
 # Tests that cannot share the simulator with the rest of the suite, with
 # the reason; scripts/check-parallel-tests.go holds every other test to
 # starting with t.Parallel().
+TestACMEmailValidationAndResendUseRealSMTP	listens on port 25, the one SMTP port mail delivery dials
 TestACM_AccountConfiguration	changes an account-wide setting other tests read
 TestAPIGateway_AccountAndMisc	changes an account-wide setting other tests read
 TestEC2_AllowedImagesSettingsSDK	changes a service-wide setting other tests read
@@ -15,6 +16,8 @@ TestECR_AccountSettings	changes an account-wide setting other tests read
 TestECR_RegistryPolicyAndReplication	changes a service-wide setting other tests read
 TestECR_RegistryScanningConfiguration	changes a service-wide setting other tests read
 TestECS_AccountSettings	changes an account-wide setting other tests read
+TestFreeSimulatorPortPairIsSimultaneouslyBindable	binds ports it just released; a parallel test's outbound connection can take one as its source port
+TestFreeTCPUDPPortSupportsRoute53DualProtocolBind	binds ports it just released; a parallel test's outbound connection can take one as its source port
 TestIAM_AccountAlias	changes an account-wide setting other tests read
 TestIAM_AccountPasswordPolicy	changes an account-wide setting other tests read
 TestIAM_ChangePassword	changes an account-wide setting other tests read
@@ -43,4 +46,5 @@ TestS3Control_AccessGrantsInstanceIsAuthorizedAgainstTheInstance	creates or dele
 TestS3Control_AccessGrantsLocationAlsoAuthorizesPassingItsRole	creates or deletes the account's one S3 Access Grants instance, which other tests create
 TestS3_AccessGrantTagsAreTheGrantsResourceTags	creates or deletes the account's one S3 Access Grants instance, which other tests create
 TestS3_AccessGrantsInstanceArnConditionKeyScopesTheGrant	creates or deletes the account's one S3 Access Grants instance, which other tests create
+TestSNSEmailAndEmailJSONUseRealSMTP	listens on port 25, the one SMTP port mail delivery dials
 TestSSM_ServiceSetting	changes a service-wide setting other tests read

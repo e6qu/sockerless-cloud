@@ -129,9 +129,8 @@ type LoggingMetric struct {
 
 // listLogEntries is the shared implementation for listing log entries,
 // used by both the REST handler and the gRPC server. It returns the requested
-// page plus an opaque numeric next-page token (empty when no more entries
-// remain). The token is a start index into the deterministically-ordered,
-// filtered entry set; pageSize/pageToken only take effect when pageSize > 0.
+// page plus an opaque next-page token (empty when no more entries remain);
+// pageSize/pageToken only take effect when pageSize > 0.
 // A filter the query language does not admit, or a token it never issued,
 // answers an error whose text names the argument.
 func listLogEntries(filter string, resourceNames []string, pageSize int, pageToken string, orderBy string) ([]LogEntry, string, error) {
@@ -173,43 +172,43 @@ func listLogEntries(filter string, resourceNames []string, pageSize int, pageTok
 		allEntries = filtered
 	}
 
-	// Deterministic ordering so page tokens are stable across calls. orderBy
-	// "timestamp desc" returns newest-first; the default ("timestamp asc") is
-	// oldest-first. Real Cloud Logging only orders on timestamp.
+	// orderBy "timestamp desc" returns newest-first; the default ("timestamp
+	// asc") is oldest-first, and entries with identical timestamps follow in
+	// insertId order. The page token resumes after the last entry's position
+	// in that order, so an entry written between two reads moves no other
+	// entry across a page boundary.
 	// Order on the instant, not the string: writers stamp entries with
 	// differing fractional precision, and "…:05Z" sorts after "…:05.2Z".
-	desc := strings.Contains(strings.ToLower(orderBy), "desc")
-	instants := make([]time.Time, len(allEntries))
+	type orderedEntry struct {
+		entry LogEntry
+		at    string
+	}
+	ordered := make([]orderedEntry, len(allEntries))
 	for i, entry := range allEntries {
 		at, err := parseTimestamp(entry.Timestamp)
 		if err != nil {
 			return nil, "", fmt.Errorf("stored entry %q has an unreadable timestamp %q: %w", entry.InsertID, entry.Timestamp, err)
 		}
-		instants[i] = at
+		ordered[i] = orderedEntry{entry: entry, at: at.UTC().Format("2006-01-02T15:04:05.000000000Z")}
 	}
-	order := make([]int, len(allEntries))
-	for i := range order {
-		order[i] = i
+	byInstant := gcpAsc(func(e orderedEntry) string { return e.at })
+	if strings.Contains(strings.ToLower(orderBy), "desc") {
+		byInstant = gcpDesc(func(e orderedEntry) string { return e.at })
 	}
-	sort.SliceStable(order, func(a, b int) bool {
-		i, j := order[a], order[b]
-		if !instants[i].Equal(instants[j]) {
-			if desc {
-				return instants[i].After(instants[j])
-			}
-			return instants[i].Before(instants[j])
-		}
-		return allEntries[i].InsertID < allEntries[j].InsertID
-	})
-	sorted := make([]LogEntry, len(allEntries))
-	for k, i := range order {
-		sorted[k] = allEntries[i]
-	}
-	allEntries = sorted
-
-	page, next, err := listq.TokenPage(listq.Decimal.Strictly(), allEntries, pageToken, pageSize, 0, 0)
-	if err != nil {
+	paged, next, err := gcpKeyPageOf(ordered, []gcpSortKey[orderedEntry]{
+		byInstant,
+		gcpAsc(func(e orderedEntry) string { return e.entry.InsertID }),
+		gcpAsc(func(e orderedEntry) string { return e.entry.LogName }),
+	}, pageToken, pageSize, 0, 0)
+	if errors.Is(err, errGCPPageToken) {
 		return nil, "", fmt.Errorf("invalid pageToken %q: %w", pageToken, err)
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	page := make([]LogEntry, len(paged))
+	for i, e := range paged {
+		page[i] = e.entry
 	}
 	return page, next, nil
 }
@@ -955,10 +954,10 @@ func loggingTailBufferWindow(req *loggingpb.TailLogEntriesRequest) (time.Duratio
 	return window, nil
 }
 
-// loggingPageOfNames slices a sorted name list by the numeric offset page token
-// the REST list handlers use, so both doors read and mint the same tokens.
+// loggingPageOfNames pages a log name list in name order, the order and token
+// the REST list handler uses, so both doors read and mint the same tokens.
 func loggingPageOfNames(names []string, pageSize int, pageToken string) ([]string, string, error) {
-	return grpcOffsetPage(names, int32(pageSize), pageToken)
+	return grpcKeyPage(names, int32(pageSize), pageToken, gcpAsc(func(name string) string { return name }))
 }
 
 func registerCloudLoggingGRPC(gs *grpc.Server) {

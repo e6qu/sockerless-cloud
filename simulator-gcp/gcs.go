@@ -1762,9 +1762,8 @@ func gcsACLEmailFor(entity string) (email string, team *gcsProjectTeam) {
 // registerGCSExtras mounts the remaining storage v1 control-plane surfaces —
 // bucket ACLs, default object ACLs, folders, managed folders (+ their IAM),
 // notification configs, HMAC keys, anywhere caches, bucket operations,
-// bucket-level lifecycle verbs (relocate/restore/lockRetentionPolicy),
-// channels.stop, the project service account, and the metadata-only object
-// insert. Each is a faithful slice of the real JSON API.
+// bucket-level lifecycle verbs (relocate/restore/lockRetentionPolicy), the
+// project service account, and the metadata-only object insert. Each is a faithful slice of the real JSON API.
 func registerGCSExtras(srv *sim.Server, buckets sim.Store[Bucket], objects sim.PrefixStore[GCSObject]) {
 	gcsBucketACLs = sim.MakeStore[GCSBucketACL](srv.DB(), "gcs_bucket_acls")
 	gcsObjectDefACLs = sim.MakeStore[GCSObjectACL](srv.DB(), "gcs_default_object_acls")
@@ -2889,12 +2888,6 @@ func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], obje
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
-		w.WriteHeader(http.StatusOK)
-	})
-
-	// channels.stop — stops a watch channel; returns an empty 200.
-	srv.HandleFunc("POST /storage/v1/channels/stop", func(w http.ResponseWriter, r *http.Request) {
-		_ = sim.ReadJSON(r, &map[string]any{})
 		w.WriteHeader(http.StatusOK)
 	})
 

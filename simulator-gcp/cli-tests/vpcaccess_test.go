@@ -158,3 +158,38 @@ func TestVPCAccess_Delete(t *testing.T) {
 	resp.Body.Close()
 	assert.Equal(t, 404, resp.StatusCode)
 }
+
+// Serverless VPC Access lists the operations it started from its own host.
+// Eventarc publishes the same projects.locations.operations path, and its
+// operations stay in Eventarc's collection.
+func TestVPCAccess_CLI_OperationsListOnlyItsOwnOperations(t *testing.T) {
+	t.Parallel()
+	runCLI(t, gcloudCLI("eventarc", "channels", "create", "ops-scope-channel",
+		"--location", location,
+		"--provider", "projects/"+project+"/locations/"+location+"/providers/cloud.pubsub",
+		"--format", "json"))
+	t.Cleanup(func() {
+		runCLI(t, gcloudCLI("eventarc", "channels", "delete", "ops-scope-channel", "--location", location, "--quiet"))
+	})
+	var created struct {
+		Name string `json:"name"`
+	}
+	parseJSON(t, httpDoJSON(t, "POST", vpcAccessBaseURL()+"?connectorId=ops-scope-connector",
+		`{"network": "default", "ipCidrRange": "10.8.80.0/28"}`), &created)
+	t.Cleanup(func() { httpDoJSON(t, "DELETE", vpcAccessURL("ops-scope-connector"), "") })
+
+	var listed []struct {
+		Name     string         `json:"name"`
+		Metadata map[string]any `json:"metadata"`
+	}
+	parseJSON(t, runCLI(t, gcloudCLI("compute", "networks", "vpc-access", "operations", "list",
+		"--region", location, "--format", "json")), &listed)
+	var names []string
+	for _, op := range listed {
+		names = append(names, op.Name)
+		typeURL, _ := op.Metadata["@type"].(string)
+		assert.True(t, strings.HasPrefix(typeURL, "type.googleapis.com/google.cloud.vpcaccess.v1."),
+			"Serverless VPC Access listed %s, whose metadata is %s", op.Name, typeURL)
+	}
+	assert.Contains(t, names, created.Name, "Serverless VPC Access did not list the operation it started")
+}

@@ -489,30 +489,6 @@ func registerCloudFunctions(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
 
-	// List operations (Operations.ListOperations) under a location. Projects
-	// the shared crOperations store filtered to this location's prefix.
-	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/operations", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		location := sim.PathParam(r, "location")
-		prefix := fmt.Sprintf("projects/%s/locations/%s/operations/", project, location)
-		out := make([]Operation, 0)
-		for _, op := range crOperations.List() {
-			if strings.HasPrefix(op.Name, prefix) {
-				out = append(out, op)
-			}
-		}
-		sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-		page, next, ok := paginateList(w, r, out, gcpAsc(func(v Operation) string { return v.Name }))
-		if !ok {
-			return
-		}
-		resp := map[string]any{"operations": page}
-		if next != "" {
-			resp["nextPageToken"] = next
-		}
-		sim.WriteJSON(w, http.StatusOK, resp)
-	})
-
 	// List runtimes (ListRuntimes) — the function runtimes available in a
 	// location. A faithful representative slice of the real Cloud Functions
 	// Gen2 runtime catalog.

@@ -93,7 +93,7 @@ var gcpDeclaredMethodTotals = map[string]int{
 	"spanner-v1":              198,
 	"sqladmin-v1":             170,
 	"sqladmin-v1beta4":        170,
-	"storage-v1":              91,
+	"storage-v1":              90,
 	"vpcaccess-v1":            16,
 }
 
@@ -366,7 +366,7 @@ var gcpMethodFloor = map[string]int{
 	//
 	// objects.insert counts three spellings: its JSON path, its /upload media
 	// path and its /resumable/upload path.
-	"storage-v1": 91,
+	"storage-v1": 90,
 
 	// Artifact Registry: the whole document is served. Raised from 125 by the
 	// prewarmed-artifact family and the plain /v1 spellings of the media

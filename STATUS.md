@@ -282,8 +282,10 @@ Current state of the sockerless-cloud repository.
 - **List pages resume after the last item returned.** A page token carries the
   last item's sort values under the client's `orderBy` and the list's own
   keys, so creates and deletes between page reads neither repeat nor skip an
-  item. Service Usage's `operations.list` answers only the operations Service
-  Usage started.
+  item, over REST, gRPC and the Knative `continue` cursor alike; BigQuery
+  `tabledata.list` alone pages by row index. Service Usage's `operations.list`
+  answers only the operations Service Usage started, and each
+  `projects.locations.operations` collection only its own service's, by host.
 - **A bucket carries Cloud Storage's default policy** from creation — the four
   legacy bindings for the project's owners, editors and viewers — so revoking
   what a client granted restores the defaults.

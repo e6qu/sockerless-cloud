@@ -592,7 +592,7 @@ func secretManagerListVersions(w http.ResponseWriter, r *http.Request, parent st
 		return
 	}
 	byVersion := gcpDescNumber(func(v SecretVersion) string { return strings.TrimPrefix(v.Name, prefix) })
-	page, next, ok := gcpKeyPage(w, versions, []gcpSortKey[SecretVersion]{byVersion}, r.URL.Query().Get("pageToken"), size, secretManagerMaxPageSize)
+	page, next, ok := gcpKeyPage(w, versions, []gcpSortKey[SecretVersion]{byVersion}, r.URL.Query().Get("pageToken"), size, secretManagerMaxPageSize, secretManagerMaxPageSize)
 	if !ok {
 		return
 	}

@@ -64,8 +64,6 @@ The extractor reads the route out of a single string literal, so a registration 
 | `PATCH /v1/projects/{project}/locations/{location}/googleChannelConfig` | ✓ `simulator-gcp/eventarc.go:177::handleEventarcUpdateGoogleChannelConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /v1/projects/{project}/locations` | ○ `simulator-gcp/eventarc.go:180::handleEventarcListLocations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /v1/projects/{project}/locations/{location}` | ○ `simulator-gcp/eventarc.go:181::handleEventarcGetLocation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/locations/{location}/operations` | ✓ `simulator-gcp/eventarc.go:182::handleEventarcListOperations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v1/projects/{project}/locations/{location}/operations/{operation}` | ✓ `simulator-gcp/eventarc.go:183::handleEventarcDeleteOperation` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

@@ -1,7 +1,6 @@
 package gcp_sdk_test
 
 import (
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -70,7 +69,6 @@ import (
 //	POST /storage/v1/b/{bucket}/anywhereCaches/{anywhereCacheId}/resume
 //	POST /storage/v1/b/{bucket}/anywhereCaches/{anywhereCacheId}/disable
 //	POST /storage/v1/b/{bucket}/o
-//	POST /storage/v1/channels/stop
 //
 // storageService returns the low-level google.golang.org/api/storage/v1
 // service pointed at the simulator's JSON API endpoint. The ACL, default
@@ -690,32 +688,6 @@ func TestGCS_BucketRelocate(t *testing.T) {
 	defaulted, err := svc.Buckets.Get(bucketRelocateBucket).Do()
 	require.NoError(t, err)
 	assert.Equal(t, "US", defaulted.Location)
-}
-
-// channels.stop stops a watch channel. The method's Discovery declaration gives
-// it no response schema, so the reply a client has to be able to decode is an
-// empty 200 — asserted both through the SDK round-trip and on the wire, because
-// a body here would break the generated client's decode.
-func TestGCS_ChannelsStop(t *testing.T) {
-	t.Parallel()
-	svc := storageService(t)
-	require.NoError(t, svc.Channels.Stop(&storageapi.Channel{
-		Id:         "channel-1",
-		ResourceId: "resource-1",
-	}).Do())
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		baseURL+"/storage/v1/channels/stop",
-		strings.NewReader(`{"id":"channel-1","resourceId":"resource-1"}`))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := simAuthHTTPClient().Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
-	assert.Empty(t, body, "channels.stop declares no response body")
 }
 
 func TestGCS_ObjectInsertMetadataOnly(t *testing.T) {

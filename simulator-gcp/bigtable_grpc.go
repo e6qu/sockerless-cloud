@@ -463,7 +463,8 @@ func (s *grpcOperationsService) ListOperations(_ context.Context, req *longrunni
 		}
 		matched = append(matched, op)
 	}
-	page, next, err := grpcOffsetPage(matched, req.GetPageSize(), req.GetPageToken())
+	page, next, err := grpcKeyPage(matched, req.GetPageSize(), req.GetPageToken(),
+		gcpAsc(func(op *longrunningpb.Operation) string { return op.GetName() }))
 	if err != nil {
 		return nil, err
 	}
@@ -789,7 +790,10 @@ func bigtableDeleteResource(kind bigtableResourceKind, name, etag string) error 
 // continues the listing.
 func bigtableListResources[T proto.Message](kind bigtableResourceKind, parent, collection string, pageSize int32, pageToken string, newMsg func() T) ([]T, string, error) {
 	bodies := bigtableFilterResources(kind.store, parent+"/"+collection+"/")
-	page, next, err := grpcOffsetPage(bodies, pageSize, pageToken)
+	page, next, err := grpcKeyPage(bodies, pageSize, pageToken, gcpAsc(func(body bigtableResource) string {
+		name, _ := body["name"].(string)
+		return name
+	}))
 	if err != nil {
 		return nil, "", err
 	}

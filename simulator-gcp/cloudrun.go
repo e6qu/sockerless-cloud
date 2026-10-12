@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -311,9 +310,9 @@ func (rt CRRoute) knativeMeta() CRServiceMetadata         { return rt.Metadata }
 func (dm CRDomainMapping) knativeMeta() CRServiceMetadata { return dm.Metadata }
 
 // knativeCollectionPage narrows a stored Knative collection to one namespace,
-// applies the request's `labelSelector`, orders what is left by resource name
-// so the cursor is stable across requests, and applies the `limit`/`continue`
-// cursor. It returns the page and the token that continues it.
+// applies the request's `labelSelector`, and pages what is left in resource
+// name order by the `limit`/`continue` cursor. It returns the page and the
+// token that continues it.
 func knativeCollectionPage[T knativeResource](w http.ResponseWriter, r *http.Request, all []T, namespace string) ([]T, string, bool) {
 	selector := r.URL.Query().Get("labelSelector")
 	items := make([]T, 0, len(all))
@@ -324,10 +323,7 @@ func knativeCollectionPage[T knativeResource](w http.ResponseWriter, r *http.Req
 		}
 		items = append(items, item)
 	}
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].knativeMeta().Name < items[j].knativeMeta().Name
-	})
-	return knativeListPage(w, r, items)
+	return knativeListPage(w, r, items, gcpAsc(func(v T) string { return v.knativeMeta().Name }))
 }
 
 // CRAuthorizedDomain mirrors the Discovery `AuthorizedDomain` schema.
