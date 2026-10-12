@@ -19,7 +19,6 @@ func smtpMessageBody(message string) string {
 }
 
 func TestSNSEmailAndEmailJSONUseRealSMTP(t *testing.T) {
-	t.Parallel()
 	messages := runSMTPReceiver(t)
 	client := snsClient()
 	topic, err := client.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String("smtp-delivery-topic")})

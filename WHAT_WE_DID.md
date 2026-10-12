@@ -2342,7 +2342,8 @@ account-, project- or subscription-wide setting other tests read, reads an
 account-wide quota usage other tests change (Amazon RDS DescribeAccountAttributes),
 owns the account's one AWS Organizations organization, sets an organization
 policy every project inherits, sets an environment variable of the test process,
-or restarts the simulator. `scripts/check-parallel-tests.go`
+restarts the simulator, listens on SMTP's fixed port 25, or rebinds a port it
+just released, which a parallel test's outbound connection can take. `scripts/check-parallel-tests.go`
 holds the suites to that in pre-commit and CI's build gates, and fails a listed
 test that no longer exists or already runs in parallel, and a parallel test that
 reaches `t.Setenv` or `t.Chdir` through any function of its suite. A parallel

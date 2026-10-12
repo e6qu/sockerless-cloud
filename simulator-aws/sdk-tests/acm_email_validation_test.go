@@ -96,7 +96,6 @@ func awaitValidationEmail(t *testing.T, messages <-chan string) string {
 }
 
 func TestACMEmailValidationAndResendUseRealSMTP(t *testing.T) {
-	t.Parallel()
 	messages := runSMTPReceiver(t)
 	client := acmClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
