@@ -1136,20 +1136,6 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		}
 	})
 
-	// GET .../operations and GET .../operations/{operation} are served by
-	// registerCloudFunctions / registerOperations respectively.
-	srv.HandleFunc("DELETE /v2/projects/{project}/locations/{location}/operations/{operation}", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		location := sim.PathParam(r, "location")
-		opID := sim.PathParam(r, "operation")
-		name := fmt.Sprintf("projects/%s/locations/%s/operations/%s", project, location, opID)
-		if !crOperations.Delete(name) {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
-			return
-		}
-		// google.longrunning.DeleteOperation returns google.protobuf.Empty.
-		sim.WriteJSON(w, http.StatusOK, map[string]any{})
-	})
 	// The colon-verb fan-in on the projects/{project}/locations/{location}
 	// operation collection. That URI is one collection for every service the
 	// simulator serves under it — Cloud Run, API Gateway, Artifact Registry,

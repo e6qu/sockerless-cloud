@@ -622,7 +622,22 @@ own module:
   item's sort values and the next page resumes strictly after them, as
   Cloud Storage's lists do, so a resource created or deleted between two page
   reads neither repeats nor skips another. An offset token shifted under such
-  a change.
+  a change. The gRPC doors (Cloud KMS, Pub/Sub, Cloud Bigtable admin, Cloud
+  Logging's ListLogs) page through the same key continuation in its
+  writer-free form (`grpcKeyPage`), and so do the Cloud Run Admin API v1
+  Knative lists (`continue`), IAM `roles.list` and `queryGrantableRoles`
+  (default 300, maxima 1,000 and 2,000) and Cloud Logging `entries.list`,
+  which orders by timestamp and then insertId. BigQuery `tabledata.list` keeps
+  its row-index token: a table only grows between truncations, so a row's index
+  never moves while a client pages it.
+- **A location's operations belong to the service that started them.**
+  Google serves each service's `projects.locations.operations` collection from
+  its own host, and the simulator serves every one from one path per version,
+  so list and delete read the service from the Host and the operation's from
+  its metadata message's proto package (`gcpLocationOperationPackages`). A bare
+  address names no service and reaches every service publishing the collection
+  at that version; the Cloud Run Admin API's two versions share one collection,
+  and Cloud Logging's project-scope operations list there too.
 - **A create is decided when it is accepted.** Every Amazon RDS create and
   restore handler claims its identifier (`rdsIdentifierClaims`) before it
   checks for the resource and holds the claim until the resource is stored, so
@@ -2264,6 +2279,16 @@ message's visibility timeout to end just after the retention deadline and then
 long-polls. Waiting for full steady state is preferred over checking a partial
 condition.
 
+A test that asserts on work the background can repeat counts what it means to
+count. The Amazon ECS scheduler test whose replacement task fails to start, as
+it must without a metadata callback, records each launch through a store
+wrapper with the replacements still in flight when it was made: a replacement
+of a stopped replacement is the scheduler doing its job, and two replacements
+in flight for one failed task is the bug. A property that read as "fast enough"
+is asserted as the work it costs: concurrent DynamoDB queries each take the item
+lock once and read only their partition, counted through `RWLocks.Acquired` and
+a counting item store, where a four-second budget measured the machine.
+
 An Azure test that starts a long-running operation by hand waits as a client
 does: the SDK suites hand the raw response to azcore's poller
 (`awaitARMOperation`), and the CLI suites drive `az rest --debug` through
@@ -2435,6 +2460,12 @@ as possible, since the runner downloads every named action per job. A tool a
 suite needs — gcloud, `cbt`, the AWS CLI — is installed in `TestMain` with a few
 retries, never skipped. A Terraform harness stops when its simulator does not
 build.
+
+Every client-surface test is a Go harness CI runs, authenticating with a token
+minted by the simulator's token endpoint. The Google Cloud bash script that
+presented a literal bearer token ran in no job, so nothing saw the data plane
+refuse it; the CLI and SDK suites already covered what it did, and its
+`gcloud services enable` and `gcloud services list` moved into the CLI suite.
 
 Nothing CI builds or runs pulls from Docker Hub, which limits anonymous pulls
 per address. The simulator images and `Dockerfile.test` build from the ECR

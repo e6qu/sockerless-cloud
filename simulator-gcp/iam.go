@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
-	"github.com/e6qu/sockerless-cloud/sim/listq"
 	"github.com/e6qu/sockerless-cloud/sim/simjwt"
 )
 
@@ -1124,16 +1123,14 @@ func registerIAM(srv *sim.Server) {
 				}
 			}
 		}
-		sort.Slice(roles, func(i, j int) bool {
-			ni, _ := roles[i]["name"].(string)
-			nj, _ := roles[j]["name"].(string)
-			return ni < nj
-		})
-
+		if req.PageSize < 0 {
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageSize %d", req.PageSize)
+			return
+		}
 		// The documented default page size is 300, the ceiling 2,000.
-		page, next, err := listq.TokenPage(listq.Decimal.Strictly(), roles, req.PageToken, req.PageSize, 300, 2000)
-		if err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageToken %q", req.PageToken)
+		page, next, ok := gcpKeyPage(w, roles, []gcpSortKey[map[string]any]{gcpAsc(gcpField("name"))},
+			req.PageToken, req.PageSize, 300, 2000)
+		if !ok {
 			return
 		}
 		resp := map[string]any{"roles": page}
@@ -1165,8 +1162,7 @@ func registerIAM(srv *sim.Server) {
 	// Predefined roles — roles.list / roles.get. The catalog of curated
 	// (Google-managed) roles. The sim carries a bounded representative set
 	// (the basic roles plus the IAM/storage roles the repo references), not
-	// the full ~1500-role catalog. Custom-role CRUD is a staged epic and is
-	// not handled here.
+	// the full ~1500-role catalog.
 	srv.HandleFunc("GET /v1/roles", func(w http.ResponseWriter, r *http.Request) {
 		roles := gcpPredefinedRoles()
 		// roles.list omits includedPermissions unless view=FULL.
@@ -1175,7 +1171,7 @@ func registerIAM(srv *sim.Server) {
 		for _, role := range roles {
 			out = append(out, gcpRoleJSON(role, full))
 		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"roles": out})
+		iamWriteRolesPage(w, r, out)
 	})
 
 	srv.HandleFunc("GET /v1/roles/{role...}", func(w http.ResponseWriter, r *http.Request) {
@@ -2436,12 +2432,11 @@ func registerCustomRoles(srv *sim.Server, store sim.Store[GCPCustomRole], scope,
 			}
 			return showDeleted || !role.Deleted
 		})
-		sort.Slice(roles, func(i, j int) bool { return roles[i].Name < roles[j].Name })
 		out := make([]map[string]any, 0, len(roles))
 		for _, role := range roles {
 			out = append(out, gcpCustomRoleJSON(role, full))
 		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"roles": out})
+		iamWriteRolesPage(w, r, out)
 	})
 
 	// GetRole
@@ -4044,4 +4039,23 @@ func parseGoogleDuration(s string) (time.Duration, error) {
 		return 0, fmt.Errorf("duration %q is not a number of seconds: %w", s, err)
 	}
 	return time.Duration(seconds * float64(time.Second)), nil
+}
+
+// iamWriteRolesPage writes one page of a roles.list response in role name
+// order. The method's documented default page size is 300, its maximum 1,000.
+func iamWriteRolesPage(w http.ResponseWriter, r *http.Request, roles []map[string]any) {
+	size, ok := gcpPageSizeParam(w, r, "pageSize")
+	if !ok {
+		return
+	}
+	page, next, ok := gcpKeyPage(w, roles, []gcpSortKey[map[string]any]{gcpAsc(gcpField("name"))},
+		r.URL.Query().Get("pageToken"), size, 300, 1000)
+	if !ok {
+		return
+	}
+	resp := map[string]any{"roles": page}
+	if next != "" {
+		resp["nextPageToken"] = next
+	}
+	sim.WriteJSON(w, http.StatusOK, resp)
 }

@@ -186,16 +186,11 @@ func TestDDBQueryCopiesOnlyWhatItReturns(t *testing.T) {
 // about. Forty concurrent queries over a table large enough that reading it
 // whole hurts must cost their number, not their number times the table.
 //
-// The budget asserts an order of magnitude rather than a duration, because a
-// wall-clock assertion tuned tightly is a flake on a loaded runner. It is set
-// from measurement on one machine, database-backed as the simulator runs:
-// eight seconds reading every item under a per-item lock, and four tenths of a
-// second reading one partition under one. Four seconds sits between those,
-// with room for a runner several times slower before it reaches the failing
-// side. The structural half of this property — that only the addressed
-// partition is read at all — is asserted deterministically in
-// TestDDBQueryReadsOnlyTheAddressedPartition, which is what fails first if the
-// narrowing regresses.
+// The cost is counted rather than timed, so the machine's load cannot move the
+// verdict: each query takes the table's item lock once, however many items it
+// examines, and reads only the items of the partition it addresses. Locking per
+// item is what let concurrent queries interleave, and reading the table is
+// what made each of them pay for it.
 func TestDDBConcurrentQueriesDoNotInterleavePerItem(t *testing.T) {
 	ddbQueryConcurrencyStores(t)
 	const (
@@ -204,12 +199,14 @@ func TestDDBConcurrentQueriesDoNotInterleavePerItem(t *testing.T) {
 		partitions = 40
 		queriers   = 40
 		each       = 5
-		budget     = 4 * time.Second
 	)
 	_ = ddbSeedQueryTable(t, table, items, partitions)
+	counting := &ddbCountingStore{Store: ddbItems}
+	ddbItems = counting
+	t.Cleanup(func() { ddbItems = counting.Store })
 
 	var failures atomic.Int64
-	started := time.Now()
+	locksBefore := ddbItemLocks.Acquired()
 	var wg sync.WaitGroup
 	for q := range queriers {
 		wg.Add(1)
@@ -221,7 +218,7 @@ func TestDDBConcurrentQueriesDoNotInterleavePerItem(t *testing.T) {
 				recorder := ddbQuery(t, table, ddbSeedPartition(index, partitions), sk)
 				// Each query's answer is checked, not just its status: a query
 				// path that answered every request with an empty body would
-				// be fast for the wrong reason and this test would applaud it.
+				// cost nothing for the wrong reason and this test would applaud it.
 				if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), sk) {
 					failures.Add(1)
 					return
@@ -230,20 +227,23 @@ func TestDDBConcurrentQueriesDoNotInterleavePerItem(t *testing.T) {
 		}(q)
 	}
 	wg.Wait()
-	elapsed := time.Since(started)
 
 	require.Zero(t, failures.Load(), "every concurrent query must answer")
-	t.Logf("%d queries across %d goroutines over %d items in %s",
-		queriers*each, queriers, items, elapsed)
-	require.Less(t, elapsed, budget,
-		"%d concurrent queries took %s over a %d-item table: the query path is paying per item "+
-			"under a process-wide lock rather than per query", queriers, elapsed, items)
+	const queries = queriers * each
+	require.Equal(t, uint64(queries), ddbItemLocks.Acquired()-locksBefore,
+		"%d concurrent queries must take the item lock once each: a query that locks per item "+
+			"interleaves with every other query item by item", queries)
+	reads := counting.reads.Load()
+	require.LessOrEqual(t, reads, int64(queries*items/partitions),
+		"%d concurrent queries read %d items from a %d-item table in %d partitions: they are "+
+			"reading the table rather than the partitions they address", queries, reads, items, partitions)
+	require.GreaterOrEqual(t, reads, int64(queries), "a query that read nothing answered from somewhere else")
 }
 
-// TestDDBQueryReadsOnlyTheAddressedPartition is the deterministic half: a query
-// names one partition, so the keys it examines are that partition's and no
-// others. This is what makes a query cost the partition rather than the table,
-// and unlike the timing test it fails immediately and identically everywhere.
+// TestDDBQueryReadsOnlyTheAddressedPartition holds one query to the narrowing: a
+// query names one partition, so the keys it examines are that partition's and
+// no others. This is what makes a query cost the partition rather than the
+// table.
 func TestDDBQueryReadsOnlyTheAddressedPartition(t *testing.T) {
 	ddbQueryConcurrencyStores(t)
 	const table, items, partitions = "narrow", 600, 20

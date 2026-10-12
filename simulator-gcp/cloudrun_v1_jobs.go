@@ -1,13 +1,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
-	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
-	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 // Cloud Run Admin v1 (Knative) surface for the Cloud Run Jobs family:
@@ -114,17 +114,22 @@ func knativeLabelSelectorMatches(selector string, labels map[string]string) bool
 
 // knativeListPage applies the `limit` / `continue` cursor a Knative list
 // method pages with — the serving.knative.dev analogue of pageSize/pageToken —
-// and returns the page plus the continue token for the next one. A malformed
-// cursor is rejected rather than silently reset.
-func knativeListPage[T any](w http.ResponseWriter, r *http.Request, items []T) ([]T, string, bool) {
+// in the order first and then rest give, the last term naming each item
+// uniquely, and returns the page plus the continue token for the next one. A
+// malformed cursor is rejected rather than silently reset.
+func knativeListPage[T any](w http.ResponseWriter, r *http.Request, items []T, first gcpSortKey[T], rest ...gcpSortKey[T]) ([]T, string, bool) {
 	size, ok := gcpPageSizeParam(w, r, "limit")
 	if !ok {
 		return nil, "", false
 	}
 	token := r.URL.Query().Get("continue")
-	page, next, err := listq.TokenPage(listq.Decimal.Strictly(), items, token, size, 0, 0)
-	if err != nil {
+	page, next, err := gcpKeyPageOf(items, append([]gcpSortKey[T]{first}, rest...), token, size, 0, 0)
+	switch {
+	case errors.Is(err, errGCPPageToken):
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid continue token %q", token)
+		return nil, "", false
+	case err != nil:
+		GCPError(w, http.StatusInternalServerError, err.Error(), "INTERNAL")
 		return nil, "", false
 	}
 	return page, next, true
@@ -253,8 +258,7 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 			}
 			items = append(items, projected)
 		}
-		sort.Slice(items, func(i, j int) bool { return items[i].Metadata.Name < items[j].Metadata.Name })
-		page, next, ok := knativeListPage(w, r, items)
+		page, next, ok := knativeListPage(w, r, items, gcpAsc(func(v CRJob) string { return v.Metadata.Name }))
 		if !ok {
 			return
 		}
@@ -408,8 +412,7 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 			}
 			items = append(items, projected)
 		}
-		sort.Slice(items, func(i, j int) bool { return items[i].Metadata.Name < items[j].Metadata.Name })
-		page, next, ok := knativeListPage(w, r, items)
+		page, next, ok := knativeListPage(w, r, items, gcpAsc(func(v CRExecution) string { return v.Metadata.Name }))
 		if !ok {
 			return
 		}
@@ -503,13 +506,9 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 			}
 			items = append(items, projected)
 		}
-		sort.Slice(items, func(i, j int) bool {
-			if items[i].Status.Index != items[j].Status.Index {
-				return items[i].Status.Index < items[j].Status.Index
-			}
-			return items[i].Metadata.Name < items[j].Metadata.Name
-		})
-		page, next, ok := knativeListPage(w, r, items)
+		page, next, ok := knativeListPage(w, r, items,
+			gcpAscNumber(func(v CRTask) string { return strconv.Itoa(int(v.Status.Index)) }),
+			gcpAsc(func(v CRTask) string { return v.Metadata.Name }))
 		if !ok {
 			return
 		}

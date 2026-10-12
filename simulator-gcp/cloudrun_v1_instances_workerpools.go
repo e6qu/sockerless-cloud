@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -435,8 +434,7 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 			}
 			items = append(items, projected)
 		}
-		sort.Slice(items, func(i, j int) bool { return items[i].Metadata.Name < items[j].Metadata.Name })
-		page, next, ok := knativeListPage(w, r, items)
+		page, next, ok := knativeListPage(w, r, items, gcpAsc(func(v CRInstance) string { return v.Metadata.Name }))
 		if !ok {
 			return
 		}
@@ -592,8 +590,7 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 			}
 			items = append(items, projected)
 		}
-		sort.Slice(items, func(i, j int) bool { return items[i].Metadata.Name < items[j].Metadata.Name })
-		page, next, ok := knativeListPage(w, r, items)
+		page, next, ok := knativeListPage(w, r, items, gcpAsc(func(v CRWorkerPool) string { return v.Metadata.Name }))
 		if !ok {
 			return
 		}

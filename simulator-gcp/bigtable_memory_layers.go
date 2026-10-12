@@ -217,7 +217,8 @@ func (s *bigtableInstanceAdminGRPC) ListMemoryLayers(_ context.Context, req *bta
 	if err != nil {
 		return nil, err
 	}
-	page, next, err := grpcOffsetPage(layers, req.GetPageSize(), req.GetPageToken())
+	page, next, err := grpcKeyPage(layers, req.GetPageSize(), req.GetPageToken(),
+		gcpAsc(func(layer bigtableMemoryLayer) string { return layer.Name }))
 	if err != nil {
 		return nil, err
 	}

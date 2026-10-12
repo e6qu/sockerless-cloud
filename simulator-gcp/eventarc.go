@@ -176,11 +176,9 @@ func registerEventarc(srv *sim.Server) {
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/googleChannelConfig", handleEventarcGetGoogleChannelConfig)
 	srv.HandleFunc("PATCH /v1/projects/{project}/locations/{location}/googleChannelConfig", handleEventarcUpdateGoogleChannelConfig)
 
-	// Locations meta-API + operations list/delete.
+	// Locations meta-API.
 	srv.HandleFunc("GET /v1/projects/{project}/locations", handleEventarcListLocations)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}", handleEventarcGetLocation)
-	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/operations", handleEventarcListOperations)
-	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/operations/{operation}", handleEventarcDeleteOperation)
 }
 
 // isCloudBuildRequest resolves which of Cloud Build and Eventarc a request to
@@ -1404,39 +1402,4 @@ func handleEventarcGetLocation(w http.ResponseWriter, r *http.Request) {
 		"locationId":  location,
 		"displayName": location,
 	})
-}
-
-func handleEventarcListOperations(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	location := sim.PathParam(r, "location")
-	prefix := fmt.Sprintf("projects/%s/locations/%s/operations/", project, location)
-	out := make([]Operation, 0)
-	for _, op := range crOperations.List() {
-		if strings.HasPrefix(op.Name, prefix) {
-			out = append(out, op)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	page, next, ok := paginateList(w, r, out, gcpAsc(func(v Operation) string { return v.Name }))
-	if !ok {
-		return
-	}
-	resp := map[string]any{"operations": page}
-	if next != "" {
-		resp["nextPageToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
-}
-
-func handleEventarcDeleteOperation(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	location := sim.PathParam(r, "location")
-	opID := sim.PathParam(r, "operation")
-	name := fmt.Sprintf("projects/%s/locations/%s/operations/%s", project, location, opID)
-	if _, ok := crOperations.Get(name); !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "operation %q not found", name)
-		return
-	}
-	crOperations.Delete(name)
-	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }

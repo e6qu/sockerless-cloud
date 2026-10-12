@@ -36,11 +36,12 @@ func gcpOperationsListFixture(t *testing.T) *sim.Server {
 	empty()
 	t.Cleanup(empty)
 	serviceUsage := map[string]any{"@type": serviceUsageOperationMetadataType}
+	cloudRun := map[string]any{"@type": "type.googleapis.com/google.cloud.run.v2.Service"}
 	for _, op := range []Operation{
-		{Name: "projects/p/locations/us-central1/operations/a", Done: true},
-		{Name: "projects/p/locations/us-central1/operations/b"},
-		{Name: "projects/p/locations/us-central1/operations/c", Done: true},
-		{Name: "projects/p/locations/europe-west1/operations/d"},
+		{Name: "projects/p/locations/us-central1/operations/a", Done: true, Metadata: cloudRun},
+		{Name: "projects/p/locations/us-central1/operations/b", Metadata: cloudRun},
+		{Name: "projects/p/locations/us-central1/operations/c", Done: true, Metadata: cloudRun},
+		{Name: "projects/p/locations/europe-west1/operations/d", Metadata: cloudRun},
 		{Name: "operations/su-a", Done: true, Metadata: serviceUsage},
 		{Name: "operations/su-b", Metadata: serviceUsage},
 		{Name: "operations/su-c", Done: true, Metadata: serviceUsage},
@@ -256,5 +257,75 @@ func TestGCPListOperationsAnswersServiceUsageOperationsOnly(t *testing.T) {
 		if _, kept := crOperations.Get(name); kept == startedByServiceUsage {
 			t.Errorf("Service Usage operations.delete on %s left it stored = %v", name, kept)
 		}
+	}
+}
+
+// Each service serves projects.locations.operations.list from its own host, so
+// one location's collection lists, per host, the operations that service
+// started; every service that publishes the collection still reaches its own.
+func TestGCPLocationOperationsListOnlyTheirServicesOperations(t *testing.T) {
+	srv := gcpOperationsListFixture(t)
+	const location = "projects/p/locations/us-east4/operations/"
+	stored := map[string]string{
+		"eventarc":       "google.cloud.eventarc.v1.OperationMetadata",
+		"redis-instance": "google.cloud.redis.v1.OperationMetadata",
+		"redis-cluster":  "google.cloud.redis.cluster.v1.OperationMetadata",
+		"apigateway":     "google.cloud.apigateway.v1.OperationMetadata",
+		"vpcaccess":      "google.cloud.vpcaccess.v1.OperationMetadata",
+		"functions":      "google.cloud.functions.v2.OperationMetadata",
+		"run":            "google.cloud.run.v2.Service",
+		"kms":            "google.cloud.kms.v1.CreateCryptoKeyMetadata",
+	}
+	for id, message := range stored {
+		crOperations.Put(location+id, Operation{Name: location + id, Done: true,
+			Metadata: map[string]any{"@type": "type.googleapis.com/" + message}})
+	}
+	loggingOp := Operation{Name: location + "logging", Done: true,
+		Metadata: map[string]any{"@type": "type.googleapis.com/google.logging.v2.CopyLogEntriesMetadata"}}
+	logOperations.Put(loggingOp.Name, loggingOp)
+	t.Cleanup(func() { logOperations.Delete(loggingOp.Name) })
+
+	list := func(host, version string) []string {
+		t.Helper()
+		body := gcpHostOK(t, srv, host, http.MethodGet, "/"+version+"/projects/p/locations/us-east4/operations", "")
+		listed, _ := body["operations"].([]any)
+		ids := make([]string, 0, len(listed))
+		for _, op := range listed {
+			ids = append(ids, strings.TrimPrefix(op.(map[string]any)["name"].(string), location))
+		}
+		return ids
+	}
+	for _, tc := range []struct {
+		host, version string
+		want          []string
+	}{
+		{"eventarc.googleapis.com", "v1", []string{"eventarc"}},
+		{"redis.googleapis.com", "v1", []string{"redis-cluster", "redis-instance"}},
+		{"apigateway.googleapis.com", "v1", []string{"apigateway"}},
+		{"vpcaccess.googleapis.com", "v1", []string{"vpcaccess"}},
+		{"run.googleapis.com", "v1", []string{"run"}},
+		{"us-east4-run.googleapis.com", "v2", []string{"run"}},
+		{"cloudfunctions.googleapis.com", "v2", []string{"functions"}},
+		{"logging.googleapis.com", "v2", []string{"logging"}},
+		// A bare address names no service: the collection holds the operations
+		// of every service publishing it at that version.
+		{"127.0.0.1:4567", "v1", []string{"apigateway", "eventarc", "redis-cluster", "redis-instance", "run", "vpcaccess"}},
+		{"127.0.0.1:4567", "v2", []string{"functions", "logging", "run"}},
+	} {
+		if got := list(tc.host, tc.version); !gcpEqualNames(got, tc.want) {
+			t.Errorf("%s /%s listed %v, want %v", tc.host, tc.version, got, tc.want)
+		}
+	}
+
+	if code, _ := gcpHostCall(t, srv, "eventarc.googleapis.com", http.MethodDelete,
+		"/v1/projects/p/locations/us-east4/operations/redis-instance", ""); code != http.StatusNotFound {
+		t.Errorf("Eventarc deleting a Memorystore operation answered %d, want 404", code)
+	}
+	if _, kept := crOperations.Get(location + "redis-instance"); !kept {
+		t.Fatal("Eventarc's operations.delete removed a Memorystore operation")
+	}
+	gcpHostOK(t, srv, "redis.googleapis.com", http.MethodDelete, "/v1/projects/p/locations/us-east4/operations/redis-instance", "")
+	if _, kept := crOperations.Get(location + "redis-instance"); kept {
+		t.Fatal("Memorystore's operations.delete left its operation stored")
 	}
 }

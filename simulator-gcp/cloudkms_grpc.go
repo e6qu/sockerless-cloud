@@ -17,8 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/e6qu/sockerless-cloud/sim/listq"
-
 	kmspb "cloud.google.com/go/kms/apiv1/kmspb"
 	longrunningpb "cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -357,13 +355,13 @@ func (s *cloudKmsGRPC) ListKeyRings(ctx context.Context, req *kmspb.ListKeyRings
 			all = append(all, kmsKeyRingToProto(kr))
 		}
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	start, end, next, err := kmsPageWindow(len(all), req.GetPageToken(), req.GetPageSize())
+	page, next, err := grpcKeyPage(all, req.GetPageSize(), req.GetPageToken(),
+		gcpAsc(func(v *kmspb.KeyRing) string { return v.GetName() }))
 	if err != nil {
 		return nil, err
 	}
 	return &kmspb.ListKeyRingsResponse{
-		KeyRings:      all[start:end],
+		KeyRings:      page,
 		NextPageToken: next,
 		TotalSize:     int32(len(all)),
 	}, nil
@@ -404,13 +402,13 @@ func (s *cloudKmsGRPC) ListCryptoKeys(ctx context.Context, req *kmspb.ListCrypto
 			all = append(all, kmsCryptoKeyToProto(k))
 		}
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	start, end, next, err := kmsPageWindow(len(all), req.GetPageToken(), req.GetPageSize())
+	page, next, err := grpcKeyPage(all, req.GetPageSize(), req.GetPageToken(),
+		gcpAsc(func(v *kmspb.CryptoKey) string { return v.GetName() }))
 	if err != nil {
 		return nil, err
 	}
 	return &kmspb.ListCryptoKeysResponse{
-		CryptoKeys:    all[start:end],
+		CryptoKeys:    page,
 		NextPageToken: next,
 		TotalSize:     int32(len(all)),
 	}, nil
@@ -532,17 +530,17 @@ func (s *cloudKmsGRPC) ListCryptoKeyVersions(ctx context.Context, req *kmspb.Lis
 			all = append(all, kmsCryptoKeyVersionToProto(kmsVersionSettled(v)))
 		}
 	}
-	sort.Slice(all, func(i, j int) bool {
-		na, _ := kmsVersionNumber(all[i].Name)
-		nb, _ := kmsVersionNumber(all[j].Name)
-		return na < nb
-	})
-	start, end, next, err := kmsPageWindow(len(all), req.GetPageToken(), req.GetPageSize())
+	page, next, err := grpcKeyPage(all, req.GetPageSize(), req.GetPageToken(),
+		gcpAscNumber(func(v *kmspb.CryptoKeyVersion) string {
+			n, _ := kmsVersionNumber(v.GetName())
+			return strconv.Itoa(n)
+		}),
+		gcpAsc(func(v *kmspb.CryptoKeyVersion) string { return v.GetName() }))
 	if err != nil {
 		return nil, err
 	}
 	return &kmspb.ListCryptoKeyVersionsResponse{
-		CryptoKeyVersions: all[start:end],
+		CryptoKeyVersions: page,
 		NextPageToken:     next,
 		TotalSize:         int32(len(all)),
 	}, nil
@@ -1129,13 +1127,13 @@ func (s *cloudKmsGRPC) ListImportJobs(ctx context.Context, req *kmspb.ListImport
 			all = append(all, kmsImportJobToProto(job))
 		}
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	start, end, next, err := kmsPageWindow(len(all), req.GetPageToken(), req.GetPageSize())
+	page, next, err := grpcKeyPage(all, req.GetPageSize(), req.GetPageToken(),
+		gcpAsc(func(v *kmspb.ImportJob) string { return v.GetName() }))
 	if err != nil {
 		return nil, err
 	}
 	return &kmspb.ListImportJobsResponse{
-		ImportJobs:    all[start:end],
+		ImportJobs:    page,
 		NextPageToken: next,
 		TotalSize:     int32(len(all)),
 	}, nil
@@ -1352,13 +1350,13 @@ func (s *cloudKmsGRPC) ListRetiredResources(ctx context.Context, req *kmspb.List
 			all = append(all, kmsRetiredResourceToProto(rr))
 		}
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	start, end, next, err := kmsPageWindow(len(all), req.GetPageToken(), req.GetPageSize())
+	page, next, err := grpcKeyPage(all, req.GetPageSize(), req.GetPageToken(),
+		gcpAsc(func(v *kmspb.RetiredResource) string { return v.GetName() }))
 	if err != nil {
 		return nil, err
 	}
 	return &kmspb.ListRetiredResourcesResponse{
-		RetiredResources: all[start:end],
+		RetiredResources: page,
 		NextPageToken:    next,
 		TotalSize:        int64(len(all)),
 	}, nil
@@ -1499,19 +1497,6 @@ func kmsDurationString(d *durationpb.Duration) string {
 		return ""
 	}
 	return fmt.Sprintf("%ds", int64(d.AsDuration().Seconds()))
-}
-
-// kmsPageWindow pages a Cloud KMS list by the base64 offset token the service
-// hands out, answering INVALID_ARGUMENT for a token it never issued.
-func kmsPageWindow(total int, token string, size int32) (start, end int, next string, err error) {
-	if size < 0 {
-		return 0, 0, "", status.Errorf(codes.InvalidArgument, "page_size must not be negative, got %d", size)
-	}
-	start, end, next, err = listq.Window(listq.Base64Decimal.Strictly(), total, token, int(size), 0, 0)
-	if err != nil {
-		return 0, 0, "", status.Errorf(codes.InvalidArgument, "invalid page_token %q", token)
-	}
-	return start, end, next, nil
 }
 
 // kmsImportJobToProto converts the REST-store ImportJob to the proto ImportJob.

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/listq"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // nowTimestamp returns a protobuf JSON Timestamp-compatible UTC value.
@@ -118,7 +121,7 @@ func paginateListParam[T any](w http.ResponseWriter, r *http.Request, items []T,
 			}})
 		}
 	}
-	return gcpColumnPage(w, items, append(columns, gcpKeyColumns(items, keys)...), r.URL.Query().Get("pageToken"), size, 0)
+	return gcpColumnPage(w, items, append(columns, gcpKeyColumns(items, keys)...), r.URL.Query().Get("pageToken"), size, 0, 0)
 }
 
 // gcpPageSizeParam reads a non-negative page size from the query string.
@@ -138,10 +141,16 @@ func gcpPageSizeParam(w http.ResponseWriter, r *http.Request, param string) (int
 // gcpPageTag marks a page token as one this simulator issued.
 const gcpPageTag = "after\x00"
 
-// gcpKeyPage pages items in the order keys give, capping the page at max when
-// max is positive.
-func gcpKeyPage[T any](w http.ResponseWriter, items []T, keys []gcpSortKey[T], token string, size, max int) ([]T, string, bool) {
-	return gcpColumnPage(w, items, gcpKeyColumns(items, keys), token, size, max)
+// gcpKeyPage pages items in the order keys give. A request naming no size gets
+// def items; one naming more than max gets max. Zero leaves either unbounded.
+func gcpKeyPage[T any](w http.ResponseWriter, items []T, keys []gcpSortKey[T], token string, size, def, max int) ([]T, string, bool) {
+	return gcpColumnPage(w, items, gcpKeyColumns(items, keys), token, size, def, max)
+}
+
+// gcpKeyPageOf is gcpKeyPage for a caller that answers errors itself, such as
+// a gRPC method: it returns errGCPPageToken for a token it never issued.
+func gcpKeyPageOf[T any](items []T, keys []gcpSortKey[T], token string, size, def, max int) ([]T, string, error) {
+	return gcpColumnPageOf(items, gcpKeyColumns(items, keys), token, size, def, max)
 }
 
 // gcpPageColumn is one term of a list's order over the items by index.
@@ -159,12 +168,31 @@ func gcpKeyColumns[T any](items []T, keys []gcpSortKey[T]) []gcpPageColumn {
 	return columns
 }
 
-// gcpColumnPage pages items in the order columns give, capping the page at max
-// when max is positive. The token carries the sort values of the last item a
-// page returned, and the next page resumes strictly after them, so an item
-// created or deleted between two reads moves no other item across a page
-// boundary. It answers INVALID_ARGUMENT for a token it never issued.
-func gcpColumnPage[T any](w http.ResponseWriter, items []T, columns []gcpPageColumn, token string, size, max int) ([]T, string, bool) {
+// errGCPPageToken is a page token no list of this simulator issued.
+var errGCPPageToken = errors.New("page token was not issued by this list")
+
+// gcpColumnPage writes INVALID_ARGUMENT for a token gcpColumnPageOf refuses.
+func gcpColumnPage[T any](w http.ResponseWriter, items []T, columns []gcpPageColumn, token string, size, def, max int) ([]T, string, bool) {
+	page, next, err := gcpColumnPageOf(items, columns, token, size, def, max)
+	switch {
+	case errors.Is(err, errGCPPageToken):
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageToken %q", token)
+		return nil, "", false
+	case err != nil:
+		GCPError(w, http.StatusInternalServerError, err.Error(), "INTERNAL")
+		return nil, "", false
+	}
+	return page, next, true
+}
+
+// gcpColumnPageOf pages items in the order columns give. The token carries the
+// sort values of the last item a page returned, and the next page resumes
+// strictly after them, so an item created or deleted between two reads moves
+// no other item across a page boundary.
+func gcpColumnPageOf[T any](items []T, columns []gcpPageColumn, token string, size, def, max int) ([]T, string, error) {
+	if size == 0 {
+		size = def
+	}
 	if max > 0 && (size == 0 || size > max) {
 		size = max
 	}
@@ -196,8 +224,7 @@ func gcpColumnPage[T any](w http.ResponseWriter, items []T, columns []gcpPageCol
 	if token != "" {
 		after, ok := gcpPageMarker(token, len(columns))
 		if !ok {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageToken %q", token)
-			return nil, "", false
+			return nil, "", errGCPPageToken
 		}
 		start = sort.Search(len(index), func(i int) bool { return compare(rows[index[i]], after) > 0 })
 	}
@@ -207,8 +234,7 @@ func gcpColumnPage[T any](w http.ResponseWriter, items []T, columns []gcpPageCol
 		end = start + size
 		encoded, err := json.Marshal(rows[index[end-1]])
 		if err != nil {
-			GCPError(w, http.StatusInternalServerError, err.Error(), "INTERNAL")
-			return nil, "", false
+			return nil, "", err
 		}
 		next = base64.RawURLEncoding.EncodeToString(append([]byte(gcpPageTag), encoded...))
 	}
@@ -216,7 +242,23 @@ func gcpColumnPage[T any](w http.ResponseWriter, items []T, columns []gcpPageCol
 	for _, i := range index[start:end] {
 		page = append(page, items[i])
 	}
-	return page, next, true
+	return page, next, nil
+}
+
+// grpcKeyPage pages a gRPC list in the order keys give, answering
+// INVALID_ARGUMENT for a negative size or a token it never issued.
+func grpcKeyPage[T any](items []T, pageSize int32, pageToken string, first gcpSortKey[T], rest ...gcpSortKey[T]) ([]T, string, error) {
+	if pageSize < 0 {
+		return nil, "", status.Errorf(codes.InvalidArgument, "page_size must not be negative, got %d", pageSize)
+	}
+	page, next, err := gcpKeyPageOf(items, append([]gcpSortKey[T]{first}, rest...), pageToken, int(pageSize), 0, 0)
+	switch {
+	case errors.Is(err, errGCPPageToken):
+		return nil, "", status.Errorf(codes.InvalidArgument, "invalid page_token %q", pageToken)
+	case err != nil:
+		return nil, "", status.Error(codes.Internal, err.Error())
+	}
+	return page, next, nil
 }
 
 func gcpPageMarker(token string, terms int) ([]string, bool) {

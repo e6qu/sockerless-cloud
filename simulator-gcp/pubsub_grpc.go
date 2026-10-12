@@ -5,14 +5,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
 	pspb "cloud.google.com/go/pubsub/apiv1/pubsubpb"
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
-	"github.com/e6qu/sockerless-cloud/sim/listq"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -435,8 +433,7 @@ func (s *pubsubPublisherGRPC) ListTopics(_ context.Context, req *pspb.ListTopics
 			all = append(all, t)
 		}
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	page, next, err := grpcOffsetPage(all, req.GetPageSize(), req.GetPageToken())
+	page, next, err := grpcKeyPage(all, req.GetPageSize(), req.GetPageToken(), gcpAsc(func(v PSTopic) string { return v.Name }))
 	if err != nil {
 		return nil, err
 	}
@@ -459,8 +456,7 @@ func (s *pubsubPublisherGRPC) ListTopicSubscriptions(_ context.Context, req *psp
 			names = append(names, sub.Name)
 		}
 	}
-	sort.Strings(names)
-	page, next, err := grpcOffsetPage(names, req.GetPageSize(), req.GetPageToken())
+	page, next, err := grpcKeyPage(names, req.GetPageSize(), req.GetPageToken(), gcpAsc(func(name string) string { return name }))
 	if err != nil {
 		return nil, err
 	}
@@ -480,8 +476,7 @@ func (s *pubsubPublisherGRPC) ListTopicSnapshots(_ context.Context, req *pspb.Li
 			names = append(names, snap.Name)
 		}
 	}
-	sort.Strings(names)
-	page, next, err := grpcOffsetPage(names, req.GetPageSize(), req.GetPageToken())
+	page, next, err := grpcKeyPage(names, req.GetPageSize(), req.GetPageToken(), gcpAsc(func(name string) string { return name }))
 	if err != nil {
 		return nil, err
 	}
@@ -610,8 +605,7 @@ func (s *pubsubSubscriberGRPC) ListSubscriptions(_ context.Context, req *pspb.Li
 			all = append(all, sub)
 		}
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	page, next, err := grpcOffsetPage(all, req.GetPageSize(), req.GetPageToken())
+	page, next, err := grpcKeyPage(all, req.GetPageSize(), req.GetPageToken(), gcpAsc(func(v PSSubscription) string { return v.Name }))
 	if err != nil {
 		return nil, err
 	}
@@ -924,8 +918,7 @@ func (s *pubsubSubscriberGRPC) ListSnapshots(_ context.Context, req *pspb.ListSn
 			all = append(all, snap)
 		}
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	page, next, err := grpcOffsetPage(all, req.GetPageSize(), req.GetPageToken())
+	page, next, err := grpcKeyPage(all, req.GetPageSize(), req.GetPageToken(), gcpAsc(func(v PSSnapshot) string { return v.Name }))
 	if err != nil {
 		return nil, err
 	}
@@ -1008,8 +1001,7 @@ func (s *pubsubSchemaGRPC) ListSchemas(_ context.Context, req *pspb.ListSchemasR
 		}
 		all = append(all, sc)
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	page, next, err := grpcOffsetPage(all, req.GetPageSize(), req.GetPageToken())
+	page, next, err := grpcKeyPage(all, req.GetPageSize(), req.GetPageToken(), gcpAsc(func(v PSSchema) string { return v.Name }))
 	if err != nil {
 		return nil, err
 	}
@@ -1075,7 +1067,8 @@ func (s *pubsubSchemaGRPC) ListSchemaRevisions(_ context.Context, req *pspb.List
 			revs[i].Definition = ""
 		}
 	}
-	page, next, err := grpcOffsetPage(revs, req.GetPageSize(), req.GetPageToken())
+	page, next, err := grpcKeyPage(revs, req.GetPageSize(), req.GetPageToken(),
+		gcpDesc(func(v PSSchema) string { return v.RevisionCreateTime }), gcpDesc(func(v PSSchema) string { return v.RevisionId }))
 	if err != nil {
 		return nil, err
 	}
@@ -1151,17 +1144,4 @@ func psNormalizeProject(s string) string {
 		s = s[:i]
 	}
 	return s
-}
-
-// grpcOffsetPage pages a gRPC list by a decimal offset token, answering
-// INVALID_ARGUMENT for a negative size or a token it never issued.
-func grpcOffsetPage[T any](items []T, pageSize int32, pageToken string) ([]T, string, error) {
-	if pageSize < 0 {
-		return nil, "", status.Errorf(codes.InvalidArgument, "page_size must not be negative, got %d", pageSize)
-	}
-	page, next, err := listq.TokenPage(listq.Decimal.Strictly(), items, pageToken, int(pageSize), 0, 0)
-	if err != nil {
-		return nil, "", status.Errorf(codes.InvalidArgument, "invalid page_token %q", pageToken)
-	}
-	return page, next, nil
 }

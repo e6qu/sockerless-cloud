@@ -571,7 +571,7 @@ func crmListValuesAdmissible(c CRMConstraint, l *CRMListPolicy) string {
 // crmOrgPolicyPage applies the page-size / page-token pair the org-policy list
 // methods carry in the request BODY rather than the query string.
 func crmOrgPolicyPage[T any](w http.ResponseWriter, items []T, key gcpSortKey[T], pageSize int, pageToken string) ([]T, string, bool) {
-	return gcpKeyPage(w, items, []gcpSortKey[T]{key}, pageToken, pageSize, 0)
+	return gcpKeyPage(w, items, []gcpSortKey[T]{key}, pageToken, pageSize, 0, 0)
 }
 
 // crmWriteSearchPage writes one page of a search method's results under

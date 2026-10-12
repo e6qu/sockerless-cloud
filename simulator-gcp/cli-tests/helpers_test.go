@@ -386,7 +386,7 @@ func gcloudCLI(args ...string) *exec.Cmd {
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_SERVICEUSAGE="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_SECRETMANAGER="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_CLOUDKMS="+baseURL+"/",
-		"CLOUDSDK_API_ENDPOINT_OVERRIDES_VPCACCESS="+baseURL+"/",
+		"CLOUDSDK_API_ENDPOINT_OVERRIDES_VPCACCESS="+vpcAccessEndpoint,
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_COMPUTE="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_ARTIFACTREGISTRY="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_EVENTARC="+eventarcEndpoint,
@@ -405,10 +405,12 @@ func gcloudCLI(args ...string) *exec.Cmd {
 	return cmd
 }
 
-// The Eventarc and Cloud Build endpoints gcloudCLI configures.
+// The service hosts gcloudCLI reaches through the simulator as its HTTP proxy:
+// services that publish one path, which Google tells apart by host.
 const (
 	eventarcEndpoint   = "http://eventarc.googleapis.com/"
 	cloudBuildEndpoint = "http://cloudbuild.googleapis.com/"
+	vpcAccessEndpoint  = "http://vpcaccess.googleapis.com/"
 )
 
 // gcloudSAActivatedCLI creates a gcloud command bound to an isolated config
