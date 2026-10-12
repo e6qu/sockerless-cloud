@@ -66,6 +66,32 @@ func TestServiceUsage_OperationDelete(t *testing.T) {
 	assert.Equal(t, 404, apiErr.Code)
 }
 
+// TestServiceUsage_GetReportsDisabledUntilEnabled reads a service through
+// services.get before, after and once more after it is enabled and disabled:
+// Service Usage reports a service the project never enabled as DISABLED.
+func TestServiceUsage_GetReportsDisabledUntilEnabled(t *testing.T) {
+	t.Parallel()
+	svc := serviceUsageService(t)
+	const name = "projects/su-get-state/services/pubsub.googleapis.com"
+
+	before, err := svc.Services.Get(name).Do()
+	require.NoError(t, err)
+	assert.Equal(t, name, before.Name)
+	assert.Equal(t, "DISABLED", before.State, "a never-enabled service is DISABLED")
+
+	_, err = svc.Services.Enable(name, &serviceusage.EnableServiceRequest{}).Do()
+	require.NoError(t, err)
+	enabled, err := svc.Services.Get(name).Do()
+	require.NoError(t, err)
+	assert.Equal(t, "ENABLED", enabled.State)
+
+	_, err = svc.Services.Disable(name, &serviceusage.DisableServiceRequest{}).Do()
+	require.NoError(t, err)
+	disabled, err := svc.Services.Get(name).Do()
+	require.NoError(t, err)
+	assert.Equal(t, "DISABLED", disabled.State)
+}
+
 // TestVPCAccess_ConnectorPatch exercises the connector update path: create a
 // connector, PATCH its scaling fields, then read the mutation back.
 func TestVPCAccess_ConnectorPatch(t *testing.T) {

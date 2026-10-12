@@ -220,6 +220,12 @@ Current state of the sockerless-cloud repository.
   version delete with AccessDenied; a bucket without Object Lock refuses its
   operations with InvalidRequest. DeleteObjects refuses an entry the caller may
   not delete as that entry's AccessDenied and deletes the rest.
+- **Service-owned Amazon S3 buckets belong to AWS.** The buckets AWS Lambda,
+  AWS Amplify, AWS Glue and Elastic Load Balancing hand out presigned URLs
+  into live in an AWS-owned account: ListBuckets and ListRegionalBuckets omit
+  them, every request the caller signs against one answers AccessDenied (and
+  CreateBucket BucketAlreadyExists), and the URLs, signed with a credential
+  only the simulator process holds, download the objects.
 - **Amazon S3 Batch Operations jobs run** as server background work from `New`
   to `Complete`, `Failed` or `Cancelled`, taking LambdaInvoke outcomes from the
   function's `results[]`, writing the completion report, reading CSV manifest
@@ -279,6 +285,10 @@ Current state of the sockerless-cloud repository.
   unique ID. Cloud Resource Manager starts holding only the deployment's own
   project, `sockerless`; every test harness creates the project it addresses
   through projects.create.
+- **Service Usage reports a never-enabled service DISABLED** through
+  services.get and services.batchGet, as the Service state defines it; the
+  gcloud suite's harness enables the APIs it drives on the project it creates,
+  as a user does. A new project enables no services by default (BUG-3451).
 - **List pages resume after the last item returned.** A page token carries the
   last item's sort values under the client's `orderBy` and the list's own
   keys, so creates and deletes between page reads neither repeat nor skip an

@@ -23,7 +23,6 @@ func TestStorageARMManagementCLI(t *testing.T) {
 		baseURL, subscriptionID, resourceGroup, account, apiVersion)
 	createBody := `{"location":"eastus","kind":"StorageV2","sku":{"name":"Standard_LRS"}}`
 	runCLI(t, azRest("PUT", acctURL, createBody))
-	t.Cleanup(func() { _ = azRest("DELETE", acctURL, "").Run() })
 
 	// Operations_List.
 	opsOut := runCLI(t, azRest("GET", baseURL+"/providers/Microsoft.Storage/operations?api-version="+apiVersion, ""))
@@ -78,4 +77,16 @@ func TestStorageARMManagementCLI(t *testing.T) {
 	}
 	parseJSON(t, sasOut, &sas)
 	require.NotEmpty(t, sas.AccountSasToken)
+
+	var shown struct {
+		Name string `json:"name"`
+		Kind string `json:"kind"`
+	}
+	parseJSON(t, runCLI(t, azRest("GET", acctURL, "")), &shown)
+	assert.Equal(t, account, shown.Name)
+	assert.Equal(t, "StorageV2", shown.Kind)
+
+	runCLI(t, azRest("DELETE", acctURL, ""))
+	failure := runCLIExpectFailure(t, azRest("GET", acctURL, ""))
+	assert.Contains(t, failure, "ResourceNotFound", "a deleted storage account must no longer resolve")
 }

@@ -265,8 +265,8 @@ func TestGCS_RapidCachesAndManagedFolderPatch(t *testing.T) {
 	assert.NotNil(t, folder["rapidCacheConfig"], "the patched configuration is the one read back")
 }
 
-// Service Usage's batch read answers from the same store the single get
-// serves.
+// Service Usage's batch read answers what the single get serves: ENABLED for
+// a service the project enabled, DISABLED for one it never enabled.
 func TestServiceUsage_BatchGet(t *testing.T) {
 	ctx := context.Background()
 	svc, err := serviceusage.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
@@ -287,6 +287,8 @@ func TestServiceUsage_BatchGet(t *testing.T) {
 	}
 	assert.Equal(t, "ENABLED", byName[parent+"/services/compute.googleapis.com"],
 		"the batch read must see what the single enable wrote")
+	assert.Equal(t, "DISABLED", byName[parent+"/services/dns.googleapis.com"],
+		"a service the project never enabled is DISABLED")
 }
 
 // gcpRawJSON issues a JSON API request the generated client cannot express

@@ -32,6 +32,9 @@ type S3Bucket struct {
 	DirectoryZone string `xml:"-"`
 	// DataRedundancy is how many zones a directory bucket's data is held in.
 	DataRedundancy string `xml:"-"`
+	// Owner is the account that owns a bucket outside the caller's account,
+	// empty for the caller's own. Only awsServiceAccountID owns such buckets.
+	Owner string `xml:"-"`
 }
 
 type S3Object struct {
@@ -145,16 +148,45 @@ func s3PutServiceObject(bucket, key string, body []byte, contentType string, met
 	return s3PutObjectIf(bucket, key, bytes.NewReader(body), contentType, metadata, "STANDARD", s3ObjectLock{}, nil)
 }
 
-// s3EnsureServiceBucket creates the bucket a service keeps the objects it
-// hands out presigned URLs to, on first use, and returns its name.
+// s3EnsureServiceBucket creates, on first use, the bucket a service keeps the
+// objects it hands out presigned URLs to, in the account AWS services own, and
+// returns its name. A persisted bucket of that name without an owner moves to
+// the service account.
 func s3EnsureServiceBucket(bucket string) string {
-	if _, ok := s3Buckets_.Get(bucket); !ok {
+	if b, ok := s3Buckets_.Get(bucket); ok && b.Owner == awsServiceAccountID {
+		return bucket
+	}
+	if !s3Buckets_.Update(bucket, func(b *S3Bucket) { b.Owner = awsServiceAccountID }) {
 		s3Buckets_.Put(bucket, S3Bucket{
 			Name:         bucket,
 			CreationDate: time.Now().UTC().Format(time.RFC3339),
+			Owner:        awsServiceAccountID,
 		})
 	}
 	return bucket
+}
+
+// s3BucketOwnedElsewhere reports whether bucket exists in an account other
+// than the caller's.
+func s3BucketOwnedElsewhere(bucket string) bool {
+	b, ok := s3Buckets_.Get(bucket)
+	return ok && b.Owner != ""
+}
+
+// s3RefuseForeignBucket answers AccessDenied for a request against a bucket
+// another account owns, unless the bucket owner signed it. No bucket policy
+// grants the caller's account anything on a service-owned bucket, so S3
+// refuses every operation but CreateBucket, which reports the name taken.
+func s3RefuseForeignBucket(w http.ResponseWriter, r *http.Request, op string) bool {
+	if op == "CreateBucket" || !s3BucketOwnedElsewhere(sim.PathParam(r, "bucket")) {
+		return false
+	}
+	if iamAccessKeyIDFromRequest(r) == awsServiceCredential.accessKeyID {
+		return false
+	}
+	S3ErrorXML(w, "AccessDenied", "Access Denied",
+		strings.TrimPrefix(r.URL.Path, "/"), sim.RequestID(r.Context()), http.StatusForbidden)
+	return true
 }
 
 var (
@@ -368,7 +400,11 @@ func s3Enforced(opName func(*http.Request, []byte) string, h http.HandlerFunc) h
 			sigv4WriteS3Error(w, r, serr)
 			return
 		}
-		if op := opName(r, nil); op != "" {
+		op := opName(r, nil)
+		if s3RefuseForeignBucket(w, r, op) {
+			return
+		}
+		if op != "" {
 			// A request signed with a session credential is authorized by that
 			// session first: it opens one directory bucket, in one mode, until
 			// it expires.
@@ -709,7 +745,7 @@ func handleS3ListBuckets(w http.ResponseWriter, r *http.Request) {
 	// listing, which is what separates the two surfaces.
 	buckets := []S3Bucket{}
 	for _, b := range s3Buckets_.List() {
-		if b.DirectoryZone == "" {
+		if b.DirectoryZone == "" && b.Owner == "" {
 			buckets = append(buckets, b)
 		}
 	}
@@ -735,7 +771,13 @@ func handleS3CreateBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, exists := s3Buckets_.Get(bucket); exists {
+	if existing, exists := s3Buckets_.Get(bucket); exists {
+		if existing.Owner != "" {
+			S3ErrorXML(w, "BucketAlreadyExists",
+				"The requested bucket name is not available. The bucket namespace is shared by all users of the system. Please select a different name and try again.",
+				bucket, sim.RequestID(r.Context()), http.StatusConflict)
+			return
+		}
 		// In us-east-1 a same-owner repeat CreateBucket is idempotent (200);
 		// every other region returns BucketAlreadyOwnedByYou (409).
 		if awsRegion() == "us-east-1" {

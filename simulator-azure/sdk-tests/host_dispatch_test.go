@@ -78,7 +78,6 @@ func TestNoOsExecOfWorkloads(t *testing.T) {
 		"sdk-tests":       true,
 		"cli-tests":       true,
 		"terraform-tests": true,
-		"bash-tests":      true,
 		"dist":            true,
 		"docs":            true,
 	}

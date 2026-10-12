@@ -68,6 +68,19 @@ func TestContainerApps_CLI_StartAndCheckLogs(t *testing.T) {
 	}, 60*time.Second, 300*time.Millisecond)
 	assert.Equal(t, "Succeeded", execResult.Properties.Status)
 
+	var listed struct {
+		Value []struct {
+			Name       string `json:"name"`
+			Properties struct {
+				Status string `json:"status"`
+			} `json:"properties"`
+		} `json:"value"`
+	}
+	parseJSON(t, runCLI(t, azRest("GET", armURL("Microsoft.App", "jobs/cli-aca-job/executions", acaAPIVersion), "")), &listed)
+	require.Len(t, listed.Value, 1, "Jobs_ListExecutions must list the one execution started")
+	assert.Equal(t, startResult.Name, listed.Value[0].Name)
+	assert.Equal(t, "Succeeded", listed.Value[0].Properties.Status)
+
 	// Poll Log Analytics until the real process output is ingested.
 	require.Eventually(t, func() bool {
 		out = cliQueryWorkspace(t, customerID, `ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "cli-aca-job"`)

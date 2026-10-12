@@ -15,11 +15,15 @@ func serviceURL(service string) string {
 
 func TestServiceUsage_EnableAndList(t *testing.T) {
 	t.Parallel()
-	// Enable a service
+	var never struct {
+		State string `json:"state"`
+	}
+	parseJSON(t, httpDoJSON(t, "GET", serviceURL("cli-never-enabled.googleapis.com"), ""), &never)
+	assert.Equal(t, "DISABLED", never.State, "a service the project never enabled is DISABLED")
+
 	enableURL := serviceURL("compute.googleapis.com:enable")
 	httpDoJSON(t, "POST", enableURL, `{}`)
 
-	// Get service to verify it's enabled
 	getURL := serviceURL("compute.googleapis.com")
 	out := httpDoJSON(t, "GET", getURL, "")
 
@@ -30,7 +34,6 @@ func TestServiceUsage_EnableAndList(t *testing.T) {
 	parseJSON(t, out, &svc)
 	assert.Equal(t, "ENABLED", svc.State)
 
-	// List services
 	listURL := fmt.Sprintf("%s/v1/projects/%s/services", baseURL, project)
 	out = httpDoJSON(t, "GET", listURL, "")
 
@@ -94,16 +97,12 @@ func TestServiceUsage_ListPagination(t *testing.T) {
 
 func TestServiceUsage_Disable(t *testing.T) {
 	t.Parallel()
-	// Enable first
-	enableURL := serviceURL("storage.googleapis.com:enable")
-	httpDoJSON(t, "POST", enableURL, `{}`)
+	// A service of its own: the suite's harness enabled the ones it drives.
+	const service = "cli-disable.googleapis.com"
+	httpDoJSON(t, "POST", serviceURL(service+":enable"), `{}`)
+	httpDoJSON(t, "POST", serviceURL(service+":disable"), `{}`)
 
-	// Disable
-	disableURL := serviceURL("storage.googleapis.com:disable")
-	httpDoJSON(t, "POST", disableURL, `{}`)
-
-	// Verify it's disabled
-	getURL := serviceURL("storage.googleapis.com")
+	getURL := serviceURL(service)
 	out := httpDoJSON(t, "GET", getURL, "")
 
 	var svc struct {

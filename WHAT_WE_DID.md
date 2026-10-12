@@ -658,6 +658,15 @@ own module:
   land on one identifier. The Terraform
   harness's SDK client has no overall timeout, as the SDKs' default client has
   none.
+- **A service a project never enabled is DISABLED.** Service Usage's
+  services.get and services.batchGet answered ENABLED for any service nothing
+  had enabled, so a client that checks before calling never had to enable
+  anything. The Service state documents DISABLED as "explicitly disabled, or
+  has never been enabled", and the simulator answers that. A harness enables
+  the APIs it drives on the project it creates, through Service Usage, the way
+  a user prepares a new project: the gcloud suite runs `gcloud services
+  enable` after `gcloud projects create`, and its own Service Usage tests use
+  services of their own so a disable cannot reach what the suite drives.
 
 ## Execution
 
@@ -1701,6 +1710,15 @@ range from a cached store. Deleting an Amazon ECR repository deletes its images
 and manifests under `<repository>:`, its blobs and layers under `<repository>@`,
 and its policies, so a repository created again starts empty.
 
+The buckets a service hands out presigned URLs into — AWS Lambda's deployment
+packages, AWS Amplify's artifacts, AWS Glue's system logs, Elastic Load
+Balancing's trust store copies — belong to an AWS-owned account
+(`S3Bucket.Owner`), as AWS keeps them. Kept in the caller's account, they
+showed in ListBuckets and the caller could overwrite or delete what the
+service served. The S3 gate refuses every request into such a bucket that the
+service's own credential did not sign; that credential's secret is generated
+per process, so the presigned URLs the services mint are the only way in.
+
 An object's contents are not in its row, since a row is decoded whole on every
 read: `Server.Payloads` keeps contents in files the row references. A write is
 always a new file, written before the row that names it, and the replaced file
@@ -2248,7 +2266,11 @@ Attribute a slow phase by measuring it where the simulator runs, never by
 reading the code or the database header. Amazon ECS task-start phase marks
 travel on the context (`realexec.WithMark`), and `/debug/stores` reports each
 table's size. A duration says only "fast today", so concurrency fixes are proven
-by counting — peak readers inside a lock, items a query read.
+by counting or by construction — items a query read, stripes an operation
+took, two readers that each wait inside the read lock for the other to arrive.
+A lock test that bounds a wait with a clock or sleeps to make an overlap likely
+measures the machine; one whose broken lock blocks the test's own channel
+fails the same way on every run.
 
 The slow-request diagnostic (`sim.InFlightMiddleware`) reports a request only
 once it outlives the wait its handler declared by `SlowRequestThreshold`. A
@@ -2567,6 +2589,10 @@ Every `git config` this repository runs names its target with `-C`.
 `Dockerfile.test`, the shared harness image, is committed and un-ignored by name
 (`.gitignore` ignores `*.test`), with every toolchain pinned to a version and a
 digest, because the image decides what a test result means.
+
+Every CLI command the AWS and Azure bash scripts drove is driven by the Go CLI
+suites with assertions on what it answers, and the scripts are gone: no job ran
+them, and a script nothing runs reports nothing when it breaks.
 
 The console browser suites run fully parallel, with Playwright's default of one
 worker per two cores.

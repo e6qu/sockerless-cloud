@@ -207,6 +207,9 @@ func splitSignedHeaders(s string) []string {
 // token, the request's presented token must match. An unresolved key is an
 // invalid client token.
 func sigv4SecretFor(accessKeyID, presentedToken string) (string, *sigv4Error) {
+	if accessKeyID == awsServiceCredential.accessKeyID {
+		return awsServiceCredential.secretAccessKey, nil
+	}
 	if key, ok := iamAccessKeys.Get(accessKeyID); ok {
 		if key.Status != "Active" {
 			return "", &sigv4Error{sigErrInvalidClientToken, sigMsgInvalidTok}

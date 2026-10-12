@@ -50,6 +50,24 @@ type gcpLongrunningOperation struct {
 	Error    *OperationError `json:"error,omitempty"`
 }
 
+// serviceUsageRecord is a project's record of service: the one enable and
+// disable wrote, or DISABLED for a service the project never enabled, which
+// the Service state's own documentation names as what DISABLED means.
+func serviceUsageRecord(services sim.Store[ServiceUsageState], project, service string) ServiceUsageState {
+	name := fmt.Sprintf("projects/%s/services/%s", project, service)
+	if svc, ok := services.Get(name); ok {
+		return svc
+	}
+	svc := ServiceUsageState{
+		Name:   name,
+		State:  "DISABLED",
+		Parent: "projects/" + project,
+	}
+	svc.Config.Name = service
+	svc.Config.Title = service
+	return svc
+}
+
 func registerServiceUsage(srv *sim.Server) {
 	services := sim.MakeStore[ServiceUsageState](srv.DB(), "service_usage")
 
@@ -81,10 +99,9 @@ func registerServiceUsage(srv *sim.Server) {
 				"operations")
 			sim.WriteJSON(w, http.StatusOK, op)
 		case "disable":
-			services.Update(name, func(s *ServiceUsageState) {
-				s.State = "DISABLED"
-			})
-			disabled, _ := services.Get(name)
+			disabled := serviceUsageRecord(services, project, service)
+			disabled.State = "DISABLED"
+			services.Put(name, disabled)
 
 			op := renameGCPOperation(
 				serviceUsageLRO(map[string]any{"service": disabled}, "DisableServiceResponse", name),
@@ -98,22 +115,7 @@ func registerServiceUsage(srv *sim.Server) {
 	// Get service
 	srv.HandleFunc("GET /v1/projects/{project}/services/{service}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
-		service := sim.PathParam(r, "service")
-		name := fmt.Sprintf("projects/%s/services/%s", project, service)
-
-		svc, ok := services.Get(name)
-		if !ok {
-			// Return as ENABLED by default (optimistic for simulator)
-			svc = ServiceUsageState{
-				Name:   name,
-				State:  "ENABLED",
-				Parent: "projects/" + project,
-			}
-			svc.Config.Name = service
-			svc.Config.Title = service
-		}
-
-		sim.WriteJSON(w, http.StatusOK, svc)
+		sim.WriteJSON(w, http.StatusOK, serviceUsageRecord(services, project, sim.PathParam(r, "service")))
 	})
 
 	// List services (batch enable support)
@@ -146,12 +148,10 @@ func registerServiceUsage(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, resp)
 	})
 
-	// services.batchGet — the batch form of services.get: one response
-	// carrying, for each name asked, the same record the single get serves
-	// from the same store (including its default: a service never touched by
-	// enable/disable reads ENABLED). Per the method's own documentation the
-	// parent must be a project, every name must sit under it, and a single
-	// request gets at most 30 services.
+	// services.batchGet answers, for each name asked, the record services.get
+	// serves. Per the method's own documentation the parent must be a project,
+	// every name must sit under it, and a single request gets at most 30
+	// services.
 	srv.HandleFunc("GET /v1/projects/{project}/services:batchGet", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		parentPrefix := fmt.Sprintf("projects/%s/services/", project)
@@ -173,17 +173,7 @@ func registerServiceUsage(srv *sim.Server) {
 					"service name %q must be of the form %s{service}", name, parentPrefix)
 				return
 			}
-			svc, ok := services.Get(name)
-			if !ok {
-				svc = ServiceUsageState{
-					Name:   name,
-					State:  "ENABLED",
-					Parent: "projects/" + project,
-				}
-				svc.Config.Name = service
-				svc.Config.Title = service
-			}
-			out = append(out, svc)
+			out = append(out, serviceUsageRecord(services, project, service))
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"services": out})
 	})

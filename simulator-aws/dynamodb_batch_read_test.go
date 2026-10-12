@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -140,12 +139,12 @@ func TestDDBTransactGetItemsTakesOneStripe(t *testing.T) {
 // write committed while a transactional read is in flight is either wholly
 // before it or wholly after it, never between two of its items.
 //
-// It is asserted by construction rather than by repetition. The writer is
-// started from inside the read's first item read and cannot proceed while the
-// read holds the table's stripe; Go's RWMutex blocks new readers once a writer
-// is waiting, so a read that released its stripe between items would hand the
-// writer the table and see the new value in its second item. Every later item
-// read therefore asserts the writer has not run.
+// The writer starts from inside the read's first item read and takes the
+// table's stripe for writing, so a read that released its stripe between items
+// could hand the writer the table and see the new value in its second item.
+// Every later item read therefore asserts the writer has not run, and the read
+// asserts it held one acquisition across both items: the writer's own
+// acquisition is the only other one the counter may have recorded.
 func TestDDBTransactGetItemsReadsOneInstant(t *testing.T) {
 	ddbQueryConcurrencyStores(t)
 	const table = "transact-read"
@@ -193,14 +192,9 @@ func TestDDBTransactGetItemsReadsOneInstant(t *testing.T) {
 			writerDone.Store(true)
 		}()
 		<-starting
-		// The writer has been scheduled; this gives it time to reach the
-		// acquisition and block there, so that a read releasing its stripe
-		// between items would definitely lose the table to it. Under a read
-		// that holds one acquisition this is time spent inside the critical
-		// section and nothing else happens in it.
-		time.Sleep(50 * time.Millisecond)
 	}
 
+	before := ddbItemLocks.Acquired()
 	recorder := ddbTransactGet(t, table, keys)
 	hooked.onGet = nil
 
@@ -223,6 +217,8 @@ func TestDDBTransactGetItemsReadsOneInstant(t *testing.T) {
 
 	<-written
 	require.True(t, writerDone.Load())
+	require.Equal(t, uint64(2), ddbItemLocks.Acquired()-before,
+		"the read must take its stripe once across both items, and the writer its own once")
 	updated, ok := stored.Get(ddbItemKey(definition, map[string]any{
 		"pk": keys[0]["pk"], "sk": keys[0]["sk"],
 	}))
