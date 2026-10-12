@@ -117,6 +117,10 @@ own module:
   MX record is `.` (RFC 7505). It had trimmed that record to an empty host and
   dialled port 25 on the local machine, so an Amazon SNS confirmation for
   `ops@example.com` landed in a parallel test's SMTP receiver.
+- **A method the specification drops leaves the simulator.** Cloud Storage's
+  Discovery document dropped the `channels` resource, so the simulator stopped
+  serving `channels.stop`, whose handler had answered 200 without stopping
+  anything.
 - **An unserved operation declares itself** with a 501 naming what is missing;
   the mux's 404 is indistinguishable from a missing resource.
 - **A registered operation is not an implemented one.**
