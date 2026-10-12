@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 105.
+Open: 106.
 
 Resolved bugs are not kept here. Their fixes live in git history (`git log`
 over this file and the fixing commits), and the lasting rules they produced
@@ -10,6 +10,7 @@ live in `WHAT_WE_DID.md`.
 
 | ID | Sev | Area | Symptom and cause | Fix shape — what closes it |
 |----|-----|------|-------------------|----------------------------|
+| 3450 | P2 | CI image pulls from public.ecr.aws are throttled | CI pulls its base and workload images anonymously from public.ecr.aws, which answers `toomanyrequests: Data limit exceeded` under load: a `race (sim)` run failed every container-backed test at its pull after `warm-base-images` missed its cache, and `check-deps` could not read three pinned images. Mirroring the images into the project's own registry is ruled out, since every pin update would then need a refresh of the copy. | Find a source CI can pull reliably without the project owning a copy: an authenticated ECR Public pull with credentials the repository provides, or a cache that holds every image the suites pull and is filled before the jobs that need it run. |
 | 3449 | P3 | Location operation collections span services | `GET /v1/projects/{p}/locations/{l}/operations` (registered by Eventarc) and `GET /v2/projects/{p}/locations/{l}/operations` (registered by Cloud Functions) list every operation in the shared store under that location, so Cloud Run's, Cloud Functions', Eventarc's and Memorystore's operations list in each other's collections; Google serves each from its own host. | Scope each location collection to the operations its host's service started, as Service Usage's `operations.list` scopes to its OperationMetadata, dispatching by host as Eventarc and Cloud Build triggers already do. |
 | 3448 | P3 | Google Cloud lists outside paginateList page by offset | Cloud KMS over gRPC (`cloudkms_grpc.go`), Pub/Sub over gRPC (`pubsub_grpc.go`), Cloud Run Admin API v1 jobs (`cloudrun_v1_jobs.go`), IAM roles.list (`iam.go`), Cloud Logging entries.list (`logging.go`) and BigQuery tabledata.list still page by an index token, so a resource created or deleted between two page reads moves an item across a page boundary. | Page them through `gcpColumnPage`'s key continuation (a writer-free form for the gRPC paths), keyed by each list's own order, with a test per list that creates and deletes between page reads. |
 | 3447 | P3 | Google Cloud bash CLI script presents a fake bearer token | `simulator-gcp/bash-tests/test_gcp_cli.sh` runs its gcloud and curl calls with the literal token `fake-gcp-token`, which the data plane's bearer verification refuses, and no CI job, make target or script runs it, so nothing notices. | Mint the token from the simulator's token endpoint as the Go harnesses do and run the script in CI, or delete it in favour of the CLI suite it duplicates. |
