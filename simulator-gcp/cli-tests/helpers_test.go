@@ -203,6 +203,26 @@ func TestMain(m *testing.M) {
 		simCmd.Process.Kill()
 		log.Fatalf("Failed to create project %s: %v\n%s", project, err, out)
 	}
+	// Enable the APIs the suite drives, as a user does on a new project before
+	// using them: gcloud reads a service's state before some commands and
+	// offers to enable it, and Service Usage reports a never-enabled service
+	// DISABLED. A batch enables at most 20 services.
+	for _, batch := range [][]string{
+		{"apigateway.googleapis.com", "artifactregistry.googleapis.com", "bigquery.googleapis.com",
+			"bigtableadmin.googleapis.com", "cloudbilling.googleapis.com", "cloudbuild.googleapis.com",
+			"cloudfunctions.googleapis.com", "cloudkms.googleapis.com", "cloudresourcemanager.googleapis.com",
+			"compute.googleapis.com", "dataflow.googleapis.com", "dns.googleapis.com",
+			"eventarc.googleapis.com", "firestore.googleapis.com", "iam.googleapis.com",
+			"iamcredentials.googleapis.com", "logging.googleapis.com", "pubsub.googleapis.com"},
+		{"redis.googleapis.com", "run.googleapis.com", "secretmanager.googleapis.com",
+			"spanner.googleapis.com", "sqladmin.googleapis.com", "storage.googleapis.com",
+			"vpcaccess.googleapis.com"},
+	} {
+		if out, err := gcloudCLI(append([]string{"services", "enable"}, batch...)...).CombinedOutput(); err != nil {
+			simCmd.Process.Kill()
+			log.Fatalf("Failed to enable the suite's services on %s: %v\n%s", project, err, out)
+		}
+	}
 
 	code := m.Run()
 

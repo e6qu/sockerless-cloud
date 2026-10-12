@@ -97,6 +97,10 @@ func TestCLI_Resources_ResourceGroupUpdate(t *testing.T) {
 		fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/exportTemplate?api-version=%s", baseURL, subscriptionID, rg, resourcesAPIVersion),
 		`{"resources":["*"]}`))
 	assert.Contains(t, out, "contentVersion")
+
+	runCLI(t, azRest("DELETE", rgURL, ""))
+	failure := runCLIExpectFailure(t, azRest("GET", rgURL, ""))
+	assert.Contains(t, failure, "ResourceGroupNotFound", "a deleted resource group must no longer resolve")
 }
 
 func TestCLI_Subscriptions(t *testing.T) {

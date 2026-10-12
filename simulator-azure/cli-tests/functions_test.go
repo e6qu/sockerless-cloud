@@ -52,12 +52,26 @@ func TestFunctionApp_CreateAndShow(t *testing.T) {
 	assert.Equal(t, "cli-test-funcapp", site.Name)
 	assert.Equal(t, "eastus", site.Location)
 
-	// GET
 	out = runCLI(t, azRest("GET", url, ""))
 	parseJSON(t, out, &site)
 	assert.Equal(t, "cli-test-funcapp", site.Name)
 
-	// Cleanup
+	var listed struct {
+		Value []struct {
+			Name string `json:"name"`
+			Kind string `json:"kind"`
+		} `json:"value"`
+	}
+	parseJSON(t, runCLI(t, azRest("GET", funcURL("sites"), "")), &listed)
+	var names []string
+	for _, row := range listed.Value {
+		names = append(names, row.Name)
+		if row.Name == "cli-test-funcapp" {
+			assert.Equal(t, "functionapp", row.Kind)
+		}
+	}
+	assert.Contains(t, names, "cli-test-funcapp", "WebApps_ListByResourceGroup must list the function app")
+
 	runCLI(t, azRest("DELETE", url, ""))
 	runCLI(t, azRest("DELETE", planURL, ""))
 }

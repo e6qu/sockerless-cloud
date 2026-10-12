@@ -153,6 +153,9 @@ func handleS3ListRegionalBuckets(w http.ResponseWriter, r *http.Request) {
 	var items []entry
 	if outpostID == "" {
 		for _, bucket := range s3Buckets_.List() {
+			if bucket.Owner != "" {
+				continue
+			}
 			items = append(items, entry{
 				Bucket:                   bucket.Name,
 				BucketArn:                s3BucketARN(bucket.Name),

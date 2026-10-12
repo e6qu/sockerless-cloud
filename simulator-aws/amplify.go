@@ -1616,12 +1616,10 @@ func awsRequestURLBase(r *http.Request) string {
 	return scheme + "://" + r.Host
 }
 
-// amplifyPresignedS3URLBase mints a real SigV4 query-signed ("presigned") URL
-// into the sim's own S3 data plane. It is signed with the seed admin
-// credential the S3 SigV4 authentication gate verifies against, so the URL
-// authenticates exactly as a presigned URL minted by real AWS Amplify does.
-// A SigV4 presigned URL commits to a single HTTP method, so method selects
-// GET (artifact / log downloads) or PUT (deployment uploads).
+// amplifyPresignedS3URLBase mints a SigV4 query-signed URL into the S3 data
+// plane, signed with the service credential the way an AWS Amplify URL is
+// signed by AWS rather than by the caller. A presigned URL commits to one
+// HTTP method: GET for artifact and log downloads, PUT for deployment uploads.
 func amplifyPresignedS3URLBase(urlBase, key, method string) string {
 	return presignedS3URLBase(urlBase, amplifyArtifactBucketName(), key, method)
 }
@@ -1636,11 +1634,11 @@ func presignedS3URLBase(urlBase, bucket, key, method string) string {
 	amzDate := now.Format("20060102T150405Z")
 	dateStamp := now.Format("20060102")
 	region := awsRegion()
-	cred := credScope{accessKeyID: seedAdminAccessKey, date: dateStamp, region: region, service: "s3"}
+	cred := credScope{accessKeyID: awsServiceCredential.accessKeyID, date: dateStamp, region: region, service: "s3"}
 
 	q := url.Values{}
 	q.Set("X-Amz-Algorithm", "AWS4-HMAC-SHA256")
-	q.Set("X-Amz-Credential", seedAdminAccessKey+"/"+dateStamp+"/"+region+"/s3/aws4_request")
+	q.Set("X-Amz-Credential", awsServiceCredential.accessKeyID+"/"+dateStamp+"/"+region+"/s3/aws4_request")
 	q.Set("X-Amz-Date", amzDate)
 	q.Set("X-Amz-Expires", "3600")
 	q.Set("X-Amz-SignedHeaders", "host")
@@ -1655,7 +1653,7 @@ func presignedS3URLBase(urlBase, bucket, key, method string) string {
 		"host",
 		"UNSIGNED-PAYLOAD",
 	}, "\n")
-	q.Set("X-Amz-Signature", sigv4Signature(seedAdminSecretKey, cred, amzDate, canonReq))
+	q.Set("X-Amz-Signature", sigv4Signature(awsServiceCredential.secretAccessKey, cred, amzDate, canonReq))
 	return urlBase + path + "?" + q.Encode()
 }
 

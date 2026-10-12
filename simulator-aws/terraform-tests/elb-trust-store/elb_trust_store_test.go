@@ -9,9 +9,11 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"io"
 	"math/big"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +21,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/smithy-go"
 	"github.com/e6qu/sockerless-cloud/simulator-aws/terraform-tests/internal/tfsim"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -73,6 +77,26 @@ func TestELBTrustStoreTerraform(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode, string(served))
 	assert.Equal(t, bundle.String(), string(served), "the bundle location serves the bundle Terraform uploaded")
+
+	// The location names a bucket Elastic Load Balancing owns, which the
+	// caller's account neither lists nor reads.
+	locationURL, err := url.Parse(aws.ToString(located.Location))
+	require.NoError(t, err)
+	serviceBucket, _, _ := strings.Cut(strings.TrimPrefix(locationURL.Path, "/"), "/")
+	s3c := s3.New(s3.Options{Region: "us-east-1", BaseEndpoint: aws.String(env.Endpoint), HTTPClient: env.Client, UsePathStyle: true,
+		Credentials: credentials.NewStaticCredentialsProvider("test", "test", "")})
+	listed, err := s3c.ListBuckets(context.Background(), &s3.ListBucketsInput{})
+	require.NoError(t, err)
+	var names []string
+	for _, b := range listed.Buckets {
+		names = append(names, aws.ToString(b.Name))
+	}
+	assert.Contains(t, names, "tf-elb-trust-store-ca")
+	assert.NotContains(t, names, serviceBucket, "ListBuckets lists the bucket Elastic Load Balancing owns")
+	_, err = s3c.GetObject(context.Background(), &s3.GetObjectInput{Bucket: aws.String(serviceBucket), Key: aws.String(strings.TrimPrefix(locationURL.Path, "/"+serviceBucket+"/"))})
+	var apiErr smithy.APIError
+	require.True(t, errors.As(err, &apiErr), "GetObject on the service's bucket: %v", err)
+	assert.Equal(t, "AccessDenied", apiErr.ErrorCode())
 
 	env.Terraform(t, append([]string{"destroy", "-auto-approve"}, vars...)...)
 }

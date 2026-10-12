@@ -748,10 +748,7 @@ func elbv2ReadRevocationList(w http.ResponseWriter, r *http.Request, rev ELBv2Tr
 // GetTrustStoreRevocationContent do. The key carries the content's digest, so
 // the URL names exactly the bytes the trust store ingested.
 func elbv2TrustStoreContentURL(r *http.Request, ts ELBv2TrustStore, name string, content []byte) (string, error) {
-	bucket := awsAccountID() + "-elasticloadbalancing-trust-stores"
-	if _, ok := s3Buckets_.Get(bucket); !ok {
-		s3Buckets_.Put(bucket, S3Bucket{Name: bucket, CreationDate: time.Now().UTC().Format(time.RFC3339)})
-	}
+	bucket := s3EnsureServiceBucket(awsAccountID() + "-elasticloadbalancing-trust-stores")
 	digest := sha256.Sum256(content)
 	key := fmt.Sprintf("%s/%s/%s/%s", ts.Name, ts.Arn[strings.LastIndex(ts.Arn, "/")+1:], hex.EncodeToString(digest[:]), name)
 	storeKey := s3ObjectKey(bucket, key)
