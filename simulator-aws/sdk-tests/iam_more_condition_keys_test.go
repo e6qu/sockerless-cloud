@@ -269,7 +269,7 @@ func TestCloudMap_ServiceCreatedByAccountConditionKeyScopesTheGrant(t *testing.T
 			  "Condition":{"StringEquals":{"servicediscovery:ServiceCreatedByAccount":"`+account+`"}}}]}`)
 		return servicediscovery.NewFromConfig(aws.Config{Region: "us-east-1",
 			Credentials: credentials.NewStaticCredentialsProvider(akid, secret, ""),
-			HTTPClient:  simHTTPClient},
+			HTTPClient:  sdkHTTPClient},
 			func(o *servicediscovery.Options) { o.BaseEndpoint = aws.String(simEndpoint("servicediscovery")) })
 	}
 

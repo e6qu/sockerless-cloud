@@ -106,6 +106,13 @@ own module:
   routes that legitimately dispatch inside a handler are listed with the
   reason. A multi-segment wildcard had counted Cloud Storage's per-object ACLs
   as served while `objects.get` answered them.
+- **A status speaks the operation's own enum.** A CloudWatch Logs anomaly
+  detector reports only `AnomalyDetectorStatus` values: it starts
+  `INITIALIZING`, UpdateLogAnomalyDetector's required `enabled` pauses it to
+  `PAUSED` and restarts it to the status it held before the pause. It had
+  reported a restarted detector as `ENABLED`, which the enum lacks, and the CLI
+  suite's specification gate caught it once a parallel test listed the
+  detector.
 - **An unserved operation declares itself** with a 501 naming what is missing;
   the mux's 404 is indistinguishable from a missing resource.
 - **A registered operation is not an implemented one.**
@@ -2274,10 +2281,11 @@ reading a subscription-wide listing picks out its own row.
 The SDK and CLI suites run their tests in parallel. Every top-level test in the
 six suites starts with `t.Parallel()`, or names itself in its suite's
 `serial-tests.txt` with the reason it cannot share the simulator: it changes an
-account-, project- or subscription-wide setting other tests read, owns the
-account's one AWS Organizations organization, sets an organization policy every
-project inherits, sets an environment variable of the test process, or restarts
-the simulator. `scripts/check-parallel-tests.go`
+account-, project- or subscription-wide setting other tests read, reads an
+account-wide quota usage other tests change (Amazon RDS DescribeAccountAttributes),
+owns the account's one AWS Organizations organization, sets an organization
+policy every project inherits, sets an environment variable of the test process,
+or restarts the simulator. `scripts/check-parallel-tests.go`
 holds the suites to that in pre-commit and CI's build gates, and fails a listed
 test that no longer exists or already runs in parallel, and a parallel test that
 reaches `t.Setenv` or `t.Chdir` through any function of its suite. A parallel
@@ -2291,9 +2299,24 @@ while `FIRESTORE_EMULATOR_HOST` is set.
 
 Every SDK and CLI suite target runs `go test -v` through
 `scripts/go-test-summary.sh`, which ends a failed run with each failing test's
-own lines grouped under its `--- FAIL`. A suite's output runs to megabytes and
-its parallel tests interleave, so the tail a CI log reader sees otherwise held a
-bare FAIL.
+own lines grouped under its `--- FAIL`, printed by
+`scripts/go-test-failure-summary.sh`. CI's AWS SDK step, which runs a
+pre-built test binary into a log file, ends a failed run with the same summary.
+A suite's output runs to megabytes and its parallel tests interleave, so the
+tail a CI log reader sees otherwise held a bare FAIL.
+
+The AWS SDK suite's clients hand the transport each request body without its
+`io.WriterTo` (`sdkHTTPClient`). smithy-go closes a request's body once the
+response arrives, and its closed body's `WriteTo` answers `io.EOF`. net/http
+flushes the headers of a body it cannot see the length of in memory, writes the
+body, then reads it once more for bytes past its Content-Length; a response
+that lands before that last read makes the read fail, and net/http closes the
+connection as a failed write while the caller still reads the response from
+it. Under parallel load an event stream (CloudWatch Logs Live Tail, Kinesis
+SubscribeToShard) then ended at its first event with "use of closed network
+connection", about one stream in forty when the streaming tests repeated
+together. A closed body's `Read` answers `io.EOF` too, which net/http takes for
+the end of the body.
 
 The gcloud suite installs the `alpha` and `beta` release tracks in `TestMain`
 when the CLI lacks them, and CI and `Dockerfile.test` install them with the CLI:

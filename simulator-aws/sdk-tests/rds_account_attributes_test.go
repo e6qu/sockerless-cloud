@@ -32,7 +32,6 @@ func rdsAccountQuotaUsage(t *testing.T, out *rds.DescribeAccountAttributesOutput
 // account quotas, so this operation's client coverage is SDK + CLI
 // (cli-tests/rds_account_attributes_test.go).
 func TestRDS_DescribeAccountAttributes(t *testing.T) {
-	t.Parallel()
 	c := rdsClient()
 
 	before, err := c.DescribeAccountAttributes(ctx, &rds.DescribeAccountAttributesInput{})

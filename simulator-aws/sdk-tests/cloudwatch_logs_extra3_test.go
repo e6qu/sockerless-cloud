@@ -306,12 +306,38 @@ func TestLogs_AnomalyOps(t *testing.T) {
 		AnomalyDetectorArn: aws.String(arn),
 	})
 
+	status := func() cwlogtypes.AnomalyDetectorStatus {
+		t.Helper()
+		got, err := cw.GetLogAnomalyDetector(ctx, &cloudwatchlogs.GetLogAnomalyDetectorInput{
+			AnomalyDetectorArn: aws.String(arn),
+		})
+		require.NoError(t, err)
+		listed, err := cw.ListLogAnomalyDetectors(ctx, &cloudwatchlogs.ListLogAnomalyDetectorsInput{
+			FilterLogGroupArn: aws.String("arn:aws:logs:us-east-1:123456789012:log-group:" + lg),
+		})
+		require.NoError(t, err)
+		require.Len(t, listed.AnomalyDetectors, 1)
+		assert.Equal(t, got.AnomalyDetectorStatus, listed.AnomalyDetectors[0].AnomalyDetectorStatus)
+		assert.Contains(t, got.AnomalyDetectorStatus.Values(), got.AnomalyDetectorStatus)
+		return got.AnomalyDetectorStatus
+	}
+	initial := status()
+	assert.Equal(t, cwlogtypes.AnomalyDetectorStatusInitializing, initial)
+
+	_, err = cw.UpdateLogAnomalyDetector(ctx, &cloudwatchlogs.UpdateLogAnomalyDetectorInput{
+		AnomalyDetectorArn: aws.String(arn),
+		Enabled:            aws.Bool(false),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, cwlogtypes.AnomalyDetectorStatusPaused, status())
+
 	_, err = cw.UpdateLogAnomalyDetector(ctx, &cloudwatchlogs.UpdateLogAnomalyDetectorInput{
 		AnomalyDetectorArn:  aws.String(arn),
 		EvaluationFrequency: cwlogtypes.EvaluationFrequencyFifteenMin,
 		Enabled:             aws.Bool(true),
 	})
 	require.NoError(t, err)
+	assert.Equal(t, initial, status(), "restarting a paused detector resumes its status")
 
 	list, err := cw.ListAnomalies(ctx, &cloudwatchlogs.ListAnomaliesInput{
 		AnomalyDetectorArn: aws.String(arn),

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -217,7 +218,7 @@ func sdkConfig() aws.Config {
 	return aws.Config{
 		Region:      "us-east-1",
 		Credentials: credentials.NewStaticCredentialsProvider("test", "test", ""),
-		HTTPClient:  simHTTPClient,
+		HTTPClient:  sdkHTTPClient,
 	}
 }
 
@@ -246,6 +247,27 @@ var simHTTPClient = awshttp.NewBuildableClient().WithTransportOptions(func(tr *h
 	tr.DialContext = simDialContext
 	tr.Proxy = simProxy
 })
+
+// sdkHTTPClient is simHTTPClient handing the transport each request body
+// without its io.WriterTo. smithy-go closes a request's body once the response
+// arrives, and the closed body's WriteTo answers io.EOF; net/http, still
+// probing the body for bytes past its Content-Length when a quick response
+// lands, takes that for a failed write and closes the connection the response
+// is being read from, which ends an event stream with "use of closed network
+// connection". A closed body's Read answers io.EOF too, which net/http takes
+// for the end of the body.
+var sdkHTTPClient aws.HTTPClient = readOnlyBodyClient{simHTTPClient}
+
+type readOnlyBodyClient struct{ next aws.HTTPClient }
+
+func (c readOnlyBodyClient) Do(req *http.Request) (*http.Response, error) {
+	if req.Body != nil && req.Body != http.NoBody {
+		req.Body = readOnlyBody{req.Body}
+	}
+	return c.next.Do(req)
+}
+
+type readOnlyBody struct{ io.ReadCloser }
 
 var simDialer = &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
 

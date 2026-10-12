@@ -116,7 +116,7 @@ func TestS3_DataAccessPointConditionKeysScopeTheGrant(t *testing.T) {
 
 	throughPoint := s3.NewFromConfig(aws.Config{Region: "us-east-1",
 		Credentials: credentials.NewStaticCredentialsProvider(akid, secret, ""),
-		HTTPClient:  simHTTPClient},
+		HTTPClient:  sdkHTTPClient},
 		func(o *s3.Options) { o.EndpointOptions.DisableHTTPS = true })
 	_, err = throughPoint.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(arn), Key: aws.String("k")})

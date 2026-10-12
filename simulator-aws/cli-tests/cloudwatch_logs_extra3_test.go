@@ -280,10 +280,27 @@ func TestLogsImportAndStructureCLI(t *testing.T) {
 	defer runCLIIgnore(awsCLI("logs", "delete-log-anomaly-detector",
 		"--anomaly-detector-arn", det.AnomalyDetectorArn))
 
+	detStatus := func() string {
+		t.Helper()
+		var got struct {
+			AnomalyDetectorStatus string `json:"anomalyDetectorStatus"`
+		}
+		parseJSON(t, runCLI(t, awsCLI("logs", "get-log-anomaly-detector",
+			"--anomaly-detector-arn", det.AnomalyDetectorArn, "--output", "json")), &got)
+		return got.AnomalyDetectorStatus
+	}
+	assert.Equal(t, "INITIALIZING", detStatus())
+
+	runCLI(t, awsCLI("logs", "update-log-anomaly-detector",
+		"--anomaly-detector-arn", det.AnomalyDetectorArn,
+		"--no-enabled"))
+	assert.Equal(t, "PAUSED", detStatus())
+
 	runCLI(t, awsCLI("logs", "update-log-anomaly-detector",
 		"--anomaly-detector-arn", det.AnomalyDetectorArn,
 		"--evaluation-frequency", "FIFTEEN_MIN",
 		"--enabled"))
+	assert.Equal(t, "INITIALIZING", detStatus(), "restarting a paused detector resumes its status")
 
 	listAnom := runCLI(t, awsCLI("logs", "list-anomalies",
 		"--anomaly-detector-arn", det.AnomalyDetectorArn, "--output", "json"))

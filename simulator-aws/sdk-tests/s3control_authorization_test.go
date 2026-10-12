@@ -26,7 +26,7 @@ func s3ControlClientWithCreds(akid, secret string) *s3control.Client {
 	return s3control.NewFromConfig(aws.Config{
 		Region:      "us-east-1",
 		Credentials: credentials.NewStaticCredentialsProvider(akid, secret, ""),
-		HTTPClient:  simHTTPClient,
+		HTTPClient:  sdkHTTPClient,
 	}, func(o *s3control.Options) { o.BaseEndpoint = aws.String(simEndpoint("s3-control")) })
 }
 

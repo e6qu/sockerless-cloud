@@ -862,6 +862,9 @@ jobs:
           wait "$test_pid" || status=$?
           cat "$log"
           report
+          if [ "$status" != 0 ]; then
+            bash "$GITHUB_WORKSPACE/scripts/go-test-failure-summary.sh" "$log"
+          fi
           exit "$status"
         # The suite grows as services reach full op-coverage; give the step
         # headroom over the inner go-test deadline (SDK_TEST_TIMEOUT) so a hung

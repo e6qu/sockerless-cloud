@@ -166,7 +166,7 @@ func TestS3_SessionOpensTheOneBucketItWasCreatedFor(t *testing.T) {
 			Credentials: credentials.NewStaticCredentialsProvider(
 				aws.ToString(creds.AccessKeyId), aws.ToString(creds.SecretAccessKey),
 				aws.ToString(creds.SessionToken)),
-			HTTPClient: simHTTPClient},
+			HTTPClient: sdkHTTPClient},
 			func(o *s3.Options) {
 				o.EndpointOptions.DisableHTTPS = true
 				// This caller drives the session itself, so the SDK must not
