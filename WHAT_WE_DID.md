@@ -615,12 +615,24 @@ own module:
 - **A page token proves where it came from.** Every listing tags the tokens it
   issues and refuses one it never issued with the service's invalid-argument
   error.
+- **A Google Cloud page token names a position, not an index.**
+  `paginateList`, `paginateListCompute` and the body-paged lists take each
+  list's sort keys, ending in one unique per item, and sort by the client's
+  `orderBy` terms and then those keys. A token carries the last returned
+  item's sort values and the next page resumes strictly after them, as
+  Cloud Storage's lists do, so a resource created or deleted between two page
+  reads neither repeats nor skips another. An offset token shifted under such
+  a change.
 - **A create is decided when it is accepted.** Every Amazon RDS create and
   restore handler claims its identifier (`rdsIdentifierClaims`) before it
   checks for the resource and holds the claim until the resource is stored, so
   a repeat answers DBInstanceAlreadyExists or DBClusterAlreadyExistsFault. The
   AWS SDK retries a request its HTTP client stopped waiting for, and two
-  provisionings of one identifier ran initdb on one volume. The Terraform
+  provisionings of one identifier ran initdb on one volume. A ModifyDBInstance
+  rename takes the same claim on its new identifier for the request, and the
+  rename that moves the record — at once or in the maintenance window — claims
+  it again, waiting while a create holds it, so a rename and a create never
+  land on one identifier. The Terraform
   harness's SDK client has no overall timeout, as the SDKs' default client has
   none.
 
@@ -628,6 +640,9 @@ own module:
 
 Every workload runs as a real container on the engine the simulator started
 against; there is no host-process path, and `SIM_RUNTIME=process` is API-only.
+Each simulator's SDK suite scans its own module and `sim/` for `os/exec` and
+allows each sanctioned call by its exact expression; an allowance whose call no
+longer exists fails the scan, whether or not its file still imports `os/exec`.
 Startup refuses to serve in any mode that executes workloads when no engine
 answers: a process that passes its health check and fails every workload in
 the background is worse than one that does not start. Each cloud product's
@@ -1738,13 +1753,22 @@ for that number. A project that does not exist or is pending deletion is refused
 with each service's own error: 403 `PERMISSION_DENIED` for Cloud DNS, Cloud
 Build and Cloud Logging, 404 for Compute Engine and BigQuery. Compute Engine
 addresses a project by ID or number and keys it by ID. Tests create their
-projects in Cloud Resource Manager first.
+projects in Cloud Resource Manager first. Cloud Resource Manager holds no
+project at startup but the deployment's own `sockerless`: the SDK, CLI,
+Terraform and bash harnesses create `test-project` through projects.create in
+their setup and read its project number back, as a user creates a project
+before working in it. Seeding the harnesses' project was runner-aware
+special-casing.
 
-`GET /v1/operations` lists the operation store every service records into and
-answers each entry as `google.longrunning.Operation` — `name`, `metadata`,
-`done`, `error`, `response` — the shape Service Usage's `operations.list`
-declares. A Cloud Storage bucket operation keeps its `kind` and `selfLink` on
-Cloud Storage's own operations collection and lists without them here.
+`GET /v1/operations` is Service Usage's `operations.list` and lists only the
+operations Service Usage started — those carrying its
+`google.api.serviceusage.v1.OperationMetadata` — answered as
+`google.longrunning.Operation` (`name`, `metadata`, `done`, `error`,
+`response`). Its `operations.delete` reaches only those too. Every other
+service's operations stay in its own collection: a Cloud Storage bucket's
+under `/storage/v1/b/{bucket}/operations`, a location's under
+`projects/{p}/locations/{l}/operations`, Cloud Bigtable's under
+`operations/projects/{p}/operations`.
 
 ### Cloud Run instances, worker pools and restarts
 

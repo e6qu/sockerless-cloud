@@ -146,6 +146,15 @@ if ! wait_for_health "$BASE_URL/health"; then
     exit 1
 fi
 echo "Simulator ready (PID $SIM_PID)"
+
+# Create the project the tests address, as a user does before working in it.
+# Cloud Resource Manager answers the create with its operation.
+create_op=$(sim_curl POST "$BASE_URL/v3/projects" \
+    "{\"projectId\":\"$PROJECT\",\"parent\":\"organizations/123456789012\"}")
+if ! echo "$create_op" | jq -e '.done == true and .error == null' >/dev/null 2>&1; then
+    echo "FATAL: Failed to create project $PROJECT: $create_op"
+    exit 1
+fi
 echo ""
 
 # ===========================================================================

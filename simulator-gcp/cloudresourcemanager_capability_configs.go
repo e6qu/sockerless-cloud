@@ -269,7 +269,7 @@ func crmListCapabilityConfigs(collection string) http.HandlerFunc {
 			return strings.HasPrefix(cfg.Name, prefix)
 		})
 		sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
-		page, next, ok := paginateList(w, r, rows)
+		page, next, ok := paginateList(w, r, rows, gcpAsc(func(v CRMCapabilityConfig) string { return v.Name }))
 		if !ok {
 			return
 		}

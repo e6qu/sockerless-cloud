@@ -814,7 +814,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 			result = []Job{}
 		}
 		sortCloudRunJobs(result)
-		page, next, ok := paginateList(w, r, result)
+		page, next, ok := paginateList(w, r, result, gcpAsc(func(j Job) string { return j.Name }))
 		if !ok {
 			return
 		}
@@ -928,7 +928,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 			result = []Execution{}
 		}
 		sortCloudRunExecutions(result)
-		page, next, ok := paginateList(w, r, result)
+		page, next, ok := paginateList(w, r, result, gcpAsc(func(e Execution) string { return e.Name }))
 		if !ok {
 			return
 		}
@@ -1094,7 +1094,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 			result = []Task{}
 		}
 		sort.Slice(result, func(i, j int) bool { return result[i].Index < result[j].Index })
-		page, next, ok := paginateList(w, r, result)
+		page, next, ok := paginateList(w, r, result, gcpAscNumber(func(v Task) string { return fmt.Sprint(v.Index) }))
 		if !ok {
 			return
 		}

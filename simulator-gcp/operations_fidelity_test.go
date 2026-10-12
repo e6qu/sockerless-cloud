@@ -27,7 +27,48 @@ func buildOperationsTestSimulator(t *testing.T) *sim.Server {
 		t.Fatalf("buildSimulator: %v", err)
 	}
 	t.Cleanup(srv.StopBackground)
+	gcpTestCreateProject(t, srv, gcpTestProjectID)
 	return srv
+}
+
+// gcpTestProjectID is the project the in-package tests address.
+const gcpTestProjectID = "test-project"
+
+// gcpTestCreateProject creates a project through Cloud Resource Manager v3
+// projects.create, as a client does before addressing the project, and
+// returns the project number the create assigned. The operation the create
+// answers is done, so its response carries the project.
+func gcpTestCreateProject(t testing.TB, srv http.Handler, id string) string {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "http://cloudresourcemanager.googleapis.com/v3/projects",
+		strings.NewReader(`{"projectId":"`+id+`","parent":"`+crmDefaultOrganization+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	var op struct {
+		Done     bool `json:"done"`
+		Response struct {
+			Name string `json:"name"`
+		} `json:"response"`
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create project %s answered %d: %s", id, rec.Code, rec.Body)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &op); err != nil || !op.Done || !strings.HasPrefix(op.Response.Name, "projects/") {
+		t.Fatalf("create project %s answered %s (%v), want a done operation carrying the project", id, rec.Body, err)
+	}
+	return strings.TrimPrefix(op.Response.Name, "projects/")
+}
+
+// gcpTestProjectNumber is the project number Cloud Resource Manager assigned
+// the in-package tests' project.
+func gcpTestProjectNumber(t testing.TB) string {
+	t.Helper()
+	number, ok := crmProjectNumber(gcpTestProjectID)
+	if !ok {
+		t.Fatalf("project %s does not exist", gcpTestProjectID)
+	}
+	return number
 }
 
 // gcpHostCall sends one request to the simulator as the named service host and

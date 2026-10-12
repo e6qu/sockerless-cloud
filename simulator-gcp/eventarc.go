@@ -17,7 +17,7 @@ import (
 // items remain.
 func writeEventarcList[T any](w http.ResponseWriter, r *http.Request, items []T, name func(T) string, itemsKey string) {
 	sort.Slice(items, func(i, j int) bool { return name(items[i]) < name(items[j]) })
-	page, next, ok := paginateList(w, r, items)
+	page, next, ok := paginateList(w, r, items, gcpAsc(name))
 	if !ok {
 		return
 	}
@@ -1385,7 +1385,7 @@ func handleEventarcListLocations(w http.ResponseWriter, r *http.Request) {
 			"displayName": id,
 		})
 	}
-	page, next, ok := paginateList(w, r, locs)
+	page, next, ok := paginateList(w, r, locs, gcpAsc(gcpField("name")))
 	if !ok {
 		return
 	}
@@ -1417,7 +1417,7 @@ func handleEventarcListOperations(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	page, next, ok := paginateList(w, r, out)
+	page, next, ok := paginateList(w, r, out, gcpAsc(func(v Operation) string { return v.Name }))
 	if !ok {
 		return
 	}

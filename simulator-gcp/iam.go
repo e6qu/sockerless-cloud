@@ -933,7 +933,7 @@ func registerIAM(srv *sim.Server) {
 			return strings.HasPrefix(sa.Name, prefix)
 		})
 		sort.Slice(accounts, func(i, j int) bool { return accounts[i].Name < accounts[j].Name })
-		page, next, ok := paginateList(w, r, accounts)
+		page, next, ok := paginateList(w, r, accounts, gcpAsc(func(v GCPServiceAccount) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -1514,7 +1514,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		query := r.URL.Query().Get("query")
 		rows := projects.Filter(func(p CRMProject) bool { return crmSearchMatch(p, query) })
 		sort.Slice(rows, func(i, j int) bool { return rows[i].ProjectId < rows[j].ProjectId })
-		page, next, ok := paginateList(w, r, rows)
+		page, next, ok := paginateList(w, r, rows, gcpAsc(func(v CRMProject) string { return v.ProjectId }))
 		if !ok {
 			return
 		}
@@ -1538,7 +1538,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 			return p.Parent == parent && (showDeleted || p.State == "ACTIVE")
 		})
 		sort.Slice(rows, func(i, j int) bool { return rows[i].ProjectId < rows[j].ProjectId })
-		page, next, ok := paginateList(w, r, rows)
+		page, next, ok := paginateList(w, r, rows, gcpAsc(func(v CRMProject) string { return v.ProjectId }))
 		if !ok {
 			return
 		}
@@ -1688,7 +1688,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 	srv.HandleFunc("GET /v3/folders:search", func(w http.ResponseWriter, r *http.Request) {
 		rows := folders.Filter(func(CRMFolder) bool { return true })
 		sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
-		page, next, ok := paginateList(w, r, rows)
+		page, next, ok := paginateList(w, r, rows, gcpAsc(func(v CRMFolder) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -1702,7 +1702,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		parent := r.URL.Query().Get("parent")
 		rows := folders.Filter(func(f CRMFolder) bool { return parent == "" || f.Parent == parent })
 		sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
-		page, next, ok := paginateList(w, r, rows)
+		page, next, ok := paginateList(w, r, rows, gcpAsc(func(v CRMFolder) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -1818,7 +1818,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 			return crmOrganizationMatch(o, r.URL.Query().Get("query"))
 		})
 		sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
-		page, next, ok := paginateList(w, r, rows)
+		page, next, ok := paginateList(w, r, rows, gcpAsc(func(v CRMOrganization) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -1869,7 +1869,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		parent := r.URL.Query().Get("parent")
 		rows := tagKeys.Filter(func(k CRMTagKey) bool { return parent == "" || k.Parent == parent })
 		sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
-		page, next, ok := paginateList(w, r, rows)
+		page, next, ok := paginateList(w, r, rows, gcpAsc(func(v CRMTagKey) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -1960,7 +1960,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		parent := r.URL.Query().Get("parent")
 		rows := tagValues.Filter(func(v CRMTagValue) bool { return parent == "" || v.Parent == parent })
 		sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
-		page, next, ok := paginateList(w, r, rows)
+		page, next, ok := paginateList(w, r, rows, gcpAsc(func(v CRMTagValue) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -2033,7 +2033,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		prefix := "tagValues/" + sim.PathParam(r, "val") + "/tagHolds/"
 		rows := tagHolds.Filter(func(h CRMTagHold) bool { return strings.HasPrefix(h.Name, prefix) })
 		sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
-		page, next, ok := paginateList(w, r, rows)
+		page, next, ok := paginateList(w, r, rows, gcpAsc(func(v CRMTagHold) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -2094,7 +2094,7 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		parent := r.URL.Query().Get("parent")
 		rows := tagBindings.Filter(func(b CRMTagBinding) bool { return parent == "" || b.Parent == parent })
 		sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
-		page, next, ok := paginateList(w, r, rows)
+		page, next, ok := paginateList(w, r, rows, gcpAsc(func(v CRMTagBinding) string { return v.Name }))
 		if !ok {
 			return
 		}

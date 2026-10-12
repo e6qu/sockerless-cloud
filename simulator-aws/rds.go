@@ -831,6 +831,14 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, code, message, rdsInstanceSettingsErrorStatus(code), sim.RequestID(r.Context()))
 		return
 	}
+	if newID := requested.DBInstanceIdentifier; newID != "" {
+		releaseNewID, claimed := rdsInstanceIdentifiers.claim(newID)
+		if !claimed {
+			rdsErrorXML(w, "DBInstanceAlreadyExists", "DB instance already exists", http.StatusBadRequest, sim.RequestID(r.Context()))
+			return
+		}
+		defer releaseNewID()
+	}
 	if autoUpgrade := rdsRequestedBool(r, "AutoMinorVersionUpgrade"); autoUpgrade != nil {
 		instance.AutoMinorVersionUpgrade = autoUpgrade
 	}
@@ -910,7 +918,7 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
 		return
 	}
-	id = rdsStoreModifiedInstance(id, instance)
+	id = rdsStoreModifiedInstance(id, instance, requested.DBInstanceIdentifier)
 	instance, _ = rdsInstances.Get(id)
 	if newPassword != nil {
 		rdsFollowSourceMasterPassword(instance)

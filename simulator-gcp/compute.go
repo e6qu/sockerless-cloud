@@ -1013,7 +1013,7 @@ func registerCompute(srv *sim.Server) {
 			return
 		}
 		all = listed
-		page, next, ok := paginateListCompute(w, r, all)
+		page, next, ok := paginateListCompute(w, r, all, gcpAsc(func(v ComputeNetwork) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -1119,7 +1119,7 @@ func registerCompute(srv *sim.Server) {
 			return
 		}
 		all = listed
-		page, next, ok := paginateListCompute(w, r, all)
+		page, next, ok := paginateListCompute(w, r, all, gcpAsc(func(v ComputeInstanceTemplate) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -1235,7 +1235,7 @@ func registerCompute(srv *sim.Server) {
 			return
 		}
 		all = listed
-		page, next, ok := paginateListCompute(w, r, all)
+		page, next, ok := paginateListCompute(w, r, all, gcpAsc(func(v ComputeSubnetwork) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -1415,7 +1415,7 @@ func registerCompute(srv *sim.Server) {
 			return
 		}
 		all = listed
-		page, next, ok := paginateListCompute(w, r, all)
+		page, next, ok := paginateListCompute(w, r, all, gcpAsc(func(v ComputeFirewall) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -1580,7 +1580,7 @@ func registerCompute(srv *sim.Server) {
 			return
 		}
 		all = listed
-		page, next, ok := paginateListCompute(w, r, all)
+		page, next, ok := paginateListCompute(w, r, all, gcpAsc(func(v ComputeAddress) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -1693,7 +1693,7 @@ func registerCompute(srv *sim.Server) {
 			return
 		}
 		all = listed
-		page, next, ok := paginateListCompute(w, r, all)
+		page, next, ok := paginateListCompute(w, r, all, gcpAsc(func(v ComputeRouter) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -2764,7 +2764,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 			return
 		}
 		all = listed
-		page, next, ok := paginateListCompute(w, r, all)
+		page, next, ok := paginateListCompute(w, r, all, gcpAsc(func(v ComputeInstance) string { return v.Name }))
 		if !ok {
 			return
 		}

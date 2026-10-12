@@ -403,7 +403,7 @@ func registerCloudDNS(srv *sim.Server) {
 			return filtered[i].Type < filtered[j].Type
 		})
 
-		page, next, ok := paginateListCompute(w, r, filtered)
+		page, next, ok := paginateListCompute(w, r, filtered, gcpAsc(func(s ResourceRecordSet) string { return s.Name }), gcpAsc(func(s ResourceRecordSet) string { return s.Type }))
 		if !ok {
 			return
 		}
@@ -644,16 +644,11 @@ func registerCloudDNS(srv *sim.Server) {
 		}
 		// Honor sortOrder (ascending default | descending) — real Cloud DNS
 		// changes.list sorts by change id.
-		desc := r.URL.Query().Get("sortOrder") == "descending"
-		sort.Slice(out, func(i, j int) bool {
-			left, _ := strconv.Atoi(out[i].ID)
-			right, _ := strconv.Atoi(out[j].ID)
-			if desc {
-				return left > right
-			}
-			return left < right
-		})
-		page, next, ok := paginateListCompute(w, r, out)
+		byID := gcpAscNumber(func(c DNSChange) string { return c.ID })
+		if r.URL.Query().Get("sortOrder") == "descending" {
+			byID = gcpDescNumber(func(c DNSChange) string { return c.ID })
+		}
+		page, next, ok := paginateListCompute(w, r, out, byID)
 		if !ok {
 			return
 		}
@@ -717,7 +712,7 @@ func registerCloudDNS(srv *sim.Server) {
 			return
 		}
 		keys := deriveDNSKeys(zone.ManagedZone)
-		page, next, ok := paginateListCompute(w, r, keys)
+		page, next, ok := paginateListCompute(w, r, keys, gcpAsc(func(k DNSKey) string { return k.Type }))
 		if !ok {
 			return
 		}
@@ -772,7 +767,7 @@ func registerCloudDNS(srv *sim.Server) {
 		for _, op := range stored {
 			out = append(out, op.Operation)
 		}
-		page, next, ok := paginateListCompute(w, r, out)
+		page, next, ok := paginateListCompute(w, r, out, gcpAscNumber(func(op DNSOperation) string { return op.ID }))
 		if !ok {
 			return
 		}
@@ -856,7 +851,7 @@ func registerCloudDNSPolicies(srv *sim.Server, policies sim.Store[storedDNSPolic
 			}
 		}
 		sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-		page, next, ok := paginateListCompute(w, r, items)
+		page, next, ok := paginateListCompute(w, r, items, gcpAsc(func(v DNSPolicy) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -956,7 +951,7 @@ func registerCloudDNSResponsePolicies(srv *sim.Server, responsePolicies sim.Stor
 			}
 		}
 		sort.Slice(items, func(i, j int) bool { return items[i].ResponsePolicyName < items[j].ResponsePolicyName })
-		page, next, ok := paginateListCompute(w, r, items)
+		page, next, ok := paginateListCompute(w, r, items, gcpAsc(func(v DNSResponsePolicy) string { return v.ResponsePolicyName }))
 		if !ok {
 			return
 		}
@@ -1063,7 +1058,7 @@ func registerCloudDNSResponsePolicies(srv *sim.Server, responsePolicies sim.Stor
 			}
 		}
 		sort.Slice(items, func(i, j int) bool { return items[i].RuleName < items[j].RuleName })
-		page, next, ok := paginateListCompute(w, r, items)
+		page, next, ok := paginateListCompute(w, r, items, gcpAsc(func(v DNSResponsePolicyRule) string { return v.RuleName }))
 		if !ok {
 			return
 		}

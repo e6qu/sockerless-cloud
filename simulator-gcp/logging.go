@@ -613,7 +613,7 @@ func handleListLoggingSinks(w http.ResponseWriter, r *http.Request) {
 		return strings.HasPrefix(s.Name, prefix)
 	})
 	sort.Slice(sinks, func(i, j int) bool { return sinks[i].Name < sinks[j].Name })
-	page, next, ok := paginateList(w, r, sinks)
+	page, next, ok := paginateList(w, r, sinks, gcpAsc(func(v LoggingSink) string { return v.Name }))
 	if !ok {
 		return
 	}
@@ -683,7 +683,7 @@ func handleListLoggingMetrics(w http.ResponseWriter, r *http.Request) {
 		return strings.HasPrefix(m.Name, prefix)
 	})
 	sort.Slice(metrics, func(i, j int) bool { return metrics[i].Name < metrics[j].Name })
-	page, next, ok := paginateList(w, r, metrics)
+	page, next, ok := paginateList(w, r, metrics, gcpAsc(func(v LoggingMetric) string { return v.Name }))
 	if !ok {
 		return
 	}

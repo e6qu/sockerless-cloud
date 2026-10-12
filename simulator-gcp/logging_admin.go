@@ -322,7 +322,7 @@ func handleLoggingScopeListSinks(w http.ResponseWriter, r *http.Request) {
 	prefix := parent + "/sinks/"
 	sinks := logSinks.Filter(func(s LoggingSink) bool { return strings.HasPrefix(s.Name, prefix) })
 	sort.Slice(sinks, func(i, j int) bool { return sinks[i].Name < sinks[j].Name })
-	page, next, ok := paginateList(w, r, sinks)
+	page, next, ok := paginateList(w, r, sinks, gcpAsc(func(v LoggingSink) string { return v.Name }))
 	if !ok {
 		return
 	}
@@ -394,7 +394,7 @@ func handleLoggingListExclusions(w http.ResponseWriter, r *http.Request) {
 	prefix := loggingScopeParent(r) + "/exclusions/"
 	items := logExclusions.Filter(func(e LogExclusion) bool { return strings.HasPrefix(e.Name, prefix) })
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	page, next, ok := paginateList(w, r, items)
+	page, next, ok := paginateList(w, r, items, gcpAsc(func(v LogExclusion) string { return v.Name }))
 	if !ok {
 		return
 	}
@@ -450,7 +450,7 @@ func handleLoggingDeleteExclusion(w http.ResponseWriter, r *http.Request) {
 
 func handleLoggingListLogs(w http.ResponseWriter, r *http.Request) {
 	names := loggingListLogsScopes(loggingScopeParent(r), r.URL.Query()["resourceNames"])
-	page, next, ok := paginateList(w, r, names)
+	page, next, ok := paginateList(w, r, names, gcpAsc(func(name string) string { return name }))
 	if !ok {
 		return
 	}
@@ -629,7 +629,7 @@ func handleLoggingListBuckets(w http.ResponseWriter, r *http.Request) {
 		return strings.HasPrefix(b.Name, prefix) && !strings.Contains(rest, "/")
 	})
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	page, next, ok := paginateList(w, r, items)
+	page, next, ok := paginateList(w, r, items, gcpAsc(func(v LogBucket) string { return v.Name }))
 	if !ok {
 		return
 	}
@@ -758,7 +758,7 @@ func handleLoggingListViews(w http.ResponseWriter, r *http.Request) {
 	prefix := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket") + "/views/"
 	items := logViews.Filter(func(v LogView) bool { return strings.HasPrefix(v.Name, prefix) })
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	page, next, ok := paginateList(w, r, items)
+	page, next, ok := paginateList(w, r, items, gcpAsc(func(v LogView) string { return v.Name }))
 	if !ok {
 		return
 	}
@@ -786,7 +786,7 @@ func handleLoggingListViewLogs(w http.ResponseWriter, r *http.Request) {
 
 func handleLoggingViewLogsList(w http.ResponseWriter, r *http.Request) {
 	names := loggingListLogsScopes(loggingScopeParent(r), r.URL.Query()["resourceNames"])
-	page, next, ok := paginateList(w, r, names)
+	page, next, ok := paginateList(w, r, names, gcpAsc(func(name string) string { return name }))
 	if !ok {
 		return
 	}
@@ -880,7 +880,7 @@ func handleLoggingListLinks(w http.ResponseWriter, r *http.Request) {
 	prefix := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket") + "/links/"
 	items := logLinks.Filter(func(l LogLink) bool { return strings.HasPrefix(l.Name, prefix) })
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	page, next, ok := paginateList(w, r, items)
+	page, next, ok := paginateList(w, r, items, gcpAsc(func(v LogLink) string { return v.Name }))
 	if !ok {
 		return
 	}
@@ -938,7 +938,7 @@ func handleLoggingListSavedQueries(w http.ResponseWriter, r *http.Request) {
 	prefix := loggingLocationParent(r) + "/savedQueries/"
 	items := logSavedQueries.Filter(func(q SavedQuery) bool { return strings.HasPrefix(q.Name, prefix) })
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	page, next, ok := paginateList(w, r, items)
+	page, next, ok := paginateList(w, r, items, gcpAsc(func(v SavedQuery) string { return v.Name }))
 	if !ok {
 		return
 	}
@@ -1028,7 +1028,7 @@ func handleLoggingListLogScopes(w http.ResponseWriter, r *http.Request) {
 	prefix := loggingLocationParent(r) + "/logScopes/"
 	items := logScopes.Filter(func(l LogScope) bool { return strings.HasPrefix(l.Name, prefix) })
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	page, next, ok := paginateList(w, r, items)
+	page, next, ok := paginateList(w, r, items, gcpAsc(func(v LogScope) string { return v.Name }))
 	if !ok {
 		return
 	}
@@ -1085,7 +1085,7 @@ func handleLoggingListOperations(w http.ResponseWriter, r *http.Request) {
 	prefix := loggingLocationParent(r) + "/operations/"
 	items := logOperations.Filter(func(o Operation) bool { return strings.HasPrefix(o.Name, prefix) })
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	page, next, ok := paginateList(w, r, items)
+	page, next, ok := paginateList(w, r, items, gcpAsc(func(v Operation) string { return v.Name }))
 	if !ok {
 		return
 	}

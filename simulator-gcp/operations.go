@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"sort"
-	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/listq"
@@ -19,18 +17,6 @@ func gcpOperationFilterDoc(op Operation) listq.Doc {
 	return doc
 }
 
-// gcpLongrunningOperation is google.longrunning.Operation as Service Usage's
-// operations.list declares it. Cloud Storage records its bucket operations
-// with the kind and selfLink its own Operation carries, and this list must not
-// answer them.
-type gcpLongrunningOperation struct {
-	Name     string          `json:"name"`
-	Metadata map[string]any  `json:"metadata,omitempty"`
-	Done     bool            `json:"done"`
-	Response any             `json:"response,omitempty"`
-	Error    *OperationError `json:"error,omitempty"`
-}
-
 func registerOperations(srv *sim.Server) {
 	if crOperations == nil {
 		crOperations = sim.MakeStore[Operation](srv.DB(), "operations")
@@ -39,43 +25,6 @@ func registerOperations(srv *sim.Server) {
 	// The AIP-151 cancel spellings that sit outside the projects/locations
 	// operation collection.
 	registerOperationsCancel(srv)
-
-	// AIP-151 ListOperations over crOperations, the store every service
-	// records its operations in. `name` scopes to a collection, `filter` is
-	// AIP-160 over the google.longrunning.Operation message, and
-	// pageSize/pageToken page the result in name order.
-	srv.HandleFunc("GET /v1/operations", func(w http.ResponseWriter, r *http.Request) {
-		filter, err := gcpParseFilterExpr(r.URL.Query().Get("filter"))
-		if err != nil {
-			GCPError(w, http.StatusBadRequest, err.Error(), "INVALID_ARGUMENT")
-			return
-		}
-		namePrefix := r.URL.Query().Get("name")
-		all := crOperations.List()
-		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		out := make([]Operation, 0, len(all))
-		for _, op := range all {
-			if namePrefix != "" && !strings.HasPrefix(op.Name, namePrefix) {
-				continue
-			}
-			if filter.Eval(gcpOperationFilterDoc(op)) {
-				out = append(out, op)
-			}
-		}
-		page, next, ok := paginateList(w, r, out)
-		if !ok {
-			return
-		}
-		listed := make([]gcpLongrunningOperation, len(page))
-		for i, op := range page {
-			listed[i] = gcpLongrunningOperation{Name: op.Name, Metadata: op.Metadata, Done: op.Done, Response: op.Response, Error: op.Error}
-		}
-		resp := map[string]any{"operations": listed}
-		if next != "" {
-			resp["nextPageToken"] = next
-		}
-		sim.WriteJSON(w, http.StatusOK, resp)
-	})
 
 	// operations.get takes the whole remaining path, not one segment: the
 	// documents declare it as `v2/{+name}` over names matching `^operations/.*$`,

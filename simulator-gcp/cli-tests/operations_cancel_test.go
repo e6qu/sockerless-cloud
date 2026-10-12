@@ -276,6 +276,38 @@ func TestServiceUsageCLI_OperationsCancel(t *testing.T) {
 	assert.Equal(t, 404, resp.StatusCode, "a name no operation was minted under is not cancellable")
 }
 
+// TestServiceUsageCLI_OperationsList reads Service Usage's operations.list
+// over the published wire path with the CLI's own credential, since gcloud has
+// no `services operations` group: it answers the enable Service Usage started
+// and not the project create Cloud Resource Manager started.
+func TestServiceUsageCLI_OperationsList(t *testing.T) {
+	t.Parallel()
+	projectID := uniqueName("su-ops-list")
+	runCLI(t, gcloudCLI("projects", "create", projectID, "--organization="+cliOrganizationID, "--format=json"))
+	out := httpDoJSON(t, "POST",
+		fmt.Sprintf("%s/v1/projects/%s/services/pubsub.googleapis.com:enable", baseURL, projectID), `{}`)
+	var enable struct {
+		Name string `json:"name"`
+	}
+	parseJSON(t, out, &enable)
+
+	var listed struct {
+		Operations []struct {
+			Name     string         `json:"name"`
+			Metadata map[string]any `json:"metadata"`
+		} `json:"operations"`
+	}
+	parseJSON(t, httpDoJSON(t, "GET", baseURL+"/v1/operations?name="+enable.Name, ""), &listed)
+	require.Len(t, listed.Operations, 1, "the name scopes the list to the enable")
+	assert.Equal(t, enable.Name, listed.Operations[0].Name)
+
+	parseJSON(t, httpDoJSON(t, "GET", baseURL+"/v1/operations", ""), &listed)
+	for _, op := range listed.Operations {
+		assert.Equal(t, "type.googleapis.com/google.api.serviceusage.v1.OperationMetadata", op.Metadata["@type"],
+			"Service Usage lists only operations it started, got %s", op.Name)
+	}
+}
+
 // uploadCancelSource writes the gzipped-tar build context Cloud Build fetches,
 // through the Cloud Storage JSON API the same way a client uploads one.
 func uploadCancelSource(t *testing.T, bucket, object, dockerfile string) {

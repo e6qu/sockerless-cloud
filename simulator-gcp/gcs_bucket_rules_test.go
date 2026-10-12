@@ -72,7 +72,8 @@ func TestGCSNotificationTopicValidated(t *testing.T) {
 	}
 
 	const topic = "//pubsub.googleapis.com/projects/p/topics/events"
-	const refusal = "The service account 'service-735298346210@gs-project-accounts.iam.gserviceaccount.com' does not have permission to publish messages to to the Cloud Pub/Sub topic '" + topic + "', or that topic does not exist."
+	agent := "service-" + gcpTestProjectNumber(t) + "@gs-project-accounts.iam.gserviceaccount.com"
+	refusal := "The service account '" + agent + "' does not have permission to publish messages to to the Cloud Pub/Sub topic '" + topic + "', or that topic does not exist."
 	code, body := create(topic)
 	if message, reason := gcsErrorReason(t, body); code != http.StatusForbidden || reason != "forbidden" || message != refusal {
 		t.Fatalf("an absent topic answered %d %q %q", code, reason, message)
@@ -85,7 +86,7 @@ func TestGCSNotificationTopicValidated(t *testing.T) {
 	}
 
 	gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPost, "/v1/projects/p/topics/events:setIamPolicy",
-		`{"policy":{"bindings":[{"role":"roles/pubsub.publisher","members":["serviceAccount:service-735298346210@gs-project-accounts.iam.gserviceaccount.com"]}]}}`)
+		`{"policy":{"bindings":[{"role":"roles/pubsub.publisher","members":["serviceAccount:`+agent+`"]}]}}`)
 	if code, body := create(topic); code != http.StatusOK {
 		t.Fatalf("a topic the service agent may publish to answered %d: %v", code, body)
 	}

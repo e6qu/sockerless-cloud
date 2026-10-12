@@ -543,6 +543,7 @@ func newGCPCoverageProbe(t *testing.T) *gcpCoverageProbe {
 		t.Fatalf("buildSimulator: %v", err)
 	}
 	t.Cleanup(srv.StopBackground)
+	gcpTestCreateProject(t, srv, gcpTestProjectID)
 	srv.WrapHandler(bearerAuthMiddleware(srv))
 	now := time.Now()
 	return &gcpCoverageProbe{
@@ -673,10 +674,9 @@ func gcpParamSamples(name string) []string {
 	hint := strings.ToLower(strings.TrimSuffix(strings.TrimSuffix(name, "Id"), "s"))
 	switch hint {
 	case "project", "projectid", "projectnumber":
-		// The project Cloud Resource Manager seeds and the SDK/CLI/terraform
-		// harnesses are configured with: a handler that resolves the project
+		// The project the probe creates: a handler that resolves the project
 		// before doing its work reaches its own work.
-		return []string{"test-project"}
+		return []string{gcpTestProjectID}
 	case "location":
 		return []string{"us-central1", "global"}
 	case "region":

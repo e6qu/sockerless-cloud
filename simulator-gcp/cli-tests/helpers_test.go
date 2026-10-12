@@ -197,6 +197,13 @@ func TestMain(m *testing.M) {
 	os.MkdirAll(cbtDir, 0755)
 	installCBT(cbtDir)
 
+	// Create the project the suite addresses, as a user does before working in
+	// it; gcloud waits on the create operation.
+	if out, err := gcloudCLI("projects", "create", project, "--organization="+cliOrganizationID, "--format=json").CombinedOutput(); err != nil {
+		simCmd.Process.Kill()
+		log.Fatalf("Failed to create project %s: %v\n%s", project, err, out)
+	}
+
 	code := m.Run()
 
 	simCmd.Process.Kill()

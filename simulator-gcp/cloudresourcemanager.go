@@ -34,15 +34,13 @@ var crmProjects sim.Store[CRMProject]
 // its management account's organization.
 const crmDefaultOrganization = "organizations/123456789012"
 
-// crmEnsureDefaultProject materializes the org's pre-provisioned projects the
-// way the AWS simulator materializes its management account: "sockerless" is
-// the default project every deployment coordinate assumes (console, backends),
-// and "test-project" is the project the SDK/CLI/terraform
-// harnesses are configured with. Idempotent across restarts.
+// crmEnsureDefaultProject materializes the deployment's own project the way
+// the AWS simulator materializes its management account: "sockerless" is the
+// default project every deployment coordinate assumes (console, backends).
+// Idempotent across restarts.
 func crmEnsureDefaultProject() {
 	for _, seed := range []struct{ id, number string }{
 		{"sockerless", "123456789012"},
-		{"test-project", "735298346210"},
 	} {
 		if _, ok := crmProjects.Get(seed.id); ok {
 			continue
@@ -367,7 +365,7 @@ func crmListLiens(w http.ResponseWriter, r *http.Request) {
 	parent := r.URL.Query().Get("parent")
 	rows := crmLiens.Filter(func(l CRMLien) bool { return parent == "" || l.Parent == parent })
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
-	page, next, ok := paginateList(w, r, rows)
+	page, next, ok := paginateList(w, r, rows, gcpAsc(func(v CRMLien) string { return v.Name }))
 	if !ok {
 		return
 	}
@@ -634,7 +632,7 @@ func registerCloudResourceManagerV1(srv *sim.Server, projectPolicies, resourcePo
 			return
 		}
 		sort.Slice(rows, func(i, j int) bool { return rows[i].ProjectId < rows[j].ProjectId })
-		page, next, ok := paginateList(w, r, rows)
+		page, next, ok := paginateList(w, r, rows, gcpAsc(func(v CRMProject) string { return v.ProjectId }))
 		if !ok {
 			return
 		}
@@ -790,20 +788,11 @@ func registerCloudResourceManagerV1(srv *sim.Server, projectPolicies, resourcePo
 			return
 		}
 		rows := crmOrganizations.Filter(func(o CRMOrganization) bool { return crmOrganizationMatch(o, req.Filter) })
-		sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
 		out := make([]crmV1OrganizationMsg, 0, len(rows))
 		for _, o := range rows {
 			out = append(out, crmV1Organization(o))
 		}
-		page, next, ok := crmOrgPolicyPage(w, out, req.PageSize, req.PageToken)
-		if !ok {
-			return
-		}
-		resp := map[string]any{"organizations": page}
-		if next != "" {
-			resp["nextPageToken"] = next
-		}
-		sim.WriteJSON(w, http.StatusOK, resp)
+		crmWriteSearchPage(w, "organizations", out, gcpAsc(func(o crmV1OrganizationMsg) string { return o.Name }), req.PageSize, req.PageToken)
 	})
 	srv.HandleFunc("POST /v1/organizations/{orgAction}", func(w http.ResponseWriter, r *http.Request) {
 		idAction := sim.PathParam(r, "orgAction")

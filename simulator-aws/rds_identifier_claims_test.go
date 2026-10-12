@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 func rdsQueryRequest(form url.Values) *http.Request {
@@ -21,6 +22,7 @@ func rdsQueryRequest(form url.Values) *http.Request {
 // taken. Provisioning it a second time ran a second engine container on the
 // instance's volume, whose initdb met the first one's files.
 func TestRDSCreateRepeatedWhileProvisioningFindsTheIdentifierTaken(t *testing.T) {
+	bg.Await()
 	rdsInstances = sim.MakeStore[RDSInstance](nil, "rds_instances")
 	const id = "retried-create-db"
 	releaseFirst, claimed := rdsInstanceIdentifiers.claim(id)
@@ -81,4 +83,67 @@ func TestRDSCreateClusterRepeatedWhileProvisioningFindsTheIdentifierTaken(t *tes
 		t.Fatal("a released identifier stayed claimed")
 	}
 	releaseSecond()
+}
+
+// A rename onto an identifier a create is still provisioning under finds the
+// identifier taken, rather than landing beside the create and leaving
+// whichever stores second to overwrite the other's record.
+func TestRDSRenameOntoAProvisioningIdentifierFindsItTaken(t *testing.T) {
+	bg.Await()
+	rdsInstances = sim.MakeStore[RDSInstance](nil, "rds_instances")
+	const id, newID = "renamed-db", "provisioning-db"
+	rdsInstances.Put(id, RDSInstance{DBInstanceIdentifier: id, Engine: "postgres", DBInstanceStatus: "available", DbiResourceId: "db-RENAMED"})
+	releaseCreate, claimed := rdsInstanceIdentifiers.claim(newID)
+	if !claimed {
+		t.Fatal("the create could not claim a free identifier")
+	}
+	defer releaseCreate()
+
+	recorder := httptest.NewRecorder()
+	handleRDSModify(recorder, rdsQueryRequest(url.Values{
+		"DBInstanceIdentifier":    {id},
+		"NewDBInstanceIdentifier": {newID},
+		"ApplyImmediately":        {"true"},
+	}))
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "<Code>DBInstanceAlreadyExists</Code>") {
+		t.Fatalf("rename answered %d %s, want 400 DBInstanceAlreadyExists", recorder.Code, recorder.Body.String())
+	}
+	stored, ok := rdsInstances.Get(id)
+	if !ok || stored.DBInstanceStatus != "available" || stored.PendingModifications != nil || stored.Restart != nil {
+		t.Fatalf("the refused rename changed the instance: %+v (stored %t)", stored, ok)
+	}
+	if _, moved := rdsInstances.Get(newID); moved {
+		t.Fatal("the refused rename stored a record under the provisioning identifier")
+	}
+}
+
+// A rename waiting for the maintenance window that comes due while a create
+// provisions under its identifier keeps waiting.
+func TestRDSPendingRenameWaitsWhileACreateProvisionsItsIdentifier(t *testing.T) {
+	bg.Await()
+	rdsInstances = sim.MakeStore[RDSInstance](nil, "rds_instances")
+	const id, newID, resourceID = "maintained-db", "provisioning-target-db", "db-MAINTAINED"
+	rdsInstances.Put(id, RDSInstance{
+		DBInstanceIdentifier: id, Engine: "postgres", DBInstanceStatus: "available", DbiResourceId: resourceID,
+		PendingModifications: &RDSPendingModifications{DBInstanceIdentifier: newID},
+	})
+	releaseCreate, claimed := rdsInstanceIdentifiers.claim(newID)
+	if !claimed {
+		t.Fatal("the create could not claim a free identifier")
+	}
+	defer releaseCreate()
+
+	rdsRunMaintenance(id, resourceID)
+	bg.Await()
+
+	stored, ok := rdsInstances.Get(id)
+	if !ok {
+		t.Fatal("the instance moved off its identifier while a create held the new one")
+	}
+	if stored.PendingModifications == nil || stored.PendingModifications.DBInstanceIdentifier != newID || stored.DBInstanceStatus != "available" {
+		t.Fatalf("the rename did not keep waiting: status %s, pending %+v", stored.DBInstanceStatus, stored.PendingModifications)
+	}
+	if _, moved := rdsInstances.Get(newID); moved {
+		t.Fatal("the rename stored a record under the provisioning identifier")
+	}
 }

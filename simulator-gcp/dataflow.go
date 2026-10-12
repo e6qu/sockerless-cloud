@@ -180,7 +180,7 @@ func listDataflowJobs(w http.ResponseWriter, r *http.Request, project, location 
 		return location == "" || job.Location == location
 	})
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	page, next, ok := paginateList(w, r, out)
+	page, next, ok := paginateList(w, r, out, gcpAsc(func(v dataflowJob) string { return v.ID }))
 	if !ok {
 		return
 	}

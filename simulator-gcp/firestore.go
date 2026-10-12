@@ -314,7 +314,7 @@ func handleFSListDocuments(w http.ResponseWriter, r *http.Request, collection st
 		rest := strings.TrimPrefix(d.Name, prefix)
 		return rest != "" && !strings.Contains(rest, "/")
 	})
-	page, next, ok := paginateList(w, r, docs)
+	page, next, ok := paginateList(w, r, docs, gcpAsc(func(d FSDocument) string { return d.Name }))
 	if !ok {
 		return
 	}

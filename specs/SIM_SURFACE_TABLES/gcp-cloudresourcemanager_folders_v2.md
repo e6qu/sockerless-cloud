@@ -19,10 +19,10 @@ The extractor reads the route out of a single string literal, so a registration 
 |---|---|---|---|---|---|
 | `GET /v2/folders` | ✓ `simulator-gcp/cloudresourcemanager_folders_v2.go:104::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /v2/folders:search` | ✓ `simulator-gcp/cloudresourcemanager_folders_v2.go:116::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v2/folders/{folder}` | ✓ `simulator-gcp/cloudresourcemanager_folders_v2.go:143::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /v2/folders/{folder}` | ✓ `simulator-gcp/cloudresourcemanager_folders_v2.go:152::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v2/folders/{folder}` | ✓ `simulator-gcp/cloudresourcemanager_folders_v2.go:185::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v2/folders/{folderAction}` | ✓ `simulator-gcp/cloudresourcemanager_folders_v2.go:198::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v2/folders/{folder}` | ✓ `simulator-gcp/cloudresourcemanager_folders_v2.go:134::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /v2/folders/{folder}` | ✓ `simulator-gcp/cloudresourcemanager_folders_v2.go:143::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v2/folders/{folder}` | ✓ `simulator-gcp/cloudresourcemanager_folders_v2.go:176::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v2/folders/{folderAction}` | ✓ `simulator-gcp/cloudresourcemanager_folders_v2.go:189::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /v2/folders` | ✓ `simulator-gcp/cloudresourcemanager_folders_v2.go:76::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status

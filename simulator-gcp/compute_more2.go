@@ -300,7 +300,7 @@ func registerComputeLicenses(srv *sim.Server, store, codes sim.Store[map[string]
 			return
 		}
 		items = listed
-		page, next, ok := paginateListCompute(w, r, items)
+		page, next, ok := paginateListCompute(w, r, items, gcpAsc(gcpField("name")), gcpAsc(gcpField("selfLink")))
 		if !ok {
 			return
 		}

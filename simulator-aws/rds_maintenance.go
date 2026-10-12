@@ -354,19 +354,21 @@ func rdsRunMaintenance(id, resourceID string) {
 	instance.PendingModifications = nil
 	retentionBefore := instance.BackupRetentionPeriod
 	rdsApplyModifications(&instance, pending)
-	id = rdsStoreModifiedInstance(id, instance)
+	id = rdsStoreModifiedInstance(id, instance, "")
 	rdsAfterModifications(id, instance, retentionBefore != instance.BackupRetentionPeriod)
 }
 
 // rdsStoreModifiedInstance stores a modified instance record — under its new
 // identifier when the modification renames it, which takes effect for the
 // API at once while the restart moves its engine and data — and returns the
-// identifier the instance answers to.
-func rdsStoreModifiedInstance(id string, instance RDSInstance) string {
+// identifier the instance answers to. claimedID names the identifier the
+// caller already holds in rdsInstanceIdentifiers.
+func rdsStoreModifiedInstance(id string, instance RDSInstance, claimedID string) string {
 	if restart := instance.Restart; restart != nil && restart.DBInstanceIdentifier != "" && restart.PreviousIdentifier == "" &&
 		instance.DBInstanceStatus == "modifying" {
 		newID := restart.DBInstanceIdentifier
-		if _, taken := rdsInstances.Get(newID); !taken {
+		if release, claimed := rdsClaimRenameTarget(newID, claimedID); claimed {
+			defer release()
 			if stored, ok := rdsInstances.Get(id); ok && stored.DbiResourceId == instance.DbiResourceId {
 				instance.BaseBackups = stored.BaseBackups
 			}
@@ -393,6 +395,15 @@ func rdsStoreModifiedInstance(id string, instance RDSInstance) string {
 		stored.BaseBackups = bases
 	})
 	return id
+}
+
+// rdsClaimRenameTarget claims the identifier a rename moves the record to,
+// unless the caller already holds it as claimedID.
+func rdsClaimRenameTarget(newID, claimedID string) (release func(), claimed bool) {
+	if newID == claimedID {
+		return func() {}, true
+	}
+	return rdsInstanceIdentifiers.claim(newID)
 }
 
 // rdsApplyModifications applies changes to the instance record: an engine
@@ -495,10 +506,11 @@ func rdsRestartModifiedInstance(id, resourceID string) {
 	}
 	if pending := instance.Restart; pending != nil && pending.DBInstanceIdentifier != "" && pending.PreviousIdentifier == "" {
 		// An engine upgrade ran first under the old identifier.
-		if _, taken := rdsInstances.Get(pending.DBInstanceIdentifier); taken {
+		if release, claimed := rdsInstanceIdentifiers.claim(pending.DBInstanceIdentifier); !claimed {
 			log.Printf("Amazon RDS %s: DB instance %s already exists, so the rename does not apply", id, pending.DBInstanceIdentifier)
 			pending.DBInstanceIdentifier = ""
 		} else {
+			defer release()
 			pending.PreviousIdentifier = id
 			rdsRenameInstance(&instance, pending.DBInstanceIdentifier)
 			rdsArmMaintenance(id)

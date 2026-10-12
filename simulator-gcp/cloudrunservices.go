@@ -958,7 +958,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 			result = []ServiceV2{}
 		}
 		sortCloudRunServices(result)
-		page, next, ok := paginateList(w, r, result)
+		page, next, ok := paginateList(w, r, result, gcpAsc(func(s ServiceV2) string { return s.Name }))
 		if !ok {
 			return
 		}
@@ -1085,7 +1085,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 			result = []RevisionV2{}
 		}
 		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-		page, next, ok := paginateList(w, r, result)
+		page, next, ok := paginateList(w, r, result, gcpAsc(func(v RevisionV2) string { return v.Name }))
 		if !ok {
 			return
 		}

@@ -87,7 +87,7 @@ func registerComputeWireGroups(srv *sim.Server) {
 			b, _ := items[j]["name"].(string)
 			return a < b
 		})
-		page, next, ok := paginateListCompute(w, r, items)
+		page, next, ok := paginateListCompute(w, r, items, gcpAsc(gcpField("name")), gcpAsc(gcpField("selfLink")))
 		if !ok {
 			return
 		}

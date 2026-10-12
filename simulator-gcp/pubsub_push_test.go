@@ -61,6 +61,7 @@ func buildPushTestSimulator(t *testing.T) *sim.Server {
 	}
 	t.Cleanup(bg.Await)
 	t.Cleanup(srv.StopBackground)
+	gcpTestCreateProject(t, srv, gcpTestProjectID)
 	return srv
 }
 

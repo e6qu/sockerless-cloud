@@ -72,7 +72,7 @@ func TestWorkloadRegistryAuthIsTheServiceAgentsAccessToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the registry does not accept the token: %v", err)
 	}
-	const want = "service-735298346210@serverless-robot-prod.iam.gserviceaccount.com"
+	want := "service-" + gcpTestProjectNumber(t) + "@serverless-robot-prod.iam.gserviceaccount.com"
 	if principal.subject != want {
 		t.Errorf("token subject = %q, want the Cloud Run service agent %q", principal.subject, want)
 	}

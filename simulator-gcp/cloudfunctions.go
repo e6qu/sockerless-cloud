@@ -352,7 +352,7 @@ func registerCloudFunctions(srv *sim.Server) {
 			return
 		}
 		result = listed
-		page, next, ok := paginateList(w, r, result)
+		page, next, ok := paginateList(w, r, result, gcpAsc(func(fn Function) string { return fn.Name }))
 		if !ok {
 			return
 		}
@@ -478,7 +478,7 @@ func registerCloudFunctions(srv *sim.Server) {
 				"labels":      map[string]string{"cloud.googleapis.com/region": region},
 			})
 		}
-		page, next, ok := paginateList(w, r, locations)
+		page, next, ok := paginateList(w, r, locations, gcpAsc(gcpField("name")))
 		if !ok {
 			return
 		}
@@ -502,7 +502,7 @@ func registerCloudFunctions(srv *sim.Server) {
 			}
 		}
 		sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-		page, next, ok := paginateList(w, r, out)
+		page, next, ok := paginateList(w, r, out, gcpAsc(func(v Operation) string { return v.Name }))
 		if !ok {
 			return
 		}

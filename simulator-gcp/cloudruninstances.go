@@ -134,7 +134,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 			result = []InstanceV2{}
 		}
 		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-		page, next, ok := paginateList(w, r, result)
+		page, next, ok := paginateList(w, r, result, gcpAsc(func(v InstanceV2) string { return v.Name }))
 		if !ok {
 			return
 		}

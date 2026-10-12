@@ -276,7 +276,14 @@ Current state of the sockerless-cloud repository.
   Cloud Resource Manager holds and refuse unknown projects with their own
   error. Every new project has the Compute Engine default service account in
   IAM. A deleted service account is held for IAM's 30 days and undeleted by
-  unique ID.
+  unique ID. Cloud Resource Manager starts holding only the deployment's own
+  project, `sockerless`; every test harness creates the project it addresses
+  through projects.create.
+- **List pages resume after the last item returned.** A page token carries the
+  last item's sort values under the client's `orderBy` and the list's own
+  keys, so creates and deletes between page reads neither repeat nor skip an
+  item. Service Usage's `operations.list` answers only the operations Service
+  Usage started.
 - **A bucket carries Cloud Storage's default policy** from creation — the four
   legacy bindings for the project's owners, editors and viewers — so revoking
   what a client granted restores the defaults.

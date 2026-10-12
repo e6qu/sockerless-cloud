@@ -20,6 +20,7 @@ func gcpCustomMethodTestServer(t *testing.T) *sim.Server {
 		t.Fatalf("buildSimulator: %v", err)
 	}
 	t.Cleanup(srv.StopBackground)
+	gcpTestCreateProject(t, srv, gcpTestProjectID)
 	return srv
 }
 
@@ -164,7 +165,7 @@ func TestServedCustomMethodsStillReachTheResource(t *testing.T) {
 		t.Fatalf("addVersion: got %d %s, want the secret's own NOT_FOUND", status, strings.TrimSpace(body))
 	}
 
-	// UndeleteProject on the seeded, ACTIVE project: served, and answers with
+	// UndeleteProject on the test's ACTIVE project: served, and answers with
 	// the project's lifecycle state.
 	status, body = gcpDo(t, srv, http.MethodPost, "cloudresourcemanager.googleapis.com",
 		"/v1/projects/test-project:undelete", `{}`)

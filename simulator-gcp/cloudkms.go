@@ -315,7 +315,7 @@ func registerCloudKMS(srv *sim.Server) {
 			}
 		}
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		page, next, ok := paginateList(w, r, all)
+		page, next, ok := paginateList(w, r, all, gcpAsc(func(v kmsKeyRing) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -476,7 +476,7 @@ func registerCloudKMS(srv *sim.Server) {
 			}
 		}
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		page, next, ok := paginateList(w, r, all)
+		page, next, ok := paginateList(w, r, all, gcpAsc(func(v kmsCryptoKey) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -578,7 +578,7 @@ func registerCloudKMS(srv *sim.Server) {
 			}
 		}
 		sort.Slice(all, func(i, j int) bool { return kmsVersionLess(all[i].Name, all[j].Name) })
-		page, next, ok := paginateList(w, r, all)
+		page, next, ok := paginateList(w, r, all, gcpAscNumber(func(v kmsCryptoKeyVersion) string { return v.Name[strings.LastIndex(v.Name, "/")+1:] }))
 		if !ok {
 			return
 		}
@@ -931,7 +931,7 @@ func kmsRegisterImportJobs(srv *sim.Server) {
 			}
 		}
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		page, next, ok := paginateList(w, r, all)
+		page, next, ok := paginateList(w, r, all, gcpAsc(func(v kmsImportJob) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -1025,7 +1025,7 @@ func kmsRegisterEkm(srv *sim.Server) {
 			}
 		}
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		page, next, ok := paginateList(w, r, all)
+		page, next, ok := paginateList(w, r, all, gcpAsc(func(v kmsEkmConnection) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -1207,7 +1207,7 @@ func kmsRegisterKeyHandles(srv *sim.Server) {
 			}
 		}
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		page, next, ok := paginateList(w, r, all)
+		page, next, ok := paginateList(w, r, all, gcpAsc(func(v kmsKeyHandle) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -1404,7 +1404,7 @@ func kmsRegisterSingleTenantHsm(srv *sim.Server) {
 			}
 		}
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		page, next, ok := paginateList(w, r, all)
+		page, next, ok := paginateList(w, r, all, gcpAsc(func(v kmsSingleTenantHsmInstance) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -1452,7 +1452,7 @@ func kmsRegisterSingleTenantHsm(srv *sim.Server) {
 			}
 		}
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		page, next, ok := paginateList(w, r, all)
+		page, next, ok := paginateList(w, r, all, gcpAsc(func(v kmsHsmProposal) string { return v.Name }))
 		if !ok {
 			return
 		}
@@ -1523,7 +1523,7 @@ func kmsRegisterSingleTenantHsm(srv *sim.Server) {
 			}
 		}
 		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		page, next, ok := paginateList(w, r, all)
+		page, next, ok := paginateList(w, r, all, gcpAsc(func(v kmsRetiredResource) string { return v.Name }))
 		if !ok {
 			return
 		}

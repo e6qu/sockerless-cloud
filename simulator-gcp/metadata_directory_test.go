@@ -26,6 +26,7 @@ func metadataTreeServer(t *testing.T) func(path string) *httptest.ResponseRecord
 		t.Fatalf("buildSimulator: %v", err)
 	}
 	t.Cleanup(srv.StopBackground)
+	gcpTestCreateProject(t, srv, gcpTestProjectID)
 	srv.WrapHandler(bearerAuthMiddleware(srv))
 	return func(path string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodGet, path, nil)

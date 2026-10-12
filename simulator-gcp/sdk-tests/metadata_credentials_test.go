@@ -199,7 +199,7 @@ func TestMetadataSDK_CloudRunWorkloadIdentity(t *testing.T) {
 		want    string
 	}{
 		{"v2-svc-md-named", runner, runner},
-		{"v2-svc-md-default", "", "735298346210-compute@developer.gserviceaccount.com"},
+		{"v2-svc-md-default", "", harnessProjectNumber + "-compute@developer.gserviceaccount.com"},
 	} {
 		svc := createInvokableService(t, client, tc.prefix, &runpb.Service{
 			Template: &runpb.RevisionTemplate{
@@ -210,7 +210,7 @@ func TestMetadataSDK_CloudRunWorkloadIdentity(t *testing.T) {
 		token := invokerIDToken(t, svc.Uri)
 		for path, want := range map[string]string{
 			"/project/project-id":                              "test-project",
-			"/project/numeric-project-id":                      "735298346210",
+			"/project/numeric-project-id":                      harnessProjectNumber,
 			"/instance/service-accounts/default/email":         tc.want,
 			"/instance/service-accounts/" + tc.want + "/email": tc.want,
 		} {
