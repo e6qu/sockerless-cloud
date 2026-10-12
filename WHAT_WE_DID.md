@@ -113,6 +113,10 @@ own module:
   reported a restarted detector as `ENABLED`, which the enum lacks, and the CLI
   suite's specification gate caught it once a parallel test listed the
   detector.
+- **Mail honours a null MX.** AWS mail delivery refuses a domain whose only
+  MX record is `.` (RFC 7505). It had trimmed that record to an empty host and
+  dialled port 25 on the local machine, so an Amazon SNS confirmation for
+  `ops@example.com` landed in a parallel test's SMTP receiver.
 - **An unserved operation declares itself** with a 501 naming what is missing;
   the mux's 404 is indistinguishable from a missing resource.
 - **A registered operation is not an implemented one.**
