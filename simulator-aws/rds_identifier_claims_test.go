@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 func rdsQueryRequest(form url.Values) *http.Request {
@@ -21,6 +22,7 @@ func rdsQueryRequest(form url.Values) *http.Request {
 // taken. Provisioning it a second time ran a second engine container on the
 // instance's volume, whose initdb met the first one's files.
 func TestRDSCreateRepeatedWhileProvisioningFindsTheIdentifierTaken(t *testing.T) {
+	bg.Await()
 	rdsInstances = sim.MakeStore[RDSInstance](nil, "rds_instances")
 	const id = "retried-create-db"
 	releaseFirst, claimed := rdsInstanceIdentifiers.claim(id)
@@ -87,6 +89,7 @@ func TestRDSCreateClusterRepeatedWhileProvisioningFindsTheIdentifierTaken(t *tes
 // identifier taken, rather than landing beside the create and leaving
 // whichever stores second to overwrite the other's record.
 func TestRDSRenameOntoAProvisioningIdentifierFindsItTaken(t *testing.T) {
+	bg.Await()
 	rdsInstances = sim.MakeStore[RDSInstance](nil, "rds_instances")
 	const id, newID = "renamed-db", "provisioning-db"
 	rdsInstances.Put(id, RDSInstance{DBInstanceIdentifier: id, Engine: "postgres", DBInstanceStatus: "available", DbiResourceId: "db-RENAMED"})
@@ -117,6 +120,7 @@ func TestRDSRenameOntoAProvisioningIdentifierFindsItTaken(t *testing.T) {
 // A rename waiting for the maintenance window that comes due while a create
 // provisions under its identifier keeps waiting.
 func TestRDSPendingRenameWaitsWhileACreateProvisionsItsIdentifier(t *testing.T) {
+	bg.Await()
 	rdsInstances = sim.MakeStore[RDSInstance](nil, "rds_instances")
 	const id, newID, resourceID = "maintained-db", "provisioning-target-db", "db-MAINTAINED"
 	rdsInstances.Put(id, RDSInstance{
@@ -130,6 +134,7 @@ func TestRDSPendingRenameWaitsWhileACreateProvisionsItsIdentifier(t *testing.T) 
 	defer releaseCreate()
 
 	rdsRunMaintenance(id, resourceID)
+	bg.Await()
 
 	stored, ok := rdsInstances.Get(id)
 	if !ok {
