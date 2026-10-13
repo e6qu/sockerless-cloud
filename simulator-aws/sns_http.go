@@ -195,6 +195,7 @@ type snsHTTPDelivery struct {
 	TopicARN        string
 	MessageType     string
 	MessageID       string
+	MessageMD5      string
 	Raw             bool
 	Body            []byte
 	Policy          snsRetryPolicy
@@ -224,6 +225,7 @@ func snsPostHTTP(sub SNSSubscription, messageType string, envelope map[string]an
 		MessageID:       messageID,
 		Raw:             envelope == nil,
 		Body:            []byte(raw),
+		MessageMD5:      snsMessageMD5(raw),
 		Policy:          snsEffectiveHTTPRetryPolicy(sub),
 		RequestID:       sim.NewUUID(),
 	}
@@ -236,6 +238,7 @@ func snsPostHTTP(sub SNSSubscription, messageType string, envelope map[string]an
 		d.Body = body
 		d.MessageID = snsEnvelopeString(envelope, "MessageId")
 		d.TopicARN = snsEnvelopeString(envelope, "TopicArn")
+		d.MessageMD5 = snsMessageMD5(snsEnvelopeString(envelope, "Message"))
 	}
 	snsHTTPDeliveries.Submit(d.RequestID, d)
 }
@@ -275,6 +278,17 @@ func snsHTTPStatusClass(status int) delivery.Class {
 // ErrorMessage attributes the service adds.
 func snsFinishHTTP(item delivery.Item[snsHTTPDelivery], reason delivery.Reason) {
 	d := item.Payload
+	if d.MessageType == "Notification" {
+		providerResponse := item.LastError
+		if reason == delivery.Succeeded {
+			providerResponse = ""
+		}
+		snsRecordDelivery(snsDelivery{
+			TopicARN: d.TopicARN, MessageID: d.MessageID, MessageMD5: d.MessageMD5, PublishedAt: item.EnqueuedAt,
+			Protocol: "http", Destination: d.Endpoint, Delivered: reason == delivery.Succeeded,
+			StatusCode: item.LastStatus, ProviderResponse: providerResponse, Attempts: item.Attempts,
+		})
+	}
 	if reason == delivery.Succeeded {
 		return
 	}

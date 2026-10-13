@@ -101,6 +101,17 @@ own module:
 
 ## Fidelity rules that came from bugs
 
+- **A delivery leaves a record.** Amazon SNS topics take the
+  `<Protocol>SuccessFeedbackRoleArn` / `…SuccessFeedbackSampleRate` /
+  `…FailureFeedbackRoleArn` attributes for HTTP, Firehose, Lambda, SQS and
+  Application, validating the role ARN and the 0–100 rate. Through that role,
+  authorized like any service role, a Lambda, SQS, Firehose or HTTP/S
+  delivery writes the documented status entry to
+  `sns/<region>/<account>/<topic>` (sampled) or its `/Failure` group, and every
+  publish and delivery adds to the `AWS/SNS` metrics. A topic's `DisplayName`
+  defaults to empty, as in Amazon SNS, not to its name. A refused delivery had
+  left no trace, so a test had watched 500 ms for an invoke that must not
+  happen instead of waiting on the Failure entry.
 - **A served count is not proof a handler exists.** Google Cloud and Azure
   hold every served operation to a route naming its literal path segments; the
   routes that legitimately dispatch inside a handler are listed with the

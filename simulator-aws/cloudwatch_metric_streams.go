@@ -125,7 +125,7 @@ func cwDeliverMetricDatum(datum CWMetricDatum) {
 			continue
 		}
 		record = append(record, '\n')
-		if err := firehosePutServiceRecord(stream.FirehoseArn, record); err != nil {
+		if _, err := firehosePutServiceRecord(stream.FirehoseArn, record); err != nil {
 			cwEvalLogger.Error().Err(err).Str("metricStream", stream.Name).Str("firehoseARN", stream.FirehoseArn).
 				Msg("CloudWatch metric stream delivery failed")
 		}

@@ -74,7 +74,7 @@ func lambdaEventInvokeConfig(functionName, qualifier string) (LambdaEventInvokeC
 	return lambdaEICs.Get(lambdaEICKey(functionName, qualifier))
 }
 
-func lambdaInvokeAsynchronously(function LambdaFunction, payload []byte, qualifier string) {
+func lambdaInvokeAsynchronously(function LambdaFunction, payload []byte, qualifier string) string {
 	config, configured := lambdaEventInvokeConfig(function.FunctionName, qualifier)
 	maxRetries := 2
 	maxAge := 6 * 60 * 60
@@ -99,6 +99,7 @@ func lambdaInvokeAsynchronously(function LambdaFunction, payload []byte, qualifi
 		Configured:    configured,
 		Destination:   destination,
 	})
+	return requestID
 }
 
 func recoverLambdaInvocations() error {
