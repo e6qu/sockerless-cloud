@@ -2284,7 +2284,15 @@ The coverage ratchets hold a served floor that may only rise and the declared
 total of every vendored document, so a re-vendor that adds a surface fails until
 it is served or declared, and a withdrawal is named in the floor comment. What a
 re-vendor adds is served wherever the document describes something the
-simulator already holds. A floor counts only what it measures.
+simulator already holds. A floor counts only what it measures. The AWS Glue
+model's data-quality V2 operations read the store the V1 reads use, so a ruleset
+evaluation run's result appears in `ListDataQualityResultsV2` beside the ones
+`PublishDataQualityResultV2` records. A published result keeps its dimensions,
+tags, descriptors, evaluation context and score. An evaluation run's score is
+its passed rules over all of its rules. A publish replayed with the same
+`ClientToken` names the first result, and the same token with another body is
+refused with `IdempotentParameterMismatchException`. The generators sort under
+`LC_ALL=C`, so a regenerated table comes out the same on every machine.
 
 The store-scan gate holds request-path full-store reads at zero; a row indexed
 under every `/`-terminated prefix of its identifier answers a child listing and

@@ -136,6 +136,19 @@ type GlueDataQualityResult struct {
 	StartedOn              float64          `json:"StartedOn"`
 	CompletedOn            float64          `json:"CompletedOn"`
 	RuleResults            []map[string]any `json:"RuleResults,omitempty"`
+
+	// The fields PublishDataQualityResultV2 records beside a result.
+	PublishedOn       float64           `json:"PublishedOn,omitempty"`
+	Score             *float64          `json:"Score,omitempty"`
+	Dimensions        map[string]string `json:"Dimensions,omitempty"`
+	Tags              map[string]string `json:"Tags,omitempty"`
+	Descriptors       map[string]string `json:"Descriptors,omitempty"`
+	EvaluationContext string            `json:"EvaluationContext,omitempty"`
+	AnalyzerResults   []map[string]any  `json:"AnalyzerResults,omitempty"`
+	Observations      []map[string]any  `json:"Observations,omitempty"`
+	AggregatedMetrics map[string]any    `json:"AggregatedMetrics,omitempty"`
+	ClientToken       string            `json:"ClientToken,omitempty"`
+	PublishRequest    string            `json:"PublishRequest,omitempty"`
 }
 
 // GlueColumnStatsTaskSettings models per-(database,table) column-statistics
@@ -237,6 +250,10 @@ func registerGlueMLDataQuality(r *AWSRouter, srv *sim.Server) {
 	r.Register("AWSGlue.ListDataQualityStatistics", handleGlueListDataQualityStatistics)
 	r.Register("AWSGlue.GetDataQualityModel", handleGlueGetDataQualityModel)
 	r.Register("AWSGlue.GetDataQualityModelResult", handleGlueGetDataQualityModelResult)
+	r.Register("AWSGlue.PublishDataQualityResultV2", handleGluePublishDataQualityResultV2)
+	r.Register("AWSGlue.GetDataQualityResultV2", handleGlueGetDataQualityResultV2)
+	r.Register("AWSGlue.BatchGetDataQualityResultV2", handleGlueBatchGetDataQualityResultV2)
+	r.Register("AWSGlue.ListDataQualityResultsV2", handleGlueListDataQualityResultsV2)
 
 	// Column-statistics task settings.
 	r.Register("AWSGlue.CreateColumnStatisticsTaskSettings", handleGlueCreateColumnStatisticsTaskSettings)
