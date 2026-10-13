@@ -376,6 +376,13 @@ jobs:
             suite: sdk
             shard: B-Z
             run: '^Test[B-Z]'
+            skip: '^TestCosmos(Scripts)?_DifferentialVsEmulator'
+          # Microsoft's Cosmos DB emulator needs most of a two-core runner for
+          # minutes to initialise, so its two oracle tests run on their own.
+          - cloud: azure
+            suite: sdk
+            shard: Cosmos
+            run: '^TestCosmos(Scripts)?_DifferentialVsEmulator'
           - cloud: azure
             suite: cli
             shard: A-M
@@ -560,7 +567,7 @@ jobs:
       # itself when it is absent; pre-pulling only keeps that download out of
       # the go-test deadline so the job budget stays predictable.
       - name: Pull Cosmos DB emulator (differential oracle)
-        if: matrix.cloud == 'azure' && matrix.suite == 'sdk'
+        if: matrix.cloud == 'azure' && matrix.suite == 'sdk' && matrix.shard == 'Cosmos'
         run: docker pull mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview
         timeout-minutes: 8
       - name: Run SDK tests
@@ -572,7 +579,7 @@ jobs:
           sudo env "PATH=$PATH" "HOME=$HOME" \
             SOCKERLESS_SPEC_VALIDATE="$RUNNER_TEMP/${{ matrix.cloud }}-spec-violations.jsonl" \
             SOCKERLESS_SPEC_DIR="$GITHUB_WORKSPACE/specs/cloud-api/${{ matrix.cloud }}" \
-            make sdk-test ${{ matrix.run && format('SDK_TEST_ARGS="-run ''{0}'' ./..."', matrix.run) || '' }}
+            make sdk-test ${{ matrix.run && format('SDK_TEST_ARGS="-run ''{0}''{1} ./..."', matrix.run, matrix.skip && format(' -skip ''{0}''', matrix.skip) || '') || '' }}
         # Headroom over the inner go-test deadline (SDK_TEST_TIMEOUT, 13m) so a
         # suite that overruns fails with a named Go stack rather than an opaque
         # step kill.

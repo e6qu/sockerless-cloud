@@ -1192,7 +1192,6 @@ func runCloudRunJob(project, location, jobID string, job Job, overrides *Overrid
 		crjTasks.Put(taskName, task)
 	}
 
-	injectCloudRunJobLog(project, jobID, "Container started")
 	bg.Go(func() { settleCloudRunJobExecution(execName, taskCount, project, jobID, tmpl) })
 
 	crjJobs.Update(name, func(j *Job) {
@@ -1438,13 +1437,6 @@ func concludeCloudRunJobExecution(execName string, taskCount int32, project, job
 			}
 		})
 	}
-	// The log line matches the actual outcome: a failed execution must not
-	// report success in the log stream a client tails.
-	if succeeded {
-		injectCloudRunJobLog(project, jobID, "Execution completed successfully")
-	} else {
-		injectCloudRunJobLog(project, jobID, "Execution failed")
-	}
 }
 
 // cancelCloudRunExecution cancels a running execution: it stops the workload
@@ -1496,7 +1488,6 @@ func cancelCloudRunExecution(project, location, jobID, execID string) (Execution
 			j.Etag = sim.NewUUID()
 		}
 	})
-	injectCloudRunJobLog(project, jobID, "Execution cancelled")
 
 	exec, _ := crjExecutions.Get(name)
 	return exec, true
