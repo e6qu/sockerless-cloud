@@ -141,6 +141,9 @@ own module:
 - **A job's stdout log is its containers' output.** Cloud Run job executions
   wrote "Container started" and an outcome line into `run.googleapis.com/stdout`
   that no container printed. The log carries only what the containers print.
+- **A container log read that fails says so.** The live follow and the
+  post-exit drain report a failed read, and the drain retries without
+  duplicating a line, so a log that lost its tail shows why.
 - **An unserved operation declares itself** with a 501 naming what is missing;
   the mux's 404 is indistinguishable from a missing resource.
 - **A registered operation is not an implemented one.**
