@@ -19,6 +19,7 @@ func TestAzureCosmosDB_ARMAndDataPlaneLifecycle(t *testing.T) {
 	sub := "00000000-0000-0000-0000-000000000000"
 	rg := "test-rg-3fd8"
 	account := uniqueName("sdkcosmos")
+	ensureRGIn(t, sub, rg)
 	armBase := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.DocumentDB/databaseAccounts/%s", sub, rg, account)
 
 	resp := armReq(t, "PUT", armBase, `{"location":"eastus","kind":"GlobalDocumentDB","properties":{"databaseAccountOfferType":"Standard"}}`)

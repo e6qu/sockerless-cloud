@@ -18,6 +18,7 @@ func TestAzureServiceBus_ARMLifecycle(t *testing.T) {
 	sub := "00000000-0000-0000-0000-000000000000"
 	rg := "test-rg-cea0"
 	ns := uniqueName("lifecycle-sb")
+	ensureRGIn(t, sub, rg)
 	nsPath := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ServiceBus/namespaces/%s", sub, rg, ns)
 
 	resp := armReq(t, "PUT", nsPath, `{"location":"eastus","sku":{"name":"Standard","tier":"Standard"}}`)
@@ -84,6 +85,7 @@ func TestAzureAPIM_ARMLifecycle(t *testing.T) {
 	sub := "00000000-0000-0000-0000-000000000000"
 	rg := "test-rg"
 	name := "lifecycle-apim"
+	ensureRGIn(t, sub, rg)
 	svcPath := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ApiManagement/service/%s", sub, rg, name)
 
 	resp := armReq(t, "PUT", svcPath, `{"location":"eastus","sku":{"name":"Developer","capacity":1},"properties":{"publisherEmail":"ops@example.com","publisherName":"Ops"}}`)

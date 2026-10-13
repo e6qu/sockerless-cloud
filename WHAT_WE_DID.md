@@ -128,6 +128,13 @@ own module:
   fails with `ResourceGroupDeletionBlocked` when some cannot go. The simulator
   had answered 200 for any group, missing ones included, and left its
   resources behind.
+- **A resource lives in a group that exists.** Azure Resource Manager answers a
+  request beneath a missing group with `404 ResourceGroupNotFound`, and a write
+  or action beneath a group whose delete is running with
+  `409 ResourceGroupBeingDeleted`, before any provider sees it; one middleware
+  reads the group store for every provider. The simulator had stored a
+  resource under any group name, and its tests created resources in groups
+  they never made.
 - **A presigned URL lives as long as it was signed for.** Amazon S3 refuses a
   query-signed request past `X-Amz-Date` plus `X-Amz-Expires` with
   `403 AccessDenied`, "Request has expired".

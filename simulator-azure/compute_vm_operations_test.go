@@ -37,6 +37,7 @@ func vmOpsSimulator(t *testing.T) *sim.Server {
 	// when this test ends would read and write the stores while the next
 	// test rebuilds them.
 	t.Cleanup(bg.Await)
+	createTestResourceGroup(t, srv, vmOpsSubscription, vmOpsResourceGroup)
 	return srv
 }
 

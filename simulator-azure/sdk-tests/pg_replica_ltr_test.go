@@ -110,6 +110,7 @@ func TestAzurePGFlexibleServer_LtrBackupLifecycle(t *testing.T) {
 		adminPassword = "LtrData-123!"
 		backupName    = "pg-ltr-backup"
 	)
+	ensureRGIn(t, pgReplicaLtrSub, rg)
 	serverPath := pgFlexArmBase(rg) + "/" + serverName
 	pgCreateServerRaw(t, serverPath, fmt.Sprintf(
 		`{"location":"eastus","properties":{"version":"16","administratorLogin":%q,"administratorLoginPassword":%q}}`,
@@ -197,6 +198,7 @@ func TestAzurePGFlexibleServer_ReplicaCloneAndListing(t *testing.T) {
 		adminLogin    = "psqladmin"
 		adminPassword = "Replica-123!"
 	)
+	ensureRGIn(t, pgReplicaLtrSub, rg)
 	sourcePath := pgFlexArmBase(rg) + "/" + sourceName
 	replicaPath := pgFlexArmBase(rg) + "/" + replicaName
 	sourceID := sourcePath
@@ -283,6 +285,7 @@ func TestAzurePGFlexibleServer_GeoRestoreRestoresLatestBackup(t *testing.T) {
 		adminPassword = "GeoData-123!"
 		backupName    = "pg-geo-backup"
 	)
+	ensureRGIn(t, pgReplicaLtrSub, rg)
 	sourcePath := pgFlexArmBase(rg) + "/" + sourceName
 	restoredPath := pgFlexArmBase(rg) + "/" + restoredName
 
@@ -339,6 +342,7 @@ func TestAzurePGFlexibleServer_GeoRestoreRestoresLatestBackup(t *testing.T) {
 func TestAzurePGFlexibleServer_CreateModeRejections(t *testing.T) {
 	t.Parallel()
 	const rg = "pg-mode-rg"
+	ensureRGIn(t, pgReplicaLtrSub, rg)
 	armBase := pgFlexArmBase(rg)
 	refuse := func(name, body, reason string) {
 		t.Helper()

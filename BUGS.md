@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 103.
+Open: 102.
 
 Resolved bugs are not kept here. Their fixes live in git history (`git log`
 over this file and the fixing commits), and the lasting rules they produced
@@ -10,7 +10,6 @@ live in `WHAT_WE_DID.md`.
 
 | ID | Sev | Area | Symptom and cause | Fix shape — what closes it |
 |----|-----|------|-------------------|----------------------------|
-| 3458 | P3 | Azure resources are created in a missing or deleting resource group | A resource provider's PUT stores a resource under any `resourceGroups/{rg}` segment: no slice checks that the group exists, so a create in a group that was never made, or in one whose delete is running, succeeds. Azure Resource Manager refuses the first with `404 ResourceGroupNotFound` and the second with `409 ResourceGroupBeingDeleted` before the provider sees it. | Refuse a resource-group-scoped write in front of the providers (one middleware reading `azureResourceGroups`) with ARM's two errors, and test it through an SDK create, `az` and an azurerm resource in a missing group. |
 | 3453 | P3 | Location operations from a bare address span services | `projects.locations.operations.list` and `delete` scope to the service the request's Host names. A client pointed at a bare address:port names none, so it reaches every service that publishes the collection at that version: Eventarc's, Memorystore for Redis', API Gateway's, Serverless VPC Access's and Cloud Run's operations at `/v1`, Cloud Functions', Cloud Logging's and Cloud Run's at `/v2`. | Give such a client a coordinate that names its service — a per-service listener, or the host coordinate the CLI suites already reach through the simulator's proxy — since nothing else in the request tells the services apart. |
 | 3451 | P3 | A new Google Cloud project enables no services | Service Usage reports every service a project never enabled as DISABLED, as the Service state's documentation defines it, so a project Cloud Resource Manager's projects.create made starts with none enabled. Google Cloud enables a default set of services on a new project, and no vendored source lists that set or says whether it depends on how the project was created. | Vendor a source that lists the services a new project starts with, and enable exactly those on projects.create. |
 | 3450 | P2 | CI image pulls from public.ecr.aws are throttled | CI pulls its base and workload images anonymously from public.ecr.aws, which answers `toomanyrequests: Data limit exceeded` under load: a `race (sim)` run failed every container-backed test at its pull after `warm-base-images` missed its cache, and `check-deps` could not read three pinned images. Mirroring the images into the project's own registry is ruled out, since every pin update would then need a refresh of the copy. | Find a source CI can pull reliably without the project owning a copy: an authenticated ECR Public pull with credentials the repository provides, or a cache that holds every image the suites pull and is filled before the jobs that need it run. |

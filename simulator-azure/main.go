@@ -122,6 +122,9 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 		return nil, err
 	}
 
+	// ARM refuses a request beneath a missing or deleting resource group only
+	// after it has authenticated the request and checked its api-version.
+	srv.WrapHandler(AzureResourceGroupScopeMiddleware)
 	// ARM request validation runs after path cleanup and after auth discovery
 	// interception, so provider endpoint joins and OAuth/OpenID routes keep
 	// their Azure-compatible behavior.

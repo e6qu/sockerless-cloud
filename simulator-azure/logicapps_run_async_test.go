@@ -56,6 +56,7 @@ func TestLogicTriggerRunExecutesInTheBackground(t *testing.T) {
 	t.Cleanup(backend.Close)
 	t.Cleanup(func() { close(release) })
 
+	moveEnsureRG(t, srv, "logic-async-rg")
 	workflowPath := fmt.Sprintf("/subscriptions/%s/resourceGroups/logic-async-rg/providers/Microsoft.Logic/workflows/held", moveTestSubscription)
 	definition := `{"location":"eastus","properties":{"definition":{
 		"$schema":"https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",

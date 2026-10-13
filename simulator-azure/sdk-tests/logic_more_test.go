@@ -18,6 +18,7 @@ import (
 func TestLogicApps_WorkflowExtrasSDK(t *testing.T) {
 	t.Parallel()
 	rg := "logic-more-rg"
+	ensureRG(t, rg)
 	wfName := "logic-more-wf"
 	cred := &fakeCredential{}
 
@@ -157,6 +158,7 @@ func TestLogicApps_WorkflowExtrasSDK(t *testing.T) {
 func TestLogicApps_IntegrationAccountsSDK(t *testing.T) {
 	t.Parallel()
 	rg := "logic-ia-rg"
+	ensureRG(t, rg)
 	iaName := "logic-ia"
 	cred := &fakeCredential{}
 
@@ -309,6 +311,7 @@ func TestLogicApps_IntegrationAccountsSDK(t *testing.T) {
 func TestLogicApps_ServiceEnvironmentsSDK(t *testing.T) {
 	t.Parallel()
 	rg := "logic-ise-rg"
+	ensureRG(t, rg)
 	iseName := "logic-ise"
 	cred := &fakeCredential{}
 

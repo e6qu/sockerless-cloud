@@ -961,7 +961,25 @@ func newAzureProber(t *testing.T) *azureProber {
 	if err != nil {
 		t.Fatalf("mint Azure Resource Manager token: %v", err)
 	}
-	return &azureProber{srv: srv, token: token}
+	p := &azureProber{srv: srv, token: token}
+	// Azure Resource Manager refuses a request beneath a resource group that
+	// does not exist before any provider sees it, so the groups the probes
+	// address exist first, as they must for any client.
+	for _, group := range []string{
+		"/subscriptions/" + azureProbeSubscription + "/resourceGroups/" + azureProbeResourceGroup,
+		"/subscriptions/" + azureDefaultSubscriptionID + "/resourceGroups/probe-rg",
+	} {
+		req := httptest.NewRequest(http.MethodPut, group+"?api-version=2021-04-01",
+			strings.NewReader(`{"location":"`+azureProbeLocation+`"}`))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create resource group %s: status %d: %s", group, rec.Code, rec.Body.String())
+		}
+	}
+	return p
 }
 
 // azureProbeResult records one exchange with the running simulator.

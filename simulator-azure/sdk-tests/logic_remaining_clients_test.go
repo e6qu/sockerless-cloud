@@ -23,6 +23,7 @@ import (
 func TestLogicApps_IntegrationAccountArtifactsSDK(t *testing.T) {
 	t.Parallel()
 	rg := "logic-ia-artifacts-rg"
+	ensureRG(t, rg)
 	iaName := "logic-ia-artifacts"
 	cred := &fakeCredential{}
 
@@ -146,6 +147,7 @@ func TestLogicApps_IntegrationAccountArtifactsSDK(t *testing.T) {
 func TestLogicApps_WorkflowVersionTriggerCallbackSDK(t *testing.T) {
 	t.Parallel()
 	rg := "logic-verstrig-rg"
+	ensureRG(t, rg)
 	wfName := "logic-verstrig-wf"
 	cred := &fakeCredential{}
 
@@ -189,6 +191,7 @@ func TestLogicApps_WorkflowVersionTriggerCallbackSDK(t *testing.T) {
 func TestLogicApps_ServiceEnvironmentCatalogsSDK(t *testing.T) {
 	t.Parallel()
 	rg := "logic-ise-catalog-rg"
+	ensureRG(t, rg)
 	iseName := "logic-ise-catalog"
 	cred := &fakeCredential{}
 
@@ -246,6 +249,7 @@ func TestLogicApps_ServiceEnvironmentCatalogsSDK(t *testing.T) {
 func TestLogicApps_RunActionSubReadsSDK(t *testing.T) {
 	t.Parallel()
 	rg := "logic-runsub-rg"
+	ensureRG(t, rg)
 	wfName := "logic-runsub-wf"
 	cred := &fakeCredential{}
 

@@ -42,6 +42,7 @@ func armBody(t *testing.T, resp *http.Response) map[string]any {
 func TestConformance_ServiceBusQueueServerDefaults(t *testing.T) {
 	t.Parallel()
 	rg := "conf-sb-rg"
+	ensureRG(t, rg)
 	ns := "conf-servicebus-ns"
 
 	factory, err := armservicebus.NewClientFactory(subscriptionID, &fakeCredential{}, clientOpts())
@@ -649,6 +650,7 @@ func TestConformance_EventGridGetTopicPure(t *testing.T) {
 func TestConformance_ServiceBusTopicListPagination(t *testing.T) {
 	t.Parallel()
 	rg := "conf-sb-page-rg"
+	ensureRG(t, rg)
 	ns := "conf-sb-page-ns"
 
 	factory, err := armservicebus.NewClientFactory(subscriptionID, &fakeCredential{}, clientOpts())

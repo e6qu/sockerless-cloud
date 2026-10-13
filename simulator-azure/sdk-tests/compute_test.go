@@ -288,7 +288,8 @@ func TestCompute_VirtualMachinesSubscriptionScope(t *testing.T) {
 
 	// armcompute surfaces ARM's 404 from BeginUpdate itself rather than from
 	// the poller, because the operation never starts.
-	_, err = vmClient.BeginUpdate(ctx, "compute-absent-rg", "no-such-vm", armcompute.VirtualMachineUpdate{
+	ensureRG(t, "compute-subscope-rg")
+	_, err = vmClient.BeginUpdate(ctx, "compute-subscope-rg", "no-such-vm", armcompute.VirtualMachineUpdate{
 		Tags: map[string]*string{"env": to.Ptr("sdk")},
 	}, nil)
 	require.Error(t, err)

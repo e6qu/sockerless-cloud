@@ -54,6 +54,7 @@ func acrTasksPost(t *testing.T, srv *sim.Server, target, body string) (*http.Res
 
 func acrTasksRegistry(t *testing.T, srv *sim.Server, name string) Registry {
 	t.Helper()
+	createTestResourceGroup(t, srv, "sub", "rg")
 	resp, data := acrTasksARM(t, srv, http.MethodPut,
 		fmt.Sprintf("http://%s/subscriptions/sub/resourceGroups/rg/providers/Microsoft.ContainerRegistry/registries/%s?api-version=2023-07-01", acrAuthTestARMHost, name),
 		`{"location":"eastus","sku":{"name":"Standard"},"properties":{}}`)

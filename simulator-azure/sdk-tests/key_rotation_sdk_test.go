@@ -135,6 +135,7 @@ func TestRedis_RegenerateKeyRotation(t *testing.T) {
 func TestEventHubsARM_RegenerateKeysRotation(t *testing.T) {
 	t.Parallel()
 	rg := "eh-rotation-rg"
+	ensureRG(t, rg)
 	ns := "sdk-eh-rotation-ns"
 	rule := "sdk-eh-rotation-rule"
 
@@ -259,6 +260,7 @@ func TestEventHubsARM_RegenerateKeysRotation(t *testing.T) {
 func TestServiceBusARM_RegenerateKeysRotation(t *testing.T) {
 	t.Parallel()
 	rg := "sb-rotation-rg"
+	ensureRG(t, rg)
 	ns := "sdk-sb-rotation-ns"
 
 	clientFactory, err := armservicebus.NewClientFactory(subscriptionID, &fakeCredential{}, clientOpts())

@@ -19,6 +19,7 @@ func TestAzureAPIM_CompletionSurfaces(t *testing.T) {
 	sub := "00000000-0000-0000-0000-000000000011"
 	rg := "apim-completion-rg"
 	name := "completion-apim"
+	ensureRGIn(t, sub, rg)
 	svc := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ApiManagement/service/%s", sub, rg, name)
 
 	mustStatus := func(method, path, body string, want int) []byte {

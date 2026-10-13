@@ -340,6 +340,10 @@ Current state of the sockerless-cloud repository.
 
 ### Azure
 
+- **Azure Resource Manager answers for the resource group first**: a request
+  beneath a missing group gets `404 ResourceGroupNotFound`, and a write or
+  action beneath a group being deleted gets `409 ResourceGroupBeingDeleted`,
+  before any resource provider runs.
 - **App Service and Azure Functions sites run their containers as App Service
   does**: a custom image's entrypoint with `siteConfig.appCommandLine` on
   `WEBSITES_PORT` (80 unset), started by a request or Always On; built-in
@@ -414,7 +418,7 @@ shape, and one whose scan set can go empty exits non-zero.
 Per-cloud lint and unit tests; the AWS SDK suite in eight shards and its CLI
 suite in twenty-three; the Google Cloud SDK suite in two shards and its CLI
 suite in one; the Azure SDK and CLI suites in two shards each; Terraform in
-twenty-six shards; console vitest, typecheck, build and Playwright; the race
+twenty-nine shards; console vitest, typecheck, build and Playwright; the race
 jobs per simulator and for `sim`; the quality gates; the one-open-pull-request,
 rebased-on-main and Conventional Commit title checks; the nightly fuzz workflow
 across the four Go modules. A push to `main` whose tree already passed CI on

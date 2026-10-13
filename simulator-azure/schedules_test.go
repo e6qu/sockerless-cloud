@@ -31,6 +31,7 @@ func buildScheduleTestSimulator(t *testing.T) scheduleTestSimulator {
 	if err != nil {
 		t.Fatalf("mint Azure Resource Manager token: %v", err)
 	}
+	createTestResourceGroup(t, srv, "sub", "rg")
 	return scheduleTestSimulator{Server: srv, token: token}
 }
 
