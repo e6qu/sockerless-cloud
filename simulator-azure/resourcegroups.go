@@ -27,6 +27,16 @@ var azureResourceGroups sim.Store[ResourceGroup]
 func registerResourceGroups(srv *sim.Server) {
 	resourceGroups := sim.MakeStore[ResourceGroup](srv.DB(), "resource_groups")
 	azureResourceGroups = resourceGroups
+	// A delete still running when the previous process stopped failed with it
+	// (registerAzureAsyncOperations), and ARM rolls a group whose delete failed
+	// back to Succeeded.
+	for _, rg := range resourceGroups.List() {
+		if rg.Properties.ProvisioningState == "Deleting" {
+			resourceGroups.Update(rg.ID, func(stale *ResourceGroup) {
+				stale.Properties.ProvisioningState = "Succeeded"
+			})
+		}
+	}
 
 	// PUT - Create or update resource group
 	srv.HandleFunc("PUT /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}", func(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +54,12 @@ func registerResourceGroups(srv *sim.Server) {
 
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", sub, rgName)
 
-		_, exists := resourceGroups.Get(resourceID)
+		current, exists := resourceGroups.Get(resourceID)
+		if exists && current.Properties.ProvisioningState == "Deleting" {
+			AzureErrorf(w, "ResourceGroupBeingDeleted", http.StatusConflict,
+				"The resource group '%s' is in deprovisioning state and cannot perform this operation.", rgName)
+			return
+		}
 
 		rg := ResourceGroup{
 			ID:       resourceID,
@@ -92,15 +107,10 @@ func registerResourceGroups(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": all})
 	})
 
-	// DELETE - Delete resource group
 	srv.HandleFunc("DELETE /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}", func(w http.ResponseWriter, r *http.Request) {
-		sub := sim.PathParam(r, "subscriptionId")
-		rgName := sim.PathParam(r, "resourceGroupName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", sub, rgName)
-
-		resourceGroups.Delete(resourceID)
-		w.WriteHeader(http.StatusOK)
+		handleResourceGroupDelete(srv, w, r)
 	})
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/operationresults/{operationId}", handleSubscriptionOperationResult)
 
 	// Resources_ListByResourceGroup. terraform-provider-azurerm polls this
 	// before deleting a resource group, to refuse the delete while the group

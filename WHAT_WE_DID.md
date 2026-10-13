@@ -121,6 +121,13 @@ own module:
   Discovery document dropped the `channels` resource, so the simulator stopped
   serving `channels.stop`, whose handler had answered 200 without stopping
   anything.
+- **A resource group goes with what it holds.** Azure Resource Manager deletes
+  a group as a long-running operation (202, a Location under
+  `/subscriptions/{id}/operationresults/`) that deletes each resource through
+  its own provider, retrying those another resource still depends on, and
+  fails with `ResourceGroupDeletionBlocked` when some cannot go. The simulator
+  had answered 200 for any group, missing ones included, and left its
+  resources behind.
 - **A presigned URL lives as long as it was signed for.** Amazon S3 refuses a
   query-signed request past `X-Amz-Date` plus `X-Amz-Expires` with
   `403 AccessDenied`, "Request has expired".
