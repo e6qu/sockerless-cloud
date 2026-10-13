@@ -27,12 +27,16 @@ trap 'rm -f "$regex_file" "$test_file"' EXIT
 # suite's — the awk below tracks which matrix entry each `run:` belongs to and
 # keeps only the ones under `cloud: azure` + `suite: cli`.
 job_block=$(awk '/^  sim:$/{inside=1; next} /^  [a-z][a-z0-9-]*:$/{inside=0} inside' "$ci")
+# Each line is a shard: its run regex, a tab, and its skip regex (empty when the
+# shard skips nothing). A test belongs to a shard when run matches and skip does not.
 awk '
-  /^ *steps:/   { exit }
-  /^ *- cloud:/ { cloud=$3; suite=""; next }
+  function flush() { if (cloud == "azure" && suite == "sdk" && run != "") print run "\t" skip }
+  /^ *steps:/   { flush(); exit }
+  /^ *- cloud:/ { flush(); cloud=$3; suite=""; run=""; skip=""; next }
   /^ *suite:/   { suite=$2; next }
-  /^ *run:/     { if (cloud == "azure" && suite == "sdk") { sub(/^ *run: /, ""); print } }
-' <<<"$job_block" | sed -E "s/^'//; s/'\$//" > "$regex_file"
+  /^ *run:/     { run=$0; sub(/^ *run: /, "", run); gsub(/^\047|\047$/, "", run); next }
+  /^ *skip:/    { skip=$0; sub(/^ *skip: /, "", skip); gsub(/^\047|\047$/, "", skip); next }
+' <<<"$job_block" > "$regex_file"
 if [ ! -s "$regex_file" ]; then
   echo "FAIL: no Azure SDK shard regexes (run: '^Test[...]') found in the sim job of $ci" >&2
   exit 1
@@ -49,9 +53,9 @@ while IFS= read -r t; do
   [ -n "$t" ] || continue
   n_tests=$((n_tests + 1))
   matches=0
-  while IFS= read -r re; do
+  while IFS=$'\t' read -r re skip; do
     [ -n "$re" ] || continue
-    if printf '%s\n' "$t" | grep -qE "$re"; then
+    if printf '%s\n' "$t" | grep -qE "$re" && { [ -z "$skip" ] || ! printf '%s\n' "$t" | grep -qE "$skip"; }; then
       matches=$((matches + 1))
     fi
   done < "$regex_file"

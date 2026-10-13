@@ -2484,7 +2484,10 @@ its unauthenticated limit.
 
 Jobs are held to fifteen minutes; a timeout kill reports as "cancelled", which
 reads as infrastructure noise. The suites are sharded on measured time, with
-gates holding every test to exactly one shard. Each suite builds its simulator
+gates holding every test to exactly one shard; a shard may `skip` what another
+runs. Microsoft's Cosmos DB emulator needs most of a two-core runner for
+minutes to initialise, so the two Cosmos DB oracle tests run in a shard of
+their own. Each suite builds its simulator
 into `.build/<suite>/` and namespaces its images per suite.
 
 Base images are read out of the source by `scripts/base-images-for.sh` — which
