@@ -235,7 +235,7 @@ func TestECSExpress_Errors(t *testing.T) {
 		InfrastructureRoleArn: aws.String("arn:aws:iam::000000000000:role/express-infra"),
 		TaskDefinitionArn:     aws.String("arn:aws:ecs:us-east-1:000000000000:task-definition/foo:1"),
 		PrimaryContainer: &ecstypes.ExpressGatewayContainer{
-			Image: aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			Image: aws.String("mirror.gcr.io/library/busybox:latest"),
 		},
 	})
 	assert.Equal(t, "InvalidParameterException", errCode(t, err))
@@ -252,7 +252,7 @@ func TestECSExpress_Errors(t *testing.T) {
 		ServiceName:           aws.String("orphan"),
 		InfrastructureRoleArn: aws.String("arn:aws:iam::000000000000:role/express-infra"),
 		PrimaryContainer: &ecstypes.ExpressGatewayContainer{
-			Image: aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			Image: aws.String("mirror.gcr.io/library/busybox:latest"),
 		},
 	})
 	assert.Equal(t, "ClusterNotFoundException", errCode(t, err))

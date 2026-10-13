@@ -169,7 +169,7 @@ function RunTaskModal({ onClose }: { onClose: () => void }) {
               <Input
                 value={image}
                 onChange={(event) => setImage(event.detail.value)}
-                placeholder="public.ecr.aws/docker/library/nginx:latest"
+                placeholder="mirror.gcr.io/library/nginx:latest"
                 nativeInputAttributes={{ "data-testid": "ecs-run-task-image" }}
               />
             </FormField>

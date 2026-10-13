@@ -577,18 +577,16 @@ printf 'HTTP/2 403\r\nx-ratelimit-remaining: 0\r\nx-ratelimit-reset: %s\r\n\r\n'
 expect_wait 1 'throttle: a reset already past yields once'
 
 # --- Container image pins -----------------------------------------------------
-# Docker Hub's tag API, ECR Public's token and manifest endpoints and Google's
-# mirror are all served from the fixture registry, so every digest and push
-# time compared below is one written here. A copy's digest is the SHA-256 of
-# the manifest it serves, as for a real registry. The references are assembled
+# Docker Hub's tag API and mirror.gcr.io's manifest endpoint are both served
+# from the fixture registry, so every digest and push time compared below is
+# one written here. The copy's digest is the SHA-256 of the manifest it serves,
+# as for a real registry. The references are assembled
 # from variables so that this file pins no image the real check would read.
-ecr_library="public.ecr.aws/docker/library"
 gcr="mirror.gcr.io"
+gcr_library="$gcr/library"
 hub_root="hub/v2/repositories"
-fixture_doc 'ecr/token/.index' "{\"token\":\"$fixture_token\"}"
 registry_env+=(
 	"DEPS_DOCKER_HUB_URL=$registry_url/hub"
-	"DEPS_ECR_PUBLIC_URL=$registry_url/ecr"
 	"DEPS_GCR_MIRROR_URL=$registry_url/gcr"
 )
 long_ago=2026-01-05T10:00:00.123456Z
@@ -627,9 +625,9 @@ image_repo() {
 # only newer number (3.21) stopped being rebuilt before the pinned tag was
 # last rebuilt, so it is an abandoned line rather than an upgrade.
 current_digest="$(image_fixture library/current 3.20 "$long_ago" \
-	ecr/v2/docker/library/current/manifests/3.20 '{"current":1}')"
+	gcr/v2/library/current/manifests/3.20 '{"current":1}')"
 hub_tag_list library/current "3.20|$long_ago" '3.21|2025-12-01T00:00:00Z'
-current_repo="$(image_repo image-current "$ecr_library/current:3.20@$current_digest")"
+current_repo="$(image_repo image-current "$gcr_library/current:3.20@$current_digest")"
 for shell in bash zsh; do
 	run_check_with "$shell" "$current_repo"
 	expect_status 0 "image ($shell): a current pin passes"
@@ -642,17 +640,17 @@ done
 old_digest="sha256:$(printf '0%.0s' {1..64})"
 recent="$(rfc3339_ago 3600)"
 image_fixture library/moved 1.2-alpine "$recent" \
-	ecr/v2/docker/library/moved/manifests/1.2-alpine '{"moved":1}' >/dev/null
+	gcr/v2/library/moved/manifests/1.2-alpine '{"moved":1}' >/dev/null
 hub_tag_list library/moved "1.2-alpine|$recent"
-moved_repo="$(image_repo image-moved "$ecr_library/moved:1.2-alpine@$old_digest")"
+moved_repo="$(image_repo image-moved "$gcr_library/moved:1.2-alpine@$old_digest")"
 run_check "$moved_repo"
 expect_status 0 'image: a tag moved inside the window is held'
-expect_says 'HELD  public.ecr.aws/docker/library/moved:1.2-alpine' 'image: a tag moved inside the window is held'
+expect_says 'HELD  mirror.gcr.io/library/moved:1.2-alpine' 'image: a tag moved inside the window is held'
 image_fixture library/moved 1.2-alpine "$long_ago" \
-	ecr/v2/docker/library/moved/manifests/1.2-alpine '{"moved":1}' >/dev/null
+	gcr/v2/library/moved/manifests/1.2-alpine '{"moved":1}' >/dev/null
 run_check "$moved_repo"
 expect_status 1 'image: a tag moved long ago is drift'
-expect_says 'FAIL  public.ecr.aws/docker/library/moved:1.2-alpine' 'image: a tag moved long ago is drift'
+expect_says 'FAIL  mirror.gcr.io/library/moved:1.2-alpine' 'image: a tag moved long ago is drift'
 expect_says "Docker Hub has served sha256:" 'image: a tag moved long ago is drift'
 
 # Drift the baseline already pinned is inherited, not this branch's.
@@ -661,11 +659,11 @@ CHECK_OUT="$(cd "$moved_repo" && env "${registry_env[@]}" bash scripts/check-lat
 CHECK_STATUS=$?
 set -e
 expect_status 0 'image: drift the baseline carried is inherited'
-expect_says 'INHERITED  public.ecr.aws/docker/library/moved:1.2-alpine' 'image: drift the baseline carried is inherited'
+expect_says 'INHERITED  mirror.gcr.io/library/moved:1.2-alpine' 'image: drift the baseline carried is inherited'
 
-# A newer release of the same variant and major version, on the mirror.gcr.io
-# path: held while it is young, drift once it ages out. Other variants and
-# majors are not upgrades of this pin.
+# A newer release of the same variant and major version, of an image outside
+# Docker's official library: held while it is young, drift once it ages out.
+# Other variants and majors are not upgrades of this pin.
 release_digest="$(image_fixture example/tool v1.4.0 "$long_ago" gcr/v2/example/tool/manifests/v1.4.0 '{"tool":1}')"
 hub_tag_list example/tool "v1.4.0|$long_ago" "v1.5.0|$recent" "v2.0.0|$long_ago" "v1.9.0-rc|$long_ago"
 release_repo="$(image_repo image-release "$gcr/example/tool:v1.4.0@$release_digest")"
@@ -681,10 +679,10 @@ expect_silent_about "v1.6.0-alpine" "image (zsh): a newer release past the windo
 
 # The copy serving another digest than the pin fails even when Docker Hub
 # agrees with the pin: the pin is not what gets pulled.
-stale_digest="$(image_fixture library/stale 9 "$long_ago" ecr/v2/docker/library/stale/manifests/9 '{"stale":1}')"
-fixture_doc ecr/v2/docker/library/stale/manifests/9 '{"stale":2}'
+stale_digest="$(image_fixture library/stale 9 "$long_ago" gcr/v2/library/stale/manifests/9 '{"stale":1}')"
+fixture_doc gcr/v2/library/stale/manifests/9 '{"stale":2}'
 hub_tag_list library/stale "9|$long_ago"
-stale_repo="$(image_repo image-stale "$ecr_library/stale:9@$stale_digest")"
+stale_repo="$(image_repo image-stale "$gcr_library/stale:9@$stale_digest")"
 run_check "$stale_repo"
 expect_status 1 'image: a copy serving another digest fails'
 expect_says 'serves sha256:' 'image: a copy serving another digest fails'

@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const vpcNetBusybox = "public.ecr.aws/docker/library/busybox:latest"
+const vpcNetBusybox = "mirror.gcr.io/library/busybox:latest"
 
 // vpcServerScript runs a long-lived HTTP server serving "ok" on :80, so probes
 // can test real TCP reachability/isolation between tasks.

@@ -43,7 +43,7 @@ func TestECS_RunTask_RunningDoesNotWaitForTheApplication(t *testing.T) {
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2),
 			Name:        aws.String("slow-to-listen"),
-			Image:       aws.String("public.ecr.aws/docker/library/alpine:3"),
+			Image:       aws.String("mirror.gcr.io/library/alpine:3"),
 			Command:     []string{"sh", "-c", "sleep 60"},
 		}},
 	})

@@ -12,7 +12,7 @@ import (
 
 // busyboxImage is a shell-bearing image (unlike the scratch eval image) so the
 // task can run a long-lived `sleep` and ECS exec can target a live container.
-const busyboxImage = "public.ecr.aws/docker/library/busybox:latest"
+const busyboxImage = "mirror.gcr.io/library/busybox:latest"
 
 func runLongLivedECSTask(t *testing.T, client *ecs.Client, cluster, family string, enableExec bool) string {
 	t.Helper()

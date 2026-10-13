@@ -46,7 +46,7 @@ func TestECSCLI_TaskSets(t *testing.T) {
 	t.Cleanup(func() { _ = awsCLI("ecs", "delete-cluster", "--cluster", cluster).Run() })
 	runCLI(t, awsCLI("ecs", "register-task-definition",
 		"--family", "cli-ts-task",
-		"--container-definitions", `[{"name":"app","image":"public.ecr.aws/docker/library/alpine:latest","stopTimeout":2}]`))
+		"--container-definitions", `[{"name":"app","image":"mirror.gcr.io/library/alpine:latest","stopTimeout":2}]`))
 	runCLI(t, awsCLI("ecs", "create-service",
 		"--cluster", cluster, "--service-name", "cli-ts-svc",
 		"--task-definition", "cli-ts-task", "--desired-count", "1",
@@ -234,7 +234,7 @@ func TestECSCLI_TaskProtection(t *testing.T) {
 	t.Cleanup(func() { _ = awsCLI("ecs", "delete-cluster", "--cluster", cluster).Run() })
 	runCLI(t, awsCLI("ecs", "register-task-definition",
 		"--family", "cli-prot-task",
-		"--container-definitions", `[{"name":"app","image":"public.ecr.aws/docker/library/alpine:latest","stopTimeout":2}]`))
+		"--container-definitions", `[{"name":"app","image":"mirror.gcr.io/library/alpine:latest","stopTimeout":2}]`))
 
 	out := runCLI(t, awsCLI("ecs", "run-task",
 		"--cluster", cluster, "--task-definition", "cli-prot-task", "--output", "json"))
@@ -270,7 +270,7 @@ func TestECSCLI_StartTask(t *testing.T) {
 	t.Cleanup(func() { _ = awsCLI("ecs", "delete-cluster", "--cluster", cluster).Run() })
 	runCLI(t, awsCLI("ecs", "register-task-definition",
 		"--family", "cli-start-task",
-		"--container-definitions", `[{"name":"app","image":"public.ecr.aws/docker/library/alpine:latest","stopTimeout":2,"privileged":true,"command":["sh","-c","mkdir -p /tmp/start-task-mount && mount -t tmpfs tmpfs /tmp/start-task-mount && umount /tmp/start-task-mount"]}]`))
+		"--container-definitions", `[{"name":"app","image":"mirror.gcr.io/library/alpine:latest","stopTimeout":2,"privileged":true,"command":["sh","-c","mkdir -p /tmp/start-task-mount && mount -t tmpfs tmpfs /tmp/start-task-mount && umount /tmp/start-task-mount"]}]`))
 	regOut := runCLI(t, awsCLI("ecs", "register-container-instance", "--cluster", cluster, "--output", "json"))
 	var reg struct {
 		ContainerInstance struct {
@@ -306,7 +306,7 @@ func TestECSCLI_DeleteTaskDefinitions(t *testing.T) {
 	t.Parallel()
 	out := runCLI(t, awsCLI("ecs", "register-task-definition",
 		"--family", "cli-del-task",
-		"--container-definitions", `[{"name":"app","image":"public.ecr.aws/docker/library/alpine:latest","stopTimeout":2}]`,
+		"--container-definitions", `[{"name":"app","image":"mirror.gcr.io/library/alpine:latest","stopTimeout":2}]`,
 		"--output", "json"))
 	var reg struct {
 		TaskDefinition struct {

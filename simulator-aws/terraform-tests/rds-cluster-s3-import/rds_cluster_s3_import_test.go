@@ -37,7 +37,7 @@ func takeXtraBackup(t *testing.T, name string, statements ...string) []byte {
 	docker("volume", "create", volume)
 	t.Cleanup(func() { _ = exec.Command("docker", "volume", "rm", "-f", volume).Run() })
 	docker("run", "-d", "--name", name, "-e", "MYSQL_ROOT_PASSWORD=source-root", "-v", volume+":/var/lib/mysql",
-		"public.ecr.aws/docker/library/mysql:8.0")
+		"mirror.gcr.io/library/mysql:8.0")
 	t.Cleanup(func() { _ = exec.Command("docker", "rm", "-f", name).Run() })
 	// The image's initialisation server listens on no TCP port, so a TCP
 	// client reaches only the server that stays; mysqld offers nothing to

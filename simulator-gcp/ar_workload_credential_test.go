@@ -26,7 +26,7 @@ func TestImageOnGoogleRegistry(t *testing.T) {
 	}
 	off := []string{
 		"alpine:3.20",
-		"public.ecr.aws/docker/library/alpine:3.20",
+		"mirror.gcr.io/library/alpine:3.20",
 		"ghcr.io/owner/app:1",
 		"127.0.0.1:5000/p/repo/app:1",
 		"docker.pkg.dev.example.com/p/app:1",

@@ -47,7 +47,7 @@ func TestCodeBuild_ProjectCRUD_SDK(t *testing.T) {
 		},
 		Environment: &cbtypes.ProjectEnvironment{
 			Type:        cbtypes.EnvironmentTypeLinuxContainer,
-			Image:       aws.String("public.ecr.aws/docker/library/alpine:3.21"),
+			Image:       aws.String("mirror.gcr.io/library/alpine:3.21"),
 			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
 		},
 		ServiceRole: aws.String("arn:aws:iam::123456789012:role/cb-role"),
@@ -121,7 +121,7 @@ func TestCodeBuild_BuildLifecycle_SDK(t *testing.T) {
 		},
 		Environment: &cbtypes.ProjectEnvironment{
 			Type:        cbtypes.EnvironmentTypeLinuxContainer,
-			Image:       aws.String("public.ecr.aws/docker/library/alpine:3.21"),
+			Image:       aws.String("mirror.gcr.io/library/alpine:3.21"),
 			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
 		},
 		ServiceRole: aws.String("arn:aws:iam::123456789012:role/cb-role"),
@@ -230,7 +230,7 @@ phases:
 		},
 		Artifacts: &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
 		Environment: &cbtypes.ProjectEnvironment{
-			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("public.ecr.aws/docker/library/alpine:3.21"),
+			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/library/alpine:3.21"),
 			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
 		},
 		ServiceRole: aws.String("arn:aws:iam::123456789012:role/cb-role"),
@@ -291,7 +291,7 @@ phases:
 		},
 		Artifacts: &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
 		Environment: &cbtypes.ProjectEnvironment{
-			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("public.ecr.aws/docker/library/alpine:3.21"),
+			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/library/alpine:3.21"),
 			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
 		},
 		ServiceRole: aws.String("arn:aws:iam::123456789012:role/cb-role"),
@@ -325,7 +325,7 @@ func TestCodeBuild_ListBuildsSortOrder_SDK(t *testing.T) {
 		Name:        aws.String(proj),
 		Source:      &cbtypes.ProjectSource{Type: cbtypes.SourceTypeNoSource, Buildspec: aws.String("version: 0.2\nphases:\n  build:\n    commands:\n      - printf ok\n")},
 		Artifacts:   &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
-		Environment: &cbtypes.ProjectEnvironment{Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("public.ecr.aws/docker/library/alpine:3.21"), ComputeType: cbtypes.ComputeTypeBuildGeneral1Small},
+		Environment: &cbtypes.ProjectEnvironment{Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/library/alpine:3.21"), ComputeType: cbtypes.ComputeTypeBuildGeneral1Small},
 		ServiceRole: aws.String("arn:aws:iam::123456789012:role/cb-role"),
 	})
 	require.NoError(t, err)
@@ -374,7 +374,7 @@ func TestCodeBuild_FailedBuildPhaseContext_SDK(t *testing.T) {
 		},
 		Environment: &cbtypes.ProjectEnvironment{
 			Type:        cbtypes.EnvironmentTypeLinuxContainer,
-			Image:       aws.String("public.ecr.aws/docker/library/alpine:3.21"),
+			Image:       aws.String("mirror.gcr.io/library/alpine:3.21"),
 			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
 		},
 		ServiceRole: aws.String("arn:aws:iam::123456789012:role/cb-role"),
@@ -424,7 +424,7 @@ func TestCodeBuild_StopAndRetryBuild_SDK(t *testing.T) {
 		// A short sleep keeps the build IN_PROGRESS long enough to stop it.
 		Source:      &cbtypes.ProjectSource{Type: cbtypes.SourceTypeNoSource, Buildspec: aws.String("version: 0.2\nphases:\n  build:\n    commands:\n      - sleep 5\n")},
 		Artifacts:   &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
-		Environment: &cbtypes.ProjectEnvironment{Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("public.ecr.aws/docker/library/alpine:3.21"), ComputeType: cbtypes.ComputeTypeBuildGeneral1Small},
+		Environment: &cbtypes.ProjectEnvironment{Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/library/alpine:3.21"), ComputeType: cbtypes.ComputeTypeBuildGeneral1Small},
 		ServiceRole: aws.String("arn:aws:iam::123456789012:role/cb-role"),
 	})
 	require.NoError(t, err)
@@ -500,7 +500,7 @@ func TestCodeBuild_ReportGroupsAndReports_SDK(t *testing.T) {
 		Name:        aws.String(proj),
 		Source:      &cbtypes.ProjectSource{Type: cbtypes.SourceTypeNoSource, Buildspec: aws.String(buildspec)},
 		Artifacts:   &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
-		Environment: &cbtypes.ProjectEnvironment{Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("public.ecr.aws/docker/library/alpine:3.21"), ComputeType: cbtypes.ComputeTypeBuildGeneral1Small},
+		Environment: &cbtypes.ProjectEnvironment{Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/library/alpine:3.21"), ComputeType: cbtypes.ComputeTypeBuildGeneral1Small},
 		ServiceRole: aws.String("arn:aws:iam::123456789012:role/cb-role"),
 	})
 	require.NoError(t, err)

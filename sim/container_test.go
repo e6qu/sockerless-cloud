@@ -34,10 +34,10 @@ func TestResolveLocalImage_Passthrough(t *testing.T) {
 	}
 }
 
-func TestResolveLocalImage_AmazonECRPublicPassthrough(t *testing.T) {
-	const image = "public.ecr.aws/docker/library/alpine:3.21"
+func TestResolveLocalImage_RegistryMirrorPassthrough(t *testing.T) {
+	const image = "mirror.gcr.io/library/alpine:3.21"
 	if got := ResolveLocalImage(image); got != image {
-		t.Errorf("expected Amazon ECR Public coordinate %q, got %q", image, got)
+		t.Errorf("expected registry mirror coordinate %q, got %q", image, got)
 	}
 }
 

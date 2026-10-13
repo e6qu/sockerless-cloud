@@ -56,12 +56,12 @@ type family struct {
 // simulator-aws/rds_engine_versions.go; TestRDSParameterCatalogImages fails
 // when the two drift.
 var families = []family{
-	{"postgres16", "public.ecr.aws/docker/library/postgres:16.15-alpine", "postgres", postgresArgs},
-	{"postgres17", "public.ecr.aws/docker/library/postgres:17.11-alpine", "postgres", postgresArgs},
-	{"mysql8.0", "public.ecr.aws/docker/library/mysql:8.0.46", "mysql",
+	{"postgres16", "mirror.gcr.io/library/postgres:16.15-alpine", "postgres", postgresArgs},
+	{"postgres17", "mirror.gcr.io/library/postgres:17.11-alpine", "postgres", postgresArgs},
+	{"mysql8.0", "mirror.gcr.io/library/mysql:8.0.46", "mysql",
 		[]string{"--default-authentication-plugin=mysql_native_password", "--binlog-expire-logs-seconds=0",
 			"--plugin-dir=/var/lib/mysql/.sockerless-plugin"}},
-	{"mariadb11.4", "public.ecr.aws/docker/library/mariadb:11.4.13", "mariadb",
+	{"mariadb11.4", "mirror.gcr.io/library/mariadb:11.4.13", "mariadb",
 		[]string{"--log-bin=binlog", "--binlog-expire-logs-seconds=0",
 			"--plugin-dir=/var/lib/mysql/.sockerless-plugin", "--ignore-db-dirs=.sockerless-plugin"}},
 }

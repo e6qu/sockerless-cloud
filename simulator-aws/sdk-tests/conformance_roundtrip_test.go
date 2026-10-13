@@ -137,7 +137,7 @@ func TestConformanceBatchDescribeJobsArn(t *testing.T) {
 		JobDefinitionName: aws.String("conf-batch-jd"),
 		Type:              batchtypes.JobDefinitionTypeContainer,
 		ContainerProperties: &batchtypes.ContainerProperties{
-			Image:   aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			Image:   aws.String("mirror.gcr.io/library/busybox:latest"),
 			Command: []string{"true"},
 			ResourceRequirements: []batchtypes.ResourceRequirement{
 				{Type: batchtypes.ResourceTypeVcpu, Value: aws.String("1")},

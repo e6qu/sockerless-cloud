@@ -176,7 +176,7 @@ func FuzzResolveLocalImage(f *testing.F) {
 		"us-central1-docker.pkg.dev/p/docker-hub/library/alpine:latest",
 		"1.dkr.ecr.eu-west-1.amazonaws.com/docker-hub/library/alpine:latest",
 		"myacr.azurecr.io/library/alpine:latest",
-		"public.ecr.aws/docker/library/alpine:latest",
+		"mirror.gcr.io/library/alpine:latest",
 		".amazonaws.com/",
 		"-docker.pkg.dev//docker-hub/",
 		".azurecr.io/",

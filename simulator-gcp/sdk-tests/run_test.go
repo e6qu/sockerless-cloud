@@ -24,7 +24,7 @@ func TestCloudRun_CreateJob(t *testing.T) {
 		"template": map[string]any{
 			"template": map[string]any{
 				"containers": []map[string]any{
-					{"image": "public.ecr.aws/docker/library/alpine:latest"},
+					{"image": "mirror.gcr.io/library/alpine:latest"},
 				},
 			},
 		},
@@ -67,7 +67,7 @@ func createCloudRunJob(t *testing.T, jobID string) {
 		"template": map[string]any{
 			"template": map[string]any{
 				"containers": []map[string]any{
-					{"image": "public.ecr.aws/docker/library/alpine:latest"},
+					{"image": "mirror.gcr.io/library/alpine:latest"},
 				},
 			},
 		},
@@ -213,7 +213,7 @@ func createAndRunJob(t *testing.T, jobID string) jobRun {
 			"template": map[string]any{
 				"timeout": "1s",
 				"containers": []map[string]any{
-					{"image": "public.ecr.aws/docker/library/alpine:latest"},
+					{"image": "mirror.gcr.io/library/alpine:latest"},
 				},
 			},
 		},
@@ -431,7 +431,7 @@ func TestCloudRun_ExecutionCancelledState(t *testing.T) {
 }
 
 func createAndRunJobWithCommand(t *testing.T, jobID string, cmd []string, timeout string) jobRun {
-	return createAndRunJobWithImageAndCommand(t, jobID, "public.ecr.aws/docker/library/alpine:latest", cmd, timeout)
+	return createAndRunJobWithImageAndCommand(t, jobID, "mirror.gcr.io/library/alpine:latest", cmd, timeout)
 }
 
 func createAndRunJobWithImageAndCommand(t *testing.T, jobID string, image string, cmd []string, timeout string) jobRun {

@@ -119,7 +119,7 @@ func TestCLI_ACAJobUpdatePartial(t *testing.T) {
 		`"environmentId":"` + envID + `",` +
 		`"configuration":{"triggerType":"Manual","replicaTimeout":1800,"replicaRetryLimit":2,` +
 		`"manualTriggerConfig":{"parallelism":1,"replicaCompletionCount":1}},` +
-		`"template":{"containers":[{"name":"main","image":"public.ecr.aws/docker/library/alpine:3.20"}]}}}`
+		`"template":{"containers":[{"name":"main","image":"mirror.gcr.io/library/alpine:3.20"}]}}}`
 	out := runCLI(t, azRest("PUT", jobURL, createBody))
 	var created jobShape
 	parseJSON(t, out, &created)
@@ -138,7 +138,7 @@ func TestCLI_ACAJobUpdatePartial(t *testing.T) {
 		"replicaTimeout must not be reset by a tags-only PATCH")
 	require.Len(t, got.Properties.Template.Containers, 1,
 		"template must survive a tags-only PATCH")
-	assert.Equal(t, "public.ecr.aws/docker/library/alpine:3.20", got.Properties.Template.Containers[0].Image)
+	assert.Equal(t, "mirror.gcr.io/library/alpine:3.20", got.Properties.Template.Containers[0].Image)
 
 	// PATCH the configuration only — the tags must survive.
 	runCLI(t, azRest("PATCH", jobURL,

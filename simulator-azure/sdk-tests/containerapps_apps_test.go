@@ -55,7 +55,7 @@ func TestSDK_ContainerAppsApps_CreateGetDelete(t *testing.T) {
 				Containers: []*armappcontainers.Container{
 					{
 						Name:  to.Ptr("main"),
-						Image: to.Ptr("public.ecr.aws/docker/library/alpine:latest"),
+						Image: to.Ptr("mirror.gcr.io/library/alpine:latest"),
 					},
 				},
 				Scale: &armappcontainers.Scale{
@@ -362,7 +362,7 @@ func TestSDK_ContainerAppsApps_SystemDataPreservedAcrossUpdates(t *testing.T) {
 		}
 	}
 
-	poller, err := client.BeginCreateOrUpdate(ctx, rg, "sdk-systemdata-app", mkApp("public.ecr.aws/docker/library/alpine:3.18"), nil)
+	poller, err := client.BeginCreateOrUpdate(ctx, rg, "sdk-systemdata-app", mkApp("mirror.gcr.io/library/alpine:3.18"), nil)
 	require.NoError(t, err)
 	created, err := poller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
@@ -373,7 +373,7 @@ func TestSDK_ContainerAppsApps_SystemDataPreservedAcrossUpdates(t *testing.T) {
 
 	// ARM stamps systemData to a tenth of a microsecond, so a restamp by
 	// this later request would differ from originalCreatedAt.
-	upPoller, err := client.BeginCreateOrUpdate(ctx, rg, "sdk-systemdata-app", mkApp("public.ecr.aws/docker/library/alpine:latest"), nil)
+	upPoller, err := client.BeginCreateOrUpdate(ctx, rg, "sdk-systemdata-app", mkApp("mirror.gcr.io/library/alpine:latest"), nil)
 	require.NoError(t, err)
 	updated, err := upPoller.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
@@ -485,7 +485,7 @@ func TestSDK_ContainerAppsApps_PatchMergesNotReplaces(t *testing.T) {
 			},
 			Template: &armappcontainers.Template{
 				Containers: []*armappcontainers.Container{
-					{Name: to.Ptr("main"), Image: to.Ptr("public.ecr.aws/docker/library/alpine:latest")},
+					{Name: to.Ptr("main"), Image: to.Ptr("mirror.gcr.io/library/alpine:latest")},
 				},
 				Volumes: []*armappcontainers.Volume{
 					{Name: to.Ptr("data"), StorageType: to.Ptr(armappcontainers.StorageType("EmptyDirectory"))},
@@ -514,7 +514,7 @@ func TestSDK_ContainerAppsApps_PatchMergesNotReplaces(t *testing.T) {
 	patchBody := `{
 		"properties": {
 			"template": {
-				"containers": [{"name":"main","image":"public.ecr.aws/docker/library/alpine:3.20"}]
+				"containers": [{"name":"main","image":"mirror.gcr.io/library/alpine:3.20"}]
 			}
 		}
 	}`
@@ -563,7 +563,7 @@ func TestSDK_ContainerAppsApps_PatchMergesNotReplaces(t *testing.T) {
 
 	// Container image updated.
 	require.NotEmpty(t, patched.Properties.Template.Containers)
-	assert.Equal(t, "public.ecr.aws/docker/library/alpine:3.20", patched.Properties.Template.Containers[0].Image)
+	assert.Equal(t, "mirror.gcr.io/library/alpine:3.20", patched.Properties.Template.Containers[0].Image)
 }
 
 // TestSDK_ContainerAppsApps_PatchRFC7396Semantics proves the PATCH handler
@@ -589,7 +589,7 @@ func TestSDK_ContainerAppsApps_PatchRFC7396Semantics(t *testing.T) {
 			EnvironmentID: to.Ptr(envID),
 			Template: &armappcontainers.Template{
 				Containers: []*armappcontainers.Container{
-					{Name: to.Ptr("main"), Image: to.Ptr("public.ecr.aws/docker/library/alpine:latest")},
+					{Name: to.Ptr("main"), Image: to.Ptr("mirror.gcr.io/library/alpine:latest")},
 				},
 				Scale: &armappcontainers.Scale{
 					MinReplicas: to.Ptr[int32](1),
@@ -656,7 +656,7 @@ func TestSDK_ContainerAppsApps_PatchRFC7396Semantics(t *testing.T) {
 
 	// Untouched members are preserved.
 	require.NotEmpty(t, patched.Properties.Template.Containers)
-	assert.Equal(t, "public.ecr.aws/docker/library/alpine:latest", patched.Properties.Template.Containers[0].Image)
+	assert.Equal(t, "mirror.gcr.io/library/alpine:latest", patched.Properties.Template.Containers[0].Image)
 }
 
 // TestSDK_ContainerAppsApps_DeleteLROEnvelope proves the DELETE contract at
@@ -682,7 +682,7 @@ func TestSDK_ContainerAppsApps_DeleteLROEnvelope(t *testing.T) {
 			EnvironmentID: to.Ptr(envID),
 			Template: &armappcontainers.Template{
 				Containers: []*armappcontainers.Container{
-					{Name: to.Ptr("main"), Image: to.Ptr("public.ecr.aws/docker/library/alpine:latest")},
+					{Name: to.Ptr("main"), Image: to.Ptr("mirror.gcr.io/library/alpine:latest")},
 				},
 			},
 		},

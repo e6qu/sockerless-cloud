@@ -2,11 +2,11 @@
 # Puts a set of base images on the host without asking a registry twice for the
 # same bytes.
 #
-# The registries these images come from cap anonymous pulls by data volume, and
-# that cap is not a transient failure: retrying inside a job does not recover
-# it, and moving between Docker Hub and the ECR Public Gallery does not either,
-# because both throttle the same runners. A cached tarball is the only thing
-# that removes the request.
+# The registries these images come from throttle anonymous pulls, and the ECR
+# Public Gallery, which serves the images AWS publishes, caps them by data
+# volume: that cap is not a transient failure, and retrying inside a job does
+# not recover it. A cached tarball is the only thing that removes the
+# request.
 #
 #   warm-base-images.sh <tarball> <image>...
 #

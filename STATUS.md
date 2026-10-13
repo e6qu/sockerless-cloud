@@ -406,7 +406,7 @@ shape, and one whose scan set can go empty exits non-zero.
   container images to the newest release past a 24-hour adoption quarantine,
   with the repository's own modules excluded and covered by the pin gate
   instead. Its self-test serves the module proxy, the Terraform registry, the
-  GitHub API, Docker Hub and the image copies from fixtures with fixed
+  GitHub API, Docker Hub and `mirror.gcr.io` from fixtures with fixed
   publication times.
 - The race detector over every module on every pull request, with background
   work counted by `bg.Go`, `bg.AfterFunc` and `bg.JoinedGo`.

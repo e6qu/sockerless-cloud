@@ -61,10 +61,9 @@ const (
 	msRedisClusterSlots    = 16384
 )
 
-// msRedisEngineImage is the engine image for a Memorystore for Redis version.
-// The Amazon ECR Public Gallery mirror of the Docker official images carries
-// no 3.2 or 4.0 tag, so those come from mirror.gcr.io, which serves Docker
-// Hub's index for them without Docker Hub's anonymous pull limit.
+// msRedisEngineImage is the engine image for a Memorystore for Redis version,
+// from mirror.gcr.io, which serves Docker Hub's official redis images without
+// Docker Hub's anonymous pull limit.
 func msRedisEngineImage(redisVersion string) (string, bool) {
 	switch redisVersion {
 	case "REDIS_3_2":
@@ -72,13 +71,13 @@ func msRedisEngineImage(redisVersion string) (string, bool) {
 	case "REDIS_4_0":
 		return "mirror.gcr.io/library/redis:4.0-alpine", true
 	case "REDIS_5_0":
-		return "public.ecr.aws/docker/library/redis:5.0-alpine", true
+		return "mirror.gcr.io/library/redis:5.0-alpine", true
 	case "REDIS_6_X":
-		return "public.ecr.aws/docker/library/redis:6.2-alpine", true
+		return "mirror.gcr.io/library/redis:6.2-alpine", true
 	case "REDIS_7_0":
-		return "public.ecr.aws/docker/library/redis:7.0-alpine", true
+		return "mirror.gcr.io/library/redis:7.0-alpine", true
 	case "REDIS_7_2":
-		return "public.ecr.aws/docker/library/redis:7.2-alpine", true
+		return "mirror.gcr.io/library/redis:7.2-alpine", true
 	}
 	return "", false
 }
@@ -90,7 +89,7 @@ const msRedisEnginePlatform = "linux/amd64"
 // Memorystore for Redis Cluster runs Redis 7.2, the engineVersion its backups
 // report.
 const (
-	msRedisClusterEngineImage   = "public.ecr.aws/docker/library/redis:7.2-alpine"
+	msRedisClusterEngineImage   = "mirror.gcr.io/library/redis:7.2-alpine"
 	msRedisClusterEngineVersion = "redis-7.2"
 )
 

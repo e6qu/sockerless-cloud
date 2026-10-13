@@ -12,7 +12,8 @@ import (
 
 // Ensure makes image present on the host, asking a registry only when the
 // host lacks it. `docker pull` asks the registry even for an image the host
-// holds, and the anonymous data cap refuses it though CI's cache loaded it.
+// holds, and a registry throttling anonymous pulls refuses it though CI's cache
+// loaded it.
 func Ensure(image string) error {
 	_, err := EnsureRef(image)
 	return err

@@ -184,7 +184,7 @@ resource "azurerm_container_app" "kv" {
 
     container {
       name    = "main"
-      image   = "public.ecr.aws/docker/library/alpine:latest"
+      image   = "mirror.gcr.io/library/alpine:latest"
       cpu     = 0.25
       memory  = "0.5Gi"
       command = ["sh", "-c", "nc -lk -p 8080 -e sh -c 'while read -r l && [ $${#l} -gt 1 ]; do :; done; b=$(echo $DB; wget -qO- --header X-IDENTITY-HEADER:$IDENTITY_HEADER \"$IDENTITY_ENDPOINT?api-version=2019-08-01&resource=https://vault.azure.net&client_id=$READER_CLIENT_ID\"); printf \"HTTP/1.1 200 OK\\r\\nContent-Length: %d\\r\\nConnection: close\\r\\n\\r\\n%s\" $${#b} \"$b\"'"]
@@ -232,7 +232,7 @@ resource "azurerm_container_app_job" "kv" {
   template {
     container {
       name    = "main"
-      image   = "public.ecr.aws/docker/library/alpine:latest"
+      image   = "mirror.gcr.io/library/alpine:latest"
       cpu     = 0.25
       memory  = "0.5Gi"
       command = ["sh", "-c", "test \"$DB\" = hunter2"]

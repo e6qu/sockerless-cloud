@@ -42,7 +42,7 @@ func TestContainerApps_CreateJob(t *testing.T) {
 				"containers": []map[string]any{
 					{
 						"name":  "worker",
-						"image": "public.ecr.aws/docker/library/alpine:latest",
+						"image": "mirror.gcr.io/library/alpine:latest",
 					},
 				},
 			},
@@ -91,7 +91,7 @@ func TestContainerApps_StartJobInjectsLogs(t *testing.T) {
 			},
 			"template": map[string]any{
 				"containers": []map[string]any{
-					{"name": "worker", "image": "public.ecr.aws/docker/library/alpine:latest"},
+					{"name": "worker", "image": "mirror.gcr.io/library/alpine:latest"},
 				},
 			},
 		},
@@ -243,7 +243,7 @@ func acaCreateJob(t *testing.T, rg, jobName string) {
 			},
 			"template": map[string]any{
 				"containers": []map[string]any{
-					{"name": "worker", "image": "public.ecr.aws/docker/library/alpine:latest"},
+					{"name": "worker", "image": "mirror.gcr.io/library/alpine:latest"},
 				},
 			},
 		},
@@ -386,7 +386,7 @@ func TestContainerApps_ExecutionStoppedState(t *testing.T) {
 
 // acaCreateJobWithCommand creates a Container Apps Job with a command.
 func acaCreateJobWithCommand(t *testing.T, rg, jobName string, cmd []string) {
-	acaCreateJobWithImageAndCommand(t, rg, jobName, "public.ecr.aws/docker/library/alpine:latest", cmd)
+	acaCreateJobWithImageAndCommand(t, rg, jobName, "mirror.gcr.io/library/alpine:latest", cmd)
 }
 
 // acaCreateJobWithImageAndCommand creates a Container Apps Job with a specific image and command.
@@ -547,7 +547,7 @@ func TestContainerApps_GetJob(t *testing.T) {
 	container, ok := containers[0].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "worker", container["name"])
-	assert.Equal(t, "public.ecr.aws/docker/library/alpine:latest", container["image"])
+	assert.Equal(t, "mirror.gcr.io/library/alpine:latest", container["image"])
 }
 
 // ensureRG creates a resource group via raw HTTP (needed before SDK calls).
@@ -591,7 +591,7 @@ func TestSDK_ContainerApps_CreateAndGetJob(t *testing.T) {
 				Containers: []*armappcontainers.Container{
 					{
 						Name:  to.Ptr("worker"),
-						Image: to.Ptr("public.ecr.aws/docker/library/alpine:latest"),
+						Image: to.Ptr("mirror.gcr.io/library/alpine:latest"),
 					},
 				},
 			},
@@ -632,7 +632,7 @@ func TestSDK_ContainerApps_StartAndListExecutions(t *testing.T) {
 				Containers: []*armappcontainers.Container{
 					{
 						Name:    to.Ptr("worker"),
-						Image:   to.Ptr("public.ecr.aws/docker/library/alpine:latest"),
+						Image:   to.Ptr("mirror.gcr.io/library/alpine:latest"),
 						Command: []*string{to.Ptr("echo"), to.Ptr("sdk-hello")},
 					},
 				},
@@ -700,7 +700,7 @@ func TestSDK_ContainerApps_ListByResourceGroup(t *testing.T) {
 				},
 				Template: &armappcontainers.JobTemplate{
 					Containers: []*armappcontainers.Container{
-						{Name: to.Ptr("w"), Image: to.Ptr("public.ecr.aws/docker/library/alpine:latest")},
+						{Name: to.Ptr("w"), Image: to.Ptr("mirror.gcr.io/library/alpine:latest")},
 					},
 				},
 			},
@@ -746,7 +746,7 @@ func TestSDK_ContainerApps_DeleteJob(t *testing.T) {
 			},
 			Template: &armappcontainers.JobTemplate{
 				Containers: []*armappcontainers.Container{
-					{Name: to.Ptr("w"), Image: to.Ptr("public.ecr.aws/docker/library/alpine:latest")},
+					{Name: to.Ptr("w"), Image: to.Ptr("mirror.gcr.io/library/alpine:latest")},
 				},
 			},
 		},

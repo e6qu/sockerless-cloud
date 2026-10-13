@@ -130,7 +130,7 @@ func TestECS_CLI_ExpressModeErrors(t *testing.T) {
 		"--service-name", "cli-mutex",
 		"--infrastructure-role-arn", "arn:aws:iam::000000000000:role/express-infra",
 		"--task-definition-arn", "arn:aws:ecs:us-east-1:000000000000:task-definition/foo:1",
-		"--primary-container", `{"image":"public.ecr.aws/docker/library/busybox:latest"}`))
+		"--primary-container", `{"image":"mirror.gcr.io/library/busybox:latest"}`))
 	if !strings.Contains(mutexErr, "InvalidParameterException") {
 		t.Fatalf("expected InvalidParameterException, got: %s", mutexErr)
 	}
@@ -147,7 +147,7 @@ func TestECS_CLI_ExpressModeErrors(t *testing.T) {
 		"--cluster", "cli-no-such-cluster",
 		"--service-name", "cli-orphan",
 		"--infrastructure-role-arn", "arn:aws:iam::000000000000:role/express-infra",
-		"--primary-container", `{"image":"public.ecr.aws/docker/library/busybox:latest"}`))
+		"--primary-container", `{"image":"mirror.gcr.io/library/busybox:latest"}`))
 	if !strings.Contains(clErr, "ClusterNotFoundException") {
 		t.Fatalf("expected ClusterNotFoundException, got: %s", clErr)
 	}

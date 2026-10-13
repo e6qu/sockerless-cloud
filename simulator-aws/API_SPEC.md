@@ -557,7 +557,7 @@ X-Amz-Target: AmazonEC2ContainerServiceV20141113.DeregisterTaskDefinition
     "containerDefinitions": [
       {
         "name": "wave",
-        "image": "public.ecr.aws/docker/library/ubuntu:latest",
+        "image": "mirror.gcr.io/library/ubuntu:latest",
         "cpu": 50,
         "memory": 100,
         "essential": true

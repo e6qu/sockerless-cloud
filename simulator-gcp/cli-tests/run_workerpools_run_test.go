@@ -74,7 +74,7 @@ func TestCloudRunWorkerPools_CLI_LogsAndVolumeOfRunningInstances(t *testing.T) {
 		"scaling": {"manualInstanceCount": 2},
 		"template": {
 			"containers": [{
-				"image": "public.ecr.aws/docker/library/alpine:latest",
+				"image": "mirror.gcr.io/library/alpine:latest",
 				"command": `+cloudRunWorkloadScriptJSON("worker started", false)+`,
 				"volumeMounts": [{"name": "bucket", "mountPath": "/mnt/bucket"}]
 			}],
@@ -120,7 +120,7 @@ func TestCloudRunInstances_CLI_LogsAndVolumeOfRunningInstance(t *testing.T) {
 
 	httpDoJSON(t, "POST", instancesBaseURL()+"?instanceId="+instance, `{
 		"containers": [{
-			"image": "public.ecr.aws/docker/library/alpine:latest",
+			"image": "mirror.gcr.io/library/alpine:latest",
 			"command": `+cloudRunWorkloadScriptJSON("instance started", true)+`,
 			"volumeMounts": [{"name": "bucket", "mountPath": "/mnt/bucket"}]
 		}],

@@ -16,7 +16,7 @@ func TestSiteContainerThatExitsBeforeItsPortIsReadReportsItsExit(t *testing.T) {
 	if _, err := sim.InitDocker("azure", true, t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
-	const image = "public.ecr.aws/docker/library/busybox:latest"
+	const image = "mirror.gcr.io/library/busybox:latest"
 	platform, err := workload.LocalImagePlatform(t.Context(), image, "")
 	if err != nil {
 		t.Fatal(err)

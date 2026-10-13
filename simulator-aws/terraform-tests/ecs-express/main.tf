@@ -43,7 +43,7 @@ resource "aws_ecs_express_gateway_service" "web" {
   execution_role_arn      = "arn:aws:iam::000000000000:role/express-exec"
 
   primary_container {
-    image          = "public.ecr.aws/docker/library/busybox:latest"
+    image          = "mirror.gcr.io/library/busybox:latest"
     container_port = 8080
     command        = ["sh", "-c", "mkdir -p /www && printf ok >/www/ping && exec httpd -f -p 8080 -h /www"]
   }

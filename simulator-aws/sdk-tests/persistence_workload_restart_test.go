@@ -57,7 +57,7 @@ func TestRunningAmazonECSAWSBatchAndCodeBuildWorkloadsSurviveSimulatorRestart_SD
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2),
 			Name:        aws.String("application"),
-			Image:       aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			Image:       aws.String("mirror.gcr.io/library/busybox:latest"),
 			Essential:   aws.Bool(true),
 			Command:     []string{"sh", "-c", "sleep 8"},
 		}},
@@ -90,7 +90,7 @@ func TestRunningAmazonECSAWSBatchAndCodeBuildWorkloadsSurviveSimulatorRestart_SD
 		JobDefinitionName: aws.String(batchJDName),
 		Type:              batchtypes.JobDefinitionTypeContainer,
 		ContainerProperties: &batchtypes.ContainerProperties{
-			Image:   aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			Image:   aws.String("mirror.gcr.io/library/busybox:latest"),
 			Command: []string{"sh", "-c", "sleep 8"},
 			Vcpus:   aws.Int32(1),
 			Memory:  aws.Int32(512),
@@ -114,7 +114,7 @@ func TestRunningAmazonECSAWSBatchAndCodeBuildWorkloadsSurviveSimulatorRestart_SD
 		Artifacts: &codebuildtypes.ProjectArtifacts{Type: codebuildtypes.ArtifactsTypeNoArtifacts},
 		Environment: &codebuildtypes.ProjectEnvironment{
 			Type:        codebuildtypes.EnvironmentTypeLinuxContainer,
-			Image:       aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			Image:       aws.String("mirror.gcr.io/library/busybox:latest"),
 			ComputeType: codebuildtypes.ComputeTypeBuildGeneral1Small,
 		},
 		ServiceRole: aws.String("arn:aws:iam::123456789012:role/persistent-codebuild"),

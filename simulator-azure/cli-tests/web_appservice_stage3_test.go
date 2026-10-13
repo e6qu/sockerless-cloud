@@ -60,7 +60,7 @@ import (
 //	GET /providers/Microsoft.Web/sourcecontrols
 //	GET+PUT /providers/Microsoft.Web/sourcecontrols/{sourceControlType}
 
-const stage3CLIAlpine = "public.ecr.aws/docker/library/alpine:3.20"
+const stage3CLIAlpine = "mirror.gcr.io/library/alpine:3.20"
 
 // stage3PullImage pulls the webjob workload image into the local daemon so
 // the simulator's if-not-present policy finds it warm.

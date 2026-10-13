@@ -125,7 +125,7 @@ func TestCloudRunV1_JobsListResumesAfterTheLastJobReturned(t *testing.T) {
 				Metadata: &run.ObjectMeta{Name: id},
 				Spec: &run.JobSpec{Template: &run.ExecutionTemplateSpec{Spec: &run.ExecutionSpec{
 					Template: &run.TaskTemplateSpec{Spec: &run.TaskSpec{
-						Containers: []*run.Container{{Image: "public.ecr.aws/docker/library/alpine:latest", Args: []string{"true"}}},
+						Containers: []*run.Container{{Image: "mirror.gcr.io/library/alpine:latest", Args: []string{"true"}}},
 					}},
 				}}},
 			}).Do()
@@ -283,7 +283,7 @@ func TestOperations_LocationCollectionsListTheirOwnServicesOperations(t *testing
 	jobID := uniqueName("ops-scope-job")
 	jobOp, err := runREST.Projects.Locations.Jobs.Create(parent, &runv2.GoogleCloudRunV2Job{
 		Template: &runv2.GoogleCloudRunV2ExecutionTemplate{Template: &runv2.GoogleCloudRunV2TaskTemplate{
-			Containers: []*runv2.GoogleCloudRunV2Container{{Image: "public.ecr.aws/docker/library/alpine:latest"}},
+			Containers: []*runv2.GoogleCloudRunV2Container{{Image: "mirror.gcr.io/library/alpine:latest"}},
 		}},
 	}).JobId(jobID).Do()
 	require.NoError(t, err)

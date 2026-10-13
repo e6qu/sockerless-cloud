@@ -26,7 +26,7 @@ func TestContainerAppsApps_CLI_CreateGetDelete(t *testing.T) {
 				"ingress": { "external": false, "targetPort": 8080, "transport": "auto" }
 			},
 			"template": {
-				"containers": [{ "name": "main", "image": "public.ecr.aws/docker/library/alpine:latest" }],
+				"containers": [{ "name": "main", "image": "mirror.gcr.io/library/alpine:latest" }],
 				"scale": { "minReplicas": 1, "maxReplicas": 1 }
 			}
 		}
@@ -82,7 +82,7 @@ func TestContainerAppsApps_CLI_PatchMergeSemantics(t *testing.T) {
 		"properties": {
 			"environmentId": "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.App/managedEnvironments/sim-env",
 			"template": {
-				"containers": [{ "name": "main", "image": "public.ecr.aws/docker/library/alpine:latest" }],
+				"containers": [{ "name": "main", "image": "mirror.gcr.io/library/alpine:latest" }],
 				"scale": { "minReplicas": 1, "maxReplicas": 5 }
 			}
 		}

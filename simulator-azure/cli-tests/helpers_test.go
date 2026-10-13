@@ -189,8 +189,8 @@ func TestMain(m *testing.M) {
 		image string
 		tests []string
 	}{
-		{image: "public.ecr.aws/docker/library/alpine:latest"},
-		{image: "public.ecr.aws/docker/library/alpine:3.20"},
+		{image: "mirror.gcr.io/library/alpine:latest"},
+		{image: "mirror.gcr.io/library/alpine:3.20"},
 		// The App Service platform image the Node web app tests run.
 		{image: "mcr.microsoft.com/appsvc/node:20-lts_20260904.5.tuxprod", tests: []string{
 			"TestWebAppKudu_NativeAzDeployAndConfigZip",

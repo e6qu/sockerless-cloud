@@ -78,15 +78,15 @@ func TestMain(m *testing.M) {
 	// as an engine that "did not become ready" rather than as what it was —
 	// the network. Fetching them here, with retries, removes that race.
 	if testRunSelects("TestCloudSQL_BackupCapturesDataAndRestoreReturnsToIt") {
-		pullImageBeforeRun("public.ecr.aws/docker/library/postgres:16-alpine")
+		pullImageBeforeRun("mirror.gcr.io/library/postgres:16-alpine")
 	}
 	if testRunSelects("TestCloudSQL_MySQLBackupCapturesDataAndRestoreReturnsToIt") {
-		pullImageBeforeRun("public.ecr.aws/docker/library/mysql:8.0")
+		pullImageBeforeRun("mirror.gcr.io/library/mysql:8.0")
 	}
 	// Every Memorystore instance and cluster a test creates starts a real
 	// Redis engine: REDIS_7_0 is the instance default and clusters run 7.2.
-	pullImageBeforeRun("public.ecr.aws/docker/library/redis:7.0-alpine")
-	pullImageBeforeRun("public.ecr.aws/docker/library/redis:7.2-alpine")
+	pullImageBeforeRun("mirror.gcr.io/library/redis:7.0-alpine")
+	pullImageBeforeRun("mirror.gcr.io/library/redis:7.2-alpine")
 
 	probeDir, _ := filepath.Abs("../../testdata/http-localhost-probe")
 	httpProbeImageName = "sockerless-http-localhost-probe:gcp-sdk"
@@ -377,11 +377,11 @@ ENTRYPOINT ["/usr/local/bin/%s"]
 }
 
 // simWorkloadImage is the base image these suites run as a container workload
-// and build from. It is served from the Amazon ECR Public Gallery, which is
-// the registry CI warms from a cached tarball (scripts/base-images-for.sh
-// derives that set by scanning these sources for gallery references); Docker
-// Hub is not warmed, and its anonymous pull cap has flaked these runs.
-const simWorkloadImage = "public.ecr.aws/docker/library/alpine:3.20"
+// and build from. It is served from mirror.gcr.io, which is a registry CI
+// warms from a cached tarball (scripts/base-images-for.sh derives that set by
+// scanning these sources for its references); Docker Hub is not warmed, and
+// its anonymous pull cap has flaked these runs.
+const simWorkloadImage = "mirror.gcr.io/library/alpine:3.20"
 
 // pullImageBeforeRun fetches a public image before m.Run so a transient
 // registry failure surfaces here as a clear pull error, not as a workload

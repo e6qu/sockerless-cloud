@@ -73,11 +73,11 @@ func TestAmplifyManifestRouteMatch(t *testing.T) {
 
 func TestAmplifyComputeRuntimeImage(t *testing.T) {
 	image, err := amplifyComputeRuntimeImage("nodejs18.x")
-	if err != nil || image != "public.ecr.aws/docker/library/node:18-alpine" {
+	if err != nil || image != "mirror.gcr.io/library/node:18-alpine" {
 		t.Fatalf("nodejs18.x: %q %v", image, err)
 	}
 	image, err = amplifyComputeRuntimeImage("nodejs20.x")
-	if err != nil || image != "public.ecr.aws/docker/library/node:20-alpine" {
+	if err != nil || image != "mirror.gcr.io/library/node:20-alpine" {
 		t.Fatalf("nodejs20.x: %q %v", image, err)
 	}
 	// A version the service does not offer is refused rather than turned into

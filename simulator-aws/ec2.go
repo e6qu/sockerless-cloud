@@ -4634,7 +4634,7 @@ func ebsRemoveDockerVolume(name string) {
 // it does not yet exist.
 func ebsCopyDockerVolumes(ctx context.Context, srcVolume, dstVolume string) error {
 	handle, err := sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
-		Image:        "public.ecr.aws/docker/library/alpine:latest",
+		Image:        "mirror.gcr.io/library/alpine:latest",
 		Architecture: "linux/" + runtime.GOARCH,
 		Command:      []string{"sh", "-c", "cp -a /src/. /dst/"},
 		Binds: []string{

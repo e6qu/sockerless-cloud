@@ -52,7 +52,7 @@ resource "google_cloud_run_v2_job" "token" {
       timeout     = "60s"
 
       containers {
-        image   = "public.ecr.aws/docker/library/alpine:latest"
+        image   = "mirror.gcr.io/library/alpine:latest"
         command = ["sh", "-c", "echo ran > /mnt/bucket/ran-${var.token}"]
 
         volume_mounts {

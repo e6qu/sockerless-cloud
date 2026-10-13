@@ -50,7 +50,7 @@ func TestCloudRunV1_JobsLifecycle(t *testing.T) {
 				Parallelism: 1,
 				TaskCount:   2,
 				Template: &run.TaskTemplateSpec{Spec: &run.TaskSpec{
-					Containers:     []*run.Container{{Image: "public.ecr.aws/docker/library/alpine:latest", Args: []string{"true"}}},
+					Containers:     []*run.Container{{Image: "mirror.gcr.io/library/alpine:latest", Args: []string{"true"}}},
 					TimeoutSeconds: 45,
 					MaxRetries:     3,
 				}},
@@ -100,7 +100,7 @@ func TestCloudRunV1_JobsLifecycle(t *testing.T) {
 			Spec: &run.ExecutionSpec{
 				TaskCount: 1,
 				Template: &run.TaskTemplateSpec{Spec: &run.TaskSpec{
-					Containers: []*run.Container{{Image: "public.ecr.aws/docker/library/alpine:latest", Args: []string{"true"}}},
+					Containers: []*run.Container{{Image: "mirror.gcr.io/library/alpine:latest", Args: []string{"true"}}},
 				}},
 			},
 		}},
@@ -196,7 +196,7 @@ func TestCloudRunV1_ExecutionCancelStopsTheContainer(t *testing.T) {
 		Spec: &run.JobSpec{Template: &run.ExecutionTemplateSpec{
 			Spec: &run.ExecutionSpec{Template: &run.TaskTemplateSpec{Spec: &run.TaskSpec{
 				Containers: []*run.Container{{
-					Image: "public.ecr.aws/docker/library/alpine:latest",
+					Image: "mirror.gcr.io/library/alpine:latest",
 					Args: []string{"sh", "-c",
 						"trap 'echo stopping; exit 143' TERM; i=0; while true; do echo tick-$i; i=$((i+1)); sleep 1 & wait $!; done"},
 				}},
@@ -289,7 +289,7 @@ func TestCloudRunV1_JobRunOverrides(t *testing.T) {
 		Metadata: &run.ObjectMeta{Name: id},
 		Spec: &run.JobSpec{Template: &run.ExecutionTemplateSpec{
 			Spec: &run.ExecutionSpec{Template: &run.TaskTemplateSpec{Spec: &run.TaskSpec{
-				Containers:     []*run.Container{{Image: "public.ecr.aws/docker/library/alpine:latest", Args: []string{"echo", "baseline"}}},
+				Containers:     []*run.Container{{Image: "mirror.gcr.io/library/alpine:latest", Args: []string{"echo", "baseline"}}},
 				TimeoutSeconds: 30,
 			}}},
 		}},
@@ -341,7 +341,7 @@ func TestCloudRunV1_JobsDryRun(t *testing.T) {
 		Metadata: &run.ObjectMeta{Name: id},
 		Spec: &run.JobSpec{Template: &run.ExecutionTemplateSpec{
 			Spec: &run.ExecutionSpec{Template: &run.TaskTemplateSpec{Spec: &run.TaskSpec{
-				Containers: []*run.Container{{Image: "public.ecr.aws/docker/library/alpine:latest"}},
+				Containers: []*run.Container{{Image: "mirror.gcr.io/library/alpine:latest"}},
 			}}},
 		}},
 	}

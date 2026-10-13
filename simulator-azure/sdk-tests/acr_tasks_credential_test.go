@@ -41,7 +41,7 @@ func acrTasksPushImage(t *testing.T, rg, regName, account, repository string) (s
 	loginServer := *registry.Properties.LoginServer
 	createStorageAccount(t, rg, account)
 
-	pullImageWithRetry(t, "public.ecr.aws/docker/library/alpine:3.20")
+	pullImageWithRetry(t, "mirror.gcr.io/library/alpine:3.20")
 	imageName := fmt.Sprintf("%s/%s:run-%d", loginServer, repository, time.Now().UnixNano())
 	t.Cleanup(func() { _ = exec.Command("docker", "image", "rm", "-f", imageName).Run() })
 
@@ -51,7 +51,7 @@ func acrTasksPushImage(t *testing.T, rg, regName, account, repository string) (s
 	_, _ = blobClient.CreateContainer(ctx, ctr, nil)
 	blobName := fmt.Sprintf("build-context/%d.tar.gz", time.Now().UnixNano())
 	_, err = blobClient.UploadBuffer(ctx, ctr, blobName, makeACRBuildContext(t, map[string]string{
-		"Dockerfile": "FROM public.ecr.aws/docker/library/alpine:3.20\nRUN echo pushed-as-the-run > /opt/payload\n",
+		"Dockerfile": "FROM mirror.gcr.io/library/alpine:3.20\nRUN echo pushed-as-the-run > /opt/payload\n",
 	}), nil)
 	require.NoError(t, err)
 

@@ -394,7 +394,7 @@ func TestLambda_InvokeContainerCrash(t *testing.T) {
 		FunctionName: aws.String(fnName),
 		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
 		PackageType:  lambdatypes.PackageTypeImage,
-		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String("public.ecr.aws/docker/library/alpine:latest")},
+		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String("mirror.gcr.io/library/alpine:latest")},
 		ImageConfig: &lambdatypes.ImageConfig{
 			Command: []string{"sh", "-c", "exit 1"},
 		},
@@ -649,7 +649,7 @@ func TestLambda_VpcConfig_RuntimeReachesVpcResource(t *testing.T) {
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2),
 			Name:        aws.String("http-target"),
-			Image:       aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			Image:       aws.String("mirror.gcr.io/library/busybox:latest"),
 			Essential:   aws.Bool(true),
 			Command: []string{"sh", "-c",
 				"echo lambda-vpc-ok > /tmp/index.html; exec httpd -f -p 8080 -h /tmp"},

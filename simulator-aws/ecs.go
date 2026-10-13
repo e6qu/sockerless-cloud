@@ -2324,7 +2324,7 @@ func ecsPauseImage() string {
 	if v := os.Getenv("SOCKERLESS_ECS_PAUSE_IMAGE"); v != "" {
 		return v
 	}
-	return "public.ecr.aws/docker/library/busybox:latest"
+	return "mirror.gcr.io/library/busybox:latest"
 }
 
 // startECSPauseContainer launches the netns pause container (Fargate-style): a

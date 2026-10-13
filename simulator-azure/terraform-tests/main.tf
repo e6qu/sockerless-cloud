@@ -131,7 +131,7 @@ resource "azurerm_container_registry_task" "az_acr_task" {
     task_content = <<-EOT
       version: v1.1.0
       steps:
-        - cmd: public.ecr.aws/docker/library/alpine:3.20 echo run-now from $RegistryName
+        - cmd: mirror.gcr.io/library/alpine:3.20 echo run-now from $RegistryName
     EOT
   }
 }
@@ -607,7 +607,7 @@ resource "azurerm_container_app" "az_ca" {
   template {
     container {
       name    = "main"
-      image   = "public.ecr.aws/docker/library/alpine:latest"
+      image   = "mirror.gcr.io/library/alpine:latest"
       cpu     = 0.25
       memory  = "0.5Gi"
       command = ["sh", "-c", "sleep infinity"]
@@ -635,7 +635,7 @@ resource "azurerm_container_app" "az_ca_multi" {
   template {
     container {
       name    = "main"
-      image   = "public.ecr.aws/docker/library/alpine:latest"
+      image   = "mirror.gcr.io/library/alpine:latest"
       cpu     = 0.25
       memory  = "0.5Gi"
       command = ["sh", "-c", "sleep infinity"]
@@ -662,7 +662,7 @@ resource "azurerm_container_app_job" "az_caj" {
   template {
     container {
       name    = "main"
-      image   = "public.ecr.aws/docker/library/alpine:latest"
+      image   = "mirror.gcr.io/library/alpine:latest"
       cpu     = 0.25
       memory  = "0.5Gi"
       command = ["sh", "-c", "echo hello && exit 0"]
@@ -878,7 +878,7 @@ resource "azurerm_linux_function_app" "az_backup_fa" {
 }
 
 # A Linux custom-container Function App: application_stack.docker becomes
-# linuxFxVersion "DOCKER|public.ecr.aws/docker/library/alpine:latest", and
+# linuxFxVersion "DOCKER|mirror.gcr.io/library/alpine:latest", and
 # app_command_line is the startup command the platform runs on the image's
 # entrypoint. WEBSITES_PORT names the port requests go to. busybox nc answers
 # each connection after reading the request's headers.
@@ -899,8 +899,8 @@ resource "azurerm_linux_function_app" "az_container_fa" {
 
     application_stack {
       docker {
-        registry_url = "https://public.ecr.aws"
-        image_name   = "docker/library/alpine"
+        registry_url = "https://mirror.gcr.io"
+        image_name   = "library/alpine"
         image_tag    = "latest"
       }
     }

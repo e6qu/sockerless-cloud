@@ -95,10 +95,10 @@ func TestMain(m *testing.M) {
 	// Pre-pull the multi-arch alpine image the test's azurerm_container_app
 	// uses. The sim's ACA PUT handler starts the workload container on the
 	// host's Docker daemon synchronously; if the image isn't cached the
-	// pull blows the terraform-provider's request budget. ECR Public
-	// Gallery serves linux/{amd64,arm64} variants without auth.
+	// pull blows the terraform-provider's request budget. mirror.gcr.io
+	// serves linux/{amd64,arm64} variants without auth.
 	//
-	pullImage := "public.ecr.aws/docker/library/alpine:latest"
+	pullImage := "mirror.gcr.io/library/alpine:latest"
 	if err := baseimage.Ensure(pullImage); err != nil {
 		log.Fatalf("Failed to pre-pull alpine image: %v", err)
 	}

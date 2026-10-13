@@ -41,7 +41,7 @@ func TestSDK_CloudRun_RunJob_DependsOnWaitsForStartupProbe(t *testing.T) {
 		Containers: []*runpb.Container{
 			{
 				Name:      "main",
-				Image:     "public.ecr.aws/docker/library/alpine:latest",
+				Image:     "mirror.gcr.io/library/alpine:latest",
 				Command:   []string{"nc", "-z", "127.0.0.1", "9090"},
 				DependsOn: []string{"server"},
 			},
@@ -117,10 +117,10 @@ func TestSDK_CloudRun_CreateJob_RefusesUnresolvableDependsOn(t *testing.T) {
 	t.Parallel()
 	jobs := newJobsClient(t)
 	for _, containers := range [][]*runpb.Container{
-		{{Name: "main", Image: "public.ecr.aws/docker/library/alpine:latest", DependsOn: []string{"absent"}}},
+		{{Name: "main", Image: "mirror.gcr.io/library/alpine:latest", DependsOn: []string{"absent"}}},
 		{
-			{Name: "a", Image: "public.ecr.aws/docker/library/alpine:latest", DependsOn: []string{"b"}},
-			{Name: "b", Image: "public.ecr.aws/docker/library/alpine:latest", DependsOn: []string{"a"}},
+			{Name: "a", Image: "mirror.gcr.io/library/alpine:latest", DependsOn: []string{"b"}},
+			{Name: "b", Image: "mirror.gcr.io/library/alpine:latest", DependsOn: []string{"a"}},
 		},
 	} {
 		_, err := jobs.CreateJob(ctx, &runpb.CreateJobRequest{
@@ -242,7 +242,7 @@ func TestSDK_CloudRun_CancelCompletedExecutionLeavesIt(t *testing.T) {
 	t.Parallel()
 	jobs := newJobsClient(t)
 	name := createRunJob(t, jobs, uniqueName("sdk-job-cancel-done"), &runpb.TaskTemplate{
-		Containers: []*runpb.Container{{Image: "public.ecr.aws/docker/library/alpine:latest"}},
+		Containers: []*runpb.Container{{Image: "mirror.gcr.io/library/alpine:latest"}},
 	})
 	runOp, err := jobs.RunJob(ctx, &runpb.RunJobRequest{Name: name})
 	require.NoError(t, err)

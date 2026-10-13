@@ -83,7 +83,7 @@ func TestTagOnCreate_ECSCreateActionScopesTheTaggingGrant(t *testing.T) {
 	_, err = restricted.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String(uniqueName("toc-family")),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
-			Name: aws.String("app"), Image: aws.String("public.ecr.aws/docker/library/busybox:latest"), Memory: aws.Int32(128)}},
+			Name: aws.String("app"), Image: aws.String("mirror.gcr.io/library/busybox:latest"), Memory: aws.Int32(128)}},
 		Tags: tags,
 	})
 	require.Error(t, err, "the tagging of another create is not the one the grant names")
@@ -338,7 +338,7 @@ func TestTagOnCreate_ECSRunTaskTaggingIsScopedToTheTask(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = admin.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)}) })
 	_, err = admin.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{Family: aws.String(family),
-		ContainerDefinitions: []ecstypes.ContainerDefinition{{StopTimeout: aws.Int32(2), Name: aws.String("app"), Image: aws.String("public.ecr.aws/docker/library/alpine:latest")}}})
+		ContainerDefinitions: []ecstypes.ContainerDefinition{{StopTimeout: aws.Int32(2), Name: aws.String("app"), Image: aws.String("mirror.gcr.io/library/alpine:latest")}}})
 	require.NoError(t, err)
 
 	client := func(user, tagging string) *ecs.Client {

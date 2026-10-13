@@ -230,7 +230,7 @@ func lambdaConditionFunction(t *testing.T, client *lambda.Client, name string) s
 		FunctionName: aws.String(name),
 		Role:         aws.String("arn:aws:iam::123456789012:role/lambda-role"),
 		PackageType:  lambdatypes.PackageTypeImage,
-		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String("public.ecr.aws/docker/library/busybox:latest")},
+		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String("mirror.gcr.io/library/busybox:latest")},
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {

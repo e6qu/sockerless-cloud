@@ -70,11 +70,11 @@ func mintSimAccessToken(base string) (string, error) {
 }
 
 // cliWorkloadImage is the base image this suite runs as a container workload
-// and builds from. It is served from the Amazon ECR Public Gallery, which is
-// the registry CI warms from a cached tarball — scripts/base-images-for.sh
-// derives that set by scanning these sources for gallery references — while
-// Docker Hub is not warmed and caps anonymous pulls.
-const cliWorkloadImage = "public.ecr.aws/docker/library/alpine:3.20"
+// and builds from. It is served from mirror.gcr.io, which is a registry CI
+// warms from a cached tarball — scripts/base-images-for.sh derives that set by
+// scanning these sources for its references — while Docker Hub is not warmed
+// and caps anonymous pulls.
+const cliWorkloadImage = "mirror.gcr.io/library/alpine:3.20"
 
 // pullWorkloadImage acquires the image before m.Run, with retries, and fails
 // the run when it cannot. Fetching it lazily instead leaves the pull to happen
@@ -108,8 +108,8 @@ func TestMain(m *testing.M) {
 	pullWorkloadImage(cliWorkloadImage)
 	// Every Memorystore instance and cluster the suite creates runs a real
 	// Redis engine: REDIS_7_0 is the instance default and clusters run 7.2.
-	pullWorkloadImage("public.ecr.aws/docker/library/redis:7.0-alpine")
-	pullWorkloadImage("public.ecr.aws/docker/library/redis:7.2-alpine")
+	pullWorkloadImage("mirror.gcr.io/library/redis:7.0-alpine")
+	pullWorkloadImage("mirror.gcr.io/library/redis:7.2-alpine")
 
 	// Build simulator
 	// Each suite builds the simulator it runs into a path of its own. The

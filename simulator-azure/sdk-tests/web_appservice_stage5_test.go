@@ -430,7 +430,7 @@ func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 
 	// An Always On redis site: its container runs without a request to start
 	// it.
-	stage5CreateSite(t, rg, "s5-join-redis", planID, "public.ecr.aws/docker/library/redis:7-alpine", "", true)
+	stage5CreateSite(t, rg, "s5-join-redis", planID, "mirror.gcr.io/library/redis:7-alpine", "", true)
 	defer azureDeleteSite(rg, "s5-join-redis")
 
 	// The probe function site: speaks the redis protocol to the service BY

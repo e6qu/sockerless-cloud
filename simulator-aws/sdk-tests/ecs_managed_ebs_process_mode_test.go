@@ -111,7 +111,7 @@ func TestECS_ManagedEBSRunTaskProcessMode(t *testing.T) {
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2),
 			Name:        aws.String("app"),
-			Image:       aws.String("public.ecr.aws/docker/library/alpine:3.20"),
+			Image:       aws.String("mirror.gcr.io/library/alpine:3.20"),
 			MountPoints: []ecstypes.MountPoint{{
 				SourceVolume:  aws.String("workspace"),
 				ContainerPath: aws.String("/workspace"),

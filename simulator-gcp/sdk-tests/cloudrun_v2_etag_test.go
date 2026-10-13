@@ -45,7 +45,7 @@ func TestSDK_RunV2REST_Service_EtagOptimisticConcurrency(t *testing.T) {
 		}
 	}
 
-	op, err := svc.Projects.Locations.Services.Create(crV2Parent, body("public.ecr.aws/docker/library/alpine:latest")).ServiceId(id).Do()
+	op, err := svc.Projects.Locations.Services.Create(crV2Parent, body("mirror.gcr.io/library/alpine:latest")).ServiceId(id).Do()
 	require.NoError(t, err)
 	awaitRunV2Operation(t, svc, op)
 
@@ -54,7 +54,7 @@ func TestSDK_RunV2REST_Service_EtagOptimisticConcurrency(t *testing.T) {
 	require.NotEmpty(t, created.Etag, "the Service reports the fingerprint a client sends back")
 
 	// A patch naming the current fingerprint proceeds and moves the service on.
-	current := body("public.ecr.aws/docker/library/alpine:3.20")
+	current := body("mirror.gcr.io/library/alpine:3.20")
 	current.Etag = created.Etag
 	patchOp, err := svc.Projects.Locations.Services.Patch(name, current).Do()
 	require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestSDK_RunV2REST_Service_EtagOptimisticConcurrency(t *testing.T) {
 	requireEtagRotates(t, created.Etag, moved.Etag)
 
 	// The etag the client still holds is now stale.
-	stale := body("public.ecr.aws/docker/library/alpine:3.19")
+	stale := body("mirror.gcr.io/library/alpine:3.19")
 	stale.Etag = created.Etag
 	_, err = svc.Projects.Locations.Services.Patch(name, stale).Do()
 	require.Error(t, err, "a stale etag must not silently overwrite the service")
@@ -113,7 +113,7 @@ func TestSDK_RunV2REST_WorkerPool_EtagOptimisticConcurrency(t *testing.T) {
 		}
 	}
 
-	op, err := svc.Projects.Locations.WorkerPools.Create(crV2Parent, body("public.ecr.aws/docker/library/alpine:latest")).WorkerPoolId(id).Do()
+	op, err := svc.Projects.Locations.WorkerPools.Create(crV2Parent, body("mirror.gcr.io/library/alpine:latest")).WorkerPoolId(id).Do()
 	require.NoError(t, err)
 	awaitRunV2Operation(t, svc, op)
 
@@ -121,7 +121,7 @@ func TestSDK_RunV2REST_WorkerPool_EtagOptimisticConcurrency(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, created.Etag)
 
-	current := body("public.ecr.aws/docker/library/alpine:3.20")
+	current := body("mirror.gcr.io/library/alpine:3.20")
 	current.Etag = created.Etag
 	patchOp, err := svc.Projects.Locations.WorkerPools.Patch(name, current).Do()
 	require.NoError(t, err)
@@ -131,7 +131,7 @@ func TestSDK_RunV2REST_WorkerPool_EtagOptimisticConcurrency(t *testing.T) {
 	require.NoError(t, err)
 	requireEtagRotates(t, created.Etag, moved.Etag)
 
-	stale := body("public.ecr.aws/docker/library/alpine:3.19")
+	stale := body("mirror.gcr.io/library/alpine:3.19")
 	stale.Etag = created.Etag
 	_, err = svc.Projects.Locations.WorkerPools.Patch(name, stale).Do()
 	require.Error(t, err)
@@ -215,7 +215,7 @@ func TestSDK_RunV2REST_Instance_EtagOptimisticConcurrency(t *testing.T) {
 	require.NoError(t, err)
 	awaitRunV2Operation(t, svc, unconditional)
 
-	stale := body("public.ecr.aws/docker/library/alpine:3.19")
+	stale := body("mirror.gcr.io/library/alpine:3.19")
 	stale.Etag = created.Etag
 	_, err = svc.Projects.Locations.Instances.Patch(name, stale).Do()
 	require.Error(t, err)
@@ -249,7 +249,7 @@ func TestSDK_RunV2REST_ExecutionTask_EtagOptimisticConcurrency(t *testing.T) {
 		Template: &runv2.GoogleCloudRunV2ExecutionTemplate{
 			Template: &runv2.GoogleCloudRunV2TaskTemplate{
 				Containers: []*runv2.GoogleCloudRunV2Container{{
-					Image:   "public.ecr.aws/docker/library/alpine:latest",
+					Image:   "mirror.gcr.io/library/alpine:latest",
 					Command: []string{"sleep"},
 					Args:    []string{"30"},
 				}},

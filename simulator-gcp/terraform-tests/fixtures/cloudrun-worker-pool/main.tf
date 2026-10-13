@@ -79,7 +79,7 @@ resource "google_cloud_run_v2_worker_pool" "writer" {
 
   template {
     containers {
-      image   = "public.ecr.aws/docker/library/alpine:latest"
+      image   = "mirror.gcr.io/library/alpine:latest"
       command = ["sh", "-c"]
       args = [<<-SCRIPT
         trap 'echo stopped > /mnt/bucket/stopped-$HOSTNAME; exit 0' TERM

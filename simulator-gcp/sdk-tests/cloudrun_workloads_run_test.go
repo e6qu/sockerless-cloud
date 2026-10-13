@@ -32,7 +32,7 @@ wait $!`
 
 func cloudRunWorkloadContainer(script string) *runpb.Container {
 	return &runpb.Container{
-		Image:        "public.ecr.aws/docker/library/alpine:latest",
+		Image:        "mirror.gcr.io/library/alpine:latest",
 		Command:      []string{"sh", "-c", script},
 		VolumeMounts: []*runpb.VolumeMount{{Name: "bucket", MountPath: "/mnt/bucket"}},
 	}

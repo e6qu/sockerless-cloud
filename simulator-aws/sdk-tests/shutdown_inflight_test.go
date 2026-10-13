@@ -112,7 +112,7 @@ func TestSimulatorStopsWithLifecycleWorkInFlight_SDK(t *testing.T) {
 		NetworkMode: ecstypes.NetworkModeBridge,
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			Name:        aws.String("app"),
-			Image:       aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			Image:       aws.String("mirror.gcr.io/library/busybox:latest"),
 			Command:     []string{"sleep", "3600"},
 			Essential:   aws.Bool(true),
 			StopTimeout: aws.Int32(120),

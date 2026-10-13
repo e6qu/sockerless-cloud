@@ -60,7 +60,7 @@ func TestContainerApps_CrossJobDNS(t *testing.T) {
 				"template": map[string]any{
 					"containers": []map[string]any{{
 						"name":    "worker",
-						"image":   "public.ecr.aws/docker/library/alpine:latest",
+						"image":   "mirror.gcr.io/library/alpine:latest",
 						"command": []string{"sh", "-c"},
 						"args":    []string{"sleep 30"},
 					}},
