@@ -1282,6 +1282,10 @@ jobs:
             cloud: aws
             tf_packages: "./sts-session-tags"
             timeout_minutes: 12
+          - suite: aws Amazon SNS delivery status
+            cloud: aws
+            tf_packages: "./sns-delivery-status"
+            timeout_minutes: 12
           - suite: gcp
             cloud: gcp
             timeout_minutes: 12

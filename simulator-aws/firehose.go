@@ -195,13 +195,13 @@ func firehoseStreamByARN(arn string) (FirehoseDeliveryStream, bool) {
 	return FirehoseDeliveryStream{}, false
 }
 
-func firehosePutServiceRecord(arn string, data []byte) error {
+func firehosePutServiceRecord(arn string, data []byte) (string, error) {
 	stream, ok := firehoseStreamByARN(arn)
 	if !ok {
-		return fmt.Errorf("delivery stream %q does not exist", arn)
+		return "", fmt.Errorf("delivery stream %q does not exist", arn)
 	}
-	_, _, err := firehoseAddRecord(stream.Name, data)
-	return err
+	recordID, _, err := firehoseAddRecord(stream.Name, data)
+	return recordID, err
 }
 
 func firehoseBucketName(arn string) string {

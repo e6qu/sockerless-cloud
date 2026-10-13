@@ -1,7 +1,9 @@
 package aws_sdk_test
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -319,14 +321,15 @@ func TestSNS_DeliverToLambda_AuthorizedByFunctionPolicy(t *testing.T) {
 
 // TestSNS_DeliverToLambda_DeniedNoPermission proves the IAM gate denies
 // SNS→Lambda delivery when the function has no resource policy admitting SNS:
-// no invoke happens, so no per-invocation log group is created.
+// the topic's Lambda delivery status logging records the failure, and the
+// function never runs, so its log group never appears.
 func TestSNS_DeliverToLambda_DeniedNoPermission(t *testing.T) {
 	t.Parallel()
 	snsC := snsClient()
 	lc := lambdaClient()
 	logs := cwLogsClient()
 
-	fnName := "sns-deny-fn"
+	fnName := uniqueName("sns-deny-fn")
 	logGroup := "/aws/lambda/" + fnName
 
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
@@ -338,17 +341,28 @@ func TestSNS_DeliverToLambda_DeniedNoPermission(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = lc.DeleteFunction(ctx, &lambda.DeleteFunctionInput{FunctionName: aws.String(fnName)}) })
-	t.Cleanup(func() {
-		_, _ = logs.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(logGroup)})
-	})
 
 	getFn, err := lc.GetFunction(ctx, &lambda.GetFunctionInput{FunctionName: aws.String(fnName)})
 	require.NoError(t, err)
 	functionARN := aws.ToString(getFn.Configuration.FunctionArn)
 
-	tpc, err := snsC.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String("sns-deny-lambda-t")})
+	topicName := uniqueName("sns-deny-lambda-t")
+	tpc, err := snsC.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String(topicName)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = snsC.DeleteTopic(ctx, &sns.DeleteTopicInput{TopicArn: tpc.TopicArn}) })
+	failureGroup := snsDeliveryStatusLogGroup(aws.ToString(tpc.TopicArn)) + "/Failure"
+	t.Cleanup(func() {
+		_, _ = logs.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(failureGroup)})
+	})
+
+	feedbackRole := createServiceRole(t, uniqueName("sns-deny-feedback"), "sns.amazonaws.com",
+		"logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents", "logs:PutMetricFilter", "logs:PutRetentionPolicy")
+	_, err = snsC.SetTopicAttributes(ctx, &sns.SetTopicAttributesInput{
+		TopicArn:       tpc.TopicArn,
+		AttributeName:  aws.String("LambdaFailureFeedbackRoleArn"),
+		AttributeValue: aws.String(feedbackRole),
+	})
+	require.NoError(t, err)
 
 	// No AddPermission — the function has no policy admitting SNS.
 	_, err = snsC.Subscribe(ctx, &sns.SubscribeInput{
@@ -358,15 +372,19 @@ func TestSNS_DeliverToLambda_DeniedNoPermission(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = snsC.Publish(ctx, &sns.PublishInput{
+	published, err := snsC.Publish(ctx, &sns.PublishInput{
 		TopicArn: tpc.TopicArn,
 		Message:  aws.String("should-not-invoke"),
 	})
 	require.NoError(t, err)
 
-	// Give any (erroneous) background invoke a chance to run, then assert the
-	// log group was never created.
-	time.Sleep(500 * time.Millisecond)
+	entry := snsAwaitDeliveryStatus(t, logs, failureGroup, aws.ToString(published.MessageId))
+	assert.Equal(t, "FAILURE", entry.Status)
+	assert.Equal(t, aws.ToString(tpc.TopicArn), entry.Notification.TopicArn)
+	assert.Equal(t, functionARN, entry.Delivery.Destination)
+	assert.Equal(t, 403, entry.Delivery.StatusCode)
+	assert.Contains(t, entry.Delivery.ProviderResponse, "AccessDeniedException")
+
 	out, err := logs.DescribeLogGroups(ctx, &cloudwatchlogs.DescribeLogGroupsInput{
 		LogGroupNamePrefix: aws.String(logGroup),
 	})
@@ -375,4 +393,40 @@ func TestSNS_DeliverToLambda_DeniedNoPermission(t *testing.T) {
 		assert.NotEqual(t, logGroup, aws.ToString(g.LogGroupName),
 			"a function with no SNS permission must NOT be invoked by an SNS publish")
 	}
+}
+
+// snsDeliveryStatusLogGroup is the log group Amazon SNS writes a topic's
+// successful deliveries to: sns/<region>/<account-id>/<topic-name>.
+func snsDeliveryStatusLogGroup(topicARN string) string {
+	parts := strings.Split(topicARN, ":")
+	return "sns/" + parts[3] + "/" + parts[4] + "/" + parts[5]
+}
+
+type snsDeliveryStatusEntry struct {
+	Notification struct {
+		MessageMD5Sum string `json:"messageMD5Sum"`
+		MessageID     string `json:"messageId"`
+		TopicArn      string `json:"topicArn"`
+		Timestamp     string `json:"timestamp"`
+	} `json:"notification"`
+	Delivery struct {
+		DeliveryID       string `json:"deliveryId"`
+		Destination      string `json:"destination"`
+		ProviderResponse string `json:"providerResponse"`
+		DwellTimeMs      int64  `json:"dwellTimeMs"`
+		Attempts         int    `json:"attempts"`
+		StatusCode       int    `json:"statusCode"`
+	} `json:"delivery"`
+	Status string `json:"status"`
+}
+
+// snsAwaitDeliveryStatus waits for the delivery status entry of one message in
+// the group and decodes it.
+func snsAwaitDeliveryStatus(t *testing.T, logs *cloudwatchlogs.Client, group, messageID string) snsDeliveryStatusEntry {
+	t.Helper()
+	line := awaitLogLine(t, logs, group, messageID, 30*time.Second)
+	var entry snsDeliveryStatusEntry
+	require.NoError(t, json.Unmarshal([]byte(line), &entry), line)
+	require.Equal(t, messageID, entry.Notification.MessageID)
+	return entry
 }

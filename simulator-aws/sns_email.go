@@ -92,14 +92,18 @@ func snsDeliverEmailNotification(sub SNSSubscription, messageID, subject, messag
 	if subject == "" {
 		subject = "AWS Notification Message"
 	}
-	snsSendEmail(sub, subject, body)
+	metric := "NumberOfNotificationsDelivered"
+	if !snsSendEmail(sub, subject, body) {
+		metric = "NumberOfNotificationsFailed"
+	}
+	snsPutTopicMetric(snsTopicNameFromARN(sub.TopicARN), metric, 1, "Count")
 }
 
-func snsSendEmail(sub SNSSubscription, subject, body string) {
+func snsSendEmail(sub SNSSubscription, subject, body string) bool {
 	domain, err := snsEmailDomain(sub.Endpoint)
 	if err != nil {
 		cwEvalLogger.Error().Err(err).Str("endpoint", sub.Endpoint).Msg("Amazon SNS email endpoint is invalid")
-		return
+		return false
 	}
 	subject = strings.NewReplacer("\r", " ", "\n", " ").Replace(subject)
 	message := []byte("From: AWS Notifications <no-reply@sns.amazonaws.com>\r\n" +
@@ -110,5 +114,7 @@ func snsSendEmail(sub SNSSubscription, subject, body string) {
 	if err := awsDeliverSMTP(domain, "no-reply@sns.amazonaws.com", []string{sub.Endpoint}, message); err != nil {
 		cwEvalLogger.Error().Err(err).Str("endpoint", sub.Endpoint).Str("subscriptionARN", sub.ARN).
 			Msg("Amazon SNS email delivery failed")
+		return false
 	}
+	return true
 }

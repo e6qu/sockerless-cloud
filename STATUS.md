@@ -258,6 +258,12 @@ Current state of the sockerless-cloud repository.
   `PrincipalTag:<key>` attributes and the web identity
   `https://aws.amazon.com/tags` claim, each authorized as sts:TagSession;
   transitive tags pass to chained sessions.
+- **Amazon SNS logs delivery status** to `sns/<region>/<account>/<topic>`
+  and its `/Failure` group through the topic's `<Protocol>…FeedbackRoleArn`
+  for Lambda, SQS, Firehose and HTTP/S, sampling successes at
+  `…SuccessFeedbackSampleRate`, and publishes `NumberOfMessagesPublished`,
+  `PublishSize`, `NumberOfNotificationsDelivered` and
+  `NumberOfNotificationsFailed` per topic.
 - **Transitional states are served**: Kinesis Data Streams consumers pass
   through CREATING and DELETING, Client VPN endpoint authorization policies
   through creating, updating and deleting.
