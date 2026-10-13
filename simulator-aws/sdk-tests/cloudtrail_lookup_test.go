@@ -21,13 +21,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// ctLookup reads every page of a LookupEvents query: a page holds at most 50
+// events, and the parallel suite records more than that between a test's call
+// and its lookup.
 func ctLookup(t *testing.T, ct *cloudtrail.Client, key cttypes.LookupAttributeKey, value string) []cttypes.Event {
 	t.Helper()
-	out, err := ct.LookupEvents(ctx, &cloudtrail.LookupEventsInput{
+	pages := cloudtrail.NewLookupEventsPaginator(ct, &cloudtrail.LookupEventsInput{
 		LookupAttributes: []cttypes.LookupAttribute{{AttributeKey: key, AttributeValue: aws.String(value)}},
 	})
-	require.NoError(t, err)
-	return out.Events
+	var events []cttypes.Event
+	for pages.HasMorePages() {
+		page, err := pages.NextPage(ctx)
+		require.NoError(t, err)
+		events = append(events, page.Events...)
+	}
+	return events
 }
 
 func ctHasEventNamed(events []cttypes.Event, name string) bool {
