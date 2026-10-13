@@ -159,15 +159,18 @@ func TestCloudRun_DeleteJob(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, getResp.StatusCode, "the deleted job must be gone")
 }
 
-func TestCloudRun_RunJobInjectsLogEntries(t *testing.T) {
+// A job's run.googleapis.com/stdout log carries what its containers print and
+// nothing Cloud Run writes on their behalf.
+func TestCloudRun_RunJobLogsTheContainersOutput(t *testing.T) {
 	t.Parallel()
-	jobID := uniqueName("log-inject-job")
+	jobID := uniqueName("log-output-job")
+	marker := "job-output-" + jobID
 	job := map[string]any{
 		"template": map[string]any{
 			"template": map[string]any{
-				"timeout": "1s",
+				"timeout": "60s",
 				"containers": []map[string]any{
-					{"image": "public.ecr.aws/docker/library/alpine:latest"},
+					{"image": commandImageName, "args": []string{"log", marker}},
 				},
 			},
 		},
@@ -182,7 +185,6 @@ func TestCloudRun_RunJobInjectsLogEntries(t *testing.T) {
 	createResp.Body.Close()
 	require.Equal(t, http.StatusOK, createResp.StatusCode, "create job %s", jobID)
 
-	// Run the job
 	runReq, _ := http.NewRequestWithContext(ctx, "POST",
 		baseURL+"/v2/projects/test-project/locations/us-central1/jobs/"+jobID+":run",
 		strings.NewReader("{}"))
@@ -192,22 +194,15 @@ func TestCloudRun_RunJobInjectsLogEntries(t *testing.T) {
 	runResp.Body.Close()
 	require.Equal(t, http.StatusOK, runResp.StatusCode)
 
-	// Poll the log query (same filter the backend uses) until the execution
-	// has run and BOTH the start + completion entries are ingested — both are
-	// async in the sim, so a fixed sleep races a loaded runner. The entries are
-	// asserted after the wait, not inside it: an assertion inside a poll that
-	// keeps polling reports nothing until the deadline.
 	entries := waitForJobLogEntries(t, jobID, func(entries []jobLogEntry) bool {
-		return len(entries) >= 2
+		return containsString(jobLogMessages(entries), marker)
 	})
-
 	for _, entry := range entries {
 		assert.Equal(t, "cloud_run_job", entry.resourceType)
 		assert.Equal(t, jobID, entry.jobName)
 	}
-	messages := jobLogMessages(entries)
-	assert.Equal(t, "Container started", messages[0])
-	assert.Equal(t, "Execution completed successfully", messages[1])
+	assert.Equal(t, []string{marker}, jobLogMessages(entries),
+		"the stdout log holds the container's line and nothing else")
 }
 
 // createAndRunJob creates a job and runs it, returning what the run started.

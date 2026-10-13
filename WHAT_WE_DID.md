@@ -131,6 +131,9 @@ own module:
 - **A presigned URL lives as long as it was signed for.** Amazon S3 refuses a
   query-signed request past `X-Amz-Date` plus `X-Amz-Expires` with
   `403 AccessDenied`, "Request has expired".
+- **A job's stdout log is its containers' output.** Cloud Run job executions
+  wrote "Container started" and an outcome line into `run.googleapis.com/stdout`
+  that no container printed. The log carries only what the containers print.
 - **An unserved operation declares itself** with a 501 naming what is missing;
   the mux's 404 is indistinguishable from a missing resource.
 - **A registered operation is not an implemented one.**

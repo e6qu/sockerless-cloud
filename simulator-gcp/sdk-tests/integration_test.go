@@ -59,14 +59,13 @@ func TestIntegration_CloudRunJobLifecycle(t *testing.T) {
 	execName := run.Execution
 
 	// 3. The workload really started: the line the container printed on its
-	// own stdout reached Cloud Logging, and the execution's own start entry
-	// precedes it.
+	// own stdout reached Cloud Logging.
 	entries := waitForJobLogEntries(t, jobID, func(entries []jobLogEntry) bool {
 		return containsString(jobLogMessages(entries), marker)
 	})
 	assert.Equal(t, "cloud_run_job", entries[0].resourceType)
 	assert.Equal(t, jobID, entries[0].jobName)
-	assert.Equal(t, "Container started", entries[0].message)
+	assert.Equal(t, marker, entries[0].message)
 
 	// 4. Verify running state while that container is still holding.
 	exec := getExecution(t, execName)
