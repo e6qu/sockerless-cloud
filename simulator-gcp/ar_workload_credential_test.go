@@ -16,6 +16,7 @@ func TestImageOnGoogleRegistry(t *testing.T) {
 		"europe-docker.pkg.dev/p/repo/app@sha256:0000",
 		"gcr.io/p/app:1",
 		"eu.gcr.io/p/app:1",
+		"asia.gcr.io/p/app:1",
 		"127.0.0.1:4567/p/sockerless-overlay/cloudrun:tag",
 		"host.docker.internal:4567/p/docker-hub/library/alpine:latest",
 	}
@@ -27,6 +28,7 @@ func TestImageOnGoogleRegistry(t *testing.T) {
 	off := []string{
 		"alpine:3.20",
 		"mirror.gcr.io/library/alpine:3.20",
+		"public.ecr.aws/docker/library/alpine:3.20",
 		"ghcr.io/owner/app:1",
 		"127.0.0.1:5000/p/repo/app:1",
 		"docker.pkg.dev.example.com/p/app:1",

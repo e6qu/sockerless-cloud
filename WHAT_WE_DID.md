@@ -2551,7 +2551,11 @@ digest-pinned workload image is left out of warming because `docker load`
 restores none by digest. The images the simulators pull themselves follow the
 rule: the Container Apps Dapr sidecar, the Percona XtraBackup helper, the
 Memorystore for Redis engines, the Amazon RDS engines and the Amazon EBS
-volume-copy helper all come from `mirror.gcr.io`.
+volume-copy helper all come from `mirror.gcr.io`. The Google Cloud simulator
+presents a service account's token only to Artifact Registry and to Container
+Registry's four hosts (`gcr.io`, `us.gcr.io`, `eu.gcr.io`, `asia.gcr.io`), and
+pulls from `mirror.gcr.io` anonymously: the mirror belongs to no project and
+answers a token it cannot verify with 401.
 
 A differential oracle is pinned by its multi-platform index digest, and the
 harness refuses an image built for another architecture than the engine's. Its
