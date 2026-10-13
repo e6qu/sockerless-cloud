@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 105.
+Open: 104.
 
 Resolved bugs are not kept here. Their fixes live in git history (`git log`
 over this file and the fixing commits), and the lasting rules they produced
@@ -10,7 +10,6 @@ live in `WHAT_WE_DID.md`.
 
 | ID | Sev | Area | Symptom and cause | Fix shape — what closes it |
 |----|-----|------|-------------------|----------------------------|
-| 3457 | P3 | Azure Terraform tests no CI shard names | The Azure Terraform job selects its tests per shard with `tf_run`, a `go test -run` pattern, and no gate checks that every `TestTerraform…` function in `simulator-azure/terraform-tests` matches a shard: a new test that no `tf_run` names compiles but never runs in CI. `check-tf-shard-coverage.sh` covers only the AWS packages, and the Azure SDK and CLI gates cover only those suites. | Extend the shard-coverage gate to the Azure Terraform suite: every Azure `TestTerraform…` function matched by exactly one `tf_run`, and every `tf_run` matching a test. |
 | 3458 | P3 | Azure resources are created in a missing or deleting resource group | A resource provider's PUT stores a resource under any `resourceGroups/{rg}` segment: no slice checks that the group exists, so a create in a group that was never made, or in one whose delete is running, succeeds. Azure Resource Manager refuses the first with `404 ResourceGroupNotFound` and the second with `409 ResourceGroupBeingDeleted` before the provider sees it. | Refuse a resource-group-scoped write in front of the providers (one middleware reading `azureResourceGroups`) with ARM's two errors, and test it through an SDK create, `az` and an azurerm resource in a missing group. |
 | 3453 | P3 | Location operations from a bare address span services | `projects.locations.operations.list` and `delete` scope to the service the request's Host names. A client pointed at a bare address:port names none, so it reaches every service that publishes the collection at that version: Eventarc's, Memorystore for Redis', API Gateway's, Serverless VPC Access's and Cloud Run's operations at `/v1`, Cloud Functions', Cloud Logging's and Cloud Run's at `/v2`. | Give such a client a coordinate that names its service — a per-service listener, or the host coordinate the CLI suites already reach through the simulator's proxy — since nothing else in the request tells the services apart. |
 | 3451 | P3 | A new Google Cloud project enables no services | Service Usage reports every service a project never enabled as DISABLED, as the Service state's documentation defines it, so a project Cloud Resource Manager's projects.create made starts with none enabled. Google Cloud enables a default set of services on a new project, and no vendored source lists that set or says whether it depends on how the project was created. | Vendor a source that lists the services a new project starts with, and enable exactly those on projects.create. |

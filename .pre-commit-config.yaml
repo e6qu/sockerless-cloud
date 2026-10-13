@@ -135,6 +135,13 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: azure-tf-shard-coverage
+        name: Azure Terraform shard coverage (every Terraform test runs in exactly one CI shard)
+        entry: bash scripts/check-azure-tf-shard-coverage.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: mux-overlap-scan
         name: Mux-overlap scan
         entry: bash scripts/scan-mux-overlap.sh

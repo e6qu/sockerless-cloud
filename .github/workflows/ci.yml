@@ -1718,6 +1718,9 @@ jobs:
       - name: Check AWS Terraform shard coverage
         run: bash scripts/check-tf-shard-coverage.sh
         timeout-minutes: 5
+      - name: Check Azure Terraform shard coverage
+        run: bash scripts/check-azure-tf-shard-coverage.sh
+        timeout-minutes: 5
       - name: Mux-overlap scan
         run: bash scripts/scan-mux-overlap.sh
         timeout-minutes: 5
