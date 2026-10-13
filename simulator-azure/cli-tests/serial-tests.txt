@@ -1,0 +1,4 @@
+# Tests that cannot share the simulator with the rest of the suite, with
+# the reason; scripts/check-parallel-tests.go holds every other test to
+# starting with t.Parallel().
+TestCLISubscriptionTenantPolicy	sets the tenant's subscription policy, which blocks the subscriptions other tests create from entering the tenant

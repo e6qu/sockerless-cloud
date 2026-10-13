@@ -121,6 +121,9 @@ own module:
   Discovery document dropped the `channels` resource, so the simulator stopped
   serving `channels.stop`, whose handler had answered 200 without stopping
   anything.
+- **A presigned URL lives as long as it was signed for.** Amazon S3 refuses a
+  query-signed request past `X-Amz-Date` plus `X-Amz-Expires` with
+  `403 AccessDenied`, "Request has expired".
 - **An unserved operation declares itself** with a 501 naming what is missing;
   the mux's 404 is indistinguishable from a missing resource.
 - **A registered operation is not an implemented one.**

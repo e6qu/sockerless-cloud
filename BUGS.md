@@ -1,6 +1,6 @@
 # BUGS
 
-Open: 105.
+Open: 104.
 
 Resolved bugs are not kept here. Their fixes live in git history (`git log`
 over this file and the fixing commits), and the lasting rules they produced
@@ -10,7 +10,6 @@ live in `WHAT_WE_DID.md`.
 
 | ID | Sev | Area | Symptom and cause | Fix shape — what closes it |
 |----|-----|------|-------------------|----------------------------|
-| 3456 | P3 | Amazon S3 presigned URLs never expire | `sigv4VerifyPresigned` verifies a query-signed request's signature but never reads `X-Amz-Expires`, so a presigned URL keeps working after the lifetime it was signed for, where Amazon S3 answers `403 AccessDenied` with "Request has expired". | Refuse a presigned request whose `X-Amz-Date` plus `X-Amz-Expires` has passed, with the error Amazon S3 answers, and test it through a presigned URL from the SDK presigner, the CLI's `aws s3 presign` and an expiring Terraform-created object. |
 | 3455 | P3 | Azure resource group delete is synchronous and leaves the group's resources | `DELETE /subscriptions/{s}/resourceGroups/{rg}` answers `200` whether or not the group exists and removes only the group's own record. Azure Resource Manager answers `404 ResourceGroupNotFound` for a missing group, answers `202` with a `Location` to poll for one that exists, and deletes every resource the group holds before the group. | Answer the missing group with `404`, run the delete as a long-running operation that removes the group's resources through their own providers, and test it through `az group delete`, the SDK's `BeginDelete` poller and `azurerm_resource_group`. |
 | 3453 | P3 | Location operations from a bare address span services | `projects.locations.operations.list` and `delete` scope to the service the request's Host names. A client pointed at a bare address:port names none, so it reaches every service that publishes the collection at that version: Eventarc's, Memorystore for Redis', API Gateway's, Serverless VPC Access's and Cloud Run's operations at `/v1`, Cloud Functions', Cloud Logging's and Cloud Run's at `/v2`. | Give such a client a coordinate that names its service — a per-service listener, or the host coordinate the CLI suites already reach through the simulator's proxy — since nothing else in the request tells the services apart. |
 | 3451 | P3 | A new Google Cloud project enables no services | Service Usage reports every service a project never enabled as DISABLED, as the Service state's documentation defines it, so a project Cloud Resource Manager's projects.create made starts with none enabled. Google Cloud enables a default set of services on a new project, and no vendored source lists that set or says whether it depends on how the project was created. | Vendor a source that lists the services a new project starts with, and enable exactly those on projects.create. |
