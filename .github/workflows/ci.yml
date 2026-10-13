@@ -1298,6 +1298,11 @@ jobs:
             tf_timeout: 600s
             tf_run: TestTerraformWebAppSlotApplyDestroy
             timeout_minutes: 12
+          - suite: azure resource group delete
+            cloud: azure
+            tf_timeout: 600s
+            tf_run: TestTerraformResourceGroupDeleteTakesItsResources
+            timeout_minutes: 12
           - suite: azure front-end forwarded headers
             cloud: azure
             tf_timeout: 600s

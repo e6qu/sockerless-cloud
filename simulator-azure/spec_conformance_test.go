@@ -280,6 +280,7 @@ var allowedNonSpecAzureRoutes = map[string]string{
 	"GET /subscriptions/{subscriptionId}/providers/Microsoft.KeyVault/locations/{location}/deletedManagedHSMs/{name}/purge/operation": "sim-emitted Azure Managed HSM purge LRO polling URL (documented Location header)",
 	"GET /subscriptions/{subscriptionId}/providers/{provider}/locations/{location}/operationResults/{opId}":                           "sim-emitted LRO polling URL (Location header)",
 	"GET /subscriptions/{subscriptionId}/providers/{provider}/locations/{location}/operationStatuses/{opId}":                          "sim-emitted LRO polling URL (Azure-AsyncOperation)",
+	"GET /subscriptions/{subscriptionId}/operationresults/{operationId}":                                                              "sim-emitted Azure Resource Manager LRO polling URL (resource group delete's Location header)",
 	"GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/locations/{location}/operations/{opId}":                          "sim-emitted Compute LRO polling URL (Azure-AsyncOperation, and Location with monitor=true, as armcompute's recordings carry)",
 	"GET /eventsubscriptions/{eventSubscriptionName}/validate":                                                                        "sim-emitted Event Grid validationUrl a SubscriptionValidationEvent carries for manual validation",
 

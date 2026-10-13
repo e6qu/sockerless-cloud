@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -159,13 +160,39 @@ func startAzureAsyncOperationResult(work func() (json.RawMessage, *AsyncOperatio
 		Status:    "InProgress",
 		StartTime: time.Now().UTC().Format(time.RFC3339Nano),
 	})
+	done := make(chan struct{})
+	azureAsyncOpsRunningMu.Lock()
+	azureAsyncOpsRunning[opID] = done
+	azureAsyncOpsRunningMu.Unlock()
 	bg.Go(func() {
 		result, opErr := work()
 		azureAsyncOps.Update(opID, func(op *AsyncOperationStatus) {
 			settleAzureAsyncOperation(op, result, opErr)
 		})
+		azureAsyncOpsRunningMu.Lock()
+		delete(azureAsyncOpsRunning, opID)
+		azureAsyncOpsRunningMu.Unlock()
+		close(done)
 	})
 	return opID
+}
+
+// azureAsyncOpsRunning maps the ID of each operation whose work runs in the
+// background to a channel that closes once the operation has settled.
+var (
+	azureAsyncOpsRunningMu sync.Mutex
+	azureAsyncOpsRunning   = map[string]chan struct{}{}
+)
+
+// azureAsyncOperationSettled returns the channel that closes when the
+// background operation opID settles, or nil when no such operation is running.
+func azureAsyncOperationSettled(opID string) <-chan struct{} {
+	azureAsyncOpsRunningMu.Lock()
+	defer azureAsyncOpsRunningMu.Unlock()
+	if done, ok := azureAsyncOpsRunning[opID]; ok {
+		return done
+	}
+	return nil
 }
 
 func settleAzureAsyncOperation(op *AsyncOperationStatus, result json.RawMessage, opErr *AsyncOperationError) {

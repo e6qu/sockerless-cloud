@@ -98,7 +98,7 @@ func TestCLI_Resources_ResourceGroupUpdate(t *testing.T) {
 		`{"resources":["*"]}`))
 	assert.Contains(t, out, "contentVersion")
 
-	runCLI(t, azRest("DELETE", rgURL, ""))
+	azRestLongRunning(t, "DELETE", rgURL, "")
 	failure := runCLIExpectFailure(t, azRest("GET", rgURL, ""))
 	assert.Contains(t, failure, "ResourceGroupNotFound", "a deleted resource group must no longer resolve")
 }
