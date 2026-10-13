@@ -50,7 +50,6 @@ func resetCLITenantPolicy(t *testing.T) {
 // TestCLISubscriptionTenantPolicy round-trips the tenant policy singleton and
 // reads it back through both the get and the list operation.
 func TestCLISubscriptionTenantPolicy(t *testing.T) {
-	t.Parallel()
 	t.Cleanup(func() { resetCLITenantPolicy(t) })
 
 	type policyResponse struct {
