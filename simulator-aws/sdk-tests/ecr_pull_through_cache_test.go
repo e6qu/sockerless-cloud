@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -25,9 +26,10 @@ import (
 func TestECR_PullThroughCacheHydratesFromTheUpstreamRegistry(t *testing.T) {
 	t.Parallel()
 	client := ecrClient()
+	const upstreamImage = "public.ecr.aws/docker/library/alpine:3.21"
+	upstreamPath, tag, _ := strings.Cut(strings.TrimPrefix(upstreamImage, "public.ecr.aws/"), ":")
 	prefix := uniqueName("ecr-pub-cache")
-	repo := prefix + "/docker/library/alpine"
-	const tag = "3.21"
+	repo := prefix + "/" + upstreamPath
 
 	_, err := client.CreatePullThroughCacheRule(ctx, &ecr.CreatePullThroughCacheRuleInput{
 		EcrRepositoryPrefix: aws.String(prefix),
