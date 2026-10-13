@@ -376,13 +376,13 @@ jobs:
             suite: sdk
             shard: B-Z
             run: '^Test[B-Z]'
-            skip: '^TestCosmos(Scripts)?_DifferentialVsEmulator$'
+            skip: '^TestCosmos(Scripts)?_DifferentialVsEmulator'
           # Microsoft's Cosmos DB emulator needs most of a two-core runner for
           # minutes to initialise, so its two oracle tests run on their own.
           - cloud: azure
             suite: sdk
             shard: Cosmos
-            run: '^TestCosmos(Scripts)?_DifferentialVsEmulator$'
+            run: '^TestCosmos(Scripts)?_DifferentialVsEmulator'
           - cloud: azure
             suite: cli
             shard: A-M
