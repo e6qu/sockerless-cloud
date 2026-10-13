@@ -981,9 +981,14 @@ func StreamContainerLogs(ctx context.Context, containerID string, sink LogSink) 
 		Timestamps: true,
 	})
 	if err != nil {
+		if ctx.Err() == nil {
+			fmt.Fprintf(os.Stderr, "[sim-logs] follow container %s: %v\n", containerID, err)
+		}
 		return
 	}
-	streamDockerLogs(reader, sink)
+	if err := streamDockerLogs(reader, sink); err != nil && ctx.Err() == nil {
+		fmt.Fprintf(os.Stderr, "[sim-logs] follow container %s: %v\n", containerID, err)
+	}
 }
 
 // ContainerIPv4 returns a running container's primary IPv4 address on its
@@ -1454,7 +1459,22 @@ func waitAndCaptureLogs(ctx context.Context, cli *client.Client, containerID str
 	// timeout so any caller-side cancel doesn't interrupt the read.
 	readCtx, readCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer readCancel()
-	drainContainerLogs(readCtx, cli, containerID, &lineSkippingSink{sink: sink, skip: counting.delivered()})
+	written := &lineCountingSink{sink: sink, counts: map[string]int{}}
+	var drainErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		// Each attempt reads the buffer from its start, so it skips what the
+		// follow stream and every earlier attempt already wrote.
+		skip := counting.delivered()
+		for stream, n := range written.delivered() {
+			skip[stream] += n
+		}
+		if drainErr = drainContainerLogs(readCtx, cli, containerID, &lineSkippingSink{sink: written, skip: skip}); drainErr == nil || readCtx.Err() != nil {
+			break
+		}
+	}
+	if drainErr != nil {
+		fmt.Fprintf(os.Stderr, "[sim-logs] drain container %s after exit: %v; lines it wrote after the last one read are not delivered\n", containerID, drainErr)
+	}
 
 	return result
 }
@@ -1519,17 +1539,19 @@ func followContainerLogs(ctx context.Context, cli *client.Client, containerID st
 		Timestamps: true,
 	})
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "[sim-logs] follow container %s: %v; the post-exit drain reads its log instead\n", containerID, err)
 		return
 	}
-	defer reader.Close()
-	streamDockerLogs(reader, sink)
+	if err := streamDockerLogs(reader, sink); err != nil && ctx.Err() == nil {
+		fmt.Fprintf(os.Stderr, "[sim-logs] follow container %s: %v; the post-exit drain reads the rest\n", containerID, err)
+	}
 }
 
 // drainContainerLogs reads the full container log via non-follow
 // ContainerLogs and forwards every demuxed line to sink. Called once
 // the container has exited; Docker keeps the log buffer around until
 // the container is removed.
-func drainContainerLogs(ctx context.Context, cli *client.Client, containerID string, sink LogSink) {
+func drainContainerLogs(ctx context.Context, cli *client.Client, containerID string, sink LogSink) error {
 	reader, err := cli.ContainerLogs(ctx, containerID, client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
@@ -1537,10 +1559,9 @@ func drainContainerLogs(ctx context.Context, cli *client.Client, containerID str
 		Timestamps: true,
 	})
 	if err != nil {
-		return
+		return err
 	}
-	defer reader.Close()
-	streamDockerLogs(reader, sink)
+	return streamDockerLogs(reader, sink)
 }
 
 // streamDockerLogs demuxes Docker log output and sends lines to the sink.
@@ -1560,25 +1581,32 @@ func splitDockerLogTimestamp(line string) (time.Time, string) {
 	return written, rest
 }
 
-func streamDockerLogs(reader io.ReadCloser, sink LogSink) {
+func streamDockerLogs(reader io.ReadCloser, sink LogSink) error {
 	defer reader.Close()
 
 	// Docker multiplexed output: use stdcopy to demux
 	stdoutPR, stdoutPW := io.Pipe()
 	stderrPR, stderrPW := io.Pipe()
 
+	var copyErr error
+	copied := make(chan struct{})
 	go func() {
-		_, _ = stdcopy.StdCopy(stdoutPW, stderrPW, reader)
-		_ = stdoutPW.Close()
-		_ = stderrPW.Close()
+		defer close(copied)
+		_, copyErr = stdcopy.StdCopy(stdoutPW, stderrPW, reader)
+		_ = stdoutPW.CloseWithError(copyErr)
+		_ = stderrPW.CloseWithError(copyErr)
 	}()
 
 	var wg sync.WaitGroup
 	wg.Add(2)
+	scanErrs := make([]error, 2)
 
-	scanStream := func(r io.Reader, stream string) {
+	scanStream := func(r io.Reader, stream string, slot int) {
 		defer wg.Done()
 		scanner := bufio.NewScanner(r)
+		// The json-file driver splits a line at 16 KiB; the room left over
+		// takes the timestamp the read asks Docker to prepend.
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 		for scanner.Scan() {
 			// The line carries the time the container wrote it, which Docker
 			// records and now prepends. Stamping time.Now() here dated every
@@ -1592,12 +1620,19 @@ func streamDockerLogs(reader io.ReadCloser, sink LogSink) {
 				Timestamp: stamp,
 			})
 		}
+		if err := scanner.Err(); err != nil {
+			scanErrs[slot] = fmt.Errorf("read %s: %w", stream, err)
+			// Keep the demuxer unblocked so the other stream still ends.
+			_, _ = io.Copy(io.Discard, r)
+		}
 	}
 
-	go scanStream(stdoutPR, "stdout")
-	go scanStream(stderrPR, "stderr")
+	go scanStream(stdoutPR, "stdout", 0)
+	go scanStream(stderrPR, "stderr", 1)
 
 	wg.Wait()
+	<-copied
+	return errors.Join(copyErr, scanErrs[0], scanErrs[1])
 }
 
 // ResolveLocalImage maps pull-through-cache coordinates back to their upstream
