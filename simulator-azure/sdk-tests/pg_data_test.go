@@ -47,6 +47,7 @@ func TestAzurePGFlexibleServer_BackupCapturesDataAndRestoreReturnsToIt(t *testin
 		backupName    = "pg-data-backup"
 		restoredName  = "pg-data-restored"
 	)
+	ensureRGIn(t, sub, rg)
 	armBase := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.DBforPostgreSQL/flexibleServers", sub, rg)
 	serverPath := armBase + "/" + serverName
 	restoredPath := armBase + "/" + restoredName

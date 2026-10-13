@@ -152,6 +152,9 @@ case "$SIMULATOR_SETUP" in
       exit 1
     fi
     put_json \
+      "$SIMULATOR_URL/subscriptions/$subscription/resourceGroups/$group?api-version=2021-04-01" \
+      '{"location":"eastus"}'
+    put_json \
       "$SIMULATOR_URL/subscriptions/$subscription/resourceGroups/$group/providers/Microsoft.Storage/storageAccounts/sockerlesse2e?api-version=2023-01-01" \
       '{"location":"eastus","sku":{"name":"Standard_LRS"},"kind":"StorageV2","properties":{}}'
     put_json \
@@ -166,6 +169,9 @@ case "$SIMULATOR_SETUP" in
       echo "ERROR: failed to acquire ARM bearer from $SIMULATOR_URL/msi/token" >&2
       exit 1
     fi
+    put_json \
+      "$SIMULATOR_URL/subscriptions/$subscription/resourceGroups/$group?api-version=2021-04-01" \
+      '{"location":"eastus"}'
     put_json \
       "$SIMULATOR_URL/subscriptions/$subscription/resourceGroups/$group/providers/Microsoft.Storage/storageAccounts/sockerlesse2e?api-version=2023-01-01" \
       '{"location":"eastus","sku":{"name":"Standard_LRS"},"kind":"StorageV2","properties":{}}'

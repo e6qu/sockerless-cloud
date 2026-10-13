@@ -85,6 +85,7 @@ func TestAzureRedisCache_ARMLifecycle(t *testing.T) {
 	sub := "00000000-0000-0000-0000-000000000000"
 	rg := "test-rg-d436"
 	name := "lifecycle-redis"
+	ensureRGIn(t, sub, rg)
 	path := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Cache/Redis/%s", sub, rg, name)
 
 	resp := armReq(t, "PUT", path, `{"location":"eastus","properties":{"sku":{"name":"Standard","family":"C","capacity":1}}}`)
@@ -129,6 +130,7 @@ func TestAzurePGFlexibleServer_ARMLifecycle(t *testing.T) {
 	sub := "00000000-0000-0000-0000-000000000000"
 	rg := "test-rg-96e5"
 	name := "lifecycle-pg"
+	ensureRGIn(t, sub, rg)
 	armBase := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.DBforPostgreSQL/flexibleServers/%s",
 		sub, rg, name)
 

@@ -18,6 +18,7 @@ import (
 
 func TestLogicApps_WorkflowLifecycleSDK(t *testing.T) {
 	t.Parallel()
+	ensureRG(t, "sdk-rg-73bd")
 	client, err := armlogic.NewWorkflowsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	triggers, err := armlogic.NewWorkflowTriggersClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -99,6 +100,7 @@ func TestLogicApps_WorkflowLifecycleSDK(t *testing.T) {
 
 func TestContainerInstances_GroupLogsExecSDK(t *testing.T) {
 	t.Parallel()
+	ensureRG(t, "sdk-rg")
 	groups, err := armcontainerinstance.NewContainerGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	containers, err := armcontainerinstance.NewContainersClient(subscriptionID, &fakeCredential{}, clientOpts())

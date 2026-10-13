@@ -220,6 +220,7 @@ func cosmosTestAccountPath(account string) string {
 // before it touches the data plane.
 func cosmosProvisionAccount(t *testing.T, srv *sim.Server, account string) cosmosTestKeys {
 	t.Helper()
+	moveEnsureRG(t, srv, "cosmos-auth-rg")
 	status, body := moveARM(t, srv, http.MethodPut, cosmosTestAccountPath(account),
 		`{"location":"eastus","kind":"GlobalDocumentDB","properties":{"databaseAccountOfferType":"Standard"}}`)
 	if status != http.StatusOK && status != http.StatusCreated {

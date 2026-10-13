@@ -132,7 +132,11 @@ func cosmosAccountKeysIn(t *testing.T, base, accountPath string) cosmosKeys {
 	if keys, ok := cosmosAccountsCache[base+"|"+accountPath]; ok {
 		return keys
 	}
-	status, body := cosmosARM(t, base, http.MethodPut, accountPath,
+	groupPath := strings.Join(strings.SplitN(accountPath, "/", 6)[:5], "/")
+	status, body := cosmosARM(t, base, http.MethodPut, groupPath, `{"location":"eastus"}`)
+	require.Contains(t, []int{http.StatusOK, http.StatusCreated}, status,
+		"create resource group %s: %s", groupPath, body)
+	status, body = cosmosARM(t, base, http.MethodPut, accountPath,
 		`{"location":"eastus","kind":"GlobalDocumentDB","properties":{"databaseAccountOfferType":"Standard"}}`)
 	require.Contains(t, []int{http.StatusOK, http.StatusCreated}, status,
 		"create Cosmos DB account %s: %s", accountPath, body)

@@ -17,6 +17,7 @@ import (
 func TestServiceBusARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 	t.Parallel()
 	rg := "sb-msg-rg"
+	ensureRG(t, rg)
 	ns := uniqueName("sdk-sb-msg-ns")
 
 	clientFactory, err := armservicebus.NewClientFactory(subscriptionID, &fakeCredential{}, clientOpts())

@@ -38,6 +38,9 @@ func TestCosmos_AccountNameIsGlobal(t *testing.T) {
 	// A second account claiming it in another resource group is refused. A
 	// simulator that served this would contradict the operation above.
 	status, body = cosmosARM(t, baseURL, http.MethodPut,
+		"/subscriptions/"+subscription+"/resourceGroups/other-cosmos-rg", `{"location":"eastus"}`)
+	require.Contains(t, []int{http.StatusOK, http.StatusCreated}, status, "create resource group: %s", body)
+	status, body = cosmosARM(t, baseURL, http.MethodPut,
 		cosmosAccountPathIn(subscription, "other-cosmos-rg", account),
 		`{"location":"eastus","kind":"GlobalDocumentDB","properties":{"databaseAccountOfferType":"Standard"}}`)
 	require.Equal(t, http.StatusConflict, status, "second account under a name in use: %s", body)

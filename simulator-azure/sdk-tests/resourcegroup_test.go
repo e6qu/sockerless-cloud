@@ -85,6 +85,28 @@ func TestResourceGroup_DeleteMissingGroup(t *testing.T) {
 	assert.Equal(t, "ResourceGroupNotFound", missing.ErrorCode)
 }
 
+// Azure Resource Manager refuses a request for a resource in a group that does
+// not exist before the resource provider sees it.
+func TestResourceGroup_MissingGroupRefusesItsResources(t *testing.T) {
+	t.Parallel()
+	identities, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	group := uniqueName("sdk-never-rg")
+
+	_, err = identities.CreateOrUpdate(ctx, group, "orphan", armmsi.Identity{Location: ptrStr("eastus")}, nil)
+	var refused *azcore.ResponseError
+	require.ErrorAs(t, err, &refused)
+	assert.Equal(t, http.StatusNotFound, refused.StatusCode)
+	assert.Equal(t, "ResourceGroupNotFound", refused.ErrorCode)
+	assert.Contains(t, err.Error(), "Resource group '"+group+"' could not be found.")
+
+	_, err = identities.Get(ctx, group, "orphan", nil)
+	var missing *azcore.ResponseError
+	require.ErrorAs(t, err, &missing)
+	assert.Equal(t, http.StatusNotFound, missing.StatusCode)
+	assert.Equal(t, "ResourceGroupNotFound", missing.ErrorCode)
+}
+
 func TestResourceGroup_CheckExistence(t *testing.T) {
 	t.Parallel()
 	client, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())

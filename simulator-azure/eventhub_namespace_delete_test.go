@@ -13,6 +13,7 @@ import (
 // starts with empty partitions.
 func TestEventHubsNamespaceDeleteDropsItsHubsPartitionLogs(t *testing.T) {
 	srv := newMoveTestServer(t)
+	moveEnsureRG(t, srv, "eh-delete-rg")
 	nsPath := fmt.Sprintf("/subscriptions/%s/resourceGroups/eh-delete-rg/providers/Microsoft.EventHub/namespaces/ehdeletens", moveTestSubscription)
 	const ver = "?api-version=2024-01-01"
 

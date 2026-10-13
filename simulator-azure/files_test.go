@@ -281,6 +281,7 @@ func TestFilesDataPlaneProjectsARMShareOntoTheMountedDirectory(t *testing.T) {
 		return rec
 	}
 
+	createTestResourceGroup(t, srv, sub, rg)
 	rec := armRequest(http.MethodPut, armBase+"?api-version=2023-01-01",
 		[]byte(`{"location":"eastus","sku":{"name":"Standard_LRS"},"kind":"StorageV2"}`))
 	requireFilesStatus(t, rec, http.StatusOK, "ARM create storage account")

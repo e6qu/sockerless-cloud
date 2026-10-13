@@ -22,6 +22,7 @@ func TestAzureAPIM_MoreOperations(t *testing.T) {
 	sub := "00000000-0000-0000-0000-000000000010"
 	rg := "apim-more-rg"
 	name := "more-apim"
+	ensureRGIn(t, sub, rg)
 	svc := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ApiManagement/service/%s", sub, rg, name)
 	provider := fmt.Sprintf("/subscriptions/%s/providers/Microsoft.ApiManagement", sub)
 

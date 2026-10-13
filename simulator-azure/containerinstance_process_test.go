@@ -43,6 +43,7 @@ func TestACIProcessRuntimeRejectsWorkloadExecution(t *testing.T) {
 		t.Fatalf("mint ARM bearer: %v", err)
 	}
 
+	createTestResourceGroup(t, srv, "sub", "rg")
 	request := httptest.NewRequest(http.MethodPut,
 		"/subscriptions/sub/resourceGroups/rg/providers/Microsoft.ContainerInstance/containerGroups/workload?api-version=2021-10-01",
 		bytes.NewBufferString(`{"location":"westeurope","properties":{"containers":[{"name":"workload","properties":{"image":"alpine:3.20"}}],"osType":"Linux"}}`))

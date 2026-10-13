@@ -285,6 +285,7 @@ func deployPackage(t *testing.T, client *armappservice.WebAppsClient, rg, name s
 func TestSDK_WebApps_BackupPrerequisites(t *testing.T) {
 	t.Parallel()
 	rg := "sdk-backup-prereq-rg"
+	ensureRG(t, rg)
 
 	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)

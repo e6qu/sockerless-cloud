@@ -553,15 +553,22 @@ func TestContainerApps_GetJob(t *testing.T) {
 // ensureRG creates a resource group via raw HTTP (needed before SDK calls).
 func ensureRG(t *testing.T, rg string) {
 	t.Helper()
+	ensureRGIn(t, subscriptionID, rg)
+}
+
+// ensureRGIn creates a resource group in a subscription other than the suite's.
+func ensureRGIn(t *testing.T, subscription, rg string) {
+	t.Helper()
 	rgBody := `{"location":"eastus"}`
 	rgReq, _ := http.NewRequestWithContext(ctx, "PUT",
-		baseURL+"/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"?api-version=2023-07-01",
+		baseURL+"/subscriptions/"+subscription+"/resourceGroups/"+rg+"?api-version=2023-07-01",
 		strings.NewReader(rgBody))
 	rgReq.Header.Set("Content-Type", "application/json")
 	rgReq.Header.Set("Authorization", simARMBearer)
 	rgResp, err := http.DefaultClient.Do(rgReq)
 	require.NoError(t, err)
-	rgResp.Body.Close()
+	defer rgResp.Body.Close()
+	require.Contains(t, []int{http.StatusOK, http.StatusCreated}, rgResp.StatusCode, "create resource group %s", rg)
 }
 
 func TestSDK_ContainerApps_CreateAndGetJob(t *testing.T) {

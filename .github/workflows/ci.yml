@@ -1310,6 +1310,11 @@ jobs:
             tf_timeout: 600s
             tf_run: TestTerraformResourceGroupDeleteTakesItsResources
             timeout_minutes: 12
+          - suite: azure missing resource group
+            cloud: azure
+            tf_timeout: 600s
+            tf_run: TestTerraformMissingResourceGroupRefusesApply
+            timeout_minutes: 12
           - suite: azure front-end forwarded headers
             cloud: azure
             tf_timeout: 600s

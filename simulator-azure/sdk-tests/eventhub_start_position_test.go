@@ -21,6 +21,7 @@ import (
 func TestEventHubsSDK_StartPositions(t *testing.T) {
 	t.Parallel()
 	rg, ns, hub := "eh-start-rg", uniqueName("sdk-eventhub-start"), "starthub"
+	ensureRG(t, rg)
 	nsClient, err := armeventhub.NewNamespacesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	hubsClient, err := armeventhub.NewEventHubsClient(subscriptionID, &fakeCredential{}, clientOpts())

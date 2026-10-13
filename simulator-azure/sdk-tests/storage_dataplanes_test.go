@@ -374,6 +374,7 @@ func TestStorageDataPlane_PathStyleFileQueueTable(t *testing.T) {
 // other first segment as an account name.
 func TestStorageDataPlane_PathStyleARMPrefixExclusion(t *testing.T) {
 	t.Parallel()
+	ensureRG(t, "test-rg")
 	// ARM-shaped path — should fall through to ARM handler.
 	resp := pathStyleStorageReq(t, "GET",
 		"/subscriptions/00000000-0000-0000-0000-000000000001",

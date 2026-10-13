@@ -17,6 +17,7 @@ import (
 func TestEventHubsSDK_NamespaceDeleteDropsItsEvents(t *testing.T) {
 	t.Parallel()
 	rg, ns, hub := "eh-nsdelete-rg", uniqueName("sdk-eventhub-nsdelete"), "dropped"
+	ensureRG(t, rg)
 	nsClient, err := armeventhub.NewNamespacesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	hubsClient, err := armeventhub.NewEventHubsClient(subscriptionID, &fakeCredential{}, clientOpts())
