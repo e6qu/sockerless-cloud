@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // Cloud Audit Logs: every service writes an Admin Activity entry for each call
@@ -278,10 +280,7 @@ func emitAuditCall(rec auditRecord) {
 		last()
 		return
 	}
-	go func() {
-		<-signal
-		last()
-	}()
+	bg.WatchThen(func() { <-signal }, last)
 }
 
 // auditLongRunningOperation is the google.longrunning.Operation a call
