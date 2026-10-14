@@ -171,9 +171,7 @@ func TestCloudKMSListRejectsForeignToken(t *testing.T) {
 }
 
 func TestCloudLoggingListRejectsForeignToken(t *testing.T) {
-	saved := logEntries
-	t.Cleanup(func() { logEntries = saved })
-	logEntries = sim.MakeStore[[]LogEntry](nil, "test_logging_entries")
+	useLoggingMemoryStores(t)
 	if _, _, err := listLogEntries("", nil, 1, "bogus", ""); !errors.Is(err, errGCPPageToken) {
 		t.Fatalf("got %v, want errGCPPageToken", err)
 	}

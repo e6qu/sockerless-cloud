@@ -114,6 +114,20 @@ own module:
   whole into the store once, keeping each event's timestamp, ingestion time
   and arrival order.
 
+  Cloud Logging moved onto it with the storage model it was missing. Every
+  resource container has the `_Required` bucket (400 days, locked) and the
+  `_Default` bucket (30 days) and the sinks that route to them: audit
+  activity, system event and access transparency logs to `_Required`,
+  everything else to `_Default`, less what the exclusions API excludes. Sinks
+  route each entry at ingestion, and the store records which buckets took a
+  copy; an entry no bucket takes, or one stamped before a bucket's retention
+  or more than a day ahead, is discarded. Reads through a bucket or view see
+  that bucket's copies within its retention, `logs.delete` clears the
+  `_Default` bucket's copies only, and an hourly sweep deletes expired copies
+  and the entries no bucket holds. The 10,000-entry cap per log went with it.
+  The query language gained `log_id()` and `source()`, which the built-in
+  sinks' filters are written in.
+
 ## Fidelity rules that came from bugs
 
 - **An integration's configuration follows the model's rules.** AWS Glue takes

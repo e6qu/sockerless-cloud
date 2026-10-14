@@ -14,6 +14,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/listq"
+	"github.com/e6qu/sockerless-cloud/sim/logstore"
 )
 
 // Cloud Logging admin resource families (logging/v2). Every admin resource
@@ -294,7 +295,7 @@ func handleLoggingScopeCreateSink(w http.ResponseWriter, r *http.Request) {
 		short = sim.NewUUID()
 	}
 	sink.Name = parent + "/sinks/" + short
-	if !loggingScopeWriterIdentity(w, parent, &sink) {
+	if !loggingSinkAdmissible(w, sink, true) || !loggingScopeWriterIdentity(w, parent, &sink) {
 		return
 	}
 	logSinks.Put(sink.Name, sink)
@@ -319,6 +320,7 @@ func loggingScopeWriterIdentity(w http.ResponseWriter, parent string, sink *Logg
 
 func handleLoggingScopeListSinks(w http.ResponseWriter, r *http.Request) {
 	parent := loggingScopeParent(r)
+	loggingEnsureDefaults(parent)
 	prefix := parent + "/sinks/"
 	sinks := logSinks.Filter(func(s LoggingSink) bool { return strings.HasPrefix(s.Name, prefix) })
 	sort.Slice(sinks, func(i, j int) bool { return sinks[i].Name < sinks[j].Name })
@@ -338,6 +340,7 @@ func handleLoggingScopeListSinks(w http.ResponseWriter, r *http.Request) {
 
 func handleLoggingScopeGetSink(w http.ResponseWriter, r *http.Request) {
 	parent := loggingScopeParent(r)
+	loggingEnsureDefaults(parent)
 	key := parent + "/sinks/" + sim.PathParam(r, "sink")
 	sink, ok := logSinks.Get(key)
 	if !ok {
@@ -356,7 +359,8 @@ func handleLoggingScopeUpdateSink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sink.Name = key
-	if !loggingScopeWriterIdentity(w, parent, &sink) {
+	loggingEnsureDefaults(parent)
+	if !loggingSinkAdmissible(w, sink, false) || !loggingScopeWriterIdentity(w, parent, &sink) {
 		return
 	}
 	logSinks.Put(key, sink)
@@ -365,6 +369,10 @@ func handleLoggingScopeUpdateSink(w http.ResponseWriter, r *http.Request) {
 
 func handleLoggingScopeDeleteSink(w http.ResponseWriter, r *http.Request) {
 	key := loggingScopeParent(r) + "/sinks/" + sim.PathParam(r, "sink")
+	if loggingIsBuiltIn(key) {
+		GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "sink %s is built in and cannot be deleted", key)
+		return
+	}
 	if !logSinks.Delete(key) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "sink %s not found", key)
 		return
@@ -384,6 +392,10 @@ func handleLoggingCreateExclusion(w http.ResponseWriter, r *http.Request) {
 		short = sim.NewUUID()
 	}
 	ex.Name = parent + "/exclusions/" + short
+	if _, err := parseLogFilter(ex.Filter); err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "exclusion filter: %v", err)
+		return
+	}
 	now := nowTimestamp()
 	ex.CreateTime, ex.UpdateTime = now, now
 	logExclusions.Put(ex.Name, ex)
@@ -431,6 +443,10 @@ func handleLoggingPatchExclusion(w http.ResponseWriter, r *http.Request) {
 		cur.Description = upd.Description
 	}
 	if upd.Filter != "" {
+		if _, err := parseLogFilter(upd.Filter); err != nil {
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "exclusion filter: %v", err)
+			return
+		}
 		cur.Filter = upd.Filter
 	}
 	cur.Disabled = upd.Disabled
@@ -466,7 +482,7 @@ func handleLoggingListLogs(w http.ResponseWriter, r *http.Request) {
 
 func handleLoggingDeleteLog(w http.ResponseWriter, r *http.Request) {
 	key := loggingScopeParent(r) + "/logs/" + sim.PathParam(r, "log")
-	logEntries.Delete(key)
+	loggingDeleteLog(key)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -589,6 +605,13 @@ func handleLoggingCreateBucket(w http.ResponseWriter, r *http.Request) {
 		id = sim.NewUUID()
 	}
 	b.Name = parent + "/buckets/" + id
+	if loggingIsBuiltIn(b.Name) {
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "bucket %s already exists", b.Name)
+		return
+	}
+	if b.RetentionDays == 0 {
+		b.RetentionDays = loggingDefaultRetentionDays
+	}
 	b.LifecycleState = "ACTIVE"
 	now := nowTimestamp()
 	b.CreateTime, b.UpdateTime = now, now
@@ -613,6 +636,13 @@ func handleLoggingCreateBucketAsync(w http.ResponseWriter, r *http.Request) {
 		id = sim.NewUUID()
 	}
 	b.Name = parent + "/buckets/" + id
+	if loggingIsBuiltIn(b.Name) {
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "bucket %s already exists", b.Name)
+		return
+	}
+	if b.RetentionDays == 0 {
+		b.RetentionDays = loggingDefaultRetentionDays
+	}
 	b.LifecycleState = "ACTIVE"
 	now := nowTimestamp()
 	b.CreateTime, b.UpdateTime = now, now
@@ -622,6 +652,7 @@ func handleLoggingCreateBucketAsync(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLoggingListBuckets(w http.ResponseWriter, r *http.Request) {
+	loggingEnsureDefaults(loggingScopeParent(r))
 	prefix := loggingLocationParent(r) + "/buckets/"
 	items := logBuckets.Filter(func(b LogBucket) bool {
 		// Restrict to direct children (exclude views/links nested deeper).
@@ -641,6 +672,7 @@ func handleLoggingListBuckets(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLoggingGetBucket(w http.ResponseWriter, r *http.Request) {
+	loggingEnsureDefaults(loggingScopeParent(r))
 	key := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket")
 	b, ok := logBuckets.Get(key)
 	if !ok {
@@ -651,6 +683,7 @@ func handleLoggingGetBucket(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLoggingPatchBucket(w http.ResponseWriter, r *http.Request) {
+	loggingEnsureDefaults(loggingScopeParent(r))
 	key := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket")
 	cur, ok := logBuckets.Get(key)
 	if !ok {
@@ -662,13 +695,17 @@ func handleLoggingPatchBucket(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid bucket: %v", err)
 		return
 	}
+	if msg := loggingBucketChangeRefused(cur, upd); msg != "" {
+		GCPError(w, http.StatusBadRequest, msg, "FAILED_PRECONDITION")
+		return
+	}
 	if upd.Description != "" {
 		cur.Description = upd.Description
 	}
 	if upd.RetentionDays != 0 {
 		cur.RetentionDays = upd.RetentionDays
 	}
-	cur.Locked = upd.Locked
+	cur.Locked = cur.Locked || upd.Locked
 	cur.AnalyticsEnabled = upd.AnalyticsEnabled
 	cur.UpdateTime = nowTimestamp()
 	logBuckets.Put(key, cur)
@@ -676,10 +713,15 @@ func handleLoggingPatchBucket(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLoggingDeleteBucket(w http.ResponseWriter, r *http.Request) {
+	loggingEnsureDefaults(loggingScopeParent(r))
 	key := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket")
 	cur, ok := logBuckets.Get(key)
 	if !ok {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "bucket %s not found", key)
+		return
+	}
+	if msg := loggingBucketDeleteRefused(cur); msg != "" {
+		GCPError(w, http.StatusBadRequest, msg, "FAILED_PRECONDITION")
 		return
 	}
 	// Real Cloud Logging soft-deletes a bucket (DELETE_REQUESTED) so an
@@ -690,6 +732,7 @@ func handleLoggingDeleteBucket(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLoggingBucketAction(w http.ResponseWriter, r *http.Request) {
+	loggingEnsureDefaults(loggingScopeParent(r))
 	started := time.Now()
 	parent := loggingLocationParent(r)
 	raw := sim.PathParam(r, "bucketAction")
@@ -716,6 +759,10 @@ func handleLoggingBucketAction(w http.ResponseWriter, r *http.Request) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid bucket: %v", err)
 			return
 		}
+		if msg := loggingBucketChangeRefused(cur, upd); msg != "" {
+			GCPError(w, http.StatusBadRequest, msg, "FAILED_PRECONDITION")
+			return
+		}
 		if upd.Description != "" {
 			cur.Description = upd.Description
 		}
@@ -734,6 +781,7 @@ func handleLoggingBucketAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLoggingCreateView(w http.ResponseWriter, r *http.Request) {
+	loggingEnsureDefaults(loggingScopeParent(r))
 	parent := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket")
 	id := r.URL.Query().Get("viewId")
 	var v LogView
@@ -755,6 +803,7 @@ func handleLoggingCreateView(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLoggingListViews(w http.ResponseWriter, r *http.Request) {
+	loggingEnsureDefaults(loggingScopeParent(r))
 	prefix := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket") + "/views/"
 	items := logViews.Filter(func(v LogView) bool { return strings.HasPrefix(v.Name, prefix) })
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
@@ -770,6 +819,7 @@ func handleLoggingListViews(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLoggingGetView(w http.ResponseWriter, r *http.Request) {
+	loggingEnsureDefaults(loggingScopeParent(r))
 	key := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket") + "/views/" + sim.PathParam(r, "view")
 	v, ok := logViews.Get(key)
 	if !ok {
@@ -780,12 +830,8 @@ func handleLoggingGetView(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLoggingListViewLogs(w http.ResponseWriter, r *http.Request) {
-	// Logs visible to a view: list the parent scope's logs.
-	handleLoggingViewLogsList(w, r)
-}
-
-func handleLoggingViewLogsList(w http.ResponseWriter, r *http.Request) {
-	names := loggingListLogsScopes(loggingScopeParent(r), r.URL.Query()["resourceNames"])
+	bucket := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket")
+	names := loggingLogNames(loggingScopeParent(r)+"/logs/", bucket)
 	page, next, ok := paginateList(w, r, names, gcpAsc(func(name string) string { return name }))
 	if !ok {
 		return
@@ -1194,51 +1240,22 @@ func loggingBucketParts(name string) (scope, location string, ok bool) {
 }
 
 // loggingBucketEntries returns, oldest first, the entries of scope's logs that
-// a log bucket stores and the filter matches. A bucket stores what the scope's
-// sinks route to it: an enabled sink whose destination names the bucket and
-// whose filter matches an entry none of its exclusions match.
+// a log bucket holds and the filter matches: the copies the scope's sinks
+// routed to the bucket at ingestion that its retention still keeps.
 func loggingBucketEntries(scope, bucket string, filter listq.Node) ([]LogEntry, error) {
-	type route struct {
-		filter     listq.Node
-		exclusions []listq.Node
-	}
-	var routes []route
-	for _, sink := range logSinks.ListPrefix(scope + "/sinks/") {
-		if sink.Item.Disabled || sink.Item.Destination != "logging.googleapis.com/"+bucket {
-			continue
-		}
-		f, err := parseLogFilter(sink.Item.Filter)
-		if err != nil {
-			return nil, fmt.Errorf("sink %s: %w", sink.ID, err)
-		}
-		rt := route{filter: f}
-		for _, ex := range sink.Item.Exclusions {
-			if ex.Disabled {
+	cutoffs := loggingBucketCutoffs(time.Now())
+	var held []LogEntry
+	for _, log := range logEntries.Scopes(scope + "/logs/") {
+		for _, e := range logEntries.Entries(log) {
+			if !loggingHeldIn(e, bucket, cutoffs) {
 				continue
 			}
-			exf, err := parseLogFilter(ex.Filter)
-			if err != nil {
-				return nil, fmt.Errorf("sink %s exclusion %s: %w", sink.ID, ex.Name, err)
-			}
-			rt.exclusions = append(rt.exclusions, exf)
-		}
-		routes = append(routes, rt)
-	}
-	var held []LogEntry
-	for _, log := range logEntries.ListPrefix(scope + "/logs/") {
-		for _, entry := range log.Item {
-			doc, err := listq.ToDoc(entry)
+			doc, err := listq.ToDoc(e.Value.Entry)
 			if err != nil {
 				return nil, err
 			}
-			if !filter.Eval(doc) {
-				continue
-			}
-			for _, rt := range routes {
-				if rt.filter.Eval(doc) && !slices.ContainsFunc(rt.exclusions, func(ex listq.Node) bool { return ex.Eval(doc) }) {
-					held = append(held, entry)
-					break
-				}
+			if filter.Eval(doc) {
+				held = append(held, e.Value.Entry)
 			}
 		}
 	}
@@ -1411,23 +1428,21 @@ func newLROFromResource(name string, resource any, typeName string, metadata map
 	}
 }
 
-// loggingLogNames returns the distinct, sorted log names under prefix. The
-// entries store is keyed by log name; each stored entry carries that same
-// LogName, so a dedup over List() yields the names.
-func loggingLogNames(prefix string) []string {
-	seen := map[string]bool{}
-	for _, slice := range logEntries.List() {
-		for _, e := range slice {
-			if strings.HasPrefix(e.LogName, prefix) {
-				seen[e.LogName] = true
+// loggingLogNames returns, sorted, the logs under prefix that a bucket still
+// holds an entry of, or, with bucket set, that bucket holds one of.
+func loggingLogNames(prefix, bucket string) []string {
+	cutoffs := loggingBucketCutoffs(time.Now())
+	var names []string
+	for _, log := range logEntries.Scopes(prefix) {
+		if slices.ContainsFunc(logEntries.Entries(log), func(e logstore.Entry[loggingStoredEntry]) bool {
+			if bucket != "" {
+				return loggingHeldIn(e, bucket, cutoffs)
 			}
+			return loggingHeld(e, cutoffs)
+		}) {
+			names = append(names, log)
 		}
 	}
-	names := make([]string, 0, len(seen))
-	for n := range seen {
-		names = append(names, n)
-	}
-	sort.Strings(names)
 	return names
 }
 
@@ -1435,11 +1450,8 @@ func loggingLogNames(prefix string) []string {
 // call covers: those under the parent, plus those under every resource name
 // the caller widened the listing with. Dropping resourceNames would answer a
 // widened listing with the parent's logs alone, which reads as "those are all
-// the logs" — a wrong result, not a partial one.
-//
-// A bucket- or view-scoped resource name resolves to the container that owns
-// it: this simulator keeps one copy of a container's entries rather than a
-// copy per bucket, so the container's logs are what a view over it sees.
+// the logs" — a wrong result, not a partial one. A bucket- or view-scoped
+// resource name covers the logs that bucket holds entries of.
 func loggingListLogsScopes(parent string, resourceNames []string) []string {
 	seen := map[string]bool{}
 	var names []string
@@ -1447,7 +1459,11 @@ func loggingListLogsScopes(parent string, resourceNames []string) []string {
 		if scope == "" {
 			continue
 		}
-		for _, name := range loggingLogNames(loggingResourceContainer(scope) + "/logs/") {
+		bucket, _, _ := strings.Cut(scope, "/views/")
+		if _, _, isBucket := loggingBucketParts(bucket); !isBucket {
+			bucket = ""
+		}
+		for _, name := range loggingLogNames(loggingResourceContainer(scope)+"/logs/", bucket) {
 			if !seen[name] {
 				seen[name] = true
 				names = append(names, name)

@@ -276,13 +276,17 @@ func TestLoggingEntriesCopy(t *testing.T) {
 	gcpHostOK(t, srv, host, http.MethodPost, "/v2/projects/p/sinks", `{"name":"to-archive",
 		"destination":"logging.googleapis.com/`+bucket+`","filter":"logName=\"projects/p/logs/app\"",
 		"exclusions":[{"name":"noise","filter":"textPayload:\"noise\""}]}`)
+	day := time.Now().UTC().AddDate(0, 0, -2).Truncate(24 * time.Hour)
+	at := func(hour, minute int) string {
+		return day.Add(time.Duration(hour)*time.Hour + time.Duration(minute)*time.Minute).Format(time.RFC3339)
+	}
 	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=test-project", `{"name":"copies"}`)
 	gcpHostOK(t, srv, host, http.MethodPost, "/v2/entries:write", `{"entries":[
-		{"logName":"projects/p/logs/app","timestamp":"2026-09-01T10:15:00Z","severity":"ERROR","textPayload":"disk full"},
-		{"logName":"projects/p/logs/app","timestamp":"2026-09-01T11:05:00Z","severity":"INFO","textPayload":"started"},
-		{"logName":"projects/p/logs/app","timestamp":"2026-09-01T10:20:00Z","severity":"ERROR","textPayload":"noise burst"},
-		{"logName":"projects/p/logs/other","timestamp":"2026-09-01T10:30:00Z","severity":"ERROR","textPayload":"not routed"},
-		{"logName":"projects/q/logs/app","timestamp":"2026-09-01T10:30:00Z","severity":"ERROR","textPayload":"another project"}]}`)
+		{"logName":"projects/p/logs/app","timestamp":"`+at(10, 15)+`","severity":"ERROR","textPayload":"disk full"},
+		{"logName":"projects/p/logs/app","timestamp":"`+at(11, 5)+`","severity":"INFO","textPayload":"started"},
+		{"logName":"projects/p/logs/app","timestamp":"`+at(10, 20)+`","severity":"ERROR","textPayload":"noise burst"},
+		{"logName":"projects/p/logs/other","timestamp":"`+at(10, 30)+`","severity":"ERROR","textPayload":"not routed"},
+		{"logName":"projects/q/logs/app","timestamp":"`+at(10, 30)+`","severity":"ERROR","textPayload":"another project"}]}`)
 
 	op := gcpHostOK(t, srv, host, http.MethodPost, "/v2/entries:copy",
 		`{"name":"`+bucket+`","filter":"severity>=ERROR","destination":"storage.googleapis.com/copies"}`)
@@ -298,7 +302,7 @@ func TestLoggingEntriesCopy(t *testing.T) {
 	if fetched := gcpHostOK(t, srv, host, http.MethodGet, "/v2/"+name, ``); fetched["done"] != true {
 		t.Fatalf("operations.get %s answered %v", name, fetched)
 	}
-	data, err := GCSObjectBytes("copies", "app/2026/09/01/10:00:00_10:59:59_S0.json")
+	data, err := GCSObjectBytes("copies", "app/"+day.Format("2006/01/02")+"/10:00:00_10:59:59_S0.json")
 	if err != nil {
 		t.Fatalf("exported object: %v", err)
 	}
