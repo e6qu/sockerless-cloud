@@ -320,6 +320,58 @@ jobs:
       - name: Run real-execution network/NIC smoke
         run: make realexec-network-test
 
+  # A pull request restores only the caches its own runs saved and those main
+  # saved. Main's verification jobs skip a tree its pull request already
+  # passed, so main saved no simulator Go cache, and every new pull request
+  # compiled a cloud's SDKs cold in each shard that started before its first
+  # shard had saved one — a race a slow runner lost at the pre-build budget.
+  # This job saves, on main, the entry those shards restore.
+  warm-sim-go-cache:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    name: warm Go cache (${{ matrix.cloud }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        cloud: [aws, gcp, azure]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.26'
+          cache: false
+      - name: Restore the Go module and build caches for this cloud's simulator jobs
+        id: go-cache
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: sim-go-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ hashFiles('go.work', '**/go.sum') }}
+          restore-keys: |
+            sim-go-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-
+      - name: Build what the simulator jobs build
+        if: steps.go-cache.outputs.cache-hit != 'true'
+        run: |
+          bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}
+          bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}/sdk-tests
+          bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}/cli-tests
+          cd simulator-${{ matrix.cloud }}
+          CGO_ENABLED=0 go build -tags noui -o /dev/null .
+          CGO_ENABLED=0 go test -tags noui -c -o /dev/null .
+          (cd sdk-tests && CGO_ENABLED=0 go test -c -o /dev/null .)
+          (cd cli-tests && CGO_ENABLED=0 go test -c -o /dev/null .)
+        timeout-minutes: 13
+      - name: Save the Go module and build caches
+        if: steps.go-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
+
   sim:
     needs: verified-on-pr
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}

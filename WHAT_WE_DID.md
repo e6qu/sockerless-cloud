@@ -98,6 +98,13 @@ own module:
   and, its link to the engine having no TLS, completes a full authentication by
   requesting the engine's RSA public key and sending the password under
   RSA-OAEP, so a refused login reaches the client as the engine's own 1045.
+- `simkms`: one AES-256-GCM seal and open, one RFC 5649 key wrap, and one
+  "create the service's key on first use" under the key store's `Upsert`.
+  AWS KMS, Cloud KMS (its framed, raw and imported encryption), Cloud SQL's
+  and Azure Database for PostgreSQL's credential sealing all use it. Each
+  cloud's ciphertext still begins with its own header — AWS KMS's `SK1` and
+  key id, Cloud KMS's version number — and ends in the nonce and sealed
+  bytes `Seal` returns, so a value sealed before the move still opens.
 
 ## Fidelity rules that came from bugs
 
@@ -2529,8 +2536,11 @@ local tag (`repo:sha256-<hex>`) by the warm script and
 `testutil/baseimage.LocalRef`. Warming is `continue-on-error`, because the point
 of use fails naming the image. Jobs never delete the shared Go caches and
 refresh the apt index only when a package is missing. In the AWS SDK shards one
-shard saves the Go cache after its pre-build and the rest only restore it; the
-build gates keep their own Go cache. Workflows reference as few external actions
+shard saves the Go cache after its pre-build and the rest only restore it, and
+each push to main saves every cloud's entry from the same builds, because a pull
+request restores only its own runs' caches and main's, and main's verification
+jobs skip a tree its pull request already passed; the build gates keep their
+own Go cache. Workflows reference as few external actions
 as possible, since the runner downloads every named action per job. A tool a
 suite needs — gcloud, `cbt`, the AWS CLI — is installed in `TestMain` with a few
 retries, never skipped. A Terraform harness stops when its simulator does not

@@ -1,10 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"crypto"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/hmac"
@@ -30,6 +27,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/simkms"
 )
 
 // Cloud KMS v1 slice (cloudkms.googleapis.com). Models keyRings,
@@ -2013,16 +2011,6 @@ func kmsHandleRawEncrypt(w http.ResponseWriter, r *http.Request, versionName str
 	if !ok {
 		return
 	}
-	block, err := aes.NewCipher(material.Key)
-	if err != nil {
-		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "cipher init failed: %v", err)
-		return
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "GCM init failed: %v", err)
-		return
-	}
 	// The caller may supply an IV; otherwise the server generates one. Real
 	// rawEncrypt for AES-GCM uses a 12-byte IV.
 	var iv []byte
@@ -2033,8 +2021,8 @@ func kmsHandleRawEncrypt(w http.ResponseWriter, r *http.Request, versionName str
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "initializationVector must be base64: %v", err)
 			return
 		}
-		if len(iv) != gcm.NonceSize() {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "initializationVector must be %d bytes", gcm.NonceSize())
+		if len(iv) != simkms.NonceSize {
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "initializationVector must be %d bytes", simkms.NonceSize)
 			return
 		}
 		verifiedIV, ok = kmsVerifyCRC(w, iv, req.InitializationVectorCrc32c, "initializationVector")
@@ -2042,15 +2030,18 @@ func kmsHandleRawEncrypt(w http.ResponseWriter, r *http.Request, versionName str
 			return
 		}
 	} else {
-		iv = make([]byte, gcm.NonceSize())
-		if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		if iv, err = simkms.NewNonce(); err != nil {
 			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "could not generate IV: %v", err)
 			return
 		}
 	}
-	sealed := gcm.Seal(nil, iv, plaintext, aad)
-	// gcm.Seal appends a 16-byte tag; rawEncrypt reports it separately.
-	tagLen := gcm.Overhead()
+	sealed, err := simkms.SealWithNonce(material.Key, iv, plaintext, aad)
+	if err != nil {
+		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "encryption failed: %v", err)
+		return
+	}
+	// The sealed value ends in the GCM tag; rawEncrypt reports its length.
+	tagLen := simkms.TagSize
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"name":                       versionName,
 		"ciphertext":                 base64.StdEncoding.EncodeToString(sealed),
@@ -2109,21 +2100,11 @@ func kmsHandleRawDecrypt(w http.ResponseWriter, r *http.Request, versionName str
 	if !ok {
 		return
 	}
-	block, err := aes.NewCipher(material.Key)
-	if err != nil {
-		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "cipher init failed: %v", err)
+	if len(iv) != simkms.NonceSize {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "initializationVector must be %d bytes", simkms.NonceSize)
 		return
 	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "GCM init failed: %v", err)
-		return
-	}
-	if len(iv) != gcm.NonceSize() {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "initializationVector must be %d bytes", gcm.NonceSize())
-		return
-	}
-	plaintext, err := gcm.Open(nil, iv, ciphertext, aad)
+	plaintext, err := simkms.OpenWithNonce(material.Key, iv, ciphertext, aad)
 	if err != nil {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Decryption failed: verify the ciphertext, IV and AAD")
 		return
@@ -2454,7 +2435,7 @@ func kmsUnwrapImportJobMaterial(privateKey *rsa.PrivateKey, importMethod string,
 		if len(wrapped) == rsaSize {
 			return nil, fmt.Errorf("hybrid import is missing AES-wrapped key material")
 		}
-		return kmsAESKeyUnwrapWithPadding(unwrapped, wrapped[rsaSize:])
+		return simkms.UnwrapWithPadding(unwrapped, wrapped[rsaSize:])
 	}
 	if len(wrapped) != rsaSize {
 		return nil, fmt.Errorf("direct RSA import contains trailing bytes")
@@ -2486,7 +2467,7 @@ func kmsHandleExportTrustedKeyWrappedCryptoKeyVersion(w http.ResponseWriter, r *
 		}
 		targetBytes = block.Bytes
 	}
-	wrapped, err := kmsAESKeyWrapWithPadding(wrappingMaterial.Key, targetBytes)
+	wrapped, err := simkms.WrapWithPadding(wrappingMaterial.Key, targetBytes)
 	if err != nil {
 		GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "could not wrap key material: %v", err)
 		return
@@ -2526,7 +2507,7 @@ func kmsHandleImportTrustedKeyWrappedCryptoKeyVersion(w http.ResponseWriter, r *
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "wrappedKey must be base64: %v", err)
 		return
 	}
-	raw, err := kmsAESKeyUnwrapWithPadding(wrappingMaterial.Key, wrapped)
+	raw, err := simkms.UnwrapWithPadding(wrappingMaterial.Key, wrapped)
 	if err != nil {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "trusted wrapped key is invalid: %v", err)
 		return
@@ -2677,89 +2658,6 @@ func kmsImportedMaterialRecord(algorithm string, raw []byte) (kmsKeyMaterialReco
 	}
 }
 
-var kmsKWPAIVPrefix = [4]byte{0xa6, 0x59, 0x59, 0xa6}
-
-func kmsAESKeyWrapWithPadding(kek, plaintext []byte) ([]byte, error) {
-	block, err := aes.NewCipher(kek)
-	if err != nil {
-		return nil, err
-	}
-	if len(plaintext) == 0 || uint64(len(plaintext)) > uint64(^uint32(0)) {
-		return nil, fmt.Errorf("plaintext length must be between 1 and 2^32-1 bytes")
-	}
-	n := (len(plaintext) + 7) / 8
-	a := make([]byte, 8)
-	copy(a[:4], kmsKWPAIVPrefix[:])
-	binary.BigEndian.PutUint32(a[4:], uint32(len(plaintext)))
-	padded := make([]byte, n*8)
-	copy(padded, plaintext)
-	if n == 1 {
-		out := make([]byte, 16)
-		block.Encrypt(out, append(a, padded...))
-		return out, nil
-	}
-	r := make([]byte, len(padded))
-	copy(r, padded)
-	b := make([]byte, 16)
-	for j := 0; j < 6; j++ {
-		for i := 1; i <= n; i++ {
-			copy(b[:8], a)
-			copy(b[8:], r[(i-1)*8:i*8])
-			block.Encrypt(b, b)
-			t := uint64(n*j + i)
-			binary.BigEndian.PutUint64(a, binary.BigEndian.Uint64(b[:8])^t)
-			copy(r[(i-1)*8:i*8], b[8:])
-		}
-	}
-	return append(a, r...), nil
-}
-
-func kmsAESKeyUnwrapWithPadding(kek, wrapped []byte) ([]byte, error) {
-	block, err := aes.NewCipher(kek)
-	if err != nil {
-		return nil, err
-	}
-	if len(wrapped) < 16 || len(wrapped)%8 != 0 {
-		return nil, fmt.Errorf("wrapped key length must be a multiple of 8 and at least 16 bytes")
-	}
-	n := len(wrapped)/8 - 1
-	var a []byte
-	var padded []byte
-	if n == 1 {
-		decrypted := make([]byte, 16)
-		block.Decrypt(decrypted, wrapped)
-		a = decrypted[:8]
-		padded = decrypted[8:]
-	} else {
-		a = append([]byte(nil), wrapped[:8]...)
-		padded = append([]byte(nil), wrapped[8:]...)
-		b := make([]byte, 16)
-		for j := 5; j >= 0; j-- {
-			for i := n; i >= 1; i-- {
-				t := uint64(n*j + i)
-				binary.BigEndian.PutUint64(b[:8], binary.BigEndian.Uint64(a)^t)
-				copy(b[8:], padded[(i-1)*8:i*8])
-				block.Decrypt(b, b)
-				copy(a, b[:8])
-				copy(padded[(i-1)*8:i*8], b[8:])
-			}
-		}
-	}
-	if !bytes.Equal(a[:4], kmsKWPAIVPrefix[:]) {
-		return nil, fmt.Errorf("integrity check failed")
-	}
-	length := int(binary.BigEndian.Uint32(a[4:]))
-	if length <= 8*(n-1) || length > 8*n {
-		return nil, fmt.Errorf("invalid message length indicator")
-	}
-	for _, b := range padded[length:] {
-		if b != 0 {
-			return nil, fmt.Errorf("non-zero RFC 5649 padding")
-		}
-	}
-	return append([]byte(nil), padded[:length]...), nil
-}
-
 func kmsNow() string { return time.Now().UTC().Format(time.RFC3339) }
 
 // kmsDecodeBytes accepts both standard and URL-safe base64, padded or not.
@@ -2861,8 +2759,8 @@ func kmsCreateVersionForAlg(keyName, versionID, protection, algorithm string) (s
 		rec.PrivatePEM = pemBytes
 	default:
 		// Symmetric (ENCRYPT_DECRYPT / RAW / AES_*) and HMAC keys: 32 raw bytes.
-		material := make([]byte, 32)
-		if _, err := io.ReadFull(rand.Reader, material); err != nil {
+		material, err := simkms.NewKey()
+		if err != nil {
 			return "", err
 		}
 		rec.Key = material
@@ -3033,24 +2931,11 @@ func kmsVersionLess(a, b string) bool {
 // kmsEncryptBytes seals plaintext with AES-256-GCM and frames the result
 // as version(4) || nonce || sealed so decrypt can pick the version.
 func kmsEncryptBytes(material []byte, versionNum int, plaintext, aad []byte) ([]byte, error) {
-	block, err := aes.NewCipher(material)
+	sealed, err := simkms.Seal(material, plaintext, aad)
 	if err != nil {
 		return nil, err
 	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, err
-	}
-	sealed := gcm.Seal(nil, nonce, plaintext, aad)
-	blob := make([]byte, 4+len(nonce)+len(sealed))
-	binary.BigEndian.PutUint32(blob[:4], uint32(versionNum))
-	copy(blob[4:], nonce)
-	copy(blob[4+len(nonce):], sealed)
-	return blob, nil
+	return append(binary.BigEndian.AppendUint32(nil, uint32(versionNum)), sealed...), nil
 }
 
 // kmsParseCiphertext splits the framed ciphertext into its version number
@@ -3063,19 +2948,7 @@ func kmsParseCiphertext(ciphertext []byte) (int, []byte, error) {
 }
 
 func kmsDecryptBytes(material, blob, aad []byte) ([]byte, error) {
-	block, err := aes.NewCipher(material)
-	if err != nil {
-		return nil, err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	ns := gcm.NonceSize()
-	if len(blob) < ns {
-		return nil, fmt.Errorf("ciphertext too short")
-	}
-	return gcm.Open(nil, blob[:ns], blob[ns:], aad)
+	return simkms.Open(material, blob, aad)
 }
 
 // kmsHandleShowEffectiveKajPolicyConfig reports the Key Access Justifications
