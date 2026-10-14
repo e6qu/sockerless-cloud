@@ -73,7 +73,7 @@ func TestECS_RegisterTaskDefinitionSizeScopesTheGrant(t *testing.T) {
 			NetworkMode:             ecstypes.NetworkModeAwsvpc,
 			ContainerDefinitions: []ecstypes.ContainerDefinition{{
 				Name:  aws.String("app"),
-				Image: aws.String("public.ecr.aws/docker/library/busybox:latest"),
+				Image: aws.String("mirror.gcr.io/library/busybox:latest"),
 			}},
 		})
 		return err

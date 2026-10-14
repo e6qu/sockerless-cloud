@@ -28,7 +28,7 @@ func runJobWithGCSVolumes(t *testing.T, jobID string, volumes []*runpb.Volume, m
 			Template: &runpb.ExecutionTemplate{
 				Template: &runpb.TaskTemplate{
 					Containers: []*runpb.Container{{
-						Image:        "public.ecr.aws/docker/library/alpine:latest",
+						Image:        "mirror.gcr.io/library/alpine:latest",
 						Command:      []string{"sh", "-c", script},
 						VolumeMounts: mounts,
 					}},

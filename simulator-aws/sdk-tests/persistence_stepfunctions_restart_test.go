@@ -40,7 +40,7 @@ func TestStepFunctionsAmazonECSSynchronousTaskSurvivesSimulatorRestart_SDK(t *te
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2),
 			Name:        aws.String("workload"),
-			Image:       aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			Image:       aws.String("mirror.gcr.io/library/busybox:latest"),
 			Essential:   aws.Bool(true),
 			Command:     []string{"sh", "-c", "sleep 8"},
 		}},

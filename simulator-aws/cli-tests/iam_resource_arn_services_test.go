@@ -81,7 +81,7 @@ func TestIAM_CodeBuildResourceScopedCLI(t *testing.T) {
 			"--name", project,
 			"--source", `{"type":"NO_SOURCE"}`,
 			"--artifacts", `{"type":"NO_ARTIFACTS"}`,
-			"--environment", `{"type":"LINUX_CONTAINER","image":"public.ecr.aws/docker/library/alpine:3.21","computeType":"BUILD_GENERAL1_SMALL"}`,
+			"--environment", `{"type":"LINUX_CONTAINER","image":"mirror.gcr.io/library/alpine:3.21","computeType":"BUILD_GENERAL1_SMALL"}`,
 			"--service-role", "arn:aws:iam::123456789012:role/cli-build-role"))
 		project := project
 		t.Cleanup(func() { _ = awsCLI("codebuild", "delete-project", "--name", project).Run() })
@@ -125,7 +125,7 @@ func TestIAM_PassRoleResourceScopedCLI(t *testing.T) {
 			"--family", "cli-passrole-family",
 			"--task-role-arn", "arn:aws:iam::123456789012:role/"+role,
 			"--container-definitions",
-			`[{"name":"app","image":"public.ecr.aws/docker/library/alpine:3.21","stopTimeout":2}]`), id, secret)
+			`[{"name":"app","image":"mirror.gcr.io/library/alpine:3.21","stopTimeout":2}]`), id, secret)
 	}
 
 	runCLI(t, register("cli-task-allowed"))

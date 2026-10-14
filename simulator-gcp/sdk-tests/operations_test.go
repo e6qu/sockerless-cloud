@@ -142,7 +142,7 @@ func serviceUsageOperations(t *testing.T, call *serviceusage.OperationsListCall)
 // the name of the long-running operation the create answered with.
 func gcpCreateJobOperation(t *testing.T, location, jobID string) string {
 	t.Helper()
-	body := `{"template":{"template":{"containers":[{"image":"public.ecr.aws/docker/library/alpine:latest"}]}}}`
+	body := `{"template":{"template":{"containers":[{"image":"mirror.gcr.io/library/alpine:latest"}]}}}`
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		baseURL+"/v2/projects/p1/locations/"+location+"/jobs?jobId="+jobID,
 		strings.NewReader(body))

@@ -36,7 +36,7 @@ func TestECS_TaskDefinitionFidelitySDK(t *testing.T) {
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
 			{
 				Name:                   aws.String("app"),
-				Image:                  aws.String("public.ecr.aws/docker/library/nginx:latest"),
+				Image:                  aws.String("mirror.gcr.io/library/nginx:latest"),
 				Essential:              aws.Bool(true),
 				User:                   aws.String("1000:1000"),
 				WorkingDirectory:       aws.String("/srv"),
@@ -55,7 +55,7 @@ func TestECS_TaskDefinitionFidelitySDK(t *testing.T) {
 			},
 			{
 				Name:      aws.String("sidecar"),
-				Image:     aws.String("public.ecr.aws/docker/library/busybox:latest"),
+				Image:     aws.String("mirror.gcr.io/library/busybox:latest"),
 				Essential: aws.Bool(false),
 			},
 		},

@@ -1458,7 +1458,7 @@ func gluePythonShellImage(job GlueJob) (string, error) {
 	}
 	switch version {
 	case "", "3", "3.9":
-		return "public.ecr.aws/docker/library/python:3.9", nil
+		return "mirror.gcr.io/library/python:3.9", nil
 	case "2":
 		return "", fmt.Errorf("Command.PythonVersion 2 is not supported for Python shell jobs")
 	default:

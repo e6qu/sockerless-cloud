@@ -34,7 +34,7 @@ func TestECRWorkloadRegistryAuthMintsATokenForTheSimulatorRegistry(t *testing.T)
 		t.Fatal("the credential's password is not a token the registry issued")
 	}
 
-	credential, err = ecrWorkloadRegistryAuth("public.ecr.aws/docker/library/busybox:latest")
+	credential, err = ecrWorkloadRegistryAuth("mirror.gcr.io/library/busybox:latest")
 	if err != nil || credential != "" {
 		t.Fatalf("another registry: credential %q err %v, want an anonymous pull", credential, err)
 	}

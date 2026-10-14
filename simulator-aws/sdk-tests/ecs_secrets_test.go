@@ -54,7 +54,7 @@ func TestECS_TaskDefinitionSecretsInjected(t *testing.T) {
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2),
 			Name:        aws.String("app"),
-			Image:       aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			Image:       aws.String("mirror.gcr.io/library/busybox:latest"),
 			EntryPoint:  []string{"sh", "-c"},
 			Command:     []string{`echo "RESOLVED=$EDD_AGENT_SECRET"`},
 			Secrets: []ecstypes.Secret{{

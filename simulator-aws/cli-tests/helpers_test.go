@@ -800,7 +800,7 @@ func findFilesNamed(root, name string) ([]string, error) {
 
 // gluePythonShellImage is the interpreter an AWS Glue Python shell job run
 // executes in — the image the simulator's job runner starts a container from.
-const gluePythonShellImage = "public.ecr.aws/docker/library/python:3.9"
+const gluePythonShellImage = "mirror.gcr.io/library/python:3.9"
 
 // ensureGluePythonShellImage puts the interpreter on the host before a Glue job
 // run is timed, and is called by the tests that start one.

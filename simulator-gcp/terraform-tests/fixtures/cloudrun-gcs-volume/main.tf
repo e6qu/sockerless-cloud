@@ -57,7 +57,7 @@ resource "google_cloud_run_v2_job" "writer" {
       timeout     = "60s"
 
       containers {
-        image   = "public.ecr.aws/docker/library/alpine:latest"
+        image   = "mirror.gcr.io/library/alpine:latest"
         command = ["sh", "-c"]
         args = [<<-SCRIPT
           set -e

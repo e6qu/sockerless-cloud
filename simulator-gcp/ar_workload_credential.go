@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -39,6 +40,11 @@ func workloadRegistryAuth(project, image string) (string, error) {
 	return sim.RegistryCredential(arUserAccessToken, signAccessToken(agent, now, now.Add(time.Hour))), nil
 }
 
+// containerRegistryHosts are Container Registry's hosts. Other gcr.io hosts,
+// such as mirror.gcr.io, Google's anonymous copy of Docker Hub, belong to no
+// project, and a project's token does not authenticate to them.
+var containerRegistryHosts = []string{"gcr.io", "us.gcr.io", "eu.gcr.io", "asia.gcr.io"}
+
 // imageOnGoogleRegistry reports whether an image reference names Artifact
 // Registry or Container Registry: by their hosts, or by this simulator's own
 // port, at which a coordinate that relocates the registry reaches it.
@@ -54,7 +60,7 @@ func imageOnGoogleRegistry(image string) bool {
 	if i := strings.LastIndex(host, ":"); i >= 0 {
 		hostname = host[:i]
 	}
-	return strings.HasSuffix(hostname, "-docker.pkg.dev") || hostname == "gcr.io" || strings.HasSuffix(hostname, ".gcr.io")
+	return strings.HasSuffix(hostname, "-docker.pkg.dev") || slices.Contains(containerRegistryHosts, hostname)
 }
 
 // resourceProject returns the project a `projects/{project}/…` resource name

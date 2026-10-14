@@ -49,7 +49,7 @@ func TestECS_DaemonTaskDefinitionSizeScopesTheGrant(t *testing.T) {
 		out, err := admin.RegisterDaemonTaskDefinition(ctx, &ecs.RegisterDaemonTaskDefinitionInput{
 			Family: aws.String(family), Cpu: aws.String(cpu), Memory: aws.String(memory),
 			ContainerDefinitions: []ecstypes.DaemonContainerDefinition{{
-				Name: aws.String("agent"), Image: aws.String("public.ecr.aws/docker/library/busybox:latest")}},
+				Name: aws.String("agent"), Image: aws.String("mirror.gcr.io/library/busybox:latest")}},
 		})
 		require.NoError(t, err)
 		return aws.ToString(out.DaemonTaskDefinitionArn)

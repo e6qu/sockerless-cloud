@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const batchJobImage = "public.ecr.aws/docker/library/alpine:3"
+const batchJobImage = "mirror.gcr.io/library/alpine:3"
 
 // batchHoldCommand runs until Batch stops its container, and exits on the
 // SIGTERM that stop sends: a shell running as PID 1 ignores SIGTERM unless it

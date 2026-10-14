@@ -31,7 +31,7 @@ func TestContainerApps_ListSecretsEmptyArrayNotNull(t *testing.T) {
 				Ingress: &armappcontainers.Ingress{External: to.Ptr(true), TargetPort: to.Ptr(int32(80))},
 			},
 			Template: &armappcontainers.Template{
-				Containers: []*armappcontainers.Container{{Name: to.Ptr("main"), Image: to.Ptr("public.ecr.aws/docker/library/nginx:latest")}},
+				Containers: []*armappcontainers.Container{{Name: to.Ptr("main"), Image: to.Ptr("mirror.gcr.io/library/nginx:latest")}},
 			},
 		},
 	}, nil)
@@ -56,7 +56,7 @@ func TestContainerApps_ListSecretsEmptyArrayNotNull(t *testing.T) {
 				ReplicaTimeout: to.Ptr(int32(60)),
 			},
 			Template: &armappcontainers.JobTemplate{
-				Containers: []*armappcontainers.Container{{Name: to.Ptr("main"), Image: to.Ptr("public.ecr.aws/docker/library/nginx:latest")}},
+				Containers: []*armappcontainers.Container{{Name: to.Ptr("main"), Image: to.Ptr("mirror.gcr.io/library/nginx:latest")}},
 			},
 		},
 	}, nil)

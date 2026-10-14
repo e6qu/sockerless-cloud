@@ -73,7 +73,7 @@ func TestCodeBuild_PrivilegedBuildPushesToECRAndLambdaRunsIt(t *testing.T) {
 				`      - echo "$ECR_PASSWORD" | docker login --username AWS --password-stdin "$REGISTRY"`,
 				"  build:",
 				"    commands:",
-				`      - printf 'FROM public.ecr.aws/docker/library/alpine:latest\nCMD ["echo", "built-by-codebuild"]\n' > Dockerfile`,
+				`      - printf 'FROM mirror.gcr.io/library/alpine:latest\nCMD ["echo", "built-by-codebuild"]\n' > Dockerfile`,
 				`      - docker build -t "$IMAGE" .`,
 				"  post_build:",
 				"    commands:",
@@ -86,7 +86,7 @@ func TestCodeBuild_PrivilegedBuildPushesToECRAndLambdaRunsIt(t *testing.T) {
 			// The environment type matching this host's architecture, so
 			// the build runs natively — an ARM_CONTAINER on an arm64 host.
 			Type:           codeBuildEnvironmentTypeForHost(),
-			Image:          aws.String("public.ecr.aws/docker/library/docker:27-cli"),
+			Image:          aws.String("mirror.gcr.io/library/docker:27-cli"),
 			ComputeType:    cbtypes.ComputeTypeBuildGeneral1Small,
 			PrivilegedMode: aws.Bool(true),
 			EnvironmentVariables: []cbtypes.EnvironmentVariable{

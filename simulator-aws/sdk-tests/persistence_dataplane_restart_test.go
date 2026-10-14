@@ -62,7 +62,7 @@ func TestNetworkLoadBalancerDataPlaneSurvivesSimulatorRestart_SDK(t *testing.T) 
 		Family: aws.String("persistent-task-family"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2),
-			Name:        aws.String("application"), Image: aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			Name:        aws.String("application"), Image: aws.String("mirror.gcr.io/library/busybox:latest"),
 			Essential: aws.Bool(true),
 		}},
 	})
@@ -71,7 +71,7 @@ func TestNetworkLoadBalancerDataPlaneSurvivesSimulatorRestart_SDK(t *testing.T) 
 	firstDaemonTaskDefinition, err := ecsAPI.RegisterDaemonTaskDefinition(testCtx, &ecs.RegisterDaemonTaskDefinitionInput{
 		Family: aws.String("persistent-daemon-family"),
 		ContainerDefinitions: []ecstypes.DaemonContainerDefinition{{
-			Name: aws.String("agent"), Image: aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			Name: aws.String("agent"), Image: aws.String("mirror.gcr.io/library/busybox:latest"),
 		}},
 	})
 	require.NoError(t, err)
@@ -145,7 +145,7 @@ func TestNetworkLoadBalancerDataPlaneSurvivesSimulatorRestart_SDK(t *testing.T) 
 		Family: aws.String("persistent-task-family"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2),
-			Name:        aws.String("application"), Image: aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			Name:        aws.String("application"), Image: aws.String("mirror.gcr.io/library/busybox:latest"),
 			Essential: aws.Bool(true),
 		}},
 	})
@@ -154,7 +154,7 @@ func TestNetworkLoadBalancerDataPlaneSurvivesSimulatorRestart_SDK(t *testing.T) 
 	secondDaemonTaskDefinition, err := ecsAPI.RegisterDaemonTaskDefinition(testCtx, &ecs.RegisterDaemonTaskDefinitionInput{
 		Family: aws.String("persistent-daemon-family"),
 		ContainerDefinitions: []ecstypes.DaemonContainerDefinition{{
-			Name: aws.String("agent"), Image: aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			Name: aws.String("agent"), Image: aws.String("mirror.gcr.io/library/busybox:latest"),
 		}},
 	})
 	require.NoError(t, err)

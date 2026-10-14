@@ -23,7 +23,7 @@ func TestECS_TaskWireShapeOmitsNetworkConfiguration(t *testing.T) {
 	client, clusterName, taskArn := ecsRunTaskHelper(t, "task-wire-shape", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("main"),
-		Image:       aws.String("public.ecr.aws/docker/library/alpine:latest"),
+		Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
 		Command:     []string{"sleep", "30"}, // long-running so RUNNING window is real
 	})
 	waitForECSTaskStatus(t, client, clusterName, taskArn, "RUNNING")

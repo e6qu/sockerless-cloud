@@ -23,7 +23,7 @@ func cbCLICreateProject(t *testing.T, name, buildspec string) {
 		"--name", name,
 		"--source", `{"type":"NO_SOURCE","buildspec":"`+buildspec+`"}`,
 		"--artifacts", `{"type":"NO_ARTIFACTS"}`,
-		"--environment", `{"type":"LINUX_CONTAINER","image":"public.ecr.aws/docker/library/alpine:3.21","computeType":"BUILD_GENERAL1_SMALL"}`,
+		"--environment", `{"type":"LINUX_CONTAINER","image":"mirror.gcr.io/library/alpine:3.21","computeType":"BUILD_GENERAL1_SMALL"}`,
 		"--service-role", "arn:aws:iam::123456789012:role/cb-role",
 	))
 	t.Cleanup(func() {

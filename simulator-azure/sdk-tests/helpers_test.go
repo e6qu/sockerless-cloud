@@ -256,7 +256,7 @@ func TestMain(m *testing.M) {
 	// a flaky dependency of the engine lifecycle; fetching it here, with
 	// retries, removes that race.
 	if testRunSelects("TestAzurePGFlexibleServer_BackupCapturesDataAndRestoreReturnsToIt") {
-		pullImageBeforeRun("public.ecr.aws/docker/library/postgres:16-alpine")
+		pullImageBeforeRun("mirror.gcr.io/library/postgres:16-alpine")
 	}
 
 	// The App Service platform images the built-in-stack web apps run. The

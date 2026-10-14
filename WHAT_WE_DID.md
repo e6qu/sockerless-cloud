@@ -1382,8 +1382,8 @@ source without automated backups, a read replica or a cluster member
 SourceDatabaseNotSupportedFault.
 
 Every engine version runs that release's image. `rdsEngineVersions` lists
-PostgreSQL 17.11, 16.15 and 16.14, MySQL 8.0.46 and MariaDB 11.4.13 from the ECR
-Public Gallery's Docker official images, each with its DB parameter group
+PostgreSQL 17.11, 16.15 and 16.14, MySQL 8.0.46 and MariaDB 11.4.13 from
+`mirror.gcr.io`'s copy of Docker's official images, each with its DB parameter group
 family, so `SELECT version()` answers the EngineVersion DescribeDBInstances
 reports. DescribeDBEngineVersions lists exactly these with the upgrades the
 simulator performs. Any other version is InvalidParameterCombination ("Cannot
@@ -2284,7 +2284,15 @@ The coverage ratchets hold a served floor that may only rise and the declared
 total of every vendored document, so a re-vendor that adds a surface fails until
 it is served or declared, and a withdrawal is named in the floor comment. What a
 re-vendor adds is served wherever the document describes something the
-simulator already holds. A floor counts only what it measures.
+simulator already holds. A floor counts only what it measures. The AWS Glue
+model's data-quality V2 operations read the store the V1 reads use, so a ruleset
+evaluation run's result appears in `ListDataQualityResultsV2` beside the ones
+`PublishDataQualityResultV2` records. A published result keeps its dimensions,
+tags, descriptors, evaluation context and score. An evaluation run's score is
+its passed rules over all of its rules. A publish replayed with the same
+`ClientToken` names the first result, and the same token with another body is
+refused with `IdempotentParameterMismatchException`. The generators sort under
+`LC_ALL=C`, so a regenerated table comes out the same on every machine.
 
 The store-scan gate holds request-path full-store reads at zero; a row indexed
 under every `/`-terminated prefix of its identifier answers a child listing and
@@ -2491,15 +2499,13 @@ carries no `published_at` fails the run by name. Reading `GOPROXY` runs with
 through the proxy a stalled run cannot reach.
 
 Digest-pinned images follow the same quarantine. `scripts/check-latest-deps.sh`
-finds every `public.ecr.aws/docker/library/...` or `mirror.gcr.io/...`
-reference spelling a tag and a digest, outside Markdown, and reads Docker Hub's
-tag API and the copy's manifest. A pin fails when Docker Hub has served another
-digest for its tag for a day, when a newer release with the same variant and
-major version has been on Docker Hub for a day, or when the copy serves another
-digest than the pin; anything younger is held. A newer number Docker Hub stopped
-rebuilding before it last rebuilt the pinned tag, such as Ubuntu 24.10 beside
-24.04, is an abandoned line. Requests to ECR Public are spaced a second apart,
-its unauthenticated limit.
+finds every `mirror.gcr.io/...` reference spelling a tag and a digest, outside
+Markdown, and reads Docker Hub's tag API and `mirror.gcr.io`'s manifest. A pin
+fails when Docker Hub has served another digest for its tag for a day, when a
+newer release with the same variant and major version has been on Docker Hub for
+a day, or when the copy serves another digest than the pin; anything younger is
+held. A newer number Docker Hub stopped rebuilding before it last rebuilt the
+pinned tag, such as Ubuntu 24.10 beside 24.04, is an abandoned line.
 
 ## Continuous integration
 
@@ -2513,8 +2519,9 @@ into `.build/<suite>/` and namespaces its images per suite.
 
 Base images are read out of the source by `scripts/base-images-for.sh` — which
 scans `sim/` for every simulator and reads digest references — and warmed from
-one cache entry per cloud keyed on the image set, because the ECR Public Gallery
-caps anonymous pulls by data volume, which no retry recovers from. Every suite
+one cache entry per cloud keyed on the image set, because public registries
+throttle anonymous pulls, and the ECR Public Gallery, which serves the images AWS
+publishes, caps them by data volume, which no retry recovers from. Every suite
 takes a base image through `testutil/baseimage.Ensure`, which asks the host
 first; a pull that tests a simulator's own registry is the named exception. A
 reference spelling a tag and a digest is saved and found under the digest's
@@ -2536,16 +2543,27 @@ refuse it; the CLI and SDK suites already covered what it did, and its
 `gcloud services enable` and `gcloud services list` moved into the CLI suite.
 
 Nothing CI builds or runs pulls from Docker Hub, which limits anonymous pulls
-per address. The simulator images and `Dockerfile.test` build from the ECR
-Public Gallery's copy of Docker's official images and BuildKit comes from
-`mirror.gcr.io`, each pinned to the index digest Docker Hub serves for the tag;
-a test's workload image names its ECR Public tag, and another public image comes
-from `mirror.gcr.io`. A digest-pinned workload image is left out of warming
-because `docker load` restores none by digest. The images the simulators pull
-themselves follow the rule: the Container Apps Dapr sidecar, the Percona
-XtraBackup helper and the Memorystore for Redis 3.2 and 4.0 engines come from
-`mirror.gcr.io`, and the Amazon EBS volume-copy helper runs the ECR Public
-alpine.
+per address. Docker's official images come from `mirror.gcr.io`, Google's
+public copy of Docker Hub, which serves them anonymously without that limit:
+the simulator images and `Dockerfile.test` build from it, BuildKit and the
+Dockerfile syntax image come from it, and a test's workload image names its
+`mirror.gcr.io/library/...` tag, each build image pinned to the index digest
+Docker Hub serves for the tag. The ECR Public Gallery's copy of the official
+images served them before; under CI's load it answered `toomanyrequests: Data
+limit exceeded`, failing every container-backed test at its pull, and copying
+the images into a registry the project owns would have made every pin update a
+refresh of the copy. The ECR Public Gallery still serves what AWS publishes
+there — the AWS Lambda base images, the AWS CLI, Amazon DynamoDB local and the
+AWS CodeBuild images — since those are the images the real services run. A
+digest-pinned workload image is left out of warming because `docker load`
+restores none by digest. The images the simulators pull themselves follow the
+rule: the Container Apps Dapr sidecar, the Percona XtraBackup helper, the
+Memorystore for Redis engines, the Amazon RDS engines and the Amazon EBS
+volume-copy helper all come from `mirror.gcr.io`. The Google Cloud simulator
+presents a service account's token only to Artifact Registry and to Container
+Registry's four hosts (`gcr.io`, `us.gcr.io`, `eu.gcr.io`, `asia.gcr.io`), and
+pulls from `mirror.gcr.io` anonymously: the mirror belongs to no project and
+answers a token it cannot verify with 401.
 
 A differential oracle is pinned by its multi-platform index digest, and the
 harness refuses an image built for another architecture than the engine's. Its

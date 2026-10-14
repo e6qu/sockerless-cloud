@@ -119,14 +119,15 @@ func TestContainerReaperAbnormalExit(t *testing.T) {
 }
 
 // The reaper test pulls a real image, so it depends on a registry being
-// reachable from the runner. It reads from the Amazon ECR Public Gallery
-// rather than Docker Hub, which is what the rest of the repository does: an
-// unauthenticated Hub pull is rate-limited per source address, and a runner
-// that has exhausted that budget — or cannot reach Hub at all — fails this
-// test for a reason that has nothing to do with the reaper. Both this test and
+// reachable from the runner. It reads from mirror.gcr.io, Google's copy of
+// Docker Hub, rather than Docker Hub itself, which is what the rest of the
+// repository does: an unauthenticated Hub pull is rate-limited per source
+// address, and a runner that has exhausted that budget — or cannot reach Hub
+// at all — fails this test for a reason that has nothing to do with the
+// reaper. Both this test and
 // the startup sweep lost a CI run to
 // `Get "https://registry-1.docker.io/v2/": context deadline exceeded`.
-const containerReaperTestImage = "public.ecr.aws/docker/library/alpine:3.22"
+const containerReaperTestImage = "mirror.gcr.io/library/alpine:3.22"
 
 func runContainerReaperTestChild(t *testing.T) {
 	if err := startContainerReaper("aws"); err != nil {

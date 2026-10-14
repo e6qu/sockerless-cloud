@@ -29,8 +29,8 @@ func TestCloudBuild_DockerStepsPullAndPushAsTheBuildServiceAccount(t *testing.T)
 	arCreateDockerHubRemoteRepository(t, project, location, "docker-hub")
 	arCreateRepository(t, project, location, "sockerless-overlay")
 
-	pullImageWithRetry(t, "public.ecr.aws/docker/library/alpine:3.20")
-	_, err := dockerCLIWithTimeout(60*time.Second, "tag", "public.ecr.aws/docker/library/alpine:3.20", "alpine:3.20")
+	pullImageWithRetry(t, "mirror.gcr.io/library/alpine:3.20")
+	_, err := dockerCLIWithTimeout(60*time.Second, "tag", "mirror.gcr.io/library/alpine:3.20", "alpine:3.20")
 	require.NoError(t, err)
 
 	registry := strings.TrimPrefix(baseURL, "http://")

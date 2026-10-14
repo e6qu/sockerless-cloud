@@ -38,7 +38,7 @@ func TestCloudBuild_FaithfulBuildPush(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, cleanupTrust()) })
 	// Pre-pull the build's base image so the sim's `docker build` uses the
 	// local cache instead of racing a throttle-prone public-mirror pull.
-	pullImageWithRetry(t, "public.ecr.aws/docker/library/alpine:3.20")
+	pullImageWithRetry(t, "mirror.gcr.io/library/alpine:3.20")
 
 	imageName := fmt.Sprintf("127.0.0.1:%s/sockerless-overlay/cloudrun:test-%d", regPort, time.Now().UnixNano())
 
@@ -47,7 +47,7 @@ func TestCloudBuild_FaithfulBuildPush(t *testing.T) {
 	createBucket(t, project, bucket)
 	objectName := fmt.Sprintf("cb-push-%d.tar.gz", time.Now().UnixNano())
 	tarball := makeTarGz(t, map[string]string{
-		"Dockerfile": "FROM public.ecr.aws/docker/library/alpine:3.20\nRUN echo cloudbuild-ok > /opt/payload\n",
+		"Dockerfile": "FROM mirror.gcr.io/library/alpine:3.20\nRUN echo cloudbuild-ok > /opt/payload\n",
 	})
 	uploadGCSObject(t, bucket, objectName, tarball)
 
@@ -103,7 +103,7 @@ func pullImageWithRetry(t *testing.T, image string) {
 // deadline so a wedged runtime fails fast.
 func startThrowawayRegistry(t *testing.T, port string) {
 	t.Helper()
-	const regImage = "public.ecr.aws/docker/library/registry:2"
+	const regImage = "mirror.gcr.io/library/registry:2"
 	pullImageWithRetry(t, regImage)
 	name := "gcp-cb-sdktest-reg-" + port
 	var lastErr error

@@ -434,11 +434,11 @@ func TestMain(m *testing.M) {
 
 	// Pre-pull busybox up front (with retry) — it backs the awsvpc netns
 	// pause container AND is the workload image for many ECS tests. Pulling
-	// it lazily at RunTask time made the ECR-gallery fetch a flaky dependency
+	// it lazily at RunTask time made the registry fetch a flaky dependency
 	// of the task lifecycle: a transient throttle there surfaced as the task
 	// container "failing to start" (ExitCode -1) rather than a clear pull
 	// error. Fetching it once here removes that race from every test.
-	pullImageWithRetry("public.ecr.aws/docker/library/busybox:latest")
+	pullImageWithRetry("mirror.gcr.io/library/busybox:latest")
 	if testRunSelects("TestSFN_AmazonECSAndCodeBuildIntegrations_SDK") ||
 		testRunSelects("TestECS_TaskRoleCredentialsAuthorizeWorkloadAWSCLI") {
 		// The integration's timeout measures the Step Functions execution,
@@ -447,7 +447,7 @@ func TestMain(m *testing.M) {
 		// AWS CodeBuild project; pulling them before m.Run still executes both
 		// real containers while keeping image acquisition outside the per-test
 		// lifecycle deadline.
-		pullImageWithRetry("public.ecr.aws/docker/library/alpine:3.21")
+		pullImageWithRetry("mirror.gcr.io/library/alpine:3.21")
 		pullImageWithRetry("public.ecr.aws/aws-cli/aws-cli:2.27.49")
 	}
 	if testRunSelects("TestSFN_AmazonECSRunsTerraformAgainstSimulator_SDK") {
@@ -689,7 +689,7 @@ ENTRYPOINT ["/usr/local/bin/%s"]
 
 // gluePythonShellImage is the interpreter an AWS Glue Python shell job run
 // executes in — the image the simulator's job runner starts a container from.
-const gluePythonShellImage = "public.ecr.aws/docker/library/python:3.9"
+const gluePythonShellImage = "mirror.gcr.io/library/python:3.9"
 
 // ensureGluePythonShellImage puts the interpreter on the host before a Glue job
 // run is timed, and is called by the tests that start one.

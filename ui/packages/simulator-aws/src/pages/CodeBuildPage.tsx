@@ -72,7 +72,7 @@ phases:
 function CreateProjectModal({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
-  const [image, setImage] = useState("public.ecr.aws/docker/library/alpine:3.21");
+  const [image, setImage] = useState("mirror.gcr.io/library/alpine:3.21");
   const [serviceRole, setServiceRole] = useState("");
   const [buildspec, setBuildspec] = useState(defaultBuildspec);
   const valid = /^[A-Za-z0-9][A-Za-z0-9_-]{1,149}$/.test(name) && image.includes(":") && serviceRole.startsWith("arn:") && buildspec.trim().length > 0;

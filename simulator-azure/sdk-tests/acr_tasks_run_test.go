@@ -64,7 +64,7 @@ func TestACRTasks_FileTaskRunFromUploadedSource(t *testing.T) {
 	}
 	const rg, regName = "acr-tasks-run-rg-b2d6", "acrtaskfilerunreg"
 	acrEnsureRegistry(t, rg, regName)
-	pullImageWithRetry(t, "public.ecr.aws/docker/library/alpine:3.20")
+	pullImageWithRetry(t, "mirror.gcr.io/library/alpine:3.20")
 
 	registries, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -81,11 +81,11 @@ func TestACRTasks_FileTaskRunFromUploadedSource(t *testing.T) {
 	require.NoError(t, err)
 	_, err = uploader.UploadBuffer(ctx, makeACRBuildContext(t, map[string]string{
 		"marker.txt": marker + "\n",
-		"Dockerfile": "FROM public.ecr.aws/docker/library/alpine:3.20\nCOPY marker.txt step.txt /\n",
+		"Dockerfile": "FROM mirror.gcr.io/library/alpine:3.20\nCOPY marker.txt step.txt /\n",
 		"acb.yaml": `version: v1.1.0
 steps:
   - id: write
-    cmd: public.ecr.aws/docker/library/alpine:3.20 sh -c "cat marker.txt > step.txt && echo step-saw-$(cat marker.txt)"
+    cmd: mirror.gcr.io/library/alpine:3.20 sh -c "cat marker.txt > step.txt && echo step-saw-$(cat marker.txt)"
   - id: image
     build: -t $Registry/task-run:{{.Values.tag}} .
   - push: ["$Registry/task-run:{{.Values.tag}}"]
@@ -128,11 +128,11 @@ func TestACRTasks_TaskRunRequestRunsTheTask(t *testing.T) {
 	}
 	const rg, regName, taskName = "acr-tasks-run-rg-e15a", "acrtaskrunreqreg", "greet"
 	acrEnsureRegistry(t, rg, regName)
-	pullImageWithRetry(t, "public.ecr.aws/docker/library/alpine:3.20")
+	pullImageWithRetry(t, "mirror.gcr.io/library/alpine:3.20")
 
 	tasks, err := armcontainerregistry.NewTasksClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
-	content := "steps:\n  - cmd: public.ecr.aws/docker/library/alpine:3.20 echo greeting={{.Values.who}} task={{.Run.TaskName}}\n"
+	content := "steps:\n  - cmd: mirror.gcr.io/library/alpine:3.20 echo greeting={{.Values.who}} task={{.Run.TaskName}}\n"
 	poller, err := tasks.BeginCreate(ctx, rg, regName, taskName, armcontainerregistry.Task{
 		Location: to.Ptr("eastus"),
 		Properties: &armcontainerregistry.TaskProperties{
@@ -175,7 +175,7 @@ func TestACRTasks_AgentPoolQueuesRunsBeyondItsAgents(t *testing.T) {
 	}
 	const rg, regName, pool = "acr-tasks-run-rg", "acrtaskpoolreg", "pool1"
 	acrEnsureRegistry(t, rg, regName)
-	pullImageWithRetry(t, "public.ecr.aws/docker/library/alpine:3.20")
+	pullImageWithRetry(t, "mirror.gcr.io/library/alpine:3.20")
 
 	pools, err := armcontainerregistry.NewAgentPoolsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -192,7 +192,7 @@ func TestACRTasks_AgentPoolQueuesRunsBeyondItsAgents(t *testing.T) {
 	runs, err := armcontainerregistry.NewRunsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	content := base64.StdEncoding.EncodeToString([]byte(
-		"steps:\n  - cmd: public.ecr.aws/docker/library/alpine:3.20 sh -c \"echo agent-busy && sleep 600\"\n"))
+		"steps:\n  - cmd: mirror.gcr.io/library/alpine:3.20 sh -c \"echo agent-busy && sleep 600\"\n"))
 	schedule := func() string {
 		poller, err := registries.BeginScheduleRun(ctx, rg, regName, &armcontainerregistry.EncodedTaskRunRequest{
 			Type:               to.Ptr("EncodedTaskRunRequest"),

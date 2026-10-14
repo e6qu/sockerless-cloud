@@ -28,7 +28,7 @@ func TestECS_TaskDefEnvironment(t *testing.T) {
 			{
 				StopTimeout: aws.Int32(2),
 				Name:        aws.String("app"),
-				Image:       aws.String("public.ecr.aws/docker/library/alpine:latest"),
+				Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
 				Environment: envVars,
 			},
 		},
@@ -70,7 +70,7 @@ func TestECS_TaskDefCPUMemory(t *testing.T) {
 			{
 				StopTimeout: aws.Int32(2),
 				Name:        aws.String("app"),
-				Image:       aws.String("public.ecr.aws/docker/library/alpine:latest"),
+				Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
 				Memory:      aws.Int32(1024),
 			},
 		},
@@ -112,7 +112,7 @@ func TestECS_TaskDefMountPoints(t *testing.T) {
 			{
 				StopTimeout: aws.Int32(2),
 				Name:        aws.String("app"),
-				Image:       aws.String("public.ecr.aws/docker/library/alpine:latest"),
+				Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
 				MountPoints: []ecstypes.MountPoint{
 					{
 						SourceVolume:  aws.String("data-vol"),
@@ -182,7 +182,7 @@ func TestECS_RunTaskTags(t *testing.T) {
 			{
 				StopTimeout: aws.Int32(2),
 				Name:        aws.String("app"),
-				Image:       aws.String("public.ecr.aws/docker/library/alpine:latest"),
+				Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
 			},
 		},
 	})
@@ -250,7 +250,7 @@ func TestECS_RunTaskNetworkConfig(t *testing.T) {
 			{
 				StopTimeout: aws.Int32(2),
 				Name:        aws.String("app"),
-				Image:       aws.String("public.ecr.aws/docker/library/alpine:latest"),
+				Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
 				Command:     []string{"sleep", "60"},
 			},
 		},

@@ -17,11 +17,10 @@
 #   4. Go tools a workflow installs — every `go install <pkg>@<version>` must
 #      name a version, never `@latest`, and that version is held to the same
 #      quarantine as everything else.
-#   5. Container images pinned as public.ecr.aws/docker/library/<name> or
-#      mirror.gcr.io/<repository> at <tag>@sha256:<digest> — the digest must be
-#      the one Docker Hub serves for the tag, no newer release of the same
-#      variant and major version may have cleared the quarantine, and the copy
-#      the image is pulled from must serve the pinned digest.
+#   5. Container images pinned as mirror.gcr.io/<repository> at
+#      <tag>@sha256:<digest> — the digest must be the one Docker Hub serves for
+#      the tag, no newer release of the same variant and major version may have
+#      cleared the quarantine, and mirror.gcr.io must serve the pinned digest.
 #
 # Exit code: 0 only when every direct dependency is on the newest adoptable
 # version. 1 on any drift, and on any dependency whose publication time cannot
@@ -92,9 +91,8 @@ github_api=${DEPS_GITHUB_API_URL:-https://api.github.com}
 # Container image pins are compared with Docker Hub and with the copy they are
 # pulled from; the self-test points these at fixtures the same way.
 docker_hub=${DEPS_DOCKER_HUB_URL:-https://hub.docker.com}
-ecr_public=${DEPS_ECR_PUBLIC_URL:-https://public.ecr.aws}
 gcr_mirror=${DEPS_GCR_MIRROR_URL:-https://mirror.gcr.io}
-readonly terraform_registry github_api docker_hub ecr_public gcr_mirror
+readonly terraform_registry github_api docker_hub gcr_mirror
 
 # --- Baseline attribution --------------------------------------------------
 #
@@ -942,13 +940,11 @@ while IFS= read -r manifest; do
 done < <(git ls-files 'ui/package.json' 'ui/packages/*/package.json' | sort)
 
 # 5. Container image pins -------------------------------------------------
-# Every image this repository pulls is a copy of a Docker Hub image, pinned by
-# tag and digest: public.ecr.aws/docker/library/<name> for official images and
-# mirror.gcr.io/<repository> for the rest, because Docker Hub limits anonymous
-# pulls per address and the shared runners exhaust it. A digest that never
-# moves rots like any other pin, and nothing else watches these: there is no
-# Dependabot here, and Dependabot's anonymous lookups on public.ecr.aws exceed
-# ECR Public's limit of one unauthenticated request per second anyway.
+# Every image this repository pins is pulled from mirror.gcr.io, Google's copy
+# of Docker Hub, by tag and digest, because Docker Hub limits anonymous pulls
+# per address and the shared runners exhaust it. A digest that never moves rots
+# like any other pin, and nothing else watches these: there is no Dependabot
+# here.
 #
 # Per pin, Docker Hub's tag API gives the digest it serves for the tag and when
 # it pushed it, and its tag list gives newer releases with their push times. A
@@ -957,7 +953,7 @@ done < <(git ls-files 'ui/package.json' 'ui/packages/*/package.json' | sort)
 # version, and Docker Hub has pushed it since it last rebuilt the pinned tag:
 # Ubuntu 24.10 is "newer" than 24.04 by number, but Docker Hub stopped
 # rebuilding it while 24.04 still gets rebuilds, so it is an abandoned line,
-# not an upgrade. The copy's own digest for the tag is the SHA-256 of the
+# not an upgrade. mirror.gcr.io's own digest for the tag is the SHA-256 of the
 # manifest it serves, which is what a digest is.
 
 # sha256_file prints the sha256:<hex> digest of a file's bytes.
@@ -978,29 +974,12 @@ image_fetch() {
     -o "$out" "$@" "$url" 2>/dev/null
 }
 
-# ECR Public allows one unauthenticated request per second, so every request
-# to it waits that long first.
-ecr_fetch() {
-  sleep 1.1
-  image_fetch "$@"
-}
-
 manifest_types='application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json'
 
-# copy_digest <registry> <repository> <tag> prints the digest the copy serves.
+# copy_digest <repository> <tag> prints the digest mirror.gcr.io serves.
 copy_digest() {
-  local registry=$1 repository=$2 tag=$3 token
-  if [[ $registry == public.ecr.aws/docker/library ]]; then
-    ecr_fetch "$work/ecr-token.json" \
-      "$ecr_public/token/?scope=repository:docker/library/$repository:pull&service=public.ecr.aws" || return 1
-    token=$(jq -r '.token // empty' "$work/ecr-token.json")
-    [[ -n $token ]] || return 1
-    ecr_fetch "$work/manifest" "$ecr_public/v2/docker/library/$repository/manifests/$tag" \
-      -H "Accept: $manifest_types" -H "Authorization: Bearer $token" || return 1
-  else
-    image_fetch "$work/manifest" "$gcr_mirror/v2/$repository/manifests/$tag" \
-      -H "Accept: $manifest_types" || return 1
-  fi
+  image_fetch "$work/manifest" "$gcr_mirror/v2/$1/manifests/$2" \
+    -H "Accept: $manifest_types" || return 1
   sha256_file "$work/manifest"
 }
 
@@ -1025,17 +1004,13 @@ newer_releases() {
 }
 
 echo "=== Container image pin freshness (adoption quarantine ${quarantine_seconds}s) ==="
-image_pattern='(public\.ecr\.aws/docker/library|mirror\.gcr\.io)/[a-z0-9._/-]+:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}'
+image_pattern='mirror\.gcr\.io/[a-z0-9._/-]+:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}'
 git grep -oE "$image_pattern" -- ':!*.md' >"$work/image-pins" || true
 while IFS= read -r ref; do
   [[ -z $ref ]] && continue
   files=$(grep -F ":$ref" "$work/image-pins" | cut -d: -f1 | sort -u | tr '\n' ' ')
   registry=${ref%%/*}
   rest=${ref#*/}
-  if [[ $registry == public.ecr.aws ]]; then
-    registry=public.ecr.aws/docker/library
-    rest=${ref#public.ecr.aws/docker/library/}
-  fi
   digest=${rest##*@}
   rest=${rest%@*}
   tag=${rest##*:}
@@ -1058,7 +1033,7 @@ while IFS= read -r ref; do
     fail=$((fail + 1))
     continue
   fi
-  if ! mirrored=$(copy_digest "$registry" "$repository" "$tag"); then
+  if ! mirrored=$(copy_digest "$repository" "$tag"); then
     echo "  FAIL  $label could not be read from $registry after three attempts — this is the registry being unreachable, not a stale pin"
     fail=$((fail + 1))
     continue

@@ -220,8 +220,8 @@ func amplifyStopComputeLocked(key string) {
 }
 
 // amplifyComputeRuntimeImage maps the manifest's runtime ("nodejs18.x") to
-// the node container image (via the ECR Public Docker Hub mirror — repo
-// policy: no direct Docker Hub pulls).
+// the node container image (via mirror.gcr.io, Google's Docker Hub mirror —
+// repo policy: no direct Docker Hub pulls).
 //
 // The runtimes are listed rather than derived from the name. AWS Amplify
 // Hosting accepts a published set, so composing a tag out of any "nodejsNN.x"
@@ -231,9 +231,9 @@ func amplifyStopComputeLocked(key string) {
 func amplifyComputeRuntimeImage(runtimeName string) (string, error) {
 	switch runtimeName {
 	case "nodejs18.x":
-		return "public.ecr.aws/docker/library/node:18-alpine", nil
+		return "mirror.gcr.io/library/node:18-alpine", nil
 	case "nodejs20.x":
-		return "public.ecr.aws/docker/library/node:20-alpine", nil
+		return "mirror.gcr.io/library/node:20-alpine", nil
 	}
 	return "", fmt.Errorf("compute runtime %q not supported (expected nodejs18.x or nodejs20.x)", runtimeName)
 }

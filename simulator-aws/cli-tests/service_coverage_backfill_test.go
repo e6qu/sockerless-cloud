@@ -90,7 +90,7 @@ func TestCodeBuildCLI_ListBuilds(t *testing.T) {
 	runCLI(t, awsCLI("codebuild", "create-project", "--name", project,
 		"--source", `{"type":"NO_SOURCE","buildspec":"version: 0.2\nphases:\n  build:\n    commands:\n      - printf ok\n"}`,
 		"--artifacts", `{"type":"NO_ARTIFACTS"}`,
-		"--environment", `{"type":"LINUX_CONTAINER","image":"public.ecr.aws/docker/library/busybox:latest","computeType":"BUILD_GENERAL1_SMALL"}`,
+		"--environment", `{"type":"LINUX_CONTAINER","image":"mirror.gcr.io/library/busybox:latest","computeType":"BUILD_GENERAL1_SMALL"}`,
 		"--service-role", "arn:aws:iam::123456789012:role/cli-cov-codebuild"))
 	t.Cleanup(func() { _ = awsCLI("codebuild", "delete-project", "--name", project).Run() })
 

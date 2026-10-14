@@ -123,7 +123,7 @@ func TestECS_CLI_RunTaskAndCheckLogs(t *testing.T) {
 		"--memory", "512",
 		"--container-definitions", `[{
 			"name": "app",
-			"image": "public.ecr.aws/docker/library/alpine:latest",
+			"image": "mirror.gcr.io/library/alpine:latest",
 			"command": ["echo", "hello-from-ecs"],
 			"logConfiguration": {
 				"logDriver": "awslogs",
@@ -224,7 +224,7 @@ func TestECS_CLI_RunTaskContainerOverrideEnvironment(t *testing.T) {
 		"--memory", "512",
 		"--container-definitions", `[{
 			"name": "workspace",
-			"image": "public.ecr.aws/docker/library/alpine:latest",
+			"image": "mirror.gcr.io/library/alpine:latest",
 			"command": ["sh", "-c", "echo taskdef:${EDD_WORKSPACE_ID:-missing}:${BASE_ONLY}:${OVERRIDE_ME}"],
 			"environment": [
 				{"name": "BASE_ONLY", "value": "from-task-definition"},
@@ -330,7 +330,7 @@ func TestECS_CLI_ExecuteCommandRejectedWhenNotEnabled(t *testing.T) {
 		"--memory", "512",
 		"--container-definitions", `[{
 			"name": "app",
-			"image": "public.ecr.aws/docker/library/busybox:latest",
+			"image": "mirror.gcr.io/library/busybox:latest",
 			"entryPoint": ["sh", "-c"],
 			"command": ["trap 'exit 143' TERM; sleep 30 & wait"]
 		}]`,
@@ -381,7 +381,7 @@ func TestECS_CLI_FargateSandboxAllowsChroot(t *testing.T) {
 		"--memory", "512",
 		"--container-definitions", `[{
 			"name": "app",
-			"image": "public.ecr.aws/docker/library/busybox:latest",
+			"image": "mirror.gcr.io/library/busybox:latest",
 			"entryPoint": ["sh", "-c"],
 			"command": ["mkdir -p /jail && chroot /jail /definitely-missing; code=$?; if [ \"$code\" = 127 ]; then echo CHROOT_OK; exit 0; fi; exit \"$code\""],
 			"logConfiguration": {"logDriver":"awslogs","options":{"awslogs-create-group":"true","awslogs-group":"/ecs/cli-chroot","awslogs-stream-prefix":"ecs"}}
@@ -465,7 +465,7 @@ func TestECS_CLI_ManagedEBSVolumeSnapshotRoundTrip(t *testing.T) {
 		// seed is gone; the round trip has to happen.
 		"--container-definitions", `[{
 			"name": "writer",
-			"image": "public.ecr.aws/docker/library/alpine:latest",
+			"image": "mirror.gcr.io/library/alpine:latest",
 			"entryPoint": ["sh", "-c"],
 			"command": ["printf 'cli-ebs-roundtrip' > /workspace/state.txt"],
 			"mountPoints": [{"sourceVolume":"workspace","containerPath":"/workspace"}]
@@ -544,7 +544,7 @@ func TestECS_CLI_ManagedEBSVolumeSnapshotRoundTrip(t *testing.T) {
 		"--volumes", `[{"name":"workspace","configuredAtLaunch":true}]`,
 		"--container-definitions", `[{
 			"name": "reader",
-			"image": "public.ecr.aws/docker/library/alpine:latest",
+			"image": "mirror.gcr.io/library/alpine:latest",
 			"entryPoint": ["sh", "-c"],
 			"command": ["test \"$(cat /workspace/state.txt)\" = \"cli-ebs-roundtrip\" && echo CLI_EBS_ROUNDTRIP_OK"],
 			"mountPoints": [{"sourceVolume":"workspace","containerPath":"/workspace"}],
@@ -609,7 +609,7 @@ func TestECS_CLI_RunTaskNonZeroExit(t *testing.T) {
 		"--memory", "512",
 		"--container-definitions", `[{
 			"name": "app",
-			"image": "public.ecr.aws/docker/library/alpine:latest",
+			"image": "mirror.gcr.io/library/alpine:latest",
 			"command": ["sh", "-c", "exit 1"],
 			"logConfiguration": {
 				"logDriver": "awslogs",
@@ -683,7 +683,7 @@ func TestECS_CLI_TagAndUntagTask(t *testing.T) {
 		"--memory", "512",
 		"--container-definitions", `[{
 				"name": "app",
-				"image": "public.ecr.aws/docker/library/alpine:latest",
+				"image": "mirror.gcr.io/library/alpine:latest",
 				"entryPoint": ["sh", "-c"],
 				"command": ["trap 'exit 143' TERM; sleep 30 & wait"]
 			}]`,

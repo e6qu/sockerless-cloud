@@ -48,7 +48,7 @@ func cloudBuildDockerConfig(b Build, workDir string) (string, error) {
 	now := time.Now()
 	token := signAccessToken(account, now, now.Add(time.Hour))
 	// The registry hosts imageOnGoogleRegistry names.
-	patterns := []string{"*-docker.pkg.dev", "gcr.io", "*.gcr.io"}
+	patterns := append([]string{"*-docker.pkg.dev"}, containerRegistryHosts...)
 	if port, err := workloadhost.ListenPort(simListenAddr); err == nil {
 		patterns = append(patterns, fmt.Sprintf("*:%d", port))
 	}

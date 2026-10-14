@@ -66,12 +66,12 @@ func TestContainerApps_JobArithmeticInvalid(t *testing.T) {
 	// Poll for terminal status — container start latency on slow CI
 	// can exceed any fixed sleep.
 	var lastStatus string
-	require.Eventually(t, func() bool {
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		exec := acaGetExecution(t, rg, jobName, execName)
 		execProps := exec["properties"].(map[string]any)
 		lastStatus, _ = execProps["status"].(string)
-		return lastStatus == "Failed" || lastStatus == "Succeeded"
-	}, 30*time.Second, 250*time.Millisecond, "execution should reach terminal status; last=%s", lastStatus)
+		assert.Contains(c, []string{"Failed", "Succeeded"}, lastStatus, "execution %s should reach a terminal status", execName)
+	}, 30*time.Second, 250*time.Millisecond)
 	assert.Equal(t, "Failed", lastStatus)
 }
 
@@ -79,15 +79,16 @@ func TestContainerApps_JobArithmeticLogs(t *testing.T) {
 	t.Parallel()
 	rg, jobName := "arith-aca-rg-0e0a", "arith-aca-log-job"
 	acaCreateJobWithImageAndCommand(t, rg, jobName, evalImageName, []string{"10 / 3"})
-	_ = acaStartExecution(t, rg, jobName)
+	execName := acaStartExecution(t, rg, jobName)
 
 	kql := `ContainerAppConsoleLogs_CL | where ContainerGroupName_s == "arith-aca-log-job"`
 
-	var allLogs string
-	require.Eventually(t, func() bool {
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		exec := acaGetExecution(t, rg, jobName, execName)
+		status, _ := exec["properties"].(map[string]any)["status"].(string)
 		result := queryWorkspace(t, acaLogsCustomerID(t), kql)
-		if len(result.Tables) != 1 {
-			return false
+		if !assert.Len(c, result.Tables, 1, "execution %s is %s", execName, status) {
+			return
 		}
 		table := result.Tables[0]
 		logIdx := -1
@@ -97,14 +98,15 @@ func TestContainerApps_JobArithmeticLogs(t *testing.T) {
 				break
 			}
 		}
-		if logIdx < 0 {
-			return false
+		if !assert.GreaterOrEqual(c, logIdx, 0, "Log_s column; execution %s is %s", execName, status) {
+			return
 		}
 		var logs []string
 		for _, row := range table.Rows {
 			logs = append(logs, row[logIdx].(string))
 		}
-		allLogs = strings.Join(logs, "\n")
-		return strings.Contains(allLogs, "3.333") && strings.Contains(allLogs, "Parsing expression:")
-	}, 30*time.Second, 250*time.Millisecond, "expected '3.333' + 'Parsing expression:' in Log Analytics; saw=%q", allLogs)
+		allLogs := strings.Join(logs, "\n")
+		assert.Contains(c, allLogs, "3.333", "execution %s is %s", execName, status)
+		assert.Contains(c, allLogs, "Parsing expression:", "execution %s is %s", execName, status)
+	}, 30*time.Second, 250*time.Millisecond)
 }

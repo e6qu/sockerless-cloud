@@ -70,7 +70,7 @@ import (
 //	/slots/{slot}/deploymentStatus, /slots/{slot}/deploymentStatus/{deploymentStatusId},
 //	/slots/{slot}/sync, /slots/{slot}/newpassword
 
-const stage3AlpineImage = "public.ecr.aws/docker/library/alpine:3.20"
+const stage3AlpineImage = "mirror.gcr.io/library/alpine:3.20"
 
 // makeJobsZip builds an in-memory zip whose entries are path → file content
 // (shell scripts get the executable bit, as a real deployment package

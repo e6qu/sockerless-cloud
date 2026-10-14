@@ -14,7 +14,7 @@ import (
 
 // publishTestImage carries busybox's nc, whose -e answers every connection
 // with a fixed greeting.
-const publishTestImage = "public.ecr.aws/docker/library/busybox:latest"
+const publishTestImage = "mirror.gcr.io/library/busybox:latest"
 
 // readGreeting dials the host port until the workload's listener answers. The
 // engine's port forwarder accepts a connection before the listener behind it

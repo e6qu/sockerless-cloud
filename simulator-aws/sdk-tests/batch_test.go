@@ -238,7 +238,7 @@ func TestBatch_JobSubmitDescribe_SDK(t *testing.T) {
 		JobDefinitionName: aws.String("batch-sdk-jd-job"),
 		Type:              batchtypes.JobDefinitionTypeContainer,
 		ContainerProperties: &batchtypes.ContainerProperties{
-			Image:  aws.String("public.ecr.aws/docker/library/alpine:3"),
+			Image:  aws.String("mirror.gcr.io/library/alpine:3"),
 			Vcpus:  aws.Int32(1),
 			Memory: aws.Int32(512),
 		},
@@ -705,7 +705,7 @@ func TestBatch_CancelJobs_SDK(t *testing.T) {
 		JobDefinitionName: aws.String("batch-sdk-jd-bulk"),
 		Type:              batchtypes.JobDefinitionTypeContainer,
 		ContainerProperties: &batchtypes.ContainerProperties{
-			Image:  aws.String("public.ecr.aws/docker/library/alpine:3"),
+			Image:  aws.String("mirror.gcr.io/library/alpine:3"),
 			Vcpus:  aws.Int32(1),
 			Memory: aws.Int32(512),
 		},

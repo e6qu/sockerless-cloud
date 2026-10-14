@@ -90,8 +90,8 @@ func TestMain(m *testing.M) {
 	// Redis engine. Acquiring the images here, with retries, keeps a registry
 	// hiccup out of the timed apply.
 	for _, image := range []string{
-		"public.ecr.aws/docker/library/redis:7.0-alpine",
-		"public.ecr.aws/docker/library/redis:7.2-alpine",
+		"mirror.gcr.io/library/redis:7.0-alpine",
+		"mirror.gcr.io/library/redis:7.2-alpine",
 	} {
 		if err := baseimage.Ensure(image); err != nil {
 			log.Fatalf("Failed to pull the Redis engine image %s: %v", image, err)

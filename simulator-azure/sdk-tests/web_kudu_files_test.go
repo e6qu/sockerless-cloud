@@ -29,7 +29,7 @@ import (
 //	GET /api/continuouswebjobs/{job} (log_url)
 //	GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Web/sites/{siteName}/triggeredwebjobs/{webJobName}/history
 
-const kuduAlpineImage = "public.ecr.aws/docker/library/alpine:latest"
+const kuduAlpineImage = "mirror.gcr.io/library/alpine:latest"
 
 // kuduSCM returns a site's SCM base URL and a Microsoft Entra bearer for App
 // Service, the way az rest reaches the SCM site.

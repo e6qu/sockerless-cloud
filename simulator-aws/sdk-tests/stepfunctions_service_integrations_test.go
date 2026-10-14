@@ -528,7 +528,7 @@ func TestSFN_AmazonECSAndCodeBuildIntegrations_SDK(t *testing.T) {
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2),
 			Name:        aws.String("work"),
-			Image:       aws.String("public.ecr.aws/docker/library/alpine:3.21"),
+			Image:       aws.String("mirror.gcr.io/library/alpine:3.21"),
 			Command:     []string{"sh", "-c", "printf step-functions-ecs"},
 		}},
 	})
@@ -653,7 +653,7 @@ phases:
 		},
 		Artifacts: &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
 		Environment: &cbtypes.ProjectEnvironment{
-			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("public.ecr.aws/docker/library/alpine:3.21"),
+			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/library/alpine:3.21"),
 			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
 		},
 		ServiceRole: aws.String("arn:aws:iam::123456789012:role/codebuild-role"),

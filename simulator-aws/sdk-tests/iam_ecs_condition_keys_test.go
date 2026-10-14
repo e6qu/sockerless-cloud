@@ -28,7 +28,7 @@ func TestECS_RequestShapeConditionKeysScopeTheGrant(t *testing.T) {
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2),
 			Name:        aws.String("app"),
-			Image:       aws.String("public.ecr.aws/docker/library/busybox:latest"),
+			Image:       aws.String("mirror.gcr.io/library/busybox:latest"),
 		}},
 	})
 	require.NoError(t, err)

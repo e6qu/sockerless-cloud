@@ -98,7 +98,7 @@ func TestContainerApps_CLI_ManagedIdentityAndKeyVaultSecrets(t *testing.T) {
 				"template": {
 					"containers": [{
 						"name": "main",
-						"image": "public.ecr.aws/docker/library/alpine:latest",
+						"image": "mirror.gcr.io/library/alpine:latest",
 						"command": ["sh", "-c", %q],
 						"env": [
 							{"name": "DB", "secretRef": "db"},
@@ -168,7 +168,7 @@ func TestContainerApps_CLI_ManagedIdentityAndKeyVaultSecrets(t *testing.T) {
 			},
 			"template": {"containers": [{
 				"name": "app",
-				"image": "public.ecr.aws/docker/library/alpine:latest",
+				"image": "mirror.gcr.io/library/alpine:latest",
 				"command": ["sh", "-c", %q],
 				"env": [
 					{"name": "DB", "secretRef": "db"},

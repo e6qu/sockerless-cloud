@@ -249,7 +249,7 @@ func TestECS_RegisterTaskDefinition(t *testing.T) {
 			{
 				StopTimeout: aws.Int32(2),
 				Name:        aws.String("app"),
-				Image:       aws.String("public.ecr.aws/docker/library/alpine:latest"),
+				Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
 			},
 		},
 	})
@@ -633,7 +633,7 @@ func TestECS_RunTaskContainerOverridesApplyToRuntimeSDK(t *testing.T) {
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2),
 			Name:        aws.String("workspace"),
-			Image:       aws.String("public.ecr.aws/docker/library/alpine:latest"),
+			Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
 			Command: []string{
 				"sh", "-c",
 				`echo taskdef:${EDD_WORKSPACE_ID:-missing}:${BASE_ONLY}:${OVERRIDE_ME}`,
@@ -723,7 +723,7 @@ func TestECS_ExitCodeNilWhileRunning(t *testing.T) {
 			{
 				StopTimeout: aws.Int32(2),
 				Name:        aws.String("app"),
-				Image:       aws.String("public.ecr.aws/docker/library/alpine:latest"),
+				Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
 				Command:     []string{"sleep", "30"}, // long-running so RUNNING window is real
 			},
 		},
@@ -807,7 +807,7 @@ func TestECS_StopCodeUserInitiated(t *testing.T) {
 				// stopped only when this timeout runs out and is SIGKILLed.
 				StopTimeout: aws.Int32(10),
 				Name:        aws.String("app"),
-				Image:       aws.String("public.ecr.aws/docker/library/alpine:latest"),
+				Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
 				Command:     []string{"sleep", "30"},
 			},
 		},
@@ -1196,7 +1196,7 @@ func TestECS_TaskExecutesCommand(t *testing.T) {
 	client, cluster, taskArn := ecsRunTaskHelper(t, "exec-cmd", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),
-		Image:       aws.String("public.ecr.aws/docker/library/alpine:latest"),
+		Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
 		Command:     []string{"echo", "hello"},
 		LogConfiguration: &ecstypes.LogConfiguration{
 			LogDriver: ecstypes.LogDriverAwslogs,
@@ -1221,7 +1221,7 @@ func TestECS_TaskExitCodeNonZero(t *testing.T) {
 	client, cluster, taskArn := ecsRunTaskHelper(t, "exec-fail", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),
-		Image:       aws.String("public.ecr.aws/docker/library/alpine:latest"),
+		Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
 		Command:     []string{"sh", "-c", "exit 1"},
 		LogConfiguration: &ecstypes.LogConfiguration{
 			LogDriver: ecstypes.LogDriverAwslogs,
@@ -1247,7 +1247,7 @@ func TestECS_TaskFailsWhenAwslogsGroupIsMissing(t *testing.T) {
 	client, cluster, taskArn := ecsRunTaskHelper(t, "exec-no-group", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),
-		Image:       aws.String("public.ecr.aws/docker/library/alpine:latest"),
+		Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
 		Command:     []string{"echo", "never runs"},
 		LogConfiguration: &ecstypes.LogConfiguration{
 			LogDriver: ecstypes.LogDriverAwslogs,
@@ -1276,7 +1276,7 @@ func TestECS_TaskLogsToCloudWatch(t *testing.T) {
 	client, clusterName, taskArn := ecsRunTaskHelper(t, "exec-logs", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),
-		Image:       aws.String("public.ecr.aws/docker/library/alpine:latest"),
+		Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
 		Command:     []string{"echo", "hello from process"},
 		LogConfiguration: &ecstypes.LogConfiguration{
 			LogDriver: ecstypes.LogDriverAwslogs,
@@ -1347,7 +1347,7 @@ func TestECS_RunningTaskStreamsLogsLive(t *testing.T) {
 	client, cluster, taskArn := ecsRunTaskHelper(t, "live-logs", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),
-		Image:       aws.String("public.ecr.aws/docker/library/alpine:latest"),
+		Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
 		Command:     []string{"sh", "-c", "echo live-line-from-running-task; tail -f /dev/null"},
 		LogConfiguration: &ecstypes.LogConfiguration{
 			LogDriver: ecstypes.LogDriverAwslogs,
@@ -1418,7 +1418,7 @@ func TestECS_TaskNoCommandStaysRunning(t *testing.T) {
 	client, cluster, taskArn := ecsRunTaskHelper(t, "exec-nocmd", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),
-		Image:       aws.String("public.ecr.aws/docker/library/alpine:latest"),
+		Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
 		Command:     []string{"tail", "-f", "/dev/null"}, // Long-running — stays RUNNING
 		LogConfiguration: &ecstypes.LogConfiguration{
 			LogDriver: ecstypes.LogDriverAwslogs,
@@ -1454,7 +1454,7 @@ func TestECS_TagResource_OnRunningTask(t *testing.T) {
 	client, cluster, taskArn := ecsRunTaskHelper(t, "tag-task", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),
-		Image:       aws.String("public.ecr.aws/docker/library/alpine:latest"),
+		Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
 		Command:     []string{"tail", "-f", "/dev/null"},
 	})
 	_ = cluster
@@ -1525,7 +1525,7 @@ func TestECS_TagResource_RejectsStoppedTask(t *testing.T) {
 	client, cluster, taskArn := ecsRunTaskHelper(t, "tag-stopped", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),
-		Image:       aws.String("public.ecr.aws/docker/library/alpine:latest"),
+		Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
 		Command:     []string{"sh", "-c", "exit 0"},
 	})
 
@@ -1558,7 +1558,7 @@ func TestECS_ListTasks_Pagination(t *testing.T) {
 	td, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String(family),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
-			{StopTimeout: aws.Int32(2), Name: aws.String("app"), Image: aws.String("public.ecr.aws/docker/library/alpine:latest")},
+			{StopTimeout: aws.Int32(2), Name: aws.String("app"), Image: aws.String("mirror.gcr.io/library/alpine:latest")},
 		},
 		NetworkMode: ecstypes.NetworkModeBridge,
 	})
@@ -1626,7 +1626,7 @@ func TestECS_ListTasks_StartedByAndServiceFilters(t *testing.T) {
 
 	td, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family:               aws.String(family),
-		ContainerDefinitions: []ecstypes.ContainerDefinition{{StopTimeout: aws.Int32(2), Name: aws.String("app"), Image: aws.String("public.ecr.aws/docker/library/alpine:latest")}},
+		ContainerDefinitions: []ecstypes.ContainerDefinition{{StopTimeout: aws.Int32(2), Name: aws.String("app"), Image: aws.String("mirror.gcr.io/library/alpine:latest")}},
 	})
 	require.NoError(t, err)
 	tdArn := aws.ToString(td.TaskDefinition.TaskDefinitionArn)

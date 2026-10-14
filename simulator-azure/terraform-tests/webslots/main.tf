@@ -79,8 +79,8 @@ resource "azurerm_linux_web_app" "slots" {
     app_command_line = format(local.serve, "production-content $${CUSTOMCONNSTR_DB}")
 
     application_stack {
-      docker_image_name   = "docker/library/alpine:latest"
-      docker_registry_url = "https://public.ecr.aws"
+      docker_image_name   = "library/alpine:latest"
+      docker_registry_url = "https://mirror.gcr.io"
     }
   }
 
@@ -108,8 +108,8 @@ resource "azurerm_linux_web_app_slot" "staging" {
     app_command_line = format(local.serve, "staging-content $${CUSTOMCONNSTR_DB}")
 
     application_stack {
-      docker_image_name   = "docker/library/alpine:latest"
-      docker_registry_url = "https://public.ecr.aws"
+      docker_image_name   = "library/alpine:latest"
+      docker_registry_url = "https://mirror.gcr.io"
     }
   }
 

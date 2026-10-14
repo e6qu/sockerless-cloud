@@ -117,7 +117,7 @@ resource "aws_ecs_task_definition" "reporter" {
   memory                   = "512"
   container_definitions = jsonencode([{
     name        = "app"
-    image       = "public.ecr.aws/docker/library/busybox:latest"
+    image       = "mirror.gcr.io/library/busybox:latest"
     essential   = true
     stopTimeout = 2
     entryPoint  = ["sh", "-c"]

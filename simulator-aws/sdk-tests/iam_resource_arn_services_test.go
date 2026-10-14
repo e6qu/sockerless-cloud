@@ -56,7 +56,7 @@ func TestIAM_ResourceARN_CodeBuild(t *testing.T) {
 			Artifacts: &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
 			Environment: &cbtypes.ProjectEnvironment{
 				Type:        cbtypes.EnvironmentTypeLinuxContainer,
-				Image:       aws.String("public.ecr.aws/docker/library/alpine:3.21"),
+				Image:       aws.String("mirror.gcr.io/library/alpine:3.21"),
 				ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
 			},
 			ServiceRole: aws.String("arn:aws:iam::123456789012:role/cb-scoped-role"),
@@ -173,7 +173,7 @@ func TestIAM_PassRole_IsAuthorizedAgainstTheRolePassed(t *testing.T) {
 			ContainerDefinitions: []ecstypes.ContainerDefinition{{
 				StopTimeout: aws.Int32(2),
 				Name:        aws.String("app"),
-				Image:       aws.String("public.ecr.aws/docker/library/alpine:3.21"),
+				Image:       aws.String("mirror.gcr.io/library/alpine:3.21"),
 			}},
 		})
 		return err

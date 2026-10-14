@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-// memoryPeakTestImage is the image the memory-observation tests run, from the
-// Amazon ECR Public Gallery so a throttled Docker Hub cannot break them.
-const memoryPeakTestImage = "public.ecr.aws/docker/library/alpine:3.22"
+// memoryPeakTestImage is the image the memory-observation tests run, from
+// mirror.gcr.io so a throttled Docker Hub cannot break them.
+const memoryPeakTestImage = "mirror.gcr.io/library/alpine:3.22"
 
 // startMemoryPeakTestContainer runs one container to completion with the
 // engine's memory accounting observed, and returns the peak it reported.

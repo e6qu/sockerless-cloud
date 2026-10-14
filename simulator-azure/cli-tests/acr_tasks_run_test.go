@@ -41,21 +41,21 @@ func TestACRTasksCLI_BuildRunAndTaskRun(t *testing.T) {
 	const rg, registry = "cli-acr-tasks-run-rg", "cliacrtasksrun"
 	runCLI(t, env.command("group", "create", "-n", rg, "-l", "eastus", "-o", "json"))
 	runCLI(t, env.command("acr", "create", "-n", registry, "-g", rg, "--sku", "Standard", "-o", "json"))
-	pullWorkloadImage("public.ecr.aws/docker/library/alpine:3.20")
+	pullWorkloadImage("mirror.gcr.io/library/alpine:3.20")
 
 	source := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(source, "Dockerfile"),
-		[]byte("FROM public.ecr.aws/docker/library/alpine:3.20\nCOPY greeting.txt /greeting.txt\nRUN cat /greeting.txt\n"), 0o644))
+		[]byte("FROM mirror.gcr.io/library/alpine:3.20\nCOPY greeting.txt /greeting.txt\nRUN cat /greeting.txt\n"), 0o644))
 	// A greeting of this run's own keeps the build host's layer cache from
 	// answering for the build step that prints it.
 	greeting := fmt.Sprintf("hello from the uploaded source %d", time.Now().UnixNano())
 	require.NoError(t, os.WriteFile(filepath.Join(source, "greeting.txt"), []byte(greeting+"\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(source, "acb.yaml"), []byte(`version: v1.1.0
 steps:
-  - cmd: public.ecr.aws/docker/library/alpine:3.20 sh -c "cat greeting.txt && echo written-by-step-one > artifact.txt"
-  - cmd: public.ecr.aws/docker/library/alpine:3.20 cat artifact.txt
+  - cmd: mirror.gcr.io/library/alpine:3.20 sh -c "cat greeting.txt && echo written-by-step-one > artifact.txt"
+  - cmd: mirror.gcr.io/library/alpine:3.20 cat artifact.txt
   - build: -t $Registry/cli-run:$ID .
-  - cmd: public.ecr.aws/docker/library/alpine:3.20 echo value={{.Values.greeting}} registry=$RegistryName
+  - cmd: mirror.gcr.io/library/alpine:3.20 echo value={{.Values.greeting}} registry=$RegistryName
 `), 0o644))
 
 	build := runCLI(t, env.command("acr", "build", "-r", registry, "-g", rg,
@@ -70,11 +70,11 @@ steps:
 	assert.Contains(t, run, "value=from-set registry="+registry, "--set values and aliases render into the task file")
 
 	cmd := runCLI(t, env.command("acr", "run", "-r", registry, "-g", rg,
-		"--cmd", "public.ecr.aws/docker/library/alpine:3.20 echo quick-run-ok", "/dev/null"))
+		"--cmd", "mirror.gcr.io/library/alpine:3.20 echo quick-run-ok", "/dev/null"))
 	assert.Contains(t, cmd, "quick-run-ok")
 
 	runCLI(t, env.command("acr", "task", "create", "-n", "clitask", "-r", registry, "-g", rg,
-		"--cmd", "public.ecr.aws/docker/library/alpine:3.20 echo task-run-ok", "-c", "/dev/null", "-o", "json"))
+		"--cmd", "mirror.gcr.io/library/alpine:3.20 echo task-run-ok", "-c", "/dev/null", "-o", "json"))
 	task := runCLI(t, env.command("acr", "task", "run", "-n", "clitask", "-r", registry, "-g", rg))
 	assert.Contains(t, task, "task-run-ok")
 
@@ -93,6 +93,6 @@ steps:
 	assert.Equal(t, []string{"QuickBuild:", "QuickRun:", "QuickRun:", "QuickRun:clitask"}, got)
 
 	failing := runStorageCLIExpectFailure(t, env.command("acr", "run", "-r", registry, "-g", rg,
-		"--cmd", "public.ecr.aws/docker/library/alpine:3.20 false", "/dev/null"))
+		"--cmd", "mirror.gcr.io/library/alpine:3.20 false", "/dev/null"))
 	assert.Contains(t, failing, "Run failed", "a failing step fails the run")
 }

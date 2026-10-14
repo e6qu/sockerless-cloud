@@ -33,8 +33,8 @@ func TestCloudRun_JobPullsItsImageFromArtifactRegistryAsTheServiceAgent(t *testi
 
 	// The registry serves the docker-hub remote repository's content from
 	// what the host holds under the upstream's own name.
-	pullImageWithRetry(t, "public.ecr.aws/docker/library/alpine:3.20")
-	_, err := dockerCLIWithTimeout(60*time.Second, "tag", "public.ecr.aws/docker/library/alpine:3.20", "alpine:3.20")
+	pullImageWithRetry(t, "mirror.gcr.io/library/alpine:3.20")
+	_, err := dockerCLIWithTimeout(60*time.Second, "tag", "mirror.gcr.io/library/alpine:3.20", "alpine:3.20")
 	require.NoError(t, err)
 
 	registry := strings.TrimPrefix(baseURL, "http://")

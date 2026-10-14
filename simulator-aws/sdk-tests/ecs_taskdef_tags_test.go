@@ -24,7 +24,7 @@ func TestECS_TaskDefinitionTagsIncludePath(t *testing.T) {
 	}
 	reg, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family:               aws.String("taskdef-tags"),
-		ContainerDefinitions: []ecstypes.ContainerDefinition{{StopTimeout: aws.Int32(2), Name: aws.String("app"), Image: aws.String("public.ecr.aws/docker/library/nginx:latest")}},
+		ContainerDefinitions: []ecstypes.ContainerDefinition{{StopTimeout: aws.Int32(2), Name: aws.String("app"), Image: aws.String("mirror.gcr.io/library/nginx:latest")}},
 		Tags:                 tags,
 	})
 	require.NoError(t, err)
@@ -72,7 +72,7 @@ func TestECS_DescribeTasksTagsIncludePath(t *testing.T) {
 
 	reg, err := c.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family:               aws.String("task-tags-include"),
-		ContainerDefinitions: []ecstypes.ContainerDefinition{{StopTimeout: aws.Int32(2), Name: aws.String("app"), Image: aws.String("public.ecr.aws/docker/library/nginx:latest")}},
+		ContainerDefinitions: []ecstypes.ContainerDefinition{{StopTimeout: aws.Int32(2), Name: aws.String("app"), Image: aws.String("mirror.gcr.io/library/nginx:latest")}},
 	})
 	require.NoError(t, err)
 

@@ -427,7 +427,7 @@ resource "aws_ecs_task_definition" "tf_runner_bridge" {
   container_definitions = jsonencode([{
     name        = "app"
     stopTimeout = 2
-    image       = "public.ecr.aws/docker/library/alpine:latest"
+    image       = "mirror.gcr.io/library/alpine:latest"
     essential   = true
   }])
 }
@@ -2056,7 +2056,7 @@ resource "aws_batch_job_definition" "tf_batch_jd" {
   type = "container"
 
   container_properties = jsonencode({
-    image  = "public.ecr.aws/docker/library/alpine:3"
+    image  = "mirror.gcr.io/library/alpine:3"
     vcpus  = 1
     memory = 512
   })

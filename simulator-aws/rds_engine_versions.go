@@ -30,13 +30,13 @@ type rdsEngineVersion struct {
 // Aurora rows run the community release their major version is compatible
 // with.
 var rdsEngineVersions = []rdsEngineVersion{
-	{"postgres", "17.11", "17", "postgres17", "public.ecr.aws/docker/library/postgres:17.11-alpine", false},
-	{"postgres", "16.15", "16", "postgres16", "public.ecr.aws/docker/library/postgres:16.15-alpine", true},
-	{"postgres", "16.14", "16", "postgres16", "public.ecr.aws/docker/library/postgres:16.14-alpine", false},
-	{"mysql", "8.0.46", "8.0", "mysql8.0", "public.ecr.aws/docker/library/mysql:8.0.46", true},
-	{"mariadb", "11.4.13", "11.4", "mariadb11.4", "public.ecr.aws/docker/library/mariadb:11.4.13", true},
-	{"aurora-postgresql", "16.6", "16", "aurora-postgresql16", "public.ecr.aws/docker/library/postgres:16.15-alpine", true},
-	{"aurora-mysql", "8.0.mysql_aurora.3.07.0", "8.0", "aurora-mysql8.0", "public.ecr.aws/docker/library/mysql:8.0.46", true},
+	{"postgres", "17.11", "17", "postgres17", "mirror.gcr.io/library/postgres:17.11-alpine", false},
+	{"postgres", "16.15", "16", "postgres16", "mirror.gcr.io/library/postgres:16.15-alpine", true},
+	{"postgres", "16.14", "16", "postgres16", "mirror.gcr.io/library/postgres:16.14-alpine", false},
+	{"mysql", "8.0.46", "8.0", "mysql8.0", "mirror.gcr.io/library/mysql:8.0.46", true},
+	{"mariadb", "11.4.13", "11.4", "mariadb11.4", "mirror.gcr.io/library/mariadb:11.4.13", true},
+	{"aurora-postgresql", "16.6", "16", "aurora-postgresql16", "mirror.gcr.io/library/postgres:16.15-alpine", true},
+	{"aurora-mysql", "8.0.mysql_aurora.3.07.0", "8.0", "aurora-mysql8.0", "mirror.gcr.io/library/mysql:8.0.46", true},
 }
 
 // rdsVersionedEngine reports whether the simulator runs engine versions of

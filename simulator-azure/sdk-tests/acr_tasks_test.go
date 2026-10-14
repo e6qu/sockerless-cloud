@@ -104,7 +104,7 @@ func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 	// Pre-pull the build's base image so the sim's `docker build` uses the
 	// local cache instead of racing a fresh (throttle-prone) public-mirror
 	// pull mid-build.
-	pullImageWithRetry(t, "public.ecr.aws/docker/library/alpine:3.20")
+	pullImageWithRetry(t, "mirror.gcr.io/library/alpine:3.20")
 	imageName := fmt.Sprintf("%s/sockerless-overlay/aca:test-%d", coordinate, time.Now().UnixNano())
 
 	// 1. Upload a build context (Dockerfile + a file COPY'd in, mirroring
@@ -115,7 +115,7 @@ func TestACRTasks_ScheduleRunDockerBuild(t *testing.T) {
 	_, _ = blobClient.CreateContainer(ctx, ctr, nil)
 
 	context := makeACRBuildContext(t, map[string]string{
-		"Dockerfile": "FROM public.ecr.aws/docker/library/alpine:3.20\n" +
+		"Dockerfile": "FROM mirror.gcr.io/library/alpine:3.20\n" +
 			"COPY payload /opt/sockerless/payload\n" +
 			"RUN chmod +x /opt/sockerless/payload\n" +
 			"ENTRYPOINT [\"/opt/sockerless/payload\"]\n",
@@ -220,7 +220,7 @@ func pullImageWithRetry(t *testing.T, image string) {
 // runs inside the Linux harness container.
 func startThrowawayRegistry(t *testing.T, port string) []byte {
 	t.Helper()
-	const regImage = "public.ecr.aws/docker/library/registry:2"
+	const regImage = "mirror.gcr.io/library/registry:2"
 	// Pull the registry image up front with retries so `docker run` doesn't
 	// inline-pull (and exit 125) on a transient public-mirror throttle.
 	pullImageWithRetry(t, regImage)
@@ -392,7 +392,7 @@ func TestACRTasks_CancelStopsARunningBuild(t *testing.T) {
 	)
 	acrEnsureRegistry(t, rg, regName)
 	createStorageAccount(t, rg, account)
-	pullImageWithRetry(t, "public.ecr.aws/docker/library/alpine:3.20")
+	pullImageWithRetry(t, "mirror.gcr.io/library/alpine:3.20")
 
 	blobClient, err := azblob.NewClientWithNoCredential(storageSDKURL(t, account, "blob"),
 		&azblob.ClientOptions{ClientOptions: storageSDKOptions()})
@@ -400,7 +400,7 @@ func TestACRTasks_CancelStopsARunningBuild(t *testing.T) {
 	_, _ = blobClient.CreateContainer(ctx, ctr, nil)
 	blobName := fmt.Sprintf("build-context/%d.tar.gz", time.Now().UnixNano())
 	_, err = blobClient.UploadBuffer(ctx, ctr, blobName, makeACRBuildContext(t, map[string]string{
-		"Dockerfile": "FROM public.ecr.aws/docker/library/alpine:3.20\nRUN echo build-started && sleep 600\n",
+		"Dockerfile": "FROM mirror.gcr.io/library/alpine:3.20\nRUN echo build-started && sleep 600\n",
 	}), nil)
 	require.NoError(t, err)
 	imageName := fmt.Sprintf("%s.azurecr.io/canceled:%d", regName, time.Now().UnixNano())

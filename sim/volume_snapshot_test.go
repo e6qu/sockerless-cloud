@@ -13,7 +13,7 @@ import (
 	"github.com/moby/moby/client"
 )
 
-const volumeSnapshotTestImage = "public.ecr.aws/docker/library/alpine:3.22"
+const volumeSnapshotTestImage = "mirror.gcr.io/library/alpine:3.22"
 
 const volumeSnapshotTestFiles = 64
 

@@ -217,7 +217,7 @@ func amplifyCancelRunningBuild(jobID string) {
 // therefore fixed by the cloud implementation rather than caller-configurable
 // simulator state.
 func amplifyBuildImage() string {
-	return "public.ecr.aws/docker/library/node:22-bookworm"
+	return "mirror.gcr.io/library/node:22-bookworm"
 }
 
 // amplifyStepLog accumulates one job step's log lines and lands them in the

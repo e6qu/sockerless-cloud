@@ -18,6 +18,7 @@ import (
 // ECR Public Gallery — as Lambda runs it after ECR hydrates the cache.
 func TestLambda_ImageThroughPullThroughCacheRule(t *testing.T) {
 	t.Parallel()
+	const upstreamImage = "public.ecr.aws/docker/library/alpine:latest"
 	lc := lambdaClient()
 	cw := cwLogsClient()
 	ec := ecrClient()
@@ -35,7 +36,7 @@ func TestLambda_ImageThroughPullThroughCacheRule(t *testing.T) {
 		FunctionName: aws.String(fnName),
 		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
 		PackageType:  lambdatypes.PackageTypeImage,
-		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String("123456789012.dkr.ecr.us-east-1.amazonaws.com/public-ecr-aws/docker/library/alpine:latest")},
+		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String("123456789012.dkr.ecr.us-east-1.amazonaws.com/public-ecr-aws/" + strings.TrimPrefix(upstreamImage, "public.ecr.aws/"))},
 		ImageConfig:  &lambdatypes.ImageConfig{Command: []string{"sh", "-c", "echo through-the-cache-rule"}},
 	})
 	require.NoError(t, err)

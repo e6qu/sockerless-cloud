@@ -45,7 +45,7 @@ func TestIntegration_ECSFullLifecycle(t *testing.T) {
 			{
 				StopTimeout: aws.Int32(2),
 				Name:        aws.String("app"),
-				Image:       aws.String("public.ecr.aws/docker/library/alpine:latest"),
+				Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
 				// The container announces itself, then idles. The stream's
 				// first event must be that line: Amazon ECS seeds nothing at
 				// RunTask time, and this test used to pass on a synthetic

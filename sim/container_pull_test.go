@@ -17,7 +17,7 @@ func TestDrainImagePullSurfacesStreamErrors(t *testing.T) {
 	failed := `{"status":"Pulling from library/node"}
 {"errorDetail":{"message":"received unexpected HTTP status: 503 Service Unavailable"},"error":"received unexpected HTTP status: 503 Service Unavailable"}
 `
-	err := drainImagePull(strings.NewReader(failed), "public.ecr.aws/docker/library/node:20-alpine")
+	err := drainImagePull(strings.NewReader(failed), "mirror.gcr.io/library/node:20-alpine")
 	if err == nil {
 		t.Fatal("failed pull stream must surface an error")
 	}
@@ -77,7 +77,7 @@ func TestStartContainerSyncContextHonoursItsContext(t *testing.T) {
 	cancel()
 	name := fmt.Sprintf("sockerless-sim-cancelled-start-%d", time.Now().UnixNano())
 	_, err := StartContainerSyncContext(ctx, ContainerConfig{
-		Image:        "public.ecr.aws/docker/library/alpine:3.22",
+		Image:        "mirror.gcr.io/library/alpine:3.22",
 		Architecture: "linux/" + runtime.GOARCH,
 		Command:      []string{"true"},
 		Name:         name,

@@ -190,8 +190,8 @@ func TestCloudBuild_SecretEnvWithoutMatchingAvailableSecret(t *testing.T) {
 }
 
 // cbBaseImage is the base every Cloud Build step in this file builds from and
-// runs: the harness-wide workload image, served from the Amazon ECR Public
-// Gallery rather than Docker Hub, whose anonymous pull throttle has flaked
+// runs: the harness-wide workload image, served from mirror.gcr.io rather than
+// Docker Hub, whose anonymous pull throttle has flaked
 // these builds.
 const cbBaseImage = simWorkloadImage
 

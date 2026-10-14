@@ -65,7 +65,7 @@ func TestSDK_CloudRun_CreateJob(t *testing.T) {
 			Template: &runpb.ExecutionTemplate{
 				Template: &runpb.TaskTemplate{
 					Containers: []*runpb.Container{
-						{Image: "public.ecr.aws/docker/library/alpine:latest"},
+						{Image: "mirror.gcr.io/library/alpine:latest"},
 					},
 				},
 			},
@@ -99,7 +99,7 @@ func TestSDK_CloudRun_CreateJob_OperationsPersisted(t *testing.T) {
 			Template: &runpb.ExecutionTemplate{
 				Template: &runpb.TaskTemplate{
 					Containers: []*runpb.Container{
-						{Image: "public.ecr.aws/docker/library/alpine:latest"},
+						{Image: "mirror.gcr.io/library/alpine:latest"},
 					},
 				},
 			},
@@ -136,7 +136,7 @@ func TestSDK_CloudRun_RunJob(t *testing.T) {
 			Template: &runpb.ExecutionTemplate{
 				Template: &runpb.TaskTemplate{
 					Containers: []*runpb.Container{
-						{Image: "public.ecr.aws/docker/library/alpine:latest"},
+						{Image: "mirror.gcr.io/library/alpine:latest"},
 					},
 					Timeout: durationpb.New(1 * time.Second),
 				},
@@ -242,7 +242,7 @@ func TestSDK_CloudRun_GetExecution(t *testing.T) {
 			Template: &runpb.ExecutionTemplate{
 				Template: &runpb.TaskTemplate{
 					Containers: []*runpb.Container{
-						{Image: "public.ecr.aws/docker/library/alpine:latest"},
+						{Image: "mirror.gcr.io/library/alpine:latest"},
 					},
 					Timeout: durationpb.New(1 * time.Second),
 				},
@@ -350,7 +350,7 @@ func TestSDK_CloudRun_DeleteJob(t *testing.T) {
 			Template: &runpb.ExecutionTemplate{
 				Template: &runpb.TaskTemplate{
 					Containers: []*runpb.Container{
-						{Image: "public.ecr.aws/docker/library/alpine:latest"},
+						{Image: "mirror.gcr.io/library/alpine:latest"},
 					},
 				},
 			},
@@ -384,7 +384,7 @@ func TestSDK_CloudRun_ListJobs(t *testing.T) {
 				Template: &runpb.ExecutionTemplate{
 					Template: &runpb.TaskTemplate{
 						Containers: []*runpb.Container{
-							{Image: "public.ecr.aws/docker/library/alpine:latest"},
+							{Image: "mirror.gcr.io/library/alpine:latest"},
 						},
 					},
 				},
@@ -437,7 +437,7 @@ func TestSDK_CloudRun_ListJobsPaginationAndEmptyWireShape(t *testing.T) {
 			Job: &runpb.Job{
 				Template: &runpb.ExecutionTemplate{
 					Template: &runpb.TaskTemplate{
-						Containers: []*runpb.Container{{Image: "public.ecr.aws/docker/library/alpine:latest"}},
+						Containers: []*runpb.Container{{Image: "mirror.gcr.io/library/alpine:latest"}},
 					},
 				},
 			},

@@ -33,7 +33,7 @@ func TestECS_AwsvpcTaskHoldsItsSubnet(t *testing.T) {
 		Memory:                  aws.String("512"),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			Name:        aws.String("app"),
-			Image:       aws.String("public.ecr.aws/docker/library/alpine:latest"),
+			Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
 			Command:     []string{"sleep", "300"},
 			StopTimeout: aws.Int32(2),
 		}},

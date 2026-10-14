@@ -13,7 +13,7 @@ import (
 
 // volumeDeclaringTestImage declares `VOLUME /data`, so every container started
 // from it gets an anonymous volume the engine creates on its behalf.
-const volumeDeclaringTestImage = "public.ecr.aws/docker/library/redis:7.2-alpine"
+const volumeDeclaringTestImage = "mirror.gcr.io/library/redis:7.2-alpine"
 
 // workloadVolumes reads the anonymous volume the image's VOLUME gave the
 // container and confirms the named volume is mounted where the bind put it.

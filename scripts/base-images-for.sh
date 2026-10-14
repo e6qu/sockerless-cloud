@@ -15,13 +15,14 @@
 # HCL, so a flat Go-only scan sees neither: it misses the Amazon ECS pause
 # image and the alpine workloads, which are the pulls that failed those jobs.
 #
-# The scan is limited to the ECR Public Gallery and mirror.gcr.io, which are
+# The scan is limited to mirror.gcr.io and the ECR Public Gallery, which are
 # where every base image these tests pull comes from: mirror.gcr.io serves
-# Docker Hub's index for an image the Gallery does not carry, without Docker
-# Hub's anonymous pull limit. A wider host pattern would sweep up the
-# registry names the simulators serve themselves — myacr.azurecr.io is a
-# coordinate the test points a client at, not somewhere to fetch bytes from,
-# and asking a real registry for it would fail.
+# Docker Hub's images, Docker's official ones among them, without Docker Hub's
+# anonymous pull limit, and the Gallery serves the images AWS publishes itself,
+# such as the AWS CLI and Amazon DynamoDB local. A wider host pattern would
+# sweep up the registry names the simulators serve themselves — myacr.azurecr.io
+# is a coordinate the test points a client at, not somewhere to fetch bytes
+# from, and asking a real registry for it would fail.
 set -euo pipefail
 
 [ "$#" -gt 0 ] || { echo "base-images-for: at least one directory required" >&2; exit 2; }

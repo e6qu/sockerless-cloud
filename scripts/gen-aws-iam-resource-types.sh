@@ -17,6 +17,8 @@
 #
 # Usage: scripts/gen-aws-iam-resource-types.sh
 set -euo pipefail
+# Sort bytewise, so the table comes out the same in every locale.
+export LC_ALL=C
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC_DIR="$ROOT/specs/cloud-api/aws/service-reference"

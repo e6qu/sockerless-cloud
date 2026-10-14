@@ -63,8 +63,8 @@ resource "azurerm_linux_web_app" "xff" {
     app_command_line = "nc -lk -p 8080 -e sh -c \"${local.echo_headers}\""
 
     application_stack {
-      docker_image_name   = "docker/library/alpine:latest"
-      docker_registry_url = "https://public.ecr.aws"
+      docker_image_name   = "library/alpine:latest"
+      docker_registry_url = "https://mirror.gcr.io"
     }
   }
 }
@@ -106,7 +106,7 @@ resource "azurerm_container_app" "xff" {
 
     container {
       name    = "main"
-      image   = "public.ecr.aws/docker/library/alpine:latest"
+      image   = "mirror.gcr.io/library/alpine:latest"
       cpu     = 0.25
       memory  = "0.5Gi"
       command = ["nc", "-lk", "-p", "8080", "-e", "sh", "-c", local.echo_headers]

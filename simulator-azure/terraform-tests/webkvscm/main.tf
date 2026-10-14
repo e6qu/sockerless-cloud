@@ -118,8 +118,8 @@ resource "azurerm_linux_web_app" "kvscm" {
     app_command_line = "nc -lk -p 8080 -e sh -c \"while read -r l && [ $${#l} -gt 1 ]; do :; done; printf 'HTTP/1.1 200 OK\\r\\nConnection: close\\r\\n\\r\\n'; echo $DB $(cat /home/site/wwwroot/index.html); wget -qO- --header X-IDENTITY-HEADER:$IDENTITY_HEADER $IDENTITY_ENDPOINT'?api-version=2019-08-01&resource=https://vault.azure.net&client_id='$IDENTITY_CLIENT_ID\""
 
     application_stack {
-      docker_image_name   = "docker/library/alpine:latest"
-      docker_registry_url = "https://public.ecr.aws"
+      docker_image_name   = "library/alpine:latest"
+      docker_registry_url = "https://mirror.gcr.io"
     }
   }
 

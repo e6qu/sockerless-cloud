@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	xtraBackupSourceImage = "public.ecr.aws/docker/library/mysql:8.0"
+	xtraBackupSourceImage = "mirror.gcr.io/library/mysql:8.0"
 	xtraBackupImage       = "mirror.gcr.io/percona/percona-xtrabackup:8.0"
 )
 

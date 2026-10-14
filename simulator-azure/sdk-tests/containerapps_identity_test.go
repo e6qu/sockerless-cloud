@@ -108,7 +108,7 @@ func TestSDK_ContainerAppsApps_ManagedIdentityAndKeyVaultSecrets(t *testing.T) {
 				Template: &armappcontainers.Template{
 					Containers: []*armappcontainers.Container{{
 						Name:    to.Ptr("main"),
-						Image:   to.Ptr("public.ecr.aws/docker/library/alpine:latest"),
+						Image:   to.Ptr("mirror.gcr.io/library/alpine:latest"),
 						Command: []*string{to.Ptr("sh"), to.Ptr("-c"), to.Ptr(acaIdentityWorkloadScript + "\n" + acaKeepServing)},
 						Env:     env,
 					}},
@@ -238,7 +238,7 @@ func TestSDK_ContainerAppsJobs_ManagedIdentityAndKeyVaultSecrets(t *testing.T) {
 			},
 			Template: &armappcontainers.JobTemplate{Containers: []*armappcontainers.Container{{
 				Name:    to.Ptr("worker"),
-				Image:   to.Ptr("public.ecr.aws/docker/library/alpine:latest"),
+				Image:   to.Ptr("mirror.gcr.io/library/alpine:latest"),
 				Command: []*string{to.Ptr("sh"), to.Ptr("-c"), to.Ptr(acaIdentityWorkloadScript)},
 				Env: []*armappcontainers.EnvironmentVar{
 					{Name: to.Ptr("DB"), SecretRef: to.Ptr("db")},
@@ -343,7 +343,7 @@ func TestSDK_ContainerAppsApps_IngressAbortsAResponseItsReplicaCutsShort(t *test
 			Template: &armappcontainers.Template{
 				Containers: []*armappcontainers.Container{{
 					Name:    to.Ptr("main"),
-					Image:   to.Ptr("public.ecr.aws/docker/library/alpine:latest"),
+					Image:   to.Ptr("mirror.gcr.io/library/alpine:latest"),
 					Command: []*string{to.Ptr("sh"), to.Ptr("-c"), to.Ptr(script)},
 				}},
 				Scale: &armappcontainers.Scale{MinReplicas: to.Ptr[int32](1), MaxReplicas: to.Ptr[int32](1)},

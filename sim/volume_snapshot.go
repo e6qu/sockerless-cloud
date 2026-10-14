@@ -45,7 +45,7 @@ import (
 // helper reports the filesystem it found, so logs say whether a deployment is
 // getting the instant path without the API ever saying anything different.
 
-const volumeSnapshotImage = "public.ecr.aws/docker/library/alpine:3.22"
+const volumeSnapshotImage = "mirror.gcr.io/library/alpine:3.22"
 
 // volumeCopySandbox confines the copy helper. It is the simulator's own
 // plumbing, not a cloud workload, so it gets exactly what `cp -a` needs to

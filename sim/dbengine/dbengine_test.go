@@ -175,7 +175,7 @@ func TestDiscardEndsAnEngineStillInitialising(t *testing.T) {
 	sink := &firstLineSink{written: make(chan struct{})}
 	instance := &Instance{
 		Name:     "discard test",
-		Engine:   MySQL80.WithImage("public.ecr.aws/docker/library/mysql:8.0"),
+		Engine:   MySQL80.WithImage("mirror.gcr.io/library/mysql:8.0"),
 		Volume:   volume,
 		Labels:   map[string]string{"sockerless-dbengine-discard-test": suffix},
 		Platform: FixedPlatform("linux/amd64"),
@@ -224,7 +224,7 @@ func TestEnsureReportsWhyTheEngineStopped(t *testing.T) {
 	suffix := strconv.FormatInt(time.Now().UnixNano(), 10)
 	volume := "sockerless-dbengine-stopped-" + suffix
 	t.Cleanup(func() { sim.RemoveVolumeSettled(volume, "test") })
-	engine := MySQL80.WithImage("public.ecr.aws/docker/library/mysql:8.0")
+	engine := MySQL80.WithImage("mirror.gcr.io/library/mysql:8.0")
 	engine.Args = []string{"--no-such-engine-option"}
 	instance := &Instance{
 		Name:     "stopped engine test",

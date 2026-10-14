@@ -14,7 +14,7 @@ func TestCodeBuild_ProjectCRUD_CLI(t *testing.T) {
 		"--name", "cb-cli-project",
 		"--source", `{"type":"NO_SOURCE"}`,
 		"--artifacts", `{"type":"NO_ARTIFACTS"}`,
-		"--environment", `{"type":"LINUX_CONTAINER","image":"public.ecr.aws/docker/library/alpine:3.21","computeType":"BUILD_GENERAL1_SMALL"}`,
+		"--environment", `{"type":"LINUX_CONTAINER","image":"mirror.gcr.io/library/alpine:3.21","computeType":"BUILD_GENERAL1_SMALL"}`,
 		"--service-role", "arn:aws:iam::123456789012:role/cb-role",
 	))
 	var created struct {
@@ -62,7 +62,7 @@ func TestCodeBuild_Build_CLI(t *testing.T) {
 		"--name", "cb-cli-build-proj",
 		"--source", `{"type":"NO_SOURCE","buildspec":"version: 0.2\nphases:\n  build:\n    commands:\n      - printf codebuild-cli-ready\n"}`,
 		"--artifacts", `{"type":"NO_ARTIFACTS"}`,
-		"--environment", `{"type":"LINUX_CONTAINER","image":"public.ecr.aws/docker/library/alpine:3.21","computeType":"BUILD_GENERAL1_SMALL"}`,
+		"--environment", `{"type":"LINUX_CONTAINER","image":"mirror.gcr.io/library/alpine:3.21","computeType":"BUILD_GENERAL1_SMALL"}`,
 		"--service-role", "arn:aws:iam::123456789012:role/cb-role",
 	))
 	t.Cleanup(func() {
@@ -118,7 +118,7 @@ func TestCodeBuildCLI_StopAndRetryBuild(t *testing.T) {
 		"--name", "cb-cli-stop-proj",
 		"--source", `{"type":"NO_SOURCE","buildspec":"version: 0.2\nphases:\n  build:\n    commands:\n      - sleep 5\n"}`,
 		"--artifacts", `{"type":"NO_ARTIFACTS"}`,
-		"--environment", `{"type":"LINUX_CONTAINER","image":"public.ecr.aws/docker/library/alpine:3.21","computeType":"BUILD_GENERAL1_SMALL"}`,
+		"--environment", `{"type":"LINUX_CONTAINER","image":"mirror.gcr.io/library/alpine:3.21","computeType":"BUILD_GENERAL1_SMALL"}`,
 		"--service-role", "arn:aws:iam::123456789012:role/cb-role",
 	))
 	t.Cleanup(func() {
@@ -216,7 +216,7 @@ func TestCodeBuildCLI_ReportGroupsAndReports(t *testing.T) {
 		"--name", "cb-cli-report-proj",
 		"--source", `{"type":"NO_SOURCE","buildspec":"`+buildspec+`"}`,
 		"--artifacts", `{"type":"NO_ARTIFACTS"}`,
-		"--environment", `{"type":"LINUX_CONTAINER","image":"public.ecr.aws/docker/library/alpine:3.21","computeType":"BUILD_GENERAL1_SMALL"}`,
+		"--environment", `{"type":"LINUX_CONTAINER","image":"mirror.gcr.io/library/alpine:3.21","computeType":"BUILD_GENERAL1_SMALL"}`,
 		"--service-role", "arn:aws:iam::123456789012:role/cb-role",
 	))
 	t.Cleanup(func() {

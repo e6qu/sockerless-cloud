@@ -100,7 +100,7 @@ func TestBatch_JobDefinition_CLI(t *testing.T) {
 	out := runCLI(t, awsCLI("batch", "register-job-definition",
 		"--job-definition-name", "batch-cli-jd",
 		"--type", "container",
-		"--container-properties", `{"image":"public.ecr.aws/docker/library/alpine:3","vcpus":1,"memory":512}`,
+		"--container-properties", `{"image":"mirror.gcr.io/library/alpine:3","vcpus":1,"memory":512}`,
 	))
 	var reg struct {
 		JobDefinitionArn  string `json:"jobDefinitionArn"`
@@ -596,7 +596,7 @@ func TestBatch_SubmitArrayJobWithRetries_CLI(t *testing.T) {
 	out := runCLI(t, awsCLI("batch", "register-job-definition",
 		"--job-definition-name", "batch-cli-jd-array",
 		"--type", "container",
-		"--container-properties", `{"image":"public.ecr.aws/docker/library/alpine:3",`+
+		"--container-properties", `{"image":"mirror.gcr.io/library/alpine:3",`+
 			`"command":["sh","-c","[ \"$AWS_BATCH_JOB_ARRAY_INDEX\" = 0 ] || [ \"$AWS_BATCH_JOB_ATTEMPT\" -ge 2 ]"],"vcpus":1,"memory":512}`,
 	))
 	var reg struct {

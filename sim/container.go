@@ -1088,12 +1088,13 @@ func PullImageWithCredential(ctx context.Context, imageName, platform, registryA
 // registry-side throttling and momentary unavailability.
 func isTransientRegistryErr(err error) bool {
 	msg := strings.ToLower(err.Error())
-	// A data cap is not throttling. The ECR Public Gallery answers an exhausted
-	// anonymous allowance with "toomanyrequests: Data limit exceeded", which
-	// reads like the rate limit below it and is nothing like it: waiting does
-	// not clear it, so the backoff only spends two minutes arriving at the same
-	// answer. Saying so at once leaves the reason in the log where the failure
-	// is, instead of five identical lines above it.
+	// A data cap is not throttling. The ECR Public Gallery, which serves the
+	// images AWS publishes, such as the AWS Lambda base images, answers an
+	// exhausted anonymous allowance with "toomanyrequests: Data limit
+	// exceeded", which reads like the rate limit below it and is nothing like
+	// it: waiting does not clear it, so the backoff only spends two minutes
+	// arriving at the same answer. Saying so at once leaves the reason in the
+	// log where the failure is, instead of five identical lines above it.
 	if strings.Contains(msg, "data limit exceeded") {
 		return false
 	}
@@ -1285,9 +1286,9 @@ func removeCreated(ctx context.Context, cli *client.Client, containerID string) 
 }
 
 // vpcENISetupImage runs the ephemeral network-setup container that plumbs a
-// workload's elastic network interface address — busybox from the Amazon ECR
-// Public Gallery (always carries the ip applet, avoids Docker Hub throttling).
-const vpcENISetupImage = "public.ecr.aws/docker/library/busybox:latest"
+// workload's elastic network interface address — busybox from mirror.gcr.io
+// (always carries the ip applet, avoids Docker Hub throttling).
+const vpcENISetupImage = "mirror.gcr.io/library/busybox:latest"
 
 // attachENIAddress adds the elastic network interface address as a secondary
 // IPv4 on a running container's eth0. A short-lived setup container joins the
