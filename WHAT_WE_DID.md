@@ -128,6 +128,12 @@ own module:
   The query language gained `log_id()` and `source()`, which the built-in
   sinks' filters are written in.
 
+  List tokens that named an offset into the sorted list let a create or
+  delete made before the token between two calls repeat or skip an item on
+  the next page. `sim/listq` gained `KeyPage`, whose token names the last key
+  returned, and the AWS simulator gained `awsKeyPage` over it. Amazon ECR's
+  DescribeRepositories and every AWS WAF list page through them.
+
 ## Fidelity rules that came from bugs
 
 - **An integration's configuration follows the model's rules.** AWS Glue takes
