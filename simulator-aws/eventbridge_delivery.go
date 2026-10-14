@@ -151,7 +151,7 @@ func ebAttemptTarget(ctx context.Context, d ebTargetDelivery) delivery.Outcome {
 				CreationTime:  now,
 				Arn:           cwLogStreamArn(group, stream),
 			})
-			cwLogEvents.Put(key, []CWLogEvent{})
+			cwLogEvents.Open(key)
 		}
 		cwAppendLogEvents(key, []CWLogEvent{{Timestamp: now, IngestionTime: now, Message: body}}, nil)
 	case strings.HasPrefix(target.Arn, "arn:aws:ecs:"):

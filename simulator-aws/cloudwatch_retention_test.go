@@ -6,6 +6,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/logstore"
 )
 
 func useLogMemoryStores(t *testing.T) {
@@ -14,8 +15,17 @@ func useLogMemoryStores(t *testing.T) {
 	groups, streams, events := cwLogGroups, cwLogStreams, cwLogEvents
 	cwLogGroups = sim.MakeStore[CWLogGroup](nil, "cw_log_groups")
 	cwLogStreams = sim.MakeStore[CWLogStream](nil, "cw_log_streams")
-	cwLogEvents = sim.MakeStore[[]CWLogEvent](nil, "cw_log_events")
+	cwLogEvents = cwNewLogEvents(nil)
 	t.Cleanup(func() { cwLogGroups, cwLogStreams, cwLogEvents = groups, streams, events })
+}
+
+func cwPutTestEvents(key string, events []CWLogEvent) {
+	cwLogEvents.Open(key)
+	items := make([]logstore.Item[CWLogEvent], 0, len(events))
+	for _, e := range events {
+		items = append(items, logstore.Item[CWLogEvent]{Time: e.Timestamp, Value: e})
+	}
+	cwLogEvents.Append(key, time.Now(), items...)
 }
 
 func TestLogRetentionDeletesExpiredEventsAndKeepsStreams(t *testing.T) {
@@ -33,7 +43,7 @@ func TestLogRetentionDeletesExpiredEventsAndKeepsStreams(t *testing.T) {
 		for _, ts := range timestamps {
 			list = append(list, CWLogEvent{Timestamp: ts, Message: "m"})
 		}
-		cwLogEvents.Put(key, list)
+		cwPutTestEvents(key, list)
 		return key
 	}
 	spanning := put("/kept-14-days", 14, "spanning", old, recent)
@@ -44,7 +54,7 @@ func TestLogRetentionDeletesExpiredEventsAndKeepsStreams(t *testing.T) {
 		t.Fatalf("sweep deleted %d events, want 3", deleted)
 	}
 	for key, want := range map[string]int{spanning: 1, expired: 0, forever: 1} {
-		got, ok := cwLogEvents.Get(key)
+		got, ok := cwStreamEvents(key)
 		if !ok {
 			t.Fatalf("stream %s lost its event row", key)
 		}
@@ -68,7 +78,7 @@ func TestLogRetentionReadsAStreamWithNoFirstTimestamp(t *testing.T) {
 	cwLogGroups.Put("/g", CWLogGroup{LogGroupName: "/g", RetentionInDays: 1})
 	key := cwEventsKey("/g", "s")
 	cwLogStreams.Put(key, CWLogStream{LogStreamName: "s", LogGroupName: "/g"})
-	cwLogEvents.Put(key, []CWLogEvent{{Timestamp: now.Add(-48 * time.Hour).UnixMilli(), Message: "old"}})
+	cwPutTestEvents(key, []CWLogEvent{{Timestamp: now.Add(-48 * time.Hour).UnixMilli(), Message: "old"}})
 	if deleted := cwSweepExpiredLogEvents(now); deleted != 1 {
 		t.Fatalf("sweep deleted %d events, want 1", deleted)
 	}
@@ -78,7 +88,7 @@ func TestAppendedEventsKeepTheStreamRecordInStep(t *testing.T) {
 	useLogMemoryStores(t)
 	key := cwEventsKey("/g", "s")
 	cwLogStreams.Put(key, CWLogStream{LogStreamName: "s", LogGroupName: "/g"})
-	cwLogEvents.Put(key, []CWLogEvent{})
+	cwLogEvents.Open(key)
 	cwAppendLogEvents(key, []CWLogEvent{{Timestamp: 200, IngestionTime: 300}, {Timestamp: 100, IngestionTime: 310}}, nil)
 	cwAppendLogEvents(key, []CWLogEvent{{Timestamp: 150, IngestionTime: 305}}, nil)
 	got, _ := cwLogStreams.Get(key)
@@ -96,7 +106,7 @@ func TestStoredBytesIsTheCompressedSizeOfTheGroupsEvents(t *testing.T) {
 	cwLogGroups.Put("/empty", CWLogGroup{LogGroupName: "/empty"})
 	key := cwEventsKey("/g", "s")
 	cwLogStreams.Put(key, CWLogStream{LogStreamName: "s", LogGroupName: "/g"})
-	cwLogEvents.Put(key, []CWLogEvent{})
+	cwLogEvents.Open(key)
 	var batch []CWLogEvent
 	raw := 0
 	for i := 0; i < 500; i++ {

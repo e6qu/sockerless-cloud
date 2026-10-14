@@ -170,7 +170,7 @@ func cwGatherRecords(groups []string, startSec, endSec int64) ([]cwInsightsRecor
 		if len(groups) > 0 && !cwStrIn(stream.LogGroupName, groups) {
 			continue
 		}
-		events, _ := cwLogEvents.Get(cwEventsKey(stream.LogGroupName, stream.LogStreamName))
+		events, _ := cwStreamEvents(cwEventsKey(stream.LogGroupName, stream.LogStreamName))
 		for _, e := range events {
 			tsSec := e.Timestamp / 1000
 			if startSec > 0 && tsSec < startSec {

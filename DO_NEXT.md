@@ -2,8 +2,10 @@
 
 ## Next
 
-- **Stage 8 of `PLAN.md`: logs and key management** into a cloud-neutral
-  package, then DNS and the startup plumbing.
+- **Finish stage 8 of `PLAN.md`:** move Cloud Logging onto `sim/logstore`,
+  enforcing each log bucket's `retentionDays` in place of the 10,000-entry
+  cap, then Azure Monitor Logs, enforcing workspace and table retention in
+  place of the 50,000-row cap. DNS and the startup plumbing follow.
 - **Fold the simulator CI shards back** from the first parallel run's per-test
   durations (BUG-3437), and stop repeating base-image loading, pre-builds and
   the Caddy install per job (BUG-3151).

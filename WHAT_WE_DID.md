@@ -105,6 +105,14 @@ own module:
   cloud's ciphertext still begins with its own header — AWS KMS's `SK1` and
   key id, Cloud KMS's version number — and ends in the nonce and sealed
   bytes `Seal` returns, so a value sealed before the move still opens.
+- `logstore`: log entries stored one row each, keyed by scope and arrival
+  sequence, with a head row per scope. Amazon CloudWatch Logs streams moved
+  onto it from one row per stream that every append and every retention pass
+  rewrote whole. Retention goes by each event's own timestamp, so an event
+  written late with an old timestamp expires on that timestamp and leaves a gap
+  that reads step over. An upgrade moves the streams an earlier build stored
+  whole into the store once, keeping each event's timestamp, ingestion time
+  and arrival order.
 
 ## Fidelity rules that came from bugs
 

@@ -1477,7 +1477,7 @@ func ecsTaskCloudWatchSink(td ECSTaskDefinition, taskID string) (sim.LogSink, er
 				Arn:                 cwLogStreamArn(logGroup, logStreamName),
 				UploadSequenceToken: "1",
 			})
-			cwLogEvents.Put(key, []CWLogEvent{})
+			cwLogEvents.Open(key)
 		}
 		sink = &cwLogSink{logGroup: logGroup, logStream: logStreamName}
 	}
