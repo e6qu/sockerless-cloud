@@ -32,7 +32,8 @@ Landed:
 Remaining:
 
 8. Logs and key management — log ingestion, retention and query. Key
-   material with sealing landed as `sim/simkms`.
+   material with sealing landed as `sim/simkms`; the log entry store is
+   `sim/logstore`, which each cloud's logging service moves onto in turn.
 9. DNS — zones, records and resolution inside workload networks.
 10. Startup plumbing — configuration, engine readiness and the shared `main`
     sequence.
