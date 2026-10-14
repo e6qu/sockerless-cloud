@@ -116,6 +116,12 @@ own module:
 
 ## Fidelity rules that came from bugs
 
+- **An integration's configuration follows the model's rules.** AWS Glue takes
+  `IntegrationConfig.TargetNamespace` only for an Amazon S3 Tables table bucket
+  target, holds it to the namespace pattern without the reserved `aws` prefix,
+  and names it `zetl_` plus the integration ID when the request omits it.
+  `ModifyIntegration` merges `RefreshInterval` into the stored configuration
+  and refuses a change to any other member, the namespace included.
 - **A delivery leaves a record.** Amazon SNS topics take the
   `<Protocol>SuccessFeedbackRoleArn` / `…SuccessFeedbackSampleRate` /
   `…FailureFeedbackRoleArn` attributes for HTTP, Firehose, Lambda, SQS and

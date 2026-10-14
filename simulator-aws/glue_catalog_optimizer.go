@@ -811,9 +811,15 @@ func handleGlueCreateIntegration(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "AlreadyExistsException", "Integration already exists: "+req.IntegrationName)
 		return
 	}
+	id := sim.NewUUID()
+	config, code, msg := glueCreateIntegrationConfig(req.IntegrationConfig, req.TargetArn, id)
+	if code != "" {
+		glueWriteError(w, code, msg)
+		return
+	}
 	integ := GlueIntegration{
 		IntegrationName:             req.IntegrationName,
-		IntegrationArn:              glueIntegrationArn(sim.NewUUID()),
+		IntegrationArn:              glueIntegrationArn(id),
 		SourceArn:                   req.SourceArn,
 		TargetArn:                   req.TargetArn,
 		Description:                 req.Description,
@@ -822,7 +828,7 @@ func handleGlueCreateIntegration(w http.ResponseWriter, r *http.Request) {
 		KmsKeyId:                    req.KmsKeyId,
 		DataFilter:                  req.DataFilter,
 		AdditionalEncryptionContext: req.AdditionalEncryptionContext,
-		IntegrationConfig:           req.IntegrationConfig,
+		IntegrationConfig:           config,
 		Tags:                        req.Tags,
 	}
 	glueIntegrations.Put(req.IntegrationName, integ)
@@ -874,10 +880,11 @@ func handleGlueDescribeIntegrations(w http.ResponseWriter, r *http.Request) {
 
 func handleGlueModifyIntegration(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		IntegrationIdentifier string `json:"IntegrationIdentifier"`
-		Description           string `json:"Description"`
-		DataFilter            string `json:"DataFilter"`
-		IntegrationName       string `json:"IntegrationName"`
+		IntegrationIdentifier string         `json:"IntegrationIdentifier"`
+		Description           string         `json:"Description"`
+		DataFilter            string         `json:"DataFilter"`
+		IntegrationName       string         `json:"IntegrationName"`
+		IntegrationConfig     map[string]any `json:"IntegrationConfig"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
@@ -891,6 +898,14 @@ func handleGlueModifyIntegration(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		glueWriteError(w, "EntityNotFoundException", "Integration not found: "+req.IntegrationIdentifier)
 		return
+	}
+	if req.IntegrationConfig != nil {
+		merged, msg := glueModifyIntegrationConfig(integ.IntegrationConfig, req.IntegrationConfig)
+		if msg != "" {
+			glueWriteError(w, "InvalidInputException", msg)
+			return
+		}
+		integ.IntegrationConfig = merged
 	}
 	if req.Description != "" {
 		integ.Description = req.Description
