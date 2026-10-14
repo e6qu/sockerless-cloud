@@ -2,8 +2,6 @@ package main
 
 import (
 	"crypto"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/hmac"
@@ -15,11 +13,11 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"hash"
-	"io"
 	"net/http"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/simkms"
 )
 
 // KMS crypto: real AES-256-GCM for symmetric operations and real Go-stdlib
@@ -37,7 +35,7 @@ import (
 
 const kmsBlobMagic = "SK1"
 const kmsBlobVersion = byte(0x01)
-const kmsKeyMaterialLen = 32
+const kmsKeyMaterialLen = simkms.KeySize
 
 func registerKMSCrypto(r *AWSRouter, srv *sim.Server) {
 	registerKMSKeyMaterial(srv)
@@ -169,8 +167,8 @@ func kmsEllipticCurveFor(spec string) elliptic.Curve {
 
 // kmsGenerateKeyMaterial creates and persists 32 random bytes for a new CMK.
 func kmsGenerateKeyMaterial(keyId string) ([]byte, error) {
-	material := make([]byte, kmsKeyMaterialLen)
-	if _, err := io.ReadFull(rand.Reader, material); err != nil {
+	material, err := simkms.NewKey()
+	if err != nil {
 		return nil, err
 	}
 	kmsKeyMaterial.Put(keyId, material)
@@ -181,16 +179,9 @@ func kmsGenerateKeyMaterial(keyId string) ([]byte, error) {
 // generates under the store's lock, so two first callers seal under one key
 // instead of the second overwriting the material the first already used.
 func kmsEnsureKeyMaterial(keyId string) error {
-	var err error
-	kmsKeyMaterial.Upsert(keyId, func(material *[]byte) {
-		if len(*material) > 0 {
-			return
-		}
-		generated := make([]byte, kmsKeyMaterialLen)
-		if _, err = io.ReadFull(rand.Reader, generated); err == nil {
-			*material = generated
-		}
-	})
+	_, err := simkms.EnsureKey(kmsKeyMaterial, keyId,
+		func(material []byte) []byte { return material },
+		func(row *[]byte, material []byte) { *row = material })
 	return err
 }
 
@@ -211,31 +202,21 @@ func kmsEncryptBytes(keyId string, plaintext []byte) ([]byte, bool) {
 	if !ok {
 		return nil, false
 	}
-	block, err := aes.NewCipher(material)
+	sealed, err := simkms.Seal(material, plaintext, nil)
 	if err != nil {
 		return nil, false
 	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, false
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, false
-	}
-	ciphertext := gcm.Seal(nil, nonce, plaintext, nil)
 
 	keyIdBytes := []byte(keyId)
 	if len(keyIdBytes) > 65535 {
 		return nil, false
 	}
-	out := make([]byte, 0, 3+1+2+len(keyIdBytes)+len(nonce)+len(ciphertext))
+	out := make([]byte, 0, 3+1+2+len(keyIdBytes)+len(sealed))
 	out = append(out, []byte(kmsBlobMagic)...)
 	out = append(out, kmsBlobVersion)
 	out = binary.BigEndian.AppendUint16(out, uint16(len(keyIdBytes)))
 	out = append(out, keyIdBytes...)
-	out = append(out, nonce...)
-	out = append(out, ciphertext...)
+	out = append(out, sealed...)
 	return out, true
 }
 
@@ -264,21 +245,7 @@ func kmsDecryptBytes(blob []byte) (keyId string, plaintext []byte, ok bool) {
 	if !exists {
 		return "", nil, false
 	}
-	block, err := aes.NewCipher(material)
-	if err != nil {
-		return "", nil, false
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", nil, false
-	}
-	nonceSize := gcm.NonceSize()
-	if len(blob) < off+nonceSize {
-		return "", nil, false
-	}
-	nonce := blob[off : off+nonceSize]
-	ciphertext := blob[off+nonceSize:]
-	plaintext, err = gcm.Open(nil, nonce, ciphertext, nil)
+	plaintext, err := simkms.Open(material, blob[off:], nil)
 	if err != nil {
 		return "", nil, false
 	}

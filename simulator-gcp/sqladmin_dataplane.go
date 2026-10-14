@@ -1,10 +1,8 @@
 package main
 
 import (
-	"crypto/rand"
 	"crypto/subtle"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"os"
@@ -14,6 +12,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/dbengine"
+	"github.com/e6qu/sockerless-cloud/sim/simkms"
 )
 
 // The Cloud SQL data plane.
@@ -46,24 +45,16 @@ import (
 // the Cloud KMS slice serves, under a name no customer request can produce.
 const sqlGoogleOwnedKeyVersion = "projects/google-managed/locations/global/keyRings/cloud-sql/cryptoKeys/instance-credentials/cryptoKeyVersions/1"
 
-var sqlSealMu sync.Mutex
-
 // sqlSealSecret encrypts a credential under the Cloud-SQL-owned KMS key,
 // generating the key material on first use.
 func sqlSealSecret(plaintext string) ([]byte, error) {
-	sqlSealMu.Lock()
-	record, ok := kmsKeyMaterial.Get(sqlGoogleOwnedKeyVersion)
-	if !ok {
-		material := make([]byte, 32)
-		if _, err := io.ReadFull(rand.Reader, material); err != nil {
-			sqlSealMu.Unlock()
-			return nil, fmt.Errorf("generate Cloud SQL credential key: %w", err)
-		}
-		record = kmsKeyMaterialRecord{Key: material}
-		kmsKeyMaterial.Put(sqlGoogleOwnedKeyVersion, record)
+	key, err := simkms.EnsureKey(kmsKeyMaterial, sqlGoogleOwnedKeyVersion,
+		func(record kmsKeyMaterialRecord) []byte { return record.Key },
+		func(record *kmsKeyMaterialRecord, key []byte) { record.Key = key })
+	if err != nil {
+		return nil, fmt.Errorf("generate Cloud SQL credential key: %w", err)
 	}
-	sqlSealMu.Unlock()
-	return kmsEncryptBytes(record.Key, 1, []byte(plaintext), nil)
+	return kmsEncryptBytes(key, 1, []byte(plaintext), nil)
 }
 
 // sqlOpenSecret decrypts a credential sealed by sqlSealSecret.

@@ -31,8 +31,8 @@ Landed:
 
 Remaining:
 
-8. Logs and key management — log ingestion, retention and query, and key
-   material with sealing.
+8. Logs and key management — log ingestion, retention and query. Key
+   material with sealing landed as `sim/simkms`.
 9. DNS — zones, records and resolution inside workload networks.
 10. Startup plumbing — configuration, engine readiness and the shared `main`
     sequence.

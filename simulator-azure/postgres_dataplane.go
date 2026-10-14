@@ -2,12 +2,8 @@ package main
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
 	"crypto/subtle"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"os"
@@ -16,6 +12,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/dbengine"
+	"github.com/e6qu/sockerless-cloud/sim/simkms"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 )
 
@@ -65,54 +62,35 @@ var (
 
 const pgDataPlaneKeyRow = "service-managed"
 
-var azurePGSealMu sync.Mutex
-
-// azurePGCredentialAEAD returns AES-256-GCM under the service-managed sealing
-// key, generating the key on first use.
-func azurePGCredentialAEAD() (cipher.AEAD, error) {
-	azurePGSealMu.Lock()
-	record, ok := pgDataPlaneKeys.Get(pgDataPlaneKeyRow)
-	if !ok {
-		material := make([]byte, 32)
-		if _, err := io.ReadFull(rand.Reader, material); err != nil {
-			azurePGSealMu.Unlock()
-			return nil, fmt.Errorf("generate flexible-server credential key: %w", err)
-		}
-		record = pgDataPlaneKeyRecord{Key: material}
-		pgDataPlaneKeys.Put(pgDataPlaneKeyRow, record)
-	}
-	azurePGSealMu.Unlock()
-	block, err := aes.NewCipher(record.Key)
+// azurePGCredentialKey returns the service-managed sealing key, generating it
+// on first use.
+func azurePGCredentialKey() ([]byte, error) {
+	key, err := simkms.EnsureKey(pgDataPlaneKeys, pgDataPlaneKeyRow,
+		func(record pgDataPlaneKeyRecord) []byte { return record.Key },
+		func(record *pgDataPlaneKeyRecord, key []byte) { record.Key = key })
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("generate flexible-server credential key: %w", err)
 	}
-	return cipher.NewGCM(block)
+	return key, nil
 }
 
 // azurePGSealSecret encrypts a credential under the service-managed key; the
 // sealed blob is nonce || ciphertext.
 func azurePGSealSecret(plaintext string) ([]byte, error) {
-	aead, err := azurePGCredentialAEAD()
+	key, err := azurePGCredentialKey()
 	if err != nil {
 		return nil, err
 	}
-	nonce := make([]byte, aead.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, fmt.Errorf("generate credential nonce: %w", err)
-	}
-	return append(nonce, aead.Seal(nil, nonce, []byte(plaintext), nil)...), nil
+	return simkms.Seal(key, []byte(plaintext), nil)
 }
 
 // azurePGOpenSecret decrypts a credential sealed by azurePGSealSecret.
 func azurePGOpenSecret(sealed []byte) (string, error) {
-	aead, err := azurePGCredentialAEAD()
+	key, err := azurePGCredentialKey()
 	if err != nil {
 		return "", err
 	}
-	if len(sealed) < aead.NonceSize() {
-		return "", fmt.Errorf("sealed credential is truncated")
-	}
-	plaintext, err := aead.Open(nil, sealed[:aead.NonceSize()], sealed[aead.NonceSize():], nil)
+	plaintext, err := simkms.Open(key, sealed, nil)
 	if err != nil {
 		return "", err
 	}

@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"crypto"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/ecdsa"
 	"crypto/hmac"
 	"crypto/rand"
@@ -20,6 +18,7 @@ import (
 	kmspb "cloud.google.com/go/kms/apiv1/kmspb"
 	longrunningpb "cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/simkms"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -954,33 +953,27 @@ func (s *cloudKmsGRPC) RawEncrypt(ctx context.Context, req *kmspb.RawEncryptRequ
 	if err != nil {
 		return nil, err
 	}
-	block, err := aes.NewCipher(material.Key)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "cipher init failed: %v", err)
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "GCM init failed: %v", err)
-	}
 	var iv []byte
 	verifiedIV := false
 	if supplied := req.GetInitializationVector(); len(supplied) > 0 {
 		iv = supplied
-		if len(iv) != gcm.NonceSize() {
-			return nil, status.Errorf(codes.InvalidArgument, "initialization_vector must be %d bytes", gcm.NonceSize())
+		if len(iv) != simkms.NonceSize {
+			return nil, status.Errorf(codes.InvalidArgument, "initialization_vector must be %d bytes", simkms.NonceSize)
 		}
 		verifiedIV, err = kmsVerifyCRC32C(iv, req.GetInitializationVectorCrc32C(), "initialization_vector")
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		iv = make([]byte, gcm.NonceSize())
-		if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+		if iv, err = simkms.NewNonce(); err != nil {
 			return nil, status.Errorf(codes.Internal, "could not generate IV: %v", err)
 		}
 	}
-	sealed := gcm.Seal(nil, iv, plaintext, aad)
-	tagLen := int32(gcm.Overhead())
+	sealed, err := simkms.SealWithNonce(material.Key, iv, plaintext, aad)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "encryption failed: %v", err)
+	}
+	tagLen := int32(simkms.TagSize)
 	return &kmspb.RawEncryptResponse{
 		Name:                       versionName,
 		Ciphertext:                 sealed,
@@ -1016,18 +1009,10 @@ func (s *cloudKmsGRPC) RawDecrypt(ctx context.Context, req *kmspb.RawDecryptRequ
 	if err != nil {
 		return nil, err
 	}
-	block, err := aes.NewCipher(material.Key)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "cipher init failed: %v", err)
+	if len(iv) != simkms.NonceSize {
+		return nil, status.Errorf(codes.InvalidArgument, "initialization_vector must be %d bytes", simkms.NonceSize)
 	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "GCM init failed: %v", err)
-	}
-	if len(iv) != gcm.NonceSize() {
-		return nil, status.Errorf(codes.InvalidArgument, "initialization_vector must be %d bytes", gcm.NonceSize())
-	}
-	plaintext, err := gcm.Open(nil, iv, ciphertext, aad)
+	plaintext, err := simkms.OpenWithNonce(material.Key, iv, ciphertext, aad)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "Decryption failed: verify the ciphertext, IV and AAD")
 	}
@@ -1240,7 +1225,7 @@ func (s *cloudKmsGRPC) ImportTrustedKeyWrappedCryptoKeyVersion(ctx context.Conte
 	if err != nil {
 		return nil, err
 	}
-	raw, err := kmsAESKeyUnwrapWithPadding(wrappingMaterial.Key, req.GetWrappedKey())
+	raw, err := simkms.UnwrapWithPadding(wrappingMaterial.Key, req.GetWrappedKey())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "trusted wrapped key is invalid: %v", err)
 	}
@@ -1294,7 +1279,7 @@ func (s *cloudKmsGRPC) ExportTrustedKeyWrappedCryptoKeyVersion(ctx context.Conte
 		}
 		targetBytes = block.Bytes
 	}
-	wrapped, err := kmsAESKeyWrapWithPadding(wrappingMaterial.Key, targetBytes)
+	wrapped, err := simkms.WrapWithPadding(wrappingMaterial.Key, targetBytes)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "could not wrap key material: %v", err)
 	}

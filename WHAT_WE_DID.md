@@ -98,6 +98,13 @@ own module:
   and, its link to the engine having no TLS, completes a full authentication by
   requesting the engine's RSA public key and sending the password under
   RSA-OAEP, so a refused login reaches the client as the engine's own 1045.
+- `simkms`: one AES-256-GCM seal and open, one RFC 5649 key wrap, and one
+  "create the service's key on first use" under the key store's `Upsert`.
+  AWS KMS, Cloud KMS (its framed, raw and imported encryption), Cloud SQL's
+  and Azure Database for PostgreSQL's credential sealing all use it. Each
+  cloud's ciphertext still begins with its own header — AWS KMS's `SK1` and
+  key id, Cloud KMS's version number — and ends in the nonce and sealed
+  bytes `Seal` returns, so a value sealed before the move still opens.
 
 ## Fidelity rules that came from bugs
 
