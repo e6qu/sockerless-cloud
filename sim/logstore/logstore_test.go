@@ -117,3 +117,31 @@ func TestOpenImportAndDrop(t *testing.T) {
 		t.Error("DropPrefix removed the wrong scopes")
 	}
 }
+
+func TestEditRewritesAndDeletesInPlace(t *testing.T) {
+	l := newLog()
+	now := time.Now()
+	l.Append("s", now, Item[string]{Value: "keep"}, Item[string]{Value: "drop"}, Item[string]{Value: "change"})
+	n := l.Edit("s", func(e *Entry[string]) (bool, bool) {
+		switch e.Value {
+		case "drop":
+			return false, false
+		case "change":
+			e.Value = "changed"
+			return true, true
+		}
+		return true, false
+	})
+	if n != 1 {
+		t.Fatalf("Edit deleted %d, want 1", n)
+	}
+	if v := l.Values("s"); !equal(v, []string{"keep", "changed"}) {
+		t.Errorf("Values after Edit = %v", v)
+	}
+	if h := l.Head("s"); h.Count != 2 || h.Next != 3 {
+		t.Errorf("Head after Edit = %+v", h)
+	}
+	if n := l.Edit("missing", func(*Entry[string]) (bool, bool) { return false, false }); n != 0 {
+		t.Errorf("Edit of a missing scope deleted %d", n)
+	}
+}

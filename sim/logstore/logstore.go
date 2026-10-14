@@ -218,3 +218,32 @@ func (l *Log[V]) DropPrefix(prefix string) {
 		l.Drop(scope)
 	}
 }
+
+// Edit passes each of scope's entries to f, in arrival order. f may change the
+// entry's value; it returns whether to keep the entry and whether it changed
+// it. Edit deletes the entries f drops, writes back the ones it changed, and
+// returns how many it deleted.
+func (l *Log[V]) Edit(scope string, f func(*Entry[V]) (keep, changed bool)) int {
+	defer l.locks.Lock(scope)()
+	h, ok := l.heads.Get(scope)
+	if !ok {
+		return 0
+	}
+	deleted := 0
+	for _, row := range l.entries.ListPrefix(scopePrefix(scope)) {
+		e := row.Item
+		keep, changed := f(&e)
+		switch {
+		case !keep:
+			l.entries.Delete(row.ID)
+			deleted++
+		case changed:
+			l.entries.Put(row.ID, e)
+		}
+	}
+	if deleted > 0 {
+		h.Count -= int64(deleted)
+		l.heads.Put(scope, h)
+	}
+	return deleted
+}
