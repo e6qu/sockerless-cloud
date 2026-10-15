@@ -85,9 +85,11 @@ SIM_AZURE_DNS_TARGET_IPV4=127.0.0.1 \
 ./simulator-azure
 ```
 
-`SIM_AZURE_DNS_LISTEN_ADDR` is the DNS listener's IPv4 address and port (a
-kernel-chosen port on every address when unset). It serves DNS over UDP and
-TCP and fails startup if it cannot bind.
+`SIM_AZURE_DNS_LISTEN_ADDR` enables an operator-facing DNS listener at an
+IPv4 address and port. It serves DNS over UDP and TCP and fails startup if it
+cannot bind. Virtual networks reach a second listener the simulator always
+runs on every address, at `SIM_DNS_PORT` or a kernel-chosen port, which
+answers from the same zones.
 `SIM_AZURE_DNS_ZONES` is a comma-separated list of the custom cloud's endpoint
 suffixes: the suffix and every name under it answer with
 `SIM_AZURE_DNS_TARGET_IPV4` (default `127.0.0.1`) and, when set,

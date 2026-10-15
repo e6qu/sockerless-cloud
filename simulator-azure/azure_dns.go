@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -54,7 +55,7 @@ type azureDNSConfig struct {
 }
 
 func azureDNSConfigFromEnv() (azureDNSConfig, error) {
-	listenAddr := strings.TrimSpace(sim.EnvOr("SIM_AZURE_DNS_LISTEN_ADDR", ":0"))
+	listenAddr := strings.TrimSpace(os.Getenv("SIM_AZURE_DNS_LISTEN_ADDR"))
 
 	targetIPv4 := net.ParseIP(strings.TrimSpace(sim.EnvOr("SIM_AZURE_DNS_TARGET_IPV4", "127.0.0.1"))).To4()
 	if targetIPv4 == nil {
@@ -116,17 +117,36 @@ func parseAzureDNSZones(raw string) ([]string, error) {
 // 168.63.129.16.
 var azureDNS *dnsserver.Server
 
-func startAzureDNSFromEnv() (*dnsserver.Server, error) {
+// startAzureDNSFromEnv starts the resolver a virtual network's queries are
+// redirected to, on every address so the redirect can reach it, and the
+// listener an operator configured at SIM_AZURE_DNS_LISTEN_ADDR. Both answer
+// from the same catalog.
+func startAzureDNSFromEnv() ([]*dnsserver.Server, error) {
 	cfg, err := azureDNSConfigFromEnv()
 	if err != nil {
 		return nil, err
 	}
-	srv, err := startAzureDNSServer(cfg)
+	base, err := azureDNSServerConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
-	azureDNS = srv
-	return srv, nil
+	resolver := base
+	resolver.Port = os.Getenv("SIM_DNS_PORT")
+	resolver.Name = "azure resolver"
+	vnetSrv, err := dnsserver.Start(resolver)
+	if err != nil {
+		return nil, err
+	}
+	azureDNS = vnetSrv
+	servers := []*dnsserver.Server{vnetSrv}
+	if cfg.ListenAddr == "" {
+		return servers, nil
+	}
+	operator, err := startAzureDNSServer(cfg)
+	if err != nil {
+		return nil, errors.Join(err, vnetSrv.Close())
+	}
+	return append(servers, operator), nil
 }
 
 // azureDNSPort is the port the resolver answers on, which a virtual network's
@@ -155,26 +175,35 @@ func azureRegisterResolverIP(addr net.IP, vnetID string) error {
 }
 
 func startAzureDNSServer(cfg azureDNSConfig) (*dnsserver.Server, error) {
-	if cfg.TargetIPv4 == nil && cfg.TargetIPv6 == nil {
-		return nil, fmt.Errorf("at least one DNS target IP is required")
-	}
-	if len(cfg.Zones) == 0 {
-		return nil, fmt.Errorf("at least one DNS zone is required")
-	}
-	if cfg.TTL == 0 {
-		cfg.TTL = defaultAzureDNSTTL
-	}
 	host, port, err := net.SplitHostPort(cfg.ListenAddr)
 	if err != nil {
 		return nil, fmt.Errorf("DNS listen address %q: %w", cfg.ListenAddr, err)
 	}
-	endpoints, err := azureEndpointZones(cfg)
+	server, err := azureDNSServerConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
-	srv, err := dnsserver.Start(dnsserver.Config{
-		Host: host,
-		Port: port,
+	server.Host, server.Port = host, port
+	return dnsserver.Start(server)
+}
+
+// azureDNSServerConfig is the catalog and recursion every Azure listener
+// answers with; the caller supplies where it listens.
+func azureDNSServerConfig(cfg azureDNSConfig) (dnsserver.Config, error) {
+	if cfg.TargetIPv4 == nil && cfg.TargetIPv6 == nil {
+		return dnsserver.Config{}, fmt.Errorf("at least one DNS target IP is required")
+	}
+	if len(cfg.Zones) == 0 {
+		return dnsserver.Config{}, fmt.Errorf("at least one DNS zone is required")
+	}
+	if cfg.TTL == 0 {
+		cfg.TTL = defaultAzureDNSTTL
+	}
+	endpoints, err := azureEndpointZones(cfg)
+	if err != nil {
+		return dnsserver.Config{}, err
+	}
+	return dnsserver.Config{
 		Name: "azure",
 		Catalog: func(q dnsserver.Query) dnsserver.View {
 			var vnetID string
@@ -190,11 +219,7 @@ func startAzureDNSServer(cfg azureDNSConfig) (*dnsserver.Server, error) {
 			Upstreams:  cfg.Upstreams,
 			Redirected: []netip.Addr{netip.MustParseAddr(realexec.AzureResolverIPv4)},
 		},
-	})
-	if err != nil {
-		return nil, err
-	}
-	return srv, nil
+	}, nil
 }
 
 // azureEndpointZones serves each endpoint suffix: the suffix itself and every

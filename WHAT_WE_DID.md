@@ -2766,9 +2766,11 @@ name `FirecrackerVMConfig.Nameserver` instead of a public resolver.
 `fabric.VMSpec` carries the `Resolver`; its `Arrived` hook records the host
 address the network's queries land on, and a machine whose address cannot be
 recorded does not boot, because its private zones would answer nothing. VPC
-AWS Lambda invocations take the same route Amazon ECS tasks do. Azure's
-listener runs on every start, and its catalog serves a private zone to the
-virtual networks it is linked to; Cloud DNS's catalog serves private zones to
+AWS Lambda invocations take the same route Amazon ECS tasks do. Azure runs
+a resolver on every address for virtual networks on every start, beside the
+listener an operator binds at `SIM_AZURE_DNS_LISTEN_ADDR` (often loopback,
+which a redirected query cannot reach), both answering from one catalog that
+serves a private zone to the virtual networks it is linked to; Cloud DNS's catalog serves private zones to
 their visibility networks, forwarding zones through their target name servers
 on port 53, and peering zones from the zones their target network sees, one
 hop deep.
