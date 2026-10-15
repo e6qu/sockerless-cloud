@@ -118,6 +118,13 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.Contains(t, dnsRecordID, "projects/test-project/managedZones/tf-test-zone/rrsets/www.tf-test.example.com./A",
 		"DNS record-set id must include managed zone, FQDN, and type; got %s", dnsRecordID)
 
+	nameServers, ok := outputs.mustValue(t, "dns_zone_name_servers").([]any)
+	require.True(t, ok, "dns_zone_name_servers is a list")
+	require.Len(t, nameServers, 4, "a public zone is assigned four Cloud DNS name servers")
+	for _, ns := range nameServers {
+		require.Contains(t, ns, ".googledomains.com.")
+	}
+
 	arRepoID := outputs.must(t, "ar_repo_id")
 	require.Contains(t, arRepoID, "projects/test-project/locations/us-central1/repositories/tf-ar-docker",
 		"AR repo id must be the canonical projects/{p}/locations/{l}/repositories/{id} path; got %s", arRepoID)

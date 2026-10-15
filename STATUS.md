@@ -25,7 +25,12 @@ Current state of the sockerless-cloud repository.
   delivery and cron schedules are `sim/msgq`, `sim/streamlog`, `sim/delivery`
   and `sim/cron`. All three simulators use them. Key material is `sim/simkms`,
   and log entries are `sim/logstore`, which Amazon CloudWatch Logs, Cloud
-  Logging and Azure Monitor Logs use.
+  Logging and Azure Monitor Logs use. Route 53, Azure DNS and Cloud DNS
+  answer their zones over UDP and TCP through `sim/dnsserver`, each cloud
+  deciding through its catalog which zones a query sees: Route 53 private
+  zones answer the VPCs they are associated with, Azure DNS and Cloud DNS
+  public zones answer anyone, and only Amazon ECS tasks in their own namespace
+  send their queries to a simulator's resolver (BUG-3473).
 - **Pins carry the working tree's content.** Each simulator pins `sim`,
   `realexec` and `ui-auth` by pseudo-version;
   `scripts/check-support-module-pins.sh` downloads every pinned version and

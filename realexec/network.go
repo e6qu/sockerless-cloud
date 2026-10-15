@@ -447,20 +447,21 @@ const VPCResolverIPv4 = "169.254.169.253"
 // entry implies. Nothing is assigned to an interface: the address is
 // link-local, so the query is routed here and the prerouting hook claims it
 // before any local-delivery decision — the same way the metadata addresses
-// work.
-func (n *Network) ConfigureResolverDNAT(ctx context.Context, resolverPort int, tableName string) error {
+// work. It returns the host address the queries arrive at, one per network,
+// which tells the resolver which network asked.
+func (n *Network) ConfigureResolverDNAT(ctx context.Context, resolverPort int, tableName string) (net.IP, error) {
 	if resolverPort <= 0 || resolverPort > 65535 {
-		return fmt.Errorf("resolver port must be 1..65535, got %d", resolverPort)
+		return nil, fmt.Errorf("resolver port must be 1..65535, got %d", resolverPort)
 	}
 	if tableName == "" {
-		return fmt.Errorf("resolver DNAT table name is required")
+		return nil, fmt.Errorf("resolver DNAT table name is required")
 	}
 	link, err := n.EnsureEgress(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	target := net.JoinHostPort(link.HostIP.String(), strconv.Itoa(resolverPort))
-	return withTableLock(tableName, func() error {
+	return link.HostIP, withTableLock(tableName, func() error {
 		_ = n.runner.Run(ctx, "ip", "netns", "exec", n.NamespaceName, "nft", "delete", "table", "ip", tableName)
 		if err := n.runner.Run(ctx, "ip", "netns", "exec", n.NamespaceName, "nft", "add", "table", "ip", tableName); err != nil {
 			return err
@@ -516,9 +517,9 @@ func (s *Subnet) ConfigureAddressDNAT(ctx context.Context, targetIPv4 string, ta
 // is the device a workload on that subnet resolves the address over. A network
 // carries no bridge of its own — each of its subnets has one — so the device
 // comes from here rather than from the network.
-func (s *Subnet) ConfigureResolverDNAT(ctx context.Context, resolverPort int, tableName string) error {
+func (s *Subnet) ConfigureResolverDNAT(ctx context.Context, resolverPort int, tableName string) (net.IP, error) {
 	if s == nil || s.network == nil {
-		return fmt.Errorf("subnet is not attached to a network")
+		return nil, fmt.Errorf("subnet is not attached to a network")
 	}
 	return s.network.ConfigureResolverDNAT(ctx, resolverPort, tableName)
 }

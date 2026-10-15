@@ -82,6 +82,11 @@ func main() {
 	if err := startGRPCServer(srv, grpcPort); err != nil {
 		log.Fatal(err)
 	}
+	dnsSrv, err := startCloudDNSServer()
+	if err != nil {
+		log.Fatalf("cloud dns: %v", err)
+	}
+	defer func() { _ = dnsSrv.Close() }()
 
 	// Cloud Spanner backup schedules produce real backups on their crontab
 	// occurrences, and Cloud Pub/Sub dead-letters messages whose last delivery

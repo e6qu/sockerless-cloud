@@ -2738,3 +2738,21 @@ its archive from codeload.github.com before each job's first step, made a single
 attempt, and failed ten jobs of one run when codeload answered 404.
 `scripts/check-latest-deps.sh` holds the actions a local action uses to the same
 freshness rule as the workflows'.
+
+`sim/dnsserver` is the DNS listener every simulator answers its zones on. A
+cloud hands it a `Catalog`: the zones and the zone-less names a query can see,
+given the address it came from and the address it arrived at. The package owns
+the rest — one port on UDP and TCP, longest-zone matching, RFC 4592 wildcards
+under the closest encloser, CNAME chains across zones, delegations with glue,
+NXDOMAIN versus NODATA with the zone's SOA (its TTL the lesser of the SOA's TTL
+and MINIMUM), EDNS0 and truncation on UDP, forwarding zones, and recursion
+through upstreams that leave out the server itself and the addresses workload
+networks rewrite into it. `realexec`'s `ConfigureResolverDNAT` returns the host
+address a network's redirected queries arrive at, one per network, which is how
+Route 53 tells which VPC asked: a private hosted zone answers only the VPCs it
+is associated with, ahead of a public zone of the same name, and an alias
+answers with its target's record set under its own name. The Azure listener
+serves the custom cloud's endpoint suffixes as wildcard zones, every Azure DNS
+public zone, and the names data planes register; Cloud DNS serves its public
+managed zones, and a new managed zone carries the NS and SOA record sets and
+the four `nameServers` Cloud DNS assigns.

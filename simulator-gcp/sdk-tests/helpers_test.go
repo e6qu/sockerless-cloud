@@ -31,6 +31,7 @@ import (
 var (
 	baseURL            string
 	grpcAddr           string // host:port for gRPC Cloud Logging
+	dnsAddr            string // host:port of the Cloud DNS name server
 	simCmd             *exec.Cmd
 	binaryPath         string
 	evalImageName      string // Docker image containing eval-arithmetic binary
@@ -115,10 +116,16 @@ func TestMain(m *testing.M) {
 	ln.Close()
 	ln2.Close()
 
+	dnsPort, err := freeTCPUDPPort()
+	if err != nil {
+		log.Fatalf("Failed to find a free DNS port: %v", err)
+	}
+
 	simCmd = exec.Command(binaryPath)
 	simCmd.Env = append(os.Environ(),
 		fmt.Sprintf("SIM_LISTEN_ADDR=:%d", port),
 		fmt.Sprintf("SIM_GCP_GRPC_PORT=%d", grpcPort),
+		fmt.Sprintf("SIM_DNS_PORT=%d", dnsPort),
 	)
 	simCmd.Stdout = os.Stdout
 	if err := simready.Start(simCmd, os.Stderr); err != nil {
@@ -128,6 +135,7 @@ func TestMain(m *testing.M) {
 
 	baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)
 	grpcAddr = fmt.Sprintf("127.0.0.1:%d", grpcPort)
+	dnsAddr = fmt.Sprintf("127.0.0.1:%d", dnsPort)
 
 	// The Cloud Storage, Bigtable and Spanner clients read their endpoint from
 	// these variables. Set them once for the process, since every test talks to
@@ -424,4 +432,24 @@ func testRunSelects(name string) bool {
 // simulator creates new resources rather than colliding with its last run's.
 func uniqueName(prefix string) string {
 	return fmt.Sprintf("%s-%08x", prefix, mathrand.Uint32())
+}
+
+// freeTCPUDPPort finds a port free on both protocols, which a DNS server binds.
+func freeTCPUDPPort() (int, error) {
+	const attempts = 100
+	for range attempts {
+		tcpListener, err := net.Listen("tcp4", "127.0.0.1:0")
+		if err != nil {
+			return 0, err
+		}
+		port := tcpListener.Addr().(*net.TCPAddr).Port
+		udpListener, udpErr := net.ListenPacket("udp4", fmt.Sprintf("127.0.0.1:%d", port))
+		_ = tcpListener.Close()
+		if udpErr != nil {
+			continue
+		}
+		_ = udpListener.Close()
+		return port, nil
+	}
+	return 0, fmt.Errorf("could not find a port available on both TCP and UDP after %d attempts", attempts)
 }

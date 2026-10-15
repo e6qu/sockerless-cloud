@@ -31,10 +31,11 @@ Landed:
 8. Logs and key management — `sim/simkms` for key material with sealing,
    and `sim/logstore`, which Amazon CloudWatch Logs, Cloud Logging and Azure
    Monitor Logs keep their entries in, each with its service's retention.
+9. DNS — `sim/dnsserver`, the listener Route 53, Azure DNS and Cloud DNS
+   answer their zones through, each cloud supplying the zones a query sees.
 
 Remaining:
 
-9. DNS — zones, records and resolution inside workload networks.
 10. Startup plumbing — configuration, engine readiness and the shared `main`
     sequence.
 

@@ -53,7 +53,7 @@ func pgTryDataPlane(t *testing.T, fqdn string) bool {
 	t.Helper()
 	lookupCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	addresses, err := azurePGResolver().LookupHost(lookupCtx, fqdn)
+	addresses, err := azureDNSResolver().LookupHost(lookupCtx, fqdn)
 	reachable := err == nil && len(addresses) > 0 && net.ParseIP(addresses[0]) != nil && net.ParseIP(addresses[0]).IsLoopback()
 	if !reachable && runtime.GOOS == "linux" {
 		t.Fatalf("server %s resolves to %v (err %v): on Linux the data plane must install", fqdn, addresses, err)
@@ -70,7 +70,7 @@ func pgConnectTLS(t *testing.T, testCtx context.Context, login, password, host s
 	require.NoError(t, err)
 	config.Password = password
 	config.TLSConfig = &tls.Config{InsecureSkipVerify: true}
-	config.LookupFunc = azurePGResolver().LookupHost
+	config.LookupFunc = azureDNSResolver().LookupHost
 	var conn *pgx.Conn
 	require.Eventually(t, func() bool {
 		var connectErr error

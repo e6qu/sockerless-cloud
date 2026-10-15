@@ -48,6 +48,7 @@ that cloud's module and reach the framework through the hooks below.
 | `dbengine/` | the managed relational database data plane: `Instance` runs a real PostgreSQL, MySQL or MariaDB engine (`Postgres16`, `MySQL80`, `MariaDB114`) on a named volume behind an endpoint the simulator owns — start on first client, adopt after restart, readiness classified the way `pg_isready` does, `Exec`, `Stop` that returns once the volume is free; `ListenLoopback` keeps the advertised port or fails; `SelfSignedCertificate`; SQL and shell quoting |
 | `logstore/` | log entries by scope (a log stream, a log, a table): one row per entry keyed by scope and arrival sequence plus a scope head, so `Append`, `Entries`, `Expire` (retention by the entry's own time, leaving gaps reads step over), `Cap`, `Edit` (rewrite or delete entries in place), `Drop` and `DropPrefix` never rewrite a scope; `Open` lists a scope before its first write and `Import` fills an empty scope from another layout |
 | `simkms/` | key material: AES-256-GCM `Seal`/`Open` (nonce followed by the sealed bytes, which every cloud's ciphertext framing ends with) and `SealWithNonce`/`OpenWithNonce` for raw-encryption APIs that return the IV; `NewKey`; `EnsureKey`, which creates a service-owned key on first use inside the store's `Upsert` over any row shape; RFC 5649 `WrapWithPadding`/`UnwrapWithPadding`. Each cloud keeps its ciphertext framing, key versions and key API |
+| `dnsserver/` | the DNS listener each simulator answers its zones on: one port on UDP and TCP, a `Catalog` hook that returns the zones and names a query can see — given the address it came from and the address it arrived at, which names a workload network — and everything that is DNS rather than cloud: longest-zone matching, RFC 4592 wildcards, CNAME chains across zones, delegations with glue, NXDOMAIN versus NODATA with the zone's SOA, EDNS0 and truncation on UDP, forwarding zones, and recursion through upstreams for names outside every zone |
 | `dbengine/pgwire/`, `dbengine/mysqlwire/` | the front half of each wire protocol: startup and SSLRequest upgrade, cleartext-password exchange and `FATAL 28P01` refusal; the MySQL connection phase with `mysql_clear_password` on the front and a native or `caching_sha2_password` login to the engine |
 
 ## What stays with the cloud
@@ -71,6 +72,10 @@ that cloud's module and reach the framework through the hooks below.
   `Ready`, `Authenticate`, `RefusePlaintext`, `BackendLogin`; each cloud keeps
   its credential store and the row its sealing key lives in, and seals through
   `simkms`.
+- **DNS visibility** — which zones a query sees (Route 53 private zones by
+  VPC, Azure Private DNS by virtual network link, Cloud DNS private zones by
+  network) and each cloud's record shapes reach `dnsserver` through its
+  `Catalog`.
 - **Path rewriting** — Amazon S3's zonal virtual-hosted addressing and Azure
   Resource Manager's case folding are `Config.RewriteRequest` hooks.
 

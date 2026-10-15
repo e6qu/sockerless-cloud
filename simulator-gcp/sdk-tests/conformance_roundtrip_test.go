@@ -529,20 +529,21 @@ func TestConformance_DNSRecordSetsPaginate(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	first, err := svc.ResourceRecordSets.List(project, zone).MaxResults(1).Do()
+	// The zone holds its apex NS and SOA as well as the two records.
+	first, err := svc.ResourceRecordSets.List(project, zone).MaxResults(3).Do()
 	require.NoError(t, err)
-	require.Len(t, first.Rrsets, 1, "maxResults=1 must return one rrset")
+	require.Len(t, first.Rrsets, 3, "maxResults=3 must return three rrsets")
 	require.NotEmpty(t, first.NextPageToken, "a partial rrset page must carry a token")
 	assert.Equal(t, "dns#resourceRecordSetsListResponse", first.Kind)
 
-	second, err := svc.ResourceRecordSets.List(project, zone).MaxResults(1).PageToken(first.NextPageToken).Do()
+	second, err := svc.ResourceRecordSets.List(project, zone).MaxResults(3).PageToken(first.NextPageToken).Do()
 	require.NoError(t, err)
 	require.Len(t, second.Rrsets, 1, "second rrset page must return the remaining record")
 	assert.Empty(t, second.NextPageToken, "last rrset page carries no token")
 
 	all, err := svc.ResourceRecordSets.List(project, zone).Do()
 	require.NoError(t, err)
-	require.Len(t, all.Rrsets, 2, "unbounded rrset list returns every record")
+	require.Len(t, all.Rrsets, 4, "unbounded rrset list returns every record")
 	assert.Empty(t, all.NextPageToken)
 }
 

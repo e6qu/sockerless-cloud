@@ -151,6 +151,31 @@ func TestRoute53DNSServesCNAME(t *testing.T) {
 	cn, ok := resp.Answers[0].Body.(*dnsmessage.CNAMEResource)
 	require.True(t, ok, "expected CNAMEResource, got %T", resp.Answers[0].Body)
 	assert.Equal(t, strings.TrimSuffix(target, "")+".", cn.CNAME.String())
+
+	// An address query for the alias follows the CNAME to its target in the
+	// same answer, as an authoritative server does.
+	chased := dnsQuery(t, alias, dnsmessage.TypeA)
+	require.Equal(t, dnsmessage.RCodeSuccess, chased.RCode)
+	require.Len(t, chased.Answers, 2)
+	_, ok = chased.Answers[0].Body.(*dnsmessage.CNAMEResource)
+	require.True(t, ok, "the chain starts with the CNAME, got %T", chased.Answers[0].Body)
+	a, ok := chased.Answers[1].Body.(*dnsmessage.AResource)
+	require.True(t, ok, "the chain ends with the target's address, got %T", chased.Answers[1].Body)
+	assert.Equal(t, "203.0.113.7", net.IP(a.A[:]).String())
+
+	// A name that exists without the asked type is NODATA: NOERROR, no
+	// answer, and the zone's SOA for a resolver to cache the absence by.
+	nodata := dnsQuery(t, target, dnsmessage.TypeMX)
+	require.Equal(t, dnsmessage.RCodeSuccess, nodata.RCode)
+	require.Empty(t, nodata.Answers)
+	requireNegativeSOA(t, nodata)
+}
+
+func requireNegativeSOA(t *testing.T, msg dnsmessage.Message) {
+	t.Helper()
+	require.Len(t, msg.Authorities, 1, "a negative answer carries the zone's SOA")
+	_, ok := msg.Authorities[0].Body.(*dnsmessage.SOAResource)
+	require.True(t, ok, "expected SOAResource, got %T", msg.Authorities[0].Body)
 }
 
 func TestRoute53DNSServesTXT(t *testing.T) {
@@ -234,6 +259,7 @@ func TestRoute53DNSNXDOMAIN(t *testing.T) {
 
 	resp := dnsQuery(t, "does-not-exist."+zone, dnsmessage.TypeA)
 	assert.Equal(t, dnsmessage.RCodeNameError, resp.RCode)
+	requireNegativeSOA(t, resp)
 }
 
 func TestRoute53DNSWildcardARecord(t *testing.T) {

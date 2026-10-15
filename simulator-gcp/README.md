@@ -243,7 +243,7 @@ Open simulator bugs live in [BUGS.md](../BUGS.md).
 ## What's out of scope
 
 - **Three gRPC methods**: the gRPC door (default `:4569`) serves 213 of 216 declared methods; `Bigtable.OpenMaterializedView`, `Firestore.ExecutePipeline` and `Spanner.FetchCacheUpdate` each need state the simulator does not hold and answer `Unimplemented`.
-- **DNS resolution at UDP/53**: Cloud DNS private zones resolve inside the workload networks through the container engine's embedded DNS; the simulator serves no UDP/53 listener of its own.
+- **Private zones over the wire**: Cloud DNS answers public managed zones over UDP and TCP on `SIM_DNS_PORT` (a kernel-chosen port when unset) and recurses for other names through `SIM_DNS_UPSTREAM` or the host's resolvers. Private zones resolve inside workload networks through the container engine's embedded DNS, which no workload's queries leave for the simulator's listener.
 - **Google's interactive consent screen**: `gcloud auth login` and `gcloud auth
   application-default login` are browser flows against accounts.google.com. The
   non-interactive credential paths — service-account keys, the metadata server,

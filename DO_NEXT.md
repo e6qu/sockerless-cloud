@@ -2,9 +2,11 @@
 
 ## Next
 
-- **Stage 9 of `PLAN.md`:** DNS — zones, records and resolution inside
-  workload networks, shared by Amazon Route 53, Cloud DNS and Azure DNS. The
-  startup plumbing follows.
+- **Stage 10 of `PLAN.md`:** startup plumbing — configuration, engine
+  readiness and the shared `main` sequence.
+- **Send every workload's DNS to its cloud's resolver** (BUG-3473), so Azure
+  Private DNS and Cloud DNS private zones answer inside the networks that can
+  see them, and the per-record Docker aliases go.
 - **Fold the simulator CI shards back** from the first parallel run's per-test
   durations (BUG-3437), and stop repeating base-image loading, pre-builds and
   the Caddy install per job (BUG-3151).

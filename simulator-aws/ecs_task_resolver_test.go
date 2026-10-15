@@ -31,30 +31,18 @@ func TestTaskResolverIsTheVPCResolver(t *testing.T) {
 	}
 }
 
-// The resolver port is read from the address actually bound, because the
-// simulator may take an ephemeral one.
-func TestRoute53DNSPortReadsTheBoundAddress(t *testing.T) {
-	previous := r53DNSAddr
-	t.Cleanup(func() { r53DNSAddr = previous })
+// A task namespace is pointed at the resolver's bound port, which may be an
+// ephemeral one.
+func TestRoute53DNSPortReadsTheBoundServer(t *testing.T) {
+	previous := r53DNS
+	t.Cleanup(func() { r53DNS = previous })
 
-	r53DNSAddr = ""
-	if _, err := route53DNSPort(); err == nil {
-		t.Error("a resolver that is not listening reported a port")
-	} else if !strings.Contains(err.Error(), "not listening") {
-		t.Errorf("the error does not say the resolver is not listening: %v", err)
+	r53DNS = nil
+	if _, err := route53DNSPort(); err == nil || !strings.Contains(err.Error(), "not listening") {
+		t.Fatalf("a resolver that is not listening: %v", err)
 	}
-
-	r53DNSAddr = "127.0.0.1:5353"
-	port, err := route53DNSPort()
-	if err != nil {
-		t.Fatalf("read the bound port: %v", err)
-	}
-	if port != 5353 {
-		t.Errorf("port = %d, want 5353", port)
-	}
-
-	r53DNSAddr = "[::]:41234"
-	if port, err = route53DNSPort(); err != nil || port != 41234 {
-		t.Errorf("an ephemeral port on the wildcard address read as (%d, %v)", port, err)
+	srv := withRoute53Resolver(t)
+	if port, err := route53DNSPort(); err != nil || port != srv.Port() {
+		t.Fatalf("port = %d, %v; want %d", port, err, srv.Port())
 	}
 }

@@ -41,6 +41,7 @@ type ManagedZone struct {
 	Visibility              string            `json:"visibility,omitempty"`
 	PrivateVisibilityConfig map[string]any    `json:"privateVisibilityConfig,omitempty"`
 	Labels                  map[string]string `json:"labels,omitempty"`
+	NameServers             []string          `json:"nameServers,omitempty"`
 	// Nested writable configs the sim doesn't otherwise interpret are
 	// stored verbatim so create→get round-trips byte-exact and the
 	// terraform-provider-google read path doesn't perpetually drift.
@@ -204,6 +205,7 @@ func registerCloudDNS(srv *sim.Server) {
 	responsePolicies := sim.MakeStore[storedDNSResponsePolicy](srv.DB(), "dns_response_policies")
 	responsePolicyRules := sim.MakeStore[storedDNSResponsePolicyRule](srv.DB(), "dns_response_policy_rules")
 	operations := sim.MakeStore[storedDNSOperation](srv.DB(), "dns_zone_operations")
+	cloudDNSZones, cloudDNSRecordSets = zones, recordSets
 
 	// Cloud DNS outbound endpoints and the locations and long-running
 	// operations they are created through: no vendored source describes what
@@ -267,6 +269,7 @@ func registerCloudDNS(srv *sim.Server) {
 		if zone.Visibility == "" {
 			zone.Visibility = "public"
 		}
+		zone.NameServers = cloudDNSNameServers(zone)
 		// terraform-provider-google always sends privateVisibilityConfig with an
 		// empty networks list (even for public zones). Real Cloud DNS drops an
 		// empty privateVisibilityConfig from the read-back; echoing it makes the
@@ -289,6 +292,9 @@ func registerCloudDNS(srv *sim.Server) {
 		}
 
 		zones.Put(key, stored)
+		for _, rs := range cloudDNSApexRecordSets(zone) {
+			recordSets.Put(dnsRecordSetKey(project, zone.Name, rs.Name, rs.Type), storedResourceRecordSet{Project: project, Zone: zone.Name, Record: rs})
+		}
 		recordDNSZoneOperation(operations, project, zone.Name, "insert", nil, &stored.ManagedZone)
 		sim.WriteJSON(w, http.StatusOK, stored.ManagedZone)
 	})

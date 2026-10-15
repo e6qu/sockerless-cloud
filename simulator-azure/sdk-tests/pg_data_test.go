@@ -76,7 +76,7 @@ func TestAzurePGFlexibleServer_BackupCapturesDataAndRestoreReturnsToIt(t *testin
 		require.NoError(t, parseErr)
 		config.Password = adminPassword
 		config.TLSConfig = &tls.Config{InsecureSkipVerify: true}
-		config.LookupFunc = azurePGResolver().LookupHost
+		config.LookupFunc = azureDNSResolver().LookupHost
 		var conn *pgx.Conn
 		require.Eventually(t, func() bool {
 			var connectErr error
@@ -98,7 +98,7 @@ func TestAzurePGFlexibleServer_BackupCapturesDataAndRestoreReturnsToIt(t *testin
 		"postgres://%s@%s:5432/postgres?sslmode=disable", adminLogin, fqdn))
 	require.NoError(t, err)
 	plainConfig.Password = adminPassword
-	plainConfig.LookupFunc = azurePGResolver().LookupHost
+	plainConfig.LookupFunc = azureDNSResolver().LookupHost
 	_, err = pgx.ConnectConfig(testContext, plainConfig)
 	require.Error(t, err, "a plaintext client must be refused while require_secure_transport is ON")
 	assert.True(t, strings.Contains(err.Error(), "SSL") || strings.Contains(err.Error(), "28000"),
@@ -172,9 +172,9 @@ func pgDataGetServer(t *testing.T, path string) map[string]any {
 	return server.Properties
 }
 
-// azurePGResolver resolves through the simulator's DNS front — the
+// azureDNSResolver resolves through the simulator's DNS listener — the
 // coordinate a deployment points its resolver at — instead of the host's.
-func azurePGResolver() *net.Resolver {
+func azureDNSResolver() *net.Resolver {
 	return &net.Resolver{
 		PreferGo: true,
 		Dial: func(dialCtx context.Context, network, _ string) (net.Conn, error) {
@@ -190,7 +190,7 @@ func azurePGLookupLoopback(t *testing.T, fqdn string) string {
 	t.Helper()
 	lookupCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	addresses, err := azurePGResolver().LookupHost(lookupCtx, fqdn)
+	addresses, err := azureDNSResolver().LookupHost(lookupCtx, fqdn)
 	if err != nil || len(addresses) == 0 || net.ParseIP(addresses[0]) == nil || !net.ParseIP(addresses[0]).IsLoopback() {
 		// The data plane needs PostgreSQL's port on a per-server loopback
 		// address. Linux provides loopback aliases natively, so a modeled

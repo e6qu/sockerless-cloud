@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -397,12 +398,24 @@ func TestSubnetResolverDNATServesTheSubnetBridge(t *testing.T) {
 		t.Fatalf("attach the workload to the subnet: %v", err)
 	}
 
-	udpConn, err := net.ListenPacket("udp", "0.0.0.0:0")
+	probe, err := net.ListenPacket("udp", "0.0.0.0:0")
 	if err != nil {
-		t.Fatalf("listen udp: %v", err)
+		t.Fatalf("pick a resolver port: %v", err)
+	}
+	resolverPort := probe.LocalAddr().(*net.UDPAddr).Port
+	_ = probe.Close()
+
+	resolverAddr, err := subnet.ConfigureResolverDNAT(ctx, resolverPort, prefix+"dns")
+	if err != nil {
+		t.Fatalf("configure the subnet resolver: %v", err)
+	}
+	// Bind only the address the call reports, so the probe arriving proves
+	// that is where the network's queries land.
+	udpConn, err := net.ListenPacket("udp", net.JoinHostPort(resolverAddr.String(), strconv.Itoa(resolverPort)))
+	if err != nil {
+		t.Fatalf("listen on the reported resolver address %s: %v", resolverAddr, err)
 	}
 	defer udpConn.Close()
-	resolverPort := udpConn.LocalAddr().(*net.UDPAddr).Port
 	seen := make(chan struct{}, 1)
 	go func() {
 		buf := make([]byte, 512)
@@ -411,9 +424,6 @@ func TestSubnetResolverDNATServesTheSubnetBridge(t *testing.T) {
 		}
 	}()
 
-	if err := subnet.ConfigureResolverDNAT(ctx, resolverPort, prefix+"dns"); err != nil {
-		t.Fatalf("configure the subnet resolver: %v", err)
-	}
 	if err := runner.Run(ctx, "ip", "netns", "exec", workload.NamespaceName, "bash", "-c",
 		fmt.Sprintf("exec 3<>/dev/udp/%s/53 && printf probe >&3", VPCResolverIPv4)); err != nil {
 		t.Fatalf("query the VPC resolver from the workload: %v", err)
