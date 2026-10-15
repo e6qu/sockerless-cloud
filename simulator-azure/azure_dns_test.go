@@ -2,6 +2,7 @@ package main
 
 import (
 	"net"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -157,5 +158,80 @@ func TestAzureDNSServerServesPublicZonesAndRegisteredNames(t *testing.T) {
 func TestParseAzureDNSZonesRejectsEmptyConfig(t *testing.T) {
 	if _, err := parseAzureDNSZones(" , "); err == nil {
 		t.Fatal("expected empty zone config to fail")
+	}
+}
+
+// An Azure Private DNS zone answers only the virtual networks it is linked
+// to, ahead of a public zone of the same name.
+func TestAzureDNSServerServesPrivateZonesToLinkedVirtualNetworks(t *testing.T) {
+	pubZones, pubSets := azurePublicDNSZones, azurePublicDNSRecordSets
+	zones, sets, links := azurePrivateDNSZones, azurePrivateDNSRecordSets, azurePrivateDNSVNetLinks
+	t.Cleanup(func() {
+		azurePublicDNSZones, azurePublicDNSRecordSets = pubZones, pubSets
+		azurePrivateDNSZones, azurePrivateDNSRecordSets, azurePrivateDNSVNetLinks = zones, sets, links
+		azureResolverVNets.Delete(netip.MustParseAddr("127.0.0.1"))
+	})
+	azurePublicDNSZones = sim.MakeStore[PublicDnsZone](nil, "public_dns_zones")
+	azurePublicDNSRecordSets = sim.MakeStore[PublicRecordSet](nil, "public_dns_record_sets")
+	azurePrivateDNSZones = sim.MakeStore[PrivateDnsZone](nil, "dns_zones")
+	azurePrivateDNSRecordSets = sim.MakeStore[RecordSet](nil, "dns_record_sets")
+	azurePrivateDNSVNetLinks = sim.MakeStore[VNetLink](nil, "dns_vnet_links")
+
+	publicID := publicDNSZoneID("sub", "rg", "contoso.test")
+	azurePublicDNSZones.Put(publicID, PublicDnsZone{ID: publicID, Name: "contoso.test"})
+	createPublicDNSDefaultRecords(azurePublicDNSRecordSets, publicID, "contoso.test")
+	publicA := publicDNSRecordID(publicID, "A", "db")
+	azurePublicDNSRecordSets.Put(publicA, PublicRecordSet{ID: publicA, Name: "db", Type: "A",
+		Properties: PublicRecordSetProperties{TTL: 60, ARecords: []ARecord{{IPv4Address: "203.0.113.5"}}}})
+
+	privateID := "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/privateDnsZones/contoso.test"
+	azurePrivateDNSZones.Put(privateID, PrivateDnsZone{ID: privateID, Name: "contoso.test"})
+	azurePrivateDNSRecordSets.Put(privateID+"/SOA/@", RecordSet{ID: privateID + "/SOA/@", Name: "@", Properties: RecordSetProperties{TTL: 3600,
+		SOARecord: &SOARecord{Host: "azureprivatedns.net", Email: "azureprivatedns-host.microsoft.com", SerialNumber: 1, RefreshTime: 3600, RetryTime: 300, ExpireTime: 2419200, MinimumTTL: 10}}})
+	azurePrivateDNSRecordSets.Put(privateID+"/A/db", RecordSet{ID: privateID + "/A/db", Name: "db",
+		Properties: RecordSetProperties{TTL: 10, ARecords: []ARecord{{IPv4Address: "10.0.0.4"}}}})
+	linkedVNet := "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/linked"
+	azurePrivateDNSVNetLinks.Put(privateID+"/virtualNetworkLinks/l", VNetLink{ID: privateID + "/virtualNetworkLinks/l",
+		Properties: VNetLinkProperties{VirtualNetwork: &VNetLinkVNet{ID: linkedVNet}}})
+
+	srv, err := startAzureDNSServer(azureDNSConfig{
+		ListenAddr: "127.0.0.1:0",
+		TargetIPv4: net.ParseIP("127.0.0.1"),
+		Zones:      []string{"sockerless.azure.local"},
+		TTL:        30,
+		Upstreams:  "127.0.0.1:1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+	ask := func(name string, qtype uint16) *dns.Msg {
+		t.Helper()
+		msg := new(dns.Msg)
+		msg.SetQuestion(dns.Fqdn(name), qtype)
+		resp, _, err := (&dns.Client{Timeout: 5 * time.Second}).Exchange(msg, srv.Addr())
+		if err != nil {
+			t.Fatalf("query %s: %v", name, err)
+		}
+		return resp
+	}
+
+	if resp := ask("db.contoso.test", dns.TypeA); len(resp.Answer) != 1 || resp.Answer[0].(*dns.A).A.String() != "203.0.113.5" {
+		t.Fatalf("outside every virtual network the public zone answers: %v", resp.Answer)
+	}
+	if err := azureRegisterResolverIP(net.ParseIP("127.0.0.1"), linkedVNet); err != nil {
+		t.Fatal(err)
+	}
+	if resp := ask("db.contoso.test", dns.TypeA); len(resp.Answer) != 1 || resp.Answer[0].(*dns.A).A.String() != "10.0.0.4" {
+		t.Fatalf("the linked virtual network sees the private zone: %v", resp.Answer)
+	}
+	if resp := ask("missing.contoso.test", dns.TypeA); resp.Rcode != dns.RcodeNameError || len(resp.Ns) != 1 || resp.Ns[0].(*dns.SOA).Minttl != 10 {
+		t.Fatalf("NXDOMAIN with the private zone's SOA: %v", resp)
+	}
+	if err := azureRegisterResolverIP(net.ParseIP("127.0.0.1"), "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/other"); err != nil {
+		t.Fatal(err)
+	}
+	if resp := ask("db.contoso.test", dns.TypeA); len(resp.Answer) != 1 || resp.Answer[0].(*dns.A).A.String() != "203.0.113.5" {
+		t.Fatalf("an unlinked virtual network sees only the public zone: %v", resp.Answer)
 	}
 }

@@ -28,13 +28,16 @@ const defaultFirecrackerVersion = "v1.15.1"
 var firecrackerAssetsMu sync.Mutex
 
 type FirecrackerVMConfig struct {
-	ID            string
-	Tap           *TapNIC
-	MAC           string
-	VCPUCount     int
-	MemoryMiB     int
-	WorkDir       string
-	BootPeriod    time.Duration
+	ID         string
+	Tap        *TapNIC
+	MAC        string
+	VCPUCount  int
+	MemoryMiB  int
+	WorkDir    string
+	BootPeriod time.Duration
+	// Nameserver is the resolver the guest asks: the address its cloud
+	// answers DNS on from inside the network.
+	Nameserver    net.IP
 	MetadataHosts []string
 	BlockDrives   []FirecrackerBlockDrive
 }
@@ -136,7 +139,7 @@ func StartFirecrackerVM(ctx context.Context, cfg FirecrackerVMConfig) (*Firecrac
 		_ = rollback.Close(context.Background())
 		return nil, err
 	}
-	if err := configureRootFSNetwork(rootfsDir, cfg.Tap.PrivateIP, cfg.Tap.Gateway, cfg.Tap.PrefixBits, cfg.MetadataHosts); err != nil {
+	if err := configureRootFSNetwork(rootfsDir, cfg.Tap.PrivateIP, cfg.Tap.Gateway, cfg.Tap.PrefixBits, cfg.Nameserver, cfg.MetadataHosts); err != nil {
 		_ = rollback.Close(context.Background())
 		return nil, err
 	}
@@ -556,12 +559,15 @@ func ensureRootFSInit(rootfsDir string) error {
 	return fmt.Errorf("rootfs has no kernel init candidate (/sbin/init, /etc/init, /bin/init, /bin/sh) and no %s", systemd)
 }
 
-func configureRootFSNetwork(rootfsDir string, ip, gateway net.IP, prefixBits int, metadataHosts []string) error {
+func configureRootFSNetwork(rootfsDir string, ip, gateway net.IP, prefixBits int, nameserver net.IP, metadataHosts []string) error {
 	if ip == nil || ip.To4() == nil {
 		return fmt.Errorf("guest IPv4 address is required")
 	}
 	if gateway == nil || gateway.To4() == nil {
 		return fmt.Errorf("guest IPv4 gateway is required")
+	}
+	if nameserver == nil || nameserver.To4() == nil {
+		return fmt.Errorf("guest IPv4 nameserver is required")
 	}
 	if err := disableStockFirecrackerNetworking(rootfsDir); err != nil {
 		return err
@@ -585,8 +591,8 @@ Name=eth0
 [Network]
 Address=%s/%d
 Gateway=%s
-DNS=1.1.1.1
-`, ip, prefixBits, gateway)
+DNS=%s
+`, ip, prefixBits, gateway, nameserver)
 	if err := os.WriteFile(filepath.Join(systemdDir, "10-sockerless-eth0.network"), []byte(networkd), 0o644); err != nil {
 		return err
 	}
@@ -615,8 +621,8 @@ DNS=1.1.1.1
           via: %s
       nameservers:
         addresses:
-          - 1.1.1.1
-`, ip, prefixBits, gateway)
+          - %s
+`, ip, prefixBits, gateway, nameserver)
 	if err := os.WriteFile(filepath.Join(netplanDir, "10-sockerless.yaml"), []byte(netplan), 0o600); err != nil {
 		return err
 	}
@@ -633,15 +639,15 @@ iface eth0 inet static
     address %s
     netmask %s
     gateway %s
-    dns-nameservers 1.1.1.1
-`, ip, prefixNetmask(prefixBits), gateway)
+    dns-nameservers %s
+`, ip, prefixNetmask(prefixBits), gateway, nameserver)
 	if err := os.WriteFile(filepath.Join(rootfsDir, "etc", "network", "interfaces"), []byte(ifupdown), 0o644); err != nil {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(interfacesDir, "sockerless-eth0"), []byte(ifupdown), 0o644); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(resolvDir, "resolv.conf"), []byte("nameserver 1.1.1.1\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(resolvDir, "resolv.conf"), []byte("nameserver "+nameserver.String()+"\n"), 0o644); err != nil {
 		return err
 	}
 	if err := configureRootFSMetadataHosts(rootfsDir, metadataHosts); err != nil {
@@ -673,8 +679,8 @@ ip link set dev "$dev" up
 ip addr flush dev "$dev" scope global || true
 ip addr replace %s/%d dev "$dev"
 ip route replace default via %s dev "$dev"
-printf 'nameserver 1.1.1.1\n' > /etc/resolv.conf
-`, ip, prefixBits, gateway)
+printf 'nameserver %s\n' > /etc/resolv.conf
+`, ip, prefixBits, gateway, nameserver)
 	if err := os.WriteFile(filepath.Join(sbinDir, "sockerless-network"), []byte(configureScript), 0o755); err != nil {
 		return err
 	}
@@ -893,8 +899,8 @@ func waitForUnixSocket(ctx context.Context, socket string, cmd *exec.Cmd, timeou
 }
 
 func configureFirecracker(ctx context.Context, apiSocket string, cfg FirecrackerVMConfig, kernelPath, rootfsPath string) error {
-	bootArgs := fmt.Sprintf("console=ttyS0 reboot=k panic=1 ip=%s::%s:%s::eth0:off nameserver=1.1.1.1",
-		cfg.Tap.PrivateIP, cfg.Tap.Gateway, prefixNetmask(cfg.Tap.PrefixBits))
+	bootArgs := fmt.Sprintf("console=ttyS0 reboot=k panic=1 ip=%s::%s:%s::eth0:off nameserver=%s",
+		cfg.Tap.PrivateIP, cfg.Tap.Gateway, prefixNetmask(cfg.Tap.PrefixBits), cfg.Nameserver)
 	if runtime.GOARCH == "arm64" {
 		bootArgs = "keep_bootcon " + bootArgs
 	}

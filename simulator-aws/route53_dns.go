@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"net"
 	"net/netip"
 	"os"
 	"strings"
@@ -66,10 +67,15 @@ func route53DNSPort() (int, error) {
 	return r53DNS.Port(), nil
 }
 
-// route53RegisterResolverAddress records that queries arriving at addr come
-// from vpcID.
-func route53RegisterResolverAddress(addr netip.Addr, vpcID string) {
-	r53ResolverVPCs.Store(addr.Unmap(), vpcID)
+// route53RegisterResolverIP records that queries arriving at addr come from
+// vpcID.
+func route53RegisterResolverIP(addr net.IP, vpcID string) error {
+	local, ok := netip.AddrFromSlice(addr.To4())
+	if !ok {
+		return fmt.Errorf("resolver address %s of %s is not IPv4", addr, vpcID)
+	}
+	r53ResolverVPCs.Store(local, vpcID)
+	return nil
 }
 
 func route53Catalog(q dnsserver.Query) dnsserver.View {

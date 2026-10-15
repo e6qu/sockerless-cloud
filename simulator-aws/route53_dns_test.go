@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net"
 	"net/netip"
 	"testing"
 	"time"
@@ -89,12 +90,16 @@ func TestRoute53PrivateZonesAnswerOnlyTheirVPCs(t *testing.T) {
 	if resp := askRoute53(t, srv, "db.internal.test", dns.TypeA); resp.Rcode != dns.RcodeServerFailure {
 		t.Fatalf("outside every VPC the private zone is invisible and the name recursed for: %v", resp)
 	}
-	route53RegisterResolverAddress(netip.MustParseAddr("127.0.0.1"), "vpc-2")
+	if err := route53RegisterResolverIP(net.ParseIP("127.0.0.1"), "vpc-2"); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { r53ResolverVPCs.Delete(netip.MustParseAddr("127.0.0.1")) })
 	if resp := askRoute53(t, srv, "db.internal.test", dns.TypeA); resp.Rcode != dns.RcodeServerFailure {
 		t.Fatalf("another VPC does not see the zone: %v", resp)
 	}
-	route53RegisterResolverAddress(netip.MustParseAddr("127.0.0.1"), "vpc-1")
+	if err := route53RegisterResolverIP(net.ParseIP("127.0.0.1"), "vpc-1"); err != nil {
+		t.Fatal(err)
+	}
 	if got := onlyA(t, askRoute53(t, srv, "db.internal.test", dns.TypeA)); len(got) != 1 || got[0] != "10.0.0.5" {
 		t.Fatalf("the associated VPC resolves it: %v", got)
 	}
@@ -110,7 +115,9 @@ func TestRoute53PrivateZoneShadowsThePublicOneInsideItsVPC(t *testing.T) {
 	if got := onlyA(t, askRoute53(t, srv, "www.shared.test", dns.TypeA)); len(got) != 1 || got[0] != "198.51.100.1" {
 		t.Fatalf("outside the VPC: %v", got)
 	}
-	route53RegisterResolverAddress(netip.MustParseAddr("127.0.0.1"), "vpc-1")
+	if err := route53RegisterResolverIP(net.ParseIP("127.0.0.1"), "vpc-1"); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { r53ResolverVPCs.Delete(netip.MustParseAddr("127.0.0.1")) })
 	if got := onlyA(t, askRoute53(t, srv, "www.shared.test", dns.TypeA)); len(got) != 1 || got[0] != "10.0.0.1" {
 		t.Fatalf("inside the VPC: %v", got)

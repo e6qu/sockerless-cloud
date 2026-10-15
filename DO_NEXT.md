@@ -2,9 +2,11 @@
 
 ## Next
 
-- **Send every workload's DNS to its cloud's resolver** (BUG-3473), so Azure
-  Private DNS and Cloud DNS private zones answer inside the networks that can
-  see them, and the per-record Docker aliases go.
+- **Send Docker-network workloads' DNS to their cloud's resolver** (BUG-3473),
+  so Azure Private DNS and Cloud DNS private zones answer inside Container
+  Apps, Container Instances, Cloud Run and the other container workloads, and
+  the per-record Docker aliases go; then serve Azure Private DNS
+  auto-registration and Cloud DNS policies.
 - **Fold the simulator CI shards back** from the first parallel run's per-test
   durations (BUG-3437), and stop repeating base-image loading, pre-builds and
   the Caddy install per job (BUG-3151).

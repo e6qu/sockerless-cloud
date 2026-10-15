@@ -1,15 +1,16 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/dnsserver"
 	"github.com/miekg/dns"
@@ -52,35 +53,32 @@ type azureDNSConfig struct {
 	Upstreams string
 }
 
-func azureDNSConfigFromEnv() (azureDNSConfig, bool, error) {
-	listenAddr := strings.TrimSpace(os.Getenv("SIM_AZURE_DNS_LISTEN_ADDR"))
-	if listenAddr == "" {
-		return azureDNSConfig{}, false, nil
-	}
+func azureDNSConfigFromEnv() (azureDNSConfig, error) {
+	listenAddr := strings.TrimSpace(sim.EnvOr("SIM_AZURE_DNS_LISTEN_ADDR", ":0"))
 
 	targetIPv4 := net.ParseIP(strings.TrimSpace(sim.EnvOr("SIM_AZURE_DNS_TARGET_IPV4", "127.0.0.1"))).To4()
 	if targetIPv4 == nil {
-		return azureDNSConfig{}, false, fmt.Errorf("SIM_AZURE_DNS_TARGET_IPV4 must be an IPv4 address")
+		return azureDNSConfig{}, fmt.Errorf("SIM_AZURE_DNS_TARGET_IPV4 must be an IPv4 address")
 	}
 
 	var targetIPv6 net.IP
 	if raw := strings.TrimSpace(os.Getenv("SIM_AZURE_DNS_TARGET_IPV6")); raw != "" {
 		targetIPv6 = net.ParseIP(raw)
 		if targetIPv6 == nil || targetIPv6.To4() != nil {
-			return azureDNSConfig{}, false, fmt.Errorf("SIM_AZURE_DNS_TARGET_IPV6 must be an IPv6 address")
+			return azureDNSConfig{}, fmt.Errorf("SIM_AZURE_DNS_TARGET_IPV6 must be an IPv6 address")
 		}
 	}
 
 	zones, err := parseAzureDNSZones(sim.EnvOr("SIM_AZURE_DNS_ZONES", defaultAzureDNSZones))
 	if err != nil {
-		return azureDNSConfig{}, false, err
+		return azureDNSConfig{}, err
 	}
 
 	ttl := uint32(defaultAzureDNSTTL)
 	if raw := strings.TrimSpace(os.Getenv("SIM_AZURE_DNS_TTL")); raw != "" {
 		parsed, err := strconv.ParseUint(raw, 10, 32)
 		if err != nil {
-			return azureDNSConfig{}, false, fmt.Errorf("SIM_AZURE_DNS_TTL must be a uint32: %w", err)
+			return azureDNSConfig{}, fmt.Errorf("SIM_AZURE_DNS_TTL must be a uint32: %w", err)
 		}
 		ttl = uint32(parsed)
 	}
@@ -92,7 +90,7 @@ func azureDNSConfigFromEnv() (azureDNSConfig, bool, error) {
 		Zones:      zones,
 		TTL:        ttl,
 		Upstreams:  os.Getenv("SIM_DNS_UPSTREAM"),
-	}, true, nil
+	}, nil
 }
 
 func parseAzureDNSZones(raw string) ([]string, error) {
@@ -113,20 +111,47 @@ func parseAzureDNSZones(raw string) ([]string, error) {
 	return zones, nil
 }
 
-func startAzureDNSFromEnv(ctx context.Context) (string, bool, error) {
-	cfg, enabled, err := azureDNSConfigFromEnv()
-	if err != nil || !enabled {
-		return "", enabled, err
+// azureDNS is the listener the endpoint suffixes, Azure DNS and Azure Private
+// DNS answer on, and the resolver a virtual network's machines ask at
+// 168.63.129.16.
+var azureDNS *dnsserver.Server
+
+func startAzureDNSFromEnv() (*dnsserver.Server, error) {
+	cfg, err := azureDNSConfigFromEnv()
+	if err != nil {
+		return nil, err
 	}
 	srv, err := startAzureDNSServer(cfg)
 	if err != nil {
-		return "", true, err
+		return nil, err
 	}
-	go func() {
-		<-ctx.Done()
-		_ = srv.Close()
-	}()
-	return srv.Addr(), true, nil
+	azureDNS = srv
+	return srv, nil
+}
+
+// azureDNSPort is the port the resolver answers on, which a virtual network's
+// DNS is redirected to.
+func azureDNSPort() (int, error) {
+	if azureDNS == nil {
+		return 0, fmt.Errorf("the simulator's resolver is not listening yet")
+	}
+	return azureDNS.Port(), nil
+}
+
+// azureResolverVNets maps the address a virtual network's redirected queries
+// arrive at to the virtual network, which decides the private zones a query
+// sees.
+var azureResolverVNets sync.Map
+
+// azureRegisterResolverIP records that queries arriving at addr come from
+// vnetID.
+func azureRegisterResolverIP(addr net.IP, vnetID string) error {
+	local, ok := netip.AddrFromSlice(addr.To4())
+	if !ok {
+		return fmt.Errorf("resolver address %s of %s is not IPv4", addr, vnetID)
+	}
+	azureResolverVNets.Store(local, strings.ToLower(vnetID))
+	return nil
 }
 
 func startAzureDNSServer(cfg azureDNSConfig) (*dnsserver.Server, error) {
@@ -151,10 +176,20 @@ func startAzureDNSServer(cfg azureDNSConfig) (*dnsserver.Server, error) {
 		Host: host,
 		Port: port,
 		Name: "azure",
-		Catalog: func(dnsserver.Query) dnsserver.View {
-			return dnsserver.View{Names: azureRegisteredNameRecords(cfg.TTL), Zones: append(azurePublicDNSCatalogZones(), endpoints...)}
+		Catalog: func(q dnsserver.Query) dnsserver.View {
+			var vnetID string
+			if v, ok := azureResolverVNets.Load(q.Local); ok {
+				vnetID, _ = v.(string)
+			}
+			// A private zone linked to the querier's virtual network takes
+			// precedence over a public zone of the same name.
+			zones := append(azurePrivateDNSCatalogZones(vnetID), azurePublicDNSCatalogZones()...)
+			return dnsserver.View{Names: azureRegisteredNameRecords(cfg.TTL), Zones: append(zones, endpoints...)}
 		},
-		Recursion: &dnsserver.Recursion{Upstreams: cfg.Upstreams},
+		Recursion: &dnsserver.Recursion{
+			Upstreams:  cfg.Upstreams,
+			Redirected: []netip.Addr{netip.MustParseAddr(realexec.AzureResolverIPv4)},
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -221,6 +256,60 @@ func azurePublicDNSCatalogZones() []dnsserver.Zone {
 		zones = append(zones, dnsserver.Zone{Apex: apex, Records: records})
 	}
 	return zones
+}
+
+// azurePrivateDNSCatalogZones serves the Azure Private DNS zones linked to
+// vnetID: a private zone answers only the virtual networks it is linked to.
+func azurePrivateDNSCatalogZones(vnetID string) []dnsserver.Zone {
+	if vnetID == "" || azurePrivateDNSZones == nil {
+		return nil
+	}
+	linked := map[string]bool{}
+	for _, link := range azurePrivateDNSVNetLinks.List() {
+		if link.Properties.VirtualNetwork == nil || !strings.EqualFold(link.Properties.VirtualNetwork.ID, vnetID) {
+			continue
+		}
+		if zoneID, _, ok := strings.Cut(link.ID, "/virtualNetworkLinks/"); ok {
+			linked[strings.ToLower(zoneID)] = true
+		}
+	}
+	var zones []dnsserver.Zone
+	for _, zone := range azurePrivateDNSZones.List() {
+		if !linked[strings.ToLower(zone.ID)] {
+			continue
+		}
+		apex := dns.CanonicalName(zone.Name)
+		prefix := strings.ToLower(zone.ID) + "/"
+		var records []dns.RR
+		for _, set := range azurePrivateDNSRecordSets.List() {
+			if strings.HasPrefix(strings.ToLower(set.ID), prefix) {
+				records = append(records, azurePrivateRecordSetRRs(apex, set)...)
+			}
+		}
+		zones = append(zones, dnsserver.Zone{Apex: apex, Records: records})
+	}
+	return zones
+}
+
+func azurePrivateRecordSetRRs(apex string, set RecordSet) []dns.RR {
+	p := set.Properties
+	public := PublicRecordSet{Name: set.Name, Properties: PublicRecordSetProperties{
+		TTL:         int64(p.TTL),
+		ARecords:    p.ARecords,
+		AAAARecords: p.AAAARecords,
+		CNAMERecord: p.CNAMERecord,
+		MXRecords:   p.MXRecords,
+		PTRRecords:  p.PTRRecords,
+		SRVRecords:  p.SRVRecords,
+		TXTRecords:  p.TXTRecords,
+	}}
+	if soa := p.SOARecord; soa != nil {
+		public.Properties.SOARecord = &PublicSOARecord{
+			Host: soa.Host, Email: soa.Email, SerialNumber: soa.SerialNumber,
+			RefreshTime: soa.RefreshTime, RetryTime: soa.RetryTime, ExpireTime: soa.ExpireTime, MinimumTTL: soa.MinimumTTL,
+		}
+	}
+	return azurePublicRecordSetRRs(apex, public)
 }
 
 func azurePublicRecordSetRRs(apex string, set PublicRecordSet) []dns.RR {

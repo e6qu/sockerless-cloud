@@ -89,9 +89,15 @@ func TestGlueBusinessContextLifecycle_SDK(t *testing.T) {
 	gotGlossary, err := client.GetGlossary(ctx, &glue.GetGlossaryInput{Identifier: glossary.Id})
 	require.NoError(t, err)
 	assert.Equal(t, "Finance Terms", aws.ToString(gotGlossary.Name))
+	// Other tests create glossaries in the same account concurrently, so the
+	// listing holds this one among them.
 	glossaries, err := client.ListGlossaries(ctx, &glue.ListGlossariesInput{})
 	require.NoError(t, err)
-	require.Len(t, glossaries.Items, 1)
+	var listed []string
+	for _, item := range glossaries.Items {
+		listed = append(listed, aws.ToString(item.Id))
+	}
+	require.Contains(t, listed, aws.ToString(glossary.Id))
 
 	term, err := client.CreateGlossaryTerm(ctx, &glue.CreateGlossaryTermInput{
 		GlossaryIdentifier: glossary.Id,

@@ -28,9 +28,14 @@ Current state of the sockerless-cloud repository.
   Logging and Azure Monitor Logs use. Route 53, Azure DNS and Cloud DNS
   answer their zones over UDP and TCP through `sim/dnsserver`, each cloud
   deciding through its catalog which zones a query sees: Route 53 private
-  zones answer the VPCs they are associated with, Azure DNS and Cloud DNS
-  public zones answer anyone, and only Amazon ECS tasks in their own namespace
-  send their queries to a simulator's resolver (BUG-3473).
+  zones answer the VPCs they are associated with, Azure Private DNS zones the
+  virtual networks they are linked to, Cloud DNS private, forwarding and
+  peering zones the networks they are visible to, and public zones anyone.
+  Every workload in a realized network namespace — Amazon ECS tasks, VPC
+  AWS Lambda invocations and the Amazon EC2, Azure and Compute Engine
+  microVMs — asks its cloud's resolver address (169.254.169.253,
+  168.63.129.16, 169.254.169.254); workloads on Docker networks do not yet
+  (BUG-3473).
 - **One startup sequence.** Every simulator binary's `main` is a `sim.Main`
   call with a `sim.Program`: the cloud supplies its default port, its build and
   the listeners it serves beside the HTTP port, and `sim` owns the reaper

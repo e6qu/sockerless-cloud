@@ -20,6 +20,8 @@ import (
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
+	"github.com/aws/aws-sdk-go-v2/service/route53"
+	r53types "github.com/aws/aws-sdk-go-v2/service/route53/types"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -726,20 +728,52 @@ func TestLambda_VpcConfig_RuntimeReachesVpcResource(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = lc.DeleteFunction(ctx, &lambda.DeleteFunctionInput{FunctionName: aws.String(fnName)})
 	})
-	payload := []byte(fmt.Sprintf(`{"action":"http-get","url":"http://%s:8080/"}`, targetIP))
-	invokeOut, err := lc.Invoke(ctx, &lambda.InvokeInput{
-		FunctionName: aws.String(fnName),
-		Payload:      payload,
+	// The function names the task by a record in a private hosted zone
+	// associated with the VPC, which only the VPC's resolver answers.
+	r53C := r53Client()
+	zoneOut, err := r53C.CreateHostedZone(ctx, &route53.CreateHostedZoneInput{
+		Name:             aws.String("lambda-vpc.internal."),
+		CallerReference:  aws.String("lambda-vpc-runtime-" + vpcID),
+		HostedZoneConfig: &r53types.HostedZoneConfig{PrivateZone: true},
+		VPC:              &r53types.VPC{VPCId: aws.String(vpcID), VPCRegion: r53types.VPCRegionUsEast1},
 	})
 	require.NoError(t, err)
-	require.Nil(t, invokeOut.FunctionError, "VPC request failed: %s", invokeOut.Payload)
-	var response struct {
-		StatusCode int    `json:"statusCode"`
-		Body       string `json:"body"`
+	zoneID := aws.ToString(zoneOut.HostedZone.Id)
+	targetRecord := &r53types.ResourceRecordSet{
+		Name:            aws.String("target.lambda-vpc.internal."),
+		Type:            r53types.RRTypeA,
+		TTL:             aws.Int64(60),
+		ResourceRecords: []r53types.ResourceRecord{{Value: aws.String(targetIP)}},
 	}
-	require.NoError(t, json.Unmarshal(invokeOut.Payload, &response))
-	assert.Equal(t, http.StatusOK, response.StatusCode)
-	assert.Equal(t, "lambda-vpc-ok\n", response.Body)
+	_, err = r53C.ChangeResourceRecordSets(ctx, &route53.ChangeResourceRecordSetsInput{
+		HostedZoneId: aws.String(zoneID),
+		ChangeBatch:  &r53types.ChangeBatch{Changes: []r53types.Change{{Action: r53types.ChangeActionCreate, ResourceRecordSet: targetRecord}}},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = r53C.ChangeResourceRecordSets(ctx, &route53.ChangeResourceRecordSetsInput{
+			HostedZoneId: aws.String(zoneID),
+			ChangeBatch:  &r53types.ChangeBatch{Changes: []r53types.Change{{Action: r53types.ChangeActionDelete, ResourceRecordSet: targetRecord}}},
+		})
+		_, _ = r53C.DeleteHostedZone(ctx, &route53.DeleteHostedZoneInput{Id: aws.String(zoneID)})
+	})
+
+	for _, host := range []string{targetIP, "target.lambda-vpc.internal"} {
+		payload := []byte(fmt.Sprintf(`{"action":"http-get","url":"http://%s:8080/"}`, host))
+		invokeOut, err := lc.Invoke(ctx, &lambda.InvokeInput{
+			FunctionName: aws.String(fnName),
+			Payload:      payload,
+		})
+		require.NoError(t, err)
+		require.Nil(t, invokeOut.FunctionError, "VPC request to %s failed: %s", host, invokeOut.Payload)
+		var response struct {
+			StatusCode int    `json:"statusCode"`
+			Body       string `json:"body"`
+		}
+		require.NoError(t, json.Unmarshal(invokeOut.Payload, &response))
+		assert.Equal(t, http.StatusOK, response.StatusCode, host)
+		assert.Equal(t, "lambda-vpc-ok\n", response.Body, host)
+	}
 }
 
 // TestLambda_VpcConfig_RejectsUnknownSubnet matches real Lambda's
