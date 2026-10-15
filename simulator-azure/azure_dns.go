@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/dnsserver"
 	"github.com/miekg/dns"
 )
@@ -57,7 +58,7 @@ func azureDNSConfigFromEnv() (azureDNSConfig, bool, error) {
 		return azureDNSConfig{}, false, nil
 	}
 
-	targetIPv4 := net.ParseIP(strings.TrimSpace(envOrDefault("SIM_AZURE_DNS_TARGET_IPV4", "127.0.0.1"))).To4()
+	targetIPv4 := net.ParseIP(strings.TrimSpace(sim.EnvOr("SIM_AZURE_DNS_TARGET_IPV4", "127.0.0.1"))).To4()
 	if targetIPv4 == nil {
 		return azureDNSConfig{}, false, fmt.Errorf("SIM_AZURE_DNS_TARGET_IPV4 must be an IPv4 address")
 	}
@@ -70,7 +71,7 @@ func azureDNSConfigFromEnv() (azureDNSConfig, bool, error) {
 		}
 	}
 
-	zones, err := parseAzureDNSZones(envOrDefault("SIM_AZURE_DNS_ZONES", defaultAzureDNSZones))
+	zones, err := parseAzureDNSZones(sim.EnvOr("SIM_AZURE_DNS_ZONES", defaultAzureDNSZones))
 	if err != nil {
 		return azureDNSConfig{}, false, err
 	}

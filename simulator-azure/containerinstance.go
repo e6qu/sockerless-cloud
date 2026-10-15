@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -782,8 +781,8 @@ func aciSetGroupState(group *ACIContainerGroup, state ACIContainerState) {
 }
 
 func aciStartGroupContainers(group ACIContainerGroup) error {
-	if DockerRuntimeDisabled() {
-		return fmt.Errorf("container execution requires a Docker or Podman runtime; SIM_RUNTIME=process supports API-only operations")
+	if err := sim.RequireContainerRuntime("running a container group's containers"); err != nil {
+		return err
 	}
 	containers := aciContainers(&group)
 	for _, c := range containers {
@@ -985,15 +984,4 @@ func sanitizeContainerName(s string) string {
 		return sim.NewUUID()
 	}
 	return b.String()
-}
-
-func DockerRuntimeDisabled() bool {
-	return strings.EqualFold(strings.TrimSpace(getenvDefault("SIM_RUNTIME", "docker")), "process")
-}
-
-func getenvDefault(k, def string) string {
-	if v := strings.TrimSpace(os.Getenv(k)); v != "" {
-		return v
-	}
-	return def
 }

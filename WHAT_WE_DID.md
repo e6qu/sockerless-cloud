@@ -2756,3 +2756,17 @@ serves the custom cloud's endpoint suffixes as wildcard zones, every Azure DNS
 public zone, and the names data planes register; Cloud DNS serves its public
 managed zones, and a new managed zone carries the NS and SOA record sets and
 the four `nameServers` Cloud DNS assigns.
+
+`sim.Main` is the startup every simulator binary runs, described by a
+`sim.Program`: the provider and its default port, a `Configure` hook that checks
+or records the resolved configuration, the cloud's `Build`, and a `Start` that
+starts what serves beside the HTTP port and returns the stop run after the HTTP
+server shuts down — Cloud DNS, the gRPC server and the serving-only clocks for
+Google Cloud; the Azure DNS listener, the raw Service Bus AMQP listener and the
+network-fabric teardown for Azure. A step that fails ends the process before it
+serves. `ConfigFromEnv` takes the default port and reads
+`SIM_<PROVIDER>_PORT` ahead of `SIM_LISTEN_ADDR`, so no binary rewrites a
+placeholder address. Azure Container Instances asks `sim.RequireContainerRuntime`
+whether it can run containers, from the runtime mode the server resolved once,
+instead of reading `SIM_RUNTIME` again; `sim.EnvOr` replaced each cloud's copy
+of the same environment helper.

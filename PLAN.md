@@ -33,11 +33,9 @@ Landed:
    Monitor Logs keep their entries in, each with its service's retention.
 9. DNS — `sim/dnsserver`, the listener Route 53, Azure DNS and Cloud DNS
    answer their zones through, each cloud supplying the zones a query sees.
-
-Remaining:
-
-10. Startup plumbing — configuration, engine readiness and the shared `main`
-    sequence.
+10. Startup plumbing — `sim.Main` and `sim.Program`, the startup sequence every
+    simulator binary runs, with configuration and the container-engine
+    runtime mode resolved once in `sim`.
 
 ## Maintenance
 

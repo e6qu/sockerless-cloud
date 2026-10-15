@@ -2,8 +2,6 @@
 
 ## Next
 
-- **Stage 10 of `PLAN.md`:** startup plumbing — configuration, engine
-  readiness and the shared `main` sequence.
 - **Send every workload's DNS to its cloud's resolver** (BUG-3473), so Azure
   Private DNS and Cloud DNS private zones answer inside the networks that can
   see them, and the per-record Docker aliases go.

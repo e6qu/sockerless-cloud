@@ -7,6 +7,7 @@
 // Configure with environment variables:
 //
 //	SIM_LISTEN_ADDR  — listen address (default ":4568")
+//	SIM_AZURE_PORT   — port to listen on, ahead of SIM_LISTEN_ADDR
 //	SIM_TLS_CERT     — TLS certificate file (optional)
 //	SIM_TLS_KEY      — TLS key file (optional)
 //	SIM_RUNTIME      — "docker" by default; "process" starts API-only mode for runs that do not execute workloads
@@ -20,6 +21,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"os"
 
@@ -27,68 +30,51 @@ import (
 )
 
 func main() {
-	if sim.RunContainerReaper() {
-		return
-	}
-	// A simulator started by a test harness must not outlive it. The harness
-	// stops it from its own cleanup, which a killed `go test` never reaches —
-	// and the reaper waits on the simulator, so both would linger.
-	sim.ExitWithParent()
-	cfg := sim.ConfigFromEnv("azure")
-	if cfg.ListenAddr == ":8443" {
-		cfg.ListenAddr = ":4568" // Azure simulator default port
-	}
+	sim.Main(sim.Program{
+		Provider:    "azure",
+		DefaultPort: "4568",
+		Configure: func(cfg *sim.Config) error {
+			if _, err := azureAdvertisedEndpointConfigFromEnv(); err != nil {
+				return err
+			}
+			// Workloads reach IMDS and the managed identity endpoint at the
+			// address the simulator serves on.
+			simListenAddr = cfg.ListenAddr
+			return nil
+		},
+		Build: buildSimulator,
+		Start: startAzureListeners,
+	})
+}
 
-	if port := os.Getenv("SIM_AZURE_PORT"); port != "" {
-		cfg.ListenAddr = ":" + port
-	}
-	if _, err := azureAdvertisedEndpointConfigFromEnv(); err != nil {
-		log.Fatal(err)
-	}
-
-	// Stash listen addr so cloud-product translators can wire
-	// IDENTITY_ENDPOINT + IMDS env onto workload containers.
-	simListenAddr = cfg.ListenAddr
-
-	obs, err := sim.InitObservability("sockerless-sim-azure")
-	if err != nil {
-		log.Fatalf("init observability: %v", err)
-	}
-	defer func() { _ = obs.Shutdown(context.Background()) }()
-	cfg.LogWriter = obs.LogWriter
-
-	srv, err := buildSimulator(cfg)
-	if err != nil {
-		log.Fatalf("simulator startup: %v", err)
-	}
-
+// startAzureListeners starts the DNS and raw Service Bus AMQP listeners an
+// operator configured. The stop also tears down the realized network fabric:
+// the namespaces, interfaces and machines behind virtual networks are
+// host-global and outlive the process.
+func startAzureListeners(_ *sim.Server, cfg sim.Config) (func(context.Context) error, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	stop := func(ctx context.Context) error {
+		cancel()
+		if err := azureFabric.Close(ctx); err != nil {
+			return fmt.Errorf("tear down the realized network fabric: %w", err)
+		}
+		return nil
+	}
 	if addr, enabled, err := startAzureDNSFromEnv(ctx); err != nil {
-		log.Fatal(err)
+		return nil, errors.Join(err, stop(context.Background()))
 	} else if enabled {
 		log.Printf("Azure simulator DNS listening on %s", addr)
 	}
 	if amqpAddr := os.Getenv("SIM_SERVICEBUS_AMQP_LISTEN_ADDR"); amqpAddr != "" {
-		certFile := envOrDefault("SIM_SERVICEBUS_AMQP_TLS_CERT", cfg.TLSCert)
-		keyFile := envOrDefault("SIM_SERVICEBUS_AMQP_TLS_KEY", cfg.TLSKey)
+		certFile := sim.EnvOr("SIM_SERVICEBUS_AMQP_TLS_CERT", cfg.TLSCert)
+		keyFile := sim.EnvOr("SIM_SERVICEBUS_AMQP_TLS_KEY", cfg.TLSKey)
 		ln, err := startSBAMQPTLSListener(ctx, amqpAddr, certFile, keyFile)
 		if err != nil {
-			log.Fatal(err)
+			return nil, errors.Join(err, stop(context.Background()))
 		}
-		defer func() { _ = ln.Close() }()
 		log.Printf("Service Bus raw AMQP/TLS listening on %s", ln.Addr())
 	}
-
-	serveErr := srv.ListenAndServe()
-	// The namespaces, interfaces and machines behind virtual networks are
-	// host-global and outlive the process, so a shutdown tears them down.
-	if err := azureFabric.Close(context.Background()); err != nil {
-		log.Printf("tear down the realized network fabric: %v", err)
-	}
-	if serveErr != nil {
-		log.Fatal(serveErr)
-	}
+	return stop, nil
 }
 
 // buildSimulator constructs the simulator server, applies the ARM
@@ -243,11 +229,4 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 	}
 
 	return srv, nil
-}
-
-func envOrDefault(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }

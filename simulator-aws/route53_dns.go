@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/dnsserver"
 	"github.com/miekg/dns"
 )
@@ -194,12 +195,5 @@ func route53OwnerName(name string) string {
 // otherwise a kernel-chosen one. Nothing reads the resolver at a fixed port:
 // workload namespaces are redirected to the bound address.
 func route53DNSBindPort() string {
-	return envOr("SIM_DNS_PORT", "0")
-}
-
-func envOr(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
+	return sim.EnvOr("SIM_DNS_PORT", "0")
 }

@@ -77,8 +77,8 @@ Environment knobs (per sim — full list in each sub-README):
 
 | Variable | Default | Description |
 |---|---|---|
-| `SIM_LISTEN_ADDR` | `:8443` (overridden per provider) | Listen address |
-| `SIM_AWS_PORT` / `SIM_GCP_PORT` / `SIM_AZURE_PORT` | `4566` / `4567` / `4568` | Provider-specific port override |
+| `SIM_LISTEN_ADDR` | `:4566` / `:4567` / `:4568` | Listen address |
+| `SIM_AWS_PORT` / `SIM_GCP_PORT` / `SIM_AZURE_PORT` | unset | Port to listen on, ahead of `SIM_LISTEN_ADDR` |
 | `SIM_TLS_CERT`, `SIM_TLS_KEY` | unset | Enable HTTPS (required by some Terraform providers — see [`simulator-azure/README.md § Special handling`](simulator-azure/README.md)) |
 | `SIM_RUNTIME` | `docker` | Workload runtime mode. The default initializes Docker/Podman for execution. Set `process` only for explicit API-only runs that do not invoke workload-execution APIs. |
 | `SIM_PERSIST` | `false` | `true` keeps state, payloads and running workloads across restarts. |
