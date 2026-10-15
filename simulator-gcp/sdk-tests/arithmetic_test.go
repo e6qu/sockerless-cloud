@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
-	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 func TestCloudRun_JobArithmetic(t *testing.T) {
@@ -101,9 +100,9 @@ func readJobLogEntries(t *testing.T, client *logadmin.Client, jobName string) []
 
 // waitForJobLogEntries follows the Cloud Logging entries of a Cloud Run job
 // until match accepts them, and returns the accepted entries. It opens a
-// TailLogEntries stream first and then lists what the job already logged, so
-// an entry written between the two reads arrives on one of them; entries both
-// report are counted once, by insert ID.
+// TailLogEntries stream, waits for it to stream, and then lists what the job
+// already logged, so an entry written between the two reads arrives on one of
+// them; entries both report are counted once, by insert ID.
 func waitForJobLogEntries(t *testing.T, jobName string, match func([]jobLogEntry) bool) []jobLogEntry {
 	t.Helper()
 	return waitForProjectJobLogEntries(t, "test-project", jobName, match)
@@ -114,13 +113,7 @@ func waitForProjectJobLogEntries(t *testing.T, project, jobName string, match fu
 	t.Helper()
 	tailCtx, cancel := context.WithTimeout(ctx, jobLogWaitTimeout)
 	defer cancel()
-	stream, err := newLoggingV2Client(t).TailLogEntries(tailCtx)
-	require.NoError(t, err)
-	require.NoError(t, stream.Send(&loggingpb.TailLogEntriesRequest{
-		ResourceNames: []string{"projects/" + project},
-		Filter:        jobLogFilter(jobName),
-		BufferWindow:  durationpb.New(0),
-	}))
+	stream, early := openReadyTail(t, tailCtx, newLoggingV2Client(t), project, jobLogFilter(jobName))
 
 	seen := map[string]bool{}
 	var entries []jobLogEntry
@@ -130,6 +123,17 @@ func waitForProjectJobLogEntries(t *testing.T, project, jobName string, match fu
 			entries = append(entries, e)
 		}
 	}
+	addProto := func(pe *loggingpb.LogEntry) {
+		add(jobLogEntry{
+			insertID:     pe.GetInsertId(),
+			resourceType: pe.GetResource().GetType(),
+			jobName:      pe.GetResource().GetLabels()["job_name"],
+			message:      pe.GetTextPayload(),
+		})
+	}
+	for _, pe := range early {
+		addProto(pe)
+	}
 	for _, e := range readJobLogEntries(t, logadminClientFor(t, project), jobName) {
 		add(e)
 	}
@@ -138,12 +142,7 @@ func waitForProjectJobLogEntries(t *testing.T, project, jobName string, match fu
 		require.NoError(t, err, "the Cloud Logging entries of job %q never matched within %s: %q",
 			jobName, jobLogWaitTimeout, jobLogMessages(entries))
 		for _, pe := range resp.GetEntries() {
-			add(jobLogEntry{
-				insertID:     pe.GetInsertId(),
-				resourceType: pe.GetResource().GetType(),
-				jobName:      pe.GetResource().GetLabels()["job_name"],
-				message:      pe.GetTextPayload(),
-			})
+			addProto(pe)
 		}
 	}
 	return entries

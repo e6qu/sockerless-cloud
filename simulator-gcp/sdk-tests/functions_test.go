@@ -11,7 +11,6 @@ import (
 	functions "cloud.google.com/go/functions/apiv2"
 	"cloud.google.com/go/functions/apiv2/functionspb"
 	vkit "cloud.google.com/go/logging/apiv2"
-	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"cloud.google.com/go/logging/logadmin"
 	"cloud.google.com/go/run/apiv2/runpb"
 	"github.com/stretchr/testify/assert"
@@ -22,7 +21,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 // deployFunction creates a function, deploys a container to the Cloud Run
@@ -236,8 +234,9 @@ func waitForFunctionLogMessage(t *testing.T, functionID, message string) {
 
 // followLogMessages follows the text payloads of the Cloud Logging entries
 // filter matches until done accepts them, and returns them. It opens a
-// TailLogEntries stream first and then lists what was already logged, so an
-// entry written between the two reads arrives on one of them.
+// TailLogEntries stream, waits for it to stream, and then lists what was
+// already logged, so an entry written between the two reads arrives on one of
+// them.
 func followLogMessages(t *testing.T, filter string, done func(messages []string) bool) []string {
 	t.Helper()
 	return followLogMessagesAt(t, grpcAddr, filter, done)
@@ -258,15 +257,12 @@ func followLogMessagesAt(t *testing.T, address, filter string, done func(message
 	listClient, err := logadmin.NewClient(ctx, "test-project", option.WithGRPCConn(conn))
 	require.NoError(t, err)
 	defer listClient.Close()
-	stream, err := tailClient.TailLogEntries(tailCtx)
-	require.NoError(t, err)
-	require.NoError(t, stream.Send(&loggingpb.TailLogEntriesRequest{
-		ResourceNames: []string{"projects/test-project"},
-		Filter:        filter,
-		BufferWindow:  durationpb.New(0),
-	}))
+	stream, early := openReadyTail(t, tailCtx, tailClient, "test-project", filter)
 
 	var messages []string
+	for _, entry := range early {
+		messages = append(messages, entry.GetTextPayload())
+	}
 	it := listClient.Entries(ctx, logadmin.Filter(filter))
 	for {
 		entry, err := it.Next()

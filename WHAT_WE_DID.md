@@ -153,6 +153,12 @@ own module:
   names, `destination,filter,includeChildren` when it names none, so
   `gcloud logging sinks update --add-exclusion` keeps the destination.
 
+  The Google Cloud SDK tests that wait on a log through TailLogEntries open
+  the tail with `openReadyTail`, which also follows a marker log and rewrites
+  a marker until the tail streams it. A tail streams only what is ingested
+  after Cloud Logging reads its request, so a listing made before the tail
+  started could miss an entry that the tail's starting point then excluded.
+
   List tokens that named an offset into the sorted list let a create or
   delete made before the token between two calls repeat or skip an item on
   the next page. `sim/listq` gained `KeyPage`, whose token names the last key
