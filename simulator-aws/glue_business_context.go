@@ -309,8 +309,7 @@ func handleGlueListGlossaries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	all := glueBusinessGlossaries.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	page, next, pageOK := awsPage(w, glueBadToken, all, req.NextToken, derefIntDefault(req.MaxResults, 0), 1000)
+	page, next, pageOK := awsKeyPage(w, glueBadToken, all, func(it GlueBusinessGlossary) string { return it.Name + "\x00" + it.Id }, req.NextToken, derefIntDefault(req.MaxResults, 0), 1000)
 	if !pageOK {
 		return
 	}
@@ -463,10 +462,9 @@ func handleGlueListGlossaryTerms(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
-	sort.Slice(items, func(i, j int) bool {
-		return glueBusinessStringField(items[i], "Name") < glueBusinessStringField(items[j], "Name")
-	})
-	page, next, pageOK := awsPage(w, glueBadToken, items, req.NextToken, derefIntDefault(req.MaxResults, 0), 1000)
+	page, next, pageOK := awsKeyPage(w, glueBadToken, items, func(it map[string]any) string {
+		return glueBusinessStringField(it, "Name") + "\x00" + glueBusinessStringField(it, "Id")
+	}, req.NextToken, derefIntDefault(req.MaxResults, 0), 1000)
 	if !pageOK {
 		return
 	}
@@ -563,12 +561,13 @@ func handleGlueListFormTypes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	all := glueBusinessFormTypes.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 	items := make([]map[string]any, 0, len(all))
 	for _, value := range all {
 		items = append(items, map[string]any{"Id": value.Id, "Name": value.Name})
 	}
-	page, next, pageOK := awsPage(w, glueBadToken, items, req.NextToken, derefIntDefault(req.MaxResults, 0), 1000)
+	page, next, pageOK := awsKeyPage(w, glueBadToken, items, func(it map[string]any) string {
+		return glueBusinessStringField(it, "Name") + "\x00" + glueBusinessStringField(it, "Id")
+	}, req.NextToken, derefIntDefault(req.MaxResults, 0), 1000)
 	if !pageOK {
 		return
 	}
@@ -673,10 +672,9 @@ func handleGlueListAssetTypes(w http.ResponseWriter, r *http.Request) {
 			items = append(items, map[string]any{"Id": value.Id, "Name": value.Name})
 		}
 	}
-	sort.Slice(items, func(i, j int) bool {
-		return glueBusinessStringField(items[i], "Name") < glueBusinessStringField(items[j], "Name")
-	})
-	page, next, pageOK := awsPage(w, glueBadToken, items, req.NextToken, derefIntDefault(req.MaxResults, 0), 1000)
+	page, next, pageOK := awsKeyPage(w, glueBadToken, items, func(it map[string]any) string {
+		return glueBusinessStringField(it, "Name") + "\x00" + glueBusinessStringField(it, "Id")
+	}, req.NextToken, derefIntDefault(req.MaxResults, 0), 1000)
 	if !pageOK {
 		return
 	}
@@ -1082,10 +1080,9 @@ func handleGlueListIterableForms(w http.ResponseWriter, r *http.Request) {
 			"Description": item.Description, "GlossaryTerms": item.GlossaryTerms,
 		})
 	}
-	sort.Slice(items, func(i, j int) bool {
-		return glueBusinessStringField(items[i], "ItemName") < glueBusinessStringField(items[j], "ItemName")
-	})
-	page, next, pageOK := awsPage(w, glueBadToken, items, req.NextToken, derefIntDefault(req.MaxResults, 0), 1000)
+	page, next, pageOK := awsKeyPage(w, glueBadToken, items, func(it map[string]any) string {
+		return glueBusinessStringField(it, "ItemName") + "\x00" + glueBusinessStringField(it, "ItemId")
+	}, req.NextToken, derefIntDefault(req.MaxResults, 0), 1000)
 	if !pageOK {
 		return
 	}
@@ -1181,33 +1178,34 @@ func handleGlueSearchAssets(w http.ResponseWriter, r *http.Request) {
 		}
 		matches = append(matches, asset)
 	}
-	sort.Slice(matches, func(i, j int) bool {
-		var left, right string
+	key := func(asset GlueBusinessAsset) string {
+		var k string
 		switch strings.ToLower(req.Sort.Attribute) {
 		case "id":
-			left, right = matches[i].Id, matches[j].Id
+			k = asset.Id
 		case "assettypeid":
-			left, right = matches[i].AssetTypeId, matches[j].AssetTypeId
+			k = asset.AssetTypeId
 		case "updatedat":
-			left, right = fmt.Sprintf("%020.6f", matches[i].UpdatedAt), fmt.Sprintf("%020.6f", matches[j].UpdatedAt)
+			k = fmt.Sprintf("%020.6f", asset.UpdatedAt)
 		default:
-			left, right = matches[i].Name, matches[j].Name
+			k = asset.Name
 		}
+		k += "\x00" + asset.Id
 		if req.Sort.Order == "DESCENDING" {
-			return left > right
+			return awsDescKey(k)
 		}
-		return left < right
-	})
-	items := make([]map[string]any, 0, len(matches))
-	for _, asset := range matches {
-		items = append(items, map[string]any{
+		return k
+	}
+	paged, next, pageOK := awsKeyPage(w, glueBadToken, matches, key, req.NextToken, derefIntDefault(req.MaxResults, 0), 1000)
+	if !pageOK {
+		return
+	}
+	page := make([]map[string]any, 0, len(paged))
+	for _, asset := range paged {
+		page = append(page, map[string]any{
 			"Id": asset.Id, "AssetName": asset.Name, "AssetDescription": asset.Description,
 			"AssetTypeId": asset.AssetTypeId, "UpdatedAt": asset.UpdatedAt,
 		})
-	}
-	page, next, pageOK := awsPage(w, glueBadToken, items, req.NextToken, derefIntDefault(req.MaxResults, 0), 1000)
-	if !pageOK {
-		return
 	}
 	response := map[string]any{"Items": page}
 	if next != "" {

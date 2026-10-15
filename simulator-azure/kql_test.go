@@ -7,17 +7,25 @@ import (
 	"testing"
 	"time"
 
-	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/logstore"
 )
 
 // withKQLRows installs a log store holding the given rows for the test's
-// duration.
+// duration. The rows enter the store as just ingested, so the component's
+// retention keeps them whatever TimeGenerated values the engine tests read.
 func withKQLRows(t *testing.T, table string, rows ...monitorLogRow) {
 	t.Helper()
 	saved := monitorLogs
-	monitorLogs = sim.MakeStore[[]monitorLogRow](nil, "kql_test_logs")
+	monitorLogs = monitorNewLog(nil, "kql_test_log_rows", "kql_test_log_heads")
 	t.Cleanup(func() { monitorLogs = saved })
-	monitorLogs.Put(appLogRowsKey(kqlTestApp, table), rows)
+	now := time.Now().UnixMilli()
+	entries := make([]logstore.Entry[monitorLogRow], len(rows))
+	for i, row := range rows {
+		entries[i] = logstore.Entry[monitorLogRow]{Time: now, Ingested: now, Value: row}
+	}
+	if err := monitorLogs.Import(appLogRowsKey(kqlTestApp, table), entries); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // kqlTestApp is the classic Application Insights component the engine tests

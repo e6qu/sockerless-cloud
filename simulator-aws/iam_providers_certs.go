@@ -376,8 +376,7 @@ func handleIAMDeleteServerCertificate(w http.ResponseWriter, r *http.Request) {
 
 func handleIAMListServerCertificates(w http.ResponseWriter, r *http.Request) {
 	certs := iamServerCerts.List()
-	sort.Slice(certs, func(i, j int) bool { return certs[i].Name < certs[j].Name })
-	page, next, pageOK := awsPage(w, iamBadToken, certs, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
+	page, next, pageOK := awsKeyPage(w, iamBadToken, certs, func(it IAMServerCertificate) string { return it.Name }, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
 	if !pageOK {
 		return
 	}

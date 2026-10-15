@@ -9,7 +9,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -609,8 +608,7 @@ func handleKMSListKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	all := kmsKeys.List()
-	sortBy(all, func(k KMSKey) string { return k.KeyId })
-	page, next, pageOK := awsPage(w, kmsBadToken, all, req.Marker, req.Limit, 100)
+	page, next, pageOK := awsKeyPage(w, kmsBadToken, all, func(it KMSKey) string { return it.KeyId }, req.Marker, req.Limit, 100)
 	if !pageOK {
 		return
 	}
@@ -863,12 +861,7 @@ func handleKMSListAliases(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// Stable order so the offset-based Marker pages each alias once.
-	sort.Slice(out, func(i, j int) bool {
-		a, _ := out[i]["AliasName"].(string)
-		b, _ := out[j]["AliasName"].(string)
-		return a < b
-	})
-	page, next, pageOK := awsPage(w, kmsBadToken, out, req.Marker, req.Limit, 0)
+	page, next, pageOK := awsKeyPage(w, kmsBadToken, out, awsFieldKey("AliasName"), req.Marker, req.Limit, 0)
 	if !pageOK {
 		return
 	}
@@ -1091,7 +1084,7 @@ func handleKMSListKeyRotations(w http.ResponseWriter, r *http.Request) {
 			"RotationType": rot.RotationType,
 		})
 	}
-	page, next, pageOK := awsPage(w, kmsBadToken, rotations, req.Marker, req.Limit, 0)
+	page, next, pageOK := awsSeqPage(w, kmsBadToken, rotations, false, req.Marker, req.Limit, 0)
 	if !pageOK {
 		return
 	}

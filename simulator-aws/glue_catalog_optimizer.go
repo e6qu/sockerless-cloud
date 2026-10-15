@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/e6qu/sockerless-cloud/sim"
 	"slices"
-	"sort"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // AWS Glue — Catalog (multi-catalog), Table Optimizer, BatchGet*, and zero-ETL
@@ -242,7 +242,7 @@ func handleGlueGetCatalogs(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, all, func(it GlueCatalog) string { return it.Name }, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -523,7 +523,7 @@ func handleGlueListTableOptimizerRuns(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, opt.Runs, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsSeqPage(w, glueBadToken, opt.Runs, false, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -863,7 +863,7 @@ func handleGlueDescribeIntegrations(w http.ResponseWriter, r *http.Request) {
 	if req.MaxRecords != nil {
 		maxR = *req.MaxRecords
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, matched, req.Marker, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, matched, func(it GlueIntegration) string { return it.IntegrationArn }, req.Marker, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -986,7 +986,7 @@ func handleGlueDescribeInboundIntegrations(w http.ResponseWriter, r *http.Reques
 	if req.MaxRecords != nil {
 		maxR = *req.MaxRecords
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, matched, req.Marker, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, matched, awsFieldKey("IntegrationArn"), req.Marker, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -1104,7 +1104,7 @@ func handleGlueListIntegrationResourceProperties(w http.ResponseWriter, r *http.
 	if req.MaxRecords != nil {
 		maxR = *req.MaxRecords
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.Marker, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, all, func(it GlueIntegrationResourceProperty) string { return it.ResourceArn }, req.Marker, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -1185,15 +1185,13 @@ func handleGlueListIntegrationTableProperties(w http.ResponseWriter, r *http.Req
 			filtered = append(filtered, p)
 		}
 	}
-	sort.Slice(filtered, func(i, j int) bool {
-		return glueIntegTablePropKey(filtered[i].ResourceArn, filtered[i].TableName) <
-			glueIntegTablePropKey(filtered[j].ResourceArn, filtered[j].TableName)
-	})
 	maxR := 0
 	if req.MaxRecords != nil {
 		maxR = *req.MaxRecords
 	}
-	page, next, pageOK := awsPage(w, glueBadToken, filtered, req.Marker, maxR, 100)
+	page, next, pageOK := awsKeyPage(w, glueBadToken, filtered, func(it GlueIntegrationTableProperties) string {
+		return glueIntegTablePropKey(it.ResourceArn, it.TableName)
+	}, req.Marker, maxR, 100)
 	if !pageOK {
 		return
 	}

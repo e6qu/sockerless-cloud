@@ -392,16 +392,11 @@ func amplifyWriteError(w http.ResponseWriter, status int, code, msg string) {
 }
 
 // amplifyPageQuery parses the restJson1 ?nextToken=&maxResults= pagination
-// query params every Amplify List* operation carries. On a malformed value
-// it writes a BadRequestException and reports !ok.
+// query params every Amplify List* operation carries. On a malformed
+// maxResults it writes a BadRequestException and reports !ok; the page itself
+// checks the token.
 func amplifyPageQuery(w http.ResponseWriter, r *http.Request) (token string, maxResults int, ok bool) {
 	token = r.URL.Query().Get("nextToken")
-	if token != "" {
-		if offset, err := strconv.Atoi(token); err != nil || offset < 0 {
-			amplifyWriteError(w, http.StatusBadRequest, "BadRequestException", "invalid nextToken")
-			return "", 0, false
-		}
-	}
 	if raw := r.URL.Query().Get("maxResults"); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed < 0 {
@@ -413,15 +408,15 @@ func amplifyPageQuery(w http.ResponseWriter, r *http.Request) (token string, max
 	return token, maxResults, true
 }
 
-// amplifyWriteListPage pages a sorted slice with awsPage (paginate
-// only on an explicit positive maxResults) and writes the {key: page[,
-// nextToken]} envelope.
-func amplifyWriteListPage[T any](w http.ResponseWriter, key string, items []T, token string, maxResults int) {
-	page, next, pageOK := awsPage(w, amplifyBadToken, items, token, maxResults, 0)
+// amplifyWriteListPage pages items in key order (paginating only on an
+// explicit positive maxResults) and writes the {member: page[, nextToken]}
+// envelope.
+func amplifyWriteListPage[T any](w http.ResponseWriter, member string, items []T, key func(T) string, token string, maxResults int) {
+	page, next, pageOK := awsKeyPage(w, amplifyBadToken, items, key, token, maxResults, 0)
 	if !pageOK {
 		return
 	}
-	out := map[string]any{key: page}
+	out := map[string]any{member: page}
 	if next != "" {
 		out["nextToken"] = next
 	}
@@ -836,8 +831,7 @@ func handleAmplifyListApps(w http.ResponseWriter, r *http.Request) {
 	for _, s := range amplifyApps.List() {
 		apps = append(apps, s.App)
 	}
-	sortBy(apps, func(a AmplifyApp) string { return a.AppId })
-	amplifyWriteListPage(w, "apps", apps, token, maxResults)
+	amplifyWriteListPage(w, "apps", apps, func(a AmplifyApp) string { return a.AppId }, token, maxResults)
 }
 
 type amplifyCreateBranchReq struct {
@@ -1089,8 +1083,7 @@ func handleAmplifyListBranches(w http.ResponseWriter, r *http.Request) {
 	for _, br := range stored.Branches {
 		branches = append(branches, br)
 	}
-	sortBy(branches, func(b AmplifyBranch) string { return b.BranchName })
-	amplifyWriteListPage(w, "branches", branches, token, maxResults)
+	amplifyWriteListPage(w, "branches", branches, func(b AmplifyBranch) string { return b.BranchName }, token, maxResults)
 }
 
 type amplifyCreateWebhookReq struct {
@@ -1209,8 +1202,7 @@ func handleAmplifyListWebhooks(w http.ResponseWriter, r *http.Request) {
 			items = append(items, amplifyWebhookWire(s))
 		}
 	}
-	sortBy(items, func(wh AmplifyWebhook) string { return wh.WebhookId })
-	amplifyWriteListPage(w, "webhooks", items, token, maxResults)
+	amplifyWriteListPage(w, "webhooks", items, func(wh AmplifyWebhook) string { return wh.WebhookId }, token, maxResults)
 }
 
 type amplifyStartJobReq struct {
@@ -1762,13 +1754,9 @@ func handleAmplifyListJobs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// Real ListJobs returns the newest job first.
-	sort.Slice(summaries, func(i, j int) bool {
-		if summaries[i].StartTime != summaries[j].StartTime {
-			return summaries[i].StartTime > summaries[j].StartTime
-		}
-		return summaries[i].JobId < summaries[j].JobId
-	})
-	amplifyWriteListPage(w, "jobSummaries", summaries, token, maxResults)
+	amplifyWriteListPage(w, "jobSummaries", summaries, func(j AmplifyJobSummary) string {
+		return awsDescKey(awsFloatKey(j.StartTime)) + "\x00" + j.JobId
+	}, token, maxResults)
 }
 
 func handleAmplifyListArtifacts(w http.ResponseWriter, r *http.Request) {
@@ -1790,8 +1778,7 @@ func handleAmplifyListArtifacts(w http.ResponseWriter, r *http.Request) {
 			artifacts = append(artifacts, stored.Artifact)
 		}
 	}
-	sortBy(artifacts, func(a AmplifyArtifact) string { return a.ArtifactId })
-	amplifyWriteListPage(w, "artifacts", artifacts, token, maxResults)
+	amplifyWriteListPage(w, "artifacts", artifacts, func(a AmplifyArtifact) string { return a.ArtifactId }, token, maxResults)
 }
 
 func handleAmplifyGetArtifactURL(w http.ResponseWriter, r *http.Request) {

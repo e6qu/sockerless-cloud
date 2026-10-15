@@ -24,8 +24,8 @@ Current state of the sockerless-cloud repository.
   `realexec/fabric` and `realexec/lbplane`, and queues, stream logs, push
   delivery and cron schedules are `sim/msgq`, `sim/streamlog`, `sim/delivery`
   and `sim/cron`. All three simulators use them. Key material is `sim/simkms`,
-  and log entries are `sim/logstore`, which Amazon CloudWatch Logs and Cloud
-  Logging use.
+  and log entries are `sim/logstore`, which Amazon CloudWatch Logs, Cloud
+  Logging and Azure Monitor Logs use.
 - **Pins carry the working tree's content.** Each simulator pins `sim`,
   `realexec` and `ui-auth` by pseudo-version;
   `scripts/check-support-module-pins.sh` downloads every pinned version and

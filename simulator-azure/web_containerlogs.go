@@ -12,17 +12,14 @@ import (
 // web_containerlogs.go implements WebApps_GetWebSiteContainerLogs[Slot] and
 // WebApps_GetContainerLogsZip[Slot]. The log text is the site container's
 // real output: every line a site container writes flows through funcLogSink
-// into the site's docker log (bounded at monitorMaxRetainedRows), and these
+// into the site's docker log (bounded at webSiteDockerLogMaxLines), and these
 // endpoints render exactly those retained lines — timestamped, in arrival
 // order — as the docker log file real App Service serves.
 
 // webSiteContainerLogText assembles a site's retained container log lines.
 func webSiteContainerLogText(siteID string) []byte {
-	logMu.RLock()
-	rows, _ := webSiteDockerLogs.Get(strings.ToLower(siteID))
-	logMu.RUnlock()
 	var buf bytes.Buffer
-	for _, row := range rows {
+	for _, row := range webSiteDockerLogs.Values(strings.ToLower(siteID)) {
 		fmt.Fprintf(&buf, "%s %s\n", row["TimeGenerated"], row["Message"])
 	}
 	return buf.Bytes()

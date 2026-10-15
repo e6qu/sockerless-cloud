@@ -2,9 +2,9 @@
 
 ## Next
 
-- **Finish stage 8 of `PLAN.md`:** move Azure Monitor Logs onto
-  `sim/logstore`, enforcing workspace and table retention in place of the
-  50,000-row cap. DNS and the startup plumbing follow.
+- **Stage 9 of `PLAN.md`:** DNS — zones, records and resolution inside
+  workload networks, shared by Amazon Route 53, Cloud DNS and Azure DNS. The
+  startup plumbing follows.
 - **Fold the simulator CI shards back** from the first parallel run's per-test
   durations (BUG-3437), and stop repeating base-image loading, pre-builds and
   the Caddy install per job (BUG-3151).

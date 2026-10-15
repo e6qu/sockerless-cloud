@@ -858,8 +858,7 @@ func handleSMListSecrets(w http.ResponseWriter, r *http.Request) {
 		}
 		all = filtered
 	}
-	sortBy(all, func(s SMSecret) string { return s.Name })
-	page, next, pageOK := awsPage(w, smBadToken, all, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsKeyPage(w, smBadToken, all, func(it SMSecret) string { return it.Name }, req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
 	}

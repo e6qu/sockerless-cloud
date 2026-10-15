@@ -575,22 +575,18 @@ func cbWriteBuildBatchIDsPage(w http.ResponseWriter, all []CBBuildBatch, project
 			batches = append(batches, b)
 		}
 	}
-	ascending := strings.EqualFold(sortOrder, "ASCENDING")
-	sort.Slice(batches, func(i, j int) bool {
-		if ascending {
-			return batches[i].Seq < batches[j].Seq
-		}
-		return batches[i].Seq > batches[j].Seq
-	})
-	ids := make([]string, 0, len(batches))
-	for _, b := range batches {
-		ids = append(ids, b.ID)
-	}
-	page, nextTok, pageOK := awsPage(w, cbBadToken, ids, nextToken, maxResults, 100)
+	descending := !strings.EqualFold(sortOrder, "ASCENDING")
+	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, batches, func(b CBBuildBatch) string {
+		return cbOrderKey(awsIntKey(b.Seq), descending)
+	}, nextToken, maxResults, 100)
 	if !pageOK {
 		return
 	}
-	resp := map[string]any{"ids": page}
+	ids := make([]string, 0, len(page))
+	for _, b := range page {
+		ids = append(ids, b.ID)
+	}
+	resp := map[string]any{"ids": ids}
 	if nextTok != "" {
 		resp["nextToken"] = nextTok
 	}
@@ -773,11 +769,8 @@ func handleCBListFleets(w http.ResponseWriter, r *http.Request) {
 	for _, f := range all {
 		arns = append(arns, f.Arn)
 	}
-	sort.Strings(arns)
-	if strings.EqualFold(req.SortOrder, "DESCENDING") {
-		reverseStrings(arns)
-	}
-	page, nextTok, pageOK := awsPage(w, cbBadToken, arns, req.NextToken, req.MaxResults, 100)
+	descending := strings.EqualFold(req.SortOrder, "DESCENDING")
+	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, arns, func(s string) string { return cbOrderKey(s, descending) }, req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
 	}
@@ -962,22 +955,18 @@ func cbWriteSandboxIDsPage(w http.ResponseWriter, all []CBSandbox, project, sort
 			boxes = append(boxes, sb)
 		}
 	}
-	ascending := strings.EqualFold(sortOrder, "ASCENDING")
-	sort.Slice(boxes, func(i, j int) bool {
-		if ascending {
-			return boxes[i].Seq < boxes[j].Seq
-		}
-		return boxes[i].Seq > boxes[j].Seq
-	})
-	ids := make([]string, 0, len(boxes))
-	for _, sb := range boxes {
-		ids = append(ids, sb.ID)
-	}
-	page, nextTok, pageOK := awsPage(w, cbBadToken, ids, nextToken, maxResults, 100)
+	descending := !strings.EqualFold(sortOrder, "ASCENDING")
+	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, boxes, func(sb CBSandbox) string {
+		return cbOrderKey(awsIntKey(sb.Seq), descending)
+	}, nextToken, maxResults, 100)
 	if !pageOK {
 		return
 	}
-	resp := map[string]any{"ids": page}
+	ids := make([]string, 0, len(page))
+	for _, sb := range page {
+		ids = append(ids, sb.ID)
+	}
+	resp := map[string]any{"ids": ids}
 	if nextTok != "" {
 		resp["nextToken"] = nextTok
 	}
@@ -1171,14 +1160,10 @@ func handleCBListCommandExecutionsForSandbox(w http.ResponseWriter, r *http.Requ
 			execs = append(execs, ce)
 		}
 	}
-	ascending := strings.EqualFold(req.SortOrder, "ASCENDING")
-	sort.Slice(execs, func(i, j int) bool {
-		if ascending {
-			return execs[i].Seq < execs[j].Seq
-		}
-		return execs[i].Seq > execs[j].Seq
-	})
-	page, nextTok, pageOK := awsPage(w, cbBadToken, execs, req.NextToken, req.MaxResults, 100)
+	descending := !strings.EqualFold(req.SortOrder, "ASCENDING")
+	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, execs, func(ce CBCommandExecution) string {
+		return cbOrderKey(awsIntKey(ce.Seq), descending)
+	}, req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
 	}
@@ -1341,7 +1326,7 @@ func handleCBDescribeTestCases(w http.ResponseWriter, r *http.Request) {
 		}
 		cases = append(cases, testCase)
 	}
-	page, nextTok, pageOK := awsPage(w, cbBadToken, cases, req.NextToken, req.MaxResults, 100)
+	page, nextTok, pageOK := awsSeqPage(w, cbBadToken, cases, false, req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
 	}
@@ -1374,37 +1359,39 @@ func handleCBDescribeCodeCoverages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	results, _ := cbReportResults.Get(req.ReportArn)
-	coverages := make([]CBCodeCoverage, 0, len(results.CodeCoverages))
-	for _, coverage := range results.CodeCoverages {
+	type recorded struct {
+		pos      int
+		coverage CBCodeCoverage
+	}
+	coverages := make([]recorded, 0, len(results.CodeCoverages))
+	for pos, coverage := range results.CodeCoverages {
 		if req.MinLineCoverage != nil && coverage.LineCoveragePercentage < *req.MinLineCoverage {
 			continue
 		}
 		if req.MaxLineCoverage != nil && coverage.LineCoveragePercentage > *req.MaxLineCoverage {
 			continue
 		}
-		coverages = append(coverages, coverage)
+		coverages = append(coverages, recorded{pos, coverage})
 	}
 	// sortBy is FILE_PATH or LINE_COVERAGE_PERCENTAGE; the default order is by
-	// file path, which is the order ingestion recorded.
-	if strings.EqualFold(req.SortBy, "LINE_COVERAGE_PERCENTAGE") {
-		sort.SliceStable(coverages, func(i, j int) bool {
-			return coverages[i].LineCoveragePercentage < coverages[j].LineCoveragePercentage
-		})
-	} else {
-		sort.SliceStable(coverages, func(i, j int) bool {
-			return coverages[i].FilePath < coverages[j].FilePath
-		})
-	}
-	if strings.EqualFold(req.SortOrder, "DESCENDING") {
-		for i, j := 0, len(coverages)-1; i < j; i, j = i+1, j-1 {
-			coverages[i], coverages[j] = coverages[j], coverages[i]
+	// file path, which is the order ingestion recorded. Ties keep that order.
+	byPercentage := strings.EqualFold(req.SortBy, "LINE_COVERAGE_PERCENTAGE")
+	descending := strings.EqualFold(req.SortOrder, "DESCENDING")
+	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, coverages, func(c recorded) string {
+		primary := c.coverage.FilePath
+		if byPercentage {
+			primary = awsFloatKey(c.coverage.LineCoveragePercentage)
 		}
-	}
-	page, nextTok, pageOK := awsPage(w, cbBadToken, coverages, req.NextToken, req.MaxResults, 100)
+		return cbOrderKey(primary+"\x00"+awsIntKey(int64(c.pos)), descending)
+	}, req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
 	}
-	resp := map[string]any{"codeCoverages": page}
+	paged := make([]CBCodeCoverage, 0, len(page))
+	for _, c := range page {
+		paged = append(paged, c.coverage)
+	}
+	resp := map[string]any{"codeCoverages": paged}
 	if nextTok != "" {
 		resp["nextToken"] = nextTok
 	}
@@ -1706,11 +1693,8 @@ func handleCBListSharedProjects(w http.ResponseWriter, r *http.Request) {
 			arns = append(arns, pol.ARN)
 		}
 	}
-	sort.Strings(arns)
-	if strings.EqualFold(req.SortOrder, "DESCENDING") {
-		reverseStrings(arns)
-	}
-	page, nextTok, pageOK := awsPage(w, cbBadToken, arns, req.NextToken, req.MaxResults, 100)
+	descending := strings.EqualFold(req.SortOrder, "DESCENDING")
+	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, arns, func(s string) string { return cbOrderKey(s, descending) }, req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
 	}
@@ -1739,11 +1723,8 @@ func handleCBListSharedReportGroups(w http.ResponseWriter, r *http.Request) {
 			arns = append(arns, pol.ARN)
 		}
 	}
-	sort.Strings(arns)
-	if strings.EqualFold(req.SortOrder, "DESCENDING") {
-		reverseStrings(arns)
-	}
-	page, nextTok, pageOK := awsPage(w, cbBadToken, arns, req.NextToken, req.MaxResults, 100)
+	descending := strings.EqualFold(req.SortOrder, "DESCENDING")
+	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, arns, func(s string) string { return cbOrderKey(s, descending) }, req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
 	}

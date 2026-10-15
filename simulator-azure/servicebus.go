@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -427,40 +426,34 @@ func handleSBUpdateNamespace(w http.ResponseWriter, r *http.Request) {
 func handleSBListNamespacesBySub(w http.ResponseWriter, r *http.Request) {
 	prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
 	all := sbNamespaces.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	out := make([]SBNamespace, 0, len(all))
 	for _, n := range all {
 		if strings.HasPrefix(n.ID, prefix) {
 			out = append(out, n)
 		}
 	}
-	writeSBPagedList(w, r, out)
+	writeSBPagedList(w, r, out, func(x SBNamespace) string { return x.ID })
 }
 
 func handleSBListNamespacesByRG(w http.ResponseWriter, r *http.Request) {
 	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ServiceBus/namespaces/",
 		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
 	all := sbNamespaces.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	out := make([]SBNamespace, 0, len(all))
 	for _, n := range all {
 		if strings.HasPrefix(n.ID, prefix) {
 			out = append(out, n)
 		}
 	}
-	writeSBPagedList(w, r, out)
+	writeSBPagedList(w, r, out, func(x SBNamespace) string { return x.ID })
 }
 
-// writeSBPagedList emits a {value, nextLink} ARM list envelope, paginating only
-// when the client supplies an explicit $top (armPage returns the full list
-// otherwise).
-func writeSBPagedList[T any](w http.ResponseWriter, r *http.Request, items []T) {
-	page, next, pageOK := armPage(w, r, items)
+// writeSBPagedList emits one page of a {value, nextLink} ARM list envelope,
+// ordered by key.
+func writeSBPagedList[T any](w http.ResponseWriter, r *http.Request, items []T, key func(T) string) {
+	page, next, pageOK := armPage(w, r, items, key)
 	if !pageOK {
 		return
-	}
-	if page == nil {
-		page = []T{}
 	}
 	out := map[string]any{"value": page}
 	if next != "" {
@@ -533,14 +526,13 @@ func handleSBListDisasterRecoveryConfigs(w http.ResponseWriter, r *http.Request)
 	}
 	prefix := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) + "/disasterRecoveryConfigs/"
 	all := sbDRConfigs.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	out := make([]SBDisasterRecovery, 0, len(all))
 	for _, dr := range all {
 		if strings.HasPrefix(dr.ID, prefix) {
 			out = append(out, dr)
 		}
 	}
-	writeSBPagedList(w, r, out)
+	writeSBPagedList(w, r, out, func(x SBDisasterRecovery) string { return x.ID })
 }
 
 func handleSBGetDisasterRecoveryConfig(w http.ResponseWriter, r *http.Request) {
@@ -694,14 +686,13 @@ func handleSBListMigrationConfigurations(w http.ResponseWriter, r *http.Request)
 	}
 	prefix := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) + "/migrationConfigurations/"
 	all := sbMigrations.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	out := make([]SBMigrationConfig, 0, len(all))
 	for _, mc := range all {
 		if strings.HasPrefix(mc.ID, prefix) {
 			out = append(out, mc)
 		}
 	}
-	writeSBPagedList(w, r, out)
+	writeSBPagedList(w, r, out, func(x SBMigrationConfig) string { return x.ID })
 }
 
 func handleSBGetMigrationConfiguration(w http.ResponseWriter, r *http.Request) {
@@ -791,14 +782,13 @@ func handleSBListPrivateEndpointConnections(w http.ResponseWriter, r *http.Reque
 	}
 	prefix := sbNamespaceID(sub, rg, name) + "/privateEndpointConnections/"
 	all := sbPrivateConns.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	out := make([]SBPrivateEndpointConnection, 0, len(all))
 	for _, pec := range all {
 		if strings.HasPrefix(pec.ID, prefix) {
 			out = append(out, pec)
 		}
 	}
-	writeSBPagedList(w, r, out)
+	writeSBPagedList(w, r, out, func(x SBPrivateEndpointConnection) string { return x.ID })
 }
 
 func handleSBGetPrivateEndpointConnection(w http.ResponseWriter, r *http.Request) {
@@ -951,14 +941,13 @@ func handleSBDeleteQueue(w http.ResponseWriter, r *http.Request) {
 func handleSBListQueues(w http.ResponseWriter, r *http.Request) {
 	prefix := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) + "/queues/"
 	all := sbQueues.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 	filtered := make([]SBQueue, 0, len(all))
 	for _, q := range all {
 		if strings.HasPrefix(q.ID, prefix) {
 			filtered = append(filtered, q)
 		}
 	}
-	writeSBPagedList(w, r, filtered)
+	writeSBPagedList(w, r, filtered, func(x SBQueue) string { return x.Name })
 }
 
 func handleSBCreateTopic(w http.ResponseWriter, r *http.Request) {
@@ -1025,14 +1014,13 @@ func handleSBDeleteTopic(w http.ResponseWriter, r *http.Request) {
 func handleSBListTopics(w http.ResponseWriter, r *http.Request) {
 	prefix := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) + "/topics/"
 	all := sbTopics.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	out := make([]SBTopic, 0, len(all))
 	for _, t := range all {
 		if strings.HasPrefix(t.ID, prefix) && !strings.Contains(strings.TrimPrefix(t.ID, prefix), "/") {
 			out = append(out, t)
 		}
 	}
-	writeSBPagedList(w, r, out)
+	writeSBPagedList(w, r, out, func(x SBTopic) string { return x.ID })
 }
 
 func handleSBCreateSubscription(w http.ResponseWriter, r *http.Request) {
@@ -1275,12 +1263,11 @@ func handleSBListSubscriptions(w http.ResponseWriter, r *http.Request) {
 	prefix := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) +
 		"/topics/" + sim.PathParam(r, "topic") + "/subscriptions/"
 	all := sbSubscriptions.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	out := make([]SBSubscription, 0, len(all))
 	for _, s := range all {
 		if strings.HasPrefix(s.ID, prefix) {
 			out = append(out, s)
 		}
 	}
-	writeSBPagedList(w, r, out)
+	writeSBPagedList(w, r, out, func(x SBSubscription) string { return x.ID })
 }

@@ -266,8 +266,7 @@ func handleR53ListReusableDelegationSets(w http.ResponseWriter, r *http.Request)
 	for _, sd := range r53DelegationSets.List() {
 		items = append(items, sd.Set)
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].Id < items[j].Id })
-	page, next, pageOK := awsPage(w, r53BadToken, items, q.Get("marker"), maxItems, 0)
+	page, next, pageOK := awsKeyPage(w, r53BadToken, items, func(it R53ReusableDelegationSet) string { return it.Id }, q.Get("marker"), maxItems, 0)
 	if !pageOK {
 		return
 	}

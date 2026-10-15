@@ -647,18 +647,28 @@ func writeASECollection(w http.ResponseWriter, r *http.Request, prefix string) {
 	rows := webHostingEnvironments.Filter(func(a AppServiceEnvironmentResource) bool {
 		return strings.HasPrefix(strings.ToLower(a.ID), strings.ToLower(prefix))
 	})
-	sort.Slice(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
 	out := make([]AppServiceEnvironmentResource, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, aseProject(row))
 	}
-	writeARMCollection(w, r, out)
+	writeARMCollection(w, r, out, func(a AppServiceEnvironmentResource) string { return a.ID })
 }
 
-// writeARMCollection writes one page of an ARM collection with the nextLink
-// the specification's paged collections carry.
-func writeARMCollection[T any](w http.ResponseWriter, r *http.Request, items []T) {
-	page, token, pageOK := armPage(w, r, items)
+// writeARMCollection writes one page of an ARM collection, ordered by key,
+// with the nextLink the specification's paged collections carry.
+func writeARMCollection[T any](w http.ResponseWriter, r *http.Request, items []T, key func(T) string) {
+	page, token, pageOK := armPage(w, r, items, key)
+	writeARMCollectionPage(w, r, page, token, pageOK)
+}
+
+// writeARMFixedCollection writes one page of an ARM collection the service
+// computes in a fixed order.
+func writeARMFixedCollection[T any](w http.ResponseWriter, r *http.Request, items []T) {
+	page, token, pageOK := armSeqPage(w, r, items)
+	writeARMCollectionPage(w, r, page, token, pageOK)
+}
+
+func writeARMCollectionPage[T any](w http.ResponseWriter, r *http.Request, page []T, token string, pageOK bool) {
 	if !pageOK {
 		return
 	}
@@ -1010,7 +1020,7 @@ func registerWebEnvironmentNetworking(ase func(string, string, http.HandlerFunc)
 		if endpoints == nil {
 			endpoints = []map[string]any{}
 		}
-		writeARMCollection(w, r, endpoints)
+		writeARMFixedCollection(w, r, endpoints)
 	})
 }
 
@@ -1045,7 +1055,7 @@ func registerWebEnvironmentPools(ase func(string, string, http.HandlerFunc)) {
 		if !ok {
 			return
 		}
-		writeARMCollection(w, r, asePoolsUnder(row.ID, "multiRolePools"))
+		writeARMCollection(w, r, asePoolsUnder(row.ID, "multiRolePools"), webWorkerPoolID)
 	})
 	ase("GET", "/multiRolePools/"+multiRolePoolName, asePoolRead("multiRolePools"))
 	ase("PUT", "/multiRolePools/"+multiRolePoolName, asePoolWrite("multiRolePools", false))
@@ -1058,7 +1068,7 @@ func registerWebEnvironmentPools(ase func(string, string, http.HandlerFunc)) {
 		if !ok {
 			return
 		}
-		writeARMCollection(w, r, asePoolsUnder(row.ID, "workerPools"))
+		writeARMCollection(w, r, asePoolsUnder(row.ID, "workerPools"), webWorkerPoolID)
 	})
 	ase("GET", "/workerPools/{workerPoolName}", asePoolRead("workerPools"))
 	ase("PUT", "/workerPools/{workerPoolName}", asePoolWrite("workerPools", false))
@@ -1073,7 +1083,7 @@ func registerWebEnvironmentPools(ase func(string, string, http.HandlerFunc)) {
 		if !ok {
 			return
 		}
-		writeARMCollection(w, r, aseStampCapacities(row))
+		writeARMFixedCollection(w, r, aseStampCapacities(row))
 	})
 }
 
@@ -1242,7 +1252,7 @@ func asePoolSKUs(collection string) http.HandlerFunc {
 				},
 			})
 		}
-		writeARMCollection(w, r, skus)
+		writeARMFixedCollection(w, r, skus)
 	}
 }
 
@@ -1255,7 +1265,7 @@ func asePoolUsages() http.HandlerFunc {
 		if _, ok := aseLookup(w, r); !ok {
 			return
 		}
-		writeARMCollection(w, r, []map[string]any{})
+		writeARMFixedCollection(w, r, []map[string]any{})
 	}
 }
 
@@ -1325,8 +1335,7 @@ func registerWebEnvironmentInventory(ase func(string, string, http.HandlerFunc))
 			return
 		}
 		plans := asePlans(row.ID)
-		sort.Slice(plans, func(i, j int) bool { return plans[i].ID < plans[j].ID })
-		writeARMCollection(w, r, plans)
+		writeARMCollection(w, r, plans, func(p AppServicePlan) string { return p.ID })
 	})
 
 	// AppServiceEnvironments_ListWebApps
@@ -1335,7 +1344,7 @@ func registerWebEnvironmentInventory(ase func(string, string, http.HandlerFunc))
 		if !ok {
 			return
 		}
-		writeARMCollection(w, r, aseSortedSites(row.ID))
+		writeARMCollection(w, r, aseSites(row.ID), webSiteID)
 	})
 
 	// AppServiceEnvironments_ListUsages — the environment enforces no quota
@@ -1344,7 +1353,7 @@ func registerWebEnvironmentInventory(ase func(string, string, http.HandlerFunc))
 		if _, ok := aseLookup(w, r); !ok {
 			return
 		}
-		writeARMCollection(w, r, []map[string]any{})
+		writeARMFixedCollection(w, r, []map[string]any{})
 	})
 
 	// AppServiceEnvironments_ListOperations — the operations currently
@@ -1358,6 +1367,10 @@ func registerWebEnvironmentInventory(ase func(string, string, http.HandlerFunc))
 		sim.WriteJSON(w, http.StatusOK, []any{})
 	})
 }
+
+func webSiteID(s Site) string { return s.ID }
+
+func webWorkerPoolID(p WebWorkerPoolResource) string { return p.ID }
 
 func aseSortedSites(aseID string) []Site {
 	sites := aseSites(aseID)
@@ -1402,7 +1415,7 @@ func registerWebEnvironmentLifecycle(ase func(string, string, http.HandlerFunc))
 			return
 		}
 		webHostingEnvironments.Put(row.ID, row)
-		aseAcceptedCollection(w, r, row, aseSortedSites(row.ID))
+		aseAcceptedCollection(w, r, row, aseSites(row.ID))
 	})
 
 	// AppServiceEnvironments_Reboot — reboot the machines of the environment.
@@ -1483,7 +1496,7 @@ func registerWebEnvironmentLifecycle(ase func(string, string, http.HandlerFunc))
 // answers 202 here, and the specification documents it; matching that is what
 // makes the operation readable.
 func aseAcceptedCollection(w http.ResponseWriter, r *http.Request, row AppServiceEnvironmentResource, sites []Site) {
-	page, token, pageOK := armPage(w, r, sites)
+	page, token, pageOK := armPage(w, r, sites, webSiteID)
 	if !pageOK {
 		return
 	}
@@ -1536,7 +1549,7 @@ func aseSetSuspended(suspended bool) http.HandlerFunc {
 		}
 		row.Properties.Suspended = boolPtr(suspended)
 		webHostingEnvironments.Put(row.ID, row)
-		aseAcceptedCollection(w, r, row, aseSortedSites(row.ID))
+		aseAcceptedCollection(w, r, row, aseSites(row.ID))
 	}
 }
 
@@ -1553,12 +1566,12 @@ func registerWebEnvironmentPrivateEndpoints(ase func(string, string, http.Handle
 		conns := webEnvironmentPECs.Filter(func(c WebSitePrivateEndpointConnection) bool {
 			return strings.HasPrefix(c.ID, prefix)
 		})
-		sort.Slice(conns, func(i, j int) bool { return conns[i].ID < conns[j].ID })
-		out := make([]map[string]any, 0, len(conns))
-		for _, conn := range conns {
+		page, token, pageOK := armPage(w, r, conns, func(c WebSitePrivateEndpointConnection) string { return c.ID })
+		out := make([]map[string]any, 0, len(page))
+		for _, conn := range page {
 			out = append(out, renderWebSitePEC(conn))
 		}
-		writeARMCollection(w, r, out)
+		writeARMCollectionPage(w, r, out, token, pageOK)
 	})
 
 	// AppServiceEnvironments_GetPrivateEndpointConnection
@@ -1805,12 +1818,11 @@ func writeKubeCollection(w http.ResponseWriter, r *http.Request, prefix string) 
 	rows := webKubeEnvironments.Filter(func(k KubeEnvironmentResource) bool {
 		return strings.HasPrefix(strings.ToLower(k.ID), strings.ToLower(prefix))
 	})
-	sort.Slice(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
 	out := make([]KubeEnvironmentResource, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, kubeProject(row))
 	}
-	writeARMCollection(w, r, out)
+	writeARMCollection(w, r, out, func(k KubeEnvironmentResource) string { return k.ID })
 }
 
 // kubeDefaultDomain is the domain the apps in a Kubernetes environment are

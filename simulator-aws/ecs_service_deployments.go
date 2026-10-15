@@ -2,7 +2,6 @@ package main
 
 import (
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -233,7 +232,6 @@ func handleECSListServiceDeployments(w http.ResponseWriter, r *http.Request) {
 		}
 		deps = append(deps, dep)
 	}
-	sort.Slice(deps, func(i, j int) bool { return deps[i].ServiceDeploymentArn < deps[j].ServiceDeploymentArn })
 	briefs := make([]map[string]any, 0, len(deps))
 	for _, dep := range deps {
 		brief := map[string]any{
@@ -250,7 +248,7 @@ func handleECSListServiceDeployments(w http.ResponseWriter, r *http.Request) {
 		}
 		briefs = append(briefs, brief)
 	}
-	page, next, pageOK := awsPage(w, ecsBadToken, briefs, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsKeyPage(w, ecsBadToken, briefs, awsFieldKey("serviceDeploymentArn"), req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
 	}
@@ -379,8 +377,7 @@ func handleECSListServicesByNamespace(w http.ResponseWriter, r *http.Request) {
 			arns = append(arns, rev.ServiceArn)
 		}
 	}
-	sort.Strings(arns)
-	page, next, pageOK := awsPage(w, ecsBadToken, arns, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsKeyPage(w, ecsBadToken, arns, func(it string) string { return it }, req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
 	}

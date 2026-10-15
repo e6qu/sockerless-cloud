@@ -71,7 +71,7 @@ func TestLoggingDiscardsWhatNoBucketTakes(t *testing.T) {
 		t.Fatalf("the project holds %v", got)
 	}
 
-	gcpHostOK(t, srv, host, http.MethodPut, "/v2/projects/d/sinks/_Default", `{"destination":"logging.googleapis.com/projects/d/locations/global/buckets/_Default","disabled":true}`)
+	gcpHostOK(t, srv, host, http.MethodPut, "/v2/projects/d/sinks/_Default?updateMask=disabled", `{"disabled":true}`)
 	gcpHostOK(t, srv, host, http.MethodPost, "/v2/entries:write", `{"entries":[
 		{"logName":"projects/d/logs/app","timestamp":"`+now.Format(time.RFC3339)+`","textPayload":"unrouted"}]}`)
 	if got := loggingPayloads(t, srv, "projects/d"); !slices.Equal(got, []string{"kept"}) {

@@ -171,7 +171,6 @@ func handleLambdaListEventSourceMappings(w http.ResponseWriter, r *http.Request)
 		}
 		all = append(all, esm)
 	}
-	sortBy(all, func(e LambdaEventSourceMapping) string { return e.UUID })
 
 	marker := r.URL.Query().Get("Marker")
 	maxItems := 100
@@ -180,7 +179,7 @@ func handleLambdaListEventSourceMappings(w http.ResponseWriter, r *http.Request)
 			maxItems = n
 		}
 	}
-	page, next, pageOK := awsPage(w, lambdaBadToken, all, marker, maxItems, 100)
+	page, next, pageOK := awsKeyPage(w, lambdaBadToken, all, func(it LambdaEventSourceMapping) string { return it.UUID }, marker, maxItems, 100)
 	if !pageOK {
 		return
 	}

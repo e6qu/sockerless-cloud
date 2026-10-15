@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -470,8 +469,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		all := apps.Filter(func(a ContainerApp) bool {
 			return strings.HasPrefix(a.ID, prefix)
 		})
-		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		page, next, pageOK := armPage(w, r, all)
+		page, next, pageOK := armPage(w, r, all, func(a ContainerApp) string { return a.Name })
 		if !pageOK {
 			return
 		}
@@ -548,8 +546,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		all := apps.Filter(func(a ContainerApp) bool {
 			return strings.HasPrefix(a.ID, prefix) && strings.Contains(a.ID, "/providers/Microsoft.App/containerApps/")
 		})
-		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		page, next, pageOK := armPage(w, r, all)
+		page, next, pageOK := armPage(w, r, all, func(a ContainerApp) string { return azureNameIDKey(a.Name, a.ID) })
 		if !pageOK {
 			return
 		}

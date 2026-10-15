@@ -106,7 +106,7 @@ func handleSQSListDeadLetterSourceQueues(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	sources := sqsSourceQueuesForDLQ(dlq.ARN)
-	page, next, pageOK := awsPage(w, sqsBadToken, sources, req.NextToken, req.MaxResults, 1000)
+	page, next, pageOK := awsKeyPage(w, sqsBadToken, sources, func(it SQSQueue) string { return it.URL }, req.NextToken, req.MaxResults, 1000)
 	if !pageOK {
 		return
 	}

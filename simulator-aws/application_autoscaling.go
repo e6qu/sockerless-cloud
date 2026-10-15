@@ -293,8 +293,7 @@ func handleAppASDescribeScalableTargets(w http.ResponseWriter, r *http.Request) 
 		}
 		return true
 	})
-	matched = sortBy(matched, func(t AppScalableTarget) string { return t.ResourceId })
-	page, next, pageOK := awsPage(w, appASBadToken, matched, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	page, next, pageOK := awsKeyPage(w, appASBadToken, matched, func(it AppScalableTarget) string { return it.ResourceId + "\x00" + it.ScalableDimension }, req.NextToken, awsMaxResults(req.MaxResults), 0)
 	if !pageOK {
 		return
 	}
@@ -430,8 +429,8 @@ func appASDescribePage[T any](
 		}
 		return true
 	})
-	matched = sortBy(matched, nameOf)
-	page, next, pageOK := awsPage(w, appASBadToken, matched, nextToken, awsMaxResults(maxResults), 0)
+	key := func(x T) string { return nameOf(x) + "\x00" + ridOf(x) + "\x00" + dimOf(x) }
+	page, next, pageOK := awsKeyPage(w, appASBadToken, matched, key, nextToken, awsMaxResults(maxResults), 0)
 	if !pageOK {
 		return
 	}
@@ -760,8 +759,7 @@ func handleAppASDescribeScalingActivities(w http.ResponseWriter, r *http.Request
 		return true
 	})
 	// Most-recent-first ordering, matching real AWS.
-	matched = sortBy(matched, func(a AppScalingActivity) string { return a.ActivityId })
-	page, next, pageOK := awsPage(w, appASBadToken, matched, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	page, next, pageOK := awsKeyPage(w, appASBadToken, matched, func(it AppScalingActivity) string { return it.ActivityId }, req.NextToken, awsMaxResults(req.MaxResults), 0)
 	if !pageOK {
 		return
 	}

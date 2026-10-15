@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1377,7 +1376,6 @@ func registerVirtualMachines(srv *sim.Server) {
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Compute/virtualMachines", func(w http.ResponseWriter, r *http.Request) {
 		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
 		all := azureVMs.Filter(func(vm VirtualMachine) bool { return strings.HasPrefix(vm.ID, prefix) })
-		sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 		statusOnly := strings.EqualFold(r.URL.Query().Get("statusOnly"), "true")
 		for i := range all {
 			azureReconcileVMPowerState(all[i].ID)
@@ -1385,12 +1383,9 @@ func registerVirtualMachines(srv *sim.Server) {
 				all[i] = virtualMachineWithInstanceView(all[i])
 			}
 		}
-		page, next, pageOK := armPage(w, r, all)
+		page, next, pageOK := armPage(w, r, all, func(vm VirtualMachine) string { return vm.ID })
 		if !pageOK {
 			return
-		}
-		if page == nil {
-			page = []VirtualMachine{}
 		}
 		out := map[string]any{"value": page}
 		if next != "" {

@@ -1,19 +1,17 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
-	"sync"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/logstore"
 )
 
-// logMu protects the read-modify-write cycle on monitorLogs entries.
-// StateStore is individually thread-safe, but Get+append+Put is not atomic.
-// logMu guards the Azure Monitor log rows. Reading a site's retained container
-// output excludes nothing but a writer; ingesting a row keeps taking Lock.
-var logMu sync.RWMutex
 var azureMonitorWorkspaces sim.Store[Workspace]
 
 // A workspace is stored under its ARM id while the query data plane addresses
@@ -86,49 +84,30 @@ type Column struct {
 	Type string `json:"type"`
 }
 
-// monitorLogs stores a table's rows under logRowsKey (a workspace's) or
+// monitorLogs keeps a table's rows under logRowsKey (a workspace's) or
 // appLogRowsKey (a classic Application Insights component's).
-var monitorLogs sim.Store[[]monitorLogRow]
+var monitorLogs *logstore.Log[monitorLogRow]
 
 // webSiteDockerLogs holds each site's retained container output, the docker
 // log App Service keeps for the site whatever its monitoring settings.
-var webSiteDockerLogs sim.Store[[]monitorLogRow]
+var webSiteDockerLogs *logstore.Log[monitorLogRow]
 
-// monitorMaxRetainedRows bounds the rows retained per table/log. Log Analytics
-// ages out rows past the workspace retention policy; the sim caps the in-memory
-// window so a long-running workload cannot grow a table without bound. Reads are
-// insertion-order, filtered then limited from the front, so dropping the oldest
-// rows is faithful to retention. The cap sits well above any single query or the
-// dashboard's 100-row flatten.
-const monitorMaxRetainedRows = 50000
-
-// appendLogRow safely appends a log row to the given store key,
-// protecting the read-modify-write cycle with logMu.
 func appendLogRow(storeKey string, row monitorLogRow) {
-	appendRetainedRow(monitorLogs, storeKey, row)
-}
-
-func appendRetainedRow(store sim.Store[[]monitorLogRow], key string, row monitorLogRow) {
-	logMu.Lock()
-	defer logMu.Unlock()
-	existing, _ := store.Get(key)
-	existing = append(existing, row)
-	if over := len(existing) - monitorMaxRetainedRows; over > 0 {
-		existing = existing[over:]
-	}
-	store.Put(key, existing)
+	monitorAppendRow(monitorLogs, storeKey, row)
 }
 
 // appendSiteDockerLog keeps one line of a site's container output and hands
 // it to the site's open log streams.
 func appendSiteDockerLog(siteID, at, message string) {
-	appendRetainedRow(webSiteDockerLogs, strings.ToLower(siteID), monitorLogRow{"TimeGenerated": at, "Message": message})
+	scope := strings.ToLower(siteID)
+	monitorAppendRow(webSiteDockerLogs, scope, monitorLogRow{"TimeGenerated": at, "Message": message})
+	webSiteDockerLogs.Cap(scope, webSiteDockerLogMaxLines)
 	kuduPublishLogLine(siteID, at+" "+message)
 }
 
 func registerAzureMonitor(srv *sim.Server) {
-	monitorLogs = sim.MakeStore[[]monitorLogRow](srv.DB(), "monitor_logs")
-	webSiteDockerLogs = sim.MakeStore[[]monitorLogRow](srv.DB(), "web_site_docker_logs")
+	monitorLogs = monitorNewLog(srv.DB(), "monitor_log_rows", "monitor_log_heads")
+	webSiteDockerLogs = monitorNewLog(srv.DB(), "web_site_docker_log_lines", "web_site_docker_log_heads")
 	workspaces := sim.MakeStore[Workspace](srv.DB(), "monitor_workspaces")
 	monitorWorkspaces = workspaces
 	azureMonitorWorkspaces = workspaces
@@ -138,6 +117,21 @@ func registerAzureMonitor(srv *sim.Server) {
 	registerLogAnalyticsTables(srv, armBase)
 	registerDataCollectionEndpoints(srv)
 	registerDataCollectionRules(srv)
+	if err := monitorMigrateRows(srv.DB()); err != nil {
+		log.Fatalf("azure monitor logs: %v", err)
+	}
+	srv.StartBackground("azure monitor logs retention sweep", func(ctx context.Context) {
+		ticker := time.NewTicker(monitorRetentionSweepInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				monitorSweepRetention(now)
+			}
+		}
+	})
 
 	// Subscription-scoped list of soft-deleted workspaces. Real Azure
 	// keeps deleted workspaces recoverable for 14 days; terraform-

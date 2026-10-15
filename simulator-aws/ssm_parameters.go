@@ -436,8 +436,7 @@ func handleSSMGetParametersByPath(w http.ResponseWriter, r *http.Request) {
 		}
 		return ssmMatchesParameterFilters(p, req.ParameterFilters)
 	})
-	sortBy(all, func(p SSMParameter) string { return p.Name })
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 10)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMParameter) string { return it.Name }, req.NextToken, req.MaxResults, 10)
 	if !pageOK {
 		return
 	}
@@ -506,8 +505,7 @@ func handleSSMDescribeParameters(w http.ResponseWriter, r *http.Request) {
 	if all == nil {
 		all = []SSMParameter{}
 	}
-	sortBy(all, func(p SSMParameter) string { return p.Name })
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMParameter) string { return it.Name }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}

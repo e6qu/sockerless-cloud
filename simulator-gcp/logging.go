@@ -103,6 +103,8 @@ type LoggingSink struct {
 	WriterIdentity       string             `json:"writerIdentity,omitempty"`
 	UniqueWriterIdentity bool               `json:"uniqueWriterIdentity,omitempty"`
 	Exclusions           []LoggingExclusion `json:"exclusions,omitempty"`
+	IncludeChildren      bool               `json:"includeChildren,omitempty"`
+	InterceptChildren    bool               `json:"interceptChildren,omitempty"`
 }
 
 type LoggingExclusion struct {
@@ -110,6 +112,8 @@ type LoggingExclusion struct {
 	Description string `json:"description,omitempty"`
 	Filter      string `json:"filter"`
 	Disabled    bool   `json:"disabled,omitempty"`
+	CreateTime  string `json:"createTime,omitempty"`
+	UpdateTime  string `json:"updateTime,omitempty"`
 }
 
 type LoggingMetric struct {
@@ -221,7 +225,7 @@ func loggingEntriesReached(resourceNames []string) (func(LogEntry) bool, error) 
 	held := map[string]bool{}
 	for _, rn := range resourceNames {
 		bucket, view, _ := strings.Cut(rn, "/views/")
-		scope, _, isBucket := loggingBucketParts(bucket)
+		_, _, isBucket := loggingBucketParts(bucket)
 		if !isBucket {
 			scopes = append(scopes, rn+"/logs/")
 			continue
@@ -238,7 +242,7 @@ func loggingEntriesReached(resourceNames []string) (func(LogEntry) bool, error) 
 			}
 			admits = matcher
 		}
-		entries, err := loggingBucketEntries(scope, bucket, listq.True{})
+		entries, err := loggingBucketEntries(bucket, listq.True{})
 		if err != nil {
 			return nil, err
 		}
@@ -367,24 +371,13 @@ func writeLogEntries(logName string, resource *MonitoredResource, labels map[str
 	}
 
 	now := time.Now()
-	cutoffs := loggingBucketCutoffs(now)
-	routes := map[string][]loggingRoute{}
+	router := newLoggingRouter(now, true)
 	for _, entry := range entries {
-		scope := loggingScopeOf(entry.LogName)
-		rts, seen := routes[scope]
-		if !seen {
-			loggingEnsureDefaults(scope)
-			var err error
-			if rts, err = loggingRoutes(scope); err != nil {
-				return err
-			}
-			routes[scope] = rts
-		}
 		at, err := loggingEntryMillis(entry)
 		if err != nil {
 			return err
 		}
-		buckets, err := loggingRouteEntry(entry, at, rts, cutoffs, now)
+		buckets, err := router.route(entry, at)
 		if err != nil {
 			return err
 		}
@@ -490,9 +483,25 @@ func registerCloudLogging(srv *sim.Server) {
 	srv.HandleFunc("DELETE /v2/projects/{project}/metrics/{metric}", handleDeleteLoggingMetric)
 
 	registerCloudLoggingAdmin(srv)
+	if err := loggingMigrateExclusions(srv.DB()); err != nil {
+		log.Fatalf("cloud logging: %v", err)
+	}
 	if err := loggingMigrateEntries(srv.DB(), time.Now()); err != nil {
 		log.Fatalf("cloud logging: %v", err)
 	}
+	logStorageBatches = sim.MakeStore[loggingStorageBatch](srv.DB(), "logging_storage_batches")
+	srv.StartBackground("cloud logging export to cloud storage", func(ctx context.Context) {
+		ticker := time.NewTicker(loggingStorageFlushInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				loggingFlushStorageExports(now)
+			}
+		}
+	})
 	srv.StartBackground("cloud logging retention sweep", func(ctx context.Context) {
 		ticker := time.NewTicker(loggingRetentionSweepInterval)
 		defer ticker.Stop()
@@ -667,14 +676,15 @@ func handleGetLoggingSink(w http.ResponseWriter, r *http.Request) {
 func handleUpdateLoggingSink(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	key := loggingSinkRequestKey(project, sim.PathParam(r, "sink"))
-	var sink LoggingSink
-	if err := sim.ReadJSON(r, &sink); err != nil {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid sink body: %v", err)
+	loggingEnsureDefaults("projects/" + project)
+	sink, ok := loggingUpdateSink(w, r, key)
+	if !ok {
 		return
 	}
-	sink.Name = key
-	loggingEnsureDefaults("projects/" + project)
-	sink, ok := normalizeLoggingSink(project, sink, loggingUniqueWriter(r, sink))
+	if loggingUniqueWriter(r, sink) && strings.HasPrefix(sink.WriterIdentity, "serviceAccount:cloud-logs@") {
+		sink.WriterIdentity = ""
+	}
+	sink, ok = normalizeLoggingSink(project, sink, loggingUniqueWriter(r, sink))
 	if !ok {
 		crmProjectPermissionDenied(w)
 		return

@@ -840,6 +840,13 @@ resource "google_logging_project_bucket_config" "tf_default_bucket" {
   retention_days = 45
 }
 
+# The exclusions API keeps a project's exclusions on its _Default sink.
+resource "google_logging_project_exclusion" "tf_exclude_debug" {
+  project = "test-project"
+  name    = "tf-exclude-debug"
+  filter  = "severity<INFO"
+}
+
 resource "google_logging_metric" "tf_log_metric" {
   name   = "tf-log-metric"
   filter = "resource.type=\"global\" AND severity>=ERROR"
@@ -1235,6 +1242,10 @@ output "logging_project_sink_id" {
 
 output "logging_metric_id" {
   value = google_logging_metric.tf_log_metric.id
+}
+
+output "logging_exclusion_id" {
+  value = google_logging_project_exclusion.tf_exclude_debug.id
 }
 
 output "logging_default_bucket_retention" {

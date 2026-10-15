@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -192,8 +191,7 @@ func handleDescribeFpgaImages(w http.ResponseWriter, r *http.Request) {
 		}
 		results = append(results, img)
 	}
-	sort.Slice(results, func(i, j int) bool { return results[i].FpgaImageId < results[j].FpgaImageId })
-	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2FpgaImage) string { return it.FpgaImageId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -695,8 +693,7 @@ func handleDescribeStoreImageTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		results = append(results, t)
 	}
-	sort.Slice(results, func(i, j int) bool { return results[i].AmiId < results[j].AmiId })
-	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2StoreImageTask) string { return it.AmiId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}

@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -481,19 +480,9 @@ func handleAPIMListServicesByRG(w http.ResponseWriter, r *http.Request) {
 			all = append(all, s)
 		}
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
-	filtered, err := azureApplyListQuery(all, r)
-	if err != nil {
-		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
-		return
-	}
-	all = filtered
-	page, next, pageOK := armPage(w, r, all)
+	page, next, pageOK := armQueryPage(w, r, all, func(x APIMService) string { return x.ID })
 	if !pageOK {
 		return
-	}
-	if page == nil {
-		page = []APIMService{}
 	}
 	out := map[string]any{"value": page}
 	if next != "" {
@@ -576,19 +565,9 @@ func handleAPIMListApis(w http.ResponseWriter, r *http.Request) {
 			all = append(all, a)
 		}
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
-	filtered, err := azureApplyListQuery(all, r)
-	if err != nil {
-		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
-		return
-	}
-	all = filtered
-	page, next, pageOK := armPage(w, r, all)
+	page, next, pageOK := armQueryPage(w, r, all, func(x APIMApi) string { return x.ID })
 	if !pageOK {
 		return
-	}
-	if page == nil {
-		page = []APIMApi{}
 	}
 	out := map[string]any{"value": page}
 	if next != "" {

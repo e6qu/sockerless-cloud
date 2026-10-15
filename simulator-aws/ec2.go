@@ -3923,8 +3923,7 @@ func handleDescribeInstances(w http.ResponseWriter, r *http.Request) {
 	// stable offset cursor across pages.
 	nextToken := ""
 	if len(instanceIDs) == 0 {
-		sort.Slice(instances, func(i, j int) bool { return instances[i].InstanceId < instances[j].InstanceId })
-		paged, pageNext, pageOK := awsPage(w, ec2BadToken, instances, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+		paged, pageNext, pageOK := awsKeyPage(w, ec2BadToken, instances, func(it EC2Instance) string { return it.InstanceId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 		if !pageOK {
 			return
 		}
@@ -4508,13 +4507,7 @@ func handleDescribeTags(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// Stable order so the MaxResults/NextToken offset cursor is consistent.
-	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].resourceID != entries[j].resourceID {
-			return entries[i].resourceID < entries[j].resourceID
-		}
-		return entries[i].key < entries[j].key
-	})
-	entries, nextToken, pageOK := awsPage(w, ec2BadToken, entries, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	entries, nextToken, pageOK := awsKeyPage(w, ec2BadToken, entries, func(it tagEntry) string { return it.resourceID + "\x00" + it.key }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -4559,8 +4552,7 @@ func handleDescribeVolumes(w http.ResponseWriter, r *http.Request) {
 	// stable offset cursor across pages.
 	nextToken := ""
 	if len(volumeIDs) == 0 {
-		sort.Slice(volumes, func(i, j int) bool { return volumes[i].VolumeId < volumes[j].VolumeId })
-		paged, pageNext, pageOK := awsPage(w, ec2BadToken, volumes, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+		paged, pageNext, pageOK := awsKeyPage(w, ec2BadToken, volumes, func(it EC2Volume) string { return it.VolumeId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 		if !pageOK {
 			return
 		}
@@ -5097,8 +5089,7 @@ func handleDescribeVolumesModifications(w http.ResponseWriter, r *http.Request) 
 		}
 		mods = append(mods, mod)
 	}
-	sort.Slice(mods, func(i, j int) bool { return mods[i].VolumeId < mods[j].VolumeId })
-	mods, nextToken, pageOK := awsPage(w, ec2BadToken, mods, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	mods, nextToken, pageOK := awsKeyPage(w, ec2BadToken, mods, func(it EC2VolumeModification) string { return it.VolumeId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -5333,8 +5324,7 @@ func handleDescribeSnapshots(w http.ResponseWriter, r *http.Request) {
 	// stable offset cursor across pages.
 	nextToken := ""
 	if len(ids) == 0 {
-		sort.Slice(snapshots, func(i, j int) bool { return snapshots[i].SnapshotId < snapshots[j].SnapshotId })
-		paged, pageNext, pageOK := awsPage(w, ec2BadToken, snapshots, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+		paged, pageNext, pageOK := awsKeyPage(w, ec2BadToken, snapshots, func(it EC2Snapshot) string { return it.SnapshotId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 		if !pageOK {
 			return
 		}

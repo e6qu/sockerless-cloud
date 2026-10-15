@@ -1414,7 +1414,7 @@ func handleCMListInstances(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page, next, pageOK := awsPage(w, cloudMapBadToken, cmServiceInstances(req.ServiceId), req.NextToken, awsMaxResults(req.MaxResults), 100)
+	page, next, pageOK := awsKeyPage(w, cloudMapBadToken, cmServiceInstances(req.ServiceId), func(it CMInstance) string { return it.Id }, req.NextToken, awsMaxResults(req.MaxResults), 100)
 	if !pageOK {
 		return
 	}
@@ -1479,7 +1479,7 @@ func handleCMListNamespaces(w http.ResponseWriter, r *http.Request) {
 		namespaces = filtered
 	}
 
-	page, next, pageOK := awsPage(w, cloudMapBadToken, namespaces, req.NextToken, awsMaxResults(req.MaxResults), 100)
+	page, next, pageOK := awsKeyPage(w, cloudMapBadToken, namespaces, func(it CMNamespace) string { return it.Id }, req.NextToken, awsMaxResults(req.MaxResults), 100)
 	if !pageOK {
 		return
 	}
@@ -1539,7 +1539,7 @@ func handleCMListServices(w http.ResponseWriter, r *http.Request) {
 		services = filtered
 	}
 
-	page, next, pageOK := awsPage(w, cloudMapBadToken, services, req.NextToken, awsMaxResults(req.MaxResults), 100)
+	page, next, pageOK := awsKeyPage(w, cloudMapBadToken, services, func(it CMService) string { return it.Id }, req.NextToken, awsMaxResults(req.MaxResults), 100)
 	if !pageOK {
 		return
 	}
@@ -2071,7 +2071,7 @@ func handleCMGetInstancesHealthStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	page, next, pageOK := awsPage(w, cloudMapBadToken, selected, req.NextToken, awsMaxResults(req.MaxResults), 100)
+	page, next, pageOK := awsKeyPage(w, cloudMapBadToken, selected, func(it CMInstance) string { return it.Id }, req.NextToken, awsMaxResults(req.MaxResults), 100)
 	if !pageOK {
 		return
 	}
@@ -2179,7 +2179,7 @@ func handleCMListOperations(w http.ResponseWriter, r *http.Request) {
 		}
 		selected = append(selected, op)
 	}
-	page, next, pageOK := awsPage(w, cloudMapBadToken, selected, req.NextToken, awsMaxResults(req.MaxResults), 100)
+	page, next, pageOK := awsKeyPage(w, cloudMapBadToken, selected, func(it CMOperation) string { return it.OperationId }, req.NextToken, awsMaxResults(req.MaxResults), 100)
 	if !pageOK {
 		return
 	}

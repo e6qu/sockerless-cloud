@@ -184,12 +184,11 @@ func handleGlueListCustomEntityTypes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	all := glueCustomEntityTypes.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 	maxR := 0
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, all, func(it GlueCustomEntityType) string { return it.Name }, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -303,12 +302,11 @@ func handleGlueListUsageProfiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	all := glueUsageProfiles.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 	maxR := 0
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, all, func(it GlueUsageProfile) string { return it.Name }, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -542,17 +540,11 @@ func handleGlueSearchTables(w http.ResponseWriter, r *http.Request) {
 		}
 		matched = append(matched, t)
 	}
-	sort.Slice(matched, func(i, j int) bool {
-		if matched[i].DatabaseName != matched[j].DatabaseName {
-			return matched[i].DatabaseName < matched[j].DatabaseName
-		}
-		return matched[i].Name < matched[j].Name
-	})
 	maxR := 0
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, matched, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, matched, func(it GlueTable) string { return it.DatabaseName + "\x00" + it.Name }, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -634,17 +626,11 @@ func handleGlueListSchemas(w http.ResponseWriter, r *http.Request) {
 		}
 		schemas = append(schemas, sc)
 	}
-	sort.Slice(schemas, func(i, j int) bool {
-		if schemas[i].RegistryName != schemas[j].RegistryName {
-			return schemas[i].RegistryName < schemas[j].RegistryName
-		}
-		return schemas[i].SchemaName < schemas[j].SchemaName
-	})
 	maxR := 0
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, schemas, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, schemas, func(it GlueSchema) string { return it.RegistryName + "\x00" + it.SchemaName }, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -1226,12 +1212,11 @@ func handleGlueGetResourcePolicies(w http.ResponseWriter, r *http.Request) {
 	defer glueMu.RUnlock()
 
 	all := glueResourcePols.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].CreateTime < all[j].CreateTime })
 	maxR := 0
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, all, func(it GlueResourcePolicy) string { return awsFloatKey(it.CreateTime) + "\x00" + it.PolicyHash }, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}

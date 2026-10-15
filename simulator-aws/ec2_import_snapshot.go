@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -248,8 +247,7 @@ func handleDescribeImportSnapshotTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		results = append(results, t)
 	}
-	sort.Slice(results, func(i, j int) bool { return results[i].ImportTaskId < results[j].ImportTaskId })
-	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2ImportSnapshotTask) string { return it.ImportTaskId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}

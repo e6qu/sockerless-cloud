@@ -41,18 +41,18 @@ func TestLogging_ExclusionCRUD_ProjectScope(t *testing.T) {
 		Filter: `severity < WARNING`,
 	}).Do()
 	require.NoError(t, err)
-	assert.Equal(t, name, created.Name)
+	assert.Equal(t, "sdk-exclusion", created.Name, "LogExclusion.name is the client-assigned identifier")
 	assert.Equal(t, `severity < WARNING`, created.Filter)
 
 	got, err := svc.Projects.Exclusions.Get(name).Do()
 	require.NoError(t, err)
-	assert.Equal(t, name, got.Name)
+	assert.Equal(t, "sdk-exclusion", got.Name)
 
 	list, err := svc.Projects.Exclusions.List(parent).Do()
 	require.NoError(t, err)
 	found := false
 	for _, e := range list.Exclusions {
-		if e.Name == name {
+		if e.Name == "sdk-exclusion" {
 			found = true
 		}
 	}
@@ -83,11 +83,11 @@ func TestLogging_ExclusionCRUD_OrganizationScope(t *testing.T) {
 		Filter: `resource.type = "gce_instance"`,
 	}).Do()
 	require.NoError(t, err)
-	assert.Equal(t, name, created.Name)
+	assert.Equal(t, "org-exclusion", created.Name, "LogExclusion.name is the client-assigned identifier")
 
 	got, err := svc.Organizations.Exclusions.Get(name).Do()
 	require.NoError(t, err)
-	assert.Equal(t, name, got.Name)
+	assert.Equal(t, "org-exclusion", got.Name)
 
 	_, err = svc.Organizations.Exclusions.Delete(name).Do()
 	require.NoError(t, err)

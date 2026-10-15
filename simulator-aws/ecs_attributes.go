@@ -2,7 +2,6 @@ package main
 
 import (
 	"net/http"
-	"sort"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -109,8 +108,7 @@ func handleECSListAttributes(w http.ResponseWriter, r *http.Request) {
 		}
 		attrs = append(attrs, a)
 	}
-	sort.Slice(attrs, func(i, j int) bool { return attrs[i].Name < attrs[j].Name })
-	page, next, pageOK := awsPage(w, ecsBadToken, attrs, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsKeyPage(w, ecsBadToken, attrs, func(it ECSAttribute) string { return it.Name + "\x00" + it.TargetId }, req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
 	}

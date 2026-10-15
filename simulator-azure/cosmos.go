@@ -406,19 +406,9 @@ func handleCosmosListAccounts(w http.ResponseWriter, r *http.Request) {
 	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.DocumentDB/databaseAccounts/",
 		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
 	all := cosmosAccounts.Filter(func(a CosmosAccount) bool { return strings.HasPrefix(a.ID, prefix) })
-	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
-	filtered, err := azureApplyListQuery(all, r)
-	if err != nil {
-		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
-		return
-	}
-	all = filtered
-	page, next, pageOK := armPage(w, r, all)
+	page, next, pageOK := armQueryPage(w, r, all, func(x CosmosAccount) string { return x.ID })
 	if !pageOK {
 		return
-	}
-	if page == nil {
-		page = []CosmosAccount{}
 	}
 	out := map[string]any{"value": page}
 	if next != "" {

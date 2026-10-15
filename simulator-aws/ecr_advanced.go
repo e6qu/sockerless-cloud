@@ -392,9 +392,9 @@ func handleECRDescribeRepositoryCreationTemplates(w http.ResponseWriter, r *http
 		return
 	}
 	var tmpls []ECRRepositoryCreationTemplate
+	key := func(t ECRRepositoryCreationTemplate) string { return t.Prefix }
 	if len(req.Prefixes) == 0 {
 		tmpls = ecrRepoCreationTemplates.List()
-		sortBy(tmpls, func(t ECRRepositoryCreationTemplate) string { return t.Prefix })
 	} else {
 		for _, p := range req.Prefixes {
 			if t, ok := ecrRepoCreationTemplates.Get(p); ok {
@@ -402,13 +402,13 @@ func handleECRDescribeRepositoryCreationTemplates(w http.ResponseWriter, r *http
 			}
 		}
 	}
-	out := make([]ECRRepositoryCreationTemplate, 0, len(tmpls))
-	for _, t := range tmpls {
-		out = append(out, ecrNormalizeTemplate(t))
-	}
-	page, next, pageOK := awsPage(w, ecrBadToken, out, req.NextToken, req.MaxResults, 100)
+	paged, next, pageOK := awsNamedOrKeyPage(w, ecrBadToken, tmpls, len(req.Prefixes) > 0, key, req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
+	}
+	page := make([]ECRRepositoryCreationTemplate, 0, len(paged))
+	for _, t := range paged {
+		page = append(page, ecrNormalizeTemplate(t))
 	}
 	resp := map[string]any{
 		"registryId":                  ecrRegistryId(),
@@ -639,7 +639,7 @@ func handleECRListPullTimeUpdateExclusions(w http.ResponseWriter, r *http.Reques
 	for _, e := range exclusions {
 		arns = append(arns, e.PrincipalArn)
 	}
-	page, next, pageOK := awsPage(w, ecrBadToken, arns, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsKeyPage(w, ecrBadToken, arns, func(it string) string { return it }, req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
 	}

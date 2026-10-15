@@ -311,8 +311,7 @@ func handleSSMDescribeMaintenanceWindows(w http.ResponseWriter, r *http.Request)
 	if all == nil {
 		all = []SSMMaintenanceWindow{}
 	}
-	sortBy(all, func(m SSMMaintenanceWindow) string { return m.WindowId })
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMMaintenanceWindow) string { return it.WindowId }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -468,8 +467,7 @@ func handleSSMDescribeTargets(w http.ResponseWriter, r *http.Request) {
 			all = append(all, t)
 		}
 	}
-	sortBy(all, func(t SSMMaintenanceWindowTarget) string { return t.WindowTargetId })
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMMaintenanceWindowTarget) string { return it.WindowTargetId }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -515,8 +513,7 @@ func handleSSMDescribeTasks(w http.ResponseWriter, r *http.Request) {
 			all = append(all, t)
 		}
 	}
-	sortBy(all, func(t SSMMaintenanceWindowTask) string { return t.WindowTaskId })
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMMaintenanceWindowTask) string { return it.WindowTaskId }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}

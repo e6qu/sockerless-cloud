@@ -239,7 +239,7 @@ func handleGlueGetMLTaskRuns(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, runs, req.NextToken, maxR, 20)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, runs, func(it GlueMLTaskRun) string { return it.TaskRunId }, req.NextToken, maxR, 20)
 	if !pageOK {
 		return
 	}
@@ -458,7 +458,7 @@ func handleGlueGetCrawlerMetrics(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, metrics, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsNamedOrKeyPage(w, glueBadToken, metrics, len(req.CrawlerNameList) > 0, awsFieldKey("CrawlerName"), req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -494,7 +494,7 @@ func handleGlueListCrawls(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, crawls, req.NextToken, maxR, 20)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, crawls, awsFieldKey("CrawlId"), req.NextToken, maxR, 20)
 	if !pageOK {
 		return
 	}
@@ -649,7 +649,7 @@ func handleGlueListMaterializedViewRefreshTaskRuns(w http.ResponseWriter, r *htt
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, runs, req.NextToken, maxR, 20)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, runs, func(it GlueMVRefreshTaskRun) string { return it.MaterializedViewRefreshTaskRunId }, req.NextToken, maxR, 20)
 	if !pageOK {
 		return
 	}
@@ -693,7 +693,7 @@ func handleGlueGetWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, runs, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, runs, func(it GlueWorkflowRun) string { return it.WorkflowRunId }, req.NextToken, maxR, 25)
 	if !pageOK {
 		return
 	}
@@ -866,7 +866,7 @@ func handleGlueListTriggers(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, names, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, names, func(it string) string { return it }, req.NextToken, maxR, 25)
 	if !pageOK {
 		return
 	}
@@ -1096,7 +1096,7 @@ func handleGlueListConnectionTypes(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, briefs, req.NextToken, maxR, 50)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, briefs, awsFieldKey("ConnectionType"), req.NextToken, maxR, 50)
 	if !pageOK {
 		return
 	}

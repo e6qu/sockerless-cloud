@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -10,8 +12,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
-// azureApplyListQuery applies `$filter` and `$orderby` to items. The $filter
-// grammar is the Azure Resource Manager / OData subset clients use:
+// azureApplyListQuery applies `$filter` and `$orderby` to items and returns
+// the matches in that order, each keyed by its $orderby values and then by
+// id. The $filter grammar is the Azure Resource Manager / OData subset clients use:
 //
 //	expr       = or
 //	or         = and { "or" and }
@@ -23,7 +26,7 @@ import (
 //	comparison = field (eq|ne|gt|ge|lt|le) value
 //	field      = name { "/" name }                 (nested via '/')
 //	value      = 'string' | number | true | false | null
-func azureApplyListQuery[T any](items []T, r *http.Request) ([]T, error) {
+func azureApplyListQuery[T any](items []T, r *http.Request, id func(T) string) ([]azureKeyed[T], error) {
 	var node listq.Node
 	if filter := strings.TrimSpace(r.URL.Query().Get("$filter")); filter != "" {
 		parsed, err := azureParseODataFilter(filter)
@@ -36,7 +39,72 @@ func azureApplyListQuery[T any](items []T, r *http.Request) ([]T, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid $orderby: %w", err)
 	}
-	return listq.ApplyList(items, node, order, "/")
+	keyed := make([]azureKeyed[T], 0, len(items))
+	for _, item := range items {
+		if node == nil && len(order) == 0 {
+			keyed = append(keyed, azureKeyed[T]{id(item), item})
+			continue
+		}
+		doc, err := listq.ToDoc(item)
+		if err != nil {
+			return nil, err
+		}
+		if node != nil && !node.Eval(doc) {
+			continue
+		}
+		var key []byte
+		for _, term := range order {
+			value, _ := listq.Field(doc, term.Path, "/")
+			key = append(key, azureOrderTermKey(value, term.Desc)...)
+		}
+		keyed = append(keyed, azureKeyed[T]{string(key) + id(item), item})
+	}
+	sort.Slice(keyed, func(i, j int) bool { return keyed[i].key < keyed[j].key })
+	return keyed, nil
+}
+
+// armQueryPage applies $filter and $orderby to items and pages the result in
+// that order, breaking ties by id, which must be unique within items.
+func armQueryPage[T any](w http.ResponseWriter, r *http.Request, items []T, id func(T) string) ([]T, string, bool) {
+	keyed, err := azureApplyListQuery(items, r, id)
+	if err != nil {
+		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
+		return nil, "", false
+	}
+	return armKeyedPage(w, r, keyed)
+}
+
+// azureOrderTermKey spells one $orderby value so that byte order matches
+// listq.CompareOrdered: a number orders numerically and ahead of any string.
+// Every spelling is prefix-free, which lets a descending term invert its
+// bytes and lets the terms concatenate.
+func azureOrderTermKey(value string, desc bool) []byte {
+	var key []byte
+	if f, err := strconv.ParseFloat(value, 64); err == nil {
+		b := math.Float64bits(f)
+		if b>>63 == 1 {
+			b = ^b
+		} else {
+			b |= 1 << 63
+		}
+		key = append([]byte{1}, fmt.Sprintf("%020d", b)...)
+	} else {
+		key = []byte{2}
+		for i := 0; i < len(value); i++ {
+			if value[i] == 0 {
+				key = append(key, 0, 0xff)
+				continue
+			}
+			key = append(key, value[i])
+		}
+		key = append(key, 0, 1)
+	}
+	if desc {
+		for i := range key {
+			key[i] = ^key[i]
+		}
+	}
+	return key
 }
 
 func odataCmp(field, op, value string) listq.Node {

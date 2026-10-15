@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -300,8 +299,7 @@ func handleEBListEventBuses(w http.ResponseWriter, r *http.Request) {
 		}
 		buses = append(buses, bus)
 	}
-	sort.Slice(buses, func(i, j int) bool { return buses[i].Name < buses[j].Name })
-	page, next, pageOK := awsPage(w, ebBadToken, buses, req.NextToken, req.Limit, 0)
+	page, next, pageOK := awsKeyPage(w, ebBadToken, buses, func(it EBEventBus) string { return it.Name }, req.NextToken, req.Limit, 0)
 	if !pageOK {
 		return
 	}
@@ -587,8 +585,7 @@ func handleEBListRules(w http.ResponseWriter, r *http.Request) {
 		}
 		rules = append(rules, rule)
 	}
-	sort.Slice(rules, func(i, j int) bool { return rules[i].Name < rules[j].Name })
-	page, next, pageOK := awsPage(w, ebBadToken, rules, req.NextToken, req.Limit, 0)
+	page, next, pageOK := awsKeyPage(w, ebBadToken, rules, func(it EBRule) string { return it.Name }, req.NextToken, req.Limit, 0)
 	if !pageOK {
 		return
 	}
@@ -632,8 +629,7 @@ func handleEBListRuleNamesByTarget(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	sort.Strings(names)
-	page, next, pageOK := awsPage(w, ebBadToken, names, req.NextToken, req.Limit, 0)
+	page, next, pageOK := awsKeyPage(w, ebBadToken, names, func(it string) string { return it }, req.NextToken, req.Limit, 0)
 	if !pageOK {
 		return
 	}
@@ -836,8 +832,7 @@ func handleEBListTargetsByRule(w http.ResponseWriter, r *http.Request) {
 	if targets == nil {
 		targets = []EBTarget{}
 	}
-	sort.Slice(targets, func(i, j int) bool { return targets[i].ID < targets[j].ID })
-	page, next, pageOK := awsPage(w, ebBadToken, targets, req.NextToken, req.Limit, 0)
+	page, next, pageOK := awsKeyPage(w, ebBadToken, targets, func(it EBTarget) string { return it.ID }, req.NextToken, req.Limit, 0)
 	if !pageOK {
 		return
 	}
@@ -1413,12 +1408,11 @@ func ebListBySource[T any](w http.ResponseWriter, r *http.Request, member string
 		}
 		matched = append(matched, item)
 	}
-	sort.Slice(matched, func(i, j int) bool {
-		a, _, _ := fields(matched[i])
-		b, _, _ := fields(matched[j])
-		return a < b
-	})
-	page, next, ok := awsPage(w, ebBadToken, matched, req.NextToken, req.Limit, 0)
+	nameOf := func(item T) string {
+		name, _, _ := fields(item)
+		return name
+	}
+	page, next, ok := awsKeyPage(w, ebBadToken, matched, nameOf, req.NextToken, req.Limit, 0)
 	if !ok {
 		return
 	}

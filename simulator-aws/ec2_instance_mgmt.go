@@ -275,7 +275,7 @@ func handleDescribeInstanceConnectEndpoints(w http.ResponseWriter, r *http.Reque
 	})
 	nextToken := ""
 	if len(ids) == 0 {
-		paged, pageNext, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+		paged, pageNext, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2InstanceConnectEndpoint) string { return it.InstanceConnectEndpointId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 		if !pageOK {
 			return
 		}

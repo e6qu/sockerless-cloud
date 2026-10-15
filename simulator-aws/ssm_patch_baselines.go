@@ -264,8 +264,7 @@ func handleSSMDescribePatchBaselines(w http.ResponseWriter, r *http.Request) {
 	if all == nil {
 		all = []SSMPatchBaseline{}
 	}
-	sortBy(all, func(p SSMPatchBaseline) string { return p.BaselineId })
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMPatchBaseline) string { return it.BaselineId }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}

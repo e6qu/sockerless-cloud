@@ -1,8 +1,10 @@
 package main
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -27,7 +29,7 @@ func TestAzureODataFilter(t *testing.T) {
 	apply := func(filter string) []odItem {
 		q := url.Values{"$filter": {filter}}
 		r := httptest.NewRequest("GET", "/x?"+q.Encode(), nil)
-		got, err := azureApplyListQuery(items, r)
+		got, err := odApply(items, r)
 		if err != nil {
 			t.Fatalf("$filter=%q returned unexpected error: %v", filter, err)
 		}
@@ -69,7 +71,7 @@ func TestAzureODataFilter(t *testing.T) {
 	// $orderby
 	q := url.Values{"$orderby": {"tier desc"}}
 	r := httptest.NewRequest("GET", "/x?"+q.Encode(), nil)
-	got, err := azureApplyListQuery(items, r)
+	got, err := odApply(items, r)
 	if err != nil {
 		t.Fatalf("$orderby returned unexpected error: %v", err)
 	}
@@ -100,9 +102,53 @@ func TestAzureODataFilterMalformed(t *testing.T) {
 	for _, f := range bad {
 		q := url.Values{"$filter": {f}}
 		r := httptest.NewRequest("GET", "/x?"+q.Encode(), nil)
-		got, err := azureApplyListQuery(items, r)
+		got, err := odApply(items, r)
 		if err == nil {
 			t.Errorf("$filter=%q: want parse error, got %d items (matched all without failing)", f, len(got))
+		}
+	}
+}
+
+func odApply(items []odItem, r *http.Request) ([]odItem, error) {
+	keyed, err := azureApplyListQuery(items, r, func(it odItem) string { return it.Name })
+	if err != nil {
+		return nil, err
+	}
+	out := make([]odItem, len(keyed))
+	for i, k := range keyed {
+		out[i] = k.item
+	}
+	return out, nil
+}
+
+// The paging key keeps the order $orderby asks for: strings by byte order
+// with a prefix ahead of the longer name it starts, numbers numerically, a
+// descending term reversed, and ties broken by id.
+func TestAzureListQueryKeyKeepsOrderBy(t *testing.T) {
+	items := []odItem{
+		{Name: "alpha", State: "ACTIVE", Tier: 10},
+		{Name: "al", State: "ACTIVE", Tier: 9},
+		{Name: "beta", State: "STOPPED", Tier: 10},
+		{Name: "gamma", State: "ACTIVE", Tier: 10},
+	}
+	for orderby, want := range map[string][]string{
+		"name":                  {"al", "alpha", "beta", "gamma"},
+		"name desc":             {"gamma", "beta", "alpha", "al"},
+		"tier":                  {"al", "alpha", "beta", "gamma"},
+		"tier desc":             {"alpha", "beta", "gamma", "al"},
+		"state desc, tier desc": {"beta", "alpha", "gamma", "al"},
+	} {
+		q := url.Values{"$orderby": {orderby}}
+		got, err := odApply(items, httptest.NewRequest("GET", "/x?"+q.Encode(), nil))
+		if err != nil {
+			t.Fatalf("$orderby=%s: %v", orderby, err)
+		}
+		names := make([]string, len(got))
+		for i, it := range got {
+			names[i] = it.Name
+		}
+		if strings.Join(names, ",") != strings.Join(want, ",") {
+			t.Errorf("$orderby=%s → %v, want %v", orderby, names, want)
 		}
 	}
 }

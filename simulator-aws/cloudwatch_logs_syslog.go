@@ -2,7 +2,6 @@ package main
 
 import (
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -121,11 +120,7 @@ func handleCWListSyslogConfigurations(w http.ResponseWriter, r *http.Request) {
 		return (logGroupARN == "" || configuration.LogGroupArn == logGroupARN) &&
 			(req.VpcEndpointId == "" || configuration.VpcEndpointId == req.VpcEndpointId)
 	})
-	sort.Slice(configurations, func(i, j int) bool {
-		return cwSyslogKey(configurations[i].LogGroupArn, configurations[i].VpcEndpointId) <
-			cwSyslogKey(configurations[j].LogGroupArn, configurations[j].VpcEndpointId)
-	})
-	page, next, pageOK := awsPage(w, logsBadToken, configurations, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, logsBadToken, configurations, func(it CWSyslogConfiguration) string { return cwSyslogKey(it.LogGroupArn, it.VpcEndpointId) }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}

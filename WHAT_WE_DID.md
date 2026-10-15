@@ -128,11 +128,39 @@ own module:
   The query language gained `log_id()` and `source()`, which the built-in
   sinks' filters are written in.
 
+  Azure Monitor Logs moved onto it too. Each workspace table keeps its rows
+  for its own retention: a query reads the rows within the table's
+  interactive retention, which follows the workspace's unless the table sets
+  its own; rows past it stay in long-term retention until the table's total
+  retention, when an hourly sweep deletes them. A classic Application
+  Insights component keeps telemetry for its RetentionInDays, 90 days by
+  default. The 50,000-row cap per table went with it; a site's App Service
+  container log keeps its newest 50,000 lines.
+
+  Cloud Logging routing grew to the model the service documents. The
+  exclusions API reads and writes the `_Default` sink's own exclusions, and
+  names an exclusion by its client-assigned identifier. A sink routes to a
+  log bucket in any project, to another project whose own sinks then route
+  the entry, to a Pub/Sub topic (the LogEntry as JSON with its
+  `logging.googleapis.com/timestamp` attribute) or to Cloud Storage, in
+  hourly batches that each write a new shard of the hour's object. A folder
+  or organization sink with `includeChildren` sees its projects' entries, and
+  one with `interceptChildren` keeps a matching entry from every sink below it
+  but `_Required`. An organization's or folder's `disableDefaultSink` and
+  `defaultSinkConfig` shape the `_Default` sink of a project created under
+  it. Every log bucket has the `_AllLogs` view, and a `_Default` bucket the
+  `_Default` view. A sink update overwrites only the fields its `updateMask`
+  names, `destination,filter,includeChildren` when it names none, so
+  `gcloud logging sinks update --add-exclusion` keeps the destination.
+
   List tokens that named an offset into the sorted list let a create or
   delete made before the token between two calls repeat or skip an item on
   the next page. `sim/listq` gained `KeyPage`, whose token names the last key
-  returned, and the AWS simulator gained `awsKeyPage` over it. Amazon ECR's
-  DescribeRepositories and every AWS WAF list page through them.
+  returned behind a marker byte, so a token it never issued still fails as
+  the service's invalid-token error. Every AWS and Azure list pages through
+  it: by the unique key the list sorts on, by position for a list kept in the
+  order it grew, and by request position for items a request names, so a
+  name given twice comes back twice.
 
 ## Fidelity rules that came from bugs
 

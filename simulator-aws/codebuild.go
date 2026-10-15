@@ -499,11 +499,8 @@ func handleCBListProjects(w http.ResponseWriter, r *http.Request) {
 		names = append(names, p.Name)
 	}
 	// ListProjects sorts by name; default order is ASCENDING.
-	sort.Strings(names)
-	if strings.EqualFold(req.SortOrder, "DESCENDING") {
-		reverseStrings(names)
-	}
-	page, nextTok, pageOK := awsPage(w, cbBadToken, names, req.NextToken, 0, 100)
+	descending := strings.EqualFold(req.SortOrder, "DESCENDING")
+	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, names, func(s string) string { return cbOrderKey(s, descending) }, req.NextToken, 0, 100)
 	if !pageOK {
 		return
 	}
@@ -1236,8 +1233,7 @@ func handleCBListBuildsForProject(w http.ResponseWriter, r *http.Request) {
 			builds = append(builds, b)
 		}
 	}
-	ids := cbSortBuildIDs(builds, req.SortOrder)
-	page, nextTok, pageOK := awsPage(w, cbBadToken, ids, req.NextToken, 0, 100)
+	page, nextTok, pageOK := cbBuildIDsPage(w, builds, req.SortOrder, req.NextToken)
 	if !pageOK {
 		return
 	}
@@ -1259,8 +1255,7 @@ func handleCBListBuilds(w http.ResponseWriter, r *http.Request) {
 	}
 
 	all := cbBuilds.List()
-	ids := cbSortBuildIDs(all, req.SortOrder)
-	page, nextTok, pageOK := awsPage(w, cbBadToken, ids, req.NextToken, 0, 100)
+	page, nextTok, pageOK := cbBuildIDsPage(w, all, req.SortOrder, req.NextToken)
 	if !pageOK {
 		return
 	}
@@ -1271,22 +1266,30 @@ func handleCBListBuilds(w http.ResponseWriter, r *http.Request) {
 	cbWriteJSON(w, http.StatusOK, resp)
 }
 
-// cbSortBuildIDs orders builds by start time and returns their IDs. AWS
-// ListBuilds / ListBuildsForProject default to DESCENDING (most-recent first);
-// sortOrder="ASCENDING" reverses it. Ties break on ID for a stable page cursor.
-func cbSortBuildIDs(builds []CBBuild, sortOrder string) []string {
-	ascending := strings.EqualFold(sortOrder, "ASCENDING")
-	sort.Slice(builds, func(i, j int) bool {
-		if ascending {
-			return builds[i].Seq < builds[j].Seq
-		}
-		return builds[i].Seq > builds[j].Seq
-	})
-	ids := make([]string, 0, len(builds))
-	for _, b := range builds {
+// cbBuildIDsPage pages build IDs in start order. ListBuilds and
+// ListBuildsForProject default to DESCENDING (most recent first);
+// sortOrder="ASCENDING" reverses it.
+func cbBuildIDsPage(w http.ResponseWriter, builds []CBBuild, sortOrder, token string) ([]string, string, bool) {
+	descending := !strings.EqualFold(sortOrder, "ASCENDING")
+	page, next, ok := awsKeyPage(w, cbBadToken, builds, func(b CBBuild) string {
+		return cbOrderKey(awsIntKey(b.Seq), descending)
+	}, token, 0, 100)
+	if !ok {
+		return nil, "", false
+	}
+	ids := make([]string, 0, len(page))
+	for _, b := range page {
 		ids = append(ids, b.ID)
 	}
-	return ids
+	return ids, next, true
+}
+
+// cbOrderKey spells k for a list whose sortOrder may run it descending.
+func cbOrderKey(k string, descending bool) string {
+	if descending {
+		return awsDescKey(k)
+	}
+	return k
 }
 
 func handleCBCreateReportGroup(w http.ResponseWriter, r *http.Request) {
@@ -1403,11 +1406,8 @@ func handleCBListReportGroups(w http.ResponseWriter, r *http.Request) {
 	for _, rg := range all {
 		arns = append(arns, rg.Arn)
 	}
-	sort.Strings(arns)
-	if strings.EqualFold(req.SortOrder, "DESCENDING") {
-		reverseStrings(arns)
-	}
-	page, nextTok, pageOK := awsPage(w, cbBadToken, arns, req.NextToken, req.MaxResults, 100)
+	descending := strings.EqualFold(req.SortOrder, "DESCENDING")
+	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, arns, func(s string) string { return cbOrderKey(s, descending) }, req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
 	}
@@ -1489,28 +1489,18 @@ func cbWriteReportArnsPage(w http.ResponseWriter, all []CBReport, groupArn, sort
 			reports = append(reports, rep)
 		}
 	}
-	ascending := strings.EqualFold(sortOrder, "ASCENDING")
-	sort.Slice(reports, func(i, j int) bool {
-		if reports[i].Created == reports[j].Created {
-			if ascending {
-				return reports[i].Arn < reports[j].Arn
-			}
-			return reports[i].Arn > reports[j].Arn
-		}
-		if ascending {
-			return reports[i].Created < reports[j].Created
-		}
-		return reports[i].Created > reports[j].Created
-	})
-	arns := make([]string, 0, len(reports))
-	for _, rep := range reports {
-		arns = append(arns, rep.Arn)
-	}
-	page, nextTok, pageOK := awsPage(w, cbBadToken, arns, nextToken, maxResults, 100)
+	descending := !strings.EqualFold(sortOrder, "ASCENDING")
+	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, reports, func(rep CBReport) string {
+		return cbOrderKey(awsFloatKey(rep.Created)+"\x00"+rep.Arn, descending)
+	}, nextToken, maxResults, 100)
 	if !pageOK {
 		return
 	}
-	resp := map[string]any{"reports": page}
+	arns := make([]string, 0, len(page))
+	for _, rep := range page {
+		arns = append(arns, rep.Arn)
+	}
+	resp := map[string]any{"reports": arns}
 	if nextTok != "" {
 		resp["nextToken"] = nextTok
 	}
@@ -1634,12 +1624,6 @@ func handleCBDeleteSourceCredentials(w http.ResponseWriter, r *http.Request) {
 	cbSourceCreds.Delete(req.Arn)
 	cbSourceCredSecrets.Delete(req.Arn)
 	cbWriteJSON(w, http.StatusOK, map[string]any{"arn": req.Arn})
-}
-
-func reverseStrings(s []string) {
-	for i, j := 0, len(s)-1; i < j; i, j = i+1, j-1 {
-		s[i], s[j] = s[j], s[i]
-	}
 }
 
 func cbNameFromARN(arn string) string {

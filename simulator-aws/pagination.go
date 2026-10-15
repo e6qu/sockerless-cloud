@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"sort"
 
@@ -14,20 +15,6 @@ import (
 // issued with.
 type awsBadToken func(w http.ResponseWriter, token string)
 
-// awsPage pages a deterministically sorted list by the decimal offset token
-// the AWS slices hand out. A size of zero or less takes def, and a positive
-// def also caps the page; def 0 returns every remaining item when the caller
-// names no size. A token the list never issued writes bad's error and reports
-// false.
-func awsPage[T any](w http.ResponseWriter, bad awsBadToken, all []T, token string, size, def int) ([]T, string, bool) {
-	page, next, err := listq.OffsetPage(all, token, size, def, def)
-	if err != nil {
-		bad(w, token)
-		return nil, "", false
-	}
-	return page, next, true
-}
-
 // awsKeyPage sorts all by key, which must be unique, and pages it with a
 // token that names the last key returned, so a create or delete between two
 // calls neither repeats nor skips an item.
@@ -38,6 +25,81 @@ func awsKeyPage[T any](w http.ResponseWriter, bad awsBadToken, all []T, key func
 		return nil, "", false
 	}
 	return page, next, true
+}
+
+// awsSeqPage pages a list kept in the order it grew, such as an event
+// history, keying each item by its position in that order so an item appended
+// between two calls lands after the token. desc pages the newest item first.
+func awsSeqPage[T any](w http.ResponseWriter, bad awsBadToken, all []T, desc bool, token string, size, def int) ([]T, string, bool) {
+	type seq struct {
+		pos  int
+		item T
+	}
+	wrapped := make([]seq, len(all))
+	for i, item := range all {
+		wrapped[i] = seq{i, item}
+	}
+	key := func(s seq) string {
+		if desc {
+			return awsDescKey(awsIntKey(int64(s.pos)))
+		}
+		return awsIntKey(int64(s.pos))
+	}
+	page, next, ok := awsKeyPage(w, bad, wrapped, key, token, size, def)
+	if !ok {
+		return nil, "", false
+	}
+	out := make([]T, len(page))
+	for i, s := range page {
+		out[i] = s.item
+	}
+	return out, next, true
+}
+
+// awsIntKey spells n so that string order matches numeric order.
+func awsIntKey(n int64) string {
+	return fmt.Sprintf("%020d", uint64(n)^(1<<63))
+}
+
+// awsFloatKey spells f so that string order matches numeric order.
+func awsFloatKey(f float64) string {
+	b := math.Float64bits(f)
+	if b>>63 == 1 {
+		b = ^b
+	} else {
+		b |= 1 << 63
+	}
+	return fmt.Sprintf("%020d", b)
+}
+
+// awsDescKey spells s so that ascending string order lists it descending:
+// it inverts every byte and ends on 0xff, which sorts a prefix after every
+// longer string it starts.
+func awsDescKey(s string) string {
+	b := make([]byte, len(s)+1)
+	for i := 0; i < len(s); i++ {
+		b[i] = ^s[i]
+	}
+	b[len(s)] = 0xff
+	return string(b)
+}
+
+// awsFieldKey keys a JSON-shaped item by one of its string fields.
+func awsFieldKey(field string) func(map[string]any) string {
+	return func(m map[string]any) string {
+		s, _ := m[field].(string)
+		return s
+	}
+}
+
+// awsNamedOrKeyPage pages a list a request named item by item in the
+// request's own order, duplicates included, keyed by position; the request
+// fixes that list. Any other list pages by key.
+func awsNamedOrKeyPage[T any](w http.ResponseWriter, bad awsBadToken, all []T, named bool, key func(T) string, token string, size, def int) ([]T, string, bool) {
+	if named {
+		return awsSeqPage(w, bad, all, false, token, size, def)
+	}
+	return awsKeyPage(w, bad, all, key, token, size, def)
 }
 
 func awsBadTokenMessage(token string) string {

@@ -274,8 +274,7 @@ func handleSSMListDocuments(w http.ResponseWriter, r *http.Request) {
 	if all == nil {
 		all = []SSMDocument{}
 	}
-	sortBy(all, func(d SSMDocument) string { return d.Name })
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMDocument) string { return it.Name }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -322,7 +321,7 @@ func handleSSMListDocumentVersions(w http.ResponseWriter, r *http.Request) {
 	}
 	all := make([]SSMDocumentVersion, len(doc.Versions))
 	copy(all, doc.Versions)
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsSeqPage(w, ssmBadToken, all, false, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}

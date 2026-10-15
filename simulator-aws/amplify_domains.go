@@ -349,8 +349,7 @@ func handleAmplifyListDomains(w http.ResponseWriter, r *http.Request) {
 			items = append(items, amplifyEvaluateDomainVerification(s).Domain)
 		}
 	}
-	sortBy(items, func(d AmplifyDomainAssociation) string { return d.DomainName })
-	amplifyWriteListPage(w, "domainAssociations", items, token, maxResults)
+	amplifyWriteListPage(w, "domainAssociations", items, func(d AmplifyDomainAssociation) string { return d.DomainName }, token, maxResults)
 }
 
 type amplifyCreateBackendReq struct {
@@ -429,6 +428,5 @@ func handleAmplifyListBackends(w http.ResponseWriter, r *http.Request) {
 			items = append(items, s.Env)
 		}
 	}
-	sortBy(items, func(e AmplifyBackendEnvironment) string { return e.EnvironmentName })
-	amplifyWriteListPage(w, "backendEnvironments", items, token, maxResults)
+	amplifyWriteListPage(w, "backendEnvironments", items, func(e AmplifyBackendEnvironment) string { return e.EnvironmentName }, token, maxResults)
 }

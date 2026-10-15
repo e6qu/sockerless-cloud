@@ -889,7 +889,7 @@ func registerWebDiagnostics(both func(string, string, http.HandlerFunc)) {
 		if webMissing(w, r) {
 			return
 		}
-		writeARMCollection(w, r, []map[string]any{webDiagnosticCategoryDoc(r)})
+		writeARMFixedCollection(w, r, []map[string]any{webDiagnosticCategoryDoc(r)})
 	})
 
 	// Diagnostics_GetSiteDiagnosticCategory[Slot]
@@ -915,7 +915,7 @@ func registerWebDiagnostics(both func(string, string, http.HandlerFunc)) {
 				"properties": webDetectorDefinitionDoc(det),
 			})
 		}
-		writeARMCollection(w, r, out)
+		writeARMFixedCollection(w, r, out)
 	})
 
 	// Diagnostics_GetSiteDetector[Slot]
@@ -961,7 +961,7 @@ func registerWebDiagnostics(both func(string, string, http.HandlerFunc)) {
 		for _, analysis := range webAnalyses() {
 			out = append(out, webAnalysisDefinitionDoc(r, analysis))
 		}
-		writeARMCollection(w, r, out)
+		writeARMFixedCollection(w, r, out)
 	})
 
 	// Diagnostics_GetSiteAnalysis[Slot]
@@ -1051,7 +1051,7 @@ func registerWebDiagnostics(both func(string, string, http.HandlerFunc)) {
 		for _, det := range webDetectors() {
 			out = append(out, webDetectorResponseDoc(r, webResourceID(r), det, det.measure(obs)))
 		}
-		writeARMCollection(w, r, out)
+		writeARMFixedCollection(w, r, out)
 	})
 
 	// Diagnostics_GetSiteDetectorResponse[Slot]
@@ -1136,7 +1136,7 @@ func registerWebEnvironmentDiagnostics(ase func(string, string, http.HandlerFunc
 		if _, ok := aseLookup(w, r); !ok {
 			return
 		}
-		writeARMCollection(w, r, []map[string]any{})
+		writeARMFixedCollection(w, r, []map[string]any{})
 	})
 
 	// Diagnostics_GetHostingEnvironmentDetectorResponse

@@ -250,7 +250,7 @@ func handleSSMListCloudConnectors(w http.ResponseWriter, r *http.Request) {
 			matched = append(matched, c)
 		}
 	}
-	page, next, pageOK := awsPage(w, ssmBadToken, matched, req.NextToken, req.MaxResults, 0)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, matched, func(it SSMCloudConnector) string { return awsFloatKey(it.CreatedAt) + "\x00" + it.CloudConnectorId }, req.NextToken, req.MaxResults, 0)
 	if !pageOK {
 		return
 	}
@@ -401,7 +401,7 @@ func handleSSMValidateCloudConnector(w http.ResponseWriter, r *http.Request) {
 			"Cloud connector %s does not exist", req.CloudConnectorId)
 		return
 	}
-	page, next, pageOK := awsPage(w, ssmBadToken, ssmCloudConnectorFindings(c), req.NextToken, req.MaxResults, 0)
+	page, next, pageOK := awsSeqPage(w, ssmBadToken, ssmCloudConnectorFindings(c), false, req.NextToken, req.MaxResults, 0)
 	if !pageOK {
 		return
 	}

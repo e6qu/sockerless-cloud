@@ -494,16 +494,13 @@ func handleLambdaListFunctionVersionsByCapacityProvider(w http.ResponseWriter, r
 			}
 		}
 	}
-	sort.Slice(functionVersions, func(i, j int) bool {
-		return fmt.Sprint(functionVersions[i]["FunctionArn"]) < fmt.Sprint(functionVersions[j]["FunctionArn"])
-	})
 	maxItems := 50
 	if raw := r.URL.Query().Get("MaxItems"); raw != "" {
 		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
 			maxItems = parsed
 		}
 	}
-	page, nextMarker, pageOK := awsPage(w, lambdaBadToken, functionVersions, r.URL.Query().Get("Marker"), maxItems, 50)
+	page, nextMarker, pageOK := awsKeyPage(w, lambdaBadToken, functionVersions, awsFieldKey("FunctionArn"), r.URL.Query().Get("Marker"), maxItems, 50)
 	if !pageOK {
 		return
 	}
@@ -1587,11 +1584,6 @@ func handleLambdaGetDurableExecutionHistory(w http.ResponseWriter, r *http.Reque
 			"Durable execution not found: %s", arn)
 		return
 	}
-	if r.URL.Query().Get("ReverseOrder") == "true" {
-		for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
-			events[i], events[j] = events[j], events[i]
-		}
-	}
 	maxItems := 100
 	if raw := r.URL.Query().Get("MaxItems"); raw != "" {
 		parsed, parseErr := strconv.Atoi(raw)
@@ -1604,7 +1596,7 @@ func handleLambdaGetDurableExecutionHistory(w http.ResponseWriter, r *http.Reque
 			maxItems = parsed
 		}
 	}
-	page, nextMarker, pageOK := awsPage(w, lambdaBadToken, events, r.URL.Query().Get("Marker"), maxItems, 100)
+	page, nextMarker, pageOK := awsSeqPage(w, lambdaBadToken, events, r.URL.Query().Get("ReverseOrder") == "true", r.URL.Query().Get("Marker"), maxItems, 100)
 	if !pageOK {
 		return
 	}
@@ -1648,7 +1640,7 @@ func handleLambdaGetDurableExecutionState(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-	page, nextMarker, pageOK := awsPage(w, lambdaBadToken, ops, r.URL.Query().Get("Marker"), maxItems, 100)
+	page, nextMarker, pageOK := awsSeqPage(w, lambdaBadToken, ops, false, r.URL.Query().Get("Marker"), maxItems, 100)
 	if !pageOK {
 		return
 	}
@@ -1733,20 +1725,16 @@ func handleLambdaListDurableExecutionsByFunction(w http.ResponseWriter, r *http.
 		executions = append(executions, item)
 	}
 	lambdaDurableMu.RUnlock()
-	sort.Slice(executions, func(i, j int) bool {
-		left, leftOK := executions[i]["StartTimestamp"].(float64)
-		right, rightOK := executions[j]["StartTimestamp"].(float64)
-		if !leftOK || !rightOK {
-			return fmt.Sprint(executions[i]["DurableExecutionArn"]) < fmt.Sprint(executions[j]["DurableExecutionArn"])
+	oldestFirst := strings.EqualFold(r.URL.Query().Get("ReverseOrder"), "true")
+	key := func(item map[string]any) string {
+		ts, _ := item["StartTimestamp"].(float64)
+		arn, _ := item["DurableExecutionArn"].(string)
+		started := awsFloatKey(ts)
+		if !oldestFirst {
+			started = awsDescKey(started)
 		}
-		if left == right {
-			return fmt.Sprint(executions[i]["DurableExecutionArn"]) < fmt.Sprint(executions[j]["DurableExecutionArn"])
-		}
-		if strings.EqualFold(r.URL.Query().Get("ReverseOrder"), "true") {
-			return left < right
-		}
-		return left > right
-	})
+		return started + "\x00" + arn
+	}
 	maxItems := 100
 	if raw := r.URL.Query().Get("MaxItems"); raw != "" {
 		parsed, maxErr := strconv.Atoi(raw)
@@ -1757,7 +1745,7 @@ func handleLambdaListDurableExecutionsByFunction(w http.ResponseWriter, r *http.
 		}
 		maxItems = parsed
 	}
-	page, nextMarker, pageOK := awsPage(w, lambdaBadToken, executions, r.URL.Query().Get("Marker"), maxItems, 100)
+	page, nextMarker, pageOK := awsKeyPage(w, lambdaBadToken, executions, key, r.URL.Query().Get("Marker"), maxItems, 100)
 	if !pageOK {
 		return
 	}

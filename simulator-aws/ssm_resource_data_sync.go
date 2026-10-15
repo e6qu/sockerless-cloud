@@ -141,8 +141,7 @@ func handleSSMListResourceDataSync(w http.ResponseWriter, r *http.Request) {
 		}
 		all = append(all, s)
 	}
-	sortBy(all, func(s SSMResourceDataSync) string { return s.SyncName })
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMResourceDataSync) string { return it.SyncName }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}

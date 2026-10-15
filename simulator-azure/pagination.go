@@ -16,8 +16,9 @@ const kvMaxResults = 25
 
 // kvPage pages a Key Vault data-plane list by maxresults and $skiptoken,
 // 25 to a page by default as the service does, and answers 400 BadParameter
-// for a maxresults outside 1..25 or a $skiptoken it never issued.
-func kvPage[T any](w http.ResponseWriter, r *http.Request, items []T) ([]T, string, bool) {
+// for a maxresults outside 1..25 or a $skiptoken it never issued. key orders
+// the list and must be unique within it.
+func kvPage[T any](w http.ResponseWriter, r *http.Request, items []T, key func(T) string) ([]T, string, bool) {
 	if raw, set := r.URL.Query()["maxresults"]; set {
 		if n, err := strconv.Atoi(raw[0]); err != nil || n < 1 || n > kvMaxResults {
 			AzureErrorf(w, "BadParameter", http.StatusBadRequest,
@@ -25,7 +26,7 @@ func kvPage[T any](w http.ResponseWriter, r *http.Request, items []T) ([]T, stri
 			return nil, "", false
 		}
 	}
-	return azurePage(w, r, items, "maxresults", kvMaxResults, "BadParameter")
+	return azurePage(w, r, azureKeyAll(items, key), "maxresults", kvMaxResults, "BadParameter")
 }
 
 // kvNextLink builds the nextLink URL for a Key Vault data-plane list response.
@@ -38,23 +39,70 @@ func kvNextLink(r *http.Request, skipToken string) string {
 
 // armPage pages an Azure Resource Manager list by $top and $skiptoken, 100
 // to a page by default, and answers 400 BadRequest for a $skiptoken it never
-// issued.
-func armPage[T any](w http.ResponseWriter, r *http.Request, items []T) ([]T, string, bool) {
-	return azurePage(w, r, items, "$top", 100, "BadRequest")
+// issued. key orders the list and must be unique within it.
+func armPage[T any](w http.ResponseWriter, r *http.Request, items []T, key func(T) string) ([]T, string, bool) {
+	return armKeyedPage(w, r, azureKeyAll(items, key))
 }
 
-func azurePage[T any](w http.ResponseWriter, r *http.Request, items []T, sizeParam string, def int, badTokenCode string) ([]T, string, bool) {
+// armSeqPage pages a list whose order is only the order it was built in,
+// such as a fixed catalogue, keying each item by its position.
+func armSeqPage[T any](w http.ResponseWriter, r *http.Request, items []T) ([]T, string, bool) {
+	keyed := make([]azureKeyed[T], len(items))
+	for i, item := range items {
+		keyed[i] = azureKeyed[T]{azureIntKey(int64(i)), item}
+	}
+	return armKeyedPage(w, r, keyed)
+}
+
+func armKeyedPage[T any](w http.ResponseWriter, r *http.Request, keyed []azureKeyed[T]) ([]T, string, bool) {
+	return azurePage(w, r, keyed, "$top", 100, "BadRequest")
+}
+
+// azureKeyed is a list item with the key it pages by, computed once.
+type azureKeyed[T any] struct {
+	key  string
+	item T
+}
+
+func azureKeyAll[T any](items []T, key func(T) string) []azureKeyed[T] {
+	keyed := make([]azureKeyed[T], len(items))
+	for i, item := range items {
+		keyed[i] = azureKeyed[T]{key(item), item}
+	}
+	return keyed
+}
+
+// azurePage sorts keyed by key and pages it with a $skiptoken that names the
+// last key returned, so an item created or deleted between two calls neither
+// repeats nor skips one after the token.
+func azurePage[T any](w http.ResponseWriter, r *http.Request, keyed []azureKeyed[T], sizeParam string, def int, badTokenCode string) ([]T, string, bool) {
 	size := 0
 	if n, err := strconv.Atoi(r.URL.Query().Get(sizeParam)); err == nil && n > 0 {
 		size = n
 	}
 	token := r.URL.Query().Get("$skiptoken")
-	page, next, err := listq.OffsetPage(items, token, size, def, 0)
+	sort.Slice(keyed, func(i, j int) bool { return keyed[i].key < keyed[j].key })
+	page, next, err := listq.KeyPage(keyed, func(k azureKeyed[T]) string { return k.key }, token, size, def, 0)
 	if err != nil {
 		AzureErrorf(w, badTokenCode, http.StatusBadRequest, "The $skiptoken %q is not valid.", token)
 		return nil, "", false
 	}
-	return page, next, true
+	out := make([]T, len(page))
+	for i, k := range page {
+		out[i] = k.item
+	}
+	return out, next, true
+}
+
+// azureIntKey spells n so that string order matches numeric order.
+func azureIntKey(n int64) string {
+	return fmt.Sprintf("%020d", uint64(n)^(1<<63))
+}
+
+// azureNameIDKey orders by name, then by resource ID, for a list whose names
+// repeat across the resource groups it spans.
+func azureNameIDKey(name, id string) string {
+	return name + "\x00" + id
 }
 
 // armNextLink builds the nextLink URL for an ARM management-plane list response.
@@ -98,4 +146,11 @@ func acrCatalogPage(r *http.Request, repos []string) ([]string, string) {
 	}
 	last := repos[limit-1]
 	return repos[:limit], last
+}
+
+// kvVersionOrder orders a Key Vault object's versions oldest first: by
+// creation time, then by the position the version was appended at, which
+// separates versions created within the same second.
+func kvVersionOrder(created int64, appended int) string {
+	return azureIntKey(created) + azureIntKey(int64(appended))
 }

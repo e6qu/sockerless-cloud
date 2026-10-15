@@ -574,11 +574,8 @@ func handleR53ListHostedZones(w http.ResponseWriter, r *http.Request) {
 		items = append(items, stored.Zone)
 	}
 	// Stable order so the opaque offset Marker pages each zone exactly once.
-	sort.Slice(items, func(i, j int) bool {
-		return r53ZoneIDFromPath(items[i].Id) < r53ZoneIDFromPath(items[j].Id)
-	})
 
-	page, next, pageOK := awsPage(w, r53BadToken, items, q.Get("marker"), maxItems, 0)
+	page, next, pageOK := awsKeyPage(w, r53BadToken, items, func(it R53HostedZone) string { return r53ZoneIDFromPath(it.Id) }, q.Get("marker"), maxItems, 0)
 	if !pageOK {
 		return
 	}

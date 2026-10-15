@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"net/http"
-	"sort"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -109,8 +108,7 @@ func handleKMSListGrants(w http.ResponseWriter, r *http.Request) {
 		}
 		matched = append(matched, g)
 	}
-	sort.Slice(matched, func(i, j int) bool { return matched[i].GrantId < matched[j].GrantId })
-	page, next, pageOK := awsPage(w, kmsBadToken, matched, req.Marker, req.Limit, 100)
+	page, next, pageOK := awsKeyPage(w, kmsBadToken, matched, func(it KMSGrant) string { return it.GrantId }, req.Marker, req.Limit, 100)
 	if !pageOK {
 		return
 	}

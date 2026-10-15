@@ -1154,7 +1154,6 @@ func handleLambdaInvoke(w http.ResponseWriter, r *http.Request) {
 
 func handleLambdaListFunctions(w http.ResponseWriter, r *http.Request) {
 	stored := lambdaFunctions.List()
-	sortBy(stored, func(f LambdaFunction) string { return f.FunctionName })
 
 	marker := r.URL.Query().Get("Marker")
 	maxItems := 50
@@ -1168,23 +1167,33 @@ func handleLambdaListFunctions(w http.ResponseWriter, r *http.Request) {
 	// Build the full result list. Default (no FunctionVersion) returns
 	// $LATEST for each function; FunctionVersion=ALL additionally
 	// includes every published version with a version-qualified ARN.
-	var all []lambdaFunctionConfiguration
+	type listed struct {
+		pos    int
+		config lambdaFunctionConfiguration
+	}
+	var all []listed
 	for _, fn := range stored {
-		all = append(all, lambdaConfiguration(fn))
+		all = append(all, listed{0, lambdaConfiguration(fn)})
 		if allVersions {
 			published, _ := lambdaVersions.Get(fn.FunctionName)
-			for _, v := range published {
-				all = append(all, lambdaConfigurationFromVersion(v))
+			for i, v := range published {
+				all = append(all, listed{i + 1, lambdaConfigurationFromVersion(v)})
 			}
 		}
 	}
 
-	page, next, pageOK := awsPage(w, lambdaBadToken, all, marker, maxItems, 50)
+	page, next, pageOK := awsKeyPage(w, lambdaBadToken, all, func(l listed) string {
+		return l.config.FunctionName + "\x00" + awsIntKey(int64(l.pos))
+	}, marker, maxItems, 50)
 	if !pageOK {
 		return
 	}
+	functions := make([]lambdaFunctionConfiguration, 0, len(page))
+	for _, l := range page {
+		functions = append(functions, l.config)
+	}
 
-	out := map[string]any{"Functions": page}
+	out := map[string]any{"Functions": functions}
 	if next != "" {
 		out["NextMarker"] = next
 	}
