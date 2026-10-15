@@ -17,13 +17,13 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/autoscaling v1.78.4
 	github.com/aws/aws-sdk-go-v2/service/batch v1.78.3
 	github.com/aws/aws-sdk-go-v2/service/budgets v1.53.1
-	github.com/aws/aws-sdk-go-v2/service/cloudfront v1.74.3
+	github.com/aws/aws-sdk-go-v2/service/cloudfront v1.75.0
 	github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.65.4
 	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.73.3
 	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.89.3
 	github.com/aws/aws-sdk-go-v2/service/codebuild v1.78.4
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.70.3
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.338.4
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.339.0
 	github.com/aws/aws-sdk-go-v2/service/ecr v1.66.4
 	github.com/aws/aws-sdk-go-v2/service/ecs v1.100.3
 	github.com/aws/aws-sdk-go-v2/service/efs v1.49.4
@@ -35,8 +35,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/iam v1.64.4
 	github.com/aws/aws-sdk-go-v2/service/kinesis v1.56.4
 	github.com/aws/aws-sdk-go-v2/service/kms v1.61.4
-	github.com/aws/aws-sdk-go-v2/service/lambda v1.112.2
-	github.com/aws/aws-sdk-go-v2/service/organizations v1.61.3
+	github.com/aws/aws-sdk-go-v2/service/lambda v1.113.0
+	github.com/aws/aws-sdk-go-v2/service/organizations v1.62.0
 	github.com/aws/aws-sdk-go-v2/service/rds v1.130.3
 	github.com/aws/aws-sdk-go-v2/service/route53 v1.70.4
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.3
@@ -52,7 +52,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/wafv2 v1.83.4
 	github.com/aws/smithy-go v1.28.5
 	github.com/e6qu/sockerless-cloud/testutil v0.1.0
-	github.com/go-jose/go-jose/v4 v4.1.5
+	github.com/go-jose/go-jose/v4 v4.1.6
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/golang/snappy v1.0.0
 	github.com/google/go-containerregistry v0.22.1
