@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"net/netip"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,8 +20,11 @@ import (
 )
 
 var (
-	cloudDNSZones      sim.Store[storedManagedZone]
-	cloudDNSRecordSets sim.Store[storedResourceRecordSet]
+	cloudDNSZones               sim.Store[storedManagedZone]
+	cloudDNSRecordSets          sim.Store[storedResourceRecordSet]
+	cloudDNSPolicies            sim.Store[storedDNSPolicy]
+	cloudDNSResponsePolicies    sim.Store[storedDNSResponsePolicy]
+	cloudDNSResponsePolicyRules sim.Store[storedDNSResponsePolicyRule]
 )
 
 // cloudDNSPrivateNameServer is the name server every private zone's NS and
@@ -111,13 +116,124 @@ func cloudDNSCatalog(q dnsserver.Query) dnsserver.View {
 		network, _ = v.(string)
 	}
 	all := cloudDNSZones.ListPrefix("")
-	view := dnsserver.View{Zones: cloudDNSNetworkZones(all, network, true)}
+	view := dnsserver.View{
+		Zones: cloudDNSNetworkZones(all, network, true),
+		Names: cloudDNSResponsePolicyAnswer(network, q.Name),
+	}
+	// A network whose DNS policy names alternative name servers sends them
+	// every name its private zones do not hold, in place of Google's
+	// resolvers and the public zones they reach.
+	if alternatives := cloudDNSAlternativeNameServers(network); len(alternatives) > 0 {
+		view.Zones = append(view.Zones, dnsserver.Zone{Apex: ".", Forwarders: alternatives})
+		return view
+	}
 	for _, zone := range all {
 		if zone.Item.Visibility != "private" {
 			view.Zones = append(view.Zones, cloudDNSServedZone(zone.ID, zone.Item.ManagedZone))
 		}
 	}
 	return view
+}
+
+// cloudDNSPolicyNetworks reads the network URLs a policy binds, in the
+// projects/<project>/global/networks/<name> form.
+func cloudDNSPolicyNetworks(project string, networks []json.RawMessage) []string {
+	var out []string
+	for _, raw := range networks {
+		var n struct {
+			NetworkURL string `json:"networkUrl"`
+		}
+		if err := json.Unmarshal(raw, &n); err != nil {
+			log.Printf("cloud dns: policy network %s: %v", raw, err)
+			continue
+		}
+		if n.NetworkURL != "" {
+			out = append(out, normalizeComputeGlobalNetworkRef(project, n.NetworkURL))
+		}
+	}
+	return out
+}
+
+func cloudDNSAlternativeNameServers(network string) []string {
+	if network == "" || cloudDNSPolicies == nil {
+		return nil
+	}
+	for _, stored := range cloudDNSPolicies.List() {
+		if !slices.Contains(cloudDNSPolicyNetworks(stored.Project, stored.Policy.Networks), network) || len(stored.Policy.AlternativeNameServerConfig) == 0 {
+			continue
+		}
+		var cfg struct {
+			TargetNameServers []struct {
+				IPv4Address string `json:"ipv4Address"`
+			} `json:"targetNameServers"`
+		}
+		if err := json.Unmarshal(stored.Policy.AlternativeNameServerConfig, &cfg); err != nil {
+			log.Printf("cloud dns: alternative name servers of policy %s: %v", stored.Policy.Name, err)
+			continue
+		}
+		var out []string
+		for _, target := range cfg.TargetNameServers {
+			if target.IPv4Address != "" {
+				out = append(out, net.JoinHostPort(target.IPv4Address, "53"))
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// cloudDNSResponsePolicyAnswer is the local data the response policies bound
+// to network answer name with. The most specific rule decides — an exact name
+// over a wildcard, a longer wildcard over a shorter one — and a rule whose
+// behavior is bypassResponsePolicy leaves the name to ordinary resolution.
+func cloudDNSResponsePolicyAnswer(network, name string) []dns.RR {
+	if network == "" || cloudDNSResponsePolicies == nil {
+		return nil
+	}
+	var best *DNSResponsePolicyRule
+	bestLabels := -1
+	for _, policy := range cloudDNSResponsePolicies.List() {
+		if !slices.Contains(cloudDNSPolicyNetworks(policy.Project, policy.Policy.Networks), network) {
+			continue
+		}
+		for _, stored := range cloudDNSResponsePolicyRules.ListPrefix(dnsResponsePolicyRuleKey(policy.Project, policy.Policy.ResponsePolicyName, "")) {
+			rule := stored.Item.Rule
+			labels, ok := cloudDNSRuleMatch(dns.CanonicalName(rule.DNSName), name)
+			if ok && labels > bestLabels {
+				best, bestLabels = &rule, labels
+			}
+		}
+	}
+	if best == nil || best.Behavior == "bypassResponsePolicy" || len(best.LocalData) == 0 {
+		return nil
+	}
+	var data struct {
+		LocalDatas []ResourceRecordSet `json:"localDatas"`
+	}
+	if err := json.Unmarshal(best.LocalData, &data); err != nil {
+		log.Printf("cloud dns: local data of rule %s: %v", best.RuleName, err)
+		return nil
+	}
+	var out []dns.RR
+	for _, set := range data.LocalDatas {
+		for _, rr := range cloudDNSRecordSetRRs(set) {
+			rr.Header().Name = name
+			out = append(out, rr)
+		}
+	}
+	return out
+}
+
+// cloudDNSRuleMatch reports whether a rule's DNS name covers name, and how
+// specific the match is: an exact name outranks every wildcard.
+func cloudDNSRuleMatch(rule, name string) (int, bool) {
+	if rule == name {
+		return math.MaxInt, true
+	}
+	if suffix, ok := strings.CutPrefix(rule, "*."); ok && dns.IsSubDomain(suffix, name) && name != suffix {
+		return dns.CountLabel(suffix), true
+	}
+	return 0, false
 }
 
 // cloudDNSNetworkZones lists the private zones visible to network, which take

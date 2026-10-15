@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -170,5 +171,85 @@ func TestCloudDNSForwarders(t *testing.T) {
 	got := cloudDNSForwarders(ManagedZone{ForwardingConfig: cfg})
 	if len(got) != 2 || got[0] != "10.1.0.2:53" || got[1] != "10.1.0.3:53" {
 		t.Fatalf("forwarders = %v", got)
+	}
+}
+
+// A response policy bound to the querier's network answers ahead of every
+// zone, the most specific rule deciding, and a bypass rule hands its names
+// back to ordinary resolution; a DNS policy's alternative name servers take
+// the names the network's private zones do not hold.
+func TestCloudDNSAppliesResponsePoliciesAndAlternativeNameServers(t *testing.T) {
+	zones, sets := cloudDNSZones, cloudDNSRecordSets
+	policies, rps, rules := cloudDNSPolicies, cloudDNSResponsePolicies, cloudDNSResponsePolicyRules
+	t.Cleanup(func() {
+		cloudDNSZones, cloudDNSRecordSets = zones, sets
+		cloudDNSPolicies, cloudDNSResponsePolicies, cloudDNSResponsePolicyRules = policies, rps, rules
+	})
+	cloudDNSZones = sim.MakeStore[storedManagedZone](nil, "dns_zones")
+	cloudDNSRecordSets = sim.MakeStore[storedResourceRecordSet](nil, "dns_record_sets")
+	cloudDNSPolicies = sim.MakeStore[storedDNSPolicy](nil, "dns_policies")
+	cloudDNSResponsePolicies = sim.MakeStore[storedDNSResponsePolicy](nil, "dns_response_policies")
+	cloudDNSResponsePolicyRules = sim.MakeStore[storedDNSResponsePolicyRule](nil, "dns_response_policy_rules")
+
+	const network = "projects/p/global/networks/a"
+	bound := []json.RawMessage{json.RawMessage(`{"networkUrl":"https://www.googleapis.com/compute/v1/projects/p/global/networks/a"}`)}
+	putCloudDNSZone(t, "p", ManagedZone{Name: "pub", DNSName: "example.test.", ID: "1", Visibility: "public"},
+		ResourceRecordSet{Name: "www.example.test.", Type: "A", TTL: 60, Rrdatas: []string{"203.0.113.1"}},
+		ResourceRecordSet{Name: "api.example.test.", Type: "A", TTL: 60, Rrdatas: []string{"203.0.113.2"}})
+	cloudDNSResponsePolicies.Put("p/rp", storedDNSResponsePolicy{Project: "p", Policy: DNSResponsePolicy{ResponsePolicyName: "rp", Networks: bound}})
+	putRule := func(name string, rule DNSResponsePolicyRule) {
+		rule.RuleName = name
+		cloudDNSResponsePolicyRules.Put(dnsResponsePolicyRuleKey("p", "rp", name), storedDNSResponsePolicyRule{Project: "p", ResponsePolicy: "rp", Rule: rule})
+	}
+	localData := func(ip string) json.RawMessage {
+		raw, _ := json.Marshal(map[string]any{"localDatas": []any{map[string]any{"name": "x.", "type": "A", "ttl": 30, "rrdatas": []string{ip}}}})
+		return raw
+	}
+	putRule("all", DNSResponsePolicyRule{DNSName: "*.example.test.", LocalData: localData("10.0.0.1")})
+	putRule("www", DNSResponsePolicyRule{DNSName: "www.example.test.", LocalData: localData("10.0.0.2")})
+	putRule("api", DNSResponsePolicyRule{DNSName: "api.example.test.", Behavior: "bypassResponsePolicy"})
+
+	answer := func(network, name string) string {
+		t.Helper()
+		view := cloudDNSCatalog(dnsserver.Query{Name: name})
+		if network != "" {
+			if err := cloudDNSRegisterResolverIP(net.ParseIP("127.0.0.9"), network); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { cloudDNSResolverNetworks.Delete(netip.MustParseAddr("127.0.0.9")) })
+			view = cloudDNSCatalog(dnsserver.Query{Name: name, Local: netip.MustParseAddr("127.0.0.9")})
+		}
+		for _, rr := range view.Names {
+			if a, ok := rr.(*dns.A); ok && rr.Header().Name == name {
+				return "policy " + a.A.String()
+			}
+		}
+		for _, z := range view.Zones {
+			if z.Apex == "." {
+				return "forwarded to " + strings.Join(z.Forwarders, ",")
+			}
+		}
+		return "zones"
+	}
+	for _, tc := range []struct{ network, name, want string }{
+		{"", "www.example.test.", "zones"},
+		{network, "www.example.test.", "policy 10.0.0.2"},
+		{network, "db.example.test.", "policy 10.0.0.1"},
+		{network, "deep.db.example.test.", "policy 10.0.0.1"},
+		{network, "api.example.test.", "zones"},
+		{"projects/p/global/networks/b", "www.example.test.", "zones"},
+	} {
+		if got := answer(tc.network, tc.name); got != tc.want {
+			t.Errorf("%s from %q: %s, want %s", tc.name, tc.network, got, tc.want)
+		}
+	}
+
+	cloudDNSPolicies.Put("p/corp", storedDNSPolicy{Project: "p", Policy: DNSPolicy{Name: "corp", Networks: bound,
+		AlternativeNameServerConfig: json.RawMessage(`{"targetNameServers":[{"ipv4Address":"10.8.0.53"}]}`)}})
+	if got := answer(network, "api.example.test."); got != "forwarded to 10.8.0.53:53" {
+		t.Fatalf("alternative name servers: %s", got)
+	}
+	if got := answer("projects/p/global/networks/b", "api.example.test."); got != "zones" {
+		t.Fatalf("an unbound network keeps Google's resolution: %s", got)
 	}
 }

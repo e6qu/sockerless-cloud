@@ -585,6 +585,7 @@ func registerPrivateDNS(srv *sim.Server) {
 			},
 		}
 		vnetLinks.Put(resourceID, link)
+		azureReconcileAutoRegisteredRecords()
 
 		// go-azure-sdk expects 200 for sync creates
 		sim.WriteJSON(w, http.StatusOK, link)
@@ -631,6 +632,7 @@ func registerPrivateDNS(srv *sim.Server) {
 			sub, rg, zoneName, linkName)
 
 		vnetLinks.Delete(resourceID)
+		azureReconcileAutoRegisteredRecords()
 		w.WriteHeader(http.StatusAccepted)
 	})
 

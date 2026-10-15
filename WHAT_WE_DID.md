@@ -2773,6 +2773,19 @@ their visibility networks, forwarding zones through their target name servers
 on port 53, and peering zones from the zones their target network sees, one
 hop deep.
 
+Azure Private DNS auto-registration is a reconcile, not a hook per event:
+`azureReconcileAutoRegisteredRecords` derives every zone's registered A
+records from the links with registration enabled and the machines whose
+primary interface has an address in a linked network, and runs after every
+virtual machine, network interface and link write and after a machine boots.
+A record carries `isAutoRegistered`, the machine's computer name and a TTL of
+10, and never replaces a record set someone created. Cloud DNS answers a
+bound network's query from the most specific response-policy rule — an exact
+name over a wildcard, a longer wildcard over a shorter — ahead of every zone,
+a `bypassResponsePolicy` rule handing the name back; a DNS policy's
+alternative name servers become a root forwarding zone below the network's
+private zones, replacing Google's resolution and the public zones.
+
 `sim.Main` is the startup every simulator binary runs, described by a
 `sim.Program`: the provider and its default port, a `Configure` hook that checks
 or records the resolved configuration, the cloud's `Build`, and a `Start` that

@@ -31,6 +31,9 @@ Current state of the sockerless-cloud repository.
   zones answer the VPCs they are associated with, Azure Private DNS zones the
   virtual networks they are linked to, Cloud DNS private, forwarding and
   peering zones the networks they are visible to, and public zones anyone.
+  Azure Private DNS registers the virtual machines of a registration-enabled
+  linked network, and Cloud DNS applies the response policies and DNS
+  policies bound to a network.
   Every workload in a realized network namespace — Amazon ECS tasks, VPC
   AWS Lambda invocations and the Amazon EC2, Azure and Compute Engine
   microVMs — asks its cloud's resolver address (169.254.169.253,
