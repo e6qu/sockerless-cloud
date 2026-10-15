@@ -1,0 +1,57 @@
+name: Install Go
+description: >-
+  Installs the newest Go 1.26 toolchain from the Go module proxy, the
+  distribution path the go command itself uses to switch toolchains. A
+  composite action in this repository rather than actions/setup-go, because
+  the runner fetches every action a job references from codeload.github.com
+  before the job's first step, makes one attempt, and fails the job when
+  codeload answers 404; a local action is already on disk from the checkout,
+  and the toolchain download here retries.
+inputs:
+  cache:
+    description: >-
+      Restore and save the module and build caches, keyed on the toolchain and
+      on go.work and every go.sum.
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - name: Install Go
+      id: install
+      shell: bash
+      env:
+        GO_SERIES: '1.26'
+      run: |
+        set -euo pipefail
+        case "$(uname -m)" in
+          x86_64) arch=amd64 ;;
+          aarch64|arm64) arch=arm64 ;;
+          *) echo "::error::unsupported architecture $(uname -m) for Go"; exit 1 ;;
+        esac
+        proxy=https://proxy.golang.org/golang.org/toolchain/@v
+        series=${GO_SERIES//./\\.}
+        version=$(curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors "$proxy/list" \
+          | grep -E "^v0\.0\.1-go${series}\.[0-9]+\.linux-${arch}\$" | sort -V | tail -n 1)
+        if [[ -z $version ]]; then
+          echo "::error::the Go module proxy lists no go${GO_SERIES} toolchain for linux-${arch}"
+          exit 1
+        fi
+        curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -o "$RUNNER_TEMP/go.zip" "$proxy/$version.zip"
+        rm -rf "$RUNNER_TEMP/go-toolchain"
+        unzip -q "$RUNNER_TEMP/go.zip" -d "$RUNNER_TEMP/go-toolchain"
+        rm "$RUNNER_TEMP/go.zip"
+        goroot="$RUNNER_TEMP/go-toolchain/golang.org/toolchain@$version"
+        echo "$goroot/bin" >> "$GITHUB_PATH"
+        echo "$("$goroot/bin/go" env GOPATH)/bin" >> "$GITHUB_PATH"
+        "$goroot/bin/go" version
+        echo "version=${version#v0.0.1-}" >> "$GITHUB_OUTPUT"
+        echo "gomodcache=$("$goroot/bin/go" env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+        echo "gocache=$("$goroot/bin/go" env GOCACHE)" >> "$GITHUB_OUTPUT"
+    - name: Restore and save the Go module and build caches
+      if: inputs.cache == 'true'
+      uses: actions/cache@v6.1.0
+      with:
+        path: |
+          ${{ steps.install.outputs.gomodcache }}
+          ${{ steps.install.outputs.gocache }}
+        key: go-${{ steps.install.outputs.version }}-${{ hashFiles('go.work', '**/go.sum') }}

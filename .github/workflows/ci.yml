@@ -2,9 +2,6 @@ name: CI
 
 env:
   FIRECRACKER_VERSION: v1.15.1
-  GO_CACHE_DEPENDENCY_PATHS: |
-    go.work
-    **/go.sum
 
 on:
   pull_request:
@@ -75,11 +72,9 @@ jobs:
             timeout_minutes: 6
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
+      - uses: ./.github/actions/install-go
         with:
-          go-version: '1.26'
-          cache: true
-          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+          cache: 'true'
       - name: Install golangci-lint
         # Built from source through the Go module proxy rather than fetched
         # from the GitHub releases CDN: the install script's own downloader
@@ -113,11 +108,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
+      - uses: ./.github/actions/install-go
         with:
-          go-version: '1.26'
-          cache: true
-          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+          cache: 'true'
       - name: Install script check tools
         run: bash scripts/ci-apt-install.sh jq shellcheck zsh
       - name: Check shell scripts
@@ -301,11 +294,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
+      - uses: ./.github/actions/install-go
         with:
-          go-version: '1.26'
-          cache: true
-          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+          cache: 'true'
       - uses: actions/cache@v6.1.0
         with:
           path: ~/.cache/sockerless/firecracker-ci
@@ -337,10 +328,7 @@ jobs:
         cloud: [aws, gcp, azure]
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
-        with:
-          go-version: '1.26'
-          cache: false
+      - uses: ./.github/actions/install-go
       - name: Restore the Go module and build caches for this cloud's simulator jobs
         id: go-cache
         uses: actions/cache/restore@v6.1.0
@@ -446,17 +434,14 @@ jobs:
     name: sim (${{ matrix.cloud }} ${{ matrix.suite }}${{ matrix.shard && format(' {0}', matrix.shard) || '' }})
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
-        with:
-          go-version: '1.26'
-          # Not setup-go's cache: its key is shared by every job in the
-          # workflow, whichever job misses first saves its own small module
-          # and build cache, and every later job hits that entry and never
-          # saves. The simulator jobs compile the cloud SDKs and their test
-          # binaries — minutes of work that entry never held, paid cold by
-          # every shard on every run, inside the timed test step. One entry
-          # per cloud below holds what these shards actually build.
-          cache: false
+      # Not install-go's cache: its key is shared by every job in the
+      # workflow, whichever job misses first saves its own small module
+      # and build cache, and every later job hits that entry and never
+      # saves. The simulator jobs compile the cloud SDKs and their test
+      # binaries — minutes of work that entry never held, paid cold by
+      # every shard on every run, inside the timed test step. One entry
+      # per cloud below holds what these shards actually build.
+      - uses: ./.github/actions/install-go
       - name: Restore the Go module and build caches for this cloud's simulator jobs
         uses: actions/cache@v6.1.0
         with:
@@ -720,17 +705,14 @@ jobs:
             run: '^Test(RDS_MultiAZ)'
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
-        with:
-          go-version: '1.26'
-          # Not setup-go's cache: its key is shared by every job in the
-          # workflow, whichever job misses first saves its own small module
-          # and build cache, and every later job hits that entry and never
-          # saves. The simulator jobs compile the cloud SDKs and their test
-          # binaries — minutes of work that entry never held, paid cold by
-          # every shard on every run, inside the timed test step. One entry
-          # per cloud below holds what these shards actually build.
-          cache: false
+      # Not install-go's cache: its key is shared by every job in the
+      # workflow, whichever job misses first saves its own small module
+      # and build cache, and every later job hits that entry and never
+      # saves. The simulator jobs compile the cloud SDKs and their test
+      # binaries — minutes of work that entry never held, paid cold by
+      # every shard on every run, inside the timed test step. One entry
+      # per cloud below holds what these shards actually build.
+      - uses: ./.github/actions/install-go
       - name: Restore the Go module and build caches for this cloud's simulator jobs
         id: go-cache
         uses: actions/cache/restore@v6.1.0
@@ -810,7 +792,7 @@ jobs:
             ~/.cache/go-build
           key: ${{ steps.go-cache.outputs.cache-primary-key }}
       # Free disk before the timed run — but never the Go caches. Deleting
-      # those poisons the cache for every later job: setup-go saves at
+      # those poisons the cache for every later job: the cache saves at
       # post-job, a branch's first run restores the default branch's entry and
       # is therefore not an exact hit in its own scope, so it saves what it
       # has, which after this step is nothing. Measured on this branch: the
@@ -1088,17 +1070,14 @@ jobs:
             timeout_minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
-        with:
-          go-version: '1.26'
-          # Not setup-go's cache: its key is shared by every job in the
-          # workflow, whichever job misses first saves its own small module
-          # and build cache, and every later job hits that entry and never
-          # saves. The simulator jobs compile the cloud SDKs and their test
-          # binaries — minutes of work that entry never held, paid cold by
-          # every shard on every run, inside the timed test step. One entry
-          # per cloud below holds what these shards actually build.
-          cache: false
+      # Not install-go's cache: its key is shared by every job in the
+      # workflow, whichever job misses first saves its own small module
+      # and build cache, and every later job hits that entry and never
+      # saves. The simulator jobs compile the cloud SDKs and their test
+      # binaries — minutes of work that entry never held, paid cold by
+      # every shard on every run, inside the timed test step. One entry
+      # per cloud below holds what these shards actually build.
+      - uses: ./.github/actions/install-go
       - name: Restore the Go module and build caches for this cloud's simulator jobs
         uses: actions/cache@v6.1.0
         with:
@@ -1386,11 +1365,9 @@ jobs:
     name: tf (${{ matrix.suite }})
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
+      - uses: ./.github/actions/install-go
         with:
-          go-version: '1.26'
-          cache: true
-          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+          cache: 'true'
       # A Terraform stack runs the same real workloads the suites do, and the
       # registry caps anonymous requests by data volume — capturing an Amazon
       # RDS snapshot copies a volume through an alpine helper, which is the
@@ -1532,11 +1509,9 @@ jobs:
           - simulator-azure
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
+      - uses: ./.github/actions/install-go
         with:
-          go-version: '1.26'
-          cache: true
-          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+          cache: 'true'
       - name: Install Bun
         uses: ./.github/actions/install-bun
       - run: cd ui && bun install --frozen-lockfile
@@ -1590,11 +1565,9 @@ jobs:
         cloud: [aws, gcp, azure]
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
+      - uses: ./.github/actions/install-go
         with:
-          go-version: '1.26'
-          cache: true
-          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+          cache: 'true'
       # The simulator's tests run real containers, and the registries they pull
       # from throttle anonymous pulls: the ECR Public Gallery, which serves the
       # images AWS publishes, caps them by data volume — a cap that is not a
@@ -1662,11 +1635,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
+      - uses: ./.github/actions/install-go
         with:
-          go-version: '1.26'
-          cache: true
-          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+          cache: 'true'
       - name: Resolve the base images this job runs containers from
         id: base-images-list
         run: |
@@ -1707,11 +1678,9 @@ jobs:
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-go@v7.0.0
+      - uses: ./.github/actions/install-go
         with:
-          go-version: '1.26'
-          cache: true
-          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+          cache: 'true'
       - name: Install Bun
         uses: ./.github/actions/install-bun
       - name: Install deadcode
@@ -1742,14 +1711,11 @@ jobs:
       - name: Committed RDS authentication plugin binaries match their source
         run: bash scripts/check-rds-auth-plugin-build.sh
         timeout-minutes: 2
-      - uses: actions/setup-go@v7.0.0
-        with:
-          go-version: '1.26'
-          # setup-go's own cache restores only an exact go.sum match, so a pin
-          # or dependency move left the installable build compiling all three
-          # simulators cold, past this job's budget. The entry below falls back
-          # to the newest older one, which warms the incremental build.
-          cache: false
+      # install-go's own cache restores only an exact go.sum match, so a pin
+      # or dependency move left the installable build compiling all three
+      # simulators cold, past this job's budget. The entry below falls back
+      # to the newest older one, which warms the incremental build.
+      - uses: ./.github/actions/install-go
       - name: Restore the Go module and build caches for the build gates
         uses: actions/cache@v6.1.0
         with:

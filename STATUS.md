@@ -430,7 +430,9 @@ twenty-nine shards; console vitest, typecheck, build and Playwright; the race
 jobs per simulator and for `sim`; the quality gates; the one-open-pull-request,
 rebased-on-main and Conventional Commit title checks; the nightly fuzz workflow
 across the four Go modules. A push to `main` whose tree already passed CI on
-its pull request skips the suites (`scripts/ci-verified-on-pr.sh`). Every job
+its pull request skips the suites (`scripts/ci-verified-on-pr.sh`). Jobs
+install Go and Bun through the local actions in `.github/actions`, which
+download with retries. Every job
 holds a fifteen-minute ceiling, and an AWS CLI call that stalls fails at its
 own bound with the simulator's in-flight requests, its goroutine profile and
 the CLI's `--debug` log. Base images are warmed from one cache entry per

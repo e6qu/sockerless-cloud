@@ -2729,3 +2729,12 @@ them, and a script nothing runs reports nothing when it breaks.
 
 The console browser suites run fully parallel, with Playwright's default of one
 worker per two cores.
+
+Every workflow installs Go through `.github/actions/install-go`, a composite
+action that downloads the newest Go 1.26 toolchain from the Go module proxy with
+retries and, with `cache: 'true'`, caches the module and build caches keyed on
+the toolchain and every `go.sum`. `actions/setup-go` is gone: the runner fetched
+its archive from codeload.github.com before each job's first step, made a single
+attempt, and failed ten jobs of one run when codeload answered 404.
+`scripts/check-latest-deps.sh` holds the actions a local action uses to the same
+freshness rule as the workflows'.

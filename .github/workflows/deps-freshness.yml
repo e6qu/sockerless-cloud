@@ -41,13 +41,6 @@ concurrency:
   group: deps-freshness
   cancel-in-progress: true
 
-env:
-  # Same key CI caches the module downloads under, so this run reuses that
-  # cache rather than paying a cold download of every module twice a day.
-  GO_CACHE_DEPENDENCY_PATHS: |
-    go.work
-    **/go.sum
-
 jobs:
   freshness:
     name: dependencies behind their newest adoptable version
@@ -60,11 +53,9 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           ref: main
-      - uses: actions/setup-go@v7.0.0
+      - uses: ./.github/actions/install-go
         with:
-          go-version: '1.26'
-          cache: true
-          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+          cache: 'true'
       - name: Install check tools
         run: bash scripts/ci-apt-install.sh jq
       # No --baseline. On main the baseline would be main itself, which would
@@ -90,11 +81,9 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      - uses: actions/setup-go@v7.0.0
+      - uses: ./.github/actions/install-go
         with:
-          go-version: '1.26'
-          cache: true
-          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+          cache: 'true'
       # A bump opened on top of somebody's branch would break their next commit
       # rather than help them, because check-single-open-pr.sh fails every
       # commit while a second pull request exists.

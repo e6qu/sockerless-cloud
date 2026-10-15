@@ -33,11 +33,6 @@ on:
 permissions:
   contents: write
 
-env:
-  GO_CACHE_DEPENDENCY_PATHS: |
-    go.work
-    **/go.sum
-
 jobs:
   binaries:
     name: binaries (${{ matrix.cloud }} ${{ matrix.goos }})
@@ -52,11 +47,9 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ inputs.tag_name }}
-      - uses: actions/setup-go@v7.0.0
+      - uses: ./.github/actions/install-go
         with:
-          go-version: '1.26'
-          cache: true
-          cache-dependency-path: ${{ env.GO_CACHE_DEPENDENCY_PATHS }}
+          cache: 'true'
       - name: Build, archive, and upload (amd64 + arm64)
         env:
           GH_TOKEN: ${{ github.token }}
