@@ -322,6 +322,21 @@ func azureVMMachineShape(vm VirtualMachine) (vcpus, memMiB int) {
 	return 1, 512
 }
 
+// azureVNetResolver is the resolver a virtual network's machines ask: Azure's
+// recursive resolver at 168.63.129.16.
+func azureVNetResolver(vnetID string) (fabric.Resolver, error) {
+	port, err := azureDNSPort()
+	if err != nil {
+		return fabric.Resolver{}, err
+	}
+	return fabric.Resolver{
+		IPv4:    realexec.AzureResolverIPv4,
+		Port:    port,
+		Table:   fabric.LinuxName("zdns", vnetID),
+		Arrived: func(addr net.IP) error { return azureRegisterResolverIP(addr, vnetID) },
+	}, nil
+}
+
 func azureStartRealVM(ctx context.Context, vm VirtualMachine) error {
 	if fault := azureValidateVMNetworkProfile(vm); fault != nil {
 		return fault
@@ -347,6 +362,10 @@ func azureStartRealVM(ctx context.Context, vm VirtualMachine) error {
 		return err
 	}
 	vcpus, memMiB := azureVMMachineShape(vm)
+	resolver, err := azureVNetResolver(azureVNetIDOfSubnet(subnetID))
+	if err != nil {
+		return fmt.Errorf("configure DNS for virtual machine %s: %w", vm.ID, err)
+	}
 	_, _, started, err := azureFabric.StartVM(ctx, fabric.VMSpec[string]{
 		Key:     vm.ID,
 		Network: azureVNetIDOfSubnet(subnetID),
@@ -366,6 +385,7 @@ func azureStartRealVM(ctx context.Context, vm VirtualMachine) error {
 		},
 		MetadataPort:  metadataPort,
 		MetadataTable: fabric.LinuxName("zmd", subnetID),
+		Resolver:      resolver,
 		Machine: realexec.FirecrackerVMConfig{
 			ID:        "azure-" + vm.ID,
 			VCPUCount: vcpus,

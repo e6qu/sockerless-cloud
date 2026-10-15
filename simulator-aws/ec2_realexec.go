@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/netip"
 	"os"
 	"path/filepath"
 	"sort"
@@ -208,6 +207,10 @@ func ec2AttachRealLambdaNIC(
 	if err := subnet.ConfigureMetadataDNAT(ctx, metadataPort, fabric.LinuxName("imd", sn.VpcId)); err != nil {
 		_ = nic.Close(context.Background())
 		return fmt.Errorf("configure AWS Lambda instance metadata routing for %s: %w", invocationID, err)
+	}
+	if err := ec2ConfigureTaskResolver(ctx, subnet, sn.VpcId, invocationID); err != nil {
+		_ = nic.Close(context.Background())
+		return err
 	}
 	runtimeTable := fabric.LinuxName("lrd", invocationID)
 	if err := subnet.ConfigureAddressDNAT(ctx, runtimeIPv4, runtimePort, runtimeTable); err != nil {
@@ -552,6 +555,10 @@ func ec2StartRealVM(ctx context.Context, inst EC2Instance) error {
 	if err != nil {
 		return err
 	}
+	resolver, err := ec2VPCResolver(inst.VpcId)
+	if err != nil {
+		return fmt.Errorf("configure DNS for instance %s: %w", inst.InstanceId, err)
+	}
 	var slots map[string]string
 	_, _, started, err := ec2Fabric.StartVM(ctx, fabric.VMSpec[string]{
 		Key:     inst.InstanceId,
@@ -573,6 +580,7 @@ func ec2StartRealVM(ctx context.Context, inst EC2Instance) error {
 		},
 		MetadataPort:  metadataPort,
 		MetadataTable: fabric.LinuxName("amd", inst.VpcId),
+		Resolver:      resolver,
 		Machine: realexec.FirecrackerVMConfig{
 			ID:        "aws-" + inst.InstanceId,
 			VCPUCount: vcpus,
@@ -1146,14 +1154,24 @@ func ec2ConfigureTaskResolver(ctx context.Context, subnet *realexec.Subnet, vpcI
 	if err != nil {
 		return fmt.Errorf("configure task resolver for %s: %w", taskID, err)
 	}
-	addr, err := subnet.ConfigureResolverDNAT(ctx, port, fabric.LinuxName("dns", vpcID))
+	addr, err := subnet.ConfigureResolverDNAT(ctx, realexec.VPCResolverIPv4, port, fabric.LinuxName("dns", vpcID))
 	if err != nil {
 		return fmt.Errorf("configure task resolver for %s: %w", taskID, err)
 	}
-	local, ok := netip.AddrFromSlice(addr.To4())
-	if !ok {
-		return fmt.Errorf("configure task resolver for %s: resolver address %s is not IPv4", taskID, addr)
+	return route53RegisterResolverIP(addr, vpcID)
+}
+
+// ec2VPCResolver is the resolver a VPC's machines ask: AmazonProvidedDNS at
+// the VPC's link-local resolver address.
+func ec2VPCResolver(vpcID string) (fabric.Resolver, error) {
+	port, err := route53DNSPort()
+	if err != nil {
+		return fabric.Resolver{}, err
 	}
-	route53RegisterResolverAddress(local, vpcID)
-	return nil
+	return fabric.Resolver{
+		IPv4:    realexec.VPCResolverIPv4,
+		Port:    port,
+		Table:   fabric.LinuxName("dns", vpcID),
+		Arrived: func(addr net.IP) error { return route53RegisterResolverIP(addr, vpcID) },
+	}, nil
 }

@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/archive"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
@@ -346,6 +347,10 @@ func startLambdaVpcPauseContainer(invocationID string, sink sim.LogSink) (*sim.C
 			"sockerless-sim-lambda":       invocationID,
 			"sockerless-sim-lambda-pause": "true",
 		},
+		// The invocation's namespace is detached from Docker's networks, so
+		// it asks the VPC's resolver, which the namespace redirects to the
+		// simulator's own; the function container shares this resolv.conf.
+		DNS:     []string{realexec.VPCResolverIPv4},
 		Sandbox: SandboxLambda,
 	}, sink)
 }

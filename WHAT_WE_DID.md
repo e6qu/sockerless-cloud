@@ -2757,6 +2757,22 @@ public zone, and the names data planes register; Cloud DNS serves its public
 managed zones, and a new managed zone carries the NS and SOA record sets and
 the four `nameServers` Cloud DNS assigns.
 
+Every machine and namespace workload asks its own cloud's resolver.
+`realexec`'s `ConfigureResolverDNAT` redirects whichever address the cloud
+answers DNS on — 169.254.169.253 in a VPC, 168.63.129.16 in an Azure virtual
+network, the metadata server's 169.254.169.254 in a Google Cloud VPC network —
+and a microVM's resolv.conf, networkd, netplan, ifupdown and boot arguments
+name `FirecrackerVMConfig.Nameserver` instead of a public resolver.
+`fabric.VMSpec` carries the `Resolver`; its `Arrived` hook records the host
+address the network's queries land on, and a machine whose address cannot be
+recorded does not boot, because its private zones would answer nothing. VPC
+AWS Lambda invocations take the same route Amazon ECS tasks do. Azure's
+listener runs on every start, and its catalog serves a private zone to the
+virtual networks it is linked to; Cloud DNS's catalog serves private zones to
+their visibility networks, forwarding zones through their target name servers
+on port 53, and peering zones from the zones their target network sees, one
+hop deep.
+
 `sim.Main` is the startup every simulator binary runs, described by a
 `sim.Program`: the provider and its default port, a `Configure` hook that checks
 or records the resolved configuration, the cloud's `Build`, and a `Start` that

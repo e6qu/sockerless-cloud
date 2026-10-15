@@ -71,6 +71,11 @@ func gcpStartRealVM(ctx context.Context, inst *ComputeInstance) error {
 	if ni.NetworkIP != "" {
 		privateIP = net.ParseIP(ni.NetworkIP)
 	}
+	network := gcpNetworkKey(inst.SelfLink, ni.Network)
+	resolverPort, err := cloudDNSPort()
+	if err != nil {
+		return fmt.Errorf("configure DNS for instance %s: %w", inst.Name, err)
+	}
 	_, tap, _, err := gcpFabric.StartVM(ctx, fabric.VMSpec[string]{
 		Key:     inst.SelfLink,
 		Network: ni.Network,
@@ -90,6 +95,13 @@ func gcpStartRealVM(ctx context.Context, inst *ComputeInstance) error {
 		},
 		MetadataPort:  metadataPort,
 		MetadataTable: fabric.LinuxName("gmd", ni.Network),
+		// Compute Engine machines resolve through the metadata server.
+		Resolver: fabric.Resolver{
+			IPv4:    realexec.MetadataIPv4,
+			Port:    resolverPort,
+			Table:   fabric.LinuxName("gdns", network),
+			Arrived: func(addr net.IP) error { return cloudDNSRegisterResolverIP(addr, network) },
+		},
 		Machine: realexec.FirecrackerVMConfig{
 			ID:            "gcp-" + inst.SelfLink,
 			VCPUCount:     1,
