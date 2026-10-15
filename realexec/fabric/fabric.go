@@ -399,10 +399,25 @@ type VMSpec[K ~string] struct {
 	// address on the subnet to the simulator's metadata listener.
 	MetadataPort  int
 	MetadataTable string
-	Machine       realexec.FirecrackerVMConfig
+	// Resolver routes the address the cloud answers DNS on to the
+	// simulator's resolver, and is the machine's nameserver.
+	Resolver Resolver
+	Machine  realexec.FirecrackerVMConfig
 	// BeforeBoot runs once the tap exists and before the machine boots; it may
 	// add to the machine's configuration.
 	BeforeBoot func(tap *realexec.TapNIC, machine *realexec.FirecrackerVMConfig) error
+}
+
+// Resolver is the DNS the machines of a network ask.
+type Resolver struct {
+	// IPv4 is the address the cloud answers DNS on from inside the network.
+	IPv4 string
+	// Port is the simulator resolver's port, which the address is redirected to.
+	Port  int
+	Table string
+	// Arrived, when set, learns the host address the network's queries arrive
+	// at, which tells the resolver which network asked.
+	Arrived func(net.IP)
 }
 
 // StartVM boots the machine unless it is already running. It returns the
@@ -455,6 +470,14 @@ func (f *Fabric[K]) StartVM(ctx context.Context, spec VMSpec[K]) (*realexec.Fire
 	if err := subnet.ConfigureMetadataDNAT(ctx, spec.MetadataPort, spec.MetadataTable); err != nil {
 		return nil, tap, false, fmt.Errorf("configure metadata routing for %s: %w", spec.Key, err)
 	}
+	arrives, err := subnet.ConfigureResolverDNAT(ctx, spec.Resolver.IPv4, spec.Resolver.Port, spec.Resolver.Table)
+	if err != nil {
+		return nil, tap, false, fmt.Errorf("configure DNS routing for %s: %w", spec.Key, err)
+	}
+	if spec.Resolver.Arrived != nil {
+		spec.Resolver.Arrived(arrives)
+	}
+	machine.Nameserver = net.ParseIP(spec.Resolver.IPv4)
 	vm, err := realexec.StartFirecrackerVM(ctx, machine)
 	if err != nil {
 		return nil, tap, false, err

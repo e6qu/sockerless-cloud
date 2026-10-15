@@ -435,6 +435,10 @@ func (n *Network) ConfigureAddressDNAT(ctx context.Context, targetIPv4 string, t
 // answering an address-resolution request for an address inside the subnet.
 const VPCResolverIPv4 = "169.254.169.253"
 
+// AzureResolverIPv4 is the virtual public address Azure's recursive resolver
+// answers on from inside every virtual network.
+const AzureResolverIPv4 = "168.63.129.16"
+
 // ConfigureResolverDNAT points a namespace's DNS traffic at a resolver the host
 // runs. A workload namespace holds only its own interface, so the embedded
 // resolver its container image was configured with — Docker's 127.0.0.11 —
@@ -449,7 +453,10 @@ const VPCResolverIPv4 = "169.254.169.253"
 // before any local-delivery decision — the same way the metadata addresses
 // work. It returns the host address the queries arrive at, one per network,
 // which tells the resolver which network asked.
-func (n *Network) ConfigureResolverDNAT(ctx context.Context, resolverPort int, tableName string) (net.IP, error) {
+func (n *Network) ConfigureResolverDNAT(ctx context.Context, resolverIPv4 string, resolverPort int, tableName string) (net.IP, error) {
+	if net.ParseIP(resolverIPv4).To4() == nil {
+		return nil, fmt.Errorf("resolver IPv4 address is required, got %q", resolverIPv4)
+	}
 	if resolverPort <= 0 || resolverPort > 65535 {
 		return nil, fmt.Errorf("resolver port must be 1..65535, got %d", resolverPort)
 	}
@@ -474,7 +481,7 @@ func (n *Network) ConfigureResolverDNAT(ctx context.Context, resolverPort int, t
 			return err
 		}
 		for _, protocol := range []string{"udp", "tcp"} {
-			if err := n.runner.Run(ctx, "ip", "netns", "exec", n.NamespaceName, "nft", "add", "rule", "ip", tableName, "prerouting", "ip", "daddr", VPCResolverIPv4, protocol, "dport", "53", "dnat", "to", target); err != nil {
+			if err := n.runner.Run(ctx, "ip", "netns", "exec", n.NamespaceName, "nft", "add", "rule", "ip", tableName, "prerouting", "ip", "daddr", resolverIPv4, protocol, "dport", "53", "dnat", "to", target); err != nil {
 				return err
 			}
 		}
@@ -517,11 +524,11 @@ func (s *Subnet) ConfigureAddressDNAT(ctx context.Context, targetIPv4 string, ta
 // is the device a workload on that subnet resolves the address over. A network
 // carries no bridge of its own — each of its subnets has one — so the device
 // comes from here rather than from the network.
-func (s *Subnet) ConfigureResolverDNAT(ctx context.Context, resolverPort int, tableName string) (net.IP, error) {
+func (s *Subnet) ConfigureResolverDNAT(ctx context.Context, resolverIPv4 string, resolverPort int, tableName string) (net.IP, error) {
 	if s == nil || s.network == nil {
 		return nil, fmt.Errorf("subnet is not attached to a network")
 	}
-	return s.network.ConfigureResolverDNAT(ctx, resolverPort, tableName)
+	return s.network.ConfigureResolverDNAT(ctx, resolverIPv4, resolverPort, tableName)
 }
 
 func (s *Subnet) RemoveAddressDNAT(ctx context.Context, tableName string) error {

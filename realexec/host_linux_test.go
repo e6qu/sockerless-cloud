@@ -356,7 +356,17 @@ func TestCloseRemovesHostArtifacts(t *testing.T) {
 // one — so a resolver configured against the network's bridge name lands on
 // `dev ""` and every task attach fails with "Cannot find device". Exercising
 // only the network-level call hid that completely.
+//
+// Each cloud's resolver address takes the same path: the link-local one AWS
+// answers on, and Azure's 168.63.129.16, which a workload reaches through its
+// default route.
 func TestSubnetResolverDNATServesTheSubnetBridge(t *testing.T) {
+	for _, resolverIPv4 := range []string{VPCResolverIPv4, AzureResolverIPv4} {
+		t.Run(resolverIPv4, func(t *testing.T) { testSubnetResolverDNAT(t, resolverIPv4) })
+	}
+}
+
+func testSubnetResolverDNAT(t *testing.T, resolverIPv4 string) {
 	report := DetectNetworkCapabilities()
 	if err := report.Require(); err != nil {
 		t.Skipf("host cannot create network namespaces: %v", err)
@@ -405,7 +415,7 @@ func TestSubnetResolverDNATServesTheSubnetBridge(t *testing.T) {
 	resolverPort := probe.LocalAddr().(*net.UDPAddr).Port
 	_ = probe.Close()
 
-	resolverAddr, err := subnet.ConfigureResolverDNAT(ctx, resolverPort, prefix+"dns")
+	resolverAddr, err := subnet.ConfigureResolverDNAT(ctx, resolverIPv4, resolverPort, prefix+"dns")
 	if err != nil {
 		t.Fatalf("configure the subnet resolver: %v", err)
 	}
@@ -425,8 +435,8 @@ func TestSubnetResolverDNATServesTheSubnetBridge(t *testing.T) {
 	}()
 
 	if err := runner.Run(ctx, "ip", "netns", "exec", workload.NamespaceName, "bash", "-c",
-		fmt.Sprintf("exec 3<>/dev/udp/%s/53 && printf probe >&3", VPCResolverIPv4)); err != nil {
-		t.Fatalf("query the VPC resolver from the workload: %v", err)
+		fmt.Sprintf("exec 3<>/dev/udp/%s/53 && printf probe >&3", resolverIPv4)); err != nil {
+		t.Fatalf("query the resolver at %s from the workload: %v", resolverIPv4, err)
 	}
 	select {
 	case <-seen:

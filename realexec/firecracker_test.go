@@ -192,7 +192,7 @@ func TestConfigureRootFSNetworkInstallsBootConfigurator(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := configureRootFSNetwork(dir, net.ParseIP("10.26.0.2"), net.ParseIP("10.26.0.1"), 24, []string{"metadata.google.internal", "metadata"}); err != nil {
+	if err := configureRootFSNetwork(dir, net.ParseIP("10.26.0.2"), net.ParseIP("10.26.0.1"), 24, net.ParseIP("169.254.169.254"), []string{"metadata.google.internal", "metadata"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -209,7 +209,7 @@ func TestConfigureRootFSNetworkInstallsBootConfigurator(t *testing.T) {
 	for _, want := range []string{
 		"ip addr replace 10.26.0.2/24 dev \"$dev\"",
 		"ip route replace default via 10.26.0.1 dev \"$dev\"",
-		"printf 'nameserver 1.1.1.1\\n' > /etc/resolv.conf",
+		"printf 'nameserver 169.254.169.254\\n' > /etc/resolv.conf",
 	} {
 		if !strings.Contains(string(script), want) {
 			t.Fatalf("boot configurator missing %q:\n%s", want, script)
@@ -272,7 +272,7 @@ func TestConfigureRootFSNetworkInstallsBootConfigurator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(resolv) != "nameserver 1.1.1.1\n" {
+	if string(resolv) != "nameserver 169.254.169.254\n" {
 		t.Fatalf("resolv.conf = %q", resolv)
 	}
 	hosts, err := os.ReadFile(filepath.Join(dir, "etc", "hosts"))
