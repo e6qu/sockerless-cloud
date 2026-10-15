@@ -417,7 +417,7 @@ type Resolver struct {
 	Table string
 	// Arrived, when set, learns the host address the network's queries arrive
 	// at, which tells the resolver which network asked.
-	Arrived func(net.IP)
+	Arrived func(net.IP) error
 }
 
 // StartVM boots the machine unless it is already running. It returns the
@@ -475,7 +475,9 @@ func (f *Fabric[K]) StartVM(ctx context.Context, spec VMSpec[K]) (*realexec.Fire
 		return nil, tap, false, fmt.Errorf("configure DNS routing for %s: %w", spec.Key, err)
 	}
 	if spec.Resolver.Arrived != nil {
-		spec.Resolver.Arrived(arrives)
+		if err := spec.Resolver.Arrived(arrives); err != nil {
+			return nil, tap, false, fmt.Errorf("configure DNS routing for %s: %w", spec.Key, err)
+		}
 	}
 	machine.Nameserver = net.ParseIP(spec.Resolver.IPv4)
 	vm, err := realexec.StartFirecrackerVM(ctx, machine)
