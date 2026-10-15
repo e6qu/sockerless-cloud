@@ -105,9 +105,43 @@ own module:
   cloud's ciphertext still begins with its own header — AWS KMS's `SK1` and
   key id, Cloud KMS's version number — and ends in the nonce and sealed
   bytes `Seal` returns, so a value sealed before the move still opens.
+- `logstore`: log entries stored one row each, keyed by scope and arrival
+  sequence, with a head row per scope. Amazon CloudWatch Logs streams moved
+  onto it from one row per stream that every append and every retention pass
+  rewrote whole. Retention goes by each event's own timestamp, so an event
+  written late with an old timestamp expires on that timestamp and leaves a gap
+  that reads step over. An upgrade moves the streams an earlier build stored
+  whole into the store once, keeping each event's timestamp, ingestion time
+  and arrival order.
+
+  Cloud Logging moved onto it with the storage model it was missing. Every
+  resource container has the `_Required` bucket (400 days, locked) and the
+  `_Default` bucket (30 days) and the sinks that route to them: audit
+  activity, system event and access transparency logs to `_Required`,
+  everything else to `_Default`, less what the exclusions API excludes. Sinks
+  route each entry at ingestion, and the store records which buckets took a
+  copy; an entry no bucket takes, or one stamped before a bucket's retention
+  or more than a day ahead, is discarded. Reads through a bucket or view see
+  that bucket's copies within its retention, `logs.delete` clears the
+  `_Default` bucket's copies only, and an hourly sweep deletes expired copies
+  and the entries no bucket holds. The 10,000-entry cap per log went with it.
+  The query language gained `log_id()` and `source()`, which the built-in
+  sinks' filters are written in.
+
+  List tokens that named an offset into the sorted list let a create or
+  delete made before the token between two calls repeat or skip an item on
+  the next page. `sim/listq` gained `KeyPage`, whose token names the last key
+  returned, and the AWS simulator gained `awsKeyPage` over it. Amazon ECR's
+  DescribeRepositories and every AWS WAF list page through them.
 
 ## Fidelity rules that came from bugs
 
+- **An integration's configuration follows the model's rules.** AWS Glue takes
+  `IntegrationConfig.TargetNamespace` only for an Amazon S3 Tables table bucket
+  target, holds it to the namespace pattern without the reserved `aws` prefix,
+  and names it `zetl_` plus the integration ID when the request omits it.
+  `ModifyIntegration` merges `RefreshInterval` into the stored configuration
+  and refuses a change to any other member, the namespace included.
 - **A delivery leaves a record.** Amazon SNS topics take the
   `<Protocol>SuccessFeedbackRoleArn` / `…SuccessFeedbackSampleRate` /
   `…FailureFeedbackRoleArn` attributes for HTTP, Firehose, Lambda, SQS and

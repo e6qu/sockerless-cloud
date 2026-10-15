@@ -142,7 +142,7 @@ func handleCWDeleteLogStream(w http.ResponseWriter, r *http.Request) {
 			"The specified log stream does not exist: %s", req.LogStreamName)
 		return
 	}
-	cwLogEvents.Delete(key)
+	cwLogEvents.Drop(key)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 

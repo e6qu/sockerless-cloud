@@ -398,8 +398,10 @@ func loggingSinkPage(t *testing.T, listURL, pageToken string) (names []string, n
 func TestLogging_ListSinks_Pagination(t *testing.T) {
 	t.Parallel()
 	const project = "test-project"
-	want := []string{"pag-sink-a", "pag-sink-b", "pag-sink-c"}
-	for _, name := range want {
+	created := []string{"pag-sink-a", "pag-sink-b", "pag-sink-c"}
+	// Every project also holds the built-in _Default and _Required sinks.
+	want := append([]string{"_Default", "_Required"}, created...)
+	for _, name := range created {
 		body, _ := json.Marshal(map[string]any{
 			"name":        name,
 			"destination": "storage.googleapis.com/my-bucket",
@@ -426,14 +428,14 @@ func TestLogging_ListSinks_Pagination(t *testing.T) {
 
 	listURL := fmt.Sprintf("%s/v2/projects/%s/sinks", baseURL, project)
 
-	// The project holds exactly these three sinks, so both the unpaginated list
-	// and the page-by-page walk are pinned exactly.
+	// The project holds exactly these sinks, so both the unpaginated list and
+	// the page-by-page walk are pinned exactly.
 	all, next := loggingSinkPage(t, listURL, "")
 	require.Equal(t, want, all)
 	require.Empty(t, next, "a list without pageSize returns everything and no token")
 
 	// pageSize=1 must yield one sink per page, a token on every page but the
-	// last, and no sink twice — a single page carrying all three would satisfy
+	// last, and no sink twice — a single page carrying all of them would satisfy
 	// a union-only assertion while paginating nothing.
 	seen := map[string]bool{}
 	var got []string

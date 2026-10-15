@@ -67,8 +67,8 @@ func newCloudRunAdoptedLogSink(sink sim.LogSink, project string, resource Monito
 		return adopted
 	}
 	for _, stream := range []string{"stdout", "stderr"} {
-		entries, _ := logEntries.Get(fmt.Sprintf("projects/%s/logs/run.googleapis.com%%2F%s", project, stream))
-		for _, entry := range entries {
+		for _, stored := range logEntries.Values(fmt.Sprintf("projects/%s/logs/run.googleapis.com%%2F%s", project, stream)) {
+			entry := stored.Entry
 			if entry.Resource == nil || entry.Resource.Type != resource.Type || !cloudRunSameResource(entry.Resource.Labels, resource.Labels) {
 				continue
 			}

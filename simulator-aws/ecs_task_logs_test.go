@@ -33,7 +33,7 @@ func resetCloudWatchLogStoresForTest() {
 	bg.Await()
 	cwLogGroups = sim.MakeStore[CWLogGroup](nil, "cw_log_groups")
 	cwLogStreams = sim.MakeStore[CWLogStream](nil, "cw_log_streams")
-	cwLogEvents = sim.MakeStore[[]CWLogEvent](nil, "cw_log_events")
+	cwLogEvents = cwNewLogEvents(nil)
 	cwSequences = sim.MakeStore[int64](nil, "cw_sequences")
 	cwMetricFilters = sim.MakeStore[CWMetricFilter](nil, "cw_metric_filters")
 	cwMetrics = sim.MakeStore[[]CWMetricDatum](nil, "cw_metrics")
@@ -66,7 +66,7 @@ func TestECSTaskLogSinkAdvancesLogStreamIngestionState(t *testing.T) {
 	// seeds a task's stream. A synthetic "container started" stamped at
 	// RunTask time made a three-minute provisioning window read as the
 	// entrypoint's own silence.
-	if seeded, _ := cwLogEvents.Get(key); len(seeded) != 0 {
+	if seeded, _ := cwStreamEvents(key); len(seeded) != 0 {
 		t.Fatalf("log stream holds %d events before the container wrote anything: %+v", len(seeded), seeded)
 	}
 	if created.FirstEventTimestamp != 0 || created.LastEventTimestamp != 0 {
@@ -76,7 +76,7 @@ func TestECSTaskLogSinkAdvancesLogStreamIngestionState(t *testing.T) {
 	sink.WriteLog(sim.LogLine{Stream: "stdout", Text: "listening on :3000"})
 	sink.WriteLog(sim.LogLine{Stream: "stderr", Text: "OAuthCallbackError"})
 
-	events, _ := cwLogEvents.Get(key)
+	events, _ := cwStreamEvents(key)
 	if len(events) != 2 {
 		t.Fatalf("log stream holds %d events, want exactly the two workload lines", len(events))
 	}

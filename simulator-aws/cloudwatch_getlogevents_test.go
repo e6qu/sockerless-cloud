@@ -32,7 +32,7 @@ func TestGetLogEventsReturnsABoundedPageFromTheRequestedEnd(t *testing.T) {
 		})
 	}
 	cwLogGroups.Put("g", CWLogGroup{LogGroupName: "g", Arn: cwLogGroupArn("g")})
-	cwLogEvents.Put(cwEventsKey("g", "s"), events)
+	cwPutTestEvents(cwEventsKey("g", "s"), events)
 	newest := events[len(events)-1].Message
 	oldest := events[0].Message
 

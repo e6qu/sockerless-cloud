@@ -28,6 +28,18 @@ func awsPage[T any](w http.ResponseWriter, bad awsBadToken, all []T, token strin
 	return page, next, true
 }
 
+// awsKeyPage sorts all by key, which must be unique, and pages it with a
+// token that names the last key returned, so a create or delete between two
+// calls neither repeats nor skips an item.
+func awsKeyPage[T any](w http.ResponseWriter, bad awsBadToken, all []T, key func(T) string, token string, size, def int) ([]T, string, bool) {
+	page, next, err := listq.KeyPage(sortBy(all, key), key, token, size, def, def)
+	if err != nil {
+		bad(w, token)
+		return nil, "", false
+	}
+	return page, next, true
+}
+
 func awsBadTokenMessage(token string) string {
 	return fmt.Sprintf("The pagination token %q is not valid.", token)
 }

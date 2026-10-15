@@ -1,6 +1,6 @@
 // Package listq holds the cloud-neutral plumbing behind list operations:
-// offset pagination, a filter expression tree evaluated over a resource's JSON
-// form, field lookup, and ordering. Each cloud keeps its own filter grammar,
+// offset and key-cursor pagination, a filter expression tree evaluated over a
+// resource's JSON form, field lookup, and ordering. Each cloud keeps its own filter grammar,
 // page-token encoding and error shape and maps ErrBadToken and parse errors to
 // the error its API returns.
 package listq
@@ -8,6 +8,7 @@ package listq
 import (
 	"encoding/base64"
 	"errors"
+	"sort"
 	"strconv"
 )
 
@@ -94,6 +95,32 @@ func TokenPage[T any](t Tokens, items []T, token string, size, def, max int) (pa
 		return nil, "", err
 	}
 	page = items[start:end]
+	if page == nil {
+		page = []T{}
+	}
+	return page, next, nil
+}
+
+// KeyPage pages items, sorted ascending by key, with a token that names the
+// last key a page returned rather than an offset, so an item created or
+// deleted before that key between two calls neither repeats nor skips one
+// after it. An empty token starts at the first item; any other token must be
+// one KeyPage issued. size, def and max combine as in Window.
+func KeyPage[T any](items []T, key func(T) string, token string, size, def, max int) (page []T, next string, err error) {
+	start := 0
+	if token != "" {
+		raw, decodeErr := base64.RawURLEncoding.DecodeString(token)
+		if decodeErr != nil || len(raw) == 0 {
+			return nil, "", ErrBadToken
+		}
+		after := string(raw)
+		start = sort.Search(len(items), func(i int) bool { return key(items[i]) > after })
+	}
+	_, end, _, _ := Window(Decimal, len(items)-start, "", size, def, max)
+	page = items[start : start+end]
+	if start+end < len(items) && len(page) > 0 {
+		next = base64.RawURLEncoding.EncodeToString([]byte(key(page[len(page)-1])))
+	}
 	if page == nil {
 		page = []T{}
 	}

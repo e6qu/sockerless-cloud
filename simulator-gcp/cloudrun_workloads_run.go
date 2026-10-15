@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 
@@ -24,8 +25,10 @@ func (s *cloudRunResourceLogSink) WriteLog(line sim.LogLine) {
 		stream = "stderr"
 	}
 	resource := s.resource
-	writeLogEntries(fmt.Sprintf("projects/%s/logs/run.googleapis.com%%2F%s", s.project, stream), &resource,
-		nil, []LogEntry{{TextPayload: line.Text}})
+	if err := writeLogEntries(fmt.Sprintf("projects/%s/logs/run.googleapis.com%%2F%s", s.project, stream), &resource,
+		nil, []LogEntry{{TextPayload: line.Text}}); err != nil {
+		log.Printf("cloud run logs: %v", err)
+	}
 }
 
 func cloudRunWorkerPoolLogSink(poolName, revision string) *cloudRunResourceLogSink {

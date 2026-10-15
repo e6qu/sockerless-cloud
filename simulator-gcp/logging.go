@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"slices"
@@ -18,6 +19,7 @@ import (
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/listq"
+	"github.com/e6qu/sockerless-cloud/sim/logstore"
 	monitoredres "google.golang.org/genproto/googleapis/api/monitoredres"
 	_ "google.golang.org/genproto/googleapis/cloud/audit"
 	ltype "google.golang.org/genproto/googleapis/logging/type"
@@ -85,10 +87,8 @@ var loggingMonitoredResourceDescriptors = []MonitoredResourceDescriptor{
 }
 
 // Package-level state store shared between HTTP and gRPC handlers.
-var logEntries sim.Store[[]LogEntry]
 var logSinks sim.Store[LoggingSink]
 var logMetrics sim.Store[LoggingMetric]
-var logEntriesMu sync.Mutex
 
 type LoggingSink struct {
 	Name string `json:"name"`
@@ -139,9 +139,8 @@ func listLogEntries(filter string, resourceNames []string, pageSize int, pageTok
 		return nil, "", err
 	}
 	var allEntries []LogEntry
-	all := logEntries.List()
-	for _, entries := range all {
-		allEntries = append(allEntries, entries...)
+	for _, e := range loggingHeldEntries("", loggingBucketCutoffs(time.Now())) {
+		allEntries = append(allEntries, e.Value.Entry)
 	}
 
 	if strings.TrimSpace(filter) != "" {
@@ -340,7 +339,9 @@ func loggingViewTerm(term string) (func(LogEntry) bool, error) {
 
 // writeLogEntries is the shared implementation for writing log entries,
 // used by both the REST handler and the gRPC server.
-func writeLogEntries(logName string, resource *MonitoredResource, labels map[string]string, entries []LogEntry) {
+// writeLogEntries stores each entry in the log buckets its scope's sinks
+// route it to, and drops an entry they route nowhere, as Cloud Logging does.
+func writeLogEntries(logName string, resource *MonitoredResource, labels map[string]string, entries []LogEntry) error {
 	for i := range entries {
 		entry := &entries[i]
 		if entry.LogName == "" {
@@ -365,32 +366,36 @@ func writeLogEntries(logName string, resource *MonitoredResource, labels map[str
 		}
 	}
 
-	logEntriesMu.Lock()
-	defer logEntriesMu.Unlock()
+	now := time.Now()
+	cutoffs := loggingBucketCutoffs(now)
+	routes := map[string][]loggingRoute{}
 	for _, entry := range entries {
-		ln := entry.LogName
-		prev, _ := logEntries.Get(ln)
-		// Build a fresh slice rather than append-in-place: a concurrent reader
-		// (listLogEntries → logEntries.List()) holds the stored slice header by
-		// value and shares its backing array. Appending into spare capacity
-		// would race that reader. A fresh allocation each write is the safe RMW.
-		next := make([]LogEntry, 0, len(prev)+1)
-		next = append(next, prev...)
-		next = append(next, entry)
-		// Bound retention per log. Real Cloud Logging ages entries out by a
-		// retention period; without a cap this store grows forever (a memory
-		// leak in a long-running sim) and listLogEntries re-sorts an ever-
-		// larger corpus. Reads filter+sort+paginate (never by index), so
-		// dropping the oldest entries is safe.
-		if len(next) > maxRetainedLogEntries {
-			next = next[len(next)-maxRetainedLogEntries:]
+		scope := loggingScopeOf(entry.LogName)
+		rts, seen := routes[scope]
+		if !seen {
+			loggingEnsureDefaults(scope)
+			var err error
+			if rts, err = loggingRoutes(scope); err != nil {
+				return err
+			}
+			routes[scope] = rts
 		}
-		logEntries.Put(ln, next)
+		at, err := loggingEntryMillis(entry)
+		if err != nil {
+			return err
+		}
+		buckets, err := loggingRouteEntry(entry, at, rts, cutoffs, now)
+		if err != nil {
+			return err
+		}
+		if len(buckets) == 0 {
+			continue
+		}
+		logEntries.Append(entry.LogName, now, logstore.Item[loggingStoredEntry]{
+			Time: at, Value: loggingStoredEntry{Entry: entry, Buckets: buckets}})
 	}
+	return nil
 }
-
-// maxRetainedLogEntries bounds the in-memory entries kept per log name.
-const maxRetainedLogEntries = 10000
 
 // REST request/response types
 
@@ -418,7 +423,7 @@ type WriteLogEntriesRESTRequest struct {
 }
 
 func registerCloudLogging(srv *sim.Server) {
-	logEntries = sim.MakeStore[[]LogEntry](srv.DB(), "logging_entries")
+	logEntries = loggingNewEntries(srv.DB())
 	logSinks = sim.MakeStore[LoggingSink](srv.DB(), "logging_sinks")
 	logMetrics = sim.MakeStore[LoggingMetric](srv.DB(), "logging_metrics")
 
@@ -463,7 +468,10 @@ func registerCloudLogging(srv *sim.Server) {
 				return
 			}
 		}
-		writeLogEntries(req.LogName, req.Resource, req.Labels, req.Entries)
+		if err := writeLogEntries(req.LogName, req.Resource, req.Labels, req.Entries); err != nil {
+			GCPError(w, http.StatusInternalServerError, err.Error(), "INTERNAL")
+			return
+		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 	})
 
@@ -482,6 +490,21 @@ func registerCloudLogging(srv *sim.Server) {
 	srv.HandleFunc("DELETE /v2/projects/{project}/metrics/{metric}", handleDeleteLoggingMetric)
 
 	registerCloudLoggingAdmin(srv)
+	if err := loggingMigrateEntries(srv.DB(), time.Now()); err != nil {
+		log.Fatalf("cloud logging: %v", err)
+	}
+	srv.StartBackground("cloud logging retention sweep", func(ctx context.Context) {
+		ticker := time.NewTicker(loggingRetentionSweepInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				loggingSweepRetention(now)
+			}
+		}
+	})
 }
 
 func loggingSinkKey(project, sink string) string {
@@ -601,12 +624,16 @@ func handleCreateLoggingSink(w http.ResponseWriter, r *http.Request) {
 		crmProjectPermissionDenied(w)
 		return
 	}
+	if !loggingSinkAdmissible(w, sink, true) {
+		return
+	}
 	logSinks.Put(sink.Name, sink)
 	sim.WriteJSON(w, http.StatusOK, loggingSinkResponse(project, sink))
 }
 
 func handleListLoggingSinks(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
+	loggingEnsureDefaults("projects/" + project)
 	prefix := fmt.Sprintf("projects/%s/sinks/", project)
 	sinks := logSinks.Filter(func(s LoggingSink) bool {
 		return strings.HasPrefix(s.Name, prefix)
@@ -627,6 +654,7 @@ func handleListLoggingSinks(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGetLoggingSink(w http.ResponseWriter, r *http.Request) {
+	loggingEnsureDefaults("projects/" + sim.PathParam(r, "project"))
 	key := loggingSinkRequestKey(sim.PathParam(r, "project"), sim.PathParam(r, "sink"))
 	sink, ok := logSinks.Get(key)
 	if !ok {
@@ -645,9 +673,13 @@ func handleUpdateLoggingSink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sink.Name = key
+	loggingEnsureDefaults("projects/" + project)
 	sink, ok := normalizeLoggingSink(project, sink, loggingUniqueWriter(r, sink))
 	if !ok {
 		crmProjectPermissionDenied(w)
+		return
+	}
+	if !loggingSinkAdmissible(w, sink, false) {
 		return
 	}
 	logSinks.Put(key, sink)
@@ -656,6 +688,10 @@ func handleUpdateLoggingSink(w http.ResponseWriter, r *http.Request) {
 
 func handleDeleteLoggingSink(w http.ResponseWriter, r *http.Request) {
 	sink := sim.PathParam(r, "sink")
+	if loggingIsBuiltIn(sink) {
+		GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "sink %s is built in and cannot be deleted", sink)
+		return
+	}
 	if !logSinks.Delete(loggingSinkRequestKey(sim.PathParam(r, "project"), sink)) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "sink %q not found", sink)
 		return
@@ -753,7 +789,9 @@ func (s *loggingServer) WriteLogEntries(_ context.Context, req *loggingpb.WriteL
 		entries = append(entries, entry)
 	}
 
-	writeLogEntries(req.LogName, resource, req.Labels, entries)
+	if err := writeLogEntries(req.LogName, resource, req.Labels, entries); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
 	return &loggingpb.WriteLogEntriesResponse{}, nil
 }
 
@@ -778,15 +816,15 @@ func (s *loggingServer) ListLogEntries(_ context.Context, req *loggingpb.ListLog
 	}, nil
 }
 
-// DeleteLog removes every entry a log holds, over the same store the REST
-// DELETE .../logs/{log} handler deletes from. A log with no entries simply
-// stops existing: Cloud Logging has no separate log resource to miss, and the
-// log reappears the moment an entry is written to that name again.
+// DeleteLog deletes a log's entries from the scope's global _Default bucket,
+// as the REST DELETE .../logs/{log} handler does; copies other buckets hold
+// stay. A log with no entries left stops existing, and reappears the moment
+// an entry is written to that name again.
 func (s *loggingServer) DeleteLog(_ context.Context, req *loggingpb.DeleteLogRequest) (*emptypb.Empty, error) {
 	if req.GetLogName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "log_name is required")
 	}
-	logEntries.Delete(req.GetLogName())
+	loggingDeleteLog(req.GetLogName())
 	return &emptypb.Empty{}, nil
 }
 
@@ -914,10 +952,8 @@ func (s *loggingServer) TailLogEntries(stream loggingpb.LoggingServiceV2_TailLog
 // still delivered exactly once.
 func loggingTailBaseline() map[string]bool {
 	sent := map[string]bool{}
-	for _, log := range logEntries.List() {
-		for _, e := range log {
-			sent[e.LogName+"\x00"+e.InsertID] = true
-		}
+	for _, e := range loggingHeldEntries("", loggingBucketCutoffs(time.Now())) {
+		sent[e.Value.Entry.LogName+"\x00"+e.Value.Entry.InsertID] = true
 	}
 	return sent
 }

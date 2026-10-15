@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -78,5 +79,25 @@ func TestDDBKeyPageResumesAfterDeletedKey(t *testing.T) {
 	page, _ = ddbKeyPage(names, id, "", 0, 3)
 	if len(page) != 3 {
 		t.Fatalf("no limit takes the service maximum: %v", page)
+	}
+}
+
+// A key-cursor page resumes after the last name returned, whatever was
+// created or deleted before it in between, and still refuses a foreign token.
+func TestAWSKeyPageResumesAfterTheLastKey(t *testing.T) {
+	name := func(s string) string { return s }
+	rec := httptest.NewRecorder()
+	page, next, ok := awsKeyPage(rec, wafBadToken, []string{"d", "b", "a", "c"}, name, "", 2, 100)
+	if !ok || !reflect.DeepEqual(page, []string{"a", "b"}) || next == "" {
+		t.Fatalf("first page = %v %q %v", page, next, ok)
+	}
+	for _, between := range [][]string{{"b", "c", "d"}, {"0", "a", "b", "c", "d"}} {
+		page, rest, ok := awsKeyPage(rec, wafBadToken, slices.Clone(between), name, next, 2, 100)
+		if !ok || !reflect.DeepEqual(page, []string{"c", "d"}) || rest != "" {
+			t.Errorf("after %v the second page = %v %q %v", between, page, rest, ok)
+		}
+	}
+	if _, _, ok := awsKeyPage(httptest.NewRecorder(), wafBadToken, []string{"a"}, name, "not a token!", 1, 100); ok {
+		t.Error("a foreign token was accepted")
 	}
 }

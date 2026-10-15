@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"slices"
 	"testing"
+	"time"
 )
 
 // entries.list with a log bucket or one of its views as the resource name reads
@@ -19,11 +20,15 @@ func TestLoggingEntriesListReadsBucketsAndViews(t *testing.T) {
 		`{"filter":"SOURCE(\"projects/p\") AND resource.type = \"gce_instance\""}`)
 	gcpHostOK(t, srv, host, http.MethodPost, "/v2/projects/p/sinks", `{"name":"to-archive",
 		"destination":"logging.googleapis.com/`+bucket+`","filter":"severity>=WARNING"}`)
+	day := time.Now().UTC().AddDate(0, 0, -2).Truncate(24 * time.Hour)
+	at := func(hour, minute int) string {
+		return day.Add(time.Duration(hour)*time.Hour + time.Duration(minute)*time.Minute).Format(time.RFC3339)
+	}
 	gcpHostOK(t, srv, host, http.MethodPost, "/v2/entries:write", `{"entries":[
-		{"logName":"projects/p/logs/app","resource":{"type":"gce_instance"},"timestamp":"2026-09-01T10:00:00Z","severity":"ERROR","textPayload":"routed vm"},
-		{"logName":"projects/p/logs/app","resource":{"type":"global"},"timestamp":"2026-09-01T10:01:00Z","severity":"WARNING","textPayload":"routed global"},
-		{"logName":"projects/p/logs/app","resource":{"type":"gce_instance"},"timestamp":"2026-09-01T10:02:00Z","severity":"INFO","textPayload":"not routed"},
-		{"logName":"projects/p2/logs/app","resource":{"type":"global"},"timestamp":"2026-09-01T10:03:00Z","severity":"ERROR","textPayload":"other project"}]}`)
+		{"logName":"projects/p/logs/app","resource":{"type":"gce_instance"},"timestamp":"`+at(10, 0)+`","severity":"ERROR","textPayload":"routed vm"},
+		{"logName":"projects/p/logs/app","resource":{"type":"global"},"timestamp":"`+at(10, 1)+`","severity":"WARNING","textPayload":"routed global"},
+		{"logName":"projects/p/logs/app","resource":{"type":"gce_instance"},"timestamp":"`+at(10, 2)+`","severity":"INFO","textPayload":"not routed"},
+		{"logName":"projects/p2/logs/app","resource":{"type":"global"},"timestamp":"`+at(10, 3)+`","severity":"ERROR","textPayload":"other project"}]}`)
 
 	read := func(resourceName string) []string {
 		t.Helper()

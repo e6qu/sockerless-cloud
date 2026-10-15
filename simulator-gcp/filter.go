@@ -174,8 +174,14 @@ type gcpFilterParser struct {
 	pos   int
 	guard *sim.ParseGuard
 	leaf  gcpFilterLeaf
-	err   error
+	// fn, when set, resolves a function call such as LOG_ID("id").
+	fn  gcpFilterFunc
+	err error
 }
+
+// gcpFilterFunc builds the node for a call of the function name with one
+// argument, or reports that the grammar has no such function.
+type gcpFilterFunc func(name, arg string) (listq.Node, error)
 
 // maxFilterParseDepth bounds nesting so a pathological filter cannot overflow
 // the goroutine stack, a fatal error Go cannot recover from.
@@ -193,6 +199,12 @@ func gcpParseFilterExpr(s string) (listq.Node, error) {
 }
 
 func gcpParseFilter(s string, leaf gcpFilterLeaf) (listq.Node, error) {
+	return gcpParseFilterFuncs(s, leaf, nil)
+}
+
+// gcpParseFilterFuncs is gcpParseFilter for a grammar that also has the
+// one-argument functions fn resolves.
+func gcpParseFilterFuncs(s string, leaf gcpFilterLeaf, fn gcpFilterFunc) (listq.Node, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return listq.True{}, nil
@@ -201,7 +213,7 @@ func gcpParseFilter(s string, leaf gcpFilterLeaf) (listq.Node, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid filter %q: %w", s, err)
 	}
-	p := &gcpFilterParser{toks: toks, guard: sim.NewParseGuard(maxFilterParseDepth, -1), leaf: leaf}
+	p := &gcpFilterParser{toks: toks, guard: sim.NewParseGuard(maxFilterParseDepth, -1), leaf: leaf, fn: fn}
 	node := p.parseOr()
 	if p.err == nil && p.peek().kind != tokEOF {
 		p.fail("unexpected %q", p.peek().text)
@@ -283,7 +295,11 @@ func (p *gcpFilterParser) parseComparison() listq.Node {
 		}
 		return p.fail("unexpected %q", p.peek().text)
 	}
-	field := p.next().text
+	fieldTok := p.next()
+	field := fieldTok.text
+	if p.fn != nil && fieldTok.kind == tokWord && p.peek().kind == tokLParen {
+		return p.parseCall(field)
+	}
 	if p.peek().kind != tokOp {
 		return p.makeLeaf(field, "", "")
 	}
@@ -296,6 +312,23 @@ func (p *gcpFilterParser) parseComparison() listq.Node {
 
 func (p *gcpFilterParser) makeLeaf(field, op, value string) listq.Node {
 	node, err := p.leaf(field, op, value)
+	if err != nil {
+		return p.fail("%v", err)
+	}
+	return node
+}
+
+func (p *gcpFilterParser) parseCall(name string) listq.Node {
+	p.next()
+	if p.peek().kind != tokString && p.peek().kind != tokWord {
+		return p.fail("expected an argument to %s()", name)
+	}
+	arg := p.next().text
+	if p.peek().kind != tokRParen {
+		return p.fail("missing ')' after the argument to %s()", name)
+	}
+	p.next()
+	node, err := p.fn(name, arg)
 	if err != nil {
 		return p.fail("%v", err)
 	}

@@ -831,6 +831,15 @@ resource "google_logging_project_sink" "tf_log_sink" {
   unique_writer_identity = true
 }
 
+# The _Default bucket exists in every project; the provider adopts it and
+# changes its retention rather than creating it.
+resource "google_logging_project_bucket_config" "tf_default_bucket" {
+  project        = "test-project"
+  location       = "global"
+  bucket_id      = "_Default"
+  retention_days = 45
+}
+
 resource "google_logging_metric" "tf_log_metric" {
   name   = "tf-log-metric"
   filter = "resource.type=\"global\" AND severity>=ERROR"
@@ -1226,6 +1235,10 @@ output "logging_project_sink_id" {
 
 output "logging_metric_id" {
   value = google_logging_metric.tf_log_metric.id
+}
+
+output "logging_default_bucket_retention" {
+  value = google_logging_project_bucket_config.tf_default_bucket.retention_days
 }
 
 output "secret_version_id" {

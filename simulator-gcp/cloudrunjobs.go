@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"sort"
@@ -1509,7 +1510,9 @@ func stopCloudRunExecutionWorkload(group *workload.Group) {
 func injectCloudRunJobLog(project, jobName, text string) {
 	logName := fmt.Sprintf("projects/%s/logs/run.googleapis.com%%2Fstdout", project)
 	resource := cloudRunJobLogResource(jobName)
-	writeLogEntries(logName, &resource, nil, []LogEntry{{TextPayload: text}})
+	if err := writeLogEntries(logName, &resource, nil, []LogEntry{{TextPayload: text}}); err != nil {
+		log.Printf("cloud run job logs: %v", err)
+	}
 }
 
 func cloudRunJobLogResource(jobID string) MonitoredResource {

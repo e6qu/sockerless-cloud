@@ -336,7 +336,7 @@ func cwResolveLogObject(pointer string) ([]byte, bool) {
 	if _, ok := cwLogGroups.Get(group); !ok {
 		return nil, false
 	}
-	events, ok := cwLogEvents.Get(cwEventsKey(group, stream))
+	events, ok := cwStreamEvents(cwEventsKey(group, stream))
 	if !ok || len(events) == 0 {
 		return nil, false
 	}

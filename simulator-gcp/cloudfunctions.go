@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"sort"
@@ -654,7 +655,9 @@ func applyFunctionPatch(fn, patch *storedFunction, mask string) (serviceConfigCh
 func injectCloudFunctionLog(project, functionName, text string) {
 	logName := fmt.Sprintf("projects/%s/logs/run.googleapis.com%%2Fstdout", project)
 	resource := cloudRunServiceLogResource(functionName)
-	writeLogEntries(logName, &resource, nil, []LogEntry{{TextPayload: text}})
+	if err := writeLogEntries(logName, &resource, nil, []LogEntry{{TextPayload: text}}); err != nil {
+		log.Printf("cloud functions logs: %v", err)
+	}
 }
 
 func cloudRunServiceLogResource(serviceID string) MonitoredResource {

@@ -17,23 +17,23 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /v2/entries:list` | ✓ `simulator-gcp/logging.go:426::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v2/entries:write` | ✓ `simulator-gcp/logging.go:444::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v2/projects/{project}/sinks` | ✓ `simulator-gcp/logging.go:470::handleCreateLoggingSink` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v2/projects/{project}/sinks` | ✓ `simulator-gcp/logging.go:471::handleListLoggingSinks` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v2/projects/{project}/sinks/{sink}` | ✓ `simulator-gcp/logging.go:472::handleGetLoggingSink` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /v2/projects/{project}/sinks/{sink}` | ✓ `simulator-gcp/logging.go:473::handleUpdateLoggingSink` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /v2/projects/{project}/sinks/{sink}` | ✓ `simulator-gcp/logging.go:474::handleUpdateLoggingSink` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v2/projects/{project}/sinks/{sink}` | ✓ `simulator-gcp/logging.go:475::handleDeleteLoggingSink` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v2/projects/{project}/metrics` | ✓ `simulator-gcp/logging.go:477::handleCreateLoggingMetric` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v2/projects/{project}/metrics` | ✓ `simulator-gcp/logging.go:478::handleListLoggingMetrics` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v2/projects/{project}/metrics/{metric}` | ✓ `simulator-gcp/logging.go:479::handleGetLoggingMetric` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /v2/projects/{project}/metrics/{metric}` | ✓ `simulator-gcp/logging.go:480::handleUpdateLoggingMetric` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /v2/projects/{project}/metrics/{metric}` | ✓ `simulator-gcp/logging.go:481::handleUpdateLoggingMetric` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v2/projects/{project}/metrics/{metric}` | ✓ `simulator-gcp/logging.go:482::handleDeleteLoggingMetric` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v2/entries:copy` | ✓ `simulator-gcp/logging_admin.go:148::handleLoggingEntriesCopy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v2/entries:tail` | ✓ `simulator-gcp/logging_admin.go:149::handleLoggingEntriesTail` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v2/monitoredResourceDescriptors` | ○ `simulator-gcp/logging_admin.go:150::handleLoggingListMRD` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v2/entries:list` | ✓ `simulator-gcp/logging.go:431::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v2/entries:write` | ✓ `simulator-gcp/logging.go:449::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v2/projects/{project}/sinks` | ✓ `simulator-gcp/logging.go:478::handleCreateLoggingSink` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v2/projects/{project}/sinks` | ✓ `simulator-gcp/logging.go:479::handleListLoggingSinks` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v2/projects/{project}/sinks/{sink}` | ✓ `simulator-gcp/logging.go:480::handleGetLoggingSink` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /v2/projects/{project}/sinks/{sink}` | ✓ `simulator-gcp/logging.go:481::handleUpdateLoggingSink` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /v2/projects/{project}/sinks/{sink}` | ✓ `simulator-gcp/logging.go:482::handleUpdateLoggingSink` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v2/projects/{project}/sinks/{sink}` | ✓ `simulator-gcp/logging.go:483::handleDeleteLoggingSink` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v2/projects/{project}/metrics` | ✓ `simulator-gcp/logging.go:485::handleCreateLoggingMetric` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v2/projects/{project}/metrics` | ✓ `simulator-gcp/logging.go:486::handleListLoggingMetrics` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v2/projects/{project}/metrics/{metric}` | ✓ `simulator-gcp/logging.go:487::handleGetLoggingMetric` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /v2/projects/{project}/metrics/{metric}` | ✓ `simulator-gcp/logging.go:488::handleUpdateLoggingMetric` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /v2/projects/{project}/metrics/{metric}` | ✓ `simulator-gcp/logging.go:489::handleUpdateLoggingMetric` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v2/projects/{project}/metrics/{metric}` | ✓ `simulator-gcp/logging.go:490::handleDeleteLoggingMetric` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v2/entries:copy` | ✓ `simulator-gcp/logging_admin.go:149::handleLoggingEntriesCopy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v2/entries:tail` | ✓ `simulator-gcp/logging_admin.go:150::handleLoggingEntriesTail` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v2/monitoredResourceDescriptors` | ○ `simulator-gcp/logging_admin.go:151::handleLoggingListMRD` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

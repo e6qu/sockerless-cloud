@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -16,7 +17,42 @@ import (
 // `=~`/`!~` match an RE2 expression, severity compares by level, timestamp
 // compares as a time, and a comparison on a field the entry lacks is false.
 func parseLogFilter(filter string) (listq.Node, error) {
-	return gcpParseFilter(filter, logFilterLeaf)
+	return gcpParseFilterFuncs(filter, logFilterLeaf, logFilterFunc)
+}
+
+// logFilterFunc resolves the query language's log_id() and source()
+// functions, whose names it takes in either case.
+func logFilterFunc(name, arg string) (listq.Node, error) {
+	switch strings.ToLower(name) {
+	case "log_id":
+		return logIDNode{id: arg}, nil
+	case "source":
+		return logSourceNode{source: strings.TrimSuffix(arg, "/")}, nil
+	}
+	return nil, fmt.Errorf("unsupported function %s()", name)
+}
+
+// logIDNode holds for an entry whose log ID, the URL-decoded part of logName
+// after /logs/, is id.
+type logIDNode struct{ id string }
+
+func (n logIDNode) Eval(d listq.Doc) bool {
+	name, _ := listq.Lookup(d, "logName", ".")
+	_, logID, found := strings.Cut(listq.ScalarString(name), "/logs/")
+	if !found {
+		return false
+	}
+	decoded, err := url.PathUnescape(logID)
+	return logID == n.id || err == nil && decoded == n.id
+}
+
+// logSourceNode holds for an entry written to a log of the resource container
+// source.
+type logSourceNode struct{ source string }
+
+func (n logSourceNode) Eval(d listq.Doc) bool {
+	name, _ := listq.Lookup(d, "logName", ".")
+	return strings.HasPrefix(listq.ScalarString(name), n.source+"/logs/")
 }
 
 func logFilterLeaf(field, op, value string) (listq.Node, error) {

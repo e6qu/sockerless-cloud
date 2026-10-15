@@ -959,7 +959,7 @@ func handleCWGetLogGroupFields(w http.ResponseWriter, r *http.Request) {
 	fieldCounts := map[string]int{}
 	total := 0
 	for _, stream := range cwLogStreams.Filter(func(s CWLogStream) bool { return s.LogGroupName == name }) {
-		events, ok := cwLogEvents.Get(cwEventsKey(name, stream.LogStreamName))
+		events, ok := cwStreamEvents(cwEventsKey(name, stream.LogStreamName))
 		if !ok {
 			continue
 		}
@@ -1024,7 +1024,7 @@ func handleCWGetLogRecord(w http.ResponseWriter, r *http.Request) {
 	parts := strings.SplitN(req.LogRecordPointer, "|", 3)
 	if len(parts) == 3 {
 		group, stream, idxStr := parts[0], parts[1], parts[2]
-		if events, ok := cwLogEvents.Get(cwEventsKey(group, stream)); ok {
+		if events, ok := cwStreamEvents(cwEventsKey(group, stream)); ok {
 			if idx, err := strconv.Atoi(idxStr); err == nil && idx >= 0 && idx < len(events) {
 				e := events[idx]
 				record["@timestamp"] = cwFormatRecordTime(e.Timestamp)

@@ -726,7 +726,7 @@ func batchOpenLogStream(group, stream string, createGroup bool) error {
 			Arn:                 cwLogStreamArn(group, stream),
 			UploadSequenceToken: "1",
 		})
-		cwLogEvents.Put(key, []CWLogEvent{})
+		cwLogEvents.Open(key)
 	}
 	return nil
 }

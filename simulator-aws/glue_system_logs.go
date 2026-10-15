@@ -56,7 +56,7 @@ func glueSystemLogsURL(r *http.Request, key string, log []byte) (string, error) 
 func glueJobRunSystemLog(runID string) []byte {
 	var events []CWLogEvent
 	for _, group := range []string{glueJobsOutputLogGroup, glueJobsErrorLogGroup} {
-		stored, _ := cwLogEvents.Get(cwEventsKey(group, runID))
+		stored, _ := cwStreamEvents(cwEventsKey(group, runID))
 		events = append(events, stored...)
 	}
 	slices.SortStableFunc(events, func(a, b CWLogEvent) int { return cmp.Compare(a.Timestamp, b.Timestamp) })

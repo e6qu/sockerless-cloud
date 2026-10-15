@@ -162,7 +162,7 @@ func handleCWGetLogFields(w http.ResponseWriter, r *http.Request) {
 		fieldTypes["@ingestionTime"] = "timestamp"
 		fieldTypes["@logStream"] = "string"
 		for _, stream := range cwLogStreams.Filter(func(s CWLogStream) bool { return s.LogGroupName == req.DataSourceName }) {
-			events, ok := cwLogEvents.Get(cwEventsKey(req.DataSourceName, stream.LogStreamName))
+			events, ok := cwStreamEvents(cwEventsKey(req.DataSourceName, stream.LogStreamName))
 			if !ok {
 				continue
 			}

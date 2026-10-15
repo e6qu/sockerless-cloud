@@ -2,15 +2,17 @@ package main
 
 import (
 	"compress/gzip"
+	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/logstore"
 )
 
 // CloudWatch Logs types
@@ -51,7 +53,7 @@ type CWLogEvent struct {
 var (
 	cwLogGroups  sim.Store[CWLogGroup]
 	cwLogStreams sim.Store[CWLogStream]
-	cwLogEvents  sim.Store[[]CWLogEvent]
+	cwLogEvents  *logstore.Log[CWLogEvent]
 	cwSequences  sim.Store[int64]
 )
 
@@ -65,6 +67,21 @@ func cwLogStreamArn(group, stream string) string {
 
 func cwEventsKey(group, stream string) string {
 	return group + ":" + stream
+}
+
+func cwNewLogEvents(db *sql.DB) *logstore.Log[CWLogEvent] {
+	return logstore.New(
+		sim.MakeStore[logstore.Entry[CWLogEvent]](db, "cw_log_stream_events"),
+		sim.MakeStore[logstore.Head](db, "cw_log_stream_heads"))
+}
+
+// cwStreamEvents returns the events a stream retains, in the order they
+// arrived, and whether the stream exists.
+func cwStreamEvents(key string) ([]CWLogEvent, bool) {
+	if !cwLogEvents.Exists(key) {
+		return nil, false
+	}
+	return cwLogEvents.Values(key), true
 }
 
 // cwIngestWorkloadLogLine records one line a workload wrote to stdout/stderr
@@ -118,7 +135,7 @@ func cwEnsureLogStream(group, stream string) {
 			Arn:                 cwLogStreamArn(group, stream),
 			UploadSequenceToken: "1",
 		})
-		cwLogEvents.Put(key, []CWLogEvent{})
+		cwLogEvents.Open(key)
 	}
 }
 
@@ -130,9 +147,11 @@ func cwAppendLogEvents(key string, events []CWLogEvent, touch func(*CWLogStream)
 	if len(events) == 0 {
 		return
 	}
-	cwLogEvents.Update(key, func(stored *[]CWLogEvent) {
-		*stored = append(*stored, events...)
-	})
+	items := make([]logstore.Item[CWLogEvent], 0, len(events))
+	for _, e := range events {
+		items = append(items, logstore.Item[CWLogEvent]{Time: e.Timestamp, Value: e})
+	}
+	cwLogEvents.Append(key, time.Now(), items...)
 	if group, stream, ok := strings.Cut(key, ":"); ok {
 		cwLiveTailPublish(group, stream, events)
 	}
@@ -174,8 +193,7 @@ func cwRefreshStoredBytes() {
 		size := stream.CompressedBytes
 		if stream.CompressedThrough != stream.LastIngestionTime {
 			key := cwEventsKey(stream.LogGroupName, stream.LogStreamName)
-			events, _ := cwLogEvents.Get(key)
-			size = cwCompressedSize(events)
+			size = cwCompressedSize(cwLogEvents.Values(key))
 			through := stream.LastIngestionTime
 			cwLogStreams.Update(key, func(s *CWLogStream) {
 				s.CompressedBytes = size
@@ -234,21 +252,11 @@ func cwSweepExpiredLogEvents(now time.Time) int {
 			continue
 		}
 		key := cwEventsKey(stream.LogGroupName, stream.LogStreamName)
-		events, ok := cwLogEvents.Get(key)
-		if !ok || !slices.ContainsFunc(events, func(e CWLogEvent) bool { return e.Timestamp < cutoff }) {
+		n := cwLogEvents.Expire(key, time.UnixMilli(cutoff))
+		if n == 0 {
 			continue
 		}
-		cwLogEvents.Update(key, func(events *[]CWLogEvent) {
-			kept := make([]CWLogEvent, 0, len(*events))
-			for _, e := range *events {
-				if e.Timestamp < cutoff {
-					deleted++
-					continue
-				}
-				kept = append(kept, e)
-			}
-			*events = kept
-		})
+		deleted += n
 		cwLogStreams.Update(key, func(s *CWLogStream) { s.CompressedThrough = -1 })
 	}
 	return deleted
@@ -257,7 +265,10 @@ func cwSweepExpiredLogEvents(now time.Time) int {
 func registerCloudWatchLogs(r *AWSRouter, srv *sim.Server) {
 	cwLogGroups = sim.MakeStore[CWLogGroup](srv.DB(), "cw_log_groups")
 	cwLogStreams = sim.MakeStore[CWLogStream](srv.DB(), "cw_log_streams")
-	cwLogEvents = sim.MakeStore[[]CWLogEvent](srv.DB(), "cw_log_events")
+	cwLogEvents = cwNewLogEvents(srv.DB())
+	if err := cwMigrateLogEvents(srv.DB()); err != nil {
+		log.Fatalf("cloudwatch logs: %v", err)
+	}
 	cwSequences = sim.MakeStore[int64](srv.DB(), "cw_sequences")
 	cwQueries = sim.MakeStore[CWQuery](srv.DB(), "cw_insights_queries")
 	startStoreSweeperEvery(srv, cwRetentionSweepInterval, cwSweepLogs)
@@ -424,7 +435,7 @@ func handleCWDeleteLogGroup(w http.ResponseWriter, r *http.Request) {
 	for _, s := range streams {
 		key := cwEventsKey(req.LogGroupName, s.LogStreamName)
 		cwLogStreams.Delete(key)
-		cwLogEvents.Delete(key)
+		cwLogEvents.Drop(key)
 	}
 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -465,7 +476,7 @@ func handleCWCreateLogStream(w http.ResponseWriter, r *http.Request) {
 		UploadSequenceToken: cwNextSequenceToken(),
 	}
 	cwLogStreams.Put(key, ls)
-	cwLogEvents.Put(key, []CWLogEvent{})
+	cwLogEvents.Open(key)
 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
@@ -648,7 +659,7 @@ func handleCWGetLogEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	key := cwEventsKey(req.LogGroupName, req.LogStreamName)
-	events, ok := cwLogEvents.Get(key)
+	events, ok := cwStreamEvents(key)
 	if !ok {
 		AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
 			"The specified log stream does not exist: %s", req.LogStreamName)
@@ -795,7 +806,7 @@ func handleCWFilterLogEvents(w http.ResponseWriter, r *http.Request) {
 	var results []map[string]any
 	for _, stream := range streams {
 		key := cwEventsKey(req.LogGroupName, stream.LogStreamName)
-		events, ok := cwLogEvents.Get(key)
+		events, ok := cwStreamEvents(key)
 		if !ok {
 			continue
 		}

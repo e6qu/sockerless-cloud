@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"log"
 	"net"
 	"slices"
 	"strings"
@@ -213,7 +214,9 @@ func emitAuditLog(rec auditRecord) {
 		ProtoPayload:     payload,
 		Operation:        rec.operation,
 	}
-	writeLogEntries(entry.LogName, entry.Resource, nil, []LogEntry{entry})
+	if err := writeLogEntries(entry.LogName, entry.Resource, nil, []LogEntry{entry}); err != nil {
+		log.Printf("cloud audit logs: %v", err)
+	}
 	eventarcRouteAuditLog(entry, rec.project, rec.location)
 }
 

@@ -67,9 +67,7 @@ func TestComputeWaitOperationDeclaresItsBudget(t *testing.T) {
 
 // entries.tail streams until the client goes away, so it declares no bound.
 func TestLoggingEntriesTailDeclaresAnOpenEndedWait(t *testing.T) {
-	saved := logEntries
-	logEntries = sim.MakeStore[[]LogEntry](nil, "test_logging_entries_declared_wait")
-	t.Cleanup(func() { logEntries = saved })
+	useLoggingMemoryStores(t)
 
 	// The client has already gone, so the stream ends at its first wait.
 	ctx, cancel := context.WithCancel(context.Background())

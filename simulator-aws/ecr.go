@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 // ECR types
@@ -369,9 +370,20 @@ func handleECRDescribeRepositories(w http.ResponseWriter, r *http.Request) {
 		repos = []ECRRepository{}
 	}
 
-	page, next, pageOK := awsPage(w, ecrBadToken, repos, req.NextToken, req.MaxResults, 1000)
-	if !pageOK {
-		return
+	var page []ECRRepository
+	var next string
+	if len(req.RepositoryNames) == 0 {
+		var err error
+		page, next, err = listq.KeyPage(repos, func(r ECRRepository) string { return r.RepositoryName }, req.NextToken, req.MaxResults, 1000, 1000)
+		if err != nil {
+			ecrBadToken(w, req.NextToken)
+			return
+		}
+	} else {
+		var pageOK bool
+		if page, next, pageOK = awsPage(w, ecrBadToken, repos, req.NextToken, req.MaxResults, 1000); !pageOK {
+			return
+		}
 	}
 	out := map[string]any{"repositories": page}
 	if next != "" {

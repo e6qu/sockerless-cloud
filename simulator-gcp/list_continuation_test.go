@@ -3,16 +3,18 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	kmspb "cloud.google.com/go/kms/apiv1/kmspb"
 	pspb "cloud.google.com/go/pubsub/apiv1/pubsubpb"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/logstore"
 )
 
 // gcpContinuationList is one list method under test: put and del create and
@@ -259,28 +261,23 @@ func TestCloudLoggingEntriesResumeAfterTheLastEntryReturned(t *testing.T) {
 		{"timestamp desc", [8]string{"10", "08", "06", "05", "04", "03", "02", "01"}},
 	} {
 		t.Run(tc.orderBy, func(t *testing.T) {
-			saved := logEntries
-			t.Cleanup(func() { logEntries = saved })
-			logEntries = sim.MakeStore[[]LogEntry](nil, "test_logging_entries")
+			useLoggingMemoryStores(t)
 			const logName = "projects/p/logs/continuation"
+			minute := time.Now().UTC().Truncate(time.Minute).Add(-time.Hour)
 			gcpCheckContinuation(t, gcpContinuationList{
-				put: func(_ *testing.T, second string) {
-					entries, _ := logEntries.Get(logName)
-					logEntries.Put(logName, append(entries, LogEntry{
-						LogName:   logName,
+				put: func(t *testing.T, second string) {
+					s, _ := strconv.Atoi(second)
+					if err := writeLogEntries(logName, nil, nil, []LogEntry{{
 						InsertID:  second,
-						Timestamp: fmt.Sprintf("2026-01-01T00:00:%sZ", second),
-					}))
+						Timestamp: minute.Add(time.Duration(s) * time.Second).Format(time.RFC3339),
+					}}); err != nil {
+						t.Fatal(err)
+					}
 				},
 				del: func(_ *testing.T, second string) {
-					entries, _ := logEntries.Get(logName)
-					var kept []LogEntry
-					for _, entry := range entries {
-						if entry.InsertID != second {
-							kept = append(kept, entry)
-						}
-					}
-					logEntries.Put(logName, kept)
+					logEntries.Edit(logName, func(e *logstore.Entry[loggingStoredEntry]) (bool, bool) {
+						return e.Value.Entry.InsertID != second, false
+					})
 				},
 				page: func(t *testing.T, token string) ([]string, string) {
 					entries, next, err := listLogEntries("", []string{"projects/p"}, 2, token, tc.orderBy)
