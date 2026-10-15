@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -396,9 +395,8 @@ func handleCWDescribeLogGroups(w http.ResponseWriter, r *http.Request) {
 	if groups == nil {
 		groups = []CWLogGroup{}
 	}
-	sortBy(groups, func(g CWLogGroup) string { return g.LogGroupName })
 
-	page, next, pageOK := awsPage(w, logsBadToken, groups, req.NextToken, req.Limit, 50)
+	page, next, pageOK := awsKeyPage(w, logsBadToken, groups, func(it CWLogGroup) string { return it.LogGroupName }, req.NextToken, req.Limit, 50)
 	if !pageOK {
 		return
 	}
@@ -519,25 +517,19 @@ func handleCWDescribeLogStreams(w http.ResponseWriter, r *http.Request) {
 		streams = []CWLogStream{}
 	}
 
-	if req.OrderBy == "LastEventTime" {
-		desc := req.Descending != nil && *req.Descending
-		sort.Slice(streams, func(i, j int) bool {
-			if desc {
-				return streams[i].LastEventTimestamp > streams[j].LastEventTimestamp
-			}
-			return streams[i].LastEventTimestamp < streams[j].LastEventTimestamp
-		})
-	} else {
-		desc := req.Descending != nil && *req.Descending
-		sort.Slice(streams, func(i, j int) bool {
-			if desc {
-				return streams[i].LogStreamName > streams[j].LogStreamName
-			}
-			return streams[i].LogStreamName < streams[j].LogStreamName
-		})
+	desc := req.Descending != nil && *req.Descending
+	key := func(s CWLogStream) string {
+		k := s.LogStreamName
+		if req.OrderBy == "LastEventTime" {
+			k = awsIntKey(s.LastEventTimestamp) + "\x00" + k
+		}
+		if desc {
+			return awsDescKey(k)
+		}
+		return k
 	}
 
-	page, next, pageOK := awsPage(w, logsBadToken, streams, req.NextToken, req.Limit, 50)
+	page, next, pageOK := awsKeyPage(w, logsBadToken, streams, key, req.NextToken, req.Limit, 50)
 	if !pageOK {
 		return
 	}

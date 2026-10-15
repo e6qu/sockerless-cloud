@@ -629,12 +629,7 @@ func handleACMSearchCertificates(w http.ResponseWriter, r *http.Request) {
 			"CertificateMetadata": map[string]any{"AcmCertificateMetadata": meta},
 		})
 	}
-	sort.Slice(results, func(i, j int) bool {
-		a, _ := results[i]["CertificateArn"].(string)
-		b, _ := results[j]["CertificateArn"].(string)
-		return a < b
-	})
-	page, next, pageOK := awsPage(w, acmBadToken, results, req.NextToken, req.MaxResults, 0)
+	page, next, pageOK := awsKeyPage(w, acmBadToken, results, awsFieldKey("CertificateArn"), req.NextToken, req.MaxResults, 0)
 	if !pageOK {
 		return
 	}
@@ -1099,8 +1094,7 @@ func handleACMListCertificates(w http.ResponseWriter, r *http.Request) {
 			CreatedAt:                       c.CreatedAt,
 		})
 	}
-	sortBy(items, func(s acmCertSummary) string { return s.CertificateArn })
-	page, next, pageOK := awsPage(w, acmBadToken, items, req.NextToken, req.MaxItems, 0)
+	page, next, pageOK := awsKeyPage(w, acmBadToken, items, func(it acmCertSummary) string { return it.CertificateArn }, req.NextToken, req.MaxItems, 0)
 	if !pageOK {
 		return
 	}
@@ -1544,7 +1538,7 @@ func handleACMListCertificateDomainValidations(w http.ResponseWriter, r *http.Re
 		summaries = append(summaries, summary)
 	}
 
-	page, next, pageOK := awsPage(w, acmBadToken, summaries, req.NextToken, req.MaxItems, 0)
+	page, next, pageOK := awsSeqPage(w, acmBadToken, summaries, false, req.NextToken, req.MaxItems, 0)
 	if !pageOK {
 		return
 	}

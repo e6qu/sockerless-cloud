@@ -391,8 +391,7 @@ func handleDescribeHosts(w http.ResponseWriter, r *http.Request) {
 			results = append(results, h)
 		}
 	}
-	sort.Slice(results, func(i, j int) bool { return results[i].HostId < results[j].HostId })
-	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2Host) string { return it.HostId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -543,8 +542,7 @@ func handleDescribeMacHosts(w http.ResponseWriter, r *http.Request) {
 		}
 		results = append(results, h)
 	}
-	sort.Slice(results, func(i, j int) bool { return results[i].HostId < results[j].HostId })
-	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2Host) string { return it.HostId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -709,7 +707,7 @@ func handleDescribeInstanceEventWindows(w http.ResponseWriter, r *http.Request) 
 	sort.Slice(results, func(i, j int) bool { return results[i].InstanceEventWindowId < results[j].InstanceEventWindowId })
 	nextToken := ""
 	if len(ids) == 0 {
-		paged, pageNext, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+		paged, pageNext, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2InstanceEventWindow) string { return it.InstanceEventWindowId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 		if !pageOK {
 			return
 		}
@@ -1366,8 +1364,7 @@ func handleDescribeSnapshotTierStatus(w http.ResponseWriter, r *http.Request) {
 		}
 		results = append(results, s)
 	}
-	sort.Slice(results, func(i, j int) bool { return results[i].SnapshotId < results[j].SnapshotId })
-	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2Snapshot) string { return it.SnapshotId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -1573,8 +1570,7 @@ func handleDescribeVpcEndpointConnections(w http.ResponseWriter, r *http.Request
 		}
 		results = append(results, c)
 	}
-	sort.Slice(results, func(i, j int) bool { return results[i].VpcEndpointConnectionId < results[j].VpcEndpointConnectionId })
-	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2VpcEndpointConnection) string { return it.VpcEndpointConnectionId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -1697,10 +1693,7 @@ func handleDescribeVpcEndpointConnectionNotifications(w http.ResponseWriter, r *
 		}
 		results = append(results, n)
 	}
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].ConnectionNotificationId < results[j].ConnectionNotificationId
-	})
-	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2ConnectionNotification) string { return it.ConnectionNotificationId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -1832,8 +1825,7 @@ func handleDescribeVpcBlockPublicAccessExclusions(w http.ResponseWriter, r *http
 			results = append(results, e)
 		}
 	}
-	sort.Slice(results, func(i, j int) bool { return results[i].ExclusionId < results[j].ExclusionId })
-	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2VpcBpaExclusion) string { return it.ExclusionId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}

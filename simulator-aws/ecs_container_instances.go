@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -185,8 +184,7 @@ func handleECSListContainerInstances(w http.ResponseWriter, r *http.Request) {
 		}
 		arns = append(arns, ci.ContainerInstanceArn)
 	}
-	sort.Strings(arns)
-	page, next, pageOK := awsPage(w, ecsBadToken, arns, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsKeyPage(w, ecsBadToken, arns, func(it string) string { return it }, req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
 	}

@@ -200,7 +200,9 @@ func handleDescribeInstanceTypes(w http.ResponseWriter, r *http.Request) {
 
 	all, _ := ec2InstanceTypeCatalog()
 	candidates := all
-	if requested := ec2ParamList(r, "InstanceType"); len(requested) > 0 {
+	key := func(t ec2InstanceTypeFacts) string { return t.Name }
+	requested := ec2ParamList(r, "InstanceType")
+	if len(requested) > 0 {
 		candidates = nil
 		var missing []string
 		for _, name := range requested {
@@ -222,7 +224,7 @@ func handleDescribeInstanceTypes(w http.ResponseWriter, r *http.Request) {
 			matched = append(matched, t)
 		}
 	}
-	page, next, ok := awsPage(w, ec2BadToken, matched, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 100)
+	page, next, ok := awsNamedOrKeyPage(w, ec2BadToken, matched, len(requested) > 0, key, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 100)
 	if !ok {
 		return
 	}

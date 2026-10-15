@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -287,12 +286,11 @@ func handleGlueListSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	all := glueSessions.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].Id < all[j].Id })
 	maxR := 0
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, all, func(it GlueSession) string { return it.Id }, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -487,8 +485,7 @@ func handleGlueListStatements(w http.ResponseWriter, r *http.Request) {
 			filtered = append(filtered, st)
 		}
 	}
-	sort.Slice(filtered, func(i, j int) bool { return filtered[i].Id < filtered[j].Id })
-	page, nextTok, pageOK := awsPage(w, glueBadToken, filtered, req.NextToken, 0, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, filtered, func(it GlueStatement) string { return awsIntKey(int64(it.Id)) }, req.NextToken, 0, 100)
 	if !pageOK {
 		return
 	}
@@ -635,12 +632,11 @@ func handleGlueGetDevEndpoints(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	all := glueDevEndpoints.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].EndpointName < all[j].EndpointName })
 	maxR := 0
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, all, func(it GlueDevEndpoint) string { return it.EndpointName }, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -689,12 +685,11 @@ func handleGlueListDevEndpoints(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	all := glueDevEndpoints.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].EndpointName < all[j].EndpointName })
 	maxR := 0
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, all, func(it GlueDevEndpoint) string { return it.EndpointName }, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -879,12 +874,11 @@ func handleGlueListBlueprints(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	all := glueBlueprints.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 	maxR := 0
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, all, func(it GlueBlueprint) string { return it.Name }, req.NextToken, maxR, 25)
 	if !pageOK {
 		return
 	}
@@ -1027,12 +1021,11 @@ func handleGlueGetBlueprintRuns(w http.ResponseWriter, r *http.Request) {
 			filtered = append(filtered, run)
 		}
 	}
-	sort.Slice(filtered, func(i, j int) bool { return filtered[i].RunId < filtered[j].RunId })
 	maxR := 0
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, filtered, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, filtered, func(it GlueBlueprintRun) string { return it.RunId }, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}

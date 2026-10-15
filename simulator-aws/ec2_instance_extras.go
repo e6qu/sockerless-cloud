@@ -289,8 +289,7 @@ func handleDescribeIamInstanceProfileAssociations(w http.ResponseWriter, r *http
 			results = append(results, a)
 		}
 	}
-	sort.Slice(results, func(i, j int) bool { return results[i].AssociationId < results[j].AssociationId })
-	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2IamInstanceProfileAssociation) string { return it.AssociationId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -437,6 +436,7 @@ func ec2CpuCredits(instanceID string) string {
 func handleDescribeInstanceCreditSpecifications(w http.ResponseWriter, r *http.Request) {
 	ids := ec2ParamList(r, "InstanceId")
 	var insts []EC2Instance
+	key := func(inst EC2Instance) string { return inst.InstanceId }
 	if len(ids) > 0 {
 		for _, id := range ids {
 			inst, ok := ec2RequireInstance(w, id)
@@ -447,9 +447,8 @@ func handleDescribeInstanceCreditSpecifications(w http.ResponseWriter, r *http.R
 		}
 	} else {
 		insts = ec2Instances.List()
-		sort.Slice(insts, func(i, j int) bool { return insts[i].InstanceId < insts[j].InstanceId })
 	}
-	results, nextToken, pageOK := awsPage(w, ec2BadToken, insts, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	results, nextToken, pageOK := awsNamedOrKeyPage(w, ec2BadToken, insts, len(ids) > 0, key, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -708,7 +707,7 @@ func handleEC2DescribeInstanceImageMetadata(w http.ResponseWriter, r *http.Reque
 		}
 		results = append(results, inst)
 	}
-	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2Instance) string { return it.InstanceId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -779,7 +778,7 @@ func handleDescribeInstanceTopology(w http.ResponseWriter, r *http.Request) {
 		}
 		results = append(results, inst)
 	}
-	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2Instance) string { return it.InstanceId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -852,7 +851,7 @@ func ec2SqlHaSelected(r *http.Request) []EC2InstanceSqlHaState {
 
 func handleDescribeInstanceSqlHaStates(w http.ResponseWriter, r *http.Request) {
 	states := ec2SqlHaSelected(r)
-	results, nextToken, pageOK := awsPage(w, ec2BadToken, states, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, states, func(it EC2InstanceSqlHaState) string { return it.InstanceId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -873,7 +872,7 @@ func handleDescribeInstanceSqlHaStates(w http.ResponseWriter, r *http.Request) {
 
 func handleDescribeInstanceSqlHaHistoryStates(w http.ResponseWriter, r *http.Request) {
 	states := ec2SqlHaSelected(r)
-	results, nextToken, pageOK := awsPage(w, ec2BadToken, states, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, states, func(it EC2InstanceSqlHaState) string { return it.InstanceId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}

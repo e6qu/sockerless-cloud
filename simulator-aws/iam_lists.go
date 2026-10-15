@@ -109,7 +109,6 @@ func handleIAMListRoles(w http.ResponseWriter, r *http.Request) {
 		}
 		roles = append(roles, role)
 	}
-	sort.Slice(roles, func(i, j int) bool { return roles[i].RoleName < roles[j].RoleName })
 
 	maxItems := 0
 	if mi := r.FormValue("MaxItems"); mi != "" {
@@ -122,7 +121,7 @@ func handleIAMListRoles(w http.ResponseWriter, r *http.Request) {
 		}
 		maxItems = n
 	}
-	page, next, pageOK := awsPage(w, iamBadToken, roles, r.FormValue("Marker"), maxItems, 100)
+	page, next, pageOK := awsKeyPage(w, iamBadToken, roles, func(it IAMRole) string { return it.RoleName }, r.FormValue("Marker"), maxItems, 100)
 	if !pageOK {
 		return
 	}

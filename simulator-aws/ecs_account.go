@@ -2,7 +2,6 @@ package main
 
 import (
 	"net/http"
-	"sort"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -141,8 +140,7 @@ func handleECSListAccountSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		settings = append(settings, s)
 	}
-	sort.Slice(settings, func(i, j int) bool { return settings[i].Name < settings[j].Name })
-	page, next, pageOK := awsPage(w, ecsBadToken, settings, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsKeyPage(w, ecsBadToken, settings, func(it ECSAccountSetting) string { return it.Name + "\x00" + it.PrincipalArn }, req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
 	}

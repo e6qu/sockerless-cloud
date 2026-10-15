@@ -653,8 +653,7 @@ func handleSSMListAssociations(w http.ResponseWriter, r *http.Request) {
 		}
 		return true
 	})
-	sortBy(all, func(a SSMAssociation) string { return a.AssociationId })
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMAssociation) string { return it.AssociationId }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -711,7 +710,7 @@ func handleSSMListAssociationVersions(w http.ResponseWriter, r *http.Request) {
 	}
 	all := make([]SSMAssociationVersion, len(a.Versions))
 	copy(all, a.Versions)
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsSeqPage(w, ssmBadToken, all, false, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -762,7 +761,7 @@ func handleSSMDescribeAssociationExecutions(w http.ResponseWriter, r *http.Reque
 	a = ssmSettleAssociation(a)
 	all := make([]SSMAssociationExec, len(a.Executions))
 	copy(all, a.Executions)
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsSeqPage(w, ssmBadToken, all, false, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -833,7 +832,7 @@ func handleSSMDescribeAssociationExecutionTargets(w http.ResponseWriter, r *http
 			},
 		})
 	}
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsSeqPage(w, ssmBadToken, all, false, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -874,7 +873,7 @@ func handleSSMDescribeEffectiveInstanceAssociations(w http.ResponseWriter, r *ht
 			"AssociationVersion": a.AssociationVersion,
 		})
 	}
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 5)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, awsFieldKey("AssociationId"), req.NextToken, req.MaxResults, 5)
 	if !pageOK {
 		return
 	}
@@ -920,7 +919,7 @@ func handleSSMDescribeInstanceAssociationsStatus(w http.ResponseWriter, r *http.
 		}
 		all = append(all, entry)
 	}
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, awsFieldKey("AssociationId"), req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -1126,8 +1125,7 @@ func handleSSMDescribeAutomationExecutions(w http.ResponseWriter, r *http.Reques
 	if all == nil {
 		all = []SSMAutomationExecution{}
 	}
-	sortBy(all, func(e SSMAutomationExecution) string { return e.AutomationExecutionId })
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMAutomationExecution) string { return it.AutomationExecutionId }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -1175,14 +1173,7 @@ func handleSSMDescribeAutomationStepExecutions(w http.ResponseWriter, r *http.Re
 			"Automation execution %s couldn't be found.", req.AutomationExecutionId)
 		return
 	}
-	steps := make([]SSMAutomationStep, len(exec.Steps))
-	copy(steps, exec.Steps)
-	if req.ReverseOrder {
-		for i, j := 0, len(steps)-1; i < j; i, j = i+1, j-1 {
-			steps[i], steps[j] = steps[j], steps[i]
-		}
-	}
-	page, next, pageOK := awsPage(w, ssmBadToken, steps, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsSeqPage(w, ssmBadToken, exec.Steps, req.ReverseOrder, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -1449,8 +1440,7 @@ func handleSSMListCommands(w http.ResponseWriter, r *http.Request) {
 		}
 		return true
 	})
-	sortBy(all, func(c SSMCommand) string { return c.CommandId })
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMCommand) string { return it.CommandId }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -1493,8 +1483,7 @@ func handleSSMListCommandInvocations(w http.ResponseWriter, r *http.Request) {
 			all = append(all, inv{cmd: c, i: i})
 		}
 	}
-	sortBy(all, func(v inv) string { return v.cmd.CommandId + "/" + v.i.InstanceId })
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it inv) string { return it.cmd.CommandId + "/" + it.i.InstanceId }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}

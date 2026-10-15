@@ -10,7 +10,6 @@ import (
 	"math/big"
 	"net/http"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -351,7 +350,7 @@ func handleSFNListStateMachines(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, sfnBadToken, all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, sfnBadToken, all, func(it SFNStateMachine) string { return it.Name }, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -571,12 +570,11 @@ func handleSFNListStateMachineVersions(w http.ResponseWriter, r *http.Request) {
 			versions = append(versions, version)
 		}
 	}
-	sort.Slice(versions, func(i, j int) bool { return versions[i].Version > versions[j].Version })
 	maxResults := 0
 	if req.MaxResults != nil {
 		maxResults = *req.MaxResults
 	}
-	page, nextToken, pageOK := awsPage(w, sfnBadToken, versions, req.NextToken, maxResults, 100)
+	page, nextToken, pageOK := awsKeyPage(w, sfnBadToken, versions, func(it SFNStateMachineVersion) string { return awsDescKey(awsIntKey(int64(it.Version))) }, req.NextToken, maxResults, 100)
 	if !pageOK {
 		return
 	}
@@ -1556,13 +1554,6 @@ func handleSFNGetExecutionHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	events, _ := sfnHistories.Get(req.ExecutionArn)
-	if req.ReverseOrder {
-		reversed := make([]sfnHistoryEvent, len(events))
-		for index := range events {
-			reversed[index] = events[len(events)-1-index]
-		}
-		events = reversed
-	}
 	if req.IncludeExecutionData != nil && !*req.IncludeExecutionData {
 		events = sfnHistoryWithoutExecutionData(events)
 	}
@@ -1570,7 +1561,7 @@ func handleSFNGetExecutionHistory(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxResults = *req.MaxResults
 	}
-	page, nextToken, pageOK := awsPage(w, sfnBadToken, events, req.NextToken, maxResults, 100)
+	page, nextToken, pageOK := awsSeqPage(w, sfnBadToken, events, req.ReverseOrder, req.NextToken, maxResults, 100)
 	if !pageOK {
 		return
 	}
@@ -1625,13 +1616,12 @@ func handleSFNListExecutions(w http.ResponseWriter, r *http.Request) {
 		}
 		filtered = append(filtered, e)
 	}
-	sort.Slice(filtered, func(i, j int) bool { return filtered[i].StartDate > filtered[j].StartDate })
 
 	maxR := 0
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, sfnBadToken, filtered, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, sfnBadToken, filtered, func(it SFNExecution) string { return awsDescKey(awsFloatKey(it.StartDate)) + "\x00" + it.ExecutionArn }, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -1871,7 +1861,7 @@ func handleSFNListActivities(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, sfnBadToken, all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, sfnBadToken, all, func(it SFNActivity) string { return it.Name }, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -2284,12 +2274,13 @@ func handleSFNListStateMachineAliases(w http.ResponseWriter, r *http.Request) {
 			owned = append(owned, a)
 		}
 	}
-	sort.Slice(owned, func(i, j int) bool { return owned[i].CreationDate > owned[j].CreationDate })
 	maxR := 0
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, sfnBadToken, owned, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, sfnBadToken, owned, func(it SFNStateMachineAlias) string {
+		return awsDescKey(awsFloatKey(it.CreationDate)) + "\x00" + it.StateMachineAliasArn
+	}, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -2622,7 +2613,7 @@ func handleSFNListMapRuns(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, sfnBadToken, owned, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, sfnBadToken, owned, func(it SFNMapRun) string { return it.MapRunArn }, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}

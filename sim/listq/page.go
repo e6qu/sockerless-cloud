@@ -106,23 +106,29 @@ func TokenPage[T any](t Tokens, items []T, token string, size, def, max int) (pa
 // deleted before that key between two calls neither repeats nor skips one
 // after it. An empty token starts at the first item; any other token must be
 // one KeyPage issued. size, def and max combine as in Window.
+//
+// The token carries a marker byte ahead of the key, so a token another
+// paginator issued, or one a caller made up, fails as ErrBadToken instead of
+// reading as a key.
 func KeyPage[T any](items []T, key func(T) string, token string, size, def, max int) (page []T, next string, err error) {
 	start := 0
 	if token != "" {
 		raw, decodeErr := base64.RawURLEncoding.DecodeString(token)
-		if decodeErr != nil || len(raw) == 0 {
+		if decodeErr != nil || len(raw) < 2 || raw[0] != keyTokenMarker {
 			return nil, "", ErrBadToken
 		}
-		after := string(raw)
+		after := string(raw[1:])
 		start = sort.Search(len(items), func(i int) bool { return key(items[i]) > after })
 	}
 	_, end, _, _ := Window(Decimal, len(items)-start, "", size, def, max)
 	page = items[start : start+end]
 	if start+end < len(items) && len(page) > 0 {
-		next = base64.RawURLEncoding.EncodeToString([]byte(key(page[len(page)-1])))
+		next = base64.RawURLEncoding.EncodeToString(append([]byte{keyTokenMarker}, key(page[len(page)-1])...))
 	}
 	if page == nil {
 		page = []T{}
 	}
 	return page, next, nil
 }
+
+const keyTokenMarker = 0x6b

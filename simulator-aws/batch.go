@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -337,36 +336,45 @@ func handleBatchCreateComputeEnvironment(w http.ResponseWriter, r *http.Request)
 }
 
 func handleBatchDescribeComputeEnvironments(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ComputeEnvironments []string `json:"computeEnvironments"`
-		MaxResults          *int32   `json:"maxResults"`
-		NextToken           string   `json:"nextToken"`
-	}
+	batchDescribeEnvironments(w, r, "computeEnvironments", batchComputeEnvs,
+		func(ce BatchComputeEnvironment) string { return ce.ComputeEnvironmentName })
+}
+
+// batchDescribeEnvironments serves a Describe*Environments call: the
+// environments the request names under listField, in request order and
+// skipping names Batch does not hold, or every environment by name.
+func batchDescribeEnvironments[T any](w http.ResponseWriter, r *http.Request, listField string, store sim.Store[T], name func(T) string) {
+	var req map[string]json.RawMessage
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-
-	var result []BatchComputeEnvironment
-	if len(req.ComputeEnvironments) > 0 {
-		for _, nameOrARN := range req.ComputeEnvironments {
-			name := batchNameFromARN(nameOrARN)
-			if ce, ok := batchComputeEnvs.Get(name); ok {
-				result = append(result, ce)
+	var named []string
+	var maxResults *int32
+	var nextToken string
+	for field, target := range map[string]any{listField: &named, "maxResults": &maxResults, "nextToken": &nextToken} {
+		if raw, ok := req[field]; ok {
+			if err := json.Unmarshal(raw, target); err != nil {
+				batchWriteError(w, http.StatusBadRequest, "invalid JSON")
+				return
+			}
+		}
+	}
+	result := []T{}
+	if len(named) > 0 {
+		for _, nameOrARN := range named {
+			if env, ok := store.Get(batchNameFromARN(nameOrARN)); ok {
+				result = append(result, env)
 			}
 		}
 	} else {
-		result = batchComputeEnvs.List()
-		sort.Slice(result, func(i, j int) bool { return result[i].ComputeEnvironmentName < result[j].ComputeEnvironmentName })
+		result = append(result, store.List()...)
 	}
-	if result == nil {
-		result = []BatchComputeEnvironment{}
-	}
-	page, next, pageOK := awsPage(w, batchBadToken, result, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	page, next, pageOK := awsNamedOrKeyPage(w, batchBadToken, result, len(named) > 0, name, nextToken, awsMaxResults(maxResults), 0)
 	if !pageOK {
 		return
 	}
-	out := map[string]any{"computeEnvironments": page}
+	out := map[string]any{listField: page}
 	if next != "" {
 		out["nextToken"] = next
 	}
@@ -491,6 +499,7 @@ func handleBatchDescribeJobQueues(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
 	var result []BatchJobQueue
+	key := func(item BatchJobQueue) string { return item.JobQueueName }
 	if len(req.JobQueues) > 0 {
 		for _, nameOrARN := range req.JobQueues {
 			name := batchNameFromARN(nameOrARN)
@@ -500,12 +509,11 @@ func handleBatchDescribeJobQueues(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		result = batchJobQueues.List()
-		sort.Slice(result, func(i, j int) bool { return result[i].JobQueueName < result[j].JobQueueName })
 	}
 	if result == nil {
 		result = []BatchJobQueue{}
 	}
-	page, next, pageOK := awsPage(w, batchBadToken, result, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	page, next, pageOK := awsNamedOrKeyPage(w, batchBadToken, result, len(req.JobQueues) > 0, key, req.NextToken, awsMaxResults(req.MaxResults), 0)
 	if !pageOK {
 		return
 	}
@@ -679,11 +687,10 @@ func handleBatchDescribeJobDefinitions(w http.ResponseWriter, r *http.Request) {
 		}
 		result = append(result, jd)
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].JobDefinitionArn < result[j].JobDefinitionArn })
 	if result == nil {
 		result = []BatchJobDefinition{}
 	}
-	page, next, pageOK := awsPage(w, batchBadToken, result, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	page, next, pageOK := awsKeyPage(w, batchBadToken, result, func(it BatchJobDefinition) string { return it.JobDefinitionArn }, req.NextToken, awsMaxResults(req.MaxResults), 0)
 	if !pageOK {
 		return
 	}
@@ -983,20 +990,15 @@ func handleBatchListJobs(w http.ResponseWriter, r *http.Request) {
 		for _, child := range batchJobs.ListPrefix(req.ArrayJobID + ":") {
 			jobs = append(jobs, child.Item)
 		}
-		sort.Slice(jobs, func(i, j int) bool {
-			return *jobs[i].ArrayProperties.Index < *jobs[j].ArrayProperties.Index
-		})
 	case req.JobQueue != "":
 		queueName := batchNameFromARN(req.JobQueue)
 		jobs = batchJobs.Filter(func(job BatchJob) bool {
 			return job.ArrayJobID == "" && batchNameFromARN(job.JobQueue) == queueName
 		})
-		sort.Slice(jobs, func(i, j int) bool {
-			if jobs[i].CreatedAt != jobs[j].CreatedAt {
-				return jobs[i].CreatedAt > jobs[j].CreatedAt
-			}
-			return jobs[i].JobID < jobs[j].JobID
-		})
+	}
+	key := func(job BatchJob) string { return awsDescKey(awsIntKey(job.CreatedAt)) + "\x00" + job.JobID }
+	if req.ArrayJobID != "" {
+		key = func(job BatchJob) string { return awsIntKey(int64(*job.ArrayProperties.Index)) }
 	}
 
 	// A filter lists jobs in every status, except that SHARE_IDENTIFIER
@@ -1009,7 +1011,7 @@ func handleBatchListJobs(w http.ResponseWriter, r *http.Request) {
 	if filtered && req.Filters[0].Name != "SHARE_IDENTIFIER" {
 		status = ""
 	}
-	result := []map[string]any{}
+	selected := []BatchJob{}
 	for _, job := range jobs {
 		if filtered && !req.Filters[0].matches(job) {
 			continue
@@ -1017,13 +1019,17 @@ func handleBatchListJobs(w http.ResponseWriter, r *http.Request) {
 		if status != "" && job.Status != status {
 			continue
 		}
-		result = append(result, batchJobSummary(job))
+		selected = append(selected, job)
 	}
-	page, next, pageOK := awsPage(w, batchBadToken, result, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	page, next, pageOK := awsKeyPage(w, batchBadToken, selected, key, req.NextToken, awsMaxResults(req.MaxResults), 0)
 	if !pageOK {
 		return
 	}
-	out := map[string]any{"jobSummaryList": page}
+	summaries := make([]map[string]any, 0, len(page))
+	for _, job := range page {
+		summaries = append(summaries, batchJobSummary(job))
+	}
+	out := map[string]any{"jobSummaryList": summaries}
 	if next != "" {
 		out["nextToken"] = next
 	}
@@ -1184,12 +1190,11 @@ func handleBatchListSchedulingPolicies(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
 	all := batchSchedPols.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].Arn < all[j].Arn })
 	result := make([]map[string]any, 0, len(all))
 	for _, sp := range all {
 		result = append(result, map[string]any{"arn": sp.Arn})
 	}
-	page, next, pageOK := awsPage(w, batchBadToken, result, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	page, next, pageOK := awsKeyPage(w, batchBadToken, result, awsFieldKey("arn"), req.NextToken, awsMaxResults(req.MaxResults), 0)
 	if !pageOK {
 		return
 	}
@@ -1452,7 +1457,6 @@ func handleBatchListConsumableResources(w http.ResponseWriter, r *http.Request) 
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
 	all := batchConsumableRes.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].ConsumableResourceName < all[j].ConsumableResourceName })
 	result := make([]map[string]any, 0, len(all))
 	for _, cr := range all {
 		result = append(result, map[string]any{
@@ -1463,7 +1467,7 @@ func handleBatchListConsumableResources(w http.ResponseWriter, r *http.Request) 
 			"resourceType":           cr.ResourceType,
 		})
 	}
-	page, next, pageOK := awsPage(w, batchBadToken, result, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	page, next, pageOK := awsKeyPage(w, batchBadToken, result, awsFieldKey("consumableResourceName"), req.NextToken, awsMaxResults(req.MaxResults), 0)
 	if !pageOK {
 		return
 	}
@@ -1546,7 +1550,7 @@ func handleBatchListJobsByConsumableResource(w http.ResponseWriter, r *http.Requ
 	// simulator's container jobs do not draw against named consumable
 	// resources, so this returns an empty (but well-formed) page.
 	result := []map[string]any{}
-	page, next, pageOK := awsPage(w, batchBadToken, result, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	page, next, pageOK := awsKeyPage(w, batchBadToken, result, awsFieldKey("jobArn"), req.NextToken, awsMaxResults(req.MaxResults), 0)
 	if !pageOK {
 		return
 	}
@@ -1610,39 +1614,8 @@ func handleBatchCreateServiceEnvironment(w http.ResponseWriter, r *http.Request)
 }
 
 func handleBatchDescribeServiceEnvironments(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ServiceEnvironments []string `json:"serviceEnvironments"`
-		MaxResults          *int32   `json:"maxResults"`
-		NextToken           string   `json:"nextToken"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
-		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
-		return
-	}
-
-	var result []BatchServiceEnvironment
-	if len(req.ServiceEnvironments) > 0 {
-		for _, nameOrARN := range req.ServiceEnvironments {
-			if se, ok := batchServiceEnvs.Get(batchNameFromARN(nameOrARN)); ok {
-				result = append(result, se)
-			}
-		}
-	} else {
-		result = batchServiceEnvs.List()
-		sort.Slice(result, func(i, j int) bool { return result[i].ServiceEnvironmentName < result[j].ServiceEnvironmentName })
-	}
-	if result == nil {
-		result = []BatchServiceEnvironment{}
-	}
-	page, next, pageOK := awsPage(w, batchBadToken, result, req.NextToken, awsMaxResults(req.MaxResults), 0)
-	if !pageOK {
-		return
-	}
-	out := map[string]any{"serviceEnvironments": page}
-	if next != "" {
-		out["nextToken"] = next
-	}
-	batchWriteJSON(w, http.StatusOK, out)
+	batchDescribeEnvironments(w, r, "serviceEnvironments", batchServiceEnvs,
+		func(se BatchServiceEnvironment) string { return se.ServiceEnvironmentName })
 }
 
 func handleBatchUpdateServiceEnvironment(w http.ResponseWriter, r *http.Request) {
@@ -1849,15 +1822,10 @@ func handleBatchListServiceJobs(w http.ResponseWriter, r *http.Request) {
 			"createdAt":      job.CreatedAt,
 		})
 	}
-	sort.Slice(result, func(i, j int) bool {
-		a, _ := result[i]["jobId"].(string)
-		b, _ := result[j]["jobId"].(string)
-		return a < b
-	})
 	if result == nil {
 		result = []map[string]any{}
 	}
-	page, next, pageOK := awsPage(w, batchBadToken, result, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	page, next, pageOK := awsKeyPage(w, batchBadToken, result, awsFieldKey("jobId"), req.NextToken, awsMaxResults(req.MaxResults), 0)
 	if !pageOK {
 		return
 	}
@@ -2021,7 +1989,6 @@ func handleBatchListQuotaShares(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
 	all := batchQuotaShares.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].QuotaShareName < all[j].QuotaShareName })
 	result := make([]map[string]any, 0, len(all))
 	for _, qs := range all {
 		if req.JobQueue != "" && qs.JobQueueArn != batchARN("job-queue/"+batchNameFromARN(req.JobQueue)) {
@@ -2043,7 +2010,7 @@ func handleBatchListQuotaShares(w http.ResponseWriter, r *http.Request) {
 		}
 		result = append(result, entry)
 	}
-	page, next, pageOK := awsPage(w, batchBadToken, result, req.NextToken, awsMaxResults(req.MaxResults), 0)
+	page, next, pageOK := awsKeyPage(w, batchBadToken, result, awsFieldKey("quotaShareName"), req.NextToken, awsMaxResults(req.MaxResults), 0)
 	if !pageOK {
 		return
 	}

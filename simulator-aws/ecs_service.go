@@ -241,8 +241,7 @@ func handleECSListTaskDefinitionFamilies(w http.ResponseWriter, r *http.Request)
 		}
 		families = append(families, family)
 	}
-	sort.Strings(families)
-	page, next, pageOK := awsPage(w, ecsBadToken, families, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsKeyPage(w, ecsBadToken, families, func(it string) string { return it }, req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
 	}
@@ -550,8 +549,7 @@ func handleECSListServices(w http.ResponseWriter, r *http.Request) {
 			all = append(all, svc.ServiceArn)
 		}
 	}
-	sort.Strings(all)
-	page, next, pageOK := awsPage(w, ecsBadToken, all, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsKeyPage(w, ecsBadToken, all, func(it string) string { return it }, req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
 	}
@@ -575,8 +573,7 @@ func handleECSListClusters(w http.ResponseWriter, r *http.Request) {
 	for _, c := range ecsClusters.List() {
 		all = append(all, c.ClusterArn)
 	}
-	sort.Strings(all)
-	page, next, pageOK := awsPage(w, ecsBadToken, all, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsKeyPage(w, ecsBadToken, all, func(it string) string { return it }, req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
 	}
@@ -631,26 +628,22 @@ func handleECSListTaskDefinitions(w http.ResponseWriter, r *http.Request) {
 	}
 	// Order by family, then revision ascending (numeric, not lexical — so :10
 	// sorts after :2); sort=DESC returns newest-revision-first.
-	sort.Slice(defs, func(i, j int) bool {
-		if defs[i].family != defs[j].family {
-			return defs[i].family < defs[j].family
+	descending := strings.EqualFold(req.Sort, "DESC")
+	page, next, pageOK := awsKeyPage(w, ecsBadToken, defs, func(d tdRef) string {
+		k := d.family + "\x00" + awsIntKey(int64(d.revision))
+		if descending {
+			return awsDescKey(k)
 		}
-		return defs[i].revision < defs[j].revision
-	})
-	if strings.EqualFold(req.Sort, "DESC") {
-		for i, j := 0, len(defs)-1; i < j; i, j = i+1, j-1 {
-			defs[i], defs[j] = defs[j], defs[i]
-		}
-	}
-	all := make([]string, 0, len(defs))
-	for _, d := range defs {
-		all = append(all, d.arn)
-	}
-	page, next, pageOK := awsPage(w, ecsBadToken, all, req.NextToken, req.MaxResults, 100)
+		return k
+	}, req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
 	}
-	out := map[string]any{"taskDefinitionArns": page}
+	arns := make([]string, 0, len(page))
+	for _, d := range page {
+		arns = append(arns, d.arn)
+	}
+	out := map[string]any{"taskDefinitionArns": arns}
 	if next != "" {
 		out["nextToken"] = next
 	}

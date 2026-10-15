@@ -303,7 +303,7 @@ func handleGlueListDataQualityResultsV2(w http.ResponseWriter, r *http.Request) 
 		}
 		descs = append(descs, d)
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, descs, req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, descs, awsFieldKey("ResultId"), req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
 	if !pageOK {
 		return
 	}

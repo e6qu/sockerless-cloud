@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -506,8 +505,7 @@ func handleDescribeDhcpOptions(w http.ResponseWriter, r *http.Request) {
 	}
 	nextToken := ""
 	if len(ids) == 0 {
-		sort.Slice(results, func(i, j int) bool { return results[i].DhcpOptionsId < results[j].DhcpOptionsId })
-		paged, pageNext, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+		paged, pageNext, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2DhcpOptions) string { return it.DhcpOptionsId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 		if !pageOK {
 			return
 		}

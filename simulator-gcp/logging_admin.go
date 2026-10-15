@@ -50,7 +50,6 @@ var loggingScopes = []loggingScope{
 
 // loggingAdmin* stores keyed by full resource name.
 var (
-	logExclusions   sim.Store[LogExclusion]
 	logBuckets      sim.Store[LogBucket]
 	logViews        sim.Store[LogView]
 	logLinks        sim.Store[LogLink]
@@ -59,16 +58,6 @@ var (
 	logSettings     sim.Store[LoggingSettings]
 	logOperations   sim.Store[Operation]
 )
-
-// LogExclusion is a logging/v2 LogExclusion resource.
-type LogExclusion struct {
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description,omitempty"`
-	Filter      string `json:"filter,omitempty"`
-	Disabled    bool   `json:"disabled,omitempty"`
-	CreateTime  string `json:"createTime,omitempty"`
-	UpdateTime  string `json:"updateTime,omitempty"`
-}
 
 // LogBucket is a logging/v2 LogBucket resource.
 type LogBucket struct {
@@ -136,7 +125,6 @@ type LoggingSettings struct {
 }
 
 func registerCloudLoggingAdmin(srv *sim.Server) {
-	logExclusions = sim.MakeStore[LogExclusion](srv.DB(), "logging_exclusions")
 	logBuckets = sim.MakeStore[LogBucket](srv.DB(), "logging_buckets")
 	logViews = sim.MakeStore[LogView](srv.DB(), "logging_views")
 	logLinks = sim.MakeStore[LogLink](srv.DB(), "logging_links")
@@ -353,13 +341,11 @@ func handleLoggingScopeGetSink(w http.ResponseWriter, r *http.Request) {
 func handleLoggingScopeUpdateSink(w http.ResponseWriter, r *http.Request) {
 	parent := loggingScopeParent(r)
 	key := parent + "/sinks/" + sim.PathParam(r, "sink")
-	var sink LoggingSink
-	if err := sim.ReadJSON(r, &sink); err != nil {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid sink body: %v", err)
+	loggingEnsureDefaults(parent)
+	sink, ok := loggingUpdateSink(w, r, key)
+	if !ok {
 		return
 	}
-	sink.Name = key
-	loggingEnsureDefaults(parent)
 	if !loggingSinkAdmissible(w, sink, false) || !loggingScopeWriterIdentity(w, parent, &sink) {
 		return
 	}
@@ -375,90 +361,6 @@ func handleLoggingScopeDeleteSink(w http.ResponseWriter, r *http.Request) {
 	}
 	if !logSinks.Delete(key) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "sink %s not found", key)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{})
-}
-
-func handleLoggingCreateExclusion(w http.ResponseWriter, r *http.Request) {
-	parent := loggingScopeParent(r)
-	var ex LogExclusion
-	if err := sim.ReadJSON(r, &ex); err != nil {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid exclusion: %v", err)
-		return
-	}
-	short := lastSegment(ex.Name)
-	if short == "" {
-		short = sim.NewUUID()
-	}
-	ex.Name = parent + "/exclusions/" + short
-	if _, err := parseLogFilter(ex.Filter); err != nil {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "exclusion filter: %v", err)
-		return
-	}
-	now := nowTimestamp()
-	ex.CreateTime, ex.UpdateTime = now, now
-	logExclusions.Put(ex.Name, ex)
-	sim.WriteJSON(w, http.StatusOK, ex)
-}
-
-func handleLoggingListExclusions(w http.ResponseWriter, r *http.Request) {
-	prefix := loggingScopeParent(r) + "/exclusions/"
-	items := logExclusions.Filter(func(e LogExclusion) bool { return strings.HasPrefix(e.Name, prefix) })
-	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	page, next, ok := paginateList(w, r, items, gcpAsc(func(v LogExclusion) string { return v.Name }))
-	if !ok {
-		return
-	}
-	resp := map[string]any{"exclusions": page}
-	if next != "" {
-		resp["nextPageToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
-}
-
-func handleLoggingGetExclusion(w http.ResponseWriter, r *http.Request) {
-	key := loggingScopeParent(r) + "/exclusions/" + sim.PathParam(r, "exclusion")
-	ex, ok := logExclusions.Get(key)
-	if !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "exclusion %s not found", key)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, ex)
-}
-
-func handleLoggingPatchExclusion(w http.ResponseWriter, r *http.Request) {
-	key := loggingScopeParent(r) + "/exclusions/" + sim.PathParam(r, "exclusion")
-	cur, ok := logExclusions.Get(key)
-	if !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "exclusion %s not found", key)
-		return
-	}
-	var upd LogExclusion
-	if err := sim.ReadJSON(r, &upd); err != nil {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid exclusion: %v", err)
-		return
-	}
-	if upd.Description != "" {
-		cur.Description = upd.Description
-	}
-	if upd.Filter != "" {
-		if _, err := parseLogFilter(upd.Filter); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "exclusion filter: %v", err)
-			return
-		}
-		cur.Filter = upd.Filter
-	}
-	cur.Disabled = upd.Disabled
-	cur.UpdateTime = nowTimestamp()
-	logExclusions.Put(key, cur)
-	sim.WriteJSON(w, http.StatusOK, cur)
-}
-
-func handleLoggingDeleteExclusion(w http.ResponseWriter, r *http.Request) {
-	key := loggingScopeParent(r) + "/exclusions/" + sim.PathParam(r, "exclusion")
-	if !logExclusions.Delete(key) {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "exclusion %s not found", key)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
@@ -616,6 +518,7 @@ func handleLoggingCreateBucket(w http.ResponseWriter, r *http.Request) {
 	now := nowTimestamp()
 	b.CreateTime, b.UpdateTime = now, now
 	logBuckets.Put(b.Name, b)
+	loggingEnsureViews(b.Name)
 	sim.WriteJSON(w, http.StatusOK, b)
 }
 
@@ -647,6 +550,7 @@ func handleLoggingCreateBucketAsync(w http.ResponseWriter, r *http.Request) {
 	now := nowTimestamp()
 	b.CreateTime, b.UpdateTime = now, now
 	logBuckets.Put(b.Name, b)
+	loggingEnsureViews(b.Name)
 	sim.WriteJSON(w, http.StatusOK, loggingNewOperation(parent, b, "type.googleapis.com/google.logging.v2.LogBucket",
 		loggingOperationMetadata("BucketMetadata", "createBucketRequest", request, started)))
 }
@@ -796,6 +700,14 @@ func handleLoggingCreateView(w http.ResponseWriter, r *http.Request) {
 		id = sim.NewUUID()
 	}
 	v.Name = parent + "/views/" + id
+	if loggingIsBuiltInView(v.Name) {
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "view %s already exists", v.Name)
+		return
+	}
+	if _, err := loggingViewMatcher(v.Filter); err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "view filter: %v", err)
+		return
+	}
 	now := nowTimestamp()
 	v.CreateTime, v.UpdateTime = now, now
 	logViews.Put(v.Name, v)
@@ -804,6 +716,11 @@ func handleLoggingCreateView(w http.ResponseWriter, r *http.Request) {
 
 func handleLoggingListViews(w http.ResponseWriter, r *http.Request) {
 	loggingEnsureDefaults(loggingScopeParent(r))
+	if bucket := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket"); logBuckets != nil {
+		if _, ok := logBuckets.Get(bucket); ok {
+			loggingEnsureViews(bucket)
+		}
+	}
 	prefix := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket") + "/views/"
 	items := logViews.Filter(func(v LogView) bool { return strings.HasPrefix(v.Name, prefix) })
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
@@ -820,6 +737,11 @@ func handleLoggingListViews(w http.ResponseWriter, r *http.Request) {
 
 func handleLoggingGetView(w http.ResponseWriter, r *http.Request) {
 	loggingEnsureDefaults(loggingScopeParent(r))
+	if bucket := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket"); logBuckets != nil {
+		if _, ok := logBuckets.Get(bucket); ok {
+			loggingEnsureViews(bucket)
+		}
+	}
 	key := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket") + "/views/" + sim.PathParam(r, "view")
 	v, ok := logViews.Get(key)
 	if !ok {
@@ -861,7 +783,15 @@ func handleLoggingPatchView(w http.ResponseWriter, r *http.Request) {
 	if upd.Description != "" {
 		cur.Description = upd.Description
 	}
+	if loggingIsBuiltInView(key) && (upd.Filter != "" && upd.Filter != cur.Filter) {
+		GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "view %s is built in and its filter cannot be changed", key)
+		return
+	}
 	if upd.Filter != "" {
+		if _, err := loggingViewMatcher(upd.Filter); err != nil {
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "view filter: %v", err)
+			return
+		}
 		cur.Filter = upd.Filter
 	}
 	cur.UpdateTime = nowTimestamp()
@@ -871,6 +801,10 @@ func handleLoggingPatchView(w http.ResponseWriter, r *http.Request) {
 
 func handleLoggingDeleteView(w http.ResponseWriter, r *http.Request) {
 	key := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket") + "/views/" + sim.PathParam(r, "view")
+	if loggingIsBuiltInView(key) {
+		GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "view %s is built in and cannot be deleted", key)
+		return
+	}
 	if !logViews.Delete(key) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "view %s not found", key)
 		return
@@ -1203,7 +1137,7 @@ func handleLoggingEntriesCopy(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid filter: %v", err)
 		return
 	}
-	entries, err := loggingBucketEntries(scope, body.Name, filter)
+	entries, err := loggingBucketEntries(body.Name, filter)
 	if err != nil {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 		return
@@ -1239,13 +1173,13 @@ func loggingBucketParts(name string) (scope, location string, ok bool) {
 	return "", "", false
 }
 
-// loggingBucketEntries returns, oldest first, the entries of scope's logs that
-// a log bucket holds and the filter matches: the copies the scope's sinks
-// routed to the bucket at ingestion that its retention still keeps.
-func loggingBucketEntries(scope, bucket string, filter listq.Node) ([]LogEntry, error) {
+// loggingBucketEntries returns, oldest first, the entries a log bucket holds
+// and the filter matches: the copies sinks of any project routed to the
+// bucket at ingestion that its retention still keeps.
+func loggingBucketEntries(bucket string, filter listq.Node) ([]LogEntry, error) {
 	cutoffs := loggingBucketCutoffs(time.Now())
 	var held []LogEntry
-	for _, log := range logEntries.Scopes(scope + "/logs/") {
+	for _, log := range logEntries.Scopes("") {
 		for _, e := range logEntries.Entries(log) {
 			if !loggingHeldIn(e, bucket, cutoffs) {
 				continue
@@ -1429,9 +1363,13 @@ func newLROFromResource(name string, resource any, typeName string, metadata map
 }
 
 // loggingLogNames returns, sorted, the logs under prefix that a bucket still
-// holds an entry of, or, with bucket set, that bucket holds one of.
+// holds an entry of, or, with bucket set, the logs of any project that bucket
+// holds an entry of.
 func loggingLogNames(prefix, bucket string) []string {
 	cutoffs := loggingBucketCutoffs(time.Now())
+	if bucket != "" {
+		prefix = ""
+	}
 	var names []string
 	for _, log := range logEntries.Scopes(prefix) {
 		if slices.ContainsFunc(logEntries.Entries(log), func(e logstore.Entry[loggingStoredEntry]) bool {

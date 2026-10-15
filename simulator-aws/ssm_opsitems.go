@@ -484,8 +484,7 @@ func handleSSMDescribeOpsItems(w http.ResponseWriter, r *http.Request) {
 	if all == nil {
 		all = []SSMOpsItem{}
 	}
-	sortBy(all, func(o SSMOpsItem) string { return o.OpsItemId })
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMOpsItem) string { return it.OpsItemId }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -592,8 +591,7 @@ func handleSSMListOpsItemEvents(w http.ResponseWriter, r *http.Request) {
 		}
 		all = append(all, ev)
 	}
-	sortBy(all, func(e SSMOpsItemEvent) string { return e.EventId })
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMOpsItemEvent) string { return it.EventId }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -633,8 +631,7 @@ func handleSSMListOpsItemRelatedItems(w http.ResponseWriter, r *http.Request) {
 		}
 		all = append(all, rel)
 	}
-	sortBy(all, func(rel SSMOpsItemRelatedItem) string { return rel.AssociationId })
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMOpsItemRelatedItem) string { return it.AssociationId }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -745,7 +742,7 @@ func handleSSMDescribeMaintenanceWindowExecutions(w http.ResponseWriter, r *http
 		"StartTime":         m.CreatedDate,
 		"EndTime":           m.CreatedDate + 60,
 	}}
-	page, next, pageOK := awsPage(w, ssmBadToken, out, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, out, awsFieldKey("WindowExecutionId"), req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -787,7 +784,7 @@ func handleSSMDescribeMaintenanceWindowExecutionTasks(w http.ResponseWriter, r *
 	if rows == nil {
 		rows = []map[string]any{}
 	}
-	page, next, pageOK := awsPage(w, ssmBadToken, rows, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, rows, awsFieldKey("TaskExecutionId"), req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -836,7 +833,7 @@ func handleSSMDescribeMaintenanceWindowExecutionTaskInvocations(w http.ResponseW
 	if rows == nil {
 		rows = []map[string]any{}
 	}
-	page, next, pageOK := awsPage(w, ssmBadToken, rows, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, rows, awsFieldKey("InvocationId"), req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -1029,11 +1026,10 @@ func handleSSMDescribeMaintenanceWindowSchedule(w http.ResponseWriter, r *http.R
 			"ExecutionTime": time.Unix(int64(m.CreatedDate)+86400, 0).UTC().Format(time.RFC3339),
 		})
 	}
-	sort.Slice(rows, func(i, j int) bool { return fmt.Sprint(rows[i]["WindowId"]) < fmt.Sprint(rows[j]["WindowId"]) })
 	if rows == nil {
 		rows = []map[string]any{}
 	}
-	page, next, pageOK := awsPage(w, ssmBadToken, rows, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, rows, awsFieldKey("WindowId"), req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -1074,11 +1070,10 @@ func handleSSMDescribeMaintenanceWindowsForTarget(w http.ResponseWriter, r *http
 			"Name":     m.Name,
 		})
 	}
-	sort.Slice(rows, func(i, j int) bool { return fmt.Sprint(rows[i]["WindowId"]) < fmt.Sprint(rows[j]["WindowId"]) })
 	if rows == nil {
 		rows = []map[string]any{}
 	}
-	page, next, pageOK := awsPage(w, ssmBadToken, rows, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, rows, awsFieldKey("WindowId"), req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -1366,8 +1361,7 @@ func handleSSMDescribeSessions(w http.ResponseWriter, r *http.Request) {
 		}
 		all = append(all, s)
 	}
-	sortBy(all, func(s SSMSession) string { return s.SessionId })
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMSession) string { return it.SessionId }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -1513,8 +1507,7 @@ func handleSSMDescribeActivations(w http.ResponseWriter, r *http.Request) {
 	if all == nil {
 		all = []SSMActivation{}
 	}
-	sortBy(all, func(a SSMActivation) string { return a.ActivationId })
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 0)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMActivation) string { return it.ActivationId }, req.NextToken, req.MaxResults, 0)
 	if !pageOK {
 		return
 	}

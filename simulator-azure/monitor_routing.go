@@ -32,9 +32,7 @@ func appendWorkspaceLogRow(customerID, table string, row monitorLogRow) {
 
 // dropLogRows deletes the rows a store key holds.
 func dropLogRows(key string) {
-	logMu.Lock()
-	defer logMu.Unlock()
-	monitorLogs.Delete(key)
+	monitorLogs.Drop(key)
 }
 
 // dropWorkspaceLogs deletes a workspace's rows and tables.
@@ -253,12 +251,10 @@ func (s logScope) rows(table string) []monitorLogRow {
 		keys = append(keys, appLogRowsKey(s.appID, table))
 	}
 	prefix := strings.ToLower(s.resourceID)
+	now := time.Now()
 	var out []monitorLogRow
-	logMu.RLock()
-	defer logMu.RUnlock()
 	for _, key := range keys {
-		rows, _ := monitorLogs.Get(key)
-		for _, row := range rows {
+		for _, row := range monitorQueryableRows(key, now) {
 			if prefix != "" {
 				rid := strings.ToLower(row["_ResourceId"])
 				if rid != prefix && !strings.HasPrefix(rid, prefix+"/") {

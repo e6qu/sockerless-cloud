@@ -782,17 +782,12 @@ func acrWriteAccessToken(w http.ResponseWriter, reg Registry, identity acrTokenI
 }
 
 // writeACRRegistryList emits a paginated {value, nextLink} envelope of the
-// registries matching keep. Pagination engages only when the client supplies an
-// explicit $top (armPage default otherwise returns the full list).
+// registries matching keep, ordered by resource ID.
 func writeACRRegistryList(w http.ResponseWriter, r *http.Request, registries sim.Store[Registry], keep func(Registry) bool) {
 	matched := registries.Filter(keep)
-	sort.Slice(matched, func(i, j int) bool { return matched[i].ID < matched[j].ID })
-	page, next, pageOK := armPage(w, r, matched)
+	page, next, pageOK := armPage(w, r, matched, func(reg Registry) string { return reg.ID })
 	if !pageOK {
 		return
-	}
-	if page == nil {
-		page = []Registry{}
 	}
 	out := map[string]any{"value": page}
 	if next != "" {

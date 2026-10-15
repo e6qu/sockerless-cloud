@@ -1,6 +1,7 @@
 package listq
 
 import (
+	"encoding/base64"
 	"slices"
 	"testing"
 )
@@ -19,8 +20,10 @@ func TestKeyPageHoldsItsPlaceAcrossChanges(t *testing.T) {
 	if err != nil || !slices.Equal(second, []string{"c", "d"}) || next != "" {
 		t.Fatalf("second page after a change = %v %q %v", second, next, err)
 	}
-	if _, _, err := KeyPage(items, id, "!", 2, 0, 0); err != ErrBadToken {
-		t.Errorf("a token KeyPage never issued = %v, want ErrBadToken", err)
+	for _, foreign := range []string{"!", "not-a-token", "Mw", base64.RawURLEncoding.EncodeToString([]byte("b"))} {
+		if _, _, err := KeyPage(items, id, foreign, 2, 0, 0); err != ErrBadToken {
+			t.Errorf("a token KeyPage never issued (%q) = %v, want ErrBadToken", foreign, err)
+		}
 	}
 	if page, next, err := KeyPage(items, id, "", 0, 0, 0); err != nil || len(page) != 4 || next != "" {
 		t.Errorf("an unbounded page = %v %q %v", page, next, err)

@@ -231,8 +231,7 @@ func handleCWDescribeMetricFilters(w http.ResponseWriter, r *http.Request) {
 	if filters == nil {
 		filters = []CWMetricFilter{}
 	}
-	sortBy(filters, func(f CWMetricFilter) string { return f.FilterName })
-	page, next, pageOK := awsPage(w, logsBadToken, filters, req.NextToken, req.Limit, 50)
+	page, next, pageOK := awsKeyPage(w, logsBadToken, filters, func(it CWMetricFilter) string { return it.FilterName + "\x00" + it.LogGroupName }, req.NextToken, req.Limit, 50)
 	if !pageOK {
 		return
 	}
@@ -377,8 +376,7 @@ func handleCWDescribeSubscriptionFilters(w http.ResponseWriter, r *http.Request)
 	if filters == nil {
 		filters = []CWSubscriptionFilter{}
 	}
-	sortBy(filters, func(f CWSubscriptionFilter) string { return f.FilterName })
-	page, next, pageOK := awsPage(w, logsBadToken, filters, req.NextToken, req.Limit, 50)
+	page, next, pageOK := awsKeyPage(w, logsBadToken, filters, func(it CWSubscriptionFilter) string { return it.FilterName }, req.NextToken, req.Limit, 50)
 	if !pageOK {
 		return
 	}
@@ -584,8 +582,7 @@ func handleCWDescribeExportTasks(w http.ResponseWriter, r *http.Request) {
 	if tasks == nil {
 		tasks = []CWExportTask{}
 	}
-	sortBy(tasks, func(t CWExportTask) string { return t.TaskId })
-	page, next, pageOK := awsPage(w, logsBadToken, tasks, req.NextToken, req.Limit, 50)
+	page, next, pageOK := awsKeyPage(w, logsBadToken, tasks, func(it CWExportTask) string { return it.TaskId }, req.NextToken, req.Limit, 50)
 	if !pageOK {
 		return
 	}

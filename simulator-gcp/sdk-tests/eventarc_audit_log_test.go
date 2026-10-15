@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"cloud.google.com/go/eventarc/apiv1/eventarcpb"
-	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"cloud.google.com/go/logging/logadmin"
 	"cloud.google.com/go/pubsub/apiv1/pubsubpb"
 	"cloud.google.com/go/run/apiv2/runpb"
@@ -22,7 +21,6 @@ import (
 	"google.golang.org/api/option"
 	storageapi "google.golang.org/api/storage/v1"
 	"google.golang.org/genproto/googleapis/cloud/audit"
-	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 // cloudEvent is what the log-cloudevent workload wrote for one CloudEvent it
@@ -34,20 +32,14 @@ type cloudEvent struct {
 
 // awaitServiceCloudEvent waits on the Cloud Run service's stdout log, through
 // TailLogEntries, for the first CloudEvent the log-cloudevent workload wrote.
-// It opens the tail before reading what the log already holds, so an event
-// that lands between the two is in one or the other.
+// It waits for the tail to stream before reading what the log already holds,
+// so an event is in one or the other.
 func awaitServiceCloudEvent(t *testing.T, serviceID string) cloudEvent {
 	t.Helper()
 	filter := `resource.type="cloud_run_revision" AND resource.labels.service_name="` + serviceID + `"`
 	tailCtx, cancel := context.WithTimeout(ctx, jobLogWaitTimeout)
 	defer cancel()
-	stream, err := newLoggingV2Client(t).TailLogEntries(tailCtx)
-	require.NoError(t, err)
-	require.NoError(t, stream.Send(&loggingpb.TailLogEntriesRequest{
-		ResourceNames: []string{"projects/test-project"},
-		Filter:        filter,
-		BufferWindow:  durationpb.New(0),
-	}))
+	stream, early := openReadyTail(t, tailCtx, newLoggingV2Client(t), "test-project", filter)
 	parse := func(text string) (cloudEvent, bool) {
 		line, ok := strings.CutPrefix(text, "CLOUDEVENT ")
 		if !ok {
@@ -56,6 +48,11 @@ func awaitServiceCloudEvent(t *testing.T, serviceID string) cloudEvent {
 		var event cloudEvent
 		require.NoError(t, json.Unmarshal([]byte(line), &event))
 		return event, true
+	}
+	for _, entry := range early {
+		if event, ok := parse(entry.GetTextPayload()); ok {
+			return event
+		}
 	}
 	it := logadminClient(t).Entries(ctx, logadmin.Filter(filter))
 	for {

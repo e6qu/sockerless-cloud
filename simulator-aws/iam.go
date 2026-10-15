@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"sort"
 	"strings"
 	"time"
 
@@ -458,9 +457,8 @@ func handleIAMListAttachedRolePolicies(w http.ResponseWriter, r *http.Request) {
 	policies := iamAttachedPolicies.Filter(func(p IAMAttachedPolicy) bool {
 		return p.RoleName == roleName
 	})
-	sort.Slice(policies, func(i, j int) bool { return policies[i].PolicyArn < policies[j].PolicyArn })
 
-	page, next, pageOK := awsPage(w, iamBadToken, policies, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
+	page, next, pageOK := awsKeyPage(w, iamBadToken, policies, func(it IAMAttachedPolicy) string { return it.PolicyArn }, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -485,8 +483,7 @@ func handleIAMListInstanceProfilesForRole(w http.ResponseWriter, r *http.Request
 	profiles := iamInstanceProfiles.Filter(func(ip IAMInstanceProfile) bool {
 		return ip.RoleName == roleName
 	})
-	sort.Slice(profiles, func(i, j int) bool { return profiles[i].InstanceProfileName < profiles[j].InstanceProfileName })
-	page, next, pageOK := awsPage(w, iamBadToken, profiles, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
+	page, next, pageOK := awsKeyPage(w, iamBadToken, profiles, func(it IAMInstanceProfile) string { return it.InstanceProfileName }, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -509,8 +506,7 @@ func handleIAMListRolePolicies(w http.ResponseWriter, r *http.Request) {
 	policies := iamRolePolicies.Filter(func(p IAMRolePolicy) bool {
 		return p.RoleName == roleName
 	})
-	sort.Slice(policies, func(i, j int) bool { return policies[i].PolicyName < policies[j].PolicyName })
-	page, next, pageOK := awsPage(w, iamBadToken, policies, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
+	page, next, pageOK := awsKeyPage(w, iamBadToken, policies, func(it IAMRolePolicy) string { return it.PolicyName }, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -629,9 +625,8 @@ func handleIAMDeletePolicy(w http.ResponseWriter, r *http.Request) {
 
 func handleIAMListPolicies(w http.ResponseWriter, r *http.Request) {
 	policies := iamPolicies.List()
-	sort.Slice(policies, func(i, j int) bool { return policies[i].Arn < policies[j].Arn })
 
-	page, next, pageOK := awsPage(w, iamBadToken, policies, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
+	page, next, pageOK := awsKeyPage(w, iamBadToken, policies, func(it IAMPolicy) string { return it.Arn }, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -730,9 +725,8 @@ func handleIAMDeleteInstanceProfile(w http.ResponseWriter, r *http.Request) {
 
 func handleIAMListInstanceProfiles(w http.ResponseWriter, r *http.Request) {
 	profiles := iamInstanceProfiles.List()
-	sort.Slice(profiles, func(i, j int) bool { return profiles[i].InstanceProfileName < profiles[j].InstanceProfileName })
 
-	page, next, pageOK := awsPage(w, iamBadToken, profiles, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
+	page, next, pageOK := awsKeyPage(w, iamBadToken, profiles, func(it IAMInstanceProfile) string { return it.InstanceProfileName }, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
 	if !pageOK {
 		return
 	}

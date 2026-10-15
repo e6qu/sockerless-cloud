@@ -164,7 +164,10 @@ func handleGlueGetUnfilteredPartitionsMetadata(w http.ResponseWriter, r *http.Re
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, unfiltered, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, unfiltered, func(it map[string]any) string {
+		p, _ := it["Partition"].(GluePartition)
+		return gluePartitionKey(p.DatabaseName, p.TableName, p.Values)
+	}, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -289,7 +292,11 @@ func handleGlueListDataQualityStatisticAnnotations(w http.ResponseWriter, r *htt
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, annotations, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, annotations, func(it map[string]any) string {
+		profile, _ := it["ProfileId"].(string)
+		statistic, _ := it["StatisticId"].(string)
+		return profile + "\x00" + statistic
+	}, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}

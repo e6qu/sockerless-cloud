@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -719,8 +718,7 @@ func handleASXDescribeInstanceRefreshes(w http.ResponseWriter, r *http.Request) 
 		}
 		refs = append(refs, ref)
 	}
-	sort.Slice(refs, func(i, j int) bool { return refs[i].StartTime > refs[j].StartTime })
-	page, next, pageOK := awsPage(w, asBadToken, refs, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
+	page, next, pageOK := awsKeyPage(w, asBadToken, refs, func(it ASInstanceRefresh) string { return awsDescKey(it.StartTime) + "\x00" + it.InstanceRefreshId }, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
 	if !pageOK {
 		return
 	}

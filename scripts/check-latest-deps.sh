@@ -11,7 +11,7 @@
 #   2. Terraform providers across every required_providers block — check the
 #      version constraint against the newest registry version that has cleared
 #      the quarantine. Any drift fails.
-#   3. GitHub Actions in .github/workflows — every owner/repo action must be
+#   3. GitHub Actions in .github/workflows and .github/actions — every owner/repo action must be
 #      pinned to the newest published semantic version tag that has cleared the
 #      quarantine.
 #   4. Go tools a workflow installs — every `go install <pkg>@<version>` must
@@ -698,7 +698,7 @@ if [[ -d .github/workflows ]]; then
           if (ref ~ /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+@/) print FILENAME "|" ref
         }
       ' "$workflow_file"
-    done < <(git ls-files '.github/workflows/*.yml' '.github/workflows/*.yaml' | sort) | sort -u
+    done < <(git ls-files '.github/workflows/*.yml' '.github/workflows/*.yaml' '.github/actions/*/action.yml' | sort) | sort -u
   )
 
   while IFS='|' read -r file action_ref; do

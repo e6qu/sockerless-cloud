@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -305,7 +304,6 @@ func handleECSListDaemons(w http.ResponseWriter, r *http.Request) {
 		}
 		daemons = append(daemons, d)
 	}
-	sort.Slice(daemons, func(i, j int) bool { return daemons[i].DaemonArn < daemons[j].DaemonArn })
 	summaries := make([]map[string]any, 0, len(daemons))
 	for _, d := range daemons {
 		summaries = append(summaries, map[string]any{
@@ -315,7 +313,7 @@ func handleECSListDaemons(w http.ResponseWriter, r *http.Request) {
 			"updatedAt": d.UpdatedAt,
 		})
 	}
-	page, next, pageOK := awsPage(w, ecsBadToken, summaries, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsKeyPage(w, ecsBadToken, summaries, awsFieldKey("daemonArn"), req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
 	}
@@ -384,7 +382,6 @@ func handleECSListDaemonDeployments(w http.ResponseWriter, r *http.Request) {
 		}
 		deps = append(deps, dep)
 	}
-	sort.Slice(deps, func(i, j int) bool { return deps[i].DaemonDeploymentArn < deps[j].DaemonDeploymentArn })
 	summaries := make([]map[string]any, 0, len(deps))
 	for _, dep := range deps {
 		summaries = append(summaries, map[string]any{
@@ -398,7 +395,7 @@ func handleECSListDaemonDeployments(w http.ResponseWriter, r *http.Request) {
 			"finishedAt":              dep.FinishedAt,
 		})
 	}
-	page, next, pageOK := awsPage(w, ecsBadToken, summaries, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsKeyPage(w, ecsBadToken, summaries, awsFieldKey("daemonDeploymentArn"), req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
 	}
@@ -558,7 +555,6 @@ func handleECSListDaemonTaskDefinitions(w http.ResponseWriter, r *http.Request) 
 		}
 		tds = append(tds, td)
 	}
-	sort.Slice(tds, func(i, j int) bool { return tds[i].DaemonTaskDefinitionArn < tds[j].DaemonTaskDefinitionArn })
 	summaries := make([]map[string]any, 0, len(tds))
 	for _, td := range tds {
 		summaries = append(summaries, map[string]any{
@@ -567,7 +563,7 @@ func handleECSListDaemonTaskDefinitions(w http.ResponseWriter, r *http.Request) 
 			"status":       td.Status,
 		})
 	}
-	page, next, pageOK := awsPage(w, ecsBadToken, summaries, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsKeyPage(w, ecsBadToken, summaries, awsFieldKey("arn"), req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
 	}

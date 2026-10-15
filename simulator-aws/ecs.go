@@ -3317,9 +3317,8 @@ func handleECSListTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		return true
 	})
-	sortBy(tasks, func(t ECSTask) string { return t.TaskArn })
 
-	page, next, pageOK := awsPage(w, ecsBadToken, tasks, req.NextToken, req.MaxResults, 100)
+	page, next, pageOK := awsKeyPage(w, ecsBadToken, tasks, func(it ECSTask) string { return it.TaskArn }, req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
 	}

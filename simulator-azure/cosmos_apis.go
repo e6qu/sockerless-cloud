@@ -376,18 +376,9 @@ func handleCosmosUpdateAccount(w http.ResponseWriter, r *http.Request) {
 func handleCosmosListAccountsBySubscription(w http.ResponseWriter, r *http.Request) {
 	prefix := "/subscriptions/" + sim.PathParam(r, "subscriptionId") + "/"
 	all := cosmosAccounts.Filter(func(a CosmosAccount) bool { return strings.HasPrefix(a.ID, prefix) })
-	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
-	filtered, err := azureApplyListQuery(all, r)
-	if err != nil {
-		AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
-		return
-	}
-	page, next, pageOK := armPage(w, r, filtered)
+	page, next, pageOK := armQueryPage(w, r, all, func(x CosmosAccount) string { return x.ID })
 	if !pageOK {
 		return
-	}
-	if page == nil {
-		page = []CosmosAccount{}
 	}
 	out := map[string]any{"value": page}
 	if next != "" {

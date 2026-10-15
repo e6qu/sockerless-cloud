@@ -307,8 +307,7 @@ func handleACMListAcmeEndpoints(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	all := acmAcmeEndpoints.List()
-	sort.Slice(all, func(i, j int) bool { return all[i].AcmeEndpointArn < all[j].AcmeEndpointArn })
-	page, next, pageOK := awsPage(w, acmBadToken, all, req.NextToken, req.MaxResults, 0)
+	page, next, pageOK := awsKeyPage(w, acmBadToken, all, func(it acmAcmeEndpoint) string { return it.AcmeEndpointArn }, req.NextToken, req.MaxResults, 0)
 	if !pageOK {
 		return
 	}
@@ -495,8 +494,7 @@ func handleACMListAcmeDomainValidations(w http.ResponseWriter, r *http.Request) 
 			all = append(all, acmReconcileAcmeDomainValidation(validation))
 		}
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].AcmeDomainValidationArn < all[j].AcmeDomainValidationArn })
-	page, next, pageOK := awsPage(w, acmBadToken, all, req.NextToken, req.MaxResults, 0)
+	page, next, pageOK := awsKeyPage(w, acmBadToken, all, func(it acmAcmeDomainValidation) string { return it.AcmeDomainValidationArn }, req.NextToken, req.MaxResults, 0)
 	if !pageOK {
 		return
 	}
@@ -663,10 +661,7 @@ func handleACMListAcmeExternalAccountBindings(w http.ResponseWriter, r *http.Req
 			all = append(all, binding)
 		}
 	}
-	sort.Slice(all, func(i, j int) bool {
-		return all[i].AcmeExternalAccountBindingArn < all[j].AcmeExternalAccountBindingArn
-	})
-	page, next, pageOK := awsPage(w, acmBadToken, all, req.NextToken, req.MaxResults, 0)
+	page, next, pageOK := awsKeyPage(w, acmBadToken, all, func(it acmAcmeExternalAccountBinding) string { return it.AcmeExternalAccountBindingArn }, req.NextToken, req.MaxResults, 0)
 	if !pageOK {
 		return
 	}
@@ -750,8 +745,7 @@ func handleACMListAcmeAccounts(w http.ResponseWriter, r *http.Request) {
 			all = append(all, account)
 		}
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].AccountURL < all[j].AccountURL })
-	page, next, pageOK := awsPage(w, acmBadToken, all, req.NextToken, req.MaxResults, 0)
+	page, next, pageOK := awsKeyPage(w, acmBadToken, all, func(it acmAcmeAccount) string { return it.AccountURL }, req.NextToken, req.MaxResults, 0)
 	if !pageOK {
 		return
 	}

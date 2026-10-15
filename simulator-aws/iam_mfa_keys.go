@@ -277,8 +277,7 @@ func iamMFADeviceMemberXML(dev IAMVirtualMFADevice) string {
 func handleIAMListMFADevices(w http.ResponseWriter, r *http.Request) {
 	userName := r.FormValue("UserName")
 	devices := iamVirtualMFADevices.Filter(func(d IAMVirtualMFADevice) bool { return d.UserName == userName && d.EnableDate != "" })
-	sort.Slice(devices, func(i, j int) bool { return devices[i].SerialNumber < devices[j].SerialNumber })
-	page, next, pageOK := awsPage(w, iamBadToken, devices, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
+	page, next, pageOK := awsKeyPage(w, iamBadToken, devices, func(it IAMVirtualMFADevice) string { return it.SerialNumber }, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -311,7 +310,7 @@ func handleIAMListVirtualMFADevices(w http.ResponseWriter, r *http.Request) {
 		}
 		filtered = append(filtered, d)
 	}
-	page, next, pageOK := awsPage(w, iamBadToken, filtered, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
+	page, next, pageOK := awsKeyPage(w, iamBadToken, filtered, func(it IAMVirtualMFADevice) string { return it.SerialNumber }, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -461,8 +460,7 @@ func handleIAMGetSSHPublicKey(w http.ResponseWriter, r *http.Request) {
 func handleIAMListSSHPublicKeys(w http.ResponseWriter, r *http.Request) {
 	userName := r.FormValue("UserName")
 	keys := iamSSHPublicKeys.Filter(func(k IAMSSHPublicKey) bool { return k.UserName == userName })
-	sort.Slice(keys, func(i, j int) bool { return keys[i].SSHPublicKeyId < keys[j].SSHPublicKeyId })
-	page, next, pageOK := awsPage(w, iamBadToken, keys, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
+	page, next, pageOK := awsKeyPage(w, iamBadToken, keys, func(it IAMSSHPublicKey) string { return it.SSHPublicKeyId }, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -536,8 +534,7 @@ func handleIAMUploadSigningCertificate(w http.ResponseWriter, r *http.Request) {
 func handleIAMListSigningCertificates(w http.ResponseWriter, r *http.Request) {
 	userName := r.FormValue("UserName")
 	certs := iamSigningCerts.Filter(func(c IAMSigningCertificate) bool { return c.UserName == userName })
-	sort.Slice(certs, func(i, j int) bool { return certs[i].CertificateId < certs[j].CertificateId })
-	page, next, pageOK := awsPage(w, iamBadToken, certs, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
+	page, next, pageOK := awsKeyPage(w, iamBadToken, certs, func(it IAMSigningCertificate) string { return it.CertificateId }, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
 	if !pageOK {
 		return
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"
@@ -9,7 +10,6 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
-	"github.com/e6qu/sockerless-cloud/sim/listq"
 	"github.com/e6qu/sockerless-cloud/sim/logstore"
 )
 
@@ -100,13 +100,14 @@ func loggingEnsureDefaults(scope string) {
 			*cur = b
 		})
 	}
+	for _, b := range buckets {
+		loggingEnsureViews(b.Name)
+	}
 	sinks := []LoggingSink{
 		{Name: scope + "/sinks/" + loggingRequiredID,
 			Destination: "logging.googleapis.com/" + loggingBucketName(scope, loggingRequiredID),
 			Filter:      loggingRequiredFilter()},
-		{Name: scope + "/sinks/" + loggingDefaultID,
-			Destination: "logging.googleapis.com/" + loggingBucketName(scope, loggingDefaultID),
-			Filter:      loggingDefaultFilter()},
+		loggingDefaultSink(scope),
 	}
 	for _, s := range sinks {
 		logSinks.Upsert(s.Name, func(cur *LoggingSink) {
@@ -117,54 +118,77 @@ func loggingEnsureDefaults(scope string) {
 	}
 }
 
+// loggingDefaultSink is the _Default sink a new resource container starts
+// with, shaped by the nearest ancestor whose settings disable it or configure
+// it: defaultSinkConfig's filter joins the built-in filter (APPEND) or
+// replaces it (OVERWRITE), and its exclusions join the sink's.
+func loggingDefaultSink(scope string) LoggingSink {
+	sink := LoggingSink{Name: scope + "/sinks/" + loggingDefaultID,
+		Destination: "logging.googleapis.com/" + loggingBucketName(scope, loggingDefaultID),
+		Filter:      loggingDefaultFilter()}
+	if logSettings == nil {
+		return sink
+	}
+	for _, ancestor := range loggingAncestors(scope) {
+		settings, ok := logSettings.Get(ancestor + "/settings")
+		if !ok || (!settings.DisableDefaultSink && settings.DefaultSinkConfig == nil) {
+			continue
+		}
+		sink.Disabled = settings.DisableDefaultSink
+		var cfg struct {
+			Mode       string             `json:"mode"`
+			Filter     string             `json:"filter"`
+			Exclusions []LoggingExclusion `json:"exclusions"`
+		}
+		if raw, err := json.Marshal(settings.DefaultSinkConfig); err == nil && json.Unmarshal(raw, &cfg) == nil {
+			switch {
+			case cfg.Filter != "" && cfg.Mode == "OVERWRITE":
+				sink.Filter = cfg.Filter
+			case cfg.Filter != "":
+				sink.Filter = "(" + sink.Filter + ") AND (" + cfg.Filter + ")"
+			}
+			sink.Exclusions = append(sink.Exclusions, cfg.Exclusions...)
+		}
+		break
+	}
+	return sink
+}
+
+const loggingAllLogsViewID = "_AllLogs"
+
+// loggingDefaultViewFilter is the _Default view's filter: every log of the
+// _Default bucket but the Data Access audit logs.
+const loggingDefaultViewFilter = `NOT LOG_ID("cloudaudit.googleapis.com/data_access") AND NOT LOG_ID("externalaudit.googleapis.com/data_access")`
+
+// loggingEnsureViews gives a log bucket the views Cloud Logging creates with
+// it: _AllLogs on every bucket, and _Default on a _Default bucket.
+func loggingEnsureViews(bucket string) {
+	if logViews == nil {
+		return
+	}
+	now := nowTimestamp()
+	views := []LogView{{Name: bucket + "/views/" + loggingAllLogsViewID}}
+	if lastSegment(bucket) == loggingDefaultID {
+		views = append(views, LogView{Name: bucket + "/views/" + loggingDefaultID, Filter: loggingDefaultViewFilter})
+	}
+	for _, v := range views {
+		logViews.Upsert(v.Name, func(cur *LogView) {
+			if cur.Name == "" {
+				v.CreateTime, v.UpdateTime = now, now
+				*cur = v
+			}
+		})
+	}
+}
+
+func loggingIsBuiltInView(name string) bool {
+	id := lastSegment(name)
+	return id == loggingAllLogsViewID || id == loggingDefaultID
+}
+
 func loggingIsBuiltIn(name string) bool {
 	id := lastSegment(name)
 	return id == loggingRequiredID || id == loggingDefaultID
-}
-
-type loggingRoute struct {
-	bucket     string
-	filter     listq.Node
-	exclusions []listq.Node
-}
-
-// loggingRoutes are scope's enabled sinks that store entries in one of its log
-// buckets. The exclusions of the _Default sink include those the exclusions
-// API keeps for the scope.
-func loggingRoutes(scope string) ([]loggingRoute, error) {
-	var routes []loggingRoute
-	for _, sink := range logSinks.ListPrefix(scope + "/sinks/") {
-		bucket, ok := strings.CutPrefix(sink.Item.Destination, "logging.googleapis.com/")
-		if sink.Item.Disabled || !ok {
-			continue
-		}
-		if b, exists := logBuckets.Get(bucket); !exists || b.LifecycleState != "ACTIVE" {
-			continue
-		}
-		f, err := parseLogFilter(sink.Item.Filter)
-		if err != nil {
-			return nil, fmt.Errorf("sink %s: %w", sink.ID, err)
-		}
-		rt := loggingRoute{bucket: bucket, filter: f}
-		exclusions := slices.Clone(sink.Item.Exclusions)
-		if lastSegment(sink.ID) == loggingDefaultID {
-			for _, ex := range logExclusions.ListPrefix(scope + "/exclusions/") {
-				exclusions = append(exclusions, LoggingExclusion{Name: ex.Item.Name, Filter: ex.Item.Filter, Disabled: ex.Item.Disabled})
-			}
-		}
-		for _, ex := range exclusions {
-			if ex.Disabled {
-				continue
-			}
-			exf, err := parseLogFilter(ex.Filter)
-			if err != nil {
-				return nil, fmt.Errorf("sink %s exclusion %s: %w", sink.ID, ex.Name, err)
-			}
-			rt.exclusions = append(rt.exclusions, exf)
-		}
-		routes = append(routes, rt)
-	}
-	return routes, nil
 }
 
 // loggingBucketCutoffs maps each log bucket to the oldest entry time, in Unix
@@ -172,37 +196,17 @@ func loggingRoutes(scope string) ([]loggingRoute, error) {
 func loggingBucketCutoffs(now time.Time) map[string]int64 {
 	cutoffs := map[string]int64{}
 	for _, b := range logBuckets.List() {
-		days := b.RetentionDays
-		if days <= 0 {
-			days = loggingDefaultRetentionDays
-		}
-		cutoffs[b.Name] = now.Add(-time.Duration(days) * 24 * time.Hour).UnixMilli()
+		cutoffs[b.Name] = loggingRetentionCutoff(b, now)
 	}
 	return cutoffs
 }
 
-// loggingRouteEntry returns the buckets routes store entry in at now: those
-// whose sink filter matches it and no exclusion does, and whose retention it
-// is still inside. An entry stamped more than a day ahead goes nowhere.
-func loggingRouteEntry(entry LogEntry, at int64, routes []loggingRoute, cutoffs map[string]int64, now time.Time) ([]string, error) {
-	if at > now.Add(loggingFutureWindow).UnixMilli() {
-		return nil, nil
+func loggingRetentionCutoff(b LogBucket, now time.Time) int64 {
+	days := b.RetentionDays
+	if days <= 0 {
+		days = loggingDefaultRetentionDays
 	}
-	doc, err := listq.ToDoc(entry)
-	if err != nil {
-		return nil, err
-	}
-	var buckets []string
-	for _, rt := range routes {
-		if slices.Contains(buckets, rt.bucket) || at < cutoffs[rt.bucket] || !rt.filter.Eval(doc) {
-			continue
-		}
-		if slices.ContainsFunc(rt.exclusions, func(ex listq.Node) bool { return ex.Eval(doc) }) {
-			continue
-		}
-		buckets = append(buckets, rt.bucket)
-	}
-	return buckets, nil
+	return now.Add(-time.Duration(days) * 24 * time.Hour).UnixMilli()
 }
 
 func loggingEntryMillis(entry LogEntry) (int64, error) {
@@ -304,9 +308,8 @@ func loggingBucketDeleteRefused(b LogBucket) string {
 	if !b.Locked {
 		return ""
 	}
-	scope, _, _ := loggingBucketParts(b.Name)
 	cutoffs := loggingBucketCutoffs(time.Now())
-	for _, log := range logEntries.Scopes(scope + "/logs/") {
+	for _, log := range logEntries.Scopes("") {
 		if slices.ContainsFunc(logEntries.Entries(log), func(e logstore.Entry[loggingStoredEntry]) bool {
 			return loggingHeldIn(e, b.Name, cutoffs)
 		}) {
@@ -327,6 +330,13 @@ func loggingSinkAdmissible(w http.ResponseWriter, sink LoggingSink, creating boo
 	case !creating && lastSegment(sink.Name) == loggingRequiredID:
 		GCPErrorf(w, http.StatusBadRequest, "FAILED_PRECONDITION", "sink %s cannot be modified", sink.Name)
 		return false
+	}
+	if sink.InterceptChildren {
+		if kind, _, ok := loggingDestination(sink.Destination); !sink.IncludeChildren || !ok || kind != loggingToProject {
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				"sink %s intercepts its children's entries, so it must include them and route to a Cloud project", sink.Name)
+			return false
+		}
 	}
 	if _, err := parseLogFilter(sink.Filter); err != nil {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "sink filter: %v", err)

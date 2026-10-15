@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -569,19 +568,19 @@ func handleASXDescribeNotificationConfigurations(w http.ResponseWriter, r *http.
 	type nc struct {
 		group string
 		cfg   ASNotificationConfig
+		pos   int
 	}
 	configs := make([]nc, 0)
-	extras := asGroupExtras.List()
-	sort.Slice(extras, func(i, j int) bool { return extras[i].GroupName < extras[j].GroupName })
-	for _, ex := range extras {
+	for _, ex := range asGroupExtras.List() {
 		if len(wantGroups) > 0 && !containsString(wantGroups, ex.GroupName) {
 			continue
 		}
-		for _, n := range ex.Notifications {
-			configs = append(configs, nc{group: ex.GroupName, cfg: n})
+		for pos, n := range ex.Notifications {
+			configs = append(configs, nc{group: ex.GroupName, cfg: n, pos: pos})
 		}
 	}
-	page, next, pageOK := awsPage(w, asBadToken, configs, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
+	key := func(c nc) string { return c.group + "\x00" + awsIntKey(int64(c.pos)) }
+	page, next, pageOK := awsKeyPage(w, asBadToken, configs, key, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
 	if !pageOK {
 		return
 	}

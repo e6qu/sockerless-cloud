@@ -180,8 +180,7 @@ func registerPrivateDNSMore(srv *sim.Server, zones sim.Store[PrivateDnsZone], re
 	srv.HandleFunc("GET "+subBase+"/privateDnsZones", func(w http.ResponseWriter, r *http.Request) {
 		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
 		all := zones.Filter(func(z PrivateDnsZone) bool { return strings.HasPrefix(z.ID, prefix) })
-		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		page, next, pageOK := armPage(w, r, all)
+		page, next, pageOK := armPage(w, r, all, func(z PrivateDnsZone) string { return azureNameIDKey(z.Name, z.ID) })
 		if !pageOK {
 			return
 		}

@@ -874,8 +874,7 @@ func handleIAMListDelegationRequests(w http.ResponseWriter, r *http.Request) {
 		}
 		reqs = filtered
 	}
-	sort.Slice(reqs, func(i, j int) bool { return reqs[i].DelegationRequestId < reqs[j].DelegationRequestId })
-	page, next, pageOK := awsPage(w, iamBadToken, reqs, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
+	page, next, pageOK := awsKeyPage(w, iamBadToken, reqs, func(it IAMDelegationRequest) string { return it.DelegationRequestId }, r.FormValue("Marker"), atoiDefault(r.FormValue("MaxItems"), 0), 0)
 	if !pageOK {
 		return
 	}

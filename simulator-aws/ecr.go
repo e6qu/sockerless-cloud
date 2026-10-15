@@ -6,12 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
-	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 // ECR types
@@ -352,9 +350,9 @@ func handleECRDescribeRepositories(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var repos []ECRRepository
+	key := func(r ECRRepository) string { return r.RepositoryName }
 	if len(req.RepositoryNames) == 0 {
 		repos = ecrRepositories.List()
-		sortBy(repos, func(r ECRRepository) string { return r.RepositoryName })
 	} else {
 		for _, name := range req.RepositoryNames {
 			repo, ok := ecrRepositories.Get(name)
@@ -370,20 +368,9 @@ func handleECRDescribeRepositories(w http.ResponseWriter, r *http.Request) {
 		repos = []ECRRepository{}
 	}
 
-	var page []ECRRepository
-	var next string
-	if len(req.RepositoryNames) == 0 {
-		var err error
-		page, next, err = listq.KeyPage(repos, func(r ECRRepository) string { return r.RepositoryName }, req.NextToken, req.MaxResults, 1000, 1000)
-		if err != nil {
-			ecrBadToken(w, req.NextToken)
-			return
-		}
-	} else {
-		var pageOK bool
-		if page, next, pageOK = awsPage(w, ecrBadToken, repos, req.NextToken, req.MaxResults, 1000); !pageOK {
-			return
-		}
+	page, next, pageOK := awsNamedOrKeyPage(w, ecrBadToken, repos, len(req.RepositoryNames) > 0, key, req.NextToken, req.MaxResults, 1000)
+	if !pageOK {
+		return
 	}
 	out := map[string]any{"repositories": page}
 	if next != "" {
@@ -527,13 +514,7 @@ func handleECRListImages(w http.ResponseWriter, r *http.Request) {
 			imageIds = append(imageIds, map[string]string{"imageDigest": img.ImageDigest, "imageTag": tag})
 		}
 	}
-	sort.Slice(imageIds, func(i, j int) bool {
-		if imageIds[i]["imageDigest"] != imageIds[j]["imageDigest"] {
-			return imageIds[i]["imageDigest"] < imageIds[j]["imageDigest"]
-		}
-		return imageIds[i]["imageTag"] < imageIds[j]["imageTag"]
-	})
-	page, next, pageOK := awsPage(w, ecrBadToken, imageIds, req.NextToken, req.MaxResults, 0)
+	page, next, pageOK := awsKeyPage(w, ecrBadToken, imageIds, func(it map[string]string) string { return it["imageDigest"] + "\x00" + it["imageTag"] }, req.NextToken, req.MaxResults, 0)
 	if !pageOK {
 		return
 	}
@@ -591,8 +572,7 @@ func handleECRDescribeImages(w http.ResponseWriter, r *http.Request) {
 		}
 		images = f
 	}
-	sort.Slice(images, func(i, j int) bool { return images[i].ImageDigest < images[j].ImageDigest })
-	page, next, pageOK := awsPage(w, ecrBadToken, images, req.NextToken, req.MaxResults, 0)
+	page, next, pageOK := awsKeyPage(w, ecrBadToken, images, func(it ECRImageDetail) string { return it.ImageDigest }, req.NextToken, req.MaxResults, 0)
 	if !pageOK {
 		return
 	}

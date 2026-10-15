@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -359,8 +358,7 @@ func handleDescribeImageUsageReports(w http.ResponseWriter, r *http.Request) {
 		}
 		results = append(results, rep)
 	}
-	sort.Slice(results, func(i, j int) bool { return results[i].ReportId < results[j].ReportId })
-	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2ImageUsageReport) string { return it.ReportId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -433,13 +431,7 @@ func handleDescribeImageUsageReportEntries(w http.ResponseWriter, r *http.Reques
 			})
 		}
 	}
-	sort.Slice(results, func(i, j int) bool {
-		if results[i].ReportId != results[j].ReportId {
-			return results[i].ReportId < results[j].ReportId
-		}
-		return results[i].ResourceType < results[j].ResourceType
-	})
-	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, results, func(it entry) string { return it.ReportId + "\x00" + it.ResourceType + "\x00" + it.AccountId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -486,8 +478,7 @@ func handleDescribeExportImageTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		results = append(results, t)
 	}
-	sort.Slice(results, func(i, j int) bool { return results[i].ExportImageTaskId < results[j].ExportImageTaskId })
-	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2ExportImageTask) string { return it.ExportImageTaskId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -569,8 +560,7 @@ func handleDescribeImportImageTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		results = append(results, t)
 	}
-	sort.Slice(results, func(i, j int) bool { return results[i].ImportTaskId < results[j].ImportTaskId })
-	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2ImportImageTask) string { return it.ImportTaskId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -663,8 +653,7 @@ func handleDescribeFastLaunchImages(w http.ResponseWriter, r *http.Request) {
 		}
 		results = append(results, fl)
 	}
-	sort.Slice(results, func(i, j int) bool { return results[i].ImageId < results[j].ImageId })
-	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2FastLaunch) string { return it.ImageId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -705,8 +694,7 @@ func handleDescribeImageReferences(w http.ResponseWriter, r *http.Request) {
 			Arn:          fmt.Sprintf("arn:aws:ec2:%s:%s:instance/%s", awsRegion(), ec2Owner(), inst.InstanceId),
 		})
 	}
-	sort.Slice(refs, func(i, j int) bool { return refs[i].Arn < refs[j].Arn })
-	refs, nextToken, pageOK := awsPage(w, ec2BadToken, refs, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	refs, nextToken, pageOK := awsKeyPage(w, ec2BadToken, refs, func(it ref) string { return it.Arn }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -796,8 +784,7 @@ func handleListImagesInRecycleBin(w http.ResponseWriter, r *http.Request) {
 		}
 		results = append(results, img)
 	}
-	sort.Slice(results, func(i, j int) bool { return results[i].ImageId < results[j].ImageId })
-	results, nextToken, pageOK := awsPage(w, ec2BadToken, results, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
+	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2RecycleBinImage) string { return it.ImageId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}

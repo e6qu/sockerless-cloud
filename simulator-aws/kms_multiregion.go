@@ -117,8 +117,7 @@ func handleKMSListRetirableGrants(w http.ResponseWriter, r *http.Request) {
 			matched = append(matched, g)
 		}
 	}
-	sortBy(matched, func(g KMSGrant) string { return g.GrantId })
-	page, next, pageOK := awsPage(w, kmsBadToken, matched, req.Marker, req.Limit, 100)
+	page, next, pageOK := awsKeyPage(w, kmsBadToken, matched, func(it KMSGrant) string { return it.GrantId }, req.Marker, req.Limit, 100)
 	if !pageOK {
 		return
 	}

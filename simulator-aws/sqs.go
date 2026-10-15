@@ -552,7 +552,7 @@ func handleSQSListQueues(w http.ResponseWriter, r *http.Request) {
 		}
 		filtered = append(filtered, q)
 	}
-	page, next, pageOK := awsPage(w, sqsBadToken, filtered, req.NextToken, req.MaxResults, 1000)
+	page, next, pageOK := awsKeyPage(w, sqsBadToken, filtered, func(it SQSQueue) string { return it.URL }, req.NextToken, req.MaxResults, 1000)
 	if !pageOK {
 		return
 	}

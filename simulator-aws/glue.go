@@ -586,7 +586,7 @@ func handleGlueGetDatabases(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, all, func(it glueDatabaseWire) string { return it.Name }, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -798,7 +798,7 @@ func handleGlueGetTables(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, filtered, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, filtered, func(it GlueTable) string { return it.Name }, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -1104,7 +1104,7 @@ func handleGlueGetPartitions(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, filtered, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, filtered, func(it GluePartition) string { return gluePartitionKey(it.DatabaseName, it.TableName, it.Values) }, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -1350,7 +1350,7 @@ func handleGlueGetJobs(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, all, func(it GlueJob) string { return it.Name }, req.NextToken, maxR, 25)
 	if !pageOK {
 		return
 	}
@@ -1593,7 +1593,7 @@ func handleGlueGetJobRuns(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, runs, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, runs, func(it GlueJobRun) string { return it.ID }, req.NextToken, maxR, 25)
 	if !pageOK {
 		return
 	}
@@ -1665,7 +1665,7 @@ func handleGlueListJobs(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, names, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, names, func(it string) string { return it }, req.NextToken, maxR, 25)
 	if !pageOK {
 		return
 	}
@@ -1820,7 +1820,7 @@ func handleGlueGetCrawlers(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, all, func(it GlueCrawler) string { return it.Name }, req.NextToken, maxR, 25)
 	if !pageOK {
 		return
 	}
@@ -1982,7 +1982,7 @@ func handleGlueListCrawlers(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, names, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, names, func(it string) string { return it }, req.NextToken, maxR, 25)
 	if !pageOK {
 		return
 	}
@@ -2098,7 +2098,7 @@ func handleGlueGetTriggers(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, all, func(it GlueTrigger) string { return it.Name }, req.NextToken, maxR, 25)
 	if !pageOK {
 		return
 	}
@@ -2247,7 +2247,7 @@ func handleGlueGetConnections(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, all, func(it GlueConnection) string { return it.Name }, req.NextToken, maxR, 25)
 	if !pageOK {
 		return
 	}
@@ -2676,7 +2676,7 @@ func handleGlueGetSecurityConfigurations(w http.ResponseWriter, r *http.Request)
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, all, func(it GlueSecurityConfiguration) string { return it.Name }, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -2772,12 +2772,11 @@ func handleGlueListWorkflows(w http.ResponseWriter, r *http.Request) {
 	for _, wf := range all {
 		names = append(names, wf.Name)
 	}
-	sort.Strings(names)
 	maxR := 0
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, names, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, names, func(it string) string { return it }, req.NextToken, maxR, 25)
 	if !pageOK {
 		return
 	}
@@ -2992,7 +2991,7 @@ func handleGlueGetClassifiers(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, all, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, all, func(it GlueClassifier) string { return glueClassifierName(it) }, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -3151,7 +3150,7 @@ func handleGlueGetUserDefinedFunctions(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, filtered, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, filtered, func(it GlueUserDefinedFunction) string { return it.DatabaseName + "\x00" + it.FunctionName }, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -3291,7 +3290,7 @@ func handleGlueListRegistries(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, items, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, items, awsFieldKey("RegistryName"), req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -3594,16 +3593,11 @@ func handleGlueGetTableVersions(w http.ResponseWriter, r *http.Request) {
 			versions = append(versions, v)
 		}
 	}
-	sort.Slice(versions, func(i, j int) bool {
-		a, _ := strconv.Atoi(versions[i].VersionId)
-		b, _ := strconv.Atoi(versions[j].VersionId)
-		return a < b
-	})
 	maxR := 0
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, versions, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, versions, func(it GlueTableVersion) string { n, _ := strconv.Atoi(it.VersionId); return awsIntKey(int64(n)) }, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -4160,7 +4154,7 @@ func handleGlueListSchemaVersions(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsPage(w, glueBadToken, versions, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, versions, func(it GlueSchemaVersion) string { return awsIntKey(it.VersionNumber) }, req.NextToken, maxR, 25)
 	if !pageOK {
 		return
 	}

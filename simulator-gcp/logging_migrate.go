@@ -19,21 +19,15 @@ func loggingMigrateEntries(db *sql.DB, now time.Time) error {
 		if err != nil {
 			return err
 		}
+		router := newLoggingRouter(now, false)
 		for _, log := range logs {
-			scope := loggingScopeOf(log.ID)
-			loggingEnsureDefaults(scope)
-			cutoffs := loggingBucketCutoffs(now)
-			routes, err := loggingRoutes(scope)
-			if err != nil {
-				return err
-			}
 			var entries []logstore.Entry[loggingStoredEntry]
 			for _, entry := range log.Item {
 				at, err := loggingEntryMillis(entry)
 				if err != nil {
 					return err
 				}
-				buckets, err := loggingRouteEntry(entry, at, routes, cutoffs, now)
+				buckets, err := router.route(entry, at)
 				if err != nil {
 					return err
 				}

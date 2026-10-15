@@ -382,7 +382,6 @@ func handleSchedulerListSchedules(w http.ResponseWriter, r *http.Request) {
 		}
 		return true
 	})
-	matched = sortBy(matched, func(s Schedule) string { return s.GroupName + "/" + s.Name })
 
 	out := make([]map[string]any, 0, len(matched))
 	for _, s := range matched {
@@ -400,7 +399,11 @@ func handleSchedulerListSchedules(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, item)
 	}
-	page, next, ok := schedulerPage(w, out, q)
+	page, next, ok := schedulerPage(w, out, func(item map[string]any) string {
+		group, _ := item["GroupName"].(string)
+		name, _ := item["Name"].(string)
+		return group + "/" + name
+	}, q)
 	if !ok {
 		return
 	}
@@ -415,9 +418,9 @@ func handleSchedulerListSchedules(w http.ResponseWriter, r *http.Request) {
 // range admits, and the page size when a request names none.
 const schedulerMaxResults = 100
 
-func schedulerPage(w http.ResponseWriter, items []map[string]any, q url.Values) ([]map[string]any, string, bool) {
+func schedulerPage(w http.ResponseWriter, items []map[string]any, key func(map[string]any) string, q url.Values) ([]map[string]any, string, bool) {
 	size, _ := strconv.Atoi(q.Get("MaxResults"))
-	return awsPage(w, schedulerBadToken, items, q.Get("NextToken"), size, schedulerMaxResults)
+	return awsKeyPage(w, schedulerBadToken, items, key, q.Get("NextToken"), size, schedulerMaxResults)
 }
 
 var schedulerBadToken awsBadToken = func(w http.ResponseWriter, token string) {
@@ -661,7 +664,6 @@ func handleSchedulerListScheduleGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	namePrefix := r.URL.Query().Get("NamePrefix")
 	groups := scheduleGroups.List()
-	groups = sortBy(groups, func(g ScheduleGroup) string { return g.Name })
 
 	out := make([]map[string]any, 0, len(groups)+1)
 	// The default group is always present.
@@ -678,7 +680,13 @@ func handleSchedulerListScheduleGroups(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, scheduleGroupToJSON(g))
 	}
-	page, next, ok := schedulerPage(w, out, r.URL.Query())
+	page, next, ok := schedulerPage(w, out, func(item map[string]any) string {
+		// The always-present default group lists first.
+		if name, _ := item["Name"].(string); name != "default" {
+			return name
+		}
+		return "\x00"
+	}, r.URL.Query())
 	if !ok {
 		return
 	}

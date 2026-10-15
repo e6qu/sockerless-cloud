@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -192,13 +191,9 @@ func registerKeyVaultManagedHSM(srv *sim.Server) {
 		if all == nil {
 			all = []ManagedHSM{}
 		}
-		sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
-		page, next, pageOK := armPage(w, r, all)
+		page, next, pageOK := armPage(w, r, all, func(h ManagedHSM) string { return h.ID })
 		if !pageOK {
 			return
-		}
-		if page == nil {
-			page = []ManagedHSM{}
 		}
 		out := map[string]any{"value": page}
 		if next != "" {

@@ -114,7 +114,7 @@ func handleKMSDescribeCustomKeyStores(w http.ResponseWriter, r *http.Request) {
 			"No custom key store matched the request.")
 		return
 	}
-	page, next, pageOK := awsPage(w, kmsBadToken, matched, req.Marker, req.Limit, 0)
+	page, next, pageOK := awsKeyPage(w, kmsBadToken, matched, awsFieldKey("CustomKeyStoreId"), req.Marker, req.Limit, 0)
 	if !pageOK {
 		return
 	}

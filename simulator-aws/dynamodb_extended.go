@@ -1180,8 +1180,7 @@ func handleDDBListExports(w http.ResponseWriter, r *http.Request) {
 			filtered = append(filtered, e)
 		}
 	}
-	sortBy(filtered, func(e DDBExport) string { return e.ExportArn })
-	page, next, pageOK := awsPage(w, ddbBadToken, filtered, req.NextToken, req.MaxResults, 0)
+	page, next, pageOK := awsKeyPage(w, ddbBadToken, filtered, func(it DDBExport) string { return it.ExportArn }, req.NextToken, req.MaxResults, 0)
 	if !pageOK {
 		return
 	}
@@ -1335,8 +1334,7 @@ func handleDDBListImports(w http.ResponseWriter, r *http.Request) {
 			filtered = append(filtered, im)
 		}
 	}
-	sortBy(filtered, func(im DDBImport) string { return im.ImportArn })
-	page, next, pageOK := awsPage(w, ddbBadToken, filtered, req.NextToken, req.PageSize, 0)
+	page, next, pageOK := awsKeyPage(w, ddbBadToken, filtered, func(it DDBImport) string { return it.ImportArn }, req.NextToken, req.PageSize, 0)
 	if !pageOK {
 		return
 	}
@@ -1471,8 +1469,7 @@ func handleDDBListContributorInsights(w http.ResponseWriter, r *http.Request) {
 			filtered = append(filtered, ci)
 		}
 	}
-	sortBy(filtered, func(ci DDBContributorInsight) string { return ci.TableName + "\x00" + ci.IndexName })
-	page, next, pageOK := awsPage(w, ddbBadToken, filtered, req.NextToken, req.MaxResults, 0)
+	page, next, pageOK := awsKeyPage(w, ddbBadToken, filtered, func(it DDBContributorInsight) string { return it.TableName + "\x00" + it.IndexName }, req.NextToken, req.MaxResults, 0)
 	if !pageOK {
 		return
 	}

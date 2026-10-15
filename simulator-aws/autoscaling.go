@@ -281,7 +281,6 @@ func handleASDescribeAutoScalingGroups(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		groups = autoScalingGroups.List()
-		sort.Slice(groups, func(i, j int) bool { return groups[i].Name < groups[j].Name })
 	}
 	if filters := asDescribeFilters(r); len(filters) > 0 {
 		kept := groups[:0]
@@ -292,7 +291,8 @@ func handleASDescribeAutoScalingGroups(w http.ResponseWriter, r *http.Request) {
 		}
 		groups = kept
 	}
-	page, next, pageOK := awsPage(w, asBadToken, groups, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
+	key := func(asg AutoScalingGroup) string { return asg.Name }
+	page, next, pageOK := awsNamedOrKeyPage(w, asBadToken, groups, len(names) > 0, key, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -383,15 +383,10 @@ func handleASDescribeScalingActivities(w http.ResponseWriter, r *http.Request) {
 		}
 		activities = append(activities, activity)
 	}
-	sort.SliceStable(activities, func(i, j int) bool {
-		ti, _ := time.Parse(time.RFC3339, activities[i].StartTime)
-		tj, _ := time.Parse(time.RFC3339, activities[j].StartTime)
-		if !ti.Equal(tj) {
-			return ti.After(tj)
-		}
-		return activities[i].ActivityId < activities[j].ActivityId
-	})
-	page, next, pageOK := awsPage(w, asBadToken, activities, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
+	page, next, pageOK := awsKeyPage(w, asBadToken, activities, func(it ScalingActivity) string {
+		t, _ := time.Parse(time.RFC3339, it.StartTime)
+		return awsDescKey(awsIntKey(t.UnixNano())) + "\x00" + it.ActivityId
+	}, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -578,8 +573,7 @@ func handleASDescribePolicies(w http.ResponseWriter, r *http.Request) {
 		}
 		policies = append(policies, p)
 	}
-	sort.Slice(policies, func(i, j int) bool { return policies[i].ARN < policies[j].ARN })
-	page, next, pageOK := awsPage(w, asBadToken, policies, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
+	page, next, pageOK := awsKeyPage(w, asBadToken, policies, func(it ASScalingPolicy) string { return it.ARN }, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -709,8 +703,7 @@ func handleASDescribeScheduledActions(w http.ResponseWriter, r *http.Request) {
 		}
 		actions = append(actions, a)
 	}
-	sort.Slice(actions, func(i, j int) bool { return actions[i].ARN < actions[j].ARN })
-	page, next, pageOK := awsPage(w, asBadToken, actions, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
+	page, next, pageOK := awsKeyPage(w, asBadToken, actions, func(it ASScheduledAction) string { return it.ARN }, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -804,19 +797,19 @@ func handleASDescribeAutoScalingInstances(w http.ResponseWriter, r *http.Request
 	type asgInstance struct {
 		instanceID string
 		asg        AutoScalingGroup
+		pos        int
 	}
 	instances := make([]asgInstance, 0)
-	groups := autoScalingGroups.List()
-	sort.Slice(groups, func(i, j int) bool { return groups[i].Name < groups[j].Name })
-	for _, asg := range groups {
-		for _, id := range asg.InstanceIds {
+	for _, asg := range autoScalingGroups.List() {
+		for pos, id := range asg.InstanceIds {
 			if len(wantIDs) > 0 && !containsString(wantIDs, id) {
 				continue
 			}
-			instances = append(instances, asgInstance{instanceID: id, asg: asg})
+			instances = append(instances, asgInstance{instanceID: id, asg: asg, pos: pos})
 		}
 	}
-	page, next, pageOK := awsPage(w, asBadToken, instances, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
+	key := func(i asgInstance) string { return i.asg.Name + "\x00" + awsIntKey(int64(i.pos)) }
+	page, next, pageOK := awsKeyPage(w, asBadToken, instances, key, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
 	if !pageOK {
 		return
 	}

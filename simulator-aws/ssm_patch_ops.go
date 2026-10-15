@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
-	"sort"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -227,8 +226,7 @@ func handleSSMDescribePatchGroups(w http.ResponseWriter, r *http.Request) {
 	if all == nil {
 		all = []SSMPatchGroupRegistration{}
 	}
-	sortBy(all, func(g SSMPatchGroupRegistration) string { return ssmPatchGroupKey(g.OperatingSystem, g.PatchGroup) })
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMPatchGroupRegistration) string { return ssmPatchGroupKey(it.OperatingSystem, it.PatchGroup) }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -627,8 +625,7 @@ func handleSSMListOpsMetadata(w http.ResponseWriter, r *http.Request) {
 		}
 		return true
 	})
-	sortBy(all, func(m SSMOpsMetadata) string { return m.OpsMetadataArn })
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMOpsMetadata) string { return it.OpsMetadataArn }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -836,8 +833,7 @@ func handleSSMGetParameterHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows := ssmSyncParameterVersions(cur)
-	sort.Slice(rows, func(i, j int) bool { return rows[i].Version < rows[j].Version })
-	page, next, pageOK := awsPage(w, ssmBadToken, rows, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, rows, func(it SSMParameterVersionRow) string { return awsIntKey(it.Version) }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}

@@ -262,8 +262,7 @@ func handleSSMGetInventory(w http.ResponseWriter, r *http.Request) {
 	for id := range byNode {
 		ids = append(ids, id)
 	}
-	sort.Strings(ids)
-	page, next, pageOK := awsPage(w, ssmBadToken, ids, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, ids, func(it string) string { return it }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -343,7 +342,7 @@ func handleSSMGetInventorySchema(w http.ResponseWriter, r *http.Request) {
 		}
 		types = filtered
 	}
-	page, next, pageOK := awsPage(w, ssmBadToken, types, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, types, func(it string) string { return it }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -488,8 +487,7 @@ func handleSSMDescribeInventoryDeletions(w http.ResponseWriter, r *http.Request)
 		}
 		all = filtered
 	}
-	sortBy(all, func(d SSMInventoryDeletion) string { return d.DeletionId })
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMInventoryDeletion) string { return it.DeletionId }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -538,7 +536,7 @@ func handleSSMListInventoryEntries(w http.ResponseWriter, r *http.Request) {
 		}
 		captureTime = entry.CaptureTime
 	}
-	page, next, pageOK := awsPage(w, ssmBadToken, rows, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsSeqPage(w, ssmBadToken, rows, false, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -656,10 +654,7 @@ func handleSSMListComplianceItems(w http.ResponseWriter, r *http.Request) {
 		}
 		filtered = append(filtered, c)
 	}
-	sortBy(filtered, func(c SSMComplianceItem) string {
-		return c.ResourceId + "\x00" + c.ComplianceType + "\x00" + c.Id
-	})
-	page, next, pageOK := awsPage(w, ssmBadToken, filtered, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, filtered, func(it SSMComplianceItem) string { return it.ResourceId + "\x00" + it.ComplianceType + "\x00" + it.Id }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -752,8 +747,7 @@ func handleSSMListComplianceSummaries(w http.ResponseWriter, r *http.Request) {
 	for t := range byType {
 		types = append(types, t)
 	}
-	sort.Strings(types)
-	page, next, pageOK := awsPage(w, ssmBadToken, types, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, types, func(it string) string { return it }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -799,13 +793,7 @@ func handleSSMListResourceComplianceSummaries(w http.ResponseWriter, r *http.Req
 	for k := range byKey {
 		keys = append(keys, k)
 	}
-	sort.Slice(keys, func(i, j int) bool {
-		if keys[i].resource != keys[j].resource {
-			return keys[i].resource < keys[j].resource
-		}
-		return keys[i].ctype < keys[j].ctype
-	})
-	page, next, pageOK := awsPage(w, ssmBadToken, keys, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, keys, func(it rcKey) string { return it.resource + "\x00" + it.ctype }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -880,7 +868,7 @@ func handleSSMListNodes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	all := ssmManagedInstanceList()
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMManagedInstance) string { return it.InstanceId }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -985,7 +973,7 @@ func handleSSMDescribeInstanceInformation(w http.ResponseWriter, r *http.Request
 		return
 	}
 	all := ssmManagedInstanceList()
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMManagedInstance) string { return it.InstanceId }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
@@ -1035,7 +1023,7 @@ func handleSSMDescribeInstanceProperties(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	all := ssmManagedInstanceList()
-	page, next, pageOK := awsPage(w, ssmBadToken, all, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMManagedInstance) string { return it.InstanceId }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}

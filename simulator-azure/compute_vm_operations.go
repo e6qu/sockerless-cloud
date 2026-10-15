@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -77,13 +76,9 @@ func registerVirtualMachineStateOperations(srv *sim.Server, armBase string) {
 			all := azureVMs.Filter(func(vm VirtualMachine) bool {
 				return strings.HasPrefix(vm.ID, prefix) && strings.EqualFold(vm.Location, location)
 			})
-			sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
-			page, next, pageOK := armPage(w, r, all)
+			page, next, pageOK := armPage(w, r, all, func(vm VirtualMachine) string { return vm.ID })
 			if !pageOK {
 				return
-			}
-			if page == nil {
-				page = []VirtualMachine{}
 			}
 			out := map[string]any{"value": page}
 			if next != "" {

@@ -465,19 +465,9 @@ func registerKeyVault(srv *sim.Server) {
 		for i := range all {
 			all[i].Properties.VaultURI = azureKeyVaultEndpointURL(r, all[i].Name)
 		}
-		sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
-		filtered, err := azureApplyListQuery(all, r)
-		if err != nil {
-			AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
-			return
-		}
-		all = filtered
-		page, next, pageOK := armPage(w, r, all)
+		page, next, pageOK := armQueryPage(w, r, all, func(x KeyVault) string { return x.ID })
 		if !pageOK {
 			return
-		}
-		if page == nil {
-			page = []KeyVault{}
 		}
 		out := map[string]any{"value": page}
 		if next != "" {
@@ -502,19 +492,9 @@ func registerKeyVault(srv *sim.Server) {
 		for i := range all {
 			all[i].Properties.VaultURI = azureKeyVaultEndpointURL(r, all[i].Name)
 		}
-		sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
-		filtered, err := azureApplyListQuery(all, r)
-		if err != nil {
-			AzureError(w, "BadRequest", err.Error(), http.StatusBadRequest)
-			return
-		}
-		all = filtered
-		page, next, pageOK := armPage(w, r, all)
+		page, next, pageOK := armQueryPage(w, r, all, func(x KeyVault) string { return x.ID })
 		if !pageOK {
 			return
-		}
-		if page == nil {
-			page = []KeyVault{}
 		}
 		out := map[string]any{"value": page}
 		if next != "" {
@@ -1509,6 +1489,7 @@ func handleKVListKeys(w http.ResponseWriter, r *http.Request, vault string) {
 		ID         string            `json:"kid"`
 		Attributes KeyVaultAttrs     `json:"attributes,omitempty"`
 		Tags       map[string]string `json:"tags,omitempty"`
+		name       string
 	}
 	all := keyVaultKeysIn(vault)
 	items := make([]keyItem, 0, len(all))
@@ -1518,10 +1499,10 @@ func handleKVListKeys(w http.ResponseWriter, r *http.Request, vault string) {
 			if !ok {
 				continue
 			}
-			items = append(items, keyItem{ID: buildKVURL(r, vault, "keys", k.Name, ""), Attributes: v.Attributes, Tags: v.Tags})
+			items = append(items, keyItem{ID: buildKVURL(r, vault, "keys", k.Name, ""), Attributes: v.Attributes, Tags: v.Tags, name: k.Name})
 		}
 	}
-	page, next, pageOK := kvPage(w, r, items)
+	page, next, pageOK := kvPage(w, r, items, func(k keyItem) string { return k.name })
 	if !pageOK {
 		return
 	}
@@ -1543,6 +1524,7 @@ func handleKVListKeyVersions(w http.ResponseWriter, r *http.Request, vault, name
 		ID         string            `json:"kid"`
 		Attributes KeyVaultAttrs     `json:"attributes,omitempty"`
 		Tags       map[string]string `json:"tags,omitempty"`
+		order      string
 	}
 	versions := rec.Versions
 	if len(versions) == 0 {
@@ -1550,16 +1532,11 @@ func handleKVListKeyVersions(w http.ResponseWriter, r *http.Request, vault, name
 			versions = []kvKeyVersion{v}
 		}
 	}
-	// Oldest-first by creation order (stable sort over append-ordered versions),
-	// matching real Azure — not by random version UUID.
-	sort.SliceStable(versions, func(i, j int) bool {
-		return versions[i].Attributes.Created < versions[j].Attributes.Created
-	})
 	items := make([]keyItem, 0, len(versions))
-	for _, v := range versions {
-		items = append(items, keyItem{ID: v.ID, Attributes: v.Attributes, Tags: v.Tags})
+	for i, v := range versions {
+		items = append(items, keyItem{ID: v.ID, Attributes: v.Attributes, Tags: v.Tags, order: kvVersionOrder(v.Attributes.Created, i)})
 	}
-	page, next, pageOK := kvPage(w, r, items)
+	page, next, pageOK := kvPage(w, r, items, func(k keyItem) string { return k.order })
 	if !pageOK {
 		return
 	}
@@ -1641,16 +1618,19 @@ func handleKVGetDeletedKey(w http.ResponseWriter, r *http.Request, vault, name s
 }
 
 func handleKVListDeletedKeys(w http.ResponseWriter, r *http.Request, vault string) {
-	items := []map[string]any{}
+	deleted := []kvKeyStored{}
 	for _, rec := range keyVaultKeysIn(vault) {
-		if !rec.isDeleted() {
-			continue
+		if rec.isDeleted() {
+			deleted = append(deleted, rec)
 		}
-		items = append(items, deletedKeyBundle(rec))
 	}
-	page, next, pageOK := kvPage(w, r, items)
+	recs, next, pageOK := kvPage(w, r, deleted, func(k kvKeyStored) string { return k.Name })
 	if !pageOK {
 		return
+	}
+	page := make([]map[string]any, 0, len(recs))
+	for _, rec := range recs {
+		page = append(page, deletedKeyBundle(rec))
 	}
 	out := map[string]any{"value": page}
 	if next != "" {
@@ -2454,6 +2434,7 @@ func handleKVListCertificates(w http.ResponseWriter, r *http.Request, vault stri
 		Attributes     KeyVaultAttrs     `json:"attributes,omitempty"`
 		Tags           map[string]string `json:"tags,omitempty"`
 		X509Thumbprint string            `json:"x5t,omitempty"`
+		name           string
 	}
 	all := keyVaultCertificatesIn(vault)
 	items := make([]certItem, 0, len(all))
@@ -2463,10 +2444,10 @@ func handleKVListCertificates(w http.ResponseWriter, r *http.Request, vault stri
 			if !ok {
 				continue
 			}
-			items = append(items, certItem{ID: buildKVURL(r, vault, "certificates", c.Name, ""), Attributes: v.Attributes, Tags: v.Tags, X509Thumbprint: v.X509Thumbprint})
+			items = append(items, certItem{ID: buildKVURL(r, vault, "certificates", c.Name, ""), Attributes: v.Attributes, Tags: v.Tags, X509Thumbprint: v.X509Thumbprint, name: c.Name})
 		}
 	}
-	page, next, pageOK := kvPage(w, r, items)
+	page, next, pageOK := kvPage(w, r, items, func(c certItem) string { return c.name })
 	if !pageOK {
 		return
 	}
@@ -2489,6 +2470,7 @@ func handleKVListCertificateVersions(w http.ResponseWriter, r *http.Request, vau
 		Attributes     KeyVaultAttrs     `json:"attributes,omitempty"`
 		Tags           map[string]string `json:"tags,omitempty"`
 		X509Thumbprint string            `json:"x5t,omitempty"`
+		order          string
 	}
 	versions := rec.Versions
 	if len(versions) == 0 {
@@ -2496,16 +2478,11 @@ func handleKVListCertificateVersions(w http.ResponseWriter, r *http.Request, vau
 			versions = []kvCertVersion{v}
 		}
 	}
-	// Oldest-first by creation order (stable sort over append-ordered versions),
-	// matching real Azure — not by random version UUID.
-	sort.SliceStable(versions, func(i, j int) bool {
-		return versions[i].Attributes.Created < versions[j].Attributes.Created
-	})
 	items := make([]certItem, 0, len(versions))
-	for _, v := range versions {
-		items = append(items, certItem{ID: v.ID, Attributes: v.Attributes, Tags: v.Tags, X509Thumbprint: v.X509Thumbprint})
+	for i, v := range versions {
+		items = append(items, certItem{ID: v.ID, Attributes: v.Attributes, Tags: v.Tags, X509Thumbprint: v.X509Thumbprint, order: kvVersionOrder(v.Attributes.Created, i)})
 	}
-	page, next, pageOK := kvPage(w, r, items)
+	page, next, pageOK := kvPage(w, r, items, func(c certItem) string { return c.order })
 	if !pageOK {
 		return
 	}
@@ -2626,16 +2603,19 @@ func handleKVGetDeletedCertificate(w http.ResponseWriter, r *http.Request, vault
 }
 
 func handleKVListDeletedCertificates(w http.ResponseWriter, r *http.Request, vault string) {
-	items := []map[string]any{}
+	deleted := []kvCertStored{}
 	for _, rec := range keyVaultCertificatesIn(vault) {
-		if !rec.isDeleted() {
-			continue
+		if rec.isDeleted() {
+			deleted = append(deleted, rec)
 		}
-		items = append(items, deletedCertificateBundle(rec))
 	}
-	page, next, pageOK := kvPage(w, r, items)
+	recs, next, pageOK := kvPage(w, r, deleted, func(c kvCertStored) string { return c.Name })
 	if !pageOK {
 		return
+	}
+	page := make([]map[string]any, 0, len(recs))
+	for _, rec := range recs {
+		page = append(page, deletedCertificateBundle(rec))
 	}
 	out := map[string]any{"value": page}
 	if next != "" {
@@ -2825,17 +2805,16 @@ func keyVaultCertIssuerVaultKeys(rec kvCertIssuerStored) []string {
 // provider — for the vault, paged like the other vault collections.
 func handleKVListCertificateIssuers(w http.ResponseWriter, r *http.Request, vault string) {
 	rows := keyVaultCertIssuersByVault.LookupAll(keyVaultCertIssuers, vault, keyVaultCertIssuerVaultKeys)
-	sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
-	items := make([]map[string]any, 0, len(rows))
-	for _, rec := range rows {
-		items = append(items, map[string]any{
+	recs, next, pageOK := kvPage(w, r, rows, func(rec kvCertIssuerStored) string { return rec.Name })
+	if !pageOK {
+		return
+	}
+	page := make([]map[string]any, 0, len(recs))
+	for _, rec := range recs {
+		page = append(page, map[string]any{
 			"id":       strings.TrimSuffix(buildKVURL(r, vault, "certificates", "issuers", rec.Name), "/"),
 			"provider": rec.Provider,
 		})
-	}
-	page, next, pageOK := kvPage(w, r, items)
-	if !pageOK {
-		return
 	}
 	out := map[string]any{"value": page}
 	if next != "" {
@@ -3587,25 +3566,21 @@ func emitDeletedSecretBundle(w http.ResponseWriter, r *http.Request, vault, name
 
 func handleKVListSecrets(w http.ResponseWriter, r *http.Request, vault string) {
 	all := keyVaultData.Filter(func(s kvSecretStored) bool {
-		return s.Vault == vault && !s.isDeleted()
+		return s.Vault == vault && !s.isDeleted() && len(s.Versions) > 0
 	})
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	items := make([]kvSecretItem, 0, len(all))
-	for _, s := range all {
-		if len(s.Versions) == 0 {
-			continue
-		}
+	recs, next, pageOK := kvPage(w, r, all, func(s kvSecretStored) string { return s.Name })
+	if !pageOK {
+		return
+	}
+	page := make([]kvSecretItem, 0, len(recs))
+	for _, s := range recs {
 		latest := s.latest()
-		items = append(items, kvSecretItem{
+		page = append(page, kvSecretItem{
 			ID:          buildKVURL(r, s.Vault, "secrets", s.Name, ""),
 			Attributes:  latest.Attributes,
 			Tags:        latest.Tags,
 			ContentType: latest.ContentType,
 		})
-	}
-	page, next, pageOK := kvPage(w, r, items)
-	if !pageOK {
-		return
 	}
 	out := kvSecretListResult{Value: page}
 	if next != "" {
@@ -3624,27 +3599,26 @@ func handleKVListSecretVersions(w http.ResponseWriter, r *http.Request, vault, n
 			"A secret with (name/id) %q was not found in this key vault.", name)
 		return
 	}
-	versions := rec.Versions
-	// Oldest-first, matching real Azure. Versions are stored in creation
-	// (append) order; a stable sort by Created preserves that order for the
-	// common case where rapid same-second writes share a Created timestamp.
-	// (Sorting by the random version UUID — the old behaviour — bore no
-	// relation to creation order.)
-	sort.SliceStable(versions, func(i, j int) bool {
-		return versions[i].Attributes.Created < versions[j].Attributes.Created
-	})
-	items := make([]kvSecretItem, 0, len(versions))
-	for _, v := range versions {
-		items = append(items, kvSecretItem{
-			ID:          buildKVURL(r, vault, "secrets", name, v.Version),
-			Attributes:  v.Attributes,
-			Tags:        v.Tags,
-			ContentType: v.ContentType,
-		})
+	type ordered struct {
+		order   string
+		version kvSecretVersion
 	}
-	page, next, pageOK := kvPage(w, r, items)
+	versions := make([]ordered, len(rec.Versions))
+	for i, v := range rec.Versions {
+		versions[i] = ordered{kvVersionOrder(v.Attributes.Created, i), v}
+	}
+	got, next, pageOK := kvPage(w, r, versions, func(o ordered) string { return o.order })
 	if !pageOK {
 		return
+	}
+	page := make([]kvSecretItem, 0, len(got))
+	for _, o := range got {
+		page = append(page, kvSecretItem{
+			ID:          buildKVURL(r, vault, "secrets", name, o.version.Version),
+			Attributes:  o.version.Attributes,
+			Tags:        o.version.Tags,
+			ContentType: o.version.ContentType,
+		})
 	}
 	out := kvSecretListResult{Value: page}
 	if next != "" {
@@ -3669,22 +3643,22 @@ func handleKVGetDeletedSecret(w http.ResponseWriter, r *http.Request, vault, nam
 // secrets in the vault. Path: `/deletedsecrets`.
 func handleKVListDeletedSecrets(w http.ResponseWriter, r *http.Request, vault string) {
 	all := keyVaultData.Filter(func(s kvSecretStored) bool {
-		return s.Vault == vault && s.isDeleted()
+		return s.Vault == vault && s.isDeleted() && len(s.Versions) > 0
 	})
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 	type deletedItem struct {
 		kvSecretItem
 		RecoveryID         string `json:"recoveryId"`
 		DeletedDate        int64  `json:"deletedDate"`
 		ScheduledPurgeDate int64  `json:"scheduledPurgeDate"`
 	}
-	items := make([]deletedItem, 0, len(all))
-	for _, s := range all {
-		if len(s.Versions) == 0 {
-			continue
-		}
+	recs, next, pageOK := kvPage(w, r, all, func(s kvSecretStored) string { return s.Name })
+	if !pageOK {
+		return
+	}
+	page := make([]deletedItem, 0, len(recs))
+	for _, s := range recs {
 		latest := s.latest()
-		items = append(items, deletedItem{
+		page = append(page, deletedItem{
 			kvSecretItem: kvSecretItem{
 				ID:          buildKVURL(r, s.Vault, "secrets", s.Name, ""),
 				Attributes:  latest.Attributes,
@@ -3695,10 +3669,6 @@ func handleKVListDeletedSecrets(w http.ResponseWriter, r *http.Request, vault st
 			DeletedDate:        s.DeletedAt,
 			ScheduledPurgeDate: s.ScheduledPurgeAt,
 		})
-	}
-	page, next, pageOK := kvPage(w, r, items)
-	if !pageOK {
-		return
 	}
 	out := struct {
 		Value    []deletedItem `json:"value"`

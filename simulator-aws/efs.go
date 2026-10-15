@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -583,11 +582,10 @@ func handleEFSDescribeReplicationConfigurations(w http.ResponseWriter, r *http.R
 	} else {
 		reps = efsReplications.List()
 	}
-	sort.Slice(reps, func(i, j int) bool { return reps[i].SourceFileSystemId < reps[j].SourceFileSystemId })
 	if reps == nil {
 		reps = []EFSReplicationConfig{}
 	}
-	page, next, pageOK := awsPage(w, efsBadToken, reps, r.URL.Query().Get("NextToken"), atoiDefault(r.URL.Query().Get("MaxResults"), 0), 0)
+	page, next, pageOK := awsKeyPage(w, efsBadToken, reps, func(it EFSReplicationConfig) string { return it.SourceFileSystemId }, r.URL.Query().Get("NextToken"), atoiDefault(r.URL.Query().Get("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -678,7 +676,7 @@ func handleEFSListTagsForResource(w http.ResponseWriter, r *http.Request) {
 	if tags == nil {
 		tags = []EFSTag{}
 	}
-	page, next, pageOK := awsPage(w, efsBadToken, tags, r.URL.Query().Get("NextToken"), atoiDefault(r.URL.Query().Get("MaxResults"), 0), 0)
+	page, next, pageOK := awsSeqPage(w, efsBadToken, tags, false, r.URL.Query().Get("NextToken"), atoiDefault(r.URL.Query().Get("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -743,7 +741,7 @@ func handleEFSDescribeTags(w http.ResponseWriter, r *http.Request) {
 	if tags == nil {
 		tags = []EFSTag{}
 	}
-	page, next, pageOK := awsPage(w, efsBadToken, tags, r.URL.Query().Get("Marker"), atoiDefault(r.URL.Query().Get("MaxItems"), 0), 0)
+	page, next, pageOK := awsSeqPage(w, efsBadToken, tags, false, r.URL.Query().Get("Marker"), atoiDefault(r.URL.Query().Get("MaxItems"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -852,7 +850,6 @@ func handleEFSDescribeFileSystems(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		fileSystems = efsFileSystems.List()
-		sort.Slice(fileSystems, func(i, j int) bool { return fileSystems[i].FileSystemId < fileSystems[j].FileSystemId })
 		// Refresh each file system's live mount-target count so the list path
 		// matches the by-id path (real EFS always reports the current count).
 		for i := range fileSystems {
@@ -878,7 +875,7 @@ func handleEFSDescribeFileSystems(w http.ResponseWriter, r *http.Request) {
 		fileSystems = []EFSFileSystem{}
 	}
 
-	page, next, pageOK := awsPage(w, efsBadToken, fileSystems, r.URL.Query().Get("Marker"), atoiDefault(r.URL.Query().Get("MaxItems"), 0), 0)
+	page, next, pageOK := awsKeyPage(w, efsBadToken, fileSystems, func(it EFSFileSystem) string { return it.FileSystemId }, r.URL.Query().Get("Marker"), atoiDefault(r.URL.Query().Get("MaxItems"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -1086,7 +1083,7 @@ func efsDescribeList[T any](
 	store sim.Store[T],
 	idParam, fsParam string,
 	matchesFS func(item T, fsID string) bool,
-	less func(a, b T) bool,
+	key func(T) string,
 	markerParam, maxParam, listKey, tokenKey string,
 ) (map[string]any, bool) {
 	var items []T
@@ -1096,15 +1093,13 @@ func efsDescribeList[T any](
 		}
 	} else if fsID := r.URL.Query().Get(fsParam); fsID != "" {
 		items = store.Filter(func(it T) bool { return matchesFS(it, fsID) })
-		sort.Slice(items, func(i, j int) bool { return less(items[i], items[j]) })
 	} else {
 		items = store.List()
-		sort.Slice(items, func(i, j int) bool { return less(items[i], items[j]) })
 	}
 	if items == nil {
 		items = []T{}
 	}
-	page, next, pageOK := awsPage(w, efsBadToken, items, r.URL.Query().Get(markerParam), atoiDefault(r.URL.Query().Get(maxParam), 0), 0)
+	page, next, pageOK := awsKeyPage(w, efsBadToken, items, key, r.URL.Query().Get(markerParam), atoiDefault(r.URL.Query().Get(maxParam), 0), 0)
 	if !pageOK {
 		return nil, false
 	}
@@ -1118,7 +1113,7 @@ func efsDescribeList[T any](
 func handleEFSDescribeMountTargets(w http.ResponseWriter, r *http.Request) {
 	resp, ok := efsDescribeList(w, r, efsMountTargets, "MountTargetId", "FileSystemId",
 		func(mt EFSMountTarget, fsID string) bool { return mt.FileSystemId == fsID },
-		func(a, b EFSMountTarget) bool { return a.MountTargetId < b.MountTargetId },
+		func(mt EFSMountTarget) string { return mt.MountTargetId },
 		"Marker", "MaxItems", "MountTargets", "NextMarker")
 	if !ok {
 		return
@@ -1185,7 +1180,7 @@ func handleEFSCreateAccessPoint(w http.ResponseWriter, r *http.Request) {
 func handleEFSDescribeAccessPoints(w http.ResponseWriter, r *http.Request) {
 	resp, ok := efsDescribeList(w, r, efsAccessPoints, "AccessPointId", "FileSystemId",
 		func(ap EFSAccessPoint, fsID string) bool { return ap.FileSystemId == fsID },
-		func(a, b EFSAccessPoint) bool { return a.AccessPointId < b.AccessPointId },
+		func(ap EFSAccessPoint) string { return ap.AccessPointId },
 		"NextToken", "MaxResults", "AccessPoints", "NextToken")
 	if !ok {
 		return

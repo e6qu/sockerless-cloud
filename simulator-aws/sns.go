@@ -223,8 +223,7 @@ func handleSNSListTopics(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	token := r.FormValue("NextToken")
 	all := snsTopics.List()
-	sortBy(all, func(t SNSTopic) string { return t.ARN })
-	page, next, pageOK := awsPage(w, snsBadToken(r), all, token, 0, 100)
+	page, next, pageOK := awsKeyPage(w, snsBadToken(r), all, func(it SNSTopic) string { return it.ARN }, token, 0, 100)
 	if !pageOK {
 		return
 	}

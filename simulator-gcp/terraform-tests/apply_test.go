@@ -236,6 +236,8 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.Contains(t, logSinkID, "projects/test-project/sinks/tf-log-sink",
 		"Logging project sink id must include canonical project sink path; got %s", logSinkID)
 
+	require.Equal(t, "projects/test-project/exclusions/tf-exclude-debug", outputs.must(t, "logging_exclusion_id"),
+		"the exclusion's id must be its resource name under the project")
 	require.EqualValues(t, 45, outputs["logging_default_bucket_retention"].Value,
 		"the _Default bucket must take the retention the configuration sets")
 

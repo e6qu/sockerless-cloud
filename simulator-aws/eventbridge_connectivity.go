@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -318,8 +317,7 @@ func handleEBListApiDestinations(w http.ResponseWriter, r *http.Request) {
 		}
 		dests = append(dests, dest)
 	}
-	sort.Slice(dests, func(i, j int) bool { return dests[i].Name < dests[j].Name })
-	page, next, pageOK := awsPage(w, ebBadToken, dests, req.NextToken, req.Limit, 0)
+	page, next, pageOK := awsKeyPage(w, ebBadToken, dests, func(it EBApiDestination) string { return it.Name }, req.NextToken, req.Limit, 0)
 	if !pageOK {
 		return
 	}
@@ -570,8 +568,7 @@ func handleEBListConnections(w http.ResponseWriter, r *http.Request) {
 		}
 		conns = append(conns, conn)
 	}
-	sort.Slice(conns, func(i, j int) bool { return conns[i].Name < conns[j].Name })
-	page, next, pageOK := awsPage(w, ebBadToken, conns, req.NextToken, req.Limit, 0)
+	page, next, pageOK := awsKeyPage(w, ebBadToken, conns, func(it EBConnection) string { return it.Name }, req.NextToken, req.Limit, 0)
 	if !pageOK {
 		return
 	}
@@ -810,8 +807,7 @@ func handleEBListEndpoints(w http.ResponseWriter, r *http.Request) {
 		}
 		endpoints = append(endpoints, endpoint)
 	}
-	sort.Slice(endpoints, func(i, j int) bool { return endpoints[i].Name < endpoints[j].Name })
-	page, next, pageOK := awsPage(w, ebBadToken, endpoints, req.NextToken, req.MaxResults, 0)
+	page, next, pageOK := awsKeyPage(w, ebBadToken, endpoints, func(it EBEndpoint) string { return it.Name }, req.NextToken, req.MaxResults, 0)
 	if !pageOK {
 		return
 	}
@@ -1002,8 +998,7 @@ func handleEBListPartnerEventSources(w http.ResponseWriter, r *http.Request) {
 		seen[s.Name] = true
 		sources = append(sources, s)
 	}
-	sort.Slice(sources, func(i, j int) bool { return sources[i].Name < sources[j].Name })
-	page, next, pageOK := awsPage(w, ebBadToken, sources, req.NextToken, req.Limit, 0)
+	page, next, pageOK := awsKeyPage(w, ebBadToken, sources, func(it EBPartnerEventSource) string { return it.Name }, req.NextToken, req.Limit, 0)
 	if !pageOK {
 		return
 	}
@@ -1044,8 +1039,7 @@ func handleEBListPartnerEventSourceAccounts(w http.ResponseWriter, r *http.Reque
 		AWSError(w, "ResourceNotFoundException", "Event source "+req.EventSourceName+" does not exist.", http.StatusNotFound)
 		return
 	}
-	sort.Slice(accounts, func(i, j int) bool { return accounts[i].Account < accounts[j].Account })
-	page, next, pageOK := awsPage(w, ebBadToken, accounts, req.NextToken, req.Limit, 0)
+	page, next, pageOK := awsKeyPage(w, ebBadToken, accounts, func(it EBPartnerEventSource) string { return it.Account }, req.NextToken, req.Limit, 0)
 	if !pageOK {
 		return
 	}
@@ -1213,8 +1207,7 @@ func handleEBListEventSources(w http.ResponseWriter, r *http.Request) {
 		seen[s.Name] = true
 		sources = append(sources, s)
 	}
-	sort.Slice(sources, func(i, j int) bool { return sources[i].Name < sources[j].Name })
-	page, next, pageOK := awsPage(w, ebBadToken, sources, req.NextToken, req.Limit, 0)
+	page, next, pageOK := awsKeyPage(w, ebBadToken, sources, func(it EBPartnerEventSource) string { return it.Name }, req.NextToken, req.Limit, 0)
 	if !pageOK {
 		return
 	}
