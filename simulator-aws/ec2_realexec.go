@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sort"
@@ -1145,8 +1146,14 @@ func ec2ConfigureTaskResolver(ctx context.Context, subnet *realexec.Subnet, vpcI
 	if err != nil {
 		return fmt.Errorf("configure task resolver for %s: %w", taskID, err)
 	}
-	if err := subnet.ConfigureResolverDNAT(ctx, port, fabric.LinuxName("dns", vpcID)); err != nil {
+	addr, err := subnet.ConfigureResolverDNAT(ctx, port, fabric.LinuxName("dns", vpcID))
+	if err != nil {
 		return fmt.Errorf("configure task resolver for %s: %w", taskID, err)
 	}
+	local, ok := netip.AddrFromSlice(addr.To4())
+	if !ok {
+		return fmt.Errorf("configure task resolver for %s: resolver address %s is not IPv4", taskID, addr)
+	}
+	route53RegisterResolverAddress(local, vpcID)
 	return nil
 }

@@ -1,7 +1,9 @@
 package azure_sdk_test
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/dns/armdns"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
@@ -60,6 +62,14 @@ func TestPublicDNS_CreateZoneAndRecordSet(t *testing.T) {
 	assert.Equal(t, "198.51.100.25", *recordResp.Properties.ARecords[0].IPv4Address)
 	require.NotNil(t, recordResp.Properties.Fqdn)
 	assert.Equal(t, "api."+zone+".", *recordResp.Properties.Fqdn)
+
+	// Azure DNS serves the zone: the record answers over DNS as soon as it is
+	// written.
+	lookupCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	addresses, err := azureDNSResolver().LookupHost(lookupCtx, "api."+zone)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"198.51.100.25"}, addresses)
 
 	getResp, err := recordSetsClient.Get(ctx, "dns-public-rg", zone, "api", armdns.RecordTypeA, nil)
 	require.NoError(t, err)

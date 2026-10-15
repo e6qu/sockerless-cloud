@@ -85,11 +85,15 @@ SIM_AZURE_DNS_TARGET_IPV4=127.0.0.1 \
 ./simulator-azure
 ```
 
-`SIM_AZURE_DNS_LISTEN_ADDR` enables the DNS listener. It serves DNS over
-UDP and TCP and fails startup if it cannot bind. `SIM_AZURE_DNS_ZONES`
-is a comma-separated list of local zones to answer. `SIM_AZURE_DNS_TTL`
-defaults to `60`. `SIM_AZURE_DNS_TARGET_IPV4` defaults to `127.0.0.1`;
-`SIM_AZURE_DNS_TARGET_IPV6` is optional and is only answered when set.
+`SIM_AZURE_DNS_LISTEN_ADDR` enables the DNS listener, an IPv4 address and
+port. It serves DNS over UDP and TCP and fails startup if it cannot bind.
+`SIM_AZURE_DNS_ZONES` is a comma-separated list of the custom cloud's endpoint
+suffixes: the suffix and every name under it answer with
+`SIM_AZURE_DNS_TARGET_IPV4` (default `127.0.0.1`) and, when set,
+`SIM_AZURE_DNS_TARGET_IPV6`, for `SIM_AZURE_DNS_TTL` seconds (default `60`).
+The listener also answers every Azure DNS public zone with its record sets,
+and recurses for other names through `SIM_DNS_UPSTREAM` or the host's
+resolvers.
 
 For macOS, configure a resolver for the local simulator zone after the
 DNS listener is running on port 53:

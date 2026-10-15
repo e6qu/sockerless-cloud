@@ -51,8 +51,8 @@ func TestDNS_RrsetsListNameTypeFilter(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, byName.Rrsets, 2, "name filter must return all types at that name")
 
-	// no filter → all three.
+	// no filter → all three, and the zone's own apex NS and SOA.
 	all, err := svc.ResourceRecordSets.List(project, "disc-zone").Do()
 	require.NoError(t, err)
-	require.Len(t, all.Rrsets, 3)
+	require.Len(t, all.Rrsets, 5)
 }

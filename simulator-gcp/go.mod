@@ -23,8 +23,8 @@ require (
 	cloud.google.com/go/serviceusage v1.16.0
 	cloud.google.com/go/spanner v1.96.1
 	cloud.google.com/go/vpcaccess v1.15.0
-	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261011153517-672e2af01cda
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261015015242-efea127222de
+	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261015095328-52df3766fa29
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261015095328-52df3766fa29
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260912152828-8fd99b4320ff
 	github.com/hamba/avro/v2 v2.31.0
 	github.com/klauspost/compress v1.20.3
@@ -68,6 +68,7 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/mattn/go-colorable v0.1.16 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
+	github.com/miekg/dns v1.1.73 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
