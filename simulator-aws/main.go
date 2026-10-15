@@ -6,6 +6,7 @@
 // Configure with environment variables:
 //
 //	SIM_LISTEN_ADDR  — listen address (default ":4566")
+//	SIM_AWS_PORT     — port to listen on, ahead of SIM_LISTEN_ADDR
 //	SIM_TLS_CERT     — TLS certificate file (optional)
 //	SIM_TLS_KEY      — TLS key file (optional)
 //	SIM_RUNTIME      — "docker" by default; "process" starts API-only mode for runs that do not execute workloads
@@ -21,54 +22,28 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
-	"os"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 func main() {
-	if sim.RunContainerReaper() {
-		return
-	}
-	// A simulator started by a test harness must not outlive it. The harness
-	// stops it from its own cleanup, which a killed `go test` never reaches —
-	// and the reaper waits on the simulator, so both would linger.
-	sim.ExitWithParent()
-	cfg := sim.ConfigFromEnv("aws")
-	if cfg.ListenAddr == ":8443" {
-		cfg.ListenAddr = ":4566" // AWS simulator default port
-	}
-
-	// Override from SIM_AWS_PORT if set
-	if port := os.Getenv("SIM_AWS_PORT"); port != "" {
-		cfg.ListenAddr = ":" + port
-	}
-
-	// Stash the listen addr so cloud-product translators can wire
-	// AWS_EC2_METADATA_SERVICE_ENDPOINT + ECS_CONTAINER_METADATA_URI_V4
-	// onto workload containers.
-	simListenAddr = cfg.ListenAddr
-
-	obs, err := sim.InitObservability("sockerless-sim-aws")
-	if err != nil {
-		log.Fatalf("init observability: %v", err)
-	}
-	defer func() { _ = obs.Shutdown(context.Background()) }()
-	cfg.LogWriter = obs.LogWriter
-
-	srv, _, _, err := buildSimulator(cfg)
-	if err != nil {
-		log.Fatalf("simulator startup: %v", err)
-	}
-
-	if err := srv.ListenAndServe(); err != nil {
-		log.Fatal(err)
-	}
+	sim.Main(sim.Program{
+		Provider:    "aws",
+		DefaultPort: "4566",
+		Configure: func(cfg *sim.Config) error {
+			// Workloads reach the instance metadata and container metadata
+			// endpoints at the address the simulator serves on.
+			simListenAddr = cfg.ListenAddr
+			return nil
+		},
+		Build: func(cfg sim.Config) (*sim.Server, error) {
+			srv, _, _, err := buildSimulator(cfg)
+			return srv, err
+		},
+	})
 }
 
 // buildSimulator constructs the simulator server and registers every

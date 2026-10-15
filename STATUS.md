@@ -31,6 +31,11 @@ Current state of the sockerless-cloud repository.
   zones answer the VPCs they are associated with, Azure DNS and Cloud DNS
   public zones answer anyone, and only Amazon ECS tasks in their own namespace
   send their queries to a simulator's resolver (BUG-3473).
+- **One startup sequence.** Every simulator binary's `main` is a `sim.Main`
+  call with a `sim.Program`: the cloud supplies its default port, its build and
+  the listeners it serves beside the HTTP port, and `sim` owns the reaper
+  invocation, the parent-process watch, configuration, observability, the
+  container-engine runtime mode and shutdown.
 - **Pins carry the working tree's content.** Each simulator pins `sim`,
   `realexec` and `ui-auth` by pseudo-version;
   `scripts/check-support-module-pins.sh` downloads every pinned version and

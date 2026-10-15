@@ -9,6 +9,7 @@ package sim
 import (
 	"net/http"
 	"os"
+	"strings"
 )
 
 // Config holds the simulator server configuration.
@@ -62,7 +63,8 @@ type Config struct {
 
 // ConfigFromEnv loads configuration from environment variables.
 //
-//	SIM_LISTEN_ADDR — listen address (default ":8443")
+//	SIM_<PROVIDER>_PORT — port to listen on, ahead of SIM_LISTEN_ADDR
+//	SIM_LISTEN_ADDR — listen address (default ":" + defaultPort)
 //	SIM_TLS_CERT    — TLS certificate file path
 //	SIM_TLS_KEY     — TLS private key file path
 //	SIM_LOG_LEVEL   — log level (default "info")
@@ -73,12 +75,16 @@ type Config struct {
 //	SIM_UI_SESSION_SECRET     — random secret used to sign local sessions
 //	APPLICATION_RELEASE_REVISION — immutable deployed release exposed to Shauth validation
 //	SIM_MONITORING_TOKEN      — deployment bearer for the application observation
-func ConfigFromEnv(provider string) Config {
+func ConfigFromEnv(provider, defaultPort string) Config {
+	listenAddr := EnvOr("SIM_LISTEN_ADDR", ":"+defaultPort)
+	if port := os.Getenv("SIM_" + strings.ToUpper(provider) + "_PORT"); port != "" {
+		listenAddr = ":" + port
+	}
 	return Config{
-		ListenAddr:                 envOrDefault("SIM_LISTEN_ADDR", ":8443"),
+		ListenAddr:                 listenAddr,
 		TLSCert:                    os.Getenv("SIM_TLS_CERT"),
 		TLSKey:                     os.Getenv("SIM_TLS_KEY"),
-		LogLevel:                   envOrDefault("SIM_LOG_LEVEL", "info"),
+		LogLevel:                   EnvOr("SIM_LOG_LEVEL", "info"),
 		Provider:                   provider,
 		DataDir:                    os.Getenv("SIM_DATA_DIR"),
 		Persist:                    os.Getenv("SIM_PERSIST") == "true" || os.Getenv("SIM_PERSIST") == "1",
@@ -93,7 +99,8 @@ func ConfigFromEnv(provider string) Config {
 	}
 }
 
-func envOrDefault(key, fallback string) string {
+// EnvOr reads an environment variable, or fallback when it is unset or empty.
+func EnvOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}

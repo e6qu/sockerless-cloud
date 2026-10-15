@@ -18,6 +18,7 @@ that cloud's module and reach the framework through the hooks below.
 | File | Provides |
 |------|----------|
 | `server.go` | `Server`: mux registration that records every route pattern for the spec-conformance gates, `WrapHandler` for host-addressed data planes, `RegisterUI` with `ConsoleOptions`, background workers drained before SQLite closes, graceful shutdown, TLS |
+| `program.go` | `Main` and `Program`: the startup every simulator binary runs — the detached reaper invocation, the parent-process watch, configuration, observability, the cloud's build, the listeners it serves beside the HTTP port, and the HTTP server until a signal, ending the process at the first step that fails |
 | `config.go` | `Config` read from `SIM_*` environment variables, including the `RewriteRequest` hook a cloud uses to map virtual-hosted or case-folded addressing onto the paths the router works in |
 | `middleware.go` | request id, structured request logging (5xx bodies captured), identity extraction from the caller's credential, `Flush` and `Hijack` passthrough for streaming and WebSocket handlers |
 | `diagnostics.go`, `diagnostics_stores.go`, `runtime_mode.go` | in-flight request registry with slow-request reporting; per-table sizes at `/debug/stores`; `SIM_RUNTIME` resolution |
@@ -81,11 +82,12 @@ that cloud's module and reach the framework through the hooks below.
 
 ## Configuration
 
-`ConfigFromEnv(provider)` reads:
+`ConfigFromEnv(provider, defaultPort)` reads:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SIM_LISTEN_ADDR` | `:8443` | Listen address (each simulator's `main` substitutes its own default port) |
+| `SIM_<PROVIDER>_PORT` | — | Port to listen on, ahead of `SIM_LISTEN_ADDR` (`SIM_AWS_PORT`, `SIM_GCP_PORT`, `SIM_AZURE_PORT`) |
+| `SIM_LISTEN_ADDR` | `:<defaultPort>` | Listen address |
 | `SIM_TLS_CERT`, `SIM_TLS_KEY` | — | TLS certificate and key |
 | `SIM_LOG_LEVEL` | `info` | trace, debug, info, warn, error |
 | `SIM_RUNTIME` | `docker` | `process` starts API-only, with no container engine |
@@ -100,16 +102,25 @@ that cloud's module and reach the framework through the hooks below.
 ## Usage
 
 ```go
-cfg := sim.ConfigFromEnv("aws")
-srv, err := sim.NewServer(cfg)
-if err != nil {
-    log.Fatalf("simulator startup: %v", err)
-}
-srv.HandleFunc("GET /2015-03-31/functions", listFunctions)
-if err := srv.ListenAndServe(); err != nil {
-    log.Fatal(err)
+func main() {
+    sim.Main(sim.Program{
+        Provider:    "aws",
+        DefaultPort: "4566",
+        Build: func(cfg sim.Config) (*sim.Server, error) {
+            srv, err := sim.NewServer(cfg)
+            if err != nil {
+                return nil, err
+            }
+            srv.HandleFunc("GET /2015-03-31/functions", listFunctions)
+            return srv, nil
+        },
+    })
 }
 ```
+
+`Configure` checks or records the resolved configuration before the build, and
+`Start` starts what serves beside the HTTP port (a gRPC or DNS listener),
+returning the stop that runs once the HTTP server has shut down.
 
 ## Testing
 

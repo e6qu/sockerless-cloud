@@ -7,6 +7,7 @@
 // Configure with environment variables:
 //
 //	SIM_LISTEN_ADDR     — HTTP listen address (default ":4567")
+//	SIM_GCP_PORT        — HTTP port to listen on, ahead of SIM_LISTEN_ADDR
 //	SIM_GCP_GRPC_PORT   — gRPC listen port (default: HTTP port + 2, so the default coexists with the Azure simulator's :4568)
 //	SIM_TLS_CERT        — TLS certificate file (optional)
 //	SIM_TLS_KEY         — TLS key file (optional)
@@ -34,74 +35,55 @@ import (
 )
 
 func main() {
-	if sim.RunContainerReaper() {
-		return
-	}
-	// A simulator started by a test harness must not outlive it. The harness
-	// stops it from its own cleanup, which a killed `go test` never reaches —
-	// and the reaper waits on the simulator, so both would linger.
-	sim.ExitWithParent()
-	cfg := sim.ConfigFromEnv("gcp")
-	if cfg.ListenAddr == ":8443" {
-		cfg.ListenAddr = ":4567" // GCP simulator default port
-	}
+	sim.Main(sim.Program{
+		Provider:    "gcp",
+		DefaultPort: "4567",
+		Configure: func(cfg *sim.Config) error {
+			// Workloads reach the metadata server and the sidecars at the
+			// address the simulator serves on.
+			simListenAddr = cfg.ListenAddr
+			return nil
+		},
+		Build: func(cfg sim.Config) (*sim.Server, error) {
+			srv, err := buildSimulator(cfg)
+			if err != nil {
+				return nil, err
+			}
+			// Every request carries an OAuth2 access token the simulator
+			// minted, unless it targets an exempt surface (token minters,
+			// OpenID Connect discovery and JWKS, health, GCE metadata, the
+			// console, application monitoring, the OCI registry). The
+			// outermost wrap, so it sees the final handler chain.
+			srv.WrapHandler(bearerAuthMiddleware(srv))
+			return srv, nil
+		},
+		Start: startGCPListeners,
+	})
+}
 
-	if port := os.Getenv("SIM_GCP_PORT"); port != "" {
-		cfg.ListenAddr = ":" + port
-	}
-
-	// Stash the listen addr so cloud-product host translators can wire
-	// GCE_METADATA_HOST + sidecar URLs onto workload containers.
-	simListenAddr = cfg.ListenAddr
-
-	obs, err := sim.InitObservability("sockerless-sim-gcp")
-	if err != nil {
-		log.Fatalf("init observability: %v", err)
-	}
-	defer func() { _ = obs.Shutdown(context.Background()) }()
-	cfg.LogWriter = obs.LogWriter
-
-	srv, err := buildSimulator(cfg)
-	if err != nil {
-		log.Fatalf("simulator startup: %v", err)
-	}
-
-	// Enforce data-plane authentication on the served surface: every request
-	// carries a valid OAuth2 access token the simulator itself minted, verified
-	// against the simulator's signing key, unless it targets an exempt surface
-	// (token minters, OpenID Connect discovery/JWKS, health, GCE metadata, the
-	// console, application monitoring, or the OCI registry). Applied here so it
-	// is the outermost wrap on the final handler chain.
-	srv.WrapHandler(bearerAuthMiddleware(srv))
-
-	// Start gRPC server for Cloud Logging
+// startGCPListeners starts what serves beside the HTTP port, and the clocks
+// that run only in the serving process: building the route table in-process
+// (route conformance, coverage probing) must not start one.
+func startGCPListeners(srv *sim.Server, cfg sim.Config) (func(context.Context) error, error) {
 	grpcPort := grpcPortFromConfig(cfg.ListenAddr)
 	if p := os.Getenv("SIM_GCP_GRPC_PORT"); p != "" {
 		grpcPort = p
 	}
 	if err := startGRPCServer(srv, grpcPort); err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	dnsSrv, err := startCloudDNSServer()
 	if err != nil {
-		log.Fatalf("cloud dns: %v", err)
+		return nil, fmt.Errorf("cloud dns: %w", err)
 	}
-	defer func() { _ = dnsSrv.Close() }()
-
 	// Cloud Spanner backup schedules produce real backups on their crontab
 	// occurrences, and Cloud Pub/Sub dead-letters messages whose last delivery
 	// attempt ran out of ack deadline and pushes push subscriptions' backlogs.
-	// These clocks run only in the serving
-	// process — building the route table in-process (route conformance,
-	// coverage probing) must not start one.
 	spannerBackupScheduleTicker().Start(srv, "Cloud Spanner backup schedules", 30*time.Second)
 	srv.StartBackground("Pub/Sub dead-letter sweeper", pubsubDeadLetterSweeper)
 	startPubSubPush(srv)
 	resumeCloudRunWorkloads()
-
-	if err := srv.ListenAndServe(); err != nil {
-		log.Fatal(err)
-	}
+	return func(context.Context) error { return dnsSrv.Close() }, nil
 }
 
 // buildSimulator constructs the simulator server and registers every
