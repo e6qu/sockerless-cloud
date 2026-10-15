@@ -236,7 +236,7 @@ func waitForFunctionLogMessage(t *testing.T, functionID, message string) {
 // filter matches until done accepts them, and returns them. It opens a
 // TailLogEntries stream, waits for it to stream, and then lists what was
 // already logged, so an entry written between the two reads arrives on one of
-// them.
+// them; an entry both report counts once, by insert ID.
 func followLogMessages(t *testing.T, filter string, done func(messages []string) bool) []string {
 	t.Helper()
 	return followLogMessagesAt(t, grpcAddr, filter, done)
@@ -259,9 +259,17 @@ func followLogMessagesAt(t *testing.T, address, filter string, done func(message
 	defer listClient.Close()
 	stream, early := openReadyTail(t, tailCtx, tailClient, "test-project", filter)
 
+	// The tail and the listing can both report an entry; count it once.
+	seen := map[string]bool{}
 	var messages []string
+	add := func(insertID, text string) {
+		if !seen[insertID] {
+			seen[insertID] = true
+			messages = append(messages, text)
+		}
+	}
 	for _, entry := range early {
-		messages = append(messages, entry.GetTextPayload())
+		add(entry.GetInsertId(), entry.GetTextPayload())
 	}
 	it := listClient.Entries(ctx, logadmin.Filter(filter))
 	for {
@@ -271,14 +279,14 @@ func followLogMessagesAt(t *testing.T, address, filter string, done func(message
 		}
 		require.NoError(t, err)
 		if text, ok := entry.Payload.(string); ok {
-			messages = append(messages, text)
+			add(entry.InsertID, text)
 		}
 	}
 	for !done(messages) {
 		resp, err := stream.Recv()
 		require.NoError(t, err, "the entries %s matches never satisfied the wait: %q", filter, messages)
 		for _, entry := range resp.GetEntries() {
-			messages = append(messages, entry.GetTextPayload())
+			add(entry.GetInsertId(), entry.GetTextPayload())
 		}
 	}
 	return messages
