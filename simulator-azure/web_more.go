@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -423,6 +424,8 @@ func registerWebConfigSections(both, slot func(string, string, http.HandlerFunc)
 		extra, _ := webConfigExtras.Get(webResourceID(r))
 		extra.Logs = req.Properties
 		webConfigExtras.Put(webResourceID(r), extra)
+		webForgetDockerLogUsage(webResourceID(r))
+		webRotateSiteDockerLog(webResourceID(r), strings.ToLower(webResourceID(r)), 0, time.Now())
 		props := req.Properties
 		if props == nil {
 			props = logsDefault()

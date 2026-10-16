@@ -692,8 +692,8 @@ func registerAzureFunctions(srv *sim.Server) {
 
 	// GET /config/logs — App Service diagnostic logs configuration
 	// (application logging, http logging, detailed errors, failed
-	// request tracing). The sim doesn't model log retention; truthful
-	// default response is every category disabled.
+	// request tracing): what PUT /config/logs stored, else every category
+	// disabled.
 	srv.HandleFunc("GET "+armBase+"/sites/{siteName}/config/logs", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -704,16 +704,20 @@ func registerAzureFunctions(srv *sim.Server) {
 				"The Resource 'Microsoft.Web/sites/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
+		props := map[string]any{
+			"applicationLogs":       map[string]any{"fileSystem": map[string]any{"level": "Off"}},
+			"httpLogs":              map[string]any{},
+			"detailedErrorMessages": map[string]any{"enabled": false},
+			"failedRequestsTracing": map[string]any{"enabled": false},
+		}
+		if extra, ok := webConfigExtras.Get(resourceID); ok && extra.Logs != nil {
+			props = extra.Logs
+		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"id":   resourceID + "/config/logs",
-			"name": "logs",
-			"type": "Microsoft.Web/sites/config",
-			"properties": map[string]any{
-				"applicationLogs":       map[string]any{"fileSystem": map[string]any{"level": "Off"}},
-				"httpLogs":              map[string]any{},
-				"detailedErrorMessages": map[string]any{"enabled": false},
-				"failedRequestsTracing": map[string]any{"enabled": false},
-			},
+			"id":         resourceID + "/config/logs",
+			"name":       "logs",
+			"type":       "Microsoft.Web/sites/config",
+			"properties": props,
 		})
 	})
 

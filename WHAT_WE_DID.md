@@ -2911,3 +2911,19 @@ each row against the table's schema and stores the cell forms that
 `tabledata.list` and queries read. A row that does not convert is reported in
 `insertErrors`, and without `skipInvalidRows` it stops the request's other
 rows with reason `stopped`.
+
+The last two AWS and Azure lists that paged by position now page by a key.
+Amazon EFS tags (ListTagsForResource and the older DescribeTags) page by tag
+key, which is unique on a resource. An App Service Environment's stamp
+capacities page by their pool: multi-role pools come first, then worker pools
+in numeric order. Removing a tag or a pool between two calls therefore moves
+nothing else across the page boundary.
+
+An App Service site's docker log rotates by the site's file-system log
+settings, as App Service rotates its daily docker log files. Lines older
+than `httpLogs.fileSystem.retentionInDays` expire. Past `retentionInMb` the
+oldest days go first, then the oldest lines of the day still being written. A
+running byte count per site keeps the check off the store on each line.
+`PUT /config/logs` applies the new settings at once, and the production
+site's `GET /config/logs` now answers what PUT stored instead of the all-off
+default.

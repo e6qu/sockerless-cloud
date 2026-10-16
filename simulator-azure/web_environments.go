@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 
 	realexec "github.com/e6qu/sockerless-cloud/realexec"
@@ -1083,7 +1084,8 @@ func registerWebEnvironmentPools(ase func(string, string, http.HandlerFunc)) {
 		if !ok {
 			return
 		}
-		writeARMFixedCollection(w, r, aseStampCapacities(row))
+		page, token, pageOK := armKeyedPage(w, r, aseStampCapacities(row))
+		writeARMCollectionPage(w, r, page, token, pageOK)
 	})
 }
 
@@ -1284,11 +1286,29 @@ var aseStampWorkerSizes = map[string]string{
 // aseStampCapacities computes the environment's capacity: for every pool, the
 // workers it runs, less the capacity the App Service plans placed in the
 // environment on that pool have already taken.
-func aseStampCapacities(row AppServiceEnvironmentResource) []map[string]any {
+// Each capacity pages by its pool, multi-role pools ahead of worker pools and
+// worker pools in their numeric order, so a pool removed between two calls
+// moves no other capacity across the page boundary.
+func aseStampCapacities(row AppServiceEnvironmentResource) []azureKeyed[map[string]any] {
 	plans := asePlans(row.ID)
-	out := []map[string]any{}
-	pools := append(asePoolsUnder(row.ID, "multiRolePools"), asePoolsUnder(row.ID, "workerPools")...)
-	for _, pool := range pools {
+	out := []azureKeyed[map[string]any]{}
+	type keyedPool struct {
+		key  string
+		pool WebWorkerPoolResource
+	}
+	var pools []keyedPool
+	for _, pool := range asePoolsUnder(row.ID, "multiRolePools") {
+		pools = append(pools, keyedPool{"0/" + pool.Name, pool})
+	}
+	for _, pool := range asePoolsUnder(row.ID, "workerPools") {
+		key := "1/" + pool.Name
+		if n, err := strconv.ParseInt(pool.Name, 10, 64); err == nil {
+			key = "1/" + azureIntKey(n)
+		}
+		pools = append(pools, keyedPool{key, pool})
+	}
+	for _, kp := range pools {
+		pool := kp.pool
 		total := int64(int32Value(pool.Properties.WorkerCount))
 		var taken int64
 		linux := false
@@ -1320,7 +1340,7 @@ func aseStampCapacities(row AppServiceEnvironmentResource) []map[string]any {
 		if size, ok := aseStampWorkerSizes[strings.ToLower(pool.Properties.WorkerSize)]; ok {
 			capacity["workerSize"] = size
 		}
-		out = append(out, capacity)
+		out = append(out, azureKeyed[map[string]any]{kp.key, capacity})
 	}
 	return out
 }
