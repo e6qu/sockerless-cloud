@@ -280,7 +280,7 @@ func handleELBv2CreateLoadBalancer(w http.ResponseWriter, r *http.Request) {
 		Arn:            arn,
 		Name:           name,
 		DNSName:        elbv2DNSName(name, id, lbType, scheme),
-		CanonicalZone:  "Z35SXDOTRQ7X7K",
+		CanonicalZone:  elbv2HostedZones[lbType][awsRegion()],
 		Scheme:         scheme,
 		Type:           lbType,
 		State:          "active",
@@ -1025,8 +1025,12 @@ func elbv2LoadBalancerXML(lb ELBv2LoadBalancer) string {
 	if lb.CustomerOwnedIpv4Pool != "" {
 		extra += fmt.Sprintf("<CustomerOwnedIpv4Pool>%s</CustomerOwnedIpv4Pool>", xmlEscape(lb.CustomerOwnedIpv4Pool))
 	}
-	return fmt.Sprintf(`<member><LoadBalancerArn>%s</LoadBalancerArn><DNSName>%s</DNSName><CanonicalHostedZoneId>%s</CanonicalHostedZoneId><CreatedTime>%s</CreatedTime><LoadBalancerName>%s</LoadBalancerName><Scheme>%s</Scheme><VpcId>%s</VpcId><State><Code>%s</Code></State><Type>%s</Type><AvailabilityZones>%s</AvailabilityZones><SecurityGroups>%s</SecurityGroups><IpAddressType>%s</IpAddressType>%s</member>`,
-		xmlEscape(lb.Arn), xmlEscape(lb.DNSName), xmlEscape(lb.CanonicalZone), xmlEscape(lb.CreatedTime), xmlEscape(lb.Name),
+	zone := ""
+	if lb.CanonicalZone != "" {
+		zone = "<CanonicalHostedZoneId>" + xmlEscape(lb.CanonicalZone) + "</CanonicalHostedZoneId>"
+	}
+	return fmt.Sprintf(`<member><LoadBalancerArn>%s</LoadBalancerArn><DNSName>%s</DNSName>%s<CreatedTime>%s</CreatedTime><LoadBalancerName>%s</LoadBalancerName><Scheme>%s</Scheme><VpcId>%s</VpcId><State><Code>%s</Code></State><Type>%s</Type><AvailabilityZones>%s</AvailabilityZones><SecurityGroups>%s</SecurityGroups><IpAddressType>%s</IpAddressType>%s</member>`,
+		xmlEscape(lb.Arn), xmlEscape(lb.DNSName), zone, xmlEscape(lb.CreatedTime), xmlEscape(lb.Name),
 		xmlEscape(lb.Scheme), xmlEscape(lb.VpcID), xmlEscape(lb.State), xmlEscape(lb.Type), elbv2AvailabilityZonesXML(lb.Subnets),
 		elbv2StringMembersXMLInner(lb.SecurityGroups), xmlEscape(lb.IpAddressType), extra)
 }

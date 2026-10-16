@@ -1709,6 +1709,16 @@ output "amplify_app_arn" {
 output "elbv2_lb_arn" {
   value = aws_lb.tf_alb.arn
 }
+data "aws_lb_hosted_zone_id" "tf_alb" {}
+
+output "elbv2_lb_zone_id" {
+  value = aws_lb.tf_alb.zone_id
+}
+
+output "elbv2_lb_region_zone_id" {
+  value = data.aws_lb_hosted_zone_id.tf_alb.id
+}
+
 output "elbv2_lb_dns_name" {
   value = aws_lb.tf_alb.dns_name
 }
