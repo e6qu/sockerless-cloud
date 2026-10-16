@@ -2952,3 +2952,18 @@ logical expression (`=`, `<`, `AND`, `NOT`, `IS`, `IN`, `LIKE`, `BETWEEN`,
 where SQLite answers 1 or 0. Any other expression takes the type of its
 values. An alias that happens to name a source column no longer borrows that
 column's type.
+
+Cloud Map instance health now governs DNS answers. `UpdateInstanceCustomHealthStatus`
+records the requested status and applies it 30 seconds later, as the
+HealthCheckCustomConfig documentation describes. A request that restores the
+status in force cancels a change still waiting, and repeating a change does
+not restart or shorten the wait. A service with a `HealthCheckConfig` gets a
+Route 53 health check per instance with an IPv4 address. Each check probes the
+instance's address and `AWS_INSTANCE_PORT`, carries the
+`servicediscovery.amazonaws.com` `LinkedService`, and is attached to the
+instance's record sets. Re-registering the instance or updating the service
+replaces the check, and deregistering deletes it. The Route 53 resolver takes
+an instance's Cloud Map health into account for record sets in a zone Cloud
+Map owns, so an unhealthy instance drops out of the answer while a healthy
+one remains. Its record set stays in the zone. When every instance is
+unhealthy, all of them answer, as Route 53 does.

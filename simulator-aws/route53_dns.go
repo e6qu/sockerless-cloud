@@ -87,7 +87,9 @@ func route53Catalog(q dnsserver.Query) dnsserver.View {
 	querier := route53Querier{region: route53QuerierRegion(vpcID), addr: q.Remote}
 	zones := route53VisibleZones(vpcID)
 	for i := range zones {
-		zones[i].Records = route53Route(zones[i].Records, querier)
+		zoneQuerier := querier
+		zoneQuerier.healthy = r53LinkedServiceHealth(zones[i].Zone)
+		zones[i].Records = route53Route(zones[i].Records, zoneQuerier)
 	}
 	for _, z := range zones {
 		view.Zones = append(view.Zones, dnsserver.Zone{Apex: dns.Fqdn(z.Zone.Name), Records: route53ZoneRecords(z, zones)})

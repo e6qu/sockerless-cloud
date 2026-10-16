@@ -11,6 +11,13 @@ import (
 type route53Querier struct {
 	region string
 	addr   netip.Addr
+	// healthy, when set, is the health the zone's owning service gives a
+	// record set, on top of the record set's own Route 53 health check.
+	healthy func(R53ResourceRecordSet) bool
+}
+
+func (q route53Querier) recordHealthy(set R53ResourceRecordSet) bool {
+	return r53HealthCheckHealthy(set.HealthCheckId) && (q.healthy == nil || q.healthy(set))
 }
 
 // route53MaxMultivalue is how many healthy record sets a multivalue answer
@@ -48,29 +55,29 @@ func route53Choose(group []R53ResourceRecordSet, q route53Querier) []R53Resource
 	first := group[0]
 	switch {
 	case first.Failover != "":
-		return route53Failover(group)
+		return route53Failover(group, q)
 	case first.Weight != nil:
-		return route53Weighted(group)
+		return route53Weighted(group, q)
 	case first.MultiValueAnswer != nil:
-		return route53Multivalue(group)
+		return route53Multivalue(group, q)
 	case first.Region != "":
-		return route53Latency(group, q.region)
+		return route53Latency(group, q)
 	case first.GeoLocation != nil:
-		return route53Default(group, func(set R53ResourceRecordSet) bool {
+		return route53Default(group, q, func(set R53ResourceRecordSet) bool {
 			return set.GeoLocation != nil && set.GeoLocation.CountryCode == "*"
 		})
 	case first.CidrRoutingConfig != nil:
-		return route53IPBased(group, q.addr)
+		return route53IPBased(group, q)
 	}
 	return group
 }
 
 // route53Healthy keeps the record sets whose health checks pass; when none
 // does, Route 53 answers as if all were healthy.
-func route53Healthy(group []R53ResourceRecordSet) []R53ResourceRecordSet {
+func route53Healthy(group []R53ResourceRecordSet, q route53Querier) []R53ResourceRecordSet {
 	var healthy []R53ResourceRecordSet
 	for _, set := range group {
-		if r53HealthCheckHealthy(set.HealthCheckId) {
+		if q.recordHealthy(set) {
 			healthy = append(healthy, set)
 		}
 	}
@@ -82,7 +89,7 @@ func route53Healthy(group []R53ResourceRecordSet) []R53ResourceRecordSet {
 
 // route53Failover answers with the primary while it is healthy and the
 // secondary otherwise; with both unhealthy, the primary.
-func route53Failover(group []R53ResourceRecordSet) []R53ResourceRecordSet {
+func route53Failover(group []R53ResourceRecordSet, q route53Querier) []R53ResourceRecordSet {
 	var primary, secondary []R53ResourceRecordSet
 	for _, set := range group {
 		if strings.EqualFold(set.Failover, "PRIMARY") {
@@ -91,10 +98,10 @@ func route53Failover(group []R53ResourceRecordSet) []R53ResourceRecordSet {
 			secondary = append(secondary, set)
 		}
 	}
-	if len(primary) > 0 && r53HealthCheckHealthy(primary[0].HealthCheckId) {
+	if len(primary) > 0 && q.recordHealthy(primary[0]) {
 		return primary[:1]
 	}
-	if len(secondary) > 0 && (len(primary) == 0 || r53HealthCheckHealthy(secondary[0].HealthCheckId)) {
+	if len(secondary) > 0 && (len(primary) == 0 || q.recordHealthy(secondary[0])) {
 		return secondary[:1]
 	}
 	return primary[:1]
@@ -102,8 +109,8 @@ func route53Failover(group []R53ResourceRecordSet) []R53ResourceRecordSet {
 
 // route53Weighted answers with one healthy record set, chosen in proportion
 // to its weight; when every weight is zero, each is equally likely.
-func route53Weighted(group []R53ResourceRecordSet) []R53ResourceRecordSet {
-	candidates := route53Healthy(group)
+func route53Weighted(group []R53ResourceRecordSet, q route53Querier) []R53ResourceRecordSet {
+	candidates := route53Healthy(group, q)
 	var total int64
 	for _, set := range candidates {
 		total += *set.Weight
@@ -121,8 +128,8 @@ func route53Weighted(group []R53ResourceRecordSet) []R53ResourceRecordSet {
 	return candidates[:1]
 }
 
-func route53Multivalue(group []R53ResourceRecordSet) []R53ResourceRecordSet {
-	candidates := route53Healthy(group)
+func route53Multivalue(group []R53ResourceRecordSet, q route53Querier) []R53ResourceRecordSet {
+	candidates := route53Healthy(group, q)
 	if len(candidates) > route53MaxMultivalue {
 		candidates = candidates[:route53MaxMultivalue]
 	}
@@ -132,10 +139,10 @@ func route53Multivalue(group []R53ResourceRecordSet) []R53ResourceRecordSet {
 // route53Latency answers with the healthy record set in the querier's Region,
 // or the first healthy one by Region name when the querier's Region has none:
 // every Region is equally near a single-host simulator.
-func route53Latency(group []R53ResourceRecordSet, region string) []R53ResourceRecordSet {
-	candidates := route53Healthy(group)
+func route53Latency(group []R53ResourceRecordSet, q route53Querier) []R53ResourceRecordSet {
+	candidates := route53Healthy(group, q)
 	for _, set := range candidates {
-		if set.Region == region {
+		if set.Region == q.region {
 			return []R53ResourceRecordSet{set}
 		}
 	}
@@ -147,8 +154,8 @@ func route53Latency(group []R53ResourceRecordSet, region string) []R53ResourceRe
 // route53Default answers with the default record set of a location-based
 // policy — the querier's location is the simulator's host, which no record
 // set names — or with nothing when the name has no default.
-func route53Default(group []R53ResourceRecordSet, isDefault func(R53ResourceRecordSet) bool) []R53ResourceRecordSet {
-	for _, set := range route53Healthy(group) {
+func route53Default(group []R53ResourceRecordSet, q route53Querier, isDefault func(R53ResourceRecordSet) bool) []R53ResourceRecordSet {
+	for _, set := range route53Healthy(group, q) {
 		if isDefault(set) {
 			return []R53ResourceRecordSet{set}
 		}
@@ -159,8 +166,9 @@ func route53Default(group []R53ResourceRecordSet, isDefault func(R53ResourceReco
 // route53IPBased answers with the record set whose CIDR location holds the
 // querier's address, the most specific block winning, or the default
 // location "*".
-func route53IPBased(group []R53ResourceRecordSet, addr netip.Addr) []R53ResourceRecordSet {
-	candidates := route53Healthy(group)
+func route53IPBased(group []R53ResourceRecordSet, q route53Querier) []R53ResourceRecordSet {
+	addr := q.addr
+	candidates := route53Healthy(group, q)
 	best, bestBits := -1, -1
 	for i, set := range candidates {
 		cfg := set.CidrRoutingConfig
@@ -181,7 +189,7 @@ func route53IPBased(group []R53ResourceRecordSet, addr netip.Addr) []R53Resource
 	if best >= 0 {
 		return []R53ResourceRecordSet{candidates[best]}
 	}
-	return route53Default(group, func(set R53ResourceRecordSet) bool {
+	return route53Default(group, q, func(set R53ResourceRecordSet) bool {
 		return set.CidrRoutingConfig != nil && set.CidrRoutingConfig.LocationName == "*"
 	})
 }
