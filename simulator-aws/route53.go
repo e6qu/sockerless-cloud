@@ -465,9 +465,25 @@ func handleR53CreateHostedZone(w http.ResponseWriter, r *http.Request) {
 		Config:                 req.HostedZoneConfig,
 		ResourceRecordSetCount: 2, // NS + SOA records auto-created
 	}
-	// Seed NS + SOA per real Route 53 behavior so ListResourceRecordSets
-	// returns them on a zone-create round-trip.
-	defaultRecords := []R53ResourceRecordSet{
+	r53Zones.Put(id, r53StoredZone{Zone: zone, Records: r53ApexRecords(name)})
+	if req.VPC != nil {
+		r53ZoneVPCs.Put(id, []R53VPC{*req.VPC})
+	}
+	change := newR53Change("INSYNC", "Hosted zone created")
+	r53Changes.Put(strings.TrimPrefix(change.Id, "/change/"), r53StoredChange{Info: change})
+	w.Header().Set("Location", "https://route53.amazonaws.com/"+r53APIVersion+"/hostedzone/"+id)
+	r53WriteXML(w, http.StatusCreated, R53CreateHostedZoneResponse{
+		Xmlns:         r53Namespace,
+		HostedZone:    zone,
+		ChangeInfo:    change,
+		DelegationSet: R53DelegationSet{NameServers: []string{"ns-1.awsdns-00.com", "ns-2.awsdns-01.net", "ns-3.awsdns-02.org", "ns-4.awsdns-03.co.uk"}},
+	})
+}
+
+// r53ApexRecords are the NS and SOA record sets Route 53 creates at a new
+// hosted zone's apex.
+func r53ApexRecords(name string) []R53ResourceRecordSet {
+	return []R53ResourceRecordSet{
 		{
 			Name: name,
 			Type: "NS",
@@ -488,19 +504,6 @@ func handleR53CreateHostedZone(w http.ResponseWriter, r *http.Request) {
 			}},
 		},
 	}
-	r53Zones.Put(id, r53StoredZone{Zone: zone, Records: defaultRecords})
-	if req.VPC != nil {
-		r53ZoneVPCs.Put(id, []R53VPC{*req.VPC})
-	}
-	change := newR53Change("INSYNC", "Hosted zone created")
-	r53Changes.Put(strings.TrimPrefix(change.Id, "/change/"), r53StoredChange{Info: change})
-	w.Header().Set("Location", "https://route53.amazonaws.com/"+r53APIVersion+"/hostedzone/"+id)
-	r53WriteXML(w, http.StatusCreated, R53CreateHostedZoneResponse{
-		Xmlns:         r53Namespace,
-		HostedZone:    zone,
-		ChangeInfo:    change,
-		DelegationSet: R53DelegationSet{NameServers: []string{"ns-1.awsdns-00.com", "ns-2.awsdns-01.net", "ns-3.awsdns-02.org", "ns-4.awsdns-03.co.uk"}},
-	})
 }
 
 func ptrInt64(v int64) *int64 { return &v }

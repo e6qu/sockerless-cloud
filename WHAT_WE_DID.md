@@ -2827,3 +2827,24 @@ receiver attached from azcore's process-wide log listener, and the link line
 names a connection and a link but no event hub. Another parallel test's
 partition-0 link once read as its own, so it published before its receiver
 attached and waited for an event that came before Latest.
+
+An AWS Cloud Map DNS namespace owns a real Route 53 hosted zone.
+CreatePrivateDnsNamespace creates a private zone associated with the
+namespace's VPC, and CreatePublicDnsNamespace creates a public one. Each zone
+carries the `servicediscovery.amazonaws.com` LinkedService and the SOA TTL
+the namespace sets, and DeleteNamespace deletes it. RegisterInstance,
+DeregisterInstance, UpdateService and the namespace updates rewrite the
+zone's records the way the Cloud Map reference states:
+- each instance gets one record set per DnsRecord type, under
+  `<service>.<namespace>`, with the instance ID as SetIdentifier, and a
+  multivalue answer or a weight of 1 by the service's routing policy;
+- an SRV record set's value is `1 1 <port> <instance>.<service>.<namespace>`,
+  and that target name gets its own A or AAAA record;
+- `AWS_ALIAS_DNS_NAME` writes an alias to the load balancer.
+Amazon ECS tasks in a network namespace resolve service names through the VPC
+resolver, which answers from that zone. The `/etc/hosts` block the simulator
+used to write into those tasks went, along with `sim.SyncContainerHostEntries`.
+The ECS cross-task DNS tests now resolve the fully-qualified name: an awsvpc
+task's search domain is not the namespace, so on AWS a bare service name does
+not resolve. UpdateService replaces a service's
+DnsRecords and keeps its routing policy.
