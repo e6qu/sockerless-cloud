@@ -24,6 +24,8 @@ type Outcome struct {
 	Retry bool
 	// Status is the receiver's HTTP status, zero when there was none.
 	Status int
+	// Response is the body the receiver answered with, up to a mebibyte.
+	Response []byte
 }
 
 func Delivered() Outcome                   { return Outcome{} }
@@ -71,6 +73,7 @@ type Item[T any] struct {
 	Attempts      int       `json:"attempts"`
 	LastError     string    `json:"lastError,omitempty"`
 	LastStatus    int       `json:"lastStatus,omitempty"`
+	LastResponse  string    `json:"lastResponse,omitempty"`
 	LastAttemptAt time.Time `json:"lastAttemptAt"`
 }
 
@@ -189,6 +192,7 @@ func (d *Dispatcher[T]) run(id string) {
 	}
 	item.LastError = errorText(outcome.Err)
 	item.LastStatus = outcome.Status
+	item.LastResponse = string(outcome.Response)
 	switch {
 	case outcome.OK():
 		d.finish(item, Succeeded)

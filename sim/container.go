@@ -2013,61 +2013,6 @@ type HostEntry struct {
 	Name string
 }
 
-var hostEntriesMu sync.Mutex
-
-// SyncContainerHostEntries rewrites a simulator-managed block in a container's
-// /etc/hosts. Docker exposes the backing hosts file path in ContainerInspect;
-// updating it gives netns-backed tasks real libc name resolution without
-// attaching another Docker network to the namespace.
-func SyncContainerHostEntries(containerName, marker string, entries []HostEntry) error {
-	// Each call rewrites the whole file from what it read, so two calls for one
-	// container at once would each drop the block the other wrote.
-	hostEntriesMu.Lock()
-	defer hostEntriesMu.Unlock()
-	cli := DockerClient()
-	if err := RequireContainerRuntime("writing a container's host entries"); err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	inspected, err := cli.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{})
-	if err != nil {
-		return err
-	}
-	info := inspected.Container
-	if info.HostsPath == "" {
-		return fmt.Errorf("container %s has no hosts path", containerName)
-	}
-	content, err := os.ReadFile(info.HostsPath)
-	if err != nil {
-		return err
-	}
-	markerText := "# " + marker
-	var kept []string
-	for _, line := range strings.Split(string(content), "\n") {
-		if strings.Contains(line, markerText) {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].Name == entries[j].Name {
-			return entries[i].IP < entries[j].IP
-		}
-		return entries[i].Name < entries[j].Name
-	})
-	for _, entry := range entries {
-		ip := strings.TrimSpace(entry.IP)
-		name := strings.TrimSpace(entry.Name)
-		if ip == "" || name == "" {
-			continue
-		}
-		kept = append(kept, fmt.Sprintf("%s\t%s\t%s", ip, name, markerText))
-	}
-	next := strings.TrimRight(strings.Join(kept, "\n"), "\n") + "\n"
-	return os.WriteFile(info.HostsPath, []byte(next), 0644)
-}
-
 // RuntimeInfo returns the container runtime name and version for display.
 func RuntimeInfo() string {
 	if dockerClient == nil {

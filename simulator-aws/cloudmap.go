@@ -337,18 +337,6 @@ type cmSOAProperties struct {
 	} `json:"DnsProperties"`
 }
 
-// cmDnsPropertiesFor builds a new DNS namespace's DnsProperties: a fresh
-// hosted zone plus the SOA the request configured, if any.
-func cmDnsPropertiesFor(props *cmSOAProperties) *CMDnsProperties {
-	dns := &CMDnsProperties{HostedZoneId: "Z" + sim.NewUUID()[:12]}
-	if props != nil && props.DnsProperties != nil && props.DnsProperties.SOA != nil {
-		dns.SOA = &struct {
-			TTL int64 `json:"TTL"`
-		}{TTL: props.DnsProperties.SOA.TTL}
-	}
-	return dns
-}
-
 // cmNamespaceNameTaken reports whether a namespace with this name already
 // exists — Cloud Map namespace names are unique per account and region.
 func cmNamespaceNameTaken(name string) bool {
@@ -412,18 +400,17 @@ func handleCMCreatePrivateDnsNamespace(w http.ResponseWriter, r *http.Request) {
 
 	nsId := "ns-" + sim.NewUUID()[:16]
 	cmNamespaceVPCs.Put(nsId, req.Vpc)
-	cmCreateNamespace(w, CMNamespace{
+	ns := CMNamespace{
 		Id:               nsId,
 		Arn:              cmArn("namespace", nsId),
 		Name:             req.Name,
 		Type:             "DNS_PRIVATE",
 		Description:      req.Description,
 		CreatorRequestId: req.CreatorRequestId,
-		Properties: &CMNamespaceProperties{
-			DnsProperties: cmDnsPropertiesFor(req.Properties),
-		},
-		CreateDate: time.Now().Unix(),
-	}, req.Tags)
+		CreateDate:       time.Now().Unix(),
+	}
+	ns.Properties = &CMNamespaceProperties{DnsProperties: cmCreateHostedZone(ns, req.Vpc, req.Properties)}
+	cmCreateNamespace(w, ns, req.Tags)
 }
 
 // handleCMCreatePublicDnsNamespace creates a DNS_PUBLIC namespace. Public DNS
@@ -452,18 +439,17 @@ func handleCMCreatePublicDnsNamespace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	nsId := "ns-" + sim.NewUUID()[:16]
-	cmCreateNamespace(w, CMNamespace{
+	ns := CMNamespace{
 		Id:               nsId,
 		Arn:              cmArn("namespace", nsId),
 		Name:             req.Name,
 		Type:             "DNS_PUBLIC",
 		Description:      req.Description,
 		CreatorRequestId: req.CreatorRequestId,
-		Properties: &CMNamespaceProperties{
-			DnsProperties: cmDnsPropertiesFor(req.Properties),
-		},
-		CreateDate: time.Now().Unix(),
-	}, req.Tags)
+		CreateDate:       time.Now().Unix(),
+	}
+	ns.Properties = &CMNamespaceProperties{DnsProperties: cmCreateHostedZone(ns, "", req.Properties)}
+	cmCreateNamespace(w, ns, req.Tags)
 }
 
 // handleCMCreateHttpNamespace creates an HTTP namespace. HTTP namespaces have
@@ -555,6 +541,7 @@ func handleCMDeleteNamespace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cmDeleteHostedZone(ns)
 	cmNamespaces.Delete(req.Id)
 	cmNamespaceVPCs.Delete(req.Id)
 	cmNamespaceNetworks.Delete(req.Id)
@@ -678,6 +665,7 @@ func handleCMUpdateDnsNamespace(w http.ResponseWriter, r *http.Request) {
 			}{TTL: p.DnsProperties.SOA.TTL}
 		}
 	})
+	cmSyncNamespaceRecords(req.Id)
 	cmUpdateNamespaceOp(w, req.Id)
 }
 
@@ -829,12 +817,16 @@ func handleCMUpdateService(w http.ResponseWriter, r *http.Request) {
 			s.Description = *req.Service.Description
 		}
 		if req.Service.DnsConfig != nil {
-			s.DnsConfig = req.Service.DnsConfig
+			if s.DnsConfig == nil {
+				s.DnsConfig = &CMDnsConfig{}
+			}
+			s.DnsConfig.DnsRecords = req.Service.DnsConfig.DnsRecords
 		}
 		if req.Service.HealthCheckConfig != nil {
 			s.HealthCheckConfig = req.Service.HealthCheckConfig
 		}
 	})
+	cmSyncNamespaceRecords(svc.NamespaceId)
 
 	operationId := sim.NewUUID()
 	now := time.Now().Unix()
@@ -995,6 +987,7 @@ func handleCMRegisterInstance(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	cmBumpServiceRevision(req.ServiceId)
+	cmSyncNamespaceRecords(svc.NamespaceId)
 	rollback := func() {
 		if !existed {
 			cmInstances.Delete(key)
@@ -1005,20 +998,14 @@ func handleCMRegisterInstance(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 		cmBumpServiceRevision(req.ServiceId)
+		cmSyncNamespaceRecords(svc.NamespaceId)
 	}
 
+	// A task in its VPC's network namespace asks the VPC resolver, which
+	// answers from the namespace's hosted zone.
 	containerName := resolveTaskContainerForInstance(req.InstanceId)
 	switch {
-	case cmContainerUsesHostEntries(containerName):
-		// netns/awsvpc tier: the real ENI occupies eth0, so DNS is realized via
-		// /etc/hosts entries (syncCMNamespaceHosts already gathers every service
-		// name per instance IP — multi-name aware).
-		if err := syncCMNamespaceHosts(svc.NamespaceId); err != nil {
-			rollback()
-			AWSErrorf(w, "InternalFailure", http.StatusInternalServerError,
-				"failed to update Cloud Map task hosts: %v", err)
-			return
-		}
+	case cmContainerInVPCNamespace(containerName):
 	case containerName != "":
 		// Docker-network tier: realize EVERY service name this container backs
 		// as a DNS alias on the namespace network, so siblings resolve it by any
@@ -1068,8 +1055,6 @@ func cmWriteInstanceOperation(w http.ResponseWriter, opType string, svc CMServic
 // registered instance maps to containerName, both the short service name AND
 // its `<service>.<namespace>` FQDN (so e.g. `redis` and `redis.skls-net.local`
 // both resolve — the runtime's network DNS resolves both as network aliases).
-// This is the Docker-network-tier analogue of syncCMNamespaceHosts, which adds
-// the same two forms as /etc/hosts entries for the netns tier.
 func cmDockerAliasesForContainer(namespaceID, containerName string) []string {
 	nsName := ""
 	if ns, ok := cmNamespaces.Get(namespaceID); ok {
@@ -1227,95 +1212,8 @@ func ecsTaskPrivateIP(task ECSTask) string {
 	return ""
 }
 
-func cmContainerUsesHostEntries(containerName string) bool {
+func cmContainerInVPCNamespace(containerName string) bool {
 	return strings.HasSuffix(containerName, "-pause")
-}
-
-func cmNamespaceHasHostEntryTargets(namespaceID string) bool {
-	if _, ok := cmNamespaces.Get(namespaceID); !ok || !ec2ECSRealNetAvailable() {
-		return false
-	}
-	vpcID, _ := cmNamespaceVPCs.Get(namespaceID)
-	for _, task := range ecsTasks.List() {
-		if task.LastStatus != ECSTaskStatusRunning || !taskHasENI(task) {
-			continue
-		}
-		if vpcID == "" || taskVPCID(task) == vpcID {
-			return true
-		}
-	}
-	return false
-}
-
-func cmTaskContainerName(task ECSTask) string {
-	taskID := task.TaskArn
-	if i := lastSlash(taskID); i >= 0 {
-		taskID = taskID[i+1:]
-	}
-	if len(taskID) < 12 {
-		return ""
-	}
-	return "sockerless-sim-aws-task-" + taskID[:12]
-}
-
-func taskVPCID(task ECSTask) string {
-	for _, att := range task.Attachments {
-		if att.Type != "ElasticNetworkInterface" {
-			continue
-		}
-		for _, d := range att.Details {
-			if d.Name != "subnetId" {
-				continue
-			}
-			if subnet, ok := ec2Subnets.Get(d.Value); ok {
-				return subnet.VpcId
-			}
-		}
-	}
-	return ""
-}
-
-func syncCMNamespaceHosts(namespaceID string) error {
-	ns, ok := cmNamespaces.Get(namespaceID)
-	if !ok {
-		return fmt.Errorf("namespace %s not found", namespaceID)
-	}
-	vpcID, _ := cmNamespaceVPCs.Get(namespaceID)
-
-	var entries []sim.HostEntry
-	for _, svc := range cmServices.List() {
-		if svc.NamespaceId != namespaceID {
-			continue
-		}
-		for _, inst := range cmServiceInstances(svc.Id) {
-			ip := inst.Attributes["AWS_INSTANCE_IPV4"]
-			if ip == "" {
-				continue
-			}
-			entries = append(entries, sim.HostEntry{IP: ip, Name: svc.Name})
-			if ns.Name != "" {
-				entries = append(entries, sim.HostEntry{IP: ip, Name: svc.Name + "." + ns.Name})
-			}
-		}
-	}
-
-	marker := "sockerless-cloudmap-" + namespaceID
-	for _, task := range ecsTasks.List() {
-		if task.LastStatus != ECSTaskStatusRunning || !taskHasENI(task) {
-			continue
-		}
-		if vpcID != "" && taskVPCID(task) != vpcID {
-			continue
-		}
-		containerName := cmTaskContainerName(task)
-		if containerName == "" {
-			continue
-		}
-		if err := sim.SyncContainerHostEntries(containerName, marker, entries); err != nil {
-			return fmt.Errorf("sync hosts for %s: %w", containerName, err)
-		}
-	}
-	return nil
 }
 
 func taskHasENI(task ECSTask) bool {
@@ -1372,15 +1270,10 @@ func handleCMDeregisterInstance(w http.ResponseWriter, r *http.Request) {
 
 	svc, svcOk := cmServices.Get(req.ServiceId)
 	if svcOk {
+		cmSyncNamespaceRecords(svc.NamespaceId)
 		containerName := resolveTaskContainerForInstance(req.InstanceId)
 		networkName, _ := cmNamespaceNetworks.Get(svc.NamespaceId)
-		if cmContainerUsesHostEntries(containerName) || cmNamespaceHasHostEntryTargets(svc.NamespaceId) {
-			if err := syncCMNamespaceHosts(svc.NamespaceId); err != nil {
-				AWSErrorf(w, "InternalFailure", http.StatusInternalServerError,
-					"failed to update Cloud Map task hosts: %v", err)
-				return
-			}
-		} else if ns, nsOk := cmNamespaces.Get(svc.NamespaceId); nsOk && networkName != "" {
+		if ns, nsOk := cmNamespaces.Get(svc.NamespaceId); nsOk && networkName != "" && !cmContainerInVPCNamespace(containerName) {
 			// Re-realize the container's REMAINING aliases: it may still back
 			// other services in the namespace, so a plain disconnect would drop
 			// names that are still registered. realizeCMContainerDockerAliases

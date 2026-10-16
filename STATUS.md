@@ -25,7 +25,8 @@ Current state of the sockerless-cloud repository.
   delivery and cron schedules are `sim/msgq`, `sim/streamlog`, `sim/delivery`
   and `sim/cron`. All three simulators use them. Key material is `sim/simkms`,
   and log entries are `sim/logstore`, which Amazon CloudWatch Logs, Cloud
-  Logging and Azure Monitor Logs use. Route 53, Azure DNS and Cloud DNS
+  Logging and Azure Monitor Logs use; Cloud Logging sinks deliver to log
+  buckets, Pub/Sub topics, Cloud Storage buckets and BigQuery datasets. Route 53, Azure DNS and Cloud DNS
   answer their zones over UDP and TCP through `sim/dnsserver`, each cloud
   deciding through its catalog which zones a query sees: Route 53 private
   zones answer the VPCs they are associated with, Azure Private DNS zones the
@@ -36,6 +37,9 @@ Current state of the sockerless-cloud repository.
   policies bound to a network.
   Route 53 health checks probe their endpoints, and the resolver chooses a
   name's record sets by routing policy and health.
+  An AWS Cloud Map DNS namespace owns the Route 53 hosted zone it reports,
+  and its instances' records live there, so tasks resolve service names
+  through the VPC resolver.
   Every workload in a realized network namespace — Amazon ECS tasks, VPC
   AWS Lambda invocations and the Amazon EC2, Azure and Compute Engine
   microVMs — asks its cloud's resolver address (169.254.169.253,

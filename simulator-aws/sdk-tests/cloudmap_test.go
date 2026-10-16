@@ -471,11 +471,9 @@ func TestECS_CrossTaskDNS(t *testing.T) {
 
 	// Exec into alpha's container and resolve "beta" through the task's
 	// normal libc resolver.
-	getent, execErr := exec.Command("docker", "exec", alphaContainer, "getent", "hosts", "beta").CombinedOutput()
-	hosts, _ := exec.Command("docker", "exec", alphaContainer, "cat", "/etc/hosts").CombinedOutput()
-	require.NoError(t, execErr, "alpha task should resolve 'beta' via Cloud Map DNS: getent=%q hosts=%q", getent, hosts)
-
-	assert.Contains(t, string(getent), "beta", "getent output should mention beta hostname: %s", getent)
+	getent, execErr := exec.Command("docker", "exec", alphaContainer, "getent", "hosts", "beta.xtask-dns.local").CombinedOutput()
+	require.NoError(t, execErr, "alpha should resolve beta.xtask-dns.local through the VPC resolver: %s", getent)
+	assert.Contains(t, string(getent), betaIP+" ", "the namespace's hosted zone answers beta's address: %s", getent)
 
 }
 
@@ -676,9 +674,9 @@ func TestECS_MultiServiceDNS(t *testing.T) {
 	register(svcClient, clientCID, clientIP)
 
 	// From the client, BOTH of the server's names must resolve.
-	for _, name := range []string{"web", "webalias"} {
+	for _, name := range []string{"web.multi-svc.local", "webalias.multi-svc.local"} {
 		getent, execErr := exec.Command("docker", "exec", clientContainer, "getent", "hosts", name).CombinedOutput()
-		require.NoError(t, execErr, "client should resolve %q via Cloud Map: getent=%q", name, getent)
-		assert.Contains(t, string(getent), name, "getent for %s should resolve", name)
+		require.NoError(t, execErr, "client should resolve %q through the VPC resolver: %s", name, getent)
+		assert.Contains(t, string(getent), serverIP+" ", "the namespace's hosted zone answers %s: %s", name, getent)
 	}
 }

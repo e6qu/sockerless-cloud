@@ -136,6 +136,10 @@ func handleSNSCreateTopic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for k, v := range attrs {
+		if !snsCreateTopicAttributeNames[k] {
+			snsErrorXML(w, "InvalidParameter", xmlEscape("Invalid parameter: Attributes Reason: Unknown attribute "+k), http.StatusBadRequest, sim.RequestID(r.Context()))
+			return
+		}
 		if msg := snsInvalidTopicAttribute(k, v); msg != "" {
 			snsErrorXML(w, "InvalidParameter", xmlEscape(msg), http.StatusBadRequest, sim.RequestID(r.Context()))
 			return
@@ -143,7 +147,11 @@ func handleSNSCreateTopic(w http.ResponseWriter, r *http.Request) {
 	}
 	arn := snsTopicARN(name)
 	if _, ok := snsTopics.Get(name); !ok {
+		if attrs["Policy"] == "" {
+			attrs["Policy"] = snsMarshalPolicy(snsDefaultTopicPolicy(arn))
+		}
 		snsTopics.Put(name, SNSTopic{Name: name, ARN: arn, Tags: make(map[string]string), Attributes: attrs})
+		iamPutResourcePolicy(arn, attrs["Policy"])
 	}
 	body := fmt.Sprintf("<CreateTopicResult><TopicArn>%s</TopicArn></CreateTopicResult>", xmlEscape(arn))
 	snsXMLResponse(w, "CreateTopic", body, sim.RequestID(r.Context()))
@@ -263,12 +271,14 @@ func handleSNSGetTopicAttributes(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	attrs := map[string]string{
-		"TopicArn":               t.ARN,
-		"DisplayName":            "",
-		"Owner":                  awsAccountID(),
-		"SubscriptionsConfirmed": fmt.Sprintf("%d", confirmed),
-		"SubscriptionsPending":   fmt.Sprintf("%d", pending),
-		"SubscriptionsDeleted":   "0",
+		"TopicArn":                t.ARN,
+		"DisplayName":             "",
+		"Owner":                   awsAccountID(),
+		"SubscriptionsConfirmed":  fmt.Sprintf("%d", confirmed),
+		"SubscriptionsPending":    fmt.Sprintf("%d", pending),
+		"SubscriptionsDeleted":    "0",
+		"EffectiveDeliveryPolicy": snsTopicEffectiveDeliveryPolicy(t),
+		"Policy":                  snsMarshalPolicy(snsDefaultTopicPolicy(t.ARN)),
 	}
 	// Attributes set through CreateTopic or SetTopicAttributes replace the
 	// defaults.
@@ -303,6 +313,10 @@ func handleSNSSetTopicAttributes(w http.ResponseWriter, r *http.Request) {
 		snsErrorXML(w, "InvalidParameter",
 			"AttributeName is required",
 			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	if !snsTopicAttributeNames[attrName] {
+		snsErrorXML(w, "InvalidParameter", "Invalid parameter: AttributeName", http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
 	if msg := snsInvalidTopicAttribute(attrName, attrValue); msg != "" {
@@ -689,7 +703,11 @@ func snsFanout(topicARN, msgID, subject, message string, attributes map[string]S
 		if sub.TopicARN != topicARN || !sub.Confirmed {
 			continue
 		}
-		if !snsSubscriptionMatches(sub, message, attributes) {
+		if matched, metric := snsFilterOutcome(sub, message, attributes); !matched {
+			snsPutTopicMetric(snsTopicNameFromARN(topicARN), metric, 1, "Count")
+			if metric != "NumberOfNotificationsFilteredOut" {
+				snsPutTopicMetric(snsTopicNameFromARN(topicARN), "NumberOfNotificationsFilteredOut", 1, "Count")
+			}
 			continue
 		}
 		src := iamServiceSource{
@@ -975,31 +993,43 @@ func snsPublishBatchEntries(r *http.Request) []snsPublishEntry {
 	return out
 }
 
-// snsPolicyStatement is the wire shape of one statement in an SNS topic
-// resource policy, matching what AWS's AddPermission produces: an allow with
-// an AWS-principal list, an SNS:<action> list, and the topic ARN as Resource.
-type snsPolicyStatement struct {
-	Sid       string         `json:"Sid"`
-	Effect    string         `json:"Effect"`
-	Principal map[string]any `json:"Principal"`
-	Action    []string       `json:"Action"`
-	Resource  string         `json:"Resource"`
-}
-
+// snsPolicyDoc is a topic policy. Statements stay as the documents the
+// caller wrote, so a Condition or a string Action survives AddPermission and
+// RemovePermission.
 type snsPolicyDoc struct {
-	Version   string               `json:"Version"`
-	Id        string               `json:"Id,omitempty"`
-	Statement []snsPolicyStatement `json:"Statement"`
+	Version   string           `json:"Version"`
+	Id        string           `json:"Id,omitempty"`
+	Statement []map[string]any `json:"Statement"`
 }
 
-// snsLoadTopicPolicy parses the topic's current Policy attribute into a
-// statement list. A topic with no Policy yet starts from an empty default
-// document.
+// snsDefaultTopicPolicy is the policy Amazon SNS gives a new topic: only the
+// owning account may act on it.
+func snsDefaultTopicPolicy(arn string) snsPolicyDoc {
+	return snsPolicyDoc{Version: "2008-10-17", Id: "__default_policy_ID", Statement: []map[string]any{{
+		"Sid":       "__default_statement_ID",
+		"Effect":    "Allow",
+		"Principal": map[string]any{"AWS": "*"},
+		"Action": []string{"SNS:GetTopicAttributes", "SNS:SetTopicAttributes", "SNS:AddPermission",
+			"SNS:RemovePermission", "SNS:DeleteTopic", "SNS:Subscribe", "SNS:ListSubscriptionsByTopic", "SNS:Publish"},
+		"Resource":  arn,
+		"Condition": map[string]any{"StringEquals": map[string]any{"AWS:SourceOwner": awsAccountID()}},
+	}}}
+}
+
+func snsMarshalPolicy(doc snsPolicyDoc) string {
+	out, err := json.Marshal(doc)
+	if err != nil {
+		panic(fmt.Sprintf("sns: marshal topic Policy: %v", err))
+	}
+	return string(out)
+}
+
+// snsLoadTopicPolicy parses the topic's Policy attribute, which is the default
+// policy until someone replaces it.
 func snsLoadTopicPolicy(t SNSTopic) snsPolicyDoc {
-	doc := snsPolicyDoc{Version: "2008-10-17", Id: snsTopicNameFromARN(t.ARN) + "/SNSDefaultPolicy"}
 	raw := t.Attributes["Policy"]
 	if raw == "" {
-		return doc
+		return snsDefaultTopicPolicy(t.ARN)
 	}
 	var parsed snsPolicyDoc
 	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
@@ -1008,7 +1038,7 @@ func snsLoadTopicPolicy(t SNSTopic) snsPolicyDoc {
 		panic(fmt.Sprintf("sns: unparseable topic Policy attribute: %v", err))
 	}
 	if parsed.Version == "" {
-		parsed.Version = doc.Version
+		parsed.Version = "2008-10-17"
 	}
 	return parsed
 }
@@ -1018,16 +1048,13 @@ func snsLoadTopicPolicy(t SNSTopic) snsPolicyDoc {
 // path SetTopicAttributes(Policy) uses) so iamResourcePolicyDocsForARN
 // resolves it.
 func snsStoreTopicPolicy(name string, t SNSTopic, doc snsPolicyDoc) {
-	out, err := json.Marshal(doc)
-	if err != nil {
-		panic(fmt.Sprintf("sns: marshal topic Policy: %v", err))
-	}
+	out := snsMarshalPolicy(doc)
 	if t.Attributes == nil {
 		t.Attributes = map[string]string{}
 	}
-	t.Attributes["Policy"] = string(out)
+	t.Attributes["Policy"] = out
 	snsTopics.Put(name, t)
-	iamPutResourcePolicy(t.ARN, string(out))
+	iamPutResourcePolicy(t.ARN, out)
 }
 
 // snsListMembers pulls a query-flattened <prefix>.member.N list (the wire
@@ -1073,7 +1100,7 @@ func handleSNSAddPermission(w http.ResponseWriter, r *http.Request) {
 	}
 	doc := snsLoadTopicPolicy(t)
 	for _, st := range doc.Statement {
-		if st.Sid == label {
+		if st["Sid"] == label {
 			snsErrorXML(w, "InvalidParameter",
 				fmt.Sprintf("Statement already exists with Sid %s", label),
 				http.StatusBadRequest, sim.RequestID(r.Context()))
@@ -1088,12 +1115,12 @@ func handleSNSAddPermission(w http.ResponseWriter, r *http.Request) {
 	for _, a := range actions {
 		snsActions = append(snsActions, "SNS:"+a)
 	}
-	doc.Statement = append(doc.Statement, snsPolicyStatement{
-		Sid:       label,
-		Effect:    "Allow",
-		Principal: map[string]any{"AWS": principals},
-		Action:    snsActions,
-		Resource:  t.ARN,
+	doc.Statement = append(doc.Statement, map[string]any{
+		"Sid":       label,
+		"Effect":    "Allow",
+		"Principal": map[string]any{"AWS": principals},
+		"Action":    snsActions,
+		"Resource":  t.ARN,
 	})
 	snsStoreTopicPolicy(name, t, doc)
 	snsXMLResponse(w, "AddPermission", "", sim.RequestID(r.Context()))
@@ -1120,7 +1147,7 @@ func handleSNSRemovePermission(w http.ResponseWriter, r *http.Request) {
 	kept := doc.Statement[:0]
 	removed := false
 	for _, st := range doc.Statement {
-		if st.Sid == label {
+		if st["Sid"] == label {
 			removed = true
 			continue
 		}

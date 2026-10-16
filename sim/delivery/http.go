@@ -61,16 +61,22 @@ func Post(ctx context.Context, req Request, classify Classifier) Outcome {
 	if err != nil {
 		return Retryable(fmt.Errorf("post to %s: %w", req.URL, err))
 	}
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	_ = resp.Body.Close()
+	if err != nil {
+		return Retryable(fmt.Errorf("read the answer from %s: %w", req.URL, err)).WithStatus(resp.StatusCode)
+	}
+	var outcome Outcome
 	switch classify(resp.StatusCode) {
 	case Accept:
-		return Delivered().WithStatus(resp.StatusCode)
+		outcome = Delivered()
 	case Reject:
-		return Permanent(fmt.Errorf("%s answered %d", req.URL, resp.StatusCode)).WithStatus(resp.StatusCode)
+		outcome = Permanent(fmt.Errorf("%s answered %d", req.URL, resp.StatusCode))
 	default:
-		return Retryable(fmt.Errorf("%s answered %d", req.URL, resp.StatusCode)).WithStatus(resp.StatusCode)
+		outcome = Retryable(fmt.Errorf("%s answered %d", req.URL, resp.StatusCode))
 	}
+	outcome.Response = body
+	return outcome.WithStatus(resp.StatusCode)
 }
 
 // Exponential doubles from base up to limit.

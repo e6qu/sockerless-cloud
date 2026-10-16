@@ -95,16 +95,17 @@ type LoggingSink struct {
 	// ResourceName is the output-only full path projects/{p}/sinks/{name}.
 	// Real Cloud Logging returns the short identifier in Name and the full
 	// path here as a distinct field (logging/v2 LogSink.resourceName).
-	ResourceName         string             `json:"resourceName,omitempty"`
-	Destination          string             `json:"destination"`
-	Filter               string             `json:"filter,omitempty"`
-	Description          string             `json:"description,omitempty"`
-	Disabled             bool               `json:"disabled,omitempty"`
-	WriterIdentity       string             `json:"writerIdentity,omitempty"`
-	UniqueWriterIdentity bool               `json:"uniqueWriterIdentity,omitempty"`
-	Exclusions           []LoggingExclusion `json:"exclusions,omitempty"`
-	IncludeChildren      bool               `json:"includeChildren,omitempty"`
-	InterceptChildren    bool               `json:"interceptChildren,omitempty"`
+	ResourceName         string                  `json:"resourceName,omitempty"`
+	Destination          string                  `json:"destination"`
+	Filter               string                  `json:"filter,omitempty"`
+	Description          string                  `json:"description,omitempty"`
+	Disabled             bool                    `json:"disabled,omitempty"`
+	WriterIdentity       string                  `json:"writerIdentity,omitempty"`
+	UniqueWriterIdentity bool                    `json:"uniqueWriterIdentity,omitempty"`
+	Exclusions           []LoggingExclusion      `json:"exclusions,omitempty"`
+	IncludeChildren      bool                    `json:"includeChildren,omitempty"`
+	InterceptChildren    bool                    `json:"interceptChildren,omitempty"`
+	BigqueryOptions      *LoggingBigQueryOptions `json:"bigqueryOptions,omitempty"`
 }
 
 type LoggingExclusion struct {
@@ -636,6 +637,7 @@ func handleCreateLoggingSink(w http.ResponseWriter, r *http.Request) {
 	if !loggingSinkAdmissible(w, sink, true) {
 		return
 	}
+	sink.settleBigQueryOptions()
 	logSinks.Put(sink.Name, sink)
 	sim.WriteJSON(w, http.StatusOK, loggingSinkResponse(project, sink))
 }
@@ -692,6 +694,7 @@ func handleUpdateLoggingSink(w http.ResponseWriter, r *http.Request) {
 	if !loggingSinkAdmissible(w, sink, false) {
 		return
 	}
+	sink.settleBigQueryOptions()
 	logSinks.Put(key, sink)
 	sim.WriteJSON(w, http.StatusOK, loggingSinkResponse(project, sink))
 }

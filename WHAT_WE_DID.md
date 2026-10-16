@@ -2827,3 +2827,71 @@ receiver attached from azcore's process-wide log listener, and the link line
 names a connection and a link but no event hub. Another parallel test's
 partition-0 link once read as its own, so it published before its receiver
 attached and waited for an event that came before Latest.
+
+An AWS Cloud Map DNS namespace owns a real Route 53 hosted zone.
+CreatePrivateDnsNamespace creates a private zone associated with the
+namespace's VPC, and CreatePublicDnsNamespace creates a public one. Each zone
+carries the `servicediscovery.amazonaws.com` LinkedService and the SOA TTL
+the namespace sets, and DeleteNamespace deletes it. RegisterInstance,
+DeregisterInstance, UpdateService and the namespace updates rewrite the
+zone's records the way the Cloud Map reference states:
+- each instance gets one record set per DnsRecord type, under
+  `<service>.<namespace>`, with the instance ID as SetIdentifier, and a
+  multivalue answer or a weight of 1 by the service's routing policy;
+- an SRV record set's value is `1 1 <port> <instance>.<service>.<namespace>`,
+  and that target name gets its own A or AAAA record;
+- `AWS_ALIAS_DNS_NAME` writes an alias to the load balancer.
+Amazon ECS tasks in a network namespace resolve service names through the VPC
+resolver, which answers from that zone. The `/etc/hosts` block the simulator
+used to write into those tasks went, along with `sim.SyncContainerHostEntries`.
+The ECS cross-task DNS tests now resolve the fully-qualified name: an awsvpc
+task's search domain is not the namespace, so on AWS a bare service name does
+not resolve. UpdateService replaces a service's
+DnsRecords and keeps its routing policy.
+
+Cloud Logging sinks to a BigQuery dataset stream each entry they route into
+the table for its log. The table is named from the log ID, with each
+non-alphanumeric character as an underscore. By default the name carries the
+entry's UTC date, as in `syslog_20170523`. With
+`bigqueryOptions.usePartitionedTables` there is one table, partitioned by day
+on its `timestamp` column, and the sink reports
+`usesTimestampColumnPartitioning`, as the Discovery document says every new
+sink does. The table's columns are the entry's LogEntry fields:
+- `timestamp` and `receiveTimestamp` are TIMESTAMP;
+- payloads, labels and resources are RECORDs whose keys become BigQuery names;
+- Cloud Logging widens the schema as new payload fields arrive.
+Sinks keep `bigqueryOptions`, which the simulator used to drop, and an update
+mask can name it. Reading the exported rows back showed that BigQuery
+`jobs.query` ignores its SQL beyond FROM and one equality WHERE (BUG-3477).
+
+`scripts/check-latest-deps.sh` fails a run when the module proxy refuses a
+Go module's version listing. It used to skip such a module as if nothing newer
+existed, so on a full disk the check reported every module current; its
+self-test caught that.
+
+Amazon SNS topics now match the service in three ways:
+- A new topic carries the owner-only `__default_policy_ID` policy, which
+  Amazon SNS gives every topic. AddPermission and RemovePermission keep its
+  statement, and statements keep every field their author wrote. GetTopicAttributes
+  answers the service's default `EffectiveDeliveryPolicy`, filled in around
+  whatever DeliveryPolicy the topic sets. `terraform-tests/sns-delivery-status`
+  no longer spells out the default policy.
+- CreateTopic and SetTopicAttributes refuse attribute names the Smithy model
+  does not document, with InvalidParameter. SetTopicAttributes refuses a
+  DeliveryPolicy that is not JSON.
+- A filter policy that drops a message publishes
+  `NumberOfNotificationsFilteredOut` and the variant that names why. A
+  dead-letter redrive publishes `NumberOfNotificationsRedrivenToDlq` or
+  `NumberOfNotificationsFailedToRedriveToDlq`.
+`sim/delivery.Post` keeps the receiver's answer, up to a mebibyte, on the
+outcome and on the item as `LastResponse`. An HTTP/S subscription's delivery status
+log entry records that answer as `providerResponse`, on success and on
+failure alike, and the dispatcher's error only when no answer came.
+
+A workload's HTTP server in a test reads the request before it answers. The
+Cloud Run restart test's `nc -e` handler printed its response the moment
+`nc` accepted a connection. When those bytes reached the simulator's reverse
+proxy before it had written its request, Go's transport took them for an
+unsolicited response, dropped the connection and answered 503
+(`readLoopPeekFailLocked`). The handler now reads the request's headers
+first, as the Azure workload servers already did.

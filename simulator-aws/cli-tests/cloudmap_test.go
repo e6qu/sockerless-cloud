@@ -362,10 +362,9 @@ func TestCloudMap_CrossTaskDNS_CLI(t *testing.T) {
 	})
 
 	// Resolve beta from alpha through the task's normal libc resolver.
-	getent, getentErr := exec.Command("docker", "exec", alphaName, "getent", "hosts", "beta").CombinedOutput()
-	hosts, _ := exec.Command("docker", "exec", alphaName, "cat", "/etc/hosts").CombinedOutput()
-	require.NoError(t, getentErr, "alpha should resolve 'beta' via Cloud Map DNS; getent=%q hosts=%q", getent, hosts)
-	assert.Contains(t, string(getent), "beta", "getent output should mention beta: %s", getent)
+	getent, getentErr := exec.Command("docker", "exec", alphaName, "getent", "hosts", "beta.cli-xtask-dns.local").CombinedOutput()
+	require.NoError(t, getentErr, "alpha should resolve beta.cli-xtask-dns.local through the VPC resolver: %s", getent)
+	assert.Contains(t, string(getent), betaIP+" ", "the namespace's hosted zone answers beta's address: %s", getent)
 
 }
 

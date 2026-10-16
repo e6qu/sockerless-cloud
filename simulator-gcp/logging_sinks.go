@@ -270,6 +270,12 @@ func (r *loggingRouter) deliver(rt loggingRoute, entry LogEntry, at int64, bucke
 		if r.export {
 			loggingQueueStorageExport(rt, entry, r.now)
 		}
+	case loggingToBigQuery:
+		if r.export {
+			if err := loggingExportToBigQuery(rt, entry); err != nil {
+				log.Printf("cloud logging sink %s: %v", rt.sink, err)
+			}
+		}
 	}
 	return buckets
 }
@@ -398,6 +404,8 @@ func loggingApplySinkMask(cur, upd LoggingSink, mask string) (LoggingSink, strin
 			cur.IncludeChildren = upd.IncludeChildren
 		case "interceptchildren":
 			cur.InterceptChildren = upd.InterceptChildren
+		case "bigqueryoptions", "bigqueryoptions.usepartitionedtables":
+			cur.BigqueryOptions = upd.BigqueryOptions
 		case "":
 		default:
 			return cur, field
