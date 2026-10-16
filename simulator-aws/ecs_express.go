@@ -786,7 +786,7 @@ func expressEnsureLoadBalancer(serviceName, scheme string, subnets, sgs []string
 	name := "express-" + serviceName
 	id := sim.NewUUID()[:12]
 	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:%s:%s:loadbalancer/app/%s/%s", awsRegion(), awsAccountID(), name, id)
-	dnsName := fmt.Sprintf("%s-%s.elb.%s.amazonaws.com", name, id[:8], awsRegion())
+	dnsName := elbv2DNSName(name, id, "application", scheme)
 	lb := ELBv2LoadBalancer{
 		Arn:            arn,
 		Name:           name,

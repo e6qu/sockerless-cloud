@@ -148,14 +148,14 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Resolve the ALB's AWS-shaped DNS name to the TLS proxy host (the hosts
-	// entry the sim injects into a workload container), then connect on the
-	// listener port over TLS.
+	// Resolve the load balancer's DNS name through the resolver, then connect
+	// on the listener port over TLS.
 	lbDesc, err := elb.DescribeLoadBalancers(ctx, &elbv2.DescribeLoadBalancersInput{LoadBalancerArns: []string{lbArn}})
 	require.NoError(t, err)
 	dnsName := aws.ToString(lbDesc.LoadBalancers[0].DNSName)
 	require.NotContains(t, dnsName, ":", "DNSName must be a hostname")
-	endpoint := net.JoinHostPort(resolveNLBHostname(dnsName), strconv.Itoa(listenerPort))
+	lbHost, _ := dnsResolveA(t, dnsName)
+	endpoint := net.JoinHostPort(lbHost, strconv.Itoa(listenerPort))
 
 	// An HTTPS client that skips verification (the cert is self-signed in the
 	// sim, which has no real CA) but proves a real TLS handshake completes
@@ -312,7 +312,8 @@ func TestELBv2_NLBTLSListenerTerminatesTLS(t *testing.T) {
 	lbDesc, err := elb.DescribeLoadBalancers(ctx, &elbv2.DescribeLoadBalancersInput{LoadBalancerArns: []string{lbArn}})
 	require.NoError(t, err)
 	dnsName := aws.ToString(lbDesc.LoadBalancers[0].DNSName)
-	endpoint := net.JoinHostPort(resolveNLBHostname(dnsName), strconv.Itoa(listenerPort))
+	lbHost, _ := dnsResolveA(t, dnsName)
+	endpoint := net.JoinHostPort(lbHost, strconv.Itoa(listenerPort))
 
 	// The listener forwards only to a target the health checker has put in
 	// service, so wait for the registration to pass its first health check.

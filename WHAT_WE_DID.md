@@ -3010,3 +3010,17 @@ the alarm last decided, and healthy for a check that never had one. An alarm
 named in another Region has insufficient data, and `Inverted` flips the
 result. The status reads the alarm at query time, so a failover or
 health-checked answer moves as soon as the alarm does.
+
+A Route 53 alias to a load balancer answers the load balancer's address. The
+resolver answers each load balancer's DNS name with the address its stream,
+TLS and HTTPS listeners are bound at, with the 60-second TTL that the Elastic
+Load Balancing user guides give a load balancer's DNS record. An alias whose
+target lies outside every hosted zone takes the records of the resource that
+answers to that name, at the resource's TTL, as the Route 53 guide's page on
+alias records describes. Load balancer DNS names follow the guides' examples:
+an Application Load Balancer's is `<name>-<number>.<region>.elb.amazonaws.com`,
+prefixed `internal-` when internal, and a Network or Gateway Load Balancer's is
+`<name>-<id>.elb.<region>.amazonaws.com`, where the id is the one that ends its
+ARN. Tests resolve a load balancer's name through the resolver instead of
+assuming 127.0.0.1. The pages are vendored by `scripts/fetch-aws-doc.sh`,
+which pins the branch a guide's pages live on.

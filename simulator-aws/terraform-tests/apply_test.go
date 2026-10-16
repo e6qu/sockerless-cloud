@@ -215,7 +215,7 @@ func TestStackProductionShape(t *testing.T) {
 		"ELBv2 load balancer ARN must use the app load-balancer resource path; got %s", elbv2LBArn)
 
 	elbv2LBDNS := outputs.must(t, "elbv2_lb_dns_name")
-	require.Contains(t, elbv2LBDNS, ".elb.us-east-1.amazonaws.com",
+	require.Contains(t, elbv2LBDNS, ".us-east-1.elb.amazonaws.com",
 		"ELBv2 load balancer DNS name must use the regional ELB suffix; got %s", elbv2LBDNS)
 
 	require.Equal(t, "45", outputs.must(t, "elbv2_lb_idle_timeout"),
