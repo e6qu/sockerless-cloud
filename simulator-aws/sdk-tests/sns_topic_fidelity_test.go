@@ -205,4 +205,5 @@ func TestSNS_HTTPRefusalIsLoggedAndRedriven(t *testing.T) {
 	entry := snsAwaitDeliveryStatus(t, logs, failureGroup, aws.ToString(published.MessageId))
 	assert.Equal(t, "FAILURE", entry.Status)
 	assert.Equal(t, 400, entry.Delivery.StatusCode)
+	assert.Equal(t, "rejected by the endpoint", entry.Delivery.ProviderResponse)
 }

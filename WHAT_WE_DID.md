@@ -2884,4 +2884,6 @@ Amazon SNS topics now match the service in three ways:
   dead-letter redrive publishes `NumberOfNotificationsRedrivenToDlq` or
   `NumberOfNotificationsFailedToRedriveToDlq`.
 `sim/delivery.Post` keeps the receiver's answer, up to a mebibyte, on the
-outcome and on the item as `LastResponse`.
+outcome and on the item as `LastResponse`. An HTTP/S subscription's delivery status
+log entry records that answer as `providerResponse`, on success and on
+failure alike, and the dispatcher's error only when no answer came.

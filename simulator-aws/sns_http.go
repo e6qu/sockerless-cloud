@@ -279,9 +279,9 @@ func snsHTTPStatusClass(status int) delivery.Class {
 func snsFinishHTTP(item delivery.Item[snsHTTPDelivery], reason delivery.Reason) {
 	d := item.Payload
 	if d.MessageType == "Notification" {
-		providerResponse := item.LastError
-		if reason == delivery.Succeeded {
-			providerResponse = ""
+		providerResponse := item.LastResponse
+		if item.LastStatus == 0 {
+			providerResponse = item.LastError
 		}
 		snsRecordDelivery(snsDelivery{
 			TopicARN: d.TopicARN, MessageID: d.MessageID, MessageMD5: d.MessageMD5, PublishedAt: item.EnqueuedAt,
