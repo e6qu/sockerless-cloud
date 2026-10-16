@@ -334,16 +334,23 @@ func snsRedriveTarget(sub SNSSubscription) string {
 
 // snsDeadLetter enqueues a message Amazon SNS gave up on to the subscription's
 // dead-letter queue, which admits it only when its policy lets the topic send.
+// It publishes NumberOfNotificationsRedrivenToDlq or
+// NumberOfNotificationsFailedToRedriveToDlq for the outcome.
 func snsDeadLetter(sub SNSSubscription, queueARN, body string, attributes map[string]SQSMessageAttribute) {
+	topicName := snsTopicNameFromARN(sub.TopicARN)
+	failed := func() { snsPutTopicMetric(topicName, "NumberOfNotificationsFailedToRedriveToDlq", 1, "Count") }
 	src := iamServiceSource{Service: "sns.amazonaws.com", SourceArn: sub.TopicARN, SourceAccount: snsARNAccount(sub.TopicARN)}
 	if !iamAuthorizeServiceDelivery(queueARN, "sqs:SendMessage", src) {
 		cwEvalLogger.Info().Str("queueARN", queueARN).Str("subscription", sub.ARN).Msg("Amazon SNS dead-letter queue policy denies the topic")
+		failed()
 		return
 	}
 	queueName := snsTopicNameFromARN(queueARN)
 	if _, ok := sqsQueues.Get(queueName); !ok {
 		cwEvalLogger.Info().Str("queueARN", queueARN).Str("subscription", sub.ARN).Msg("Amazon SNS dead-letter queue does not exist")
+		failed()
 		return
 	}
 	sqsEnqueueBodyWithAttributes(queueName, body, attributes)
+	snsPutTopicMetric(topicName, "NumberOfNotificationsRedrivenToDlq", 1, "Count")
 }

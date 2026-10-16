@@ -45,6 +45,12 @@ func snsInvalidTopicAttribute(name, value string) string {
 	if value == "" {
 		return ""
 	}
+	if name == "DeliveryPolicy" {
+		var doc map[string]any
+		if err := json.Unmarshal([]byte(value), &doc); err != nil {
+			return "Invalid parameter: DeliveryPolicy: failed to parse JSON. " + err.Error()
+		}
+	}
 	for _, protocol := range snsFeedbackProtocols {
 		switch name {
 		case protocol + "SuccessFeedbackRoleArn", protocol + "FailureFeedbackRoleArn":

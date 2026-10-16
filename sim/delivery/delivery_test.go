@@ -180,8 +180,10 @@ func TestPostClassifiesTheReceiversAnswer(t *testing.T) {
 		switch r.URL.Path {
 		case "/ok":
 			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte("queued"))
 		case "/bad":
 			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("no such channel"))
 		case "/slow":
 			<-r.Context().Done()
 		default:
@@ -200,10 +202,10 @@ func TestPostClassifiesTheReceiversAnswer(t *testing.T) {
 	}
 	ctx := context.Background()
 	header := http.Header{"X-Test": {"yes"}}
-	if out := Post(ctx, Request{URL: receiver.URL + "/ok", Header: header}, classify); !out.OK() || out.Status != 202 || gotHeader != "yes" {
+	if out := Post(ctx, Request{URL: receiver.URL + "/ok", Header: header}, classify); !out.OK() || out.Status != 202 || gotHeader != "yes" || string(out.Response) != "queued" {
 		t.Errorf("ok: %+v header %q", out, gotHeader)
 	}
-	if out := Post(ctx, Request{URL: receiver.URL + "/bad"}, classify); out.OK() || out.Retry || out.Status != 400 {
+	if out := Post(ctx, Request{URL: receiver.URL + "/bad"}, classify); out.OK() || out.Retry || out.Status != 400 || string(out.Response) != "no such channel" {
 		t.Errorf("bad: %+v", out)
 	}
 	if out := Post(ctx, Request{URL: receiver.URL + "/down"}, classify); out.OK() || !out.Retry || out.Status != 503 {

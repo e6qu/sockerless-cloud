@@ -54,24 +54,8 @@ resource "aws_iam_role_policy" "feedback" {
   })
 }
 
-data "aws_caller_identity" "current" {}
-
 resource "aws_sns_topic" "logged" {
   name = "tf-sns-delivery-status"
-
-  # The owner-only policy Amazon SNS gives a new topic.
-  policy = jsonencode({
-    Version = "2008-10-17"
-    Id      = "__default_policy_ID"
-    Statement = [{
-      Sid       = "__default_statement_ID"
-      Effect    = "Allow"
-      Principal = { AWS = "*" }
-      Action    = ["SNS:GetTopicAttributes", "SNS:SetTopicAttributes", "SNS:AddPermission", "SNS:RemovePermission", "SNS:DeleteTopic", "SNS:Subscribe", "SNS:ListSubscriptionsByTopic", "SNS:Publish"]
-      Resource  = "arn:aws:sns:us-east-1:${data.aws_caller_identity.current.account_id}:tf-sns-delivery-status"
-      Condition = { StringEquals = { "AWS:SourceOwner" = data.aws_caller_identity.current.account_id } }
-    }]
-  })
 
   lambda_success_feedback_role_arn    = aws_iam_role.feedback.arn
   lambda_success_feedback_sample_rate = var.success_sample_rate

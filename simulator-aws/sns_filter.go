@@ -84,49 +84,73 @@ func snsValidateSubscriptionFilter(attributes map[string]string) error {
 }
 
 func snsSubscriptionMatches(sub SNSSubscription, message string, attributes map[string]SQSMessageAttribute) bool {
+	matched, _ := snsFilterOutcome(sub, message, attributes)
+	return matched
+}
+
+// snsFilterOutcome reports whether a subscription's filter policy admits a
+// message and, when it does not, the variant of NumberOfNotificationsFilteredOut
+// that says why: the message carries no attributes, an attribute or the body
+// is not well formed, or the body-scoped policy rejected it.
+func snsFilterOutcome(sub SNSSubscription, message string, attributes map[string]SQSMessageAttribute) (bool, string) {
 	raw := sub.Attributes["FilterPolicy"]
 	if raw == "" || raw == "{}" {
-		return true
+		return true, ""
 	}
 	scope := sub.Attributes["FilterPolicyScope"]
 	policy, err := awsParsePattern(snsFilterPolicyDialect(scope), raw)
 	if err != nil {
-		return false
+		// snsValidateSubscriptionFilter refused this policy when it was set.
+		panic(fmt.Sprintf("sns: unparseable stored FilterPolicy on %s: %v", sub.ARN, err))
 	}
 	var values map[string]any
 	if scope == "MessageBody" {
 		if json.Unmarshal([]byte(message), &values) != nil {
-			return false
+			return false, "NumberOfNotificationsFilteredOut-InvalidMessageBody"
 		}
-	} else {
-		values = make(map[string]any, len(attributes))
-		for name, attribute := range attributes {
-			if v, ok := snsFilterAttributeValue(attribute); ok {
-				values[name] = v
-			}
+		if !awsPatternMatches(policy, values) {
+			return false, "NumberOfNotificationsFilteredOut-MessageBody"
+		}
+		return true, ""
+	}
+	if len(attributes) == 0 {
+		return false, "NumberOfNotificationsFilteredOut-NoMessageAttributes"
+	}
+	values = make(map[string]any, len(attributes))
+	for name, attribute := range attributes {
+		v, ok, valid := snsFilterAttributeValue(attribute)
+		if !valid {
+			return false, "NumberOfNotificationsFilteredOut-InvalidAttributes"
+		}
+		if ok {
+			values[name] = v
 		}
 	}
-	return awsPatternMatches(policy, values)
+	if !awsPatternMatches(policy, values) {
+		return false, "NumberOfNotificationsFilteredOut"
+	}
+	return true, ""
 }
 
 // snsFilterAttributeValue is the value a filter policy sees for a message
 // attribute: a Number as a number, a String.Array as its elements, a String
 // as itself. Amazon SNS does not filter on Binary attributes.
-func snsFilterAttributeValue(attribute SQSMessageAttribute) (any, bool) {
+func snsFilterAttributeValue(attribute SQSMessageAttribute) (value any, filterable, valid bool) {
 	switch strings.SplitN(attribute.DataType, ".", 2)[0] {
 	case "Number":
 		if number, err := strconv.ParseFloat(attribute.StringValue, 64); err == nil {
-			return number, true
+			return number, true, true
 		}
 	case "String":
 		if strings.HasPrefix(attribute.DataType, "String.Array") {
 			var values []any
-			if json.Unmarshal([]byte(attribute.StringValue), &values) == nil {
-				return values, true
+			if json.Unmarshal([]byte(attribute.StringValue), &values) != nil {
+				return nil, false, false
 			}
+			return values, true, true
 		}
 	case "Binary":
-		return nil, false
+		return nil, false, true
 	}
-	return attribute.StringValue, true
+	return attribute.StringValue, true, true
 }

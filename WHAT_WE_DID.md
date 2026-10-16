@@ -2868,3 +2868,20 @@ mask can name it. Reading the exported rows back showed that BigQuery
 Go module's version listing. It used to skip such a module as if nothing newer
 existed, so on a full disk the check reported every module current; its
 self-test caught that.
+
+Amazon SNS topics now match the service in three ways:
+- A new topic carries the owner-only `__default_policy_ID` policy, which
+  Amazon SNS gives every topic. AddPermission and RemovePermission keep its
+  statement, and statements keep every field their author wrote. GetTopicAttributes
+  answers the service's default `EffectiveDeliveryPolicy`, filled in around
+  whatever DeliveryPolicy the topic sets. `terraform-tests/sns-delivery-status`
+  no longer spells out the default policy.
+- CreateTopic and SetTopicAttributes refuse attribute names the Smithy model
+  does not document, with InvalidParameter. SetTopicAttributes refuses a
+  DeliveryPolicy that is not JSON.
+- A filter policy that drops a message publishes
+  `NumberOfNotificationsFilteredOut` and the variant that names why. A
+  dead-letter redrive publishes `NumberOfNotificationsRedrivenToDlq` or
+  `NumberOfNotificationsFailedToRedriveToDlq`.
+`sim/delivery.Post` keeps the receiver's answer, up to a mebibyte, on the
+outcome and on the item as `LastResponse`.

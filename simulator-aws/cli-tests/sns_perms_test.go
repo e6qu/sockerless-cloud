@@ -137,10 +137,11 @@ func TestSNSCLI_AddRemovePermission(t *testing.T) {
 		} `json:"Statement"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(policy), &doc))
-	require.Len(t, doc.Statement, 1)
-	assert.Equal(t, "cli-cross-acct", doc.Statement[0].Sid)
-	assert.Equal(t, []string{"SNS:Publish"}, doc.Statement[0].Action)
-	assert.Equal(t, topic.TopicArn, doc.Statement[0].Resource)
+	require.Len(t, doc.Statement, 2, "the label's statement joins the default one")
+	assert.Equal(t, "__default_statement_ID", doc.Statement[0].Sid)
+	assert.Equal(t, "cli-cross-acct", doc.Statement[1].Sid)
+	assert.Equal(t, []string{"SNS:Publish"}, doc.Statement[1].Action)
+	assert.Equal(t, topic.TopicArn, doc.Statement[1].Resource)
 
 	runCLI(t, awsCLI("sns", "remove-permission",
 		"--topic-arn", topic.TopicArn,
@@ -148,10 +149,10 @@ func TestSNSCLI_AddRemovePermission(t *testing.T) {
 
 	out = runCLI(t, awsCLI("sns", "get-topic-attributes", "--topic-arn", topic.TopicArn))
 	parseJSON(t, out, &ta)
-	if ta.Attributes["Policy"] != "" {
-		require.NoError(t, json.Unmarshal([]byte(ta.Attributes["Policy"]), &doc))
-		assert.Empty(t, doc.Statement)
-	}
+	doc.Statement = nil
+	require.NoError(t, json.Unmarshal([]byte(ta.Attributes["Policy"]), &doc))
+	require.Len(t, doc.Statement, 1, "remove-permission drops the label's statement and keeps the default")
+	assert.Equal(t, "__default_statement_ID", doc.Statement[0].Sid)
 
 	// Removing an absent label is a NotFound.
 	errOut := runCLIExpectError(t, awsCLI("sns", "remove-permission",

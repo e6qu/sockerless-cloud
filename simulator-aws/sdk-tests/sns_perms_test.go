@@ -212,12 +212,13 @@ func TestSNS_AddRemovePermission(t *testing.T) {
 		} `json:"Statement"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(policy), &doc))
-	require.Len(t, doc.Statement, 1)
-	assert.Equal(t, "cross-acct-publish", doc.Statement[0].Sid)
-	assert.Equal(t, "Allow", doc.Statement[0].Effect)
-	assert.Equal(t, []string{"SNS:Publish"}, doc.Statement[0].Action)
-	assert.Equal(t, topicARN, doc.Statement[0].Resource)
-	awsP, _ := json.Marshal(doc.Statement[0].Principal["AWS"])
+	require.Len(t, doc.Statement, 2, "the label's statement joins the default one")
+	assert.Equal(t, "__default_statement_ID", doc.Statement[0].Sid)
+	assert.Equal(t, "cross-acct-publish", doc.Statement[1].Sid)
+	assert.Equal(t, "Allow", doc.Statement[1].Effect)
+	assert.Equal(t, []string{"SNS:Publish"}, doc.Statement[1].Action)
+	assert.Equal(t, topicARN, doc.Statement[1].Resource)
+	awsP, _ := json.Marshal(doc.Statement[1].Principal["AWS"])
 	assert.Contains(t, string(awsP), "arn:aws:iam::123456789012:root")
 
 	// Duplicate label is rejected.
@@ -239,11 +240,10 @@ func TestSNS_AddRemovePermission(t *testing.T) {
 		TopicArn: aws.String(topicARN),
 	})
 	require.NoError(t, err)
-	policy = attrs.Attributes["Policy"]
-	if policy != "" {
-		require.NoError(t, json.Unmarshal([]byte(policy), &doc))
-		assert.Empty(t, doc.Statement, "statement should be gone after RemovePermission")
-	}
+	doc.Statement = nil
+	require.NoError(t, json.Unmarshal([]byte(attrs.Attributes["Policy"]), &doc))
+	require.Len(t, doc.Statement, 1, "RemovePermission drops the label's statement and keeps the default")
+	assert.Equal(t, "__default_statement_ID", doc.Statement[0].Sid)
 
 	// Removing an absent label is a NotFound.
 	_, err = snsC.RemovePermission(ctx, &sns.RemovePermissionInput{
