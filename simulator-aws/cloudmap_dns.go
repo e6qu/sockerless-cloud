@@ -2,6 +2,7 @@ package main
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -123,8 +124,11 @@ func cmServiceRecords(ns CMNamespace, svc CMService) []R53ResourceRecordSet {
 	sort.Slice(instances, func(i, j int) bool { return instances[i].Id < instances[j].Id })
 
 	var out []R53ResourceRecordSet
-	routed := func(rr R53ResourceRecordSet, instanceID string) R53ResourceRecordSet {
-		rr.SetIdentifier = instanceID
+	routed := func(rr R53ResourceRecordSet, inst CMInstance) R53ResourceRecordSet {
+		rr.SetIdentifier = inst.Id
+		if rr.AliasTarget == nil {
+			rr.HealthCheckId = inst.HealthCheckId
+		}
 		if weighted {
 			rr.Weight = ptrInt64(1)
 		} else {
@@ -142,7 +146,7 @@ func cmServiceRecords(ns CMNamespace, svc CMService) []R53ResourceRecordSet {
 						HostedZoneId:         cmAliasHostedZoneID(alias),
 						DNSName:              r53NormalizeName(alias),
 						EvaluateTargetHealth: true,
-					}}, inst.Id))
+					}}, inst))
 				}
 			}
 			continue
@@ -164,7 +168,7 @@ func cmServiceRecords(ns CMNamespace, svc CMService) []R53ResourceRecordSet {
 			if value == "" {
 				continue
 			}
-			out = append(out, routed(cmRecordSet(name, rec.Type, rec.TTL, value), inst.Id))
+			out = append(out, routed(cmRecordSet(name, rec.Type, rec.TTL, value), inst))
 			if rec.Type == "SRV" {
 				target := r53NormalizeName(inst.Id + "." + name)
 				if v4 := attrs["AWS_INSTANCE_IPV4"]; v4 != "" {
@@ -195,4 +199,76 @@ func cmAliasHostedZoneID(dnsName string) string {
 		return lb.CanonicalZone
 	}
 	return ""
+}
+
+// r53LinkedServiceHealth is the health Cloud Map gives the record sets in a
+// namespace's hosted zone: an instance of a service with a custom health
+// check answers only while the instance is healthy. A zone Cloud Map does not
+// own has no such health.
+func r53LinkedServiceHealth(zone R53HostedZone) func(R53ResourceRecordSet) bool {
+	if zone.LinkedService == nil || zone.LinkedService.ServicePrincipal != cmServicePrincipal {
+		return nil
+	}
+	nsID := zone.LinkedService.Description[strings.LastIndex(zone.LinkedService.Description, "/")+1:]
+	ns, ok := cmNamespaces.Get(nsID)
+	if !ok {
+		return nil
+	}
+	type owner struct{ name, instance string }
+	unhealthy := map[owner]bool{}
+	for _, svc := range cmServices.Filter(func(s CMService) bool {
+		return s.NamespaceId == nsID && s.HealthCheckCustomConfig != nil
+	}) {
+		name := r53NormalizeName(svc.Name + "." + ns.Name)
+		for _, inst := range cmServiceInstances(svc.Id) {
+			if cmInstanceHealth(inst) == "UNHEALTHY" {
+				unhealthy[owner{name, inst.Id}] = true
+			}
+		}
+	}
+	return func(set R53ResourceRecordSet) bool {
+		return !unhealthy[owner{r53NormalizeName(set.Name), set.SetIdentifier}]
+	}
+}
+
+// cmCreateInstanceHealthCheck creates the Route 53 health check a service's
+// HealthCheckConfig asks for, probing the instance's IPv4 address and port,
+// and returns its ID. An instance without an IPv4 address gets none.
+func cmCreateInstanceHealthCheck(svc CMService, attrs map[string]string) string {
+	cfg := svc.HealthCheckConfig
+	if cfg == nil || attrs["AWS_INSTANCE_IPV4"] == "" {
+		return ""
+	}
+	check := R53HealthCheckConfig{IPAddress: attrs["AWS_INSTANCE_IPV4"], Type: cfg.Type}
+	if port, err := strconv.Atoi(attrs["AWS_INSTANCE_PORT"]); err == nil {
+		check.Port = &port
+	}
+	if cfg.Type != "TCP" {
+		check.ResourcePath = cfg.ResourcePath
+		if check.ResourcePath == "" {
+			check.ResourcePath = "/"
+		}
+	}
+	if cfg.FailureThreshold > 0 {
+		threshold := cfg.FailureThreshold
+		check.FailureThreshold = &threshold
+	}
+	id := r53ChildID()
+	r53HealthChecks.Put(id, r53StoredHealthCheck{HealthCheck: R53HealthCheck{
+		Xmlns:              r53Namespace,
+		Id:                 id,
+		CallerReference:    sim.NewUUID(),
+		LinkedService:      &R53LinkedService{ServicePrincipal: cmServicePrincipal, Description: svc.Arn},
+		HealthCheckConfig:  check,
+		HealthCheckVersion: 1,
+	}})
+	return id
+}
+
+func cmDeleteInstanceHealthCheck(inst CMInstance) {
+	if inst.HealthCheckId == "" {
+		return
+	}
+	r53HealthChecks.Delete(inst.HealthCheckId)
+	r53Health.Delete(inst.HealthCheckId)
 }

@@ -570,6 +570,7 @@ func TestCloudMap_DiscoverInstancesFiltering(t *testing.T) {
 		Status:     sdtypes.CustomHealthStatusUnhealthy,
 	})
 	require.NoError(t, err)
+	awaitCustomHealth(t, client, svcID, "disc-1", sdtypes.HealthStatusUnhealthy)
 
 	afterUpdate, err := client.DiscoverInstances(ctx, &servicediscovery.DiscoverInstancesInput{
 		NamespaceName: aws.String("discover-filter-ns"),

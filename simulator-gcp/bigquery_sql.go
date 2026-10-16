@@ -334,7 +334,11 @@ func bqEvaluateSQL(ctx context.Context, defaultProject, defaultDataset, query st
 	if err := rows.Err(); err != nil {
 		return nil, nil, fmt.Errorf("%s", bqSQLiteMessage(err))
 	}
-	fields := bqResultFields(columns, tables, raw)
+	tokens, err := bqTokenizeSQL(query)
+	if err != nil {
+		return nil, nil, err
+	}
+	fields := bqResultFields(columns, tables, bqSelectListKinds(tokens), raw)
 	out := make([]map[string]any, 0, len(raw))
 	for _, cells := range raw {
 		row := make(map[string]any, len(columns))
@@ -402,12 +406,25 @@ func bqLoadQueryTables(ctx context.Context, db *sql.DB, tables []bqQueryTable) e
 // bqResultFields types each result column: a column that names a column of
 // a table the query read keeps that column's type, and any other takes the
 // type of the values SQLite computed for it.
-func bqResultFields(columns []string, tables []bqQueryTable, raw [][]any) []BQFieldSchema {
+func bqResultFields(columns []string, tables []bqQueryTable, kinds []bqSelectKind, raw [][]any) []BQFieldSchema {
 	fields := make([]BQFieldSchema, len(columns))
+	if len(kinds) != len(columns) {
+		kinds = nil
+	}
 	for i, name := range columns {
-		if f, ok := bqSourceField(name, tables); ok {
-			f.Name = name
-			fields[i] = f
+		kind := bqSelectColumn
+		if kinds != nil {
+			kind = kinds[i]
+		}
+		if kind == bqSelectColumn {
+			if f, ok := bqSourceField(name, tables); ok {
+				f.Name = name
+				fields[i] = f
+				continue
+			}
+		}
+		if kind == bqSelectPredicate {
+			fields[i] = BQFieldSchema{Name: name, Type: "BOOLEAN", Mode: "NULLABLE"}
 			continue
 		}
 		fields[i] = BQFieldSchema{Name: name, Type: "STRING", Mode: "NULLABLE"}
@@ -425,6 +442,133 @@ func bqResultFields(columns []string, tables []bqQueryTable, raw [][]any) []BQFi
 		}
 	}
 	return fields
+}
+
+// bqSelectKind is what a SELECT list item computes, as far as its type goes.
+type bqSelectKind int
+
+const (
+	// bqSelectColumn names a column, or is `*`, and keeps the source type.
+	bqSelectColumn bqSelectKind = iota
+	// bqSelectPredicate is a comparison or logical expression, which
+	// GoogleSQL types BOOL where SQLite answers 0 or 1.
+	bqSelectPredicate
+	// bqSelectComputed takes the type of the values it yields.
+	bqSelectComputed
+)
+
+var bqPredicateWords = map[string]bool{
+	"AND": true, "OR": true, "NOT": true, "IS": true, "IN": true,
+	"LIKE": true, "BETWEEN": true, "EXISTS": true,
+}
+
+// bqSelectListKinds classifies each item of the outermost SELECT list. It
+// answers nil when a `*` makes the items and the result columns disagree in
+// number.
+func bqSelectListKinds(tokens []bqSQLToken) []bqSelectKind {
+	start := -1
+	depth := 0
+	for i, tok := range tokens {
+		switch {
+		case !tok.ident && tok.text == "(":
+			depth++
+		case !tok.ident && tok.text == ")":
+			depth--
+		case depth == 0 && tok.ident && !tok.quote && strings.EqualFold(tok.text, "SELECT"):
+			start = i + 1
+		}
+		if start >= 0 {
+			break
+		}
+	}
+	if start < 0 {
+		return nil
+	}
+	var items [][]bqSQLToken
+	var item []bqSQLToken
+	depth = 0
+	for _, tok := range tokens[start:] {
+		if !tok.ident && tok.text == "(" {
+			depth++
+		}
+		if !tok.ident && tok.text == ")" {
+			depth--
+		}
+		if depth == 0 && tok.ident && !tok.quote && strings.EqualFold(tok.text, "FROM") {
+			break
+		}
+		if depth == 0 && !tok.ident && tok.text == "," {
+			items = append(items, item)
+			item = nil
+			continue
+		}
+		if strings.TrimSpace(tok.text) != "" {
+			item = append(item, tok)
+		}
+	}
+	items = append(items, item)
+	kinds := make([]bqSelectKind, 0, len(items))
+	for _, it := range items {
+		if len(it) > 0 && (strings.EqualFold(it[0].text, "DISTINCT") || strings.EqualFold(it[0].text, "ALL")) && !it[0].quote {
+			it = it[1:]
+		}
+		kind, star := bqSelectItemKind(it)
+		if star {
+			return nil
+		}
+		kinds = append(kinds, kind)
+	}
+	return kinds
+}
+
+// bqColumnReference reports whether item is a column path: identifiers
+// joined by dots.
+func bqColumnReference(item []bqSQLToken) bool {
+	if len(item)%2 == 0 {
+		return false
+	}
+	for i, tok := range item {
+		wantIdent := i%2 == 0
+		if tok.ident != wantIdent || (!wantIdent && tok.text != ".") {
+			return false
+		}
+	}
+	return true
+}
+
+func bqSelectItemKind(item []bqSQLToken) (bqSelectKind, bool) {
+	if n := len(item); n >= 2 && item[n-2].ident && !item[n-2].quote && strings.EqualFold(item[n-2].text, "AS") {
+		item = item[:n-2]
+	} else if n >= 2 && item[n-1].ident && item[n-2].ident {
+		item = item[:n-1]
+	}
+	if len(item) > 0 && !item[len(item)-1].ident && item[len(item)-1].text == "*" {
+		return bqSelectColumn, true
+	}
+	if bqColumnReference(item) {
+		return bqSelectColumn, false
+	}
+	depth, cases := 0, 0
+	for _, tok := range item {
+		word := ""
+		if tok.ident && !tok.quote {
+			word = strings.ToUpper(tok.text)
+		}
+		switch {
+		case !tok.ident && tok.text == "(":
+			depth++
+		case !tok.ident && tok.text == ")":
+			depth--
+		case word == "CASE":
+			cases++
+		case word == "END":
+			cases--
+		case depth > 0 || cases > 0:
+		case bqPredicateWords[word], !tok.ident && strings.ContainsAny(tok.text, "=<>!"):
+			return bqSelectPredicate, false
+		}
+	}
+	return bqSelectComputed, false
 }
 
 func bqSourceField(name string, tables []bqQueryTable) (BQFieldSchema, bool) {

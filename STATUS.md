@@ -39,7 +39,9 @@ Current state of the sockerless-cloud repository.
   name's record sets by routing policy and health.
   An AWS Cloud Map DNS namespace owns the Route 53 hosted zone it reports,
   and its instances' records live there, so tasks resolve service names
-  through the VPC resolver.
+  through the VPC resolver. An unhealthy instance drops out of DNS answers,
+  through a Route 53 health check for a `HealthCheckConfig` service or 30
+  seconds after a custom status for a `HealthCheckCustomConfig` one.
   Every workload in a realized network namespace — Amazon ECS tasks, VPC
   AWS Lambda invocations and the Amazon EC2, Azure and Compute Engine
   microVMs — asks its cloud's resolver address (169.254.169.253,

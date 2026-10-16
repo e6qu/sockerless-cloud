@@ -43,6 +43,23 @@ func awaitCloudMapOperation(t *testing.T, client *servicediscovery.Client, opID 
 		"operation %s failed: %s", aws.ToString(opID), aws.ToString(operation.ErrorMessage))
 }
 
+// awaitCustomHealth polls an instance's health until it is want: a custom
+// status takes Cloud Map's 30 seconds, a Route 53 health check its probes.
+func awaitCustomHealth(t *testing.T, client *servicediscovery.Client, serviceID *string, instanceID string, want sdtypes.HealthStatus) {
+	t.Helper()
+	var last sdtypes.HealthStatus
+	require.Eventually(t, func() bool {
+		out, err := client.GetInstancesHealthStatus(ctx, &servicediscovery.GetInstancesHealthStatusInput{
+			ServiceId: serviceID, Instances: []string{instanceID},
+		})
+		if err != nil {
+			return false
+		}
+		last = out.Status[instanceID]
+		return last == want
+	}, 45*time.Second, time.Second, "instance %s stayed %s", instanceID, last)
+}
+
 // TestCloudMap_HttpAndPublicNamespaceLifecycle exercises CreateHttpNamespace,
 // CreatePublicDnsNamespace, UpdateHttpNamespace, UpdatePublicDnsNamespace and
 // UpdatePrivateDnsNamespace round-tripped through GetNamespace.
@@ -285,7 +302,8 @@ func TestCloudMap_InstanceHealthAndRevision(t *testing.T) {
 		Instances: []string{"inst-1"},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, sdtypes.HealthStatusUnhealthy, healthOut.Status["inst-1"])
+	assert.Equal(t, sdtypes.HealthStatusHealthy, healthOut.Status["inst-1"], "Cloud Map waits 30 seconds before it applies the status")
+	awaitCustomHealth(t, client, aws.String(svcID), "inst-1", sdtypes.HealthStatusUnhealthy)
 
 	// Health updates do NOT bump the revision.
 	revOut, err = client.DiscoverInstancesRevision(ctx, &servicediscovery.DiscoverInstancesRevisionInput{

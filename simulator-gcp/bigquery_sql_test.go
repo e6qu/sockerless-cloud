@@ -104,3 +104,27 @@ func TestBQSQLRefusesWhatItCannotRun(t *testing.T) {
 		t.Fatalf("a default dataset qualifies a bare table name: %v %v", rows, err)
 	}
 }
+
+func TestBQSQLTypesPredicatesBool(t *testing.T) {
+	withBQQueryTables(t)
+	schema, rows := runBQQuery(t, "SELECT name, age > 30 AS senior, NOT active inactive, age AS years, age + 1 AS next, name IS NULL FROM ds.people ORDER BY name")
+	types := map[string]string{}
+	for _, f := range schema.Fields {
+		types[f.Name] = f.Type
+	}
+	if types["senior"] != "BOOLEAN" || types["inactive"] != "BOOLEAN" || types["years"] != "INTEGER" || types["next"] != "INTEGER" || types["name"] != "STRING" {
+		t.Fatalf("schema %+v", schema.Fields)
+	}
+	if rows[0]["senior"] != "true" || rows[1]["inactive"] != "true" || rows[1]["senior"] != "false" {
+		t.Fatalf("predicates answer BOOL cells: %v", rows)
+	}
+
+	schema, _ = runBQQuery(t, "SELECT CASE WHEN age > 30 THEN 'old' ELSE 'young' END AS band, COUNT(*) AS n FROM ds.people GROUP BY band")
+	if schema.Fields[0].Type != "STRING" || schema.Fields[1].Type != "INTEGER" {
+		t.Fatalf("a comparison inside CASE leaves the item its branches' type: %+v", schema.Fields)
+	}
+	schema, _ = runBQQuery(t, "SELECT age > 30 AS age FROM ds.people")
+	if schema.Fields[0].Type != "BOOLEAN" {
+		t.Fatalf("an alias that names a source column does not take its type: %+v", schema.Fields)
+	}
+}

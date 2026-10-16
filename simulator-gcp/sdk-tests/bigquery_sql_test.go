@@ -62,6 +62,11 @@ func TestBigQuery_QueryEvaluatesSQL(t *testing.T) {
 	require.Len(t, rows, 1)
 	assert.Equal(t, map[string]bigquery.Value{"team": "core", "members": int64(2), "oldest": int64(36)}, rows[0])
 
+	rows = read("SELECT name, age > 30 AS senior FROM people_ds.people ORDER BY name")
+	require.Len(t, rows, 3)
+	assert.Equal(t, true, rows[0]["senior"], "a comparison answers BOOL")
+	assert.Equal(t, false, rows[1]["senior"])
+
 	_, err = bq.Query("SELECT missing_column FROM people_ds.people").Read(ctx)
 	var apiErr *googleapi.Error
 	require.True(t, errors.As(err, &apiErr), "an unknown column is refused: %v", err)

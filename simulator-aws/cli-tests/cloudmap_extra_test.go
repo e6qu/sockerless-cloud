@@ -2,6 +2,7 @@ package aws_cli_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -264,9 +265,13 @@ func TestCloudMapInstanceHealthCLI(t *testing.T) {
 		"--service-id", svcID,
 		"--instance-id", "cli-inst-1",
 		"--status", "UNHEALTHY"))
-	out = runCLI(t, awsCLI("servicediscovery", "get-instances-health-status",
-		"--service-id", svcID,
-		"--instances", "cli-inst-1", "--output", "json"))
-	parseJSON(t, out, &healthOut)
-	assert.Equal(t, "UNHEALTHY", healthOut.Status["cli-inst-1"])
+	health := func() string {
+		out := runCLI(t, awsCLI("servicediscovery", "get-instances-health-status",
+			"--service-id", svcID,
+			"--instances", "cli-inst-1", "--output", "json"))
+		parseJSON(t, out, &healthOut)
+		return healthOut.Status["cli-inst-1"]
+	}
+	assert.Equal(t, "HEALTHY", health(), "Cloud Map waits 30 seconds before it applies the status")
+	require.Eventually(t, func() bool { return health() == "UNHEALTHY" }, 45*time.Second, time.Second)
 }

@@ -109,6 +109,7 @@ type R53HealthCheck struct {
 	Xmlns              string               `xml:"xmlns,attr,omitempty"`
 	Id                 string               `xml:"Id"`
 	CallerReference    string               `xml:"CallerReference"`
+	LinkedService      *R53LinkedService    `xml:"LinkedService,omitempty"`
 	HealthCheckConfig  R53HealthCheckConfig `xml:"HealthCheckConfig"`
 	HealthCheckVersion int64                `xml:"HealthCheckVersion"`
 }

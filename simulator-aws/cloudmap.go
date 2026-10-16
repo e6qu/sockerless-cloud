@@ -84,7 +84,15 @@ type CMInstance struct {
 	// instance whose service uses a HealthCheckCustomConfig (the value
 	// UpdateInstanceCustomHealthStatus writes: HEALTHY or UNHEALTHY).
 	CustomHealthStatus string `json:"CustomHealthStatus,omitempty"`
-	CreatorRequestId   string `json:"CreatorRequestId,omitempty"`
+	// PendingHealthStatus is the status the first UpdateInstanceCustomHealthStatus
+	// request still waiting out Cloud Map's 30 seconds asked for, at
+	// PendingHealthSince (Unix milliseconds).
+	PendingHealthStatus string `json:"PendingHealthStatus,omitempty"`
+	PendingHealthSince  int64  `json:"PendingHealthSince,omitempty"`
+	// HealthCheckId is the Route 53 health check Cloud Map created for the
+	// instance of a service with a HealthCheckConfig.
+	HealthCheckId    string `json:"HealthCheckId,omitempty"`
+	CreatorRequestId string `json:"CreatorRequestId,omitempty"`
 }
 
 type CMOperation struct {
@@ -826,6 +834,13 @@ func handleCMUpdateService(w http.ResponseWriter, r *http.Request) {
 			s.HealthCheckConfig = req.Service.HealthCheckConfig
 		}
 	})
+	if updated, ok := cmServices.Get(req.Id); ok && req.Service.HealthCheckConfig != nil {
+		for _, inst := range cmServiceInstances(req.Id) {
+			cmDeleteInstanceHealthCheck(inst)
+			id := cmCreateInstanceHealthCheck(updated, inst.Attributes)
+			cmInstances.Update(cmInstanceKey(req.Id, inst.Id), func(i *CMInstance) { i.HealthCheckId = id })
+		}
+	}
 	cmSyncNamespaceRecords(svc.NamespaceId)
 
 	operationId := sim.NewUUID()
@@ -979,7 +994,11 @@ func handleCMRegisterInstance(w http.ResponseWriter, r *http.Request) {
 		CreatorRequestId: req.CreatorRequestId,
 	}
 	key := cmInstanceKey(req.ServiceId, req.InstanceId)
-	_, existed := cmInstances.Get(key)
+	previous, existed := cmInstances.Get(key)
+	if existed {
+		cmDeleteInstanceHealthCheck(previous)
+	}
+	instance.HealthCheckId = cmCreateInstanceHealthCheck(svc, req.Attributes)
 	cmInstances.Put(key, instance)
 	if !existed {
 		cmServices.Update(req.ServiceId, func(svc *CMService) {
@@ -989,6 +1008,7 @@ func handleCMRegisterInstance(w http.ResponseWriter, r *http.Request) {
 	cmBumpServiceRevision(req.ServiceId)
 	cmSyncNamespaceRecords(svc.NamespaceId)
 	rollback := func() {
+		cmDeleteInstanceHealthCheck(instance)
 		if !existed {
 			cmInstances.Delete(key)
 			cmServices.Update(req.ServiceId, func(svc *CMService) {
@@ -1254,6 +1274,9 @@ func handleCMDeregisterInstance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := cmInstanceKey(req.ServiceId, req.InstanceId)
+	if inst, ok := cmInstances.Get(key); ok {
+		cmDeleteInstanceHealthCheck(inst)
+	}
 	if !cmInstances.Delete(key) {
 		AWSErrorf(w, "InstanceNotFound", http.StatusBadRequest,
 			"Instance '%s' not found", req.InstanceId)
@@ -1831,10 +1854,41 @@ func cmBumpServiceRevision(serviceId string) {
 	cmServiceRevisions.Put(serviceId, cur+1)
 }
 
+// cmCustomHealthDelay is how long Cloud Map waits after an
+// UpdateInstanceCustomHealthStatus request before it changes the instance's
+// status.
+const cmCustomHealthDelay = 30 * time.Second
+
+// cmRequestCustomHealth records a requested custom status. A request matching
+// the status in force cancels a change still waiting, and one repeating the
+// waiting change keeps the time of the first.
+func cmRequestCustomHealth(inst *CMInstance, status string, now time.Time) {
+	current := cmInstanceHealth(*inst)
+	if inst.PendingHealthStatus != "" && current == inst.PendingHealthStatus {
+		inst.CustomHealthStatus = current
+		inst.PendingHealthStatus, inst.PendingHealthSince = "", 0
+	}
+	switch {
+	case status == current:
+		inst.PendingHealthStatus, inst.PendingHealthSince = "", 0
+	case status != inst.PendingHealthStatus:
+		inst.PendingHealthStatus, inst.PendingHealthSince = status, now.UnixMilli()
+	}
+}
+
 // cmInstanceHealth returns an instance's effective health: the custom health
 // status when set (HealthCheckCustomConfig services), otherwise the registered
 // AWS_INIT_HEALTH_STATUS attribute, defaulting to HEALTHY.
 func cmInstanceHealth(inst CMInstance) string {
+	if inst.HealthCheckId != "" {
+		if r53HealthCheckHealthy(inst.HealthCheckId) {
+			return "HEALTHY"
+		}
+		return "UNHEALTHY"
+	}
+	if inst.PendingHealthStatus != "" && time.Since(time.UnixMilli(inst.PendingHealthSince)) >= cmCustomHealthDelay {
+		return inst.PendingHealthStatus
+	}
 	if inst.CustomHealthStatus != "" {
 		return inst.CustomHealthStatus
 	}
@@ -1911,7 +1965,7 @@ func handleCMUpdateInstanceCustomHealthStatus(w http.ResponseWriter, r *http.Req
 		return
 	}
 	cmInstances.Update(key, func(inst *CMInstance) {
-		inst.CustomHealthStatus = req.Status
+		cmRequestCustomHealth(inst, req.Status, time.Now())
 	})
 	// UpdateInstanceCustomHealthStatus has an empty (Unit) response body.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
