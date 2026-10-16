@@ -205,6 +205,10 @@ Current state of the sockerless-cloud repository.
   volumes, credentials sealed under the simulator's key service, readiness
   classified by SQLSTATE, and crash-consistent snapshots. Amazon RDS instances
   and Aurora clusters:
+  - record the events the Amazon RDS event table lists as their state
+    changes — creation, backups, reboots, stops and starts, snapshots,
+    parameter changes, Multi-AZ conversions and failovers, deletion — and
+    send each DB instance event to the default Amazon EventBridge bus;
   - take automated backups whether or not a client connects, reporting
     `creating`, `starting` and `backing-up` until `available`, and restore to
     any time in the retention period by replaying PostgreSQL's archived WAL or

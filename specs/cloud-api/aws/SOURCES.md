@@ -47,3 +47,5 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `budgets.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/budgets.json` | Apache-2.0 | `19359120818b0a71653ebc8310699eecfb10857f` | 2026-10-09T07:27:09Z |
 | `lambda.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/lambda.json` | Apache-2.0 | `76c7d1807de903787a6c4a3a2b8eda36b3ad737e` | 2026-10-13T15:03:50Z |
 | `glue.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/glue.json` | Apache-2.0 | `adedae0f857fdd4dccdae60ab93ffb7997293169` | 2026-10-13T19:06:04Z |
+| `rds-event-messages.md.gz` | `awsdocs/amazon-rds-user-guide@main` | `doc_source/USER_Events.Messages.md` | CC-BY-SA-4.0 | `50e7617a861617feb57905ab25adb629c31cb98e` | 2026-10-16T14:21:58Z |
+| `rds-eventbridge-events.md.gz` | `awsdocs/amazon-rds-user-guide@main` | `doc_source/rds-cloud-watch-events.md` | CC-BY-SA-4.0 | `c6ee491185303f08b0a78d1a1d55fd00c3034e7f` | 2026-10-16T14:22:15Z |

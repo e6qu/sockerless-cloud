@@ -82,6 +82,6 @@ func TestRDSCLI_MultiAZFailover(t *testing.T) {
 	parseJSON(t, runCLI(t, awsCLI("rds", "describe-events", "--source-type", "db-instance", "--source-identifier", id,
 		"--event-categories", "failover")), &events)
 	require.Len(t, events.Events, 2)
-	assert.Equal(t, "A Multi-AZ failover that resulted in the promotion of a standby instance has started.", events.Events[0].Message)
-	assert.Contains(t, events.Events[1].Message, "A Multi-AZ failover that resulted in the promotion of a standby instance is complete.")
+	assert.Equal(t, "Multi-AZ instance failover started.", events.Events[0].Message)
+	assert.Contains(t, events.Events[1].Message, "Multi-AZ failover to standby complete")
 }

@@ -2,6 +2,7 @@ package aws_sdk_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
@@ -320,13 +321,18 @@ func TestRDS_EventsAndEngineMetadata(t *testing.T) {
 			SkipFinalSnapshot:    aws.Bool(true),
 		})
 	})
+	require.NoError(t, rds.NewDBInstanceAvailableWaiter(c, func(o *rds.DBInstanceAvailableWaiterOptions) {
+		o.MinDelay, o.MaxDelay = waiterMinDelay, waiterMaxDelay
+	}).Wait(ctx, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String(evInst)}, 5*time.Minute))
 	evOut, err := c.DescribeEvents(ctx, &rds.DescribeEventsInput{
 		SourceIdentifier: aws.String(evInst),
 		SourceType:       rdstypes.SourceTypeDbInstance,
+		EventCategories:  []string{"creation"},
 	})
 	require.NoError(t, err)
 	require.Len(t, evOut.Events, 1)
 	assert.Equal(t, evInst, aws.ToString(evOut.Events[0].SourceIdentifier))
+	assert.Equal(t, "DB instance created.", aws.ToString(evOut.Events[0].Message))
 
 	// DescribeDBEngineVersions.
 	versions, err := c.DescribeDBEngineVersions(ctx, &rds.DescribeDBEngineVersionsInput{

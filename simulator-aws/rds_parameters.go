@@ -428,6 +428,12 @@ func rdsChangeParameterGroup(w http.ResponseWriter, r *http.Request, op string, 
 		}
 		group = *g
 	})
+	if !resetting {
+		for _, change := range changes {
+			rdsRecordEvent(RDSEvent{SourceIdentifier: name, SourceType: "db-parameter-group", SourceArn: group.ARN},
+				rdsEventParameterUpdated, change.Name, change.Value, change.ApplyMethod)
+		}
+	}
 	if catalog, ok := rdsFamilyParameterCatalog(group.DBParameterGroupFamily); ok {
 		var immediate []string
 		for _, change := range changes {

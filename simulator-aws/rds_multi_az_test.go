@@ -70,7 +70,7 @@ func TestRDSForceFailoverSwapsTheZones(t *testing.T) {
 		}
 	}
 	messages := rdsEventMessages(t, url.Values{"SourceIdentifier": {id}, "SourceType": {"db-instance"}, "EventCategories.EventCategory.1": {"failover"}})
-	if want := []string{rdsEventFailoverStarted, rdsEventFailoverFinished}; !slices.Equal(messages, want) {
+	if want := []string{rdsEventFailoverStarted.message, rdsEventFailoverFinished.message}; !slices.Equal(messages, want) {
 		t.Fatalf("failover events = %q, want %q", messages, want)
 	}
 }
@@ -106,8 +106,8 @@ func TestRDSModifyDBInstanceConvertsBetweenSingleAZAndMultiAZ(t *testing.T) {
 	}
 	messages := rdsEventMessages(t, url.Values{"SourceIdentifier": {id}, "SourceType": {"db-instance"},
 		"EventCategories.EventCategory.1": {"configuration change"}})
-	want := []string{rdsEventMultiAZConversionStarted, rdsEventMultiAZConversionFinished,
-		rdsEventSingleAZConversionStarted, rdsEventSingleAZConversionFinished}
+	want := []string{rdsEventMultiAZConversionStarted.message, rdsEventMultiAZConversionFinished.message,
+		rdsEventSingleAZConversionStarted.message, rdsEventSingleAZConversionFinished.message}
 	if !slices.Equal(messages, want) {
 		t.Fatalf("conversion events = %q, want %q", messages, want)
 	}

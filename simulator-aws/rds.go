@@ -411,8 +411,8 @@ var (
 const rdsAPIVersion = "2014-10-31"
 
 func registerRDS(r *AWSQueryRouter, srv *sim.Server) {
-	rdsInstances = sim.MakeStore[RDSInstance](srv.DB(), "rds_instances")
-	rdsSnapshots = sim.MakeStore[RDSSnapshot](srv.DB(), "rds_snapshots")
+	rdsInstances = rdsObserve(sim.MakeStore[RDSInstance](srv.DB(), "rds_instances"), rdsObserveInstance)
+	rdsSnapshots = rdsObserve(sim.MakeStore[RDSSnapshot](srv.DB(), "rds_snapshots"), rdsObserveSnapshot)
 	rdsEvents = sim.MakeStore[RDSEvent](srv.DB(), "rds_events")
 	r.RegisterVersioned(rdsAPIVersion, "CreateDBInstance", handleRDSCreate)
 	r.RegisterVersioned(rdsAPIVersion, "DescribeDBInstances", handleRDSDescribe)
@@ -1652,6 +1652,7 @@ func handleRDSReboot(w http.ResponseWriter, r *http.Request) {
 		rdsInstances.Put(id, inst)
 		rdsTakeFirstInstanceBackup(id)
 	}
+	rdsRecordInstanceEvent(inst, rdsEventInstanceRestarted)
 	rdsXMLResponse(w, "RebootDBInstance", renderRDSInstance(inst), sim.RequestID(r.Context()))
 }
 
