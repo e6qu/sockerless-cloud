@@ -2895,3 +2895,19 @@ proxy before it had written its request, Go's transport took them for an
 unsolicited response, dropped the connection and answered 503
 (`readLoopPeekFailLocked`). The handler now reads the request's headers
 first, as the Azure workload servers already did.
+
+BigQuery queries evaluate their SQL. `jobs.query` and query jobs load the
+tables a statement names into an in-memory SQLite database and run the
+statement there. Each column gets the SQLite type that compares the way
+BigQuery compares it: INT64, BOOL and TIMESTAMP (as epoch microseconds) are
+INTEGER, FLOAT64 is REAL, and a RECORD or REPEATED value is its JSON. The
+statement's table references are rewritten to the loaded copies, each
+aliased by its table name, and a query's `defaultDataset` qualifies a bare
+table name. A result column that names a source column keeps that column's
+type; any other column takes the type of the values SQLite computed for it.
+The previous query path answered every column of the one table in FROM and
+honoured only a single equality in WHERE. `tabledata.insertAll` now converts
+each row against the table's schema and stores the cell forms that
+`tabledata.list` and queries read. A row that does not convert is reported in
+`insertErrors`, and without `skipInvalidRows` it stops the request's other
+rows with reason `stopped`.
