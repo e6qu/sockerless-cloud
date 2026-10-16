@@ -109,21 +109,15 @@ func TestELBv2_NLBRawTCPRoundTrip(t *testing.T) {
 	dnsName := aws.ToString(desc.LoadBalancers[0].DNSName)
 	require.NotContains(t, dnsName, ":", "DNSName must be a hostname, not host:port")
 
-	// Reach the data plane the way an in-network client does: resolve the
-	// AWS-shaped DNS name to the NLB's stream-proxy host, then connect on the
-	// listener port. A workload container is given a hosts entry mapping the DNS
-	// name to the proxy host; here the resolveNLBHostname helper stands in for
-	// that resolution (the sim binds the first NLB on a listener port at
-	// 127.0.0.1:<port>, the host every same-host client reaches). We resolve the
-	// hostname → IP and connect on the listener port — never a host:port from
-	// DNSName.
+	// Reach the data plane the way a client does: resolve the DNS name through
+	// the resolver and connect on the listener port.
 	// The listener forwards only to a target the health checker has put in
 	// service, so wait for the registration to pass its first health check.
 	waitForELBv2TargetHealth(t, tgArn,
 		elbtypes.TargetDescription{Id: aws.String(backendHost), Port: aws.Int32(int32(backendPort))},
 		elbtypes.TargetHealthStateEnumHealthy)
 
-	proxyHost := resolveNLBHostname(dnsName)
+	proxyHost, _ := dnsResolveA(t, dnsName)
 	endpoint := net.JoinHostPort(proxyHost, strconv.Itoa(listenerPort))
 	conn, err := net.DialTimeout("tcp", endpoint, 5*time.Second)
 	require.NoError(t, err, "dial NLB %s (resolved to %s)", dnsName, endpoint)
@@ -134,17 +128,6 @@ func TestELBv2_NLBRawTCPRoundTrip(t *testing.T) {
 	got, err := bufio.NewReader(conn).ReadString('\n')
 	require.NoError(t, err)
 	assert.Equal(t, "echo:hello-nlb\n", got, "raw TCP byte stream must round-trip through the NLB to the target")
-}
-
-// resolveNLBHostname resolves an NLB's AWS-shaped DNS name to its stream-proxy
-// host, standing in for the hosts entry the sim injects into a workload
-// container so an in-network client reaches the proxy. The first NLB on a
-// listener port binds 127.0.0.1, the host any same-host client reaches.
-func resolveNLBHostname(dnsName string) string {
-	if !strings.Contains(dnsName, ".elb.") {
-		return dnsName
-	}
-	return "127.0.0.1"
 }
 
 // TestELBv2_NLBDescribeStableHostname is the #691 contract guard: an NLB's

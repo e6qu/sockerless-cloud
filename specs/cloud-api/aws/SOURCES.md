@@ -49,3 +49,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `glue.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/glue.json` | Apache-2.0 | `adedae0f857fdd4dccdae60ab93ffb7997293169` | 2026-10-13T19:06:04Z |
 | `rds-event-messages.md.gz` | `awsdocs/amazon-rds-user-guide@main` | `doc_source/USER_Events.Messages.md` | CC-BY-SA-4.0 | `50e7617a861617feb57905ab25adb629c31cb98e` | 2026-10-16T14:21:58Z |
 | `rds-eventbridge-events.md.gz` | `awsdocs/amazon-rds-user-guide@main` | `doc_source/rds-cloud-watch-events.md` | CC-BY-SA-4.0 | `c6ee491185303f08b0a78d1a1d55fd00c3034e7f` | 2026-10-16T14:22:15Z |
+| `route53-alias-records.md.gz` | `awsdocs/amazon-route53-docs@main` | `doc_source/resource-record-sets-choosing-alias-non-alias.md` | CC-BY-SA-4.0 | `2c31968034119e7d65367395fad120e796a60b71` | 2026-10-16T18:58:29Z |
+| `alb-target-group-health.md.gz` | `awsdocs/elb-application-load-balancers-user-guide@master` | `doc_source/target-group-health.md` | CC-BY-SA-4.0 | `fb242939a8639ebd75f5a9cbd4b33acef51e1367` | 2026-10-16T18:58:30Z |
+| `nlb-target-group-health.md.gz` | `awsdocs/elb-network-load-balancers-user-guide@master` | `doc_source/target-group-health.md` | CC-BY-SA-4.0 | `d08f9993fa9d543a9373d6d9b7a9ea4da32aaa01` | 2026-10-16T18:58:31Z |

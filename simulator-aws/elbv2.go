@@ -279,7 +279,7 @@ func handleELBv2CreateLoadBalancer(w http.ResponseWriter, r *http.Request) {
 	lb := ELBv2LoadBalancer{
 		Arn:            arn,
 		Name:           name,
-		DNSName:        fmt.Sprintf("%s-%s.elb.%s.amazonaws.com", name, id[:8], awsRegion()),
+		DNSName:        elbv2DNSName(name, id, lbType, scheme),
 		CanonicalZone:  "Z35SXDOTRQ7X7K",
 		Scheme:         scheme,
 		Type:           lbType,

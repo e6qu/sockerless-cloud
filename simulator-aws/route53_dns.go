@@ -83,7 +83,8 @@ func route53Catalog(q dnsserver.Query) dnsserver.View {
 	if v, ok := r53ResolverVPCs.Load(q.Local); ok {
 		vpcID, _ = v.(string)
 	}
-	view := dnsserver.View{Names: workloadHostAliasRecords()}
+	resources := elbv2DNSRecords()
+	view := dnsserver.View{Names: append(workloadHostAliasRecords(), resources...)}
 	querier := route53Querier{region: route53QuerierRegion(vpcID), addr: q.Remote}
 	zones := route53VisibleZones(vpcID)
 	for i := range zones {
@@ -92,7 +93,7 @@ func route53Catalog(q dnsserver.Query) dnsserver.View {
 		zones[i].Records = route53Route(zones[i].Records, zoneQuerier)
 	}
 	for _, z := range zones {
-		view.Zones = append(view.Zones, dnsserver.Zone{Apex: dns.Fqdn(z.Zone.Name), Records: route53ZoneRecords(z, zones)})
+		view.Zones = append(view.Zones, dnsserver.Zone{Apex: dns.Fqdn(z.Zone.Name), Records: route53ZoneRecords(z, zones, resources)})
 	}
 	return view
 }
@@ -142,12 +143,12 @@ const route53DefaultTTL = 300
 // route53MaxAliasDepth bounds an alias chain, which records can make circular.
 const route53MaxAliasDepth = 8
 
-func route53ZoneRecords(zone r53StoredZone, visible []r53StoredZone) []dns.RR {
+func route53ZoneRecords(zone r53StoredZone, visible []r53StoredZone, resources []dns.RR) []dns.RR {
 	var out []dns.RR
 	for _, set := range zone.Records {
 		owner := route53OwnerName(set.Name)
 		if set.AliasTarget != nil && set.AliasTarget.DNSName != "" {
-			for _, rr := range route53AliasRecords(visible, route53OwnerName(set.AliasTarget.DNSName), set.Type, 0) {
+			for _, rr := range route53AliasRecords(visible, resources, route53OwnerName(set.AliasTarget.DNSName), set.Type, 0) {
 				cp := dns.Copy(rr)
 				cp.Header().Name = owner
 				out = append(out, cp)
@@ -161,8 +162,9 @@ func route53ZoneRecords(zone r53StoredZone, visible []r53StoredZone) []dns.RR {
 
 // route53AliasRecords returns the records an alias to target serves: the
 // target's own record set of the same type, which Route 53 answers with the
-// target's TTL.
-func route53AliasRecords(visible []r53StoredZone, target, rtype string, depth int) []dns.RR {
+// target's TTL, or, for a name outside every zone, the records of the AWS
+// resource (resources) that answers to it, with the resource's TTL.
+func route53AliasRecords(visible []r53StoredZone, resources []dns.RR, target, rtype string, depth int) []dns.RR {
 	if depth >= route53MaxAliasDepth {
 		return nil
 	}
@@ -174,7 +176,13 @@ func route53AliasRecords(visible []r53StoredZone, target, rtype string, depth in
 		}
 	}
 	if zone == nil {
-		return nil
+		var out []dns.RR
+		for _, rr := range resources {
+			if rr.Header().Name == target && dns.TypeToString[rr.Header().Rrtype] == strings.ToUpper(rtype) {
+				out = append(out, rr)
+			}
+		}
+		return out
 	}
 	var out []dns.RR
 	for _, set := range zone.Records {
@@ -182,7 +190,7 @@ func route53AliasRecords(visible []r53StoredZone, target, rtype string, depth in
 			continue
 		}
 		if set.AliasTarget != nil && set.AliasTarget.DNSName != "" {
-			out = append(out, route53AliasRecords(visible, route53OwnerName(set.AliasTarget.DNSName), rtype, depth+1)...)
+			out = append(out, route53AliasRecords(visible, resources, route53OwnerName(set.AliasTarget.DNSName), rtype, depth+1)...)
 			continue
 		}
 		out = append(out, route53SetRecords(target, set)...)
