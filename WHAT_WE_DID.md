@@ -2944,3 +2944,11 @@ query` reads before it prints a result. The query engine refuses any
 statement that does not begin with SELECT or WITH, and any job holding more
 than one statement. Before, it ran DML and DDL against its temporary copy of
 the tables and reported success while changing nothing.
+
+A BigQuery query's SELECT list item takes its type from what it computes. A
+bare column reference keeps the source column's type. A comparison or a
+logical expression (`=`, `<`, `AND`, `NOT`, `IS`, `IN`, `LIKE`, `BETWEEN`,
+`EXISTS` outside parentheses and CASE) is BOOL, and answers `true` or `false`
+where SQLite answers 1 or 0. Any other expression takes the type of its
+values. An alias that happens to name a source column no longer borrows that
+column's type.
