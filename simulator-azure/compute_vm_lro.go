@@ -152,6 +152,7 @@ func azureForgetVM(id string) {
 	azureVMStates.Delete(id)
 	azureVMProvisioningErrors.Delete(id)
 	azureVMGeneralized.Delete(id)
+	azureReconcileAutoRegisteredRecords()
 }
 
 // azureVMBootFailure is the error a failed operation reports when the host

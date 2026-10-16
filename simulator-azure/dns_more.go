@@ -260,6 +260,7 @@ func registerPrivateDNSMore(srv *sim.Server, zones sim.Store[PrivateDnsZone], re
 				"Virtual network link '%s' not found.", sim.PathParam(r, "linkName"))
 			return
 		}
+		azureReconcileAutoRegisteredRecords()
 		link, _ := vnetLinks.Get(id)
 		sim.WriteJSON(w, http.StatusOK, link)
 	})

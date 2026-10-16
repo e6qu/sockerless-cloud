@@ -206,6 +206,7 @@ func registerCloudDNS(srv *sim.Server) {
 	responsePolicyRules := sim.MakeStore[storedDNSResponsePolicyRule](srv.DB(), "dns_response_policy_rules")
 	operations := sim.MakeStore[storedDNSOperation](srv.DB(), "dns_zone_operations")
 	cloudDNSZones, cloudDNSRecordSets = zones, recordSets
+	cloudDNSPolicies, cloudDNSResponsePolicies, cloudDNSResponsePolicyRules = policies, responsePolicies, responsePolicyRules
 
 	// Cloud DNS outbound endpoints and the locations and long-running
 	// operations they are created through: no vendored source describes what

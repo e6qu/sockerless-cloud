@@ -557,7 +557,7 @@ phases:
 		},
 		Artifacts: &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
 		Environment: &cbtypes.ProjectEnvironment{
-			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("public.ecr.aws/aws-cli/aws-cli:2.27.49"),
+			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/amazon/aws-cli:2.27.49"),
 			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
 		},
 		ServiceRole: aws.String("arn:aws:iam::123456789012:role/codebuild-role"),
@@ -708,7 +708,7 @@ phases:
 		},
 		Artifacts: &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
 		Environment: &cbtypes.ProjectEnvironment{
-			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("public.ecr.aws/aws-cli/aws-cli:2.27.49"),
+			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/amazon/aws-cli:2.27.49"),
 			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
 		},
 		ServiceRole: aws.String("arn:aws:iam::123456789012:role/codebuild-role"),

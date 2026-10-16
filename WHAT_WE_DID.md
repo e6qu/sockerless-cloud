@@ -2631,8 +2631,12 @@ images served them before; under CI's load it answered `toomanyrequests: Data
 limit exceeded`, failing every container-backed test at its pull, and copying
 the images into a registry the project owns would have made every pin update a
 refresh of the copy. The ECR Public Gallery still serves what AWS publishes
-there — the AWS Lambda base images, the AWS CLI, Amazon DynamoDB local and the
-AWS CodeBuild images — since those are the images the real services run. A
+there — the AWS Lambda base images, Amazon DynamoDB local and the AWS CodeBuild
+images — since those are the images the real services run. The AWS CLI image
+the Amazon ECS and AWS CodeBuild workloads run is a workload, not a service
+image, and comes from `mirror.gcr.io`'s copy of Amazon's own Docker Hub
+`amazon/aws-cli`: the SDK suite's first pull of it from the gallery hit the
+same data limit. A
 digest-pinned workload image is left out of warming because `docker load`
 restores none by digest. The images the simulators pull themselves follow the
 rule: the Container Apps Dapr sidecar, the Percona XtraBackup helper, the
@@ -2766,12 +2770,27 @@ name `FirecrackerVMConfig.Nameserver` instead of a public resolver.
 `fabric.VMSpec` carries the `Resolver`; its `Arrived` hook records the host
 address the network's queries land on, and a machine whose address cannot be
 recorded does not boot, because its private zones would answer nothing. VPC
-AWS Lambda invocations take the same route Amazon ECS tasks do. Azure's
-listener runs on every start, and its catalog serves a private zone to the
-virtual networks it is linked to; Cloud DNS's catalog serves private zones to
+AWS Lambda invocations take the same route Amazon ECS tasks do. Azure runs
+a resolver on every address for virtual networks on every start, beside the
+listener an operator binds at `SIM_AZURE_DNS_LISTEN_ADDR` (often loopback,
+which a redirected query cannot reach), both answering from one catalog that
+serves a private zone to the virtual networks it is linked to; Cloud DNS's catalog serves private zones to
 their visibility networks, forwarding zones through their target name servers
 on port 53, and peering zones from the zones their target network sees, one
 hop deep.
+
+Azure Private DNS auto-registration is a reconcile, not a hook per event:
+`azureReconcileAutoRegisteredRecords` derives every zone's registered A
+records from the links with registration enabled and the machines whose
+primary interface has an address in a linked network, and runs after every
+virtual machine, network interface and link write and after a machine boots.
+A record carries `isAutoRegistered`, the machine's computer name and a TTL of
+10, and never replaces a record set someone created. Cloud DNS answers a
+bound network's query from the most specific response-policy rule — an exact
+name over a wildcard, a longer wildcard over a shorter — ahead of every zone,
+a `bypassResponsePolicy` rule handing the name back; a DNS policy's
+alternative name servers become a root forwarding zone below the network's
+private zones, replacing Google's resolution and the public zones.
 
 `sim.Main` is the startup every simulator binary runs, described by a
 `sim.Program`: the provider and its default port, a `Configure` hook that checks

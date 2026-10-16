@@ -1131,6 +1131,7 @@ func registerNetworkInterfaces(srv *sim.Server) {
 			}
 		}
 		azureNICs.Put(id, nic)
+		azureReconcileAutoRegisteredRecords()
 		if err := azureApplyRealNSGsToNIC(r.Context(), nic); err != nil {
 			AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to apply real NSG filters: %v", err)
 			return
@@ -1251,7 +1252,11 @@ func registerVirtualMachines(srv *sim.Server) {
 				nic.Properties.VirtualMachine = &SubResource{ID: id}
 			})
 		}
+		azureReconcileAutoRegisteredRecords()
 		opID := azureRunVMOperation(id, func(ctx context.Context) *AsyncOperationError {
+			// The boot leases a dynamic address, which the registered
+			// record then names.
+			defer azureReconcileAutoRegisteredRecords()
 			if err := azureBootVM(ctx, vm); err != nil {
 				logger.Error().
 					Err(err).
@@ -1323,6 +1328,7 @@ func registerVirtualMachines(srv *sim.Server) {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
 			return
 		}
+		azureReconcileAutoRegisteredRecords()
 		vm, _ := azureVMs.Get(id)
 		sim.WriteJSON(w, http.StatusOK, vm)
 	})

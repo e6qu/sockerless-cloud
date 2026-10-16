@@ -48,29 +48,29 @@ func main() {
 	})
 }
 
-// startAzureListeners starts the DNS listener and the raw Service Bus AMQP
-// listener an operator configured. The stop also tears down the realized network fabric:
-// the namespaces, interfaces and machines behind virtual networks are
-// host-global and outlive the process.
+// startAzureListeners starts the DNS listeners and the raw Service Bus AMQP
+// listener an operator configured. The stop also tears down the realized
+// network fabric: the namespaces, interfaces and machines behind virtual
+// networks are host-global and outlive the process.
 func startAzureListeners(_ *sim.Server, cfg sim.Config) (func(context.Context) error, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	var dnsSrv *dnsserver.Server
+	var dnsServers []*dnsserver.Server
 	stop := func(ctx context.Context) error {
 		cancel()
 		var errs []error
-		if dnsSrv != nil {
-			errs = append(errs, dnsSrv.Close())
+		for _, srv := range dnsServers {
+			errs = append(errs, srv.Close())
 		}
 		if err := azureFabric.Close(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("tear down the realized network fabric: %w", err))
 		}
 		return errors.Join(errs...)
 	}
-	srv, err := startAzureDNSFromEnv()
+	servers, err := startAzureDNSFromEnv()
 	if err != nil {
 		return nil, errors.Join(err, stop(context.Background()))
 	}
-	dnsSrv = srv
+	dnsServers = servers
 	if amqpAddr := os.Getenv("SIM_SERVICEBUS_AMQP_LISTEN_ADDR"); amqpAddr != "" {
 		certFile := sim.EnvOr("SIM_SERVICEBUS_AMQP_TLS_CERT", cfg.TLSCert)
 		keyFile := sim.EnvOr("SIM_SERVICEBUS_AMQP_TLS_KEY", cfg.TLSKey)
