@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -351,4 +352,58 @@ func TestRoute53_VPCQueryLoggingGeoCLI(t *testing.T) {
 
 	listGeo := runCLI(t, awsCLI("route53", "list-geo-locations", "--output", "json"))
 	require.Contains(t, listGeo, "GeoLocationDetailsList")
+}
+
+// aws route53 create-health-check with a CLOUDWATCH_METRIC config names a
+// CloudWatch alarm, and get-health-check reports the alarm it monitors.
+func TestRoute53_AlarmHealthCheckCLI(t *testing.T) {
+	t.Parallel()
+	stamp := time.Now().Format("150405000000")
+	alarm := "cli-r53-alarm-" + stamp
+	runCLI(t, awsCLI("cloudwatch", "put-metric-alarm", "--alarm-name", alarm,
+		"--namespace", "Sockerless/CLIR53", "--metric-name", "Latency", "--statistic", "Average",
+		"--period", "60", "--evaluation-periods", "2", "--threshold", "250",
+		"--comparison-operator", "GreaterThanThreshold", "--dimensions", "Name=Service,Value=checkout"))
+	defer func() { _ = awsCLI("cloudwatch", "delete-alarms", "--alarm-names", alarm).Run() }()
+
+	out := runCLI(t, awsCLI("route53", "create-health-check", "--caller-reference", "cli-alarm-"+stamp,
+		"--health-check-config", `{"Type":"CLOUDWATCH_METRIC","AlarmIdentifier":{"Region":"us-east-1","Name":"`+alarm+`"},"InsufficientDataHealthStatus":"LastKnownStatus"}`,
+		"--output", "json"))
+	var created struct {
+		HealthCheck struct {
+			Id string `json:"Id"`
+		} `json:"HealthCheck"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out), &created))
+	defer func() {
+		_ = awsCLI("route53", "delete-health-check", "--health-check-id", created.HealthCheck.Id).Run()
+	}()
+
+	var got struct {
+		HealthCheck struct {
+			HealthCheckConfig struct {
+				InsufficientDataHealthStatus string `json:"InsufficientDataHealthStatus"`
+			} `json:"HealthCheckConfig"`
+			CloudWatchAlarmConfiguration struct {
+				EvaluationPeriods  int     `json:"EvaluationPeriods"`
+				Threshold          float64 `json:"Threshold"`
+				ComparisonOperator string  `json:"ComparisonOperator"`
+				Namespace          string  `json:"Namespace"`
+				Dimensions         []struct {
+					Name  string `json:"Name"`
+					Value string `json:"Value"`
+				} `json:"Dimensions"`
+			} `json:"CloudWatchAlarmConfiguration"`
+		} `json:"HealthCheck"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(runCLI(t, awsCLI("route53", "get-health-check",
+		"--health-check-id", created.HealthCheck.Id, "--output", "json"))), &got))
+	assert.Equal(t, "LastKnownStatus", got.HealthCheck.HealthCheckConfig.InsufficientDataHealthStatus)
+	alarmCfg := got.HealthCheck.CloudWatchAlarmConfiguration
+	assert.Equal(t, 2, alarmCfg.EvaluationPeriods)
+	assert.InDelta(t, 250, alarmCfg.Threshold, 0)
+	assert.Equal(t, "GreaterThanThreshold", alarmCfg.ComparisonOperator)
+	assert.Equal(t, "Sockerless/CLIR53", alarmCfg.Namespace)
+	require.Len(t, alarmCfg.Dimensions, 1)
+	assert.Equal(t, "checkout", alarmCfg.Dimensions[0].Value)
 }

@@ -86,22 +86,47 @@ func registerRoute53Extra(mux *sim.Server) {
 }
 
 type R53HealthCheckConfig struct {
-	IPAddress                    string   `xml:"IPAddress,omitempty"`
-	Port                         *int     `xml:"Port,omitempty"`
-	Type                         string   `xml:"Type,omitempty"`
-	ResourcePath                 string   `xml:"ResourcePath,omitempty"`
-	FullyQualifiedDomainName     string   `xml:"FullyQualifiedDomainName,omitempty"`
-	SearchString                 string   `xml:"SearchString,omitempty"`
-	RequestInterval              *int     `xml:"RequestInterval,omitempty"`
-	FailureThreshold             *int     `xml:"FailureThreshold,omitempty"`
-	MeasureLatency               *bool    `xml:"MeasureLatency,omitempty"`
-	Inverted                     *bool    `xml:"Inverted,omitempty"`
-	Disabled                     *bool    `xml:"Disabled,omitempty"`
-	HealthThreshold              *int     `xml:"HealthThreshold,omitempty"`
-	ChildHealthChecks            []string `xml:"ChildHealthChecks>ChildHealthCheck,omitempty"`
-	EnableSNI                    *bool    `xml:"EnableSNI,omitempty"`
-	Regions                      []string `xml:"Regions>Region,omitempty"`
-	InsufficientDataHealthStatus string   `xml:"InsufficientDataHealthStatus,omitempty"`
+	IPAddress                    string              `xml:"IPAddress,omitempty"`
+	Port                         *int                `xml:"Port,omitempty"`
+	Type                         string              `xml:"Type,omitempty"`
+	ResourcePath                 string              `xml:"ResourcePath,omitempty"`
+	FullyQualifiedDomainName     string              `xml:"FullyQualifiedDomainName,omitempty"`
+	SearchString                 string              `xml:"SearchString,omitempty"`
+	RequestInterval              *int                `xml:"RequestInterval,omitempty"`
+	FailureThreshold             *int                `xml:"FailureThreshold,omitempty"`
+	MeasureLatency               *bool               `xml:"MeasureLatency,omitempty"`
+	Inverted                     *bool               `xml:"Inverted,omitempty"`
+	Disabled                     *bool               `xml:"Disabled,omitempty"`
+	HealthThreshold              *int                `xml:"HealthThreshold,omitempty"`
+	ChildHealthChecks            []string            `xml:"ChildHealthChecks>ChildHealthCheck,omitempty"`
+	EnableSNI                    *bool               `xml:"EnableSNI,omitempty"`
+	Regions                      []string            `xml:"Regions>Region,omitempty"`
+	AlarmIdentifier              *R53AlarmIdentifier `xml:"AlarmIdentifier,omitempty"`
+	InsufficientDataHealthStatus string              `xml:"InsufficientDataHealthStatus,omitempty"`
+	RoutingControlArn            string              `xml:"RoutingControlArn,omitempty"`
+}
+
+type R53AlarmIdentifier struct {
+	Region string `xml:"Region"`
+	Name   string `xml:"Name"`
+}
+
+// R53CloudWatchAlarmConfiguration is the alarm a CLOUDWATCH_METRIC health
+// check monitors, as Route 53 reports it.
+type R53CloudWatchAlarmConfiguration struct {
+	EvaluationPeriods  int32          `xml:"EvaluationPeriods"`
+	Threshold          float64        `xml:"Threshold"`
+	ComparisonOperator string         `xml:"ComparisonOperator"`
+	Period             int32          `xml:"Period"`
+	MetricName         string         `xml:"MetricName"`
+	Namespace          string         `xml:"Namespace"`
+	Statistic          string         `xml:"Statistic"`
+	Dimensions         []R53Dimension `xml:"Dimensions>Dimension,omitempty"`
+}
+
+type R53Dimension struct {
+	Name  string `xml:"Name"`
+	Value string `xml:"Value"`
 }
 
 type R53HealthCheck struct {
@@ -112,6 +137,9 @@ type R53HealthCheck struct {
 	LinkedService      *R53LinkedService    `xml:"LinkedService,omitempty"`
 	HealthCheckConfig  R53HealthCheckConfig `xml:"HealthCheckConfig"`
 	HealthCheckVersion int64                `xml:"HealthCheckVersion"`
+	// CloudWatchAlarmConfiguration is the alarm a CLOUDWATCH_METRIC check
+	// monitors, read when the check names it.
+	CloudWatchAlarmConfiguration *R53CloudWatchAlarmConfiguration `xml:"CloudWatchAlarmConfiguration,omitempty"`
 }
 
 type R53CreateHealthCheckRequest struct {
@@ -143,19 +171,20 @@ type R53ListHealthChecksResponse struct {
 }
 
 type R53UpdateHealthCheckRequest struct {
-	XMLName                      xml.Name `xml:"UpdateHealthCheckRequest"`
-	HealthCheckVersion           *int64   `xml:"HealthCheckVersion,omitempty"`
-	IPAddress                    *string  `xml:"IPAddress,omitempty"`
-	Port                         *int     `xml:"Port,omitempty"`
-	ResourcePath                 *string  `xml:"ResourcePath,omitempty"`
-	FullyQualifiedDomainName     *string  `xml:"FullyQualifiedDomainName,omitempty"`
-	SearchString                 *string  `xml:"SearchString,omitempty"`
-	FailureThreshold             *int     `xml:"FailureThreshold,omitempty"`
-	Inverted                     *bool    `xml:"Inverted,omitempty"`
-	Disabled                     *bool    `xml:"Disabled,omitempty"`
-	HealthThreshold              *int     `xml:"HealthThreshold,omitempty"`
-	EnableSNI                    *bool    `xml:"EnableSNI,omitempty"`
-	InsufficientDataHealthStatus *string  `xml:"InsufficientDataHealthStatus,omitempty"`
+	XMLName                      xml.Name            `xml:"UpdateHealthCheckRequest"`
+	HealthCheckVersion           *int64              `xml:"HealthCheckVersion,omitempty"`
+	IPAddress                    *string             `xml:"IPAddress,omitempty"`
+	Port                         *int                `xml:"Port,omitempty"`
+	ResourcePath                 *string             `xml:"ResourcePath,omitempty"`
+	FullyQualifiedDomainName     *string             `xml:"FullyQualifiedDomainName,omitempty"`
+	SearchString                 *string             `xml:"SearchString,omitempty"`
+	FailureThreshold             *int                `xml:"FailureThreshold,omitempty"`
+	Inverted                     *bool               `xml:"Inverted,omitempty"`
+	Disabled                     *bool               `xml:"Disabled,omitempty"`
+	HealthThreshold              *int                `xml:"HealthThreshold,omitempty"`
+	EnableSNI                    *bool               `xml:"EnableSNI,omitempty"`
+	InsufficientDataHealthStatus *string             `xml:"InsufficientDataHealthStatus,omitempty"`
+	AlarmIdentifier              *R53AlarmIdentifier `xml:"AlarmIdentifier,omitempty"`
 }
 
 type R53UpdateHealthCheckResponse struct {
@@ -217,6 +246,7 @@ func handleR53CreateHealthCheck(w http.ResponseWriter, r *http.Request) {
 		HealthCheckConfig:  req.HealthCheckConfig,
 		HealthCheckVersion: 1,
 	}
+	hc.CloudWatchAlarmConfiguration = r53AlarmConfiguration(hc.HealthCheckConfig)
 	r53HealthChecks.Put(id, r53StoredHealthCheck{HealthCheck: hc})
 	w.Header().Set("Location", "https://route53.amazonaws.com/"+r53APIVersion+"/healthcheck/"+id)
 	r53WriteXML(w, http.StatusCreated, R53CreateHealthCheckResponse{Xmlns: r53Namespace, HealthCheck: hc})
@@ -306,6 +336,10 @@ func handleR53UpdateHealthCheck(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.InsufficientDataHealthStatus != nil {
 		cfg.InsufficientDataHealthStatus = *req.InsufficientDataHealthStatus
+	}
+	if req.AlarmIdentifier != nil {
+		cfg.AlarmIdentifier = req.AlarmIdentifier
+		stored.HealthCheck.CloudWatchAlarmConfiguration = r53AlarmConfiguration(*cfg)
 	}
 	stored.HealthCheck.HealthCheckVersion++
 	r53HealthChecks.Put(id, stored)
