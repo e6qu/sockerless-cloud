@@ -47,8 +47,8 @@ github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261015171108-a115f12c8ce2 h1:
 github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261015171108-a115f12c8ce2/go.mod h1:WFMghz4xqlYeOznkIPE3g7vIp3jnSgysSJtDbByVEJk=
 github.com/e6qu/sockerless-cloud/sim v0.0.0-20261015143257-523e0bd485ba h1:tmuCTYPbIjj+KoDOjCFcZ//gMwnalDvuFCeTx1IZwog=
 github.com/e6qu/sockerless-cloud/sim v0.0.0-20261015143257-523e0bd485ba/go.mod h1:YvC6QEyIkwwEogxPxvRhjQhol6t1W5WQCk2EkcPTfbs=
-github.com/e6qu/sockerless-cloud/sim v0.0.0-20261016042150-01ef70f4a4a4 h1:d/n8OfMa69Q5sCGRKAwYex9aEDES+nBqRuBdbML8srY=
-github.com/e6qu/sockerless-cloud/sim v0.0.0-20261016042150-01ef70f4a4a4/go.mod h1:YvC6QEyIkwwEogxPxvRhjQhol6t1W5WQCk2EkcPTfbs=
+github.com/e6qu/sockerless-cloud/sim v0.0.0-20261016080700-f9c37021b30e h1:fc5fGgFkZWLqixX+exl/FI/MnSG/+bExQeDswuis/t8=
+github.com/e6qu/sockerless-cloud/sim v0.0.0-20261016080700-f9c37021b30e/go.mod h1:YvC6QEyIkwwEogxPxvRhjQhol6t1W5WQCk2EkcPTfbs=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261015114713-b9f0cc68a078 h1:y/lbSXTSb+2kNgvLO7yeIytI3Y/caK8CEXASXFgOGAs=
 github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261015114713-b9f0cc68a078/go.mod h1:40g2Tr7iYURL01fHLQEFddpfNpIamO7UUdAuKqaJ2v8=
 github.com/elazarl/goproxy v1.7.2 h1:Y2o6urb7Eule09PjlhQRGNsqRfPmYI3KKQLFpCAV3+o=
