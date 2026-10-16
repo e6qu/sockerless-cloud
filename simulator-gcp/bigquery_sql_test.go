@@ -89,10 +89,12 @@ func TestBQSQLAggregatesAndJoins(t *testing.T) {
 func TestBQSQLRefusesWhatItCannotRun(t *testing.T) {
 	withBQQueryTables(t)
 	for query, want := range map[string]string{
-		"SELECT * FROM ds.missing":               "Not found: Table p:ds.missing",
-		"SELECT * FROM people":                   "must be qualified with a dataset",
-		"SELECT nosuchcolumn FROM ds.people":     "no such column",
-		"SELECT name FROM ds.people WHERE 'open": "Unclosed string literal",
+		"SELECT * FROM ds.missing":                  "Not found: Table p:ds.missing",
+		"SELECT * FROM people":                      "must be qualified with a dataset",
+		"SELECT nosuchcolumn FROM ds.people":        "no such column",
+		"SELECT name FROM ds.people WHERE 'open":    "Unclosed string literal",
+		"INSERT INTO ds.people (name) VALUES ('x')": "INSERT statements are not supported",
+		"SELECT 1; SELECT 2":                        "scripts are not supported",
 	} {
 		if _, _, err := bqEvaluateSQL(context.Background(), "p", "", query); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: %v, want %q", query, err, want)

@@ -2938,3 +2938,9 @@ table does not exist. The write is one atomic step under the table's lock. A
 failed query job finishes DONE with its `errorResult`, and `getQueryResults`
 answers that error with the HTTP status its reason maps to, which is how the
 client libraries learn of the failure.
+
+Every query job now reports `statistics.query.statementType`, which `bq
+query` reads before it prints a result. The query engine refuses any
+statement that does not begin with SELECT or WITH, and any job holding more
+than one statement. Before, it ran DML and DDL against its temporary copy of
+the tables and reported success while changing nothing.

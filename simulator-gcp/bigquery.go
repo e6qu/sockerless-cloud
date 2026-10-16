@@ -894,6 +894,10 @@ func bqDoneQueryJob(r *http.Request, project, jobID, location, query string, res
 	if location == "" {
 		location = "US"
 	}
+	queryStats := map[string]any{"totalBytesProcessed": "0", "cacheHit": false}
+	if query != "" {
+		queryStats["statementType"] = "SELECT"
+	}
 	return storedBQJob{
 		BQJob: BQJob{
 			Kind:     "bigquery#job",
@@ -911,7 +915,7 @@ func bqDoneQueryJob(r *http.Request, project, jobID, location, query string, res
 				"creationTime": bqMillisNow(),
 				"startTime":    bqMillisNow(),
 				"endTime":      bqMillisNow(),
-				"query":        map[string]any{"totalBytesProcessed": "0", "cacheHit": false},
+				"query":        queryStats,
 			},
 		},
 		Result: result,

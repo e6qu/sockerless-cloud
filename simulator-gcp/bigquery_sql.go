@@ -47,6 +47,25 @@ type bqSQLToken struct {
 	quote bool
 }
 
+// bqRequireQueryStatement refuses anything but one query statement: the
+// engine runs a statement against copies of the tables it names, so DML, DDL
+// or a script would report success and change nothing.
+func bqRequireQueryStatement(tokens []bqSQLToken) error {
+	first := ""
+	for _, tok := range tokens {
+		if tok.ident && !tok.quote && first == "" {
+			first = strings.ToUpper(tok.text)
+		}
+		if !tok.ident && !tok.quote && tok.text == ";" {
+			return bqQueryErr("The simulator runs one query statement per job; scripts are not supported")
+		}
+	}
+	if first != "SELECT" && first != "WITH" {
+		return bqQueryErr("The simulator runs query statements (SELECT, WITH); %s statements are not supported", first)
+	}
+	return nil
+}
+
 // bqTokenizeSQL splits a query into tokens, keeping string literals and
 // comments whole so nothing inside them reads as a table reference.
 func bqTokenizeSQL(query string) ([]bqSQLToken, error) {
@@ -121,6 +140,9 @@ func bqTokenizeSQL(query string) ([]bqSQLToken, error) {
 func bqRewriteTableRefs(defaultProject, defaultDataset, query string) (string, []bqQueryTable, error) {
 	tokens, err := bqTokenizeSQL(query)
 	if err != nil {
+		return "", nil, err
+	}
+	if err := bqRequireQueryStatement(tokens); err != nil {
 		return "", nil, err
 	}
 	var out strings.Builder
