@@ -262,9 +262,11 @@ func resumeCloudRunWorkloads() {
 	}
 }
 
-// cancelCloudRunReconcile stops the instances a worker pool's or instance's
-// unfinished deploy was starting, fails its Ready condition as cancelled, and
-// ends the deploy's operations CANCELLED.
+// cancelCloudRunReconcile fails a worker pool's or instance's unfinished
+// deploy as cancelled, stops the instances it was starting, and ends its
+// operations CANCELLED. The condition goes first: a stopped instance ends its
+// start, and the deploy would otherwise settle as failed before the cancel
+// records itself.
 func cancelCloudRunReconcile(name, typeName string) {
 	cancelled := func(now string) Condition {
 		return Condition{Type: "Ready", State: "CONDITION_FAILED", LastTransitionTime: now, Reason: "Cancelled",
@@ -276,7 +278,6 @@ func cancelCloudRunReconcile(name, typeName string) {
 		if crv2WorkerPools == nil {
 			return
 		}
-		stopCloudRunWorkerPool(name)
 		crv2WorkerPools.Update(name, func(p *WorkerPoolV2) {
 			if !p.Reconciling {
 				return
@@ -286,6 +287,7 @@ func cancelCloudRunReconcile(name, typeName string) {
 			p.TerminalCondition = &ready
 			p.Conditions = []Condition{ready}
 		})
+		stopCloudRunWorkerPool(name)
 		if pool, ok := crv2WorkerPools.Get(name); ok {
 			resource = pool
 		}
@@ -293,7 +295,6 @@ func cancelCloudRunReconcile(name, typeName string) {
 		if crv2Instances == nil {
 			return
 		}
-		stopCloudRunInstance(name)
 		crv2Instances.Update(name, func(i *InstanceV2) {
 			if !i.Reconciling {
 				return
@@ -303,6 +304,7 @@ func cancelCloudRunReconcile(name, typeName string) {
 			i.TerminalCondition = &ready
 			i.Conditions = []Condition{ready}
 		})
+		stopCloudRunInstance(name)
 		if inst, ok := crv2Instances.Get(name); ok {
 			resource = inst
 		}

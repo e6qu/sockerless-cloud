@@ -179,7 +179,7 @@ func ddbMigrateItemKeys() error {
 }
 
 // The answers below are DynamoDB Local's, captured from
-// public.ecr.aws/aws-dynamodb-local/aws-dynamodb-local@sha256:ff89bd48ff32cd8d9be5fee8873b65b8854dc408f1afe881be6eb00247bc0dab.
+// mirror.gcr.io/amazon/dynamodb-local@sha256:ff89bd48ff32cd8d9be5fee8873b65b8854dc408f1afe881be6eb00247bc0dab.
 
 // ddbItemKeyError checks an item written whole (PutItem and its batch and
 // transaction forms) against the table's key schema; "" means it is valid.
