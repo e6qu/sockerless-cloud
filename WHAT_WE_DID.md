@@ -2821,3 +2821,9 @@ placeholder address. Azure Container Instances asks `sim.RequireContainerRuntime
 whether it can run containers, from the runtime mode the server resolved once,
 instead of reading `SIM_RUNTIME` again; `sim.EnvOr` replaced each cloud's copy
 of the same environment helper.
+
+`TestEventHubsSDK_StartPositions` runs alone. It learns that its Latest
+receiver attached from azcore's process-wide log listener, and the link line
+names a connection and a link but no event hub. Another parallel test's
+partition-0 link once read as its own, so it published before its receiver
+attached and waited for an event that came before Latest.
