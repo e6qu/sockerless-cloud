@@ -37,7 +37,7 @@ func TestDNS_PublicZoneAnswersOverDNS(t *testing.T) {
 
 	created, err := svc.ManagedZones.Create(project, &dns.ManagedZone{Name: zoneName, DnsName: apex}).Do()
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = svc.ManagedZones.Delete(project, zoneName).Do() })
+	t.Cleanup(func() { deleteDNSZone(t, svc, project, zoneName) })
 	require.Len(t, created.NameServers, 4)
 	for _, ns := range created.NameServers {
 		assert.True(t, strings.HasSuffix(ns, ".googledomains.com."), ns)

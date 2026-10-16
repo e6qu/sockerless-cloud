@@ -2792,6 +2792,22 @@ a `bypassResponsePolicy` rule handing the name back; a DNS policy's
 alternative name servers become a root forwarding zone below the network's
 private zones, replacing Google's resolution and the public zones.
 
+Route 53 health checks probe. A background checker runs each endpoint check
+on its `RequestInterval` — HTTP and HTTPS (certificates unverified, redirects
+not followed, 2xx and 3xx passing), the string-match variants over the first
+5,120 bytes, and TCP — within a four-second connect and two-second response
+bound, flips the status after `FailureThreshold` consecutive disagreeing
+probes, honours `Inverted` and `Disabled`, and reports the latest probe and the
+latest failure from the simulator's Region. A calculated check counts its
+healthy children against `HealthThreshold`. The resolver chooses among a
+name's record sets by routing policy: failover answers the healthy primary or
+else the secondary, weighted draws one healthy set by weight, multivalue
+answers up to eight healthy sets, latency the querier's Region, IP-based the
+most specific CIDR location holding the querier's address, and geolocation
+its default; when no set is healthy, all count as healthy. Cloud DNS refuses
+to delete a zone that still holds records besides its apex NS and SOA, with
+`containerNotEmpty`.
+
 `sim.Main` is the startup every simulator binary runs, described by a
 `sim.Program`: the provider and its default port, a `Configure` hook that checks
 or records the resolved configuration, the cloud's `Build`, and a `Start` that

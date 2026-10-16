@@ -4,7 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -349,4 +353,110 @@ func createZoneForDNS(t *testing.T, ctx context.Context, c *route53.Client, zone
 	})
 	require.NoError(t, err)
 	return strings.TrimPrefix(aws.ToString(out.HostedZone.Id), "/hostedzone/")
+}
+
+// A failover name answers its primary while the primary's health check
+// passes and its secondary once the checker sees the endpoint fail.
+func TestRoute53DNSFailoverFollowsAHealthCheck(t *testing.T) {
+	t.Parallel()
+	c := r53Client()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	var failing atomic.Bool
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if failing.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	t.Cleanup(endpoint.Close)
+	host, portText, err := net.SplitHostPort(endpoint.Listener.Addr().String())
+	require.NoError(t, err)
+	port, err := strconv.Atoi(portText)
+	require.NoError(t, err)
+
+	hc, err := c.CreateHealthCheck(ctx, &route53.CreateHealthCheckInput{
+		CallerReference: aws.String("failover-" + time.Now().Format("150405.000000")),
+		HealthCheckConfig: &r53types.HealthCheckConfig{
+			Type:             r53types.HealthCheckTypeHttp,
+			IPAddress:        aws.String(host),
+			Port:             aws.Int32(int32(port)),
+			ResourcePath:     aws.String("/"),
+			RequestInterval:  aws.Int32(10),
+			FailureThreshold: aws.Int32(1),
+		},
+	})
+	require.NoError(t, err)
+	hcID := aws.ToString(hc.HealthCheck.Id)
+	t.Cleanup(func() {
+		_, _ = c.DeleteHealthCheck(context.Background(), &route53.DeleteHealthCheckInput{HealthCheckId: aws.String(hcID)})
+	})
+
+	zone := fmt.Sprintf("dns-failover-%s.local", time.Now().Format("150405.000000"))
+	zoneID := createZoneForDNS(t, ctx, c, zone)
+	name := "app." + zone
+	record := func(id string, role r53types.ResourceRecordSetFailover, ip, check string) r53types.Change {
+		set := &r53types.ResourceRecordSet{
+			Name: aws.String(name), Type: r53types.RRTypeA, TTL: aws.Int64(10),
+			SetIdentifier: aws.String(id), Failover: role,
+			ResourceRecords: []r53types.ResourceRecord{{Value: aws.String(ip)}},
+		}
+		if check != "" {
+			set.HealthCheckId = aws.String(check)
+		}
+		return r53types.Change{Action: r53types.ChangeActionCreate, ResourceRecordSet: set}
+	}
+	changes := []r53types.Change{
+		record("primary", r53types.ResourceRecordSetFailoverPrimary, "192.0.2.61", hcID),
+		record("secondary", r53types.ResourceRecordSetFailoverSecondary, "192.0.2.62", ""),
+	}
+	_, err = c.ChangeResourceRecordSets(ctx, &route53.ChangeResourceRecordSetsInput{
+		HostedZoneId: aws.String(zoneID), ChangeBatch: &r53types.ChangeBatch{Changes: changes},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		for i := range changes {
+			changes[i].Action = r53types.ChangeActionDelete
+		}
+		_, _ = c.ChangeResourceRecordSets(context.Background(), &route53.ChangeResourceRecordSetsInput{
+			HostedZoneId: aws.String(zoneID), ChangeBatch: &r53types.ChangeBatch{Changes: changes},
+		})
+		_, _ = c.DeleteHostedZone(context.Background(), &route53.DeleteHostedZoneInput{Id: aws.String(zoneID)})
+	})
+
+	answer := func() string {
+		resp := dnsQuery(t, name, dnsmessage.TypeA)
+		require.Len(t, resp.Answers, 1, "a failover name answers one record set")
+		a, ok := resp.Answers[0].Body.(*dnsmessage.AResource)
+		require.True(t, ok)
+		return net.IP(a.A[:]).String()
+	}
+	// Route 53 offers no waiter for a health check; its status is the field
+	// to poll, on the check's own ten-second interval.
+	awaitStatus := func(prefix string) {
+		for {
+			status, err := c.GetHealthCheckStatus(ctx, &route53.GetHealthCheckStatusInput{HealthCheckId: aws.String(hcID)})
+			require.NoError(t, err)
+			if len(status.HealthCheckObservations) == 1 &&
+				strings.HasPrefix(aws.ToString(status.HealthCheckObservations[0].StatusReport.Status), prefix) {
+				return
+			}
+			select {
+			case <-ctx.Done():
+				t.Fatalf("the health check never reported %q: %+v", prefix, status.HealthCheckObservations)
+			case <-time.After(time.Second):
+			}
+		}
+	}
+
+	awaitStatus("Success")
+	assert.Equal(t, "192.0.2.61", answer())
+	failing.Store(true)
+	awaitStatus("Failure: HTTP Status Code 503")
+	assert.Equal(t, "192.0.2.62", answer())
+	reason, err := c.GetHealthCheckLastFailureReason(ctx, &route53.GetHealthCheckLastFailureReasonInput{HealthCheckId: aws.String(hcID)})
+	require.NoError(t, err)
+	require.Len(t, reason.HealthCheckObservations, 1)
 }

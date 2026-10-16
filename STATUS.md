@@ -34,6 +34,8 @@ Current state of the sockerless-cloud repository.
   Azure Private DNS registers the virtual machines of a registration-enabled
   linked network, and Cloud DNS applies the response policies and DNS
   policies bound to a network.
+  Route 53 health checks probe their endpoints, and the resolver chooses a
+  name's record sets by routing policy and health.
   Every workload in a realized network namespace — Amazon ECS tasks, VPC
   AWS Lambda invocations and the Amazon EC2, Azure and Compute Engine
   microVMs — asks its cloud's resolver address (169.254.169.253,

@@ -1330,13 +1330,11 @@ func handleR53GetHealthCheckLastFailureReason(w http.ResponseWriter, r *http.Req
 		r53WriteError(w, http.StatusNotFound, "NoSuchHealthCheck", "A health check with id "+id+" does not exist.")
 		return
 	}
-	// A passing health check has no failure observation. Real Route 53
-	// returns an empty observation list in that case.
 	r53WriteXML(w, http.StatusOK, struct {
 		XMLName                 xml.Name                    `xml:"GetHealthCheckLastFailureReasonResponse"`
 		Xmlns                   string                      `xml:"xmlns,attr,omitempty"`
 		HealthCheckObservations []R53HealthCheckObservation `xml:"HealthCheckObservations>HealthCheckObservation"`
-	}{Xmlns: r53Namespace, HealthCheckObservations: []R53HealthCheckObservation{}})
+	}{Xmlns: r53Namespace, HealthCheckObservations: r53HealthObservations(id, true)})
 }
 
 type R53ListTagsForResourcesRequest struct {

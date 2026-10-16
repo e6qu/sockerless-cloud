@@ -344,6 +344,7 @@ func registerRoute53(srv *sim.Server, startDataPlane bool) {
 
 	if startDataPlane {
 		startRoute53DNSServer()
+		srv.StartBackground("Route 53 health checkers", r53RunHealthChecks)
 	}
 }
 

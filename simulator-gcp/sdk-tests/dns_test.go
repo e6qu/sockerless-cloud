@@ -1,6 +1,7 @@
 package gcp_sdk_test
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -205,4 +206,47 @@ func TestDNS_ChangesCreatePreconditionUsesCanonicalStatus(t *testing.T) {
 	require.Equal(t, 412, gerr.Code)
 	require.NotEmpty(t, gerr.Errors)
 	assert.Equal(t, "FAILED_PRECONDITION", gerr.Errors[0].Reason)
+}
+
+// deleteDNSZone deletes a zone the way a client must: Cloud DNS refuses to
+// delete a zone holding any record set besides its apex NS and SOA.
+func deleteDNSZone(t *testing.T, svc *dns.Service, project, zone string) {
+	t.Helper()
+	got, err := svc.ManagedZones.Get(project, zone).Do()
+	require.NoError(t, err)
+	sets, err := svc.ResourceRecordSets.List(project, zone).Do()
+	require.NoError(t, err)
+	for _, rs := range sets.Rrsets {
+		if rs.Name == got.DnsName && (rs.Type == "NS" || rs.Type == "SOA") {
+			continue
+		}
+		_, err := svc.ResourceRecordSets.Delete(project, zone, rs.Name, rs.Type).Do()
+		require.NoError(t, err)
+	}
+	require.NoError(t, svc.ManagedZones.Delete(project, zone).Do())
+}
+
+// Cloud DNS refuses to delete a zone that still holds a record set besides
+// its apex NS and SOA, naming the reason containerNotEmpty.
+func TestDNS_DeleteZoneHoldingRecordsIsRefused(t *testing.T) {
+	t.Parallel()
+	svc := dnsService(t)
+	const project = "test-project"
+	_, err := svc.ManagedZones.Create(project, &dns.ManagedZone{Name: "full-zone", DnsName: "full.example.com."}).Do()
+	require.NoError(t, err)
+	_, err = svc.ResourceRecordSets.Create(project, "full-zone", &dns.ResourceRecordSet{
+		Name: "www.full.example.com.", Type: "A", Ttl: 60, Rrdatas: []string{"192.0.2.9"},
+	}).Do()
+	require.NoError(t, err)
+
+	err = svc.ManagedZones.Delete(project, "full-zone").Do()
+	var gerr *googleapi.Error
+	require.ErrorAs(t, err, &gerr)
+	assert.Equal(t, http.StatusBadRequest, gerr.Code)
+	require.NotEmpty(t, gerr.Errors)
+	assert.Equal(t, "containerNotEmpty", gerr.Errors[0].Reason)
+	_, err = svc.ManagedZones.Get(project, "full-zone").Do()
+	require.NoError(t, err, "a refused delete leaves the zone")
+
+	deleteDNSZone(t, svc, project, "full-zone")
 }

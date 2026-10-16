@@ -462,9 +462,21 @@ func TestRoute53_HealthChecks(t *testing.T) {
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, aws.ToInt64(countOut.HealthCheckCount), int64(1))
 
-	statusOut, err := c.GetHealthCheckStatus(ctx, &route53.GetHealthCheckStatusInput{HealthCheckId: aws.String(hcID)})
-	require.NoError(t, err)
-	require.NotEmpty(t, statusOut.HealthCheckObservations)
+	// A health check reports an observation once a checker has probed its
+	// endpoint; Route 53 has no waiter for that, so the status is polled.
+	var statusOut *route53.GetHealthCheckStatusOutput
+	for {
+		statusOut, err = c.GetHealthCheckStatus(ctx, &route53.GetHealthCheckStatusInput{HealthCheckId: aws.String(hcID)})
+		require.NoError(t, err)
+		if len(statusOut.HealthCheckObservations) > 0 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("the health check was never probed")
+		case <-time.After(time.Second):
+		}
+	}
 	require.NotNil(t, statusOut.HealthCheckObservations[0].StatusReport)
 	assert.NotEmpty(t, aws.ToString(statusOut.HealthCheckObservations[0].StatusReport.Status))
 }

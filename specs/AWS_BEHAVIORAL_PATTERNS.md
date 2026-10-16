@@ -35,6 +35,7 @@ Allowed classifications:
 | `application-autoscaling-evaluator` | background-evaluator | `simulator-aws/application_autoscaling_eval.go` | `simulator-aws/sdk-tests/behavioral_gate_test.go` |
 | `eventbridge-scheduler-firing` | background-evaluator | `simulator-aws/scheduler_firing.go` | `simulator-aws/sdk-tests/scheduler_test.go` |
 | `route53-dns-server` | listener | `simulator-aws/route53_dns.go` | `simulator-aws/sdk-tests/behavioral_gate_test.go` |
+| `route53-health` | background-evaluator | `simulator-aws/route53_health.go` | `simulator-aws/sdk-tests/route53_dns_test.go` |
 | `cloudwatch-logs-metric-filter` | dispatch | `simulator-aws/cloudwatch_logs_ops.go` | `simulator-aws/sdk-tests/behavioral_gate_test.go` |
 | `sqs-dead-letter-redrive` | dispatch | `simulator-aws/sqs.go` | `simulator-aws/sdk-tests/behavioral_gate_test.go` |
 | `sns-topic-fanout` | dispatch | `simulator-aws/sns.go` | `simulator-aws/sdk-tests/cloudwatch_alarm_sns_sqs_process_test.go` |

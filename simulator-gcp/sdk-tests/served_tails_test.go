@@ -47,7 +47,7 @@ func TestDNS_ManagedZoneIAM(t *testing.T) {
 	}
 	_, err = svc.ManagedZones.Create(project, zone).Do()
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = svc.ManagedZones.Delete(project, zone.Name).Do() })
+	t.Cleanup(func() { deleteDNSZone(t, svc, project, zone.Name) })
 
 	set, err := svc.ManagedZones.SetIamPolicy(
 		fmt.Sprintf("projects/%s/managedZones/%s", project, zone.Name),

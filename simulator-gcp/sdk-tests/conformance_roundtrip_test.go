@@ -518,7 +518,7 @@ func TestConformance_DNSRecordSetsPaginate(t *testing.T) {
 		Name: zone, DnsName: "conf-pag.example.com.",
 	}).Do()
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = svc.ManagedZones.Delete(project, zone).Do() })
+	t.Cleanup(func() { deleteDNSZone(t, svc, project, zone) })
 
 	recs := []*dns.ResourceRecordSet{
 		{Name: "a.conf-pag.example.com.", Type: "A", Ttl: 300, Rrdatas: []string{"10.0.0.1"}},

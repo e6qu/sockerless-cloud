@@ -47,7 +47,7 @@ func TestDNS_CrossJobResolution(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 	require.NotEmpty(t, zone.Id, "zone should get a numeric ID")
-	defer dnsSvc.ManagedZones.Delete(project, "xjob-zone").Do()
+	defer deleteDNSZone(t, dnsSvc, project, "xjob-zone")
 
 	// 2. Create two Cloud Run Jobs with long-running containers so we
 	// can inspect them + exec into them during the test.
