@@ -323,7 +323,7 @@ func rdsReconcileStandby(id string) error {
 // rdsSettleStandby records the standby's zone, and the end of a conversion
 // the instance was going through.
 func rdsSettleStandby(instance RDSInstance, zone string) {
-	finished := ""
+	var finished *rdsEventKind
 	rdsInstances.Update(instance.DBInstanceIdentifier, func(stored *RDSInstance) {
 		if stored.DbiResourceId != instance.DbiResourceId {
 			return
@@ -331,14 +331,14 @@ func rdsSettleStandby(instance RDSInstance, zone string) {
 		stored.SecondaryAvailabilityZone = zone
 		if stored.AvailabilityConversion && stored.MultiAZ == instance.MultiAZ {
 			stored.AvailabilityConversion = false
-			finished = rdsEventSingleAZConversionFinished
+			finished = &rdsEventSingleAZConversionFinished
 			if stored.MultiAZ {
-				finished = rdsEventMultiAZConversionFinished
+				finished = &rdsEventMultiAZConversionFinished
 			}
 		}
 	})
-	if finished != "" {
-		rdsRecordInstanceEvent(instance, rdsEventCategoryConfigurationChange, finished)
+	if finished != nil {
+		rdsRecordInstanceEvent(instance, *finished)
 	}
 }
 
@@ -622,7 +622,7 @@ func rdsBeginAvailabilityConversion(instance *RDSInstance, multiAZ bool) {
 	if multiAZ {
 		started = rdsEventMultiAZConversionStarted
 	}
-	rdsRecordInstanceEvent(*instance, rdsEventCategoryConfigurationChange, started)
+	rdsRecordInstanceEvent(*instance, started)
 	if _, served := rdsLoadDataPlane(instance.DBInstanceIdentifier); served && instance.DBInstanceStatus == "available" {
 		instance.DBInstanceStatus = "modifying"
 	}
@@ -662,7 +662,7 @@ func rdsRefuseFailover(w http.ResponseWriter, r *http.Request, instance RDSInsta
 func rdsBeginFailover(instance RDSInstance) RDSInstance {
 	id := instance.DBInstanceIdentifier
 	if !rdsRunsEngine(instance) {
-		rdsRecordInstanceEvent(instance, rdsEventCategoryFailover, rdsEventFailoverStarted)
+		rdsRecordInstanceEvent(instance, rdsEventFailoverStarted)
 		rdsInstances.Update(id, func(stored *RDSInstance) {
 			secondary := stored.SecondaryAvailabilityZone
 			if secondary == "" {
@@ -670,7 +670,7 @@ func rdsBeginFailover(instance RDSInstance) RDSInstance {
 			}
 			stored.AvailabilityZone, stored.SecondaryAvailabilityZone = secondary, stored.AvailabilityZone
 		})
-		rdsRecordInstanceEvent(instance, rdsEventCategoryFailover, rdsEventFailoverFinished)
+		rdsRecordInstanceEvent(instance, rdsEventFailoverFinished)
 		updated, _ := rdsInstances.Get(id)
 		return updated
 	}
@@ -689,7 +689,7 @@ func rdsFailOver(id, resourceID string) {
 		return
 	}
 	release := rdsStandbyLocks.Lock(resourceID)
-	rdsRecordInstanceEvent(instance, rdsEventCategoryFailover, rdsEventFailoverStarted)
+	rdsRecordInstanceEvent(instance, rdsEventFailoverStarted)
 	err := rdsPromoteStandby(&instance)
 	status := "available"
 	if err != nil {
@@ -709,7 +709,7 @@ func rdsFailOver(id, resourceID string) {
 	if err != nil {
 		return
 	}
-	rdsRecordInstanceEvent(instance, rdsEventCategoryFailover, rdsEventFailoverFinished)
+	rdsRecordInstanceEvent(instance, rdsEventFailoverFinished)
 	rdsReconcileStandbyInBackground(id)
 	rdsTakeFirstInstanceBackup(id)
 }

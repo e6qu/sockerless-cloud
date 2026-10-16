@@ -901,16 +901,6 @@ func handleEBPutEvents(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 		}
-		eventID := sim.NewUUID()
-		now := time.Now().Unix()
-		record := EBEventRecord{
-			ID:         eventID,
-			Source:     entry.Source,
-			DetailType: entry.DetailType,
-			Detail:     entry.Detail,
-			Time:       now,
-			Resources:  entry.Resources,
-		}
 		bus := ebBusName(entry.EventBusName)
 		if _, ok := ebGetBus(bus); !ok {
 			failed++
@@ -920,14 +910,34 @@ func handleEBPutEvents(w http.ResponseWriter, r *http.Request) {
 			})
 			continue
 		}
-		events, _ := ebEvents.Get(bus)
-		events = append(events, record)
-		ebEvents.Put(bus, events)
-		archiveEBEvent(bus, record)
-		deliverEBEvent(bus, record)
+		eventID := ebAcceptEvent(bus, entry.Source, entry.DetailType, entry.Detail, entry.Resources)
 		entries = append(entries, map[string]string{"EventId": eventID})
 	}
 	writeEBJSON(w, http.StatusOK, map[string]any{"FailedEntryCount": failed, "Entries": entries})
+}
+
+// ebAcceptEvent records an event on bus, archives it and delivers it to the
+// bus's matching rules, returning its ID.
+func ebAcceptEvent(bus, source, detailType, detail string, resources []string) string {
+	record := EBEventRecord{
+		ID:         sim.NewUUID(),
+		Source:     source,
+		DetailType: detailType,
+		Detail:     detail,
+		Time:       time.Now().Unix(),
+		Resources:  resources,
+	}
+	events, _ := ebEvents.Get(bus)
+	events = append(events, record)
+	ebEvents.Put(bus, events)
+	archiveEBEvent(bus, record)
+	deliverEBEvent(bus, record)
+	return record.ID
+}
+
+// ebPutServiceEvent is an AWS service's own event on the default event bus.
+func ebPutServiceEvent(source, detailType, detail string, resources []string) {
+	ebAcceptEvent(ebBusName(""), source, detailType, detail, resources)
 }
 
 // ebMaxArchivedEvents bounds an archive's retained-event slice when the archive

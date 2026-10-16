@@ -139,6 +139,18 @@ func TestRDSCLI_ModifiedDBParameterGroupsReachTheEngine(t *testing.T) {
 	runCLI(t, awsCLI("rds", "modify-db-parameter-group", "--db-parameter-group-name", group, "--parameters",
 		"ParameterName=work_mem,ParameterValue=8192,ApplyMethod=immediate",
 		"ParameterName=max_connections,ParameterValue=150,ApplyMethod=pending-reboot"))
+	var groupEvents struct {
+		Events []struct {
+			Message         string   `json:"Message"`
+			EventCategories []string `json:"EventCategories"`
+		} `json:"Events"`
+	}
+	parseJSON(t, runCLI(t, awsCLI("rds", "describe-events", "--source-type", "db-parameter-group",
+		"--source-identifier", group, "--duration", "60")), &groupEvents)
+	require.Len(t, groupEvents.Events, 2)
+	assert.Equal(t, "Updated parameter work_mem to 8192 with apply method immediate.", groupEvents.Events[0].Message)
+	assert.Equal(t, "Updated parameter max_connections to 150 with apply method pending-reboot.", groupEvents.Events[1].Message)
+	assert.Equal(t, []string{"configuration change"}, groupEvents.Events[0].EventCategories)
 	var set struct {
 		Parameters []struct {
 			ParameterName  string `json:"ParameterName"`

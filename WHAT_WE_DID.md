@@ -2967,3 +2967,35 @@ an instance's Cloud Map health into account for record sets in a zone Cloud
 Map owns, so an unhealthy instance drops out of the answer while a healthy
 one remains. Its record set stays in the zone. When every instance is
 unhealthy, all of them answer, as Route 53 does.
+
+Amazon RDS events now come from a vendored source. `scripts/fetch-aws-doc.sh`
+vendors a page of an archived AWS user guide's Markdown source, pinned to the
+commit that last touched the page. A `repo@branch` origin in SOURCES.md
+names the branch the freshness check asks about, because an archived guide's
+default branch deletes its pages. Two pages now ship vendored: the "Amazon RDS
+event categories and event messages" table and the EventBridge tutorial's
+captured event. Each event the simulator records carries the table's event
+ID, category and message. The Multi-AZ failover events had been worded from
+the table's notes column and now read "Multi-AZ instance failover started."
+and "Multi-AZ failover to standby complete - DNS propagation may take a few
+minutes.".
+
+A store wrapper (`rdsObserve`) sees every write to the DB instance and DB
+snapshot stores, so a status change records its event whichever code path
+makes it:
+- creation as an instance leaves `creating`;
+- backup start and finish around `backing-up`;
+- stop and start as they finish;
+- an instance class change;
+- deletion as the record goes;
+- a manual or automated snapshot's creation, and a manual snapshot's deletion.
+
+A rename or blue/green switchover moves a record to another identifier
+without creating or deleting it, so a write whose DbiResourceId another record
+still holds records nothing. RebootDBInstance records "DB instance
+restarted.", and ModifyDBParameterGroup records "Updated parameter ...". The
+creation event that DescribeEvents used to derive from InstanceCreateTime is
+gone, because the recorded event replaces it. Each DB instance event goes to
+the default event bus as an "RDS DB Instance Event" from `aws.rds`, with the
+tutorial's detail members. EventBridge's own PutEvents path and this one share
+`ebAcceptEvent`.

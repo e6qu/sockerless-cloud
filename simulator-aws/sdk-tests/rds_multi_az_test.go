@@ -107,10 +107,10 @@ func TestRDS_MultiAZFailoverPromotesTheStandby(t *testing.T) {
 			f.connect(id).exec(t, `INSERT INTO ledger VALUES ('single-az')`)
 
 			assert.Equal(t, []string{
-				"A Multi-AZ failover that resulted in the promotion of a standby instance has started.",
-				"A Multi-AZ failover that resulted in the promotion of a standby instance is complete. It may take several minutes for the DNS to transfer to the new primary DB instance.",
-				"A Multi-AZ failover that resulted in the promotion of a standby instance has started.",
-				"A Multi-AZ failover that resulted in the promotion of a standby instance is complete. It may take several minutes for the DNS to transfer to the new primary DB instance.",
+				"Multi-AZ instance failover started.",
+				"Multi-AZ failover to standby complete - DNS propagation may take a few minutes.",
+				"Multi-AZ instance failover started.",
+				"Multi-AZ failover to standby complete - DNS propagation may take a few minutes.",
 			}, rdsInstanceEventMessages(t, ctx, c, id, "failover"))
 			assert.Equal(t, []string{
 				"Applying modification to convert to a Multi-AZ DB instance.",

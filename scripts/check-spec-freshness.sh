@@ -89,6 +89,7 @@ check_repo_pinned() {
   # SOURCES.md rows: | `file` | `repo` | `path` | lic | `sha` | time |
   local sources="$1"
   [ -f "$sources" ] || return 0
+  local branch
   while IFS='|' read -r _ file repo srcpath _lic pin _; do
     file="$(echo "$file" | tr -d ' \`')"
     repo="$(echo "$repo" | tr -d ' \`')"
@@ -98,7 +99,11 @@ check_repo_pinned() {
     # `path` is the API's parameter name, and it carries the whole comparison:
     # the query ignores an unknown key and answers with the branch tip, so every
     # row drifts against a commit that never touched it and no refresh converges.
-    latest="$(gh api "repos/$repo/commits?path=$srcpath&per_page=1" --jq '.[0].sha' 2>/dev/null || echo "")"
+    # A `repo@branch` origin pins a page of a branch other than the default:
+    # an archived AWS user guide's default branch deletes its pages.
+    branch=""
+    case "$repo" in *@*) branch="&sha=${repo#*@}" repo="${repo%@*}" ;; esac
+    latest="$(gh api "repos/$repo/commits?path=$srcpath$branch&per_page=1" --jq '.[0].sha' 2>/dev/null || echo "")"
     if [ -z "$latest" ]; then
       echo "?     $file: cannot query upstream ($repo $srcpath)"
       fail=1
