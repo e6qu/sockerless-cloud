@@ -64,7 +64,7 @@ func TestECS_TaskRoleCredentialsAuthorizeWorkloadAWSCLI(t *testing.T) {
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2),
 			Name:        aws.String("aws-cli"),
-			Image:       aws.String("public.ecr.aws/aws-cli/aws-cli:2.27.49"),
+			Image:       aws.String("mirror.gcr.io/amazon/aws-cli:2.27.49"),
 			EntryPoint:  []string{"sh", "-c"},
 			Command: []string{`printf 'credentials-full=%s credentials-relative=%s\n' \
 "${AWS_CONTAINER_CREDENTIALS_FULL_URI:-}" "${AWS_CONTAINER_CREDENTIALS_RELATIVE_URI:-}"

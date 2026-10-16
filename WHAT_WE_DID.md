@@ -2631,8 +2631,12 @@ images served them before; under CI's load it answered `toomanyrequests: Data
 limit exceeded`, failing every container-backed test at its pull, and copying
 the images into a registry the project owns would have made every pin update a
 refresh of the copy. The ECR Public Gallery still serves what AWS publishes
-there — the AWS Lambda base images, the AWS CLI, Amazon DynamoDB local and the
-AWS CodeBuild images — since those are the images the real services run. A
+there — the AWS Lambda base images, Amazon DynamoDB local and the AWS CodeBuild
+images — since those are the images the real services run. The AWS CLI image
+the Amazon ECS and AWS CodeBuild workloads run is a workload, not a service
+image, and comes from `mirror.gcr.io`'s copy of Amazon's own Docker Hub
+`amazon/aws-cli`: the SDK suite's first pull of it from the gallery hit the
+same data limit. A
 digest-pinned workload image is left out of warming because `docker load`
 restores none by digest. The images the simulators pull themselves follow the
 rule: the Container Apps Dapr sidecar, the Percona XtraBackup helper, the

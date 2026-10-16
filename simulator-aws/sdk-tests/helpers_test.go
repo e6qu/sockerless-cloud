@@ -448,7 +448,7 @@ func TestMain(m *testing.M) {
 		// real containers while keeping image acquisition outside the per-test
 		// lifecycle deadline.
 		pullImageWithRetry("mirror.gcr.io/library/alpine:3.21")
-		pullImageWithRetry("public.ecr.aws/aws-cli/aws-cli:2.27.49")
+		pullImageWithRetry("mirror.gcr.io/amazon/aws-cli:2.27.49")
 	}
 	if testRunSelects("TestSFN_AmazonECSRunsTerraformAgainstSimulator_SDK") {
 		buildTerraformAWSImage(workloadPlatform)
