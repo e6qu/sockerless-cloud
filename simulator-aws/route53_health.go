@@ -69,10 +69,74 @@ func r53HealthCheckHealthy(id string) bool {
 	if strings.EqualFold(cfg.Type, "CALCULATED") {
 		return r53CalculatedHealthy(cfg)
 	}
+	if strings.EqualFold(cfg.Type, "CLOUDWATCH_METRIC") {
+		return r53AlarmHealthy(id, cfg)
+	}
 	state := r53HealthStateOf(id)
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	return state.healthy
+}
+
+// r53AlarmHealthy is a CLOUDWATCH_METRIC check's status: healthy while its
+// alarm is OK, unhealthy while it is in ALARM, and InsufficientDataHealthStatus
+// otherwise, where LastKnownStatus is the status the alarm last decided and
+// healthy for a check it never has. A missing alarm has insufficient data.
+func r53AlarmHealthy(id string, cfg R53HealthCheckConfig) bool {
+	state := "INSUFFICIENT_DATA"
+	if cfg.AlarmIdentifier != nil && (cfg.AlarmIdentifier.Region == "" || cfg.AlarmIdentifier.Region == awsRegion()) {
+		if alarm, ok := cwAlarms.Get(cfg.AlarmIdentifier.Name); ok {
+			state, _ = cwAlarmEffectiveState(alarm)
+		}
+	}
+	known := r53HealthStateOf(id)
+	known.mu.Lock()
+	var healthy bool
+	switch state {
+	case "OK":
+		healthy, known.healthy = true, true
+	case "ALARM":
+		healthy, known.healthy = false, false
+	default:
+		switch cfg.InsufficientDataHealthStatus {
+		case "Unhealthy":
+			healthy = false
+		case "LastKnownStatus":
+			healthy = known.healthy
+		default:
+			healthy = true
+		}
+	}
+	known.mu.Unlock()
+	if cfg.Inverted != nil && *cfg.Inverted {
+		return !healthy
+	}
+	return healthy
+}
+
+// r53AlarmConfiguration describes the alarm a CLOUDWATCH_METRIC check names,
+// or nothing when the check names none that exists.
+func r53AlarmConfiguration(cfg R53HealthCheckConfig) *R53CloudWatchAlarmConfiguration {
+	if !strings.EqualFold(cfg.Type, "CLOUDWATCH_METRIC") || cfg.AlarmIdentifier == nil {
+		return nil
+	}
+	alarm, ok := cwAlarms.Get(cfg.AlarmIdentifier.Name)
+	if !ok {
+		return nil
+	}
+	out := &R53CloudWatchAlarmConfiguration{
+		EvaluationPeriods:  alarm.EvaluationPeriods,
+		Threshold:          alarm.Threshold,
+		ComparisonOperator: alarm.ComparisonOperator,
+		Period:             alarm.Period,
+		MetricName:         alarm.MetricName,
+		Namespace:          alarm.Namespace,
+		Statistic:          alarm.Statistic,
+	}
+	for _, d := range alarm.Dimensions {
+		out.Dimensions = append(out.Dimensions, R53Dimension(d))
+	}
+	return out
 }
 
 func r53CalculatedHealthy(cfg R53HealthCheckConfig) bool {

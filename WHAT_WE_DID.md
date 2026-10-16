@@ -2999,3 +2999,14 @@ gone, because the recorded event replaces it. Each DB instance event goes to
 the default event bus as an "RDS DB Instance Event" from `aws.rds`, with the
 tutorial's detail members. EventBridge's own PutEvents path and this one share
 `ebAcceptEvent`.
+
+A Route 53 `CLOUDWATCH_METRIC` health check follows its CloudWatch alarm. The
+check keeps the `AlarmIdentifier`, `InsufficientDataHealthStatus` and
+`RoutingControlArn` it was created or updated with, and reports the alarm it
+monitors as `CloudWatchAlarmConfiguration`. Its status is healthy while the
+alarm's effective state is OK and unhealthy while it is in ALARM. Otherwise it
+takes `InsufficientDataHealthStatus`, where `LastKnownStatus` is the status
+the alarm last decided, and healthy for a check that never had one. An alarm
+named in another Region has insufficient data, and `Inverted` flips the
+result. The status reads the alarm at query time, so a failover or
+health-checked answer moves as soon as the alarm does.

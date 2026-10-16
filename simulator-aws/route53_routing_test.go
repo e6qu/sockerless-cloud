@@ -199,3 +199,41 @@ func TestRoute53HealthCheckProbesAndThresholds(t *testing.T) {
 		t.Fatal("a calculated check meets its threshold")
 	}
 }
+
+func TestRoute53AlarmHealthCheckKeepsItsLastKnownStatus(t *testing.T) {
+	withRoute53HealthStores(t)
+	alarms := cwAlarms
+	t.Cleanup(func() { cwAlarms = alarms })
+	cwAlarms = sim.MakeStore[CWAlarm](nil, "cw_alarms")
+	setState := func(state string) {
+		cwAlarms.Put("latency", CWAlarm{AlarmName: "latency", ManualState: state})
+	}
+	putHealthCheck(t, "hc-alarm", R53HealthCheckConfig{
+		Type: "CLOUDWATCH_METRIC", AlarmIdentifier: &R53AlarmIdentifier{Region: awsRegion(), Name: "latency"},
+		InsufficientDataHealthStatus: "LastKnownStatus",
+	})
+	setState("INSUFFICIENT_DATA")
+	if !r53HealthCheckHealthy("hc-alarm") {
+		t.Fatal("a check with no known status starts healthy")
+	}
+	setState("ALARM")
+	if r53HealthCheckHealthy("hc-alarm") {
+		t.Fatal("an alarm in ALARM fails the check")
+	}
+	setState("INSUFFICIENT_DATA")
+	if r53HealthCheckHealthy("hc-alarm") {
+		t.Fatal("insufficient data keeps the last known status")
+	}
+	setState("OK")
+	if !r53HealthCheckHealthy("hc-alarm") {
+		t.Fatal("an OK alarm passes the check")
+	}
+
+	putHealthCheck(t, "hc-other-region", R53HealthCheckConfig{
+		Type: "CLOUDWATCH_METRIC", AlarmIdentifier: &R53AlarmIdentifier{Region: "ap-south-2", Name: "latency"},
+		InsufficientDataHealthStatus: "Unhealthy",
+	})
+	if r53HealthCheckHealthy("hc-other-region") {
+		t.Fatal("an alarm the simulator's Region does not hold has insufficient data")
+	}
+}

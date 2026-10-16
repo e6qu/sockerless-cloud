@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
+	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	r53types "github.com/aws/aws-sdk-go-v2/service/route53/types"
 	"github.com/stretchr/testify/assert"
@@ -459,4 +461,98 @@ func TestRoute53DNSFailoverFollowsAHealthCheck(t *testing.T) {
 	reason, err := c.GetHealthCheckLastFailureReason(ctx, &route53.GetHealthCheckLastFailureReasonInput{HealthCheckId: aws.String(hcID)})
 	require.NoError(t, err)
 	require.Len(t, reason.HealthCheckObservations, 1)
+}
+
+// A CLOUDWATCH_METRIC health check follows its alarm: while the alarm has
+// insufficient data the check takes InsufficientDataHealthStatus, in ALARM it
+// is unhealthy and OK healthy, and a failover name answers accordingly.
+// GetHealthCheck reports the alarm the check monitors.
+func TestRoute53DNSFailoverFollowsACloudWatchAlarm(t *testing.T) {
+	t.Parallel()
+	c, cw := r53Client(), cloudwatchClient()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	stamp := time.Now().Format("150405.000000")
+	alarm, namespace := "r53-hc-alarm-"+stamp, "Sockerless/R53"+strings.ReplaceAll(stamp, ".", "")
+	_, err := cw.PutMetricAlarm(ctx, &cloudwatch.PutMetricAlarmInput{
+		AlarmName: aws.String(alarm), Namespace: aws.String(namespace), MetricName: aws.String("Errors"),
+		Statistic: cwtypes.StatisticMaximum, Period: aws.Int32(60), EvaluationPeriods: aws.Int32(1),
+		Threshold: aws.Float64(1), ComparisonOperator: cwtypes.ComparisonOperatorGreaterThanThreshold,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = cw.DeleteAlarms(context.Background(), &cloudwatch.DeleteAlarmsInput{AlarmNames: []string{alarm}})
+	})
+
+	hc, err := c.CreateHealthCheck(ctx, &route53.CreateHealthCheckInput{
+		CallerReference: aws.String("alarm-" + stamp),
+		HealthCheckConfig: &r53types.HealthCheckConfig{
+			Type:                         r53types.HealthCheckTypeCloudwatchMetric,
+			AlarmIdentifier:              &r53types.AlarmIdentifier{Region: r53types.CloudWatchRegionUsEast1, Name: aws.String(alarm)},
+			InsufficientDataHealthStatus: r53types.InsufficientDataHealthStatusUnhealthy,
+		},
+	})
+	require.NoError(t, err)
+	hcID := aws.ToString(hc.HealthCheck.Id)
+	t.Cleanup(func() {
+		_, _ = c.DeleteHealthCheck(context.Background(), &route53.DeleteHealthCheckInput{HealthCheckId: aws.String(hcID)})
+	})
+	got, err := c.GetHealthCheck(ctx, &route53.GetHealthCheckInput{HealthCheckId: aws.String(hcID)})
+	require.NoError(t, err)
+	require.NotNil(t, got.HealthCheck.CloudWatchAlarmConfiguration)
+	assert.Equal(t, "Errors", aws.ToString(got.HealthCheck.CloudWatchAlarmConfiguration.MetricName))
+	assert.Equal(t, r53types.StatisticMaximum, got.HealthCheck.CloudWatchAlarmConfiguration.Statistic)
+	assert.Equal(t, alarm, aws.ToString(got.HealthCheck.HealthCheckConfig.AlarmIdentifier.Name))
+
+	zone := fmt.Sprintf("dns-alarm-%s.local", stamp)
+	zoneID := createZoneForDNS(t, ctx, c, zone)
+	name := "app." + zone
+	record := func(id string, role r53types.ResourceRecordSetFailover, ip, check string) r53types.Change {
+		set := &r53types.ResourceRecordSet{
+			Name: aws.String(name), Type: r53types.RRTypeA, TTL: aws.Int64(10),
+			SetIdentifier: aws.String(id), Failover: role,
+			ResourceRecords: []r53types.ResourceRecord{{Value: aws.String(ip)}},
+		}
+		if check != "" {
+			set.HealthCheckId = aws.String(check)
+		}
+		return r53types.Change{Action: r53types.ChangeActionCreate, ResourceRecordSet: set}
+	}
+	changes := []r53types.Change{
+		record("primary", r53types.ResourceRecordSetFailoverPrimary, "192.0.2.71", hcID),
+		record("secondary", r53types.ResourceRecordSetFailoverSecondary, "192.0.2.72", ""),
+	}
+	_, err = c.ChangeResourceRecordSets(ctx, &route53.ChangeResourceRecordSetsInput{
+		HostedZoneId: aws.String(zoneID), ChangeBatch: &r53types.ChangeBatch{Changes: changes},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		for i := range changes {
+			changes[i].Action = r53types.ChangeActionDelete
+		}
+		_, _ = c.ChangeResourceRecordSets(context.Background(), &route53.ChangeResourceRecordSetsInput{
+			HostedZoneId: aws.String(zoneID), ChangeBatch: &r53types.ChangeBatch{Changes: changes},
+		})
+		_, _ = c.DeleteHostedZone(context.Background(), &route53.DeleteHostedZoneInput{Id: aws.String(zoneID)})
+	})
+	answer := func() string {
+		resp := dnsQuery(t, name, dnsmessage.TypeA)
+		require.Len(t, resp.Answers, 1)
+		a, ok := resp.Answers[0].Body.(*dnsmessage.AResource)
+		require.True(t, ok)
+		return net.IP(a.A[:]).String()
+	}
+	put := func(value float64) {
+		_, err := cw.PutMetricData(ctx, &cloudwatch.PutMetricDataInput{
+			Namespace:  aws.String(namespace),
+			MetricData: []cwtypes.MetricDatum{{MetricName: aws.String("Errors"), Value: aws.Float64(value)}},
+		})
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, "192.0.2.72", answer(), "insufficient data counts as unhealthy here")
+	put(0)
+	assert.Equal(t, "192.0.2.71", answer(), "an OK alarm keeps the primary healthy")
+	put(5)
+	assert.Equal(t, "192.0.2.72", answer(), "an alarm in ALARM fails the primary over")
 }
