@@ -294,6 +294,13 @@ expect_says 'github.com/stretchr/testify publication time for v1.12.0' \
 	'go: unknown publication time fails loudly'
 expect_says 'could not be determined' 'go: unknown publication time fails loudly'
 
+# A proxy that refuses the version listing fails the run: the module's
+# versions are unknown, which is not the same as nothing newer.
+run_check "$go_repo" GOWORK=off GOPROXY=off
+expect_status 1 'go: a refused version listing fails the run'
+expect_says "the module proxy did not list github.com/stretchr/testify's versions" \
+	'go: a refused version listing fails the run'
+
 # --- Go modules: a proxy that never answers ---------------------------------
 # A module proxy that accepts a connection and then says nothing is what held a
 # CI run until its job was cancelled: the Go toolchain gives the request no

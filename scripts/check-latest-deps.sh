@@ -176,6 +176,16 @@ go_proxy() {
   return 124
 }
 
+# go_published_versions prints a module's published release versions, one per
+# line. A listing the proxy refuses fails, with the toolchain's words in
+# $work/go-versions.err: a module whose versions are unknown is not a module
+# with nothing newer.
+go_published_versions() {
+  local listed
+  listed=$(go_proxy -versions "$1" 2>"$work/go-versions.err") || return 1
+  tr ' ' '\n' <<<"$listed" | tail -n +2 | grep -vE '\-(beta|alpha|rc|dev|preview)' || true
+}
+
 now_epoch=$(date -u +%s)
 readonly now_epoch
 
@@ -409,9 +419,11 @@ while IFS= read -r mod_file; do
     if [[ $name == github.com/e6qu/sockerless-cloud/* ]]; then
       continue
     fi
-    published=$(go_proxy -versions "$name" 2>/dev/null \
-      | tr ' ' '\n' | tail -n +2 \
-      | grep -vE '\-(beta|alpha|rc|dev|preview)' || true)
+    if ! published=$(go_published_versions "$name"); then
+      echo "  FAIL  $mod_dir: the module proxy did not list $name's versions: $(tr '\n' ' ' <"$work/go-versions.err")"
+      fail=$((fail + 1))
+      continue
+    fi
     if [[ -z "$published" ]]; then continue; fi
     LOOKUP_CLASS=go
     LOOKUP_SUBJECT=$name
@@ -814,9 +826,11 @@ if [[ -d .github/workflows ]]; then
       fail=$((fail + 1))
       continue
     }
-    published=$(go_proxy -versions "$module" 2>/dev/null \
-      | tr ' ' '\n' | tail -n +2 \
-      | grep -vE '\-(beta|alpha|rc|dev|preview)' || true)
+    if ! published=$(go_published_versions "$module"); then
+      echo "  FAIL  $file: the module proxy did not list $module's versions: $(tr '\n' ' ' <"$work/go-versions.err")"
+      fail=$((fail + 1))
+      continue
+    fi
     [[ -z "$published" ]] && continue
     LOOKUP_CLASS=go
     LOOKUP_SUBJECT=$module

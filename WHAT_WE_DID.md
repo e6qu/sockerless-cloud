@@ -2848,3 +2848,23 @@ The ECS cross-task DNS tests now resolve the fully-qualified name: an awsvpc
 task's search domain is not the namespace, so on AWS a bare service name does
 not resolve. UpdateService replaces a service's
 DnsRecords and keeps its routing policy.
+
+Cloud Logging sinks to a BigQuery dataset stream each entry they route into
+the table for its log. The table is named from the log ID, with each
+non-alphanumeric character as an underscore. By default the name carries the
+entry's UTC date, as in `syslog_20170523`. With
+`bigqueryOptions.usePartitionedTables` there is one table, partitioned by day
+on its `timestamp` column, and the sink reports
+`usesTimestampColumnPartitioning`, as the Discovery document says every new
+sink does. The table's columns are the entry's LogEntry fields:
+- `timestamp` and `receiveTimestamp` are TIMESTAMP;
+- payloads, labels and resources are RECORDs whose keys become BigQuery names;
+- Cloud Logging widens the schema as new payload fields arrive.
+Sinks keep `bigqueryOptions`, which the simulator used to drop, and an update
+mask can name it. Reading the exported rows back showed that BigQuery
+`jobs.query` ignores its SQL beyond FROM and one equality WHERE (BUG-3477).
+
+`scripts/check-latest-deps.sh` fails a run when the module proxy refuses a
+Go module's version listing. It used to skip such a module as if nothing newer
+existed, so on a full disk the check reported every module current; its
+self-test caught that.

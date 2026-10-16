@@ -25,7 +25,8 @@ Current state of the sockerless-cloud repository.
   delivery and cron schedules are `sim/msgq`, `sim/streamlog`, `sim/delivery`
   and `sim/cron`. All three simulators use them. Key material is `sim/simkms`,
   and log entries are `sim/logstore`, which Amazon CloudWatch Logs, Cloud
-  Logging and Azure Monitor Logs use. Route 53, Azure DNS and Cloud DNS
+  Logging and Azure Monitor Logs use; Cloud Logging sinks deliver to log
+  buckets, Pub/Sub topics, Cloud Storage buckets and BigQuery datasets. Route 53, Azure DNS and Cloud DNS
   answer their zones over UDP and TCP through `sim/dnsserver`, each cloud
   deciding through its catalog which zones a query sees: Route 53 private
   zones answer the VPCs they are associated with, Azure Private DNS zones the

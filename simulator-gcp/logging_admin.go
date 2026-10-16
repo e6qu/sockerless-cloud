@@ -286,6 +286,7 @@ func handleLoggingScopeCreateSink(w http.ResponseWriter, r *http.Request) {
 	if !loggingSinkAdmissible(w, sink, true) || !loggingScopeWriterIdentity(w, parent, &sink) {
 		return
 	}
+	sink.settleBigQueryOptions()
 	logSinks.Put(sink.Name, sink)
 	sim.WriteJSON(w, http.StatusOK, loggingScopeSinkResponse(parent, sink))
 }
@@ -349,6 +350,7 @@ func handleLoggingScopeUpdateSink(w http.ResponseWriter, r *http.Request) {
 	if !loggingSinkAdmissible(w, sink, false) || !loggingScopeWriterIdentity(w, parent, &sink) {
 		return
 	}
+	sink.settleBigQueryOptions()
 	logSinks.Put(key, sink)
 	sim.WriteJSON(w, http.StatusOK, loggingScopeSinkResponse(parent, sink))
 }
