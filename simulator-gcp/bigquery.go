@@ -742,7 +742,7 @@ func handleBQQuery(w http.ResponseWriter, r *http.Request) {
 		bqErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid query body: %v", err)
 		return
 	}
-	result, err := bqEvaluateQuery(r.Context(), project, req.DefaultDataset, req.Query)
+	result, _, err := bqEvaluateQuery(r.Context(), project, req.DefaultDataset, req.Query)
 	if err != nil {
 		bqErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 		return
@@ -788,27 +788,38 @@ func handleBQInsertJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	location := req.JobReference.Location
-	query := ""
-	var defaultDataset *BQDatasetRef
-	if q, ok := req.Configuration["query"].(map[string]any); ok {
-		query, _ = q["query"].(string)
-		if d, ok := q["defaultDataset"].(map[string]any); ok {
-			defaultDataset = &BQDatasetRef{}
-			defaultDataset.ProjectID, _ = d["projectId"].(string)
-			defaultDataset.DatasetID, _ = d["datasetId"].(string)
-		}
+	var cfg bqQueryConfig
+	if err := bqDecodeConfig(req.Configuration, "query", &cfg); err != nil {
+		writeAPIError(w, err)
+		return
 	}
+	if err := cfg.check(); err != nil {
+		writeAPIError(w, err)
+		return
+	}
+	query := cfg.Query
 	result := BQQueryResult{JobComplete: true, TotalRows: "0", CacheHit: false, TotalBytesProcessed: "0"}
+	var rows []map[string]any
 	if query != "" {
 		var err error
-		result, err = bqEvaluateQuery(r.Context(), project, defaultDataset, query)
+		result, rows, err = bqEvaluateQuery(r.Context(), project, cfg.DefaultDataset, query)
 		if err != nil {
 			bqErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 			return
 		}
 	}
+	var failure error
+	if cfg.DestinationTable != nil {
+		failure = bqWriteQueryDestination(r.Context(), r, project, cfg, result.Schema, rows)
+	}
 	job := bqDoneQueryJob(r, project, jobID, location, query, result)
 	job.Configuration = req.Configuration
+	if failure != nil {
+		proto := bqJobFailure(failure)
+		job.Status["errorResult"] = proto
+		job.Status["errors"] = []any{proto}
+		job.Result = BQQueryResult{}
+	}
 	bqJobs.Put(bqJobKey(project, jobID), job)
 	sim.WriteJSON(w, http.StatusOK, job.BQJob)
 }
@@ -861,6 +872,16 @@ func handleBQGetQueryResults(w http.ResponseWriter, r *http.Request) {
 		bqErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Job %s:%s", project, jobID)
 		return
 	}
+	if proto, failed := job.Status["errorResult"].(map[string]any); failed {
+		reason, _ := proto["reason"].(string)
+		message, _ := proto["message"].(string)
+		status, ok := bqFailureStatuses[reason]
+		if !ok {
+			status = bqFailureStatuses["backendError"]
+		}
+		bqError(w, status.code, message, status.status)
+		return
+	}
 	result := job.Result
 	result.Kind = "bigquery#getQueryResultsResponse"
 	// GetQueryResultsResponse declares totalBytesProcessed but not
@@ -897,7 +918,7 @@ func bqDoneQueryJob(r *http.Request, project, jobID, location, query string, res
 	}
 }
 
-func bqEvaluateQuery(ctx context.Context, defaultProject string, defaultDataset *BQDatasetRef, query string) (BQQueryResult, error) {
+func bqEvaluateQuery(ctx context.Context, defaultProject string, defaultDataset *BQDatasetRef, query string) (BQQueryResult, []map[string]any, error) {
 	dataset := ""
 	if defaultDataset != nil && defaultDataset.DatasetID != "" {
 		dataset = defaultDataset.DatasetID
@@ -907,7 +928,7 @@ func bqEvaluateQuery(ctx context.Context, defaultProject string, defaultDataset 
 	}
 	schema, rows, err := bqEvaluateSQL(ctx, defaultProject, dataset, query)
 	if err != nil {
-		return BQQueryResult{}, err
+		return BQQueryResult{}, nil, err
 	}
 	return BQQueryResult{
 		Schema:              schema,
@@ -917,7 +938,7 @@ func bqEvaluateQuery(ctx context.Context, defaultProject string, defaultDataset 
 		CacheHit:            false,
 		TotalBytesBilled:    "0",
 		TotalBytesProcessed: "0",
-	}, nil
+	}, rows, nil
 }
 
 // bqParseTableRef resolves a `dataset.table` or `project.dataset.table`

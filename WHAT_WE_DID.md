@@ -2927,3 +2927,14 @@ running byte count per site keeps the check off the store on each line.
 `PUT /config/logs` applies the new settings at once, and the production
 site's `GET /config/logs` now answers what PUT stored instead of the all-off
 default.
+
+A BigQuery query job writes its result to its `destinationTable` under its
+create and write dispositions, as the Discovery document defines them.
+WRITE_EMPTY, the query default, fails the job with `duplicate` when the table
+holds rows. WRITE_APPEND and WRITE_TRUNCATE_DATA keep the table's schema and
+fail with `invalid` when the result's schema differs; WRITE_TRUNCATE replaces
+both the rows and the schema. CREATE_NEVER fails with `notFound` when the
+table does not exist. The write is one atomic step under the table's lock. A
+failed query job finishes DONE with its `errorResult`, and `getQueryResults`
+answers that error with the HTTP status its reason maps to, which is how the
+client libraries learn of the failure.
