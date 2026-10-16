@@ -297,7 +297,11 @@ func TestBigQueryJobCancelAndDelete(t *testing.T) {
 	svc := bqService(t)
 	const project, dataset, table = "sock-proj", "ds_jobs", "events"
 	bqMakeDataset(t, svc, project, dataset)
-	bqMakeTable(t, svc, project, dataset, table)
+	_, err := svc.Tables.Insert(project, dataset, &bigquery.Table{
+		TableReference: &bigquery.TableReference{ProjectId: project, DatasetId: dataset, TableId: table},
+		Schema:         &bigquery.TableSchema{Fields: []*bigquery.TableFieldSchema{{Name: "id", Type: "STRING"}}},
+	}).Do()
+	require.NoError(t, err)
 
 	// A query job completes synchronously in the sim.
 	job, err := svc.Jobs.Insert(project, &bigquery.Job{

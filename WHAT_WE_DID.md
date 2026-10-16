@@ -2895,3 +2895,52 @@ proxy before it had written its request, Go's transport took them for an
 unsolicited response, dropped the connection and answered 503
 (`readLoopPeekFailLocked`). The handler now reads the request's headers
 first, as the Azure workload servers already did.
+
+BigQuery queries evaluate their SQL. `jobs.query` and query jobs load the
+tables a statement names into an in-memory SQLite database and run the
+statement there. Each column gets the SQLite type that compares the way
+BigQuery compares it: INT64, BOOL and TIMESTAMP (as epoch microseconds) are
+INTEGER, FLOAT64 is REAL, and a RECORD or REPEATED value is its JSON. The
+statement's table references are rewritten to the loaded copies, each
+aliased by its table name, and a query's `defaultDataset` qualifies a bare
+table name. A result column that names a source column keeps that column's
+type; any other column takes the type of the values SQLite computed for it.
+The previous query path answered every column of the one table in FROM and
+honoured only a single equality in WHERE. `tabledata.insertAll` now converts
+each row against the table's schema and stores the cell forms that
+`tabledata.list` and queries read. A row that does not convert is reported in
+`insertErrors`, and without `skipInvalidRows` it stops the request's other
+rows with reason `stopped`.
+
+The last two AWS and Azure lists that paged by position now page by a key.
+Amazon EFS tags (ListTagsForResource and the older DescribeTags) page by tag
+key, which is unique on a resource. An App Service Environment's stamp
+capacities page by their pool: multi-role pools come first, then worker pools
+in numeric order. Removing a tag or a pool between two calls therefore moves
+nothing else across the page boundary.
+
+An App Service site's docker log rotates by the site's file-system log
+settings, as App Service rotates its daily docker log files. Lines older
+than `httpLogs.fileSystem.retentionInDays` expire. Past `retentionInMb` the
+oldest days go first, then the oldest lines of the day still being written. A
+running byte count per site keeps the check off the store on each line.
+`PUT /config/logs` applies the new settings at once, and the production
+site's `GET /config/logs` now answers what PUT stored instead of the all-off
+default.
+
+A BigQuery query job writes its result to its `destinationTable` under its
+create and write dispositions, as the Discovery document defines them.
+WRITE_EMPTY, the query default, fails the job with `duplicate` when the table
+holds rows. WRITE_APPEND and WRITE_TRUNCATE_DATA keep the table's schema and
+fail with `invalid` when the result's schema differs; WRITE_TRUNCATE replaces
+both the rows and the schema. CREATE_NEVER fails with `notFound` when the
+table does not exist. The write is one atomic step under the table's lock. A
+failed query job finishes DONE with its `errorResult`, and `getQueryResults`
+answers that error with the HTTP status its reason maps to, which is how the
+client libraries learn of the failure.
+
+Every query job now reports `statistics.query.statementType`, which `bq
+query` reads before it prints a result. The query engine refuses any
+statement that does not begin with SELECT or WITH, and any job holding more
+than one statement. Before, it ran DML and DDL against its temporary copy of
+the tables and reported success while changing nothing.

@@ -100,8 +100,9 @@ func appendLogRow(storeKey string, row monitorLogRow) {
 // it to the site's open log streams.
 func appendSiteDockerLog(siteID, at, message string) {
 	scope := strings.ToLower(siteID)
-	monitorAppendRow(webSiteDockerLogs, scope, monitorLogRow{"TimeGenerated": at, "Message": message})
-	webSiteDockerLogs.Cap(scope, webSiteDockerLogMaxLines)
+	row := monitorLogRow{"TimeGenerated": at, "Message": message}
+	monitorAppendRow(webSiteDockerLogs, scope, row)
+	webRotateSiteDockerLog(siteID, scope, webDockerLogLineBytes(row), time.Now())
 	kuduPublishLogLine(siteID, at+" "+message)
 }
 

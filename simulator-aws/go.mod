@@ -9,7 +9,7 @@ require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20261015171108-a115f12c8ce2
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261016042150-01ef70f4a4a4
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261016080700-f9c37021b30e
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261015114713-b9f0cc68a078
 	github.com/fxamacker/cbor/v2 v2.9.6
 	github.com/go-git/go-git/v5 v5.19.3

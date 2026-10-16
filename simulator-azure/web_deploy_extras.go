@@ -185,6 +185,7 @@ func webCleanupDeployments(resID string) {
 	webCleanupSlotPreview(resID)
 	webCleanupKudu(resID)
 	webSiteDockerLogs.Drop(strings.ToLower(resID))
+	webForgetDockerLogUsage(resID)
 	for _, protocol := range []string{"ftp", "scm"} {
 		webBasicPublishingPolicies.Delete(webBasicPublishingPolicyID(resID, protocol))
 	}

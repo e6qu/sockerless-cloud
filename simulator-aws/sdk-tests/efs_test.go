@@ -361,6 +361,33 @@ func TestEFS_AccountPreferencesAndTagging(t *testing.T) {
 	assert.Equal(t, "prod", got2["env"])
 	_, hasTeam := got2["team"]
 	assert.False(t, hasTeam)
+
+	// A page token names the last tag key it returned, so removing a tag the
+	// caller already read skips nothing on the next page.
+	_, err = client.TagResource(ctx, &efs.TagResourceInput{
+		ResourceId: aws.String(fsID),
+		Tags: []efstypes.Tag{
+			{Key: aws.String("app"), Value: aws.String("web")},
+			{Key: aws.String("zone"), Value: aws.String("a")},
+		},
+	})
+	require.NoError(t, err)
+	first, err := client.ListTagsForResource(ctx, &efs.ListTagsForResourceInput{ResourceId: aws.String(fsID), MaxResults: aws.Int32(1)})
+	require.NoError(t, err)
+	require.Len(t, first.Tags, 1)
+	require.NotNil(t, first.NextToken)
+	_, err = client.UntagResource(ctx, &efs.UntagResourceInput{ResourceId: aws.String(fsID), TagKeys: []string{aws.ToString(first.Tags[0].Key)}})
+	require.NoError(t, err)
+	seen := []string{aws.ToString(first.Tags[0].Key)}
+	for token := first.NextToken; token != nil; {
+		page, err := client.ListTagsForResource(ctx, &efs.ListTagsForResourceInput{ResourceId: aws.String(fsID), MaxResults: aws.Int32(1), NextToken: token})
+		require.NoError(t, err)
+		for _, tg := range page.Tags {
+			seen = append(seen, aws.ToString(tg.Key))
+		}
+		token = page.NextToken
+	}
+	assert.ElementsMatch(t, []string{"app", "env", "zone"}, seen, "every tag is read once")
 }
 
 func TestEFS_FullLifecycle(t *testing.T) {

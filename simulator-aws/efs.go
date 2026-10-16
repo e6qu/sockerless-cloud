@@ -664,6 +664,9 @@ func handleEFSTagResource(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// efsTagKey pages a resource's tags by key, which is unique on a resource.
+func efsTagKey(t EFSTag) string { return t.Key }
+
 func handleEFSListTagsForResource(w http.ResponseWriter, r *http.Request) {
 	id := sim.PathParam(r, "id")
 	get, _, ok := efsResourceTags(id)
@@ -676,7 +679,7 @@ func handleEFSListTagsForResource(w http.ResponseWriter, r *http.Request) {
 	if tags == nil {
 		tags = []EFSTag{}
 	}
-	page, next, pageOK := awsSeqPage(w, efsBadToken, tags, false, r.URL.Query().Get("NextToken"), atoiDefault(r.URL.Query().Get("MaxResults"), 0), 0)
+	page, next, pageOK := awsKeyPage(w, efsBadToken, tags, efsTagKey, r.URL.Query().Get("NextToken"), atoiDefault(r.URL.Query().Get("MaxResults"), 0), 0)
 	if !pageOK {
 		return
 	}
@@ -741,7 +744,7 @@ func handleEFSDescribeTags(w http.ResponseWriter, r *http.Request) {
 	if tags == nil {
 		tags = []EFSTag{}
 	}
-	page, next, pageOK := awsSeqPage(w, efsBadToken, tags, false, r.URL.Query().Get("Marker"), atoiDefault(r.URL.Query().Get("MaxItems"), 0), 0)
+	page, next, pageOK := awsKeyPage(w, efsBadToken, tags, efsTagKey, r.URL.Query().Get("Marker"), atoiDefault(r.URL.Query().Get("MaxItems"), 0), 0)
 	if !pageOK {
 		return
 	}

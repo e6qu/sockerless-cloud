@@ -334,6 +334,9 @@ Current state of the sockerless-cloud repository.
 - **Uploads past 5 MiB take the resumable path** from `gcloud storage cp`,
   `gcloud artifacts generic upload`, `gcloud artifacts files upload` and
   `bq load`. BigQuery answers REST errors with its `errors[]` reasons.
+- **BigQuery queries run their SQL** in an in-memory SQLite copy of the tables
+  they name, and a query job writes its result to its `destinationTable` under
+  its create and write dispositions.
 - **The GCE metadata server answers for the workload that asks**, placing a
   Compute Engine instance by its private address and a Cloud Run container by
   its namespace's address; a caller outside every workload is answered for the
