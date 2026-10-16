@@ -7,7 +7,7 @@ require (
 	cloud.google.com/go/artifactregistry v1.27.0
 	cloud.google.com/go/bigquery v1.85.0
 	cloud.google.com/go/bigtable v1.58.0
-	cloud.google.com/go/cloudbuild v1.34.0
+	cloud.google.com/go/cloudbuild v1.35.0
 	cloud.google.com/go/compute/metadata v0.10.0
 	cloud.google.com/go/eventarc v1.26.0
 	cloud.google.com/go/firestore v1.26.0
@@ -15,7 +15,7 @@ require (
 	cloud.google.com/go/iam v1.14.0
 	cloud.google.com/go/kms v1.35.0
 	cloud.google.com/go/logging v1.20.0
-	cloud.google.com/go/redis v1.26.0
+	cloud.google.com/go/redis v1.27.0
 	cloud.google.com/go/resourcemanager v1.17.0
 	cloud.google.com/go/run v1.23.0
 	cloud.google.com/go/secretmanager v1.22.0

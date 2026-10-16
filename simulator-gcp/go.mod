@@ -7,7 +7,7 @@ require (
 	cloud.google.com/go/apigateway v1.16.0
 	cloud.google.com/go/artifactregistry v1.27.0
 	cloud.google.com/go/bigtable v1.58.0
-	cloud.google.com/go/cloudbuild v1.34.0
+	cloud.google.com/go/cloudbuild v1.35.0
 	cloud.google.com/go/eventarc v1.26.0
 	cloud.google.com/go/firestore v1.26.0
 	cloud.google.com/go/functions v1.26.0
@@ -16,7 +16,7 @@ require (
 	cloud.google.com/go/logging v1.20.0
 	cloud.google.com/go/longrunning v1.3.0
 	cloud.google.com/go/pubsub v1.51.1
-	cloud.google.com/go/redis v1.26.0
+	cloud.google.com/go/redis v1.27.0
 	cloud.google.com/go/resourcemanager v1.17.0
 	cloud.google.com/go/run v1.23.0
 	cloud.google.com/go/secretmanager v1.22.0
