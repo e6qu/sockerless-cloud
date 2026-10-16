@@ -318,7 +318,7 @@ func TestSDK_CloudRun_WorkloadsResumeAfterSimulatorRestart(t *testing.T) {
 			InvokerIamDisabled: true,
 			Containers: []*runpb.Container{{Image: simWorkloadImage, Command: []string{"sh", "-c",
 				`trap 'echo "stopping instance $HOSTNAME"; exit 0' TERM; ` +
-					`nc -lk -p "$PORT" -e sh -c 'printf "HTTP/1.0 200 OK\r\nContent-Length: ${#HOSTNAME}\r\n\r\n%s" "$HOSTNAME"' & ` +
+					`nc -lk -p "$PORT" -e sh -c 'while read -r l && [ ${#l} -gt 1 ]; do :; done; printf "HTTP/1.0 200 OK\r\nContent-Length: ${#HOSTNAME}\r\n\r\n%s" "$HOSTNAME"' & ` +
 					`echo "instance $HOSTNAME"; sleep 2147483647 & wait $!`}}},
 		},
 	})
@@ -334,7 +334,7 @@ func TestSDK_CloudRun_WorkloadsResumeAfterSimulatorRestart(t *testing.T) {
 			InvokerIamDisabled: true,
 			Template: &runpb.RevisionTemplate{Containers: []*runpb.Container{{Image: simWorkloadImage, Command: []string{"sh", "-c",
 				`trap 'echo "stopping service $HOSTNAME"; exit 0' TERM; ` +
-					`nc -lk -p "$PORT" -e sh -c 'printf "HTTP/1.0 200 OK\r\nContent-Length: ${#HOSTNAME}\r\n\r\n%s" "$HOSTNAME"' & ` +
+					`nc -lk -p "$PORT" -e sh -c 'while read -r l && [ ${#l} -gt 1 ]; do :; done; printf "HTTP/1.0 200 OK\r\nContent-Length: ${#HOSTNAME}\r\n\r\n%s" "$HOSTNAME"' & ` +
 					`echo "service $HOSTNAME"; sleep 2147483647 & wait $!`}}}},
 		},
 	})

@@ -2887,3 +2887,11 @@ Amazon SNS topics now match the service in three ways:
 outcome and on the item as `LastResponse`. An HTTP/S subscription's delivery status
 log entry records that answer as `providerResponse`, on success and on
 failure alike, and the dispatcher's error only when no answer came.
+
+A workload's HTTP server in a test reads the request before it answers. The
+Cloud Run restart test's `nc -e` handler printed its response the moment
+`nc` accepted a connection. When those bytes reached the simulator's reverse
+proxy before it had written its request, Go's transport took them for an
+unsolicited response, dropped the connection and answered 503
+(`readLoopPeekFailLocked`). The handler now reads the request's headers
+first, as the Azure workload servers already did.
