@@ -87,7 +87,9 @@ func TestDNS_CreateAndListRecordSets(t *testing.T) {
 	}
 	assert.True(t, found, "the created A record must be in the zone's record sets: %s", out)
 
-	// Cleanup
+	// Cloud DNS deletes a zone only once its own records are gone.
+	runCLI(t, gcloudCLI("dns", "record-sets", "delete", "test.records.example.com.",
+		"--zone=record-test-zone", "--type=A"))
 	runCLI(t, gcloudCLI("dns", "managed-zones", "delete", "record-test-zone"))
 }
 
@@ -103,6 +105,7 @@ func TestDNS_RecordSetTransactionAndUpdateCLI(t *testing.T) {
 		"--visibility=public",
 	))
 	t.Cleanup(func() {
+		_ = gcloudCLI("dns", "record-sets", "delete", recordName, "--zone", zone, "--type", "A", "--quiet").Run()
 		_ = gcloudCLI("dns", "managed-zones", "delete", zone, "--quiet").Run()
 	})
 

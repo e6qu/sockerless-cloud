@@ -95,6 +95,11 @@ func TestDNS_CrossJobResolution_CLI(t *testing.T) {
 		`{"name":"alpha.cli-xjob.local.","type":"A","ttl":60,"rrdatas":[%q]}`, alphaIP))
 	httpDoJSON(t, "POST", rrURL, fmt.Sprintf(
 		`{"name":"beta.cli-xjob.local.","type":"A","ttl":60,"rrdatas":[%q]}`, betaIP))
+	// Deferred after the zone's delete, so the records go first: Cloud DNS
+	// deletes a zone only once its own records are gone.
+	for _, name := range []string{"alpha.cli-xjob.local.", "beta.cli-xjob.local."} {
+		defer runCLI(t, gcloudCLI("dns", "record-sets", "delete", name, "--zone=cli-xjob-zone", "--type=A"))
+	}
 
 	// The A records attach their containers to the zone's Docker network under
 	// the record's short name — the mechanism the resolution below rides on.

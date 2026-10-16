@@ -84,11 +84,30 @@ func route53Catalog(q dnsserver.Query) dnsserver.View {
 		vpcID, _ = v.(string)
 	}
 	view := dnsserver.View{Names: workloadHostAliasRecords()}
+	querier := route53Querier{region: route53QuerierRegion(vpcID), addr: q.Remote}
 	zones := route53VisibleZones(vpcID)
+	for i := range zones {
+		zones[i].Records = route53Route(zones[i].Records, querier)
+	}
 	for _, z := range zones {
 		view.Zones = append(view.Zones, dnsserver.Zone{Apex: dns.Fqdn(z.Zone.Name), Records: route53ZoneRecords(z, zones)})
 	}
 	return view
+}
+
+// route53QuerierRegion is the Region a query comes from: its VPC's, or the
+// simulator's own for a query from outside every VPC.
+func route53QuerierRegion(vpcID string) string {
+	if vpcID != "" {
+		for _, assoc := range r53ZoneVPCs.List() {
+			for _, v := range assoc {
+				if v.VPCId == vpcID && v.VPCRegion != "" {
+					return v.VPCRegion
+				}
+			}
+		}
+	}
+	return awsRegion()
 }
 
 // route53VisibleZones lists the zones a query from vpcID sees, private ones

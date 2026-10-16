@@ -22,6 +22,7 @@ import (
 	"sync"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/miekg/dns"
 )
 
 // dnsChangeMu serializes the Changes.create critical section. Real Cloud DNS
@@ -342,6 +343,17 @@ func registerCloudDNS(srv *sim.Server) {
 		zone, ok := zones.Get(key)
 		if !ok {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
+			return
+		}
+		// Cloud DNS deletes only a zone left with its apex NS and SOA.
+		apex := dns.Fqdn(zone.DNSName)
+		for _, stored := range recordSets.ListPrefix(key + ":") {
+			rs := stored.Item.Record
+			if dns.CanonicalName(rs.Name) == dns.CanonicalName(apex) && (rs.Type == "NS" || rs.Type == "SOA") {
+				continue
+			}
+			writeDNSReasonError(w, http.StatusBadRequest, "FAILED_PRECONDITION", "containerNotEmpty",
+				fmt.Sprintf("The resource named '%s' cannot be deleted because it is not empty", zoneName))
 			return
 		}
 		zones.Delete(key)
@@ -1134,6 +1146,12 @@ func dnsRecordSetKey(project, zone, name, typ string) string {
 }
 
 func writeDNSChangeError(w http.ResponseWriter, code int, status, message string) {
+	writeDNSReasonError(w, code, status, status, message)
+}
+
+// writeDNSReasonError writes the Cloud DNS v1 error envelope, whose errors[]
+// carries a reason gcloud and the client libraries match on.
+func writeDNSReasonError(w http.ResponseWriter, code int, status, reason, message string) {
 	sim.WriteJSON(w, code, map[string]any{
 		"error": map[string]any{
 			"code":    code,
@@ -1141,7 +1159,7 @@ func writeDNSChangeError(w http.ResponseWriter, code int, status, message string
 			"status":  status,
 			"errors": []map[string]string{{
 				"domain":  "global",
-				"reason":  status,
+				"reason":  reason,
 				"message": message,
 			}},
 		},

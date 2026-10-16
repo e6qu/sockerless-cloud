@@ -308,6 +308,11 @@ func handleR53UpdateHealthCheck(w http.ResponseWriter, r *http.Request) {
 	}
 	stored.HealthCheck.HealthCheckVersion++
 	r53HealthChecks.Put(id, stored)
+	// A changed endpoint is probed at once rather than at the old cadence.
+	state := r53HealthStateOf(id)
+	state.mu.Lock()
+	state.nextProbe = time.Time{}
+	state.mu.Unlock()
 	r53WriteXML(w, http.StatusOK, R53UpdateHealthCheckResponse{Xmlns: r53Namespace, HealthCheck: stored.HealthCheck})
 }
 
@@ -318,6 +323,7 @@ func handleR53DeleteHealthCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r53HealthChecks.Delete(id)
+	r53Health.Delete(id)
 	r53WriteXML(w, http.StatusOK, struct {
 		XMLName xml.Name `xml:"DeleteHealthCheckResponse"`
 		Xmlns   string   `xml:"xmlns,attr,omitempty"`
@@ -337,14 +343,9 @@ func handleR53GetHealthCheckStatus(w http.ResponseWriter, r *http.Request) {
 		r53WriteError(w, http.StatusNotFound, "NoSuchHealthCheck", "A health check with id "+id+" does not exist.")
 		return
 	}
-	now := r53NowISO()
 	r53WriteXML(w, http.StatusOK, R53GetHealthCheckStatusResponse{
-		Xmlns: r53Namespace,
-		HealthCheckObservations: []R53HealthCheckObservation{
-			{Region: "us-east-1", StatusReport: R53StatusReport{
-				Status: "Success: HTTP Status Code 200, OK", CheckedTime: now,
-			}},
-		},
+		Xmlns:                   r53Namespace,
+		HealthCheckObservations: r53HealthObservations(id, false),
 	})
 }
 
