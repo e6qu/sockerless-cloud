@@ -240,9 +240,14 @@ func TestAppScalingTargetTrackingScalesOnALBRequestCountPerTarget(t *testing.T) 
 			elbv2RecordRoutedRequest(lbArn, tg, now.Add(-time.Duration(minute)*time.Minute))
 		}
 	}
-	elbv2FlushRequestMetrics()
-	perLoadBalancer, _ := cwMetrics.Get(metricsKey("AWS/ApplicationELB", "RequestCount",
-		[]CWDimension{{Name: "LoadBalancer", Value: "app/web/50dc6c495c0c9188"}}))
+	loadBalancerKey := metricsKey("AWS/ApplicationELB", "RequestCount",
+		[]CWDimension{{Name: "LoadBalancer", Value: "app/web/50dc6c495c0c9188"}})
+	elbv2FlushRequestMetrics(now.Unix() / 60)
+	if open, _ := cwMetrics.Get(loadBalancerKey); len(open) != 2 {
+		t.Fatalf("RequestCount reports %v before the current minute closes, want only the two closed minutes", open)
+	}
+	elbv2FlushRequestMetrics(now.Unix()/60 + 1)
+	perLoadBalancer, _ := cwMetrics.Get(loadBalancerKey)
 	routed := 0.0
 	for _, datum := range perLoadBalancer {
 		routed += datum.Value

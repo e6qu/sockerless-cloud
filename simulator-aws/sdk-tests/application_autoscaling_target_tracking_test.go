@@ -358,8 +358,8 @@ func TestAppScaling_ALBRequestCountPerTargetTracksTheLoadBalancer(t *testing.T) 
 		require.NoError(t, resp.Body.Close())
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 	}
-	// The load balancer reports what it routed to CloudWatch after the
-	// requests, so read the metric until every request appears in it.
+	// The load balancer reports a minute's requests once the minute has
+	// passed, so read the metric on that cadence until every request appears.
 	routed := func() float64 {
 		stats, err := cwC.GetMetricStatistics(ctx, &cloudwatch.GetMetricStatisticsInput{
 			Namespace:  aws.String("AWS/ApplicationELB"),
@@ -377,6 +377,6 @@ func TestAppScaling_ALBRequestCountPerTargetTracksTheLoadBalancer(t *testing.T) 
 		}
 		return sum
 	}
-	require.Eventually(t, func() bool { return routed() >= requests }, 10*time.Second, 50*time.Millisecond)
+	require.Eventually(t, func() bool { return routed() >= requests }, 2*time.Minute, 2*time.Second)
 	assert.Equal(t, float64(requests), routed(), "one target in service receives every request")
 }

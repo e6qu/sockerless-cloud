@@ -360,6 +360,49 @@ jobs:
             ~/.cache/go-build
           key: ${{ steps.go-cache.outputs.cache-primary-key }}
 
+  # The base-image archive is the other cache main's skipped jobs never save:
+  # every new pull request found none, pulled each image from its registry in
+  # every job, and spent minutes archiving the set, which ran the race job past
+  # its time limit and sent ECR Public pulls into its anonymous throttle.
+  warm-base-images:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    name: warm base images (${{ matrix.cloud }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        cloud: [aws, gcp, azure]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Resolve the base images the simulator jobs run containers from
+        id: base-images-list
+        run: |
+          images="$(bash scripts/base-images-for.sh simulator-${{ matrix.cloud }} | tr '\n' ' ')"
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+          echo "digest=$({ printf '%s' "$images"; cat scripts/warm-base-images.sh; } | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - name: Restore the base images
+        id: base-images
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: ~/.cache/sockerless/base-images.tar
+          key: base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
+          restore-keys: |
+            base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-
+      - name: Fetch the base images
+        if: steps.base-images.outputs.cache-hit != 'true'
+        run: |
+          # shellcheck disable=SC2086
+          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
+            ${{ steps.base-images-list.outputs.images }}
+        timeout-minutes: 12
+      - name: Save the base images
+        if: steps.base-images.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6.1.0
+        with:
+          path: ~/.cache/sockerless/base-images.tar
+          key: ${{ steps.base-images.outputs.cache-primary-key }}
+
   sim:
     needs: verified-on-pr
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}

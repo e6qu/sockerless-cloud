@@ -14,13 +14,18 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: container-command hold|http|serve|files-http|relay-http|probe-http|log|log-until|print|resolve|sleep|stdin-echo")
+		fmt.Fprintln(os.Stderr, "usage: container-command hold|spin|http|serve|files-http|relay-http|probe-http|log|log-until|print|resolve|sleep|stdin-echo")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
 	case "hold":
 		for {
 			time.Sleep(time.Hour)
+		}
+	case "spin":
+		// Keep one core busy, so the container uses all the CPU its limit allows.
+		for spin := 0; ; spin++ {
+			_ = spin
 		}
 	case "http":
 		if len(os.Args) < 4 || len(os.Args) > 5 {

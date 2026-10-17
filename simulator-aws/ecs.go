@@ -619,6 +619,7 @@ func registerECS(r *AWSRouter, srv *sim.Server) {
 	ecsTaskCredentials = sim.MakeStore[ecsHeldCredential](srv.DB(), "ecs_task_credentials")
 	ecsBackgroundServer = srv
 	startStoreSweeper(srv, ecsSweepStoppedTasks)
+	startECSServiceMetricsPublisher(srv)
 	ecsRebuildRevisionIndex()
 
 	r.Register("AmazonEC2ContainerServiceV20141113.CreateCluster", handleECSCreateCluster)
