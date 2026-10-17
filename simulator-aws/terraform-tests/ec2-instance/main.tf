@@ -80,8 +80,10 @@ output "ami_owner_alias" {
   value = data.aws_ami.al2023.image_owner_alias
 }
 
+# aws_instance exports no architecture; the image the instance booted from
+# carries it.
 output "golden_architecture" {
-  value = aws_instance.golden.architecture
+  value = data.aws_ami.al2023.architecture
 }
 
 output "golden_state" {
