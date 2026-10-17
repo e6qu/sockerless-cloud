@@ -11,8 +11,7 @@ history. The per-cloud directories became `simulator-{aws,gcp,azure}` so
 `go install` produces binaries with those names, and every module path moved
 to `github.com/e6qu/sockerless-cloud/*`, bringing the console packages, the
 vendored specifications with their surface tables and behavioural registries,
-the simulator scripts and hooks, the Firecracker and realexec harness, and the
-simulator CI jobs.
+the simulator scripts and hooks, and the simulator CI jobs.
 
 The simulators are a general-purpose reimplementation of slices of the clouds,
 not a component of their first consumer. A simulator reads nothing from a
@@ -86,11 +85,9 @@ own module:
   EventBridge scheduled rules and Scheduler schedules in their time zones,
   Application Auto Scaling scheduled actions, Container Apps scheduled jobs and
   Logic Apps recurrences.
-- `realexec/fabric` and `realexec/lbplane`: each cloud's realized networks,
-  subnets, interfaces, microVMs and NAT addresses live in one fabric, and the
-  load-balancer forwarders, health probes, health tracking and TLS listeners
-  are one data plane that never follows a target's redirect and grades a probe
-  by the cloud's own matcher.
+- `realexec/lbplane`: the load-balancer forwarders, health probes, health
+  tracking and TLS listeners are one data plane that never follows a target's
+  redirect and grades a probe by the cloud's own matcher.
 - `dbengine` with `pgwire` and `mysqlwire`: the managed relational database
   data plane of Amazon RDS, Cloud SQL and Azure Database for PostgreSQL. The
   MySQL relay logs into the engine as a client does: it answers an auth switch
@@ -351,11 +348,6 @@ own module:
   since untranslated egress still reaches the host. DeleteRouteTable refuses
   the main route table or one still associated with `DependencyViolation` and
   withdraws its NAT translations when it succeeds.
-- **A managed EBS volume is a block device, and the engine is asked for nothing
-  it has to interpret.** The volume is an image file of the requested size and
-  filesystem; a privileged helper attaches it to a loop device and the engine
-  mounts `/dev/loopN`. An `o=loop` option passed on Podman, which implements it
-  in `mount(8)`, and failed on moby, whose `mount(2)` flag table lacks it.
 - **Engine work never runs under a store's write lock.** An `Update` callback
   returns what to remove and the caller removes it afterwards.
 - **A trust policy is evaluated, and a federated identity verified, as AWS
@@ -1174,10 +1166,8 @@ entries as unprocessed, and on-demand tables are never throttled. A
 requests-per-second limiter was rejected as a fake.
 
 VPC networks take their bridge subnet from a host-side pool rather than the
-VPC's CIDR, so two live VPCs sharing a CIDR coexist; the workload's elastic
-network interface address is a real secondary address, plumbed by an ephemeral
-`CAP_NET_ADMIN` container so the workload keeps its capability-free sandbox.
-The live networks are the allocator's only ledger, which makes a restart safe.
+VPC's CIDR, so two live VPCs sharing a CIDR coexist. The live networks are the
+allocator's only ledger, which makes a restart safe.
 A simulator resource records its owning process — hostname and pid — and a
 slice is reclaimed only from an owner on this host whose pid no process holds.
 
@@ -1635,15 +1625,12 @@ node keeps its persistence files and `nodes.conf` across restarts. Export, impor
 upgrade and cluster backups move the engine's own RDB files through Cloud
 Storage. An API-only simulator runs no engine and its instances report no host.
 
-### Virtual machines and the network fabric
+### Virtual machines
 
-Firecracker boots Compute Engine, Amazon EC2 and Azure virtual machines where
-the host kernel allows it, over the default virtio-MMIO transport (the PCI
-transport never delivers the first virtio-blk completion on aarch64). A
-machine's disk outlives the guest process, so a stopped machine can be
-generalized and captured, a deallocated one keeps its disk and a deleted one
-discards it. Stopping or terminating a pending Amazon EC2 instance cancels its
-boot. Every SDK test that launches instances terminates them when it ends.
+A machine's disk outlives its guest, so a stopped machine can be generalized
+and captured, a deallocated one keeps its disk and a deleted one discards it.
+Stopping or terminating a pending Amazon EC2 instance cancels its boot. Every
+SDK test that launches instances terminates them when it ends.
 
 Compute Engine `instances.start`, `stop`, `suspend`, `resume`, `reset`,
 `startWithEncryptionKey` and `delete` answer at once with a RUNNING zone
@@ -1657,20 +1644,13 @@ answers 202 with long-running-operation headers and `SimulateEviction` 204,
 both stopping the guest in the background; the machine leaving clears
 `properties.virtualMachine` on every interface it had attached.
 
-The fabric keeps a network's or machine's lock only while someone holds or
-waits for it. Interface namespace and veth names derive from the interface ID,
-so attaching deletes a leftover namespace of its name, and its veth, and retries
-once; attaches of one interface are serialized so the reclaim never destroys a
-live namespace. The Azure simulator closes its fabric on SIGTERM. An Azure
-network interface realizes every IP configuration: the primary attaches the
-interface and each secondary leases its own address of the same subnet onto it
-(`ip addr add` in the namespace, or a lease the tap holds while a VM carries the
-interface). A rewrite keeps kept configurations' addresses and releases dropped
-ones first; configurations in two subnets are
-`IpConfigurationsOnSameNicCannotUseDifferentSubnets`, and an address another
-interface holds `PrivateIPAddressInUse`. Secondary addresses are not configured
-inside a guest, since Azure's DHCP hands a guest only its primary; the Instance
-Metadata Service lists them all.
+An Azure network interface leases an address per IP configuration, the
+primary's and each secondary's from the same subnet. A rewrite keeps kept
+configurations' addresses and releases dropped ones first; configurations in
+two subnets are `IpConfigurationsOnSameNicCannotUseDifferentSubnets`, and an
+address another interface holds `PrivateIPAddressInUse`. Secondary addresses
+are not configured inside a guest, since Azure's DHCP hands a guest only its
+primary; the Instance Metadata Service lists them all.
 
 Creating an Azure file share or a Cloud Storage bucket makes its empty host
 directory or fails the request, and a bucket reuses no files a deleted bucket of
@@ -1787,7 +1767,7 @@ created once, so a deleted one stays deleted; its email names the project number
 so the `-` wildcard resolves it.
 
 The GCE metadata server answers for the workload that asks: a Compute Engine
-instance by its private address in the real-execution index, a Cloud Run
+instance by its private address, a Cloud Run
 container by its network namespace's address, read from the engine's container
 list and mapped through labels to its service, instance, job execution or worker
 pool. The project ID comes from the resource, the number from Cloud Resource
@@ -2694,19 +2674,6 @@ daily specification refresh checks out the pull request it will land on before
 re-vendoring, so it measures drift against that branch's pins and lands as one
 commit.
 
-The real network host tests run in the Firecracker job, which has `/dev/kvm`,
-root through `sudo`, iproute2 and nftables. `tests/realexec/run-network-nic.sh`
-finds every package holding a `realexec_host` test file and runs the tests they
-declare, compiling each binary as the runner user on the warm Go cache and
-running only the binary as root. A suite's host gate skips only for what a run
-cannot be given — a kernel other than Linux, `/dev/kvm`, `CAP_NET_ADMIN` — and
-fails on a Linux host that lacks a command, naming what to install. The Google
-Cloud and Azure suites share `requireNetworkHost` and `requireMicroVMHost`, the
-latter adding the Firecracker detection the simulator boots with.
-
-A Firecracker guest's boot is the kernel's `IP-Config: Complete` line on the
-serial console, after which one ping confirms the address.
-
 A workload container publishes every port the host reaches it on:
 `sim.HTTPContainerConfig.PublishPorts` is required, and `StartHTTPContainer`
 publishes each on loopback — an App Service site its `WEBSITES_PORT`, and a
@@ -2751,9 +2718,9 @@ under the closest encloser, CNAME chains across zones, delegations with glue,
 NXDOMAIN versus NODATA with the zone's SOA (its TTL the lesser of the SOA's TTL
 and MINIMUM), EDNS0 and truncation on UDP, forwarding zones, and recursion
 through upstreams that leave out the server itself and the addresses workload
-networks rewrite into it. `realexec`'s `ConfigureResolverDNAT` returns the host
-address a network's redirected queries arrive at, one per network, which is how
-Route 53 tells which VPC asked: a private hosted zone answers only the VPCs it
+networks reach it at. The catalog attributes a query to the network it came
+from, which is how Route 53 tells which VPC asked: a private hosted zone
+answers only the VPCs it
 is associated with, ahead of a public zone of the same name, and an alias
 answers with its target's record set under its own name. The Azure listener
 serves the custom cloud's endpoint suffixes as wildcard zones, every Azure DNS
@@ -2761,19 +2728,14 @@ public zone, and the names data planes register; Cloud DNS serves its public
 managed zones, and a new managed zone carries the NS and SOA record sets and
 the four `nameServers` Cloud DNS assigns.
 
-Every machine and namespace workload asks its own cloud's resolver.
-`realexec`'s `ConfigureResolverDNAT` redirects whichever address the cloud
+Every workload asks its own cloud's resolver at the address the cloud
 answers DNS on — 169.254.169.253 in a VPC, 168.63.129.16 in an Azure virtual
 network, the metadata server's 169.254.169.254 in a Google Cloud VPC network —
-and a microVM's resolv.conf, networkd, netplan, ifupdown and boot arguments
-name `FirecrackerVMConfig.Nameserver` instead of a public resolver.
-`fabric.VMSpec` carries the `Resolver`; its `Arrived` hook records the host
-address the network's queries land on, and a machine whose address cannot be
-recorded does not boot, because its private zones would answer nothing. VPC
-AWS Lambda invocations take the same route Amazon ECS tasks do. Azure runs
+which a per-network sidecar serves (`PLAN.md` stage 2; BUG-3473 holds the
+workloads that still resolve through the engine's embedded DNS). Azure runs
 a resolver on every address for virtual networks on every start, beside the
 listener an operator binds at `SIM_AZURE_DNS_LISTEN_ADDR` (often loopback,
-which a redirected query cannot reach), both answering from one catalog that
+which a workload cannot reach), both answering from one catalog that
 serves a private zone to the virtual networks it is linked to; Cloud DNS's catalog serves private zones to
 their visibility networks, forwarding zones through their target name servers
 on port 53, and peering zones from the zones their target network sees, one
@@ -2813,9 +2775,8 @@ to delete a zone that still holds records besides its apex NS and SOA, with
 or records the resolved configuration, the cloud's `Build`, and a `Start` that
 starts what serves beside the HTTP port and returns the stop run after the HTTP
 server shuts down — Cloud DNS, the gRPC server and the serving-only clocks for
-Google Cloud; the Azure DNS listener, the raw Service Bus AMQP listener and the
-network-fabric teardown for Azure. A step that fails ends the process before it
-serves. `ConfigFromEnv` takes the default port and reads
+Google Cloud; the Azure DNS listener and the raw Service Bus AMQP listener for
+Azure. A step that fails ends the process before it serves. `ConfigFromEnv` takes the default port and reads
 `SIM_<PROVIDER>_PORT` ahead of `SIM_LISTEN_ADDR`, so no binary rewrites a
 placeholder address. Azure Container Instances asks `sim.RequireContainerRuntime`
 whether it can run containers, from the runtime mode the server resolved once,
@@ -2841,13 +2802,12 @@ zone's records the way the Cloud Map reference states:
 - an SRV record set's value is `1 1 <port> <instance>.<service>.<namespace>`,
   and that target name gets its own A or AAAA record;
 - `AWS_ALIAS_DNS_NAME` writes an alias to the load balancer.
-Amazon ECS tasks in a network namespace resolve service names through the VPC
-resolver, which answers from that zone. The `/etc/hosts` block the simulator
-used to write into those tasks went, along with `sim.SyncContainerHostEntries`.
-The ECS cross-task DNS tests now resolve the fully-qualified name: an awsvpc
+Amazon ECS tasks resolve service names through the VPC resolver, which
+answers from that zone; the simulator writes no `/etc/hosts` block into a
+task. The ECS cross-task DNS tests resolve the fully-qualified name: an awsvpc
 task's search domain is not the namespace, so on AWS a bare service name does
-not resolve. UpdateService replaces a service's
-DnsRecords and keeps its routing policy.
+not resolve. UpdateService replaces a service's DnsRecords and keeps its
+routing policy.
 
 Cloud Logging sinks to a BigQuery dataset stream each entry they route into
 the table for its log. The table is named from the log ID, with each
@@ -3075,3 +3035,35 @@ spent minutes archiving the set, which ran the AWS race job past its 15-minute
 limit and sent ECR Public pulls into the anonymous throttle. The `warm base
 images` job, on each push to main, restores each cloud's archive and, when the
 image set changed, fetches what is missing and saves it under the set's key.
+
+## Execution modes and the no-privilege rule
+
+The simulators ran workloads two ways: containers on engine networks, and a
+host-namespace tier of veths, `nftables` rules and Firecracker guests that
+needed `CAP_NET_ADMIN`, `CAP_SYS_ADMIN` and `/dev/kvm` on the host, beside
+two helper containers that held privilege on the simulator's behalf — a
+`CAP_NET_ADMIN` container that plumbed an Amazon ECS task's elastic network
+interface address and a `--privileged` container that attached a managed EBS
+volume's image to a loop device. The tier could not run in CI or on a
+developer machine, so every resource behind it answered a refusal there, and
+the two network models diverged: a Docker-network workload resolved through
+the engine's resolver while a namespace workload resolved through the
+cloud's.
+
+`PLAN.md` replaced the two with three modes — embedded, embedded with node
+agents, distributed — under one rule: the simulator process holds no host
+privilege in any mode, and a workload container holds no capability. Where a
+workload runs is a property of the service, chosen in simulator configuration:
+compute services and managed engines run on containers by default and on
+Firecracker microVMs when configured, through one `sim` backend interface
+with a container implementation and a microVM implementation. A node agent, a
+container the engine grants `/dev/kvm`, is the only thing that boots guests
+or filters packets, and it runs only in the two modes that name it. A VPC is
+an engine network; the cloud's fixed resolver and metadata addresses are
+sidecars on a link-local subnet of each network; NAT is a sidecar proxy;
+security groups are enforced on the flows the simulator mediates, with the
+container-to-container gap recorded until a node agent closes it; a managed
+block volume on the container backend is an engine volume, its size bound a
+node agent's. The specifications in `specs/SIMULATOR_EXECUTION.md` and
+`specs/SIMULATOR_REAL_EXECUTION.md` state the contract, and stage 1 of
+`PLAN.md` removes the tier and the helpers in one pull request.
