@@ -779,6 +779,11 @@ that only types a value, as the reaper's detach helper does; an allowance whose
 expression no longer exists fails the scan, whether or not its file still
 imports `os/exec`. The node agent and guest programs run inside the agent
 container and its microVMs, so their calls are sanctioned by name.
+What a program starts beside the HTTP port stops after the workers return and
+before the database closes, so the virtual machines a non-persistent simulator
+releases on the way out still read their store. The guest init sets its own
+PATH from the workload's environment before it starts anything: the kernel
+starts init with none, and an exec of a relative command resolves there.
 Startup refuses to serve in any mode that executes workloads when no engine
 answers: a process that passes its health check and fails every workload in
 the background is worse than one that does not start. Each cloud product's

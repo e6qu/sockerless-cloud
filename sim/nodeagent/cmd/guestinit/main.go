@@ -181,8 +181,14 @@ func newWorkload(cfg guestConfig, logs *logBook) *workload {
 }
 
 func (w *workload) start() error {
+	env := environ(w.cfg.Env)
+	// A relative command resolves on this process's own PATH before the
+	// command's environment applies, and the kernel starts init with none.
+	if err := os.Setenv("PATH", strings.TrimPrefix(env[0], "PATH=")); err != nil {
+		return err
+	}
 	cmd := exec.Command(w.cfg.Command[0], append(w.cfg.Command[1:], w.cfg.Args...)...)
-	cmd.Env = environ(w.cfg.Env)
+	cmd.Env = env
 	cmd.Dir = w.cfg.WorkingDir
 	if cmd.Dir == "" {
 		cmd.Dir = "/"

@@ -55,6 +55,9 @@ type Server struct {
 	// that waits on them can say which ones it is waiting on.
 	backgroundMu      sync.Mutex
 	backgroundRunning map[string]int
+	// stop runs at shutdown once the workers have returned and before the
+	// database closes, so what it stops can still read and write state.
+	stop func(context.Context) error
 
 	// routePatterns records every mux pattern registered through
 	// Handle/HandleFunc, in registration order. The spec-conformance
@@ -458,6 +461,12 @@ func (s *Server) stopBackground() {
 // running against package-level state after the caller is finished with it.
 func (s *Server) StopBackground() { s.stopBackground() }
 
+// OnStop registers what shutdown runs after the HTTP server has drained and
+// the background workers have returned, while the database is still open: the
+// listeners, placement backends and workloads a program started beside the
+// HTTP port read and write state as they stop.
+func (s *Server) OnStop(stop func(context.Context) error) { s.stop = stop }
+
 // ListenAndServe starts the server and blocks until shutdown.
 // It listens for SIGTERM and SIGINT for graceful shutdown.
 func (s *Server) ListenAndServe() error {
@@ -531,6 +540,11 @@ func (s *Server) ListenAndServe() error {
 	started := time.Now()
 	s.stopBackground()
 	s.logger.Info().Dur("took", time.Since(started)).Msg("shutdown: background workers returned")
+	if s.stop != nil {
+		started = time.Now()
+		err = errors.Join(err, s.stop(context.Background()))
+		s.logger.Info().Dur("took", time.Since(started)).Msg("shutdown: listeners stopped")
+	}
 	started = time.Now()
 	closeErr := CloseDB(s.db)
 	s.logger.Info().Dur("took", time.Since(started)).Msg("shutdown: database closed")
