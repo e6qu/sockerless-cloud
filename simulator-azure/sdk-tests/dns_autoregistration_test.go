@@ -14,10 +14,10 @@ import (
 
 // A virtual machine in a virtual network linked to a private zone with
 // registration enabled is registered in the zone under its computer name, and
-// the machine itself resolves that name through 168.63.129.16.
+// the machine itself resolves that name through the resolver its network
+// hands it.
 func TestPrivateDNS_AutoRegistersAVirtualMachine(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	const rg = "dns-reg-rg"
 	const vmName = "dns-reg-vm"
 	const zone = "reg.internal"
@@ -70,7 +70,7 @@ func TestPrivateDNS_AutoRegistersAVirtualMachine(t *testing.T) {
 			Publisher:          to.Ptr("Microsoft.Azure.Extensions"),
 			Type:               to.Ptr("CustomScript"),
 			TypeHandlerVersion: to.Ptr("2.1"),
-			Settings:           map[string]any{"commandToExecute": "cat /etc/resolv.conf; getent hosts " + vmName + "." + zone},
+			Settings:           map[string]any{"commandToExecute": "getent hosts " + vmName + "." + zone},
 		},
 	}, nil)
 	require.NoError(t, err)
@@ -80,6 +80,5 @@ func TestPrivateDNS_AutoRegistersAVirtualMachine(t *testing.T) {
 	for _, status := range ran.Properties.InstanceView.Statuses {
 		output = append(output, derefString(status.Message))
 	}
-	assert.Contains(t, strings.Join(output, "\n"), "nameserver 168.63.129.16")
-	assert.Contains(t, strings.Join(output, "\n"), address+" ")
+	assert.Contains(t, strings.Join(output, "\n"), address+" ", "the guest's resolver did not answer the registered name")
 }

@@ -30,10 +30,9 @@ var execCallForms = []string{
 }
 
 // Workload-dispatch invariant. No sim handler may execute a workload via
-// `os/exec`. Container/FaaS workloads run in a Docker host honouring the
-// workload's Architecture field. VM-level resources may only use the dedicated
-// Firecracker/Linux-networking real-execution substrate described in
-// specs/SIMULATOR_REAL_EXECUTION.md and feedback_sim_host_model.md.
+// `os/exec`. Every workload, a virtual machine's included, runs on the
+// container engine honouring the workload's Architecture field, as
+// specs/SIMULATOR_EXECUTION.md describes.
 //
 // The scan walks every non-test Go file of the simulator module and of the
 // framework module `sim/` it is built on, so the framework cannot host what

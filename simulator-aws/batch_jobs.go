@@ -13,6 +13,8 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	"github.com/google/uuid"
 )
 
@@ -763,7 +765,7 @@ func batchLaunchAttempt(jobID string, number int) {
 		return
 	}
 
-	handle, err := sim.StartContainerSyncContext(context.Background(), cfg, sink)
+	handle, err := batchPlaceAttempt(context.Background(), cfg, sink)
 	if err != nil {
 		batchAttemptEnded(jobID, number, sim.ProcessResult{}, err)
 		return
@@ -776,7 +778,7 @@ func batchLaunchAttempt(jobID string, number int) {
 		handle.Cancel()
 		return
 	}
-	job.Running.ContainerID = handle.ContainerID
+	job.Running.ContainerID = handle.ID()
 	job.Running.StartedAt = batchEpochMs()
 	batchJobHandles[jobID] = handle
 	if job.IsTerminated {
@@ -802,7 +804,24 @@ func batchMarkRunningLocked(job *BatchJob) {
 	}
 }
 
-func batchWatchAttempt(jobID string, number int, handle *sim.ContainerHandle) {
+// batchPlaceAttempt places an attempt's container on the platform network,
+// resolving and reading metadata through its sidecar.
+func batchPlaceAttempt(ctx context.Context, cfg sim.ContainerConfig, sink sim.LogSink) (placement.Handle, error) {
+	network, err := awsPlatformNetwork(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("job network: %w", err)
+	}
+	cfg.Network = network.Name
+	cfg.DNS = network.DNS()
+	cfg.Env = workloadhost.MergeEnv(workloadMetadataEnv(network.MetadataOrigin(), ""), cfg.Env)
+	backend, err := awsPlacement.For(placement.Service{Name: "batch"})
+	if err != nil {
+		return nil, err
+	}
+	return backend.Place(ctx, cfg, sink)
+}
+
+func batchWatchAttempt(jobID string, number int, handle placement.Handle) {
 	var result sim.ProcessResult
 	bg.WatchThen(func() { result = handle.Wait() }, func() {
 		batchAttemptEnded(jobID, number, result, nil)
@@ -1081,11 +1100,15 @@ func batchRecoverAttemptLocked(job BatchJob) error {
 	}
 	batchCEInUse[job.Running.ComputeEnvironment] += job.VCPUs
 	cfg := *job.ExecutionConfig
-	handle, err := sim.AdoptContainer(existing[0].ID, cfg, batchAttemptSink(*job.Running))
+	backend, err := awsPlacement.For(placement.Service{Name: "batch"})
+	if err != nil {
+		return err
+	}
+	handle, err := backend.Adopt(context.Background(), existing[0].ID, cfg, batchAttemptSink(*job.Running))
 	if err != nil {
 		return fmt.Errorf("adopt job %s container: %w", job.JobID, err)
 	}
-	job.Running.ContainerID = handle.ContainerID
+	job.Running.ContainerID = handle.ID()
 	if job.Running.StartedAt == 0 {
 		job.Running.StartedAt = batchEpochMs()
 	}

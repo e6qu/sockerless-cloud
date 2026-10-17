@@ -20,14 +20,11 @@ import (
 // traffic, the capture stops, and the recorded frames are downloaded back out
 // of the storage account through the Blob data plane a client really reads.
 //
-// The engine and the operations are each covered on their own — capture against
-// live traffic in realexec, and the operation surface below — but
-// nothing except this asserts that a capture started through Network Watcher
+// Nothing except this asserts that a capture started through Network Watcher
 // against an Azure virtual machine produces a file a client can fetch.
 
 func TestNetworkWatcher_PacketCaptureRecordsToStorage(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	const (
 		rg         = "pcap-rg"
 		vnetName   = "pcap-vnet"
@@ -150,7 +147,6 @@ func TestNetworkWatcher_PacketCaptureRecordsToStorage(t *testing.T) {
 // so the simulator must not produce one.
 func TestNetworkWatcher_PacketCaptureRefusesATargetItCannotRecord(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	const rg = "pcap-missing-rg"
 	const watcher = "NetworkWatcher_eastus"
 
@@ -201,7 +197,7 @@ func packetCaptureFixtureVM(t *testing.T, rg, vnetName, subnetName, nicName, vmN
 	vnetPoller, err := vnetClient.BeginCreateOrUpdate(ctx, rg, vnetName, armnetwork.VirtualNetwork{
 		Location: to.Ptr("eastus"),
 		Properties: &armnetwork.VirtualNetworkPropertiesFormat{
-			AddressSpace: &armnetwork.AddressSpace{AddressPrefixes: []*string{to.Ptr("10.91.0.0/16")}},
+			AddressSpace: &armnetwork.AddressSpace{AddressPrefixes: []*string{to.Ptr("10.105.0.0/16")}},
 		},
 	}, nil)
 	require.NoError(t, err)
@@ -211,7 +207,7 @@ func packetCaptureFixtureVM(t *testing.T, rg, vnetName, subnetName, nicName, vmN
 	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	subnetPoller, err := subnetClient.BeginCreateOrUpdate(ctx, rg, vnetName, subnetName, armnetwork.Subnet{
-		Properties: &armnetwork.SubnetPropertiesFormat{AddressPrefix: to.Ptr("10.91.1.0/24")},
+		Properties: &armnetwork.SubnetPropertiesFormat{AddressPrefix: to.Ptr("10.105.1.0/24")},
 	}, nil)
 	require.NoError(t, err)
 	subnetResp, err := subnetPoller.PollUntilDone(ctx, nil)
@@ -247,8 +243,8 @@ func packetCaptureFixtureVM(t *testing.T, rg, vnetName, subnetName, nicName, vmN
 			StorageProfile: &armcompute.StorageProfile{
 				ImageReference: &armcompute.ImageReference{
 					Publisher: to.Ptr("Canonical"),
-					Offer:     to.Ptr("0001-com-ubuntu-server-jammy"),
-					SKU:       to.Ptr("22_04-lts"),
+					Offer:     to.Ptr("ubuntu-24_04-lts"),
+					SKU:       to.Ptr("server"),
 					Version:   to.Ptr("latest"),
 				},
 				OSDisk: &armcompute.OSDisk{

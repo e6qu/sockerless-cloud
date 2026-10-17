@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
@@ -278,7 +279,7 @@ type CustomHostnameAnalysisResult struct {
 
 var acaApps sim.Store[ContainerApp]
 
-var acaAppReplicaHandles sync.Map // map[revisionID][]*sim.ContainerHandle
+var acaAppReplicaHandles sync.Map // map[revisionID][]placement.Handle
 
 // stampContainerAppServerDefaults applies the defaults real ACA stamps
 // server-side on every write. terraform-provider-azurerm reads
@@ -793,22 +794,21 @@ func startACARevisionReplicas(ctx context.Context, app ContainerApp, rev acaRevi
 	if envID == "" {
 		envID = app.Properties.ManagedEnvironmentID
 	}
-	var netName string
-	var netAliases []string
-	if envID != "" {
-		if env, ok := acaEnvironments.Get(envID); ok && env.DockerNetworkName != "" {
-			netName = env.DockerNetworkName
-			netAliases = []string{app.Name}
-			if appFqdn := acaAppFqdn(app); appFqdn != "" {
-				netAliases = append(netAliases, appFqdn)
-			}
-			if rev.Fqdn != "" {
-				netAliases = append(netAliases, rev.Fqdn)
-			}
-		}
+	// The environment's internal DNS resolves an app by its name and FQDNs,
+	// which the replica's network aliases answer on the environment's network.
+	network, subnetID, err := acaWorkloadNetwork(ctx, envID)
+	if err != nil {
+		return err
+	}
+	netAliases := []string{app.Name}
+	if appFqdn := acaAppFqdn(app); appFqdn != "" {
+		netAliases = append(netAliases, appFqdn)
+	}
+	if rev.Fqdn != "" {
+		netAliases = append(netAliases, rev.Fqdn)
 	}
 
-	metadataEnv, err := workloadMetadataEnv(app.ID, app.Identity)
+	metadataEnv, err := workloadMetadataEnv(app.ID, app.Identity, network.DNS)
 	if err != nil {
 		return err
 	}
@@ -816,7 +816,7 @@ func startACARevisionReplicas(ctx context.Context, app ContainerApp, rev acaRevi
 	if err != nil {
 		return &acaRevisionRequestError{err}
 	}
-	handles := make([]*sim.ContainerHandle, 0, int(minReplicas)*len(app.Properties.Template.Containers))
+	handles := make([]placement.Handle, 0, int(minReplicas)*len(app.Properties.Template.Containers))
 	containers := app.Properties.Template.Containers
 	names := make([]string, 0, len(containers))
 	for _, c := range containers {
@@ -834,29 +834,43 @@ func startACARevisionReplicas(ctx context.Context, app ContainerApp, rev acaRevi
 		acaRecordSystemEvent(resourceID, envID, app.Name, revision, replica.name, "AssigningReplica",
 			fmt.Sprintf("Replica '%s' has been scheduled to run on a node.", replica.name))
 		main := acaAppContainer(resourceID, app, containers[0], replicaIndex, envID, metadataEnv, secrets)
-		main.Config.Network = netName
+		main.Config.Network = network.Network
 		main.Config.NetworkAliases = netAliases
+		main.Config.DNS = network.resolvers()
 		main.Config.ExtraHosts = workloadhost.ExtraHosts()
-		group, err := workload.StartGroup(ctx, main, nil, replica.containers[0].sink(app, revision))
+		address := ""
+		if subnetID != "" {
+			if address, err = azureLeaseWorkloadAddress(subnetID, main.Config.Name); err != nil {
+				cancelStarted()
+				return err
+			}
+			main.Config.IPv4Address = address
+		}
+		group, err := acaStartGroup(ctx, main, nil, replica.containers[0].sink(app, revision))
 		if err != nil {
+			if address != "" {
+				azureReleaseWorkloadAddress(subnetID, main.Config.Name, address)
+			}
 			cancelStarted()
 			return err
+		}
+		if address != "" {
+			azureReleaseOnExit(group.Main.Exited(), subnetID, main.Config.Name, address)
 		}
 		handles = append(handles, group.Main)
 		replica.containers[0].track(group.Main, resourceID, envID, app.Name, revision, replica.name)
 		for i, c := range containers[1:] {
 			sidecar := replica.containers[i+1]
-			started, err := workload.StartSidecars(ctx, group.Main.ContainerID,
-				[]workload.Container{acaAppContainer(resourceID, app, c, replicaIndex, envID, metadataEnv, secrets)}, sidecar.sink(app, revision))
+			started, err := acaStartSidecar(ctx, group.Main.ID(), acaAppContainer(resourceID, app, c, replicaIndex, envID, metadataEnv, secrets), sidecar.sink(app, revision))
 			if err != nil {
 				cancelStarted()
 				return err
 			}
-			handles = append(handles, started...)
-			sidecar.track(started[0], resourceID, envID, app.Name, revision, replica.name)
+			handles = append(handles, started)
+			sidecar.track(started, resourceID, envID, app.Name, revision, replica.name)
 		}
 		if d := containerAppDaprSpec(app); d != nil {
-			handle, err := startACAAppDaprSidecar(ctx, resourceID, app, d, replicaIndex, group.Main.ContainerID)
+			handle, err := startACAAppDaprSidecar(ctx, resourceID, app, d, replicaIndex, group.Main.ID())
 			if err != nil {
 				cancelStarted()
 				return err
@@ -931,27 +945,17 @@ func stopACAAppReplicas(revisionID string) {
 	acaAppStopGraces.Delete(revisionID)
 	acaAppReplicas.Delete(revisionID)
 	if v, ok := acaAppReplicaHandles.LoadAndDelete(revisionID); ok {
-		handles, _ := v.([]*sim.ContainerHandle)
-		for _, handle := range handles {
-			handle.Cancel()
-			if handle.ContainerID != "" {
-				sim.StopAndRemoveContainer(handle.ContainerID, grace)
-			}
-		}
+		handles, _ := v.([]placement.Handle)
+		acaStopHandles(handles, grace)
 	}
 }
 
-func replaceACAAppReplicas(revisionID string, handles []*sim.ContainerHandle, grace time.Duration) {
+func replaceACAAppReplicas(revisionID string, handles []placement.Handle, grace time.Duration) {
 	previousGrace := acaAppRecordedStopGrace(revisionID)
 	acaAppStopGraces.Store(revisionID, grace)
 	if v, ok := acaAppReplicaHandles.Swap(revisionID, handles); ok {
-		prev, _ := v.([]*sim.ContainerHandle)
-		for _, handle := range prev {
-			handle.Cancel()
-			if handle.ContainerID != "" {
-				sim.StopAndRemoveContainer(handle.ContainerID, previousGrace)
-			}
-		}
+		prev, _ := v.([]placement.Handle)
+		acaStopHandles(prev, previousGrace)
 	}
 }
 

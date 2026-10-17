@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strconv"
 	"testing"
 	"time"
@@ -47,7 +48,7 @@ func TestApplicationGatewayForwardDeclaresTheRequestTimeout(t *testing.T) {
 		var forwardErr error
 		rec := httptest.NewRecorder()
 		sim.InFlightMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			forwardErr = applicationGatewayForward(w, r, settings, nil, applicationGatewayServer{address: host})
+			forwardErr = applicationGatewayForward(w, r, settings, nil, applicationGatewayServer{address: host}, netip.Addr{})
 			wait, openEnded = sim.DeclaredWait(r.Context())
 		})).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/orders", nil))
 

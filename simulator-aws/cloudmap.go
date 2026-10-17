@@ -124,11 +124,6 @@ var (
 	// resource ARN — the key TagResource/UntagResource/ListTagsForResource
 	// address a resource by.
 	cmTags sim.Store[map[string]string]
-	// cmNamespaceNetworks records the Docker user-defined network that locally
-	// realizes a private namespace's DNS, keyed by namespace ID. It is the
-	// simulator's realization mechanism, not part of the Cloud Map API, so it
-	// lives beside the namespace record rather than inside the wire shape.
-	cmNamespaceNetworks sim.Store[string]
 )
 
 // cmMaxTagsPerResource is the Cloud Map per-resource tag limit; exceeding it is
@@ -301,7 +296,6 @@ func registerCloudMap(r *AWSRouter, srv *sim.Server) {
 	cmServiceAttributes = sim.MakeStore[map[string]string](srv.DB(), "cloudmap_service_attributes")
 	cmServiceRevisions = sim.MakeStore[int64](srv.DB(), "cloudmap_service_revisions")
 	cmTags = sim.MakeStore[map[string]string](srv.DB(), "cloudmap_tags")
-	cmNamespaceNetworks = sim.MakeStore[string](srv.DB(), "cloudmap_namespace_networks")
 
 	r.Register("Route53AutoNaming_v20170314.CreatePrivateDnsNamespace", handleCMCreatePrivateDnsNamespace)
 	r.Register("Route53AutoNaming_v20170314.CreatePublicDnsNamespace", handleCMCreatePublicDnsNamespace)
@@ -552,7 +546,6 @@ func handleCMDeleteNamespace(w http.ResponseWriter, r *http.Request) {
 	cmDeleteHostedZone(ns)
 	cmNamespaces.Delete(req.Id)
 	cmNamespaceVPCs.Delete(req.Id)
-	cmNamespaceNetworks.Delete(req.Id)
 	cmTags.Delete(ns.Arn)
 	operationId := sim.NewUUID()
 	now := time.Now().Unix()
@@ -976,8 +969,7 @@ func handleCMRegisterInstance(w http.ResponseWriter, r *http.Request) {
 			"Service '%s' not found", req.ServiceId)
 		return
 	}
-	ns, nsOk := cmNamespaces.Get(svc.NamespaceId)
-	if !nsOk {
+	if _, nsOk := cmNamespaces.Get(svc.NamespaceId); !nsOk {
 		AWSErrorf(w, "NamespaceNotFound", http.StatusBadRequest,
 			"Namespace '%s' not found", svc.NamespaceId)
 		return
@@ -1007,38 +999,6 @@ func handleCMRegisterInstance(w http.ResponseWriter, r *http.Request) {
 	}
 	cmBumpServiceRevision(req.ServiceId)
 	cmSyncNamespaceRecords(svc.NamespaceId)
-	rollback := func() {
-		cmDeleteInstanceHealthCheck(instance)
-		if !existed {
-			cmInstances.Delete(key)
-			cmServices.Update(req.ServiceId, func(svc *CMService) {
-				if svc.InstanceCount > 0 {
-					svc.InstanceCount--
-				}
-			})
-		}
-		cmBumpServiceRevision(req.ServiceId)
-		cmSyncNamespaceRecords(svc.NamespaceId)
-	}
-
-	// A task in its VPC's network namespace asks the VPC resolver, which
-	// answers from the namespace's hosted zone.
-	containerName := resolveTaskContainerForInstance(req.InstanceId)
-	switch {
-	case cmContainerInVPCNamespace(containerName):
-	case containerName != "":
-		// Docker-network tier: realize EVERY service name this container backs
-		// as a DNS alias on the namespace network, so siblings resolve it by any
-		// of its registered names (e.g. a service alias `redis` AND its task
-		// hostname both point at the redis container).
-		if err := realizeCMContainerDockerAliases(ns, containerName); err != nil {
-			rollback()
-			AWSErrorf(w, "InternalFailure", http.StatusInternalServerError,
-				"failed to connect task container to Cloud Map namespace network: %v", err)
-			return
-		}
-	}
-
 	cmWriteInstanceOperation(w, "REGISTER_INSTANCE", svc, req.InstanceId)
 }
 
@@ -1068,190 +1028,6 @@ func cmWriteInstanceOperation(w http.ResponseWriter, opType string, svc CMServic
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"OperationId": operationId,
 	})
-}
-
-// cmDockerAliasesForContainer returns every DNS alias the container must answer
-// to on the namespace's Docker network: for each Cloud Map service whose
-// registered instance maps to containerName, both the short service name AND
-// its `<service>.<namespace>` FQDN (so e.g. `redis` and `redis.skls-net.local`
-// both resolve — the runtime's network DNS resolves both as network aliases).
-func cmDockerAliasesForContainer(namespaceID, containerName string) []string {
-	nsName := ""
-	if ns, ok := cmNamespaces.Get(namespaceID); ok {
-		nsName = ns.Name
-	}
-	seen := make(map[string]struct{})
-	var aliases []string
-	add := func(name string) {
-		if name == "" {
-			return
-		}
-		if _, dup := seen[name]; dup {
-			return
-		}
-		seen[name] = struct{}{}
-		aliases = append(aliases, name)
-	}
-	// Resolve every instance ID to its task container in a single combined pass
-	// over instances and ECS tasks, so the service×instance loop below is a map
-	// lookup instead of re-scanning all instances and all tasks per pair.
-	instanceContainers := resolveTaskContainersForInstances()
-	for _, svc := range cmServices.List() {
-		if svc.NamespaceId != namespaceID {
-			continue
-		}
-		for _, inst := range cmServiceInstances(svc.Id) {
-			if instanceContainers[inst.Id] != containerName {
-				continue
-			}
-			add(svc.Name)
-			if nsName != "" {
-				add(svc.Name + "." + nsName)
-			}
-		}
-	}
-	return aliases
-}
-
-// resolveTaskContainersForInstances maps every Cloud Map instance ID to its task
-// container name in two single passes — one to index ECS tasks by private IP,
-// one over instances — replacing the per-instance re-scan of all instances
-// (cmInstanceIPv4) and all ECS tasks (resolveTaskContainerForInstance) that a
-// naive nested loop incurs. The per-instance result is identical to
-// resolveTaskContainerForInstance(id).
-func resolveTaskContainersForInstances() map[string]string {
-	containerByIP := make(map[string]string)
-	for _, task := range ecsTasks.List() {
-		ip := ecsTaskPrivateIP(task)
-		if ip == "" {
-			continue
-		}
-		// Derive task UUID from ARN ("arn:…/task/<cluster>/<taskId>").
-		taskId := task.TaskArn
-		if i := lastSlash(taskId); i >= 0 {
-			taskId = taskId[i+1:]
-		}
-		if len(taskId) < 12 {
-			continue
-		}
-		containerName := "sockerless-sim-aws-task-" + taskId[:12]
-		if taskHasENI(task) && ec2ECSRealNetAvailable() {
-			containerName += "-pause"
-		}
-		containerByIP[ip] = containerName
-	}
-	out := make(map[string]string)
-	for _, inst := range cmInstances.List() {
-		if _, dup := out[inst.Id]; dup {
-			continue
-		}
-		ip := inst.Attributes["AWS_INSTANCE_IPV4"]
-		if ip == "" {
-			continue
-		}
-		if name, ok := containerByIP[ip]; ok {
-			out[inst.Id] = name
-		}
-	}
-	return out
-}
-
-// realizeCMContainerDockerAliases (re)attaches a task container to its Cloud Map
-// namespace network with the full set of service-name aliases it currently
-// backs. Docker rejects connecting an already-connected container and can't add
-// an alias to a live endpoint, so it re-attaches with the full set (the same
-// disconnect-then-connect pattern the azure ACA multi-CNAME path uses). The
-// disconnect is best-effort: a not-yet-attached container errors there, which
-// the connect corrects; when the container backs no services it stays detached.
-func realizeCMContainerDockerAliases(ns CMNamespace, containerName string) error {
-	networkName, err := ensureCMNamespaceDockerNetwork(ns)
-	if err != nil {
-		return err
-	}
-	aliases := cmDockerAliasesForContainer(ns.Id, containerName)
-	_ = sim.DisconnectContainerFromNetwork(containerName, networkName)
-	if len(aliases) == 0 {
-		return nil
-	}
-	return sim.ConnectContainerToNetwork(containerName, networkName, aliases)
-}
-
-// resolveTaskContainerForInstance maps a Cloud Map instance to the simulator's
-// Docker container by the registered `AWS_INSTANCE_IPV4` attribute — the
-// faithful Cloud Map mechanism (a client registers an instance with the task's
-// IP; the sim matches it to the task carrying that private IP), not any
-// sockerless-specific tag. On the netns awsvpc fabric the pause container owns
-// the namespace; that tier cannot join Docker's DNS network after the real ENI
-// occupies eth0, so Cloud Map uses host entries in the task container instead.
-func resolveTaskContainerForInstance(instanceId string) string {
-	ip := cmInstanceIPv4(instanceId)
-	if ip == "" {
-		return ""
-	}
-	for _, task := range ecsTasks.List() {
-		if ecsTaskPrivateIP(task) != ip {
-			continue
-		}
-		// Derive task UUID from ARN ("arn:…/task/<cluster>/<taskId>").
-		taskId := task.TaskArn
-		if i := lastSlash(taskId); i >= 0 {
-			taskId = taskId[i+1:]
-		}
-		if len(taskId) < 12 {
-			return ""
-		}
-		containerName := "sockerless-sim-aws-task-" + taskId[:12]
-		if taskHasENI(task) && ec2ECSRealNetAvailable() {
-			return containerName + "-pause"
-		}
-		return containerName
-	}
-	return ""
-}
-
-// cmInstanceIPv4 returns a registered Cloud Map instance's AWS_INSTANCE_IPV4
-// attribute (the standard address attribute), searched across services.
-func cmInstanceIPv4(instanceID string) string {
-	for _, inst := range cmInstances.List() {
-		if inst.Id == instanceID {
-			return inst.Attributes["AWS_INSTANCE_IPV4"]
-		}
-	}
-	return ""
-}
-
-// ecsTaskPrivateIP returns a task's private IPv4 address from its awsvpc ENI
-// attachment's `privateIPv4Address` detail (the value DescribeTasks surfaces and
-// the ECS backend registers as the Cloud Map instance's AWS_INSTANCE_IPV4).
-func ecsTaskPrivateIP(task ECSTask) string {
-	for _, att := range task.Attachments {
-		if ip := ecsTaskDetail(att.Details, "privateIPv4Address"); ip != "" {
-			return ip
-		}
-	}
-	return ""
-}
-
-func cmContainerInVPCNamespace(containerName string) bool {
-	return strings.HasSuffix(containerName, "-pause")
-}
-
-func taskHasENI(task ECSTask) bool {
-	for _, att := range task.Attachments {
-		if att.Type == "ElasticNetworkInterface" {
-			return true
-		}
-	}
-	return false
-}
-
-func lastSlash(s string) int {
-	for i := len(s) - 1; i >= 0; i-- {
-		if s[i] == '/' {
-			return i
-		}
-	}
-	return -1
 }
 
 func handleCMDeregisterInstance(w http.ResponseWriter, r *http.Request) {
@@ -1294,17 +1070,6 @@ func handleCMDeregisterInstance(w http.ResponseWriter, r *http.Request) {
 	svc, svcOk := cmServices.Get(req.ServiceId)
 	if svcOk {
 		cmSyncNamespaceRecords(svc.NamespaceId)
-		containerName := resolveTaskContainerForInstance(req.InstanceId)
-		networkName, _ := cmNamespaceNetworks.Get(svc.NamespaceId)
-		if ns, nsOk := cmNamespaces.Get(svc.NamespaceId); nsOk && networkName != "" && !cmContainerInVPCNamespace(containerName) {
-			// Re-realize the container's REMAINING aliases: it may still back
-			// other services in the namespace, so a plain disconnect would drop
-			// names that are still registered. realizeCMContainerDockerAliases
-			// reconnects with the reduced set, or detaches when none remain.
-			if containerName != "" {
-				_ = realizeCMContainerDockerAliases(ns, containerName)
-			}
-		}
 	}
 
 	cmWriteInstanceOperation(w, "DEREGISTER_INSTANCE", svc, req.InstanceId)
@@ -1531,18 +1296,6 @@ func handleCMDeleteService(w http.ResponseWriter, r *http.Request) {
 	cmTags.Delete(svc.Arn)
 
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
-}
-
-func ensureCMNamespaceDockerNetwork(ns CMNamespace) (string, error) {
-	if existing, ok := cmNamespaceNetworks.Get(ns.Id); ok && existing != "" {
-		return existing, nil
-	}
-	networkName := "sim-" + ns.Id
-	if _, err := sim.EnsureDockerNetwork(networkName); err != nil {
-		return "", err
-	}
-	cmNamespaceNetworks.Put(ns.Id, networkName)
-	return networkName, nil
 }
 
 func cmNamespaceHasServices(namespaceId string) bool {

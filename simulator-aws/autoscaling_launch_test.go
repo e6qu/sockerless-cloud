@@ -94,8 +94,16 @@ func asLaunchTestStores(t *testing.T) {
 		ec2LaunchTemplates = sim.MakeStore[EC2LaunchTemplate](nil, "ec2_launch_templates")
 	}
 	{
+		prev := ec2Images
+		swap(func() { ec2Images = prev })
+		ec2Images = sim.MakeStore[EC2Image](nil, "ec2_images")
+	}
+	{
+		// The launch state machine under test supplies no machine: a boot
+		// completes at once unless a test replaces it.
 		prev := ec2BootInstance
 		swap(func() { ec2BootInstance = prev })
+		ec2BootInstance = func(context.Context, EC2Instance) error { return nil }
 	}
 	t.Cleanup(func() {
 		bg.Await()

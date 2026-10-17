@@ -17,7 +17,6 @@ import (
 // from a record that they happened.
 func TestCompute_VirtualMachineExtensionRunsInTheGuest(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	const rg = "vm-ext-rg"
 	const vmName = "vm-ext"
 	nicID := vmOperationsFixture(t, rg, "vm-ext", "10.96")
@@ -101,7 +100,6 @@ func TestCompute_VirtualMachineExtensionRunsInTheGuest(t *testing.T) {
 // counts agreeing with the list proves.
 func TestCompute_VirtualMachineAssessPatchesReadsTheGuest(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	const rg = "vm-patch-rg"
 	const vmName = "vm-patch"
 	nicID := vmOperationsFixture(t, rg, "vm-patch", "10.97")

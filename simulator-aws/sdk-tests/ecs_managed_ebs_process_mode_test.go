@@ -70,14 +70,11 @@ func startProcessModeSim(t *testing.T) string {
 	return ""
 }
 
-// TestECS_ManagedEBSRunTaskProcessMode covers issue #569: a managed-EBS
-// RunTask under SIM_RUNTIME=process must not panic the simulator on the nil
-// Docker client. The deleteOnTermination cleanup previously routed through
-// ebsRemoveDockerVolume → sim.DockerClient().VolumeRemove, dereferencing the
-// nil client in the async task-transition goroutine and crashing the process.
-// With the fix the managed-EBS volume is host-path-backed in process mode (the
-// same in-memory model ec2:CreateVolume uses), so the transition completes and
-// the simulator keeps serving.
+// TestECS_ManagedEBSRunTaskProcessMode: a managed-EBS RunTask under
+// SIM_RUNTIME=process must not panic the simulator on the nil Docker client.
+// The managed-EBS volume is host-path-backed in process mode (the same
+// in-memory model ec2:CreateVolume uses), so the transition completes and the
+// simulator keeps serving.
 func TestECS_ManagedEBSRunTaskProcessMode(t *testing.T) {
 	t.Parallel()
 	url := startProcessModeSim(t)

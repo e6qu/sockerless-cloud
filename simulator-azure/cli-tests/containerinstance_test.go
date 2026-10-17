@@ -46,12 +46,8 @@ func TestACILocationUsages_CLI(t *testing.T) {
 // implementation from a handler that answers 204 to any URL of that shape —
 // which is what this one was. The refusal for a subnet that does not exist is
 // the other half of the contract and is asserted beside it.
-// Creating that subnet builds real Linux network fabric, so the test carries
-// the same host-capability gate the Microsoft.Network suite does and runs for
-// real on the CI Linux cell.
 func TestACISubnetServiceAssociationLinkDelete(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	const networkAPIVersion = "2024-05-01"
 	vnetURL := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/aci-vnet?api-version=%s",
 		baseURL, subscriptionID, resourceGroup, networkAPIVersion)

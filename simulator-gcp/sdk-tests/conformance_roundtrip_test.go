@@ -302,8 +302,7 @@ func requireGoogleErr(t *testing.T, err error, code int, gcpStatus string) {
 
 // TestConformance_ComputeDuplicateInsertConflict pins that a second insert of
 // a metadata-only Compute resource (backendService) returns 409 ALREADY_EXISTS
-// like real GCP, instead of silently overwriting. backendServices.insert does
-// not touch the network fabric, so the case runs without a real-exec host.
+// like real GCP, instead of silently overwriting.
 func TestConformance_ComputeDuplicateInsertConflict(t *testing.T) {
 	t.Parallel()
 	svc, err := compute.NewService(ctx, option.WithEndpoint(baseURL+"/compute/v1/"), option.WithTokenSource(simTokenSource()))
@@ -466,11 +465,9 @@ func TestConformance_IAMSetPolicyStaleEtagAborted(t *testing.T) {
 }
 
 // TestConformance_ComputeListPaginatesByMaxResults pins that the Compute list
-// surface honors the API's maxResults page size + pageToken cursor. A
-// metadata-only backendService (insert never touches the network fabric) lets
-// this run without a real-exec host. Before the fix, paginateList read
-// "pageSize" — a param the Compute SDK never sends — so every list returned the
-// full set on page 1 with no nextPageToken.
+// surface honors the API's maxResults page size + pageToken cursor. Before
+// the fix, paginateList read "pageSize" — a param the Compute SDK never sends
+// — so every list returned the full set on page 1 with no nextPageToken.
 func TestConformance_ComputeListPaginatesByMaxResults(t *testing.T) {
 	t.Parallel()
 	svc, err := compute.NewService(ctx, option.WithEndpoint(baseURL+"/compute/v1/"), option.WithTokenSource(simTokenSource()))

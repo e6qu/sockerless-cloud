@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -12,7 +11,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"math/big"
 	"net/http"
 	"reflect"
@@ -52,21 +50,12 @@ type ManagedZone struct {
 	CloudLoggingConfig json.RawMessage `json:"cloudLoggingConfig,omitempty"`
 }
 
-// storedManagedZone is the persisted row backing a managed zone: the
-// wire-shape ManagedZone (what handlers emit — real Cloud DNS's
-// ManagedZone has no dockerNetworkName member) plus sockerless wiring
-// that must survive a simulator restart. The embedding flattens on
-// json.Marshal, so sim.Store persistence keeps the same row shape the
-// wiring has always been recovered from.
+// storedManagedZone is the persisted row backing a managed zone. It carries
+// the wire-shape ManagedZone alone: a private zone is visible to the networks
+// its privateVisibilityConfig names, which the resolver's catalog reads per
+// querying network.
 type storedManagedZone struct {
 	ManagedZone
-	// DockerNetworkName is the real Docker user-defined network backing
-	// this private zone. Containers referenced by A records inside the
-	// zone are connected to this network with the record's short name
-	// as DNS alias, so cross-container DNS resolves via Docker's
-	// embedded DNS. Empty for public zones. Store-only: never emitted
-	// on the wire.
-	DockerNetworkName string `json:"dockerNetworkName,omitempty"`
 }
 
 // pruneEmptyPrivateVisibilityConfig returns nil when the config carries no
@@ -279,20 +268,7 @@ func registerCloudDNS(srv *sim.Server) {
 		// it unless it actually carries networks or GKE clusters.
 		zone.PrivateVisibilityConfig = pruneEmptyPrivateVisibilityConfig(zone.PrivateVisibilityConfig)
 
-		// Back every private zone with a real Docker network.
-		// Containers registered in the zone via A records (sockerless's
-		// service-register step) get connected to this network with
-		// their record short-name as DNS alias, so cross-container DNS
-		// works via Docker's embedded resolver. Public zones get no
-		// Docker network.
 		stored := storedManagedZone{ManagedZone: zone}
-		if zone.Visibility == "private" {
-			netName := "sim-" + zone.ID
-			if _, err := sim.EnsureDockerNetwork(netName); err == nil {
-				stored.DockerNetworkName = netName
-			}
-		}
-
 		zones.Put(key, stored)
 		for _, rs := range cloudDNSApexRecordSets(zone) {
 			recordSets.Put(dnsRecordSetKey(project, zone.Name, rs.Name, rs.Type), storedResourceRecordSet{Project: project, Zone: zone.Name, Record: rs})
@@ -370,16 +346,6 @@ func registerCloudDNS(srv *sim.Server) {
 			}
 		}
 
-		// Cloud DNS deletes a zone whatever still resolves through it; the
-		// network behind it goes once its last container has disconnected.
-		if network := zone.DockerNetworkName; network != "" {
-			srv.StartBackground("remove Cloud DNS zone network "+network, func(ctx context.Context) {
-				if err := sim.RemoveDockerNetworkContext(ctx, network); err != nil && ctx.Err() == nil {
-					log.Printf("cloud dns: remove network %s of deleted zone %s: %v", network, zoneName, err)
-				}
-			})
-		}
-
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 	})
 
@@ -442,8 +408,7 @@ func registerCloudDNS(srv *sim.Server) {
 		zoneName := sim.PathParam(r, "zone")
 		zoneKey := project + "/" + zoneName
 
-		zone, ok := zones.Get(zoneKey)
-		if !ok {
+		if _, ok := zones.Get(zoneKey); !ok {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
 			return
 		}
@@ -466,19 +431,6 @@ func registerCloudDNS(srv *sim.Server) {
 		}
 
 		recordSets.Put(key, storedResourceRecordSet{Project: project, Zone: zoneName, Record: rs})
-
-		// For A records on a private zone, connect the container
-		// identified by Rrdatas[0] (its bridge-network IP) to the
-		// zone's Docker network, with the record's short name as
-		// DNS alias. Cross-container DNS resolves via Docker's
-		// embedded resolver from that point on.
-		if zone.DockerNetworkName != "" && rs.Type == "A" && len(rs.Rrdatas) > 0 {
-			if containerName := sim.FindContainerByIP(rs.Rrdatas[0]); containerName != "" {
-				alias := shortHostnameFromDNS(rs.Name, zone.DNSName)
-				_ = sim.ConnectContainerToNetwork(containerName, zone.DockerNetworkName, []string{alias})
-			}
-		}
-
 		sim.WriteJSON(w, http.StatusOK, rs)
 	})
 
@@ -505,26 +457,12 @@ func registerCloudDNS(srv *sim.Server) {
 		zoneName := sim.PathParam(r, "zone")
 		rrName := sim.PathParam(r, "name")
 		rrType := sim.PathParam(r, "type")
-		zoneKey := project + "/" + zoneName
 		key := dnsRecordSetKey(project, zoneName, rrName, rrType)
 
-		stored, rsOk := recordSets.Get(key)
 		if !recordSets.Delete(key) {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "record set %s/%s not found", rrName, rrType)
 			return
 		}
-
-		// Disconnect the container that was connected when the
-		// record was created. Best-effort — container shutdown
-		// already cleans up Docker-side network memberships.
-		if rsOk && stored.Record.Type == "A" && len(stored.Record.Rrdatas) > 0 {
-			if zone, ok := zones.Get(zoneKey); ok && zone.DockerNetworkName != "" {
-				if containerName := sim.FindContainerByIP(stored.Record.Rrdatas[0]); containerName != "" {
-					_ = sim.DisconnectContainerFromNetwork(containerName, zone.DockerNetworkName)
-				}
-			}
-		}
-
 		sim.WriteJSON(w, http.StatusOK, map[string]any{})
 	})
 
@@ -575,8 +513,7 @@ func registerCloudDNS(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		zoneName := sim.PathParam(r, "zone")
 		zoneKey := project + "/" + zoneName
-		zone, ok := zones.Get(zoneKey)
-		if !ok {
+		if _, ok := zones.Get(zoneKey); !ok {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "managed zone %q not found", zoneName)
 			return
 		}
@@ -614,12 +551,10 @@ func registerCloudDNS(srv *sim.Server) {
 		for _, deletion := range change.Deletions {
 			key := dnsRecordSetKey(project, zoneName, deletion.Name, deletion.Type)
 			recordSets.Delete(key)
-			disconnectDNSRecordFromZone(zone, deletion)
 		}
 		for _, addition := range change.Additions {
 			recordSets.Put(dnsRecordSetKey(project, zoneName, addition.Name, addition.Type),
 				storedResourceRecordSet{Project: project, Zone: zoneName, Record: addition})
-			connectDNSRecordToZone(zone, addition)
 		}
 
 		change.ID = nextDNSChangeID(changes, project, zoneName)
@@ -1198,40 +1133,6 @@ func dnsRecordSetsEqual(a, b ResourceRecordSet) bool {
 		a.Type == b.Type &&
 		a.TTL == b.TTL &&
 		reflect.DeepEqual(a.Rrdatas, b.Rrdatas)
-}
-
-func connectDNSRecordToZone(zone storedManagedZone, rs ResourceRecordSet) {
-	if zone.DockerNetworkName == "" || rs.Type != "A" || len(rs.Rrdatas) == 0 {
-		return
-	}
-	if containerName := sim.FindContainerByIP(rs.Rrdatas[0]); containerName != "" {
-		alias := shortHostnameFromDNS(rs.Name, zone.DNSName)
-		_ = sim.ConnectContainerToNetwork(containerName, zone.DockerNetworkName, []string{alias})
-	}
-}
-
-func disconnectDNSRecordFromZone(zone storedManagedZone, rs ResourceRecordSet) {
-	if zone.DockerNetworkName == "" || rs.Type != "A" || len(rs.Rrdatas) == 0 {
-		return
-	}
-	if containerName := sim.FindContainerByIP(rs.Rrdatas[0]); containerName != "" {
-		_ = sim.DisconnectContainerFromNetwork(containerName, zone.DockerNetworkName)
-	}
-}
-
-// shortHostnameFromDNS strips the zone's DNS suffix from a record name
-// so we can use the short hostname as a Docker DNS alias. Cloud DNS
-// names are always FQDNs with a trailing dot, e.g. "alpha.test.local."
-// for a zone whose DNSName is "test.local." → "alpha". Docker's
-// embedded DNS resolves short names via aliases, so this is what we
-// want containers inside the network to use as `getent hosts alpha`.
-func shortHostnameFromDNS(recordName, zoneDNS string) string {
-	name := strings.TrimSuffix(recordName, ".")
-	suffix := strings.TrimSuffix(zoneDNS, ".")
-	if suffix != "" && strings.HasSuffix(name, "."+suffix) {
-		name = strings.TrimSuffix(name, "."+suffix)
-	}
-	return name
 }
 
 // randomUint64String returns a server-defined numeric id, matching the

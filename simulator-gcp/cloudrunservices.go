@@ -340,13 +340,15 @@ func containerEnvMap(envVars []EnvVar) map[string]string {
 
 type cloudRunServiceInstance struct {
 	// ownerID is the container that owns the instance's network namespace,
-	// the first to start, and publishes the ingress port.
+	// the first to start, and publishes the ingress port; owner is its
+	// handle, nil for an instance adopted from an earlier process.
 	ownerID string
+	owner   *sim.ContainerHandle
 	specSig string
 	// stop ends the instance's log stream, container start and startup probes.
 	stop context.CancelFunc
 	// logsDone closes once the owner container's log stream has ended.
-	logsDone chan struct{}
+	logsDone <-chan struct{}
 	// ready closes once every container has started and passed its startup
 	// probe, or one failed; address and startErr are written before it closes
 	// and read only after.
@@ -489,7 +491,7 @@ var cloudRunServiceInstances = struct {
 // starts one: the container that owns its network namespace at once, and the
 // others and the startup probes in the background, in dependsOn order;
 // awaitReady waits for them.
-func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, containers []Container, volumes []Volume, sink sim.LogSink) (*cloudRunServiceInstance, error) {
+func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, vpc *VpcAccess, containers []Container, volumes []Volume, sink sim.LogSink) (*cloudRunServiceInstance, error) {
 	specSig := serviceContainersSignature(containers, volumes)
 
 	cloudRunServiceInstances.Lock()
@@ -522,9 +524,19 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 			return nil, err
 		}
 	}
-	releaseMounts, err := gcsAcquireMounts(writable)
+	instanceID := sim.RandomHex(8)
+	netw, err := gcpCloudRunNetwork(ctx, project, resourceLocation(name), vpc, fmt.Sprintf("sockerless-sim-cloudrun-svc-%s-%s", serviceID, instanceID))
 	if err != nil {
 		return nil, err
+	}
+	mounts, err := gcsAcquireMounts(writable)
+	if err != nil {
+		netw.done()
+		return nil, err
+	}
+	releaseMounts := func() {
+		mounts()
+		netw.done()
 	}
 	mountsHeld := true
 	defer func() {
@@ -532,15 +544,7 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 			releaseMounts()
 		}
 	}()
-	instanceID := sim.RandomHex(8)
-	metadataEnv, err := hostMetadataEnv()
-	if err != nil {
-		return nil, err
-	}
-	extraHosts, err := hostMetadataExtraHosts()
-	if err != nil {
-		return nil, err
-	}
+	metadataEnv := netw.env()
 	members := make([]workload.Container, len(containers))
 	for i, c := range containers {
 		env := workloadhost.MergeEnv(containerEnvMap(c.Env), metadataEnv)
@@ -573,36 +577,25 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 	}
 
 	// The first container to start owns the network namespace the others
-	// join, and with it the published ingress port and the hosts file the
-	// metadata server's name resolves in.
-	owner := members[order[0]].Config
-	platform, err := workload.LocalImagePlatform(ctx, owner.Image, owner.RegistryAuth)
-	if err != nil {
-		return nil, err
-	}
-	ownerID, err := sim.StartHTTPContainer(ctx, sim.HTTPContainerConfig{
-		Image:        owner.Image,
-		Architecture: platform,
-		Command:      owner.Command,
-		Args:         owner.Args,
-		Env:          owner.Env,
-		Name:         owner.Name,
-		Labels:       owner.Labels,
-		Binds:        owner.Binds,
-		ExtraHosts:   extraHosts,
-		PublishPorts: cloudRunNamespacePorts(containers, true),
-		Sandbox:      SandboxCloudRun,
-	})
+	// join, and with it the published ingress port, the network the
+	// instance sits on and the hosts file the metadata server's name
+	// resolves in.
+	owner := members[order[0]]
+	netw.apply(&owner.Config)
+	owner.Config.PublishPorts = cloudRunNamespacePorts(containers, true)
+	ownerGroup, err := workload.StartGroup(ctx, owner, nil, sink)
 	if err != nil {
 		return nil, fmt.Errorf("start service container %q: %w", containers[order[0]].Name, err)
 	}
+	ownerID := ownerGroup.Main.ContainerID
 
 	lifeCtx, stop := context.WithCancel(context.Background())
 	inst := &cloudRunServiceInstance{
 		ownerID:       ownerID,
+		owner:         ownerGroup.Main,
 		specSig:       specSig,
 		stop:          stop,
-		logsDone:      streamCloudRunOwnerLogs(lifeCtx, ownerID, sink),
+		logsDone:      ownerGroup.Main.Exited(),
 		ready:         make(chan struct{}),
 		releaseMounts: releaseMounts,
 	}
@@ -667,7 +660,11 @@ func stopCloudRunServiceInstance(inst *cloudRunServiceInstance) {
 	for _, h := range handles {
 		h.Cancel()
 	}
-	sim.StopAndRemoveContainer(inst.ownerID, cloudRunStopGrace)
+	if inst.owner != nil {
+		inst.owner.Cancel()
+	} else {
+		sim.StopAndRemoveContainer(inst.ownerID, cloudRunStopGrace)
+	}
 	if inst.logsDone != nil {
 		<-inst.logsDone
 	}

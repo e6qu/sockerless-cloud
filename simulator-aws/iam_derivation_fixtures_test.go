@@ -69,7 +69,7 @@ func iamSeedDerivationFixtures(t *testing.T,
 	// machine to attach it to.
 	instance := iamFixtureEC2(t, queryRouter, "RunInstances",
 		map[string]string{
-			"ImageId": "ami-0123456789abcdef0", "MinCount": "1", "MaxCount": "1",
+			"ImageId": "ami-0c101f26f147fa7fd", "MinCount": "1", "MaxCount": "1",
 			"InstanceType": "t3.micro", "SubnetId": subnet,
 		}, `<instanceId>([^<]+)</instanceId>`)
 	detachable := iamFixtureEC2(t, queryRouter, "CreateNetworkInterface",
@@ -161,7 +161,7 @@ func iamSeedDerivationFixtures(t *testing.T,
 	// one the service made rather than a row written into the store.
 	iamFixtureQuery(t, queryRouter, "2011-01-01", "CreateLaunchConfiguration",
 		map[string]string{
-			"LaunchConfigurationName": "probe", "ImageId": "ami-0123456789abcdef0",
+			"LaunchConfigurationName": "probe", "ImageId": "ami-0c101f26f147fa7fd",
 			"InstanceType": "t3.micro",
 		}, `(CreateLaunchConfigurationResponse)`)
 	iamFixtureQuery(t, queryRouter, "2011-01-01", "CreateAutoScalingGroup",

@@ -17,8 +17,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/lbplane"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
 // Amplify Hosting SSR (WEB_COMPUTE) execution, per the published Amplify
@@ -269,6 +270,11 @@ func amplifyEnsureCompute(app AmplifyApp, br AmplifyBranch, content *amplifyHost
 		env[k] = v
 	}
 	env["PORT"] = strconv.Itoa(amplifyComputePort)
+	network, err := awsPlatformNetwork(context.Background())
+	if err != nil {
+		_ = os.RemoveAll(bundleDir)
+		return 0, fmt.Errorf("compute network: %w", err)
+	}
 
 	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
 		Image:        image,
@@ -278,8 +284,10 @@ func amplifyEnsureCompute(app AmplifyApp, br AmplifyBranch, content *amplifyHost
 		// The deployed bundle is immutable to compute. The shared SELinux
 		// relabel lets the confined workload read the real host directory on
 		// enforcing hosts and is accepted as a no-op by Docker elsewhere.
-		Binds: []string{bundleDir + ":/bundle:ro,z"},
-		Env:   env,
+		Binds:   []string{bundleDir + ":/bundle:ro,z"},
+		Env:     workloadhost.MergeEnv(workloadMetadataEnv(network.MetadataOrigin(), ""), env),
+		Network: network.Name,
+		DNS:     network.DNS(),
 		Labels: map[string]string{
 			"sockerless-amplify-compute":    key,
 			"sockerless-amplify-job-id":     content.JobID,

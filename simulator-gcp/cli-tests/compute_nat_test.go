@@ -9,7 +9,6 @@ import (
 
 func TestGcloudComputeAddressAndRouterNAT(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	region := "us-central1"
 	network := "cli-nat-network"
 	address := "cli-nat-address"
@@ -107,7 +106,7 @@ func TestGcloudComputeAddressAndRouterNAT(t *testing.T) {
 	require.Error(t, err, "describing a deleted address must fail: %s", out)
 
 	// The network the router was built on is torn down too, so the test leaves
-	// nothing behind on the host's real network fabric.
+	// nothing behind.
 	out, err = gcloudCLI("compute", "networks", "delete", network, "--quiet").CombinedOutput()
 	require.NoError(t, err, "network delete: %s", out)
 	out, err = gcloudCLI("compute", "networks", "describe", network, "--format=json").CombinedOutput()
@@ -150,7 +149,6 @@ func computeRouterJSON(t *testing.T, router, region string) computeRouter {
 //	GET /compute/v1/projects/{project}/regions/{region}/subnetworks
 func TestGcloudComputeSubnetsList(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	region := "us-central1"
 	network := "cli-subnet-list-net"
 	subnet := "cli-subnet-list-a"

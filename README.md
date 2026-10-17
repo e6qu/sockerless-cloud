@@ -254,7 +254,7 @@ Discovery documents, Azure Swagger):
 
 The three simulators are built on one framework module, [`sim/`](sim/README.md)
 (`github.com/e6qu/sockerless-cloud/sim`), pinned by each simulator like the
-other support modules (`realexec/`, `ui-auth/`): the HTTP server and its
+the other support module (`ui-auth/`): the HTTP server and its
 console and monitoring routes, the container-engine layer every workload runs
 on, durable state on SQLite, the OCI Distribution data plane the registries
 mount, request logging and tracing, and the bounds-safe parsing primitives.

@@ -77,6 +77,12 @@ func createOperationsVM(t *testing.T, rg, vmName, nicID string, mutate func(*arm
 		Properties: &armcompute.VirtualMachineProperties{
 			HardwareProfile: &armcompute.HardwareProfile{VMSize: to.Ptr(armcompute.VirtualMachineSizeTypes("Standard_B1s"))},
 			StorageProfile: &armcompute.StorageProfile{
+				ImageReference: &armcompute.ImageReference{
+					Publisher: to.Ptr("Debian"),
+					Offer:     to.Ptr("debian-12"),
+					SKU:       to.Ptr("12"),
+					Version:   to.Ptr("latest"),
+				},
 				OSDisk: &armcompute.OSDisk{
 					Name:         to.Ptr(vmName + "-osdisk"),
 					CreateOption: to.Ptr(armcompute.DiskCreateOptionTypesFromImage),
@@ -111,7 +117,6 @@ func createOperationsVM(t *testing.T, rg, vmName, nicID string, mutate func(*arm
 // The reads that answer off the machine's own state.
 func TestCompute_VirtualMachineStateOperations(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	const rg = "vm-ops-rg"
 	const vmName = "vm-ops"
 	nicID := vmOperationsFixture(t, rg, "vm-ops", "10.91")
@@ -194,7 +199,6 @@ func TestCompute_VirtualMachineStateOperations(t *testing.T) {
 // again, which is what the operation means on real hardware.
 func TestCompute_VirtualMachineGuestOperations(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	const rg = "vm-guest-rg"
 	const vmName = "vm-guest"
 	nicID := vmOperationsFixture(t, rg, "vm-guest", "10.92")
@@ -254,7 +258,6 @@ func TestCompute_VirtualMachineGuestOperations(t *testing.T) {
 // behind.
 func TestCompute_VirtualMachineSimulateEvictionDeallocatesASpotMachine(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	const rg = "vm-spot-rg"
 	const vmName = "vm-spot"
 	nicID := vmOperationsFixture(t, rg, "vm-spot", "10.93")
@@ -298,7 +301,6 @@ func TestCompute_VirtualMachineSimulateEvictionDeallocatesASpotMachine(t *testin
 // the Blob data plane.
 func TestCompute_VirtualMachineBootDiagnostics(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	const rg = "vm-bootdiag-rg"
 	const vmName = "vm-bootdiag"
 	nicID := vmOperationsFixture(t, rg, "vm-bootdiag", "10.94")

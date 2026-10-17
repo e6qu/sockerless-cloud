@@ -236,7 +236,6 @@ func TestNetworkVirtualNetworkTaps_CRUD(t *testing.T) {
 // makes it appear, removing it takes it away.
 func TestNetworkVirtualNetworkTap_ReportsMirroringInterfaces(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	rg := "tap-attach-rg"
 	requireResourceGroup(t, rg)
 	subnetID := requireSubnet(t, rg, "tap-vnet", "10.40.0.0/16", "tap-subnet", "10.40.1.0/24")
@@ -425,7 +424,6 @@ func TestNetworkServiceEndpointPolicies_CRUDAndDefinitions(t *testing.T) {
 // which is where the policy is actually enforced.
 func TestNetworkServiceEndpointPolicy_ReportsEnforcingSubnets(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	rg := "sep-subnet-rg"
 	requireResourceGroup(t, rg)
 

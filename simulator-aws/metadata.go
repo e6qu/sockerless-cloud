@@ -5,12 +5,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
-	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
@@ -82,7 +82,7 @@ func registerHostMetadata(srv *sim.Server) {
 		if !mustToken(w, r) {
 			return
 		}
-		writeText(w, "ami-id\ninstance-id\ninstance-type\nplacement/\niam/\nidentity-credentials/\n")
+		writeText(w, "ami-id\nhostname\ninstance-id\ninstance-type\nlocal-hostname\nlocal-ipv4\nplacement/\niam/\nidentity-credentials/\n")
 	})
 
 	srv.HandleFunc("GET /latest/meta-data/instance-id", func(w http.ResponseWriter, r *http.Request) {
@@ -115,6 +115,28 @@ func registerHostMetadata(srv *sim.Server) {
 		}
 		writeText(w, "ami-0123456789abcdef0")
 	})
+	srv.HandleFunc("GET /latest/meta-data/local-ipv4", func(w http.ResponseWriter, r *http.Request) {
+		if !mustToken(w, r) {
+			return
+		}
+		if inst, ok := imdsInstancesByIP.ForRequest(r); ok {
+			writeText(w, inst.PrivateIpAddress)
+			return
+		}
+		http.NotFound(w, r)
+	})
+	for _, leaf := range []string{"hostname", "local-hostname"} {
+		srv.HandleFunc("GET /latest/meta-data/"+leaf, func(w http.ResponseWriter, r *http.Request) {
+			if !mustToken(w, r) {
+				return
+			}
+			if inst, ok := imdsInstancesByIP.ForRequest(r); ok {
+				writeText(w, ec2PrivateDNSHostname(inst.PrivateIpAddress)+"."+awsRegion()+".compute.internal")
+				return
+			}
+			http.NotFound(w, r)
+		})
+	}
 	srv.HandleFunc("GET /latest/meta-data/placement/region", func(w http.ResponseWriter, r *http.Request) {
 		if !mustToken(w, r) {
 			return
@@ -183,9 +205,8 @@ func registerHostMetadata(srv *sim.Server) {
 	})
 
 	// ECS task metadata v4. Real ECS sets ECS_CONTAINER_METADATA_URI_V4
-	// to a per-task local URL like http://169.254.170.2/v4/<id>. Docker-tier
-	// tasks reach the same handler through the host callback address; netns-tier
-	// tasks reach it through link-local DNAT in the VPC namespace.
+	// to a per-task local URL like http://169.254.170.2/v4/<id>; tasks reach
+	// the same handler through the host callback address.
 	srv.HandleFunc("GET /v4/{id}/task", func(w http.ResponseWriter, r *http.Request) {
 		id := sim.PathParam(r, "id")
 		w.Header().Set("Content-Type", "application/json")
@@ -208,6 +229,10 @@ func registerHostMetadata(srv *sim.Server) {
 	})
 	srv.HandleFunc("GET /v4/{id}/credentials", func(w http.ResponseWriter, r *http.Request) {
 		id := sim.PathParam(r, "id")
+		if !ecsTaskOwnsMetadataRequest(id, r) {
+			http.Error(w, "ECS task metadata not found", http.StatusNotFound)
+			return
+		}
 		taskRoleArn := ecsTaskRoleArn(id)
 		if taskRoleArn == "" {
 			http.Error(w, "Amazon ECS task role not found", http.StatusNotFound)
@@ -231,6 +256,32 @@ func registerHostMetadata(srv *sim.Server) {
 			"Expiration":      cred.Expiration,
 		})
 	})
+}
+
+// ecsTaskOwnsMetadataRequest reports whether a request that arrived through a
+// network sidecar comes from the awsvpc task whose credentials it asks for:
+// the task's own VPC network and its elastic network interface address. The
+// task metadata endpoint is task-local on Amazon ECS, so another task's
+// containers find nothing there. A request from the simulator's own listener,
+// or for a task without an interface of its own, is answered as before.
+func ecsTaskOwnsMetadataRequest(taskID string, r *http.Request) bool {
+	network := sim.SidecarNetwork(r.Context())
+	if network == "" {
+		return true
+	}
+	eniIP, subnetID, ok := ecsTaskENIInfo(taskID)
+	if !ok {
+		return true
+	}
+	subnet, ok := ec2Subnets.Get(subnetID)
+	if !ok {
+		return false
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	return network == ecsVPCNetworkName(subnet.VpcId) && host == eniIP
 }
 
 const (
@@ -329,64 +380,33 @@ func rewriteHostDockerInternalEnvWithGateway(env map[string]string, gateway stri
 	return out
 }
 
-// rewriteSimulatorEndpointForRealVPC maps the outer-host coordinate used by
-// cross-platform task definitions onto the task-local link address that the
-// real VPC network tier DNATs to the simulator listener. A real-VPC task has no
-// route to Docker's host gateway (and a private subnet should not gain one),
-// while 169.254.170.2 is already the managed ECS task-metadata route into the
-// same listener. Only this simulator listener authority is rewritten; other
-// outer-host services remain unreachable from the isolated VPC.
-func rewriteSimulatorEndpointForRealVPC(env map[string]string, simulatorPort int) map[string]string {
-	out := make(map[string]string, len(env))
-	target := "http://" + realexec.ECSTaskMetadataIPv4
-	for key, value := range env {
-		for _, hostname := range []string{"host.docker.internal", "host.containers.internal"} {
-			source := fmt.Sprintf("http://%s:%d", hostname, simulatorPort)
-			value = strings.ReplaceAll(value, source, target)
-		}
-		out[key] = value
+// workloadMetadataEnv is the environment that routes a workload's metadata
+// reads to origin, the sidecar of its network, which forwards them to the
+// simulator with the workload's address. taskID names the Amazon ECS task
+// whose metadata and credentials the workload reads; empty for every other
+// workload.
+func workloadMetadataEnv(origin, taskID string) map[string]string {
+	env := map[string]string{
+		"AWS_EC2_METADATA_SERVICE_ENDPOINT":      origin + "/",
+		"AWS_EC2_METADATA_SERVICE_ENDPOINT_MODE": "IPv4",
 	}
-	return out
+	if taskID != "" {
+		env["ECS_CONTAINER_METADATA_URI_V4"] = origin + "/v4/" + taskID
+		env["ECS_CONTAINER_METADATA_URI"] = origin + "/v4/" + taskID
+		if ecsTaskRoleArn(taskID) != "" {
+			env["AWS_CONTAINER_CREDENTIALS_FULL_URI"] = origin + "/v4/" + taskID + "/credentials"
+		}
+	}
+	return env
 }
 
-// hostMetadataEnv returns env vars for every AWS workload host so SDKs
-// route metadata reads to the sim. Cloud-product translators merge
-// these onto the workload's ContainerConfig.Env.
-//
-// The taskID parameter is the sim-side container ID used as the
-// ECS_CONTAINER_METADATA_URI_V4 token. For non-ECS hosts (Lambda)
-// pass empty and the env var is omitted.
-func hostMetadataEnv(taskID string) (map[string]string, error) {
+// hostNetworkMetadataEnv is workloadMetadataEnv for a workload that shares
+// the container instance's network stack: it has no sidecar, so it reaches
+// the simulator's listener directly.
+func hostNetworkMetadataEnv(taskID string) (map[string]string, error) {
 	addr, err := workloadhost.CallbackAddr(simListenAddr)
 	if err != nil {
 		return nil, err
 	}
-	env := map[string]string{
-		"AWS_EC2_METADATA_SERVICE_ENDPOINT":      "http://" + addr + "/",
-		"AWS_EC2_METADATA_SERVICE_ENDPOINT_MODE": "IPv4",
-	}
-	if taskID != "" {
-		env["ECS_CONTAINER_METADATA_URI_V4"] = "http://" + addr + "/v4/" + taskID
-		env["ECS_CONTAINER_METADATA_URI"] = "http://" + addr + "/v4/" + taskID
-		if ecsTaskRoleArn(taskID) != "" {
-			env["AWS_CONTAINER_CREDENTIALS_FULL_URI"] = "http://" + addr + "/v4/" + taskID + "/credentials"
-		}
-	}
-	return env, nil
-}
-
-func hostMetadataLinkLocalEnv(taskID string) map[string]string {
-	env := map[string]string{
-		"AWS_EC2_METADATA_SERVICE_ENDPOINT":      "http://" + realexec.MetadataIPv4 + "/",
-		"AWS_EC2_METADATA_SERVICE_ENDPOINT_MODE": "IPv4",
-	}
-	if taskID != "" {
-		base := "http://" + realexec.ECSTaskMetadataIPv4 + "/v4/" + taskID
-		env["ECS_CONTAINER_METADATA_URI_V4"] = base
-		env["ECS_CONTAINER_METADATA_URI"] = base
-		if ecsTaskRoleArn(taskID) != "" {
-			env["AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"] = "/v4/" + taskID + "/credentials"
-		}
-	}
-	return env
+	return workloadMetadataEnv("http://"+addr, taskID), nil
 }

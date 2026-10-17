@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/netip"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -85,7 +86,7 @@ func TestCloudDNSServesPrivateZonesToTheirNetworks(t *testing.T) {
 	zones, sets := cloudDNSZones, cloudDNSRecordSets
 	t.Cleanup(func() {
 		cloudDNSZones, cloudDNSRecordSets = zones, sets
-		cloudDNSResolverNetworks.Delete(netip.MustParseAddr("127.0.0.1"))
+		cloudDNSResolverNetworks.Delete("net-a")
 	})
 	cloudDNSZones = sim.MakeStore[storedManagedZone](nil, "dns_zones")
 	cloudDNSRecordSets = sim.MakeStore[storedResourceRecordSet](nil, "dns_record_sets")
@@ -117,11 +118,23 @@ func TestCloudDNSServesPrivateZonesToTheirNetworks(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = srv.Close() })
-	ask := func(name string) *dns.Msg {
+	// A query at the server's own port comes from no network; one at the
+	// listener a network's sidecar forwards to is attributed to that network.
+	port, err := srv.ListenNetwork("net-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = srv.CloseNetwork("net-a") })
+	netA := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	ask := func(name string, at ...string) *dns.Msg {
 		t.Helper()
+		addr := srv.Addr()
+		if len(at) > 0 {
+			addr = at[0]
+		}
 		req := new(dns.Msg)
 		req.SetQuestion(name, dns.TypeA)
-		resp, _, err := (&dns.Client{Timeout: 5 * time.Second}).Exchange(req, srv.Addr())
+		resp, _, err := (&dns.Client{Timeout: 5 * time.Second}).Exchange(req, addr)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -137,17 +150,18 @@ func TestCloudDNSServesPrivateZonesToTheirNetworks(t *testing.T) {
 	if got := answer(ask("db.shared.test.")); got != "203.0.113.1" {
 		t.Fatalf("outside every network the public zone answers, got %s", got)
 	}
-	if err := cloudDNSRegisterResolverIP(net.ParseIP("127.0.0.1"), "projects/p/global/networks/a"); err != nil {
-		t.Fatal(err)
-	}
-	if got := answer(ask("db.shared.test.")); got != "10.0.0.2" {
+	cloudDNSResolverNetworks.Store("net-a", "projects/p/global/networks/a")
+	if got := answer(ask("db.shared.test.", netA)); got != "10.0.0.2" {
 		t.Fatalf("network a sees its private zone, got %s", got)
 	}
-	if got := answer(ask("svc.hub.test.")); got != "10.9.0.9" {
+	if got := answer(ask("db.shared.test.")); got != "203.0.113.1" {
+		t.Fatalf("outside every network the public zone still answers, got %s", got)
+	}
+	if got := answer(ask("svc.hub.test.", netA)); got != "10.9.0.9" {
 		t.Fatalf("the peering zone answers from the hub network's zones, got %s", got)
 	}
 	var corp *dnsserver.Zone
-	for _, z := range cloudDNSCatalog(dnsserver.Query{Local: netip.MustParseAddr("127.0.0.1")}).Zones {
+	for _, z := range cloudDNSCatalog(dnsserver.Query{Network: "net-a"}).Zones {
 		if z.Apex == "corp.example." {
 			corp = &z
 		}
@@ -155,11 +169,17 @@ func TestCloudDNSServesPrivateZonesToTheirNetworks(t *testing.T) {
 	if corp == nil || len(corp.Forwarders) != 1 || corp.Forwarders[0] != "10.1.0.2:53" {
 		t.Fatalf("network a sees the forwarding zone with its target: %+v", corp)
 	}
-	if err := cloudDNSRegisterResolverIP(net.ParseIP("127.0.0.1"), "projects/p/global/networks/b"); err != nil {
-		t.Fatal(err)
-	}
-	if got := answer(ask("db.shared.test.")); got != "203.0.113.1" {
+	cloudDNSResolverNetworks.Store("net-a", "projects/p/global/networks/b")
+	if got := answer(ask("db.shared.test.", netA)); got != "203.0.113.1" {
 		t.Fatalf("network b sees only the public zone, got %s", got)
+	}
+	gcpNetworkSidecars.Store("net-a", netip.MustParseAddr("10.0.0.253"))
+	t.Cleanup(func() { gcpNetworkSidecars.Delete("net-a") })
+	if got := answer(ask(cloudDNSMetadataName, netA)); got != "10.0.0.253" {
+		t.Fatalf("metadata.google.internal resolves to the network's sidecar, got %s", got)
+	}
+	if got := answer(ask(cloudDNSMetadataName)); got == "10.0.0.253" {
+		t.Fatal("metadata.google.internal resolved to a sidecar outside every network")
 	}
 }
 
@@ -213,11 +233,9 @@ func TestCloudDNSAppliesResponsePoliciesAndAlternativeNameServers(t *testing.T) 
 		t.Helper()
 		view := cloudDNSCatalog(dnsserver.Query{Name: name})
 		if network != "" {
-			if err := cloudDNSRegisterResolverIP(net.ParseIP("127.0.0.9"), network); err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { cloudDNSResolverNetworks.Delete(netip.MustParseAddr("127.0.0.9")) })
-			view = cloudDNSCatalog(dnsserver.Query{Name: name, Local: netip.MustParseAddr("127.0.0.9")})
+			cloudDNSResolverNetworks.Store("net-policy", network)
+			t.Cleanup(func() { cloudDNSResolverNetworks.Delete("net-policy") })
+			view = cloudDNSCatalog(dnsserver.Query{Name: name, Network: "net-policy"})
 		}
 		for _, rr := range view.Names {
 			if a, ok := rr.(*dns.A); ok && rr.Header().Name == name {

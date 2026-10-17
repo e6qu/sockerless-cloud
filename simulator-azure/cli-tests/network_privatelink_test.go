@@ -204,7 +204,6 @@ func TestNetworkServiceEndpointPolicyCLI(t *testing.T) {
 // owner's approval on the service, and the endpoint reading that decision back.
 func TestNetworkPrivateLinkCLI(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 
 	vnetURL := armURL("Microsoft.Network", "virtualNetworks/cli-pl-vnet", privateLinkAPIVersion)
 	runCLI(t, azRest("PUT", vnetURL, `{"location":"eastus","properties":{"addressSpace":{"addressPrefixes":["10.94.0.0/16"]}}}`))
@@ -379,7 +378,6 @@ func TestNetworkPrivateLinkCLI(t *testing.T) {
 // records the private DNS record surface then serves.
 func TestNetworkPrivateEndpointKeyVaultAndDNSCLI(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 
 	vnetURL := armURL("Microsoft.Network", "virtualNetworks/cli-kvpe-vnet", privateLinkAPIVersion)
 	runCLI(t, azRest("PUT", vnetURL, `{"location":"eastus","properties":{"addressSpace":{"addressPrefixes":["10.95.0.0/16"]}}}`))
@@ -496,7 +494,6 @@ func TestNetworkPrivateEndpointKeyVaultAndDNSCLI(t *testing.T) {
 // validation its container network interface configurations are subject to.
 func TestNetworkProfileCLI(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 
 	vnetURL := armURL("Microsoft.Network", "virtualNetworks/cli-np-vnet", privateLinkAPIVersion)
 	runCLI(t, azRest("PUT", vnetURL, `{"location":"eastus","properties":{"addressSpace":{"addressPrefixes":["10.96.0.0/16"]}}}`))

@@ -47,7 +47,6 @@ require (
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.10.1
 	github.com/coder/websocket v1.8.15
 	github.com/coreos/go-oidc/v3 v3.21.0
-	github.com/e6qu/sockerless-cloud/realexec v0.1.0
 	github.com/e6qu/sockerless-cloud/testutil v0.1.0
 	github.com/go-jose/go-jose/v4 v4.1.6
 	github.com/google/uuid v1.6.0
@@ -84,7 +83,5 @@ require (
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 )
-
-replace github.com/e6qu/sockerless-cloud/realexec => ../../realexec
 
 replace github.com/e6qu/sockerless-cloud/testutil => ../../testutil

@@ -119,6 +119,7 @@ type TaskTemplate struct {
 	MaxRetries     int32       `json:"maxRetries"`
 	Timeout        string      `json:"timeout,omitempty"`
 	ServiceAccount string      `json:"serviceAccount,omitempty"`
+	VpcAccess      *VpcAccess  `json:"vpcAccess,omitempty"`
 }
 
 // Container mirrors google.cloud.run.v2.Container — one container of a

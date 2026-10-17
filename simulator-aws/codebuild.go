@@ -854,22 +854,20 @@ func cbRunCommands(buildID string, project CBProject, plan cbBuildPlan, env map[
 	if strings.Contains(strings.ToUpper(cbString(project.Environment["type"])), "ARM") {
 		architecture = "linux/arm64"
 	}
-	privileged, _ := project.Environment["privilegedMode"].(bool)
+	// A project's privilegedMode asks for a privileged environment, which the
+	// simulator does not grant: the build runs under the unprivileged profile.
 	sandbox := SandboxFargate
-	if privileged {
-		sandbox = SandboxCodeBuildPrivileged
-	}
-	engineBinds, engineEnv, err := cbEnvironmentEngine(privileged)
+	network, err := awsPlatformNetwork(context.Background())
 	if err != nil {
-		return -1, err.Error()
+		return -1, fmt.Sprintf("build environment network: %v", err)
 	}
-	serviceEnv, err := cbEnvironmentServiceEnv()
+	serviceEnv, err := cbEnvironmentServiceEnv(network)
 	if err != nil {
 		return -1, fmt.Sprintf("build environment service endpoint: %v", err)
 	}
 	// The project's and the build's own variables win over what the
 	// environment provides.
-	env = workloadhost.MergeEnv(serviceEnv, engineEnv, env)
+	env = workloadhost.MergeEnv(serviceEnv, env)
 	env["CODEBUILD_BUILD_ID"] = buildID
 	env["CODEBUILD_PROJECT_NAME"] = project.Name
 	env["CODEBUILD_SRC_DIR"] = "/codebuild/output/src"
@@ -889,9 +887,11 @@ func cbRunCommands(buildID string, project CBProject, plan cbBuildPlan, env map[
 		Command:      []string{"/bin/sh"},
 		Args:         []string{"-c", script.String()},
 		WorkingDir:   "/codebuild/output/src",
-		Binds:        append([]string{filepath.Clean(workDir) + ":/codebuild/output/src:z"}, engineBinds...),
+		Binds:        []string{filepath.Clean(workDir) + ":/codebuild/output/src:z"},
 		Env:          env,
 		ExtraHosts:   workloadhost.ExtraHosts(),
+		Network:      network.Name,
+		DNS:          network.DNS(),
 		Timeout:      cbBuildTimeout(project),
 		Labels:       map[string]string{"sockerless-codebuild-build": buildID},
 		Sandbox:      sandbox,

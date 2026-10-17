@@ -254,13 +254,12 @@ func TestUpstreamsLeaveOutTheServerItself(t *testing.T) {
 	ResolvConf = conf
 	t.Cleanup(func() { ResolvConf = saved })
 
-	redirected := []netip.Addr{netip.MustParseAddr("169.254.169.253")}
-	s, err := Start(Config{Host: "127.0.0.1", Catalog: staticCatalog(View{}), Recursion: &Recursion{Redirected: redirected}})
+	s, err := Start(Config{Host: "127.0.0.1", Catalog: staticCatalog(View{}), Recursion: &Recursion{}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	if got := s.upstreams(); len(got) != 2 || got[0] != "127.0.0.1:53" || got[1] != "192.0.2.1:53" {
+	if got := s.upstreams(); len(got) != 3 || got[0] != "127.0.0.1:53" || got[1] != "169.254.169.253:53" || got[2] != "192.0.2.1:53" {
 		t.Fatalf("from resolv.conf: %v", got)
 	}
 
@@ -271,7 +270,7 @@ func TestUpstreamsLeaveOutTheServerItself(t *testing.T) {
 	port := strconv.Itoa(held.LocalAddr().(*net.UDPAddr).Port)
 	_ = held.Close()
 	s2, err := Start(Config{Host: "127.0.0.1", Port: port, Catalog: staticCatalog(View{}),
-		Recursion: &Recursion{Upstreams: "127.0.0.1:" + port + ", 192.0.2.2 ,169.254.169.253:53", Redirected: redirected}})
+		Recursion: &Recursion{Upstreams: "127.0.0.1:" + port + ", 192.0.2.2"}})
 	if err != nil {
 		t.Fatal(err)
 	}

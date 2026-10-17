@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
 // Amazon EC2 application status checks: operator-defined health checks the

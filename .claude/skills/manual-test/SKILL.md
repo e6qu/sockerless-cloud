@@ -63,8 +63,8 @@ caddy run --config make/https-gateway/Caddyfile --adapter caddyfile &
 
 ### Inside the shared Linux harness
 
-On macOS, or whenever the host lacks the kernel capabilities a real-execution
-path needs, run a simulator's suites inside `Dockerfile.test`:
+On macOS, or whenever the host lacks a suite's toolchain, run a simulator's
+suites inside `Dockerfile.test`:
 
 ```bash
 make simulator-azure/docker-test

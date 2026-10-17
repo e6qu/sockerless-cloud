@@ -49,9 +49,10 @@ func gceMetadataWorkloadFor(r *http.Request) gceMetadataWorkload {
 }
 
 // cloudRunMetadataWorkload finds the simulator container whose network
-// namespace owns the request's source address and reads the Cloud Run
-// resource its labels name. Sidecars join the first container's namespace, so
-// every container of an instance resolves to the same resource.
+// namespace owns the request's source address, on the network whose sidecar
+// forwarded the request when one did, and reads the Cloud Run resource its
+// labels name. Sidecars join the first container's namespace, so every
+// container of an instance resolves to the same resource.
 func cloudRunMetadataWorkload(r *http.Request) (gceMetadataWorkload, bool) {
 	docker := sim.DockerClient()
 	if docker == nil {
@@ -73,11 +74,15 @@ func cloudRunMetadataWorkload(r *http.Request) (gceMetadataWorkload, bool) {
 	if err != nil {
 		return gceMetadataWorkload{}, false
 	}
+	network := sim.SidecarNetwork(r.Context())
 	for _, c := range list.Items {
 		if c.NetworkSettings == nil {
 			continue
 		}
-		for _, ep := range c.NetworkSettings.Networks {
+		for name, ep := range c.NetworkSettings.Networks {
+			if network != "" && name != network {
+				continue
+			}
 			if ep != nil && ep.IPAddress == addr.Unmap() {
 				return cloudRunWorkloadFromLabels(c.Labels)
 			}

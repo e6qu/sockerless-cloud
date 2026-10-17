@@ -46,10 +46,6 @@ override.tf.json
 # Test outputs
 coverage.out
 coverage.html
-# The Firecracker arithmetic harness keeps its workspace — a guest root
-# filesystem tree of several hundred megabytes — when a run fails, so the
-# failure can be inspected.
-.firecracker-ci/
 
 # IDE / Editor
 .idea/

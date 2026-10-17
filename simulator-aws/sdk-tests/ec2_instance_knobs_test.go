@@ -31,7 +31,7 @@ func TestEC2_InstanceKnobFidelitySDK(t *testing.T) {
 	subnet := createSubnetFor(t, c, vpc.Vpc.VpcId, "10.130.1.0/24")
 
 	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
-		ImageId: aws.String("ami-12345678"), InstanceType: types.InstanceTypeT3Micro,
+		ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
 		KeyName:      aws.String("my-key"),
 		EbsOptimized: aws.Bool(true),
@@ -97,7 +97,7 @@ func TestEC2_RunInstancesAppliesLaunchTemplateSDK(t *testing.T) {
 	lt, err := c.CreateLaunchTemplate(ctx, &ec2.CreateLaunchTemplateInput{
 		LaunchTemplateName: aws.String(ltName),
 		LaunchTemplateData: &types.RequestLaunchTemplateData{
-			ImageId: aws.String("ami-12345678"), InstanceType: types.InstanceTypeT3Micro,
+			ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
 			EbsOptimized: aws.Bool(true),
 			IamInstanceProfile: &types.LaunchTemplateIamInstanceProfileSpecificationRequest{
 				Name: aws.String("lt-profile"),

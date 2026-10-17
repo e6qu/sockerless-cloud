@@ -192,7 +192,7 @@ func TestCloudMap_CrossTaskDNS_CLI(t *testing.T) {
 		stopCLITasksInSubnet(t, "cli-xtask-dns", subnetID)
 		q("ec2", "delete-subnet", "--subnet-id", subnetID)
 		q("ec2", "delete-vpc", "--vpc-id", vpcID)
-		rmDockerNetworks(ecsVPCNet(vpcID), ecsVPCNet(vpcID)+"-egress")
+		rmDockerNetworks(ecsVPCNet(vpcID))
 	})
 
 	out := runCLI(t, awsCLI("servicediscovery", "create-private-dns-namespace",

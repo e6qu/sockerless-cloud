@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 	"github.com/stretchr/testify/require"
 )
 

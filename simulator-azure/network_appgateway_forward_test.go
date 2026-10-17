@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -61,7 +62,7 @@ func TestApplicationGatewayForwardInsertsItsHeadersBeforeRewrites(t *testing.T) 
 			req.Header[name] = values
 		}
 		rr := httptest.NewRecorder()
-		if err := applicationGatewayForward(rr, req, settings, rewrite, applicationGatewayServer{address: backendIP}); err != nil {
+		if err := applicationGatewayForward(rr, req, settings, rewrite, applicationGatewayServer{address: backendIP}, netip.Addr{}); err != nil {
 			t.Fatal(err)
 		}
 		var seen http.Header

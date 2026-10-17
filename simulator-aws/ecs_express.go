@@ -894,9 +894,7 @@ func expressCreateListener(lbArn, certArn, tgArn string) string {
 // terminates the listener on the host and reaches the task's elastic network
 // interface from the VPC gateway coordinate, so the faithful task-side rule
 // admits the container port from the VPC CIDR — the path health checks and
-// forwarded traffic really take, and the path the real-VPC tier enforces in
-// nftables. A rule-less group would install a deny-all ingress filter there
-// and the service could never become healthy.
+// forwarded traffic really take.
 func expressCreateSecurityGroup(serviceName, vpcID string, containerPort int32) string {
 	id := ec2ID("sg")
 	vpcCIDR := "0.0.0.0/0"

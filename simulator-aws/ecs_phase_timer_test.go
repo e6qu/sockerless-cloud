@@ -15,13 +15,13 @@ func TestECSPhaseTimerAttributesEachPhase(t *testing.T) {
 	clock = clock.Add(120 * time.Millisecond)
 	timer.Mark("log-stream")
 	clock = clock.Add(167 * time.Second)
-	timer.Mark("vpc-netns")
+	timer.Mark("vpc-network")
 	clock = clock.Add(16 * time.Millisecond)
 	timer.Mark("image-pull")
 	clock = clock.Add(400 * time.Millisecond)
 
 	got := timer.Summary()
-	want := "total=2m47.536s log-stream=120ms vpc-netns=2m47s image-pull=16ms"
+	want := "total=2m47.536s log-stream=120ms vpc-network=2m47s image-pull=16ms"
 	if got != want {
 		t.Fatalf("summary = %q, want %q", got, want)
 	}

@@ -14,12 +14,10 @@ import (
 	"sync"
 	"time"
 
-	realexec "github.com/e6qu/sockerless-cloud/realexec"
-	"github.com/e6qu/sockerless-cloud/realexec/fabric"
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/ipam"
 	"github.com/e6qu/sockerless-cloud/sim/sparse"
-	dockerclient "github.com/moby/moby/client"
 )
 
 // EC2 types
@@ -620,8 +618,6 @@ func registerEC2(r *AWSQueryRouter, srv *sim.Server) {
 	ec2RunTokens = sim.MakeStore[EC2RunInstancesToken](srv.DB(), "ec2_run_instances_tokens")
 	ec2SubnetIPCursor = sim.MakeStore[uint32](srv.DB(), "ec2_subnet_ip_cursors")
 
-	recoverEC2Instances()
-
 	// VPC
 	r.Register("DescribeAccountAttributes", handleDescribeAccountAttributes)
 	r.Register("DescribeAvailabilityZones", handleDescribeAvailabilityZones)
@@ -1007,15 +1003,10 @@ func ec2TagFilterMatch(name string, vals []string, tags []EC2Tag) (handled, matc
 
 func handleDeleteVpc(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("VpcId")
-	// Tear down the VPC's Docker-tier network (faithful: VPC gone → networking
-	// gone; without this it leaks and blocks a re-created VPC reusing the CIDR).
-	// The netns-tier fabric is torn down by ec2DeleteRealVPC below.
-	if err := sim.RemoveDockerNetwork(ecsVPCNetworkName(id)); err != nil {
-		ec2ErrorXML(w, "DependencyViolation", fmt.Sprintf("failed to delete VPC Docker network fabric: %v", err), http.StatusServiceUnavailable)
-		return
-	}
-	if err := ec2DeleteRealVPC(r.Context(), id); err != nil {
-		ec2ErrorXML(w, "DependencyViolation", fmt.Sprintf("failed to delete real VPC network fabric: %v", err), http.StatusServiceUnavailable)
+	// A deleted VPC's engine network goes with it; left behind, it would hold
+	// the range a re-created VPC with the same CIDR needs.
+	if err := ec2RemoveVPCNetwork(r.Context(), id); err != nil {
+		ec2ErrorXML(w, "DependencyViolation", fmt.Sprintf("failed to delete the VPC's network: %v", err), http.StatusServiceUnavailable)
 		return
 	}
 	for _, rt := range ec2RouteTables.Filter(func(rt EC2RouteTable) bool { return rt.VpcId == id }) {
@@ -1114,9 +1105,6 @@ func handleCreateSubnet(w http.ResponseWriter, r *http.Request) {
 		PrivateDnsHostnameTypeOnLaunch: "ip-name",
 	}
 	ec2Subnets.Put(id, subnet)
-	if err := ec2ApplyRealRouteTableMembership(r.Context(), vpcId); err != nil {
-		fmt.Fprintf(os.Stderr, "sim: real NAT and egress policy for %s unavailable after subnet create: %v\n", vpcId, err)
-	}
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateSubnetResponse %s>
@@ -1310,8 +1298,7 @@ func handleModifySubnetAttribute(w http.ResponseWriter, r *http.Request) {
 
 func handleDeleteSubnet(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("SubnetId")
-	deleted, ok := ec2Subnets.Get(id)
-	if !ok {
+	if _, ok := ec2Subnets.Get(id); !ok {
 		ec2ErrorXML(w, "InvalidSubnetID.NotFound", fmt.Sprintf("The subnet ID '%s' does not exist", id), http.StatusBadRequest)
 		return
 	}
@@ -1322,10 +1309,6 @@ func handleDeleteSubnet(w http.ResponseWriter, r *http.Request) {
 				http.StatusBadRequest)
 			return
 		}
-	}
-	if err := ec2Fabric.DeleteSubnet(r.Context(), id); err != nil {
-		ec2ErrorXML(w, "DependencyViolation", fmt.Sprintf("failed to delete real subnet network fabric: %v", err), http.StatusServiceUnavailable)
-		return
 	}
 	ec2Subnets.Delete(id)
 	// Deleting a subnet ends its explicit route table association.
@@ -1344,9 +1327,6 @@ func handleDeleteSubnet(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
-	}
-	if err := ec2ApplyRealRouteTableMembership(r.Context(), deleted.VpcId); err != nil {
-		fmt.Fprintf(os.Stderr, "sim: real NAT and egress policy for %s unavailable after subnet delete: %v\n", deleted.VpcId, err)
 	}
 
 	w.Header().Set("Content-Type", "text/xml")
@@ -1385,9 +1365,6 @@ func handleAttachInternetGateway(w http.ResponseWriter, r *http.Request) {
 	ec2InternetGateways.Update(igwId, func(igw *EC2InternetGateway) {
 		igw.Attachments = append(igw.Attachments, EC2IGWAttachment{VpcId: vpcId, State: "available"})
 	})
-	if err := ec2ApplyRealVPCEgressPolicy(r.Context(), vpcId); err != nil {
-		fmt.Fprintf(os.Stderr, "sim: real VPC egress policy for %s unavailable after IGW attach: %v\n", vpcId, err)
-	}
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AttachInternetGatewayResponse %s>
@@ -1408,9 +1385,6 @@ func handleDetachInternetGateway(w http.ResponseWriter, r *http.Request) {
 		}
 		igw.Attachments = filtered
 	})
-	if err := ec2ApplyRealVPCEgressPolicy(r.Context(), vpcId); err != nil {
-		fmt.Fprintf(os.Stderr, "sim: real VPC egress policy for %s unavailable after IGW detach: %v\n", vpcId, err)
-	}
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DetachInternetGatewayResponse %s>
@@ -1475,7 +1449,7 @@ func handleAllocateAddress(w http.ResponseWriter, r *http.Request) {
 	}
 	tags := parseTags(r)
 	id := ec2ID("eipalloc")
-	ip, err := realexec.ReserveAWSPublicIPv4(id, nil)
+	ip, err := ipam.ReserveAWSPublicIPv4(id, nil)
 	if err != nil {
 		ec2ErrorXML(w, "AddressLimitExceeded", fmt.Sprintf("failed to reserve real public IPv4 lease: %v", err), http.StatusServiceUnavailable)
 		return
@@ -1657,7 +1631,7 @@ func handleDescribeAddresses(w http.ResponseWriter, r *http.Request) {
 func handleReleaseAddress(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("AllocationId")
 	if eip, ok := ec2ElasticIPs.Get(id); ok {
-		realexec.ReleasePublicIPv4(net.ParseIP(eip.PublicIp))
+		ipam.ReleasePublicIPv4(net.ParseIP(eip.PublicIp))
 	}
 	ec2ElasticIPs.Delete(id)
 
@@ -1739,18 +1713,7 @@ func handleCreateNatGateway(w http.ResponseWriter, r *http.Request) {
 		}},
 		CreateTime: time.Now().UTC().Format(time.RFC3339),
 	}
-	// A NAT gateway is a pure control-plane object from the API's perspective,
-	// so it is always modeled (State:"available", describable) — exactly like
-	// handleCreateVpc. Real NAT fabric is programmed opportunistically, only
-	// when the host actually has the network capabilities; its absence must not
-	// fail the API call (IaC/control-plane testing in SIM_RUNTIME=process runs
-	// on hosts without CAP_NET_ADMIN/nft).
 	ec2NatGateways.Put(id, natgw)
-	if err := realexec.DetectNetworkCapabilities().Require(); err == nil {
-		if err2 := ec2CreateRealNATGateway(r.Context(), natgw); err2 != nil {
-			fmt.Fprintf(os.Stderr, "sim: real NAT gateway %s network fabric unavailable: %v\n", id, err2)
-		}
-	}
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateNatGatewayResponse %s>
@@ -1841,10 +1804,6 @@ func handleDescribeNatGateways(w http.ResponseWriter, r *http.Request) {
 func handleDeleteNatGateway(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("NatGatewayId")
 	ec2NatGateways.Delete(id)
-	if err := ec2DeleteRealNATGateway(r.Context(), id); err != nil {
-		ec2ErrorXML(w, "DependencyViolation", fmt.Sprintf("failed to delete real NAT gateway fabric: %v", err), http.StatusServiceUnavailable)
-		return
-	}
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteNatGatewayResponse %s>
@@ -2059,14 +2018,6 @@ func handleDeleteRouteTable(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "DependencyViolation", fmt.Sprintf("The routeTable '%s' has dependencies and cannot be deleted.", id), http.StatusBadRequest)
 		return
 	}
-	for _, route := range rt.Routes {
-		if route.NatGatewayId == "" || route.DestinationCidrBlock == "" {
-			continue
-		}
-		if err := ec2ReleaseRealNATRoute(r.Context(), id, route.DestinationCidrBlock); err != nil {
-			fmt.Fprintf(os.Stderr, "sim: real NAT translation for %s %s not withdrawn after route table delete: %v\n", id, route.DestinationCidrBlock, err)
-		}
-	}
 	ec2RouteTables.Delete(id)
 
 	w.Header().Set("Content-Type", "text/xml")
@@ -2116,23 +2067,10 @@ func routeDestMatches(route EC2Route, cidr, ipv6, prefix string) bool {
 func handleCreateRoute(w http.ResponseWriter, r *http.Request) {
 	rtId := r.FormValue("RouteTableId")
 	route := parseRouteFromRequest(r)
-	if route.NatGatewayId != "" {
-		// The route is always modeled below; programming the real NAT route is
-		// opportunistic (only when the host has network capabilities) and must
-		// not fail the API call. Mirrors handleCreateNatGateway.
-		if err := realexec.DetectNetworkCapabilities().Require(); err == nil {
-			if err2 := ec2ConfigureRealNATRoute(r.Context(), rtId, route.DestinationCidrBlock, route.NatGatewayId); err2 != nil {
-				fmt.Fprintf(os.Stderr, "sim: real NAT route to %s unavailable: %v\n", route.NatGatewayId, err2)
-			}
-		}
-	}
 
 	ec2RouteTables.Update(rtId, func(rt *EC2RouteTable) {
 		rt.Routes = append(rt.Routes, route)
 	})
-	if err := ec2ApplyRealRouteTableEgressPolicy(r.Context(), rtId); err != nil {
-		fmt.Fprintf(os.Stderr, "sim: real route-table egress policy for %s unavailable after route create: %v\n", rtId, err)
-	}
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateRouteResponse %s>
@@ -2164,17 +2102,6 @@ func handleReplaceRoute(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidRoute.NotFound", "no route with the specified destination exists", http.StatusBadRequest)
 		return
 	}
-	if newRoute.NatGatewayId != "" {
-		if err := realexec.DetectNetworkCapabilities().Require(); err == nil {
-			if err2 := ec2ConfigureRealNATRoute(r.Context(), rtId, cidr, newRoute.NatGatewayId); err2 != nil {
-				fmt.Fprintf(os.Stderr, "sim: real NAT route to %s unavailable: %v\n", newRoute.NatGatewayId, err2)
-			}
-		}
-	} else if cidr != "" {
-		if err := ec2ReleaseRealNATRoute(r.Context(), rtId, cidr); err != nil {
-			fmt.Fprintf(os.Stderr, "sim: real NAT translation for %s %s not withdrawn after route replace: %v\n", rtId, cidr, err)
-		}
-	}
 	ec2RouteTables.Update(rtId, func(rt *EC2RouteTable) {
 		for i := range rt.Routes {
 			if routeDestMatches(rt.Routes[i], cidr, ipv6, prefix) {
@@ -2183,9 +2110,6 @@ func handleReplaceRoute(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	})
-	if err := ec2ApplyRealRouteTableEgressPolicy(r.Context(), rtId); err != nil {
-		fmt.Fprintf(os.Stderr, "sim: real route-table egress policy for %s unavailable after route replace: %v\n", rtId, err)
-	}
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ReplaceRouteResponse %s>
@@ -2209,14 +2133,6 @@ func handleDeleteRoute(w http.ResponseWriter, r *http.Request) {
 		}
 		rt.Routes = filtered
 	})
-	if destCidr != "" {
-		if err := ec2ReleaseRealNATRoute(r.Context(), rtId, destCidr); err != nil {
-			fmt.Fprintf(os.Stderr, "sim: real NAT translation for %s %s not withdrawn after route delete: %v\n", rtId, destCidr, err)
-		}
-	}
-	if err := ec2ApplyRealRouteTableEgressPolicy(r.Context(), rtId); err != nil {
-		fmt.Fprintf(os.Stderr, "sim: real route-table egress policy for %s unavailable after route delete: %v\n", rtId, err)
-	}
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteRouteResponse %s>
@@ -2237,11 +2153,6 @@ func handleAssociateRouteTable(w http.ResponseWriter, r *http.Request) {
 			Main:          false,
 		})
 	})
-	if rt, ok := ec2RouteTables.Get(rtId); ok {
-		if err := ec2ApplyRealRouteTableMembership(r.Context(), rt.VpcId); err != nil {
-			fmt.Fprintf(os.Stderr, "sim: real NAT and egress policy for %s unavailable after association: %v\n", rt.VpcId, err)
-		}
-	}
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AssociateRouteTableResponse %s>
@@ -2266,9 +2177,6 @@ func handleDisassociateRouteTable(w http.ResponseWriter, r *http.Request) {
 					}
 					rt.Associations = filtered
 				})
-				if err := ec2ApplyRealRouteTableMembership(r.Context(), rt.VpcId); err != nil {
-					fmt.Fprintf(os.Stderr, "sim: real NAT and egress policy for %s unavailable after disassociation: %v\n", rt.VpcId, err)
-				}
 				break
 			}
 		}
@@ -2828,14 +2736,6 @@ func handleAuthorizeSecurityGroupRule(w http.ResponseWriter, r *http.Request, eg
 	})
 
 	rules := createSecurityGroupRules(groupId, perm, egress)
-	if err := ec2ReapplyRealSecurityGroup(r.Context(), groupId); err != nil {
-		direction := "ingress"
-		if egress {
-			direction = "egress"
-		}
-		ec2ErrorXML(w, "DependencyViolation", fmt.Sprintf("failed to program real security group %s rules: %v", direction, err), http.StatusServiceUnavailable)
-		return
-	}
 	var ruleSetXML strings.Builder
 	for _, rule := range rules {
 		ruleSetXML.WriteString(sgrItemXML(rule))
@@ -2942,19 +2842,13 @@ func ec2RevokeSecurityGroup(w http.ResponseWriter, r *http.Request, isEgress boo
 	groupId := r.FormValue("GroupId")
 
 	responseTag := "RevokeSecurityGroupIngressResponse"
-	direction := "ingress"
 	if isEgress {
 		responseTag = "RevokeSecurityGroupEgressResponse"
-		direction = "egress"
 	}
 
 	ruleIDs := ec2ParamList(r, "SecurityGroupRuleId")
 	if len(ruleIDs) > 0 {
 		ec2RevokeByRuleIDs(groupId, ruleIDs, isEgress)
-		if err := ec2ReapplyRealSecurityGroup(r.Context(), groupId); err != nil {
-			ec2ErrorXML(w, "DependencyViolation", fmt.Sprintf("failed to program real security group %s rules: %v", direction, err), http.StatusServiceUnavailable)
-			return
-		}
 		w.Header().Set("Content-Type", "text/xml")
 		fmt.Fprintf(w, `<%s %s>
   <requestId>%s</requestId><return>true</return>
@@ -2985,10 +2879,6 @@ func ec2RevokeSecurityGroup(w http.ResponseWriter, r *http.Request, isEgress boo
 		return
 	}
 	deleteSecurityGroupRules(groupId, perm, isEgress)
-	if err := ec2ReapplyRealSecurityGroup(r.Context(), groupId); err != nil {
-		ec2ErrorXML(w, "DependencyViolation", fmt.Sprintf("failed to program real security group %s rules: %v", direction, err), http.StatusServiceUnavailable)
-		return
-	}
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<%s %s>
@@ -3512,7 +3402,13 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 		imageID = ltData.ImageId
 	}
 	if imageID == "" {
-		imageID = "ami-simulated"
+		ec2ErrorXML(w, "MissingParameter", "The request must contain the parameter ImageId", http.StatusBadRequest)
+		return
+	}
+	image, ok := ec2LookupImage(imageID)
+	if !ok {
+		ec2ErrorXML(w, "InvalidAMIID.NotFound", fmt.Sprintf("The image id '[%s]' does not exist", imageID), http.StatusBadRequest)
+		return
 	}
 	instanceType := r.FormValue("InstanceType")
 	if instanceType == "" {
@@ -3520,6 +3416,12 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 	}
 	if instanceType == "" {
 		instanceType = "t3.micro"
+	}
+	if facts, ok := ec2LookupInstanceType(instanceType); ok && !slices.Contains(facts.Architectures, image.Architecture) {
+		ec2ErrorXML(w, "InvalidParameterValue",
+			fmt.Sprintf("The architecture '%s' of the specified instance type does not match the architecture '%s' of the specified AMI. Specify an instance type and an AMI that have matching architectures, and try again. You can use 'describe-instance-types' or 'describe-images' to discover the architecture of the instance type or AMI.", facts.Architectures[0], image.Architecture),
+			http.StatusBadRequest)
+		return
 	}
 	// The AMI's instance type specification, when it has one, decides whether
 	// this instance type may launch it.
@@ -3544,9 +3446,7 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The instance is always modeled at the control plane — like
-	// VPC/subnet/NAT. ec2LaunchInstance boots a real Firecracker VM only when
-	// the host has VM capabilities; their absence must not fail RunInstances,
-	// so IaC/control-plane testing works in SIM_RUNTIME=process.
+	// VPC/subnet/NAT; ec2LaunchInstance places its workload.
 	placement := EC2Placement{
 		Tenancy:         r.FormValue("Placement.Tenancy"),
 		HostId:          r.FormValue("Placement.HostId"),
@@ -3835,7 +3735,7 @@ func ec2CreateInstance(spec EC2InstanceCreateSpec) (EC2Instance, error) {
 		Tags:                   spec.Tags,
 		LaunchTime:             spec.LaunchTime,
 		KeyName:                spec.KeyName,
-		Architecture:           "x86_64",
+		Architecture:           ec2ImageArchitecture(spec.ImageId),
 		RootDeviceName:         rootDevice,
 		NetworkInterfaceId:     eniID,
 		IamInstanceProfileArn:  spec.IamInstanceProfileArn,
@@ -4031,46 +3931,6 @@ func ec2HasTagValue(tags []EC2Tag, key, value string) bool {
 	return false
 }
 
-// recoverEC2Instances reconciles persisted instance rows with the real
-// workloads on the host after a control-plane restart. Firecracker VMs, their
-// tap devices, and the IMDS bindings are process state and die with the
-// simulator, so a persisted instance still marked running or pending has no
-// backing workload; it transitions truthfully to stopped. VMs are never
-// re-adopted — the processes are dead. Hosts in the API-only tier (no real VM
-// execution) keep their purely modeled instance state unchanged, exactly as
-// before the restart.
-func recoverEC2Instances() {
-	if !ec2RealVMHostAvailable() {
-		return
-	}
-	recoverEC2InstancesWithVMLiveness(ec2Fabric.VMAlive)
-}
-
-func recoverEC2InstancesWithVMLiveness(vmAlive func(instanceID string) bool) {
-	var claimed []string
-	for _, inst := range ec2Instances.List() {
-		if inst.State == "running" || inst.State == "pending" {
-			claimed = append(claimed, inst.InstanceId)
-		}
-	}
-	fabric.ReconcileLiveness(claimed, vmAlive, func(instanceID string) {
-		transitioned := false
-		ec2Instances.Update(instanceID, func(current *EC2Instance) {
-			if current.State != "running" && current.State != "pending" {
-				return
-			}
-			transitioned = true
-			current.State = "stopped"
-			current.StateTransitionReason = "Server.InternalError: Instance workload not found after control-plane restart"
-			current.StateReasonCode = "Server.InternalError"
-			current.StateReasonMessage = "Server.InternalError: Instance workload not found after control-plane restart"
-		})
-		if transitioned {
-			fmt.Fprintf(os.Stderr, "[sim-ec2] instance %s: workload not found after control-plane restart; transitioned instance to stopped\n", instanceID)
-		}
-	})
-}
-
 func handleTerminateInstances(w http.ResponseWriter, r *http.Request) {
 	writeInstanceStateChange(w, r, "terminated", true)
 }
@@ -4083,10 +3943,10 @@ func handleStartInstances(w http.ResponseWriter, r *http.Request) {
 	writeInstanceStateChange(w, r, "running", false)
 }
 
-// ec2HaltInstance moves one instance to "stopped" or "terminated": the real
-// virtual machine is stopped when this host runs one, and the modeled state,
-// transition reason and volume attachments change exactly as the StopInstances
-// handler records them. It exists as its own function because more than the
+// ec2HaltInstance moves one instance to "stopped" or "terminated": a boot
+// still in progress is cancelled, and the modeled state, transition reason and
+// volume attachments change exactly as the StopInstances handler records
+// them. It exists as its own function because more than the
 // HTTP handler halts instances — an AWS Budgets SSM action stops instances
 // too, and a second copy of these semantics would drift.
 func ec2HaltInstance(ctx context.Context, id, next string) error {
@@ -4094,12 +3954,8 @@ func ec2HaltInstance(ctx context.Context, id, next string) error {
 	if !ok {
 		return fmt.Errorf("the instance ID %q does not exist", id)
 	}
-	if ec2RealVMHostAvailable() {
-		if err := ec2StopRealVM(ctx, id); err != nil {
-			return err
-		}
-	}
-	inst.State = next
+	ec2CancelBoot(id)
+	inst.State = ec2HaltTransition(next)
 	inst.StateTransitionReason = "User initiated (" + time.Now().UTC().Format("2006-01-02 15:04:05") + " GMT)"
 	inst.StateReasonCode = "Client.UserInitiatedShutdown"
 	inst.StateReasonMessage = "Client.UserInitiatedShutdown: User initiated shutdown"
@@ -4107,7 +3963,17 @@ func ec2HaltInstance(ctx context.Context, id, next string) error {
 	if next == "stopped" {
 		ec2UpdateVolumeAttachmentsForInstance(id, "attached", "in-use")
 	}
+	ec2FinishHalt(id, next)
 	return nil
+}
+
+// ec2HaltTransition is the state an instance reports while its machine goes
+// down: stopping ahead of stopped, shutting-down ahead of terminated.
+func ec2HaltTransition(next string) string {
+	if next == "terminated" {
+		return "shutting-down"
+	}
+	return "stopping"
 }
 
 func writeInstanceStateChange(w http.ResponseWriter, r *http.Request, next string, deleteENI bool) {
@@ -4120,45 +3986,42 @@ func writeInstanceStateChange(w http.ResponseWriter, r *http.Request, next strin
 			return
 		}
 		prev := inst.State
-		// Real VM start/stop only on a real-execution host; on an API-only host
-		// the state change is purely modeled.
-		if next == "stopped" || next == "terminated" {
+		var current string
+		switch {
+		case next == "terminated" && (prev == "terminated" || prev == "shutting-down"),
+			next == "stopped" && (prev == "stopped" || prev == "stopping"),
+			next == "running" && (prev == "running" || prev == "pending"):
+			// The instance is already where the call takes it.
+			current = prev
+		case next == "stopped" && (prev == "terminated" || prev == "shutting-down"),
+			next == "running" && prev != "stopped":
+			ec2ErrorXML(w, "IncorrectInstanceState", fmt.Sprintf("The instance '%s' is not in a state from which it can be %s.", id, map[string]string{"stopped": "stopped", "running": "started"}[next]), http.StatusBadRequest)
+			return
+		case next == "stopped" || next == "terminated":
 			if err := ec2HaltInstance(r.Context(), id, next); err != nil {
 				ec2ErrorXML(w, "IncorrectInstanceState", fmt.Sprintf("failed to stop real EC2 instance: %v", err), http.StatusServiceUnavailable)
 				return
 			}
 			inst, _ = ec2Instances.Get(id)
-		} else {
-			if ec2RealVMHostAvailable() && next == "running" {
-				if err := ec2StartRealVM(r.Context(), inst); err != nil {
-					fmt.Fprintf(os.Stderr, "failed to start real EC2 instance %s: %v\n", id, err)
-					ec2ErrorXML(w, "IncorrectInstanceState", fmt.Sprintf("failed to start real EC2 instance: %v", err), http.StatusServiceUnavailable)
-					return
-				}
-			}
-			inst.State = next
-			if next == "running" {
-				inst.StateTransitionReason = ""
-				inst.StateReasonCode = ""
-				inst.StateReasonMessage = ""
-			}
+			current = inst.State
+		default:
+			// A stopped instance boots its kept machine again: pending until
+			// the init is ready, then running.
+			inst.State = "pending"
+			inst.StateTransitionReason = ""
+			inst.StateReasonCode = ""
+			inst.StateReasonMessage = ""
 			ec2Instances.Put(id, inst)
-			if next == "running" {
-				ec2UpdateVolumeAttachmentsForInstance(id, "attached", "in-use")
-			}
+			ec2UpdateVolumeAttachmentsForInstance(id, "attached", "in-use")
+			ec2StartInstance(id)
+			current = inst.State
 		}
 		if deleteENI && inst.NetworkInterfaceId != "" {
 			ec2NetworkInterfaces.Delete(inst.NetworkInterfaceId)
-			if ec2RealNetHostAvailable() {
-				if err := ec2DeleteRealNIC(r.Context(), inst.NetworkInterfaceId); err != nil {
-					ec2ErrorXML(w, "DependencyViolation", fmt.Sprintf("failed to delete real EC2 network interface: %v", err), http.StatusServiceUnavailable)
-					return
-				}
-			}
 			ec2DeleteOnTerminationVolumes(id)
 		}
 		fmt.Fprintf(&items, `<item><instanceId>%s</instanceId><currentState><code>%d</code><name>%s</name></currentState><previousState><code>%d</code><name>%s</name></previousState></item>`,
-			id, instanceStateCode(next), next, instanceStateCode(prev), prev)
+			id, instanceStateCode(current), current, instanceStateCode(prev), prev)
 	}
 	action := "StopInstances"
 	if next == "running" {
@@ -4587,38 +4450,18 @@ func ebsSnapshotDockerVolumeName(snapshotID string) string {
 	return "sockerless-snap-" + snapshotID
 }
 
-// ebsRemoveDockerVolume removes a Docker named volume created for an ECS EBS volume or
-// snapshot. Errors removing a volume are silently ignored (it may already be absent);
-// a loop device left attached is not, because nothing else would ever report it.
-//
-// It starts a container (see ebsDetachLoopDevices), so it must not be called
-// while a state store's write lock is held.
+// ebsRemoveDockerVolume removes the engine volume behind an Amazon ECS managed
+// EBS volume or a snapshot. A volume that is already gone is not an error.
 func ebsRemoveDockerVolume(name string) {
 	if name == "" {
 		return
 	}
-	cli := sim.DockerClient()
-	if cli == nil {
+	if sim.DockerClient() == nil {
 		// Process mode (SIM_RUNTIME=process): the managed-EBS volume is
-		// host-path-backed, so no Docker volume exists to remove — never
-		// dereference the nil client (the panic reported in #569).
+		// host-path-backed, so no engine volume exists to remove.
 		return
 	}
-	// The budget covers a helper image the engine has to build first, which it
-	// does when this simulator did not create the volume it is now removing.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	// Remove the volume before detaching: removing it unmounts the filesystem,
-	// and a loop device whose filesystem is still mounted cannot be given back
-	// (the kernel defers the detach to the last close instead).
-	_, _ = cli.VolumeRemove(ctx, name, dockerclient.VolumeRemoveOptions{})
-	holder := ebsImageHolderName(name)
-	if err := ebsDetachLoopDevices(ctx, cli, holder); err != nil {
-		fmt.Fprintf(os.Stderr, "[sim-ec2] volume %s: loop device not detached: %v\n", name, err)
-	}
-	// A block volume's image file lives in a volume of its own, removed once
-	// nothing mounts the image.
-	_, _ = cli.VolumeRemove(ctx, holder, dockerclient.VolumeRemoveOptions{})
+	_ = sim.RemoveVolume(name)
 }
 
 // ebsCopyDockerVolumes copies all content from srcVolume into dstVolume using a
@@ -4670,14 +4513,6 @@ func ebsVolumeHostDirPath(volumeID string) string {
 	return filepath.Join(ebsHostRoot(), "volumes", volumeID)
 }
 
-func ebsVolumeBlockImagePath(vol EC2Volume) string {
-	hostPath := vol.HostPath
-	if hostPath == "" {
-		hostPath = ebsVolumeHostDirPath(vol.VolumeId)
-	}
-	return filepath.Join(hostPath, "ebs.raw")
-}
-
 func ebsSnapshotHostDirPath(snapshotID string) string {
 	return filepath.Join(ebsHostRoot(), "snapshots", snapshotID)
 }
@@ -4693,33 +4528,6 @@ func ebsPrepareVolumeHostPath(vol *EC2Volume) error {
 		vol.HostPath = ebsVolumeHostDirPath(vol.VolumeId)
 	}
 	return os.MkdirAll(vol.HostPath, 0o777)
-}
-
-func ebsEnsureVolumeBlockImage(vol *EC2Volume) (string, error) {
-	if err := ebsPrepareVolumeHostPath(vol); err != nil {
-		return "", err
-	}
-	path := ebsVolumeBlockImagePath(*vol)
-	if _, err := os.Stat(path); err != nil {
-		if !os.IsNotExist(err) {
-			return "", err
-		}
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o666)
-		if err != nil {
-			return "", err
-		}
-		if err := f.Close(); err != nil {
-			return "", err
-		}
-	}
-	sizeBytes := int64(vol.Size) * 1024 * 1024 * 1024
-	if sizeBytes < 1024*1024 {
-		sizeBytes = 1024 * 1024
-	}
-	if err := os.Truncate(path, sizeBytes); err != nil {
-		return "", err
-	}
-	return path, nil
 }
 
 func ec2VolumeXML(vol EC2Volume) string {
@@ -4932,19 +4740,6 @@ func handleAttachVolume(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "IncorrectState", "Volume is already attached", http.StatusBadRequest)
 		return
 	}
-	if _, err := ebsEnsureVolumeBlockImage(&vol); err != nil {
-		ec2ErrorXML(w, "InternalError", fmt.Sprintf("could not prepare volume block image: %v", err), http.StatusInternalServerError)
-		return
-	}
-	// Real block-device attach only when a live Firecracker VM exists. EC2
-	// attachment metadata remains authoritative at the control plane when the
-	// host data-plane substrate is absent or failed.
-	if ec2Fabric.VMAlive(instanceID) {
-		if err := ec2AttachRealVolume(r.Context(), instanceID, &vol); err != nil {
-			ec2ErrorXML(w, "IncorrectInstanceState", fmt.Sprintf("failed to attach real EBS volume: %v", err), http.StatusServiceUnavailable)
-			return
-		}
-	}
 	att := EC2VolumeAttachment{
 		VolumeId:   volID,
 		InstanceId: instanceID,
@@ -4970,12 +4765,6 @@ func handleDetachVolume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	att := vol.Attachments[0]
-	if ec2Fabric.VMAlive(att.InstanceId) {
-		if err := ec2DetachRealVolume(r.Context(), att.InstanceId, volID); err != nil {
-			ec2ErrorXML(w, "IncorrectInstanceState", fmt.Sprintf("failed to detach real EBS volume: %v", err), http.StatusServiceUnavailable)
-			return
-		}
-	}
 	att.State = "detached"
 	vol.Attachments = nil
 	vol.State = "available"
@@ -5049,16 +4838,6 @@ func handleModifyVolume(w http.ResponseWriter, r *http.Request) {
 	vol.Iops, vol.Throughput = ec2ResolveVolumePerformance(vol.VolumeType, vol.Size, vol.Iops, vol.Throughput)
 	mod.TargetSize, mod.TargetVolumeType, mod.TargetIops, mod.TargetThroughput = vol.Size, vol.VolumeType, vol.Iops, vol.Throughput
 	ec2VolumeMods.Put(volID, mod)
-	if len(vol.Attachments) > 0 && ec2Fabric.VMAlive(vol.Attachments[0].InstanceId) {
-		if _, err := ebsEnsureVolumeBlockImage(&vol); err != nil {
-			ec2ErrorXML(w, "InternalError", fmt.Sprintf("could not resize volume block image: %v", err), http.StatusInternalServerError)
-			return
-		}
-		if err := ec2RefreshRealVolume(r.Context(), vol); err != nil {
-			ec2ErrorXML(w, "IncorrectInstanceState", fmt.Sprintf("failed to refresh real EBS volume: %v", err), http.StatusServiceUnavailable)
-			return
-		}
-	}
 	ec2Volumes.Put(volID, vol)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyVolumeResponse %s><requestId>%s</requestId><volumeModification>%s</volumeModification></ModifyVolumeResponse>`,
@@ -5432,72 +5211,41 @@ func mergeEC2Tags(existing, updates []EC2Tag) []EC2Tag {
 	return out
 }
 
-// handleDescribeImages serves AMIs. The sim has no AMI registry — AMIs are
-// opaque to it — so it synthesizes a deterministic image for the request: an
-// explicit ImageId echoes back, and a `data.aws_ami` filter lookup (by name /
-// architecture / root-device-type / virtualization-type / owner-alias) returns
-// one image whose attributes match the query so the lookup resolves
-// deterministically. Filter values now flow into the synthesized image rather
-// than being ignored (the prior handler returned a fixed x86_64 image regardless).
+// handleDescribeImages lists the AMIs the account can see: the public ones
+// the simulator publishes and the ones the account registered, created,
+// copied or imported, narrowed by ImageIds, Owners and the filters.
 func handleDescribeImages(w http.ResponseWriter, r *http.Request) {
 	imageIDs := ec2ParamList(r, "ImageId")
+	owners := ec2ParamList(r, "Owner")
 	filters := ec2Filters(r)
-	firstFilter := func(name, def string) string {
-		if vals := filters[name]; len(vals) > 0 {
-			return vals[0]
+	for _, id := range imageIDs {
+		if _, ok := ec2LookupImage(id); !ok {
+			ec2ErrorXML(w, "InvalidAMIID.NotFound", fmt.Sprintf("The image id '[%s]' does not exist", id), http.StatusBadRequest)
+			return
 		}
-		return def
 	}
-	arch := firstFilter("architecture", "x86_64")
-	rootType := firstFilter("root-device-type", "ebs")
-	virtType := firstFilter("virtualization-type", "hvm")
-	ownerAlias := firstFilter("owner-alias", "amazon")
-	nameFilter := firstFilter("name", "")
-
-	// First serve any user-registered AMIs (CreateImage / RegisterImage /
-	// CopyImage). When an explicit ImageId resolves to a stored AMI, or the
-	// filters match a stored AMI, return those records and skip the synthesized
-	// fallback — the synthesized path exists only for `data.aws_ami` lookups of
-	// vendor AMIs the sim has no registry for.
-	var stored strings.Builder
-	for _, img := range ec2Images.List() {
+	var items strings.Builder
+	for _, img := range ec2AllImages() {
 		if len(imageIDs) > 0 && !ec2StrInValues(img.ImageId, imageIDs) {
 			continue
 		}
-		if !ec2ImageMatchesFilters(img, filters) {
+		if !ec2ImageOwnedBy(img, owners) || !ec2ImageMatchesFilters(img, filters) {
 			continue
 		}
-		stored.WriteString(ec2StoredImageXML(img))
-	}
-	if stored.Len() > 0 {
-		w.Header().Set("Content-Type", "text/xml")
-		fmt.Fprintf(w, `<DescribeImagesResponse %s><requestId>%s</requestId><imagesSet>%s</imagesSet></DescribeImagesResponse>`, ec2Xmlns(), sim.NewUUID(), stored.String())
-		return
-	}
-
-	var ids []string
-	switch {
-	case len(imageIDs) > 0:
-		ids = imageIDs
-	case len(filters["image-id"]) > 0:
-		ids = filters["image-id"]
-	case nameFilter != "":
-		ids = []string{ec2AmiIDFromName(nameFilter)}
-	default:
-		ids = []string{"ami-simulated"}
-	}
-
-	var items strings.Builder
-	for _, id := range ids {
-		name := nameFilter
-		if name == "" {
-			name = id
-		}
-		fmt.Fprintf(&items, `<item><imageId>%s</imageId><imageLocation>%s/%s</imageLocation><imageState>available</imageState><imageOwnerId>%s</imageOwnerId><imageOwnerAlias>%s</imageOwnerAlias><isPublic>true</isPublic><architecture>%s</architecture><imageType>machine</imageType><rootDeviceType>%s</rootDeviceType><rootDeviceName>/dev/sda1</rootDeviceName><blockDeviceMapping><item><deviceName>/dev/sda1</deviceName><ebs><snapshotId>snap-%s</snapshotId><volumeSize>8</volumeSize><deleteOnTermination>true</deleteOnTermination><volumeType>gp3</volumeType></ebs></item></blockDeviceMapping><virtualizationType>%s</virtualizationType><name>%s</name><creationDate>2024-01-01T00:00:00.000Z</creationDate><hypervisor>xen</hypervisor></item>`,
-			id, ownerAlias, name, ec2Owner(), ownerAlias, arch, rootType, strings.TrimPrefix(id, "ami-"), virtType, xmlEscape(name))
+		items.WriteString(ec2StoredImageXML(img))
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeImagesResponse %s><requestId>%s</requestId><imagesSet>%s</imagesSet></DescribeImagesResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
+}
+
+// ec2ImageArchitecture is the architecture of the AMI an instance launches
+// from; an AMI the launch path could not find reports x86_64 until the boot
+// refuses it.
+func ec2ImageArchitecture(imageID string) string {
+	if img, ok := ec2LookupImage(imageID); ok && img.Architecture != "" {
+		return img.Architecture
+	}
+	return "x86_64"
 }
 
 // handleDescribeInstanceTypeOfferings reports the instance types the

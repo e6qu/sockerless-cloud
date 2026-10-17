@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -30,11 +32,11 @@ type ContainerAppEnvironment struct {
 	Location   string            `json:"location"`
 	Tags       map[string]string `json:"tags,omitempty"`
 	Properties EnvProperties     `json:"properties"`
-	// DockerNetworkName is the real Docker user-defined network that
-	// backs this environment. Jobs launched in this environment are
-	// connected to the network with the job short name as DNS alias,
-	// so cross-job DNS works via Docker's embedded resolver. Empty
-	// until the env's PUT handler creates the network.
+	// DockerNetworkName is the engine network that backs this environment:
+	// its own, or its virtual network's when the environment names an
+	// infrastructure subnet of a stored virtual network. Jobs and apps
+	// launched in the environment connect to it with their names as DNS
+	// aliases, so they resolve each other through the engine's resolver.
 	//
 	// Sockerless-internal wiring: it persists through the store's JSON
 	// marshal but must never appear on the ARM wire — responses go
@@ -232,15 +234,18 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/managedEnvironments/%s",
 			sub, rg, envName)
 
-		// Back every environment with a real Docker user-defined
-		// network. Jobs created in this environment are connected to
-		// the network at execution-start time with the job short name
-		// as DNS alias, so cross-job DNS resolves via Docker's
-		// embedded resolver. Matches ACA's managed-VNet model where
-		// environment = shared networking domain.
-		dockerNetName := "sim-env-" + envName
-		if _, err := sim.EnsureDockerNetwork(dockerNetName); err != nil {
-			dockerNetName = ""
+		// An environment on a virtual network's infrastructure subnet joins
+		// that network's engine network, created when its first workload
+		// attaches; any other environment is a networking domain of its own,
+		// which matches ACA's managed-VNet model.
+		dockerNetName := ""
+		if vnet, ok := acaInfrastructureVNet(req.Properties); ok {
+			dockerNetName = dockerNetForVNet(vnet.ID)
+		} else {
+			dockerNetName = "sim-env-" + envName
+			if _, err := sim.EnsureDockerNetwork(dockerNetName); err != nil {
+				dockerNetName = ""
+			}
 		}
 
 		env := ContainerAppEnvironment{
@@ -311,7 +316,9 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 		env.Properties.ProvisioningState = "Deleting"
 		environments.Put(resourceID, env)
 		opID := startAzureAsyncOperationOutcome(func() *AsyncOperationError {
-			if env.DockerNetworkName != "" {
+			// A virtual network's engine network goes with the virtual network.
+			if env.DockerNetworkName != "" && acaEnvironmentVNetID(env) == "" {
+				azureRemoveSidecar(env.DockerNetworkName)
 				if err := sim.RemoveDockerNetwork(env.DockerNetworkName); err != nil {
 					environments.Update(resourceID, func(e *ContainerAppEnvironment) {
 						e.Properties.ProvisioningState = "Failed"
@@ -839,4 +846,66 @@ func registerContainerAppEnvironmentCertificates(srv *sim.Server, envs sim.Store
 		})
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": filtered})
 	})
+}
+
+// acaInfrastructureSubnetID is the subnet an environment's workloads sit in,
+// whichever of the two spellings the request carried it in.
+func acaInfrastructureSubnetID(props EnvProperties) string {
+	if props.VnetConfiguration != nil && props.VnetConfiguration.InfrastructureSubnetId != "" {
+		return props.VnetConfiguration.InfrastructureSubnetId
+	}
+	return props.InfrastructureSubnetId
+}
+
+// acaInfrastructureVNet is the stored virtual network an environment's
+// infrastructure subnet belongs to.
+func acaInfrastructureVNet(props EnvProperties) (VirtualNetwork, bool) {
+	subnetID := acaInfrastructureSubnetID(props)
+	if subnetID == "" || azureVnets == nil {
+		return VirtualNetwork{}, false
+	}
+	return azureVnets.Get(azureVNetIDOfSubnet(subnetID))
+}
+
+// acaEnvironmentVNetID is the virtual network whose engine network the
+// environment joined, or "" for an environment on a network of its own.
+func acaEnvironmentVNetID(env ContainerAppEnvironment) string {
+	vnet, ok := acaInfrastructureVNet(env.Properties)
+	if !ok || dockerNetForVNet(vnet.ID) != env.DockerNetworkName {
+		return ""
+	}
+	return vnet.ID
+}
+
+// acaEnvironmentNetwork is the engine network a workload of the environment
+// attaches to, with its sidecar as the workload's resolver — a virtual
+// network's, created on first use, or the environment's own — and the subnet
+// a workload leases its address in when the environment is on a virtual
+// network's infrastructure subnet.
+func acaEnvironmentNetwork(ctx context.Context, env ContainerAppEnvironment) (azureWorkloadNetwork, string, error) {
+	if vnetID := acaEnvironmentVNetID(env); vnetID != "" {
+		network, err := azureVNetNetwork(ctx, vnetID)
+		return network, acaInfrastructureSubnetID(env.Properties), err
+	}
+	if env.DockerNetworkName == "" {
+		return azureWorkloadNetwork{}, "", fmt.Errorf("managed environment %s has no network", env.ID)
+	}
+	dns, err := azureEnsureSidecar(ctx, env.DockerNetworkName, netip.Addr{})
+	if err != nil {
+		return azureWorkloadNetwork{}, "", err
+	}
+	return azureWorkloadNetwork{Network: env.DockerNetworkName, DNS: dns}, "", nil
+}
+
+// acaWorkloadNetwork is the network a workload of the environment envID runs
+// on: the environment's, or the platform network for a workload whose
+// environment is not stored.
+func acaWorkloadNetwork(ctx context.Context, envID string) (azureWorkloadNetwork, string, error) {
+	if envID != "" {
+		if env, ok := acaEnvironments.Get(envID); ok {
+			return acaEnvironmentNetwork(ctx, env)
+		}
+	}
+	network, err := azurePlatformNetwork(ctx)
+	return network, "", err
 }

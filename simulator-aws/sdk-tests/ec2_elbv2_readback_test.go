@@ -24,7 +24,7 @@ func TestEC2_LaunchTemplateProvenanceTags(t *testing.T) {
 	lt, err := c.CreateLaunchTemplate(ctx, &ec2.CreateLaunchTemplateInput{
 		LaunchTemplateName: aws.String(ltName),
 		LaunchTemplateData: &ec2types.RequestLaunchTemplateData{
-			ImageId: aws.String("ami-0abc1234"), InstanceType: ec2types.InstanceTypeT4gNano,
+			ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: ec2types.InstanceTypeT3Nano,
 		},
 	})
 	require.NoError(t, err)
@@ -50,8 +50,8 @@ func TestEC2_LaunchTemplateProvenanceTags(t *testing.T) {
 	assert.Equal(t, ltID, tags["aws:ec2launchtemplate:id"], "launch-template id tag must round-trip")
 	assert.NotEmpty(t, tags["aws:ec2launchtemplate:version"], "launch-template version tag must round-trip")
 	// image/type inherited from the template (not overridden in RunInstances).
-	assert.Equal(t, "ami-0abc1234", aws.ToString(inst.ImageId))
-	assert.Equal(t, ec2types.InstanceTypeT4gNano, inst.InstanceType)
+	assert.Equal(t, ec2AmazonLinuxAMI(t), aws.ToString(inst.ImageId))
+	assert.Equal(t, ec2types.InstanceTypeT3Nano, inst.InstanceType)
 }
 
 // TestEC2_RouteNetworkInterfaceId verifies a route created targeting an ENI

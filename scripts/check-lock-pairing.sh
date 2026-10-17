@@ -32,7 +32,6 @@ readonly SCAN_DIRS=(
 	simulator-aws
 	simulator-gcp
 	simulator-azure
-	realexec
 	testutil
 	ui-auth
 	scripts

@@ -13,9 +13,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/dnsserver"
+	"github.com/e6qu/sockerless-cloud/sim/sidecar"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	"github.com/miekg/dns"
 )
 
@@ -71,54 +72,56 @@ var cloudDNS *dnsserver.Server
 // forwarding and peering zones to the VPC networks they are visible to.
 func startCloudDNSServer() (*dnsserver.Server, error) {
 	srv, err := dnsserver.Start(dnsserver.Config{
-		Port:    os.Getenv("SIM_DNS_PORT"),
-		Name:    "cloud dns",
-		Catalog: cloudDNSCatalog,
-		Recursion: &dnsserver.Recursion{
-			Upstreams:  os.Getenv("SIM_DNS_UPSTREAM"),
-			Redirected: []netip.Addr{netip.MustParseAddr(realexec.MetadataIPv4)},
-		},
+		Port:      os.Getenv("SIM_DNS_PORT"),
+		Name:      "cloud dns",
+		Catalog:   cloudDNSCatalog,
+		Recursion: &dnsserver.Recursion{Upstreams: os.Getenv("SIM_DNS_UPSTREAM")},
 	})
 	if err != nil {
 		return nil, err
 	}
 	cloudDNS = srv
+	origin, err := workloadhost.CallbackAddr(simListenAddr)
+	if err != nil {
+		_ = srv.Close()
+		return nil, fmt.Errorf("workload callback: %w", err)
+	}
+	networkSidecars = sidecar.NewManager(cloudDNS, "http://"+origin, sim.NoopSink{})
 	return srv, nil
 }
 
-// cloudDNSPort is the port the resolver answers on, which a VPC network's DNS
-// is redirected to.
-func cloudDNSPort() (int, error) {
-	if cloudDNS == nil {
-		return 0, fmt.Errorf("the simulator's resolver is not listening yet")
-	}
-	return cloudDNS.Port(), nil
-}
+// networkSidecars runs one sidecar per engine network workloads land on,
+// forwarding DNS to cloudDNS and metadata to the simulator.
+var networkSidecars *sidecar.Manager
 
-// cloudDNSResolverNetworks maps the address a VPC network's redirected queries
-// arrive at to the network, which decides the private zones a query sees.
+// cloudDNSResolverNetworks maps an engine network whose sidecar forwards
+// queries here to the VPC network it realizes, named
+// projects/<project>/global/networks/<name>, which decides the private zones a
+// query through that sidecar sees.
 var cloudDNSResolverNetworks sync.Map
 
-// cloudDNSRegisterResolverIP records that queries arriving at addr come from
-// network, named projects/<project>/global/networks/<name>.
-func cloudDNSRegisterResolverIP(addr net.IP, network string) error {
-	local, ok := netip.AddrFromSlice(addr.To4())
-	if !ok {
-		return fmt.Errorf("resolver address %s of %s is not IPv4", addr, network)
-	}
-	cloudDNSResolverNetworks.Store(local, network)
-	return nil
-}
+// cloudDNSMetadataName is the name every network resolves to its metadata
+// server: the sidecar that forwards to the simulator.
+const cloudDNSMetadataName = "metadata.google.internal."
 
 func cloudDNSCatalog(q dnsserver.Query) dnsserver.View {
 	var network string
-	if v, ok := cloudDNSResolverNetworks.Load(q.Local); ok {
+	if v, ok := cloudDNSResolverNetworks.Load(q.Network); ok {
 		network, _ = v.(string)
 	}
 	all := cloudDNSZones.ListPrefix("")
 	view := dnsserver.View{
 		Zones: cloudDNSNetworkZones(all, network, true),
 		Names: cloudDNSResponsePolicyAnswer(network, q.Name),
+	}
+	if q.Name == cloudDNSMetadataName {
+		if v, ok := gcpNetworkSidecars.Load(q.Network); ok {
+			sidecar := v.(netip.Addr)
+			view.Names = append(view.Names, &dns.A{
+				Hdr: dns.RR_Header{Name: cloudDNSMetadataName, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 0},
+				A:   net.IP(sidecar.AsSlice()),
+			})
+		}
 	}
 	// A network whose DNS policy names alternative name servers sends them
 	// every name its private zones do not hold, in place of Google's

@@ -15,12 +15,12 @@ Current state of the sockerless-cloud repository.
   cloud-neutral: a cloud's error shape, protocol router, sandbox profile,
   console coordinates, request rewrite and registry behaviour live in that
   cloud's module and reach the framework through hooks. The support modules
-  `realexec/`, `ui-auth/` and `testutil/` sit beside it.
+  `ui-auth/` and `testutil/` sit beside it.
 - **Shared mechanisms live in `sim`.** Workload-host coordinates, background
   work, workload launching, archive extraction, payload storage and sparse
   files, JWT signing and OpenID Connect federation, registry authentication and
   the managed relational database data plane are one package each under
-  `sim/`; the load-balancer data plane is `realexec/lbplane`, and queues,
+  `sim/`; the load-balancer data plane is `sim/lbplane`, and queues,
   stream logs, push delivery and cron schedules are `sim/msgq`, `sim/streamlog`, `sim/delivery`
   and `sim/cron`. All three simulators use them. Key material is `sim/simkms`,
   and log entries are `sim/logstore`, which Amazon CloudWatch Logs, Cloud
@@ -41,25 +41,34 @@ Current state of the sockerless-cloud repository.
   through the VPC resolver. An unhealthy instance drops out of DNS answers,
   through a Route 53 health check for a `HealthCheckConfig` service or 30
   seconds after a custom status for a `HealthCheckCustomConfig` one.
-  Workloads on engine networks resolve through the engine's embedded DNS
-  rather than their cloud's resolver address until the per-network sidecars
-  of `PLAN.md` stage 2 land (BUG-3473).
+  Every workload on an engine network names its network's sidecar
+  (`sim/sidecar`) as its DNS server, at the address the cloud reserves for
+  its resolver inside the range, and the sidecar forwards to the cloud's
+  resolver with the network attached and metadata requests to the simulator
+  under a minted token.
 - **Execution modes.** `PLAN.md` names three — embedded, embedded with node
   agents, distributed — under one rule: the simulator process holds no host
   privilege, and a workload container holds no capability. The
-  host-namespace tier (`realexec/fabric`, the in-process Firecracker launch,
-  the `nftables` rules, the `CAP_NET_ADMIN` and `--privileged` helper
-  containers) is still in the tree and runs nowhere CI or a developer machine
-  runs; stage 1 removes it, and Amazon EC2, Compute Engine and Azure virtual
-  machine instances refuse to launch until the container backend of stage 3
-  places them.
+  host-namespace tier and the two helper containers that held privilege are
+  gone with the `realexec` module; a VPC, a Compute Engine subnetwork and an
+  Azure virtual network are engine networks over their own CIDR
+  (`sim.EnsureCloudNetwork`), and a workload's address is the one the cloud
+  API reports for its interface. Where a service's workloads run is the
+  placement table `SIM_PLACEMENT` reads (`sim/placement`): the container
+  backend by default, and the microVM backend, served by a node agent
+  (`sim/nodeagent`) the binary starts as a container with `/dev/kvm`, for the
+  services configured onto it. Amazon EC2, Compute Engine and Azure virtual
+  machine instances are containers from each cloud's image catalog
+  (`sim/vminstance`): the init runs the instance's user data, the instance
+  stops and starts on its own root disk, and an image captured from one is
+  the committed container.
 - **One startup sequence.** Every simulator binary's `main` is a `sim.Main`
   call with a `sim.Program`: the cloud supplies its default port, its build and
   the listeners it serves beside the HTTP port, and `sim` owns the reaper
   invocation, the parent-process watch, configuration, observability, the
   container-engine runtime mode and shutdown.
-- **Pins carry the working tree's content.** Each simulator pins `sim`,
-  `realexec` and `ui-auth` by pseudo-version;
+- **Pins carry the working tree's content.** Each simulator pins `sim` and
+  `ui-auth` by pseudo-version;
   `scripts/check-support-module-pins.sh` downloads every pinned version and
   fails when its content differs from the tree, and
   `scripts/check-installable-build.sh` builds each simulator with `GOWORK=off`

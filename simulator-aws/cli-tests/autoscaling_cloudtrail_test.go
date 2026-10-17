@@ -23,7 +23,7 @@ func TestAutoScalingGroupLifecycleCLI(t *testing.T) {
 
 	runCLI(t, awsCLI("autoscaling", "create-launch-configuration",
 		"--launch-configuration-name", "cli-lc",
-		"--image-id", "ami-cli-asg",
+		"--image-id", ec2AmazonLinuxAMI(t),
 		"--instance-type", "t3.micro"))
 	runCLI(t, awsCLI("autoscaling", "create-auto-scaling-group",
 		"--auto-scaling-group-name", "cli-asg",
@@ -96,7 +96,7 @@ func TestAutoScalingCLI_PoliciesAndHooks(t *testing.T) {
 
 	runCLI(t, awsCLI("autoscaling", "create-launch-configuration",
 		"--launch-configuration-name", "cli-pol-lc",
-		"--image-id", "ami-cli-pol",
+		"--image-id", ec2AmazonLinuxAMI(t),
 		"--instance-type", "t3.micro"))
 	t.Cleanup(func() {
 		_ = awsCLI("autoscaling", "delete-launch-configuration",

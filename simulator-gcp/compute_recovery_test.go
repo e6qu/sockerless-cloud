@@ -6,7 +6,9 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-func TestRecoverComputeInstancesTerminatesInstancesWithoutBackingVMs(t *testing.T) {
+// A restart settles every instance it caught moving as TERMINATED with a
+// statusMessage, and leaves the instances that were not moving as they were.
+func TestRecoverComputeInstancesTerminatesInstancesCaughtMoving(t *testing.T) {
 	instances := sim.MakeStore[ComputeInstance](nil, "test_compute_instances_recovery")
 
 	running := ComputeInstance{
@@ -51,7 +53,7 @@ func TestRecoverComputeInstancesTerminatesInstancesWithoutBackingVMs(t *testing.
 
 	recoverComputeInstances(instances)
 
-	for _, selfLink := range []string{running.SelfLink, staging.SelfLink, provisioning.SelfLink, stopping.SelfLink, suspending.SelfLink} {
+	for _, selfLink := range []string{staging.SelfLink, provisioning.SelfLink, stopping.SelfLink, suspending.SelfLink} {
 		inst, ok := instances.Get(selfLink)
 		if !ok {
 			t.Fatalf("instance %s missing after recovery", selfLink)
@@ -64,9 +66,11 @@ func TestRecoverComputeInstancesTerminatesInstancesWithoutBackingVMs(t *testing.
 		}
 	}
 
-	after, _ := instances.Get(stopped.SelfLink)
-	if after.StatusMessage != "" {
-		t.Errorf("already-terminated instance gained StatusMessage %q", after.StatusMessage)
+	for _, settled := range []ComputeInstance{running, stopped} {
+		after, _ := instances.Get(settled.SelfLink)
+		if after.Status != settled.Status || after.StatusMessage != "" {
+			t.Errorf("instance %s that was not moving = %s %q after recovery, want %s untouched", settled.Name, after.Status, after.StatusMessage, settled.Status)
+		}
 	}
 }
 

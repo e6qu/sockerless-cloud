@@ -103,16 +103,16 @@ func ecsSampleServiceMetrics(ctx context.Context, now time.Time) {
 		var cpuUsed, memUsed float64
 		cpuKnown, memKnown := true, true
 		for _, handle := range procs.Handles {
-			if handle == nil || handle.ContainerID == "" {
+			if handle == nil || handle.ID() == "" {
 				continue
 			}
-			seen[handle.ContainerID] = true
-			stats, err := ecsReadContainerStats(ctx, cli, handle.ContainerID)
+			seen[handle.ID()] = true
+			stats, err := ecsReadContainerStats(ctx, cli, handle.ID())
 			if err != nil {
 				cpuKnown, memKnown = false, false
 				continue
 			}
-			if units, ok := ecsContainerCPUUnits(handle.ContainerID, stats); ok {
+			if units, ok := ecsContainerCPUUnits(handle.ID(), stats); ok {
 				cpuUsed += units
 			} else {
 				cpuKnown = false

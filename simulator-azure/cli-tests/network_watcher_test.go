@@ -154,7 +154,6 @@ func TestNetworkWatcherConfigurationCLI(t *testing.T) {
 // against the route table attached to it.
 func TestNetworkWatcherDiagnosticsCLI(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 
 	nsgURL := armURL("Microsoft.Network", "networkSecurityGroups/cli-diag-nsg", networkWatcherAPIVersion)
 	runCLI(t, azRest("PUT", nsgURL, `{"location":"eastus","properties":{"securityRules":[

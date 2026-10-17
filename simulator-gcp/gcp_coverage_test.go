@@ -509,8 +509,8 @@ const gcpProbePrincipal = "coverage-probe@sockerless.iam.gserviceaccount.com"
 // serve this method+URI?" — and a body no handler can decode answers it without
 // letting any handler mutate simulator or host state: sim.ReadJSON fails, the
 // handler returns INVALID_ARGUMENT, and the request never reaches the code that
-// would create a real Compute network namespace, start a Firecracker VM, or
-// shell out to a container build. A 400 is a served answer, so nothing is lost.
+// would create an engine network, boot an instance, or shell out to a
+// container build. A 400 is a served answer, so nothing is lost.
 const gcpProbeBody = `{"sockerless-coverage-probe"`
 
 // gcpProbeResult is one method's verdict plus the evidence behind it.

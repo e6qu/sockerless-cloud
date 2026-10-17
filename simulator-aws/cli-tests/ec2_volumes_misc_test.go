@@ -27,7 +27,7 @@ func TestEC2CLI_VolumesSnapshots(t *testing.T) {
 		"--query", "Vpc.VpcId", "--output", "text")
 	subnet := q("ec2", "create-subnet", "--vpc-id", vpc, "--cidr-block", "10.220.1.0/24",
 		"--query", "Subnet.SubnetId", "--output", "text")
-	inst := q("ec2", "run-instances", "--image-id", "ami-12345678", "--instance-type", "t3.micro",
+	inst := q("ec2", "run-instances", "--image-id", ec2AmazonLinuxAMI(t), "--instance-type", "t3.micro",
 		"--subnet-id", subnet, "--query", "Instances[0].InstanceId", "--output", "text")
 	terminateCLIInstanceOnCleanup(t, inst)
 
@@ -69,12 +69,12 @@ func TestEC2CLI_RecycleBinTasks(t *testing.T) {
 		"--query", "Vpc.VpcId", "--output", "text")
 	subnet := q("ec2", "create-subnet", "--vpc-id", vpc, "--cidr-block", "10.221.1.0/24",
 		"--query", "Subnet.SubnetId", "--output", "text")
-	inst := q("ec2", "run-instances", "--image-id", "ami-12345678", "--instance-type", "t3.micro",
+	inst := q("ec2", "run-instances", "--image-id", ec2AmazonLinuxAMI(t), "--instance-type", "t3.micro",
 		"--subnet-id", subnet, "--query", "Instances[0].InstanceId", "--output", "text")
 	terminateCLIInstanceOnCleanup(t, inst)
 
 	task := q("ec2", "create-replace-root-volume-task", "--instance-id", inst,
-		"--image-id", "ami-99999999", "--query", "ReplaceRootVolumeTask.ReplaceRootVolumeTaskId", "--output", "text")
+		"--image-id", ec2UbuntuAMI(t), "--query", "ReplaceRootVolumeTask.ReplaceRootVolumeTaskId", "--output", "text")
 	if task == "" {
 		t.Fatal("create-replace-root-volume-task returned empty task id")
 	}
@@ -176,13 +176,13 @@ func TestEC2CLI_LaunchTemplateDnsEni(t *testing.T) {
 		"--query", "Vpc.VpcId", "--output", "text")
 	subnet := q("ec2", "create-subnet", "--vpc-id", vpc, "--cidr-block", "10.223.1.0/24",
 		"--query", "Subnet.SubnetId", "--output", "text")
-	inst := q("ec2", "run-instances", "--image-id", "ami-12345678", "--instance-type", "t3.small",
+	inst := q("ec2", "run-instances", "--image-id", ec2AmazonLinuxAMI(t), "--instance-type", "t3.small",
 		"--subnet-id", subnet, "--query", "Instances[0].InstanceId", "--output", "text")
 	terminateCLIInstanceOnCleanup(t, inst)
 
 	img := q("ec2", "get-launch-template-data", "--instance-id", inst,
 		"--query", "LaunchTemplateData.ImageId", "--output", "text")
-	if img != "ami-12345678" {
+	if img != ec2AmazonLinuxAMI(t) {
 		t.Fatalf("get-launch-template-data: ImageId %q, want ami-12345678", img)
 	}
 

@@ -24,8 +24,6 @@ Resources covered:
 - `google_service_account` (via `iam_beta_custom_endpoint`)
 - `google_service_account_key` (via `iam_custom_endpoint`)
 
-`google_compute_instance` runs a real Firecracker guest and needs a Linux host with `/dev/kvm`; CI's Linux runner applies it.
-
 ## Running
 
 ```sh

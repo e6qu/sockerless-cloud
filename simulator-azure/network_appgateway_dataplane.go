@@ -6,14 +6,15 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
 // The application gateway data plane. A client reaches an application gateway
@@ -155,12 +156,16 @@ func handleApplicationGatewayDataPlane(w http.ResponseWriter, r *http.Request, g
 		http.Error(w, "no healthy backend servers in pool "+target.pool.Name, http.StatusBadGateway)
 		return
 	}
-	err := applicationGatewayForward(w, r, *target.settings, target.rewrite, server)
+	err := applicationGatewayForward(w, r, *target.settings, target.rewrite, server, applicationGatewaySourceAddress(gw))
 	abortStartedForward(w, err)
 	switch {
 	case err == nil:
 	case errors.Is(err, lbplane.ErrClientWentAway):
 		w.WriteHeader(lbplane.StatusClientClosedRequest)
+	case errors.Is(err, lbplane.ErrNotAdmitted):
+		// A backend the gateway cannot reach is a 502, as the real gateway
+		// answers when the backend's network security group drops its flow.
+		http.Error(w, "the backend's network security groups do not admit the gateway: "+err.Error(), http.StatusBadGateway)
 	default:
 		http.Error(w, err.Error(), http.StatusBadGateway)
 	}
@@ -792,7 +797,44 @@ func applicationGatewayProbeVerdict(spec applicationGatewayResolvedProbe, server
 // applicationGatewayForward sends the request to the chosen pool member the way
 // the backend settings describe, applies the rewrite rule set to the request and
 // the response, and copies the response back to the client.
-func applicationGatewayForward(w http.ResponseWriter, r *http.Request, settings ApplicationGatewayBackendHTTPSettings, rewrite *ApplicationGatewayRewriteRuleSet, server applicationGatewayServer) error {
+// applicationGatewaySourceAddress is the address the gateway connects to a
+// backend from — the private frontend it holds in its subnet, or else an
+// instance address in the subnet its gatewayIPConfigurations name — which is
+// what the backend's network security groups see.
+func applicationGatewaySourceAddress(gw ApplicationGateway) netip.Addr {
+	for _, fe := range gw.Properties.FrontendIPConfigurations {
+		if fe.Properties.Subnet != nil {
+			if addr, err := netip.ParseAddr(fe.Properties.PrivateIPAddress); err == nil {
+				return addr
+			}
+		}
+	}
+	for _, ipcfg := range gw.Properties.GatewayIPConfigurations {
+		if ipcfg.Properties.Subnet == nil {
+			continue
+		}
+		subnet, ok := azureSubnetByID(ipcfg.Properties.Subnet.ID)
+		if !ok {
+			continue
+		}
+		cidr, err := azureSubnetIPv4CIDR(subnet.Properties)
+		if err != nil {
+			continue
+		}
+		if prefix, err := netip.ParsePrefix(cidr); err == nil {
+			addr := prefix.Masked().Addr()
+			for i := 0; i < azureSubnetReservation.First; i++ {
+				addr = addr.Next()
+			}
+			return addr
+		}
+	}
+	return netip.Addr{}
+}
+
+// applicationGatewayForward sends the request to the backend from source, the
+// gateway's own address.
+func applicationGatewayForward(w http.ResponseWriter, r *http.Request, settings ApplicationGatewayBackendHTTPSettings, rewrite *ApplicationGatewayRewriteRuleSet, server applicationGatewayServer, source netip.Addr) error {
 	scheme := "http"
 	if strings.EqualFold(settings.Properties.Protocol, "Https") {
 		scheme = "https"
@@ -829,6 +871,11 @@ func applicationGatewayForward(w http.ResponseWriter, r *http.Request, settings 
 		Host:     host,
 		Header:   headers,
 		Timeout:  timeout,
+		// The gateway connects to the backend from its own address in its
+		// subnet, which is what the backend's network security groups see.
+		Admit: func(netip.Addr) error {
+			return azureAdmitIngress("Tcp", source, server.address, int(port))
+		},
 	}
 	if rewrite != nil {
 		up.ResponseHeader = func(status int, header http.Header) {

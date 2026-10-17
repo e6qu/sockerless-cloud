@@ -102,7 +102,6 @@ func TestSDK_Recommendations_HostingEnvironmentScope(t *testing.T) {
 	// creating a real subnet needs the Linux network capabilities the
 	// simulator's fabric is built on. A host that cannot provide them skips;
 	// Linux runs the test.
-	requireNetworkHost(t)
 
 	rg, name := "sdk-recommendation-ase-rg", "sdk-recommendation-ase"
 	ensureRG(t, rg)

@@ -31,7 +31,6 @@ readonly SCAN_DIRS=(
 	simulator-aws
 	simulator-gcp
 	simulator-azure
-	realexec
 	testutil
 	ui-auth
 )
@@ -76,7 +75,7 @@ readonly STATUS_ONLY_FLOOR=5
 # assertion that reads its result. The ones left are packet-capture tests that
 # hold still to prove nothing further arrives, each paired with a positive
 # control.
-readonly SLEEP_THEN_ASSERT_FLOOR=3
+readonly SLEEP_THEN_ASSERT_FLOOR=0
 
 report=$(mktemp)
 totals=$(mktemp)

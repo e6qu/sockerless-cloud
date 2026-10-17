@@ -11,18 +11,15 @@ import (
 	"math"
 	"net"
 	"net/http"
-	"net/netip"
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
-	"github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/archive"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
-	"github.com/e6qu/sockerless-cloud/sim/workload"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
@@ -67,7 +64,6 @@ type runtimeAPISidecar struct {
 	listener net.Listener
 	server   *http.Server
 	addr     string // host:port address the container sees
-	port     int
 }
 
 // startRuntimeAPISidecar binds a free port on all interfaces, mounts
@@ -100,7 +96,6 @@ func startRuntimeAPISidecar(inv *lambdaInvocation) (*runtimeAPISidecar, error) {
 		inv:      inv,
 		listener: ln,
 		addr:     net.JoinHostPort(host, fmt.Sprintf("%d", port)),
-		port:     port,
 	}
 
 	// GET /2018-06-01/runtime/invocation/next
@@ -136,10 +131,6 @@ func (s *runtimeAPISidecar) Shutdown() {
 // this sidecar (via the Docker host-gateway alias).
 func (s *runtimeAPISidecar) ContainerAddr() string {
 	return s.addr
-}
-
-func (s *runtimeAPISidecar) HostPort() int {
-	return s.port
 }
 
 // handleNext serves GET /2018-06-01/runtime/invocation/next. Blocks
@@ -252,34 +243,25 @@ func (s *runtimeAPISidecar) handleInitError(w http.ResponseWriter, r *http.Reque
 }
 
 var (
-	lambdaRuntimeAPIAddressSequence atomic.Uint32
-	lambdaRuntimeIPMu               sync.Mutex
-	lambdaRuntimeIPLeases           = map[string]bool{}
+	lambdaRuntimeIPMu     sync.Mutex
+	lambdaRuntimeIPLeases = map[string]bool{}
 )
 
 type lambdaInvocationNetwork struct {
-	networkMode string
-	network     string
-	// eniAddress is the invocation's elastic network interface IPv4 address in
-	// CIDR notation with the VPC CIDR's prefix length, plumbed as the
-	// container's secondary address (sim.ContainerConfig.ENIAddress).
+	network string
+	// eniAddress is the invocation's elastic network interface IPv4 address,
+	// which the execution environment takes on the VPC's network.
 	eniAddress     string
+	dns            []string
 	runtimeAPIAddr string
 	metadataEnv    map[string]string
 	extraHosts     []string
-	pause          *sim.ContainerHandle
-	invocationID   string
 	leasedIP       string
 }
 
 func (n *lambdaInvocationNetwork) cleanup() {
 	if n == nil {
 		return
-	}
-	if n.pause != nil {
-		n.pause.Cancel()
-		_ = n.pause.Wait()
-		ec2DetachRealLambdaNIC(context.Background(), n.invocationID)
 	}
 	if n.leasedIP != "" {
 		lambdaRuntimeIPMu.Lock()
@@ -317,61 +299,23 @@ func acquireLambdaRuntimeIP(vpc *LambdaVpcConfig) (subnetID, privateIP string, e
 	return subnetID, ip, nil
 }
 
-func lambdaRuntimeLinkLocalAddress() string {
-	// Keep clear of the EC2 instance metadata and Amazon ECS task metadata
-	// addresses. Each active invocation receives a distinct Lambda-service
-	// destination, which is routed to its private Runtime API listener.
-	n := lambdaRuntimeAPIAddressSequence.Add(1) - 1
-	third := 128 + (n/254)%126
-	fourth := 1 + n%254
-	return fmt.Sprintf("169.254.%d.%d", third, fourth)
-}
-
-func startLambdaVpcPauseContainer(invocationID string, sink sim.LogSink) (*sim.ContainerHandle, error) {
-	img := sim.ResolveLocalImage(ecsPauseImage())
-	registryAuth, err := ecrWorkloadRegistryAuth(img)
-	if err != nil {
-		return nil, err
-	}
-	platform, err := workload.LocalImagePlatform(context.Background(), img, registryAuth)
-	if err != nil {
-		return nil, fmt.Errorf("resolve AWS Lambda VPC pause image platform: %w", err)
-	}
-	return sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
-		Image:        img,
-		Architecture: platform,
-		Command:      []string{"sleep"},
-		Args:         []string{"2147483647"},
-		Name:         fmt.Sprintf("sockerless-sim-aws-lambda-%s-pause", invocationID[:12]),
-		Labels: map[string]string{
-			"sockerless-sim-lambda":       invocationID,
-			"sockerless-sim-lambda-pause": "true",
-		},
-		// The invocation's namespace is detached from Docker's networks, so
-		// it asks the VPC's resolver, which the namespace redirects to the
-		// simulator's own; the function container shares this resolv.conf.
-		DNS:     []string{realexec.VPCResolverIPv4},
-		Sandbox: SandboxLambda,
-	}, sink)
-}
-
-func prepareLambdaInvocationNetwork(
-	fn LambdaFunction,
-	invocationID string,
-	sidecar *runtimeAPISidecar,
-	sink sim.LogSink,
-) (*lambdaInvocationNetwork, error) {
-	metadataEnv, err := hostMetadataEnv("")
-	if err != nil {
-		return nil, fmt.Errorf("resolve AWS Lambda metadata callback: %w", err)
-	}
+// prepareLambdaInvocationNetwork decides where an execution environment
+// runs: on the function's VPC network at its elastic network interface
+// address, or on the platform network for a function outside any VPC. Either
+// way it resolves names and reads its metadata through the network's sidecar.
+func prepareLambdaInvocationNetwork(fn LambdaFunction, sidecar *runtimeAPISidecar) (*lambdaInvocationNetwork, error) {
 	out := &lambdaInvocationNetwork{
 		runtimeAPIAddr: sidecar.ContainerAddr(),
-		metadataEnv:    metadataEnv,
 		extraHosts:     workloadhost.ExtraHosts(),
-		invocationID:   invocationID,
 	}
 	if fn.VpcConfig == nil || len(fn.VpcConfig.SubnetIds) == 0 {
+		network, err := awsPlatformNetwork(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("provision the AWS Lambda execution environment's network: %w", err)
+		}
+		out.network = network.Name
+		out.dns = network.DNS()
+		out.metadataEnv = workloadMetadataEnv(network.MetadataOrigin(), "")
 		return out, nil
 	}
 
@@ -386,64 +330,15 @@ func prepareLambdaInvocationNetwork(
 		return nil, fmt.Errorf("AWS Lambda VPC subnet %s no longer exists", subnetID)
 	}
 
-	if ec2ECSRealNetAvailable() {
-		pause, err := startLambdaVpcPauseContainer(invocationID, sink)
-		if err != nil {
-			out.cleanup()
-			return nil, err
-		}
-		out.pause = pause
-		if err := sim.DisconnectContainerNetworks(pause.ContainerID); err != nil {
-			out.cleanup()
-			return nil, fmt.Errorf("disconnect AWS Lambda VPC pause container from Docker networks: %w", err)
-		}
-		pid, err := sim.ContainerPID(pause.ContainerID)
-		if err != nil {
-			out.cleanup()
-			return nil, fmt.Errorf("AWS Lambda VPC pause container PID: %w", err)
-		}
-		runtimeIPv4 := lambdaRuntimeLinkLocalAddress()
-		if err := ec2AttachRealLambdaNIC(
-			context.Background(),
-			invocationID,
-			subnetID,
-			pid,
-			privateIP,
-			fn.VpcConfig.SecurityGroupIds,
-			runtimeIPv4,
-			sidecar.HostPort(),
-		); err != nil {
-			out.cleanup()
-			return nil, fmt.Errorf("attach AWS Lambda invocation to VPC: %w", err)
-		}
-		out.networkMode = "container:" + pause.ContainerID
-		out.runtimeAPIAddr = net.JoinHostPort(runtimeIPv4, "80")
-		out.metadataEnv = hostMetadataLinkLocalEnv("")
-		out.extraHosts = nil
-		return out, nil
-	}
-
-	vpc, ok := ec2Vpcs.Get(subnet.VpcId)
-	if !ok {
-		out.cleanup()
-		return nil, fmt.Errorf("AWS Lambda VPC %s no longer exists", subnet.VpcId)
-	}
-	if vpc.CidrBlock == "" {
-		out.cleanup()
-		return nil, fmt.Errorf("AWS Lambda VPC %s has no CIDR block", subnet.VpcId)
-	}
-	vpcPrefix, perr := netip.ParsePrefix(vpc.CidrBlock)
-	if perr != nil {
-		out.cleanup()
-		return nil, fmt.Errorf("AWS Lambda VPC %s CIDR %q: %w", subnet.VpcId, vpc.CidrBlock, perr)
-	}
-	networkName := ecsVPCNetworkName(subnet.VpcId)
-	if _, err := sim.EnsureVPCNetwork(networkName); err != nil {
+	network, err := ec2EnsureVPCNetwork(context.Background(), subnet.VpcId)
+	if err != nil {
 		out.cleanup()
 		return nil, fmt.Errorf("provision AWS Lambda VPC network for %s: %w", subnet.VpcId, err)
 	}
-	out.network = networkName
-	out.eniAddress = fmt.Sprintf("%s/%d", privateIP, vpcPrefix.Bits())
+	out.network = network.Name
+	out.dns = network.DNS()
+	out.metadataEnv = workloadMetadataEnv(network.MetadataOrigin(), "")
+	out.eniAddress = privateIP
 	return out, nil
 }
 
@@ -572,29 +467,29 @@ const lambdaUnzippedCodeLimit = 262144000
 // timeout, and the caller that owns ctx decides what an interrupted invocation
 // means — a retry the next process makes, or a message that becomes visible
 // again.
-func invokeLambdaViaRuntimeAPI(ctx context.Context, fn LambdaFunction, payload []byte) ([]byte, bool, int) {
+func invokeLambdaViaRuntimeAPI(ctx context.Context, fn LambdaFunction, payload []byte) ([]byte, bool, int, *lambdaServiceError) {
 	var (
 		runtimeImage string
 		taskRoot     string
 		layerRoot    string
 	)
 	if fn.Code == nil {
-		return lambdaErrorPayload("Function has no deployment package"), true, 1
+		return lambdaErrorPayload("Function has no deployment package"), true, 1, nil
 	}
 	if fn.Code.ImageUri == "" {
 		var err error
 		runtimeImage, err = lambdaRuntimeImage(fn.Runtime)
 		if err != nil {
-			return lambdaErrorPayload(err.Error()), true, 1
+			return lambdaErrorPayload(err.Error()), true, 1, nil
 		}
 		taskRoot, err = materializeLambdaDeploymentPackage(fn)
 		if err != nil {
-			return lambdaErrorPayload(err.Error()), true, 1
+			return lambdaErrorPayload(err.Error()), true, 1, nil
 		}
 		defer os.RemoveAll(taskRoot)
 		layerRoot, err = materializeLambdaLayers(fn.Layers)
 		if err != nil {
-			return lambdaErrorPayload(err.Error()), true, 1
+			return lambdaErrorPayload(err.Error()), true, 1, nil
 		}
 		if layerRoot != "" {
 			defer os.RemoveAll(layerRoot)
@@ -617,7 +512,7 @@ func invokeLambdaViaRuntimeAPI(ctx context.Context, fn LambdaFunction, payload [
 	sidecar, err := startRuntimeAPISidecar(inv)
 	if err != nil {
 		errBody := lambdaErrorPayload(fmt.Sprintf("Runtime API sidecar start failed: %v", err))
-		return errBody, true, 1
+		return errBody, true, 1, nil
 	}
 	defer sidecar.Shutdown()
 
@@ -664,7 +559,7 @@ func invokeLambdaViaRuntimeAPI(ctx context.Context, fn LambdaFunction, payload [
 	// still wins, so a function configured for a specific endpoint keeps it.
 	endpoint, err := workloadhost.CallbackAddr(simListenAddr)
 	if err != nil {
-		return lambdaErrorPayload(fmt.Sprintf("resolve the simulator endpoint: %v", err)), true, 1
+		return lambdaErrorPayload(fmt.Sprintf("resolve the simulator endpoint: %v", err)), true, 1, nil
 	}
 	cmdEnv["AWS_ENDPOINT_URL"] = "http://" + endpoint
 	if fn.Environment != nil {
@@ -684,14 +579,19 @@ func invokeLambdaViaRuntimeAPI(ctx context.Context, fn LambdaFunction, payload [
 	})
 	platform, err := lambdaDockerPlatform(fn.Architectures)
 	if err != nil {
-		return lambdaErrorPayload(err.Error()), true, 1
+		return lambdaErrorPayload(err.Error()), true, 1, nil
 	}
-	invocationNetwork, err := prepareLambdaInvocationNetwork(fn, requestID, sidecar, collectSink)
+	invocationNetwork, err := prepareLambdaInvocationNetwork(fn, sidecar)
 	if err != nil {
 		endMs := time.Now().UnixMilli()
 		appendLambdaLog(logKey, endMs, fmt.Sprintf("ERROR RequestId: %s VPC attachment failed: %v", requestID, err))
 		appendLambdaLog(logKey, endMs+1, fmt.Sprintf("END RequestId: %s", requestID))
-		return lambdaErrorPayload(fmt.Sprintf("VPC attachment failed: %v", err)), true, 1
+		// AWS Lambda reports a VPC it could not set the function up in as an
+		// EC2 client exception of its own, not as the function's error.
+		return lambdaErrorPayload(fmt.Sprintf("VPC attachment failed: %v", err)), true, 1, &lambdaServiceError{
+			Code:    "EC2UnexpectedException",
+			Message: fmt.Sprintf("AWS Lambda received an unexpected Amazon EC2 client exception while setting up for the Lambda function. %v", err),
+		}
 	}
 	defer invocationNetwork.cleanup()
 	cmdEnv["AWS_LAMBDA_RUNTIME_API"] = invocationNetwork.runtimeAPIAddr
@@ -703,13 +603,17 @@ func invokeLambdaViaRuntimeAPI(ctx context.Context, fn LambdaFunction, payload [
 	// environmentAttempt counts the execution environments this invocation has
 	// created: the first, and the one a retried Init phase replaces it with.
 	environmentAttempt := 0
-	startExecutionEnvironment := func() (*sim.ContainerHandle, error) {
+	backend, err := awsPlacement.For(placement.Service{Name: "lambda"})
+	if err != nil {
+		return lambdaErrorPayload(err.Error()), true, 1, nil
+	}
+	startExecutionEnvironment := func() (placement.Handle, error) {
 		environmentAttempt++
 		registryAuth, err := ecrWorkloadRegistryAuth(ecrWorkloadImage(image))
 		if err != nil {
 			return nil, err
 		}
-		return sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
+		return backend.Place(ctx, sim.ContainerConfig{
 			Image:        ecrWorkloadImage(image),
 			RegistryAuth: registryAuth,
 			Architecture: platform,
@@ -731,8 +635,8 @@ func invokeLambdaViaRuntimeAPI(ctx context.Context, fn LambdaFunction, payload [
 			Labels:      map[string]string{"sockerless-sim-lambda": requestID},
 			ExtraHosts:  invocationNetwork.extraHosts,
 			Network:     invocationNetwork.network,
-			ENIAddress:  invocationNetwork.eniAddress,
-			NetworkMode: invocationNetwork.networkMode,
+			IPv4Address: invocationNetwork.eniAddress,
+			DNS:         invocationNetwork.dns,
 			Sandbox:     SandboxLambda,
 			Binds:       binds,
 			WorkingDir:  workingDir,
@@ -754,7 +658,7 @@ func invokeLambdaViaRuntimeAPI(ctx context.Context, fn LambdaFunction, payload [
 		endMs := time.Now().UnixMilli()
 		appendLambdaLog(logKey, endMs, fmt.Sprintf("ERROR RequestId: %s Container start failed: %v", requestID, err))
 		appendLambdaLog(logKey, endMs+1, fmt.Sprintf("END RequestId: %s", requestID))
-		return lambdaErrorPayload(fmt.Sprintf("Container start failed: %v", err)), true, 1
+		return lambdaErrorPayload(fmt.Sprintf("Container start failed: %v", err)), true, 1, nil
 	}
 	lambdaProcessHandles.Store(requestID, handle)
 	defer lambdaProcessHandles.Delete(requestID)
@@ -767,18 +671,18 @@ func invokeLambdaViaRuntimeAPI(ctx context.Context, fn LambdaFunction, payload [
 		exitCode  int
 	)
 	waitForContainer := make(chan int, 1)
-	watchContainer := func(h *sim.ContainerHandle) {
+	watchContainer := func(h placement.Handle) {
 		bg.JoinedGo(func() {
 			res := h.Wait()
 			waitForContainer <- res.ExitCode
 		})
 	}
 	watchContainer(handle)
-	interrupted := func() ([]byte, bool, int) {
+	interrupted := func() ([]byte, bool, int, *lambdaServiceError) {
 		handle.Cancel()
 		<-waitForContainer
 		appendLambdaLog(logKey, time.Now().UnixMilli(), fmt.Sprintf("END RequestId: %s", requestID))
-		return lambdaErrorPayload("Invocation interrupted: the simulator is shutting down"), true, -1
+		return lambdaErrorPayload("Invocation interrupted: the simulator is shutting down"), true, -1, nil
 	}
 
 	// Init phase. Bootstrapping the runtime and running the function's static
@@ -853,7 +757,7 @@ initPhase:
 				endMs := time.Now().UnixMilli()
 				appendLambdaLog(logKey, endMs, fmt.Sprintf("ERROR RequestId: %s Container start failed: %v", requestID, err))
 				appendLambdaLog(logKey, endMs+1, fmt.Sprintf("END RequestId: %s", requestID))
-				return lambdaErrorPayload(fmt.Sprintf("Container start failed: %v", err)), true, 1
+				return lambdaErrorPayload(fmt.Sprintf("Container start failed: %v", err)), true, 1, nil
 			}
 			lambdaProcessHandles.Store(requestID, handle)
 			watchContainer(handle)
@@ -923,12 +827,12 @@ initPhase:
 	endMs := time.Now().UnixMilli()
 	appendLambdaLog(logKey, endMs, fmt.Sprintf("END RequestId: %s", requestID))
 	appendLambdaLog(logKey, endMs+1, lambdaReportLine(requestID, invokeDuration, initDuration,
-		fn.MemorySize, handle.MemoryPeakBytes()))
+		fn.MemorySize, lambdaEnvironmentMemoryPeak(handle)))
 	if unhandled {
 		appendLambdaLog(logKey, endMs+2, fmt.Sprintf("ERROR RequestId: %s %s", requestID, strings.TrimSpace(string(result))))
 	}
 
-	return result, unhandled, exitCode
+	return result, unhandled, exitCode, nil
 }
 
 // lambdaInitPhaseLimit is how long Lambda gives the Init phase before it gives
@@ -1063,10 +967,27 @@ func appendLambdaLog(logKey string, ts int64, msg string) {
 }
 
 // lambdaErrorPayload renders a Lambda-style error JSON body.
+// lambdaServiceError is an invocation failure AWS Lambda reports as a service
+// exception, with HTTP status 502, rather than as the function's own error.
+type lambdaServiceError struct {
+	Code    string
+	Message string
+}
+
 func lambdaErrorPayload(msg string) []byte {
 	body, _ := json.Marshal(map[string]string{
 		"errorMessage": msg,
 		"errorType":    "Runtime.ExitError",
 	})
 	return body
+}
+
+// lambdaEnvironmentMemoryPeak is the most memory the execution environment
+// reached, which the container backend measures through the engine's stats;
+// a backend without the measurement reports none.
+func lambdaEnvironmentMemoryPeak(handle placement.Handle) uint64 {
+	if measured, ok := handle.(interface{ MemoryPeakBytes() uint64 }); ok {
+		return measured.MemoryPeakBytes()
+	}
+	return 0
 }

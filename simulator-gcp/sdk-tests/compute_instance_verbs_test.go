@@ -16,29 +16,35 @@ import (
 // insert answers while the machine is still provisioning and several of these
 // verbs are refused on an instance that is not running yet — exactly as
 // Compute Engine refuses them.
-func createVerbInstance(t *testing.T, svc *compute.Service, project, zone, name string) {
+func createVerbInstance(t *testing.T, svc *compute.Service, project, zone, name, cidr string) {
 	t.Helper()
+	subnet := createInstanceSubnetwork(t, svc, project, "us-central1", "verbs-net", cidr)
 	op, err := svc.Instances.Insert(project, zone, &compute.Instance{
 		Name:        name,
 		MachineType: "zones/" + zone + "/machineTypes/e2-micro",
 		Disks: []*compute.AttachedDisk{{
 			Boot: true, AutoDelete: true, DeviceName: "boot",
 			InitializeParams: &compute.AttachedDiskInitializeParams{
-				SourceImage: "projects/debian-cloud/global/images/family/debian-12",
+				SourceImage: "projects/debian-cloud/global/images/family/" + debianFamily(),
 			},
 		}},
-		NetworkInterfaces: []*compute.NetworkInterface{{Name: "nic0", Network: "global/networks/default"}},
+		NetworkInterfaces: []*compute.NetworkInterface{{Name: "nic0", Subnetwork: subnet}},
 	}).Do()
 	require.NoError(t, err)
-	awaitZoneOperation(t, svc, project, zone, op.Name)
+	done := awaitZoneOperation(t, svc, project, zone, op.Name)
+	require.Nil(t, done.Error, "the insert operation failed: %+v", done.Error)
+	t.Cleanup(func() {
+		if op, err := svc.Instances.Delete(project, zone, name).Do(); err == nil {
+			awaitZoneOperation(t, svc, project, zone, op.Name)
+		}
+	})
 }
 
 func TestCompute_InstanceSetVerbsAreRememberedByTheInstance(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, zone, name = "verbs-project", "us-central1-a", "worker"
-	createVerbInstance(t, svc, project, zone, name)
+	createVerbInstance(t, svc, project, zone, name, "10.71.0.0/24")
 
 	_, err := svc.Instances.SetDeletionProtection(project, zone, name).DeletionProtection(true).Do()
 	require.NoError(t, err)
@@ -67,10 +73,9 @@ func TestCompute_InstanceSetVerbsAreRememberedByTheInstance(t *testing.T) {
 
 func TestCompute_InstanceResourcePolicies(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, zone, name = "verbs-policies", "us-central1-a", "scheduled"
-	createVerbInstance(t, svc, project, zone, name)
+	createVerbInstance(t, svc, project, zone, name, "10.72.0.0/24")
 
 	const policy = "regions/us-central1/resourcePolicies/nightly"
 	_, err := svc.Instances.AddResourcePolicies(project, zone, name,
@@ -103,10 +108,9 @@ func TestCompute_InstanceResourcePolicies(t *testing.T) {
 
 func TestCompute_InstanceAccessConfigsAndInterfaces(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, zone, name = "verbs-network", "us-central1-a", "fronted"
-	createVerbInstance(t, svc, project, zone, name)
+	createVerbInstance(t, svc, project, zone, name, "10.73.0.0/24")
 
 	_, err := svc.Instances.AddAccessConfig(project, zone, name, "nic0",
 		&compute.AccessConfig{Name: "external-nat", Type: "ONE_TO_ONE_NAT"}).Do()
@@ -147,10 +151,9 @@ func TestCompute_InstanceAccessConfigsAndInterfaces(t *testing.T) {
 
 func TestCompute_InstanceSuspendAndResume(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, zone, name = "verbs-suspend", "us-central1-a", "batch"
-	createVerbInstance(t, svc, project, zone, name)
+	createVerbInstance(t, svc, project, zone, name, "10.74.0.0/24")
 
 	op, err := svc.Instances.Suspend(project, zone, name).Do()
 	require.NoError(t, err)
@@ -176,10 +179,9 @@ func TestCompute_InstanceSuspendAndResume(t *testing.T) {
 
 func TestCompute_InstanceDiskAutoDeleteAndShieldedConfig(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, zone, name = "verbs-disk", "us-central1-a", "stateful"
-	createVerbInstance(t, svc, project, zone, name)
+	createVerbInstance(t, svc, project, zone, name, "10.75.0.0/24")
 
 	_, err := svc.Instances.SetDiskAutoDelete(project, zone, name, false, "boot").Do()
 	require.NoError(t, err)
@@ -205,10 +207,9 @@ func TestCompute_InstanceDiskAutoDeleteAndShieldedConfig(t *testing.T) {
 // The reads derived from state the project already holds.
 func TestCompute_InstanceReferrersAndEffectiveFirewalls(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, zone, name = "verbs-reads", "us-central1-a", "member"
-	createVerbInstance(t, svc, project, zone, name)
+	createVerbInstance(t, svc, project, zone, name, "10.76.0.0/24")
 
 	referrers, err := svc.Instances.ListReferrers(project, zone, name).Do()
 	require.NoError(t, err)
@@ -223,10 +224,9 @@ func TestCompute_InstanceReferrersAndEffectiveFirewalls(t *testing.T) {
 // guest would have said are declared gaps on the wire.
 func TestCompute_InstanceHardwareReadsAreDeclaredGaps(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, zone, name = "verbs-gaps", "us-central1-a", "opaque"
-	createVerbInstance(t, svc, project, zone, name)
+	createVerbInstance(t, svc, project, zone, name, "10.77.0.0/24")
 
 	_, err := svc.Instances.GetScreenshot(project, zone, name).Do()
 	require.Error(t, err)

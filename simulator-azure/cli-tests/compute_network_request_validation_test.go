@@ -15,9 +15,6 @@ import (
 // resource provider realizes anything. A 503 OperationNotAllowed would tell az
 // (and every SDK retry policy) that the service is temporarily unwell and the
 // request is worth repeating, which it never is.
-//
-// Neither test calls requireNetworkHost — the rejection happens ahead of the
-// host capabilities, so both run everywhere.
 
 // runCLIExpectFailure runs an az command that must fail, returning its combined
 // output so the caller can assert on the error Azure reported. runCLI fails the

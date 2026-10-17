@@ -4,14 +4,16 @@ import (
 	"bufio"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
-	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/stretchr/testify/require"
 )
 
@@ -60,7 +62,6 @@ import (
 //   - cloudbilling.googleapis.com (projects.getBillingInfo, read by the
 //     google_project Read path)
 func TestTerraformApplyDestroy(t *testing.T) {
-	requireTerraformNetworkHost(t)
 	cleanTerraformWorkspace(t)
 	// The worker pool's instances run this image; its startup probe has to
 	// pass before the pool deploys.
@@ -91,6 +92,14 @@ func TestTerraformApplyDestroy(t *testing.T) {
 		"compute instance self_link must round-trip the zone+name; got %s", vmLink)
 	require.Equal(t, "RUNNING", outputs.must(t, "compute_instance_current_status"),
 		"the instance the asynchronous insert booted must be running once its operation is DONE")
+	require.True(t, strings.HasPrefix(outputs.must(t, "compute_image_name"), "debian-12-bookworm-"),
+		"the image family resolves to a versioned image of the public catalog; got %s", outputs.must(t, "compute_image_name"))
+	require.True(t, strings.HasPrefix(outputs.must(t, "compute_instance_network_ip"), "10.42."),
+		"the instance's address is leased from its subnetwork; got %s", outputs.must(t, "compute_instance_network_ip"))
+	// The startup script the configuration carries ran on the machine, and
+	// the machine's serial console holds its output.
+	require.Contains(t, awaitSerialPortOutput(t, "tf-test-vm", "us-central1-a", "startup-script exit status 0"),
+		"startup-script: terraform-startup-script-ran")
 
 	// The IAM Service Account Credentials mint, driven by the provider's
 	// google_service_account_access_token data source with a reduced lifetime.
@@ -473,12 +482,6 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.NoError(t, err, "terraform destroy failed:\n%s", out)
 }
 
-func requireTerraformNetworkHost(t *testing.T) {
-	t.Helper()
-	require.NoError(t, realexec.DetectNetworkCapabilities().Require(),
-		"Terraform Compute/Network coverage required a privileged Linux host with iproute2 and nftables; use `make terraform-test`, which selected the real-network container harness on macOS")
-}
-
 func requireIPv4InCIDR(t *testing.T, value, cidr string, msgAndArgs ...any) {
 	t.Helper()
 	ip := net.ParseIP(value).To4()
@@ -590,4 +593,34 @@ func readOutputs(t *testing.T) tfOutputs {
 	var outputs tfOutputs
 	require.NoError(t, json.Unmarshal(out, &outputs))
 	return outputs
+}
+
+// awaitSerialPortOutput reads an instance's serial console through the
+// Compute Engine API until it carries marker; the console has no wait of its
+// own, and the provider exposes no resource for it.
+func awaitSerialPortOutput(t *testing.T, name, zone, marker string) string {
+	t.Helper()
+	url := fmt.Sprintf("%s/compute/v1/projects/test-project/zones/%s/instances/%s/serialPort", baseURL, zone, name)
+	var console string
+	require.Eventually(t, func() bool {
+		req, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			return false
+		}
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		var out struct {
+			Contents string `json:"contents"`
+		}
+		if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&out) != nil {
+			return false
+		}
+		console = out.Contents
+		return strings.Contains(console, marker)
+	}, 30*time.Second, 500*time.Millisecond, "the serial console never carried %q; last contents:\n%s", marker, console)
+	return console
 }

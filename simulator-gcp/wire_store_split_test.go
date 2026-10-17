@@ -78,31 +78,6 @@ func assertTypeHasNoJSONKeys(t *testing.T, typ reflect.Type, keys ...string) {
 	walk(typ)
 }
 
-func TestManagedZoneWireHasNoDockerNetworkName(t *testing.T) {
-	stored := storedManagedZone{
-		ManagedZone:       ManagedZone{Name: "z", DNSName: "test.local.", ID: "42", Visibility: "private"},
-		DockerNetworkName: "sim-42",
-	}
-	assertNoJSONKeys(t, stored.ManagedZone, "dockerNetworkName")
-
-	// Persisted row round-trip (same flattened shape as the wire struct
-	// plus the wiring member).
-	row, err := json.Marshal(stored)
-	if err != nil {
-		t.Fatalf("marshal stored: %v", err)
-	}
-	if !strings.Contains(string(row), `"dockerNetworkName":"sim-42"`) {
-		t.Fatalf("stored row must persist dockerNetworkName: %s", row)
-	}
-	var got storedManagedZone
-	if err := json.Unmarshal(row, &got); err != nil {
-		t.Fatalf("unmarshal stored: %v", err)
-	}
-	if got.DockerNetworkName != "sim-42" || got.Name != "z" {
-		t.Errorf("restart recovery lost data: %+v", got)
-	}
-}
-
 func TestStoredFunctionRoundTrip(t *testing.T) {
 	// Decode the request shape a client sends — also the exact row shape
 	// sim.Store persists — and confirm wire() recovers it verbatim with

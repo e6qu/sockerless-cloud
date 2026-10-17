@@ -182,6 +182,7 @@ func NewServer(cfg Config) (*Server, error) {
 		})
 	}
 	routed = AuthPassthroughMiddleware(cfg.Provider)(routed)
+	routed = sidecarTrustMiddleware(routed)
 	// Outside the auth passthrough so the registry sees every request, and so a
 	// request that hangs is attributable while it is still hanging rather than
 	// reconstructed afterwards. See diagnostics.go.

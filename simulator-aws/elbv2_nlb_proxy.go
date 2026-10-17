@@ -5,12 +5,13 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
 
-	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
 // A Network Load Balancer stream listener (TCP / TCP_UDP) forwards the raw byte
@@ -90,6 +91,9 @@ func elbv2StartListenerProxy(listener ELBv2Listener) error {
 	}
 	bindAddr := net.JoinHostPort(host, strconv.Itoa(listener.Port))
 	listenerArn := listener.Arn
+	// admissions remembers, per target address the resolver chose, what the
+	// target's security groups admit, for the proxy's admission of the flow.
+	var admissions sync.Map
 	resolver := func(context.Context) (string, error) {
 		current, ok := elbv2Listeners.Get(listenerArn)
 		if !ok {
@@ -99,7 +103,24 @@ func elbv2StartListenerProxy(listener ELBv2Listener) error {
 		if !ok {
 			return "", fmt.Errorf("no healthy targets for listener %s", listenerArn)
 		}
-		return elbv2TargetAddress(tg, target)
+		address, err := elbv2TargetAddress(tg, target)
+		if err != nil {
+			return "", err
+		}
+		if admit := elbv2AdmitForwardedFlow(current, tg, target); admit != nil {
+			admissions.Store(address, admit)
+		} else {
+			admissions.Delete(address)
+		}
+		return address, nil
+	}
+	admit := func(client netip.Addr, target string) error {
+		if v, ok := admissions.Load(target); ok {
+			if rules, ok := v.(func(netip.Addr) error); ok {
+				return rules(client)
+			}
+		}
+		return nil
 	}
 	proxy := &elbv2ListenerProxy{lbArn: listener.LoadBalancerArn}
 	switch {
@@ -116,6 +137,7 @@ func elbv2StartListenerProxy(listener ELBv2Listener) error {
 			elbv2LoadBalancerHosts.Release(listener.LoadBalancerArn)
 			return fmt.Errorf("bind TLS listener %s on %s: %w", listenerArn, bindAddr, err)
 		}
+		tcp.Admit = admit
 		proxy.address, proxy.closer = tcp.Address, tcp
 	default:
 		tcp, err := lbplane.StartTCPProxy(bindAddr, resolver)
@@ -123,6 +145,7 @@ func elbv2StartListenerProxy(listener ELBv2Listener) error {
 			elbv2LoadBalancerHosts.Release(listener.LoadBalancerArn)
 			return fmt.Errorf("start NLB TCP proxy for listener %s on %s: %w", listenerArn, bindAddr, err)
 		}
+		tcp.Admit = admit
 		proxy.address, proxy.closer = tcp.Address, tcp
 	}
 	elbv2ListenerProxies[listenerArn] = proxy

@@ -191,7 +191,7 @@ func (lambdaFunctionURLInvoker) serve(w http.ResponseWriter, r *http.Request, na
 		return
 	}
 	sim.DeclareWait(r.Context(), lambdaInvokeWaitLimit(fn))
-	result, unhandled, _ := invokeLambdaViaRuntimeAPI(sim.LifetimeContext(r.Context()), fn, payload)
+	result, unhandled, _, _ := invokeLambdaViaRuntimeAPI(sim.LifetimeContext(r.Context()), fn, payload)
 	if cors != nil {
 		cors.decorate(w, r)
 	}

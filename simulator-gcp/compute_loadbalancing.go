@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/ipam"
 )
 
 func registerComputeLoadBalancing(srv *sim.Server) {
@@ -267,7 +267,7 @@ func registerComputeLoadBalancing(srv *sim.Server) {
 			return
 		}
 		if fr.IPAddress == "" {
-			ip, err := realexec.ReserveGCPPublicIPv4(fr.SelfLink, nil)
+			ip, err := ipam.ReserveGCPPublicIPv4(fr.SelfLink, nil)
 			if err != nil {
 				GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to reserve real GCP public IPv4 lease: %v", err)
 				return
@@ -300,7 +300,7 @@ func registerComputeLoadBalancing(srv *sim.Server) {
 		if computeNotFound(w, ok, "forwardingRules", name) {
 			return
 		}
-		realexec.ReleasePublicIPv4(net.ParseIP(fr.IPAddress))
+		ipam.ReleasePublicIPv4(net.ParseIP(fr.IPAddress))
 		forwardingRules.Delete(selfLink)
 		sim.WriteJSON(w, http.StatusOK, computeGlobalOp(project, selfLink, "delete"))
 	})

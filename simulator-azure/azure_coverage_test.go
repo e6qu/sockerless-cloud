@@ -1293,7 +1293,7 @@ func azureProbeCoverage(t *testing.T) *azureCoverage {
 			cov.impl[name]++
 			cov.findings = append(cov.findings,
 				fmt.Sprintf("%s: %s → %s (%s)", name, label, res.path, res.reason))
-		case res.status >= 500 && !azureHostCapabilityRefusal(res.body):
+		case res.status >= 500:
 			cov.impl[name]++
 			cov.findings = append(cov.findings,
 				fmt.Sprintf("%s: %s → %s returned %d: %s", name, label, res.path, res.status, azureTruncate(res.body)))
@@ -1307,17 +1307,6 @@ func azureProbeCoverage(t *testing.T) *azureCoverage {
 	sort.Strings(cov.findings)
 	sort.Strings(cov.silent)
 	return cov
-}
-
-// azureHostCapabilityRefusal reports the simulator refusing to realize real
-// network fabric because the HOST cannot provide the Linux namespace, bridge,
-// veth, route and nftables capabilities it needs (azureRequireNetworkHost).
-// That is a property of the machine the test runs on — macOS can never grant
-// them — not a defect in the handler, which is mounted and did exactly the
-// right thing. On a host that does have the capabilities the response cannot
-// occur, so this carve-out never hides a real 5xx.
-func azureHostCapabilityRefusal(body string) bool {
-	return strings.Contains(body, "missing real-execution host capabilities")
 }
 
 func azureTruncate(s string) string {

@@ -21,10 +21,8 @@ import (
 //   - host   — the container instance's own network stack.
 //   - none   — no connectivity.
 //
-// The awsvpc assertion is tier-agnostic: on a Linux host with CAP_NET_ADMIN the
-// task shares a pause container's VPC network namespace (no Docker network at
-// all), and elsewhere it is pinned to the per-VPC user-defined Docker network.
-// Neither is the default bridge.
+// An awsvpc task is pinned to the per-VPC user-defined Docker network, never
+// the default bridge.
 
 // registerNetworkModeTaskDef registers a single-container task definition in
 // the requested network mode running a long sleep.

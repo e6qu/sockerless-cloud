@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -13,9 +14,10 @@ import (
 	"strings"
 	"time"
 
-	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/ipam"
+	"github.com/e6qu/sockerless-cloud/sim/netrules"
 )
 
 // gcpInt64 round-trips int64 quoted-as-string (real GCP discovery
@@ -363,6 +365,18 @@ func computeRefuseNameOf(w http.ResponseWriter, kind, name string) bool {
 		return false
 	}
 	return computeRefuseResourceName(w, name)
+}
+
+// computeWriteNormalizeRefusal answers an instance the insert path could not
+// fill: a field Compute Engine refuses carries its reason, anything else is
+// an invalid argument.
+func computeWriteNormalizeRefusal(w http.ResponseWriter, err error) {
+	var field computeFieldRefusal
+	if errors.As(err, &field) {
+		computeFieldError(w, field.reason, field.message)
+		return
+	}
+	GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 }
 
 // computeFieldError writes the 400 Compute Engine answers a request field it
@@ -973,13 +987,6 @@ func registerCompute(srv *sim.Server) {
 		if _, exists := networks.Get(selfLink); computeConflict(w, exists, "network", req.Name) {
 			return
 		}
-		if !gcpRequireNetworkHost(w) {
-			return
-		}
-		if _, err := gcpFabric.EnsureNetwork(r.Context(), selfLink); err != nil {
-			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to create real VPC network fabric: %v", err)
-			return
-		}
 		networks.Put(selfLink, net)
 
 		op := newComputeOp(project, "global", selfLink)
@@ -1030,13 +1037,19 @@ func registerCompute(srv *sim.Server) {
 		name := sim.PathParam(r, "name")
 		selfLink := computeNetworkSelfLink(project, name)
 
-		if computeNotFound(w, networks.Delete(selfLink), "network", name) {
+		if _, ok := networks.Get(selfLink); computeNotFound(w, ok, "network", name) {
 			return
 		}
-		if err := gcpFabric.TeardownNetwork(r.Context(), selfLink, nil); err != nil {
-			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to delete real VPC network fabric: %v", err)
-			return
+		for _, subnet := range subnetworks.List() {
+			if gcpNetworkKey(subnet.SelfLink, subnet.Network) != selfLink {
+				continue
+			}
+			if err := gcpRemoveSubnetworkNetwork(r.Context(), subnet); err != nil {
+				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "remove the network of subnetwork %s: %v", subnet.Name, err)
+				return
+			}
 		}
+		networks.Delete(selfLink)
 		// Real Compute Engine stamps a delete operation `operationType: "delete"`;
 		// gcloud keys off it to report the resource as deleted instead of
 		// re-fetching it (which then 404s and fails the command).
@@ -1191,13 +1204,6 @@ func registerCompute(srv *sim.Server) {
 		if _, exists := subnetworks.Get(selfLink); computeConflict(w, exists, "subnetwork", req.Name) {
 			return
 		}
-		if !gcpRequireNetworkHost(w) {
-			return
-		}
-		if err := gcpCreateRealSubnetwork(r.Context(), subnet); err != nil {
-			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to create real subnet network fabric: %v", err)
-			return
-		}
 		subnetworks.Put(selfLink, subnet)
 
 		op := newComputeOp(project, "regions/"+region, selfLink)
@@ -1279,6 +1285,7 @@ func registerCompute(srv *sim.Server) {
 		}
 		held.IpCidrRange = req.IpCidrRange
 		subnetworks.Put(selfLink, held)
+		gcpForgetSubnetworkIPAM(selfLink)
 		sim.WriteJSON(w, http.StatusOK,
 			newComputeOpWithType(project, "regions/"+region, selfLink, "expandIpCidrRange"))
 	})
@@ -1332,13 +1339,16 @@ func registerCompute(srv *sim.Server) {
 		name := sim.PathParam(r, "name")
 		selfLink := fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", project, region, name)
 
-		if computeNotFound(w, subnetworks.Delete(selfLink), "subnetwork", name) {
+		subnet, ok := subnetworks.Get(selfLink)
+		if computeNotFound(w, ok, "subnetwork", name) {
 			return
 		}
-		if err := gcpFabric.DeleteSubnet(r.Context(), selfLink); err != nil {
-			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to delete real subnet network fabric: %v", err)
+		if err := gcpRemoveSubnetworkNetwork(r.Context(), subnet); err != nil {
+			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "remove the network of subnetwork %s: %v", name, err)
 			return
 		}
+		subnetworks.Delete(selfLink)
+		gcpForgetSubnetworkIPAM(selfLink)
 		// Real Compute Engine stamps a delete operation `operationType: "delete"`;
 		// gcloud keys off it to report the resource as deleted instead of
 		// re-fetching it (which then 404s and fails the command).
@@ -1383,10 +1393,6 @@ func registerCompute(srv *sim.Server) {
 			return
 		}
 		firewalls.Put(fw.SelfLink, fw)
-		if err := gcpReapplyRealFirewalls(r.Context()); err != nil {
-			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to apply real firewall filters: %v", err)
-			return
-		}
 		op := newComputeOp(project, "global", fw.SelfLink)
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
@@ -1431,10 +1437,6 @@ func registerCompute(srv *sim.Server) {
 		name := sim.PathParam(r, "name")
 		selfLink := fmt.Sprintf("projects/%s/global/firewalls/%s", project, name)
 		if computeNotFound(w, firewalls.Delete(selfLink), "firewall", name) {
-			return
-		}
-		if err := gcpReapplyRealFirewalls(r.Context()); err != nil {
-			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to apply real firewall filters: %v", err)
 			return
 		}
 		// Real Compute Engine stamps a delete operation `operationType: "delete"`;
@@ -1488,10 +1490,6 @@ func registerCompute(srv *sim.Server) {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "firewall %q not found", name)
 			return
 		}
-		if err := gcpReapplyRealFirewalls(r.Context()); err != nil {
-			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to apply real firewall filters: %v", err)
-			return
-		}
 		op := newComputeOp(project, "global", selfLink)
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
@@ -1540,7 +1538,7 @@ func registerCompute(srv *sim.Server) {
 			addr.Status = "RESERVED"
 		}
 		if addr.Address == "" && strings.EqualFold(addr.IPVersion, "IPV4") {
-			ip, err := realexec.ReserveGCPPublicIPv4(addr.SelfLink, nil)
+			ip, err := ipam.ReserveGCPPublicIPv4(addr.SelfLink, nil)
 			if err != nil {
 				GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to reserve real public IPv4 lease: %v", err)
 				return
@@ -1624,7 +1622,7 @@ func registerCompute(srv *sim.Server) {
 		if computeNotFound(w, ok, "address", name) {
 			return
 		}
-		realexec.ReleasePublicIPv4(net.ParseIP(addr.Address))
+		ipam.ReleasePublicIPv4(net.ParseIP(addr.Address))
 		addresses.Delete(selfLink)
 		sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, "regions/"+region, selfLink, "delete"))
 	})
@@ -1653,15 +1651,6 @@ func registerCompute(srv *sim.Server) {
 			return
 		}
 		defaultRouterNATTypes(rt.Nats)
-		if len(rt.Nats) > 0 {
-			if !gcpRequireNetworkHost(w) {
-				return
-			}
-			if err := gcpConfigureRealRouterNAT(r.Context(), rt); err != nil {
-				GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to program real Cloud NAT fabric: %v", err)
-				return
-			}
-		}
 		routers.Put(rt.SelfLink, rt)
 		op := newComputeOpWithType(project, "regions/"+region, rt.SelfLink, "insert")
 		sim.WriteJSON(w, http.StatusOK, op)
@@ -1709,15 +1698,8 @@ func registerCompute(srv *sim.Server) {
 		region := sim.PathParam(r, "region")
 		name := sim.PathParam(r, "name")
 		selfLink := fmt.Sprintf("projects/%s/regions/%s/routers/%s", project, region, name)
-		existing, found := routers.Get(selfLink)
 		if computeNotFound(w, routers.Delete(selfLink), "router", name) {
 			return
-		}
-		if found {
-			if err := gcpReleaseRealRouterNAT(r.Context(), existing, nil); err != nil {
-				GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to withdraw real Cloud NAT fabric: %v", err)
-				return
-			}
 		}
 		op := newComputeOpWithType(project, "regions/"+region, selfLink, "delete")
 		sim.WriteJSON(w, http.StatusOK, op)
@@ -1737,7 +1719,6 @@ func registerCompute(srv *sim.Server) {
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s", err)
 			return
 		}
-		before, _ := routers.Get(selfLink)
 		ok := routers.Update(selfLink, func(rt *ComputeRouter) {
 			if patch.Description != "" {
 				rt.Description = patch.Description
@@ -1756,20 +1737,6 @@ func registerCompute(srv *sim.Server) {
 		if !ok {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", name)
 			return
-		}
-		rt, _ := routers.Get(selfLink)
-		if err := gcpReleaseRealRouterNAT(r.Context(), before, rt.Nats); err != nil {
-			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to withdraw real Cloud NAT fabric: %v", err)
-			return
-		}
-		if len(rt.Nats) > 0 {
-			if !gcpRequireNetworkHost(w) {
-				return
-			}
-			if err := gcpConfigureRealRouterNAT(r.Context(), rt); err != nil {
-				GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to program real Cloud NAT fabric: %v", err)
-				return
-			}
 		}
 		op := newComputeOpWithType(project, "regions/"+region, selfLink, "patch")
 		sim.WriteJSON(w, http.StatusOK, op)
@@ -1815,34 +1782,10 @@ func registerCompute(srv *sim.Server) {
 	registerComputeLoadBalancing(srv)
 }
 
-func gcpReapplyRealFirewalls(ctx context.Context) error {
-	if gcpInstances == nil {
-		return nil
-	}
-	for _, inst := range gcpInstances.List() {
-		for _, ni := range inst.NetworkInterfaces {
-			nicID := gcpNICKey(&inst, ni)
-			if !gcpFabric.Realized(nicID) {
-				continue
-			}
-			rules, err := gcpIngressPacketRules(inst, ni)
-			if err != nil {
-				return fmt.Errorf("compile firewall for %s: %w", nicID, err)
-			}
-			// Compute Engine's implied ingress rule denies what no firewall
-			// rule allows, so an empty rule set still filters.
-			if err := gcpFabric.ApplyIngress(ctx, nicID, [][]realexec.PacketRule{rules}); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
 // gcpIngressPacketRules compiles the enabled ingress firewall rules of the
 // interface's network that target the instance, in Compute Engine's order:
 // lower priority value first, and a deny before an allow of equal priority.
-func gcpIngressPacketRules(target ComputeInstance, targetNIC ComputeNetworkInterface) ([]realexec.PacketRule, error) {
+func gcpIngressPacketRules(target ComputeInstance, targetNIC ComputeNetworkInterface) ([]netrules.PacketRule, error) {
 	if gcpFirewalls == nil {
 		return nil, nil
 	}
@@ -1853,15 +1796,15 @@ func gcpIngressPacketRules(target ComputeInstance, targetNIC ComputeNetworkInter
 		return gcpCanonicalComputeRef(fw.Network, gcpProjectFromSelfLink(fw.SelfLink), "global", "networks", "default") == targetNIC.Network
 	})
 	sort.SliceStable(firewalls, func(i, j int) bool { return firewalls[i].Name < firewalls[j].Name })
-	var rules []realexec.PrioritizedRule
+	var rules []netrules.PrioritizedRule
 	add := func(priority int, actions []ComputeFirewallAction, sources []string, verdict string) error {
 		for _, action := range actions {
-			expanded, err := realexec.ExpandRules(action.IPProtocol, sources, action.Ports, verdict)
+			expanded, err := netrules.ExpandRules(action.IPProtocol, sources, action.Ports, verdict)
 			if err != nil {
 				return err
 			}
 			for _, rule := range expanded {
-				rules = append(rules, realexec.PrioritizedRule{Priority: priority, Rule: rule})
+				rules = append(rules, netrules.PrioritizedRule{Priority: priority, Rule: rule})
 			}
 		}
 		return nil
@@ -1878,7 +1821,7 @@ func gcpIngressPacketRules(target ComputeInstance, targetNIC ComputeNetworkInter
 			return nil, fmt.Errorf("firewall %s: %w", fw.Name, err)
 		}
 	}
-	return realexec.FlattenByPriority(rules), nil
+	return netrules.FlattenByPriority(rules), nil
 }
 
 // gcpInvalidFirewallPort names the first port specification Compute Engine
@@ -1890,7 +1833,7 @@ func gcpInvalidFirewallPort(fw ComputeFirewall) string {
 	}{{"allowed", fw.Allowed}, {"denied", fw.Denied}} {
 		for i, action := range list.actions {
 			for j, port := range action.Ports {
-				if _, _, err := realexec.PortRange(port); err != nil || port == "" || port == "*" {
+				if _, _, err := netrules.PortRange(port); err != nil || port == "" || port == "*" {
 					return fmt.Sprintf("Invalid value for field 'resource.%s[%d].ports[%d]': '%s'.", list.field, i, j, port)
 				}
 			}
@@ -2267,9 +2210,6 @@ func ensureGCPAutoModeSubnetwork(ctx context.Context, networks sim.Store[Compute
 			CreationTimestamp:     time.Now().UTC().Format(time.RFC3339),
 		}
 		net.RoutingConfig.RoutingMode = "REGIONAL"
-		if _, err := gcpFabric.EnsureNetwork(ctx, networkLink); err != nil {
-			return "", err
-		}
 		networks.Put(networkLink, net)
 		ok = true
 	}
@@ -2297,9 +2237,6 @@ func ensureGCPAutoModeSubnetwork(ctx context.Context, networks sim.Store[Compute
 		Region:            fmt.Sprintf("projects/%s/regions/%s", project, region),
 		GatewayAddress:    gcpSubnetGateway(cidr),
 		CreationTimestamp: time.Now().UTC().Format(time.RFC3339),
-	}
-	if err := gcpCreateRealSubnetwork(ctx, subnet); err != nil {
-		return "", err
 	}
 	subnetworks.Put(subnetLink, subnet)
 	return subnetLink, nil
@@ -2351,33 +2288,26 @@ func registerComputeCatalog(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		zone := sim.PathParam(r, "zone")
 		name := sim.PathParam(r, "machineType")
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"kind":        "compute#machineType",
-			"id":          computeNumericID(),
-			"name":        name,
-			"description": name,
-			"guestCpus":   2,
-			"memoryMb":    1024,
-			"zone":        fmt.Sprintf("projects/%s/zones/%s", project, zone),
-			"selfLink":    fmt.Sprintf("projects/%s/zones/%s/machineTypes/%s", project, zone, name),
-		})
+		mt, ok := gcpLookupMachineType(name)
+		if !ok {
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "The resource 'projects/%s/zones/%s/machineTypes/%s' was not found", project, zone, name)
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK, gcpMachineTypeJSON(project, zone, mt))
 	})
 	srv.HandleFunc("GET /compute/v1/projects/{project}/zones/{zone}/machineTypes", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		zone := sim.PathParam(r, "zone")
 		items := []map[string]any{}
-		for _, name := range []string{"e2-micro", "e2-small", "n1-standard-1"} {
-			items = append(items, map[string]any{
-				"kind":      "compute#machineType",
-				"id":        computeNumericID(),
-				"name":      name,
-				"guestCpus": 2,
-				"memoryMb":  1024,
-				"zone":      fmt.Sprintf("projects/%s/zones/%s", project, zone),
-				"selfLink":  fmt.Sprintf("projects/%s/zones/%s/machineTypes/%s", project, zone, name),
-			})
+		for _, name := range gcpMachineTypeNames() {
+			mt, _ := gcpLookupMachineType(name)
+			items = append(items, gcpMachineTypeJSON(project, zone, mt))
 		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"kind": "compute#machineTypeList", "items": items})
+		listed, ok := gcpApplyComputeListParams(w, r, items)
+		if !ok {
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"kind": "compute#machineTypeList", "items": listed})
 	})
 	srv.HandleFunc("GET /compute/v1/projects/{project}/zones/{zone}/diskTypes/{diskType}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
@@ -2391,7 +2321,6 @@ func registerComputeCatalog(srv *sim.Server) {
 			"selfLink": fmt.Sprintf("projects/%s/zones/%s/diskTypes/%s", project, zone, name),
 		})
 	})
-	imageJSON := computeImageJSON
 	// imageViews are a read-only view of the SAME global images, addressed with
 	// a regional context: "Returns the specified global ImageView resource,
 	// with a regional context." Unlike regions.projectViews — which exists to
@@ -2401,32 +2330,19 @@ func registerComputeCatalog(srv *sim.Server) {
 	srv.HandleFunc("GET /compute/v1/projects/{project}/regions/{region}/imageViews/{resourceId}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		name := sim.PathParam(r, "resourceId")
-		image := map[string]any(nil)
-		if gcpComputeImages != nil {
-			if m, ok := gcpComputeImages.Get(fmt.Sprintf("projects/%s/global/images/%s", project, name)); ok {
-				image = m
-			}
-		}
-		if image == nil {
-			image = computeImageJSON(project, name)
+		image, ok := gcpImageResource(project, name)
+		if !ok {
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "The resource '%s' was not found", gcpImageLink(project, name))
+			return
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"image": image})
 	})
 	srv.HandleFunc("GET /compute/v1/projects/{project}/regions/{region}/imageViews", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		region := sim.PathParam(r, "region")
-		prefix := fmt.Sprintf("projects/%s/global/images/", project)
 		items := []any{}
-		if gcpComputeImages != nil {
-			// The store carries whole image objects; a project's own images are
-			// the ones whose selfLink names it, which is what the global images
-			// collection keys on.
-			for _, image := range gcpComputeImages.Filter(func(m map[string]any) bool {
-				link, _ := m["selfLink"].(string)
-				return strings.Contains(link, prefix)
-			}) {
-				items = append(items, image)
-			}
+		for _, image := range gcpImageList(project) {
+			items = append(items, image)
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"kind":     "compute#imageViewsListResponse",
@@ -2435,48 +2351,7 @@ func registerComputeCatalog(srv *sim.Server) {
 			"selfLink": fmt.Sprintf("projects/%s/regions/%s/imageViews", project, region),
 		})
 	})
-	srv.HandleFunc("GET /compute/v1/projects/{project}/global/images/{image}", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		name := sim.PathParam(r, "image")
-		if gcpComputeImages != nil {
-			if m, ok := gcpComputeImages.Get(fmt.Sprintf("projects/%s/global/images/%s", project, name)); ok {
-				sim.WriteJSON(w, http.StatusOK, m)
-				return
-			}
-		}
-		sim.WriteJSON(w, http.StatusOK, imageJSON(project, name))
-	})
-	// An image's family lookup and its IAM policy read are the same shape to a
-	// path router — "images/family/{family}" against
-	// "images/{resource}/getIamPolicy" — so one handler serves both. Compute
-	// Engine resolves the overlap by its templates' literal segments, and the
-	// family segment comes first, so a request for the family named
-	// "getIamPolicy" is a family lookup.
-	srv.HandleFunc("GET /compute/v1/projects/{project}/global/images/{first}/{second}", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		first, second := sim.PathParam(r, "first"), sim.PathParam(r, "second")
-		if first == "family" {
-			name := second
-			if !strings.HasSuffix(name, "-12") {
-				name += "-12"
-			}
-			sim.WriteJSON(w, http.StatusOK, imageJSON(project, name))
-			return
-		}
-		if second != "getIamPolicy" {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "no such image method %q", second)
-			return
-		}
-		handleResourceIAM(w, r, gcpResourcePolicies,
-			"compute/"+computeGlobalLink(project, "images", first), "getIamPolicy")
-	})
-	for verb, method := range map[string]string{"setIamPolicy": "POST", "testIamPermissions": "POST"} {
-		verb := verb
-		srv.HandleFunc(method+" /compute/v1/projects/{project}/global/images/{resource}/"+verb, func(w http.ResponseWriter, r *http.Request) {
-			handleResourceIAM(w, r, gcpResourcePolicies,
-				"compute/"+computeGlobalLink(sim.PathParam(r, "project"), "images", sim.PathParam(r, "resource")), verb)
-		})
-	}
+	registerComputeImages(srv)
 }
 
 // computeZoneOp records and renders a zonal operation whose work is already
@@ -2491,32 +2366,28 @@ func computeInstancePreRunning(status ComputeInstanceStatus) bool {
 	return status == ComputeInstanceProvisioning || status == ComputeInstanceStaging
 }
 
-// computeInstanceHoldsMachine reports whether an instance in status has a
-// machine running or moving: up, on its way up, or on its way down.
-func computeInstanceHoldsMachine(status ComputeInstanceStatus) bool {
+// computeInstanceMoving reports whether an instance in status has a machine
+// on its way up or on its way down.
+func computeInstanceMoving(status ComputeInstanceStatus) bool {
 	switch status {
-	case ComputeInstanceRunning, ComputeInstanceStopping, ComputeInstanceSuspending:
+	case ComputeInstanceStopping, ComputeInstanceSuspending:
 		return true
 	}
 	return computeInstancePreRunning(status)
 }
 
-// recoverComputeInstances transitions persisted instances that claim to be
-// running, or that a restart caught moving, to TERMINATED when their real
-// backing — the Firecracker VM, its tap NIC, and the metadata IP mapping — did
-// not survive the control-plane restart. Real Compute Engine reports an
-// instance whose VM is gone as TERMINATED with a human-readable statusMessage;
-// the sim does the same and never re-adopts a lost VM.
+// recoverComputeInstances settles every instance a restart caught moving. The
+// goroutine carrying the move died with the previous process and its operation
+// finishes with an error (recoverComputeOperations), so the instance lands
+// where a failed move leaves it: TERMINATED, with the statusMessage Compute
+// Engine gives an instance whose machine went away.
 func recoverComputeInstances(instances sim.Store[ComputeInstance]) {
 	for _, inst := range instances.List() {
-		if !computeInstanceHoldsMachine(inst.Status) {
-			continue
-		}
-		if gcpFabric.VMAlive(inst.SelfLink) {
+		if !computeInstanceMoving(inst.Status) {
 			continue
 		}
 		instances.Update(inst.SelfLink, func(in *ComputeInstance) {
-			if !computeInstanceHoldsMachine(in.Status) {
+			if !computeInstanceMoving(in.Status) {
 				return
 			}
 			in.Status = ComputeInstanceTerminated
@@ -2566,6 +2437,11 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 			inst.MachineType = fmt.Sprintf("projects/%s/zones/%s/machineTypes/e2-micro", project, zone)
 		} else if !strings.Contains(inst.MachineType, "/") {
 			inst.MachineType = fmt.Sprintf("projects/%s/zones/%s/machineTypes/%s", project, zone, inst.MachineType)
+		}
+		if _, ok := gcpLookupMachineType(inst.MachineType); !ok {
+			return computeFieldRefusal{reason: "invalid", message: fmt.Sprintf(
+				"Invalid value for field 'resource.machineType': '%s'. Machine type with name '%s' does not exist in zone '%s'.",
+				inst.MachineType, inst.MachineType[strings.LastIndex(inst.MachineType, "/")+1:], zone)}
 		}
 		inst.Status = ComputeInstanceRunning
 		if inst.LabelFingerprint == "" {
@@ -2618,6 +2494,9 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 				Interface:  "SCSI",
 			}}
 		}
+		if err := gcpRefuseUnbootableImage(*inst); err != nil {
+			return err
+		}
 		for i := range inst.NetworkInterfaces {
 			if inst.NetworkInterfaces[i].Kind == "" {
 				inst.NetworkInterfaces[i].Kind = "compute#networkInterface"
@@ -2640,7 +2519,10 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 				inst.NetworkInterfaces[i].Subnetwork = normalizeComputeSubnetworkRef(project, regionFromZone(zone), inst.NetworkInterfaces[i].Subnetwork)
 			}
 			if inst.NetworkInterfaces[i].Subnetwork == "" {
-				return fmt.Errorf("network interface %s requires a subnetwork for real IP allocation", inst.NetworkInterfaces[i].Name)
+				return fmt.Errorf("network interface %s requires a subnetwork to lease its address from", inst.NetworkInterfaces[i].Name)
+			}
+			if err := gcpLeaseInstanceAddress(inst, i); err != nil {
+				return err
 			}
 			if inst.NetworkInterfaces[i].StackType == "" {
 				inst.NetworkInterfaces[i].StackType = "IPV4_ONLY"
@@ -2664,8 +2546,9 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 			}
 		}
 		if len(inst.NetworkInterfaces) == 0 {
-			return fmt.Errorf("compute instance requires a network interface with a subnetwork for real IP allocation")
+			return computeFieldRefusal{reason: "required", message: "Required field 'resource.networkInterfaces' not specified"}
 		}
+		gcpRecordInstanceDisks(project, zone, inst)
 		return nil
 	}
 	gcpNormalizeInstance = normalizeInstance
@@ -2684,11 +2567,8 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 		if _, exists := instances.Get(instanceSelfLink(project, zone, inst.Name)); computeConflict(w, exists, "instance", inst.Name) {
 			return
 		}
-		if !gcpRequireNetworkHost(w) {
-			return
-		}
 		if err := normalizeInstance(r.Context(), project, zone, &inst); err != nil {
-			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to attach real instance network interface: %v", err)
+			computeWriteNormalizeRefusal(w, err)
 			return
 		}
 
@@ -2709,20 +2589,18 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 		bg.Go(func() {
 			ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), computeInstanceBootBudget)
 			defer cancel()
-			err := gcpStartRealVM(ctx, &booting)
-			if err == nil {
-				err = gcpReapplyRealFirewalls(ctx)
-			}
-			if err != nil {
+			if err := gcpBootVM(ctx, &booting); err != nil {
 				logger.Error().
 					Err(err).
 					Str("project", project).
 					Str("zone", zone).
 					Str("instance", booting.Name).
-					Msg("failed to boot real Compute Engine instance")
+					Msg("failed to boot Compute Engine instance")
 				// An insert whose machine never came up leaves no instance
 				// behind, and the verdict lives on the operation.
 				instances.Delete(booting.SelfLink)
+				gcpReleaseInstanceAddresses(booting)
+				gcpDeleteInstanceDisks(booting)
 				computeOpFinish(op.Name, err)
 				return
 			}
@@ -2743,10 +2621,6 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 		if !ok {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found in zone %q", name, zone)
 			return
-		}
-		if inst.Status == ComputeInstanceRunning && !gcpFabric.VMAlive(inst.SelfLink) {
-			inst.Status = ComputeInstanceTerminated
-			instances.Put(selfLink, inst)
 		}
 		sim.WriteJSON(w, http.StatusOK, inst)
 	})
@@ -2867,10 +2741,6 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 		}
 		if conflict {
 			GCPErrorf(w, http.StatusPreconditionFailed, "conditionNotMet", "tags fingerprint mismatch; the resource was modified concurrently")
-			return
-		}
-		if err := gcpReapplyRealFirewalls(r.Context()); err != nil {
-			GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION", "failed to apply real firewall filters: %v", err)
 			return
 		}
 		sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, selfLink, "setTags"))
@@ -3064,24 +2934,6 @@ func registerComputeDisks(srv *sim.Server) {
 	srv.HandleFunc("POST /compute/v1/projects/{project}/zones/{zone}/operations/{name}/wait", func(w http.ResponseWriter, r *http.Request) {
 		computeWaitOperation(w, r, sim.PathParam(r, "name"))
 	})
-}
-
-// computeImageJSON renders the public-image catalogue entry for a name. Both
-// the image read and the family view answer from it, so a family and the image
-// it resolves to cannot describe the same image differently.
-func computeImageJSON(project, name string) map[string]any {
-	return map[string]any{
-		"kind":              "compute#image",
-		"id":                computeNumericID(),
-		"name":              name,
-		"selfLink":          fmt.Sprintf("projects/%s/global/images/%s", project, name),
-		"status":            "READY",
-		"family":            strings.TrimSuffix(name, "-12"),
-		"archiveSizeBytes":  "1073741824",
-		"diskSizeGb":        "10",
-		"sourceType":        "RAW",
-		"creationTimestamp": time.Now().UTC().Format(time.RFC3339),
-	}
 }
 
 // computeRangeIsWider reports whether one CIDR range covers more addresses than

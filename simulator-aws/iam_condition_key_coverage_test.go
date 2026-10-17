@@ -61,7 +61,7 @@ var iamConditionKeyGapReasons = map[string]string{
 	"via-service": "AWS sets the key only when another AWS service makes the call on the caller's behalf. " +
 		"Every request the gate authorizes is a direct client call, for which AWS leaves the key out too.",
 	"resource-unseeded": "The key reports the state of the resource the request names (its tags, its " +
-		"configuration). Creating one runs a container or boots a microVM — an Amazon ECS task, the Amazon EC2 " +
+		"configuration). Creating one runs a container — an Amazon ECS task, the Amazon EC2 " +
 		"instance a Systems Manager request targets, an Amazon RDS snapshot's captured volume — which this " +
 		"in-package measure does not, so the probe names a resource the simulator does not hold.",
 	"create-names-no-resource": "Declared on an action that creates the resource. The request names no existing " +
@@ -1029,9 +1029,9 @@ func iamSeedConditionKeyFixtures(t *testing.T, srv *sim.Server) map[string]map[s
 	// an image. An instance refresh names the template by the id Amazon EC2
 	// assigns and the version it moves to.
 	query(url.Values{"Action": {"CreateLaunchConfiguration"}, "Version": {"2011-01-01"},
-		"LaunchConfigurationName": {"probe"}, "ImageId": {"ami-0123456789abcdef0"}, "InstanceType": {"t3.micro"}})
+		"LaunchConfigurationName": {"probe"}, "ImageId": {"ami-0c101f26f147fa7fd"}, "InstanceType": {"t3.micro"}})
 	launchTemplate := field(query(url.Values{"Action": {"CreateLaunchTemplate"}, "Version": {"2016-11-15"},
-		"LaunchTemplateName": {"probe"}, "LaunchTemplateData.ImageId": {"ami-0123456789abcdef0"}}),
+		"LaunchTemplateName": {"probe"}, "LaunchTemplateData.ImageId": {"ami-0c101f26f147fa7fd"}}),
 		`<launchTemplateId>([^<]+)</launchTemplateId>`)
 	fixtures["autoscaling"]["StartInstanceRefresh:launchtemplateid"] = launchTemplate
 	fixtures["autoscaling"]["StartInstanceRefresh:version"] = "$Latest"

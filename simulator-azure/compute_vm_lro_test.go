@@ -218,6 +218,8 @@ func createVMLROMachine(t *testing.T, srv *sim.Server, name string) *httptest.Re
 	})
 	return vmLRORequest(t, srv, http.MethodPut, vmOpsPath(name, ""),
 		`{"location":"eastus","properties":{"hardwareProfile":{"vmSize":"Standard_B1s"},`+
+			`"storageProfile":{"imageReference":{"publisher":"Debian","offer":"debian-12","sku":"12","version":"latest"},`+
+			`"osDisk":{"createOption":"FromImage"}},`+
 			`"networkProfile":{"networkInterfaces":[{"id":"`+nicID+`"}]}}}`)
 }
 
@@ -286,14 +288,14 @@ func TestVirtualMachineCreateFailsWhenTheBootFails(t *testing.T) {
 	}
 	opURL := rec.Header().Get("Azure-AsyncOperation")
 	hooks.awaitBoot(t, id)
-	hooks.boot <- errors.New("kvm:/dev/kvm missing")
+	hooks.boot <- errors.New("no capacity on the host")
 	bg.Await()
 
 	op := vmLROOperationStatus(t, srv, opURL)
 	if op.Status != "Failed" || op.Error == nil || op.Error.Code != "AllocationFailed" {
 		t.Fatalf("operation after a failed boot = %+v, want Failed with AllocationFailed", op)
 	}
-	if !strings.Contains(op.Error.Message, "kvm:/dev/kvm missing") {
+	if !strings.Contains(op.Error.Message, "no capacity on the host") {
 		t.Errorf("the operation's error hides why the boot failed: %q", op.Error.Message)
 	}
 	if state := vmLROProvisioningState(t, srv, "lro-fail-vm"); state != "Failed" {
@@ -450,7 +452,7 @@ func TestVirtualMachineMaintenanceBootFailureFailsTheOperation(t *testing.T) {
 	hooks.awaitHalt(t, vm.ID)
 	hooks.halt <- nil
 	hooks.awaitBoot(t, vm.ID)
-	hooks.boot <- errors.New("firecracker exited")
+	hooks.boot <- errors.New("the workload exited")
 	bg.Await()
 
 	op := vmLROOperationStatus(t, srv, rec.Header().Get("Azure-AsyncOperation"))

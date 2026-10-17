@@ -209,13 +209,14 @@ func siteContainerVolumeBinds(siteName string, mounts []SiteContainerVolMount) [
 // sitecontainer fails to start does not run; the sidecars already started are
 // stopped and the main stays the caller's to stop. references are the site's
 // app settings and connection strings with their Key Vault references
-// resolved, which each sidecar inherits or its environmentVariables name.
-func startSidecarContainers(ctx context.Context, site *Site, mainContainerID string, references webReferenceValues, sink sim.LogSink) ([]*sim.ContainerHandle, error) {
+// resolved, which each sidecar inherits or its environmentVariables name;
+// metadataHost is the sidecar of the main's network, which the sidecars share.
+func startSidecarContainers(ctx context.Context, site *Site, mainContainerID string, references webReferenceValues, metadataHost string, sink sim.LogSink) ([]*sim.ContainerHandle, error) {
 	sidecars := sidecarSiteContainers(site.ID)
 	if len(sidecars) == 0 {
 		return nil, nil
 	}
-	metadataEnv, err := hostMetadataEnv(site)
+	metadataEnv, err := hostMetadataEnv(site, metadataHost)
 	if err != nil {
 		return nil, fmt.Errorf("sidecars: resolve the metadata endpoint: %w", err)
 	}

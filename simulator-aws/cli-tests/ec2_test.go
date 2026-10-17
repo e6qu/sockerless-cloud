@@ -39,7 +39,7 @@ func TestEC2InstanceLifecycleCLI(t *testing.T) {
 	sgID := strings.TrimSpace(out)
 
 	out = runCLI(t, awsCLI("ec2", "run-instances",
-		"--image-id", "ami-cli1234",
+		"--image-id", ec2AmazonLinuxAMI(t),
 		"--instance-type", "t3.micro",
 		"--subnet-id", subnetID,
 		"--security-group-ids", sgID,
@@ -148,7 +148,7 @@ func TestEC2EBSVolumeSnapshotCLI(t *testing.T) {
 	subnetID := strings.TrimSpace(out)
 
 	out = runCLI(t, awsCLI("ec2", "run-instances",
-		"--image-id", "ami-cli-ebs",
+		"--image-id", ec2AmazonLinuxAMI(t),
 		"--instance-type", "t3.micro",
 		"--subnet-id", subnetID,
 		"--query", "Instances[0].InstanceId",

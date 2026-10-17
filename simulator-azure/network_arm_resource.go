@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/ipam"
 )
 
 // The Microsoft.Network resource provider gives every top-level tracked
@@ -126,8 +128,7 @@ func registerAzureNetworkResource[T any](srv *sim.Server, s azureNetworkResource
 		}
 		if s.provision != nil {
 			if err := s.provision(r.Context(), &req, previous); err != nil {
-				AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable,
-					"failed to provision %s %q: %v", s.resourceType, name, err)
+				azureWriteProvisioningError(w, s.resourceType, name, err)
 				return
 			}
 		}
@@ -222,4 +223,24 @@ func azureNetworkEtag() string {
 // azureNetworkChildID composes the ARM id of a child resource collection member.
 func azureNetworkChildID(parentID, collection, name string) string {
 	return parentID + "/" + collection + "/" + name
+}
+
+// azureWriteProvisioningError answers a create whose provisioning failed: with
+// the request's own error when the resource's addresses could not be leased
+// as asked, and as the resource provider's failure otherwise.
+func azureWriteProvisioningError(w http.ResponseWriter, resourceType, name string, err error) {
+	var fault *azureAddressFault
+	switch {
+	case errors.As(err, &fault):
+		AzureError(w, fault.code, fault.message, fault.status)
+	case errors.Is(err, ipam.ErrAddressInUse):
+		AzureErrorf(w, "PrivateIPAddressInUse", http.StatusBadRequest,
+			"%s %q requests a private IP address that is already allocated to another resource: %v", resourceType, name, err)
+	case errors.Is(err, ipam.ErrNoAvailableIP):
+		AzureErrorf(w, "SubnetIsFull", http.StatusBadRequest,
+			"The subnet of %s %q does not have enough capacity for another IP address: %v", resourceType, name, err)
+	default:
+		AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
+			"failed to provision %s %q: %v", resourceType, name, err)
+	}
 }

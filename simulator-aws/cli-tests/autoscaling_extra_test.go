@@ -36,7 +36,7 @@ func asxSetupGroupCLI(t *testing.T, lcName, groupName string, desired int) {
 
 	runCLI(t, awsCLI("autoscaling", "create-launch-configuration",
 		"--launch-configuration-name", lcName,
-		"--image-id", "ami-asxcli01",
+		"--image-id", ec2AmazonLinuxAMI(t),
 		"--instance-type", "t3.micro"))
 	t.Cleanup(func() {
 		_ = awsCLI("autoscaling", "delete-launch-configuration", "--launch-configuration-name", lcName).Run()

@@ -10,7 +10,7 @@
 #   3. A bare os.Exit(0) within a few added lines of a LookPath(...) in the same
 #      hunk — the "LookPath fails -> exit success" silent skip.
 #
-# Kernel/platform capability gates (runtime.GOOS, CAP_NET_ADMIN, /dev/kvm) are
+# Platform gates (runtime.GOOS) are
 # not matched: they do not use LookPath, so the LookPath-anchored shape 3 can
 # never hit them, and the phrase-based shapes 1 and 2 skip any line that
 # self-identifies as a platform/capability gate (see $platform_gate) — even one
@@ -45,7 +45,7 @@ phrases='not available|not found|not installed|missing|required.*(binary|tool|cl
 # so keying the exemption on that phrasing is the intended contract; a
 # LookPath-guarded tool-absent skip does not use this language, and mislabelling
 # one to dodge the gate is visible in review.
-platform_gate='platform gate|capability gate|requires (a |the )?(linux|unix|posix|darwin|macos|windows|x86|arm|amd64).*host|host required|unix-like|GOOS|CAP_NET_ADMIN|/dev/kvm|netns fabric|kernel'
+platform_gate='platform gate|requires (a |the )?(linux|unix|posix|darwin|macos|windows|x86|arm|amd64).*host|host required|unix-like|GOOS'
 
 # 1. t.Skip / t.Skipf with a tool-absent phrase (unless a platform-gate marker).
 skip_matches=$(printf '%s\n' "$diff" \

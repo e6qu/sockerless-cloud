@@ -38,7 +38,7 @@ func asxSetupGroup(t *testing.T, asg *autoscaling.Client, lcName, groupName stri
 
 	_, err = asg.CreateLaunchConfiguration(ctx, &autoscaling.CreateLaunchConfigurationInput{
 		LaunchConfigurationName: aws.String(lcName),
-		ImageId:                 aws.String("ami-asx1234"),
+		ImageId:                 aws.String(ec2AmazonLinuxAMI(t)),
 		InstanceType:            aws.String("t3.micro"),
 	})
 	require.NoError(t, err)
@@ -233,7 +233,7 @@ func TestAutoScaling_InstanceRefresh(t *testing.T) {
 	const group = "asx-ir-grp"
 	asxSetupGroup(t, c, "asx-ir-lc", group, 2)
 	before := asxDescribeGroup(t, c, group)
-	templateID := asxRefreshTemplate(t, "asx-ir-lt", "ami-asxrefresh")
+	templateID := asxRefreshTemplate(t, "asx-ir-lt", ec2AmazonLinuxAMI(t))
 
 	startOut, err := c.StartInstanceRefresh(ctx, &autoscaling.StartInstanceRefreshInput{
 		AutoScalingGroupName: aws.String(group),
@@ -280,7 +280,7 @@ func TestAutoScaling_InstanceRefresh(t *testing.T) {
 	require.NoError(t, err)
 	for _, res := range instances.Reservations {
 		for _, inst := range res.Instances {
-			assert.Equal(t, "ami-asxrefresh", aws.ToString(inst.ImageId))
+			assert.Equal(t, ec2AmazonLinuxAMI(t), aws.ToString(inst.ImageId))
 		}
 	}
 
@@ -297,7 +297,7 @@ func TestAutoScaling_InstanceRefreshRollback(t *testing.T) {
 	c := autoScalingClient()
 	const group = "asx-irb-grp"
 	asxSetupGroup(t, c, "asx-irb-lc", group, 2)
-	templateID := asxRefreshTemplate(t, "asx-irb-lt", "ami-asxrollback")
+	templateID := asxRefreshTemplate(t, "asx-irb-lt", ec2AmazonLinuxAMI(t))
 
 	_, err := c.RollbackInstanceRefresh(ctx, &autoscaling.RollbackInstanceRefreshInput{AutoScalingGroupName: aws.String(group)})
 	requireAWSErrorCode(t, err, "ActiveInstanceRefreshNotFound")
@@ -740,10 +740,10 @@ func TestAutoScaling_GroupFromLaunchTemplate(t *testing.T) {
 	t.Parallel()
 	c := autoScalingClient()
 	ec2c := ec2Client()
-	templateID := asxRefreshTemplate(t, "asx-lt-grp-lt", "ami-asxlt1")
+	templateID := asxRefreshTemplate(t, "asx-lt-grp-lt", ec2AmazonLinuxAMI(t))
 	_, err := ec2c.CreateLaunchTemplateVersion(ctx, &ec2.CreateLaunchTemplateVersionInput{
 		LaunchTemplateId:   aws.String(templateID),
-		LaunchTemplateData: &ec2types.RequestLaunchTemplateData{ImageId: aws.String("ami-asxlt2"), InstanceType: ec2types.InstanceTypeT3Micro},
+		LaunchTemplateData: &ec2types.RequestLaunchTemplateData{ImageId: aws.String(ec2UbuntuAMI(t)), InstanceType: ec2types.InstanceTypeT3Micro},
 	})
 	require.NoError(t, err)
 	vpcOut, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.92.0.0/16")})
@@ -778,7 +778,7 @@ func TestAutoScaling_GroupFromLaunchTemplate(t *testing.T) {
 	described, err := ec2c.DescribeInstances(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{aws.ToString(created.Instances[0].InstanceId)}})
 	require.NoError(t, err)
 	require.Len(t, described.Reservations, 1)
-	assert.Equal(t, "ami-asxlt1", aws.ToString(described.Reservations[0].Instances[0].ImageId))
+	assert.Equal(t, ec2AmazonLinuxAMI(t), aws.ToString(described.Reservations[0].Instances[0].ImageId))
 
 	_, err = c.UpdateAutoScalingGroup(ctx, &autoscaling.UpdateAutoScalingGroupInput{
 		AutoScalingGroupName: aws.String(group),

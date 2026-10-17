@@ -89,7 +89,7 @@ backend. Tests that need an agent skip only for what a run cannot be given —
 a kernel other than Linux or no `/dev/kvm` — the one skip `AGENTS.md`
 allows; a missing command fails the test, naming what to install.
 
-`make firecracker-test` is the agent's own proof: it starts an agent on a host
+`make node-agent-test` is the agent's own proof: it starts an agent on a host
 with `/dev/kvm`, boots a guest from an OCI-built root filesystem, runs the
 repository's `testdata/eval-arithmetic` inside it, and checks that teardown
 leaves no process, tap or disk behind. The job that runs it is the only CI job

@@ -17,6 +17,12 @@ const maxEDNSSize = 4096
 // Exchange answers one query as the server would on the wire, before any
 // truncation for UDP.
 func (s *Server) Exchange(ctx context.Context, req *dns.Msg, remote, local netip.Addr) *dns.Msg {
+	return s.exchange(ctx, req, Query{Remote: remote, Local: local})
+}
+
+// exchange answers req for the querier from names; from's Name and Type are
+// taken from the question.
+func (s *Server) exchange(ctx context.Context, req *dns.Msg, from Query) *dns.Msg {
 	resp := new(dns.Msg)
 	if len(req.Question) != 1 || req.Opcode != dns.OpcodeQuery {
 		resp.SetRcode(req, dns.RcodeFormatError)
@@ -31,7 +37,8 @@ func (s *Server) Exchange(ctx context.Context, req *dns.Msg, remote, local netip
 		return withEDNS(req, resp)
 	}
 	name := dns.CanonicalName(q.Name)
-	view := s.cfg.Catalog(Query{Name: name, Type: q.Qtype, Remote: remote, Local: local})
+	from.Name, from.Type = name, q.Qtype
+	view := s.cfg.Catalog(from)
 
 	if owned := ownedBy(view.Names, name); len(owned) > 0 {
 		resp.SetReply(req)

@@ -86,7 +86,7 @@ func TestEC2CLI_Fleets(t *testing.T) {
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	ltID := q("ec2", "create-launch-template", "--launch-template-name", "cli-fleet-lt",
-		"--launch-template-data", "ImageId=ami-12345678,InstanceType=t3.micro",
+		"--launch-template-data", "ImageId="+ec2AmazonLinuxAMI(t)+",InstanceType=t3.micro",
 		"--query", "LaunchTemplate.LaunchTemplateId", "--output", "text")
 	if ltID == "" {
 		t.Fatal("create-launch-template returned empty id")
@@ -141,7 +141,7 @@ func TestEC2CLI_Spot(t *testing.T) {
 		"--spot-price", "0.0035",
 		"--instance-count", "1",
 		"--type", "one-time",
-		"--launch-specification", "{\"ImageId\":\"ami-12345678\",\"InstanceType\":\"t3.micro\"}",
+		"--launch-specification", "{\"ImageId\":\""+ec2AmazonLinuxAMI(t)+"\",\"InstanceType\":\"t3.micro\"}",
 		"--query", "SpotInstanceRequests[0].SpotInstanceRequestId", "--output", "text")
 	if sirID == "" {
 		t.Fatal("request-spot-instances returned empty id")
@@ -158,7 +158,7 @@ func TestEC2CLI_Spot(t *testing.T) {
 	}
 
 	sfrID := q("ec2", "request-spot-fleet",
-		"--spot-fleet-request-config", "{\"IamFleetRole\":\"arn:aws:iam::123456789012:role/spot-fleet\",\"TargetCapacity\":2,\"SpotPrice\":\"0.0035\",\"LaunchSpecifications\":[{\"ImageId\":\"ami-12345678\",\"InstanceType\":\"t3.micro\"}]}",
+		"--spot-fleet-request-config", "{\"IamFleetRole\":\"arn:aws:iam::123456789012:role/spot-fleet\",\"TargetCapacity\":2,\"SpotPrice\":\"0.0035\",\"LaunchSpecifications\":[{\"ImageId\":\""+ec2AmazonLinuxAMI(t)+"\",\"InstanceType\":\"t3.micro\"}]}",
 		"--query", "SpotFleetRequestId", "--output", "text")
 	if sfrID == "" {
 		t.Fatal("request-spot-fleet returned empty id")
@@ -237,7 +237,7 @@ func TestEC2CLI_ScheduledAndHostReservations(t *testing.T) {
 		t.Fatalf("describe-scheduled-instances: got %q, want %q", descSci, sciID)
 	}
 	nrun := q("ec2", "run-scheduled-instances", "--scheduled-instance-id", sciID, "--instance-count", "1",
-		"--launch-specification", "{\"ImageId\":\"ami-12345678\",\"InstanceType\":\"t3.micro\"}",
+		"--launch-specification", "{\"ImageId\":\""+ec2AmazonLinuxAMI(t)+"\",\"InstanceType\":\"t3.micro\"}",
 		"--query", "length(InstanceIdSet)", "--output", "text")
 	if nrun != "1" {
 		t.Fatalf("run-scheduled-instances instance count: got %q, want 1", nrun)

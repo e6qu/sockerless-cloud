@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
 // registerContainerAppsIngress implements Azure Container Apps ingress: an App
@@ -124,7 +124,7 @@ func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp, r
 		AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q has no running replica", app.Name)
 		return
 	}
-	ip := sim.ContainerIPv4(handles[0].ContainerID)
+	ip := sim.ContainerIPv4(handles[0].ID())
 	if ip == "" {
 		AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q replica has no reachable IP", app.Name)
 		return

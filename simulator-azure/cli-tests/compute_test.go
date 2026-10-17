@@ -12,7 +12,6 @@ import (
 
 func TestComputeVirtualMachineLifecycleCLI(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	sizesURL := fmt.Sprintf("%s/subscriptions/%s/providers/Microsoft.Compute/locations/eastus/vmSizes?api-version=2022-03-01", baseURL, subscriptionID)
 	if out := runCLI(t, azRest("GET", sizesURL, "")); !strings.Contains(out, "Standard_B1s") {
 		t.Fatalf("expected VM size discovery, got %s", out)
@@ -37,7 +36,7 @@ func TestComputeVirtualMachineLifecycleCLI(t *testing.T) {
 
 	vmPath := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/virtualMachines/cli-vm", baseURL, subscriptionID, resourceGroup)
 	vmURL := vmPath + "?api-version=2024-07-01"
-	vmBody := fmt.Sprintf(`{"location":"eastus","properties":{"hardwareProfile":{"vmSize":"Standard_B1s"},"storageProfile":{"imageReference":{"publisher":"Canonical","offer":"0001-com-ubuntu-server-jammy","sku":"22_04-lts","version":"latest"},"osDisk":{"name":"cli-vm-osdisk","createOption":"FromImage","caching":"ReadWrite","deleteOption":"Delete","diskSizeGB":30}},"osProfile":{"computerName":"cli-vm","adminUsername":"azureuser","adminPassword":"Str0ng-password-12345!"},"networkProfile":{"networkInterfaces":[{"id":%q,"properties":{"primary":true}}]}}}`, nicID)
+	vmBody := fmt.Sprintf(`{"location":"eastus","properties":{"hardwareProfile":{"vmSize":"Standard_B1s"},"storageProfile":{"imageReference":{"publisher":"Canonical","offer":"ubuntu-24_04-lts","sku":"server","version":"latest"},"osDisk":{"name":"cli-vm-osdisk","createOption":"FromImage","caching":"ReadWrite","deleteOption":"Delete","diskSizeGB":30}},"osProfile":{"computerName":"cli-vm","adminUsername":"azureuser","adminPassword":"Str0ng-password-12345!"},"networkProfile":{"networkInterfaces":[{"id":%q,"properties":{"primary":true}}]}}}`, nicID)
 	azRestLongRunning(t, "PUT", vmURL, vmBody)
 
 	out := runCLI(t, azRest("GET", vmURL+"&$expand=instanceView", ""))

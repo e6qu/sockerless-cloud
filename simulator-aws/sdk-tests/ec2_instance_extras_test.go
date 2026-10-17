@@ -23,7 +23,7 @@ func launchInstanceFor(t *testing.T, c *ec2.Client, cidr string) string {
 	subnetCidr := octets[0] + "." + octets[1] + ".1.0/24"
 	subnet := createSubnetFor(t, c, vpc.Vpc.VpcId, subnetCidr)
 	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
-		ImageId: aws.String("ami-12345678"), InstanceType: types.InstanceTypeT3Micro,
+		ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
 	})
 	require.NoError(t, err)
@@ -197,6 +197,7 @@ func TestEC2_ConsoleOutput(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
 	instID := launchInstanceFor(t, c, "10.194.0.0/16")
+	waitForEC2InstanceRunning(t, c, instID)
 
 	con, err := c.GetConsoleOutput(ctx, &ec2.GetConsoleOutputInput{InstanceId: aws.String(instID)})
 	require.NoError(t, err)
@@ -264,7 +265,7 @@ func TestEC2_InstanceTopology(t *testing.T) {
 	require.NotEmpty(t, meta.InstanceImageMetadata)
 	assert.Equal(t, instID, aws.ToString(meta.InstanceImageMetadata[0].InstanceId))
 	require.NotNil(t, meta.InstanceImageMetadata[0].ImageMetadata)
-	assert.Equal(t, "ami-12345678", aws.ToString(meta.InstanceImageMetadata[0].ImageMetadata.ImageId))
+	assert.Equal(t, ec2AmazonLinuxAMI(t), aws.ToString(meta.InstanceImageMetadata[0].ImageMetadata.ImageId))
 }
 
 // TestEC2_BundleInstance covers BundleInstance + ConfirmProductInstance + the

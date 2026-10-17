@@ -1,7 +1,7 @@
 # Standardized Makefile for simulator-gcp — see docs/MAKEFILE_STANDARD.md.
 #
 # This sim is its own Go module, resolved against the sibling support
-# modules (sim, realexec, ui-auth) through the repo-root go.work during
+# modules (sim, ui-auth) through the repo-root go.work during
 # development and through tagged versions when installed with
 # `go install ...@version`. The default `build` produces a stripped,
 # no-UI binary; `make embed && make build` bakes the console SPA in.
@@ -101,17 +101,12 @@ DOCKER_TEST_ENV := -e HOME=/tmp/sockerless-home -e USER=sockerless -e SOCKERLESS
 # was given. Two Azure tests failed exactly that way until that harness gained
 # one.
 #
-# The name is terse and it sits under /var/tmp rather than /tmp on purpose: a
-# Firecracker API socket lands at
-# <tmp>/sockerless-firecracker/<=40 chars>/firecracker.socket and a UNIX socket
-# path cannot exceed 108 bytes, which leaves the directory 22; and /tmp on a
-# container-engine host is commonly memory-backed, which a booting machine's
-# root image would fill.
+# It sits under /var/tmp rather than /tmp on purpose: /tmp on a container-engine
+# host is commonly memory-backed, which a build tree or a volume seed would fill.
 DOCKER_TEST_SHARED_TMP := /var/tmp/skl
 DOCKER_TEST_SHARED_TMP_MOUNT := -v $(DOCKER_TEST_SHARED_TMP):$(DOCKER_TEST_SHARED_TMP)
 
-DOCKER_REALNET_TEST_ENV := -e HOME=/tmp/sockerless-home -e USER=sockerless -e CGO_ENABLED=0 -e TF_IN_AUTOMATION=1 -e CLOUDSDK_CORE_DISABLE_PROMPTS=1 -e AZURE_CORE_NO_COLOR=true -e AWS_PAGER= -e TMPDIR=$(DOCKER_TEST_SHARED_TMP)
-DOCKER_REALNET_FLAGS := --privileged
+DOCKER_TEST_RUN_ENV := -e HOME=/tmp/sockerless-home -e USER=sockerless -e CGO_ENABLED=0 -e TF_IN_AUTOMATION=1 -e CLOUDSDK_CORE_DISABLE_PROMPTS=1 -e AZURE_CORE_NO_COLOR=true -e AWS_PAGER= -e TMPDIR=$(DOCKER_TEST_SHARED_TMP)
 
 docker-build: ## build the docker image
 	docker build --load -t $(IMAGE) -f Dockerfile ..
@@ -127,7 +122,6 @@ docker-test-build: ## build the test docker image
 
 docker-test: docker-test-build ## run all tests inside docker
 	docker run --rm --network host \
-		$(DOCKER_REALNET_FLAGS) \
 		--security-opt label=disable \
 		--group-add $(DOCKER_SOCK_GID) \
 		--group-add 0 \
@@ -135,12 +129,11 @@ docker-test: docker-test-build ## run all tests inside docker
 		-v /var/run/docker.sock:/var/run/docker.sock \
 		$(DOCKER_TEST_SHARED_TMP_MOUNT) \
 		-w /src/simulator-gcp \
-		$(DOCKER_REALNET_TEST_ENV) \
+		$(DOCKER_TEST_RUN_ENV) \
 		$(DOCKER_TEST_IMAGE) make test-all
 
 terraform-test-docker: docker-test-build ## run terraform tests on a capable Linux real-network host
 	docker run --rm --network host \
-		$(DOCKER_REALNET_FLAGS) \
 		--security-opt label=disable \
 		--group-add $(DOCKER_SOCK_GID) \
 		--group-add 0 \
@@ -148,12 +141,11 @@ terraform-test-docker: docker-test-build ## run terraform tests on a capable Lin
 		-v /var/run/docker.sock:/var/run/docker.sock \
 		$(DOCKER_TEST_SHARED_TMP_MOUNT) \
 		-w /src/simulator-gcp \
-		$(DOCKER_REALNET_TEST_ENV) \
+		$(DOCKER_TEST_RUN_ENV) \
 		$(DOCKER_TEST_IMAGE) make terraform-test-native
 
 terraform-https-test-docker: docker-test-build ## run terraform HTTPS tests inside docker
 	docker run --rm --network host \
-		$(DOCKER_REALNET_FLAGS) \
 		--security-opt label=disable \
 		--group-add $(DOCKER_SOCK_GID) \
 		--group-add 0 \
@@ -161,6 +153,6 @@ terraform-https-test-docker: docker-test-build ## run terraform HTTPS tests insi
 		-v /var/run/docker.sock:/var/run/docker.sock \
 		$(DOCKER_TEST_SHARED_TMP_MOUNT) \
 		-w /src/simulator-gcp/terraform-tests \
-		$(DOCKER_REALNET_TEST_ENV) \
+		$(DOCKER_TEST_RUN_ENV) \
 		-e SOCKERLESS_TF_HTTPS_GATEWAY=1 \
 		$(DOCKER_TEST_IMAGE) go test -v -count=1 -timeout $(TERRAFORM_TEST_TIMEOUT) ./...

@@ -29,7 +29,4 @@ func TestECSContainerStopGraceReadsTheDefinition(t *testing.T) {
 	if graces["app"] != 2*time.Second || graces["log-router"] != 30*time.Second {
 		t.Fatalf("task stop graces = %v", graces)
 	}
-	if _, present := graces["__pause__"]; present {
-		t.Fatal("the pause container is not a definition and gets no grace")
-	}
 }

@@ -88,7 +88,6 @@ func TestCompute_UpdateReplacesAFirewallAndABackendService(t *testing.T) {
 
 func TestCompute_SubnetworkRangeOnlyExpands(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	svc := computeService(t)
 	const project, region = "subnet-writes", "us-central1"
 
@@ -205,10 +204,9 @@ func TestCompute_AdviceCalendarMode(t *testing.T) {
 // instance whole. Both are zonal, so both answer with a zone operation.
 func TestCompute_InstanceStartWithEncryptionKeyAndUpdate(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, zone, name = "encrypted-boot", "us-central1-a", "sealed"
-	createVerbInstance(t, svc, project, zone, name)
+	createVerbInstance(t, svc, project, zone, name, "10.79.0.0/24")
 
 	stopOp, err := svc.Instances.Stop(project, zone, name).Do()
 	require.NoError(t, err)

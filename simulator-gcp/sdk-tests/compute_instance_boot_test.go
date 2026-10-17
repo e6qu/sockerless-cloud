@@ -1,0 +1,248 @@
+package gcp_sdk_test
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	compute "google.golang.org/api/compute/v1"
+	"google.golang.org/api/dns/v1"
+	"google.golang.org/api/googleapi"
+	"google.golang.org/api/option"
+)
+
+// debianFamily is the Debian 12 image family that matches the engine's
+// architecture, which is what an instance booted on a container backend runs.
+func debianFamily() string {
+	if nativeDockerPlatform() == "linux/arm64" {
+		return "debian-12-arm64"
+	}
+	return "debian-12"
+}
+
+// The public image catalog answers the way Google's image projects do: an
+// image by its versioned name, a family by the image it resolves to, a
+// listing of the project, and a name the project does not hold is not found.
+func TestCompute_PublicImageCatalog(t *testing.T) {
+	t.Parallel()
+	svc := computeService(t)
+
+	family, err := svc.Images.GetFromFamily("debian-cloud", "debian-12").Do()
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(family.Name, "debian-12-bookworm-v"), "family resolves to a versioned image, got %s", family.Name)
+	assert.Equal(t, "debian-12", family.Family)
+	assert.Equal(t, "X86_64", family.Architecture)
+	assert.Equal(t, "READY", family.Status)
+	assert.Contains(t, family.SelfLink, "/projects/debian-cloud/global/images/"+family.Name)
+
+	got, err := svc.Images.Get("debian-cloud", family.Name).Do()
+	require.NoError(t, err)
+	assert.Equal(t, family.Id, got.Id, "the family's image and the image itself are the same resource")
+
+	arm, err := svc.Images.GetFromFamily("ubuntu-os-cloud", "ubuntu-2404-lts-arm64").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "ARM64", arm.Architecture)
+	assert.True(t, strings.HasPrefix(arm.Name, "ubuntu-2404-noble-arm64-v"), "got %s", arm.Name)
+
+	list, err := svc.Images.List("ubuntu-os-cloud").Do()
+	require.NoError(t, err)
+	assertComputeListHasName(t, list.Items, func(i *compute.Image) string { return i.Name }, arm.Name)
+	assertComputeListHasName(t, list.Items, func(i *compute.Image) string { return i.Name }, strings.Replace(arm.Name, "arm64", "amd64", 1))
+
+	// A family is not an image name: Google answers the plain name with the
+	// same not-found a client gets for any absent resource.
+	_, err = svc.Images.Get("debian-cloud", "debian-12").Do()
+	var gerr *googleapi.Error
+	require.ErrorAs(t, err, &gerr)
+	assert.Equal(t, 404, gerr.Code)
+	_, err = svc.Images.GetFromFamily("debian-cloud", "debian-99").Do()
+	require.ErrorAs(t, err, &gerr)
+	assert.Equal(t, 404, gerr.Code)
+}
+
+// An instance boots its image on the subnetwork it names, runs the
+// startup-script its metadata carries with the script's output on the serial
+// console, reaches the metadata server and the private zones of its network
+// through the subnetwork's resolver, keeps its disk across a stop and a
+// start, and a disk image captured from it boots with that disk's contents.
+func TestCompute_InstanceBootsRunsItsStartupScriptAndKeepsItsDisk(t *testing.T) {
+	t.Parallel()
+	svc := computeService(t)
+	const project, zone, region = "boot-project", "us-central1-a", "us-central1"
+	subnet := createInstanceSubnetwork(t, svc, project, region, "boot-net", "10.86.0.0/24")
+
+	// A private zone visible to the instance's network, holding a record only
+	// a querier on that network can see.
+	dnsSvc, err := dns.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
+	require.NoError(t, err)
+	_, err = dnsSvc.ManagedZones.Create(project, &dns.ManagedZone{
+		Name: "boot-zone", DnsName: "boot.internal.", Visibility: "private",
+		PrivateVisibilityConfig: &dns.ManagedZonePrivateVisibilityConfig{
+			Networks: []*dns.ManagedZonePrivateVisibilityConfigNetwork{{NetworkUrl: "projects/" + project + "/global/networks/boot-net"}},
+		},
+	}).Do()
+	require.NoError(t, err)
+	t.Cleanup(func() { deleteDNSZone(t, dnsSvc, project, "boot-zone") })
+	_, err = dnsSvc.ResourceRecordSets.Create(project, "boot-zone", &dns.ResourceRecordSet{
+		Name: "db.boot.internal.", Type: "A", Ttl: 60, Rrdatas: []string{"10.86.0.50"},
+	}).Do()
+	require.NoError(t, err)
+
+	// The script counts its boots on the disk, reads the metadata server by
+	// the name every Compute Engine guest resolves it under, and resolves the
+	// private zone through the subnetwork's resolver.
+	const startupScript = `#!/bin/bash
+n=0
+[ -f /var/lib/sockerless-boots ] && n=$(cat /var/lib/sockerless-boots)
+n=$((n+1))
+echo "$n" >/var/lib/sockerless-boots
+echo "boot=$n"
+md() {
+	exec 3<>/dev/tcp/metadata.google.internal/80
+	printf 'GET /computeMetadata/v1/%s HTTP/1.0\r\nHost: metadata.google.internal\r\nMetadata-Flavor: Google\r\n\r\n' "$1" >&3
+	sed -e '1,/^\r$/d' <&3
+	exec 3<&-
+}
+echo "name=$(md instance/name)"
+echo "marker=$(md instance/attributes/marker)"
+echo "db=$(getent hosts db.boot.internal | awk '{print $1}')"
+`
+	const name = "boot-vm"
+	instance := func(name, sourceImage string) *compute.Instance {
+		return &compute.Instance{
+			Name:        name,
+			MachineType: "e2-micro",
+			Disks: []*compute.AttachedDisk{{
+				Boot: true, AutoDelete: true,
+				InitializeParams: &compute.AttachedDiskInitializeParams{SourceImage: sourceImage},
+			}},
+			NetworkInterfaces: []*compute.NetworkInterface{{Subnetwork: subnet}},
+			Metadata: &compute.Metadata{Items: []*compute.MetadataItems{
+				{Key: "startup-script", Value: googleapi.String(startupScript)},
+				{Key: "marker", Value: googleapi.String("from-metadata")},
+			}},
+		}
+	}
+	op, err := svc.Instances.Insert(project, zone, instance(name, "projects/debian-cloud/global/images/family/"+debianFamily())).Do()
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = svc.Instances.Delete(project, zone, name).Do() })
+	done := awaitZoneOperation(t, svc, project, zone, op.Name)
+	require.Nil(t, done.Error, "the insert operation failed: %+v", done.Error)
+
+	got, err := svc.Instances.Get(project, zone, name).Do()
+	require.NoError(t, err)
+	assert.Equal(t, "RUNNING", got.Status)
+	assert.True(t, strings.HasPrefix(got.NetworkInterfaces[0].NetworkIP, "10.86.0."), "the address is leased from the subnetwork, got %s", got.NetworkInterfaces[0].NetworkIP)
+
+	console := awaitSerialPortOutput(t, svc, project, zone, name, "startup-script exit status 0")
+	assert.Contains(t, console, "startup-script: boot=1")
+	assert.Contains(t, console, "startup-script: name="+name, "the metadata server answers the instance's own name through the subnetwork's sidecar")
+	assert.Contains(t, console, "startup-script: marker=from-metadata", "the instance reads its custom metadata")
+	assert.Contains(t, console, "startup-script: db=10.86.0.50", "the private zone of the network resolves through the subnetwork's resolver")
+
+	// A stop keeps the disk: the next boot counts on.
+	stopOp, err := svc.Instances.Stop(project, zone, name).Do()
+	require.NoError(t, err)
+	stopDone := awaitZoneOperation(t, svc, project, zone, stopOp.Name)
+	require.Nil(t, stopDone.Error, "the stop operation failed: %+v", stopDone.Error)
+	startOp, err := svc.Instances.Start(project, zone, name).Do()
+	require.NoError(t, err)
+	startDone := awaitZoneOperation(t, svc, project, zone, startOp.Name)
+	require.Nil(t, startDone.Error, "the start operation failed: %+v", startDone.Error)
+	console = awaitSerialPortOutput(t, svc, project, zone, name, "startup-script: boot=2")
+	assert.Contains(t, console, "startup-script: boot=1", "the serial console keeps what the machine wrote before the stop")
+
+	// A disk image is captured from the stopped instance's boot disk, and an
+	// instance created from it continues the count that disk held.
+	stopOp, err = svc.Instances.Stop(project, zone, name).Do()
+	require.NoError(t, err)
+	stopDone = awaitZoneOperation(t, svc, project, zone, stopOp.Name)
+	require.Nil(t, stopDone.Error, "the stop operation failed: %+v", stopDone.Error)
+	_, err = svc.Images.Insert(project, &compute.Image{
+		Name:       "boot-capture",
+		SourceDisk: fmt.Sprintf("zones/%s/disks/%s", zone, name),
+		Family:     "boot-captures",
+	}).Do()
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = svc.Images.Delete(project, "boot-capture").Do() })
+	captured, err := svc.Images.Get(project, "boot-capture").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "READY", captured.Status)
+	assert.Contains(t, captured.SourceDisk, "/zones/"+zone+"/disks/"+name)
+	fromFamily, err := svc.Images.GetFromFamily(project, "boot-captures").Do()
+	require.NoError(t, err)
+	assert.Equal(t, "boot-capture", fromFamily.Name)
+
+	const clone = "boot-vm-clone"
+	op, err = svc.Instances.Insert(project, zone, instance(clone, "projects/"+project+"/global/images/boot-capture")).Do()
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = svc.Instances.Delete(project, zone, clone).Do() })
+	done = awaitZoneOperation(t, svc, project, zone, op.Name)
+	require.Nil(t, done.Error, "the clone's insert operation failed: %+v", done.Error)
+	console = awaitSerialPortOutput(t, svc, project, zone, clone, "startup-script exit status 0")
+	assert.Contains(t, console, "startup-script: boot=3", "the captured disk carries the two boots of its source")
+	assert.Contains(t, console, "startup-script: name="+clone)
+
+	// An image the catalog does not hold cannot start an instance.
+	_, err = svc.Instances.Insert(project, zone, instance("boot-nowhere", "projects/debian-cloud/global/images/family/debian-99")).Do()
+	var gerr *googleapi.Error
+	require.ErrorAs(t, err, &gerr)
+	assert.Equal(t, 400, gerr.Code)
+	assert.Contains(t, gerr.Message, "The referenced image resource cannot be found")
+
+	// Neither can a machine type no zone offers.
+	unsized := instance("boot-unsized", "projects/debian-cloud/global/images/family/"+debianFamily())
+	unsized.MachineType = "x9-enormous-64"
+	_, err = svc.Instances.Insert(project, zone, unsized).Do()
+	require.ErrorAs(t, err, &gerr)
+	assert.Equal(t, 400, gerr.Code)
+	assert.Contains(t, gerr.Message, "Machine type with name 'x9-enormous-64' does not exist")
+}
+
+// awaitSerialPortOutput reads the instance's serial console until it carries
+// marker. The console has no wait of its own: the guest writes it as it goes,
+// and a client reads it the way gcloud tails it, by offset.
+func awaitSerialPortOutput(t *testing.T, svc *compute.Service, project, zone, name, marker string) string {
+	t.Helper()
+	var contents string
+	require.Eventually(t, func() bool {
+		out, err := svc.Instances.GetSerialPortOutput(project, zone, name).Do()
+		if err != nil {
+			return false
+		}
+		contents = out.Contents
+		return strings.Contains(contents, marker)
+	}, 30*time.Second, 500*time.Millisecond, "the serial console never carried %q; last contents:\n%s", marker, contents)
+	return contents
+}
+
+// The machine type catalog reports each type's shape and refuses a name no
+// zone offers.
+func TestCompute_MachineTypeCatalog(t *testing.T) {
+	t.Parallel()
+	svc := computeService(t)
+	const project, zone = "test-project", "us-central1-a"
+
+	micro, err := svc.MachineTypes.Get(project, zone, "e2-micro").Do()
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), micro.GuestCpus)
+	assert.Equal(t, int64(1024), micro.MemoryMb)
+	assert.True(t, micro.IsSharedCpu)
+	standard, err := svc.MachineTypes.Get(project, zone, "n2-standard-4").Do()
+	require.NoError(t, err)
+	assert.Equal(t, int64(4), standard.GuestCpus)
+	assert.Equal(t, int64(16384), standard.MemoryMb)
+	assert.False(t, standard.IsSharedCpu)
+
+	list, err := svc.MachineTypes.List(project, zone).Do()
+	require.NoError(t, err)
+	assertComputeListHasName(t, list.Items, func(m *compute.MachineType) string { return m.Name }, "t2a-standard-2")
+
+	_, err = svc.MachineTypes.Get(project, zone, "x9-enormous-64").Do()
+	var gerr *googleapi.Error
+	require.ErrorAs(t, err, &gerr)
+	assert.Equal(t, 404, gerr.Code)
+}

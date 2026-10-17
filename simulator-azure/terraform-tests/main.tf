@@ -293,6 +293,15 @@ output "azrm_multi_ip_nic_primary_private_ip_address" {
   value = azurerm_network_interface.az_multi_ip_nic.private_ip_address
 }
 
+# The marketplace image the machine boots, resolved through the catalog the
+# Compute resource provider lists under locations/{location}/publishers.
+data "azurerm_platform_image" "az_ubuntu" {
+  location  = azurerm_resource_group.az_rg.location
+  publisher = "Canonical"
+  offer     = "ubuntu-24_04-lts"
+  sku       = "server"
+}
+
 resource "azurerm_linux_virtual_machine" "az_vm" {
   name                            = "tf-azrm-vm"
   resource_group_name             = azurerm_resource_group.az_rg.name
@@ -310,12 +319,18 @@ resource "azurerm_linux_virtual_machine" "az_vm" {
     storage_account_type = "Standard_LRS"
   }
 
+  # The image the simulator's marketplace catalog publishes, read back below
+  # through VirtualMachineImages_List and VirtualMachineImages_Get.
   source_image_reference {
-    publisher = "Canonical"
-    offer     = "0001-com-ubuntu-server-jammy"
-    sku       = "22_04-lts"
+    publisher = data.azurerm_platform_image.az_ubuntu.publisher
+    offer     = data.azurerm_platform_image.az_ubuntu.offer
+    sku       = data.azurerm_platform_image.az_ubuntu.sku
     version   = "latest"
   }
+
+  # cloud-init runs the script once at first boot; the extension below reads
+  # what it wrote.
+  custom_data = base64encode("#!/bin/sh\necho tf-custom-data > /var/tmp/tf-custom-data\n")
 
   # Boot diagnostics names the storage account the machine's console log is
   # written to, which is what RetrieveBootDiagnosticsData reads it back from.
@@ -339,7 +354,7 @@ resource "azurerm_virtual_machine_extension" "az_vm_extension" {
   type_handler_version = "2.1"
 
   settings = jsonencode({
-    commandToExecute = "echo sockerless"
+    commandToExecute = "cat /var/tmp/tf-custom-data"
   })
 
   tags = {
@@ -2078,6 +2093,10 @@ output "azrm_application_gateway_backend_pool_ids" {
 
 output "azrm_application_gateway_listener_ids" {
   value = [for listener in azurerm_application_gateway.az_appgw.http_listener : listener.id]
+}
+
+output "azrm_platform_image_version" {
+  value = data.azurerm_platform_image.az_ubuntu.version
 }
 
 output "azrm_network_watcher_id" {

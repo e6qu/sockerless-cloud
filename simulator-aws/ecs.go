@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/sparse"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
@@ -429,7 +428,7 @@ var (
 
 type ecsTaskProcesses struct {
 	MainContainerName string
-	Handles           map[string]*sim.ContainerHandle
+	Handles           map[string]placement.Handle
 	// StopGrace is each container's SIGTERM-to-SIGKILL grace, from its
 	// definition's stopTimeout.
 	StopGrace map[string]time.Duration
@@ -458,7 +457,7 @@ func ecsTaskStopGrace(td ECSTaskDefinition) map[string]time.Duration {
 	return grace
 }
 
-func (p *ecsTaskProcesses) firstHandle() *sim.ContainerHandle {
+func (p *ecsTaskProcesses) firstHandle() placement.Handle {
 	if p == nil {
 		return nil
 	}
@@ -473,7 +472,7 @@ func (p *ecsTaskProcesses) firstHandle() *sim.ContainerHandle {
 	return nil
 }
 
-func (p *ecsTaskProcesses) handleFor(containerName string) *sim.ContainerHandle {
+func (p *ecsTaskProcesses) handleFor(containerName string) placement.Handle {
 	if p == nil {
 		return nil
 	}
@@ -515,61 +514,45 @@ func stopECSTaskProcesses(ctx context.Context, p *ecsTaskProcesses) {
 		return
 	}
 	// Amazon ECS signals the containers of a stopping task together, each with
-	// its own stopTimeout, so the task takes as long as its slowest container,
-	// not the sum of them. The pause container holds the network namespace the
-	// others run in; it stops, with no grace, once they have exited.
+	// its own stopTimeout (the grace its workload carries), so the task takes
+	// as long as its slowest container, not the sum of them. A cancelled ctx
+	// stops the wait, not the stop: the backend has the signal and kills the
+	// container on its own schedule.
 	var stopping sync.WaitGroup
 	for name, h := range p.Handles {
-		if h == nil || name == "__pause__" {
+		if h == nil {
 			continue
 		}
 		stopping.Add(1)
-		go func(containerID string, grace time.Duration) {
+		go func(h placement.Handle, grace time.Duration) {
 			defer stopping.Done()
-			ecsStopContainer(ctx, containerID, grace)
-		}(h.ContainerID, p.StopGrace[name])
+			h.Cancel()
+			waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second+grace)
+			defer cancel()
+			select {
+			case <-h.Exited():
+			case <-waitCtx.Done():
+			}
+		}(h, p.StopGrace[name])
 	}
 	stopping.Wait()
-	if ctx.Err() != nil {
-		return
-	}
-	if pause := p.Handles["__pause__"]; pause != nil {
-		ecsStopContainer(ctx, pause.ContainerID, 0)
-	}
-}
-
-// ecsStopContainer sends a container SIGTERM and SIGKILL once grace has
-// elapsed. A cancelled ctx stops the wait, not the stop: the engine has the
-// signal and kills the container on its own schedule.
-func ecsStopContainer(ctx context.Context, containerID string, grace time.Duration) {
-	cli := sim.DockerClient()
-	if cli == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second+grace)
-	defer cancel()
-	timeout := int(grace / time.Second)
-	_, _ = cli.ContainerStop(ctx, containerID, dockerclient.ContainerStopOptions{Timeout: &timeout})
 }
 
 // ecsAbandonTaskStart removes the containers of a start the simulator's
 // shutdown interrupted. The task stays PENDING, and the next process resumes
 // it under the same container names, so none of them may outlive this one.
 func ecsAbandonTaskStart(taskID string, p *ecsTaskProcesses) {
-	cli := sim.DockerClient()
-	if cli != nil && p != nil {
-		for _, handle := range p.Handles {
-			if handle == nil || handle.ContainerID == "" {
-				continue
-			}
-			removeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			if _, err := cli.ContainerRemove(removeCtx, handle.ContainerID, dockerclient.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
-				fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: remove container of the interrupted start: %v\n", taskID, err)
-			}
-			cancel()
+	if p == nil {
+		return
+	}
+	for _, handle := range p.Handles {
+		if handle == nil || handle.ID() == "" {
+			continue
+		}
+		if err := sim.RemoveContainer(handle.ID()); err != nil {
+			fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: remove container of the interrupted start: %v\n", taskID, err)
 		}
 	}
-	ec2DetachRealECSTaskNIC(context.Background(), taskID)
 }
 
 // cleanupECSTaskProcesses stops a task's containers and waits for the engine
@@ -583,27 +566,25 @@ func cleanupECSTaskProcesses(ctx context.Context, taskID string, p *ecsTaskProce
 	if ctx.Err() != nil {
 		return
 	}
-	handles := make([]*sim.ContainerHandle, 0, len(p.Handles))
+	handles := make([]placement.Handle, 0, len(p.Handles))
 	for name, handle := range p.Handles {
-		if name != p.MainContainerName && name != "__pause__" {
+		if name != p.MainContainerName {
 			handles = append(handles, handle)
 		}
 	}
 	if mainHandle := p.Handles[p.MainContainerName]; mainHandle != nil {
 		handles = append(handles, mainHandle)
 	}
-	if pauseHandle := p.Handles["__pause__"]; pauseHandle != nil {
-		handles = append(handles, pauseHandle)
-	}
 	for _, handle := range handles {
-		if handle == nil || handle.ContainerID == "" {
+		if handle == nil || handle.ID() == "" {
 			continue
 		}
-		if err := sim.WaitContainerRemoved(handle.ContainerID, 5*time.Second); err != nil {
-			fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: wait for container cleanup failed: %v\n", taskID, err)
+		select {
+		case <-handle.Exited():
+		case <-time.After(5 * time.Second):
+			fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: container %s is still being removed\n", taskID, handle.ID())
 		}
 	}
-	ec2DetachRealECSTaskNIC(context.Background(), taskID)
 }
 
 func ecsArn(resourceType, id string) string {
@@ -674,7 +655,7 @@ func registerECS(r *AWSRouter, srv *sim.Server) {
 
 		// Poll for the container handle — it may not be stored yet if the
 		// Docker container is still starting (async after RUNNING state).
-		var handle *sim.ContainerHandle
+		var handle placement.Handle
 		for i := 0; i < 20; i++ {
 			if v, ok := ecsProcessHandles.Load(taskID); ok {
 				if procs, ok := v.(*ecsTaskProcesses); ok {
@@ -696,14 +677,14 @@ func registerECS(r *AWSRouter, srv *sim.Server) {
 		}
 
 		// Create target directory if it doesn't exist
-		mkdirExec, mkdirErr := cli.ExecCreate(r.Context(), handle.ContainerID, dockerclient.ExecCreateOptions{
+		mkdirExec, mkdirErr := cli.ExecCreate(r.Context(), handle.ID(), dockerclient.ExecCreateOptions{
 			Cmd: []string{"mkdir", "-p", path},
 		})
 		if mkdirErr == nil {
 			_, _ = cli.ExecStart(r.Context(), mkdirExec.ID, dockerclient.ExecStartOptions{})
 		}
 
-		_, err := cli.CopyToContainer(r.Context(), handle.ContainerID, dockerclient.CopyToContainerOptions{
+		_, err := cli.CopyToContainer(r.Context(), handle.ID(), dockerclient.CopyToContainerOptions{
 			DestinationPath:           path,
 			Content:                   r.Body,
 			AllowOverwriteDirWithFile: true,
@@ -1174,15 +1155,12 @@ func ecsTaskDetail(details []ECSKeyValuePair, name string) string {
 type ecsPendingEBSRestore struct {
 	AttachmentID string
 	VolumeName   string
-	// DockerDst is created as a block volume of SizeGiB formatted with
-	// FilesystemType, and filled from DockerSrc when the volume comes from a
-	// snapshot.
-	DockerSrc      string
-	DockerDst      string
-	SizeGiB        int
-	FilesystemType string
-	HostSrc        string
-	HostDst        string
+	// DockerDst is created as an engine volume and filled from DockerSrc when
+	// the volume comes from a snapshot.
+	DockerSrc string
+	DockerDst string
+	HostSrc   string
+	HostDst   string
 }
 
 func ecsPrepareManagedEBSVolumes(ctx context.Context, td ECSTaskDefinition, configs []ECSTaskVolumeConfiguration, taskID, requestedSubnet string) (map[string]string, []ECSAttachment, []ecsPendingEBSRestore, *ecsRequestError) {
@@ -1287,22 +1265,20 @@ func ecsPrepareManagedEBSVolumes(ctx context.Context, td ECSTaskDefinition, conf
 		} else {
 			vol.DockerVolumeName = ebsECSDockerVolumeName(volumeID)
 		}
-		// Creating and formatting the volume, and filling it from a snapshot,
-		// are deferred to the task's transition: see ecsPendingEBSRestore.
+		// Filling the volume from a snapshot is deferred to the task's
+		// transition: see ecsPendingEBSRestore.
 		if snapshotDockerVolumeName != "" && processMode {
 			return nil, nil, nil, &ecsRequestError{"InvalidParameterException", fmt.Sprintf("managed-EBS snapshot %s is Docker-volume-backed and cannot be restored under SIM_RUNTIME=process — start the simulator in container runtime to restore it", snapshotID), http.StatusBadRequest}
 		}
 		if !processMode && snapshotHostPath == "" {
 			restores = append(restores, ecsPendingEBSRestore{
-				AttachmentID:   "ebs-" + volumeID,
-				VolumeName:     cfg.Name,
-				DockerSrc:      snapshotDockerVolumeName,
-				DockerDst:      vol.DockerVolumeName,
-				SizeGiB:        size,
-				FilesystemType: fsType,
+				AttachmentID: "ebs-" + volumeID,
+				VolumeName:   cfg.Name,
+				DockerSrc:    snapshotDockerVolumeName,
+				DockerDst:    vol.DockerVolumeName,
 			})
 		} else if snapshotHostPath != "" {
-			// Snapshot came from an EC2/Firecracker volume (host-path); fall back to
+			// Snapshot came from an EC2 volume (host-path); fall back to
 			// directory copy. Only works in on-host topology where the sim process runs
 			// on the same machine as the Docker host.
 			if err := ebsPrepareVolumeHostPath(&vol); err != nil {
@@ -1357,13 +1333,7 @@ func ecsPrepareManagedEBSVolumes(ctx context.Context, td ECSTaskDefinition, conf
 func ecsRunPendingEBSRestores(ctx context.Context, taskID string, restores []ecsPendingEBSRestore) error {
 	for _, restore := range restores {
 		switch {
-		case restore.DockerDst != "":
-			if err := ebsCreateBlockVolume(ctx, restore.DockerDst, restore.SizeGiB, restore.FilesystemType); err != nil {
-				return fmt.Errorf("volume %s: %w", restore.VolumeName, err)
-			}
-			if restore.DockerSrc == "" {
-				break
-			}
+		case restore.DockerSrc != "":
 			if err := ebsCopyDockerVolumes(ctx, restore.DockerSrc, restore.DockerDst); err != nil {
 				return fmt.Errorf("volume %s: %w", restore.VolumeName, err)
 			}
@@ -1389,9 +1359,9 @@ func ecsRunPendingEBSRestores(ctx context.Context, taskID string, restores []ecs
 //
 // Every caller runs this inside an ecsTasks.Update callback, which holds the
 // task store's write lock for as long as the callback runs — every other
-// task's transition and every DescribeTasks waits behind it. Removing a block
-// volume starts a container to give its loop device back, so that part is
-// handed to the caller to do once the lock is released rather than done here.
+// task's transition and every DescribeTasks waits behind it. Removing a volume
+// is an engine call, so that part is handed to the caller to do once the lock
+// is released rather than done here.
 func ecsCleanupTaskManagedEBS(task *ECSTask) (doomed []string) {
 	for i := range task.Attachments {
 		att := &task.Attachments[i]
@@ -1425,7 +1395,7 @@ func ecsCleanupTaskManagedEBS(task *ECSTask) (doomed []string) {
 
 // ebsRemoveDockerVolumes removes the container-engine volumes a stopped task's
 // managed-EBS cleanup gave up. Call it after the ecsTasks.Update that produced
-// them has returned: it starts a container per block volume.
+// them has returned.
 func ebsRemoveDockerVolumes(names []string) {
 	for _, name := range names {
 		ebsRemoveDockerVolume(name)
@@ -1871,9 +1841,9 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 			}
 			if err != nil {
 				// Surface the start failure: it's otherwise only recorded in
-				// the task's StoppedReason, so an intermittent awsvpc netns /
-				// pause-container / image-pull failure reads as an opaque
-				// container ExitCode -1 with no diagnosable cause in logs.
+				// the task's StoppedReason, so an intermittent VPC network or
+				// image-pull failure reads as an opaque container ExitCode -1
+				// with no diagnosable cause in logs.
 				fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: container start failed: %v\n", id, err)
 				stoppedAt := ecsEpochSeconds()
 				var doomedVolumes []string
@@ -2266,7 +2236,6 @@ func ecsMarkMissingRunningTaskStopped(task ECSTask) {
 		0,
 		-1,
 	)
-	go ec2DetachRealECSTaskNIC(context.Background(), taskID)
 	ecsRequestServiceReconcileForTask(task)
 }
 
@@ -2278,22 +2247,23 @@ func ecsAdoptRunningTask(
 	taskID := task.TaskID()
 	processes := &ecsTaskProcesses{
 		MainContainerName: definition.ContainerDefinitions[0].Name,
-		Handles:           make(map[string]*sim.ContainerHandle, len(existing)),
+		Handles:           make(map[string]placement.Handle, len(existing)),
 		StopGrace:         ecsTaskStopGrace(definition),
 	}
 	sink, err := ecsTaskCloudWatchSink(definition, taskID)
 	if err != nil {
 		return fmt.Errorf("adopt Amazon ECS task %s: %w", task.TaskArn, err)
 	}
+	backend, err := awsPlacement.For(ecsPlacementService(task.LaunchType))
+	if err != nil {
+		return fmt.Errorf("adopt Amazon ECS task %s: %w", task.TaskArn, err)
+	}
 	for _, container := range existing {
 		name := container.Labels["sockerless-sim-task-container"]
-		if container.Labels["sockerless-sim-task-pause"] == "true" {
-			name = "__pause__"
-		}
 		if name == "" {
 			return fmt.Errorf("task %s Amazon ECS container %s has no container identity label", task.TaskArn, container.ID)
 		}
-		handle, err := sim.AdoptContainer(container.ID, sim.ContainerConfig{CancelGracePeriod: processes.StopGrace[name]}, sink)
+		handle, err := backend.Adopt(context.Background(), container.ID, sim.ContainerConfig{CancelGracePeriod: processes.StopGrace[name]}, sink)
 		if err != nil {
 			return fmt.Errorf("adopt Amazon ECS task %s container %s: %w", task.TaskArn, name, err)
 		}
@@ -2316,53 +2286,6 @@ func ecsTaskMemory(td ECSTaskDefinition, overrides *ECSTaskOverride) string {
 		return overrides.Memory
 	}
 	return td.Memory
-}
-
-// ecsPauseImage is the image for the netns pause container — a long-lived sleep
-// that owns the task's VPC network namespace. Defaults to busybox from ECR
-// (always has `sleep`, avoids Docker Hub throttling); override with the env var.
-func ecsPauseImage() string {
-	if v := os.Getenv("SOCKERLESS_ECS_PAUSE_IMAGE"); v != "" {
-		return v
-	}
-	return "mirror.gcr.io/library/busybox:latest"
-}
-
-// startECSPauseContainer launches the netns pause container (Fargate-style): a
-// long-lived process that holds the task's network namespace so the ENI can be
-// plumbed in with no start-race, then shared by every task container.
-// The pause container carries the task's resolver because it owns the network
-// namespace. Docker refuses --dns on a container that joins another's namespace
-// — "conflicting options: dns and the network mode" — and rightly so: the
-// resolver is a property of the namespace, and every task container inherits
-// this one along with the interface.
-func startECSPauseContainer(ctx context.Context, taskID string, dns []string, sink sim.LogSink, mark func(step string)) (*sim.ContainerHandle, error) {
-	img := sim.ResolveLocalImage(ecsPauseImage())
-	registryAuth, err := ecrWorkloadRegistryAuth(img)
-	if err != nil {
-		return nil, err
-	}
-	platform, err := workload.LocalImagePlatform(ctx, img, registryAuth)
-	if err != nil {
-		return nil, fmt.Errorf("resolve pause image platform: %w", err)
-	}
-	mark("pause-image")
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	return sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
-		Image:        img,
-		Architecture: platform,
-		Command:      []string{"sleep"},
-		Args:         []string{"2147483647"},
-		Name:         fmt.Sprintf("sockerless-sim-aws-task-%s-pause", taskID[:12]),
-		Labels: map[string]string{
-			"sockerless-sim-task":       taskID,
-			"sockerless-sim-task-pause": "true",
-		},
-		Sandbox: SandboxFargate,
-		DNS:     dns,
-	}, sink)
 }
 
 // ecsContainerResourceLimits translates the advertised ECS sizing into Docker
@@ -2400,18 +2323,14 @@ func ecsContainerResourceLimits(td ECSTaskDefinition, cd ECSContainerDefinition)
 // it — Fargate requires the awsvpc network mode. A task definition that asks
 // for the host network mode is by definition running on the EC2 or EXTERNAL
 // launch type, where Amazon ECS does give the task the container instance's own
-// network stack, so the denial does not apply to it.
-func ecsTaskSandbox(launchType string, privileged bool) sim.SandboxProfile {
+// network stack, so the denial does not apply to it. A container definition's
+// `privileged` is accepted and not granted: the simulator starts no privileged
+// container.
+func ecsTaskSandbox(launchType string) sim.SandboxProfile {
 	if strings.EqualFold(launchType, "FARGATE") {
 		return SandboxFargate
 	}
-	// Amazon ECS on EC2 and EXTERNAL hosts exposes the container instance's
-	// Docker capabilities. The task definition, not Fargate, decides whether a
-	// workload is privileged; host networking and host bind mounts remain
-	// available exactly as on the registered container instance. An omitted
-	// launch type follows the cluster's EC2 capacity when no capacity-provider
-	// strategy was supplied.
-	return sim.SandboxProfile{Privileged: privileged}
+	return sim.SandboxProfile{}
 }
 
 // ecsResolvedImage is a container definition's image as the local runtime
@@ -2516,8 +2435,12 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 
 	processes := &ecsTaskProcesses{
 		MainContainerName: td.ContainerDefinitions[0].Name,
-		Handles:           make(map[string]*sim.ContainerHandle, len(td.ContainerDefinitions)),
+		Handles:           make(map[string]placement.Handle, len(td.ContainerDefinitions)),
 		StopGrace:         ecsTaskStopGrace(td),
+	}
+	backend, err := awsPlacement.For(ecsPlacementService(launchType))
+	if err != nil {
+		return nil, err
 	}
 	// fail releases what the start created. A start the shutdown interrupted
 	// is not a failed task, so its containers are removed at once rather than
@@ -2530,73 +2453,45 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 		cleanupECSTaskProcesses(context.Background(), taskID, processes)
 		return nil, err
 	}
-	// The task definition's networkMode decides the fabric every container in
+	// The task definition's networkMode decides the network every container in
 	// the task lands on: awsvpc gets the task its own elastic network interface
 	// in the VPC, host shares the container instance's network stack, none has
 	// no connectivity, and bridge uses the container instance's default Docker
 	// bridge.
-	//
-	// awsvpc netns tier (Linux + CAP_NET_ADMIN): a pause container holds the
-	// task's VPC network namespace (a long-lived sleep, so the ENI is plumbed
-	// with no start-race), the ENI veth is attached into it, and every task
-	// container shares that netns — overlapping VPC CIDRs work natively with the
-	// real ENI IP. Otherwise the cross-platform Docker-network tier lands the
-	// first container on the VPC's bridge — whose subnet is allocator-assigned,
-	// never the VPC CIDR, so same-CIDR VPCs coexist — and plumbs the ENI IP as
-	// a secondary address on its interface.
 	networkMode := ecsEffectiveNetworkMode(td)
-	eniIP, subnetID, hasENI := ecsTaskENIInfo(taskID)
-	if networkMode == ecsNetworkModeAwsvpc && !hasENI {
+	if _, _, hasENI := ecsTaskENIInfo(taskID); networkMode == ecsNetworkModeAwsvpc && !hasENI {
 		return nil, fmt.Errorf("awsvpc task %s has no elastic network interface attachment", taskID)
 	}
-	netnsTier := networkMode == ecsNetworkModeAwsvpc && ec2ECSRealNetAvailable()
-	// A task in its own namespace cannot reach the resolver Docker would
-	// configure — that one lives on the Docker networks the namespace is
-	// detached from — so it asks the VPC's, which the namespace redirects to
-	// the simulator's own. Without this the redirect is in place and nothing
-	// uses it: every lookup still goes to an address that answers nothing and
-	// blocks until it times out.
-	var taskDNS []string
-	if netnsTier {
-		taskDNS = []string{realexec.VPCResolverIPv4}
-	}
-	var sharedNetMode string
-	// The netns tier was one phase, "volumes-pause-vpc", and on a production
-	// deployment it was 9-12 s of every task start with nothing saying which step
-	// spent them. Each step reports itself, and the attach reports its own,
-	// so the next slow start is attributable from the simulator's log.
 	phases.Mark("volumes")
-	if netnsTier {
-		pause, perr := startECSPauseContainer(ctx, taskID, taskDNS, sink, phases.Mark)
-		if perr != nil {
-			return fail(perr)
+	// The task's network decides where its containers resolve names and read
+	// their metadata: through the VPC's sidecar for an awsvpc task, the
+	// platform network's for a bridge task, and the simulator's own listener
+	// for a task sharing the container instance's network stack. A none task
+	// has no network to read anything over.
+	var (
+		taskNetwork awsWorkloadNetwork
+		eniAddress  string
+		metadataEnv map[string]string
+	)
+	switch networkMode {
+	case ecsNetworkModeHost:
+		metadataEnv, err = hostNetworkMetadataEnv(taskID)
+		if err != nil {
+			return fail(fmt.Errorf("resolve Amazon ECS metadata callback: %w", err))
 		}
-		processes.Handles["__pause__"] = pause
-		phases.Mark("pause-start")
-		if derr := sim.DisconnectContainerNetworks(pause.ContainerID); derr != nil {
-			return fail(fmt.Errorf("disconnect task netns pause from Docker networks: %w", derr))
+	case ecsNetworkModeNone:
+	case ecsNetworkModeAwsvpc:
+		taskNetwork, eniAddress, err = ecsTaskVPCNetwork(ctx, taskID)
+		if err != nil {
+			return fail(err)
 		}
-		pid, perr := sim.ContainerPID(pause.ContainerID)
-		if perr != nil {
-			return fail(fmt.Errorf("task netns pause pid: %w", perr))
+		metadataEnv = workloadMetadataEnv(taskNetwork.MetadataOrigin(), taskID)
+	default:
+		taskNetwork, err = awsPlatformNetwork(ctx)
+		if err != nil {
+			return fail(fmt.Errorf("provision the container instance's network: %w", err))
 		}
-		phases.Mark("pause-netns")
-		if aerr := ec2AttachRealECSTaskNIC(ctx, taskID, subnetID, pid, eniIP,
-			ecsTaskSecurityGroupIDs(taskID), phases.Mark); aerr != nil {
-			return fail(fmt.Errorf("attach task to VPC netns: %w", aerr))
-		}
-	}
-	if sharedNetMode == "" && netnsTier {
-		if pause := processes.Handles["__pause__"]; pause != nil {
-			sharedNetMode = "container:" + pause.ContainerID
-		}
-	}
-	metadataEnv, err := hostMetadataEnv(taskID)
-	if err != nil {
-		return fail(fmt.Errorf("resolve Amazon ECS metadata callback: %w", err))
-	}
-	if netnsTier {
-		metadataEnv = hostMetadataLinkLocalEnv(taskID)
+		metadataEnv = workloadMetadataEnv(taskNetwork.MetadataOrigin(), taskID)
 	}
 	var mainDockerID string
 
@@ -2659,13 +2554,6 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 		for _, ev := range containerOverride.Environment {
 			cmdEnv[ev.Name] = ev.Value
 		}
-		if netnsTier {
-			simulatorPort, portErr := workloadhost.ListenPort(simListenAddr)
-			if portErr != nil {
-				return fail(fmt.Errorf("resolve simulator endpoint for task VPC: %w", portErr))
-			}
-			cmdEnv = rewriteSimulatorEndpointForRealVPC(cmdEnv, simulatorPort)
-		}
 		var binds []string
 		for _, mp := range cd.MountPoints {
 			if src, ok := volMap[mp.SourceVolume]; ok {
@@ -2712,15 +2600,15 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 			Tty:       wantTTY || cd.PseudoTerminal,
 			OpenStdin: wantTTY || cd.Interactive,
 			Binds:     binds,
-			Sandbox:   ecsTaskSandbox(launchType, cd.Privileged),
+			Sandbox:   ecsTaskSandbox(launchType),
 		}
 		// Docker Desktop does not route a Linux VM's user-defined bridge
 		// addresses back to the host process. Publish the task definition's
-		// declared listener ports on random loopback ports in that transport
-		// tier so host-resident Elastic Load Balancing can reach the same real
-		// container listener. The public Amazon ECS/ENI coordinate remains the
-		// task IP; the mapping is rediscovered from Docker on restart.
-		if networkMode == ecsNetworkModeAwsvpc && !netnsTier {
+		// declared listener ports on random loopback ports so host-resident
+		// Elastic Load Balancing can reach the same real container listener.
+		// The public Amazon ECS/ENI coordinate remains the task IP; the
+		// mapping is rediscovered from Docker on restart.
+		if networkMode == ecsNetworkModeAwsvpc {
 			for _, mapping := range cd.PortMappings {
 				if mapping.ContainerPort > 0 && !slices.Contains(cfg.PublishPorts, mapping.ContainerPort) {
 					cfg.PublishPorts = append(cfg.PublishPorts, mapping.ContainerPort)
@@ -2729,9 +2617,6 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 		}
 		cfg.MemoryBytes, cfg.NanoCPU = ecsContainerResourceLimits(td, cd)
 		switch {
-		case sharedNetMode != "":
-			// netns tier: share the pause container's ENI netns.
-			cfg.NetworkMode = sharedNetMode
 		case networkMode == ecsNetworkModeHost:
 			// host mode: the containers use the container instance's network
 			// stack directly, so they share its interfaces and its loopback.
@@ -2745,27 +2630,26 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 			cfg.NetworkMode = "container:" + mainDockerID
 		case networkMode == ecsNetworkModeAwsvpc:
 			cfg.ExtraHosts = append(workloadhost.ExtraHosts(), elbv2WorkloadExtraHosts()...)
-			netName, eniAddress, nerr := ecsTaskVPCNetwork(taskID)
-			if nerr != nil {
-				return fail(nerr)
-			}
-			cfg.Network = netName
-			cfg.ENIAddress = eniAddress
+			cfg.Network = taskNetwork.Name
+			cfg.IPv4Address = eniAddress
+			cfg.DNS = taskNetwork.DNS()
 		default:
 			// bridge mode: each container gets its own address on the
-			// container instance's default Docker bridge.
+			// container instance's network, the platform network.
 			cfg.ExtraHosts = append(workloadhost.ExtraHosts(), elbv2WorkloadExtraHosts()...)
+			cfg.Network = taskNetwork.Name
+			cfg.DNS = taskNetwork.DNS()
 		}
 
 		if err := ctx.Err(); err != nil {
 			return fail(err)
 		}
-		handle, err := sim.StartContainerSyncContext(ctx, cfg, sink)
+		handle, err := backend.Place(ctx, cfg, sink)
 		if err != nil {
 			return fail(fmt.Errorf("start task container %q: %w", cd.Name, err))
 		}
 		if i == 0 {
-			mainDockerID = handle.ContainerID
+			mainDockerID = handle.ID()
 		}
 		processes.Handles[cd.Name] = handle
 		phases.Mark("container:" + cd.Name)
@@ -2787,20 +2671,6 @@ func ecsContainerOverrideFor(overrides *ECSTaskOverride, containerName string) E
 		}
 	}
 	return ECSContainerOverride{}
-}
-
-// ecsVPCNetworkName is the Docker network backing a VPC.
-func ecsVPCNetworkName(vpcID string) string { return "sockerless-sim-vpc-" + vpcID }
-
-// ecsTaskSecurityGroupIDs returns the awsvpc security groups attached to the
-// task — the SGs whose ingress/egress rules the real-exec netns tier enforces
-// at the packet layer on Linux + CAP_NET_ADMIN hosts.
-func ecsTaskSecurityGroupIDs(taskID string) []string {
-	task, ok := ecsTasks.Get(taskID)
-	if !ok || task.NetworkConfiguration == nil || task.NetworkConfiguration.AwsvpcConfiguration == nil {
-		return nil
-	}
-	return task.NetworkConfiguration.AwsvpcConfiguration.SecurityGroups
 }
 
 // ecsTaskENIInfo reads a task's awsvpc ENI IP + subnet from its attachment.
@@ -2851,7 +2721,7 @@ func ecsTaskDockerInfo(taskID, containerName string) (dockerID, dockerName strin
 	if v, ok := ecsProcessHandles.Load(taskID); ok {
 		if procs, ok := v.(*ecsTaskProcesses); ok {
 			if h := procs.handleFor(containerName); h != nil {
-				dockerID = h.ContainerID
+				dockerID = h.ID()
 			}
 		}
 	}
@@ -2941,55 +2811,34 @@ func ecsContainerMetadataV4(taskID string) (map[string]any, bool) {
 	return ecsTaskContainerMetadata(taskID, task, td, td.ContainerDefinitions[0], eniIP)
 }
 
-// ecsTaskVPCNetwork resolves the VPC Docker network + ENI address for an
-// awsvpc task, ensuring the network exists. The ENI address is returned in
-// CIDR notation with the VPC CIDR's prefix length, ready to be plumbed as the
-// container's secondary address (ContainerConfig.ENIAddress). Every failure
-// is returned so an awsvpc launch fails loudly rather than silently landing
-// the task on the container instance's default bridge with an address that is
-// not its ENI's.
-func ecsTaskVPCNetwork(taskID string) (networkName, eniAddress string, err error) {
-	task, found := ecsTasks.Get(taskID)
-	if !found {
-		return "", "", fmt.Errorf("task %s not found", taskID)
-	}
-	var subnetID, eniIP string
-	for _, att := range task.Attachments {
-		if att.Type != "ElasticNetworkInterface" {
-			continue
-		}
-		for _, d := range att.Details {
-			switch d.Name {
-			case "subnetId":
-				subnetID = d.Value
-			case "privateIPv4Address":
-				eniIP = d.Value
-			}
-		}
-	}
-	if subnetID == "" || eniIP == "" {
-		return "", "", fmt.Errorf("awsvpc task %s has no elastic network interface attachment", taskID)
+// ecsTaskVPCNetwork resolves the engine network realizing an awsvpc task's
+// VPC, creating it at the first attach, and the task's elastic network
+// interface address on it. Every failure is returned so an awsvpc launch
+// fails rather than landing the task on the container instance's default
+// bridge with an address that is not its ENI's.
+func ecsTaskVPCNetwork(ctx context.Context, taskID string) (network awsWorkloadNetwork, eniAddress string, err error) {
+	eniIP, subnetID, ok := ecsTaskENIInfo(taskID)
+	if !ok {
+		return awsWorkloadNetwork{}, "", fmt.Errorf("awsvpc task %s has no elastic network interface attachment", taskID)
 	}
 	subnet, ok := ec2Subnets.Get(subnetID)
 	if !ok {
-		return "", "", fmt.Errorf("subnet %s for task %s not found", subnetID, taskID)
+		return awsWorkloadNetwork{}, "", fmt.Errorf("subnet %s for task %s not found", subnetID, taskID)
 	}
-	vpc, ok := ec2Vpcs.Get(subnet.VpcId)
-	if !ok {
-		return "", "", fmt.Errorf("vpc %s for subnet %s not found", subnet.VpcId, subnetID)
+	network, err = ec2EnsureVPCNetwork(ctx, subnet.VpcId)
+	if err != nil {
+		if errors.Is(err, sim.ErrAddressRangeInUse) {
+			return awsWorkloadNetwork{}, "", &ecsResourceInitializationError{err: fmt.Errorf("failed to configure ENI: %w", err)}
+		}
+		return awsWorkloadNetwork{}, "", fmt.Errorf("provision VPC network for %s: %w", subnet.VpcId, err)
 	}
-	if vpc.CidrBlock == "" {
-		return "", "", fmt.Errorf("vpc %s has no CIDR block", subnet.VpcId)
-	}
-	vpcPrefix, perr := netip.ParsePrefix(vpc.CidrBlock)
-	if perr != nil {
-		return "", "", fmt.Errorf("vpc %s CIDR %q: %w", subnet.VpcId, vpc.CidrBlock, perr)
-	}
-	name := ecsVPCNetworkName(subnet.VpcId)
-	if _, nerr := sim.EnsureVPCNetwork(name); nerr != nil {
-		return "", "", fmt.Errorf("provision VPC network for %s: %w", subnet.VpcId, nerr)
-	}
-	return name, fmt.Sprintf("%s/%d", eniIP, vpcPrefix.Bits()), nil
+	return network, eniIP, nil
+}
+
+// ecsPlacementService names the placement of a task: Amazon ECS distinguishes
+// placements by launch type.
+func ecsPlacementService(launchType string) placement.Service {
+	return placement.Service{Name: "ecs", Qualifier: strings.ToUpper(launchType)}
 }
 
 // ecsRequireCluster resolves a cluster ref (name or ARN; "" → "default") and,
@@ -3217,8 +3066,6 @@ func ecsFinishTaskStop(ctx context.Context, taskID string) {
 	case ECSTaskStatusRunning:
 		ecsUpdateContainerInstanceTaskCounts(instanceKey, 0, -1)
 	}
-	// A task that never ran has no container stop to tear its VPC veth down.
-	ec2DetachRealECSTaskNIC(context.Background(), taskID)
 	if task, ok := ecsTasks.Get(taskID); ok {
 		ecsRequestServiceReconcileForTask(task)
 	}
@@ -3698,7 +3545,7 @@ func handleECSExecuteCommand(srv *sim.Server) http.HandlerFunc {
 			if v, ok := ecsProcessHandles.Load(taskID); ok {
 				if procs, ok := v.(*ecsTaskProcesses); ok {
 					if handle := procs.handleFor(container.Name); handle != nil {
-						dockerContainerID = handle.ContainerID
+						dockerContainerID = handle.ID()
 						break
 					}
 				}

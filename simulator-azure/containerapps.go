@@ -20,7 +20,7 @@ import (
 )
 
 // Container handle tracker for Container Apps Jobs real execution
-var acaProcessHandles sync.Map // map[execID]*workload.Group
+var acaProcessHandles sync.Map // map[execID]*acaGroup
 
 // ContainerAppJob represents an Azure Container Apps Job resource.
 type ContainerAppJob struct {
@@ -523,7 +523,7 @@ func registerContainerApps(srv *sim.Server) {
 		stopped := make([]JobExecution, 0, len(running))
 		for _, e := range running {
 			if v, ok := acaProcessHandles.LoadAndDelete(e.ID); ok {
-				if group, ok := v.(*workload.Group); ok {
+				if group, ok := v.(*acaGroup); ok {
 					group.Stop(acaDefaultTerminationGrace)
 				}
 			}
@@ -595,7 +595,7 @@ func registerContainerApps(srv *sim.Server) {
 
 		// Cancel running container if any
 		if v, ok := acaProcessHandles.LoadAndDelete(execID); ok {
-			if group, ok := v.(*workload.Group); ok {
+			if group, ok := v.(*acaGroup); ok {
 				group.Stop(acaDefaultTerminationGrace)
 			}
 		}
@@ -695,21 +695,16 @@ func acaStartJobExecution(executions sim.Store[JobExecution], job ContainerAppJo
 				shortExecID = id[idx+1:]
 			}
 
-			// Resolve the env's Docker network and connect the
-			// container with the job short name as DNS alias.
-			// Other jobs in the same env resolve each other via
-			// Docker's embedded DNS.
-			var netName string
-			var netAliases []string
-			if envID != "" {
-				if env, ok := acaEnvironments.Get(envID); ok && env.DockerNetworkName != "" {
-					netName = env.DockerNetworkName
-					netAliases = []string{jobShortName}
-				}
-			}
-
+			// The execution runs on the environment's network, where the
+			// job's short name is its alias, so executions in one
+			// environment resolve each other as the environment's internal
+			// DNS resolves them.
 			sink := &acaLogSink{job: job}
-			group, err := startACAJobContainers(context.Background(), id, shortExecID, job, tmpl, envID, timeout, netName, netAliases, sink)
+			var group *acaGroup
+			network, subnetID, err := acaWorkloadNetwork(context.Background(), envID)
+			if err == nil {
+				group, err = startACAJobContainers(context.Background(), id, shortExecID, job, tmpl, envID, timeout, network, subnetID, []string{jobShortName}, sink)
+			}
 			if err != nil {
 				succeeded = false
 				acaJobSystemLog(job, execName, "Warning", err.Error())
@@ -751,7 +746,7 @@ func acaStartJobExecution(executions sim.Store[JobExecution], job ContainerAppJo
 	return exec
 }
 
-func startACAJobContainers(ctx context.Context, execID, shortExecID string, job ContainerAppJob, tmpl *JobTemplate, envID string, timeout time.Duration, netName string, netAliases []string, sink sim.LogSink) (*workload.Group, error) {
+func startACAJobContainers(ctx context.Context, execID, shortExecID string, job ContainerAppJob, tmpl *JobTemplate, envID string, timeout time.Duration, network azureWorkloadNetwork, subnetID string, netAliases []string, sink sim.LogSink) (*acaGroup, error) {
 	if tmpl == nil || len(tmpl.Containers) == 0 {
 		return nil, fmt.Errorf("execution has no containers")
 	}
@@ -760,7 +755,7 @@ func startACAJobContainers(ctx context.Context, execID, shortExecID string, job 
 	for _, v := range tmpl.Volumes {
 		volByName[v.Name] = v
 	}
-	metadataEnv, err := workloadMetadataEnv(job.ID, job.Identity)
+	metadataEnv, err := workloadMetadataEnv(job.ID, job.Identity, network.DNS)
 	if err != nil {
 		return nil, err
 	}
@@ -805,14 +800,32 @@ func startACAJobContainers(ctx context.Context, execID, shortExecID string, job 
 	}
 
 	main := member(tmpl.Containers[0], fmt.Sprintf("sockerless-sim-azure-execution-%s", shortExecID))
-	main.Config.Network = netName
+	main.Config.Network = network.Network
 	main.Config.NetworkAliases = netAliases
+	main.Config.DNS = network.resolvers()
 	main.Config.ExtraHosts = workloadhost.ExtraHosts()
+	address := ""
+	if subnetID != "" {
+		if address, err = azureLeaseWorkloadAddress(subnetID, main.Config.Name); err != nil {
+			return nil, err
+		}
+		main.Config.IPv4Address = address
+	}
 	sidecars := make([]workload.Container, 0, len(tmpl.Containers)-1)
 	for i, c := range tmpl.Containers[1:] {
 		sidecars = append(sidecars, member(c, fmt.Sprintf("sockerless-sim-azure-execution-%s-sidecar-%d", shortExecID, i)))
 	}
-	return workload.StartGroup(ctx, main, sidecars, sink)
+	group, err := acaStartGroup(ctx, main, sidecars, sink)
+	if err != nil {
+		if address != "" {
+			azureReleaseWorkloadAddress(subnetID, main.Config.Name, address)
+		}
+		return nil, err
+	}
+	if address != "" {
+		azureReleaseOnExit(group.Main.Exited(), subnetID, main.Config.Name, address)
+	}
+	return group, nil
 }
 
 // handleACAJobExec serves the ACA jobs-exec WebSocket. The user
@@ -838,7 +851,7 @@ func handleACAJobExec(w http.ResponseWriter, r *http.Request) {
 			"No running execution container for '%s/%s'", jobName, execName)
 		return
 	}
-	procs, ok := v.(*workload.Group)
+	procs, ok := v.(*acaGroup)
 	if !ok {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"No running execution container for '%s/%s'", jobName, execName)
@@ -873,7 +886,7 @@ func handleACAJobExec(w http.ResponseWriter, r *http.Request) {
 		AttachStderr: true,
 	}
 	ctx := r.Context()
-	execResp, err := cli.ExecCreate(ctx, handle.ContainerID, execCfg)
+	execResp, err := cli.ExecCreate(ctx, handle.ID(), execCfg)
 	if err != nil {
 		_ = conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, err.Error()))

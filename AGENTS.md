@@ -86,7 +86,7 @@ Any fake, synthetic, hardcoded, or placeholder behavior is a **bug**, not a feat
 
 ## Module layout — installable per-cloud modules
 
-- `simulator-aws/`, `simulator-gcp/`, `simulator-azure/` are separate root Go modules (`github.com/e6qu/sockerless-cloud/simulator-<cloud>`). They carry **no `replace` directives** so `go install …@<version>` always works; the support modules — `sim/` (the framework every simulator is built on), `realexec/`, `ui-auth/`, `testutil/` — are required dependencies pinned by pseudo-version and resolved locally through the repo-root `go.work` during development.
+- `simulator-aws/`, `simulator-gcp/`, `simulator-azure/` are separate root Go modules (`github.com/e6qu/sockerless-cloud/simulator-<cloud>`). They carry **no `replace` directives** so `go install …@<version>` always works; the support modules — `sim/` (the framework every simulator is built on), `ui-auth/`, `testutil/` — are required dependencies pinned by pseudo-version and resolved locally through the repo-root `go.work` during development.
 - `sim/` is cloud-neutral. A cloud's error shape, protocol router, sandbox profile, console coordinates and registry behaviour live in that cloud's module and reach the framework through its hooks (`Config.RewriteRequest`, `ConsoleOptions`, `OCIRegistry`'s hook fields). Never add a `switch provider` to the framework where a hook will do.
 - The sdk/cli/terraform test modules are never installed and keep relative `replace` directives.
 - **A pin must carry the working tree's content**, and `scripts/check-support-module-pins.sh` (CI's build gates) fails when it does not. A change to a support module therefore lands in two pushes: push the branch, then pin the pushed commit in every requiring module (`go get github.com/e6qu/sockerless-cloud/<module>@<sha>`; Go records a pseudo-version) and push again — the first push is red on that gate by construction, the second is green. The gate is not a pre-push hook for that reason: a pin can only name a commit that already exists on the remote. A squash merge is content-identical to the branch head it squashed, so the pin stays current on `main`; the next pull request then moves the pin onto the merge commit itself, because a pin naming a branch head stops resolving once that branch is deleted. `scripts/check-installable-build.sh` proves the pinned graph compiles with `GOWORK=off`; it cannot see a pin that compiles but lags.
@@ -166,7 +166,7 @@ Call every cloud service, product, and feature by its **real, fully-qualified na
 
 ## No skip-if-absent tests
 
-Never write tests that `t.Skip` when an external tool is "not installed". The dependency is either required — install it in `TestMain` so the test runs unconditionally — or it isn't, and the test should not exist. The one narrow exception is a capability the *host kernel* cannot provide (e.g. Linux-only `CAP_NET_ADMIN` network-namespace tests on macOS), gated on `runtime.GOOS` or `realexec.DetectNetworkCapabilities().Require()`.
+Never write tests that `t.Skip` when an external tool is "not installed". The dependency is either required — install it in `TestMain` so the test runs unconditionally — or it isn't, and the test should not exist. The one narrow exception is a host operating system the test cannot run on (a Linux-only kernel interface on macOS), gated on `runtime.GOOS`.
 
 ## No fallbacks. No degraded modes. No silent deferrals.
 

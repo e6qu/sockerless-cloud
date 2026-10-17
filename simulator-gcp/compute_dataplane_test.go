@@ -108,6 +108,7 @@ func newGCPLBFixture(t *testing.T, target http.Handler, healthPath string) gcpLB
 	gcpForwardingRules = sim.MakeStore[ComputeForwardingRule](nil, "test_fr")
 	gcpInstanceGroups = sim.MakeStore[storedComputeInstanceGroup](nil, "test_ig")
 	gcpInstances = sim.MakeStore[ComputeInstance](nil, "test_instances")
+	gcpFirewalls = sim.MakeStore[ComputeFirewall](nil, "test_lb_firewalls")
 	gcpBackendHealth.Reset()
 	t.Cleanup(func() {
 		gcpHealthChecks = nil
@@ -117,6 +118,7 @@ func newGCPLBFixture(t *testing.T, target http.Handler, healthPath string) gcpLB
 		gcpForwardingRules = nil
 		gcpInstanceGroups = nil
 		gcpInstances = nil
+		gcpFirewalls = nil
 		gcpBackendHealth.Reset()
 	})
 	registerGCPComputeLoadBalancerDataPlane(srv)
@@ -141,9 +143,21 @@ func newGCPLBFixture(t *testing.T, target http.Handler, healthPath string) gcpLB
 		SelfLink: "projects/test-project/zones/us-central1-a/instances/backend",
 		NetworkInterfaces: []ComputeNetworkInterface{{
 			Name:      "nic0",
+			Network:   "projects/test-project/global/networks/default",
 			NetworkIP: host,
 		}},
 	}
+	// The firewall rule Cloud Load Balancing documents for a backend: the
+	// health checkers' and proxies' ranges may reach it.
+	gcpFirewalls.Put("projects/test-project/global/firewalls/allow-lb", ComputeFirewall{
+		Name:         "allow-lb",
+		SelfLink:     "projects/test-project/global/firewalls/allow-lb",
+		Network:      "projects/test-project/global/networks/default",
+		Direction:    "INGRESS",
+		Priority:     1000,
+		SourceRanges: []string{"130.211.0.0/22", "35.191.0.0/16"},
+		Allowed:      []ComputeFirewallAction{{IPProtocol: "tcp"}},
+	})
 	group := storedComputeInstanceGroup{
 		ComputeInstanceGroup: ComputeInstanceGroup{
 			Name:       "ig",
@@ -397,5 +411,35 @@ func TestGCPComputeLoadBalancerDataPlaneAddsForwardedHeaders(t *testing.T) {
 	}
 	if got := seen.Get("X-Forwarded-For"); got != "198.51.100.23,8.34.210.44" {
 		t.Errorf("X-Forwarded-For without a client value = %q", got)
+	}
+}
+
+// A backend whose firewall rules do not admit Google's health checker and
+// proxy ranges is never healthy and never proxied to: the implied
+// deny-ingress rule stands between the load balancer and the instance.
+func TestGCPComputeLoadBalancerFirewallRulesGateTheBackend(t *testing.T) {
+	target := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("hello")) })
+	f := newGCPLBFixture(t, target, "/healthz")
+	gcpFirewalls.Delete("projects/test-project/global/firewalls/allow-lb")
+
+	f.sweep(time.Now(), int(f.hc.HealthyThreshold)+1)
+	if got := f.healthState(t); got != "UNHEALTHY" {
+		t.Fatalf("healthState without an allow rule = %q, want UNHEALTHY", got)
+	}
+	if rr := f.request(f.fr.IPAddress, "/"); rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status without an allow rule = %d, want 503", rr.Code)
+	}
+
+	gcpFirewalls.Put("projects/test-project/global/firewalls/allow-one", ComputeFirewall{
+		Name:         "allow-one",
+		SelfLink:     "projects/test-project/global/firewalls/allow-one",
+		Network:      "projects/test-project/global/networks/default",
+		Direction:    "INGRESS",
+		Priority:     1000,
+		SourceRanges: []string{"35.191.0.0/16"},
+		Allowed:      []ComputeFirewallAction{{IPProtocol: "tcp"}},
+	})
+	if err := gcpBackendAdmit(gcpBackendTargets(f.bs)[0], 80); err == nil {
+		t.Fatal("a rule admitting one of the two documented ranges admitted the load balancer")
 	}
 }

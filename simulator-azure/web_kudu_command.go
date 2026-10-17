@@ -109,7 +109,12 @@ func kuduCommand(w http.ResponseWriter, r *http.Request, site *Site) {
 		kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	metadataEnv, err := hostMetadataEnv(site)
+	network, err := azurePlatformNetwork(r.Context())
+	if err != nil {
+		kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	metadataEnv, err := hostMetadataEnv(site, network.DNS)
 	if err != nil {
 		kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -121,7 +126,12 @@ func kuduCommand(w http.ResponseWriter, r *http.Request, site *Site) {
 		binds = append(binds, wwwroot+":/home/site/wwwroot:ro")
 	}
 	sink := &kuduCommandSink{activity: make(chan struct{}, 1)}
-	handle, err := sim.StartContainerSyncContext(r.Context(), sim.ContainerConfig{
+	backend, err := azurePlacementBackend(placementWeb)
+	if err != nil {
+		kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	handle, err := backend.Place(r.Context(), sim.ContainerConfig{
 		Image:        localImage,
 		Architecture: platform,
 		RegistryAuth: registryAuth,
@@ -134,6 +144,8 @@ func kuduCommand(w http.ResponseWriter, r *http.Request, site *Site) {
 			"sockerless-sim-type": "azure-kudu-command",
 			"sockerless-site":     site.Name,
 		},
+		Network:    network.Network,
+		DNS:        network.resolvers(),
 		ExtraHosts: workloadhost.ExtraHosts(),
 		Sandbox:    SandboxAZF,
 	}, sink)

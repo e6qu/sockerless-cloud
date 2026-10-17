@@ -299,8 +299,7 @@ func registerWebSlotCRUD(srv *sim.Server) {
 		// current integration either way.
 		if req.Properties.VirtualNetworkSubnetID != "" {
 			if err := applySiteVirtualNetworkSubnetID(r, slotSite, req.Properties.VirtualNetworkSubnetID); err != nil {
-				AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
-					"failed to integrate slot %q into VNet: %v", slotSite.Name, err)
+				writeVnetIntegrationError(w, slotSite.Name, err)
 				return
 			}
 		} else {

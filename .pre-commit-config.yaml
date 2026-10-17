@@ -205,6 +205,13 @@ repos:
         pass_filenames: false
         always_run: true
 
+      - id: sidecar-build
+        name: Committed network sidecar binaries match their source
+        entry: bash scripts/check-sidecar-build.sh
+        language: system
+        files: ^sim/sidecar/
+        pass_filenames: false
+
       - id: zsh-special-vars
         name: No script assigns a name zsh reserves
         entry: bash scripts/check-zsh-special-vars.sh

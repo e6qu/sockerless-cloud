@@ -68,7 +68,6 @@ func TestCompute_StoragePoolListsTheDisksThatNameIt(t *testing.T) {
 
 func TestCompute_UsableSubnetworks(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	svc := computeService(t)
 	const project, region = "usable-subnets", "us-central1"
 

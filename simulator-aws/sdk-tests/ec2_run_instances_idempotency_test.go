@@ -28,7 +28,7 @@ func TestEC2_RunInstancesClientTokenIdempotency(t *testing.T) {
 	require.NoError(t, err)
 
 	in := &ec2.RunInstancesInput{
-		ImageId:      aws.String("ami-idem1234"),
+		ImageId:      aws.String(ec2AmazonLinuxAMI(t)),
 		InstanceType: ec2types.InstanceTypeT3Micro,
 		MinCount:     aws.Int32(2),
 		MaxCount:     aws.Int32(2),

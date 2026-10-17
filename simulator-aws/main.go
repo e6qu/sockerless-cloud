@@ -22,6 +22,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -37,11 +38,22 @@ func main() {
 			// Workloads reach the instance metadata and container metadata
 			// endpoints at the address the simulator serves on.
 			simListenAddr = cfg.ListenAddr
-			return nil
+			return awsConfigurePlacement(cfg)
 		},
 		Build: func(cfg sim.Config) (*sim.Server, error) {
 			srv, _, _, err := buildSimulator(cfg)
 			return srv, err
+		},
+		Start: func(*sim.Server, sim.Config) (func(context.Context) error, error) {
+			stopAgent, err := awsStartPlacement(context.Background())
+			if err != nil {
+				return nil, err
+			}
+			return func(ctx context.Context) error {
+				err := stopAgent(ctx)
+				stopRoute53Sidecars()
+				return err
+			}, nil
 		},
 	})
 }
@@ -231,6 +243,9 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 	// Batch — REST/JSON protocol (path-based, no X-Amz-Target)
 	registerBatch(srv)
 	if options.startBackgroundEvaluators {
+		if err := recoverEC2Instances(); err != nil {
+			return nil, nil, nil, fmt.Errorf("restore Amazon EC2 instances: %w", err)
+		}
 		if err := recoverECSTasks(); err != nil {
 			return nil, nil, nil, fmt.Errorf("restore Amazon Elastic Container Service tasks: %w", err)
 		}

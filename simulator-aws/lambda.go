@@ -19,7 +19,7 @@ import (
 )
 
 // lambdaProcessHandles tracks running Lambda containers for cancellation.
-var lambdaProcessHandles sync.Map // map[requestID]*sim.ContainerHandle
+var lambdaProcessHandles sync.Map // map[requestID]placement.Handle
 
 // Lambda types
 
@@ -1141,7 +1141,12 @@ func handleLambdaInvoke(w http.ResponseWriter, r *http.Request) {
 			responseBody, unhandled = lambdaWaitForDurableExecution(r.Context(), durableARN)
 		} else {
 			sim.DeclareWait(r.Context(), lambdaInvokeWaitLimit(fn))
-			responseBody, unhandled, _ = invokeLambdaViaRuntimeAPI(sim.LifetimeContext(r.Context()), fn, payload)
+			var serviceErr *lambdaServiceError
+			responseBody, unhandled, _, serviceErr = invokeLambdaViaRuntimeAPI(sim.LifetimeContext(r.Context()), fn, payload)
+			if serviceErr != nil {
+				AWSError(w, serviceErr.Code, serviceErr.Message, http.StatusBadGateway)
+				return
+			}
 		}
 		if unhandled {
 			w.Header().Set("X-Amz-Function-Error", "Unhandled")

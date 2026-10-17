@@ -108,7 +108,7 @@ func TestEC2CLI_ClassicLinkRoundTrip(t *testing.T) {
 	defer func() { _ = awsCLI("ec2", "delete-vpc", "--vpc-id", vpcID).Run() }()
 
 	instID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "run-instances",
-		"--image-id", "ami-classiclink", "--instance-type", "t3.micro",
+		"--image-id", ec2AmazonLinuxAMI(t), "--instance-type", "t3.micro",
 		"--query", "Instances[0].InstanceId", "--output", "text")))
 	defer func() { _ = awsCLI("ec2", "terminate-instances", "--instance-ids", instID).Run() }()
 

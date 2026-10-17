@@ -187,7 +187,7 @@ func TestEC2_InstanceLifecycle(t *testing.T) {
 	client := ec2Client()
 
 	images, err := client.DescribeImages(ctx, &ec2.DescribeImagesInput{
-		ImageIds: []string{"ami-test1234"},
+		ImageIds: []string{ec2AmazonLinuxAMI(t)},
 	})
 	require.NoError(t, err)
 	require.Len(t, images.Images, 1)
@@ -234,7 +234,7 @@ func TestEC2_InstanceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	runOut, err := client.RunInstances(ctx, &ec2.RunInstancesInput{
-		ImageId:      aws.String("ami-test1234"),
+		ImageId:      aws.String(ec2AmazonLinuxAMI(t)),
 		InstanceType: types.InstanceTypeT3Micro,
 		MinCount:     aws.Int32(1),
 		MaxCount:     aws.Int32(1),
@@ -346,29 +346,33 @@ func TestEC2_InstanceLifecycle(t *testing.T) {
 	require.Len(t, eniOut.NetworkInterfaces, 1)
 	assert.Equal(t, instanceID, *eniOut.NetworkInterfaces[0].Attachment.InstanceId)
 
-	_, err = client.StopInstances(ctx, &ec2.StopInstancesInput{InstanceIds: []string{instanceID}})
+	stopOut, err := client.StopInstances(ctx, &ec2.StopInstancesInput{InstanceIds: []string{instanceID}})
 	require.NoError(t, err)
-	stopped, err := client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{instanceID}})
-	require.NoError(t, err)
+	require.Len(t, stopOut.StoppingInstances, 1)
+	assert.Equal(t, types.InstanceStateNameStopping, stopOut.StoppingInstances[0].CurrentState.Name)
+	assert.Equal(t, types.InstanceStateNameRunning, stopOut.StoppingInstances[0].PreviousState.Name)
+	stopped := waitForEC2InstanceStopped(t, client, instanceID)
 	stoppedInstance := stopped.Reservations[0].Instances[0]
 	assert.Equal(t, types.InstanceStateNameStopped, stoppedInstance.State.Name)
 	assert.Contains(t, aws.ToString(stoppedInstance.StateTransitionReason), "User initiated")
 	require.NotNil(t, stoppedInstance.StateReason)
 	assert.Equal(t, "Client.UserInitiatedShutdown", aws.ToString(stoppedInstance.StateReason.Code))
 
-	_, err = client.StartInstances(ctx, &ec2.StartInstancesInput{InstanceIds: []string{instanceID}})
+	startOut, err := client.StartInstances(ctx, &ec2.StartInstancesInput{InstanceIds: []string{instanceID}})
 	require.NoError(t, err)
-	running, err := client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{instanceID}})
-	require.NoError(t, err)
+	require.Len(t, startOut.StartingInstances, 1)
+	assert.Equal(t, types.InstanceStateNamePending, startOut.StartingInstances[0].CurrentState.Name)
+	running := waitForEC2InstanceRunning(t, client, instanceID)
 	runningInstance := running.Reservations[0].Instances[0]
 	assert.Equal(t, types.InstanceStateNameRunning, runningInstance.State.Name)
 	assert.Empty(t, aws.ToString(runningInstance.StateTransitionReason))
 	assert.Nil(t, runningInstance.StateReason)
 
-	_, err = client.TerminateInstances(ctx, &ec2.TerminateInstancesInput{InstanceIds: []string{instanceID}})
+	termOut, err := client.TerminateInstances(ctx, &ec2.TerminateInstancesInput{InstanceIds: []string{instanceID}})
 	require.NoError(t, err)
-	terminated, err := client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{instanceID}})
-	require.NoError(t, err)
+	require.Len(t, termOut.TerminatingInstances, 1)
+	assert.Equal(t, types.InstanceStateNameShuttingDown, termOut.TerminatingInstances[0].CurrentState.Name)
+	terminated := waitForEC2InstanceTerminated(t, client, instanceID)
 	assert.Equal(t, types.InstanceStateNameTerminated, terminated.Reservations[0].Instances[0].State.Name)
 }
 
@@ -384,7 +388,7 @@ func TestEC2_RunInstancesHonorsMaxCount(t *testing.T) {
 	require.NoError(t, err)
 
 	runOut, err := client.RunInstances(ctx, &ec2.RunInstancesInput{
-		ImageId:      aws.String("ami-count1234"),
+		ImageId:      aws.String(ec2AmazonLinuxAMI(t)),
 		InstanceType: types.InstanceTypeT3Micro,
 		MinCount:     aws.Int32(2),
 		MaxCount:     aws.Int32(2),
@@ -418,7 +422,7 @@ func TestEC2_RunInstancesClientTokenReplayReportsLaunchState(t *testing.T) {
 
 	token := uniqueName("replay-token-run-instances")
 	input := &ec2.RunInstancesInput{
-		ImageId:      aws.String("ami-replay1234"),
+		ImageId:      aws.String(ec2AmazonLinuxAMI(t)),
 		InstanceType: types.InstanceTypeT3Micro,
 		MinCount:     aws.Int32(1),
 		MaxCount:     aws.Int32(1),
@@ -509,7 +513,7 @@ func TestEC2_EBSVolumeSnapshotLifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 
 	runOut, err := client.RunInstances(ctx, &ec2.RunInstancesInput{
-		ImageId:      aws.String("ami-ebs1234"),
+		ImageId:      aws.String(ec2AmazonLinuxAMI(t)),
 		InstanceType: types.InstanceTypeT3Micro,
 		MinCount:     aws.Int32(1),
 		MaxCount:     aws.Int32(1),
@@ -627,6 +631,30 @@ func waitForEC2InstanceRunning(t *testing.T, client *ec2.Client, instanceID stri
 		o.MaxDelay = waiterMaxDelay
 	}).WaitForOutput(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{instanceID}}, 2*time.Minute)
 	require.NoError(t, err, "instance %s did not reach running", instanceID)
+	require.Len(t, out.Reservations, 1)
+	require.Len(t, out.Reservations[0].Instances, 1)
+	return out
+}
+
+func waitForEC2InstanceStopped(t *testing.T, client *ec2.Client, instanceID string) *ec2.DescribeInstancesOutput {
+	t.Helper()
+	out, err := ec2.NewInstanceStoppedWaiter(client, func(o *ec2.InstanceStoppedWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).WaitForOutput(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{instanceID}}, 2*time.Minute)
+	require.NoError(t, err, "instance %s did not reach stopped", instanceID)
+	require.Len(t, out.Reservations, 1)
+	require.Len(t, out.Reservations[0].Instances, 1)
+	return out
+}
+
+func waitForEC2InstanceTerminated(t *testing.T, client *ec2.Client, instanceID string) *ec2.DescribeInstancesOutput {
+	t.Helper()
+	out, err := ec2.NewInstanceTerminatedWaiter(client, func(o *ec2.InstanceTerminatedWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).WaitForOutput(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{instanceID}}, 2*time.Minute)
+	require.NoError(t, err, "instance %s did not reach terminated", instanceID)
 	require.Len(t, out.Reservations, 1)
 	require.Len(t, out.Reservations[0].Instances, 1)
 	return out

@@ -22,7 +22,7 @@ consumer changes what it does (see Execution).
 
 Each simulator once carried its own `shared/` copy of the framework, and the
 copies drifted: fixes landed in one and never the others. The framework is the
-`sim` module, pinned by pseudo-version like `realexec` and `ui-auth`. What is a
+`sim` module, pinned by pseudo-version like `ui-auth`. What is a
 cloud's own stays in that cloud's module and reaches the framework through
 hooks: the error writers (`AWSError`, `S3ErrorXML`, `GCPError`, `AzureError`),
 the AWS JSON and Query routers, the sandbox profiles, the console coordinates
@@ -85,7 +85,7 @@ own module:
   EventBridge scheduled rules and Scheduler schedules in their time zones,
   Application Auto Scaling scheduled actions, Container Apps scheduled jobs and
   Logic Apps recurrences.
-- `realexec/lbplane`: the load-balancer forwarders, health probes, health
+- `lbplane`: the load-balancer forwarders, health probes, health
   tracking and TLS listeners are one data plane that never follows a target's
   redirect and grades a probe by the cloud's own matcher.
 - `dbengine` with `pgwire` and `mysqlwire`: the managed relational database
@@ -2361,7 +2361,7 @@ dead-code gate judges the framework from the three programs that link it.
 
 Attribute a slow phase by measuring it where the simulator runs, never by
 reading the code or the database header. Amazon ECS task-start phase marks
-travel on the context (`realexec.WithMark`), and `/debug/stores` reports each
+travelled on the context, and `/debug/stores` reports each
 table's size. A duration says only "fast today", so concurrency fixes are proven
 by counting or by construction — items a query read, stripes an operation
 took, two readers that each wait inside the read lock for the other to arrive.
@@ -2728,11 +2728,10 @@ public zone, and the names data planes register; Cloud DNS serves its public
 managed zones, and a new managed zone carries the NS and SOA record sets and
 the four `nameServers` Cloud DNS assigns.
 
-Every workload asks its own cloud's resolver at the address the cloud
-answers DNS on — 169.254.169.253 in a VPC, 168.63.129.16 in an Azure virtual
-network, the metadata server's 169.254.169.254 in a Google Cloud VPC network —
-which a per-network sidecar serves (`PLAN.md` stage 2; BUG-3473 holds the
-workloads that still resolve through the engine's embedded DNS). Azure runs
+Every workload asks its own cloud's resolver through the sidecar of its
+network, at the address the cloud reserves for the resolver inside the
+network's range (`sim/sidecar`; the section on execution modes says why it is
+not the cloud's link-local address). Azure runs
 a resolver on every address for virtual networks on every start, beside the
 listener an operator binds at `SIM_AZURE_DNS_LISTEN_ADDR` (often loopback,
 which a workload cannot reach), both answering from one catalog that
@@ -3067,3 +3066,65 @@ block volume on the container backend is an engine volume, its size bound a
 node agent's. The specifications in `specs/SIMULATOR_EXECUTION.md` and
 `specs/SIMULATOR_REAL_EXECUTION.md` state the contract, and stage 1 of
 `PLAN.md` removes the tier and the helpers in one pull request.
+
+### Stages 1 to 4 landed in one pull request
+
+The removal, the sidecars, the placement interface with the container backend
+and the node agent with the microVM backend landed together with the shared
+libraries, so the tree never held the old tier and the new model side by
+side. The `realexec` module is gone: `lbplane`, the address ledgers (`ipam`)
+and the rule parsers (`netrules`) moved under `sim`, where a cloud reaches
+them without a second support pin.
+
+A VPC, a Compute Engine subnetwork and an Azure virtual network are engine
+networks over the resource's own CIDR, created at the first attach
+(`sim.EnsureCloudNetwork`), and a workload's address is fixed at attach to the
+one its interface reports, so the cloud API and the engine never disagree. A
+bridge network carries one subnet, so the engine refuses two live networks
+over one range (Docker's `Pool overlaps`); the simulator reclaims a range
+whose owning simulator process is dead and otherwise answers the cloud's own
+error for the attach. That same single subnet is why the sidecar does not sit
+at the cloud's link-local addresses: it sits at the address the cloud reserves
+for its resolver inside the range (base plus two in a VPC and an Azure virtual
+network, the second-to-last address of a Compute Engine subnetwork), every
+workload names it with `--dns`, and the metadata URL travels in the variable
+the cloud's SDKs honour. A fixed link-local metadata address is a recorded gap.
+
+The sidecar is one static binary built reproducibly from `sim/sidecar/cmd`
+and committed, so `go install` ships it without a toolchain at run time;
+`scripts/check-sidecar-build.sh` rebuilds it and fails when the committed
+bytes differ. The sidecar forwards DNS to a per-network listener of the
+cloud's resolver, which attributes the query to that network and never to
+anything inside the message, and forwards metadata requests to the simulator
+with a token the simulator minted at start; the trust middleware verifies the
+token, rewrites the request's remote address to the workload's and drops the
+header, so a workload cannot forge the sidecar and the metadata handlers keep
+keying by address.
+
+Where a service's workloads run is the placement table (`SIM_PLACEMENT`,
+`service[:qualifier]=container|microvm`), read once at start into
+`sim/placement`. Every launch path places through the table's backend and
+holds a `Handle` — wait, cancel, exec, published port — so the container and
+microVM implementations are interchangeable behind one call. VM instances on
+the container backend are `sim/vminstance` workloads: the image comes from the
+cloud's own catalog (Amazon Linux 2023, Ubuntu 24.04 and Debian 12 by digest),
+a seeded init runs the instance's user data as a script, the container is
+kept on exit so stop and start keep the root disk, and an image captured from
+an instance is the committed container. Cloud-init YAML is a recorded gap.
+
+The node agent is the only container with a device: the binary starts it with
+`/dev/kvm`, `/dev/net/tun` and `CAP_NET_ADMIN` inside its own namespace, where
+it bridges its interface, gives each guest a tap, filters a guest's ingress
+with an nftables bridge-family rule set from the cloud's rules, and boots
+Firecracker guests from root filesystems it builds out of the same OCI images
+the container backend runs (`mkfs.ext4 -d` over the image export). The guest
+init speaks to the agent over vsock. The agent's API is authenticated with a
+token minted at start and listens only where the control plane reaches it. The
+proof is `make node-agent-test`, gated on the `kvm` build tag, and CI's
+node-agent job is the one job with KVM.
+
+Security groups, network security groups and firewall rules are enforced on
+the flows the simulator mediates through `lbplane`'s `Admit` hooks; traffic
+between two containers on one network is not filtered, and that gap closes
+only on the microVM backend, where the agent filters at the tap.
+

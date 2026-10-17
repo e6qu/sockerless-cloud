@@ -1057,6 +1057,11 @@ func cbRunCommandExecution(id string, sandbox CBSandbox, command string) {
 		cbCompleteCommandExecution(id, -1, "", err.Error())
 		return
 	}
+	network, err := awsPlatformNetwork(context.Background())
+	if err != nil {
+		cbCompleteCommandExecution(id, -1, "", err.Error())
+		return
+	}
 
 	var mu sync.Mutex
 	var stdout, stderr strings.Builder
@@ -1076,12 +1081,14 @@ func cbRunCommandExecution(id string, sandbox CBSandbox, command string) {
 		Args:         []string{"-c", command},
 		WorkingDir:   "/codebuild/output/src",
 		Binds:        []string{filepath.Clean(workDir) + ":/codebuild/output/src:z"},
-		Env: map[string]string{
+		Env: workloadhost.MergeEnv(workloadMetadataEnv(network.MetadataOrigin(), ""), map[string]string{
 			"CODEBUILD_SRC_DIR":  "/codebuild/output/src",
 			"AWS_DEFAULT_REGION": awsRegion(),
 			"AWS_REGION":         awsRegion(),
-		},
+		}),
 		ExtraHosts: workloadhost.ExtraHosts(),
+		Network:    network.Name,
+		DNS:        network.DNS(),
 		Labels:     map[string]string{"sockerless-codebuild-command": id},
 		Sandbox:    SandboxFargate,
 	}, sink)

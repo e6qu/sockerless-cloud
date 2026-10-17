@@ -1,6 +1,7 @@
 package gcp_sdk_test
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -22,9 +23,27 @@ func computeService(t *testing.T) *compute.Service {
 	return svc
 }
 
+// createInstanceSubnetwork creates a network of the test's own with one
+// subnetwork in it, and returns the subnetwork's path. Every instance test
+// brings its own range: two live networks over one range do not coexist on
+// one engine, and the auto-mode default network's ranges are the same in
+// every project.
+func createInstanceSubnetwork(t *testing.T, svc *compute.Service, project, region, name, cidr string) string {
+	t.Helper()
+	_, err := svc.Networks.Insert(project, &compute.Network{Name: name, AutoCreateSubnetworks: false}).Context(ctx).Do()
+	require.NoError(t, err)
+	_, err = svc.Subnetworks.Insert(project, region, &compute.Subnetwork{
+		Name:        name,
+		IpCidrRange: cidr,
+		Network:     "projects/" + project + "/global/networks/" + name,
+		Region:      region,
+	}).Context(ctx).Do()
+	require.NoError(t, err)
+	return fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", project, region, name)
+}
+
 func TestCompute_CreateNetwork(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	svc := computeService(t)
 
 	network := &compute.Network{
@@ -41,7 +60,6 @@ func TestCompute_CreateNetwork(t *testing.T) {
 
 func TestCompute_CreateSubnetwork(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	svc := computeService(t)
 
 	// Create network first
@@ -68,7 +86,6 @@ func TestCompute_CreateSubnetwork(t *testing.T) {
 
 func TestCompute_ListNetworks(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	svc := computeService(t)
 
 	network := &compute.Network{
@@ -85,12 +102,8 @@ func TestCompute_ListNetworks(t *testing.T) {
 
 // computeTestNetwork provisions a VPC network the calling test owns and returns
 // the reference a resource attaches to it with, deleting it when the test ends.
-// Compute Engine builds a real network fabric behind a VPC, which needs the
-// host's Linux networking capabilities, so a host without them cannot hold the
-// network a resource points at.
 func computeTestNetwork(t *testing.T, svc *compute.Service, project, name string) string {
 	t.Helper()
-	requireNetworkHost(t)
 	_, err := svc.Networks.Insert(project, &compute.Network{Name: name, AutoCreateSubnetworks: false}).Context(ctx).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = svc.Networks.Delete(project, name).Context(ctx).Do() })
@@ -102,7 +115,6 @@ func computeTestNetwork(t *testing.T, svc *compute.Service, project, name string
 
 func TestCompute_RegionalAddressAndManualRouterNAT(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	svc := computeService(t)
 	const project = "test-project"
 	const region = "us-central1"
@@ -499,7 +511,6 @@ func TestCompute_InstanceGroups_Lifecycle(t *testing.T) {
 
 func TestCompute_Instances_Lifecycle(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project = "test-project"
 	const zone = "us-central1-a"
@@ -524,7 +535,7 @@ func TestCompute_Instances_Lifecycle(t *testing.T) {
 			Boot:       true,
 			AutoDelete: true,
 			InitializeParams: &compute.AttachedDiskInitializeParams{
-				SourceImage: "projects/debian-cloud/global/images/debian-12",
+				SourceImage: "projects/debian-cloud/global/images/family/" + debianFamily(),
 				DiskSizeGb:  10,
 			},
 		}},
@@ -647,7 +658,6 @@ func TestCompute_InstanceTemplateCRUD(t *testing.T) {
 
 func TestCompute_ListNetworks_Pagination(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	const project = "test-project"
 	svc := computeService(t)
 	names := []string{"pag-net-a", "pag-net-b", "pag-net-c"}
@@ -690,7 +700,6 @@ func TestCompute_ListNetworks_Pagination(t *testing.T) {
 // network detail page.
 func TestCompute_ListSubnetworks(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	svc := computeService(t)
 	const project = "test-project"
 	const region = "us-central1"
@@ -729,8 +738,7 @@ func TestCompute_ListSubnetworks(t *testing.T) {
 //	GET /compute/v1/projects/{project}/regions/{region}/subnetworks
 //
 // answers a well-formed, empty SubnetworkList for a region that holds no
-// subnets rather than a 404. The read touches no real-execution host
-// capability, so unlike the round trip above it runs on every host.
+// subnets rather than a 404.
 func TestCompute_ListSubnetworks_EmptyRegion(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
@@ -768,7 +776,6 @@ func awaitZoneOperation(t *testing.T, svc *compute.Service, project, zone, name 
 // response would not exist until the boot had finished.
 func TestCompute_InsertReturnsARunningOperation(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project = "test-project"
 	const zone = "us-central1-a"
@@ -792,7 +799,7 @@ func TestCompute_InsertReturnsARunningOperation(t *testing.T) {
 			Boot:       true,
 			AutoDelete: true,
 			InitializeParams: &compute.AttachedDiskInitializeParams{
-				SourceImage: "projects/debian-cloud/global/images/debian-12",
+				SourceImage: "projects/debian-cloud/global/images/family/" + debianFamily(),
 				DiskSizeGb:  10,
 			},
 		}},

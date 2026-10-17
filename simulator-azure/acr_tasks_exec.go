@@ -39,7 +39,9 @@ type acrTaskRun struct {
 	dockerEnv []string
 	platform  string
 	network   string
-	volume    string
+	// dns is the network's sidecar, the resolver every step is handed.
+	dns    netip.Addr
+	volume string
 	// registryHost is the run's registry login server without its port;
 	// registryAuth is the engine API credential the run holds for it.
 	registryHost string
@@ -116,7 +118,16 @@ func acrRunTaskFile(ctx context.Context, task *acrTaskFile, x *acrTaskRun) error
 	if _, err := x.engine.NetworkCreate(ctx, x.network, client.NetworkCreateOptions{Driver: "bridge"}); err != nil {
 		return fmt.Errorf("create the run's network: %w", err)
 	}
+	// The run's steps resolve names through the network's sidecar, as every
+	// workload container does.
+	dns, err := azureEnsureSidecar(ctx, x.network, netip.Addr{})
+	if err != nil {
+		_, _ = x.engine.NetworkRemove(context.Background(), x.network, client.NetworkRemoveOptions{})
+		return fmt.Errorf("create the run's network: %w", err)
+	}
+	x.dns = netip.MustParseAddr(dns)
 	if _, err := x.engine.VolumeCreate(ctx, client.VolumeCreateOptions{Name: x.volume}); err != nil {
+		azureRemoveSidecar(x.network)
 		_, _ = x.engine.NetworkRemove(context.Background(), x.network, client.NetworkRemoveOptions{})
 		return fmt.Errorf("create the run's volume: %w", err)
 	}
@@ -409,8 +420,8 @@ func (x *acrTaskRun) runCmdStep(ctx context.Context, s *acrTaskStep) error {
 	}
 	hostCfg := &container.HostConfig{
 		NetworkMode: container.NetworkMode(x.network),
+		DNS:         []netip.Addr{x.dns},
 		Binds:       []string{x.volume + ":" + acrTaskWorkspace},
-		Privileged:  s.Privileged,
 		Isolation:   container.Isolation(s.Isolation),
 	}
 	if cfg.ExposedPorts, hostCfg.PortBindings, err = acrStepPorts(s.Ports, s.Expose); err != nil {
@@ -672,6 +683,7 @@ func (x *acrTaskRun) cleanup() {
 		}
 	}
 	if !kept {
+		azureRemoveSidecar(x.network)
 		if _, err := x.engine.NetworkRemove(ctx, x.network, client.NetworkRemoveOptions{}); err != nil {
 			acrTasksLogger.Warn().Err(err).Str("network", x.network).Msg("could not remove an ACR Tasks run network")
 		}

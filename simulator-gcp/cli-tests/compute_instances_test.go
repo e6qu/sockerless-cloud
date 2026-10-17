@@ -1,6 +1,9 @@
 package gcp_cli_test
 
 import (
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -8,17 +11,56 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// debianFamily is the Debian 12 image family of the engine's architecture,
+// which an instance booted on a container backend runs.
+func debianFamily() string {
+	if runtime.GOARCH == "arm64" {
+		return "debian-12-arm64"
+	}
+	return "debian-12"
+}
+
+// The startup script every CLI instance runs: it counts its boots on the
+// disk and reads the metadata server by the name every guest resolves it
+// under, both on the serial console.
+const cliStartupScript = `#!/bin/bash
+n=0
+[ -f /var/lib/sockerless-boots ] && n=$(cat /var/lib/sockerless-boots)
+n=$((n+1))
+echo "$n" >/var/lib/sockerless-boots
+echo "boot=$n"
+exec 3<>/dev/tcp/metadata.google.internal/80
+printf 'GET /computeMetadata/v1/instance/name HTTP/1.0\r\nHost: metadata.google.internal\r\nMetadata-Flavor: Google\r\n\r\n' >&3
+echo "name=$(sed -e '1,/^\r$/d' <&3)"
+`
+
 func TestGcloudComputeInstances_Lifecycle(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	zone := "us-central1-a"
 	name := "sim-instance-cli-1"
 
-	out, err := gcloudCLI("compute", "instances", "create", name,
+	// The catalog resolves the family to the image the instance boots from.
+	out, err := gcloudCLI("compute", "images", "describe-from-family", debianFamily(),
+		"--project=debian-cloud", "--format=value(name,family,status)").CombinedOutput()
+	require.NoError(t, err, "describe-from-family: %s", out)
+	family := strings.Fields(strings.TrimSpace(string(out)))
+	require.Len(t, family, 3, "describe-from-family: %s", out)
+	require.True(t, strings.HasPrefix(family[0], "debian-12-bookworm-"), "the family resolves to a versioned image: %s", out)
+	require.Equal(t, []string{debianFamily(), "READY"}, family[1:])
+
+	out, err = gcloudCLI("compute", "machine-types", "describe", "e2-micro",
+		"--zone="+zone, "--format=value(guestCpus,memoryMb)").CombinedOutput()
+	require.NoError(t, err, "machine-types describe: %s", out)
+	require.Equal(t, "2\t1024", strings.TrimSpace(string(out)), "the machine type catalog reports e2-micro's shape")
+
+	script := filepath.Join(tmpDir, "cli-startup-script.sh")
+	require.NoError(t, os.WriteFile(script, []byte(cliStartupScript), 0o644))
+	out, err = gcloudCLI("compute", "instances", "create", name,
 		"--zone="+zone,
 		"--machine-type=e2-micro",
-		"--image=debian-12",
+		"--image-family="+debianFamily(),
 		"--image-project=debian-cloud",
+		"--metadata-from-file=startup-script="+script,
 		"--no-address",
 		"--format=value(name)").CombinedOutput()
 	require.NoError(t, err, "create: %s", out)
@@ -30,6 +72,12 @@ func TestGcloudComputeInstances_Lifecycle(t *testing.T) {
 	body := strings.Fields(strings.TrimSpace(string(out)))
 	require.Equal(t, []string{name, "RUNNING"}, body,
 		"describe reports the instance the create made, running")
+
+	// The startup script ran on the machine and wrote to its serial console,
+	// where it reached the metadata server through the subnetwork's sidecar.
+	console := gcloudSerialPortOutput(t, name, zone, "startup-script exit status 0")
+	require.Contains(t, console, "startup-script: boot=1")
+	require.Contains(t, console, "startup-script: name="+name)
 
 	// Each transition below is read back off the instance rather than trusted
 	// from the command's exit status: Compute Engine reports a stopped
@@ -50,6 +98,26 @@ func TestGcloudComputeInstances_Lifecycle(t *testing.T) {
 	require.NoError(t, err, "start: %s", out)
 	require.Equal(t, "RUNNING", computeInstanceStatus(t, name, zone),
 		"a restarted instance reports RUNNING again")
+	// The disk survived the stop: the second boot counts on from the first.
+	require.Contains(t, gcloudSerialPortOutput(t, name, zone, "startup-script: boot=2"), "startup-script: boot=1")
+
+	// An image captured from the stopped instance's boot disk.
+	out, err = gcloudCLI("compute", "instances", "stop", name,
+		"--zone="+zone,
+		"--quiet").CombinedOutput()
+	require.NoError(t, err, "stop: %s", out)
+	out, err = gcloudCLI("compute", "images", "create", name+"-image",
+		"--source-disk="+name, "--source-disk-zone="+zone,
+		"--format=value(name,status)").CombinedOutput()
+	require.NoError(t, err, "images create: %s", out)
+	defer runCLI(t, gcloudCLI("compute", "images", "delete", name+"-image", "--quiet"))
+	out, err = gcloudCLI("compute", "images", "describe", name+"-image",
+		"--format=value(status,sourceDisk)").CombinedOutput()
+	require.NoError(t, err, "images describe: %s", out)
+	described := strings.Fields(strings.TrimSpace(string(out)))
+	require.Len(t, described, 2, "images describe: %s", out)
+	require.Equal(t, "READY", described[0])
+	require.Contains(t, described[1], "/zones/"+zone+"/disks/"+name)
 
 	out, err = gcloudCLI("compute", "instances", "delete", name,
 		"--zone="+zone,
@@ -67,6 +135,19 @@ func TestGcloudComputeInstances_Lifecycle(t *testing.T) {
 	require.NoError(t, err, "instances list: %s", out)
 	require.NotContains(t, string(out), name,
 		"a deleted instance must not appear in the zone's instance list")
+}
+
+// gcloudSerialPortOutput reads the instance's serial console through the CLI
+// until it carries marker; the console has no wait of its own.
+func gcloudSerialPortOutput(t *testing.T, name, zone, marker string) string {
+	t.Helper()
+	var console string
+	require.Eventually(t, func() bool {
+		out, err := gcloudCLI("compute", "instances", "get-serial-port-output", name, "--zone="+zone).CombinedOutput()
+		console = string(out)
+		return err == nil && strings.Contains(console, marker)
+	}, 30*time.Second, 500*time.Millisecond, "the serial console never carried %q; last output:\n%s", marker, console)
+	return console
 }
 
 // computeInstanceStatus reads one instance's lifecycle status through the CLI.
@@ -91,7 +172,6 @@ func computeInstanceStatus(t *testing.T, name, zone string) string {
 // it printed would already have been DONE.
 func TestGcloudComputeInstances_AsyncInsertOperation(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	zone := "us-central1-a"
 	name := "sim-instance-cli-async"
 	t.Cleanup(func() {
@@ -101,7 +181,7 @@ func TestGcloudComputeInstances_AsyncInsertOperation(t *testing.T) {
 	out, err := gcloudCLI("compute", "instances", "create", name,
 		"--zone="+zone,
 		"--machine-type=e2-micro",
-		"--image=debian-12",
+		"--image-family="+debianFamily(),
 		"--image-project=debian-cloud",
 		"--no-address",
 		"--async",

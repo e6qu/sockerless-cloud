@@ -1495,6 +1495,11 @@ func glueRunPythonJob(jobName, runID string, job GlueJob, script []byte, args ma
 		glueCompleteRun(jobName, runID, "FAILED", 0, err.Error())
 		return
 	}
+	network, err := awsPlatformNetwork(context.Background())
+	if err != nil {
+		glueCompleteRun(jobName, runID, "FAILED", 0, err.Error())
+		return
+	}
 	// The job runs in its interpreter's container, taking the script and the
 	// job's arguments the way Glue hands them to a Python shell job.
 	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
@@ -1504,11 +1509,13 @@ func glueRunPythonJob(jobName, runID string, job GlueJob, script []byte, args ma
 		Args:         append([]string{glueJobScriptDir + "/script.py"}, glueArgs(args)...),
 		WorkingDir:   glueJobScriptDir,
 		Binds:        []string{filepath.Clean(workDir) + ":" + glueJobScriptDir + ":z"},
-		Env: map[string]string{
+		Env: workloadhost.MergeEnv(workloadMetadataEnv(network.MetadataOrigin(), ""), map[string]string{
 			"AWS_DEFAULT_REGION": awsRegion(),
 			"AWS_REGION":         awsRegion(),
-		},
+		}),
 		ExtraHosts: workloadhost.ExtraHosts(),
+		Network:    network.Name,
+		DNS:        network.DNS(),
 		Labels:     map[string]string{"sockerless-glue-job-run": runID},
 		Sandbox:    SandboxFargate,
 	}, glueJobRunLogSink(runID))
