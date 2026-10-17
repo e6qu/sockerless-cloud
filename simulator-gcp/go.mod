@@ -25,7 +25,7 @@ require (
 	cloud.google.com/go/vpcaccess v1.15.0
 	github.com/containerd/errdefs v1.0.0
 	github.com/distribution/reference v0.6.0
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261017141604-01e535254284
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261017172000-24ed1dfddb92
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261015114713-b9f0cc68a078
 	github.com/hamba/avro/v2 v2.31.0
 	github.com/klauspost/compress v1.20.3
