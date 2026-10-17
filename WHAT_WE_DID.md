@@ -774,8 +774,11 @@ own module:
 Every workload runs as a real container on the engine the simulator started
 against; there is no host-process path, and `SIM_RUNTIME=process` is API-only.
 Each simulator's SDK suite scans its own module and `sim/` for `os/exec` and
-allows each sanctioned call by its exact expression; an allowance whose call no
-longer exists fails the scan, whether or not its file still imports `os/exec`.
+allows each sanctioned call by its exact expression, which may be a declaration
+that only types a value, as the reaper's detach helper does; an allowance whose
+expression no longer exists fails the scan, whether or not its file still
+imports `os/exec`. The node agent and guest programs run inside the agent
+container and its microVMs, so their calls are sanctioned by name.
 Startup refuses to serve in any mode that executes workloads when no engine
 answers: a process that passes its health check and fails every workload in
 the background is worse than one that does not start. Each cloud product's

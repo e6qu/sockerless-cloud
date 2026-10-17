@@ -2039,29 +2039,6 @@ resource "azurerm_network_watcher" "az_nw" {
   }
 }
 
-# A packet capture against the stack's virtual machine. The provider creates it
-# through PacketCaptures_Create and destroys it through PacketCaptures_Delete,
-# which is a real capture session opening a socket on the machine's interface —
-# so this resource only converges on a host that can run the machine.
-resource "azurerm_virtual_machine_packet_capture" "az_pcap" {
-  name               = "tf-azrm-packet-capture"
-  network_watcher_id = azurerm_network_watcher.az_nw.id
-  virtual_machine_id = azurerm_linux_virtual_machine.az_vm.id
-
-  maximum_bytes_per_packet            = 0
-  maximum_bytes_per_session           = 1048576
-  maximum_capture_duration_in_seconds = 60
-
-  storage_location {
-    storage_account_id = azurerm_storage_account.az_st.id
-  }
-
-  filter {
-    protocol         = "TCP"
-    local_ip_address = "10.30.1.4"
-  }
-}
-
 # ---------- Virtual Network Manager ----------
 # The scope-and-deployment half of centrally managed networking: the manager
 # declares the subscriptions it governs and the configuration kinds it may
@@ -2101,16 +2078,6 @@ output "azrm_platform_image_version" {
 
 output "azrm_network_watcher_id" {
   value = azurerm_network_watcher.az_nw.id
-}
-
-output "azrm_packet_capture_id" {
-  value = azurerm_virtual_machine_packet_capture.az_pcap.id
-}
-
-# storage_path is computed by the service, so it proves the capture came back
-# carrying where its recording will land rather than only echoing the request.
-output "azrm_packet_capture_storage_path" {
-  value = azurerm_virtual_machine_packet_capture.az_pcap.storage_location[0].storage_path
 }
 
 output "azrm_network_manager_id" {

@@ -2,7 +2,6 @@ package azure_sdk_test
 
 import (
 	"fmt"
-	"io"
 	"strings"
 	"testing"
 
@@ -14,16 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A packet capture's whole content is the traffic it records off a machine's
-// interface, so this test proves the composition rather than the pieces: a real
-// virtual machine boots, a capture opens a socket on the interface carrying its
-// traffic, the capture stops, and the recorded frames are downloaded back out
-// of the storage account through the Blob data plane a client really reads.
-//
-// Nothing except this asserts that a capture started through Network Watcher
-// against an Azure virtual machine produces a file a client can fetch.
-
-func TestNetworkWatcher_PacketCaptureRecordsToStorage(t *testing.T) {
+// A packet capture records the traffic that crosses a machine's interface, and
+// the container backend running the machine exposes no tap a capture could
+// read from, so Network Watcher refuses to start one rather than fabricate an
+// empty file: a caller cannot tell an empty capture from a real one that saw
+// no traffic. This test pins that refusal against a real virtual machine and
+// proves the control plane keeps nothing behind it.
+func TestNetworkWatcher_PacketCaptureRefusesAMachineWithoutATap(t *testing.T) {
 	t.Parallel()
 	const (
 		rg         = "pcap-rg"
@@ -58,7 +54,7 @@ func TestNetworkWatcher_PacketCaptureRecordsToStorage(t *testing.T) {
 	captureClient, err := armnetwork.NewPacketCapturesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	createPoller, err := captureClient.BeginCreate(ctx, rg, watcher, capture, armnetwork.PacketCapture{
+	poller, err := captureClient.BeginCreate(ctx, rg, watcher, capture, armnetwork.PacketCapture{
 		Properties: &armnetwork.PacketCaptureParameters{
 			Target:                  to.Ptr(vmID),
 			TargetType:              to.Ptr(armnetwork.PacketCaptureTargetTypeAzureVM),
@@ -71,73 +67,26 @@ func TestNetworkWatcher_PacketCaptureRecordsToStorage(t *testing.T) {
 			},
 		},
 	}, nil)
-	require.NoError(t, err)
-	created, err := createPoller.PollUntilDone(ctx, nil)
-	require.NoError(t, err)
-	require.NotNil(t, created.Properties)
-	assert.Equal(t, vmID, *created.Properties.Target)
-	assert.Equal(t, armnetwork.ProvisioningStateSucceeded, *created.Properties.ProvisioningState)
+	if err == nil {
+		_, err = poller.PollUntilDone(ctx, nil)
+	}
+	requireAzureErrorCode(t, err, "PacketCaptureTargetNotReady",
+		"a machine the backend exposes no tap for cannot be captured")
+	assert.Contains(t, err.Error(), "no interface a capture can tap",
+		"the refusal names why the capture cannot run")
 
-	// The session is really running: status says so before anything stops it.
-	statusPoller, err := captureClient.BeginGetStatus(ctx, rg, watcher, capture, nil)
-	require.NoError(t, err)
-	status, err := statusPoller.PollUntilDone(ctx, nil)
-	require.NoError(t, err)
-	require.NotNil(t, status.PacketCaptureStatus)
-	assert.Equal(t, armnetwork.PcStatusRunning, *status.PacketCaptureStatus,
-		"a capture that has not stopped reports Running")
-	assert.NotEmpty(t, status.CaptureStartTime, "a running capture reports when it started")
-
-	// Read it back as a resource and find it in the watcher's list.
-	got, err := captureClient.Get(ctx, rg, watcher, capture, nil)
-	require.NoError(t, err)
-	assert.Equal(t, capture, *got.Name)
+	// The refusal left nothing behind: no resource to read and nothing listed.
+	_, err = captureClient.Get(ctx, rg, watcher, capture, nil)
+	requireAzureErrorCode(t, err, "ResourceNotFound", "a refused capture is not a resource")
 
 	pager := captureClient.NewListPager(rg, watcher, nil)
-	var listed []string
 	for pager.More() {
 		page, err := pager.NextPage(ctx)
 		require.NoError(t, err)
 		for _, c := range page.Value {
-			listed = append(listed, *c.Name)
+			assert.NotEqual(t, capture, *c.Name, "a refused capture must not appear in the watcher's list")
 		}
 	}
-	assert.Contains(t, listed, capture)
-
-	// Stop finalises the recording into the storage account it named.
-	stopPoller, err := captureClient.BeginStop(ctx, rg, watcher, capture, nil)
-	require.NoError(t, err)
-	_, err = stopPoller.PollUntilDone(ctx, nil)
-	require.NoError(t, err)
-
-	statusPoller, err = captureClient.BeginGetStatus(ctx, rg, watcher, capture, nil)
-	require.NoError(t, err)
-	stopped, err := statusPoller.PollUntilDone(ctx, nil)
-	require.NoError(t, err)
-	require.NotNil(t, stopped.PacketCaptureStatus)
-	assert.Equal(t, armnetwork.PcStatusStopped, *stopped.PacketCaptureStatus)
-	require.NotNil(t, stopped.StopReason)
-	assert.Equal(t, "Requested", *stopped.StopReason)
-
-	// The artifact is downloadable through the Blob data plane, and it is a
-	// real capture file — the libpcap magic is what every reader looks for.
-	blobClient := newBlobTestClient(t, account)
-	downloaded, err := blobClient.DownloadStream(ctx, "captures", capture+".cap", nil)
-	require.NoError(t, err, "the capture must be readable from the storage account it named")
-	body, err := io.ReadAll(downloaded.Body)
-	require.NoError(t, err)
-	require.NoError(t, downloaded.Body.Close())
-	require.GreaterOrEqual(t, len(body), 24, "a capture file carries at least its 24-byte header")
-	assert.Equal(t, []byte{0xd4, 0xc3, 0xb2, 0xa1}, body[:4],
-		"the downloaded bytes must be a libpcap capture, not an opaque blob")
-
-	// Delete removes the capture.
-	deletePoller, err := captureClient.BeginDelete(ctx, rg, watcher, capture, nil)
-	require.NoError(t, err)
-	_, err = deletePoller.PollUntilDone(ctx, nil)
-	require.NoError(t, err)
-	_, err = captureClient.Get(ctx, rg, watcher, capture, nil)
-	require.Error(t, err, "a deleted capture is gone")
 }
 
 // TestNetworkWatcher_PacketCaptureRefusesATargetItCannotRecord pins the
