@@ -20,9 +20,8 @@ Current state of the sockerless-cloud repository.
   work, workload launching, archive extraction, payload storage and sparse
   files, JWT signing and OpenID Connect federation, registry authentication and
   the managed relational database data plane are one package each under
-  `sim/`; the realized network fabric and the load-balancer data plane are
-  `realexec/fabric` and `realexec/lbplane`, and queues, stream logs, push
-  delivery and cron schedules are `sim/msgq`, `sim/streamlog`, `sim/delivery`
+  `sim/`; the load-balancer data plane is `realexec/lbplane`, and queues,
+  stream logs, push delivery and cron schedules are `sim/msgq`, `sim/streamlog`, `sim/delivery`
   and `sim/cron`. All three simulators use them. Key material is `sim/simkms`,
   and log entries are `sim/logstore`, which Amazon CloudWatch Logs, Cloud
   Logging and Azure Monitor Logs use; Cloud Logging sinks deliver to log
@@ -42,11 +41,18 @@ Current state of the sockerless-cloud repository.
   through the VPC resolver. An unhealthy instance drops out of DNS answers,
   through a Route 53 health check for a `HealthCheckConfig` service or 30
   seconds after a custom status for a `HealthCheckCustomConfig` one.
-  Every workload in a realized network namespace — Amazon ECS tasks, VPC
-  AWS Lambda invocations and the Amazon EC2, Azure and Compute Engine
-  microVMs — asks its cloud's resolver address (169.254.169.253,
-  168.63.129.16, 169.254.169.254); workloads on Docker networks do not yet
-  (BUG-3473).
+  Workloads on engine networks resolve through the engine's embedded DNS
+  rather than their cloud's resolver address until the per-network sidecars
+  of `PLAN.md` stage 2 land (BUG-3473).
+- **Execution modes.** `PLAN.md` names three — embedded, embedded with node
+  agents, distributed — under one rule: the simulator process holds no host
+  privilege, and a workload container holds no capability. The
+  host-namespace tier (`realexec/fabric`, the in-process Firecracker launch,
+  the `nftables` rules, the `CAP_NET_ADMIN` and `--privileged` helper
+  containers) is still in the tree and runs nowhere CI or a developer machine
+  runs; stage 1 removes it, and Amazon EC2, Compute Engine and Azure virtual
+  machine instances refuse to launch until the container backend of stage 3
+  places them.
 - **One startup sequence.** Every simulator binary's `main` is a `sim.Main`
   call with a `sim.Program`: the cloud supplies its default port, its build and
   the listeners it serves beside the HTTP port, and `sim` owns the reaper
@@ -78,7 +84,7 @@ Current state of the sockerless-cloud repository.
   unmodelled with the reason, and per action the gate builds 3,695 of 4,310
   (action, key) pairs on served operations, the other 615 listed with reasons
   in `testdata/iam_condition_key_gaps.tsv` (BUG-2965 holds the 16 that need a
-  container or microVM to seed). A create carrying tags is also authorized as
+  running workload to seed). A create carrying tags is also authorized as
   its service's tagging action, with `<service>:CreateAction` naming it, for
   the 297 operations the references list one for. The Amazon S3 control plane
   is authorized route by route in the namespace AWS publishes each action under
@@ -175,11 +181,9 @@ Current state of the sockerless-cloud repository.
   Azure Load Balancer add nothing. A front end whose target fails after the
   status and headers reached the client closes the stream rather than
   appending an error.
-- **VPC networks** allocate bridge subnets from a host-side pool, with the
-  elastic network interface address as a real secondary address, so same-CIDR
+- **VPC networks** allocate bridge subnets from a host-side pool, so same-CIDR
   VPCs coexist; a slice is reclaimed only from an owner this host can see to be
-  gone. Azure network interfaces realize every IP configuration, and the Azure
-  simulator tears its fabric down on SIGTERM.
+  gone. Azure network interfaces lease an address per IP configuration.
 - **Declined surfaces are the ones whose required content is somebody else's
   data**: Cloud Spanner's Key Visualizer scans and wire-protocol adapter, Cloud
   KMS Key Access Justifications, Firestore's streaming REST spellings, and
@@ -279,7 +283,7 @@ Current state of the sockerless-cloud repository.
   facts** (`ec2_instance_types_vendored.json`, written by
   `scripts/fetch-aws-ec2-instance-types.go` with the offer version and
   SHA-256), which DescribeInstanceTypes, the offerings, Capacity Manager, the
-  real-execution machine shape and future-dated Capacity Reservations read. A
+  machine shape a launch reads and future-dated Capacity Reservations read. A
   future-dated Capacity Reservation is `scheduled` until its start date, derived
   on every read, and moves only through an accepted date-change quote within 30
   days of the original.

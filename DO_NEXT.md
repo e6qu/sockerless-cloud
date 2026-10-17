@@ -2,11 +2,23 @@
 
 ## Next
 
-- **Send Docker-network workloads' DNS to their cloud's resolver** (BUG-3473),
-  so Azure Private DNS and Cloud DNS private zones answer inside Container
-  Apps, Container Instances, Cloud Run and the other container workloads, and
-  the per-record Docker aliases go. The redirect needs CAP_NET_ADMIN on every
-  host that runs container workloads: settle that first.
+- **Stage 1 of `PLAN.md`: remove the privileged machinery.** Delete the
+  host-namespace fabric, the `nftables` rules, the realized-network DNAT and
+  the in-process Firecracker launch with their host tests, Makefile targets,
+  CI job, capability probes and the `realexec_host` build tag; delete the
+  `CAP_NET_ADMIN` ENI setup container (the VPC engine network takes the
+  VPC's CIDR and the engine assigns each interface's address) and the
+  `--privileged` loop-device helper (a managed EBS volume is an engine
+  volume), and stop granting the privilege a container definition, a
+  CodeBuild project or an ACR task step asks for, filing each gap in
+  `BUGS.md`;
+  keep `realexec/lbplane`, IPAM and the rule parsers. VM instances refuse to
+  launch with the cloud's provisioning error until stage 3. Point
+  `AGENTS.md`'s skip rule at `runtime.GOOS` alone. One pull request.
+- **Stage 2: unprivileged networks.** Per-network sidecars at the cloud's
+  resolver and metadata addresses (closing BUG-3473 and retiring the
+  per-record engine aliases), the NAT sidecar, peering, and security groups
+  on mediated flows with the container-to-container gap filed.
 - **Fold the simulator CI shards back** from the first parallel run's per-test
   durations (BUG-3437), and stop repeating base-image loading, pre-builds and
   the Caddy install per job (BUG-3151).

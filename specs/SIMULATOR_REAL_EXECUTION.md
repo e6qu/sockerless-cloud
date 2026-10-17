@@ -1,161 +1,96 @@
-# Simulator Real-Execution Substrate
+# Node Agents and MicroVMs
 
-The implementation contract for VM and network resources that behave rather
-than serialize. Simulator public APIs match the public cloud; the substrate is
-an implementation detail behind the Amazon EC2, Compute Engine, Azure virtual
-machine, VPC, firewall, NAT and load-balancer APIs, and adds no
-simulator-only knobs to them. The substrate is the `realexec` module
-([`realexec/README.md`](../realexec/README.md)).
+The implementation contract for the one place a simulator runs anything that
+needs more than an ordinary container engine client: a **node agent**, which
+boots Firecracker microVMs for the services configured onto it. Simulator
+public APIs match the public cloud; the agent is an implementation detail
+behind the compute services and managed engines, and adds no simulator-only
+knobs to them. [SIMULATOR_EXECUTION.md](SIMULATOR_EXECUTION.md) places it in
+the execution model.
 
 ## Scope
 
-The substrate covers four resource families:
+A node agent serves the **microVM backend** of the placement interface for:
 
 1. **VM instances** — Amazon EC2 instances, Compute Engine instances and Azure
-   virtual machines.
-2. **Network fabric** — VPCs and networks, subnets, route tables and routers,
-   NICs and ENIs, public and elastic IPs, and NAT gateways, Cloud NAT and Azure
-   NAT Gateway.
-3. **Security policy** — AWS security groups, Google Cloud firewalls and Azure
-   network security groups.
-4. **Load balancing** — Elastic Load Balancing, Google Cloud forwarding-rule
-   and backend-service load balancing, and Azure Load Balancer.
+   virtual machines, each a full guest.
+2. **Container and function workloads configured for microVMs** — an Amazon
+   ECS task, an AWS Lambda invocation, a Cloud Run instance, a Container App
+   replica, in its own guest, as the cloud's own isolation does.
+3. **Managed engines configured for microVMs** — an Amazon RDS, Cloud SQL or
+   Azure Database engine process inside a guest.
 
-Container and FaaS surfaces stay on the container engine through
-`sim.StartContainerSyncContext`; Firecracker serves only VM-level APIs.
+Everything not configured onto an agent runs on the container backend. The
+agent never runs a host process on the simulator's behalf.
 
-## Capability model
+## Where the agent runs
 
-Every build carries the substrate, but a resource that needs it succeeds only
-where the host has the capabilities:
+- In **embedded with node agents**, the binary starts an agent as a container
+  on the engine network when configuration names a service for microVMs. The
+  engine grants the container `/dev/kvm`; the binary holds nothing. Without
+  `/dev/kvm` or the Firecracker binaries the agent refuses to start, and the
+  services configured onto it fail their placements with the cloud's
+  provisioning error.
+- In **distributed**, the same agent image runs on another host and the
+  control plane reaches it over its API.
 
-- a Linux host;
-- the Firecracker binary and jailer, and `/dev/kvm` usable by the simulator;
-- permission to create network namespaces, bridges, tap and veth devices, and
-  to assign addresses;
-- permission to program routes through netlink;
-- permission to install and remove `nftables` rules;
-- permission to materialize load-balancer data-plane endpoints.
+The agent is a container like any other network member: it has an
+engine-assigned address on each network it serves, and inside its own
+namespace it owns the tap devices its guests use and the bridge that joins
+them to its interface, so a guest is a network member with an address like
+any container. Nothing it does reaches outside its namespace.
 
-Capability checks are explicit and deterministic
-(`realexec.DetectNetworkCapabilities`, `realexec.DetectFirecrackerCapabilities`);
-they inspect the host and its binaries and create no permanent resource as a
-probe. When a capability is missing, the handler fails with the cloud's error
-shape for failed provisioning. There is no metadata fallback: a resource that
-needs real execution either reaches the cloud's ready state for real or
-fails.
+## Agent API
 
-## Substrate objects
+The agent serves the backend interface over HTTP on its network address:
+create, start, stop, adopt and delete a guest; attach it to a network with a
+leased address; exec in it; stream its console and logs; report its state.
+Requests are authenticated with a credential the simulator mints for the
+agent at start; a workload cannot reach the agent's API, which listens only
+on the address the control plane uses.
 
-| Object | Implementation | Cloud resources backed |
-|---|---|---|
-| Guest | Firecracker process and API socket, kernel, root filesystem, tap | EC2 instance, Compute Engine instance, Azure VM |
-| Network | Linux network namespace with bridge and route table | VPC, Google Cloud network, Azure virtual network |
-| Subnet | IPAM lease pool and bridge membership | subnet, subnetwork, Azure subnet |
-| NIC | tap or veth, MAC, private IP leases, public IP bindings | ENI, Compute Engine network interface, Azure NIC |
-| Security policy | nftables chains, sets and conntrack policy | security group, firewall, NSG |
-| NAT | nftables SNAT or masquerade plus route programming | NAT gateway, Cloud NAT, Azure NAT Gateway |
-| Load balancer | bound L4/L7 listener plus active probes | Elastic Load Balancing, Google Cloud load balancing, Azure Load Balancer |
+## Guests
 
-Cloud handlers own request parsing, validation, idempotency, public error
-shapes and response serialization; the substrate owns the host-side objects
-and their cleanup.
-
-## Lifecycle mapping
-
-Provisioning states reflect real host-side progress:
-
-- `pending` / `PROVISIONING` / `Creating`: the guest's resources are being
-  prepared and the guest is not ready.
-- `running` / `RUNNING` / `PowerState/running`: the Firecracker guest is
-  alive, its network is attached, and it answers on its private address.
-- stopped or deallocated: the guest process is stopped and its resources are
-  kept or released as the cloud defines; a deallocated Azure machine keeps its
-  disk.
-- terminated or deleted: the guest process, sockets, taps, leases, nftables
-  rules and proxy backends are removed.
-
-Network ready states mean the Linux resources exist and are programmed;
-health states mean probes observed real target behaviour; security states mean
-the nftables rules are installed on the packet path.
-
-## Metadata services
-
-Each guest reaches its cloud's instance metadata at the provider's address —
-`169.254.169.254`, and `metadata.google.internal` for Compute Engine — and the
-handler resolves the guest's private source address to answer with that
-instance's own fields: Amazon EC2 IMDS with the instance ID, AMI, addresses,
-region, IAM profile and tags; the Compute Engine metadata server with the
-project, zone, instance, interfaces, service accounts and custom metadata;
-Azure IMDS with the VM, NIC, subscription, resource group, location and
-network records. A static global fixture is not acceptable.
-
-## Load balancers
-
-Control-plane APIs create and mutate load balancers, target groups, backend
-services, forwarding rules and listeners. They start no simulator-private
-listener port as a side effect unless the cloud's control plane does so as part
-of provisioning. The data plane is reachable through the cloud-shaped endpoint
-the control plane advertises — DNS name, VIP, scheme, port and path — and the
-plumbing beneath (the simulator mux, Docker networking, namespaces or bound
-listeners) never leaks into API responses or client configuration.
-
-- L4 listeners proxy TCP streams to healthy backends.
-- L7 listeners proxy HTTP and apply the cloud's listener, rule or URL-map
-  behaviour.
-- Health probes test each backend with the configured protocol, port,
-  thresholds and path, on the target group's own interval.
-- Target-health APIs return the probe result.
-
-If the host cannot materialize the advertised endpoint, provisioning or
-data-plane dispatch fails with the cloud's error shape.
+- A guest boots a pinned Firecracker release over the virtio-MMIO transport
+  from a root filesystem the agent builds from the same OCI image the
+  container backend would run — an AMI, a Compute Engine image, an Azure
+  marketplace image, an ECS container image, a Lambda runtime image or an
+  engine image — so a service's workload is the same artifact on either
+  backend.
+- A guest's disk outlives its process: a stopped machine can be generalized
+  and captured, a deallocated one keeps its disk, a deleted one discards it.
+- Provisioning states reflect real progress: `pending` / `PROVISIONING` /
+  `Creating` while the guest is prepared, `running` / `RUNNING` /
+  `PowerState/running` once it is alive, attached and answering on its
+  address, stopped or deallocated when its process is stopped, terminated or
+  deleted when its process, tap and lease are removed.
+- The guest reaches its cloud's resolver and metadata at the cloud's
+  addresses through the same per-network sidecars every container uses.
 
 ## Security enforcement
 
-Security groups, firewalls and NSGs compile into nftables chains and sets on
-the relevant NIC or network namespace, honouring direction, protocol, port
-ranges, CIDR sources and destinations, security-group and tag references where
-the cloud supports them, Google Cloud and Azure priority ordering, and stateful
-return traffic where the cloud is stateful. A rule update recompiles the
-affected packet path; a rule stored only in JSON is not implemented.
-
-## IPAM and routing
-
-IP allocation is lease-based per subnet, never derived from a store's length
-or a counter that can collide after a deletion or a restart. Every private IP,
-public IP, route and NAT mapping the API exposes corresponds to a host-side
-binding: an address on a tap, veth, NAT or proxy object, a route in the
-namespace, or an installed SNAT or DNAT rule.
+At each guest's tap the agent filters what the guest's security group,
+firewall or network security group allows: direction, protocol, port ranges,
+CIDR sources and destinations, group and tag references where the cloud
+supports them, Google Cloud and Azure priority ordering, and stateful return
+traffic where the cloud is stateful. A rule update reprograms the tap. This is
+the one place in the simulators where packet filtering exists; the container
+backend enforces the same rules on the flows it mediates and records the rest
+as a gap.
 
 ## Test contract
 
-Each public API path on the substrate ships with official SDK coverage, vendor
-CLI coverage where the CLI exposes the path, and Terraform coverage where the
-provider exposes the resource. The tests prove behaviour, not metadata: VM
-tests observe a real guest lifecycle and per-instance metadata; network tests
-verify non-colliding leases and reachable and blocked paths; security tests
-prove that denied packets drop and allowed packets pass; load-balancer tests
-register reachable and unreachable targets and verify proxying and health
-transitions. Tests gate on the host capability probe, the one skip `AGENTS.md`
-allows, so Linux CI runs them and macOS does not.
+Each public API path a node agent serves ships with official SDK coverage,
+vendor CLI coverage where the CLI exposes the path, and Terraform coverage
+where the provider exposes the resource, run against an agent. The tests prove
+behaviour, not metadata: a real guest lifecycle, per-instance metadata,
+reachable and blocked paths, and the same workload answering on either
+backend. Tests that need an agent skip only for what a run cannot be given —
+a kernel other than Linux or no `/dev/kvm` — the one skip `AGENTS.md`
+allows; a missing command fails the test, naming what to install.
 
-Two CI targets guard the substrate itself. `make firecracker-test` installs a
-pinned Firecracker release, requires `/dev/kvm`, boots a Firecracker CI Linux
-guest, copies the repository's `testdata/eval-arithmetic` Go source and the
-configured Go toolchain into its root filesystem, and runs `go test`,
-`go build` and several arithmetic executions inside the microVM.
-`make realexec-network-test` creates a dedicated network namespace holding
-subnet bridges and gateways, guest namespaces, veth NICs, leased addresses,
-routed egress, SNAT state, routes and nftables tables; verifies gateway,
-namespace-to-namespace and egress reachability with real packets; and verifies
-that cleanup removes every host artifact.
-
-## What each cloud runs on the substrate
-
-| Family | AWS | Google Cloud | Azure |
-|---|---|---|---|
-| VM lifecycle | `RunInstances` boots a Firecracker guest; lifecycle APIs act on the guest and its tap. | Instances boot Firecracker guests; lifecycle APIs act on the guest and its tap. | Virtual machines boot Firecracker guests; lifecycle APIs act on the guest and its tap. |
-| Guest metadata | IMDS through a `169.254.169.254` DNAT, instance-specific. | `169.254.169.254`, `metadata.google.internal` and `metadata`, instance-specific. | IMDS through a `169.254.169.254` DNAT, VM-, NIC- and subnet-specific. |
-| Network fabric | VPCs, subnets, ENIs, elastic IPs, NAT gateways, route tables and Auto Scaling ENIs. | Networks, subnetworks, instance NICs, regional addresses, routers, Cloud NAT and forwarding-rule public IPs. | Virtual networks, subnets, NIC addressing, public IPs, NAT gateway subnet programming and route tables. |
-| Security policy | Security-group ingress on attached ENI packet paths. | Firewall ingress by priority, tags and source ranges. | Subnet and NIC NSGs by priority and service tags. |
-| Load balancing | Target health from real TCP/HTTP probes; data-plane requests route to healthy targets. | Backend services, unmanaged instance groups, URL maps, forwarding rules, probes and proxying. | Frontend IP dispatch, backend pools, probes and proxying. |
+`make firecracker-test` is the agent's own proof: it starts an agent on a host
+with `/dev/kvm`, boots a guest from an OCI-built root filesystem, runs the
+repository's `testdata/eval-arithmetic` inside it, and checks that teardown
+leaves no process, tap or disk behind. The job that runs it is the only CI job
+that needs KVM.
