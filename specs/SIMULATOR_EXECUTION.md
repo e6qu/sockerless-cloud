@@ -28,8 +28,12 @@ node agent an operator chose to deploy, and a node agent runs only in the two
 modes that name it.
 
 A workload container holds no capability either: no `CAP_NET_ADMIN`, no
-`--privileged`, no engine socket, no host network and no host mount. Each
-cloud product's sandbox profile applies to its containers.
+`--privileged`, no engine socket, no host network and no host mount, also
+when the cloud lets the workload ask for one (an Amazon ECS container
+definition's `privileged`, a CodeBuild project's `privilegedMode`, an ACR
+task step's `privileged`); what such a workload then cannot do is a recorded
+gap a node agent's guest closes. Each cloud product's sandbox profile applies
+to its containers.
 
 ## Placement
 
@@ -101,8 +105,10 @@ Test harnesses run the real CLIs (`aws`, `gcloud`, `az`, `terraform`,
 ## Networks
 
 A VPC, a Google Cloud network or an Azure virtual network is an engine
-network; a subnet is an address range inside it; every workload, container or
-microVM, is a member with an engine-assigned address.
+network over the resource's own CIDR; a subnet is an address range inside it;
+every workload, container or microVM, is a member whose engine-assigned
+address is the one the cloud API reports for its interface. Two live networks
+over one range do not coexist on one engine; that gap is recorded.
 
 - The cloud's fixed addresses are **sidecars**: each network carries a
   link-local subnet, and one sidecar per network sits at the cloud's resolver

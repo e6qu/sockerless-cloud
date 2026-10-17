@@ -83,10 +83,14 @@ variable a workload sees.
 ## Networks without privilege
 
 - **A VPC, a Google Cloud network or an Azure virtual network is an engine
-  network**; a subnet is an address range inside it; every workload,
-  container or microVM, is a member with an engine-assigned address. One
-  network model replaces the two the simulators had (engine networks for some
-  workloads, host namespaces for others).
+  network** whose address range is the cloud resource's own CIDR; a subnet is
+  a range inside it; every workload, container or microVM, is a member whose
+  engine-assigned address is the one its elastic network interface, NIC or
+  instance reports, asked of the engine at attach. One network model replaces
+  the two the simulators had (engine networks for some workloads, host
+  namespaces for others). An engine refuses two live networks over one
+  address range, so two live VPCs sharing a CIDR do not coexist on one
+  engine: a recorded gap, lifted where agents on other hosts carry them.
 - **The cloud's fixed addresses are sidecars.** Each network carries a second,
   link-local subnet, and one sidecar per network sits at the cloud's resolver
   and metadata addresses — `169.254.169.253` and `169.254.169.254` for AWS,
@@ -133,10 +137,15 @@ the host. In distributed mode the same agent runs on another host.
    helper containers that held privilege on the simulator's behalf — the
    `CAP_NET_ADMIN` container that plumbed an Amazon ECS task's elastic
    network interface address and the `--privileged` container that attached
-   a managed EBS volume's image to a loop device. A managed EBS volume on the
-   container backend is an engine volume; its size bound, and a container
-   definition's `privileged`, are container-backend gaps a node agent's guest
-   closes, each a `BUGS.md` row. `realexec` keeps `lbplane`, IPAM and the
+   a managed EBS volume's image to a loop device. The VPC engine network
+   takes the VPC's CIDR and an awsvpc task or VPC Lambda invocation takes
+   its interface address from the engine, which is what the helper did. A
+   managed EBS volume on the container backend is an engine volume. The
+   privilege a cloud lets a workload ask for — a container definition's
+   `privileged`, a CodeBuild project's `privilegedMode`, an ACR task step's
+   `privileged` — is not granted on the container backend: the workload runs
+   without it, and what then fails is a `BUGS.md` row a node agent's guest
+   closes, like the volume's size bound. `realexec` keeps `lbplane`, IPAM and the
    rule parsers. Amazon EC2, Compute Engine and Azure virtual machine
    instances refuse to launch until stage 3, with the cloud's provisioning
    error. One pull request, so the removal reviews as one change.
