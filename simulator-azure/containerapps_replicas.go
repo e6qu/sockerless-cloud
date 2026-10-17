@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
 // Container Apps revisions, replicas and the log streams a replica's
@@ -129,9 +130,9 @@ func (s acaReplicaContainerSink) WriteLog(line sim.LogLine) {
 
 // track records the started container and, once it exits, its exit code; the
 // container's log ends with it.
-func (c *acaReplicaContainer) track(handle *sim.ContainerHandle, resourceID, envID, appName, revision, replica string) {
+func (c *acaReplicaContainer) track(handle placement.Handle, resourceID, envID, appName, revision, replica string) {
 	c.mu.Lock()
-	c.containerID = handle.ContainerID
+	c.containerID = handle.ID()
 	c.mu.Unlock()
 	acaRecordSystemEvent(resourceID, envID, appName, revision, replica, "ContainerCreated", fmt.Sprintf("Created container '%s'", c.name))
 	acaRecordSystemEvent(resourceID, envID, appName, revision, replica, "ContainerStarted", fmt.Sprintf("Started container '%s'", c.name))

@@ -94,7 +94,7 @@ func TestRemovedWorkloadLeavesNoAnonymousVolume(t *testing.T) {
 
 	t.Run("stop and remove", func(t *testing.T) {
 		named := namedTestVolume(t, "http")
-		containerID, err := StartHTTPContainer(t.Context(), HTTPContainerConfig{
+		handle, err := StartContainerSyncContext(t.Context(), ContainerConfig{
 			Image:        volumeDeclaringTestImage,
 			Architecture: "linux/" + runtime.GOARCH,
 			Command:      []string{"sh"},
@@ -102,12 +102,12 @@ func TestRemovedWorkloadLeavesNoAnonymousVolume(t *testing.T) {
 			Name:         fmt.Sprintf("sockerless-sim-anonymous-volume-http-%d", time.Now().UnixNano()),
 			Binds:        []string{named + ":/named"},
 			PublishPorts: []int{8080},
-		})
+		}, NoopSink{})
 		if err != nil {
 			t.Fatalf("start workload: %v", err)
 		}
-		anonymous := workloadVolumes(t, containerID, named)
-		StopAndRemoveContainer(containerID, 0)
+		anonymous := workloadVolumes(t, handle.ContainerID, named)
+		StopAndRemoveContainer(handle.ContainerID, 0)
 		assertVolumesAfterRemoval(t, anonymous, named)
 	})
 }

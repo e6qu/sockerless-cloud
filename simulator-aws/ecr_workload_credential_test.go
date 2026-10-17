@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -51,11 +50,5 @@ func TestECRWorkloadRegistryAuthFailsWithoutTheListenPort(t *testing.T) {
 	}
 	if want := `resolve the registry of image 127.0.0.1:4566/app:latest: invalid simulator listen port "notaport"`; err.Error() != want {
 		t.Fatalf("err = %q, want %q", err, want)
-	}
-
-	// The workload start fails with it rather than pulling anonymously.
-	handle, err := startLambdaVpcPauseContainer("inv-0001", nil)
-	if handle != nil || err == nil || !strings.Contains(err.Error(), `invalid simulator listen port "notaport"`) {
-		t.Fatalf("pause container start: handle %v err %v, want the listen-port error", handle, err)
 	}
 }

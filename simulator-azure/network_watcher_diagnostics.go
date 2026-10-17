@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/netrules"
 )
 
 // Network Watcher's on-demand diagnostics. Every verdict here is computed from
@@ -377,7 +377,7 @@ func azureSecurityPortMatches(ranges []string, port string) bool {
 		if entry == "" || entry == "*" {
 			return true
 		}
-		from, to, err := realexec.PortRange(entry)
+		from, to, err := netrules.PortRange(entry)
 		if err != nil {
 			continue
 		}

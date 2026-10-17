@@ -13,6 +13,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/netip"
 	"sort"
 	"strconv"
 	"strings"
@@ -174,8 +175,10 @@ type msRedisPlane struct {
 	cluster bool
 	labels  map[string]string
 
-	mu          sync.RWMutex
-	image       string
+	mu    sync.RWMutex
+	image string
+	// dns is the resolver the nodes' containers ask: the network's sidecar.
+	dns         []string
 	password    string
 	configs     [][2]string
 	persistence msRedisPersistence
@@ -562,9 +565,16 @@ func (p *msRedisPlane) startNodes(nodes []int) error {
 	if len(nodes) == 0 {
 		return nil
 	}
-	if _, err := sim.EnsureDockerNetwork(msRedisNetworkName()); err != nil {
+	if _, _, err := sim.EnsurePlatformNetwork(context.Background(), msRedisNetworkName(), nil); err != nil {
 		return fmt.Errorf("start the Redis engine: %w", err)
 	}
+	sidecar, err := gcpEnsureNetworkSidecar(context.Background(), msRedisNetworkName(), netip.Addr{})
+	if err != nil {
+		return fmt.Errorf("start the Redis engine: %w", err)
+	}
+	p.mu.Lock()
+	p.dns = []string{sidecar.String()}
+	p.mu.Unlock()
 	errs := make([]error, len(nodes))
 	var wg sync.WaitGroup
 	for i, node := range nodes {
@@ -583,7 +593,7 @@ func (p *msRedisPlane) startNodes(nodes []int) error {
 func (p *msRedisPlane) startNode(node int) error {
 	network := msRedisNetworkName()
 	p.mu.RLock()
-	image := p.image
+	image, dns := p.image, p.dns
 	p.mu.RUnlock()
 	labels := map[string]string{"sockerless-memorystore-node": strconv.Itoa(node)}
 	for key, value := range p.labels {
@@ -599,6 +609,7 @@ func (p *msRedisPlane) startNode(node int) error {
 		Labels:            labels,
 		Network:           network,
 		NetworkAliases:    []string{p.alias(node)},
+		DNS:               dns,
 		Sandbox:           SandboxCloudRun,
 	}, sim.NoopSink{})
 	if err != nil {

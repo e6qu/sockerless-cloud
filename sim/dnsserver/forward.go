@@ -4,7 +4,6 @@ import (
 	"context"
 	"net"
 	"net/netip"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -53,9 +52,9 @@ var ResolvConf = "/etc/resolv.conf"
 
 // upstreams returns the servers to recurse through, as host:port: those the
 // Recursion lists (port 53 when none is given), or else the nameservers of the
-// host's resolv.conf, read once. Entries that point back at this server — its
-// own listener, or an address a workload network rewrites into it — are left
-// out: forwarding to them is a query loop whose reply never comes.
+// host's resolv.conf, read once. An entry that points back at this server's
+// own listener is left out: forwarding to it is a query loop whose reply
+// never comes.
 func (s *Server) upstreams() []string {
 	rec := s.cfg.Recursion
 	if rec == nil {
@@ -76,7 +75,7 @@ func (s *Server) upstreams() []string {
 				continue
 			}
 			addr, err := netip.ParseAddr(host)
-			if err == nil && (slices.Contains(rec.Redirected, addr.Unmap()) || s.isSelf(addr.Unmap(), port)) {
+			if err == nil && s.isSelf(addr.Unmap(), port) {
 				continue
 			}
 			s.upstreamList = append(s.upstreamList, entry)

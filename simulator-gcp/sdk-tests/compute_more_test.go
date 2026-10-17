@@ -55,13 +55,21 @@ const moreProject = "test-project"
 func TestCompute_Images_CRUD(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
-	img := &compute.Image{Name: "sdk-image-1", SourceType: "RAW", DiskSizeGb: 10}
+	// images.insert takes the image's source: a raw disk, which on this
+	// simulator is an OCI reference an instance of the image runs.
+	img := &compute.Image{Name: "sdk-image-1", SourceType: "RAW", DiskSizeGb: 10,
+		RawDisk: &compute.ImageRawDisk{Source: "mirror.gcr.io/library/debian:12"}}
 	_, err := svc.Images.Insert(moreProject, img).Do()
 	require.NoError(t, err)
 
 	got, err := svc.Images.Get(moreProject, "sdk-image-1").Do()
 	require.NoError(t, err)
 	assert.Equal(t, "sdk-image-1", got.Name)
+	assert.Equal(t, "READY", got.Status)
+	assert.Equal(t, "mirror.gcr.io/library/debian:12", got.RawDisk.Source)
+
+	_, err = svc.Images.Insert(moreProject, &compute.Image{Name: "sdk-image-sourceless"}).Do()
+	require.Error(t, err, "an image needs a source")
 
 	_, err = svc.Images.SetLabels(moreProject, "sdk-image-1", &compute.GlobalSetLabelsRequest{Labels: map[string]string{"env": "test"}}).Do()
 	require.NoError(t, err)
@@ -406,7 +414,7 @@ func TestCompute_Operations_ListDelete(t *testing.T) {
 	regionOp, err := svc.RegionDisks.Insert(moreProject, region, &compute.Disk{Name: "op-scope-rdisk", SizeGb: 10}).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = svc.RegionDisks.Delete(moreProject, region, "op-scope-rdisk").Do() })
-	globalOp, err := svc.Images.Insert(moreProject, &compute.Image{Name: "op-scope-image", SourceType: "RAW"}).Do()
+	globalOp, err := svc.Images.Insert(moreProject, &compute.Image{Name: "op-scope-image", SourceType: "RAW", SourceImage: "projects/debian-cloud/global/images/family/debian-12"}).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = svc.Images.Delete(moreProject, "op-scope-image").Do() })
 
@@ -529,7 +537,6 @@ func TestCompute_AggregatedLists_Existing(t *testing.T) {
 	// Subnetworks and addresses are backed by real host networking, so the two
 	// aggregated views over them are read wherever that kernel support exists.
 	t.Run("scopes backed by real host networking", func(t *testing.T) {
-		requireNetworkHost(t)
 		const region = "us-central1"
 
 		_, err := svc.Networks.Insert(moreProject, &compute.Network{Name: "agg-net", AutoCreateSubnetworks: false}).Do()
@@ -568,10 +575,10 @@ func TestCompute_AggregatedLists_Existing(t *testing.T) {
 
 func TestCompute_InstanceActions(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	svc := computeService(t)
 	const zone = "us-central1-a"
 	const name = "sdk-inst-actions"
+	subnet := createInstanceSubnetwork(t, svc, moreProject, "us-central1", "actions-net", "10.82.0.0/24")
 
 	inst := &compute.Instance{
 		Name:        name,
@@ -580,10 +587,10 @@ func TestCompute_InstanceActions(t *testing.T) {
 			Boot:       true,
 			AutoDelete: true,
 			InitializeParams: &compute.AttachedDiskInitializeParams{
-				SourceImage: "projects/debian-cloud/global/images/family/debian-12",
+				SourceImage: "projects/debian-cloud/global/images/family/" + debianFamily(),
 			},
 		}},
-		NetworkInterfaces: []*compute.NetworkInterface{{Network: "projects/test-project/global/networks/default"}},
+		NetworkInterfaces: []*compute.NetworkInterface{{Subnetwork: subnet}},
 	}
 	op, err := svc.Instances.Insert(moreProject, zone, inst).Do()
 	require.NoError(t, err)

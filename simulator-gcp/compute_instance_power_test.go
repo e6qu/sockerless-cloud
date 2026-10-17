@@ -17,7 +17,7 @@ import (
 // These drive the instance verbs that move a machine in-process. The machine
 // moves are held open on channels through the gcpBootVM, gcpHaltVM and
 // gcpDestroyVM hooks, which is what lets a test read the instance and its
-// operation while the move is under way, on a host without nested KVM.
+// operation while the move is under way.
 
 const (
 	powerProject = "power-project"
@@ -60,6 +60,18 @@ func installMachineHooks(t *testing.T) *machineHooks {
 	// Registered before powerSimulator's drain, so it runs after the drain.
 	t.Cleanup(func() { gcpBootVM, gcpHaltVM, gcpDestroyVM = boot, halt, destroy })
 	return hooks
+}
+
+// installNoMachine lets the verbs move an instance's status without a
+// machine behind it, for a test about what the control plane records around
+// the move rather than the move itself.
+func installNoMachine(t *testing.T) {
+	t.Helper()
+	boot, halt, destroy := gcpBootVM, gcpHaltVM, gcpDestroyVM
+	gcpBootVM = func(context.Context, *ComputeInstance) error { return nil }
+	gcpHaltVM = func(context.Context, *ComputeInstance) error { return nil }
+	gcpDestroyVM = func(context.Context, *ComputeInstance) error { return nil }
+	t.Cleanup(func() { gcpBootVM, gcpHaltVM, gcpDestroyVM = boot, halt, destroy })
 }
 
 func awaitMove(t *testing.T, moving chan string, link, what string) {
@@ -223,7 +235,7 @@ func TestComputeInstanceStartFailureFinishesTheOperationWithTheError(t *testing.
 
 	op := startPowerVerb(t, srv, http.MethodPost, "unbootable", "start", "", "start")
 	awaitMove(t, hooks.booting, link, "boot")
-	hooks.boot <- errors.New("kvm:/dev/kvm missing")
+	hooks.boot <- errors.New("the backend could not place the machine")
 	bg.Await()
 
 	got := pollPowerOperation(t, srv, op.Name)
@@ -231,7 +243,7 @@ func TestComputeInstanceStartFailureFinishesTheOperationWithTheError(t *testing.
 		got.Error.Errors[0].Code != "INTERNAL_ERROR" || got.HTTPErrorStatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("operation after a failed boot = %+v, want DONE with INTERNAL_ERROR", got)
 	}
-	if !strings.Contains(got.Error.Errors[0].Message, "kvm:/dev/kvm missing") {
+	if !strings.Contains(got.Error.Errors[0].Message, "the backend could not place the machine") {
 		t.Fatalf("the operation's error hides why the boot failed: %q", got.Error.Errors[0].Message)
 	}
 	requirePowerStatus(t, link, ComputeInstanceTerminated)
@@ -361,9 +373,9 @@ func TestComputeInstanceBootOutlivedByItsInstanceTearsDownTheMachine(t *testing.
 	bg.Await()
 }
 
-// Without the hooks the verb drives the real machine path, which cannot boot
-// an instance whose subnetwork was never created on any host: the request
-// still answers at once, and the operation carries the verdict.
+// Without the hooks the verb drives the placement backend, which cannot boot
+// an instance whose subnetwork was never created: the request still answers
+// at once, and the operation carries the verdict.
 func TestComputeInstanceStartOnTheRealPathReportsTheBootFailureOnTheOperation(t *testing.T) {
 	srv := powerSimulator(t)
 	link := putPowerInstance(t, "real-path", ComputeInstanceTerminated)
@@ -418,7 +430,7 @@ func TestComputeInstanceResetFailureLeavesTheInstanceTerminated(t *testing.T) {
 	awaitMove(t, hooks.halting, link, "halt")
 	hooks.halt <- nil
 	awaitMove(t, hooks.booting, link, "boot")
-	hooks.boot <- errors.New("kvm:/dev/kvm missing")
+	hooks.boot <- errors.New("the backend could not place the machine")
 	bg.Await()
 
 	got := pollPowerOperation(t, srv, op.Name)

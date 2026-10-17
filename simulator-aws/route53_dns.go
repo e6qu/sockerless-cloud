@@ -3,14 +3,14 @@ package main
 import (
 	"fmt"
 	"log"
-	"net"
-	"net/netip"
 	"os"
 	"strings"
 	"sync"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/dnsserver"
+	"github.com/e6qu/sockerless-cloud/sim/sidecar"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	"github.com/miekg/dns"
 )
 
@@ -23,13 +23,10 @@ import (
 var (
 	r53DNS     *dnsserver.Server
 	r53DNSOnce sync.Once
-	// r53ResolverVPCs maps the address a VPC's redirected queries arrive at to
-	// the VPC, which decides the private zones a query sees.
+	// r53ResolverVPCs maps the engine network whose sidecar forwarded a query
+	// to the VPC, which decides the private zones the query sees.
 	r53ResolverVPCs sync.Map
 )
-
-// vpcResolverAddr is the link-local address tasks reach the resolver through.
-var vpcResolverAddr = netip.MustParseAddr("169.254.169.253")
 
 // route53UpstreamOverride names the resolvers to recurse through, host[:port]
 // comma-separated; empty reads the host's resolv.conf.
@@ -45,6 +42,33 @@ func startRoute53DNSServer() {
 	})
 }
 
+// networkSidecars runs one sidecar per engine network workloads land on, at
+// the VPC's base-plus-two address the Route 53 Resolver answers on, forwarding
+// DNS to r53DNS and metadata to the simulator. It exists once the first
+// workload network needs it, so a simulator built without a listener of its
+// own serves the control plane alone.
+var (
+	networkSidecars     *sidecar.Manager
+	networkSidecarsErr  error
+	networkSidecarsOnce sync.Once
+)
+
+func awsNetworkSidecars() (*sidecar.Manager, error) {
+	networkSidecarsOnce.Do(func() {
+		if r53DNS == nil {
+			networkSidecarsErr = errNoNetworkSidecars
+			return
+		}
+		origin, err := workloadhost.CallbackAddr(simListenAddr)
+		if err != nil {
+			networkSidecarsErr = fmt.Errorf("network sidecars: workload callback: %w", err)
+			return
+		}
+		networkSidecars = sidecar.NewManager(r53DNS, "http://"+origin, sim.NoopSink{})
+	})
+	return networkSidecars, networkSidecarsErr
+}
+
 func route53DNSConfig(host, port string) dnsserver.Config {
 	return dnsserver.Config{
 		Host:    host,
@@ -52,35 +76,27 @@ func route53DNSConfig(host, port string) dnsserver.Config {
 		Catalog: route53Catalog,
 		Name:    "route53",
 		Recursion: &dnsserver.Recursion{
-			Upstreams:  os.Getenv(route53UpstreamOverride),
-			Redirected: []netip.Addr{vpcResolverAddr},
+			Upstreams: os.Getenv(route53UpstreamOverride),
 		},
 	}
 }
 
-// route53DNSPort is the port the resolver answers on, which a workload
-// namespace's DNS is redirected to.
-func route53DNSPort() (int, error) {
-	if r53DNS == nil {
-		return 0, fmt.Errorf("the simulator's resolver is not listening yet")
-	}
-	return r53DNS.Port(), nil
+// route53RegisterResolverNetwork records that queries forwarded by the
+// sidecar of the engine network come from vpcID.
+func route53RegisterResolverNetwork(network, vpcID string) {
+	r53ResolverVPCs.Store(network, vpcID)
 }
 
-// route53RegisterResolverIP records that queries arriving at addr come from
-// vpcID.
-func route53RegisterResolverIP(addr net.IP, vpcID string) error {
-	local, ok := netip.AddrFromSlice(addr.To4())
-	if !ok {
-		return fmt.Errorf("resolver address %s of %s is not IPv4", addr, vpcID)
+// stopRoute53Sidecars removes every network sidecar at shutdown.
+func stopRoute53Sidecars() {
+	if networkSidecars != nil {
+		networkSidecars.Close()
 	}
-	r53ResolverVPCs.Store(local, vpcID)
-	return nil
 }
 
 func route53Catalog(q dnsserver.Query) dnsserver.View {
 	var vpcID string
-	if v, ok := r53ResolverVPCs.Load(q.Local); ok {
+	if v, ok := r53ResolverVPCs.Load(q.Network); ok {
 		vpcID, _ = v.(string)
 	}
 	resources := elbv2DNSRecords()

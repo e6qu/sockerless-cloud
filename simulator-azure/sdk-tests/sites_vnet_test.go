@@ -40,8 +40,7 @@ func TestSDK_SiteVNetIntegration_RoundTrip(t *testing.T) {
 	_, err = p.PollUntilDone(ctx, nil)
 	require.NoError(t, err)
 
-	subnetID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg +
-		"/providers/Microsoft.Network/virtualNetworks/sdk-sitevnet/subnets/appservice"
+	subnetID := stage5Subnet(t, rg, "sdk-sitevnet", "10.71.0.0/16", "appservice", "10.71.1.0/24")
 
 	put, err := client.CreateOrUpdateSwiftVirtualNetworkConnectionWithCheck(ctx, rg, site, armappservice.SwiftVirtualNetwork{
 		Properties: &armappservice.SwiftVirtualNetworkProperties{

@@ -84,7 +84,6 @@ func TestCompute_TargetPoolMembership(t *testing.T) {
 
 func TestCompute_NetworkPeering(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	svc := computeService(t)
 	const project = "peering-project"
 
@@ -140,7 +139,6 @@ func TestCompute_NetworkPeering(t *testing.T) {
 
 func TestCompute_NetworkSwitchToCustomMode(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	svc := computeService(t)
 	const project, name = "custom-mode", "auto"
 

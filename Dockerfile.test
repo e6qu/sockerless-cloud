@@ -5,11 +5,9 @@
 # directory, and the macOS path of the Azure and Google Cloud Terraform suites
 # (`runTerraformTestsInDocker`), run the SDK, CLI and Terraform suites inside
 # this image with the repository mounted at /src and the host engine socket
-# mounted, so a developer on macOS exercises the same real-network handlers —
-# namespaces, bridges, veth pairs, nftables, Firecracker — that CI does on its
-# Linux runners. README.md, docs/MAKEFILE_STANDARD.md, four Makefiles and the
-# Go harness all named this file; none of them had it until now, so every one
-# of those paths failed at "open Dockerfile.test: no such file or directory".
+# mounted, so a developer on macOS runs the suites with the toolchains CI's
+# Linux runners have. The container needs no privilege: the simulators hold
+# none.
 #
 # Every download is pinned to a version and a digest: this image decides what a
 # test result means, so two builds of it must be the same image.
@@ -17,20 +15,17 @@
 # The frontend above and the base image come from mirror.gcr.io, Google's copy
 # of Docker Hub, each pinned to the digest Docker Hub serves: Docker Hub limits
 # anonymous pulls per address.
-FROM mirror.gcr.io/library/ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
+FROM mirror.gcr.io/library/ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
 
 ARG TARGETARCH
 ENV DEBIAN_FRONTEND=noninteractive
 
-# What the suites and the handlers under test reach for: the real-network
-# fabric (iproute2, nftables, iptables, procps for sysctl), Firecracker's guest
-# assets (squashfs-tools, e2fsprogs), the entrypoint's DNS shim (dnsmasq) and
-# privilege drop (util-linux's setpriv), and the usual build/test tooling.
+# What the suites reach for: the entrypoint's DNS shim (dnsmasq) and privilege
+# drop (util-linux's setpriv), and the usual build/test tooling.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates curl git make jq unzip xz-utils gnupg \
-        iproute2 iptables nftables iputils-ping procps util-linux dnsmasq \
-        openssh-client squashfs-tools e2fsprogs python3 \
+        iproute2 iputils-ping procps util-linux dnsmasq python3 \
     && install -d -m 0755 /etc/apt/keyrings \
     && rm -rf /var/lib/apt/lists/*
 
@@ -112,16 +107,6 @@ ENV CLOUDSDK_CORE_DISABLE_PROMPTS=1
 COPY scripts/install-caddy.sh /tmp/caddy-install/scripts/install-caddy.sh
 COPY make/https-gateway/Caddyfile /tmp/caddy-install/make/https-gateway/Caddyfile
 RUN bash /tmp/caddy-install/scripts/install-caddy.sh && rm -rf /tmp/caddy-install
-
-# Firecracker + jailer, the same release CI installs (scripts/install-firecracker.sh).
-ARG FIRECRACKER_VERSION=v1.15.1
-COPY scripts/install-firecracker.sh /tmp/install-firecracker.sh
-# The installer says `sudo install`; in the build there is no sudo and no need
-# for one, so a shim that runs the command as the root the build already is.
-RUN printf '#!/bin/sh\nexec "$@"\n' > /usr/local/bin/sudo && chmod 0755 /usr/local/bin/sudo \
-    && FIRECRACKER_VERSION="${FIRECRACKER_VERSION}" FIRECRACKER_BIN_CACHE=/tmp/fc-cache bash /tmp/install-firecracker.sh \
-    && rm -rf /tmp/fc-cache /tmp/install-firecracker.sh /usr/local/bin/sudo \
-    && firecracker --version
 
 # The Docker CLI: the suites shell out to `docker` against the engine socket
 # the harness mounts. Docker's own signed apt repository, the key checked by

@@ -2,6 +2,7 @@ package aws_sdk_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -25,12 +26,13 @@ func TestEC2_AMILifecycleSDK(t *testing.T) {
 	subnet := createSubnetFor(t, c, vpc.Vpc.VpcId, "10.140.1.0/24")
 
 	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
-		ImageId: aws.String("ami-12345678"), InstanceType: types.InstanceTypeT3Micro,
+		ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
 	})
 	require.NoError(t, err)
 	terminateEC2InstancesOnCleanup(t, c, run)
 	instID := aws.ToString(run.Instances[0].InstanceId)
+	waitForEC2InstanceRunning(t, c, instID)
 
 	// CreateImage from the instance.
 	img, err := c.CreateImage(ctx, &ec2.CreateImageInput{
@@ -45,6 +47,11 @@ func TestEC2_AMILifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 	amiID := aws.ToString(img.ImageId)
 	require.NotEmpty(t, amiID)
+	_, err = ec2.NewImageAvailableWaiter(c, func(o *ec2.ImageAvailableWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).WaitForOutput(ctx, &ec2.DescribeImagesInput{ImageIds: []string{amiID}}, 5*time.Minute)
+	require.NoError(t, err, "the capture of %s never became available", instID)
 
 	got := describeOneImage(t, c, amiID)
 	assert.Equal(t, "my-golden-ami", aws.ToString(got.Name))

@@ -14,19 +14,27 @@ import (
 
 func TestCompute_InstancesBulkInsert(t *testing.T) {
 	t.Parallel()
-	// Every member of the run is a real virtual machine on a real network
-	// interface, so the run needs the host that can boot one — the same
-	// requirement a single instances.insert has.
-	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, zone = "bulk-project", "us-central1-a"
+	subnet := createInstanceSubnetwork(t, svc, project, "us-central1", "bulk-net", "10.81.0.0/24")
 
 	properties := func() *compute.InstanceProperties {
 		return &compute.InstanceProperties{
-			MachineType:       "e2-micro",
-			NetworkInterfaces: []*compute.NetworkInterface{{Name: "nic0", Network: "global/networks/default"}},
+			MachineType: "e2-micro",
+			Disks: []*compute.AttachedDisk{{
+				Boot: true, AutoDelete: true,
+				InitializeParams: &compute.AttachedDiskInitializeParams{
+					SourceImage: "projects/debian-cloud/global/images/family/" + debianFamily(),
+				},
+			}},
+			NetworkInterfaces: []*compute.NetworkInterface{{Name: "nic0", Subnetwork: subnet}},
 		}
 	}
+	t.Cleanup(func() {
+		for _, name := range []string{"worker-001", "worker-002", "worker-003"} {
+			_, _ = svc.Instances.Delete(project, zone, name).Do()
+		}
+	})
 
 	op, err := svc.Instances.BulkInsert(project, zone, &compute.BulkInsertInstanceResource{
 		Count: 3, MinCount: 3, NamePattern: "worker-###",

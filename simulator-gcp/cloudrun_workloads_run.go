@@ -168,7 +168,7 @@ func runCloudRunWorkerPool(pool WorkerPoolV2) {
 		run.instances = run.instances[:last]
 	}
 	for len(run.instances) < want {
-		run.instances = append(run.instances, startCloudRunWorkerPoolInstance(pool.Name, revision, containers, volumes))
+		run.instances = append(run.instances, startCloudRunWorkerPoolInstance(pool.Name, revision, pool.Template.VpcAccess, containers, volumes))
 	}
 	running := append([]*cloudRunRun(nil), run.instances...)
 	if want == 0 {
@@ -217,7 +217,7 @@ func stopCloudRunWorkerPool(name string) {
 // containers start as one container group and run until the main container
 // exits or the instance is retired, which sends the containers the stop
 // signal with Cloud Run's grace.
-func startCloudRunWorkerPoolInstance(poolName, revision string, containers []Container, volumes []Volume) *cloudRunRun {
+func startCloudRunWorkerPoolInstance(poolName, revision string, vpc *VpcAccess, containers []Container, volumes []Volume) *cloudRunRun {
 	run, ctx := newCloudRunRun()
 	poolID := poolName[strings.LastIndex(poolName, "/")+1:]
 	instanceID := sim.RandomHex(8)
@@ -227,6 +227,8 @@ func startCloudRunWorkerPoolInstance(poolName, revision string, containers []Con
 		defer close(run.done)
 		group, releaseMounts, err := startCloudRunContainerGroup(ctx, cloudRunContainerGroup{
 			project:    resourceProject(poolName),
+			region:     resourceLocation(poolName),
+			vpc:        vpc,
 			containers: containers,
 			volumes:    volumes,
 			name: func(i int) string {
@@ -311,7 +313,7 @@ func runCloudRunInstance(inst InstanceV2) {
 		defer close(run.done)
 		restarts := 0
 		for {
-			running, err := ensureCloudRunServiceInstance(ctx, inst.Name, instanceID, inst.Containers, inst.Volumes, sink)
+			running, err := ensureCloudRunServiceInstance(ctx, inst.Name, instanceID, inst.VpcAccess, inst.Containers, inst.Volumes, sink)
 			if err == nil {
 				_, err = running.awaitReady(ctx)
 				if err != nil {

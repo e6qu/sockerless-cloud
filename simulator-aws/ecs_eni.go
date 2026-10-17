@@ -4,8 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/e6qu/sockerless-cloud/realexec/fabric"
+	"github.com/e6qu/sockerless-cloud/sim/ipam"
 )
+
+// ec2MACPrefix is the locally administered OUI the simulator derives interface
+// MAC addresses under.
+const ec2MACPrefix = "02:0a:ec"
 
 // ecsCreateTaskNetworkInterface creates the elastic network interface an
 // awsvpc task owns, in its subnet, at RunTask: the task's attachment reports
@@ -37,7 +41,7 @@ func ecsCreateTaskNetworkInterface(taskID, attachmentID, subnetID, privateIP str
 		Details: []ECSKeyValuePair{
 			{Name: "subnetId", Value: subnetID},
 			{Name: "networkInterfaceId", Value: eni.NetworkInterfaceId},
-			{Name: "macAddress", Value: fabric.DeriveMAC(ec2MACPrefix, taskID)},
+			{Name: "macAddress", Value: ipam.DeriveMAC(ec2MACPrefix, taskID)},
 			{Name: "privateDnsName", Value: fmt.Sprintf("ip-%s.%s.compute.internal", strings.ReplaceAll(privateIP, ".", "-"), awsRegion())},
 			{Name: "privateIPv4Address", Value: privateIP},
 		},

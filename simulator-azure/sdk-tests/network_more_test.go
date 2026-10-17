@@ -63,10 +63,9 @@ func TestNetwork_PublicIPDdosAndCloudServiceReservation(t *testing.T) {
 }
 
 // TestNetwork_LoadBalancerExtraOps covers the load-balancer operations beyond
-// CRUD that do not require a real network host: the associated network-interface
-// list (empty with no NICs), the VIP swap, the inbound-NAT port-mapping query,
-// the per-rule health (zero backends → 0 up / 0 down) and the NIC→IP-based pool
-// migration.
+// CRUD: the associated network-interface list (empty with no NICs), the VIP
+// swap, the inbound-NAT port-mapping query, the per-rule health (zero backends
+// → 0 up / 0 down) and the NIC→IP-based pool migration.
 func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 	t.Parallel()
 	rg := "lb-extra-rg"
@@ -189,7 +188,7 @@ func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 // TestNetwork_SubnetLinksAndVnetDdos covers the subnet resource/service
 // association link reads (empty for a subnet with no delegated services) and
 // the virtual-network DDoS protection status (empty with no attached public
-// IPs). Neither requires a real network host.
+// IPs).
 //
 // The virtual network and subnet are created first, and that is the point of
 // the test rather than setup detail. An "empty collection" assertion against a
@@ -199,14 +198,8 @@ func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 // where the real service answers ResourceNotFound. So the empty reads run
 // against a subnet that exists, and the refusal for one that does not is
 // asserted beside them.
-// The subnet has to be created, and creating a subnet builds real Linux
-// network fabric, so this joins the rest of the Microsoft.Network suite behind
-// the host-capability gate. It runs for real on the CI Linux cell. That is a
-// better trade than the version it replaces, which ran everywhere and proved
-// nothing: its subject did not exist on any host.
 func TestNetwork_SubnetLinksAndVnetDdos(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	rg := "links-rg"
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -289,7 +282,6 @@ func requireAzureNotFound(t *testing.T, err error, what string) {
 // interface whose IP configuration joins the load balancer's backend pool.
 func TestNetwork_InterfaceLoadBalancerAssociations(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	rg := "assoc-rg"
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)

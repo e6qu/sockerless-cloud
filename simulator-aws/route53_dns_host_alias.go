@@ -8,14 +8,9 @@ import (
 )
 
 // workloadHostAliasRecords answers the container-host aliases
-// (host.docker.internal, host.containers.internal) with the same address every
-// other network tier already receives in /etc/hosts.
-//
-// A workload in the netns tier shares the pause container's network namespace,
-// and a container joined to another container's namespace cannot be given host
-// entries at all — the runtime rejects the create. Its DNS already arrives at
-// this resolver, so answering here gives that tier the address every other
-// tier gets, and nothing more.
+// (host.docker.internal, host.containers.internal) with the address a
+// workload receives for them in /etc/hosts, so a workload whose DNS arrives
+// at this resolver reaches the host by the same names.
 //
 // The names are served ahead of the zones rather than as a hosted zone: real
 // AWS has no such name, so a zone would show up in ListHostedZones. A question

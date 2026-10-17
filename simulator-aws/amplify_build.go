@@ -18,6 +18,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
@@ -429,6 +430,12 @@ func amplifyRunRealBuild(appID, branch, jobID, urlBase, repo, specText string, e
 		}
 	}
 	projectRelative, _ := filepath.Rel(workDir, projectDir)
+	network, err := awsPlatformNetwork(context.Background())
+	if err != nil {
+		buildLog.Printf("# build network: %v", err)
+		finishStep("BUILD", buildLog, AmplifyJobStatusFailed)
+		return AmplifyJobStatusFailed
+	}
 	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
 		Image:        amplifyBuildImage(),
 		Architecture: "linux/amd64",
@@ -437,11 +444,14 @@ func amplifyRunRealBuild(appID, branch, jobID, urlBase, repo, specText string, e
 		// The build writes real artifacts back into this workspace. A shared
 		// SELinux relabel gives the confined build container that access on
 		// enforcing hosts and is accepted as a no-op by Docker elsewhere.
-		Binds:   []string{workDir + ":/workspace:z"},
-		Env:     env,
-		Timeout: amplifyBuildTimeout,
-		Labels:  map[string]string{"sockerless-amplify-job": jobID},
-		Sandbox: SandboxFargate,
+		Binds:      []string{workDir + ":/workspace:z"},
+		Env:        env,
+		Network:    network.Name,
+		DNS:        network.DNS(),
+		ExtraHosts: workloadhost.ExtraHosts(),
+		Timeout:    amplifyBuildTimeout,
+		Labels:     map[string]string{"sockerless-amplify-job": jobID},
+		Sandbox:    SandboxFargate,
 	}, buildLog)
 	if err != nil {
 		buildLog.Printf("# start build container: %v", err)

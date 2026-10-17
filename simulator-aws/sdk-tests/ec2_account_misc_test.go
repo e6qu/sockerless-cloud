@@ -125,7 +125,7 @@ func TestEC2_ClassicLinkRoundTripSDK(t *testing.T) {
 	defer func() { _, _ = c.DeleteVpc(ctx, &ec2.DeleteVpcInput{VpcId: vpc.Vpc.VpcId}) }()
 
 	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
-		ImageId:      aws.String("ami-12345678"),
+		ImageId:      aws.String(ec2AmazonLinuxAMI(t)),
 		InstanceType: types.InstanceTypeT3Micro,
 		MinCount:     aws.Int32(1),
 		MaxCount:     aws.Int32(1),

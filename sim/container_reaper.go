@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/moby/moby/client"
 )
 
@@ -93,7 +92,7 @@ func startContainerReaper(provider string) error {
 	simulatorProvider = provider
 	simulatorRunID = runID
 	command := exec.Command(executable, containerReaperArgument, provider, runID, strconv.Itoa(os.Getpid()))
-	realexec.DetachCommand(command)
+	DetachCommand(command)
 	if err := command.Start(); err != nil {
 		return fmt.Errorf("start workload cleanup reaper: %w", err)
 	}

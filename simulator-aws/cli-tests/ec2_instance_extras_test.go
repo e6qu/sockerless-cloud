@@ -13,7 +13,7 @@ func ec2LaunchInstanceCLI(t *testing.T, q func(args ...string) string, base stri
 		"--query", "Vpc.VpcId", "--output", "text")
 	subnet := q("ec2", "create-subnet", "--vpc-id", vpc, "--cidr-block", base+".1.0/24",
 		"--query", "Subnet.SubnetId", "--output", "text")
-	inst := q("ec2", "run-instances", "--image-id", "ami-12345678",
+	inst := q("ec2", "run-instances", "--image-id", ec2AmazonLinuxAMI(t),
 		"--instance-type", "t3.micro", "--subnet-id", subnet,
 		"--query", "Instances[0].InstanceId", "--output", "text")
 	terminateCLIInstanceOnCleanup(t, inst)

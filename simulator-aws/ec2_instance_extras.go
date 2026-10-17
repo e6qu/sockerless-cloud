@@ -622,13 +622,16 @@ func handleGetConsoleOutput(w http.ResponseWriter, r *http.Request) {
 	if _, ok := ec2RequireInstance(w, instanceID); !ok {
 		return
 	}
-	// The console output is deterministic for the instance: a boot log keyed on
-	// the instance ID, base64-encoded as the API requires.
-	output := fmt.Sprintf("[    0.000000] Booting instance %s\n[    1.234567] cloud-init: finished\n", instanceID)
-	encoded := base64.StdEncoding.EncodeToString([]byte(output))
+	// The console carries what the instance's machine wrote to it, the most
+	// recent 64 KB, base64-encoded as the API requires; an instance that has
+	// written nothing has no output element.
+	output := ""
+	if console := ec2ConsoleOutput(r.Context(), instanceID); console != "" {
+		output = "<output>" + base64.StdEncoding.EncodeToString([]byte(console)) + "</output>"
+	}
 	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<GetConsoleOutputResponse %s><requestId>%s</requestId><instanceId>%s</instanceId><timestamp>%s</timestamp><output>%s</output></GetConsoleOutputResponse>`,
-		ec2Xmlns(), sim.NewUUID(), instanceID, ec2NowRFC3339Milli(), encoded)
+	fmt.Fprintf(w, `<GetConsoleOutputResponse %s><requestId>%s</requestId><instanceId>%s</instanceId><timestamp>%s</timestamp>%s</GetConsoleOutputResponse>`,
+		ec2Xmlns(), sim.NewUUID(), instanceID, ec2NowRFC3339Milli(), output)
 }
 
 func handleGetConsoleScreenshot(w http.ResponseWriter, r *http.Request) {

@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -13,19 +11,11 @@ import (
 )
 
 // The Microsoft.Compute virtual-machine operations beyond the lifecycle in
-// compute.go. They divide by what they actually need, and each is served here
-// only because that need is met:
-//
-//   - Off the machine's own state: ListAvailableSizes, ListByLocation,
-//     Generalize, ConvertToManagedDisks.
-//   - Off the real guest process: Redeploy, Reimage, Reapply,
-//     PerformMaintenance and SimulateEviction all move a running Firecracker
-//     guest, and RetrieveBootDiagnosticsData returns the console output that
-//     guest really produced.
-//
-// The operations still unserved — Capture and the extension and patch
-// families — need an execution path inside the guest that does not exist, and
-// are tracked rather than answered with invented data.
+// compute.go. ListAvailableSizes, ListByLocation, Generalize and
+// ConvertToManagedDisks answer off the machine's own state; Redeploy, Reimage,
+// Reapply, PerformMaintenance and SimulateEviction move the machine's workload
+// through the placement hooks; RetrieveBootDiagnosticsData returns the console
+// output the guest wrote, through azureGuestConsole.
 
 // azureVMResourceID renders the ARM id for the virtual machine a request
 // addresses.
@@ -96,8 +86,7 @@ func registerVirtualMachineStateOperations(srv *sim.Server, armBase string) {
 		if !ok {
 			return
 		}
-		state, _ := azureVMStates.Get(id)
-		if state == "PowerState/running" && azureFabric.VMAlive(id) {
+		if state, _ := azureVMStates.Get(id); state == "PowerState/running" {
 			AzureErrorf(w, "OperationNotAllowed", http.StatusConflict,
 				"Generalize is not allowed on VM %q because it is not in a stopped state.", id)
 			return
@@ -115,8 +104,7 @@ func registerVirtualMachineStateOperations(srv *sim.Server, armBase string) {
 		if !ok {
 			return
 		}
-		state, _ := azureVMStates.Get(id)
-		if state == "PowerState/running" && azureFabric.VMAlive(id) {
+		if state, _ := azureVMStates.Get(id); state == "PowerState/running" {
 			AzureErrorf(w, "OperationNotAllowed", http.StatusConflict,
 				"ConvertToManagedDisks is not allowed on VM %q because it is not in a deallocated state.", id)
 			return
@@ -192,12 +180,12 @@ func azureConvertVMDisksToManaged(vm *VirtualMachine) bool {
 func registerVirtualMachineGuestOperations(srv *sim.Server, armBase string) {
 	logger := srv.Logger()
 
-	// Each of these ends with the machine running again on a fresh guest
-	// process, which is what the operation means on real hardware: Azure moves
-	// the machine to a new node (redeploy), resets its disk to the image
-	// (reimage), reapplies its model (reapply), or moves it off a node due for
-	// maintenance. The simulator does the same thing to the Firecracker guest
-	// rather than recording that it happened.
+	// Each of these ends with the machine running again on a fresh workload,
+	// which is what the operation means on real hardware: Azure moves the
+	// machine to a new node (redeploy), resets its disk to the image (reimage),
+	// reapplies its model (reapply), or moves it off a node due for
+	// maintenance. The simulator halts and places the workload again rather
+	// than recording that it happened.
 	for _, action := range []string{"redeploy", "reimage", "reapply", "performMaintenance"} {
 		action := action
 		srv.HandleFunc("POST "+armBase+"/virtualMachines/{vmName}/"+action, func(w http.ResponseWriter, r *http.Request) {
@@ -225,6 +213,14 @@ func registerVirtualMachineGuestOperations(srv *sim.Server, armBase string) {
 				if err := azureHaltVM(ctx, id); err != nil {
 					azureVMStates.Put(id, priorState)
 					return azureVMHaltFailure(id, err)
+				}
+				// A reimage resets the disk to the image, so the kept disk goes
+				// and the boot places the machine afresh.
+				if action == "reimage" {
+					if err := azureDiscardVMDisk(id); err != nil {
+						azureVMStates.Put(id, priorState)
+						return azureVMHaltFailure(id, err)
+					}
 				}
 				if !wasRunning {
 					return nil
@@ -297,15 +293,15 @@ func registerVirtualMachineGuestOperations(srv *sim.Server, armBase string) {
 
 func registerVirtualMachineBootDiagnostics(srv *sim.Server, armBase string) {
 	// VirtualMachines_RetrieveBootDiagnosticsData returns the URIs of the
-	// machine's boot artifacts. The serial console log is the output the
-	// Firecracker guest really wrote to its console, stored into the storage
-	// account the machine's diagnostics profile names and read back through the
-	// same Blob data plane a client downloads it from.
+	// machine's boot artifacts. The serial console log is the output the guest
+	// wrote to its console, stored into the storage account the machine's
+	// diagnostics profile names and read back through the same Blob data plane
+	// a client downloads it from.
 	//
-	// No console screenshot is returned. The guest is a serial-console machine
-	// with no framebuffer, so there is no screenshot to take; the member is
-	// optional in the response, and a URI pointing at an image that does not
-	// exist would be worse than its absence.
+	// No console screenshot is returned. The guest has no framebuffer, so there
+	// is no screenshot to take; the member is optional in the response, and a
+	// URI pointing at an image that does not exist would be worse than its
+	// absence.
 	srv.HandleFunc("POST "+armBase+"/virtualMachines/{vmName}/retrieveBootDiagnosticsData", func(w http.ResponseWriter, r *http.Request) {
 		vm, id, ok := azureLookupVM(w, r)
 		if !ok {
@@ -316,7 +312,7 @@ func registerVirtualMachineBootDiagnostics(srv *sim.Server, armBase string) {
 			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "%v", err)
 			return
 		}
-		console, err := azureGuestConsoleOutput(id)
+		console, err := azureGuestConsole(r.Context(), id)
 		if err != nil {
 			AzureErrorf(w, "OperationNotAllowed", http.StatusConflict, "%v", err)
 			return
@@ -381,21 +377,4 @@ func azureBootDiagnosticsPath(vm VirtualMachine) (container, blob string) {
 		name = "vm"
 	}
 	return "bootdiagnostics-" + name, name + ".serialconsole.log"
-}
-
-// azureGuestConsoleOutput reads the console output the machine's Firecracker
-// guest wrote. A machine with no live guest has produced no console output, and
-// saying so is the honest answer — an empty log would be indistinguishable from
-// a guest that booted silently.
-func azureGuestConsoleOutput(vmID string) ([]byte, error) {
-	guest := azureFabric.VM(vmID)
-	if guest == nil {
-		return nil, fmt.Errorf(
-			"virtual machine %q has no running guest, so it has produced no console output", vmID)
-	}
-	console, err := os.ReadFile(filepath.Join(guest.WorkDir, "firecracker-console.log"))
-	if err != nil {
-		return nil, fmt.Errorf("read the guest console output of %q: %w", vmID, err)
-	}
-	return console, nil
 }

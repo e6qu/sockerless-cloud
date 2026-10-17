@@ -43,7 +43,7 @@ func TestEC2_NetworkInterfaceLifecycle(t *testing.T) {
 
 	// Run an instance to attach to.
 	runOut, err := client.RunInstances(ctx, &ec2.RunInstancesInput{
-		ImageId:      aws.String("ami-12345678"),
+		ImageId:      aws.String(ec2AmazonLinuxAMI(t)),
 		InstanceType: types.InstanceTypeT3Micro,
 		MinCount:     aws.Int32(1),
 		MaxCount:     aws.Int32(1),

@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // EC2InstanceConnectEndpoint models an EC2 Instance Connect Endpoint (eice-…) —
@@ -507,14 +510,26 @@ func handleUnmonitorInstances(w http.ResponseWriter, r *http.Request) {
 func handleRebootInstances(w http.ResponseWriter, r *http.Request) {
 	ids := ec2ParamList(r, "InstanceId")
 	for _, id := range ids {
-		if _, ok := ec2Instances.Get(id); !ok {
+		inst, ok := ec2Instances.Get(id)
+		if !ok {
 			ec2ErrorXML(w, "InvalidInstanceID.NotFound", fmt.Sprintf("The instance ID '%s' does not exist", id), http.StatusBadRequest)
 			return
 		}
+		if inst.State != "running" {
+			ec2ErrorXML(w, "IncorrectInstanceState", fmt.Sprintf("The instance '%s' is not in the 'running' state.", id), http.StatusBadRequest)
+			return
+		}
 	}
-	// Real RebootInstances is an asynchronous in-place restart: the instance
-	// stays "running" throughout. The sim keeps the instance running and
-	// returns success, faithful to the API contract.
+	// A reboot restarts the machine in place: the instance stays running
+	// throughout while its init stops and boots again on the same root disk.
+	for _, id := range ids {
+		instanceID := id
+		bg.Go(func() {
+			if err := ec2RebootWorkload(context.Background(), instanceID); err != nil {
+				fmt.Fprintf(os.Stderr, "[sim-ec2] instance %s: reboot: %v\n", instanceID, err)
+			}
+		})
+	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<RebootInstancesResponse %s><requestId>%s</requestId><return>true</return></RebootInstancesResponse>`,
 		ec2Xmlns(), sim.NewUUID())

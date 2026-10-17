@@ -1305,7 +1305,11 @@ func runContainerStep(ctx context.Context, b Build, workDir string, step *BuildS
 		return err
 	}
 	output := &cloudBuildStepOutput{}
-	handle, err := sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
+	netw, err := gcpPlatformNetwork(ctx)
+	if err != nil {
+		return err
+	}
+	cfg := sim.ContainerConfig{
 		Image:        step.Name,
 		Architecture: platform,
 		RegistryAuth: registryAuth,
@@ -1316,7 +1320,9 @@ func runContainerStep(ctx context.Context, b Build, workDir string, step *BuildS
 		WorkingDir:   cloudBuildStepContainerDir(step.Dir),
 		Labels:       map[string]string{"sockerless-sim-build": b.ID},
 		Sandbox:      SandboxCloudBuild,
-	}, output)
+	}
+	netw.apply(&cfg)
+	handle, err := sim.StartContainerSyncContext(ctx, cfg, output)
 	if err != nil {
 		return err
 	}

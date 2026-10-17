@@ -142,8 +142,9 @@ func TestVirtualMachineExtensionRefusesAnUnknownHandler(t *testing.T) {
 	}
 }
 
-// A Custom Script extension on a machine with no running guest is refused,
-// because there is nowhere for its command to run.
+// A Custom Script extension on a machine that is not running fails the way a
+// guest that could not process the extension fails, because there is nowhere
+// for its command to run; it is never recorded as provisioned.
 func TestVirtualMachineExtensionRefusesAMachineWithNoGuest(t *testing.T) {
 	srv := vmOpsSimulator(t)
 	putVMOpsMachine(t, "ext-noguest-vm", "eastus", nil)
@@ -152,11 +153,14 @@ func TestVirtualMachineExtensionRefusesAMachineWithNoGuest(t *testing.T) {
 		vmOpsID("ext-noguest-vm")+"/extensions/script",
 		`{"properties":{"publisher":"Microsoft.Azure.Extensions","type":"CustomScript",
 		  "typeHandlerVersion":"2.1","settings":{"commandToExecute":"echo hello"}}}`)
-	if rec.Code != http.StatusBadRequest {
+	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want a refusal when the machine is not running: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "not running") {
-		t.Errorf("the refusal should say the machine is not running: %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "VMExtensionProvisioningError") || !strings.Contains(rec.Body.String(), "is not running") {
+		t.Errorf("the refusal should be the extension's provisioning error naming the stopped machine: %s", rec.Body.String())
+	}
+	if _, stored := azureVMExtensions.Get(vmOpsID("ext-noguest-vm") + "/extensions/script"); stored {
+		t.Error("an extension that could not run was still recorded")
 	}
 }
 

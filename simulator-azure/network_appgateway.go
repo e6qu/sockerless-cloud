@@ -3,11 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 
-	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
 // Application gateways (Microsoft.Network/applicationGateways) are Azure's
@@ -993,12 +994,12 @@ func provisionApplicationGateway(ctx context.Context, gw *ApplicationGateway, pr
 	}
 	stampApplicationGatewayChildren(gw)
 
-	// Every private frontend whose address is allocated by the platform takes
-	// one out of its subnet, through the same fabric a network interface uses,
-	// so a gateway frontend and a workload interface can never be handed the
-	// same address. A frontend that names its own static address keeps it, and a
-	// public frontend takes the address of the public IP it references.
-	live := map[string]bool{}
+	// Every private frontend takes its address out of its subnet's ledger,
+	// the same one a network interface leases from, so a gateway frontend and
+	// a workload interface can never be handed the same address. A frontend
+	// that names its own static address leases that one, and a public frontend
+	// takes the address of the public IP it references.
+	live := map[string]string{}
 	for i := range gw.Properties.FrontendIPConfigurations {
 		fe := &gw.Properties.FrontendIPConfigurations[i]
 		if fe.Properties.PublicIPAddress != nil && fe.Properties.PublicIPAddress.ID != "" {
@@ -1015,26 +1016,41 @@ func provisionApplicationGateway(ctx context.Context, gw *ApplicationGateway, pr
 		if fe.Properties.PrivateIPAllocationMethod == "" {
 			fe.Properties.PrivateIPAllocationMethod = "Dynamic"
 		}
-		if strings.EqualFold(fe.Properties.PrivateIPAllocationMethod, "Static") && fe.Properties.PrivateIPAddress != "" {
-			continue
-		}
 		nicID := applicationGatewayFrontendNICID(gw.ID, fe.Name)
-		address, _, err := azureCreateRealNIC(ctx, nicID, fe.Properties.Subnet.ID, "", azureNICMAC(nicID))
+		var requested net.IP
+		if strings.EqualFold(fe.Properties.PrivateIPAllocationMethod, "Static") {
+			requested = net.ParseIP(fe.Properties.PrivateIPAddress)
+		} else if previous != nil {
+			requested = applicationGatewayStoredFrontendAddress(*previous, fe.Name, fe.Properties.Subnet.ID)
+		}
+		address, err := azureLeaseSubnetAddress(fe.Properties.Subnet.ID, nicID, requested)
 		if err != nil {
 			return err
 		}
-		fe.Properties.PrivateIPAddress = address
-		live[nicID] = true
+		fe.Properties.PrivateIPAddress = address.String()
+		live[nicID] = address.String()
 	}
 	if previous == nil {
 		return nil
 	}
 	for _, old := range previous.Properties.FrontendIPConfigurations {
+		if old.Properties.Subnet == nil || old.Properties.PrivateIPAddress == "" {
+			continue
+		}
 		nicID := applicationGatewayFrontendNICID(previous.ID, old.Name)
-		if !live[nicID] {
-			if err := azureDeleteRealNIC(ctx, nicID); err != nil {
-				return err
-			}
+		if live[nicID] != old.Properties.PrivateIPAddress {
+			azureReleaseSubnetAddress(old.Properties.Subnet.ID, nicID, net.ParseIP(old.Properties.PrivateIPAddress))
+		}
+	}
+	return nil
+}
+
+// applicationGatewayStoredFrontendAddress is the address a gateway's frontend held
+// in its stored state when it sat in the same subnet, so an update keeps it.
+func applicationGatewayStoredFrontendAddress(gw ApplicationGateway, frontendName, subnetID string) net.IP {
+	for _, fe := range gw.Properties.FrontendIPConfigurations {
+		if fe.Name == frontendName && fe.Properties.Subnet != nil && strings.EqualFold(fe.Properties.Subnet.ID, subnetID) {
+			return net.ParseIP(fe.Properties.PrivateIPAddress)
 		}
 	}
 	return nil
@@ -1121,9 +1137,12 @@ func applicationGatewayPoolMemberIPConfigurations(poolID string) []NetworkInterf
 
 // deleteApplicationGatewayResources releases the addresses the gateway's
 // private frontends held and drops the private endpoint connections it owned.
-func deleteApplicationGatewayResources(ctx context.Context, id string, deleted ApplicationGateway) {
+func deleteApplicationGatewayResources(_ context.Context, id string, deleted ApplicationGateway) {
 	for _, fe := range deleted.Properties.FrontendIPConfigurations {
-		_ = azureDeleteRealNIC(ctx, applicationGatewayFrontendNICID(id, fe.Name))
+		if fe.Properties.Subnet == nil {
+			continue
+		}
+		azureReleaseSubnetAddress(fe.Properties.Subnet.ID, applicationGatewayFrontendNICID(id, fe.Name), net.ParseIP(fe.Properties.PrivateIPAddress))
 	}
 	for _, conn := range applicationGatewayConnections(id) {
 		azureAppGatewayPEConnections.Delete(conn.ID)

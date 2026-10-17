@@ -18,7 +18,7 @@ func ec2PendingInstance(t *testing.T) string {
 }
 
 // TestEC2RunInstancesRunsOnlyOnceBooted shows a launched instance stays
-// pending while its VM boots and reports running once the boot completes.
+// pending while it boots and reports running once the boot completes.
 func TestEC2RunInstancesRunsOnlyOnceBooted(t *testing.T) {
 	asLaunchTestStores(t)
 	booting := make(chan string, 1)
@@ -70,7 +70,7 @@ func TestEC2RunInstancesTerminatesAnInstanceWhoseBootFails(t *testing.T) {
 	}
 }
 
-// TestEC2TerminatingAPendingInstanceCancelsItsBoot shows stopping the VM of an
+// TestEC2TerminatingAPendingInstanceCancelsItsBoot shows terminating an
 // instance still booting cancels the boot instead of waiting it out, and the
 // launch leaves the state the terminating caller set.
 func TestEC2TerminatingAPendingInstanceCancelsItsBoot(t *testing.T) {
@@ -94,9 +94,7 @@ func TestEC2TerminatingAPendingInstanceCancelsItsBoot(t *testing.T) {
 	})
 	<-booting
 	ec2Instances.Update(instanceID, func(i *EC2Instance) { i.State = "shutting-down" })
-	if err := ec2StopRealVM(context.Background(), instanceID); err != nil {
-		t.Fatalf("stop VM: %v", err)
-	}
+	ec2CancelBoot(instanceID)
 	got := <-done
 	if got.launched || got.err != nil {
 		t.Fatalf("launch of a terminated pending instance = %t, %v; want false, nil", got.launched, got.err)

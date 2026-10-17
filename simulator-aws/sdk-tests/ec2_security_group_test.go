@@ -123,9 +123,8 @@ func TestEC2_SecurityGroupEnforce_RejectsUnknownGroup(t *testing.T) {
 	requireSGErrorCode(t, err, "InvalidGroup.NotFound")
 }
 
-// TestEC2_SecurityGroupEnforce_StoresAndQueries covers Tier 2 non-Linux: even
-// without real-exec capabilities, SG rules are stored, queryable via the API,
-// and reference-resolvable. This runs on every platform.
+// TestEC2_SecurityGroupEnforce_StoresAndQueries: SG rules are stored,
+// queryable via the API, and reference-resolvable.
 func TestEC2_SecurityGroupEnforce_StoresAndQueries(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()

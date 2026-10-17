@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
 // Elastic Load Balancing keeps the health of every registered target current

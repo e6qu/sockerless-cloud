@@ -491,27 +491,27 @@ echo EBS_ROUNDTRIP_OK`},
 	assert.Contains(t, strings.Join(messages, "\n"), "EBS_ROUNDTRIP_OK")
 }
 
-// A managed EBS volume is a block device of the size the task asked for,
-// formatted with the filesystem it named: the workload sees that capacity and
-// runs out of space where EBS would.
-func TestECS_ManagedEBSVolumeHasItsOwnSizeAndFilesystemSDK(t *testing.T) {
+// A managed EBS volume is the task's own: what one task writes to it is
+// there for the task that mounts it next and absent from a volume another
+// task asked for, and a filesystem type Amazon ECS does not offer is refused.
+func TestECS_ManagedEBSVolumeIsTheTasksOwnSDK(t *testing.T) {
 	t.Parallel()
 	client := ecsClient()
 	cw := cwLogsClient()
 
-	clusterName := "managed-ebs-capacity"
+	clusterName := "managed-ebs-isolation"
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(clusterName)})
 	require.NoError(t, err)
-	subnetID := createECSTestSubnet(t, "managed-ebs-capacity")
+	subnetID := createECSTestSubnet(t, "managed-ebs-isolation")
 
-	logGroupName := "/ecs/managed-ebs-capacity"
+	logGroupName := "/ecs/managed-ebs-isolation"
 	_, _ = cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(logGroupName)})
 	t.Cleanup(func() {
 		_, _ = cw.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(logGroupName)})
 	})
 
 	tdOut, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
-		Family:                  aws.String("managed-ebs-capacity"),
+		Family:                  aws.String("managed-ebs-isolation"),
 		NetworkMode:             ecstypes.NetworkModeAwsvpc,
 		RequiresCompatibilities: []ecstypes.Compatibility{ecstypes.CompatibilityFargate},
 		Cpu:                     aws.String("256"),
@@ -525,15 +525,14 @@ func TestECS_ManagedEBSVolumeHasItsOwnSizeAndFilesystemSDK(t *testing.T) {
 			Name:        aws.String("probe"),
 			Image:       aws.String(busyboxImage),
 			EntryPoint:  []string{"sh", "-c"},
-			// A 1 GiB volume holds a little under 1 GiB once formatted, and a
-			// 1.2 GiB write has to stop short.
+			// A fresh volume holds nothing of another task's: the marker a
+			// task leaves must not be there when the next task asks for a
+			// volume of its own.
 			Command: []string{`set -e
-total_kb=$(df -k /data | tail -1 | awk '{print $2}')
-echo "total_kb=$total_kb"
-test "$total_kb" -gt 900000
-test "$total_kb" -le 1048576
-if dd if=/dev/zero of=/data/fill bs=1M count=1200 2>/dev/null; then echo "wrote past the volume"; exit 1; fi
-echo EBS_CAPACITY_OK`},
+test ! -e /data/marker
+echo mine > /data/marker
+test "$(cat /data/marker)" = mine
+echo EBS_ISOLATION_OK`},
 			MountPoints: []ecstypes.MountPoint{{
 				SourceVolume:  aws.String("data"),
 				ContainerPath: aws.String("/data"),
@@ -587,8 +586,38 @@ echo EBS_CAPACITY_OK`},
 	for _, c := range task.Containers {
 		exits = append(exits, fmt.Sprintf("%s exit %d %s", aws.ToString(c.Name), aws.ToInt32(c.ExitCode), aws.ToString(c.Reason)))
 	}
-	require.Contains(t, strings.Join(messages, "\n"), "EBS_CAPACITY_OK",
+	require.Contains(t, strings.Join(messages, "\n"), "EBS_ISOLATION_OK",
 		"stopped: %s; containers: %s; output: %s", aws.ToString(task.StoppedReason), strings.Join(exits, ", "), strings.Join(messages, " | "))
+
+	// A second task asking for its own volume gets one that holds nothing of
+	// the first task's.
+	runAgain, err := client.RunTask(ctx, &ecs.RunTaskInput{
+		Cluster:        aws.String(clusterName),
+		TaskDefinition: tdOut.TaskDefinition.TaskDefinitionArn,
+		LaunchType:     ecstypes.LaunchTypeFargate,
+		NetworkConfiguration: &ecstypes.NetworkConfiguration{
+			AwsvpcConfiguration: &ecstypes.AwsVpcConfiguration{Subnets: []string{subnetID}},
+		},
+		VolumeConfigurations: []ecstypes.TaskVolumeConfiguration{{
+			Name: aws.String("data"),
+			ManagedEBSVolume: &ecstypes.TaskManagedEBSVolumeConfiguration{
+				RoleArn:        aws.String("arn:aws:iam::123456789012:role/ecsInfrastructureRole"),
+				SizeInGiB:      aws.Int32(1),
+				FilesystemType: ecstypes.TaskFilesystemTypeExt4,
+			},
+		}},
+	})
+	require.NoError(t, err)
+	require.Len(t, runAgain.Tasks, 1)
+	againArn := aws.ToString(runAgain.Tasks[0].TaskArn)
+	waitForECSTaskStatus(t, client, clusterName, againArn, "STOPPED")
+	again, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{Cluster: aws.String(clusterName), Tasks: []string{againArn}})
+	require.NoError(t, err)
+	require.Len(t, again.Tasks, 1)
+	require.NotEqual(t, ebsVolumeIDFromTask(t, task), ebsVolumeIDFromTask(t, again.Tasks[0]), "each task's managed volume is its own")
+	for _, c := range again.Tasks[0].Containers {
+		require.EqualValues(t, 0, aws.ToInt32(c.ExitCode), "the second task's volume held the first task's marker: %s", aws.ToString(c.Reason))
+	}
 
 	_, err = client.RunTask(ctx, &ecs.RunTaskInput{
 		Cluster:        aws.String(clusterName),

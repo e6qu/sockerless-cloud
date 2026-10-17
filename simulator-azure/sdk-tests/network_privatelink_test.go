@@ -19,7 +19,6 @@ import (
 // endpoint's own read reports the owner's decision.
 func TestNetworkPrivateLink_ServiceAndEndpointShareOneConnection(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	rg := "plink-rg"
 	requireResourceGroup(t, rg)
 	providerSubnet := requireSubnet(t, rg, "plink-provider-vnet", "10.50.0.0/16", "nat-subnet", "10.50.1.0/24")
@@ -174,7 +173,6 @@ func TestNetworkPrivateLink_ServiceAndEndpointShareOneConnection(t *testing.T) {
 // without the owner acting, and one that does not leaves it pending.
 func TestNetworkPrivateLinkService_VisibilityAndAutoApproval(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	rg := "plink-visibility-rg"
 	requireResourceGroup(t, rg)
 	natSubnet := requireSubnet(t, rg, "vis-provider-vnet", "10.52.0.0/16", "nat-subnet", "10.52.1.0/24")
@@ -299,7 +297,6 @@ func TestNetworkPrivateLinkService_VisibilityAndAutoApproval(t *testing.T) {
 // name under a custom DNS configuration.
 func TestNetworkPrivateEndpoint_KeyVaultConnectionIsOneObject(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	rg := "plink-kv-rg"
 	requireResourceGroup(t, rg)
 	subnetID := requireSubnet(t, rg, "kv-pe-vnet", "10.54.0.0/16", "pe-subnet", "10.54.1.0/24")
@@ -427,7 +424,6 @@ func TestNetworkPrivateEndpoint_KeyVaultConnectionIsOneObject(t *testing.T) {
 // takes them back out.
 func TestNetworkPrivateEndpoint_DNSZoneGroupPublishesRecords(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	rg := "plink-dns-rg"
 	requireResourceGroup(t, rg)
 	subnetID := requireSubnet(t, rg, "dns-pe-vnet", "10.55.0.0/16", "pe-subnet", "10.55.1.0/24")
@@ -538,7 +534,6 @@ func TestNetworkPrivateEndpoint_DNSZoneGroupPublishesRecords(t *testing.T) {
 // resource types an endpoint can actually terminate on.
 func TestNetworkPrivateEndpoint_ListsAndAvailableTypes(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	rg := "plink-list-rg"
 	requireResourceGroup(t, rg)
 	subnetID := requireSubnet(t, rg, "list-pe-vnet", "10.56.0.0/16", "pe-subnet", "10.56.1.0/24")
@@ -661,7 +656,6 @@ func TestNetworkPrivateEndpoint_ListsAndAvailableTypes(t *testing.T) {
 // configurations are subject to.
 func TestNetworkProfiles_CRUD(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	rg := "netprofile-rg"
 	requireResourceGroup(t, rg)
 	subnetID := requireSubnet(t, rg, "profile-vnet", "10.58.0.0/16", "aci-subnet", "10.58.1.0/24")

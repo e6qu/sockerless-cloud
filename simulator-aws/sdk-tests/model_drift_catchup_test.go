@@ -540,7 +540,7 @@ func TestEC2_ApplicationStatusIsMeasuredNotDeclared(t *testing.T) {
 func runDriftTestInstance(t *testing.T, c *ec2.Client) string {
 	t.Helper()
 	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
-		ImageId:  aws.String("ami-0drift0test0"),
+		ImageId:  aws.String(ec2AmazonLinuxAMI(t)),
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1),
 	})
 	require.NoError(t, err)

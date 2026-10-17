@@ -17,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/stretchr/testify/require"
 )
 
@@ -68,7 +67,6 @@ import (
 // azurerm_subscription create and cancel sits through the provider's fixed
 // StateChangeConf settle delays, too slow for this stack's CI budget.
 func TestTerraformApplyDestroy(t *testing.T) {
-	requireTerraformNetworkHost(t)
 	dir := tfStackWorkspace(t)
 	nodeAppPackageURL = serveZipPackage(t, map[string]string{
 		"server.js": `require("http").createServer((req, res) => res.end("node " + process.version + " " + req.url)).listen(process.env.PORT)`,
@@ -468,6 +466,9 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.Contains(t, multiIPAddresses, "10.0.1.40", "the static secondary holds the address it asked for")
 	require.NotEqual(t, multiIPAddresses[0], multiIPAddresses[1], "each IP configuration holds an address of its own")
 
+	require.NotEmpty(t, outputs.must(t, "azrm_platform_image_version"),
+		"the platform image data source must resolve a version from the catalog")
+
 	azrmNetworkWatcher := outputs.must(t, "azrm_network_watcher_id")
 	require.Contains(t, azrmNetworkWatcher, "/providers/Microsoft.Network/networkWatchers/tf-azrm-network-watcher",
 		"network watcher id must include canonical ARM path; got %s", azrmNetworkWatcher)
@@ -745,24 +746,6 @@ func assertACRDataPlaneAuthenticates(t *testing.T, loginServer, username, passwo
 	wrong.Body.Close()
 	require.Equal(t, http.StatusUnauthorized, wrong.StatusCode,
 		"a wrong password must be refused")
-}
-
-// requireTerraformNetworkHost asserts the real-execution networking
-// capabilities the Microsoft.Network and Microsoft.Compute handlers in this
-// stack need — the same detection the simulator itself gates those endpoints
-// on. It fails rather than skips, because both environments this suite runs in
-// supply the capabilities: the Linux CI runner invokes it under sudo with
-// iproute2 and nftables installed, and a macOS run re-executes the suite inside
-// the privileged Linux test container (runTerraformTestsInDocker). A skip here
-// would silently retire the whole shared-stack round trip — the apply, the
-// resource assertions and the destroy — while the shard still reported ok.
-func requireTerraformNetworkHost(t *testing.T) {
-	t.Helper()
-	if err := realexec.DetectNetworkCapabilities().Require(); err != nil {
-		t.Fatalf("the Terraform stack needs real-execution networking capabilities and this host has none: %v.\n"+
-			"Run the suite under sudo on a Linux host with iproute2 and nftables installed, or run `make terraform-test` "+
-			"on macOS, which re-executes it inside the privileged Linux test container.", err)
-	}
 }
 
 // tfStackWorkspace copies the checked-in stack configuration into a

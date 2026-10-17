@@ -1,26 +1,20 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
+	"context"
 	"fmt"
 	"os"
-	"sort"
-	"strconv"
 	"strings"
+
+	"github.com/e6qu/sockerless-cloud/sim/procimage"
 )
 
-// The modules a process has loaded, read from the process itself.
-//
-// A site's processes come from the container engine's process table, which
-// reports them in the engine host's PID namespace — so where the simulator and
-// the engine share a kernel, `/proc/<pid>/maps` is the process's own mapping
-// table and its file-backed entries are the modules it has loaded. That is the
-// only source for this: a module's load address is a fact about a running
-// process, and nothing else knows it.
-//
-// Where the simulator and the engine do not share a kernel — the engine in a
-// virtual machine, which is every macOS host — /proc holds no such process and
-// the read declares that rather than answering.
+// The modules a process has loaded are the files its mapping table maps, and
+// a module's load address is a fact about the running process that nothing
+// else knows; the table is read from the process itself through the platform
+// helper (webReadProcess), since the simulator's own host does not let it read
+// another identity's /proc.
 
 // webProcModule is one loaded module: the file, and the address the lowest of
 // its mappings begins at.
@@ -31,72 +25,24 @@ type webProcModule struct {
 }
 
 // webProcessModules reads the modules a process has loaded. The second result
-// is false when this host cannot see the process, which is not the same as a
-// process with no modules.
-func webProcessModules(proc webProcess) ([]webProcModule, bool) {
+// is false when the process is not the one the engine's table named.
+func webProcessModules(ctx context.Context, containerID string, proc webProcess) ([]webProcModule, bool, error) {
 	if !webProcIsProcess(proc) {
-		return nil, false
+		return nil, false, nil
 	}
-	f, err := os.Open(fmt.Sprintf("/proc/%d/maps", proc.PID))
+	maps, err := webReadProcess(ctx, containerID, proc.PID, "maps")
 	if err != nil {
-		return nil, false
+		return nil, true, err
 	}
-	defer f.Close()
-
-	// One module spans several mappings — the text, the read-only data and the
-	// writable data are separate lines for the same file — so the entries are
-	// folded by path: the module begins where its lowest mapping begins and
-	// ends where its highest one ends.
-	type extent struct{ low, high uint64 }
-	byPath := map[string]extent{}
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		fields := strings.Fields(scanner.Text())
-		// addr-addr perms offset dev inode [path]
-		if len(fields) < 6 {
-			continue
-		}
-		path := strings.Join(fields[5:], " ")
-		// An anonymous mapping, the stack, the heap and the kernel's own
-		// mappings are not modules; a module is a file the process mapped.
-		if !strings.HasPrefix(path, "/") {
-			continue
-		}
-		lowText, highText, ok := strings.Cut(fields[0], "-")
-		if !ok {
-			continue
-		}
-		low, lowErr := strconv.ParseUint(lowText, 16, 64)
-		high, highErr := strconv.ParseUint(highText, 16, 64)
-		if lowErr != nil || highErr != nil {
-			continue
-		}
-		current, seen := byPath[path]
-		if !seen {
-			byPath[path] = extent{low: low, high: high}
-			continue
-		}
-		if low < current.low {
-			current.low = low
-		}
-		if high > current.high {
-			current.high = high
-		}
-		byPath[path] = current
+	mappings, err := procimage.ParseMappings(bytes.NewReader(maps))
+	if err != nil {
+		return nil, true, err
 	}
-	if scanner.Err() != nil {
-		return nil, false
+	var modules []webProcModule
+	for _, m := range procimage.Modules(mappings) {
+		modules = append(modules, webProcModule{Path: m.Path, BaseAddress: m.BaseAddress, Size: m.Size})
 	}
-
-	modules := make([]webProcModule, 0, len(byPath))
-	for path, span := range byPath {
-		modules = append(modules, webProcModule{
-			Path: path, BaseAddress: span.low, Size: span.high - span.low,
-		})
-	}
-	// Lowest address first, which is the order the mapping table itself is in.
-	sort.Slice(modules, func(i, j int) bool { return modules[i].BaseAddress < modules[j].BaseAddress })
-	return modules, true
+	return modules, true, nil
 }
 
 // webProcIsProcess reports whether /proc/<pid> is the process the engine's

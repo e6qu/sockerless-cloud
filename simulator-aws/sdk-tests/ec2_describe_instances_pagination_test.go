@@ -27,7 +27,7 @@ func TestEC2_DescribeInstancesPagination(t *testing.T) {
 	require.NoError(t, err)
 
 	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
-		ImageId:      aws.String("ami-page1234"),
+		ImageId:      aws.String(ec2AmazonLinuxAMI(t)),
 		InstanceType: ec2types.InstanceTypeT3Micro,
 		MinCount:     aws.Int32(3),
 		MaxCount:     aws.Int32(3),

@@ -119,11 +119,17 @@ type SSMExecutionPreview struct {
 
 // SSMCommandInvocation is the per-instance result of a SendCommand dispatch.
 type SSMCommandInvocation struct {
-	InstanceId   string `json:"InstanceId"`
-	Status       string `json:"Status"`
-	StatusDetail string `json:"StatusDetails"`
-	StdoutURL    string `json:"StandardOutputUrl,omitempty"`
-	StderrURL    string `json:"StandardErrorUrl,omitempty"`
+	InstanceId       string `json:"InstanceId"`
+	Status           string `json:"Status"`
+	StatusDetail     string `json:"StatusDetails"`
+	StdoutURL        string `json:"StandardOutputUrl,omitempty"`
+	StderrURL        string `json:"StandardErrorUrl,omitempty"`
+	ResponseCode     int    `json:"ResponseCode"`
+	StandardOutput   string `json:"StandardOutputContent,omitempty"`
+	StandardError    string `json:"StandardErrorContent,omitempty"`
+	ExecutionStart   string `json:"ExecutionStartDateTime,omitempty"`
+	ExecutionEnd     string `json:"ExecutionEndDateTime,omitempty"`
+	ExecutionElapsed string `json:"ExecutionElapsedTime,omitempty"`
 }
 
 // SSMCommand is a Run Command dispatch plus its per-instance invocations.
@@ -191,15 +197,16 @@ func registerSSMAssociations(r *AWSRouter, srv *sim.Server) {
 	}
 }
 
-// ssmDocExists validates a referenced SSM document name. Real SSM accepts both
-// a bare document name and the AWS-managed documents (e.g. AWS-RunShellScript);
-// the sim only knows documents in its own store, so a name that isn't present
-// is rejected exactly as real SSM rejects an unknown user document.
+// ssmDocExists validates a referenced SSM document name: the account's own
+// documents and the AWS-managed ones the simulator carries.
 func ssmDocExists(name string) bool {
 	if name == "" {
 		return false
 	}
-	_, ok := ssmDocuments.Get(name)
+	if _, ok := ssmDocuments.Get(name); ok {
+		return true
+	}
+	_, ok := ssmManagedDocuments[name]
 	return ok
 }
 
@@ -1310,6 +1317,25 @@ func handleSSMSendCommand(w http.ResponseWriter, r *http.Request) {
 			targets = append(targets, t.Values...)
 		}
 	}
+	// A command runs on managed nodes: instances whose machine is up. Any
+	// other target fails the whole request, as Systems Manager refuses it.
+	var invalid []string
+	for _, id := range targets {
+		if _, ok := ec2WorkloadHandle(id); !ok {
+			invalid = append(invalid, id)
+		}
+	}
+	if len(invalid) > 0 {
+		AWSErrorf(w, "InvalidInstanceId", http.StatusBadRequest,
+			"Instances [[%s]] not in a valid state for account %s", strings.Join(invalid, ", "), awsAccountID())
+		return
+	}
+	content, format, _ := ssmCommandDocumentContent(req.DocumentName)
+	steps, err := ssmShellSteps(content, format, req.Parameters)
+	if err != nil {
+		AWSErrorf(w, "InvalidDocumentContent", http.StatusBadRequest, "%v", err)
+		return
+	}
 	now := float64(time.Now().Unix())
 	timeout := req.TimeoutSeconds
 	if timeout == 0 {
@@ -1320,10 +1346,8 @@ func handleSSMSendCommand(w http.ResponseWriter, r *http.Request) {
 	for _, id := range targets {
 		invocations = append(invocations, SSMCommandInvocation{
 			InstanceId:   id,
-			Status:       "Success",
-			StatusDetail: "Success",
-			StdoutURL:    "",
-			StderrURL:    "",
+			Status:       "Pending",
+			StatusDetail: "Pending",
 		})
 	}
 	cmd := SSMCommand{
@@ -1336,8 +1360,8 @@ func handleSSMSendCommand(w http.ResponseWriter, r *http.Request) {
 		Targets:         req.Targets,
 		RequestedTime:   now,
 		ExpiresAfter:    now + float64(timeout),
-		Status:          "Success",
-		StatusDetail:    "Success",
+		Status:          "Pending",
+		StatusDetail:    "Pending",
 		// A command always reports a concurrency and an error threshold: AWS
 		// applies its documented defaults when the request names none, so an
 		// unset member is not empty on the wire.
@@ -1347,6 +1371,7 @@ func handleSSMSendCommand(w http.ResponseWriter, r *http.Request) {
 		Invocations:    invocations,
 	}
 	ssmCommands.Put(cmd.CommandId, cmd)
+	ssmRunCommandOnInstances(cmd.CommandId, steps)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"Command": ssmCommandWire(cmd),
 	})
@@ -1360,6 +1385,7 @@ func ssmOrDefault(value, fallback string) string {
 }
 
 func ssmCommandWire(cmd SSMCommand) map[string]any {
+	completed, errored := ssmCommandCounts(cmd)
 	out := map[string]any{
 		"CommandId":             cmd.CommandId,
 		"DocumentName":          cmd.DocumentName,
@@ -1374,8 +1400,8 @@ func ssmCommandWire(cmd SSMCommand) map[string]any {
 		"MaxConcurrency":        cmd.MaxConcurrency,
 		"MaxErrors":             cmd.MaxErrors,
 		"TargetCount":           len(cmd.InstanceIds),
-		"CompletedCount":        len(cmd.Invocations),
-		"ErrorCount":            0,
+		"CompletedCount":        completed,
+		"ErrorCount":            errored,
 		"DeliveryTimedOutCount": 0,
 		"TimeoutSeconds":        cmd.TimeoutSeconds,
 	}
@@ -1505,10 +1531,10 @@ func handleSSMListCommandInvocations(w http.ResponseWriter, r *http.Request) {
 			entry["CommandPlugins"] = []map[string]any{
 				{
 					"Name":          "aws:runShellScript",
-					"Status":        "Success",
-					"StatusDetails": "Success",
-					"ResponseCode":  0,
-					"Output":        "",
+					"Status":        v.i.Status,
+					"StatusDetails": v.i.StatusDetail,
+					"ResponseCode":  v.i.ResponseCode,
+					"Output":        v.i.StandardOutput + v.i.StandardError,
 				},
 			}
 		}
@@ -1552,21 +1578,20 @@ func handleSSMGetCommandInvocation(w http.ResponseWriter, r *http.Request) {
 	// ExecutionStartDateTime / ExecutionElapsedTime / ExecutionEndDateTime are
 	// StringDateTime members on this op (ISO-8601 / duration strings), unlike
 	// the epoch-number DateTime used elsewhere.
-	start := time.Unix(int64(cmd.RequestedTime), 0).UTC()
 	out := map[string]any{
 		"CommandId":              cmd.CommandId,
 		"InstanceId":             req.InstanceId,
 		"Comment":                cmd.Comment,
 		"DocumentName":           cmd.DocumentName,
 		"PluginName":             ssmDefault(req.PluginName, "aws:runShellScript"),
-		"ResponseCode":           0,
-		"ExecutionStartDateTime": start.Format(time.RFC3339),
-		"ExecutionElapsedTime":   "PT0S",
-		"ExecutionEndDateTime":   start.Format(time.RFC3339),
+		"ResponseCode":           found.ResponseCode,
+		"ExecutionStartDateTime": found.ExecutionStart,
+		"ExecutionElapsedTime":   found.ExecutionElapsed,
+		"ExecutionEndDateTime":   found.ExecutionEnd,
 		"Status":                 found.Status,
 		"StatusDetails":          found.StatusDetail,
-		"StandardOutputContent":  "",
-		"StandardErrorContent":   "",
+		"StandardOutputContent":  found.StandardOutput,
+		"StandardErrorContent":   found.StandardError,
 	}
 	if cmd.DocumentVersion != "" {
 		out["DocumentVersion"] = cmd.DocumentVersion

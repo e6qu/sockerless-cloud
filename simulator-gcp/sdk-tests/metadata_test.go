@@ -129,3 +129,21 @@ func TestMetadata_DefaultServiceAccountEmail(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	assert.Equal(t, metadataDefaultAccount, string(body))
 }
+
+// A workload that is no Compute Engine instance carries no custom metadata:
+// the attributes directory lists nothing and a key answers not found. An
+// instance's own attributes are read from inside the instance, by the
+// startup script of TestCompute_InstanceBootsRunsItsStartupScriptAndKeepsItsDisk.
+func TestMetadata_InstanceAttributesBelongToInstances(t *testing.T) {
+	t.Parallel()
+	resp := metadataReq(t, "/computeMetadata/v1/instance/attributes/")
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Empty(t, strings.TrimSpace(string(body)), "a workload outside every instance has no attributes")
+
+	resp = metadataReq(t, "/computeMetadata/v1/instance/attributes/startup-script")
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+}

@@ -2,12 +2,8 @@ package aws_cli_test
 
 import (
 	"fmt"
-	"net"
-	"net/http"
 	"os"
 	"os/exec"
-	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -19,17 +15,9 @@ const vpcNetBusybox = "mirror.gcr.io/library/busybox:latest"
 // can test real TCP reachability/isolation between tasks.
 const vpcServerScript = "mkdir -p /www && echo ok > /www/index.html && httpd -f -p 80 -h /www"
 
-// vpcServerScriptServing is vpcServerScript with a caller-chosen body, so two
-// servers listening on the same ENI address in different VPCs are
-// distinguishable by content.
-func vpcServerScriptServing(body string) string {
-	return fmt.Sprintf("mkdir -p /www && echo %s > /www/index.html && httpd -f -p 80 -h /www", body)
-}
-
-// TestECSVPCNetworking proves the VPC task-networking contract end-to-end and
-// is tier-agnostic (works on both the netns and Docker-network fabrics, since it
-// probes via the task containers themselves): an ECS task's ENI
-// privateIPv4Address is the container's REAL eth0 address, reachable from
+// TestECSVPCNetworking proves the VPC task-networking contract end-to-end,
+// probing through the task containers themselves: an ECS task's ENI
+// privateIPv4Address is the container's real eth0 address, reachable from
 // another task in the same VPC and isolated from a task in a different VPC.
 func TestECSVPCNetworking(t *testing.T) {
 	t.Parallel()
@@ -50,15 +38,14 @@ func TestECSVPCNetworking(t *testing.T) {
 		for _, task := range []string{server, clientSame, clientOther} {
 			runCLI(t, awsCLI("ecs", "stop-task", "--cluster", "default", "--task", task))
 		}
-		rmDockerNetworks(ecsVPCNet(vpcA), ecsVPCNet(vpcB), ecsVPCNet(vpcA)+"-egress", ecsVPCNet(vpcB)+"-egress")
+		rmDockerNetworks(ecsVPCNet(vpcA), ecsVPCNet(vpcB))
 	})
 	waitRunning(t, q, server)
 	waitRunning(t, q, clientSame)
 	waitRunning(t, q, clientOther)
 
-	// The reported ENI IP is genuinely on the container's eth0 (the netns tier
-	// plumbs it as the interface's only address, the Docker-network tier as a
-	// secondary next to the allocator-assigned bridge primary).
+	// The reported ENI IP is the address the engine gave the container's
+	// eth0 on the VPC's network.
 	eniIP := taskENIIP(q, server)
 	if !strings.HasPrefix(eniIP, vpcPrefix(octetA)) {
 		t.Fatalf("server ENI IP not in subnet-A CIDR: %q", eniIP)
@@ -86,7 +73,7 @@ func TestECSManagedEBSAwsvpcReachability(t *testing.T) {
 		stopCLITasksInSubnet(t, "default", subnetID)
 		q("ec2", "delete-subnet", "--subnet-id", subnetID)
 		q("ec2", "delete-vpc", "--vpc-id", vpcID)
-		rmDockerNetworks(ecsVPCNet(vpcID), ecsVPCNet(vpcID)+"-egress")
+		rmDockerNetworks(ecsVPCNet(vpcID))
 	})
 	q("ecs", "create-cluster", "--cluster-name", "default", "--query", "cluster.clusterName", "--output", "text")
 	q("ecs", "register-task-definition", "--family", "ebs-vpc-server",
@@ -229,16 +216,11 @@ func taskContainerID(t *testing.T, taskArn string) string {
 	return cid
 }
 
-// taskEth0IPs reads every IPv4 address on the container's eth0 (works in both
-// tiers). The netns tier plumbs exactly the ENI address; the Docker-network
-// tier carries the bridge-native primary from the host-side allocator pool
-// plus the ENI address as a secondary — in both, the reported ENI IP must be
-// among them.
+// taskEth0IPs reads every IPv4 address on the container's eth0, among which
+// the reported ENI IP must be.
 func taskEth0IPs(t *testing.T, taskArn string) []string {
 	t.Helper()
 	cid := taskContainerID(t, taskArn)
-	// Retry: the netns veth / secondary ENI address is plumbed just as the
-	// task reaches RUNNING.
 	for attempt := 0; attempt < 10; attempt++ {
 		var ips []string
 		out, _ := exec.Command("docker", "exec", cid, "ip", "-4", "-o", "addr", "show", "eth0").CombinedOutput()
@@ -295,96 +277,6 @@ func dockerOut(t *testing.T, args ...string) string {
 	return string(out)
 }
 
-func hostPrimaryIPv4(t *testing.T) string {
-	t.Helper()
-	out, err := exec.Command("ip", "route", "get", "1.1.1.1").CombinedOutput()
-	if err != nil {
-		t.Fatalf("ip route get host primary IPv4: %v\n%s", err, out)
-	}
-	fields := strings.Fields(string(out))
-	for i, f := range fields {
-		if f == "src" && i+1 < len(fields) && net.ParseIP(fields[i+1]).To4() != nil {
-			return fields[i+1]
-		}
-	}
-	t.Fatalf("could not parse src IPv4 from ip route output: %s", out)
-	return ""
-}
-
-func startHostProbeServer(t *testing.T) string {
-	t.Helper()
-	ln, err := net.Listen("tcp4", "0.0.0.0:0")
-	if err != nil {
-		t.Fatalf("listen for host egress probe: %v", err)
-	}
-	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte("egress-ok\n"))
-	})}
-	go func() { _ = srv.Serve(ln) }()
-	t.Cleanup(func() {
-		_ = srv.Close()
-		_ = ln.Close()
-	})
-	return "http://" + net.JoinHostPort(hostPrimaryIPv4(t), strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)) + "/probe"
-}
-
-// requireECSNetnsTier gates a test on the netns tier ECS uses for real VPC
-// networking, separating the two reasons that tier can be unavailable.
-//
-// A kernel that does not offer network namespaces to this process — a non-Linux
-// host, or one without CAP_NET_ADMIN/CAP_SYS_ADMIN — is a platform gate: the
-// test cannot run here whatever is installed. A missing `ip`, `nft`, `nsenter`
-// or `sysctl` is not: those are packages, and a test that quietly disappears
-// when one is absent reports green having proved nothing. On a host that has
-// the capabilities, a missing tool therefore fails loudly and names itself, so
-// the only tests covering link-local task metadata and route-table egress
-// cannot silently stop covering them.
-func requireECSNetnsTier(t *testing.T) {
-	t.Helper()
-	if runtime.GOOS != "linux" {
-		t.Skip("platform gate: the real netns fabric needs a Linux kernel")
-	}
-	caps, err := linuxEffectiveCapabilitiesForTest()
-	if err != nil {
-		t.Skipf("platform gate: this host's effective capabilities are unreadable: %v", err)
-	}
-	if !hasLinuxCapability(caps, 12) || !hasLinuxCapability(caps, 21) {
-		t.Skip("platform gate: the real netns fabric needs CAP_NET_ADMIN and CAP_SYS_ADMIN")
-	}
-	var missing []string
-	for _, bin := range []string{"ip", "nft", "nsenter", "sysctl"} {
-		if _, err := exec.LookPath(bin); err != nil {
-			missing = append(missing, bin)
-		}
-	}
-	if len(missing) > 0 {
-		t.Fatalf("this host can run the netns fabric but is missing %s — install them rather than skipping the tier they cover",
-			strings.Join(missing, ", "))
-	}
-}
-
-func linuxEffectiveCapabilitiesForTest() (uint64, error) {
-	body, err := os.ReadFile("/proc/self/status")
-	if err != nil {
-		return 0, err
-	}
-	for _, line := range strings.Split(string(body), "\n") {
-		if !strings.HasPrefix(line, "CapEff:") {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) != 2 {
-			return 0, fmt.Errorf("malformed CapEff line: %q", line)
-		}
-		return strconv.ParseUint(fields[1], 16, 64)
-	}
-	return 0, fmt.Errorf("CapEff not found")
-}
-
-func hasLinuxCapability(mask uint64, capNumber uint) bool {
-	return mask&(uint64(1)<<capNumber) != 0
-}
-
 // waitRunning waits with `aws ecs wait tasks-running`, which fails when the
 // task stops instead of running.
 func waitRunning(t *testing.T, q func(...string) string, taskArn string) {
@@ -414,8 +306,8 @@ func waitTaskContainersGone(t *testing.T, taskArns ...string) {
 	t.Fatalf("task containers still running for %v", taskArns)
 }
 
-// rmDockerNetworks removes simulator VPC networks (Docker tier), retrying while
-// task containers detach. No-op for names that don't exist (netns tier).
+// rmDockerNetworks removes simulator VPC networks, retrying while task
+// containers detach. No-op for names that don't exist.
 func rmDockerNetworks(names ...string) {
 	for attempt := 0; attempt < 12; attempt++ {
 		pending := false
@@ -434,9 +326,9 @@ func rmDockerNetworks(names ...string) {
 	}
 }
 
-// TestECSVPCDeleteVpcAllowsCIDRReuse covers the fabric cleanup needed by a
-// terraform destroy/apply cycle: once the task and subnet are gone, DeleteVpc
-// removes the real backing fabric so a new VPC can reuse the same CIDR.
+// TestECSVPCDeleteVpcAllowsCIDRReuse covers the network cleanup a terraform
+// destroy/apply cycle needs: once the task and subnet are gone, DeleteVpc
+// removes the VPC's engine network so a new VPC can reuse the same CIDR.
 func TestECSVPCDeleteVpcAllowsCIDRReuse(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
@@ -481,152 +373,6 @@ func TestECSVPCDeleteVpcAllowsCIDRReuse(t *testing.T) {
 	}
 }
 
-// TestECSVPCOverlappingCIDR proves — on both tiers — that two live VPCs with
-// the SAME AWS CIDR (legal: VPCs are isolated) both run tasks that get the
-// SAME real ENI IP, with no remapping and full isolation. The netns fabric
-// gives each VPC its own namespace; the Docker-network tier gives each VPC its
-// own bridge with an allocator-assigned subnet, the shared ENI address riding
-// as a per-container secondary, so neither bridge can see the other's.
-func TestECSVPCOverlappingCIDR(t *testing.T) {
-	t.Parallel()
-	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
-
-	vpcA, subnetA := mkVPCSubnet(t, q, "10.50.0.0/16", "10.50.0.0/24")
-	vpcB, subnetB := mkVPCSubnet(t, q, "10.50.0.0/16", "10.50.0.0/24") // same CIDR
-	q("ecs", "create-cluster", "--cluster-name", "default", "--query", "cluster.clusterName", "--output", "text")
-	registerTaskDef(q, "ovl-server-a", vpcServerScriptServing("ok-vpc-a"))
-	registerTaskDef(q, "ovl-server-b", vpcServerScriptServing("ok-vpc-b"))
-	registerTaskDef(q, "ovl-client", "trap 'exit 143' TERM; sleep 120 & wait")
-
-	// The servers launch first in each VPC, so each subnet's deterministic
-	// allocator hands both the same first host address: the same ENI IP, live
-	// in two VPCs at once.
-	serverA := runTask(q, "ovl-server-a", subnetA)
-	serverB := runTask(q, "ovl-server-b", subnetB)
-	clientA := runTask(q, "ovl-client", subnetA)
-	clientB := runTask(q, "ovl-client", subnetB)
-	t.Cleanup(func() {
-		for _, task := range []string{serverA, serverB, clientA, clientB} {
-			runCLI(t, awsCLI("ecs", "stop-task", "--cluster", "default", "--task", task))
-		}
-		waitTaskContainersGone(t, serverA, serverB, clientA, clientB)
-		rmDockerNetworks(ecsVPCNet(vpcA), ecsVPCNet(vpcB), ecsVPCNet(vpcA)+"-egress", ecsVPCNet(vpcB)+"-egress")
-	})
-	waitRunning(t, q, serverA)
-	waitRunning(t, q, serverB)
-	waitRunning(t, q, clientA)
-	waitRunning(t, q, clientB)
-
-	// Both VPCs keep the real CIDR — each server's ENI IP is on its real eth0,
-	// and the two servers legitimately hold the same address.
-	ip := taskENIIP(q, serverA)
-	if !strings.HasPrefix(ip, "10.50.0.") {
-		t.Fatalf("server should keep its real AWS CIDR (no remap): got %q", ip)
-	}
-	if ipB := taskENIIP(q, serverB); ipB != ip {
-		t.Fatalf("both same-CIDR VPCs should allocate the same first ENI IP: VPC-A %q, VPC-B %q", ip, ipB)
-	}
-	if ips := taskEth0IPs(t, serverA); !containsIP(ips, ip) {
-		t.Fatalf("VPC-A server's reported ENI IP %q is not on its eth0 (addresses: %v)", ip, ips)
-	}
-	if ips := taskEth0IPs(t, serverB); !containsIP(ips, ip) {
-		t.Fatalf("VPC-B server's reported ENI IP %q is not on its eth0 (addresses: %v)", ip, ips)
-	}
-
-	// Each client reaches its OWN VPC's server on the shared address and never
-	// the other's: the body proves which VPC answered.
-	if code, out := taskWget(t, clientA, ip); code != 0 || !strings.Contains(out, "ok-vpc-a") {
-		t.Fatalf("VPC-A task should reach VPC-A's server at %s: exit=%d out=%q", ip, code, out)
-	}
-	if code, out := taskWget(t, clientB, ip); code != 0 || !strings.Contains(out, "ok-vpc-b") {
-		t.Fatalf("VPC-B task should reach VPC-B's server at %s: exit=%d out=%q", ip, code, out)
-	}
-}
-
-func TestECSVPCNetnsTaskMetadataLinkLocal(t *testing.T) {
-	t.Parallel()
-	requireECSNetnsTier(t)
-	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
-
-	_, subnet := mkVPCSubnet(t, q, "10.62.0.0/16", "10.62.0.0/24")
-	q("ecs", "create-cluster", "--cluster-name", "default", "--query", "cluster.clusterName", "--output", "text")
-	registerTaskDef(q, "metadata-netns-client", "trap 'exit 143' TERM; sleep 120 & wait")
-	task := runTask(q, "metadata-netns-client", subnet)
-	t.Cleanup(func() {
-		runCLI(t, awsCLI("ecs", "stop-task", "--cluster", "default", "--task", task))
-	})
-	waitRunning(t, q, task)
-
-	cid := taskContainerID(t, task)
-	out, err := exec.Command("docker", "exec", cid, "sh", "-c", `printf '%s\n' "$ECS_CONTAINER_METADATA_URI_V4"; wget -T 3 -q -O - "$ECS_CONTAINER_METADATA_URI_V4/task"`).CombinedOutput()
-	if err != nil {
-		t.Fatalf("task metadata link-local fetch failed: %v\n%s", err, out)
-	}
-	lines := strings.SplitN(string(out), "\n", 2)
-	if len(lines) != 2 {
-		t.Fatalf("metadata probe output missing URI/body split: %q", out)
-	}
-	if !strings.HasPrefix(lines[0], "http://169.254.170.2/v4/") {
-		t.Fatalf("ECS_CONTAINER_METADATA_URI_V4 = %q, want Fargate link-local URI", lines[0])
-	}
-	if !strings.Contains(lines[1], `"Family":"metadata-netns-client"`) || !strings.Contains(lines[1], `"TaskARN":"`+task+`"`) {
-		t.Fatalf("task metadata body did not contain real task identity:\n%s", lines[1])
-	}
-}
-
-func TestECSVPCNetnsRouteTableEgress(t *testing.T) {
-	t.Parallel()
-	requireECSNetnsTier(t)
-	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
-	probeURL := startHostProbeServer(t)
-
-	vpc := q("ec2", "create-vpc", "--cidr-block", "10.63.0.0/16", "--query", "Vpc.VpcId", "--output", "text")
-	isolatedSubnet := q("ec2", "create-subnet", "--vpc-id", vpc, "--cidr-block", "10.63.1.0/24",
-		"--availability-zone", "us-east-1a", "--query", "Subnet.SubnetId", "--output", "text")
-	publicSubnet := q("ec2", "create-subnet", "--vpc-id", vpc, "--cidr-block", "10.63.2.0/24",
-		"--availability-zone", "us-east-1a", "--query", "Subnet.SubnetId", "--output", "text")
-	privateSubnet := q("ec2", "create-subnet", "--vpc-id", vpc, "--cidr-block", "10.63.3.0/24",
-		"--availability-zone", "us-east-1a", "--query", "Subnet.SubnetId", "--output", "text")
-	igw := q("ec2", "create-internet-gateway", "--query", "InternetGateway.InternetGatewayId", "--output", "text")
-	q("ec2", "attach-internet-gateway", "--internet-gateway-id", igw, "--vpc-id", vpc)
-	publicRT := q("ec2", "create-route-table", "--vpc-id", vpc, "--query", "RouteTable.RouteTableId", "--output", "text")
-	q("ec2", "create-route", "--route-table-id", publicRT, "--destination-cidr-block", "0.0.0.0/0", "--gateway-id", igw)
-	q("ec2", "associate-route-table", "--route-table-id", publicRT, "--subnet-id", publicSubnet)
-	eipAlloc := q("ec2", "allocate-address", "--domain", "vpc", "--query", "AllocationId", "--output", "text")
-	nat := q("ec2", "create-nat-gateway", "--subnet-id", publicSubnet, "--allocation-id", eipAlloc,
-		"--query", "NatGateway.NatGatewayId", "--output", "text")
-	privateRT := q("ec2", "create-route-table", "--vpc-id", vpc, "--query", "RouteTable.RouteTableId", "--output", "text")
-	q("ec2", "create-route", "--route-table-id", privateRT, "--destination-cidr-block", "0.0.0.0/0", "--nat-gateway-id", nat)
-	q("ec2", "associate-route-table", "--route-table-id", privateRT, "--subnet-id", privateSubnet)
-
-	q("ecs", "create-cluster", "--cluster-name", "default", "--query", "cluster.clusterName", "--output", "text")
-	registerTaskDef(q, "egress-netns-client", "trap 'exit 143' TERM; sleep 120 & wait")
-	isolatedTask := runTask(q, "egress-netns-client", isolatedSubnet)
-	publicTask := runTaskWithNetworkConfiguration(q, "egress-netns-client", `awsvpcConfiguration={subnets=[`+publicSubnet+`],assignPublicIp=ENABLED}`)
-	privateTask := runTask(q, "egress-netns-client", privateSubnet)
-	t.Cleanup(func() {
-		for _, task := range []string{isolatedTask, publicTask, privateTask} {
-			runCLI(t, awsCLI("ecs", "stop-task", "--cluster", "default", "--task", task))
-		}
-	})
-	waitRunning(t, q, isolatedTask)
-	waitRunning(t, q, publicTask)
-	waitRunning(t, q, privateTask)
-
-	if code, out := taskWgetURL(t, isolatedTask, probeURL); code == 0 {
-		t.Fatalf("isolated subnet task unexpectedly reached host egress probe: exit=%d out=%q", code, out)
-	}
-	if code, out := taskWgetURL(t, publicTask, probeURL); code != 0 || !strings.Contains(out, "egress-ok") {
-		t.Fatalf("public subnet task with assignPublicIp should reach egress probe: exit=%d out=%q", code, out)
-	}
-	if code, out := taskWgetURL(t, privateTask, probeURL); code != 0 || !strings.Contains(out, "egress-ok") {
-		t.Fatalf("private subnet task with NAT route should reach egress probe: exit=%d out=%q", code, out)
-	}
-}
-
-// stopCLITasksInSubnet stops every Amazon ECS task of cluster whose elastic network
-// interface is in subnetID and waits with `aws ecs wait tasks-stopped`, since
-// EC2 refuses DeleteSubnet while a task's interface is in it.
 func stopCLITasksInSubnet(t *testing.T, cluster, subnetID string) {
 	t.Helper()
 	// Amazon ECS refuses DeleteCluster while the cluster has active tasks, so a
@@ -678,91 +424,4 @@ func stopCLITasksInSubnet(t *testing.T, cluster, subnetID string) {
 		runCLI(t, awsCLI("ecs", "stop-task", "--cluster", cluster, "--task", arn))
 	}
 	runCLI(t, awsCLI(append([]string{"ecs", "wait", "tasks-stopped", "--cluster", cluster, "--tasks"}, inSubnet...)...))
-}
-
-// startSourceProbeServer serves each request the address it arrived from, so a
-// task can report which source address its egress left the VPC with.
-func startSourceProbeServer(t *testing.T) string {
-	t.Helper()
-	ln, err := net.Listen("tcp4", "0.0.0.0:0")
-	if err != nil {
-		t.Fatalf("listen for source probe: %v", err)
-	}
-	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host, _, _ := net.SplitHostPort(r.RemoteAddr)
-		_, _ = w.Write([]byte("from=" + host + "\n"))
-	})}
-	go func() { _ = srv.Serve(ln) }()
-	t.Cleanup(func() {
-		_ = srv.Close()
-		_ = ln.Close()
-	})
-	return "http://" + net.JoinHostPort(hostPrimaryIPv4(t), strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)) + "/source"
-}
-
-// TestECSVPCNetnsNATRouteFollowsRouteTableAssociations proves a NAT gateway
-// route translates the subnets its route table governs at the time traffic
-// flows, not at the time the route was created: a subnet associated after the
-// route, and a subnet the main route table governs implicitly, both leave the
-// VPC from the NAT gateway's Elastic IP address. Moving the explicit subnet to
-// a route table with no NAT route stops its translation.
-func TestECSVPCNetnsNATRouteFollowsRouteTableAssociations(t *testing.T) {
-	t.Parallel()
-	requireECSNetnsTier(t)
-	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
-	probeURL := startSourceProbeServer(t)
-
-	vpc := q("ec2", "create-vpc", "--cidr-block", "10.64.0.0/16", "--query", "Vpc.VpcId", "--output", "text")
-	mkSubnet := func(cidr string) string {
-		return q("ec2", "create-subnet", "--vpc-id", vpc, "--cidr-block", cidr,
-			"--availability-zone", "us-east-1a", "--query", "Subnet.SubnetId", "--output", "text")
-	}
-	publicSubnet := mkSubnet("10.64.1.0/24")
-	privateSubnet := mkSubnet("10.64.2.0/24")
-	igw := q("ec2", "create-internet-gateway", "--query", "InternetGateway.InternetGatewayId", "--output", "text")
-	q("ec2", "attach-internet-gateway", "--internet-gateway-id", igw, "--vpc-id", vpc)
-	publicRT := q("ec2", "create-route-table", "--vpc-id", vpc, "--query", "RouteTable.RouteTableId", "--output", "text")
-	q("ec2", "create-route", "--route-table-id", publicRT, "--destination-cidr-block", "0.0.0.0/0", "--gateway-id", igw)
-	q("ec2", "associate-route-table", "--route-table-id", publicRT, "--subnet-id", publicSubnet)
-	eipAlloc := q("ec2", "allocate-address", "--domain", "vpc", "--query", "AllocationId", "--output", "text")
-	nat := q("ec2", "create-nat-gateway", "--subnet-id", publicSubnet, "--allocation-id", eipAlloc,
-		"--query", "NatGateway.NatGatewayId", "--output", "text")
-	q("ec2", "wait", "nat-gateway-available", "--nat-gateway-ids", nat)
-	natIP := q("ec2", "describe-nat-gateways", "--nat-gateway-ids", nat,
-		"--query", "NatGateways[0].NatGatewayAddresses[0].PublicIp", "--output", "text")
-
-	privateRT := q("ec2", "create-route-table", "--vpc-id", vpc, "--query", "RouteTable.RouteTableId", "--output", "text")
-	q("ec2", "create-route", "--route-table-id", privateRT, "--destination-cidr-block", "0.0.0.0/0", "--nat-gateway-id", nat)
-	privateAssoc := q("ec2", "associate-route-table", "--route-table-id", privateRT, "--subnet-id", privateSubnet,
-		"--query", "AssociationId", "--output", "text")
-
-	mainRT := q("ec2", "describe-route-tables", "--filters", "Name=vpc-id,Values="+vpc, "Name=association.main,Values=true",
-		"--query", "RouteTables[0].RouteTableId", "--output", "text")
-	q("ec2", "create-route", "--route-table-id", mainRT, "--destination-cidr-block", "0.0.0.0/0", "--nat-gateway-id", nat)
-	implicitSubnet := mkSubnet("10.64.3.0/24")
-
-	q("ecs", "create-cluster", "--cluster-name", "default", "--query", "cluster.clusterName", "--output", "text")
-	registerTaskDef(q, "nat-source-client", "trap 'exit 143' TERM; sleep 120 & wait")
-	privateTask := runTask(q, "nat-source-client", privateSubnet)
-	implicitTask := runTask(q, "nat-source-client", implicitSubnet)
-	t.Cleanup(func() {
-		for _, task := range []string{privateTask, implicitTask} {
-			runCLI(t, awsCLI("ecs", "stop-task", "--cluster", "default", "--task", task))
-		}
-	})
-	waitRunning(t, q, privateTask)
-	waitRunning(t, q, implicitTask)
-
-	for name, task := range map[string]string{"explicitly associated": privateTask, "implicitly main": implicitTask} {
-		code, out := taskWgetURL(t, task, probeURL)
-		if code != 0 || strings.TrimSpace(out) != "from="+natIP {
-			t.Fatalf("%s subnet task must leave the VPC from the NAT gateway's address %s: exit=%d out=%q", name, natIP, code, out)
-		}
-	}
-
-	isolatedRT := q("ec2", "create-route-table", "--vpc-id", vpc, "--query", "RouteTable.RouteTableId", "--output", "text")
-	q("ec2", "replace-route-table-association", "--association-id", privateAssoc, "--route-table-id", isolatedRT)
-	if code, out := taskWgetURL(t, privateTask, probeURL); code == 0 {
-		t.Fatalf("a subnet moved off the NAT route still reached the probe: out=%q", out)
-	}
 }

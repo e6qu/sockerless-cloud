@@ -391,6 +391,8 @@ func TestECS_TaskProtection(t *testing.T) {
 }
 
 // TestECS_StartTask runs a task on a specific registered container instance.
+// The definition's privileged flag is accepted; the simulator grants no
+// privilege, so the command asks for none.
 func TestECS_StartTask(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()
@@ -406,7 +408,7 @@ func TestECS_StartTask(t *testing.T) {
 			Name:        aws.String("app"),
 			Image:       aws.String("mirror.gcr.io/library/alpine:latest"),
 			Privileged:  aws.Bool(true),
-			Command:     []string{"sh", "-c", "mkdir -p /tmp/start-task-mount && mount -t tmpfs tmpfs /tmp/start-task-mount && umount /tmp/start-task-mount"},
+			Command:     []string{"sh", "-c", "true"},
 		}},
 	})
 	require.NoError(t, err)

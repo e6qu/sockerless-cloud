@@ -1,7 +1,7 @@
 # Standardized Makefile for simulator-aws — see docs/MAKEFILE_STANDARD.md.
 #
 # This sim is its own Go module, resolved against the sibling support
-# modules (sim, realexec, ui-auth) through the repo-root go.work during
+# modules (sim, ui-auth) through the repo-root go.work during
 # development and through tagged versions when installed with
 # `go install ...@version`. The default `build` produces a stripped,
 # no-UI binary; `make embed && make build` bakes the console SPA in.
@@ -98,25 +98,19 @@ DOCKER_TEST_ENV := -e HOME=/tmp/sockerless-home -e USER=sockerless -e SOCKERLESS
 # One directory that is the same path on both sides of the harness.
 #
 # The simulator hands the container engine host paths — an Amazon EFS access
-# point a task mounts, an AWS CodeBuild source tree, a Firecracker root image —
-# and the engine resolves a mount source on the host it runs on, not inside the
+# point a task mounts, an AWS CodeBuild source tree — and the engine resolves a mount source on the host it runs on, not inside the
 # client container. Without a directory mounted into the container at its own
 # host path and made the simulator's temporary directory, every workload
 # bind-mounts an empty directory the engine created for itself and reads none of
 # the files it was given. Two Azure tests failed exactly that way until that
 # harness gained one.
 #
-# The name is terse and it sits under /var/tmp rather than /tmp on purpose: a
-# Firecracker API socket lands at
-# <tmp>/sockerless-firecracker/<=40 chars>/firecracker.socket and a UNIX socket
-# path cannot exceed 108 bytes, which leaves the directory 22; and /tmp on a
-# container-engine host is commonly memory-backed, which a booting machine's
-# root image would fill.
+# It sits under /var/tmp rather than /tmp on purpose: /tmp on a container-engine
+# host is commonly memory-backed, which a build tree or a volume seed would fill.
 DOCKER_TEST_SHARED_TMP := /var/tmp/skl
 DOCKER_TEST_SHARED_TMP_MOUNT := -v $(DOCKER_TEST_SHARED_TMP):$(DOCKER_TEST_SHARED_TMP)
 
-DOCKER_REALNET_TEST_ENV := -e HOME=/tmp/sockerless-home -e USER=sockerless -e CGO_ENABLED=0 -e TF_IN_AUTOMATION=1 -e CLOUDSDK_CORE_DISABLE_PROMPTS=1 -e AZURE_CORE_NO_COLOR=true -e AWS_PAGER= -e TMPDIR=$(DOCKER_TEST_SHARED_TMP)
-DOCKER_REALNET_FLAGS := --privileged --pid host
+DOCKER_TEST_RUN_ENV := -e HOME=/tmp/sockerless-home -e USER=sockerless -e CGO_ENABLED=0 -e TF_IN_AUTOMATION=1 -e CLOUDSDK_CORE_DISABLE_PROMPTS=1 -e AZURE_CORE_NO_COLOR=true -e AWS_PAGER= -e TMPDIR=$(DOCKER_TEST_SHARED_TMP)
 DOCKER_SPEC_VALIDATION_FLAGS := $(if $(strip $(SOCKERLESS_SPEC_VALIDATE)),-v "$(dir $(SOCKERLESS_SPEC_VALIDATE)):/sockerless-spec" -e SOCKERLESS_SPEC_VALIDATE="/sockerless-spec/$(notdir $(SOCKERLESS_SPEC_VALIDATE))" -e SOCKERLESS_SPEC_DIR=/src/specs/cloud-api/aws)
 
 docker-build: ## build the docker image
@@ -141,7 +135,6 @@ docker-test-build: ## build the test docker image
 
 docker-test: docker-test-build ## run all tests inside docker
 	docker run --rm --network host \
-		$(DOCKER_REALNET_FLAGS) \
 		--security-opt label=disable \
 		--group-add $(DOCKER_SOCK_GID) \
 		--group-add 0 \
@@ -149,12 +142,11 @@ docker-test: docker-test-build ## run all tests inside docker
 		-v /var/run/docker.sock:/var/run/docker.sock \
 		$(DOCKER_TEST_SHARED_TMP_MOUNT) \
 		-w /src/simulator-aws \
-		$(DOCKER_REALNET_TEST_ENV) \
+		$(DOCKER_TEST_RUN_ENV) \
 		$(DOCKER_TEST_IMAGE) make test-all
 
 terraform-https-test-docker: docker-test-build ## run terraform HTTPS tests inside docker
 	@container_id="$$(docker create --network host \
-		$(DOCKER_REALNET_FLAGS) \
 		--security-opt label=disable \
 		--group-add $(DOCKER_SOCK_GID) \
 		--group-add 0 \
@@ -162,7 +154,7 @@ terraform-https-test-docker: docker-test-build ## run terraform HTTPS tests insi
 		-v /var/run/docker.sock:/var/run/docker.sock \
 		$(DOCKER_TEST_SHARED_TMP_MOUNT) \
 		-w /src/simulator-aws \
-		$(DOCKER_REALNET_TEST_ENV) \
+		$(DOCKER_TEST_RUN_ENV) \
 		$(DOCKER_SPEC_VALIDATION_FLAGS) \
 		-e SOCKERLESS_TF_HTTPS_GATEWAY=1 \
 		$(DOCKER_TEST_IMAGE) make terraform-https-test TERRAFORM_TEST_TIMEOUT=$(TERRAFORM_TEST_TIMEOUT) TERRAFORM_TEST_PACKAGES="$(TERRAFORM_TEST_PACKAGES)" TERRAFORM_TEST_PACKAGE_PARALLELISM=$(TERRAFORM_TEST_PACKAGE_PARALLELISM) TERRAFORM_TEST_ARGS="$(TERRAFORM_TEST_ARGS)" TERRAFORM_TEST_JSON=$(TERRAFORM_TEST_JSON))" || exit $$?; \

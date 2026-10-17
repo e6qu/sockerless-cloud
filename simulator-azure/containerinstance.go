@@ -780,10 +780,38 @@ func aciSetGroupState(group *ACIContainerGroup, state ACIContainerState) {
 	group.Properties["containers"] = containers
 }
 
+// aciGroupNetwork is the network a container group's containers run on: the
+// virtual network of the subnet its subnetIds name, where each container
+// leases its address, or the platform network.
+func aciGroupNetwork(ctx context.Context, group ACIContainerGroup) (azureWorkloadNetwork, string, error) {
+	for _, entry := range propertyObjectSlice(group.Properties, "subnetIds") {
+		subnetID := stringProperty(entry, "id")
+		if subnetID == "" {
+			continue
+		}
+		network, err := azureSubnetVNetNetwork(ctx, subnetID)
+		if err != nil {
+			return azureWorkloadNetwork{}, "", fmt.Errorf("subnet %s of container group %s: %w", subnetID, group.Name, err)
+		}
+		return network, subnetID, nil
+	}
+	network, err := azurePlatformNetwork(ctx)
+	return network, "", err
+}
+
 func aciStartGroupContainers(group ACIContainerGroup) error {
 	if err := sim.RequireContainerRuntime("running a container group's containers"); err != nil {
 		return err
 	}
+	network, subnetID, err := aciGroupNetwork(context.Background(), group)
+	if err != nil {
+		return err
+	}
+	backend, err := azurePlacementBackend(placementContainerInstances)
+	if err != nil {
+		return err
+	}
+	groupAddress := ""
 	containers := aciContainers(&group)
 	for _, c := range containers {
 		name, _ := c["name"].(string)
@@ -843,6 +871,8 @@ func aciStartGroupContainers(group ACIContainerGroup) error {
 				"aci-container":  name,
 			},
 			Name:    "sockerless-aci-" + sanitizeContainerName(group.Name) + "-" + sanitizeContainerName(name),
+			Network: network.Network,
+			DNS:     network.resolvers(),
 			Sandbox: SandboxACA,
 		}
 		if len(command) > 0 {
@@ -851,12 +881,28 @@ func aciStartGroupContainers(group ACIContainerGroup) error {
 				cfg.Args = command[1:]
 			}
 		}
-		handle, err := sim.StartContainerSyncContext(context.Background(), cfg, sink)
+		if subnetID != "" {
+			address, err := azureLeaseWorkloadAddress(subnetID, cfg.Name)
+			if err != nil {
+				return err
+			}
+			cfg.IPv4Address = address
+		}
+		handle, err := backend.Place(context.Background(), cfg, sink)
 		if err != nil {
+			if cfg.IPv4Address != "" {
+				azureReleaseWorkloadAddress(subnetID, cfg.Name, cfg.IPv4Address)
+			}
 			return err
 		}
+		if cfg.IPv4Address != "" {
+			azureReleaseOnExit(handle.Exited(), subnetID, cfg.Name, cfg.IPv4Address)
+			if groupAddress == "" {
+				groupAddress = cfg.IPv4Address
+			}
+		}
 		start := time.Now().UTC().Format(time.RFC3339Nano)
-		aciRuntimeRecords.Put(key, aciRuntimeRecord{ContainerID: handle.ContainerID, State: ACIStateRunning, StartTime: start})
+		aciRuntimeRecords.Put(key, aciRuntimeRecord{ContainerID: handle.ID(), State: ACIStateRunning, StartTime: start})
 		groupID, h := group.ID, handle
 		var res sim.ProcessResult
 		bg.WatchThen(func() { res = h.Wait() }, func() {
@@ -873,6 +919,11 @@ func aciStartGroupContainers(group ACIContainerGroup) error {
 	aciContainerGroups.Update(group.ID, func(stored *ACIContainerGroup) {
 		aciSetGroupState(stored, ACIStateRunning)
 		aciSetGroupProvisioning(stored, "Succeeded")
+		// A group in a subnet reports the private address it holds there.
+		if ip, ok := stored.Properties["ipAddress"].(map[string]any); ok && groupAddress != "" {
+			ip["ip"] = groupAddress
+			stored.Properties["ipAddress"] = ip
+		}
 	})
 	return nil
 }

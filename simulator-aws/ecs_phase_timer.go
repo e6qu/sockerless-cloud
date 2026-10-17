@@ -12,9 +12,7 @@ import (
 // lifecycle took, so a slow start can be attributed from the simulator's own
 // log instead of bisected from outside. Amazon ECS exposes only
 // pullStartedAt/pullStoppedAt; everything before the pull (volume
-// preparation, the pause container, the VPC namespace attach) was a silent
-// window: on 2026-09-07 a task waited 168 s there with nothing logged
-// (sockerless-cloud#139).
+// preparation, the VPC network) is otherwise a silent window.
 type ecsPhaseTimer struct {
 	now    func() time.Time
 	start  time.Time

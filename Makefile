@@ -45,7 +45,6 @@ GO_UI_APPS := \
 # Go libraries without UI.
 GO_APPS := \
   sim \
-  realexec \
   testutil \
   ui-auth
 
@@ -153,15 +152,12 @@ FORCE:
 
 SIMULATOR_APPS := simulator-aws simulator-gcp simulator-azure
 
-.PHONY: docker-test docker-test-build firecracker-test realexec-network-test
+.PHONY: docker-test docker-test-build node-agent-test
 docker-test-build: ## build Docker test images for all cloud simulators
 	@$(MAKE) -s _fanout TARGET=docker-test-build APPS="$(SIMULATOR_APPS)"
 
 docker-test: ## run SDK, CLI, and Terraform tests for all cloud simulators inside Docker
 	@$(MAKE) -s _fanout TARGET=docker-test APPS="$(SIMULATOR_APPS)"
 
-firecracker-test: ## boot a real Firecracker microVM and run Go arithmetic build/execution inside it
-	@bash tests/firecracker/run-arithmetic.sh
-
-realexec-network-test: ## create a real Linux bridge/netns/veth NIC path and verify cleanup
-	@bash tests/realexec/run-network-nic.sh
+node-agent-test: ## boot a Firecracker guest through the node agent on a host with /dev/kvm
+	@cd sim && go test -tags kvm -count=1 -timeout 12m -run TestNodeAgent ./nodeagent

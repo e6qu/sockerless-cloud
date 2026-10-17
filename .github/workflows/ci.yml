@@ -1,8 +1,5 @@
 name: CI
 
-env:
-  FIRECRACKER_VERSION: v1.15.1
-
 on:
   pull_request:
     branches: [main]
@@ -68,7 +65,7 @@ jobs:
             modules: simulator-aws simulator-gcp simulator-azure
             timeout_minutes: 10
           - shard: support
-            modules: sim realexec testutil ui-auth
+            modules: sim testutil ui-auth
             timeout_minutes: 6
     steps:
       - uses: actions/checkout@v7.0.1
@@ -283,34 +280,6 @@ jobs:
       - name: Branch must be rebased on origin/main
         run: bash scripts/check-rebased-on-main.sh
 
-  firecracker:
-    needs: verified-on-pr
-    if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
-    name: firecracker (microVM arithmetic)
-    runs-on: ubuntu-24.04
-    # A warm run takes 150-225 s. A change to any go.sum misses the build
-    # cache, and the cold compile of the simulators alone took the job past
-    # five minutes with every test passed.
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: ./.github/actions/install-go
-        with:
-          cache: 'true'
-      - uses: actions/cache@v6.1.0
-        with:
-          path: ~/.cache/sockerless/firecracker-ci
-          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-assets1
-      - name: Install Firecracker test dependencies
-        run: |
-          bash scripts/ci-apt-install.sh curl e2fsprogs iproute2 iptables iputils-ping nftables openssh-client squashfs-tools
-      - name: Install Firecracker
-        run: bash scripts/install-firecracker.sh
-      - name: Run Firecracker arithmetic smoke
-        run: make firecracker-test
-      - name: Run real-execution network/NIC smoke
-        run: make realexec-network-test
-
   # A pull request restores only the caches its own runs saved and those main
   # saved. Main's verification jobs skip a tree its pull request already
   # passed, so main saved no simulator Go cache, and every new pull request
@@ -406,7 +375,6 @@ jobs:
   sim:
     needs: verified-on-pr
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
-    # VM-backed simulator slices require /dev/kvm for real Firecracker guests.
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
@@ -493,8 +461,6 @@ jobs:
             ~/.cache/go-build
           # Keyed on the dependency set, so it turns over when go.sum changes
           # and an older entry warms the incremental build until then. The
-          # pre-build steps run as the runner user, so the files this saves
-          # are readable; the sudo-run test steps only add to what is cached.
           key: sim-go-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ hashFiles('go.work', '**/go.sum') }}
           restore-keys: |
             sim-go-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-
@@ -533,13 +499,6 @@ jobs:
           # shellcheck disable=SC2086
           bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
             ${{ steps.base-images-list.outputs.images }}
-      # Simulator runs mutate the restored guest rootfs as root. Restore the
-      # immutable seed produced by the dedicated Firecracker job, but never
-      # archive the test-mutated tree from a matrix job.
-      - uses: actions/cache/restore@v6.1.0
-        with:
-          path: ~/.cache/sockerless/firecracker-ci
-          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-assets1
       # The Cloud Firestore emulator is a Java program, and the component
       # refuses anything below a Java 21 runtime, which the runner's default
       # `java` is not. The runner does ship newer runtimes alongside it, each
@@ -615,10 +574,6 @@ jobs:
           done
           hash -r
           az version
-      - name: Install real-execution tools
-        run: |
-          bash scripts/ci-apt-install.sh curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
-          bash scripts/install-firecracker.sh
       - name: Install Caddy
         # TestArtifactRegistryCLI_DockerLoginPushPull serves the Google Artifact
         # Registry Docker data plane over TLS through the repository's HTTPS
@@ -652,13 +607,20 @@ jobs:
         if: matrix.cloud == 'azure' && matrix.suite == 'sdk' && matrix.shard == 'Cosmos'
         run: docker pull mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview
         timeout-minutes: 8
+      - name: Prepare the engine's trust directory and the low ports for the runner
+        # The suites install a registry's authority under /etc/docker/certs.d
+        # for the engine to trust it and receive mail on port 25, and the
+        # runner, not root, runs them.
+        run: |
+          sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" /etc/docker/certs.d
+          sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0
       - name: Run SDK tests
         if: matrix.suite == 'sdk'
         run: |
           bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}
           bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}/sdk-tests
           cd simulator-${{ matrix.cloud }}
-          sudo env "PATH=$PATH" "HOME=$HOME" \
+          env \
             SOCKERLESS_SPEC_VALIDATE="$RUNNER_TEMP/${{ matrix.cloud }}-spec-violations.jsonl" \
             SOCKERLESS_SPEC_DIR="$GITHUB_WORKSPACE/specs/cloud-api/${{ matrix.cloud }}" \
             make sdk-test ${{ matrix.run && format('SDK_TEST_ARGS="-run ''{0}''{1} ./..."', matrix.run, matrix.skip && format(' -skip ''{0}''', matrix.skip) || '') || '' }}
@@ -678,7 +640,7 @@ jobs:
         if: matrix.suite == 'cli'
         run: |
           cd simulator-${{ matrix.cloud }}
-          sudo env "PATH=$PATH" "HOME=$HOME" \
+          env \
             SOCKERLESS_SPEC_VALIDATE="$RUNNER_TEMP/${{ matrix.cloud }}-spec-violations.jsonl" \
             SOCKERLESS_SPEC_DIR="$GITHUB_WORKSPACE/specs/cloud-api/${{ matrix.cloud }}" \
             make cli-test ${{ matrix.run && format('CLI_TEST_ARGS="-run ''{0}'' ./..."', matrix.run) || '' }}
@@ -709,9 +671,9 @@ jobs:
       matrix:
         include:
           # Amazon ECS is split away from the rest of the E tests: at 204s it
-          # was the largest block in the suite and it sat in the shard that
-          # also installs Firecracker, which put that shard 48s from the job
-          # budget. It joins the data shard, whose own tests run in 4s.
+          # was the largest block in the suite and put the compute shard 48s
+          # from the job budget. It joins the data shard, whose own tests run
+          # in 4s.
           # The Amazon Aurora tests leave services-n-z for compute, which has
           # the most room: their cluster volumes, backups and restores took
           # the N-Z shard past its job budget.
@@ -765,24 +727,9 @@ jobs:
             ~/.cache/go-build
           # Keyed on the dependency set, so it turns over when go.sum changes
           # and an older entry warms the incremental build until then. The
-          # pre-build steps run as the runner user, so the files the data shard saves
-          # are readable; the sudo-run test steps only add to what is cached.
           key: sim-go-${{ runner.os }}-${{ runner.arch }}-aws-${{ hashFiles('go.work', '**/go.sum') }}
           restore-keys: |
             sim-go-${{ runner.os }}-${{ runner.arch }}-aws-
-      - uses: actions/cache/restore@v6.1.0
-        with:
-          path: ~/.cache/sockerless/firecracker-ci
-          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-assets1
-      - name: Install real-execution tools
-        # Firecracker and the netns toolchain back the Amazon EC2 real-execution
-        # tests, which all live in the compute shard ('^Test[E]'); the other
-        # shards skip this install so apt/network variance can't erode their
-        # 15-minute budget.
-        if: matrix.suite == 'compute'
-        run: |
-          bash scripts/ci-apt-install.sh curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
-          bash scripts/install-firecracker.sh
       # Download modules and compile the unit-test binaries in their own
       # budgeted step, so the timed test run below isn't eaten by a cold
       # module cache after a dep change busts the shared **/go.sum Go cache —
@@ -888,6 +835,13 @@ jobs:
           # shellcheck disable=SC2086
           bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
             ${{ steps.base-images-list.outputs.images }}
+      - name: Prepare the engine's trust directory and the low ports for the runner
+        # The suite installs a registry's authority under /etc/docker/certs.d
+        # for the engine to trust it and receives mail on port 25, and the
+        # runner, not root, runs it.
+        run: |
+          sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" /etc/docker/certs.d
+          sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0
       - name: Run AWS SDK tests
         # The suite has exhausted the runner volume from a 89 GB starting
         # margin, killing the runner process as it wrote its own diagnostic log
@@ -907,18 +861,16 @@ jobs:
           }
           report_consumers() {
             echo "=== largest relevant consumers ==="
-            for path in "$GITHUB_WORKSPACE" "$RUNNER_TEMP" /tmp/sockerless-firecracker; do
+            for path in "$GITHUB_WORKSPACE" "$RUNNER_TEMP"; do
               if [ -e "$path" ]; then
                 echo "--- $path ---"
-                sudo timeout 5s du -x -m -d 2 "$path" \
+                timeout 5s du -x -m -d 2 "$path" \
                   | sort -rn | sed -n '1,10p' \
                   || echo "::warning::Disk-consumer scan did not complete within 5 seconds: $path"
               fi
             done
           }
-          # The runner shell owns the diagnostic log; only the test process needs root.
-          # shellcheck disable=SC2024
-          sudo env "PATH=$PATH" "HOME=$HOME" \
+          env \
             SOCKERLESS_AWS_SIMULATOR_BINARY="$GITHUB_WORKSPACE/simulator-aws/simulator-aws" \
             SOCKERLESS_SPEC_VALIDATE="$RUNNER_TEMP/aws-spec-violations.jsonl" \
             SOCKERLESS_SPEC_DIR="$GITHUB_WORKSPACE/specs/cloud-api/aws" \
@@ -933,9 +885,9 @@ jobs:
               tail -n 200 "$log" || true
               report
               report_consumers
-              sudo kill -QUIT "$test_pid" 2>/dev/null || true
+              kill -QUIT "$test_pid" 2>/dev/null || true
               sleep 10
-              sudo kill -9 "$test_pid" 2>/dev/null || true
+              kill -9 "$test_pid" 2>/dev/null || true
               exit 1
             fi
             sleep 10
@@ -1129,19 +1081,9 @@ jobs:
             ~/.cache/go-build
           # Keyed on the dependency set, so it turns over when go.sum changes
           # and an older entry warms the incremental build until then. The
-          # pre-build steps run as the runner user, so the files this saves
-          # are readable; the sudo-run test steps only add to what is cached.
           key: sim-go-${{ runner.os }}-${{ runner.arch }}-aws-${{ hashFiles('go.work', '**/go.sum') }}
           restore-keys: |
             sim-go-${{ runner.os }}-${{ runner.arch }}-aws-
-      - uses: actions/cache/restore@v6.1.0
-        with:
-          path: ~/.cache/sockerless/firecracker-ci
-          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-assets1
-      - name: Install real-execution tools
-        run: |
-          bash scripts/ci-apt-install.sh curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
-          bash scripts/install-firecracker.sh
       - name: Install Session Manager plugin
         run: |
           curl --fail --location --show-error --silent \
@@ -1214,10 +1156,17 @@ jobs:
           cd simulator-aws && CGO_ENABLED=0 go build -tags noui -o /dev/null .
           cd cli-tests && CGO_ENABLED=0 go test -c -o /dev/null .
         timeout-minutes: 10
+      - name: Prepare the engine's trust directory and the low ports for the runner
+        # The suite installs a registry's authority under /etc/docker/certs.d
+        # for the engine to trust it and receives mail on port 25, and the
+        # runner, not root, runs it.
+        run: |
+          sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" /etc/docker/certs.d
+          sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0
       - name: Run AWS CLI tests
         run: |
           cd simulator-aws
-          sudo env "PATH=$PATH" "HOME=$HOME" \
+          env \
             SOCKERLESS_SPEC_VALIDATE="$RUNNER_TEMP/aws-cli-spec-violations.jsonl" \
             SOCKERLESS_SPEC_DIR="$GITHUB_WORKSPACE/specs/cloud-api/aws" \
             make cli-test CLI_TEST_TIMEOUT=${{ matrix.timeout }} CLI_TEST_ARGS="-run '${{ matrix.run }}' ./..."
@@ -1332,7 +1281,7 @@ jobs:
             timeout_minutes: 12
           - suite: aws Amazon EC2 launch template
             cloud: aws
-            tf_packages: "./launch-template ./ec2-instance-type"
+            tf_packages: "./launch-template ./ec2-instance-type ./ec2-instance"
             timeout_minutes: 12
           - suite: aws Amazon EC2 network interface
             cloud: aws
@@ -1349,10 +1298,6 @@ jobs:
           - suite: aws Amazon ECR force delete
             cloud: aws
             tf_packages: "./ecr-force-delete ./ecr-image-size"
-            timeout_minutes: 12
-          - suite: aws NAT gateway route associations
-            cloud: aws
-            tf_packages: "./nat-associations"
             timeout_minutes: 12
           - suite: aws AWS STS session tags
             cloud: aws
@@ -1450,10 +1395,6 @@ jobs:
           # shellcheck disable=SC2086
           bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
             ${{ steps.base-images-list.outputs.images }}
-      - uses: actions/cache/restore@v6.1.0
-        with:
-          path: ~/.cache/sockerless/firecracker-ci
-          key: firecracker-ci-${{ env.FIRECRACKER_VERSION }}-${{ runner.arch }}-assets1
       # Terraform is installed from its own release archive rather than
       # through hashicorp/setup-terraform. The runner downloads every action a
       # workflow references before it evaluates any step's condition, so an
@@ -1474,10 +1415,6 @@ jobs:
           unzip -q -o "$RUNNER_TEMP/$archive" -d /usr/local/bin terraform
           terraform version
         timeout-minutes: 3
-      - name: Install real-execution tools
-        run: |
-          bash scripts/ci-apt-install.sh curl e2fsprogs iproute2 iputils-ping nftables procps squashfs-tools
-          bash scripts/install-firecracker.sh
       - name: Install Caddy
         run: |
           bash scripts/install-caddy.sh
@@ -1487,16 +1424,16 @@ jobs:
           export SOCKERLESS_SPEC_VALIDATE="$RUNNER_TEMP/${{ matrix.cloud }}-tf-spec-violations.jsonl"
           export SOCKERLESS_SPEC_DIR="$GITHUB_WORKSPACE/specs/cloud-api/${{ matrix.cloud }}"
           if [ "${{ matrix.cloud }}" = "aws" ]; then
-            sudo env "PATH=$PATH" "HOME=$HOME" \
+            env \
               SOCKERLESS_SPEC_VALIDATE="$SOCKERLESS_SPEC_VALIDATE" SOCKERLESS_SPEC_DIR="$SOCKERLESS_SPEC_DIR" \
               make terraform-https-test TERRAFORM_TEST_TIMEOUT=${{ matrix.tf_timeout || '600s' }} TERRAFORM_TEST_PACKAGES="${{ matrix.tf_packages }}" \
                 TERRAFORM_TEST_PACKAGE_PARALLELISM="${{ matrix.tf_parallelism || 1 }}"
           elif [ "${{ matrix.cloud }}" = "azure" ]; then
-            sudo env "PATH=$PATH" "HOME=$HOME" \
+            env \
               SOCKERLESS_SPEC_VALIDATE="$SOCKERLESS_SPEC_VALIDATE" SOCKERLESS_SPEC_DIR="$SOCKERLESS_SPEC_DIR" \
               make terraform-test TERRAFORM_TEST_TIMEOUT=${{ matrix.tf_timeout }} TERRAFORM_TEST_ARGS="-run ${{ matrix.tf_run }}"
           else
-            sudo env "PATH=$PATH" "HOME=$HOME" \
+            env \
               SOCKERLESS_SPEC_VALIDATE="$SOCKERLESS_SPEC_VALIDATE" SOCKERLESS_SPEC_DIR="$SOCKERLESS_SPEC_DIR" \
               make terraform-https-test TERRAFORM_TEST_TIMEOUT=600s
           fi
@@ -1713,6 +1650,49 @@ jobs:
           make race-test RACE_TEST_TIMEOUT=10m30s
         timeout-minutes: 11
 
+  node-agent:
+    needs: verified-on-pr
+    if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
+    # The node agent's proof: the one job that needs /dev/kvm. It builds the
+    # agent image on the runner's engine, which downloads Firecracker and the
+    # guest kernel at their pinned digests, and boots a guest from an OCI image.
+    name: firecracker (microVM arithmetic)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/install-go
+        with:
+          cache: 'true'
+      - name: Resolve the base images this job runs containers from
+        id: base-images-list
+        run: |
+          images="$(bash scripts/base-images-for.sh sim | tr '\n' ' ')"
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+          echo "digest=$({ printf '%s' "$images"; cat scripts/warm-base-images.sh; } | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - name: Restore the base images
+        uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/sockerless/base-images.tar
+          key: base-images-${{ runner.os }}-${{ runner.arch }}-sim-${{ steps.base-images-list.outputs.digest }}
+          restore-keys: |
+            base-images-${{ runner.os }}-${{ runner.arch }}-sim-
+      - name: Load or fetch the base images
+        continue-on-error: true
+        run: |
+          # shellcheck disable=SC2086
+          bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
+            ${{ steps.base-images-list.outputs.images }}
+      - name: The runner offers KVM
+        run: |
+          test -c /dev/kvm
+          sudo chmod 0666 /dev/kvm
+      - name: Boot a guest through the node agent
+        run: |
+          bash scripts/ci-go-mod-download.sh sim
+          make node-agent-test
+        timeout-minutes: 13
+
   simulators-quality:
     needs: verified-on-pr
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
@@ -1754,6 +1734,9 @@ jobs:
       - name: Committed RDS authentication plugin binaries match their source
         run: bash scripts/check-rds-auth-plugin-build.sh
         timeout-minutes: 2
+      - name: Committed network sidecar binaries match their source
+        run: bash scripts/check-sidecar-build.sh
+        timeout-minutes: 3
       # install-go's own cache restores only an exact go.sum match, so a pin
       # or dependency move left the installable build compiling all three
       # simulators cold, past this job's budget. The entry below falls back
@@ -1818,6 +1801,9 @@ jobs:
         timeout-minutes: 5
       - name: Every SDK and CLI test runs in parallel or says why it cannot
         run: go run scripts/check-parallel-tests.go
+        timeout-minutes: 5
+      - name: Every test that places a workload holds a private range of its own in its suite
+        run: go run scripts/check-test-network-ranges.go
         timeout-minutes: 5
       - name: No read path holds an exclusive lock
         run: bash scripts/check-readonly-locks.sh

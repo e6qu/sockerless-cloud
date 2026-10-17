@@ -9,7 +9,9 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v5"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerinstance/armcontainerinstance"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v8"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/privatedns/armprivatedns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -428,25 +430,93 @@ func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 	planID := stage5EnsurePlan(t, rg, "s5-join-plan", "S1", "Standard")
 	subnetID := stage5Subnet(t, rg, "s5-join-vnet", "10.62.0.0/16", "appsvc", "10.62.1.0/24")
 
-	// An Always On redis site: its container runs without a request to start
-	// it.
-	stage5CreateSite(t, rg, "s5-join-redis", planID, "mirror.gcr.io/library/redis:7-alpine", "", true)
-	defer azureDeleteSite(rg, "s5-join-redis")
+	// A redis container group injected into a second subnet of the same
+	// virtual network holds a private address there.
+	subnets, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	aciSubnetPoller, err := subnets.BeginCreateOrUpdate(ctx, rg, "s5-join-vnet", "aci", armnetwork.Subnet{
+		Properties: &armnetwork.SubnetPropertiesFormat{
+			AddressPrefix: to.Ptr("10.62.2.0/24"),
+			Delegations: []*armnetwork.Delegation{{
+				Name:       to.Ptr("aci"),
+				Properties: &armnetwork.ServiceDelegationPropertiesFormat{ServiceName: to.Ptr("Microsoft.ContainerInstance/containerGroups")},
+			}},
+		},
+	}, nil)
+	require.NoError(t, err)
+	aciSubnet, err := aciSubnetPoller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+	groups, err := armcontainerinstance.NewContainerGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	cpu, mem := 1.0, 1.0
+	groupPoller, err := groups.BeginCreateOrUpdate(ctx, rg, "s5-join-redis", armcontainerinstance.ContainerGroup{
+		Location: to.Ptr("eastus"),
+		Properties: &armcontainerinstance.ContainerGroupProperties{
+			OSType:    to.Ptr(armcontainerinstance.OperatingSystemTypesLinux),
+			SubnetIDs: []*armcontainerinstance.ContainerGroupSubnetID{{ID: aciSubnet.ID}},
+			IPAddress: &armcontainerinstance.IPAddress{
+				Type:  to.Ptr(armcontainerinstance.ContainerGroupIPAddressTypePrivate),
+				Ports: []*armcontainerinstance.Port{{Port: to.Ptr[int32](6379), Protocol: to.Ptr(armcontainerinstance.ContainerGroupNetworkProtocolTCP)}},
+			},
+			Containers: []*armcontainerinstance.Container{{
+				Name: to.Ptr("redis"),
+				Properties: &armcontainerinstance.ContainerProperties{
+					Image: to.Ptr("mirror.gcr.io/library/redis:7-alpine"),
+					Ports: []*armcontainerinstance.ContainerPort{{Port: to.Ptr[int32](6379)}},
+					Resources: &armcontainerinstance.ResourceRequirements{
+						Requests: &armcontainerinstance.ResourceRequests{CPU: &cpu, MemoryInGB: &mem},
+					},
+				},
+			}},
+		},
+	}, nil)
+	require.NoError(t, err)
+	group, err := groupPoller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if del, err := groups.BeginDelete(ctx, rg, "s5-join-redis", nil); err == nil {
+			_, _ = del.PollUntilDone(ctx, nil)
+		}
+	})
+	require.NotNil(t, group.Properties.IPAddress)
+	redisAddress := derefString(group.Properties.IPAddress.IP)
+	require.True(t, strings.HasPrefix(redisAddress, "10.62.2."), "the group holds an address in its subnet, got %q", redisAddress)
+
+	// The virtual network's private zone names the group, as a deployment
+	// names a service on its network.
+	zones, err := armprivatedns.NewPrivateZonesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	zonePoller, err := zones.BeginCreateOrUpdate(ctx, rg, "join.internal", armprivatedns.PrivateZone{Location: to.Ptr("global")}, nil)
+	require.NoError(t, err)
+	_, err = zonePoller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+	links, err := armprivatedns.NewVirtualNetworkLinksClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	vnetID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.Network/virtualNetworks/s5-join-vnet"
+	linkPoller, err := links.BeginCreateOrUpdate(ctx, rg, "join.internal", "s5-join-link", armprivatedns.VirtualNetworkLink{
+		Location:   to.Ptr("global"),
+		Properties: &armprivatedns.VirtualNetworkLinkProperties{VirtualNetwork: &armprivatedns.SubResource{ID: to.Ptr(vnetID)}},
+	}, nil)
+	require.NoError(t, err)
+	_, err = linkPoller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+	records, err := armprivatedns.NewRecordSetsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	_, err = records.CreateOrUpdate(ctx, rg, "join.internal", armprivatedns.RecordTypeA, "redis", armprivatedns.RecordSet{
+		Properties: &armprivatedns.RecordSetProperties{
+			TTL:      to.Ptr[int64](10),
+			ARecords: []*armprivatedns.ARecord{{IPv4Address: to.Ptr(redisAddress)}},
+		},
+	}, nil)
+	require.NoError(t, err)
 
 	// The probe function site: speaks the redis protocol to the service BY
-	// SITE NAME over the VNet.
+	// ITS PRIVATE ZONE NAME over the VNet.
 	stage5CreateSite(t, rg, "s5-join-probe", planID, commandImageName,
-		"relay-http 80 s5-join-redis:6379 PING", false)
+		"relay-http 80 redis.join.internal:6379 PING", false)
 	defer azureDeleteSite(rg, "s5-join-probe")
 
 	web, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
-	require.NoError(t, err)
-
-	// Classic PUT joins the redis site — its running container joins the
-	// network before the PUT returns.
-	_, err = web.CreateOrUpdateVnetConnection(ctx, rg, "s5-join-redis", "s5-join-vnet_appsvc", armappservice.VnetInfoResource{
-		Properties: &armappservice.VnetInfo{VnetResourceID: to.Ptr(subnetID)},
-	}, nil)
 	require.NoError(t, err)
 
 	// Swift PUT integrates the probe site.
@@ -455,40 +525,35 @@ func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 	}, nil)
 	require.NoError(t, err)
 
-	// The probe's container runs on the VNet and reaches redis by name: the
-	// wire answer is redis's own +PONG.
-	//
-	// The connection PUT returns once the redis container has started, and
-	// redis opens 6379 a moment later — App Service starts a site's container
-	// asynchronously too, and reports no readiness for a raw service. A probe
-	// issued in that moment is refused and nc exits at once, which the host
-	// answers with 500: the sim (azure sdk B-Z) job on #180 failed exactly so,
-	// 285 ms after the PUT. What this proves is that the function reaches redis
-	// by name once redis is serving, so it waits for that answer.
+	// The probe's container runs on the VNet, resolves redis through the
+	// network's resolver and reaches it: the wire answer is redis's own
+	// +PONG. The group's redis opens 6379 a moment after the group reports
+	// running, and App Service reports no readiness for a raw service, so the
+	// probe waits for that answer.
 	var lastStatus int
 	var lastBody []byte
 	require.Eventually(t, func() bool {
 		lastStatus, lastBody = azureInvokeFunctionResponse(t, "s5-join-probe")
 		return lastStatus == http.StatusOK && strings.Contains(string(lastBody), "+PONG")
-	}, 30*time.Second, 250*time.Millisecond,
+	}, 60*time.Second, 250*time.Millisecond,
 		"the probe never reached redis by name over the VNet; last answer %d: %s", lastStatus, lastBody)
 
-	// Deleting the classic connection really disconnects the redis container:
-	// the same probe now fails.
-	_, err = web.DeleteVnetConnection(ctx, rg, "s5-join-redis", "s5-join-vnet_appsvc", nil)
+	// Deleting the integration restarts the probe off the network: the
+	// private zone no longer answers it and the same probe fails.
+	_, err = web.DeleteSwiftVirtualNetwork(ctx, rg, "s5-join-probe", nil)
 	require.NoError(t, err)
 	status, body := azureInvokeFunctionResponse(t, "s5-join-probe")
 	assert.Equal(t, http.StatusBadGateway, status, "the probe can no longer reach redis: %s", body)
 
 	// The plan's worker-instance surface answers from the same real container
-	// state: each site's running container is one of the plan's live workers,
-	// and rebooting one through the plan API really tears it down.
+	// state: the site's running container is the plan's live worker, and
+	// rebooting it through the plan API really tears it down.
 	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	details, err := plans.GetServerFarmInstanceDetails(ctx, rg, "s5-join-plan", nil)
 	require.NoError(t, err)
-	require.Equal(t, int32(2), *details.InstanceCount)
-	require.Len(t, details.Instances, 2)
+	require.Equal(t, int32(1), *details.InstanceCount)
+	require.Len(t, details.Instances, 1)
 	workerName := *details.Instances[0].InstanceName
 	require.NotEmpty(t, workerName)
 	assert.Equal(t, "Ready", *details.Instances[0].Status)
@@ -497,7 +562,7 @@ func TestSDK_WebVnet_JoinsRealNetwork(t *testing.T) {
 	require.NoError(t, err)
 	details, err = plans.GetServerFarmInstanceDetails(ctx, rg, "s5-join-plan", nil)
 	require.NoError(t, err)
-	assert.Equal(t, int32(1), *details.InstanceCount)
+	assert.Equal(t, int32(0), *details.InstanceCount)
 }
 
 // TestSDK_WebHybridConnections_SiteAndPlanViews covers both hybrid connection
@@ -746,7 +811,6 @@ func TestSDK_WebSitePrivateEndpointConnections(t *testing.T) {
 	// The connection is opened by a real Microsoft.Network private endpoint,
 	// which the simulator provisions into a network namespace — the same host
 	// capability every other private-endpoint test requires.
-	requireNetworkHost(t)
 	rg := "stage5-pec-rg"
 	ensureRG(t, rg)
 	planID := stage5EnsurePlan(t, rg, "s5-pec-plan", "S1", "Standard")

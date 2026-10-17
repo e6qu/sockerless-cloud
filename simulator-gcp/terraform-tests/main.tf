@@ -158,6 +158,20 @@ resource "google_compute_router_nat" "tf_nat" {
   source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
 }
 
+# The Debian 12 image family of the engine's architecture, which an instance
+# booted on a container backend runs; the harness sets it from the host.
+variable "debian_image_family" {
+  type    = string
+  default = "debian-12"
+}
+
+# The image the family resolves to in Google's image project, which is what
+# the instance below boots from.
+data "google_compute_image" "debian" {
+  family  = var.debian_image_family
+  project = "debian-cloud"
+}
+
 resource "google_compute_instance" "tf_vm" {
   name         = "tf-test-vm"
   machine_type = "e2-micro"
@@ -165,7 +179,7 @@ resource "google_compute_instance" "tf_vm" {
 
   boot_disk {
     initialize_params {
-      image = "projects/debian-cloud/global/images/debian-12"
+      image = data.google_compute_image.debian.self_link
       size  = 10
     }
   }
@@ -173,6 +187,10 @@ resource "google_compute_instance" "tf_vm" {
   network_interface {
     subnetwork = google_compute_subnetwork.tf_subnet.id
   }
+
+  # The script runs on the machine at boot; its output lands on the serial
+  # console, which the apply test reads back through the API.
+  metadata_startup_script = "#!/bin/bash\necho terraform-startup-script-ran\n"
 
   labels = {
     env = "terraform"
@@ -1110,6 +1128,14 @@ output "compute_instance_self_link" {
 
 output "compute_instance_current_status" {
   value = google_compute_instance.tf_vm.current_status
+}
+
+output "compute_instance_network_ip" {
+  value = google_compute_instance.tf_vm.network_interface[0].network_ip
+}
+
+output "compute_image_name" {
+  value = data.google_compute_image.debian.name
 }
 
 output "dns_zone_name_servers" {

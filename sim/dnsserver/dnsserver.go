@@ -30,9 +30,12 @@ type Query struct {
 	Type uint16
 	// Remote is the querier's address.
 	Remote netip.Addr
-	// Local is the address the query arrived at. A workload network's queries
-	// are redirected to an address of its own, so this names the network.
+	// Local is the address the query arrived at.
 	Local netip.Addr
+	// Network names the cloud network whose sidecar forwarded the query: the
+	// listener ListenNetwork opened for it. Empty for a query at the server's
+	// own port.
+	Network string
 }
 
 // Zone is one zone a querier sees. Records hold every record set of the zone,
@@ -77,9 +80,6 @@ type Recursion struct {
 	// Upstreams is a comma-separated host[:port] list; empty reads the host's
 	// resolv.conf.
 	Upstreams string
-	// Redirected are addresses a workload network rewrites into this server,
-	// which as upstreams would loop.
-	Redirected []netip.Addr
 }
 
 // Server is a running DNS listener.
@@ -93,6 +93,17 @@ type Server struct {
 
 	upstreamOnce sync.Once
 	upstreamList []string
+
+	networksMu sync.Mutex
+	networks   map[string]*networkListener
+}
+
+// networkListener is the UDP and TCP pair a cloud network's sidecar forwards
+// to; a query arriving on it is attributed to that network.
+type networkListener struct {
+	udp  *net.UDPConn
+	tcp  *net.TCPListener
+	port int
 }
 
 // ephemeralAttempts bounds the search for a port free on both protocols: the
@@ -129,8 +140,8 @@ func Start(cfg Config) (*Server, error) {
 			return nil, fmt.Errorf("dnsserver: read query destinations: %w", err)
 		}
 		s.wg.Add(2)
-		go s.serveUDP(pc)
-		go s.serveTCP()
+		go s.serveUDP(pc, "")
+		go s.serveTCP(tcp, "")
 		log.Printf("%s dns: serving on UDP and TCP %s", cfg.Name, s.Addr())
 		return s, nil
 	}
@@ -175,12 +186,71 @@ func (s *Server) Close() error {
 	var err error
 	s.once.Do(func() {
 		err = errors.Join(s.udp.Close(), s.tcp.Close())
+		s.networksMu.Lock()
+		for name, l := range s.networks {
+			err = errors.Join(err, l.udp.Close(), l.tcp.Close())
+			delete(s.networks, name)
+		}
+		s.networksMu.Unlock()
 		s.wg.Wait()
 	})
 	return err
 }
 
-func (s *Server) serveUDP(pc *ipv4.PacketConn) {
+// ListenNetwork opens a listener pair on a kernel-chosen port for the named
+// cloud network and returns the port; a query it receives carries the name as
+// Query.Network. The network's sidecar forwards to it from inside the network,
+// so it binds every address. A second call for a name already listening
+// returns its port.
+func (s *Server) ListenNetwork(network string) (int, error) {
+	if network == "" {
+		return 0, errors.New("dnsserver: a network listener needs a name")
+	}
+	s.networksMu.Lock()
+	defer s.networksMu.Unlock()
+	if l, ok := s.networks[network]; ok {
+		return l.port, nil
+	}
+	var lastErr error
+	for range ephemeralAttempts {
+		udp, tcp, err := bindPair("", "0")
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		pc := ipv4.NewPacketConn(udp)
+		if err := pc.SetControlMessage(ipv4.FlagDst, true); err != nil {
+			_ = udp.Close()
+			_ = tcp.Close()
+			return 0, fmt.Errorf("dnsserver: read query destinations: %w", err)
+		}
+		l := &networkListener{udp: udp, tcp: tcp, port: int(addrPort(udp.LocalAddr()).Port())}
+		if s.networks == nil {
+			s.networks = map[string]*networkListener{}
+		}
+		s.networks[network] = l
+		s.wg.Add(2)
+		go s.serveUDP(pc, network)
+		go s.serveTCP(tcp, network)
+		return l.port, nil
+	}
+	return 0, fmt.Errorf("dnsserver: no kernel-chosen port was free on both UDP and TCP after %d attempts: %w", ephemeralAttempts, lastErr)
+}
+
+// CloseNetwork stops the named network's listener pair; a name that is not
+// listening is left alone.
+func (s *Server) CloseNetwork(network string) error {
+	s.networksMu.Lock()
+	l, ok := s.networks[network]
+	delete(s.networks, network)
+	s.networksMu.Unlock()
+	if !ok {
+		return nil
+	}
+	return errors.Join(l.udp.Close(), l.tcp.Close())
+}
+
+func (s *Server) serveUDP(pc *ipv4.PacketConn, network string) {
 	defer s.wg.Done()
 	buf := make([]byte, dns.MaxMsgSize)
 	for {
@@ -203,7 +273,7 @@ func (s *Server) serveUDP(pc *ipv4.PacketConn) {
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			resp := s.respond(query, addrPort(udpSrc).Addr(), local, true)
+			resp := s.respond(query, addrPort(udpSrc).Addr(), local, network, true)
 			if resp == nil {
 				return
 			}
@@ -220,10 +290,10 @@ func (s *Server) serveUDP(pc *ipv4.PacketConn) {
 // leaves the value to the server).
 const tcpIdle = 10 * time.Second
 
-func (s *Server) serveTCP() {
+func (s *Server) serveTCP(tcp *net.TCPListener, network string) {
 	defer s.wg.Done()
 	for {
-		conn, err := s.tcp.AcceptTCP()
+		conn, err := tcp.AcceptTCP()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				return
@@ -231,11 +301,11 @@ func (s *Server) serveTCP() {
 			continue
 		}
 		s.wg.Add(1)
-		go s.serveConn(conn)
+		go s.serveConn(conn, network)
 	}
 }
 
-func (s *Server) serveConn(conn *net.TCPConn) {
+func (s *Server) serveConn(conn *net.TCPConn, network string) {
 	defer s.wg.Done()
 	defer func() { _ = conn.Close() }()
 	remote := addrPort(conn.RemoteAddr()).Addr()
@@ -250,7 +320,7 @@ func (s *Server) serveConn(conn *net.TCPConn) {
 		if _, err := io.ReadFull(conn, msg); err != nil {
 			return
 		}
-		resp := s.respond(msg, remote, local, false)
+		resp := s.respond(msg, remote, local, network, false)
 		if resp == nil {
 			return
 		}
@@ -272,12 +342,12 @@ func addrPort(a net.Addr) netip.AddrPort {
 
 // respond answers one packed query. A nil result drops it: a message that does
 // not parse has no ID to answer to.
-func (s *Server) respond(packed []byte, remote, local netip.Addr, udp bool) []byte {
+func (s *Server) respond(packed []byte, remote, local netip.Addr, network string, udp bool) []byte {
 	req := new(dns.Msg)
 	if err := req.Unpack(packed); err != nil {
 		return nil
 	}
-	resp := s.Exchange(context.Background(), req, remote, local)
+	resp := s.exchange(context.Background(), req, Query{Remote: remote, Local: local, Network: network})
 	if udp {
 		size := dns.MinMsgSize
 		if opt := req.IsEdns0(); opt != nil && int(opt.UDPSize()) > size {

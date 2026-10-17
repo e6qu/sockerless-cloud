@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 )
 
@@ -42,7 +43,7 @@ func containerAppDaprSpec(app ContainerApp) *ContainerAppDapr {
 // console log table, matching how ACA surfaces the daprd container's
 // lines in ContainerAppConsoleLogs_CL. The handle joins the replica set,
 // so stop/replace/delete tear the sidecar down with the app containers.
-func startACAAppDaprSidecar(ctx context.Context, resourceID string, app ContainerApp, d *ContainerAppDapr, replica int32, mainContainerID string) (*sim.ContainerHandle, error) {
+func startACAAppDaprSidecar(ctx context.Context, resourceID string, app ContainerApp, d *ContainerAppDapr, replica int32, mainContainerID string) (placement.Handle, error) {
 	args := []string{
 		"--dapr-http-port", "3500",
 		"--dapr-grpc-port", "50001",
@@ -79,7 +80,11 @@ func startACAAppDaprSidecar(ctx context.Context, resourceID string, app Containe
 	if len(shortName) > 24 {
 		shortName = shortName[:24]
 	}
-	return sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
+	backend, err := azurePlacementBackend(placementContainerApps)
+	if err != nil {
+		return nil, err
+	}
+	return backend.Place(ctx, sim.ContainerConfig{
 		CancelGracePeriod: acaAppStopGrace(app),
 		Image:             daprdSidecarImage,
 		Architecture:      platform,

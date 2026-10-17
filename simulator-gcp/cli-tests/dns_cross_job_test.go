@@ -3,6 +3,7 @@ package gcp_cli_test
 import (
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"os/exec"
 	"strings"
 	"testing"
@@ -12,51 +13,60 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestDNS_CrossJobResolution_CLI mirrors the SDK cross-job DNS test
-// through the gcloud CLI. Private zone + two Cloud Run Jobs + A records
-// pointing at the jobs' Docker IPs — one job resolves the other by
-// short hostname via Docker's embedded DNS on the zone's backing
-// network.
+// TestDNS_CrossJobResolution_CLI mirrors the SDK cross-job DNS test through
+// the gcloud CLI: a VPC network and subnetwork, a private zone visible to the
+// network, and two Cloud Run jobs with direct VPC egress onto the
+// subnetwork. One job's task holds an address of the subnetwork, the zone's
+// A record names it, and the other job resolves the record through the
+// resolver its network hands it.
 func TestDNS_CrossJobResolution_CLI(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatalf("docker CLI required for cross-job DNS test (no fallback): %v", err)
 	}
 
-	// 1. Create the private zone via gcloud.
+	// 1. The network the jobs egress into, with one subnetwork.
+	runCLI(t, gcloudCLI("compute", "networks", "create", "cli-xjob-net", "--subnet-mode=custom"))
+	runCLI(t, gcloudCLI("compute", "networks", "subnets", "create", "cli-xjob-net",
+		"--network=cli-xjob-net", "--region="+location, "--range=10.85.0.0/24"))
+
+	// 2. The private zone, visible to that network.
 	runCLI(t, gcloudCLI("dns", "managed-zones", "create", "cli-xjob-zone",
 		"--dns-name=cli-xjob.local.",
 		"--description=CLI cross-job DNS test",
 		"--visibility=private",
-		"--networks=",
+		"--networks=cli-xjob-net",
 	))
 	defer runCLI(t, gcloudCLI("dns", "managed-zones", "delete", "cli-xjob-zone"))
 
-	// A private zone is backed by a real Docker user-defined network named for
-	// the zone's id, and that network is what carries the resolution below —
-	// so it is verified to exist rather than assumed.
 	out := runCLI(t, gcloudCLI("dns", "managed-zones", "describe", "cli-xjob-zone", "--format=json"))
 	var zone struct {
-		Id         string `json:"id"`
-		Visibility string `json:"visibility"`
+		Id                      string `json:"id"`
+		Visibility              string `json:"visibility"`
+		PrivateVisibilityConfig struct {
+			Networks []struct {
+				NetworkUrl string `json:"networkUrl"`
+			} `json:"networks"`
+		} `json:"privateVisibilityConfig"`
 	}
 	parseJSON(t, out, &zone)
 	require.Equal(t, "private", zone.Visibility)
 	require.NotEmpty(t, zone.Id, "the zone must carry an id: %s", out)
-	zoneNetwork := "sim-" + zone.Id
-	require.NoError(t, exec.Command("docker", "network", "inspect", zoneNetwork).Run(),
-		"the private zone must be backed by the Docker network %q", zoneNetwork)
+	require.Len(t, zone.PrivateVisibilityConfig.Networks, 1, "the zone is visible to the network: %s", out)
+	require.Contains(t, zone.PrivateVisibilityConfig.Networks[0].NetworkUrl, "/global/networks/cli-xjob-net")
 
-	// 2. Create + run two Cloud Run Jobs via direct HTTP (gcloud run
-	// jobs create against the simulator's v2 endpoint is not reliably
-	// supported; the SDK/REST path is the gcloud back-door).
+	// 3. Two Cloud Run jobs with direct VPC egress, created and run over the
+	// v2 REST surface (gcloud run jobs create against the simulator's v2
+	// endpoint is not reliably supported; the SDK/REST path is the gcloud
+	// back-door).
 	createJob := func(name string, args []string) string {
 		argsJSON, err := json.Marshal(args)
 		require.NoError(t, err)
 		body := `{
 			"template":{"template":{
 				"containers":[{"image":"` + commandImageName + `","args":` + string(argsJSON) + `}],
-				"timeout":"60s"
+				"timeout":"60s",
+				"vpcAccess":{"networkInterfaces":[{"network":"cli-xjob-net","subnetwork":"cli-xjob-net"}],"egress":"PRIVATE_RANGES_ONLY"}
 			}}
 		}`
 		createURL := fmt.Sprintf("%s/v2/projects/%s/locations/%s/jobs?jobId=%s",
@@ -68,7 +78,7 @@ func TestDNS_CrossJobResolution_CLI(t *testing.T) {
 		return runJob(t, name).Execution
 	}
 
-	alphaExec := createJob("cli-alpha", []string{"resolve", "beta", "30", "gcp-cli-cross-job-dns-ok", "10"})
+	alphaExec := createJob("cli-alpha", []string{"resolve", "beta.cli-xjob.local", "30", "gcp-cli-cross-job-dns-ok", "10"})
 	betaExec := createJob("cli-beta", []string{"sleep", "60"})
 
 	alphaContainer := jobContainerName(alphaExec)
@@ -83,40 +93,31 @@ func TestDNS_CrossJobResolution_CLI(t *testing.T) {
 		return true
 	}, 30*time.Second, 300*time.Millisecond, "Docker containers should be running (alpha=%s, beta=%s)", alphaContainer, betaContainer)
 
+	// The tasks' containers hold addresses of the subnetwork, which the test
+	// reads off the engine: Cloud Run reports no address for a task.
+	subnet := netip.MustParsePrefix("10.85.0.0/24")
 	alphaIP := containerIP(t, alphaContainer)
 	betaIP := containerIP(t, betaContainer)
-	require.NotEmpty(t, alphaIP)
-	require.NotEmpty(t, betaIP)
+	for _, ip := range []string{alphaIP, betaIP} {
+		require.True(t, subnet.Contains(netip.MustParseAddr(ip)), "%s is not an address of the subnetwork the jobs egress into", ip)
+	}
 
-	// 3. Create A records (direct REST — gcloud record-sets create has
-	// inconsistent endpoint-override handling).
+	// 4. The A record naming beta (direct REST — gcloud record-sets create
+	// has inconsistent endpoint-override handling).
 	rrURL := fmt.Sprintf("%s/dns/v1/projects/%s/managedZones/cli-xjob-zone/rrsets", baseURL, project)
 	httpDoJSON(t, "POST", rrURL, fmt.Sprintf(
-		`{"name":"alpha.cli-xjob.local.","type":"A","ttl":60,"rrdatas":[%q]}`, alphaIP))
-	httpDoJSON(t, "POST", rrURL, fmt.Sprintf(
 		`{"name":"beta.cli-xjob.local.","type":"A","ttl":60,"rrdatas":[%q]}`, betaIP))
-	// Deferred after the zone's delete, so the records go first: Cloud DNS
+	// Deferred after the zone's delete, so the record goes first: Cloud DNS
 	// deletes a zone only once its own records are gone.
-	for _, name := range []string{"alpha.cli-xjob.local.", "beta.cli-xjob.local."} {
-		defer runCLI(t, gcloudCLI("dns", "record-sets", "delete", name, "--zone=cli-xjob-zone", "--type=A"))
-	}
+	defer runCLI(t, gcloudCLI("dns", "record-sets", "delete", "beta.cli-xjob.local.", "--zone=cli-xjob-zone", "--type=A"))
 
-	// The A records attach their containers to the zone's Docker network under
-	// the record's short name — the mechanism the resolution below rides on.
-	for _, name := range []string{alphaContainer, betaContainer} {
-		require.Contains(t, containerNetworks(t, name), zoneNetwork,
-			"%s must be attached to the private zone's Docker network", name)
-	}
-
-	// 4. Cross-job DNS: alpha resolves "beta" through its own resolver
-	// once the private-zone A records have attached both containers to
-	// the zone's backing Docker network.
+	// 5. alpha resolves beta's record through its network's resolver.
 	var logs []byte
 	require.Eventually(t, func() bool {
 		var err error
 		logs, err = exec.Command("docker", "logs", alphaContainer).CombinedOutput()
 		return err == nil && strings.Contains(string(logs), "gcp-cli-cross-job-dns-ok")
-	}, 30*time.Second, 500*time.Millisecond, "alpha should resolve 'beta' via private zone: %s", logs)
+	}, 30*time.Second, 500*time.Millisecond, "alpha should resolve beta.cli-xjob.local through the private zone: %s", logs)
 	assert.Contains(t, string(logs), "gcp-cli-cross-job-dns-ok")
 }
 
@@ -140,17 +141,6 @@ func containerIP(t *testing.T, name string) string {
 		}
 	}
 	return ""
-}
-
-// containerNetworks returns the names of the Docker networks a container is
-// attached to.
-func containerNetworks(t *testing.T, name string) []string {
-	t.Helper()
-	var names []string
-	for netName := range inspectContainerNetworks(t, name) {
-		names = append(names, netName)
-	}
-	return names
 }
 
 type dockerContainerNetwork struct {

@@ -65,7 +65,7 @@ func TestConformanceAutoScalingGroupARNAndHealthCheck(t *testing.T) {
 
 	_, err = c.CreateLaunchConfiguration(ctx, &autoscaling.CreateLaunchConfigurationInput{
 		LaunchConfigurationName: aws.String(lcName),
-		ImageId:                 aws.String("ami-00000001"),
+		ImageId:                 aws.String(ec2AmazonLinuxAMI(t)),
 		InstanceType:            aws.String("t3.micro"),
 	})
 	require.NoError(t, err)
@@ -842,7 +842,7 @@ func TestConformanceAutoScalingDescribeGroupsPagination(t *testing.T) {
 	lc := "conf-page-asg-lc"
 	_, err := c.CreateLaunchConfiguration(ctx, &autoscaling.CreateLaunchConfigurationInput{
 		LaunchConfigurationName: aws.String(lc),
-		ImageId:                 aws.String("ami-00000001"),
+		ImageId:                 aws.String(ec2AmazonLinuxAMI(t)),
 		InstanceType:            aws.String("t3.micro"),
 	})
 	require.NoError(t, err)

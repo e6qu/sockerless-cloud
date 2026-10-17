@@ -1052,7 +1052,7 @@ func sfnInvokeLambda(ctx context.Context, name, payload string) (any, *sfnExecut
 	if !ok {
 		return nil, &sfnExecutionError{Name: "Lambda.ResourceNotFoundException", Cause: "Function not found: " + name}
 	}
-	response, unhandled, _ := invokeLambdaViaRuntimeAPI(ctx, fn, []byte(payload))
+	response, unhandled, _, _ := invokeLambdaViaRuntimeAPI(ctx, fn, []byte(payload))
 	if unhandled {
 		var detail map[string]any
 		_ = json.Unmarshal(response, &detail)

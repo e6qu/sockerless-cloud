@@ -98,6 +98,9 @@ func TestMain(m *testing.M) {
 	// only warned left the image to be fetched inside a timed test, where a
 	// throttled registry surfaced as a flaky workload rather than a pull error.
 	pullImageBeforeRun(simWorkloadImage)
+	// Every Compute Engine instance test boots the Debian 12 image of the
+	// public catalog, by the manifest of the engine's architecture.
+	pullImageBeforeRun(debianCatalogImage)
 
 	// Allocate both ports while both listeners are open. Closing the first
 	// before allocating the second lets the OS re-assign the just-freed
@@ -453,3 +456,8 @@ func freeTCPUDPPort() (int, error) {
 	}
 	return 0, fmt.Errorf("could not find a port available on both TCP and UDP after %d attempts", attempts)
 }
+
+// debianCatalogImage is the OCI image the simulator's public catalog boots a
+// Debian 12 instance from, pinned as the catalog pins it; the engine picks the
+// platform's manifest out of the index.
+const debianCatalogImage = "mirror.gcr.io/library/debian:12@sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858"

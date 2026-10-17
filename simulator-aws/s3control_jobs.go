@@ -580,7 +580,7 @@ func s3RunBatchLambdaInvoke(ctx context.Context, job S3BatchJob, task S3BatchTas
 		return s3BatchTaskFailure("PermanentFailure", http.StatusBadRequest,
 			fmt.Sprintf("build the task event: %v", err)), false
 	}
-	out, unhandled, _ := invokeLambdaViaRuntimeAPI(ctx, fn, payload)
+	out, unhandled, _, _ := invokeLambdaViaRuntimeAPI(ctx, fn, payload)
 	if ctx.Err() != nil {
 		return s3BatchTaskOutcome{}, true
 	}

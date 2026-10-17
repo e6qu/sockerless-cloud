@@ -8,12 +8,13 @@ import (
 	"maps"
 	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
 func registerELBv2DataPlane(srv *sim.Server) {
@@ -99,10 +100,15 @@ func elbv2ForwardToHealthyTarget(w http.ResponseWriter, r *http.Request, listene
 		// using certificates that you install on the targets. The load balancer
 		// does not validate these certificates."
 		SkipTargetVerification: true,
+		Admit:                  elbv2AdmitForwardedFlow(listener, targetGroup, target),
 	})
 	abortStartedForward(w, err)
 	switch {
 	case err == nil:
+	case errors.Is(err, lbplane.ErrNotAdmitted):
+		// A target its security group closes to the load balancer is one the
+		// load balancer cannot reach: the request finds no target in service.
+		http.Error(w, "no healthy targets", http.StatusServiceUnavailable)
 	case errors.Is(err, lbplane.ErrClientWentAway):
 		// Nothing reaches a client that has gone; the status records the
 		// abandoned request the way the load balancer access logs do.
@@ -285,6 +291,15 @@ func elbv2ProbeTarget(ctx context.Context, tg ELBv2TargetGroup, target ELBv2Targ
 	if timeout <= 0 {
 		timeout = 2 * time.Second
 	}
+	// A target whose security group drops the load balancer's probe answers
+	// nothing, so the check times out as it does on Elastic Load Balancing.
+	if lb, ok := elbv2LoadBalancerForTargetGroup(tg); ok {
+		if admit := elbv2TargetAdmission(lb, tg, target, target.Port); admit != nil {
+			if err := admit(netip.Addr{}); err != nil {
+				return 0, &errELBv2HealthCheckBlocked{reason: err}
+			}
+		}
+	}
 	// Every health-check protocol but HTTP and HTTPS is a connection test,
 	// which is what a dial proves.
 	if !strings.EqualFold(protocol, "HTTP") && !strings.EqualFold(protocol, "HTTPS") {
@@ -310,4 +325,27 @@ func elbv2ProbeTarget(ctx context.Context, tg ELBv2TargetGroup, target ELBv2Targ
 		Timeout: timeout,
 		Match:   match,
 	})
+}
+
+// elbv2LoadBalancerForTargetGroup is the load balancer whose listener forwards
+// to the target group, which the target group's health checks come from.
+func elbv2LoadBalancerForTargetGroup(tg ELBv2TargetGroup) (ELBv2LoadBalancer, bool) {
+	for _, listener := range elbv2Listeners.List() {
+		for _, arn := range elbv2ActionForwardTargets(listener.DefaultActions) {
+			if arn == tg.Arn {
+				return elbv2LoadBalancers.Get(listener.LoadBalancerArn)
+			}
+		}
+	}
+	for _, rule := range elbv2Rules.List() {
+		for _, arn := range elbv2ActionForwardTargets(rule.Actions) {
+			if arn != tg.Arn {
+				continue
+			}
+			if listener, ok := elbv2Listeners.Get(rule.ListenerArn); ok {
+				return elbv2LoadBalancers.Get(listener.LoadBalancerArn)
+			}
+		}
+	}
+	return ELBv2LoadBalancer{}, false
 }

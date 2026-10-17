@@ -110,16 +110,22 @@ every workload, container or microVM, is a member whose engine-assigned
 address is the one the cloud API reports for its interface. Two live networks
 over one range do not coexist on one engine; that gap is recorded.
 
-- The cloud's fixed addresses are **sidecars**: each network carries a
-  link-local subnet, and one sidecar per network sits at the cloud's resolver
-  and metadata addresses, forwarding DNS to the simulator's resolver and
-  metadata requests to its handlers. The resolver attributes a query to the
-  network its sidecar serves, never to anything inside the message.
+- The cloud's resolver is a **sidecar** per network at the address the cloud
+  reserves for it inside the network's own range — the VPC's base plus two,
+  the Compute Engine subnetwork's second-to-last address, the Azure virtual
+  network's base plus two — because a bridge network carries one subnet and
+  no link-local one. Every workload on the network names it as its DNS
+  server, and the sidecar forwards DNS to the simulator's resolver and
+  metadata requests to its handlers under a token the simulator minted for
+  it, so the resolver attributes a query to the network its sidecar serves,
+  never to anything inside the message. The metadata URL reaches a workload
+  through the variable the cloud's SDKs honour; the fixed link-local
+  metadata address is a recorded gap.
 - NAT gateways, Cloud NAT and Azure NAT Gateway are a sidecar proxy per
   network, whose address is the gateway's public address.
 - Peering and private endpoints are a container on both networks.
 - Load balancers are loopback listeners, TLS termination, probes and
-  forwarding in `realexec/lbplane`.
+  forwarding in `sim/lbplane`.
 - Security groups, network security groups and firewalls are enforced on every
   flow the simulator mediates — load balancers, published ports, NAT egress.
   Traffic between two containers on one network is not filtered, because

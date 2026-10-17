@@ -437,8 +437,8 @@ resource "aws_security_group" "dualstack" {
 # force destroy+create every plan.
 resource "aws_launch_template" "nat" {
   name          = "fidelity-nat-lt"
-  image_id      = "ami-12345678"
-  instance_type = "t4g.nano"
+  image_id      = data.aws_ami.al2023.id
+  instance_type = "t3.nano"
 }
 
 resource "aws_instance" "nat" {
@@ -511,14 +511,14 @@ resource "aws_launch_template" "spot" {
   }
 }
 
-# data.aws_ami lookup: DescribeImages ignored Filters, so the name/architecture
-# filter couldn't actually select. The sim now resolves a deterministic image.
+# data.aws_ami lookup: the name and architecture filters select the published
+# Amazon Linux 2023 AMI the NAT instance launches from.
 data "aws_ami" "al2023" {
   most_recent = true
   owners      = ["amazon"]
   filter {
     name   = "name"
-    values = ["al2023-ami-minimal"]
+    values = ["al2023-ami-2023.*-kernel-6.1-x86_64"]
   }
   filter {
     name   = "architecture"

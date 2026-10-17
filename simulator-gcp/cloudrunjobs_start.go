@@ -108,6 +108,8 @@ func startCloudRunJobContainers(ctx context.Context, execID, execShort string, t
 	}
 	return startCloudRunContainerGroup(ctx, cloudRunContainerGroup{
 		project:    resourceProject(execID),
+		region:     resourceLocation(execID),
+		vpc:        taskTmpl.VpcAccess,
 		containers: taskTmpl.Containers,
 		volumes:    taskTmpl.Volumes,
 		timeout:    timeout,
@@ -129,7 +131,11 @@ func startCloudRunJobContainers(ctx context.Context, execID, execShort string, t
 // cloudRunContainerGroup is one Cloud Run instance's containers that serve no
 // requests: a job task, or a worker pool instance.
 type cloudRunContainerGroup struct {
-	project    string
+	project string
+	region  string
+	// vpc is the instance's VPC egress, which decides the network its
+	// containers sit on.
+	vpc        *VpcAccess
 	containers []Container
 	volumes    []Volume
 	// timeout bounds the containers' run; zero leaves them running until
@@ -161,24 +167,32 @@ func startCloudRunContainerGroup(ctx context.Context, g cloudRunContainerGroup, 
 		volByName[v.Name] = v
 	}
 	project := g.project
-	metadataEnv, err := hostMetadataEnv()
-	if err != nil {
-		return nil, nil, err
+	images := make([]string, len(containers))
+	auths := make([]string, len(containers))
+	for i, c := range containers {
+		images[i] = sim.ResolveLocalImage(c.Image)
+		registryAuth, err := workloadRegistryAuth(project, images[i])
+		if err != nil {
+			return nil, nil, err
+		}
+		auths[i] = registryAuth
+		// Cloud Run resolves an execution's images before it places a task,
+		// so a missing image is what an execution reports, whatever network
+		// the task would join.
+		if err := sim.PullImageWithCredential(ctx, images[i], "", registryAuth); err != nil {
+			return nil, nil, err
+		}
 	}
-	extraHosts, err := hostMetadataExtraHosts()
+	netw, err := gcpCloudRunNetwork(ctx, project, g.region, g.vpc, g.name(0))
 	if err != nil {
 		return nil, nil, err
 	}
 	members := make([]workload.Container, len(containers))
 	var writable []string
 	for i, c := range containers {
-		image := sim.ResolveLocalImage(c.Image)
-		registryAuth, err := workloadRegistryAuth(project, image)
-		if err != nil {
-			return nil, nil, err
-		}
 		binds, containerWritable, err := cloudRunGCSBinds(volByName, c)
 		if err != nil {
+			netw.done()
 			return nil, nil, err
 		}
 		writable = append(writable, containerWritable...)
@@ -188,11 +202,11 @@ func startCloudRunContainerGroup(ctx context.Context, g cloudRunContainerGroup, 
 		}
 		members[i] = workload.Container{Name: c.Name, Config: sim.ContainerConfig{
 			CancelGracePeriod: cloudRunStopGrace,
-			Image:             image,
-			RegistryAuth:      registryAuth,
+			Image:             images[i],
+			RegistryAuth:      auths[i],
 			Command:           c.Command,
 			Args:              c.Args,
-			Env:               workloadhost.MergeEnv(cmdEnv, metadataEnv),
+			Env:               workloadhost.MergeEnv(cmdEnv, netw.env()),
 			Timeout:           g.timeout,
 			Name:              g.name(i),
 			Labels:            g.labels(c),
@@ -200,9 +214,14 @@ func startCloudRunContainerGroup(ctx context.Context, g cloudRunContainerGroup, 
 			Sandbox:           SandboxCloudRun,
 		}}
 	}
-	releaseMounts, err := gcsAcquireMounts(writable)
+	mounts, err := gcsAcquireMounts(writable)
 	if err != nil {
+		netw.done()
 		return nil, nil, err
+	}
+	releaseMounts := func() {
+		mounts()
+		netw.done()
 	}
 
 	handles := make([]*sim.ContainerHandle, len(containers))
@@ -225,7 +244,7 @@ func startCloudRunContainerGroup(ctx context.Context, g cloudRunContainerGroup, 
 	// The first container to start owns the network namespace the others
 	// join, and with it the hosts file the metadata server's name resolves in.
 	owner := order[0]
-	members[owner].Config.ExtraHosts = extraHosts
+	netw.apply(&members[owner].Config)
 	members[owner].Config.PublishPorts = cloudRunNamespacePorts(containers, false)
 	ownerGroup, err := workload.StartGroup(ctx, members[owner], nil, sink)
 	if err != nil {

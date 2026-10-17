@@ -203,7 +203,7 @@ func createCLIECSTestSubnet(t *testing.T, cluster string, startOctet int) string
 		stopCLITasksInSubnet(t, cluster, subnetID)
 		q("ec2", "delete-subnet", "--subnet-id", subnetID)
 		q("ec2", "delete-vpc", "--vpc-id", vpcID)
-		rmDockerNetworks(ecsVPCNet(vpcID), ecsVPCNet(vpcID)+"-egress")
+		rmDockerNetworks(ecsVPCNet(vpcID))
 	})
 	return subnetID
 }

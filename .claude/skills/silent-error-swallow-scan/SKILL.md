@@ -12,7 +12,7 @@ This skill is that scan.
 ## When this skill applies
 
 - Before merging any Go change — final pre-PR scan.
-- Periodically across `simulator-*/`, `sim/`, `realexec/`, `ui-auth/` and `testutil/`.
+- Periodically across `simulator-*/`, `sim/`, `ui-auth/` and `testutil/`.
 - When a bug surfaces with the shape "the sim accepted my request, returned 200, but didn't actually persist X" — this is almost always a silent decode.
 - When auditing a service for the "no fallbacks" rule.
 

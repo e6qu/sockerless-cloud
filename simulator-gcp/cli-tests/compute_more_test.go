@@ -66,10 +66,8 @@ func TestGcloudComputeRegions_List(t *testing.T) {
 //	GET /compute/v1/projects/{project}/regions/{region}/subnetworks
 //
 // which `gcloud compute networks subnets list --regions=<one region>` calls
-// directly (rather than the aggregated form it uses without --regions). No
-// real-execution host capability is involved in the read, so this runs
-// everywhere; the create → list round trip lives with the other real-network
-// CLI coverage in compute_nat_test.go.
+// directly (rather than the aggregated form it uses without --regions). The
+// create → list round trip lives in compute_nat_test.go.
 func TestGcloudComputeSubnetsList_EmptyRegion(t *testing.T) {
 	t.Parallel()
 	out, err := gcloudCLI("compute", "networks", "subnets", "list",

@@ -14,6 +14,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
@@ -100,8 +101,8 @@ var webJobRuns sim.Store[WebJobRunRecord]
 // leaves the durable status to the caller that popped it.
 var webJobContainers = struct {
 	sync.Mutex
-	m map[string]*sim.ContainerHandle
-}{m: map[string]*sim.ContainerHandle{}}
+	m map[string]placement.Handle
+}{m: map[string]placement.Handle{}}
 
 // initWebJobStores wires the stores and reconciles restart state: a continuous
 // job persisted as Running lost its container with the previous process, which
@@ -301,7 +302,7 @@ func materializeWebJobDir(resID, kind, name string) (string, error) {
 // startWebJobProcess launches the job's run command inside a container of the
 // site's own image with the site's app settings and Azure Files mounts — the
 // execution model App Service gives a webjob — and returns the live handle.
-func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string, outRel, errRel string) (*sim.ContainerHandle, error) {
+func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string, outRel, errRel string) (placement.Handle, error) {
 	image := siteContainerImage(site)
 	if platformImage, ok := sitePlatformImage(site); ok {
 		image = platformImage
@@ -331,7 +332,11 @@ func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string
 	if args := extraEnv["WEBJOBS_COMMAND_ARGUMENTS"]; args != "" {
 		runInvocation += " " + args
 	}
-	metadataEnv, err := hostMetadataEnv(site)
+	network, err := azurePlatformNetwork(ctx)
+	if err != nil {
+		return nil, err
+	}
+	metadataEnv, err := hostMetadataEnv(site, network.DNS)
 	if err != nil {
 		return nil, err
 	}
@@ -342,7 +347,11 @@ func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string
 		"WEBJOBS_PATH": jobDir,
 	}, extraEnv)
 	sink := webJobLogSink{site: site, container: newFuncLogSink(site), outRel: outRel, errRel: errRel}
-	return sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
+	backend, err := azurePlacementBackend(placementWeb)
+	if err != nil {
+		return nil, err
+	}
+	return backend.Place(ctx, sim.ContainerConfig{
 		CancelGracePeriod: siteStopGrace(site),
 		Image:             localImage,
 		Architecture:      platform,
@@ -354,6 +363,8 @@ func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string
 			"sockerless-sim-type": "azure-webjob",
 			"sockerless-site":     site.Name,
 		},
+		Network:    network.Network,
+		DNS:        network.resolvers(),
 		ExtraHosts: workloadhost.ExtraHosts(),
 		Sandbox:    SandboxAZF,
 	}, sink)

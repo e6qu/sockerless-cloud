@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
 // acaRevision is one revision of a container app: the template the app carried
@@ -309,9 +310,9 @@ func deleteACAAppRevisions(appID string) {
 	}
 }
 
-func acaRevisionHandles(revisionID string) []*sim.ContainerHandle {
+func acaRevisionHandles(revisionID string) []placement.Handle {
 	if v, ok := acaAppReplicaHandles.Load(revisionID); ok {
-		handles, _ := v.([]*sim.ContainerHandle)
+		handles, _ := v.([]placement.Handle)
 		return handles
 	}
 	return nil

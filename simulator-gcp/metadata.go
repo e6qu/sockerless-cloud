@@ -74,7 +74,23 @@ func registerComputeMetadata(srv *sim.Server) {
 		if !mustFlavor(w, r) {
 			return
 		}
-		writeText(w, strconv.FormatInt(metadataInstanceID, 10))
+		writeText(w, strconv.FormatInt(metadataInstanceIDFor(r), 10))
+	})
+	srv.HandleFunc("GET /computeMetadata/v1/instance/attributes/{key}", func(w http.ResponseWriter, r *http.Request) {
+		if !mustFlavor(w, r) {
+			return
+		}
+		inst, ok := gcpMetadataInstancesByIP.ForRequest(r)
+		if !ok {
+			metadataNotFound(w)
+			return
+		}
+		value, ok := gcpInstanceMetadataValue(inst, sim.PathParam(r, "key"))
+		if !ok {
+			metadataNotFound(w)
+			return
+		}
+		writeText(w, value)
 	})
 	srv.HandleFunc("GET /computeMetadata/v1/instance/zone", func(w http.ResponseWriter, r *http.Request) {
 		if !mustFlavor(w, r) {
@@ -302,12 +318,30 @@ func gceMetadataProjectChildren(r *http.Request) []gceMetadataEntry {
 
 func gceMetadataInstanceChildren(*http.Request) []gceMetadataEntry {
 	return []gceMetadataEntry{
+		{name: "attributes", children: gceMetadataAttributesChildren},
 		{name: "hostname", value: func(r *http.Request) any { return metadataInstanceHostname(r) }},
-		{name: "id", value: func(*http.Request) any { return metadataInstanceID }},
+		{name: "id", value: func(r *http.Request) any { return metadataInstanceIDFor(r) }},
 		{name: "name", value: func(r *http.Request) any { return metadataInstanceName(r) }},
 		{name: "service-accounts", children: gceMetadataServiceAccountsChildren},
 		{name: "zone", value: func(r *http.Request) any { return metadataInstanceZone(r) }},
 	}
+}
+
+// gceMetadataAttributesChildren lists the reading instance's custom metadata:
+// the keys instances.insert and setMetadata wrote, startup-script among them,
+// which the guest agent fetches from here. A workload that is no instance
+// has none.
+func gceMetadataAttributesChildren(r *http.Request) []gceMetadataEntry {
+	inst, ok := gcpMetadataInstancesByIP.ForRequest(r)
+	if !ok || inst.Metadata == nil {
+		return []gceMetadataEntry{}
+	}
+	children := make([]gceMetadataEntry, 0, len(inst.Metadata.Items))
+	for _, item := range inst.Metadata.Items {
+		value := item.Value
+		children = append(children, gceMetadataEntry{name: item.Key, jsonName: item.Key, value: func(*http.Request) any { return value }})
+	}
+	return children
 }
 
 // gceMetadataServiceAccountsChildren lists the instance's identities. Real GCE
@@ -393,6 +427,7 @@ func registerComputeMetadataDirectories(srv *sim.Server, mustFlavor func(http.Re
 	dir("/computeMetadata/", gceMetadataVersions)
 	dir("/computeMetadata/v1/", gceMetadataV1Children)
 	dir("/computeMetadata/v1/instance/", gceMetadataInstanceChildren)
+	dir("/computeMetadata/v1/instance/attributes/", gceMetadataAttributesChildren)
 	dir("/computeMetadata/v1/project/", gceMetadataProjectChildren)
 	dir("/computeMetadata/v1/universe/", gceMetadataUniverseChildren)
 	dir("/computeMetadata/v1/instance/service-accounts/", gceMetadataServiceAccountsChildren)
@@ -464,9 +499,23 @@ var (
 	metadataServiceAccountScopes  = []string{"https://www.googleapis.com/auth/cloud-platform"}
 )
 
+// metadataInstanceIDFor is the numeric id of the reading instance, or the
+// one every other workload reports.
+func metadataInstanceIDFor(r *http.Request) int64 {
+	if inst, ok := gcpMetadataInstancesByIP.ForRequest(r); ok && inst.Id != "" {
+		if id, err := strconv.ParseInt(inst.Id, 10, 64); err == nil {
+			return id
+		}
+	}
+	return metadataInstanceID
+}
+
 // metadataInstanceZone is the fully-qualified zone the reading workload runs in.
 func metadataInstanceZone(r *http.Request) string {
 	if inst, ok := gcpMetadataInstancesByIP.ForRequest(r); ok && inst.Zone != "" {
+		if number, ok := gceMetadataWorkloadFor(r).projectNumber(); ok {
+			return fmt.Sprintf("projects/%s/zones/%s", number, inst.Zone[strings.LastIndex(inst.Zone, "/")+1:])
+		}
 		return inst.Zone
 	}
 	number, ok := gceMetadataWorkloadFor(r).projectNumber()
@@ -522,29 +571,3 @@ func defaultMetadataZone(r *http.Request) string {
 
 // simListenAddr is the listen address main() serves on.
 var simListenAddr string
-
-// hostMetadataExtraHosts resolves the outer host's aliases and the metadata
-// server's names, metadata.google.internal and metadata, for a workload that
-// dials them directly instead of reading GCE_METADATA_HOST.
-func hostMetadataExtraHosts() ([]string, error) {
-	aliases, err := workloadhost.AliasHosts("metadata.google.internal", "metadata")
-	if err != nil {
-		return nil, err
-	}
-	return append(workloadhost.ExtraHosts(), aliases...), nil
-}
-
-// hostMetadataEnv returns env vars to inject on every GCP workload host
-// so the GCP SDKs route metadata-server reads to the sim. Apply on every
-// Cloud Run / Cloud Run Jobs / Cloud Functions / GCE-style workload host.
-func hostMetadataEnv() (map[string]string, error) {
-	addr, err := workloadhost.CallbackAddr(simListenAddr)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]string{
-		"GCE_METADATA_HOST": addr,
-		"GCE_METADATA_IP":   addr,
-		"GCE_METADATA_ROOT": addr,
-	}, nil
-}

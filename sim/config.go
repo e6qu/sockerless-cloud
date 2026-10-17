@@ -59,6 +59,10 @@ type Config struct {
 	UIOIDCInsecureCookies      bool
 	ApplicationReleaseRevision string
 	ApplicationMonitoringToken string
+	// Placement is the per-service backend table, as SIM_PLACEMENT spells it:
+	// `service[:qualifier]=container|microvm`, comma-separated. Empty runs
+	// every service on containers.
+	Placement string
 }
 
 // ConfigFromEnv loads configuration from environment variables.
@@ -75,6 +79,7 @@ type Config struct {
 //	SIM_UI_SESSION_SECRET     — random secret used to sign local sessions
 //	APPLICATION_RELEASE_REVISION — immutable deployed release exposed to Shauth validation
 //	SIM_MONITORING_TOKEN      — deployment bearer for the application observation
+//	SIM_PLACEMENT   — per-service placement backends (see Config.Placement)
 func ConfigFromEnv(provider, defaultPort string) Config {
 	listenAddr := EnvOr("SIM_LISTEN_ADDR", ":"+defaultPort)
 	if port := os.Getenv("SIM_" + strings.ToUpper(provider) + "_PORT"); port != "" {
@@ -96,6 +101,7 @@ func ConfigFromEnv(provider, defaultPort string) Config {
 		UIOIDCInsecureCookies:      os.Getenv("SIM_UI_INSECURE_COOKIES") == "true",
 		ApplicationReleaseRevision: os.Getenv("APPLICATION_RELEASE_REVISION"),
 		ApplicationMonitoringToken: os.Getenv("SIM_MONITORING_TOKEN"),
+		Placement:                  os.Getenv("SIM_PLACEMENT"),
 	}
 }
 

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
 // registerAppServiceFrontEnd implements the App Service front end: a request

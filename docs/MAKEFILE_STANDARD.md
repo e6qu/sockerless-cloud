@@ -28,12 +28,11 @@ to:
 | `simulator-gcp` | `simulator-gcp` | `ui/packages/simulator-gcp` | `:4567` |
 | `simulator-azure` | `simulator-azure` | `ui/packages/simulator-azure` | `:4568` |
 
-### Go libraries (4)
+### Go libraries (3)
 
 | Module | Provides |
 |---|---|
 | `sim` | the framework the three simulators are built on |
-| `realexec` | the real-execution substrate: network namespaces, Firecracker microVMs, packet capture |
 | `ui-auth` | the consoles' OpenID Connect session layer and the application-monitoring endpoint |
 | `testutil` | test-only helpers: base-image acquisition (`baseimage`), a git HTTP server (`githttp`), registry trust material (`registrytrust`) and a SAML identity provider (`samlidp`) |
 
@@ -118,7 +117,7 @@ deadlines and sharding.
 | `colors.mk` | everything | TTY-detected ANSI colour variables and the `STEP` banner macro. |
 | `help.mk` | root and leaf Makefiles | The generated `help` target, and `help` as the default goal. |
 | `go-app.mk` | the simulators | Recipes for a Go binary with an optional embedded console. |
-| `go-lib.mk` | `sim`, `realexec`, `ui-auth`, `testutil` | Recipes for a Go library. |
+| `go-lib.mk` | `sim`, `ui-auth`, `testutil` | Recipes for a Go library. |
 | `ui-app.mk` | `ui/packages/*` | Recipes driven by `bun --filter` against the workspace root. |
 | `https-gateway/` | the Terraform and CLI harnesses | The Caddyfile of the optional local HTTPS gateway. |
 
@@ -137,8 +136,7 @@ The top-level Makefile has three jobs:
   in every leaf.
 
 Cross-cutting harnesses stay at the top level because they span modules or
-external tools: `docker-test`, `docker-test-build`, `firecracker-test` and
-`realexec-network-test`.
+external tools: `docker-test` and `docker-test-build`.
 
 ## Operational checks
 

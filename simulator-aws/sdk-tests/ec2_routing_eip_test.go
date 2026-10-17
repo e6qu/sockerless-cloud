@@ -85,7 +85,7 @@ func TestEC2_ElasticIPAssociationSDK(t *testing.T) {
 	assert.Equal(t, "amazon", aws.ToString(alloc.PublicIpv4Pool))
 
 	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
-		ImageId: aws.String("ami-12345678"), InstanceType: types.InstanceTypeT3Micro,
+		ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1),
 	})
 	require.NoError(t, err)

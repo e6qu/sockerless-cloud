@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
 // newELBv2DataPlaneServer builds a simulator carrying everything the load

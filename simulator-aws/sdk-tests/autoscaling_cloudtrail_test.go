@@ -46,7 +46,7 @@ func TestAutoScalingGroupLifecycleSDK(t *testing.T) {
 
 	_, err = asgClient.CreateLaunchConfiguration(ctx, &autoscaling.CreateLaunchConfigurationInput{
 		LaunchConfigurationName: aws.String("sdk-lc"),
-		ImageId:                 aws.String("ami-asg1234"),
+		ImageId:                 aws.String(ec2AmazonLinuxAMI(t)),
 		InstanceType:            aws.String("t3.micro"),
 	})
 	require.NoError(t, err)
@@ -61,7 +61,7 @@ func TestAutoScalingGroupLifecycleSDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, lcOut.LaunchConfigurations, 1)
-	assert.Equal(t, "ami-asg1234", aws.ToString(lcOut.LaunchConfigurations[0].ImageId))
+	assert.Equal(t, ec2AmazonLinuxAMI(t), aws.ToString(lcOut.LaunchConfigurations[0].ImageId))
 
 	_, err = asgClient.CreateAutoScalingGroup(ctx, &autoscaling.CreateAutoScalingGroupInput{
 		AutoScalingGroupName:    aws.String("sdk-asg"),
@@ -183,7 +183,7 @@ func TestAutoScalingPoliciesAndHooksSDK(t *testing.T) {
 
 	_, err = asgClient.CreateLaunchConfiguration(ctx, &autoscaling.CreateLaunchConfigurationInput{
 		LaunchConfigurationName: aws.String("pol-lc"),
-		ImageId:                 aws.String("ami-pol1234"),
+		ImageId:                 aws.String(ec2AmazonLinuxAMI(t)),
 		InstanceType:            aws.String("t3.small"),
 	})
 	require.NoError(t, err)

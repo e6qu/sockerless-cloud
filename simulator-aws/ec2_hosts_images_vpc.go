@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"sort"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/workload"
 )
 
 // This file implements EC2 ec2Query slices for Dedicated Hosts, Instance Event
@@ -1179,8 +1181,36 @@ func handleImportImage(w http.ResponseWriter, r *http.Request) {
 // ec2RunImportImage converts every disk of an ImportImage task into a
 // snapshot and registers an EBS-backed AMI whose root is the first disk.
 func ec2RunImportImage(task EC2ImportImageTask) {
+	imageLocation := ""
 	for i := range task.Disks {
 		disk := &task.Disks[i]
+		if disk.S3Bucket == "" && disk.Url != "" {
+			// The disk is an OCI image: the import pulls it for the AMI's
+			// architecture, and its reference becomes the AMI's root
+			// filesystem.
+			platform, err := ec2PlatformForArchitecture(task.Architecture)
+			if err == nil {
+				var pulled string
+				pulled, err = workload.LocalImagePlatform(context.Background(), disk.Url, "")
+				if err == nil && pulled != platform {
+					err = fmt.Errorf("the image is %s, the import asks for %s", pulled, task.Architecture)
+				}
+			}
+			if err != nil {
+				failure := "ClientError: Unable to read the disk image " + disk.Url + ": " + err.Error()
+				disk.Status, disk.StatusMessage = "deleted", failure
+				ec2ImportImageTasks.Update(task.ImportTaskId, func(t *EC2ImportImageTask) {
+					t.Disks = task.Disks
+					t.Status, t.StatusMessage, t.Progress = "deleted", failure, ""
+				})
+				return
+			}
+			disk.Status, disk.StatusMessage, disk.SnapshotId, disk.VolumeSize = "completed", "", ec2ID("snap"), 8
+			if i == 0 {
+				imageLocation = disk.Url
+			}
+			continue
+		}
 		snapshot, imageSize, failure := ec2ImportDiskImage(task.ImportTaskId, disk.Format, disk.S3Bucket, disk.S3Key, task.Encrypted, task.KmsKeyId)
 		disk.DiskImageSize = float64(imageSize)
 		if failure != "" {
@@ -1210,6 +1240,9 @@ func ec2RunImportImage(task EC2ImportImageTask) {
 		SnapshotId:         root.SnapshotId,
 		VolumeSize:         root.VolumeSize,
 		BlockDeviceName:    root.DeviceName,
+		ImageLocation:      imageLocation,
+		PlatformDetails:    "Linux/UNIX",
+		UsageOperation:     "RunInstances",
 	}
 	ec2Images.Put(image.ImageId, image)
 	ec2ImportImageTasks.Update(task.ImportTaskId, func(t *EC2ImportImageTask) {

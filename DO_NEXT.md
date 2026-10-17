@@ -2,23 +2,22 @@
 
 ## Next
 
-- **Stage 1 of `PLAN.md`: remove the privileged machinery.** Delete the
-  host-namespace fabric, the `nftables` rules, the realized-network DNAT and
-  the in-process Firecracker launch with their host tests, Makefile targets,
-  CI job, capability probes and the `realexec_host` build tag; delete the
-  `CAP_NET_ADMIN` ENI setup container (the VPC engine network takes the
-  VPC's CIDR and the engine assigns each interface's address) and the
-  `--privileged` loop-device helper (a managed EBS volume is an engine
-  volume), and stop granting the privilege a container definition, a
-  CodeBuild project or an ACR task step asks for, filing each gap in
-  `BUGS.md`;
-  keep `realexec/lbplane`, IPAM and the rule parsers. VM instances refuse to
-  launch with the cloud's provisioning error until stage 3. Point
-  `AGENTS.md`'s skip rule at `runtime.GOOS` alone. One pull request.
-- **Stage 2: unprivileged networks.** Per-network sidecars at the cloud's
-  resolver and metadata addresses (closing BUG-3473 and retiring the
-  per-record engine aliases), the NAT sidecar, peering, and security groups
-  on mediated flows with the container-to-container gap filed.
+- **Prove the microVM backend on CI's node-agent job and close what it
+  shows.** The job is the only host with `/dev/kvm`; the agent image build,
+  the guest boot from an OCI root filesystem and the vsock init are proven
+  nowhere else. Then configure one service per cloud onto `microvm` in a CI
+  shard and run its SDK tests on the microVM backend, including adoption of a
+  running guest after a simulator restart.
+- **Stage 5 of `PLAN.md`: distributed.** The agent on another host, reached
+  over its API with its minted token, and networks that span hosts; the
+  same-range gap (two live VPCs over one CIDR on one engine) lifts there.
+- **Close the no-privilege gaps `BUGS.md` holds**: NAT gateway, Cloud NAT and
+  Azure NAT Gateway data planes as a sidecar proxy per network; security
+  groups between two containers on one network (microVM backend only);
+  cloud-init for Compute Engine `user-data` and Azure `customData`; the
+  fixed link-local metadata address; packet capture and packet mirroring
+  data paths; managed block volume size and filesystem on the container
+  backend.
 - **Fold the simulator CI shards back** from the first parallel run's per-test
   durations (BUG-3437), and stop repeating base-image loading, pre-builds and
   the Caddy install per job (BUG-3151).

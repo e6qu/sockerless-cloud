@@ -20,14 +20,66 @@ import (
 // deallocating until the guest has really moved, then Succeeded (or Failed) and
 // the settled power state.
 
-// azureBootVM, azureHaltVM and azureDestroyVM move a machine's guest. A unit
-// test on a host without nested KVM substitutes them to hold a move open on a
-// channel and observe the operation around it.
+// azureBootVM, azureHaltVM and azureDestroyVM place, halt and remove the
+// instance behind a machine on its placement backend. A unit test substitutes
+// them to hold a move open on a channel and observe the operation around it.
 var (
-	azureBootVM    = azureStartRealVM
-	azureHaltVM    = azureStopRealVM
-	azureDestroyVM = azureDeleteRealVM
+	azureBootVM    = azureBootVMWorkload
+	azureHaltVM    = azureHaltVMWorkload
+	azureDestroyVM = azureDestroyVMWorkload
 )
+
+// azureGuestExec runs a command inside a machine's guest and reports what it
+// wrote and how it exited.
+var azureGuestExec = azureGuestExecInWorkload
+
+// azureGuestConsole reads the console output a machine's guest wrote.
+var azureGuestConsole = azureGuestConsoleOfWorkload
+
+// azureVMRequestFault is a virtual-machine write the client cannot fix by
+// retrying: the request's networkProfile names no usable network interface.
+// Azure rejects these during request validation — 400 InvalidParameter for a
+// networkProfile the Compute resource provider cannot accept, 404
+// ResourceNotFound for a referenced interface that does not exist — and never
+// as a failed operation an SDK retry policy would retry.
+type azureVMRequestFault struct {
+	code    string
+	status  int
+	message string
+}
+
+func (f *azureVMRequestFault) Error() string { return f.message }
+
+// azureValidateVMNetworkProfile applies those request-validation rules from
+// ARM state alone.
+func azureValidateVMNetworkProfile(vm VirtualMachine) *azureVMRequestFault {
+	nics := vm.Properties.NetworkProfile.NetworkInterfaces
+	if len(nics) != 1 {
+		return &azureVMRequestFault{
+			code:   "InvalidParameter",
+			status: http.StatusBadRequest,
+			message: fmt.Sprintf("The value of parameter properties.networkProfile.networkInterfaces is invalid: exactly one network interface is required, got %d.",
+				len(nics)),
+		}
+	}
+	armNIC, ok := azureNICs.Get(nics[0].ID)
+	if !ok {
+		return &azureVMRequestFault{
+			code:    "ResourceNotFound",
+			status:  http.StatusNotFound,
+			message: fmt.Sprintf("The Resource %q referenced by properties.networkProfile.networkInterfaces was not found.", nics[0].ID),
+		}
+	}
+	if len(armNIC.Properties.IPConfigurations) == 0 || azurePrimaryIPConfig(armNIC).Properties.Subnet == nil {
+		return &azureVMRequestFault{
+			code:   "InvalidParameter",
+			status: http.StatusBadRequest,
+			message: fmt.Sprintf("The value of parameter properties.networkProfile.networkInterfaces is invalid: network interface %s requires a primary IP configuration with a subnet.",
+				nics[0].ID),
+		}
+	}
+	return nil
+}
 
 // azureVMProvisioningErrors holds the error of each machine whose last
 // operation failed; its instance view reports it beside provisioningState
@@ -51,11 +103,7 @@ func registerVirtualMachineOperationRecovery(srv *sim.Server) {
 			Code:    "OperationInterrupted",
 			Message: "The operation was interrupted by a service restart before it completed and cannot be resumed. Retry the request.",
 		})
-		state := "PowerState/stopped"
-		if azureFabric.VMAlive(vm.ID) {
-			state = "PowerState/running"
-		}
-		azureVMStates.Put(vm.ID, state)
+		azureVMStates.Put(vm.ID, "PowerState/stopped")
 	}
 }
 
@@ -155,10 +203,9 @@ func azureForgetVM(id string) {
 	azureReconcileAutoRegisteredRecords()
 }
 
-// azureVMBootFailure is the error a failed operation reports when the host
-// could not boot the machine's guest. A networkProfile that stopped resolving
-// keeps its own request-validation code; anything else is the host failing to
-// place the machine, which Azure reports as AllocationFailed.
+// azureVMBootFailure is the error a failed operation reports when the machine
+// could not be placed. A networkProfile that stopped resolving keeps its own
+// request-validation code; anything else Azure reports as AllocationFailed.
 func azureVMBootFailure(id string, err error) *AsyncOperationError {
 	var fault *azureVMRequestFault
 	if errors.As(err, &fault) {
@@ -170,8 +217,8 @@ func azureVMBootFailure(id string, err error) *AsyncOperationError {
 	}
 }
 
-// azureVMHaltFailure is the error a failed operation reports when the host
-// could not stop the machine's guest.
+// azureVMHaltFailure is the error a failed operation reports when the machine
+// could not be stopped.
 func azureVMHaltFailure(id string, err error) *AsyncOperationError {
 	return &AsyncOperationError{
 		Code:    "InternalExecutionError",

@@ -85,9 +85,9 @@ func TestCompute_ImageFamilyAndIamShareARouteWithoutShadowingEachOther(t *testin
 	assert.Equal(t, "roles/compute.imageUser", policy.Bindings[0].Role)
 
 	// The family lookup still answers on the same two-segment shape.
-	family, err := svc.Images.GetFromFamily(project, "debian").Do()
+	family, err := svc.Images.GetFromFamily("debian-cloud", "debian-12").Do()
 	require.NoError(t, err)
-	assert.Contains(t, family.Name, "debian")
+	assert.Contains(t, family.Name, "debian-12")
 
 	// And the permission check, which is a POST and so unambiguous.
 	_, err = svc.Images.TestIamPermissions(project, name,

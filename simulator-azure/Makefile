@@ -1,7 +1,7 @@
 # Standardized Makefile for simulator-azure — see docs/MAKEFILE_STANDARD.md.
 #
 # This sim is its own Go module, resolved against the sibling support
-# modules (sim, realexec, ui-auth) through the repo-root go.work during
+# modules (sim, ui-auth) through the repo-root go.work during
 # development and through tagged versions when installed with
 # `go install ...@version`. The default `build` produces a stripped,
 # no-UI binary; `make embed && make build` bakes the console SPA in.
@@ -120,17 +120,13 @@ DOCKER_TEST_ENV := -e HOME=/tmp/sockerless-home -e USER=sockerless -e SOCKERLESS
 # Without it every workload bind-mounts an empty directory the engine created,
 # and a job reads none of the files it was given.
 #
-# The name is terse and the directory is under /var/tmp rather than /tmp on
-# purpose. A Firecracker API socket is created under the temporary directory as
-# <tmp>/sockerless-firecracker/<=40 chars>/firecracker.socket, and a UNIX socket
-# path cannot exceed 108 bytes, which leaves the directory 22; and /tmp on a
-# container-engine host is commonly a memory-backed filesystem, which a booting
-# machine's root image would fill.
+# It sits under /var/tmp rather than /tmp on purpose: /tmp on a container-engine
+# host is commonly a memory-backed filesystem, which a build tree or a volume
+# seed would fill.
 DOCKER_TEST_SHARED_TMP := /var/tmp/skl
 DOCKER_TEST_SHARED_TMP_MOUNT := -v $(DOCKER_TEST_SHARED_TMP):$(DOCKER_TEST_SHARED_TMP)
 
-DOCKER_REALNET_TEST_ENV := -e HOME=/tmp/sockerless-home -e USER=sockerless -e CGO_ENABLED=0 -e TF_IN_AUTOMATION=1 -e CLOUDSDK_CORE_DISABLE_PROMPTS=1 -e AZURE_CORE_NO_COLOR=true -e AWS_PAGER= -e NO_PROXY=localhost,127.0.0.1,::1,.localhost,*.localhost -e no_proxy=localhost,127.0.0.1,::1,.localhost,*.localhost -e TMPDIR=$(DOCKER_TEST_SHARED_TMP)
-DOCKER_REALNET_FLAGS := --privileged
+DOCKER_TEST_RUN_ENV := -e HOME=/tmp/sockerless-home -e USER=sockerless -e CGO_ENABLED=0 -e TF_IN_AUTOMATION=1 -e CLOUDSDK_CORE_DISABLE_PROMPTS=1 -e AZURE_CORE_NO_COLOR=true -e AWS_PAGER= -e NO_PROXY=localhost,127.0.0.1,::1,.localhost,*.localhost -e no_proxy=localhost,127.0.0.1,::1,.localhost,*.localhost -e TMPDIR=$(DOCKER_TEST_SHARED_TMP)
 
 # Spec validation is armed by two coordinates the harness has to carry into the
 # container, exactly as the Amazon Web Services harness does. Without them a
@@ -152,7 +148,6 @@ docker-test-build: ## build the test docker image
 
 docker-test: docker-test-build ## run all tests inside docker
 	docker run --rm --network host \
-		$(DOCKER_REALNET_FLAGS) \
 		--security-opt label=disable \
 		--group-add $(DOCKER_SOCK_GID) \
 		--group-add 0 \
@@ -160,7 +155,7 @@ docker-test: docker-test-build ## run all tests inside docker
 		-v /var/run/docker.sock:/var/run/docker.sock \
 		$(DOCKER_TEST_SHARED_TMP_MOUNT) \
 		-w /src/simulator-azure \
-		$(DOCKER_REALNET_TEST_ENV) \
+		$(DOCKER_TEST_RUN_ENV) \
 		$(DOCKER_SPEC_VALIDATION_FLAGS) \
 		$(DOCKER_TEST_IMAGE) make test-all
 
@@ -169,7 +164,6 @@ docker-test: docker-test-build ## run all tests inside docker
 # caller asked for, so a sharded or long-budget local run was neither.
 docker-sdk-test: docker-test-build ## run SDK tests inside the Linux real-network docker harness
 	docker run --rm --network host \
-		$(DOCKER_REALNET_FLAGS) \
 		--security-opt label=disable \
 		--group-add $(DOCKER_SOCK_GID) \
 		--group-add 0 \
@@ -177,6 +171,6 @@ docker-sdk-test: docker-test-build ## run SDK tests inside the Linux real-networ
 		-v /var/run/docker.sock:/var/run/docker.sock \
 		$(DOCKER_TEST_SHARED_TMP_MOUNT) \
 		-w /src/simulator-azure \
-		$(DOCKER_REALNET_TEST_ENV) \
+		$(DOCKER_TEST_RUN_ENV) \
 		$(DOCKER_SPEC_VALIDATION_FLAGS) \
 		$(DOCKER_TEST_IMAGE) make sdk-test-local SDK_TEST_TIMEOUT="$(SDK_TEST_TIMEOUT)" SDK_TEST_ARGS="$(SDK_TEST_ARGS)"

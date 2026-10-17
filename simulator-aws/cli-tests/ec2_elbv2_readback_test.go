@@ -12,7 +12,7 @@ func TestEC2CLI_LaunchTemplateProvenanceTags(t *testing.T) {
 	t.Parallel()
 	lt := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-launch-template",
 		"--launch-template-name", "cli-readback-lt",
-		"--launch-template-data", `{"ImageId":"ami-0abc1234","InstanceType":"t4g.nano"}`,
+		"--launch-template-data", `{"ImageId":"`+ec2AmazonLinuxAMI(t)+`","InstanceType":"t3.nano"}`,
 		"--query", "LaunchTemplate.LaunchTemplateId", "--output", "text")))
 	inst := strings.TrimSpace(runCLI(t, awsCLI("ec2", "run-instances",
 		"--launch-template", "LaunchTemplateId="+lt+",Version=$Latest",
@@ -27,7 +27,7 @@ func TestEC2CLI_LaunchTemplateProvenanceTags(t *testing.T) {
 	}
 	gotImage := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-instances",
 		"--instance-ids", inst, "--query", "Reservations[0].Instances[0].ImageId", "--output", "text")))
-	if gotImage != "ami-0abc1234" {
+	if gotImage != ec2AmazonLinuxAMI(t) {
 		t.Fatalf("inherited ImageId = %q, want ami-0abc1234", gotImage)
 	}
 }

@@ -2,7 +2,8 @@ package main
 
 import (
 	"net"
-	"net/netip"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,6 +69,28 @@ func askRoute53(t *testing.T, srv *dnsserver.Server, name string, qtype uint16) 
 	return resp
 }
 
+// askRoute53Network asks through the listener the resolver opens for an
+// engine network, which is where a VPC's sidecar forwards its queries, with
+// the network registered as the VPC's.
+func askRoute53Network(t *testing.T, srv *dnsserver.Server, network, name string, qtype uint16) *dns.Msg {
+	t.Helper()
+	vpcID := strings.TrimSuffix(network, "-net")
+	route53RegisterResolverNetwork(network, vpcID)
+	t.Cleanup(func() { r53ResolverVPCs.Delete(network) })
+	port, err := srv.ListenNetwork(network)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = srv.CloseNetwork(network) })
+	req := new(dns.Msg)
+	req.SetQuestion(dns.Fqdn(name), qtype)
+	resp, _, err := (&dns.Client{Timeout: 10 * time.Second}).Exchange(req, net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if err != nil {
+		t.Fatalf("query %s through %s: %v", name, network, err)
+	}
+	return resp
+}
+
 func onlyA(t *testing.T, resp *dns.Msg) []string {
 	t.Helper()
 	var out []string
@@ -90,17 +113,11 @@ func TestRoute53PrivateZonesAnswerOnlyTheirVPCs(t *testing.T) {
 	if resp := askRoute53(t, srv, "db.internal.test", dns.TypeA); resp.Rcode != dns.RcodeServerFailure {
 		t.Fatalf("outside every VPC the private zone is invisible and the name recursed for: %v", resp)
 	}
-	if err := route53RegisterResolverIP(net.ParseIP("127.0.0.1"), "vpc-2"); err != nil {
-		t.Fatal(err)
+	other := askRoute53Network(t, srv, "vpc-2-net", "db.internal.test", dns.TypeA)
+	if other.Rcode != dns.RcodeServerFailure {
+		t.Fatalf("another VPC does not see the zone: %v", other)
 	}
-	t.Cleanup(func() { r53ResolverVPCs.Delete(netip.MustParseAddr("127.0.0.1")) })
-	if resp := askRoute53(t, srv, "db.internal.test", dns.TypeA); resp.Rcode != dns.RcodeServerFailure {
-		t.Fatalf("another VPC does not see the zone: %v", resp)
-	}
-	if err := route53RegisterResolverIP(net.ParseIP("127.0.0.1"), "vpc-1"); err != nil {
-		t.Fatal(err)
-	}
-	if got := onlyA(t, askRoute53(t, srv, "db.internal.test", dns.TypeA)); len(got) != 1 || got[0] != "10.0.0.5" {
+	if got := onlyA(t, askRoute53Network(t, srv, "vpc-1-net", "db.internal.test", dns.TypeA)); len(got) != 1 || got[0] != "10.0.0.5" {
 		t.Fatalf("the associated VPC resolves it: %v", got)
 	}
 }
@@ -115,11 +132,7 @@ func TestRoute53PrivateZoneShadowsThePublicOneInsideItsVPC(t *testing.T) {
 	if got := onlyA(t, askRoute53(t, srv, "www.shared.test", dns.TypeA)); len(got) != 1 || got[0] != "198.51.100.1" {
 		t.Fatalf("outside the VPC: %v", got)
 	}
-	if err := route53RegisterResolverIP(net.ParseIP("127.0.0.1"), "vpc-1"); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { r53ResolverVPCs.Delete(netip.MustParseAddr("127.0.0.1")) })
-	if got := onlyA(t, askRoute53(t, srv, "www.shared.test", dns.TypeA)); len(got) != 1 || got[0] != "10.0.0.1" {
+	if got := onlyA(t, askRoute53Network(t, srv, "vpc-1-net", "www.shared.test", dns.TypeA)); len(got) != 1 || got[0] != "10.0.0.1" {
 		t.Fatalf("inside the VPC: %v", got)
 	}
 }
@@ -167,19 +180,18 @@ func TestRoute53RecursesOutsideItsZones(t *testing.T) {
 	}
 }
 
-// Forwarding to the link-local address tasks reach the resolver through is a
-// query loop, so it is never an upstream.
-func TestRoute53RecursionLeavesOutTheVPCResolverAddress(t *testing.T) {
+// The configured upstreams reach the recursion unchanged.
+func TestRoute53RecursionTakesTheConfiguredUpstreams(t *testing.T) {
 	t.Setenv(route53UpstreamOverride, "9.9.9.9")
 	rec := route53DNSConfig("", "0").Recursion
-	if rec == nil || rec.Upstreams != "9.9.9.9" || len(rec.Redirected) != 1 || rec.Redirected[0].String() != "169.254.169.253" {
+	if rec == nil || rec.Upstreams != "9.9.9.9" {
 		t.Fatalf("recursion = %+v", rec)
 	}
 }
 
-// A workload in the netns tier cannot be given /etc/hosts entries, so the
-// container-host alias comes back from the resolver its namespace points at; a
-// question for another type is NOERROR with no records, not a denial.
+// The container-host alias comes back from the resolver with the address a
+// workload's /etc/hosts carries; a question for another type is NOERROR with
+// no records, not a denial.
 func TestRoute53AnswersTheWorkloadHostAlias(t *testing.T) {
 	previous := workloadHostAliasEntries
 	t.Cleanup(func() { workloadHostAliasEntries = previous })

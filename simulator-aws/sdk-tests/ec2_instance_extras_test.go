@@ -1,6 +1,7 @@
 package aws_sdk_test
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 	"time"
@@ -23,7 +24,7 @@ func launchInstanceFor(t *testing.T, c *ec2.Client, cidr string) string {
 	subnetCidr := octets[0] + "." + octets[1] + ".1.0/24"
 	subnet := createSubnetFor(t, c, vpc.Vpc.VpcId, subnetCidr)
 	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
-		ImageId: aws.String("ami-12345678"), InstanceType: types.InstanceTypeT3Micro,
+		ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
 	})
 	require.NoError(t, err)
@@ -196,13 +197,17 @@ func TestEC2_InstancePlacement(t *testing.T) {
 func TestEC2_ConsoleOutput(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
-	instID := launchInstanceFor(t, c, "10.194.0.0/16")
+	// The console carries what the machine writes to it, so the instance's
+	// user data writes a line.
+	instID := ec2UserDataInstance(t, c, "10.194.0.0/16", "#!/bin/sh\necho console-ready\n")
 
 	con, err := c.GetConsoleOutput(ctx, &ec2.GetConsoleOutputInput{InstanceId: aws.String(instID)})
 	require.NoError(t, err)
 	assert.Equal(t, instID, aws.ToString(con.InstanceId))
 	require.NotNil(t, con.Output)
-	assert.NotEmpty(t, aws.ToString(con.Output))
+	decoded, err := base64.StdEncoding.DecodeString(aws.ToString(con.Output))
+	require.NoError(t, err)
+	assert.Contains(t, string(decoded), "console-ready")
 
 	shot, err := c.GetConsoleScreenshot(ctx, &ec2.GetConsoleScreenshotInput{InstanceId: aws.String(instID)})
 	require.NoError(t, err)
@@ -241,7 +246,7 @@ func TestEC2_PasswordData(t *testing.T) {
 func TestEC2_InstanceTopology(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
-	instID := launchInstanceFor(t, c, "10.196.0.0/16")
+	instID := launchInstanceFor(t, c, "10.254.0.0/16")
 
 	topo, err := c.DescribeInstanceTopology(ctx, &ec2.DescribeInstanceTopologyInput{
 		InstanceIds: []string{instID},
@@ -264,7 +269,7 @@ func TestEC2_InstanceTopology(t *testing.T) {
 	require.NotEmpty(t, meta.InstanceImageMetadata)
 	assert.Equal(t, instID, aws.ToString(meta.InstanceImageMetadata[0].InstanceId))
 	require.NotNil(t, meta.InstanceImageMetadata[0].ImageMetadata)
-	assert.Equal(t, "ami-12345678", aws.ToString(meta.InstanceImageMetadata[0].ImageMetadata.ImageId))
+	assert.Equal(t, ec2AmazonLinuxAMI(t), aws.ToString(meta.InstanceImageMetadata[0].ImageMetadata.ImageId))
 }
 
 // TestEC2_BundleInstance covers BundleInstance + ConfirmProductInstance + the

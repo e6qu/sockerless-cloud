@@ -145,7 +145,7 @@ func registerComputeLastVerbs(srv *sim.Server) {
 	// also carries the permission check every other collection at its scope
 	// does.
 	srv.HandleFunc("PUT /compute/v1/projects/{project}/global/firewalls/{name}", func(w http.ResponseWriter, r *http.Request) {
-		computeTypedUpdate(w, r, "firewalls", gcpFirewalls, gcpReapplyRealFirewalls)
+		computeTypedUpdate(w, r, "firewalls", gcpFirewalls, nil)
 	})
 	srv.HandleFunc("PUT /compute/v1/projects/{project}/global/backendServices/{name}", func(w http.ResponseWriter, r *http.Request) {
 		computeTypedUpdate(w, r, "backendServices", gcpBackendServices, nil)
@@ -264,8 +264,8 @@ func computeMoveAddress[T any](w http.ResponseWriter, r *http.Request, scope com
 
 // computeTypedUpdate replaces a global typed resource, keeping only its
 // identity — which is the whole difference between an update and a patch.
-// computeTypedUpdate replaces a resource; realize, when set, carries the
-// replacement into the host fabric before the operation is answered.
+// realize, when set, carries the replacement into the world before the
+// operation is answered.
 func computeTypedUpdate[T any](w http.ResponseWriter, r *http.Request, collection string, store sim.Store[T], realize func(context.Context) error) {
 	project, name := sim.PathParam(r, "project"), sim.PathParam(r, "name")
 	var body map[string]any

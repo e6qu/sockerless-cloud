@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/ipam"
 )
 
 // App Service Environments (Microsoft.Web/hostingEnvironments) and Kubernetes
@@ -714,18 +714,33 @@ func aseResolveVirtualNetwork(req VirtualNetworkProfile) (VirtualNetworkProfile,
 	return out, prefix, nil
 }
 
+// azureVnetByID resolves a virtual network by resource id, case-insensitively.
+func azureVnetByID(id string) (VirtualNetwork, bool) {
+	if vnet, ok := azureVnets.Get(id); ok {
+		return vnet, true
+	}
+	for _, vnet := range azureVnets.List() {
+		if strings.EqualFold(vnet.ID, id) {
+			return vnet, true
+		}
+	}
+	return VirtualNetwork{}, false
+}
+
 // azureSubnetByID resolves a subnet by resource id, case-insensitively.
 func azureSubnetByID(id string) (Subnet, bool) {
 	if subnet, ok := azureSubnets.Get(id); ok {
 		return subnet, true
 	}
-	for _, subnet := range azureSubnets.List() {
-		if strings.EqualFold(subnet.ID, id) {
-			return subnet, true
-		}
+	if azureSubnets == nil {
+		return Subnet{}, false
 	}
-	return Subnet{}, false
+	return azureSubnetsByLowerID.Lookup(azureSubnets, strings.ToLower(id), func(subnet Subnet) []string {
+		return []string{strings.ToLower(subnet.ID)}
+	})
 }
+
+var azureSubnetsByLowerID sim.GenerationIndex[Subnet]
 
 // aseAssignAddresses gives the environment its addresses: a lease from the
 // same public-IPv4 pool Microsoft.Network/publicIPAddresses reserves from for
@@ -763,7 +778,7 @@ func aseAssignAddresses(next *AppServiceEnvironmentResource, existing AppService
 
 	outbound := current.WindowsOutboundIPAddresses
 	if len(outbound) == 0 {
-		lease, err := realexec.ReserveAzurePublicIPv4(next.ID, nil)
+		lease, err := ipam.ReserveAzurePublicIPv4(next.ID, nil)
 		if err != nil {
 			return fmt.Errorf("failed to reserve a public IPv4 lease for the App Service Environment: %w", err)
 		}
@@ -822,7 +837,7 @@ func aseRederiveInternalAddress(row *AppServiceEnvironmentResource, subnetPrefix
 func aseReleaseAddresses(row AppServiceEnvironmentResource) {
 	for _, addr := range aseNetworkingProperties(row).WindowsOutboundIPAddresses {
 		if ip := net.ParseIP(addr); ip != nil {
-			realexec.ReleasePublicIPv4(ip)
+			ipam.ReleasePublicIPv4(ip)
 		}
 	}
 }

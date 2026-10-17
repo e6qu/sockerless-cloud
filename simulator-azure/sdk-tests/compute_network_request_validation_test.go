@@ -14,14 +14,9 @@ import (
 
 // Azure validates a write against the request before its resource provider
 // realizes anything, and answers a request the client got wrong with 4xx. These
-// tests pin that ordering for the two writes that reach real host fabric —
-// creating a virtual machine and creating a subnet. Reporting a permanently
-// invalid request as the 503 OperationNotAllowed that a genuine host failure
-// earns would put an SDK retry policy into a loop it can never leave, and would
-// have the simulator build fabric for a request Azure would have rejected.
-//
-// Neither test calls requireNetworkHost: the whole point is that the rejection
-// happens before the host capabilities matter, so both run on every host.
+// tests pin that ordering for creating a virtual machine and creating a
+// subnet. Reporting a permanently invalid request as a 503 OperationNotAllowed
+// would put an SDK retry policy into a loop it can never leave.
 
 func TestCompute_VirtualMachineWithoutNetworkProfileIsRejected(t *testing.T) {
 	t.Parallel()
