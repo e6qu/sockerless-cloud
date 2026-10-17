@@ -60,6 +60,8 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 	}
 	backend := placement.NewMicroVMBackend(agent, "")
 	var guestLog []string
+	printed := make(chan struct{})
+	var printedOnce sync.Once
 	handle, err := backend.Place(t.Context(), placement.Workload{
 		Image:        guestImage,
 		Architecture: platform,
@@ -77,11 +79,23 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 		mu.Lock()
 		guestLog = append(guestLog, line.Text)
 		mu.Unlock()
+		if strings.TrimSpace(line.Text) == "11" {
+			printedOnce.Do(func() { close(printed) })
+		}
 	}))
 	if err != nil {
 		mu.Lock()
 		defer mu.Unlock()
 		t.Fatalf("place: %v\nagent log:\n%s", err, strings.Join(agentLog, "\n"))
+	}
+	// The guest builds and runs the program before it sleeps; the exec and
+	// the stop follow its result rather than race it.
+	select {
+	case <-printed:
+	case <-time.After(5 * time.Minute):
+		mu.Lock()
+		defer mu.Unlock()
+		t.Fatalf("the guest did not print the arithmetic result; log:\n%s", strings.Join(guestLog, "\n"))
 	}
 
 	execCtx, cancel := context.WithTimeout(t.Context(), time.Minute)
