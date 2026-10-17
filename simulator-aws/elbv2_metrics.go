@@ -27,8 +27,7 @@ type elbv2MetricKey struct {
 var elbv2RequestMetrics = struct {
 	sync.Mutex
 	pending map[elbv2MetricKey]float64
-	wake    chan struct{}
-}{pending: map[elbv2MetricKey]float64{}, wake: make(chan struct{}, 1)}
+}{pending: map[elbv2MetricKey]float64{}}
 
 // elbv2RecordRoutedRequest counts the request an Application Load Balancer
 // routed to a target of tg: one RequestCount for the load balancer and for the
@@ -55,33 +54,41 @@ func elbv2RecordRoutedRequest(lbArn string, tg ELBv2TargetGroup, at time.Time) {
 	elbv2RequestMetrics.pending[elbv2MetricKey{"RequestCountPerTarget", "", targetGroup, minute}] += perTarget
 	elbv2RequestMetrics.pending[elbv2MetricKey{"RequestCountPerTarget", loadBalancer, targetGroup, minute}] += perTarget
 	elbv2RequestMetrics.Unlock()
-	select {
-	case elbv2RequestMetrics.wake <- struct{}{}:
-	default:
-	}
 }
 
 func startELBv2RequestMetricsPublisher(srv *sim.Server) {
 	srv.StartBackground("ELB request metrics publisher", elbv2PublishRequestMetrics)
 }
 
+// elbv2PublishRequestMetrics reports each minute as it closes: Elastic Load
+// Balancing measures and sends its metrics in 60-second intervals, and only for
+// intervals in which requests flowed.
 func elbv2PublishRequestMetrics(ctx context.Context) {
 	for {
+		now := time.Now()
+		next := now.Truncate(time.Minute).Add(time.Minute)
+		timer := time.NewTimer(next.Sub(now))
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-elbv2RequestMetrics.wake:
-			elbv2FlushRequestMetrics()
+		case <-timer.C:
+			elbv2FlushRequestMetrics(next.Unix() / 60)
 		}
 	}
 }
 
-// elbv2FlushRequestMetrics reports every counted request to CloudWatch as one
-// datapoint per metric, dimension set and minute.
-func elbv2FlushRequestMetrics() {
+// elbv2FlushRequestMetrics reports the requests counted in every minute before
+// current to CloudWatch, one datapoint per metric, dimension set and minute.
+func elbv2FlushRequestMetrics(current int64) {
 	elbv2RequestMetrics.Lock()
-	batch := elbv2RequestMetrics.pending
-	elbv2RequestMetrics.pending = map[elbv2MetricKey]float64{}
+	batch := map[elbv2MetricKey]float64{}
+	for key, value := range elbv2RequestMetrics.pending {
+		if key.minute < current {
+			batch[key] = value
+			delete(elbv2RequestMetrics.pending, key)
+		}
+	}
 	elbv2RequestMetrics.Unlock()
 	for key, value := range batch {
 		var dims []CWDimension

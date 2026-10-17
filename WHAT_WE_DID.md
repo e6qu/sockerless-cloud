@@ -3053,3 +3053,16 @@ The Azure service menu's link to an unsupported service rendered its label and
 its "Not supported" badge with no space between them, so the visible text ran
 the two words together and missed the link's `aria-label`; a space now
 separates them.
+
+An Amazon ECS service reports `CPUUtilization` and `MemoryUtilization` under
+`AWS/ECS` with its `ClusterName` and `ServiceName`, as the Amazon ECS
+developer guide's CloudWatch metrics page describes. Every 15 seconds the
+simulator reads each running service task's containers from the container
+engine and records the service's CPU units in use over those its tasks reserve
+(the task size, else the containers' `cpu`) and its memory in use over the
+memory reserved (the task size, else each container's `memoryReservation` or
+`memory`). Each minute's samples reach CloudWatch together once the minute has
+closed, so a minute's `SampleCount` counts them. An Application Load Balancer
+reports its `RequestCount` and `RequestCountPerTarget` the same way: once per
+minute, as each minute that carried requests closes, which is the 60-second
+interval the Application Load Balancers guide states.
