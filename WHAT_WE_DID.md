@@ -783,7 +783,10 @@ What a program starts beside the HTTP port stops after the workers return and
 before the database closes, so the virtual machines a non-persistent simulator
 releases on the way out still read their store. The guest init sets its own
 PATH from the workload's environment before it starts anything: the kernel
-starts init with none, and an exec of a relative command resolves there.
+starts init with none, and an exec of a relative command resolves there. It
+gives the workload the HOME a container runtime gives a process, its user's
+passwd entry, when the image set none, and hands each child its exit status
+from the one reaper init runs.
 A read of a workload's process that the simulator's own host refuses, an
 unprivileged process reading another identity's /proc, goes through a platform
 helper: the sidecar program joins the container's pid namespace with the one

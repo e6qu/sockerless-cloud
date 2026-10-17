@@ -181,7 +181,7 @@ func newWorkload(cfg guestConfig, logs *logBook) *workload {
 }
 
 func (w *workload) start() error {
-	env := environ(w.cfg.Env)
+	env := environ(w.cfg.Env, w.cfg.User)
 	// A relative command resolves on this process's own PATH before the
 	// command's environment applies, and the kernel starts init with none.
 	if err := os.Setenv("PATH", strings.TrimPrefix(env[0], "PATH=")); err != nil {
@@ -261,16 +261,40 @@ func (w *workload) stop() {
 	}
 }
 
-func environ(env map[string]string) []string {
+// environ is the workload's environment: its own variables over a PATH, and
+// the HOME a container runtime gives a process from its user's passwd entry
+// when the image set none.
+func environ(env map[string]string, user string) []string {
 	out := []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+	home := false
 	for k, v := range env {
-		if k == "PATH" {
+		switch k {
+		case "PATH":
 			out[0] = "PATH=" + v
 			continue
+		case "HOME":
+			home = true
 		}
 		out = append(out, k+"="+v)
 	}
+	if !home {
+		out = append(out, "HOME="+homeDir(user, "/etc/passwd"))
+	}
 	return out
+}
+
+// homeDir is the home of the user a workload runs as, from the passwd file,
+// as runc resolves it: root when the user is unset, and "/" for a user the
+// file does not know.
+func homeDir(user, file string) string {
+	name, _, _ := strings.Cut(user, ":")
+	if name == "" {
+		name = "0"
+	}
+	if entry := passwdEntryIn(name, file); entry != nil && entry.home != "" {
+		return entry.home
+	}
+	return "/"
 }
 
 func parseUser(spec string) (*syscall.Credential, error) {
@@ -293,10 +317,15 @@ func parseUser(spec string) (*syscall.Credential, error) {
 type passwd struct {
 	name     string
 	uid, gid int
+	home     string
 }
 
 func passwdEntry(name string) *passwd {
-	data, err := os.ReadFile("/etc/passwd")
+	return passwdEntryIn(name, "/etc/passwd")
+}
+
+func passwdEntryIn(name, file string) *passwd {
+	data, err := os.ReadFile(file)
 	if err != nil {
 		return nil
 	}
@@ -311,7 +340,11 @@ func passwdEntry(name string) *passwd {
 			continue
 		}
 		if fields[0] == name || fields[2] == name {
-			return &passwd{name: fields[0], uid: uid, gid: gid}
+			entry := &passwd{name: fields[0], uid: uid, gid: gid}
+			if len(fields) >= 6 {
+				entry.home = fields[5]
+			}
+			return entry
 		}
 	}
 	return nil
@@ -471,7 +504,7 @@ func serveControl(w *workload, logs *logBook) {
 			return
 		}
 		cmd := exec.CommandContext(r.Context(), req.Command[0], req.Command[1:]...)
-		cmd.Env = environ(w.cfg.Env)
+		cmd.Env = environ(w.cfg.Env, w.cfg.User)
 		stdout, stderr, status, err := exits.run(cmd)
 		code := 126
 		if err != nil {
