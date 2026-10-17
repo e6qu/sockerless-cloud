@@ -3066,3 +3066,12 @@ closed, so a minute's `SampleCount` counts them. An Application Load Balancer
 reports its `RequestCount` and `RequestCountPerTarget` the same way: once per
 minute, as each minute that carried requests closes, which is the 60-second
 interval the Application Load Balancers guide states.
+
+Main warms the base-image archive the way it warms the simulator Go cache. A
+pull request restores only the caches it saved and those main saved, and main's
+verification jobs skip a tree its pull request already passed, so no archive
+existed for a new pull request: each of its jobs pulled every image again and
+spent minutes archiving the set, which ran the AWS race job past its 15-minute
+limit and sent ECR Public pulls into the anonymous throttle. The `warm base
+images` job, on each push to main, restores each cloud's archive and, when the
+image set changed, fetches what is missing and saves it under the set's key.
