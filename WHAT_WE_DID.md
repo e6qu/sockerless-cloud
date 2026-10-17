@@ -3024,3 +3024,32 @@ prefixed `internal-` when internal, and a Network or Gateway Load Balancer's is
 ARN. Tests resolve a load balancer's name through the resolver instead of
 assuming 127.0.0.1. The pages are vendored by `scripts/fetch-aws-doc.sh`,
 which pins the branch a guide's pages live on.
+
+A load balancer reports its own Region's canonical hosted zone. The zones come
+from the Terraform AWS provider's copy of the General Reference's Elastic Load
+Balancing endpoints table, which `scripts/fetch-aws-elb-hosted-zones.sh`
+vendors verbatim and turns into `elbv2_hosted_zones_vendored.go`, keyed by
+load balancer type and Region; a unit test holds the generated table to the
+vendored file. An Application and a Network Load Balancer each report their
+type's zone, and a load balancer the table names no zone for, such as a
+Gateway Load Balancer, reports none.
+
+Three CI flakes had causes in the simulators and the suites. Cancelling a
+Cloud Run worker pool's or instance's deploy stopped its instances before it
+recorded the cancellation, so the stopped start could settle the deploy as
+failed first, and the pool kept a failed Ready condition without the
+`Cancelled` reason. The cancel now records the condition, then stops the
+instances. Kudu's VFS stated a file, declared that size, then copied the whole
+file. A continuous WebJob's log grows while it is read, so the body overran its
+`Content-Length` and the client's next request on the connection read a broken
+response. The VFS now stats the open file and copies exactly the declared
+length. The DynamoDB Local oracle now comes from mirror.gcr.io's copy of
+Docker Hub's `amazon/dynamodb-local`, which serves the same pinned digest,
+because anonymous pulls from the ECR Public Gallery fail with
+`toomanyrequests` whenever the image cache misses.
+
+axe-core 4.14 checks that a link's accessible name contains its visible text.
+The Azure service menu's link to an unsupported service rendered its label and
+its "Not supported" badge with no space between them, so the visible text ran
+the two words together and missed the link's `aria-label`; a space now
+separates them.

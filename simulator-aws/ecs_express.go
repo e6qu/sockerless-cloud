@@ -791,7 +791,7 @@ func expressEnsureLoadBalancer(serviceName, scheme string, subnets, sgs []string
 		Arn:            arn,
 		Name:           name,
 		DNSName:        dnsName,
-		CanonicalZone:  "Z35SXDOTRQ7X7K",
+		CanonicalZone:  elbv2HostedZones["application"][awsRegion()],
 		Scheme:         scheme,
 		Type:           "application",
 		State:          "active",

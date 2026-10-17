@@ -179,7 +179,8 @@ func TestELBv2_NLBDescribeStableHostname(t *testing.T) {
 	dns1 := aws.ToString(desc1.LoadBalancers[0].DNSName)
 	assert.NotContains(t, dns1, ":", "DNSName must be a hostname, never host:port")
 	assert.Regexp(t, shape, dns1, "DNSName must be the AWS-shaped NLB hostname")
-	assert.NotEmpty(t, aws.ToString(desc1.LoadBalancers[0].CanonicalHostedZoneId), "CanonicalHostedZoneId is required for a Route53 alias target")
+	assert.Equal(t, "Z26RNL4JYFTOTI", aws.ToString(desc1.LoadBalancers[0].CanonicalHostedZoneId),
+		"a Network Load Balancer in us-east-1 reports that Region's Network Load Balancer hosted zone")
 
 	// A second describe returns the SAME DNSName (no ephemeral-port drift).
 	desc2, err := elb.DescribeLoadBalancers(ctx, &elbv2.DescribeLoadBalancersInput{LoadBalancerArns: []string{lbArn}})

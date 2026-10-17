@@ -196,11 +196,17 @@ func kuduVFSGet(w http.ResponseWriter, r *http.Request, root *os.Root, name, rel
 		return
 	}
 	defer func() { _ = f.Close() }()
+	if info, err = f.Stat(); err != nil {
+		kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	w.Header().Set("Content-Type", kuduMimeType(name))
 	w.Header().Set("Content-Length", fmt.Sprint(info.Size()))
 	w.WriteHeader(http.StatusOK)
 	if r.Method != http.MethodHead {
-		_, _ = io.Copy(w, f)
+		// A webjob keeps appending to its log while the body goes out; copy
+		// only the length the header declared.
+		_, _ = io.CopyN(w, f, info.Size())
 	}
 }
 

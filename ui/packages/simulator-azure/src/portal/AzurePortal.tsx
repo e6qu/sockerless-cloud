@@ -457,7 +457,9 @@ function ServiceMenuLink({ item, active }: { item: ServiceMenuItem; active: bool
         }}
       >
         <span className={mergeClasses("az-service-label", styles.serviceLabel)}>{item.label}</span>
-        {unsupported ? <AzureNotSupportedBadge /> : null}
+        {/* The space keeps the visible text "<label> Not supported", which the
+            accessible name must contain, from running the two words together. */}
+        {unsupported ? <> <AzureNotSupportedBadge /></> : null}
       </Link>
     </li>
   );

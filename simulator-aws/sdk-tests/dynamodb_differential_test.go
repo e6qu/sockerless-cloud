@@ -823,12 +823,13 @@ func startDynamoDBLocal(t *testing.T) (endpoint string, stop func()) {
 		t.Fatalf("docker is required for DynamoDB Local differential test: %v", err)
 	}
 
-	// Amazon publishes DynamoDB Local on its own public registry as well as on
-	// Docker Hub. Pulling it from Amazon avoids Docker Hub's anonymous rate
-	// limit, which times the pull out on a shared CI runner and fails this
-	// oracle-backed test for a reason that has nothing to do with DynamoDB.
-	// Pinned by digest: the oracle is only an oracle if it stays the same one.
-	const pinned = "public.ecr.aws/aws-dynamodb-local/aws-dynamodb-local@sha256:ff89bd48ff32cd8d9be5fee8873b65b8854dc408f1afe881be6eb00247bc0dab"
+	// Amazon publishes DynamoDB Local on Docker Hub as well as on the ECR
+	// Public Gallery, and mirror.gcr.io serves the Docker Hub copy without
+	// either registry's anonymous limits, which throttle a shared CI runner
+	// and fail this oracle-backed test for a reason that has nothing to do
+	// with DynamoDB. Pinned by digest: the oracle is only an oracle if it stays
+	// the same one, and both registries serve this digest.
+	const pinned = "mirror.gcr.io/amazon/dynamodb-local@sha256:ff89bd48ff32cd8d9be5fee8873b65b8854dc408f1afe881be6eb00247bc0dab"
 	image, err := baseimage.EnsureRef(pinned)
 	if err != nil {
 		t.Fatalf("docker is present but %s could not be pulled after retries: %v", pinned, err)

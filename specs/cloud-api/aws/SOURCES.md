@@ -52,3 +52,4 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `route53-alias-records.md.gz` | `awsdocs/amazon-route53-docs@main` | `doc_source/resource-record-sets-choosing-alias-non-alias.md` | CC-BY-SA-4.0 | `2c31968034119e7d65367395fad120e796a60b71` | 2026-10-16T18:58:29Z |
 | `alb-target-group-health.md.gz` | `awsdocs/elb-application-load-balancers-user-guide@master` | `doc_source/target-group-health.md` | CC-BY-SA-4.0 | `fb242939a8639ebd75f5a9cbd4b33acef51e1367` | 2026-10-16T18:58:30Z |
 | `nlb-target-group-health.md.gz` | `awsdocs/elb-network-load-balancers-user-guide@master` | `doc_source/target-group-health.md` | CC-BY-SA-4.0 | `d08f9993fa9d543a9373d6d9b7a9ea4da32aaa01` | 2026-10-16T18:58:31Z |
+| `elbv2-hosted-zone-ids.go.gz` | `hashicorp/terraform-provider-aws` | `internal/service/elbv2/hosted_zone_id_data_source.go` | MPL-2.0 | `a3082201a495ab2168180226d2856827c07f0404` | 2026-10-16T21:27:06Z |

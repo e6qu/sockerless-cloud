@@ -217,6 +217,8 @@ func TestStackProductionShape(t *testing.T) {
 	elbv2LBDNS := outputs.must(t, "elbv2_lb_dns_name")
 	require.Contains(t, elbv2LBDNS, ".us-east-1.elb.amazonaws.com",
 		"ELBv2 load balancer DNS name must use the regional ELB suffix; got %s", elbv2LBDNS)
+	require.Equal(t, outputs.must(t, "elbv2_lb_region_zone_id"), outputs.must(t, "elbv2_lb_zone_id"),
+		"aws_lb zone_id must be the canonical hosted zone aws_lb_hosted_zone_id names for an Application Load Balancer in the Region")
 
 	require.Equal(t, "45", outputs.must(t, "elbv2_lb_idle_timeout"),
 		"aws_lb idle_timeout must round-trip idle_timeout.timeout_seconds through ModifyLoadBalancerAttributes and DescribeLoadBalancerAttributes")
