@@ -31,6 +31,11 @@ func TestComputeVirtualMachineImagesCLI(t *testing.T) {
 	if len(versions) == 0 {
 		t.Fatal("the catalog lists no Debian 12 version")
 	}
+	// terraform-provider-azurerm spells the artifact segments artifactTypes
+	// and vmImage, which Azure Resource Manager answers like the lowercase.
+	if out := runCLI(t, azRest("GET", catalog+"/Debian/artifactTypes/vmImage/offers/debian-12/skus/12/versions"+apiVersion, "")); !strings.Contains(out, versions[0].Name) {
+		t.Fatalf("the camel-cased catalog path must list the same versions, got %s", out)
+	}
 	out := runCLI(t, azRest("GET", catalog+"/Debian/artifacttypes/vmimage/offers/debian-12/skus/12/versions/"+versions[0].Name+apiVersion, ""))
 	if !strings.Contains(out, `"architecture": "x64"`) || !strings.Contains(out, `"operatingSystem": "Linux"`) {
 		t.Fatalf("expected the Debian 12 image's properties, got %s", out)

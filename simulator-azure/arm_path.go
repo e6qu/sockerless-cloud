@@ -42,9 +42,13 @@ func azureNormalizeRequestPath(r *http.Request) {
 		"/azurestorageaccounts":               "/azurestorageaccounts",
 		"/basicpublishingcredentialspolicies": "/basicpublishingcredentialspolicies",
 		"/sourcecontrols":                     "/sourcecontrols",
-		"/deletedvaults":                      "/deletedVaults",
-		"/deletedworkspaces":                  "/deletedWorkspaces",
-		"/getauthtoken":                       "/getAuthtoken",
+		// terraform-provider-azurerm spells the image catalog's artifact
+		// segments artifactTypes/vmImage; the handlers register the REST
+		// specification's lowercase.
+		"/artifacttypes/vmimage": "/artifacttypes/vmimage",
+		"/deletedvaults":         "/deletedVaults",
+		"/deletedworkspaces":     "/deletedWorkspaces",
+		"/getauthtoken":          "/getAuthtoken",
 	}
 	path := r.URL.Path
 	lower := strings.ToLower(path)
