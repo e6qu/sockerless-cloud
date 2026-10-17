@@ -3126,4 +3126,46 @@ node-agent job is the one job with KVM.
 Security groups, network security groups and firewall rules are enforced on
 the flows the simulator mediates through `lbplane`'s `Admit` hooks; traffic
 between two containers on one network is not filtered, and that gap closes
-only on the microVM backend, where the agent filters at the tap.
+only on the microVM backend, where the agent filters at the tap. A TCP proxy's
+hook is installed with `SetAdmit`, atomically, because a listener's security
+group changes while the proxy serves and the race detector caught the plain
+field.
+
+The platform network — the one every workload on no cloud network joins — is
+not an engine-managed network: Docker admits a fixed address only on a network
+whose subnet the user configured, and the sidecar and the node agent both need
+one. `sim.EnsurePlatformNetwork` takes a /24 of the RFC 6598 shared address
+space (100.64.0.0/10), chosen by the network's name and moved on collision, so
+two simulators on one engine each get their own and no cloud CIDR is shadowed.
+Every per-run network a cloud creates for a workload (an ACR Tasks run's
+`acb_default_network_<id>`) goes through the same call.
+
+Firecracker's API server admits a handful of connections and answers 503 "Too
+many open connections" past that, so the agent's client closes its connection
+after every request instead of leaving a keep-alive behind.
+
+Per cloud, the decisions that shaped the wiring. Route 53, Cloud DNS and Azure
+DNS attribute a query by the engine network its sidecar forwarded it from
+(`Query.Network`), and the per-record engine aliases and per-zone networks the
+clouds kept for resolution are gone: a Cloud Map service resolves through its
+namespace's hosted zone and the VPC's sidecar, an Azure site's names through
+the catalog. Host-callback metadata survives only for host-network-mode Amazon
+ECS tasks, which share the host's namespace. An Amazon EC2 instance's console
+is the engine's container log, fed by a wrapper that follows cloud-init's
+output log; `CreateImage` is a commit into `sockerless-sim-aws-ami/<id>:latest`;
+`ImageLocation` and an import's `Url` are OCI references; Run Command is
+`Handle.Exec`. An Application Load Balancer is seen by a target's security
+group as its own security groups and its subnets, and a Network Load Balancer
+without security groups as the client. Compute Engine's `startup-script` runs
+at every boot (`UserDataEveryBoot`) where cloud-init's user data runs once per
+instance; gcloud sends `zones/-/imageFamilyViews/<family>` and
+endpoint-override URLs as image references, both accepted; an instance insert
+creates the disk resources its `initializeParams` describe; Google's health
+check and proxy ranges must be allowed by a firewall rule, so the probes
+evaluate the rules from those sources. Azure Load Balancer keeps the client's
+source address for NSG evaluation while Application Gateway is seen as its
+own frontend; a VNet's engine network is named by the resource's id, since two
+VNets of one name in different resource groups collided on one name; a VNet
+integration change restarts the site as App Service does. Every cloud's tests
+give each instance its own network range, because the engine refuses two live
+networks over one range.

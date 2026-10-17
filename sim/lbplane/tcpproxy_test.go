@@ -3,6 +3,7 @@ package lbplane
 import (
 	"context"
 	"net"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -125,3 +126,53 @@ func TestTCPProxyCloseEndsAStreamInFlight(t *testing.T) {
 		t.Fatal("Close waited for an idle stream instead of ending it")
 	}
 }
+
+// A load balancer's security group can change while the proxy serves, so the
+// admission check is installed on a serving proxy; a refused client's
+// connection closes without a byte, while an admitted one is forwarded.
+func TestTCPProxySetAdmitRefusesAClientWithoutAByte(t *testing.T) {
+	upstream, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer upstream.Close()
+	go func() {
+		for {
+			conn, err := upstream.Accept()
+			if err != nil {
+				return
+			}
+			_, _ = conn.Write([]byte("hello"))
+			_ = conn.Close()
+		}
+	}()
+	proxy, err := StartTCPProxy("127.0.0.1:0", func(context.Context) (string, error) { return upstream.Addr().String(), nil })
+	require.NoError(t, err)
+	defer proxy.Close()
+
+	var refused admission
+	proxy.SetAdmit(func(client netip.Addr, target string) error {
+		require.Equal(t, upstream.Addr().String(), target)
+		return refused.get()
+	})
+	read := func() string {
+		conn, err := net.Dial("tcp", proxy.Address)
+		require.NoError(t, err)
+		defer conn.Close()
+		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		buf := make([]byte, 16)
+		n, _ := conn.Read(buf)
+		return string(buf[:n])
+	}
+	require.Equal(t, "hello", read())
+	refused.set(ErrNotAdmitted)
+	require.Equal(t, "", read())
+	refused.set(nil)
+	require.Equal(t, "hello", read())
+}
+
+type admission struct {
+	mu  sync.Mutex
+	err error
+}
+
+func (a *admission) set(err error) { a.mu.Lock(); a.err = err; a.mu.Unlock() }
+func (a *admission) get() error    { a.mu.Lock(); defer a.mu.Unlock(); return a.err }

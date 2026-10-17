@@ -61,7 +61,19 @@ Current state of the sockerless-cloud repository.
   machine instances are containers from each cloud's image catalog
   (`sim/vminstance`): the init runs the instance's user data, the instance
   stops and starts on its own root disk, and an image captured from one is
-  the committed container.
+  the committed container. Per cloud: Amazon EC2 instances boot from the
+  published Amazon Linux 2023, Ubuntu 24.04 and Debian 12 AMIs or from
+  OCI-referenced customer AMIs (`RegisterImage` `ImageLocation`,
+  `ImportImage` `Url`), with IMDS through the sidecar, `GetConsoleOutput`,
+  `CreateImage` capture and Systems Manager Run Command through the machine;
+  Compute Engine instances boot from the `debian-cloud` and `ubuntu-os-cloud`
+  families with their startup script on the serial console, machine types
+  from a catalog, and images from a stopped instance's disk; Azure virtual
+  machines boot from the Canonical and Debian marketplace images or
+  `Microsoft.Compute/images`, with `customData`, IMDS through the sidecar,
+  deallocate/start on the kept OS disk and capture. Security groups, firewall
+  rules and network security groups apply on load balancer flows through
+  `lbplane`'s admission hooks.
 - **One startup sequence.** Every simulator binary's `main` is a `sim.Main`
   call with a `sim.Program`: the cloud supplies its default port, its build and
   the listeners it serves beside the HTTP port, and `sim` owns the reaper

@@ -108,10 +108,16 @@ func waitForSocket(ctx context.Context, path string, timeout time.Duration) erro
 }
 
 func firecrackerRequest(ctx context.Context, socket, method, path, payload string) error {
-	client := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-		var d net.Dialer
-		return d.DialContext(ctx, "unix", socket)
-	}}}
+	// Firecracker's API server admits a handful of connections at once and
+	// answers 503 "Too many open connections" past that, so no request may
+	// leave an idle keep-alive connection behind.
+	client := &http.Client{Transport: &http.Transport{
+		DisableKeepAlives: true,
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "unix", socket)
+		},
+	}}
 	req, err := http.NewRequestWithContext(ctx, method, "http://firecracker"+path, strings.NewReader(payload))
 	if err != nil {
 		return err

@@ -1789,12 +1789,15 @@ func gcpIngressPacketRules(target ComputeInstance, targetNIC ComputeNetworkInter
 	if gcpFirewalls == nil {
 		return nil, nil
 	}
-	firewalls := gcpFirewalls.Filter(func(fw ComputeFirewall) bool {
+	var firewalls []ComputeFirewall
+	for _, fw := range gcpFirewallsByNetwork.LookupAll(gcpFirewalls, targetNIC.Network, func(fw ComputeFirewall) []string {
+		return []string{gcpCanonicalComputeRef(fw.Network, gcpProjectFromSelfLink(fw.SelfLink), "global", "networks", "default")}
+	}) {
 		if fw.Disabled || !strings.EqualFold(gcpDefaultString(fw.Direction, "INGRESS"), "INGRESS") {
-			return false
+			continue
 		}
-		return gcpCanonicalComputeRef(fw.Network, gcpProjectFromSelfLink(fw.SelfLink), "global", "networks", "default") == targetNIC.Network
-	})
+		firewalls = append(firewalls, fw)
+	}
 	sort.SliceStable(firewalls, func(i, j int) bool { return firewalls[i].Name < firewalls[j].Name })
 	var rules []netrules.PrioritizedRule
 	add := func(priority int, actions []ComputeFirewallAction, sources []string, verdict string) error {
@@ -1858,13 +1861,17 @@ func gcpFirewallSources(fw ComputeFirewall, network string) []string {
 	var out []string
 	out = append(out, fw.SourceRanges...)
 	if len(fw.SourceTags) > 0 && gcpInstances != nil {
-		for _, inst := range gcpInstances.List() {
-			if !gcpInstanceHasAnyTag(inst, fw.SourceTags) {
-				continue
-			}
-			for _, ni := range inst.NetworkInterfaces {
-				if ni.Network == network && ni.NetworkIP != "" {
-					out = append(out, ni.NetworkIP+"/32")
+		seen := map[string]bool{}
+		for _, tag := range fw.SourceTags {
+			for _, inst := range gcpInstancesByTag.LookupAll(gcpInstances, tag, gcpInstanceTagKeys) {
+				if seen[inst.SelfLink+"/"+inst.Name] {
+					continue
+				}
+				seen[inst.SelfLink+"/"+inst.Name] = true
+				for _, ni := range inst.NetworkInterfaces {
+					if ni.Network == network && ni.NetworkIP != "" {
+						out = append(out, ni.NetworkIP+"/32")
+					}
 				}
 			}
 		}
@@ -1873,15 +1880,6 @@ func gcpFirewallSources(fw ComputeFirewall, network string) []string {
 		return []string{"0.0.0.0/0"}
 	}
 	return out
-}
-
-func gcpInstanceHasAnyTag(inst ComputeInstance, tags []string) bool {
-	for _, tag := range tags {
-		if gcpInstanceHasTag(inst, tag) {
-			return true
-		}
-	}
-	return false
 }
 
 func gcpInstanceHasTag(inst ComputeInstance, tag string) bool {
@@ -2957,4 +2955,16 @@ func computeRangeIsWider(current, proposed string) (bool, error) {
 		return false, err
 	}
 	return wanted < held, nil
+}
+
+var (
+	gcpFirewallsByNetwork sim.GenerationIndex[ComputeFirewall]
+	gcpInstancesByTag     sim.GenerationIndex[ComputeInstance]
+)
+
+func gcpInstanceTagKeys(inst ComputeInstance) []string {
+	if inst.Tags == nil {
+		return nil
+	}
+	return inst.Tags.Items
 }

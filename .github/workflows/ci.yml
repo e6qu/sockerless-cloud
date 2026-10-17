@@ -607,6 +607,10 @@ jobs:
         if: matrix.cloud == 'azure' && matrix.suite == 'sdk' && matrix.shard == 'Cosmos'
         run: docker pull mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview
         timeout-minutes: 8
+      - name: Make the engine's registry trust directory writable
+        # The suites install a registry's authority under /etc/docker/certs.d
+        # for the engine to trust it, and the runner, not root, runs them.
+        run: sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" /etc/docker/certs.d
       - name: Run SDK tests
         if: matrix.suite == 'sdk'
         run: |
@@ -1142,6 +1146,10 @@ jobs:
           cd simulator-aws && CGO_ENABLED=0 go build -tags noui -o /dev/null .
           cd cli-tests && CGO_ENABLED=0 go test -c -o /dev/null .
         timeout-minutes: 10
+      - name: Make the engine's registry trust directory writable
+        # The suites install a registry's authority under /etc/docker/certs.d
+        # for the engine to trust it, and the runner, not root, runs them.
+        run: sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" /etc/docker/certs.d
       - name: Run AWS CLI tests
         run: |
           cd simulator-aws
@@ -1260,7 +1268,7 @@ jobs:
             timeout_minutes: 12
           - suite: aws Amazon EC2 launch template
             cloud: aws
-            tf_packages: "./launch-template ./ec2-instance-type"
+            tf_packages: "./launch-template ./ec2-instance-type ./ec2-instance"
             timeout_minutes: 12
           - suite: aws Amazon EC2 network interface
             cloud: aws

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
@@ -115,20 +116,21 @@ func acrRunTaskFile(ctx context.Context, task *acrTaskFile, x *acrTaskRun) error
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 
-	if _, err := x.engine.NetworkCreate(ctx, x.network, client.NetworkCreateOptions{Driver: "bridge"}); err != nil {
+	// The run's network takes a range of its own so its sidecar holds a
+	// fixed address there; the steps resolve names through that sidecar, as
+	// every workload container does.
+	if _, _, err := sim.EnsurePlatformNetwork(ctx, x.network, nil); err != nil {
 		return fmt.Errorf("create the run's network: %w", err)
 	}
-	// The run's steps resolve names through the network's sidecar, as every
-	// workload container does.
 	dns, err := azureEnsureSidecar(ctx, x.network, netip.Addr{})
 	if err != nil {
-		_, _ = x.engine.NetworkRemove(context.Background(), x.network, client.NetworkRemoveOptions{})
+		_ = sim.RemoveDockerNetwork(x.network)
 		return fmt.Errorf("create the run's network: %w", err)
 	}
 	x.dns = netip.MustParseAddr(dns)
 	if _, err := x.engine.VolumeCreate(ctx, client.VolumeCreateOptions{Name: x.volume}); err != nil {
 		azureRemoveSidecar(x.network)
-		_, _ = x.engine.NetworkRemove(context.Background(), x.network, client.NetworkRemoveOptions{})
+		_ = sim.RemoveDockerNetwork(x.network)
 		return fmt.Errorf("create the run's volume: %w", err)
 	}
 	defer x.cleanup()
@@ -684,7 +686,7 @@ func (x *acrTaskRun) cleanup() {
 	}
 	if !kept {
 		azureRemoveSidecar(x.network)
-		if _, err := x.engine.NetworkRemove(ctx, x.network, client.NetworkRemoveOptions{}); err != nil {
+		if err := sim.RemoveDockerNetworkContext(ctx, x.network); err != nil {
 			acrTasksLogger.Warn().Err(err).Str("network", x.network).Msg("could not remove an ACR Tasks run network")
 		}
 		if _, err := x.engine.VolumeRemove(ctx, x.volume, client.VolumeRemoveOptions{Force: true}); err != nil {

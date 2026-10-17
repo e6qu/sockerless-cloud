@@ -87,9 +87,11 @@ func ec2ConsoleOutput(ctx context.Context, instanceID string) string {
 	id := w.id
 	w.mu.Unlock()
 	if id != "" && w.backend.Kind() == placement.Container {
-		if console, err := ec2ContainerConsole(ctx, id); err == nil {
+		console, err := ec2ContainerConsole(ctx, id)
+		if err == nil {
 			return console
 		}
+		fmt.Fprintf(os.Stderr, "[sim-ec2] instance %s: read console of %s: %v\n", instanceID, id, err)
 	}
 	return w.console.Output()
 }
@@ -129,6 +131,7 @@ const ec2ConsolePath = "/sbin/sockerless-instance-console"
 
 func ec2ConsoleScript() string {
 	return "#!/bin/sh\n" +
+		"mkdir -p /run\n" +
 		"touch " + vminstance.OutputLogPath + "\n" +
 		"tail -n +1 -F " + vminstance.OutputLogPath + " 2>/dev/null &\n" +
 		"exec " + vminstance.InitPath + "\n"

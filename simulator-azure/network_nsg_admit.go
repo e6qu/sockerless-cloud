@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"net"
 	"net/netip"
 	"strings"
@@ -76,12 +77,13 @@ func azureNICByPrivateAddress(target string) (NetworkInterface, bool) {
 	if azureNICs == nil || host == "" {
 		return NetworkInterface{}, false
 	}
-	for _, nic := range azureNICs.List() {
+	return azureNICsByPrivateAddress.Lookup(azureNICs, host, func(nic NetworkInterface) []string {
+		keys := make([]string, 0, len(nic.Properties.IPConfigurations))
 		for _, ipcfg := range nic.Properties.IPConfigurations {
-			if ipcfg.Properties.PrivateIPAddress == host {
-				return nic, true
-			}
+			keys = append(keys, ipcfg.Properties.PrivateIPAddress)
 		}
-	}
-	return NetworkInterface{}, false
+		return keys
+	})
 }
+
+var azureNICsByPrivateAddress sim.GenerationIndex[NetworkInterface]

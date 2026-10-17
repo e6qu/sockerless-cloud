@@ -732,13 +732,15 @@ func azureSubnetByID(id string) (Subnet, bool) {
 	if subnet, ok := azureSubnets.Get(id); ok {
 		return subnet, true
 	}
-	for _, subnet := range azureSubnets.List() {
-		if strings.EqualFold(subnet.ID, id) {
-			return subnet, true
-		}
+	if azureSubnets == nil {
+		return Subnet{}, false
 	}
-	return Subnet{}, false
+	return azureSubnetsByLowerID.Lookup(azureSubnets, strings.ToLower(id), func(subnet Subnet) []string {
+		return []string{strings.ToLower(subnet.ID)}
+	})
 }
+
+var azureSubnetsByLowerID sim.GenerationIndex[Subnet]
 
 // aseAssignAddresses gives the environment its addresses: a lease from the
 // same public-IPv4 pool Microsoft.Network/publicIPAddresses reserves from for

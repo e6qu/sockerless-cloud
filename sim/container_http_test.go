@@ -16,23 +16,24 @@ import (
 // A workload that serves on a port other than 8080 is reachable through the
 // port the engine publishes for it, as a host that routes no container
 // address needs.
-func TestStartHTTPContainerPublishesTheDeclaredPort(t *testing.T) {
+func TestPublishedPortReachesTheDeclaredPort(t *testing.T) {
 	InitDocker("aws", true, t.TempDir())
 	platform := "linux/" + runtime.GOARCH
 	if err := PullImage(t.Context(), volumeDeclaringTestImage, platform); err != nil {
 		t.Fatal(err)
 	}
-	containerID, err := StartHTTPContainer(t.Context(), HTTPContainerConfig{
+	handle, err := StartContainerSyncContext(t.Context(), ContainerConfig{
 		Image:        volumeDeclaringTestImage,
 		Architecture: platform,
 		Args:         []string{"redis-server", "--port", "9091"},
 		Name:         fmt.Sprintf("sockerless-sim-published-port-%d", time.Now().UnixNano()),
 		PublishPorts: []int{9091},
-	})
+	}, NoopSink{})
 	if err != nil {
 		t.Fatalf("start workload: %v", err)
 	}
-	t.Cleanup(func() { StopAndRemoveContainer(containerID, 0) })
+	containerID := handle.ContainerID
+	t.Cleanup(func() { handle.Cancel(); StopAndRemoveContainer(containerID, 0) })
 
 	// Redis announces on its log when it accepts connections.
 	ready := make(chan struct{})
@@ -80,10 +81,4 @@ func redisPing(address string) (string, error) {
 		return "", err
 	}
 	return line[:len(line)-2], nil
-}
-
-func TestStartHTTPContainerRequiresAPort(t *testing.T) {
-	if _, err := StartHTTPContainer(t.Context(), HTTPContainerConfig{Image: volumeDeclaringTestImage}); err == nil {
-		t.Fatal("an HTTP container started with no port to publish")
-	}
 }

@@ -56,33 +56,21 @@ const gcpStartupScriptPath = "/tmp/metadata-scripts/startup-script"
 
 // gcpStartupScriptRunner is the user data every instance boots with: what
 // google_metadata_script_runner does at startup, with the script's output
-// on the serial console under the startup-script prefix the guest's journal
-// forwards there. The console is the init's own standard output: a guest
-// with a console device names it, and on a container the init's shell has
-// parked the console on a high descriptor while it redirects the user
-// data's output into cloud-init's log, so the runner takes the first
-// descriptor of the init that still leads to the console.
+// under the startup-script prefix the guest's journal forwards to the serial
+// console. The init carries the runner's output to the console.
 const gcpStartupScriptRunner = `#!/bin/sh
-console=/dev/console
-if [ ! -c "$console" ]; then
-	for fd in /proc/1/fd/*; do
-		case "$(readlink "$fd")" in
-		pipe:*|/dev/pts/*|/dev/tty*) console=$fd; break ;;
-		esac
-	done
-fi
 script=` + gcpStartupScriptPath + `
 status=/run/google-startup-script.status
 if [ -s "$script" ]; then
-	echo "google_metadata_script_runner: Starting startup scripts." >"$console"
+	echo "google_metadata_script_runner: Starting startup scripts."
 	chmod 700 "$script"
 	( "$script" 2>&1; echo "$?" >"$status" ) | while IFS= read -r line; do
 		echo "google_metadata_script_runner: startup-script: $line"
-	done >"$console"
-	echo "google_metadata_script_runner: startup-script exit status $(cat "$status")" >"$console"
-	echo "google_metadata_script_runner: Finished running startup scripts." >"$console"
+	done
+	echo "google_metadata_script_runner: startup-script exit status $(cat "$status")"
+	echo "google_metadata_script_runner: Finished running startup scripts."
 else
-	echo "google_metadata_script_runner: No startup scripts to run." >"$console"
+	echo "google_metadata_script_runner: No startup scripts to run."
 fi
 `
 
@@ -115,13 +103,15 @@ func gcpInstanceWorkload(inst ComputeInstance, netw gcpWorkloadNetwork, image gc
 		DNS:          netw.dns(),
 		UserData:     []byte(gcpStartupScriptRunner),
 		UserDataPath: "/run/google-startup-script-runner",
-		Env:          netw.env(),
-		Seed:         []sim.SeedFile{{Path: gcpStartupScriptPath, Mode: 0o700, Data: []byte(startup)}},
-		VCPUs:        shape.GuestCpus,
-		MemoryMiB:    shape.MemoryMb,
-		Labels:       map[string]string{"sockerless-gcp-instance-project": project},
-		StopGrace:    gcpInstanceStopGrace,
-		ExtraHosts:   append(netw.extraHosts(), fqdn+":"+netw.Address),
+		// Compute Engine runs startup-script at every boot, not once.
+		UserDataEveryBoot: true,
+		Env:               netw.env(),
+		Seed:              []sim.SeedFile{{Path: gcpStartupScriptPath, Mode: 0o700, Data: []byte(startup)}},
+		VCPUs:             shape.GuestCpus,
+		MemoryMiB:         shape.MemoryMb,
+		Labels:            map[string]string{"sockerless-gcp-instance-project": project},
+		StopGrace:         gcpInstanceStopGrace,
+		ExtraHosts:        append(netw.extraHosts(), fqdn+":"+netw.Address),
 	}
 	w, err := vminstance.Workload(spec)
 	if err != nil {
@@ -196,8 +186,8 @@ func gcpBootInstanceMachine(ctx context.Context, inst *ComputeInstance) error {
 	// instance is known by its address before the machine starts.
 	gcpMetadataInstancesByIP.Store(netw.Address, *inst)
 	var handle placement.Handle
-	if kept, ok := gcpInstanceKeptMachines.Load(inst.SelfLink); ok {
-		handle, err = backend.Restart(ctx, kept.(string), workload, sim.NoopSink{})
+	if kept, ok := gcpKeptInstanceMachine(inst.SelfLink); ok {
+		handle, err = backend.Restart(ctx, kept, workload, sim.NoopSink{})
 	} else {
 		handle, err = backend.Place(ctx, workload, sim.NoopSink{})
 	}
@@ -269,11 +259,10 @@ func gcpWatchInstanceMachine(link string, machine *gcpInstanceMachine) {
 // gcpHaltInstanceMachine stops an instance's machine and keeps it, disk and
 // all, for a later start or resume.
 func gcpHaltInstanceMachine(_ context.Context, inst *ComputeInstance) error {
-	v, ok := gcpInstanceMachines.Load(inst.SelfLink)
+	machine, ok := gcpRunningInstanceMachine(inst.SelfLink)
 	if !ok {
 		return nil
 	}
-	machine := v.(*gcpInstanceMachine)
 	machine.mu.Lock()
 	machine.halting = true
 	machine.mu.Unlock()
@@ -290,27 +279,46 @@ func gcpDestroyInstanceMachine(ctx context.Context, inst *ComputeInstance) error
 	if err := gcpHaltInstanceMachine(ctx, inst); err != nil {
 		return err
 	}
-	kept, ok := gcpInstanceKeptMachines.LoadAndDelete(inst.SelfLink)
+	kept, ok := gcpKeptInstanceMachine(inst.SelfLink)
 	if !ok {
 		return nil
 	}
+	gcpInstanceKeptMachines.Delete(inst.SelfLink)
 	backend, err := gcpPlacement.For(placementCompute)
 	if err != nil {
 		return err
 	}
-	return backend.Remove(ctx, kept.(string))
+	return backend.Remove(ctx, kept)
+}
+
+// gcpRunningInstanceMachine is the machine of a running instance.
+func gcpRunningInstanceMachine(link string) (*gcpInstanceMachine, bool) {
+	v, ok := gcpInstanceMachines.Load(link)
+	if !ok {
+		return nil, false
+	}
+	machine, ok := v.(*gcpInstanceMachine)
+	return machine, ok
+}
+
+// gcpKeptInstanceMachine is the backend ID of a stopped instance's kept
+// machine.
+func gcpKeptInstanceMachine(link string) (string, bool) {
+	v, ok := gcpInstanceKeptMachines.Load(link)
+	if !ok {
+		return "", false
+	}
+	id, ok := v.(string)
+	return id, ok
 }
 
 // gcpInstanceMachineID is the backend ID of an instance's machine, running
 // or kept.
 func gcpInstanceMachineID(link string) (string, bool) {
-	if v, ok := gcpInstanceMachines.Load(link); ok {
-		return v.(*gcpInstanceMachine).handle.ID(), true
+	if machine, ok := gcpRunningInstanceMachine(link); ok {
+		return machine.handle.ID(), true
 	}
-	if v, ok := gcpInstanceKeptMachines.Load(link); ok {
-		return v.(string), true
-	}
-	return "", false
+	return gcpKeptInstanceMachine(link)
 }
 
 // gcpCaptureInstanceDisk commits the instance's machine as an engine image

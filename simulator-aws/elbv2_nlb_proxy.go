@@ -137,7 +137,7 @@ func elbv2StartListenerProxy(listener ELBv2Listener) error {
 			elbv2LoadBalancerHosts.Release(listener.LoadBalancerArn)
 			return fmt.Errorf("bind TLS listener %s on %s: %w", listenerArn, bindAddr, err)
 		}
-		tcp.Admit = admit
+		tcp.SetAdmit(admit)
 		proxy.address, proxy.closer = tcp.Address, tcp
 	default:
 		tcp, err := lbplane.StartTCPProxy(bindAddr, resolver)
@@ -145,7 +145,7 @@ func elbv2StartListenerProxy(listener ELBv2Listener) error {
 			elbv2LoadBalancerHosts.Release(listener.LoadBalancerArn)
 			return fmt.Errorf("start NLB TCP proxy for listener %s on %s: %w", listenerArn, bindAddr, err)
 		}
-		tcp.Admit = admit
+		tcp.SetAdmit(admit)
 		proxy.address, proxy.closer = tcp.Address, tcp
 	}
 	elbv2ListenerProxies[listenerArn] = proxy

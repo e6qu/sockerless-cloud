@@ -40,7 +40,7 @@ func awsPlatformNetwork(ctx context.Context) (awsWorkloadNetwork, error) {
 		return awsWorkloadNetwork{}, err
 	}
 	name := awsPlatformNetworkName()
-	if _, err := sim.EnsureDockerNetwork(name); err != nil {
+	if _, _, err := sim.EnsurePlatformNetwork(ctx, name, nil); err != nil {
 		return awsWorkloadNetwork{}, err
 	}
 	running, err := sidecars.Ensure(ctx, name, netip.Addr{})

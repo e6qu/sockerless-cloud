@@ -279,3 +279,48 @@ func TestECS_TaskResolvesAPrivateHostedZoneThroughTheVPCResolver(t *testing.T) {
 	assert.Contains(t, logged, "10.250.250.7", "the private zone answers inside its VPC")
 	assert.Contains(t, logged, taskArn, "the task metadata endpoint answers this task")
 }
+
+// ImportImage takes an OCI image reference as a disk container's Url: the
+// task completes with an AMI whose instances boot that image.
+func TestEC2_ImportImageFromAnOCIReferenceBoots(t *testing.T) {
+	t.Parallel()
+	c := ec2Client()
+	imp, err := c.ImportImage(ctx, &ec2.ImportImageInput{
+		Architecture: aws.String("x86_64"),
+		Description:  aws.String("busybox root"),
+		DiskContainers: []types.ImageDiskContainer{{
+			Format: aws.String("RAW"),
+			Url:    aws.String("mirror.gcr.io/library/busybox:latest"),
+		}},
+	})
+	require.NoError(t, err)
+	taskID := aws.ToString(imp.ImportTaskId)
+	var task types.ImportImageTask
+	// EC2 offers no waiter for ImportImage, so the task's own status is read
+	// until it settles.
+	require.Eventually(t, func() bool {
+		out, err := c.DescribeImportImageTasks(ctx, &ec2.DescribeImportImageTasksInput{ImportTaskIds: []string{taskID}})
+		require.NoError(t, err)
+		require.Len(t, out.ImportImageTasks, 1)
+		task = out.ImportImageTasks[0]
+		return aws.ToString(task.Status) == "completed" || aws.ToString(task.Status) == "deleted"
+	}, 2*time.Minute, waiterMinDelay)
+	require.Equal(t, "completed", aws.ToString(task.Status), aws.ToString(task.StatusMessage))
+	amiID := aws.ToString(task.ImageId)
+	t.Cleanup(func() { _, _ = c.DeregisterImage(ctx, &ec2.DeregisterImageInput{ImageId: aws.String(amiID)}) })
+	images, err := c.DescribeImages(ctx, &ec2.DescribeImagesInput{ImageIds: []string{amiID}})
+	require.NoError(t, err)
+	require.Len(t, images.Images, 1)
+	assert.Equal(t, "mirror.gcr.io/library/busybox:latest", aws.ToString(images.Images[0].ImageLocation))
+
+	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.209.0.0/16")})
+	require.NoError(t, err)
+	subnet := createSubnetFor(t, c, vpc.Vpc.VpcId, "10.209.1.0/24")
+	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
+		ImageId: aws.String(amiID), InstanceType: types.InstanceTypeT3Micro,
+		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
+	})
+	require.NoError(t, err)
+	terminateEC2InstancesOnCleanup(t, c, run)
+	waitForEC2InstanceRunning(t, c, aws.ToString(run.Instances[0].InstanceId))
+}

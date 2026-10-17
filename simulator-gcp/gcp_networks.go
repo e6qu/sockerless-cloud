@@ -75,6 +75,16 @@ func (n gcpWorkloadNetwork) done() {
 // from it.
 var gcpNetworkSidecars sync.Map
 
+// gcpNetworkSidecar is the address of the sidecar serving an engine network.
+func gcpNetworkSidecar(network string) (netip.Addr, bool) {
+	v, ok := gcpNetworkSidecars.Load(network)
+	if !ok {
+		return netip.Addr{}, false
+	}
+	addr, ok := v.(netip.Addr)
+	return addr, ok
+}
+
 func gcpEnsureNetworkSidecar(ctx context.Context, network string, address netip.Addr) (netip.Addr, error) {
 	if networkSidecars == nil {
 		return netip.Addr{}, errors.New("the simulator runs no network sidecars: it serves the control planes only")
@@ -109,7 +119,7 @@ func gcpPlatformNetwork(ctx context.Context) (gcpWorkloadNetwork, error) {
 	gcpPlatformNetworkMu.Lock()
 	defer gcpPlatformNetworkMu.Unlock()
 	name := gcpPlatformNetworkName()
-	if _, err := sim.EnsureDockerNetwork(name); err != nil {
+	if _, _, err := sim.EnsurePlatformNetwork(ctx, name, nil); err != nil {
 		return gcpWorkloadNetwork{}, fmt.Errorf("platform network: %w", err)
 	}
 	sidecar, err := gcpEnsureNetworkSidecar(ctx, name, netip.Addr{})

@@ -629,16 +629,3 @@ func registerPrivateDNS(srv *sim.Server) {
 
 	registerPrivateDNSMore(srv, zones, recordSets, vnetLinks)
 }
-
-func dedupeStrings(in []string) []string {
-	seen := make(map[string]bool, len(in))
-	var out []string
-	for _, s := range in {
-		if s == "" || seen[s] {
-			continue
-		}
-		seen[s] = true
-		out = append(out, s)
-	}
-	return out
-}

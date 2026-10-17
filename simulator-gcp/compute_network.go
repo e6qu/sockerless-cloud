@@ -110,7 +110,13 @@ func gcpSubnetworkIPAMLocked(subnetLink string) (*ipam.IPAM, error) {
 		}
 	}
 	if gcpInstances != nil {
-		for _, inst := range gcpInstances.List() {
+		for _, inst := range gcpInstancesBySubnetwork.LookupAll(gcpInstances, subnetLink, func(inst ComputeInstance) []string {
+			keys := make([]string, 0, len(inst.NetworkInterfaces))
+			for _, ni := range inst.NetworkInterfaces {
+				keys = append(keys, ni.Subnetwork)
+			}
+			return keys
+		}) {
 			for _, ni := range inst.NetworkInterfaces {
 				if ni.Subnetwork != subnetLink || ni.NetworkIP == "" {
 					continue
@@ -179,3 +185,5 @@ func gcpReleaseInstanceAddresses(inst ComputeInstance) {
 		}
 	}
 }
+
+var gcpInstancesBySubnetwork sim.GenerationIndex[ComputeInstance]

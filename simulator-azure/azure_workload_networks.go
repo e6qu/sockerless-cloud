@@ -69,7 +69,7 @@ func azureRemoveSidecar(network string) {
 // joins, created with its sidecar on first use.
 func azurePlatformNetwork(ctx context.Context) (azureWorkloadNetwork, error) {
 	name := azurePlatformNetworkName()
-	if _, err := sim.EnsureDockerNetwork(name); err != nil {
+	if _, _, err := sim.EnsurePlatformNetwork(ctx, name, nil); err != nil {
 		return azureWorkloadNetwork{}, fmt.Errorf("platform network: %w", err)
 	}
 	dns, err := azureEnsureSidecar(ctx, name, netip.Addr{})

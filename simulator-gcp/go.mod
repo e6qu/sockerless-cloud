@@ -23,7 +23,9 @@ require (
 	cloud.google.com/go/serviceusage v1.16.0
 	cloud.google.com/go/spanner v1.96.1
 	cloud.google.com/go/vpcaccess v1.15.0
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261016080700-f9c37021b30e
+	github.com/containerd/errdefs v1.0.0
+	github.com/distribution/reference v0.6.0
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261017141604-01e535254284
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261015114713-b9f0cc68a078
 	github.com/hamba/avro/v2 v2.31.0
 	github.com/klauspost/compress v1.20.3
@@ -50,10 +52,8 @@ require (
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/coreos/go-oidc/v3 v3.21.0 // indirect
-	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/go-connections v0.8.2 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect

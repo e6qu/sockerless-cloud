@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"net/http"
 	"sort"
 	"strings"
@@ -200,7 +201,7 @@ func azureAllVNetCIDRs() []string {
 		return []string{"0.0.0.0/0"}
 	}
 	var out []string
-	for _, vnet := range azureVnets.List() {
+	for _, vnet := range azureVNetsAll.LookupAll(azureVnets, "vnet", func(VirtualNetwork) []string { return []string{"vnet"} }) {
 		out = append(out, vnet.Properties.AddressSpace.AddressPrefixes...)
 	}
 	if len(out) == 0 {
@@ -208,3 +209,7 @@ func azureAllVNetCIDRs() []string {
 	}
 	return out
 }
+
+// azureVNetsAll holds every virtual network under one constant key, so the
+// data plane reads the store once per change instead of once per flow.
+var azureVNetsAll sim.GenerationIndex[VirtualNetwork]

@@ -6,7 +6,6 @@ import (
 	"log"
 	"math"
 	"net"
-	"net/netip"
 	"os"
 	"slices"
 	"strconv"
@@ -115,8 +114,7 @@ func cloudDNSCatalog(q dnsserver.Query) dnsserver.View {
 		Names: cloudDNSResponsePolicyAnswer(network, q.Name),
 	}
 	if q.Name == cloudDNSMetadataName {
-		if v, ok := gcpNetworkSidecars.Load(q.Network); ok {
-			sidecar := v.(netip.Addr)
+		if sidecar, ok := gcpNetworkSidecar(q.Network); ok {
 			view.Names = append(view.Names, &dns.A{
 				Hdr: dns.RR_Header{Name: cloudDNSMetadataName, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 0},
 				A:   net.IP(sidecar.AsSlice()),

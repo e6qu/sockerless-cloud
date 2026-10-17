@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -20,14 +21,11 @@ type ProxyTarget func(context.Context) (string, error)
 // resolves, copying bytes both ways until either peer closes.
 type TCPProxy struct {
 	Address string
-	// Admit, when set, decides whether a client may reach the resolved target
-	// at all — what the target's rules allow from this load balancer; a
-	// refused connection closes without a byte.
-	Admit  func(client netip.Addr, target string) error
-	ln     net.Listener
-	target ProxyTarget
-	done   chan struct{}
-	once   sync.Once
+	admit   atomic.Pointer[func(client netip.Addr, target string) error]
+	ln      net.Listener
+	target  ProxyTarget
+	done    chan struct{}
+	once    sync.Once
 
 	// Close tracks the handlers, not only the accept loop: a handler still
 	// resolving its target reads the caller's stores, and a caller that closes
@@ -75,6 +73,14 @@ func ServeTCPProxy(ln net.Listener, target ProxyTarget) (*TCPProxy, error) {
 	}
 	go p.serve()
 	return p, nil
+}
+
+// SetAdmit installs the check that decides whether a client may reach the
+// resolved target at all — what the target's rules allow from this load
+// balancer; a refused connection closes without a byte. It may be set while
+// the proxy serves.
+func (p *TCPProxy) SetAdmit(admit func(client netip.Addr, target string) error) {
+	p.admit.Store(&admit)
 }
 
 // Close stops the proxy and returns once no handler is still running. In-flight
@@ -159,8 +165,8 @@ func (p *TCPProxy) handle(client net.Conn) {
 	if err != nil {
 		return
 	}
-	if admit := p.Admit; admit != nil {
-		if err := admit(clientAddr(client.RemoteAddr().String()), address); err != nil {
+	if admit := p.admit.Load(); admit != nil && *admit != nil {
+		if err := (*admit)(clientAddr(client.RemoteAddr().String()), address); err != nil {
 			return
 		}
 	}

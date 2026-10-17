@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"net/netip"
 	"strings"
 )
@@ -49,10 +50,12 @@ func elbv2TargetSecurityGroups(tg ELBv2TargetGroup, target ELBv2TargetDescriptio
 		}
 		return inst.SecurityGroupIds
 	}
-	for _, eni := range ec2NetworkInterfaces.List() {
-		if eni.PrivateIpAddress != target.ID {
-			continue
-		}
+	if ec2NetworkInterfaces == nil {
+		return nil
+	}
+	for _, eni := range ec2NetworkInterfacesByPrivateIP.LookupAll(ec2NetworkInterfaces, target.ID, func(eni EC2NetworkInterface) []string {
+		return []string{eni.PrivateIpAddress}
+	}) {
 		if tg.VpcID != "" && eni.VpcId != "" && eni.VpcId != tg.VpcID {
 			continue
 		}
@@ -60,6 +63,8 @@ func elbv2TargetSecurityGroups(tg ELBv2TargetGroup, target ELBv2TargetDescriptio
 	}
 	return nil
 }
+
+var ec2NetworkInterfacesByPrivateIP sim.GenerationIndex[EC2NetworkInterface]
 
 // elbv2LoadBalancerSource is how a target's rules see the load balancer. An
 // Application Load Balancer, and a Network Load Balancer with security

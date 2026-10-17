@@ -169,6 +169,7 @@ func TestEC2_MonitorInstances(t *testing.T) {
 	require.NoError(t, err)
 	terminateEC2InstancesOnCleanup(t, c, run)
 	instID := aws.ToString(run.Instances[0].InstanceId)
+	waitForEC2InstanceRunning(t, c, instID)
 
 	mon, err := c.MonitorInstances(ctx, &ec2.MonitorInstancesInput{InstanceIds: []string{instID}})
 	require.NoError(t, err)

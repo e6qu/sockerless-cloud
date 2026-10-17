@@ -855,123 +855,6 @@ func bindHasRelabelOption(options string) bool {
 	return false
 }
 
-// HTTPContainerConfig describes a container that exposes an HTTP listener on
-// its $PORT (default 8080), to be invoked over HTTP from the host. The
-// function-as-a-service slices use it where the function image's ENTRYPOINT
-// serves HTTP and the platform POSTs requests to it.
-type HTTPContainerConfig struct {
-	Image        string            // overlay image (must be locally available)
-	Architecture string            // OS/arch (e.g. "linux/arm64"); workload's spec — never derived from host
-	Command      []string          // entrypoint override (empty = use image default)
-	Args         []string          // command override (empty = use image default)
-	Env          map[string]string // env vars
-	Name         string            // container name (optional, auto-generated if empty)
-	Labels       map[string]string // container labels for tracking
-	Binds        []string          // bind mounts (e.g., "vol:/path")
-	ExtraHosts   []string          // --add-host entries (e.g., "host.docker.internal:host-gateway")
-	// PublishPorts are the container ports the workload serves on, each
-	// published on a 127.0.0.1 port the engine allocates, so a host that
-	// routes no container address reaches them; at least one is required.
-	PublishPorts []int
-	Sandbox      SandboxProfile
-}
-
-// StartHTTPContainer starts a container detached, with each of its
-// PublishPorts published on a 127.0.0.1 port the engine allocates (read it
-// back with PublishedHostPort), and returns the container ID;
-// the caller stops and removes it with StopAndRemoveContainer. The image must
-// already be present in the local engine — the simulator runs entirely on
-// local images, so an absent one surfaces as a real "image not present" error
-// instead of hanging on registry-pull retries.
-func StartHTTPContainer(ctx context.Context, cfg HTTPContainerConfig) (string, error) {
-	cli := DockerClient()
-	if err := RequireContainerRuntime("starting an HTTP container"); err != nil {
-		return "", err
-	}
-
-	// Resolve to the image ID for ContainerCreate: Podman's docker-compat API
-	// resolves a short name on inspect but not on create, so a locally-built
-	// "name:tag" inspects fine yet create reports "no such image". The ID is
-	// unambiguous on both Docker and Podman.
-	inspect, err := cli.ImageInspect(ctx, cfg.Image)
-	if err != nil {
-		return "", fmt.Errorf("image %q not present locally: %w", cfg.Image, err)
-	}
-	imageRef := cfg.Image
-	if inspect.ID != "" {
-		imageRef = inspect.ID
-	}
-
-	var env []string
-	for k, v := range cfg.Env {
-		env = append(env, k+"="+v)
-	}
-
-	labels := simulatorLabels(nil)
-	for k, v := range cfg.Labels {
-		labels[k] = v
-	}
-
-	if len(cfg.PublishPorts) == 0 {
-		return "", errors.New("an HTTP container needs at least one port to publish")
-	}
-	exposed := network.PortSet{}
-	bindings := network.PortMap{}
-	for _, containerPort := range cfg.PublishPorts {
-		port, err := network.ParsePort(strconv.Itoa(containerPort) + "/tcp")
-		if err != nil {
-			return "", fmt.Errorf("container port %d: %w", containerPort, err)
-		}
-		exposed[port] = struct{}{}
-		bindings[port] = []network.PortBinding{{HostIP: netip.MustParseAddr("127.0.0.1")}}
-	}
-	containerCfg := &container.Config{
-		Image:        imageRef,
-		Env:          env,
-		Labels:       labels,
-		ExposedPorts: exposed,
-	}
-	if len(cfg.Command) > 0 {
-		containerCfg.Entrypoint = cfg.Command
-	}
-	if len(cfg.Args) > 0 {
-		containerCfg.Cmd = cfg.Args
-	}
-	hostCfg := &container.HostConfig{
-		PortBindings: bindings,
-		Binds:        selinuxRelabelBinds(cfg.Binds),
-		ExtraHosts:   cfg.ExtraHosts,
-	}
-	if err := cfg.Sandbox.Apply(hostCfg, containerCfg); err != nil {
-		return "", fmt.Errorf("sandbox enforce: %w", err)
-	}
-
-	if err := ensureBindVolumes(ctx, cli, cfg.Binds); err != nil {
-		return "", err
-	}
-	platform, err := parsePlatform(cfg.Architecture)
-	if err != nil {
-		return "", err
-	}
-	resp, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config:     containerCfg,
-		HostConfig: hostCfg,
-		Platform:   platform,
-		Name:       cfg.Name,
-	})
-	if err != nil {
-		return "", fmt.Errorf("container create: %w", err)
-	}
-
-	if _, err := cli.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
-		_, _ = cli.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
-		return "", fmt.Errorf("container start: %w", err)
-	}
-
-	managedContainers.Store(resp.ID, true)
-	return resp.ID, nil
-}
-
 // StopAndRemoveContainer stops and removes the container, giving its process
 // the grace the cloud grants between SIGTERM and SIGKILL. It is idempotent
 // cleanup that callers defer, so there is nothing useful to report.
@@ -1051,43 +934,6 @@ func ContainerRunning(id string) bool {
 		return false
 	}
 	return insp.Container.State.Running
-}
-
-// FindContainerByIP returns the name of the simulator-managed container whose
-// bridge or default-network address is ip, or "" when none has it. A private
-// DNS zone slice uses it to attach the container an A record names to the
-// zone's network with the record name as its alias.
-func FindContainerByIP(ip string) string {
-	if dockerClient == nil || ip == "" {
-		return ""
-	}
-	addr, err := netip.ParseAddr(ip)
-	if err != nil {
-		return ""
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	list, err := dockerClient.ContainerList(ctx, client.ContainerListOptions{
-		Filters: client.Filters{}.Add("label", "sockerless-sim=true"),
-	})
-	if err != nil {
-		return ""
-	}
-	for _, c := range list.Items {
-		insp, err := dockerClient.ContainerInspect(ctx, c.ID, client.ContainerInspectOptions{})
-		if err != nil || insp.Container.NetworkSettings == nil {
-			continue
-		}
-		for _, ep := range insp.Container.NetworkSettings.Networks {
-			if ep != nil && ep.IPAddress == addr {
-				if len(c.Names) > 0 {
-					return strings.TrimPrefix(c.Names[0], "/")
-				}
-				return c.ID
-			}
-		}
-	}
-	return ""
 }
 
 // PullImage makes the simulator runtime's bounded, stream-aware pull path
@@ -1765,19 +1611,6 @@ func ConnectContainerToNetwork(containerName, networkName string, aliases []stri
 			Aliases: aliases,
 		},
 	})
-	return err
-}
-
-// DisconnectContainerFromNetwork removes a running container from a
-// Docker network. Idempotent for already-disconnected containers.
-func DisconnectContainerFromNetwork(containerName, networkName string) error {
-	cli := DockerClient()
-	if cli == nil {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	_, err := cli.NetworkDisconnect(ctx, networkName, client.NetworkDisconnectOptions{Container: containerName, Force: true})
 	return err
 }
 

@@ -6,9 +6,8 @@ require (
 	github.com/HugoSmits86/nativewebp v1.3.0
 	github.com/PaesslerAG/jsonpath v0.1.1
 	github.com/beevik/etree v1.8.1
-	github.com/containerd/errdefs v1.0.0
 	github.com/coreos/go-oidc/v3 v3.21.0
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261016080700-f9c37021b30e
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261017141604-01e535254284
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261015114713-b9f0cc68a078
 	github.com/fxamacker/cbor/v2 v2.9.6
 	github.com/go-git/go-git/v5 v5.19.3
@@ -35,6 +34,7 @@ require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudflare/circl v1.6.5 // indirect
+	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/cyphar/filepath-securejoin v0.7.0 // indirect
 	github.com/distribution/reference v0.6.0 // indirect

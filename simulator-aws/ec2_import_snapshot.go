@@ -58,6 +58,10 @@ func ec2ImportSource(r *http.Request, prefix string) (bucket, key, rawURL string
 		return "", "", "", fmt.Errorf("invalid disk container Url %q", rawURL)
 	}
 	switch {
+	case ec2IsOCIReference(rawURL):
+		// The simulator takes an OCI image reference as the disk's Url: the
+		// root filesystem the imported AMI's instances boot.
+		return "", "", rawURL, nil
 	case u.Scheme == "s3":
 		return u.Host, strings.TrimPrefix(u.Path, "/"), rawURL, nil
 	case u.Scheme == "https" && strings.HasPrefix(u.Host, "s3.") && strings.HasSuffix(u.Host, ".amazonaws.com"):
@@ -67,6 +71,21 @@ func ec2ImportSource(r *http.Request, prefix string) (bucket, key, rawURL string
 		return u.Host[:strings.Index(u.Host, ".s3.")], strings.TrimPrefix(u.Path, "/"), rawURL, nil
 	}
 	return "", "", "", fmt.Errorf("the disk container Url %q is not an Amazon S3 URL", rawURL)
+}
+
+// ec2IsOCIReference reports whether a disk container's Url names an OCI
+// image rather than an Amazon S3 object: a registry host or repository path
+// with a tag or digest and no URL scheme.
+func ec2IsOCIReference(raw string) bool {
+	if strings.Contains(raw, "://") || strings.ContainsAny(raw, " \t") {
+		return false
+	}
+	repo := raw
+	if i := strings.Index(repo, "@sha256:"); i >= 0 {
+		repo = repo[:i]
+	}
+	last := repo[strings.LastIndex(repo, "/")+1:]
+	return strings.Contains(raw, "/") && (strings.Contains(last, ":") || strings.Contains(raw, "@sha256:"))
 }
 
 func handleImportSnapshot(w http.ResponseWriter, r *http.Request) {
@@ -110,6 +129,11 @@ func handleImportSnapshot(w http.ResponseWriter, r *http.Request) {
 // request's RoleName or else vmimport, can read the disk image, and writes the
 // error EC2 returns when it cannot.
 func ec2VMImportRoleCanRead(w http.ResponseWriter, r *http.Request, bucket, key string) bool {
+	if bucket == "" {
+		// An OCI image reference is read from its registry, not from a bucket
+		// the vmimport role must reach.
+		return true
+	}
 	roleName := ec2Default(r.FormValue("RoleName"), "vmimport")
 	roleARN := fmt.Sprintf("arn:aws:iam::%s:role/%s", awsAccountID(), roleName)
 	if iamValidateServiceRole(roleARN, "vmie.amazonaws.com", map[string]string{

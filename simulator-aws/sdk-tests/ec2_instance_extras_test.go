@@ -1,6 +1,7 @@
 package aws_sdk_test
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 	"time"
@@ -196,14 +197,17 @@ func TestEC2_InstancePlacement(t *testing.T) {
 func TestEC2_ConsoleOutput(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
-	instID := launchInstanceFor(t, c, "10.194.0.0/16")
-	waitForEC2InstanceRunning(t, c, instID)
+	// The console carries what the machine writes to it, so the instance's
+	// user data writes a line.
+	instID := ec2UserDataInstance(t, c, "10.194.0.0/16", "#!/bin/sh\necho console-ready\n")
 
 	con, err := c.GetConsoleOutput(ctx, &ec2.GetConsoleOutputInput{InstanceId: aws.String(instID)})
 	require.NoError(t, err)
 	assert.Equal(t, instID, aws.ToString(con.InstanceId))
 	require.NotNil(t, con.Output)
-	assert.NotEmpty(t, aws.ToString(con.Output))
+	decoded, err := base64.StdEncoding.DecodeString(aws.ToString(con.Output))
+	require.NoError(t, err)
+	assert.Contains(t, string(decoded), "console-ready")
 
 	shot, err := c.GetConsoleScreenshot(ctx, &ec2.GetConsoleScreenshotInput{InstanceId: aws.String(instID)})
 	require.NoError(t, err)

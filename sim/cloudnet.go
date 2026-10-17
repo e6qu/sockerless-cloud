@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -94,6 +95,51 @@ func EnsureCloudNetwork(ctx context.Context, spec CloudNetwork) (string, error) 
 	return "", fmt.Errorf("cloud network create %s (%s): %w: %w", spec.Name, spec.CIDR, ErrAddressRangeInUse, err)
 }
 
+// platformRange is where platform networks take their ranges from: the
+// shared address space of RFC 6598, which no cloud hands a customer resource,
+// so a platform network never collides with a cloud network's CIDR.
+var platformRange = netip.MustParsePrefix("100.64.0.0/10")
+
+// EnsurePlatformNetwork creates the engine network the workloads on no cloud
+// network join, or returns the one its name already holds, and reports its
+// IPv4 range. The network takes a /24 of the shared address space chosen by
+// its name, moving to the next /24 while a live network holds the chosen
+// one, so two simulators on one engine each get their own.
+func EnsurePlatformNetwork(ctx context.Context, name string, labels map[string]string) (string, netip.Prefix, error) {
+	if err := RequireContainerRuntime("creating the platform network"); err != nil {
+		return "", netip.Prefix{}, err
+	}
+	cli := DockerClient()
+	inspectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if existing, err := cli.NetworkInspect(inspectCtx, name, client.NetworkInspectOptions{}); err == nil {
+		for _, cfg := range existing.Network.IPAM.Config {
+			if cfg.Subnet.IsValid() && cfg.Subnet.Addr().Is4() {
+				return existing.Network.ID, cfg.Subnet, nil
+			}
+		}
+		return "", netip.Prefix{}, fmt.Errorf("platform network %s has no IPv4 range", name)
+	}
+	const slots = 1 << 14 // /24s in a /10
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(name))
+	first := int(h.Sum32() % slots)
+	base := platformRange.Addr().As4()
+	for i := range slots {
+		slot := (first + i) % slots
+		addr := netip.AddrFrom4([4]byte{base[0], base[1] | byte(slot>>8), byte(slot), 0})
+		cidr := netip.PrefixFrom(addr, 24)
+		id, err := EnsureCloudNetwork(ctx, CloudNetwork{Name: name, CIDR: cidr, Labels: labels})
+		if err == nil {
+			return id, cidr, nil
+		}
+		if !errors.Is(err, ErrAddressRangeInUse) {
+			return "", netip.Prefix{}, err
+		}
+	}
+	return "", netip.Prefix{}, fmt.Errorf("platform network %s: every /24 of %s is held by a live network", name, platformRange)
+}
+
 // addressRangeInUseError classifies a network-create failure as "this range
 // is taken": netavark reports "subnet … is already used on the host or by
 // another config", Docker "Pool overlaps with other one on this address
@@ -126,7 +172,7 @@ func reclaimOrphanedRange(ctx context.Context, cli *client.Client, cidr netip.Pr
 	}
 	reclaimed := false
 	for _, n := range nets.Items {
-		if n.Labels["sockerless-sim-run"] == simulatorRunID || !ownerIsDead(n.Labels) {
+		if (simulatorRunID != "" && n.Labels["sockerless-sim-run"] == simulatorRunID) || !ownerIsDead(n.Labels) {
 			continue
 		}
 		details, err := cli.NetworkInspect(ctx, n.ID, client.NetworkInspectOptions{})

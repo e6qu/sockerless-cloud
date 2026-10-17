@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -235,17 +236,13 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 			sub, rg, envName)
 
 		// An environment on a virtual network's infrastructure subnet joins
-		// that network's engine network, created when its first workload
-		// attaches; any other environment is a networking domain of its own,
-		// which matches ACA's managed-VNet model.
-		dockerNetName := ""
+		// that network's engine network; any other environment is a
+		// networking domain of its own, which matches ACA's managed-VNet
+		// model. Either network is created when the environment's first
+		// workload attaches.
+		dockerNetName := acaEnvironmentNetworkName(resourceID)
 		if vnet, ok := acaInfrastructureVNet(req.Properties); ok {
 			dockerNetName = dockerNetForVNet(vnet.ID)
-		} else {
-			dockerNetName = "sim-env-" + envName
-			if _, err := sim.EnsureDockerNetwork(dockerNetName); err != nil {
-				dockerNetName = ""
-			}
 		}
 
 		env := ContainerAppEnvironment{
@@ -867,6 +864,14 @@ func acaInfrastructureVNet(props EnvProperties) (VirtualNetwork, bool) {
 	return azureVnets.Get(azureVNetIDOfSubnet(subnetID))
 }
 
+// acaEnvironmentNetworkName names the engine network of an environment on no
+// virtual network: the environment's name for the operator and a digest of
+// its resource id, so two environments of one name are two networks.
+func acaEnvironmentNetworkName(envID string) string {
+	sum := sha256.Sum256([]byte(strings.ToLower(envID)))
+	return "sim-env-" + strings.ToLower(envID[strings.LastIndex(envID, "/")+1:]) + "-" + hex.EncodeToString(sum[:4])
+}
+
 // acaEnvironmentVNetID is the virtual network whose engine network the
 // environment joined, or "" for an environment on a network of its own.
 func acaEnvironmentVNetID(env ContainerAppEnvironment) string {
@@ -889,6 +894,9 @@ func acaEnvironmentNetwork(ctx context.Context, env ContainerAppEnvironment) (az
 	}
 	if env.DockerNetworkName == "" {
 		return azureWorkloadNetwork{}, "", fmt.Errorf("managed environment %s has no network", env.ID)
+	}
+	if _, _, err := sim.EnsurePlatformNetwork(ctx, env.DockerNetworkName, nil); err != nil {
+		return azureWorkloadNetwork{}, "", fmt.Errorf("managed environment %s: %w", env.ID, err)
 	}
 	dns, err := azureEnsureSidecar(ctx, env.DockerNetworkName, netip.Addr{})
 	if err != nil {

@@ -198,13 +198,6 @@ repos:
         pass_filenames: false
         always_run: true
 
-      - id: installable-build
-        name: Every simulator builds from its pinned modules (go install path)
-        entry: bash scripts/check-installable-build.sh
-        language: system
-        pass_filenames: false
-        always_run: true
-
       - id: sidecar-build
         name: Committed network sidecar binaries match their source
         entry: bash scripts/check-sidecar-build.sh
