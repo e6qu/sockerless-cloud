@@ -3127,4 +3127,3 @@ Security groups, network security groups and firewall rules are enforced on
 the flows the simulator mediates through `lbplane`'s `Admit` hooks; traffic
 between two containers on one network is not filtered, and that gap closes
 only on the microVM backend, where the agent filters at the tap.
-

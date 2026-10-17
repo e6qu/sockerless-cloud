@@ -1635,7 +1635,7 @@ jobs:
     # The node agent's proof: the one job that needs /dev/kvm. It builds the
     # agent image on the runner's engine, which downloads Firecracker and the
     # guest kernel at their pinned digests, and boots a guest from an OCI image.
-    name: node-agent (microVM arithmetic)
+    name: firecracker (microVM arithmetic)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

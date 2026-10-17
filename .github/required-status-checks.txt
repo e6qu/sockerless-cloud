@@ -27,7 +27,7 @@ build-gates
 check-deps (deps + actions + scripts)
 lint (simulators)
 lint (support)
-node-agent (microVM arithmetic)
+firecracker (microVM arithmetic)
 sim (aws cli appdata)
 sim (aws cli appdata2)
 sim (aws cli appdata3)
