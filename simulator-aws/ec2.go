@@ -5174,6 +5174,13 @@ func handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidSnapshot.NotFound", fmt.Sprintf("The snapshot %q does not exist", snapID), http.StatusBadRequest)
 		return
 	}
+	if images := ec2ImagesBySnapshot.LookupAll(ec2Images, snapID, func(img EC2Image) []string {
+		return []string{img.SnapshotId}
+	}); len(images) > 0 {
+		ec2ErrorXML(w, "InvalidSnapshot.InUse",
+			fmt.Sprintf("The snapshot %s is currently in use by %s", snapID, images[0].ImageId), http.StatusBadRequest)
+		return
+	}
 	ec2Snapshots.Delete(snapID)
 	if snap.DockerVolumeName != "" {
 		ebsRemoveDockerVolume(snap.DockerVolumeName)

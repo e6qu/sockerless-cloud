@@ -167,6 +167,13 @@ own module:
 
 ## Fidelity rules that came from bugs
 
+A long-running control-plane call answers with the state it set, not the
+state its work has since reached: S3 Control's UpdateJobStatus answers Ready
+while the job it started runs on, and a caller that wants the end state polls
+for it. A capture is a resource of its own: CreateImage records the EBS
+snapshot its block device mapping names, DescribeSnapshots lists it,
+DeleteSnapshot refuses it while an image maps it, and it outlives the image.
+
 - **An integration's configuration follows the model's rules.** AWS Glue takes
   `IntegrationConfig.TargetNamespace` only for an Amazon S3 Tables table bucket
   target, holds it to the namespace pattern without the reserved `aws` prefix,

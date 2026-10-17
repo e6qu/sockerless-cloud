@@ -164,6 +164,22 @@ func handleCreateImage(w http.ResponseWriter, r *http.Request) {
 		EnaSupport:         true,
 	}
 	ec2Images.Put(img.ImageId, img)
+	// The capture is an EBS snapshot of the root volume, as it is on EC2: the
+	// image's block device mapping names it, DescribeSnapshots lists it, and
+	// it outlives the image until DeleteSnapshot, which refuses it while an
+	// image still maps it.
+	now := time.Now().UTC()
+	ec2Snapshots.Put(img.SnapshotId, EC2Snapshot{
+		SnapshotId:    img.SnapshotId,
+		VolumeId:      "vol-" + strings.TrimPrefix(instanceID, "i-"),
+		VolumeSize:    size,
+		State:         "pending",
+		StartTime:     now.Format(time.RFC3339),
+		CompletionDue: now.Add(ec2SnapshotCaptureNotBefore).Format(time.RFC3339Nano),
+		Progress:      "0%",
+		Description:   fmt.Sprintf("Created by CreateImage(%s) for %s", instanceID, img.ImageId),
+		OwnerId:       ec2Owner(),
+	})
 	// The image is pending while the instance's root disk is captured and
 	// available once the capture holds it.
 	bg.Go(func() { ec2CaptureImage(img.ImageId, instanceID) })
@@ -198,7 +214,9 @@ func ec2CaptureImage(imageID, instanceID string) {
 	defer cancel()
 	reference := ec2CapturedImageReference(imageID)
 	err := ec2CommitWorkload(ctx, instanceID, reference)
+	var snapshotID string
 	ec2Images.Update(imageID, func(img *EC2Image) {
+		snapshotID = img.SnapshotId
 		if err != nil {
 			img.State = "failed"
 			img.Description = strings.TrimSpace(img.Description + " (" + err.Error() + ")")
@@ -207,7 +225,18 @@ func ec2CaptureImage(imageID, instanceID string) {
 		img.State = "available"
 		img.ImageLocation = reference
 	})
+	ec2Snapshots.Update(snapshotID, func(snap *EC2Snapshot) {
+		if err != nil {
+			snap.State = "error"
+			return
+		}
+		snap.State, snap.Progress = "completed", "100%"
+	})
 }
+
+// ec2ImagesBySnapshot answers DeleteSnapshot's question of which image still
+// maps a snapshot.
+var ec2ImagesBySnapshot sim.GenerationIndex[EC2Image]
 
 // handleRegisterImage registers an AMI from a manifest / block device mapping.
 func handleRegisterImage(w http.ResponseWriter, r *http.Request) {

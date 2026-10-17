@@ -824,10 +824,13 @@ func handleS3UpdateJobStatus(w http.ResponseWriter, r *http.Request) {
 	// Confirming moves a job awaiting confirmation to Ready and starts it.
 	// Cancelling a job that is not running ends it at once; a running one
 	// stops between tasks, which its worker does on seeing Cancelling.
-	var current string
+	// The response carries the status this call set, as S3 Control answers
+	// it; the job the call starts moves on from Ready on its own.
+	var current, set string
 	moved := false
 	s3BatchJobs.Update(key, func(j *S3BatchJob) {
 		current = j.Status
+		defer func() { set = j.Status }()
 		switch {
 		case requested == s3BatchJobReady && j.Status == s3BatchJobSuspended:
 			j.Status = s3BatchJobReady
@@ -850,13 +853,12 @@ func handleS3UpdateJobStatus(w http.ResponseWriter, r *http.Request) {
 	if requested == s3BatchJobReady {
 		s3ScheduleBatchJob(account, jobID)
 	}
-	updated, _ := s3BatchJobs.Get(s3AccessPointKey(account, jobID))
 	WriteXML(w, http.StatusOK, struct {
 		XMLName            xml.Name `xml:"UpdateJobStatusResult"`
 		JobID              string   `xml:"JobId"`
 		Status             string   `xml:"Status"`
 		StatusUpdateReason string   `xml:"StatusUpdateReason,omitempty"`
-	}{JobID: jobID, Status: updated.Status, StatusUpdateReason: reason})
+	}{JobID: jobID, Status: set, StatusUpdateReason: reason})
 }
 
 func handleS3PutJobTagging(w http.ResponseWriter, r *http.Request) {

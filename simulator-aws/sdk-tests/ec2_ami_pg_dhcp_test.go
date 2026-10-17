@@ -1,6 +1,7 @@
 package aws_sdk_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -61,6 +62,19 @@ func TestEC2_AMILifecycleSDK(t *testing.T) {
 	require.Len(t, got.BlockDeviceMappings, 1, "CreateImage records the backing snapshot")
 	require.NotNil(t, got.BlockDeviceMappings[0].Ebs)
 	assert.NotEmpty(t, aws.ToString(got.BlockDeviceMappings[0].Ebs.SnapshotId))
+	// The capture is an EBS snapshot the account owns: listed, described as
+	// CreateImage describes it, and refused to DeleteSnapshot while the image
+	// maps it.
+	snapshotID := aws.ToString(got.BlockDeviceMappings[0].Ebs.SnapshotId)
+	snapshots, err := c.DescribeSnapshots(ctx, &ec2.DescribeSnapshotsInput{SnapshotIds: []string{snapshotID}})
+	require.NoError(t, err)
+	require.Len(t, snapshots.Snapshots, 1)
+	assert.Equal(t, types.SnapshotStateCompleted, snapshots.Snapshots[0].State)
+	assert.Equal(t, fmt.Sprintf("Created by CreateImage(%s) for %s", aws.ToString(run.Instances[0].InstanceId), amiID),
+		aws.ToString(snapshots.Snapshots[0].Description))
+	_, err = c.DeleteSnapshot(ctx, &ec2.DeleteSnapshotInput{SnapshotId: aws.String(snapshotID)})
+	require.Error(t, err, "a snapshot an image maps cannot be deleted")
+	assert.Contains(t, err.Error(), "InvalidSnapshot.InUse")
 	assert.Equal(t, aws.ToString(run.Instances[0].InstanceId), aws.ToString(got.SourceInstanceId))
 
 	// Filter by name + tag must scope to the registered AMI.
@@ -112,6 +126,9 @@ func TestEC2_AMILifecycleSDK(t *testing.T) {
 	// deletion the store-faithful way: a second deregister now reports NotFound.)
 	_, err = c.DeregisterImage(ctx, &ec2.DeregisterImageInput{ImageId: aws.String(amiID)})
 	require.NoError(t, err)
+	// With the image gone its snapshot is the account's to delete.
+	_, err = c.DeleteSnapshot(ctx, &ec2.DeleteSnapshotInput{SnapshotId: aws.String(snapshotID)})
+	require.NoError(t, err, "the snapshot outlives the image until it is deleted")
 	_, err = c.DeregisterImage(ctx, &ec2.DeregisterImageInput{ImageId: aws.String(amiID)})
 	require.Error(t, err, "deregistering an already-removed AMI must fail")
 }
