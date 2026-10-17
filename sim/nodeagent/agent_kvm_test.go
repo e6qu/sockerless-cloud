@@ -19,7 +19,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
-const guestImage = "mirror.gcr.io/library/golang:1.26.3-alpine@sha256:f44b851aa23dfa219d18db6eab743203245429d355cb619cf96a2ffe2a84ba7a"
+const guestImage = "mirror.gcr.io/library/golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d"
 
 // The agent's proof, on a host with /dev/kvm: the agent starts as a container
 // on an engine network, a guest built from an OCI image boots on that network,

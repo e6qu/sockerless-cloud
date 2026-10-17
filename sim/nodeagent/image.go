@@ -30,8 +30,8 @@ var sources embed.FS
 const (
 	firecrackerVersion = "v1.15.1"
 	kernelVersion      = "6.1.155"
-	goImage            = "mirror.gcr.io/library/golang:1.26.3-alpine@sha256:f44b851aa23dfa219d18db6eab743203245429d355cb619cf96a2ffe2a84ba7a"
-	runtimeImage       = "mirror.gcr.io/library/ubuntu:24.04@sha256:a2d43bffc46670d7108bb3c0468c67c5557c4c92e83e1e34cbff1322ad1b94dc"
+	goImage            = "mirror.gcr.io/library/golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d"
+	runtimeImage       = "mirror.gcr.io/library/ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac"
 )
 
 // The release archives and CI kernels Firecracker publishes, by architecture.

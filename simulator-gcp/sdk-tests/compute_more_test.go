@@ -414,7 +414,7 @@ func TestCompute_Operations_ListDelete(t *testing.T) {
 	regionOp, err := svc.RegionDisks.Insert(moreProject, region, &compute.Disk{Name: "op-scope-rdisk", SizeGb: 10}).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = svc.RegionDisks.Delete(moreProject, region, "op-scope-rdisk").Do() })
-	globalOp, err := svc.Images.Insert(moreProject, &compute.Image{Name: "op-scope-image", SourceType: "RAW"}).Do()
+	globalOp, err := svc.Images.Insert(moreProject, &compute.Image{Name: "op-scope-image", SourceType: "RAW", SourceImage: "projects/debian-cloud/global/images/family/debian-12"}).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = svc.Images.Delete(moreProject, "op-scope-image").Do() })
 

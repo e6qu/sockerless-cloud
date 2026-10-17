@@ -24,13 +24,13 @@ type azureMarketplaceImage struct {
 
 var azureMarketplaceImages = []azureMarketplaceImage{
 	{Publisher: "Canonical", Offer: "ubuntu-24_04-lts", SKU: "server", Version: "24.04.202510170",
-		Image: vminstance.Image{OCI: "mirror.gcr.io/library/ubuntu:24.04@sha256:a2d43bffc46670d7108bb3c0468c67c5557c4c92e83e1e34cbff1322ad1b94dc", Architecture: "linux/amd64"}},
+		Image: vminstance.Image{OCI: "mirror.gcr.io/library/ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac", Architecture: "linux/amd64"}},
 	{Publisher: "Canonical", Offer: "ubuntu-24_04-lts", SKU: "server-arm64", Version: "24.04.202510170",
-		Image: vminstance.Image{OCI: "mirror.gcr.io/library/ubuntu:24.04@sha256:18b33ff3829707f31ada654a963b9ee35f2e6f0241b964bd17a22a9b330cb63d", Architecture: "linux/arm64"}},
+		Image: vminstance.Image{OCI: "mirror.gcr.io/library/ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac", Architecture: "linux/arm64"}},
 	{Publisher: "Debian", Offer: "debian-12", SKU: "12", Version: "0.20251017.2318",
-		Image: vminstance.Image{OCI: "mirror.gcr.io/library/debian:12@sha256:bc49dc1918ee1a47a93e65b5e4676e8680fb754b133197b92ca52bfe6731d5f0", Architecture: "linux/amd64"}},
+		Image: vminstance.Image{OCI: "mirror.gcr.io/library/debian:12@sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858", Architecture: "linux/amd64"}},
 	{Publisher: "Debian", Offer: "debian-12", SKU: "12-arm64", Version: "0.20251017.2318",
-		Image: vminstance.Image{OCI: "mirror.gcr.io/library/debian:12@sha256:1d15be465c9ea7b37b464055c5de38319523de9d3f070fcc76c0d0230ebe9669", Architecture: "linux/arm64"}},
+		Image: vminstance.Image{OCI: "mirror.gcr.io/library/debian:12@sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858", Architecture: "linux/arm64"}},
 }
 
 // azureMarketplaceImageFor resolves an imageReference's publisher, offer, SKU

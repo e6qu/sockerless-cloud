@@ -6,5 +6,5 @@ set -euo pipefail
 cd "$(dirname "$0")"
 for arch in amd64 arm64; do
 	GOTOOLCHAIN=go1.26.3 CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
-		go build -trimpath -ldflags='-s -w -buildid=' -o "bin/sidecar-linux-$arch" ./cmd/sidecar
+		go build -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o "bin/sidecar-linux-$arch" ./cmd/sidecar
 done

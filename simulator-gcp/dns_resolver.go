@@ -80,6 +80,11 @@ func startCloudDNSServer() (*dnsserver.Server, error) {
 		return nil, err
 	}
 	cloudDNS = srv
+	// An API-only simulator places no workload, so it runs no sidecar and
+	// needs no callback address, which only a container engine can give.
+	if sim.RequireContainerRuntime("starting network sidecars") != nil {
+		return srv, nil
+	}
 	origin, err := workloadhost.CallbackAddr(simListenAddr)
 	if err != nil {
 		_ = srv.Close()

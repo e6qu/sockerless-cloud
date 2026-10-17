@@ -143,12 +143,16 @@ func startAzureDNSFromEnv() ([]*dnsserver.Server, error) {
 		return nil, err
 	}
 	azureDNS = vnetSrv
-	origin, err := workloadhost.CallbackAddr(simListenAddr)
-	if err != nil {
-		_ = vnetSrv.Close()
-		return nil, fmt.Errorf("workload callback: %w", err)
+	// An API-only simulator places no workload, so it runs no sidecar and
+	// needs no callback address, which only a container engine can give.
+	if sim.RequireContainerRuntime("starting network sidecars") == nil {
+		origin, err := workloadhost.CallbackAddr(simListenAddr)
+		if err != nil {
+			_ = vnetSrv.Close()
+			return nil, fmt.Errorf("workload callback: %w", err)
+		}
+		networkSidecars = sidecar.NewManager(azureDNS, "http://"+origin, sim.NoopSink{})
 	}
-	networkSidecars = sidecar.NewManager(azureDNS, "http://"+origin, sim.NoopSink{})
 	servers := []*dnsserver.Server{vnetSrv}
 	if cfg.ListenAddr == "" {
 		return servers, nil

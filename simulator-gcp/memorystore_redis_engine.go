@@ -565,7 +565,7 @@ func (p *msRedisPlane) startNodes(nodes []int) error {
 	if len(nodes) == 0 {
 		return nil
 	}
-	if _, err := sim.EnsureDockerNetwork(msRedisNetworkName()); err != nil {
+	if _, _, err := sim.EnsurePlatformNetwork(context.Background(), msRedisNetworkName(), nil); err != nil {
 		return fmt.Errorf("start the Redis engine: %w", err)
 	}
 	sidecar, err := gcpEnsureNetworkSidecar(context.Background(), msRedisNetworkName(), netip.Addr{})

@@ -315,9 +315,7 @@ func computeGlobalLink(project, collection, name string) string {
 }
 
 func computeGlobalOp(project, target, opType string) map[string]any {
-	op := newComputeOp(project, "global", target)
-	op["operationType"] = opType
-	return op
+	return newComputeOpWithType(project, "global", target, opType)
 }
 
 func computeWriteGlobalResource[T computeNamedResource](w http.ResponseWriter, r *http.Request, store sim.Store[T], collection, label string) {
