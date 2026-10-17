@@ -74,7 +74,7 @@ func TestSDK_Compute_UsageCountsWhatIsHeld(t *testing.T) {
 
 	const rg, location = "compute-usage-rg", "eastus"
 	ensureRG(t, rg)
-	nicID := vmOperationsFixture(t, rg, "usage-vm", "10.94")
+	nicID := vmOperationsFixture(t, rg, "usage-vm", "10.94.0.0/16")
 
 	usageClient, err := armcompute.NewUsageClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)

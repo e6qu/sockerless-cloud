@@ -76,6 +76,8 @@ There is no "just land it and add tests later." If you edit a simulator, the tes
 
 A client talking to a simulator must use the **same code and the same identifiers** it uses against the real cloud, differing **only in coordinates** — the endpoint URL(s) and credentials. **Never** add an `if sim` branch, a sim-only env var, or any sim-aware behaviour to test code. Such a special case is a *fake test*: it proves the sim-special path works, not that the real client path does.
 
+A test that places a workload on a cloud network (an instance, a task, a function in a VPC, a machine in a virtual network, a Cloud Run service with VPC access) names a private range no other placing test of its suite overlaps. The suite's tests share one container engine, and two live engine networks over one range cannot coexist on it; the cloud's own leniency about reused ranges does not reach the engine. `scripts/check-test-network-ranges.go` holds every suite to this and renumbers with `-fix`; a fixture that places takes its range from its caller or counts out its own, never a literal shared by every caller.
+
 ### A simulator console UI differs from a real-cloud console ONLY in coordinates
 
 The console SPAs (`ui/packages/simulator-*`) read **only real cloud APIs** at a configured base URL, and federate operator credentials through the **cloud's own federation primitive** (Google Cloud Workforce Identity Federation, AWS `AssumeRoleWithWebIdentity`, Microsoft Entra). No `if sim` branch, no sim-only data-plane endpoint, no fallback. The console's Shauth SSO layer is the console's own, not the simulator's.

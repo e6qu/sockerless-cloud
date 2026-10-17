@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,15 +24,21 @@ import (
 // group with one running instance, returning the group name and instance ID.
 // It mirrors the coordinates a real consumer uses (no sim-only knobs), and
 // registers tolerant cleanups.
+// asxVPCRanges counts the group fixtures built, each on its own /16.
+var asxVPCRanges atomic.Int32
+
 func asxSetupGroup(t *testing.T, asg *autoscaling.Client, lcName, groupName string, desired int32) string {
 	t.Helper()
 	ec2c := ec2Client()
 
-	vpcOut, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.91.0.0/16")})
+	// Each group's VPC takes its own range: two live networks over one range
+	// do not coexist on one engine, and the groups' instances boot in parallel.
+	octet := 231 + int(asxVPCRanges.Add(1)) - 1
+	vpcOut, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String(fmt.Sprintf("10.%d.0.0/16", octet))})
 	require.NoError(t, err)
 	subnetOut, err := ec2c.CreateSubnet(ctx, &ec2.CreateSubnetInput{
 		VpcId:            vpcOut.Vpc.VpcId,
-		CidrBlock:        aws.String("10.91.1.0/24"),
+		CidrBlock:        aws.String(fmt.Sprintf("10.%d.1.0/24", octet)),
 		AvailabilityZone: aws.String("us-east-1a"),
 	})
 	require.NoError(t, err)
@@ -746,10 +753,10 @@ func TestAutoScaling_GroupFromLaunchTemplate(t *testing.T) {
 		LaunchTemplateData: &ec2types.RequestLaunchTemplateData{ImageId: aws.String(ec2UbuntuAMI(t)), InstanceType: ec2types.InstanceTypeT3Micro},
 	})
 	require.NoError(t, err)
-	vpcOut, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.92.0.0/16")})
+	vpcOut, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.255.0.0/16")})
 	require.NoError(t, err)
 	subnetOut, err := ec2c.CreateSubnet(ctx, &ec2.CreateSubnetInput{
-		VpcId: vpcOut.Vpc.VpcId, CidrBlock: aws.String("10.92.1.0/24"), AvailabilityZone: aws.String("us-east-1a"),
+		VpcId: vpcOut.Vpc.VpcId, CidrBlock: aws.String("10.255.1.0/24"), AvailabilityZone: aws.String("us-east-1a"),
 	})
 	require.NoError(t, err)
 

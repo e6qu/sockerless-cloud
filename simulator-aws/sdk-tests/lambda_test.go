@@ -612,12 +612,12 @@ func TestLambda_VpcConfig_RuntimeReachesVpcResource(t *testing.T) {
 	ec2c := ec2Client()
 	ecsc := ecsClient()
 
-	vpcOut, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.77.0.0/16")})
+	vpcOut, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.247.0.0/16")})
 	require.NoError(t, err)
 	vpcID := aws.ToString(vpcOut.Vpc.VpcId)
 	subnetOut, err := ec2c.CreateSubnet(ctx, &ec2.CreateSubnetInput{
 		VpcId:     aws.String(vpcID),
-		CidrBlock: aws.String("10.77.1.0/24"),
+		CidrBlock: aws.String("10.247.1.0/24"),
 	})
 	require.NoError(t, err)
 	subnetID := aws.ToString(subnetOut.Subnet.SubnetId)
@@ -634,7 +634,7 @@ func TestLambda_VpcConfig_RuntimeReachesVpcResource(t *testing.T) {
 			IpProtocol: aws.String("tcp"),
 			FromPort:   aws.Int32(8080),
 			ToPort:     aws.Int32(8080),
-			IpRanges:   []ec2types.IpRange{{CidrIp: aws.String("10.77.0.0/16")}},
+			IpRanges:   []ec2types.IpRange{{CidrIp: aws.String("10.247.0.0/16")}},
 		}},
 	})
 	require.NoError(t, err)

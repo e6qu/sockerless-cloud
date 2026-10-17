@@ -69,7 +69,7 @@ func TestCompute_VirtualMachineImagesCatalog(t *testing.T) {
 func TestCompute_VirtualMachineWithUnknownImageIsRefused(t *testing.T) {
 	t.Parallel()
 	const rg = "vm-noimage-rg"
-	nicID := vmOperationsFixture(t, rg, "vm-noimage", "10.100")
+	nicID := vmOperationsFixture(t, rg, "vm-noimage", "10.100.0.0/16")
 	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = vmClient.BeginCreateOrUpdate(ctx, rg, "vm-noimage", armcompute.VirtualMachine{
@@ -122,7 +122,7 @@ func TestCompute_VirtualMachineRunsCustomDataAndReadsItsMetadata(t *testing.T) {
 	t.Parallel()
 	const rg = "vm-init-rg"
 	const vmName = "vm-init"
-	nicID := vmOperationsFixture(t, rg, "vm-init", "10.101")
+	nicID := vmOperationsFixture(t, rg, "vm-init", "10.101.0.0/16")
 	script := "#!/bin/sh\necho custom-data-ran > /var/tmp/custom-data\n"
 	createOperationsVM(t, rg, vmName, nicID, func(vm *armcompute.VirtualMachine) {
 		vm.Properties.OSProfile.CustomData = to.Ptr(base64.StdEncoding.EncodeToString([]byte(script)))
@@ -156,7 +156,7 @@ func TestCompute_VirtualMachineDeallocateKeepsTheOSDiskAndAnImageCapturesIt(t *t
 	t.Parallel()
 	const rg = "vm-disk-rg"
 	const vmName = "vm-disk"
-	nicID := vmOperationsFixture(t, rg, "vm-disk", "10.102")
+	nicID := vmOperationsFixture(t, rg, "vm-disk", "10.102.0.0/16")
 	vmClient := createOperationsVM(t, rg, vmName, nicID, nil)
 
 	runInGuest(t, rg, vmName, "write", "echo kept-across-deallocate > /var/tmp/kept")

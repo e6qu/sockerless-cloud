@@ -17,9 +17,12 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim/procimage"
 )
 
 const (
@@ -68,6 +71,12 @@ func envOr(key, fallback string) string {
 }
 
 func main() {
+	if len(os.Args) > 1 {
+		if err := readProcess(os.Args[1:]); err != nil {
+			log.Fatalf("sidecar: %v", err)
+		}
+		return
+	}
 	cfg, err := configFromEnv()
 	if err != nil {
 		log.Fatalf("sidecar: %v", err)
@@ -207,4 +216,39 @@ func proxyHandler(cfg config) http.Handler {
 		FlushInterval: -1,
 	}
 	return proxy
+}
+
+// readProcess answers the simulator's read of a workload's process from inside
+// the workload's pid namespace, where this program runs with permission to
+// trace: "maps <pid>" copies the process's mapping table and "core <pid>"
+// writes an ELF core of it, each to the file of that name under /out, the
+// directory the simulator mounted to receive it.
+func readProcess(args []string) error {
+	if len(args) != 2 || (args[0] != "maps" && args[0] != "core") {
+		return errors.New("usage: sidecar maps|core <pid>")
+	}
+	pid, err := strconv.Atoi(args[1])
+	if err != nil {
+		return fmt.Errorf("pid %q: %w", args[1], err)
+	}
+	out, err := os.OpenFile("/out/"+args[0], os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	switch args[0] {
+	case "maps":
+		maps, err := os.Open(fmt.Sprintf("/proc/%d/maps", pid))
+		if err != nil {
+			return errors.Join(err, out.Close())
+		}
+		defer maps.Close()
+		if _, err := io.Copy(out, maps); err != nil {
+			return errors.Join(err, out.Close())
+		}
+	case "core":
+		if err := procimage.DumpProcess(out, pid); err != nil {
+			return errors.Join(err, out.Close())
+		}
+	}
+	return out.Close()
 }

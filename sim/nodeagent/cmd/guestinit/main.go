@@ -74,9 +74,9 @@ func run() (int, error) {
 	writeResolvConf(cfg.DNS)
 	logs := newLogBook()
 	workload := newWorkload(cfg, logs)
-	reaper := make(chan os.Signal, 1)
-	signal.Notify(reaper, syscall.SIGCHLD)
-	go reapOrphans(reaper)
+	children := make(chan os.Signal, 1)
+	signal.Notify(children, syscall.SIGCHLD)
+	go exits.reap(children)
 	if err := workload.start(); err != nil {
 		reportExit(127, err.Error())
 		return 127, err
@@ -208,42 +208,31 @@ func (w *workload) start() error {
 	if err != nil {
 		return err
 	}
-	if err := cmd.Start(); err != nil {
+	pid, err := exits.start(cmd)
+	if err != nil {
 		return fmt.Errorf("start %s: %w", w.cfg.Command[0], err)
 	}
 	w.cmd = cmd
 	var pipes sync.WaitGroup
 	pipes.Add(2)
-	go func() { defer pipes.Done(); w.copyLines("stdout", stdout) }()
-	go func() { defer pipes.Done(); w.copyLines("stderr", stderr) }()
+	go func() { defer pipes.Done(); w.copyLines("stdout", stdout); _ = stdout.Close() }()
+	go func() { defer pipes.Done(); w.copyLines("stderr", stderr); _ = stderr.Close() }()
 	go func() {
 		pipes.Wait()
-		err := cmd.Wait()
-		code := 0
-		message := ""
-		if err != nil {
-			var exitErr *exec.ExitError
-			if ok := asExitError(err, &exitErr); ok {
-				code = exitErr.ExitCode()
-				if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && code < 0 {
-					code = 128 + int(status.Signal())
-				}
-			} else {
-				code, message = 126, err.Error()
-			}
-		}
-		w.result = exitResult{code: code, message: message}
+		status := exits.wait(pid)
+		_ = cmd.Process.Release()
+		w.result = exitResult{code: exitCode(status)}
 		close(w.done)
 	}()
 	return nil
 }
 
-func asExitError(err error, target **exec.ExitError) bool {
-	e, ok := err.(*exec.ExitError)
-	if ok {
-		*target = e
+// exitCode is the code a shell reports for a child that ended with status.
+func exitCode(status syscall.WaitStatus) int {
+	if status.Signaled() {
+		return 128 + int(status.Signal())
 	}
-	return ok
+	return status.ExitStatus()
 }
 
 func (w *workload) copyLines(stream string, r io.Reader) {
@@ -345,17 +334,87 @@ func lookupID(name, file string) (int, error) {
 	return 0, fmt.Errorf("user %q is not in %s", name, file)
 }
 
-// reapOrphans collects every child the workload leaves to init.
-func reapOrphans(signals <-chan os.Signal) {
+// exits is init's one reaper. Init collects every child that ends, its own
+// and the orphans the workload leaves it, with one wait on any child, so a
+// command's own wait would find its child already gone; a command starts
+// through the table and takes its status from it instead.
+var exits = &exitTable{waiters: map[int]chan syscall.WaitStatus{}}
+
+type exitTable struct {
+	mu      sync.Mutex
+	waiters map[int]chan syscall.WaitStatus
+}
+
+// reap collects every child that has ended at each SIGCHLD and hands a
+// status to the waiter registered for its pid; an orphan's status has none.
+func (t *exitTable) reap(signals <-chan os.Signal) {
 	for range signals {
 		for {
+			t.mu.Lock()
 			var status syscall.WaitStatus
 			pid, err := syscall.Wait4(-1, &status, syscall.WNOHANG, nil)
+			if pid > 0 && err == nil {
+				if ch, ok := t.waiters[pid]; ok {
+					ch <- status
+				}
+			}
+			t.mu.Unlock()
 			if pid <= 0 || err != nil {
 				break
 			}
 		}
 	}
+}
+
+// start starts cmd and registers its pid under the lock the reaper collects
+// under, so the child's status cannot be collected before its waiter exists.
+func (t *exitTable) start(cmd *exec.Cmd) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if err := cmd.Start(); err != nil {
+		return 0, err
+	}
+	pid := cmd.Process.Pid
+	t.waiters[pid] = make(chan syscall.WaitStatus, 1)
+	return pid, nil
+}
+
+// wait blocks until the reaper has collected pid's status.
+func (t *exitTable) wait(pid int) syscall.WaitStatus {
+	t.mu.Lock()
+	ch := t.waiters[pid]
+	t.mu.Unlock()
+	status := <-ch
+	t.mu.Lock()
+	delete(t.waiters, pid)
+	t.mu.Unlock()
+	return status
+}
+
+// run starts cmd, reads what it writes until it closes its output, and
+// returns the output with the child's status.
+func (t *exitTable) run(cmd *exec.Cmd) (stdout, stderr string, status syscall.WaitStatus, err error) {
+	outPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", "", 0, err
+	}
+	errPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return "", "", 0, err
+	}
+	pid, err := t.start(cmd)
+	if err != nil {
+		return "", "", 0, err
+	}
+	var out, errs []byte
+	var pipes sync.WaitGroup
+	pipes.Add(2)
+	go func() { defer pipes.Done(); out, _ = io.ReadAll(outPipe); _ = outPipe.Close() }()
+	go func() { defer pipes.Done(); errs, _ = io.ReadAll(errPipe); _ = errPipe.Close() }()
+	pipes.Wait()
+	status = t.wait(pid)
+	_ = cmd.Process.Release()
+	return string(out), string(errs), status, nil
 }
 
 // serveControl answers the agent over vsock.
@@ -413,20 +472,15 @@ func serveControl(w *workload, logs *logBook) {
 		}
 		cmd := exec.CommandContext(r.Context(), req.Command[0], req.Command[1:]...)
 		cmd.Env = environ(w.cfg.Env)
-		var stdout, stderr strings.Builder
-		cmd.Stdout, cmd.Stderr = &stdout, &stderr
-		code := 0
-		if err := cmd.Run(); err != nil {
-			var exitErr *exec.ExitError
-			if asExitError(err, &exitErr) {
-				code = exitErr.ExitCode()
-			} else {
-				code = 126
-				stderr.WriteString(err.Error())
-			}
+		stdout, stderr, status, err := exits.run(cmd)
+		code := 126
+		if err != nil {
+			stderr = err.Error()
+		} else {
+			code = exitCode(status)
 		}
 		rw.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(rw).Encode(map[string]any{"stdout": stdout.String(), "stderr": stderr.String(), "exitCode": code})
+		_ = json.NewEncoder(rw).Encode(map[string]any{"stdout": stdout, "stderr": stderr, "exitCode": code})
 	})
 	mux.HandleFunc("POST /stop", func(rw http.ResponseWriter, r *http.Request) {
 		go w.stop()

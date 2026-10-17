@@ -784,6 +784,22 @@ before the database closes, so the virtual machines a non-persistent simulator
 releases on the way out still read their store. The guest init sets its own
 PATH from the workload's environment before it starts anything: the kernel
 starts init with none, and an exec of a relative command resolves there.
+A read of a workload's process that the simulator's own host refuses, an
+unprivileged process reading another identity's /proc, goes through a platform
+helper: the sidecar program joins the container's pid namespace with the one
+permission a read of /proc/<pid>/mem needs (`sidecar.ReadProcess`), writes
+the mapping table or the ELF core into a directory only the simulator
+mounted, and ends. App Service process modules and dumps read that way; the
+image itself is `sim/procimage`. A Kudu command runs as the identity that owns
+the site's files on the host, so what it writes under /home the simulator
+later moves and deletes through the same VFS. The CI harness runs every suite
+as the runner, not root: it makes the engine's trust directory writable and
+opens the low ports, which the mail receivers on port 25 need.
+
+Two live engine networks over one range do not coexist on one engine, so a
+test's network takes a range no other test in its suite uses; the Auto Scaling
+group fixture counts its groups onto their own /16s, and a fixture that
+boots a machine names a range of its own.
 Startup refuses to serve in any mode that executes workloads when no engine
 answers: a process that passes its health check and fails every workload in
 the background is worse than one that does not start. Each cloud product's

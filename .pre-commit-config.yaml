@@ -184,6 +184,13 @@ repos:
         pass_filenames: false
         files: ^(simulator-(aws|gcp|azure)/(sdk|cli)-tests/|scripts/check-parallel-tests\.go$)
 
+      - id: test-network-ranges
+        name: Every test that places a workload holds a private range of its own in its suite
+        entry: go run scripts/check-test-network-ranges.go
+        language: system
+        pass_filenames: false
+        files: ^(simulator-(aws|gcp|azure)/(sdk|cli)-tests/|scripts/check-test-network-ranges\.go$)
+
       - id: readonly-locks
         name: No read path holds an exclusive lock
         entry: bash scripts/check-readonly-locks.sh

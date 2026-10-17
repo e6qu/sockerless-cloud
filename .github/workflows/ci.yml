@@ -835,6 +835,13 @@ jobs:
           # shellcheck disable=SC2086
           bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
             ${{ steps.base-images-list.outputs.images }}
+      - name: Prepare the engine's trust directory and the low ports for the runner
+        # The suite installs a registry's authority under /etc/docker/certs.d
+        # for the engine to trust it and receives mail on port 25, and the
+        # runner, not root, runs it.
+        run: |
+          sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" /etc/docker/certs.d
+          sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0
       - name: Run AWS SDK tests
         # The suite has exhausted the runner volume from a 89 GB starting
         # margin, killing the runner process as it wrote its own diagnostic log
@@ -1794,6 +1801,9 @@ jobs:
         timeout-minutes: 5
       - name: Every SDK and CLI test runs in parallel or says why it cannot
         run: go run scripts/check-parallel-tests.go
+        timeout-minutes: 5
+      - name: Every test that places a workload holds a private range of its own in its suite
+        run: go run scripts/check-test-network-ranges.go
         timeout-minutes: 5
       - name: No read path holds an exclusive lock
         run: bash scripts/check-readonly-locks.sh

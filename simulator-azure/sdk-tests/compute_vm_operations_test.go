@@ -1,6 +1,7 @@
 package azure_sdk_test
 
 import (
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -16,8 +17,13 @@ import (
 // vmOperationsFixture provisions the network a machine needs and returns the
 // NIC id to attach it to, so each operation test starts from a machine that
 // really boots rather than a record of one.
-func vmOperationsFixture(t *testing.T, rg, prefix, cidr string) string {
+func vmOperationsFixture(t *testing.T, rg, prefix, addressSpace string) string {
 	t.Helper()
+	// The machine's subnet is the first /24 of the virtual network's /16.
+	space := netip.MustParsePrefix(addressSpace)
+	first := space.Addr().As4()
+	first[2] = 1
+	subnetPrefix := netip.PrefixFrom(netip.AddrFrom4(first), 24)
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
@@ -28,7 +34,7 @@ func vmOperationsFixture(t *testing.T, rg, prefix, cidr string) string {
 	vnetPoller, err := vnetClient.BeginCreateOrUpdate(ctx, rg, prefix+"-vnet", armnetwork.VirtualNetwork{
 		Location: to.Ptr("eastus"),
 		Properties: &armnetwork.VirtualNetworkPropertiesFormat{
-			AddressSpace: &armnetwork.AddressSpace{AddressPrefixes: []*string{to.Ptr(cidr + ".0.0/16")}},
+			AddressSpace: &armnetwork.AddressSpace{AddressPrefixes: []*string{to.Ptr(addressSpace)}},
 		},
 	}, nil)
 	require.NoError(t, err)
@@ -38,7 +44,7 @@ func vmOperationsFixture(t *testing.T, rg, prefix, cidr string) string {
 	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	subnetPoller, err := subnetClient.BeginCreateOrUpdate(ctx, rg, prefix+"-vnet", prefix+"-subnet", armnetwork.Subnet{
-		Properties: &armnetwork.SubnetPropertiesFormat{AddressPrefix: to.Ptr(cidr + ".1.0/24")},
+		Properties: &armnetwork.SubnetPropertiesFormat{AddressPrefix: to.Ptr(subnetPrefix.String())},
 	}, nil)
 	require.NoError(t, err)
 	subnetResp, err := subnetPoller.PollUntilDone(ctx, nil)
@@ -119,7 +125,7 @@ func TestCompute_VirtualMachineStateOperations(t *testing.T) {
 	t.Parallel()
 	const rg = "vm-ops-rg"
 	const vmName = "vm-ops"
-	nicID := vmOperationsFixture(t, rg, "vm-ops", "10.91")
+	nicID := vmOperationsFixture(t, rg, "vm-ops", "10.91.0.0/16")
 	vmClient := createOperationsVM(t, rg, vmName, nicID, nil)
 
 	t.Run("ListAvailableSizes offers the sizes the machine can be resized to", func(t *testing.T) {
@@ -201,7 +207,7 @@ func TestCompute_VirtualMachineGuestOperations(t *testing.T) {
 	t.Parallel()
 	const rg = "vm-guest-rg"
 	const vmName = "vm-guest"
-	nicID := vmOperationsFixture(t, rg, "vm-guest", "10.92")
+	nicID := vmOperationsFixture(t, rg, "vm-guest", "10.92.0.0/16")
 	vmClient := createOperationsVM(t, rg, vmName, nicID, nil)
 
 	runningAfter := func(t *testing.T, what string) {
@@ -260,7 +266,7 @@ func TestCompute_VirtualMachineSimulateEvictionDeallocatesASpotMachine(t *testin
 	t.Parallel()
 	const rg = "vm-spot-rg"
 	const vmName = "vm-spot"
-	nicID := vmOperationsFixture(t, rg, "vm-spot", "10.93")
+	nicID := vmOperationsFixture(t, rg, "vm-spot", "10.93.0.0/16")
 	vmClient := createOperationsVM(t, rg, vmName, nicID, func(vm *armcompute.VirtualMachine) {
 		vm.Properties.Priority = to.Ptr(armcompute.VirtualMachinePriorityTypesSpot)
 		vm.Properties.EvictionPolicy = to.Ptr(armcompute.VirtualMachineEvictionPolicyTypesDeallocate)
@@ -303,7 +309,7 @@ func TestCompute_VirtualMachineBootDiagnostics(t *testing.T) {
 	t.Parallel()
 	const rg = "vm-bootdiag-rg"
 	const vmName = "vm-bootdiag"
-	nicID := vmOperationsFixture(t, rg, "vm-bootdiag", "10.94")
+	nicID := vmOperationsFixture(t, rg, "vm-bootdiag", "10.106.0.0/16")
 
 	t.Run("a machine without boot diagnostics is refused", func(t *testing.T) {
 		vmClient := createOperationsVM(t, rg, vmName+"-off", nicID, nil)

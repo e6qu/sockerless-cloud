@@ -503,11 +503,11 @@ func TestEC2_EBSSnapshotCompletesWithoutVPCSDK(t *testing.T) {
 func TestEC2_EBSVolumeSnapshotLifecycleSDK(t *testing.T) {
 	t.Parallel()
 	client := ec2Client()
-	vpcOut, err := client.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.68.0.0/16")})
+	vpcOut, err := client.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.249.0.0/16")})
 	require.NoError(t, err)
 	subnetOut, err := client.CreateSubnet(ctx, &ec2.CreateSubnetInput{
 		VpcId:            vpcOut.Vpc.VpcId,
-		CidrBlock:        aws.String("10.68.1.0/24"),
+		CidrBlock:        aws.String("10.249.1.0/24"),
 		AvailabilityZone: aws.String("us-east-1a"),
 	})
 	require.NoError(t, err)

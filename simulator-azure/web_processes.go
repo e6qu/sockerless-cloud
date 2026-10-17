@@ -708,13 +708,18 @@ func webKillContainerProcess(containerID string, pid int) error {
 
 // webListProcessModules reports the modules a process has loaded.
 func webListProcessModules(w http.ResponseWriter, r *http.Request) {
-	proc, _, ok := webResolveProcess(w, r)
+	proc, containerID, ok := webResolveProcess(w, r)
 	if !ok {
 		return
 	}
-	modules, readable := webProcessModules(proc)
+	modules, readable, err := webProcessModules(r.Context(), containerID, proc)
 	if !readable {
 		webProcessModulesUnreadable(w, "WebApps_ListProcessModules")
+		return
+	}
+	if err != nil {
+		AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
+			"WebApps_ListProcessModules: read the process's mapping table: %v", err)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
@@ -724,13 +729,18 @@ func webListProcessModules(w http.ResponseWriter, r *http.Request) {
 
 // webGetProcessModule reports one module by the address it is mapped at.
 func webGetProcessModule(w http.ResponseWriter, r *http.Request) {
-	proc, _, ok := webResolveProcess(w, r)
+	proc, containerID, ok := webResolveProcess(w, r)
 	if !ok {
 		return
 	}
-	modules, readable := webProcessModules(proc)
+	modules, readable, err := webProcessModules(r.Context(), containerID, proc)
 	if !readable {
 		webProcessModulesUnreadable(w, "WebApps_GetProcessModule")
+		return
+	}
+	if err != nil {
+		AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
+			"WebApps_GetProcessModule: read the process's mapping table: %v", err)
 		return
 	}
 	wanted := sim.PathParam(r, "baseAddress")

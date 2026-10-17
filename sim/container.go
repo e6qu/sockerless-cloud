@@ -89,12 +89,16 @@ type ContainerConfig struct {
 	// its platform rather than its image or its environment — user data, the
 	// instance's own init.
 	Seed        []SeedFile
-	NetworkMode string   // Docker network mode (e.g. "container:<id>" for shared netns)
-	Name        string   // container name (optional, auto-generated if empty)
-	Tty         bool     // allocate a pseudo-TTY
-	OpenStdin   bool     // keep stdin open
-	Binds       []string // bind mounts (e.g., "vol:/path")
-	ExtraHosts  []string // --add-host entries (e.g., "host.docker.internal:host-gateway")
+	NetworkMode string // Docker network mode (e.g. "container:<id>" for shared netns)
+	// PidMode joins another container's pid namespace ("container:<id>"):
+	// a platform helper reading a workload's processes. Empty is the
+	// container's own namespace.
+	PidMode    string
+	Name       string   // container name (optional, auto-generated if empty)
+	Tty        bool     // allocate a pseudo-TTY
+	OpenStdin  bool     // keep stdin open
+	Binds      []string // bind mounts (e.g., "vol:/path")
+	ExtraHosts []string // --add-host entries (e.g., "host.docker.internal:host-gateway")
 	// DNS are the resolvers written into the container's /etc/resolv.conf. A
 	// workload in its own network namespace cannot reach the embedded resolver
 	// Docker would otherwise configure, so the namespace's own resolver is named
@@ -1058,6 +1062,9 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	}
 	if cfg.NetworkMode != "" {
 		hostCfg.NetworkMode = container.NetworkMode(cfg.NetworkMode)
+	}
+	if cfg.PidMode != "" {
+		hostCfg.PidMode = container.PidMode(cfg.PidMode)
 	}
 	for _, device := range cfg.Devices {
 		hostCfg.Devices = append(hostCfg.Devices, container.DeviceMapping{PathOnHost: device, PathInContainer: device, CgroupPermissions: "rwm"})

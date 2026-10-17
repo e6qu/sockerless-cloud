@@ -21,7 +21,7 @@ func TestPrivateDNS_AutoRegistersAVirtualMachine(t *testing.T) {
 	const rg = "dns-reg-rg"
 	const vmName = "dns-reg-vm"
 	const zone = "reg.internal"
-	nicID := vmOperationsFixture(t, rg, "dns-reg", "10.95")
+	nicID := vmOperationsFixture(t, rg, "dns-reg", "10.95.0.0/16")
 
 	zonesClient, err := armprivatedns.NewPrivateZonesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)

@@ -22,7 +22,7 @@ func TestCompute_VirtualMachinePatchOperations(t *testing.T) {
 	t.Parallel()
 	const rg = "vm-patch-rg-e4fd"
 	const vmName = "vm-patch"
-	nicID := vmOperationsFixture(t, rg, "vm-patch", "10.98")
+	nicID := vmOperationsFixture(t, rg, "vm-patch", "10.98.0.0/16")
 	// A capture writes the image into a storage account, and the machine names
 	// the account through its boot-diagnostics profile — so a machine that is
 	// going to be captured has to have one, exactly as in Azure.

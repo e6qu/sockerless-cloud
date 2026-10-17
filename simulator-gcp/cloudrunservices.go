@@ -523,6 +523,12 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 		if auths[i], err = workloadRegistryAuth(project, sim.ResolveLocalImage(c.Image)); err != nil {
 			return nil, err
 		}
+		// Cloud Run resolves a revision's images before it places an
+		// instance, so a missing image is what a deploy reports, whatever
+		// network the instance would join.
+		if err := sim.PullImageWithCredential(ctx, sim.ResolveLocalImage(c.Image), "", auths[i]); err != nil {
+			return nil, err
+		}
 	}
 	instanceID := sim.RandomHex(8)
 	netw, err := gcpCloudRunNetwork(ctx, project, resourceLocation(name), vpc, fmt.Sprintf("sockerless-sim-cloudrun-svc-%s-%s", serviceID, instanceID))

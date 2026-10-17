@@ -246,7 +246,7 @@ func TestEC2_PasswordData(t *testing.T) {
 func TestEC2_InstanceTopology(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
-	instID := launchInstanceFor(t, c, "10.196.0.0/16")
+	instID := launchInstanceFor(t, c, "10.254.0.0/16")
 
 	topo, err := c.DescribeInstanceTopology(ctx, &ec2.DescribeInstanceTopologyInput{
 		InstanceIds: []string{instID},
