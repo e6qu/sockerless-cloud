@@ -20,13 +20,14 @@ func TestListenLoopbackGivesEachIdentityItsOwnAddress(t *testing.T) {
 	}
 	port := probe.Addr().(*net.TCPAddr).Port
 	_ = probe.Close()
+	t.Cleanup(func() { ReleaseLoopback("project-a/orders"); ReleaseLoopback("project-a/billing") })
 
 	first, err := ListenLoopback("project-a/orders", port)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer first.Close()
-	second, err := ListenLoopback("project-a/orders", port)
+	second, err := ListenLoopback("project-a/billing", port)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +39,24 @@ func TestListenLoopbackGivesEachIdentityItsOwnAddress(t *testing.T) {
 		}
 	}
 	if first.Addr().String() == second.Addr().String() {
-		t.Fatalf("two listeners share %s", first.Addr())
+		t.Fatalf("two identities share %s", first.Addr())
+	}
+
+	// One identity has one address: a second listener under it binds the
+	// same address, which its first listener still holds.
+	if duplicate, err := ListenLoopback("project-a/orders", port); err == nil {
+		got := duplicate.Addr().String()
+		_ = duplicate.Close()
+		t.Fatalf("a second listener for one identity bound %s beside %s", got, first.Addr())
+	}
+	_ = first.Close()
+	again, err := ListenLoopback("project-a/orders", port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Close()
+	if again.Addr().String() != first.Addr().String() {
+		t.Fatalf("the identity's address moved from %s to %s", first.Addr(), again.Addr())
 	}
 }
 
