@@ -545,14 +545,21 @@ func ec2FinishHalt(instanceID, next string) {
 // for the instances the store keeps, and settles the instances whose
 // machines are gone.
 func recoverEC2Instances() error {
+	if !sim.HasPersistentWorkloadIdentity() {
+		return nil
+	}
 	ctx := context.Background()
+	backend, err := awsPlacement.For(placement.Service{Name: "ec2"})
+	if err != nil {
+		return err
+	}
 	for _, inst := range ec2Instances.List() {
 		switch inst.State {
 		case "pending", "running", "stopping", "stopped", "shutting-down":
 		default:
 			continue
 		}
-		existing, err := sim.FindExistingContainers(map[string]string{"sockerless-sim-instance": inst.InstanceId})
+		existing, err := backend.Find(ctx, map[string]string{"sockerless-sim-instance": inst.InstanceId})
 		if err != nil {
 			return fmt.Errorf("find instance %s machine: %w", inst.InstanceId, err)
 		}
@@ -592,7 +599,7 @@ func ec2SettleInstanceWithoutMachine(inst EC2Instance) {
 // running one keeps the instance running, a stopped one is the kept root disk
 // of a stopped instance, and a machine of an instance that was terminating
 // is discarded.
-func ec2AdoptInstanceMachine(ctx context.Context, inst EC2Instance, existing sim.ExistingContainer) error {
+func ec2AdoptInstanceMachine(ctx context.Context, inst EC2Instance, existing placement.Existing) error {
 	spec, _, err := ec2InstanceSpec(ctx, inst)
 	if err != nil {
 		return fmt.Errorf("adopt instance %s: %w", inst.InstanceId, err)

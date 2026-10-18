@@ -18,3 +18,19 @@ func TestGuestMACFollowsTheCloudsPrefix(t *testing.T) {
 		t.Fatalf("a hashed MAC changed with the address: %s then %s", aws, again)
 	}
 }
+
+func TestMatchesLabelsAsksForEveryWantedLabel(t *testing.T) {
+	have := map[string]string{"sockerless-sim-state": "abc", "sockerless-sim-instance": "i-1"}
+	if !matchesLabels(have, map[string]string{"sockerless-sim-instance": "i-1", "sockerless-sim-state": "abc"}) {
+		t.Fatal("every wanted label is there")
+	}
+	if !matchesLabels(have, map[string]string{"sockerless-sim-instance": ""}) {
+		t.Fatal("an empty wanted value asks only for the key")
+	}
+	if matchesLabels(have, map[string]string{"sockerless-sim-instance": "i-2"}) {
+		t.Fatal("a different value must not match")
+	}
+	if matchesLabels(have, map[string]string{"sockerless-sim-type": "vm"}) {
+		t.Fatal("a missing key must not match")
+	}
+}

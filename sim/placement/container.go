@@ -51,6 +51,18 @@ func (ContainerBackend) Remove(_ context.Context, id string) error {
 	return sim.RemoveContainer(id)
 }
 
+func (ContainerBackend) Find(_ context.Context, labels map[string]string) ([]Existing, error) {
+	found, err := sim.FindExistingContainers(labels)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Existing, 0, len(found))
+	for _, c := range found {
+		out = append(out, Existing{ID: c.ID, Running: c.Running, Labels: c.Labels})
+	}
+	return out, nil
+}
+
 func (ContainerBackend) Console(ctx context.Context, id string) (string, error) {
 	return ContainerConsole(ctx, id)
 }

@@ -48,6 +48,7 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 		Name:    networkName + "-agent",
 		Network: networkName,
 		Address: netip.MustParseAddr("10.79.0.3"),
+		Labels:  map[string]string{"sockerless-sim-kvm-proof": networkName},
 	}, sim.FuncSink(func(line sim.LogLine) {
 		mu.Lock()
 		agentLog = append(agentLog, line.Text)
@@ -82,6 +83,7 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 		MemoryBytes:  1024 << 20,
 		NanoCPU:      2_000_000_000,
 		KeepOnExit:   true,
+		Labels:       map[string]string{"sockerless-sim-kvm-guest": "arithmetic"},
 	}
 	handle, err := backend.Place(t.Context(), workload, sim.FuncSink(func(line sim.LogLine) {
 		mu.Lock()
@@ -154,6 +156,31 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
+	// A later simulator process finds the agent by its labels and the guest
+	// by the labels its workload carried, and takes both over: the adopted
+	// handle reaches the running guest.
+	adoptedAgent, found, err := nodeagent.Adopt(t.Context(), networkName, map[string]string{"sockerless-sim-kvm-proof": networkName}, sim.NoopSink{})
+	if err != nil || !found {
+		t.Fatalf("adopt the agent: found=%v err=%v", found, err)
+	}
+	adoptedBackend := placement.NewMicroVMBackend(adoptedAgent, "")
+	existing, err := adoptedBackend.Find(t.Context(), map[string]string{"sockerless-sim-kvm-guest": "arithmetic"})
+	if err != nil || len(existing) != 1 || existing[0].ID != id || !existing[0].Running {
+		t.Fatalf("the adopted agent lists %+v (%v), want the running guest %s", existing, err, id)
+	}
+	if _, err := adoptedBackend.Find(t.Context(), map[string]string{"sockerless-sim-kvm-guest": "other"}); err != nil {
+		t.Fatalf("find: %v", err)
+	} else if others, _ := adoptedBackend.Find(t.Context(), map[string]string{"sockerless-sim-kvm-guest": "other"}); len(others) != 0 {
+		t.Fatalf("a label the guest does not carry matched %+v", others)
+	}
+	taken, err := adoptedBackend.Adopt(t.Context(), id, workload, sim.NoopSink{})
+	if err != nil {
+		t.Fatalf("adopt the guest: %v", err)
+	}
+	if out, err := taken.Exec(execCtx, []string{"cat", "/etc/hostname"}); err != nil || strings.TrimSpace(out.Stdout) != "arithmetic" {
+		t.Fatalf("the adopted guest answered %+v (%v)", out, err)
+	}
+
 	reference := "sockerless-sim-kvm-capture:" + sim.RandomHex(4)
 	if err := backend.Capture(t.Context(), id, reference); err != nil {
 		t.Fatalf("capture: %v", err)
@@ -191,6 +218,7 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 	}
 	again.Cancel()
 	again.Wait()
+	taken.Wait()
 	if err := backend.Remove(t.Context(), id); err != nil {
 		t.Fatalf("remove: %v", err)
 	}

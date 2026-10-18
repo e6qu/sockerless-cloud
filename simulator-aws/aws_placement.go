@@ -46,9 +46,12 @@ func awsConfigurePlacement(cfg *sim.Config) error {
 }
 
 // awsStartPlacement starts the node agent when a service is configured onto
-// microVMs, on the platform network at its third host address, and returns
-// what stops it. A table naming no microVM service starts nothing.
-func awsStartPlacement(ctx context.Context) (stop func(context.Context) error, err error) {
+// microVMs, on the platform network at its third host address, or adopts the
+// one a previous process of a persistent simulator left running, and returns
+// what stops it: nothing, when the simulator persists, since the agent and
+// its guests outlive the process the way containers do. A table naming no
+// microVM service starts nothing.
+func awsStartPlacement(ctx context.Context, persist bool) (stop func(context.Context) error, err error) {
 	if services := awsPlacement.Services(); len(services) > 0 {
 		log.Printf("placement: %s", strings.Join(services, ", "))
 	} else {
@@ -65,20 +68,32 @@ func awsStartPlacement(ctx context.Context) (stop func(context.Context) error, e
 	if err != nil {
 		return nil, fmt.Errorf("node agent: %w", err)
 	}
-	agent, err := nodeagent.Start(ctx, nodeagent.Options{
-		Name:    "sockerless-sim-aws-node-agent-" + sim.WorkloadScope(),
-		Network: network.Name,
-		Address: subnet.Masked().Addr().Next().Next().Next(),
-		Labels:  map[string]string{"sockerless-sim-aws-node-agent": sim.WorkloadScope()},
-	}, sim.NoopSink{})
-	if err != nil {
-		return nil, fmt.Errorf("node agent for %s: %w", strings.Join(awsPlacement.MicroVMServices(), ", "), err)
+	labels := map[string]string{"sockerless-sim-aws-node-agent": sim.WorkloadScope()}
+	var agent *nodeagent.Agent
+	adopted := false
+	if sim.HasPersistentWorkloadIdentity() {
+		if agent, adopted, err = nodeagent.Adopt(ctx, network.Name, labels, sim.NoopSink{}); err != nil {
+			return nil, err
+		}
+	}
+	if !adopted {
+		agent, err = nodeagent.Start(ctx, nodeagent.Options{
+			Name:    "sockerless-sim-aws-node-agent-" + sim.WorkloadScope(),
+			Network: network.Name,
+			Address: subnet.Masked().Addr().Next().Next().Next(),
+			Labels:  labels,
+		}, sim.NoopSink{})
+		if err != nil {
+			return nil, fmt.Errorf("node agent for %s: %w", strings.Join(awsPlacement.MicroVMServices(), ", "), err)
+		}
 	}
 	awsMicroVMBackend = placement.NewMicroVMBackend(agent, awsMACPrefix)
 	awsPlacement.Register(awsMicroVMBackend)
 	log.Printf("placement: node agent %s serves %s", agent.ContainerID()[:12], strings.Join(awsPlacement.MicroVMServices(), ", "))
 	return func(context.Context) error {
-		agent.Stop()
+		if !persist {
+			agent.Stop()
+		}
 		return nil
 	}, nil
 }

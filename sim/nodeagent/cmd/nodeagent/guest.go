@@ -25,6 +25,7 @@ type guestSpec struct {
 	ID         string            `json:"id"`
 	Hostname   string            `json:"hostname"`
 	Hosts      []string          `json:"hosts"`
+	Labels     map[string]string `json:"labels"`
 	Command    []string          `json:"command"`
 	Args       []string          `json:"args"`
 	Env        map[string]string `json:"env"`
@@ -62,13 +63,14 @@ type packetRule struct {
 }
 
 type guestState struct {
-	ID        string    `json:"id"`
-	Status    string    `json:"status"`
-	Address   string    `json:"address"`
-	ExitCode  int       `json:"exitCode"`
-	Error     string    `json:"error,omitempty"`
-	StartedAt time.Time `json:"startedAt"`
-	StoppedAt time.Time `json:"stoppedAt"`
+	ID        string            `json:"id"`
+	Status    string            `json:"status"`
+	Labels    map[string]string `json:"labels,omitempty"`
+	Address   string            `json:"address"`
+	ExitCode  int               `json:"exitCode"`
+	Error     string            `json:"error,omitempty"`
+	StartedAt time.Time         `json:"startedAt"`
+	StoppedAt time.Time         `json:"stoppedAt"`
 }
 
 const (
@@ -216,7 +218,7 @@ func validID(id string) bool {
 func (g *guest) state() guestState {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return guestState{ID: g.spec.ID, Status: g.status, Address: g.address.Addr().String(), ExitCode: g.exitCode, Error: g.err, StartedAt: g.startedAt, StoppedAt: g.stoppedAt}
+	return guestState{ID: g.spec.ID, Status: g.status, Labels: g.spec.Labels, Address: g.address.Addr().String(), ExitCode: g.exitCode, Error: g.err, StartedAt: g.startedAt, StoppedAt: g.stoppedAt}
 }
 
 // buildRootFS turns the uploaded root filesystem archive — an OCI image's

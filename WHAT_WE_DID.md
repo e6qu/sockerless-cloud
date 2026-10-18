@@ -3239,3 +3239,19 @@ clouds' own image captures rest on. A guest's hosts file carries the entries
 a container gets from `--add-host`, with `host-gateway` resolved to the
 network's gateway, so `metadata.google.internal` and the engine host's name
 resolve on a guest as they do in a container.
+
+### A restarted simulator adopts its node agent and guests
+
+A persistent simulator leaves its workload containers running when it stops
+and adopts them by label when it starts again, and the microVM backend had no
+part in that: the stop hook ended the agent, and with it every guest, and
+`Adopt` refused. The agent now outlives a persistent stop as containers do,
+and the next process finds it by its labels (`nodeagent.Adopt`), reads the
+token the earlier process gave it from the container's environment, takes
+its networks from the container's endpoints, and attaches to the same API.
+Guests carry the workload's labels and this simulator's ownership labels, and
+`Backend.Find` lists workloads by label on both backends, the engine's
+containers or the agent's guests, so the clouds' adoption paths no longer
+reach around the backend to the engine. Amazon EC2's recovery moved from the
+simulator's build into its start hook, after the backends register, since a
+guest can only be found through the agent that holds it.

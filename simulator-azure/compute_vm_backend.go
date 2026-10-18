@@ -379,12 +379,12 @@ func azureAdoptVMWorkloads(ctx context.Context) {
 	if !sim.HasPersistentWorkloadIdentity() {
 		return
 	}
-	existing, err := sim.FindExistingContainers(map[string]string{"sockerless-sim-type": azureVMLabelType})
+	backend, err := azurePlacementBackend(placementVirtualMachines)
 	if err != nil {
 		log.Printf("adopt virtual machines: %v", err)
 		return
 	}
-	backend, err := azurePlacementBackend(placementVirtualMachines)
+	existing, err := backend.Find(ctx, map[string]string{"sockerless-sim-type": azureVMLabelType})
 	if err != nil {
 		log.Printf("adopt virtual machines: %v", err)
 		return
@@ -393,7 +393,7 @@ func azureAdoptVMWorkloads(ctx context.Context) {
 		vmID := c.Labels[azureVMLabelID]
 		vm, ok := azureVMs.Get(vmID)
 		if !ok {
-			_ = sim.RemoveExistingContainer(c.ID)
+			_ = backend.Remove(ctx, c.ID)
 			continue
 		}
 		azureRecordVMDisk(vm.ID, c.ID)

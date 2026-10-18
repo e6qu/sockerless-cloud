@@ -63,6 +63,10 @@ Current state of the sockerless-cloud repository.
   console and its disk capture go through the backend (`Console`, `Capture`):
   a guest's console is kept by the agent across its stops, and an image
   captured from a guest is the agent's export of its frozen root filesystem.
+  A persistent simulator leaves its node agent and guests running when it
+  stops, as it leaves containers, and the next process adopts the agent by
+  its labels and the guests by theirs through the backend's `Find`, so an
+  instance on either backend survives a simulator restart.
   Amazon EC2, Compute Engine and Azure virtual machine instances boot from
   each cloud's image catalog (`sim/vminstance`): the init runs the instance's
   user data, the instance stops and starts on its own root disk, and an
