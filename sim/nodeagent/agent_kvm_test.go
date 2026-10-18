@@ -309,6 +309,28 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 		t.Fatalf("a tap outlived its guest:\n%s", links.Stdout)
 	}
 
+	// A first process that ends at once is a started guest whose exit the
+	// handle reports, as a container that exits at once is a started
+	// container.
+	quick, err := backend.Place(t.Context(), placement.Workload{
+		Image:        memberImage,
+		Architecture: platform,
+		Name:         "sockerless-sim-kvm-quick",
+		Hostname:     "quick",
+		Network:      networkName,
+		IPv4Address:  "10.79.0.13",
+		Command:      []string{"sh", "-c"},
+		Args:         []string{"echo quick; exit 7"},
+		MemoryBytes:  256 << 20,
+		NanoCPU:      1_000_000_000,
+	}, sim.NoopSink{})
+	if err != nil {
+		t.Fatalf("place a guest whose process exits at once: %v", err)
+	}
+	if result := quick.Wait(); result.ExitCode != 7 {
+		t.Fatalf("the quick guest exited %d (%v), want 7", result.ExitCode, result.Error)
+	}
+
 	// A bind of a host directory reaches a guest as a file share the
 	// simulator serves over NFSv4 at the network's gateway: the guest reads
 	// what the host wrote, the host reads what the guest wrote, and a

@@ -673,6 +673,15 @@ func (g *guest) waitForInit(ctx context.Context) error {
 		}
 		select {
 		case <-g.exited:
+			// A first process that ran and ended before the ping landed is a
+			// started guest, as a container whose process exits at once is
+			// a started container: its exit is reported and the machine
+			// followed it.
+			select {
+			case <-g.processDone:
+				return nil
+			default:
+			}
 			return fmt.Errorf("the machine stopped before guestinit answered: %s", g.consoleTail())
 		case <-deadline.Done():
 			return fmt.Errorf("guestinit did not answer within two minutes: %s", g.consoleTail())

@@ -3420,7 +3420,11 @@ host wrote, writes, makes a directory and renames across it from the
 guest, has the host read the result, and has the read-only mount refuse a
 write; the `web-microvm` shard runs App Service's site, Kudu, WebJobs,
 container log and slot tests on guests, whose `/home` the site, Kudu and
-the WebJobs now share through the server.
+the WebJobs now share through the server. A Kudu command on a guest showed
+the agent refusing a guest whose first process ended before the readiness
+ping: a process that ran and ended is a started guest, as a container that
+exits at once is a started container, so the start answers and the handle
+reports the exit.
 
 A workload's further networks are placement now. A site integrated into
 more than one virtual network used to have its container joined to each
