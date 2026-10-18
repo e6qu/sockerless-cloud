@@ -248,16 +248,18 @@ func (s *Server) opAccess(st *compoundState, d *decoder, r *encoder) uint32 {
 	}
 	supportedBits := uint32(accessRead | accessLookup | accessModify | accessExtend | accessDelete | accessExecute)
 	granted := uint32(accessRead | accessLookup)
+	isDir := true
 	if n != nil {
 		granted = permitted(st.cred, info)
 		if n.export.readOnly {
 			granted &^= accessModify | accessExtend | accessDelete
 		}
+		isDir = info.IsDir()
 	}
-	if !info.IsDir() {
-		supportedBits &^= accessLookup | accessDelete
-	} else {
+	if isDir {
 		supportedBits &^= accessExecute
+	} else {
+		supportedBits &^= accessLookup | accessDelete
 	}
 	status(r, nfs4OK)
 	r.uint32(want & supportedBits)

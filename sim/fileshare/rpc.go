@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"runtime/debug"
 	"sync"
 )
 
@@ -94,7 +96,10 @@ func (s *Server) serveConn(ctx context.Context, conn net.Conn) {
 		if err != nil {
 			return
 		}
-		reply := s.handleCall(record)
+		reply, ok := s.answer(record)
+		if !ok {
+			return
+		}
 		if reply == nil {
 			continue
 		}
@@ -105,6 +110,19 @@ func (s *Server) serveConn(ctx context.Context, conn net.Conn) {
 			return
 		}
 	}
+}
+
+// answer serves one call and reports false when serving it panicked: the
+// connection ends and the client retries on a new one, while the process
+// that serves the share, the simulator, goes on.
+func (s *Server) answer(record []byte) (reply []byte, ok bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintf(os.Stderr, "[fileshare] a request panicked: %v\n%s\n", r, debug.Stack())
+			reply, ok = nil, false
+		}
+	}()
+	return s.handleCall(record), true
 }
 
 // handleCall decodes one RPC call and returns its reply record; a call whose

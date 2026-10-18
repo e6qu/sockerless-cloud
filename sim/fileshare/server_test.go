@@ -218,6 +218,17 @@ func TestFileShareServesAnExportReadWrite(t *testing.T) {
 		t.Fatalf("the lease is %d seconds", lease)
 	}
 
+	// A client probes its access to the root before it looks anything up.
+	st, d = c.compound(putRootFH, func(e *encoder) { e.uint32(opAccess); e.uint32(accessRead | accessLookup | accessModify) })
+	if st != nfs4OK {
+		t.Fatalf("ACCESS on the root answered %d", st)
+	}
+	expect(t, d, opPutRootFH, nfs4OK)
+	expect(t, d, opAccess, nfs4OK)
+	if supportedBits, granted := d.uint32(), d.uint32(); supportedBits != accessRead|accessLookup|accessModify || granted != accessRead|accessLookup {
+		t.Fatalf("ACCESS on the root supports %#x and grants %#x", supportedBits, granted)
+	}
+
 	share := c.exportFH("share")
 	st, d = c.compound(putFH(share), openFile(clientID, "owner-1", "hello.txt", shareAccessBoth, true), getFH)
 	if st != nfs4OK {
