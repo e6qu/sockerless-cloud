@@ -3329,9 +3329,11 @@ Cloud Run's multi-container tests with `SIM_PLACEMENT=run=microvm`.
 
 ### Amazon ECS Fargate and Container Apps on guests
 
-Two more KVM shards followed the Cloud Run one. `ecs-microvm` sets
-`SIM_PLACEMENT=ecs:FARGATE=microvm`, the launch-type qualifier the placement
-table reads, and runs the Fargate awsvpc tests: each task is one guest at its
+Three more KVM shards followed the Cloud Run one. `ecs-microvm` and
+`ecs-services-microvm` set `SIM_PLACEMENT=ecs:FARGATE=microvm`, the
+launch-type qualifier the placement table reads, and run the Fargate awsvpc
+tests, the task tests and the service tests apart so each job fits its
+fifteen minutes: each task is one guest at its
 ENI's leased address with the other containers as members, and Elastic Load
 Balancing reaches a target at that address, since the Docker Desktop
 loopback mapping it looks for first names no container of a guest.
@@ -3354,4 +3356,7 @@ of running it without them, which kept App Service — whose site, Kudu and
 WebJob containers mount the site's `/home` — off the microVM shards until
 the agent serves a file share to guests (BUG-3516); a site integrated into
 a virtual network also asks for a second interface a guest has not got
-(BUG-3517).
+(BUG-3517). The AWS SDK step streams its test log into the job's output as
+it is written, where it used to print the log only once the binary had
+exited, so a job the runner cancels at its limit still shows the test it was
+in.

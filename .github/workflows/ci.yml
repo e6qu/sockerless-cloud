@@ -769,7 +769,10 @@ jobs:
           # exit codes and stop codes, a service's tasks behind a load
           # balancer, and the service lifecycle.
           - suite: ecs-microvm
-            run: '^TestECS_(MultiContainerTaskSharesLocalhost|RunTask_AwsvpcAttachesElasticNetworkInterface|StopCodeUserInitiated|ExitCodeNilWhileRunning|RunTaskContainerOverridesApplyToRuntimeSDK|ServiceRegistersHealthyLoadBalancerTargets|TaskDefinitionSecretsInjected|RunTask_RunningDoesNotWaitForTheApplication|ServiceLifecycle)$'
+            run: '^TestECS_(MultiContainerTaskSharesLocalhost|RunTask_AwsvpcAttachesElasticNetworkInterface|StopCodeUserInitiated|ExitCodeNilWhileRunning|RunTaskContainerOverridesApplyToRuntimeSDK|TaskDefinitionSecretsInjected|RunTask_RunningDoesNotWaitForTheApplication)$'
+            placement: ecs:FARGATE=microvm
+          - suite: ecs-services-microvm
+            run: '^TestECS_(ServiceRegistersHealthyLoadBalancerTargets|ServiceLifecycle)$'
             placement: ecs:FARGATE=microvm
     steps:
       - uses: actions/checkout@v7.0.1
@@ -954,6 +957,10 @@ jobs:
             SOCKERLESS_SPEC_DIR="$GITHUB_WORKSPACE/specs/cloud-api/aws" \
             /tmp/aws-sdk-tests.test -test.v -test.count=1 -test.timeout=600s -test.run "$SHARD_RUN" > "$log" 2>&1 &
           test_pid=$!
+          # The log streams into the job's output as it is written, so a job
+          # the runner cancels at its limit still shows which test it was in.
+          tail -n +1 -F "$log" &
+          tail_pid=$!
           while kill -0 "$test_pid" 2>/dev/null; do
             log_mb=$(( $(stat -c %s "$log" 2>/dev/null || echo 0) / 1048576 ))
             free_mb=$(df -m --output=avail / | tail -1 | tr -d ' ')
@@ -966,17 +973,20 @@ jobs:
               kill -QUIT "$test_pid" 2>/dev/null || true
               sleep 10
               kill -9 "$test_pid" 2>/dev/null || true
+              kill "$tail_pid" 2>/dev/null || true
               exit 1
             fi
             sleep 10
           done
           # The step runs under `bash -e`; guard the wait with `|| status=$?`
-          # so a failing test binary does not abort the step before `cat "$log"`
-          # prints which test failed — an unguarded `wait` swallowed the entire
-          # diagnostic on a real failure.
+          # so a failing test binary does not abort the step before the
+          # failure summary names which test failed — an unguarded `wait`
+          # swallowed the entire diagnostic on a real failure.
           status=0
           wait "$test_pid" || status=$?
-          cat "$log"
+          sleep 2
+          kill "$tail_pid" 2>/dev/null || true
+          wait "$tail_pid" 2>/dev/null || true
           report
           if [ "$status" != 0 ]; then
             bash "$GITHUB_WORKSPACE/scripts/go-test-failure-summary.sh" "$log"
