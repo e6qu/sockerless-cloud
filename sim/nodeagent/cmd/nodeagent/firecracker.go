@@ -23,7 +23,7 @@ const (
 // launchFirecracker starts the machine over Firecracker's API: the kernel the
 // agent carries, the guest's root image, its empty disk slots, its tap and a
 // vsock for guestinit, then the boot.
-func (g *guest) launchFirecracker(ctx context.Context, tap string) (*exec.Cmd, error) {
+func (g *guest) launchFirecracker(ctx context.Context, tap string, extraTaps []string) (*exec.Cmd, error) {
 	api := filepath.Join(g.dir, "firecracker.socket")
 	_ = os.Remove(api)
 	_ = os.Remove(g.vsockPath())
@@ -66,7 +66,13 @@ func (g *guest) launchFirecracker(ctx context.Context, tap string) (*exec.Cmd, e
 		})
 	}
 	requests = append(requests,
-		struct{ path, body string }{"/network-interfaces/eth0", fmt.Sprintf(`{"iface_id":"eth0","guest_mac":%q,"host_dev_name":%q}`, g.spec.Network.MAC, tap)},
+		struct{ path, body string }{"/network-interfaces/eth0", fmt.Sprintf(`{"iface_id":"eth0","guest_mac":%q,"host_dev_name":%q}`, g.spec.Network.MAC, tap)})
+	for i, extraTap := range extraTaps {
+		name := fmt.Sprintf("eth%d", i+1)
+		requests = append(requests, struct{ path, body string }{"/network-interfaces/" + name,
+			fmt.Sprintf(`{"iface_id":%q,"guest_mac":%q,"host_dev_name":%q}`, name, g.spec.Extra[i].MAC, extraTap)})
+	}
+	requests = append(requests,
 		struct{ path, body string }{"/vsock", fmt.Sprintf(`{"guest_cid":3,"uds_path":%q}`, g.vsockPath())},
 		struct{ path, body string }{"/actions", `{"action_type":"InstanceStart"}`},
 	)

@@ -1,12 +1,12 @@
 package placement
 
 import (
-	"context"
 	"errors"
 	"net/netip"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
-
-	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 func TestGuestMACFollowsTheCloudsPrefix(t *testing.T) {
@@ -41,14 +41,33 @@ func TestMatchesLabelsAsksForEveryWantedLabel(t *testing.T) {
 
 // A guest's filesystem is its own disk: a workload that binds host paths
 // into it is refused rather than run without them.
-func TestMicroVMBackendRefusesBindMounts(t *testing.T) {
-	b := NewMicroVMBackend(nil, "")
-	_, err := b.Place(context.Background(), Workload{Name: "site", Network: "n", IPv4Address: "10.0.0.2", Binds: []string{"/srv/home:/home"}}, sim.NoopSink{})
-	if !errors.Is(err, ErrBindMounts) {
-		t.Fatalf("Place with binds: %v", err)
+func TestMicroVMBackendServesHostDirectoryBindsAsShares(t *testing.T) {
+	home := t.TempDir()
+	file := filepath.Join(home, "one.txt")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	_, err = b.PlaceMember(context.Background(), "owner", Workload{Name: "sidecar", Binds: []string{"vol:/data"}}, sim.NoopSink{})
-	if !errors.Is(err, ErrBindMounts) {
-		t.Fatalf("PlaceMember with binds: %v", err)
+	var s shares
+	mounts, err := s.mountsFor(Workload{Name: "site", Binds: []string{home + ":/home", home + ":/srv/ro:ro"}}, "10.0.0.1")
+	if err != nil {
+		t.Fatalf("host directory binds: %v", err)
+	}
+	if len(mounts) != 2 || mounts[0].Path != "/home" || mounts[1].Path != "/srv/ro" || !mounts[1].ReadOnly || mounts[0].ReadOnly {
+		t.Fatalf("mounts %+v", mounts)
+	}
+	if mounts[0].Port == 0 || mounts[0].Port != mounts[1].Port {
+		t.Fatalf("the shares are served on ports %d and %d", mounts[0].Port, mounts[1].Port)
+	}
+	if !strings.HasPrefix(mounts[0].Server, "10.0.0.1:/") || mounts[0].Server == mounts[1].Server {
+		t.Fatalf("the shares are served as %s and %s", mounts[0].Server, mounts[1].Server)
+	}
+	again, err := s.mountsFor(Workload{Name: "sidecar", Binds: []string{home + ":/data"}}, "10.0.0.1")
+	if err != nil || again[0].Server != mounts[0].Server {
+		t.Fatalf("the same directory bound again is served as %+v (%v), want %s", again, err, mounts[0].Server)
+	}
+	for _, bind := range []string{"vol:/data", file + ":/etc/one.txt", filepath.Join(home, "missing") + ":/m", "/home"} {
+		if _, err := s.mountsFor(Workload{Name: "w", Binds: []string{bind}}, "10.0.0.1"); !errors.Is(err, ErrBindMounts) {
+			t.Fatalf("bind %q: %v, want ErrBindMounts", bind, err)
+		}
 	}
 }

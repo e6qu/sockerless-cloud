@@ -8,7 +8,6 @@ import (
 	"maps"
 	"net"
 	"net/http"
-	"net/netip"
 	"reflect"
 	"sort"
 	"strconv"
@@ -1218,6 +1217,13 @@ func (inst *azureFunctionInstance) siteNetworkLocked(ctx context.Context, site *
 	if err != nil {
 		return azureWorkloadNetwork{}, "", fmt.Errorf("attach site %s to virtual network %s: %w", site.Name, vnet.ID, err)
 	}
+	prefix, err := azureVNetIPv4Prefix(vnet)
+	if err != nil {
+		return azureWorkloadNetwork{}, "", err
+	}
+	if err := azureJoinMicroVMNetwork(ctx, placementWeb, vnet.ID, prefix, network.Network); err != nil {
+		return azureWorkloadNetwork{}, "", fmt.Errorf("attach site %s to virtual network %s: %w", site.Name, vnet.ID, err)
+	}
 	subnetID := ""
 	for _, conn := range siteVnetConnections(site.ID) {
 		if strings.Contains(conn.Properties.VnetResourceID, "/subnets/") &&
@@ -1242,24 +1248,45 @@ func (inst *azureFunctionInstance) siteNetworkCurrentLocked() bool {
 	return len(inst.extraNetworks) == max(len(inst.vnets)-1, 0)
 }
 
-// joinExtraNetworksLocked attaches the container to the engine network of
-// every further virtual network the site integrated into through a classic
-// connection, at an address leased in that connection's subnet. Caller holds
+// extraNetworksLocked leases the workload an address on the engine network
+// of every further virtual network the site integrated into through a
+// classic connection, in that connection's subnet, and returns the leases
+// with the attachments the placement makes: a container joins each network
+// after it starts, and a guest boots with an interface on each. A further
+// network's agent joins it here for a service on guests. Caller holds
 // inst.mu.
-func (inst *azureFunctionInstance) joinExtraNetworksLocked(ctx context.Context, site *Site, containerID string) error {
+func (inst *azureFunctionInstance) extraNetworksLocked(ctx context.Context, site *Site, owner string) ([]siteExtraNetwork, []sim.NetworkAttachment, error) {
 	if len(inst.vnets) < 2 {
-		return nil
+		return nil, nil, nil
+	}
+	var leases []siteExtraNetwork
+	var attachments []sim.NetworkAttachment
+	release := func() {
+		for _, lease := range leases {
+			lease.releaseSubnetLease()
+		}
 	}
 	for _, vnetID := range inst.vnets[1:] {
 		vnet, ok := azureVnetByID(vnetID)
 		if !ok {
-			return fmt.Errorf("virtual network %s of site %s no longer exists", vnetID, site.Name)
+			release()
+			return nil, nil, fmt.Errorf("virtual network %s of site %s no longer exists", vnetID, site.Name)
 		}
 		network, err := azureVNetNetwork(ctx, vnet.ID)
 		if err != nil {
-			return fmt.Errorf("attach site %s to virtual network %s: %w", site.Name, vnet.ID, err)
+			release()
+			return nil, nil, fmt.Errorf("attach site %s to virtual network %s: %w", site.Name, vnet.ID, err)
 		}
-		lease := siteExtraNetwork{network: network.Network}
+		prefix, err := azureVNetIPv4Prefix(vnet)
+		if err != nil {
+			release()
+			return nil, nil, err
+		}
+		if err := azureJoinMicroVMNetwork(ctx, placementWeb, vnet.ID, prefix, network.Network); err != nil {
+			release()
+			return nil, nil, fmt.Errorf("attach site %s to virtual network %s: %w", site.Name, vnet.ID, err)
+		}
+		lease := siteExtraNetwork{network: network.Network, owner: owner}
 		for _, conn := range siteVnetConnections(site.ID) {
 			if strings.Contains(conn.Properties.VnetResourceID, "/subnets/") &&
 				strings.EqualFold(azureVNetIDOfSubnet(conn.Properties.VnetResourceID), vnet.ID) {
@@ -1267,33 +1294,31 @@ func (inst *azureFunctionInstance) joinExtraNetworksLocked(ctx context.Context, 
 				break
 			}
 		}
+		// A connection naming the virtual network and no subnet leaves the
+		// address to the engine, which a guest cannot take: its backend
+		// refuses the placement.
 		if lease.subnetID != "" {
-			if lease.address, err = azureLeaseWorkloadAddress(lease.subnetID, containerID); err != nil {
-				return err
+			if lease.address, err = azureLeaseWorkloadAddress(lease.subnetID, owner); err != nil {
+				release()
+				return nil, nil, err
 			}
 		}
-		var at netip.Addr
-		if lease.address != "" {
-			at = netip.MustParseAddr(lease.address)
-		}
-		if err := sim.ConnectContainerToNetworkAt(containerID, network.Network, nil, at); err != nil {
-			if lease.address != "" {
-				azureReleaseWorkloadAddress(lease.subnetID, containerID, lease.address)
-			}
-			return fmt.Errorf("attach site %s to virtual network %s: %w", site.Name, vnet.ID, err)
-		}
-		if lease.address == "" {
-			lease.address = sim.ContainerIPv4On(ctx, containerID, network.Network).String()
-		}
-		inst.extraNetworks = append(inst.extraNetworks, lease)
+		leases = append(leases, lease)
+		attachments = append(attachments, sim.NetworkAttachment{Network: network.Network, IPv4Address: lease.address})
 	}
-	return nil
+	return leases, attachments, nil
 }
 
-// siteExtraNetwork is a further virtual network the site's container joined,
-// and the address it holds there.
+// siteExtraNetwork is a further virtual network the site's workload has an
+// interface on, the address it holds there, and the lease's owner.
 type siteExtraNetwork struct {
-	network, subnetID, address string
+	network, subnetID, address, owner string
+}
+
+func (extra siteExtraNetwork) releaseSubnetLease() {
+	if extra.subnetID != "" {
+		azureReleaseWorkloadAddress(extra.subnetID, extra.owner, extra.address)
+	}
 }
 
 var azureFunctionInstances = struct {
@@ -1527,6 +1552,16 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 		releaseLease()
 		return err
 	}
+	extraNetworks, attachments, err := inst.extraNetworksLocked(ctx, site, name)
+	if err != nil {
+		releaseLease()
+		return err
+	}
+	releaseExtra := func() {
+		for _, extra := range extraNetworks {
+			extra.releaseSubnetLease()
+		}
+	}
 	handle, err := backend.Place(ctx, sim.ContainerConfig{
 		Image:        localImage,
 		Architecture: platform,
@@ -1541,6 +1576,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 		},
 		Network:           network.Network,
 		IPv4Address:       address,
+		ExtraNetworks:     attachments,
 		DNS:               network.resolvers(),
 		ExtraHosts:        workloadhost.ExtraHosts(),
 		PublishPorts:      []int{port},
@@ -1548,10 +1584,17 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 		CancelGracePeriod: siteStopGrace(site),
 	}, sink)
 	if err != nil {
+		releaseExtra()
 		releaseLease()
 		return fmt.Errorf("start site container: %w", err)
 	}
 	azureReleaseOnExit(handle.Exited(), releaseLease)
+	for i := range extraNetworks {
+		if extraNetworks[i].address == "" {
+			extraNetworks[i].address = sim.ContainerIPv4On(ctx, handle.ID(), extraNetworks[i].network).String()
+		}
+	}
+	inst.extraNetworks = extraNetworks
 	containerID := handle.ID()
 	exit := newContainerExit(handle)
 	stop := func() {
@@ -1576,16 +1619,6 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 		stop()
 		return err
 	}
-	inst.extraNetworks = nil
-	if err := inst.joinExtraNetworksLocked(ctx, site, containerID); err != nil {
-		for _, handle := range sidecarHandles {
-			handle.Cancel()
-		}
-		stop()
-		inst.releaseExtraNetworksLocked(containerID)
-		return err
-	}
-
 	inst.handle = handle
 	inst.containerID = containerID
 	inst.sidecarHandles = sidecarHandles
@@ -1601,13 +1634,11 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	return nil
 }
 
-// releaseExtraNetworksLocked returns the leases the container held on its
+// releaseExtraNetworksLocked returns the leases the workload held on its
 // further virtual networks. Caller holds inst.mu.
-func (inst *azureFunctionInstance) releaseExtraNetworksLocked(containerID string) {
+func (inst *azureFunctionInstance) releaseExtraNetworksLocked() {
 	for _, extra := range inst.extraNetworks {
-		if extra.subnetID != "" {
-			azureReleaseWorkloadAddress(extra.subnetID, containerID, extra.address)
-		}
+		extra.releaseSubnetLease()
 	}
 	inst.extraNetworks = nil
 }
@@ -1679,7 +1710,7 @@ func (inst *azureFunctionInstance) teardownLocked() {
 		inst.handle.Cancel()
 		<-inst.handle.Exited()
 	}
-	inst.releaseExtraNetworksLocked(inst.containerID)
+	inst.releaseExtraNetworksLocked()
 	inst.handle = nil
 	inst.containerID = ""
 	inst.sidecarHandles = nil

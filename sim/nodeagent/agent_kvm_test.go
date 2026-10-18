@@ -309,6 +309,51 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 		t.Fatalf("a tap outlived its guest:\n%s", links.Stdout)
 	}
 
+	// A bind of a host directory reaches a guest as a file share the
+	// simulator serves over NFSv4 at the network's gateway: the guest reads
+	// what the host wrote, the host reads what the guest wrote, and a
+	// read-only bind refuses the guest's write.
+	shared := t.TempDir()
+	if err := os.WriteFile(filepath.Join(shared, "from-host"), []byte("host wrote this\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sharing, err := backend.Place(t.Context(), placement.Workload{
+		Image:        memberImage,
+		Architecture: platform,
+		Name:         "sockerless-sim-kvm-share",
+		Hostname:     "share",
+		Network:      networkName,
+		IPv4Address:  "10.79.0.11",
+		Command:      []string{"sleep"},
+		Args:         []string{"300"},
+		Binds:        []string{shared + ":/mnt/shared", shared + ":/mnt/readonly:ro"},
+		MemoryBytes:  256 << 20,
+		NanoCPU:      1_000_000_000,
+	}, sim.NoopSink{})
+	if err != nil {
+		t.Fatalf("place with binds: %v", err)
+	}
+	shareCtx, cancelShare := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancelShare()
+	if out, err := sharing.Exec(shareCtx, []string{"cat", "/mnt/shared/from-host"}); err != nil || strings.TrimSpace(out.Stdout) != "host wrote this" {
+		t.Fatalf("the guest read %+v (%v) from the share", out, err)
+	}
+	if out, err := sharing.Exec(shareCtx, []string{"sh", "-c", "echo guest wrote this > /mnt/shared/from-guest && mkdir /mnt/shared/dir && mv /mnt/shared/from-guest /mnt/shared/dir/moved && ls /mnt/shared/dir"}); err != nil || out.ExitCode != 0 || strings.TrimSpace(out.Stdout) != "moved" {
+		t.Fatalf("the guest's writes to the share: %+v (%v)", out, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(shared, "dir", "moved")); err != nil || string(data) != "guest wrote this\n" {
+		t.Fatalf("the host reads %q (%v) of what the guest wrote", data, err)
+	}
+	if out, err := sharing.Exec(shareCtx, []string{"sh", "-c", "echo no > /mnt/readonly/refused"}); err != nil || out.ExitCode == 0 {
+		t.Fatalf("a write to the read-only share: %+v (%v)", out, err)
+	}
+	if out, err := sharing.Exec(shareCtx, []string{"cat", "/mnt/readonly/dir/moved"}); err != nil || strings.TrimSpace(out.Stdout) != "guest wrote this" {
+		t.Fatalf("the read-only share reads %+v (%v)", out, err)
+	}
+	if err := backend.Remove(t.Context(), sharing.ID()); err != nil {
+		t.Fatalf("remove the sharing guest: %v", err)
+	}
+
 	// A cloud deletes a network once nothing of its own is on it, and the
 	// engine removes no network a container is still on: the agent leaves
 	// the network at the cloud's word, its guests' bridge with it, and a
@@ -358,6 +403,56 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("round %d: the engine did not remove %s once the agent left it: %v", round, otherName, err)
 		}
+	}
+
+	// A guest on two networks: its first interface on the agent's network
+	// and a second on the other, each at its address, so it reaches the
+	// agent on both while its route out stays on the first.
+	if _, err := sim.EnsureCloudNetwork(t.Context(), sim.CloudNetwork{Name: otherName, CIDR: netip.MustParsePrefix("10.79.1.0/24")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.Join(t.Context(), otherName, netip.MustParseAddr("10.79.1.3")); err != nil {
+		t.Fatalf("join %s: %v", otherName, err)
+	}
+	twoNets, err := backend.Place(t.Context(), placement.Workload{
+		Image:         memberImage,
+		Architecture:  platform,
+		Name:          "sockerless-sim-kvm-two-networks",
+		Hostname:      "two",
+		Network:       networkName,
+		IPv4Address:   "10.79.0.12",
+		ExtraNetworks: []sim.NetworkAttachment{{Network: otherName, IPv4Address: "10.79.1.12"}},
+		Command:       []string{"sleep"},
+		Args:          []string{"300"},
+		MemoryBytes:   256 << 20,
+		NanoCPU:       1_000_000_000,
+	}, sim.NoopSink{})
+	if err != nil {
+		t.Fatalf("place on two networks: %v", err)
+	}
+	twoCtx, cancelTwo := context.WithTimeout(t.Context(), time.Minute)
+	defer cancelTwo()
+	for _, agentAddress := range []string{"10.79.0.3", "10.79.1.3"} {
+		if out, err := twoNets.Exec(twoCtx, []string{"ping", "-c", "1", "-W", "3", agentAddress}); err != nil || out.ExitCode != 0 {
+			t.Fatalf("the guest on two networks does not reach the agent at %s: %+v (%v)", agentAddress, out, err)
+		}
+	}
+	if out, err := twoNets.Exec(twoCtx, []string{"ip", "-o", "-4", "addr", "show", "eth1"}); err != nil || !strings.Contains(out.Stdout, "10.79.1.12/24") {
+		t.Fatalf("the guest's second interface: %+v (%v)", out, err)
+	}
+	if out, err := twoNets.Exec(twoCtx, []string{"ip", "route", "show", "default"}); err != nil || !strings.Contains(out.Stdout, "dev eth0") {
+		t.Fatalf("the guest's default route: %+v (%v)", out, err)
+	}
+	if err := backend.Remove(t.Context(), twoNets.ID()); err != nil {
+		t.Fatalf("remove the guest on two networks: %v", err)
+	}
+	if err := backend.Leave(t.Context(), otherName); err != nil {
+		t.Fatalf("leave %s: %v", otherName, err)
+	}
+	removeCtx, cancelRemove := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancelRemove()
+	if err := sim.RemoveDockerNetworkContext(removeCtx, otherName); err != nil {
+		t.Fatalf("the engine did not remove %s once the agent left it: %v", otherName, err)
 	}
 }
 

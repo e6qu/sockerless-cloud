@@ -33,12 +33,23 @@ type guestSpec struct {
 	WorkingDir string            `json:"workingDir"`
 	User       string            `json:"user"`
 	Network    guestNetwork      `json:"network"`
+	Extra      []guestNetwork    `json:"extraNetworks"`
 	VCPUs      int               `json:"vcpus"`
 	MemoryMiB  int               `json:"memoryMiB"`
 	Seed       []seedFile        `json:"seed"`
 	StopGrace  time.Duration     `json:"stopGrace"`
 	Ingress    []packetRule      `json:"ingress"`
 	DiskSlots  int               `json:"diskSlots"`
+	Mounts     []shareMount      `json:"mounts"`
+}
+
+// shareMount is a file share guestinit mounts at Path: an NFSv4 export at
+// Server (host:/export) on Port.
+type shareMount struct {
+	Server   string `json:"server"`
+	Port     int    `json:"port"`
+	Path     string `json:"path"`
+	ReadOnly bool   `json:"readOnly"`
 }
 
 type guestNetwork struct {
@@ -68,6 +79,7 @@ type guestState struct {
 	Status    string            `json:"status"`
 	Labels    map[string]string `json:"labels,omitempty"`
 	Address   string            `json:"address"`
+	Gateway   string            `json:"gateway,omitempty"`
 	ExitCode  int               `json:"exitCode"`
 	Error     string            `json:"error,omitempty"`
 	StartedAt time.Time         `json:"startedAt"`
@@ -111,6 +123,8 @@ type guest struct {
 	stoppedAt time.Time
 	rootfs    bool
 	tap       string
+	// extraTaps are the taps of the guest's further interfaces, in order.
+	extraTaps []string
 	cmd       *exec.Cmd
 	// exited closes when the machine has stopped; processDone when the
 	// first process has ended, which the machine outlives while members run.
@@ -159,6 +173,17 @@ func (a *agent) create(spec guestSpec) (*guest, error) {
 	}
 	if _, err := net.ParseMAC(spec.Network.MAC); err != nil {
 		return nil, fmt.Errorf("mac %q: %w", spec.Network.MAC, err)
+	}
+	for i, extra := range spec.Extra {
+		if _, err := netip.ParsePrefix(extra.Address); err != nil {
+			return nil, fmt.Errorf("interface eth%d: address %q: %w", i+1, extra.Address, err)
+		}
+		if _, err := net.ParseMAC(extra.MAC); err != nil {
+			return nil, fmt.Errorf("interface eth%d: mac %q: %w", i+1, extra.MAC, err)
+		}
+		if _, err := netip.ParseAddr(extra.AgentAddress); err != nil {
+			return nil, fmt.Errorf("interface eth%d: agent address %q: %w", i+1, extra.AgentAddress, err)
+		}
 	}
 	if _, err := netip.ParseAddr(spec.Network.AgentAddress); err != nil {
 		return nil, fmt.Errorf("agent address %q: %w", spec.Network.AgentAddress, err)
@@ -231,7 +256,8 @@ func validID(id string) bool {
 func (g *guest) state() guestState {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	state := guestState{ID: g.spec.ID, Status: g.status, Labels: g.spec.Labels, Address: g.address.Addr().String(), ExitCode: g.exitCode, Error: g.err, StartedAt: g.startedAt, ExitedAt: g.exitedAt, StoppedAt: g.stoppedAt}
+	state := guestState{ID: g.spec.ID, Status: g.status, Labels: g.spec.Labels, Gateway: g.spec.Network.Gateway,
+		Address: g.address.Addr().String(), ExitCode: g.exitCode, Error: g.err, StartedAt: g.startedAt, ExitedAt: g.exitedAt, StoppedAt: g.stoppedAt}
 	for _, name := range g.memberOrder {
 		state.Members = append(state.Members, g.members[name].state())
 	}
@@ -308,9 +334,21 @@ func (g *guest) guestConfig() []byte {
 		"user":       g.spec.User,
 		"dns":        g.spec.Network.DNS,
 		"stopGrace":  g.spec.StopGrace,
+		"mounts":     g.spec.Mounts,
+		"interfaces": g.interfaces(),
 	}
 	data, _ := json.Marshal(cfg)
 	return data
+}
+
+// interfaces are the guest's further interfaces, eth1 onwards, with the
+// address each takes; eth0 is configured by the kernel's command line.
+func (g *guest) interfaces() []map[string]string {
+	out := make([]map[string]string, 0, len(g.spec.Extra))
+	for i, extra := range g.spec.Extra {
+		out = append(out, map[string]string{"name": fmt.Sprintf("eth%d", i+1), "address": extra.Address})
+	}
+	return out
 }
 
 // hosts are the guest's extra hosts entries with the engine's host-gateway
@@ -473,6 +511,18 @@ func (g *guest) start(ctx context.Context) error {
 	g.mu.Lock()
 	g.tap = tap
 	g.mu.Unlock()
+	var extraTaps []string
+	for i, extra := range g.spec.Extra {
+		extraTap, err := g.agent.net.attachTap(ctx, fmt.Sprintf("%s-%d", g.spec.ID, i+1), extra.AgentAddress)
+		if err != nil {
+			g.teardown()
+			return err
+		}
+		extraTaps = append(extraTaps, extraTap)
+		g.mu.Lock()
+		g.extraTaps = extraTaps
+		g.mu.Unlock()
+	}
 	if err := g.applyIngress(ctx, g.spec.Ingress); err != nil {
 		g.teardown()
 		return err
@@ -491,7 +541,7 @@ func (g *guest) start(ctx context.Context) error {
 		}
 		g.disks = append(g.disks, path)
 	}
-	cmd, err := g.launchFirecracker(ctx, tap)
+	cmd, err := g.launchFirecracker(ctx, tap, extraTaps)
 	if err != nil {
 		g.teardown()
 		return err
@@ -726,12 +776,17 @@ func (g *guest) teardown() {
 	g.mu.Lock()
 	tap := g.tap
 	g.tap = ""
+	extraTaps := g.extraTaps
+	g.extraTaps = nil
 	listener := g.exitListener
 	g.exitListener = nil
 	g.mu.Unlock()
 	if tap != "" {
 		log.Printf("nodeagent: guest %s: tap %s detached", g.spec.ID, tap)
 		g.agent.net.detachTap(tap)
+	}
+	for _, extraTap := range extraTaps {
+		g.agent.net.detachTap(extraTap)
 	}
 	if listener != nil {
 		_ = listener.Close()

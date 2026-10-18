@@ -3392,3 +3392,47 @@ their matrix rows name (`deadline`), and a failed SDK step dumps the
 simulator's requests in flight and goroutines
 (`scripts/dump-sim-diagnostics.sh`), since the simulator outlives the test
 binary's deadline panic.
+
+### File shares to guests
+
+A bind mount gives a container a host directory; a guest's filesystem is
+the disk built from its image, so a bind has to cross the network. The
+Firecracker CI kernel the agent boots carries one network filesystem, the
+NFSv4 client — no NFSv3, 9p, CIFS or FUSE — and no pure-Go server speaks
+NFSv4 read-write, so `sim/fileshare` is one: NFSv4.0 (RFC 7530) over TCP on
+one port, its ONC RPC and XDR by hand, AUTH_SYS with root squashing off,
+the compound operations a Linux client uses (lookup, open with every create
+mode, read, write, commit, readdir, rename, link, remove, setattr, access,
+readlink, byte-range locks with real conflicts, the client-id handshake),
+persistent filehandles of the export's index and the inode, stale once the
+file is gone, and exports of host directories read-write or read-only. The
+server runs inside the simulator process, which holds the directories, and
+listens on an ephemeral port every engine network's gateway reaches, so the
+backend turns each bind of a host directory into an export named by the
+path's hash and a mount the guest makes from its gateway (`GuestSpec.Mounts`,
+`MemberSpec.Mounts`); guestinit mounts them before the process starts, into
+a member's root for a member, read-only where the bind was. An engine
+volume — a sitecontainer's, an Amazon ECS task's, an ACR task's — lives
+where this process cannot read it, and a single file has no export, so
+those binds still refuse a guest (`ErrBindMounts`). The KVM proof places a
+guest with a bind and a read-only bind of one directory, reads what the
+host wrote, writes, makes a directory and renames across it from the
+guest, has the host read the result, and has the read-only mount refuse a
+write; the `web-microvm` shard runs App Service's site, Kudu, WebJobs,
+container log and slot tests on guests, whose `/home` the site, Kudu and
+the WebJobs now share through the server.
+
+A workload's further networks are placement now. A site integrated into
+more than one virtual network used to have its container joined to each
+further network after it started (`sim.ConnectContainerToNetworkAt` on
+the container ID), which a guest has no equivalent of: Firecracker takes
+its interfaces before boot. `ContainerConfig.ExtraNetworks` names each
+further network and the address the workload takes there; the container
+backend joins them after the start, and the microVM backend gives the
+guest a tap on each network's bridge and an interface per network
+(`GuestSpec.ExtraNetworks`), which guestinit configures over rtnetlink —
+address and link up, no route out through it, so the default route stays
+on the first interface as a container's does. App Service leases the
+addresses ahead of the placement, under the workload's name, and the
+agent joins each further virtual network for a service on guests. The KVM
+proof boots a guest on two networks and has it reach the agent on both.

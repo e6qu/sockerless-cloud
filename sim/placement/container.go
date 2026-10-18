@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"time"
 
 	"github.com/moby/moby/api/pkg/stdcopy"
@@ -24,6 +25,19 @@ func (ContainerBackend) Place(ctx context.Context, w Workload, sink sim.LogSink)
 	h, err := sim.StartContainerSyncContext(ctx, w, sink)
 	if err != nil {
 		return nil, err
+	}
+	for _, extra := range w.ExtraNetworks {
+		var at netip.Addr
+		if extra.IPv4Address != "" {
+			if at, err = netip.ParseAddr(extra.IPv4Address); err != nil {
+				h.Cancel()
+				return nil, fmt.Errorf("join %s at %q: %w", extra.Network, extra.IPv4Address, err)
+			}
+		}
+		if err := sim.ConnectContainerToNetworkAt(h.ContainerID, extra.Network, nil, at); err != nil {
+			h.Cancel()
+			return nil, fmt.Errorf("join %s: %w", extra.Network, err)
+		}
 	}
 	return containerHandle{h, w.CancelGracePeriod}, nil
 }

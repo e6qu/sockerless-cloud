@@ -49,6 +49,17 @@ type guestConfig struct {
 	User       string            `json:"user"`
 	DNS        []string          `json:"dns"`
 	StopGrace  time.Duration     `json:"stopGrace"`
+	Mounts     []shareMount      `json:"mounts"`
+	Interfaces []guestInterface  `json:"interfaces"`
+}
+
+// shareMount is a file share the guest mounts at Path over its network: an
+// NFSv4 export at Server (host:/export) on Port.
+type shareMount struct {
+	Server   string `json:"server"`
+	Port     int    `json:"port"`
+	Path     string `json:"path"`
+	ReadOnly bool   `json:"readOnly"`
 }
 
 type logLine struct {
@@ -80,6 +91,14 @@ func run() (int, error) {
 	}
 	writeResolvConf(cfg.DNS)
 	_ = os.WriteFile("/etc/hosts", []byte(hostsFile(cfg)), 0o644)
+	if err := configureInterfaces(cfg.Interfaces); err != nil {
+		reportExit("", 127, err.Error(), 0)
+		return 127, err
+	}
+	if err := mountShares(cfg.Mounts, "/", cfg.Address); err != nil {
+		reportExit("", 127, err.Error(), 0)
+		return 127, err
+	}
 	logs := newLogBook()
 	first := newProcess("", "", processSpec{
 		Command: cfg.Command, Args: cfg.Args, Env: cfg.Env, WorkingDir: cfg.WorkingDir, User: cfg.User, StopGrace: cfg.StopGrace,
@@ -91,7 +110,7 @@ func run() (int, error) {
 		reportExit("", 127, err.Error(), 0)
 		return 127, err
 	}
-	group := newMembers(first, logs)
+	group := newMembers(first, logs, cfg.Address)
 	go serveControl(group)
 	result := first.wait()
 	reportExit("", result.code, result.message, logs.count(""))
@@ -114,6 +133,31 @@ func mountKernelFilesystems() {
 	}
 	_ = os.MkdirAll("/dev/pts", 0o755)
 	_ = unix.Mount("devpts", "/dev/pts", "devpts", 0, "")
+}
+
+// mountShares mounts each file share under root with the kernel's NFSv4
+// client, the one network filesystem the guest kernel carries: version 4.0
+// over TCP at the share's port, AUTH_SYS, from the guest's own address.
+func mountShares(mounts []shareMount, root, address string) error {
+	for _, m := range mounts {
+		host, _, ok := strings.Cut(m.Server, ":")
+		if !ok || host == "" || m.Port == 0 || m.Path == "" {
+			return fmt.Errorf("mount %+v names no server, port or path", m)
+		}
+		target := filepath.Join(root, m.Path)
+		if err := os.MkdirAll(target, 0o755); err != nil {
+			return err
+		}
+		var flags uintptr
+		if m.ReadOnly {
+			flags = unix.MS_RDONLY
+		}
+		data := fmt.Sprintf("addr=%s,clientaddr=%s,vers=4.0,proto=tcp,port=%d,sec=sys,hard,timeo=600,retrans=2", host, address, m.Port)
+		if err := unix.Mount(m.Server, target, "nfs4", flags, data); err != nil {
+			return fmt.Errorf("mount %s at %s: %w", m.Server, target, err)
+		}
+	}
+	return nil
 }
 
 func readConfig() (guestConfig, error) {

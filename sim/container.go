@@ -53,6 +53,12 @@ func parsePlatform(s string) (*ocispec.Platform, error) {
 // pass it through. Empty string means "use the image's default" which
 // in practice resolves to the host arch via Docker (treat that as a
 // not-yet-migrated caller).
+// NetworkAttachment is a further network a workload joins at an address.
+type NetworkAttachment struct {
+	Network     string
+	IPv4Address string
+}
+
 type ContainerConfig struct {
 	Image        string // container image (e.g., "alpine:latest")
 	Architecture string // OS/arch (e.g. "linux/arm64"); see field-level docstring above
@@ -73,6 +79,11 @@ type ContainerConfig struct {
 	// the network's range: the address the cloud API reports for the
 	// workload's interface. Empty lets the engine pick one.
 	IPv4Address string
+	// ExtraNetworks are further engine networks the workload has an
+	// interface on, each at a fixed address in the network's range, with no
+	// route out through it: a site integrated into more than one virtual
+	// network.
+	ExtraNetworks []NetworkAttachment
 	// Hostname is the name the container sees as its own; empty leaves the
 	// engine's default.
 	Hostname string

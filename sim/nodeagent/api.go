@@ -26,7 +26,11 @@ type GuestSpec struct {
 	User string `json:"user,omitempty"`
 	// Network places the guest on the agent's network at a fixed address.
 	Network GuestNetwork `json:"network"`
-	VCPUs   int          `json:"vcpus,omitempty"`
+	// ExtraNetworks are further networks the guest has an interface on,
+	// eth1 onwards, each at its address, with no route out through it: a
+	// container's further engine networks.
+	ExtraNetworks []GuestNetwork `json:"extraNetworks,omitempty"`
+	VCPUs         int            `json:"vcpus,omitempty"`
 	// MemoryMiB is the guest's memory; zero takes 512.
 	MemoryMiB int `json:"memoryMiB,omitempty"`
 	// Seed files are written into the root filesystem before it boots.
@@ -41,6 +45,20 @@ type GuestSpec struct {
 	// DiskSlots is how many block devices beyond the root the guest can take
 	// while it runs, members' root filesystems among them; zero takes four.
 	DiskSlots int `json:"diskSlots,omitempty"`
+	// Mounts are the file shares guestinit mounts before the first process
+	// starts: what a bind mount gives a container.
+	Mounts []Mount `json:"mounts,omitempty"`
+}
+
+// Mount is a file share the guest mounts over its network at Path: an
+// NFSv4 export the simulator serves at Server's port, read-only when the
+// bind was.
+type Mount struct {
+	// Server is host:/export, the address the guest reaches the share at.
+	Server   string `json:"server"`
+	Port     int    `json:"port"`
+	Path     string `json:"path"`
+	ReadOnly bool   `json:"readOnly,omitempty"`
 }
 
 // MemberSpec is a process tree the guest runs beside its first process from
@@ -63,6 +81,9 @@ type MemberSpec struct {
 	Seed []SeedFile `json:"seed,omitempty"`
 	// StopGrace is how long the process gets between SIGTERM and SIGKILL.
 	StopGrace time.Duration `json:"stopGrace,omitempty"`
+	// Mounts are the file shares mounted into the member's root before its
+	// process starts.
+	Mounts []Mount `json:"mounts,omitempty"`
 }
 
 // InitProcess selects the guest's first process where a member name selects
@@ -116,16 +137,19 @@ const (
 // ExitedAt is when the first process ended, zero while it runs, and the
 // machine runs on past it while members do.
 type GuestState struct {
-	ID        string            `json:"id"`
-	Status    GuestStatus       `json:"status"`
-	Labels    map[string]string `json:"labels,omitempty"`
-	Address   string            `json:"address"`
-	ExitCode  int               `json:"exitCode"`
-	Error     string            `json:"error,omitempty"`
-	StartedAt time.Time         `json:"startedAt"`
-	ExitedAt  time.Time         `json:"exitedAt,omitempty"`
-	StoppedAt time.Time         `json:"stoppedAt"`
-	Members   []MemberState     `json:"members,omitempty"`
+	ID      string            `json:"id"`
+	Status  GuestStatus       `json:"status"`
+	Labels  map[string]string `json:"labels,omitempty"`
+	Address string            `json:"address"`
+	// Gateway is the guest's network's gateway, where a share the
+	// simulator serves is reached.
+	Gateway   string        `json:"gateway,omitempty"`
+	ExitCode  int           `json:"exitCode"`
+	Error     string        `json:"error,omitempty"`
+	StartedAt time.Time     `json:"startedAt"`
+	ExitedAt  time.Time     `json:"exitedAt,omitempty"`
+	StoppedAt time.Time     `json:"stoppedAt"`
+	Members   []MemberState `json:"members,omitempty"`
 }
 
 // MemberState is a member as the agent sees it.
