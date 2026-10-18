@@ -46,8 +46,13 @@ const gcpInstanceReadyPoll = 250 * time.Millisecond
 
 // gcpStartupScriptPath is where the instance's startup-script metadata is
 // placed for the script runner, as google_metadata_script_runner writes the
-// script it fetched before running it.
-const gcpStartupScriptPath = "/tmp/metadata-scripts/startup-script"
+// script it fetched before running it. It sits with the runner under the
+// guest agent's state directory, on the root disk: a guest mounts tmpfs over
+// /tmp and /run at boot, which hides anything seeded there.
+const gcpStartupScriptPath = gcpGuestAgentDir + "/startup-script"
+
+// gcpGuestAgentDir is the directory the guest agent keeps its state in.
+const gcpGuestAgentDir = "/var/lib/google-guest-agent"
 
 // gcpStartupScriptRunner is the user data every instance boots with: what
 // google_metadata_script_runner does at startup, with the script's output
@@ -97,7 +102,7 @@ func gcpInstanceWorkload(inst ComputeInstance, netw gcpWorkloadNetwork, image gc
 		Address:      netw.Address,
 		DNS:          netw.dns(),
 		UserData:     []byte(gcpStartupScriptRunner),
-		UserDataPath: "/run/google-startup-script-runner",
+		UserDataPath: gcpGuestAgentDir + "/startup-script-runner",
 		// Compute Engine runs startup-script at every boot, not once.
 		UserDataEveryBoot: true,
 		Env:               netw.env(),

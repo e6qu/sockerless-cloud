@@ -1618,7 +1618,11 @@ jobs:
           echo "digest=$({ printf '%s' "$images"; cat scripts/warm-base-images.sh; } | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
           echo "$images"
       - name: Restore the base images
-        uses: actions/cache@v6.1.0
+        # Restore only: when the archive is missing, the fetch takes this job
+        # most of its budget, and saving the fetched set at the end of the
+        # job (2.7 GB for AWS) ran past the limit after the tests had passed.
+        # The simulator suites and the warm job on main save the archive.
+        uses: actions/cache/restore@v6.1.0
         with:
           path: ~/.cache/sockerless/base-images.tar
           # One entry per cloud, keyed on the image set itself, so every job
