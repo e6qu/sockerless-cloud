@@ -270,13 +270,22 @@ func (p *process) start() error {
 	go func() { defer pipes.Done(); p.copyLines("stdout", stdout); _ = stdout.Close() }()
 	go func() { defer pipes.Done(); p.copyLines("stderr", stderr); _ = stderr.Close() }()
 	go func() {
-		pipes.Wait()
+		// The process's exit ends its tree, as a container ends when its
+		// first process does: the children it left behind would otherwise
+		// hold its output open and run on unowned.
 		status := exits.wait(pid)
+		killGroup(pid)
+		pipes.Wait()
 		_ = cmd.Process.Release()
 		p.result = exitResult{code: exitCode(status)}
 		close(p.done)
 	}()
 	return nil
+}
+
+// killGroup kills every process left in the group a process led.
+func killGroup(pid int) {
+	_ = syscall.Kill(-pid, syscall.SIGKILL)
 }
 
 // command builds the exec.Cmd for argv in the process's root: the program
@@ -291,7 +300,9 @@ func (p *process) command(command, args []string, env []string) (*exec.Cmd, erro
 		return nil, err
 	}
 	cmd := &exec.Cmd{Path: path, Args: append(append([]string{command[0]}, command[1:]...), args...), Env: env}
-	attr := &syscall.SysProcAttr{}
+	// Each process leads a group of its own, so its tree is one thing to
+	// end.
+	attr := &syscall.SysProcAttr{Setpgid: true}
 	if p.root != "" {
 		attr.Chroot = p.root
 	}
@@ -362,7 +373,8 @@ func (p *process) wait() exitResult {
 	return p.result
 }
 
-// stop sends the process SIGTERM and, once the grace has passed, SIGKILL.
+// stop sends the process SIGTERM and, once the grace has passed, SIGKILL to
+// its whole group.
 func (p *process) stop() {
 	if p.cmd == nil || p.cmd.Process == nil {
 		return
@@ -372,6 +384,7 @@ func (p *process) stop() {
 	case <-p.done:
 	case <-time.After(p.spec.StopGrace):
 		_ = p.cmd.Process.Kill()
+		killGroup(p.cmd.Process.Pid)
 	}
 }
 
@@ -558,8 +571,11 @@ func (t *exitTable) run(ctx context.Context, cmd *exec.Cmd) (stdout, stderr stri
 	pipes.Add(2)
 	go func() { defer pipes.Done(); out, _ = io.ReadAll(outPipe); _ = outPipe.Close() }()
 	go func() { defer pipes.Done(); errs, _ = io.ReadAll(errPipe); _ = errPipe.Close() }()
-	pipes.Wait()
 	status = t.wait(pid)
+	if cmd.SysProcAttr != nil && cmd.SysProcAttr.Setpgid {
+		killGroup(pid)
+	}
+	pipes.Wait()
 	_ = cmd.Process.Release()
 	return string(out), string(errs), status, nil
 }

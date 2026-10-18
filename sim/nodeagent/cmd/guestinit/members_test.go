@@ -2,8 +2,11 @@ package main
 
 import (
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // A member's program resolves on PATH inside the member's own root, where the
@@ -44,5 +47,26 @@ func TestUeventNamesTheDevice(t *testing.T) {
 	}
 	if ueventNames(message, "vdc") {
 		t.Fatal("the event does not name vdc")
+	}
+}
+
+// A process's exit ends its tree: a child it left behind holding its output
+// would otherwise keep the process from being reported as exited.
+func TestProcessExitEndsTheChildrenItLeftBehind(t *testing.T) {
+	children := make(chan os.Signal, 1)
+	signal.Notify(children, syscall.SIGCHLD)
+	defer signal.Stop(children)
+	go exits.reap(children)
+	p := newProcess("", "", processSpec{Command: []string{"sh", "-c", "sleep 60 & echo started; exit 3"}}, newLogBook())
+	if err := p.start(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-p.done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the process is not reported as exited while its orphan holds its output")
+	}
+	if p.result.code != 3 {
+		t.Fatalf("exit code %d, want 3", p.result.code)
 	}
 }

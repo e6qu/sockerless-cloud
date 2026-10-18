@@ -686,14 +686,26 @@ func (g *guest) stop(ctx context.Context, all bool) {
 	if !all {
 		select {
 		case <-g.processDone:
+			if g.membersRunning() {
+				return
+			}
+			// The power-off follows the last process's exit.
+			select {
+			case <-g.exited:
+				return
+			case <-time.After(15 * time.Second):
+			}
 		case <-time.After(g.spec.StopGrace + 15*time.Second):
+			if g.membersRunning() {
+				return
+			}
 		}
-		return
-	}
-	select {
-	case <-g.exited:
-		return
-	case <-time.After(g.stopGrace() + 15*time.Second):
+	} else {
+		select {
+		case <-g.exited:
+			return
+		case <-time.After(g.stopGrace() + 15*time.Second):
+		}
 	}
 	if cmd.Process != nil {
 		_ = cmd.Process.Kill()

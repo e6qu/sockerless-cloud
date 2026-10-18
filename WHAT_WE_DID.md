@@ -3280,7 +3280,11 @@ files into it, resolves the member's program on PATH inside that root and
 its user in that root's passwd file, and runs it chrooted there, as a
 container runtime prepares a container's root. The members share the guest's
 network namespace, so a member listening on localhost is reachable from the
-first process, and nothing else: a member's files are its own.
+first process, and nothing else: a member's files are its own. Each process
+leads a process group of its own, and its exit ends the group, as a
+container ends when its first process does: a child it left behind would
+otherwise hold its output open, and the exit it keeps from being reported
+would keep the machine from powering off.
 
 A process of the guest is addressed by name — `init` for the first process,
 the member's name otherwise — in an exec, in a log read and in a stop. Each
