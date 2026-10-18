@@ -38,6 +38,35 @@ func TestLookPathResolvesInsideTheRoot(t *testing.T) {
 	if _, err := lookPath("sh", path, root); err == nil {
 		t.Fatal("the guest's own /bin/sh resolved inside a root that has none")
 	}
+	// Alpine's nc is /usr/bin/nc -> /bin/busybox: an absolute link that
+	// resolves inside the root, never against the guest's own filesystem.
+	if err := os.WriteFile(filepath.Join(root, "bin/busybox"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/bin/busybox", filepath.Join(root, "usr/local/bin/nc")); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := lookPath("nc", path, root); err != nil || got != "/usr/local/bin/nc" {
+		t.Fatalf("lookPath(nc) = %q, %v", got, err)
+	}
+	if err := os.Symlink("/bin/absent", filepath.Join(root, "bin/dangling")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lookPath("dangling", path, root); err == nil {
+		t.Fatal("a link to nothing resolved")
+	}
+	if err := os.Symlink("../local/bin/nc", filepath.Join(root, "bin/relnc")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "usr/bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../local/bin/nc", filepath.Join(root, "usr/bin/relnc")); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := lookPath("/usr/bin/relnc", path, root); err != nil || got != "/usr/bin/relnc" {
+		t.Fatalf("lookPath(relative link) = %q, %v", got, err)
+	}
 }
 
 func TestUeventNamesTheDevice(t *testing.T) {

@@ -322,7 +322,7 @@ func (p *process) command(command, args []string, env []string) (*exec.Cmd, erro
 // root.
 func lookPath(program, path, root string) (string, error) {
 	executable := func(candidate string) bool {
-		info, err := os.Stat(filepath.Join(root, candidate))
+		info, err := statInRoot(root, candidate)
 		return err == nil && !info.IsDir() && info.Mode()&0o111 != 0
 	}
 	if strings.Contains(program, "/") {
@@ -341,6 +341,52 @@ func lookPath(program, path, root string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("%s: not found on PATH", program)
+}
+
+// statInRoot stats path as a process rooted at root sees it: a symbolic
+// link along the way resolves inside root, an absolute one from root and
+// not from this process's own filesystem.
+func statInRoot(root, path string) (os.FileInfo, error) {
+	if root == "" {
+		return os.Stat(path)
+	}
+	resolved, err := resolveInRoot(root, path, 0)
+	if err != nil {
+		return nil, err
+	}
+	return os.Stat(filepath.Join(root, resolved))
+}
+
+func resolveInRoot(root, path string, depth int) (string, error) {
+	if depth > 40 {
+		return "", fmt.Errorf("%s: too many levels of symbolic links", path)
+	}
+	resolved := "/"
+	parts := strings.Split(strings.TrimPrefix(filepath.Clean("/"+path), "/"), "/")
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		next := filepath.Join(resolved, part)
+		info, err := os.Lstat(filepath.Join(root, next))
+		if err != nil {
+			return "", err
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			resolved = next
+			continue
+		}
+		target, err := os.Readlink(filepath.Join(root, next))
+		if err != nil {
+			return "", err
+		}
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(resolved, target)
+		}
+		rest := strings.Join(parts[i+1:], "/")
+		return resolveInRoot(root, filepath.Join(target, rest), depth+1)
+	}
+	return resolved, nil
 }
 
 func pathOf(env []string) string {
