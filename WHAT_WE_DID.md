@@ -3368,10 +3368,13 @@ is still on: the removal waits on the next disconnect, and the node agent,
 joined to the network for its guests, never disconnected, so every Amazon
 ECS test on guests hung in its VPC's cleanup until the job's limit cancelled
 it. `Agent.Leave` (`MicroVMBackend.Leave`) has the agent dissolve the
-bridge it built for the network (`DELETE /v1/networks/{address}`, refused
-while a guest's tap is still on it and for the network the agent started
-on) and takes the container off the network, and each cloud's network
-removal calls it ahead of the engine. The KVM proof joins a second network,
+bridge it built for the network (`DELETE /v1/networks/{address}`) and takes
+the container off the network, and each cloud's network removal calls it
+ahead of the engine. A task reports stopped when its first process ends,
+and its guest's tap leaves the bridge a moment later with the machine, so
+the agent waits for the network's last tap as the engine waits for its last
+endpoint, as long as the request allows; the network the agent started on
+is never released. The KVM proof joins a second network,
 places a guest on it, leaves, has the engine remove the network at once,
 and does it all again over the same range, which a bridge left behind
 would have failed. The hang went undiagnosed because a guest shard's setup

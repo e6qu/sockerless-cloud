@@ -194,14 +194,18 @@ func (a *Agent) Join(ctx context.Context, network string, address netip.Addr) (n
 // it, is never left.
 func (a *Agent) Leave(ctx context.Context, network string) error {
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	address, ok := a.networks[network]
+	a.mu.Unlock()
 	if !ok {
 		return nil
 	}
+	// The agent waits for the network's last guest to go before it
+	// dissolves the bridge, so the call runs outside the lock.
 	if err := a.client.LeaveNetwork(ctx, address); err != nil {
 		return fmt.Errorf("node agent: leave %s: %w", network, err)
 	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if err := sim.DisconnectContainerFromNetwork(ctx, a.handle.ContainerID, network); err != nil {
 		return fmt.Errorf("node agent: leave %s: %w", network, err)
 	}

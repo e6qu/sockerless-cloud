@@ -337,7 +337,10 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("round %d: place on %s: %v", round, otherName, err)
 		}
-		if out, err := other.Exec(execCtx, []string{"ping", "-c", "1", "-W", "3", "10.79.1.3"}); err != nil || out.ExitCode != 0 {
+		pingCtx, cancelPing := context.WithTimeout(t.Context(), time.Minute)
+		out, err := other.Exec(pingCtx, []string{"ping", "-c", "1", "-W", "3", "10.79.1.3"})
+		cancelPing()
+		if err != nil || out.ExitCode != 0 {
 			t.Fatalf("round %d: the guest on %s does not reach the agent: %+v (%v)", round, otherName, out, err)
 		}
 		if err := backend.Remove(t.Context(), other.ID()); err != nil {
