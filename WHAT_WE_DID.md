@@ -173,6 +173,12 @@ while the job it started runs on, and a caller that wants the end state polls
 for it. A capture is a resource of its own: CreateImage records the EBS
 snapshot its block device mapping names, DescribeSnapshots lists it,
 DeleteSnapshot refuses it while an image maps it, and it outlives the image.
+An endpoint's address belongs to its instance until the instance is deleted:
+`dbengine.ListenLoopback` keeps the loopback address it gave an identifier
+through a stop, so an instance created meanwhile takes an address of its
+own and the stopped one starts again on the endpoint it advertised; a delete
+releases it (`dbengine.ReleaseLoopback`). Every SDK harness builds the
+simulator it runs from the workspace; the installable graph is CI's gate.
 
 - **An integration's configuration follows the model's rules.** AWS Glue takes
   `IntegrationConfig.TargetNamespace` only for an Amazon S3 Tables table bucket

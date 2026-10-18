@@ -1398,6 +1398,9 @@ func (p *msRedisPlane) Close() error {
 // and removes its volume.
 func msRedisRemovePlane(name string) {
 	msRedisPlaneRecords.Delete(name)
+	for _, identifier := range []string{name, name + "#read"} {
+		dbengine.ReleaseLoopback(identifier)
+	}
 	value, ok := msRedisPlanes.LoadAndDelete(name)
 	if !ok {
 		return

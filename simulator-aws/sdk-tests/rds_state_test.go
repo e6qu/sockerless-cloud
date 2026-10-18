@@ -543,3 +543,54 @@ func TestRDS_ClusterEndpointAndCopyClusterSnapshot(t *testing.T) {
 	})
 	waitForRDSClusterSnapshotAvailable(t, c, ctx, copySnap)
 }
+
+// A stopped instance keeps the endpoint it advertised: an instance created
+// while it is stopped takes an endpoint of its own, and the stopped one starts
+// again on the address it had. The two identifiers below sum to the same byte
+// value, which is how the simulator seeds an endpoint's loopback address, so
+// without the reservation the second would have taken the first's address and
+// the first could never have started.
+func TestRDS_StoppedInstanceKeepsItsEndpoint(t *testing.T) {
+	t.Parallel()
+	c := rdsClient()
+	const first, second = "keep-endpoint-ab", "keep-endpoint-ba"
+	create := func(id string) {
+		_, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
+			DBInstanceIdentifier: aws.String(id),
+			DBInstanceClass:      aws.String("db.t3.micro"),
+			Engine:               aws.String("postgres"),
+			MasterUsername:       aws.String("admin"),
+			MasterUserPassword:   aws.String("password123!"),
+			AllocatedStorage:     aws.Int32(20),
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_, _ = c.DeleteDBInstance(ctx, &rds.DeleteDBInstanceInput{
+				DBInstanceIdentifier: aws.String(id),
+				SkipFinalSnapshot:    aws.Bool(true),
+			})
+		})
+		waitForRDSInstanceAvailable(t, c, ctx, id)
+	}
+	endpoint := func(id string) string {
+		desc, err := c.DescribeDBInstances(ctx, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String(id)})
+		require.NoError(t, err)
+		require.Len(t, desc.DBInstances, 1)
+		require.NotNil(t, desc.DBInstances[0].Endpoint)
+		return aws.ToString(desc.DBInstances[0].Endpoint.Address)
+	}
+
+	create(first)
+	firstEndpoint := endpoint(first)
+	_, err := c.StopDBInstance(ctx, &rds.StopDBInstanceInput{DBInstanceIdentifier: aws.String(first)})
+	require.NoError(t, err)
+	waitForRDSInstanceStatus(t, c, ctx, first, "stopped")
+
+	create(second)
+	assert.NotEqual(t, firstEndpoint, endpoint(second), "a new instance must not take a stopped instance's endpoint")
+
+	_, err = c.StartDBInstance(ctx, &rds.StartDBInstanceInput{DBInstanceIdentifier: aws.String(first)})
+	require.NoError(t, err)
+	waitForRDSInstanceAvailable(t, c, ctx, first)
+	assert.Equal(t, firstEndpoint, endpoint(first), "a started instance serves the endpoint it advertised")
+}

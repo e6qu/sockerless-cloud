@@ -342,6 +342,10 @@ func rdsCloseAuroraInstanceEndpoint(instanceID string) {
 func rdsStopAuroraDataPlane(clusterID string, deleting bool) error {
 	release := rdsDataPlaneStops.Lock("cluster/" + clusterID)
 	defer release()
+	if deleting {
+		defer dbengine.ReleaseLoopback(clusterID + ".cluster")
+		defer dbengine.ReleaseLoopback(clusterID + ".cluster-ro")
+	}
 	var stopErr error
 	if value, ok := rdsAuroraDataPlanes.LoadAndDelete(clusterID); ok {
 		if plane, ok := value.(*rdsAuroraDataPlane); ok {

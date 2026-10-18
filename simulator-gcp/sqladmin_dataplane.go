@@ -439,6 +439,9 @@ func sqlStopEngine(project, instance string) {
 // instance being deleted discards its engine, which ends a start still
 // initialising the volume at once, and removes its data volume.
 func sqlStopDataPlane(project, instance string, deleteVolume bool) {
+	if deleteVolume {
+		defer dbengine.ReleaseLoopback(project + "/" + instance)
+	}
 	value, ok := sqlDataPlanes.LoadAndDelete(sqlInstanceKey(project, instance))
 	if !ok {
 		return
