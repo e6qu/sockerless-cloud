@@ -1,15 +1,17 @@
 package sim
 
 import (
+	"archive/tar"
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"io"
 	"net/netip"
 	"os"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,7 +19,6 @@ import (
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
-	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
@@ -68,25 +69,36 @@ type ContainerConfig struct {
 	// NetworkAliases are the names Docker's embedded DNS resolves to this
 	// container on Network.
 	NetworkAliases []string
-	// ENIAddress is the workload's VPC elastic network interface IPv4 address
-	// in CIDR notation ("10.230.0.4/16"), its prefix length being the VPC
-	// CIDR's. The container's bridge-native primary address comes from the
-	// network's host-side allocator subnet (EnsureVPCNetwork), never from the
-	// VPC CIDR; after start, an ephemeral CAP_NET_ADMIN setup container adds
-	// ENIAddress as a secondary address on eth0, so the workload genuinely
-	// owns its VPC address while holding no network capability itself —
-	// matching real Amazon ECS, where the platform plumbs the ENI and the
-	// task gets no CAP_NET_ADMIN. The connected route the kernel derives from
-	// the prefix makes every same-VPC peer on the shared bridge reachable on
-	// its ENI address, while same-CIDR VPCs sit on different bridges and
-	// never see each other.
-	ENIAddress  string
-	NetworkMode string   // Docker network mode (e.g. "container:<id>" for shared netns)
-	Name        string   // container name (optional, auto-generated if empty)
-	Tty         bool     // allocate a pseudo-TTY
-	OpenStdin   bool     // keep stdin open
-	Binds       []string // bind mounts (e.g., "vol:/path")
-	ExtraHosts  []string // --add-host entries (e.g., "host.docker.internal:host-gateway")
+	// IPv4Address is the fixed address the container takes on Network, inside
+	// the network's range: the address the cloud API reports for the
+	// workload's interface. Empty lets the engine pick one.
+	IPv4Address string
+	// Hostname is the name the container sees as its own; empty leaves the
+	// engine's default.
+	Hostname string
+	// Devices are host device nodes the engine hands the container, as
+	// "/dev/kvm" or "/dev/net/tun"; only a platform container the simulator
+	// runs on its own behalf (a node agent) names any.
+	Devices []string
+	// KeepOnExit leaves the container in place once it exits, with its
+	// filesystem, for RestartContainer, CommitContainer or RemoveContainer: a
+	// virtual machine instance's root disk outlives a stop.
+	KeepOnExit bool
+	// Seed files are written into the container's filesystem after it is
+	// created and before it starts: what a cloud hands an instance through
+	// its platform rather than its image or its environment — user data, the
+	// instance's own init.
+	Seed        []SeedFile
+	NetworkMode string // Docker network mode (e.g. "container:<id>" for shared netns)
+	// PidMode joins another container's pid namespace ("container:<id>"):
+	// a platform helper reading a workload's processes. Empty is the
+	// container's own namespace.
+	PidMode    string
+	Name       string   // container name (optional, auto-generated if empty)
+	Tty        bool     // allocate a pseudo-TTY
+	OpenStdin  bool     // keep stdin open
+	Binds      []string // bind mounts (e.g., "vol:/path")
+	ExtraHosts []string // --add-host entries (e.g., "host.docker.internal:host-gateway")
 	// DNS are the resolvers written into the container's /etc/resolv.conf. A
 	// workload in its own network namespace cannot reach the embedded resolver
 	// Docker would otherwise configure, so the namespace's own resolver is named
@@ -317,26 +329,6 @@ func RequireContainerRuntime(operation string) error {
 		operation, RuntimeModeAPIOnly)
 }
 
-// ContainerPID returns the host PID of a running container's main process, used
-// to plumb a veth into the container's network namespace (the netns VPC fabric).
-func ContainerPID(containerID string) (int, error) {
-	cli := DockerClient()
-	if err := RequireContainerRuntime("reading a container's process id"); err != nil {
-		return 0, err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	inspected, err := cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
-	if err != nil {
-		return 0, err
-	}
-	info := inspected.Container
-	if info.State == nil || info.State.Pid <= 0 {
-		return 0, fmt.Errorf("container %s has no running PID", containerID)
-	}
-	return info.State.Pid, nil
-}
-
 // managedContainers tracks containers created by this simulator instance for cleanup.
 var managedContainers sync.Map // containerID -> true
 
@@ -416,10 +408,11 @@ func StartContainerSyncContext(ctx context.Context, cfg ContainerConfig, sink Lo
 			memory.stop()
 		}
 		managedContainers.Delete(containerID)
-		// Remove container after exit
-		rmCtx, rmCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer rmCancel()
-		_, _ = cli.ContainerRemove(rmCtx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		if !cfg.KeepOnExit {
+			rmCtx, rmCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer rmCancel()
+			_, _ = cli.ContainerRemove(rmCtx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		}
 		handle.result = result
 		close(handle.exited)
 	}()
@@ -549,13 +542,47 @@ func AdoptContainer(containerID string, cfg ContainerConfig, sink LogSink) (*Con
 	go func() {
 		result := waitAndCaptureLogs(ctx, dockerClient, containerID, cfg, sink)
 		managedContainers.Delete(containerID)
-		removeCtx, removeCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer removeCancel()
-		_, _ = dockerClient.ContainerRemove(removeCtx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		if !cfg.KeepOnExit {
+			removeCtx, removeCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer removeCancel()
+			_, _ = dockerClient.ContainerRemove(removeCtx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		}
 		handle.result = result
 		close(handle.exited)
 	}()
 	return handle, nil
+}
+
+// CommitContainer captures a kept container's filesystem as an image under
+// reference ("name:tag") and returns the image ID: a machine image taken
+// from a stopped instance.
+func CommitContainer(ctx context.Context, containerID, reference string) (string, error) {
+	if err := RequireContainerRuntime("committing a container"); err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	result, err := dockerClient.ContainerCommit(ctx, containerID, client.ContainerCommitOptions{Reference: reference, NoPause: false})
+	if err != nil {
+		return "", fmt.Errorf("commit container %s: %w", containerID, err)
+	}
+	return result.ID, nil
+}
+
+// RemoveContainer removes a container the simulator kept, running or not,
+// with the anonymous volumes its image declared.
+func RemoveContainer(containerID string) error {
+	if err := RequireContainerRuntime("removing a container"); err != nil {
+		return err
+	}
+	managedContainers.Delete(containerID)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err := dockerClient.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+	if err != nil && !cerrdefs.IsNotFound(err) {
+		return fmt.Errorf("remove container %s: %w", containerID, err)
+	}
+	return nil
 }
 
 // StopContainer stops a running container by ID, sending SIGTERM and then
@@ -832,123 +859,6 @@ func bindHasRelabelOption(options string) bool {
 	return false
 }
 
-// HTTPContainerConfig describes a container that exposes an HTTP listener on
-// its $PORT (default 8080), to be invoked over HTTP from the host. The
-// function-as-a-service slices use it where the function image's ENTRYPOINT
-// serves HTTP and the platform POSTs requests to it.
-type HTTPContainerConfig struct {
-	Image        string            // overlay image (must be locally available)
-	Architecture string            // OS/arch (e.g. "linux/arm64"); workload's spec — never derived from host
-	Command      []string          // entrypoint override (empty = use image default)
-	Args         []string          // command override (empty = use image default)
-	Env          map[string]string // env vars
-	Name         string            // container name (optional, auto-generated if empty)
-	Labels       map[string]string // container labels for tracking
-	Binds        []string          // bind mounts (e.g., "vol:/path")
-	ExtraHosts   []string          // --add-host entries (e.g., "host.docker.internal:host-gateway")
-	// PublishPorts are the container ports the workload serves on, each
-	// published on a 127.0.0.1 port the engine allocates, so a host that
-	// routes no container address reaches them; at least one is required.
-	PublishPorts []int
-	Sandbox      SandboxProfile
-}
-
-// StartHTTPContainer starts a container detached, with each of its
-// PublishPorts published on a 127.0.0.1 port the engine allocates (read it
-// back with PublishedHostPort), and returns the container ID;
-// the caller stops and removes it with StopAndRemoveContainer. The image must
-// already be present in the local engine — the simulator runs entirely on
-// local images, so an absent one surfaces as a real "image not present" error
-// instead of hanging on registry-pull retries.
-func StartHTTPContainer(ctx context.Context, cfg HTTPContainerConfig) (string, error) {
-	cli := DockerClient()
-	if err := RequireContainerRuntime("starting an HTTP container"); err != nil {
-		return "", err
-	}
-
-	// Resolve to the image ID for ContainerCreate: Podman's docker-compat API
-	// resolves a short name on inspect but not on create, so a locally-built
-	// "name:tag" inspects fine yet create reports "no such image". The ID is
-	// unambiguous on both Docker and Podman.
-	inspect, err := cli.ImageInspect(ctx, cfg.Image)
-	if err != nil {
-		return "", fmt.Errorf("image %q not present locally: %w", cfg.Image, err)
-	}
-	imageRef := cfg.Image
-	if inspect.ID != "" {
-		imageRef = inspect.ID
-	}
-
-	var env []string
-	for k, v := range cfg.Env {
-		env = append(env, k+"="+v)
-	}
-
-	labels := simulatorLabels(nil)
-	for k, v := range cfg.Labels {
-		labels[k] = v
-	}
-
-	if len(cfg.PublishPorts) == 0 {
-		return "", errors.New("an HTTP container needs at least one port to publish")
-	}
-	exposed := network.PortSet{}
-	bindings := network.PortMap{}
-	for _, containerPort := range cfg.PublishPorts {
-		port, err := network.ParsePort(strconv.Itoa(containerPort) + "/tcp")
-		if err != nil {
-			return "", fmt.Errorf("container port %d: %w", containerPort, err)
-		}
-		exposed[port] = struct{}{}
-		bindings[port] = []network.PortBinding{{HostIP: netip.MustParseAddr("127.0.0.1")}}
-	}
-	containerCfg := &container.Config{
-		Image:        imageRef,
-		Env:          env,
-		Labels:       labels,
-		ExposedPorts: exposed,
-	}
-	if len(cfg.Command) > 0 {
-		containerCfg.Entrypoint = cfg.Command
-	}
-	if len(cfg.Args) > 0 {
-		containerCfg.Cmd = cfg.Args
-	}
-	hostCfg := &container.HostConfig{
-		PortBindings: bindings,
-		Binds:        selinuxRelabelBinds(cfg.Binds),
-		ExtraHosts:   cfg.ExtraHosts,
-	}
-	if err := cfg.Sandbox.Apply(hostCfg, containerCfg); err != nil {
-		return "", fmt.Errorf("sandbox enforce: %w", err)
-	}
-
-	if err := ensureBindVolumes(ctx, cli, cfg.Binds); err != nil {
-		return "", err
-	}
-	platform, err := parsePlatform(cfg.Architecture)
-	if err != nil {
-		return "", err
-	}
-	resp, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config:     containerCfg,
-		HostConfig: hostCfg,
-		Platform:   platform,
-		Name:       cfg.Name,
-	})
-	if err != nil {
-		return "", fmt.Errorf("container create: %w", err)
-	}
-
-	if _, err := cli.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
-		_, _ = cli.ContainerRemove(ctx, resp.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
-		return "", fmt.Errorf("container start: %w", err)
-	}
-
-	managedContainers.Store(resp.ID, true)
-	return resp.ID, nil
-}
-
 // StopAndRemoveContainer stops and removes the container, giving its process
 // the grace the cloud grants between SIGTERM and SIGKILL. It is idempotent
 // cleanup that callers defer, so there is nothing useful to report.
@@ -1030,43 +940,6 @@ func ContainerRunning(id string) bool {
 	return insp.Container.State.Running
 }
 
-// FindContainerByIP returns the name of the simulator-managed container whose
-// bridge or default-network address is ip, or "" when none has it. A private
-// DNS zone slice uses it to attach the container an A record names to the
-// zone's network with the record name as its alias.
-func FindContainerByIP(ip string) string {
-	if dockerClient == nil || ip == "" {
-		return ""
-	}
-	addr, err := netip.ParseAddr(ip)
-	if err != nil {
-		return ""
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	list, err := dockerClient.ContainerList(ctx, client.ContainerListOptions{
-		Filters: client.Filters{}.Add("label", "sockerless-sim=true"),
-	})
-	if err != nil {
-		return ""
-	}
-	for _, c := range list.Items {
-		insp, err := dockerClient.ContainerInspect(ctx, c.ID, client.ContainerInspectOptions{})
-		if err != nil || insp.Container.NetworkSettings == nil {
-			continue
-		}
-		for _, ep := range insp.Container.NetworkSettings.Networks {
-			if ep != nil && ep.IPAddress == addr {
-				if len(c.Names) > 0 {
-					return strings.TrimPrefix(c.Names[0], "/")
-				}
-				return c.ID
-			}
-		}
-	}
-	return ""
-}
-
 // PullImage makes the simulator runtime's bounded, stream-aware pull path
 // available to cloud-product translators that must inspect an image before
 // they can construct its container configuration.
@@ -1107,16 +980,6 @@ func isTransientRegistryErr(err error) bool {
 }
 
 func createAndStartContainer(ctx context.Context, cli *client.Client, cfg ContainerConfig) (string, error) {
-	// Validate the ENI address before any resource is created.
-	var eniAddress netip.Prefix
-	if cfg.ENIAddress != "" {
-		parsed, err := netip.ParsePrefix(cfg.ENIAddress)
-		if err != nil {
-			return "", fmt.Errorf("vpc eni address %q: %w", cfg.ENIAddress, err)
-		}
-		eniAddress = parsed
-	}
-
 	// Pull image
 	pullPolicy := os.Getenv("SIM_PULL_POLICY")
 	if pullPolicy == "" {
@@ -1162,6 +1025,7 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 		OpenStdin:   cfg.OpenStdin,
 		AttachStdin: cfg.OpenStdin,
 		WorkingDir:  cfg.WorkingDir,
+		Hostname:    cfg.Hostname,
 	}
 	if len(cfg.PublishPorts) > 0 {
 		containerCfg.ExposedPorts = network.PortSet{}
@@ -1199,6 +1063,12 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	if cfg.NetworkMode != "" {
 		hostCfg.NetworkMode = container.NetworkMode(cfg.NetworkMode)
 	}
+	if cfg.PidMode != "" {
+		hostCfg.PidMode = container.PidMode(cfg.PidMode)
+	}
+	for _, device := range cfg.Devices {
+		hostCfg.Devices = append(hostCfg.Devices, container.DeviceMapping{PathOnHost: device, PathInContainer: device, CgroupPermissions: "rwm"})
+	}
 	for _, containerPort := range cfg.PublishPorts {
 		port, err := network.ParsePort(strconv.Itoa(containerPort) + "/tcp")
 		if err != nil {
@@ -1220,14 +1090,16 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 
 	var networkCfg *network.NetworkingConfig
 	if cfg.Network != "" && cfg.NetworkMode == "" {
-		// The bridge-native primary address is the network's own (allocated by
-		// Docker IPAM from the host-side pool subnet); the VPC ENI address is
-		// plumbed as a secondary after start (cfg.ENIAddress), so DescribeTasks's
-		// privateIPv4Address remains the container's real, routable address.
+		endpoint := &network.EndpointSettings{Aliases: cfg.NetworkAliases}
+		if cfg.IPv4Address != "" {
+			addr, err := netip.ParseAddr(cfg.IPv4Address)
+			if err != nil || !addr.Is4() {
+				return "", fmt.Errorf("container network address %q is not an IPv4 address", cfg.IPv4Address)
+			}
+			endpoint.IPAMConfig = &network.EndpointIPAMConfig{IPv4Address: addr}
+		}
 		networkCfg = &network.NetworkingConfig{
-			EndpointsConfig: map[string]*network.EndpointSettings{
-				cfg.Network: {Aliases: cfg.NetworkAliases},
-			},
+			EndpointsConfig: map[string]*network.EndpointSettings{cfg.Network: endpoint},
 		}
 	}
 
@@ -1248,6 +1120,10 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	if err != nil {
 		return "", fmt.Errorf("container create: %w", err)
 	}
+	if err := seedContainer(ctx, cli, resp.ID, cfg.Seed); err != nil {
+		removeCreated(ctx, cli, resp.ID)
+		return "", err
+	}
 
 	if _, err := cli.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
 		removeCreated(ctx, cli, resp.ID)
@@ -1257,24 +1133,47 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 		return "", fmt.Errorf("container start: %w", err)
 	}
 
-	if eniAddress.IsValid() {
-		if err := attachENIAddress(ctx, resp.ID, eniAddress, cfg.Architecture); err != nil {
-			// A workload that already ran to completion has no network
-			// namespace left to plumb — and no longer needs one: real Amazon
-			// ECS detaches the ENI when the task stops, so a short-lived task
-			// that exits before its address lands is a finished task, not a
-			// failed launch. Only a live workload missing its ENI address is
-			// a failure.
-			if inspected, inspectErr := cli.ContainerInspect(ctx, resp.ID, client.ContainerInspectOptions{}); inspectErr == nil &&
-				inspected.Container.State != nil && !inspected.Container.State.Running {
-				return resp.ID, nil
-			}
-			removeCreated(ctx, cli, resp.ID)
-			return "", fmt.Errorf("attach vpc eni address %s: %w", eniAddress, err)
+	return resp.ID, nil
+}
+
+// SeedFile is one file written into a container before it starts.
+type SeedFile struct {
+	// Path is absolute inside the container; its directory is created.
+	Path string
+	Mode int64
+	Data []byte
+}
+
+// seedContainer writes the files into the created container through the
+// engine's archive endpoint, one archive rooted at /.
+func seedContainer(ctx context.Context, cli *client.Client, containerID string, files []SeedFile) error {
+	if len(files) == 0 {
+		return nil
+	}
+	var archive bytes.Buffer
+	tw := tar.NewWriter(&archive)
+	for _, f := range files {
+		if !path.IsAbs(f.Path) {
+			return fmt.Errorf("seed file %q: path must be absolute", f.Path)
+		}
+		mode := f.Mode
+		if mode == 0 {
+			mode = 0o644
+		}
+		if err := tw.WriteHeader(&tar.Header{Name: strings.TrimPrefix(f.Path, "/"), Mode: mode, Size: int64(len(f.Data))}); err != nil {
+			return err
+		}
+		if _, err := tw.Write(f.Data); err != nil {
+			return err
 		}
 	}
-
-	return resp.ID, nil
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	if _, err := cli.CopyToContainer(ctx, containerID, client.CopyToContainerOptions{DestinationPath: "/", Content: &archive}); err != nil {
+		return fmt.Errorf("seed container: %w", err)
+	}
+	return nil
 }
 
 // removeCreated removes a container whose start failed. It outlives ctx: a
@@ -1283,56 +1182,6 @@ func removeCreated(ctx context.Context, cli *client.Client, containerID string) 
 	removeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	_, _ = cli.ContainerRemove(removeCtx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
-}
-
-// vpcENISetupImage runs the ephemeral network-setup container that plumbs a
-// workload's elastic network interface address — busybox from mirror.gcr.io
-// (always carries the ip applet, avoids Docker Hub throttling).
-const vpcENISetupImage = "mirror.gcr.io/library/busybox:latest"
-
-// attachENIAddress adds the elastic network interface address as a secondary
-// IPv4 on a running container's eth0. A short-lived setup container joins the
-// workload's network namespace with CAP_NET_ADMIN and runs `ip addr add`; the
-// capability lives and dies with the setup container, so the workload keeps
-// its cloud-faithful, capability-free sandbox. The kernel derives the VPC's
-// connected route from the address's prefix, so no separate route needs to be
-// installed for same-VPC reachability.
-func attachENIAddress(ctx context.Context, containerID string, address netip.Prefix, architecture string) error {
-	var outputMu sync.Mutex
-	var output []string
-	sink := FuncSink(func(line LogLine) {
-		outputMu.Lock()
-		output = append(output, line.Text)
-		outputMu.Unlock()
-	})
-	handle, err := StartContainerSyncContext(ctx, ContainerConfig{
-		Image:        vpcENISetupImage,
-		Architecture: architecture,
-		Command:      []string{"ip"},
-		Args:         []string{"addr", "add", address.String(), "dev", "eth0"},
-		NetworkMode:  "container:" + containerID,
-		Timeout:      30 * time.Second,
-		Sandbox: SandboxProfile{
-			CapDrop:          []string{"ALL"},
-			CapAdd:           []string{"NET_ADMIN"},
-			NoNewPrivileges:  true,
-			DenyDockerSocket: true,
-			DenyHostNetwork:  true,
-		},
-	}, sink)
-	if err != nil {
-		return err
-	}
-	result := handle.Wait()
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.ExitCode != 0 {
-		outputMu.Lock()
-		defer outputMu.Unlock()
-		return fmt.Errorf("ip addr add %s dev eth0 exited %d: %s", address, result.ExitCode, strings.Join(output, "; "))
-	}
-	return nil
 }
 
 // MissingNetfilterTableHint names the kernel dependency behind a container
@@ -1705,207 +1554,6 @@ func EnsureDockerNetwork(name string) (string, error) {
 	return resp.ID, nil
 }
 
-// vpcBridgePool is the reserved host-side pool VPC bridge subnets are carved
-// from. A VPC's Docker network never uses the VPC's own CIDR: an AWS CIDR is
-// private to its VPC — two live VPCs may legally share one — while a host
-// bridge subnet is exclusive, so the bridge subnet comes from this pool and
-// the VPC's addressing rides on top as secondary elastic-network-interface
-// addresses (ContainerConfig.ENIAddress). Each VPC network takes one /24: the
-// bridge carries only one primary address per running workload plus the
-// gateway (the VPC's own addressing needs never touch bridge IPAM), giving
-// 253 concurrent workloads per VPC and 256 concurrent VPC networks per host.
-// 10.213.0.0/16 sits outside the container runtimes' first auto-assignment
-// picks (Docker 172.17+/16 and 192.168.0.0/16 slices, Podman 10.88.0.0/16 and
-// netavark's low 10.89+ slices), outside the ECS helper-VPC test range
-// (10.225–10.249), and outside the fixed CIDRs the simulator suites use; any
-// slice something else on the host does hold is skipped dynamically.
-var vpcBridgePool = netip.MustParsePrefix("10.213.0.0/16")
-
-// vpcBridgeSubnet returns pool slice index (0–255) as a /24 prefix.
-func vpcBridgeSubnet(index int) netip.Prefix {
-	addr := vpcBridgePool.Addr().As4()
-	addr[2] = byte(index)
-	return netip.PrefixFrom(netip.AddrFrom4(addr), 24)
-}
-
-var vpcNetworkMu sync.Mutex
-
-// EnsureVPCNetwork creates (idempotently) the user-defined bridge network
-// backing a VPC. The bridge subnet is allocated from vpcBridgePool, never
-// from the VPC's CIDR, so two live VPCs sharing a CIDR coexist: a host
-// subnet's exclusivity stays a host concern, invisible in the AWS surface,
-// while workloads own their ENI address as a secondary on the shared bridge
-// (ContainerConfig.ENIAddress) and DescribeTasks/task metadata keep reporting
-// that real, same-VPC-routable address.
-//
-// The allocator's state is derived, never stored: the scan starts at a
-// name-derived slice (so concurrent simulator processes rarely contend for
-// the same slice), skips every subnet a network on the host already holds —
-// which is also exactly what makes a simulator restart safe — and frees a
-// slice only when a dead simulator run's leftover holds it. Returns the
-// network ID.
-func EnsureVPCNetwork(name string) (string, error) {
-	vpcNetworkMu.Lock()
-	defer vpcNetworkMu.Unlock()
-	cli := DockerClient()
-	if err := RequireContainerRuntime("creating a VPC network"); err != nil {
-		return "", err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if existing, err := cli.NetworkInspect(ctx, name, client.NetworkInspectOptions{}); err == nil {
-		return existing.Network.ID, nil
-	}
-	inUse, err := hostSubnetsInUse(ctx, cli)
-	if err != nil {
-		return "", fmt.Errorf("vpc network create %s: list host subnets: %w", name, err)
-	}
-	const slices = 256
-	start := int(vpcNetworkNameHash(name) % slices)
-	var lastErr error
-	for n := 0; n < slices; n++ {
-		candidate := vpcBridgeSubnet((start + n) % slices)
-		if prefixOverlapsAny(inUse, candidate) {
-			// The slice may be held by a network an earlier simulator left
-			// behind: a VPC network is named for its VPC, so a later run never
-			// finds it by name, and without a reclaim the pool would silt up
-			// with slices nothing can use. Reclaiming frees the slice without
-			// touching anything live; a slice held by a live or foreign
-			// network is simply skipped.
-			if !reclaimOrphanedSubnet(ctx, cli, candidate.String()) {
-				continue
-			}
-		}
-		resp, createErr := cli.NetworkCreate(ctx, name, client.NetworkCreateOptions{
-			Driver: "bridge",
-			IPAM: &network.IPAM{
-				Config: []network.IPAMConfig{{Subnet: candidate}},
-			},
-			Labels: simulatorLabels(map[string]string{"sockerless-sim-vpc": name}),
-		})
-		if createErr == nil {
-			return resp.ID, nil
-		}
-		if !subnetInUseError(createErr) {
-			return "", fmt.Errorf("vpc network create %s (%s): %w", name, candidate, createErr)
-		}
-		// Lost the slice to a concurrent create between the scan and this
-		// call — the next slice is as good.
-		lastErr = createErr
-	}
-	if lastErr != nil {
-		return "", fmt.Errorf("vpc network create %s: reserved bridge pool %s exhausted: %w", name, vpcBridgePool, lastErr)
-	}
-	return "", fmt.Errorf("vpc network create %s: reserved bridge pool %s exhausted", name, vpcBridgePool)
-}
-
-// vpcNetworkNameHash spreads VPC networks across the pool so simulator
-// processes sharing a host start their scans at different slices.
-func vpcNetworkNameHash(name string) uint32 {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(name))
-	return h.Sum32()
-}
-
-// hostSubnetsInUse returns every IPv4 subnet any Docker network on the host
-// holds, whoever created it. The live networks are the allocator's only
-// ledger: a restarted simulator re-derives allocation state from them, and a
-// removed network returns its slice to the pool by ceasing to exist.
-func hostSubnetsInUse(ctx context.Context, cli *client.Client) ([]netip.Prefix, error) {
-	nets, err := cli.NetworkList(ctx, client.NetworkListOptions{})
-	if err != nil {
-		return nil, err
-	}
-	var used []netip.Prefix
-	for _, n := range nets.Items {
-		for _, cfg := range n.IPAM.Config {
-			if cfg.Subnet.IsValid() {
-				used = append(used, cfg.Subnet)
-			}
-		}
-	}
-	return used, nil
-}
-
-func prefixOverlapsAny(used []netip.Prefix, candidate netip.Prefix) bool {
-	for _, p := range used {
-		if p.Overlaps(candidate) {
-			return true
-		}
-	}
-	return false
-}
-
-// subnetInUseError classifies a network-create failure as "this subnet is
-// taken": netavark reports "subnet … is already used on the host or by
-// another config", Docker "Pool overlaps with other one on this address
-// space". Anything else is a real daemon failure the caller must surface.
-func subnetInUseError(err error) bool {
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "already used") || strings.Contains(msg, "overlap")
-}
-
-// reclaimOrphanedSubnet removes simulator networks holding the given subnet
-// that no container is attached to and that another simulator run created,
-// reporting whether it removed any.
-//
-// All the conditions are load-bearing. The simulator label keeps the sweep
-// inside networks this project made. The exact subnet keeps it to the one
-// blocking the caller. No attached containers means nothing is using it. A
-// different run id means the process that made it is not this one, and only
-// that process being gone makes the network an orphan: another live simulator
-// on the same host has idle networks between two of its workloads too, and
-// they are its. So the owner recorded on the network is checked — same
-// hostname, hence the same pid namespace, and a pid no process holds — and a
-// network whose owner cannot be checked (another hostname, or a network an
-// older release created without an owner) is left where it is; the pool
-// allocator skips its slice and takes another.
-func reclaimOrphanedSubnet(ctx context.Context, cli *client.Client, cidr string) bool {
-	nets, err := cli.NetworkList(ctx, client.NetworkListOptions{
-		Filters: client.Filters{}.Add("label", "sockerless-sim=true"),
-	})
-	if err != nil {
-		return false
-	}
-	reclaimed := false
-	for _, n := range nets.Items {
-		if n.Labels["sockerless-sim-run"] == simulatorRunID || !ownerIsDead(n.Labels) {
-			continue
-		}
-		details, err := cli.NetworkInspect(ctx, n.ID, client.NetworkInspectOptions{})
-		if err != nil || len(details.Network.Containers) > 0 {
-			continue
-		}
-		holds := false
-		for _, cfg := range details.Network.IPAM.Config {
-			if cfg.Subnet.String() == cidr {
-				holds = true
-				break
-			}
-		}
-		if !holds {
-			continue
-		}
-		if _, err := cli.NetworkRemove(ctx, n.ID, client.NetworkRemoveOptions{}); err == nil {
-			reclaimed = true
-		}
-	}
-	return reclaimed
-}
-
-// ownerIsDead reports whether the process recorded on a simulator resource's
-// labels is known to be gone: it ran on this host, and its pid is not held.
-func ownerIsDead(labels map[string]string) bool {
-	if labels["sockerless-sim-host"] == "" || labels["sockerless-sim-host"] != simulatorOwnerHost {
-		return false
-	}
-	pid, err := strconv.Atoi(labels["sockerless-sim-pid"])
-	if err != nil || pid <= 0 {
-		return false
-	}
-	return !realexec.ProcessAlive(pid)
-}
-
 // networkRemoveRefused runs each time the engine refuses a network removal; a
 // test replaces it to learn that a removal is waiting on a disconnect.
 var networkRemoveRefused = func(string) {}
@@ -1971,41 +1619,6 @@ func ConnectContainerToNetwork(containerName, networkName string, aliases []stri
 		},
 	})
 	return err
-}
-
-// DisconnectContainerFromNetwork removes a running container from a
-// Docker network. Idempotent for already-disconnected containers.
-func DisconnectContainerFromNetwork(containerName, networkName string) error {
-	cli := DockerClient()
-	if cli == nil {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	_, err := cli.NetworkDisconnect(ctx, networkName, client.NetworkDisconnectOptions{Container: containerName, Force: true})
-	return err
-}
-
-// DisconnectContainerNetworks detaches a running container from every Docker
-// network it currently has. The container keeps its process namespace alive,
-// which lets callers attach their own network fabric afterward.
-func DisconnectContainerNetworks(containerID string) error {
-	cli := DockerClient()
-	if err := RequireContainerRuntime("detaching a container from its networks"); err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	inspected, err := cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
-	if err != nil {
-		return err
-	}
-	for networkName := range inspected.Container.NetworkSettings.Networks {
-		if _, err := cli.NetworkDisconnect(ctx, networkName, client.NetworkDisconnectOptions{Container: containerID, Force: true}); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 type HostEntry struct {

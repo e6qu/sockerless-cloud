@@ -543,7 +543,7 @@ func TestEC2_DedicatedHostCapacitySDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
-		ImageId: aws.String("ami-12345678"), InstanceType: types.InstanceTypeM5Large,
+		ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeM5Large,
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet.Subnet.SubnetId,
 		Placement: &types.Placement{HostId: aws.String(hostID)},
 	})
@@ -564,7 +564,7 @@ func TestEC2_DedicatedHostCapacitySDK(t *testing.T) {
 	assert.Equal(t, "m5.large", aws.ToString(h.Instances[0].InstanceType))
 
 	_, err = c.RunInstances(ctx, &ec2.RunInstancesInput{
-		ImageId: aws.String("ami-12345678"), InstanceType: types.InstanceTypeC5Large,
+		ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeC5Large,
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet.Subnet.SubnetId,
 		Placement: &types.Placement{HostId: aws.String(hostID)},
 	})

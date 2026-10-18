@@ -23,7 +23,7 @@ func TestEC2_CreateSnapshotsSDK(t *testing.T) {
 	require.NoError(t, err)
 	subnet := createSubnetFor(t, c, vpc.Vpc.VpcId, "10.210.1.0/24")
 	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
-		ImageId: aws.String("ami-12345678"), InstanceType: types.InstanceTypeT3Micro,
+		ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
 	})
 	require.NoError(t, err)
@@ -159,7 +159,7 @@ func TestEC2_ReplaceRootVolumeSDK(t *testing.T) {
 	require.NoError(t, err)
 	subnet := createSubnetFor(t, c, vpc.Vpc.VpcId, "10.211.1.0/24")
 	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
-		ImageId: aws.String("ami-12345678"), InstanceType: types.InstanceTypeT3Micro,
+		ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
 	})
 	require.NoError(t, err)
@@ -167,7 +167,7 @@ func TestEC2_ReplaceRootVolumeSDK(t *testing.T) {
 	instID := aws.ToString(run.Instances[0].InstanceId)
 
 	rrv, err := c.CreateReplaceRootVolumeTask(ctx, &ec2.CreateReplaceRootVolumeTaskInput{
-		InstanceId: aws.String(instID), ImageId: aws.String("ami-99999999"),
+		InstanceId: aws.String(instID), ImageId: aws.String(ec2UbuntuAMI(t)),
 	})
 	require.NoError(t, err)
 	taskID := aws.ToString(rrv.ReplaceRootVolumeTask.ReplaceRootVolumeTaskId)
@@ -345,7 +345,7 @@ func TestEC2_LaunchTemplateDataSDK(t *testing.T) {
 	require.NoError(t, err)
 	subnet := createSubnetFor(t, c, vpc.Vpc.VpcId, "10.213.1.0/24")
 	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
-		ImageId: aws.String("ami-12345678"), InstanceType: types.InstanceTypeT3Small,
+		ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Small,
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
 	})
 	require.NoError(t, err)
@@ -354,7 +354,7 @@ func TestEC2_LaunchTemplateDataSDK(t *testing.T) {
 
 	data, err := c.GetLaunchTemplateData(ctx, &ec2.GetLaunchTemplateDataInput{InstanceId: aws.String(instID)})
 	require.NoError(t, err)
-	assert.Equal(t, "ami-12345678", aws.ToString(data.LaunchTemplateData.ImageId))
+	assert.Equal(t, ec2AmazonLinuxAMI(t), aws.ToString(data.LaunchTemplateData.ImageId))
 	assert.Equal(t, types.InstanceTypeT3Small, data.LaunchTemplateData.InstanceType)
 
 	lt, err := c.CreateLaunchTemplate(ctx, &ec2.CreateLaunchTemplateInput{
@@ -465,7 +465,7 @@ func TestEC2_DefaultCreditSpecificationSDK(t *testing.T) {
 
 	subnet := createSubnetFor(t, c, vpc.Vpc.VpcId, "10.215.1.0/24")
 	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
-		ImageId: aws.String("ami-12345678"), InstanceType: types.InstanceTypeT3Micro,
+		ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
 	})
 	require.NoError(t, err)

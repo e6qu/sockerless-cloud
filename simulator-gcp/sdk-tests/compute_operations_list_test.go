@@ -63,7 +63,6 @@ func TestCompute_OperationListsReportTheWorkTheProjectDid(t *testing.T) {
 	assert.True(t, aggregatedNames[zoneOp.Name], "the aggregated list omits the zonal operation")
 
 	t.Run("global and regional scopes", func(t *testing.T) {
-		requireNetworkHost(t)
 		const region = "us-central1"
 
 		globalOp, err := svc.Networks.Insert(project, &compute.Network{

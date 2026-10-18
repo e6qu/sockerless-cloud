@@ -53,8 +53,9 @@ aws iam create-service-linked-role --aws-service-name cloudfront.amazonaws.com
 | `SIM_TLS_CERT`, `SIM_TLS_KEY` | unset | Enable HTTPS with the given cert/key. |
 | `SIM_RUNTIME` | `docker` | Initializes Docker/Podman for workload execution. Set `process` only for explicit API-only runs that do not invoke ECS/Lambda workload execution. |
 | `SIM_PERSIST` | `false` | `true` keeps state across restarts and leaves running workloads for the next process to adopt. |
+| `SIM_PLACEMENT` | unset | The per-service placement table, `service[:qualifier]=container|microvm` comma-separated (`ec2=microvm,ecs:FARGATE=microvm,lambda=container,batch=container`). Every service unnamed runs on containers. Naming a microVM service starts a node agent on the platform network, which needs a Linux engine with `/dev/kvm`. |
 | `SIM_DATA_DIR` | unset | Persistence root: the SQLite control-plane store, plus the default location of every bulk-data root below (`<SIM_DATA_DIR>/efs`, `/ebs`, `/amplify-cache`), so file contents survive restarts alongside the metadata that describes them. |
-| `SIM_EBS_DATA_DIR` | `<SIM_DATA_DIR>/ebs`, else `$TMPDIR/sockerless-sim-ebs` | Explicit override for the EC2/Firecracker EBS block-image root (volume backing files and snapshots). Amazon ECS managed EBS volumes live in engine volumes instead (see below). |
+| `SIM_EBS_DATA_DIR` | `<SIM_DATA_DIR>/ebs`, else `$TMPDIR/sockerless-sim-ebs` | Explicit override for the Amazon EC2 EBS snapshot root. Amazon ECS managed EBS volumes live in engine volumes (see below). |
 | `SIM_EFS_DATA_DIR` | `<SIM_DATA_DIR>/efs`, else `$TMPDIR/sockerless-sim-efs` | Explicit override for the EFS file-system content root. |
 | `AWS_ENDPOINT_URL` | (client-side) | The AWS SDKs and AWS CLI's standard global endpoint setting. It routes every supported service to the simulator. |
 | `AWS_ENDPOINT_URL_<SERVICE>` | (client-side) | The AWS SDKs' standard per-service setting (for example `AWS_ENDPOINT_URL_SQS`). It overrides the global coordinate for that service. |
@@ -72,10 +73,7 @@ The same endpoint convention applies inside workloads. Pass
 credentials through the real workload configuration surface—Amazon ECS
 container overrides, AWS CodeBuild environment overrides, or AWS Lambda
 function environment variables. The simulator does not inject or broker a
-private endpoint variable. In the Linux real-VPC tier, an explicitly supplied
-endpoint that names the simulator's own listener on the outer host maps onto
-the managed task-local route, because the isolated namespace has no route to
-Docker's host gateway; other host addresses stay unreachable. The
+private endpoint variable. The
 official-client suite proves this by
 having an AWS Step Functions-launched AWS CodeBuild process invoke the vendor
 AWS CLI against Amazon SQS and by having explicitly deployed AWS Lambda code
@@ -92,9 +90,69 @@ host. An end-to-end SDK test deploys code and environment explicitly, invokes
 the managed runtime, and observes its authenticated downstream Amazon SQS
 write.
 
-**Amazon ECS managed EBS volumes** are block devices of the requested size and filesystem: an image file held in an engine volume (`sockerless-ebs-<id>`), attached to a loop device by a privileged helper container and mounted by the engine. The simulator therefore needs no privilege of its own and can run in a container with the engine socket mounted; nothing is shared by path between the host and the simulator's container.
+**Amazon ECS managed EBS volumes** are engine volumes (`sockerless-ebs-<id>`): each task's volume is its own, snapshots copy it, and nothing is shared by path between the host and the simulator's container. The requested size and filesystem type are validated and recorded, not realized on the container backend (`BUGS.md`).
 
-**VPC and subnet creation** (`CreateVpc`, `CreateSubnet`) records API state. The simulator builds the Linux network-namespace fabric when a data-plane resource attaches to the VPC or subnet on a host with the networking capabilities (`ip`, `nft`, `sysctl`); on any other host, `awsvpc` tasks run on the per-VPC Docker-network fabric described below.
+**VPC and subnet creation** (`CreateVpc`, `CreateSubnet`) records API state. The simulator creates the VPC's engine network when the first workload attaches to a subnet of it, and removes it with the VPC.
+
+### Networks, the Route 53 Resolver and instance metadata
+
+Every workload runs on an engine network, never on the engine's default
+bridge: a VPC's network (`sockerless-sim-vpc-<vpc-id>`, over the VPC's own
+CIDR) for an Amazon EC2 instance, an `awsvpc` task or a VPC-attached AWS
+Lambda function, and the simulator's platform network
+(`sockerless-sim-aws-platform-<scope>`) for everything else — `bridge`-mode
+tasks, Lambda functions outside a VPC, AWS Batch jobs, AWS CodeBuild
+environments, AWS Glue jobs, Amplify builds and compute.
+
+Each network carries one sidecar container at the address the cloud reserves:
+the VPC's base plus two, where the Amazon Route 53 Resolver answers. The
+sidecar serves DNS and HTTP there. Every workload's resolver is the sidecar,
+so a name resolves through Route 53: the public hosted zones, the private
+hosted zones associated with the workload's VPC (AWS Cloud Map namespaces
+among them), the load balancers' names, and everything else through the
+simulator's upstream resolvers. The sidecar forwards the instance metadata
+service and the Amazon ECS task metadata endpoint to the simulator with the
+workload's address, so each workload reads its own identity; the SDKs find
+them through `AWS_EC2_METADATA_SERVICE_ENDPOINT` and
+`ECS_CONTAINER_METADATA_URI_V4`, which name the sidecar. The link-local
+addresses themselves (`169.254.169.254`, `169.254.170.2`) are not routed
+(`BUGS.md`).
+
+Security groups are enforced on the flows the simulator mediates: a load
+balancer reaches an instance or IP target only through what the target's
+security groups admit from the load balancer (its security groups and
+subnets, or the client's address where a Network Load Balancer preserves
+it), and a blocked target's health checks time out. Traffic between two
+workloads on one network is not filtered (`BUGS.md`).
+
+### Amazon EC2 instances
+
+An instance is a machine on the placement backend (a container by default):
+the AMI's image, its private address on the VPC's network, the hostname
+`ip-10-0-0-7`, the VPC's resolver, and the vCPUs and memory of its instance
+type. `DescribeImages` lists the AMIs the simulator publishes — Amazon Linux
+2023, Ubuntu 24.04 LTS and Debian 12 for `x86_64` and `arm64`, with the
+names, owners and descriptions AWS reports — beside the account's own.
+`RunInstances` refuses an AMI that does not exist and an instance type of
+another architecture.
+
+- **User data** that starts with `#!` runs once as root, with its output on
+  the console (`GetConsoleOutput`) and in `/var/log/cloud-init-output.log`;
+  `#cloud-config` user data is not interpreted (`BUGS.md`).
+- **Lifecycle**: `pending` while the machine boots and `running` once its
+  init is ready; `StopInstances` keeps the root disk (`stopping`, `stopped`)
+  and `StartInstances` boots it again; `TerminateInstances` discards it
+  (`shutting-down`, `terminated`); `RebootInstances` restarts the init in
+  place; an init that exits on its own stops the instance.
+- **AWS Systems Manager Run Command** (`SendCommand` with
+  `AWS-RunShellScript` or a command document with `aws:runShellScript`
+  steps) runs on the instance's machine; `GetCommandInvocation` carries the
+  output. An instance whose machine is not up is not a managed node.
+- **Images**: `CreateImage` captures the instance's root disk into the new
+  AMI; `RegisterImage` takes an OCI image reference in `ImageLocation`, and
+  `ImportImage` one in the disk container's `Url`, which the instances of
+  those AMIs boot. An AMI registered from a block device mapping alone has
+  no root filesystem to boot (`BUGS.md`).
 
 ### ECS task networking
 
@@ -103,8 +161,8 @@ task lands on, exactly as it does on real Amazon Elastic Container Service (ECS)
 
 | `networkMode` | What the task gets | How the simulator realizes it |
 |---|---|---|
-| `awsvpc` | Its own elastic network interface in a subnet of the VPC. `networkConfiguration` is **mandatory**; `RunTask` rejects the request without it. | On Linux with `CAP_NET_ADMIN` + `nsenter`, a pause container holds the task's network namespace and the ENI veth is plumbed into it from the VPC's namespace. Everywhere else, a per-VPC user-defined Docker network (`sockerless-sim-vpc-<vpc-id>`) whose IPAM subnet is a /24 slice of the reserved host-side pool `10.213.0.0/16` — never the VPC CIDR, so two live VPCs sharing a CIDR coexist — with the task's ENI address plumbed onto the container's interface as a secondary by an ephemeral `CAP_NET_ADMIN` setup container. Same-VPC tasks reach each other on their ENI addresses over the shared bridge; same-CIDR VPCs sit on different bridges and stay isolated. |
-| `bridge` (the default when `networkMode` is unset) | An address on the container instance's default Docker bridge. No ENI. `networkConfiguration` is rejected. | The container runtime's default `bridge` network. |
+| `awsvpc` | Its own elastic network interface in a subnet of the VPC. `networkConfiguration` is **mandatory**; `RunTask` rejects the request without it. | A user-defined engine network per VPC (`sockerless-sim-vpc-<vpc-id>`) over the VPC's own CIDR, created when the first task attaches, with the VPC's resolver sidecar; the task's first container takes the ENI address from the engine and the task's other containers share its network namespace. Same-VPC tasks reach each other on their ENI addresses over the shared bridge. The engine admits one network per address range, so two live VPCs sharing a CIDR do not coexist on one engine (`BUGS.md`). |
+| `bridge` (the default when `networkMode` is unset) | An address on the container instance's network. No ENI. `networkConfiguration` is rejected. | The simulator's platform network (`sockerless-sim-aws-platform-<scope>`) with its resolver sidecar. |
 | `host` | The container instance's own network stack. No ENI. | Docker `host` network mode. |
 | `none` | No connectivity. No ENI. | Docker `none` network mode. |
 
@@ -128,10 +186,8 @@ can't initialize iptables table `raw': Table does not exist)
 ```
 
 This covers the default `bridge` network **and** every user-defined bridge
-network — Docker programs the rule per endpoint, so the per-VPC networks the
-`awsvpc` Docker-network tier uses need the `raw` table too, and so does the
-`awsvpc` namespace tier's pause container (the simulator creates it on the default network, then moves it into the
-task's namespace). Only `networkMode: host` and
+network — Docker programs the rule per endpoint, so the per-VPC networks
+`awsvpc` tasks use need the `raw` table too. Only `networkMode: host` and
 `networkMode: none` create no bridge endpoint at all.
 
 The simulator does not work around this — it reports the failure with the
@@ -139,9 +195,7 @@ missing module named, and the task stops with that reason. Fix it on the host:
 
 - Run the container runtime on a kernel with the full netfilter set
   (`iptable_raw` / `CONFIG_IP_NF_RAW`, plus `nf_tables` for the nftables
-  backend). The stock Firecracker CI guest kernel (`vmlinux-6.1.128`) omits
-  both, so build a container-capable guest kernel before running the simulator
-  inside such a microVM.
+  backend).
 - Or start the Docker daemon with `DOCKER_INSECURE_NO_IPTABLES_RAW=1`, Docker's
   own opt-out from the `raw` rules. That drops the direct-access hardening
   host-wide; it is the daemon operator's decision, never the simulator's.

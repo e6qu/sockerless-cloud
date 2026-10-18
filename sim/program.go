@@ -2,7 +2,6 @@ package sim
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 )
@@ -22,7 +21,8 @@ type Program struct {
 	// Build constructs the server with every service slice registered.
 	Build func(Config) (*Server, error)
 	// Start, when set, starts what serves beside the HTTP port. The stop it
-	// returns runs once the HTTP server has shut down.
+	// returns runs once the HTTP server has shut down and its workers have
+	// returned, before the database closes.
 	Start func(*Server, Config) (stop func(context.Context) error, err error)
 }
 
@@ -61,13 +61,13 @@ func run(p Program) error {
 	if err != nil {
 		return fmt.Errorf("simulator startup: %w", err)
 	}
-	stop := func(context.Context) error { return nil }
 	if p.Start != nil {
-		if stop, err = p.Start(srv, cfg); err != nil {
+		stop, err := p.Start(srv, cfg)
+		if err != nil {
 			srv.StopBackground()
 			return fmt.Errorf("simulator startup: %w", err)
 		}
+		srv.OnStop(stop)
 	}
-	serveErr := srv.ListenAndServe()
-	return errors.Join(serveErr, stop(context.Background()))
+	return srv.ListenAndServe()
 }

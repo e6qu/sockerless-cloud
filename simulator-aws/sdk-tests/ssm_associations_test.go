@@ -2,6 +2,7 @@ package aws_sdk_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
@@ -252,15 +253,26 @@ func TestSSM_AutomationExecutionPreview(t *testing.T) {
 	require.NotNil(t, get.ExecutionPreview)
 }
 
-// TestSSM_CommandLifecycle pins Run Command: send a command to instances,
-// list it, list invocations, fetch a per-instance invocation, then cancel.
+// TestSSM_CommandLifecycle pins Run Command: send a command to a managed
+// instance, list it, list invocations, fetch the per-instance invocation with
+// the output the command wrote, then cancel. A target that is no managed
+// node fails the request.
 func TestSSM_CommandLifecycle(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
 	docName := "sockerless-command-doc-sdk"
 	ssmEnsureDoc(t, c, docName)
 
-	instanceID := "i-cccc3333dddd44440"
+	_, err := c.SendCommand(ctx, &ssm.SendCommandInput{
+		DocumentName: aws.String(docName),
+		InstanceIds:  []string{"i-cccc3333dddd44440"},
+	})
+	requireAWSErrorCode(t, err, "InvalidInstanceId")
+
+	ec2c := ec2Client()
+	instanceID := launchInstanceFor(t, ec2c, "10.205.0.0/16")
+	waitForEC2InstanceRunning(t, ec2c, instanceID)
+
 	send, err := c.SendCommand(ctx, &ssm.SendCommandInput{
 		DocumentName: aws.String(docName),
 		InstanceIds:  []string{instanceID},
@@ -271,11 +283,17 @@ func TestSSM_CommandLifecycle(t *testing.T) {
 	require.NotNil(t, send.Command)
 	cmdID := aws.ToString(send.Command.CommandId)
 	require.NotEmpty(t, cmdID)
-	assert.Equal(t, ssmtypes.CommandStatusSuccess, send.Command.Status)
+	assert.Equal(t, ssmtypes.CommandStatusPending, send.Command.Status)
 
 	list, err := c.ListCommands(ctx, &ssm.ListCommandsInput{CommandId: aws.String(cmdID)})
 	require.NoError(t, err)
 	require.Len(t, list.Commands, 1)
+
+	inv := waitForSSMCommandExecuted(t, c, cmdID, instanceID)
+	assert.Equal(t, ssmtypes.CommandInvocationStatusSuccess, inv.Status)
+	assert.Equal(t, int32(0), inv.ResponseCode)
+	assert.Equal(t, "hi\n", aws.ToString(inv.StandardOutputContent), "the document's own echo runs on the instance")
+	assert.Empty(t, aws.ToString(inv.StandardErrorContent))
 
 	invs, err := c.ListCommandInvocations(ctx, &ssm.ListCommandInvocationsInput{
 		CommandId: aws.String(cmdID),
@@ -285,15 +303,38 @@ func TestSSM_CommandLifecycle(t *testing.T) {
 	require.Len(t, invs.CommandInvocations, 1)
 	assert.Equal(t, instanceID, aws.ToString(invs.CommandInvocations[0].InstanceId))
 	require.NotEmpty(t, invs.CommandInvocations[0].CommandPlugins)
+	assert.Equal(t, "hi\n", aws.ToString(invs.CommandInvocations[0].CommandPlugins[0].Output))
 
-	inv, err := c.GetCommandInvocation(ctx, &ssm.GetCommandInvocationInput{
-		CommandId:  aws.String(cmdID),
-		InstanceId: aws.String(instanceID),
+	failing, err := c.SendCommand(ctx, &ssm.SendCommandInput{
+		DocumentName: aws.String("AWS-RunShellScript"),
+		InstanceIds:  []string{instanceID},
+		Parameters:   map[string][]string{"commands": {"echo oops >&2", "exit 3"}},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, ssmtypes.CommandInvocationStatusSuccess, inv.Status)
-	assert.Equal(t, int32(0), inv.ResponseCode)
+	failed := waitForSSMCommandExecuted(t, c, aws.ToString(failing.Command.CommandId), instanceID)
+	assert.Equal(t, ssmtypes.CommandInvocationStatusFailed, failed.Status)
+	assert.Equal(t, int32(3), failed.ResponseCode)
+	assert.Equal(t, "oops\n", aws.ToString(failed.StandardErrorContent))
 
 	_, err = c.CancelCommand(ctx, &ssm.CancelCommandInput{CommandId: aws.String(cmdID)})
 	require.NoError(t, err)
+}
+
+// waitForSSMCommandExecuted waits with the SDK's CommandExecuted waiter for
+// an invocation to finish and returns it.
+func waitForSSMCommandExecuted(t *testing.T, c *ssm.Client, commandID, instanceID string) *ssm.GetCommandInvocationOutput {
+	t.Helper()
+	out, err := ssm.NewCommandExecutedWaiter(c, func(o *ssm.CommandExecutedWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).WaitForOutput(ctx, &ssm.GetCommandInvocationInput{CommandId: aws.String(commandID), InstanceId: aws.String(instanceID)}, 2*time.Minute)
+	if err != nil {
+		// The waiter stops on Failed too, which is a result to read, not an
+		// error to fail on.
+		got, getErr := c.GetCommandInvocation(ctx, &ssm.GetCommandInvocationInput{CommandId: aws.String(commandID), InstanceId: aws.String(instanceID)})
+		require.NoError(t, getErr)
+		require.Contains(t, []ssmtypes.CommandInvocationStatus{ssmtypes.CommandInvocationStatusFailed, ssmtypes.CommandInvocationStatusTimedOut}, got.Status, "waiter: %v", err)
+		return got
+	}
+	return out
 }

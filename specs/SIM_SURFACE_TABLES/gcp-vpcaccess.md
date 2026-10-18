@@ -17,11 +17,11 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `PATCH /v1/projects/{project}/locations/{location}/connectors/{name}` | ✓ `simulator-gcp/vpcaccess.go:100::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/locations/{location}/connectors/{name}` | ✓ `simulator-gcp/vpcaccess.go:144::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v1/projects/{project}/locations/{location}/connectors/{name}` | ✓ `simulator-gcp/vpcaccess.go:159::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/locations/{location}/connectors` | ✓ `simulator-gcp/vpcaccess.go:171::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/locations/{location}/connectors` | ✓ `simulator-gcp/vpcaccess.go:48::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /v1/projects/{project}/locations/{location}/connectors/{name}` | ✓ `simulator-gcp/vpcaccess.go:105::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/locations/{location}/connectors/{name}` | ✓ `simulator-gcp/vpcaccess.go:149::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v1/projects/{project}/locations/{location}/connectors/{name}` | ✓ `simulator-gcp/vpcaccess.go:164::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/locations/{location}/connectors` | ✓ `simulator-gcp/vpcaccess.go:180::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/locations/{location}/connectors` | ✓ `simulator-gcp/vpcaccess.go:53::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

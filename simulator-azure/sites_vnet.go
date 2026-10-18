@@ -4,6 +4,8 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -24,11 +26,12 @@ import (
 //     spelling `az webapp vnet-integration add` writes and terraform's
 //     virtual_network_subnet_id manages (applySiteVirtualNetworkSubnetID).
 //
-// Every spelling drives the same real join: the connection's VNet is realized
-// as a Docker user-defined network (dockerNetForVNet) and every container the
-// site runs — the persistent site container, a `services:` container, and
-// each per-invocation container — attaches to it, so sites on the same VNet
-// reach each other by name. A swift PUT surfaces in the classic list (named
+// Every spelling drives the same real join: the connection's virtual network
+// is the engine network over its address space (dockerNetForVNet), created
+// when the first container attaches, and every container the site runs — the
+// persistent site container, a `services:` container, and each
+// per-invocation container — attaches to it, so sites on the same VNet reach
+// each other by name. A swift PUT surfaces in the classic list (named
 // `<vnet>_<subnet>`, isSwift, vnetResourceId = the subnet) and on the site's
 // virtualNetworkSubnetId; a classic PUT that references a delegated subnet
 // surfaces on the swift GET; deleting through any spelling really disconnects
@@ -269,8 +272,7 @@ func handleSwiftVnetPut(w http.ResponseWriter, r *http.Request) {
 	}
 	conn.ID = resID + "/virtualNetworkConnections/" + conn.Name
 	if err := upsertVnetConnection(r, site, conn); err != nil {
-		AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
-			"failed to integrate site %q into VNet: %v", site.Name, err)
+		writeVnetIntegrationError(w, site.Name, err)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, SwiftVirtualNetwork{
@@ -344,31 +346,69 @@ func handleClassicVnetPut(w http.ResponseWriter, r *http.Request) {
 		conn.Properties.CertThumbprint = vnetCertThumbprint(conn.Properties.CertBlob)
 	}
 	if err := upsertVnetConnection(r, site, conn); err != nil {
-		AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
-			"failed to integrate site %q into VNet: %v", site.Name, err)
+		writeVnetIntegrationError(w, site.Name, err)
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, withPlanRoutes(conn, site.Properties.ServerFarmID))
 }
 
-// upsertVnetConnection records the connection and performs the real join:
-// the VNet's Docker network is ensured and the site's containers attach to it.
-// An Always On site's container runs whether or not a request arrives, so it
-// is running on the network when the integration returns; any other site's
-// container attaches when a request starts it, and a live one attaches now.
-// Regional (delegated-subnet) integration is single per site: a new
-// subnet-backed connection replaces a previous one under a different name,
-// exactly as a swift PUT re-points the integration.
+// vnetConnectionVNetID resolves the virtual network a connection names — a
+// subnet of it, or the network itself — to the stored network's id. A network
+// or subnet the store does not hold is the request's error.
+func vnetConnectionVNetID(vnetResourceID string) (string, error) {
+	if strings.Contains(vnetResourceID, "/subnets/") {
+		subnet, ok := azureSubnetByID(vnetResourceID)
+		if !ok {
+			return "", &azureAddressFault{
+				code:    "BadRequest",
+				status:  http.StatusBadRequest,
+				message: fmt.Sprintf("Subnet %s was not found.", vnetResourceID),
+			}
+		}
+		return azureVNetIDOfSubnet(subnet.ID), nil
+	}
+	for _, vnet := range azureVnets.List() {
+		if strings.EqualFold(vnet.ID, vnetResourceID) {
+			return vnet.ID, nil
+		}
+	}
+	return "", &azureAddressFault{
+		code:    "BadRequest",
+		status:  http.StatusBadRequest,
+		message: fmt.Sprintf("Virtual network %s was not found.", vnetResourceID),
+	}
+}
+
+// writeVnetIntegrationError answers a failed integration: the request's own
+// error when the network it names does not exist, the platform's otherwise.
+func writeVnetIntegrationError(w http.ResponseWriter, siteName string, err error) {
+	var fault *azureAddressFault
+	if errors.As(err, &fault) {
+		AzureError(w, fault.code, fault.message, fault.status)
+		return
+	}
+	AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
+		"failed to integrate site %q into VNet: %v", siteName, err)
+}
+
+// upsertVnetConnection records the connection and performs the real join: the
+// site's containers attach to the virtual network's engine network. An Always
+// On site's container runs whether or not a request arrives, so it is running
+// on the network when the integration returns; any other site's container
+// attaches when a request starts it, and a live one attaches now. Regional
+// (delegated-subnet) integration is single per site: a new subnet-backed
+// connection replaces a previous one under a different name, exactly as a
+// swift PUT re-points the integration.
 func upsertVnetConnection(r *http.Request, site Site, conn WebVnetConnection) error {
+	vnetID, err := vnetConnectionVNetID(conn.Properties.VnetResourceID)
+	if err != nil {
+		return err
+	}
 	resID := webResourceID(r)
 	if conn.Properties.IsSwift {
 		if prev, ok := swiftConnectionFor(resID); ok && prev.ID != conn.ID {
 			deleteVnetConnection(r, prev)
 		}
-	}
-	dockerNet := dockerNetForVNet(vnetNameFromSubnetID(conn.Properties.VnetResourceID))
-	if _, err := sim.EnsureDockerNetwork(dockerNet); err != nil {
-		return err
 	}
 	webVnetConnections.Put(conn.ID, conn)
 	syncSiteVnetSubnetProperty(r)
@@ -376,13 +416,16 @@ func upsertVnetConnection(r *http.Request, site Site, conn WebVnetConnection) er
 	inst := azfInstanceFor(site.Name)
 	inst.mu.Lock()
 	defer inst.mu.Unlock()
-	inst.addNetworkLocked(dockerNet)
+	inst.addNetworkLocked(vnetID)
 	s := site
+	// A changed integration restarts the site's container on its new
+	// network, as App Service restarts the app: an Always On site at once,
+	// any other on its next request.
+	if inst.containerID != "" && !inst.siteNetworkCurrentLocked() {
+		inst.teardownLocked()
+	}
 	if siteAlwaysOn(&s) && siteRunsContainer(&s) {
 		return inst.ensureStarted(&s)
-	}
-	if inst.containerID != "" && sim.ContainerRunning(inst.containerID) {
-		_ = sim.ConnectContainerToNetwork(inst.containerID, dockerNet, siteNetAliases(&s))
 	}
 	return nil
 }
@@ -428,8 +471,8 @@ func syncSiteVnetSubnetProperty(r *http.Request) {
 }
 
 // deleteVnetConnection removes the connection record, its gateways, and — when
-// no other connection of the same site still uses the VNet — really
-// disconnects the site's container from the network.
+// no other connection of the same site still uses the VNet — restarts the
+// site's container off the network.
 func deleteVnetConnection(r *http.Request, conn WebVnetConnection) {
 	webVnetConnections.Delete(conn.ID)
 	syncSiteVnetSubnetProperty(r)
@@ -438,10 +481,10 @@ func deleteVnetConnection(r *http.Request, conn WebVnetConnection) {
 		webVnetGateways.Delete(gw.ID)
 	}
 
-	dockerNet := dockerNetForVNet(vnetNameFromSubnetID(conn.Properties.VnetResourceID))
+	vnetID := strings.ToLower(azureVNetIDOfSubnet(conn.Properties.VnetResourceID))
 	resID := webResourceID(r)
 	for _, other := range siteVnetConnections(resID) {
-		if dockerNetForVNet(vnetNameFromSubnetID(other.Properties.VnetResourceID)) == dockerNet {
+		if strings.ToLower(azureVNetIDOfSubnet(other.Properties.VnetResourceID)) == vnetID {
 			return // the VNet is still integrated through another connection
 		}
 	}
@@ -452,9 +495,10 @@ func deleteVnetConnection(r *http.Request, conn WebVnetConnection) {
 	inst := azfInstanceFor(site.Name)
 	inst.mu.Lock()
 	defer inst.mu.Unlock()
-	inst.removeNetworkLocked(dockerNet)
-	if inst.containerID != "" {
-		_ = sim.DisconnectContainerFromNetwork(inst.containerID, dockerNet)
+	inst.removeNetworkLocked(vnetID)
+	if inst.containerID != "" && !inst.siteNetworkCurrentLocked() {
+		inst.teardownLocked()
+		startAlwaysOnSite(site)
 	}
 }
 
@@ -511,40 +555,4 @@ func vnetCertThumbprint(certBlob string) string {
 	}
 	sum := sha1.Sum(raw)
 	return strings.ToUpper(hex.EncodeToString(sum[:]))
-}
-
-// realizeCNAMEAsSiteDockerAlias makes recordName resolve to the App Service site
-// whose DefaultHostName is the CNAME's target, by re-attaching that site's
-// container to its VNet networks with the alias — the same mechanism
-// realizeCNAMEAsDockerAlias uses for ACA Apps. This is how the sim realizes a
-// Private DNS record for an App Service site locally; it is not
-// sockerless-specific (any CNAME → a site's default hostname resolves this way).
-// No-op when no site matches or the site isn't VNet-integrated yet.
-func realizeCNAMEAsSiteDockerAlias(cname string) {
-	target := strings.TrimSuffix(cname, ".")
-	if target == "" {
-		return
-	}
-	for _, site := range azfSites.List() {
-		if !strings.EqualFold(strings.TrimSuffix(site.Properties.DefaultHostName, "."), target) {
-			continue
-		}
-		s := site
-		inst := azfInstanceFor(s.Name)
-		inst.mu.Lock()
-		cid := inst.containerID
-		dockerNets := append([]string(nil), inst.dockerNetworks...)
-		inst.mu.Unlock()
-		if cid == "" || len(dockerNets) == 0 {
-			return
-		}
-		// Docker can't add an alias to a live endpoint, so re-attach with the
-		// full set: the site's identity names + every CNAME pointing at it.
-		aliases := dedupeStrings(append(siteNetAliases(&s), cnameAliasesForTarget(target)...))
-		for _, dockerNet := range dockerNets {
-			_ = sim.DisconnectContainerFromNetwork(cid, dockerNet)
-			_ = sim.ConnectContainerToNetwork(cid, dockerNet, aliases)
-		}
-		return
-	}
 }

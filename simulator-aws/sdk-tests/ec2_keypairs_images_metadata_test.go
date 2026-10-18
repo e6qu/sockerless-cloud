@@ -1,7 +1,6 @@
 package aws_sdk_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -54,11 +53,11 @@ func TestEC2_KeyPairsSDK(t *testing.T) {
 func TestEC2_ModifyInstanceMetadataOptionsSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
-	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.140.0.0/16")})
+	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.251.0.0/16")})
 	require.NoError(t, err)
-	subnet := createSubnetFor(t, c, vpc.Vpc.VpcId, "10.140.1.0/24")
+	subnet := createSubnetFor(t, c, vpc.Vpc.VpcId, "10.251.1.0/24")
 	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
-		ImageId: aws.String("ami-12345678"), InstanceType: types.InstanceTypeT3Micro,
+		ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
 	})
 	require.NoError(t, err)
@@ -86,7 +85,7 @@ func TestEC2_LaunchTemplateMarketCreditSDK(t *testing.T) {
 	lt, err := c.CreateLaunchTemplate(ctx, &ec2.CreateLaunchTemplateInput{
 		LaunchTemplateName: aws.String(ltName),
 		LaunchTemplateData: &types.RequestLaunchTemplateData{
-			ImageId: aws.String("ami-12345678"), InstanceType: types.InstanceTypeT3Micro,
+			ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
 			CreditSpecification: &types.CreditSpecificationRequest{CpuCredits: aws.String("unlimited")},
 			InstanceMarketOptions: &types.LaunchTemplateInstanceMarketOptionsRequest{
 				MarketType: types.MarketTypeSpot,
@@ -122,15 +121,27 @@ func TestEC2_DescribeImagesFiltersSDK(t *testing.T) {
 	out, err := c.DescribeImages(ctx, &ec2.DescribeImagesInput{
 		Owners: []string{"amazon"},
 		Filters: []types.Filter{
-			{Name: aws.String("name"), Values: []string{"al2023-ami-minimal"}},
+			{Name: aws.String("name"), Values: []string{"al2023-ami-2023*-arm64"}},
 			{Name: aws.String("architecture"), Values: []string{"arm64"}},
 			{Name: aws.String("root-device-type"), Values: []string{"ebs"}},
 		},
 	})
 	require.NoError(t, err)
-	require.NotEmpty(t, out.Images, "filtered DescribeImages must resolve to an image")
+	require.Len(t, out.Images, 1, "one Amazon Linux 2023 arm64 AMI is published")
 	img := out.Images[0]
-	assert.Equal(t, "al2023-ami-minimal", aws.ToString(img.Name), "the name filter must flow into the resolved image")
+	assert.Regexp(t, `^al2023-ami-2023\..*-kernel-6\.1-arm64$`, aws.ToString(img.Name), "the name filter selects the arm64 build")
 	assert.Equal(t, types.ArchitectureValuesArm64, img.Architecture, "the architecture filter must be honoured")
-	assert.True(t, strings.HasPrefix(aws.ToString(img.ImageId), "ami-"))
+	assert.Equal(t, "amazon", aws.ToString(img.ImageOwnerAlias))
+	assert.Regexp(t, `^ami-0[0-9a-f]{16}$`, aws.ToString(img.ImageId))
+	assert.True(t, aws.ToBool(img.Public))
+
+	// Every public AMI the account can launch lists under its owner.
+	canonical, err := c.DescribeImages(ctx, &ec2.DescribeImagesInput{
+		Owners:  []string{"099720109477"},
+		Filters: []types.Filter{{Name: aws.String("name"), Values: []string{"ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-*"}}},
+	})
+	require.NoError(t, err)
+	require.Len(t, canonical.Images, 2, "Ubuntu 24.04 for amd64 and arm64")
+	_, err = c.DescribeImages(ctx, &ec2.DescribeImagesInput{ImageIds: []string{"ami-0123456789abcdef0"}})
+	requireAWSErrorCode(t, err, "InvalidAMIID.NotFound")
 }

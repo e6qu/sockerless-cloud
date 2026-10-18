@@ -29,6 +29,12 @@ func TestSiteVNetIntegration_CLI_RoundTrip(t *testing.T) {
 	}`
 	runCLI(t, azRest("PUT", url, body))
 
+	// The subnet the site joins exists in the Microsoft.Network store, as it
+	// must on Azure: the integration resolves it to the network it is in.
+	runCLI(t, azRest("PUT", armURL("Microsoft.Network", "virtualNetworks/cli-sitevnet", "2024-05-01"),
+		`{"location":"eastus","properties":{"addressSpace":{"addressPrefixes":["10.72.0.0/16"]}}}`))
+	runCLI(t, azRest("PUT", armURL("Microsoft.Network", "virtualNetworks/cli-sitevnet/subnets/appservice", "2024-05-01"),
+		`{"properties":{"addressPrefix":"10.72.1.0/24","delegations":[{"name":"appservice","properties":{"serviceName":"Microsoft.Web/serverFarms"}}]}}`))
 	subnetID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + resourceGroup +
 		"/providers/Microsoft.Network/virtualNetworks/cli-sitevnet/subnets/appservice"
 

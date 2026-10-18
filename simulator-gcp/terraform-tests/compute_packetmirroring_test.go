@@ -15,10 +15,9 @@ import (
 // delivered, so applying it through the provider is what proves the resource is
 // wired the way a real operator writes it.
 //
-// It stands apart from the monolithic apply because it needs no booted guest —
-// the collector group is empty here, and the delivery itself is proven against
-// real traffic in realexec. Folding it into that apply would tie a
-// control-plane assertion to a Firecracker boot it does not need.
+// It stands apart from the monolithic apply because it needs no booted guest:
+// the collector group is empty here, and the policy is a control-plane
+// assertion.
 func TestTerraformComputePacketMirroringApplyDestroy(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.tf"), []byte(`

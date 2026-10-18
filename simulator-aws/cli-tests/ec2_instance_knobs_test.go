@@ -15,7 +15,7 @@ func TestEC2InstanceKnobFidelityCLI(t *testing.T) {
 	subnetID := q("ec2", "create-subnet", "--vpc-id", vpcID, "--cidr-block", "10.132.1.0/24",
 		"--query", "Subnet.SubnetId", "--output", "text")
 
-	instID := q("ec2", "run-instances", "--image-id", "ami-12345678", "--instance-type", "t3.micro",
+	instID := q("ec2", "run-instances", "--image-id", ec2AmazonLinuxAMI(t), "--instance-type", "t3.micro",
 		"--subnet-id", subnetID, "--key-name", "cli-key", "--ebs-optimized",
 		"--metadata-options", "HttpTokens=required,HttpPutResponseHopLimit=2",
 		"--query", "Instances[0].InstanceId", "--output", "text")

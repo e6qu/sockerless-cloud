@@ -1,11 +1,19 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"slices"
+	"strconv"
 	"strings"
+	"time"
+
+	"github.com/moby/moby/client"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // EC2Image models a user-registered AMI. The sim has no real machine images, so
@@ -33,6 +41,14 @@ type EC2Image struct {
 	SourceImageId      string
 	BlockDeviceName    string
 	Tags               []EC2Tag
+	// ImageLocation is the OCI image the AMI boots from: the reference a
+	// RegisterImage or ImportImage named, or the capture CreateImage took.
+	ImageLocation   string
+	OwnerAlias      string
+	PlatformDetails string
+	UsageOperation  string
+	BootMode        string
+	EnaSupport      bool
 }
 
 // EC2PlacementGroup models an EC2 placement group (cluster/spread/partition).
@@ -108,6 +124,10 @@ func handleCreateImage(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidInstanceID.NotFound", fmt.Sprintf("The instance ID %q does not exist", instanceID), http.StatusBadRequest)
 		return
 	}
+	if inst.State != "running" && inst.State != "stopped" {
+		ec2ErrorXML(w, "IncorrectInstanceState", fmt.Sprintf("The instance '%s' is not in the 'running' or 'stopped' state.", instanceID), http.StatusBadRequest)
+		return
+	}
 	arch := inst.Architecture
 	if arch == "" {
 		arch = "x86_64"
@@ -124,7 +144,7 @@ func handleCreateImage(w http.ResponseWriter, r *http.Request) {
 		ImageId:            ec2ID("ami"),
 		Name:               name,
 		Description:        r.FormValue("Description"),
-		State:              "available",
+		State:              "pending",
 		OwnerId:            ec2Owner(),
 		Public:             false,
 		Architecture:       arch,
@@ -139,12 +159,84 @@ func handleCreateImage(w http.ResponseWriter, r *http.Request) {
 		SourceInstanceId:   instanceID,
 		BlockDeviceName:    rootName,
 		Tags:               parseTags(r),
+		PlatformDetails:    "Linux/UNIX",
+		UsageOperation:     "RunInstances",
+		EnaSupport:         true,
 	}
 	ec2Images.Put(img.ImageId, img)
+	// The capture is an EBS snapshot of the root volume, as it is on EC2: the
+	// image's block device mapping names it, DescribeSnapshots lists it, and
+	// it outlives the image until DeleteSnapshot, which refuses it while an
+	// image still maps it.
+	now := time.Now().UTC()
+	ec2Snapshots.Put(img.SnapshotId, EC2Snapshot{
+		SnapshotId:    img.SnapshotId,
+		VolumeId:      "vol-" + strings.TrimPrefix(instanceID, "i-"),
+		VolumeSize:    size,
+		State:         "pending",
+		StartTime:     now.Format(time.RFC3339),
+		CompletionDue: now.Add(ec2SnapshotCaptureNotBefore).Format(time.RFC3339Nano),
+		Progress:      "0%",
+		Description:   fmt.Sprintf("Created by CreateImage(%s) for %s", instanceID, img.ImageId),
+		OwnerId:       ec2Owner(),
+	})
+	// The image is pending while the instance's root disk is captured and
+	// available once the capture holds it.
+	bg.Go(func() { ec2CaptureImage(img.ImageId, instanceID) })
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateImageResponse %s><requestId>%s</requestId><imageId>%s</imageId></CreateImageResponse>`,
 		ec2Xmlns(), sim.NewUUID(), img.ImageId)
 }
+
+// ec2CapturedImageReference names the OCI image a CreateImage capture lands
+// in; the engine keeps it until the AMI is deregistered.
+func ec2CapturedImageReference(imageID string) string {
+	return "sockerless-sim-aws-ami/" + imageID + ":latest"
+}
+
+// ec2RemoveCapturedImage drops a deregistered AMI's capture from the engine.
+func ec2RemoveCapturedImage(reference string) {
+	cli := sim.DockerClient()
+	if cli == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if _, err := cli.ImageRemove(ctx, reference, client.ImageRemoveOptions{}); err != nil {
+		fmt.Fprintf(os.Stderr, "[sim-ec2] remove captured image %s: %v\n", reference, err)
+	}
+}
+
+// ec2CaptureImage commits the instance's root disk into the AMI's image and
+// marks the AMI available, or failed with what went wrong.
+func ec2CaptureImage(imageID, instanceID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	reference := ec2CapturedImageReference(imageID)
+	err := ec2CommitWorkload(ctx, instanceID, reference)
+	var snapshotID string
+	ec2Images.Update(imageID, func(img *EC2Image) {
+		snapshotID = img.SnapshotId
+		if err != nil {
+			img.State = "failed"
+			img.Description = strings.TrimSpace(img.Description + " (" + err.Error() + ")")
+			return
+		}
+		img.State = "available"
+		img.ImageLocation = reference
+	})
+	ec2Snapshots.Update(snapshotID, func(snap *EC2Snapshot) {
+		if err != nil {
+			snap.State = "error"
+			return
+		}
+		snap.State, snap.Progress = "completed", "100%"
+	})
+}
+
+// ec2ImagesBySnapshot answers DeleteSnapshot's question of which image still
+// maps a snapshot.
+var ec2ImagesBySnapshot sim.GenerationIndex[EC2Image]
 
 // handleRegisterImage registers an AMI from a manifest / block device mapping.
 func handleRegisterImage(w http.ResponseWriter, r *http.Request) {
@@ -166,7 +258,9 @@ func handleRegisterImage(w http.ResponseWriter, r *http.Request) {
 		virtType = "hvm"
 	}
 	// A registered AMI may be EBS-backed (block device mapping with a snapshot)
-	// or instance-store-backed (ImageLocation manifest, no snapshot).
+	// or instance-store-backed, where ImageLocation names the image's
+	// contents: the simulator takes an OCI image reference there, which is the
+	// root filesystem instances of the AMI boot from.
 	snapID := r.FormValue("BlockDeviceMapping.1.Ebs.SnapshotId")
 	rootType := "instance-store"
 	size := 0
@@ -192,6 +286,11 @@ func handleRegisterImage(w http.ResponseWriter, r *http.Request) {
 		VolumeSize:         size,
 		BlockDeviceName:    rootName,
 		Tags:               parseTags(r),
+		ImageLocation:      r.FormValue("ImageLocation"),
+		PlatformDetails:    "Linux/UNIX",
+		UsageOperation:     "RunInstances",
+		EnaSupport:         r.FormValue("EnaSupport") == "true",
+		BootMode:           r.FormValue("BootMode"),
 	}
 	ec2Images.Put(img.ImageId, img)
 	w.Header().Set("Content-Type", "text/xml")
@@ -242,11 +341,15 @@ func handleDeregisterImage(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "MissingParameter", "The request must contain the parameter ImageId", http.StatusBadRequest)
 		return
 	}
-	if _, ok := ec2Images.Get(imageID); !ok {
+	img, ok := ec2Images.Get(imageID)
+	if !ok {
 		ec2ErrorXML(w, "InvalidAMIID.NotFound", fmt.Sprintf("The image id %q does not exist", imageID), http.StatusBadRequest)
 		return
 	}
 	ec2Images.Delete(imageID)
+	if img.ImageLocation == ec2CapturedImageReference(imageID) {
+		ec2RemoveCapturedImage(img.ImageLocation)
+	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeregisterImageResponse %s><requestId>%s</requestId><return>true</return></DeregisterImageResponse>`, ec2Xmlns(), sim.NewUUID())
 }
@@ -270,11 +373,31 @@ func ec2StoredImageXML(img EC2Image) string {
 	if img.SourceImageId != "" {
 		srcImg = fmt.Sprintf("<sourceImageId>%s</sourceImageId>", img.SourceImageId)
 	}
-	return fmt.Sprintf(`<item><imageId>%s</imageId><imageLocation>%s/%s</imageLocation><imageState>%s</imageState><imageOwnerId>%s</imageOwnerId><isPublic>%t</isPublic><architecture>%s</architecture><imageType>%s</imageType><rootDeviceType>%s</rootDeviceType><rootDeviceName>%s</rootDeviceName>%s<virtualizationType>%s</virtualizationType><name>%s</name>%s<creationDate>%s</creationDate><hypervisor>%s</hypervisor>%s%s%s%s</item>`,
-		img.ImageId, img.OwnerId, xmlEscape(img.Name), img.State, img.OwnerId, img.Public,
+	location := img.ImageLocation
+	if location == "" {
+		location = img.OwnerId + "/" + img.Name
+	}
+	var extra strings.Builder
+	if img.OwnerAlias != "" {
+		fmt.Fprintf(&extra, "<imageOwnerAlias>%s</imageOwnerAlias>", xmlEscape(img.OwnerAlias))
+	}
+	if img.PlatformDetails != "" {
+		fmt.Fprintf(&extra, "<platformDetails>%s</platformDetails>", xmlEscape(img.PlatformDetails))
+	}
+	if img.UsageOperation != "" {
+		fmt.Fprintf(&extra, "<usageOperation>%s</usageOperation>", xmlEscape(img.UsageOperation))
+	}
+	if img.EnaSupport {
+		extra.WriteString("<enaSupport>true</enaSupport><sriovNetSupport>simple</sriovNetSupport>")
+	}
+	if img.BootMode != "" {
+		fmt.Fprintf(&extra, "<bootMode>%s</bootMode>", xmlEscape(img.BootMode))
+	}
+	return fmt.Sprintf(`<item><imageId>%s</imageId><imageLocation>%s</imageLocation><imageState>%s</imageState><imageOwnerId>%s</imageOwnerId><isPublic>%t</isPublic><architecture>%s</architecture><imageType>%s</imageType><rootDeviceType>%s</rootDeviceType><rootDeviceName>%s</rootDeviceName>%s<virtualizationType>%s</virtualizationType><name>%s</name>%s<creationDate>%s</creationDate><hypervisor>%s</hypervisor>%s%s%s%s%s</item>`,
+		img.ImageId, xmlEscape(location), img.State, img.OwnerId, img.Public,
 		img.Architecture, img.ImageType, img.RootDeviceType, img.RootDeviceName, bdm,
 		img.VirtualizationType, xmlEscape(img.Name), desc, img.CreationDate, img.Hypervisor,
-		srcInst, srcImg, ec2ImageInstanceTypeSpecXML(img.ImageId), writeTagSetXML(img.Tags))
+		extra.String(), srcInst, srcImg, ec2ImageInstanceTypeSpecXML(img.ImageId), writeTagSetXML(img.Tags))
 }
 
 func ec2ImageMatchesFilters(img EC2Image, filters map[string][]string) bool {
@@ -285,7 +408,27 @@ func ec2ImageMatchesFilters(img EC2Image, filters map[string][]string) bool {
 				return false
 			}
 		case "name":
-			if !ec2StrInValues(img.Name, vals) {
+			if !slices.ContainsFunc(vals, func(v string) bool { return awsWildcardMatch(v, img.Name) }) {
+				return false
+			}
+		case "description":
+			if !slices.ContainsFunc(vals, func(v string) bool { return awsWildcardMatch(v, img.Description) }) {
+				return false
+			}
+		case "is-public":
+			if !ec2StrInValues(strconv.FormatBool(img.Public), vals) {
+				return false
+			}
+		case "image-type":
+			if !ec2StrInValues(img.ImageType, vals) {
+				return false
+			}
+		case "hypervisor":
+			if !ec2StrInValues(img.Hypervisor, vals) {
+				return false
+			}
+		case "platform-details":
+			if !ec2StrInValues(img.PlatformDetails, vals) {
 				return false
 			}
 		case "state":
@@ -304,8 +447,12 @@ func ec2ImageMatchesFilters(img EC2Image, filters map[string][]string) bool {
 			if !ec2StrInValues(img.VirtualizationType, vals) {
 				return false
 			}
-		case "owner-id", "owner-alias":
+		case "owner-id":
 			if !ec2StrInValues(img.OwnerId, vals) {
+				return false
+			}
+		case "owner-alias":
+			if !ec2StrInValues(img.OwnerAlias, vals) {
 				return false
 			}
 		default:

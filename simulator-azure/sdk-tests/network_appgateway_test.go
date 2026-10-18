@@ -31,7 +31,6 @@ import (
 // demand and delete, with the data plane exercised between them.
 func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	rg := "appgw-rg"
 	requireResourceGroup(t, rg)
 	gatewaySubnet := requireSubnet(t, rg, "appgw-vnet", "10.60.0.0/16", "appgw-subnet", "10.60.1.0/24")
@@ -428,7 +427,6 @@ func TestNetworkApplicationGateway_RoutesRealTraffic(t *testing.T) {
 // endpoint opens on it, which the gateway's owner then approves and removes.
 func TestNetworkApplicationGateway_PrivateLink(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	rg := "appgw-plink-rg"
 	requireResourceGroup(t, rg)
 	gatewaySubnet := requireSubnet(t, rg, "appgw-plink-vnet", "10.61.0.0/16", "gw-subnet", "10.61.1.0/24")

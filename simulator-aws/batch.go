@@ -13,6 +13,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/google/uuid"
 )
 
@@ -170,7 +171,7 @@ var (
 	batchServiceEnvs   sim.Store[BatchServiceEnvironment]
 	batchServiceJobs   sim.Store[BatchServiceJob]
 	batchQuotaShares   sim.Store[BatchQuotaShare]
-	batchJobHandles    = map[string]*sim.ContainerHandle{}
+	batchJobHandles    = map[string]placement.Handle{}
 	batchMu            sync.Mutex
 )
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -109,7 +110,12 @@ func kuduCommand(w http.ResponseWriter, r *http.Request, site *Site) {
 		kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	metadataEnv, err := hostMetadataEnv(site)
+	network, err := azurePlatformNetwork(r.Context())
+	if err != nil {
+		kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	metadataEnv, err := hostMetadataEnv(site, network.DNS)
 	if err != nil {
 		kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -121,7 +127,12 @@ func kuduCommand(w http.ResponseWriter, r *http.Request, site *Site) {
 		binds = append(binds, wwwroot+":/home/site/wwwroot:ro")
 	}
 	sink := &kuduCommandSink{activity: make(chan struct{}, 1)}
-	handle, err := sim.StartContainerSyncContext(r.Context(), sim.ContainerConfig{
+	backend, err := azurePlacementBackend(placementWeb)
+	if err != nil {
+		kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	handle, err := backend.Place(r.Context(), sim.ContainerConfig{
 		Image:        localImage,
 		Architecture: platform,
 		RegistryAuth: registryAuth,
@@ -134,8 +145,10 @@ func kuduCommand(w http.ResponseWriter, r *http.Request, site *Site) {
 			"sockerless-sim-type": "azure-kudu-command",
 			"sockerless-site":     site.Name,
 		},
+		Network:    network.Network,
+		DNS:        network.resolvers(),
 		ExtraHosts: workloadhost.ExtraHosts(),
-		Sandbox:    SandboxAZF,
+		Sandbox:    kuduCommandSandbox(),
 	}, sink)
 	if err != nil {
 		kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
@@ -186,4 +199,17 @@ wait:
 	out := map[string]any{"Output": sink.stdout.String(), "Error": sink.stderr.String(), "ExitCode": result.ExitCode}
 	sink.mu.Unlock()
 	sim.WriteJSON(w, http.StatusOK, out)
+}
+
+// kuduCommandSandbox is the App Service profile with the command running as
+// the identity that owns the site's files on this host: what a command
+// writes under /home, the simulator later reads, moves and deletes through
+// the same VFS, which an unprivileged simulator could not do to files another
+// identity owned.
+func kuduCommandSandbox() sim.SandboxProfile {
+	sandbox := SandboxAZF
+	if uid := os.Getuid(); uid >= 0 {
+		sandbox.User = fmt.Sprintf("%d:%d", uid, os.Getgid())
+	}
+	return sandbox
 }

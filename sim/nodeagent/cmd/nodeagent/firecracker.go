@@ -1,0 +1,181 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
+)
+
+const (
+	controlPort = 5000
+	exitPort    = 5001
+)
+
+// launchFirecracker starts the machine over Firecracker's API: the kernel the
+// agent carries, the guest's root image, its empty disk slots, its tap and a
+// vsock for guestinit, then the boot.
+func (g *guest) launchFirecracker(ctx context.Context, tap string) (*exec.Cmd, error) {
+	api := filepath.Join(g.dir, "firecracker.socket")
+	_ = os.Remove(api)
+	_ = os.Remove(g.vsockPath())
+	console, err := os.Create(filepath.Join(g.dir, "console.log"))
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(g.agent.cfg.firecracker, "--api-sock", api)
+	cmd.Stdout = console
+	cmd.Stderr = console
+	if err := cmd.Start(); err != nil {
+		_ = console.Close()
+		return nil, fmt.Errorf("start firecracker: %w", err)
+	}
+	_ = console.Close()
+	kill := func() {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	}
+	if err := waitForSocket(ctx, api, 10*time.Second); err != nil {
+		kill()
+		return nil, err
+	}
+	mask := net.CIDRMask(g.address.Bits(), 32)
+	bootArgs := fmt.Sprintf("console=ttyS0 reboot=k panic=1 pci=off init=/sbin/sockerless-init ip=%s::%s:%s::eth0:off",
+		g.address.Addr(), g.spec.Network.Gateway, net.IP(mask))
+	if runtime.GOARCH == "arm64" {
+		bootArgs = "keep_bootcon " + bootArgs
+	}
+	requests := []struct{ path, body string }{
+		{"/logger", fmt.Sprintf(`{"log_path":%q,"level":"Info"}`, filepath.Join(g.dir, "firecracker.log"))},
+		{"/machine-config", fmt.Sprintf(`{"vcpu_count":%d,"mem_size_mib":%d}`, g.spec.VCPUs, g.spec.MemoryMiB)},
+		{"/boot-source", fmt.Sprintf(`{"kernel_image_path":%q,"boot_args":%q}`, g.agent.cfg.kernel, bootArgs)},
+		{"/drives/rootfs", fmt.Sprintf(`{"drive_id":"rootfs","path_on_host":%q,"is_root_device":true,"is_read_only":false}`, filepath.Join(g.dir, "rootfs.ext4"))},
+	}
+	for i, path := range g.disks {
+		requests = append(requests, struct{ path, body string }{
+			fmt.Sprintf("/drives/disk%d", i),
+			fmt.Sprintf(`{"drive_id":"disk%d","path_on_host":%q,"is_root_device":false,"is_read_only":false}`, i, path),
+		})
+	}
+	requests = append(requests,
+		struct{ path, body string }{"/network-interfaces/eth0", fmt.Sprintf(`{"iface_id":"eth0","guest_mac":%q,"host_dev_name":%q}`, g.spec.Network.MAC, tap)},
+		struct{ path, body string }{"/vsock", fmt.Sprintf(`{"guest_cid":3,"uds_path":%q}`, g.vsockPath())},
+		struct{ path, body string }{"/actions", `{"action_type":"InstanceStart"}`},
+	)
+	for _, req := range requests {
+		if err := firecrackerRequest(ctx, api, http.MethodPut, req.path, req.body); err != nil {
+			kill()
+			return nil, err
+		}
+	}
+	if err := os.WriteFile(filepath.Join(g.dir, "firecracker.pid"), []byte(fmt.Sprint(cmd.Process.Pid)), 0o644); err != nil {
+		kill()
+		return nil, err
+	}
+	return cmd, nil
+}
+
+func (g *guest) patchDrive(ctx context.Context, driveID, path string) error {
+	api := filepath.Join(g.dir, "firecracker.socket")
+	return firecrackerRequest(ctx, api, http.MethodPatch, "/drives/"+driveID, fmt.Sprintf(`{"drive_id":%q,"path_on_host":%q}`, driveID, path))
+}
+
+func (g *guest) vsockPath() string { return filepath.Join(g.dir, "v.sock") }
+
+func waitForSocket(ctx context.Context, path string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("firecracker did not open %s within %s", path, timeout)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
+func firecrackerRequest(ctx context.Context, socket, method, path, payload string) error {
+	// Firecracker's API server admits a handful of connections at once and
+	// answers 503 "Too many open connections" past that, so no request may
+	// leave an idle keep-alive connection behind.
+	client := &http.Client{Transport: &http.Transport{
+		DisableKeepAlives: true,
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "unix", socket)
+		},
+	}}
+	req, err := http.NewRequestWithContext(ctx, method, "http://firecracker"+path, strings.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("firecracker %s %s: %w", method, path, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		var fault struct {
+			Message string `json:"fault_message"`
+		}
+		_ = json.Unmarshal(body, &fault)
+		if fault.Message == "" {
+			fault.Message = strings.TrimSpace(string(body))
+		}
+		return fmt.Errorf("firecracker %s %s: HTTP %d: %s", method, path, resp.StatusCode, fault.Message)
+	}
+	return nil
+}
+
+// vsockClient reaches guestinit's control port through Firecracker's vsock
+// device: a connection to the device's Unix socket, opened with the port the
+// guest listens on.
+func (g *guest) vsockClient() *http.Client {
+	path := g.vsockPath()
+	return &http.Client{Transport: &http.Transport{
+		DisableKeepAlives: true,
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var d net.Dialer
+			conn, err := d.DialContext(ctx, "unix", path)
+			if err != nil {
+				return nil, err
+			}
+			if deadline, ok := ctx.Deadline(); ok {
+				_ = conn.SetDeadline(deadline)
+			} else {
+				_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+			}
+			if _, err := fmt.Fprintf(conn, "CONNECT %d\n", controlPort); err != nil {
+				_ = conn.Close()
+				return nil, err
+			}
+			var reply [32]byte
+			n, err := conn.Read(reply[:])
+			if err != nil {
+				_ = conn.Close()
+				return nil, err
+			}
+			if !strings.HasPrefix(string(reply[:n]), "OK ") {
+				_ = conn.Close()
+				return nil, fmt.Errorf("vsock connect: %q", strings.TrimSpace(string(reply[:n])))
+			}
+			_ = conn.SetDeadline(time.Time{})
+			return conn, nil
+		},
+	}}
+}

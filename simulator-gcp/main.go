@@ -42,7 +42,7 @@ func main() {
 			// Workloads reach the metadata server and the sidecars at the
 			// address the simulator serves on.
 			simListenAddr = cfg.ListenAddr
-			return nil
+			return gcpConfigurePlacement(cfg)
 		},
 		Build: func(cfg sim.Config) (*sim.Server, error) {
 			srv, err := buildSimulator(cfg)
@@ -76,6 +76,10 @@ func startGCPListeners(srv *sim.Server, cfg sim.Config) (func(context.Context) e
 	if err != nil {
 		return nil, fmt.Errorf("cloud dns: %w", err)
 	}
+	if err := gcpStartPlacement(context.Background()); err != nil {
+		return nil, err
+	}
+	gcpAdoptComputeInstances(context.Background())
 	// Cloud Spanner backup schedules produce real backups on their crontab
 	// occurrences, and Cloud Pub/Sub dead-letters messages whose last delivery
 	// attempt ran out of ack deadline and pushes push subscriptions' backlogs.
@@ -83,7 +87,13 @@ func startGCPListeners(srv *sim.Server, cfg sim.Config) (func(context.Context) e
 	srv.StartBackground("Pub/Sub dead-letter sweeper", pubsubDeadLetterSweeper)
 	startPubSubPush(srv)
 	resumeCloudRunWorkloads()
-	return func(context.Context) error { return dnsSrv.Close() }, nil
+	return func(context.Context) error {
+		gcpStopPlacement()
+		if networkSidecars != nil {
+			networkSidecars.Close()
+		}
+		return dnsSrv.Close()
+	}, nil
 }
 
 // buildSimulator constructs the simulator server and registers every

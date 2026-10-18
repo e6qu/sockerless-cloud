@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -302,6 +303,7 @@ func terraformCmd(args ...string) *exec.Cmd {
 		fmt.Sprintf("BIGTABLE_EMULATOR_HOST=%s", grpcEndpoint),
 		fmt.Sprintf("TF_VAR_endpoint=%s", tfEndpoint),
 		fmt.Sprintf("TF_VAR_access_token=%s", accessToken),
+		"TF_VAR_debian_image_family="+debianImageFamily(),
 	)
 	if caCertFile != "" {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("SSL_CERT_FILE=%s", caCertFile))
@@ -466,4 +468,13 @@ func initUpgrading(args []string) []string {
 		return append([]string{"init", "-upgrade"}, args[1:]...)
 	}
 	return args
+}
+
+// debianImageFamily is the Debian 12 image family of the engine's
+// architecture, which an instance booted on a container backend runs.
+func debianImageFamily() string {
+	if runtime.GOARCH == "arm64" {
+		return "debian-12-arm64"
+	}
+	return "debian-12"
 }

@@ -70,26 +70,23 @@ func startProcessModeSim(t *testing.T) string {
 	return ""
 }
 
-// TestECS_ManagedEBSRunTaskProcessMode covers issue #569: a managed-EBS
-// RunTask under SIM_RUNTIME=process must not panic the simulator on the nil
-// Docker client. The deleteOnTermination cleanup previously routed through
-// ebsRemoveDockerVolume → sim.DockerClient().VolumeRemove, dereferencing the
-// nil client in the async task-transition goroutine and crashing the process.
-// With the fix the managed-EBS volume is host-path-backed in process mode (the
-// same in-memory model ec2:CreateVolume uses), so the transition completes and
-// the simulator keeps serving.
+// TestECS_ManagedEBSRunTaskProcessMode: a managed-EBS RunTask under
+// SIM_RUNTIME=process must not panic the simulator on the nil Docker client.
+// The managed-EBS volume is host-path-backed in process mode (the same
+// in-memory model ec2:CreateVolume uses), so the transition completes and the
+// simulator keeps serving.
 func TestECS_ManagedEBSRunTaskProcessMode(t *testing.T) {
 	t.Parallel()
 	url := startProcessModeSim(t)
 	ecsc := ecs.NewFromConfig(sdkConfig(), func(o *ecs.Options) { o.BaseEndpoint = aws.String(url) })
 	ec2c := ec2.NewFromConfig(sdkConfig(), func(o *ec2.Options) { o.BaseEndpoint = aws.String(url) })
 
-	vpcOut, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.190.0.0/16")})
+	vpcOut, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.248.0.0/16")})
 	require.NoError(t, err)
 	vpcID := aws.ToString(vpcOut.Vpc.VpcId)
 	subnetOut, err := ec2c.CreateSubnet(ctx, &ec2.CreateSubnetInput{
 		VpcId:     aws.String(vpcID),
-		CidrBlock: aws.String("10.190.1.0/24"),
+		CidrBlock: aws.String("10.248.1.0/24"),
 	})
 	require.NoError(t, err)
 	subnetID := aws.ToString(subnetOut.Subnet.SubnetId)

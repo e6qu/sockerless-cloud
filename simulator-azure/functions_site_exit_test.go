@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 )
 
@@ -21,22 +22,27 @@ func TestSiteContainerThatExitsBeforeItsPortIsReadReportsItsExit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	containerID, err := sim.StartHTTPContainer(t.Context(), sim.HTTPContainerConfig{
+	network := fmt.Sprintf("sockerless-sim-azure-site-exit-%d", time.Now().UnixNano())
+	if _, err := sim.EnsureDockerNetwork(network); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sim.RemoveDockerNetwork(network) })
+	handle, err := placement.ContainerBackend{}.Place(t.Context(), placement.Workload{
 		Image:        image,
 		Architecture: platform,
 		Command:      []string{"sh", "-c", "exit 3"},
 		Name:         fmt.Sprintf("sockerless-sim-azure-site-exit-%d", time.Now().UnixNano()),
+		Network:      network,
 		PublishPorts: []int{80},
-	})
+	}, sim.NoopSink{})
 	if err != nil {
 		t.Fatalf("start container: %v", err)
 	}
-	t.Cleanup(func() { sim.StopAndRemoveContainer(containerID, 0) })
-	exit, stopWait := watchContainerExit(containerID)
-	defer stopWait()
+	t.Cleanup(handle.Cancel)
+	exit := newContainerExit(handle)
 	<-exit.done
 
-	candidates, err := siteContainerCandidates(t.Context(), containerID, 80)
+	candidates, err := siteContainerCandidates(t.Context(), handle.ID(), network, 80)
 	if err != nil {
 		t.Fatalf("an exited container's candidates: %v", err)
 	}

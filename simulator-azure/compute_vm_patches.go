@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
@@ -25,16 +24,11 @@ func registerVirtualMachinePatchesAndCapture(srv *sim.Server) {
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Compute"
 
 	srv.HandleFunc("POST "+armBase+"/virtualMachines/{vmName}/assessPatches", func(w http.ResponseWriter, r *http.Request) {
-		vm, id, ok := azureLookupVM(w, r)
+		_, id, ok := azureLookupVM(w, r)
 		if !ok {
 			return
 		}
-		guest, err := azureGuestFor(r.Context(), vm.ID)
-		if err != nil {
-			AzureErrorf(w, "OperationNotAllowed", http.StatusConflict, "%v", err)
-			return
-		}
-		result, err := azureAssessGuestPatches(r.Context(), guest, id)
+		result, err := azureAssessGuestPatches(r.Context(), id)
 		if err != nil {
 			AzureErrorf(w, "OperationNotAllowed", http.StatusConflict, "%v", err)
 			return
@@ -43,7 +37,7 @@ func registerVirtualMachinePatchesAndCapture(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("POST "+armBase+"/virtualMachines/{vmName}/installPatches", func(w http.ResponseWriter, r *http.Request) {
-		vm, id, ok := azureLookupVM(w, r)
+		_, id, ok := azureLookupVM(w, r)
 		if !ok {
 			return
 		}
@@ -66,18 +60,12 @@ func registerVirtualMachinePatchesAndCapture(srv *sim.Server) {
 				http.StatusBadRequest)
 			return
 		}
-		guest, err := azureGuestFor(r.Context(), vm.ID)
-		if err != nil {
-			AzureErrorf(w, "OperationNotAllowed", http.StatusConflict, "%v", err)
-			return
-		}
-
 		var include, exclude []string
 		if request.LinuxParameters != nil {
 			include = request.LinuxParameters.PackageNameMasksToInclude
 			exclude = request.LinuxParameters.PackageNameMasksToExclude
 		}
-		result, err := azureInstallGuestPatches(r.Context(), guest, id, include, exclude, request.RebootSetting)
+		result, err := azureInstallGuestPatches(r.Context(), id, include, exclude, request.RebootSetting)
 		if err != nil {
 			AzureErrorf(w, "OperationNotAllowed", http.StatusConflict, "%v", err)
 			return
@@ -127,18 +115,18 @@ func registerVirtualMachinePatchesAndCapture(srv *sim.Server) {
 // anything, and its Inst lines name the package, the version it would move to,
 // and the archive the version comes from — which is what says whether an update
 // is a security update.
-func azureAssessGuestPatches(ctx context.Context, guest *realexec.FirecrackerVM, vmID string) (map[string]any, error) {
+func azureAssessGuestPatches(ctx context.Context, vmID string) (map[string]any, error) {
 	started := time.Now().UTC()
-	result, err := guest.Exec(ctx, "/bin/sh", "-c", "LC_ALL=C apt-get --simulate --quiet upgrade 2>/dev/null")
+	stdout, stderr, exitCode, err := azureGuestExec(ctx, vmID, "LC_ALL=C apt-get --simulate --quiet upgrade 2>/dev/null")
 	if err != nil {
 		return nil, fmt.Errorf("assess patches on %q: %w", vmID, err)
 	}
-	if result.ExitCode != 0 {
+	if exitCode != 0 {
 		return nil, fmt.Errorf("assess patches on %q: the guest's package manager exited %d: %s",
-			vmID, result.ExitCode, strings.TrimSpace(string(result.Stderr)))
+			vmID, exitCode, strings.TrimSpace(string(stderr)))
 	}
 
-	patches := azureParseAptUpgradePlan(string(result.Stdout), started)
+	patches := azureParseAptUpgradePlan(string(stdout), started)
 	security, other := 0, 0
 	for _, patch := range patches {
 		if azurePatchIsSecurity(patch) {
@@ -150,8 +138,8 @@ func azureAssessGuestPatches(ctx context.Context, guest *realexec.FirecrackerVM,
 
 	// Debian and Ubuntu record a pending restart with this file, which is the
 	// signal an operator reads; asking the guest is what makes the answer real.
-	reboot, err := guest.Exec(ctx, "/bin/sh", "-c", "test -f /var/run/reboot-required")
-	rebootPending := err == nil && reboot.ExitCode == 0
+	_, _, rebootExit, err := azureGuestExec(ctx, vmID, "test -f /var/run/reboot-required")
+	rebootPending := err == nil && rebootExit == 0
 
 	return map[string]any{
 		"status":                        "Succeeded",
@@ -230,13 +218,12 @@ func azurePatchIsSecurity(patch map[string]any) bool {
 // upgrade does.
 func azureInstallGuestPatches(
 	ctx context.Context,
-	guest *realexec.FirecrackerVM,
 	vmID string,
 	include, exclude []string,
 	rebootSetting string,
 ) (map[string]any, error) {
 	started := time.Now().UTC()
-	available, err := azureAssessGuestPatches(ctx, guest, vmID)
+	available, err := azureAssessGuestPatches(ctx, vmID)
 	if err != nil {
 		return nil, err
 	}
@@ -259,10 +246,10 @@ func azureInstallGuestPatches(
 	patchStates := make([]map[string]any, 0, len(selected))
 	for _, patch := range selected {
 		name, _ := patch["name"].(string)
-		run, err := guest.Exec(ctx, "/bin/sh", "-c",
+		_, _, exitCode, err := azureGuestExec(ctx, vmID,
 			"DEBIAN_FRONTEND=noninteractive apt-get --quiet --yes --only-upgrade install "+shellQuote(name))
 		state := "Installed"
-		if err != nil || run.ExitCode != 0 {
+		if err != nil || exitCode != 0 {
 			state = "Failed"
 			failed++
 		} else {
@@ -282,7 +269,7 @@ func azureInstallGuestPatches(
 	pending, _ := available["rebootPending"].(bool)
 	if strings.EqualFold(rebootSetting, "Always") ||
 		(strings.EqualFold(rebootSetting, "IfRequired") && pending) {
-		if _, err := guest.Exec(ctx, "/bin/sh", "-c", "systemctl reboot --no-block || reboot"); err != nil {
+		if _, _, _, err := azureGuestExec(ctx, vmID, "systemctl reboot --no-block || reboot"); err != nil {
 			rebootStatus = "Failed"
 		} else {
 			rebootStatus = "Completed"
@@ -346,41 +333,33 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
-// azureCaptureVMImage copies the disk the machine is running on into the
-// destination container. Azure's capture quiesces the file system before
-// copying it, because a disk copied while the guest is mid-write produces an
-// image that boots into a repair; the guest is asked to flush its own buffers
-// for the same reason.
+// azureCaptureVMImage commits the disk the machine runs on as an OCI image
+// and writes that image's bytes into the destination container of the
+// storage account the machine's boot diagnostics name. Azure's capture
+// quiesces the file system before copying it, because a disk copied while the
+// guest is mid-write produces an image that boots into a repair; the guest is
+// asked to flush its own buffers for the same reason.
 //
 // The result is the deployment template Azure returns: the image is described
-// as a resource whose osDisk points at the blob the capture wrote, so the
-// template can be applied to create a machine from it.
+// as a resource whose osDisk points at the blob the capture wrote, and a
+// machine or an image resource naming that blob boots the committed image.
 func azureCaptureVMImage(
 	ctx context.Context,
 	vm VirtualMachine,
 	vhdPrefix, container string,
 ) (map[string]any, error) {
-	// A capture reads the machine's disk, which the machine has whether or not
-	// it is running — and Azure captures a generalized machine, which is a
-	// stopped one. A running guest is quiesced first so the copy is not taken
-	// mid-write; a stopped machine's disk was flushed when it was preserved.
-	liveWorkDir := ""
-	if guest, err := azureGuestFor(ctx, vm.ID); err == nil {
-		if _, err := guest.Exec(ctx, "/bin/sh", "-c", "sync"); err != nil {
-			return nil, fmt.Errorf("quiesce %q before capturing it: %w", vm.ID, err)
-		}
-		liveWorkDir = guest.WorkDir
-	}
-
-	disk, err := azureReadVMDisk(vm.ID, liveWorkDir)
-	if err != nil {
-		return nil, err
-	}
-
 	account, err := azureBootDiagnosticsAccount(vm)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"capturing %q writes the image into a storage account, and the machine names none: %w", vm.ID, err)
+	}
+	image, err := azureCommitVMImage(ctx, vm, "capture")
+	if err != nil {
+		return nil, err
+	}
+	disk, err := azureExportImage(ctx, image.OCI)
+	if err != nil {
+		return nil, err
 	}
 	blobName := vhdPrefix + "-osdisk.vhd"
 	now := time.Now().UTC().Format(http.TimeFormat)
@@ -398,6 +377,7 @@ func azureCaptureVMImage(
 	}
 
 	uri := fmt.Sprintf("https://%s.blob.core.windows.net/%s/%s", account, container, blobName)
+	azureRecordCapturedImage(uri, image)
 	return map[string]any{
 		"$schema":        "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
 		"contentVersion": "1.0.0.0",

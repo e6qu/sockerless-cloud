@@ -8,13 +8,14 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
 
-	realexec "github.com/e6qu/sockerless-cloud/realexec"
-	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/lbplane"
+	"github.com/e6qu/sockerless-cloud/sim/netrules"
 )
 
 // registerGCPComputeLoadBalancerDataPlane mounts the front end a forwarding
@@ -92,6 +93,9 @@ func handleGCPComputeLoadBalancerDataPlane(w http.ResponseWriter, r *http.Reques
 		RawQuery:               r.URL.RawQuery,
 		Timeout:                timeout,
 		SkipTargetVerification: true,
+		// The proxy is the source the backend's firewall rules see, not the
+		// client.
+		Admit: func(netip.Addr) error { return gcpBackendAdmit(target, int(target.Port)) },
 	}
 	if gcpExternalLoadBalancingScheme(fr.LoadBalancingScheme) {
 		up.RequestHeader = gcpExternalForwardedHeaders(r, fr)
@@ -101,6 +105,8 @@ func handleGCPComputeLoadBalancerDataPlane(w http.ResponseWriter, r *http.Reques
 	abortStartedForward(w, err)
 	switch {
 	case err == nil:
+	case errors.Is(err, lbplane.ErrNotAdmitted):
+		http.Error(w, "no healthy backends", http.StatusServiceUnavailable)
 	case errors.Is(err, lbplane.ErrClientWentAway):
 		w.WriteHeader(lbplane.StatusClientClosedRequest)
 	default:
@@ -153,7 +159,7 @@ func gcpForwardingRuleMatchesRequest(fr ComputeForwardingRule, r *http.Request) 
 	if fr.PortRange == "" {
 		return port == 80
 	}
-	from, to, err := realexec.PortRange(fr.PortRange)
+	from, to, err := netrules.PortRange(fr.PortRange)
 	if err != nil {
 		return false
 	}
@@ -574,6 +580,14 @@ func gcpProbeBackend(ctx context.Context, hc ComputeHealthCheck, target gcpLBTar
 		timeout = 5 * time.Second
 	}
 	ip := target.Instance.NetworkInterfaces[0].NetworkIP
+	// The checker reaches the backend only through its firewall rules.
+	admit := func(port string) error {
+		n, err := strconv.Atoi(port)
+		if err != nil {
+			return err
+		}
+		return gcpBackendAdmit(target, n)
+	}
 	// "USE_FIXED_PORT: The port number in port is used", "USE_NAMED_PORT: The
 	// portName is used", "USE_SERVING_PORT: For NetworkEndpointGroup, the port
 	// specified for each network endpoint is used. For InstanceGroup, the
@@ -606,7 +620,11 @@ func gcpProbeBackend(ctx context.Context, hc ComputeHealthCheck, target gcpLBTar
 		if tcp == nil {
 			tcp = &ComputeTCPHealthCheck{}
 		}
-		return 0, lbplane.ProbeTCP(ctx, net.JoinHostPort(ip, port(tcp.Port, tcp.PortName, tcp.PortSpecification)), timeout)
+		probed := port(tcp.Port, tcp.PortName, tcp.PortSpecification)
+		if err := admit(probed); err != nil {
+			return 0, err
+		}
+		return 0, lbplane.ProbeTCP(ctx, net.JoinHostPort(ip, probed), timeout)
 	case "HTTPS":
 		scheme, check = "https", hc.HttpsHealthCheck
 	case "HTTP2":
@@ -619,11 +637,15 @@ func gcpProbeBackend(ctx context.Context, hc ComputeHealthCheck, target gcpLBTar
 	if check == nil {
 		check = &ComputeHTTPHealthCheck{}
 	}
+	probed := port(check.Port, check.PortName, check.PortSpecification)
+	if err := admit(probed); err != nil {
+		return 0, err
+	}
 	// With no host set, the health check sends the IP address of the backend
 	// it probes.
 	return lbplane.ProbeHTTP(ctx, lbplane.HTTPProbe{
 		Scheme:       scheme,
-		Address:      net.JoinHostPort(ip, port(check.Port, check.PortName, check.PortSpecification)),
+		Address:      net.JoinHostPort(ip, probed),
 		Host:         check.Host,
 		Path:         check.RequestPath,
 		Timeout:      timeout,

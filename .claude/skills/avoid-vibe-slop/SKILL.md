@@ -9,7 +9,7 @@ This project is largely agent-written, with explicit countermeasures. Read the p
 
 ## When this skill applies
 
-- Before writing or modifying a Go file under `simulator-*/`, `sim/`, `realexec/`, `ui-auth/`, or `testutil/`.
+- Before writing or modifying a Go file under `simulator-*/`, `sim/`, `ui-auth/`, or `testutil/`.
 - Before writing or modifying a TypeScript file under `ui/packages/*/src/`.
 - Before adding a test.
 - Before staging a "fix" for a bug.

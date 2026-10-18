@@ -41,8 +41,13 @@ func vpcAccessLRO(project, location string, resource any, typeName, method, targ
 	})
 }
 
+// gcpVPCConnectors holds every Serverless VPC Access connector; a Cloud Run
+// workload naming one is placed where the connector's instances sit.
+var gcpVPCConnectors sim.Store[VPCAccessConnector]
+
 func registerVPCAccess(srv *sim.Server) {
 	connectors := sim.MakeStore[VPCAccessConnector](srv.DB(), "vpc_connectors")
+	gcpVPCConnectors = connectors
 
 	// Create connector
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/connectors", func(w http.ResponseWriter, r *http.Request) {
@@ -163,6 +168,10 @@ func registerVPCAccess(srv *sim.Server) {
 		name := fmt.Sprintf("projects/%s/locations/%s/connectors/%s", project, location, connName)
 
 		connectors.Delete(name)
+		if err := gcpRemoveConnectorNetwork(r.Context(), name); err != nil {
+			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "remove the network of connector %s: %v", connName, err)
+			return
+		}
 		op := vpcAccessLRO(project, location, nil, "type.googleapis.com/google.protobuf.Empty", "DeleteConnector", name)
 		sim.WriteJSON(w, http.StatusOK, op)
 	})

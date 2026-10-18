@@ -398,6 +398,7 @@ func azurePGStopDataPlane(rg, name string, deleteVolume bool) {
 		}
 	}
 	if deleteVolume {
+		dbengine.ReleaseLoopback(azurePGServerKey(rg, name))
 		sim.RemoveVolumeSettled(azurePGServerVolume(rg, name), "azurepg")
 	}
 }

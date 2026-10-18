@@ -608,7 +608,7 @@ func handleLambdaInvokeWithResponseStream(w http.ResponseWriter, r *http.Request
 	// real Lambda uses for response streaming, so aws-sdk-go-v2's
 	// eventstream decoder reassembles it natively.
 	sim.DeclareWait(r.Context(), lambdaInvokeWaitLimit(fn))
-	responseBody, unhandled, _ := invokeLambdaViaRuntimeAPI(sim.LifetimeContext(r.Context()), fn, payload)
+	responseBody, unhandled, _, _ := invokeLambdaViaRuntimeAPI(sim.LifetimeContext(r.Context()), fn, payload)
 	w.Header().Set("Content-Type", "application/vnd.amazon.eventstream")
 	w.Header().Set("X-Amz-Executed-Version", executedVersion)
 	w.WriteHeader(http.StatusOK)
@@ -997,7 +997,7 @@ func lambdaRunDurableCoordinator(ctx context.Context, arn string, function Lambd
 		if !running {
 			return
 		}
-		response, unhandled, _ := invokeLambdaViaRuntimeAPI(ctx, function, payload)
+		response, unhandled, _, _ := invokeLambdaViaRuntimeAPI(ctx, function, payload)
 		if ctx.Err() != nil {
 			return
 		}

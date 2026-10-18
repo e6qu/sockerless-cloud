@@ -13,6 +13,7 @@
 //	SIM_RUNTIME      — "docker" by default; "process" starts API-only mode for runs that do not execute workloads
 //	SIM_SERVICEBUS_AMQP_LISTEN_ADDR — raw Service Bus AMQP/TLS listen address (optional)
 //	SIM_LOG_LEVEL    — log level: trace, debug, info, warn, error (default "info")
+//	SIM_PLACEMENT    — per-service placement backends, as "virtualmachines=microvm,containerapps=container"
 //
 // SDK configuration:
 //
@@ -22,7 +23,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"os"
 
@@ -38,31 +38,33 @@ func main() {
 			if _, err := azureAdvertisedEndpointConfigFromEnv(); err != nil {
 				return err
 			}
-			// Workloads reach IMDS and the managed identity endpoint at the
+			// The sidecars forward workloads' metadata requests to the
 			// address the simulator serves on.
 			simListenAddr = cfg.ListenAddr
-			return nil
+			return configureAzurePlacement(cfg.Placement)
 		},
 		Build: buildSimulator,
 		Start: startAzureListeners,
 	})
 }
 
-// startAzureListeners starts the DNS listeners and the raw Service Bus AMQP
-// listener an operator configured. The stop also tears down the realized
-// network fabric: the namespaces, interfaces and machines behind virtual
-// networks are host-global and outlive the process.
+// startAzureListeners starts the DNS listeners, the placement backends and
+// the raw Service Bus AMQP listener an operator configured, and adopts the
+// virtual machines a previous process of a persistent simulator left running.
 func startAzureListeners(_ *sim.Server, cfg sim.Config) (func(context.Context) error, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var dnsServers []*dnsserver.Server
 	stop := func(ctx context.Context) error {
 		cancel()
+		azureReleaseVMWorkloads(ctx)
+		stopAzurePlacement()
+		if networkSidecars != nil {
+			networkSidecars.Close()
+		}
+		azureRemoveWorkloadNetworks()
 		var errs []error
 		for _, srv := range dnsServers {
 			errs = append(errs, srv.Close())
-		}
-		if err := azureFabric.Close(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("tear down the realized network fabric: %w", err))
 		}
 		return errors.Join(errs...)
 	}
@@ -71,6 +73,10 @@ func startAzureListeners(_ *sim.Server, cfg sim.Config) (func(context.Context) e
 		return nil, errors.Join(err, stop(context.Background()))
 	}
 	dnsServers = servers
+	if err := startAzurePlacement(ctx); err != nil {
+		return nil, errors.Join(err, stop(context.Background()))
+	}
+	azureAdoptVMWorkloads(ctx)
 	if amqpAddr := os.Getenv("SIM_SERVICEBUS_AMQP_LISTEN_ADDR"); amqpAddr != "" {
 		certFile := sim.EnvOr("SIM_SERVICEBUS_AMQP_TLS_CERT", cfg.TLSCert)
 		keyFile := sim.EnvOr("SIM_SERVICEBUS_AMQP_TLS_KEY", cfg.TLSKey)

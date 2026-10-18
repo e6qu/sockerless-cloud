@@ -55,7 +55,6 @@ func aseCLIOperationResult(t *testing.T, resource, body string) string {
 // names the two families it does not implement instead of answering them.
 func TestAppServiceEnvironmentCLI(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 
 	runCLI(t, azRest("PUT", armURL("Microsoft.Network", "virtualNetworks/cli-ase-vnet", "2024-05-01"),
 		`{"location":"eastus","properties":{"addressSpace":{"addressPrefixes":["10.80.0.0/16"]}}}`))

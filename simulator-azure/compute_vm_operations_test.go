@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -58,6 +59,7 @@ func putVMOpsMachine(t *testing.T, name, location string, mutate func(*VirtualMa
 		Properties: VMProperties{
 			ProvisioningState: "Succeeded",
 			StorageProfile: map[string]any{
+				"imageReference": map[string]any{"publisher": "Debian", "offer": "debian-12", "sku": "12", "version": "latest"},
 				"osDisk": map[string]any{
 					"name":         name + "-osdisk",
 					"createOption": "FromImage",
@@ -361,22 +363,22 @@ func TestVirtualMachineBootDiagnosticsPath(t *testing.T) {
 	}
 }
 
-// A machine with no running guest has produced no console output, and the
-// refusal says so rather than returning an empty log that a caller could not
+// A machine that never booted has produced no console output, and the refusal
+// says so rather than returning an empty log that a caller could not
 // distinguish from a guest that booted silently.
 //
 // Both halves are asserted. "An error came back" alone is satisfied by any
 // failure at all — including one from a later line of the function — so the
-// refusal is required to name the missing guest as its reason, and the console
-// bytes are required to be absent rather than an empty slice a caller might
-// hand on as a real, silent log.
+// refusal is required to name the missing backend as its reason, and the
+// console bytes are required to be absent rather than an empty slice a caller
+// might hand on as a real, silent log.
 func TestVirtualMachineBootDiagnosticsRefusesWithoutAGuest(t *testing.T) {
-	console, err := azureGuestConsoleOutput(vmOpsID("no-guest"))
+	console, err := azureGuestConsole(context.Background(), vmOpsID("no-guest"))
 	if err == nil {
 		t.Fatalf("console output was produced for a machine with no guest: %q", console)
 	}
-	if !strings.Contains(err.Error(), "no running guest") {
-		t.Fatalf("the refusal must name the absent guest as its reason, got %q", err)
+	if !strings.Contains(err.Error(), "has never booted") {
+		t.Fatalf("the refusal must name the machine's never having booted as its reason, got %q", err)
 	}
 	if console != nil {
 		t.Fatalf("a refused read must return no console bytes, got %d", len(console))

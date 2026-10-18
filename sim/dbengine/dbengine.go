@@ -587,11 +587,26 @@ func relay(left, right net.Conn) {
 	<-done
 }
 
+// loopbackReservations keeps an identifier on the loopback address it was
+// given until ReleaseLoopback: an instance stopped and started again serves
+// the endpoint it advertised, which no other identifier may take meanwhile.
+var loopbackReservations = struct {
+	mu           sync.Mutex
+	byIdentifier map[string]int
+	byOctet      map[int]string
+}{byIdentifier: map[string]int{}, byOctet: map[int]string{}}
+
 // ListenLoopback binds port on a loopback address derived from identifier, so
-// every instance serves the engine's port on an address of its own. The port
-// is the one the control plane advertises, so no other port stands in for it:
-// when no loopback address offers it, the error says so.
+// every instance serves the engine's port on an address of its own, and keeps
+// that address for identifier until ReleaseLoopback. The port is the one the
+// control plane advertises, so no other port stands in for it: when no
+// loopback address offers it, the error says so.
 func ListenLoopback(identifier string, port int) (net.Listener, error) {
+	loopbackReservations.mu.Lock()
+	defer loopbackReservations.mu.Unlock()
+	if octet, reserved := loopbackReservations.byIdentifier[identifier]; reserved {
+		return net.Listen("tcp", net.JoinHostPort(fmt.Sprintf("127.0.0.%d", octet), strconv.Itoa(port)))
+	}
 	var seed byte = 2
 	for i := 0; i < len(identifier); i++ {
 		seed += identifier[i]
@@ -599,8 +614,13 @@ func ListenLoopback(identifier string, port int) (net.Listener, error) {
 	var lastErr error
 	for offset := 0; offset < 253; offset++ {
 		octet := 2 + (int(seed)+offset)%253
+		if _, taken := loopbackReservations.byOctet[octet]; taken {
+			continue
+		}
 		listener, err := net.Listen("tcp", net.JoinHostPort(fmt.Sprintf("127.0.0.%d", octet), strconv.Itoa(port)))
 		if err == nil {
+			loopbackReservations.byIdentifier[identifier] = octet
+			loopbackReservations.byOctet[octet] = identifier
 			return listener, nil
 		}
 		lastErr = err
@@ -611,6 +631,42 @@ func ListenLoopback(identifier string, port int) (net.Listener, error) {
 		return listener, nil
 	}
 	return nil, fmt.Errorf("no loopback address offers port %d (last error: %v)", port, lastErr)
+}
+
+// ListenLoopbackAt binds port on the loopback address identifier advertised
+// before, as a process that starts again serves the endpoints its state
+// records, and keeps the address for identifier as ListenLoopback does.
+func ListenLoopbackAt(identifier, address string, port int) (net.Listener, error) {
+	ip := net.ParseIP(address).To4()
+	if ip == nil || !ip.IsLoopback() {
+		return nil, fmt.Errorf("%q is not a loopback address", address)
+	}
+	loopbackReservations.mu.Lock()
+	defer loopbackReservations.mu.Unlock()
+	octet := int(ip[3])
+	if owner, taken := loopbackReservations.byOctet[octet]; taken && owner != identifier {
+		return nil, fmt.Errorf("loopback address %s is held by %s", address, owner)
+	}
+	listener, err := net.Listen("tcp", net.JoinHostPort(address, strconv.Itoa(port)))
+	if err != nil {
+		return nil, err
+	}
+	if octet != 1 {
+		loopbackReservations.byIdentifier[identifier] = octet
+		loopbackReservations.byOctet[octet] = identifier
+	}
+	return listener, nil
+}
+
+// ReleaseLoopback gives up the loopback address identifier held, once the
+// instance behind it is deleted rather than stopped.
+func ReleaseLoopback(identifier string) {
+	loopbackReservations.mu.Lock()
+	defer loopbackReservations.mu.Unlock()
+	if octet, reserved := loopbackReservations.byIdentifier[identifier]; reserved {
+		delete(loopbackReservations.byIdentifier, identifier)
+		delete(loopbackReservations.byOctet, octet)
+	}
 }
 
 // SelfSignedCertificate returns the TLS certificate an endpoint presents,

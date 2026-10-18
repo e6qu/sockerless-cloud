@@ -12,7 +12,6 @@ import (
 // running.
 func TestComputeVirtualMachineOperationsCLI(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 
 	vnetURL := armURL("Microsoft.Network", "virtualNetworks/cli-vmops-vnet", "2024-05-01")
 	runCLI(t, azRest("PUT", vnetURL, `{"location":"eastus","properties":{"addressSpace":{"addressPrefixes":["10.95.0.0/16"]}}}`))
@@ -34,7 +33,7 @@ func TestComputeVirtualMachineOperationsCLI(t *testing.T) {
 	vmURL := vmPath + "?api-version=2022-03-01"
 	azRestLongRunning(t, "PUT", vmURL, fmt.Sprintf(
 		`{"location":"eastus","properties":{"hardwareProfile":{"vmSize":"Standard_B1s"},`+
-			`"storageProfile":{"osDisk":{"name":"cli-vmops-osdisk","createOption":"FromImage","managedDisk":{"storageAccountType":"Standard_LRS"}}},`+
+			`"storageProfile":{"imageReference":{"publisher":"Debian","offer":"debian-12","sku":"12","version":"latest"},"osDisk":{"name":"cli-vmops-osdisk","createOption":"FromImage","managedDisk":{"storageAccountType":"Standard_LRS"}}},`+
 			`"osProfile":{"computerName":"cli-vmops","adminUsername":"azureuser","adminPassword":"Str0ng-password-12345!"},`+
 			`"diagnosticsProfile":{"bootDiagnostics":{"enabled":true,"storageUri":"https://simbootdiag.blob.core.windows.net/"}},`+
 			`"networkProfile":{"networkInterfaces":[{"id":%q,"properties":{"primary":true}}]}}}`, nicID))

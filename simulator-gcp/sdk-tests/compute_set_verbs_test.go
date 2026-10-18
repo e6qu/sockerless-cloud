@@ -138,7 +138,6 @@ func TestCompute_TargetInstanceSecurityPolicy(t *testing.T) {
 
 func TestCompute_SubnetworkPrivateGoogleAccess(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	svc := computeService(t)
 	const project, region, network = "set-verbs-subnet", "us-central1", "custom"
 
@@ -173,10 +172,9 @@ func TestCompute_SubnetworkPrivateGoogleAccess(t *testing.T) {
 // carries it on.
 func TestCompute_InstanceSecurityPolicyLandsOnItsAccessConfigs(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, zone, name = "set-verbs-instance", "us-central1-a", "armoured"
-	createVerbInstance(t, svc, project, zone, name)
+	createVerbInstance(t, svc, project, zone, name, "10.80.0.0/24")
 
 	// No external address yet, so there is nothing to apply the policy to and
 	// the verb says so rather than passing silently.

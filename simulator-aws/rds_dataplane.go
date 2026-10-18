@@ -268,7 +268,7 @@ func rdsInstallDataPlane(instance *RDSInstance, masterPassword string) error {
 // binds the requested port on a loopback address of its own.
 func rdsListenForEndpoint(address string, port int, identifier string) (net.Listener, error) {
 	if endpointIP := net.ParseIP(address); endpointIP != nil && endpointIP.IsLoopback() && port > 0 {
-		return net.Listen("tcp", net.JoinHostPort(address, strconv.Itoa(port)))
+		return dbengine.ListenLoopbackAt(identifier, address, port)
 	}
 	return dbengine.ListenLoopback(identifier, port)
 }
@@ -631,6 +631,9 @@ func rdsStopDataPlane(instanceID string, deleting bool) error {
 	release := rdsDataPlaneStops.Lock(instanceID)
 	defer release()
 	rdsCloseAuroraInstanceEndpoint(instanceID)
+	if deleting {
+		defer dbengine.ReleaseLoopback(instanceID)
+	}
 	var stopErr error
 	if value, ok := rdsDataPlanes.LoadAndDelete(instanceID); ok {
 		if plane, ok := value.(*rdsDataPlane); ok {

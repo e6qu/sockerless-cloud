@@ -91,23 +91,23 @@ variable a workload sees.
   namespaces for others). An engine refuses two live networks over one
   address range, so two live VPCs sharing a CIDR do not coexist on one
   engine: a recorded gap, lifted where agents on other hosts carry them.
-- **The cloud's fixed addresses are sidecars.** Each network carries a second,
-  link-local subnet, and one sidecar per network sits at the cloud's resolver
-  and metadata addresses — `169.254.169.253` and `169.254.169.254` for AWS,
-  `169.254.169.254` and `metadata.google.internal` for Google Cloud,
-  `168.63.129.16` and `169.254.169.254` for Azure — forwarding DNS to the
-  simulator's resolver and metadata requests to its handlers. A workload
-  reaches them because it shares the bridge. The resolver attributes a query
-  to the network its sidecar serves, never to anything inside the message.
-  Should an engine refuse a link-local subnet, the sidecar takes an ordinary
-  address, `--dns` names it, and the metadata URL the cloud already hands a
-  workload by environment (Amazon ECS does) carries it; a fixed metadata
-  address the cloud offers no variable for is then a recorded gap.
+- **The cloud's resolver is a sidecar.** A bridge network carries one subnet
+  and refuses a link-local one, so one sidecar per network sits at the
+  address the cloud reserves inside the range — the VPC's base plus two, the
+  Compute Engine subnetwork's second-to-last address, the Azure virtual
+  network's base plus two — forwarding DNS to the simulator's resolver and
+  metadata requests to its handlers under a token the simulator minted for
+  it. Every workload on the network names the sidecar as its DNS server and
+  takes its metadata URL from the variable the cloud's SDKs honour
+  (`AWS_EC2_METADATA_SERVICE_ENDPOINT`, `ECS_CONTAINER_METADATA_URI_V4`,
+  `GCE_METADATA_HOST`, `IDENTITY_ENDPOINT`); the fixed link-local metadata
+  address is a recorded gap. The resolver attributes a query to the network
+  its sidecar serves, never to anything inside the message.
 - **NAT and egress.** A sidecar proxy per network replaces `nftables` SNAT;
   the NAT gateway's, Cloud NAT's or Azure NAT Gateway's public address is the
   sidecar's.
 - **Peering and private endpoints** are a container on both networks.
-- **Load balancers** keep `realexec/lbplane`: loopback listeners, TLS
+- **Load balancers** keep `sim/lbplane`: loopback listeners, TLS
   termination, probes and forwarding need no privilege.
 - **Security groups, NSGs and firewalls** are enforced on every flow the
   simulator mediates — load balancers, published ports, NAT egress — and not
@@ -130,6 +130,8 @@ the host. In distributed mode the same agent runs on another host.
 
 ## Stages
 
+Stages 1 to 4 landed in one pull request, with the shared libraries below.
+
 1. **Remove the privileged machinery.** Delete the host-namespace fabric,
    the `nftables` rules, the realized-network DNAT and the in-process
    Firecracker launch, with their host tests, Makefile targets and CI job,
@@ -145,10 +147,10 @@ the host. In distributed mode the same agent runs on another host.
    `privileged`, a CodeBuild project's `privilegedMode`, an ACR task step's
    `privileged` — is not granted on the container backend: the workload runs
    without it, and what then fails is a `BUGS.md` row a node agent's guest
-   closes, like the volume's size bound. `realexec` keeps `lbplane`, IPAM and the
-   rule parsers. Amazon EC2, Compute Engine and Azure virtual machine
+   closes, like the volume's size bound. `lbplane`, IPAM and the rule parsers
+   moved from `realexec` into `sim`, and `realexec` is gone. Amazon EC2, Compute Engine and Azure virtual machine
    instances refuse to launch until stage 3, with the cloud's provisioning
-   error. One pull request, so the removal reviews as one change.
+   error.
 2. **Unprivileged networks.** The per-network sidecars for resolver and
    metadata addresses (closing BUG-3473 and retiring the per-record engine
    aliases), the NAT sidecar, peering, and security groups on mediated flows
@@ -162,25 +164,27 @@ the host. In distributed mode the same agent runs on another host.
 4. **Node agents and the microVM backend.** The agent image, its API, guest
    boot from OCI-built root filesystems, tap filtering, the microVM backend
    in `sim`, and each compute service and managed engine configurable onto
-   it; the Firecracker CI job runs against the agent.
+   it; the node-agent CI job boots a guest through the agent.
 5. **Distributed.** Agents on other hosts and networks that span them, once
    the first four stages hold.
 
 ## Shared functionality in cloud-neutral packages
 
 Each mechanism the three simulators implement alike lives in a cloud-neutral
-package under `sim/` (or `realexec/` for the load-balancer data plane); each
+package under `sim/`; each
 cloud's wire shapes, error envelopes and naming stay in its own module and
 reach the shared code through hooks. Landed: workload host and launch helpers
 (`sim/workloadhost`, `sim/workload`, `sim/bg`, `sim/archive`); identity
 (`sim/simjwt`, `sim/oidcfed`, registry authentication); the database engine
 (`sim/dbengine` with `pgwire` and `mysqlwire`); the load-balancer data plane
-(`realexec/lbplane`); object storage (`sim.PrefixStore`, `sim/blobstore`,
+(`sim/lbplane`); object storage (`sim.PrefixStore`, `sim/blobstore`,
 `sim/sparse`, `Server.Payloads`, `sim.KeyedLocks`); list queries and
 key-value primitives (`sim/listq`, `sim/kvstore`); messaging, delivery, cron
 and streams (`sim/msgq`, `sim/delivery`, `sim/cron`, `sim/streamlog`); keys
 and logs (`sim/simkms`, `sim/logstore`); DNS (`sim/dnsserver`); and startup
-(`sim.Main`, `sim.Program`). The placement backends of stage 3 join them.
+(`sim.Main`, `sim.Program`); networks and placement (`sim.EnsureCloudNetwork`
+with `sim/ipam` and `sim/netrules`, `sim/sidecar`, `sim/placement`,
+`sim/vminstance`, `sim/nodeagent`).
 
 ## Maintenance
 

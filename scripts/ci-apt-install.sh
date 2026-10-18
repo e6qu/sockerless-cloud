@@ -2,10 +2,9 @@
 # ci-apt-install.sh — install only the packages the runner does not already
 # have, and touch the package index only if there is something to install.
 #
-# The runner image already ships most of what the jobs ask for: of the seven
-# packages the real-execution jobs install, curl, e2fsprogs, iproute2,
-# iputils-ping and procps are present out of the box. Running `apt-get update`
-# regardless means a degraded Ubuntu mirror fails a job that needed nothing
+# The runner image already ships most of what the jobs ask for, so running
+# `apt-get update` regardless means a degraded Ubuntu mirror fails a job that
+# needed nothing
 # from it — which is exactly what happened to two jobs of one run, each after
 # `scripts/ci-apt-update.sh` had spent ten minutes on three honest retries.
 #

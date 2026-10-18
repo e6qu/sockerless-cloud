@@ -165,8 +165,8 @@ func TestECS_CLI_RunTaskAndCheckLogs(t *testing.T) {
 	taskArn := runResult.Tasks[0].TaskArn
 	cleanupCLIECSTask(t, "cli-ecs-cluster", taskArn)
 
-	// Poll until the task reaches STOPPED; netns setup on CI can make a fixed
-	// sleep race the real container lifecycle.
+	// Poll until the task reaches STOPPED; task provisioning on CI can make a
+	// fixed sleep race the real container lifecycle.
 	out = waitECSTaskStoppedCLI(t, "cli-ecs-cluster", taskArn)
 
 	var descResult struct {
@@ -650,8 +650,8 @@ func TestECS_CLI_RunTaskNonZeroExit(t *testing.T) {
 	taskArn := runResult.Tasks[0].TaskArn
 	cleanupCLIECSTask(t, "cli-ecs-fail-cluster", taskArn)
 
-	// Poll until the task reaches STOPPED; netns setup on CI can make a fixed
-	// sleep race the real container lifecycle.
+	// Poll until the task reaches STOPPED; task provisioning on CI can make a
+	// fixed sleep race the real container lifecycle.
 	out = waitECSTaskStoppedCLI(t, "cli-ecs-fail-cluster", taskArn)
 
 	var descResult struct {

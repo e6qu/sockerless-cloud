@@ -106,14 +106,8 @@ func TestNetwork_LoadBalancerExtraOps(t *testing.T) {
 // where the real service answers ResourceNotFound. The refusal for a subnet
 // that does not exist is asserted alongside, so "empty" and "absent" stay
 // distinguishable.
-//
-// Creating the subnet builds real Linux network fabric, so this joins the rest
-// of the Microsoft.Network suite behind the host-capability gate and runs for
-// real on the CI Linux cell — a better trade than the version it replaces,
-// which ran everywhere and proved nothing because its subject existed nowhere.
 func TestNetwork_SubnetLinksAndVnetDdos(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	vnetURL := armURL("Microsoft.Network", "virtualNetworks/cli-links-vnet", networkMoreAPIVersion)
 	runCLI(t, azRest("PUT", vnetURL,
 		`{"location":"eastus","properties":{"addressSpace":{"addressPrefixes":["10.93.0.0/16"]}}}`))

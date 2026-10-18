@@ -27,6 +27,12 @@ func TestCompute_RegionZonesAndImageFamilyView(t *testing.T) {
 
 	// The family view resolves to the same image the catalogue read does, so a
 	// client cannot be told two different things about one family.
+	_, err = svc.Images.Insert(project, &compute.Image{
+		Name: "reads-debian-1", Family: "debian",
+		SourceImage: "projects/debian-cloud/global/images/family/debian-12",
+	}).Do()
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = svc.Images.Delete(project, "reads-debian-1").Do() })
 	view, err := svc.ImageFamilyViews.Get(project, zone, "debian").Do()
 	require.NoError(t, err)
 	require.NotNil(t, view.Image)
@@ -68,7 +74,6 @@ func TestCompute_StoragePoolListsTheDisksThatNameIt(t *testing.T) {
 
 func TestCompute_UsableSubnetworks(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	svc := computeService(t)
 	const project, region = "usable-subnets", "us-central1"
 
@@ -114,7 +119,7 @@ func TestCompute_SnapshotKeyImageDeprecationAndRegionalResize(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "needs the key")
 
-	_, err = svc.Images.Insert(project, &compute.Image{Name: "base-v1"}).Do()
+	_, err = svc.Images.Insert(project, &compute.Image{Name: "base-v1", SourceImage: "projects/debian-cloud/global/images/family/debian-12"}).Do()
 	require.NoError(t, err)
 	_, err = svc.Images.Deprecate(project, "base-v1", &compute.DeprecationStatus{
 		State: "DEPRECATED", Replacement: "global/images/base-v2",

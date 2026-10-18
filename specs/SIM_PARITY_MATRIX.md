@@ -92,6 +92,7 @@ lives.
 | `gcp-compute_bulk_verbs` | [`gcp-compute_bulk_verbs`](SIM_SURFACE_TABLES/gcp-compute_bulk_verbs.md) | [`gcp-compute_bulk_verbs`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-compute_catalogs` | [`gcp-compute_catalogs`](SIM_SURFACE_TABLES/gcp-compute_catalogs.md) | [`gcp-compute_catalogs`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-compute_disk_verbs` | [`gcp-compute_disk_verbs`](SIM_SURFACE_TABLES/gcp-compute_disk_verbs.md) | [`gcp-compute_disk_verbs`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-compute_images_catalog` | [`gcp-compute_images_catalog`](SIM_SURFACE_TABLES/gcp-compute_images_catalog.md) | [`gcp-compute_images_catalog`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-compute_instance_power` | [`gcp-compute_instance_power`](SIM_SURFACE_TABLES/gcp-compute_instance_power.md) | [`gcp-compute_instance_power`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-compute_instance_verbs` | [`gcp-compute_instance_verbs`](SIM_SURFACE_TABLES/gcp-compute_instance_verbs.md) | [`gcp-compute_instance_verbs`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-compute_interconnect_diagnostics` | [`gcp-compute_interconnect_diagnostics`](SIM_SURFACE_TABLES/gcp-compute_interconnect_diagnostics.md) | [`gcp-compute_interconnect_diagnostics`](SIM_TEST_COVERAGE_MATRIX.md) |
@@ -149,6 +150,7 @@ lives.
 | `azure-compute` | [`azure-compute`](SIM_SURFACE_TABLES/azure-compute.md) | [`azure-compute`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-compute_operations` | [`azure-compute_operations`](SIM_SURFACE_TABLES/azure-compute_operations.md) | [`azure-compute_operations`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-compute_vm_extensions` | [`azure-compute_vm_extensions`](SIM_SURFACE_TABLES/azure-compute_vm_extensions.md) | [`azure-compute_vm_extensions`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-compute_images_catalog` | [`azure-compute_images_catalog`](SIM_SURFACE_TABLES/azure-compute_images_catalog.md) | [`azure-compute_images_catalog`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-compute_vm_operations` | [`azure-compute_vm_operations`](SIM_SURFACE_TABLES/azure-compute_vm_operations.md) | [`azure-compute_vm_operations`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-compute_vm_patches` | [`azure-compute_vm_patches`](SIM_SURFACE_TABLES/azure-compute_vm_patches.md) | [`azure-compute_vm_patches`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-containerapps` | [`azure-containerapps`](SIM_SURFACE_TABLES/azure-containerapps.md) | [`azure-containerapps`](SIM_TEST_COVERAGE_MATRIX.md) |

@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"net"
 	"net/http"
 )
 
@@ -12,10 +12,9 @@ import (
 // IP configuration. Azure exposes those interfaces under the ordinary
 // Microsoft.Network/networkInterfaces type — they answer Get, they appear in
 // the interface list, and their addresses come out of the subnet's own address
-// space. The simulator realizes them the same way it realizes a caller-created
-// interface: attached to the subnet's real fabric, which is what allocates the
-// address, so a platform interface and a customer interface can never be handed
-// the same one.
+// space. The simulator leases them from the subnet's ledger exactly as it
+// leases a caller-created interface's, so a platform interface and a customer
+// interface can never be handed the same one.
 
 // azurePlatformNICSpec describes one platform-owned network interface.
 type azurePlatformNICSpec struct {
@@ -29,25 +28,29 @@ type azurePlatformNICSpec struct {
 	ApplicationSecurityGroups []SubResource
 }
 
-// azureCreatePlatformNIC attaches the interface to its subnet's fabric, records
-// it under Microsoft.Network/networkInterfaces, and applies whatever network
-// security groups govern the subnet. It returns the stored interface, whose
-// primary IP configuration carries the address the subnet allocated.
-func azureCreatePlatformNIC(ctx context.Context, spec azurePlatformNICSpec) (NetworkInterface, error) {
+// azureCreatePlatformNIC leases the interface's address from its subnet and
+// records it under Microsoft.Network/networkInterfaces. It returns the stored
+// interface, whose primary IP configuration carries the address the subnet
+// allocated; an interface already stored keeps the address it holds.
+func azureCreatePlatformNIC(_ context.Context, spec azurePlatformNICSpec) (NetworkInterface, error) {
 	allocation := spec.AllocationMethod
 	if allocation == "" {
 		allocation = "Dynamic"
 	}
-	if allocation == "Dynamic" {
-		spec.RequestedIP = ""
-	}
-	privateIP, mac, err := azureCreateRealNIC(ctx, spec.ID, spec.SubnetID, spec.RequestedIP, azureNICMAC(spec.ID))
-	if err != nil {
-		return NetworkInterface{}, err
-	}
 	ipConfigName := spec.IPConfigName
 	if ipConfigName == "" {
 		ipConfigName = "ipconfig1"
+	}
+	ipConfigID := spec.ID + "/ipConfigurations/" + ipConfigName
+	var requested net.IP
+	if allocation != "Dynamic" {
+		requested = net.ParseIP(spec.RequestedIP)
+	} else if held := azurePlatformNICPrivateIP(spec.ID); held != "" {
+		requested = net.ParseIP(held)
+	}
+	privateIP, err := azureLeaseSubnetAddress(spec.SubnetID, ipConfigID, requested)
+	if err != nil {
+		return NetworkInterface{}, err
 	}
 	nic := NetworkInterface{
 		ID:       spec.ID,
@@ -56,14 +59,14 @@ func azureCreatePlatformNIC(ctx context.Context, spec azurePlatformNICSpec) (Net
 		Location: spec.Location,
 		Properties: NetworkInterfaceProperties{
 			ProvisioningState: "Succeeded",
-			MacAddress:        mac,
+			MacAddress:        formatAzureMAC(azureNICMAC(spec.ID)),
 			IPConfigurations: []NetworkInterfaceIPConfiguration{{
-				ID:   spec.ID + "/ipConfigurations/" + ipConfigName,
+				ID:   ipConfigID,
 				Name: ipConfigName,
 				Type: "Microsoft.Network/networkInterfaces/ipConfigurations",
 				Properties: NetworkInterfaceIPConfigurationProperties{
 					Subnet:                    &SubResource{ID: spec.SubnetID},
-					PrivateIPAddress:          privateIP,
+					PrivateIPAddress:          privateIP.String(),
 					PrivateIPAllocationMethod: allocation,
 					PrivateIPAddressVersion:   "IPv4",
 					Primary:                   true,
@@ -74,19 +77,17 @@ func azureCreatePlatformNIC(ctx context.Context, spec azurePlatformNICSpec) (Net
 		},
 	}
 	azureNICs.Put(nic.ID, nic)
-	if err := azureApplyRealNSGsToNIC(ctx, nic); err != nil {
-		azureNICs.Delete(nic.ID)
-		_ = azureDeleteRealNIC(ctx, nic.ID)
-		return NetworkInterface{}, fmt.Errorf("apply network security groups to %s: %w", nic.ID, err)
-	}
 	return nic, nil
 }
 
 // azureDeletePlatformNIC releases the interface and its address back to the
 // subnet.
-func azureDeletePlatformNIC(ctx context.Context, nicID string) error {
+func azureDeletePlatformNIC(_ context.Context, nicID string) error {
+	if nic, ok := azureNICs.Get(nicID); ok {
+		azureReleaseNICAddresses(nic)
+	}
 	azureNICs.Delete(nicID)
-	return azureDeleteRealNIC(ctx, nicID)
+	return nil
 }
 
 // azurePlatformNICPrivateIP reports the address of a platform interface's
@@ -106,7 +107,7 @@ func azurePlatformNICPrivateIP(nicID string) string {
 
 // azureRequireSubnet resolves a subnet reference the way the Microsoft.Network
 // resource provider does: a write naming a subnet that does not exist is
-// rejected with the subnet's own ResourceNotFound, before any fabric is built.
+// rejected with the subnet's own ResourceNotFound.
 func azureRequireSubnet(w http.ResponseWriter, subnetID string) (Subnet, bool) {
 	if subnetID == "" {
 		AzureErrorf(w, "InvalidRequestFormat", http.StatusBadRequest,

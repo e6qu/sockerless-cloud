@@ -250,7 +250,6 @@ func TestSDK_Diagnostics_HostingEnvironmentPublishesNoDetectors(t *testing.T) {
 	// creating a real subnet needs the Linux network capabilities the
 	// simulator's fabric is built on. A host that cannot provide them skips;
 	// Linux runs the test.
-	requireNetworkHost(t)
 	requireResourceGroup(t, aseRG)
 	subnetID := requireSubnet(t, aseRG, "sdk-ase-diag-vnet", "10.62.0.0/16", "ase-diag-subnet", "10.62.1.0/24")
 	environments := environmentsClient(t)

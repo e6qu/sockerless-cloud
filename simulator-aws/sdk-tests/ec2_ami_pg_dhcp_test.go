@@ -1,7 +1,9 @@
 package aws_sdk_test
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -25,12 +27,13 @@ func TestEC2_AMILifecycleSDK(t *testing.T) {
 	subnet := createSubnetFor(t, c, vpc.Vpc.VpcId, "10.140.1.0/24")
 
 	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
-		ImageId: aws.String("ami-12345678"), InstanceType: types.InstanceTypeT3Micro,
+		ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
 	})
 	require.NoError(t, err)
 	terminateEC2InstancesOnCleanup(t, c, run)
 	instID := aws.ToString(run.Instances[0].InstanceId)
+	waitForEC2InstanceRunning(t, c, instID)
 
 	// CreateImage from the instance.
 	img, err := c.CreateImage(ctx, &ec2.CreateImageInput{
@@ -45,6 +48,11 @@ func TestEC2_AMILifecycleSDK(t *testing.T) {
 	require.NoError(t, err)
 	amiID := aws.ToString(img.ImageId)
 	require.NotEmpty(t, amiID)
+	_, err = ec2.NewImageAvailableWaiter(c, func(o *ec2.ImageAvailableWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).WaitForOutput(ctx, &ec2.DescribeImagesInput{ImageIds: []string{amiID}}, 5*time.Minute)
+	require.NoError(t, err, "the capture of %s never became available", instID)
 
 	got := describeOneImage(t, c, amiID)
 	assert.Equal(t, "my-golden-ami", aws.ToString(got.Name))
@@ -54,6 +62,19 @@ func TestEC2_AMILifecycleSDK(t *testing.T) {
 	require.Len(t, got.BlockDeviceMappings, 1, "CreateImage records the backing snapshot")
 	require.NotNil(t, got.BlockDeviceMappings[0].Ebs)
 	assert.NotEmpty(t, aws.ToString(got.BlockDeviceMappings[0].Ebs.SnapshotId))
+	// The capture is an EBS snapshot the account owns: listed, described as
+	// CreateImage describes it, and refused to DeleteSnapshot while the image
+	// maps it.
+	snapshotID := aws.ToString(got.BlockDeviceMappings[0].Ebs.SnapshotId)
+	snapshots, err := c.DescribeSnapshots(ctx, &ec2.DescribeSnapshotsInput{SnapshotIds: []string{snapshotID}})
+	require.NoError(t, err)
+	require.Len(t, snapshots.Snapshots, 1)
+	assert.Equal(t, types.SnapshotStateCompleted, snapshots.Snapshots[0].State)
+	assert.Equal(t, fmt.Sprintf("Created by CreateImage(%s) for %s", aws.ToString(run.Instances[0].InstanceId), amiID),
+		aws.ToString(snapshots.Snapshots[0].Description))
+	_, err = c.DeleteSnapshot(ctx, &ec2.DeleteSnapshotInput{SnapshotId: aws.String(snapshotID)})
+	require.Error(t, err, "a snapshot an image maps cannot be deleted")
+	assert.Contains(t, err.Error(), "InvalidSnapshot.InUse")
 	assert.Equal(t, aws.ToString(run.Instances[0].InstanceId), aws.ToString(got.SourceInstanceId))
 
 	// Filter by name + tag must scope to the registered AMI.
@@ -105,6 +126,9 @@ func TestEC2_AMILifecycleSDK(t *testing.T) {
 	// deletion the store-faithful way: a second deregister now reports NotFound.)
 	_, err = c.DeregisterImage(ctx, &ec2.DeregisterImageInput{ImageId: aws.String(amiID)})
 	require.NoError(t, err)
+	// With the image gone its snapshot is the account's to delete.
+	_, err = c.DeleteSnapshot(ctx, &ec2.DeleteSnapshotInput{SnapshotId: aws.String(snapshotID)})
+	require.NoError(t, err, "the snapshot outlives the image until it is deleted")
 	_, err = c.DeregisterImage(ctx, &ec2.DeregisterImageInput{ImageId: aws.String(amiID)})
 	require.Error(t, err, "deregistering an already-removed AMI must fail")
 }

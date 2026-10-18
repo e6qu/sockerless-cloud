@@ -119,14 +119,31 @@ func (h *gcpHealthHarness) sweep(n int) {
 	}
 }
 
+// instance records a backend on the project's default network, with the
+// firewall rule Cloud Load Balancing documents for a backend: the health
+// checkers' and proxies' ranges may reach it.
 func (h *gcpHealthHarness) instance(project, zone, name, ip string) string {
 	selfLink := fmt.Sprintf("projects/%s/zones/%s/instances/%s", project, zone, name)
+	network := fmt.Sprintf("projects/%s/global/networks/default", project)
 	gcpInstances.Put(selfLink, ComputeInstance{
 		Name:              name,
 		SelfLink:          selfLink,
-		NetworkInterfaces: []ComputeNetworkInterface{{Name: "nic0", NetworkIP: ip}},
+		NetworkInterfaces: []ComputeNetworkInterface{{Name: "nic0", Network: network, NetworkIP: ip}},
 	})
-	h.t.Cleanup(func() { gcpInstances.Delete(selfLink) })
+	firewall := fmt.Sprintf("projects/%s/global/firewalls/allow-lb", project)
+	gcpFirewalls.Put(firewall, ComputeFirewall{
+		Name:         "allow-lb",
+		SelfLink:     firewall,
+		Network:      network,
+		Direction:    "INGRESS",
+		Priority:     1000,
+		SourceRanges: []string{"130.211.0.0/22", "35.191.0.0/16"},
+		Allowed:      []ComputeFirewallAction{{IPProtocol: "tcp"}},
+	})
+	h.t.Cleanup(func() {
+		gcpInstances.Delete(selfLink)
+		gcpFirewalls.Delete(firewall)
+	})
 	return "https://www.googleapis.com/compute/v1/" + selfLink
 }
 

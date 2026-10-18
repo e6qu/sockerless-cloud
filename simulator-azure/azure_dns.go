@@ -11,9 +11,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/dnsserver"
+	"github.com/e6qu/sockerless-cloud/sim/sidecar"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	"github.com/miekg/dns"
 )
 
@@ -112,6 +113,10 @@ func parseAzureDNSZones(raw string) ([]string, error) {
 	return zones, nil
 }
 
+// networkSidecars runs one sidecar per engine network workloads land on,
+// forwarding DNS to azureDNS and metadata to the simulator.
+var networkSidecars *sidecar.Manager
+
 // azureDNS is the listener the endpoint suffixes, Azure DNS and Azure Private
 // DNS answer on, and the resolver a virtual network's machines ask at
 // 168.63.129.16.
@@ -138,6 +143,16 @@ func startAzureDNSFromEnv() ([]*dnsserver.Server, error) {
 		return nil, err
 	}
 	azureDNS = vnetSrv
+	// An API-only simulator places no workload, so it runs no sidecar and
+	// needs no callback address, which only a container engine can give.
+	if sim.RequireContainerRuntime("starting network sidecars") == nil {
+		origin, err := workloadhost.CallbackAddr(simListenAddr)
+		if err != nil {
+			_ = vnetSrv.Close()
+			return nil, fmt.Errorf("workload callback: %w", err)
+		}
+		networkSidecars = sidecar.NewManager(azureDNS, "http://"+origin, sim.NoopSink{})
+	}
 	servers := []*dnsserver.Server{vnetSrv}
 	if cfg.ListenAddr == "" {
 		return servers, nil
@@ -149,29 +164,36 @@ func startAzureDNSFromEnv() ([]*dnsserver.Server, error) {
 	return append(servers, operator), nil
 }
 
-// azureDNSPort is the port the resolver answers on, which a virtual network's
-// DNS is redirected to.
-func azureDNSPort() (int, error) {
-	if azureDNS == nil {
-		return 0, fmt.Errorf("the simulator's resolver is not listening yet")
+// azureResolverIPv4 is Azure's recursive resolver and health-probe source,
+// which every virtual network reaches at the same address; inside an engine
+// network the sidecar stands in for it at the address Azure reserves in the
+// subnet.
+const azureResolverIPv4 = "168.63.129.16"
+
+// azureQuerierVNet is the virtual network a query comes from: the one whose
+// engine network's sidecar forwarded it, or, for a query at the operator's
+// listener, the one whose address space holds the querier's address. It
+// decides the private zones the query sees.
+func azureQuerierVNet(q dnsserver.Query) string {
+	if vnet := azureNetworkVNet(q.Network); vnet != "" {
+		return vnet
 	}
-	return azureDNS.Port(), nil
+	return azureQuerierVNetByAddress(q.Remote)
 }
 
-// azureResolverVNets maps the address a virtual network's redirected queries
-// arrive at to the virtual network, which decides the private zones a query
-// sees.
-var azureResolverVNets sync.Map
-
-// azureRegisterResolverIP records that queries arriving at addr come from
-// vnetID.
-func azureRegisterResolverIP(addr net.IP, vnetID string) error {
-	local, ok := netip.AddrFromSlice(addr.To4())
-	if !ok {
-		return fmt.Errorf("resolver address %s of %s is not IPv4", addr, vnetID)
+func azureQuerierVNetByAddress(remote netip.Addr) string {
+	if azureVnets == nil || !remote.IsValid() {
+		return ""
 	}
-	azureResolverVNets.Store(local, strings.ToLower(vnetID))
-	return nil
+	remote = remote.Unmap()
+	for _, vnet := range azureVnets.List() {
+		for _, raw := range vnet.Properties.AddressSpace.AddressPrefixes {
+			if prefix, err := netip.ParsePrefix(raw); err == nil && prefix.Contains(remote) {
+				return strings.ToLower(vnet.ID)
+			}
+		}
+	}
+	return ""
 }
 
 func startAzureDNSServer(cfg azureDNSConfig) (*dnsserver.Server, error) {
@@ -203,21 +225,33 @@ func azureDNSServerConfig(cfg azureDNSConfig) (dnsserver.Config, error) {
 	if err != nil {
 		return dnsserver.Config{}, err
 	}
+	// A workload on an engine network reaches the simulator's front end at
+	// the address its containers dial, not at the operator's target.
+	workloadEndpoints := endpoints
+	if host, err := workloadhost.CallbackHost(); err == nil {
+		if ip := net.ParseIP(host).To4(); ip != nil && !ip.Equal(cfg.TargetIPv4) {
+			workloadCfg := cfg
+			workloadCfg.TargetIPv4 = ip
+			if workloadEndpoints, err = azureEndpointZones(workloadCfg); err != nil {
+				return dnsserver.Config{}, err
+			}
+		}
+	}
 	return dnsserver.Config{
 		Name: "azure",
 		Catalog: func(q dnsserver.Query) dnsserver.View {
-			var vnetID string
-			if v, ok := azureResolverVNets.Load(q.Local); ok {
-				vnetID, _ = v.(string)
-			}
 			// A private zone linked to the querier's virtual network takes
 			// precedence over a public zone of the same name.
-			zones := append(azurePrivateDNSCatalogZones(vnetID), azurePublicDNSCatalogZones()...)
-			return dnsserver.View{Names: azureRegisteredNameRecords(cfg.TTL), Zones: append(zones, endpoints...)}
+			zones := append(azurePrivateDNSCatalogZones(azureQuerierVNet(q)), azurePublicDNSCatalogZones()...)
+			if q.Network != "" {
+				zones = append(zones, workloadEndpoints...)
+			} else {
+				zones = append(zones, endpoints...)
+			}
+			return dnsserver.View{Names: azureRegisteredNameRecords(cfg.TTL), Zones: zones}
 		},
 		Recursion: &dnsserver.Recursion{
-			Upstreams:  cfg.Upstreams,
-			Redirected: []netip.Addr{netip.MustParseAddr(realexec.AzureResolverIPv4)},
+			Upstreams: cfg.Upstreams,
 		},
 	}, nil
 }

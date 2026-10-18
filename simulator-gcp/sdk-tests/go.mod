@@ -20,7 +20,6 @@ require (
 	cloud.google.com/go/run v1.23.0
 	cloud.google.com/go/secretmanager v1.22.0
 	cloud.google.com/go/storage v1.69.0
-	github.com/e6qu/sockerless-cloud/realexec v0.1.0
 	github.com/e6qu/sockerless-cloud/testutil v0.1.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/jackc/pgx/v5 v5.11.0
@@ -101,7 +100,5 @@ require (
 	golang.org/x/time v0.16.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261012220534-4341edf3f941 // indirect
 )
-
-replace github.com/e6qu/sockerless-cloud/realexec => ../../realexec
 
 replace github.com/e6qu/sockerless-cloud/testutil => ../../testutil

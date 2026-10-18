@@ -9,15 +9,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
-// gcpBootVM, gcpHaltVM and gcpDestroyVM move an instance's machine. A unit test
-// on a host without nested KVM substitutes them to hold a move open on a
+// gcpBootVM, gcpHaltVM and gcpDestroyVM move an instance's machine on the
+// placement backend; a unit test substitutes them to hold a move open on a
 // channel and observe the instance and its operation around it.
 var (
-	gcpBootVM = gcpStartRealVM
-	gcpHaltVM = func(ctx context.Context, inst *ComputeInstance) error {
-		return gcpFabric.StopVM(ctx, inst.SelfLink, nil)
-	}
-	gcpDestroyVM = func(ctx context.Context, inst *ComputeInstance) error { return gcpDeleteRealVM(ctx, *inst) }
+	gcpBootVM    = gcpBootInstanceMachine
+	gcpHaltVM    = gcpHaltInstanceMachine
+	gcpDestroyVM = gcpDestroyInstanceMachine
 )
 
 // computeInstanceMove is an instance verb that moves the machine. Compute
@@ -165,7 +163,7 @@ func registerComputeInstancePower(srv *sim.Server) {
 			if err := m.move(ctx, &moving); err != nil {
 				logger.Error().Err(err).
 					Str("project", project).Str("zone", zone).Str("instance", name).Str("verb", m.verb).
-					Msg("failed to move real Compute Engine instance")
+					Msg("failed to move Compute Engine instance")
 				unwound := prior
 				if errors.As(err, new(computeMoveHalted)) {
 					unwound = ComputeInstanceTerminated
@@ -176,6 +174,8 @@ func registerComputeInstancePower(srv *sim.Server) {
 			}
 			if m.remove {
 				gcpInstances.Delete(link)
+				gcpReleaseInstanceAddresses(moving)
+				gcpDeleteInstanceDisks(moving)
 				computeOpFinish(op.Name, nil)
 				return
 			}

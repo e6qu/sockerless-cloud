@@ -149,7 +149,6 @@ func TestConformance_ACRRegistryRoundTrip(t *testing.T) {
 // create requires the real-execution network host.
 func TestConformance_VMAdminPasswordStripped(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	rg := "conf-vm-rg"
 	vnetName := "conf-vm-vnet"
 	subnetName := "conf-vm-subnet"
@@ -166,7 +165,7 @@ func TestConformance_VMAdminPasswordStripped(t *testing.T) {
 	vnetPoller, err := vnetClient.BeginCreateOrUpdate(ctx, rg, vnetName, armnetwork.VirtualNetwork{
 		Location: to.Ptr("eastus"),
 		Properties: &armnetwork.VirtualNetworkPropertiesFormat{
-			AddressSpace: &armnetwork.AddressSpace{AddressPrefixes: []*string{to.Ptr("10.91.0.0/16")}},
+			AddressSpace: &armnetwork.AddressSpace{AddressPrefixes: []*string{to.Ptr("10.104.0.0/16")}},
 		},
 	}, nil)
 	require.NoError(t, err)
@@ -176,7 +175,7 @@ func TestConformance_VMAdminPasswordStripped(t *testing.T) {
 	subnetClient, err := armnetwork.NewSubnetsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	subnetPoller, err := subnetClient.BeginCreateOrUpdate(ctx, rg, vnetName, subnetName, armnetwork.Subnet{
-		Properties: &armnetwork.SubnetPropertiesFormat{AddressPrefix: to.Ptr("10.91.1.0/24")},
+		Properties: &armnetwork.SubnetPropertiesFormat{AddressPrefix: to.Ptr("10.104.1.0/24")},
 	}, nil)
 	require.NoError(t, err)
 	subnetResp, err := subnetPoller.PollUntilDone(ctx, nil)
@@ -210,8 +209,8 @@ func TestConformance_VMAdminPasswordStripped(t *testing.T) {
 			StorageProfile: &armcompute.StorageProfile{
 				ImageReference: &armcompute.ImageReference{
 					Publisher: to.Ptr("Canonical"),
-					Offer:     to.Ptr("0001-com-ubuntu-server-jammy"),
-					SKU:       to.Ptr("22_04-lts"),
+					Offer:     to.Ptr("ubuntu-24_04-lts"),
+					SKU:       to.Ptr("server"),
 					Version:   to.Ptr("latest"),
 				},
 				OSDisk: &armcompute.OSDisk{

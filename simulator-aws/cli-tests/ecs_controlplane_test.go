@@ -263,6 +263,8 @@ func TestECSCLI_TaskProtection(t *testing.T) {
 }
 
 // TestECSCLI_StartTask runs a task on a named registered container instance.
+// The definition's privileged flag is accepted; the simulator grants no
+// privilege, so the command asks for none.
 func TestECSCLI_StartTask(t *testing.T) {
 	t.Parallel()
 	cluster := "cli-start-cluster"
@@ -270,7 +272,7 @@ func TestECSCLI_StartTask(t *testing.T) {
 	t.Cleanup(func() { _ = awsCLI("ecs", "delete-cluster", "--cluster", cluster).Run() })
 	runCLI(t, awsCLI("ecs", "register-task-definition",
 		"--family", "cli-start-task",
-		"--container-definitions", `[{"name":"app","image":"mirror.gcr.io/library/alpine:latest","stopTimeout":2,"privileged":true,"command":["sh","-c","mkdir -p /tmp/start-task-mount && mount -t tmpfs tmpfs /tmp/start-task-mount && umount /tmp/start-task-mount"]}]`))
+		"--container-definitions", `[{"name":"app","image":"mirror.gcr.io/library/alpine:latest","stopTimeout":2,"privileged":true,"command":["sh","-c","true"]}]`))
 	regOut := runCLI(t, awsCLI("ecs", "register-container-instance", "--cluster", cluster, "--output", "json"))
 	var reg struct {
 		ContainerInstance struct {

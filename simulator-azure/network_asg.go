@@ -86,22 +86,23 @@ func azureApplicationSecurityGroupMemberIPs(refs []SubResource) []string {
 		seen[ip] = true
 		out = append(out, ip+"/32")
 	}
-	if azureNICs != nil {
-		for _, nic := range azureNICs.List() {
-			for _, ipcfg := range nic.Properties.IPConfigurations {
-				if azureReferencesAnyGroup(ipcfg.Properties.ApplicationSecurityGroups, wanted) {
-					add(ipcfg.Properties.PrivateIPAddress)
+	for group := range wanted {
+		if azureNICs != nil {
+			for _, nic := range azureNICsByApplicationSecurityGroup.LookupAll(azureNICs, group, azureNICApplicationSecurityGroupKeys) {
+				for _, ipcfg := range nic.Properties.IPConfigurations {
+					if azureReferencesAnyGroup(ipcfg.Properties.ApplicationSecurityGroups, wanted) {
+						add(ipcfg.Properties.PrivateIPAddress)
+					}
 				}
 			}
 		}
-	}
-	if azurePrivateEndpoints != nil {
-		for _, pe := range azurePrivateEndpoints.List() {
-			if !azureReferencesAnyGroup(pe.Properties.ApplicationSecurityGroups, wanted) {
-				continue
-			}
-			for _, ref := range pe.Properties.NetworkInterfaces {
-				add(azurePlatformNICPrivateIP(ref.ID))
+		if azurePrivateEndpoints != nil {
+			for _, pe := range azurePrivateEndpointsByApplicationSecurityGroup.LookupAll(azurePrivateEndpoints, group, func(pe PrivateEndpoint) []string {
+				return azureSubResourceKeys(pe.Properties.ApplicationSecurityGroups)
+			}) {
+				for _, ref := range pe.Properties.NetworkInterfaces {
+					add(azurePlatformNICPrivateIP(ref.ID))
+				}
 			}
 		}
 	}
@@ -132,4 +133,27 @@ func azureReferencesAnyGroup(refs []SubResource, wanted map[string]bool) bool {
 		}
 	}
 	return false
+}
+
+var (
+	azureNICsByApplicationSecurityGroup             sim.GenerationIndex[NetworkInterface]
+	azurePrivateEndpointsByApplicationSecurityGroup sim.GenerationIndex[PrivateEndpoint]
+)
+
+// azureNICApplicationSecurityGroupKeys are the lower-cased ids of every
+// application security group an interface's IP configurations reference.
+func azureNICApplicationSecurityGroupKeys(nic NetworkInterface) []string {
+	var keys []string
+	for _, ipcfg := range nic.Properties.IPConfigurations {
+		keys = append(keys, azureSubResourceKeys(ipcfg.Properties.ApplicationSecurityGroups)...)
+	}
+	return keys
+}
+
+func azureSubResourceKeys(refs []SubResource) []string {
+	keys := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		keys = append(keys, strings.ToLower(ref.ID))
+	}
+	return keys
 }

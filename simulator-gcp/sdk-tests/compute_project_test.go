@@ -207,10 +207,9 @@ func TestCompute_MoveDiskBetweenZones(t *testing.T) {
 
 func TestCompute_MoveInstanceBetweenZones(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	svc := computeService(t)
 	const project, from, to, name = "move-instance", "us-central1-a", "us-central1-b", "worker"
-	createVerbInstance(t, svc, project, from, name)
+	createVerbInstance(t, svc, project, from, name, "10.83.0.0/24")
 
 	_, err := svc.Projects.MoveInstance(project, &compute.InstanceMoveRequest{
 		TargetInstance:  "projects/" + project + "/zones/" + from + "/instances/" + name,

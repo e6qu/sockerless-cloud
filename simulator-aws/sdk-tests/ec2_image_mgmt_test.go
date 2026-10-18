@@ -198,7 +198,15 @@ func TestEC2_ImageReferencesSDK(t *testing.T) {
 	require.NoError(t, err)
 	subnet := createSubnetFor(t, c, vpc.Vpc.VpcId, "10.150.1.0/24")
 
-	amiID := registerImageMgmtAMI(t, c, "references-ami")
+	// An instance-store AMI whose ImageLocation names the image the instance
+	// boots from; the simulator takes an OCI image reference there.
+	reg, err := c.RegisterImage(ctx, &ec2.RegisterImageInput{
+		Name:          aws.String("references-ami"),
+		Architecture:  types.ArchitectureValuesX8664,
+		ImageLocation: aws.String("mirror.gcr.io/library/busybox:latest"),
+	})
+	require.NoError(t, err)
+	amiID := aws.ToString(reg.ImageId)
 	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
 		ImageId: aws.String(amiID), InstanceType: types.InstanceTypeT3Micro,
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
@@ -206,6 +214,7 @@ func TestEC2_ImageReferencesSDK(t *testing.T) {
 	require.NoError(t, err)
 	terminateEC2InstancesOnCleanup(t, c, run)
 	instID := aws.ToString(run.Instances[0].InstanceId)
+	waitForEC2InstanceRunning(t, c, instID)
 
 	refs, err := c.DescribeImageReferences(ctx, &ec2.DescribeImageReferencesInput{ImageIds: []string{amiID}})
 	require.NoError(t, err)

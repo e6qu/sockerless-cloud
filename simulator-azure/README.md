@@ -96,11 +96,19 @@ suffixes: the suffix and every name under it answer with
 `SIM_AZURE_DNS_TARGET_IPV6`, for `SIM_AZURE_DNS_TTL` seconds (default `60`).
 The listener also answers every Azure DNS public zone with its record sets,
 and recurses for other names through `SIM_DNS_UPSTREAM` or the host's
-resolvers. A virtual machine asks it at 168.63.129.16, as Azure-provided DNS
-answers inside a virtual network, and sees the Azure Private DNS zones linked
-to its virtual network ahead of public zones of the same name; a link with
+resolvers. Inside a virtual network a sidecar stands in for Azure-provided
+DNS at the address Azure reserves for it in the network's first subnet (the
+subnet's `.2`, "reserved to map the Azure DNS IPs"): every workload on the
+network — a virtual machine, a Container Apps replica or job, a container
+group, an App Service site with VNet integration — names it as its resolver
+and reaches the Instance Metadata Service and the managed identity endpoint
+through it. The catalog attributes a query to the network its sidecar
+forwarded it from and answers the Azure Private DNS zones linked to that
+virtual network ahead of public zones of the same name; a link with
 registration enabled registers each machine in its virtual network under its
-computer name.
+computer name. Workloads on no virtual network run on the simulator's
+platform network, which carries a sidecar of its own, as does each Container
+Apps environment's and ACR Tasks run's network.
 
 For macOS, configure a resolver for the local simulator zone after the
 DNS listener is running on port 53:
@@ -307,7 +315,9 @@ cd terraform-tests && go test -v ./...
 
 ## Execution model
 
-Every Container Apps job execution and replica, Container Instance, Azure Functions site and App Service site runs as a real container on the engine the simulator started against, under the Container Apps or Azure Functions sandbox profile, with its output streamed into Log Analytics as it is produced. A job execution runs until its container exits, is stopped, or reaches the job's `replicaTimeout`, which the simulator enforces; a stopped execution's container gets SIGTERM and then SIGKILL after the template's `terminationGracePeriodSeconds` (30 by default), and a site's container after its `WEBSITES_CONTAINER_STOP_TIME_LIMIT` (5 by default). Function apps and sites are invoked over HTTP against the container's own listener, and their traces land in Application Insights and Log Analytics, queryable through the KQL subset below.
+Every Container Apps job execution and replica, Container Instance, Azure Functions site and App Service site runs as a real container on the engine the simulator started against, under the Container Apps or Azure Functions sandbox profile, with its output streamed into Log Analytics as it is produced. `SIM_PLACEMENT` (`service[:qualifier]=container|microvm`, comma-separated; the services are `virtualmachines`, `containerapps`, `containerinstances` and `web`) moves a service onto Firecracker microVMs run by a node agent the simulator starts on its platform network, which needs a Linux engine with `/dev/kvm`; containers are every service's default.
+
+A virtual machine is an instance on the `virtualmachines` backend: its `storageProfile.imageReference` resolves against the marketplace catalog the Compute resource provider lists under `locations/{location}/publishers` — `Canonical:ubuntu-24_04-lts:server` and `server-arm64`, `Debian:debian-12:12` and `12-arm64`, each pinned to an OCI image by digest — or against a `Microsoft.Compute/images` resource, whose `storageProfile.osDisk.blobUri` names either an OCI reference or the blob a capture wrote, or whose `sourceVirtualMachine` is a generalized machine. The machine takes its primary interface's address on its virtual network's engine network, its `osProfile.computerName` as hostname, and runs `osProfile.customData` once at first boot through the instance init, with the output in `/var/log/cloud-init-output.log`; `userData` is served by the Instance Metadata Service and runs nothing, as in Azure. `PowerState/running` reads once the init is ready. A power-off or deallocate stops the instance and keeps its OS disk, which a start boots again; a reimage discards it; a delete removes it unless the disk's `deleteOption` is `Detach`; a capture or an image created from the machine commits the disk and a machine created from that image boots it. Extensions, run commands, patch assessment and installation, and boot diagnostics execute in and read from the instance. cloud-init `#cloud-config` user data is not interpreted. A job execution runs until its container exits, is stopped, or reaches the job's `replicaTimeout`, which the simulator enforces; a stopped execution's container gets SIGTERM and then SIGKILL after the template's `terminationGracePeriodSeconds` (30 by default), and a site's container after its `WEBSITES_CONTAINER_STOP_TIME_LIMIT` (5 by default). Function apps and sites are invoked over HTTP against the container's own listener, and their traces land in Application Insights and Log Analytics, queryable through the KQL subset below.
 
 ## Known issues
 

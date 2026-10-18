@@ -7,13 +7,14 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
 
-	realexec "github.com/e6qu/sockerless-cloud/realexec"
-	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/ipam"
+	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
 type PublicIPAddress struct {
@@ -161,6 +162,9 @@ type VMProperties struct {
 	ProvisioningState string          `json:"provisioningState,omitempty"`
 	VMID              string          `json:"vmId,omitempty"`
 	InstanceView      *VMInstanceView `json:"instanceView,omitempty"`
+	// UserData is base64 the machine reads back from the Instance Metadata
+	// Service; unlike osProfile.customData, nothing in the guest runs it.
+	UserData string `json:"userData,omitempty"`
 }
 
 type VMNetworkProfile struct {
@@ -206,9 +210,12 @@ func registerCompute(srv *sim.Server) {
 	registerComputeOperations(srv)
 	azureVMStates = sim.MakeStore[string](srv.DB(), "compute_virtual_machine_states")
 	azureVMGeneralized = sim.MakeStore[bool](srv.DB(), "compute_virtual_machine_generalized")
+	registerVirtualMachineDisks(srv)
 	registerVirtualMachineOperationRecovery(srv)
 
 	registerComputeCatalog(srv)
+	registerVirtualMachineImages(srv)
+	registerComputeImages(srv)
 	registerPublicIPAddresses(srv)
 	registerPublicIPPrefixes(srv)
 	registerLoadBalancers(srv)
@@ -306,7 +313,7 @@ func registerPublicIPAddresses(srv *sim.Server) {
 			pip.Properties.PublicIPAddressVersion = "IPv4"
 		}
 		if pip.Properties.PublicIPAddress == "" && strings.EqualFold(pip.Properties.PublicIPAllocationMethod, "Static") {
-			ip, err := realexec.ReserveAzurePublicIPv4(id, nil)
+			ip, err := ipam.ReserveAzurePublicIPv4(id, nil)
 			if err != nil {
 				AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to reserve real public IPv4 lease: %v", err)
 				return
@@ -342,7 +349,7 @@ func registerPublicIPAddresses(srv *sim.Server) {
 		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/publicIPAddresses/%s",
 			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "publicIPName"))
 		if pip, ok := azurePublicIPs.Get(id); ok {
-			realexec.ReleasePublicIPv4(net.ParseIP(pip.Properties.PublicIPAddress))
+			ipam.ReleasePublicIPv4(net.ParseIP(pip.Properties.PublicIPAddress))
 		}
 		azurePublicIPs.Delete(id)
 		w.WriteHeader(http.StatusOK)
@@ -738,12 +745,22 @@ func handleAzureLoadBalancerDataPlane(w http.ResponseWriter, r *http.Request, lb
 		Path:     r.URL.EscapedPath(),
 		RawQuery: r.URL.RawQuery,
 		Timeout:  idle,
+		// A load balancer passes the client's own address through to the
+		// backend, so the backend's network security groups see the client.
+		Admit: func(client netip.Addr) error {
+			return azureAdmitIngress("Tcp", client, target.Address, target.Port)
+		},
 	})
 	abortStartedForward(w, err)
 	switch {
 	case err == nil:
 	case errors.Is(err, lbplane.ErrClientWentAway):
 		w.WriteHeader(lbplane.StatusClientClosedRequest)
+	case errors.Is(err, lbplane.ErrNotAdmitted):
+		// The backend's groups dropped the flow's packets: the client's
+		// connection ends without an answer, as it does behind Azure Load
+		// Balancer, where nothing sends a reset for a dropped packet.
+		azureCloseWithoutAnswer(w)
 	default:
 		http.Error(w, err.Error(), http.StatusBadGateway)
 	}
@@ -1109,33 +1126,16 @@ func registerNetworkInterfaces(srv *sim.Server) {
 				return
 			}
 		}
-		if len(nic.Properties.IPConfigurations) > 0 {
-			if !azureRequireNetworkHost(w) {
-				return
-			}
-			var prev *NetworkInterface
-			if stored, ok := azureNICs.Get(id); ok {
-				prev = &stored
-			}
-			if err := azureRealizeNICAddresses(r.Context(), &nic, primary, prev); err != nil {
-				if prev == nil {
-					err = errors.Join(err, azureDeleteRealNIC(r.Context(), id))
-				}
-				if errors.Is(err, realexec.ErrAddressInUse) {
-					AzureErrorf(w, "PrivateIPAddressInUse", http.StatusBadRequest,
-						"An IP configuration of network interface %s requests a private IP address that is already allocated to another resource: %v", id, err)
-					return
-				}
-				AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to create real network interface fabric: %v", err)
-				return
-			}
+		var prev *NetworkInterface
+		if stored, ok := azureNICs.Get(id); ok {
+			prev = &stored
+		}
+		if err := azureLeaseNICAddresses(&nic, prev); err != nil {
+			azureWriteAddressLeaseError(w, id, err)
+			return
 		}
 		azureNICs.Put(id, nic)
 		azureReconcileAutoRegisteredRecords()
-		if err := azureApplyRealNSGsToNIC(r.Context(), nic); err != nil {
-			AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to apply real NSG filters: %v", err)
-			return
-		}
 		sim.WriteJSON(w, http.StatusOK, nic)
 	})
 
@@ -1163,11 +1163,10 @@ func registerNetworkInterfaces(srv *sim.Server) {
 	srv.HandleFunc("DELETE "+armBase+"/networkInterfaces/{networkInterfaceName}", func(w http.ResponseWriter, r *http.Request) {
 		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkInterfaces/%s",
 			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "networkInterfaceName"))
-		azureNICs.Delete(id)
-		if err := azureDeleteRealNIC(r.Context(), id); err != nil {
-			AzureErrorf(w, "OperationNotAllowed", http.StatusServiceUnavailable, "failed to delete real network interface fabric: %v", err)
-			return
+		if nic, ok := azureNICs.Get(id); ok {
+			azureReleaseNICAddresses(nic)
 		}
+		azureNICs.Delete(id)
 		w.WriteHeader(http.StatusOK)
 	})
 }
@@ -1210,10 +1209,10 @@ func registerVirtualMachines(srv *sim.Server) {
 			return
 		}
 		// Request validation precedes provisioning, as it does in Azure: a
-		// networkProfile the Compute resource provider cannot accept is the
-		// client's error, reported as 400/404, not as the failed operation
-		// that a host unable to boot the machine earns.
-		if fault := azureValidateVMNetworkProfile(vm); fault != nil {
+		// networkProfile, image or size the Compute resource provider cannot
+		// accept is the client's error, reported as 400/404, not as a failed
+		// operation.
+		if fault := azureValidateVMRequest(r.Context(), vm); fault != nil {
 			AzureError(w, fault.code, fault.message, fault.status)
 			return
 		}
@@ -1244,9 +1243,7 @@ func registerVirtualMachines(srv *sim.Server) {
 		if created {
 			priorState = "PowerState/deallocated"
 		}
-		if !azureFabric.VMAlive(id) {
-			azureVMStates.Put(id, "PowerState/starting")
-		}
+		azureVMStates.Put(id, "PowerState/starting")
 		for _, nicRef := range vm.Properties.NetworkProfile.NetworkInterfaces {
 			azureNICs.Update(nicRef.ID, func(nic *NetworkInterface) {
 				nic.Properties.VirtualMachine = &SubResource{ID: id}
@@ -1263,7 +1260,7 @@ func registerVirtualMachines(srv *sim.Server) {
 					Str("subscription", sub).
 					Str("resource_group", rg).
 					Str("vm", name).
-					Msg("failed to boot real Azure virtual machine")
+					Msg("failed to boot the virtual machine")
 				azureVMStates.Put(id, priorState)
 				return azureVMBootFailure(id, err)
 			}
@@ -1341,7 +1338,6 @@ func registerVirtualMachines(srv *sim.Server) {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
 			return
 		}
-		azureReconcileVMPowerState(id)
 		if strings.EqualFold(r.URL.Query().Get("$expand"), "instanceView") {
 			vm = virtualMachineWithInstanceView(vm)
 		}
@@ -1356,7 +1352,6 @@ func registerVirtualMachines(srv *sim.Server) {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
 			return
 		}
-		azureReconcileVMPowerState(id)
 		sim.WriteJSON(w, http.StatusOK, virtualMachineWithInstanceView(vm).Properties.InstanceView)
 	})
 
@@ -1384,7 +1379,6 @@ func registerVirtualMachines(srv *sim.Server) {
 		all := azureVMs.Filter(func(vm VirtualMachine) bool { return strings.HasPrefix(vm.ID, prefix) })
 		statusOnly := strings.EqualFold(r.URL.Query().Get("statusOnly"), "true")
 		for i := range all {
-			azureReconcileVMPowerState(all[i].ID)
 			if statusOnly {
 				all[i] = virtualMachineWithInstanceView(all[i])
 			}
@@ -1414,7 +1408,7 @@ func registerVirtualMachines(srv *sim.Server) {
 		}
 		opID := azureRunVMOperation(id, func(ctx context.Context) *AsyncOperationError {
 			if err := azureDestroyVM(ctx, vm); err != nil {
-				logger.Error().Err(err).Str("vm", id).Msg("failed to delete real Azure virtual machine")
+				logger.Error().Err(err).Str("vm", id).Msg("failed to delete the virtual machine")
 				return azureVMHaltFailure(id, err)
 			}
 			azureForgetVM(id)
@@ -1457,7 +1451,7 @@ func registerVirtualMachines(srv *sim.Server) {
 					}
 					if err := azureBootVM(ctx, vm); err != nil {
 						logger.Error().Err(err).Str("vm", id).Str("action", action.name).
-							Msg("failed to boot real Azure virtual machine")
+							Msg("failed to boot the virtual machine")
 						if action.halt {
 							priorState = "PowerState/stopped"
 						}

@@ -3,7 +3,7 @@
 # this repository publishes must carry the working tree's content.
 #
 # `go install github.com/e6qu/sockerless-cloud/simulator-<cloud>@<version>`
-# resolves sim, realexec and ui-auth from the pseudo-versions pinned in each
+# resolves sim and ui-auth from the pseudo-versions pinned in each
 # simulator's go.mod, not from the working tree. A local build sees the tree
 # through go.work, so a fix landed in a support module and never pinned ships
 # in no installed binary while every workspace build and test passes: the

@@ -5,7 +5,6 @@ go 1.26.0
 require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/coreos/go-oidc/v3 v3.21.0
-	github.com/e6qu/sockerless-cloud/realexec v0.0.0-20260917134425-9515e908cf03
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20260905213638-ef4567e91da5
 	github.com/go-jose/go-jose/v4 v4.1.6
 	github.com/google/uuid v1.6.0

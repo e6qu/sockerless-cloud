@@ -105,9 +105,11 @@ Once activated, `gcloud iam service-accounts keys create` mints every subsequent
 key.
 
 **Metadata server** — the on-instance path, and the one Application Default
-Credentials resolve through. Point the metadata-server coordinate at the
-simulator and gcloud discovers its identity and mints tokens on its own, with no
-key file and no interactive login:
+Credentials resolve through. A workload the simulator runs reaches it at
+`metadata.google.internal` through its network's sidecar, with
+`GCE_METADATA_HOST` already set. From outside, point the metadata-server
+coordinate at the simulator and gcloud discovers its identity and mints tokens
+on its own, with no key file and no interactive login:
 
 ```bash
 export GCE_METADATA_HOST=localhost:4567
@@ -236,6 +238,10 @@ Each suite's `TestMain` builds the simulator, starts it on a free port, waits fo
 
 Every Cloud Run job execution, service instance, worker pool instance and Cloud Run function is a real container on the engine the simulator started against, under the Cloud Run sandbox profile, with its output streamed into Cloud Logging as it is produced. A job task runs until its container exits, is cancelled, or reaches the task template's `timeout`, which the simulator enforces the way Cloud Run does; a cancelled execution's container gets SIGTERM and, ten seconds later as on Cloud Run, SIGKILL. Services and functions are invoked over HTTP at their run.app (and cloudfunctions.net) URLs, which reach the container's own listener.
 
+**Networks.** A subnetwork is an engine network over its own primary range, with the subnetwork's gateway, and every workload on it holds an address leased from the subnetwork: a Compute Engine instance the `networkIP` its interface reports, a Cloud Run instance or task with direct VPC egress (`vpcAccess.networkInterfaces`) or a Serverless VPC Access connector an address of the subnetwork the connector names (or of the connector's own range). A workload without VPC egress — a Cloud Run or Cloud Functions instance, a Cloud Build step — sits on the simulator's platform network. Each of these networks carries a sidecar at the address Google reserves for it (the second-to-last address of a subnetwork's range) that answers the network's resolver and metadata server: `metadata.google.internal` and `GCE_METADATA_HOST` name it, a query through it sees the private, forwarding and peering zones visible to the subnetwork's VPC network and the response policies bound to it, and a query from the platform network sees public zones only, as Google resolves for a workload without VPC egress. Firewall rules decide whether a load balancer's proxies and health checkers (130.211.0.0/22 and 35.191.0.0/16) reach an instance backend; traffic between two containers on one network is not filtered.
+
+**Compute Engine instances.** `instances.insert` boots the instance on the placement backend of the `compute` service (containers unless `SIM_PLACEMENT` names microVMs) from the image its boot disk names: the public catalog's `debian-cloud` (families `debian-12`, `debian-12-arm64`) and `ubuntu-os-cloud` (`ubuntu-2404-lts-amd64`, `ubuntu-2404-lts-arm64`), which map to pinned Docker official images on mirror.gcr.io, an image `images.insert` created from an OCI reference in `rawDisk.source` or from another image, or an image captured from a stopped instance's boot disk with `sourceDisk`. The machine takes its vCPUs and memory from the machine type catalog, its address and resolver from its subnetwork, its hostname from its name, and runs the `startup-script` metadata at every boot with the script's output on the serial console, which `instances.getSerialPortOutput` reads. Stop, suspend, start, resume, reset and delete move the machine; a stopped instance keeps its disk. `SIM_PLACEMENT=compute=microvm` runs instances as Firecracker guests on a node agent the simulator starts on the platform network, which needs a Linux engine with `/dev/kvm`.
+
 ## Known issues
 
 Open simulator bugs live in [BUGS.md](../BUGS.md).
@@ -243,7 +249,7 @@ Open simulator bugs live in [BUGS.md](../BUGS.md).
 ## What's out of scope
 
 - **Three gRPC methods**: the gRPC door (default `:4569`) serves 213 of 216 declared methods; `Bigtable.OpenMaterializedView`, `Firestore.ExecutePipeline` and `Spanner.FetchCacheUpdate` each need state the simulator does not hold and answer `Unimplemented`.
-- **Private zones in container workloads**: Cloud DNS answers public managed zones over UDP and TCP on `SIM_DNS_PORT` (a kernel-chosen port when unset) and recurses for other names through `SIM_DNS_UPSTREAM` or the host's resolvers. A Compute Engine machine asks it at the metadata server's address and sees the private, forwarding and peering zones visible to its network, the response policies bound to it, and its DNS policy's alternative name servers; container workloads resolve private zones only through the container engine's embedded DNS.
+- **Cloud DNS from outside a network**: Cloud DNS answers public managed zones over UDP and TCP on `SIM_DNS_PORT` (a kernel-chosen port when unset) and recurses for other names through `SIM_DNS_UPSTREAM` or the host's resolvers. Private, forwarding and peering zones, response policies and a DNS policy's alternative name servers answer only through a network's sidecar, to the workloads on that network.
 - **Google's interactive consent screen**: `gcloud auth login` and `gcloud auth
   application-default login` are browser flows against accounts.google.com. The
   non-interactive credential paths — service-account keys, the metadata server,

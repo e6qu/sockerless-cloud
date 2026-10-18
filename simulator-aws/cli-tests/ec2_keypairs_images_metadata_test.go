@@ -28,17 +28,21 @@ func TestEC2KeyPairsImagesMetadataCLI(t *testing.T) {
 
 	// DescribeImages must honour the name + architecture filters.
 	out := q("ec2", "describe-images", "--owners", "amazon",
-		"--filters", "Name=name,Values=al2023-x", "Name=architecture,Values=arm64",
-		"--query", "Images[0].[Name,Architecture]", "--output", "text")
-	if f := strings.Fields(out); len(f) != 2 || f[0] != "al2023-x" || f[1] != "arm64" {
-		t.Fatalf("describe-images filters: got %q, want 'al2023-x arm64'", out)
+		"--filters", "Name=name,Values=al2023-ami-2023*", "Name=architecture,Values=arm64",
+		"--query", "Images[0].[Name,Architecture,ImageOwnerAlias]", "--output", "text")
+	if f := strings.Fields(out); len(f) != 3 || !strings.HasPrefix(f[0], "al2023-ami-2023.") || !strings.HasSuffix(f[0], "-arm64") || f[1] != "arm64" || f[2] != "amazon" {
+		t.Fatalf("describe-images filters: got %q, want the Amazon Linux 2023 arm64 AMI", out)
+	}
+	if n := q("ec2", "describe-images", "--owners", "136693071363",
+		"--filters", "Name=name,Values=debian-12-*", "--query", "length(Images)", "--output", "text"); n != "2" {
+		t.Fatalf("describe-images lists Debian 12 for amd64 and arm64, got %q", n)
 	}
 
 	// ModifyInstanceMetadataOptions in place.
 	vpcID := q("ec2", "create-vpc", "--cidr-block", "10.141.0.0/16", "--query", "Vpc.VpcId", "--output", "text")
 	subnetID := q("ec2", "create-subnet", "--vpc-id", vpcID, "--cidr-block", "10.141.1.0/24",
 		"--query", "Subnet.SubnetId", "--output", "text")
-	instID := q("ec2", "run-instances", "--image-id", "ami-12345678", "--instance-type", "t3.micro",
+	instID := q("ec2", "run-instances", "--image-id", ec2AmazonLinuxAMI(t), "--instance-type", "t3.micro",
 		"--subnet-id", subnetID, "--query", "Instances[0].InstanceId", "--output", "text")
 	terminateCLIInstanceOnCleanup(t, instID)
 	runCLI(t, awsCLI("ec2", "modify-instance-metadata-options", "--instance-id", instID,

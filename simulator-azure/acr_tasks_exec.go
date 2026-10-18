@@ -17,6 +17,7 @@ import (
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
@@ -39,7 +40,9 @@ type acrTaskRun struct {
 	dockerEnv []string
 	platform  string
 	network   string
-	volume    string
+	// dns is the network's sidecar, the resolver every step is handed.
+	dns    netip.Addr
+	volume string
 	// registryHost is the run's registry login server without its port;
 	// registryAuth is the engine API credential the run holds for it.
 	registryHost string
@@ -113,11 +116,21 @@ func acrRunTaskFile(ctx context.Context, task *acrTaskFile, x *acrTaskRun) error
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 
-	if _, err := x.engine.NetworkCreate(ctx, x.network, client.NetworkCreateOptions{Driver: "bridge"}); err != nil {
+	// The run's network takes a range of its own so its sidecar holds a
+	// fixed address there; the steps resolve names through that sidecar, as
+	// every workload container does.
+	if _, _, err := sim.EnsurePlatformNetwork(ctx, x.network, nil); err != nil {
 		return fmt.Errorf("create the run's network: %w", err)
 	}
+	dns, err := azureEnsureSidecar(ctx, x.network, netip.Addr{})
+	if err != nil {
+		_ = sim.RemoveDockerNetwork(x.network)
+		return fmt.Errorf("create the run's network: %w", err)
+	}
+	x.dns = netip.MustParseAddr(dns)
 	if _, err := x.engine.VolumeCreate(ctx, client.VolumeCreateOptions{Name: x.volume}); err != nil {
-		_, _ = x.engine.NetworkRemove(context.Background(), x.network, client.NetworkRemoveOptions{})
+		azureRemoveSidecar(x.network)
+		_ = sim.RemoveDockerNetwork(x.network)
 		return fmt.Errorf("create the run's volume: %w", err)
 	}
 	defer x.cleanup()
@@ -409,8 +422,8 @@ func (x *acrTaskRun) runCmdStep(ctx context.Context, s *acrTaskStep) error {
 	}
 	hostCfg := &container.HostConfig{
 		NetworkMode: container.NetworkMode(x.network),
+		DNS:         []netip.Addr{x.dns},
 		Binds:       []string{x.volume + ":" + acrTaskWorkspace},
-		Privileged:  s.Privileged,
 		Isolation:   container.Isolation(s.Isolation),
 	}
 	if cfg.ExposedPorts, hostCfg.PortBindings, err = acrStepPorts(s.Ports, s.Expose); err != nil {
@@ -672,7 +685,8 @@ func (x *acrTaskRun) cleanup() {
 		}
 	}
 	if !kept {
-		if _, err := x.engine.NetworkRemove(ctx, x.network, client.NetworkRemoveOptions{}); err != nil {
+		azureRemoveSidecar(x.network)
+		if err := sim.RemoveDockerNetworkContext(ctx, x.network); err != nil {
 			acrTasksLogger.Warn().Err(err).Str("network", x.network).Msg("could not remove an ACR Tasks run network")
 		}
 		if _, err := x.engine.VolumeRemove(ctx, x.volume, client.VolumeRemoveOptions{Force: true}); err != nil {

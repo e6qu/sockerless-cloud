@@ -30,10 +30,8 @@ var execCallForms = []string{
 }
 
 // Workload-dispatch invariant. No sim handler may execute a workload via
-// `os/exec`. Container/FaaS workloads run in a Docker host honouring the
-// workload's Architecture field. VM-level resources may only use the dedicated
-// Firecracker/Linux-networking real-execution substrate described in
-// specs/SIMULATOR_REAL_EXECUTION.md and feedback_sim_host_model.md.
+// `os/exec`. Workloads run in the container engine honouring the workload's
+// Architecture field, as specs/SIMULATOR_EXECUTION.md describes.
 //
 // The scan walks every non-test Go file of the simulator module and of the
 // framework module `sim/` it is built on, so the framework cannot host what
@@ -70,6 +68,51 @@ func TestNoOsExecOfWorkloads(t *testing.T) {
 			file: filepath.Join("sim", "container_reaper.go"),
 			call: "exec.Command(executable, containerReaperArgument, provider, runID, strconv.Itoa(os.Getpid()))",
 			why:  "re-executes the simulator's own binary in reaper mode to reap orphaned containers; the child is the simulator, not a workload",
+		},
+		{
+			file: filepath.Join("sim", "nodeagent", "cmd", "guestinit", "main.go"),
+			call: `exec.Command(w.cfg.Command[0], append(w.cfg.Command[1:], w.cfg.Args...)...)`,
+			why:  "the guest's init, which runs inside a microVM and starts the workload there; never on the simulator's host",
+		},
+		{
+			file: filepath.Join("sim", "nodeagent", "cmd", "guestinit", "main.go"),
+			call: `exec.CommandContext(r.Context(), req.Command[0], req.Command[1:]...)`,
+			why:  "the guest's init running an exec request inside its microVM",
+		},
+		{
+			file: filepath.Join("sim", "nodeagent", "cmd", "nodeagent", "firecracker.go"),
+			call: `exec.Command(g.agent.cfg.firecracker, "--api-sock", api)`,
+			why:  "the node agent program, which runs inside the agent container, starting Firecracker for a guest there",
+		},
+		{
+			file: filepath.Join("sim", "nodeagent", "cmd", "nodeagent", "guest.go"),
+			call: `exec.CommandContext(ctx, "du", "-sk", tree)`,
+			why:  "the node agent sizing a guest's root filesystem inside the agent container",
+		},
+		{
+			file: filepath.Join("sim", "nodeagent", "cmd", "nodeagent", "guest.go"),
+			call: `exec.CommandContext(ctx, "mkfs.ext4", "-q", "-F", "-d", tree, image)`,
+			why:  "the node agent building a guest's root filesystem inside the agent container",
+		},
+		{
+			file: filepath.Join("sim", "nodeagent", "cmd", "nodeagent", "network.go"),
+			call: `exec.CommandContext(ctx, "nft", "-f", "-")`,
+			why:  "the node agent filtering a guest's tap inside the agent container's own namespace",
+		},
+		{
+			file: filepath.Join("sim", "nodeagent", "cmd", "nodeagent", "network.go"),
+			call: `exec.CommandContext(ctx, args[0], args[1:]...)`,
+			why:  "the node agent configuring its bridge and taps inside the agent container's own namespace",
+		},
+		{
+			file: filepath.Join("sim", "process_unix.go"),
+			call: `func DetachCommand(command *exec.Cmd)`,
+			why:  "detaches the container reaper the simulator re-executes; runs no workload",
+		},
+		{
+			file: filepath.Join("sim", "process_windows.go"),
+			call: `func DetachCommand(command *exec.Cmd)`,
+			why:  "detaches the container reaper the simulator re-executes; runs no workload",
 		},
 	}
 
@@ -124,17 +167,16 @@ func TestNoOsExecOfWorkloads(t *testing.T) {
 			}
 		}
 		if len(fileSites) == 0 {
-			t.Errorf("%s imports os/exec but has no sanctioned call site — workloads must dispatch via Docker, or through the dedicated VM real-execution substrate. See specs/SIMULATOR_REAL_EXECUTION.md and feedback_sim_host_model.md.", rel)
+			t.Errorf("%s imports os/exec but has no sanctioned call site — workloads must dispatch through the container engine. See specs/SIMULATOR_EXECUTION.md.", rel)
 			return nil
 		}
 
 		for lineNo, line := range strings.Split(text, "\n") {
-			if !containsAny(line, execCallForms) {
-				continue
-			}
 			// Cut every sanctioned expression out of the line before deciding:
 			// a line that held one sanctioned call and one new one would
-			// otherwise pass on the strength of the sanctioned half.
+			// otherwise pass on the strength of the sanctioned half. A
+			// sanctioned expression may also be a declaration that only types
+			// a value, which is how a file reaches os/exec without a call.
 			residue := line
 			for _, site := range fileSites {
 				if strings.Contains(residue, site.call) {
@@ -143,7 +185,7 @@ func TestNoOsExecOfWorkloads(t *testing.T) {
 				}
 			}
 			if containsAny(residue, execCallForms) {
-				t.Errorf("%s:%d reaches os/exec at an unsanctioned call site:\n\t%s\nWorkloads must dispatch via Docker, or through the dedicated VM real-execution substrate. See specs/SIMULATOR_REAL_EXECUTION.md and feedback_sim_host_model.md.",
+				t.Errorf("%s:%d reaches os/exec at an unsanctioned call site:\n\t%s\nWorkloads must dispatch through the container engine. See specs/SIMULATOR_EXECUTION.md.",
 					rel, lineNo+1, strings.TrimSpace(line))
 			}
 		}

@@ -19,6 +19,7 @@ type contextKey int
 const (
 	requestIDKey contextKey = iota
 	identityKey
+	sidecarNetworkKey
 )
 
 const loggedErrorBodyLimit = 4096

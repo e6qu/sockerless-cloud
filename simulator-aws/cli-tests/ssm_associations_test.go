@@ -1,6 +1,7 @@
 package aws_cli_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -247,13 +248,25 @@ func TestSSMCLI_AutomationLifecycle(t *testing.T) {
 	require.Equal(t, "Success", getPreviewResult.Status)
 }
 
-// TestSSMCLI_CommandLifecycle pins Run Command through the CLI: send, list,
-// list-invocations, get-command-invocation, cancel.
+// TestSSMCLI_CommandLifecycle pins Run Command through the CLI: send to a
+// managed instance, list, list-invocations, get-command-invocation with the
+// command's output, cancel. A target that is no managed node fails the send.
 func TestSSMCLI_CommandLifecycle(t *testing.T) {
 	t.Parallel()
+	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 	docName := "cli-command-doc-" + ssmStamp()
 	ssmCLIEnsureDoc(t, docName)
-	instanceID := "i-cccc3333dddd44440"
+	refused := runCLIExpectError(t, awsCLI("ssm", "send-command",
+		"--document-name", docName, "--instance-ids", "i-cccc3333dddd44440"))
+	require.Contains(t, refused, "InvalidInstanceId")
+
+	vpcID := q("ec2", "create-vpc", "--cidr-block", "10.217.0.0/16", "--query", "Vpc.VpcId", "--output", "text")
+	subnetID := q("ec2", "create-subnet", "--vpc-id", vpcID, "--cidr-block", "10.217.1.0/24",
+		"--query", "Subnet.SubnetId", "--output", "text")
+	instanceID := q("ec2", "run-instances", "--image-id", ec2AmazonLinuxAMI(t), "--instance-type", "t3.micro",
+		"--subnet-id", subnetID, "--query", "Instances[0].InstanceId", "--output", "text")
+	terminateCLIInstanceOnCleanup(t, instanceID)
+	runCLI(t, awsCLI("ec2", "wait", "instance-running", "--instance-ids", instanceID))
 
 	sendOut := runCLI(t, awsCLI("ssm", "send-command",
 		"--document-name", docName,
@@ -269,7 +282,8 @@ func TestSSMCLI_CommandLifecycle(t *testing.T) {
 	parseJSON(t, sendOut, &sendResult)
 	cmdID := sendResult.Command.CommandId
 	require.NotEmpty(t, cmdID)
-	require.Equal(t, "Success", sendResult.Command.Status)
+	require.Equal(t, "Pending", sendResult.Command.Status)
+	runCLI(t, awsCLI("ssm", "wait", "command-executed", "--command-id", cmdID, "--instance-id", instanceID))
 
 	listOut := runCLI(t, awsCLI("ssm", "list-commands",
 		"--command-id", cmdID, "--output", "json"))
@@ -297,9 +311,12 @@ func TestSSMCLI_CommandLifecycle(t *testing.T) {
 	var getInvResult struct {
 		Status       string `json:"Status"`
 		ResponseCode int    `json:"ResponseCode"`
+		Output       string `json:"StandardOutputContent"`
 	}
 	parseJSON(t, getInvOut, &getInvResult)
 	require.Equal(t, "Success", getInvResult.Status)
+	require.Equal(t, 0, getInvResult.ResponseCode)
+	require.Equal(t, "hi\n", getInvResult.Output, "the document's echo ran on the instance")
 
 	runCLI(t, awsCLI("ssm", "cancel-command",
 		"--command-id", cmdID, "--output", "json"))

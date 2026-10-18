@@ -103,7 +103,6 @@ func TestNetworkApplicationGatewayCatalogsCLI(t *testing.T) {
 // show, retag, both lists, stop and start, backend health and delete.
 func TestNetworkApplicationGatewayCLI(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 
 	vnetURL := armURL("Microsoft.Network", "virtualNetworks/cli-appgw-vnet", applicationGatewayAPIVersion)
 	runCLI(t, azRest("PUT", vnetURL, `{"location":"eastus","properties":{"addressSpace":{"addressPrefixes":["10.80.0.0/16"]}}}`))

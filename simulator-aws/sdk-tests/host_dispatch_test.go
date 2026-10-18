@@ -12,10 +12,9 @@ import (
 // Workload-dispatch invariant.
 //
 // No sim handler may execute a workload as a process on the host. Container and
-// FaaS workloads run on a Docker host (StartContainerSync / StartHTTPContainer)
-// honouring the workload's Architecture field; VM-level resources may only use
-// the dedicated Firecracker/Linux-networking real-execution substrate described
-// in specs/SIMULATOR_REAL_EXECUTION.md.
+// FaaS workloads run on a Docker host (StartContainerSync)
+// honouring the workload's Architecture field; VM-level resources run through
+// the placement backend described in specs/SIMULATOR_EXECUTION.md.
 //
 // The gate looks for both ways a handler can reach the host: `os/exec` directly,
 // and a shared `sim.StartProcess` wrapper around it. Watching only for
@@ -32,9 +31,15 @@ func TestNoHostProcessDispatchOfWorkloads(t *testing.T) {
 	// SIM_RUNTIME=process means API-only — serving the API surface without a
 	// container engine, never executing a workload outside one.
 	allowList := map[string]string{
-		"sim/container_reaper.go":          "reaps the sim's own containers through the docker CLI; not a workload",
-		"sim/workload/build.go":            "drives the docker CLI's image build and push for a build step; the build runs on the Docker host",
-		"sim/workloadhost/workloadhost.go": "reads the Podman machine's default route to find the host address; runs no workload",
+		"sim/container_reaper.go":                    "reaps the sim's own containers through the docker CLI; not a workload",
+		"sim/workload/build.go":                      "drives the docker CLI's image build and push for a build step; the build runs on the Docker host",
+		"sim/workloadhost/workloadhost.go":           "reads the Podman machine's default route to find the host address; runs no workload",
+		"sim/process_unix.go":                        "detaches the container reaper and checks whether a simulator process is alive; runs no workload",
+		"sim/process_windows.go":                     "detaches the container reaper and checks whether a simulator process is alive; runs no workload",
+		"sim/nodeagent/cmd/nodeagent/firecracker.go": "the node agent program, which runs inside the agent container: starts Firecracker for a guest there, not on the simulator's host",
+		"sim/nodeagent/cmd/nodeagent/guest.go":       "the node agent program: builds a guest's disks inside the agent container",
+		"sim/nodeagent/cmd/nodeagent/network.go":     "the node agent program: configures taps and filters inside the agent container's own namespace",
+		"sim/nodeagent/cmd/guestinit/main.go":        "the guest's init, which runs inside a microVM and starts the workload there",
 	}
 
 	repoRoot, err := filepath.Abs("../..")
@@ -89,7 +94,7 @@ func TestNoHostProcessDispatchOfWorkloads(t *testing.T) {
 	require.Greaterf(t, scanned, 200, "the gate read only %d files under %s", scanned, strings.Join(roots, ", "))
 
 	require.Emptyf(t, offenders,
-		"these files dispatch a process on the host — a workload must run on the Docker host, or through the dedicated VM real-execution substrate (specs/SIMULATOR_REAL_EXECUTION.md): %s",
+		"these files dispatch a process on the host — a workload must run on the Docker host, or through the placement backend (specs/SIMULATOR_EXECUTION.md): %s",
 		strings.Join(offenders, ", "))
 
 	// Every allowlist entry must still name a file that reaches the host, so a

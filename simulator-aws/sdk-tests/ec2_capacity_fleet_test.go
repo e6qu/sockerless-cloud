@@ -18,7 +18,7 @@ func createFleetLaunchTemplate(t *testing.T, c *ec2.Client, name string) string 
 	out, err := c.CreateLaunchTemplate(ctx, &ec2.CreateLaunchTemplateInput{
 		LaunchTemplateName: aws.String(name),
 		LaunchTemplateData: &types.RequestLaunchTemplateData{
-			ImageId:      aws.String("ami-12345678"),
+			ImageId:      aws.String(ec2AmazonLinuxAMI(t)),
 			InstanceType: types.InstanceTypeT3Micro,
 		},
 	})
@@ -239,7 +239,7 @@ func TestEC2_SpotInstanceRequestLifecycle(t *testing.T) {
 		InstanceCount: aws.Int32(2),
 		Type:          types.SpotInstanceTypeOneTime,
 		LaunchSpecification: &types.RequestSpotLaunchSpecification{
-			ImageId:      aws.String("ami-12345678"),
+			ImageId:      aws.String(ec2AmazonLinuxAMI(t)),
 			InstanceType: types.InstanceTypeT3Micro,
 		},
 		TagSpecifications: []types.TagSpecification{{
@@ -284,7 +284,7 @@ func TestEC2_SpotFleetLifecycle(t *testing.T) {
 			TargetCapacity: aws.Int32(2),
 			SpotPrice:      aws.String("0.0035"),
 			LaunchSpecifications: []types.SpotFleetLaunchSpecification{{
-				ImageId:      aws.String("ami-12345678"),
+				ImageId:      aws.String(ec2AmazonLinuxAMI(t)),
 				InstanceType: types.InstanceTypeT3Micro,
 			}},
 		},
@@ -412,7 +412,7 @@ func TestEC2_ScheduledInstances(t *testing.T) {
 		ScheduledInstanceId: aws.String(sciID),
 		InstanceCount:       aws.Int32(1),
 		LaunchSpecification: &types.ScheduledInstancesLaunchSpecification{
-			ImageId:      aws.String("ami-12345678"),
+			ImageId:      aws.String(ec2AmazonLinuxAMI(t)),
 			InstanceType: aws.String("t3.micro"),
 		},
 	})

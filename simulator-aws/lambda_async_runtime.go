@@ -45,7 +45,7 @@ func registerLambdaAsyncInvocations(srv *sim.Server) {
 			}
 		},
 		Attempt: func(ctx context.Context, item *delivery.Item[LambdaAsyncInvocation]) delivery.Outcome {
-			response, unhandled, _ := invokeLambdaViaRuntimeAPI(ctx, item.Payload.Function, item.Payload.Payload)
+			response, unhandled, _, _ := invokeLambdaViaRuntimeAPI(ctx, item.Payload.Function, item.Payload.Payload)
 			item.Payload.Response = append([]byte(nil), response...)
 			item.Payload.Unhandled = unhandled
 			if unhandled {

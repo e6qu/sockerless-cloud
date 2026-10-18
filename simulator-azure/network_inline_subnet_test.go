@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
@@ -20,17 +19,6 @@ import (
 // the simulator only re-collected rows that already existed, so an inline
 // subnet was silently dropped and a later read 404ed while the create had
 // answered 200.
-//
-// The proof splits by what the host can realize, and neither half skips:
-//
-//   - A capable Linux host materializes the subnet's netns fabric and serves
-//     the subnet back, exactly as its standalone PUT would.
-//   - A host without the netns capabilities refuses the whole request loudly —
-//     the same 503 the standalone subnet PUT answers — because a 200 that
-//     dropped the subnet is precisely the defect. The one sanctioned skip
-//     shape, a kernel capability the host cannot install, decides which half
-//     runs; both halves assert, so no host answers green while proving
-//     nothing.
 func TestVirtualNetworkCreatesItsInlineSubnets(t *testing.T) {
 	t.Setenv("SIM_RUNTIME", "process")
 	srv, err := buildSimulator(sim.Config{Provider: "azure", ListenAddr: ":0", LogLevel: "error"})
@@ -73,23 +61,8 @@ func TestVirtualNetworkCreatesItsInlineSubnets(t *testing.T) {
 
 	created := arm(http.MethodPut, vnetURL, payload)
 
-	if realexec.DetectNetworkCapabilities().Require() != nil {
-		// This host cannot realize the netns fabric, and a compute subnet —
-		// inline or standalone — is refused rather than half-created. The old
-		// behavior was the bug: 200, with the subnet silently gone.
-		if created.Code != http.StatusServiceUnavailable {
-			t.Fatalf("an inline compute subnet on an incapable host must be refused: status %d: %s",
-				created.Code, created.Body.String())
-		}
-		if !strings.Contains(created.Body.String(), "OperationNotAllowed") {
-			t.Fatalf("the refusal must be the standalone subnet PUT's: %s", created.Body.String())
-		}
-		return
-	}
-
-	// A capable host serves the network with its subnet embedded, and the
-	// subnet stands on its own resource exactly as if its standalone PUT had
-	// created it.
+	// The network comes back with its subnet embedded, and the subnet stands
+	// on its own resource exactly as if its standalone PUT had created it.
 	if created.Code != http.StatusOK {
 		t.Fatalf("create the network with its inline subnet: status %d: %s", created.Code, created.Body.String())
 	}

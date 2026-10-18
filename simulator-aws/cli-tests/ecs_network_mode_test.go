@@ -21,10 +21,8 @@ import (
 //   - host   — the container instance's own network stack.
 //   - none   — no connectivity.
 //
-// The awsvpc assertion is tier-agnostic: on a Linux host with CAP_NET_ADMIN the
-// task shares a pause container's VPC network namespace (no Docker network at
-// all), and elsewhere it is pinned to the per-VPC user-defined Docker network.
-// Neither is the default bridge.
+// An awsvpc task is pinned to the per-VPC user-defined Docker network, never
+// the default bridge.
 
 // registerNetworkModeTaskDef registers a single-container task definition in
 // the requested network mode running a long sleep.
@@ -132,10 +130,11 @@ func TestECSNetworkModeAwsvpcKeepsTaskOffTheDefaultBridge(t *testing.T) {
 	}
 }
 
-// TestECSNetworkModeBridgeUsesTheContainerInstanceBridge proves a bridge-mode
-// task runs on the container instance's default Docker bridge and is allocated
-// no elastic network interface.
-func TestECSNetworkModeBridgeUsesTheContainerInstanceBridge(t *testing.T) {
+// TestECSNetworkModeBridgeUsesTheContainerInstanceNetwork proves a
+// bridge-mode task runs on the container instance's own network — never the
+// engine's default bridge, never a VPC's network — and is allocated no
+// elastic network interface.
+func TestECSNetworkModeBridgeUsesTheContainerInstanceNetwork(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
@@ -149,15 +148,11 @@ func TestECSNetworkModeBridgeUsesTheContainerInstanceBridge(t *testing.T) {
 
 	defaultNet := defaultContainerNetworkName(t)
 	networks := containerNetworkNames(t, task)
-	found := false
-	for _, name := range networks {
-		if name == defaultNet {
-			found = true
-		}
+	if len(networks) != 1 {
+		t.Fatalf("bridge-mode task is on %d networks, want the container instance's one: %v", len(networks), networks)
 	}
-	if !found {
-		t.Fatalf("bridge-mode task is not on the container instance's default bridge %q; networks=%v",
-			defaultNet, networks)
+	if networks[0] == defaultNet || strings.HasPrefix(networks[0], "sockerless-sim-vpc-") {
+		t.Fatalf("bridge-mode task runs on %q, want the container instance's own network", networks[0])
 	}
 
 	desc := q("ecs", "describe-tasks", "--cluster", "default", "--tasks", task, "--output", "json")

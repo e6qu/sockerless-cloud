@@ -185,7 +185,6 @@ func TestSDK_AppServiceEnvironment_PlacementAndCapacity(t *testing.T) {
 	// creating a real subnet needs the Linux network capabilities the
 	// simulator's fabric is built on. A host that cannot provide them skips;
 	// Linux runs the test.
-	requireNetworkHost(t)
 	requireResourceGroup(t, aseRG)
 	subnetID := requireSubnet(t, aseRG, "sdk-ase-vnet", "10.60.0.0/16", "ase-subnet", aseSubnet)
 	client := environmentsClient(t)

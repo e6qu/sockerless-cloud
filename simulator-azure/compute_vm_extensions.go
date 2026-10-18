@@ -2,22 +2,22 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
 
-	realexec "github.com/e6qu/sockerless-cloud/realexec"
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Azure virtual machine extensions. An extension is not a record that something
 // was installed — it is the guest agent running the handler's payload inside
 // the machine, and the instance view afterwards is what that run produced. So
-// the Custom Script extension's commandToExecute really executes in the guest,
-// through the execution path realexec provides, and its output and exit status
-// are what the extension reports.
+// the Custom Script extension's commandToExecute executes in the guest through
+// azureGuestExec, and its output and exit status are what the extension
+// reports.
 //
 // An extension whose handler this simulator does not implement is refused
 // rather than reported as succeeded: a caller cannot tell a handler that did
@@ -96,7 +96,7 @@ func registerVirtualMachineExtensions(srv *sim.Server) {
 
 		view, err := azureRunVMExtension(r.Context(), vm, name, body.Properties)
 		if err != nil {
-			AzureErrorf(w, "VMExtensionHandlerNotFound", http.StatusBadRequest, "%v", err)
+			azureWriteVMExtensionError(w, name, err)
 			return
 		}
 		body.Properties.InstanceView = view
@@ -133,7 +133,7 @@ func registerVirtualMachineExtensions(srv *sim.Server) {
 		// describing the previous run.
 		view, err := azureRunVMExtension(r.Context(), vm, existing.Name, existing.Properties)
 		if err != nil {
-			AzureErrorf(w, "VMExtensionHandlerNotFound", http.StatusBadRequest, "%v", err)
+			azureWriteVMExtensionError(w, existing.Name, err)
 			return
 		}
 		existing.Properties.InstanceView = view
@@ -181,6 +181,24 @@ func registerVirtualMachineExtensions(srv *sim.Server) {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
+}
+
+// azureVMExtensionHandlerError is a handler this simulator cannot run at all,
+// which Azure refuses as VMExtensionHandlerNotFound; any other failure is the
+// guest failing to process the extension, which Azure reports as
+// VMExtensionProvisioningError.
+type azureVMExtensionHandlerError struct{ message string }
+
+func (e *azureVMExtensionHandlerError) Error() string { return e.message }
+
+func azureWriteVMExtensionError(w http.ResponseWriter, name string, err error) {
+	var handler *azureVMExtensionHandlerError
+	if errors.As(err, &handler) {
+		AzureErrorf(w, "VMExtensionHandlerNotFound", http.StatusBadRequest, "%v", err)
+		return
+	}
+	AzureErrorf(w, "VMExtensionProvisioningError", http.StatusConflict,
+		"VM has reported a failure when processing extension '%s'. Error message: %v", name, err)
 }
 
 func azureVMExtensionID(r *http.Request) string {
@@ -254,30 +272,26 @@ func azureRunVMExtension(
 ) (*VirtualMachineExtensionInstanceView, error) {
 	handler := properties.Publisher + "/" + properties.Type
 	if !customScriptHandlers[handler] {
-		return nil, fmt.Errorf(
+		return nil, &azureVMExtensionHandlerError{message: fmt.Sprintf(
 			"extension handler %q is not one this simulator runs; it executes the Custom Script "+
-				"handlers, whose contract is to run a command inside the machine", handler)
+				"handlers, whose contract is to run a command inside the machine", handler)}
 	}
 	command := azureCustomScriptCommand(properties)
 	if command == "" {
-		return nil, fmt.Errorf(
-			"extension %q carries no commandToExecute, so there is nothing for the handler to run", name)
+		return nil, &azureVMExtensionHandlerError{message: fmt.Sprintf(
+			"extension %q carries no commandToExecute, so there is nothing for the handler to run", name)}
 	}
 
-	guest, err := azureGuestFor(ctx, vm.ID)
+	stdout, stderr, exitCode, err := azureGuestExec(ctx, vm.ID, command)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("run extension %q in the machine: %w", name, err)
 	}
-	result, err := guest.Exec(ctx, "/bin/sh", "-c", command)
 	view := &VirtualMachineExtensionInstanceView{
 		Name:               name,
 		Type:               properties.Type,
 		TypeHandlerVersion: properties.TypeHandlerVersion,
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	if err != nil {
-		return nil, fmt.Errorf("run extension %q in the machine: %w", name, err)
-	}
 	status := VMStatus{
 		Code:          "ProvisioningState/succeeded",
 		Level:         "Info",
@@ -285,7 +299,7 @@ func azureRunVMExtension(
 		Time:          now,
 	}
 	outcome := "Enable succeeded"
-	if result.ExitCode != 0 {
+	if exitCode != 0 {
 		status = VMStatus{
 			Code:          "ProvisioningState/failed",
 			Level:         "Error",
@@ -294,12 +308,12 @@ func azureRunVMExtension(
 		}
 		// The message says what happened. Reporting "Enable succeeded" on a
 		// command that exited non-zero would contradict the status beside it.
-		outcome = fmt.Sprintf("Enable failed: the command exited %d", result.ExitCode)
+		outcome = fmt.Sprintf("Enable failed: the command exited %d", exitCode)
 	}
 	// The handler reports what the command wrote, which is what an operator
 	// reads to find out what an extension actually did.
 	status.Message = fmt.Sprintf("%s: \n[stdout]\n%s\n[stderr]\n%s",
-		outcome, string(result.Stdout), string(result.Stderr))
+		outcome, string(stdout), string(stderr))
 	view.Statuses = []VMStatus{status}
 	return view, nil
 }
@@ -316,23 +330,4 @@ func azureCustomScriptCommand(properties VirtualMachineExtensionProperties) stri
 		return command
 	}
 	return ""
-}
-
-// azureGuestFor resolves the running guest of a machine. An operation that runs
-// something inside a machine needs the machine to be running, and saying so is
-// the honest answer — Azure refuses the same way. A machine that IS running may
-// still be finishing its boot: the create returns while the guest brings up its
-// services, and Azure's guest operations wait for the guest agent to report
-// ready rather than failing on the first connection. The same bounded wait
-// happens here before the guest is handed to the caller.
-func azureGuestFor(ctx context.Context, vmID string) (*realexec.FirecrackerVM, error) {
-	guest := azureFabric.VM(vmID)
-	if guest == nil || !guest.Alive() {
-		return nil, fmt.Errorf(
-			"virtual machine %q is not running, so nothing can be executed inside it", vmID)
-	}
-	if err := guest.WaitForGuestExec(ctx, 60*time.Second); err != nil {
-		return nil, fmt.Errorf("virtual machine %q has not finished booting: %w", vmID, err)
-	}
-	return guest, nil
 }

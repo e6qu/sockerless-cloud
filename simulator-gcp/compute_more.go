@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -679,7 +680,7 @@ func registerComputeMore(srv *sim.Server) {
 		// "images/family/{family}" are the same shape to a path router, so
 		// one handler has to serve both and resolve them the way Compute
 		// Engine does.
-		{collection: "images", kind: "compute#image", scope: cScopeGlobal, store: gcpComputeImages, skipGet: true, patch: true, setLabels: true},
+		{collection: "images", kind: "compute#image", scope: cScopeGlobal, store: gcpComputeImages, skipGet: true, skipList: true, skipInsert: true, skipDelete: true, patch: true, setLabels: true},
 		{collection: "snapshots", kind: "compute#snapshot", scope: cScopeGlobal, store: gcpComputeSnapshots, setLabels: true},
 		{collection: "machineImages", kind: "compute#machineImage", scope: cScopeGlobal, store: mk("compute_machine_images"), setLabels: true},
 		{collection: "disks", kind: "compute#disk", scope: cScopeRegion, store: gcpComputeRegionDisks, patch: true, setLabels: true},
@@ -902,20 +903,13 @@ func registerComputeCatalogMore(srv *sim.Server) {
 
 	srv.HandleFunc("GET /compute/v1/projects/{project}/aggregated/machineTypes", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
-		names := []string{"e2-micro", "e2-small", "n1-standard-1"}
+		names := gcpMachineTypeNames()
 		items := map[string]map[string]any{}
 		for _, zone := range zones {
 			list := make([]map[string]any, 0, len(names))
 			for _, name := range names {
-				list = append(list, map[string]any{
-					"kind":      "compute#machineType",
-					"id":        computeNumericID(),
-					"name":      name,
-					"guestCpus": 2,
-					"memoryMb":  1024,
-					"zone":      computeSelfLink(fmt.Sprintf("projects/%s/zones/%s", project, zone)),
-					"selfLink":  computeSelfLink(fmt.Sprintf("projects/%s/zones/%s/machineTypes/%s", project, zone, name)),
-				})
+				mt, _ := gcpLookupMachineType(name)
+				list = append(list, gcpMachineTypeJSON(project, zone, mt))
 			}
 			items["zones/"+zone] = map[string]any{"machineTypes": list}
 		}
@@ -1166,16 +1160,37 @@ func registerComputeInstanceActions(srv *sim.Server) {
 		zoneOp(w, r, "detachDisk")
 	})
 
+	// The serial console carries what the machine wrote since it was
+	// created; `start` is the byte offset the caller has already read, and
+	// `next` where the next read continues.
 	srv.HandleFunc("GET /compute/v1/projects/{project}/zones/{zone}/instances/{name}/serialPort", func(w http.ResponseWriter, r *http.Request) {
 		if !exists(r) {
 			notFound(w, r)
 			return
 		}
+		output, err := gcpInstanceSerialPortOutput(r.Context(), instSelfLink(r))
+		if err != nil {
+			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
+			return
+		}
+		start := int64(0)
+		if v := r.URL.Query().Get("start"); v != "" {
+			parsed, err := parseComputeInt(v)
+			if err != nil || parsed < 0 {
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid value for field 'start': '%s'", v)
+				return
+			}
+			start = parsed
+		}
+		total := int64(len(output))
+		if start > total {
+			start = total
+		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"kind":     "compute#serialPortOutput",
-			"contents": "",
-			"start":    "0",
-			"next":     "0",
+			"contents": output[start:],
+			"start":    strconv.FormatInt(start, 10),
+			"next":     strconv.FormatInt(total, 10),
 			"selfLink": computeSelfLink(instSelfLink(r) + "/serialPort"),
 		})
 	})

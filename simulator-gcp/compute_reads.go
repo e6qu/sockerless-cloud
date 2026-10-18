@@ -46,13 +46,12 @@ func registerComputeReads(srv *sim.Server) {
 	srv.HandleFunc("GET /compute/v1/projects/{project}/zones/{zone}/imageFamilyViews/{family}",
 		func(w http.ResponseWriter, r *http.Request) {
 			project, family := sim.PathParam(r, "project"), sim.PathParam(r, "family")
-			name := family
-			if !strings.HasSuffix(name, "-12") {
-				name += "-12"
+			image, ok := gcpImageFromFamily(project, family)
+			if !ok {
+				GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "The resource '%s' was not found", gcpImageLink(project, "family/"+family))
+				return
 			}
-			sim.WriteJSON(w, http.StatusOK, map[string]any{
-				"image": computeImageJSON(project, name),
-			})
+			sim.WriteJSON(w, http.StatusOK, map[string]any{"image": image})
 		})
 
 	// The disks a storage pool backs. A disk names the pool it draws from, so

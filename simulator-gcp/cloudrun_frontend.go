@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/delivery"
+	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim/simjwt"
 )
 
@@ -162,7 +162,7 @@ func serveCloudRunService(w http.ResponseWriter, r *http.Request, svc ServiceV2,
 
 	serviceID := svc.Name[strings.LastIndex(svc.Name, "/")+1:]
 	sink := &cfLogSink{project: resourceProject(svc.Name), functionName: serviceID}
-	inst, err := ensureCloudRunServiceInstance(r.Context(), svc.Name, serviceID, containers, svc.Template.Volumes, sink)
+	inst, err := ensureCloudRunServiceInstance(r.Context(), svc.Name, serviceID, svc.Template.VpcAccess, containers, svc.Template.Volumes, sink)
 	if err != nil {
 		cloudRunFrontEndError(w, http.StatusServiceUnavailable, html.EscapeString(fmt.Sprintf("The service could not start an instance: %v", err)))
 		return

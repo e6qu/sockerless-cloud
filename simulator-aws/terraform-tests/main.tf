@@ -245,8 +245,18 @@ resource "aws_lb_listener_rule" "tf_alb_rule" {
   }
 }
 
+data "aws_ami" "al2023" {
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = ["al2023-ami-2023.*-kernel-6.1-x86_64"]
+  }
+}
+
 resource "aws_instance" "tf_vm" {
-  ami           = "ami-tf1234"
+  ami           = data.aws_ami.al2023.id
   instance_type = "t3.micro"
   subnet_id     = aws_subnet.tf_ec2_subnet.id
   vpc_security_group_ids = [
@@ -344,7 +354,7 @@ resource "aws_ebs_volume" "tf_ebs_restored" {
 
 resource "aws_launch_configuration" "tf_asg_lc" {
   name_prefix   = "tf-asg-lc-"
-  image_id      = "ami-tf-asg"
+  image_id      = data.aws_ami.al2023.id
   instance_type = "t3.micro"
 
   lifecycle {

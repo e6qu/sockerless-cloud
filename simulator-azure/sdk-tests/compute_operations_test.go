@@ -71,11 +71,10 @@ func TestSDK_Compute_OperationsAndUsage(t *testing.T) {
 // machine moves it. A machine needs a real network interface, so this half
 // needs the Linux network capabilities the simulator's fabric is built on.
 func TestSDK_Compute_UsageCountsWhatIsHeld(t *testing.T) {
-	requireMicroVMHost(t)
 
 	const rg, location = "compute-usage-rg", "eastus"
 	ensureRG(t, rg)
-	nicID := vmOperationsFixture(t, rg, "usage-vm", "10.94")
+	nicID := vmOperationsFixture(t, rg, "usage-vm", "10.94.0.0/16")
 
 	usageClient, err := armcompute.NewUsageClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)

@@ -119,8 +119,19 @@ func registerMetadata(srv *sim.Server) {
 		macAddress := "00155DEADBEE"
 		subnetAddress := "10.0.0.0"
 		subnetPrefix := "24"
+		publisher, offer, sku, version := "Canonical", "ubuntu-24_04-lts", "server", "24.04.202510170"
+		userData := ""
 		var secondaryIPs []string
 		if ok {
+			if ref := azureVMImageReference(vmMeta.VM); ref != nil {
+				if v, _ := ref["publisher"].(string); v != "" {
+					publisher, _ = ref["publisher"].(string)
+					offer, _ = ref["offer"].(string)
+					sku, _ = ref["sku"].(string)
+					version, _ = ref["version"].(string)
+				}
+			}
+			userData = vmMeta.VM.Properties.UserData
 			computeName = vmMeta.VM.Name
 			resourceGroup = azureResourceGroupFromID(vmMeta.VM.ID, resourceGroup)
 			resourceID = vmMeta.VM.ID
@@ -152,19 +163,20 @@ func registerMetadata(srv *sim.Server) {
 				"azEnvironment":        "AzurePublicCloud",
 				"location":             loc,
 				"name":                 computeName,
-				"offer":                "UbuntuServer",
+				"offer":                offer,
 				"osType":               "Linux",
 				"placementGroupId":     "",
 				"platformFaultDomain":  "0",
 				"platformUpdateDomain": "0",
 				"provider":             "Microsoft.Compute",
-				"publisher":            "Canonical",
+				"publisher":            publisher,
 				"resourceGroupName":    resourceGroup,
 				"resourceId":           resourceID,
-				"sku":                  "22_04-lts",
+				"sku":                  sku,
 				"subscriptionId":       sub,
 				"tags":                 "",
-				"version":              "22.04.202401010",
+				"userData":             userData,
+				"version":              version,
 				"vmId":                 vmID,
 				"vmScaleSetName":       "",
 				"vmSize":               vmSize,
@@ -244,33 +256,34 @@ var simListenAddr string
 
 // hostMetadataEnv returns the platform environment of an App Service or Azure
 // Functions app or slot's workload, or of a workload that is neither when site
-// is nil.
-func hostMetadataEnv(site *Site) (map[string]string, error) {
+// is nil, on a network whose sidecar is at metadataHost.
+func hostMetadataEnv(site *Site, metadataHost string) (map[string]string, error) {
 	if site == nil {
-		return workloadMetadataEnv("", nil)
+		return workloadMetadataEnv("", nil, metadataHost)
 	}
-	return workloadMetadataEnv(site.ID, site.Identity)
+	return workloadMetadataEnv(site.ID, site.Identity, metadataHost)
 }
 
 // workloadMetadataEnv returns the platform environment of the workload of
 // resource resourceID: the instance metadata endpoint, and for a workload with
 // a managed identity the IDENTITY_ENDPOINT and IDENTITY_HEADER its code
-// acquires the identity's tokens with. A workload with no identity gets
-// neither, as on App Service and Container Apps.
-func workloadMetadataEnv(resourceID string, identity *SiteIdentity) (map[string]string, error) {
-	addr, err := workloadhost.CallbackAddr(simListenAddr)
-	if err != nil {
-		return nil, err
+// acquires the identity's tokens with. Both are served by the sidecar of the
+// workload's network at metadataHost, which forwards them to the simulator
+// with the workload's own address. A workload with no identity gets neither,
+// as on App Service and Container Apps.
+func workloadMetadataEnv(resourceID string, identity *SiteIdentity, metadataHost string) (map[string]string, error) {
+	if metadataHost == "" {
+		return nil, fmt.Errorf("workload %s: no sidecar serves its metadata", resourceID)
 	}
 	env := map[string]string{
-		"AZURE_INSTANCE_METADATA_ENDPOINT": "http://" + addr + "/metadata/instance",
+		"AZURE_INSTANCE_METADATA_ENDPOINT": "http://" + metadataHost + "/metadata/instance",
 	}
 	if hasManagedIdentity(identity) {
 		header, err := workloadIdentityHeader(resourceID)
 		if err != nil {
 			return nil, err
 		}
-		env["IDENTITY_ENDPOINT"] = "http://" + addr + "/msi/token"
+		env["IDENTITY_ENDPOINT"] = "http://" + metadataHost + "/msi/token"
 		env["IDENTITY_HEADER"] = header
 	}
 	return env, nil

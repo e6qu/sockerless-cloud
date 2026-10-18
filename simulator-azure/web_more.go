@@ -1067,8 +1067,7 @@ func patchWebSite(w http.ResponseWriter, r *http.Request, store sim.Store[Site])
 	// for real, and the stored row ends up reflecting the resulting state.
 	if vnsPresent {
 		if err := applySiteVirtualNetworkSubnetID(r, row, row.Properties.VirtualNetworkSubnetID); err != nil {
-			AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
-				"failed to integrate site %q into VNet: %v", row.Name, err)
+			writeVnetIntegrationError(w, row.Name, err)
 			return
 		}
 		row, _ = store.Get(id)

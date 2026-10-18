@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
 // Cloud Functions v2 types

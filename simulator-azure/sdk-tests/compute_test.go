@@ -14,7 +14,6 @@ import (
 
 func TestCompute_VirtualMachineLifecycle(t *testing.T) {
 	t.Parallel()
-	requireMicroVMHost(t)
 	const rg = "compute-rg"
 	const vnetName = "compute-vnet"
 	const subnetName = "compute-subnet"
@@ -100,8 +99,8 @@ func TestCompute_VirtualMachineLifecycle(t *testing.T) {
 			StorageProfile: &armcompute.StorageProfile{
 				ImageReference: &armcompute.ImageReference{
 					Publisher: to.Ptr("Canonical"),
-					Offer:     to.Ptr("0001-com-ubuntu-server-jammy"),
-					SKU:       to.Ptr("22_04-lts"),
+					Offer:     to.Ptr("ubuntu-24_04-lts"),
+					SKU:       to.Ptr("server"),
 					Version:   to.Ptr("latest"),
 				},
 				OSDisk: &armcompute.OSDisk{

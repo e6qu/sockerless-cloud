@@ -412,7 +412,7 @@ func TestMain(m *testing.M) {
 		simDir, _ := filepath.Abs("..")
 		build := exec.Command("go", "build", "-tags", "noui", "-o", binaryPath, ".")
 		build.Dir = simDir
-		build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOWORK=off")
+		build.Env = append(os.Environ(), "CGO_ENABLED=0")
 		if out, err := build.CombinedOutput(); err != nil {
 			log.Fatalf("Failed to build simulator: %v\n%s", err, out)
 		}
@@ -432,8 +432,8 @@ func TestMain(m *testing.M) {
 	containerCommandImage = "sockerless-container-command:aws-sdk"
 	buildGoScratchImage(containerCommandImage, containerCommandDir, "container-command", workloadPlatform)
 
-	// Pre-pull busybox up front (with retry) — it backs the awsvpc netns
-	// pause container AND is the workload image for many ECS tests. Pulling
+	// Pre-pull busybox up front (with retry) — it is the workload image for
+	// many ECS tests. Pulling
 	// it lazily at RunTask time made the registry fetch a flaky dependency
 	// of the task lifecycle: a transient throttle there surfaced as the task
 	// container "failing to start" (ExitCode -1) rather than a clear pull

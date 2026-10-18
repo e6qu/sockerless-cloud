@@ -27,7 +27,6 @@ import (
 // contains what.
 func TestNetworkWatcher_DiagnosticsFollowTheRealConfiguration(t *testing.T) {
 	t.Parallel()
-	requireNetworkHost(t)
 	rg := "netwatcher-rg"
 	requireResourceGroup(t, rg)
 

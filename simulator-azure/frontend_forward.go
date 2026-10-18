@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/e6qu/sockerless-cloud/realexec/lbplane"
+	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
 // abortStartedForward ends the client's response when a forward failed after
@@ -20,4 +20,14 @@ func abortStartedForward(w http.ResponseWriter, err error) {
 	}
 	_ = http.NewResponseController(w).Flush()
 	panic(http.ErrAbortHandler)
+}
+
+// azureCloseWithoutAnswer ends the client's connection without a response, as
+// a dropped packet leaves a client: nothing answers and nothing resets.
+func azureCloseWithoutAnswer(w http.ResponseWriter) {
+	conn, _, err := http.NewResponseController(w).Hijack()
+	if err != nil {
+		panic(http.ErrAbortHandler)
+	}
+	_ = conn.Close()
 }

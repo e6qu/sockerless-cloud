@@ -86,16 +86,10 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 				}
 			}
 
-			// Every member of the run is a real machine, so the run needs the
-			// host that can boot one, exactly as a single insert does.
-			if !gcpRequireNetworkHost(w) {
-				return
-			}
-
 			// Each member is built from the run's instanceProperties through
 			// the same function instances.insert builds one with, so a
-			// bulk-created instance is attached to a real network interface and
-			// carries the same identity a singly-created one does.
+			// bulk-created instance leases its address and carries its identity
+			// the way a singly-created one does.
 			run := make([]ComputeInstance, 0, len(names))
 			for _, name := range names {
 				var instance ComputeInstance
@@ -108,14 +102,14 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 				}
 				instance.Name = name
 				if err := gcpNormalizeInstance(r.Context(), project, zone, &instance); err != nil {
-					// A member that cannot be attached takes the run with it:
-					// a partially attached run would leave instances behind
-					// that the caller never learns are unusable.
+					// A member that cannot be filled takes the run with it: a
+					// partial run would leave instances behind that the caller
+					// never learns are unusable.
 					for _, created := range run {
 						gcpInstances.Delete(created.SelfLink)
+						gcpReleaseInstanceAddresses(created)
 					}
-					GCPErrorf(w, http.StatusServiceUnavailable, "FAILED_PRECONDITION",
-						"failed to attach real instance network interface for %q: %v", name, err)
+					computeWriteNormalizeRefusal(w, err)
 					return
 				}
 				instance.Status = ComputeInstanceProvisioning
@@ -136,17 +130,18 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 				ctx, cancel := context.WithTimeout(context.Background(), computeInstanceBootBudget)
 				defer cancel()
 				for i := range booting {
-					if err := gcpStartRealVM(ctx, &booting[i]); err != nil {
+					if err := gcpBootVM(ctx, &booting[i]); err != nil {
 						// The run's failed member leaves nothing behind, and
 						// the verdict lives on the operation the caller polls.
 						gcpInstances.Delete(booting[i].SelfLink)
+						gcpReleaseInstanceAddresses(booting[i])
 						computeOpFinish(op.Name, err)
 						return
 					}
 					booting[i].Status = ComputeInstanceRunning
 					gcpInstances.Put(booting[i].SelfLink, booting[i])
 				}
-				computeOpFinish(op.Name, gcpReapplyRealFirewalls(ctx))
+				computeOpFinish(op.Name, nil)
 			})
 			sim.WriteJSON(w, http.StatusOK, computeOpJSON(op))
 		}

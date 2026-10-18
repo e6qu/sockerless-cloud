@@ -30,13 +30,6 @@ type EC2KeyPair struct {
 
 var ec2KeyPairs sim.Store[EC2KeyPair]
 
-// ec2AmiIDFromName derives a stable ami-id from an image name so a
-// `data.aws_ami` filter lookup resolves to the same id across plans.
-func ec2AmiIDFromName(name string) string {
-	sum := md5.Sum([]byte(name))
-	return "ami-" + fmt.Sprintf("%x", sum)[:17]
-}
-
 func ec2Fingerprint(data []byte) string {
 	sum := md5.Sum(data)
 	parts := make([]string, len(sum))
