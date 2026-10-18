@@ -818,7 +818,12 @@ opens the low ports, which the mail receivers on port 25 need.
 Two live engine networks over one range do not coexist on one engine, so a
 test's network takes a range no other test in its suite uses; the Auto Scaling
 group fixture counts its groups onto their own /16s, and a fixture that
-boots a machine names a range of its own.
+boots a machine names a range of its own. The AWS CLI suite's Amazon ECS
+tests used to probe the engine for a free /16 at each start: two tests
+starting in the same moment both found the same one, since neither had
+placed a task on it yet, and the probe hid two ranges from the checker that
+EC2 tests also named. Each names its /16 as a literal now, and the checker
+holds them apart.
 Startup refuses to serve in any mode that executes workloads when no engine
 answers: a process that passes its health check and fails every workload in
 the background is worse than one that does not start. Each cloud product's

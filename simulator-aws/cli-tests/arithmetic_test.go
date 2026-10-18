@@ -23,7 +23,7 @@ func waitECSTaskStoppedCLI(t *testing.T, cluster, taskArn string) string {
 
 func TestECS_CLI_ArithmeticEval(t *testing.T) {
 	t.Parallel()
-	subnetID := createCLIECSTestSubnet(t, "cli-arith-cluster", 140)
+	subnetID := createCLIECSTestSubnet(t, "cli-arith-cluster", "10.140.0.0/16")
 
 	// Create cluster
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", "cli-arith-cluster"))
@@ -121,7 +121,7 @@ func TestECS_CLI_ArithmeticEval(t *testing.T) {
 
 func TestECS_CLI_ArithmeticInvalid(t *testing.T) {
 	t.Parallel()
-	subnetID := createCLIECSTestSubnet(t, "cli-arith-fail-cluster", 141)
+	subnetID := createCLIECSTestSubnet(t, "cli-arith-fail-cluster", "10.147.0.0/16")
 
 	// Create cluster
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", "cli-arith-fail-cluster"))
@@ -194,11 +194,10 @@ func TestECS_CLI_ArithmeticInvalid(t *testing.T) {
 	assert.Equal(t, 1, *descResult.Tasks[0].Containers[0].ExitCode)
 }
 
-func createCLIECSTestSubnet(t *testing.T, cluster string, startOctet int) string {
+func createCLIECSTestSubnet(t *testing.T, cluster, vpcRange string) string {
 	t.Helper()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
-	octet := unusedDockerVPCOctet(t, startOctet, nil)
-	vpcID, subnetID := mkVPCSubnet(t, q, vpcCIDR(octet), subnetCIDR(octet))
+	vpcID, subnetID := mkVPCSubnet(t, q, vpcRange, subnetOf(vpcRange))
 	t.Cleanup(func() {
 		stopCLITasksInSubnet(t, cluster, subnetID)
 		q("ec2", "delete-subnet", "--subnet-id", subnetID)

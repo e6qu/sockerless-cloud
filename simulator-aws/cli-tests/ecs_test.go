@@ -12,7 +12,7 @@ import (
 func TestECS_CLI_ServiceFamily(t *testing.T) {
 	t.Parallel()
 	cluster := "cli-ecs-svc-cluster"
-	subnetID := createCLIECSTestSubnet(t, "cli-ecs-svc-cluster", 141)
+	subnetID := createCLIECSTestSubnet(t, "cli-ecs-svc-cluster", "10.255.0.0/16")
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", cluster))
 	t.Cleanup(func() { _ = awsCLI("ecs", "delete-cluster", "--cluster", cluster).Run() })
 	runCLI(t, awsCLI("ecs", "register-task-definition",
@@ -109,7 +109,7 @@ func cleanupCLIService(t *testing.T, cluster, service string) {
 
 func TestECS_CLI_RunTaskAndCheckLogs(t *testing.T) {
 	t.Parallel()
-	subnetID := createCLIECSTestSubnet(t, "cli-ecs-cluster", 142)
+	subnetID := createCLIECSTestSubnet(t, "cli-ecs-cluster", "10.142.0.0/16")
 
 	// Create cluster
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", "cli-ecs-cluster"))
@@ -209,7 +209,7 @@ func TestECS_CLI_RunTaskAndCheckLogs(t *testing.T) {
 
 func TestECS_CLI_RunTaskContainerOverrideEnvironment(t *testing.T) {
 	t.Parallel()
-	subnetID := createCLIECSTestSubnet(t, "cli-ecs-override", 148)
+	subnetID := createCLIECSTestSubnet(t, "cli-ecs-override", "10.148.0.0/16")
 	cluster := "cli-ecs-override"
 	logGroup := "/ecs/cli-override"
 
@@ -319,7 +319,7 @@ func TestECS_CLI_ExecuteCommandRejectedWhenNotEnabled(t *testing.T) {
 		t.Fatalf("session-manager-plugin is required because aws ecs execute-command checks it before calling the API; install it (the CI job installs the .deb): %v", err)
 	}
 
-	subnetID := createCLIECSTestSubnet(t, "cli-ecs-exec-disabled", 145)
+	subnetID := createCLIECSTestSubnet(t, "cli-ecs-exec-disabled", "10.145.0.0/16")
 
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", "cli-ecs-exec-disabled"))
 	runCLI(t, awsCLI("ecs", "register-task-definition",
@@ -369,7 +369,7 @@ func TestECS_CLI_ExecuteCommandRejectedWhenNotEnabled(t *testing.T) {
 
 func TestECS_CLI_FargateSandboxAllowsChroot(t *testing.T) {
 	t.Parallel()
-	subnetID := createCLIECSTestSubnet(t, "cli-ecs-chroot", 146)
+	subnetID := createCLIECSTestSubnet(t, "cli-ecs-chroot", "10.146.0.0/16")
 
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", "cli-ecs-chroot"))
 	runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", "/ecs/cli-chroot"))
@@ -445,7 +445,7 @@ func TestECS_CLI_FargateSandboxAllowsChroot(t *testing.T) {
 
 func TestECS_CLI_ManagedEBSVolumeSnapshotRoundTrip(t *testing.T) {
 	t.Parallel()
-	subnetID := createCLIECSTestSubnet(t, "cli-ebs-roundtrip", 143)
+	subnetID := createCLIECSTestSubnet(t, "cli-ebs-roundtrip", "10.143.0.0/16")
 
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", "cli-ebs-roundtrip"))
 	runCLI(t, awsCLI("logs", "create-log-group", "--log-group-name", "/ecs/cli-ebs-roundtrip"))
@@ -595,7 +595,7 @@ func TestECS_CLI_ManagedEBSVolumeSnapshotRoundTrip(t *testing.T) {
 
 func TestECS_CLI_RunTaskNonZeroExit(t *testing.T) {
 	t.Parallel()
-	subnetID := createCLIECSTestSubnet(t, "cli-ecs-fail-cluster", 144)
+	subnetID := createCLIECSTestSubnet(t, "cli-ecs-fail-cluster", "10.144.0.0/16")
 
 	// Create cluster
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", "cli-ecs-fail-cluster"))

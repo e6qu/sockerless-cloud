@@ -186,8 +186,8 @@ func TestCloudMap_CrossTaskDNS_CLI(t *testing.T) {
 	}
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
-	octet := unusedDockerVPCOctet(t, 130, nil)
-	vpcID, subnetID := mkVPCSubnet(t, q, vpcCIDR(octet), subnetCIDR(octet))
+	const vpcRange = "10.130.0.0/16"
+	vpcID, subnetID := mkVPCSubnet(t, q, vpcRange, subnetOf(vpcRange))
 	t.Cleanup(func() {
 		stopCLITasksInSubnet(t, "cli-xtask-dns", subnetID)
 		q("ec2", "delete-subnet", "--subnet-id", subnetID)

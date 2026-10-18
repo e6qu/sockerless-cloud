@@ -100,8 +100,8 @@ func TestECSNetworkModeAwsvpcKeepsTaskOffTheDefaultBridge(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
-	octet := unusedDockerVPCOctet(t, 180, nil)
-	vpcID, subnetID := mkVPCSubnet(t, q, vpcCIDR(octet), subnetCIDR(octet))
+	const vpcRange = "10.180.0.0/16"
+	vpcID, subnetID := mkVPCSubnet(t, q, vpcRange, subnetOf(vpcRange))
 	q("ecs", "create-cluster", "--cluster-name", "default", "--query", "cluster.clusterName", "--output", "text")
 	registerNetworkModeTaskDef(q, "netmode-awsvpc", "awsvpc")
 
@@ -125,8 +125,8 @@ func TestECSNetworkModeAwsvpcKeepsTaskOffTheDefaultBridge(t *testing.T) {
 	}
 
 	// The task's reported ENI address must come from the subnet's CIDR.
-	if eniIP := taskENIIP(q, task); !strings.HasPrefix(eniIP, vpcPrefix(octet)) {
-		t.Fatalf("awsvpc task ENI IP %q is not in the subnet CIDR %s", eniIP, subnetCIDR(octet))
+	if eniIP := taskENIIP(q, task); !strings.HasPrefix(eniIP, prefixOf(vpcRange)) {
+		t.Fatalf("awsvpc task ENI IP %q is not in the subnet CIDR %s", eniIP, subnetOf(vpcRange))
 	}
 }
 
@@ -221,8 +221,8 @@ func TestECSNetworkModeRejectsMismatchedNetworkConfiguration(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
-	octet := unusedDockerVPCOctet(t, 185, nil)
-	vpcID, subnetID := mkVPCSubnet(t, q, vpcCIDR(octet), subnetCIDR(octet))
+	const vpcRange = "10.185.0.0/16"
+	vpcID, subnetID := mkVPCSubnet(t, q, vpcRange, subnetOf(vpcRange))
 	t.Cleanup(func() {
 		stopCLITasksInSubnet(t, "default", subnetID)
 		q("ec2", "delete-subnet", "--subnet-id", subnetID)
