@@ -3424,7 +3424,11 @@ the WebJobs now share through the server. A Kudu command on a guest showed
 the agent refusing a guest whose first process ended before the readiness
 ping: a process that ran and ended is a started guest, as a container that
 exits at once is a started container, so the start answers and the handle
-reports the exit.
+reports the exit. The same shard showed a plan's worker instance name
+breaking the document's `^[a-zA-Z0-9]+$` once a worker was a guest, whose
+placement identity carries hyphens: the instance name is now a hex digest
+of that identity, on either backend, in `listinstances`, the worker
+reboot lookup and the perf-counter samples alike.
 
 A workload's further networks are placement now. A site integrated into
 more than one virtual network used to have its container joined to each
