@@ -793,10 +793,16 @@ func reportExit(member string, code int, message string, lines int) {
 	_ = json.NewEncoder(conn).Encode(map[string]any{"member": member, "exitCode": code, "error": message, "lines": lines})
 }
 
+// powerOff ends the machine. A power-off on a microVM halts its processor
+// and leaves the machine running for the hypervisor, which only a restart
+// ends: the kernel resets through the keyboard controller (reboot=k on its
+// command line) or PSCI, and Firecracker exits on the reset. Should the
+// restart not take, the exit panics the kernel, which reboots after a second
+// (panic=1) to the same end.
 func powerOff(code int) {
 	unix.Sync()
 	time.Sleep(100 * time.Millisecond)
-	_ = unix.Reboot(unix.LINUX_REBOOT_CMD_POWER_OFF)
+	_ = unix.Reboot(unix.LINUX_REBOOT_CMD_RESTART)
 	os.Exit(code)
 }
 

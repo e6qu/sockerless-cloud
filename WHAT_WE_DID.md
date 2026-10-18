@@ -3374,7 +3374,15 @@ ahead of the engine. A task reports stopped when its first process ends,
 and its guest's tap leaves the bridge a moment later with the machine, so
 the agent waits for the network's last tap as the engine waits for its last
 endpoint, as long as the request allows; the network the agent started on
-is never released. The KVM proof joins a second network,
+is never released. The wait then found a guest that never went: guestinit
+ended the machine with a power-off, which halts a microVM's processor and
+leaves the machine running for the hypervisor, so every guest exit had in
+fact been the agent's fifteen-second backstop kill — the stop tests on
+guests all took eighteen seconds — and a guest whose owner was stopped
+while a member still ran, where the agent returns without the backstop,
+stayed halted on its network for good. guestinit restarts the machine
+instead, which the kernel's `reboot=k` turns into the reset Firecracker
+exits on, and a guest now ends the moment its last process does. The KVM proof joins a second network,
 places a guest on it, leaves, has the engine remove the network at once,
 and does it all again over the same range, which a bridge left behind
 would have failed. The hang went undiagnosed because a guest shard's setup
