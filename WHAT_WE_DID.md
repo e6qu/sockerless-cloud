@@ -3360,3 +3360,24 @@ a virtual network also asks for a second interface a guest has not got
 it is written, where it used to print the log only once the binary had
 exited, so a job the runner cancels at its limit still shows the test it was
 in.
+
+The agent leaves a network its cloud deletes. `DeleteVpc`, a subnetwork's
+deletion, a virtual network's and a Container Apps environment's removal
+take the engine network down, and the engine removes no network a container
+is still on: the removal waits on the next disconnect, and the node agent,
+joined to the network for its guests, never disconnected, so every Amazon
+ECS test on guests hung in its VPC's cleanup until the job's limit cancelled
+it. `Agent.Leave` (`MicroVMBackend.Leave`) has the agent dissolve the
+bridge it built for the network (`DELETE /v1/networks/{address}`, refused
+while a guest's tap is still on it and for the network the agent started
+on) and takes the container off the network, and each cloud's network
+removal calls it ahead of the engine. The KVM proof joins a second network,
+places a guest on it, leaves, has the engine remove the network at once,
+and does it all again over the same range, which a bridge left behind
+would have failed. The hang went undiagnosed because a guest shard's setup
+— six minutes of base images and the node agent image — left the Go
+deadline past the job's limit; those shards run under the shorter deadline
+their matrix rows name (`deadline`), and a failed SDK step dumps the
+simulator's requests in flight and goroutines
+(`scripts/dump-sim-diagnostics.sh`), since the simulator outlives the test
+binary's deadline panic.

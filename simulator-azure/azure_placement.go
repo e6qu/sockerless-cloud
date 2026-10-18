@@ -138,6 +138,19 @@ func azureJoinMicroVMNetwork(ctx context.Context, service placement.Service, vne
 	return backend.Join(ctx, network, azureVNetMicroVMAgentAddress(vnetID, vnetPrefix))
 }
 
+// azureLeaveMicroVMNetwork takes the node agent off an engine network the
+// cloud is removing, whichever service joined it there: the engine removes
+// no network a container is still on.
+func azureLeaveMicroVMNetwork(ctx context.Context, network string) error {
+	azurePlacementMu.Lock()
+	backend := azureMicroVMBackend
+	azurePlacementMu.Unlock()
+	if backend == nil {
+		return nil
+	}
+	return backend.Leave(ctx, network)
+}
+
 // azureJoinMicroVMPlatformNetwork attaches the node agent to a network of
 // the platform's shape — a Container Apps environment's own — at an address
 // leased from the simulator's half of it, before the first guest of a

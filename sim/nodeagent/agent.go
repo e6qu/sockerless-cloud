@@ -187,6 +187,28 @@ func (a *Agent) Join(ctx context.Context, network string, address netip.Addr) (n
 	return got, nil
 }
 
+// Leave takes the agent off an engine network it joined, once the cloud has
+// no workload left on it: the agent dissolves the bridge its guests on that
+// network used, and the container leaves the network, so the engine can
+// remove it. The network the agent started on, where the simulator reaches
+// it, is never left.
+func (a *Agent) Leave(ctx context.Context, network string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	address, ok := a.networks[network]
+	if !ok {
+		return nil
+	}
+	if err := a.client.LeaveNetwork(ctx, address); err != nil {
+		return fmt.Errorf("node agent: leave %s: %w", network, err)
+	}
+	if err := sim.DisconnectContainerFromNetwork(ctx, a.handle.ContainerID, network); err != nil {
+		return fmt.Errorf("node agent: leave %s: %w", network, err)
+	}
+	delete(a.networks, network)
+	return nil
+}
+
 // AddressOn is the agent's address on a network it joined.
 func (a *Agent) AddressOn(network string) (netip.Addr, bool) {
 	a.mu.Lock()

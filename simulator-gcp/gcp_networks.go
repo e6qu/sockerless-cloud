@@ -202,6 +202,11 @@ func gcpRemoveSubnetworkNetwork(ctx context.Context, subnet ComputeSubnetwork) e
 	name := gcpSubnetworkNetworkName(subnet.SelfLink)
 	gcpRemoveNetworkSidecar(name)
 	cloudDNSResolverNetworks.Delete(name)
+	if gcpMicroVMBackend != nil {
+		if err := gcpMicroVMBackend.Leave(ctx, name); err != nil {
+			return err
+		}
+	}
 	return sim.RemoveDockerNetworkContext(ctx, name)
 }
 

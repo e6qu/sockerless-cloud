@@ -50,6 +50,12 @@ func (b *MicroVMBackend) Join(ctx context.Context, network string, address netip
 	return err
 }
 
+// Leave takes the agent off an engine network the cloud is removing, once
+// nothing of the cloud's is left on it.
+func (b *MicroVMBackend) Leave(ctx context.Context, network string) error {
+	return b.agent.Leave(ctx, network)
+}
+
 // ErrNoNetwork is returned for a workload that names no engine network or
 // no address: a guest has no engine-assigned address to fall back on.
 var ErrNoNetwork = errors.New("a microVM workload needs a network the agent joined and an address on it")

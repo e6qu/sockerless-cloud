@@ -316,7 +316,11 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 			// A virtual network's engine network goes with the virtual network.
 			if env.DockerNetworkName != "" && acaEnvironmentVNetID(env) == "" {
 				azureRemoveSidecar(env.DockerNetworkName)
-				if err := sim.RemoveDockerNetwork(env.DockerNetworkName); err != nil {
+				err := azureLeaveMicroVMNetwork(context.Background(), env.DockerNetworkName)
+				if err == nil {
+					err = sim.RemoveDockerNetwork(env.DockerNetworkName)
+				}
+				if err != nil {
 					environments.Update(resourceID, func(e *ContainerAppEnvironment) {
 						e.Properties.ProvisioningState = "Failed"
 					})

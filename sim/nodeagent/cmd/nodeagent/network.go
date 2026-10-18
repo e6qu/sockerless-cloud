@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"net"
@@ -11,6 +12,10 @@ import (
 	"strings"
 	"sync"
 )
+
+// errNetworkInUse refuses to release a network's bridge while a guest's tap
+// is still on it.
+var errNetworkInUse = errors.New("a guest is still on that network")
 
 // networks turns each engine-network interface the agent's container holds
 // into a bridge its guests' taps join: the interface's address moves onto the
@@ -62,6 +67,51 @@ func (n *networks) bridgeFor(ctx context.Context, agentAddress string) (string, 
 	}
 	n.bridges[agentAddress] = br
 	return br, nil
+}
+
+// release dissolves the bridge built for the network the agent holds
+// agentAddress on, ahead of the container leaving that network: the engine
+// removes the interface with the endpoint, and a later join of a network at
+// the same address builds a bridge for that one. A tap still on the bridge
+// is a guest the cloud has not stopped, and the bridge carrying the agent's
+// default route is the network the agent started on; neither is released.
+func (n *networks) release(ctx context.Context, agentAddress string) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	br, ok := n.bridges[agentAddress]
+	if !ok {
+		return nil
+	}
+	members, err := output(ctx, "ip", "-o", "link", "show", "master", br)
+	if err != nil {
+		if strings.Contains(err.Error(), "does not exist") {
+			delete(n.bridges, agentAddress)
+			return nil
+		}
+		return err
+	}
+	for _, line := range strings.Split(members, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		name, _, _ := strings.Cut(strings.TrimSuffix(fields[1], ":"), "@")
+		if strings.HasPrefix(name, "tap") {
+			return fmt.Errorf("%w: %s is on %s", errNetworkInUse, name, br)
+		}
+	}
+	routes, err := output(ctx, "ip", "route", "show", "default")
+	if err != nil {
+		return err
+	}
+	if defaultRouteVia(routes, br).IsValid() {
+		return fmt.Errorf("%s carries the agent's default route: the network the agent started on is not left", br)
+	}
+	if err := run(ctx, "ip", "link", "del", br); err != nil {
+		return err
+	}
+	delete(n.bridges, agentAddress)
+	return nil
 }
 
 // defaultRouteVia is the gateway of the default route that leaves through

@@ -98,6 +98,16 @@ func awsStartPlacement(ctx context.Context, persist bool) (stop func(context.Con
 	}, nil
 }
 
+// awsLeaveMicroVMNetwork takes the node agent off a VPC's engine network
+// ahead of the VPC's deletion removing it: the engine removes no network a
+// container is still on.
+func awsLeaveMicroVMNetwork(ctx context.Context, network string) error {
+	if awsMicroVMBackend == nil {
+		return nil
+	}
+	return awsMicroVMBackend.Leave(ctx, network)
+}
+
 // awsJoinMicroVMNetwork makes the node agent a member of a VPC's engine
 // network at the address Amazon VPC reserves for future use, before the
 // first guest lands there. A table with no microVM service has no agent to

@@ -75,7 +75,9 @@ Current state of the sockerless-cloud repository.
   disk slots, sharing the guest's network, so the two reach each other on
   localhost on either backend. The `run-microvm`, `ecs-microvm`,
   `ecs-services-microvm` and `containerapps-microvm` SDK shards run Cloud Run's, Amazon ECS Fargate's
-  and Container Apps' multi-container tests on guests. A platform network's
+  and Container Apps' multi-container tests on guests; the agent leaves a
+  network its cloud deletes (`MicroVMBackend.Leave`) ahead of the engine
+  removing it. A platform network's
   lower half is the simulator's to lease (`sim.LeasePlatformAddress`) and
   the engine allocates from the upper half, so a workload on it takes an
   address no container can, whichever backend places it: Cloud Run

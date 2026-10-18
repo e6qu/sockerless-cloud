@@ -145,10 +145,14 @@ func azureVNetMicroVMAgentAddress(vnetID string, vnetPrefix netip.Prefix) netip.
 }
 
 // azureRemoveVNetNetwork removes the virtual network's engine network, its
-// sidecar first; the engine refuses while a workload is still attached.
-func azureRemoveVNetNetwork(vnetID string) error {
+// sidecar and the node agent off it first; the engine refuses while a
+// workload is still attached.
+func azureRemoveVNetNetwork(ctx context.Context, vnetID string) error {
 	network := dockerNetForVNet(vnetID)
 	azureRemoveSidecar(network)
+	if err := azureLeaveMicroVMNetwork(ctx, network); err != nil {
+		return err
+	}
 	if err := sim.RemoveDockerNetwork(network); err != nil {
 		return err
 	}

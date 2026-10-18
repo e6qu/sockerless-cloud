@@ -308,6 +308,54 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 	if strings.Contains(links.Stdout, "tap") {
 		t.Fatalf("a tap outlived its guest:\n%s", links.Stdout)
 	}
+
+	// A cloud deletes a network once nothing of its own is on it, and the
+	// engine removes no network a container is still on: the agent leaves
+	// the network at the cloud's word, its guests' bridge with it, and a
+	// network of the same range joined again at the same address gets a
+	// bridge of its own, so the guest on it reaches the agent.
+	otherName := networkName + "-other"
+	for round := 1; round <= 2; round++ {
+		if _, err := sim.EnsureCloudNetwork(t.Context(), sim.CloudNetwork{Name: otherName, CIDR: netip.MustParsePrefix("10.79.1.0/24")}); err != nil {
+			t.Fatal(err)
+		}
+		if err := backend.Join(t.Context(), otherName, netip.MustParseAddr("10.79.1.3")); err != nil {
+			t.Fatalf("round %d: join %s: %v", round, otherName, err)
+		}
+		other, err := backend.Place(t.Context(), placement.Workload{
+			Image:        memberImage,
+			Architecture: platform,
+			Name:         fmt.Sprintf("sockerless-sim-kvm-other-%d", round),
+			Hostname:     "other",
+			Network:      otherName,
+			IPv4Address:  "10.79.1.10",
+			Command:      []string{"sleep"},
+			Args:         []string{"300"},
+			MemoryBytes:  256 << 20,
+			NanoCPU:      1_000_000_000,
+		}, sim.NoopSink{})
+		if err != nil {
+			t.Fatalf("round %d: place on %s: %v", round, otherName, err)
+		}
+		if out, err := other.Exec(execCtx, []string{"ping", "-c", "1", "-W", "3", "10.79.1.3"}); err != nil || out.ExitCode != 0 {
+			t.Fatalf("round %d: the guest on %s does not reach the agent: %+v (%v)", round, otherName, out, err)
+		}
+		if err := backend.Remove(t.Context(), other.ID()); err != nil {
+			t.Fatalf("round %d: remove: %v", round, err)
+		}
+		if err := backend.Leave(t.Context(), otherName); err != nil {
+			t.Fatalf("round %d: leave %s: %v", round, otherName, err)
+		}
+		if addr := sim.ContainerIPv4On(t.Context(), agent.ContainerID(), otherName); addr.IsValid() {
+			t.Fatalf("round %d: the agent still holds %s on %s after leaving it", round, addr, otherName)
+		}
+		removeCtx, cancelRemove := context.WithTimeout(t.Context(), 10*time.Second)
+		err = sim.RemoveDockerNetworkContext(removeCtx, otherName)
+		cancelRemove()
+		if err != nil {
+			t.Fatalf("round %d: the engine did not remove %s once the agent left it: %v", round, otherName, err)
+		}
+	}
 }
 
 func boolToInt(b bool) int {
