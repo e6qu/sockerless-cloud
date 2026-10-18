@@ -3321,6 +3321,13 @@ of its sidecars and node agent (`sim.LeasePlatformAddress`), pre-reserving
 what containers already hold on the network. Cloud Run's instances take a
 leased address whichever backend places them, and an adopted instance
 re-reserves the address its owner holds (`sim.ReservePlatformAddress`). A
+lease goes back once the container that held it is gone, never when it is
+told to stop: a job whose start failed used to release its address while its
+main container was still stopping over its grace, and the ledger, which
+hands out the lowest free address, gave the next job an address the engine
+still held. A lease also skips what the engine's view of the network still
+shows attached, so a removal that outlives the handle's exit cannot hand its
+address on either. A
 platform network an earlier release created without the split is recreated
 while nothing is attached to it, and refused with the fix named while
 something is. The node-agent KVM proof places a busybox member beside the

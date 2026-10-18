@@ -1342,6 +1342,7 @@ func awaitCloudRunJobExecution(execName string, group *workload.Group, releaseMo
 	crjProcessHandles.Delete(execName)
 	for _, h := range group.Sidecars {
 		h.Cancel()
+		h.Wait()
 	}
 	releaseMounts()
 	return cloudRunExecutionOutcome{

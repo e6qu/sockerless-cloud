@@ -3,6 +3,7 @@ package sim
 import (
 	"context"
 	"net/netip"
+	"runtime"
 	"testing"
 
 	"github.com/moby/moby/client"
@@ -101,5 +102,60 @@ func TestPlatformNetworkLeasesItsLowerHalf(t *testing.T) {
 	defer held()
 	if _, _, err := LeasePlatformAddress(ctx, name, "collides", second); err == nil {
 		t.Fatal("an adopted address was leased")
+	}
+}
+
+// A container holds its address on the engine until it is removed, after
+// its lease went back, so a lease skips what the engine still shows
+// attached and takes it once the container is gone.
+func TestPlatformNetworkLeaseSkipsAnAddressTheEngineStillHolds(t *testing.T) {
+	InitDocker("aws", true, t.TempDir())
+	ctx := context.Background()
+	name := "sockerless-sim-test-platform-held-" + RandomHex(4)
+	if _, _, err := EnsurePlatformNetwork(ctx, name, nil); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = RemoveDockerNetworkContext(ctx, name) }()
+	first, release, err := LeasePlatformAddress(ctx, name, "first", netip.Addr{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+	const image = "mirror.gcr.io/library/alpine:3.21"
+	if err := PullImage(ctx, image, ""); err != nil {
+		t.Fatal(err)
+	}
+	holder, err := StartContainerSyncContext(ctx, ContainerConfig{
+		Image:        image,
+		Architecture: "linux/" + runtime.GOARCH,
+		Command:      []string{"/bin/sleep", "300"},
+		Name:         "sockerless-sim-test-platform-holder-" + RandomHex(4),
+		Network:      name,
+		IPv4Address:  first.String(),
+	}, NoopSink{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Cancel()
+	if _, _, err := LeasePlatformAddress(ctx, name, "collides", first); err == nil {
+		t.Fatalf("%s was leased while a container holds it", first)
+	}
+	next, releaseNext, err := LeasePlatformAddress(ctx, name, "next", netip.Addr{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next == first {
+		t.Fatalf("the lease took %s, which a container holds", first)
+	}
+	releaseNext()
+	holder.Cancel()
+	<-holder.Exited()
+	again, releaseAgain, err := LeasePlatformAddress(ctx, name, "again", netip.Addr{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseAgain()
+	if again != first {
+		t.Fatalf("after the container is gone the lease is %s, want %s", again, first)
 	}
 }
