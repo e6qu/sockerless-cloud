@@ -70,7 +70,9 @@ type guestState struct {
 	ExitCode  int               `json:"exitCode"`
 	Error     string            `json:"error,omitempty"`
 	StartedAt time.Time         `json:"startedAt"`
+	ExitedAt  time.Time         `json:"exitedAt,omitempty"`
 	StoppedAt time.Time         `json:"stoppedAt"`
+	Members   []memberState     `json:"members,omitempty"`
 }
 
 const (
@@ -104,14 +106,23 @@ type guest struct {
 	exitCode  int
 	err       string
 	startedAt time.Time
+	exitedAt  time.Time
 	stoppedAt time.Time
 	rootfs    bool
 	tap       string
 	cmd       *exec.Cmd
-	exited    chan struct{}
-	exitOnce  sync.Once
-	disks     []string
-	console   *console
+	// exited closes when the machine has stopped; processDone when the
+	// first process has ended, which the machine outlives while members run.
+	exited       chan struct{}
+	exitOnce     sync.Once
+	processDone  chan struct{}
+	processOnce  sync.Once
+	exitListener net.Listener
+	disks        []string
+	usedSlots    map[int]bool
+	members      map[string]*member
+	memberOrder  []string
+	console      *console
 }
 
 func (a *agent) list() []guestState {
@@ -173,7 +184,7 @@ func (a *agent) create(spec guestSpec) (*guest, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	g := &guest{spec: spec, dir: dir, agent: a, address: address, status: statusCreating, exited: make(chan struct{}), console: newConsole()}
+	g := &guest{spec: spec, dir: dir, agent: a, address: address, status: statusCreating, exited: make(chan struct{}), processDone: make(chan struct{}), usedSlots: map[int]bool{}, members: map[string]*member{}, console: newConsole()}
 	a.guests[spec.ID] = g
 	return g, nil
 }
@@ -186,7 +197,7 @@ func (a *agent) remove(ctx context.Context, id string) error {
 	if !ok {
 		return errGuestNotFound
 	}
-	g.stop(ctx)
+	g.stop(ctx, true)
 	g.teardown()
 	return os.RemoveAll(g.dir)
 }
@@ -199,7 +210,7 @@ func (a *agent) stopAll() {
 	}
 	a.mu.Unlock()
 	for _, g := range all {
-		g.stop(context.Background())
+		g.stop(context.Background(), true)
 		g.teardown()
 	}
 }
@@ -218,7 +229,11 @@ func validID(id string) bool {
 func (g *guest) state() guestState {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return guestState{ID: g.spec.ID, Status: g.status, Labels: g.spec.Labels, Address: g.address.Addr().String(), ExitCode: g.exitCode, Error: g.err, StartedAt: g.startedAt, StoppedAt: g.stoppedAt}
+	state := guestState{ID: g.spec.ID, Status: g.status, Labels: g.spec.Labels, Address: g.address.Addr().String(), ExitCode: g.exitCode, Error: g.err, StartedAt: g.startedAt, ExitedAt: g.exitedAt, StoppedAt: g.stoppedAt}
+	for _, name := range g.memberOrder {
+		state.Members = append(state.Members, g.members[name].state())
+	}
+	return state
 }
 
 // buildRootFS turns the uploaded root filesystem archive — an OCI image's
@@ -231,14 +246,6 @@ func (g *guest) buildRootFS(ctx context.Context, archive io.Reader) error {
 		return errGuestState
 	}
 	g.mu.Unlock()
-	tree := filepath.Join(g.dir, "rootfs")
-	_ = os.RemoveAll(tree)
-	if err := os.MkdirAll(tree, 0o755); err != nil {
-		return err
-	}
-	if err := extractTar(archive, tree); err != nil {
-		return fmt.Errorf("extract root filesystem: %w", err)
-	}
 	initBytes, err := os.ReadFile(g.agent.cfg.guestInit)
 	if err != nil {
 		return err
@@ -247,6 +254,27 @@ func (g *guest) buildRootFS(ctx context.Context, archive io.Reader) error {
 		{Path: "/sbin/sockerless-init", Mode: 0o755, Data: initBytes},
 		{Path: "/etc/sockerless/guest.json", Mode: 0o644, Data: g.guestConfig()},
 	}, g.spec.Seed...)
+	if err := buildImage(ctx, archive, filepath.Join(g.dir, "rootfs"), filepath.Join(g.dir, "rootfs.ext4"), files); err != nil {
+		return err
+	}
+	g.mu.Lock()
+	g.rootfs = true
+	g.mu.Unlock()
+	return nil
+}
+
+// buildImage extracts a root filesystem archive into tree, writes files into
+// it, gives it the mount points a running system needs, and packs it into
+// the ext4 image.
+func buildImage(ctx context.Context, archive io.Reader, tree, image string, files []seedFile) error {
+	_ = os.RemoveAll(tree)
+	if err := os.MkdirAll(tree, 0o755); err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(tree) }()
+	if err := extractTar(archive, tree); err != nil {
+		return fmt.Errorf("extract root filesystem: %w", err)
+	}
 	for _, f := range files {
 		target := filepath.Join(tree, filepath.FromSlash(strings.TrimPrefix(f.Path, "/")))
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
@@ -263,15 +291,7 @@ func (g *guest) buildRootFS(ctx context.Context, archive io.Reader) error {
 	for _, dir := range []string{"proc", "sys", "dev", "tmp", "run", "etc"} {
 		_ = os.MkdirAll(filepath.Join(tree, dir), 0o755)
 	}
-	image := filepath.Join(g.dir, "rootfs.ext4")
-	if err := createExt4(ctx, tree, image); err != nil {
-		return err
-	}
-	_ = os.RemoveAll(tree)
-	g.mu.Lock()
-	g.rootfs = true
-	g.mu.Unlock()
-	return nil
+	return createExt4(ctx, tree, image)
 }
 
 func (g *guest) guestConfig() []byte {
@@ -432,11 +452,16 @@ func (g *guest) start(ctx context.Context) error {
 	}
 	if g.status == statusExited {
 		// A kept guest boots again on its root filesystem, with a fresh exit
-		// to wait on.
+		// to wait on; the members of its last boot are gone with it.
 		g.exited = make(chan struct{})
 		g.exitOnce = sync.Once{}
-		g.exitCode, g.err, g.stoppedAt = 0, "", time.Time{}
+		g.processDone = make(chan struct{})
+		g.processOnce = sync.Once{}
+		g.exitCode, g.err, g.exitedAt, g.stoppedAt = 0, "", time.Time{}, time.Time{}
 		g.disks = nil
+		g.usedSlots = map[int]bool{}
+		g.members = map[string]*member{}
+		g.memberOrder = nil
 	}
 	g.mu.Unlock()
 	tap, err := g.agent.net.attachTap(ctx, g.spec.ID, g.spec.Network.AgentAddress)
@@ -474,11 +499,12 @@ func (g *guest) start(ctx context.Context) error {
 	g.status = statusRunning
 	g.startedAt = time.Now().UTC()
 	g.mu.Unlock()
+	boot, drained := g.console.beginBoot()
 	go g.watchProcess(cmd)
-	go g.listenExit()
-	go g.followGuestConsole(g.console.beginBoot())
+	go g.listenExit(boot)
+	go g.followGuestConsole(boot, drained)
 	if err := g.waitForInit(ctx); err != nil {
-		g.stop(context.Background())
+		g.stop(context.Background(), true)
 		g.teardown()
 		return err
 	}
@@ -497,7 +523,7 @@ func (g *guest) markExited(code int, message string) {
 		g.mu.Lock()
 		if code >= 0 {
 			g.exitCode = code
-		} else if g.status == statusRunning && g.err == "" && g.exitCode == 0 {
+		} else if g.status == statusRunning && g.err == "" && g.exitCode == 0 && g.exitedAt.IsZero() {
 			g.exitCode = 255
 			g.err = "the machine stopped before its first process reported an exit"
 		}
@@ -506,37 +532,75 @@ func (g *guest) markExited(code int, message string) {
 		}
 		g.status = statusExited
 		g.stoppedAt = time.Now().UTC()
+		if g.exitedAt.IsZero() {
+			g.exitedAt = g.stoppedAt
+		}
+		members := make([]*member, 0, len(g.members))
+		for _, m := range g.members {
+			members = append(members, m)
+		}
+		listener := g.exitListener
+		g.exitListener = nil
 		g.mu.Unlock()
+		for _, m := range members {
+			m.markExited(255, "the machine stopped before the member reported an exit")
+		}
+		g.processOnce.Do(func() { close(g.processDone) })
+		if listener != nil {
+			_ = listener.Close()
+		}
 		close(g.exited)
 	})
 }
 
-// listenExit takes the exit report guestinit sends over vsock before it powers
-// the machine off; the report lands before the process ends, so the exit code
-// is the first process's and not the machine's.
-func (g *guest) listenExit() {
+// exitReport is what guestinit sends over vsock when a process ends: the
+// first process when Member is empty, with how many console lines it wrote,
+// so the agent knows when it has read them all.
+type exitReport struct {
+	Member   string `json:"member"`
+	ExitCode int    `json:"exitCode"`
+	Error    string `json:"error"`
+	Lines    int    `json:"lines"`
+}
+
+// listenExit takes the exit reports guestinit sends over vsock: one per
+// process, the first process's before the machine powers off, so the exit
+// code is the process's and not the machine's.
+func (g *guest) listenExit(boot int) {
 	l, err := net.Listen("unix", g.exitSocket())
 	if err != nil {
 		return
 	}
+	g.mu.Lock()
+	g.exitListener = l
+	g.mu.Unlock()
 	defer func() { _ = l.Close() }()
 	for {
 		conn, err := l.Accept()
 		if err != nil {
 			return
 		}
-		var report struct {
-			ExitCode int    `json:"exitCode"`
-			Error    string `json:"error"`
-		}
+		var report exitReport
 		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		err = json.NewDecoder(conn).Decode(&report)
 		_ = conn.Close()
-		if err == nil {
+		if err != nil {
+			continue
+		}
+		g.console.processEnded(boot, report.Member, report.Lines)
+		if report.Member == "" {
 			g.mu.Lock()
 			g.exitCode, g.err = report.ExitCode, report.Error
+			g.exitedAt = time.Now().UTC()
 			g.mu.Unlock()
-			return
+			g.processOnce.Do(func() { close(g.processDone) })
+			continue
+		}
+		g.mu.Lock()
+		m := g.members[report.Member]
+		g.mu.Unlock()
+		if m != nil {
+			m.markExited(report.ExitCode, report.Error)
 		}
 	}
 }
@@ -598,9 +662,12 @@ func (g *guest) exec(ctx context.Context, body []byte) ([]byte, error) {
 	return out, nil
 }
 
-// stop asks guestinit to end the first process within its grace, then gives
-// the machine the grace plus a margin to power off, and kills it after.
-func (g *guest) stop(ctx context.Context) {
+// stop asks guestinit to end the first process within its grace, or every
+// process when all is set, then gives the machine the grace plus a margin to
+// power off, and kills it after. A machine whose members still run outlives
+// its first process, so a stop of that process alone waits for the process
+// and not the machine.
+func (g *guest) stop(ctx context.Context, all bool) {
 	g.mu.Lock()
 	cmd := g.cmd
 	running := g.status == statusRunning
@@ -608,14 +675,25 @@ func (g *guest) stop(ctx context.Context) {
 	if !running || cmd == nil {
 		return
 	}
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "http://guest/stop", nil)
+	target := "http://guest/stop"
+	if all {
+		target += "?all=1"
+	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, target, nil)
 	if resp, err := g.vsockClient().Do(req); err == nil {
 		_ = resp.Body.Close()
+	}
+	if !all {
+		select {
+		case <-g.processDone:
+		case <-time.After(g.spec.StopGrace + 15*time.Second):
+		}
+		return
 	}
 	select {
 	case <-g.exited:
 		return
-	case <-time.After(g.spec.StopGrace + 15*time.Second):
+	case <-time.After(g.stopGrace() + 15*time.Second):
 	}
 	if cmd.Process != nil {
 		_ = cmd.Process.Kill()
@@ -631,11 +709,29 @@ func (g *guest) teardown() {
 	g.mu.Lock()
 	tap := g.tap
 	g.tap = ""
+	listener := g.exitListener
+	g.exitListener = nil
 	g.mu.Unlock()
 	if tap != "" {
 		g.agent.net.detachTap(tap)
 	}
+	if listener != nil {
+		_ = listener.Close()
+	}
 	_ = os.Remove(g.exitSocket())
+}
+
+// stopGrace is the longest grace any of the guest's processes gets.
+func (g *guest) stopGrace() time.Duration {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	grace := g.spec.StopGrace
+	for _, m := range g.members {
+		if m.spec.StopGrace > grace {
+			grace = m.spec.StopGrace
+		}
+	}
+	return grace
 }
 
 func (g *guest) applyIngress(ctx context.Context, rules []packetRule) error {
@@ -660,6 +756,13 @@ func (g *guest) attachDisk(ctx context.Context, slot string, sizeMiB int) error 
 	if sizeMiB <= 0 {
 		return errors.New("a disk size in MiB is required")
 	}
+	g.mu.Lock()
+	if holder := g.members[g.slotHolder(n)]; holder != nil {
+		g.mu.Unlock()
+		return fmt.Errorf("disk slot %q carries member %s", slot, holder.spec.Name)
+	}
+	g.usedSlots[n] = true
+	g.mu.Unlock()
 	path := g.disks[n]
 	if err := os.Truncate(path, int64(sizeMiB)<<20); err != nil {
 		return err

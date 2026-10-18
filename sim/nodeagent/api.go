@@ -39,9 +39,35 @@ type GuestSpec struct {
 	// a cloud that enforces rules always sends at least a final drop.
 	Ingress []PacketRule `json:"ingress,omitempty"`
 	// DiskSlots is how many block devices beyond the root the guest can take
-	// while it runs; zero takes four.
+	// while it runs, members' root filesystems among them; zero takes four.
 	DiskSlots int `json:"diskSlots,omitempty"`
 }
+
+// MemberSpec is a process tree the guest runs beside its first process from
+// a root filesystem of its own, sharing the guest's network, hostname and
+// kernel: a sidecar container's shape. The member starts once the guest
+// runs, and the guest powers off when its first process and every member
+// have ended.
+type MemberSpec struct {
+	Name    string            `json:"name"`
+	Labels  map[string]string `json:"labels,omitempty"`
+	Command []string          `json:"command,omitempty"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	// WorkingDir is where the member's process starts, inside its root.
+	WorkingDir string `json:"workingDir,omitempty"`
+	// User runs the process as uid[:gid], resolved in the member's root.
+	User string `json:"user,omitempty"`
+	// Seed files are written into the member's root filesystem before it
+	// mounts.
+	Seed []SeedFile `json:"seed,omitempty"`
+	// StopGrace is how long the process gets between SIGTERM and SIGKILL.
+	StopGrace time.Duration `json:"stopGrace,omitempty"`
+}
+
+// InitProcess selects the guest's first process where a member name selects
+// a member: in a log read and in an exec. No member may take the name.
+const InitProcess = "init"
 
 // GuestNetwork is the guest's place on an engine network the agent joined.
 type GuestNetwork struct {
@@ -86,7 +112,9 @@ const (
 	GuestExited GuestStatus = "exited"
 )
 
-// GuestState is a guest as the agent sees it.
+// GuestState is a guest as the agent sees it. Status is the machine's;
+// ExitedAt is when the first process ended, zero while it runs, and the
+// machine runs on past it while members do.
 type GuestState struct {
 	ID        string            `json:"id"`
 	Status    GuestStatus       `json:"status"`
@@ -95,12 +123,27 @@ type GuestState struct {
 	ExitCode  int               `json:"exitCode"`
 	Error     string            `json:"error,omitempty"`
 	StartedAt time.Time         `json:"startedAt"`
+	ExitedAt  time.Time         `json:"exitedAt,omitempty"`
+	StoppedAt time.Time         `json:"stoppedAt"`
+	Members   []MemberState     `json:"members,omitempty"`
+}
+
+// MemberState is a member as the agent sees it.
+type MemberState struct {
+	Name      string            `json:"name"`
+	Status    GuestStatus       `json:"status"`
+	Labels    map[string]string `json:"labels,omitempty"`
+	ExitCode  int               `json:"exitCode"`
+	Error     string            `json:"error,omitempty"`
+	StartedAt time.Time         `json:"startedAt"`
 	StoppedAt time.Time         `json:"stoppedAt"`
 }
 
-// ExecRequest runs a command in a guest.
+// ExecRequest runs a command in a guest: in its first process's root, or in
+// the root of the member Process names.
 type ExecRequest struct {
 	Command []string `json:"command"`
+	Process string   `json:"process,omitempty"`
 }
 
 // ExecResponse is what the command produced.
@@ -110,11 +153,13 @@ type ExecResponse struct {
 	ExitCode int    `json:"exitCode"`
 }
 
-// LogLine is one line the guest's first process wrote.
+// LogLine is one line a guest's process wrote: the first process when
+// Member is empty, else the member named.
 type LogLine struct {
 	Time   time.Time `json:"time"`
 	Stream string    `json:"stream"`
 	Text   string    `json:"text"`
+	Member string    `json:"member,omitempty"`
 }
 
 // GuestConfig is what the agent writes into the guest's root filesystem for

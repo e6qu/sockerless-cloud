@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	dockerclient "github.com/moby/moby/client"
@@ -211,7 +212,7 @@ func siteContainerVolumeBinds(siteName string, mounts []SiteContainerVolMount) [
 // app settings and connection strings with their Key Vault references
 // resolved, which each sidecar inherits or its environmentVariables name;
 // metadataHost is the sidecar of the main's network, which the sidecars share.
-func startSidecarContainers(ctx context.Context, site *Site, mainContainerID string, references webReferenceValues, metadataHost string, sink sim.LogSink) ([]*sim.ContainerHandle, error) {
+func startSidecarContainers(ctx context.Context, site *Site, mainContainerID string, references webReferenceValues, metadataHost string, sink sim.LogSink) ([]placement.Handle, error) {
 	sidecars := sidecarSiteContainers(site.ID)
 	if len(sidecars) == 0 {
 		return nil, nil
@@ -239,10 +240,21 @@ func startSidecarContainers(ctx context.Context, site *Site, mainContainerID str
 			Sandbox: SandboxAZF,
 		}})
 	}
-	handles, err := workload.StartSidecars(ctx, mainContainerID, members, sink)
+	backend, err := azurePlacementBackend(placementWeb)
 	if err != nil {
-		injectSiteTrace(site, fmt.Sprintf("sitecontainers: %v", err))
 		return nil, err
+	}
+	var handles []placement.Handle
+	for _, member := range members {
+		handle, err := workload.PlaceMember(ctx, backend, mainContainerID, "sidecar", member, sink)
+		if err != nil {
+			for _, started := range handles {
+				started.Cancel()
+			}
+			injectSiteTrace(site, fmt.Sprintf("sitecontainers: %v", err))
+			return nil, err
+		}
+		handles = append(handles, handle)
 	}
 	return handles, nil
 }

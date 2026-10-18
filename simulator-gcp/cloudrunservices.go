@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	apipb "google.golang.org/genproto/googleapis/api"
@@ -339,11 +340,9 @@ func containerEnvMap(envVars []EnvVar) map[string]string {
 }
 
 type cloudRunServiceInstance struct {
-	// ownerID is the container that owns the instance's network namespace,
-	// the first to start, and publishes the ingress port; owner is its
-	// handle, nil for an instance adopted from an earlier process.
-	ownerID string
-	owner   *sim.ContainerHandle
+	// owner is the container that owns the instance's network namespace, the
+	// first to start, and publishes the ingress port.
+	owner   placement.Handle
 	specSig string
 	// stop ends the instance's log stream, container start and startup probes.
 	stop context.CancelFunc
@@ -359,10 +358,10 @@ type cloudRunServiceInstance struct {
 	// Cloud Storage volumes once its containers have stopped.
 	releaseMounts func()
 
-	mu        sync.Mutex
-	stopped   bool
-	ingressID string
-	handles   []*sim.ContainerHandle
+	mu      sync.Mutex
+	stopped bool
+	ingress placement.Handle
+	handles []placement.Handle
 }
 
 // awaitReady waits for the instance's startup probes and returns the address
@@ -379,14 +378,22 @@ func (inst *cloudRunServiceInstance) awaitReady(ctx context.Context) (string, er
 // ingressRunning reports whether the ingress container is still running.
 func (inst *cloudRunServiceInstance) ingressRunning() bool {
 	inst.mu.Lock()
-	id := inst.ingressID
+	ingress := inst.ingress
 	inst.mu.Unlock()
-	return id != "" && sim.ContainerRunning(id)
+	if ingress == nil {
+		return false
+	}
+	select {
+	case <-ingress.Exited():
+		return false
+	default:
+		return true
+	}
 }
 
 // adopt records a container the instance started, or cancels it when the
 // instance stopped while it started.
-func (inst *cloudRunServiceInstance) adopt(h *sim.ContainerHandle) bool {
+func (inst *cloudRunServiceInstance) adopt(h placement.Handle) bool {
 	inst.mu.Lock()
 	defer inst.mu.Unlock()
 	if inst.stopped {
@@ -403,11 +410,11 @@ func (inst *cloudRunServiceInstance) adopt(h *sim.ContainerHandle) bool {
 // always runs its startup probe (Cloud Run's default TCP probe when it
 // configures none), a sidecar only the one it configures; every probe reaches
 // the namespace through the address the ingress port is published at.
-func (inst *cloudRunServiceInstance) startContainers(ctx context.Context, containers []Container, order []int, members []workload.Container, sink sim.LogSink) {
+func (inst *cloudRunServiceInstance) startContainers(ctx context.Context, backend placement.Backend, containers []Container, order []int, members []workload.Container, sink sim.LogSink) {
 	defer close(inst.ready)
 	owner := order[0]
 	ingressPort := cloudRunContainerPort(containers[0])
-	route, err := cloudRunContainerRoute(ctx, inst.ownerID, ingressPort)
+	route, err := cloudRunContainerRoute(ctx, inst.owner, ingressPort)
 	if err != nil {
 		inst.startErr = err
 		return
@@ -439,29 +446,27 @@ func (inst *cloudRunServiceInstance) startContainers(ctx context.Context, contai
 					return
 				}
 			}
-			id := inst.ownerID
+			handle := inst.owner
 			if i != owner {
-				started, err := workload.StartSidecars(ctx, inst.ownerID, []workload.Container{members[i]}, sink)
+				started, err := workload.PlaceMember(ctx, backend, inst.owner.ID(), "sidecar", members[i], sink)
 				if err != nil {
 					fail(err)
 					return
 				}
-				if !inst.adopt(started[0]) {
+				if !inst.adopt(started) {
 					cancel()
 					return
 				}
-				id = started[0].ContainerID
+				handle = started
 			}
 			if i == 0 {
 				inst.mu.Lock()
-				inst.ingressID = id
+				inst.ingress = handle
 				inst.mu.Unlock()
 			}
 			if i == 0 || containers[i].StartupProbe != nil {
-				exited, releaseWait := watchCloudRunContainerExit(id)
-				namespaceRoute := func(port int) (string, error) { return cloudRunContainerRoute(ctx, inst.ownerID, port) }
-				err := runStartupProbe(ctx, cloudRunStartupProbe(containers[i]), namespaceRoute, cloudRunContainerPort(containers[i]), exited)
-				releaseWait()
+				namespaceRoute := func(port int) (string, error) { return cloudRunContainerRoute(ctx, inst.owner, port) }
+				err := runStartupProbe(ctx, cloudRunStartupProbe(containers[i]), namespaceRoute, cloudRunContainerPort(containers[i]), handle.Exited())
 				if err != nil {
 					fail(fmt.Errorf("container %q failed its startup probe: %w", containers[i].Name, err))
 					return
@@ -589,19 +594,21 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 	owner := members[order[0]]
 	netw.apply(&owner.Config)
 	owner.Config.PublishPorts = cloudRunNamespacePorts(containers, true)
-	ownerGroup, err := workload.StartGroup(ctx, owner, nil, sink)
+	backend, err := gcpPlacement.For(placementRun)
 	if err != nil {
-		return nil, fmt.Errorf("start service container %q: %w", containers[order[0]].Name, err)
+		return nil, err
 	}
-	ownerID := ownerGroup.Main.ContainerID
+	ownerHandle, err := workload.Place(ctx, backend, "service", owner, sink)
+	if err != nil {
+		return nil, err
+	}
 
 	lifeCtx, stop := context.WithCancel(context.Background())
 	inst := &cloudRunServiceInstance{
-		ownerID:       ownerID,
-		owner:         ownerGroup.Main,
+		owner:         ownerHandle,
 		specSig:       specSig,
 		stop:          stop,
-		logsDone:      ownerGroup.Main.Exited(),
+		logsDone:      ownerHandle.Exited(),
 		ready:         make(chan struct{}),
 		releaseMounts: releaseMounts,
 	}
@@ -615,19 +622,8 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 	cloudRunServiceInstances.byName[name] = inst
 	cloudRunServiceInstances.Unlock()
 
-	go inst.startContainers(lifeCtx, containers, order, members, sink)
+	go inst.startContainers(lifeCtx, backend, containers, order, members, sink)
 	return inst, nil
-}
-
-// streamCloudRunOwnerLogs follows the owner container's output into sink
-// until the container stops, and returns a channel that closes then.
-func streamCloudRunOwnerLogs(ctx context.Context, ownerID string, sink sim.LogSink) chan struct{} {
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		sim.StreamContainerLogs(ctx, ownerID, sink)
-	}()
-	return done
 }
 
 func deleteCloudRunServiceInstance(name string) {
@@ -666,11 +662,7 @@ func stopCloudRunServiceInstance(inst *cloudRunServiceInstance) {
 	for _, h := range handles {
 		h.Cancel()
 	}
-	if inst.owner != nil {
-		inst.owner.Cancel()
-	} else {
-		sim.StopAndRemoveContainer(inst.ownerID, cloudRunStopGrace)
-	}
+	inst.owner.Cancel()
 	if inst.logsDone != nil {
 		<-inst.logsDone
 	}

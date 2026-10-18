@@ -1501,7 +1501,7 @@ func cancelCloudRunExecution(project, location, jobID, execID string) (Execution
 // reads the exit code the container really stopped with.
 func stopCloudRunExecutionWorkload(group *workload.Group) {
 	if group.Main != nil {
-		sim.StopContainer(group.Main.ContainerID, cloudRunStopGrace)
+		group.Main.Stop()
 	}
 }
 

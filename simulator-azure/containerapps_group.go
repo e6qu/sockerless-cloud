@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -27,18 +26,13 @@ func acaStartGroup(ctx context.Context, main workload.Container, sidecars []work
 	if err != nil {
 		return nil, err
 	}
-	mainHandle, err := acaPlace(ctx, backend, "main", main, sink)
+	mainHandle, err := workload.Place(ctx, backend, "main", main, sink)
 	if err != nil {
 		return nil, err
 	}
 	group := &acaGroup{Main: mainHandle}
 	for _, c := range sidecars {
-		if c.Config.NetworkMode != "" || c.Config.Network != "" || len(c.Config.NetworkAliases) > 0 || len(c.Config.ExtraHosts) > 0 {
-			group.cancel()
-			return nil, fmt.Errorf("sidecar container %q names its own network; it joins the main container's", c.Name)
-		}
-		c.Config.NetworkMode = "container:" + mainHandle.ID()
-		handle, err := acaPlace(ctx, backend, "sidecar", c, sink)
+		handle, err := workload.PlaceMember(ctx, backend, mainHandle.ID(), "sidecar", c, sink)
 		if err != nil {
 			group.cancel()
 			return nil, err
@@ -46,24 +40,6 @@ func acaStartGroup(ctx context.Context, main workload.Container, sidecars []work
 		group.Sidecars = append(group.Sidecars, handle)
 	}
 	return group, nil
-}
-
-// acaPlace places one member on the backend with the platform its image
-// declares; a member naming a platform of its own is a caller's mistake.
-func acaPlace(ctx context.Context, backend placement.Backend, role string, c workload.Container, sink sim.LogSink) (placement.Handle, error) {
-	if c.Config.Architecture != "" {
-		return nil, fmt.Errorf("%s container %q names its platform; the group reads it off the image", role, c.Name)
-	}
-	platform, err := workload.LocalImagePlatform(ctx, c.Config.Image, c.Config.RegistryAuth)
-	if err != nil {
-		return nil, fmt.Errorf("resolve %s container %q image platform: %w", role, c.Name, err)
-	}
-	c.Config.Architecture = platform
-	handle, err := backend.Place(ctx, c.Config, sink)
-	if err != nil {
-		return nil, fmt.Errorf("start %s container %q: %w", role, c.Name, err)
-	}
-	return handle, nil
 }
 
 func (g *acaGroup) cancel() {
@@ -96,8 +72,7 @@ func acaStartSidecar(ctx context.Context, mainID string, c workload.Container, s
 	if err != nil {
 		return nil, err
 	}
-	c.Config.NetworkMode = "container:" + mainID
-	return acaPlace(ctx, backend, "sidecar", c, sink)
+	return workload.PlaceMember(ctx, backend, mainID, "sidecar", c, sink)
 }
 
 // acaStopHandles stops every handle within grace, waiting for each to end.

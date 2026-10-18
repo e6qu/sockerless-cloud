@@ -7,6 +7,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
 func TestRecoverECSTasksStopsLegacyRunningTasksWithoutWorkloadContainers(t *testing.T) {
@@ -54,7 +55,7 @@ func TestRecoverECSTasksStopsLegacyRunningTasksWithoutWorkloadContainers(t *test
 
 	findCalls := 0
 	err := recoverECSTasksWithContainerFinder(
-		func(labels map[string]string) ([]sim.ExistingContainer, error) {
+		func(_ ECSTask, labels map[string]string) ([]placement.Existing, error) {
 			findCalls++
 			if labels["sockerless-sim-task"] == "" {
 				t.Fatal("container lookup omitted the persisted task identity")
@@ -132,7 +133,7 @@ func TestRecoverECSTasksFailsOnWorkloadDiscoveryError(t *testing.T) {
 
 	discoveryErr := errors.New("runtime unavailable")
 	err := recoverECSTasksWithContainerFinder(
-		func(map[string]string) ([]sim.ExistingContainer, error) {
+		func(ECSTask, map[string]string) ([]placement.Existing, error) {
 			return nil, discoveryErr
 		},
 	)

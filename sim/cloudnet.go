@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"net"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
+
+	"github.com/e6qu/sockerless-cloud/sim/ipam"
 )
 
 // CloudNetwork is a cloud network resource — an Amazon VPC, a Compute Engine
@@ -30,6 +33,10 @@ type CloudNetwork struct {
 	Gateway netip.Addr
 	// Labels are added to the engine network beside the simulator's own.
 	Labels map[string]string
+	// DynamicRange, when set, is the part of CIDR the engine allocates
+	// addresses from; the simulator leases the rest itself, for workloads
+	// the engine does not place.
+	DynamicRange netip.Prefix
 }
 
 // ErrAddressRangeInUse is wrapped by EnsureCloudNetwork when another live
@@ -65,10 +72,14 @@ func EnsureCloudNetwork(ctx context.Context, spec CloudNetwork) (string, error) 
 		gateway = spec.CIDR.Masked().Addr().Next()
 	}
 	create := func() (string, error) {
+		config := network.IPAMConfig{Subnet: spec.CIDR.Masked(), Gateway: gateway}
+		if spec.DynamicRange.IsValid() {
+			config.IPRange = spec.DynamicRange.Masked()
+		}
 		resp, err := cli.NetworkCreate(ctx, spec.Name, client.NetworkCreateOptions{
 			Driver: "bridge",
 			IPAM: &network.IPAM{
-				Config: []network.IPAMConfig{{Subnet: spec.CIDR.Masked(), Gateway: gateway}},
+				Config: []network.IPAMConfig{config},
 			},
 			Labels: simulatorLabels(spec.Labels),
 		})
@@ -104,7 +115,12 @@ var platformRange = netip.MustParsePrefix("100.64.0.0/10")
 // network join, or returns the one its name already holds, and reports its
 // IPv4 range. The network takes a /24 of the shared address space chosen by
 // its name, moving to the next /24 while a live network holds the chosen
-// one, so two simulators on one engine each get their own.
+// one, so two simulators on one engine each get their own. The engine
+// allocates container addresses from the upper half of the /24; the lower
+// half is the simulator's to lease through LeasePlatformAddress, for the
+// sidecars, the node agent and the guests the engine does not place. A
+// platform network an earlier release created without that split is
+// recreated while nothing is attached to it.
 func EnsurePlatformNetwork(ctx context.Context, name string, labels map[string]string) (string, netip.Prefix, error) {
 	if err := RequireContainerRuntime("creating the platform network"); err != nil {
 		return "", netip.Prefix{}, err
@@ -114,11 +130,20 @@ func EnsurePlatformNetwork(ctx context.Context, name string, labels map[string]s
 	defer cancel()
 	if existing, err := cli.NetworkInspect(inspectCtx, name, client.NetworkInspectOptions{}); err == nil {
 		for _, cfg := range existing.Network.IPAM.Config {
-			if cfg.Subnet.IsValid() && cfg.Subnet.Addr().Is4() {
+			if !cfg.Subnet.IsValid() || !cfg.Subnet.Addr().Is4() {
+				continue
+			}
+			if cfg.IPRange.IsValid() {
 				return existing.Network.ID, cfg.Subnet, nil
 			}
+			if len(existing.Network.Containers) > 0 {
+				return "", netip.Prefix{}, fmt.Errorf("platform network %s predates leased addresses and has containers attached; remove it once they are gone", name)
+			}
+			if _, err := cli.NetworkRemove(inspectCtx, existing.Network.ID, client.NetworkRemoveOptions{}); err != nil {
+				return "", netip.Prefix{}, fmt.Errorf("platform network %s predates leased addresses: remove it: %w", name, err)
+			}
+			break
 		}
-		return "", netip.Prefix{}, fmt.Errorf("platform network %s has no IPv4 range", name)
 	}
 	const slots = 1 << 14 // /24s in a /10
 	h := fnv.New32a()
@@ -129,7 +154,7 @@ func EnsurePlatformNetwork(ctx context.Context, name string, labels map[string]s
 		slot := (first + i) % slots
 		addr := netip.AddrFrom4([4]byte{base[0], base[1] | byte(slot>>8), byte(slot), 0})
 		cidr := netip.PrefixFrom(addr, 24)
-		id, err := EnsureCloudNetwork(ctx, CloudNetwork{Name: name, CIDR: cidr, Labels: labels})
+		id, err := EnsureCloudNetwork(ctx, CloudNetwork{Name: name, CIDR: cidr, Labels: labels, DynamicRange: platformDynamicRange(cidr)})
 		if err == nil {
 			return id, cidr, nil
 		}
@@ -138,6 +163,126 @@ func EnsurePlatformNetwork(ctx context.Context, name string, labels map[string]s
 		}
 	}
 	return "", netip.Prefix{}, fmt.Errorf("platform network %s: every /24 of %s is held by a live network", name, platformRange)
+}
+
+// platformDynamicRange is the upper half of a platform network's /24, which
+// the engine allocates from.
+func platformDynamicRange(cidr netip.Prefix) netip.Prefix {
+	octets := cidr.Masked().Addr().As4()
+	octets[3] = 128
+	return netip.PrefixFrom(netip.AddrFrom4(octets), 25)
+}
+
+// platformLeases is the ledger of the lower half of each platform network:
+// the simulator's own addresses, which the engine never allocates.
+var platformLeases = struct {
+	sync.Mutex
+	byNetwork map[string]*ipam.IPAM
+	ranges    map[string]netip.Prefix
+}{byNetwork: map[string]*ipam.IPAM{}, ranges: map[string]netip.Prefix{}}
+
+// platformLeaseFloor is the first address of a platform network the ledger
+// leases: the addresses below it are the gateway's and the fixed ones the
+// simulator's sidecars and node agent take.
+const platformLeaseFloor = 16
+
+func platformLedger(ctx context.Context, network string) (*ipam.IPAM, error) {
+	platformLeases.Lock()
+	defer platformLeases.Unlock()
+	if ledger, ok := platformLeases.byNetwork[network]; ok {
+		return ledger, nil
+	}
+	cli := DockerClient()
+	if err := RequireContainerRuntime("leasing a platform address"); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	details, err := cli.NetworkInspect(ctx, network, client.NetworkInspectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("inspect platform network %s: %w", network, err)
+	}
+	var cidr netip.Prefix
+	var gateway netip.Addr
+	for _, cfg := range details.Network.IPAM.Config {
+		if cfg.Subnet.IsValid() && cfg.Subnet.Addr().Is4() {
+			if !cfg.IPRange.IsValid() {
+				return nil, fmt.Errorf("platform network %s predates leased addresses; remove it once nothing is attached", network)
+			}
+			cidr, gateway = cfg.Subnet, cfg.Gateway
+		}
+	}
+	if !cidr.IsValid() {
+		return nil, fmt.Errorf("platform network %s has no IPv4 range", network)
+	}
+	if !gateway.IsValid() {
+		gateway = cidr.Masked().Addr().Next()
+	}
+	// The ledger covers the lower half: everything from the floor up to the
+	// engine's range, counted as the addresses the subnet keeps at each end.
+	ledger, err := ipam.NewIPAMWithReserved(cidr.String(), net.IP(gateway.AsSlice()), ipam.HostReservation{First: platformLeaseFloor, Last: 1 << (32 - cidr.Bits() - 1)})
+	if err != nil {
+		return nil, err
+	}
+	// Containers attached already, this process's or an earlier one's, hold
+	// their addresses whichever half they fall in.
+	for id, endpoint := range details.Network.Containers {
+		if endpoint.IPv4Address.IsValid() {
+			_, _ = ledger.Reserve(id, net.IP(endpoint.IPv4Address.Addr().AsSlice()))
+		}
+	}
+	platformLeases.byNetwork[network] = ledger
+	platformLeases.ranges[network] = cidr
+	return ledger, nil
+}
+
+// LeasePlatformAddress leases an address of the platform network to owner,
+// the one requested when it is valid, and returns it with the release that
+// gives it back. The engine never allocates the address to a container, so a
+// guest the engine does not place can take it.
+func LeasePlatformAddress(ctx context.Context, network, owner string, requested netip.Addr) (netip.Addr, func(), error) {
+	ledger, err := platformLedger(ctx, network)
+	if err != nil {
+		return netip.Addr{}, nil, err
+	}
+	var want net.IP
+	if requested.IsValid() {
+		want = net.IP(requested.AsSlice())
+	}
+	ip, err := ledger.Reserve(owner, want)
+	if err != nil {
+		return netip.Addr{}, nil, fmt.Errorf("platform network %s: %w", network, err)
+	}
+	addr, _ := netip.AddrFromSlice(ip)
+	addr = addr.Unmap()
+	return addr, func() { ledger.Release(ip) }, nil
+}
+
+// ReservePlatformAddress records that owner holds addr on the platform
+// network when the address is one of the network's — the address of a
+// workload an earlier process placed there, which the engine's view of the
+// network does not show for a guest — and returns the release. An address
+// outside the network is another network's, and the release does nothing.
+func ReservePlatformAddress(ctx context.Context, network string, addr netip.Addr, owner string) (func(), error) {
+	ledger, err := platformLedger(ctx, network)
+	if err != nil {
+		return nil, err
+	}
+	platformLeases.Lock()
+	cidr := platformLeases.ranges[network]
+	platformLeases.Unlock()
+	if !cidr.Contains(addr) {
+		return func() {}, nil
+	}
+	ip := net.IP(addr.AsSlice())
+	if _, err := ledger.Reserve(owner, ip); err != nil {
+		if errors.Is(err, ipam.ErrAddressInUse) {
+			// The engine's view already recorded it: a container's address.
+			return func() {}, nil
+		}
+		return nil, fmt.Errorf("platform network %s: %w", network, err)
+	}
+	return func() { ledger.Release(ip) }, nil
 }
 
 // addressRangeInUseError classifies a network-create failure as "this range

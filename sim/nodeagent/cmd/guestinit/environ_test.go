@@ -22,11 +22,11 @@ func TestEnvironGivesTheWorkloadItsUsersHome(t *testing.T) {
 			t.Errorf("homeDir(%q) = %q, want %q", tc.user, got, tc.want)
 		}
 	}
-	env := environ(map[string]string{"HOME": "/work", "GOFLAGS": "-mod=mod"}, "")
+	env := environ(map[string]string{"HOME": "/work", "GOFLAGS": "-mod=mod"}, "", "")
 	if !slices.Contains(env, "HOME=/work") || slices.Contains(env, "HOME=/root") {
 		t.Fatalf("an image's own HOME must stand: %v", env)
 	}
-	if env := environ(map[string]string{}, "root"); !slices.Contains(env, "HOME=/root") {
+	if env := environ(map[string]string{}, "root", ""); !slices.Contains(env, "HOME=/root") {
 		t.Fatalf("a workload without HOME takes its user's: %v", env)
 	}
 }

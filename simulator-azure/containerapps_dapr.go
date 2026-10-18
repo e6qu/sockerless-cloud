@@ -84,7 +84,7 @@ func startACAAppDaprSidecar(ctx context.Context, resourceID string, app Containe
 	if err != nil {
 		return nil, err
 	}
-	return backend.Place(ctx, sim.ContainerConfig{
+	return backend.PlaceMember(ctx, mainContainerID, sim.ContainerConfig{
 		CancelGracePeriod: acaAppStopGrace(app),
 		Image:             daprdSidecarImage,
 		Architecture:      platform,
@@ -98,7 +98,6 @@ func startACAAppDaprSidecar(ctx context.Context, resourceID string, app Containe
 			"sockerless-app-id":   resourceID,
 			"sockerless-app-name": app.Name,
 		},
-		NetworkMode: "container:" + mainContainerID,
-		Sandbox:     SandboxACA,
+		Sandbox: SandboxACA,
 	}, &acaAppLogSink{app: app, container: "daprd"})
 }

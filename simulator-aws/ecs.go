@@ -2026,12 +2026,24 @@ func ecsWatchTaskProcesses(taskID, containerInstanceKey string, processes *ecsTa
 }
 
 func recoverECSTasks() error {
-	return recoverECSTasksWithContainerFinder(sim.FindExistingContainers)
+	return recoverECSTasksWithContainerFinder(ecsFindExistingWorkloads)
 }
 
-func recoverECSTasksWithContainerFinder(
-	findExistingContainers func(map[string]string) ([]sim.ExistingContainer, error),
-) error {
+// ecsFindExistingWorkloads lists the workloads of a task an earlier process
+// placed, on the backend the task's launch type places on.
+func ecsFindExistingWorkloads(task ECSTask, labels map[string]string) ([]placement.Existing, error) {
+	backend, err := awsPlacement.For(ecsPlacementService(task.LaunchType))
+	if err != nil {
+		return nil, err
+	}
+	return backend.Find(context.Background(), labels)
+}
+
+// ecsWorkloadFinder lists the workloads carrying every label that an earlier
+// process placed for task.
+type ecsWorkloadFinder func(task ECSTask, labels map[string]string) ([]placement.Existing, error)
+
+func recoverECSTasksWithContainerFinder(findExistingContainers ecsWorkloadFinder) error {
 	for _, task := range ecsTasks.List() {
 		if task.LastStatus != ECSTaskStatusStopped && task.DesiredStatus == ECSTaskStatusStopped {
 			if err := ecsRecoverStoppingTask(task, findExistingContainers); err != nil {
@@ -2158,12 +2170,9 @@ func ecsResumePendingTask(ctx context.Context, task ECSTask, definition ECSTaskD
 // adopting it as a running task would keep a workload the caller asked to
 // stop; whatever of it is still on the host is adopted only so that the stop
 // can take it down.
-func ecsRecoverStoppingTask(
-	task ECSTask,
-	findExistingContainers func(map[string]string) ([]sim.ExistingContainer, error),
-) error {
+func ecsRecoverStoppingTask(task ECSTask, findExistingContainers ecsWorkloadFinder) error {
 	taskID := task.TaskID()
-	existing, err := findExistingContainers(map[string]string{"sockerless-sim-task": taskID})
+	existing, err := findExistingContainers(task, map[string]string{"sockerless-sim-task": taskID})
 	if err != nil {
 		return fmt.Errorf("find Amazon ECS task %s containers: %w", task.TaskArn, err)
 	}
@@ -2183,16 +2192,12 @@ func ecsRecoverStoppingTask(
 	return nil
 }
 
-func ecsRecoverRunningTask(
-	task ECSTask,
-	definition ECSTaskDefinition,
-	findExistingContainers func(map[string]string) ([]sim.ExistingContainer, error),
-) error {
+func ecsRecoverRunningTask(task ECSTask, definition ECSTaskDefinition, findExistingContainers ecsWorkloadFinder) error {
 	if len(definition.ContainerDefinitions) == 0 {
 		return fmt.Errorf("task %s references an Amazon ECS task definition without containers", task.TaskArn)
 	}
 	taskID := task.TaskID()
-	existing, err := findExistingContainers(map[string]string{"sockerless-sim-task": taskID})
+	existing, err := findExistingContainers(task, map[string]string{"sockerless-sim-task": taskID})
 	if err != nil {
 		return fmt.Errorf("find Amazon ECS task %s containers: %w", task.TaskArn, err)
 	}
@@ -2239,11 +2244,7 @@ func ecsMarkMissingRunningTaskStopped(task ECSTask) {
 	ecsRequestServiceReconcileForTask(task)
 }
 
-func ecsAdoptRunningTask(
-	task ECSTask,
-	definition ECSTaskDefinition,
-	existing []sim.ExistingContainer,
-) error {
+func ecsAdoptRunningTask(task ECSTask, definition ECSTaskDefinition, existing []placement.Existing) error {
 	taskID := task.TaskID()
 	processes := &ecsTaskProcesses{
 		MainContainerName: definition.ContainerDefinitions[0].Name,
@@ -2607,11 +2608,15 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 		// declared listener ports on random loopback ports so host-resident
 		// Elastic Load Balancing can reach the same real container listener.
 		// The public Amazon ECS/ENI coordinate remains the task IP; the
-		// mapping is rediscovered from Docker on restart.
-		if networkMode == ecsNetworkModeAwsvpc {
-			for _, mapping := range cd.PortMappings {
-				if mapping.ContainerPort > 0 && !slices.Contains(cfg.PublishPorts, mapping.ContainerPort) {
-					cfg.PublishPorts = append(cfg.PublishPorts, mapping.ContainerPort)
+		// mapping is rediscovered from Docker on restart. The task's
+		// containers share one namespace, which the first owns, so it
+		// publishes every container's ports.
+		if networkMode == ecsNetworkModeAwsvpc && i == 0 {
+			for _, each := range td.ContainerDefinitions {
+				for _, mapping := range each.PortMappings {
+					if mapping.ContainerPort > 0 && !slices.Contains(cfg.PublishPorts, mapping.ContainerPort) {
+						cfg.PublishPorts = append(cfg.PublishPorts, mapping.ContainerPort)
+					}
 				}
 			}
 		}
@@ -2626,8 +2631,8 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 			// none mode: the containers have no external connectivity.
 			cfg.NetworkMode = "none"
 		case networkMode == ecsNetworkModeAwsvpc && i > 0:
-			// Every container in an awsvpc task shares the task ENI.
-			cfg.NetworkMode = "container:" + mainDockerID
+			// Every container in an awsvpc task shares the task ENI: the
+			// others join the first as members of its namespace.
 		case networkMode == ecsNetworkModeAwsvpc:
 			cfg.ExtraHosts = append(workloadhost.ExtraHosts(), elbv2WorkloadExtraHosts()...)
 			cfg.Network = taskNetwork.Name
@@ -2644,7 +2649,12 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 		if err := ctx.Err(); err != nil {
 			return fail(err)
 		}
-		handle, err := backend.Place(ctx, cfg, sink)
+		var handle placement.Handle
+		if networkMode == ecsNetworkModeAwsvpc && i > 0 {
+			handle, err = backend.PlaceMember(ctx, mainDockerID, cfg, sink)
+		} else {
+			handle, err = backend.Place(ctx, cfg, sink)
+		}
 		if err != nil {
 			return fail(fmt.Errorf("start task container %q: %w", cd.Name, err))
 		}

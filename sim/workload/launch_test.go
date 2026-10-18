@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
 func TestPostBootstrapSurfacesATruncatedResponse(t *testing.T) {
@@ -126,13 +127,14 @@ func TestPostBootstrapStopsWhenTheContextEnds(t *testing.T) {
 }
 
 func TestGroupMembersCannotChooseTheirPlatformOrNetwork(t *testing.T) {
-	_, err := StartGroup(context.Background(),
-		Container{Name: "app", Config: sim.ContainerConfig{Image: "img", Architecture: "linux/amd64"}}, nil, nil)
+	backend := placement.ContainerBackend{}
+	_, err := Place(context.Background(), backend, "main",
+		Container{Name: "app", Config: sim.ContainerConfig{Image: "img", Architecture: "linux/amd64"}}, nil)
 	if err == nil || !strings.Contains(err.Error(), "names its platform") {
 		t.Fatalf("a member naming its own platform was started: %v", err)
 	}
-	_, err = StartSidecars(context.Background(), "main-id",
-		[]Container{{Name: "proxy", Config: sim.ContainerConfig{Image: "img", Network: "vpc"}}}, nil)
+	_, err = PlaceMember(context.Background(), backend, "main-id", "sidecar",
+		Container{Name: "proxy", Config: sim.ContainerConfig{Image: "img", Network: "vpc"}}, nil)
 	if err == nil || !strings.Contains(err.Error(), "names its own network") {
 		t.Fatalf("a sidecar naming its own network was started: %v", err)
 	}

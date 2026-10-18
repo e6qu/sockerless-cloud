@@ -445,6 +445,15 @@ jobs:
             shard: microvm
             run: '^TestCompute_InstanceBootsRunsItsStartupScriptAndKeepsItsDisk'
             placement: compute=microvm
+          # The Cloud Run microVM shard places each instance's containers in
+          # one guest: the first as its process, the others as members from
+          # their own images, sharing its localhost, started in dependsOn
+          # order behind their startup probes.
+          - cloud: gcp
+            suite: sdk
+            shard: run-microvm
+            run: '^TestSDK_(CloudRunV2Services_(MultiContainerSharesLocalhost|DependsOnWaitsForTheSidecarsStartupProbe)|CloudRun_RunJob_DependsOnWaitsForStartupProbe)'
+            placement: run=microvm
           - cloud: azure
             suite: sdk
             shard: microvm

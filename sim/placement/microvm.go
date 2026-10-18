@@ -66,12 +66,9 @@ func (b *MicroVMBackend) Place(ctx context.Context, w Workload, sink sim.LogSink
 	if err := sim.RequireContainerRuntime("placing a microVM workload"); err != nil {
 		return nil, err
 	}
-	if err := sim.PullImageWithCredential(ctx, w.Image, w.Architecture, w.RegistryAuth); err != nil {
-		return nil, err
-	}
-	inspect, err := cli.ImageInspect(ctx, w.Image)
+	image, err := imageProcess(ctx, cli, w)
 	if err != nil {
-		return nil, fmt.Errorf("inspect %s: %w", w.Image, err)
+		return nil, err
 	}
 	subnet, err := networkPrefix(ctx, cli, w.Network)
 	if err != nil {
@@ -87,8 +84,11 @@ func (b *MicroVMBackend) Place(ctx context.Context, w Workload, sink sim.LogSink
 		Hostname:   w.Hostname,
 		Hosts:      w.ExtraHosts,
 		Labels:     sim.OwnershipLabels(w.Labels),
-		WorkingDir: w.WorkingDir,
-		Env:        map[string]string{},
+		WorkingDir: image.workingDir,
+		Command:    image.command,
+		Args:       image.args,
+		Env:        image.env,
+		User:       image.user,
 		Network: nodeagent.GuestNetwork{
 			AgentAddress: agentAddr.String(),
 			Address:      netip.PrefixFrom(addr, subnet.Bits()).String(),
@@ -97,33 +97,7 @@ func (b *MicroVMBackend) Place(ctx context.Context, w Workload, sink sim.LogSink
 			DNS:          w.DNS,
 		},
 		StopGrace: w.CancelGracePeriod,
-	}
-	if cfg := inspect.Config; cfg != nil {
-		for _, kv := range cfg.Env {
-			k, v, _ := strings.Cut(kv, "=")
-			spec.Env[k] = v
-		}
-		spec.Command = append([]string(nil), cfg.Entrypoint...)
-		spec.Args = append([]string(nil), cfg.Cmd...)
-		if spec.WorkingDir == "" {
-			spec.WorkingDir = cfg.WorkingDir
-		}
-		spec.User = cfg.User
-	}
-	for k, v := range w.Env {
-		spec.Env[k] = v
-	}
-	if len(w.Command) > 0 {
-		spec.Command = append([]string(nil), w.Command...)
-		spec.Args = append([]string(nil), w.Args...)
-	} else if len(w.Args) > 0 {
-		spec.Args = append([]string(nil), w.Args...)
-	}
-	if len(spec.Command) == 0 && len(spec.Args) > 0 {
-		spec.Command, spec.Args = spec.Args, nil
-	}
-	if len(spec.Command) == 0 {
-		return nil, fmt.Errorf("image %s names no entrypoint or command and the workload gives none", w.Image)
+		Seed:      seedFiles(w),
 	}
 	if w.NanoCPU > 0 {
 		spec.VCPUs = int((w.NanoCPU + 999_999_999) / 1_000_000_000)
@@ -134,14 +108,11 @@ func (b *MicroVMBackend) Place(ctx context.Context, w Workload, sink sim.LogSink
 			spec.MemoryMiB = 128
 		}
 	}
-	for _, f := range w.Seed {
-		spec.Seed = append(spec.Seed, nodeagent.SeedFile{Path: f.Path, Mode: f.Mode, Data: f.Data})
-	}
 	agent := b.agent.Client()
 	if _, err := agent.Create(ctx, spec); err != nil {
 		return nil, err
 	}
-	if err := b.uploadRootFS(ctx, cli, agent, id, inspect.ID, w); err != nil {
+	if err := b.uploadRootFS(ctx, cli, id, image.id, w, func(archive io.Reader) error { return agent.UploadRootFS(ctx, id, archive) }); err != nil {
 		_ = agent.Delete(context.WithoutCancel(ctx), id)
 		return nil, err
 	}
@@ -149,16 +120,126 @@ func (b *MicroVMBackend) Place(ctx context.Context, w Workload, sink sim.LogSink
 		_ = agent.Delete(context.WithoutCancel(ctx), id)
 		return nil, err
 	}
-	return newMicroVMHandle(agent, id, sink, w.CancelGracePeriod, w.KeepOnExit), nil
+	return newMicroVMHandle(agent, id, w.IPv4Address, sink, w.CancelGracePeriod, w.KeepOnExit), nil
+}
+
+// PlaceMember runs w as a member of the owner's guest: its image's
+// filesystem becomes a root filesystem of its own on one of the guest's
+// disk slots, and its command a process tree beside the guest's first
+// process, on the guest's network.
+func (b *MicroVMBackend) PlaceMember(ctx context.Context, owner string, w Workload, sink sim.LogSink) (Handle, error) {
+	if err := memberShape(w); err != nil {
+		return nil, err
+	}
+	cli := sim.DockerClient()
+	if err := sim.RequireContainerRuntime("placing a microVM member"); err != nil {
+		return nil, err
+	}
+	agent := b.agent.Client()
+	guest, err := agent.Get(ctx, owner)
+	if err != nil {
+		return nil, fmt.Errorf("member %s of guest %s: %w", w.Name, owner, err)
+	}
+	if w.Architecture == "" {
+		w.Architecture = "linux/" + b.agent.Architecture()
+	}
+	image, err := imageProcess(ctx, cli, w)
+	if err != nil {
+		return nil, err
+	}
+	name := guestID(w)
+	spec := nodeagent.MemberSpec{
+		Name:       name,
+		Labels:     sim.OwnershipLabels(w.Labels),
+		Command:    image.command,
+		Args:       image.args,
+		Env:        image.env,
+		WorkingDir: image.workingDir,
+		User:       image.user,
+		Seed:       seedFiles(w),
+		StopGrace:  w.CancelGracePeriod,
+	}
+	if _, err := agent.CreateMember(ctx, owner, spec); err != nil {
+		return nil, err
+	}
+	if err := b.uploadRootFS(ctx, cli, name, image.id, w, func(archive io.Reader) error { return agent.UploadMemberRootFS(ctx, owner, name, archive) }); err != nil {
+		return nil, err
+	}
+	if _, err := agent.StartMember(ctx, owner, name); err != nil {
+		return nil, err
+	}
+	return newMemberHandle(agent, owner, name, guest.Address, sink, w.CancelGracePeriod), nil
+}
+
+// imageDetails is the process an image declares, under the workload's own
+// command, arguments and environment.
+type imageDetails struct {
+	id         string
+	command    []string
+	args       []string
+	env        map[string]string
+	workingDir string
+	user       string
+}
+
+// imageProcess pulls the workload's image and resolves the process it runs:
+// the image's entrypoint and command, environment, working directory and
+// user, with the workload's own over them, as a container runtime does.
+func imageProcess(ctx context.Context, cli *client.Client, w Workload) (imageDetails, error) {
+	if err := sim.PullImageWithCredential(ctx, w.Image, w.Architecture, w.RegistryAuth); err != nil {
+		return imageDetails{}, err
+	}
+	inspect, err := cli.ImageInspect(ctx, w.Image)
+	if err != nil {
+		return imageDetails{}, fmt.Errorf("inspect %s: %w", w.Image, err)
+	}
+	details := imageDetails{id: inspect.ID, env: map[string]string{}, workingDir: w.WorkingDir}
+	if cfg := inspect.Config; cfg != nil {
+		for _, kv := range cfg.Env {
+			k, v, _ := strings.Cut(kv, "=")
+			details.env[k] = v
+		}
+		details.command = append([]string(nil), cfg.Entrypoint...)
+		details.args = append([]string(nil), cfg.Cmd...)
+		if details.workingDir == "" {
+			details.workingDir = cfg.WorkingDir
+		}
+		details.user = cfg.User
+	}
+	for k, v := range w.Env {
+		details.env[k] = v
+	}
+	if len(w.Command) > 0 {
+		details.command = append([]string(nil), w.Command...)
+		details.args = append([]string(nil), w.Args...)
+	} else if len(w.Args) > 0 {
+		details.args = append([]string(nil), w.Args...)
+	}
+	if len(details.command) == 0 && len(details.args) > 0 {
+		details.command, details.args = details.args, nil
+	}
+	if len(details.command) == 0 {
+		return imageDetails{}, fmt.Errorf("image %s names no entrypoint or command and the workload gives none", w.Image)
+	}
+	return details, nil
+}
+
+func seedFiles(w Workload) []nodeagent.SeedFile {
+	var out []nodeagent.SeedFile
+	for _, f := range w.Seed {
+		out = append(out, nodeagent.SeedFile{Path: f.Path, Mode: f.Mode, Data: f.Data})
+	}
+	return out
 }
 
 // Restart boots a kept guest again on its root filesystem.
 func (b *MicroVMBackend) Restart(ctx context.Context, id string, w Workload, sink sim.LogSink) (Handle, error) {
 	agent := b.agent.Client()
-	if _, err := agent.Start(ctx, id); err != nil {
+	state, err := agent.Start(ctx, id)
+	if err != nil {
 		return nil, err
 	}
-	return newMicroVMHandle(agent, id, sink, w.CancelGracePeriod, w.KeepOnExit), nil
+	return newMicroVMHandle(agent, id, state.Address, sink, w.CancelGracePeriod, w.KeepOnExit), nil
 }
 
 // Remove discards a kept guest.
@@ -217,8 +298,8 @@ func (b *MicroVMBackend) Capture(ctx context.Context, id, reference string) erro
 }
 
 // uploadRootFS streams the image's filesystem, as the engine exports a
-// container created from it, into the agent.
-func (b *MicroVMBackend) uploadRootFS(ctx context.Context, cli *client.Client, agent *nodeagent.Client, id, imageID string, w Workload) error {
+// container created from it, through upload.
+func (b *MicroVMBackend) uploadRootFS(ctx context.Context, cli *client.Client, id, imageID string, w Workload, upload func(io.Reader) error) error {
 	// The container is created to be exported, never started, and the
 	// engine still wants a command: a captured image, imported from an
 	// archive, declares none.
@@ -238,17 +319,28 @@ func (b *MicroVMBackend) uploadRootFS(ctx context.Context, cli *client.Client, a
 		return fmt.Errorf("export %s: %w", w.Image, err)
 	}
 	defer func() { _ = archive.Close() }()
-	return agent.UploadRootFS(ctx, id, archive)
+	return upload(archive)
 }
 
 // Adopt takes over a guest a previous simulator process placed on an agent
-// this process adopted: running, or kept after its exit.
+// this process adopted, running or kept after its exit, or a member of one
+// by its owner/name ID.
 func (b *MicroVMBackend) Adopt(ctx context.Context, id string, w Workload, sink sim.LogSink) (Handle, error) {
 	agent := b.agent.Client()
-	if _, err := agent.Get(ctx, id); err != nil {
+	owner, member, isMember := strings.Cut(id, "/")
+	state, err := agent.Get(ctx, owner)
+	if err != nil {
 		return nil, err
 	}
-	return newMicroVMHandle(agent, id, sink, w.CancelGracePeriod, w.KeepOnExit), nil
+	if !isMember {
+		return newMicroVMHandle(agent, id, state.Address, sink, w.CancelGracePeriod, w.KeepOnExit), nil
+	}
+	for _, m := range state.Members {
+		if m.Name == member {
+			return newMemberHandle(agent, owner, member, state.Address, sink, w.CancelGracePeriod), nil
+		}
+	}
+	return nil, fmt.Errorf("guest %s has no member %s: %w", owner, member, nodeagent.ErrNotFound)
 }
 
 // Find lists the agent's guests carrying every label and this simulator's
@@ -268,7 +360,12 @@ func (b *MicroVMBackend) Find(ctx context.Context, labels map[string]string) ([]
 	var out []Existing
 	for _, g := range guests {
 		if matchesLabels(g.Labels, want) {
-			out = append(out, Existing{ID: g.ID, Running: g.Status == nodeagent.GuestRunning, Labels: g.Labels})
+			out = append(out, Existing{ID: g.ID, Running: g.Status == nodeagent.GuestRunning && g.ExitedAt.IsZero(), Labels: g.Labels})
+		}
+		for _, m := range g.Members {
+			if matchesLabels(m.Labels, want) {
+				out = append(out, Existing{ID: g.ID + "/" + m.Name, Running: m.Status == nodeagent.GuestRunning, Labels: m.Labels})
+			}
 		}
 	}
 	return out, nil
@@ -333,21 +430,22 @@ func networkPrefix(ctx context.Context, cli *client.Client, network string) (net
 }
 
 type microVMHandle struct {
-	agent  *nodeagent.Client
-	id     string
-	grace  time.Duration
-	keep   bool
-	exited chan struct{}
-	result sim.ProcessResult
-	once   sync.Once
+	agent   *nodeagent.Client
+	id      string
+	address string
+	grace   time.Duration
+	keep    bool
+	exited  chan struct{}
+	result  sim.ProcessResult
+	once    sync.Once
 }
 
-func newMicroVMHandle(agent *nodeagent.Client, id string, sink sim.LogSink, grace time.Duration, keep bool) *microVMHandle {
-	h := &microVMHandle{agent: agent, id: id, grace: grace, keep: keep, exited: make(chan struct{})}
+func newMicroVMHandle(agent *nodeagent.Client, id, address string, sink sim.LogSink, grace time.Duration, keep bool) *microVMHandle {
+	h := &microVMHandle{agent: agent, id: id, address: address, grace: grace, keep: keep, exited: make(chan struct{})}
 	started := time.Now()
 	go func() {
 		ctx := context.Background()
-		_ = agent.Logs(ctx, id, nodeagent.LogOptions{Follow: true, CurrentBoot: true}, func(line nodeagent.LogLine) {
+		_ = agent.Logs(ctx, id, nodeagent.LogOptions{Follow: true, CurrentBoot: true, Process: nodeagent.InitProcess}, func(line nodeagent.LogLine) {
 			sink.WriteLog(sim.LogLine{Timestamp: line.Time, Text: line.Text, Stream: line.Stream})
 		})
 		state, err := agent.Wait(ctx, id)
@@ -361,14 +459,18 @@ func newMicroVMHandle(agent *nodeagent.Client, id string, sink sim.LogSink, grac
 			if !state.StartedAt.IsZero() {
 				h.result.StartedAt = state.StartedAt
 			}
-			if !state.StoppedAt.IsZero() {
-				h.result.StoppedAt = state.StoppedAt
-			}
-			if !h.keep {
-				_ = agent.Delete(ctx, id)
+			if !state.ExitedAt.IsZero() {
+				h.result.StoppedAt = state.ExitedAt
 			}
 			close(h.exited)
 		})
+		if !h.keep {
+			// The machine outlives its first process while members run; the
+			// guest goes once it has stopped, as a container that is not
+			// kept goes once it exits.
+			_, _ = agent.WaitStopped(ctx, id)
+			_ = agent.Delete(ctx, id)
+		}
 	}()
 	return h
 }
@@ -382,7 +484,11 @@ func (h *microVMHandle) Wait() sim.ProcessResult {
 	return h.result
 }
 
-func (h *microVMHandle) Cancel() {
+// Cancel and Stop are one thing for a guest: guestinit sends the first
+// process SIGTERM, kills it after the grace, and reports how it exited.
+func (h *microVMHandle) Cancel() { h.Stop() }
+
+func (h *microVMHandle) Stop() {
 	ctx, cancel := context.WithTimeout(context.Background(), h.grace+30*time.Second)
 	defer cancel()
 	_ = h.agent.Stop(ctx, h.id)
@@ -401,6 +507,80 @@ func (h *microVMHandle) Exec(ctx context.Context, command []string) (ExecResult,
 func (h *microVMHandle) PublishedPort(context.Context, int) (int, error) {
 	return 0, fmt.Errorf("guest %s publishes no host port; reach it at its network address", h.id)
 }
+
+func (h *microVMHandle) Address(context.Context) (string, error) { return h.address, nil }
+
+// memberHandle is a member of a guest: a process tree the guest runs from
+// the member's own root filesystem, on the guest's network.
+type memberHandle struct {
+	agent   *nodeagent.Client
+	owner   string
+	name    string
+	address string
+	grace   time.Duration
+	exited  chan struct{}
+	once    sync.Once
+	result  sim.ProcessResult
+}
+
+func newMemberHandle(agent *nodeagent.Client, owner, name, address string, sink sim.LogSink, grace time.Duration) *memberHandle {
+	h := &memberHandle{agent: agent, owner: owner, name: name, address: address, grace: grace, exited: make(chan struct{})}
+	started := time.Now()
+	go func() {
+		ctx := context.Background()
+		_ = agent.Logs(ctx, owner, nodeagent.LogOptions{Follow: true, CurrentBoot: true, Process: name}, func(line nodeagent.LogLine) {
+			sink.WriteLog(sim.LogLine{Timestamp: line.Time, Text: line.Text, Stream: line.Stream})
+		})
+		state, err := agent.WaitMember(ctx, owner, name)
+		h.once.Do(func() {
+			h.result = sim.ProcessResult{ExitCode: state.ExitCode, StartedAt: started, StoppedAt: time.Now()}
+			if err != nil {
+				h.result.Error = err
+			} else if state.Error != "" {
+				h.result.Error = errors.New(state.Error)
+			}
+			if !state.StartedAt.IsZero() {
+				h.result.StartedAt = state.StartedAt
+			}
+			if !state.StoppedAt.IsZero() {
+				h.result.StoppedAt = state.StoppedAt
+			}
+			close(h.exited)
+		})
+	}()
+	return h
+}
+
+func (h *memberHandle) ID() string              { return h.owner + "/" + h.name }
+func (h *memberHandle) Kind() Kind              { return MicroVM }
+func (h *memberHandle) Exited() <-chan struct{} { return h.exited }
+
+func (h *memberHandle) Wait() sim.ProcessResult {
+	<-h.exited
+	return h.result
+}
+
+func (h *memberHandle) Cancel() { h.Stop() }
+
+func (h *memberHandle) Stop() {
+	ctx, cancel := context.WithTimeout(context.Background(), h.grace+30*time.Second)
+	defer cancel()
+	_ = h.agent.StopMember(ctx, h.owner, h.name)
+}
+
+func (h *memberHandle) Exec(ctx context.Context, command []string) (ExecResult, error) {
+	out, err := h.agent.ExecIn(ctx, h.owner, h.name, command)
+	if err != nil {
+		return ExecResult{}, err
+	}
+	return ExecResult{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: out.ExitCode}, nil
+}
+
+func (h *memberHandle) PublishedPort(context.Context, int) (int, error) {
+	return 0, fmt.Errorf("member %s of guest %s publishes no host port; reach the guest at its network address", h.name, h.owner)
+}
+
+func (h *memberHandle) Address(context.Context) (string, error) { return h.address, nil }
 
 // SetIngress replaces the rules at the guest's tap.
 func (h *microVMHandle) SetIngress(ctx context.Context, rules []nodeagent.PacketRule) error {

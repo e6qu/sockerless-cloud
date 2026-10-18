@@ -11,10 +11,15 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
-// placementCompute is the service Compute Engine instances are placed as;
-// Cloud Run and Cloud Functions still run their containers through
-// sim/workload, whose container groups join the owner's namespace.
-var placementCompute = placement.Service{Name: "compute"}
+// placementCompute is the service Compute Engine instances are placed as,
+// and placementRun the one Cloud Run services, jobs, worker pools and
+// instances are, Cloud Functions among them, which run as Cloud Run
+// services. An instance's first container is placed and the others join it
+// as members of its namespace.
+var (
+	placementCompute = placement.Service{Name: "compute"}
+	placementRun     = placement.Service{Name: "run"}
+)
 
 // gcpPlacement maps services to the backend their workloads run on. It starts
 // as the all-containers table, which is what a process built without

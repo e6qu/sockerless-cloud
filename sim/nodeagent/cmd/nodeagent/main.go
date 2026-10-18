@@ -102,6 +102,11 @@ func (a *agent) handler() http.Handler {
 	mux.HandleFunc("POST /v1/guests/{id}/stop", a.handleStop)
 	mux.HandleFunc("PUT /v1/guests/{id}/ingress", a.handleIngress)
 	mux.HandleFunc("PUT /v1/guests/{id}/disks/{slot}", a.handleDisk)
+	mux.HandleFunc("PUT /v1/guests/{id}/members/{name}", a.handleCreateMember)
+	mux.HandleFunc("PUT /v1/guests/{id}/members/{name}/rootfs", a.handleMemberRootFS)
+	mux.HandleFunc("POST /v1/guests/{id}/members/{name}/start", a.handleStartMember)
+	mux.HandleFunc("GET /v1/guests/{id}/members/{name}/wait", a.handleWaitMember)
+	mux.HandleFunc("POST /v1/guests/{id}/members/{name}/stop", a.handleStopMember)
 	mux.HandleFunc("DELETE /v1/guests/{id}", a.handleDelete)
 	return a.authenticate(mux)
 }
@@ -188,7 +193,23 @@ func (a *agent) handleWait(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errGuestNotFound)
 		return
 	}
+	processDone := g.processDone
+	if r.URL.Query().Get("machine") != "" {
+		processDone = nil
+	}
 	select {
+	case <-processDone:
+		// With no member left to run, the power-off follows the first
+		// process's exit at once, and the caller's next move — a restart
+		// of a kept guest — wants the machine stopped.
+		if !g.membersRunning() {
+			select {
+			case <-g.exited:
+			case <-time.After(30 * time.Second):
+			case <-r.Context().Done():
+				return
+			}
+		}
 	case <-g.exited:
 	case <-r.Context().Done():
 		return
@@ -203,7 +224,7 @@ func (a *agent) handleLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query()
-	g.streamLogs(r.Context(), w, query.Get("follow") != "", query.Get("boot") == "current")
+	g.streamLogs(r.Context(), w, query.Get("follow") != "", query.Get("boot") == "current", query.Get("process"))
 }
 
 // handleExport streams the guest's root filesystem as a tar archive. An
@@ -264,8 +285,90 @@ func (a *agent) handleStop(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errGuestNotFound)
 		return
 	}
-	g.stop(r.Context())
+	g.stop(r.Context(), false)
 	writeJSON(w, http.StatusOK, g.state())
+}
+
+func (a *agent) handleCreateMember(w http.ResponseWriter, r *http.Request) {
+	g, ok := a.get(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusNotFound, errGuestNotFound)
+		return
+	}
+	var spec memberSpec
+	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<20)).Decode(&spec); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("member spec: %w", err))
+		return
+	}
+	spec.Name = r.PathValue("name")
+	m, err := g.createMember(spec)
+	if err != nil {
+		writeError(w, statusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, m.state())
+}
+
+func (a *agent) handleMemberRootFS(w http.ResponseWriter, r *http.Request) {
+	g, ok := a.get(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusNotFound, errGuestNotFound)
+		return
+	}
+	m, err := g.buildMemberRootFS(r.Context(), r.PathValue("name"), r.Body)
+	if err != nil {
+		writeError(w, statusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, m.state())
+}
+
+func (a *agent) handleStartMember(w http.ResponseWriter, r *http.Request) {
+	g, ok := a.get(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusNotFound, errGuestNotFound)
+		return
+	}
+	m, err := g.startMember(r.Context(), r.PathValue("name"))
+	if err != nil {
+		writeError(w, statusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, m.state())
+}
+
+func (a *agent) handleWaitMember(w http.ResponseWriter, r *http.Request) {
+	g, ok := a.get(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusNotFound, errGuestNotFound)
+		return
+	}
+	m, ok := g.member(r.PathValue("name"))
+	if !ok {
+		writeError(w, http.StatusNotFound, errMemberNotFound)
+		return
+	}
+	select {
+	case <-m.exited:
+	case <-g.exited:
+	case <-r.Context().Done():
+		return
+	}
+	writeJSON(w, http.StatusOK, m.state())
+}
+
+func (a *agent) handleStopMember(w http.ResponseWriter, r *http.Request) {
+	g, ok := a.get(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusNotFound, errGuestNotFound)
+		return
+	}
+	m, err := g.stopMember(r.Context(), r.PathValue("name"))
+	if err != nil {
+		writeError(w, statusFor(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, m.state())
 }
 
 func (a *agent) handleIngress(w http.ResponseWriter, r *http.Request) {
@@ -315,16 +418,18 @@ func (a *agent) handleDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 var (
-	errGuestNotFound = errors.New("no such guest")
-	errGuestExists   = errors.New("a guest of that id exists")
-	errGuestState    = errors.New("the guest is not in a state for that")
+	errGuestNotFound  = errors.New("no such guest")
+	errGuestExists    = errors.New("a guest of that id exists")
+	errGuestState     = errors.New("the guest is not in a state for that")
+	errMemberNotFound = errors.New("no such member")
+	errMemberExists   = errors.New("a member of that name exists")
 )
 
 func statusFor(err error) int {
 	switch {
-	case errors.Is(err, errGuestNotFound):
+	case errors.Is(err, errGuestNotFound), errors.Is(err, errMemberNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, errGuestExists):
+	case errors.Is(err, errGuestExists), errors.Is(err, errMemberExists):
 		return http.StatusConflict
 	case errors.Is(err, errGuestState):
 		return http.StatusConflict
