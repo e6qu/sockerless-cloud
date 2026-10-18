@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -179,10 +180,13 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 	if result := captured.Wait(); result.ExitCode != 0 {
 		t.Fatalf("the captured image's program exited %d", result.ExitCode)
 	}
+	// The program explains itself on standard error and answers on standard
+	// output, and the two streams arrive in no fixed order.
 	mu.Lock()
-	answer := strings.TrimSpace(strings.Join(capturedLog, "\n"))
+	answered := slices.Contains(capturedLog, "25")
+	answer := strings.Join(capturedLog, "\n")
 	mu.Unlock()
-	if !strings.HasSuffix(answer, "\n25") {
+	if !answered {
 		t.Fatalf("the captured image's program answered %q", answer)
 	}
 	again.Cancel()
