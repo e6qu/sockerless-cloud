@@ -289,12 +289,13 @@ func TestMain(m *testing.M) {
 	amqpLn.Close()
 	sbAMQPEndpoint = fmt.Sprintf("127.0.0.1:%d", amqpPort)
 
-	dnsLn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	// The simulator serves the DNS front on UDP and TCP at one port, so the
+	// port must be free on both: a port the kernel picks for UDP alone is
+	// often a TCP port some connection already holds.
+	dnsPort, err := freeTCPUDPPort()
 	if err != nil {
 		log.Fatalf("Failed to find free DNS port: %v", err)
 	}
-	dnsPort := dnsLn.LocalAddr().(*net.UDPAddr).Port
-	dnsLn.Close()
 	simAzureDNSAddr = fmt.Sprintf("127.0.0.1:%d", dnsPort)
 
 	certDir, err := os.MkdirTemp("", "sockerless-servicebus-amqp-tls-*")
@@ -586,4 +587,24 @@ func uniqueName(prefix string) string {
 func uniqueAlnumName(prefix string) string {
 	id := strconv.FormatInt(time.Now().UnixNano()+uniqueNameSequence.Add(1), 36)
 	return prefix + id[len(id)-8:]
+}
+
+// freeTCPUDPPort reserves a loopback port free on TCP and UDP alike.
+func freeTCPUDPPort() (int, error) {
+	const attempts = 100
+	for range attempts {
+		tcpListener, err := net.Listen("tcp4", "127.0.0.1:0")
+		if err != nil {
+			return 0, err
+		}
+		port := tcpListener.Addr().(*net.TCPAddr).Port
+		udpListener, udpErr := net.ListenPacket("udp4", fmt.Sprintf("127.0.0.1:%d", port))
+		_ = tcpListener.Close()
+		if udpErr != nil {
+			continue
+		}
+		_ = udpListener.Close()
+		return port, nil
+	}
+	return 0, fmt.Errorf("could not find a port available on both TCP and UDP after %d attempts", attempts)
 }
