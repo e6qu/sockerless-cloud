@@ -1,6 +1,7 @@
 package procimage
 
 import (
+	"bufio"
 	"bytes"
 	"debug/elf"
 	"os"
@@ -14,21 +15,35 @@ import (
 // whose segments are that process's real mappings and hold a string the
 // process is known to hold. The subject is a child rather than this process:
 // under the race detector this process maps shadow regions far larger than a
-// runner's memory.
+// runner's memory. The child says when it runs: Start returns once the kernel
+// has closed the exec pipe, which it does before it maps the new program, so
+// a table read then can hold the stack alone.
 func TestDumpProcessWritesAnELFCoreADebuggerOpens(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skipf("a process's memory is read from /proc/<pid>, which %s does not have", runtime.GOOS)
 	}
 	const marker = "sockerless-core-dump-marker-9f13c2"
-	child := exec.Command("/bin/sleep", "30")
+	child := exec.Command("/bin/sh", "-c", "echo ready; read line")
 	child.Env = append(os.Environ(), "SOCKERLESS_CORE_DUMP_MARKER="+marker)
+	stdin, err := child.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := child.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := child.Start(); err != nil {
 		t.Fatalf("start the process to dump: %v", err)
 	}
 	t.Cleanup(func() {
+		_ = stdin.Close()
 		_ = child.Process.Kill()
 		_, _ = child.Process.Wait()
 	})
+	if _, err := bufio.NewReader(stdout).ReadString('\n'); err != nil {
+		t.Fatalf("the process did not report that it runs: %v", err)
+	}
 	pid := child.Process.Pid
 
 	mappings, err := ReadMappings(pid)

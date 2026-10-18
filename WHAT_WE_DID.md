@@ -806,7 +806,10 @@ helper: the sidecar program joins the container's pid namespace with the one
 permission a read of /proc/<pid>/mem needs (`sidecar.ReadProcess`), writes
 the mapping table or the ELF core into a directory only the simulator
 mounted, and ends. App Service process modules and dumps read that way; the
-image itself is `sim/procimage`. A Kudu command runs as the identity that owns
+image itself is `sim/procimage`; its proof dumps a child that has said it
+runs, because Start returns when the kernel closes the exec pipe, which it
+does before it maps the new program, and a mapping table read then once held
+the stack alone. A Kudu command runs as the identity that owns
 the site's files on the host, so what it writes under /home the simulator
 later moves and deletes through the same VFS. The CI harness runs every suite
 as the runner, not root: it makes the engine's trust directory writable and
