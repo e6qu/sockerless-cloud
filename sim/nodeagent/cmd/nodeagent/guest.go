@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/netip"
@@ -190,6 +191,7 @@ func (a *agent) create(spec guestSpec) (*guest, error) {
 }
 
 func (a *agent) remove(ctx context.Context, id string) error {
+	log.Printf("nodeagent: guest %s: delete requested", id)
 	a.mu.Lock()
 	g, ok := a.guests[id]
 	delete(a.guests, id)
@@ -535,6 +537,7 @@ func (g *guest) markExited(code int, message string) {
 		if g.exitedAt.IsZero() {
 			g.exitedAt = g.stoppedAt
 		}
+		log.Printf("nodeagent: guest %s: machine stopped (exit %d %s)", g.spec.ID, g.exitCode, g.err)
 		members := make([]*member, 0, len(g.members))
 		for _, m := range g.members {
 			members = append(members, m)
@@ -588,6 +591,7 @@ func (g *guest) listenExit(boot int) {
 			continue
 		}
 		g.console.processEnded(boot, report.Member, report.Lines)
+		log.Printf("nodeagent: guest %s: process %q exited %d %s", g.spec.ID, report.Member, report.ExitCode, report.Error)
 		if report.Member == "" {
 			g.mu.Lock()
 			g.exitCode, g.err = report.ExitCode, report.Error
@@ -675,6 +679,7 @@ func (g *guest) stop(ctx context.Context, all bool) {
 	if !running || cmd == nil {
 		return
 	}
+	log.Printf("nodeagent: guest %s: stop requested (all=%t, members running=%t)", g.spec.ID, all, g.membersRunning())
 	target := "http://guest/stop"
 	if all {
 		target += "?all=1"
@@ -725,6 +730,7 @@ func (g *guest) teardown() {
 	g.exitListener = nil
 	g.mu.Unlock()
 	if tap != "" {
+		log.Printf("nodeagent: guest %s: tap %s detached", g.spec.ID, tap)
 		g.agent.net.detachTap(tap)
 	}
 	if listener != nil {

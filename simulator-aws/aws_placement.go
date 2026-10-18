@@ -72,7 +72,7 @@ func awsStartPlacement(ctx context.Context, persist bool) (stop func(context.Con
 	var agent *nodeagent.Agent
 	adopted := false
 	if sim.HasPersistentWorkloadIdentity() {
-		if agent, adopted, err = nodeagent.Adopt(ctx, network.Name, labels, sim.NoopSink{}); err != nil {
+		if agent, adopted, err = nodeagent.Adopt(ctx, network.Name, labels, nodeagent.LogSink()); err != nil {
 			return nil, err
 		}
 	}
@@ -82,7 +82,7 @@ func awsStartPlacement(ctx context.Context, persist bool) (stop func(context.Con
 			Network: network.Name,
 			Address: subnet.Masked().Addr().Next().Next().Next(),
 			Labels:  labels,
-		}, sim.NoopSink{})
+		}, nodeagent.LogSink())
 		if err != nil {
 			return nil, fmt.Errorf("node agent for %s: %w", strings.Join(awsPlacement.MicroVMServices(), ", "), err)
 		}

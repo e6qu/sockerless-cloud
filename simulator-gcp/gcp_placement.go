@@ -76,7 +76,7 @@ func gcpStartPlacement(ctx context.Context) error {
 	var agent *nodeagent.Agent
 	adopted := false
 	if sim.HasPersistentWorkloadIdentity() {
-		if agent, adopted, err = nodeagent.Adopt(ctx, platform.Network, labels, sim.NoopSink{}); err != nil {
+		if agent, adopted, err = nodeagent.Adopt(ctx, platform.Network, labels, nodeagent.LogSink()); err != nil {
 			return err
 		}
 	}
@@ -86,7 +86,7 @@ func gcpStartPlacement(ctx context.Context) error {
 			Network: platform.Network,
 			Address: cidr.Masked().Addr().Next().Next().Next(),
 			Labels:  labels,
-		}, sim.NoopSink{})
+		}, nodeagent.LogSink())
 		if err != nil {
 			return fmt.Errorf("node agent: %w", err)
 		}

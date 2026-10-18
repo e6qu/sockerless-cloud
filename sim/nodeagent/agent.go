@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,6 +29,14 @@ type Agent struct {
 
 	mu       sync.Mutex
 	networks map[string]netip.Addr
+}
+
+// LogSink writes the agent's own log into the simulator's output, where a
+// guest's lifecycle reads beside the requests that drove it.
+func LogSink() sim.LogSink {
+	return sim.FuncSink(func(line sim.LogLine) {
+		fmt.Fprintf(os.Stderr, "[node-agent] %s\n", line.Text)
+	})
 }
 
 // Options place the agent.
