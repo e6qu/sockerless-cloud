@@ -92,7 +92,7 @@ func (b *MicroVMBackend) Place(ctx context.Context, w Workload, sink sim.LogSink
 			AgentAddress: agentAddr.String(),
 			Address:      netip.PrefixFrom(addr, subnet.Bits()).String(),
 			Gateway:      subnet.Masked().Addr().Next().String(),
-			MAC:          ipam.DeriveMAC(b.macPrefix, id),
+			MAC:          guestMAC(b.macPrefix, addr, id),
 			DNS:          w.DNS,
 		},
 		StopGrace: w.CancelGracePeriod,
@@ -242,6 +242,18 @@ func (b *MicroVMBackend) uploadRootFS(ctx context.Context, cli *client.Client, a
 
 func (b *MicroVMBackend) Adopt(context.Context, string, Workload, sim.LogSink) (Handle, error) {
 	return nil, errors.New("a microVM guest outlives no simulator process: there is nothing to adopt")
+}
+
+// guestMAC is the guest interface's address under the cloud's prefix: a
+// two-octet prefix, Compute Engine's 42:01, takes the four octets of the
+// interface's IPv4 address, as Compute Engine does; a three-octet prefix
+// takes three octets hashed from the guest's identifier.
+func guestMAC(prefix string, addr netip.Addr, id string) string {
+	if strings.Count(prefix, ":") == 1 {
+		octets := addr.As4()
+		return fmt.Sprintf("%s:%02x:%02x:%02x:%02x", prefix, octets[0], octets[1], octets[2], octets[3])
+	}
+	return ipam.DeriveMAC(prefix, id)
 }
 
 func guestID(w Workload) string {
