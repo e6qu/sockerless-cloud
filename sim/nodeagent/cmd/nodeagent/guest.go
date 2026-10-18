@@ -2,7 +2,6 @@ package main
 
 import (
 	"archive/tar"
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,6 +24,7 @@ import (
 type guestSpec struct {
 	ID         string            `json:"id"`
 	Hostname   string            `json:"hostname"`
+	Hosts      []string          `json:"hosts"`
 	Command    []string          `json:"command"`
 	Args       []string          `json:"args"`
 	Env        map[string]string `json:"env"`
@@ -109,6 +109,7 @@ type guest struct {
 	exited    chan struct{}
 	exitOnce  sync.Once
 	disks     []string
+	console   *console
 }
 
 func (a *agent) list() []guestState {
@@ -170,7 +171,7 @@ func (a *agent) create(spec guestSpec) (*guest, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	g := &guest{spec: spec, dir: dir, agent: a, address: address, status: statusCreating, exited: make(chan struct{})}
+	g := &guest{spec: spec, dir: dir, agent: a, address: address, status: statusCreating, exited: make(chan struct{}), console: newConsole()}
 	a.guests[spec.ID] = g
 	return g, nil
 }
@@ -274,6 +275,8 @@ func (g *guest) buildRootFS(ctx context.Context, archive io.Reader) error {
 func (g *guest) guestConfig() []byte {
 	cfg := map[string]any{
 		"hostname":   g.spec.Hostname,
+		"address":    g.address.Addr().String(),
+		"hosts":      g.hosts(),
 		"command":    g.spec.Command,
 		"args":       g.spec.Args,
 		"env":        g.spec.Env,
@@ -284,6 +287,23 @@ func (g *guest) guestConfig() []byte {
 	}
 	data, _ := json.Marshal(cfg)
 	return data
+}
+
+// hosts are the guest's extra hosts entries with the engine's host-gateway
+// name, which stands for the network's gateway, resolved to it.
+func (g *guest) hosts() []string {
+	out := make([]string, 0, len(g.spec.Hosts))
+	for _, entry := range g.spec.Hosts {
+		name, address, ok := strings.Cut(entry, ":")
+		if !ok {
+			continue
+		}
+		if address == "host-gateway" {
+			address = g.spec.Network.Gateway
+		}
+		out = append(out, name+":"+address)
+	}
+	return out
 }
 
 // extractTar unpacks an archive into dir, keeping owners and modes, refusing
@@ -454,6 +474,7 @@ func (g *guest) start(ctx context.Context) error {
 	g.mu.Unlock()
 	go g.watchProcess(cmd)
 	go g.listenExit()
+	go g.followGuestConsole(g.console.beginBoot())
 	if err := g.waitForInit(ctx); err != nil {
 		g.stop(context.Background())
 		g.teardown()
@@ -549,36 +570,6 @@ func (g *guest) consoleTail() string {
 		data = data[len(data)-4096:]
 	}
 	return strings.TrimSpace(string(data))
-}
-
-func (g *guest) streamLogs(ctx context.Context, w http.ResponseWriter, follow bool) error {
-	url := "http://guest/logs"
-	if follow {
-		url += "?follow=1"
-	}
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	resp, err := g.vsockClient().Do(req)
-	if err != nil {
-		select {
-		case <-g.exited:
-			w.Header().Set("Content-Type", "application/x-ndjson")
-			return nil
-		default:
-		}
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	w.Header().Set("Content-Type", "application/x-ndjson")
-	flusher, _ := w.(http.Flusher)
-	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		_, _ = w.Write(append(scanner.Bytes(), '\n'))
-		if flusher != nil {
-			flusher.Flush()
-		}
-	}
-	return nil
 }
 
 func (g *guest) exec(ctx context.Context, body []byte) ([]byte, error) {

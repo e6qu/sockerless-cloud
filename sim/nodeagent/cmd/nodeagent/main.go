@@ -97,6 +97,7 @@ func (a *agent) handler() http.Handler {
 	mux.HandleFunc("GET /v1/guests/{id}", a.handleGet)
 	mux.HandleFunc("GET /v1/guests/{id}/wait", a.handleWait)
 	mux.HandleFunc("GET /v1/guests/{id}/logs", a.handleLogs)
+	mux.HandleFunc("GET /v1/guests/{id}/rootfs", a.handleExport)
 	mux.HandleFunc("POST /v1/guests/{id}/exec", a.handleExec)
 	mux.HandleFunc("POST /v1/guests/{id}/stop", a.handleStop)
 	mux.HandleFunc("PUT /v1/guests/{id}/ingress", a.handleIngress)
@@ -201,10 +202,40 @@ func (a *agent) handleLogs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errGuestNotFound)
 		return
 	}
-	follow := r.URL.Query().Get("follow") != ""
-	if err := g.streamLogs(r.Context(), w, follow); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+	query := r.URL.Query()
+	g.streamLogs(r.Context(), w, query.Get("follow") != "", query.Get("boot") == "current")
+}
+
+// handleExport streams the guest's root filesystem as a tar archive. An
+// error after the first byte cannot change the status, so it ends the
+// connection short instead, which the client reads as a failed archive.
+func (a *agent) handleExport(w http.ResponseWriter, r *http.Request) {
+	g, ok := a.get(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusNotFound, errGuestNotFound)
+		return
 	}
+	w.Header().Set("Content-Type", "application/x-tar")
+	started := &headerOnFirstWrite{ResponseWriter: w}
+	if err := g.exportRootFS(r.Context(), started); err != nil {
+		if started.wrote {
+			log.Printf("nodeagent: export %s: %v", g.spec.ID, err)
+			panic(http.ErrAbortHandler)
+		}
+		writeError(w, statusFor(err), err)
+	}
+}
+
+// headerOnFirstWrite remembers whether the body has begun, so an error that
+// arrives before it still gets a status of its own.
+type headerOnFirstWrite struct {
+	http.ResponseWriter
+	wrote bool
+}
+
+func (h *headerOnFirstWrite) Write(p []byte) (int, error) {
+	h.wrote = true
+	return h.ResponseWriter.Write(p)
 }
 
 func (a *agent) handleExec(w http.ResponseWriter, r *http.Request) {

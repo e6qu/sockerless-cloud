@@ -1,9 +1,23 @@
 package main
 
 import (
+	"net/netip"
 	"strings"
 	"testing"
 )
+
+func TestDefaultRouteViaReadsOnlyTheInterfacesOwnDefaultRoute(t *testing.T) {
+	routes := "default via 172.19.0.1 dev eth0 proto static\n"
+	if gw := defaultRouteVia(routes, "eth0"); gw != netip.MustParseAddr("172.19.0.1") {
+		t.Fatalf("eth0's default gateway = %v", gw)
+	}
+	if gw := defaultRouteVia(routes, "eth1"); gw.IsValid() {
+		t.Fatalf("eth1 has no default route, got %v", gw)
+	}
+	if gw := defaultRouteVia("", "eth0"); gw.IsValid() {
+		t.Fatalf("no routes at all, got %v", gw)
+	}
+}
 
 func TestRenderIngressProgramAdmitsEverythingWithoutRules(t *testing.T) {
 	program, err := renderIngressProgram("t", "tap0", nil)

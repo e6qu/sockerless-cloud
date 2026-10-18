@@ -152,7 +152,7 @@ FORCE:
 
 SIMULATOR_APPS := simulator-aws simulator-gcp simulator-azure
 
-.PHONY: docker-test docker-test-build node-agent-test
+.PHONY: docker-test docker-test-build node-agent-test node-agent-image
 docker-test-build: ## build Docker test images for all cloud simulators
 	@$(MAKE) -s _fanout TARGET=docker-test-build APPS="$(SIMULATOR_APPS)"
 
@@ -161,3 +161,6 @@ docker-test: ## run SDK, CLI, and Terraform tests for all cloud simulators insid
 
 node-agent-test: ## boot a Firecracker guest through the node agent on a host with /dev/kvm
 	@cd sim && go test -tags kvm -count=1 -timeout 12m -run TestNodeAgent ./nodeagent
+
+node-agent-image: ## build the node agent's image on the engine before a simulator places on microVMs
+	@cd sim && go run ./nodeagent/cmd/nodeagent-image

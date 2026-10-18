@@ -2,12 +2,12 @@
 
 ## Next
 
-- **Prove the microVM backend on CI's node-agent job and close what it
-  shows.** The job is the only host with `/dev/kvm`; the agent image build,
-  the guest boot from an OCI root filesystem and the vsock init are proven
-  nowhere else. Then configure one service per cloud onto `microvm` in a CI
-  shard and run its SDK tests on the microVM backend, including adoption of a
-  running guest after a simulator restart.
+- **Close what the microVM shards leave open.** Adopt a running guest after
+  a simulator restart (BUG-3491: list the agent's guests by label at start
+  and build handles over them), and give the backend the group shape the
+  container-group workloads need so Cloud Run, Amazon ECS tasks with several
+  containers, Container Apps and App Service can be placed on it too
+  (BUG-3494).
 - **Stage 5 of `PLAN.md`: distributed.** The agent on another host, reached
   over its API with its minted token, and networks that span hosts; the
   same-range gap (two live VPCs over one CIDR on one engine) lifts there.

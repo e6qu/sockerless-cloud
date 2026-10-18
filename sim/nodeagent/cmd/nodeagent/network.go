@@ -36,6 +36,15 @@ func (n *networks) bridgeFor(ctx context.Context, agentAddress string) (string, 
 		return "", err
 	}
 	br := shortName("br", agentAddress)
+	// Flushing the interface's address drops the routes through it, the
+	// default route among them when it leaves through this interface; that
+	// one comes back on the bridge, and a default route through another
+	// interface is left where it is.
+	routes, err := output(ctx, "ip", "route", "show", "default")
+	if err != nil {
+		return "", err
+	}
+	gw := defaultRouteVia(routes, iface)
 	steps := [][]string{
 		{"ip", "link", "add", br, "type", "bridge"},
 		{"ip", "link", "set", br, "up"},
@@ -43,16 +52,36 @@ func (n *networks) bridgeFor(ctx context.Context, agentAddress string) (string, 
 		{"ip", "link", "set", iface, "master", br},
 		{"ip", "addr", "add", prefix.String(), "dev", br},
 	}
+	if gw.IsValid() {
+		steps = append(steps, []string{"ip", "route", "replace", "default", "via", gw.String(), "dev", br})
+	}
 	for _, step := range steps {
 		if err := run(ctx, step...); err != nil {
 			return "", err
 		}
 	}
-	if gw := defaultGatewayFor(prefix); gw.IsValid() {
-		_ = run(ctx, "ip", "route", "replace", "default", "via", gw.String(), "dev", br)
-	}
 	n.bridges[agentAddress] = br
 	return br, nil
+}
+
+// defaultRouteVia is the gateway of the default route that leaves through
+// iface, read from `ip route show default`, or the zero value when no
+// default route leaves through it.
+func defaultRouteVia(routes, iface string) netip.Addr {
+	for _, line := range strings.Split(routes, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 5 || fields[0] != "default" || fields[1] != "via" {
+			continue
+		}
+		for i := 3; i+1 < len(fields); i++ {
+			if fields[i] == "dev" && fields[i+1] == iface {
+				if gw, err := netip.ParseAddr(fields[2]); err == nil {
+					return gw
+				}
+			}
+		}
+	}
+	return netip.Addr{}
 }
 
 // attachTap creates the guest's tap on the bridge of its network and returns
@@ -227,14 +256,6 @@ func interfaceHolding(address string) (string, netip.Prefix, error) {
 // defaultGatewayFor is the first host of the agent's own range, where the
 // engine's bridge answers; the agent keeps its route out through it after its
 // interface moved onto the guests' bridge.
-func defaultGatewayFor(prefix netip.Prefix) netip.Addr {
-	gw := prefix.Masked().Addr().Next()
-	if gw == prefix.Addr() {
-		return netip.Addr{}
-	}
-	return gw
-}
-
 func shortName(prefix, id string) string {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(id))
@@ -243,6 +264,14 @@ func shortName(prefix, id string) string {
 		name = name[:15]
 	}
 	return name
+}
+
+func output(ctx context.Context, args ...string) (string, error) {
+	out, err := exec.CommandContext(ctx, args[0], args[1:]...).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("%s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return string(out), nil
 }
 
 func run(ctx context.Context, args ...string) error {

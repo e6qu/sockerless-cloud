@@ -86,6 +86,13 @@ type Backend interface {
 	Restart(ctx context.Context, id string, w Workload, sink sim.LogSink) (Handle, error)
 	// Remove discards a kept workload.
 	Remove(ctx context.Context, id string) error
+	// Console is everything the workload wrote since it was placed, across
+	// the restarts of a kept one: the machine's console as a cloud reads it.
+	Console(ctx context.Context, id string) (string, error)
+	// Capture stores the workload's filesystem as an engine image under
+	// reference: the disk image a cloud makes of a machine, which another
+	// workload boots from.
+	Capture(ctx context.Context, id, reference string) error
 }
 
 // Table maps services to backends from the simulator's configuration: a

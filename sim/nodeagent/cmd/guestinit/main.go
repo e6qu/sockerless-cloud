@@ -36,6 +36,8 @@ const (
 
 type guestConfig struct {
 	Hostname   string            `json:"hostname"`
+	Address    string            `json:"address"`
+	Hosts      []string          `json:"hosts"`
 	Command    []string          `json:"command"`
 	Args       []string          `json:"args"`
 	Env        map[string]string `json:"env"`
@@ -72,6 +74,7 @@ func run() (int, error) {
 		_ = os.WriteFile("/etc/hostname", []byte(cfg.Hostname+"\n"), 0o644)
 	}
 	writeResolvConf(cfg.DNS)
+	_ = os.WriteFile("/etc/hosts", []byte(hostsFile(cfg)), 0o644)
 	logs := newLogBook()
 	workload := newWorkload(cfg, logs)
 	children := make(chan os.Signal, 1)
@@ -124,6 +127,25 @@ func writeResolvConf(dns []string) {
 	}
 	_ = os.Remove("/etc/resolv.conf")
 	_ = os.WriteFile("/etc/resolv.conf", []byte(b.String()), 0o644)
+}
+
+// hostsFile is the guest's /etc/hosts: the loopback names, the guest's own
+// name at its address, and the entries the workload was given, as the engine
+// writes them for a container.
+func hostsFile(cfg guestConfig) string {
+	var b strings.Builder
+	b.WriteString("127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\n")
+	if cfg.Hostname != "" && cfg.Address != "" {
+		fmt.Fprintf(&b, "%s\t%s\n", cfg.Address, cfg.Hostname)
+	}
+	for _, entry := range cfg.Hosts {
+		name, address, ok := strings.Cut(entry, ":")
+		if !ok || name == "" || address == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "%s\t%s\n", address, name)
+	}
+	return b.String()
 }
 
 // logBook keeps the workload's output for the agent to read, and lets a
@@ -519,11 +541,47 @@ func serveControl(w *workload, logs *logBook) {
 		go w.stop()
 		rw.WriteHeader(http.StatusAccepted)
 	})
+	mux.HandleFunc("POST /freeze", func(rw http.ResponseWriter, r *http.Request) {
+		if err := freezeRoot(fiFreeze); err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		rw.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /thaw", func(rw http.ResponseWriter, r *http.Request) {
+		if err := freezeRoot(fiThaw); err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		rw.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("GET /ping", func(rw http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(rw, "ok")
 	})
 	server := &http.Server{Handler: mux}
 	_ = server.Serve(listener)
+}
+
+// The FIFREEZE and FITHAW ioctls, _IOWR('X', 119, int) and _IOWR('X', 120,
+// int), which golang.org/x/sys/unix does not name.
+const (
+	fiFreeze = 0xc0045877
+	fiThaw   = 0xc0045878
+)
+
+// freezeRoot freezes or thaws the root filesystem. A freeze writes every
+// dirty block and the whole journal to the disk and holds writers until the
+// thaw, so the agent reads a consistent image of a running guest's disk.
+func freezeRoot(request uint) error {
+	fd, err := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY, 0)
+	if err != nil {
+		return fmt.Errorf("open /: %w", err)
+	}
+	defer func() { _ = unix.Close(fd) }()
+	if err := unix.IoctlSetPointerInt(fd, request, 0); err != nil {
+		return fmt.Errorf("ioctl %#x on /: %w", request, err)
+	}
+	return nil
 }
 
 // reportExit tells the agent how the workload ended; the agent may not be

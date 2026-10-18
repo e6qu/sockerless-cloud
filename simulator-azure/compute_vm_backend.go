@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -13,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/client"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -230,7 +228,7 @@ func azureAwaitInstanceReady(ctx context.Context, handle placement.Handle) error
 		select {
 		case <-handle.Exited():
 			result := handle.Wait()
-			console, _ := azureContainerConsole(context.Background(), handle.ID())
+			console, _ := azureGuestConsoleOfMachine(context.Background(), handle.ID())
 			return fmt.Errorf("the instance exited with code %d before it was ready: %s", result.ExitCode, strings.TrimSpace(string(console)))
 		case <-ctx.Done():
 			return fmt.Errorf("the instance did not become ready: %w", ctx.Err())
@@ -305,30 +303,25 @@ func azureVMContainer(vmID string) (string, bool) {
 
 // azureGuestConsoleOfWorkload reads what the instance wrote to its console.
 func azureGuestConsoleOfWorkload(ctx context.Context, vmID string) ([]byte, error) {
-	containerID, ok := azureVMContainer(vmID)
+	machineID, ok := azureVMContainer(vmID)
 	if !ok {
 		return nil, fmt.Errorf("virtual machine %q has never booted, so it has produced no console output", vmID)
 	}
-	return azureContainerConsole(ctx, containerID)
+	return azureGuestConsoleOfMachine(ctx, machineID)
 }
 
-func azureContainerConsole(ctx context.Context, containerID string) ([]byte, error) {
-	cli := sim.DockerClient()
-	if err := sim.RequireContainerRuntime("reading a machine's console"); err != nil {
+// azureGuestConsoleOfMachine reads a machine's console from its backend,
+// which keeps it across the machine's stops.
+func azureGuestConsoleOfMachine(ctx context.Context, machineID string) ([]byte, error) {
+	backend, err := azurePlacementBackend(placementVirtualMachines)
+	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	logs, err := cli.ContainerLogs(ctx, containerID, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
+	console, err := backend.Console(ctx, machineID)
 	if err != nil {
-		return nil, fmt.Errorf("read the console of %s: %w", containerID, err)
+		return nil, err
 	}
-	defer logs.Close()
-	var out bytes.Buffer
-	if _, err := stdcopy.StdCopy(&out, &out, logs); err != nil && !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("read the console of %s: %w", containerID, err)
-	}
-	return out.Bytes(), nil
+	return []byte(console), nil
 }
 
 // azureCommitVMImage commits the machine's OS disk as an OCI image under a
@@ -347,8 +340,12 @@ func azureCommitVMImage(ctx context.Context, vm VirtualMachine, purpose string) 
 	if err != nil {
 		return vminstance.Image{}, err
 	}
+	backend, err := azurePlacementBackend(placementVirtualMachines)
+	if err != nil {
+		return vminstance.Image{}, err
+	}
 	reference := "sockerless-sim-azure-" + purpose + ":" + sim.RandomHex(8)
-	if _, err := sim.CommitContainer(ctx, containerID, reference); err != nil {
+	if err := backend.Capture(ctx, containerID, reference); err != nil {
 		return vminstance.Image{}, err
 	}
 	return vminstance.Image{OCI: reference, Architecture: source.Architecture}, nil
