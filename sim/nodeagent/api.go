@@ -13,7 +13,10 @@ type GuestSpec struct {
 	Hostname string `json:"hostname,omitempty"`
 	// Hosts are name:address entries for the guest's hosts file; the address
 	// host-gateway stands for the network's gateway, as the engine reads it.
-	Hosts   []string          `json:"hosts,omitempty"`
+	Hosts []string `json:"hosts,omitempty"`
+	// Labels mark the guest for the simulator that placed it, as a
+	// container's labels do, so a restarted simulator finds it again.
+	Labels  map[string]string `json:"labels,omitempty"`
 	Command []string          `json:"command,omitempty"`
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
@@ -85,13 +88,14 @@ const (
 
 // GuestState is a guest as the agent sees it.
 type GuestState struct {
-	ID        string      `json:"id"`
-	Status    GuestStatus `json:"status"`
-	Address   string      `json:"address"`
-	ExitCode  int         `json:"exitCode"`
-	Error     string      `json:"error,omitempty"`
-	StartedAt time.Time   `json:"startedAt"`
-	StoppedAt time.Time   `json:"stoppedAt"`
+	ID        string            `json:"id"`
+	Status    GuestStatus       `json:"status"`
+	Labels    map[string]string `json:"labels,omitempty"`
+	Address   string            `json:"address"`
+	ExitCode  int               `json:"exitCode"`
+	Error     string            `json:"error,omitempty"`
+	StartedAt time.Time         `json:"startedAt"`
+	StoppedAt time.Time         `json:"stoppedAt"`
 }
 
 // ExecRequest runs a command in a guest.

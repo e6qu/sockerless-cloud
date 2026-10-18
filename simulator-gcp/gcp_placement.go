@@ -67,14 +67,24 @@ func gcpStartPlacement(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("node agent: %w", err)
 	}
-	agent, err := nodeagent.Start(ctx, nodeagent.Options{
-		Name:    "sockerless-sim-gcp-nodeagent-" + strings.TrimPrefix(platform.Network, "sockerless-sim-gcp-platform-"),
-		Network: platform.Network,
-		Address: cidr.Masked().Addr().Next().Next().Next(),
-		Labels:  map[string]string{"sockerless-sim-gcp-node-agent": sim.WorkloadScope()},
-	}, sim.NoopSink{})
-	if err != nil {
-		return fmt.Errorf("node agent: %w", err)
+	labels := map[string]string{"sockerless-sim-gcp-node-agent": sim.WorkloadScope()}
+	var agent *nodeagent.Agent
+	adopted := false
+	if sim.HasPersistentWorkloadIdentity() {
+		if agent, adopted, err = nodeagent.Adopt(ctx, platform.Network, labels, sim.NoopSink{}); err != nil {
+			return err
+		}
+	}
+	if !adopted {
+		agent, err = nodeagent.Start(ctx, nodeagent.Options{
+			Name:    "sockerless-sim-gcp-nodeagent-" + strings.TrimPrefix(platform.Network, "sockerless-sim-gcp-platform-"),
+			Network: platform.Network,
+			Address: cidr.Masked().Addr().Next().Next().Next(),
+			Labels:  labels,
+		}, sim.NoopSink{})
+		if err != nil {
+			return fmt.Errorf("node agent: %w", err)
+		}
 	}
 	gcpMicroVMBackend = placement.NewMicroVMBackend(agent, gceMACPrefix)
 	gcpPlacement.Register(gcpMicroVMBackend)
@@ -82,10 +92,14 @@ func gcpStartPlacement(ctx context.Context) error {
 	return nil
 }
 
-// gcpStopPlacement stops the node agent, if one runs.
-func gcpStopPlacement() {
+// gcpStopPlacement stops the node agent, if one runs, unless the simulator
+// persists: then the agent and its guests outlive the process as containers
+// do, for the next process to adopt.
+func gcpStopPlacement(persist bool) {
 	if gcpMicroVMBackend != nil {
-		gcpMicroVMBackend.Agent().Stop()
+		if !persist {
+			gcpMicroVMBackend.Agent().Stop()
+		}
 		gcpMicroVMBackend = nil
 	}
 }

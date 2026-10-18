@@ -744,7 +744,7 @@ jobs:
           # image, user data, metadata, console, stop and start on the kept
           # root disk, CreateImage's capture of it, and Run Command.
           - suite: ec2-microvm
-            run: '^TestEC2_(InstanceRunsUserDataAndReadsItsMetadata|StopKeepsTheRootDiskAndCreateImageCapturesIt|InstancesOfVPCsSharingACIDRCannotCoexist|RunInstancesRefusesAnArchitectureMismatch|ImportImageFromAnOCIReferenceBoots|ConsoleOutput)$'
+            run: '^TestEC2(_(InstanceRunsUserDataAndReadsItsMetadata|StopKeepsTheRootDiskAndCreateImageCapturesIt|InstancesOfVPCsSharingACIDRCannotCoexist|RunInstancesRefusesAnArchitectureMismatch|ImportImageFromAnOCIReferenceBoots|ConsoleOutput)|InstanceSurvivesSimulatorRestart_SDK)$'
             placement: ec2=microvm
     steps:
       - uses: actions/checkout@v7.0.1

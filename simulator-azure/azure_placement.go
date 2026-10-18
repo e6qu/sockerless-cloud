@@ -84,13 +84,24 @@ func startAzurePlacement(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("node agent: %w", err)
 	}
-	agent, err := nodeagent.Start(ctx, nodeagent.Options{
-		Name:    "sockerless-sim-azure-node-agent-" + sim.WorkloadScope(),
-		Network: platform.Network,
-		Address: prefix.Masked().Addr().Next().Next().Next(),
-	}, sim.NoopSink{})
-	if err != nil {
-		return fmt.Errorf("node agent for %s: %w", strings.Join(table.MicroVMServices(), ", "), err)
+	labels := map[string]string{"sockerless-sim-azure-node-agent": sim.WorkloadScope()}
+	var agent *nodeagent.Agent
+	adopted := false
+	if sim.HasPersistentWorkloadIdentity() {
+		if agent, adopted, err = nodeagent.Adopt(ctx, platform.Network, labels, sim.NoopSink{}); err != nil {
+			return err
+		}
+	}
+	if !adopted {
+		agent, err = nodeagent.Start(ctx, nodeagent.Options{
+			Name:    "sockerless-sim-azure-node-agent-" + sim.WorkloadScope(),
+			Network: platform.Network,
+			Address: prefix.Masked().Addr().Next().Next().Next(),
+			Labels:  labels,
+		}, sim.NoopSink{})
+		if err != nil {
+			return fmt.Errorf("node agent for %s: %w", strings.Join(table.MicroVMServices(), ", "), err)
+		}
 	}
 	backend := placement.NewMicroVMBackend(agent, azureMACPrefix)
 	table.Register(backend)
@@ -100,13 +111,15 @@ func startAzurePlacement(ctx context.Context) error {
 	return nil
 }
 
-// stopAzurePlacement stops the node agent, if one runs.
-func stopAzurePlacement() {
+// stopAzurePlacement stops the node agent, if one runs, unless the
+// simulator persists: then the agent and its guests outlive the process as
+// containers do, for the next process to adopt.
+func stopAzurePlacement(persist bool) {
 	azurePlacementMu.Lock()
 	agent := azureNodeAgent
 	azureNodeAgent, azureMicroVMBackend = nil, nil
 	azurePlacementMu.Unlock()
-	if agent != nil {
+	if agent != nil && !persist {
 		agent.Stop()
 	}
 }

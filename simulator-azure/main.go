@@ -57,7 +57,7 @@ func startAzureListeners(_ *sim.Server, cfg sim.Config) (func(context.Context) e
 	stop := func(ctx context.Context) error {
 		cancel()
 		azureReleaseVMWorkloads(ctx)
-		stopAzurePlacement()
+		stopAzurePlacement(cfg.Persist)
 		if networkSidecars != nil {
 			networkSidecars.Close()
 		}

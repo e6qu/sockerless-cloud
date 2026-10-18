@@ -2,12 +2,9 @@
 
 ## Next
 
-- **Close what the microVM shards leave open.** Adopt a running guest after
-  a simulator restart (BUG-3491: list the agent's guests by label at start
-  and build handles over them), and give the backend the group shape the
-  container-group workloads need so Cloud Run, Amazon ECS tasks with several
-  containers, Container Apps and App Service can be placed on it too
-  (BUG-3494).
+- **Give the microVM backend the group shape the container-group workloads
+  need**, so Cloud Run, Amazon ECS tasks with several containers, Container
+  Apps and App Service can be placed on it too (BUG-3494).
 - **Stage 5 of `PLAN.md`: distributed.** The agent on another host, reached
   over its API with its minted token, and networks that span hosts; the
   same-range gap (two live VPCs over one CIDR on one engine) lifts there.

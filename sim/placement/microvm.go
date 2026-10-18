@@ -86,6 +86,7 @@ func (b *MicroVMBackend) Place(ctx context.Context, w Workload, sink sim.LogSink
 		ID:         id,
 		Hostname:   w.Hostname,
 		Hosts:      w.ExtraHosts,
+		Labels:     sim.OwnershipLabels(w.Labels),
 		WorkingDir: w.WorkingDir,
 		Env:        map[string]string{},
 		Network: nodeagent.GuestNetwork{
@@ -240,8 +241,50 @@ func (b *MicroVMBackend) uploadRootFS(ctx context.Context, cli *client.Client, a
 	return agent.UploadRootFS(ctx, id, archive)
 }
 
-func (b *MicroVMBackend) Adopt(context.Context, string, Workload, sim.LogSink) (Handle, error) {
-	return nil, errors.New("a microVM guest outlives no simulator process: there is nothing to adopt")
+// Adopt takes over a guest a previous simulator process placed on an agent
+// this process adopted: running, or kept after its exit.
+func (b *MicroVMBackend) Adopt(ctx context.Context, id string, w Workload, sink sim.LogSink) (Handle, error) {
+	agent := b.agent.Client()
+	if _, err := agent.Get(ctx, id); err != nil {
+		return nil, err
+	}
+	return newMicroVMHandle(agent, id, sink, w.CancelGracePeriod, w.KeepOnExit), nil
+}
+
+// Find lists the agent's guests carrying every label and this simulator's
+// persistent identity.
+func (b *MicroVMBackend) Find(ctx context.Context, labels map[string]string) ([]Existing, error) {
+	guests, err := b.agent.Client().List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	want := map[string]string{}
+	if state, ok := sim.OwnershipLabels(nil)["sockerless-sim-state"]; ok {
+		want["sockerless-sim-state"] = state
+	}
+	for k, v := range labels {
+		want[k] = v
+	}
+	var out []Existing
+	for _, g := range guests {
+		if matchesLabels(g.Labels, want) {
+			out = append(out, Existing{ID: g.ID, Running: g.Status == nodeagent.GuestRunning, Labels: g.Labels})
+		}
+	}
+	return out, nil
+}
+
+// matchesLabels reports whether have carries every label of want; an empty
+// wanted value asks only for the key's presence, as the engine's label
+// filter does.
+func matchesLabels(have, want map[string]string) bool {
+	for k, v := range want {
+		got, ok := have[k]
+		if !ok || (v != "" && got != v) {
+			return false
+		}
+	}
+	return true
 }
 
 // guestMAC is the guest interface's address under the cloud's prefix: a

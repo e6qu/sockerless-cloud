@@ -66,6 +66,14 @@ type Handle interface {
 	PublishedPort(ctx context.Context, port int) (int, error)
 }
 
+// Existing is a workload a backend holds from an earlier simulator process:
+// running, or exited with its filesystem kept.
+type Existing struct {
+	ID      string
+	Running bool
+	Labels  map[string]string
+}
+
 // ExecResult is what a command run inside a workload produced.
 type ExecResult struct {
 	Stdout   string
@@ -93,6 +101,9 @@ type Backend interface {
 	// reference: the disk image a cloud makes of a machine, which another
 	// workload boots from.
 	Capture(ctx context.Context, id, reference string) error
+	// Find lists the workloads of this simulator's persistent identity that
+	// carry every label, running or kept, for a restarted process to adopt.
+	Find(ctx context.Context, labels map[string]string) ([]Existing, error)
 }
 
 // Table maps services to backends from the simulator's configuration: a

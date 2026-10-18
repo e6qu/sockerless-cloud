@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/moby/moby/client"
+
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
@@ -87,6 +89,70 @@ func Start(ctx context.Context, opts Options, sink sim.LogSink) (*Agent, error) 
 		return nil, fmt.Errorf("node agent: %w", err)
 	}
 	return a, nil
+}
+
+// Adopt takes over a node agent a previous process of this persistent
+// simulator left running, found by its labels, with its API reached on
+// network, and reports false when none runs. The agent's token is read from
+// the container's environment, where the process that started it put it.
+func Adopt(ctx context.Context, network string, labels map[string]string, sink sim.LogSink) (*Agent, bool, error) {
+	if err := sim.RequireContainerRuntime("adopting a node agent"); err != nil {
+		return nil, false, err
+	}
+	want := map[string]string{"sockerless-sim-node-agent": "true"}
+	for k, v := range labels {
+		want[k] = v
+	}
+	existing, err := sim.FindExistingContainers(want)
+	if err != nil {
+		return nil, false, fmt.Errorf("node agent: find: %w", err)
+	}
+	var id string
+	for _, c := range existing {
+		if c.Running {
+			id = c.ID
+			break
+		}
+	}
+	if id == "" {
+		return nil, false, nil
+	}
+	env, err := sim.ContainerEnvironment(ctx, id)
+	if err != nil {
+		return nil, false, fmt.Errorf("node agent: %w", err)
+	}
+	token := env["NODEAGENT_TOKEN"]
+	if token == "" {
+		return nil, false, fmt.Errorf("node agent: container %s carries no token", id[:12])
+	}
+	addresses, err := sim.ContainerNetworkAddresses(ctx, id)
+	if err != nil {
+		return nil, false, fmt.Errorf("node agent: %w", err)
+	}
+	address, ok := addresses[network]
+	if !ok {
+		return nil, false, fmt.Errorf("node agent: container %s is not on %s", id[:12], network)
+	}
+	info, err := sim.DockerClient().Info(ctx, client.InfoOptions{})
+	if err != nil {
+		return nil, false, fmt.Errorf("node agent: engine info: %w", err)
+	}
+	arch, err := goArch(info.Info.Architecture)
+	if err != nil {
+		return nil, false, err
+	}
+	handle, err := sim.AdoptContainer(id, sim.ContainerConfig{Name: "node-agent"}, sink)
+	if err != nil {
+		return nil, false, fmt.Errorf("node agent: %w", err)
+	}
+	a := &Agent{handle: handle, token: token, architecture: arch, networks: addresses}
+	a.client = NewClient("http://"+net.JoinHostPort(address.String(), strconv.Itoa(apiPort)), token)
+	readyCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := a.client.WaitReady(readyCtx); err != nil {
+		return nil, false, fmt.Errorf("node agent: adopted %s: %w", id[:12], err)
+	}
+	return a, true, nil
 }
 
 // apiPort is the port the agent program serves on.

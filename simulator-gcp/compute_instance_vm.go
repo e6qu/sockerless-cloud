@@ -368,7 +368,7 @@ func gcpAdoptComputeInstances(ctx context.Context) {
 		return
 	}
 	for _, inst := range gcpInstances.List() {
-		found, err := sim.FindExistingContainers(map[string]string{"sockerless-sim-instance": inst.SelfLink})
+		found, err := backend.Find(ctx, map[string]string{"sockerless-sim-instance": inst.SelfLink})
 		if err != nil {
 			log.Printf("compute: find the machine of %s: %v", inst.SelfLink, err)
 			continue

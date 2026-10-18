@@ -44,10 +44,15 @@ func main() {
 			srv, _, _, err := buildSimulator(cfg)
 			return srv, err
 		},
-		Start: func(*sim.Server, sim.Config) (func(context.Context) error, error) {
-			stopAgent, err := awsStartPlacement(context.Background())
+		Start: func(_ *sim.Server, cfg sim.Config) (func(context.Context) error, error) {
+			stopAgent, err := awsStartPlacement(context.Background(), cfg.Persist)
 			if err != nil {
 				return nil, err
+			}
+			// The instances of a persistent simulator are adopted once the
+			// backends their machines run on are registered.
+			if err := recoverEC2Instances(); err != nil {
+				return nil, fmt.Errorf("restore Amazon EC2 instances: %w", err)
 			}
 			return func(ctx context.Context) error {
 				err := stopAgent(ctx)
@@ -243,9 +248,6 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 	// Batch — REST/JSON protocol (path-based, no X-Amz-Target)
 	registerBatch(srv)
 	if options.startBackgroundEvaluators {
-		if err := recoverEC2Instances(); err != nil {
-			return nil, nil, nil, fmt.Errorf("restore Amazon EC2 instances: %w", err)
-		}
 		if err := recoverECSTasks(); err != nil {
 			return nil, nil, nil, fmt.Errorf("restore Amazon Elastic Container Service tasks: %w", err)
 		}

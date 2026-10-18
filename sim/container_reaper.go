@@ -63,6 +63,10 @@ func ownerHost() string {
 	return host
 }
 
+// OwnershipLabels are the labels that mark a workload as this simulator's,
+// its persistent state among them, with extra merged in.
+func OwnershipLabels(extra map[string]string) map[string]string { return simulatorLabels(extra) }
+
 func simulatorLabels(extra map[string]string) map[string]string {
 	labels := map[string]string{
 		"sockerless-sim":          "true",

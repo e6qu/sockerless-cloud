@@ -243,6 +243,54 @@ func connectContainerToNetwork(containerName, networkName string, aliases []stri
 	return err
 }
 
+// ContainerNetworkAddresses is a container's IPv4 address on each engine
+// network it is attached to, by network name.
+func ContainerNetworkAddresses(ctx context.Context, containerID string) (map[string]netip.Addr, error) {
+	cli := DockerClient()
+	if err := RequireContainerRuntime("inspecting a container's networks"); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	inspected, err := cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("inspect %s: %w", containerID, err)
+	}
+	out := map[string]netip.Addr{}
+	if inspected.Container.NetworkSettings == nil {
+		return out, nil
+	}
+	for name, ep := range inspected.Container.NetworkSettings.Networks {
+		if ep != nil && ep.IPAddress.IsValid() {
+			out[name] = ep.IPAddress
+		}
+	}
+	return out, nil
+}
+
+// ContainerEnvironment is the environment a container was created with.
+func ContainerEnvironment(ctx context.Context, containerID string) (map[string]string, error) {
+	cli := DockerClient()
+	if err := RequireContainerRuntime("inspecting a container's environment"); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	inspected, err := cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("inspect %s: %w", containerID, err)
+	}
+	out := map[string]string{}
+	if inspected.Container.Config == nil {
+		return out, nil
+	}
+	for _, kv := range inspected.Container.Config.Env {
+		k, v, _ := strings.Cut(kv, "=")
+		out[k] = v
+	}
+	return out, nil
+}
+
 // ContainerIPv4On returns a container's address on the named engine network,
 // or the zero value when it is not on it.
 func ContainerIPv4On(ctx context.Context, containerID, network string) netip.Addr {
