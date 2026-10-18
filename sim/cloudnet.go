@@ -213,6 +213,19 @@ func ownerIsDead(labels map[string]string) bool {
 // network at a fixed IPv4 address inside the network's range, with the given
 // DNS aliases.
 func ConnectContainerToNetworkAt(containerName, networkName string, aliases []string, ipv4 netip.Addr) error {
+	return connectContainerToNetwork(containerName, networkName, aliases, ipv4, 0)
+}
+
+// ConnectContainerToNetworkBehindGateway connects a container to a network
+// at an address without that network ever providing the container's default
+// gateway: the engine picks the gateway endpoint by priority and then by
+// network name, and a container that bridges guests onto the networks it
+// joins must keep its default route on the network it started on.
+func ConnectContainerToNetworkBehindGateway(containerName, networkName string, ipv4 netip.Addr) error {
+	return connectContainerToNetwork(containerName, networkName, nil, ipv4, -1)
+}
+
+func connectContainerToNetwork(containerName, networkName string, aliases []string, ipv4 netip.Addr, gwPriority int) error {
 	cli := DockerClient()
 	if err := RequireContainerRuntime("connecting a container to a network"); err != nil {
 		return err
@@ -224,6 +237,7 @@ func ConnectContainerToNetworkAt(containerName, networkName string, aliases []st
 		EndpointConfig: &network.EndpointSettings{
 			Aliases:    aliases,
 			IPAMConfig: &network.EndpointIPAMConfig{IPv4Address: ipv4},
+			GwPriority: gwPriority,
 		},
 	})
 	return err

@@ -110,7 +110,7 @@ func (a *Agent) Join(ctx context.Context, network string, address netip.Addr) (n
 	if have, ok := a.networks[network]; ok {
 		return have, nil
 	}
-	if err := sim.ConnectContainerToNetworkAt(a.handle.ContainerID, network, nil, address); err != nil {
+	if err := sim.ConnectContainerToNetworkBehindGateway(a.handle.ContainerID, network, address); err != nil {
 		return netip.Addr{}, fmt.Errorf("node agent: join %s at %s: %w", network, address, err)
 	}
 	got := sim.ContainerIPv4On(ctx, a.handle.ContainerID, network)
