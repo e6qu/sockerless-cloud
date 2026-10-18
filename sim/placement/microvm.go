@@ -2,6 +2,7 @@ package placement
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/ipam"
@@ -83,6 +85,7 @@ func (b *MicroVMBackend) Place(ctx context.Context, w Workload, sink sim.LogSink
 	spec := nodeagent.GuestSpec{
 		ID:         id,
 		Hostname:   w.Hostname,
+		Hosts:      w.ExtraHosts,
 		WorkingDir: w.WorkingDir,
 		Env:        map[string]string{},
 		Network: nodeagent.GuestNetwork{
@@ -162,6 +165,56 @@ func (b *MicroVMBackend) Remove(ctx context.Context, id string) error {
 	return b.agent.Client().Delete(ctx, id)
 }
 
+// Console is what the guest's first process wrote across its boots, which
+// the agent keeps while the guest exists.
+func (b *MicroVMBackend) Console(ctx context.Context, id string) (string, error) {
+	var out strings.Builder
+	err := b.agent.Client().Logs(ctx, id, nodeagent.LogOptions{}, func(line nodeagent.LogLine) {
+		out.WriteString(line.Text)
+		out.WriteByte('\n')
+	})
+	if err != nil {
+		return "", err
+	}
+	return out.String(), nil
+}
+
+// Capture imports the guest's root filesystem, as the agent exports it, as
+// an engine image under reference.
+func (b *MicroVMBackend) Capture(ctx context.Context, id, reference string) error {
+	cli := sim.DockerClient()
+	if err := sim.RequireContainerRuntime("capturing a microVM workload's disk"); err != nil {
+		return err
+	}
+	archive, err := b.agent.Client().ExportRootFS(ctx, id)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = archive.Close() }()
+	result, err := cli.ImageImport(ctx, client.ImageImportSource{Source: archive, SourceName: "-"}, reference, client.ImageImportOptions{
+		Platform: ocispec.Platform{OS: "linux", Architecture: b.agent.Architecture()},
+	})
+	if err != nil {
+		return fmt.Errorf("import the disk of guest %s as %s: %w", id, reference, err)
+	}
+	defer func() { _ = result.Close() }()
+	decoder := json.NewDecoder(result)
+	for {
+		var message struct {
+			Error string `json:"error"`
+		}
+		if err := decoder.Decode(&message); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return fmt.Errorf("import the disk of guest %s as %s: %w", id, reference, err)
+		}
+		if message.Error != "" {
+			return fmt.Errorf("import the disk of guest %s as %s: %s", id, reference, message.Error)
+		}
+	}
+}
+
 // uploadRootFS streams the image's filesystem, as the engine exports a
 // container created from it, into the agent.
 func (b *MicroVMBackend) uploadRootFS(ctx context.Context, cli *client.Client, agent *nodeagent.Client, id, imageID string, w Workload) error {
@@ -236,7 +289,7 @@ func newMicroVMHandle(agent *nodeagent.Client, id string, sink sim.LogSink, grac
 	started := time.Now()
 	go func() {
 		ctx := context.Background()
-		_ = agent.Logs(ctx, id, true, func(line nodeagent.LogLine) {
+		_ = agent.Logs(ctx, id, nodeagent.LogOptions{Follow: true, CurrentBoot: true}, func(line nodeagent.LogLine) {
 			sink.WriteLog(sim.LogLine{Timestamp: line.Time, Text: line.Text, Stream: line.Stream})
 		})
 		state, err := agent.Wait(ctx, id)
@@ -295,5 +348,3 @@ func (h *microVMHandle) PublishedPort(context.Context, int) (int, error) {
 func (h *microVMHandle) SetIngress(ctx context.Context, rules []nodeagent.PacketRule) error {
 	return h.agent.SetIngress(ctx, h.id, rules)
 }
-
-var _ io.Reader = (io.Reader)(nil)

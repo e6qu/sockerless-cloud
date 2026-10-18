@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -133,12 +134,27 @@ func (c *Client) Wait(ctx context.Context, id string) (GuestState, error) {
 	return state, err
 }
 
-// Logs hands each line the guest's first process wrote to fn, following new
-// ones until the process ends when follow is set.
-func (c *Client) Logs(ctx context.Context, id string, follow bool, fn func(LogLine)) error {
+// LogOptions select what Logs reads.
+type LogOptions struct {
+	// Follow keeps reading new lines until the boot in progress has ended.
+	Follow bool
+	// CurrentBoot reads the boot in progress alone; otherwise every boot's
+	// lines come, the whole console of the machine.
+	CurrentBoot bool
+}
+
+// Logs hands fn each line the guest's first process wrote.
+func (c *Client) Logs(ctx context.Context, id string, opts LogOptions, fn func(LogLine)) error {
+	query := url.Values{}
+	if opts.Follow {
+		query.Set("follow", "1")
+	}
+	if opts.CurrentBoot {
+		query.Set("boot", "current")
+	}
 	path := "/v1/guests/" + id + "/logs"
-	if follow {
-		path += "?follow=1"
+	if len(query) > 0 {
+		path += "?" + query.Encode()
 	}
 	resp, err := c.do(ctx, http.MethodGet, path, nil, "")
 	if err != nil {
@@ -155,6 +171,17 @@ func (c *Client) Logs(ctx context.Context, id string, follow bool, fn func(LogLi
 		fn(line)
 	}
 	return scanner.Err()
+}
+
+// ExportRootFS streams the guest's root filesystem as a tar archive, which
+// the caller closes. A running guest's filesystem is frozen while the agent
+// reads it, so the archive is consistent.
+func (c *Client) ExportRootFS(ctx context.Context, id string) (io.ReadCloser, error) {
+	resp, err := c.do(ctx, http.MethodGet, "/v1/guests/"+id+"/rootfs", nil, "")
+	if err != nil {
+		return nil, err
+	}
+	return resp.Body, nil
 }
 
 // Exec runs a command in the guest.

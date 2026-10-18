@@ -9,11 +9,14 @@ import "time"
 
 // GuestSpec describes one guest.
 type GuestSpec struct {
-	ID       string            `json:"id"`
-	Hostname string            `json:"hostname,omitempty"`
-	Command  []string          `json:"command,omitempty"`
-	Args     []string          `json:"args,omitempty"`
-	Env      map[string]string `json:"env,omitempty"`
+	ID       string `json:"id"`
+	Hostname string `json:"hostname,omitempty"`
+	// Hosts are name:address entries for the guest's hosts file; the address
+	// host-gateway stands for the network's gateway, as the engine reads it.
+	Hosts   []string          `json:"hosts,omitempty"`
+	Command []string          `json:"command,omitempty"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
 	// WorkingDir is where the first process starts; empty is /.
 	WorkingDir string `json:"workingDir,omitempty"`
 	// User runs the first process as uid[:gid]; empty is root.
@@ -115,6 +118,8 @@ type LogLine struct {
 // does not carry.
 type GuestConfig struct {
 	Hostname   string            `json:"hostname"`
+	Address    string            `json:"address"`
+	Hosts      []string          `json:"hosts"`
 	Command    []string          `json:"command"`
 	Args       []string          `json:"args"`
 	Env        map[string]string `json:"env"`

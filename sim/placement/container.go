@@ -3,6 +3,7 @@ package placement
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -48,6 +49,36 @@ func (ContainerBackend) Restart(_ context.Context, id string, w Workload, sink s
 
 func (ContainerBackend) Remove(_ context.Context, id string) error {
 	return sim.RemoveContainer(id)
+}
+
+func (ContainerBackend) Console(ctx context.Context, id string) (string, error) {
+	return ContainerConsole(ctx, id)
+}
+
+func (ContainerBackend) Capture(ctx context.Context, id, reference string) error {
+	_, err := sim.CommitContainer(ctx, id, reference)
+	return err
+}
+
+// ContainerConsole is everything a container wrote, which the engine keeps
+// across its stops and starts.
+func ContainerConsole(ctx context.Context, containerID string) (string, error) {
+	cli := sim.DockerClient()
+	if err := sim.RequireContainerRuntime("reading a workload's console"); err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	logs, err := cli.ContainerLogs(ctx, containerID, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
+	if err != nil {
+		return "", fmt.Errorf("read the console of %s: %w", containerID, err)
+	}
+	defer func() { _ = logs.Close() }()
+	var out bytes.Buffer
+	if _, err := stdcopy.StdCopy(&out, &out, logs); err != nil && !errors.Is(err, io.EOF) {
+		return "", fmt.Errorf("read the console of %s: %w", containerID, err)
+	}
+	return out.String(), nil
 }
 
 type containerHandle struct{ *sim.ContainerHandle }

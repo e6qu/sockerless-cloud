@@ -3209,3 +3209,33 @@ VNets of one name in different resource groups collided on one name; a VNet
 integration change restarts the site as App Service does. Every cloud's tests
 give each instance its own network range, because the engine refuses two live
 networks over one range.
+
+### The microVM backend under the SDK suites
+
+CI's node-agent job proved the agent image, the guest boot from an OCI root
+filesystem and the vsock init, and nothing else ran on a guest until three
+SDK shards placed a service on the microVM backend: `ec2-microvm` in the AWS
+SDK job and `microvm` in the Compute Engine and Azure SDK jobs set
+`SIM_PLACEMENT` to `ec2=microvm`, `compute=microvm` and
+`virtualmachines=microvm` and run that cloud's instance tests, the same
+tests the container shards run, on the runner's KVM. A matrix entry with a
+`placement:` is a second run of its tests by design, so the shard-coverage
+gates keep it apart from the exactly-once partition and check only that its
+regex names tests that exist.
+
+What the shards needed, the backend interface now states for both backends.
+`Console` is everything a machine wrote since it was placed, across its
+stops: the engine keeps a container's, and the agent keeps a guest's, read
+from guestinit while the guest runs and held per boot, so `GetConsoleOutput`,
+`getSerialPortOutput` and boot diagnostics read the same console whichever
+backend runs the machine, and a handle follows the boot in progress alone.
+`Capture` stores a machine's filesystem as an engine image: a container
+commits, and a guest's root filesystem is exported from its ext4 image with
+`debugfs`, which reads it without a mount, and imported as an image of the
+engine's architecture. A running guest's filesystem is frozen for the read
+(`FIFREEZE` on `/`, which writes every dirty block and the whole journal out
+and holds writers until the thaw), which is the snapshot primitive the
+clouds' own image captures rest on. A guest's hosts file carries the entries
+a container gets from `--add-host`, with `host-gateway` resolved to the
+network's gateway, so `metadata.google.internal` and the engine host's name
+resolve on a guest as they do in a container.

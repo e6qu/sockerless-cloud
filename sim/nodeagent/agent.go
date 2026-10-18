@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +20,9 @@ type Agent struct {
 	handle *sim.ContainerHandle
 	client *Client
 	token  string
+	// architecture is the engine's, which is the only one the agent's guests
+	// run on.
+	architecture string
 
 	mu       sync.Mutex
 	networks map[string]netip.Addr
@@ -74,7 +78,7 @@ func Start(ctx context.Context, opts Options, sink sim.LogSink) (*Agent, error) 
 	if err != nil {
 		return nil, fmt.Errorf("node agent: %w", err)
 	}
-	a := &Agent{handle: handle, token: token, networks: map[string]netip.Addr{opts.Network: opts.Address}}
+	a := &Agent{handle: handle, token: token, architecture: strings.TrimPrefix(platform, "linux/"), networks: map[string]netip.Addr{opts.Network: opts.Address}}
 	a.client = NewClient("http://"+net.JoinHostPort(opts.Address.String(), strconv.Itoa(apiPort)), token)
 	readyCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
@@ -90,6 +94,9 @@ const apiPort = 8700
 
 // Client is the agent's API client.
 func (a *Agent) Client() *Client { return a.client }
+
+// Architecture is the OCI architecture the agent's guests run on.
+func (a *Agent) Architecture() string { return a.architecture }
 
 // ContainerID is the agent container's ID.
 func (a *Agent) ContainerID() string { return a.handle.ContainerID }

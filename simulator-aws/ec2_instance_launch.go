@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -16,8 +15,6 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/vminstance"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
-	"github.com/moby/moby/api/pkg/stdcopy"
-	"github.com/moby/moby/client"
 )
 
 // ec2InstanceWorkload is an instance's machine on its placement backend: the
@@ -73,9 +70,9 @@ func (c *ec2Console) Output() string {
 }
 
 // ec2ConsoleOutput is what GetConsoleOutput reports for an instance: the
-// container backend's engine holds the machine's whole console, a stopped
-// machine's included; any other backend's console is what its handle streamed.
-// An instance that never booted in this process has none.
+// machine's whole console as its backend keeps it, a stopped machine's
+// included, and the most recent 64 KB of it. An instance that never booted in
+// this process has none.
 func ec2ConsoleOutput(ctx context.Context, instanceID string) string {
 	ec2WorkloadsMu.Lock()
 	w := ec2Workloads[instanceID]
@@ -86,38 +83,18 @@ func ec2ConsoleOutput(ctx context.Context, instanceID string) string {
 	w.mu.Lock()
 	id := w.id
 	w.mu.Unlock()
-	if id != "" && w.backend.Kind() == placement.Container {
-		console, err := ec2ContainerConsole(ctx, id)
-		if err == nil {
-			return console
-		}
-		fmt.Fprintf(os.Stderr, "[sim-ec2] instance %s: read console of %s: %v\n", instanceID, id, err)
+	if id == "" {
+		return w.console.Output()
 	}
-	return w.console.Output()
-}
-
-// ec2ContainerConsole reads a container's whole output from the engine and
-// keeps the most recent 64 KB of it.
-func ec2ContainerConsole(ctx context.Context, containerID string) (string, error) {
-	cli := sim.DockerClient()
-	if err := sim.RequireContainerRuntime("reading an instance's console"); err != nil {
-		return "", err
-	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	result, err := cli.ContainerLogs(ctx, containerID, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
+	console, err := w.backend.Console(ctx, id)
 	if err != nil {
-		return "", err
+		fmt.Fprintf(os.Stderr, "[sim-ec2] instance %s: read console of %s: %v\n", instanceID, id, err)
+		return w.console.Output()
 	}
-	defer result.Close()
-	var out bytes.Buffer
-	if _, err := stdcopy.StdCopy(&out, &out, result); err != nil {
-		return "", err
+	if len(console) > ec2ConsoleLimit {
+		console = console[len(console)-ec2ConsoleLimit:]
 	}
-	if out.Len() > ec2ConsoleLimit {
-		return string(out.Bytes()[out.Len()-ec2ConsoleLimit:]), nil
-	}
-	return out.String(), nil
+	return console
 }
 
 // ec2InstanceReadyWait is the command that returns once the instance's init
@@ -458,8 +435,7 @@ func ec2CommitWorkload(ctx context.Context, instanceID, reference string) error 
 	if id == "" {
 		return fmt.Errorf("instance %s has no root disk to capture", instanceID)
 	}
-	_, err := sim.CommitContainer(ctx, id, reference)
-	return err
+	return w.backend.Capture(ctx, id, reference)
 }
 
 // ec2Boot is a pending instance's boot, which stopping or terminating the

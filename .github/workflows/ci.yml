@@ -434,6 +434,20 @@ jobs:
             suite: sdk
             shard: Cosmos
             run: '^TestCosmos(Scripts)?_DifferentialVsEmulator'
+          # The microVM shards run each cloud's machine tests with that
+          # service placed on Firecracker guests through the node agent, on
+          # the runner's KVM: the instance's image, user data, metadata, DNS,
+          # console, stop and start on its kept disk, and the disk's capture.
+          - cloud: gcp
+            suite: sdk
+            shard: microvm
+            run: '^TestCompute_InstanceBootsRunsItsStartupScriptAndKeepsItsDisk$'
+            placement: compute=microvm
+          - cloud: azure
+            suite: sdk
+            shard: microvm
+            run: '^TestCompute_VirtualMachine(RunsCustomDataAndReadsItsMetadata|DeallocateKeepsTheOSDiskAndAnImageCapturesIt|StateOperations|GuestOperations|BootDiagnostics)$'
+            placement: virtualmachines=microvm
           - cloud: azure
             suite: cli
             shard: A-M
@@ -596,7 +610,7 @@ jobs:
         # Shard-independent; the sdk suite carries them so they run once per
         # cloud. The inner deadline sits under the step budget so a hung test
         # fails with a named Go stack rather than an opaque step kill.
-        if: matrix.suite == 'sdk'
+        if: matrix.suite == 'sdk' && !matrix.placement
         run: cd simulator-${{ matrix.cloud }} && make unit-test UNIT_TEST_TIMEOUT=2m30s
         timeout-minutes: 3
       # Pre-pull the Cosmos DB emulator (the differential-test oracle for
@@ -614,6 +628,20 @@ jobs:
         run: |
           sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" /etc/docker/certs.d
           sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0
+      - name: The runner offers KVM to the node agent
+        if: matrix.placement
+        run: |
+          test -c /dev/kvm
+          sudo chmod 0666 /dev/kvm
+      - name: Build the node agent image
+        # The simulator starts the agent before it listens, and the harness
+        # gives it two minutes to listen; a cold build of the agent image
+        # takes longer than that, so the image is built here first.
+        if: matrix.placement
+        run: |
+          bash scripts/ci-go-mod-download.sh sim
+          make node-agent-image
+        timeout-minutes: 8
       - name: Run SDK tests
         if: matrix.suite == 'sdk'
         run: |
@@ -621,6 +649,7 @@ jobs:
           bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}/sdk-tests
           cd simulator-${{ matrix.cloud }}
           env \
+            SIM_PLACEMENT="${{ matrix.placement }}" \
             SOCKERLESS_SPEC_VALIDATE="$RUNNER_TEMP/${{ matrix.cloud }}-spec-violations.jsonl" \
             SOCKERLESS_SPEC_DIR="$GITHUB_WORKSPACE/specs/cloud-api/${{ matrix.cloud }}" \
             make sdk-test ${{ matrix.run && format('SDK_TEST_ARGS="-run ''{0}''{1} ./..."', matrix.run, matrix.skip && format(' -skip ''{0}''', matrix.skip) || '') || '' }}
@@ -708,6 +737,13 @@ jobs:
           # families, fail over twice and build a new standby after each.
           - suite: rds-multi-az
             run: '^Test(RDS_MultiAZ)'
+          # The instance tests again, with Amazon EC2 placed on Firecracker
+          # guests through the node agent on the runner's KVM: the AMI's
+          # image, user data, metadata, console, stop and start on the kept
+          # root disk, CreateImage's capture of it, and Run Command.
+          - suite: ec2-microvm
+            run: '^TestEC2_(InstanceRunsUserDataAndReadsItsMetadata|StopKeepsTheRootDiskAndCreateImageCapturesIt|InstancesOfVPCsSharingACIDRCannotCoexist|RunInstancesRefusesAnArchitectureMismatch|ImportImageFromAnOCIReferenceBoots|ConsoleOutput)$'
+            placement: ec2=microvm
     steps:
       - uses: actions/checkout@v7.0.1
       # Not install-go's cache: its key is shared by every job in the
@@ -842,6 +878,20 @@ jobs:
         run: |
           sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" /etc/docker/certs.d
           sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0
+      - name: The runner offers KVM to the node agent
+        if: matrix.placement
+        run: |
+          test -c /dev/kvm
+          sudo chmod 0666 /dev/kvm
+      - name: Build the node agent image
+        # The simulator starts the agent before it listens, and the harness
+        # gives it two minutes to listen; a cold build of the agent image
+        # takes longer than that, so the image is built here first.
+        if: matrix.placement
+        run: |
+          bash scripts/ci-go-mod-download.sh sim
+          make node-agent-image
+        timeout-minutes: 8
       - name: Run AWS SDK tests
         # The suite has exhausted the runner volume from a 89 GB starting
         # margin, killing the runner process as it wrote its own diagnostic log
@@ -871,6 +921,7 @@ jobs:
             done
           }
           env \
+            SIM_PLACEMENT="${{ matrix.placement }}" \
             SOCKERLESS_AWS_SIMULATOR_BINARY="$GITHUB_WORKSPACE/simulator-aws/simulator-aws" \
             SOCKERLESS_SPEC_VALIDATE="$RUNNER_TEMP/aws-spec-violations.jsonl" \
             SOCKERLESS_SPEC_DIR="$GITHUB_WORKSPACE/specs/cloud-api/aws" \

@@ -29,14 +29,21 @@ trap 'rm -f "$regex_file" "$test_file"' EXIT
 job_block=$(awk '/^  sim:$/{inside=1; next} /^  [a-z][a-z0-9-]*:$/{inside=0} inside' "$ci")
 # Each line is a shard: its run regex, a tab, and its skip regex (empty when the
 # shard skips nothing). A test belongs to a shard when run matches and skip does not.
+# A matrix entry with a `placement:` runs its tests a second time on another
+# backend, by design; its regex is not a shard of the partition, so it is
+# kept apart and checked only for naming tests that exist.
+placement_file=$(mktemp)
+trap 'rm -f "$regex_file" "$test_file" "$placement_file"' EXIT
 awk '
-  function flush() { if (cloud == "azure" && suite == "sdk" && run != "") print run "\t" skip }
-  /^ *steps:/   { flush(); exit }
-  /^ *- cloud:/ { flush(); cloud=$3; suite=""; run=""; skip=""; next }
-  /^ *suite:/   { suite=$2; next }
-  /^ *run:/     { run=$0; sub(/^ *run: /, "", run); gsub(/^\047|\047$/, "", run); next }
-  /^ *skip:/    { skip=$0; sub(/^ *skip: /, "", skip); gsub(/^\047|\047$/, "", skip); next }
-' <<<"$job_block" > "$regex_file"
+  function flush() { if (cloud == "azure" && suite == "sdk" && run != "") print (placement != "" ? "placement" : "shard") "\t" run "\t" skip }
+  /^ *steps:/     { flush(); exit }
+  /^ *- cloud:/   { flush(); cloud=$3; suite=""; run=""; skip=""; placement=""; next }
+  /^ *suite:/     { suite=$2; next }
+  /^ *run:/       { run=$0; sub(/^ *run: /, "", run); gsub(/^\047|\047$/, "", run); next }
+  /^ *skip:/      { skip=$0; sub(/^ *skip: /, "", skip); gsub(/^\047|\047$/, "", skip); next }
+  /^ *placement:/ { placement=$2; next }
+' <<<"$job_block" > "$placement_file"
+awk -F'\t' '$1 == "shard" { print $2 "\t" $3 }' "$placement_file" > "$regex_file"
 if [ ! -s "$regex_file" ]; then
   echo "FAIL: no Azure SDK shard regexes (run: '^Test[...]') found in the sim job of $ci" >&2
   exit 1
@@ -68,9 +75,18 @@ while IFS= read -r t; do
   fi
 done < "$test_file"
 
+empty=0
+while IFS= read -r re; do
+  [ -n "$re" ] || continue
+  if ! grep -qE "$re" "$test_file"; then
+    echo "FAIL: placement shard regex $re matches no Azure SDK test" >&2
+    empty=$((empty + 1))
+  fi
+done < <(awk -F'\t' '$1 == "placement" { print $2 }' "$placement_file")
+
 n_shards=$(grep -c . "$regex_file")
-if [ "$orphans" -ne 0 ] || [ "$doubles" -ne 0 ]; then
-  echo "azure-sdk-shard-coverage: $orphans orphan(s), $doubles double(s) across $n_tests tests / $n_shards shards." >&2
+if [ "$orphans" -ne 0 ] || [ "$doubles" -ne 0 ] || [ "$empty" -ne 0 ]; then
+  echo "azure-sdk-shard-coverage: $orphans orphan(s), $doubles double(s), $empty empty placement shard(s) across $n_tests tests / $n_shards shards." >&2
   echo "Fix the shard 'run' regexes in $ci so each test matches exactly one shard." >&2
   exit 1
 fi

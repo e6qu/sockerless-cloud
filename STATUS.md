@@ -57,12 +57,18 @@ Current state of the sockerless-cloud repository.
   placement table `SIM_PLACEMENT` reads (`sim/placement`): the container
   backend by default, and the microVM backend, served by a node agent
   (`sim/nodeagent`) the binary starts as a container with `/dev/kvm`, for the
-  services configured onto it. Amazon EC2, Compute Engine and Azure virtual
-  machine instances are containers from each cloud's image catalog
-  (`sim/vminstance`): the init runs the instance's user data, the instance
-  stops and starts on its own root disk, and an image captured from one is
-  the committed container. Per cloud: Amazon EC2 instances boot from the
-  published Amazon Linux 2023, Ubuntu 24.04 and Debian 12 AMIs or from
+  services configured onto it. CI runs each cloud's instance tests on both:
+  the `ec2-microvm`, Compute Engine `microvm` and Azure `microvm` SDK shards
+  place that service on Firecracker guests on the runner's KVM. A machine's
+  console and its disk capture go through the backend (`Console`, `Capture`):
+  a guest's console is kept by the agent across its stops, and an image
+  captured from a guest is the agent's export of its frozen root filesystem.
+  Amazon EC2, Compute Engine and Azure virtual machine instances boot from
+  each cloud's image catalog (`sim/vminstance`): the init runs the instance's
+  user data, the instance stops and starts on its own root disk, and an
+  image captured from one is the committed container or the exported guest.
+  Per cloud: Amazon EC2 instances boot from the published Amazon Linux 2023,
+  Ubuntu 24.04 and Debian 12 AMIs or from
   OCI-referenced customer AMIs (`RegisterImage` `ImageLocation`,
   `ImportImage` `Url`), with IMDS through the sidecar, `GetConsoleOutput`,
   `CreateImage` capture and Systems Manager Run Command through the machine;

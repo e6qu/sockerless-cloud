@@ -1,18 +1,13 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/moby/moby/api/pkg/stdcopy"
-	"github.com/moby/moby/client"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/placement"
@@ -321,7 +316,7 @@ func gcpInstanceMachineID(link string) (string, bool) {
 	return gcpKeptInstanceMachine(link)
 }
 
-// gcpCaptureInstanceDisk commits the instance's machine as an engine image
+// gcpCaptureInstanceDisk stores the instance's machine as an engine image
 // under reference: the image an instance created from the captured image
 // boots from.
 func gcpCaptureInstanceDisk(ctx context.Context, inst ComputeInstance, reference string) error {
@@ -329,8 +324,11 @@ func gcpCaptureInstanceDisk(ctx context.Context, inst ComputeInstance, reference
 	if !ok {
 		return fmt.Errorf("instance %s has no machine to capture", inst.SelfLink)
 	}
-	_, err := sim.CommitContainer(ctx, id, reference)
-	return err
+	backend, err := gcpPlacement.For(placementCompute)
+	if err != nil {
+		return err
+	}
+	return backend.Capture(ctx, id, reference)
 }
 
 // gcpInstanceSerialPortOutput is the instance's serial console: everything
@@ -340,22 +338,15 @@ func gcpInstanceSerialPortOutput(ctx context.Context, link string) (string, erro
 	if !ok {
 		return "", nil
 	}
-	cli := sim.DockerClient()
-	if cli == nil {
-		return "", errors.New("no container engine")
+	backend, err := gcpPlacement.For(placementCompute)
+	if err != nil {
+		return "", err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	reader, err := cli.ContainerLogs(ctx, id, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
+	console, err := backend.Console(ctx, id)
 	if err != nil {
 		return "", fmt.Errorf("read the console of %s: %w", link, err)
 	}
-	defer func() { _ = reader.Close() }()
-	var out bytes.Buffer
-	if _, err := stdcopy.StdCopy(&out, &out, reader); err != nil && !errors.Is(err, io.EOF) {
-		return "", fmt.Errorf("read the console of %s: %w", link, err)
-	}
-	return out.String(), nil
+	return console, nil
 }
 
 // gcpAdoptComputeInstances takes over the machines an earlier simulator
