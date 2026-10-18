@@ -100,6 +100,21 @@ func TestNoOsExecOfWorkloads(t *testing.T) {
 			why:  "the node agent filtering a guest's tap inside the agent container's own namespace",
 		},
 		{
+			file: filepath.Join("sim", "nodeagent", "cmd", "nodeagent", "export.go"),
+			call: `exec.CommandContext(ctx, "debugfs", "-R", "ls -p /", image)`,
+			why:  "the node agent listing a guest's root filesystem inside the agent container",
+		},
+		{
+			file: filepath.Join("sim", "nodeagent", "cmd", "nodeagent", "export.go"),
+			call: `exec.CommandContext(ctx, "debugfs", "-f", commands.Name(), image)`,
+			why:  "the node agent reading a guest's root filesystem out of its image inside the agent container",
+		},
+		{
+			file: filepath.Join("sim", "nodeagent", "cmd", "nodeagent", "export.go"),
+			call: `exec.CommandContext(ctx, "tar", "--numeric-owner", "-C", dir, "-cf", "-", ".")`,
+			why:  "the node agent archiving a guest's root filesystem inside the agent container",
+		},
+		{
 			file: filepath.Join("sim", "nodeagent", "cmd", "nodeagent", "network.go"),
 			call: `exec.CommandContext(ctx, args[0], args[1:]...)`,
 			why:  "the node agent configuring its bridge and taps inside the agent container's own namespace",

@@ -218,8 +218,11 @@ func (b *MicroVMBackend) Capture(ctx context.Context, id, reference string) erro
 // uploadRootFS streams the image's filesystem, as the engine exports a
 // container created from it, into the agent.
 func (b *MicroVMBackend) uploadRootFS(ctx context.Context, cli *client.Client, agent *nodeagent.Client, id, imageID string, w Workload) error {
+	// The container is created to be exported, never started, and the
+	// engine still wants a command: a captured image, imported from an
+	// archive, declares none.
 	created, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config: &container.Config{Image: imageID, Labels: map[string]string{"sockerless-sim-export": id}},
+		Config: &container.Config{Image: imageID, Cmd: []string{"/sbin/sockerless-init"}, Labels: map[string]string{"sockerless-sim-export": id}},
 	})
 	if err != nil {
 		return fmt.Errorf("export %s: create: %w", w.Image, err)

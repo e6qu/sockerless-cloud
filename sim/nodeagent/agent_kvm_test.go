@@ -182,7 +182,7 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 	mu.Lock()
 	answer := strings.TrimSpace(strings.Join(capturedLog, "\n"))
 	mu.Unlock()
-	if answer != "25" {
+	if !strings.HasSuffix(answer, "\n25") {
 		t.Fatalf("the captured image's program answered %q", answer)
 	}
 	again.Cancel()

@@ -438,15 +438,17 @@ jobs:
           # service placed on Firecracker guests through the node agent, on
           # the runner's KVM: the instance's image, user data, metadata, DNS,
           # console, stop and start on its kept disk, and the disk's capture.
+          # The regexes reach go test through make, which reads `$` as a
+          # variable reference, so they anchor at the start only.
           - cloud: gcp
             suite: sdk
             shard: microvm
-            run: '^TestCompute_InstanceBootsRunsItsStartupScriptAndKeepsItsDisk$'
+            run: '^TestCompute_InstanceBootsRunsItsStartupScriptAndKeepsItsDisk'
             placement: compute=microvm
           - cloud: azure
             suite: sdk
             shard: microvm
-            run: '^TestCompute_VirtualMachine(RunsCustomDataAndReadsItsMetadata|DeallocateKeepsTheOSDiskAndAnImageCapturesIt|StateOperations|GuestOperations|BootDiagnostics)$'
+            run: '^TestCompute_VirtualMachine(RunsCustomDataAndReadsItsMetadata|DeallocateKeepsTheOSDiskAndAnImageCapturesIt|StateOperations|GuestOperations|BootDiagnostics)'
             placement: virtualmachines=microvm
           - cloud: azure
             suite: cli

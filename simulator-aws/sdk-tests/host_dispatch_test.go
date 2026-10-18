@@ -39,6 +39,7 @@ func TestNoHostProcessDispatchOfWorkloads(t *testing.T) {
 		"sim/nodeagent/cmd/nodeagent/firecracker.go": "the node agent program, which runs inside the agent container: starts Firecracker for a guest there, not on the simulator's host",
 		"sim/nodeagent/cmd/nodeagent/guest.go":       "the node agent program: builds a guest's disks inside the agent container",
 		"sim/nodeagent/cmd/nodeagent/network.go":     "the node agent program: configures taps and filters inside the agent container's own namespace",
+		"sim/nodeagent/cmd/nodeagent/export.go":      "the node agent program: reads a guest's root filesystem out of its image inside the agent container",
 		"sim/nodeagent/cmd/guestinit/main.go":        "the guest's init, which runs inside a microVM and starts the workload there",
 	}
 
