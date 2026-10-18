@@ -181,11 +181,38 @@ func azureReleaseWorkloadAddress(subnetID, owner, address string) {
 	azureReleaseSubnetAddress(subnetID, owner, net.ParseIP(address))
 }
 
+// azureWorkloadAddress leases the address a workload without a network
+// interface resource of its own takes on network: one of the subnet's when
+// the workload sits in a virtual network's subnet, else one of the
+// simulator's half of the platform network, which the engine never
+// allocates, so the workload lands at the same address whichever backend
+// places it. The release gives it back.
+func azureWorkloadAddress(ctx context.Context, network azureWorkloadNetwork, subnetID, owner string) (string, func(), error) {
+	if subnetID != "" {
+		address, err := azureLeaseWorkloadAddress(subnetID, owner)
+		if err != nil {
+			return "", nil, err
+		}
+		return address, func() { azureReleaseWorkloadAddress(subnetID, owner, address) }, nil
+	}
+	return azurePlatformAddress(ctx, network, owner)
+}
+
+// azurePlatformAddress leases the address a workload on no virtual network
+// takes: one of the simulator's half of the network it joins.
+func azurePlatformAddress(ctx context.Context, network azureWorkloadNetwork, owner string) (string, func(), error) {
+	address, release, err := sim.LeasePlatformAddress(ctx, network.Network, owner, netip.Addr{})
+	if err != nil {
+		return "", nil, err
+	}
+	return address.String(), release, nil
+}
+
 // azureReleaseOnExit returns the workload's lease once it has exited.
-func azureReleaseOnExit(exited <-chan struct{}, subnetID, owner, address string) {
+func azureReleaseOnExit(exited <-chan struct{}, release func()) {
 	go func() {
 		<-exited
-		azureReleaseWorkloadAddress(subnetID, owner, address)
+		release()
 	}()
 }
 

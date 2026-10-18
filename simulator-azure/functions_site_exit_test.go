@@ -42,7 +42,7 @@ func TestSiteContainerThatExitsBeforeItsPortIsReadReportsItsExit(t *testing.T) {
 	exit := newContainerExit(handle)
 	<-exit.done
 
-	candidates, err := siteContainerCandidates(t.Context(), handle.ID(), network, 80)
+	candidates, err := siteContainerCandidates(t.Context(), handle, 80)
 	if err != nil {
 		t.Fatalf("an exited container's candidates: %v", err)
 	}

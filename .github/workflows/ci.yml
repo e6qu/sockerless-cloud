@@ -459,6 +459,14 @@ jobs:
             shard: microvm
             run: '^TestCompute_VirtualMachine(RunsCustomDataAndReadsItsMetadata|DeallocateKeepsTheOSDiskAndAnImageCapturesIt|StateOperations|GuestOperations|BootDiagnostics)'
             placement: virtualmachines=microvm
+          # The Container Apps microVM shard places each replica and job
+          # execution in one guest, its sidecars as members, at an address
+          # leased from the platform network.
+          - cloud: azure
+            suite: sdk
+            shard: containerapps-microvm
+            run: '^Test(SDK_ContainerAppsApps_(StartsRealReplicaAndLogs|MultiContainerSharesLocalhost|DaprSidecarServesRealDaprAPI)|ContainerApps_(MultiContainerJobSharesLocalhost|ExecutionRunsCommand|ExecutionLogsRealOutput|StartJobInjectsLogs))'
+            placement: containerapps=microvm
           - cloud: azure
             suite: cli
             shard: A-M
@@ -755,6 +763,14 @@ jobs:
           - suite: ec2-microvm
             run: '^TestEC2(_(InstanceRunsUserDataAndReadsItsMetadata|StopKeepsTheRootDiskAndCreateImageCapturesIt|InstancesOfVPCsSharingACIDRCannotCoexist|RunInstancesRefusesAnArchitectureMismatch|ImportImageFromAnOCIReferenceBoots|ConsoleOutput)|InstanceSurvivesSimulatorRestart_SDK)$'
             placement: ec2=microvm
+          # Amazon ECS Fargate tasks again, each awsvpc task in one guest at
+          # its ENI's address with the other containers as members: the
+          # shared localhost, the ENI attachment, overrides, secrets, the
+          # exit codes and stop codes, a service's tasks behind a load
+          # balancer, and the service lifecycle.
+          - suite: ecs-microvm
+            run: '^TestECS_(MultiContainerTaskSharesLocalhost|RunTask_AwsvpcAttachesElasticNetworkInterface|StopCodeUserInitiated|ExitCodeNilWhileRunning|RunTaskContainerOverridesApplyToRuntimeSDK|ServiceRegistersHealthyLoadBalancerTargets|TaskDefinitionSecretsInjected|RunTask_RunningDoesNotWaitForTheApplication|ServiceLifecycle)$'
+            placement: ecs:FARGATE=microvm
     steps:
       - uses: actions/checkout@v7.0.1
       # Not install-go's cache: its key is shared by every job in the

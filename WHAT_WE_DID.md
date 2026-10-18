@@ -3326,3 +3326,32 @@ localhost, and checks that the first process reads it, that neither root
 sees the other's files, that the member's stop leaves the first process
 running, and that `Find` lists the member; CI's `run-microvm` SDK shard runs
 Cloud Run's multi-container tests with `SIM_PLACEMENT=run=microvm`.
+
+### Amazon ECS Fargate and Container Apps on guests
+
+Two more KVM shards followed the Cloud Run one. `ecs-microvm` sets
+`SIM_PLACEMENT=ecs:FARGATE=microvm`, the launch-type qualifier the placement
+table reads, and runs the Fargate awsvpc tests: each task is one guest at its
+ENI's leased address with the other containers as members, and Elastic Load
+Balancing reaches a target at that address, since the Docker Desktop
+loopback mapping it looks for first names no container of a guest.
+`containerapps-microvm` runs the Container Apps replica and job tests, which
+needed what Cloud Run needed: an address the engine never allocates. Every
+Azure workload without a network interface resource of its own takes one
+through `azureWorkloadAddress` — the subnet's when it sits in a virtual
+network's subnet, else one leased from the lower half of the network it
+joins (the platform network, or a Container Apps environment's own) — and
+Container Apps replicas and jobs, Container Instances, App Service sites,
+Kudu commands and WebJobs all lease theirs now, released at exit.
+Container Apps ingress and App Service's site route, its plan's worker
+listing and its worker reboot read the workload's address off its handle
+rather than the engine, and a site's route accepts a guest's address alone
+where a container also offers its published loopback port.
+
+What a guest cannot do, the backend now says. `MicroVMBackend.Place` and
+`PlaceMember` refuse a workload with bind mounts (`ErrBindMounts`) instead
+of running it without them, which kept App Service — whose site, Kudu and
+WebJob containers mount the site's `/home` — off the microVM shards until
+the agent serves a file share to guests (BUG-3516); a site integrated into
+a virtual network also asks for a second interface a guest has not got
+(BUG-3517).

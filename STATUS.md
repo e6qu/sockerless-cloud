@@ -73,10 +73,16 @@ Current state of the sockerless-cloud repository.
   container in the owner's namespace, or a member of the owner's guest,
   which guestinit runs from the member's own image on one of the guest's
   disk slots, sharing the guest's network, so the two reach each other on
-  localhost on either backend. The `run-microvm` SDK shard runs Cloud Run's
-  multi-container tests on guests. A platform network's lower half is the
-  simulator's to lease (`sim.LeasePlatformAddress`) and the engine allocates
-  from the upper half, so a guest on it takes an address no container can.
+  localhost on either backend. The `run-microvm`, `ecs-microvm` and
+  `containerapps-microvm` SDK shards run Cloud Run's, Amazon ECS Fargate's
+  and Container Apps' multi-container tests on guests. A platform network's
+  lower half is the simulator's to lease (`sim.LeasePlatformAddress`) and
+  the engine allocates from the upper half, so a workload on it takes an
+  address no container can, whichever backend places it: Cloud Run
+  instances, Container Apps replicas and jobs, Container Instances, App
+  Service sites, Kudu commands and WebJobs lease theirs. A guest takes no
+  bind mounts and joins no second network, so App Service and the
+  volume-carrying workloads stay on containers (BUG-3516, BUG-3517).
   Amazon EC2, Compute Engine and Azure virtual machine instances boot from
   each cloud's image catalog (`sim/vminstance`): the init runs the instance's
   user data, the instance stops and starts on its own root disk, and an

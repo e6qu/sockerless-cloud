@@ -124,8 +124,8 @@ func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp, r
 		AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q has no running replica", app.Name)
 		return
 	}
-	ip := sim.ContainerIPv4(handles[0].ID())
-	if ip == "" {
+	ip, err := handles[0].Address(r.Context())
+	if err != nil || ip == "" {
 		AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q replica has no reachable IP", app.Name)
 		return
 	}

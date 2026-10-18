@@ -838,25 +838,19 @@ func startACARevisionReplicas(ctx context.Context, app ContainerApp, rev acaRevi
 		main.Config.NetworkAliases = netAliases
 		main.Config.DNS = network.resolvers()
 		main.Config.ExtraHosts = workloadhost.ExtraHosts()
-		address := ""
-		if subnetID != "" {
-			if address, err = azureLeaseWorkloadAddress(subnetID, main.Config.Name); err != nil {
-				cancelStarted()
-				return err
-			}
-			main.Config.IPv4Address = address
-		}
-		group, err := acaStartGroup(ctx, main, nil, replica.containers[0].sink(app, revision))
+		address, release, err := azureWorkloadAddress(ctx, network, subnetID, main.Config.Name)
 		if err != nil {
-			if address != "" {
-				azureReleaseWorkloadAddress(subnetID, main.Config.Name, address)
-			}
 			cancelStarted()
 			return err
 		}
-		if address != "" {
-			azureReleaseOnExit(group.Main.Exited(), subnetID, main.Config.Name, address)
+		main.Config.IPv4Address = address
+		group, err := acaStartGroup(ctx, main, nil, replica.containers[0].sink(app, revision))
+		if err != nil {
+			release()
+			cancelStarted()
+			return err
 		}
+		azureReleaseOnExit(group.Main.Exited(), release)
 		handles = append(handles, group.Main)
 		replica.containers[0].track(group.Main, resourceID, envID, app.Name, revision, replica.name)
 		for i, c := range containers[1:] {

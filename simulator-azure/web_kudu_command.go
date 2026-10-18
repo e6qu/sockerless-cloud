@@ -132,6 +132,12 @@ func kuduCommand(w http.ResponseWriter, r *http.Request, site *Site) {
 		kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	name := fmt.Sprintf("sockerless-sim-azure-kudu-command-%s-%s", siteStorageName(site.Name), randomSuffix(6))
+	address, release, err := azurePlatformAddress(r.Context(), network, name)
+	if err != nil {
+		kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	handle, err := backend.Place(r.Context(), sim.ContainerConfig{
 		Image:        localImage,
 		Architecture: platform,
@@ -140,20 +146,23 @@ func kuduCommand(w http.ResponseWriter, r *http.Request, site *Site) {
 		Env:          env,
 		WorkingDir:   workdir,
 		Binds:        append(binds, siteAzureStorageBinds(site)...),
-		Name:         fmt.Sprintf("sockerless-sim-azure-kudu-command-%s-%s", siteStorageName(site.Name), randomSuffix(6)),
+		Name:         name,
 		Labels: map[string]string{
 			"sockerless-sim-type": "azure-kudu-command",
 			"sockerless-site":     site.Name,
 		},
-		Network:    network.Network,
-		DNS:        network.resolvers(),
-		ExtraHosts: workloadhost.ExtraHosts(),
-		Sandbox:    kuduCommandSandbox(),
+		Network:     network.Network,
+		IPv4Address: address,
+		DNS:         network.resolvers(),
+		ExtraHosts:  workloadhost.ExtraHosts(),
+		Sandbox:     kuduCommandSandbox(),
 	}, sink)
 	if err != nil {
+		release()
 		kuduWebAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	azureReleaseOnExit(handle.Exited(), release)
 	done := make(chan sim.ProcessResult, 1)
 	go func() { done <- handle.Wait() }()
 	timer := time.NewTimer(idle)

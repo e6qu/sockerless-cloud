@@ -804,27 +804,21 @@ func startACAJobContainers(ctx context.Context, execID, shortExecID string, job 
 	main.Config.NetworkAliases = netAliases
 	main.Config.DNS = network.resolvers()
 	main.Config.ExtraHosts = workloadhost.ExtraHosts()
-	address := ""
-	if subnetID != "" {
-		if address, err = azureLeaseWorkloadAddress(subnetID, main.Config.Name); err != nil {
-			return nil, err
-		}
-		main.Config.IPv4Address = address
+	address, release, err := azureWorkloadAddress(ctx, network, subnetID, main.Config.Name)
+	if err != nil {
+		return nil, err
 	}
+	main.Config.IPv4Address = address
 	sidecars := make([]workload.Container, 0, len(tmpl.Containers)-1)
 	for i, c := range tmpl.Containers[1:] {
 		sidecars = append(sidecars, member(c, fmt.Sprintf("sockerless-sim-azure-execution-%s-sidecar-%d", shortExecID, i)))
 	}
 	group, err := acaStartGroup(ctx, main, sidecars, sink)
 	if err != nil {
-		if address != "" {
-			azureReleaseWorkloadAddress(subnetID, main.Config.Name, address)
-		}
+		release()
 		return nil, err
 	}
-	if address != "" {
-		azureReleaseOnExit(group.Main.Exited(), subnetID, main.Config.Name, address)
-	}
+	azureReleaseOnExit(group.Main.Exited(), release)
 	return group, nil
 }
 
