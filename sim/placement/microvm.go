@@ -26,6 +26,8 @@ import (
 // engine network the agent joined for it.
 type MicroVMBackend struct {
 	agent *nodeagent.Agent
+	// shares serves the host directories guests mount for their binds.
+	shares shares
 	// macPrefix is the three-octet prefix the guests' MACs derive under.
 	macPrefix string
 }
@@ -60,24 +62,16 @@ func (b *MicroVMBackend) Leave(ctx context.Context, network string) error {
 // no address: a guest has no engine-assigned address to fall back on.
 var ErrNoNetwork = errors.New("a microVM workload needs a network the agent joined and an address on it")
 
-// ErrBindMounts is wrapped for a workload that binds host paths or volumes
-// into its filesystem: a guest's filesystem is its own disk, and the backend
-// refuses rather than run the workload without them.
-var ErrBindMounts = errors.New("a microVM workload cannot bind host paths or volumes into its filesystem")
-
-func refuseBinds(w Workload) error {
-	if len(w.Binds) > 0 {
-		return fmt.Errorf("%w: %s binds %s", ErrBindMounts, w.Name, strings.Join(w.Binds, ", "))
-	}
-	return nil
-}
+// ErrBindMounts is wrapped for a workload whose bind the backend cannot
+// serve to a guest: a named volume, which the engine holds where this
+// process cannot read it, or a single file. A host directory is served as a
+// file share the guest mounts, and the backend refuses the rest rather than
+// run the workload without them.
+var ErrBindMounts = errors.New("a microVM workload cannot bind an engine volume or a single file into its filesystem")
 
 func (b *MicroVMBackend) Place(ctx context.Context, w Workload, sink sim.LogSink) (Handle, error) {
 	if w.Network == "" || w.IPv4Address == "" {
 		return nil, ErrNoNetwork
-	}
-	if err := refuseBinds(w); err != nil {
-		return nil, err
 	}
 	agentAddr, ok := b.agent.AddressOn(w.Network)
 	if !ok {
@@ -99,7 +93,36 @@ func (b *MicroVMBackend) Place(ctx context.Context, w Workload, sink sim.LogSink
 	if err != nil || !subnet.Contains(addr) {
 		return nil, fmt.Errorf("address %q is not inside %s", w.IPv4Address, subnet)
 	}
+	gateway := subnet.Masked().Addr().Next().String()
+	mounts, err := b.shares.mountsFor(w, gateway)
+	if err != nil {
+		return nil, err
+	}
 	id := guestID(w)
+	var extra []nodeagent.GuestNetwork
+	for i, attachment := range w.ExtraNetworks {
+		extraAgentAddr, ok := b.agent.AddressOn(attachment.Network)
+		if !ok {
+			return nil, fmt.Errorf("%w: the agent has not joined %s", ErrNoNetwork, attachment.Network)
+		}
+		extraSubnet, err := networkPrefix(ctx, cli, attachment.Network)
+		if err != nil {
+			return nil, err
+		}
+		if attachment.IPv4Address == "" {
+			return nil, fmt.Errorf("%w: a guest's interface on %s needs an address", ErrNoNetwork, attachment.Network)
+		}
+		extraAddr, err := netip.ParseAddr(attachment.IPv4Address)
+		if err != nil || !extraSubnet.Contains(extraAddr) {
+			return nil, fmt.Errorf("address %q is not inside %s", attachment.IPv4Address, extraSubnet)
+		}
+		extra = append(extra, nodeagent.GuestNetwork{
+			AgentAddress: extraAgentAddr.String(),
+			Address:      netip.PrefixFrom(extraAddr, extraSubnet.Bits()).String(),
+			Gateway:      extraSubnet.Masked().Addr().Next().String(),
+			MAC:          guestMAC(b.macPrefix, extraAddr, fmt.Sprintf("%s-%d", id, i+1)),
+		})
+	}
 	spec := nodeagent.GuestSpec{
 		ID:         id,
 		Hostname:   w.Hostname,
@@ -113,12 +136,14 @@ func (b *MicroVMBackend) Place(ctx context.Context, w Workload, sink sim.LogSink
 		Network: nodeagent.GuestNetwork{
 			AgentAddress: agentAddr.String(),
 			Address:      netip.PrefixFrom(addr, subnet.Bits()).String(),
-			Gateway:      subnet.Masked().Addr().Next().String(),
+			Gateway:      gateway,
 			MAC:          guestMAC(b.macPrefix, addr, id),
 			DNS:          w.DNS,
 		},
-		StopGrace: w.CancelGracePeriod,
-		Seed:      seedFiles(w),
+		StopGrace:     w.CancelGracePeriod,
+		Seed:          seedFiles(w),
+		Mounts:        mounts,
+		ExtraNetworks: extra,
 	}
 	if w.NanoCPU > 0 {
 		spec.VCPUs = int((w.NanoCPU + 999_999_999) / 1_000_000_000)
@@ -152,9 +177,6 @@ func (b *MicroVMBackend) PlaceMember(ctx context.Context, owner string, w Worklo
 	if err := memberShape(w); err != nil {
 		return nil, err
 	}
-	if err := refuseBinds(w); err != nil {
-		return nil, err
-	}
 	cli := sim.DockerClient()
 	if err := sim.RequireContainerRuntime("placing a microVM member"); err != nil {
 		return nil, err
@@ -163,6 +185,10 @@ func (b *MicroVMBackend) PlaceMember(ctx context.Context, owner string, w Worklo
 	guest, err := agent.Get(ctx, owner)
 	if err != nil {
 		return nil, fmt.Errorf("member %s of guest %s: %w", w.Name, owner, err)
+	}
+	mounts, err := b.shares.mountsFor(w, guest.Gateway)
+	if err != nil {
+		return nil, err
 	}
 	if w.Architecture == "" {
 		w.Architecture = "linux/" + b.agent.Architecture()
@@ -182,6 +208,7 @@ func (b *MicroVMBackend) PlaceMember(ctx context.Context, owner string, w Worklo
 		User:       image.user,
 		Seed:       seedFiles(w),
 		StopGrace:  w.CancelGracePeriod,
+		Mounts:     mounts,
 	}
 	if _, err := agent.CreateMember(ctx, owner, spec); err != nil {
 		return nil, err

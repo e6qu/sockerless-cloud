@@ -1,8 +1,6 @@
 package aws_cli_test
 
 import (
-	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -23,10 +21,9 @@ func TestECSVPCNetworking(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
-	octetA := unusedDockerVPCOctet(t, 120, nil)
-	octetB := unusedDockerVPCOctet(t, octetA+1, map[int]bool{octetA: true})
-	vpcA, subnetA := mkVPCSubnet(t, q, vpcCIDR(octetA), subnetCIDR(octetA))
-	vpcB, subnetB := mkVPCSubnet(t, q, vpcCIDR(octetB), subnetCIDR(octetB))
+	const rangeA, rangeB = "10.120.0.0/16", "10.121.0.0/16"
+	vpcA, subnetA := mkVPCSubnet(t, q, rangeA, subnetOf(rangeA))
+	vpcB, subnetB := mkVPCSubnet(t, q, rangeB, subnetOf(rangeB))
 	q("ecs", "create-cluster", "--cluster-name", "default", "--query", "cluster.clusterName", "--output", "text")
 	registerTaskDef(q, "vpc-server", vpcServerScript)
 	registerTaskDef(q, "vpc-client", "trap 'exit 143' TERM; sleep 120 & wait")
@@ -47,7 +44,7 @@ func TestECSVPCNetworking(t *testing.T) {
 	// The reported ENI IP is the address the engine gave the container's
 	// eth0 on the VPC's network.
 	eniIP := taskENIIP(q, server)
-	if !strings.HasPrefix(eniIP, vpcPrefix(octetA)) {
+	if !strings.HasPrefix(eniIP, prefixOf(rangeA)) {
 		t.Fatalf("server ENI IP not in subnet-A CIDR: %q", eniIP)
 	}
 	if ips := taskEth0IPs(t, server); !containsIP(ips, eniIP) {
@@ -67,8 +64,8 @@ func TestECSManagedEBSAwsvpcReachability(t *testing.T) {
 	t.Parallel()
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
-	octet := unusedDockerVPCOctet(t, 150, nil)
-	vpcID, subnetID := mkVPCSubnet(t, q, vpcCIDR(octet), subnetCIDR(octet))
+	const vpcRange = "10.254.0.0/16"
+	vpcID, subnetID := mkVPCSubnet(t, q, vpcRange, subnetOf(vpcRange))
 	t.Cleanup(func() {
 		stopCLITasksInSubnet(t, "default", subnetID)
 		q("ec2", "delete-subnet", "--subnet-id", subnetID)
@@ -142,28 +139,16 @@ func mkVPCSubnet(t *testing.T, q func(...string) string, vpcCidr, snCidr string)
 	return vpcID, subnetID
 }
 
-func vpcCIDR(octet int) string { return fmt.Sprintf("10.%d.0.0/16", octet) }
+// A test names its VPC's /16 as a literal, which is what
+// scripts/check-test-network-ranges.go holds apart across the suite: two
+// tests that probe the engine for a free range at the same moment both find
+// the same one, since neither has placed a task on it yet.
 
-func subnetCIDR(octet int) string { return fmt.Sprintf("10.%d.0.0/24", octet) }
+// subnetOf is the first /24 of a VPC's /16.
+func subnetOf(vpcRange string) string { return strings.TrimSuffix(vpcRange, "/16") + "/24" }
 
-func vpcPrefix(octet int) string { return fmt.Sprintf("10.%d.0.", octet) }
-
-func unusedDockerVPCOctet(t *testing.T, start int, exclude map[int]bool) int {
-	t.Helper()
-	for octet := start; octet < 250; octet++ {
-		if exclude != nil && exclude[octet] {
-			continue
-		}
-		name := fmt.Sprintf("sockerless-cidr-probe-%d-%d", os.Getpid(), octet)
-		if exec.Command("docker", "network", "create", "--subnet", vpcCIDR(octet), name).Run() != nil {
-			continue
-		}
-		_ = exec.Command("docker", "network", "rm", name).Run()
-		return octet
-	}
-	t.Fatal("no free 10.x.0.0/16 Docker CIDR available for ECS VPC test")
-	return 0
-}
+// prefixOf is the dotted prefix every address of a VPC's first /24 starts with.
+func prefixOf(vpcRange string) string { return strings.TrimSuffix(vpcRange, "0.0/16") + "0." }
 
 func registerTaskDef(q func(...string) string, family, script string) {
 	q("ecs", "register-task-definition", "--family", family,
@@ -336,8 +321,8 @@ func TestECSVPCDeleteVpcAllowsCIDRReuse(t *testing.T) {
 	q("ecs", "create-cluster", "--cluster-name", "default", "--query", "cluster.clusterName", "--output", "text")
 	registerTaskDef(q, "vpc-reuse-client", "trap 'exit 143' TERM; sleep 120 & wait")
 
-	octet := unusedDockerVPCOctet(t, 140, nil)
-	vpc1, subnet1 := mkVPCSubnet(t, q, vpcCIDR(octet), subnetCIDR(octet))
+	const vpcRange = "10.149.0.0/16"
+	vpc1, subnet1 := mkVPCSubnet(t, q, vpcRange, subnetOf(vpcRange))
 	task1 := runTask(q, "vpc-reuse-client", subnet1)
 	waitRunning(t, q, task1)
 	runCLI(t, awsCLI("ecs", "stop-task", "--cluster", "default", "--task", task1))
@@ -349,7 +334,7 @@ func TestECSVPCDeleteVpcAllowsCIDRReuse(t *testing.T) {
 		t.Fatalf("DeleteVpc left Docker VPC network %s behind", ecsVPCNet(vpc1))
 	}
 
-	vpc2, subnet2 := mkVPCSubnet(t, q, vpcCIDR(octet), subnetCIDR(octet))
+	vpc2, subnet2 := mkVPCSubnet(t, q, vpcRange, subnetOf(vpcRange))
 	task2 := runTask(q, "vpc-reuse-client", subnet2)
 	t.Cleanup(func() {
 		_ = awsCLI("ecs", "stop-task", "--cluster", "default", "--task", task2).Run()
@@ -363,7 +348,7 @@ func TestECSVPCDeleteVpcAllowsCIDRReuse(t *testing.T) {
 	ips := taskEth0IPs(t, task2)
 	inReusedCIDR := false
 	for _, ip := range ips {
-		if strings.HasPrefix(ip, vpcPrefix(octet)) {
+		if strings.HasPrefix(ip, prefixOf(vpcRange)) {
 			inReusedCIDR = true
 			break
 		}

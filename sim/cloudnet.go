@@ -246,17 +246,50 @@ func LeasePlatformAddress(ctx context.Context, network, owner string, requested 
 	if err != nil {
 		return netip.Addr{}, nil, err
 	}
-	var want net.IP
-	if requested.IsValid() {
-		want = net.IP(requested.AsSlice())
+	// A container holds its address on the engine until it is removed, which
+	// a stop with a grace reaches after its lease went back; the engine's
+	// view of the network says which addresses are still taken.
+	held, err := attachedAddresses(ctx, network)
+	if err != nil {
+		return netip.Addr{}, nil, err
 	}
-	ip, err := ledger.Reserve(owner, want)
+	var ip net.IP
+	if requested.IsValid() {
+		if holder, ok := held[requested]; ok {
+			return netip.Addr{}, nil, fmt.Errorf("platform network %s: %w: %s is attached as %s", network, ipam.ErrAddressInUse, requested, holder)
+		}
+		ip, err = ledger.Reserve(owner, net.IP(requested.AsSlice()))
+	} else {
+		ip, err = ledger.ReserveFree(owner, func(candidate net.IP) bool {
+			addr, _ := netip.AddrFromSlice(candidate)
+			_, taken := held[addr.Unmap()]
+			return !taken
+		})
+	}
 	if err != nil {
 		return netip.Addr{}, nil, fmt.Errorf("platform network %s: %w", network, err)
 	}
 	addr, _ := netip.AddrFromSlice(ip)
 	addr = addr.Unmap()
 	return addr, func() { ledger.Release(ip) }, nil
+}
+
+// attachedAddresses lists the IPv4 addresses of the containers attached to
+// the network, by the address, as the engine sees them now.
+func attachedAddresses(ctx context.Context, network string) (map[netip.Addr]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	details, err := DockerClient().NetworkInspect(ctx, network, client.NetworkInspectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("inspect platform network %s: %w", network, err)
+	}
+	held := make(map[netip.Addr]string, len(details.Network.Containers))
+	for id, endpoint := range details.Network.Containers {
+		if endpoint.IPv4Address.IsValid() {
+			held[endpoint.IPv4Address.Addr().Unmap()] = id
+		}
+	}
+	return held, nil
 }
 
 // ReservePlatformAddress records that owner holds addr on the platform

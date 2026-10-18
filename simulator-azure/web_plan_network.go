@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"sort"
@@ -123,12 +125,14 @@ type webPlanWorker struct {
 
 func (wk webPlanWorker) containerID() string { return wk.handle.ID() }
 
-func (wk webPlanWorker) instanceName() string {
-	id := wk.containerID()
-	if len(id) > 12 {
-		return id[:12]
-	}
-	return id
+func (wk webPlanWorker) instanceName() string { return webInstanceName(wk.containerID()) }
+
+// webInstanceName names a worker from its placement identity. The document
+// holds an instance name to ^[a-zA-Z0-9]+$, and a guest's identity carries
+// hyphens, so the name is a digest of the identity rather than a prefix of it.
+func webInstanceName(id string) string {
+	sum := sha256.Sum256([]byte(id))
+	return hex.EncodeToString(sum[:6])
 }
 
 // webPlanWorkers lists the plan's live worker instances from real container

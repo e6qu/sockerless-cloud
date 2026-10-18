@@ -78,7 +78,7 @@ func webListPerfMonCounters(w http.ResponseWriter, r *http.Request) {
 	// The sample covers the interval the engine measured it over, which is the
 	// gap between the two readings it takes.
 	startedAt := sampledAt.Add(-time.Second)
-	instanceName := containerID
+	instanceName := webInstanceName(containerID)
 
 	// One counter is one response carrying one set, which is how the document
 	// declares it: a PerfMonResponse's data member is a single PerfMonSet, not

@@ -16,8 +16,9 @@ import (
 // memberRequest is the agent's request to run a member: its process, and the
 // block device that carries its root filesystem.
 type memberRequest struct {
-	Name   string `json:"name"`
-	Device string `json:"device"`
+	Name   string       `json:"name"`
+	Device string       `json:"device"`
+	Mounts []shareMount `json:"mounts"`
 	processSpec
 }
 
@@ -26,6 +27,9 @@ type memberRequest struct {
 type members struct {
 	first *process
 	logs  *logBook
+	// address is the guest's own, which a member's share mount names as
+	// the client's.
+	address string
 	// done closes once every process has ended, right before the power-off.
 	done chan struct{}
 
@@ -35,8 +39,8 @@ type members struct {
 	closed  bool
 }
 
-func newMembers(first *process, logs *logBook) *members {
-	return &members{first: first, logs: logs, done: make(chan struct{}), byName: map[string]*process{}}
+func newMembers(first *process, logs *logBook, address string) *members {
+	return &members{first: first, logs: logs, address: address, done: make(chan struct{}), byName: map[string]*process{}}
 }
 
 const membersRoot = "/run/sockerless/members"
@@ -65,6 +69,10 @@ func (m *members) add(req memberRequest) error {
 	root := filepath.Join(membersRoot, req.Name)
 	p := newProcess(req.Name, root, req.processSpec, m.logs)
 	if err := mountMemberRoot(req.Device, root); err != nil {
+		m.running.Done()
+		return err
+	}
+	if err := mountShares(req.Mounts, root, m.address); err != nil {
 		m.running.Done()
 		return err
 	}

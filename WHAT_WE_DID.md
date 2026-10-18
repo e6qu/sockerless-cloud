@@ -806,7 +806,10 @@ helper: the sidecar program joins the container's pid namespace with the one
 permission a read of /proc/<pid>/mem needs (`sidecar.ReadProcess`), writes
 the mapping table or the ELF core into a directory only the simulator
 mounted, and ends. App Service process modules and dumps read that way; the
-image itself is `sim/procimage`. A Kudu command runs as the identity that owns
+image itself is `sim/procimage`; its proof dumps a child that has said it
+runs, because Start returns when the kernel closes the exec pipe, which it
+does before it maps the new program, and a mapping table read then once held
+the stack alone. A Kudu command runs as the identity that owns
 the site's files on the host, so what it writes under /home the simulator
 later moves and deletes through the same VFS. The CI harness runs every suite
 as the runner, not root: it makes the engine's trust directory writable and
@@ -815,7 +818,12 @@ opens the low ports, which the mail receivers on port 25 need.
 Two live engine networks over one range do not coexist on one engine, so a
 test's network takes a range no other test in its suite uses; the Auto Scaling
 group fixture counts its groups onto their own /16s, and a fixture that
-boots a machine names a range of its own.
+boots a machine names a range of its own. The AWS CLI suite's Amazon ECS
+tests used to probe the engine for a free /16 at each start: two tests
+starting in the same moment both found the same one, since neither had
+placed a task on it yet, and the probe hid two ranges from the checker that
+EC2 tests also named. Each names its /16 as a literal now, and the checker
+holds them apart.
 Startup refuses to serve in any mode that executes workloads when no engine
 answers: a process that passes its health check and fails every workload in
 the background is worse than one that does not start. Each cloud product's
@@ -3318,6 +3326,13 @@ of its sidecars and node agent (`sim.LeasePlatformAddress`), pre-reserving
 what containers already hold on the network. Cloud Run's instances take a
 leased address whichever backend places them, and an adopted instance
 re-reserves the address its owner holds (`sim.ReservePlatformAddress`). A
+lease goes back once the container that held it is gone, never when it is
+told to stop: a job whose start failed used to release its address while its
+main container was still stopping over its grace, and the ledger, which
+hands out the lowest free address, gave the next job an address the engine
+still held. A lease also skips what the engine's view of the network still
+shows attached, so a removal that outlives the handle's exit cannot hand its
+address on either. A
 platform network an earlier release created without the split is recreated
 while nothing is attached to it, and refused with the fix named while
 something is. The node-agent KVM proof places a busybox member beside the
@@ -3392,3 +3407,55 @@ their matrix rows name (`deadline`), and a failed SDK step dumps the
 simulator's requests in flight and goroutines
 (`scripts/dump-sim-diagnostics.sh`), since the simulator outlives the test
 binary's deadline panic.
+
+### File shares to guests
+
+A bind mount gives a container a host directory; a guest's filesystem is
+the disk built from its image, so a bind has to cross the network. The
+Firecracker CI kernel the agent boots carries one network filesystem, the
+NFSv4 client — no NFSv3, 9p, CIFS or FUSE — and no pure-Go server speaks
+NFSv4 read-write, so `sim/fileshare` is one: NFSv4.0 (RFC 7530) over TCP on
+one port, its ONC RPC and XDR by hand, AUTH_SYS with root squashing off,
+the compound operations a Linux client uses (lookup, open with every create
+mode, read, write, commit, readdir, rename, link, remove, setattr, access,
+readlink, byte-range locks with real conflicts, the client-id handshake),
+persistent filehandles of the export's index and the inode, stale once the
+file is gone, and exports of host directories read-write or read-only. The
+server runs inside the simulator process, which holds the directories, and
+listens on an ephemeral port every engine network's gateway reaches, so the
+backend turns each bind of a host directory into an export named by the
+path's hash and a mount the guest makes from its gateway (`GuestSpec.Mounts`,
+`MemberSpec.Mounts`); guestinit mounts them before the process starts, into
+a member's root for a member, read-only where the bind was. An engine
+volume — a sitecontainer's, an Amazon ECS task's, an ACR task's — lives
+where this process cannot read it, and a single file has no export, so
+those binds still refuse a guest (`ErrBindMounts`). The KVM proof places a
+guest with a bind and a read-only bind of one directory, reads what the
+host wrote, writes, makes a directory and renames across it from the
+guest, has the host read the result, and has the read-only mount refuse a
+write; the `web-microvm` shard runs App Service's site, Kudu, WebJobs,
+container log and slot tests on guests, whose `/home` the site, Kudu and
+the WebJobs now share through the server. A Kudu command on a guest showed
+the agent refusing a guest whose first process ended before the readiness
+ping: a process that ran and ended is a started guest, as a container that
+exits at once is a started container, so the start answers and the handle
+reports the exit. The same shard showed a plan's worker instance name
+breaking the document's `^[a-zA-Z0-9]+$` once a worker was a guest, whose
+placement identity carries hyphens: the instance name is now a hex digest
+of that identity, on either backend, in `listinstances`, the worker
+reboot lookup and the perf-counter samples alike.
+
+A workload's further networks are placement now. A site integrated into
+more than one virtual network used to have its container joined to each
+further network after it started (`sim.ConnectContainerToNetworkAt` on
+the container ID), which a guest has no equivalent of: Firecracker takes
+its interfaces before boot. `ContainerConfig.ExtraNetworks` names each
+further network and the address the workload takes there; the container
+backend joins them after the start, and the microVM backend gives the
+guest a tap on each network's bridge and an interface per network
+(`GuestSpec.ExtraNetworks`), which guestinit configures over rtnetlink —
+address and link up, no route out through it, so the default route stays
+on the first interface as a container's does. App Service leases the
+addresses ahead of the placement, under the workload's name, and the
+agent joins each further virtual network for a service on guests. The KVM
+proof boots a guest on two networks and has it reach the agent on both.

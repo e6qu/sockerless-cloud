@@ -25,6 +25,7 @@ type memberSpec struct {
 	User       string            `json:"user"`
 	Seed       []seedFile        `json:"seed"`
 	StopGrace  time.Duration     `json:"stopGrace"`
+	Mounts     []shareMount      `json:"mounts"`
 }
 
 type memberState struct {
@@ -183,6 +184,7 @@ func (g *guest) startMember(ctx context.Context, name string) (*member, error) {
 		"workingDir": m.spec.WorkingDir,
 		"user":       m.spec.User,
 		"stopGrace":  m.spec.StopGrace,
+		"mounts":     m.spec.Mounts,
 	})
 	startCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()

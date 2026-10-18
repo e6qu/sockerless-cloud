@@ -87,12 +87,27 @@ func (i *IPAM) Reserve(owner string, requested net.IP) (net.IP, error) {
 		return append(net.IP(nil), ip...), nil
 	}
 
+	return i.reserveFree(owner, nil)
+}
+
+// ReserveFree leases the lowest free address that usable accepts, so a
+// caller skips addresses another allocator of the same range still holds.
+func (i *IPAM) ReserveFree(owner string, usable func(net.IP) bool) (net.IP, error) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.reserveFree(owner, usable)
+}
+
+func (i *IPAM) reserveFree(owner string, usable func(net.IP) bool) (net.IP, error) {
 	start := new(big.Int).Add(ipToBig(i.network.IP), big.NewInt(int64(i.first)))
 	end := new(big.Int).Sub(broadcastBig(i.network), big.NewInt(int64(i.last-1)))
 	for n := start; n.Cmp(end) < 0; n.Add(n, big.NewInt(1)) {
 		ip := bigToIPv4(n)
 		key := ip.String()
 		if _, ok := i.reserved[key]; ok {
+			continue
+		}
+		if usable != nil && !usable(ip) {
 			continue
 		}
 		i.reserved[key] = owner

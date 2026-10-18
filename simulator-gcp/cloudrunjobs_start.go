@@ -227,18 +227,30 @@ func startCloudRunContainerGroup(ctx context.Context, g cloudRunContainerGroup, 
 
 	handles := make([]placement.Handle, len(containers))
 	var mu sync.Mutex
-	stopStarted := func() {
+	stopStarted := func() []placement.Handle {
 		mu.Lock()
 		defer mu.Unlock()
+		var started []placement.Handle
 		for _, h := range handles {
 			if h != nil {
 				h.Cancel()
+				started = append(started, h)
 			}
 		}
+		return started
 	}
+	// A container stops over its grace, and holds its address on the engine
+	// network until it is removed; the lease goes back once every started
+	// container is gone, or the next workload leases the address a stopping
+	// container still holds.
 	fail := func(err error) (*workload.Group, func(), error) {
-		stopStarted()
-		releaseMounts()
+		started := stopStarted()
+		go func() {
+			for _, h := range started {
+				<-h.Exited()
+			}
+			releaseMounts()
+		}()
 		return nil, nil, err
 	}
 

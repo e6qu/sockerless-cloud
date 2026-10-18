@@ -471,6 +471,18 @@ jobs:
             run: '^Test(SDK_ContainerAppsApps_(StartsRealReplicaAndLogs|MultiContainerSharesLocalhost|DaprSidecarServesRealDaprAPI)|ContainerApps_(MultiContainerJobSharesLocalhost|ExecutionRunsCommand|ExecutionLogsRealOutput|StartJobInjectsLogs))'
             placement: containerapps=microvm
             deadline: 9m
+          # App Service on guests: the site's persistent /home, which Kudu
+          # and the WebJobs share, reaches the guest as a file share the
+          # simulator serves, so the site, its deployments, its WebJobs,
+          # its container log and a slot's own instance run there, and a
+          # site in a virtual network reaches a container group through
+          # the network's private zone from its guest.
+          - cloud: azure
+            suite: sdk
+            shard: web-microvm
+            run: '^TestSDK_(WebApps_(FilesTheAppWritesPersist|KuduVFSCommandAndSettings|WebJobsRealRuns|ContainerLogs|SlotRunsItsOwnInstanceAndSwaps)|WebVnet_JoinsRealNetwork)'
+            placement: web=microvm
+            deadline: 9m
           - cloud: azure
             suite: cli
             shard: A-M
