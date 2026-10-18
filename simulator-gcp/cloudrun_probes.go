@@ -9,8 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/e6qu/sockerless-cloud/sim"
-	dockerclient "github.com/moby/moby/client"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
@@ -55,15 +54,15 @@ func cloudRunStartupProbe(c Container) Probe {
 	return p
 }
 
-// cloudRunContainerRoute returns the address this host reaches a container's
-// port at, without connecting to the container: Cloud Run opens no connection
-// to a workload but its probes and requests. The container's own address is
-// used when one of this host's interfaces is on the container's network, as a
+// cloudRunContainerRoute returns the address this host reaches a port of the
+// instance's namespace at, without connecting to it: Cloud Run opens no
+// connection to a workload but its probes and requests. The owner's own
+// address is used when one of this host's interfaces is on its network, as a
 // Linux engine's bridge is; a host that is not (Docker Desktop, rootless
 // Podman) reaches the workload only through the port the engine publishes on
 // loopback.
-func cloudRunContainerRoute(ctx context.Context, containerID string, port int) (string, error) {
-	if ip := sim.ContainerIPv4(containerID); ip != "" {
+func cloudRunContainerRoute(ctx context.Context, owner placement.Handle, port int) (string, error) {
+	if ip, err := owner.Address(ctx); err == nil && ip != "" {
 		onNetwork, err := cloudRunHostOnNetworkOf(ip)
 		if err != nil {
 			return "", err
@@ -72,7 +71,7 @@ func cloudRunContainerRoute(ctx context.Context, containerID string, port int) (
 			return net.JoinHostPort(ip, strconv.Itoa(port)), nil
 		}
 	}
-	hostPort, err := sim.PublishedHostPort(ctx, containerID, port)
+	hostPort, err := owner.PublishedPort(ctx, port)
 	if err != nil {
 		return "", err
 	}
@@ -309,57 +308,26 @@ func probeGRPC(ctx context.Context, addr, service string) error {
 	return nil
 }
 
-// watchCloudRunContainerExit returns a channel the engine's wait closes when
-// the container stops running, and the function that releases the wait.
-func watchCloudRunContainerExit(containerID string) (<-chan struct{}, context.CancelFunc) {
-	exited := make(chan struct{})
-	ctx, cancel := context.WithCancel(context.Background())
-	cli := sim.DockerClient()
-	if cli == nil {
-		close(exited)
-		return exited, cancel
-	}
-	wait := cli.ContainerWait(ctx, containerID, dockerclient.ContainerWaitOptions{Condition: "not-running"})
-	go func() {
-		select {
-		case <-wait.Result:
-			close(exited)
-		case err := <-wait.Error:
-			if ctx.Err() == nil && err != nil {
-				close(exited)
-			}
-		case <-ctx.Done():
-		}
-	}()
-	return exited, cancel
-}
-
 // awaitExit waits for the first of the instance's containers to stop and
-// returns its exit code, or -1 when the engine reports none.
+// returns its exit code, or -1 when the backend reports none.
 func (inst *cloudRunServiceInstance) awaitExit(ctx context.Context) int64 {
 	inst.mu.Lock()
-	ids := []string{inst.ownerID}
-	for _, h := range inst.handles {
-		ids = append(ids, h.ContainerID)
-	}
+	handles := append([]placement.Handle{inst.owner}, inst.handles...)
 	inst.mu.Unlock()
-	cli := sim.DockerClient()
-	if cli == nil {
-		return -1
-	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	codes := make(chan int64, len(ids))
-	for _, id := range ids {
-		wait := cli.ContainerWait(ctx, id, dockerclient.ContainerWaitOptions{Condition: "not-running"})
+	codes := make(chan int64, len(handles))
+	for _, h := range handles {
 		go func() {
 			select {
-			case result := <-wait.Result:
-				codes <- result.StatusCode
-			case err := <-wait.Error:
-				if ctx.Err() == nil && err != nil {
+			case <-h.Exited():
+				result := h.Wait()
+				if result.Error != nil && result.ExitCode < 0 {
 					codes <- -1
+					return
 				}
+				codes <- int64(result.ExitCode)
+			case <-ctx.Done():
 			}
 		}()
 	}

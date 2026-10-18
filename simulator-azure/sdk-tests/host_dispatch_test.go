@@ -72,13 +72,8 @@ func TestNoOsExecOfWorkloads(t *testing.T) {
 		},
 		{
 			file: filepath.Join("sim", "nodeagent", "cmd", "guestinit", "main.go"),
-			call: `exec.Command(w.cfg.Command[0], append(w.cfg.Command[1:], w.cfg.Args...)...)`,
-			why:  "the guest's init, which runs inside a microVM and starts the workload there; never on the simulator's host",
-		},
-		{
-			file: filepath.Join("sim", "nodeagent", "cmd", "guestinit", "main.go"),
-			call: `exec.CommandContext(r.Context(), req.Command[0], req.Command[1:]...)`,
-			why:  "the guest's init running an exec request inside its microVM",
+			call: `cmd := &exec.Cmd{Path: path, Args: append(append([]string{command[0]}, command[1:]...), args...), Env: env}`,
+			why:  "the guest's init, which runs inside a microVM and starts the workload, its members and exec requests there, each resolved in its own root; never on the simulator's host",
 		},
 		{
 			file: filepath.Join("sim", "nodeagent", "cmd", "nodeagent", "firecracker.go"),

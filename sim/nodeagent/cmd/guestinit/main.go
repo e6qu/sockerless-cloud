@@ -2,15 +2,18 @@
 // agent boots. It mounts the kernel filesystems, names the host, points the
 // resolver at the cloud's, runs the workload the guest exists for as its
 // child, and serves the agent over vsock: the workload's output, a command to
-// run inside the guest, and a stop. When the workload ends it reports the
-// exit code to the agent and powers the machine off, as a machine whose init
-// has nothing left to run does.
+// run inside the guest, a stop, and the members the agent adds while the
+// guest runs, each from a root filesystem of its own on a block device. When
+// the workload and every member have ended it reports the exits to the agent
+// and powers the machine off, as a machine whose init has nothing left to
+// run does.
 package main
 
 import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -18,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -51,6 +55,7 @@ type logLine struct {
 	Time   time.Time `json:"time"`
 	Stream string    `json:"stream"`
 	Text   string    `json:"text"`
+	Member string    `json:"member,omitempty"`
 }
 
 func main() {
@@ -76,17 +81,23 @@ func run() (int, error) {
 	writeResolvConf(cfg.DNS)
 	_ = os.WriteFile("/etc/hosts", []byte(hostsFile(cfg)), 0o644)
 	logs := newLogBook()
-	workload := newWorkload(cfg, logs)
+	first := newProcess("", "", processSpec{
+		Command: cfg.Command, Args: cfg.Args, Env: cfg.Env, WorkingDir: cfg.WorkingDir, User: cfg.User, StopGrace: cfg.StopGrace,
+	}, logs)
 	children := make(chan os.Signal, 1)
 	signal.Notify(children, syscall.SIGCHLD)
 	go exits.reap(children)
-	if err := workload.start(); err != nil {
-		reportExit(127, err.Error())
+	if err := first.start(); err != nil {
+		reportExit("", 127, err.Error(), 0)
 		return 127, err
 	}
-	go serveControl(workload, logs)
-	result := workload.wait()
-	reportExit(result.code, result.message)
+	group := newMembers(first, logs)
+	go serveControl(group)
+	result := first.wait()
+	reportExit("", result.code, result.message, logs.count(""))
+	group.closeToNew()
+	group.waitAll()
+	close(group.done)
 	return result.code, nil
 }
 
@@ -158,8 +169,8 @@ type logBook struct {
 
 func newLogBook() *logBook { return &logBook{followers: map[chan logLine]struct{}{}} }
 
-func (b *logBook) add(stream, text string) {
-	line := logLine{Time: time.Now().UTC(), Stream: stream, Text: text}
+func (b *logBook) add(member, stream, text string) {
+	line := logLine{Time: time.Now().UTC(), Stream: stream, Text: text, Member: member}
 	b.mu.Lock()
 	b.lines = append(b.lines, line)
 	for ch := range b.followers {
@@ -170,6 +181,20 @@ func (b *logBook) add(stream, text string) {
 	}
 	b.mu.Unlock()
 	fmt.Fprintf(os.Stdout, "%s\n", text)
+}
+
+// count is how many lines a process has written so far, which its exit
+// report carries so the agent knows when it has read them all.
+func (b *logBook) count(member string) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	n := 0
+	for _, line := range b.lines {
+		if line.Member == member {
+			n++
+		}
+	}
+	return n
 }
 
 func (b *logBook) follow() (past []logLine, ch chan logLine, stop func()) {
@@ -190,37 +215,42 @@ type exitResult struct {
 	message string
 }
 
-type workload struct {
-	cfg    guestConfig
+// processSpec is what a process runs: the first process from the guest's
+// configuration, a member from the agent's request.
+type processSpec struct {
+	Command    []string          `json:"command"`
+	Args       []string          `json:"args"`
+	Env        map[string]string `json:"env"`
+	WorkingDir string            `json:"workingDir"`
+	User       string            `json:"user"`
+	StopGrace  time.Duration     `json:"stopGrace"`
+}
+
+// process is one process tree the guest runs: the first process in the
+// guest's own root, or a member, named, in the root mounted at root.
+type process struct {
+	name   string
+	root   string
+	spec   processSpec
 	logs   *logBook
 	cmd    *exec.Cmd
 	done   chan struct{}
 	result exitResult
 }
 
-func newWorkload(cfg guestConfig, logs *logBook) *workload {
-	return &workload{cfg: cfg, logs: logs, done: make(chan struct{})}
+func newProcess(name, root string, spec processSpec, logs *logBook) *process {
+	return &process{name: name, root: root, spec: spec, logs: logs, done: make(chan struct{})}
 }
 
-func (w *workload) start() error {
-	env := environ(w.cfg.Env, w.cfg.User)
-	// A relative command resolves on this process's own PATH before the
-	// command's environment applies, and the kernel starts init with none.
-	if err := os.Setenv("PATH", strings.TrimPrefix(env[0], "PATH=")); err != nil {
+func (p *process) start() error {
+	env := environ(p.spec.Env, p.spec.User, p.root)
+	cmd, err := p.command(p.spec.Command, p.spec.Args, env)
+	if err != nil {
 		return err
 	}
-	cmd := exec.Command(w.cfg.Command[0], append(w.cfg.Command[1:], w.cfg.Args...)...)
-	cmd.Env = env
-	cmd.Dir = w.cfg.WorkingDir
+	cmd.Dir = p.spec.WorkingDir
 	if cmd.Dir == "" {
 		cmd.Dir = "/"
-	}
-	if w.cfg.User != "" {
-		credential, err := parseUser(w.cfg.User)
-		if err != nil {
-			return err
-		}
-		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: credential}
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -232,21 +262,140 @@ func (w *workload) start() error {
 	}
 	pid, err := exits.start(cmd)
 	if err != nil {
-		return fmt.Errorf("start %s: %w", w.cfg.Command[0], err)
+		return fmt.Errorf("start %s: %w", p.spec.Command[0], err)
 	}
-	w.cmd = cmd
+	p.cmd = cmd
 	var pipes sync.WaitGroup
 	pipes.Add(2)
-	go func() { defer pipes.Done(); w.copyLines("stdout", stdout); _ = stdout.Close() }()
-	go func() { defer pipes.Done(); w.copyLines("stderr", stderr); _ = stderr.Close() }()
+	go func() { defer pipes.Done(); p.copyLines("stdout", stdout); _ = stdout.Close() }()
+	go func() { defer pipes.Done(); p.copyLines("stderr", stderr); _ = stderr.Close() }()
 	go func() {
-		pipes.Wait()
+		// The process's exit ends its tree, as a container ends when its
+		// first process does: the children it left behind would otherwise
+		// hold its output open and run on unowned.
 		status := exits.wait(pid)
+		killGroup(pid)
+		pipes.Wait()
 		_ = cmd.Process.Release()
-		w.result = exitResult{code: exitCode(status)}
-		close(w.done)
+		p.result = exitResult{code: exitCode(status)}
+		close(p.done)
 	}()
 	return nil
+}
+
+// killGroup kills every process left in the group a process led.
+func killGroup(pid int) {
+	_ = syscall.Kill(-pid, syscall.SIGKILL)
+}
+
+// command builds the exec.Cmd for argv in the process's root: the program
+// resolves on PATH inside that root, and a member's command runs chrooted
+// into it as the user its own passwd file names.
+func (p *process) command(command, args []string, env []string) (*exec.Cmd, error) {
+	if len(command) == 0 {
+		return nil, errors.New("a command is required")
+	}
+	path, err := lookPath(command[0], pathOf(env), p.root)
+	if err != nil {
+		return nil, err
+	}
+	cmd := &exec.Cmd{Path: path, Args: append(append([]string{command[0]}, command[1:]...), args...), Env: env}
+	// Each process leads a group of its own, so its tree is one thing to
+	// end.
+	attr := &syscall.SysProcAttr{Setpgid: true}
+	if p.root != "" {
+		attr.Chroot = p.root
+	}
+	if p.spec.User != "" {
+		credential, err := parseUser(p.spec.User, p.root)
+		if err != nil {
+			return nil, err
+		}
+		attr.Credential = credential
+	}
+	cmd.SysProcAttr = attr
+	return cmd, nil
+}
+
+// lookPath finds program on the PATH entries under root, as the kernel will
+// see it once the process has entered root, and returns its path inside
+// root.
+func lookPath(program, path, root string) (string, error) {
+	executable := func(candidate string) bool {
+		info, err := statInRoot(root, candidate)
+		return err == nil && !info.IsDir() && info.Mode()&0o111 != 0
+	}
+	if strings.Contains(program, "/") {
+		if executable(program) {
+			return program, nil
+		}
+		return "", fmt.Errorf("%s: no such executable", program)
+	}
+	for _, dir := range strings.Split(path, ":") {
+		if dir == "" {
+			dir = "."
+		}
+		candidate := filepath.Join(dir, program)
+		if executable(candidate) {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("%s: not found on PATH", program)
+}
+
+// statInRoot stats path as a process rooted at root sees it: a symbolic
+// link along the way resolves inside root, an absolute one from root and
+// not from this process's own filesystem.
+func statInRoot(root, path string) (os.FileInfo, error) {
+	if root == "" {
+		return os.Stat(path)
+	}
+	resolved, err := resolveInRoot(root, path, 0)
+	if err != nil {
+		return nil, err
+	}
+	return os.Stat(filepath.Join(root, resolved))
+}
+
+func resolveInRoot(root, path string, depth int) (string, error) {
+	if depth > 40 {
+		return "", fmt.Errorf("%s: too many levels of symbolic links", path)
+	}
+	resolved := "/"
+	parts := strings.Split(strings.TrimPrefix(filepath.Clean("/"+path), "/"), "/")
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		next := filepath.Join(resolved, part)
+		info, err := os.Lstat(filepath.Join(root, next))
+		if err != nil {
+			return "", err
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			resolved = next
+			continue
+		}
+		target, err := os.Readlink(filepath.Join(root, next))
+		if err != nil {
+			return "", err
+		}
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(resolved, target)
+		}
+		rest := strings.Join(parts[i+1:], "/")
+		return resolveInRoot(root, filepath.Join(target, rest), depth+1)
+	}
+	return resolved, nil
+}
+
+func pathOf(env []string) string {
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
+			return v
+		}
+	}
+	return ""
 }
 
 // exitCode is the code a shell reports for a child that ended with status.
@@ -257,36 +406,38 @@ func exitCode(status syscall.WaitStatus) int {
 	return status.ExitStatus()
 }
 
-func (w *workload) copyLines(stream string, r io.Reader) {
+func (p *process) copyLines(stream string, r io.Reader) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
-		w.logs.add(stream, scanner.Text())
+		p.logs.add(p.name, stream, scanner.Text())
 	}
 }
 
-func (w *workload) wait() exitResult {
-	<-w.done
-	return w.result
+func (p *process) wait() exitResult {
+	<-p.done
+	return p.result
 }
 
-// stop sends the workload SIGTERM and, once the grace has passed, SIGKILL.
-func (w *workload) stop() {
-	if w.cmd == nil || w.cmd.Process == nil {
+// stop sends the process SIGTERM and, once the grace has passed, SIGKILL to
+// its whole group.
+func (p *process) stop() {
+	if p.cmd == nil || p.cmd.Process == nil {
 		return
 	}
-	_ = w.cmd.Process.Signal(syscall.SIGTERM)
+	_ = p.cmd.Process.Signal(syscall.SIGTERM)
 	select {
-	case <-w.done:
-	case <-time.After(w.cfg.StopGrace):
-		_ = w.cmd.Process.Kill()
+	case <-p.done:
+	case <-time.After(p.spec.StopGrace):
+		_ = p.cmd.Process.Kill()
+		killGroup(p.cmd.Process.Pid)
 	}
 }
 
-// environ is the workload's environment: its own variables over a PATH, and
+// environ is a process's environment: its own variables over a PATH, and
 // the HOME a container runtime gives a process from its user's passwd entry
-// when the image set none.
-func environ(env map[string]string, user string) []string {
+// when the image set none, read in the process's root.
+func environ(env map[string]string, user, root string) []string {
 	out := []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
 	home := false
 	for k, v := range env {
@@ -300,7 +451,7 @@ func environ(env map[string]string, user string) []string {
 		out = append(out, k+"="+v)
 	}
 	if !home {
-		out = append(out, "HOME="+homeDir(user, "/etc/passwd"))
+		out = append(out, "HOME="+homeDir(user, filepath.Join(root, "/etc/passwd")))
 	}
 	return out
 }
@@ -319,18 +470,20 @@ func homeDir(user, file string) string {
 	return "/"
 }
 
-func parseUser(spec string) (*syscall.Credential, error) {
+// parseUser resolves a uid[:gid] specification against the passwd and group
+// files under root.
+func parseUser(spec, root string) (*syscall.Credential, error) {
 	uidPart, gidPart, _ := strings.Cut(spec, ":")
-	uid, err := lookupID(uidPart, "/etc/passwd")
+	uid, err := lookupID(uidPart, filepath.Join(root, "/etc/passwd"))
 	if err != nil {
 		return nil, err
 	}
 	gid := uid
 	if gidPart != "" {
-		if gid, err = lookupID(gidPart, "/etc/group"); err != nil {
+		if gid, err = lookupID(gidPart, filepath.Join(root, "/etc/group")); err != nil {
 			return nil, err
 		}
-	} else if entry := passwdEntry(uidPart); entry != nil {
+	} else if entry := passwdEntryIn(uidPart, filepath.Join(root, "/etc/passwd")); entry != nil {
 		gid = entry.gid
 	}
 	return &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}, nil
@@ -340,10 +493,6 @@ type passwd struct {
 	name     string
 	uid, gid int
 	home     string
-}
-
-func passwdEntry(name string) *passwd {
-	return passwdEntryIn(name, "/etc/passwd")
 }
 
 func passwdEntryIn(name, file string) *passwd {
@@ -448,7 +597,7 @@ func (t *exitTable) wait(pid int) syscall.WaitStatus {
 
 // run starts cmd, reads what it writes until it closes its output, and
 // returns the output with the child's status.
-func (t *exitTable) run(cmd *exec.Cmd) (stdout, stderr string, status syscall.WaitStatus, err error) {
+func (t *exitTable) run(ctx context.Context, cmd *exec.Cmd) (stdout, stderr string, status syscall.WaitStatus, err error) {
 	outPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", "", 0, err
@@ -461,24 +610,30 @@ func (t *exitTable) run(cmd *exec.Cmd) (stdout, stderr string, status syscall.Wa
 	if err != nil {
 		return "", "", 0, err
 	}
+	stopKill := context.AfterFunc(ctx, func() { _ = cmd.Process.Kill() })
+	defer stopKill()
 	var out, errs []byte
 	var pipes sync.WaitGroup
 	pipes.Add(2)
 	go func() { defer pipes.Done(); out, _ = io.ReadAll(outPipe); _ = outPipe.Close() }()
 	go func() { defer pipes.Done(); errs, _ = io.ReadAll(errPipe); _ = errPipe.Close() }()
-	pipes.Wait()
 	status = t.wait(pid)
+	if cmd.SysProcAttr != nil && cmd.SysProcAttr.Setpgid {
+		killGroup(pid)
+	}
+	pipes.Wait()
 	_ = cmd.Process.Release()
 	return string(out), string(errs), status, nil
 }
 
 // serveControl answers the agent over vsock.
-func serveControl(w *workload, logs *logBook) {
+func serveControl(group *members) {
 	listener, err := listenVsock(controlPort)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sockerless-init: control listener: %v\n", err)
 		return
 	}
+	logs := group.logs
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /logs", func(rw http.ResponseWriter, r *http.Request) {
 		past, ch, stop := logs.follow()
@@ -502,7 +657,7 @@ func serveControl(w *workload, logs *logBook) {
 			case line := <-ch:
 				_ = enc.Encode(line)
 				flush()
-			case <-w.done:
+			case <-group.done:
 				for {
 					select {
 					case line := <-ch:
@@ -520,25 +675,61 @@ func serveControl(w *workload, logs *logBook) {
 	mux.HandleFunc("POST /exec", func(rw http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Command []string `json:"command"`
+			Process string   `json:"process"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Command) == 0 {
 			http.Error(rw, "a command is required", http.StatusBadRequest)
 			return
 		}
-		cmd := exec.CommandContext(r.Context(), req.Command[0], req.Command[1:]...)
-		cmd.Env = environ(w.cfg.Env, w.cfg.User)
-		stdout, stderr, status, err := exits.run(cmd)
+		p, ok := group.process(req.Process)
+		if !ok {
+			http.Error(rw, fmt.Sprintf("no member %q", req.Process), http.StatusNotFound)
+			return
+		}
+		env := environ(p.spec.Env, p.spec.User, p.root)
 		code := 126
+		var stdout, stderr string
+		cmd, err := p.command(req.Command, nil, env)
+		if err == nil {
+			var status syscall.WaitStatus
+			stdout, stderr, status, err = exits.run(r.Context(), cmd)
+			if err == nil {
+				code = exitCode(status)
+			}
+		}
 		if err != nil {
 			stderr = err.Error()
-		} else {
-			code = exitCode(status)
 		}
 		rw.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(rw).Encode(map[string]any{"stdout": stdout, "stderr": stderr, "exitCode": code})
 	})
 	mux.HandleFunc("POST /stop", func(rw http.ResponseWriter, r *http.Request) {
-		go w.stop()
+		if r.URL.Query().Get("all") != "" {
+			go group.stopAll()
+		} else {
+			go group.first.stop()
+		}
+		rw.WriteHeader(http.StatusAccepted)
+	})
+	mux.HandleFunc("POST /members", func(rw http.ResponseWriter, r *http.Request) {
+		var req memberRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := group.add(req); err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		rw.WriteHeader(http.StatusCreated)
+	})
+	mux.HandleFunc("POST /members/{name}/stop", func(rw http.ResponseWriter, r *http.Request) {
+		p, ok := group.process(r.PathValue("name"))
+		if !ok || p == group.first {
+			http.Error(rw, fmt.Sprintf("no member %q", r.PathValue("name")), http.StatusNotFound)
+			return
+		}
+		go p.stop()
 		rw.WriteHeader(http.StatusAccepted)
 	})
 	mux.HandleFunc("POST /freeze", func(rw http.ResponseWriter, r *http.Request) {
@@ -584,17 +775,22 @@ func freezeRoot(request uint) error {
 	return nil
 }
 
-// reportExit tells the agent how the workload ended; the agent may not be
+// reportExit tells the agent how a process ended, the first process when
+// member is empty, with how many lines it wrote; the agent may not be
 // listening, in which case the console carries the exit.
-func reportExit(code int, message string) {
-	fmt.Fprintf(os.Stdout, "sockerless-init: workload exited %d %s\n", code, message)
+func reportExit(member string, code int, message string, lines int) {
+	if member == "" {
+		fmt.Fprintf(os.Stdout, "sockerless-init: workload exited %d %s\n", code, message)
+	} else {
+		fmt.Fprintf(os.Stdout, "sockerless-init: member %s exited %d %s\n", member, code, message)
+	}
 	conn, err := dialVsock(hostCID, exitPort)
 	if err != nil {
 		return
 	}
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
-	_ = json.NewEncoder(conn).Encode(map[string]any{"exitCode": code, "error": message})
+	_ = json.NewEncoder(conn).Encode(map[string]any{"member": member, "exitCode": code, "error": message, "lines": lines})
 }
 
 func powerOff(code int) {

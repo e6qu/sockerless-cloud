@@ -1145,7 +1145,7 @@ type azureFunctionInstance struct {
 	// handle is the placed site container, containerID its identifier.
 	handle         placement.Handle
 	containerID    string
-	sidecarHandles []*sim.ContainerHandle
+	sidecarHandles []placement.Handle
 	// exit reports when the main container stops running; logsDone closes
 	// once its output has been read to the end, which is when it exits.
 	exit     *containerExit

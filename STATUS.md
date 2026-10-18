@@ -66,7 +66,17 @@ Current state of the sockerless-cloud repository.
   A persistent simulator leaves its node agent and guests running when it
   stops, as it leaves containers, and the next process adopts the agent by
   its labels and the guests by theirs through the backend's `Find`, so an
-  instance on either backend survives a simulator restart.
+  instance on either backend survives a simulator restart. A container
+  group — a Cloud Run instance, an Amazon ECS awsvpc task, a Container Apps
+  replica or job, an App Service site with sitecontainers — places its first
+  container and joins the others to it with the backend's `PlaceMember`: a
+  container in the owner's namespace, or a member of the owner's guest,
+  which guestinit runs from the member's own image on one of the guest's
+  disk slots, sharing the guest's network, so the two reach each other on
+  localhost on either backend. The `run-microvm` SDK shard runs Cloud Run's
+  multi-container tests on guests. A platform network's lower half is the
+  simulator's to lease (`sim.LeasePlatformAddress`) and the engine allocates
+  from the upper half, so a guest on it takes an address no container can.
   Amazon EC2, Compute Engine and Azure virtual machine instances boot from
   each cloud's image catalog (`sim/vminstance`): the init runs the instance's
   user data, the instance stops and starts on its own root disk, and an

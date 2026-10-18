@@ -127,23 +127,75 @@ func (c *Client) List(ctx context.Context) ([]GuestState, error) {
 	return states, err
 }
 
-// Wait blocks until the guest's first process has ended.
+// Wait blocks until the guest's first process has ended; the machine runs on
+// while members do.
 func (c *Client) Wait(ctx context.Context, id string) (GuestState, error) {
 	var state GuestState
 	err := c.doJSON(ctx, http.MethodGet, "/v1/guests/"+id+"/wait", nil, &state)
 	return state, err
 }
 
+// WaitStopped blocks until the machine has stopped: its first process and
+// every member have ended.
+func (c *Client) WaitStopped(ctx context.Context, id string) (GuestState, error) {
+	var state GuestState
+	err := c.doJSON(ctx, http.MethodGet, "/v1/guests/"+id+"/wait?machine=1", nil, &state)
+	return state, err
+}
+
+// CreateMember declares a member of a running guest; its root filesystem
+// follows with UploadMemberRootFS and it runs from StartMember.
+func (c *Client) CreateMember(ctx context.Context, id string, spec MemberSpec) (MemberState, error) {
+	var state MemberState
+	err := c.doJSON(ctx, http.MethodPut, "/v1/guests/"+id+"/members/"+spec.Name, spec, &state)
+	return state, err
+}
+
+// UploadMemberRootFS streams the member's root filesystem as a tar archive.
+func (c *Client) UploadMemberRootFS(ctx context.Context, id, name string, archive io.Reader) error {
+	resp, err := c.do(ctx, http.MethodPut, "/v1/guests/"+id+"/members/"+name+"/rootfs", archive, "application/x-tar")
+	if err != nil {
+		return err
+	}
+	_ = resp.Body.Close()
+	return nil
+}
+
+// StartMember mounts the member's root filesystem in the guest and starts
+// its process.
+func (c *Client) StartMember(ctx context.Context, id, name string) (MemberState, error) {
+	var state MemberState
+	err := c.doJSON(ctx, http.MethodPost, "/v1/guests/"+id+"/members/"+name+"/start", nil, &state)
+	return state, err
+}
+
+// WaitMember blocks until the member's process has ended.
+func (c *Client) WaitMember(ctx context.Context, id, name string) (MemberState, error) {
+	var state MemberState
+	err := c.doJSON(ctx, http.MethodGet, "/v1/guests/"+id+"/members/"+name+"/wait", nil, &state)
+	return state, err
+}
+
+// StopMember ends the member's process within its grace.
+func (c *Client) StopMember(ctx context.Context, id, name string) error {
+	return c.doJSON(ctx, http.MethodPost, "/v1/guests/"+id+"/members/"+name+"/stop", nil, nil)
+}
+
 // LogOptions select what Logs reads.
 type LogOptions struct {
-	// Follow keeps reading new lines until the boot in progress has ended.
+	// Follow keeps reading new lines until the boot in progress has ended,
+	// or, with Process set, until that process has ended and every line it
+	// wrote is out.
 	Follow bool
 	// CurrentBoot reads the boot in progress alone; otherwise every boot's
 	// lines come, the whole console of the machine.
 	CurrentBoot bool
+	// Process reads one process's lines: InitProcess for the first process,
+	// a member's name for the member; empty reads every process's.
+	Process string
 }
 
-// Logs hands fn each line the guest's first process wrote.
+// Logs hands fn each line the guest's processes wrote.
 func (c *Client) Logs(ctx context.Context, id string, opts LogOptions, fn func(LogLine)) error {
 	query := url.Values{}
 	if opts.Follow {
@@ -151,6 +203,9 @@ func (c *Client) Logs(ctx context.Context, id string, opts LogOptions, fn func(L
 	}
 	if opts.CurrentBoot {
 		query.Set("boot", "current")
+	}
+	if opts.Process != "" {
+		query.Set("process", opts.Process)
 	}
 	path := "/v1/guests/" + id + "/logs"
 	if len(query) > 0 {
@@ -184,15 +239,21 @@ func (c *Client) ExportRootFS(ctx context.Context, id string) (io.ReadCloser, er
 	return resp.Body, nil
 }
 
-// Exec runs a command in the guest.
+// Exec runs a command in the guest, in its first process's root.
 func (c *Client) Exec(ctx context.Context, id string, command []string) (ExecResponse, error) {
+	return c.ExecIn(ctx, id, "", command)
+}
+
+// ExecIn runs a command in the root of the process named: InitProcess or
+// empty for the first process, else a member.
+func (c *Client) ExecIn(ctx context.Context, id, process string, command []string) (ExecResponse, error) {
 	var out ExecResponse
-	err := c.doJSON(ctx, http.MethodPost, "/v1/guests/"+id+"/exec", ExecRequest{Command: command}, &out)
+	err := c.doJSON(ctx, http.MethodPost, "/v1/guests/"+id+"/exec", ExecRequest{Command: command, Process: process}, &out)
 	return out, err
 }
 
-// Stop ends the guest's first process within its grace and powers the
-// machine off.
+// Stop ends the guest's first process within its grace; the machine powers
+// off once its members have ended too.
 func (c *Client) Stop(ctx context.Context, id string) error {
 	return c.doJSON(ctx, http.MethodPost, "/v1/guests/"+id+"/stop", nil, nil)
 }

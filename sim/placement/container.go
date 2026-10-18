@@ -25,7 +25,21 @@ func (ContainerBackend) Place(ctx context.Context, w Workload, sink sim.LogSink)
 	if err != nil {
 		return nil, err
 	}
-	return containerHandle{h}, nil
+	return containerHandle{h, w.CancelGracePeriod}, nil
+}
+
+// PlaceMember starts w as a container in the owner container's network
+// namespace.
+func (ContainerBackend) PlaceMember(ctx context.Context, owner string, w Workload, sink sim.LogSink) (Handle, error) {
+	if err := memberShape(w); err != nil {
+		return nil, err
+	}
+	w.NetworkMode = "container:" + owner
+	h, err := sim.StartContainerSyncContext(ctx, w, sink)
+	if err != nil {
+		return nil, err
+	}
+	return containerHandle{h, w.CancelGracePeriod}, nil
 }
 
 func (ContainerBackend) Adopt(_ context.Context, id string, w Workload, sink sim.LogSink) (Handle, error) {
@@ -33,7 +47,7 @@ func (ContainerBackend) Adopt(_ context.Context, id string, w Workload, sink sim
 	if err != nil {
 		return nil, err
 	}
-	return containerHandle{h}, nil
+	return containerHandle{h, w.CancelGracePeriod}, nil
 }
 
 func (ContainerBackend) Restart(_ context.Context, id string, w Workload, sink sim.LogSink) (Handle, error) {
@@ -44,7 +58,7 @@ func (ContainerBackend) Restart(_ context.Context, id string, w Workload, sink s
 	if err != nil {
 		return nil, err
 	}
-	return containerHandle{h}, nil
+	return containerHandle{h, w.CancelGracePeriod}, nil
 }
 
 func (ContainerBackend) Remove(_ context.Context, id string) error {
@@ -93,16 +107,57 @@ func ContainerConsole(ctx context.Context, containerID string) (string, error) {
 	return out.String(), nil
 }
 
-type containerHandle struct{ *sim.ContainerHandle }
+type containerHandle struct {
+	*sim.ContainerHandle
+	grace time.Duration
+}
 
 func (c containerHandle) ID() string              { return c.ContainerID }
 func (c containerHandle) Kind() Kind              { return Container }
 func (c containerHandle) Wait() sim.ProcessResult { return c.ContainerHandle.Wait() }
 func (c containerHandle) Exited() <-chan struct{} { return c.ContainerHandle.Exited() }
 func (c containerHandle) Cancel()                 { c.ContainerHandle.Cancel() }
+func (c containerHandle) Stop()                   { sim.StopContainer(c.ContainerID, c.grace) }
 
 func (c containerHandle) PublishedPort(ctx context.Context, port int) (int, error) {
 	return c.ContainerHandle.PublishedPort(ctx, port)
+}
+
+// Address is the container's address on its network; a member's container
+// has none of its own, and the engine names the owner whose namespace it
+// joined.
+func (c containerHandle) Address(ctx context.Context) (string, error) {
+	return ContainerAddress(ctx, c.ContainerID)
+}
+
+// ContainerAddress is a container's IPv4 address on its network, following
+// a member container to the owner whose namespace it joined.
+func ContainerAddress(ctx context.Context, containerID string) (string, error) {
+	cli := sim.DockerClient()
+	if err := sim.RequireContainerRuntime("reading a container's address"); err != nil {
+		return "", err
+	}
+	id := containerID
+	for range 8 {
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		inspected, err := cli.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
+		cancel()
+		if err != nil {
+			return "", fmt.Errorf("inspect container %s: %w", id, err)
+		}
+		if settings := inspected.Container.NetworkSettings; settings != nil {
+			for _, ep := range settings.Networks {
+				if ep != nil && ep.IPAddress.IsValid() {
+					return ep.IPAddress.String(), nil
+				}
+			}
+		}
+		if inspected.Container.HostConfig == nil || !inspected.Container.HostConfig.NetworkMode.IsContainer() {
+			return "", fmt.Errorf("container %s has no address on a network", containerID)
+		}
+		id = inspected.Container.HostConfig.NetworkMode.ConnectedContainer()
+	}
+	return "", fmt.Errorf("container %s joins a chain of namespaces too long to follow", containerID)
 }
 
 func (c containerHandle) Exec(ctx context.Context, command []string) (ExecResult, error) {

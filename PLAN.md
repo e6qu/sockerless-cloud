@@ -123,9 +123,10 @@ granting `/dev/kvm`, and inside its own namespace it owns the tap devices its
 guests use and the bridge that joins them to its network interface, so a guest
 is a network member with an address like any container. It boots Firecracker
 guests from root filesystems built from the same OCI images the container
-backend runs, serves the microVM backend's interface over its API, filters at
-each tap what the guest's security group allows, and reports guest lifecycle
-and logs. The `firecracker (microVM arithmetic)` CI job proves the agent, not
+backend runs, adds a group's other containers to a guest as members from
+their own images on the guest's disk slots, serves the microVM backend's
+interface over its API, filters at each tap what the guest's security group
+allows, and reports guest lifecycle and logs per process. The `firecracker (microVM arithmetic)` CI job proves the agent, not
 the host. In distributed mode the same agent runs on another host.
 
 ## Stages

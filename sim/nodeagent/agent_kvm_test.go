@@ -22,6 +22,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
+const memberImage = "mirror.gcr.io/library/busybox:latest"
+
 const guestImage = "mirror.gcr.io/library/golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d"
 
 // The agent's proof, on a host with /dev/kvm: the agent starts as a container
@@ -34,6 +36,9 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 	sim.InitDocker("aws", true, t.TempDir())
 	platform := "linux/" + runtime.GOARCH
 	if err := sim.PullImage(t.Context(), guestImage, platform); err != nil {
+		t.Fatal(err)
+	}
+	if err := sim.PullImage(t.Context(), memberImage, platform); err != nil {
 		t.Fatal(err)
 	}
 	networkName := fmt.Sprintf("sockerless-sim-kvm-%d", time.Now().UnixNano())
@@ -77,7 +82,7 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 		IPv4Address:  "10.79.0.10",
 		ExtraHosts:   []string{"metadata.example.internal:10.79.0.3", "host.docker.internal:host-gateway"},
 		Command:      []string{"/bin/sh", "-c"},
-		Args:         []string{"cd /work && go mod init arithmetic >/dev/null; go build -o eval . && ./eval '3 + 4 * 2' && hostname && sleep 30"},
+		Args:         []string{"cd /work && go mod init arithmetic >/dev/null; go build -o eval . && ./eval '3 + 4 * 2' && hostname && sleep 300"},
 		Env:          map[string]string{"GOFLAGS": "-mod=mod", "GOTOOLCHAIN": "local"},
 		Seed:         []sim.SeedFile{{Path: "/work/main.go", Data: source}},
 		MemoryBytes:  1024 << 20,
@@ -126,6 +131,73 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 			t.Fatalf("the guest's hosts file lacks %q:\n%s", want, hosts.Stdout)
 		}
 	}
+	// A member joins the running guest from an image of its own: it serves
+	// on the guest's localhost, which the first process reaches, from a root
+	// the first process cannot see, and its exit leaves the guest running.
+	var memberLog []string
+	memberUp := make(chan struct{})
+	var memberUpOnce sync.Once
+	member, err := backend.PlaceMember(t.Context(), handle.ID(), placement.Workload{
+		Image:   memberImage,
+		Name:    "sockerless-sim-kvm-httpd",
+		Command: []string{"sh", "-c"},
+		Args:    []string{"echo member up; exec httpd -f -p 8080 -h /www"},
+		Seed:    []sim.SeedFile{{Path: "/www/hello", Data: []byte("from the member\n")}},
+		Labels:  map[string]string{"sockerless-sim-kvm-member": "httpd"},
+	}, sim.FuncSink(func(line sim.LogLine) {
+		mu.Lock()
+		memberLog = append(memberLog, line.Text)
+		mu.Unlock()
+		if strings.TrimSpace(line.Text) == "member up" {
+			memberUpOnce.Do(func() { close(memberUp) })
+		}
+	}))
+	if err != nil {
+		mu.Lock()
+		defer mu.Unlock()
+		t.Fatalf("place the member: %v\nagent log:\n%s", err, strings.Join(agentLog, "\n"))
+	}
+	select {
+	case <-memberUp:
+	case <-time.After(time.Minute):
+		t.Fatal("the member did not report itself up")
+	}
+	if member.ID() != handle.ID()+"/sockerless-sim-kvm-httpd" && member.ID() != handle.ID()+"/kvm-httpd" {
+		t.Fatalf("the member's ID is %q", member.ID())
+	}
+	if addr, err := member.Address(execCtx); err != nil || addr != "10.79.0.10" {
+		t.Fatalf("the member's address is %q (%v), want the guest's", addr, err)
+	}
+	served, err := handle.Exec(execCtx, []string{"wget", "-qO-", "http://127.0.0.1:8080/hello"})
+	if err != nil || served.ExitCode != 0 || strings.TrimSpace(served.Stdout) != "from the member" {
+		t.Fatalf("the first process read %+v (%v) from the member on localhost", served, err)
+	}
+	if out, err := member.Exec(execCtx, []string{"cat", "/www/hello"}); err != nil || strings.TrimSpace(out.Stdout) != "from the member" {
+		t.Fatalf("exec in the member answered %+v (%v)", out, err)
+	}
+	if out, err := handle.Exec(execCtx, []string{"cat", "/www/hello"}); err != nil || out.ExitCode == 0 {
+		t.Fatalf("the member's file is visible from the first process's root: %+v (%v)", out, err)
+	}
+	if out, err := member.Exec(execCtx, []string{"cat", "/etc/hosts"}); err != nil || !strings.Contains(out.Stdout, "10.79.0.3\tmetadata.example.internal") {
+		t.Fatalf("the member does not see the guest's hosts file: %+v (%v)", out, err)
+	}
+	members, err := backend.Find(t.Context(), map[string]string{"sockerless-sim-kvm-member": "httpd"})
+	if err != nil || len(members) != 1 || members[0].ID != member.ID() || !members[0].Running {
+		t.Fatalf("Find lists the member as %+v (%v)", members, err)
+	}
+	member.Cancel()
+	if result := member.Wait(); result.ExitCode != 143 {
+		t.Fatalf("the stopped member exited %d, want 143 from SIGTERM", result.ExitCode)
+	}
+	select {
+	case <-handle.Exited():
+		t.Fatal("the first process ended with the member")
+	default:
+	}
+	if gone, err := handle.Exec(execCtx, []string{"wget", "-qO-", "-T", "2", "http://127.0.0.1:8080/hello"}); err != nil || gone.ExitCode == 0 {
+		t.Fatalf("the member still serves after its stop: %+v (%v)", gone, err)
+	}
+
 	handle.Cancel()
 	result := handle.Wait()
 	mu.Lock()
@@ -133,6 +205,9 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 	mu.Unlock()
 	if !strings.Contains(all, "11") {
 		t.Fatalf("the guest did not print the arithmetic result; exit %d, log:\n%s", result.ExitCode, all)
+	}
+	if strings.Contains(all, "member up") {
+		t.Fatalf("the member's output reached the first process's sink:\n%s", all)
 	}
 
 	// The kept guest boots again on its disk: the program it built is there

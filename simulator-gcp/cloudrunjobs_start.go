@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
@@ -224,7 +225,7 @@ func startCloudRunContainerGroup(ctx context.Context, g cloudRunContainerGroup, 
 		netw.done()
 	}
 
-	handles := make([]*sim.ContainerHandle, len(containers))
+	handles := make([]placement.Handle, len(containers))
 	var mu sync.Mutex
 	stopStarted := func() {
 		mu.Lock()
@@ -246,12 +247,15 @@ func startCloudRunContainerGroup(ctx context.Context, g cloudRunContainerGroup, 
 	owner := order[0]
 	netw.apply(&members[owner].Config)
 	members[owner].Config.PublishPorts = cloudRunNamespacePorts(containers, false)
-	ownerGroup, err := workload.StartGroup(ctx, members[owner], nil, sink)
+	backend, err := gcpPlacement.For(placementRun)
 	if err != nil {
 		return fail(err)
 	}
-	handles[owner] = ownerGroup.Main
-	ownerID := ownerGroup.Main.ContainerID
+	ownerHandle, err := workload.Place(ctx, backend, "main", members[owner], sink)
+	if err != nil {
+		return fail(err)
+	}
+	handles[owner] = ownerHandle
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -270,12 +274,10 @@ func startCloudRunContainerGroup(ctx context.Context, g cloudRunContainerGroup, 
 			return nil
 		}
 		mu.Lock()
-		containerID := handles[i].ContainerID
+		handle := handles[i]
 		mu.Unlock()
-		exited, releaseWait := watchCloudRunContainerExit(containerID)
-		defer releaseWait()
-		route := func(port int) (string, error) { return cloudRunContainerRoute(ctx, ownerID, port) }
-		if err := runStartupProbe(ctx, cloudRunStartupProbe(c), route, cloudRunContainerPort(c), exited); err != nil {
+		route := func(port int) (string, error) { return cloudRunContainerRoute(ctx, ownerHandle, port) }
+		if err := runStartupProbe(ctx, cloudRunStartupProbe(c), route, cloudRunContainerPort(c), handle.Exited()); err != nil {
 			return fmt.Errorf("container %q failed its startup probe: %w", c.Name, err)
 		}
 		return nil
@@ -293,14 +295,14 @@ func startCloudRunContainerGroup(ctx context.Context, g cloudRunContainerGroup, 
 				}
 			}
 			if i != owner {
-				started, err := workload.StartSidecars(ctx, ownerID, []workload.Container{members[i]}, sink)
+				started, err := workload.PlaceMember(ctx, backend, ownerHandle.ID(), "sidecar", members[i], sink)
 				if err != nil {
 					errs <- err
 					cancel()
 					return
 				}
 				mu.Lock()
-				handles[i] = started[0]
+				handles[i] = started
 				mu.Unlock()
 			}
 			if err := probe(i); err != nil {

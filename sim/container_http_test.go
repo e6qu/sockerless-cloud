@@ -2,7 +2,6 @@ package sim
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"net"
 	"runtime"
@@ -22,29 +21,25 @@ func TestPublishedPortReachesTheDeclaredPort(t *testing.T) {
 	if err := PullImage(t.Context(), volumeDeclaringTestImage, platform); err != nil {
 		t.Fatal(err)
 	}
+	// Redis announces on its log when it accepts connections.
+	ready := make(chan struct{})
+	var once sync.Once
 	handle, err := StartContainerSyncContext(t.Context(), ContainerConfig{
 		Image:        volumeDeclaringTestImage,
 		Architecture: platform,
 		Args:         []string{"redis-server", "--port", "9091"},
 		Name:         fmt.Sprintf("sockerless-sim-published-port-%d", time.Now().UnixNano()),
 		PublishPorts: []int{9091},
-	}, NoopSink{})
+	}, FuncSink(func(line LogLine) {
+		if strings.Contains(line.Text, "Ready to accept connections") {
+			once.Do(func() { close(ready) })
+		}
+	}))
 	if err != nil {
 		t.Fatalf("start workload: %v", err)
 	}
 	containerID := handle.ContainerID
 	t.Cleanup(func() { handle.Cancel(); StopAndRemoveContainer(containerID, 0) })
-
-	// Redis announces on its log when it accepts connections.
-	ready := make(chan struct{})
-	var once sync.Once
-	logCtx, stopLogs := context.WithCancel(t.Context())
-	defer stopLogs()
-	go StreamContainerLogs(logCtx, containerID, FuncSink(func(line LogLine) {
-		if strings.Contains(line.Text, "Ready to accept connections") {
-			once.Do(func() { close(ready) })
-		}
-	}))
 	select {
 	case <-ready:
 	case <-time.After(time.Minute):

@@ -42,7 +42,9 @@ func (s Service) String() string {
 // Workload is what a service wants to run, in the terms every backend
 // understands. The container backend runs it as it is; the microVM backend
 // builds a guest root filesystem from Image and runs Command and Args as the
-// guest's first process under Env, on Network at IPv4Address.
+// guest's first process under Env, on Network at IPv4Address. A member placed
+// beside an owner with PlaceMember names no network of its own: it shares
+// the owner's.
 type Workload = sim.ContainerConfig
 
 // Handle is a placed workload.
@@ -56,18 +58,29 @@ type Handle interface {
 	Wait() sim.ProcessResult
 	// Exited closes once the workload has exited.
 	Exited() <-chan struct{}
-	// Cancel stops the workload, within the grace its Workload named.
+	// Cancel stops the workload, within the grace its Workload named, and
+	// Wait reports the cancellation rather than an exit of the workload's
+	// own.
 	Cancel()
+	// Stop sends the workload the stop signal and, once the grace its
+	// Workload named has passed, kills it; Wait then reports how the
+	// workload itself exited, as a cloud that stops an instance reads the
+	// exit of its process.
+	Stop()
 	// Exec runs a command inside the workload and returns its output and exit
 	// code.
 	Exec(ctx context.Context, command []string) (ExecResult, error)
 	// PublishedPort returns the 127.0.0.1 host port the backend bound for a
 	// port the Workload listed in PublishPorts.
 	PublishedPort(ctx context.Context, port int) (int, error)
+	// Address is the workload's IPv4 address on its network, a member's
+	// being its owner's.
+	Address(ctx context.Context) (string, error)
 }
 
 // Existing is a workload a backend holds from an earlier simulator process:
-// running, or exited with its filesystem kept.
+// running, or exited with its filesystem kept. A member is listed beside
+// its owner under its own ID.
 type Existing struct {
 	ID      string
 	Running bool
@@ -86,6 +99,13 @@ type Backend interface {
 	Kind() Kind
 	// Place starts the workload and streams its output into sink.
 	Place(ctx context.Context, w Workload, sink sim.LogSink) (Handle, error)
+	// PlaceMember starts w in the network namespace of the placed workload
+	// owner, so the two reach each other on localhost: a sidecar's shape. On
+	// the container backend the member is a container joined to the owner's
+	// namespace; on the microVM backend it is a process tree the owner's
+	// guest runs from the member's own image. The member's lifetime is its
+	// own: it outlives an owner that exits until it is cancelled or exits.
+	PlaceMember(ctx context.Context, owner string, w Workload, sink sim.LogSink) (Handle, error)
 	// Adopt takes over a workload a previous simulator process placed, found
 	// by its backend ID, and streams its output into sink.
 	Adopt(ctx context.Context, id string, w Workload, sink sim.LogSink) (Handle, error)
@@ -153,6 +173,18 @@ func (t *Table) KindFor(s Service) Kind {
 		return kind
 	}
 	return Container
+}
+
+// ErrOwnNetwork is wrapped when a member names a network, aliases or hosts
+// of its own: it joins the owner's namespace and takes those from it.
+var ErrOwnNetwork = errors.New("a member names its own network; it joins the owner's")
+
+// memberShape checks that w names no network of its own.
+func memberShape(w Workload) error {
+	if w.NetworkMode != "" || w.Network != "" || w.IPv4Address != "" || len(w.NetworkAliases) > 0 || len(w.ExtraHosts) > 0 || len(w.PublishPorts) > 0 {
+		return fmt.Errorf("%w: %s", ErrOwnNetwork, w.Name)
+	}
+	return nil
 }
 
 // ErrNoBackend is wrapped when a service is configured onto a backend the

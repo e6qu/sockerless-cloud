@@ -875,32 +875,6 @@ func StopAndRemoveContainer(containerID string, grace time.Duration) {
 	_, _ = cli.ContainerRemove(stopCtx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 }
 
-// StreamContainerLogs follows the container's stdout/stderr and writes each
-// line to the sink, returning when the container exits or ctx is cancelled.
-// The function-as-a-service slices use it to forward bootstrap and user
-// output into the cloud's logging service while an invocation is in flight.
-func StreamContainerLogs(ctx context.Context, containerID string, sink LogSink) {
-	cli := DockerClient()
-	if cli == nil {
-		return
-	}
-	reader, err := cli.ContainerLogs(ctx, containerID, client.ContainerLogsOptions{
-		ShowStdout: true,
-		ShowStderr: true,
-		Follow:     true,
-		Timestamps: true,
-	})
-	if err != nil {
-		if ctx.Err() == nil {
-			fmt.Fprintf(os.Stderr, "[sim-logs] follow container %s: %v\n", containerID, err)
-		}
-		return
-	}
-	if err := streamDockerLogs(reader, sink); err != nil && ctx.Err() == nil {
-		fmt.Fprintf(os.Stderr, "[sim-logs] follow container %s: %v\n", containerID, err)
-	}
-}
-
 // ContainerIPv4 returns a running container's primary IPv4 address on its
 // docker network, or "" if unavailable. A sim running inside a harness
 // container reaches a workload by this bridge IP (routable container-to-

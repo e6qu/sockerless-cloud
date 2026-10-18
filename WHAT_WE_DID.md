@@ -3255,3 +3255,74 @@ containers or the agent's guests, so the clouds' adoption paths no longer
 reach around the backend to the engine. Amazon EC2's recovery moved from the
 simulator's build into its start hook, after the backends register, since a
 guest can only be found through the agent that holds it.
+
+### A guest takes members, and container groups place through the backend
+
+Every group-shaped workload — a Cloud Run instance's containers, an Amazon
+ECS awsvpc task's, a Container Apps replica's or job's with its Dapr
+sidecar, an App Service site's sitecontainers — shared a namespace through
+the engine's `container:<id>` network mode, through `workload.StartGroup`
+or a `NetworkMode` the cloud set itself, so the placement table had nothing
+to say about them and `SIM_PLACEMENT=run=microvm` changed nothing. The
+backend interface gained the group's shape: `PlaceMember` starts a workload
+beside a placed owner, in its network namespace, and a member names no
+network, address, alias, host entry or published port of its own. The
+container backend joins the member's container to the owner's namespace, as
+before. The microVM backend gives the owner's guest a member: the member's
+image becomes an ext4 root filesystem of its own, the agent hands it to one
+of the guest's disk slots — the slots exist from boot, and Firecracker takes
+a new backing file for a drive it holds — and asks guestinit, over the vsock
+control API, to run it. guestinit waits for the kernel to take the device's
+new size (a uevent announces it; the placeholder every slot boots with is one
+MiB, which no root filesystem fits), mounts it under `/run/sockerless/members`,
+binds `/proc`, `/sys`, `/dev` and the guest's resolver, hosts and hostname
+files into it, resolves the member's program on PATH inside that root and
+its user in that root's passwd file, and runs it chrooted there, as a
+container runtime prepares a container's root. The members share the guest's
+network namespace, so a member listening on localhost is reachable from the
+first process, and nothing else: a member's files are its own. Each process
+leads a process group of its own, and its exit ends the group, as a
+container ends when its first process does: a child it left behind would
+otherwise hold its output open, and the exit it keeps from being reported
+would keep the machine from powering off.
+
+A process of the guest is addressed by name — `init` for the first process,
+the member's name otherwise — in an exec, in a log read and in a stop. Each
+process reports its own exit over vsock, with how many lines it wrote, so the
+agent ends a reader of that process's lines exactly when the last one is out;
+the guest powers off once its first process and every member have ended, and
+a handle's `Wait` returns at its own process's exit, the owner's at the first
+process's (`ExitedAt`), while the machine runs on. A guest that is not kept
+is deleted once the machine has stopped, not when its first process exited.
+`Find` lists members beside their guests under `<guest>/<member>` IDs, which
+`Adopt` reads, so a restarted simulator takes a group back member by member
+on either backend. Handles gained `Stop` — the stop signal, the grace, then
+the kill, with `Wait` reporting the process's own exit, where `Cancel`
+reports the cancellation — which Cloud Run's job and worker-pool stops used
+to reach the engine for, and `Address`, the owner's address, which Cloud
+Run's probe and request routes used to read off the engine. Cloud Run's
+services, jobs, worker pools and instances and their adoption, Amazon ECS's
+awsvpc sidecars and its task recovery, Container Apps' groups and Dapr
+sidecar and App Service's sitecontainers all place through the backend now,
+and `workload.StartGroup` and `StartSidecars` are gone for `workload.Place`
+and `workload.PlaceMember`, which read the platform off the image for any
+backend. An awsvpc task's first container publishes every container's ports,
+since the task's namespace is one.
+
+A Cloud Run instance without VPC access sits on the platform network, where
+the engine assigned its container's address — an address a guest cannot
+take, since the engine does not know the guest. A platform network's /24 is
+split: the engine allocates from its upper half (`--ip-range`, the engine's
+own knob), and the simulator leases the lower half above the fixed addresses
+of its sidecars and node agent (`sim.LeasePlatformAddress`), pre-reserving
+what containers already hold on the network. Cloud Run's instances take a
+leased address whichever backend places them, and an adopted instance
+re-reserves the address its owner holds (`sim.ReservePlatformAddress`). A
+platform network an earlier release created without the split is recreated
+while nothing is attached to it, and refused with the fix named while
+something is. The node-agent KVM proof places a busybox member beside the
+arithmetic guest's first process, serving a seeded file on the guest's
+localhost, and checks that the first process reads it, that neither root
+sees the other's files, that the member's stop leaves the first process
+running, and that `Find` lists the member; CI's `run-microvm` SDK shard runs
+Cloud Run's multi-container tests with `SIM_PLACEMENT=run=microvm`.

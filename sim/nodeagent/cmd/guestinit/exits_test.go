@@ -28,7 +28,7 @@ func TestExitTableHandsEachChildItsOwnStatus(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			cmd := exec.Command("sh", "-c", "echo child-"+strconv.Itoa(i)+"; exit "+strconv.Itoa(i))
-			stdout, stderr, status, err := table.run(cmd)
+			stdout, stderr, status, err := table.run(t.Context(), cmd)
 			if err != nil {
 				t.Errorf("run %d: %v", i, err)
 				return
@@ -47,7 +47,7 @@ func TestExitTableHandsEachChildItsOwnStatus(t *testing.T) {
 	}
 
 	killed := exec.Command("sh", "-c", "kill -TERM $$")
-	_, _, status, err := table.run(killed)
+	_, _, status, err := table.run(t.Context(), killed)
 	if err != nil {
 		t.Fatal(err)
 	}

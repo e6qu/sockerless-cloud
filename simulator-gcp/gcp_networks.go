@@ -14,6 +14,7 @@ import (
 	"github.com/moby/moby/client"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
@@ -279,7 +280,40 @@ func gcpCloudRunNetwork(ctx context.Context, project, region string, vpc *VpcAcc
 	case vpc != nil && vpc.Connector != "":
 		return gcpConnectorNetwork(ctx, project, region, vpc.Connector, owner)
 	}
-	return gcpPlatformNetwork(ctx)
+	return gcpPlatformWorkloadNetwork(ctx, owner)
+}
+
+// gcpPlatformWorkloadNetwork places a workload on the platform network at an
+// address leased from the simulator's half of it, which the engine never
+// allocates, so the workload lands at the same address whichever backend
+// places it.
+func gcpPlatformWorkloadNetwork(ctx context.Context, owner string) (gcpWorkloadNetwork, error) {
+	netw, err := gcpPlatformNetwork(ctx)
+	if err != nil {
+		return gcpWorkloadNetwork{}, err
+	}
+	address, release, err := sim.LeasePlatformAddress(ctx, netw.Network, owner, netip.Addr{})
+	if err != nil {
+		return gcpWorkloadNetwork{}, err
+	}
+	netw.Address = address.String()
+	netw.release = release
+	return netw, nil
+}
+
+// gcpReservePlatformAddress records the address of a workload an earlier
+// process placed on the platform network, so no lease of this process takes
+// it, and returns the release.
+func gcpReservePlatformAddress(ctx context.Context, owner placement.Handle, name string) (func(), error) {
+	address, err := owner.Address(ctx)
+	if err != nil {
+		return nil, err
+	}
+	addr, err := netip.ParseAddr(address)
+	if err != nil {
+		return nil, fmt.Errorf("address %q of %s: %w", address, name, err)
+	}
+	return sim.ReservePlatformAddress(ctx, gcpPlatformNetworkName(), addr, name)
 }
 
 // gcpConnectorNetwork places a workload where a Serverless VPC Access

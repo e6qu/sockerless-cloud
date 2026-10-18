@@ -258,7 +258,7 @@ func startCloudRunWorkerPoolInstance(poolName, revision string, vpc *VpcAccess, 
 		go func() { exited <- group.Main.Wait() }()
 		select {
 		case <-ctx.Done():
-			sim.StopContainer(group.Main.ContainerID, cloudRunStopGrace)
+			group.Main.Stop()
 			group.Main.Cancel()
 			<-exited
 		case result := <-exited:

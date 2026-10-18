@@ -10,6 +10,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
 // awaitECSTaskStop waits for a stop StopTask has already accepted to finish.
@@ -255,7 +256,7 @@ func TestRecoverECSTasksFinishesAStopThatWasInProgress(t *testing.T) {
 		})
 	}
 
-	err := recoverECSTasksWithContainerFinder(func(map[string]string) ([]sim.ExistingContainer, error) {
+	err := recoverECSTasksWithContainerFinder(func(ECSTask, map[string]string) ([]placement.Existing, error) {
 		return nil, nil
 	})
 	if err != nil {
