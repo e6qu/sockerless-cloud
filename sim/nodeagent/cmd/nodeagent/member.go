@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -224,6 +225,7 @@ func (g *guest) stopMember(ctx context.Context, name string) (*member, error) {
 	if !running {
 		return m, nil
 	}
+	log.Printf("nodeagent: guest %s: member %s: stop requested", g.spec.ID, name)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "http://guest/members/"+name+"/stop", nil)
 	if resp, err := g.vsockClient().Do(req); err == nil {
 		_ = resp.Body.Close()

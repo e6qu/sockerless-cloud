@@ -1,8 +1,12 @@
 package placement
 
 import (
+	"context"
+	"errors"
 	"net/netip"
 	"testing"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 func TestGuestMACFollowsTheCloudsPrefix(t *testing.T) {
@@ -32,5 +36,19 @@ func TestMatchesLabelsAsksForEveryWantedLabel(t *testing.T) {
 	}
 	if matchesLabels(have, map[string]string{"sockerless-sim-type": "vm"}) {
 		t.Fatal("a missing key must not match")
+	}
+}
+
+// A guest's filesystem is its own disk: a workload that binds host paths
+// into it is refused rather than run without them.
+func TestMicroVMBackendRefusesBindMounts(t *testing.T) {
+	b := NewMicroVMBackend(nil, "")
+	_, err := b.Place(context.Background(), Workload{Name: "site", Network: "n", IPv4Address: "10.0.0.2", Binds: []string{"/srv/home:/home"}}, sim.NoopSink{})
+	if !errors.Is(err, ErrBindMounts) {
+		t.Fatalf("Place with binds: %v", err)
+	}
+	_, err = b.PlaceMember(context.Background(), "owner", Workload{Name: "sidecar", Binds: []string{"vol:/data"}}, sim.NoopSink{})
+	if !errors.Is(err, ErrBindMounts) {
+		t.Fatalf("PlaceMember with binds: %v", err)
 	}
 }

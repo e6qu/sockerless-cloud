@@ -364,7 +364,7 @@ func registerNetwork(srv *sim.Server) {
 
 		// The engine refuses to remove a network a container is still
 		// attached to, which is Azure's own refusal of a network still in use.
-		if err := azureRemoveVNetNetwork(resourceID); err != nil {
+		if err := azureRemoveVNetNetwork(r.Context(), resourceID); err != nil {
 			AzureErrorf(w, "InUseSubnetCannotBeDeleted", http.StatusBadRequest,
 				"Virtual network %s is in use and cannot be deleted. In order to delete the virtual network, delete all the resources within it: %v", resourceID, err)
 			return

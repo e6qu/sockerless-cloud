@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
 // web_plan_network.go serves the App Service plan networking and worker tail:
@@ -116,15 +117,18 @@ func webPlanHybridConnections(planID string) []WebHybridConnection {
 // webPlanWorker is one live worker instance of a plan: a running container of
 // a site on the plan. Its instance name is the container's identity.
 type webPlanWorker struct {
-	site        Site
-	containerID string
+	site   Site
+	handle placement.Handle
 }
 
+func (wk webPlanWorker) containerID() string { return wk.handle.ID() }
+
 func (wk webPlanWorker) instanceName() string {
-	if len(wk.containerID) > 12 {
-		return wk.containerID[:12]
+	id := wk.containerID()
+	if len(id) > 12 {
+		return id[:12]
 	}
-	return wk.containerID
+	return id
 }
 
 // webPlanWorkers lists the plan's live worker instances from real container
@@ -134,10 +138,15 @@ func webPlanWorkers(planID string) []webPlanWorker {
 	for _, site := range webPlanSites(planID) {
 		inst := azfInstanceFor(site.Name)
 		inst.mu.Lock()
-		cid := inst.containerID
+		handle := inst.handle
 		inst.mu.Unlock()
-		if cid != "" && sim.ContainerRunning(cid) {
-			out = append(out, webPlanWorker{site: site, containerID: cid})
+		if handle == nil {
+			continue
+		}
+		select {
+		case <-handle.Exited():
+		default:
+			out = append(out, webPlanWorker{site: site, handle: handle})
 		}
 	}
 	return out
@@ -455,7 +464,7 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 				"instanceName": wk.instanceName(),
 				"status":       "Ready",
 			}
-			if ip := sim.ContainerIPv4(wk.containerID); ip != "" {
+			if ip, err := wk.handle.Address(r.Context()); err == nil && ip != "" {
 				entry["ipAddress"] = ip
 			}
 			instances = append(instances, entry)

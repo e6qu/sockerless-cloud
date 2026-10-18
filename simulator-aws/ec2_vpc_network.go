@@ -64,5 +64,8 @@ func ec2RemoveVPCNetwork(ctx context.Context, vpcID string) error {
 		sidecars.Remove(name)
 	}
 	r53ResolverVPCs.Delete(name)
+	if err := awsLeaveMicroVMNetwork(ctx, name); err != nil {
+		return err
+	}
 	return sim.RemoveDockerNetworkContext(ctx, name)
 }

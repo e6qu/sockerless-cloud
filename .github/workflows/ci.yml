@@ -445,6 +445,7 @@ jobs:
             shard: microvm
             run: '^TestCompute_InstanceBootsRunsItsStartupScriptAndKeepsItsDisk'
             placement: compute=microvm
+            deadline: 9m
           # The Cloud Run microVM shard places each instance's containers in
           # one guest: the first as its process, the others as members from
           # their own images, sharing its localhost, started in dependsOn
@@ -454,11 +455,22 @@ jobs:
             shard: run-microvm
             run: '^TestSDK_(CloudRunV2Services_(MultiContainerSharesLocalhost|DependsOnWaitsForTheSidecarsStartupProbe)|CloudRun_RunJob_DependsOnWaitsForStartupProbe)'
             placement: run=microvm
+            deadline: 9m
           - cloud: azure
             suite: sdk
             shard: microvm
             run: '^TestCompute_VirtualMachine(RunsCustomDataAndReadsItsMetadata|DeallocateKeepsTheOSDiskAndAnImageCapturesIt|StateOperations|GuestOperations|BootDiagnostics)'
             placement: virtualmachines=microvm
+            deadline: 9m
+          # The Container Apps microVM shard places each replica and job
+          # execution in one guest, its sidecars as members, at an address
+          # leased from the platform network.
+          - cloud: azure
+            suite: sdk
+            shard: containerapps-microvm
+            run: '^Test(SDK_ContainerAppsApps_(StartsRealReplicaAndLogs|MultiContainerSharesLocalhost|DaprSidecarServesRealDaprAPI)|ContainerApps_(MultiContainerJobSharesLocalhost|ExecutionRunsCommand|ExecutionLogsRealOutput|StartJobInjectsLogs))'
+            placement: containerapps=microvm
+            deadline: 9m
           - cloud: azure
             suite: cli
             shard: A-M
@@ -663,11 +675,19 @@ jobs:
             SIM_PLACEMENT="${{ matrix.placement }}" \
             SOCKERLESS_SPEC_VALIDATE="$RUNNER_TEMP/${{ matrix.cloud }}-spec-violations.jsonl" \
             SOCKERLESS_SPEC_DIR="$GITHUB_WORKSPACE/specs/cloud-api/${{ matrix.cloud }}" \
-            make sdk-test ${{ matrix.run && format('SDK_TEST_ARGS="-run ''{0}''{1} ./..."', matrix.run, matrix.skip && format(' -skip ''{0}''', matrix.skip) || '') || '' }}
+            make sdk-test ${{ matrix.deadline && format('SDK_TEST_TIMEOUT={0}', matrix.deadline) || '' }} ${{ matrix.run && format('SDK_TEST_ARGS="-run ''{0}''{1} ./..."', matrix.run, matrix.skip && format(' -skip ''{0}''', matrix.skip) || '') || '' }}
         # Headroom over the inner go-test deadline (SDK_TEST_TIMEOUT, 13m) so a
         # suite that overruns fails with a named Go stack rather than an opaque
-        # step kill.
+        # step kill. A guest shard's setup also builds the node agent image,
+        # so its deadline is the shorter one its matrix row names, inside what
+        # the job's limit leaves it.
         timeout-minutes: 14
+      - name: Simulator diagnostics
+        # The simulator the suite started outlives a deadline panic; what it
+        # was still serving says where a hung test waited.
+        if: failure() && matrix.suite == 'sdk'
+        run: bash scripts/dump-sim-diagnostics.sh
+        timeout-minutes: 2
       - name: Pre-build the simulator and the CLI tests (warm build cache)
         if: matrix.suite == 'cli'
         run: |
@@ -752,9 +772,28 @@ jobs:
           # guests through the node agent on the runner's KVM: the AMI's
           # image, user data, metadata, console, stop and start on the kept
           # root disk, CreateImage's capture of it, and Run Command.
+          # A guest shard's setup also loads the base images and builds the
+          # node agent image, six minutes of a fifteen-minute job, so its
+          # Go deadline is shorter than the suite's: a shard that hangs then
+          # still ends with named stacks and the simulator's own dump, where
+          # the job's limit would have cancelled it with neither.
           - suite: ec2-microvm
             run: '^TestEC2(_(InstanceRunsUserDataAndReadsItsMetadata|StopKeepsTheRootDiskAndCreateImageCapturesIt|InstancesOfVPCsSharingACIDRCannotCoexist|RunInstancesRefusesAnArchitectureMismatch|ImportImageFromAnOCIReferenceBoots|ConsoleOutput)|InstanceSurvivesSimulatorRestart_SDK)$'
             placement: ec2=microvm
+            deadline: 420s
+          # Amazon ECS Fargate tasks again, each awsvpc task in one guest at
+          # its ENI's address with the other containers as members: the
+          # shared localhost, the ENI attachment, overrides, secrets, the
+          # exit codes and stop codes, a service's tasks behind a load
+          # balancer, and the service lifecycle.
+          - suite: ecs-microvm
+            run: '^TestECS_(MultiContainerTaskSharesLocalhost|RunTask_AwsvpcAttachesElasticNetworkInterface|StopCodeUserInitiated|ExitCodeNilWhileRunning|RunTaskContainerOverridesApplyToRuntimeSDK|TaskDefinitionSecretsInjected|RunTask_RunningDoesNotWaitForTheApplication)$'
+            placement: ecs:FARGATE=microvm
+            deadline: 420s
+          - suite: ecs-services-microvm
+            run: '^TestECS_(ServiceRegistersHealthyLoadBalancerTargets|ServiceLifecycle)$'
+            placement: ecs:FARGATE=microvm
+            deadline: 420s
     steps:
       - uses: actions/checkout@v7.0.1
       # Not install-go's cache: its key is shared by every job in the
@@ -936,8 +975,12 @@ jobs:
             SOCKERLESS_AWS_SIMULATOR_BINARY="$GITHUB_WORKSPACE/simulator-aws/simulator-aws" \
             SOCKERLESS_SPEC_VALIDATE="$RUNNER_TEMP/aws-spec-violations.jsonl" \
             SOCKERLESS_SPEC_DIR="$GITHUB_WORKSPACE/specs/cloud-api/aws" \
-            /tmp/aws-sdk-tests.test -test.v -test.count=1 -test.timeout=600s -test.run "$SHARD_RUN" > "$log" 2>&1 &
+            /tmp/aws-sdk-tests.test -test.v -test.count=1 -test.timeout="${{ matrix.deadline || '600s' }}" -test.run "$SHARD_RUN" > "$log" 2>&1 &
           test_pid=$!
+          # The log streams into the job's output as it is written, so a job
+          # the runner cancels at its limit still shows which test it was in.
+          tail -n +1 -F "$log" &
+          tail_pid=$!
           while kill -0 "$test_pid" 2>/dev/null; do
             log_mb=$(( $(stat -c %s "$log" 2>/dev/null || echo 0) / 1048576 ))
             free_mb=$(df -m --output=avail / | tail -1 | tr -d ' ')
@@ -950,20 +993,26 @@ jobs:
               kill -QUIT "$test_pid" 2>/dev/null || true
               sleep 10
               kill -9 "$test_pid" 2>/dev/null || true
+              kill "$tail_pid" 2>/dev/null || true
               exit 1
             fi
             sleep 10
           done
           # The step runs under `bash -e`; guard the wait with `|| status=$?`
-          # so a failing test binary does not abort the step before `cat "$log"`
-          # prints which test failed — an unguarded `wait` swallowed the entire
-          # diagnostic on a real failure.
+          # so a failing test binary does not abort the step before the
+          # failure summary names which test failed — an unguarded `wait`
+          # swallowed the entire diagnostic on a real failure.
           status=0
           wait "$test_pid" || status=$?
-          cat "$log"
+          sleep 2
+          kill "$tail_pid" 2>/dev/null || true
+          wait "$tail_pid" 2>/dev/null || true
           report
           if [ "$status" != 0 ]; then
             bash "$GITHUB_WORKSPACE/scripts/go-test-failure-summary.sh" "$log"
+            # The simulator the suite started outlives a deadline panic; what
+            # it was still serving says where a hung test waited.
+            bash "$GITHUB_WORKSPACE/scripts/dump-sim-diagnostics.sh"
           fi
           exit "$status"
         # The suite grows as services reach full op-coverage; give the step

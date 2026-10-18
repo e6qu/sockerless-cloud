@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 	"time"
@@ -256,6 +257,12 @@ func (c *Client) ExecIn(ctx context.Context, id, process string, command []strin
 // off once its members have ended too.
 func (c *Client) Stop(ctx context.Context, id string) error {
 	return c.doJSON(ctx, http.MethodPost, "/v1/guests/"+id+"/stop", nil, nil)
+}
+
+// LeaveNetwork has the agent dissolve the bridge it built for the network
+// it holds address on, ahead of its container leaving that network.
+func (c *Client) LeaveNetwork(ctx context.Context, address netip.Addr) error {
+	return c.doJSON(ctx, http.MethodDelete, "/v1/networks/"+address.String(), nil, nil)
 }
 
 // SetIngress replaces the rules at the guest's tap.

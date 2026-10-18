@@ -881,22 +881,18 @@ func aciStartGroupContainers(group ACIContainerGroup) error {
 				cfg.Args = command[1:]
 			}
 		}
-		if subnetID != "" {
-			address, err := azureLeaseWorkloadAddress(subnetID, cfg.Name)
-			if err != nil {
-				return err
-			}
-			cfg.IPv4Address = address
-		}
-		handle, err := backend.Place(context.Background(), cfg, sink)
+		address, release, err := azureWorkloadAddress(context.Background(), network, subnetID, cfg.Name)
 		if err != nil {
-			if cfg.IPv4Address != "" {
-				azureReleaseWorkloadAddress(subnetID, cfg.Name, cfg.IPv4Address)
-			}
 			return err
 		}
+		cfg.IPv4Address = address
+		handle, err := backend.Place(context.Background(), cfg, sink)
+		if err != nil {
+			release()
+			return err
+		}
+		azureReleaseOnExit(handle.Exited(), release)
 		if cfg.IPv4Address != "" {
-			azureReleaseOnExit(handle.Exited(), subnetID, cfg.Name, cfg.IPv4Address)
 			if groupAddress == "" {
 				groupAddress = cfg.IPv4Address
 			}

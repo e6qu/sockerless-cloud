@@ -50,13 +50,34 @@ func (b *MicroVMBackend) Join(ctx context.Context, network string, address netip
 	return err
 }
 
+// Leave takes the agent off an engine network the cloud is removing, once
+// nothing of the cloud's is left on it.
+func (b *MicroVMBackend) Leave(ctx context.Context, network string) error {
+	return b.agent.Leave(ctx, network)
+}
+
 // ErrNoNetwork is returned for a workload that names no engine network or
 // no address: a guest has no engine-assigned address to fall back on.
 var ErrNoNetwork = errors.New("a microVM workload needs a network the agent joined and an address on it")
 
+// ErrBindMounts is wrapped for a workload that binds host paths or volumes
+// into its filesystem: a guest's filesystem is its own disk, and the backend
+// refuses rather than run the workload without them.
+var ErrBindMounts = errors.New("a microVM workload cannot bind host paths or volumes into its filesystem")
+
+func refuseBinds(w Workload) error {
+	if len(w.Binds) > 0 {
+		return fmt.Errorf("%w: %s binds %s", ErrBindMounts, w.Name, strings.Join(w.Binds, ", "))
+	}
+	return nil
+}
+
 func (b *MicroVMBackend) Place(ctx context.Context, w Workload, sink sim.LogSink) (Handle, error) {
 	if w.Network == "" || w.IPv4Address == "" {
 		return nil, ErrNoNetwork
+	}
+	if err := refuseBinds(w); err != nil {
+		return nil, err
 	}
 	agentAddr, ok := b.agent.AddressOn(w.Network)
 	if !ok {
@@ -129,6 +150,9 @@ func (b *MicroVMBackend) Place(ctx context.Context, w Workload, sink sim.LogSink
 // process, on the guest's network.
 func (b *MicroVMBackend) PlaceMember(ctx context.Context, owner string, w Workload, sink sim.LogSink) (Handle, error) {
 	if err := memberShape(w); err != nil {
+		return nil, err
+	}
+	if err := refuseBinds(w); err != nil {
 		return nil, err
 	}
 	cli := sim.DockerClient()

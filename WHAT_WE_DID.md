@@ -3326,3 +3326,69 @@ localhost, and checks that the first process reads it, that neither root
 sees the other's files, that the member's stop leaves the first process
 running, and that `Find` lists the member; CI's `run-microvm` SDK shard runs
 Cloud Run's multi-container tests with `SIM_PLACEMENT=run=microvm`.
+
+### Amazon ECS Fargate and Container Apps on guests
+
+Three more KVM shards followed the Cloud Run one. `ecs-microvm` and
+`ecs-services-microvm` set `SIM_PLACEMENT=ecs:FARGATE=microvm`, the
+launch-type qualifier the placement table reads, and run the Fargate awsvpc
+tests, the task tests and the service tests apart so each job fits its
+fifteen minutes: each task is one guest at its
+ENI's leased address with the other containers as members, and Elastic Load
+Balancing reaches a target at that address, since the Docker Desktop
+loopback mapping it looks for first names no container of a guest.
+`containerapps-microvm` runs the Container Apps replica and job tests, which
+needed what Cloud Run needed: an address the engine never allocates. Every
+Azure workload without a network interface resource of its own takes one
+through `azureWorkloadAddress` — the subnet's when it sits in a virtual
+network's subnet, else one leased from the lower half of the network it
+joins (the platform network, or a Container Apps environment's own) — and
+Container Apps replicas and jobs, Container Instances, App Service sites,
+Kudu commands and WebJobs all lease theirs now, released at exit.
+Container Apps ingress and App Service's site route, its plan's worker
+listing and its worker reboot read the workload's address off its handle
+rather than the engine, and a site's route accepts a guest's address alone
+where a container also offers its published loopback port.
+
+What a guest cannot do, the backend now says. `MicroVMBackend.Place` and
+`PlaceMember` refuse a workload with bind mounts (`ErrBindMounts`) instead
+of running it without them, which kept App Service — whose site, Kudu and
+WebJob containers mount the site's `/home` — off the microVM shards until
+the agent serves a file share to guests (BUG-3516); a site integrated into
+a virtual network also asks for a second interface a guest has not got
+(BUG-3517). The AWS SDK step streams its test log into the job's output as
+it is written, where it used to print the log only once the binary had
+exited, so a job the runner cancels at its limit still shows the test it was
+in.
+
+The agent leaves a network its cloud deletes. `DeleteVpc`, a subnetwork's
+deletion, a virtual network's and a Container Apps environment's removal
+take the engine network down, and the engine removes no network a container
+is still on: the removal waits on the next disconnect, and the node agent,
+joined to the network for its guests, never disconnected, so every Amazon
+ECS test on guests hung in its VPC's cleanup until the job's limit cancelled
+it. `Agent.Leave` (`MicroVMBackend.Leave`) has the agent dissolve the
+bridge it built for the network (`DELETE /v1/networks/{address}`) and takes
+the container off the network, and each cloud's network removal calls it
+ahead of the engine. A task reports stopped when its first process ends,
+and its guest's tap leaves the bridge a moment later with the machine, so
+the agent waits for the network's last tap as the engine waits for its last
+endpoint, as long as the request allows; the network the agent started on
+is never released. The wait then found a guest that never went: guestinit
+ended the machine with a power-off, which halts a microVM's processor and
+leaves the machine running for the hypervisor, so every guest exit had in
+fact been the agent's fifteen-second backstop kill — the stop tests on
+guests all took eighteen seconds — and a guest whose owner was stopped
+while a member still ran, where the agent returns without the backstop,
+stayed halted on its network for good. guestinit restarts the machine
+instead, which the kernel's `reboot=k` turns into the reset Firecracker
+exits on, and a guest now ends the moment its last process does. The KVM proof joins a second network,
+places a guest on it, leaves, has the engine remove the network at once,
+and does it all again over the same range, which a bridge left behind
+would have failed. The hang went undiagnosed because a guest shard's setup
+— six minutes of base images and the node agent image — left the Go
+deadline past the job's limit; those shards run under the shorter deadline
+their matrix rows name (`deadline`), and a failed SDK step dumps the
+simulator's requests in flight and goroutines
+(`scripts/dump-sim-diagnostics.sh`), since the simulator outlives the test
+binary's deadline panic.

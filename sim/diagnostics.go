@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"os"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -214,8 +215,46 @@ func watchSlowRequest(entry *inFlightRequest, done <-chan struct{}, clock diagno
 		}
 		fmt.Fprintf(log, "[sim-slow] still serving %s %s %s after %s%s -- goroutine dump: /debug/pprof/goroutine?debug=2\n",
 			entry.Method, entry.Path, entry.Target, wait+SlowRequestThreshold, declared)
+		// A request still unanswered well past the report is one nobody
+		// may get to read the diagnostics listener for: a test deadline ends
+		// the simulator with the suite. The process writes every goroutine
+		// itself, once a minute at most, so the log says where it waited.
+		fired, stop = clock.After(goroutineDumpDelay)
+		select {
+		case <-done:
+			stop()
+			return true
+		case <-fired:
+		}
+		if allowGoroutineDump(clock.Now()) {
+			buf := make([]byte, 1<<20)
+			n := runtime.Stack(buf, true)
+			fmt.Fprintf(log, "[sim-slow] goroutines while still serving %s %s %s after %s:\n%s\n",
+				entry.Method, entry.Path, entry.Target, wait+SlowRequestThreshold+goroutineDumpDelay, buf[:n])
+		}
 		return true
 	}
+}
+
+// goroutineDumpDelay is how long past its report a request stays unanswered
+// before the process writes its goroutines to the log.
+const goroutineDumpDelay = 50 * time.Second
+
+var (
+	goroutineDumpMu   sync.Mutex
+	goroutineDumpLast time.Time
+)
+
+// allowGoroutineDump spaces the dumps a minute apart: one is enough to read,
+// and every slow request would otherwise write its own.
+func allowGoroutineDump(now time.Time) bool {
+	goroutineDumpMu.Lock()
+	defer goroutineDumpMu.Unlock()
+	if !goroutineDumpLast.IsZero() && now.Sub(goroutineDumpLast) < time.Minute {
+		return false
+	}
+	goroutineDumpLast = now
+	return true
 }
 
 func isUpgradeRequest(r *http.Request) bool {

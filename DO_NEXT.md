@@ -2,11 +2,11 @@
 
 ## Next
 
-- **Run more group-shaped services on the microVM backend in CI.** Cloud Run
-  has its `run-microvm` shard; Amazon ECS awsvpc tasks, Container Apps and
-  App Service place their sidecars as members of the owner's guest the same
-  way and want a shard each, and a bridge-mode or platform-network workload
-  of theirs wants a leased platform address as Cloud Run's instances take.
+- **Serve bind mounts to guests** (BUG-3516), so App Service sites, the
+  volume-carrying Cloud Run, Container Apps, Container Instances and Amazon
+  ECS workloads, CodeBuild and AWS Batch place on the microVM backend too,
+  and give a guest a second interface for a site's virtual network
+  integration (BUG-3517).
 - **Stage 5 of `PLAN.md`: distributed.** The agent on another host, reached
   over its API with its minted token, and networks that span hosts; the
   same-range gap (two live VPCs over one CIDR on one engine) lifts there.

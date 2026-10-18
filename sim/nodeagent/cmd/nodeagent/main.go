@@ -108,6 +108,7 @@ func (a *agent) handler() http.Handler {
 	mux.HandleFunc("GET /v1/guests/{id}/members/{name}/wait", a.handleWaitMember)
 	mux.HandleFunc("POST /v1/guests/{id}/members/{name}/stop", a.handleStopMember)
 	mux.HandleFunc("DELETE /v1/guests/{id}", a.handleDelete)
+	mux.HandleFunc("DELETE /v1/networks/{address}", a.handleLeaveNetwork)
 	return a.authenticate(mux)
 }
 
@@ -289,6 +290,14 @@ func (a *agent) handleStop(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, g.state())
 }
 
+func (a *agent) handleLeaveNetwork(w http.ResponseWriter, r *http.Request) {
+	if err := a.net.release(r.Context(), r.PathValue("address")); err != nil {
+		writeError(w, statusFor(err), err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (a *agent) handleCreateMember(w http.ResponseWriter, r *http.Request) {
 	g, ok := a.get(r.PathValue("id"))
 	if !ok {
@@ -431,7 +440,7 @@ func statusFor(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, errGuestExists), errors.Is(err, errMemberExists):
 		return http.StatusConflict
-	case errors.Is(err, errGuestState):
+	case errors.Is(err, errGuestState), errors.Is(err, errNetworkInUse):
 		return http.StatusConflict
 	case strings.Contains(err.Error(), "required"):
 		return http.StatusBadRequest

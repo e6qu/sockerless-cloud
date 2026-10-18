@@ -351,23 +351,35 @@ func startWebJobProcess(site *Site, rec WebJobRecord, extraEnv map[string]string
 	if err != nil {
 		return nil, err
 	}
-	return backend.Place(ctx, sim.ContainerConfig{
+	name := fmt.Sprintf("sockerless-sim-azure-webjob-%s-%s-%s", siteStorageName(site.Name), rec.Name, randomSuffix(6))
+	address, release, err := azurePlatformAddress(ctx, network, name)
+	if err != nil {
+		return nil, err
+	}
+	handle, err := backend.Place(ctx, sim.ContainerConfig{
 		CancelGracePeriod: siteStopGrace(site),
 		Image:             localImage,
 		Architecture:      platform,
 		Command:           []string{"/bin/sh", "-c", "cd " + jobDir + " && " + runInvocation},
 		Env:               env,
 		Binds:             append([]string{hostDir + ":" + jobDir}, siteAzureStorageBinds(site)...),
-		Name:              fmt.Sprintf("sockerless-sim-azure-webjob-%s-%s-%s", siteStorageName(site.Name), rec.Name, randomSuffix(6)),
+		Name:              name,
 		Labels: map[string]string{
 			"sockerless-sim-type": "azure-webjob",
 			"sockerless-site":     site.Name,
 		},
-		Network:    network.Network,
-		DNS:        network.resolvers(),
-		ExtraHosts: workloadhost.ExtraHosts(),
-		Sandbox:    SandboxAZF,
+		Network:     network.Network,
+		IPv4Address: address,
+		DNS:         network.resolvers(),
+		ExtraHosts:  workloadhost.ExtraHosts(),
+		Sandbox:     SandboxAZF,
 	}, sink)
+	if err != nil {
+		release()
+		return nil, err
+	}
+	azureReleaseOnExit(handle.Exited(), release)
+	return handle, nil
 }
 
 // webRunTriggeredWebJob starts one real run of a triggered webjob and records

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 
@@ -368,6 +369,22 @@ func ConnectContainerToNetworkAt(containerName, networkName string, aliases []st
 // joins must keep its default route on the network it started on.
 func ConnectContainerToNetworkBehindGateway(containerName, networkName string, ipv4 netip.Addr) error {
 	return connectContainerToNetwork(containerName, networkName, nil, ipv4, -1)
+}
+
+// DisconnectContainerFromNetwork takes a container off an engine network it
+// joined; a network the engine no longer has is nothing to leave.
+func DisconnectContainerFromNetwork(ctx context.Context, containerID, networkName string) error {
+	cli := DockerClient()
+	if err := RequireContainerRuntime("disconnecting a container from a network"); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	_, err := cli.NetworkDisconnect(ctx, networkName, client.NetworkDisconnectOptions{Container: containerID})
+	if err != nil && !cerrdefs.IsNotFound(err) {
+		return err
+	}
+	return nil
 }
 
 func connectContainerToNetwork(containerName, networkName string, aliases []string, ipv4 netip.Addr, gwPriority int) error {

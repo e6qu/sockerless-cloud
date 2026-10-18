@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"net"
@@ -12,6 +13,10 @@ import (
 	"sync"
 )
 
+// errNetworkInUse refuses to release a network's bridge while a guest's tap
+// is still on it.
+var errNetworkInUse = errors.New("a guest is still on that network")
+
 // networks turns each engine-network interface the agent's container holds
 // into a bridge its guests' taps join: the interface's address moves onto the
 // bridge, so the agent stays reachable at it, and a guest on a tap is one more
@@ -19,9 +24,15 @@ import (
 type networks struct {
 	mu      sync.Mutex
 	bridges map[string]string // agent address -> bridge
+	taps    map[string]string // tap -> bridge
+	// detached closes, and is replaced, each time a tap leaves a bridge, so
+	// a release waiting for a network's last guest wakes on it.
+	detached chan struct{}
 }
 
-func newNetworks() *networks { return &networks{bridges: map[string]string{}} }
+func newNetworks() *networks {
+	return &networks{bridges: map[string]string{}, taps: map[string]string{}, detached: make(chan struct{})}
+}
 
 // bridgeFor returns the bridge carrying the interface that holds the agent's
 // address, building it the first time.
@@ -64,6 +75,64 @@ func (n *networks) bridgeFor(ctx context.Context, agentAddress string) (string, 
 	return br, nil
 }
 
+// release dissolves the bridge built for the network the agent holds
+// agentAddress on, ahead of the container leaving that network: the engine
+// removes the interface with the endpoint, and a later join of a network at
+// the same address builds a bridge for that one. A tap still on the bridge
+// is a guest on its way out — a cloud deletes a network once nothing of its
+// own is on it, and a stopped guest's tap goes with its machine a moment
+// after its process ended — so the release waits for the last tap as the
+// engine waits for the last endpoint, as long as ctx allows. The bridge
+// carrying the agent's default route is the network the agent started on,
+// which is not released.
+func (n *networks) release(ctx context.Context, agentAddress string) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	br, ok := n.bridges[agentAddress]
+	if !ok {
+		return nil
+	}
+	for {
+		var on []string
+		for tap, bridge := range n.taps {
+			if bridge == br {
+				on = append(on, tap)
+			}
+		}
+		if len(on) == 0 {
+			break
+		}
+		detached := n.detached
+		n.mu.Unlock()
+		select {
+		case <-detached:
+			n.mu.Lock()
+		case <-ctx.Done():
+			n.mu.Lock()
+			return fmt.Errorf("%w: %s on %s", errNetworkInUse, strings.Join(on, ", "), br)
+		}
+	}
+	if _, err := output(ctx, "ip", "link", "show", br); err != nil {
+		if strings.Contains(err.Error(), "does not exist") {
+			delete(n.bridges, agentAddress)
+			return nil
+		}
+		return err
+	}
+	routes, err := output(ctx, "ip", "route", "show", "default")
+	if err != nil {
+		return err
+	}
+	if defaultRouteVia(routes, br).IsValid() {
+		return fmt.Errorf("%s carries the agent's default route: the network the agent started on is not left", br)
+	}
+	if err := run(ctx, "ip", "link", "del", br); err != nil {
+		return err
+	}
+	delete(n.bridges, agentAddress)
+	return nil
+}
+
 // defaultRouteVia is the gateway of the default route that leaves through
 // iface, read from `ip route show default`, or the zero value when no
 // default route leaves through it.
@@ -103,12 +172,20 @@ func (n *networks) attachTap(ctx context.Context, guestID, agentAddress string) 
 			return "", err
 		}
 	}
+	n.mu.Lock()
+	n.taps[tap] = br
+	n.mu.Unlock()
 	return tap, nil
 }
 
 func (n *networks) detachTap(tap string) {
 	_ = run(context.Background(), "nft", "delete", "table", "bridge", nftTable(tap))
 	_ = run(context.Background(), "ip", "link", "del", tap)
+	n.mu.Lock()
+	delete(n.taps, tap)
+	close(n.detached)
+	n.detached = make(chan struct{})
+	n.mu.Unlock()
 }
 
 // applyIngress programs the guest's ingress rules at its tap, in the bridge

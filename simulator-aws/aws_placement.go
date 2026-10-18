@@ -72,7 +72,7 @@ func awsStartPlacement(ctx context.Context, persist bool) (stop func(context.Con
 	var agent *nodeagent.Agent
 	adopted := false
 	if sim.HasPersistentWorkloadIdentity() {
-		if agent, adopted, err = nodeagent.Adopt(ctx, network.Name, labels, sim.NoopSink{}); err != nil {
+		if agent, adopted, err = nodeagent.Adopt(ctx, network.Name, labels, nodeagent.LogSink()); err != nil {
 			return nil, err
 		}
 	}
@@ -82,7 +82,7 @@ func awsStartPlacement(ctx context.Context, persist bool) (stop func(context.Con
 			Network: network.Name,
 			Address: subnet.Masked().Addr().Next().Next().Next(),
 			Labels:  labels,
-		}, sim.NoopSink{})
+		}, nodeagent.LogSink())
 		if err != nil {
 			return nil, fmt.Errorf("node agent for %s: %w", strings.Join(awsPlacement.MicroVMServices(), ", "), err)
 		}
@@ -96,6 +96,16 @@ func awsStartPlacement(ctx context.Context, persist bool) (stop func(context.Con
 		}
 		return nil
 	}, nil
+}
+
+// awsLeaveMicroVMNetwork takes the node agent off a VPC's engine network
+// ahead of the VPC's deletion removing it: the engine removes no network a
+// container is still on.
+func awsLeaveMicroVMNetwork(ctx context.Context, network string) error {
+	if awsMicroVMBackend == nil {
+		return nil
+	}
+	return awsMicroVMBackend.Leave(ctx, network)
 }
 
 // awsJoinMicroVMNetwork makes the node agent a member of a VPC's engine

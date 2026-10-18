@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,6 +29,14 @@ type Agent struct {
 
 	mu       sync.Mutex
 	networks map[string]netip.Addr
+}
+
+// LogSink writes the agent's own log into the simulator's output, where a
+// guest's lifecycle reads beside the requests that drove it.
+func LogSink() sim.LogSink {
+	return sim.FuncSink(func(line sim.LogLine) {
+		fmt.Fprintf(os.Stderr, "[node-agent] %s\n", line.Text)
+	})
 }
 
 // Options place the agent.
@@ -185,6 +194,32 @@ func (a *Agent) Join(ctx context.Context, network string, address netip.Addr) (n
 	}
 	a.networks[network] = got
 	return got, nil
+}
+
+// Leave takes the agent off an engine network it joined, once the cloud has
+// no workload left on it: the agent dissolves the bridge its guests on that
+// network used, and the container leaves the network, so the engine can
+// remove it. The network the agent started on, where the simulator reaches
+// it, is never left.
+func (a *Agent) Leave(ctx context.Context, network string) error {
+	a.mu.Lock()
+	address, ok := a.networks[network]
+	a.mu.Unlock()
+	if !ok {
+		return nil
+	}
+	// The agent waits for the network's last guest to go before it
+	// dissolves the bridge, so the call runs outside the lock.
+	if err := a.client.LeaveNetwork(ctx, address); err != nil {
+		return fmt.Errorf("node agent: leave %s: %w", network, err)
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := sim.DisconnectContainerFromNetwork(ctx, a.handle.ContainerID, network); err != nil {
+		return fmt.Errorf("node agent: leave %s: %w", network, err)
+	}
+	delete(a.networks, network)
+	return nil
 }
 
 // AddressOn is the agent's address on a network it joined.

@@ -88,7 +88,7 @@ func startAzurePlacement(ctx context.Context) error {
 	var agent *nodeagent.Agent
 	adopted := false
 	if sim.HasPersistentWorkloadIdentity() {
-		if agent, adopted, err = nodeagent.Adopt(ctx, platform.Network, labels, sim.NoopSink{}); err != nil {
+		if agent, adopted, err = nodeagent.Adopt(ctx, platform.Network, labels, nodeagent.LogSink()); err != nil {
 			return err
 		}
 	}
@@ -98,7 +98,7 @@ func startAzurePlacement(ctx context.Context) error {
 			Network: platform.Network,
 			Address: prefix.Masked().Addr().Next().Next().Next(),
 			Labels:  labels,
-		}, sim.NoopSink{})
+		}, nodeagent.LogSink())
 		if err != nil {
 			return fmt.Errorf("node agent for %s: %w", strings.Join(table.MicroVMServices(), ", "), err)
 		}
@@ -136,6 +136,42 @@ func azureJoinMicroVMNetwork(ctx context.Context, service placement.Service, vne
 		return nil
 	}
 	return backend.Join(ctx, network, azureVNetMicroVMAgentAddress(vnetID, vnetPrefix))
+}
+
+// azureLeaveMicroVMNetwork takes the node agent off an engine network the
+// cloud is removing, whichever service joined it there: the engine removes
+// no network a container is still on.
+func azureLeaveMicroVMNetwork(ctx context.Context, network string) error {
+	azurePlacementMu.Lock()
+	backend := azureMicroVMBackend
+	azurePlacementMu.Unlock()
+	if backend == nil {
+		return nil
+	}
+	return backend.Leave(ctx, network)
+}
+
+// azureJoinMicroVMPlatformNetwork attaches the node agent to a network of
+// the platform's shape — a Container Apps environment's own — at an address
+// leased from the simulator's half of it, before the first guest of a
+// microVM service lands on it. The agent joined the platform network itself
+// when it started.
+func azureJoinMicroVMPlatformNetwork(ctx context.Context, service placement.Service, network string) error {
+	table := azurePlacementTable()
+	azurePlacementMu.Lock()
+	backend := azureMicroVMBackend
+	azurePlacementMu.Unlock()
+	if backend == nil || table.KindFor(service) != placement.MicroVM {
+		return nil
+	}
+	if _, joined := backend.Agent().AddressOn(network); joined {
+		return nil
+	}
+	address, _, err := sim.LeasePlatformAddress(ctx, network, "sockerless-sim-azure-node-agent", netip.Addr{})
+	if err != nil {
+		return err
+	}
+	return backend.Join(ctx, network, address)
 }
 
 func azureEngineNetworkPrefix(ctx context.Context, network string) (netip.Prefix, error) {

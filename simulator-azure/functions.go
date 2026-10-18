@@ -16,13 +16,11 @@ import (
 	"sync"
 	"time"
 
-	cerrdefs "github.com/containerd/errdefs"
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
-	mobyclient "github.com/moby/moby/client"
 )
 
 // Site represents an Azure Function App (Web App).
@@ -1520,16 +1518,9 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	sink := newFuncLogSink(site)
 
 	name := fmt.Sprintf("sockerless-sim-azure-site-%s-%s", siteStorageName(site.Name), sim.RandomHex(8))
-	address := ""
-	if subnetID != "" {
-		if address, err = azureLeaseWorkloadAddress(subnetID, name); err != nil {
-			return err
-		}
-	}
-	releaseLease := func() {
-		if address != "" {
-			azureReleaseWorkloadAddress(subnetID, name, address)
-		}
+	address, releaseLease, err := azureWorkloadAddress(ctx, network, subnetID, name)
+	if err != nil {
+		return err
 	}
 	backend, err := azurePlacementBackend(placementWeb)
 	if err != nil {
@@ -1560,9 +1551,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 		releaseLease()
 		return fmt.Errorf("start site container: %w", err)
 	}
-	if address != "" {
-		azureReleaseOnExit(handle.Exited(), subnetID, name, address)
-	}
+	azureReleaseOnExit(handle.Exited(), releaseLease)
 	containerID := handle.ID()
 	exit := newContainerExit(handle)
 	stop := func() {
@@ -1579,7 +1568,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 		return fmt.Errorf("start sitecontainers: %w", err)
 	}
 
-	candidates, err := siteContainerCandidates(ctx, containerID, network.Network, port)
+	candidates, err := siteContainerCandidates(ctx, handle, port)
 	if err != nil {
 		for _, handle := range sidecarHandles {
 			handle.Cancel()
@@ -1629,16 +1618,25 @@ func (inst *azureFunctionInstance) releaseExtraNetworksLocked(containerID string
 // on the host's loopback, which also reaches it where container addresses are
 // not routed. A container that has already stopped publishes no port and has
 // no address, so it has no candidates, and the start reports its exit.
-func siteContainerCandidates(ctx context.Context, containerID, network string, port int) ([]string, error) {
-	var candidates []string
-	if ip := sim.ContainerIPv4On(ctx, containerID, network); ip.IsValid() {
-		candidates = append(candidates, "http://"+net.JoinHostPort(ip.String(), strconv.Itoa(port)))
+func siteContainerCandidates(ctx context.Context, handle placement.Handle, port int) ([]string, error) {
+	select {
+	case <-handle.Exited():
+		return nil, nil
+	default:
 	}
-	hostPort, err := sim.PublishedHostPort(ctx, containerID, port)
+	var candidates []string
+	if ip, err := handle.Address(ctx); err == nil && ip != "" {
+		candidates = append(candidates, "http://"+net.JoinHostPort(ip, strconv.Itoa(port)))
+	}
+	hostPort, err := handle.PublishedPort(ctx, port)
 	if err != nil {
-		inspected, inspectErr := sim.DockerClient().ContainerInspect(ctx, containerID, mobyclient.ContainerInspectOptions{})
-		if cerrdefs.IsNotFound(inspectErr) || inspectErr == nil && inspected.Container.State != nil && !inspected.Container.State.Running {
+		if errors.Is(err, sim.ErrNotRunning) {
 			return nil, nil
+		}
+		// A guest publishes no port on the host's loopback; its address is
+		// the one route to it.
+		if handle.Kind() == placement.MicroVM && len(candidates) > 0 {
+			return candidates, nil
 		}
 		return nil, fmt.Errorf("read the site's published port: %w", err)
 	}
