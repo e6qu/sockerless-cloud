@@ -60,6 +60,7 @@ type shareMount struct {
 	Port     int    `json:"port"`
 	Path     string `json:"path"`
 	ReadOnly bool   `json:"readOnly"`
+	File     string `json:"file"`
 }
 
 type logLine struct {
@@ -139,12 +140,17 @@ func mountKernelFilesystems() {
 // client, the one network filesystem the guest kernel carries: version 4.0
 // over TCP at the share's port, AUTH_SYS, from the guest's own address.
 func mountShares(mounts []shareMount, root, address string) error {
-	for _, m := range mounts {
+	for i, m := range mounts {
 		host, _, ok := strings.Cut(m.Server, ":")
 		if !ok || host == "" || m.Port == 0 || m.Path == "" {
 			return fmt.Errorf("mount %+v names no server, port or path", m)
 		}
 		target := filepath.Join(root, m.Path)
+		if m.File != "" {
+			// A share of one file is mounted out of the way, and that
+			// file bound over the path, as a bind of one file is.
+			target = filepath.Join(root, sharesRoot, strconv.Itoa(i))
+		}
 		if err := os.MkdirAll(target, 0o755); err != nil {
 			return err
 		}
@@ -155,6 +161,36 @@ func mountShares(mounts []shareMount, root, address string) error {
 		data := fmt.Sprintf("addr=%s,clientaddr=%s,vers=4.0,proto=tcp,port=%d,sec=sys,hard,timeo=600,retrans=2", host, address, m.Port)
 		if err := unix.Mount(m.Server, target, "nfs4", flags, data); err != nil {
 			return fmt.Errorf("mount %s at %s: %w", m.Server, target, err)
+		}
+		if m.File != "" {
+			if err := bindFile(filepath.Join(target, m.File), filepath.Join(root, m.Path), m.ReadOnly); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// sharesRoot holds the shares of single files, each bound over its path.
+const sharesRoot = "/run/sockerless/shares"
+
+// bindFile binds the file at source over path, which it creates empty when
+// nothing is there, read-only when the share is.
+func bindFile(source, path string, readOnly bool) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	_ = f.Close()
+	if err := unix.Mount(source, path, "", unix.MS_BIND, ""); err != nil {
+		return fmt.Errorf("bind %s over %s: %w", source, path, err)
+	}
+	if readOnly {
+		if err := unix.Mount("", path, "", unix.MS_BIND|unix.MS_REMOUNT|unix.MS_RDONLY, ""); err != nil {
+			return fmt.Errorf("bind %s read-only: %w", path, err)
 		}
 	}
 	return nil

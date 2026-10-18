@@ -544,3 +544,63 @@ func TestFileShareAnswersNullAndRefusesOtherPrograms(t *testing.T) {
 		t.Fatalf("the mount program answered accept status %d", accept)
 	}
 }
+
+// An export that lists one entry serves a bind of a single file: its root
+// shows that name alone, looks nothing else up, opens the file for writing
+// as any file, and takes no new name and loses none.
+func TestFileShareServesOneEntryOfADirectory(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"one.txt", "two.txt"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c := startServer(t, map[string]Export{"one": {Root: root, Only: "one.txt"}})
+	clientID := c.clientID()
+	share := c.exportFH("one")
+
+	st, d := c.compound(putFH(share), func(e *encoder) {
+		e.uint32(opReadDir)
+		e.uint64(0)
+		e.fixed(make([]byte, 8))
+		e.uint32(1024)
+		e.uint32(4096)
+		var b bitmap
+		b.set(attrType)
+		e.bitmap(b)
+	})
+	if st != nfs4OK {
+		t.Fatalf("READDIR answered %d", st)
+	}
+	expect(t, d, opPutFH, nfs4OK)
+	expect(t, d, opReadDir, nfs4OK)
+	d.fixed(8)
+	var names []string
+	for d.bool() {
+		d.uint64()
+		names = append(names, d.str())
+		d.bitmap()
+		d.opaque()
+	}
+	if strings.Join(names, ",") != "one.txt" {
+		t.Fatalf("the root lists %v, want one.txt alone", names)
+	}
+	if st, _ := c.compound(putFH(share), lookup("two.txt")); st != nfs4ErrNoEnt {
+		t.Fatalf("LOOKUP of the sibling answered %d, want NOENT", st)
+	}
+	if st, _ := c.compound(putFH(share), openFile(clientID, "owner-1", "one.txt", shareAccessBoth, true)); st != nfs4OK {
+		t.Fatalf("OPEN of the one entry with create answered %d", st)
+	}
+	if st, _ := c.compound(putFH(share), openFile(clientID, "owner-2", "new.txt", shareAccessBoth, true)); st != nfs4ErrAccess {
+		t.Fatalf("OPEN with create of another name answered %d, want ACCESS", st)
+	}
+	if st, _ := c.compound(putFH(share), func(e *encoder) { e.uint32(opRemove); e.str("one.txt") }); st != nfs4ErrAccess {
+		t.Fatalf("REMOVE of the one entry answered %d, want ACCESS", st)
+	}
+	if _, err := os.Stat(filepath.Join(root, "one.txt")); err != nil {
+		t.Fatalf("the one entry: %v", err)
+	}
+	if _, err := New(map[string]Export{"gone": {Root: root, Only: "missing.txt"}}); err == nil {
+		t.Fatal("an export of an entry that is not there was served")
+	}
+}

@@ -704,6 +704,31 @@ func namedVolumeSource(source string) bool {
 	return source != "" && !strings.ContainsAny(source, `/\`) && !strings.HasPrefix(source, ".") && !strings.HasPrefix(source, "~")
 }
 
+// RemoveVolumesNamed removes every simulator-managed volume whose name
+// starts with prefix: a workload's own volumes once it is gone.
+func RemoveVolumesNamed(prefix string) error {
+	if err := RequireContainerRuntime("removing volumes"); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	filters := client.Filters{}.Add("label", "sockerless-sim").Add("name", prefix)
+	volumes, err := dockerClient.VolumeList(ctx, client.VolumeListOptions{Filters: filters})
+	if err != nil {
+		return fmt.Errorf("list volumes: %w", err)
+	}
+	var errs []error
+	for _, v := range volumes.Items {
+		if !strings.HasPrefix(v.Name, prefix) {
+			continue
+		}
+		if _, err := dockerClient.VolumeRemove(ctx, v.Name, client.VolumeRemoveOptions{Force: true}); err != nil && !cerrdefs.IsNotFound(err) {
+			errs = append(errs, fmt.Errorf("remove volume %s: %w", v.Name, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // removeRunVolumes removes every volume labelled with the run, once the
 // containers that mounted them are gone.
 func removeRunVolumes(ctx context.Context, cli *client.Client, filters client.Filters) error {

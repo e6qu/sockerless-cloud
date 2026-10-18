@@ -20,6 +20,7 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -222,4 +223,90 @@ func drainBuild(stream io.Reader) error {
 // reaches it.
 func DNSUpstream(host string, port int) string {
 	return net.JoinHostPort(host, strconv.Itoa(port))
+}
+
+// ShareVolume is one engine volume a share container serves, under Export,
+// the name a guest mounts it by.
+type ShareVolume struct {
+	Volume   string
+	Export   string
+	ReadOnly bool
+}
+
+// SharesSpec places one share container: the sidecar program serving engine
+// volumes over NFSv4 from inside another container's network namespace, the
+// node agent's, where every guest reaches it at the agent's address.
+type SharesSpec struct {
+	Name string
+	// NamespaceOf is the container whose network namespace the share
+	// container joins.
+	NamespaceOf string
+	// Port is the TCP port the shares are served on in that namespace.
+	Port    int
+	Volumes []ShareVolume
+	Labels  map[string]string
+}
+
+// StartShares runs a share container and returns its handle once it serves,
+// or when ctx ends first; the container goes with the handle's Cancel. The
+// server reads and writes the volumes' files as their owners, which the
+// capabilities it keeps allow and nothing else.
+func StartShares(ctx context.Context, spec SharesSpec, sink sim.LogSink) (*sim.ContainerHandle, error) {
+	if spec.NamespaceOf == "" || spec.Port == 0 || len(spec.Volumes) == 0 {
+		return nil, errors.New("sidecar: a share container needs a namespace, a port and volumes")
+	}
+	cli := sim.DockerClient()
+	if err := sim.RequireContainerRuntime("starting a share container"); err != nil {
+		return nil, err
+	}
+	image, platform, err := ensureImage(ctx, cli)
+	if err != nil {
+		return nil, err
+	}
+	binds := make([]string, 0, len(spec.Volumes))
+	for _, v := range spec.Volumes {
+		bind := v.Volume + ":/exports/" + v.Export
+		if v.ReadOnly {
+			bind += ":ro"
+		}
+		binds = append(binds, bind)
+	}
+	serving := make(chan struct{})
+	var once sync.Once
+	handle, err := sim.StartContainerSyncContext(ctx, sim.ContainerConfig{
+		Image:        image,
+		Architecture: platform,
+		Name:         spec.Name,
+		NetworkMode:  "container:" + spec.NamespaceOf,
+		Args:         []string{"shares"},
+		Binds:        binds,
+		Labels:       spec.Labels,
+		Env:          map[string]string{"SIDECAR_SHARES_LISTEN": ":" + strconv.Itoa(spec.Port)},
+		Sandbox: sim.SandboxProfile{
+			CapDrop:          []string{"ALL"},
+			CapAdd:           []string{"CHOWN", "DAC_OVERRIDE", "DAC_READ_SEARCH", "FOWNER", "FSETID"},
+			NoNewPrivileges:  true,
+			DenyDockerSocket: true,
+			DenyHostNetwork:  true,
+			ReadonlyRootfs:   true,
+		},
+	}, sim.FuncSink(func(line sim.LogLine) {
+		if strings.HasPrefix(line.Text, "sidecar: shares ") {
+			once.Do(func() { close(serving) })
+		}
+		sink.WriteLog(line)
+	}))
+	if err != nil {
+		return nil, err
+	}
+	select {
+	case <-serving:
+		return handle, nil
+	case <-handle.Exited():
+		handle.Cancel()
+		return nil, fmt.Errorf("sidecar: the share container %s ended before it served", spec.Name)
+	case <-ctx.Done():
+		handle.Cancel()
+		return nil, ctx.Err()
+	}
 }

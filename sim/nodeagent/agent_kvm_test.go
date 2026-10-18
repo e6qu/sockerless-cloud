@@ -376,6 +376,70 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 		t.Fatalf("remove the sharing guest: %v", err)
 	}
 
+	// A bind of an engine volume reaches a guest as a share a container
+	// serves from the agent's network namespace, at the agent's address:
+	// the guest reads what a container wrote to the volume, a container
+	// reads what the guest wrote, and the share container goes with the
+	// guest, so the volume can be removed once the guest is gone. A bind of
+	// one host file reaches the guest as that file, read-only where the
+	// bind is.
+	volume := networkName + "-volume"
+	defer func() { _ = sim.RemoveVolume(volume) }()
+	volumeShell(t, platform, volume, "echo container wrote this > /v/from-container")
+	oneFile := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(oneFile, []byte("{\"one\":1}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	volumed, err := backend.Place(t.Context(), placement.Workload{
+		Image:        memberImage,
+		Architecture: platform,
+		Name:         "sockerless-sim-kvm-volume",
+		Hostname:     "volume",
+		Network:      networkName,
+		IPv4Address:  "10.79.0.12",
+		Command:      []string{"sleep"},
+		Args:         []string{"300"},
+		Binds:        []string{volume + ":/mnt/vol", volume + ":/mnt/vol-ro:ro", oneFile + ":/etc/app/settings.json", oneFile + ":/etc/app/settings-ro.json:ro"},
+		MemoryBytes:  256 << 20,
+		NanoCPU:      1_000_000_000,
+	}, sim.NoopSink{})
+	if err != nil {
+		t.Fatalf("place with a volume and a file: %v", err)
+	}
+	volumeCtx, cancelVolume := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancelVolume()
+	if out, err := volumed.Exec(volumeCtx, []string{"cat", "/mnt/vol/from-container"}); err != nil || strings.TrimSpace(out.Stdout) != "container wrote this" {
+		t.Fatalf("the guest read %+v (%v) from the volume", out, err)
+	}
+	if out, err := volumed.Exec(volumeCtx, []string{"sh", "-c", "echo guest wrote this > /mnt/vol/from-guest && cat /mnt/vol-ro/from-guest"}); err != nil || out.ExitCode != 0 || strings.TrimSpace(out.Stdout) != "guest wrote this" {
+		t.Fatalf("the guest's write to the volume: %+v (%v)", out, err)
+	}
+	if out, err := volumed.Exec(volumeCtx, []string{"sh", "-c", "echo no > /mnt/vol-ro/refused"}); err != nil || out.ExitCode == 0 {
+		t.Fatalf("a write to the read-only volume: %+v (%v)", out, err)
+	}
+	if out, err := volumed.Exec(volumeCtx, []string{"sh", "-c", `cat /etc/app/settings.json && echo '{"two":2}' > /etc/app/settings.json && ls /etc/app`}); err != nil || out.ExitCode != 0 || strings.TrimSpace(out.Stdout) != "{\"one\":1}\nsettings-ro.json\nsettings.json" {
+		t.Fatalf("the guest's read and write of the one file: %+v (%v)", out, err)
+	}
+	if data, err := os.ReadFile(oneFile); err != nil || string(data) != "{\"two\":2}\n" {
+		t.Fatalf("the host reads %q (%v) of the file the guest wrote", data, err)
+	}
+	if out, err := volumed.Exec(volumeCtx, []string{"sh", "-c", "echo no > /etc/app/settings-ro.json"}); err != nil || out.ExitCode == 0 {
+		t.Fatalf("a write to the read-only file: %+v (%v)", out, err)
+	}
+	if err := sim.RemoveVolume(volume); err == nil {
+		t.Fatal("the volume was removed while the guest's share container holds it")
+	}
+	if err := backend.Remove(t.Context(), volumed.ID()); err != nil {
+		t.Fatalf("remove the volume guest: %v", err)
+	}
+	<-volumed.Exited()
+	if out := volumeShell(t, platform, volume, "cat /v/from-guest"); out != "guest wrote this" {
+		t.Fatalf("a container reads %q of what the guest wrote to the volume", out)
+	}
+	if err := sim.RemoveVolume(volume); err != nil {
+		t.Fatalf("remove the volume once the guest is gone: %v", err)
+	}
+
 	// A cloud deletes a network once nothing of its own is on it, and the
 	// engine removes no network a container is still on: the agent leaves
 	// the network at the cloud's word, its guests' bridge with it, and a
@@ -483,4 +547,33 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// volumeShell runs a script in a container with the volume at /v and
+// returns what it printed.
+func volumeShell(t *testing.T, platform, volume, script string) string {
+	t.Helper()
+	var out []string
+	var mu sync.Mutex
+	handle, err := sim.StartContainerSyncContext(t.Context(), sim.ContainerConfig{
+		Image:        memberImage,
+		Architecture: platform,
+		Command:      []string{"sh", "-c", script},
+		Binds:        []string{volume + ":/v"},
+		Name:         fmt.Sprintf("sockerless-sim-kvm-volume-shell-%d", time.Now().UnixNano()),
+		Sandbox:      sim.SandboxProfile{CapDrop: []string{"ALL"}, NoNewPrivileges: true, DenyDockerSocket: true, DenyHostNetwork: true},
+	}, sim.FuncSink(func(line sim.LogLine) {
+		mu.Lock()
+		out = append(out, line.Text)
+		mu.Unlock()
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := handle.Wait(); result.ExitCode != 0 {
+		t.Fatalf("%q in a container with the volume exited %d: %s", script, result.ExitCode, strings.Join(out, "\n"))
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	return strings.TrimSpace(strings.Join(out, "\n"))
 }

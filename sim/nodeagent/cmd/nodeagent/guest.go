@@ -50,6 +50,7 @@ type shareMount struct {
 	Port     int    `json:"port"`
 	Path     string `json:"path"`
 	ReadOnly bool   `json:"readOnly"`
+	File     string `json:"file,omitempty"`
 }
 
 type guestNetwork struct {
@@ -75,17 +76,18 @@ type packetRule struct {
 }
 
 type guestState struct {
-	ID        string            `json:"id"`
-	Status    string            `json:"status"`
-	Labels    map[string]string `json:"labels,omitempty"`
-	Address   string            `json:"address"`
-	Gateway   string            `json:"gateway,omitempty"`
-	ExitCode  int               `json:"exitCode"`
-	Error     string            `json:"error,omitempty"`
-	StartedAt time.Time         `json:"startedAt"`
-	ExitedAt  time.Time         `json:"exitedAt,omitempty"`
-	StoppedAt time.Time         `json:"stoppedAt"`
-	Members   []memberState     `json:"members,omitempty"`
+	ID           string            `json:"id"`
+	Status       string            `json:"status"`
+	Labels       map[string]string `json:"labels,omitempty"`
+	Address      string            `json:"address"`
+	Gateway      string            `json:"gateway,omitempty"`
+	AgentAddress string            `json:"agentAddress,omitempty"`
+	ExitCode     int               `json:"exitCode"`
+	Error        string            `json:"error,omitempty"`
+	StartedAt    time.Time         `json:"startedAt"`
+	ExitedAt     time.Time         `json:"exitedAt,omitempty"`
+	StoppedAt    time.Time         `json:"stoppedAt"`
+	Members      []memberState     `json:"members,omitempty"`
 }
 
 const (
@@ -256,7 +258,7 @@ func validID(id string) bool {
 func (g *guest) state() guestState {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	state := guestState{ID: g.spec.ID, Status: g.status, Labels: g.spec.Labels, Gateway: g.spec.Network.Gateway,
+	state := guestState{ID: g.spec.ID, Status: g.status, Labels: g.spec.Labels, Gateway: g.spec.Network.Gateway, AgentAddress: g.spec.Network.AgentAddress,
 		Address: g.address.Addr().String(), ExitCode: g.exitCode, Error: g.err, StartedAt: g.startedAt, ExitedAt: g.exitedAt, StoppedAt: g.stoppedAt}
 	for _, name := range g.memberOrder {
 		state.Members = append(state.Members, g.members[name].state())

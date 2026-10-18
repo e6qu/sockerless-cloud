@@ -23,10 +23,13 @@ import (
 )
 
 // Export is a host directory the server serves under a name: a client mounts
-// `<server>:/<name>`.
+// `<server>:/<name>`. Only names the one entry of Root the export's root
+// lists, which serves a bind of a single file as a directory holding that
+// file alone; nothing else at that root is looked up, made or removed.
 type Export struct {
 	Root     string
 	ReadOnly bool
+	Only     string
 }
 
 type export struct {
@@ -34,7 +37,12 @@ type export struct {
 	name     string
 	root     string
 	readOnly bool
+	only     string
 }
+
+// confined reports whether n is the root of an export that lists one entry,
+// where a client may neither add nor remove names.
+func (n *node) confined() bool { return n.parent == nil && n.export.only != "" }
 
 // node is a file or directory a filehandle names: its export, its parent and
 // its name, so a rename moves one node and its descendants with it.
@@ -156,10 +164,18 @@ func (s *Server) addExport(name string, e Export) error {
 	if !info.IsDir() {
 		return fmt.Errorf("export %s: %s is not a directory", name, root)
 	}
+	if e.Only != "" {
+		if e.Only == "." || e.Only == ".." || strings.ContainsAny(e.Only, "/\x00") {
+			return fmt.Errorf("export %s: entry %q: a name without a slash is required", name, e.Only)
+		}
+		if _, err := os.Lstat(filepath.Join(root, e.Only)); err != nil {
+			return fmt.Errorf("export %s: %w", name, err)
+		}
+	}
 	if _, exists := s.exports[name]; exists {
 		return fmt.Errorf("export %s is already served", name)
 	}
-	ex := &export{index: uint32(len(s.byIndex)), name: name, root: root, readOnly: e.ReadOnly}
+	ex := &export{index: uint32(len(s.byIndex)), name: name, root: root, readOnly: e.ReadOnly, only: e.Only}
 	s.exports[name] = ex
 	s.byIndex = append(s.byIndex, ex)
 	s.nodes[fhKey{ex.index, inodeOf(info)}] = &node{export: ex, ino: inodeOf(info)}
@@ -173,7 +189,7 @@ func (s *Server) AddExport(name string, e Export) error {
 	defer s.mu.Unlock()
 	if have, ok := s.exports[name]; ok {
 		root, _ := filepath.Abs(e.Root)
-		if have.root == root && have.readOnly == e.ReadOnly {
+		if have.root == root && have.readOnly == e.ReadOnly && have.only == e.Only {
 			return nil
 		}
 	}
@@ -269,6 +285,9 @@ func (s *Server) lookup(dir *node, name string) (*node, fs.FileInfo, uint32) {
 		}
 		info, err := os.Lstat(dir.parent.path())
 		return dir.parent, info, statusOf(err)
+	}
+	if dir.confined() && name != dir.export.only {
+		return nil, nil, nfs4ErrNoEnt
 	}
 	info, err := os.Lstat(filepath.Join(dir.path(), name))
 	if err != nil {

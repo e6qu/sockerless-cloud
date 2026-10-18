@@ -237,6 +237,9 @@ func writable(n *node) uint32 {
 	if n.export.readOnly {
 		return nfs4ErrROFS
 	}
+	if n.confined() {
+		return nfs4ErrAccess
+	}
 	return nfs4OK
 }
 
@@ -685,16 +688,24 @@ func (s *Server) opReadDir(st *compoundState, d *decoder, r *encoder) uint32 {
 	case !info.IsDir():
 		return status(r, nfs4ErrNotDir)
 	default:
-		listed, err := os.ReadDir(n.path())
-		if err != nil {
-			return status(r, statusOf(err))
+		var names []string
+		if n.confined() {
+			names = []string{n.export.only}
+		} else {
+			listed, err := os.ReadDir(n.path())
+			if err != nil {
+				return status(r, statusOf(err))
+			}
+			for _, item := range listed {
+				names = append(names, item.Name())
+			}
 		}
-		for _, item := range listed {
-			child, childInfo, code := s.lookup(n, item.Name())
+		for _, name := range names {
+			child, childInfo, code := s.lookup(n, name)
 			if code != nfs4OK {
 				continue
 			}
-			entries = append(entries, entry{item.Name(), s.attrsOf(child, childInfo)})
+			entries = append(entries, entry{name, s.attrsOf(child, childInfo)})
 		}
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].name < entries[j].name })
@@ -858,6 +869,11 @@ func (s *Server) opOpen(st *compoundState, d *decoder, r *encoder) uint32 {
 	}
 	if (create || shareAccess&shareAccessWrite != 0) && dir.export.readOnly {
 		return status(r, nfs4ErrROFS)
+	}
+	// The one entry of a confined root is opened for writing as any file;
+	// a create under that root with another name would add a second entry.
+	if create && dir.confined() && name != dir.export.only {
+		return status(r, nfs4ErrAccess)
 	}
 	before := s.changeOf(dir)
 	path := filepath.Join(dir.path(), name)

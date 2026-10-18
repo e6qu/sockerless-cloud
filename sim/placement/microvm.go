@@ -63,11 +63,11 @@ func (b *MicroVMBackend) Leave(ctx context.Context, network string) error {
 var ErrNoNetwork = errors.New("a microVM workload needs a network the agent joined and an address on it")
 
 // ErrBindMounts is wrapped for a workload whose bind the backend cannot
-// serve to a guest: a named volume, which the engine holds where this
-// process cannot read it, or a single file. A host directory is served as a
-// file share the guest mounts, and the backend refuses the rest rather than
-// run the workload without them.
-var ErrBindMounts = errors.New("a microVM workload cannot bind an engine volume or a single file into its filesystem")
+// serve to a guest: one that names no source or target, or a host path
+// that is not there. A host directory or file is served as a file share
+// the guest mounts, an engine volume from a share container, and the
+// backend refuses the rest rather than run the workload without them.
+var ErrBindMounts = errors.New("a microVM workload's bind names nothing a guest can mount")
 
 func (b *MicroVMBackend) Place(ctx context.Context, w Workload, sink sim.LogSink) (Handle, error) {
 	if w.Network == "" || w.IPv4Address == "" {
@@ -94,27 +94,31 @@ func (b *MicroVMBackend) Place(ctx context.Context, w Workload, sink sim.LogSink
 		return nil, fmt.Errorf("address %q is not inside %s", w.IPv4Address, subnet)
 	}
 	gateway := subnet.Masked().Addr().Next().String()
-	mounts, err := b.shares.mountsFor(w, gateway)
+	id := guestID(w)
+	mounts, err := b.shares.mountsFor(ctx, w, id, gateway, agentAddr.String(), b.agent.ContainerID(), sink)
 	if err != nil {
 		return nil, err
 	}
-	id := guestID(w)
+	fail := func(err error) (Handle, error) {
+		_ = b.shares.removeSharesOf(id)
+		return nil, err
+	}
 	var extra []nodeagent.GuestNetwork
 	for i, attachment := range w.ExtraNetworks {
 		extraAgentAddr, ok := b.agent.AddressOn(attachment.Network)
 		if !ok {
-			return nil, fmt.Errorf("%w: the agent has not joined %s", ErrNoNetwork, attachment.Network)
+			return fail(fmt.Errorf("%w: the agent has not joined %s", ErrNoNetwork, attachment.Network))
 		}
 		extraSubnet, err := networkPrefix(ctx, cli, attachment.Network)
 		if err != nil {
-			return nil, err
+			return fail(err)
 		}
 		if attachment.IPv4Address == "" {
-			return nil, fmt.Errorf("%w: a guest's interface on %s needs an address", ErrNoNetwork, attachment.Network)
+			return fail(fmt.Errorf("%w: a guest's interface on %s needs an address", ErrNoNetwork, attachment.Network))
 		}
 		extraAddr, err := netip.ParseAddr(attachment.IPv4Address)
 		if err != nil || !extraSubnet.Contains(extraAddr) {
-			return nil, fmt.Errorf("address %q is not inside %s", attachment.IPv4Address, extraSubnet)
+			return fail(fmt.Errorf("address %q is not inside %s", attachment.IPv4Address, extraSubnet))
 		}
 		extra = append(extra, nodeagent.GuestNetwork{
 			AgentAddress: extraAgentAddr.String(),
@@ -156,17 +160,26 @@ func (b *MicroVMBackend) Place(ctx context.Context, w Workload, sink sim.LogSink
 	}
 	agent := b.agent.Client()
 	if _, err := agent.Create(ctx, spec); err != nil {
-		return nil, err
+		return fail(err)
 	}
 	if err := b.uploadRootFS(ctx, cli, id, image.id, w, func(archive io.Reader) error { return agent.UploadRootFS(ctx, id, archive) }); err != nil {
 		_ = agent.Delete(context.WithoutCancel(ctx), id)
-		return nil, err
+		return fail(err)
 	}
 	if _, err := agent.Start(ctx, id); err != nil {
 		_ = agent.Delete(context.WithoutCancel(ctx), id)
-		return nil, err
+		return fail(err)
 	}
-	return newMicroVMHandle(agent, id, w.IPv4Address, sink, w.CancelGracePeriod, w.KeepOnExit), nil
+	return newMicroVMHandle(agent, id, w.IPv4Address, sink, w.CancelGracePeriod, w.KeepOnExit, b.sharesCleanup(id, w.KeepOnExit)), nil
+}
+
+// sharesCleanup ends a workload's share container with the workload: once
+// its process has exited, or, for a guest kept after its exit, at Remove.
+func (b *MicroVMBackend) sharesCleanup(id string, keep bool) func() {
+	if keep {
+		return nil
+	}
+	return func() { _ = b.shares.removeSharesOf(id) }
 }
 
 // PlaceMember runs w as a member of the owner's guest: its image's
@@ -186,8 +199,14 @@ func (b *MicroVMBackend) PlaceMember(ctx context.Context, owner string, w Worklo
 	if err != nil {
 		return nil, fmt.Errorf("member %s of guest %s: %w", w.Name, owner, err)
 	}
-	mounts, err := b.shares.mountsFor(w, guest.Gateway)
+	name := guestID(w)
+	id := owner + "/" + name
+	mounts, err := b.shares.mountsFor(ctx, w, id, guest.Gateway, guest.AgentAddress, b.agent.ContainerID(), sink)
 	if err != nil {
+		return nil, err
+	}
+	fail := func(err error) (Handle, error) {
+		_ = b.shares.removeSharesOf(id)
 		return nil, err
 	}
 	if w.Architecture == "" {
@@ -195,9 +214,8 @@ func (b *MicroVMBackend) PlaceMember(ctx context.Context, owner string, w Worklo
 	}
 	image, err := imageProcess(ctx, cli, w)
 	if err != nil {
-		return nil, err
+		return fail(err)
 	}
-	name := guestID(w)
 	spec := nodeagent.MemberSpec{
 		Name:       name,
 		Labels:     sim.OwnershipLabels(w.Labels),
@@ -211,15 +229,15 @@ func (b *MicroVMBackend) PlaceMember(ctx context.Context, owner string, w Worklo
 		Mounts:     mounts,
 	}
 	if _, err := agent.CreateMember(ctx, owner, spec); err != nil {
-		return nil, err
+		return fail(err)
 	}
 	if err := b.uploadRootFS(ctx, cli, name, image.id, w, func(archive io.Reader) error { return agent.UploadMemberRootFS(ctx, owner, name, archive) }); err != nil {
-		return nil, err
+		return fail(err)
 	}
 	if _, err := agent.StartMember(ctx, owner, name); err != nil {
-		return nil, err
+		return fail(err)
 	}
-	return newMemberHandle(agent, owner, name, guest.Address, sink, w.CancelGracePeriod), nil
+	return newMemberHandle(agent, owner, name, guest.Address, sink, w.CancelGracePeriod, b.sharesCleanup(id, false)), nil
 }
 
 // imageDetails is the process an image declares, under the workload's own
@@ -290,12 +308,15 @@ func (b *MicroVMBackend) Restart(ctx context.Context, id string, w Workload, sin
 	if err != nil {
 		return nil, err
 	}
-	return newMicroVMHandle(agent, id, state.Address, sink, w.CancelGracePeriod, w.KeepOnExit), nil
+	return newMicroVMHandle(agent, id, state.Address, sink, w.CancelGracePeriod, w.KeepOnExit, b.sharesCleanup(id, w.KeepOnExit)), nil
 }
 
-// Remove discards a kept guest.
+// Remove discards a kept guest, with the share container of its volumes.
 func (b *MicroVMBackend) Remove(ctx context.Context, id string) error {
-	return b.agent.Client().Delete(ctx, id)
+	if err := b.agent.Client().Delete(ctx, id); err != nil {
+		return err
+	}
+	return b.shares.removeSharesOf(id)
 }
 
 // Console is what the guest's first process wrote across its boots, which
@@ -384,11 +405,11 @@ func (b *MicroVMBackend) Adopt(ctx context.Context, id string, w Workload, sink 
 		return nil, err
 	}
 	if !isMember {
-		return newMicroVMHandle(agent, id, state.Address, sink, w.CancelGracePeriod, w.KeepOnExit), nil
+		return newMicroVMHandle(agent, id, state.Address, sink, w.CancelGracePeriod, w.KeepOnExit, b.sharesCleanup(id, w.KeepOnExit)), nil
 	}
 	for _, m := range state.Members {
 		if m.Name == member {
-			return newMemberHandle(agent, owner, member, state.Address, sink, w.CancelGracePeriod), nil
+			return newMemberHandle(agent, owner, member, state.Address, sink, w.CancelGracePeriod, b.sharesCleanup(id, false)), nil
 		}
 	}
 	return nil, fmt.Errorf("guest %s has no member %s: %w", owner, member, nodeagent.ErrNotFound)
@@ -491,7 +512,10 @@ type microVMHandle struct {
 	once    sync.Once
 }
 
-func newMicroVMHandle(agent *nodeagent.Client, id, address string, sink sim.LogSink, grace time.Duration, keep bool) *microVMHandle {
+// newMicroVMHandle follows the guest's first process; cleanup, when given,
+// runs once it has exited and before Exited closes, so what the process
+// used is gone when Wait returns.
+func newMicroVMHandle(agent *nodeagent.Client, id, address string, sink sim.LogSink, grace time.Duration, keep bool, cleanup func()) *microVMHandle {
 	h := &microVMHandle{agent: agent, id: id, address: address, grace: grace, keep: keep, exited: make(chan struct{})}
 	started := time.Now()
 	go func() {
@@ -512,6 +536,9 @@ func newMicroVMHandle(agent *nodeagent.Client, id, address string, sink sim.LogS
 			}
 			if !state.ExitedAt.IsZero() {
 				h.result.StoppedAt = state.ExitedAt
+			}
+			if cleanup != nil {
+				cleanup()
 			}
 			close(h.exited)
 		})
@@ -574,7 +601,7 @@ type memberHandle struct {
 	result  sim.ProcessResult
 }
 
-func newMemberHandle(agent *nodeagent.Client, owner, name, address string, sink sim.LogSink, grace time.Duration) *memberHandle {
+func newMemberHandle(agent *nodeagent.Client, owner, name, address string, sink sim.LogSink, grace time.Duration, cleanup func()) *memberHandle {
 	h := &memberHandle{agent: agent, owner: owner, name: name, address: address, grace: grace, exited: make(chan struct{})}
 	started := time.Now()
 	go func() {
@@ -595,6 +622,9 @@ func newMemberHandle(agent *nodeagent.Client, owner, name, address string, sink 
 			}
 			if !state.StoppedAt.IsZero() {
 				h.result.StoppedAt = state.StoppedAt
+			}
+			if cleanup != nil {
+				cleanup()
 			}
 			close(h.exited)
 		})

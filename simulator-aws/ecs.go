@@ -585,7 +585,13 @@ func cleanupECSTaskProcesses(ctx context.Context, taskID string, p *ecsTaskProce
 			fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: container %s is still being removed\n", taskID, handle.ID())
 		}
 	}
+	if err := sim.RemoveVolumesNamed(ecsTaskVolumePrefix(taskID)); err != nil {
+		fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: remove its volumes: %v\n", taskID, err)
+	}
 }
+
+// ecsTaskVolumePrefix names a task's own volumes, by the task.
+func ecsTaskVolumePrefix(taskID string) string { return "sockerless-ecs-task-" + taskID + "-" }
 
 func ecsArn(resourceType, id string) string {
 	return fmt.Sprintf("arn:aws:ecs:"+awsRegion()+":"+awsAccountID()+":%s/%s", resourceType, id)
@@ -2431,7 +2437,9 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 			volMap[v.Name] = v.Host.SourcePath
 			continue
 		}
-		volMap[v.Name] = v.Name
+		// A volume with no configuration is the task's own ephemeral
+		// storage, shared by its containers and gone with it.
+		volMap[v.Name] = ecsTaskVolumePrefix(taskID) + v.Name
 	}
 
 	processes := &ecsTaskProcesses{

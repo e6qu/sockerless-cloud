@@ -59,6 +59,9 @@ type Mount struct {
 	Port     int    `json:"port"`
 	Path     string `json:"path"`
 	ReadOnly bool   `json:"readOnly,omitempty"`
+	// File names the share's one entry, which guestinit places at Path as a
+	// file: a bind of a single file.
+	File string `json:"file,omitempty"`
 }
 
 // MemberSpec is a process tree the guest runs beside its first process from
@@ -142,14 +145,16 @@ type GuestState struct {
 	Labels  map[string]string `json:"labels,omitempty"`
 	Address string            `json:"address"`
 	// Gateway is the guest's network's gateway, where a share the
-	// simulator serves is reached.
-	Gateway   string        `json:"gateway,omitempty"`
-	ExitCode  int           `json:"exitCode"`
-	Error     string        `json:"error,omitempty"`
-	StartedAt time.Time     `json:"startedAt"`
-	ExitedAt  time.Time     `json:"exitedAt,omitempty"`
-	StoppedAt time.Time     `json:"stoppedAt"`
-	Members   []MemberState `json:"members,omitempty"`
+	// simulator serves is reached, and AgentAddress the agent's own address
+	// on that network, where a share served from the agent's namespace is.
+	Gateway      string        `json:"gateway,omitempty"`
+	AgentAddress string        `json:"agentAddress,omitempty"`
+	ExitCode     int           `json:"exitCode"`
+	Error        string        `json:"error,omitempty"`
+	StartedAt    time.Time     `json:"startedAt"`
+	ExitedAt     time.Time     `json:"exitedAt,omitempty"`
+	StoppedAt    time.Time     `json:"stoppedAt"`
+	Members      []MemberState `json:"members,omitempty"`
 }
 
 // MemberState is a member as the agent sees it.

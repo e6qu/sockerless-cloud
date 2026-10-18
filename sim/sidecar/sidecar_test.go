@@ -175,3 +175,70 @@ func TestManagerRunsOneSidecarPerNetwork(t *testing.T) {
 		t.Fatalf("after Remove the network still has %d sidecar containers (%v)", len(existing), err)
 	}
 }
+
+// A share container serves an engine volume from another container's
+// network namespace: it answers on that container's address at the port it
+// was given, once its handle is returned, and holds the volume.
+func TestStartSharesServesAVolumeFromANamespace(t *testing.T) {
+	sim.InitDocker("aws", true, t.TempDir())
+	platform := "linux/" + runtime.GOARCH
+	if err := sim.PullImage(t.Context(), workloadImage, platform); err != nil {
+		t.Fatal(err)
+	}
+	networkName := fmt.Sprintf("sockerless-sim-test-shares-%d", time.Now().UnixNano())
+	if _, err := sim.EnsureCloudNetwork(t.Context(), sim.CloudNetwork{Name: networkName, CIDR: netip.MustParsePrefix("10.78.0.0/24")}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sim.RemoveDockerNetwork(networkName) })
+	owner, err := sim.StartContainerSyncContext(t.Context(), sim.ContainerConfig{
+		Image:        workloadImage,
+		Architecture: platform,
+		Command:      []string{"sleep", "300"},
+		Name:         networkName + "-owner",
+		Network:      networkName,
+		IPv4Address:  "10.78.0.20",
+		Sandbox:      sim.SandboxProfile{CapDrop: []string{"ALL"}, NoNewPrivileges: true, DenyDockerSocket: true, DenyHostNetwork: true},
+	}, sim.NoopSink{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(owner.Cancel)
+	volume := networkName + "-volume"
+	t.Cleanup(func() { _ = sim.RemoveVolume(volume) })
+	var lines []string
+	var mu sync.Mutex
+	shares, err := StartShares(t.Context(), SharesSpec{
+		Name:        networkName + "-shares",
+		NamespaceOf: owner.ContainerID,
+		Port:        20490,
+		Volumes:     []ShareVolume{{Volume: volume, Export: "vol-rw"}, {Volume: volume, Export: "vol-ro", ReadOnly: true}},
+		Labels:      map[string]string{"sockerless-sim-shares-of": "test"},
+	}, sim.FuncSink(func(line sim.LogLine) {
+		mu.Lock()
+		lines = append(lines, line.Text)
+		mu.Unlock()
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(shares.Cancel)
+	mu.Lock()
+	served := strings.Join(lines, "\n")
+	mu.Unlock()
+	if !strings.Contains(served, "serving vol-ro vol-rw") && !strings.Contains(served, "serving vol-rw vol-ro") {
+		t.Fatalf("the share container reported %q", served)
+	}
+	conn, err := net.DialTimeout("tcp4", "10.78.0.20:20490", 5*time.Second)
+	if err != nil {
+		t.Fatalf("the shares do not answer at the namespace owner's address: %v", err)
+	}
+	_ = conn.Close()
+	if err := sim.RemoveVolume(volume); err == nil {
+		t.Fatal("the volume was removed while the share container holds it")
+	}
+	shares.Cancel()
+	<-shares.Exited()
+	if err := sim.RemoveVolume(volume); err != nil {
+		t.Fatalf("remove the volume once the share container is gone: %v", err)
+	}
+}

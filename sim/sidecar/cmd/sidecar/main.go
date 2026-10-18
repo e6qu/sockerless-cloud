@@ -2,7 +2,8 @@
 // the network: it answers DNS at the cloud's resolver address and the
 // metadata endpoints at the address the cloud serves them on, and forwards
 // both to the simulator that started it. It holds no capability and no secret
-// but the token the simulator minted for it.
+// but the token the simulator minted for it. As `sidecar shares` it serves
+// the engine volumes bound under /exports to guests over NFSv4 instead.
 package main
 
 import (
@@ -71,6 +72,14 @@ func envOr(key, fallback string) string {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "shares" {
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+		defer stop()
+		if err := serveShares(ctx, os.Stdout); err != nil {
+			log.Fatalf("sidecar: %v", err)
+		}
+		return
+	}
 	if len(os.Args) > 1 {
 		if err := readProcess(os.Args[1:]); err != nil {
 			log.Fatalf("sidecar: %v", err)
