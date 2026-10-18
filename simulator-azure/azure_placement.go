@@ -138,6 +138,29 @@ func azureJoinMicroVMNetwork(ctx context.Context, service placement.Service, vne
 	return backend.Join(ctx, network, azureVNetMicroVMAgentAddress(vnetID, vnetPrefix))
 }
 
+// azureJoinMicroVMPlatformNetwork attaches the node agent to a network of
+// the platform's shape — a Container Apps environment's own — at an address
+// leased from the simulator's half of it, before the first guest of a
+// microVM service lands on it. The agent joined the platform network itself
+// when it started.
+func azureJoinMicroVMPlatformNetwork(ctx context.Context, service placement.Service, network string) error {
+	table := azurePlacementTable()
+	azurePlacementMu.Lock()
+	backend := azureMicroVMBackend
+	azurePlacementMu.Unlock()
+	if backend == nil || table.KindFor(service) != placement.MicroVM {
+		return nil
+	}
+	if _, joined := backend.Agent().AddressOn(network); joined {
+		return nil
+	}
+	address, _, err := sim.LeasePlatformAddress(ctx, network, "sockerless-sim-azure-node-agent", netip.Addr{})
+	if err != nil {
+		return err
+	}
+	return backend.Join(ctx, network, address)
+}
+
 func azureEngineNetworkPrefix(ctx context.Context, network string) (netip.Prefix, error) {
 	cli := sim.DockerClient()
 	if err := sim.RequireContainerRuntime("inspecting a network"); err != nil {

@@ -181,6 +181,10 @@ func (h *ContainerHandle) PublishedPort(ctx context.Context, containerPort int) 
 	return PublishedHostPort(ctx, h.ContainerID, containerPort)
 }
 
+// ErrNotRunning is wrapped by a read of a workload's published port when the
+// workload has stopped, or is gone, and so publishes none.
+var ErrNotRunning = errors.New("the workload is not running")
+
 // PublishedHostPort returns the host port the engine bound for a running
 // container's containerPort/tcp. The engine allocates the port when it starts
 // the container and releases it when the container stops, so a resumed
@@ -191,11 +195,14 @@ func PublishedHostPort(ctx context.Context, containerID string, containerPort in
 	}
 	inspected, err := dockerClient.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
 	if err != nil {
+		if cerrdefs.IsNotFound(err) {
+			return 0, fmt.Errorf("container %s: %w", containerID, ErrNotRunning)
+		}
 		return 0, fmt.Errorf("inspect container %s: %w", containerID, err)
 	}
 	info := inspected.Container
 	if info.State == nil || !info.State.Running {
-		return 0, fmt.Errorf("container %s is not running, so it publishes no port", containerID)
+		return 0, fmt.Errorf("container %s publishes no port: %w", containerID, ErrNotRunning)
 	}
 	port, err := network.ParsePort(strconv.Itoa(containerPort) + "/tcp")
 	if err != nil {

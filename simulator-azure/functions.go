@@ -1630,10 +1630,8 @@ func siteContainerCandidates(ctx context.Context, handle placement.Handle, port 
 	}
 	hostPort, err := handle.PublishedPort(ctx, port)
 	if err != nil {
-		select {
-		case <-handle.Exited():
+		if errors.Is(err, sim.ErrNotRunning) {
 			return nil, nil
-		default:
 		}
 		// A guest publishes no port on the host's loopback; its address is
 		// the one route to it.

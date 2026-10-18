@@ -890,7 +890,21 @@ func acaEnvironmentVNetID(env ContainerAppEnvironment) string {
 func acaEnvironmentNetwork(ctx context.Context, env ContainerAppEnvironment) (azureWorkloadNetwork, string, error) {
 	if vnetID := acaEnvironmentVNetID(env); vnetID != "" {
 		network, err := azureVNetNetwork(ctx, vnetID)
-		return network, acaInfrastructureSubnetID(env.Properties), err
+		if err != nil {
+			return azureWorkloadNetwork{}, "", err
+		}
+		vnet, ok := azureVnets.Get(vnetID)
+		if !ok {
+			return azureWorkloadNetwork{}, "", fmt.Errorf("virtual network %s not found", vnetID)
+		}
+		prefix, err := azureVNetIPv4Prefix(vnet)
+		if err != nil {
+			return azureWorkloadNetwork{}, "", err
+		}
+		if err := azureJoinMicroVMNetwork(ctx, placementContainerApps, vnetID, prefix, network.Network); err != nil {
+			return azureWorkloadNetwork{}, "", err
+		}
+		return network, acaInfrastructureSubnetID(env.Properties), nil
 	}
 	if env.DockerNetworkName == "" {
 		return azureWorkloadNetwork{}, "", fmt.Errorf("managed environment %s has no network", env.ID)
@@ -900,6 +914,9 @@ func acaEnvironmentNetwork(ctx context.Context, env ContainerAppEnvironment) (az
 	}
 	dns, err := azureEnsureSidecar(ctx, env.DockerNetworkName, netip.Addr{})
 	if err != nil {
+		return azureWorkloadNetwork{}, "", err
+	}
+	if err := azureJoinMicroVMPlatformNetwork(ctx, placementContainerApps, env.DockerNetworkName); err != nil {
 		return azureWorkloadNetwork{}, "", err
 	}
 	return azureWorkloadNetwork{Network: env.DockerNetworkName, DNS: dns}, "", nil
