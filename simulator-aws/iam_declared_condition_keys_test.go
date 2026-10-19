@@ -38,6 +38,8 @@ type iamUnmodelledConditionKey struct {
 }
 
 var iamUnmodelledConditionKeys = []iamUnmodelledConditionKey{
+	{"cloudwatch:AlarmTagsPropagationEnabled", "Declared on cloudwatch:PutMetricAlarm, PutCompositeAlarm and PutLogAlarm for a " +
+		"request that turns tag propagation on, a parameter the vendored CloudWatch model does not contain, so no served request carries it."},
 	{"cloudwatch:HasAccessGrant", "Declared only on cloudwatch:AssumeAccessProfile, CreateAccessGrant and CreateAccessProfile, " +
 		"operations the vendored CloudWatch model does not contain and the simulator does not serve."},
 	{"events:ContentFilterPresent", "Declared only on events:CreateSubscriber and UpdateSubscriber, operations the vendored " +
