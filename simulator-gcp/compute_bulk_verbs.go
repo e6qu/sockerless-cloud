@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/machine"
 )
 
 // Compute Engine's bulk creates and the verbs that reshape a resource in place.
@@ -127,21 +130,32 @@ func registerComputeBulkVerbs(srv *sim.Server) {
 			recordComputeOp(op)
 			booting := run
 			bg.Go(func() {
-				ctx, cancel := context.WithTimeout(context.Background(), computeInstanceBootBudget)
-				defer cancel()
+				ctx := context.Background()
+				var failed error
 				for i := range booting {
-					if err := gcpBootVM(ctx, &booting[i]); err != nil {
-						// The run's failed member leaves nothing behind, and
-						// the verdict lives on the operation the caller polls.
+					err := gcpBootVM(ctx, &booting[i])
+					if errors.Is(err, machine.ErrHalted) {
+						continue
+					}
+					if err != nil {
+						// A failed member leaves nothing behind while the rest
+						// of the run comes up, and the verdict lives on the
+						// operation the caller polls.
+						if err := gcpDestroyVM(context.WithoutCancel(ctx), &booting[i]); err != nil {
+							log.Printf("compute: remove the machine of %s after a failed boot: %v", booting[i].SelfLink, err)
+						}
 						gcpInstances.Delete(booting[i].SelfLink)
 						gcpReleaseInstanceAddresses(booting[i])
-						computeOpFinish(op.Name, err)
-						return
+						gcpDeleteInstanceDisks(booting[i])
+						if failed == nil {
+							failed = err
+						}
+						continue
 					}
 					booting[i].Status = ComputeInstanceRunning
 					gcpInstances.Put(booting[i].SelfLink, booting[i])
 				}
-				computeOpFinish(op.Name, nil)
+				computeOpFinish(op.Name, failed)
 			})
 			sim.WriteJSON(w, http.StatusOK, computeOpJSON(op))
 		}

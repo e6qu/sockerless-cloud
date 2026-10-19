@@ -39,6 +39,12 @@ func TestEC2_DescribeInstancesPagination(t *testing.T) {
 	})
 	require.NoError(t, err)
 	terminateEC2InstancesOnCleanup(t, c, run)
+	// Each instance the request launched carries its position among them.
+	indexes := map[int32]bool{}
+	for _, inst := range run.Instances {
+		indexes[aws.ToInt32(inst.AmiLaunchIndex)] = true
+	}
+	assert.Equal(t, map[int32]bool{0: true, 1: true, 2: true}, indexes)
 
 	filt := []ec2types.Filter{{Name: aws.String("tag:page-test"), Values: []string{tagValue}}}
 	count := func(o *ec2.DescribeInstancesOutput) int {

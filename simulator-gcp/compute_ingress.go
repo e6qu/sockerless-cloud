@@ -33,29 +33,21 @@ func gcpIngressStages(inst ComputeInstance) ([][]netrules.PacketRule, error) {
 func gcpReapplyIngress() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	gcpInstanceMachines.Range(func(key, value any) bool {
-		link, ok := key.(string)
-		if !ok {
-			return true
-		}
-		machine, ok := value.(*gcpInstanceMachine)
-		if !ok || machine.handle == nil {
-			return true
-		}
+	for _, running := range gcpRunningInstances() {
+		link, handle := running.Key, running.Handle
 		inst, ok := gcpInstances.Get(link)
 		if !ok {
-			return true
+			continue
 		}
 		stages, err := gcpIngressStages(inst)
 		if err != nil {
 			log.Printf("compute: firewall rules of %s: %v", link, err)
-			return true
+			continue
 		}
-		if err := machine.handle.SetIngress(ctx, stages); err != nil && !errors.Is(err, placement.ErrNoIngressFilter) {
+		if err := handle.SetIngress(ctx, stages); err != nil && !errors.Is(err, placement.ErrNoIngressFilter) {
 			log.Printf("compute: apply the firewall rules of %s: %v", link, err)
 		}
-		return true
-	})
+	}
 }
 
 // gcpReapplyIngressAfter is the realize step of a firewall write that goes

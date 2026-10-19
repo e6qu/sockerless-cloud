@@ -6,8 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -84,143 +87,147 @@ func registerMetadata(srv *sim.Server) {
 		}
 	})
 
-	// Azure IMDS instance metadata. Real Azure exposes	//
-	//   GET http://169.254.169.254/metadata/instance?api-version=2021-02-01
-	//
-	// returning a {compute, network} document used by:
-	//   - DefaultAzureCredential's IMDS probe.
-	//   - Workloads that read `compute.subscriptionId`, `compute.location`,
-	//     `compute.azEnvironment` for self-discovery.
-	// All reads require `Metadata: true` request header.
+	// The Instance Metadata Service answers a virtual machine and nothing
+	// else, about that machine: a request is the machine's when it comes from
+	// the address its network interface holds. Every read requires the
+	// `Metadata: true` header.
 	registerAzureInstanceAttestation(srv)
 	srv.HandleFunc("GET /metadata/instance", func(w http.ResponseWriter, r *http.Request) {
-		if !mustMetadataHeader(w, r) {
+		vm, ok := azureIMDSRequest(w, r)
+		if !ok {
 			return
 		}
-		sub := r.URL.Query().Get("subscriptionId")
-		if sub == "" {
-			sub = "00000000-0000-0000-0000-000000000001"
-		}
-		loc := r.URL.Query().Get("location")
-		if loc == "" {
-			loc = "westeurope"
-		}
-		vmMeta, ok := azureMetadataVMsByIP.ForRequest(r)
-		if ok {
-			sub = azureSubscriptionFromID(vmMeta.VM.ID, sub)
-			loc = vmMeta.VM.Location
-		}
-		computeName := "sim-vm-1"
-		resourceGroup := "sim-rg"
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/sim-rg/providers/Microsoft.Compute/virtualMachines/sim-vm-1", sub)
-		vmID := "sim-vm-id-0001"
-		vmSize := "Standard_DS1_v2"
-		privateIP := "10.0.0.4"
-		macAddress := "00155DEADBEE"
-		subnetAddress := "10.0.0.0"
-		subnetPrefix := "24"
-		publisher, offer, sku, version := "Canonical", "ubuntu-24_04-lts", "server", "24.04.202510170"
-		userData := ""
-		var secondaryIPs []string
-		if ok {
-			if ref := azureVMImageReference(vmMeta.VM); ref != nil {
-				if v, _ := ref["publisher"].(string); v != "" {
-					publisher, _ = ref["publisher"].(string)
-					offer, _ = ref["offer"].(string)
-					sku, _ = ref["sku"].(string)
-					version, _ = ref["version"].(string)
-				}
-			}
-			userData = vmMeta.VM.Properties.UserData
-			computeName = vmMeta.VM.Name
-			resourceGroup = azureResourceGroupFromID(vmMeta.VM.ID, resourceGroup)
-			resourceID = vmMeta.VM.ID
-			if vmMeta.VM.Properties.VMID != "" {
-				vmID = vmMeta.VM.Properties.VMID
-			}
-			if size, _ := vmMeta.VM.Properties.HardwareProfile["vmSize"].(string); size != "" {
-				vmSize = size
-			}
-			if vmMeta.NIC.Properties.MacAddress != "" {
-				macAddress = strings.ReplaceAll(vmMeta.NIC.Properties.MacAddress, "-", "")
-			}
-			nic := vmMeta.NIC
-			if stored, found := azureNICs.Get(nic.ID); found {
-				nic = stored
-			}
-			if len(nic.Properties.IPConfigurations) > 0 {
-				privateIP = azurePrimaryIPConfig(nic).Properties.PrivateIPAddress
-				for _, secondary := range azureNICSecondaryAddresses(nic) {
-					secondaryIPs = append(secondaryIPs, secondary.String())
-				}
-			}
-			if subnet, ok := azureSubnets.Get(vmMeta.SubnetID); ok {
-				subnetAddress, subnetPrefix = azureCIDRAddressPrefix(subnet.Properties.AddressPrefix, subnetAddress, subnetPrefix)
-			}
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"compute": map[string]any{
-				"azEnvironment":        "AzurePublicCloud",
-				"location":             loc,
-				"name":                 computeName,
-				"offer":                offer,
-				"osType":               "Linux",
-				"placementGroupId":     "",
-				"platformFaultDomain":  "0",
-				"platformUpdateDomain": "0",
-				"provider":             "Microsoft.Compute",
-				"publisher":            publisher,
-				"resourceGroupName":    resourceGroup,
-				"resourceId":           resourceID,
-				"sku":                  sku,
-				"subscriptionId":       sub,
-				"tags":                 "",
-				"userData":             userData,
-				"version":              version,
-				"vmId":                 vmID,
-				"vmScaleSetName":       "",
-				"vmSize":               vmSize,
-				"zone":                 "1",
-			},
-			"network": map[string]any{
-				"interface": []map[string]any{{
-					"ipv4": map[string]any{
-						"ipAddress": azureIMDSIPAddresses(privateIP, secondaryIPs),
-						"subnet": []map[string]any{{
-							"address": subnetAddress,
-							"prefix":  subnetPrefix,
-						}},
-					},
-					"macAddress": macAddress,
-				}},
-			},
-		})
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"compute": azureIMDSCompute(vm), "network": azureIMDSNetwork(vm)})
 	})
 	srv.HandleFunc("GET /metadata/instance/compute", func(w http.ResponseWriter, r *http.Request) {
-		if !mustMetadataHeader(w, r) {
+		vm, ok := azureIMDSRequest(w, r)
+		if !ok {
 			return
 		}
-		if vmMeta, ok := azureMetadataVMsByIP.ForRequest(r); ok {
-			sub := azureSubscriptionFromID(vmMeta.VM.ID, "00000000-0000-0000-0000-000000000001")
-			sim.WriteJSON(w, http.StatusOK, map[string]any{
-				"location":          vmMeta.VM.Location,
-				"subscriptionId":    sub,
-				"resourceGroupName": azureResourceGroupFromID(vmMeta.VM.ID, "sim-rg"),
-				"name":              vmMeta.VM.Name,
-				"vmId":              vmMeta.VM.Properties.VMID,
-				"azEnvironment":     "AzurePublicCloud",
-			})
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"location":          "westeurope",
-			"subscriptionId":    "00000000-0000-0000-0000-000000000001",
-			"resourceGroupName": "sim-rg",
-			"name":              "sim-vm-1",
-			"vmId":              "sim-vm-id-0001",
-			"azEnvironment":     "AzurePublicCloud",
-		})
+		sim.WriteJSON(w, http.StatusOK, azureIMDSCompute(vm))
 	})
+	srv.HandleFunc("GET /metadata/instance/network", func(w http.ResponseWriter, r *http.Request) {
+		vm, ok := azureIMDSRequest(w, r)
+		if !ok {
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK, azureIMDSNetwork(vm))
+	})
+}
+
+// azureIMDSRequest admits an instance metadata read: one carrying the
+// required header, from a virtual machine, answered from the machine's
+// record as it is now.
+func azureIMDSRequest(w http.ResponseWriter, r *http.Request) (azureMetadataVM, bool) {
+	if !mustMetadataHeader(w, r) {
+		return azureMetadataVM{}, false
+	}
+	booted, ok := azureMetadataVMsByIP.ForRequest(r)
+	if !ok {
+		sim.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "Not found"})
+		return azureMetadataVM{}, false
+	}
+	if vm, found := azureVMs.Get(booted.VM.ID); found {
+		booted.VM = vm
+	}
+	if nic, found := azureNICs.Get(booted.NIC.ID); found {
+		booted.NIC = nic
+	}
+	return booted, true
+}
+
+// azureIMDSCompute is the compute section of the instance document.
+func azureIMDSCompute(vm azureMetadataVM) map[string]any {
+	publisher, offer, sku, version := "", "", "", ""
+	if ref := azureVMImageReference(vm.VM); ref != nil {
+		publisher, _ = ref["publisher"].(string)
+		offer, _ = ref["offer"].(string)
+		sku, _ = ref["sku"].(string)
+		version, _ = ref["version"].(string)
+	}
+	size, _ := vm.VM.Properties.HardwareProfile["vmSize"].(string)
+	tagKeys := make([]string, 0, len(vm.VM.Tags))
+	for key := range vm.VM.Tags {
+		tagKeys = append(tagKeys, key)
+	}
+	sort.Strings(tagKeys)
+	tags := make([]string, 0, len(tagKeys))
+	tagsList := make([]map[string]string, 0, len(tagKeys))
+	for _, key := range tagKeys {
+		tags = append(tags, key+":"+vm.VM.Tags[key])
+		tagsList = append(tagsList, map[string]string{"name": key, "value": vm.VM.Tags[key]})
+	}
+	adminUsername, _ := vm.VM.Properties.OSProfile["adminUsername"].(string)
+	linux, _ := vm.VM.Properties.OSProfile["linuxConfiguration"].(map[string]any)
+	disablePassword, _ := linux["disablePasswordAuthentication"].(bool)
+	ssh, _ := linux["ssh"].(map[string]any)
+	keys, _ := ssh["publicKeys"].([]any)
+	publicKeys := make([]map[string]string, 0, len(keys))
+	for _, k := range keys {
+		entry, _ := k.(map[string]any)
+		keyData, _ := entry["keyData"].(string)
+		path, _ := entry["path"].(string)
+		publicKeys = append(publicKeys, map[string]string{"keyData": keyData, "path": path})
+	}
+	return map[string]any{
+		"azEnvironment": "AzurePublicCloud",
+		"location":      vm.VM.Location,
+		"name":          vm.VM.Name,
+		"offer":         offer,
+		"osProfile": map[string]any{
+			"adminUsername":                 adminUsername,
+			"computerName":                  azureVMComputerName(vm.VM),
+			"disablePasswordAuthentication": strconv.FormatBool(disablePassword),
+		},
+		"osType":               "Linux",
+		"placementGroupId":     "",
+		"platformFaultDomain":  "0",
+		"platformUpdateDomain": "0",
+		"provider":             "Microsoft.Compute",
+		"publicKeys":           publicKeys,
+		"publisher":            publisher,
+		"resourceGroupName":    azureResourceGroupFromID(vm.VM.ID, ""),
+		"resourceId":           vm.VM.ID,
+		"sku":                  sku,
+		"subscriptionId":       azureSubscriptionFromID(vm.VM.ID, ""),
+		"tags":                 strings.Join(tags, ";"),
+		"tagsList":             tagsList,
+		"userData":             vm.VM.Properties.UserData,
+		"version":              version,
+		"vmId":                 vm.VM.Properties.VMID,
+		"vmScaleSetName":       "",
+		"vmSize":               size,
+		"zone":                 "",
+	}
+}
+
+// azureIMDSNetwork is the network section of the instance document: the
+// machine's interface, its addresses and its subnet.
+func azureIMDSNetwork(vm azureMetadataVM) map[string]any {
+	var primary string
+	var secondaries []string
+	if len(vm.NIC.Properties.IPConfigurations) > 0 {
+		primary = azurePrimaryIPConfig(vm.NIC).Properties.PrivateIPAddress
+		for _, secondary := range azureNICSecondaryAddresses(vm.NIC) {
+			secondaries = append(secondaries, secondary.String())
+		}
+	}
+	var subnets []map[string]any
+	if subnet, ok := azureSubnets.Get(vm.SubnetID); ok {
+		if address, prefix, ok := strings.Cut(subnet.Properties.AddressPrefix, "/"); ok {
+			subnets = append(subnets, map[string]any{"address": address, "prefix": prefix})
+		}
+	}
+	return map[string]any{
+		"interface": []map[string]any{{
+			"ipv4": map[string]any{
+				"ipAddress": azureIMDSIPAddresses(primary, secondaries),
+				"subnet":    subnets,
+			},
+			"ipv6":       map[string]any{"ipAddress": []any{}},
+			"macAddress": strings.ReplaceAll(vm.NIC.Properties.MacAddress, "-", ""),
+		}},
+	}
 }
 
 func azureSubscriptionFromID(id, defaultSubscription string) string {
@@ -243,14 +250,6 @@ func azureResourceGroupFromID(id, defaultResourceGroup string) string {
 	return defaultResourceGroup
 }
 
-func azureCIDRAddressPrefix(cidr, defaultAddress, defaultPrefix string) (string, string) {
-	parts := strings.Split(cidr, "/")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return defaultAddress, defaultPrefix
-	}
-	return parts[0], parts[1]
-}
-
 // simListenAddr is the listen address main() serves on.
 var simListenAddr string
 
@@ -265,19 +264,18 @@ func hostMetadataEnv(site *Site, metadataHost string) (map[string]string, error)
 }
 
 // workloadMetadataEnv returns the platform environment of the workload of
-// resource resourceID: the instance metadata endpoint, and for a workload with
-// a managed identity the IDENTITY_ENDPOINT and IDENTITY_HEADER its code
-// acquires the identity's tokens with. Both are served by the sidecar of the
-// workload's network at metadataHost, which forwards them to the simulator
-// with the workload's own address. A workload with no identity gets neither,
-// as on App Service and Container Apps.
+// resource resourceID: for a workload with a managed identity, the
+// IDENTITY_ENDPOINT and IDENTITY_HEADER its code acquires the identity's
+// tokens with, served by the sidecar of the workload's network at
+// metadataHost, which forwards them to the simulator with the workload's own
+// address. A workload with no identity gets neither, as on App Service and
+// Container Apps, and none reaches the Instance Metadata Service, which
+// answers virtual machines only.
 func workloadMetadataEnv(resourceID string, identity *SiteIdentity, metadataHost string) (map[string]string, error) {
 	if metadataHost == "" {
 		return nil, fmt.Errorf("workload %s: no sidecar serves its metadata", resourceID)
 	}
-	env := map[string]string{
-		"AZURE_INSTANCE_METADATA_ENDPOINT": "http://" + metadataHost + "/metadata/instance",
-	}
+	env := map[string]string{}
 	if hasManagedIdentity(identity) {
 		header, err := workloadIdentityHeader(resourceID)
 		if err != nil {
@@ -322,6 +320,10 @@ func registerAzureInstanceAttestation(srv *sim.Server) {
 		// answer another.
 		nonce := r.URL.Query().Get("nonce")
 		signature, err := azureSignAttestedDocument(r, nonce)
+		if errors.Is(err, errNotAVirtualMachine) {
+			sim.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "Not found"})
+			return
+		}
 		if err != nil {
 			AzureError(w, "InternalServerError",
 				"Could not sign the attested document: "+err.Error(), http.StatusInternalServerError)
@@ -341,6 +343,10 @@ func registerAzureInstanceAttestation(srv *sim.Server) {
 	})
 }
 
+// errNotAVirtualMachine is a metadata request from an address no virtual
+// machine holds.
+var errNotAVirtualMachine = errors.New("the caller is no virtual machine")
+
 // azureSignAttestedDocument signs the instance's identity, with the caller's
 // nonce inside the signed content so the document answers that challenge only.
 func azureSignAttestedDocument(r *http.Request, nonce string) (string, error) {
@@ -351,11 +357,11 @@ func azureSignAttestedDocument(r *http.Request, nonce string) (string, error) {
 	// The instance being attested is the one the request reached, resolved the
 	// same way the instance document resolves it — a document attesting some
 	// other machine would prove nothing about this one.
-	subscription, vmID := "00000000-0000-0000-0000-000000000001", "sim-vm-id-0001"
-	if vmMeta, ok := azureMetadataVMsByIP.ForRequest(r); ok {
-		subscription = azureSubscriptionFromID(vmMeta.VM.ID, subscription)
-		vmID = vmMeta.VM.Name
+	vmMeta, ok := azureMetadataVMsByIP.ForRequest(r)
+	if !ok {
+		return "", errNotAVirtualMachine
 	}
+	subscription, vmID := azureSubscriptionFromID(vmMeta.VM.ID, ""), vmMeta.VM.Properties.VMID
 	document, err := json.Marshal(map[string]any{
 		"nonce":          nonce,
 		"plan":           map[string]any{"name": "", "product": "", "publisher": ""},

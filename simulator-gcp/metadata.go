@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"net/http"
+	"net/netip"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +15,19 @@ import (
 )
 
 var gcpMetadataInstancesByIP workloadhost.MetadataIndex[ComputeInstance]
+
+// gcpMetadataInstanceFor is the instance a request comes from, as the store
+// holds it now: setMetadata and setTags change an instance while it runs.
+func gcpMetadataInstanceFor(r *http.Request) (ComputeInstance, bool) {
+	indexed, ok := gcpMetadataInstancesByIP.ForRequest(r)
+	if !ok || gcpInstances == nil {
+		return ComputeInstance{}, false
+	}
+	return gcpInstances.Get(indexed.SelfLink)
+}
+
+// gceNetworkMTU is the MTU of a VPC network created without one.
+const gceNetworkMTU = 1460
 
 // registerComputeMetadata serves the GCE metadata server endpoints used
 // by every GCP compute primitive that runs a workload (GCE, Cloud Run,
@@ -80,12 +96,55 @@ func registerComputeMetadata(srv *sim.Server) {
 		if !mustFlavor(w, r) {
 			return
 		}
-		inst, ok := gcpMetadataInstancesByIP.ForRequest(r)
+		inst, ok := gcpMetadataInstanceFor(r)
 		if !ok {
 			metadataNotFound(w)
 			return
 		}
 		value, ok := gcpInstanceMetadataValue(inst, sim.PathParam(r, "key"))
+		if !ok {
+			metadataNotFound(w)
+			return
+		}
+		writeText(w, value)
+	})
+	srv.HandleFunc("GET /computeMetadata/v1/project/attributes/{key}", func(w http.ResponseWriter, r *http.Request) {
+		if !mustFlavor(w, r) {
+			return
+		}
+		value, ok := gceProjectAttributes(gceMetadataWorkloadFor(r).projectID())[sim.PathParam(r, "key")]
+		if !ok {
+			metadataNotFound(w)
+			return
+		}
+		writeText(w, value)
+	})
+	srv.HandleFunc("GET /computeMetadata/v1/instance/network-interfaces/{nic}/{key}", func(w http.ResponseWriter, r *http.Request) {
+		if !mustFlavor(w, r) {
+			return
+		}
+		keys, ok := gceInterfaceKeys(r, sim.PathParam(r, "nic"))
+		if !ok {
+			metadataNotFound(w)
+			return
+		}
+		value, ok := keys[sim.PathParam(r, "key")]
+		if !ok {
+			metadataNotFound(w)
+			return
+		}
+		writeText(w, value)
+	})
+	srv.HandleFunc("GET /computeMetadata/v1/instance/network-interfaces/{nic}/access-configs/{config}/{key}", func(w http.ResponseWriter, r *http.Request) {
+		if !mustFlavor(w, r) {
+			return
+		}
+		keys, ok := gceAccessConfigKeys(r, sim.PathParam(r, "nic"), sim.PathParam(r, "config"))
+		if !ok {
+			metadataNotFound(w)
+			return
+		}
+		value, ok := keys[sim.PathParam(r, "key")]
 		if !ok {
 			metadataNotFound(w)
 			return
@@ -313,7 +372,154 @@ func gceMetadataProjectChildren(r *http.Request) []gceMetadataEntry {
 			children = append(children, gceMetadataEntry{name: "numeric-project-id", value: func(*http.Request) any { return n }})
 		}
 	}
+	children = append(children, gceMetadataEntry{name: "attributes", children: gceMetadataProjectAttributesChildren})
 	return append(children, gceMetadataEntry{name: "project-id", value: func(*http.Request) any { return workload.projectID() }})
+}
+
+// gceProjectAttributes is the project's common instance metadata, which
+// projects.setCommonInstanceMetadata writes and every instance reads.
+func gceProjectAttributes(project string) map[string]string {
+	attributes := map[string]string{}
+	if gcpComputeProjects == nil {
+		return attributes
+	}
+	held, ok := gcpComputeProjects.Get(project)
+	if !ok {
+		return attributes
+	}
+	metadata, _ := held["commonInstanceMetadata"].(map[string]any)
+	items, _ := metadata["items"].([]any)
+	for _, item := range items {
+		entry, _ := item.(map[string]any)
+		if key, _ := entry["key"].(string); key != "" {
+			attributes[key], _ = entry["value"].(string)
+		}
+	}
+	return attributes
+}
+
+func gceMetadataProjectAttributesChildren(r *http.Request) []gceMetadataEntry {
+	attributes := gceProjectAttributes(gceMetadataWorkloadFor(r).projectID())
+	keys := make([]string, 0, len(attributes))
+	for key := range attributes {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	children := make([]gceMetadataEntry, 0, len(keys))
+	for _, key := range keys {
+		value := attributes[key]
+		children = append(children, gceMetadataEntry{name: key, jsonName: key, value: func(*http.Request) any { return value }})
+	}
+	return children
+}
+
+// gceInterfaceKeys are the keys of the reading instance's interface nic.
+func gceInterfaceKeys(r *http.Request, nic string) (map[string]string, bool) {
+	inst, ok := gcpMetadataInstanceFor(r)
+	if !ok {
+		return nil, false
+	}
+	index, err := strconv.Atoi(nic)
+	if err != nil || index < 0 || index >= len(inst.NetworkInterfaces) {
+		return nil, false
+	}
+	iface := inst.NetworkInterfaces[index]
+	keys := map[string]string{
+		"ip":  iface.NetworkIP,
+		"mac": gceInterfaceMAC(iface.NetworkIP),
+		"mtu": strconv.Itoa(gceNetworkMTU),
+	}
+	if number, ok := gceMetadataWorkloadFor(r).projectNumber(); ok {
+		keys["network"] = "projects/" + number + "/networks/" + iface.Network[strings.LastIndex(iface.Network, "/")+1:]
+	}
+	if gcpSubnetworks != nil {
+		if subnet, ok := gcpSubnetworks.Get(iface.Subnetwork); ok {
+			keys["gateway"] = subnet.GatewayAddress
+			if prefix, err := netip.ParsePrefix(subnet.IpCidrRange); err == nil {
+				mask := net.CIDRMask(prefix.Bits(), 32)
+				keys["subnetmask"] = net.IP(mask).String()
+			}
+		}
+	}
+	if booted, ok := gcpInstanceBootedAs(inst.SelfLink); ok && index == 0 {
+		keys["dns-servers"] = strings.Join(booted.dns, "\n")
+	}
+	return keys, true
+}
+
+// gceAccessConfigKeys are the keys of one access config of the reading
+// instance's interface nic: its external address and type.
+func gceAccessConfigKeys(r *http.Request, nic, config string) (map[string]string, bool) {
+	inst, ok := gcpMetadataInstanceFor(r)
+	if !ok {
+		return nil, false
+	}
+	index, err := strconv.Atoi(nic)
+	if err != nil || index < 0 || index >= len(inst.NetworkInterfaces) {
+		return nil, false
+	}
+	configs := inst.NetworkInterfaces[index].AccessConfigs
+	at, err := strconv.Atoi(config)
+	if err != nil || at < 0 || at >= len(configs) {
+		return nil, false
+	}
+	return map[string]string{"external-ip": configs[at].NatIP, "type": configs[at].Type}, true
+}
+
+func gceKeyEntries(keys map[string]string) []gceMetadataEntry {
+	names := make([]string, 0, len(keys))
+	for name := range keys {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	entries := make([]gceMetadataEntry, 0, len(names))
+	for _, name := range names {
+		value := keys[name]
+		entries = append(entries, gceMetadataEntry{name: name, value: func(*http.Request) any { return value }})
+	}
+	return entries
+}
+
+// gceMetadataInterfacesChildren lists the reading instance's interfaces by
+// index.
+func gceMetadataInterfacesChildren(r *http.Request) []gceMetadataEntry {
+	inst, ok := gcpMetadataInstanceFor(r)
+	if !ok {
+		return []gceMetadataEntry{}
+	}
+	children := make([]gceMetadataEntry, 0, len(inst.NetworkInterfaces))
+	for i := range inst.NetworkInterfaces {
+		nic := strconv.Itoa(i)
+		children = append(children, gceMetadataEntry{name: nic, jsonName: nic, children: func(r *http.Request) []gceMetadataEntry {
+			return gceMetadataInterfaceChildren(r, nic)
+		}})
+	}
+	return children
+}
+
+func gceMetadataInterfaceChildren(r *http.Request, nic string) []gceMetadataEntry {
+	keys, ok := gceInterfaceKeys(r, nic)
+	if !ok {
+		return []gceMetadataEntry{}
+	}
+	entries := gceKeyEntries(keys)
+	inst, _ := gcpMetadataInstanceFor(r)
+	index, _ := strconv.Atoi(nic)
+	if configs := inst.NetworkInterfaces[index].AccessConfigs; len(configs) > 0 {
+		entries = append(entries, gceMetadataEntry{name: "access-configs", children: func(r *http.Request) []gceMetadataEntry {
+			out := make([]gceMetadataEntry, 0, len(configs))
+			for i := range configs {
+				config := strconv.Itoa(i)
+				out = append(out, gceMetadataEntry{name: config, jsonName: config, children: func(r *http.Request) []gceMetadataEntry {
+					keys, _ := gceAccessConfigKeys(r, nic, config)
+					return gceKeyEntries(keys)
+				}})
+			}
+			return out
+		}})
+		sort.Slice(entries, func(i, j int) bool { return entries[i].name < entries[j].name })
+	}
+	return entries
 }
 
 func gceMetadataInstanceChildren(*http.Request) []gceMetadataEntry {
@@ -322,6 +528,7 @@ func gceMetadataInstanceChildren(*http.Request) []gceMetadataEntry {
 		{name: "hostname", value: func(r *http.Request) any { return metadataInstanceHostname(r) }},
 		{name: "id", value: func(r *http.Request) any { return metadataInstanceIDFor(r) }},
 		{name: "name", value: func(r *http.Request) any { return metadataInstanceName(r) }},
+		{name: "network-interfaces", children: gceMetadataInterfacesChildren},
 		{name: "service-accounts", children: gceMetadataServiceAccountsChildren},
 		{name: "zone", value: func(r *http.Request) any { return metadataInstanceZone(r) }},
 	}
@@ -332,7 +539,7 @@ func gceMetadataInstanceChildren(*http.Request) []gceMetadataEntry {
 // which the guest agent fetches from here. A workload that is no instance
 // has none.
 func gceMetadataAttributesChildren(r *http.Request) []gceMetadataEntry {
-	inst, ok := gcpMetadataInstancesByIP.ForRequest(r)
+	inst, ok := gcpMetadataInstanceFor(r)
 	if !ok || inst.Metadata == nil {
 		return []gceMetadataEntry{}
 	}
@@ -429,6 +636,23 @@ func registerComputeMetadataDirectories(srv *sim.Server, mustFlavor func(http.Re
 	dir("/computeMetadata/v1/instance/", gceMetadataInstanceChildren)
 	dir("/computeMetadata/v1/instance/attributes/", gceMetadataAttributesChildren)
 	dir("/computeMetadata/v1/project/", gceMetadataProjectChildren)
+	dir("/computeMetadata/v1/project/attributes/", gceMetadataProjectAttributesChildren)
+	dir("/computeMetadata/v1/instance/network-interfaces/", gceMetadataInterfacesChildren)
+	dir("/computeMetadata/v1/instance/network-interfaces/{nic}/", func(r *http.Request) []gceMetadataEntry {
+		return gceMetadataInterfaceChildren(r, sim.PathParam(r, "nic"))
+	})
+	dir("/computeMetadata/v1/instance/network-interfaces/{nic}/access-configs/", func(r *http.Request) []gceMetadataEntry {
+		for _, entry := range gceMetadataInterfaceChildren(r, sim.PathParam(r, "nic")) {
+			if entry.name == "access-configs" {
+				return entry.children(r)
+			}
+		}
+		return []gceMetadataEntry{}
+	})
+	dir("/computeMetadata/v1/instance/network-interfaces/{nic}/access-configs/{config}/", func(r *http.Request) []gceMetadataEntry {
+		keys, _ := gceAccessConfigKeys(r, sim.PathParam(r, "nic"), sim.PathParam(r, "config"))
+		return gceKeyEntries(keys)
+	})
 	dir("/computeMetadata/v1/universe/", gceMetadataUniverseChildren)
 	dir("/computeMetadata/v1/instance/service-accounts/", gceMetadataServiceAccountsChildren)
 	dir("/computeMetadata/v1/instance/service-accounts/{sa}/", gceMetadataServiceAccountChildren)
@@ -502,7 +726,7 @@ var (
 // metadataInstanceIDFor is the numeric id of the reading instance, or the
 // one every other workload reports.
 func metadataInstanceIDFor(r *http.Request) int64 {
-	if inst, ok := gcpMetadataInstancesByIP.ForRequest(r); ok && inst.Id != "" {
+	if inst, ok := gcpMetadataInstanceFor(r); ok && inst.Id != "" {
 		if id, err := strconv.ParseInt(inst.Id, 10, 64); err == nil {
 			return id
 		}
@@ -512,7 +736,7 @@ func metadataInstanceIDFor(r *http.Request) int64 {
 
 // metadataInstanceZone is the fully-qualified zone the reading workload runs in.
 func metadataInstanceZone(r *http.Request) string {
-	if inst, ok := gcpMetadataInstancesByIP.ForRequest(r); ok && inst.Zone != "" {
+	if inst, ok := gcpMetadataInstanceFor(r); ok && inst.Zone != "" {
 		if number, ok := gceMetadataWorkloadFor(r).projectNumber(); ok {
 			return fmt.Sprintf("projects/%s/zones/%s", number, inst.Zone[strings.LastIndex(inst.Zone, "/")+1:])
 		}
@@ -527,7 +751,7 @@ func metadataInstanceZone(r *http.Request) string {
 
 // metadataInstanceName is the reading workload's instance name.
 func metadataInstanceName(r *http.Request) string {
-	if inst, ok := gcpMetadataInstancesByIP.ForRequest(r); ok && inst.Name != "" {
+	if inst, ok := gcpMetadataInstanceFor(r); ok && inst.Name != "" {
 		return inst.Name
 	}
 	return metadataDefaultName
@@ -535,7 +759,7 @@ func metadataInstanceName(r *http.Request) string {
 
 // metadataInstanceHostname is the internal DNS name of the reading workload.
 func metadataInstanceHostname(r *http.Request) string {
-	if inst, ok := gcpMetadataInstancesByIP.ForRequest(r); ok && inst.Name != "" {
+	if inst, ok := gcpMetadataInstanceFor(r); ok && inst.Name != "" {
 		zone := defaultMetadataZone(r)
 		if inst.Zone != "" {
 			zone = inst.Zone[strings.LastIndex(inst.Zone, "/")+1:]

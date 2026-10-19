@@ -152,7 +152,15 @@ func ec2InstanceTagsEnabled(inst EC2Instance) bool {
 // imdsListing is the meta-data directory an instance sees: the categories it
 // has, each served.
 func imdsListing(inst EC2Instance) string {
-	entries := []string{"ami-id", "hostname", "instance-id", "instance-type", "local-hostname", "local-ipv4", "placement/"}
+	entries := []string{"ami-id", "ami-launch-index", "block-device-mapping/", "hostname", "instance-action",
+		"instance-id", "instance-life-cycle", "instance-type", "local-hostname", "local-ipv4", "mac", "network/",
+		"placement/", "reservation-id", "security-groups", "services/"}
+	if ec2PublicDNSName(inst) != "" {
+		entries = append(entries, "public-hostname")
+	}
+	if inst.PublicIpAddress != "" {
+		entries = append(entries, "public-ipv4")
+	}
 	if _, _, ok := ec2InstanceProfileRole(inst); ok {
 		entries = append(entries, "iam/")
 	}
@@ -164,6 +172,101 @@ func imdsListing(inst EC2Instance) string {
 	}
 	sort.Strings(entries)
 	return strings.Join(entries, "\n")
+}
+
+// imdsInterfaces are the instance's network interfaces in device order.
+func imdsInterfaces(inst EC2Instance) []EC2NetworkInterface {
+	var out []EC2NetworkInterface
+	for _, eni := range ec2NetworkInterfaces.List() {
+		if eni.InstanceId == inst.InstanceId {
+			out = append(out, eni)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].DeviceIndex < out[j].DeviceIndex })
+	return out
+}
+
+// imdsInterfaceByMAC is the instance's interface with the MAC a path names.
+func imdsInterfaceByMAC(inst EC2Instance, mac string) (EC2NetworkInterface, bool) {
+	for _, eni := range imdsInterfaces(inst) {
+		if ec2InterfaceMAC(eni.NetworkInterfaceId) == strings.ToLower(mac) {
+			return eni, true
+		}
+	}
+	return EC2NetworkInterface{}, false
+}
+
+// imdsGroupNames names security groups by their ids.
+func imdsGroupNames(ids []string) []string {
+	names := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if sg, ok := ec2SecurityGroups.Get(id); ok {
+			names = append(names, sg.GroupName)
+		}
+	}
+	return names
+}
+
+// imdsInterfaceKeys are the keys an interface's directory holds, each with
+// its value; the primary interface of an instance with a public address
+// carries that address too.
+func imdsInterfaceKeys(inst EC2Instance, eni EC2NetworkInterface) map[string]string {
+	keys := map[string]string{
+		"device-number":      strconv.Itoa(eni.DeviceIndex),
+		"interface-id":       eni.NetworkInterfaceId,
+		"local-hostname":     ec2PrivateDNSName(eni.PrivateIpAddress),
+		"local-ipv4s":        strings.Join(append([]string{eni.PrivateIpAddress}, eni.SecondaryPrivateIps...), "\n"),
+		"mac":                ec2InterfaceMAC(eni.NetworkInterfaceId),
+		"network-card-index": "0",
+		"owner-id":           eni.OwnerId,
+		"security-group-ids": strings.Join(eni.SecurityGroupIds, "\n"),
+		"security-groups":    strings.Join(imdsGroupNames(eni.SecurityGroupIds), "\n"),
+		"subnet-id":          eni.SubnetId,
+		"vpc-id":             eni.VpcId,
+	}
+	if subnet, ok := ec2Subnets.Get(eni.SubnetId); ok {
+		keys["subnet-ipv4-cidr-block"] = subnet.CidrBlock
+	}
+	if vpc, ok := ec2Vpcs.Get(eni.VpcId); ok {
+		keys["vpc-ipv4-cidr-block"] = vpc.CidrBlock
+		keys["vpc-ipv4-cidr-blocks"] = vpc.CidrBlock
+	}
+	if eni.NetworkInterfaceId == inst.NetworkInterfaceId && inst.PublicIpAddress != "" {
+		keys["public-ipv4s"] = inst.PublicIpAddress
+		if name := ec2PublicDNSName(inst); name != "" {
+			keys["public-hostname"] = name
+		}
+	}
+	return keys
+}
+
+// imdsBlockDevices maps the instance's block devices to their device names:
+// the AMI's root device as ami and root, and each further Amazon EBS volume
+// attached as ebsN in attachment order.
+func imdsBlockDevices(inst EC2Instance) map[string]string {
+	devices := map[string]string{"ami": inst.RootDeviceName, "root": inst.RootDeviceName}
+	var attached []EC2VolumeAttachment
+	for _, vol := range ec2Volumes.List() {
+		for _, att := range vol.Attachments {
+			if att.InstanceId == inst.InstanceId && att.Device != inst.RootDeviceName && att.State == "attached" {
+				attached = append(attached, att)
+			}
+		}
+	}
+	sort.Slice(attached, func(i, j int) bool { return attached[i].AttachTime < attached[j].AttachTime })
+	for i, att := range attached {
+		devices["ebs"+strconv.Itoa(i+1)] = strings.TrimPrefix(att.Device, "/dev/")
+	}
+	return devices
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func registerEC2IMDS(srv *sim.Server) {
@@ -224,9 +327,80 @@ func registerEC2IMDS(srv *sim.Server) {
 	leaf("/latest/meta-data/local-ipv4", always(func(inst EC2Instance) string { return inst.PrivateIpAddress }))
 	for _, name := range []string{"hostname", "local-hostname"} {
 		leaf("/latest/meta-data/"+name, always(func(inst EC2Instance) string {
-			return ec2PrivateDNSHostname(inst.PrivateIpAddress) + "." + awsRegion() + ".compute.internal"
+			return ec2PrivateDNSName(inst.PrivateIpAddress)
 		}))
 	}
+	leaf("/latest/meta-data/ami-launch-index", always(func(inst EC2Instance) string { return strconv.Itoa(inst.AmiLaunchIndex) }))
+	leaf("/latest/meta-data/reservation-id", always(func(inst EC2Instance) string { return inst.ReservationId }))
+	leaf("/latest/meta-data/instance-action", always(func(EC2Instance) string { return "none" }))
+	leaf("/latest/meta-data/instance-life-cycle", always(func(EC2Instance) string { return "on-demand" }))
+	leaf("/latest/meta-data/mac", always(ec2InstanceMAC))
+	leaf("/latest/meta-data/security-groups", always(func(inst EC2Instance) string {
+		return strings.Join(imdsGroupNames(inst.SecurityGroupIds), "\n")
+	}))
+	leaf("/latest/meta-data/public-ipv4", func(inst EC2Instance) (string, bool) {
+		return inst.PublicIpAddress, inst.PublicIpAddress != ""
+	})
+	leaf("/latest/meta-data/public-hostname", func(inst EC2Instance) (string, bool) {
+		name := ec2PublicDNSName(inst)
+		return name, name != ""
+	})
+	leaf("/latest/meta-data/services/{$}", always(func(EC2Instance) string { return "domain\npartition" }))
+	leaf("/latest/meta-data/services/domain", always(func(EC2Instance) string { return "amazonaws.com" }))
+	leaf("/latest/meta-data/services/partition", always(func(EC2Instance) string { return "aws" }))
+	leaf("/latest/meta-data/block-device-mapping/{$}", always(func(inst EC2Instance) string {
+		return strings.Join(sortedKeys(imdsBlockDevices(inst)), "\n")
+	}))
+	srv.HandleFunc("GET /latest/meta-data/block-device-mapping/{device}", func(w http.ResponseWriter, r *http.Request) {
+		inst, ok := imdsRequest(w, r)
+		if !ok {
+			return
+		}
+		name, ok := imdsBlockDevices(inst)[sim.PathParam(r, "device")]
+		if !ok {
+			imdsNotFound(w)
+			return
+		}
+		imdsText(w, name)
+	})
+	leaf("/latest/meta-data/network/{$}", always(func(EC2Instance) string { return "interfaces/" }))
+	leaf("/latest/meta-data/network/interfaces/{$}", always(func(EC2Instance) string { return "macs/" }))
+	leaf("/latest/meta-data/network/interfaces/macs/{$}", always(func(inst EC2Instance) string {
+		var macs []string
+		for _, eni := range imdsInterfaces(inst) {
+			macs = append(macs, ec2InterfaceMAC(eni.NetworkInterfaceId)+"/")
+		}
+		return strings.Join(macs, "\n")
+	}))
+	srv.HandleFunc("GET /latest/meta-data/network/interfaces/macs/{mac}/{$}", func(w http.ResponseWriter, r *http.Request) {
+		inst, ok := imdsRequest(w, r)
+		if !ok {
+			return
+		}
+		eni, ok := imdsInterfaceByMAC(inst, sim.PathParam(r, "mac"))
+		if !ok {
+			imdsNotFound(w)
+			return
+		}
+		imdsText(w, strings.Join(sortedKeys(imdsInterfaceKeys(inst, eni)), "\n"))
+	})
+	srv.HandleFunc("GET /latest/meta-data/network/interfaces/macs/{mac}/{key}", func(w http.ResponseWriter, r *http.Request) {
+		inst, ok := imdsRequest(w, r)
+		if !ok {
+			return
+		}
+		eni, ok := imdsInterfaceByMAC(inst, sim.PathParam(r, "mac"))
+		if !ok {
+			imdsNotFound(w)
+			return
+		}
+		value, ok := imdsInterfaceKeys(inst, eni)[sim.PathParam(r, "key")]
+		if !ok {
+			imdsNotFound(w)
+			return
+		}
+		imdsText(w, value)
+	})
 	leaf("/latest/meta-data/placement/{$}", always(func(EC2Instance) string { return "availability-zone\nregion" }))
 	leaf("/latest/meta-data/placement/region", always(func(EC2Instance) string { return awsRegion() }))
 	leaf("/latest/meta-data/placement/availability-zone", always(ec2InstanceAvailabilityZone))

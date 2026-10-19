@@ -9,12 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Azure IMDS instance metadata.
-//
-// /metadata/instance returns {compute, network} on real Azure (port 80,
-// link-local 169.254.169.254). Sim serves it on its main listener so
-// workloads in Docker hosts reach it via host.docker.internal:<port>.
-// All reads require the `Metadata: true` request header.
+// Azure IMDS instance metadata. Every read requires the `Metadata: true`
+// request header, and only a virtual machine is answered; the reads a
+// machine makes are in compute_vm_instances_test.go.
 
 func imdsRead(t *testing.T, path string, withHeader bool) (*http.Response, []byte) {
 	t.Helper()
@@ -50,47 +47,18 @@ func TestIMDS_InstanceRequiresMetadataHeader(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
-func TestIMDS_InstanceComputeAndNetwork(t *testing.T) {
+// The Instance Metadata Service answers a virtual machine and nothing else.
+func TestIMDS_RefusesACallerThatIsNoMachine(t *testing.T) {
 	t.Parallel()
-	resp, body := imdsRead(t, "/metadata/instance?api-version=2021-02-01", true)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	var doc struct {
-		Compute struct {
-			Location          string
-			SubscriptionID    string `json:"subscriptionId"`
-			ResourceGroupName string `json:"resourceGroupName"`
-			Name              string
-			AzEnvironment     string `json:"azEnvironment"`
-			VMID              string `json:"vmId"`
-		}
-		Network struct {
-			Interface []struct {
-				IPv4 struct {
-					IPAddress []struct {
-						PrivateIPAddress string `json:"privateIpAddress"`
-					} `json:"ipAddress"`
-				} `json:"ipv4"`
-			}
-		}
+	for _, path := range []string{
+		"/metadata/instance?api-version=2021-02-01",
+		"/metadata/instance/compute?api-version=2021-02-01",
+		"/metadata/instance/network?api-version=2021-02-01",
+		"/metadata/attested/document?api-version=2020-09-01",
+	} {
+		resp, _ := imdsRead(t, path, true)
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode, path)
 	}
-	require.NoError(t, json.Unmarshal(body, &doc))
-	assert.NotEmpty(t, doc.Compute.Location)
-	assert.NotEmpty(t, doc.Compute.SubscriptionID)
-	assert.Equal(t, "AzurePublicCloud", doc.Compute.AzEnvironment)
-	require.GreaterOrEqual(t, len(doc.Network.Interface), 1)
-	require.GreaterOrEqual(t, len(doc.Network.Interface[0].IPv4.IPAddress), 1)
-	assert.NotEmpty(t, doc.Network.Interface[0].IPv4.IPAddress[0].PrivateIPAddress)
-}
-
-func TestIMDS_InstanceComputeShortcut(t *testing.T) {
-	t.Parallel()
-	resp, body := imdsRead(t, "/metadata/instance/compute?api-version=2021-02-01", true)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	var c map[string]any
-	require.NoError(t, json.Unmarshal(body, &c))
-	assert.NotEmpty(t, c["location"])
-	assert.NotEmpty(t, c["subscriptionId"])
 }
 
 func TestIMDS_IdentityToken(t *testing.T) {

@@ -217,7 +217,7 @@ func registerVirtualMachineGuestOperations(srv *sim.Server, armBase string) {
 				// A reimage resets the disk to the image, so the kept disk goes
 				// and the boot places the machine afresh.
 				if action == "reimage" {
-					if err := azureDiscardVMDisk(id); err != nil {
+					if err := azureDiscardVMDisk(ctx, id); err != nil {
 						azureVMStates.Put(id, priorState)
 						return azureVMHaltFailure(id, err)
 					}

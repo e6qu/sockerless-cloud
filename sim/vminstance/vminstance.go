@@ -36,8 +36,9 @@ type Spec struct {
 	Hostname string
 	Image    Image
 	// Network and Address are the engine network and the address the
-	// instance's interface holds.
-	Network, Address string
+	// instance's interface holds; MAC the hardware address the cloud gave
+	// that interface.
+	Network, Address, MAC string
 	// DNS is the resolver the instance asks: its network's sidecar.
 	DNS []string
 	// UserData is what the cloud hands the instance's cloud-init at launch:
@@ -90,6 +91,10 @@ const OnceMarkerPath = "/var/lib/cloud/instance/sem/config_scripts_user"
 // BootFinishedPath is the file cloud-init writes when it has finished a boot.
 const BootFinishedPath = "/var/lib/cloud/instance/boot-finished"
 
+// ReadyPath is the marker the init raises once the user data and the startup
+// script have run: the machine is up.
+const ReadyPath = "/run/sockerless-instance-ready"
+
 // Sandbox is the profile an instance's container runs under: the
 // capabilities a Linux machine's root holds inside its own namespace, no
 // host privilege, no engine socket, no host network.
@@ -105,8 +110,9 @@ var ErrNoImage = errors.New("the instance names no image")
 
 // Init renders the instance's init: it runs cloud-init's stages when the
 // image carries them, with their output on the console and in cloud-init's
-// log, then the startup script at its path, if any, with its output on the
-// console, and then stays up until the machine is stopped. The init waits
+// log, then the startup script at its path, if any, by its interpreter line,
+// with its output on the console, and then stays up until the machine is
+// stopped. The init waits
 // for each stage's process and not for its output's end: a daemon a script
 // leaves behind keeps the output open, and the tee relays it for as long as
 // the daemon runs.
@@ -127,12 +133,12 @@ func Init(startupPath string) string {
 	if startupPath != "" {
 		lines = append(lines,
 			"if [ -f "+shellQuote(startupPath)+" ]; then",
-			"	sh "+shellQuote(startupPath)+" 2>&1",
+			"	"+shellQuote(startupPath)+" 2>&1",
 			"fi",
 		)
 	}
 	lines = append(lines,
-		"touch /run/sockerless-instance-ready",
+		"touch "+ReadyPath,
 		"trap 'exit 0' TERM INT",
 		"while :; do sleep 2147483647 & wait $!; done",
 		"",
@@ -185,6 +191,7 @@ func Workload(spec Spec) (placement.Workload, error) {
 		Env:               spec.Env,
 		Network:           spec.Network,
 		IPv4Address:       spec.Address,
+		MACAddress:        spec.MAC,
 		DNS:               spec.DNS,
 		ExtraHosts:        spec.ExtraHosts,
 		PublishPorts:      spec.PublishPorts,

@@ -2,6 +2,7 @@ package gcp_sdk_test
 
 import (
 	"fmt"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -102,14 +103,29 @@ echo "$n" >/var/lib/sockerless-boots
 echo "boot=$n"
 md() {
 	exec 3<>/dev/tcp/metadata.google.internal/80
-	printf 'GET /computeMetadata/v1/%s HTTP/1.0\r\nHost: metadata.google.internal\r\nMetadata-Flavor: Google\r\n\r\n' "$1" >&3
+	printf 'GET %s HTTP/1.0\r\nHost: metadata.google.internal\r\nMetadata-Flavor: Google\r\n\r\n' "$1" >&3
 	sed -e '1,/^\r$/d' <&3
 	exec 3<&-
 }
-echo "name=$(md instance/name)"
-echo "marker=$(md instance/attributes/marker)"
+echo "name=$(md /computeMetadata/v1/instance/name)"
+echo "marker=$(md /computeMetadata/v1/instance/attributes/marker)"
+echo "project-marker=$(md /computeMetadata/v1/project/attributes/project-marker)"
+echo "ip=$(md /computeMetadata/v1/instance/network-interfaces/0/ip)"
+echo "mac=$(md /computeMetadata/v1/instance/network-interfaces/0/mac)"
+echo "eth0=$(cat /sys/class/net/eth0/address)"
+echo "gateway=$(md /computeMetadata/v1/instance/network-interfaces/0/gateway)"
+echo "subnetmask=$(md /computeMetadata/v1/instance/network-interfaces/0/subnetmask)"
+echo "network=$(md /computeMetadata/v1/instance/network-interfaces/0/network)"
+echo "external-ip=$(md /computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip)"
 echo "db=$(getent hosts db.boot.internal | awk '{print $1}')"
 `
+	// Every instance of the project reads the project's common metadata.
+	requireProject(t, project)
+	_, err = svc.Projects.SetCommonInstanceMetadata(project, &compute.Metadata{Items: []*compute.MetadataItems{
+		{Key: "project-marker", Value: googleapi.String("from-the-project")},
+	}}).Do()
+	require.NoError(t, err)
+
 	const name = "boot-vm"
 	instance := func(name, sourceImage string) *compute.Instance {
 		return &compute.Instance{
@@ -119,7 +135,10 @@ echo "db=$(getent hosts db.boot.internal | awk '{print $1}')"
 				Boot: true, AutoDelete: true,
 				InitializeParams: &compute.AttachedDiskInitializeParams{SourceImage: sourceImage},
 			}},
-			NetworkInterfaces: []*compute.NetworkInterface{{Subnetwork: subnet}},
+			NetworkInterfaces: []*compute.NetworkInterface{{
+				Subnetwork:    subnet,
+				AccessConfigs: []*compute.AccessConfig{{Name: "External NAT", Type: "ONE_TO_ONE_NAT"}},
+			}},
 			Metadata: &compute.Metadata{Items: []*compute.MetadataItems{
 				{Key: "startup-script", Value: googleapi.String(startupScript)},
 				{Key: "marker", Value: googleapi.String("from-metadata")},
@@ -142,18 +161,49 @@ echo "db=$(getent hosts db.boot.internal | awk '{print $1}')"
 	assert.Contains(t, console, "startup-script: name="+name, "the metadata server answers the instance's own name through the subnetwork's sidecar")
 	assert.Contains(t, console, "startup-script: marker=from-metadata", "the instance reads its custom metadata")
 	assert.Contains(t, console, "startup-script: db=10.86.0.50", "the private zone of the network resolves through the subnetwork's resolver")
+	assert.Contains(t, console, "startup-script: project-marker=from-the-project", "the instance reads its project's common metadata")
+	iface := got.NetworkInterfaces[0]
+	address, err := netip.ParseAddr(iface.NetworkIP)
+	require.NoError(t, err)
+	octets := address.As4()
+	mac := fmt.Sprintf("42:01:%02x:%02x:%02x:%02x", octets[0], octets[1], octets[2], octets[3])
+	assert.Contains(t, console, "startup-script: ip="+iface.NetworkIP)
+	assert.Contains(t, console, "startup-script: mac="+mac, "Compute Engine's MAC is 42:01 and the interface's address")
+	assert.Contains(t, console, "startup-script: eth0="+mac, "the guest's interface carries the MAC the metadata server reports")
+	assert.Contains(t, console, "startup-script: gateway=10.86.0.1")
+	assert.Contains(t, console, "startup-script: subnetmask=255.255.255.0")
+	assert.Contains(t, console, "startup-script: network=projects/")
+	assert.Contains(t, console, "/networks/boot-net")
+	require.Len(t, iface.AccessConfigs, 1)
+	assert.NotEmpty(t, iface.AccessConfigs[0].NatIP, "an access config naming no address gets an ephemeral one")
+	assert.Contains(t, console, "startup-script: external-ip="+iface.AccessConfigs[0].NatIP)
 
-	// A stop keeps the disk: the next boot counts on.
+	// A stop keeps the disk: the next boot counts on, and runs the
+	// startup-script the metadata holds when it boots.
 	stopOp, err := svc.Instances.Stop(project, zone, name).Do()
 	require.NoError(t, err)
 	stopDone := awaitZoneOperation(t, svc, project, zone, stopOp.Name)
 	require.Nil(t, stopDone.Error, "the stop operation failed: %+v", stopDone.Error)
+	stopped, err := svc.Instances.Get(project, zone, name).Do()
+	require.NoError(t, err)
+	setOp, err := svc.Instances.SetMetadata(project, zone, name, &compute.Metadata{
+		Fingerprint: stopped.Metadata.Fingerprint,
+		Items: []*compute.MetadataItems{
+			{Key: "startup-script", Value: googleapi.String(startupScript + "echo revised=yes\n")},
+			{Key: "marker", Value: googleapi.String("from-metadata")},
+		},
+	}).Do()
+	require.NoError(t, err)
+	setDone := awaitZoneOperation(t, svc, project, zone, setOp.Name)
+	require.Nil(t, setDone.Error, "the setMetadata operation failed: %+v", setDone.Error)
 	startOp, err := svc.Instances.Start(project, zone, name).Do()
 	require.NoError(t, err)
 	startDone := awaitZoneOperation(t, svc, project, zone, startOp.Name)
 	require.Nil(t, startDone.Error, "the start operation failed: %+v", startDone.Error)
 	console = awaitSerialPortOutput(t, svc, project, zone, name, "startup-script: boot=2")
 	assert.Contains(t, console, "startup-script: boot=1", "the serial console keeps what the machine wrote before the stop")
+	console = awaitSerialPortOutput(t, svc, project, zone, name, "startup-script: revised=yes")
+	assert.Equal(t, 1, strings.Count(console, "startup-script: revised=yes"), "the revised startup-script ran on the boot after it was set")
 
 	// A disk image is captured from the stopped instance's boot disk, and an
 	// instance created from it continues the count that disk held.
@@ -291,8 +341,11 @@ echo "serving"
 				Boot: true, AutoDelete: true,
 				InitializeParams: &compute.AttachedDiskInitializeParams{SourceImage: "projects/debian-cloud/global/images/family/" + debianFamily()},
 			}},
-			NetworkInterfaces: []*compute.NetworkInterface{{Subnetwork: subnet}},
-			Metadata:          &compute.Metadata{Items: []*compute.MetadataItems{{Key: "startup-script", Value: googleapi.String(script)}}},
+			NetworkInterfaces: []*compute.NetworkInterface{{
+				Subnetwork:    subnet,
+				AccessConfigs: []*compute.AccessConfig{{Name: "External NAT", Type: "ONE_TO_ONE_NAT"}},
+			}},
+			Metadata: &compute.Metadata{Items: []*compute.MetadataItems{{Key: "startup-script", Value: googleapi.String(script)}}},
 		}
 		if len(tags) > 0 {
 			inst.Tags = &compute.Tags{Items: tags}

@@ -2,12 +2,13 @@
 
 ## Next
 
-- **Stage 5 of `PLAN.md`: service libraries.** The seams landed; next is
-  `sim/machine` for the three virtual machine lifecycles, then
-  `sim/revisions` and `sim/replicas`, `sim/jobrun`, `sim/funcrt`, the queue
-  waiter in `sim/msgq` with Cloud Tasks, and `sim/eventbus` with its filter
-  dialects and Cloud Scheduler, each in one pull request that moves its
-  consumers and closes their bugs. AWS Step Functions and the Scheduler's
+- **Stage 5 of `PLAN.md`: service libraries.** The seams and `sim/machine`
+  landed; next is `sim/revisions` and `sim/replicas` for Amazon ECS services,
+  Cloud Run services and worker pools and Azure Container Apps apps (with
+  the Cloud Run metadata server's own instance identity, BUG-3537), then
+  `sim/jobrun`, `sim/funcrt`, the queue waiter in `sim/msgq` with Cloud
+  Tasks, and `sim/eventbus` with its filter dialects and Cloud Scheduler,
+  each in one pull request that moves its consumers and closes their bugs. AWS Step Functions and the Scheduler's
   universal targets move onto `awsCall` with BUG-3529 (BUG-3533).
 - **Stage 6 of `PLAN.md`: distributed.** The agent on another host, reached
   over its API with its minted token, and networks that span hosts; the

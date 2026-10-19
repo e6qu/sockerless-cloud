@@ -254,17 +254,8 @@ func azureReapplyRoutes() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	azureVMWorkloads.Lock()
-	workloads := make([]*azureVMWorkload, 0, len(azureVMWorkloads.byID))
-	for _, w := range azureVMWorkloads.byID {
-		workloads = append(workloads, w)
-	}
-	azureVMWorkloads.Unlock()
-	for _, w := range workloads {
-		if w.handle == nil {
-			continue
-		}
-		vm, ok := azureVMs.Get(w.metadata.VM.ID)
+	for _, w := range azureRunningVMs() {
+		vm, ok := azureVMs.Get(w.booted.vmID)
 		if !ok || len(vm.Properties.NetworkProfile.NetworkInterfaces) == 0 {
 			continue
 		}

@@ -207,16 +207,17 @@ tests, which prove the extraction changed no wire behaviour.
    roles are checked at create time (BUG-3529, BUG-3533). Every library after
    this one takes a delivery hook that makes such a call.
 2. **`sim/machine`: the virtual machine lifecycle.** Boot through the
-   placement backend, ready, watch, stop keeping the disk, start, reboot,
-   terminate, adopt after a simulator restart, capture an image, and the
-   console buffer, with the cloud's state names and transitions as a hook.
-   Amazon EC2, Compute Engine and Azure virtual machines each implement this
-   today (`ec2InstanceWorkload`, `gcpBootInstanceMachine` and its siblings,
-   `azureBootVMWorkload` and its siblings). Polish: the instance metadata
-   categories (BUG-3528), the Compute Engine project attributes (BUG-3525),
-   cloud-init's remaining modules (BUG-3526, BUG-3527), the link-local
-   metadata addresses (BUG-3485), and Systems Manager managed nodes
-   (BUG-3532).
+   placement backend, ready, watch, stop keeping the disk, start, discard,
+   release a detached disk, adopt after a simulator restart, capture an
+   image, and the console across boots, with the cloud's state names and
+   transitions as hooks. Amazon EC2, Compute Engine and Azure virtual
+   machines run on it (landed), each interface with the MAC its cloud
+   assigns, and their metadata services answer from the instance's current
+   record. Polish left: the instance metadata categories still unserved
+   (BUG-3528), the Compute Engine metadata server's `wait-for-change`
+   (BUG-3525), cloud-init's remaining modules (BUG-3526, BUG-3527), the
+   link-local metadata addresses (BUG-3485), and Systems Manager managed
+   nodes (BUG-3532).
 3. **`sim/revisions` and `sim/replicas`: long-running container services.**
    Revisions hold a template signature, the next revision name, traffic
    weights and the pick of a revision per request, rolling replacement, and
@@ -262,7 +263,7 @@ tests, which prove the extraction changed no wire behaviour.
 
 The order follows the dependencies: the seams first, since every library
 after them delivers to targets (landed); the machine lifecycle next, since every
-compute service places on what it learns; then revisions and replicas, jobs,
+compute service places on what it learns (landed); then revisions and replicas, jobs,
 functions, queues, and event routing, each in its own pull request with its
 consumers moved onto it and its services' bugs closed.
 

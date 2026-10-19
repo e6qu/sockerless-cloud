@@ -7,6 +7,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/machine"
 )
 
 // gcpBootVM, gcpHaltVM and gcpDestroyVM move an instance's machine on the
@@ -158,9 +159,15 @@ func registerComputeInstancePower(srv *sim.Server) {
 		op := newComputeOpRecord(project, "zones/"+zone, link, m.verb)
 		recordComputeOp(op)
 		bg.Go(func() {
-			ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), computeInstanceBootBudget)
-			defer cancel()
-			if err := m.move(ctx, &moving); err != nil {
+			ctx := context.WithoutCancel(r.Context())
+			err := m.move(ctx, &moving)
+			if errors.Is(err, machine.ErrHalted) {
+				// A stop that arrived while the instance booted owns its
+				// status now.
+				computeOpFinish(op.Name, nil)
+				return
+			}
+			if err != nil {
 				logger.Error().Err(err).
 					Str("project", project).Str("zone", zone).Str("instance", name).Str("verb", m.verb).
 					Msg("failed to move Compute Engine instance")

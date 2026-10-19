@@ -2647,6 +2647,7 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 			cfg.ExtraHosts = append(workloadhost.ExtraHosts(), elbv2WorkloadExtraHosts()...)
 			cfg.Network = taskNetwork.Name
 			cfg.IPv4Address = eniAddress
+			cfg.MACAddress = ecsTaskENIDetail(taskID, "macAddress")
 			cfg.DNS = taskNetwork.DNS()
 			if groups, _, ok := ecsTaskENIGroups(taskID); ok {
 				cfg.Ingress = ec2IngressStages(groups)
@@ -2708,6 +2709,21 @@ func ecsContainerOverrideFor(overrides *ECSTaskOverride, containerName string) E
 
 // ecsTaskENIInfo reads a task's awsvpc ENI IP + subnet from its attachment.
 // Returns ok=false for tasks without an awsvpc ENI.
+// ecsTaskENIDetail is one detail of the task's elastic network interface
+// attachment.
+func ecsTaskENIDetail(taskID, name string) string {
+	task, found := ecsTasks.Get(taskID)
+	if !found {
+		return ""
+	}
+	for _, att := range task.Attachments {
+		if att.Type == "ElasticNetworkInterface" {
+			return ecsTaskDetail(att.Details, name)
+		}
+	}
+	return ""
+}
+
 func ecsTaskENIInfo(taskID string) (eniIP, subnetID string, ok bool) {
 	task, found := ecsTasks.Get(taskID)
 	if !found {

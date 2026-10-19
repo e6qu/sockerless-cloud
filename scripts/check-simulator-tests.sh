@@ -214,6 +214,19 @@ route_referenced_in_tests() {
     if grep -qF "$route_path" "$added_dir/tests-$cloud"; then
         return 0
     fi
+    # A route with path parameters is referenced by a test path that fills
+    # them: each {name} matches one segment, and a closing {$} the directory
+    # itself.
+    case "$route_path" in
+        *'{'*)
+            local route_regex
+            route_regex=$(printf '%s' "$route_path" \
+                | sed -E 's/\{\$\}$//; s/[][\\.*^$+?()|]/\\&/g; s/\{[^}]*\}/[^\/"]+/g')
+            if grep -qE "(^|[^[:alnum:]_./-])${route_regex}" "$added_dir/tests-$cloud"; then
+                return 0
+            fi
+            ;;
+    esac
     # Trailing CamelCase segment ⇒ SDK op name; accept a call/assertion reference.
     last_seg="${route_path##*/}"
     if printf '%s' "$last_seg" | grep -qE '^[A-Z][a-zA-Z0-9]+$'; then

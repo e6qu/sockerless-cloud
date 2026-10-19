@@ -3756,3 +3756,54 @@ the Cloud Storage API and publishes Cloud Audit Logs entries with
 does not exist, or a Cloud Storage trigger whose bucket's service agent may
 not publish, is refused with that service's answer. Azure Event Grid writes a
 dead letter with Put Blob as a trusted Microsoft service.
+
+### One machine lifecycle for the three clouds' virtual machines
+
+`sim/machine` holds the virtual machine lifecycle the three simulators had
+each written: boot a machine on its placement backend and return once its
+init raised the ready marker, watch it for an exit of its own, stop it
+keeping its root disk, boot that disk again, discard it, release a detached
+disk, take running and kept machines over after a restart, capture the disk
+and read the console across boots. A stop cancels a boot in flight and waits
+for it, so a discard right after leaves nothing behind. Amazon EC2, Compute
+Engine and Azure virtual machines map their states onto it through hooks
+(booting, ready, down, guest shutdown, forgotten) and keep only their own
+state names and verbs.
+
+The move fixed what the copies did differently. A failed start leaves an EC2
+instance stopped with its disk, and a Compute Engine instance's start that
+fails no longer removes its disk. A stop during a Compute Engine boot ends the
+boot and owns the instance's status, so an insert or a start it interrupts no
+longer deletes or unwinds the instance. An Azure guest that never becomes
+ready is stopped and tracked instead of left running, and its OS disk is found
+by its label, so the `compute_virtual_machine_disks` ledger is gone. The
+readiness polls and the 5-minute boot timers Compute Engine and Azure had no
+counterpart for are gone: a boot ends when the guest is ready, when its init
+exits, or when a stop arrives.
+
+A workload's interface now carries the MAC address its cloud assigned it
+(`sim.ContainerConfig.MACAddress`, honoured by both placement backends): an
+EC2 elastic network interface's derived from its ID, which DescribeInstances,
+DescribeNetworkInterfaces and an Amazon ECS task's attachment report; Compute
+Engine's `42:01` and the interface's address; an Azure network interface's
+own. The instance metadata services read the instance's record as it is now
+and serve what they lacked: EC2's `mac`, `network/interfaces/macs/`,
+`security-groups`, `public-ipv4`, `public-hostname`, `block-device-mapping/`,
+`services/`, `reservation-id`, `ami-launch-index`, `instance-action` and
+`instance-life-cycle`; Compute Engine's `network-interfaces/` and the
+project's `attributes/`; and Azure's compute and network sections on their
+own paths. The Azure Instance Metadata Service answers a virtual machine and
+nothing else, as EC2's does, so the invented machine it answered every other
+caller with is gone, and its attested document names the machine's `vmId`.
+EC2 instances report their private DNS name under `ec2.internal` in us-east-1,
+their public DNS name, and each its own `amiLaunchIndex`, and the VPC's
+resolver answers both names. A Compute Engine access config that names no
+address gets an ephemeral external one, and the guest's script runner fetches
+`startup-script` from the metadata server at every boot, so a script set while
+the instance is stopped runs on its next start. The instance init runs a
+startup script by its interpreter line, as a guest does, rather than under
+`sh`.
+
+The pre-commit test gate matches a route with path parameters against a test
+path that fills them, so a tested parameterised route no longer needs an
+exemption.

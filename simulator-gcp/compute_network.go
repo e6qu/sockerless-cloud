@@ -188,7 +188,26 @@ func gcpReleaseInstanceAddresses(inst ComputeInstance) {
 		if pool, ok := gcpSubnetIPAMs.pools[ni.Subnetwork]; ok {
 			pool.Release(net.ParseIP(ni.NetworkIP))
 		}
+		for _, config := range ni.AccessConfigs {
+			if config.NatIP != "" && !gcpStaticAddressHeld(config.NatIP) {
+				ipam.ReleasePublicIPv4(net.ParseIP(config.NatIP))
+			}
+		}
 	}
+}
+
+// gcpStaticAddressHeld reports whether a reserved address holds ip, which
+// outlives the instance that uses it.
+func gcpStaticAddressHeld(ip string) bool {
+	if gcpAddresses == nil {
+		return false
+	}
+	for _, addr := range gcpAddresses.List() {
+		if addr.Address == ip {
+			return true
+		}
+	}
+	return false
 }
 
 var gcpInstancesBySubnetwork sim.GenerationIndex[ComputeInstance]
