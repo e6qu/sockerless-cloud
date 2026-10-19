@@ -16,6 +16,7 @@ import (
 	"google.golang.org/api/compute/v1"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 // outsideListener is a listener of the test's own on an address an instance
@@ -106,10 +107,16 @@ func TestCompute_CloudNATCarriesAnInstancesConnections(t *testing.T) {
 				return found
 			}
 			require.NoError(t, err)
-			if entry.Resource == nil || entry.Resource.Labels["gateway_name"] != "nat" || !strings.HasSuffix(entry.LogName, "compute.googleapis.com%2Fnat_flows") {
+			// The client unescapes the log ID and hands a JSON payload over
+			// as a protobuf Struct.
+			if entry.Resource == nil || entry.Resource.Labels["gateway_name"] != "nat" || !strings.HasSuffix(entry.LogName, "/logs/compute.googleapis.com/nat_flows") {
 				continue
 			}
-			payload, _ := entry.Payload.(map[string]any)
+			jsonPayload, ok := entry.Payload.(*structpb.Struct)
+			if !ok {
+				continue
+			}
+			payload := jsonPayload.AsMap()
 			connection, _ := payload["connection"].(map[string]any)
 			endpoint, _ := payload["endpoint"].(map[string]any)
 			if connection["src_ip"] == instanceIP && endpoint["vm_name"] == "nat-vm" && payload["allocation_status"] == "OK" {
