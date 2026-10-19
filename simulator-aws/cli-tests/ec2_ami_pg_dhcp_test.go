@@ -21,6 +21,8 @@ func TestEC2CLI_AMIPlacementDhcp(t *testing.T) {
 	inst := q("ec2", "run-instances", "--image-id", ec2AmazonLinuxAMI(t), "--instance-type", "t3.micro",
 		"--subnet-id", subnet, "--query", "Instances[0].InstanceId", "--output", "text")
 	terminateCLIInstanceOnCleanup(t, inst)
+	// CreateImage takes an instance that is running or stopped, not pending.
+	runCLI(t, awsCLI("ec2", "wait", "instance-running", "--instance-ids", inst))
 
 	ami := q("ec2", "create-image", "--instance-id", inst, "--name", "cli-golden-ami",
 		"--description", "cli snapshot", "--query", "ImageId", "--output", "text")
