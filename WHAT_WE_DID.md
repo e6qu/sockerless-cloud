@@ -3605,9 +3605,15 @@ subnets' ranges with the gateway's `idleTimeoutInMinutes` and Azure's
 four-minute UDP idle; a gateway or subnet write reapplies; the reports are
 the gateway's Azure Monitor metrics (`ByteCount` by direction,
 `SNATConnectionCount` by connection state, `TotalConnectionCount`,
-`DatapathAvailability`), which `Microsoft.Insights/metrics` and
-`metricDefinitions` under a NAT gateway list per time grain and
-aggregation from a metric store the clouds' data planes feed. Each cloud's
+`DatapathAvailability`), which `Microsoft.Insights/metrics`,
+`metricDefinitions` and `metricNamespaces` under a NAT gateway list per
+time grain and aggregation from a metric store the clouds' data planes
+feed, and which the subscription-scoped `metricDefinitions` and `metrics`
+(GET, and POST with the query in the body) list over a region's gateways,
+one series per gateway carrying its `Microsoft.ResourceId`; the vendored
+2024-02-01 metrics document is served whole. The sidecar's report path
+carries the sidecar's minted token and no cloud credential, so Google
+Cloud's bearer check exempts it as it does the metadata server. Each cloud's
 guest shard proves it with an instance reaching a listener of the test's
 own outside the network, which sees the gateway and not the instance, and
 the gateway's metrics or logs counting the connection.

@@ -128,6 +128,7 @@ var azureDeclaredOperationTotals = map[string]int{
 	"operationalinsights-arm-workspaces-2020-08-01":                   8,
 	"operationalinsights-arm-tables-2022-10-01":                       7,
 	"monitor-arm-datacollection-2024-03-11":                           18,
+	"monitor-arm-metrics-2024-02-01":                                  6,
 	"postgresql-arm-openapi-2025-08-01":                               66,
 	"privatedns-arm-privatedns-2024-06-01":                            17,
 	"redis-arm-redis-2024-11-01":                                      41,
@@ -339,9 +340,15 @@ var azureMethodFloor = map[string]int{
 	// Data collection endpoints and rules; the six association operations are
 	// a declared 501, as the simulator runs no Azure Monitor Agent.
 	"monitor-arm-datacollection-2024-03-11": 12,
-	"postgresql-arm-openapi-2025-08-01":     66,
-	"privatedns-arm-privatedns-2024-06-01":  17,
-	"redis-arm-redis-2024-11-01":            41,
+	// Azure Monitor platform metrics, served for NAT gateways, whose data
+	// plane records them: the resource's metric definitions, metric
+	// namespaces and metrics, and the subscription-scoped definitions and
+	// metrics (GET and POST) over a region's NAT gateways, one series per
+	// gateway.
+	"monitor-arm-metrics-2024-02-01":       6,
+	"postgresql-arm-openapi-2025-08-01":    66,
+	"privatedns-arm-privatedns-2024-06-01": 17,
+	"redis-arm-redis-2024-11-01":           41,
 	// Lowered from 36. The generic-resource operations — the five methods on
 	// "/{resourceId}" and the five on ".../providers/{ns}/{parentResourcePath}/
 	// {type}/{name}" — all mux-miss. Their templates are almost pure parameters,

@@ -56,4 +56,25 @@ func TestNetworkNatGatewayPublicIPPrefixCLI(t *testing.T) {
 	if !strings.Contains(out, `"value": "TotalConnectionCount"`) || !strings.Contains(out, `"namespace": "Microsoft.Network/natGateways"`) {
 		t.Fatalf("expected the gateway's TotalConnectionCount series, got %s", out)
 	}
+	out = runCLI(t, azRest("GET", baseURL+natID+"/providers/microsoft.insights/metricNamespaces?api-version=2024-02-01", ""))
+	if !strings.Contains(out, `"metricNamespaceName": "Microsoft.Network/natGateways"`) {
+		t.Fatalf("expected the gateway's platform metric namespace, got %s", out)
+	}
+
+	// A subscription-scoped read covers every gateway of the region, one
+	// series per gateway, named by its resource ID.
+	subscriptionInsights := baseURL + "/subscriptions/" + subscriptionID + "/providers/Microsoft.Insights"
+	out = runCLI(t, azRest("GET", subscriptionInsights+"/metricDefinitions?api-version=2024-02-01&region=eastus&metricnamespace=Microsoft.Network/natGateways", ""))
+	if !strings.Contains(out, `"value": "SNATConnectionCount"`) {
+		t.Fatalf("expected the subscription's NAT gateway metric definitions, got %s", out)
+	}
+	out = runCLI(t, azRest("GET", subscriptionInsights+"/metrics?api-version=2024-02-01&region=eastus&metricnamespace=Microsoft.Network/natGateways&metricnames=ByteCount&aggregation=Total", ""))
+	if !strings.Contains(out, `"value": "`+natID+`"`) {
+		t.Fatalf("expected a ByteCount series for %s, got %s", natID, out)
+	}
+	out = runCLI(t, azRest("POST", subscriptionInsights+"/metrics?api-version=2024-02-01&region=eastus",
+		`{"metricNamespace":"Microsoft.Network/natGateways","metricNames":"PacketCount","aggregation":"Total","interval":"PT5M"}`))
+	if !strings.Contains(out, `"value": "PacketCount"`) || !strings.Contains(out, `"interval": "PT5M"`) || !strings.Contains(out, `"value": "`+natID+`"`) {
+		t.Fatalf("expected the POSTed query's PacketCount series for %s, got %s", natID, out)
+	}
 }

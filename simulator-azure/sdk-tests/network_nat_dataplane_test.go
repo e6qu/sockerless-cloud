@@ -106,10 +106,10 @@ func TestCompute_NatGatewayCarriesAMachinesConnections(t *testing.T) {
 	require.NoError(t, err)
 	machineIP := *nic.Properties.IPConfigurations[0].Properties.PrivateIPAddress
 
-	reach := func(name string) string {
-		return strings.TrimSpace(runInGuest(t, rg, "vm-nat", name, fmt.Sprintf(`bash -c 'curl -sS -m 5 http://%s/ >/dev/null 2>&1; echo rc=$?'`, outside)))
-	}
-	require.Equal(t, "rc=0", reach("reach-1"), "the machine does not reach the outside through the NAT gateway")
+	// The image carries bash and no curl: the request goes through bash's
+	// own TCP device.
+	get := fmt.Sprintf(`bash -c 'if timeout 5 bash -c "exec 3<>/dev/tcp/%s && printf \"GET / HTTP/1.0\\r\\n\\r\\n\" >&3 && cat <&3 >/dev/null"; then echo reach=ok; else echo reach=failed; fi'`, strings.Replace(outside, ":", "/", 1))
+	require.Contains(t, runInGuest(t, rg, "vm-nat", "reach-1", get), "reach=ok", "the machine does not reach the outside through the NAT gateway")
 	assert.NotEqual(t, machineIP, lastRemote(), "the connection arrived from the machine's own address, not the gateway's")
 
 	metrics, err := armmonitor.NewMetricsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -142,7 +142,7 @@ func TestCompute_NatGatewayCarriesAMachinesConnections(t *testing.T) {
 	attempts := total("SNATConnectionCount")
 
 	attach(nil)
-	runInGuest(t, rg, "vm-nat", "reach-2", fmt.Sprintf(`bash -c 'curl -sS -m 5 http://%s/ >/dev/null 2>&1; true'`, outside))
+	runInGuest(t, rg, "vm-nat", "reach-2", get)
 	assert.Equal(t, attempts, total("SNATConnectionCount"), "a subnet detached from the gateway still counted on it")
 
 	definitions, err := armmonitor.NewMetricDefinitionsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -158,4 +158,70 @@ func TestCompute_NatGatewayCarriesAMachinesConnections(t *testing.T) {
 	}
 	assert.Contains(t, names, "ByteCount")
 	assert.Contains(t, names, "SNATConnectionCount")
+
+	namespaces, err := armmonitor.NewMetricNamespacesClient(&fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	var namespaceNames []string
+	for nsPager := namespaces.NewListPager(natID, nil); nsPager.More(); {
+		page, err := nsPager.NextPage(ctx)
+		require.NoError(t, err)
+		for _, ns := range page.Value {
+			namespaceNames = append(namespaceNames, *ns.Properties.MetricNamespaceName)
+		}
+	}
+	assert.Equal(t, []string{"Microsoft.Network/natGateways"}, namespaceNames)
+
+	// A subscription-scoped read covers the region's gateways, one series per
+	// gateway named by its resource ID, and the gateway's bytes are in its
+	// own series.
+	gatewayTotal := func(resp armmonitor.Response) float64 {
+		t.Helper()
+		require.Len(t, resp.Value, 1)
+		sum, found := 0.0, false
+		for _, series := range resp.Value[0].Timeseries {
+			for _, meta := range series.Metadatavalues {
+				if *meta.Name.Value == "Microsoft.ResourceId" && strings.EqualFold(*meta.Value, natID) {
+					found = true
+					for _, point := range series.Data {
+						if point.Total != nil {
+							sum += *point.Total
+						}
+					}
+				}
+			}
+		}
+		require.True(t, found, "the subscription-scoped read has no series for %s", natID)
+		return sum
+	}
+	span := to.Ptr(start.Format(time.RFC3339) + "/" + time.Now().UTC().Add(time.Minute).Format(time.RFC3339))
+	viaGet, err := metrics.ListAtSubscriptionScope(ctx, "eastus", &armmonitor.MetricsClientListAtSubscriptionScopeOptions{
+		Metricnamespace: to.Ptr("Microsoft.Network/natGateways"),
+		Metricnames:     to.Ptr("ByteCount"),
+		Aggregation:     to.Ptr("Total"),
+		Timespan:        span,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, total("ByteCount"), gatewayTotal(viaGet.Response))
+	viaPost, err := metrics.ListAtSubscriptionScopePost(ctx, "eastus", &armmonitor.MetricsClientListAtSubscriptionScopePostOptions{
+		Body: &armmonitor.SubscriptionScopeMetricsRequestBodyParameters{
+			MetricNamespace: to.Ptr("Microsoft.Network/natGateways"),
+			MetricNames:     to.Ptr("ByteCount"),
+			Aggregation:     to.Ptr("Total"),
+			Timespan:        span,
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, total("ByteCount"), gatewayTotal(viaPost.Response))
+
+	var subscriptionNames []string
+	for subPager := definitions.NewListAtSubscriptionScopePager("eastus", &armmonitor.MetricDefinitionsClientListAtSubscriptionScopeOptions{
+		Metricnamespace: to.Ptr("Microsoft.Network/natGateways"),
+	}); subPager.More(); {
+		page, err := subPager.NextPage(ctx)
+		require.NoError(t, err)
+		for _, d := range page.Value {
+			subscriptionNames = append(subscriptionNames, *d.Name.Value)
+		}
+	}
+	assert.ElementsMatch(t, names, subscriptionNames)
 }

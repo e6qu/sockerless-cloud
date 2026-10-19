@@ -536,11 +536,17 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 	// back through the network's gateway it leaves through the engine.
 	defaultRoute := func() string {
 		t.Helper()
-		out, err := probe.Exec(filterCtx, []string{"ip", "route", "show", "default"})
+		// BusyBox's ip prints every route whatever selector follows "show".
+		out, err := probe.Exec(filterCtx, []string{"ip", "route"})
 		if err != nil {
 			t.Fatalf("read the probe's default route: %v", err)
 		}
-		return strings.TrimSpace(out.Stdout)
+		for _, line := range strings.Split(out.Stdout, "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "default ") {
+				return strings.TrimSpace(line) + " "
+			}
+		}
+		return ""
 	}
 	if route := defaultRoute(); route != "" {
 		t.Fatalf("a guest placed with no gateway has a default route: %q", route)
