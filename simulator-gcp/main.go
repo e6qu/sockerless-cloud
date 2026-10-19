@@ -106,6 +106,7 @@ func buildSimulator(cfg sim.Config) (*sim.Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	gcpServer = srv
 
 	// Load or generate the key every access-token minter signs with and the
 	// data-plane bearer middleware verifies against. With persistence enabled

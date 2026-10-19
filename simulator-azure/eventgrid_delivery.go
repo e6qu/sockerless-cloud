@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -315,33 +314,17 @@ func eventGridFinish(item delivery.Item[eventGridDelivery], reason delivery.Reas
 	now := time.Now().UTC()
 	name := fmt.Sprintf("%s/%s/%s/%s.json", strings.ToUpper(scope[strings.LastIndex(scope, "/")+1:]),
 		strings.ToUpper(es.Name), now.Format("2006/01/02/15"), sim.NewUUID())
-	if err := blobWriteServiceObject(target.Account, target.Container, name, "application/json", body); err != nil {
+	header := http.Header{
+		"X-Ms-Version":   {"2021-12-02"},
+		"X-Ms-Blob-Type": {"BlockBlob"},
+		"Content-Type":   {"application/json"},
+	}
+	status, answer, err := azureCallAs(context.Background(), "Microsoft.EventGrid", es.ID, http.MethodPut,
+		"/"+target.Account+"/"+target.Container+"/"+name, header, body)
+	if err == nil && status >= 300 {
+		err = fmt.Errorf("the Put Blob call answered %d: %s", status, answer)
+	}
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "[sim-azure-eventgrid] dead-letter to %s/%s failed: %v\n", target.Account, target.Container, err)
 	}
-}
-
-// blobWriteServiceObject writes a block blob on a service's behalf, as Put
-// Blob would for a caller.
-func blobWriteServiceObject(account, container, name, contentType string, body []byte) error {
-	if _, ok := blobContainersData.Get(blobContainerKey(account, container)); !ok {
-		return fmt.Errorf("container %s/%s does not exist", account, container)
-	}
-	b := BlobObject{
-		Account:            account,
-		Container:          container,
-		Name:               name,
-		BlobType:           "BlockBlob",
-		CreationTime:       blobNowHTTP(),
-		ContentType:        contentType,
-		AccessTier:         "Hot",
-		AccessTierInferred: true,
-	}
-	blobTouch(&b)
-	digests, err := blobSetContentsFrom(&b, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	b.ContentMD5 = digests.MD5Base64()
-	putBlobObject(b)
-	return nil
 }

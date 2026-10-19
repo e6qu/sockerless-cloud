@@ -65,10 +65,12 @@ func TestLambda_SQSEventSourceMappingFilterCriteria_SDK(t *testing.T) {
 
 	_, err := lambdaC.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(functionName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/lambda-sqs-filtered"),
-		Runtime:      lambdatypes.RuntimeNodejs20x,
-		Handler:      aws.String("index.handler"),
-		Code:         &lambdatypes.FunctionCode{ZipFile: lambdaDeploymentZip(t)},
+		// Lambda polls and deletes as the function's execution role.
+		Role: aws.String(createServiceRole(t, "lambda-sqs-filtered", "lambda.amazonaws.com",
+			"sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes")),
+		Runtime: lambdatypes.RuntimeNodejs20x,
+		Handler: aws.String("index.handler"),
+		Code:    &lambdatypes.FunctionCode{ZipFile: lambdaDeploymentZip(t)},
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {

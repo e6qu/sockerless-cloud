@@ -903,6 +903,7 @@ func cloudTrailRecordAPICall(srv *sim.Server, r *http.Request, reqBody []byte, s
 		EventName:    eventName,
 		EventSource:  source,
 		AccessKeyId:  cloudTrailAccessKeyID(r),
+		InvokedBy:    cloudTrailInvokedBy(r),
 		ReadOnly:     cloudTrailReadOnly(eventName),
 		Resources:    cloudTrailResources(source, eventName, reqBody, r),
 		ErrorCode:    errorCode,
@@ -959,6 +960,7 @@ func cloudTrailRecordedRESTDynamic(eventName cloudTrailRESTEventNameFunc, source
 			EventName:    name,
 			EventSource:  source,
 			AccessKeyId:  cloudTrailAccessKeyID(r),
+			InvokedBy:    cloudTrailInvokedBy(r),
 			ReadOnly:     cloudTrailReadOnly(name),
 			ErrorCode:    errorCode,
 			ErrorMessage: errorMessage,
@@ -1411,6 +1413,15 @@ func cloudTrailEventJSON(ev CloudTrailEvent) map[string]any {
 	return out
 }
 
+// cloudTrailInvokedBy is the AWS service that made a call in-process, which
+// CloudTrail records as the call's invokedBy and source address.
+func cloudTrailInvokedBy(r *http.Request) string {
+	if caller, ok := sim.CallerOf(r.Context()); ok && sim.InProcess(r) {
+		return caller.Service
+	}
+	return ""
+}
+
 // cloudTrailEventRecordJSON renders the full event record AWS embeds as the
 // `CloudTrailEvent` string field of a LookupEvents result.
 func cloudTrailEventRecordJSON(ev CloudTrailEvent) string {
@@ -1422,7 +1433,22 @@ func cloudTrailEventRecordJSON(ev CloudTrailEvent) string {
 // (the shape delivered to S3 and embedded in LookupEvents).
 func cloudTrailEventRecord(ev CloudTrailEvent) map[string]any {
 	identity := map[string]any{}
-	if ev.InvokedBy != "" {
+	if cred, ok := iamTempCreds.Get(ev.AccessKeyId); ok && ev.AccessKeyId != "" && cred.RoleName != "" {
+		// A role session is recorded as the assumed role, with the service
+		// that holds it when a service made the call.
+		identity["type"] = "AssumedRole"
+		identity["arn"] = cred.PrincipalArn
+		identity["accessKeyId"] = ev.AccessKeyId
+		identity["accountId"] = awsAccountID()
+		if role, ok := iamRoles.Get(cred.RoleName); ok {
+			identity["sessionContext"] = map[string]any{"sessionIssuer": map[string]any{
+				"type": "Role", "arn": role.Arn, "principalId": role.RoleId, "userName": role.RoleName, "accountId": awsAccountID(),
+			}}
+		}
+		if ev.InvokedBy != "" {
+			identity["invokedBy"] = ev.InvokedBy
+		}
+	} else if ev.InvokedBy != "" {
 		identity["type"] = "AWSService"
 		identity["invokedBy"] = ev.InvokedBy
 	} else {

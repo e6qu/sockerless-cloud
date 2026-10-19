@@ -233,29 +233,29 @@ func TestPubSubPushAndPullShareDeliveryAttempts(t *testing.T) {
 func TestEventarcPubSubTriggerDeliversCloudEvents(t *testing.T) {
 	srv := buildPushTestSimulator(t)
 	receiver, received, _ := pushReceiver(t, http.StatusOK)
-	crv2Services.Put("projects/p/locations/us-central1/services/handler", ServiceV2{
-		Name: "projects/p/locations/us-central1/services/handler", URI: receiver.URL,
+	crv2Services.Put("projects/test-project/locations/us-central1/services/handler", ServiceV2{
+		Name: "projects/test-project/locations/us-central1/services/handler", URI: receiver.URL,
 	})
-	gcpCall(t, srv, http.MethodPut, "/v1/projects/p/topics/events", `{}`)
-	gcpCall(t, srv, http.MethodPost, "/v1/projects/p/locations/us-central1/triggers?triggerId=on-event", `{
+	gcpCall(t, srv, http.MethodPut, "/v1/projects/test-project/topics/events", `{}`)
+	gcpCall(t, srv, http.MethodPost, "/v1/projects/test-project/locations/us-central1/triggers?triggerId=on-event", `{
 		"eventFilters":[{"attribute":"type","value":"google.cloud.pubsub.topic.v1.messagePublished"}],
 		"destination":{"cloudRun":{"service":"handler","region":"us-central1","path":"/events"}},
-		"transport":{"pubsub":{"topic":"projects/p/topics/events"}},
-		"serviceAccount":"invoker@p.iam.gserviceaccount.com"}`)
-	trigger, ok := eventarcTriggers.Get(eventarcTriggerKey("p", "us-central1", "on-event"))
+		"transport":{"pubsub":{"topic":"projects/test-project/topics/events"}},
+		"serviceAccount":"invoker@test-project.iam.gserviceaccount.com"}`)
+	trigger, ok := eventarcTriggers.Get(eventarcTriggerKey("test-project", "us-central1", "on-event"))
 	if !ok {
 		t.Fatal("trigger not stored")
 	}
 	pubsub, _ := trigger.Transport["pubsub"].(map[string]any)
 	subscription, _ := pubsub["subscription"].(string)
-	if !strings.HasPrefix(subscription, "projects/p/subscriptions/eventarc-us-central1-on-event-sub-") {
+	if !strings.HasPrefix(subscription, "projects/test-project/subscriptions/eventarc-us-central1-on-event-sub-") {
 		t.Fatalf("transport.pubsub = %v", pubsub)
 	}
-	gcpCall(t, srv, http.MethodPost, "/v1/projects/p/topics/events:publish", `{"messages":[{"data":"`+base64.StdEncoding.EncodeToString([]byte("{}"))+`"}]}`)
+	gcpCall(t, srv, http.MethodPost, "/v1/projects/test-project/topics/events:publish", `{"messages":[{"data":"`+base64.StdEncoding.EncodeToString([]byte("{}"))+`"}]}`)
 	psPushSweep(context.Background())
 	pushed := awaitPush(t, received)
 	if pushed.header.Get("ce-type") != "google.cloud.pubsub.topic.v1.messagePublished" ||
-		pushed.header.Get("ce-source") != "//pubsub.googleapis.com/projects/p/topics/events" ||
+		pushed.header.Get("ce-source") != "//pubsub.googleapis.com/projects/test-project/topics/events" ||
 		pushed.header.Get("ce-specversion") != "1.0" || pushed.header.Get("ce-id") == "" ||
 		!strings.HasPrefix(pushed.header.Get("Authorization"), "Bearer ") {
 		t.Fatalf("CloudEvent headers = %v", pushed.header)
@@ -264,12 +264,12 @@ func TestEventarcPubSubTriggerDeliversCloudEvents(t *testing.T) {
 		t.Fatalf("CloudEvent data = %v", pushed.body)
 	}
 
-	req := httptest.NewRequest(http.MethodDelete, "/v1/projects/p/locations/us-central1/triggers/on-event", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/v1/projects/test-project/locations/us-central1/triggers/on-event", nil)
 	srv.ServeHTTP(httptest.NewRecorder(), req)
 	if _, still := psSubscriptions.Get(subscription); still {
 		t.Fatal("the trigger's push subscription outlived the trigger")
 	}
-	if _, kept := psTopics.Get("projects/p/topics/events"); !kept {
+	if _, kept := psTopics.Get("projects/test-project/topics/events"); !kept {
 		t.Fatal("deleting the trigger deleted the topic its caller named")
 	}
 }

@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
 
-	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/msgq"
 )
 
@@ -37,13 +37,15 @@ func TestLambdaFilterCriteriaValidation(t *testing.T) {
 // Filters read an Amazon SQS record with a JSON body decoded, match plain
 // bodies as strings, and OR across the mapping's filters.
 func TestLambdaRecordPassesFilters(t *testing.T) {
-	records := lambdaSQSEventRecords("arn:aws:sqs:us-east-1:000000000000:q", []SQSMessage{
-		{MessageId: "json", Body: `{"kind":"order","total":150}`},
-		{MessageId: "plain", Body: "hello world"},
-		{MessageId: "attr", Body: "x", MessageAttributes: map[string]SQSMessageAttribute{
-			"env": {DataType: "String", StringValue: "prod"},
-		}},
-	})
+	var received []sqsReceivedMessage
+	if err := json.Unmarshal([]byte(`[
+		{"MessageId": "json", "Body": "{\"kind\":\"order\",\"total\":150}"},
+		{"MessageId": "plain", "Body": "hello world"},
+		{"MessageId": "attr", "Body": "x", "MessageAttributes": {"env": {"DataType": "String", "StringValue": "prod"}}}
+	]`), &received); err != nil {
+		t.Fatal(err)
+	}
+	records := lambdaSQSEventRecords("arn:aws:sqs:us-east-1:000000000000:q", received)
 	cases := []struct {
 		patterns []string
 		want     []bool
@@ -76,20 +78,18 @@ func TestLambdaRecordPassesFilters(t *testing.T) {
 // AWS Lambda deletes the Amazon SQS messages a mapping's filter criteria
 // reject instead of invoking the function with them.
 func TestLambdaSQSPollerDeletesFilteredMessages(t *testing.T) {
-	savedQueues, savedFunctions, savedESMs := sqsQueues, lambdaFunctions, lambdaESMs
-	t.Cleanup(func() { sqsQueues, lambdaFunctions, lambdaESMs = savedQueues, savedFunctions, savedESMs })
-	sqsQueues = sim.MakeStore[SQSQueue](nil, "test_filter_sqs_queues")
-	lambdaFunctions = sim.MakeStore[LambdaFunction](nil, "test_filter_lambda_functions")
-	lambdaESMs = sim.MakeStore[LambdaEventSourceMapping](nil, "test_filter_lambda_esms")
+	buildConformanceSimulator(t)
+	// Lambda polls and deletes as the function's execution role.
+	role := putServiceRole(t, "filtered-poller", "lambda.amazonaws.com", "sqs:ReceiveMessage", "sqs:DeleteMessage")
 
-	queueARN := "arn:aws:sqs:us-east-1:000000000000:filtered"
+	queueARN := sqsQueueARN("filtered")
 	queue := SQSQueue{Name: "filtered", ARN: queueARN, Attributes: map[string]string{}}
 	for i, body := range []string{`{"kind":"refund"}`, "not an order"} {
 		queue.Messages.Enqueue(sqsPayload{Body: body}, msgq.EnqueueOpts{ID: fmt.Sprintf("m%d", i+1)}, sqsPolicy(queue), time.Now())
 	}
 	sqsQueues.Put("filtered", queue)
 	functionARN := "arn:aws:lambda:us-east-1:000000000000:function:fn"
-	lambdaFunctions.Put("fn", LambdaFunction{FunctionName: "fn", FunctionArn: functionARN})
+	lambdaFunctions.Put("fn", LambdaFunction{FunctionName: "fn", FunctionArn: functionARN, Role: role})
 	mapping := LambdaEventSourceMapping{
 		UUID: "esm-1", EventSourceArn: queueARN, FunctionArn: functionARN, State: "Enabled",
 		FilterCriteria: sqsFilterCriteria(`{"body":{"kind":["order"]}}`),

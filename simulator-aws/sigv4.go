@@ -156,6 +156,10 @@ func sigv4VerifyHeader(r *http.Request, auth string, body []byte, doubleEncodePa
 	payloadHash := r.Header.Get("X-Amz-Content-Sha256")
 	if payloadHash == "" {
 		payloadHash = hexSHA256(body)
+	} else if body != nil && sigv4IsPayloadDigest(payloadHash) && !strings.EqualFold(payloadHash, hexSHA256(body)) {
+		// The signature covers the digest the header states, so a body that
+		// does not hash to it is not the body that was signed.
+		return sigv4NoCredential, &sigv4Error{sigErrSignatureMismatch, sigMsgMismatch}
 	}
 	canonReq := sigv4CanonicalRequest(r, signedHeaders, sigv4CanonicalQuery(r.URL.Query(), false), payloadHash, doubleEncodePath)
 	computed := sigv4Signature(secret, cred, amzDate, canonReq)
@@ -394,6 +398,21 @@ func hmacSHA256(key, data []byte) []byte {
 	return m.Sum(nil)
 }
 
+// sigv4IsPayloadDigest reports whether an X-Amz-Content-Sha256 value is a
+// digest of the payload rather than one of the markers (UNSIGNED-PAYLOAD,
+// STREAMING-…) that stand for a payload the signature does not cover whole.
+func sigv4IsPayloadDigest(v string) bool {
+	if len(v) != 64 {
+		return false
+	}
+	for _, c := range v {
+		if !strings.ContainsRune("0123456789abcdefABCDEF", c) {
+			return false
+		}
+	}
+	return true
+}
+
 func hexSHA256(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
@@ -441,6 +460,11 @@ func sigv4EnforceControlPlane(w http.ResponseWriter, r *http.Request, body []byt
 		return false
 	}
 	if res == sigv4NoCredential {
+		// An AWS service calling in-process as its own principal presents no
+		// signature; the next gate authorizes it against the resource policy.
+		if sim.InProcess(r) && iamDeliverySource(r) != nil {
+			return true
+		}
 		sigv4WriteControlPlaneMissingAuth(w, r)
 		return false
 	}

@@ -535,6 +535,11 @@ func AuthorizeStorageDataPlane(w http.ResponseWriter, r *http.Request, service, 
 	if authorized, _ := r.Context().Value(storageAuthorizedContextKey).(bool); authorized {
 		return true
 	}
+	// A trusted Microsoft service writing on its own behalf, as Event Grid
+	// writes a dead letter, is admitted as the account admits trusted services.
+	if azureTrustedServiceCall(r) {
+		return true
+	}
 	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
 	query := r.URL.Query()
 

@@ -210,35 +210,39 @@ func TestGCSNotificationsPublishObjectChanges(t *testing.T) {
 // Run service does not exist is refused.
 func TestEventarcStorageTriggerDeliversCloudEvents(t *testing.T) {
 	srv := buildPushTestSimulator(t)
+	// Cloud Storage's service agent publishes the bucket's notifications to
+	// the topic Eventarc creates, which Eventarc requires it be allowed to.
+	gcpHostOK(t, srv, "cloudresourcemanager.googleapis.com", http.MethodPost, "/v1/projects/test-project:setIamPolicy",
+		`{"policy":{"bindings":[{"role":"roles/pubsub.publisher","members":["serviceAccount:`+gcsServiceAgentEmail(gcpTestProjectNumber(t))+`"]}]}}`)
 	receiver, received, _ := pushReceiver(t, http.StatusOK)
-	crv2Services.Put("projects/p/locations/us-central1/services/handler", ServiceV2{
-		Name: "projects/p/locations/us-central1/services/handler", URI: receiver.URL,
+	crv2Services.Put("projects/test-project/locations/us-central1/services/handler", ServiceV2{
+		Name: "projects/test-project/locations/us-central1/services/handler", URI: receiver.URL,
 	})
 	const host = "eventarc.googleapis.com"
 
-	if code, out := gcpHostCall(t, srv, host, http.MethodPost, "/v1/projects/p/locations/us-central1/triggers?triggerId=nowhere", `{
+	if code, out := gcpHostCall(t, srv, host, http.MethodPost, "/v1/projects/test-project/locations/us-central1/triggers?triggerId=nowhere", `{
 		"eventFilters":[{"attribute":"type","value":"google.cloud.pubsub.topic.v1.messagePublished"}],
 		"destination":{"cloudRun":{"service":"absent","region":"us-central1"}}}`); code != http.StatusBadRequest {
 		t.Fatalf("a trigger naming a missing Cloud Run service answered %d %v", code, out)
 	}
-	if code, out := gcpHostCall(t, srv, host, http.MethodPost, "/v1/projects/p/locations/us-central1/triggers?triggerId=no-bucket", `{
+	if code, out := gcpHostCall(t, srv, host, http.MethodPost, "/v1/projects/test-project/locations/us-central1/triggers?triggerId=no-bucket", `{
 		"eventFilters":[{"attribute":"type","value":"google.cloud.storage.object.v1.finalized"},{"attribute":"bucket","value":"absent"}],
 		"destination":{"cloudRun":{"service":"handler","region":"us-central1"}}}`); code != http.StatusBadRequest {
 		t.Fatalf("a trigger naming a missing bucket answered %d %v", code, out)
 	}
 
 	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=test-project", `{"name":"uploads"}`)
-	gcpHostOK(t, srv, host, http.MethodPost, "/v1/projects/p/locations/us-central1/triggers?triggerId=on-upload", `{
+	gcpHostOK(t, srv, host, http.MethodPost, "/v1/projects/test-project/locations/us-central1/triggers?triggerId=on-upload", `{
 		"eventFilters":[{"attribute":"type","value":"google.cloud.storage.object.v1.finalized"},{"attribute":"bucket","value":"uploads"}],
 		"destination":{"cloudRun":{"service":"handler","region":"us-central1","path":"/storage"}},
-		"serviceAccount":"invoker@p.iam.gserviceaccount.com"}`)
+		"serviceAccount":"invoker@test-project.iam.gserviceaccount.com"}`)
 	if configs := gcsBucketNotifications("uploads"); len(configs) != 1 || configs[0].EventTypes[0] != "OBJECT_FINALIZE" {
 		t.Fatalf("the trigger's bucket holds notification configurations %v", configs)
 	}
-	uploadTrigger, _ := eventarcTriggers.Get(eventarcTriggerKey("p", "us-central1", "on-upload"))
+	uploadTrigger, _ := eventarcTriggers.Get(eventarcTriggerKey("test-project", "us-central1", "on-upload"))
 	transport, _ := uploadTrigger.Transport["pubsub"].(map[string]any)
 	createdTopic, _ := transport["topic"].(string)
-	if _, ok := psTopics.Get(createdTopic); !ok || !strings.HasPrefix(createdTopic, "projects/p/topics/eventarc-us-central1-on-upload-") {
+	if _, ok := psTopics.Get(createdTopic); !ok || !strings.HasPrefix(createdTopic, "projects/test-project/topics/eventarc-us-central1-on-upload-") {
 		t.Fatalf("Eventarc created no transport topic: %v", transport)
 	}
 
@@ -256,7 +260,7 @@ func TestEventarcStorageTriggerDeliversCloudEvents(t *testing.T) {
 		t.Fatalf("CloudEvent data = %v", pushed.body)
 	}
 
-	gcpHostOK(t, srv, host, http.MethodDelete, "/v1/projects/p/locations/us-central1/triggers/on-upload", ``)
+	gcpHostOK(t, srv, host, http.MethodDelete, "/v1/projects/test-project/locations/us-central1/triggers/on-upload", ``)
 	if configs := gcsBucketNotifications("uploads"); len(configs) != 0 {
 		t.Fatalf("the deleted trigger left notification configurations %v", configs)
 	}

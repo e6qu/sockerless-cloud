@@ -120,6 +120,7 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	azureServer = srv
 
 	// ARM refuses a request beneath a missing or deleting resource group only
 	// after it has authenticated the request and checked its api-version.

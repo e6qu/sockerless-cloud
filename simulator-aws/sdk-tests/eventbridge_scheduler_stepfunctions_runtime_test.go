@@ -57,7 +57,7 @@ func TestEventBridgeAndScheduler_StartStepFunctionsExecutions_SDK(t *testing.T) 
 		Targets: []ebtypes.Target{{
 			Id:      aws.String("step-functions"),
 			Arn:     aws.String(stateMachineARN),
-			RoleArn: aws.String("arn:aws:iam::123456789012:role/eventbridge-step-functions"),
+			RoleArn: aws.String(createServiceRole(t, "eventbridge-step-functions", "events.amazonaws.com", "states:StartExecution")),
 		}},
 	})
 	require.NoError(t, err)

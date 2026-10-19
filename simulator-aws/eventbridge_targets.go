@@ -39,30 +39,16 @@ func ebAuthorizeTargetRoleCall(target EBTarget, request *http.Request, actions m
 	return nil
 }
 
-// ebCallOutcome reads a downstream API's answer: throttling and server errors
-// are retried, any other refusal is final.
-func ebCallOutcome(status int, body []byte) delivery.Outcome {
-	if status < 400 {
-		return delivery.Delivered()
-	}
-	code, message := awsJSONError(body)
-	err := ebTargetError{code, message}
-	if status == http.StatusTooManyRequests || status >= 500 || code == "ThrottlingException" {
-		return delivery.Retryable(err).WithStatus(status)
-	}
-	return delivery.Permanent(err).WithStatus(status)
-}
-
 // ebCustomInput reports whether the target shapes its own input rather than
 // receiving the whole event.
 func ebCustomInput(target EBTarget) bool {
 	return target.Input != "" || target.InputPath != "" || len(target.InputTransformer) > 0
 }
 
-// ebInvokeECSTarget runs the target's task definition on the cluster the
-// target ARN names, started by events-rule/<rule name>. Custom input is the
-// RunTask overrides.
-func ebInvokeECSTarget(ruleArn string, target EBTarget, input string) delivery.Outcome {
+// ebRunTaskRequest is the RunTask request that runs the target's task
+// definition on the cluster the target ARN names, started by
+// events-rule/<rule name>. Custom input is the RunTask overrides.
+func ebRunTaskRequest(ruleArn string, target EBTarget, input string) (map[string]any, *delivery.Outcome) {
 	var params struct {
 		TaskDefinitionArn    string          `json:"TaskDefinitionArn"`
 		TaskCount            int             `json:"TaskCount"`
@@ -83,7 +69,8 @@ func ebInvokeECSTarget(ruleArn string, target EBTarget, input string) delivery.O
 		} `json:"NetworkConfiguration"`
 	}
 	if len(target.EcsParameters) == 0 || json.Unmarshal(target.EcsParameters, &params) != nil || params.TaskDefinitionArn == "" {
-		return delivery.Permanent(ebTargetError{"InvalidParameterException", "Target " + target.Arn + " names no EcsParameters.TaskDefinitionArn"})
+		refused := delivery.Permanent(ebTargetError{"InvalidParameterException", "Target " + target.Arn + " names no EcsParameters.TaskDefinitionArn"})
+		return nil, &refused
 	}
 	body := map[string]any{
 		"cluster":        target.Arn,
@@ -114,18 +101,12 @@ func ebInvokeECSTarget(ruleArn string, target EBTarget, input string) delivery.O
 	if ebCustomInput(target) {
 		var overrides map[string]any
 		if err := json.Unmarshal([]byte(input), &overrides); err != nil {
-			return delivery.Permanent(ebTargetError{"InvalidParameterException", "The input for an Amazon ECS target is not the JSON of a task override"})
+			refused := delivery.Permanent(ebTargetError{"InvalidParameterException", "The input for an Amazon ECS target is not the JSON of a task override"})
+			return nil, &refused
 		}
 		body["overrides"] = overrides
 	}
-	if denied := ebAuthorizeTargetRoleCall(target, jsonHandlerRequest(body), map[string]string{"ecs:RunTask": params.TaskDefinitionArn}); denied != nil {
-		return *denied
-	}
-	status, response := callJSONHandler(handleECSRunTask, body)
-	if outcome := ebCallOutcome(status, response); !outcome.OK() {
-		return outcome
-	}
-	return ecsRunTaskFailuresOutcome(response)
+	return body, nil
 }
 
 // ecsRunTaskFailuresOutcome retries a RunTask that started no task: its
@@ -144,59 +125,6 @@ func ecsRunTaskFailuresOutcome(response []byte) delivery.Outcome {
 		return delivery.Retryable(ebTargetError{"RunTaskFailure", strings.TrimSpace(failure.Reason + " " + failure.Detail)})
 	}
 	return delivery.Delivered()
-}
-
-// ebInvokeKinesisTarget puts the input on the stream, partitioned by the
-// value at KinesisParameters.PartitionKeyPath or else by the event ID.
-func ebInvokeKinesisTarget(target EBTarget, record EBEventRecord, input string) delivery.Outcome {
-	if denied := ebAuthorizeTargetRole(target, map[string]string{"kinesis:PutRecord": target.Arn}); denied != nil {
-		return *denied
-	}
-	partitionKey := record.ID
-	var params struct {
-		PartitionKeyPath string `json:"PartitionKeyPath"`
-	}
-	if len(target.KinesisParameters) > 0 && json.Unmarshal(target.KinesisParameters, &params) == nil && params.PartitionKeyPath != "" {
-		value, ok := ebJSONPath(ebBuildEvent(record), params.PartitionKeyPath)
-		if !ok {
-			return delivery.Permanent(ebTargetError{"InvalidParameterException", "PartitionKeyPath " + params.PartitionKeyPath + " selects nothing in the event"})
-		}
-		if text, isText := value.(string); isText {
-			partitionKey = text
-		} else {
-			raw, _ := json.Marshal(value)
-			partitionKey = string(raw)
-		}
-	}
-	if _, _, err := kinesisAppendRecord("", target.Arn, []byte(input), partitionKey, ""); err != nil {
-		return delivery.Permanent(ebTargetError{"ResourceNotFoundException", "Stream " + target.Arn + " not found"})
-	}
-	return delivery.Delivered()
-}
-
-// ebInvokeBatchTarget submits a job to the job queue the target ARN names.
-func ebInvokeBatchTarget(target EBTarget) delivery.Outcome {
-	var params struct {
-		JobDefinition   string          `json:"JobDefinition"`
-		JobName         string          `json:"JobName"`
-		ArrayProperties json.RawMessage `json:"ArrayProperties"`
-		RetryStrategy   json.RawMessage `json:"RetryStrategy"`
-	}
-	if len(target.BatchParameters) == 0 || json.Unmarshal(target.BatchParameters, &params) != nil || params.JobDefinition == "" || params.JobName == "" {
-		return delivery.Permanent(ebTargetError{"ClientException", "Target " + target.Arn + " names no BatchParameters.JobDefinition and JobName"})
-	}
-	if denied := ebAuthorizeTargetRole(target, map[string]string{"batch:SubmitJob": target.Arn}); denied != nil {
-		return *denied
-	}
-	body := map[string]any{"jobName": params.JobName, "jobQueue": target.Arn, "jobDefinition": params.JobDefinition}
-	if len(params.ArrayProperties) > 0 {
-		body["arrayProperties"] = lowerFirstKeys(params.ArrayProperties)
-	}
-	if len(params.RetryStrategy) > 0 {
-		body["retryStrategy"] = lowerFirstKeys(params.RetryStrategy)
-	}
-	status, response := callJSONHandler(handleBatchSubmitJob, body)
-	return ebCallOutcome(status, response)
 }
 
 // lowerFirstKeys re-spells an EventBridge structure's keys in the camel case

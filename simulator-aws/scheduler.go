@@ -130,6 +130,7 @@ func schedulerRecorded(eventName string, h http.HandlerFunc) http.HandlerFunc {
 			EventName:   eventName,
 			EventSource: "scheduler.amazonaws.com",
 			AccessKeyId: cloudTrailAccessKeyID(r),
+			InvokedBy:   cloudTrailInvokedBy(r),
 			ReadOnly:    cloudTrailReadOnly(eventName),
 			Resources:   resources,
 		})
@@ -563,6 +564,7 @@ func schedulerServeTags(w http.ResponseWriter, r *http.Request) {
 		EventName:   op,
 		EventSource: "scheduler.amazonaws.com",
 		AccessKeyId: cloudTrailAccessKeyID(r),
+		InvokedBy:   cloudTrailInvokedBy(r),
 		ReadOnly:    cloudTrailReadOnly(op),
 	})
 }

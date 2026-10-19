@@ -3720,3 +3720,39 @@ replaces the services' calls into each other's package globals,
 dialects, and one host-routed front end in `sim/lbplane`. Cloud Tasks and
 Cloud Scheduler join the Google Cloud slice on the queue and cron libraries.
 The distributed stage moved to 6.
+
+### Services reach each other through each other's APIs
+
+A service that acts on another's behalf calls that service's API in-process:
+`sim.Server.Call` serves the request through the whole chain a client's
+request takes — authentication, authorization, audit recording,
+specification validation — and `sim.Caller` on its context names the
+service principal it is made as, which only an in-process call can carry.
+
+Amazon EventBridge delivers to every target through the target's API:
+`SendMessage`, an `Event` invocation, `Publish` and CloudWatch Logs'
+`CreateLogStream` and `PutLogEvents` as events.amazonaws.com, admitted by the
+target's resource policy, and `StartExecution`, `RunTask`, `PutRecord`,
+`SubmitJob` and `PutEvents` as a session of the target's RoleArn, which the
+role's trust policy must let EventBridge assume. A rule now delivers to
+another event bus, PutEvents keeps an entry's `Time` and names a bus by ARN.
+EventBridge Scheduler calls the same APIs as the schedule's execution role
+and sends its dead letters with `SendMessage` as that role. AWS Lambda's
+Amazon SQS pollers long-poll `ReceiveMessage` and delete with
+`DeleteMessageBatch` as the function's execution role. A service principal
+calling a resource that does not exist gets the resource's own not-found
+answer before any policy is read.
+
+The simulator signs a role session's in-process request with SigV4 as the AWS
+SDKs do, and the verifier now checks a stated `X-Amz-Content-Sha256` against
+the body it has, so a signature no longer survives a swapped payload.
+CloudTrail records a role session as `AssumedRole` with its session issuer and
+an AWS service's own call as `AWSService`, each with `invokedBy`.
+
+Eventarc creates a trigger's transport topic and push subscription with the
+Pub/Sub API, puts a Cloud Storage trigger's notification configuration with
+the Cloud Storage API and publishes Cloud Audit Logs entries with
+`topics.publish`, all as its service agent; a trigger naming a topic that
+does not exist, or a Cloud Storage trigger whose bucket's service agent may
+not publish, is refused with that service's answer. Azure Event Grid writes a
+dead letter with Put Blob as a trusted Microsoft service.

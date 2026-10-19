@@ -1,6 +1,8 @@
 package main
 
 import (
+	"github.com/e6qu/sockerless-cloud/sim"
+
 	"bytes"
 	"encoding/json"
 	"encoding/xml"
@@ -36,6 +38,9 @@ import (
 // and false if it was denied (a response has already been written).
 func iamEnforce(w http.ResponseWriter, r *http.Request) bool {
 	if iamAccessKeyIDFromRequest(r) == "" {
+		if src := iamDeliverySource(r); src != nil && sim.InProcess(r) {
+			return iamEnforceServicePrincipal(w, r, *src)
+		}
 		return true // unsigned request — permissive (matches AuthPassthrough)
 	}
 	action, ok := iamActionForRequest(r)
@@ -56,6 +61,74 @@ func iamEnforce(w http.ResponseWriter, r *http.Request) bool {
 		}
 	}
 	return iamEnforcePassRole(w, r, action)
+}
+
+// iamEnforceServicePrincipal authorizes a call an AWS service makes as its own
+// principal, such as Amazon EventBridge delivering to a target as
+// events.amazonaws.com: the target's resource policy must admit the service
+// for each action the call performs, with the source the service acts for.
+func iamEnforceServicePrincipal(w http.ResponseWriter, r *http.Request, src iamServiceSource) bool {
+	action, ok := iamActionForRequest(r)
+	if !ok || iamPermissionlessAction(action) {
+		return true
+	}
+	if denied, ok := iamServicePrincipalAllowed(src, iamAuthorizationTargets(r, action)); !ok {
+		iamWriteDeny(w, r, src.Service, denied)
+		return false
+	}
+	return true
+}
+
+// iamResourceExists answers, for each service whose resources a resource
+// policy guards, whether the resource an ARN names exists. A service answers
+// a call on a resource it does not hold with its own not-found error before
+// any policy is read.
+var iamResourceExists = map[string]func(arn string) bool{
+	"sqs": func(arn string) bool {
+		_, ok := sqsQueues.Get(arn[strings.LastIndex(arn, ":")+1:])
+		return ok
+	},
+	"sns": func(arn string) bool {
+		_, ok := snsTopics.Get(snsTopicNameFromARN(arn))
+		return ok
+	},
+	"lambda": func(arn string) bool {
+		_, _, ok := lambdaResolveInvocationTarget(arn, "")
+		return ok
+	},
+	"logs": func(arn string) bool {
+		group, ok := strings.CutPrefix(arn[strings.Index(arn, ":log-group:")+1:], "log-group:")
+		if !ok {
+			return false
+		}
+		_, exists := cwLogGroups.Get(strings.TrimSuffix(group, ":*"))
+		return exists
+	},
+}
+
+// iamResourceMissing reports whether the resource an ARN names belongs to a
+// service that answers for it and does not exist.
+func iamResourceMissing(arn string) bool {
+	parts := strings.SplitN(arn, ":", 6)
+	if len(parts) < 6 {
+		return false
+	}
+	exists, ok := iamResourceExists[parts[2]]
+	return ok && !exists(arn)
+}
+
+// iamServicePrincipalAllowed reports whether each target's resource policy
+// admits the service src names, and the first action one refuses.
+func iamServicePrincipalAllowed(src iamServiceSource, targets []iamAuthorizationTarget) (string, bool) {
+	for _, target := range targets {
+		if iamResourceMissing(target.resource) {
+			continue
+		}
+		if !iamAuthorizeServiceDelivery(target.resource, target.action, src) {
+			return target.action, false
+		}
+	}
+	return "", true
 }
 
 // iamAuthorizationTarget is one action a request is authorized for, on one

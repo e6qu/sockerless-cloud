@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -55,8 +57,13 @@ func TestSigV4_KnownVector(t *testing.T) {
 func signForTest(r *http.Request, cred credScope, secret string, sessionToken string) {
 	amzDate := cred.date + "T000000Z"
 	r.Header.Set("X-Amz-Date", amzDate)
-	const emptyPayloadHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-	r.Header.Set("X-Amz-Content-Sha256", emptyPayloadHash)
+	var body []byte
+	if r.Body != nil {
+		body, _ = io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(body))
+	}
+	payloadHash := hexSHA256(body)
+	r.Header.Set("X-Amz-Content-Sha256", payloadHash)
 	if sessionToken != "" {
 		r.Header.Set("X-Amz-Security-Token", sessionToken)
 	}
@@ -64,7 +71,7 @@ func signForTest(r *http.Request, cred credScope, secret string, sessionToken st
 	if sessionToken != "" {
 		signed = append(signed, "x-amz-security-token")
 	}
-	canonReq := sigv4CanonicalRequest(r, signed, sigv4CanonicalQuery(r.URL.Query(), false), emptyPayloadHash, true)
+	canonReq := sigv4CanonicalRequest(r, signed, sigv4CanonicalQuery(r.URL.Query(), false), payloadHash, true)
 	sig := sigv4Signature(secret, cred, amzDate, canonReq)
 	scope := cred.accessKeyID + "/" + cred.date + "/" + cred.region + "/" + cred.service + "/aws4_request"
 	r.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+scope+

@@ -64,15 +64,30 @@ func lambdaFinishESMRun(uuid string) {
 	lambdaESMRunMu.Unlock()
 }
 
+// sqsReceivedMessage is a message as Amazon SQS's ReceiveMessage returns it.
+type sqsReceivedMessage struct {
+	MessageID         string            `json:"MessageId"`
+	ReceiptHandle     string            `json:"ReceiptHandle"`
+	MD5OfBody         string            `json:"MD5OfBody"`
+	Body              string            `json:"Body"`
+	Attributes        map[string]string `json:"Attributes"`
+	MessageAttributes map[string]struct {
+		DataType    string `json:"DataType"`
+		StringValue string `json:"StringValue"`
+		BinaryValue []byte `json:"BinaryValue"`
+	} `json:"MessageAttributes"`
+}
+
+// lambdaESMReceiveWait is how long a poll waits for a message, the longest
+// ReceiveMessage allows, as AWS Lambda's pollers long-poll the queue.
+const lambdaESMReceiveWait = 20
+
+// lambdaPollSQSMapping receives one batch from the mapping's queue, invokes
+// the function with the messages its filters admit and deletes what the
+// function handled, calling Amazon SQS as the function's execution role.
 func lambdaPollSQSMapping(ctx context.Context, mapping LambdaEventSourceMapping) {
 	defer lambdaFinishESMRun(mapping.UUID)
 	if ctx.Err() != nil {
-		return
-	}
-	queueName := snsTopicNameFromARN(mapping.EventSourceArn)
-	queue, ok := sqsQueues.Get(queueName)
-	if !ok {
-		lambdaSetESMProcessingResult(mapping.UUID, "PROBLEM: Amazon SQS queue not found")
 		return
 	}
 	functionName := snsTopicNameFromARN(mapping.FunctionArn)
@@ -81,34 +96,50 @@ func lambdaPollSQSMapping(ctx context.Context, mapping LambdaEventSourceMapping)
 		lambdaSetESMProcessingResult(mapping.UUID, "PROBLEM: AWS Lambda function not found")
 		return
 	}
-
-	batchSize := 10
-	if mapping.BatchSize != nil && *mapping.BatchSize > 0 {
-		batchSize = *mapping.BatchSize
-	}
-	visibilityTimeout := 30
-	if raw := queue.Attributes["VisibilityTimeout"]; raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed >= 0 {
-			visibilityTimeout = parsed
-		}
-	}
 	filters, err := lambdaESMFilters(mapping.FilterCriteria)
 	if err != nil {
 		lambdaSetESMProcessingResult(mapping.UUID, "PROBLEM: "+err.Error())
 		return
 	}
-	received := sqsReceiveAvailableMessages(queueName, batchSize, visibilityTimeout)
-	if len(received) == 0 {
-		return
+	actor := awsActor{Service: "lambda.amazonaws.com", Source: mapping.EventSourceMappingArn, Role: function.Role}
+	queueURL := sqsQueueURL(mapping.EventSourceArn[strings.LastIndex(mapping.EventSourceArn, ":")+1:])
+	batchSize := 10
+	if mapping.BatchSize != nil && *mapping.BatchSize > 0 {
+		batchSize = *mapping.BatchSize
 	}
-	if ctx.Err() != nil {
+
+	var received []sqsReceivedMessage
+	for wait := lambdaESMReceiveWait; len(received) < batchSize; wait = 0 {
+		status, body, err := awsCallJSON(ctx, actor, "sqs", "AmazonSQS.ReceiveMessage", "application/x-amz-json-1.0", map[string]any{
+			"QueueUrl": queueURL, "MaxNumberOfMessages": min(batchSize-len(received), 10), "WaitTimeSeconds": wait,
+			"MessageSystemAttributeNames": []string{"All"}, "MessageAttributeNames": []string{"All"},
+		})
+		if outcome := ebCallResult(status, body, err, false); !outcome.OK() {
+			if ctx.Err() == nil {
+				lambdaSetESMProcessingResult(mapping.UUID, "PROBLEM: "+outcome.Err.Error())
+			}
+			return
+		}
+		var page struct {
+			Messages []sqsReceivedMessage `json:"Messages"`
+		}
+		if err := json.Unmarshal(body, &page); err != nil {
+			lambdaSetESMProcessingResult(mapping.UUID, "PROBLEM: Amazon SQS answered ReceiveMessage with "+err.Error())
+			return
+		}
+		if len(page.Messages) == 0 {
+			break
+		}
+		received = append(received, page.Messages...)
+	}
+	if len(received) == 0 || ctx.Err() != nil {
 		return
 	}
 
 	// Lambda deletes the Amazon SQS messages its filter criteria reject
 	// rather than invoking the function with them.
 	receivedRecords := lambdaSQSEventRecords(mapping.EventSourceArn, received)
-	var messages []SQSMessage
+	var messages []sqsReceivedMessage
 	var records []map[string]any
 	var filteredOut []string
 	for i, record := range receivedRecords {
@@ -124,8 +155,7 @@ func lambdaPollSQSMapping(ctx context.Context, mapping LambdaEventSourceMapping)
 		messages = append(messages, received[i])
 		records = append(records, record)
 	}
-	sqsDeleteReceiptHandles(queueName, filteredOut)
-	if len(messages) == 0 {
+	if !lambdaESMDelete(ctx, actor, mapping, queueURL, filteredOut) || len(messages) == 0 {
 		return
 	}
 
@@ -146,11 +176,13 @@ func lambdaPollSQSMapping(ctx context.Context, mapping LambdaEventSourceMapping)
 	failed := lambdaSQSBatchFailures(mapping, response)
 	receipts := make([]string, 0, len(messages))
 	for _, message := range messages {
-		if !failed[message.MessageId] {
+		if !failed[message.MessageID] {
 			receipts = append(receipts, message.ReceiptHandle)
 		}
 	}
-	sqsDeleteReceiptHandles(queueName, receipts)
+	if !lambdaESMDelete(ctx, actor, mapping, queueURL, receipts) {
+		return
+	}
 	lambdaSetESMProcessingResult(mapping.UUID, "OK")
 	lambdaESMLogger.Info().
 		Str("eventSourceMapping", mapping.UUID).
@@ -160,14 +192,33 @@ func lambdaPollSQSMapping(ctx context.Context, mapping LambdaEventSourceMapping)
 		Msg("AWS Lambda processed Amazon SQS event source batch")
 }
 
-func lambdaSQSEventRecords(queueARN string, messages []SQSMessage) []map[string]any {
+// lambdaESMDelete deletes handled messages with DeleteMessageBatch, ten to a
+// call, and reports whether every deletion succeeded.
+func lambdaESMDelete(ctx context.Context, actor awsActor, mapping LambdaEventSourceMapping, queueURL string, receipts []string) bool {
+	for start := 0; start < len(receipts); start += 10 {
+		entries := make([]map[string]string, 0, 10)
+		for i, receipt := range receipts[start:min(start+10, len(receipts))] {
+			entries = append(entries, map[string]string{"Id": strconv.Itoa(i), "ReceiptHandle": receipt})
+		}
+		status, body, err := awsCallJSON(ctx, actor, "sqs", "AmazonSQS.DeleteMessageBatch", "application/x-amz-json-1.0",
+			map[string]any{"QueueUrl": queueURL, "Entries": entries})
+		if outcome := ebCallResult(status, body, err, false); !outcome.OK() {
+			lambdaSetESMProcessingResult(mapping.UUID, "PROBLEM: "+outcome.Err.Error())
+			return false
+		}
+	}
+	return true
+}
+
+func lambdaSQSEventRecords(queueARN string, messages []sqsReceivedMessage) []map[string]any {
 	records := make([]map[string]any, 0, len(messages))
 	for _, message := range messages {
-		attributes := map[string]string{
-			"ApproximateReceiveCount":          strconv.Itoa(message.ApproximateReceiveCount),
-			"SentTimestamp":                    strconv.FormatInt(message.SentTimestamp, 10),
-			"ApproximateFirstReceiveTimestamp": strconv.FormatInt(message.FirstReceivedAt, 10),
-			"SenderId":                         awsAccountID(),
+		attributes := map[string]string{}
+		for _, name := range []string{"ApproximateReceiveCount", "SentTimestamp", "SenderId", "ApproximateFirstReceiveTimestamp",
+			"SequenceNumber", "MessageGroupId", "MessageDeduplicationId", "AWSTraceHeader"} {
+			if value, ok := message.Attributes[name]; ok {
+				attributes[name] = value
+			}
 		}
 		messageAttributes := map[string]any{}
 		for name, attribute := range message.MessageAttributes {
@@ -180,7 +231,7 @@ func lambdaSQSEventRecords(queueARN string, messages []SQSMessage) []map[string]
 			messageAttributes[name] = rendered
 		}
 		records = append(records, map[string]any{
-			"messageId":         message.MessageId,
+			"messageId":         message.MessageID,
 			"receiptHandle":     message.ReceiptHandle,
 			"body":              message.Body,
 			"attributes":        attributes,

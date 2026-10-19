@@ -10,8 +10,11 @@ import (
 	"time"
 
 	"cloud.google.com/go/eventarc/apiv1/eventarcpb"
+	"cloud.google.com/go/iam/apiv1/iampb"
+	resourcemanager "cloud.google.com/go/resourcemanager/apiv3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -50,6 +53,11 @@ func TestEventarc_StorageTriggerDeliversObjectFinalized(t *testing.T) {
 	parent := "projects/test-project/locations/us-central1"
 	name := parent + "/triggers/storage-trigger"
 	svc := storageService(t)
+	// Eventarc's Cloud Storage triggers need Cloud Storage's service agent to
+	// publish to the topic Eventarc creates for the trigger.
+	agent, err := svc.Projects.ServiceAccount.Get("test-project").Do()
+	require.NoError(t, err)
+	grantProjectRole(t, "test-project", "roles/pubsub.publisher", "serviceAccount:"+agent.EmailAddress)
 	mustCreateBucket(t, svc, "eventarc-source-bucket")
 	mustCreateBucket(t, svc, "eventarc-other-bucket")
 	endpoint, events := eventReceiver(t)
@@ -158,4 +166,25 @@ func TestEventarc_TriggerNeedsItsDestination(t *testing.T) {
 
 	_, err = client.GetTrigger(ctx, &eventarcpb.GetTriggerRequest{Name: parent + "/triggers/no-service-trigger"})
 	assert.Equal(t, codes.NotFound, status.Code(err), "a refused trigger is not stored")
+}
+
+// grantProjectRole adds member to role in the project's IAM policy, reading
+// the policy and writing it back under its etag as gcloud does, and retrying
+// when another writer changed it in between.
+func grantProjectRole(t *testing.T, project, role, member string) {
+	t.Helper()
+	c, err := resourcemanager.NewProjectsRESTClient(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
+	require.NoError(t, err)
+	defer c.Close()
+	for attempt := 0; ; attempt++ {
+		policy, err := c.GetIamPolicy(ctx, &iampb.GetIamPolicyRequest{Resource: "projects/" + project})
+		require.NoError(t, err)
+		policy.Bindings = append(policy.Bindings, &iampb.Binding{Role: role, Members: []string{member}})
+		_, err = c.SetIamPolicy(ctx, &iampb.SetIamPolicyRequest{Resource: "projects/" + project, Policy: policy})
+		if status.Code(err) == codes.Aborted && attempt < 10 {
+			continue
+		}
+		require.NoError(t, err)
+		return
+	}
 }
