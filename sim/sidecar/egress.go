@@ -98,10 +98,11 @@ func StartEgress(ctx context.Context, spec EgressSpec, sink sim.LogSink) (*sim.C
 			ReadonlyRootfs:   true,
 		},
 	}, sim.FuncSink(func(line sim.LogLine) {
+		// The caller's sink holds the line before the start returns.
+		sink.WriteLog(line)
 		if strings.HasPrefix(line.Text, "sidecar: egress ") {
 			once.Do(func() { close(serving) })
 		}
-		sink.WriteLog(line)
 	}))
 	if err != nil {
 		return nil, err
