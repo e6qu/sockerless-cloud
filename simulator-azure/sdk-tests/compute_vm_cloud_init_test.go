@@ -18,7 +18,7 @@ func TestCompute_VirtualMachineRunsItsCloudConfig(t *testing.T) {
 	const rg = "vm-cloud-init-rg"
 	const vmName = "vm-cloud-init"
 	const adminKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPAkqz56K/EWsdIxGWKGQ5SxtXw8WhqPshWaZNevDsZv azureuser@test"
-	nicID := vmOperationsFixture(t, rg, vmName, "10.103.0.0/16")
+	nicID := vmOperationsFixture(t, rg, vmName, "10.253.0.0/16")
 	cloudConfig := "#cloud-config\n" +
 		"write_files:\n" +
 		"  - path: /etc/app/settings.conf\n" +

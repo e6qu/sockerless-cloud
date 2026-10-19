@@ -3662,3 +3662,9 @@ ImportKeyPair refuses material that is not an OpenSSH public key with
 `InvalidKey.Format`, every pair keeps its OpenSSH public key, which
 DescribeKeyPairs returns only with `IncludePublicKey`, and a named pair that
 does not exist answers `InvalidKeyPair.NotFound`.
+
+The test-network range gate counts a function as placing when it names the
+REST body keys a test sends itself (`vnetConfiguration`,
+`virtualNetworkSubnetId`) as well as the SDK fields: a Container Apps test
+that put its environment on a virtual network through raw requests was
+invisible to it, and a new test took the same range.
