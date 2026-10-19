@@ -2,18 +2,29 @@
 
 ## Next
 
-- **Stage 5 of `PLAN.md`: distributed.** The agent on another host, reached
+- **Stage 5 of `PLAN.md`: service libraries.** Start with the seams: a target
+  registry in `sim` through which Amazon EventBridge, EventBridge Scheduler,
+  AWS Lambda's event-source mappings, Eventarc and Azure Event Grid reach
+  the queues, functions, tasks and stores they deliver to, replacing their
+  calls into other services' package globals. Then `sim/machine` for the
+  three virtual machine lifecycles, `sim/revisions` and `sim/replicas`,
+  `sim/jobrun`, `sim/funcrt`, the queue waiter in `sim/msgq` with Cloud
+  Tasks, and `sim/eventbus` with its filter dialects and Cloud Scheduler,
+  each in one pull request that moves its consumers and closes their bugs.
+- **Stage 6 of `PLAN.md`: distributed.** The agent on another host, reached
   over its API with its minted token, and networks that span hosts; the
   same-range gap (two live VPCs over one CIDR on one engine) lifts there.
-- **The EC2 instance metadata service answers only instances** (BUG-3524):
-  drop the fixed answers to callers that are not instances and move the
-  host-side metadata tests into an instance through Run Command.
+- **Services refuse a role IAM does not hold** (BUG-3529): check the role and
+  its trust policy at create time in Lambda, CodeBuild, Batch, Glue, ECS and
+  Amplify, and give the tests that pass invented role ARNs real roles.
 - **Close the no-privilege gaps `BUGS.md` holds**: the NAT data planes'
   remainders (ICMP, packet counts, Cloud Monitoring for Cloud NAT, the
   public address as the source a peer sees, a subnet with no route out);
   the cloud-init modules and part types not yet run (BUG-3526); the
   Compute Engine metadata server's project attributes (BUG-3525); the fixed
-  link-local metadata address; packet capture and packet mirroring data
+  link-local metadata address, whose container-backend half is a loopback
+  forwarder in the workload's namespace that the AWS SDKs' container
+  credential provider accepts (BUG-3485); packet capture and packet mirroring data
   paths; managed block volume size and filesystem on the container backend.
 - **Fold the simulator CI shards back** from the first parallel run's per-test
   durations (BUG-3437), and stop repeating base-image loading, pre-builds and

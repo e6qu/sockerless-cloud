@@ -73,8 +73,12 @@ var ec2ImageCatalog = sync.OnceValues(func() ([]EC2Image, map[string]EC2Image) {
 			ec2DebianImageOwnerID, "", "arm64", "/dev/xvda", "snap-0c4a7b9e1d2f8e3a0", ec2Debian12OCI, "2025-01-14T10:42:31.000Z"),
 	}
 	byID := make(map[string]EC2Image, len(list))
-	for _, img := range list {
-		byID[img.ImageId] = img
+	for i, img := range list {
+		// Amazon Linux 2023 AMIs are registered with ImdsSupport v2.0.
+		if img.OwnerAlias == "amazon" {
+			list[i].ImdsSupport = "v2.0"
+		}
+		byID[img.ImageId] = list[i]
 	}
 	return list, byID
 })

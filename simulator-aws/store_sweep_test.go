@@ -115,23 +115,23 @@ func TestTempCredSweepKeepsLiveCredentials(t *testing.T) {
 // is left.
 func TestECSTaskCredentialIsServedUntilItNeedsRefreshing(t *testing.T) {
 	resetCredentialStores()
-	previous := ecsTaskCredentials
-	ecsTaskCredentials = sim.MakeStore[ecsHeldCredential](nil, "ecs_task_credentials")
-	t.Cleanup(func() { ecsTaskCredentials = previous })
+	previous := roleHeldSessions
+	roleHeldSessions = sim.MakeStore[roleHeldSession](nil, "role_held_sessions")
+	t.Cleanup(func() { roleHeldSessions = previous })
 
 	start := time.Now().UTC().Truncate(time.Second)
-	first := ecsTaskCredential("task-a", "role-a", start)
-	if again := ecsTaskCredential("task-a", "role-a", start.Add(ecsTaskCredentialMinRemaining-time.Minute)); again.AccessKeyID != first.AccessKeyID {
+	first := roleSessionCredential("task-a", "role-a", "task-a", start)
+	if again := roleSessionCredential("task-a", "role-a", "task-a", start.Add(roleSessionMinRemaining-time.Minute)); again.AccessKeyID != first.AccessKeyID {
 		t.Fatalf("a credential with more than half its lifetime left was replaced")
 	}
-	refreshed := ecsTaskCredential("task-a", "role-a", start.Add(ecsTaskCredentialMinRemaining+time.Second))
+	refreshed := roleSessionCredential("task-a", "role-a", "task-a", start.Add(roleSessionMinRemaining+time.Second))
 	if refreshed.AccessKeyID == first.AccessKeyID {
 		t.Fatal("a credential with less than half its lifetime left was served again")
 	}
-	if other := ecsTaskCredential("task-b", "role-a", start); other.AccessKeyID == first.AccessKeyID {
+	if other := roleSessionCredential("task-b", "role-a", "task-b", start); other.AccessKeyID == first.AccessKeyID {
 		t.Fatal("two tasks were served one credential")
 	}
-	if switched := ecsTaskCredential("task-a", "role-b", start.Add(ecsTaskCredentialMinRemaining+2*time.Second)); switched.AccessKeyID == refreshed.AccessKeyID {
+	if switched := roleSessionCredential("task-a", "role-b", "task-a", start.Add(roleSessionMinRemaining+2*time.Second)); switched.AccessKeyID == refreshed.AccessKeyID {
 		t.Fatal("a credential for another role was served")
 	}
 	if got := iamTempCreds.Len(); got != 4 {

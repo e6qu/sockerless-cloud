@@ -88,16 +88,18 @@ func TestSweepRemovesOnlyTheTasksThatAgedOut(t *testing.T) {
 	})
 
 	for _, task := range []ECSTask{aged, recent} {
-		ecsTaskCredentials.Put(task.TaskID(), ecsHeldCredential{TaskID: task.TaskID(), AccessKeyID: "ASIA" + task.TaskID()})
+		holder := roleHolder("ecs", task.TaskID())
+		roleHeldSessions.Put(holder, roleHeldSession{Holder: holder, AccessKeyID: "ASIA" + task.TaskID()})
 	}
 	t.Cleanup(func() {
-		ecsTaskCredentials.Delete(aged.TaskID())
-		ecsTaskCredentials.Delete(recent.TaskID())
+		roleHeldSessions.Delete(roleHolder("ecs", aged.TaskID()))
+		roleHeldSessions.Delete(roleHolder("ecs", recent.TaskID()))
 	})
 
 	if swept := ecsSweepStoppedTasks(now); swept != 1 {
 		t.Errorf("sweep removed %d task(s), want 1", swept)
 	}
+	sweepRoleCredentials(now)
 	if _, found := ecsTasks.Get(aged.TaskID()); found {
 		t.Error("the aged-out task is still held")
 	}
@@ -107,10 +109,10 @@ func TestSweepRemovesOnlyTheTasksThatAgedOut(t *testing.T) {
 	if _, found := ecsTasks.Get(running.TaskID()); !found {
 		t.Error("a running task was removed")
 	}
-	if _, held := ecsTaskCredentials.Get(aged.TaskID()); held {
+	if _, held := roleHeldSessions.Get(roleHolder("ecs", aged.TaskID())); held {
 		t.Error("the swept task's credential is still held")
 	}
-	if _, held := ecsTaskCredentials.Get(recent.TaskID()); !held {
+	if _, held := roleHeldSessions.Get(roleHolder("ecs", recent.TaskID())); !held {
 		t.Error("a retained task's credential was dropped")
 	}
 }

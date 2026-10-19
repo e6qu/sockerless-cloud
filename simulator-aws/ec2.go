@@ -3545,7 +3545,12 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 	}
 	metaTokens := ec2FormOrLT(r, "MetadataOptions.HttpTokens", ltMetaTokens)
 	if metaTokens == "" {
+		// An AMI registered with ImdsSupport v2.0 launches instances that
+		// require IMDSv2.
 		metaTokens = "optional"
+		if img, ok := ec2LookupImage(imageID); ok && img.ImdsSupport == "v2.0" {
+			metaTokens = "required"
+		}
 	}
 	metaEndpoint := ec2FormOrLT(r, "MetadataOptions.HttpEndpoint", ltMetaEndpoint)
 	if metaEndpoint == "" {

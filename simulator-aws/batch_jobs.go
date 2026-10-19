@@ -751,6 +751,8 @@ func batchLaunchAttempt(jobID string, number int) {
 		return
 	}
 	cfg := batchAttemptConfig(job)
+	jobRole := batchJobRoleArn(job)
+	sessionName := job.Running.TaskID
 	var openErr error
 	if group, stream, createGroup, ok := batchAttemptLogTarget(job); ok {
 		if openErr = batchOpenLogStream(group, stream, createGroup); openErr == nil {
@@ -765,7 +767,7 @@ func batchLaunchAttempt(jobID string, number int) {
 		return
 	}
 
-	handle, err := batchPlaceAttempt(context.Background(), cfg, sink)
+	handle, err := batchPlaceAttempt(context.Background(), cfg, sink, jobID, jobRole, sessionName)
 	if err != nil {
 		batchAttemptEnded(jobID, number, sim.ProcessResult{}, err)
 		return
@@ -804,16 +806,27 @@ func batchMarkRunningLocked(job *BatchJob) {
 	}
 }
 
+// batchJobRoleArn is the role the job's container runs under, which its job
+// definition names.
+func batchJobRoleArn(job BatchJob) string {
+	jd, ok := batchLookupJobDefinition(job.JobDefinition)
+	if !ok {
+		return ""
+	}
+	return batchString(jd.ContainerProperties["jobRoleArn"])
+}
+
 // batchPlaceAttempt places an attempt's container on the platform network,
-// resolving and reading metadata through its sidecar.
-func batchPlaceAttempt(ctx context.Context, cfg sim.ContainerConfig, sink sim.LogSink) (placement.Handle, error) {
+// resolving names through its sidecar and reading the job role's sessions
+// from the container credentials endpoint, as an Amazon ECS task does.
+func batchPlaceAttempt(ctx context.Context, cfg sim.ContainerConfig, sink sim.LogSink, jobID, jobRole, sessionName string) (placement.Handle, error) {
 	network, err := awsPlatformNetwork(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("job network: %w", err)
 	}
 	cfg.Network = network.Name
 	cfg.DNS = network.DNS()
-	cfg.Env = workloadhost.MergeEnv(workloadMetadataEnv(network.MetadataOrigin(), ""), cfg.Env)
+	cfg.Env = workloadhost.MergeEnv(cfg.Env, grantContainerCredentials(network.MetadataOrigin(), roleHolder("batch", jobID), jobRole, sessionName))
 	backend, err := awsPlacement.For(placement.Service{Name: "batch"})
 	if err != nil {
 		return nil, err
@@ -875,6 +888,7 @@ func batchAttemptEnded(jobID string, number int, result sim.ProcessResult, start
 		delete(batchAttemptTimers, jobID)
 	}
 	delete(batchJobHandles, jobID)
+	revokeRoleCredentials(roleHolder("batch", jobID))
 	running := *job.Running
 	batchCEInUse[running.ComputeEnvironment] -= job.VCPUs
 	batchChargeShareLocked(batchNameFromARN(job.JobQueue), job.ShareIdentifier, -job.VCPUs)

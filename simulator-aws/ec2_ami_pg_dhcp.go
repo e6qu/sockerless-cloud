@@ -49,6 +49,9 @@ type EC2Image struct {
 	UsageOperation  string
 	BootMode        string
 	EnaSupport      bool
+	// ImdsSupport "v2.0" makes the instances launched from the AMI require
+	// IMDSv2 unless the launch says otherwise.
+	ImdsSupport string
 }
 
 // EC2PlacementGroup models an EC2 placement group (cluster/spread/partition).
@@ -291,6 +294,11 @@ func handleRegisterImage(w http.ResponseWriter, r *http.Request) {
 		UsageOperation:     "RunInstances",
 		EnaSupport:         r.FormValue("EnaSupport") == "true",
 		BootMode:           r.FormValue("BootMode"),
+		ImdsSupport:        r.FormValue("ImdsSupport"),
+	}
+	if img.ImdsSupport != "" && img.ImdsSupport != "v2.0" {
+		ec2ErrorXML(w, "InvalidParameterValue", fmt.Sprintf("Value (%s) for parameter imdsSupport is invalid. Valid values: v2.0", img.ImdsSupport), http.StatusBadRequest)
+		return
 	}
 	ec2Images.Put(img.ImageId, img)
 	w.Header().Set("Content-Type", "text/xml")
@@ -392,6 +400,9 @@ func ec2StoredImageXML(img EC2Image) string {
 	}
 	if img.BootMode != "" {
 		fmt.Fprintf(&extra, "<bootMode>%s</bootMode>", xmlEscape(img.BootMode))
+	}
+	if img.ImdsSupport != "" {
+		fmt.Fprintf(&extra, "<imdsSupport>%s</imdsSupport>", xmlEscape(img.ImdsSupport))
 	}
 	return fmt.Sprintf(`<item><imageId>%s</imageId><imageLocation>%s</imageLocation><imageState>%s</imageState><imageOwnerId>%s</imageOwnerId><isPublic>%t</isPublic><architecture>%s</architecture><imageType>%s</imageType><rootDeviceType>%s</rootDeviceType><rootDeviceName>%s</rootDeviceName>%s<virtualizationType>%s</virtualizationType><name>%s</name>%s<creationDate>%s</creationDate><hypervisor>%s</hypervisor>%s%s%s%s%s</item>`,
 		img.ImageId, xmlEscape(location), img.State, img.OwnerId, img.Public,

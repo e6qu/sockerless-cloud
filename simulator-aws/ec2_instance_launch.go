@@ -142,7 +142,7 @@ func ec2InstanceSpec(ctx context.Context, inst EC2Instance) (vminstance.Spec, aw
 		DNS:        network.DNS(),
 		UserData:   userData,
 		CloudInit:  ec2CloudInit(inst),
-		Env:        workloadMetadataEnv(network.MetadataOrigin(), ""),
+		Env:        ec2MetadataEnv(network.MetadataOrigin()),
 		VCPUs:      facts.VCpus,
 		MemoryMiB:  facts.MemoryMiB,
 		Labels:     map[string]string{"sockerless-sim-aws-instance": inst.InstanceId},

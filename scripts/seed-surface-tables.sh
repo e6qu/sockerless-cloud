@@ -64,7 +64,7 @@ matrix_cell() {
 # the catalog readable: main, dashboard, metadata, streaming, awschunked,
 # aws_identity, auth, authorization, managedidentity, oauth2, operations,
 # quota, serviceusage, ui_embed, ui_noembed, lambda_runtime, ssm_proto,
-# logfilter, cloudwatch_metrics, kql.
+# logfilter, cloudwatch_metrics, kql, role_credentials.
 
 # Map cloud:file → canonical surface-table file.
 table_for_file() {
@@ -135,7 +135,7 @@ for cloud in aws azure gcp; do
     [[ -f "$go_file" ]] || continue
     [[ "$go_file" =~ _test\.go$ ]] && continue
     base="$(basename "$go_file" .go)"
-    if [[ "$base" =~ ^(main|dashboard|metadata|streaming|awschunked|aws_identity|auth|authorization|managedidentity|oauth2|operations|quota|serviceusage|ui_embed|ui_noembed|lambda_runtime|ssm_proto|logfilter|cloudwatch_metrics|kql|arm_lro)$ ]]; then
+    if [[ "$base" =~ ^(main|dashboard|metadata|streaming|awschunked|aws_identity|auth|authorization|managedidentity|oauth2|operations|quota|serviceusage|ui_embed|ui_noembed|lambda_runtime|ssm_proto|logfilter|cloudwatch_metrics|kql|arm_lro|role_credentials)$ ]]; then
       continue
     fi
     has_handle="$(grep -Ec 'HandleFunc\(|\.Register\("|\.RegisterVersioned\(' "$go_file" || true)"

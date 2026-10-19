@@ -22,13 +22,14 @@ func cbEnvironmentImage(image string) string {
 // the service endpoint at the address the environment can reach the
 // simulator on (real CodeBuild leaves AWS_ENDPOINT_URL unset and resolves
 // the regional hosts; here the services live in this process), and the
-// instance metadata endpoint the SDKs take credentials from.
-func cbEnvironmentServiceEnv(network awsWorkloadNetwork) (map[string]string, error) {
-	env := workloadMetadataEnv(network.MetadataOrigin(), "")
+// container credentials endpoint serving sessions of the project's service
+// role to holder, in sessions named for the build.
+func cbEnvironmentServiceEnv(network awsWorkloadNetwork, holder, serviceRole, buildID string) (map[string]string, error) {
 	addr, err := workloadhost.CallbackAddr(simListenAddr)
 	if err != nil {
 		return nil, err
 	}
+	env := grantContainerCredentials(network.MetadataOrigin(), holder, serviceRole, "AWSCodeBuild-"+buildID[strings.LastIndex(buildID, ":")+1:])
 	env["AWS_ENDPOINT_URL"] = "http://" + addr
 	return env, nil
 }

@@ -466,6 +466,9 @@ func handleLambdaCreateFunction(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterValueException", "Role is required", http.StatusBadRequest)
 		return
 	}
+	if !lambdaCheckReservedEnvironment(w, req.Environment) {
+		return
+	}
 
 	if _, exists := lambdaFunctions.Get(req.FunctionName); exists {
 		AWSErrorf(w, "ResourceConflictException", http.StatusConflict,
@@ -937,6 +940,9 @@ func handleLambdaUpdateFunctionConfiguration(w http.ResponseWriter, r *http.Requ
 	if req.Timeout != nil && (*req.Timeout < 1 || *req.Timeout > 900) {
 		AWSError(w, "InvalidParameterValueException",
 			"Timeout must be between 1 and 900", http.StatusBadRequest)
+		return
+	}
+	if !lambdaCheckReservedEnvironment(w, req.Environment) {
 		return
 	}
 

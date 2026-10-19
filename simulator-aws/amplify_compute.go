@@ -270,6 +270,9 @@ func amplifyEnsureCompute(app AmplifyApp, br AmplifyBranch, content *amplifyHost
 		env[k] = v
 	}
 	env["PORT"] = strconv.Itoa(amplifyComputePort)
+	// The compute runs under the branch's compute role, or the app's when the
+	// branch names none.
+	computeRole := firstNonEmpty(br.ComputeRoleArn, app.ComputeRoleArn)
 	network, err := awsPlatformNetwork(context.Background())
 	if err != nil {
 		_ = os.RemoveAll(bundleDir)
@@ -285,7 +288,7 @@ func amplifyEnsureCompute(app AmplifyApp, br AmplifyBranch, content *amplifyHost
 		// relabel lets the confined workload read the real host directory on
 		// enforcing hosts and is accepted as a no-op by Docker elsewhere.
 		Binds:   []string{bundleDir + ":/bundle:ro,z"},
-		Env:     workloadhost.MergeEnv(workloadMetadataEnv(network.MetadataOrigin(), ""), env),
+		Env:     workloadhost.MergeEnv(env, roleEnvironmentCredentials(roleHolder("amplify", key), computeRole, app.AppId)),
 		Network: network.Name,
 		DNS:     network.DNS(),
 		Labels: map[string]string{

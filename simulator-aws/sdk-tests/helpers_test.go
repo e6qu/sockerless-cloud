@@ -450,6 +450,14 @@ func TestMain(m *testing.M) {
 		pullImageWithRetry("mirror.gcr.io/library/alpine:3.21")
 		pullImageWithRetry("mirror.gcr.io/amazon/aws-cli:2.27.49")
 	}
+	// An AWS Amplify job's wait measures the job, not the transfer of the
+	// managed build image, which is several hundred megabytes on a cold host.
+	for _, name := range []string{"TestAmplifyJobLifecycle", "TestAmplifyRealBuildE2E", "TestAmplifyPrivateRepositoryPythonBuildE2E"} {
+		if testRunSelects(name) {
+			pullImageWithRetry("mirror.gcr.io/library/node:22-bookworm")
+			break
+		}
+	}
 	if testRunSelects("TestSFN_AmazonECSRunsTerraformAgainstSimulator_SDK") {
 		buildTerraformAWSImage(workloadPlatform)
 	}

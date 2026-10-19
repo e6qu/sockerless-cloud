@@ -100,8 +100,9 @@ variable a workload sees.
   it. Every workload on the network names the sidecar as its DNS server and
   takes its metadata URL from the variable the cloud's SDKs honour
   (`AWS_EC2_METADATA_SERVICE_ENDPOINT`, `ECS_CONTAINER_METADATA_URI_V4`,
-  `GCE_METADATA_HOST`, `IDENTITY_ENDPOINT`); the fixed link-local metadata
-  address is a recorded gap. The resolver attributes a query to the network
+  `AWS_CONTAINER_CREDENTIALS_FULL_URI`, `GCE_METADATA_HOST`,
+  `IDENTITY_ENDPOINT`); the fixed link-local metadata address is a recorded
+  gap. The resolver attributes a query to the network
   its sidecar serves, never to anything inside the message.
 - **NAT and egress.** A sidecar proxy per network replaces `nftables` SNAT;
   the NAT gateway's, Cloud NAT's or Azure NAT Gateway's public address is the
@@ -166,8 +167,102 @@ Stages 1 to 4 landed in one pull request, with the shared libraries below.
    boot from OCI-built root filesystems, tap filtering, the microVM backend
    in `sim`, and each compute service and managed engine configurable onto
    it; the node-agent CI job boots a guest through the agent.
-5. **Distributed.** Agents on other hosts and networks that span them, once
-   the first four stages hold.
+5. **Service libraries.** Polish the compute, eventing and queueing services
+   to completion and extract what they share into cloud-neutral libraries
+   (below).
+6. **Distributed.** Agents on other hosts and networks that span them, once
+   the first five stages hold.
+
+## Stage 5: service libraries
+
+The services this stage covers are the virtual machines (Amazon EC2,
+Compute Engine, Azure virtual machines), the container services (Amazon ECS
+on AWS Fargate and on container instances, Cloud Run services, jobs and
+worker pools, Azure Container Apps apps and jobs), the function services
+(AWS Lambda, Cloud Run functions, Azure Functions), the event routers
+(Amazon EventBridge with EventBridge Scheduler, Eventarc with Cloud
+Scheduler, Azure Event Grid) and the queues (Amazon SQS, Pub/Sub with Cloud
+Tasks, Azure Service Bus and Azure Queue Storage). Each one implements the same
+mechanism its counterparts in the other clouds implement, in code of its
+own. The stage moves each mechanism into one library in `sim/`, drives every
+consumer through it, and polishes each service until its rows in `BUGS.md`
+are closed.
+
+A library here is a package of the `sim` module that holds the mechanism and
+none of a cloud's wire shapes, error envelopes or names: its package
+documentation states the contract, its unit tests exercise that contract
+without a simulator, and a cloud reaches it through hooks, as `sim/msgq` and
+`sim/delivery` already work. Each consumer keeps its SDK, CLI and Terraform
+tests, which prove the extraction changed no wire behaviour.
+
+1. **Seams between services.** Services call each other through package
+   globals today: Amazon EventBridge and EventBridge Scheduler enqueue into
+   Amazon SQS, invoke AWS Lambda and run Amazon ECS tasks through their
+   internals; AWS Lambda's event-source mappings read SQS's store; Eventarc
+   provisions and publishes through Pub/Sub's; Azure Event Grid's
+   dead-lettering writes Blob Storage's. A target registry in `sim`, where
+   each service registers what it accepts by its resource type (enqueue,
+   publish, invoke, run, write object), replaces those calls, so a library
+   delivers to a target without naming the service behind it.
+2. **`sim/machine`: the virtual machine lifecycle.** Boot through the
+   placement backend, ready, watch, stop keeping the disk, start, reboot,
+   terminate, adopt after a simulator restart, capture an image, and the
+   console buffer, with the cloud's state names and transitions as a hook.
+   Amazon EC2, Compute Engine and Azure virtual machines each implement this
+   today (`ec2InstanceWorkload`, `gcpBootInstanceMachine` and its siblings,
+   `azureBootVMWorkload` and its siblings). Polish: the instance metadata
+   categories (BUG-3528), the Compute Engine project attributes (BUG-3525),
+   cloud-init's remaining modules (BUG-3526, BUG-3527), the link-local
+   metadata addresses (BUG-3485), and Systems Manager managed nodes
+   (BUG-3532).
+3. **`sim/revisions` and `sim/replicas`: long-running container services.**
+   Revisions hold a template signature, the next revision name, traffic
+   weights and the pick of a revision per request, rolling replacement, and
+   the pruning of inactive revisions. Replicas start, adopt, probe, scale
+   between their bounds and stop, with their logs fanned out to readers.
+   Amazon ECS services and deployments (task sets among them), Cloud Run
+   services and worker pools, and Azure Container Apps apps implement these
+   today.
+4. **`sim/jobrun`: run to completion.** An execution with a task count,
+   parallelism, per-task retries, a timeout, cancellation and recovery after
+   a restart. Amazon ECS `RunTask` on AWS Fargate, Cloud Run jobs and Azure
+   Container Apps jobs implement it today; AWS Batch joins once it holds.
+5. **`sim/funcrt`: functions.** The deployment package and its layers, the
+   runtime image catalog, the execution-environment pool (reuse, scaling,
+   reserved and provisioned concurrency), the timeout, asynchronous
+   invocation with retries and its destinations, and the event-source
+   poller that hands a queue's batches to a function. The invoke protocol is
+   the hook: the Lambda Runtime API, the Functions Framework's HTTP and
+   CloudEvents contract, the Azure Functions host. Cloud Run functions stay
+   Cloud Run services, as they are on Google Cloud, built from source with
+   Google Cloud's buildpacks. Polish: a role that cannot be assumed
+   (BUG-3529).
+6. **`sim/msgq` completed: queues.** The long-poll waiter that Amazon SQS,
+   Pub/Sub and Azure Service Bus each implement (`sqsLongPoll`, `psPull`,
+   `sbAwaitReceive`), dead-letter redrive and message moves, sessions and
+   ordered groups, and deduplication. Cloud Tasks joins Pub/Sub as Google
+   Cloud's task queue, dispatching HTTP tasks through `sim/delivery`.
+7. **`sim/eventbus`: event routing.** The fan-out from an event to the
+   subscriptions that match it, with a filter hook, an input transform,
+   batching, delivery through `sim/delivery` with the subscription's retry
+   policy, a dead-letter target, and archive and replay. Its filter dialects
+   are libraries of their own: Amazon EventBridge event patterns (today
+   `awspattern.go`, shared with Amazon SNS and AWS Lambda filters), Azure
+   Event Grid advanced filters, and Eventarc's attribute filters beside the
+   Pub/Sub filter on `sim/listq`. Amazon EventBridge rules, Eventarc
+   triggers, Azure Event Grid subscriptions and Pub/Sub push subscriptions
+   implement the fan-out today; Cloud Scheduler joins EventBridge Scheduler
+   and Container Apps' scheduled jobs on `sim/cron`.
+8. **One host-routed front end.** AWS Lambda function URLs route by host
+   themselves, beside Cloud Run's, Azure Container Apps' and App Service's
+   front ends over `sim/lbplane`; one front end in `sim/lbplane` serves
+   them all.
+
+The order follows the dependencies: the seams first, since every library
+after them delivers to targets; the machine lifecycle next, since every
+compute service places on what it learns; then revisions and replicas, jobs,
+functions, queues, and event routing, each in its own pull request with its
+consumers moved onto it and its services' bugs closed.
 
 ## Shared functionality in cloud-neutral packages
 
@@ -181,7 +276,8 @@ reach the shared code through hooks. Landed: workload host and launch helpers
 (`sim/lbplane`); object storage (`sim.PrefixStore`, `sim/blobstore`,
 `sim/sparse`, `Server.Payloads`, `sim.KeyedLocks`); list queries and
 key-value primitives (`sim/listq`, `sim/kvstore`); messaging, delivery, cron
-and streams (`sim/msgq`, `sim/delivery`, `sim/cron`, `sim/streamlog`); keys
+and streams (`sim/msgq`, `sim/delivery`, `sim/cron`, `sim/streamlog`), which
+stage 5 extends; keys
 and logs (`sim/simkms`, `sim/logstore`); DNS (`sim/dnsserver`); and startup
 (`sim.Main`, `sim.Program`); networks and placement (`sim.EnsureCloudNetwork`
 with `sim/ipam` and `sim/netrules`, `sim/sidecar`, `sim/placement`,
