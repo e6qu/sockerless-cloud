@@ -2505,6 +2505,14 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 			if inst.NetworkInterfaces[i].Name == "" {
 				inst.NetworkInterfaces[i].Name = fmt.Sprintf("nic%d", i)
 			}
+			if inst.NetworkInterfaces[i].Network == "" && inst.NetworkInterfaces[i].Subnetwork != "" {
+				// An interface naming a subnetwork alone is on that subnetwork's
+				// network; the default network is for one naming neither.
+				subnetLink := normalizeComputeSubnetworkRef(project, regionFromZone(zone), inst.NetworkInterfaces[i].Subnetwork)
+				if subnet, ok := subnetworks.Get(subnetLink); ok && subnet.Network != "" {
+					inst.NetworkInterfaces[i].Network = normalizeComputeGlobalNetworkRef(project, subnet.Network)
+				}
+			}
 			if inst.NetworkInterfaces[i].Network == "" {
 				inst.NetworkInterfaces[i].Network = fmt.Sprintf("projects/%s/global/networks/default", project)
 			} else {

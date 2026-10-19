@@ -3538,4 +3538,8 @@ runner reads a script's output to its end before it reports the exit, as
 google_metadata_script_runner does, so the Compute Engine shard's listeners
 close theirs. A `$` anchor in a shard's skip pattern reached make as the
 empty variable `$'` and unbalanced the quote; the patterns anchor at the
-start only.
+start only. An instance inserted with an interface naming a subnetwork
+alone was put on the default network, so the firewall rules of the
+subnetwork's network never reached it and the implied deny dropped every
+frame; the interface is on its subnetwork's network, as Compute Engine
+derives it.
