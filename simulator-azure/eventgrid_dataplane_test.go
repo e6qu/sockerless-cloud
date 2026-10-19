@@ -23,6 +23,9 @@ func newEventGridTestServer(t *testing.T) *sim.Server {
 	}
 	registerAzureAsyncOperations(srv)
 	registerEventGrid(srv)
+	previous := azureServer
+	azureServer = srv
+	t.Cleanup(func() { azureServer = previous })
 	t.Cleanup(bg.Await)
 	return srv
 }

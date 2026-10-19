@@ -1,13 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
@@ -135,8 +134,8 @@ func registerSchedulerDelivery(srv *sim.Server) {
 	store := sim.MakeStore[delivery.Item[schedulerDelivery]](srv.DB(), "scheduler_target_deliveries")
 	schedulerDeliveries = delivery.New(srv, "EventBridge Scheduler target deliveries", store, delivery.Handler[schedulerDelivery]{
 		Policy: func(d schedulerDelivery) delivery.Policy { return schedulerRetryPolicy(schedulerParseTarget(d.Target)) },
-		Attempt: func(_ context.Context, item *delivery.Item[schedulerDelivery]) delivery.Outcome {
-			return schedulerAttemptTarget(schedulerParseTarget(item.Payload.Target))
+		Attempt: func(ctx context.Context, item *delivery.Item[schedulerDelivery]) delivery.Outcome {
+			return schedulerAttemptTarget(ctx, item.Payload.ScheduleArn, schedulerParseTarget(item.Payload.Target))
 		},
 		Finish: schedulerFinishDelivery,
 	})
@@ -179,63 +178,48 @@ func fireSchedule(s Schedule) {
 	schedulerDeliveries.SubmitAttempted(sim.NewUUID(), schedulerDelivery{ScheduleArn: s.Arn, Target: s.Target})
 }
 
-// schedulerAttemptTarget invokes the target's service once, as the
-// schedule's execution role.
-func schedulerAttemptTarget(t schedulerTarget) delivery.Outcome {
-	switch {
-	case strings.HasPrefix(t.Arn, schedulerUniversalTargetPrefix):
+// schedulerAttemptTarget invokes the target's service once through its API,
+// as the schedule's execution role.
+func schedulerAttemptTarget(ctx context.Context, scheduleArn string, t schedulerTarget) delivery.Outcome {
+	if strings.HasPrefix(t.Arn, schedulerUniversalTargetPrefix) {
 		return fireUniversalTarget(t)
+	}
+	actor := awsActor{Service: "scheduler.amazonaws.com", Source: scheduleArn, Role: t.RoleArn}
+	switch {
 	case strings.Contains(t.Arn, ":ecs:") && t.EcsParameters != nil:
-		return fireECSTarget(t)
+		return fireECSTarget(ctx, actor, t)
 	case strings.Contains(t.Arn, ":lambda:"):
-		if denied := schedulerAuthorizeRole(t, "lambda:InvokeFunction", t.Arn); denied != nil {
-			return *denied
-		}
-		return fireLambdaTarget(t.Arn, t.Input)
+		header := http.Header{"X-Amz-Invocation-Type": {"Event"}, "Content-Type": {"application/json"}}
+		status, body, err := awsCall(ctx, actor, "lambda", http.MethodPost,
+			"/2015-03-31/functions/"+url.PathEscape(t.Arn)+"/invocations", header, []byte(t.Input))
+		return ebCallResult(status, body, err, false)
 	case strings.Contains(t.Arn, ":sqs:"):
-		if denied := schedulerAuthorizeRole(t, "sqs:SendMessage", t.Arn); denied != nil {
-			return *denied
+		input := map[string]any{"QueueUrl": sqsQueueURL(t.Arn[strings.LastIndex(t.Arn, ":")+1:]), "MessageBody": t.Input}
+		if t.SqsParameters != nil && t.SqsParameters.MessageGroupID != "" {
+			input["MessageGroupId"] = t.SqsParameters.MessageGroupID
 		}
-		return fireSQSTarget(t)
+		status, body, err := awsCallJSON(ctx, actor, "sqs", "AmazonSQS.SendMessage", "application/x-amz-json-1.0", input)
+		return ebCallResult(status, body, err, false)
 	case strings.Contains(t.Arn, ":sns:"):
-		if denied := schedulerAuthorizeRole(t, "sns:Publish", t.Arn); denied != nil {
-			return *denied
-		}
-		return fireSNSTarget(t.Arn, t.Input)
+		status, body, err := awsCallQuery(ctx, actor, "sns", "Publish", "2010-03-31", url.Values{"TopicArn": {t.Arn}, "Message": {t.Input}})
+		return ebCallResult(status, body, err, true)
 	case strings.Contains(t.Arn, ":states:"):
-		if denied := schedulerAuthorizeRole(t, "states:StartExecution", t.Arn); denied != nil {
-			return *denied
+		input := t.Input
+		if input == "" {
+			input = "{}"
 		}
-		return fireStepFunctionsTarget(t.Arn, t.Input)
+		status, body, err := awsCallJSON(ctx, actor, "states", "AWSStepFunctions.StartExecution", "application/x-amz-json-1.0",
+			map[string]any{"stateMachineArn": t.Arn, "input": input})
+		return ebCallResult(status, body, err, false)
 	case strings.Contains(t.Arn, ":kinesis:") && t.KinesisParameters != nil:
-		if denied := schedulerAuthorizeRole(t, "kinesis:PutRecord", t.Arn); denied != nil {
-			return *denied
-		}
-		return fireKinesisTarget(t.Arn, t.KinesisParameters.PartitionKey, t.Input)
+		status, body, err := awsCallJSON(ctx, actor, "kinesis", "Kinesis_20131202.PutRecord", "application/x-amz-json-1.1",
+			map[string]any{"StreamARN": t.Arn, "PartitionKey": t.KinesisParameters.PartitionKey,
+				"Data": base64.StdEncoding.EncodeToString([]byte(t.Input))})
+		return ebCallResult(status, body, err, false)
 	case strings.HasPrefix(t.Arn, "arn:aws:events:") && strings.Contains(t.Arn, ":event-bus/") && t.EventBridgeParameters != nil:
-		if denied := schedulerAuthorizeRole(t, "events:PutEvents", t.Arn); denied != nil {
-			return *denied
-		}
-		return fireEventBridgeTarget(t)
+		return fireEventBridgeTarget(ctx, actor, t)
 	}
 	return delivery.Permanent(ebTargetError{"UnsupportedTarget", "the simulator does not invoke targets of this service: " + t.Arn})
-}
-
-// schedulerAuthorizeRole checks that the target's execution role trusts
-// scheduler.amazonaws.com and allows the call the invocation makes.
-func schedulerAuthorizeRole(t schedulerTarget, action, resource string) *delivery.Outcome {
-	return schedulerAuthorizeRoleCall(t, nil, action, resource)
-}
-
-// schedulerAuthorizeRoleCall is schedulerAuthorizeRole for a call whose
-// request the scheduler has built, so the policy's conditions on that request
-// are evaluated against it.
-func schedulerAuthorizeRoleCall(t schedulerTarget, request *http.Request, action, resource string) *delivery.Outcome {
-	if err := iamValidateServiceRoleCall(t.RoleArn, "scheduler.amazonaws.com", request, map[string]string{action: resource}); err != nil {
-		outcome := delivery.Permanent(ebTargetError{"AccessDeniedException", err.Error()})
-		return &outcome
-	}
-	return nil
 }
 
 // schedulerUniversalTargetPrefix begins a universal target ARN,
@@ -294,19 +278,15 @@ func fireUniversalTarget(t schedulerTarget) delivery.Outcome {
 
 // fireEventBridgeTarget puts one event on the bus, with the target's Input as
 // its detail and its EventBridgeParameters as detail-type and source.
-func fireEventBridgeTarget(t schedulerTarget) delivery.Outcome {
-	busName := t.Arn[strings.Index(t.Arn, ":event-bus/")+len(":event-bus/"):]
-	if bus, ok := ebBusByARN(t.Arn); ok {
-		busName = bus.Name
-	}
-	status, body := callJSONHandler(handleEBPutEvents, map[string]any{"Entries": []map[string]any{{
-		"EventBusName": busName,
-		"Source":       t.EventBridgeParameters.Source,
-		"DetailType":   t.EventBridgeParameters.DetailType,
-		"Detail":       t.Input,
-	}}})
-	outcome := recordSchedulerFireResult("PutEvents", "events.amazonaws.com", "AWS::Events::EventBus", busName, status, body, false)
-	if !outcome.OK() {
+func fireEventBridgeTarget(ctx context.Context, actor awsActor, t schedulerTarget) delivery.Outcome {
+	status, body, err := awsCallJSON(ctx, actor, "events", "AWSEvents.PutEvents", "application/x-amz-json-1.1",
+		map[string]any{"Entries": []map[string]any{{
+			"EventBusName": t.Arn,
+			"Source":       t.EventBridgeParameters.Source,
+			"DetailType":   t.EventBridgeParameters.DetailType,
+			"Detail":       t.Input,
+		}}})
+	if outcome := ebCallResult(status, body, err, false); !outcome.OK() {
 		return outcome
 	}
 	var result struct {
@@ -325,7 +305,34 @@ func fireEventBridgeTarget(t schedulerTarget) delivery.Outcome {
 		}
 		return delivery.Permanent(failure)
 	}
-	return outcome
+	return delivery.Delivered()
+}
+
+// fireECSTarget runs the target's task definition on the cluster the target
+// ARN names.
+func fireECSTarget(ctx context.Context, actor awsActor, t schedulerTarget) delivery.Outcome {
+	p := t.EcsParameters
+	request := map[string]any{
+		"cluster":        t.Arn,
+		"taskDefinition": p.TaskDefinitionArn,
+		"count":          max(p.TaskCount, 1),
+	}
+	for key, value := range map[string]string{"launchType": p.LaunchType, "group": p.Group} {
+		if value != "" {
+			request[key] = value
+		}
+	}
+	if p.NetworkConfiguration != nil && p.NetworkConfiguration.AwsvpcConfiguration != nil {
+		a := p.NetworkConfiguration.AwsvpcConfiguration
+		request["networkConfiguration"] = map[string]any{"awsvpcConfiguration": map[string]any{
+			"subnets": a.Subnets, "securityGroups": a.SecurityGroups, "assignPublicIp": a.AssignPublicIp,
+		}}
+	}
+	status, body, err := awsCallJSON(ctx, actor, "ecs", "AmazonEC2ContainerServiceV20141113.RunTask", "application/x-amz-json-1.1", request)
+	if outcome := ebCallResult(status, body, err, false); !outcome.OK() {
+		return outcome
+	}
+	return ecsRunTaskFailuresOutcome(body)
 }
 
 // schedulerFinishDelivery sends an invocation the target never accepted to
@@ -341,48 +348,28 @@ func schedulerFinishDelivery(item delivery.Item[schedulerDelivery], reason deliv
 		return
 	}
 	dlq := target.DeadLetterConfig.Arn
-	if err := iamValidateServiceRole(target.RoleArn, "scheduler.amazonaws.com", map[string]string{"sqs:SendMessage": dlq}); err != nil {
-		cwEvalLogger.Info().Str("schedule", item.Payload.ScheduleArn).Str("deadLetterQueue", dlq).Str("error", err.Error()).
-			Msg("EventBridge Scheduler cannot send to its dead-letter queue")
-		return
-	}
-	queue := snsTopicNameFromARN(dlq)
-	if _, ok := sqsQueues.Get(queue); !ok {
-		return
-	}
 	code, message, _ := strings.Cut(item.LastError, ": ")
-	attributes := map[string]SQSMessageAttribute{
-		"SCHEDULE_ARN":   {DataType: "String", StringValue: item.Payload.ScheduleArn},
-		"TARGET_ARN":     {DataType: "String", StringValue: target.Arn},
-		"ERROR_CODE":     {DataType: "String", StringValue: code},
-		"ERROR_MESSAGE":  {DataType: "String", StringValue: message},
-		"RETRY_ATTEMPTS": {DataType: "String", StringValue: strconv.Itoa(max(item.Attempts-1, 0))},
+	attributes := map[string]any{
+		"SCHEDULE_ARN":   map[string]string{"DataType": "String", "StringValue": item.Payload.ScheduleArn},
+		"TARGET_ARN":     map[string]string{"DataType": "String", "StringValue": target.Arn},
+		"ERROR_CODE":     map[string]string{"DataType": "String", "StringValue": code},
+		"ERROR_MESSAGE":  map[string]string{"DataType": "String", "StringValue": message},
+		"RETRY_ATTEMPTS": map[string]string{"DataType": "String", "StringValue": strconv.Itoa(max(item.Attempts-1, 0))},
 	}
 	switch reason {
 	case delivery.AttemptsExhausted:
-		attributes["EXHAUSTED_RETRY_CONDITION"] = SQSMessageAttribute{DataType: "String", StringValue: "MaximumRetryAttempts"}
+		attributes["EXHAUSTED_RETRY_CONDITION"] = map[string]string{"DataType": "String", "StringValue": "MaximumRetryAttempts"}
 	case delivery.AgeExceeded:
-		attributes["EXHAUSTED_RETRY_CONDITION"] = SQSMessageAttribute{DataType: "String", StringValue: "MaximumEventAgeInSeconds"}
+		attributes["EXHAUSTED_RETRY_CONDITION"] = map[string]string{"DataType": "String", "StringValue": "MaximumEventAgeInSeconds"}
 	}
-	sqsEnqueueBodyWithAttributes(queue, target.Input, attributes)
-}
-
-// callJSONHandler invokes an awsJson-style handler in-process with a JSON body
-// and returns the handler's HTTP status and response body, so the caller can
-// tell whether the downstream call actually succeeded (a scheduler fire must
-// not record a phantom success when the target API rejected the request).
-func callJSONHandler(h http.HandlerFunc, body map[string]any) (int, []byte) {
-	rec := httptest.NewRecorder()
-	h(rec, jsonHandlerRequest(body))
-	return rec.Code, rec.Body.Bytes()
-}
-
-// jsonHandlerRequest is the awsJson request callJSONHandler sends with body.
-func jsonHandlerRequest(body map[string]any) *http.Request {
-	b, _ := json.Marshal(body)
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(b))
-	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
-	return req
+	actor := awsActor{Service: "scheduler.amazonaws.com", Source: item.Payload.ScheduleArn, Role: target.RoleArn}
+	status, body, err := awsCallJSON(context.Background(), actor, "sqs", "AmazonSQS.SendMessage", "application/x-amz-json-1.0", map[string]any{
+		"QueueUrl": sqsQueueURL(dlq[strings.LastIndex(dlq, ":")+1:]), "MessageBody": target.Input, "MessageAttributes": attributes,
+	})
+	if outcome := ebCallResult(status, body, err, false); !outcome.OK() {
+		cwEvalLogger.Info().Str("schedule", item.Payload.ScheduleArn).Str("deadLetterQueue", dlq).Str("error", outcome.Err.Error()).
+			Msg("EventBridge Scheduler cannot send to its dead-letter queue")
+	}
 }
 
 // awsJSONError extracts the (__type, message) pair from an awsJson error body.
@@ -418,148 +405,6 @@ func awsXMLError(body []byte) (code, message string) {
 	}
 	_ = xml.Unmarshal(body, &e)
 	return e.Code, e.Message
-}
-
-// recordSchedulerFireResult records a fired target invocation, reflecting a
-// failed downstream call honestly (errorCode/errorMessage) instead of a phantom
-// success — the same class of silent-swallow bug for every target type — and
-// reads the call's answer: throttling and server errors are retried, any other
-// refusal is final.
-func recordSchedulerFireResult(eventName, source, resType, resName string, status int, body []byte, xmlErr bool) delivery.Outcome {
-	if status < 400 {
-		cloudTrailRecordSchedulerFire(eventName, source, resType, resName)
-		return delivery.Delivered()
-	}
-	var code, message string
-	if xmlErr {
-		code, message = awsXMLError(body)
-	} else {
-		code, message = awsJSONError(body)
-	}
-	cloudTrailRecordSchedulerFireErr(eventName, source, resType, resName, code, message)
-	failure := ebTargetError{code, message}
-	if status == http.StatusTooManyRequests || status >= 500 || code == "ThrottlingException" || code == "Throttling" {
-		return delivery.Retryable(failure).WithStatus(status)
-	}
-	return delivery.Permanent(failure).WithStatus(status)
-}
-
-func fireECSTarget(t schedulerTarget) delivery.Outcome {
-	clusterArn, p := t.Arn, t.EcsParameters
-	count := p.TaskCount
-	if count <= 0 {
-		count = 1
-	}
-	body := map[string]any{
-		"cluster":        clusterArn,
-		"taskDefinition": p.TaskDefinitionArn,
-		"count":          count,
-		"launchType":     p.LaunchType,
-		"group":          p.Group,
-	}
-	if p.NetworkConfiguration != nil && p.NetworkConfiguration.AwsvpcConfiguration != nil {
-		a := p.NetworkConfiguration.AwsvpcConfiguration
-		body["networkConfiguration"] = map[string]any{
-			"awsvpcConfiguration": map[string]any{
-				"subnets":        a.Subnets,
-				"securityGroups": a.SecurityGroups,
-				"assignPublicIp": a.AssignPublicIp,
-			},
-		}
-	}
-	// Record the RunTask call either way (real CloudTrail records the attempt),
-	// but reflect a failed launch honestly with errorCode/errorMessage rather
-	// than a phantom success — e.g. RunTask rejects a security group that does
-	// not exist, so no task is created and none ever transitions to STOPPED.
-	if denied := schedulerAuthorizeRoleCall(t, jsonHandlerRequest(body), "ecs:RunTask", p.TaskDefinitionArn); denied != nil {
-		return *denied
-	}
-	status, respBody := callJSONHandler(handleECSRunTask, body)
-	outcome := recordSchedulerFireResult("RunTask", "ecs.amazonaws.com",
-		"AWS::ECS::Cluster", cloudTrailShortName(clusterArn), status, respBody, false)
-	if !outcome.OK() {
-		return outcome
-	}
-	return ecsRunTaskFailuresOutcome(respBody)
-}
-
-func fireSQSTarget(t schedulerTarget) delivery.Outcome {
-	name := t.Arn
-	if i := strings.LastIndex(t.Arn, ":"); i >= 0 {
-		name = t.Arn[i+1:]
-	}
-	request := map[string]any{"QueueUrl": sqsQueueURL(name), "MessageBody": t.Input}
-	if t.SqsParameters != nil && t.SqsParameters.MessageGroupID != "" {
-		request["MessageGroupId"] = t.SqsParameters.MessageGroupID
-	}
-	status, respBody := callJSONHandler(handleSQSSendMessage, request)
-	return recordSchedulerFireResult("SendMessage", "sqs.amazonaws.com", "AWS::SQS::Queue", name, status, respBody, false)
-}
-
-func fireLambdaTarget(functionArn, input string) delivery.Outcome {
-	name := functionArn
-	if i := strings.Index(functionArn, ":function:"); i >= 0 {
-		name = functionArn[i+len(":function:"):]
-		if c := strings.IndexByte(name, ':'); c >= 0 {
-			name = name[:c]
-		}
-	}
-	req := httptest.NewRequest(http.MethodPost, "/2015-03-31/functions/"+url.PathEscape(functionArn)+"/invocations", strings.NewReader(input))
-	req.SetPathValue("name", functionArn)
-	// Amazon EventBridge Scheduler invokes AWS Lambda asynchronously, so the
-	// function's own retries and destinations apply and a slow function does
-	// not hold the firing loop.
-	req.Header.Set("X-Amz-Invocation-Type", "Event")
-	rec := httptest.NewRecorder()
-	handleLambdaInvoke(rec, req)
-	return recordSchedulerFireResult("Invoke", "lambda.amazonaws.com", "AWS::Lambda::Function", name, rec.Code, rec.Body.Bytes(), false)
-}
-
-func fireSNSTarget(topicArn, input string) delivery.Outcome {
-	form := url.Values{"TopicArn": {topicArn}, "Message": {input}}
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec := httptest.NewRecorder()
-	handleSNSPublish(rec, req)
-	return recordSchedulerFireResult("Publish", "sns.amazonaws.com",
-		"AWS::SNS::Topic", cloudTrailShortName(topicArn), rec.Code, rec.Body.Bytes(), true)
-}
-
-// fireKinesisTarget puts the input on the stream under the target's
-// PartitionKey.
-func fireKinesisTarget(streamArn, partitionKey, input string) delivery.Outcome {
-	if _, _, err := kinesisAppendRecord("", streamArn, []byte(input), partitionKey, ""); err != nil {
-		cloudTrailRecordSchedulerFireErr("PutRecord", "kinesis.amazonaws.com", "AWS::Kinesis::Stream",
-			cloudTrailShortName(streamArn), "ResourceNotFoundException", "Stream "+streamArn+" not found")
-		return delivery.Permanent(ebTargetError{"ResourceNotFoundException", "Stream " + streamArn + " not found"})
-	}
-	cloudTrailRecordSchedulerFire("PutRecord", "kinesis.amazonaws.com", "AWS::Kinesis::Stream", cloudTrailShortName(streamArn))
-	return delivery.Delivered()
-}
-
-func fireStepFunctionsTarget(stateMachineArn, input string) delivery.Outcome {
-	if input == "" {
-		input = "{}"
-	}
-	execution, executionErr := sfnStartNestedExecution(stateMachineArn, sim.NewUUID(), input)
-	if executionErr != nil {
-		cloudTrailRecordSchedulerFireErr(
-			"StartExecution",
-			"states.amazonaws.com",
-			"AWS::StepFunctions::StateMachine",
-			cloudTrailShortName(stateMachineArn),
-			executionErr.Name,
-			executionErr.Cause,
-		)
-		return delivery.Permanent(ebTargetError{strings.TrimPrefix(executionErr.Name, "StepFunctions."), executionErr.Cause})
-	}
-	cloudTrailRecordSchedulerFire(
-		"StartExecution",
-		"states.amazonaws.com",
-		"AWS::StepFunctions::StateMachine",
-		cloudTrailShortName(execution.StateMachineArn),
-	)
-	return delivery.Delivered()
 }
 
 // cloudTrailRecordSchedulerFire records a CloudTrail event for a target the

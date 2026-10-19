@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -146,15 +148,19 @@ func eventarcDestinationURL(t EventarcTrigger, project, location string) (string
 // Logs trigger from a topic Eventarc creates and publishes the matching
 // entries to. Each way a push subscription on the topic delivers to the
 // destination. It records topic and subscription in transport.pubsub.
-func eventarcProvisionTransport(t *EventarcTrigger, project, location, triggerID string) {
+func eventarcProvisionTransport(ctx context.Context, t *EventarcTrigger, project, location, triggerID string) error {
 	storageEvent, isStorage := eventarcStorageEvent(*t)
 	isAuditLog := eventarcIsAuditLogTrigger(*t)
 	if !eventarcIsPubSubTrigger(*t) && !isStorage && !isAuditLog {
-		return
+		return nil
 	}
 	endpoint, ok := eventarcDestinationURL(*t, project, location)
 	if !ok {
-		return
+		return nil
+	}
+	agent, err := eventarcServiceAgent(project)
+	if err != nil {
+		return err
 	}
 	pubsub, _ := t.Transport["pubsub"].(map[string]any)
 	if pubsub == nil {
@@ -164,66 +170,90 @@ func eventarcProvisionTransport(t *EventarcTrigger, project, location, triggerID
 	suffix := eventarcTransportSuffix(*t)
 	if topic == "" || isStorage || isAuditLog {
 		topic = eventarcCreatedTopicName(*t)
-		psTopics.Put(topic, PSTopic{Name: topic})
-	}
-	if _, ok := psTopics.Get(topic); !ok {
-		return
+		if err := gcpCallAs(ctx, agent, http.MethodPut, "/v1/"+topic, map[string]any{}, nil); err != nil && !gcpCallStatus(err, "ALREADY_EXISTS") {
+			return err
+		}
+	} else if err := gcpCallAs(ctx, agent, http.MethodGet, "/v1/"+topic, nil, nil); err != nil {
+		return err
 	}
 	if isStorage {
-		eventarcReleaseNotifications(*t)
+		if err := eventarcReleaseNotifications(ctx, agent, *t); err != nil {
+			return err
+		}
 		bucket := eventarcFilterValue(*t, "bucket")
-		id := gcsNextNotificationID(bucket)
-		gcsNotifications.Put(gcsNotificationKey(bucket, id), GCSNotification{
-			Kind:          "storage#notification",
-			ID:            id,
-			SelfLink:      "https://www.googleapis.com/storage/v1/b/" + bucket + "/notificationConfigs/" + id,
-			Topic:         "//pubsub.googleapis.com/" + topic,
-			PayloadFormat: "JSON_API_V1",
-			EventTypes:    []string{storageEvent},
-		})
+		if err := gcpCallAs(ctx, agent, http.MethodPost, "/storage/v1/b/"+url.PathEscape(bucket)+"/notificationConfigs", map[string]any{
+			"topic": "//pubsub.googleapis.com/" + topic, "payload_format": "JSON_API_V1", "event_types": []string{storageEvent},
+		}, nil); err != nil {
+			return err
+		}
 	}
 	subscription, _ := pubsub["subscription"].(string)
 	if subscription == "" {
 		subscription = fmt.Sprintf("projects/%s/subscriptions/eventarc-%s-%s-sub-%s", project, location, triggerID, suffix)
 	}
-	push := &PSPushConfig{PushEndpoint: endpoint}
+	push := map[string]any{"pushEndpoint": endpoint}
 	if t.ServiceAccount != "" {
-		push.OidcToken = &PSOidcToken{ServiceAccountEmail: t.ServiceAccount, Audience: endpoint}
+		push["oidcToken"] = map[string]any{"serviceAccountEmail": t.ServiceAccount, "audience": endpoint}
 	}
-	psSubscriptions.Upsert(subscription, func(s *PSSubscription) {
-		s.Name = subscription
-		s.Topic = topic
-		s.PushConfig = push
-		if s.AckDeadlineSeconds == 0 {
-			s.AckDeadlineSeconds = 10
-		}
-		if s.MessageRetentionDuration == "" {
-			s.MessageRetentionDuration = "86400s"
-		}
-	})
-	if _, ok := psQueues.Get(subscription); !ok {
-		psQueues.Put(subscription, psQueue{Subscription: subscription})
+	err = gcpCallAs(ctx, agent, http.MethodPut, "/v1/"+subscription, map[string]any{
+		"topic": topic, "pushConfig": push, "ackDeadlineSeconds": 10, "messageRetentionDuration": "86400s",
+	}, nil)
+	if gcpCallStatus(err, "ALREADY_EXISTS") {
+		err = gcpCallAs(ctx, agent, http.MethodPost, "/v1/"+subscription+":modifyPushConfig", map[string]any{"pushConfig": push}, nil)
+	}
+	if err != nil {
+		return err
 	}
 	pubsub["topic"], pubsub["subscription"] = topic, subscription
 	if t.Transport == nil {
 		t.Transport = map[string]any{}
 	}
 	t.Transport["pubsub"] = pubsub
+	return nil
+}
+
+// eventarcServiceAgent is the service account Eventarc acts as in a project.
+func eventarcServiceAgent(project string) (string, error) {
+	number, ok := crmProjectNumber(project)
+	if !ok {
+		return "", &gcpCallError{Code: http.StatusForbidden, Status: "PERMISSION_DENIED", Message: "Project " + project + " is not active"}
+	}
+	return gcpServiceAgent(number, "eventarc"), nil
+}
+
+// gcpCallStatus reports whether err is a refusal with the given status.
+func gcpCallStatus(err error, status string) bool {
+	callErr, ok := err.(*gcpCallError)
+	return ok && callErr.Status == status
 }
 
 // eventarcReleaseNotifications deletes the Cloud Storage notification
 // configurations that publish a trigger's events to its transport topic.
-func eventarcReleaseNotifications(t EventarcTrigger) {
+func eventarcReleaseNotifications(ctx context.Context, agent string, t EventarcTrigger) error {
 	pubsub, _ := t.Transport["pubsub"].(map[string]any)
 	topic, _ := pubsub["topic"].(string)
-	if topic == "" {
-		return
+	bucket := eventarcFilterValue(t, "bucket")
+	if topic == "" || bucket == "" {
+		return nil
 	}
-	for _, row := range gcsNotifications.ListPrefix("") {
-		if row.Item.Topic == "//pubsub.googleapis.com/"+topic {
-			gcsNotifications.Delete(row.ID)
+	var listed struct {
+		Items []GCSNotification `json:"items"`
+	}
+	path := "/storage/v1/b/" + url.PathEscape(bucket) + "/notificationConfigs"
+	if err := gcpCallAs(ctx, agent, http.MethodGet, path, nil, &listed); err != nil {
+		if gcpCallStatus(err, "NOT_FOUND") {
+			return nil
+		}
+		return err
+	}
+	for _, notification := range listed.Items {
+		if notification.Topic == "//pubsub.googleapis.com/"+topic {
+			if err := gcpCallAs(ctx, agent, http.MethodDelete, path+"/"+notification.ID, nil, nil); err != nil && !gcpCallStatus(err, "NOT_FOUND") {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
 func eventarcTransportSuffix(t EventarcTrigger) string {
@@ -245,17 +275,27 @@ func eventarcCreatedTopicName(t EventarcTrigger) string {
 // its push subscription, the transport topic when Eventarc created it rather
 // than the caller naming it, and, for a Cloud Storage trigger, the bucket's
 // notification configuration.
-func eventarcReleaseTransport(t EventarcTrigger) {
-	eventarcReleaseNotifications(t)
+func eventarcReleaseTransport(ctx context.Context, t EventarcTrigger) error {
+	project := strings.Split(t.Name, "/")[1]
+	agent, err := eventarcServiceAgent(project)
+	if err != nil {
+		return err
+	}
+	if err := eventarcReleaseNotifications(ctx, agent, t); err != nil {
+		return err
+	}
 	pubsub, _ := t.Transport["pubsub"].(map[string]any)
 	if subscription, _ := pubsub["subscription"].(string); subscription != "" {
-		psSubscriptions.Delete(subscription)
-		psQueues.Delete(subscription)
-		psSignalSubscription(subscription)
+		if err := gcpCallAs(ctx, agent, http.MethodDelete, "/v1/"+subscription, nil, nil); err != nil && !gcpCallStatus(err, "NOT_FOUND") {
+			return err
+		}
 	}
 	if topic, _ := pubsub["topic"].(string); topic != "" && topic == eventarcCreatedTopicName(t) {
-		psTopics.Delete(topic)
+		if err := gcpCallAs(ctx, agent, http.MethodDelete, "/v1/"+topic, nil, nil); err != nil && !gcpCallStatus(err, "NOT_FOUND") {
+			return err
+		}
 	}
+	return nil
 }
 
 // eventarcDeliveringThrough is the trigger that delivers through the
@@ -295,7 +335,12 @@ func eventarcRouteAuditLog(entry LogEntry, project, location string) {
 			}
 			data = base64.StdEncoding.EncodeToString(body)
 		}
-		if _, err := psPublishMessages(topic, []PSMessage{{Data: data}}); err != nil {
+		agent, err := eventarcServiceAgent(project)
+		if err == nil {
+			err = gcpCallAs(context.Background(), agent, http.MethodPost, "/v1/"+topic+":publish",
+				map[string]any{"messages": []map[string]any{{"data": data}}}, nil)
+		}
+		if err != nil {
 			log.Printf("eventarc: trigger %s: %v", t.Name, err)
 		}
 	}

@@ -178,9 +178,15 @@ func ebReplayArn(name string) string {
 	return fmt.Sprintf("arn:aws:events:%s:%s:replay/%s", awsRegion(), awsAccountID(), name)
 }
 
+// ebBusName is the bus an EventBusName names, by name or by ARN.
 func ebBusName(name string) string {
 	if name == "" {
 		return "default"
+	}
+	if strings.HasPrefix(name, "arn:") {
+		if i := strings.Index(name, ":event-bus/"); i >= 0 {
+			return name[i+len(":event-bus/"):]
+		}
 	}
 	return name
 }
@@ -910,21 +916,25 @@ func handleEBPutEvents(w http.ResponseWriter, r *http.Request) {
 			})
 			continue
 		}
-		eventID := ebAcceptEvent(bus, entry.Source, entry.DetailType, entry.Detail, entry.Resources)
+		at := time.Now()
+		if entry.Time > 0 {
+			at = time.Unix(int64(entry.Time), 0)
+		}
+		eventID := ebAcceptEvent(bus, entry.Source, entry.DetailType, entry.Detail, entry.Resources, at)
 		entries = append(entries, map[string]string{"EventId": eventID})
 	}
 	writeEBJSON(w, http.StatusOK, map[string]any{"FailedEntryCount": failed, "Entries": entries})
 }
 
-// ebAcceptEvent records an event on bus, archives it and delivers it to the
-// bus's matching rules, returning its ID.
-func ebAcceptEvent(bus, source, detailType, detail string, resources []string) string {
+// ebAcceptEvent records an event that happened at the given time on bus,
+// archives it and delivers it to the bus's matching rules, returning its ID.
+func ebAcceptEvent(bus, source, detailType, detail string, resources []string, at time.Time) string {
 	record := EBEventRecord{
 		ID:         sim.NewUUID(),
 		Source:     source,
 		DetailType: detailType,
 		Detail:     detail,
-		Time:       time.Now().Unix(),
+		Time:       at.Unix(),
 		Resources:  resources,
 	}
 	events, _ := ebEvents.Get(bus)
@@ -937,7 +947,7 @@ func ebAcceptEvent(bus, source, detailType, detail string, resources []string) s
 
 // ebPutServiceEvent is an AWS service's own event on the default event bus.
 func ebPutServiceEvent(source, detailType, detail string, resources []string) {
-	ebAcceptEvent(ebBusName(""), source, detailType, detail, resources)
+	ebAcceptEvent(ebBusName(""), source, detailType, detail, resources, time.Now())
 }
 
 // ebMaxArchivedEvents bounds an archive's retained-event slice when the archive

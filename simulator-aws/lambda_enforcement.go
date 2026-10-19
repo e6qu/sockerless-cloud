@@ -64,19 +64,31 @@ func lambdaEnforcedDynamic(opFn func(*http.Request) string, resource func(*http.
 			lambdaWriteSigv4Error(w, serr)
 			return
 		}
-		if res == sigv4NoCredential {
-			lambdaWriteMissingAuth(w)
-			return
-		}
 		resARN := "*"
 		if resource != nil {
 			if v := resource(r); v != "" {
 				resARN = v
 			}
 		}
-		for _, target := range lambdaAuthorizationTargets(r, opFn(r), resARN) {
-			if !iamEnforceREST(w, r, target, lambdaWriteIAMDeny) {
+		targets := lambdaAuthorizationTargets(r, opFn(r), resARN)
+		if res == sigv4NoCredential {
+			// An AWS service calling as its own principal, as Amazon
+			// EventBridge invokes a rule's target, is admitted by the
+			// function's resource policy; any other unsigned call is refused.
+			src := iamDeliverySource(r)
+			if src == nil || !sim.InProcess(r) {
+				lambdaWriteMissingAuth(w)
 				return
+			}
+			if denied, ok := iamServicePrincipalAllowed(*src, targets); !ok {
+				lambdaWriteIAMDeny(w, r, src.Service, denied)
+				return
+			}
+		} else {
+			for _, target := range targets {
+				if !iamEnforceREST(w, r, target, lambdaWriteIAMDeny) {
+					return
+				}
 			}
 		}
 		// A FunctionName is a name, a full ARN or a partial ARN, any of them

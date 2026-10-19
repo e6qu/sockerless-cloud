@@ -84,6 +84,13 @@ var roleHolderLive = map[string]func(id string) bool{
 		run, ok := glueJobRuns.Get(key)
 		return ok && (run.JobRunState == "RUNNING" || run.JobRunState == "STARTING")
 	},
+	// A service holding a session of a role it acts as, keyed
+	// <service principal>|<role ARN>, holds it while the role exists.
+	"service": func(key string) bool {
+		_, roleArn, _ := strings.Cut(key, "|")
+		role, ok := iamRoles.Get(iamRoleNameFromArn(roleArn))
+		return ok && role.Arn == roleArn
+	},
 	"batch": func(jobID string) bool {
 		job, ok := batchJobs.Get(jobID)
 		return ok && (job.Status == batchStatusStarting || job.Status == batchStatusRunning)

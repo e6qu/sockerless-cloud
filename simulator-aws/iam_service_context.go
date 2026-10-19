@@ -2,12 +2,13 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Service-initiation IAM condition keys (aws:ViaAWSService / aws:CalledVia /
@@ -31,17 +32,13 @@ type iamServiceSource struct {
 	SourceAccount string // the originating resource's account
 }
 
-// iamServiceSourceKey keys the originating-service context on a request the sim
-// makes internally on the principal's behalf.
-type iamServiceSourceKey struct{}
-
 // iamStampServiceInitiation records src on r as the AWS service that originated
 // the call. It is what a sim internal call path (see
 // firehoseAuthorizeCustomerKeyUse) puts on the request it authorizes, and it is
 // the only way the service-initiation keys become resolvable: a request that
 // arrived from a client carries no stamp and is therefore a direct call.
 func iamStampServiceInitiation(r *http.Request, src iamServiceSource) *http.Request {
-	return r.WithContext(context.WithValue(r.Context(), iamServiceSourceKey{}, src))
+	return r.WithContext(sim.WithCaller(r.Context(), sim.Caller{Service: src.Service, Source: src.SourceArn, Account: src.SourceAccount}))
 }
 
 // iamServiceInitiatedRequest is the request envelope an AWS-service-initiated
@@ -70,11 +67,11 @@ func iamDeliverySource(r *http.Request) *iamServiceSource {
 	if r == nil {
 		return nil
 	}
-	src, stamped := r.Context().Value(iamServiceSourceKey{}).(iamServiceSource)
+	caller, stamped := sim.CallerOf(r.Context())
 	if !stamped {
 		return nil
 	}
-	return &src
+	return &iamServiceSource{Service: caller.Service, SourceArn: caller.Source, SourceAccount: caller.Account}
 }
 
 // iamAuthorizeServiceDelivery is the gate the sim's internal event delivery

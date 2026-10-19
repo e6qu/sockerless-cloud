@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"net/http/httptest"
@@ -76,7 +77,7 @@ func TestSchedulerKinesisTargetPutsTheInput(t *testing.T) {
 	}
 	role := putServiceRole(t, "scheduler-kinesis", "scheduler.amazonaws.com", "kinesis:PutRecord")
 	target := schedulerParseTarget(json.RawMessage(`{"Arn":"` + kinesisStreamARN("ticks") + `","RoleArn":"` + role + `","Input":"tick","KinesisParameters":{"PartitionKey":"clock"}}`))
-	if outcome := schedulerAttemptTarget(target); !outcome.OK() {
+	if outcome := schedulerAttemptTarget(context.Background(), testScheduleArn, target); !outcome.OK() {
 		t.Fatalf("PutRecord outcome %v", outcome.Err)
 	}
 	_, iterator := awsJSONCall(t, router, "Kinesis_20131202.GetShardIterator", map[string]any{
@@ -93,7 +94,7 @@ func TestSchedulerKinesisTargetPutsTheInput(t *testing.T) {
 	}
 
 	missing := schedulerParseTarget(json.RawMessage(`{"Arn":"` + kinesisStreamARN("gone") + `","RoleArn":"` + role + `","Input":"tick","KinesisParameters":{"PartitionKey":"clock"}}`))
-	if outcome := schedulerAttemptTarget(missing); outcome.OK() || outcome.Retry || outcome.Err.(ebTargetError).Code != "ResourceNotFoundException" {
+	if outcome := schedulerAttemptTarget(context.Background(), testScheduleArn, missing); outcome.OK() || outcome.Retry || outcome.Err.(ebTargetError).Code != "ResourceNotFoundException" {
 		t.Fatalf("PutRecord to a missing stream: %+v, want a final ResourceNotFoundException", outcome)
 	}
 }
@@ -111,7 +112,7 @@ func TestSchedulerTargetsRunAsTheExecutionRole(t *testing.T) {
 	for name, role := range map[string]string{
 		"unpermitted": unpermitted, "untrusting": untrusting, "missing": "arn:aws:iam::" + awsAccountID() + ":role/absent",
 	} {
-		outcome := schedulerAttemptTarget(schedulerTarget{Arn: queueARN, RoleArn: role, Input: "denied"})
+		outcome := schedulerAttemptTarget(context.Background(), testScheduleArn, schedulerTarget{Arn: queueARN, RoleArn: role, Input: "denied"})
 		if outcome.OK() || outcome.Retry || outcome.Err.(ebTargetError).Code != "AccessDeniedException" {
 			t.Fatalf("%s role: %+v, want a final AccessDeniedException", name, outcome)
 		}
@@ -120,7 +121,7 @@ func TestSchedulerTargetsRunAsTheExecutionRole(t *testing.T) {
 		t.Fatal("a role that may not send reached the queue")
 	}
 
-	if outcome := schedulerAttemptTarget(schedulerTarget{Arn: queueARN, RoleArn: allowed, Input: "allowed"}); !outcome.OK() {
+	if outcome := schedulerAttemptTarget(context.Background(), testScheduleArn, schedulerTarget{Arn: queueARN, RoleArn: allowed, Input: "allowed"}); !outcome.OK() {
 		t.Fatalf("SendMessage as the permitted role: %v", outcome.Err)
 	}
 	if got := awaitSQSMessage(t, router, queueURL, 5*time.Second); got.Body != "allowed" {
@@ -138,7 +139,7 @@ func TestSchedulerEventBridgeTargetPutsTheEvent(t *testing.T) {
 	target := schedulerParseTarget(json.RawMessage(`{"Arn":"` + ebBusArn("default") + `","RoleArn":"` + role +
 		`","Input":"{\"run\":\"nightly\"}","EventBridgeParameters":{"DetailType":"Nightly Run","Source":"scheduler.nightly"}}`))
 
-	if outcome := schedulerAttemptTarget(target); !outcome.OK() {
+	if outcome := schedulerAttemptTarget(context.Background(), testScheduleArn, target); !outcome.OK() {
 		t.Fatalf("PutEvents outcome %v", outcome.Err)
 	}
 	var event map[string]any
@@ -151,7 +152,7 @@ func TestSchedulerEventBridgeTargetPutsTheEvent(t *testing.T) {
 	}
 
 	target.Arn = ebBusArn("absent")
-	if outcome := schedulerAttemptTarget(target); outcome.OK() || outcome.Err.(ebTargetError).Code != "ResourceNotFoundException" {
+	if outcome := schedulerAttemptTarget(context.Background(), testScheduleArn, target); outcome.OK() || outcome.Err.(ebTargetError).Code != "ResourceNotFoundException" {
 		t.Fatalf("PutEvents to a missing bus: %+v, want ResourceNotFoundException", outcome)
 	}
 }
@@ -169,7 +170,7 @@ func TestSchedulerUniversalTargetCallsTheAction(t *testing.T) {
 	})
 	target := schedulerTarget{Arn: "arn:aws:scheduler:::aws-sdk:sqs:sendMessage", RoleArn: role, Input: string(input)}
 
-	if outcome := schedulerAttemptTarget(target); !outcome.OK() {
+	if outcome := schedulerAttemptTarget(context.Background(), testScheduleArn, target); !outcome.OK() {
 		t.Fatalf("sqs:sendMessage outcome %v", outcome.Err)
 	}
 	if got := awaitSQSMessage(t, router, queueURL, 5*time.Second); got.Body != "universal" {
@@ -179,7 +180,7 @@ func TestSchedulerUniversalTargetCallsTheAction(t *testing.T) {
 	otherURL, _ := testSQSQueue(t, router, "scheduler-universal-other")
 	other, _ := json.Marshal(map[string]any{"QueueUrl": otherURL, "MessageBody": "elsewhere"})
 	target.Input = string(other)
-	if outcome := schedulerAttemptTarget(target); outcome.OK() || outcome.Err.(ebTargetError).Code != "AccessDeniedException" {
+	if outcome := schedulerAttemptTarget(context.Background(), testScheduleArn, target); outcome.OK() || outcome.Err.(ebTargetError).Code != "AccessDeniedException" {
 		t.Fatalf("sqs:sendMessage to a queue the role may not send to: %+v, want AccessDeniedException", outcome)
 	}
 	if !sqsQueueEmpty(t, router, otherURL) {
@@ -187,7 +188,7 @@ func TestSchedulerUniversalTargetCallsTheAction(t *testing.T) {
 	}
 
 	target.Arn = "arn:aws:scheduler:::aws-sdk:sagemaker:startPipelineExecution"
-	if outcome := schedulerAttemptTarget(target); outcome.OK() || outcome.Err.(ebTargetError).Code != "UnsupportedTarget" {
+	if outcome := schedulerAttemptTarget(context.Background(), testScheduleArn, target); outcome.OK() || outcome.Err.(ebTargetError).Code != "UnsupportedTarget" {
 		t.Fatalf("a service the simulator does not implement: %+v, want UnsupportedTarget", outcome)
 	}
 }
@@ -238,9 +239,9 @@ func TestECSTargetRoleIsAuthorizedAgainstTheTargetCluster(t *testing.T) {
 		})
 		fire := func(cluster string) delivery.Outcome {
 			if service == "scheduler.amazonaws.com" {
-				return schedulerAttemptTarget(schedulerTarget{Arn: cluster, RoleArn: role, EcsParameters: &schedulerEcsParams{TaskDefinitionArn: taskDefinition}})
+				return schedulerAttemptTarget(context.Background(), testScheduleArn, schedulerTarget{Arn: cluster, RoleArn: role, EcsParameters: &schedulerEcsParams{TaskDefinitionArn: taskDefinition}})
 			}
-			return ebInvokeECSTarget("arn:aws:events:"+awsRegion()+":"+awsAccountID()+":rule/run", EBTarget{
+			return ebRunTask(context.Background(), "arn:aws:events:"+awsRegion()+":"+awsAccountID()+":rule/run", EBTarget{
 				Arn: cluster, RoleArn: role, EcsParameters: json.RawMessage(`{"TaskDefinitionArn":"` + taskDefinition + `"}`),
 			}, "")
 		}
@@ -254,3 +255,6 @@ func TestECSTargetRoleIsAuthorizedAgainstTheTargetCluster(t *testing.T) {
 		}
 	}
 }
+
+// testScheduleArn is the schedule the unit tests fire targets for.
+var testScheduleArn = "arn:aws:scheduler:us-east-1:123456789012:schedule/default/unit"

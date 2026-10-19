@@ -29,10 +29,12 @@ func TestLambda_SQSEventSourceMappingRuntime_SDK(t *testing.T) {
 
 	_, err := lambdaClient.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(functionName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/lambda-sqs-runtime"),
-		Runtime:      lambdatypes.RuntimeNodejs20x,
-		Handler:      aws.String("index.handler"),
-		Code:         &lambdatypes.FunctionCode{ZipFile: lambdaDeploymentZip(t)},
+		// Lambda polls the queue as the function's execution role.
+		Role: aws.String(createServiceRole(t, "lambda-sqs-runtime", "lambda.amazonaws.com",
+			"sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes")),
+		Runtime: lambdatypes.RuntimeNodejs20x,
+		Handler: aws.String("index.handler"),
+		Code:    &lambdatypes.FunctionCode{ZipFile: lambdaDeploymentZip(t)},
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {

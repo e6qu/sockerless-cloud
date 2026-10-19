@@ -273,6 +273,16 @@ func eventarcChannelConnectionKey(project, location, connection string) string {
 	return project + "/" + location + "/" + connection
 }
 
+// eventarcTransportError answers a trigger whose transport Pub/Sub or Cloud
+// Storage refused to provision with that service's refusal.
+func eventarcTransportError(w http.ResponseWriter, err error) {
+	if callErr, ok := err.(*gcpCallError); ok {
+		GCPErrorf(w, callErr.Code, callErr.Status, "%s", callErr.Message)
+		return
+	}
+	GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
+}
+
 func handleEventarcCreateTrigger(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	location := sim.PathParam(r, "location")
@@ -299,7 +309,10 @@ func handleEventarcCreateTrigger(w http.ResponseWriter, r *http.Request) {
 	req.Uid = sim.NewUUID()
 	req.CreateTime = now
 	req.UpdateTime = now
-	eventarcProvisionTransport(&req, project, location, triggerID)
+	if err := eventarcProvisionTransport(r.Context(), &req, project, location, triggerID); err != nil {
+		eventarcTransportError(w, err)
+		return
+	}
 	eventarcTriggers.Put(eventarcTriggerKey(project, location, triggerID), req)
 	op := eventarcLRO(r, project, location, req.Name, req, "type.googleapis.com/google.cloud.eventarc.v1.Trigger")
 	sim.WriteJSON(w, http.StatusOK, op)
@@ -376,7 +389,10 @@ func handleEventarcPatchTrigger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	existing.UpdateTime = nowTimestamp()
-	eventarcProvisionTransport(&existing, project, location, trigger)
+	if err := eventarcProvisionTransport(r.Context(), &existing, project, location, trigger); err != nil {
+		eventarcTransportError(w, err)
+		return
+	}
 	eventarcTriggers.Put(key, existing)
 	op := eventarcLRO(r, project, location, existing.Name, existing, "type.googleapis.com/google.cloud.eventarc.v1.Trigger")
 	sim.WriteJSON(w, http.StatusOK, op)
@@ -392,8 +408,11 @@ func handleEventarcDeleteTrigger(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "trigger %q not found", trigger)
 		return
 	}
+	if err := eventarcReleaseTransport(r.Context(), t); err != nil {
+		eventarcTransportError(w, err)
+		return
+	}
 	eventarcTriggers.Delete(key)
-	eventarcReleaseTransport(t)
 	op := eventarcLRO(r, project, location, t.Name, t, "type.googleapis.com/google.cloud.eventarc.v1.Trigger")
 	sim.WriteJSON(w, http.StatusOK, op)
 }

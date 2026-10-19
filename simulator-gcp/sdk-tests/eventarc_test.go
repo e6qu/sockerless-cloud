@@ -13,7 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	cloudbuild "google.golang.org/api/cloudbuild/v1"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
+	pubsubapi "google.golang.org/api/pubsub/v1"
 	locationpb "google.golang.org/genproto/googleapis/cloud/location"
 )
 
@@ -47,6 +49,7 @@ func eventarcClient(t *testing.T) *eventarc.Client {
 // Eventarc refuses a trigger whose destination service does not exist.
 func eventarcRunService(t *testing.T, project, region, id string) {
 	t.Helper()
+	requireProject(t, project)
 	client := newServicesClient(t)
 	parent := "projects/" + project + "/locations/" + region
 	op, err := client.CreateService(ctx, &runpb.CreateServiceRequest{
@@ -75,6 +78,12 @@ func TestEventarc_TriggerLifecycleSDK(t *testing.T) {
 	name := parent + "/triggers/sdk-trigger"
 	eventarcRunService(t, "test-project", "us-central1", "sdk-trigger-svc")
 
+	// A trigger delivers from a transport topic that must exist.
+	_, err := pubsubService(t).Projects.Topics.Create("projects/test-project/topics/eventarc-topic", &pubsubapi.Topic{}).Do()
+	var conflict *googleapi.Error
+	if err != nil && (!errors.As(err, &conflict) || conflict.Code != http.StatusConflict) {
+		require.NoError(t, err)
+	}
 	create, err := client.CreateTrigger(ctx, &eventarcpb.CreateTriggerRequest{
 		Parent:    parent,
 		TriggerId: "sdk-trigger",
@@ -501,6 +510,7 @@ func TestEventarc_LocationsSDK(t *testing.T) {
 func TestEventarc_GlobalTriggersApartFromCloudBuild(t *testing.T) {
 	t.Parallel()
 	const project = "eventarc-global-project"
+	requireProject(t, project)
 	client := eventarcClient(t)
 	parent := "projects/" + project + "/locations/global"
 	name := parent + "/triggers/sdk-global-trigger"

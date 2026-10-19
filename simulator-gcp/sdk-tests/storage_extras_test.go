@@ -184,9 +184,15 @@ func defaultACLEntities(items []*storageapi.ObjectAccessControl) []string {
 func TestGCS_Notifications_RoundTrip(t *testing.T) {
 	t.Parallel()
 	svc := storageService(t)
+	// A project of its own: the test asserts what Cloud Storage's service
+	// agent may not do, and other tests grant the agent of test-project
+	// publishing rights on the whole project.
+	project := uniqueName("notif-project")
+	number := requireProject(t, project)
 	bucket := uniqueName("notif-bucket")
-	mustCreateBucket(t, svc, bucket)
-	topicName := "projects/test-project/topics/" + uniqueName("notif-topic")
+	_, err := svc.Buckets.Insert(project, &storageapi.Bucket{Name: bucket}).Do()
+	require.NoError(t, err)
+	topicName := "projects/" + project + "/topics/" + uniqueName("notif-topic")
 	topic := "//pubsub.googleapis.com/" + topicName
 	notification := &storageapi.Notification{
 		Topic:         topic,
@@ -196,7 +202,7 @@ func TestGCS_Notifications_RoundTrip(t *testing.T) {
 
 	// Cloud Storage refuses a topic that does not exist, and one its service
 	// agent may not publish to, with the same 403.
-	_, err := svc.Notifications.Insert(bucket, notification).Do()
+	_, err = svc.Notifications.Insert(bucket, notification).Do()
 	var apiErr *googleapi.Error
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, http.StatusForbidden, apiErr.Code)
@@ -209,9 +215,9 @@ func TestGCS_Notifications_RoundTrip(t *testing.T) {
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, http.StatusForbidden, apiErr.Code)
 
-	agent, err := svc.Projects.ServiceAccount.Get("test-project").Do()
+	agent, err := svc.Projects.ServiceAccount.Get(project).Do()
 	require.NoError(t, err)
-	assert.Equal(t, "service-"+requireProject(t, "test-project")+"@gs-project-accounts.iam.gserviceaccount.com", agent.EmailAddress)
+	assert.Equal(t, "service-"+number+"@gs-project-accounts.iam.gserviceaccount.com", agent.EmailAddress)
 	_, err = pubsubSvc.Projects.Topics.SetIamPolicy(topicName, &pubsubapi.SetIamPolicyRequest{
 		Policy: &pubsubapi.Policy{Bindings: []*pubsubapi.Binding{{
 			Role: "roles/pubsub.publisher", Members: []string{"serviceAccount:" + agent.EmailAddress},

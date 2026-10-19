@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -77,95 +76,38 @@ func ebSubmitTargetDelivery(ruleArn string, target EBTarget, record EBEventRecor
 	ebTargetDeliveries.SubmitAttempted(sim.NewUUID(), ebTargetDelivery{RuleArn: ruleArn, Target: target, Record: record})
 }
 
-// ebAttemptTarget delivers one event to one target as events.amazonaws.com on
-// the rule's behalf. A target whose resource policy does not admit that
-// principal for the rule, or that does not exist, fails without retry, as
-// EventBridge treats both.
+// ebAttemptTarget delivers one event to one target through the target
+// service's API, on the rule's behalf. A refusal the target service answers
+// with, such as a resource policy that does not admit events.amazonaws.com or
+// a target that does not exist, fails without retry, as EventBridge treats
+// both; throttling and server errors are retried.
 func ebAttemptTarget(ctx context.Context, d ebTargetDelivery) delivery.Outcome {
 	target := d.Target
 	body := ebApplyInput(target, d.Record)
-	src := iamServiceSource{Service: "events.amazonaws.com", SourceArn: d.RuleArn, SourceAccount: awsAccountID()}
-	denied := func(action string) delivery.Outcome {
-		return delivery.Permanent(ebTargetError{"AccessDeniedException",
-			fmt.Sprintf("events.amazonaws.com is not authorized to perform %s on %s", action, target.Arn)})
-	}
-	missing := func(code string) delivery.Outcome {
-		return delivery.Permanent(ebTargetError{code, "Target " + target.Arn + " does not exist"})
-	}
 	switch {
 	case strings.HasPrefix(target.Arn, "arn:aws:sqs:"):
-		queue := snsTopicNameFromARN(target.Arn)
-		if _, ok := sqsQueues.Get(queue); !ok {
-			return missing("AWS.SimpleQueueService.NonExistentQueue")
-		}
-		if !iamAuthorizeServiceDelivery(target.Arn, "sqs:SendMessage", src) {
-			return denied("sqs:SendMessage")
-		}
-		var params struct {
-			MessageGroupID string `json:"MessageGroupId"`
-		}
-		if len(target.SqsParameters) > 0 {
-			_ = json.Unmarshal(target.SqsParameters, &params)
-		}
-		entry := sqsSendEntry{MessageBody: body, MessageGroupId: params.MessageGroupID}
-		if strings.HasSuffix(queue, ".fifo") {
-			entry.MessageDeduplicationId = d.Record.ID
-		}
-		sqsEnqueue(queue, entry)
+		return ebSendToQueue(ctx, d.RuleArn, target, d.Record, body)
 	case strings.HasPrefix(target.Arn, "arn:aws:lambda:"):
-		function, _, ok := lambdaResolveInvocationTarget(target.Arn, "")
-		if !ok {
-			return missing("ResourceNotFoundException")
-		}
-		if !iamAuthorizeServiceDelivery(target.Arn, "lambda:InvokeFunction", src) {
-			return denied("lambda:InvokeFunction")
-		}
-		lambdaInvokeAsynchronously(function, []byte(body), lambdaAsyncQualifier(target.Arn, ""))
+		return ebInvokeFunction(ctx, d.RuleArn, target, body)
 	case strings.HasPrefix(target.Arn, "arn:aws:sns:"):
-		if _, ok := snsTopics.Get(snsTopicNameFromARN(target.Arn)); !ok {
-			return missing("NotFound")
-		}
-		if !iamAuthorizeServiceDelivery(target.Arn, "sns:Publish", src) {
-			return denied("sns:Publish")
-		}
-		snsFanout(target.Arn, d.Record.ID, d.Record.DetailType, body, nil)
+		return ebPublishToTopic(ctx, d.RuleArn, target, body)
 	case strings.HasPrefix(target.Arn, "arn:aws:states:"):
-		if _, err := sfnStartNestedExecution(target.Arn, d.Record.ID, body); err != nil {
-			if err.Name == "StepFunctions.ExecutionAlreadyExists" {
-				return delivery.Delivered()
-			}
-			return delivery.Permanent(ebTargetError{strings.TrimPrefix(err.Name, "StepFunctions."), err.Cause})
-		}
+		return ebStartExecution(ctx, d.RuleArn, target, d.Record, body)
 	case strings.HasPrefix(target.Arn, "arn:aws:logs:") && strings.Contains(target.Arn, ":log-group:"):
-		group := strings.TrimSuffix(strings.SplitN(target.Arn, ":log-group:", 2)[1], ":*")
-		if _, ok := cwLogGroups.Get(group); !ok {
-			return missing("ResourceNotFoundException")
-		}
-		stream := "eventbridge/" + cloudTrailShortName(d.RuleArn)
-		key := cwEventsKey(group, stream)
-		now := time.Now().UnixMilli()
-		if _, ok := cwLogStreams.Get(key); !ok {
-			cwLogStreams.Put(key, CWLogStream{
-				LogStreamName: stream,
-				LogGroupName:  group,
-				CreationTime:  now,
-				Arn:           cwLogStreamArn(group, stream),
-			})
-			cwLogEvents.Open(key)
-		}
-		cwAppendLogEvents(key, []CWLogEvent{{Timestamp: now, IngestionTime: now, Message: body}}, nil)
+		return ebWriteToLogGroup(ctx, d.RuleArn, target, body)
 	case strings.HasPrefix(target.Arn, "arn:aws:ecs:"):
-		return ebInvokeECSTarget(d.RuleArn, target, body)
+		return ebRunTask(ctx, d.RuleArn, target, body)
 	case strings.HasPrefix(target.Arn, "arn:aws:kinesis:"):
-		return ebInvokeKinesisTarget(target, d.Record, body)
+		return ebPutStreamRecord(ctx, d.RuleArn, target, d.Record, body)
 	case strings.HasPrefix(target.Arn, "arn:aws:batch:"):
-		return ebInvokeBatchTarget(target)
+		return ebSubmitJob(ctx, d.RuleArn, target)
 	case strings.HasPrefix(target.Arn, "arn:aws:events:") && strings.Contains(target.Arn, ":api-destination/"):
 		return ebInvokeApiDestination(ctx, target, body)
+	case strings.HasPrefix(target.Arn, "arn:aws:events:") && strings.Contains(target.Arn, ":event-bus/"):
+		return ebPutOnBus(ctx, d.RuleArn, target, d.Record)
 	default:
 		return delivery.Permanent(ebTargetError{"UnsupportedTarget", "the simulator does not invoke targets of this service: " + target.Arn})
 	}
-	return delivery.Delivered()
 }
 
 // ebFinishTargetDelivery sends an event the target never accepted to the

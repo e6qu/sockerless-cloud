@@ -195,15 +195,17 @@ without a simulator, and a cloud reaches it through hooks, as `sim/msgq` and
 `sim/delivery` already work. Each consumer keeps its SDK, CLI and Terraform
 tests, which prove the extraction changed no wire behaviour.
 
-1. **Seams between services.** Services call each other through package
-   globals today: Amazon EventBridge and EventBridge Scheduler enqueue into
-   Amazon SQS, invoke AWS Lambda and run Amazon ECS tasks through their
-   internals; AWS Lambda's event-source mappings read SQS's store; Eventarc
-   provisions and publishes through Pub/Sub's; Azure Event Grid's
-   dead-lettering writes Blob Storage's. A target registry in `sim`, where
-   each service registers what it accepts by its resource type (enqueue,
-   publish, invoke, run, write object), replaces those calls, so a library
-   delivers to a target without naming the service behind it.
+1. **Seams between services.** A service reaches another through that
+   service's API, as the clouds' own services do: `sim.Server.Call` serves an
+   in-process request through the whole chain a client's request takes, and
+   `sim.Caller` on its context names the service principal it is made as.
+   Amazon EventBridge rules and EventBridge Scheduler deliver, AWS Lambda's
+   Amazon SQS pollers receive and delete, Eventarc provisions and publishes,
+   and Azure Event Grid dead-letters this way — as the service principal the
+   target's resource policy admits, or as a session of the target's role.
+   AWS Step Functions and the Scheduler's universal targets follow once
+   roles are checked at create time (BUG-3529, BUG-3533). Every library after
+   this one takes a delivery hook that makes such a call.
 2. **`sim/machine`: the virtual machine lifecycle.** Boot through the
    placement backend, ready, watch, stop keeping the disk, start, reboot,
    terminate, adopt after a simulator restart, capture an image, and the
@@ -259,7 +261,7 @@ tests, which prove the extraction changed no wire behaviour.
    them all.
 
 The order follows the dependencies: the seams first, since every library
-after them delivers to targets; the machine lifecycle next, since every
+after them delivers to targets (landed); the machine lifecycle next, since every
 compute service places on what it learns; then revisions and replicas, jobs,
 functions, queues, and event routing, each in its own pull request with its
 consumers moved onto it and its services' bugs closed.

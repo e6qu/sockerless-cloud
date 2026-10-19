@@ -24,6 +24,9 @@ func TestEventarcCLI_TriggerLifecycle(t *testing.T) {
 		}
 	})
 
+	// The trigger delivers from its transport topic, which must exist.
+	runCLI(t, gcloudCLI("pubsub", "topics", "create", "cli-topic", "--format", "json"))
+	t.Cleanup(func() { runCLI(t, gcloudCLI("pubsub", "topics", "delete", "cli-topic", "--quiet")) })
 	runCLI(t, gcloudCLI("eventarc", "triggers", "create", "cli-trigger",
 		"--location", location,
 		"--destination-run-service", "cli-service",

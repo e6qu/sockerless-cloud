@@ -299,6 +299,7 @@ func TestAuditLogs_EventarcPathPatterns(t *testing.T) {
 // entry of a matching call as a CloudEvent whose data is the LogEntryData.
 func TestAuditLogs_EventarcDeliversAuditLogEvents(t *testing.T) {
 	srv := buildOperationsTestSimulator(t)
+	createTestProject(t, srv, "audit-ev")
 	startPubSubPush(srv)
 	type delivered struct {
 		header http.Header
@@ -332,7 +333,6 @@ func TestAuditLogs_EventarcDeliversAuditLogEvents(t *testing.T) {
 		t.Fatalf("a global Eventarc trigger reads back as %v", got)
 	}
 
-	createTestProject(t, srv, "audit-ev")
 	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=audit-ev", `{"name":"skipped-bucket"}`)
 	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=audit-ev", `{"name":"audit-ev-bucket"}`)
 
@@ -448,6 +448,7 @@ func TestAuditLogs_RPCPermissionsAndMethodNames(t *testing.T) {
 // call that names no host reaches the one the simulator routes it to.
 func TestAuditLogs_SharedTriggersPathResolvesToItsService(t *testing.T) {
 	srv := buildOperationsTestSimulator(t)
+	createTestProject(t, srv, "audit-tr")
 	gcpHostOK(t, srv, "localhost", http.MethodPost, "/v1/projects/audit-tr/locations/us-central1/triggers?triggerId=ea",
 		`{"eventFilters":[{"attribute":"type","value":"google.cloud.pubsub.topic.v1.messagePublished"}],
 		  "destination":{"httpEndpoint":{"uri":"http://127.0.0.1:1/"}}}`)
