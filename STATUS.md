@@ -100,19 +100,25 @@ Current state of the sockerless-cloud repository.
   (`ContainerConfig.Ingress`); two containers on one engine network stay
   unfiltered.
   Amazon EC2, Compute Engine and Azure virtual machine instances boot from
-  each cloud's image catalog (`sim/vminstance`): the init runs the instance's
-  user data, the instance stops and starts on its own root disk, and an
-  image captured from one is the committed container or the exported guest.
+  each cloud's image catalog (`sim/vminstance`): the init runs the image's
+  cloud-init over the instance's user data — `#cloud-config` modules in their
+  stages and frequencies, scripts, gzip and MIME multipart — with the
+  datasource's default user and keys, the instance stops and starts on its
+  own root disk, and an image captured from one is the committed container
+  or the exported guest.
   Per cloud: Amazon EC2 instances boot from the published Amazon Linux 2023,
   Ubuntu 24.04 and Debian 12 AMIs or from
   OCI-referenced customer AMIs (`RegisterImage` `ImageLocation`,
   `ImportImage` `Url`), with IMDS through the sidecar, `GetConsoleOutput`,
-  `CreateImage` capture and Systems Manager Run Command through the machine;
+  `CreateImage` capture, Systems Manager Run Command through the machine,
+  and the key pair's key on the default user and under `public-keys`;
   Compute Engine instances boot from the `debian-cloud` and `ubuntu-os-cloud`
-  families with their startup script on the serial console, machine types
+  families with their startup script on the serial console and, on Ubuntu,
+  cloud-init over the `user-data` metadata item, machine types
   from a catalog, and images from a stopped instance's disk; Azure virtual
   machines boot from the Canonical and Debian marketplace images or
-  `Microsoft.Compute/images`, with `customData`, IMDS through the sidecar,
+  `Microsoft.Compute/images`, with cloud-init over `customData` and the
+  `adminUsername` as its default user, IMDS through the sidecar,
   deallocate/start on the kept OS disk and capture. Security groups, firewall
   rules and network security groups apply on load balancer flows through
   `lbplane`'s admission hooks.

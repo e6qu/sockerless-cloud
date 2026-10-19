@@ -40,12 +40,8 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `cloudwatch-logs.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/cloudwatch-logs.json` | Apache-2.0 | `9b78075629a6719eea2a863c7c2e47ec20810861` | 2026-09-30T19:11:33Z |
 | `dynamodb.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/dynamodb.json` | Apache-2.0 | `9b78075629a6719eea2a863c7c2e47ec20810861` | 2026-09-30T19:11:34Z |
 | `ecs.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/ecs.json` | Apache-2.0 | `9b78075629a6719eea2a863c7c2e47ec20810861` | 2026-09-30T19:11:35Z |
-| `organizations.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/organizations.json` | Apache-2.0 | `9b78075629a6719eea2a863c7c2e47ec20810861` | 2026-09-30T19:11:36Z |
 | `s3.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/s3.json` | Apache-2.0 | `9b78075629a6719eea2a863c7c2e47ec20810861` | 2026-09-30T19:11:37Z |
-| `cloudfront.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/cloudfront.json` | Apache-2.0 | `d4a0d302e074abce7115eab9d005580c10ffdc27` | 2026-10-02T12:31:29Z |
-| `ec2.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/ec2.json` | Apache-2.0 | `d4a0d302e074abce7115eab9d005580c10ffdc27` | 2026-10-02T12:31:31Z |
 | `budgets.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/budgets.json` | Apache-2.0 | `19359120818b0a71653ebc8310699eecfb10857f` | 2026-10-09T07:27:09Z |
-| `lambda.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/lambda.json` | Apache-2.0 | `76c7d1807de903787a6c4a3a2b8eda36b3ad737e` | 2026-10-13T15:03:50Z |
 | `glue.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/glue.json` | Apache-2.0 | `adedae0f857fdd4dccdae60ab93ffb7997293169` | 2026-10-13T19:06:04Z |
 | `rds-event-messages.md.gz` | `awsdocs/amazon-rds-user-guide@main` | `doc_source/USER_Events.Messages.md` | CC-BY-SA-4.0 | `50e7617a861617feb57905ab25adb629c31cb98e` | 2026-10-16T14:21:58Z |
 | `rds-eventbridge-events.md.gz` | `awsdocs/amazon-rds-user-guide@main` | `doc_source/rds-cloud-watch-events.md` | CC-BY-SA-4.0 | `c6ee491185303f08b0a78d1a1d55fd00c3034e7f` | 2026-10-16T14:22:15Z |
@@ -55,3 +51,7 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `elbv2-hosted-zone-ids.go.gz` | `hashicorp/terraform-provider-aws` | `internal/service/elbv2/hosted_zone_id_data_source.go` | MPL-2.0 | `a3082201a495ab2168180226d2856827c07f0404` | 2026-10-16T21:27:06Z |
 | `alb-cloudwatch-metrics.md.gz` | `awsdocs/elb-application-load-balancers-user-guide@master` | `doc_source/load-balancer-cloudwatch-metrics.md` | CC-BY-SA-4.0 | `fb242939a8639ebd75f5a9cbd4b33acef51e1367` | 2026-10-17T00:40:14Z |
 | `ecs-cloudwatch-metrics.md.gz` | `awsdocs/amazon-ecs-developer-guide@master` | `doc_source/cloudwatch-metrics.md` | CC-BY-SA-4.0 | `a35b7671c57ce34babc04525a1d7b16fd4c9a8c6` | 2026-10-17T00:40:15Z |
+| `cloudfront.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/cloudfront.json` | Apache-2.0 | `14be3b3b24e5303a68c4ccc5a4e1a60701bf6806` | 2026-10-19T13:07:44Z |
+| `ec2.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/ec2.json` | Apache-2.0 | `14be3b3b24e5303a68c4ccc5a4e1a60701bf6806` | 2026-10-19T13:07:46Z |
+| `lambda.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/lambda.json` | Apache-2.0 | `14be3b3b24e5303a68c4ccc5a4e1a60701bf6806` | 2026-10-19T13:07:47Z |
+| `organizations.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/organizations.json` | Apache-2.0 | `14be3b3b24e5303a68c4ccc5a4e1a60701bf6806` | 2026-10-19T13:07:48Z |

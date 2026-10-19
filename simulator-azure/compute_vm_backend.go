@@ -101,6 +101,24 @@ func azureVMCustomData(vm VirtualMachine) ([]byte, error) {
 	return data, nil
 }
 
+// azureVMCloudInit is the image's cloud-init as Azure's datasource feeds it:
+// the machine's vmId, and its osProfile's adminUsername as the default user
+// with the linuxConfiguration's public keys.
+func azureVMCloudInit(vm VirtualMachine) *vminstance.CloudInit {
+	ci := &vminstance.CloudInit{Platform: "azure", Datasource: "DataSourceAzure [seed=/dev/sr0]", InstanceID: vm.Properties.VMID}
+	ci.DefaultUser, _ = vm.Properties.OSProfile["adminUsername"].(string)
+	linux, _ := vm.Properties.OSProfile["linuxConfiguration"].(map[string]any)
+	ssh, _ := linux["ssh"].(map[string]any)
+	keys, _ := ssh["publicKeys"].([]any)
+	for _, k := range keys {
+		entry, _ := k.(map[string]any)
+		if data, _ := entry["keyData"].(string); strings.TrimSpace(data) != "" {
+			ci.DefaultUserKeys = append(ci.DefaultUserKeys, strings.TrimSpace(data))
+		}
+	}
+	return ci
+}
+
 // azureVMInstanceSpec builds the instance the machine runs as, realizing its
 // virtual network's engine network and sidecar on the way.
 func azureVMInstanceSpec(ctx context.Context, vm VirtualMachine) (vminstance.Spec, azureMetadataVM, error) {
@@ -152,6 +170,7 @@ func azureVMInstanceSpec(ctx context.Context, vm VirtualMachine) (vminstance.Spe
 		Address:   ipcfg.Properties.PrivateIPAddress,
 		DNS:       network.resolvers(),
 		UserData:  customData,
+		CloudInit: azureVMCloudInit(vm),
 		Env:       map[string]string{"AZURE_INSTANCE_METADATA_ENDPOINT": "http://" + network.DNS + "/metadata/instance"},
 		VCPUs:     cores,
 		MemoryMiB: memoryMB,

@@ -58,6 +58,8 @@ var placers = []string{
 	// Azure virtual machines, Container Apps environments and App Service in a virtual network.
 	"NewVirtualMachinesClient", "VnetConfiguration", "VirtualNetworkSubnetID", "vm create", "containerapp env create",
 	"vnet-integration", "--infrastructure-subnet-resource-id",
+	// The same through the REST bodies a test sends itself.
+	"vnetConfiguration", "virtualNetworkSubnetId",
 }
 
 var cidr = regexp.MustCompile(`\b(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})/(1[6-9]|2[0-9])\b`)

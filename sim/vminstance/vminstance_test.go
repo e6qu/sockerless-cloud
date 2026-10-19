@@ -17,6 +17,10 @@ import (
 
 const testImage = "mirror.gcr.io/library/busybox:latest"
 
+// cloudInitImage is an image whose distribution's cloud images carry
+// cloud-init.
+const cloudInitImage = "mirror.gcr.io/library/ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac"
+
 type lineSink struct {
 	mu    sync.Mutex
 	lines []string
@@ -40,7 +44,7 @@ func TestInstanceRunsItsUserDataOnTheConsoleAndKeepsItsDiskAcrossAStop(t *testin
 	}
 	ctx := context.Background()
 	platform := "linux/" + runtime.GOARCH
-	if err := sim.PullImage(ctx, testImage, platform); err != nil {
+	if err := sim.PullImage(ctx, cloudInitImage, platform); err != nil {
 		t.Fatal(err)
 	}
 	network := "sockerless-sim-test-instances-" + sim.RandomHex(4)
@@ -59,11 +63,12 @@ func TestInstanceRunsItsUserDataOnTheConsoleAndKeepsItsDiskAcrossAStop(t *testin
 		Name:      "sockerless-sim-test-instance-" + sim.RandomHex(4),
 		ID:        "i-test",
 		Hostname:  "ip-10-0-0-7",
-		Image:     Image{OCI: testImage, Architecture: platform},
+		Image:     Image{OCI: cloudInitImage, Architecture: platform},
 		Network:   network,
 		Address:   address.String(),
 		DNS:       []string{netip.MustParseAddr("100.64.0.2").String()},
 		UserData:  []byte("#!/bin/sh\necho \"user data ran on $(hostname)\"\necho boot >> /var/boots\nsleep 2147483647 &\n"),
+		CloudInit: &CloudInit{Platform: "ec2", Datasource: "DataSourceEc2Local", InstanceID: "i-test"},
 		Env:       map[string]string{"AWS_EC2_METADATA_SERVICE_ENDPOINT": "http://100.64.0.2/"},
 		VCPUs:     1,
 		MemoryMiB: 64,
@@ -85,8 +90,10 @@ func TestInstanceRunsItsUserDataOnTheConsoleAndKeepsItsDiskAcrossAStop(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(logged.Stdout, "user data ran on ip-10-0-0-7") || !strings.Contains(logged.Stdout, "user data exited 0") {
-		t.Fatalf("cloud-init's output log does not carry the user data's output: %q", logged.Stdout)
+	if !strings.Contains(logged.Stdout, "user data ran on ip-10-0-0-7") ||
+		!strings.Contains(logged.Stdout, "Cloud-init v. 24.1.3-0ubuntu3 finished at ") ||
+		!strings.Contains(logged.Stdout, "Datasource DataSourceEc2Local.") {
+		t.Fatalf("cloud-init's output log does not carry the user data's output and the final message: %q", logged.Stdout)
 	}
 	handle.Cancel()
 	<-handle.Exited()
@@ -108,7 +115,7 @@ func TestInstanceRunsItsUserDataOnTheConsoleAndKeepsItsDiskAcrossAStop(t *testin
 	}
 }
 
-func TestInstanceRunsAStartupScriptAtEveryBootWhenAsked(t *testing.T) {
+func TestInstanceRunsItsStartupScriptAtEveryBoot(t *testing.T) {
 	if _, err := sim.InitDocker("gcp", true, t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
@@ -126,17 +133,16 @@ func TestInstanceRunsAStartupScriptAtEveryBootWhenAsked(t *testing.T) {
 	backend := placement.ContainerBackend{}
 	sink := &lineSink{}
 	spec := Spec{
-		Name:              "sockerless-sim-test-instance-" + sim.RandomHex(4),
-		ID:                "every-boot",
-		Hostname:          "instance-1",
-		Image:             Image{OCI: testImage, Architecture: platform},
-		Network:           network,
-		Address:           cidr.Masked().Addr().Next().Next().Next().Next().String(),
-		UserData:          []byte("#!/bin/sh\necho boot >> /var/boots\n"),
-		UserDataEveryBoot: true,
-		VCPUs:             1,
-		MemoryMiB:         64,
-		StopGrace:         time.Second,
+		Name:      "sockerless-sim-test-instance-" + sim.RandomHex(4),
+		ID:        "every-boot",
+		Hostname:  "instance-1",
+		Image:     Image{OCI: testImage, Architecture: platform},
+		Network:   network,
+		Address:   cidr.Masked().Addr().Next().Next().Next().Next().String(),
+		Startup:   &Startup{Path: "/var/lib/google-guest-agent/startup-script", Script: []byte("#!/bin/sh\necho boot >> /var/boots\n")},
+		VCPUs:     1,
+		MemoryMiB: 64,
+		StopGrace: time.Second,
 	}
 	handle, err := Launch(ctx, backend, spec, sink)
 	if err != nil {

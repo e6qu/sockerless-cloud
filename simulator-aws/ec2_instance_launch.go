@@ -101,19 +101,6 @@ func ec2ConsoleOutput(ctx context.Context, instanceID string) string {
 // has finished the user data and raised its ready marker.
 var ec2InstanceReadyWait = []string{"/bin/sh", "-c", "until [ -e /run/sockerless-instance-ready ]; do sleep 0.2; done"}
 
-// ec2ConsolePath is the entry point the instance's container runs: the
-// init, with the user data's output followed onto the console, which is
-// where cloud-init writes it as well as to its log.
-const ec2ConsolePath = "/sbin/sockerless-instance-console"
-
-func ec2ConsoleScript() string {
-	return "#!/bin/sh\n" +
-		"mkdir -p /run\n" +
-		"touch " + vminstance.OutputLogPath + "\n" +
-		"tail -n +1 -F " + vminstance.OutputLogPath + " 2>/dev/null &\n" +
-		"exec " + vminstance.InitPath + "\n"
-}
-
 // ec2InstanceSpec is what the instance runs as: its AMI's root filesystem on
 // its subnet's VPC network at its private address, resolving through the
 // VPC's sidecar, with the user data and the metadata endpoint the SDKs read.
@@ -154,8 +141,8 @@ func ec2InstanceSpec(ctx context.Context, inst EC2Instance) (vminstance.Spec, aw
 		Address:    inst.PrivateIpAddress,
 		DNS:        network.DNS(),
 		UserData:   userData,
+		CloudInit:  ec2CloudInit(inst),
 		Env:        workloadMetadataEnv(network.MetadataOrigin(), ""),
-		Seed:       []sim.SeedFile{{Path: ec2ConsolePath, Mode: 0o755, Data: []byte(ec2ConsoleScript())}},
 		VCPUs:      facts.VCpus,
 		MemoryMiB:  facts.MemoryMiB,
 		Labels:     map[string]string{"sockerless-sim-aws-instance": inst.InstanceId},
@@ -172,14 +159,21 @@ func ec2PrivateDNSHostname(ip string) string {
 	return "ip-" + strings.ReplaceAll(ip, ".", "-")
 }
 
+// ec2CloudInit is the AMI's cloud-init as Amazon EC2's datasource feeds it:
+// the instance's id, and its key pair's public key for the default user.
+func ec2CloudInit(inst EC2Instance) *vminstance.CloudInit {
+	ci := &vminstance.CloudInit{Platform: "ec2", Datasource: "DataSourceEc2Local", InstanceID: inst.InstanceId}
+	if inst.KeyName != "" {
+		if kp, ok := ec2KeyPairs.Get(inst.KeyName); ok && kp.PublicKey != "" {
+			ci.DefaultUserKeys = []string{kp.PublicKey}
+		}
+	}
+	return ci
+}
+
 // ec2InstanceWorkloadSpec is the placement workload an instance runs as.
 func ec2InstanceWorkloadSpec(spec vminstance.Spec) (placement.Workload, error) {
-	w, err := vminstance.Workload(spec)
-	if err != nil {
-		return placement.Workload{}, err
-	}
-	w.Command = []string{ec2ConsolePath}
-	return w, nil
+	return vminstance.Workload(spec)
 }
 
 // ec2BootInstance places a launched instance's machine and returns once it is

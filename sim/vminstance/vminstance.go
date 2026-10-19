@@ -2,8 +2,9 @@
 // instance, a Compute Engine instance, an Azure virtual machine — on a
 // placement backend. The instance's image is an OCI image from the cloud's
 // catalog, its first process is an init the simulator seeds that runs the
-// instance's user data once and then keeps the machine up, and its address,
-// resolver and metadata are what the cloud's network gives it.
+// image's cloud-init over the instance's user data and then keeps the machine
+// up, and its address, resolver and metadata are what the cloud's network
+// gives it.
 package vminstance
 
 import (
@@ -39,15 +40,15 @@ type Spec struct {
 	Network, Address string
 	// DNS is the resolver the instance asks: its network's sidecar.
 	DNS []string
-	// UserData is what the cloud hands the instance at launch; a script
-	// starting with #! runs once as root, as cloud-init runs it.
+	// UserData is what the cloud hands the instance's cloud-init at launch:
+	// a cloud-config document, a script, or a MIME multipart message of them.
 	UserData []byte
-	// UserDataPath is where the init finds it; empty takes cloud-init's.
-	UserDataPath string
-	// UserDataEveryBoot runs the script at every start, as Compute Engine
-	// runs a startup-script; unset, it runs once per instance, as cloud-init
-	// runs user data on Amazon EC2 and Azure.
-	UserDataEveryBoot bool
+	// CloudInit is the image's cloud-init as the cloud's datasource feeds it;
+	// nil for an image that runs none, whose user data nothing reads.
+	CloudInit *CloudInit
+	// Startup runs at every boot after cloud-init, as Compute Engine's guest
+	// environment runs a startup-script; its output goes to the console.
+	Startup *Startup
 	// Env reaches the init and everything it runs: the metadata endpoint
 	// variables a cloud's SDKs honour.
 	Env map[string]string
@@ -68,20 +69,26 @@ type Spec struct {
 	Gateway string
 }
 
+// Startup is a script the instance runs at every boot.
+type Startup struct {
+	// Path is where the script is placed; Script what it holds.
+	Path   string
+	Script []byte
+}
+
 // InitPath is where the instance's init lives.
 const InitPath = "/sbin/sockerless-instance-init"
 
-// DefaultUserDataPath is where cloud-init keeps the instance's user data.
-const DefaultUserDataPath = "/var/lib/cloud/instance/user-data.txt"
-
-// OutputLogPath is where the user data's output lands, as cloud-init writes
-// it.
+// OutputLogPath is where cloud-init's output lands, besides the console.
 const OutputLogPath = "/var/log/cloud-init-output.log"
 
-// OnceMarkerPath is the semaphore cloud-init leaves after the user data ran,
-// so a stopped and started instance does not run it again; a reimaged disk
-// has no marker and runs it afresh.
+// OnceMarkerPath is the semaphore cloud-init leaves after the user data's
+// scripts ran, so a stopped and started instance does not run them again; a
+// new instance has its own state directory and runs them afresh.
 const OnceMarkerPath = "/var/lib/cloud/instance/sem/config_scripts_user"
+
+// BootFinishedPath is the file cloud-init writes when it has finished a boot.
+const BootFinishedPath = "/var/lib/cloud/instance/boot-finished"
 
 // Sandbox is the profile an instance's container runs under: the
 // capabilities a Linux machine's root holds inside its own namespace, no
@@ -96,40 +103,41 @@ var Sandbox = sim.SandboxProfile{
 // ErrNoImage is returned for a spec that names no image.
 var ErrNoImage = errors.New("the instance names no image")
 
-// Init renders the instance's init: it runs the user data once per instance
-// when it is a script, as cloud-init's scripts-user module does, writes its
-// output to the console and to the log where cloud-init keeps it, and then
-// stays up until the machine is stopped. The init waits for the script's
-// process and not for its output's end: a daemon the script leaves behind
-// keeps the output open, and cloud-init's tee relays it for as long as the
-// daemon runs.
-func Init(userDataPath string, everyBoot bool) string {
-	if userDataPath == "" {
-		userDataPath = DefaultUserDataPath
-	}
-	once := "/dev/null"
-	if !everyBoot {
-		once = OnceMarkerPath
-	}
-	return strings.Join([]string{
+// Init renders the instance's init: it runs cloud-init's stages when the
+// image carries them, with their output on the console and in cloud-init's
+// log, then the startup script at its path, if any, with its output on the
+// console, and then stays up until the machine is stopped. The init waits
+// for each stage's process and not for its output's end: a daemon a script
+// leaves behind keeps the output open, and the tee relays it for as long as
+// the daemon runs.
+func Init(startupPath string) string {
+	lines := []string{
 		"#!/bin/sh",
-		"ud=" + shellQuote(userDataPath),
-		"log=" + shellQuote(OutputLogPath),
-		"mkdir -p \"$(dirname \"$log\")\"",
-		"once=" + shellQuote(once),
-		"if [ \"$once\" = /dev/null ] || [ ! -e \"$once\" ] && [ -s \"$ud\" ] && [ \"$(head -c 2 \"$ud\")\" = '#!' ]; then",
-		"\t[ \"$once\" = /dev/null ] || { mkdir -p \"$(dirname \"$once\")\" && : >\"$once\"; }",
-		"\tchmod 700 \"$ud\"",
-		"\tout=/run/sockerless-user-data.out",
-		"\tmkdir -p /run && rm -f \"$out\" && mkfifo \"$out\"",
-		"\ttee -a \"$log\" <\"$out\" &",
-		"\t{ \"$ud\" 2>&1; echo \"user data exited $?\"; } >\"$out\"",
+		"mkdir -p /run",
+		"date +%s.%N >/run/sockerless-boot-epoch",
+		"if [ -f " + CloudInitScriptPath + " ]; then",
+		"	log=" + shellQuote(OutputLogPath),
+		"	mkdir -p \"$(dirname \"$log\")\"",
+		"	out=/run/sockerless-cloud-init.out",
+		"	rm -f \"$out\" && mkfifo \"$out\"",
+		"	tee -a \"$log\" <\"$out\" &",
+		"	sh " + CloudInitScriptPath + " >\"$out\" 2>&1",
 		"fi",
-		"mkdir -p /run && touch /run/sockerless-instance-ready",
+	}
+	if startupPath != "" {
+		lines = append(lines,
+			"if [ -f "+shellQuote(startupPath)+" ]; then",
+			"	sh "+shellQuote(startupPath)+" 2>&1",
+			"fi",
+		)
+	}
+	lines = append(lines,
+		"touch /run/sockerless-instance-ready",
 		"trap 'exit 0' TERM INT",
 		"while :; do sleep 2147483647 & wait $!; done",
 		"",
-	}, "\n")
+	)
+	return strings.Join(lines, "\n")
 }
 
 func shellQuote(s string) string {
@@ -144,13 +152,20 @@ func Workload(spec Spec) (placement.Workload, error) {
 	if spec.Network == "" || spec.Address == "" {
 		return placement.Workload{}, fmt.Errorf("instance %s: a network and an address are required", spec.ID)
 	}
-	userDataPath := spec.UserDataPath
-	if userDataPath == "" {
-		userDataPath = DefaultUserDataPath
+	startupPath := ""
+	if spec.Startup != nil {
+		startupPath = spec.Startup.Path
 	}
-	seed := []sim.SeedFile{
-		{Path: InitPath, Mode: 0o755, Data: []byte(Init(userDataPath, spec.UserDataEveryBoot))},
-		{Path: userDataPath, Mode: 0o600, Data: spec.UserData},
+	seed := []sim.SeedFile{{Path: InitPath, Mode: 0o755, Data: []byte(Init(startupPath))}}
+	if spec.CloudInit != nil {
+		cloudInit, err := cloudInitSeed(*spec.CloudInit, spec.UserData)
+		if err != nil {
+			return placement.Workload{}, fmt.Errorf("instance %s: %w", spec.ID, err)
+		}
+		seed = append(seed, cloudInit...)
+	}
+	if spec.Startup != nil {
+		seed = append(seed, sim.SeedFile{Path: spec.Startup.Path, Mode: 0o755, Data: spec.Startup.Script})
 	}
 	seed = append(seed, spec.Seed...)
 	labels := map[string]string{"sockerless-sim-instance": spec.ID}

@@ -1,9 +1,12 @@
 package main
 
 import (
+	"crypto/ed25519"
 	"crypto/md5"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha1"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
@@ -11,14 +14,16 @@ import (
 	"net/http"
 	"strings"
 
+	"golang.org/x/crypto/ssh"
+
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// EC2KeyPair models an EC2 key pair. CreateKeyPair generates a real RSA key and
-// returns the private material; ImportKeyPair stores a caller-supplied public
-// key. The fingerprint is the MD5 of the key material (colon-hex) — a real,
-// deterministic value derived from the key (the attribute is computed, so it
-// need not byte-match AWS's exact per-algorithm digest).
+// EC2KeyPair models an EC2 key pair. CreateKeyPair generates a real RSA or
+// ED25519 key and returns the private material; ImportKeyPair stores a
+// caller-supplied OpenSSH public key. The fingerprint is the digest the
+// CreateKeyPair and ImportKeyPair references name for the key's origin and
+// type.
 type EC2KeyPair struct {
 	KeyName        string
 	KeyPairId      string
@@ -30,13 +35,23 @@ type EC2KeyPair struct {
 
 var ec2KeyPairs sim.Store[EC2KeyPair]
 
-func ec2Fingerprint(data []byte) string {
-	sum := md5.Sum(data)
+func ec2ColonHex(sum []byte) string {
 	parts := make([]string, len(sum))
 	for i, b := range sum {
 		parts[i] = fmt.Sprintf("%02x", b)
 	}
 	return strings.Join(parts, ":")
+}
+
+// ec2ED25519Fingerprint is the base64 SHA-256 digest of an ED25519 public
+// key, which EC2 reports for created and imported ED25519 key pairs alike.
+func ec2ED25519Fingerprint(pub ssh.PublicKey) string {
+	sum := sha256.Sum256(pub.Marshal())
+	return base64.StdEncoding.EncodeToString(sum[:])
+}
+
+func ec2AuthorizedKey(pub ssh.PublicKey, comment string) string {
+	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pub))) + " " + comment
 }
 
 func handleCreateKeyPair(w http.ResponseWriter, r *http.Request) {
@@ -53,28 +68,62 @@ func handleCreateKeyPair(w http.ResponseWriter, r *http.Request) {
 	if keyType == "" {
 		keyType = "rsa"
 	}
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		ec2ErrorXML(w, "InternalError", err.Error(), http.StatusInternalServerError)
-		return
-	}
-	privPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-	pubDER, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
-	if err != nil {
-		ec2ErrorXML(w, "InternalError", err.Error(), http.StatusInternalServerError)
+	var material, fingerprint string
+	var pub ssh.PublicKey
+	switch keyType {
+	case "rsa":
+		key, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			ec2ErrorXML(w, "InternalError", err.Error(), http.StatusInternalServerError)
+			return
+		}
+		material = string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))
+		// An RSA key pair EC2 creates is fingerprinted by the SHA-1 digest of
+		// its DER-encoded private key.
+		pkcs8, err := x509.MarshalPKCS8PrivateKey(key)
+		if err != nil {
+			ec2ErrorXML(w, "InternalError", err.Error(), http.StatusInternalServerError)
+			return
+		}
+		sum := sha1.Sum(pkcs8)
+		fingerprint = ec2ColonHex(sum[:])
+		if pub, err = ssh.NewPublicKey(&key.PublicKey); err != nil {
+			ec2ErrorXML(w, "InternalError", err.Error(), http.StatusInternalServerError)
+			return
+		}
+	case "ed25519":
+		publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			ec2ErrorXML(w, "InternalError", err.Error(), http.StatusInternalServerError)
+			return
+		}
+		block, err := ssh.MarshalPrivateKey(privateKey, "")
+		if err != nil {
+			ec2ErrorXML(w, "InternalError", err.Error(), http.StatusInternalServerError)
+			return
+		}
+		material = string(pem.EncodeToMemory(block))
+		if pub, err = ssh.NewPublicKey(publicKey); err != nil {
+			ec2ErrorXML(w, "InternalError", err.Error(), http.StatusInternalServerError)
+			return
+		}
+		fingerprint = ec2ED25519Fingerprint(pub)
+	default:
+		ec2ErrorXML(w, "InvalidParameterValue", fmt.Sprintf("Value (%s) for parameter keyType is invalid. Valid values are rsa, ed25519.", keyType), http.StatusBadRequest)
 		return
 	}
 	kp := EC2KeyPair{
 		KeyName:        name,
 		KeyPairId:      ec2ID("key"),
-		KeyFingerprint: ec2Fingerprint(pubDER),
+		KeyFingerprint: fingerprint,
 		KeyType:        keyType,
+		PublicKey:      ec2AuthorizedKey(pub, name),
 		Tags:           parseTags(r),
 	}
 	ec2KeyPairs.Put(name, kp)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateKeyPairResponse %s><requestId>%s</requestId><keyName>%s</keyName><keyFingerprint>%s</keyFingerprint><keyMaterial>%s</keyMaterial><keyPairId>%s</keyPairId></CreateKeyPairResponse>`,
-		ec2Xmlns(), sim.NewUUID(), kp.KeyName, kp.KeyFingerprint, xmlEscape(string(privPEM)), kp.KeyPairId)
+		ec2Xmlns(), sim.NewUUID(), kp.KeyName, kp.KeyFingerprint, xmlEscape(material), kp.KeyPairId)
 }
 
 func handleImportKeyPair(w http.ResponseWriter, r *http.Request) {
@@ -88,21 +137,41 @@ func handleImportKeyPair(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidKeyPair.Duplicate", fmt.Sprintf("The keypair %q already exists.", name), http.StatusBadRequest)
 		return
 	}
-	// The SDK base64-encodes the OpenSSH public key; some callers send it raw.
-	pubKey := material
+	// The SDK base64-encodes the OpenSSH public key; the CLI's fileb:// sends
+	// it raw.
+	text := material
 	if decoded, err := base64.StdEncoding.DecodeString(material); err == nil {
-		pubKey = string(decoded)
+		text = string(decoded)
 	}
-	keyType := "rsa"
-	if strings.Contains(pubKey, "ssh-ed25519") {
+	pub, comment, _, _, err := ssh.ParseAuthorizedKey([]byte(text))
+	if err != nil {
+		ec2ErrorXML(w, "InvalidKey.Format", "Key is not in valid OpenSSH public key format", http.StatusBadRequest)
+		return
+	}
+	var keyType, fingerprint string
+	switch pub.Type() {
+	case ssh.KeyAlgoRSA:
+		// An imported RSA key is fingerprinted by the MD5 digest of its
+		// public key, as RFC 4716 section 4 defines it.
+		keyType = "rsa"
+		sum := md5.Sum(pub.Marshal())
+		fingerprint = ec2ColonHex(sum[:])
+	case ssh.KeyAlgoED25519:
 		keyType = "ed25519"
+		fingerprint = ec2ED25519Fingerprint(pub)
+	default:
+		ec2ErrorXML(w, "InvalidKey.Format", "Key is not in valid OpenSSH public key format", http.StatusBadRequest)
+		return
+	}
+	if comment == "" {
+		comment = name
 	}
 	kp := EC2KeyPair{
 		KeyName:        name,
 		KeyPairId:      ec2ID("key"),
-		KeyFingerprint: ec2Fingerprint([]byte(pubKey)),
+		KeyFingerprint: fingerprint,
 		KeyType:        keyType,
-		PublicKey:      pubKey,
+		PublicKey:      ec2AuthorizedKey(pub, comment),
 		Tags:           parseTags(r),
 	}
 	ec2KeyPairs.Put(name, kp)
@@ -155,9 +224,9 @@ func ec2KeyPairMatchesFilters(kp EC2KeyPair, filters map[string][]string) bool {
 	return true
 }
 
-func keyPairItemXML(kp EC2KeyPair) string {
+func keyPairItemXML(kp EC2KeyPair, includePublicKey bool) string {
 	pub := ""
-	if kp.PublicKey != "" {
+	if includePublicKey && kp.PublicKey != "" {
 		pub = fmt.Sprintf("<publicKey>%s</publicKey>", xmlEscape(kp.PublicKey))
 	}
 	return fmt.Sprintf("<item><keyName>%s</keyName><keyPairId>%s</keyPairId><keyFingerprint>%s</keyFingerprint><keyType>%s</keyType>%s%s</item>",
@@ -168,6 +237,13 @@ func handleDescribeKeyPairs(w http.ResponseWriter, r *http.Request) {
 	names := ec2ParamList(r, "KeyName")
 	ids := ec2ParamList(r, "KeyPairId")
 	filters := ec2Filters(r)
+	includePublicKey := strings.EqualFold(r.FormValue("IncludePublicKey"), "true")
+	for _, name := range names {
+		if _, ok := ec2KeyPairs.Get(name); !ok {
+			ec2ErrorXML(w, "InvalidKeyPair.NotFound", fmt.Sprintf("The key pair '%s' does not exist", name), http.StatusBadRequest)
+			return
+		}
+	}
 	var items strings.Builder
 	for _, kp := range ec2KeyPairs.List() {
 		if len(names) > 0 && !ec2StrInValues(kp.KeyName, names) {
@@ -179,7 +255,7 @@ func handleDescribeKeyPairs(w http.ResponseWriter, r *http.Request) {
 		if !ec2KeyPairMatchesFilters(kp, filters) {
 			continue
 		}
-		items.WriteString(keyPairItemXML(kp))
+		items.WriteString(keyPairItemXML(kp, includePublicKey))
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeKeyPairsResponse %s><requestId>%s</requestId><keySet>%s</keySet></DescribeKeyPairsResponse>`,
