@@ -2,6 +2,7 @@ package aws_sdk_test
 
 import (
 	"encoding/base64"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -323,4 +324,62 @@ func TestEC2_ImportImageFromAnOCIReferenceBoots(t *testing.T) {
 	require.NoError(t, err)
 	terminateEC2InstancesOnCleanup(t, c, run)
 	waitForEC2InstanceRunning(t, c, aws.ToString(run.Instances[0].InstanceId))
+}
+
+// An instance receives what its security groups admit and nothing else: a
+// neighbour in the VPC reaches the port a group's rule names and not
+// another, a rule authorized while the instance runs admits its port at
+// once, and a revoked one refuses it again.
+func TestEC2_SecurityGroupFiltersWhatAnInstanceReceives(t *testing.T) {
+	t.Parallel()
+	c := ec2Client()
+	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.246.0.0/16")})
+	require.NoError(t, err)
+	subnet := createSubnetFor(t, c, vpc.Vpc.VpcId, "10.246.1.0/24")
+	web, err := c.CreateSecurityGroup(ctx, &ec2.CreateSecurityGroupInput{
+		GroupName: aws.String("sg-filter-web"), Description: aws.String("web"), VpcId: vpc.Vpc.VpcId,
+	})
+	require.NoError(t, err)
+	permission := func(port int32) []types.IpPermission {
+		return []types.IpPermission{{
+			IpProtocol: aws.String("tcp"), FromPort: aws.Int32(port), ToPort: aws.Int32(port),
+			IpRanges: []types.IpRange{{CidrIp: aws.String("10.246.0.0/16")}},
+		}}
+	}
+	_, err = c.AuthorizeSecurityGroupIngress(ctx, &ec2.AuthorizeSecurityGroupIngressInput{GroupId: web.GroupId, IpPermissions: permission(80)})
+	require.NoError(t, err)
+
+	launch := func(userData string, groups []string) string {
+		run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
+			ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
+			MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet, SecurityGroupIds: groups,
+			UserData: aws.String(base64.StdEncoding.EncodeToString([]byte(userData))),
+		})
+		require.NoError(t, err)
+		terminateEC2InstancesOnCleanup(t, c, run)
+		instanceID := aws.ToString(run.Instances[0].InstanceId)
+		waitForEC2InstanceRunning(t, c, instanceID)
+		return instanceID
+	}
+	serverID := launch("#!/bin/sh\nmkdir -p /srv/www && echo ok > /srv/www/index.html\n"+
+		"cd /srv/www && (python3 -m http.server 80 >/dev/null 2>&1 &) && (python3 -m http.server 81 >/dev/null 2>&1 &)\n", []string{aws.ToString(web.GroupId)})
+	clientID := launch("#!/bin/sh\necho client up\n", nil)
+	desc, err := c.DescribeInstances(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{serverID}})
+	require.NoError(t, err)
+	serverIP := aws.ToString(desc.Reservations[0].Instances[0].PrivateIpAddress)
+
+	s := ssmClient()
+	probe := func(port int) string {
+		return strings.TrimSpace(ssmShell(t, s, clientID, fmt.Sprintf("curl -sS -m 5 http://%s:%d/ >/dev/null 2>&1; echo rc=$?", serverIP, port)))
+	}
+	require.Eventually(t, func() bool { return probe(80) == "rc=0" }, 30*time.Second, time.Second, "the server never answered on the admitted port")
+	assert.Equal(t, "rc=28", probe(81), "port 81, which no rule admits, must time out")
+
+	_, err = c.AuthorizeSecurityGroupIngress(ctx, &ec2.AuthorizeSecurityGroupIngressInput{GroupId: web.GroupId, IpPermissions: permission(81)})
+	require.NoError(t, err)
+	assert.Equal(t, "rc=0", probe(81), "the rule authorized while the instance runs admits its port")
+
+	_, err = c.RevokeSecurityGroupIngress(ctx, &ec2.RevokeSecurityGroupIngressInput{GroupId: web.GroupId, IpPermissions: permission(80)})
+	require.NoError(t, err)
+	assert.Equal(t, "rc=28", probe(80), "the revoked rule's port times out again")
 }

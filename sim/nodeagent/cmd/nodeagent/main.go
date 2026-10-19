@@ -386,12 +386,12 @@ func (a *agent) handleIngress(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errGuestNotFound)
 		return
 	}
-	var rules []packetRule
-	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&rules); err != nil {
+	var stages [][]packetRule
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&stages); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := g.applyIngress(r.Context(), rules); err != nil {
+	if err := g.applyIngress(r.Context(), stages); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}

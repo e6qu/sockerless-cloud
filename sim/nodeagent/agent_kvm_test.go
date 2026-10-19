@@ -18,6 +18,7 @@ import (
 	"github.com/moby/moby/client"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/netrules"
 	"github.com/e6qu/sockerless-cloud/sim/nodeagent"
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
@@ -438,6 +439,94 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 	}
 	if err := sim.RemoveVolume(volume); err != nil {
 		t.Fatalf("remove the volume once the guest is gone: %v", err)
+	}
+
+	// What a guest may receive is filtered at its tap, in the stages its
+	// cloud's groups compile to: a server guest admitting port 80 from the
+	// network answers a neighbour on 80 and drops its connection to 81; the
+	// rules replaced while it runs admit 81 at once; a second stage that
+	// admits nothing from the neighbour drops both; and no stages admit
+	// everything.
+	web, err := backend.Place(t.Context(), placement.Workload{
+		Image:        memberImage,
+		Architecture: platform,
+		Name:         "sockerless-sim-kvm-web",
+		Hostname:     "web",
+		Network:      networkName,
+		IPv4Address:  "10.79.0.13",
+		Command:      []string{"sh", "-c"},
+		Args:         []string{"mkdir -p /www && echo ok > /www/index.html && httpd -p 80 -h /www && httpd -p 81 -h /www && sleep 300"},
+		Ingress:      [][]netrules.PacketRule{{{Protocol: "tcp", SourceCIDR: "10.79.0.0/24", FromPort: 80, ToPort: 80}}},
+		MemoryBytes:  256 << 20,
+		NanoCPU:      1_000_000_000,
+	}, sim.NoopSink{})
+	if err != nil {
+		t.Fatalf("place the filtered guest: %v", err)
+	}
+	defer func() { _ = backend.Remove(context.Background(), web.ID()) }()
+	probe, err := backend.Place(t.Context(), placement.Workload{
+		Image:        memberImage,
+		Architecture: platform,
+		Name:         "sockerless-sim-kvm-probe",
+		Hostname:     "probe",
+		Network:      networkName,
+		IPv4Address:  "10.79.0.14",
+		Command:      []string{"sleep"},
+		Args:         []string{"300"},
+		MemoryBytes:  256 << 20,
+		NanoCPU:      1_000_000_000,
+	}, sim.NoopSink{})
+	if err != nil {
+		t.Fatalf("place the probing guest: %v", err)
+	}
+	defer func() { _ = backend.Remove(context.Background(), probe.ID()) }()
+	filterCtx, cancelFilter := context.WithTimeout(t.Context(), 3*time.Minute)
+	defer cancelFilter()
+	reaches := func(port int) bool {
+		t.Helper()
+		out, err := probe.Exec(filterCtx, []string{"wget", "-T", "3", "-q", "-O", "-", fmt.Sprintf("http://10.79.0.13:%d/", port)})
+		if err != nil {
+			t.Fatalf("probe port %d: %v", port, err)
+		}
+		return out.ExitCode == 0 && strings.TrimSpace(out.Stdout) == "ok"
+	}
+	for attempt := 0; !reaches(80); attempt++ {
+		if attempt == 20 {
+			t.Fatal("the admitted port 80 never answered")
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if reaches(81) {
+		t.Fatal("port 81, which no rule admits, answered")
+	}
+	if err := web.SetIngress(filterCtx, [][]netrules.PacketRule{{
+		{Protocol: "tcp", SourceCIDR: "10.79.0.0/24", FromPort: 80, ToPort: 81},
+	}}); err != nil {
+		t.Fatalf("replace the rules: %v", err)
+	}
+	if !reaches(81) {
+		t.Fatal("port 81 does not answer after a rule admitted it")
+	}
+	if err := web.SetIngress(filterCtx, [][]netrules.PacketRule{
+		{{Protocol: "tcp", SourceCIDR: "10.79.0.0/24", FromPort: 80, ToPort: 81}},
+		{{Protocol: "-1", SourceCIDR: "10.79.0.14/32", Action: "drop"}, {Protocol: "-1", SourceCIDR: "10.79.0.0/24"}},
+	}); err != nil {
+		t.Fatalf("replace the rules with two stages: %v", err)
+	}
+	if reaches(80) {
+		t.Fatal("a second stage that drops the neighbour let port 80 answer")
+	}
+	if err := web.SetIngress(filterCtx, nil); err != nil {
+		t.Fatalf("clear the rules: %v", err)
+	}
+	if !reaches(81) {
+		t.Fatal("a guest with no stages does not receive everything")
+	}
+	if err := probe.SetIngress(filterCtx, [][]netrules.PacketRule{{}}); err != nil {
+		t.Fatalf("give the probe an empty stage: %v", err)
+	}
+	if !reaches(80) {
+		t.Fatal("an empty stage on the prober kept its own connection's replies out")
 	}
 
 	// A cloud deletes a network once nothing of its own is on it, and the

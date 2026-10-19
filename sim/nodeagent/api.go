@@ -38,10 +38,12 @@ type GuestSpec struct {
 	// StopGrace is how long the first process gets between SIGTERM and the
 	// guest's power-off.
 	StopGrace time.Duration `json:"stopGrace,omitempty"`
-	// Ingress is what the guest may receive, evaluated first match; an empty
-	// list admits everything, as a cloud with no rules attached does not, so
-	// a cloud that enforces rules always sends at least a final drop.
-	Ingress []PacketRule `json:"ingress,omitempty"`
+	// Ingress is what the guest may receive: stages a packet passes in
+	// turn, each a rule list whose first match decides, where an accept
+	// hands the packet to the next stage and a stage nothing matches drops
+	// it. No stages admit everything, as a cloud with no rules attached
+	// does; an empty stage admits nothing.
+	Ingress [][]PacketRule `json:"ingress,omitempty"`
 	// DiskSlots is how many block devices beyond the root the guest can take
 	// while it runs, members' root filesystems among them; zero takes four.
 	DiskSlots int `json:"diskSlots,omitempty"`

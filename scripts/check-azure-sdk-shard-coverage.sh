@@ -66,6 +66,17 @@ while IFS= read -r t; do
       matches=$((matches + 1))
     fi
   done < "$regex_file"
+  # A test every container shard skips runs on the guest shard that names
+  # it: what it proves holds only on that backend.
+  if [ "$matches" -eq 0 ]; then
+    while IFS=$'\t' read -r re; do
+      [ -n "$re" ] || continue
+      if printf '%s\n' "$t" | grep -qE "$re"; then
+        matches=1
+        break
+      fi
+    done < <(awk -F'\t' '$1 == "placement" { print $2 }' "$placement_file")
+  fi
   if [ "$matches" -eq 0 ]; then
     echo "FAIL: Azure SDK test $t matches NO shard regex — it never runs in CI" >&2
     orphans=$((orphans + 1))

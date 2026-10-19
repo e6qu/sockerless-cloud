@@ -137,7 +137,12 @@ func azureVMInstanceSpec(ctx context.Context, vm VirtualMachine) (vminstance.Spe
 	if err != nil {
 		return vminstance.Spec{}, azureMetadataVM{}, err
 	}
+	ingress, err := azureIngressPacketStages(nic)
+	if err != nil {
+		return vminstance.Spec{}, azureMetadataVM{}, err
+	}
 	spec := vminstance.Spec{
+		Ingress:   ingress,
 		Name:      "sockerless-sim-azure-vm-" + sanitizeContainerName(vm.Name) + "-" + sim.RandomHex(4),
 		ID:        strings.ToLower(vm.ID),
 		Hostname:  azureVMComputerName(vm),

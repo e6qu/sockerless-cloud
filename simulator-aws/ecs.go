@@ -588,6 +588,9 @@ func cleanupECSTaskProcesses(ctx context.Context, taskID string, p *ecsTaskProce
 	if err := sim.RemoveVolumesNamed(ecsTaskVolumePrefix(taskID)); err != nil {
 		fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: remove its volumes: %v\n", taskID, err)
 	}
+	if _, vpcID, ok := ecsTaskENIGroups(taskID); ok {
+		ec2ReapplyIngress(vpcID)
+	}
 }
 
 // ecsTaskVolumePrefix names a task's own volumes, by the task.
@@ -1733,7 +1736,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 			VolumeHosts:          taskVolumeHosts,
 		}
 		if networkMode == ecsNetworkModeAwsvpc {
-			attachment, eniErr := ecsCreateTaskNetworkInterface(taskID, eniID, subnetID, privateIP, in.NetworkConfiguration.AwsvpcConfiguration.SecurityGroups)
+			attachment, eniErr := ecsCreateTaskNetworkInterface(taskID, eniID, subnetID, privateIP, ecsTaskSecurityGroups(subnetID, in.NetworkConfiguration.AwsvpcConfiguration.SecurityGroups))
 			if eniErr != nil {
 				return nil, nil, &ecsRequestError{"InvalidParameterException", eniErr.Error(), http.StatusBadRequest}
 			}
@@ -2646,6 +2649,9 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 			cfg.Network = taskNetwork.Name
 			cfg.IPv4Address = eniAddress
 			cfg.DNS = taskNetwork.DNS()
+			if groups, _, ok := ecsTaskENIGroups(taskID); ok {
+				cfg.Ingress = ec2IngressStages(groups)
+			}
 		default:
 			// bridge mode: each container gets its own address on the
 			// container instance's network, the platform network.
@@ -2668,6 +2674,13 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 		}
 		if i == 0 {
 			mainDockerID = handle.ID()
+			if networkMode == ecsNetworkModeAwsvpc {
+				// The task's interface is a member of its groups now, which
+				// the permissions naming them expand over on its neighbours.
+				if _, vpcID, ok := ecsTaskENIGroups(taskID); ok {
+					ec2ReapplyIngress(vpcID)
+				}
+			}
 		}
 		processes.Handles[cd.Name] = handle
 		phases.Mark("container:" + cd.Name)

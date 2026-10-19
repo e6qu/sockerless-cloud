@@ -484,6 +484,7 @@ func registerNetwork(srv *sim.Server) {
 			},
 		}
 		nsgs.Put(resourceID, nsg)
+		azureReapplyIngress()
 
 		// go-azure-sdk expects 200 for sync creates
 		sim.WriteJSON(w, http.StatusOK, nsg)
@@ -513,6 +514,7 @@ func registerNetwork(srv *sim.Server) {
 			sub, rg, nsgName)
 
 		nsgs.Delete(resourceID)
+		azureReapplyIngress()
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -593,6 +595,7 @@ func registerNetwork(srv *sim.Server) {
 				nsg.Properties.SecurityRules = append(nsg.Properties.SecurityRules, req)
 			}
 			nsgs.Put(nsgID, nsg)
+			azureReapplyIngress()
 
 			sim.WriteJSON(w, http.StatusOK, req)
 		})
@@ -648,6 +651,7 @@ func registerNetwork(srv *sim.Server) {
 			}
 			nsg.Properties.SecurityRules = filtered
 			nsgs.Put(nsgID, nsg)
+			azureReapplyIngress()
 			w.WriteHeader(http.StatusOK)
 		})
 
@@ -1554,5 +1558,6 @@ func azureMaterializeSubnet(sn Subnet) (string, string, int) {
 		}
 	}
 	azureSubnets.Put(sn.ID, sn)
+	azureReapplyIngress()
 	return "", "", 0
 }

@@ -10,7 +10,13 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
+// sgMemberTask is a task with an awsvpc elastic network interface in the
+// groups, as RunTask records one; a stopped task's interface went with it.
 func sgMemberTask(id, status, ip string, groups ...string) ECSTask {
+	eniID := "eni-" + id
+	if ECSTaskStatus(status) != ECSTaskStatusStopped {
+		ec2NetworkInterfaces.Put(eniID, EC2NetworkInterface{NetworkInterfaceId: eniID, VpcId: "vpc-1", PrivateIpAddress: ip, SecurityGroupIds: groups, Description: "arn:aws:ecs:us-east-1:123456789012:attachment/" + id})
+	}
 	return ECSTask{
 		TaskArn:    "arn:aws:ecs:us-east-1:123456789012:task/c/" + id,
 		LastStatus: ECSTaskStatus(status),
@@ -19,7 +25,7 @@ func sgMemberTask(id, status, ip string, groups ...string) ECSTask {
 		},
 		Attachments: []ECSAttachment{{
 			Type:    "ElasticNetworkInterface",
-			Details: []ECSKeyValuePair{{Name: "privateIPv4Address", Value: ip}},
+			Details: []ECSKeyValuePair{{Name: "privateIPv4Address", Value: ip}, {Name: "networkInterfaceId", Value: eniID}},
 		}},
 	}
 }

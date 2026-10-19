@@ -1136,6 +1136,7 @@ func registerNetworkInterfaces(srv *sim.Server) {
 		}
 		azureNICs.Put(id, nic)
 		azureReconcileAutoRegisteredRecords()
+		azureReapplyIngress()
 		sim.WriteJSON(w, http.StatusOK, nic)
 	})
 

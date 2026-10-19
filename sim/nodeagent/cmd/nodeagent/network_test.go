@@ -30,29 +30,41 @@ func TestRenderIngressProgramAdmitsEverythingWithoutRules(t *testing.T) {
 }
 
 func TestRenderIngressProgramFiltersAtTheTap(t *testing.T) {
-	program, err := renderIngressProgram("t", "tap0", []packetRule{
+	program, err := renderIngressProgram("t", "tap0", [][]packetRule{{
 		{Protocol: "tcp", SourceCIDR: "10.0.0.0/16", FromPort: 22, ToPort: 22},
 		{Protocol: "6", SourceCIDR: "0.0.0.0/0", FromPort: 8000, ToPort: 8080},
 		{Protocol: "icmp", SourceCIDR: "10.0.0.0/8"},
 		{Protocol: "-1", SourceCIDR: "192.168.0.0/16", Action: "drop"},
-	})
+	}, {
+		{Protocol: "-1", SourceCIDR: "10.0.0.0/8"},
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
 		`oifname "tap0" ether type arp accept`,
 		`oifname "tap0" ct state established,related accept`,
-		`oifname "tap0" ip saddr 10.0.0.0/16 ip protocol tcp tcp dport 22 accept`,
-		`oifname "tap0" ip saddr 0.0.0.0/0 ip protocol tcp tcp dport 8000-8080 accept`,
-		`oifname "tap0" ip saddr 10.0.0.0/8 ip protocol icmp accept`,
-		`oifname "tap0" ip saddr 192.168.0.0/16 drop`,
-		`oifname "tap0" drop`,
+		`oifname "tap0" jump stage0`,
+		`oifname "tap0" jump stage1`,
+		`oifname "tap0" accept`,
+		`ip saddr 10.0.0.0/16 ip protocol tcp tcp dport 22 return`,
+		`ip saddr 0.0.0.0/0 ip protocol tcp tcp dport 8000-8080 return`,
+		`ip saddr 10.0.0.0/8 ip protocol icmp return`,
+		`ip saddr 192.168.0.0/16 drop`,
+		"chain stage1 {\n\t\tip saddr 10.0.0.0/8 return\n\t\tdrop\n\t}",
 	} {
 		if !strings.Contains(program, want) {
 			t.Errorf("program lacks %q:\n%s", want, program)
 		}
 	}
-	if _, err := renderIngressProgram("t", "tap0", []packetRule{{Protocol: "tcp", Action: "log"}}); err == nil {
+	if strings.Count(program, "\t\tdrop\n") != 2 {
+		t.Errorf("each stage ends in one drop:\n%s", program)
+	}
+	if _, err := renderIngressProgram("t", "tap0", [][]packetRule{{{Protocol: "tcp", Action: "log"}}}); err == nil {
 		t.Error("an action the filter cannot apply rendered")
+	}
+	empty, err := renderIngressProgram("t", "tap0", [][]packetRule{{}})
+	if err != nil || !strings.Contains(empty, "chain stage0 {\n\t\tdrop\n\t}") {
+		t.Errorf("an empty stage admits nothing (%v):\n%s", err, empty)
 	}
 }

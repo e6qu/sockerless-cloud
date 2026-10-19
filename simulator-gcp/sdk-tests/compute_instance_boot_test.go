@@ -246,3 +246,78 @@ func TestCompute_MachineTypeCatalog(t *testing.T) {
 	require.ErrorAs(t, err, &gerr)
 	assert.Equal(t, 404, gerr.Code)
 }
+
+// An instance receives what the network's firewall rules targeting it
+// allow and nothing else: a neighbour in the subnetwork reaches the port a
+// rule allows and not another, and a rule inserted while the instance runs
+// allows its port to an instance booted after it.
+func TestCompute_FirewallRulesFilterWhatAnInstanceReceives(t *testing.T) {
+	t.Parallel()
+	svc := computeService(t)
+	const project, zone, region = "firewall-project", "us-central1-a", "us-central1"
+	subnet := createInstanceSubnetwork(t, svc, project, region, "fw-net", "10.87.0.0/24")
+	firewall := func(name string, port string) {
+		_, err := svc.Firewalls.Insert(project, &compute.Firewall{
+			Name: name, Network: "projects/" + project + "/global/networks/fw-net", Direction: "INGRESS",
+			Allowed:      []*compute.FirewallAllowed{{IPProtocol: "tcp", Ports: []string{port}}},
+			SourceRanges: []string{"10.87.0.0/24"}, TargetTags: []string{"web"},
+		}).Do()
+		require.NoError(t, err)
+		t.Cleanup(func() { _, _ = svc.Firewalls.Delete(project, name).Do() })
+	}
+	firewall("fw-allow-80", "80")
+
+	// The server answers on two ports; the client reports which it reaches.
+	const serverScript = `#!/bin/bash
+serve() { perl -MIO::Socket::INET -e '$s=IO::Socket::INET->new(LocalPort=>$ARGV[0],Listen=>5,Reuse=>1) or die; while($c=$s->accept){print $c "HTTP/1.0 200 OK\r\n\r\nok\n"; close $c}' "$1" & }
+serve 80
+serve 81
+echo "serving"
+`
+	clientScript := func(server string, ports ...int) string {
+		script := "#!/bin/bash\n"
+		for _, port := range ports {
+			script += fmt.Sprintf("if timeout 5 bash -c 'exec 3<>/dev/tcp/%s/%d'; then echo \"port%d=open\"; else echo \"port%d=closed\"; fi\n", server, port, port, port)
+		}
+		return script
+	}
+	instance := func(name, script string, tags []string) *compute.Instance {
+		inst := &compute.Instance{
+			Name:        name,
+			MachineType: "e2-micro",
+			Disks: []*compute.AttachedDisk{{
+				Boot: true, AutoDelete: true,
+				InitializeParams: &compute.AttachedDiskInitializeParams{SourceImage: "projects/debian-cloud/global/images/family/" + debianFamily()},
+			}},
+			NetworkInterfaces: []*compute.NetworkInterface{{Subnetwork: subnet}},
+			Metadata:          &compute.Metadata{Items: []*compute.MetadataItems{{Key: "startup-script", Value: googleapi.String(script)}}},
+		}
+		if len(tags) > 0 {
+			inst.Tags = &compute.Tags{Items: tags}
+		}
+		return inst
+	}
+	boot := func(inst *compute.Instance) *compute.Instance {
+		op, err := svc.Instances.Insert(project, zone, inst).Do()
+		require.NoError(t, err)
+		t.Cleanup(func() { _, _ = svc.Instances.Delete(project, zone, inst.Name).Do() })
+		done := awaitZoneOperation(t, svc, project, zone, op.Name)
+		require.Nil(t, done.Error, "the insert of %s failed: %+v", inst.Name, done.Error)
+		got, err := svc.Instances.Get(project, zone, inst.Name).Do()
+		require.NoError(t, err)
+		return got
+	}
+	server := boot(instance("fw-web", serverScript, []string{"web"}))
+	awaitSerialPortOutput(t, svc, project, zone, "fw-web", "startup-script: serving")
+	serverIP := server.NetworkInterfaces[0].NetworkIP
+
+	boot(instance("fw-probe", clientScript(serverIP, 80, 81), nil))
+	console := awaitSerialPortOutput(t, svc, project, zone, "fw-probe", "startup-script exit status 0")
+	assert.Contains(t, console, "startup-script: port80=open", "the allowed port does not answer the neighbour")
+	assert.Contains(t, console, "startup-script: port81=closed", "a port no rule allows answered the neighbour")
+
+	firewall("fw-allow-81", "81")
+	boot(instance("fw-probe-2", clientScript(serverIP, 81), nil))
+	console = awaitSerialPortOutput(t, svc, project, zone, "fw-probe-2", "startup-script exit status 0")
+	assert.Contains(t, console, "startup-script: port81=open", "the rule inserted while the server runs does not allow its port")
+}

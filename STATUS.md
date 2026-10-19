@@ -94,7 +94,11 @@ Current state of the sockerless-cloud repository.
   An engine volume reaches a guest as a share a container serves from the
   node agent's network namespace, one per workload, gone with it, and a
   bind of one host file as that file; the `ecs-microvm` shard runs a
-  task's managed EBS volume on a guest.
+  task's managed EBS volume on a guest. Security groups, Compute Engine
+  firewall rules and network security groups filter at a guest's tap, in
+  stages the clouds compile at placement and replace on every rule change
+  (`ContainerConfig.Ingress`); two containers on one engine network stay
+  unfiltered.
   Amazon EC2, Compute Engine and Azure virtual machine instances boot from
   each cloud's image catalog (`sim/vminstance`): the init runs the instance's
   user data, the instance stops and starts on its own root disk, and an

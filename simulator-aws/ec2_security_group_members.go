@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/netip"
+	"slices"
 	"sort"
 
 	"github.com/e6qu/sockerless-cloud/sim/netrules"
@@ -117,6 +119,21 @@ func ec2SGMemberCIDRs(groupID string) []string {
 			}
 		}
 	}
+	// A load balancer's nodes are members of its groups, and a target sees
+	// them at the address the simulator forwards from: its network's
+	// gateway.
+	if elbv2LoadBalancers != nil && ec2Vpcs != nil {
+		for _, lb := range elbv2LoadBalancers.List() {
+			if !slices.Contains(lb.SecurityGroups, groupID) {
+				continue
+			}
+			if vpc, ok := ec2Vpcs.Get(lb.VpcID); ok {
+				if prefix, err := netip.ParsePrefix(vpc.CidrBlock); err == nil {
+					add(prefix.Masked().Addr().Next().String())
+				}
+			}
+		}
+	}
 	var out []string
 	for cidr := range seen {
 		out = append(out, cidr)
@@ -125,11 +142,14 @@ func ec2SGMemberCIDRs(groupID string) []string {
 	return out
 }
 
+// ecsTaskUsesSecurityGroup reads the groups of the task's elastic network
+// interface, which carries the VPC's default group when the run named none.
 func ecsTaskUsesSecurityGroup(task ECSTask, groupID string) bool {
-	if task.NetworkConfiguration == nil || task.NetworkConfiguration.AwsvpcConfiguration == nil {
+	groups, _, ok := ecsTaskENIGroupsOf(task)
+	if !ok {
 		return false
 	}
-	for _, id := range task.NetworkConfiguration.AwsvpcConfiguration.SecurityGroups {
+	for _, id := range groups {
 		if id == groupID {
 			return true
 		}

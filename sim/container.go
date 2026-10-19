@@ -24,6 +24,8 @@ import (
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+
+	"github.com/e6qu/sockerless-cloud/sim/netrules"
 )
 
 // parsePlatform splits an "os/arch" or "os/arch/variant" string into an
@@ -99,7 +101,16 @@ type ContainerConfig struct {
 	// created and before it starts: what a cloud hands an instance through
 	// its platform rather than its image or its environment — user data, the
 	// instance's own init.
-	Seed        []SeedFile
+	Seed []SeedFile
+	// Ingress is what the workload may receive on its network: stages a
+	// packet passes in turn, each a rule list whose first match decides,
+	// where an accept hands it to the next stage and a stage nothing matches
+	// drops it; no stages admit everything. A cloud compiles its security
+	// groups, firewall rules or network security groups into it. The microVM
+	// backend enforces it at the guest's tap; the container backend cannot
+	// filter between two containers on one network and runs the workload
+	// unfiltered.
+	Ingress     [][]netrules.PacketRule
 	NetworkMode string // Docker network mode (e.g. "container:<id>" for shared netns)
 	// PidMode joins another container's pid namespace ("container:<id>"):
 	// a platform helper reading a workload's processes. Empty is the

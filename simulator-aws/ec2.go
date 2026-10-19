@@ -2727,13 +2727,18 @@ func handleAuthorizeSecurityGroupRule(w http.ResponseWriter, r *http.Request, eg
 		return
 	}
 
+	var vpcID string
 	ec2SecurityGroups.Update(groupId, func(sg *EC2SecurityGroup) {
+		vpcID = sg.VpcId
 		if egress {
 			sg.IpPermissionsEgress = append(sg.IpPermissionsEgress, perm)
 		} else {
 			sg.IpPermissions = append(sg.IpPermissions, perm)
 		}
 	})
+	if !egress {
+		ec2ReapplyIngress(vpcID)
+	}
 
 	rules := createSecurityGroupRules(groupId, perm, egress)
 	var ruleSetXML strings.Builder
@@ -2819,7 +2824,9 @@ func ec2RemoveRuleSource(perms []EC2IpPermission, rule EC2SecurityGroupRule) []E
 // different security group or direction are also ignored so the call cannot
 // accidentally mutate another group's rules.
 func ec2RevokeByRuleIDs(groupId string, ruleIDs []string, isEgress bool) {
+	var vpcID string
 	ec2SecurityGroups.Update(groupId, func(sg *EC2SecurityGroup) {
+		vpcID = sg.VpcId
 		for _, ruleID := range ruleIDs {
 			rule, ok := ec2SecurityGroupRules.Get(ruleID)
 			if !ok || rule.GroupId != groupId || rule.IsEgress != isEgress {
@@ -2833,6 +2840,9 @@ func ec2RevokeByRuleIDs(groupId string, ruleIDs []string, isEgress bool) {
 			}
 		}
 	})
+	if !isEgress {
+		ec2ReapplyIngress(vpcID)
+	}
 }
 
 // ec2RevokeSecurityGroup handles both RevokeSecurityGroupIngress and
@@ -2859,7 +2869,9 @@ func ec2RevokeSecurityGroup(w http.ResponseWriter, r *http.Request, isEgress boo
 	perm := parseIpPermission(r, "IpPermissions.1")
 
 	var found bool
+	var vpcID string
 	ec2SecurityGroups.Update(groupId, func(sg *EC2SecurityGroup) {
+		vpcID = sg.VpcId
 		if isEgress {
 			found = ec2PermissionExists(sg.IpPermissionsEgress, perm)
 			if found {
@@ -2872,6 +2884,9 @@ func ec2RevokeSecurityGroup(w http.ResponseWriter, r *http.Request, isEgress boo
 			}
 		}
 	})
+	if found && !isEgress {
+		ec2ReapplyIngress(vpcID)
+	}
 	if !found {
 		ec2ErrorXML(w, "InvalidPermission.NotFound",
 			"The specified rule does not exist in this security group.",
@@ -3481,12 +3496,7 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 	reservationID := ec2ID("r")
 	sgIDs := runInstancesSecurityGroups(r)
 	if len(sgIDs) == 0 {
-		for _, sg := range ec2SecurityGroups.Filter(func(sg EC2SecurityGroup) bool {
-			return sg.VpcId == subnet.VpcId && sg.GroupName == "default"
-		}) {
-			sgIDs = append(sgIDs, sg.GroupId)
-			break
-		}
+		sgIDs = ec2DefaultSecurityGroupIDs(subnet.VpcId)
 	}
 	launchTime := time.Now().UTC().Format(time.RFC3339)
 	tags := parseTags(r)
@@ -4181,6 +4191,7 @@ func handleModifyInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 	}
 	// Persist the modified attributes (previously a no-op: the set succeeded but
 	// DescribeInstances/DescribeInstanceAttribute still showed the old value).
+	var regrouped string
 	ec2Instances.Update(instanceID, func(inst *EC2Instance) {
 		if v := r.FormValue("SourceDestCheck.Value"); v != "" {
 			inst.SourceDestCheck = v == "true"
@@ -4199,8 +4210,12 @@ func handleModifyInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 		}
 		if groups := ec2ParamList(r, "GroupId"); len(groups) > 0 {
 			inst.SecurityGroupIds = groups
+			regrouped = inst.VpcId
 		}
 	})
+	if regrouped != "" {
+		ec2ReapplyIngress(regrouped)
+	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyInstanceAttributeResponse %s><requestId>%s</requestId><return>true</return></ModifyInstanceAttributeResponse>`, ec2Xmlns(), sim.NewUUID())
 }
@@ -5597,13 +5612,18 @@ func handleModifyNetworkInterfaceAttribute(w http.ResponseWriter, r *http.Reques
 	if v := r.FormValue("Description.Value"); v != "" {
 		eni.Description = v
 	}
+	regrouped := false
 	if groups := ec2ParamList(r, "SecurityGroupId"); len(groups) > 0 {
 		eni.SecurityGroupIds = groups
+		regrouped = true
 	}
 	if v := r.FormValue("Attachment.DeleteOnTermination"); v != "" {
 		eni.DeleteOnTermination = v == "true"
 	}
 	ec2NetworkInterfaces.Put(eniID, eni)
+	if regrouped {
+		ec2ReapplyIngress(eni.VpcId)
+	}
 	ec2WriteSimpleResponse(w, "ModifyNetworkInterfaceAttributeResponse")
 }
 

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/netrules"
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
@@ -59,6 +60,9 @@ type Spec struct {
 	// ExtraHosts and PublishPorts pass through to the container backend.
 	ExtraHosts   []string
 	PublishPorts []int
+	// Ingress is what the instance may receive: the cloud's security groups,
+	// firewall rules or network security groups, compiled.
+	Ingress [][]netrules.PacketRule
 }
 
 // InitPath is where the instance's init lives.
@@ -160,6 +164,7 @@ func Workload(spec Spec) (placement.Workload, error) {
 		DNS:               spec.DNS,
 		ExtraHosts:        spec.ExtraHosts,
 		PublishPorts:      spec.PublishPorts,
+		Ingress:           spec.Ingress,
 		Seed:              seed,
 		Labels:            labels,
 		Sandbox:           Sandbox,
