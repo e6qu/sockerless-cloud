@@ -3427,9 +3427,27 @@ backend turns each bind of a host directory into an export named by the
 path's hash and a mount the guest makes from its gateway (`GuestSpec.Mounts`,
 `MemberSpec.Mounts`); guestinit mounts them before the process starts, into
 a member's root for a member, read-only where the bind was. An engine
-volume — a sitecontainer's, an Amazon ECS task's, an ACR task's — lives
-where this process cannot read it, and a single file has no export, so
-those binds still refuse a guest (`ErrBindMounts`). The KVM proof places a
+volume — a sitecontainer's, an Amazon ECS task's managed EBS volume — lives
+where this process cannot read it, so a share container serves it: the
+sidecar program as `sidecar shares`, the same `sim/fileshare` server over
+the volumes the simulator binds under its `/exports`, started in the node
+agent's network namespace, where every guest reaches it at the agent's
+address on the guest's network, on a port the backend counts out above the
+agent's API port, one container per workload that binds a volume
+(`sidecar.StartShares`, `GuestState.AgentAddress`). It keeps the
+capabilities a server reading and writing the volumes' files as their
+owners needs and nothing else, and goes with the workload: once the
+guest's first process or the member has exited, before the handle reports
+it, so the cloud's removal of the volume finds it free, or at `Remove`
+for a guest kept after its exit; a container a previous process started
+is found by its label. A bind of one host file is an export whose root
+lists that entry alone (`fileshare.Export.Only`): nothing else at that
+root is looked up, made or removed, and guestinit mounts it out of the
+way and binds the file over the path (`Mount.File`). An Amazon ECS task
+definition volume with no configuration used to be an engine volume named
+by the volume's name, shared by every task that named it and never
+removed; it is the task's own ephemeral storage now, named by the task,
+shared by its containers and removed with it. The KVM proof places a
 guest with a bind and a read-only bind of one directory, reads what the
 host wrote, writes, makes a directory and renames across it from the
 guest, has the host read the result, and has the read-only mount refuse a

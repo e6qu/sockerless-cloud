@@ -2285,3 +2285,65 @@ func TestECS_DeploymentLifecycleHookHoldsTheDeployment(t *testing.T) {
 	})
 	require.Error(t, err, "a hook that already succeeded must not be continued again")
 }
+
+// A task definition volume with no configuration is the task's own
+// ephemeral storage: the task's containers share it, and a second task of
+// the definition starts with an empty one.
+func TestECS_TaskVolumeIsSharedByItsContainersAndItsOwn(t *testing.T) {
+	t.Parallel()
+	client := ecsClient()
+	clusterName := "task-volume"
+	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(clusterName)})
+	require.NoError(t, err)
+	tdOut, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+		Family:                  aws.String("task-volume"),
+		NetworkMode:             ecstypes.NetworkModeAwsvpc,
+		RequiresCompatibilities: []ecstypes.Compatibility{ecstypes.CompatibilityFargate},
+		Cpu:                     aws.String("256"),
+		Memory:                  aws.String("512"),
+		Volumes:                 []ecstypes.Volume{{Name: aws.String("scratch")}},
+		ContainerDefinitions: []ecstypes.ContainerDefinition{
+			{
+				StopTimeout: aws.Int32(2),
+				Name:        aws.String("reader"),
+				Image:       aws.String(busyboxImage),
+				EntryPoint:  []string{"sh", "-c"},
+				// The reader waits for the writer's marker, which the
+				// shared volume carries across the task's containers.
+				Command:     []string{`i=0; while [ ! -e /scratch/marker ] && [ $i -lt 60 ]; do sleep 0.5; i=$((i+1)); done; test "$(cat /scratch/marker)" = written`},
+				MountPoints: []ecstypes.MountPoint{{SourceVolume: aws.String("scratch"), ContainerPath: aws.String("/scratch")}},
+			},
+			{
+				StopTimeout: aws.Int32(2),
+				Name:        aws.String("writer"),
+				Image:       aws.String(busyboxImage),
+				Essential:   aws.Bool(false),
+				EntryPoint:  []string{"sh", "-c"},
+				// A marker already there would be another task's.
+				Command:     []string{`test ! -e /scratch/marker && echo written > /scratch/marker`},
+				MountPoints: []ecstypes.MountPoint{{SourceVolume: aws.String("scratch"), ContainerPath: aws.String("/scratch")}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	subnetID := createECSTestSubnet(t, "task-volume")
+	for round := 1; round <= 2; round++ {
+		runOut, err := client.RunTask(ctx, &ecs.RunTaskInput{
+			Cluster:        aws.String(clusterName),
+			TaskDefinition: tdOut.TaskDefinition.TaskDefinitionArn,
+			LaunchType:     ecstypes.LaunchTypeFargate,
+			NetworkConfiguration: &ecstypes.NetworkConfiguration{
+				AwsvpcConfiguration: &ecstypes.AwsVpcConfiguration{Subnets: []string{subnetID}},
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, runOut.Tasks, 1)
+		taskArn := *runOut.Tasks[0].TaskArn
+		cleanupECSTask(t, client, clusterName, taskArn)
+		stopped := waitTaskStopped(t, client, clusterName, taskArn)
+		for _, c := range stopped.Containers {
+			require.NotNil(t, c.ExitCode, "round %d: container %s reports no exit code", round, aws.ToString(c.Name))
+			assert.Equal(t, int32(0), *c.ExitCode, "round %d: container %s exited with %d", round, aws.ToString(c.Name), *c.ExitCode)
+		}
+	}
+}

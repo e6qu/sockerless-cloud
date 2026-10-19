@@ -91,8 +91,10 @@ Current state of the sockerless-cloud repository.
   (`ContainerConfig.ExtraNetworks`) are interfaces a guest boots with, as
   they are networks a container joins after it starts, so a site
   integrated into more than one virtual network places on either backend.
-  A guest takes no engine volume, so the volume-carrying workloads stay on
-  containers.
+  An engine volume reaches a guest as a share a container serves from the
+  node agent's network namespace, one per workload, gone with it, and a
+  bind of one host file as that file; the `ecs-microvm` shard runs a
+  task's managed EBS volume on a guest.
   Amazon EC2, Compute Engine and Azure virtual machine instances boot from
   each cloud's image catalog (`sim/vminstance`): the init runs the instance's
   user data, the instance stops and starts on its own root disk, and an

@@ -2,9 +2,6 @@
 
 ## Next
 
-- **Serve engine volumes to guests** the way host directories are served:
-  the sitecontainer, Amazon ECS task and ACR task volumes still refuse a
-  guest, and a single-file bind has no share.
 - **Stage 5 of `PLAN.md`: distributed.** The agent on another host, reached
   over its API with its minted token, and networks that span hosts; the
   same-range gap (two live VPCs over one CIDR on one engine) lifts there.
