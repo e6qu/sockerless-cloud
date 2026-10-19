@@ -193,6 +193,10 @@ func gcpEnsureSubnetworkNetwork(ctx context.Context, subnet ComputeSubnetwork) (
 			return gcpWorkloadNetwork{}, fmt.Errorf("subnetwork %s: %w", subnet.SelfLink, err)
 		}
 	}
+	if err := gcpEnsureSubnetworkNAT(ctx, subnet, spec.Name); err != nil {
+		return gcpWorkloadNetwork{}, err
+	}
+	gcpSubnetworkNetworksUp.Store(subnet.SelfLink, spec.Name)
 	return gcpWorkloadNetwork{Network: spec.Name, Sidecar: sidecar}, nil
 }
 
@@ -200,6 +204,8 @@ func gcpEnsureSubnetworkNetwork(ctx context.Context, subnet ComputeSubnetwork) (
 // sidecar first, and is idempotent for a subnetwork that never had one.
 func gcpRemoveSubnetworkNetwork(ctx context.Context, subnet ComputeSubnetwork) error {
 	name := gcpSubnetworkNetworkName(subnet.SelfLink)
+	gcpRemoveSubnetworkNAT(subnet.SelfLink)
+	gcpSubnetworkNetworksUp.Delete(subnet.SelfLink)
 	gcpRemoveNetworkSidecar(name)
 	cloudDNSResolverNetworks.Delete(name)
 	if gcpMicroVMBackend != nil {

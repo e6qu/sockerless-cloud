@@ -1116,6 +1116,7 @@ func handleReplaceRouteTableAssociation(w http.ResponseWriter, r *http.Request) 
 			Main:          main,
 		})
 	})
+	ec2ReapplyRoutes(ec2RouteTableVPC(newRT))
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ReplaceRouteTableAssociationResponse %s><requestId>%s</requestId><newAssociationId>%s</newAssociationId><associationState><state>associated</state></associationState></ReplaceRouteTableAssociationResponse>`,
 		ec2Xmlns(), sim.NewUUID(), newAssocID)

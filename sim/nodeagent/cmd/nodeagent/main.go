@@ -101,6 +101,7 @@ func (a *agent) handler() http.Handler {
 	mux.HandleFunc("POST /v1/guests/{id}/exec", a.handleExec)
 	mux.HandleFunc("POST /v1/guests/{id}/stop", a.handleStop)
 	mux.HandleFunc("PUT /v1/guests/{id}/ingress", a.handleIngress)
+	mux.HandleFunc("PUT /v1/guests/{id}/route", a.handleRoute)
 	mux.HandleFunc("PUT /v1/guests/{id}/disks/{slot}", a.handleDisk)
 	mux.HandleFunc("PUT /v1/guests/{id}/members/{name}", a.handleCreateMember)
 	mux.HandleFunc("PUT /v1/guests/{id}/members/{name}/rootfs", a.handleMemberRootFS)
@@ -392,6 +393,26 @@ func (a *agent) handleIngress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := g.applyIngress(r.Context(), stages); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *agent) handleRoute(w http.ResponseWriter, r *http.Request) {
+	g, ok := a.get(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusNotFound, errGuestNotFound)
+		return
+	}
+	var req struct {
+		DefaultRoute string `json:"defaultRoute"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := g.applyRoute(r.Context(), req.DefaultRoute); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -57,8 +58,27 @@ type guestNetwork struct {
 	AgentAddress string   `json:"agentAddress"`
 	Address      string   `json:"address"`
 	Gateway      string   `json:"gateway"`
+	DefaultRoute string   `json:"defaultRoute"`
 	MAC          string   `json:"mac"`
 	DNS          []string `json:"dns"`
+}
+
+// noDefaultRoute is the DefaultRoute of a guest with no route out.
+const noDefaultRoute = "none"
+
+// nextHop is the gateway the guest's default route goes to: Gateway when
+// DefaultRoute names nothing, the address it names, or "" for no route.
+func (n guestNetwork) nextHop() (string, error) {
+	switch n.DefaultRoute {
+	case "":
+		return n.Gateway, nil
+	case noDefaultRoute:
+		return "", nil
+	}
+	if _, err := netip.ParseAddr(n.DefaultRoute); err != nil {
+		return "", fmt.Errorf("default route %q: %w", n.DefaultRoute, err)
+	}
+	return n.DefaultRoute, nil
 }
 
 type seedFile struct {
@@ -172,6 +192,9 @@ func (a *agent) create(spec guestSpec) (*guest, error) {
 	}
 	if _, err := netip.ParseAddr(spec.Network.Gateway); err != nil {
 		return nil, fmt.Errorf("gateway %q: %w", spec.Network.Gateway, err)
+	}
+	if _, err := spec.Network.nextHop(); err != nil {
+		return nil, err
 	}
 	if _, err := net.ParseMAC(spec.Network.MAC); err != nil {
 		return nil, fmt.Errorf("mac %q: %w", spec.Network.MAC, err)
@@ -827,6 +850,37 @@ func (g *guest) applyIngress(ctx context.Context, stages [][]packetRule) error {
 		return nil
 	}
 	return g.agent.net.applyIngress(ctx, tap, stages)
+}
+
+// applyRoute replaces where the guest's default route goes, in the guest
+// through its init when it runs, and in the spec for its next boot.
+func (g *guest) applyRoute(ctx context.Context, defaultRoute string) error {
+	network := g.spec.Network
+	network.DefaultRoute = defaultRoute
+	via, err := network.nextHop()
+	if err != nil {
+		return err
+	}
+	g.mu.Lock()
+	g.spec.Network.DefaultRoute = defaultRoute
+	running := g.status == statusRunning
+	g.mu.Unlock()
+	if !running {
+		return nil
+	}
+	body, _ := json.Marshal(map[string]string{"via": via})
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, "http://guest/route", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := g.vsockClient().Do(req)
+	if err != nil {
+		return fmt.Errorf("route the guest: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusNoContent {
+		out, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("route the guest: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // attachDisk gives a slot a block device of the size asked for; Firecracker

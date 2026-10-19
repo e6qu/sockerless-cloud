@@ -89,6 +89,7 @@ func route53RegisterResolverNetwork(network, vpcID string) {
 
 // stopRoute53Sidecars removes every network sidecar at shutdown.
 func stopRoute53Sidecars() {
+	ec2StopNatGatewayEgresses()
 	if networkSidecars != nil {
 		networkSidecars.Close()
 	}

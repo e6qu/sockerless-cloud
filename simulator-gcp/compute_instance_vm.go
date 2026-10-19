@@ -107,6 +107,7 @@ func gcpInstanceWorkload(inst ComputeInstance, netw gcpWorkloadNetwork, image gc
 		UserDataEveryBoot: true,
 		Env:               netw.env(),
 		Seed:              []sim.SeedFile{{Path: gcpStartupScriptPath, Mode: 0o700, Data: []byte(startup)}},
+		Gateway:           gcpInstanceGateway(inst),
 		VCPUs:             shape.GuestCpus,
 		MemoryMiB:         shape.MemoryMb,
 		Labels:            map[string]string{"sockerless-gcp-instance-project": project},

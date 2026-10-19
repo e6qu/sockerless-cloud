@@ -243,6 +243,9 @@ var gcpMountPrefixes = map[string]string{
 // document, plus the simulator's own control surface. Each entry MUST be
 // justified — never a place to hide an invented Google path.
 var allowedNonSpecGCPRoutes = map[string]string{
+	// The simulator's own channel from a Cloud NAT's egress sidecar, under
+	// the token the simulator minted for it; no cloud client ever sees it.
+	"POST /sockerless/sidecar/egress": "egress sidecar reports (simulator-internal, token-bound)",
 	// The Discovery document endpoint every Google API serves under its own
 	// host. Client generators and the bq tool, whenever its API root is not
 	// Google's, build their clients from it, and no API's Discovery document

@@ -81,12 +81,12 @@ func TestECS_ManagedEBSRunTaskProcessMode(t *testing.T) {
 	ecsc := ecs.NewFromConfig(sdkConfig(), func(o *ecs.Options) { o.BaseEndpoint = aws.String(url) })
 	ec2c := ec2.NewFromConfig(sdkConfig(), func(o *ec2.Options) { o.BaseEndpoint = aws.String(url) })
 
-	vpcOut, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.248.0.0/16")})
+	vpcOut, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.245.0.0/16")})
 	require.NoError(t, err)
 	vpcID := aws.ToString(vpcOut.Vpc.VpcId)
 	subnetOut, err := ec2c.CreateSubnet(ctx, &ec2.CreateSubnetInput{
 		VpcId:     aws.String(vpcID),
-		CidrBlock: aws.String("10.248.1.0/24"),
+		CidrBlock: aws.String("10.245.1.0/24"),
 	})
 	require.NoError(t, err)
 	subnetID := aws.ToString(subnetOut.Subnet.SubnetId)

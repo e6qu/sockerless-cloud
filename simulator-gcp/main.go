@@ -89,6 +89,7 @@ func startGCPListeners(srv *sim.Server, cfg sim.Config) (func(context.Context) e
 	resumeCloudRunWorkloads()
 	return func(context.Context) error {
 		gcpStopPlacement(cfg.Persist)
+		gcpStopNATEgresses()
 		if networkSidecars != nil {
 			networkSidecars.Close()
 		}

@@ -3543,3 +3543,71 @@ alone was put on the default network, so the firewall rules of the
 subnetwork's network never reached it and the implied deny dropped every
 frame; the interface is on its subnetwork's network, as Compute Engine
 derives it.
+
+### NAT gateways on guests
+
+A cloud's NAT gateway is an egress sidecar (`sidecar egress`) on the
+network, at the gateway's address, holding `CAP_NET_ADMIN` in its own
+namespace and nothing else: it programs an nftables nat prerouting chain
+through netlink (`google/nftables`, no `nft` binary in the scratch image)
+that redirects TCP and UDP from the sources it serves, bound for anything
+outside the local ranges, to its proxy, which opens each connection toward
+the destination from the gateway's own address. A redirected TCP
+connection's destination is read with `SO_ORIGINAL_DST`; a datagram's
+comes from the connection tracker (`ti-mo/conntrack`), queried by the
+reverse of the flow the redirect created, because `IP_RECVORIGDSTADDR`
+reports the address after the rewrite. Replies to a datagram go back
+through the socket the redirect delivered to, so the kernel restores the
+destination, and only from the destination the datagram went to, as a
+symmetric NAT admits them. The proxy applies the gateway's idle timeouts,
+reports every connection to the simulator under its token
+(`egress.ReportPath`: opened, established with the gateway's own port,
+closed with the bytes each way and why, and the open count each minute),
+and flushes the reports once the closes are in when it is stopped with
+its grace. `sim/sidecar`'s proof routes a busybox probe through the
+sidecar and shows the outside seeing the sidecar's address, UDP answered,
+and the reports.
+
+A workload names where its default route goes (`ContainerConfig.Gateway`:
+the network's gateway, an address on the network, or `sim.NoGateway`),
+and a handle changes it while the workload runs (`Handle.SetGateway`); the
+container backend and a member answer `ErrNoRouteControl`, the gap
+`BUGS.md` keeps for containers. The node agent boots a guest with the
+route in the kernel's `ip=` (an empty gateway is no route out) and
+replaces it on a running guest through guestinit, which speaks
+`RTM_NEWROUTE` and `RTM_DELROUTE` itself, since a guest image need not
+carry `ip`; the KVM proof places a guest with no route, routes it through
+a neighbour, back through the network's gateway, and nowhere.
+
+Amazon VPC: CreateNatGateway starts the gateway's sidecar at its private
+address on the VPC's network when the network is up, and the network
+brings it up otherwise; a subnet's route table (its association, else
+the VPC's main table) with 0.0.0.0/0 to a NAT gateway points its
+instances and awsvpc tasks at the gateway, to an internet gateway at the
+network's gateway, to a gateway that is gone at nothing; every route,
+association and NAT gateway write reprograms the VPC's running workloads
+(`ec2ReapplyRoutes`). The sidecar's reports are the `AWS/NATGateway`
+metrics under `NatGatewayId` (`ConnectionAttemptCount`,
+`ConnectionEstablishedCount`, the four byte metrics, `IdleTimeoutCount`,
+`ActiveConnectionCount`), and the gateway's idle timeout is the 350
+seconds NAT gateways keep an idle connection. Compute Engine: the first
+NAT of a Cloud Router in a subnetwork's region and network whose source
+ranges name it covers the subnetwork, and its sidecar sits at the address
+before the node agent's, which the ledger keeps; an instance with no
+external address on a covered subnetwork routes through it, with the NAT's
+`tcpEstablishedIdleTimeoutSec` and `udpIdleTimeoutSec`; a router write
+re-evaluates every subnetwork whose network is up; with `logConfig.enable`
+the NAT writes a `compute.googleapis.com/nat_flows` entry per connection
+under the `nat_gateway` resource, naming the connection, the endpoint and
+the VPC. Azure: a NAT gateway attached to subnets gets a sidecar at the
+last address of its first subnet, one Azure reserves, serving the attached
+subnets' ranges with the gateway's `idleTimeoutInMinutes` and Azure's
+four-minute UDP idle; a gateway or subnet write reapplies; the reports are
+the gateway's Azure Monitor metrics (`ByteCount` by direction,
+`SNATConnectionCount` by connection state, `TotalConnectionCount`,
+`DatapathAvailability`), which `Microsoft.Insights/metrics` and
+`metricDefinitions` under a NAT gateway list per time grain and
+aggregation from a metric store the clouds' data planes feed. Each cloud's
+guest shard proves it with an instance reaching a listener of the test's
+own outside the network, which sees the gateway and not the instance, and
+the gateway's metrics or logs counting the connection.

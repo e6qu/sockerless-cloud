@@ -135,7 +135,8 @@ func (c containerHandle) Cancel()                 { c.ContainerHandle.Cancel() }
 func (c containerHandle) SetIngress(context.Context, [][]netrules.PacketRule) error {
 	return ErrNoIngressFilter
 }
-func (c containerHandle) Stop() { sim.StopContainer(c.ContainerID, c.grace) }
+func (c containerHandle) SetGateway(context.Context, string) error { return ErrNoRouteControl }
+func (c containerHandle) Stop()                                    { sim.StopContainer(c.ContainerID, c.grace) }
 
 func (c containerHandle) PublishedPort(ctx context.Context, port int) (int, error) {
 	return c.ContainerHandle.PublishedPort(ctx, port)

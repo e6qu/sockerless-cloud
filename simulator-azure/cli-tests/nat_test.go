@@ -43,4 +43,17 @@ func TestNetworkNatGatewayPublicIPPrefixCLI(t *testing.T) {
 	if !strings.Contains(out, "cli-nat") {
 		t.Fatalf("expected NAT gateway list response, got %s", out)
 	}
+
+	// The gateway's Azure Monitor metrics are listed by name, with the
+	// definitions the gateway's namespace publishes.
+	out = runCLI(t, azRest("GET", baseURL+natID+"/providers/Microsoft.Insights/metricDefinitions?api-version=2024-02-01", ""))
+	for _, metric := range []string{"ByteCount", "SNATConnectionCount", "TotalConnectionCount", "DatapathAvailability"} {
+		if !strings.Contains(out, `"value": "`+metric+`"`) {
+			t.Fatalf("expected the metric definitions to name %s, got %s", metric, out)
+		}
+	}
+	out = runCLI(t, azRest("GET", baseURL+natID+"/providers/Microsoft.Insights/metrics?api-version=2024-02-01&metricnames=TotalConnectionCount&aggregation=Total&interval=PT1M", ""))
+	if !strings.Contains(out, `"value": "TotalConnectionCount"`) || !strings.Contains(out, `"namespace": "Microsoft.Network/natGateways"`) {
+		t.Fatalf("expected the gateway's TotalConnectionCount series, got %s", out)
+	}
 }

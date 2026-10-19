@@ -368,7 +368,10 @@ Current state of the sockerless-cloud repository.
   through creating, updating and deleting.
 - **A NAT gateway route translates the subnets its route table governs**,
   explicitly or through the main route table, recomputed on every association
-  change.
+  change, and carries what a guest in them sends out of the VPC: the
+  gateway's egress sidecar at its private address, which the guest's default
+  route names, with the gateway's 350-second idle timeout and the
+  `AWS/NATGateway` metrics in Amazon CloudWatch.
 
 ### Google Cloud
 

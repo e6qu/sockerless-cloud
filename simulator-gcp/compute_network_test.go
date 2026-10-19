@@ -166,12 +166,14 @@ func TestGCPInstanceAddressLeasesComeFromTheSubnetworkLedger(t *testing.T) {
 }
 
 // A subnetwork whose tenant addresses are all leased refuses the next lease
-// with Compute Engine's IP_SPACE_EXHAUSTED reason.
+// with Compute Engine's IP_SPACE_EXHAUSTED reason. A /29 holds three of
+// them: Google reserves its first two and last two addresses, and the
+// subnetwork's Cloud NAT sidecar holds the one before the last two.
 func TestGCPInstanceAddressLeaseReportsAnExhaustedSubnetwork(t *testing.T) {
 	useLedgerStores(t)
 	subnet := "projects/p/regions/us-central1/subnetworks/tiny"
 	gcpSubnetworks.Put(subnet, ComputeSubnetwork{SelfLink: subnet, Network: "projects/p/global/networks/n", IpCidrRange: "10.9.1.0/29"})
-	for i, want := range []string{"10.9.1.2", "10.9.1.3", "10.9.1.4", "10.9.1.5"} {
+	for i, want := range []string{"10.9.1.2", "10.9.1.3", "10.9.1.5"} {
 		inst := ledgerInstance("vm", subnet, "")
 		inst.SelfLink += string(rune('a' + i))
 		if err := gcpLeaseInstanceAddress(&inst, 0); err != nil || inst.NetworkInterfaces[0].NetworkIP != want {
@@ -182,7 +184,7 @@ func TestGCPInstanceAddressLeaseReportsAnExhaustedSubnetwork(t *testing.T) {
 	err := gcpLeaseInstanceAddress(&inst, 0)
 	var refusal computeFieldRefusal
 	if !errors.As(err, &refusal) || refusal.reason != "IP_SPACE_EXHAUSTED" || refusal.message != "IP space of '"+subnet+"' is exhausted." {
-		t.Fatalf("fifth lease of a /29 = %v, want IP_SPACE_EXHAUSTED", err)
+		t.Fatalf("fourth lease of a /29 = %v, want IP_SPACE_EXHAUSTED", err)
 	}
 }
 

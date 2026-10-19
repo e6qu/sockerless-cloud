@@ -3,7 +3,9 @@
 // metadata endpoints at the address the cloud serves them on, and forwards
 // both to the simulator that started it. It holds no capability and no secret
 // but the token the simulator minted for it. As `sidecar shares` it serves
-// the engine volumes bound under /exports to guests over NFSv4 instead.
+// the engine volumes bound under /exports to guests over NFSv4 instead, and
+// as `sidecar egress` it is a NAT gateway: it carries the connections the
+// guests routed through it open toward the outside, from its own address.
 package main
 
 import (
@@ -72,10 +74,14 @@ func envOr(key, fallback string) string {
 }
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "shares" {
+	if len(os.Args) > 1 && (os.Args[1] == "shares" || os.Args[1] == "egress") {
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 		defer stop()
-		if err := serveShares(ctx, os.Stdout); err != nil {
+		serve := serveShares
+		if os.Args[1] == "egress" {
+			serve = serveEgress
+		}
+		if err := serve(ctx, os.Stdout); err != nil {
 			log.Fatalf("sidecar: %v", err)
 		}
 		return

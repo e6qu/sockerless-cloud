@@ -406,7 +406,7 @@ jobs:
             run: '^TestC'
             # Firewall rules between neighbours are enforced on guests; the
             # microvm shard proves it.
-            skip: '^TestCompute_FirewallRulesFilterWhatAnInstanceReceives'
+            skip: '^TestCompute_(FirewallRulesFilterWhatAnInstanceReceives|CloudNATCarriesAnInstancesConnections)'
           - cloud: gcp
             suite: sdk
             shard: not-C
@@ -432,7 +432,7 @@ jobs:
             run: '^Test[B-Z]'
             # Network security groups between neighbours are enforced on
             # guests; the microvm shard proves it.
-            skip: '^TestCosmos(Scripts)?_DifferentialVsEmulator|^TestCompute_NetworkSecurityGroupFiltersWhatAMachineReceives'
+            skip: '^TestCosmos(Scripts)?_DifferentialVsEmulator|^TestCompute_(NetworkSecurityGroupFiltersWhatAMachineReceives|NatGatewayCarriesAMachinesConnections)'
           # Microsoft's Cosmos DB emulator needs most of a two-core runner for
           # minutes to initialise, so its two oracle tests run on their own.
           - cloud: azure
@@ -448,7 +448,7 @@ jobs:
           - cloud: gcp
             suite: sdk
             shard: microvm
-            run: '^TestCompute_(InstanceBootsRunsItsStartupScriptAndKeepsItsDisk|FirewallRulesFilterWhatAnInstanceReceives)'
+            run: '^TestCompute_(InstanceBootsRunsItsStartupScriptAndKeepsItsDisk|FirewallRulesFilterWhatAnInstanceReceives|CloudNATCarriesAnInstancesConnections)'
             placement: compute=microvm
             deadline: 9m
           # The Cloud Run microVM shard places each instance's containers in
@@ -464,7 +464,7 @@ jobs:
           - cloud: azure
             suite: sdk
             shard: microvm
-            run: '^TestCompute_(VirtualMachine(RunsCustomDataAndReadsItsMetadata|DeallocateKeepsTheOSDiskAndAnImageCapturesIt|StateOperations|GuestOperations|BootDiagnostics)|NetworkSecurityGroupFiltersWhatAMachineReceives)'
+            run: '^TestCompute_(VirtualMachine(RunsCustomDataAndReadsItsMetadata|DeallocateKeepsTheOSDiskAndAnImageCapturesIt|StateOperations|GuestOperations|BootDiagnostics)|NetworkSecurityGroupFiltersWhatAMachineReceives|NatGatewayCarriesAMachinesConnections)'
             placement: virtualmachines=microvm
             deadline: 9m
           # The Container Apps microVM shard places each replica and job
@@ -763,7 +763,7 @@ jobs:
           # backend's; the guest shard proves it.
           - suite: compute
             run: '^Test(E[^C]|EC[^S])'
-            skip: '^TestEC2_SecurityGroupFiltersWhatAnInstanceReceives'
+            skip: '^TestEC2_(SecurityGroupFiltersWhatAnInstanceReceives|NatGatewayCarriesAPrivateSubnetsConnections)'
           # The Amazon Aurora tests then leave compute for a shard of their own:
           # with the EC2 real-execution tests, compute ran 11 to 14 minutes of
           # its 15-minute job and was cancelled at the bound once.
@@ -798,7 +798,7 @@ jobs:
           # still ends with named stacks and the simulator's own dump, where
           # the job's limit would have cancelled it with neither.
           - suite: ec2-microvm
-            run: '^TestEC2(_(InstanceRunsUserDataAndReadsItsMetadata|StopKeepsTheRootDiskAndCreateImageCapturesIt|InstancesOfVPCsSharingACIDRCannotCoexist|RunInstancesRefusesAnArchitectureMismatch|ImportImageFromAnOCIReferenceBoots|ConsoleOutput|SecurityGroupFiltersWhatAnInstanceReceives)|InstanceSurvivesSimulatorRestart_SDK)$'
+            run: '^TestEC2(_(InstanceRunsUserDataAndReadsItsMetadata|StopKeepsTheRootDiskAndCreateImageCapturesIt|InstancesOfVPCsSharingACIDRCannotCoexist|RunInstancesRefusesAnArchitectureMismatch|ImportImageFromAnOCIReferenceBoots|ConsoleOutput|SecurityGroupFiltersWhatAnInstanceReceives|NatGatewayCarriesAPrivateSubnetsConnections)|InstanceSurvivesSimulatorRestart_SDK)$'
             placement: ec2=microvm
             deadline: 420s
           # Amazon ECS Fargate tasks again, each awsvpc task in one guest at

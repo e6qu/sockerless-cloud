@@ -63,6 +63,9 @@ type Spec struct {
 	// Ingress is what the instance may receive: the cloud's security groups,
 	// firewall rules or network security groups, compiled.
 	Ingress [][]netrules.PacketRule
+	// Gateway is where the instance's default route goes, in the terms of
+	// sim.ContainerConfig.Gateway: the cloud's routing for its subnet.
+	Gateway string
 }
 
 // InitPath is where the instance's init lives.
@@ -171,6 +174,7 @@ func Workload(spec Spec) (placement.Workload, error) {
 		ExtraHosts:        spec.ExtraHosts,
 		PublishPorts:      spec.PublishPorts,
 		Ingress:           spec.Ingress,
+		Gateway:           spec.Gateway,
 		Seed:              seed,
 		Labels:            labels,
 		Sandbox:           Sandbox,

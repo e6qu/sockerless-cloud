@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/sidecar"
+	"github.com/e6qu/sockerless-cloud/sim/sidecar/egress"
 )
 
 // vnetNameFromSubnetID extracts the VNet name from a subnet resource ID
@@ -319,6 +321,8 @@ func registerNetwork(srv *sim.Server) {
 			}
 		}
 
+		azureReapplyNAT()
+
 		// The response embeds every subnet the network holds, inline-declared
 		// and pre-existing alike.
 		subnetList := subnets.Filter(func(s Subnet) bool {
@@ -410,6 +414,7 @@ func registerNetwork(srv *sim.Server) {
 			AzureError(w, code, message, status)
 			return
 		}
+		azureReapplyNAT()
 
 		// go-azure-sdk expects 200 for sync creates
 		sim.WriteJSON(w, http.StatusOK, sn)
@@ -691,6 +696,7 @@ func registerNetwork(srv *sim.Server) {
 	azureLBInboundNatRules = sim.MakeStore[LoadBalancerChild](srv.DB(), "network_lb_inbound_nat_rules")
 	azureNICTapConfigs = sim.MakeStore[InterfaceTapConfiguration](srv.DB(), "network_nic_tap_configs")
 
+	srv.HandleFunc("POST "+egress.ReportPath, sidecar.EgressReports(azureTakeNATEgressReport))
 	srv.HandleFunc("PUT "+armBase+"/natGateways/{name}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -732,6 +738,7 @@ func registerNetwork(srv *sim.Server) {
 				sn.Properties.NatGateway = &SubResource{ID: gw.ID}
 			})
 		}
+		azureReapplyNAT()
 		sim.WriteJSON(w, http.StatusOK, gw)
 	})
 
@@ -775,6 +782,8 @@ func registerNetwork(srv *sim.Server) {
 			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/natGateways/%s",
 			sub, rg, name)
 		natGateways.Delete(resourceID)
+		azureRemoveNATGatewayEgress(resourceID)
+		azureReapplyRoutes()
 		w.WriteHeader(http.StatusOK)
 	})
 

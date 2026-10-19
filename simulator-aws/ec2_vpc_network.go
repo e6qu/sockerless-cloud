@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"sync"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -54,16 +55,41 @@ func ec2EnsureVPCNetwork(ctx context.Context, vpcID string) (awsWorkloadNetwork,
 	if err := awsJoinMicroVMNetwork(ctx, name, cidr); err != nil {
 		return awsWorkloadNetwork{}, fmt.Errorf("vpc %s: %w", vpcID, err)
 	}
-	return awsWorkloadNetwork{Name: name, Sidecar: running.Address}, nil
+	network := awsWorkloadNetwork{Name: name, Sidecar: running.Address}
+	if err := ec2EnsureVPCNatGateways(ctx, vpcID, network); err != nil {
+		return awsWorkloadNetwork{}, err
+	}
+	ec2VPCNetworksUp.Store(vpcID, network)
+	return network, nil
+}
+
+// ec2VPCNetworksUp holds the engine network of every VPC this process has
+// realized, by VPC id.
+var ec2VPCNetworksUp sync.Map
+
+// ec2VPCNetworkUp is the VPC's engine network when this process realized
+// it: a NAT gateway created afterwards starts its data plane on it at once,
+// one created before gets it with the network.
+func ec2VPCNetworkUp(vpcID string) (awsWorkloadNetwork, bool) {
+	v, ok := ec2VPCNetworksUp.Load(vpcID)
+	if !ok {
+		return awsWorkloadNetwork{}, false
+	}
+	network, ok := v.(awsWorkloadNetwork)
+	return network, ok
 }
 
 // ec2RemoveVPCNetwork removes a deleted VPC's sidecar and engine network.
 func ec2RemoveVPCNetwork(ctx context.Context, vpcID string) error {
 	name := ecsVPCNetworkName(vpcID)
+	for _, natgw := range ec2NatGateways.Filter(func(n EC2NatGateway) bool { return n.VpcId == vpcID }) {
+		ec2RemoveNatGatewayEgress(natgw.NatGatewayId)
+	}
 	if sidecars, err := awsNetworkSidecars(); err == nil {
 		sidecars.Remove(name)
 	}
 	r53ResolverVPCs.Delete(name)
+	ec2VPCNetworksUp.Delete(vpcID)
 	if err := awsLeaveMicroVMNetwork(ctx, name); err != nil {
 		return err
 	}

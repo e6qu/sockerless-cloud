@@ -161,6 +161,7 @@ func ec2InstanceSpec(ctx context.Context, inst EC2Instance) (vminstance.Spec, aw
 		Labels:     map[string]string{"sockerless-sim-aws-instance": inst.InstanceId},
 		ExtraHosts: append(workloadhost.ExtraHosts(), elbv2WorkloadExtraHosts()...),
 		Ingress:    ec2IngressStages(inst.SecurityGroupIds),
+		Gateway:    ec2SubnetGateway(inst.SubnetId),
 	}
 	return spec, network, nil
 }

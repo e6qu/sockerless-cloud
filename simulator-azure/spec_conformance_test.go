@@ -271,6 +271,9 @@ var allowedNonSpecAzurePrefixes = map[string]string{
 // the ACR exchange flow's /oauth2/* mux routes are covered by the ACR
 // data-plane swagger and match there.)
 var allowedNonSpecAzureRoutes = map[string]string{
+	// The simulator's own channel from a NAT gateway's egress sidecar, under
+	// the token the simulator minted for it; no cloud client ever sees it.
+	"POST /sockerless/sidecar/egress": "egress sidecar reports (simulator-internal, token-bound)",
 	// ARM long-running-operation polling: clients poll whatever URL the
 	// Azure-AsyncOperation / Location header carries — the URL shape is
 	// service-internal and never appears in a swagger. These are the

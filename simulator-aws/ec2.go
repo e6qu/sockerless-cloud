@@ -1721,6 +1721,17 @@ func handleCreateNatGateway(w http.ResponseWriter, r *http.Request) {
 		CreateTime: time.Now().UTC().Format(time.RFC3339),
 	}
 	ec2NatGateways.Put(id, natgw)
+	// The gateway's data plane runs on the VPC's network, from now on when
+	// the network is up and with the network otherwise, and a subnet already
+	// routed to the gateway's id leaves through it.
+	if network, ok := ec2VPCNetworkUp(vpcId); ok {
+		if err := ec2EnsureNatGatewayEgress(r.Context(), natgw, network); err != nil {
+			ec2NatGateways.Delete(id)
+			ec2ErrorXML(w, "InternalError", fmt.Sprintf("failed to start the NAT gateway: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+	ec2ReapplyRoutes(vpcId)
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateNatGatewayResponse %s>
@@ -1810,7 +1821,10 @@ func handleDescribeNatGateways(w http.ResponseWriter, r *http.Request) {
 
 func handleDeleteNatGateway(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("NatGatewayId")
+	natgw, _ := ec2NatGateways.Get(id)
 	ec2NatGateways.Delete(id)
+	ec2RemoveNatGatewayEgress(id)
+	ec2ReapplyRoutes(natgw.VpcId)
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteNatGatewayResponse %s>
@@ -2078,6 +2092,7 @@ func handleCreateRoute(w http.ResponseWriter, r *http.Request) {
 	ec2RouteTables.Update(rtId, func(rt *EC2RouteTable) {
 		rt.Routes = append(rt.Routes, route)
 	})
+	ec2ReapplyRoutes(ec2RouteTableVPC(rtId))
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateRouteResponse %s>
@@ -2117,6 +2132,7 @@ func handleReplaceRoute(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	})
+	ec2ReapplyRoutes(rt.VpcId)
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ReplaceRouteResponse %s>
@@ -2140,6 +2156,7 @@ func handleDeleteRoute(w http.ResponseWriter, r *http.Request) {
 		}
 		rt.Routes = filtered
 	})
+	ec2ReapplyRoutes(ec2RouteTableVPC(rtId))
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DeleteRouteResponse %s>
@@ -2160,6 +2177,7 @@ func handleAssociateRouteTable(w http.ResponseWriter, r *http.Request) {
 			Main:          false,
 		})
 	})
+	ec2ReapplyRoutes(ec2RouteTableVPC(rtId))
 
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AssociateRouteTableResponse %s>
@@ -2184,6 +2202,7 @@ func handleDisassociateRouteTable(w http.ResponseWriter, r *http.Request) {
 					}
 					rt.Associations = filtered
 				})
+				ec2ReapplyRoutes(rt.VpcId)
 				break
 			}
 		}

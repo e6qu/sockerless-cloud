@@ -96,14 +96,24 @@ type MemberSpec struct {
 const InitProcess = "init"
 
 // GuestNetwork is the guest's place on an engine network the agent joined.
+// NoDefaultRoute is the DefaultRoute of a guest with no route out of its
+// network.
+const NoDefaultRoute = "none"
+
 type GuestNetwork struct {
 	// AgentAddress is the agent's own address on the network, which names the
 	// interface the guest bridges onto.
 	AgentAddress string `json:"agentAddress"`
 	// Address is the guest's address in CIDR notation.
 	Address string `json:"address"`
+	// Gateway is the network's own gateway, where the engine's host and
+	// the shares it serves are reached.
 	Gateway string `json:"gateway"`
-	MAC     string `json:"mac"`
+	// DefaultRoute is where the guest's default route goes: empty for
+	// Gateway, an address on the network for another next hop, or
+	// NoDefaultRoute for none.
+	DefaultRoute string `json:"defaultRoute,omitempty"`
+	MAC          string `json:"mac"`
 	// DNS are the resolvers the guest asks.
 	DNS []string `json:"dns,omitempty"`
 }

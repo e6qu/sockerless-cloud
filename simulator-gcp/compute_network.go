@@ -101,12 +101,17 @@ func gcpSubnetworkIPAMLocked(subnetLink string) (*ipam.IPAM, error) {
 		return nil, fmt.Errorf("subnetwork %s: %w", subnetLink, err)
 	}
 	// A service on microVMs needs the node agent on the subnetwork, at the
-	// address before the one Google reserves, ahead of the first guest.
-	if gcpMicroVMBackend != nil {
-		if cidr, err := netip.ParsePrefix(subnet.IpCidrRange); err == nil {
+	// address before the one Google reserves, ahead of the first guest; the
+	// subnetwork's Cloud NAT has its sidecar at the one before that on either
+	// backend.
+	if cidr, err := netip.ParsePrefix(subnet.IpCidrRange); err == nil {
+		if gcpMicroVMBackend != nil {
 			if _, err := pool.Reserve("node-agent", net.ParseIP(gcpSubnetworkAgentAddress(cidr).String())); err != nil {
 				return nil, fmt.Errorf("subnetwork %s: reserve the node agent's address: %w", subnetLink, err)
 			}
+		}
+		if _, err := pool.Reserve("cloud-nat", net.ParseIP(gcpSubnetworkNATAddress(cidr).String())); err != nil {
+			return nil, fmt.Errorf("subnetwork %s: reserve the Cloud NAT's address: %w", subnetLink, err)
 		}
 	}
 	if gcpInstances != nil {
