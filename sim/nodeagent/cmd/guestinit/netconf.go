@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -38,6 +39,56 @@ func configureInterfaces(ifaces []guestInterface) error {
 		}
 	}
 	return nil
+}
+
+// setDefaultRoute points the guest's default route at via on the interface,
+// replacing the one it has, or removes it when via is empty.
+func setDefaultRoute(ifname, via string) error {
+	link, err := net.InterfaceByName(ifname)
+	if err != nil {
+		return err
+	}
+	if via == "" {
+		err := rtnetlink(delDefaultRouteMessage())
+		if errors.Is(err, unix.ESRCH) {
+			return nil
+		}
+		return err
+	}
+	gateway, err := netip.ParseAddr(via)
+	if err != nil || !gateway.Is4() {
+		return fmt.Errorf("gateway %q: an IPv4 address is required", via)
+	}
+	return rtnetlink(newDefaultRouteMessage(link.Index, gateway))
+}
+
+// newDefaultRouteMessage is RTM_NEWROUTE replacing the IPv4 default route
+// with one through the gateway on the interface.
+func newDefaultRouteMessage(index int, gateway netip.Addr) []byte {
+	addr := gateway.As4()
+	payload := defaultRouteHeader()
+	payload = append(payload, rtattr(unix.RTA_GATEWAY, addr[:])...)
+	oif := make([]byte, 4)
+	binary.NativeEndian.PutUint32(oif, uint32(index))
+	payload = append(payload, rtattr(unix.RTA_OIF, oif)...)
+	return nlmsg(unix.RTM_NEWROUTE, unix.NLM_F_REQUEST|unix.NLM_F_CREATE|unix.NLM_F_REPLACE|unix.NLM_F_ACK, payload)
+}
+
+// delDefaultRouteMessage is RTM_DELROUTE for the IPv4 default route.
+func delDefaultRouteMessage() []byte {
+	return nlmsg(unix.RTM_DELROUTE, unix.NLM_F_REQUEST|unix.NLM_F_ACK, defaultRouteHeader())
+}
+
+// defaultRouteHeader is the rtmsg of the IPv4 default route in the main
+// table: destination length zero, unicast, universe scope.
+func defaultRouteHeader() []byte {
+	payload := make([]byte, unix.SizeofRtMsg)
+	payload[0] = unix.AF_INET
+	payload[4] = unix.RT_TABLE_MAIN
+	payload[5] = unix.RTPROT_BOOT
+	payload[6] = unix.RT_SCOPE_UNIVERSE
+	payload[7] = unix.RTN_UNICAST
+	return payload
 }
 
 // rtnetlink sends one request and reads its acknowledgement.

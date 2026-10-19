@@ -726,6 +726,7 @@ var azureNonSpecRequestPrefixes = []string{
 	"/beta/",              // Microsoft Graph beta surface (spec lives in msgraph-metadata)
 	"/msi/token",          // App Service MSI token endpoint
 	"/metadata/endpoints", // ARM cloud-environment metadata bootstrap (terraform metadata_host)
+	"/sockerless/",        // the simulator's own channels from its sidecars
 }
 
 // azureNonSpecRequestPath reports whether a request path belongs to a

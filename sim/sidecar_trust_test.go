@@ -14,7 +14,7 @@ func TestSidecarTrustMiddlewareTrustsOnlyARegisteredToken(t *testing.T) {
 	RegisterSidecarToken("good", "net-a")
 	t.Cleanup(func() { UnregisterSidecarToken("good") })
 	var remote, network, leaked string
-	h := sidecarTrustMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := SidecarTrust(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		remote, network = r.RemoteAddr, SidecarNetwork(r.Context())
 		leaked = r.Header.Get(sidecarTokenHeader) + r.Header.Get(sidecarClientHeader)
 	}))

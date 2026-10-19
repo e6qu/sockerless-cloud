@@ -812,6 +812,20 @@ func serveControl(group *members) {
 		go p.stop()
 		rw.WriteHeader(http.StatusAccepted)
 	})
+	mux.HandleFunc("POST /route", func(rw http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Via string `json:"via"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := setDefaultRoute("eth0", req.Via); err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		rw.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("POST /freeze", func(rw http.ResponseWriter, r *http.Request) {
 		if err := freezeRoot(fiFreeze); err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)

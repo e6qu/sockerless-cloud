@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/sidecar/egress"
 	"github.com/e6qu/sockerless-cloud/sim/simjwt"
 	uiauth "github.com/e6qu/sockerless-cloud/ui-auth"
 )
@@ -352,6 +353,11 @@ func isAuthExempt(r *http.Request) bool {
 		return true
 	case strings.HasPrefix(p, "/.well-known/"):
 		// OpenID Connect discovery + JWKS.
+		return true
+	case r.Method == http.MethodPost && p == egress.ReportPath:
+		// A Cloud NAT's sidecar reports its connections with the token the
+		// simulator minted for it, which sim.SidecarTrust verifies; it holds
+		// no Google credential.
 		return true
 	case strings.HasPrefix(p, "/computeMetadata/"):
 		// GCE metadata server — gated by the Metadata-Flavor: Google header

@@ -81,11 +81,18 @@ type Handle interface {
 	// spells it, on a backend that filters; the container backend and a
 	// member, which receives through its owner, return ErrNoIngressFilter.
 	SetIngress(ctx context.Context, stages [][]netrules.PacketRule) error
+	// SetGateway replaces where the workload's default route goes, in the
+	// terms of Workload.Gateway, or returns ErrNoRouteControl.
+	SetGateway(ctx context.Context, gateway string) error
 }
 
 // ErrNoIngressFilter is returned by a handle whose backend cannot filter
 // what the workload receives.
 var ErrNoIngressFilter = errors.New("the backend does not filter what the workload receives")
+
+// ErrNoRouteControl is returned by a backend that cannot choose where a
+// workload's default route goes: a container's is the engine's.
+var ErrNoRouteControl = errors.New("the backend does not route the workload")
 
 // Existing is a workload a backend holds from an earlier simulator process:
 // running, or exited with its filesystem kept. A member is listed beside

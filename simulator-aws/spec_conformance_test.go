@@ -296,6 +296,10 @@ func TestQueryActionsExistInSmithyModels(t *testing.T) {
 var allowedNonSpecRoutes = map[string]string{
 	"POST /": "protocol dispatch root: awsJson (X-Amz-Target) + awsQuery (Action/Version) services serve on POST /; per-operation validation happens in the target/action tests",
 
+	// The simulator's own channel from a NAT gateway's egress sidecar, under
+	// the token the simulator minted for it; no cloud client ever sees it.
+	"POST /sockerless/sidecar/egress": "egress sidecar reports (simulator-internal, token-bound)",
+
 	// EC2 Instance Metadata Service (IMDSv2) — documented AWS surface
 	// (SDK credential/region resolution), not modeled in any Smithy spec.
 	"PUT /latest/api/token":                                 "IMDSv2 token endpoint",

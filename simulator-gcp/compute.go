@@ -18,6 +18,8 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/ipam"
 	"github.com/e6qu/sockerless-cloud/sim/netrules"
+	"github.com/e6qu/sockerless-cloud/sim/sidecar"
+	"github.com/e6qu/sockerless-cloud/sim/sidecar/egress"
 )
 
 // gcpInt64 round-trips int64 quoted-as-string (real GCP discovery
@@ -1630,6 +1632,7 @@ func registerCompute(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, "regions/"+region, selfLink, "delete"))
 	})
 
+	srv.HandleFunc("POST "+egress.ReportPath, sidecar.EgressReports(gcpTakeNATEgressReport))
 	srv.HandleFunc("POST /compute/v1/projects/{project}/regions/{region}/routers", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		region := sim.PathParam(r, "region")
@@ -1655,6 +1658,7 @@ func registerCompute(srv *sim.Server) {
 		}
 		defaultRouterNATTypes(rt.Nats)
 		routers.Put(rt.SelfLink, rt)
+		gcpReapplyNAT()
 		op := newComputeOpWithType(project, "regions/"+region, rt.SelfLink, "insert")
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
@@ -1704,6 +1708,7 @@ func registerCompute(srv *sim.Server) {
 		if computeNotFound(w, routers.Delete(selfLink), "router", name) {
 			return
 		}
+		gcpReapplyNAT()
 		op := newComputeOpWithType(project, "regions/"+region, selfLink, "delete")
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
@@ -1741,6 +1746,7 @@ func registerCompute(srv *sim.Server) {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "router %q not found", name)
 			return
 		}
+		gcpReapplyNAT()
 		op := newComputeOpWithType(project, "regions/"+region, selfLink, "patch")
 		sim.WriteJSON(w, http.StatusOK, op)
 	})

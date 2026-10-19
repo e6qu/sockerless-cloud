@@ -273,6 +273,12 @@ func (c *Client) SetIngress(ctx context.Context, id string, stages [][]PacketRul
 	return c.doJSON(ctx, http.MethodPut, "/v1/guests/"+id+"/ingress", stages, nil)
 }
 
+// SetRoute replaces where the guest's default route goes, in the terms of
+// GuestNetwork.DefaultRoute.
+func (c *Client) SetRoute(ctx context.Context, id, defaultRoute string) error {
+	return c.doJSON(ctx, http.MethodPut, "/v1/guests/"+id+"/route", map[string]string{"defaultRoute": defaultRoute}, nil)
+}
+
 // AttachDisk gives one of the guest's disk slots a block device of the size.
 func (c *Client) AttachDisk(ctx context.Context, id string, slot, sizeMiB int) error {
 	return c.doJSON(ctx, http.MethodPut, fmt.Sprintf("/v1/guests/%s/disks/%d", id, slot), map[string]int{"sizeMiB": sizeMiB}, nil)

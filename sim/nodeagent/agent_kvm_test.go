@@ -473,6 +473,7 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 		IPv4Address:  "10.79.0.14",
 		Command:      []string{"sleep"},
 		Args:         []string{"300"},
+		Gateway:      sim.NoGateway,
 		MemoryBytes:  256 << 20,
 		NanoCPU:      1_000_000_000,
 	}, sim.NoopSink{})
@@ -527,6 +528,46 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 	}
 	if !reaches(80) {
 		t.Fatal("an empty stage on the prober kept its own connection's replies out")
+	}
+
+	// A guest's default route goes where its cloud's routing says: placed
+	// with none it reaches its neighbours and nothing beyond, routed through
+	// a neighbour while it runs it leaves through the neighbour, and routed
+	// back through the network's gateway it leaves through the engine.
+	defaultRoute := func() string {
+		t.Helper()
+		// BusyBox's ip prints every route whatever selector follows "show".
+		out, err := probe.Exec(filterCtx, []string{"ip", "route"})
+		if err != nil {
+			t.Fatalf("read the probe's default route: %v", err)
+		}
+		for _, line := range strings.Split(out.Stdout, "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "default ") {
+				return strings.TrimSpace(line) + " "
+			}
+		}
+		return ""
+	}
+	if route := defaultRoute(); route != "" {
+		t.Fatalf("a guest placed with no gateway has a default route: %q", route)
+	}
+	if err := probe.SetGateway(filterCtx, "10.79.0.13"); err != nil {
+		t.Fatalf("route the probe through its neighbour: %v", err)
+	}
+	if route := defaultRoute(); !strings.Contains(route, "via 10.79.0.13 ") {
+		t.Fatalf("the probe's default route is %q, want one through 10.79.0.13", route)
+	}
+	if err := probe.SetGateway(filterCtx, ""); err != nil {
+		t.Fatalf("route the probe through the gateway: %v", err)
+	}
+	if route := defaultRoute(); !strings.Contains(route, "via 10.79.0.1 ") {
+		t.Fatalf("the probe's default route is %q, want one through the network's gateway", route)
+	}
+	if err := probe.SetGateway(filterCtx, sim.NoGateway); err != nil {
+		t.Fatalf("take the probe's route away: %v", err)
+	}
+	if route := defaultRoute(); route != "" {
+		t.Fatalf("a guest routed nowhere keeps a default route: %q", route)
 	}
 
 	// A cloud deletes a network once nothing of its own is on it, and the

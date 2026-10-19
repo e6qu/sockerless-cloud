@@ -143,6 +143,7 @@ func azureVMInstanceSpec(ctx context.Context, vm VirtualMachine) (vminstance.Spe
 	}
 	spec := vminstance.Spec{
 		Ingress:   ingress,
+		Gateway:   azureVMGateway(nic),
 		Name:      "sockerless-sim-azure-vm-" + sanitizeContainerName(vm.Name) + "-" + sim.RandomHex(4),
 		ID:        strings.ToLower(vm.ID),
 		Hostname:  azureVMComputerName(vm),

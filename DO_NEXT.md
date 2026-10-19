@@ -5,8 +5,9 @@
 - **Stage 5 of `PLAN.md`: distributed.** The agent on another host, reached
   over its API with its minted token, and networks that span hosts; the
   same-range gap (two live VPCs over one CIDR on one engine) lifts there.
-- **Close the no-privilege gaps `BUGS.md` holds**: NAT gateway, Cloud NAT and
-  Azure NAT Gateway data planes as a sidecar proxy per network;
+- **Close the no-privilege gaps `BUGS.md` holds**: the NAT data planes'
+  remainders (ICMP, packet counts, Cloud Monitoring for Cloud NAT, the
+  public address as the source a peer sees, a subnet with no route out);
   cloud-init for Compute Engine `user-data` and Azure `customData`; the
   fixed link-local metadata address; packet capture and packet mirroring
   data paths; managed block volume size and filesystem on the container

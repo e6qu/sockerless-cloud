@@ -58,6 +58,7 @@ func startAzureListeners(_ *sim.Server, cfg sim.Config) (func(context.Context) e
 		cancel()
 		azureReleaseVMWorkloads(ctx)
 		stopAzurePlacement(cfg.Persist)
+		azureStopNATEgresses()
 		if networkSidecars != nil {
 			networkSidecars.Close()
 		}
@@ -196,6 +197,7 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 	registerResourcesARM(srv)
 	registerTags(srv)
 	registerNetwork(srv)
+	registerMonitorMetrics(srv)
 	registerCompute(srv)
 	registerManagedIdentity(srv)
 	registerWorkloadIdentity(srv)

@@ -142,6 +142,7 @@ func (b *MicroVMBackend) Place(ctx context.Context, w Workload, sink sim.LogSink
 			AgentAddress: agentAddr.String(),
 			Address:      netip.PrefixFrom(addr, subnet.Bits()).String(),
 			Gateway:      gateway,
+			DefaultRoute: w.Gateway,
 			MAC:          guestMAC(b.macPrefix, addr, id),
 			DNS:          w.DNS,
 		},
@@ -669,10 +670,17 @@ func (h *microVMHandle) SetIngress(ctx context.Context, stages [][]netrules.Pack
 	return h.agent.SetIngress(ctx, h.id, agentIngress(stages))
 }
 
+func (h *microVMHandle) SetGateway(ctx context.Context, gateway string) error {
+	return h.agent.SetRoute(ctx, h.id, gateway)
+}
+
 // A member receives through its owner's tap.
 func (h *memberHandle) SetIngress(context.Context, [][]netrules.PacketRule) error {
 	return ErrNoIngressFilter
 }
+
+// A member routes through its owner.
+func (h *memberHandle) SetGateway(context.Context, string) error { return ErrNoRouteControl }
 
 // agentIngress spells a workload's ingress stages as the agent takes them.
 func agentIngress(stages [][]netrules.PacketRule) [][]nodeagent.PacketRule {

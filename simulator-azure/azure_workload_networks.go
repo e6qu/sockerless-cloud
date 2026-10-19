@@ -101,6 +101,10 @@ func azureVNetNetwork(ctx context.Context, vnetID string) (azureWorkloadNetwork,
 	if err != nil {
 		return azureWorkloadNetwork{}, err
 	}
+	azureVNetNetworksUp.Store(strings.ToLower(vnet.ID), name)
+	if err := azureEnsureVNetNATGateways(ctx, vnet.ID); err != nil {
+		return azureWorkloadNetwork{}, err
+	}
 	return azureWorkloadNetwork{Network: name, DNS: dns}, nil
 }
 
@@ -149,6 +153,14 @@ func azureVNetMicroVMAgentAddress(vnetID string, vnetPrefix netip.Prefix) netip.
 // workload is still attached.
 func azureRemoveVNetNetwork(ctx context.Context, vnetID string) error {
 	network := dockerNetForVNet(vnetID)
+	azureVNetNetworksUp.Delete(strings.ToLower(vnetID))
+	if azureNatGateways != nil {
+		for _, gw := range azureNatGateways.List() {
+			if subnets, _ := azureNATGatewaySubnets(gw.ID); len(subnets) > 0 && strings.EqualFold(azureVNetIDOfSubnet(subnets[0].ID), vnetID) {
+				azureRemoveNATGatewayEgress(gw.ID)
+			}
+		}
+	}
 	azureRemoveSidecar(network)
 	if err := azureLeaveMicroVMNetwork(ctx, network); err != nil {
 		return err

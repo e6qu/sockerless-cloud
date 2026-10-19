@@ -61,6 +61,10 @@ type NetworkAttachment struct {
 	IPv4Address string
 }
 
+// NoGateway is the Gateway of a workload with no default route: one whose
+// subnet's routing names no way out.
+const NoGateway = "none"
+
 type ContainerConfig struct {
 	Image        string // container image (e.g., "alpine:latest")
 	Architecture string // OS/arch (e.g. "linux/arm64"); see field-level docstring above
@@ -86,6 +90,12 @@ type ContainerConfig struct {
 	// route out through it: a site integrated into more than one virtual
 	// network.
 	ExtraNetworks []NetworkAttachment
+	// Gateway is where the workload's default route goes: empty for the
+	// network's own gateway, an address on the network for a next hop the
+	// cloud's routing names (a NAT gateway), or NoGateway for no route out.
+	// A backend that cannot route a workload leaves it on the network's
+	// gateway.
+	Gateway string
 	// Hostname is the name the container sees as its own; empty leaves the
 	// engine's default.
 	Hostname string

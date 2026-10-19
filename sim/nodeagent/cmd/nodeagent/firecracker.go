@@ -48,8 +48,15 @@ func (g *guest) launchFirecracker(ctx context.Context, tap string, extraTaps []s
 		return nil, err
 	}
 	mask := net.CIDRMask(g.address.Bits(), 32)
+	// An empty gateway in the kernel's ip= leaves the guest without a
+	// default route, as a subnet with no way out does.
+	via, err := g.spec.Network.nextHop()
+	if err != nil {
+		kill()
+		return nil, err
+	}
 	bootArgs := fmt.Sprintf("console=ttyS0 reboot=k panic=1 pci=off init=/sbin/sockerless-init ip=%s::%s:%s::eth0:off",
-		g.address.Addr(), g.spec.Network.Gateway, net.IP(mask))
+		g.address.Addr(), via, net.IP(mask))
 	if runtime.GOARCH == "arm64" {
 		bootArgs = "keep_bootcon " + bootArgs
 	}

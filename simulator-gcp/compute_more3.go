@@ -643,6 +643,7 @@ func registerComputeRouterMore(srv *sim.Server) {
 		router.CreationTimestamp = existing.CreationTimestamp
 		defaultRouterNATTypes(router.Nats)
 		routers.Put(key, router)
+		gcpReapplyNAT()
 		sim.WriteJSON(w, http.StatusOK, newComputeOpWithType(project, "regions/"+region, computeSelfLink(key), "update"))
 	})
 

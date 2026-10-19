@@ -2652,6 +2652,9 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 			if groups, _, ok := ecsTaskENIGroups(taskID); ok {
 				cfg.Ingress = ec2IngressStages(groups)
 			}
+			if _, subnetID, ok := ecsTaskENIInfo(taskID); ok {
+				cfg.Gateway = ec2SubnetGateway(subnetID)
+			}
 		default:
 			// bridge mode: each container gets its own address on the
 			// container instance's network, the platform network.

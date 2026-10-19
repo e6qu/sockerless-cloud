@@ -42,7 +42,9 @@ func SidecarNetwork(ctx context.Context) string {
 // NewSidecarToken mints a token for one sidecar.
 func NewSidecarToken() string { return RandomHex(48) }
 
-func sidecarTrustMiddleware(next http.Handler) http.Handler {
+// SidecarTrust is the middleware that reads the pair: a server applies it to
+// everything it routes.
+func SidecarTrust(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get(sidecarTokenHeader)
 		client := r.Header.Get(sidecarClientHeader)

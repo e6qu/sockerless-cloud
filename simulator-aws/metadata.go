@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/sidecar"
+	"github.com/e6qu/sockerless-cloud/sim/sidecar/egress"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
@@ -44,6 +46,9 @@ var (
 )
 
 func registerHostMetadata(srv *sim.Server) {
+	// A NAT gateway's egress sidecar reports its connections here, under the
+	// token the simulator minted for it.
+	srv.HandleFunc("POST "+egress.ReportPath, sidecar.EgressReports(ec2TakeNatEgressReport))
 	// PUT /latest/api/token — IMDSv2 token request.
 	srv.HandleFunc("PUT /latest/api/token", func(w http.ResponseWriter, r *http.Request) {
 		ttl := r.Header.Get("X-aws-ec2-metadata-token-ttl-seconds")
