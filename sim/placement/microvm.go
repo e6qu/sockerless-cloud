@@ -17,6 +17,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/ipam"
+	"github.com/e6qu/sockerless-cloud/sim/netrules"
 	"github.com/e6qu/sockerless-cloud/sim/nodeagent"
 )
 
@@ -148,6 +149,7 @@ func (b *MicroVMBackend) Place(ctx context.Context, w Workload, sink sim.LogSink
 		Seed:          seedFiles(w),
 		Mounts:        mounts,
 		ExtraNetworks: extra,
+		Ingress:       agentIngress(w.Ingress),
 	}
 	if w.NanoCPU > 0 {
 		spec.VCPUs = int((w.NanoCPU + 999_999_999) / 1_000_000_000)
@@ -663,7 +665,26 @@ func (h *memberHandle) PublishedPort(context.Context, int) (int, error) {
 
 func (h *memberHandle) Address(context.Context) (string, error) { return h.address, nil }
 
-// SetIngress replaces the rules at the guest's tap.
-func (h *microVMHandle) SetIngress(ctx context.Context, rules []nodeagent.PacketRule) error {
-	return h.agent.SetIngress(ctx, h.id, rules)
+func (h *microVMHandle) SetIngress(ctx context.Context, stages [][]netrules.PacketRule) error {
+	return h.agent.SetIngress(ctx, h.id, agentIngress(stages))
+}
+
+// A member receives through its owner's tap.
+func (h *memberHandle) SetIngress(context.Context, [][]netrules.PacketRule) error {
+	return ErrNoIngressFilter
+}
+
+// agentIngress spells a workload's ingress stages as the agent takes them.
+func agentIngress(stages [][]netrules.PacketRule) [][]nodeagent.PacketRule {
+	if stages == nil {
+		return nil
+	}
+	out := make([][]nodeagent.PacketRule, len(stages))
+	for i, stage := range stages {
+		out[i] = make([]nodeagent.PacketRule, len(stage))
+		for j, rule := range stage {
+			out[i][j] = nodeagent.PacketRule{Protocol: rule.Protocol, SourceCIDR: rule.SourceCIDR, FromPort: rule.FromPort, ToPort: rule.ToPort, Action: rule.Action}
+		}
+	}
+	return out
 }

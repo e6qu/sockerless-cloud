@@ -38,7 +38,7 @@ type guestSpec struct {
 	MemoryMiB  int               `json:"memoryMiB"`
 	Seed       []seedFile        `json:"seed"`
 	StopGrace  time.Duration     `json:"stopGrace"`
-	Ingress    []packetRule      `json:"ingress"`
+	Ingress    [][]packetRule    `json:"ingress"`
 	DiskSlots  int               `json:"diskSlots"`
 	Mounts     []shareMount      `json:"mounts"`
 }
@@ -818,15 +818,15 @@ func (g *guest) stopGrace() time.Duration {
 	return grace
 }
 
-func (g *guest) applyIngress(ctx context.Context, rules []packetRule) error {
+func (g *guest) applyIngress(ctx context.Context, stages [][]packetRule) error {
 	g.mu.Lock()
 	tap := g.tap
-	g.spec.Ingress = rules
+	g.spec.Ingress = stages
 	g.mu.Unlock()
 	if tap == "" {
 		return nil
 	}
-	return g.agent.net.applyIngress(ctx, tap, rules)
+	return g.agent.net.applyIngress(ctx, tap, stages)
 }
 
 // attachDisk gives a slot a block device of the size asked for; Firecracker

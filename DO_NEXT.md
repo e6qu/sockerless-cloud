@@ -6,8 +6,7 @@
   over its API with its minted token, and networks that span hosts; the
   same-range gap (two live VPCs over one CIDR on one engine) lifts there.
 - **Close the no-privilege gaps `BUGS.md` holds**: NAT gateway, Cloud NAT and
-  Azure NAT Gateway data planes as a sidecar proxy per network; security
-  groups between two containers on one network (microVM backend only);
+  Azure NAT Gateway data planes as a sidecar proxy per network;
   cloud-init for Compute Engine `user-data` and Azure `customData`; the
   fixed link-local metadata address; packet capture and packet mirroring
   data paths; managed block volume size and filesystem on the container

@@ -249,6 +249,9 @@ func TestComputeInstanceInsertLeasesAndReleasesItsAddress(t *testing.T) {
 	if got := auto.NetworkInterfaces[0].NetworkIP; got != "10.77.0.2" {
 		t.Fatalf("automatic lease = %s, want 10.77.0.2, the first tenant address", got)
 	}
+	if got, want := auto.NetworkInterfaces[0].Network, "projects/"+project+"/global/networks/lease-net"; got != want {
+		t.Fatalf("an interface naming a subnetwork alone is on its network: %s, want %s", got, want)
+	}
 
 	settle(powerRequest(t, srv, http.MethodDelete, powerInstancePath("fixed", ""), ""))
 	settle(insert("fixed-again", "10.77.0.5"))

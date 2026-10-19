@@ -266,11 +266,11 @@ func (c *Client) LeaveNetwork(ctx context.Context, address netip.Addr) error {
 }
 
 // SetIngress replaces the rules at the guest's tap.
-func (c *Client) SetIngress(ctx context.Context, id string, rules []PacketRule) error {
-	if rules == nil {
-		rules = []PacketRule{}
+func (c *Client) SetIngress(ctx context.Context, id string, stages [][]PacketRule) error {
+	if stages == nil {
+		stages = [][]PacketRule{}
 	}
-	return c.doJSON(ctx, http.MethodPut, "/v1/guests/"+id+"/ingress", rules, nil)
+	return c.doJSON(ctx, http.MethodPut, "/v1/guests/"+id+"/ingress", stages, nil)
 }
 
 // AttachDisk gives one of the guest's disk slots a block device of the size.

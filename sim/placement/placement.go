@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/netrules"
 )
 
 // Kind names a backend.
@@ -76,7 +77,15 @@ type Handle interface {
 	// Address is the workload's IPv4 address on its network, a member's
 	// being its owner's.
 	Address(ctx context.Context) (string, error)
+	// SetIngress replaces what the workload may receive, as Workload.Ingress
+	// spells it, on a backend that filters; the container backend and a
+	// member, which receives through its owner, return ErrNoIngressFilter.
+	SetIngress(ctx context.Context, stages [][]netrules.PacketRule) error
 }
+
+// ErrNoIngressFilter is returned by a handle whose backend cannot filter
+// what the workload receives.
+var ErrNoIngressFilter = errors.New("the backend does not filter what the workload receives")
 
 // Existing is a workload a backend holds from an earlier simulator process:
 // running, or exited with its filesystem kept. A member is listed beside

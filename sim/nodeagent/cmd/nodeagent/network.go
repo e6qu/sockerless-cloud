@@ -191,8 +191,8 @@ func (n *networks) detachTap(tap string) {
 // applyIngress programs the guest's ingress rules at its tap, in the bridge
 // family the tap's frames traverse: what the rules admit reaches the guest,
 // return traffic of what it started always does, and nothing else.
-func (n *networks) applyIngress(ctx context.Context, tap string, rules []packetRule) error {
-	program, err := renderIngressProgram(nftTable(tap), tap, rules)
+func (n *networks) applyIngress(ctx context.Context, tap string, stages [][]packetRule) error {
+	program, err := renderIngressProgram(nftTable(tap), tap, stages)
 	if err != nil {
 		return err
 	}
@@ -207,34 +207,47 @@ func (n *networks) applyIngress(ctx context.Context, tap string, rules []packetR
 func nftTable(tap string) string { return "sockerless_" + tap }
 
 // renderIngressProgram writes an nftables program that replaces the table:
-// with no rules every frame passes, as a guest with nothing attached receives
-// everything the network sends; with rules the first match decides and the
-// rest is dropped.
-func renderIngressProgram(table, tap string, rules []packetRule) (string, error) {
+// with no stages every frame passes, as a guest with nothing attached
+// receives everything the network sends; with stages a frame goes through
+// each stage's chain in turn, where the first matching rule decides, an
+// accept returns it to the next stage and nothing matched drops it, and a
+// frame every stage returned is accepted. A group of groups on one
+// interface, or a subnet's group before a NIC's, is that many stages.
+func renderIngressProgram(table, tap string, stages [][]packetRule) (string, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "table bridge %s {}\n", table)
 	fmt.Fprintf(&b, "delete table bridge %s\n", table)
 	fmt.Fprintf(&b, "table bridge %s {\n", table)
-	fmt.Fprintf(&b, "\tchain forward {\n")
-	fmt.Fprintf(&b, "\t\ttype filter hook forward priority filter; policy accept;\n")
-	if len(rules) > 0 {
-		fmt.Fprintf(&b, "\t\toifname %q ether type arp accept\n", tap)
-		fmt.Fprintf(&b, "\t\toifname %q ct state established,related accept\n", tap)
+	for i, rules := range stages {
+		fmt.Fprintf(&b, "\tchain stage%d {\n", i)
 		for _, rule := range rules {
-			expr, err := renderIngressRule(tap, rule)
+			expr, err := renderIngressRule(rule)
 			if err != nil {
 				return "", err
 			}
 			fmt.Fprintf(&b, "\t\t%s\n", expr)
 		}
-		fmt.Fprintf(&b, "\t\toifname %q drop\n", tap)
+		fmt.Fprintf(&b, "\t\tdrop\n")
+		fmt.Fprintf(&b, "\t}\n")
+	}
+	fmt.Fprintf(&b, "\tchain forward {\n")
+	fmt.Fprintf(&b, "\t\ttype filter hook forward priority filter; policy accept;\n")
+	if len(stages) > 0 {
+		fmt.Fprintf(&b, "\t\toifname %q ether type arp accept\n", tap)
+		fmt.Fprintf(&b, "\t\toifname %q ct state established,related accept\n", tap)
+		for i := range stages {
+			fmt.Fprintf(&b, "\t\toifname %q jump stage%d\n", tap, i)
+		}
+		fmt.Fprintf(&b, "\t\toifname %q accept\n", tap)
 	}
 	fmt.Fprintf(&b, "\t}\n}\n")
 	return b.String(), nil
 }
 
-func renderIngressRule(tap string, rule packetRule) (string, error) {
-	parts := []string{"oifname", fmt.Sprintf("%q", tap)}
+// renderIngressRule is one rule of a stage's chain: an accept returns the
+// frame to the forward chain, which hands it to the next stage.
+func renderIngressRule(rule packetRule) (string, error) {
+	var parts []string
 	if rule.SourceCIDR != "" {
 		parts = append(parts, "ip", "saddr", rule.SourceCIDR)
 	}
@@ -244,7 +257,7 @@ func renderIngressRule(tap string, rule packetRule) (string, error) {
 	}
 	switch proto {
 	case "tcp", "udp", "sctp":
-		parts = append(parts, "ip", "protocol", proto, proto)
+		parts = append(parts, "ip", "protocol", proto)
 		if rule.FromPort > 0 || rule.ToPort > 0 {
 			from, to := rule.FromPort, rule.ToPort
 			if from == 0 {
@@ -254,9 +267,9 @@ func renderIngressRule(tap string, rule packetRule) (string, error) {
 				to = from
 			}
 			if from == to {
-				parts = append(parts, "dport", strconv.Itoa(from))
+				parts = append(parts, proto, "dport", strconv.Itoa(from))
 			} else {
-				parts = append(parts, "dport", fmt.Sprintf("%d-%d", from, to))
+				parts = append(parts, proto, "dport", fmt.Sprintf("%d-%d", from, to))
 			}
 		}
 	case "":
@@ -265,11 +278,15 @@ func renderIngressRule(tap string, rule packetRule) (string, error) {
 	}
 	switch action := strings.ToLower(rule.Action); action {
 	case "", "accept":
-		parts = append(parts, "accept")
+		parts = append(parts, "return")
 	case "drop":
 		parts = append(parts, "drop")
 	default:
 		return "", fmt.Errorf("packet rule action %q is not accept or drop", rule.Action)
+	}
+	if len(parts) == 1 {
+		// A rule matching everything is the chain's verdict.
+		return parts[0], nil
 	}
 	return strings.Join(parts, " "), nil
 }

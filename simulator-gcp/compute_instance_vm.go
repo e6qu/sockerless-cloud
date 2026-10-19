@@ -113,6 +113,11 @@ func gcpInstanceWorkload(inst ComputeInstance, netw gcpWorkloadNetwork, image gc
 		StopGrace:         gcpInstanceStopGrace,
 		ExtraHosts:        append(netw.extraHosts(), fqdn+":"+netw.Address),
 	}
+	ingress, err := gcpIngressStages(inst)
+	if err != nil {
+		return placement.Workload{}, err
+	}
+	spec.Ingress = ingress
 	w, err := vminstance.Workload(spec)
 	if err != nil {
 		return placement.Workload{}, err
@@ -207,6 +212,9 @@ func gcpBootInstanceMachine(ctx context.Context, inst *ComputeInstance) error {
 	gcpInstanceMachines.Store(inst.SelfLink, machine)
 	gcpInstanceKeptMachines.Delete(inst.SelfLink)
 	go gcpWatchInstanceMachine(inst.SelfLink, machine)
+	// The instance carries its tags now, which the rules naming them as a
+	// source expand over on its neighbours.
+	gcpReapplyIngress()
 	return nil
 }
 

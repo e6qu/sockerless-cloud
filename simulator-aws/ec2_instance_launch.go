@@ -160,6 +160,7 @@ func ec2InstanceSpec(ctx context.Context, inst EC2Instance) (vminstance.Spec, aw
 		MemoryMiB:  facts.MemoryMiB,
 		Labels:     map[string]string{"sockerless-sim-aws-instance": inst.InstanceId},
 		ExtraHosts: append(workloadhost.ExtraHosts(), elbv2WorkloadExtraHosts()...),
+		Ingress:    ec2IngressStages(inst.SecurityGroupIds),
 	}
 	return spec, network, nil
 }
@@ -221,7 +222,13 @@ var ec2BootInstance = func(ctx context.Context, inst EC2Instance) error {
 		imdsInstancesByIP.Delete(w.address)
 		return err
 	}
-	return w.attach(ctx, handle)
+	if err := w.attach(ctx, handle); err != nil {
+		return err
+	}
+	// The instance is a member of its groups now, which the permissions
+	// naming them expand over on its neighbours.
+	ec2ReapplyIngress(inst.VpcId)
+	return nil
 }
 
 // restart boots the kept machine again.
@@ -358,10 +365,14 @@ func (w *ec2InstanceWorkload) discard() {
 
 func ec2ForgetWorkload(w *ec2InstanceWorkload) {
 	ec2WorkloadsMu.Lock()
-	if ec2Workloads[w.instanceID] == w {
+	forgotten := ec2Workloads[w.instanceID] == w
+	if forgotten {
 		delete(ec2Workloads, w.instanceID)
 	}
 	ec2WorkloadsMu.Unlock()
+	if forgotten {
+		ec2ReapplyIngress(ec2InstanceRecord(w.instanceID).VpcId)
+	}
 }
 
 // ec2StopWorkload stops an instance's machine and keeps its root disk; a

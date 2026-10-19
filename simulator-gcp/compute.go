@@ -1393,6 +1393,7 @@ func registerCompute(srv *sim.Server) {
 			return
 		}
 		firewalls.Put(fw.SelfLink, fw)
+		gcpReapplyIngress()
 		op := newComputeOp(project, "global", fw.SelfLink)
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
@@ -1439,6 +1440,7 @@ func registerCompute(srv *sim.Server) {
 		if computeNotFound(w, firewalls.Delete(selfLink), "firewall", name) {
 			return
 		}
+		gcpReapplyIngress()
 		// Real Compute Engine stamps a delete operation `operationType: "delete"`;
 		// gcloud keys off it to report the resource as deleted instead of
 		// re-fetching it (which then 404s and fails the command).
@@ -1490,6 +1492,7 @@ func registerCompute(srv *sim.Server) {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "firewall %q not found", name)
 			return
 		}
+		gcpReapplyIngress()
 		op := newComputeOp(project, "global", selfLink)
 		sim.WriteJSON(w, http.StatusOK, op)
 	})
@@ -2502,6 +2505,14 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 			if inst.NetworkInterfaces[i].Name == "" {
 				inst.NetworkInterfaces[i].Name = fmt.Sprintf("nic%d", i)
 			}
+			if inst.NetworkInterfaces[i].Network == "" && inst.NetworkInterfaces[i].Subnetwork != "" {
+				// An interface naming a subnetwork alone is on that subnetwork's
+				// network; the default network is for one naming neither.
+				subnetLink := normalizeComputeSubnetworkRef(project, regionFromZone(zone), inst.NetworkInterfaces[i].Subnetwork)
+				if subnet, ok := subnetworks.Get(subnetLink); ok && subnet.Network != "" {
+					inst.NetworkInterfaces[i].Network = normalizeComputeGlobalNetworkRef(project, subnet.Network)
+				}
+			}
 			if inst.NetworkInterfaces[i].Network == "" {
 				inst.NetworkInterfaces[i].Network = fmt.Sprintf("projects/%s/global/networks/default", project)
 			} else {
@@ -2741,6 +2752,7 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 			GCPErrorf(w, http.StatusPreconditionFailed, "conditionNotMet", "tags fingerprint mismatch; the resource was modified concurrently")
 			return
 		}
+		gcpReapplyIngress()
 		sim.WriteJSON(w, http.StatusOK, computeZoneOp(project, zone, selfLink, "setTags"))
 	})
 }

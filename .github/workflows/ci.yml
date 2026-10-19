@@ -404,6 +404,9 @@ jobs:
             suite: sdk
             shard: C
             run: '^TestC'
+            # Firewall rules between neighbours are enforced on guests; the
+            # microvm shard proves it.
+            skip: '^TestCompute_FirewallRulesFilterWhatAnInstanceReceives'
           - cloud: gcp
             suite: sdk
             shard: not-C
@@ -427,7 +430,9 @@ jobs:
             suite: sdk
             shard: B-Z
             run: '^Test[B-Z]'
-            skip: '^TestCosmos(Scripts)?_DifferentialVsEmulator'
+            # Network security groups between neighbours are enforced on
+            # guests; the microvm shard proves it.
+            skip: '^TestCosmos(Scripts)?_DifferentialVsEmulator|^TestCompute_NetworkSecurityGroupFiltersWhatAMachineReceives'
           # Microsoft's Cosmos DB emulator needs most of a two-core runner for
           # minutes to initialise, so its two oracle tests run on their own.
           - cloud: azure
@@ -443,7 +448,7 @@ jobs:
           - cloud: gcp
             suite: sdk
             shard: microvm
-            run: '^TestCompute_InstanceBootsRunsItsStartupScriptAndKeepsItsDisk'
+            run: '^TestCompute_(InstanceBootsRunsItsStartupScriptAndKeepsItsDisk|FirewallRulesFilterWhatAnInstanceReceives)'
             placement: compute=microvm
             deadline: 9m
           # The Cloud Run microVM shard places each instance's containers in
@@ -459,7 +464,7 @@ jobs:
           - cloud: azure
             suite: sdk
             shard: microvm
-            run: '^TestCompute_VirtualMachine(RunsCustomDataAndReadsItsMetadata|DeallocateKeepsTheOSDiskAndAnImageCapturesIt|StateOperations|GuestOperations|BootDiagnostics)'
+            run: '^TestCompute_(VirtualMachine(RunsCustomDataAndReadsItsMetadata|DeallocateKeepsTheOSDiskAndAnImageCapturesIt|StateOperations|GuestOperations|BootDiagnostics)|NetworkSecurityGroupFiltersWhatAMachineReceives)'
             placement: virtualmachines=microvm
             deadline: 9m
           # The Container Apps microVM shard places each replica and job
@@ -754,8 +759,11 @@ jobs:
           # it is created, and deleting one whose MySQL engine is still
           # starting takes about ten seconds (BUG-3363), which pushed the N-Z
           # shard, already at 470s against the 600s test deadline, past it.
+          # A security group's enforcement between neighbours is the microVM
+          # backend's; the guest shard proves it.
           - suite: compute
             run: '^Test(E[^C]|EC[^S])'
+            skip: '^TestEC2_SecurityGroupFiltersWhatAnInstanceReceives'
           # The Amazon Aurora tests then leave compute for a shard of their own:
           # with the EC2 real-execution tests, compute ran 11 to 14 minutes of
           # its 15-minute job and was cancelled at the bound once.
@@ -790,7 +798,7 @@ jobs:
           # still ends with named stacks and the simulator's own dump, where
           # the job's limit would have cancelled it with neither.
           - suite: ec2-microvm
-            run: '^TestEC2(_(InstanceRunsUserDataAndReadsItsMetadata|StopKeepsTheRootDiskAndCreateImageCapturesIt|InstancesOfVPCsSharingACIDRCannotCoexist|RunInstancesRefusesAnArchitectureMismatch|ImportImageFromAnOCIReferenceBoots|ConsoleOutput)|InstanceSurvivesSimulatorRestart_SDK)$'
+            run: '^TestEC2(_(InstanceRunsUserDataAndReadsItsMetadata|StopKeepsTheRootDiskAndCreateImageCapturesIt|InstancesOfVPCsSharingACIDRCannotCoexist|RunInstancesRefusesAnArchitectureMismatch|ImportImageFromAnOCIReferenceBoots|ConsoleOutput|SecurityGroupFiltersWhatAnInstanceReceives)|InstanceSurvivesSimulatorRestart_SDK)$'
             placement: ec2=microvm
             deadline: 420s
           # Amazon ECS Fargate tasks again, each awsvpc task in one guest at
@@ -988,7 +996,7 @@ jobs:
             SOCKERLESS_AWS_SIMULATOR_BINARY="$GITHUB_WORKSPACE/simulator-aws/simulator-aws" \
             SOCKERLESS_SPEC_VALIDATE="$RUNNER_TEMP/aws-spec-violations.jsonl" \
             SOCKERLESS_SPEC_DIR="$GITHUB_WORKSPACE/specs/cloud-api/aws" \
-            /tmp/aws-sdk-tests.test -test.v -test.count=1 -test.timeout="${{ matrix.deadline || '600s' }}" -test.run "$SHARD_RUN" > "$log" 2>&1 &
+            /tmp/aws-sdk-tests.test -test.v -test.count=1 -test.timeout="${{ matrix.deadline || '600s' }}" -test.run "$SHARD_RUN" ${SHARD_SKIP:+-test.skip "$SHARD_SKIP"} > "$log" 2>&1 &
           test_pid=$!
           # The log streams into the job's output as it is written, so a job
           # the runner cancels at its limit still shows which test it was in.
@@ -1034,6 +1042,7 @@ jobs:
         timeout-minutes: 12
         env:
           SHARD_RUN: ${{ matrix.run }}
+          SHARD_SKIP: ${{ matrix.skip }}
       - name: Spec-shape ratchet (aws sdk ${{ matrix.suite }})
         run: bash scripts/check-spec-violations.sh aws "$RUNNER_TEMP/aws-spec-violations.jsonl"
 

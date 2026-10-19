@@ -34,14 +34,18 @@ trap 'rm -f "$regex_file" "$test_file"' EXIT
 job_block=$(awk '/^  sim-aws-sdk:$/{inside=1; next} /^  [a-z][a-z0-9-]*:$/{inside=0} inside' "$ci")
 placement_file=$(mktemp)
 trap 'rm -f "$regex_file" "$test_file" "$placement_file"' EXIT
+# Each line is a shard: its run regex, a tab, and its skip regex (empty when
+# the shard skips nothing). A test belongs to a shard when run matches and
+# skip does not.
 awk '
-  function flush() { if (run != "") print (placement != "" ? "placement" : "shard") "\t" run }
+  function flush() { if (run != "") print (placement != "" ? "placement" : "shard") "\t" run "\t" skip }
   /^ *steps:/      { flush(); exit }
-  /^ *- suite:/    { flush(); run=""; placement=""; next }
+  /^ *- suite:/    { flush(); run=""; skip=""; placement=""; next }
   /^ *run:/        { run=$0; sub(/^ *run: /, "", run); gsub(/^\047|\047$/, "", run); next }
+  /^ *skip:/       { skip=$0; sub(/^ *skip: /, "", skip); gsub(/^\047|\047$/, "", skip); next }
   /^ *placement:/  { placement=$2; next }
 ' <<<"$job_block" > "$placement_file"
-awk -F'\t' '$1 == "shard" { print $2 }' "$placement_file" > "$regex_file"
+awk -F'\t' '$1 == "shard" { print $2 "\t" $3 }' "$placement_file" > "$regex_file"
 if [ ! -s "$regex_file" ]; then
   echo "FAIL: no AWS SDK shard regexes (run: '^Test[...]' or '^Test(...)') found in $ci" >&2
   exit 1
@@ -58,12 +62,23 @@ while IFS= read -r t; do
   [ -n "$t" ] || continue
   n_tests=$((n_tests + 1))
   matches=0
-  while IFS= read -r re; do
+  while IFS=$'\t' read -r re skip; do
     [ -n "$re" ] || continue
-    if printf '%s\n' "$t" | grep -qE "$re"; then
+    if printf '%s\n' "$t" | grep -qE "$re" && { [ -z "$skip" ] || ! printf '%s\n' "$t" | grep -qE "$skip"; }; then
       matches=$((matches + 1))
     fi
   done < "$regex_file"
+  # A test every container shard skips runs on the guest shard that names
+  # it: what it proves holds only on that backend.
+  if [ "$matches" -eq 0 ]; then
+    while IFS=$'\t' read -r re; do
+      [ -n "$re" ] || continue
+      if printf '%s\n' "$t" | grep -qE "$re"; then
+        matches=1
+        break
+      fi
+    done < <(awk -F'\t' '$1 == "placement" { print $2 }' "$placement_file")
+  fi
   if [ "$matches" -eq 0 ]; then
     echo "FAIL: SDK test $t matches NO shard regex — it never runs in CI" >&2
     orphans=$((orphans + 1))

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute"
@@ -236,4 +237,86 @@ func TestCompute_VirtualMachineDeallocateKeepsTheOSDiskAndAnImageCapturesIt(t *t
 	})
 	assert.Contains(t, runInGuest(t, rg, vmName+"-2", "read", "cat /var/tmp/kept"), "kept-across-deallocate",
 		"the machine created from the image does not carry the captured disk")
+}
+
+// A machine receives what the network security group on its interface
+// allows and nothing else: a neighbour in the virtual network reaches the
+// port a rule allows and not one a rule denies, and a rule added while the
+// machine runs allows its port at once.
+func TestCompute_NetworkSecurityGroupFiltersWhatAMachineReceives(t *testing.T) {
+	t.Parallel()
+	const rg = "vm-nsg-rg"
+	serverNIC := vmOperationsFixture(t, rg, "vm-nsg", "10.255.0.0/16")
+	nsgClient, err := armnetwork.NewSecurityGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	rule := func(name string, priority int32, access armnetwork.SecurityRuleAccess, port string) *armnetwork.SecurityRule {
+		return &armnetwork.SecurityRule{Name: to.Ptr(name), Properties: &armnetwork.SecurityRulePropertiesFormat{
+			Priority: to.Ptr(priority), Direction: to.Ptr(armnetwork.SecurityRuleDirectionInbound), Access: to.Ptr(access),
+			Protocol: to.Ptr(armnetwork.SecurityRuleProtocolTCP), SourceAddressPrefix: to.Ptr("VirtualNetwork"), SourcePortRange: to.Ptr("*"),
+			DestinationAddressPrefix: to.Ptr("*"), DestinationPortRange: to.Ptr(port),
+		}}
+	}
+	nsgPoller, err := nsgClient.BeginCreateOrUpdate(ctx, rg, "vm-nsg-web", armnetwork.SecurityGroup{
+		Location: to.Ptr("eastus"),
+		Properties: &armnetwork.SecurityGroupPropertiesFormat{SecurityRules: []*armnetwork.SecurityRule{
+			rule("allow-80", 100, armnetwork.SecurityRuleAccessAllow, "80"),
+			rule("deny-the-rest", 200, armnetwork.SecurityRuleAccessDeny, "*"),
+		}},
+	}, nil)
+	require.NoError(t, err)
+	nsg, err := nsgPoller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+
+	// The server's interface carries the group; the client's carries none.
+	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	nic, err := nicClient.Get(ctx, rg, "vm-nsg-nic", nil)
+	require.NoError(t, err)
+	nic.Properties.NetworkSecurityGroup = &armnetwork.SecurityGroup{ID: nsg.ID}
+	nicPoller, err := nicClient.BeginCreateOrUpdate(ctx, rg, "vm-nsg-nic", nic.Interface, nil)
+	require.NoError(t, err)
+	_, err = nicPoller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+	serverIP := derefString(nic.Properties.IPConfigurations[0].Properties.PrivateIPAddress)
+	clientPoller, err := nicClient.BeginCreateOrUpdate(ctx, rg, "vm-nsg-probe-nic", armnetwork.Interface{
+		Location: to.Ptr("eastus"),
+		Properties: &armnetwork.InterfacePropertiesFormat{
+			IPConfigurations: []*armnetwork.InterfaceIPConfiguration{{
+				Name: to.Ptr("ipconfig1"),
+				Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{
+					Subnet:                    nic.Properties.IPConfigurations[0].Properties.Subnet,
+					PrivateIPAllocationMethod: to.Ptr(armnetwork.IPAllocationMethodDynamic),
+					PrivateIPAddressVersion:   to.Ptr(armnetwork.IPVersionIPv4),
+					Primary:                   to.Ptr(true),
+				},
+			}},
+		},
+	}, nil)
+	require.NoError(t, err)
+	clientNIC, err := clientPoller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+
+	const serverScript = `#!/bin/sh
+serve() { perl -MIO::Socket::INET -e '$s=IO::Socket::INET->new(LocalPort=>$ARGV[0],Listen=>5,Reuse=>1) or die; while($c=$s->accept){print $c "HTTP/1.0 200 OK\r\n\r\nok\n"; close $c}' "$1" & }
+serve 80
+serve 81
+`
+	createOperationsVM(t, rg, "vm-nsg-web", serverNIC, func(vm *armcompute.VirtualMachine) {
+		vm.Properties.OSProfile.CustomData = to.Ptr(base64.StdEncoding.EncodeToString([]byte(serverScript)))
+	})
+	createOperationsVM(t, rg, "vm-nsg-probe", derefString(clientNIC.ID), nil)
+	probe := func(port int) string {
+		return strings.TrimSpace(runInGuest(t, rg, "vm-nsg-probe", fmt.Sprintf("probe-%d", port),
+			fmt.Sprintf(`bash -c 'if timeout 5 bash -c "exec 3<>/dev/tcp/%s/%d"; then echo port=open; else echo port=closed; fi'`, serverIP, port)))
+	}
+	require.Eventually(t, func() bool { return strings.Contains(probe(80), "port=open") }, 30*time.Second, time.Second, "the allowed port never answered the neighbour")
+	assert.Contains(t, probe(81), "port=closed", "a port the group denies answered the neighbour")
+
+	rulesClient, err := armnetwork.NewSecurityRulesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	rulePoller, err := rulesClient.BeginCreateOrUpdate(ctx, rg, "vm-nsg-web", "allow-81", *rule("allow-81", 150, armnetwork.SecurityRuleAccessAllow, "81"), nil)
+	require.NoError(t, err)
+	_, err = rulePoller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+	assert.Contains(t, probe(81), "port=open", "the rule added while the machine runs does not allow its port")
 }

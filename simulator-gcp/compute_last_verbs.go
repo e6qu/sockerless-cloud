@@ -145,7 +145,7 @@ func registerComputeLastVerbs(srv *sim.Server) {
 	// also carries the permission check every other collection at its scope
 	// does.
 	srv.HandleFunc("PUT /compute/v1/projects/{project}/global/firewalls/{name}", func(w http.ResponseWriter, r *http.Request) {
-		computeTypedUpdate(w, r, "firewalls", gcpFirewalls, nil)
+		computeTypedUpdate(w, r, "firewalls", gcpFirewalls, gcpReapplyIngressAfter)
 	})
 	srv.HandleFunc("PUT /compute/v1/projects/{project}/global/backendServices/{name}", func(w http.ResponseWriter, r *http.Request) {
 		computeTypedUpdate(w, r, "backendServices", gcpBackendServices, nil)

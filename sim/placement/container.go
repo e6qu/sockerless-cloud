@@ -13,6 +13,7 @@ import (
 	"github.com/moby/moby/client"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/netrules"
 )
 
 // ContainerBackend places workloads as containers on the engine the
@@ -131,7 +132,10 @@ func (c containerHandle) Kind() Kind              { return Container }
 func (c containerHandle) Wait() sim.ProcessResult { return c.ContainerHandle.Wait() }
 func (c containerHandle) Exited() <-chan struct{} { return c.ContainerHandle.Exited() }
 func (c containerHandle) Cancel()                 { c.ContainerHandle.Cancel() }
-func (c containerHandle) Stop()                   { sim.StopContainer(c.ContainerID, c.grace) }
+func (c containerHandle) SetIngress(context.Context, [][]netrules.PacketRule) error {
+	return ErrNoIngressFilter
+}
+func (c containerHandle) Stop() { sim.StopContainer(c.ContainerID, c.grace) }
 
 func (c containerHandle) PublishedPort(ctx context.Context, port int) (int, error) {
 	return c.ContainerHandle.PublishedPort(ctx, port)

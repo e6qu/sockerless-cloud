@@ -3477,3 +3477,69 @@ on the first interface as a container's does. App Service leases the
 addresses ahead of the placement, under the workload's name, and the
 agent joins each further virtual network for a service on guests. The KVM
 proof boots a guest on two networks and has it reach the agent on both.
+
+### Filtering at the guest's tap
+
+Two containers on one engine network reach each other on every port, since
+filtering their traffic needs a capability no container holds; a guest's
+traffic passes the agent's bridge, where the agent programs an nftables
+bridge table per tap. A workload names what it may receive as stages
+(`ContainerConfig.Ingress`, `GuestSpec.Ingress`): a frame goes through
+each stage's chain in turn, where the first matching rule decides, an
+accept returns it to the next stage, nothing matched drops it, and a frame
+every stage returned is accepted; no stages admit everything, as a cloud
+with nothing attached does, and an empty stage admits nothing. ARP and the
+replies of connections the guest opened pass ahead of the stages. The
+microVM backend hands the stages to the agent at placement and replaces
+them on a running guest (`Handle.SetIngress`); the container backend and a
+member, which receives through its owner, answer `ErrNoIngressFilter`, and
+the clouds leave them as they are, the gap `BUGS.md` keeps for containers.
+
+Each cloud compiles what it already compiled for the flows the simulator
+mediates. Amazon EC2 instances and awsvpc tasks carry one stage of their
+security groups' ingress permissions, expanded to prefixes; a task run
+with no group joins the VPC's default group, as does an application load
+balancer created with none, and a load balancer's nodes are members of its
+groups at the address the simulator forwards from, the network's gateway,
+so a target's group admits the balancer as it does on AWS. A permission
+naming a group expands over the group's members, so a rule's change, a
+group's reassignment and a member's arrival or departure each reprogram
+every instance and task of the VPC (`ec2ReapplyIngress`). Compute Engine
+instances carry one stage of the network's ingress firewall rules that
+target them, in the engine's order, which the implied deny-ingress rule
+ends; a firewall's insert, patch, update or delete and an instance's tags
+reprogram every machine. Azure virtual machines carry one stage per
+network security group on their interface and their subnet, each ending in
+DenyAllInBound after the defaults; a group's, a rule's, an interface's or a
+subnet's write reprograms every machine, and a machine with no group
+receives everything. The KVM proof boots a server guest admitting port 80
+from the network and a neighbour that reaches 80 and not 81, admits 81 by
+replacing the rules, drops the neighbour through a second stage, and shows
+no stages admitting everything; the `ec2-microvm`, Compute Engine `microvm`
+and Azure `microvm` shards do the same through the clouds' APIs, with the
+neighbour's probe run through Systems Manager, a startup script read from
+the serial console and the custom script extension.
+
+The shards found three gaps the KVM proof could not. CreateVpc had never
+created the VPC's default security group, so an interface, a task or a
+load balancer joining it joined nothing and carried one empty stage, which
+admits nothing: every VPC now comes with its `default` group, admitting
+all traffic from its own members and sending anything, which a user can
+neither create under that reserved name nor delete, and which goes with the
+VPC. A transport rule with no port range rendered a bare protocol keyword
+nftables rejects (`ip protocol tcp tcp drop`), which an Azure deny rule
+over every port compiles to; the keyword now precedes only a port match.
+The instance init piped the user data through `tee` and waited for the
+pipe's end, so a daemon the script left behind, which keeps the pipe open,
+held the ready marker back for ever: the init now relays the output through
+a fifo and waits for the script's process alone, as cloud-init does, and
+the vminstance proof leaves a sleeper behind. Compute Engine's script
+runner reads a script's output to its end before it reports the exit, as
+google_metadata_script_runner does, so the Compute Engine shard's listeners
+close theirs. A `$` anchor in a shard's skip pattern reached make as the
+empty variable `$'` and unbalanced the quote; the patterns anchor at the
+start only. An instance inserted with an interface naming a subnetwork
+alone was put on the default network, so the firewall rules of the
+subnetwork's network never reached it and the implied deny dropped every
+frame; the interface is on its subnetwork's network, as Compute Engine
+derives it.

@@ -295,7 +295,13 @@ func handleELBv2CreateLoadBalancer(w http.ResponseWriter, r *http.Request) {
 		Tags:                      parseELBv2Tags(r, "Tags"),
 		Attributes:                defaultELBv2LoadBalancerAttributes(lbType, scheme),
 	}
+	// An application load balancer created with no group joins the VPC's
+	// default group, as Elastic Load Balancing does.
+	if lbType == "application" && len(lb.SecurityGroups) == 0 {
+		lb.SecurityGroups = ec2DefaultSecurityGroupIDs(lb.VpcID)
+	}
 	elbv2LoadBalancers.Put(arn, lb)
+	ec2ReapplyIngress(lb.VpcID)
 	elbv2XMLResponse(w, "CreateLoadBalancer", "<LoadBalancers>"+elbv2LoadBalancerXML(lb)+"</LoadBalancers>", sim.RequestID(r.Context()))
 }
 
@@ -316,7 +322,9 @@ func handleELBv2DescribeLoadBalancers(w http.ResponseWriter, r *http.Request) {
 
 func handleELBv2DeleteLoadBalancer(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("LoadBalancerArn")
+	deleted, _ := elbv2LoadBalancers.Get(arn)
 	elbv2LoadBalancers.Delete(arn)
+	ec2ReapplyIngress(deleted.VpcID)
 	for _, listener := range elbv2Listeners.Filter(func(l ELBv2Listener) bool { return l.LoadBalancerArn == arn }) {
 		elbv2Listeners.Delete(listener.Arn)
 		elbv2StopListenerProxy(listener.Arn)
@@ -424,12 +432,15 @@ func handleELBv2DescribeCapacityReservation(w http.ResponseWriter, r *http.Reque
 func handleELBv2SetSecurityGroups(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("LoadBalancerArn")
 	groups := queryList(r, "SecurityGroups")
+	var vpcID string
 	if !elbv2LoadBalancers.Update(arn, func(lb *ELBv2LoadBalancer) {
 		lb.SecurityGroups = groups
+		vpcID = lb.VpcID
 	}) {
 		elbv2ErrorXML(w, "LoadBalancerNotFound", "Load balancer not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
+	ec2ReapplyIngress(vpcID)
 	elbv2XMLResponse(w, "SetSecurityGroups", elbv2StringMembersXML("SecurityGroupIds", groups), sim.RequestID(r.Context()))
 }
 
