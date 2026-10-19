@@ -303,27 +303,37 @@ var allowedNonSpecRoutes = map[string]string{
 	// EC2 Instance Metadata Service (IMDSv2) — documented AWS surface
 	// (SDK credential/region resolution), not modeled in any Smithy spec.
 	"PUT /latest/api/token":                                 "IMDSv2 token endpoint",
-	"GET /latest/meta-data/":                                "IMDS root listing",
+	"GET /latest/meta-data/{$}":                             "IMDS root listing",
 	"GET /latest/meta-data/ami-id":                          "IMDS",
 	"GET /latest/meta-data/instance-id":                     "IMDS",
 	"GET /latest/meta-data/instance-type":                   "IMDS",
 	"GET /latest/meta-data/hostname":                        "IMDS",
 	"GET /latest/meta-data/local-hostname":                  "IMDS",
 	"GET /latest/meta-data/local-ipv4":                      "IMDS",
-	"GET /latest/meta-data/public-keys/":                    "IMDS key pair listing",
-	"GET /latest/meta-data/public-keys/0/":                  "IMDS key formats",
+	"GET /latest/meta-data/public-keys/{$}":                 "IMDS key pair listing",
+	"GET /latest/meta-data/public-keys/0/{$}":               "IMDS key formats",
 	"GET /latest/meta-data/public-keys/0/openssh-key":       "IMDS",
+	"GET /latest/meta-data/placement/{$}":                   "IMDS placement listing",
 	"GET /latest/meta-data/placement/availability-zone":     "IMDS",
 	"GET /latest/meta-data/placement/region":                "IMDS",
-	"GET /latest/meta-data/iam/security-credentials/":       "IMDS credential listing",
+	"GET /latest/meta-data/iam/{$}":                         "IMDS profile listing",
+	"GET /latest/meta-data/iam/info":                        "IMDS instance profile",
+	"GET /latest/meta-data/iam/security-credentials/{$}":    "IMDS credential listing",
 	"GET /latest/meta-data/iam/security-credentials/{role}": "IMDS role credentials",
+	"GET /latest/meta-data/tags/{$}":                        "IMDS tag categories",
+	"GET /latest/meta-data/tags/instance":                   "IMDS instance tag keys",
+	"GET /latest/meta-data/tags/instance/{key}":             "IMDS instance tag value",
 	"GET /latest/dynamic/instance-identity/document":        "IMDS identity document",
 
 	// ECS task metadata endpoint v4 — documented AWS surface
 	// (ECS_CONTAINER_METADATA_URI_V4), not in the ECS Smithy model.
-	"GET /v4/{id}":             "ECS task metadata v4 (container)",
-	"GET /v4/{id}/task":        "ECS task metadata v4 (task)",
-	"GET /v4/{id}/credentials": "ECS task-role credential provider",
+	"GET /v4/{id}":      "ECS task metadata v4 (container)",
+	"GET /v4/{id}/task": "ECS task metadata v4 (task)",
+
+	// The container credentials endpoint — documented AWS surface
+	// (AWS_CONTAINER_CREDENTIALS_RELATIVE_URI / _FULL_URI) the SDKs' container
+	// credential provider reads, not in any Smithy model.
+	"GET /v2/credentials/{id}": "container credentials endpoint",
 
 	// Docker Registry HTTP API V2 — ECR's real data plane (docker
 	// push/pull). The wire contract is the OCI distribution spec, not

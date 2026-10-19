@@ -77,6 +77,9 @@ type CBBuild struct {
 	// instead of executing the commands again.
 	BuildPlan          *cbBuildPlan      `json:"-"`
 	RuntimeEnvironment map[string]string `json:"-"`
+	// ServiceRole is the role the build runs as: the build's
+	// serviceRoleOverride, or its project's service role.
+	ServiceRole string `json:"-"`
 }
 
 type CBPhase struct {
@@ -575,6 +578,7 @@ func handleCBStartBuild(w http.ResponseWriter, r *http.Request) {
 		BuildspecOverride            string           `json:"buildspecOverride"`
 		SourceVersion                string           `json:"sourceVersion"`
 		EnvironmentVariablesOverride []map[string]any `json:"environmentVariablesOverride"`
+		ServiceRoleOverride          string           `json:"serviceRoleOverride"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
@@ -608,6 +612,7 @@ func handleCBStartBuild(w http.ResponseWriter, r *http.Request) {
 		Arn:                cbARN("build/" + buildID),
 		ProjectName:        req.ProjectName,
 		SourceVersion:      req.SourceVersion,
+		ServiceRole:        firstNonEmpty(req.ServiceRoleOverride, p.ServiceRole),
 		BuildStatus:        "IN_PROGRESS",
 		Seq:                cbNextBuildSeq(),
 		StartTime:          now,
@@ -706,12 +711,17 @@ func handleCBRetryBuild(w http.ResponseWriter, r *http.Request) {
 	// mirroring real CodeBuild which produces a new build resource.
 	buildID := prior.ProjectName + ":" + uuid.New().String()
 	now := cbEpochNow()
-	runtimeEnvironment := cbEnvironment(p.Environment, nil)
+	// The retry runs with the settings the build it retries ran with.
+	runtimeEnvironment := prior.RuntimeEnvironment
+	if runtimeEnvironment == nil {
+		runtimeEnvironment = cbEnvironment(p.Environment, nil)
+	}
 	build := CBBuild{
 		ID:                 buildID,
 		Arn:                cbARN("build/" + buildID),
 		ProjectName:        prior.ProjectName,
 		SourceVersion:      prior.SourceVersion,
+		ServiceRole:        firstNonEmpty(prior.ServiceRole, p.ServiceRole),
 		BuildStatus:        "IN_PROGRESS",
 		Seq:                cbNextBuildSeq(),
 		StartTime:          now,
@@ -861,7 +871,13 @@ func cbRunCommands(buildID string, project CBProject, plan cbBuildPlan, env map[
 	if err != nil {
 		return -1, fmt.Sprintf("build environment network: %v", err)
 	}
-	serviceEnv, err := cbEnvironmentServiceEnv(network)
+	serviceRole := project.ServiceRole
+	if build, ok := cbBuilds.Get(buildID); ok && build.ServiceRole != "" {
+		serviceRole = build.ServiceRole
+	}
+	holder := roleHolder("codebuild", buildID)
+	defer revokeRoleCredentials(holder)
+	serviceEnv, err := cbEnvironmentServiceEnv(network, holder, serviceRole, buildID)
 	if err != nil {
 		return -1, fmt.Sprintf("build environment service endpoint: %v", err)
 	}

@@ -606,7 +606,6 @@ func registerECS(r *AWSRouter, srv *sim.Server) {
 	// so the rows stay in memory rather than each call decoding them all.
 	ecsTaskDefinitions = sim.MakeCachedStore[ECSTaskDefinition](srv.DB(), "ecs_task_definitions")
 	ecsTasks = sim.MakeStore[ECSTask](srv.DB(), "ecs_tasks")
-	ecsTaskCredentials = sim.MakeStore[ecsHeldCredential](srv.DB(), "ecs_task_credentials")
 	ecsBackgroundServer = srv
 	startStoreSweeper(srv, ecsSweepStoppedTasks)
 	startECSServiceMetricsPublisher(srv)
@@ -2497,13 +2496,13 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 		if err != nil {
 			return fail(err)
 		}
-		metadataEnv = workloadMetadataEnv(taskNetwork.MetadataOrigin(), taskID)
+		metadataEnv = ecsTaskMetadataEnv(taskNetwork.MetadataOrigin(), taskID)
 	default:
 		taskNetwork, err = awsPlatformNetwork(ctx)
 		if err != nil {
 			return fail(fmt.Errorf("provision the container instance's network: %w", err))
 		}
-		metadataEnv = workloadMetadataEnv(taskNetwork.MetadataOrigin(), taskID)
+		metadataEnv = ecsTaskMetadataEnv(taskNetwork.MetadataOrigin(), taskID)
 	}
 	var mainDockerID string
 
@@ -3125,15 +3124,9 @@ func ecsTaskExpired(t ECSTask, now time.Time) bool {
 	return now.Sub(ecsEpochTime(*t.StoppedAt)) > ecsStoppedTaskRetention
 }
 
-// ecsSweepStoppedTasks deletes the tasks that have aged out, and the
-// credentials held for them.
+// ecsSweepStoppedTasks deletes the tasks that have aged out.
 func ecsSweepStoppedTasks(now time.Time) int {
-	swept := ecsTasks.Prune(func(task ECSTask) bool { return ecsTaskExpired(task, now) })
-	ecsTaskCredentials.Prune(func(held ecsHeldCredential) bool {
-		_, ok := ecsTasks.Get(held.TaskID)
-		return !ok
-	})
-	return swept
+	return ecsTasks.Prune(func(task ECSTask) bool { return ecsTaskExpired(task, now) })
 }
 
 func handleECSListTasks(w http.ResponseWriter, r *http.Request) {

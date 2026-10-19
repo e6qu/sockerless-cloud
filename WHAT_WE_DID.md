@@ -3668,3 +3668,55 @@ REST body keys a test sends itself (`vnetConfiguration`,
 `virtualNetworkSubnetId`) as well as the SDK fields: a Container Apps test
 that put its environment on a virtual network through raw requests was
 invisible to it, and a new test took the same range.
+
+### Each workload holds its role through its own service's channel
+
+The instance metadata service answers an EC2 instance and nothing else, from
+the instance's record as it stands: a request from an address no instance
+holds gets the service's 404 page, an IMDSv2 token is bound to the instance
+it was issued to and lives for the TTL asked (one second to six hours, else
+400; a forwarded token request is refused), and an instance whose AMI
+registers `ImdsSupport` v2.0 — every Amazon Linux 2023 AMI — requires
+tokens unless launched otherwise. The instance reads its id, type, AMI,
+address, host name, zone and region, its key pair, its tags when its
+metadata options allow them, its instance profile under `iam/info`, and
+sessions of the profile's role named for the instance; the identity
+document carries the account, region and launch time. The fixed instance
+id, the constant `sim-instance-role` credential and the `?region=` knob are
+gone, and the host-side metadata tests moved into an instance read through
+Run Command.
+
+No other workload is pointed at the instance metadata service. An AWS
+Lambda function takes its execution role's session, named for the
+function, in `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and
+`AWS_SESSION_TOKEN`, and a function configuration that sets a variable the
+runtime reserves is refused with Lambda's own message. Amplify compute takes
+the branch's or the app's compute role the same way. An Amazon ECS task, an
+AWS CodeBuild build or sandbox command, an AWS Batch job and an AWS Glue job
+run read theirs from the container credentials endpoint
+(`/v2/credentials/{id}`, named by `AWS_CONTAINER_CREDENTIALS_FULL_URI`),
+which serves the ID it handed the workload and nothing once the workload
+ends: a task's role in a session named for the task, a build's service role
+in `AWSCodeBuild-<build>`, a job's `jobRoleArn` in the attempt's task, a Glue
+job's role in `GlueJobRunnerSession`. Each holder is served one session
+until half its lifetime is left, and a sweep drops what holders that no
+longer run held. `StartBuild` honours `serviceRoleOverride`, and
+`RetryBuild` runs with the role and environment the retried build ran with.
+
+
+The SDK suite pulls the AWS Amplify managed build image before the tests
+run whenever a test that builds is selected, as it already pulled the images
+the Step Functions integrations run: a job's wait measures the job, and a
+cold pull of the several-hundred-megabyte image inside it timed the job out.
+
+### The plan's next stage became the service libraries
+
+Stage 5 of `PLAN.md` polishes the virtual machine, container, function,
+event-routing and queue services of the three clouds and extracts the
+mechanisms they share into cloud-neutral libraries: a target registry that
+replaces the services' calls into each other's package globals,
+`sim/machine`, `sim/revisions` and `sim/replicas`, `sim/jobrun`,
+`sim/funcrt`, the queue waiter in `sim/msgq`, `sim/eventbus` with its filter
+dialects, and one host-routed front end in `sim/lbplane`. Cloud Tasks and
+Cloud Scheduler join the Google Cloud slice on the queue and cron libraries.
+The distributed stage moved to 6.

@@ -111,12 +111,23 @@ so a name resolves through Route 53: the public hosted zones, the private
 hosted zones associated with the workload's VPC (AWS Cloud Map namespaces
 among them), the load balancers' names, and everything else through the
 simulator's upstream resolvers. The sidecar forwards the instance metadata
-service and the Amazon ECS task metadata endpoint to the simulator with the
-workload's address, so each workload reads its own identity; the SDKs find
-them through `AWS_EC2_METADATA_SERVICE_ENDPOINT` and
-`ECS_CONTAINER_METADATA_URI_V4`, which name the sidecar. The link-local
+service, the Amazon ECS task metadata endpoint and the container credentials
+endpoint to the simulator with the workload's address, so each workload reads
+its own identity; the SDKs find them through
+`AWS_EC2_METADATA_SERVICE_ENDPOINT`, `ECS_CONTAINER_METADATA_URI_V4` and
+`AWS_CONTAINER_CREDENTIALS_FULL_URI`, which name the sidecar. The link-local
 addresses themselves (`169.254.169.254`, `169.254.170.2`) are not routed
 (`BUGS.md`).
+
+Only an EC2 instance reaches the instance metadata service, and it reads its
+own record there: identity, placement, key pair, tags when its metadata
+options allow them, and sessions of its instance profile's role. Every other
+workload holds its role the way its service hands it over: an AWS Lambda
+function and Amplify compute take their execution or compute role's session
+from the environment, and an Amazon ECS task, an AWS CodeBuild build, an AWS
+Batch job and an AWS Glue job run read theirs from the container credentials
+endpoint. Each session is the role's, named for the workload, and IAM
+evaluates the role's policies against what the workload calls.
 
 Security groups are enforced on the flows the simulator mediates: a load
 balancer reaches an instance or IP target only through what the target's

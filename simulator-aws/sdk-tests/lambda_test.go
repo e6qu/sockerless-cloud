@@ -18,11 +18,13 @@ import (
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	r53types "github.com/aws/aws-sdk-go-v2/service/route53/types"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -61,23 +63,43 @@ def handler(event, context):
     return {
         "messageId": result["MessageId"],
         "configured": os.environ["CONFIGURED_VALUE"],
+        "caller": boto3.client("sts").get_caller_identity()["Arn"],
     }
 `
 	const functionName = "lambda-downstream-sdk"
+	// The function calls Amazon SQS as its execution role, which Lambda hands
+	// it in the environment.
+	iamc := iamClient()
+	role, err := iamc.CreateRole(ctx, &iam.CreateRoleInput{
+		RoleName:                 aws.String(functionName),
+		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`),
+	})
+	require.NoError(t, err)
+	queueAttrs, err := queueAPI.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
+		QueueUrl: queue.QueueUrl, AttributeNames: []sqstypes.QueueAttributeName{sqstypes.QueueAttributeNameQueueArn},
+	})
+	require.NoError(t, err)
+	_, err = iamc.PutRolePolicy(ctx, &iam.PutRolePolicyInput{
+		RoleName: aws.String(functionName), PolicyName: aws.String("send"),
+		PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"sqs:SendMessage","Resource":"` +
+			queueAttrs.Attributes[string(sqstypes.QueueAttributeNameQueueArn)] + `"}]}`),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = iamc.DeleteRolePolicy(ctx, &iam.DeleteRolePolicyInput{RoleName: aws.String(functionName), PolicyName: aws.String("send")})
+		_, _ = iamc.DeleteRole(ctx, &iam.DeleteRoleInput{RoleName: aws.String(functionName)})
+	})
 	_, err = lambdaAPI.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(functionName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
+		Role:         role.Role.Arn,
 		Runtime:      lambdatypes.RuntimePython312,
 		Handler:      aws.String("index.handler"),
 		Code:         &lambdatypes.FunctionCode{ZipFile: lambdaPythonSourceZip(t, source)},
 		Environment: &lambdatypes.Environment{Variables: map[string]string{
-			"AWS_ENDPOINT_URL":      containerEndpoint,
-			"AWS_ACCESS_KEY_ID":     "test",
-			"AWS_SECRET_ACCESS_KEY": "test",
-			"AWS_DEFAULT_REGION":    "us-east-1",
-			"QUEUE_URL":             containerQueueURL,
-			"MESSAGE_BODY":          "from-explicit-lambda-deployment",
-			"CONFIGURED_VALUE":      "environment-wired",
+			"AWS_ENDPOINT_URL": containerEndpoint,
+			"QUEUE_URL":        containerQueueURL,
+			"MESSAGE_BODY":     "from-explicit-lambda-deployment",
+			"CONFIGURED_VALUE": "environment-wired",
 		}},
 	})
 	require.NoError(t, err)
@@ -94,6 +116,8 @@ def handler(event, context):
 	require.NoError(t, json.Unmarshal(invoked.Payload, &output))
 	assert.NotEmpty(t, output["messageId"])
 	assert.Equal(t, "environment-wired", output["configured"])
+	assert.Equal(t, "arn:aws:sts::"+strings.Split(aws.ToString(role.Role.Arn), ":")[4]+":assumed-role/"+functionName+"/"+functionName, output["caller"],
+		"the function calls AWS as a session of its execution role named for the function")
 
 	received, err := queueAPI.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
 		QueueUrl: queue.QueueUrl, MaxNumberOfMessages: 1, VisibilityTimeout: 0,
@@ -101,6 +125,26 @@ def handler(event, context):
 	require.NoError(t, err)
 	require.Len(t, received.Messages, 1)
 	assert.Equal(t, "from-explicit-lambda-deployment", aws.ToString(received.Messages[0].Body))
+}
+
+// Lambda sets the region, the execution role's credentials and the runtime's
+// own variables itself, and refuses a configuration that sets any of them.
+func TestLambdaRefusesReservedEnvironmentVariables(t *testing.T) {
+	t.Parallel()
+	lambdaAPI := lambdaClient()
+	_, err := lambdaAPI.CreateFunction(ctx, &lambda.CreateFunctionInput{
+		FunctionName: aws.String("lambda-reserved-environment"),
+		Role:         aws.String("arn:aws:iam::123456789012:role/lambda-reserved-environment"),
+		Runtime:      lambdatypes.RuntimePython312,
+		Handler:      aws.String("index.handler"),
+		Code:         &lambdatypes.FunctionCode{ZipFile: lambdaPythonSourceZip(t, "def handler(event, context):\n    return {}\n")},
+		Environment: &lambdatypes.Environment{Variables: map[string]string{
+			"AWS_REGION": "us-west-2", "AWS_ACCESS_KEY_ID": "AKIDEXAMPLE", "APP_MODE": "production",
+		}},
+	})
+	var invalid *lambdatypes.InvalidParameterValueException
+	require.ErrorAs(t, err, &invalid)
+	assert.Contains(t, invalid.ErrorMessage(), "Reserved keys used in this request: AWS_REGION, AWS_ACCESS_KEY_ID")
 }
 
 func cwLogsClient() *cloudwatchlogs.Client {

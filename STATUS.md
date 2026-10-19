@@ -109,7 +109,10 @@ Current state of the sockerless-cloud repository.
   Per cloud: Amazon EC2 instances boot from the published Amazon Linux 2023,
   Ubuntu 24.04 and Debian 12 AMIs or from
   OCI-referenced customer AMIs (`RegisterImage` `ImageLocation`,
-  `ImportImage` `Url`), with IMDS through the sidecar, `GetConsoleOutput`,
+  `ImportImage` `Url`), with IMDS through the sidecar answering the instance
+  alone from its own record (IMDSv2 tokens bound to it, required when the AMI
+  registers `ImdsSupport` v2.0, its tags, its profile and a session of the
+  profile's role), `GetConsoleOutput`,
   `CreateImage` capture, Systems Manager Run Command through the machine,
   and the key pair's key on the default user and under `public-keys`;
   Compute Engine instances boot from the `debian-cloud` and `ubuntu-os-cloud`

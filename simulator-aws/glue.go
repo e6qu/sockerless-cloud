@@ -1500,6 +1500,8 @@ func glueRunPythonJob(jobName, runID string, job GlueJob, script []byte, args ma
 		glueCompleteRun(jobName, runID, "FAILED", 0, err.Error())
 		return
 	}
+	holder := roleHolder("glue", jobName+"/"+runID)
+	defer revokeRoleCredentials(holder)
 	// The job runs in its interpreter's container, taking the script and the
 	// job's arguments the way Glue hands them to a Python shell job.
 	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
@@ -1509,7 +1511,7 @@ func glueRunPythonJob(jobName, runID string, job GlueJob, script []byte, args ma
 		Args:         append([]string{glueJobScriptDir + "/script.py"}, glueArgs(args)...),
 		WorkingDir:   glueJobScriptDir,
 		Binds:        []string{filepath.Clean(workDir) + ":" + glueJobScriptDir + ":z"},
-		Env: workloadhost.MergeEnv(workloadMetadataEnv(network.MetadataOrigin(), ""), map[string]string{
+		Env: workloadhost.MergeEnv(grantContainerCredentials(network.MetadataOrigin(), holder, job.Role, "GlueJobRunnerSession"), map[string]string{
 			"AWS_DEFAULT_REGION": awsRegion(),
 			"AWS_REGION":         awsRegion(),
 		}),

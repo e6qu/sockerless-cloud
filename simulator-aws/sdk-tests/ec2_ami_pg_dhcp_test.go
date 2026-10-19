@@ -107,6 +107,25 @@ func TestEC2_AMILifecycleSDK(t *testing.T) {
 	require.Len(t, gotReg.BlockDeviceMappings, 1)
 	assert.Equal(t, int32(16), aws.ToInt32(gotReg.BlockDeviceMappings[0].Ebs.VolumeSize))
 
+	// An AMI registered with ImdsSupport v2.0 reports it, and the instances
+	// launched from it require IMDSv2 tokens; no other value is accepted.
+	v2, err := c.RegisterImage(ctx, &ec2.RegisterImageInput{
+		Name:           aws.String("registered-imdsv2-ami"),
+		RootDeviceName: aws.String("/dev/xvda"),
+		ImdsSupport:    types.ImdsSupportValuesV20,
+		BlockDeviceMappings: []types.BlockDeviceMapping{{
+			DeviceName: aws.String("/dev/xvda"),
+			Ebs:        &types.EbsBlockDevice{SnapshotId: aws.String("snap-0123456789abcdef0")},
+		}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, types.ImdsSupportValuesV20, describeOneImage(t, c, aws.ToString(v2.ImageId)).ImdsSupport)
+	assert.Empty(t, gotReg.ImdsSupport)
+	_, err = c.RegisterImage(ctx, &ec2.RegisterImageInput{
+		Name: aws.String("registered-imdsv1-ami"), RootDeviceName: aws.String("/dev/xvda"), ImdsSupport: "v1.0",
+	})
+	requireAWSErrorCode(t, err, "InvalidParameterValue")
+
 	// CopyImage gets its own id and preserves source metadata.
 	cp, err := c.CopyImage(ctx, &ec2.CopyImageInput{
 		SourceImageId: aws.String(amiID),
@@ -120,12 +139,11 @@ func TestEC2_AMILifecycleSDK(t *testing.T) {
 	assert.Equal(t, "copied-ami", aws.ToString(gotCopy.Name))
 	assert.Equal(t, got.Architecture, gotCopy.Architecture, "copy inherits source architecture")
 
-	// DeregisterImage removes the AMI from the store. (DescribeImages by explicit
-	// id can't confirm absence — the sim synthesizes an AMI for any requested id
-	// to support terraform data.aws_ami lookups of public AMIs — so confirm the
-	// deletion the store-faithful way: a second deregister now reports NotFound.)
+	// DeregisterImage removes the AMI: DescribeImages no longer finds it.
 	_, err = c.DeregisterImage(ctx, &ec2.DeregisterImageInput{ImageId: aws.String(amiID)})
 	require.NoError(t, err)
+	_, err = c.DescribeImages(ctx, &ec2.DescribeImagesInput{ImageIds: []string{amiID}})
+	requireAWSErrorCode(t, err, "InvalidAMIID.NotFound")
 	// With the image gone its snapshot is the account's to delete.
 	_, err = c.DeleteSnapshot(ctx, &ec2.DeleteSnapshotInput{SnapshotId: aws.String(snapshotID)})
 	require.NoError(t, err, "the snapshot outlives the image until it is deleted")

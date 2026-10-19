@@ -254,7 +254,6 @@ type lambdaInvocationNetwork struct {
 	eniAddress     string
 	dns            []string
 	runtimeAPIAddr string
-	metadataEnv    map[string]string
 	extraHosts     []string
 	leasedIP       string
 }
@@ -315,7 +314,6 @@ func prepareLambdaInvocationNetwork(fn LambdaFunction, sidecar *runtimeAPISideca
 		}
 		out.network = network.Name
 		out.dns = network.DNS()
-		out.metadataEnv = workloadMetadataEnv(network.MetadataOrigin(), "")
 		return out, nil
 	}
 
@@ -337,7 +335,6 @@ func prepareLambdaInvocationNetwork(fn LambdaFunction, sidecar *runtimeAPISideca
 	}
 	out.network = network.Name
 	out.dns = network.DNS()
-	out.metadataEnv = workloadMetadataEnv(network.MetadataOrigin(), "")
 	out.eniAddress = privateIP
 	return out, nil
 }
@@ -567,6 +564,11 @@ func invokeLambdaViaRuntimeAPI(ctx context.Context, fn LambdaFunction, payload [
 			cmdEnv[k] = v
 		}
 	}
+	// The function runs under its execution role, whose session Lambda hands
+	// it in the environment.
+	for k, v := range roleEnvironmentCredentials(roleHolder("lambda", fn.FunctionName), fn.Role, fn.FunctionName) {
+		cmdEnv[k] = v
+	}
 
 	sink := &lambdaLogSink{logGroup: logGroup, logStream: logStream}
 	var stderr bytes.Buffer
@@ -596,10 +598,6 @@ func invokeLambdaViaRuntimeAPI(ctx context.Context, fn LambdaFunction, payload [
 	defer invocationNetwork.cleanup()
 	cmdEnv["AWS_LAMBDA_RUNTIME_API"] = invocationNetwork.runtimeAPIAddr
 
-	// Host metadata: Lambda has its Runtime API (above) but workloads
-	// may still query EC2 IMDS for region/SA tokens via the AWS SDK.
-	// Pass empty taskID — Lambda doesn't expose ECS_CONTAINER_METADATA_URI_V4.
-	//
 	// environmentAttempt counts the execution environments this invocation has
 	// created: the first, and the one a retried Init phase replaces it with.
 	environmentAttempt := 0
@@ -619,7 +617,7 @@ func invokeLambdaViaRuntimeAPI(ctx context.Context, fn LambdaFunction, payload [
 			Architecture: platform,
 			Command:      entrypoint,
 			Args:         args,
-			Env:          workloadhost.MergeEnv(cmdEnv, invocationNetwork.metadataEnv),
+			Env:          cmdEnv,
 			// Timeout is enforced by the sidecar (waiting for /response or
 			// error with a deadline); the container itself is given a
 			// generous wall-clock budget so slow handlers still surface a
@@ -990,4 +988,35 @@ func lambdaEnvironmentMemoryPeak(handle placement.Handle) uint64 {
 		return measured.MemoryPeakBytes()
 	}
 	return 0
+}
+
+// lambdaReservedEnvironmentKeys are the variables the runtime sets itself,
+// which a function's configuration may not.
+var lambdaReservedEnvironmentKeys = []string{
+	"_HANDLER", "_X_AMZN_TRACE_ID", "AWS_DEFAULT_REGION", "AWS_REGION", "AWS_EXECUTION_ENV",
+	"AWS_LAMBDA_FUNCTION_NAME", "AWS_LAMBDA_FUNCTION_MEMORY_SIZE", "AWS_LAMBDA_FUNCTION_VERSION",
+	"AWS_LAMBDA_INITIALIZATION_TYPE", "AWS_LAMBDA_LOG_GROUP_NAME", "AWS_LAMBDA_LOG_STREAM_NAME",
+	"AWS_ACCESS_KEY", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+	"AWS_LAMBDA_RUNTIME_API", "LAMBDA_TASK_ROOT", "LAMBDA_RUNTIME_DIR",
+}
+
+// lambdaCheckReservedEnvironment refuses a configuration that sets a reserved
+// variable, naming each one it sets.
+func lambdaCheckReservedEnvironment(w http.ResponseWriter, env *LambdaEnvironment) bool {
+	if env == nil {
+		return true
+	}
+	var used []string
+	for _, key := range lambdaReservedEnvironmentKeys {
+		if _, ok := env.Variables[key]; ok {
+			used = append(used, key)
+		}
+	}
+	if len(used) == 0 {
+		return true
+	}
+	AWSErrorf(w, "InvalidParameterValueException", http.StatusBadRequest,
+		"Lambda was unable to configure your environment variables because the environment variables you have provided contains reserved keys that are currently not supported for modification. Reserved keys used in this request: %s",
+		strings.Join(used, ", "))
+	return false
 }

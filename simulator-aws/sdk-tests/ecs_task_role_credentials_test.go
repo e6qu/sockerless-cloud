@@ -159,4 +159,6 @@ aws sts get-caller-identity --query Arn --output text`},
 		messages = append(messages, aws.ToString(event.Message))
 	}
 	assert.Contains(t, strings.Join(messages, "\n"), "assumed-role/"+roleName+"/")
+	assert.Contains(t, strings.Join(messages, "\n"), "/v2/credentials/",
+		"the task reads its role's sessions from the container credentials endpoint")
 }

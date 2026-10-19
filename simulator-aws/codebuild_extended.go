@@ -1063,6 +1063,14 @@ func cbRunCommandExecution(id string, sandbox CBSandbox, command string) {
 		return
 	}
 
+	holder := roleHolder("codebuild-command", id)
+	defer revokeRoleCredentials(holder)
+	serviceEnv, err := cbEnvironmentServiceEnv(network, holder, sandbox.ServiceRole, id)
+	if err != nil {
+		cbCompleteCommandExecution(id, -1, "", err.Error())
+		return
+	}
+
 	var mu sync.Mutex
 	var stdout, stderr strings.Builder
 	sink := sim.FuncSink(func(line sim.LogLine) {
@@ -1081,7 +1089,7 @@ func cbRunCommandExecution(id string, sandbox CBSandbox, command string) {
 		Args:         []string{"-c", command},
 		WorkingDir:   "/codebuild/output/src",
 		Binds:        []string{filepath.Clean(workDir) + ":/codebuild/output/src:z"},
-		Env: workloadhost.MergeEnv(workloadMetadataEnv(network.MetadataOrigin(), ""), map[string]string{
+		Env: workloadhost.MergeEnv(serviceEnv, map[string]string{
 			"CODEBUILD_SRC_DIR":  "/codebuild/output/src",
 			"AWS_DEFAULT_REGION": awsRegion(),
 			"AWS_REGION":         awsRegion(),
