@@ -132,7 +132,8 @@ func TestCompute_VirtualMachineRunsCustomDataAndReadsItsMetadata(t *testing.T) {
 
 	ran := runInGuest(t, rg, vmName, "custom-data", "cat /var/tmp/custom-data; cat /var/log/cloud-init-output.log")
 	assert.Contains(t, ran, "custom-data-ran", "customData did not run at boot")
-	assert.Contains(t, ran, "user data exited 0")
+	assert.Contains(t, ran, "Cloud-init v. 22.4.2 finished at ")
+	assert.Contains(t, ran, "Datasource DataSourceAzure [seed=/dev/sr0].")
 
 	nicClient, err := armnetwork.NewInterfacesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)

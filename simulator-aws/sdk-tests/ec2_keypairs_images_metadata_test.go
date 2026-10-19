@@ -1,17 +1,36 @@
 package aws_sdk_test
 
 import (
+	"crypto/sha1"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ssh"
 )
 
-// TestEC2_KeyPairsSDK covers CreateKeyPair/ImportKeyPair/DeleteKeyPair and a
-// real DescribeKeyPairs (previously always empty) — backs aws_key_pair.
+// testRSAPublicKey is an OpenSSH RSA public key whose MD5 fingerprint,
+// as ssh-keygen -l -E md5 reports it, is testRSAPublicKeyMD5.
+const (
+	testRSAPublicKey    = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDTZERMdSlqD/Ot+7wjgU7BkrYryTecvQMxKvIVNkdzTuYr6DitxLO7j3mbGZT7ly8aNCcKWKXnRA0C1fp7q6GQ+rhttiBg0i6q5ArpUOIqrKt3BqjZPF+HEyWXb1/ip2flCP19PQHFmIhcceyineRE9pP5aeQ2fCBZOG9/JWFMUeSa269IxCs8XsJR1pQRVuI4wlsot0kuHTOYteMykgBjbwNnO7UhZTlJJVaoX0Prk1dFHjWnckgMYBA+ePIRoFWtHXcfhhM/bfQ5Got0JJET2umvr0Vb8Jh/el0rqNOBthz+uI+fAkLyvWmRwwRL1mkKe9G2dsltyDMYwYPV7WeN sockerless@test"
+	testRSAPublicKeyMD5 = "14:41:93:6c:46:cb:ab:57:36:8f:f6:91:57:b4:6a:09"
+)
+
+// TestEC2_KeyPairsSDK covers CreateKeyPair, ImportKeyPair, DescribeKeyPairs
+// and DeleteKeyPair with the fingerprints EC2 documents: the SHA-1 digest of
+// the DER-encoded private key for an RSA pair it creates, the MD5 digest of
+// the public key for an imported RSA key, and the base64 SHA-256 digest of
+// the public key for ED25519.
 func TestEC2_KeyPairsSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -19,24 +38,64 @@ func TestEC2_KeyPairsSDK(t *testing.T) {
 	created, err := c.CreateKeyPair(ctx, &ec2.CreateKeyPairInput{KeyName: aws.String("sdk-created-key")})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = c.DeleteKeyPair(ctx, &ec2.DeleteKeyPairInput{KeyName: aws.String("sdk-created-key")}) })
-	assert.Contains(t, aws.ToString(created.KeyMaterial), "PRIVATE KEY", "CreateKeyPair returns the private material")
-	assert.NotEmpty(t, aws.ToString(created.KeyFingerprint))
 	assert.Contains(t, aws.ToString(created.KeyPairId), "key-")
+	block, _ := pem.Decode([]byte(aws.ToString(created.KeyMaterial)))
+	require.NotNil(t, block, "CreateKeyPair returns the private key as PEM")
+	require.Equal(t, "RSA PRIVATE KEY", block.Type)
+	rsaKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	require.NoError(t, err)
+	pkcs8, err := x509.MarshalPKCS8PrivateKey(rsaKey)
+	require.NoError(t, err)
+	sum := sha1.Sum(pkcs8)
+	assert.Equal(t, colonHex(sum[:]), aws.ToString(created.KeyFingerprint))
 
-	pub := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQexample sockerless@test"
+	ed, err := c.CreateKeyPair(ctx, &ec2.CreateKeyPairInput{KeyName: aws.String("sdk-created-ed25519"), KeyType: types.KeyTypeEd25519})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteKeyPair(ctx, &ec2.DeleteKeyPairInput{KeyName: aws.String("sdk-created-ed25519")})
+	})
+	edKey, err := ssh.ParseRawPrivateKey([]byte(aws.ToString(ed.KeyMaterial)))
+	require.NoError(t, err, "an ED25519 pair's private key is in OpenSSH format")
+	edSigner, err := ssh.NewSignerFromKey(edKey)
+	require.NoError(t, err)
+	edSum := sha256.Sum256(edSigner.PublicKey().Marshal())
+	assert.Equal(t, base64.StdEncoding.EncodeToString(edSum[:]), aws.ToString(ed.KeyFingerprint))
+
 	imported, err := c.ImportKeyPair(ctx, &ec2.ImportKeyPairInput{
-		KeyName: aws.String("sdk-imported-key"), PublicKeyMaterial: []byte(pub),
+		KeyName: aws.String("sdk-imported-key"), PublicKeyMaterial: []byte(testRSAPublicKey),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = c.DeleteKeyPair(ctx, &ec2.DeleteKeyPairInput{KeyName: aws.String("sdk-imported-key")}) })
-	require.NotEmpty(t, aws.ToString(imported.KeyFingerprint))
+	assert.Equal(t, testRSAPublicKeyMD5, aws.ToString(imported.KeyFingerprint))
 
-	// DescribeKeyPairs returns the stored pairs (filtered by name).
-	out, err := c.DescribeKeyPairs(ctx, &ec2.DescribeKeyPairsInput{KeyNames: []string{"sdk-created-key"}})
+	_, err = c.ImportKeyPair(ctx, &ec2.ImportKeyPairInput{
+		KeyName: aws.String("sdk-bad-key"), PublicKeyMaterial: []byte("ssh-rsa not-a-key"),
+	})
+	var apiErr smithy.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, "InvalidKey.Format", apiErr.ErrorCode())
+
+	// DescribeKeyPairs returns the public key only when asked.
+	out, err := c.DescribeKeyPairs(ctx, &ec2.DescribeKeyPairsInput{KeyNames: []string{"sdk-imported-key"}})
 	require.NoError(t, err)
 	require.Len(t, out.KeyPairs, 1)
-	assert.Equal(t, "sdk-created-key", aws.ToString(out.KeyPairs[0].KeyName))
-	assert.Equal(t, aws.ToString(created.KeyFingerprint), aws.ToString(out.KeyPairs[0].KeyFingerprint))
+	assert.Nil(t, out.KeyPairs[0].PublicKey)
+	out, err = c.DescribeKeyPairs(ctx, &ec2.DescribeKeyPairsInput{KeyNames: []string{"sdk-imported-key", "sdk-created-ed25519"}, IncludePublicKey: aws.Bool(true)})
+	require.NoError(t, err)
+	require.Len(t, out.KeyPairs, 2)
+	for _, kp := range out.KeyPairs {
+		switch aws.ToString(kp.KeyName) {
+		case "sdk-imported-key":
+			assert.Equal(t, testRSAPublicKey, aws.ToString(kp.PublicKey))
+			assert.Equal(t, types.KeyTypeRsa, kp.KeyType)
+		case "sdk-created-ed25519":
+			assert.Equal(t, strings.TrimSpace(string(ssh.MarshalAuthorizedKey(edSigner.PublicKey())))+" sdk-created-ed25519", aws.ToString(kp.PublicKey))
+			assert.Equal(t, types.KeyTypeEd25519, kp.KeyType)
+		}
+	}
+	_, err = c.DescribeKeyPairs(ctx, &ec2.DescribeKeyPairsInput{KeyNames: []string{"sdk-no-such-key"}})
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, "InvalidKeyPair.NotFound", apiErr.ErrorCode())
 
 	// Delete then confirm it's gone.
 	_, err = c.DeleteKeyPair(ctx, &ec2.DeleteKeyPairInput{KeyName: aws.String("sdk-created-key")})
@@ -46,6 +105,14 @@ func TestEC2_KeyPairsSDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Empty(t, gone.KeyPairs, "deleted key pair must not be returned")
+}
+
+func colonHex(b []byte) string {
+	parts := make([]string, len(b))
+	for i, v := range b {
+		parts[i] = fmt.Sprintf("%02x", v)
+	}
+	return strings.Join(parts, ":")
 }
 
 // TestEC2_ModifyInstanceMetadataOptionsSDK covers in-place metadata_options

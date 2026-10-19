@@ -489,7 +489,7 @@ data "aws_route_table" "main" {
 # Key pair: DescribeKeyPairs was always empty, so aws_key_pair drifted/recreated.
 resource "aws_key_pair" "deployer" {
   key_name   = "fidelity-deployer"
-  public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQexample fidelity@test"
+  public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPAkqz56K/EWsdIxGWKGQ5SxtXw8WhqPshWaZNevDsZv fidelity@test"
 }
 
 # Launch template with credit_specification + instance_market_options: both were

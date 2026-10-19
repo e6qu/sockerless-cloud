@@ -87,7 +87,11 @@ func registerHostMetadata(srv *sim.Server) {
 		if !mustToken(w, r) {
 			return
 		}
-		writeText(w, "ami-id\nhostname\ninstance-id\ninstance-type\nlocal-hostname\nlocal-ipv4\nplacement/\niam/\nidentity-credentials/\n")
+		listing := "ami-id\nhostname\ninstance-id\ninstance-type\nlocal-hostname\nlocal-ipv4\nplacement/\n"
+		if inst, ok := imdsInstancesByIP.ForRequest(r); ok && inst.KeyName != "" {
+			listing += "public-keys/\n"
+		}
+		writeText(w, listing+"iam/\nidentity-credentials/\n")
 	})
 
 	srv.HandleFunc("GET /latest/meta-data/instance-id", func(w http.ResponseWriter, r *http.Request) {
@@ -119,6 +123,39 @@ func registerHostMetadata(srv *sim.Server) {
 			return
 		}
 		writeText(w, "ami-0123456789abcdef0")
+	})
+	// An instance launched with a key pair lists it under public-keys, as
+	// index=name, with its OpenSSH public key beneath the index.
+	instanceKeyPair := func(w http.ResponseWriter, r *http.Request) (EC2KeyPair, bool) {
+		if !mustToken(w, r) {
+			return EC2KeyPair{}, false
+		}
+		inst, ok := imdsInstancesByIP.ForRequest(r)
+		if !ok || inst.KeyName == "" {
+			http.NotFound(w, r)
+			return EC2KeyPair{}, false
+		}
+		kp, ok := ec2KeyPairs.Get(inst.KeyName)
+		if !ok || kp.PublicKey == "" {
+			http.NotFound(w, r)
+			return EC2KeyPair{}, false
+		}
+		return kp, true
+	}
+	srv.HandleFunc("GET /latest/meta-data/public-keys/", func(w http.ResponseWriter, r *http.Request) {
+		if kp, ok := instanceKeyPair(w, r); ok {
+			writeText(w, "0="+kp.KeyName)
+		}
+	})
+	srv.HandleFunc("GET /latest/meta-data/public-keys/0/", func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := instanceKeyPair(w, r); ok {
+			writeText(w, "openssh-key")
+		}
+	})
+	srv.HandleFunc("GET /latest/meta-data/public-keys/0/openssh-key", func(w http.ResponseWriter, r *http.Request) {
+		if kp, ok := instanceKeyPair(w, r); ok {
+			writeText(w, kp.PublicKey+"\n")
+		}
 	})
 	srv.HandleFunc("GET /latest/meta-data/local-ipv4", func(w http.ResponseWriter, r *http.Request) {
 		if !mustToken(w, r) {

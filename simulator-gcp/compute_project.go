@@ -22,8 +22,13 @@ import (
 // projects, so the association is a property of the projects rather than of any
 // resource in them: enabling a host records it, attaching a service project
 // records the pair, and the reads report both directions.
+// gcpComputeProjects holds each project's Compute Engine resource, its
+// commonInstanceMetadata among it.
+var gcpComputeProjects sim.Store[map[string]any]
+
 func registerComputeProject(srv *sim.Server) {
 	projects := sim.MakeStore[map[string]any](srv.DB(), "compute_projects")
+	gcpComputeProjects = projects
 	// The service projects attached to each host, keyed by host project.
 	xpnResources := sim.MakeStore[map[string]any](srv.DB(), "compute_xpn_resources")
 

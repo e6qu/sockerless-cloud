@@ -87,32 +87,66 @@ func gcpInstanceMetadataValue(inst ComputeInstance, key string) (string, bool) {
 	return "", false
 }
 
+// gcpCloudInitKeys are the ssh-keys entries cloud-init's GCE datasource
+// gives the default user: those of the user "cloudinit" or "ubuntu", the
+// default user of the Ubuntu images that carry cloud-init, from the
+// instance's metadata and, unless the instance blocks them, the project's.
+func gcpCloudInitKeys(inst ComputeInstance) []string {
+	lines, _ := gcpInstanceMetadataValue(inst, "ssh-keys")
+	if block, _ := gcpInstanceMetadataValue(inst, "block-project-ssh-keys"); !strings.EqualFold(block, "true") && gcpComputeProjects != nil {
+		if held, ok := gcpComputeProjects.Get(gcpProjectFromSelfLink(inst.SelfLink)); ok {
+			if metadata, ok := held["commonInstanceMetadata"].(map[string]any); ok {
+				items, _ := metadata["items"].([]any)
+				for _, item := range items {
+					entry, _ := item.(map[string]any)
+					if key, _ := entry["key"].(string); key == "ssh-keys" {
+						value, _ := entry["value"].(string)
+						lines += "\n" + value
+					}
+				}
+			}
+		}
+	}
+	var keys []string
+	for _, line := range strings.Split(lines, "\n") {
+		user, key, ok := strings.Cut(strings.TrimSpace(line), ":")
+		if ok && (user == "cloudinit" || user == "ubuntu") && strings.TrimSpace(key) != "" {
+			keys = append(keys, strings.TrimSpace(key))
+		}
+	}
+	return keys
+}
+
 // gcpInstanceWorkload is the workload an instance runs as on its network.
 func gcpInstanceWorkload(inst ComputeInstance, netw gcpWorkloadNetwork, image gcpResolvedImage, shape gcpMachineType) (placement.Workload, error) {
 	project := gcpProjectFromSelfLink(inst.SelfLink)
 	zone := inst.Zone[strings.LastIndex(inst.Zone, "/")+1:]
 	fqdn := fmt.Sprintf("%s.%s.c.%s.internal", inst.Name, zone, project)
 	startup, _ := gcpInstanceMetadataValue(inst, "startup-script")
+	userData, _ := gcpInstanceMetadataValue(inst, "user-data")
 	spec := vminstance.Spec{
-		Name:         gcpInstanceContainerName(inst),
-		ID:           inst.SelfLink,
-		Hostname:     inst.Name,
-		Image:        image.Image,
-		Network:      netw.Network,
-		Address:      netw.Address,
-		DNS:          netw.dns(),
-		UserData:     []byte(gcpStartupScriptRunner),
-		UserDataPath: gcpGuestAgentDir + "/startup-script-runner",
-		// Compute Engine runs startup-script at every boot, not once.
-		UserDataEveryBoot: true,
-		Env:               netw.env(),
-		Seed:              []sim.SeedFile{{Path: gcpStartupScriptPath, Mode: 0o700, Data: []byte(startup)}},
-		Gateway:           gcpInstanceGateway(inst),
-		VCPUs:             shape.GuestCpus,
-		MemoryMiB:         shape.MemoryMb,
-		Labels:            map[string]string{"sockerless-gcp-instance-project": project},
-		StopGrace:         gcpInstanceStopGrace,
-		ExtraHosts:        append(netw.extraHosts(), fqdn+":"+netw.Address),
+		Name:     gcpInstanceContainerName(inst),
+		ID:       inst.SelfLink,
+		Hostname: inst.Name,
+		Image:    image.Image,
+		Network:  netw.Network,
+		Address:  netw.Address,
+		DNS:      netw.dns(),
+		UserData: []byte(userData),
+		CloudInit: &vminstance.CloudInit{
+			Platform: "gce", Datasource: "DataSourceGCELocal", InstanceID: inst.Id,
+			DefaultUserKeys: gcpCloudInitKeys(inst),
+		},
+		// The guest environment runs startup-script at every boot.
+		Startup:    &vminstance.Startup{Path: gcpGuestAgentDir + "/startup-script-runner", Script: []byte(gcpStartupScriptRunner)},
+		Env:        netw.env(),
+		Seed:       []sim.SeedFile{{Path: gcpStartupScriptPath, Mode: 0o700, Data: []byte(startup)}},
+		Gateway:    gcpInstanceGateway(inst),
+		VCPUs:      shape.GuestCpus,
+		MemoryMiB:  shape.MemoryMb,
+		Labels:     map[string]string{"sockerless-gcp-instance-project": project},
+		StopGrace:  gcpInstanceStopGrace,
+		ExtraHosts: append(netw.extraHosts(), fqdn+":"+netw.Address),
 	}
 	ingress, err := gcpIngressStages(inst)
 	if err != nil {

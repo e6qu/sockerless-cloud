@@ -3617,3 +3617,48 @@ Cloud's bearer check exempts it as it does the metadata server. Each cloud's
 guest shard proves it with an instance reaching a listener of the test's
 own outside the network, which sees the gateway and not the instance, and
 the gateway's metrics or logs counting the connection.
+
+### cloud-init on the instance images
+
+An instance's init runs its image's cloud-init over the user data the cloud
+hands it. The simulator renders the user data, at placement, into the files
+cloud-init's modules work from under `/var/lib/cloud/instances/<id>/`, with
+`/var/lib/cloud/instance` pointing at the current instance, so a new
+instance booted from a captured image runs its own user data afresh while a
+restarted one keeps its per-instance semaphores (`sem/config_<module>`). It
+reads user data the way cloud-init's processor does: a gzip stream is
+inflated, a MIME multipart message is split part by part with base64 parts
+decoded and later cloud-config parts merged over earlier ones, a `#!` part
+is a `scripts/part-NNN`, and any other part type is reported. A
+`#cloud-config` document is read as YAML 1.1 — an unquoted `0644` is octal,
+`yes` is true — key by key, so a malformed module is reported and the rest
+run. The guest library (`sim/vminstance/cloudinit.sh`, POSIX sh) runs the
+stages in order: `init` (bootcmd at every boot, write_files, groups and
+users, ssh keys), `modules:config` and `modules:final` (packages, deferred
+write_files, the scripts in sorted order with runcmd among them, the final
+message), writes `boot-finished` and `result.json`, and puts its output on
+the console and in `/var/log/cloud-init-output.log`. It decides from
+`/etc/os-release` which distribution carries cloud-init, at which build,
+with which default user and groups; an image with none, or Debian on Compute
+Engine, runs no cloud-init. The accounts module edits `/etc/passwd`,
+`/etc/group` and `/etc/shadow` itself, as useradd does, because Amazon Linux
+2023's image has no shadow-utils; root gets the datasource's keys behind
+cloud-init's `disable_root` options. Each cloud says what its datasource
+says: Amazon EC2 the instance id and the key pair's public key, which the
+metadata service now lists under `public-keys`; Compute Engine the numeric
+instance id and the `ssh-keys` entries for `ubuntu` or `cloudinit`, with
+the startup script now a separate every-boot step after cloud-init; Azure
+the `vmId`, the `adminUsername` as the default user and the
+`linuxConfiguration` keys. The EC2 console wrapper that tailed the log
+while the init's tee already relayed it is gone, so each line reaches the
+console once.
+
+EC2 key pairs carry the fingerprints the CreateKeyPair and ImportKeyPair
+references document — the SHA-1 digest of the DER-encoded private key for
+an RSA pair EC2 creates, the MD5 digest of the public key for an imported
+RSA key, the base64 SHA-256 digest of the public key for ED25519 — and
+CreateKeyPair makes an ED25519 key in OpenSSH format when asked.
+ImportKeyPair refuses material that is not an OpenSSH public key with
+`InvalidKey.Format`, every pair keeps its OpenSSH public key, which
+DescribeKeyPairs returns only with `IncludePublicKey`, and a named pair that
+does not exist answers `InvalidKeyPair.NotFound`.

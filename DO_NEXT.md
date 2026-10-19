@@ -5,13 +5,16 @@
 - **Stage 5 of `PLAN.md`: distributed.** The agent on another host, reached
   over its API with its minted token, and networks that span hosts; the
   same-range gap (two live VPCs over one CIDR on one engine) lifts there.
+- **The EC2 instance metadata service answers only instances** (BUG-3524):
+  drop the fixed answers to callers that are not instances and move the
+  host-side metadata tests into an instance through Run Command.
 - **Close the no-privilege gaps `BUGS.md` holds**: the NAT data planes'
   remainders (ICMP, packet counts, Cloud Monitoring for Cloud NAT, the
   public address as the source a peer sees, a subnet with no route out);
-  cloud-init for Compute Engine `user-data` and Azure `customData`; the
-  fixed link-local metadata address; packet capture and packet mirroring
-  data paths; managed block volume size and filesystem on the container
-  backend.
+  the cloud-init modules and part types not yet run (BUG-3526); the
+  Compute Engine metadata server's project attributes (BUG-3525); the fixed
+  link-local metadata address; packet capture and packet mirroring data
+  paths; managed block volume size and filesystem on the container backend.
 - **Fold the simulator CI shards back** from the first parallel run's per-test
   durations (BUG-3437), and stop repeating base-image loading, pre-builds and
   the Caddy install per job (BUG-3151).
