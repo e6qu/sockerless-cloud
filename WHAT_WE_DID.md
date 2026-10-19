@@ -3519,3 +3519,23 @@ no stages admitting everything; the `ec2-microvm`, Compute Engine `microvm`
 and Azure `microvm` shards do the same through the clouds' APIs, with the
 neighbour's probe run through Systems Manager, a startup script read from
 the serial console and the custom script extension.
+
+The shards found three gaps the KVM proof could not. CreateVpc had never
+created the VPC's default security group, so an interface, a task or a
+load balancer joining it joined nothing and carried one empty stage, which
+admits nothing: every VPC now comes with its `default` group, admitting
+all traffic from its own members and sending anything, which a user can
+neither create under that reserved name nor delete, and which goes with the
+VPC. A transport rule with no port range rendered a bare protocol keyword
+nftables rejects (`ip protocol tcp tcp drop`), which an Azure deny rule
+over every port compiles to; the keyword now precedes only a port match.
+The instance init piped the user data through `tee` and waited for the
+pipe's end, so a daemon the script left behind, which keeps the pipe open,
+held the ready marker back for ever: the init now relays the output through
+a fifo and waits for the script's process alone, as cloud-init does, and
+the vminstance proof leaves a sleeper behind. Compute Engine's script
+runner reads a script's output to its end before it reports the exit, as
+google_metadata_script_runner does, so the Compute Engine shard's listeners
+close theirs. A `$` anchor in a shard's skip pattern reached make as the
+empty variable `$'` and unbalanced the quote; the patterns anchor at the
+start only.

@@ -257,7 +257,7 @@ func renderIngressRule(rule packetRule) (string, error) {
 	}
 	switch proto {
 	case "tcp", "udp", "sctp":
-		parts = append(parts, "ip", "protocol", proto, proto)
+		parts = append(parts, "ip", "protocol", proto)
 		if rule.FromPort > 0 || rule.ToPort > 0 {
 			from, to := rule.FromPort, rule.ToPort
 			if from == 0 {
@@ -267,9 +267,9 @@ func renderIngressRule(rule packetRule) (string, error) {
 				to = from
 			}
 			if from == to {
-				parts = append(parts, "dport", strconv.Itoa(from))
+				parts = append(parts, proto, "dport", strconv.Itoa(from))
 			} else {
-				parts = append(parts, "dport", fmt.Sprintf("%d-%d", from, to))
+				parts = append(parts, proto, "dport", fmt.Sprintf("%d-%d", from, to))
 			}
 		}
 	case "":

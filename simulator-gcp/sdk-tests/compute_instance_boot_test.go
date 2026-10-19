@@ -268,8 +268,10 @@ func TestCompute_FirewallRulesFilterWhatAnInstanceReceives(t *testing.T) {
 	firewall("fw-allow-80", "80")
 
 	// The server answers on two ports; the client reports which it reaches.
+	// The listeners leave the script's output behind: the script runner
+	// reads that output to its end before it reports the script's exit.
 	const serverScript = `#!/bin/bash
-serve() { perl -MIO::Socket::INET -e '$s=IO::Socket::INET->new(LocalPort=>$ARGV[0],Listen=>5,Reuse=>1) or die; while($c=$s->accept){print $c "HTTP/1.0 200 OK\r\n\r\nok\n"; close $c}' "$1" & }
+serve() { perl -MIO::Socket::INET -e '$s=IO::Socket::INET->new(LocalPort=>$ARGV[0],Listen=>5,Reuse=>1) or die; while($c=$s->accept){print $c "HTTP/1.0 200 OK\r\n\r\nok\n"; close $c}' "$1" >/dev/null 2>&1 & }
 serve 80
 serve 81
 echo "serving"

@@ -96,7 +96,10 @@ var ErrNoImage = errors.New("the instance names no image")
 // Init renders the instance's init: it runs the user data once per instance
 // when it is a script, as cloud-init's scripts-user module does, writes its
 // output to the console and to the log where cloud-init keeps it, and then
-// stays up until the machine is stopped.
+// stays up until the machine is stopped. The init waits for the script's
+// process and not for its output's end: a daemon the script leaves behind
+// keeps the output open, and cloud-init's tee relays it for as long as the
+// daemon runs.
 func Init(userDataPath string, everyBoot bool) string {
 	if userDataPath == "" {
 		userDataPath = DefaultUserDataPath
@@ -114,7 +117,10 @@ func Init(userDataPath string, everyBoot bool) string {
 		"if [ \"$once\" = /dev/null ] || [ ! -e \"$once\" ] && [ -s \"$ud\" ] && [ \"$(head -c 2 \"$ud\")\" = '#!' ]; then",
 		"\t[ \"$once\" = /dev/null ] || { mkdir -p \"$(dirname \"$once\")\" && : >\"$once\"; }",
 		"\tchmod 700 \"$ud\"",
-		"\t{ \"$ud\" 2>&1; echo \"user data exited $?\"; } | tee -a \"$log\"",
+		"\tout=/run/sockerless-user-data.out",
+		"\tmkdir -p /run && rm -f \"$out\" && mkfifo \"$out\"",
+		"\ttee -a \"$log\" <\"$out\" &",
+		"\t{ \"$ud\" 2>&1; echo \"user data exited $?\"; } >\"$out\"",
 		"fi",
 		"mkdir -p /run && touch /run/sockerless-instance-ready",
 		"trap 'exit 0' TERM INT",

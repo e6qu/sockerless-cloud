@@ -853,6 +853,7 @@ func handleCreateVpc(w http.ResponseWriter, r *http.Request) {
 		EnableDnsHostnames: false,
 	}
 	ec2Vpcs.Put(id, vpc)
+	ec2CreateDefaultSecurityGroup(id)
 	accountControl := currentAccountVpcEncryptionControl()
 	switch accountControl.Mode {
 	case "attempt-monitor":
@@ -1014,6 +1015,12 @@ func handleDeleteVpc(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, s := range ec2Subnets.Filter(func(s EC2Subnet) bool { return s.VpcId == id }) {
 		ec2SubnetIPCursor.Delete(s.SubnetId)
+	}
+	for _, groupID := range ec2DefaultSecurityGroupIDs(id) {
+		for _, rule := range ec2SecurityGroupRules.Filter(func(rule EC2SecurityGroupRule) bool { return rule.GroupId == groupID }) {
+			ec2SecurityGroupRules.Delete(rule.RuleId)
+		}
+		ec2SecurityGroups.Delete(groupID)
 	}
 	for _, control := range ec2VpcEncryptionControls.Filter(func(control EC2VpcEncryptionControl) bool {
 		return control.VpcId == id
@@ -2193,6 +2200,10 @@ func handleCreateSecurityGroup(w http.ResponseWriter, r *http.Request) {
 	desc := r.FormValue("GroupDescription")
 	vpcId := r.FormValue("VpcId")
 	tags := parseTags(r)
+	if name == "default" {
+		ec2ErrorXML(w, "InvalidParameterValue", "Cannot use reserved security group name: default", http.StatusBadRequest)
+		return
+	}
 
 	// Real AWS rejects a duplicate group name within the same VPC
 	// (different VPCs may reuse a name). The ECS backend's idempotent
@@ -2382,8 +2393,13 @@ func ec2SecurityGroupMatchesFilters(sg EC2SecurityGroup, filters map[string][]st
 
 func handleDeleteSecurityGroup(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("GroupId")
-	if _, ok := ec2SecurityGroups.Get(id); !ok {
+	sg, ok := ec2SecurityGroups.Get(id)
+	if !ok {
 		ec2ErrorXML(w, "InvalidGroup.NotFound", fmt.Sprintf("The security group '%s' does not exist", id), http.StatusBadRequest)
+		return
+	}
+	if sg.GroupName == "default" && sg.VpcId != "" {
+		ec2ErrorXML(w, "CannotDelete", fmt.Sprintf("the specified group: %q name: %q cannot be deleted by a user", id, sg.GroupName), http.StatusBadRequest)
 		return
 	}
 	ec2SecurityGroups.Delete(id)

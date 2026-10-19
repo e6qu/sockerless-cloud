@@ -18,6 +18,30 @@ func ec2IngressStages(groupIDs []string) [][]netrules.PacketRule {
 	return [][]netrules.PacketRule{ec2BuildIngressPacketRules(groupIDs)}
 }
 
+// ec2CreateDefaultSecurityGroup is the group every VPC comes with: named
+// default, admitting all traffic from its own members and sending anything.
+func ec2CreateDefaultSecurityGroup(vpcID string) {
+	id := ec2ID("sg")
+	sg := EC2SecurityGroup{
+		GroupId:     id,
+		GroupName:   "default",
+		Description: "default VPC security group",
+		VpcId:       vpcID,
+		OwnerId:     ec2Owner(),
+		IpPermissions: []EC2IpPermission{{
+			IpProtocol:       "-1",
+			UserIdGroupPairs: []EC2UserIdGroupPair{{GroupId: id}},
+		}},
+		IpPermissionsEgress: []EC2IpPermission{{
+			IpProtocol: "-1",
+			IpRanges:   []EC2IpRange{{CidrIp: "0.0.0.0/0"}},
+		}},
+	}
+	ec2SecurityGroups.Put(id, sg)
+	createSecurityGroupRules(id, sg.IpPermissions[0], false)
+	createSecurityGroupRules(id, sg.IpPermissionsEgress[0], true)
+}
+
 // ec2DefaultSecurityGroupIDs is the VPC's default group, which an interface
 // launched with no group joins.
 func ec2DefaultSecurityGroupIDs(vpcID string) []string {

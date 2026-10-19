@@ -35,6 +35,8 @@ func TestRenderIngressProgramFiltersAtTheTap(t *testing.T) {
 		{Protocol: "6", SourceCIDR: "0.0.0.0/0", FromPort: 8000, ToPort: 8080},
 		{Protocol: "icmp", SourceCIDR: "10.0.0.0/8"},
 		{Protocol: "-1", SourceCIDR: "192.168.0.0/16", Action: "drop"},
+		{Protocol: "tcp", SourceCIDR: "172.16.0.0/12", Action: "drop"},
+		{Protocol: "udp"},
 	}, {
 		{Protocol: "-1", SourceCIDR: "10.0.0.0/8"},
 	}})
@@ -51,6 +53,8 @@ func TestRenderIngressProgramFiltersAtTheTap(t *testing.T) {
 		`ip saddr 0.0.0.0/0 ip protocol tcp tcp dport 8000-8080 return`,
 		`ip saddr 10.0.0.0/8 ip protocol icmp return`,
 		`ip saddr 192.168.0.0/16 drop`,
+		"\t\tip saddr 172.16.0.0/12 ip protocol tcp drop\n",
+		"\t\tip protocol udp return\n",
 		"chain stage1 {\n\t\tip saddr 10.0.0.0/8 return\n\t\tdrop\n\t}",
 	} {
 		if !strings.Contains(program, want) {

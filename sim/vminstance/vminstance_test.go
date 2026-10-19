@@ -63,7 +63,7 @@ func TestInstanceRunsItsUserDataOnTheConsoleAndKeepsItsDiskAcrossAStop(t *testin
 		Network:   network,
 		Address:   address.String(),
 		DNS:       []string{netip.MustParseAddr("100.64.0.2").String()},
-		UserData:  []byte("#!/bin/sh\necho \"user data ran on $(hostname)\"\necho boot >> /var/boots\n"),
+		UserData:  []byte("#!/bin/sh\necho \"user data ran on $(hostname)\"\necho boot >> /var/boots\nsleep 2147483647 &\n"),
 		Env:       map[string]string{"AWS_EC2_METADATA_SERVICE_ENDPOINT": "http://100.64.0.2/"},
 		VCPUs:     1,
 		MemoryMiB: 64,
