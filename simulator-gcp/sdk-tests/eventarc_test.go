@@ -49,6 +49,7 @@ func eventarcClient(t *testing.T) *eventarc.Client {
 // Eventarc refuses a trigger whose destination service does not exist.
 func eventarcRunService(t *testing.T, project, region, id string) {
 	t.Helper()
+	requireProject(t, project)
 	client := newServicesClient(t)
 	parent := "projects/" + project + "/locations/" + region
 	op, err := client.CreateService(ctx, &runpb.CreateServiceRequest{
