@@ -1,12 +1,11 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
-	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 )
 
@@ -35,7 +34,7 @@ func containerAppDaprSpec(app ContainerApp) *ContainerAppDapr {
 	return cfg.Dapr
 }
 
-// startACAAppDaprSidecar starts the real daprd sidecar for one replica of
+// acaAppDaprContainer is the real daprd sidecar of one replica of
 // a container app, sharing the replica's network namespace (Docker
 // network-mode container:<main>) so localhost:3500 / localhost:50001
 // reach it from every container in the replica — the same pod-local
@@ -43,7 +42,7 @@ func containerAppDaprSpec(app ContainerApp) *ContainerAppDapr {
 // console log table, matching how ACA surfaces the daprd container's
 // lines in ContainerAppConsoleLogs_CL. The handle joins the replica set,
 // so stop/replace/delete tear the sidecar down with the app containers.
-func startACAAppDaprSidecar(ctx context.Context, resourceID string, app ContainerApp, d *ContainerAppDapr, replica int32, mainContainerID string) (placement.Handle, error) {
+func acaAppDaprContainer(app ContainerApp, d *ContainerAppDapr, replica string) workload.Container {
 	args := []string{
 		"--dapr-http-port", "3500",
 		"--dapr-grpc-port", "50001",
@@ -71,33 +70,23 @@ func startACAAppDaprSidecar(ctx context.Context, resourceID string, app Containe
 	if d.HTTPReadBufferSize != nil {
 		args = append(args, "--read-buffer-size", fmt.Sprintf("%dKi", *d.HTTPReadBufferSize))
 	}
-
-	platform, err := workload.LocalImagePlatform(ctx, daprdSidecarImage, "")
-	if err != nil {
-		return nil, err
-	}
 	shortName := app.Name
 	if len(shortName) > 24 {
 		shortName = shortName[:24]
 	}
-	backend, err := azurePlacementBackend(placementContainerApps)
-	if err != nil {
-		return nil, err
-	}
-	return backend.PlaceMember(ctx, mainContainerID, sim.ContainerConfig{
+	return workload.Container{Name: "daprd", Config: sim.ContainerConfig{
 		CancelGracePeriod: acaAppStopGrace(app),
 		Image:             daprdSidecarImage,
-		Architecture:      platform,
 		// The daprd image declares no entrypoint or cmd; the runtime
 		// binary lives at /daprd.
 		Command: []string{"/daprd"},
 		Args:    args,
-		Name:    fmt.Sprintf("sockerless-sim-azure-app-%s-%d-daprd-%s", shortName, replica, randomSuffix(6)),
+		Name:    fmt.Sprintf("sockerless-sim-azure-app-%s-%s-daprd", shortName, replica[strings.LastIndex(replica, "-")+1:]),
 		Labels: map[string]string{
 			"sockerless-sim-type": "aca-app-dapr-sidecar",
-			"sockerless-app-id":   resourceID,
+			"sockerless-app-id":   app.ID,
 			"sockerless-app-name": app.Name,
 		},
 		Sandbox: SandboxACA,
-	}, &acaAppLogSink{app: app, container: "daprd"})
+	}}
 }

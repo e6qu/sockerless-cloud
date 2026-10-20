@@ -201,14 +201,20 @@ func adoptCloudRunWorkerPoolInstances(pool WorkerPoolV2, run bool) {
 	}
 	specSig := serviceContainersSignature(containers, volumes)
 	revision := pool.LatestCreatedRevision[strings.LastIndex(pool.LatestCreatedRevision, "/")+1:]
-	var adopted []*cloudRunRun
+	var vpc *VpcAccess
+	if pool.Template != nil {
+		vpc = pool.Template.VpcAccess
+	}
+	poolRun := newCloudRunWorkerPoolRun(pool.Name, revision, vpc, containers, volumes)
+	adopted := 0
 	for _, id := range ids {
 		group := groups[id]
-		if len(adopted) < want {
+		if adopted < want {
 			if byName, ok := cloudRunAdoptable(group, id, specSig, "sockerless-sim-worker-pool-container", containers); ok {
-				instance, err := adoptCloudRunWorkerPoolInstance(pool.Name, revision, containers, volumes, byName)
+				instance, release, err := adoptCloudRunWorkerPoolInstance(pool.Name, revision, containers, volumes, byName)
 				if err == nil {
-					adopted = append(adopted, instance)
+					poolRun.set.Adopt(id, instance, time.Now(), release)
+					adopted++
 					continue
 				}
 				log.Printf("Cloud Run worker pool %s: adopt instance %s: %v", pool.Name, id, err)
@@ -216,25 +222,25 @@ func adoptCloudRunWorkerPoolInstances(pool WorkerPoolV2, run bool) {
 		}
 		removeCloudRunContainers(pool.Name, group)
 	}
-	if len(adopted) == 0 {
+	if adopted == 0 {
 		return
 	}
 	cloudRunWorkerPoolRuns.Lock()
-	cloudRunWorkerPoolRuns.byName[pool.Name] = &cloudRunWorkerPoolRun{specSig: specSig, instances: adopted}
+	cloudRunWorkerPoolRuns.byName[pool.Name] = poolRun
 	cloudRunWorkerPoolRuns.Unlock()
 }
 
-// adoptCloudRunWorkerPoolInstance runs a worker pool instance on the
-// containers an earlier process started, as startCloudRunWorkerPoolInstance
-// runs one it starts.
-func adoptCloudRunWorkerPoolInstance(poolName, revision string, containers []Container, volumes []Volume, byName map[string]placement.Existing) (*cloudRunRun, error) {
+// adoptCloudRunWorkerPoolInstance takes over the containers of a worker pool
+// instance an earlier process started, with what to release once they have
+// exited.
+func adoptCloudRunWorkerPoolInstance(poolName, revision string, containers []Container, volumes []Volume, byName map[string]placement.Existing) (*workload.Group, func(), error) {
 	writable, err := cloudRunWritableBuckets(containers, volumes)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	releaseMounts, err := gcsAcquireMounts(writable)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	sink := newCloudRunAdoptedResourceLogSink(cloudRunWorkerPoolLogSink(poolName, revision))
 	handles := make([]placement.Handle, 0, len(containers))
@@ -245,7 +251,7 @@ func adoptCloudRunWorkerPoolInstance(poolName, revision string, containers []Con
 				h.Cancel()
 			}
 			releaseMounts()
-			return nil, err
+			return nil, nil, err
 		}
 		handles = append(handles, handle)
 	}
@@ -255,31 +261,13 @@ func adoptCloudRunWorkerPoolInstance(poolName, revision string, containers []Con
 			h.Cancel()
 		}
 		releaseMounts()
-		return nil, err
+		return nil, nil, err
 	}
-	run, ctx := newCloudRunRun()
-	run.started(nil)
-	bg.Go(func() {
-		defer close(run.done)
-		defer releaseAddress()
-		main := handles[0]
-		exited := make(chan sim.ProcessResult, 1)
-		go func() { exited <- main.Wait() }()
-		select {
-		case <-ctx.Done():
-			main.Stop()
-			main.Cancel()
-			<-exited
-		case result := <-exited:
-			sink.WriteLog(sim.LogLine{Stream: "stderr", Text: fmt.Sprintf("Container called exit(%d).", result.ExitCode)})
-		}
-		for _, h := range handles[1:] {
-			h.Cancel()
-			h.Wait()
-		}
+	release := func() {
+		releaseAddress()
 		releaseMounts()
-	})
-	return run, nil
+	}
+	return &workload.Group{Main: handles[0], Sidecars: handles[1:]}, release, nil
 }
 
 // adoptCloudRunInstance takes over the containers of a Cloud Run instance an
@@ -363,12 +351,11 @@ func adoptCloudRunServiceInstance(name, specSig string, containers []Container, 
 		owner:         owner,
 		specSig:       specSig,
 		stop:          stop,
-		logsDone:      owner.Exited(),
 		ready:         make(chan struct{}),
 		address:       address,
 		releaseMounts: releaseMounts,
 		ingress:       byIndex[0],
-		handles:       handles[1:],
+		handles:       handles,
 	}
 	close(inst.ready)
 	cloudRunServiceInstances.Lock()

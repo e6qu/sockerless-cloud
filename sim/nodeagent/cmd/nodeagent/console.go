@@ -214,7 +214,17 @@ func (g *guest) readGuestConsole(boot int) bool {
 		}
 		g.console.add(boot, line)
 	}
-	return scanner.Err() == nil
+	if scanner.Err() != nil {
+		return false
+	}
+	// guestinit holds the machine up until the console is read.
+	ack, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "http://guest/logs/read", nil)
+	ackResp, err := g.vsockClient().Do(ack)
+	if err != nil {
+		return false
+	}
+	_ = ackResp.Body.Close()
+	return ackResp.StatusCode == http.StatusNoContent
 }
 
 // streamLogs writes the console as newline-delimited JSON: the selected lines

@@ -56,6 +56,9 @@ func TestSDK_ContainerAppsApps_CreateGetDelete(t *testing.T) {
 					{
 						Name:  to.Ptr("main"),
 						Image: to.Ptr("mirror.gcr.io/library/alpine:latest"),
+						// The default startup probe waits for the ingress
+						// target port.
+						Command: []*string{to.Ptr("nc"), to.Ptr("-lk"), to.Ptr("-p"), to.Ptr("8080"), to.Ptr("-e"), to.Ptr("true")},
 					},
 				},
 				Scale: &armappcontainers.Scale{
@@ -485,7 +488,8 @@ func TestSDK_ContainerAppsApps_PatchMergesNotReplaces(t *testing.T) {
 			},
 			Template: &armappcontainers.Template{
 				Containers: []*armappcontainers.Container{
-					{Name: to.Ptr("main"), Image: to.Ptr("mirror.gcr.io/library/alpine:latest")},
+					{Name: to.Ptr("main"), Image: to.Ptr("mirror.gcr.io/library/alpine:latest"),
+						Command: []*string{to.Ptr("nc"), to.Ptr("-lk"), to.Ptr("-p"), to.Ptr("8080"), to.Ptr("-e"), to.Ptr("true")}},
 				},
 				Volumes: []*armappcontainers.Volume{
 					{Name: to.Ptr("data"), StorageType: to.Ptr(armappcontainers.StorageType("EmptyDirectory"))},
@@ -514,7 +518,7 @@ func TestSDK_ContainerAppsApps_PatchMergesNotReplaces(t *testing.T) {
 	patchBody := `{
 		"properties": {
 			"template": {
-				"containers": [{"name":"main","image":"mirror.gcr.io/library/alpine:3.20"}]
+				"containers": [{"name":"main","image":"mirror.gcr.io/library/alpine:3.20","command":["nc","-lk","-p","8080","-e","true"]}]
 			}
 		}
 	}`

@@ -118,6 +118,9 @@ func run() (int, error) {
 	group.closeToNew()
 	group.waitAll()
 	close(group.done)
+	// The console lives in this guest's memory alone until the agent has
+	// read it to its end; powering off first would lose what it has not.
+	<-logs.read
 	return result.code, nil
 }
 
@@ -245,9 +248,16 @@ type logBook struct {
 	mu        sync.Mutex
 	lines     []logLine
 	followers map[chan logLine]struct{}
+	// read closes once the agent reports it holds every line.
+	read     chan struct{}
+	readOnce sync.Once
 }
 
-func newLogBook() *logBook { return &logBook{followers: map[chan logLine]struct{}{}} }
+func newLogBook() *logBook {
+	return &logBook{followers: map[chan logLine]struct{}{}, read: make(chan struct{})}
+}
+
+func (b *logBook) markRead() { b.readOnce.Do(func() { close(b.read) }) }
 
 func (b *logBook) add(member, stream, text string) {
 	line := logLine{Time: time.Now().UTC(), Stream: stream, Text: text, Member: member}
@@ -750,6 +760,17 @@ func serveControl(group *members) {
 			case <-r.Context().Done():
 				return
 			}
+		}
+	})
+	// The agent posts here once a follow of /logs ended at the workload's
+	// end, so it holds every line.
+	mux.HandleFunc("POST /logs/read", func(rw http.ResponseWriter, r *http.Request) {
+		select {
+		case <-group.done:
+			logs.markRead()
+			rw.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(rw, "the workload is still running", http.StatusConflict)
 		}
 	})
 	mux.HandleFunc("POST /exec", func(rw http.ResponseWriter, r *http.Request) {

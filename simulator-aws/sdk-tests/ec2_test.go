@@ -210,7 +210,11 @@ func TestEC2_InstanceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, instanceTypes.InstanceTypes, 1)
 
-	keys, err := client.DescribeKeyPairs(ctx, &ec2.DescribeKeyPairsInput{})
+	// Other tests of the suite import key pairs at the same time, so read
+	// only the name this test owns.
+	keys, err := client.DescribeKeyPairs(ctx, &ec2.DescribeKeyPairsInput{
+		Filters: []types.Filter{{Name: aws.String("key-name"), Values: []string{"instance-lifecycle-unused"}}},
+	})
 	require.NoError(t, err)
 	assert.Empty(t, keys.KeyPairs)
 

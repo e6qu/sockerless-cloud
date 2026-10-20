@@ -1,0 +1,583 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"net"
+	"slices"
+	"sort"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/lbplane"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
+	"github.com/e6qu/sockerless-cloud/sim/replicas"
+	"github.com/e6qu/sockerless-cloud/sim/workload"
+	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
+)
+
+// A Container Apps revision runs its replicas as one replica set: each replica
+// is a pod of the revision's containers and the Dapr sidecar, in one network
+// namespace, ready once its main container listens on the ingress target
+// port. A replica whose main container exits restarts in place under its
+// name and address, backing off as Kubernetes does for a container that
+// keeps exiting.
+
+const (
+	acaRevisionLabel  = "sockerless-aca-revision"
+	acaReplicaLabel   = "sockerless-aca-replica"
+	acaContainerLabel = "sockerless-aca-container"
+)
+
+// acaRevisionRun is a revision's running replicas.
+type acaRevisionRun struct {
+	set   *replicas.Set
+	grace time.Duration
+
+	mu       sync.Mutex
+	replicas map[string]*acaReplica
+}
+
+var acaRevisionRuns sync.Map // map[revisionID]*acaRevisionRun
+
+func acaRevisionRunOf(revisionID string) (*acaRevisionRun, bool) {
+	v, ok := acaRevisionRuns.Load(revisionID)
+	if !ok {
+		return nil, false
+	}
+	run, ok := v.(*acaRevisionRun)
+	return run, ok
+}
+
+func (run *acaRevisionRun) add(replica *acaReplica) {
+	run.mu.Lock()
+	run.replicas[replica.name] = replica
+	run.mu.Unlock()
+}
+
+func (run *acaRevisionRun) replica(name string) (*acaReplica, bool) {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	replica, ok := run.replicas[name]
+	return replica, ok
+}
+
+// remove forgets a replica that ended and releases its pod's address.
+func (run *acaRevisionRun) remove(name string) {
+	run.mu.Lock()
+	replica, ok := run.replicas[name]
+	delete(run.replicas, name)
+	run.mu.Unlock()
+	if ok && replica.release != nil {
+		replica.release()
+	}
+}
+
+// acaCurrentReplicas lists a revision's running replicas, oldest first.
+func acaCurrentReplicas(revisionID string) []*acaReplica {
+	run, ok := acaRevisionRunOf(revisionID)
+	if !ok {
+		return nil
+	}
+	run.mu.Lock()
+	out := make([]*acaReplica, 0, len(run.replicas))
+	for _, replica := range run.replicas {
+		out = append(out, replica)
+	}
+	run.mu.Unlock()
+	sort.Slice(out, func(i, j int) bool { return out[i].created.Before(out[j].created) })
+	return out
+}
+
+// acaRevisionReplicaCount is how many replicas a revision's template keeps
+// running: its minReplicas, one when the template names none.
+func acaRevisionReplicaCount(template *ContainerAppTemplate) int {
+	if template == nil || len(template.Containers) == 0 {
+		return 0
+	}
+	if template.Scale != nil && template.Scale.MinReplicas != nil {
+		return max(int(*template.Scale.MinReplicas), 0)
+	}
+	return 1
+}
+
+// acaReplicaRestartBackoff is how long a revision waits before it replaces a
+// replica that exited: Kubernetes' crash-loop back-off, doubling from 10
+// seconds to 5 minutes with the replicas in a row that exited within 10
+// minutes of starting.
+func acaReplicaRestartBackoff(consecutive int) time.Duration {
+	wait := 10 * time.Second
+	for range consecutive - 1 {
+		wait *= 2
+		if wait >= 5*time.Minute {
+			return 5 * time.Minute
+		}
+	}
+	return wait
+}
+
+// acaRevisionWorkload is what a revision's replicas start with: the network
+// and the configuration they run under.
+type acaRevisionWorkload struct {
+	app         ContainerApp
+	rev         acaRevision
+	envID       string
+	network     azureWorkloadNetwork
+	subnetID    string
+	netAliases  []string
+	metadataEnv map[string]string
+	secrets     map[string]string
+}
+
+func newACARevisionWorkload(ctx context.Context, app ContainerApp, rev acaRevision) (acaRevisionWorkload, error) {
+	app.Properties.Template = rev.Template
+	envID := acaAppEnvironmentID(app)
+	// The environment's internal DNS resolves an app by its name and FQDNs,
+	// which the replica's network aliases answer on the environment's network.
+	network, subnetID, err := acaWorkloadNetwork(ctx, envID)
+	if err != nil {
+		return acaRevisionWorkload{}, err
+	}
+	netAliases := []string{app.Name}
+	if appFqdn := acaAppFqdn(app); appFqdn != "" {
+		netAliases = append(netAliases, appFqdn)
+	}
+	if rev.Fqdn != "" {
+		netAliases = append(netAliases, rev.Fqdn)
+	}
+	metadataEnv, err := workloadMetadataEnv(app.ID, app.Identity, network.DNS)
+	if err != nil {
+		return acaRevisionWorkload{}, err
+	}
+	secrets, err := acaResolveSecrets(app.Identity, acaAppSecrets(app))
+	if err != nil {
+		return acaRevisionWorkload{}, &acaRevisionRequestError{err}
+	}
+	return acaRevisionWorkload{app: app, rev: rev, envID: envID, network: network, subnetID: subnetID,
+		netAliases: netAliases, metadataEnv: metadataEnv, secrets: secrets}, nil
+}
+
+// members are the containers of one replica, the app's own and the Dapr
+// sidecar, labelled with the revision and the replica they belong to.
+func (wl acaRevisionWorkload) members(replica string) []workload.Member {
+	containers := wl.app.Properties.Template.Containers
+	members := make([]workload.Member, 0, len(containers)+1)
+	for _, c := range containers {
+		container := acaAppContainer(wl.app, c, replica, wl.envID, wl.metadataEnv, wl.secrets)
+		container.Config.Labels[acaRevisionLabel] = wl.rev.ID
+		container.Config.Labels[acaReplicaLabel] = replica
+		container.Config.Labels[acaContainerLabel] = c.Name
+		members = append(members, workload.Member{Container: container})
+	}
+	if d := containerAppDaprSpec(wl.app); d != nil {
+		dapr := acaAppDaprContainer(wl.app, d, replica)
+		dapr.Config.Labels[acaRevisionLabel] = wl.rev.ID
+		dapr.Config.Labels[acaReplicaLabel] = replica
+		dapr.Config.Labels[acaContainerLabel] = "daprd"
+		members = append(members, workload.Member{Container: dapr})
+	}
+	if acaIngressEnabled(wl.app) {
+		port := int(acaIngressTargetPort(wl.app))
+		members[0].Startup = func(ctx context.Context, member, _ placement.Handle) error {
+			return acaAwaitListening(ctx, member, port)
+		}
+	}
+	return members
+}
+
+// Container Apps' default startup probe on the ingress target port: a TCP
+// connection, one second after the container starts and every second after,
+// each given three seconds, failing after 240 attempts.
+const (
+	acaStartupProbeDelay    = time.Second
+	acaStartupProbePeriod   = time.Second
+	acaStartupProbeTimeout  = 3 * time.Second
+	acaStartupProbeFailures = 240
+)
+
+// acaAwaitListening returns once the replica's main container accepts a
+// connection on port, as the default startup probe sees it, or fails when the
+// probe's attempts run out or the container exits.
+func acaAwaitListening(ctx context.Context, member placement.Handle, port int) error {
+	wait := acaStartupProbeDelay
+	var last error
+	for range acaStartupProbeFailures {
+		select {
+		case <-member.Exited():
+			return fmt.Errorf("the container exited before it listened on port %d", port)
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(wait):
+		}
+		wait = acaStartupProbePeriod
+		address, err := member.Address(ctx)
+		if err != nil || address == "" {
+			last = fmt.Errorf("the container has no address: %v", err)
+			continue
+		}
+		if last = lbplane.ProbeTCP(ctx, net.JoinHostPort(address, strconv.Itoa(port)), acaStartupProbeTimeout); last == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("startup probe failed: %w", last)
+}
+
+// newACARevisionRun is the replica set of a revision.
+func newACARevisionRun(wl acaRevisionWorkload) *acaRevisionRun {
+	app, rev := wl.app, wl.rev
+	run := &acaRevisionRun{grace: acaAppStopGrace(app), replicas: map[string]*acaReplica{}}
+	names := make([]string, 0, len(app.Properties.Template.Containers))
+	for _, c := range app.Properties.Template.Containers {
+		names = append(names, c.Name)
+	}
+	run.set = replicas.New(replicas.Spec{
+		NewID:   func() string { return acaReplicaName(rev.Name) },
+		Restart: replicas.Always,
+		InPlace: true,
+		Backoff: acaReplicaRestartBackoff,
+		Settled: 10 * time.Minute,
+		Start: func(ctx context.Context, name string) (*workload.Group, func(), error) {
+			replica, restarting := run.replica(name)
+			if restarting {
+				replica.restarting()
+			} else {
+				replica = newACAReplica(name, rev.Name, names)
+				acaRecordSystemEvent(app.ID, wl.envID, app.Name, rev.Name, replica.name, "AssigningReplica",
+					fmt.Sprintf("Replica '%s' has been scheduled to run on a node.", replica.name))
+			}
+			members := wl.members(name)
+			// The pod holds its address across restarts in place; the
+			// replica's record releases it once the replica ends.
+			if !restarting {
+				address, release, err := azureWorkloadAddress(ctx, wl.network, wl.subnetID, members[0].Config.Name)
+				if err != nil {
+					return nil, nil, err
+				}
+				replica.address, replica.release = address, release
+			}
+			backend, err := azurePlacementBackend(placementContainerApps)
+			if err != nil {
+				if !restarting {
+					replica.release()
+				}
+				return nil, nil, err
+			}
+			group, err := workload.StartGroup(ctx, backend, members, workload.StartOptions{
+				Sink: func(i int) sim.LogSink {
+					if i < len(replica.containers) {
+						return replica.containers[i].sink(app, rev.Name)
+					}
+					return &acaAppLogSink{app: app, container: "daprd"}
+				},
+				Owner: func(cfg *sim.ContainerConfig) {
+					// A replica is a pod, and a pod's hostname is its name.
+					cfg.Hostname = replica.name
+					cfg.Network = wl.network.Network
+					cfg.NetworkAliases = wl.netAliases
+					cfg.DNS = wl.network.resolvers()
+					cfg.ExtraHosts = workloadhost.ExtraHosts()
+					cfg.IPv4Address = replica.address
+				},
+				Placed: func(i int, h placement.Handle) {
+					if i < len(replica.containers) {
+						replica.containers[i].track(h, app.ID, wl.envID, app.Name, rev.Name, replica.name)
+					}
+				},
+			})
+			if err != nil {
+				if !restarting {
+					releaseAfterStartError(err, replica.release)
+					return nil, nil, err
+				}
+				// The next restart takes the pod's address again once the
+				// members this one placed have left it.
+				var startErr *workload.StartError
+				if errors.As(err, &startErr) {
+					<-startErr.Stopped()
+				}
+				return nil, nil, err
+			}
+			run.add(replica)
+			return group, nil, nil
+		},
+	}, replicas.Hooks{
+		Exited: func(r *replicas.Replica, _ sim.ProcessResult) {
+			if !slices.Contains(run.set.Replicas(), r) {
+				run.remove(r.ID)
+			}
+		},
+		Stopped: func(r *replicas.Replica) { run.remove(r.ID) },
+	})
+	return run
+}
+
+// releaseAfterStartError releases what a replica that failed to start held
+// once the members it placed have exited.
+func releaseAfterStartError(err error, release func()) {
+	var startErr *workload.StartError
+	if errors.As(err, &startErr) {
+		bg.Go(func() {
+			<-startErr.Stopped()
+			release()
+		})
+		return
+	}
+	release()
+}
+
+// startACARevisionReplicas starts a revision's replicas: the revision's
+// template run under the app's current configuration, replacing the replicas
+// it ran before once the new ones run.
+func startACARevisionReplicas(ctx context.Context, app ContainerApp, rev acaRevision) error {
+	want := acaRevisionReplicaCount(rev.Template)
+	if want == 0 {
+		stopACAAppReplicas(rev.ID)
+		return nil
+	}
+	wl, err := newACARevisionWorkload(ctx, app, rev)
+	if err != nil {
+		return err
+	}
+	run := newACARevisionRun(wl)
+	if err := run.set.Scale(ctx, want); err != nil {
+		bg.Go(func() { _ = run.set.Stop(context.Background()) })
+		return err
+	}
+	if previous, ok := acaRevisionRuns.Swap(rev.ID, run); ok {
+		if prev, ok := previous.(*acaRevisionRun); ok {
+			bg.Go(func() { _ = prev.set.Stop(context.Background()) })
+		}
+	}
+	return nil
+}
+
+// stopACAAppReplicas stops the replicas of one revision in the background;
+// the revision holds none from here on.
+func stopACAAppReplicas(revisionID string) {
+	if v, ok := acaRevisionRuns.LoadAndDelete(revisionID); ok {
+		if run, ok := v.(*acaRevisionRun); ok {
+			bg.Go(func() { _ = run.set.Stop(context.Background()) })
+		}
+	}
+}
+
+// stopACAAppReplicasAndWait stops the replicas of one revision and returns
+// once they have exited.
+func stopACAAppReplicasAndWait(revisionID string) {
+	if v, ok := acaRevisionRuns.LoadAndDelete(revisionID); ok {
+		if run, ok := v.(*acaRevisionRun); ok {
+			_ = run.set.Stop(context.Background())
+		}
+	}
+}
+
+// acaPickReplica is the next replica of the revision in turn, for the
+// ingress.
+func acaPickReplica(revisionID string) (*workload.Group, bool) {
+	run, ok := acaRevisionRunOf(revisionID)
+	if !ok {
+		return nil, false
+	}
+	_, group, ok := run.set.Pick()
+	return group, ok
+}
+
+// acaRevisionRunning reports whether a revision has a replica running.
+func acaRevisionRunning(revisionID string) bool {
+	run, ok := acaRevisionRunOf(revisionID)
+	if !ok {
+		return false
+	}
+	for _, r := range run.set.Replicas() {
+		if _, running := r.Group(); running {
+			return true
+		}
+	}
+	return false
+}
+
+// adoptACAAppReplicas takes over, for every active revision of every stored
+// app, the replicas an earlier process of this persistent simulator left
+// running, and starts the rest the revision's template asks for in the
+// background. Containers
+// of revisions no longer active, and of replicas missing a member, are
+// removed.
+func adoptACAAppReplicas(ctx context.Context) {
+	if !sim.HasPersistentWorkloadIdentity() {
+		return
+	}
+	backend, err := azurePlacementBackend(placementContainerApps)
+	if err != nil {
+		log.Printf("Container Apps: adopt replicas: %v", err)
+		return
+	}
+	existing, err := backend.Find(ctx, map[string]string{acaRevisionLabel: ""})
+	if err != nil {
+		log.Printf("Container Apps: find the replicas an earlier process left: %v", err)
+		return
+	}
+	byRevision := map[string]map[string][]placement.Existing{}
+	for _, e := range existing {
+		rev, replica := e.Labels[acaRevisionLabel], e.Labels[acaReplicaLabel]
+		if byRevision[rev] == nil {
+			byRevision[rev] = map[string][]placement.Existing{}
+		}
+		byRevision[rev][replica] = append(byRevision[rev][replica], e)
+	}
+	for revID, groups := range byRevision {
+		rev, ok := acaRevisions.Get(revID)
+		app, appOK := acaApps.Get(rev.AppID)
+		if !ok || !appOK || !rev.Active || app.Properties.RunningStatus == acaStopped || acaRevisionReplicaCount(rev.Template) == 0 {
+			for _, group := range groups {
+				removeACAContainers(ctx, backend, group)
+			}
+			continue
+		}
+		if err := adoptACARevision(ctx, backend, app, rev, groups); err != nil {
+			log.Printf("Container Apps: adopt revision %s: %v", rev.Name, err)
+		}
+	}
+	for _, app := range acaApps.List() {
+		if app.Properties.RunningStatus == acaStopped {
+			continue
+		}
+		for _, rev := range acaAppRevisions(app.ID) {
+			if _, running := acaRevisionRunOf(rev.ID); rev.Active && !running && acaRevisionReplicaCount(rev.Template) > 0 {
+				bg.Go(func() {
+					if err := startACARevisionReplicas(context.Background(), app, rev); err != nil {
+						log.Printf("Container Apps: start revision %s: %v", rev.Name, err)
+						return
+					}
+					if current, ok := acaRevisions.Get(rev.ID); !ok || !current.Active {
+						stopACAAppReplicas(rev.ID)
+					}
+				})
+			}
+		}
+	}
+}
+
+func removeACAContainers(ctx context.Context, backend placement.Backend, group []placement.Existing) {
+	for _, e := range group {
+		if err := backend.Remove(ctx, e.ID); err != nil {
+			log.Printf("Container Apps: remove container %s: %v", e.ID, err)
+		}
+	}
+}
+
+// adoptACARevision adopts the complete, running replicas of a revision up to
+// its replica count, removes the others, and starts what is missing.
+func adoptACARevision(ctx context.Context, backend placement.Backend, app ContainerApp, rev acaRevision, groups map[string][]placement.Existing) error {
+	wl, err := newACARevisionWorkload(ctx, app, rev)
+	if err != nil {
+		return err
+	}
+	run := newACARevisionRun(wl)
+	want := acaRevisionReplicaCount(rev.Template)
+	names := make([]string, 0, len(rev.Template.Containers))
+	for _, c := range rev.Template.Containers {
+		names = append(names, c.Name)
+	}
+	if containerAppDaprSpec(app) != nil {
+		names = append(names, "daprd")
+	}
+	adopted := 0
+	for replicaName, group := range groups {
+		byName := map[string]placement.Existing{}
+		complete := true
+		for _, e := range group {
+			byName[e.Labels[acaContainerLabel]] = e
+			complete = complete && e.Running
+		}
+		for _, name := range names {
+			if _, ok := byName[name]; !ok {
+				complete = false
+			}
+		}
+		if adopted >= want || !complete || len(byName) != len(names) {
+			removeACAContainers(ctx, backend, group)
+			continue
+		}
+		group, release, err := adoptACAReplica(ctx, backend, wl, run, replicaName, byName)
+		if err != nil {
+			log.Printf("Container Apps: adopt replica %s: %v", replicaName, err)
+			removeACAContainers(ctx, backend, groups[replicaName])
+			continue
+		}
+		run.set.Adopt(replicaName, group, time.Now(), release)
+		adopted++
+	}
+	acaRevisionRuns.Store(rev.ID, run)
+	bg.Go(func() {
+		if err := run.set.Scale(context.Background(), want); err != nil {
+			log.Printf("Container Apps: start the replicas revision %s is missing: %v", rev.Name, err)
+		}
+	})
+	return nil
+}
+
+// adoptACAReplica takes over one replica's containers and the address its
+// pod holds.
+func adoptACAReplica(ctx context.Context, backend placement.Backend, wl acaRevisionWorkload, run *acaRevisionRun, replicaName string, byName map[string]placement.Existing) (*workload.Group, func(), error) {
+	app, rev := wl.app, wl.rev
+	names := make([]string, 0, len(app.Properties.Template.Containers))
+	for _, c := range app.Properties.Template.Containers {
+		names = append(names, c.Name)
+	}
+	replica := newACAReplica(replicaName, rev.Name, names)
+	members := wl.members(replicaName)
+	handles := make([]placement.Handle, 0, len(members))
+	cancel := func() {
+		for _, h := range handles {
+			h.Cancel()
+		}
+	}
+	for i, m := range members {
+		var sink sim.LogSink = &acaAppLogSink{app: app, container: "daprd"}
+		if i < len(replica.containers) {
+			sink = replica.containers[i].sink(app, rev.Name)
+		}
+		label := m.Name
+		if i >= len(replica.containers) {
+			label = "daprd"
+		}
+		handle, err := backend.Adopt(ctx, byName[label].ID, m.Config, sink)
+		if err != nil {
+			cancel()
+			return nil, nil, err
+		}
+		handles = append(handles, handle)
+		if i < len(replica.containers) {
+			replica.containers[i].track(handle, app.ID, wl.envID, app.Name, rev.Name, replica.name)
+		}
+	}
+	address, err := handles[0].Address(ctx)
+	if err != nil {
+		cancel()
+		return nil, nil, err
+	}
+	release, err := azureAdoptWorkloadAddress(ctx, wl.network, wl.subnetID, members[0].Config.Name, address)
+	if err != nil {
+		cancel()
+		return nil, nil, err
+	}
+	replica.address, replica.release = address, release
+	run.add(replica)
+	return &workload.Group{Main: handles[0], Sidecars: handles[1:]}, nil, nil
+}
+
+// acaReplicaName names a replica of revision as Container Apps does:
+// <revision>-<10 characters>-<5 characters>.
+func acaReplicaName(revision string) string {
+	return fmt.Sprintf("%s-%s-%s", revision, randomSuffix(10), randomSuffix(5))
+}
+
+// acaIngressEnabled reports whether the app takes traffic through ingress.
+func acaIngressEnabled(app ContainerApp) bool {
+	return app.Properties.Configuration != nil && app.Properties.Configuration.Ingress != nil
+}

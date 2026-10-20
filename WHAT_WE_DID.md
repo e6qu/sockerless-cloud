@@ -3237,6 +3237,10 @@ stops: the engine keeps a container's, and the agent keeps a guest's, read
 from guestinit while the guest runs and held per boot, so `GetConsoleOutput`,
 `getSerialPortOutput` and boot diagnostics read the same console whichever
 backend runs the machine, and a handle follows the boot in progress alone.
+A guest's console lives in its own memory until the agent has read it, so
+guestinit holds the machine up after its workload ends until the agent,
+having followed `/logs` to the end, posts `/logs/read`: a process that prints
+and exits at once loses no line to the power-off.
 `Capture` stores a machine's filesystem as an engine image: a container
 commits, and a guest's root filesystem is exported from its ext4 image with
 `debugfs`, which reads it without a mount, and imported as an image of the
@@ -3807,3 +3811,44 @@ startup script by its interpreter line, as a guest does, rather than under
 The pre-commit test gate matches a route with path parameters against a test
 path that fills them, so a tested parameterised route no longer needs an
 exemption.
+
+### Container groups and replica sets
+
+`sim/workload.StartGroup` starts a group of containers the way Cloud Run
+instances and tasks, Amazon ECS tasks and Container Apps replicas start
+theirs: in the order their `dependsOn` names, the first to start owning the
+network namespace the rest join, each starting once every container it
+depends on passed its startup check. A group that fails to start cancels
+every member it placed and reports when they have exited, so the caller
+releases the address or mount they held only then. Cloud Run's jobs, services
+and worker pools start their containers through it.
+
+`sim/replicas` keeps a count of replicas of one specification running: it
+starts the missing ones, stops the surplus newest first, restarts or replaces
+a replica whose main container exits while the restart policy allows, backing
+off as consecutive exits call for, retries a replacement that fails to start,
+takes over the replicas a restarted simulator finds, and picks a running
+replica in turn for a front end. A Cloud Run worker pool's instances are a
+replica set: an instance whose main container exits is replaced by a new
+instance after the back-off and logs `Container called exit(N).`, and a
+deploy that fails leaves the previous revision's instances running. A
+Container Apps revision's replicas are a replica set that restarts in place,
+as Kubernetes restarts a pod's containers: the replica keeps its name, its
+hostname and its address, and each container counts its restarts. A replica
+with ingress is ready once its main container listens on the target port, as
+the platform's default startup probe sees it. A write that leaves a
+revision's template as it was no longer restarts the revision's replicas,
+`stop` and `start` set and keep the app's `runningStatus`, the replicas of
+every active revision are taken over after a restart of a persistent
+simulator, before it serves, and ingress spreads requests across a
+revision's replicas. A replica's address is the pod's: a replica taken over
+after a restart holds the address it already had.
+
+`sim.StopAndRemoveContainer` returns once the engine has removed the
+container: when the container's own watcher was removing it already, the
+engine answered the second remove at once, and a caller could find the
+container's anonymous volumes still there.
+
+A Cloud Run instance whose container exits while a restart starts it counts
+the exit as one, logged and answered by the restart policy, rather than as a
+failed start.

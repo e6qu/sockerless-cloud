@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
-	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
 // acaRevision is one revision of a container app: the template the app carried
@@ -172,7 +171,7 @@ func acaPickRevision(app ContainerApp) (acaRevision, bool) {
 	var candidates []acaRevision
 	total := int32(0)
 	for _, rev := range acaAppRevisions(app.ID) {
-		if w := weights[rev.Name]; w > 0 && rev.Active && len(acaRevisionHandles(rev.ID)) > 0 {
+		if w := weights[rev.Name]; w > 0 && rev.Active && acaRevisionRunning(rev.ID) {
 			candidates = append(candidates, rev)
 			total += w
 		}
@@ -219,22 +218,15 @@ func acaReconcileRevisions(ctx context.Context, app *ContainerApp, appFqdn strin
 			Fqdn:        app.Properties.LatestRevisionFqdn,
 			Template:    app.Properties.Template,
 		}
-		if err := startACARevisionReplicas(ctx, *app, rev); err != nil {
-			return err
+		if app.Properties.RunningStatus != acaStopped {
+			if err := startACARevisionReplicas(ctx, *app, rev); err != nil {
+				return err
+			}
 		}
 		acaRevisions.Put(rev.ID, rev)
 		app.Properties.LatestReadyRevisionName = name
-	} else {
-		if err := acaValidateTraffic(*app, revisions); err != nil {
-			return &acaRevisionRequestError{err}
-		}
-		for _, rev := range revisions {
-			if rev.Active {
-				if err := startACARevisionReplicas(ctx, *app, rev); err != nil {
-					return err
-				}
-			}
-		}
+	} else if err := acaValidateTraffic(*app, revisions); err != nil {
+		return &acaRevisionRequestError{err}
 	}
 	acaEnforceRevisionMode(*app)
 	return nil
@@ -303,19 +295,14 @@ func stopACAAppRevisions(appID string) {
 	}
 }
 
+// deleteACAAppRevisions forgets the app's revisions before it stops their
+// replicas, so a start in the background that lands in between finds its
+// revision gone.
 func deleteACAAppRevisions(appID string) {
 	for _, rev := range acaAppRevisions(appID) {
-		stopACAAppReplicas(rev.ID)
 		acaRevisions.Delete(rev.ID)
+		stopACAAppReplicasAndWait(rev.ID)
 	}
-}
-
-func acaRevisionHandles(revisionID string) []placement.Handle {
-	if v, ok := acaAppReplicaHandles.Load(revisionID); ok {
-		handles, _ := v.([]placement.Handle)
-		return handles
-	}
-	return nil
 }
 
 // acaRevisionsByFqdn indexes revisions by the hostname each answers on.

@@ -631,7 +631,8 @@ resource "azurerm_container_app" "az_ca" {
 }
 
 # A multiple-revision Container App whose ingress sends all traffic to the
-# latest revision and which keeps up to five inactive revisions.
+# latest revision and which keeps up to five inactive revisions. Its container
+# listens on the target port, which the default startup probe dials.
 resource "azurerm_container_app" "az_ca_multi" {
   name                         = "tf-azrm-ca-multi"
   container_app_environment_id = azurerm_container_app_environment.az_cae.id
@@ -653,7 +654,7 @@ resource "azurerm_container_app" "az_ca_multi" {
       image   = "mirror.gcr.io/library/alpine:latest"
       cpu     = 0.25
       memory  = "0.5Gi"
-      command = ["sh", "-c", "sleep infinity"]
+      command = ["nc", "-lk", "-p", "80", "-e", "true"]
     }
   }
 }

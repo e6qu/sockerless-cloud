@@ -64,28 +64,3 @@ func (g *acaGroup) Stop(grace time.Duration) {
 		}
 	}
 }
-
-// acaStartSidecar places one sidecar in the main container's network
-// namespace.
-func acaStartSidecar(ctx context.Context, mainID string, c workload.Container, sink sim.LogSink) (placement.Handle, error) {
-	backend, err := azurePlacementBackend(placementContainerApps)
-	if err != nil {
-		return nil, err
-	}
-	return workload.PlaceMember(ctx, backend, mainID, "sidecar", c, sink)
-}
-
-// acaStopHandles stops every handle within grace, waiting for each to end.
-func acaStopHandles(handles []placement.Handle, grace time.Duration) {
-	for _, handle := range handles {
-		handle.Cancel()
-	}
-	deadline := time.After(grace + 30*time.Second)
-	for _, handle := range handles {
-		select {
-		case <-handle.Exited():
-		case <-deadline:
-			return
-		}
-	}
-}

@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,11 +9,9 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
-	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
@@ -53,7 +50,10 @@ type ContainerApp struct {
 // the field set armappcontainers.ContainerAppProperties exposes that
 // the aca backend reads.
 type ContainerAppProps struct {
-	ProvisioningState       string                `json:"provisioningState"`
+	ProvisioningState string `json:"provisioningState"`
+	// RunningStatus is Stopped once the app was stopped and Running
+	// otherwise; a write keeps it.
+	RunningStatus           string                `json:"runningStatus,omitempty"`
 	ManagedEnvironmentID    string                `json:"managedEnvironmentId,omitempty"`
 	EnvironmentID           string                `json:"environmentId,omitempty"`
 	WorkloadProfileName     string                `json:"workloadProfileName,omitempty"`
@@ -80,7 +80,7 @@ type ContainerAppConfig struct {
 
 // ContainerAppDapr mirrors armappcontainers.Dapr. When Enabled is true
 // the sim injects a real daprd sidecar into every replica of the app —
-// see startACAAppDaprSidecar in containerapps_dapr.go.
+// see acaAppDaprContainer in containerapps_dapr.go.
 type ContainerAppDapr struct {
 	AppID              string `json:"appId,omitempty"`
 	AppPort            *int32 `json:"appPort,omitempty"`
@@ -203,6 +203,12 @@ type ContainerAppTemplate struct {
 	TerminationGracePeriodSeconds *int64 `json:"terminationGracePeriodSeconds,omitempty"`
 }
 
+// The running statuses of an app.
+const (
+	acaRunning = "Running"
+	acaStopped = "Stopped"
+)
+
 // acaDefaultTerminationGrace is what Azure Container Apps grants a replica or
 // a job execution between SIGTERM and SIGKILL when the template sets nothing:
 // thirty seconds, per the Template schema. The Jobs API exposes no such member,
@@ -214,20 +220,6 @@ func acaAppStopGrace(app ContainerApp) time.Duration {
 	if app.Properties.Template != nil && app.Properties.Template.TerminationGracePeriodSeconds != nil &&
 		*app.Properties.Template.TerminationGracePeriodSeconds >= 0 {
 		return time.Duration(*app.Properties.Template.TerminationGracePeriodSeconds) * time.Second
-	}
-	return acaDefaultTerminationGrace
-}
-
-// acaAppStopGraces remembers each running revision's grace beside its replica
-// handles, so a stop after a restart still uses the grace the replicas were
-// started under.
-var acaAppStopGraces sync.Map // map[revisionID]time.Duration
-
-func acaAppRecordedStopGrace(revisionID string) time.Duration {
-	if v, ok := acaAppStopGraces.Load(revisionID); ok {
-		if grace, ok := v.(time.Duration); ok {
-			return grace
-		}
 	}
 	return acaDefaultTerminationGrace
 }
@@ -278,8 +270,6 @@ type CustomHostnameAnalysisResult struct {
 }
 
 var acaApps sim.Store[ContainerApp]
-
-var acaAppReplicaHandles sync.Map // map[revisionID][]placement.Handle
 
 // stampContainerAppServerDefaults applies the defaults real ACA stamps
 // server-side on every write. terraform-provider-azurerm reads
@@ -365,18 +355,10 @@ func registerContainerAppsApps(srv *sim.Server) {
 			return
 		}
 
-		// Real ACA: PUT returns 201 Created with provisioningState=Creating
-		// + an Azure-AsyncOperation header pointing at an
-		// /providers/Microsoft.App/locations/{loc}/operationStatuses/{id}
-		// URL; the SDK poller (azcore.NewPoller) GETs that URL until
-		// status=Succeeded, then does a final GET on the resource itself.
-		// We match that flow: store the resource with Succeeded directly
-		// (so the final GET always returns the desired state), record an
-		// async operation that flips Creating→Succeeded after a small
-		// delay (50ms — compresses real Azure's 30-60s reconcile window),
-		// and emit Azure-AsyncOperation in the response header. The body
-		// still echoes Succeeded so SDK clients that bypass polling and
-		// read the body directly also see the right state.
+		// Container Apps answers a PUT with an Azure-AsyncOperation header
+		// that the SDK poller follows to the operationStatuses URL before
+		// it reads the app. Settle the revision's replicas before answering
+		// and issue the operation already Succeeded.
 		// The internal FQDN format mirrors real ACA:
 		// <app>.internal.<env>.<domain>, and a revision's
 		// <app>--<suffix>.internal.<env>.<domain>.
@@ -635,6 +617,8 @@ func registerContainerAppsApps(srv *sim.Server) {
 				"The Resource 'Microsoft.App/containerApps/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
+		app.Properties.RunningStatus = acaRunning
+		apps.Put(resourceID, app)
 		if err := startACAAppRevisions(r.Context(), app); err != nil {
 			AzureErrorf(w, "ContainerAppRevisionFailed", http.StatusInternalServerError,
 				"failed to start container app replica for %s: %v", name, err)
@@ -655,6 +639,8 @@ func registerContainerAppsApps(srv *sim.Server) {
 				"The Resource 'Microsoft.App/containerApps/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
+		app.Properties.RunningStatus = acaStopped
+		apps.Put(resourceID, app)
 		stopACAAppRevisions(resourceID)
 		sim.WriteJSON(w, http.StatusOK, app)
 	})
@@ -746,6 +732,10 @@ func acaSettleAppIdentity(w http.ResponseWriter, r *http.Request, app *Container
 		AzureError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
 		return false
 	}
+	app.Properties.RunningStatus = prev.Properties.RunningStatus
+	if app.Properties.RunningStatus == "" {
+		app.Properties.RunningStatus = acaRunning
+	}
 	acaApps.Put(app.ID, *app)
 	if err := acaReconcileRevisions(r.Context(), app, appFqdn); err != nil {
 		if prev.ID != "" {
@@ -771,116 +761,7 @@ func acaEnvironmentName(id string) string {
 	return id
 }
 
-// startACARevisionReplicas (re)starts a revision's replicas: the revision's
-// template run under the app's current configuration.
-func startACARevisionReplicas(ctx context.Context, app ContainerApp, rev acaRevision) error {
-	resourceID := app.ID
-	app.Properties.Template = rev.Template
-	if app.Properties.Template == nil || len(app.Properties.Template.Containers) == 0 {
-		stopACAAppReplicas(rev.ID)
-		return nil
-	}
-
-	minReplicas := int32(1)
-	if app.Properties.Template.Scale != nil && app.Properties.Template.Scale.MinReplicas != nil {
-		minReplicas = *app.Properties.Template.Scale.MinReplicas
-	}
-	if minReplicas <= 0 {
-		stopACAAppReplicas(rev.ID)
-		return nil
-	}
-
-	envID := app.Properties.EnvironmentID
-	if envID == "" {
-		envID = app.Properties.ManagedEnvironmentID
-	}
-	// The environment's internal DNS resolves an app by its name and FQDNs,
-	// which the replica's network aliases answer on the environment's network.
-	network, subnetID, err := acaWorkloadNetwork(ctx, envID)
-	if err != nil {
-		return err
-	}
-	netAliases := []string{app.Name}
-	if appFqdn := acaAppFqdn(app); appFqdn != "" {
-		netAliases = append(netAliases, appFqdn)
-	}
-	if rev.Fqdn != "" {
-		netAliases = append(netAliases, rev.Fqdn)
-	}
-
-	metadataEnv, err := workloadMetadataEnv(app.ID, app.Identity, network.DNS)
-	if err != nil {
-		return err
-	}
-	secrets, err := acaResolveSecrets(app.Identity, acaAppSecrets(app))
-	if err != nil {
-		return &acaRevisionRequestError{err}
-	}
-	handles := make([]placement.Handle, 0, int(minReplicas)*len(app.Properties.Template.Containers))
-	containers := app.Properties.Template.Containers
-	names := make([]string, 0, len(containers))
-	for _, c := range containers {
-		names = append(names, c.Name)
-	}
-	revision := rev.Name
-	replicas := make([]*acaReplica, 0, minReplicas)
-	cancelStarted := func() {
-		for _, h := range handles {
-			h.Cancel()
-		}
-	}
-	for replicaIndex := int32(0); replicaIndex < minReplicas; replicaIndex++ {
-		replica := newACAReplica(revision, names)
-		acaRecordSystemEvent(resourceID, envID, app.Name, revision, replica.name, "AssigningReplica",
-			fmt.Sprintf("Replica '%s' has been scheduled to run on a node.", replica.name))
-		main := acaAppContainer(resourceID, app, containers[0], replicaIndex, envID, metadataEnv, secrets)
-		main.Config.Network = network.Network
-		main.Config.NetworkAliases = netAliases
-		main.Config.DNS = network.resolvers()
-		main.Config.ExtraHosts = workloadhost.ExtraHosts()
-		address, release, err := azureWorkloadAddress(ctx, network, subnetID, main.Config.Name)
-		if err != nil {
-			cancelStarted()
-			return err
-		}
-		main.Config.IPv4Address = address
-		group, err := acaStartGroup(ctx, main, nil, replica.containers[0].sink(app, revision))
-		if err != nil {
-			release()
-			cancelStarted()
-			return err
-		}
-		azureReleaseOnExit(group.Main.Exited(), release)
-		handles = append(handles, group.Main)
-		replica.containers[0].track(group.Main, resourceID, envID, app.Name, revision, replica.name)
-		for i, c := range containers[1:] {
-			sidecar := replica.containers[i+1]
-			started, err := acaStartSidecar(ctx, group.Main.ID(), acaAppContainer(resourceID, app, c, replicaIndex, envID, metadataEnv, secrets), sidecar.sink(app, revision))
-			if err != nil {
-				cancelStarted()
-				return err
-			}
-			handles = append(handles, started)
-			sidecar.track(started, resourceID, envID, app.Name, revision, replica.name)
-		}
-		if d := containerAppDaprSpec(app); d != nil {
-			handle, err := startACAAppDaprSidecar(ctx, resourceID, app, d, replicaIndex, group.Main.ID())
-			if err != nil {
-				cancelStarted()
-				return err
-			}
-			handles = append(handles, handle)
-		}
-		replicas = append(replicas, replica)
-	}
-	if len(handles) > 0 {
-		acaAppReplicas.Store(rev.ID, replicas)
-		replaceACAAppReplicas(rev.ID, handles, acaAppStopGrace(app))
-	}
-	return nil
-}
-
-func acaAppContainer(resourceID string, app ContainerApp, c JobContainer, replica int32, envID string, metadataEnv, secrets map[string]string) workload.Container {
+func acaAppContainer(app ContainerApp, c JobContainer, replica string, envID string, metadataEnv, secrets map[string]string) workload.Container {
 	cmdEnv := acaContainerEnv(c, secrets)
 	if _, ok := cmdEnv["PORT"]; !ok {
 		cmdEnv["PORT"] = "8080"
@@ -912,7 +793,7 @@ func acaAppContainer(resourceID string, app ContainerApp, c JobContainer, replic
 	if len(shortName) > 24 {
 		shortName = shortName[:24]
 	}
-	containerName := fmt.Sprintf("sockerless-sim-azure-app-%s-%d-%s-%s", shortName, replica, c.Name, randomSuffix(6))
+	containerName := fmt.Sprintf("sockerless-sim-azure-app-%s-%s-%s", shortName, replica[strings.LastIndex(replica, "-")+1:], c.Name)
 	// The host pulls the replica's image with the credential the app
 	// declared for its registry, as Container Apps does.
 	return workload.Container{Name: c.Name, Config: sim.ContainerConfig{
@@ -925,32 +806,12 @@ func acaAppContainer(resourceID string, app ContainerApp, c JobContainer, replic
 		Name:              containerName,
 		Labels: map[string]string{
 			"sockerless-sim-type": "aca-app-replica",
-			"sockerless-app-id":   resourceID,
+			"sockerless-app-id":   app.ID,
 			"sockerless-app-name": app.Name,
 		},
 		Binds:   binds,
 		Sandbox: SandboxACA,
 	}}
-}
-
-// stopACAAppReplicas stops the replicas of one revision.
-func stopACAAppReplicas(revisionID string) {
-	grace := acaAppRecordedStopGrace(revisionID)
-	acaAppStopGraces.Delete(revisionID)
-	acaAppReplicas.Delete(revisionID)
-	if v, ok := acaAppReplicaHandles.LoadAndDelete(revisionID); ok {
-		handles, _ := v.([]placement.Handle)
-		acaStopHandles(handles, grace)
-	}
-}
-
-func replaceACAAppReplicas(revisionID string, handles []placement.Handle, grace time.Duration) {
-	previousGrace := acaAppRecordedStopGrace(revisionID)
-	acaAppStopGraces.Store(revisionID, grace)
-	if v, ok := acaAppReplicaHandles.Swap(revisionID, handles); ok {
-		prev, _ := v.([]placement.Handle)
-		acaStopHandles(prev, previousGrace)
-	}
 }
 
 // acaAppLogSink writes an app container's output to the

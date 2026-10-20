@@ -119,12 +119,12 @@ func acaIngressForwardedHeaders(r *http.Request) func(http.Header) {
 // body, and copies the response back — the App-ingress equivalent of Azure's
 // managed front-end.
 func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp, rev acaRevision) {
-	handles := acaRevisionHandles(rev.ID)
-	if len(handles) == 0 || handles[0] == nil {
+	group, ok := acaPickReplica(rev.ID)
+	if !ok {
 		AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q has no running replica", app.Name)
 		return
 	}
-	ip, err := handles[0].Address(r.Context())
+	ip, err := group.Main.Address(r.Context())
 	if err != nil || ip == "" {
 		AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q replica has no reachable IP", app.Name)
 		return
@@ -150,25 +150,8 @@ func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp, r
 	}
 	sim.DeclareWait(r.Context(), up.Timeout)
 
-	// The replica's HTTP listener binds a moment after the container starts;
-	// retry a connection that reached no listener briefly so an invoke racing
-	// replica startup doesn't surface as a transient 502 (the managed front-end
-	// likewise buffers).
-	deadline := time.Now().Add(30 * time.Second)
-	for {
-		up.Body = bytes.NewReader(body)
-		err = lbplane.Forward(w, r, up)
-		var sendErr *lbplane.SendError
-		if !errors.As(err, &sendErr) || time.Now().After(deadline) {
-			break
-		}
-		select {
-		case <-r.Context().Done():
-			AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q ingress: %v", app.Name, r.Context().Err())
-			return
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
+	up.Body = bytes.NewReader(body)
+	err = lbplane.Forward(w, r, up)
 	abortStartedForward(w, err)
 	switch {
 	case err == nil:

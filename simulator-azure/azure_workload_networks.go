@@ -214,6 +214,22 @@ func azureWorkloadAddress(ctx context.Context, network azureWorkloadNetwork, sub
 	return azurePlatformAddress(ctx, network, owner)
 }
 
+// azureAdoptWorkloadAddress records that owner, a workload an earlier process
+// placed, holds address on network, and returns the release.
+func azureAdoptWorkloadAddress(ctx context.Context, network azureWorkloadNetwork, subnetID, owner, address string) (func(), error) {
+	if subnetID != "" {
+		if _, err := azureLeaseSubnetAddress(subnetID, owner, net.ParseIP(address)); err != nil {
+			return nil, fmt.Errorf("hold address %s in subnet %s for %s: %w", address, subnetID, owner, err)
+		}
+		return func() { azureReleaseWorkloadAddress(subnetID, owner, address) }, nil
+	}
+	at, err := netip.ParseAddr(address)
+	if err != nil {
+		return nil, fmt.Errorf("address %q: %w", address, err)
+	}
+	return sim.ReservePlatformAddress(ctx, network.Network, at, owner)
+}
+
 // azurePlatformAddress leases the address a workload on no virtual network
 // takes: one of the simulator's half of the network it joins.
 func azurePlatformAddress(ctx context.Context, network azureWorkloadNetwork, owner string) (string, func(), error) {

@@ -6,9 +6,12 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/replicas"
+	"github.com/e6qu/sockerless-cloud/sim/workload"
 )
 
 // cloudRunResourceLogSink writes a Cloud Run workload's output to Cloud
@@ -93,19 +96,11 @@ func (r *cloudRunRun) started(err error) {
 	}
 }
 
-// exited reports whether the run has ended.
-func (r *cloudRunRun) exited() bool {
-	select {
-	case <-r.done:
-		return true
-	default:
-		return false
-	}
-}
-
+// cloudRunWorkerPoolRun is the instances a worker pool runs of one
+// revision's template.
 type cloudRunWorkerPoolRun struct {
-	specSig   string
-	instances []*cloudRunRun
+	specSig string
+	set     *replicas.Set
 }
 
 var cloudRunWorkerPoolRuns = struct {
@@ -125,17 +120,80 @@ func cloudRunWorkerPoolInstanceCount(pool WorkerPoolV2) int {
 	return int(pool.Scaling.ManualInstanceCount)
 }
 
+// cloudRunWorkerPoolRestartBackoff is how long a worker pool waits before it
+// replaces an instance that exited, doubling from 10 seconds to 5 minutes
+// with the instances in a row that exited within 10 minutes of starting.
+func cloudRunWorkerPoolRestartBackoff(consecutive int) time.Duration {
+	wait := 10 * time.Second
+	for range consecutive - 1 {
+		wait *= 2
+		if wait >= 5*time.Minute {
+			return 5 * time.Minute
+		}
+	}
+	return wait
+}
+
+// newCloudRunWorkerPoolRun is the instance set of a pool revision's template:
+// every instance runs its containers as one container group until the main
+// container exits, and the pool replaces an instance that exited.
+func newCloudRunWorkerPoolRun(poolName, revision string, vpc *VpcAccess, containers []Container, volumes []Volume) *cloudRunWorkerPoolRun {
+	poolID := poolName[strings.LastIndex(poolName, "/")+1:]
+	specSig := serviceContainersSignature(containers, volumes)
+	spec := cloudRunSpecDigest(specSig)
+	sink := cloudRunWorkerPoolLogSink(poolName, revision)
+	set := replicas.New(replicas.Spec{
+		NewID:   func() string { return sim.RandomHex(8) },
+		Restart: replicas.Always,
+		Backoff: cloudRunWorkerPoolRestartBackoff,
+		Settled: 10 * time.Minute,
+		Start: func(ctx context.Context, instanceID string) (*workload.Group, func(), error) {
+			group, release, err := startCloudRunContainerGroup(ctx, cloudRunContainerGroup{
+				project:    resourceProject(poolName),
+				region:     resourceLocation(poolName),
+				vpc:        vpc,
+				containers: containers,
+				volumes:    volumes,
+				name: func(i int) string {
+					if i > 0 {
+						return fmt.Sprintf("sockerless-sim-cloudrun-wp-%s-sidecar-%d-%s", poolID, i-1, instanceID)
+					}
+					return fmt.Sprintf("sockerless-sim-cloudrun-wp-%s-%s", poolID, instanceID)
+				},
+				labels: func(c Container) map[string]string {
+					return map[string]string{
+						cloudRunWorkerPoolLabel:                poolName,
+						"sockerless-sim-worker-pool-container": c.Name,
+						cloudRunGroupLabel:                     instanceID,
+						cloudRunSpecLabel:                      spec,
+					}
+				},
+			}, sink)
+			if err != nil && ctx.Err() == nil {
+				sink.WriteLog(sim.LogLine{Stream: "stderr", Text: fmt.Sprintf("The instance failed to start: %v", err)})
+			}
+			return group, release, err
+		},
+	}, replicas.Hooks{
+		Exited: func(_ *replicas.Replica, result sim.ProcessResult) {
+			sink.WriteLog(sim.LogLine{Stream: "stderr", Text: fmt.Sprintf("Container called exit(%d).", result.ExitCode)})
+		},
+	})
+	return &cloudRunWorkerPoolRun{specSig: specSig, set: set}
+}
+
 // runCloudRunWorkerPool brings the pool's running instances in line with its
-// template and scaling: a changed template replaces every instance, a changed
-// instance count starts or stops the difference, and an instance that has
-// ended is replaced. It returns once the instances it retires have stopped,
-// and settles the pool's reconciliation once every instance it runs has
-// started — at once when it runs none.
+// template and scaling. A changed template starts the new revision's
+// instances and retires the previous revision's once they run; when they do
+// not, the previous revision keeps running. A changed instance count starts
+// or stops the difference. The pool's reconciliation settles once every
+// instance it runs has started, or one failed to.
 func runCloudRunWorkerPool(pool WorkerPoolV2) {
 	var containers []Container
 	var volumes []Volume
+	var vpc *VpcAccess
 	if pool.Template != nil {
-		containers, volumes = pool.Template.Containers, pool.Template.Volumes
+		containers, volumes, vpc = pool.Template.Containers, pool.Template.Volumes, pool.Template.VpcAccess
 	}
 	want := cloudRunWorkerPoolInstanceCount(pool)
 	if len(containers) == 0 {
@@ -143,59 +201,45 @@ func runCloudRunWorkerPool(pool WorkerPoolV2) {
 	}
 	revision := pool.LatestCreatedRevision[strings.LastIndex(pool.LatestCreatedRevision, "/")+1:]
 	specSig := serviceContainersSignature(containers, volumes)
+	if want == 0 {
+		// A pool that runs no instance settles at once.
+		cloudRunWorkerPoolRuns.Lock()
+		previous := cloudRunWorkerPoolRuns.byName[pool.Name]
+		delete(cloudRunWorkerPoolRuns.byName, pool.Name)
+		cloudRunWorkerPoolRuns.Unlock()
+		if previous != nil {
+			bg.Go(func() { _ = previous.set.Stop(context.Background()) })
+		}
+		settleCloudRunWorkerPool(pool.Name, pool.Generation, nil)
+		return
+	}
 
 	cloudRunWorkerPoolRuns.Lock()
 	run := cloudRunWorkerPoolRuns.byName[pool.Name]
-	var retire []*cloudRunRun
-	if run != nil && run.specSig != specSig {
-		retire, run = run.instances, nil
-	}
-	if run == nil {
-		run = &cloudRunWorkerPoolRun{specSig: specSig}
-	}
-	live := run.instances[:0]
-	for _, inst := range run.instances {
-		if inst.exited() {
-			retire = append(retire, inst)
-			continue
-		}
-		live = append(live, inst)
-	}
-	run.instances = live
-	for len(run.instances) > want {
-		last := len(run.instances) - 1
-		retire = append(retire, run.instances[last])
-		run.instances = run.instances[:last]
-	}
-	for len(run.instances) < want {
-		run.instances = append(run.instances, startCloudRunWorkerPoolInstance(pool.Name, revision, pool.Template.VpcAccess, containers, volumes))
-	}
-	running := append([]*cloudRunRun(nil), run.instances...)
-	if want == 0 {
-		delete(cloudRunWorkerPoolRuns.byName, pool.Name)
-	} else {
+	var previous *cloudRunWorkerPoolRun
+	if run == nil || run.specSig != specSig {
+		previous = run
+		run = newCloudRunWorkerPoolRun(pool.Name, revision, vpc, containers, volumes)
 		cloudRunWorkerPoolRuns.byName[pool.Name] = run
 	}
 	cloudRunWorkerPoolRuns.Unlock()
-	for _, inst := range retire {
-		inst.end()
-	}
 
-	settle := func() {
-		var startErr error
-		for _, inst := range running {
-			<-inst.ready
-			if inst.startErr != nil && startErr == nil {
-				startErr = inst.startErr
+	bg.Go(func() {
+		err := run.set.Scale(context.Background(), want)
+		if err != nil && previous != nil {
+			// The new revision's instances did not start: the pool keeps
+			// running the previous revision's.
+			_ = run.set.Stop(context.Background())
+			cloudRunWorkerPoolRuns.Lock()
+			if cloudRunWorkerPoolRuns.byName[pool.Name] == run {
+				cloudRunWorkerPoolRuns.byName[pool.Name] = previous
 			}
+			cloudRunWorkerPoolRuns.Unlock()
+		} else if previous != nil {
+			_ = previous.set.Stop(context.Background())
 		}
-		settleCloudRunWorkerPool(pool.Name, pool.Generation, startErr)
-	}
-	if len(running) == 0 {
-		settle()
-		return
-	}
-	bg.Go(settle)
+		settleCloudRunWorkerPool(pool.Name, pool.Generation, err)
+	})
 }
 
 // stopCloudRunWorkerPool stops every instance of the pool and returns once
@@ -205,72 +249,9 @@ func stopCloudRunWorkerPool(name string) {
 	run := cloudRunWorkerPoolRuns.byName[name]
 	delete(cloudRunWorkerPoolRuns.byName, name)
 	cloudRunWorkerPoolRuns.Unlock()
-	if run == nil {
-		return
+	if run != nil {
+		_ = run.set.Stop(context.Background())
 	}
-	for _, inst := range run.instances {
-		inst.end()
-	}
-}
-
-// startCloudRunWorkerPoolInstance runs one worker pool instance: its
-// containers start as one container group and run until the main container
-// exits or the instance is retired, which sends the containers the stop
-// signal with Cloud Run's grace.
-func startCloudRunWorkerPoolInstance(poolName, revision string, vpc *VpcAccess, containers []Container, volumes []Volume) *cloudRunRun {
-	run, ctx := newCloudRunRun()
-	poolID := poolName[strings.LastIndex(poolName, "/")+1:]
-	instanceID := sim.RandomHex(8)
-	spec := cloudRunSpecDigest(serviceContainersSignature(containers, volumes))
-	sink := cloudRunWorkerPoolLogSink(poolName, revision)
-	bg.Go(func() {
-		defer close(run.done)
-		group, releaseMounts, err := startCloudRunContainerGroup(ctx, cloudRunContainerGroup{
-			project:    resourceProject(poolName),
-			region:     resourceLocation(poolName),
-			vpc:        vpc,
-			containers: containers,
-			volumes:    volumes,
-			name: func(i int) string {
-				if i > 0 {
-					return fmt.Sprintf("sockerless-sim-cloudrun-wp-%s-sidecar-%d-%s", poolID, i-1, instanceID)
-				}
-				return fmt.Sprintf("sockerless-sim-cloudrun-wp-%s-%s", poolID, instanceID)
-			},
-			labels: func(c Container) map[string]string {
-				return map[string]string{
-					cloudRunWorkerPoolLabel:                poolName,
-					"sockerless-sim-worker-pool-container": c.Name,
-					cloudRunGroupLabel:                     instanceID,
-					cloudRunSpecLabel:                      spec,
-				}
-			},
-		}, sink)
-		if err != nil {
-			if ctx.Err() == nil {
-				sink.WriteLog(sim.LogLine{Stream: "stderr", Text: fmt.Sprintf("The instance failed to start: %v", err)})
-			}
-			run.started(err)
-			return
-		}
-		run.started(nil)
-		exited := make(chan sim.ProcessResult, 1)
-		go func() { exited <- group.Main.Wait() }()
-		select {
-		case <-ctx.Done():
-			group.Main.Stop()
-			group.Main.Cancel()
-			<-exited
-		case result := <-exited:
-			sink.WriteLog(sim.LogLine{Stream: "stderr", Text: fmt.Sprintf("Container called exit(%d).", result.ExitCode)})
-		}
-		for _, h := range group.Sidecars {
-			h.Cancel()
-			h.Wait()
-		}
-		releaseMounts()
-	})
-	return run
 }
 
 var cloudRunInstanceRuns = struct {
@@ -314,16 +295,22 @@ func runCloudRunInstance(inst InstanceV2) {
 		restarts := 0
 		for {
 			running, err := ensureCloudRunServiceInstance(ctx, inst.Name, instanceID, inst.VpcAccess, inst.Containers, inst.Volumes, sink)
+			// A container that exits while the instance starts is an exit of
+			// the instance's, which the restart policy answers like any other.
+			exitedWhileStarting := false
+			var exitCode int64
 			if err == nil {
 				_, err = running.awaitReady(ctx)
 				if err != nil {
+					if code, exited := running.exited(); exited && restarts > 0 {
+						err, exitedWhileStarting, exitCode = nil, true, code
+					}
 					deleteCloudRunServiceInstanceIf(inst.Name, running)
 				}
 			}
 			if ctx.Err() != nil {
 				return
 			}
-			var exitCode int64
 			if err != nil {
 				sink.WriteLog(sim.LogLine{Stream: "stderr", Text: fmt.Sprintf("The instance failed to start: %v", err)})
 				if restarts == 0 {
@@ -337,11 +324,13 @@ func runCloudRunInstance(inst InstanceV2) {
 					run.started(nil)
 					settleCloudRunInstance(inst.Name, run, nil)
 				}
-				exitCode = running.awaitExit(ctx)
-				if ctx.Err() != nil {
-					return
+				if !exitedWhileStarting {
+					exitCode = running.awaitExit(ctx)
+					if ctx.Err() != nil {
+						return
+					}
+					deleteCloudRunServiceInstanceIf(inst.Name, running)
 				}
-				deleteCloudRunServiceInstanceIf(inst.Name, running)
 			}
 			// The instance's record settles before its exit is logged, so a
 			// reader of the log finds the outcome already recorded.
