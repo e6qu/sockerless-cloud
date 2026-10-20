@@ -1682,7 +1682,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 			privateIP = ip
 			subnetID = requestedSubnet
 		}
-		createdAt := float64(time.Now().Unix())
+		createdAt := ecsEpochSeconds()
 
 		var containers []ECSTaskContainer
 		for _, cd := range td.ContainerDefinitions {
@@ -3176,6 +3176,11 @@ func handleECSListTasks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	clusterArn := ecsArn("cluster", clusterName)
+	// "The default status filter is RUNNING."
+	desiredStatus := req.DesiredStatus
+	if desiredStatus == "" {
+		desiredStatus = string(ECSTaskStatusRunning)
+	}
 
 	now := time.Now()
 	tasks := ecsTasks.Filter(func(t ECSTask) bool {
@@ -3191,7 +3196,7 @@ func handleECSListTasks(w http.ResponseWriter, r *http.Request) {
 				return false
 			}
 		}
-		if req.DesiredStatus != "" && string(t.DesiredStatus) != req.DesiredStatus {
+		if string(t.DesiredStatus) != desiredStatus {
 			return false
 		}
 		if req.LaunchType != "" && t.LaunchType != req.LaunchType {

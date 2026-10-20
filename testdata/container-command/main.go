@@ -14,7 +14,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: container-command hold|spin|http|hostname-http|serve|files-http|relay-http|probe-http|log|log-until|print|resolve|sleep|stdin-echo")
+		fmt.Fprintln(os.Stderr, "usage: container-command hold|spin|http|hostname-http|env-http|serve|files-http|relay-http|probe-http|log|log-until|print|resolve|sleep|stdin-echo")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -66,6 +66,21 @@ func main() {
 		}
 		handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			_, _ = io.WriteString(w, hostname)
+		})
+		if err := http.ListenAndServe(":"+os.Args[2], handler); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "env-http":
+		// An HTTP server that answers every request with the value of the
+		// environment variable NAME.
+		if len(os.Args) != 4 {
+			fmt.Fprintln(os.Stderr, "usage: container-command env-http PORT NAME")
+			os.Exit(2)
+		}
+		value := os.Getenv(os.Args[3])
+		handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = io.WriteString(w, value)
 		})
 		if err := http.ListenAndServe(":"+os.Args[2], handler); err != nil {
 			fmt.Fprintln(os.Stderr, err)

@@ -2,14 +2,13 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"math/rand/v2"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/revisions"
 )
 
 // acaRevision is one revision of a container app: the template the app carried
@@ -79,9 +78,9 @@ func acaRevisionFqdn(appName, appFqdn, revisionName string) string {
 }
 
 func acaTemplatesEqual(a, b *ContainerAppTemplate) bool {
-	left, errLeft := json.Marshal(a)
-	right, errRight := json.Marshal(b)
-	return errLeft == nil && errRight == nil && string(left) == string(right)
+	left, errLeft := revisions.Signature(a)
+	right, errRight := revisions.Signature(b)
+	return errLeft == nil && errRight == nil && left == right
 }
 
 // acaNextRevisionName names the revision a template creates: the template's
@@ -168,25 +167,13 @@ func acaTrafficWeights(app ContainerApp) map[string]int32 {
 // proportion to the traffic weights among active revisions with replicas.
 func acaPickRevision(app ContainerApp) (acaRevision, bool) {
 	weights := acaTrafficWeights(app)
-	var candidates []acaRevision
-	total := int32(0)
+	var candidates []revisions.Weighted[acaRevision]
 	for _, rev := range acaAppRevisions(app.ID) {
-		if w := weights[rev.Name]; w > 0 && rev.Active && acaRevisionRunning(rev.ID) {
-			candidates = append(candidates, rev)
-			total += w
+		if rev.Active && acaRevisionRunning(rev.ID) {
+			candidates = append(candidates, revisions.Weighted[acaRevision]{Revision: rev, Weight: int(weights[rev.Name])})
 		}
 	}
-	if total == 0 {
-		return acaRevision{}, false
-	}
-	n := rand.Int32N(total) // #nosec G404 -- traffic splitting, not a secret.
-	for _, rev := range candidates {
-		n -= weights[rev.Name]
-		if n < 0 {
-			return rev, true
-		}
-	}
-	return candidates[len(candidates)-1], true
+	return revisions.Pick(candidates)
 }
 
 // acaReconcileRevisions brings an app's revisions in line with the app it is

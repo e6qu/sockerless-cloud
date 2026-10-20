@@ -111,7 +111,7 @@ func handleECSCreateTaskSet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := "ecs-svc/" + generateNumericID()
-	now := float64(time.Now().Unix())
+	now := ecsEpochSeconds()
 	ts := ECSTaskSet{
 		Id: id,
 		// The published format is task-set/<cluster>/<service>/<id>. It had
@@ -205,7 +205,7 @@ func handleECSUpdateTaskSet(w http.ResponseWriter, r *http.Request) {
 	if len(req.Scale) > 0 {
 		ts.Scale = req.Scale
 	}
-	ts.UpdatedAt = float64(time.Now().Unix())
+	ts.UpdatedAt = ecsEpochSeconds()
 	ecsTaskSets.Put(key, ts)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"taskSet": ts})
 }
@@ -237,7 +237,7 @@ func handleECSUpdateServicePrimaryTaskSet(w http.ResponseWriter, r *http.Request
 		}
 	}
 	ts.Status = "PRIMARY"
-	ts.UpdatedAt = float64(time.Now().Unix())
+	ts.UpdatedAt = ecsEpochSeconds()
 	ecsTaskSets.Put(key, ts)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"taskSet": ts})
 }

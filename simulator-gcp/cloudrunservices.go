@@ -13,6 +13,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/placement"
+	"github.com/e6qu/sockerless-cloud/sim/revisions"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	apipb "google.golang.org/genproto/googleapis/api"
@@ -184,36 +185,37 @@ func (e vpcEgressString) MarshalJSON() ([]byte, error) {
 // latestReadyRevision. Generation is encoded as a JSON string per
 // proto-JSON int64 rules.
 type ServiceV2 struct {
-	Name                  string               `json:"name"`
-	UID                   string               `json:"uid,omitempty"`
-	Generation            int64                `json:"generation,string,omitempty"`
-	Labels                map[string]string    `json:"labels,omitempty"`
-	Annotations           map[string]string    `json:"annotations,omitempty"`
-	Description           string               `json:"description,omitempty"`
-	CreateTime            string               `json:"createTime,omitempty"`
-	UpdateTime            string               `json:"updateTime,omitempty"`
-	LaunchStage           launchStageString    `json:"launchStage,omitempty"`
-	Client                string               `json:"client,omitempty"`
-	ClientVersion         string               `json:"clientVersion,omitempty"`
-	Ingress               ingressString        `json:"ingress,omitempty"`
-	DefaultUriDisabled    bool                 `json:"defaultUriDisabled,omitempty"`
-	InvokerIamDisabled    bool                 `json:"invokerIamDisabled,omitempty"`
-	IapEnabled            bool                 `json:"iapEnabled,omitempty"`
-	SshEnabled            bool                 `json:"sshEnabled,omitempty"`
-	CustomAudiences       []string             `json:"customAudiences,omitempty"`
-	BinaryAuthorization   *BinaryAuthorization `json:"binaryAuthorization,omitempty"`
-	Scaling               *ServiceScaling      `json:"scaling,omitempty"`
-	BuildConfig           *ServiceBuildConfig  `json:"buildConfig,omitempty"`
-	MultiRegionSettings   *MultiRegionSettings `json:"multiRegionSettings,omitempty"`
-	Template              *RevisionTemplate    `json:"template,omitempty"`
-	Traffic               []TrafficTarget      `json:"traffic,omitempty"`
-	TerminalCondition     *Condition           `json:"terminalCondition,omitempty"`
-	Conditions            []Condition          `json:"conditions,omitempty"`
-	LatestReadyRevision   string               `json:"latestReadyRevision,omitempty"`
-	LatestCreatedRevision string               `json:"latestCreatedRevision,omitempty"`
-	URI                   string               `json:"uri,omitempty"`
-	Etag                  string               `json:"etag,omitempty"`
-	Reconciling           bool                 `json:"reconciling,omitempty"`
+	Name                  string                `json:"name"`
+	UID                   string                `json:"uid,omitempty"`
+	Generation            int64                 `json:"generation,string,omitempty"`
+	Labels                map[string]string     `json:"labels,omitempty"`
+	Annotations           map[string]string     `json:"annotations,omitempty"`
+	Description           string                `json:"description,omitempty"`
+	CreateTime            string                `json:"createTime,omitempty"`
+	UpdateTime            string                `json:"updateTime,omitempty"`
+	LaunchStage           launchStageString     `json:"launchStage,omitempty"`
+	Client                string                `json:"client,omitempty"`
+	ClientVersion         string                `json:"clientVersion,omitempty"`
+	Ingress               ingressString         `json:"ingress,omitempty"`
+	DefaultUriDisabled    bool                  `json:"defaultUriDisabled,omitempty"`
+	InvokerIamDisabled    bool                  `json:"invokerIamDisabled,omitempty"`
+	IapEnabled            bool                  `json:"iapEnabled,omitempty"`
+	SshEnabled            bool                  `json:"sshEnabled,omitempty"`
+	CustomAudiences       []string              `json:"customAudiences,omitempty"`
+	BinaryAuthorization   *BinaryAuthorization  `json:"binaryAuthorization,omitempty"`
+	Scaling               *ServiceScaling       `json:"scaling,omitempty"`
+	BuildConfig           *ServiceBuildConfig   `json:"buildConfig,omitempty"`
+	MultiRegionSettings   *MultiRegionSettings  `json:"multiRegionSettings,omitempty"`
+	Template              *RevisionTemplate     `json:"template,omitempty"`
+	Traffic               []TrafficTarget       `json:"traffic,omitempty"`
+	TrafficStatuses       []TrafficTargetStatus `json:"trafficStatuses,omitempty"`
+	TerminalCondition     *Condition            `json:"terminalCondition,omitempty"`
+	Conditions            []Condition           `json:"conditions,omitempty"`
+	LatestReadyRevision   string                `json:"latestReadyRevision,omitempty"`
+	LatestCreatedRevision string                `json:"latestCreatedRevision,omitempty"`
+	URI                   string                `json:"uri,omitempty"`
+	Etag                  string                `json:"etag,omitempty"`
+	Reconciling           bool                  `json:"reconciling,omitempty"`
 }
 
 // ServiceScaling mirrors GoogleCloudRunV2ServiceScaling — service-level
@@ -299,10 +301,20 @@ type NetworkInterface struct {
 
 // TrafficTarget is one entry in the Service's traffic-split list.
 type TrafficTarget struct {
-	Type     string `json:"type,omitempty"`
-	Revision string `json:"revision,omitempty"`
-	Percent  int32  `json:"percent,omitempty"`
-	Tag      string `json:"tag,omitempty"`
+	Type     trafficAllocationType `json:"type,omitempty"`
+	Revision string                `json:"revision,omitempty"`
+	Percent  int32                 `json:"percent,omitempty"`
+	Tag      string                `json:"tag,omitempty"`
+}
+
+// TrafficTargetStatus mirrors GoogleCloudRunV2TrafficTargetStatus: where the
+// service's traffic goes, with the URL a tagged target answers on.
+type TrafficTargetStatus struct {
+	Type     trafficAllocationType `json:"type,omitempty"`
+	Revision string                `json:"revision,omitempty"`
+	Percent  int32                 `json:"percent,omitempty"`
+	Tag      string                `json:"tag,omitempty"`
+	URI      string                `json:"uri,omitempty"`
 }
 
 // RevisionV2 mirrors the subset of google.cloud.run.v2.Revision the sim
@@ -324,9 +336,15 @@ type RevisionV2 struct {
 	Timeout     string            `json:"timeout,omitempty"`
 	Containers  []Container       `json:"containers,omitempty"`
 	Volumes     []Volume          `json:"volumes,omitempty"`
-	Conditions  []Condition       `json:"conditions,omitempty"`
-	Etag        string            `json:"etag,omitempty"`
-	Reconciling bool              `json:"reconciling,omitempty"`
+	// The revision runs as the service account its template named.
+	ServiceAccount                string      `json:"serviceAccount,omitempty"`
+	ExecutionEnvironment          enumString  `json:"executionEnvironment,omitempty"`
+	MaxInstanceRequestConcurrency int32       `json:"maxInstanceRequestConcurrency,omitempty"`
+	SessionAffinity               bool        `json:"sessionAffinity,omitempty"`
+	EncryptionKey                 string      `json:"encryptionKey,omitempty"`
+	Conditions                    []Condition `json:"conditions,omitempty"`
+	Etag                          string      `json:"etag,omitempty"`
+	Reconciling                   bool        `json:"reconciling,omitempty"`
 }
 
 func containerEnvMap(envVars []EnvVar) map[string]string {
@@ -477,6 +495,14 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 		}
 	}()
 	metadataEnv := netw.env()
+	// A service revision's containers learn which service, revision and
+	// configuration they serve.
+	if serviceName, revisionID, isRevision := strings.Cut(name, "/revisions/"); isRevision {
+		serviceID := serviceName[strings.LastIndex(serviceName, "/")+1:]
+		metadataEnv = workloadhost.MergeEnv(metadataEnv, map[string]string{
+			"K_SERVICE": serviceID, "K_REVISION": revisionID, "K_CONFIGURATION": serviceID,
+		})
+	}
 	members := make([]workload.Member, len(containers))
 	for i, c := range containers {
 		env := workloadhost.MergeEnv(containerEnvMap(c.Env), metadataEnv)
@@ -564,6 +590,30 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 		inst.address, inst.startErr = cloudRunContainerRoute(lifeCtx, ownerHandle, ingressPort)
 	})
 	return inst, nil
+}
+
+// stopUnroutedCloudRunRevisions stops the instances of the service's
+// revisions its traffic no longer reaches, by weight or by tag.
+func stopUnroutedCloudRunRevisions(svc ServiceV2) {
+	stopCloudRunRevisionInstances(svc.Name, cloudRunRoutedRevisions(svc))
+}
+
+// stopCloudRunRevisionInstances stops the instance of every revision of the
+// service that keep does not name.
+func stopCloudRunRevisionInstances(serviceName string, keep map[string]bool) {
+	prefix := serviceName + "/revisions/"
+	var stopped []*cloudRunServiceInstance
+	cloudRunServiceInstances.Lock()
+	for name, inst := range cloudRunServiceInstances.byName {
+		if strings.HasPrefix(name, prefix) && !keep[name] {
+			delete(cloudRunServiceInstances.byName, name)
+			stopped = append(stopped, inst)
+		}
+	}
+	cloudRunServiceInstances.Unlock()
+	for _, inst := range stopped {
+		bg.Go(func() { stopCloudRunServiceInstance(inst) })
+	}
 }
 
 func deleteCloudRunServiceInstance(name string) {
@@ -724,11 +774,12 @@ func seedServiceV2Defaults(svc ServiceV2, project, location, serviceID string) S
 	svc.Conditions = []Condition{
 		{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: now},
 	}
-	svc.LatestReadyRevision = fmt.Sprintf("%s/revisions/%s-00001-abc", svc.Name, serviceID)
-	svc.LatestCreatedRevision = svc.LatestReadyRevision
+	svc.LatestCreatedRevision = svc.Name + "/revisions/" + cloudRunServiceRevisionID(serviceID, svc.Generation, svc.Template)
+	svc.LatestReadyRevision = svc.LatestCreatedRevision
 	if !svc.DefaultUriDisabled {
 		svc.URI = cloudRunServiceURI(project, location, serviceID)
 	}
+	settleCloudRunServiceTraffic(&svc)
 	return svc
 }
 
@@ -761,13 +812,19 @@ func reconcileServiceRevision(store sim.Store[RevisionV2], serviceName, revName 
 		rev.Scaling = svc.Template.Scaling
 		rev.VpcAccess = svc.Template.VpcAccess
 		rev.Timeout = svc.Template.Timeout
+		rev.ServiceAccount = svc.Template.ServiceAccount
+		rev.ExecutionEnvironment = svc.Template.ExecutionEnvironment
+		rev.MaxInstanceRequestConcurrency = svc.Template.MaxInstanceRequestConcurrency
+		rev.SessionAffinity = svc.Template.SessionAffinity
+		rev.EncryptionKey = svc.Template.EncryptionKey
 	}
 	store.Put(full, rev)
 }
 
 // rollOutServiceRevision stores a service whose spec changed as its next
-// generation, with the immutable revision that generation deploys.
-func rollOutServiceRevision(svc ServiceV2) ServiceV2 {
+// generation. A changed template deploys a new immutable revision; a change
+// to anything else, the traffic among them, deploys none.
+func rollOutServiceRevision(svc ServiceV2, templateChanged bool) ServiceV2 {
 	serviceID := svc.Name[strings.LastIndex(svc.Name, "/")+1:]
 	svc.Generation++
 	svc.UpdateTime = nowTimestamp()
@@ -776,14 +833,36 @@ func rollOutServiceRevision(svc ServiceV2) ServiceV2 {
 		State:              "CONDITION_SUCCEEDED",
 		LastTransitionTime: svc.UpdateTime,
 	}
-	revName := fmt.Sprintf("%s-%05d-abc", serviceID, svc.Generation)
-	svc.LatestCreatedRevision = svc.Name + "/revisions/" + revName
-	svc.LatestReadyRevision = svc.LatestCreatedRevision
+	if templateChanged {
+		revName := cloudRunServiceRevisionID(serviceID, svc.Generation, svc.Template)
+		svc.LatestCreatedRevision = svc.Name + "/revisions/" + revName
+		svc.LatestReadyRevision = svc.LatestCreatedRevision
+		reconcileServiceRevision(crv2Revisions, svc.Name, revName, svc)
+	}
+	settleCloudRunServiceTraffic(&svc)
 	svc.Etag = sim.NewUUID()
 	crv2Services.Put(svc.Name, svc)
-	reconcileServiceRevision(crv2Revisions, svc.Name, revName, svc)
 	projectCloudRunV2ToV1(svc)
+	stopUnroutedCloudRunRevisions(svc)
 	return svc
+}
+
+// cloudRunServiceRevisionID names the revision a service generation's template
+// deploys: the template's revision when it names one, otherwise the service
+// ID, the generation in five digits and three random characters.
+func cloudRunServiceRevisionID(serviceID string, generation int64, tmpl *RevisionTemplate) string {
+	if tmpl != nil && tmpl.Revision != "" {
+		return tmpl.Revision
+	}
+	return fmt.Sprintf("%s-%05d-%s", serviceID, generation, gcpRandomSuffix(3))
+}
+
+// cloudRunTemplateChanged reports whether a write changes the revision
+// template, which is what deploys a new revision.
+func cloudRunTemplateChanged(before, after *RevisionTemplate) bool {
+	left, errLeft := revisions.Signature(before)
+	right, errRight := revisions.Signature(after)
+	return errLeft != nil || errRight != nil || left != right
 }
 
 // removeCloudRunServiceV2 deletes a service, its revisions and its v1
@@ -792,7 +871,7 @@ func removeCloudRunServiceV2(project, location, serviceID string) {
 	name := fmt.Sprintf("projects/%s/locations/%s/services/%s", project, location, serviceID)
 	crv2Services.Delete(name)
 	deleteCloudRunServiceProjections(project, location, serviceID)
-	deleteCloudRunServiceInstance(name)
+	stopCloudRunRevisionInstances(name, nil)
 	revPrefix := name + "/revisions/"
 	for _, rev := range crv2Revisions.Filter(func(r RevisionV2) bool { return strings.HasPrefix(r.Name, revPrefix) }) {
 		crv2Revisions.Delete(rev.Name)
@@ -802,8 +881,8 @@ func removeCloudRunServiceV2(project, location, serviceID string) {
 func registerCloudRunServicesV2(srv *sim.Server) {
 	services := sim.MakeStore[ServiceV2](srv.DB(), "crv2_services")
 	crv2Services = services
-	revisions := sim.MakeStore[RevisionV2](srv.DB(), "crv2_revisions")
-	crv2Revisions = revisions
+	revisionStore := sim.MakeStore[RevisionV2](srv.DB(), "crv2_revisions")
+	crv2Revisions = revisionStore
 	if crOperations == nil {
 		crOperations = sim.MakeStore[Operation](srv.DB(), "operations")
 	}
@@ -847,7 +926,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		svc.Etag = sim.NewUUID()
 
 		services.Put(name, svc)
-		reconcileServiceRevision(revisions, name, serviceID+"-00001-abc", svc)
+		reconcileServiceRevision(revisionStore, name, svc.LatestCreatedRevision[strings.LastIndex(svc.LatestCreatedRevision, "/")+1:], svc)
 		projectCloudRunV2ToV1(svc)
 
 		lro := cloudRunLRO(project, location, svc, "type.googleapis.com/google.cloud.run.v2.Service")
@@ -975,13 +1054,19 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		if !cloudRunServiceTemplateValid(w, update.Template) {
 			return
 		}
+		templateChanged := cloudRunTemplateChanged(existing.Template, update.Template)
+		if templateChanged && !cloudRunRevisionNameFree(w, revisionStore, name, serviceID, update.Template) {
+			return
+		}
+		if !cloudRunServiceTrafficValid(w, revisionStore, name, update.Traffic, update.Template, templateChanged) {
+			return
+		}
 
-		// Cloud Run revisions are immutable, so each PATCH spawns a new
-		// revision. Charge its CPU load against the regional sliding-window
-		// quota — a quota-exhausted UpdateService is the failure mode
-		// behind the Cloud Run functions overlay-and-swap path, which
-		// replaces the build output with the runtime overlay image.
-		if !regionalCPUQuotaInstance.tryDebit(project, location, serviceCPULoad(update)) {
+		// A new revision's CPU load is charged against the regional
+		// sliding-window quota — a quota-exhausted UpdateService is the
+		// failure mode behind the Cloud Run functions overlay-and-swap path,
+		// which replaces the build output with the runtime overlay image.
+		if templateChanged && !regionalCPUQuotaInstance.tryDebit(project, location, serviceCPULoad(update)) {
 			regionalCPUQuotaErrorJSON(w, name)
 			return
 		}
@@ -995,7 +1080,9 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 			update.LaunchStage = existing.LaunchStage
 		}
 		update.URI = existing.URI
-		update = rollOutServiceRevision(update)
+		update.LatestCreatedRevision = existing.LatestCreatedRevision
+		update.LatestReadyRevision = existing.LatestReadyRevision
+		update = rollOutServiceRevision(update, templateChanged)
 		lro := cloudRunLRO(project, location, update, "type.googleapis.com/google.cloud.run.v2.Service")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
@@ -1006,7 +1093,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		serviceID := sim.PathParam(r, "service")
 		revisionID := sim.PathParam(r, "revision")
 		name := fmt.Sprintf("projects/%s/locations/%s/services/%s/revisions/%s", project, location, serviceID, revisionID)
-		rev, ok := revisions.Get(name)
+		rev, ok := revisionStore.Get(name)
 		if !ok {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "revision %q not found", name)
 			return
@@ -1018,7 +1105,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		location := sim.PathParam(r, "location")
 		serviceID := sim.PathParam(r, "service")
 		prefix := fmt.Sprintf("projects/%s/locations/%s/services/%s/revisions/", project, location, serviceID)
-		result := revisions.Filter(func(rev RevisionV2) bool { return strings.HasPrefix(rev.Name, prefix) })
+		result := revisionStore.Filter(func(rev RevisionV2) bool { return strings.HasPrefix(rev.Name, prefix) })
 		if result == nil {
 			result = []RevisionV2{}
 		}
@@ -1039,7 +1126,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		serviceID := sim.PathParam(r, "service")
 		revisionID := sim.PathParam(r, "revision")
 		name := fmt.Sprintf("projects/%s/locations/%s/services/%s/revisions/%s", project, location, serviceID, revisionID)
-		rev, ok := revisions.Get(name)
+		rev, ok := revisionStore.Get(name)
 		if !ok {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "revision %q not found", name)
 			return
@@ -1047,7 +1134,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		if !cloudRunEtagOK(w, "revision", rev.Name, rev.Etag, r.URL.Query().Get("etag")) {
 			return
 		}
-		revisions.Delete(name)
+		revisionStore.Delete(name)
 		lro := cloudRunLRO(project, location, rev, "type.googleapis.com/google.cloud.run.v2.Revision")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})

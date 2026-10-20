@@ -35,13 +35,13 @@ func TestMetadataServesTheDefaultProjectFromCloudResourceManager(t *testing.T) {
 	}
 }
 
-// A Cloud Run container reads the account its resource runs as, or its
-// project's Compute Engine default service account when the resource names
+// A Cloud Run container reads the account its revision or resource runs as,
+// or its project's Compute Engine default service account when that names
 // none.
 func TestMetadataPlacesCloudRunWorkloads(t *testing.T) {
 	metadataTreeServer(t)
-	const service = "projects/test-project/locations/us-central1/services/metadata-svc"
-	crv2Services.Put(service, ServiceV2{Name: service, Template: &RevisionTemplate{ServiceAccount: "runner@test-project.iam.gserviceaccount.com"}})
+	const revision = "projects/test-project/locations/us-central1/services/metadata-svc/revisions/metadata-svc-00001-x7k"
+	crv2Revisions.Put(revision, RevisionV2{Name: revision, ServiceAccount: "runner@test-project.iam.gserviceaccount.com"})
 	const execution = "projects/test-project/locations/us-central1/jobs/metadata-job/executions/metadata-job-abc"
 	crjExecutions.Put(execution, Execution{Name: execution, Template: &TaskTemplate{}})
 
@@ -50,7 +50,7 @@ func TestMetadataPlacesCloudRunWorkloads(t *testing.T) {
 		project string
 		account string
 	}{
-		{map[string]string{cloudRunResourceLabel: service}, "test-project", "runner@test-project.iam.gserviceaccount.com"},
+		{map[string]string{cloudRunResourceLabel: revision}, "test-project", "runner@test-project.iam.gserviceaccount.com"},
 		{map[string]string{cloudRunTaskExecutionLabel: execution}, "test-project", gcpTestProjectNumber(t) + "-compute@developer.gserviceaccount.com"},
 	} {
 		w, ok := cloudRunWorkloadFromLabels(tc.labels)

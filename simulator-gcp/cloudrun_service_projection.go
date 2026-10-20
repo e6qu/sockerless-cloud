@@ -136,9 +136,10 @@ func cloudRunV2ToV1(service ServiceV2, project, serviceID string) CRService {
 	traffic := make([]CRTraffic, 0, len(service.Traffic))
 	for _, target := range service.Traffic {
 		traffic = append(traffic, CRTraffic{
-			RevisionName: target.Revision,
-			Percent:      target.Percent,
-			Tag:          target.Tag,
+			RevisionName:   target.Revision,
+			Percent:        target.Percent,
+			Tag:            target.Tag,
+			LatestRevision: target.Type == cloudRunTrafficLatest,
 		})
 	}
 	url := service.URI
@@ -205,8 +206,12 @@ func cloudRunV1ToV2(service CRService, project, location string) ServiceV2 {
 	}
 	traffic := make([]TrafficTarget, 0, len(service.Spec.Traffic))
 	for _, target := range service.Spec.Traffic {
+		allocation := cloudRunTrafficRevision
+		if target.LatestRevision {
+			allocation = cloudRunTrafficLatest
+		}
 		traffic = append(traffic, TrafficTarget{
-			Revision: target.RevisionName, Percent: target.Percent, Tag: target.Tag,
+			Type: allocation, Revision: target.RevisionName, Percent: target.Percent, Tag: target.Tag,
 		})
 	}
 	return ServiceV2{
@@ -249,6 +254,7 @@ func projectCloudRunV1ToV2(service CRService, project, location string) {
 	// The Knative v1 surface and the v2 collection address one service record,
 	// so a write through v1 mints the same fresh fingerprint a v2 write does.
 	projection.Etag = sim.NewUUID()
+	settleCloudRunServiceTraffic(&projection)
 	crv2Services.Put(projection.Name, projection)
 	if crv2Revisions != nil {
 		revision := projection.LatestReadyRevision[strings.LastIndex(projection.LatestReadyRevision, "/")+1:]

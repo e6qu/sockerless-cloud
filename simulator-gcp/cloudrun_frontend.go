@@ -56,7 +56,14 @@ func cloudRunServiceByHost(host string) (ServiceV2, bool) {
 		if err != nil {
 			return nil
 		}
-		return []string{lbplane.Hostname(parsed.Host)}
+		host := lbplane.Hostname(parsed.Host)
+		hosts := []string{host}
+		for _, target := range s.Traffic {
+			if target.Tag != "" {
+				hosts = append(hosts, target.Tag+"---"+host)
+			}
+		}
+		return hosts
 	})
 }
 
@@ -118,10 +125,10 @@ func cloudRunFrontEndError(w http.ResponseWriter, status int, message string) {
 		status, http.StatusText(status), http.StatusText(status), message)
 }
 
-// cloudRunRequestTimeout is the revision template's request timeout.
-func cloudRunRequestTimeout(svc ServiceV2) time.Duration {
-	if svc.Template != nil && svc.Template.Timeout != "" {
-		if d, err := time.ParseDuration(svc.Template.Timeout); err == nil && d > 0 {
+// cloudRunRevisionRequestTimeout is the revision's request timeout.
+func cloudRunRevisionRequestTimeout(rev RevisionV2) time.Duration {
+	if rev.Timeout != "" {
+		if d, err := time.ParseDuration(rev.Timeout); err == nil && d > 0 {
 			return d
 		}
 	}
@@ -146,12 +153,13 @@ func serveCloudRunService(w http.ResponseWriter, r *http.Request, svc ServiceV2,
 	}) {
 		return
 	}
-	if svc.Template == nil || len(svc.Template.Containers) == 0 || svc.Template.Containers[0].Image == "" {
+	rev, ok := cloudRunRequestRevision(svc, r.Host)
+	if !ok || len(rev.Containers) == 0 || rev.Containers[0].Image == "" {
 		cloudRunFrontEndError(w, http.StatusServiceUnavailable, "The service has no container to serve the request.")
 		return
 	}
-	containers := svc.Template.Containers
-	requestTimeout := cloudRunRequestTimeout(svc)
+	containers := rev.Containers
+	requestTimeout := cloudRunRevisionRequestTimeout(rev)
 	startup := cloudRunStartupBound(containers[0])
 	for _, sidecar := range containers[1:] {
 		if sidecar.StartupProbe != nil {
@@ -162,7 +170,7 @@ func serveCloudRunService(w http.ResponseWriter, r *http.Request, svc ServiceV2,
 
 	serviceID := svc.Name[strings.LastIndex(svc.Name, "/")+1:]
 	sink := &cfLogSink{project: resourceProject(svc.Name), functionName: serviceID}
-	inst, err := ensureCloudRunServiceInstance(r.Context(), svc.Name, serviceID, svc.Template.VpcAccess, containers, svc.Template.Volumes, sink)
+	inst, err := ensureCloudRunServiceInstance(r.Context(), rev.Name, serviceID, rev.VpcAccess, containers, rev.Volumes, sink)
 	if err != nil {
 		cloudRunFrontEndError(w, http.StatusServiceUnavailable, html.EscapeString(fmt.Sprintf("The service could not start an instance: %v", err)))
 		return
@@ -170,14 +178,14 @@ func serveCloudRunService(w http.ResponseWriter, r *http.Request, svc ServiceV2,
 	address, err := inst.awaitReady(r.Context())
 	if err != nil {
 		if r.Context().Err() == nil {
-			deleteCloudRunServiceInstanceIf(svc.Name, inst)
+			deleteCloudRunServiceInstanceIf(rev.Name, inst)
 		}
 		cloudRunFrontEndError(w, http.StatusServiceUnavailable, html.EscapeString(fmt.Sprintf("The instance failed to start: %v", err)))
 		return
 	}
 	if err := forwardToCloudRunContainer(w, r, address, requestTimeout); err != nil {
 		if !inst.ingressRunning() {
-			deleteCloudRunServiceInstanceIf(svc.Name, inst)
+			deleteCloudRunServiceInstanceIf(rev.Name, inst)
 		}
 		abortStartedForward(w, err)
 		cloudRunFrontEndError(w, http.StatusServiceUnavailable, html.EscapeString(fmt.Sprintf("The instance did not answer: %v", err)))

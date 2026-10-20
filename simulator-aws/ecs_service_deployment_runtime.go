@@ -142,7 +142,7 @@ func ecsAddServiceEvent(key, message string) {
 func ecsAppendServiceEvent(service *ECSService, message string) {
 	event := ECSServiceEvent{
 		Id:        sim.NewUUID(),
-		CreatedAt: float64(time.Now().Unix()),
+		CreatedAt: ecsEpochSeconds(),
 		Message:   message,
 	}
 	service.Events = append([]ECSServiceEvent{event}, service.Events...)
@@ -247,8 +247,7 @@ func ecsRecordServiceTaskFailure(task ECSTask) {
 }
 
 func ecsServiceTaskMatchesDeployment(task ECSTask, deployment ECSDeployment) bool {
-	definition, ok := ecsServiceTaskDefinition(deployment.TaskDefinition)
-	return ok && task.TaskDefinitionArn == definition.TaskDefinitionArn
+	return task.StartedBy == deployment.Id
 }
 
 func ecsResetServiceFailureCountAfterHealthyTask(key string, service ECSService) {
@@ -404,7 +403,7 @@ func ecsFailServiceDeployment(key, reason string, rollback bool) {
 	failed := service.Deployments[0]
 	failed.RolloutState = "FAILED"
 	failed.RolloutStateReason = reason
-	failed.UpdatedAt = float64(time.Now().Unix())
+	failed.UpdatedAt = ecsEpochSeconds()
 	// The event explaining the failure is written by the same store write that
 	// publishes the rollout as FAILED. DescribeServices returns the rollout
 	// state and the events from one service, and real Amazon ECS never reports
@@ -441,7 +440,7 @@ func ecsStartServiceDeploymentRollback(key string, service ECSService, failed EC
 	}
 	ecsDeregisterServiceRegistryTasks(service)
 	ecsApplyServiceSnapshot(&service, *state.LastCompleted)
-	now := float64(time.Now().Unix())
+	now := ecsEpochSeconds()
 	rollbackDeployment := ecsServiceDeployment(service, now)
 	rollbackDeployment.RolloutStateReason = "Deployment rollback is in progress"
 	failed.Status = "ACTIVE"
@@ -474,7 +473,7 @@ func reasonForFailedDeployment(deployment ECSDeployment) string {
 }
 
 func ecsMarkServiceDeploymentFailed(serviceARN, reason string) {
-	now := float64(time.Now().Unix())
+	now := ecsEpochSeconds()
 	for _, deployment := range ecsServiceDeployments.List() {
 		if deployment.ServiceArn != serviceARN || deployment.Status != "IN_PROGRESS" {
 			continue
@@ -488,7 +487,7 @@ func ecsMarkServiceDeploymentFailed(serviceARN, reason string) {
 }
 
 func ecsMarkServiceDeploymentRollbackInProgress(serviceARN, reason string) {
-	now := float64(time.Now().Unix())
+	now := ecsEpochSeconds()
 	for _, deployment := range ecsServiceDeployments.List() {
 		if deployment.ServiceArn != serviceARN || deployment.Status != "STOPPED" ||
 			deployment.StatusReason != reason {
@@ -502,7 +501,7 @@ func ecsMarkServiceDeploymentRollbackInProgress(serviceARN, reason string) {
 }
 
 func ecsFinishServiceDeploymentRollback(serviceARN string) {
-	now := float64(time.Now().Unix())
+	now := ecsEpochSeconds()
 	for _, deployment := range ecsServiceDeployments.List() {
 		if deployment.ServiceArn != serviceARN || deployment.Status != "ROLLBACK_IN_PROGRESS" {
 			continue

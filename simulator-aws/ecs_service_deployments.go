@@ -3,7 +3,6 @@ package main
 import (
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -71,7 +70,7 @@ func registerECSServiceDeployments(r *AWSRouter, srv *sim.Server) {
 // the Cloud Map namespace the service is associated with (for
 // ListServicesByNamespace), derived by the caller from serviceConnectConfiguration.
 func ecsRecordServiceDeployment(svc ECSService, namespace string) {
-	now := float64(time.Now().Unix())
+	now := ecsEpochSeconds()
 	for _, deployment := range ecsServiceDeployments.List() {
 		if deployment.ServiceArn != svc.ServiceArn || deployment.Status != "IN_PROGRESS" {
 			continue
@@ -303,7 +302,7 @@ func handleECSStopServiceDeployment(w http.ResponseWriter, r *http.Request) {
 	} else {
 		dep.Status = "STOP_REQUESTED"
 	}
-	dep.UpdatedAt = float64(time.Now().Unix())
+	dep.UpdatedAt = ecsEpochSeconds()
 	ecsServiceDeployments.Put(req.ServiceDeploymentArn, dep)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"serviceDeploymentArn": dep.ServiceDeploymentArn})
 }
@@ -338,7 +337,7 @@ func handleECSContinueServiceDeployment(w http.ResponseWriter, r *http.Request) 
 	} else {
 		dep.Status = "IN_PROGRESS"
 	}
-	dep.UpdatedAt = float64(time.Now().Unix())
+	dep.UpdatedAt = ecsEpochSeconds()
 	ecsServiceDeployments.Put(req.ServiceDeploymentArn, dep)
 	// Released, the service can converge: the scheduler was holding its tasks
 	// back while the hook waited.

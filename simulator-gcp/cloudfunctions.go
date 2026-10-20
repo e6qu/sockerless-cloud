@@ -10,6 +10,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/lbplane"
+	"github.com/e6qu/sockerless-cloud/sim/revisions"
 )
 
 // Cloud Functions v2 types
@@ -232,6 +233,8 @@ func registerCloudFunctions(srv *sim.Server) {
 		fn.ServiceConfig.Uri = backingService.URI
 		backingService.Etag = sim.NewUUID()
 		crv2Services.Put(backingService.Name, backingService)
+		reconcileServiceRevision(crv2Revisions, backingService.Name,
+			backingService.LatestCreatedRevision[strings.LastIndex(backingService.LatestCreatedRevision, "/")+1:], backingService)
 		projectCloudRunV2ToV1(backingService)
 
 		functions.Put(name, fn)
@@ -322,12 +325,17 @@ func registerCloudFunctions(srv *sim.Server) {
 		fn.Name = name
 		fn.UpdateTime = nowTimestamp()
 		if svc, ok := cloudFunctionService(fn); ok && serviceConfigChanged {
+			// applyFunctionServiceConfig edits the template in place, so its
+			// signature is taken before.
+			before, beforeErr := revisions.Signature(svc.Template)
 			applyFunctionServiceConfig(&svc, fn)
-			if !regionalCPUQuotaInstance.tryDebit(project, location, serviceCPULoad(svc)) {
+			after, afterErr := revisions.Signature(svc.Template)
+			templateChanged := beforeErr != nil || afterErr != nil || before != after
+			if templateChanged && !regionalCPUQuotaInstance.tryDebit(project, location, serviceCPULoad(svc)) {
 				regionalCPUQuotaErrorJSON(w, svc.Name)
 				return
 			}
-			rollOutServiceRevision(svc)
+			rollOutServiceRevision(svc, templateChanged)
 		}
 		functions.Put(name, fn)
 

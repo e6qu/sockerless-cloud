@@ -366,11 +366,11 @@ func adoptCloudRunServiceInstance(name, specSig string, containers []Container, 
 	return nil
 }
 
-// adoptCloudRunServiceInstances takes over, for every stored service, the
-// instance an earlier process left serving the service's revision, so the
-// next request reaches it rather than starting another, and removes every
-// other service container that process left: instances of other revisions
-// and of services since deleted.
+// adoptCloudRunServiceInstances takes over, for every revision a stored
+// service's traffic reaches, the instance an earlier process left serving it,
+// so the next request reaches it rather than starting another, and removes
+// every other service container that process left: instances of revisions no
+// longer reached and of services since deleted.
 func adoptCloudRunServiceInstances() {
 	groups, ids, err := cloudRunExistingGroups(map[string]string{cloudRunServiceLabel: ""})
 	if err != nil {
@@ -396,20 +396,28 @@ func adoptCloudRunServiceInstances() {
 // adoptCloudRunServiceInstanceGroup adopts group as the instance of the
 // service name when it runs the service's template whole.
 func adoptCloudRunServiceInstanceGroup(name, groupID string, group []placement.Existing) bool {
-	if crv2Services == nil {
+	if crv2Services == nil || crv2Revisions == nil {
 		return false
 	}
-	svc, ok := crv2Services.Get(name)
-	if !ok || svc.Template == nil || len(svc.Template.Containers) == 0 {
+	serviceName, _, isRevision := strings.Cut(name, "/revisions/")
+	if !isRevision {
 		return false
 	}
-	containers, volumes := svc.Template.Containers, svc.Template.Volumes
+	svc, ok := crv2Services.Get(serviceName)
+	if !ok || !cloudRunRoutedRevisions(svc)[name] {
+		return false
+	}
+	rev, ok := crv2Revisions.Get(name)
+	if !ok || len(rev.Containers) == 0 {
+		return false
+	}
+	containers, volumes := rev.Containers, rev.Volumes
 	specSig := serviceContainersSignature(containers, volumes)
 	byName, ok := cloudRunAdoptable(group, groupID, specSig, cloudRunContainerLabel, containers)
 	if !ok {
 		return false
 	}
-	project, serviceID := resourceProject(name), name[strings.LastIndex(name, "/")+1:]
+	project, serviceID := resourceProject(name), serviceName[strings.LastIndex(serviceName, "/")+1:]
 	sink := newCloudRunAdoptedLogSink(&cfLogSink{project: project, functionName: serviceID}, project, cloudRunServiceLogResource(serviceID))
 	if err := adoptCloudRunServiceInstance(name, specSig, containers, volumes, byName, sink); err != nil {
 		log.Printf("Cloud Run service %s: adopt instance %s: %v", name, groupID, err)

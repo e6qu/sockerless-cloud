@@ -311,10 +311,6 @@ func ecsServiceRunInput(service ECSService, count int) (ecsRunTaskInput, error) 
 			return ecsRunTaskInput{}, fmt.Errorf("decode service volume configurations: %w", err)
 		}
 	}
-	startedBy := "ecs-svc/" + service.ServiceName
-	if len(service.Deployments) > 0 && service.Deployments[0].Id != "" {
-		startedBy = service.Deployments[0].Id
-	}
 	return ecsRunTaskInput{
 		Cluster:              service.ClusterArn,
 		TaskDefinition:       service.TaskDefinition,
@@ -326,8 +322,24 @@ func ecsServiceRunInput(service ECSService, count int) (ecsRunTaskInput, error) 
 		EnableExecuteCommand: service.EnableExecuteCommand,
 		VolumeConfigurations: volumes,
 		NetworkConfiguration: network,
-		StartedBy:            startedBy,
+		StartedBy:            ecsServicePrimaryStartedBy(service),
 	}, nil
+}
+
+// ecsServicePrimaryStartedBy is the startedBy the service's PRIMARY
+// deployment gives the tasks it starts: the deployment's ID.
+func ecsServicePrimaryStartedBy(service ECSService) string {
+	if len(service.Deployments) > 0 && service.Deployments[0].Id != "" {
+		return service.Deployments[0].Id
+	}
+	return "ecs-svc/" + service.ServiceName
+}
+
+// ecsServiceTaskIsPrimary reports whether the service's PRIMARY deployment
+// started the task. A task belongs to the deployment that started it, so a
+// new deployment of the same task definition still replaces every task.
+func ecsServiceTaskIsPrimary(service ECSService, task ECSTask) bool {
+	return task.StartedBy == ecsServicePrimaryStartedBy(service)
 }
 
 // ecsReconcileService converges one service from persisted service/task state.
@@ -368,8 +380,7 @@ func ecsReconcileService(key string) {
 		ecsRefreshServiceState(key)
 		return
 	}
-	definition, ok := ecsServiceTaskDefinition(service.TaskDefinition)
-	if !ok {
+	if _, ok := ecsServiceTaskDefinition(service.TaskDefinition); !ok {
 		ecsRecordServiceLaunchFailure(key, "Task definition not found: "+service.TaskDefinition)
 		return
 	}
@@ -379,7 +390,7 @@ func ecsReconcileService(key string) {
 	active := ecsServiceRunningTasks(service.ClusterArn, group)
 	var current, previous []ECSTask
 	for _, task := range ecsTasksNotStopping(active) {
-		if task.TaskDefinitionArn == definition.TaskDefinitionArn {
+		if ecsServiceTaskIsPrimary(service, task) {
 			current = append(current, task)
 		} else {
 			previous = append(previous, task)
@@ -472,7 +483,7 @@ func ecsReconcileService(key string) {
 		current = nil
 		previous = nil
 		for _, task := range ecsTasksNotStopping(active) {
-			if task.TaskDefinitionArn == definition.TaskDefinitionArn {
+			if ecsServiceTaskIsPrimary(service, task) {
 				current = append(current, task)
 			} else {
 				previous = append(previous, task)
@@ -715,7 +726,6 @@ func ecsRefreshServiceState(key string) {
 		return
 	}
 	ecsSyncServiceLoadBalancerTargets(service)
-	definition, _ := ecsServiceTaskDefinition(service.TaskDefinition)
 	tasks := ecsServiceRunningTasks(service.ClusterArn, ecsServiceTaskGroup(service.ServiceName))
 	running, pending, currentRunning, currentHealthy := 0, 0, 0, 0
 	oldActive := false
@@ -726,7 +736,7 @@ func ecsRefreshServiceState(key string) {
 		default:
 			pending++
 		}
-		if task.TaskDefinitionArn == definition.TaskDefinitionArn {
+		if ecsServiceTaskIsPrimary(service, task) {
 			if task.LastStatus == ECSTaskStatusRunning {
 				currentRunning++
 				if ecsServiceTaskHealthy(service, task) {
@@ -738,7 +748,7 @@ func ecsRefreshServiceState(key string) {
 		}
 	}
 	targetCount := ecsServiceTaskTargetCount(service)
-	now := float64(time.Now().Unix())
+	now := ecsEpochSeconds()
 	if currentHealthy > 0 {
 		ecsResetServiceFailureCountAfterHealthyTask(key, service)
 	}

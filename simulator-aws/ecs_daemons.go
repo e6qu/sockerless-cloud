@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -138,7 +137,7 @@ func handleECSCreateDaemon(w http.ResponseWriter, r *http.Request) {
 		AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest, "Cluster not found: %s", req.ClusterArn)
 		return
 	}
-	now := float64(time.Now().Unix())
+	now := ecsEpochSeconds()
 	daemonID := req.DaemonName + "/" + sim.NewUUID()
 	daemonArn := ecsArn("daemon", daemonID)
 	deploymentArn := ecsArn("daemon-deployment", daemonID+"/"+sim.NewUUID())
@@ -234,7 +233,7 @@ func handleECSUpdateDaemon(w http.ResponseWriter, r *http.Request) {
 		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest, "The specified daemon does not exist: %s", req.DaemonArn)
 		return
 	}
-	now := float64(time.Now().Unix())
+	now := ecsEpochSeconds()
 	if req.DaemonTaskDefinitionArn != "" {
 		d.DaemonTaskDefinitionArn = req.DaemonTaskDefinitionArn
 	}
@@ -266,7 +265,7 @@ func handleECSDeleteDaemon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.Status = "DELETE_IN_PROGRESS"
-	d.UpdatedAt = float64(time.Now().Unix())
+	d.UpdatedAt = ecsEpochSeconds()
 	ecsDaemons.Delete(req.DaemonArn)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"daemonArn":     d.DaemonArn,
@@ -472,7 +471,7 @@ func handleECSRegisterDaemonTaskDefinition(w http.ResponseWriter, r *http.Reques
 		Cpu:                     req.Cpu,
 		Memory:                  req.Memory,
 		Status:                  "ACTIVE",
-		RegisteredAt:            float64(time.Now().Unix()),
+		RegisteredAt:            ecsEpochSeconds(),
 		PidMode:                 req.PidMode,
 		IpcMode:                 req.IpcMode,
 		Tags:                    req.Tags,
@@ -521,7 +520,7 @@ func handleECSDeleteDaemonTaskDefinition(w http.ResponseWriter, r *http.Request)
 			"Unable to describe daemon task definition: %s", req.DaemonTaskDefinition)
 		return
 	}
-	now := float64(time.Now().Unix())
+	now := ecsEpochSeconds()
 	td.Status = "DELETE_IN_PROGRESS"
 	td.DeleteRequestedAt = &now
 	ecsDaemonTaskDefinitions.Delete(key)

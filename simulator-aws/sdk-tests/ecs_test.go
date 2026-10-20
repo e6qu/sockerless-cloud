@@ -958,16 +958,13 @@ func createECSTestVPCSubnet(t *testing.T, name string) (string, string) {
 	ec2c := ec2Client()
 	// Keep ECS helper VPCs in 10.225.0.0/16 through 10.249.0.0/16, clear of
 	// the fixed CIDRs other SDK tests use (which occupy ranges through
-	// 10.224.0.0/16 and resume at 10.250.0.0/16). A VPC CIDR never reaches
-	// the host — bridge subnets come from the reserved allocator pool — but
-	// distinct ranges keep every concurrently running task's ENI address
-	// unique, so address-keyed assertions cannot cross-match. Cleanup below
-	// makes reuse after wrapping safe even though StopTask releases
-	// containers asynchronously.
-	n := ecsTestSubnetCounter.Add(1)
-	second := 225 + int(n%25)
-	third := int((n / 100) % 200)
-	vpcCIDR := fmt.Sprintf("10.%d.0.0/16", second)
+	// 10.224.0.0/16 and resume at 10.250.0.0/16). Each VPC is a /20 of its
+	// own, 400 of them, so every caller in one run holds a range no other
+	// live VPC does: the engine holds a VPC's range for its network, and two
+	// live networks over one range cannot coexist on it.
+	n := int(ecsTestSubnetCounter.Add(1) % 400)
+	second, third := 225+n/16, (n%16)*16
+	vpcCIDR := fmt.Sprintf("10.%d.%d.0/20", second, third)
 	subnetCIDR := fmt.Sprintf("10.%d.%d.0/24", second, third)
 
 	vpcOut, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{

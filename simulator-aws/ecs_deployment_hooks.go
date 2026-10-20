@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
@@ -248,7 +247,7 @@ func ecsFailDeploymentHook(serviceDeploymentArn, hookID, reason string) {
 	}
 	deployment.Status = "STOPPED"
 	deployment.StatusReason = reason
-	deployment.UpdatedAt = float64(time.Now().Unix())
+	deployment.UpdatedAt = ecsEpochSeconds()
 	deployment.FinishedAt = deployment.UpdatedAt
 	ecsServiceDeployments.Put(serviceDeploymentArn, deployment)
 }

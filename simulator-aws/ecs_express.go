@@ -204,7 +204,7 @@ func handleECSCreateExpressGatewayService(w http.ResponseWriter, r *http.Request
 	memory := firstNonEmpty(req.Memory, "512")
 	healthCheckPath := firstNonEmpty(req.HealthCheckPath, "/ping")
 
-	now := float64(time.Now().Unix())
+	now := ecsEpochSeconds()
 
 	// Resolve / register the task definition (managed when primaryContainer is
 	// given; otherwise the customer-supplied taskDefinitionArn).
@@ -396,7 +396,7 @@ func handleECSUpdateExpressGatewayService(w http.ResponseWriter, r *http.Request
 
 	// New revision derived from the current one with the mutable fields applied.
 	cur := svc.ActiveConfigurations[len(svc.ActiveConfigurations)-1]
-	now := float64(time.Now().Unix())
+	now := ecsEpochSeconds()
 	next := cur
 	next.CreatedAt = now
 	if req.Cpu != "" {
@@ -543,7 +543,7 @@ func handleECSDeleteExpressGatewayService(w http.ResponseWriter, r *http.Request
 	// immediate response to match the API's synchronous shape.
 	expressTeardown(svc)
 
-	now := float64(time.Now().Unix())
+	now := ecsEpochSeconds()
 	svc.Status = expressGatewayServiceStatus{StatusCode: "INACTIVE", StatusReason: "Service has been deleted"}
 	svc.UpdatedAt = now
 	ecsExpressServices.Put(svc.ServiceArn, svc)
@@ -685,7 +685,7 @@ func expressRegisterManagedTaskDef(serviceName, cpu, memory, execRole, taskRole 
 // expressCreateFargateService creates the backing ECS Fargate service in the
 // real ecsServices store and returns its store key.
 func expressCreateFargateService(clusterName, clusterArn, serviceName, taskDefArn string, desired int, netCfg *expressNetworkConfiguration, lbArn, tgArn string) string {
-	now := float64(time.Now().Unix())
+	now := ecsEpochSeconds()
 	netJSON, _ := json.Marshal(map[string]any{
 		"awsvpcConfiguration": map[string]any{
 			"subnets":        netCfg.Subnets,
@@ -956,7 +956,7 @@ func expressCreateAutoScaling(clusterName, serviceName string, st *expressScalin
 		ScalableDimension: dim,
 		MinCapacity:       minCap,
 		MaxCapacity:       maxCap,
-		CreationTime:      float64(time.Now().Unix()),
+		CreationTime:      ecsEpochSeconds(),
 		ARN:               appScalableTargetARN(sim.NewUUID()),
 	}
 	appScalableTargets.Put(appScalableTargetKey(ns, resourceID, dim), target)
@@ -981,7 +981,7 @@ func expressCreateAutoScaling(clusterName, serviceName string, st *expressScalin
 		ScalableDimension: dim,
 		PolicyType:        "TargetTrackingScaling",
 		TargetTracking:    cfg,
-		CreationTime:      float64(time.Now().Unix()),
+		CreationTime:      ecsEpochSeconds(),
 	}
 	appScalingReplaceAlarms(&policy)
 	appScalingPolicies.Put(appScalingPolicyKey(ns, resourceID, dim, policyName), policy)

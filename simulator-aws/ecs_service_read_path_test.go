@@ -83,9 +83,9 @@ func ecsSchedulerTestCluster(clusterName, family string) (ECSCluster, string) {
 	return cluster, definition.TaskDefinitionArn
 }
 
-// ecsSchedulerTestRunningTask stores one RUNNING task owned by the service,
-// started long enough ago to be past the steady-state window.
-func ecsSchedulerTestRunningTask(cluster ECSCluster, serviceName, taskDefinitionArn, containerIP string) ECSTask {
+// ecsSchedulerTestRunningTask stores one RUNNING task the service's deployment
+// startedBy started, long enough ago to be past the steady-state window.
+func ecsSchedulerTestRunningTask(cluster ECSCluster, serviceName, startedBy, taskDefinitionArn, containerIP string) ECSTask {
 	startedAt := float64(time.Now().Add(-time.Minute).UnixMilli()) / 1000
 	createdAt := float64(startedAt)
 	taskID := sim.NewUUID()
@@ -96,7 +96,7 @@ func ecsSchedulerTestRunningTask(cluster ECSCluster, serviceName, taskDefinition
 		LastStatus:        ECSTaskStatusRunning,
 		DesiredStatus:     ECSTaskStatusRunning,
 		Group:             ecsServiceTaskGroup(serviceName),
-		StartedBy:         "ecs-svc/" + serviceName,
+		StartedBy:         startedBy,
 		StartedAt:         &startedAt,
 		CreatedAt:         &createdAt,
 		Containers: []ECSTaskContainer{{
@@ -134,6 +134,7 @@ func ecsCallWhileSchedulerHoldsLock(
 	handler http.HandlerFunc,
 	body any,
 	budget time.Duration,
+	whileHeld func(ecsHandlerResult),
 ) ecsHandlerResult {
 	t.Helper()
 	lock := ecsServiceLock(key)
@@ -156,6 +157,9 @@ func ecsCallWhileSchedulerHoldsLock(
 	select {
 	case result := <-answered:
 		require.Equalf(t, http.StatusOK, result.code, "handler failed: %s", result.body)
+		if whileHeld != nil {
+			whileHeld(result)
+		}
 		return result
 	case <-time.After(budget):
 		release()
@@ -230,12 +234,12 @@ func TestDescribeServicesAnswersWhileTheSchedulerHoldsTheServiceLock(t *testing.
 	}
 	service.Deployments = []ECSDeployment{ecsServiceDeployment(service, float64(time.Now().Unix()))}
 	ecsServices.Put(key, service)
-	ecsSchedulerTestRunningTask(cluster, serviceName, taskDefinitionArn, "10.0.0.7")
+	ecsSchedulerTestRunningTask(cluster, serviceName, ecsServicePrimaryStartedBy(service), taskDefinitionArn, "10.0.0.7")
 
 	result := ecsCallWhileSchedulerHoldsLock(t, key, handleECSDescribeServices, map[string]any{
 		"cluster":  cluster.ClusterName,
 		"services": []string{serviceName},
-	}, time.Second)
+	}, time.Second, nil)
 	t.Logf("DescribeServices answered in %s while the scheduler lock was held", result.elapsed)
 
 	described := decodeECSServices(t, result.body)
@@ -334,7 +338,7 @@ func TestDescribeServicesDoesNotProbeLoadBalancerTargets(t *testing.T) {
 	}
 	service.Deployments = []ECSDeployment{ecsServiceDeployment(service, float64(time.Now().Unix()))}
 	ecsServices.Put(key, service)
-	ecsSchedulerTestRunningTask(cluster, serviceName, taskDefinitionArn, "127.0.0.1")
+	ecsSchedulerTestRunningTask(cluster, serviceName, ecsServicePrimaryStartedBy(service), taskDefinitionArn, "127.0.0.1")
 
 	recorder := httptest.NewRecorder()
 	started := time.Now()
@@ -363,17 +367,22 @@ func TestCreateServiceReturnsBeforeTheSchedulerConverges(t *testing.T) {
 	const serviceName = "create-svc"
 	key := ecsServiceKey(cluster.ClusterName, serviceName)
 
-	// A task from this service's group is already running: the durable-restart
-	// state the simulator adopts on startup. The scheduler must find it and
-	// record it, and it must do so after the handler has answered.
-	ecsSchedulerTestRunningTask(cluster, serviceName, taskDefinitionArn, "10.0.0.9")
-
+	// The deployment's task is already running by the time the scheduler gets
+	// the lock, as when an earlier simulator process placed it: the scheduler
+	// must find it and record it, and it must do so after the handler has
+	// answered.
 	result := ecsCallWhileSchedulerHoldsLock(t, key, handleECSCreateService, map[string]any{
 		"cluster":        cluster.ClusterName,
 		"serviceName":    serviceName,
 		"taskDefinition": taskDefinitionArn,
 		"desiredCount":   1,
-	}, time.Second)
+	}, time.Second, func(result ecsHandlerResult) {
+		var created struct {
+			Service ECSService `json:"service"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(result.body), &created))
+		ecsSchedulerTestRunningTask(cluster, serviceName, ecsServicePrimaryStartedBy(created.Service), taskDefinitionArn, "10.0.0.9")
+	})
 	t.Logf("CreateService answered in %s while the scheduler lock was held", result.elapsed)
 
 	var created struct {
@@ -410,13 +419,13 @@ func TestUpdateServiceReturnsBeforeTheSchedulerConverges(t *testing.T) {
 	}
 	service.Deployments = []ECSDeployment{ecsServiceDeployment(service, float64(time.Now().Unix()))}
 	ecsServices.Put(key, service)
-	ecsSchedulerTestRunningTask(cluster, serviceName, taskDefinitionArn, "10.0.0.11")
+	ecsSchedulerTestRunningTask(cluster, serviceName, ecsServicePrimaryStartedBy(service), taskDefinitionArn, "10.0.0.11")
 
 	result := ecsCallWhileSchedulerHoldsLock(t, key, handleECSUpdateService, map[string]any{
 		"cluster":      cluster.ClusterName,
 		"service":      serviceName,
 		"desiredCount": 1,
-	}, time.Second)
+	}, time.Second, nil)
 	t.Logf("UpdateService answered in %s while the scheduler lock was held", result.elapsed)
 
 	var updated struct {
