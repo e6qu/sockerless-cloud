@@ -169,7 +169,7 @@ func acaIngressForwardedHeaders(r *http.Request) func(http.Header) {
 func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp, rev acaRevision) {
 	group, ok := acaPickReplica(rev.ID)
 	if !ok {
-		AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q has no running replica", app.Name)
+		AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q has no ready replica", app.Name)
 		return
 	}
 	ip, err := group.Main.Address(r.Context())

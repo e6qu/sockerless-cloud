@@ -105,10 +105,15 @@ func TestScaleStartsAndStopsReplicas(t *testing.T) {
 	if len(running) != 2 {
 		t.Fatalf("%d replicas run, want 2", len(running))
 	}
-	first, _, _ := set.Pick()
-	second, _, _ := set.Pick()
+	first, _, _ := set.Pick(nil)
+	second, _, _ := set.Pick(nil)
 	if first == second {
 		t.Fatal("the set picked one replica twice in a row")
+	}
+	for range 3 {
+		if other, _, _ := set.Pick(func(r *Replica) bool { return r != first }); other == nil || other == first {
+			t.Fatal("the set picked a replica ready refused")
+		}
 	}
 	newest := running[1]
 	if err := set.Scale(context.Background(), 1); err != nil {

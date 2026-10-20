@@ -364,3 +364,66 @@ func TestContainerAppsApps_CLI_FailedProvisioningKeepsTheApp(t *testing.T) {
 	parseJSON(t, runCLI(t, azRest("GET", acaURL("containerApps/cli-failed-app/revisions/"+app.Properties.LatestRevisionName), "")), &revision)
 	assert.Equal(t, "Failed", revision.Properties.ProvisioningState)
 }
+
+// A replica runs its init container to completion first, and its container
+// is ready once its readiness probe passes.
+func TestContainerAppsApps_CLI_ProbesAndInitContainers(t *testing.T) {
+	t.Parallel()
+	appURL := acaURL("containerApps/cli-probed-app")
+	body := fmt.Sprintf(`{
+		"location": "eastus",
+		"properties": {
+			"environmentId": "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.App/managedEnvironments/sim-env",
+			"configuration": { "ingress": { "external": false, "targetPort": 80 } },
+			"template": {
+				"initContainers": [{ "name": "setup", "image": %[1]q, "args": ["print", "initialized"] }],
+				"containers": [{
+					"name": "main", "image": %[1]q, "args": ["health-http", "80", "probed"],
+					"probes": [{ "type": "Readiness", "httpGet": { "port": 80, "path": "/healthz" }, "periodSeconds": 1 }]
+				}],
+				"scale": { "minReplicas": 1, "maxReplicas": 1 }
+			}
+		}
+	}`, commandImageName)
+	azRestLongRunning(t, "PUT", appURL, body)
+	t.Cleanup(func() { _, _ = azRest("DELETE", appURL, "").CombinedOutput() })
+
+	var app struct {
+		Properties struct {
+			LatestReadyRevisionName string `json:"latestReadyRevisionName"`
+			Template                struct {
+				Containers []struct {
+					Probes []struct {
+						Type string `json:"type"`
+					} `json:"probes"`
+				} `json:"containers"`
+			} `json:"template"`
+		} `json:"properties"`
+	}
+	parseJSON(t, runCLI(t, azRest("GET", appURL, "")), &app)
+	require.Len(t, app.Properties.Template.Containers, 1)
+	require.Len(t, app.Properties.Template.Containers[0].Probes, 1, "the app keeps its container's probe")
+	assert.Equal(t, "Readiness", app.Properties.Template.Containers[0].Probes[0].Type)
+
+	type replicaContainer struct {
+		Name                string `json:"name"`
+		Ready               bool   `json:"ready"`
+		RunningState        string `json:"runningState"`
+		RunningStateDetails string `json:"runningStateDetails"`
+	}
+	var replicas struct {
+		Value []struct {
+			Properties struct {
+				Containers     []replicaContainer `json:"containers"`
+				InitContainers []replicaContainer `json:"initContainers"`
+			} `json:"properties"`
+		} `json:"value"`
+	}
+	parseJSON(t, runCLI(t, azRest("GET", acaURL("containerApps/cli-probed-app/revisions/"+app.Properties.LatestReadyRevisionName+"/replicas"), "")), &replicas)
+	require.Len(t, replicas.Value, 1)
+	replica := replicas.Value[0].Properties
+	require.Len(t, replica.InitContainers, 1)
+	assert.Equal(t, replicaContainer{Name: "setup", RunningState: "Terminated", RunningStateDetails: "Completed"}, replica.InitContainers[0])
+	require.Len(t, replica.Containers, 1)
+	assert.True(t, replica.Containers[0].Ready, "the container passed its readiness probe")
+}

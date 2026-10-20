@@ -112,7 +112,8 @@ type JobTemplate struct {
 // jobExecutionTemplate narrows a job's template to the JobExecutionTemplate an
 // execution reports. Azure models the two separately: JobExecutionTemplate
 // declares only containers and initContainers, and its JobExecutionContainer
-// carries no volumeMounts, so an execution never echoes the volumes or mounts
+// carries no volumeMounts or probes, so an execution never echoes the volumes,
+// mounts or probes
 // the job template configures. Returning the job template unchanged would put
 // fields on the wire that the real service does not send.
 func jobExecutionTemplate(t *JobTemplate) *JobTemplate {
@@ -126,6 +127,7 @@ func jobExecutionTemplate(t *JobTemplate) *JobTemplate {
 		out := make([]JobContainer, len(in))
 		for i, c := range in {
 			c.VolumeMounts = nil
+			c.Probes = nil
 			out[i] = c
 		}
 		return out
@@ -145,6 +147,39 @@ type JobContainer struct {
 	Env          []EnvVar              `json:"env,omitempty"`
 	Resources    *ResourceRequirements `json:"resources,omitempty"`
 	VolumeMounts []VolumeMount         `json:"volumeMounts,omitempty"`
+	Probes       []ContainerAppProbe   `json:"probes,omitempty"`
+}
+
+// ContainerAppProbe is a health check the platform runs against a
+// container, with Kubernetes' probe semantics.
+type ContainerAppProbe struct {
+	Type                          string                      `json:"type,omitempty"`
+	HTTPGet                       *ContainerAppProbeHTTPGet   `json:"httpGet,omitempty"`
+	TCPSocket                     *ContainerAppProbeTCPSocket `json:"tcpSocket,omitempty"`
+	InitialDelaySeconds           *int32                      `json:"initialDelaySeconds,omitempty"`
+	PeriodSeconds                 *int32                      `json:"periodSeconds,omitempty"`
+	TimeoutSeconds                *int32                      `json:"timeoutSeconds,omitempty"`
+	FailureThreshold              *int32                      `json:"failureThreshold,omitempty"`
+	SuccessThreshold              *int32                      `json:"successThreshold,omitempty"`
+	TerminationGracePeriodSeconds *int64                      `json:"terminationGracePeriodSeconds,omitempty"`
+}
+
+type ContainerAppProbeHTTPGet struct {
+	Port        int32                     `json:"port"`
+	Path        string                    `json:"path,omitempty"`
+	Host        string                    `json:"host,omitempty"`
+	Scheme      string                    `json:"scheme,omitempty"`
+	HTTPHeaders []ContainerAppProbeHeader `json:"httpHeaders,omitempty"`
+}
+
+type ContainerAppProbeHeader struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+type ContainerAppProbeTCPSocket struct {
+	Port int32  `json:"port"`
+	Host string `json:"host,omitempty"`
 }
 
 // EnvVar holds an environment variable.
