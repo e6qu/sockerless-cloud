@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -117,7 +116,7 @@ func handleECSRegisterContainerInstance(w http.ResponseWriter, r *http.Request) 
 		Status:               "ACTIVE",
 		AgentConnected:       true,
 		Attributes:           req.Attributes,
-		RegisteredAt:         float64(time.Now().Unix()),
+		RegisteredAt:         ecsEpochSeconds(),
 		Tags:                 req.Tags,
 		ClusterName:          clusterName,
 	}

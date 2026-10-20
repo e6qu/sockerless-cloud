@@ -143,6 +143,10 @@ func ecsHealthTestTaskAged(
 	serviceName, taskDefinitionArn, containerIP string,
 	age time.Duration,
 ) ECSTask {
+	service, ok := ecsServices.Get(ecsServiceKey(cluster.ClusterName, serviceName))
+	if !ok {
+		panic("the health test task's service is not stored: " + serviceName)
+	}
 	startedAt := float64(time.Now().Add(-age).UnixMilli()) / 1000
 	createdAt := float64(startedAt)
 	taskID := sim.NewUUID()
@@ -153,7 +157,7 @@ func ecsHealthTestTaskAged(
 		LastStatus:        ECSTaskStatusRunning,
 		DesiredStatus:     ECSTaskStatusRunning,
 		Group:             ecsServiceTaskGroup(serviceName),
-		StartedBy:         "ecs-svc/" + serviceName,
+		StartedBy:         ecsServicePrimaryStartedBy(service),
 		StartedAt:         &startedAt,
 		CreatedAt:         &createdAt,
 		Containers: []ECSTaskContainer{{

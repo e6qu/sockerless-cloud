@@ -84,7 +84,7 @@ func TestCloudFunctionTimeoutBoundsTheServingRequest(t *testing.T) {
 	serving := func(fn storedFunction) time.Duration {
 		svc := ServiceV2{Template: &RevisionTemplate{Containers: []Container{{Image: "img"}}}}
 		applyFunctionServiceConfig(&svc, fn)
-		return cloudRunRequestTimeout(svc)
+		return cloudRunRevisionRequestTimeout(RevisionV2{Timeout: svc.Template.Timeout})
 	}
 	if got := serving(storedFunction{}); got != 60*time.Second {
 		t.Fatalf("request timeout of a function without a service config = %s, want the 60-second default", got)

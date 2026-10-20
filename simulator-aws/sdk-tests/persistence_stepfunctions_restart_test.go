@@ -98,7 +98,8 @@ func TestStepFunctionsAmazonECSSynchronousTaskSurvivesSimulatorRestart_SDK(t *te
 		})
 		return describeErr == nil && described.Status == sfntypes.ExecutionStatusSucceeded
 	}, 45*time.Second, 100*time.Millisecond)
-	tasks, err := ecsAPI.ListTasks(testCtx, &ecs.ListTasksInput{Cluster: aws.String(clusterName)})
+	// The task ran to completion, so it is listed among the stopped ones.
+	tasks, err := ecsAPI.ListTasks(testCtx, &ecs.ListTasksInput{Cluster: aws.String(clusterName), DesiredStatus: ecstypes.DesiredStatusStopped})
 	require.NoError(t, err)
 	require.Len(t, tasks.TaskArns, 1, "recovery must observe the original Amazon ECS task instead of launching a duplicate")
 }

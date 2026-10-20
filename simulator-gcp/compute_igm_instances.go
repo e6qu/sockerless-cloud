@@ -476,9 +476,9 @@ func computeReconcileManagedInstances(managers sim.Store[map[string]any], key st
 		taken[instance.Name] = true
 	}
 	for i := len(held); i < target; i++ {
-		name := fmt.Sprintf("%s-%s", base, computeInstanceSuffix())
+		name := fmt.Sprintf("%s-%s", base, gcpRandomSuffix(4))
 		for taken[name] {
-			name = fmt.Sprintf("%s-%s", base, computeInstanceSuffix())
+			name = fmt.Sprintf("%s-%s", base, gcpRandomSuffix(4))
 		}
 		taken[name] = true
 		zone := zones[i%len(zones)]
@@ -567,11 +567,12 @@ func computeManagerZones(manager map[string]any, scope string) []string {
 	return zones
 }
 
-// computeInstanceSuffix is the four-character tail Compute Engine appends to a
-// managed group's base instance name.
-func computeInstanceSuffix() string {
+// gcpRandomSuffix is n random lowercase letters and digits, the tail Compute
+// Engine appends to a managed group's base instance name and Cloud Run to a
+// revision's.
+func gcpRandomSuffix(n int) string {
 	const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
-	drawn := make([]byte, 4)
+	drawn := make([]byte, n)
 	_, _ = rand.Read(drawn)
 	suffix := make([]byte, len(drawn))
 	for i, b := range drawn {

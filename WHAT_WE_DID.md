@@ -3852,3 +3852,37 @@ container's anonymous volumes still there.
 A Cloud Run instance whose container exits while a restart starts it counts
 the exit as one, logged and answered by the restart policy, rather than as a
 failed start.
+
+### Revisions and traffic
+
+`sim/revisions` holds what the revisioned container services share: a
+template's identity by content, and the choice of the revision a request
+goes to by traffic weight. A Cloud Run service deploys a revision only when
+its template changes, named after the service, its generation in five digits
+and three random characters, or as `template.revision` names it, and refuses
+a name the service already used. It sends each request to a revision by the
+traffic percents, serves a tagged target on `https://<tag>---<host>`,
+reports `trafficStatuses`, and refuses traffic that names a revision it does
+not have or does not add up to 100. Each revision runs its own instance from
+the revision's own containers, service account and timeout, its containers
+learn `K_SERVICE`, `K_REVISION` and `K_CONFIGURATION`, and the instance of a
+revision traffic no longer reaches stops. The Go REST clients send a traffic
+target's type as its proto number, which maps through the API's table. A
+Cloud Run functions service gets its first revision recorded. A Container
+Apps traffic entry with a label answers on `{app}---{label}`.
+
+An Amazon ECS task belongs to the deployment that started it, by
+`startedBy`, so a forced deployment, or one that changes only the network,
+load balancers or volumes, replaces every task and the deployment it
+replaced drains out of the list.
+A deployment rolls within its bounds, stopping a previous task down to
+`minimumHealthyPercent` before it starts a replacement that `maximumPercent`
+leaves no room for. ListTasks filters on desired status RUNNING unless asked
+otherwise, as the API documents, and every Amazon ECS timestamp carries its
+milliseconds.
+The SDK suite's Amazon ECS fixture gives every VPC a /20 of its own out of
+400, where its 25 /16s let two live VPCs share a range once more than 25
+tests ran at once.
+
+A Cloud Run container reads its own instance id and
+`instance/region` from the metadata server.

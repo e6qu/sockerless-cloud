@@ -90,7 +90,18 @@ func registerComputeMetadata(srv *sim.Server) {
 		if !mustFlavor(w, r) {
 			return
 		}
-		writeText(w, strconv.FormatInt(metadataInstanceIDFor(r), 10))
+		writeText(w, fmt.Sprint(metadataInstanceIDFor(r)))
+	})
+	srv.HandleFunc("GET /computeMetadata/v1/instance/region", func(w http.ResponseWriter, r *http.Request) {
+		if !mustFlavor(w, r) {
+			return
+		}
+		region, ok := metadataInstanceRegion(r)
+		if !ok {
+			metadataNotFound(w)
+			return
+		}
+		writeText(w, region)
 	})
 	srv.HandleFunc("GET /computeMetadata/v1/instance/attributes/{key}", func(w http.ResponseWriter, r *http.Request) {
 		if !mustFlavor(w, r) {
@@ -522,16 +533,21 @@ func gceMetadataInterfaceChildren(r *http.Request, nic string) []gceMetadataEntr
 	return entries
 }
 
-func gceMetadataInstanceChildren(*http.Request) []gceMetadataEntry {
-	return []gceMetadataEntry{
+func gceMetadataInstanceChildren(r *http.Request) []gceMetadataEntry {
+	entries := []gceMetadataEntry{
 		{name: "attributes", children: gceMetadataAttributesChildren},
 		{name: "hostname", value: func(r *http.Request) any { return metadataInstanceHostname(r) }},
 		{name: "id", value: func(r *http.Request) any { return metadataInstanceIDFor(r) }},
 		{name: "name", value: func(r *http.Request) any { return metadataInstanceName(r) }},
 		{name: "network-interfaces", children: gceMetadataInterfacesChildren},
-		{name: "service-accounts", children: gceMetadataServiceAccountsChildren},
-		{name: "zone", value: func(r *http.Request) any { return metadataInstanceZone(r) }},
 	}
+	if region, ok := metadataInstanceRegion(r); ok {
+		entries = append(entries, gceMetadataEntry{name: "region", value: func(*http.Request) any { return region }})
+	}
+	return append(entries,
+		gceMetadataEntry{name: "service-accounts", children: gceMetadataServiceAccountsChildren},
+		gceMetadataEntry{name: "zone", value: func(r *http.Request) any { return metadataInstanceZone(r) }},
+	)
 }
 
 // gceMetadataAttributesChildren lists the reading instance's custom metadata:
@@ -723,15 +739,33 @@ var (
 	metadataServiceAccountScopes  = []string{"https://www.googleapis.com/auth/cloud-platform"}
 )
 
-// metadataInstanceIDFor is the numeric id of the reading instance, or the
-// one every other workload reports.
-func metadataInstanceIDFor(r *http.Request) int64 {
+// metadataInstanceIDFor is the id of the reading instance: a Compute Engine
+// instance's number, a Cloud Run instance's own identifier, or the number
+// every other workload reports.
+func metadataInstanceIDFor(r *http.Request) any {
+	if w := gceMetadataWorkloadFor(r); w.cloudRunInstance != "" {
+		return w.cloudRunInstance
+	}
 	if inst, ok := gcpMetadataInstanceFor(r); ok && inst.Id != "" {
 		if id, err := strconv.ParseInt(inst.Id, 10, 64); err == nil {
 			return id
 		}
 	}
 	return metadataInstanceID
+}
+
+// metadataInstanceRegion is the fully-qualified region a Cloud Run instance
+// runs in; a Compute Engine instance reports its zone instead.
+func metadataInstanceRegion(r *http.Request) (string, bool) {
+	w := gceMetadataWorkloadFor(r)
+	if w.cloudRunInstance == "" || w.region == "" {
+		return "", false
+	}
+	number, ok := w.projectNumber()
+	if !ok {
+		return "", false
+	}
+	return fmt.Sprintf("projects/%s/regions/%s", number, w.region), true
 }
 
 // metadataInstanceZone is the fully-qualified zone the reading workload runs in.

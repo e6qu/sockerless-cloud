@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -401,7 +400,7 @@ func handleECSCreateService(w http.ResponseWriter, r *http.Request) {
 	if strategy == "" {
 		strategy = "REPLICA"
 	}
-	now := float64(time.Now().Unix())
+	now := ecsEpochSeconds()
 	svc := ECSService{
 		ServiceArn:                    ecsArn("service", clusterName+"/"+req.ServiceName),
 		ServiceName:                   req.ServiceName,
@@ -770,7 +769,7 @@ func handleECSUpdateService(w http.ResponseWriter, r *http.Request) {
 	if req.VpcLatticeConfigurations != nil {
 		svc.VpcLatticeConfigurations = req.VpcLatticeConfigurations
 	}
-	now := float64(time.Now().Unix())
+	now := ecsEpochSeconds()
 	if deploymentRequired {
 		// The deployment being replaced stays ACTIVE beside the new PRIMARY
 		// one until the scheduler has drained its tasks.

@@ -30,7 +30,7 @@ func registerContainerAppsIngress(srv *sim.Server) {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			host := acaRequestHost(r.Host)
 			if app, ok := acaAppByIngressFqdn(host); ok {
-				rev, ok := acaPickRevision(app)
+				rev, ok := acaRequestRevision(app, host)
 				if !ok {
 					AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q has no running replica", app.Name)
 					return
@@ -91,8 +91,56 @@ func acaAppByIngressFqdn(host string) (ContainerApp, bool) {
 		return ContainerApp{}, false
 	}
 	return acaAppsByIngressFqdn.Lookup(acaApps, host, func(a ContainerApp) []string {
-		return []string{acaAppFqdn(a)}
+		fqdn := acaAppFqdn(a)
+		hosts := []string{fqdn}
+		for label := range acaTrafficLabels(a) {
+			hosts = append(hosts, acaLabelFqdn(a.Name, fqdn, label))
+		}
+		return hosts
 	})
+}
+
+// acaLabelFqdn is the FQDN a labelled traffic entry answers on: the app's,
+// with three dashes and the label after the app's name.
+func acaLabelFqdn(appName, appFqdn, label string) string {
+	return appName + "---" + label + strings.TrimPrefix(appFqdn, appName)
+}
+
+// acaTrafficLabels maps each label of the app's traffic entries to the
+// revision it names.
+func acaTrafficLabels(app ContainerApp) map[string]string {
+	labels := map[string]string{}
+	if app.Properties.Configuration == nil || app.Properties.Configuration.Ingress == nil {
+		return labels
+	}
+	for _, entry := range app.Properties.Configuration.Ingress.Traffic {
+		if entry.Label == "" {
+			continue
+		}
+		revision := entry.RevisionName
+		if entry.LatestRevision != nil && *entry.LatestRevision {
+			revision = app.Properties.LatestRevisionName
+		}
+		labels[entry.Label] = revision
+	}
+	return labels
+}
+
+// acaRequestRevision is the revision a request to the app goes to: a
+// label's for the label's FQDN, else one by traffic weight.
+func acaRequestRevision(app ContainerApp, host string) (acaRevision, bool) {
+	fqdn := acaAppFqdn(app)
+	for label, name := range acaTrafficLabels(app) {
+		if host != acaLabelFqdn(app.Name, fqdn, label) {
+			continue
+		}
+		rev, ok := acaAppRevision(app.ID, name)
+		if !ok || !rev.Active || !acaRevisionRunning(rev.ID) {
+			return acaRevision{}, false
+		}
+		return rev, true
+	}
+	return acaPickRevision(app)
 }
 
 // acaIngressRequestTimeout is the documented limit Container Apps ingress puts

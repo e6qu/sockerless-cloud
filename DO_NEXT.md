@@ -2,11 +2,12 @@
 
 ## Next
 
-- **Stage 5 of `PLAN.md`: service libraries.** The seams, `sim/machine` and
-  `sim/replicas` landed; next is `sim/revisions` for Amazon ECS deployments
-  (BUG-3541), Cloud Run services (BUG-3542) and Azure Container Apps
-  revisions (BUG-3330, BUG-3540), with the Cloud Run metadata server's own
-  instance identity (BUG-3537), then
+- **Stage 5 of `PLAN.md`: service libraries.** The seams, `sim/machine`,
+  `sim/replicas` and `sim/revisions` landed; the step's polish is Cloud Run
+  service instances as replica sets scaled on concurrency (BUG-3542),
+  Container Apps probes, scale rules and
+  init containers (BUG-3540) and a metadata server that answers only
+  workloads (BUG-3537); then
   `sim/jobrun`, `sim/funcrt`, the queue waiter in `sim/msgq` with Cloud
   Tasks, and `sim/eventbus` with its filter dialects and Cloud Scheduler,
   each in one pull request that moves its consumers and closes their bugs. AWS Step Functions and the Scheduler's

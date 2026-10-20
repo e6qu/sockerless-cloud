@@ -234,6 +234,21 @@ func TestSDK_ContainerAppsRevisions_MultipleModeSplitsTraffic(t *testing.T) {
 	assert.Equal(t, "blue", containerAppIngressGet(t, ptrVal(listed[blue].Properties.Fqdn)),
 		"a revision's own FQDN reaches that revision")
 
+	// A labelled traffic entry answers on the app's FQDN with three dashes and
+	// the label after the app's name, whatever the weights.
+	updateContainerApp(t, client, rg, name, armappcontainers.ContainerApp{
+		Properties: &armappcontainers.ContainerAppProperties{
+			Configuration: &armappcontainers.Configuration{Ingress: &armappcontainers.Ingress{Traffic: []*armappcontainers.TrafficWeight{
+				{RevisionName: to.Ptr(blue), Weight: to.Ptr[int32](100), Label: to.Ptr("stable")},
+				{LatestRevision: to.Ptr(true), Weight: to.Ptr[int32](0), Label: to.Ptr("next")},
+			}}},
+		},
+	})
+	labelled := func(label string) string { return name + "---" + label + strings.TrimPrefix(appFqdn, name) }
+	assert.Equal(t, "green", containerAppIngressGet(t, labelled("next")), "the next label reaches the latest revision")
+	assert.Equal(t, "blue", containerAppIngressGet(t, labelled("stable")), "the stable label reaches %s", blue)
+	assert.Equal(t, "blue", containerAppIngressGet(t, appFqdn), "the app's FQDN follows the weights")
+
 	refused, err := client.BeginUpdate(ctx, rg, name, armappcontainers.ContainerApp{
 		Properties: &armappcontainers.ContainerAppProperties{
 			Configuration: &armappcontainers.Configuration{Ingress: &armappcontainers.Ingress{Traffic: []*armappcontainers.TrafficWeight{

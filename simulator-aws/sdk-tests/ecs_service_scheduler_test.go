@@ -17,8 +17,9 @@ import (
 
 // TestECS_Service_ReconcilesRealTasks proves that Amazon ECS services own real
 // task-definition workloads. It covers initial placement, replacement after a
-// service task is stopped, rolling task-definition replacement, scale-out,
-// scale-in, and delete-time draining through the official ECS client.
+// service task is stopped, rolling task-definition replacement, a forced
+// deployment of the same task definition, scale-out, scale-in, and
+// delete-time draining through the official ECS client.
 func TestECS_Service_ReconcilesRealTasks(t *testing.T) {
 	t.Parallel()
 	client := ecsClient()
@@ -123,6 +124,27 @@ func TestECS_Service_ReconcilesRealTasks(t *testing.T) {
 	require.Len(t, described.Tasks, 3)
 	for _, task := range described.Tasks {
 		assert.Equal(t, secondRevision, aws.ToString(task.TaskDefinitionArn), "rolling deployment did not replace every task")
+	}
+
+	// A new deployment of the same task definition replaces every task too:
+	// a task belongs to the deployment that started it.
+	_, err = client.UpdateService(ctx, &ecs.UpdateServiceInput{
+		Cluster: aws.String(cluster), Service: aws.String(serviceName), ForceNewDeployment: true,
+	})
+	require.NoError(t, err)
+	forced := waitForECSServicesStable(t, client, cluster, 30*time.Second, serviceName).Services[0]
+	require.Len(t, forced.Deployments, 1, "the replaced deployment drains and leaves the list")
+	redeployed := runningTasks()
+	require.Len(t, redeployed, 3)
+	for _, arn := range redeployed {
+		assert.NotContains(t, taskArns, arn, "a forced deployment left a task of the previous one running")
+	}
+	described, err = client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
+		Cluster: aws.String(cluster), Tasks: redeployed,
+	})
+	require.NoError(t, err)
+	for _, task := range described.Tasks {
+		assert.Equal(t, aws.ToString(forced.Deployments[0].Id), aws.ToString(task.StartedBy))
 	}
 
 	_, err = client.UpdateService(ctx, &ecs.UpdateServiceInput{
@@ -385,4 +407,84 @@ func TestECS_ServiceTaskStreamsLogsLive(t *testing.T) {
 		"the service task's stream must report the workload's own output as its last event")
 	require.GreaterOrEqual(t, aws.ToInt64(stream.LastIngestionTime), aws.ToInt64(stream.LastEventTimestamp),
 		"the service task's stream must report when its workload output was ingested")
+}
+
+// A deployment whose maximumPercent leaves no room above the desired count
+// rolls in batches: the scheduler stops a previous task down to
+// minimumHealthyPercent before it starts each replacement, so the service
+// never runs more tasks than maximumPercent allows.
+func TestECS_Service_DeploymentRollsWithinItsBounds(t *testing.T) {
+	t.Parallel()
+	client := ecsClient()
+	cluster := "bounded-roll-cluster"
+	const serviceName = "bounded-roll-svc"
+	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = client.DeleteService(ctx, &ecs.DeleteServiceInput{
+			Cluster: aws.String(cluster), Service: aws.String(serviceName), Force: aws.Bool(true),
+		})
+		_, _ = client.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)})
+	})
+	registered, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+		Family: aws.String("bounded-roll-task"),
+		ContainerDefinitions: []ecstypes.ContainerDefinition{{
+			StopTimeout: aws.Int32(2),
+			Name:        aws.String("app"),
+			Image:       aws.String(containerCommandImage),
+			Command:     []string{"hold"},
+			Essential:   aws.Bool(true),
+		}},
+	})
+	require.NoError(t, err)
+	_, err = client.CreateService(ctx, &ecs.CreateServiceInput{
+		Cluster:        aws.String(cluster),
+		ServiceName:    aws.String(serviceName),
+		TaskDefinition: registered.TaskDefinition.TaskDefinitionArn,
+		DesiredCount:   aws.Int32(2),
+		DeploymentConfiguration: &ecstypes.DeploymentConfiguration{
+			MinimumHealthyPercent: aws.Int32(50),
+			MaximumPercent:        aws.Int32(100),
+		},
+	})
+	require.NoError(t, err)
+	waitForECSServicesStable(t, client, cluster, 30*time.Second, serviceName)
+	listed, err := client.ListTasks(ctx, &ecs.ListTasksInput{Cluster: aws.String(cluster), ServiceName: aws.String(serviceName)})
+	require.NoError(t, err)
+	before := listed.TaskArns
+	require.Len(t, before, 2)
+
+	_, err = client.UpdateService(ctx, &ecs.UpdateServiceInput{
+		Cluster: aws.String(cluster), Service: aws.String(serviceName), ForceNewDeployment: true,
+	})
+	require.NoError(t, err)
+	waitForECSServicesStable(t, client, cluster, 60*time.Second, serviceName)
+	listed, err = client.ListTasks(ctx, &ecs.ListTasksInput{Cluster: aws.String(cluster), ServiceName: aws.String(serviceName)})
+	require.NoError(t, err)
+	after := listed.TaskArns
+	require.Len(t, after, 2)
+	for _, arn := range after {
+		assert.NotContains(t, before, arn)
+	}
+
+	// Each replacement started only after a previous task had stopped, so the
+	// service never held more than two tasks.
+	old, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{Cluster: aws.String(cluster), Tasks: before})
+	require.NoError(t, err)
+	replacements, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{Cluster: aws.String(cluster), Tasks: after})
+	require.NoError(t, err)
+	var stopped []time.Time
+	for _, task := range old.Tasks {
+		require.NotNil(t, task.StoppingAt, "the previous deployment's task %s was not stopped", aws.ToString(task.TaskArn))
+		stopped = append(stopped, aws.ToTime(task.StoppingAt))
+	}
+	firstStop := stopped[0]
+	if stopped[1].Before(firstStop) {
+		firstStop = stopped[1]
+	}
+	for _, task := range replacements.Tasks {
+		assert.False(t, aws.ToTime(task.CreatedAt).Before(firstStop),
+			"replacement %s was created at %s, before any previous task stopped at %s",
+			aws.ToString(task.TaskArn), aws.ToTime(task.CreatedAt), firstStop)
+	}
 }

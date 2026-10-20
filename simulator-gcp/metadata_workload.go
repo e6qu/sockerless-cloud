@@ -24,6 +24,10 @@ const gceMetadataDefaultProject = "sockerless"
 type gceMetadataWorkload struct {
 	project        string
 	serviceAccount string
+	// cloudRunInstance and region identify a Cloud Run instance, which the
+	// metadata server reports by its own id and its region.
+	cloudRunInstance string
+	region           string
 }
 
 // gceMetadataWorkloadFor places the caller of a metadata request: a Compute
@@ -84,7 +88,9 @@ func cloudRunMetadataWorkload(r *http.Request) (gceMetadataWorkload, bool) {
 				continue
 			}
 			if ep != nil && ep.IPAddress == addr.Unmap() {
-				return cloudRunWorkloadFromLabels(c.Labels)
+				w, ok := cloudRunWorkloadFromLabels(c.Labels)
+				w.cloudRunInstance = c.ID
+				return w, ok
 			}
 		}
 	}
@@ -92,14 +98,15 @@ func cloudRunMetadataWorkload(r *http.Request) (gceMetadataWorkload, bool) {
 }
 
 // cloudRunWorkloadFromLabels reads the service account of the Cloud Run
-// service, instance, job execution or worker pool a container belongs to.
+// service revision, instance, job execution or worker pool a container
+// belongs to.
 func cloudRunWorkloadFromLabels(labels map[string]string) (gceMetadataWorkload, bool) {
 	if name := labels[cloudRunResourceLabel]; name != "" {
-		w := gceMetadataWorkload{project: resourceProject(name)}
+		w := gceMetadataWorkload{project: resourceProject(name), region: resourceLocation(name)}
 		switch {
-		case strings.Contains(name, "/services/"):
-			if svc, ok := crv2Services.Get(name); ok && svc.Template != nil {
-				w.serviceAccount = svc.Template.ServiceAccount
+		case strings.Contains(name, "/revisions/"):
+			if rev, ok := crv2Revisions.Get(name); ok {
+				w.serviceAccount = rev.ServiceAccount
 			}
 		case strings.Contains(name, "/instances/"):
 			if inst, ok := crv2Instances.Get(name); ok {
@@ -109,14 +116,14 @@ func cloudRunWorkloadFromLabels(labels map[string]string) (gceMetadataWorkload, 
 		return w, true
 	}
 	if name := labels[cloudRunTaskExecutionLabel]; name != "" {
-		w := gceMetadataWorkload{project: resourceProject(name)}
+		w := gceMetadataWorkload{project: resourceProject(name), region: resourceLocation(name)}
 		if exec, ok := crjExecutions.Get(name); ok && exec.Template != nil {
 			w.serviceAccount = exec.Template.ServiceAccount
 		}
 		return w, true
 	}
 	if name := labels[cloudRunWorkerPoolLabel]; name != "" {
-		w := gceMetadataWorkload{project: resourceProject(name)}
+		w := gceMetadataWorkload{project: resourceProject(name), region: resourceLocation(name)}
 		if pool, ok := crv2WorkerPools.Get(name); ok && pool.Template != nil {
 			w.serviceAccount = pool.Template.ServiceAccount
 		}

@@ -218,5 +218,16 @@ func TestMetadataSDK_CloudRunWorkloadIdentity(t *testing.T) {
 			require.Equal(t, http.StatusOK, status, "%s %s: %q", tc.prefix, path, body)
 			assert.Equal(t, want, body, "%s %s", tc.prefix, path)
 		}
+		// A Cloud Run instance reports its own id and its region at
+		// /computeMetadata/v1/instance/id and /computeMetadata/v1/instance/region,
+		// which the container reads; two reads from one instance name the same
+		// instance.
+		status, _, region := invokeService(t, token, svc.Uri, http.MethodGet, "/instance/region", "")
+		require.Equal(t, http.StatusOK, status, "%s /instance/region: %q", tc.prefix, region)
+		assert.Equal(t, "projects/"+harnessProjectNumber+"/regions/us-central1", region)
+		_, _, first := invokeService(t, token, svc.Uri, http.MethodGet, "/instance/id", "")
+		_, _, second := invokeService(t, token, svc.Uri, http.MethodGet, "/instance/id", "")
+		assert.Regexp(t, `^[0-9a-f]{32,}$`, first, "%s /instance/id", tc.prefix)
+		assert.Equal(t, first, second, "the instance reports one id")
 	}
 }
