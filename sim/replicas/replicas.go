@@ -147,7 +147,7 @@ var ErrClosed = errors.New("the replica set is stopped")
 
 // Scale makes n replicas run: it starts the missing ones and returns once
 // they run, or with the first start's error, and stops the surplus, newest
-// first, without waiting for them to exit.
+// first, and returns once they have exited or ctx ends.
 func (s *Set) Scale(ctx context.Context, n int) error {
 	s.mu.Lock()
 	if s.closed {
@@ -165,6 +165,13 @@ func (s *Set) Scale(ctx context.Context, n int) error {
 	s.mu.Unlock()
 	for _, r := range surplus {
 		s.stop(r)
+	}
+	for _, r := range surplus {
+		select {
+		case <-r.done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	if missing <= 0 {
 		return nil
