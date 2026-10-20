@@ -625,8 +625,13 @@ func handleGetConsoleOutput(w http.ResponseWriter, r *http.Request) {
 	// The console carries what the instance's machine wrote to it, the most
 	// recent 64 KB, base64-encoded as the API requires; an instance that has
 	// written nothing has no output element.
+	console, err := ec2ConsoleOutput(r.Context(), instanceID)
+	if err != nil {
+		ec2ErrorXML(w, "InternalError", "An internal error has occurred", http.StatusInternalServerError)
+		return
+	}
 	output := ""
-	if console := ec2ConsoleOutput(r.Context(), instanceID); console != "" {
+	if console != "" {
 		output = "<output>" + base64.StdEncoding.EncodeToString([]byte(console)) + "</output>"
 	}
 	w.Header().Set("Content-Type", "text/xml")

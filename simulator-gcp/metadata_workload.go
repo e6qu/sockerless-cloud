@@ -31,7 +31,7 @@ type gceMetadataWorkload struct {
 // of its network namespace. A caller that is neither reads the server as a
 // workload of the default project.
 func gceMetadataWorkloadFor(r *http.Request) gceMetadataWorkload {
-	if inst, ok := gcpMetadataInstancesByIP.ForRequest(r); ok {
+	if inst, ok := gcpMetadataInstanceFor(r); ok {
 		w := gceMetadataWorkload{project: gcpProjectFromSelfLink(inst.SelfLink)}
 		if len(inst.ServiceAccounts) > 0 {
 			if email, _ := inst.ServiceAccounts[0]["email"].(string); email != "default" {

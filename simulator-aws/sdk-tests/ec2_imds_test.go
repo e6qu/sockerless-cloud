@@ -3,6 +3,7 @@ package aws_sdk_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -122,6 +123,46 @@ curl -sS -H "X-aws-ec2-metadata-token: $token" "${AWS_EC2_METADATA_SERVICE_ENDPO
 	assert.Equal(t, aws.ToString(subnets.Subnets[0].AvailabilityZone), imds("/latest/meta-data/placement/availability-zone"))
 	region := imds("/latest/meta-data/placement/region")
 	assert.True(t, strings.HasPrefix(aws.ToString(subnets.Subnets[0].AvailabilityZone), region), "zone %s lies in region %s", aws.ToString(subnets.Subnets[0].AvailabilityZone), region)
+
+	// The interface the instance holds is the one the API reports: its MAC
+	// is the guest's own, and its private DNS name resolves to its address
+	// through the VPC's resolver.
+	require.Len(t, inst.NetworkInterfaces, 1)
+	eni := inst.NetworkInterfaces[0]
+	mac := aws.ToString(eni.MacAddress)
+	assert.Equal(t, mac, imds("/latest/meta-data/mac"))
+	assert.Equal(t, mac, strings.TrimSpace(ssmShell(t, s, instanceID, "cat /sys/class/net/eth0/address")), "the guest's interface carries the MAC the API reports")
+	assert.Equal(t, aws.ToString(inst.PrivateDnsName), imds("/latest/meta-data/local-hostname"))
+	assert.Equal(t, aws.ToString(inst.PrivateDnsName), imds("/latest/meta-data/hostname"))
+	resolved := strings.Fields(ssmShell(t, s, instanceID, "getent hosts "+aws.ToString(inst.PrivateDnsName)))
+	require.NotEmpty(t, resolved, "the VPC's resolver does not answer the instance's private DNS name")
+	assert.Equal(t, aws.ToString(inst.PrivateIpAddress), resolved[0])
+	assert.Equal(t, "interfaces/", imds("/latest/meta-data/network/"))
+	assert.Equal(t, "macs/", imds("/latest/meta-data/network/interfaces/"))
+	assert.Equal(t, mac+"/", imds("/latest/meta-data/network/interfaces/macs/"))
+	assert.Contains(t, strings.Split(imds(fmt.Sprintf("/latest/meta-data/network/interfaces/macs/%s/", mac)), "\n"), "subnet-ipv4-cidr-block")
+	macKey := func(key string) string {
+		return imds(fmt.Sprintf("/latest/meta-data/network/interfaces/macs/%s/%s", mac, key))
+	}
+	assert.Equal(t, aws.ToString(eni.NetworkInterfaceId), macKey("interface-id"))
+	assert.Equal(t, "0", macKey("device-number"))
+	assert.Equal(t, aws.ToString(subnet), macKey("subnet-id"))
+	assert.Equal(t, "10.217.1.0/24", macKey("subnet-ipv4-cidr-block"))
+	assert.Equal(t, aws.ToString(vpc.Vpc.VpcId), macKey("vpc-id"))
+	assert.Equal(t, "10.217.0.0/16", macKey("vpc-ipv4-cidr-block"))
+	assert.Equal(t, aws.ToString(inst.PrivateIpAddress), macKey("local-ipv4s"))
+	require.NotEmpty(t, eni.Groups)
+	assert.Equal(t, aws.ToString(eni.Groups[0].GroupId), macKey("security-group-ids"))
+	assert.Equal(t, aws.ToString(eni.Groups[0].GroupName), imds("/latest/meta-data/security-groups"))
+	assert.Equal(t, aws.ToString(desc.Reservations[0].ReservationId), imds("/latest/meta-data/reservation-id"))
+	assert.Equal(t, "ami\nroot", imds("/latest/meta-data/block-device-mapping/"))
+	assert.Equal(t, aws.ToString(inst.RootDeviceName), imds("/latest/meta-data/block-device-mapping/root"))
+	assert.Equal(t, "domain\npartition", imds("/latest/meta-data/services/"))
+	assert.Equal(t, "amazonaws.com", imds("/latest/meta-data/services/domain"))
+	assert.Equal(t, "aws", imds("/latest/meta-data/services/partition"))
+	assert.Equal(t, "none", imds("/latest/meta-data/instance-action"))
+	assert.Equal(t, "on-demand", imds("/latest/meta-data/instance-life-cycle"))
+	assert.Equal(t, "0", imds("/latest/meta-data/ami-launch-index"))
 
 	assert.Equal(t, "instance", imds("/latest/meta-data/tags/"))
 	assert.Equal(t, "Name\nteam", imds("/latest/meta-data/tags/instance"))

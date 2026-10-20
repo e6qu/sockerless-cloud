@@ -210,7 +210,6 @@ func registerCompute(srv *sim.Server) {
 	registerComputeOperations(srv)
 	azureVMStates = sim.MakeStore[string](srv.DB(), "compute_virtual_machine_states")
 	azureVMGeneralized = sim.MakeStore[bool](srv.DB(), "compute_virtual_machine_generalized")
-	registerVirtualMachineDisks(srv)
 	registerVirtualMachineOperationRecovery(srv)
 
 	registerComputeCatalog(srv)

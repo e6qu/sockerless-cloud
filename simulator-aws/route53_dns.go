@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"strings"
 	"sync"
@@ -101,7 +102,7 @@ func route53Catalog(q dnsserver.Query) dnsserver.View {
 		vpcID, _ = v.(string)
 	}
 	resources := elbv2DNSRecords()
-	view := dnsserver.View{Names: append(workloadHostAliasRecords(), resources...)}
+	view := dnsserver.View{Names: append(append(workloadHostAliasRecords(), resources...), ec2ProvidedDNSRecords(vpcID)...)}
 	querier := route53Querier{region: route53QuerierRegion(vpcID), addr: q.Remote}
 	zones := route53VisibleZones(vpcID)
 	for i := range zones {
@@ -249,3 +250,47 @@ func route53OwnerName(name string) string {
 func route53DNSBindPort() string {
 	return sim.EnvOr("SIM_DNS_PORT", "0")
 }
+
+// ec2ProvidedDNSRecords are the names the Amazon-provided DNS server answers
+// for EC2 interfaces: inside a VPC whose DNS support is on, each of the VPC's
+// interfaces by its private DNS name, and an instance's public DNS name by
+// its private address; outside every VPC, the public DNS name by the public
+// address.
+func ec2ProvidedDNSRecords(vpcID string) []dns.RR {
+	var out []dns.RR
+	record := func(name, ip string) {
+		addr := net.ParseIP(ip).To4()
+		if name == "" || addr == nil {
+			return
+		}
+		out = append(out, &dns.A{Hdr: dns.RR_Header{Name: dns.Fqdn(name), Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ec2ProvidedDNSTTL}, A: addr})
+	}
+	if vpcID != "" {
+		vpc, ok := ec2Vpcs.Get(vpcID)
+		if !ok || !vpc.EnableDnsSupport {
+			return nil
+		}
+		for _, eni := range ec2NetworkInterfaces.List() {
+			if eni.VpcId != vpcID {
+				continue
+			}
+			record(ec2PrivateDNSName(eni.PrivateIpAddress), eni.PrivateIpAddress)
+		}
+	}
+	for _, inst := range ec2Instances.List() {
+		if inst.State != "running" {
+			continue
+		}
+		switch {
+		case vpcID == "":
+			record(ec2PublicDNSName(inst), inst.PublicIpAddress)
+		case inst.VpcId == vpcID:
+			record(ec2PublicDNSName(inst), inst.PrivateIpAddress)
+		}
+	}
+	return out
+}
+
+// ec2ProvidedDNSTTL is the TTL the Amazon-provided DNS server answers an EC2
+// host name with.
+const ec2ProvidedDNSTTL = 60

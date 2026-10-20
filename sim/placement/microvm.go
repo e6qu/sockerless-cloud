@@ -143,7 +143,7 @@ func (b *MicroVMBackend) Place(ctx context.Context, w Workload, sink sim.LogSink
 			Address:      netip.PrefixFrom(addr, subnet.Bits()).String(),
 			Gateway:      gateway,
 			DefaultRoute: w.Gateway,
-			MAC:          guestMAC(b.macPrefix, addr, id),
+			MAC:          primaryMAC(w, b.macPrefix, addr, id),
 			DNS:          w.DNS,
 		},
 		StopGrace:     w.CancelGracePeriod,
@@ -469,6 +469,15 @@ func guestMAC(prefix string, addr netip.Addr, id string) string {
 		return fmt.Sprintf("%s:%02x:%02x:%02x:%02x", prefix, octets[0], octets[1], octets[2], octets[3])
 	}
 	return ipam.DeriveMAC(prefix, id)
+}
+
+// primaryMAC is the guest's interface address on its network: the one the
+// cloud assigned the workload's interface, or else one under the prefix.
+func primaryMAC(w Workload, prefix string, addr netip.Addr, id string) string {
+	if w.MACAddress != "" {
+		return strings.ToLower(w.MACAddress)
+	}
+	return guestMAC(prefix, addr, id)
 }
 
 func guestID(w Workload) string {

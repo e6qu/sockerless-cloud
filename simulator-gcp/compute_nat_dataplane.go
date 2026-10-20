@@ -278,24 +278,16 @@ func gcpInstanceGateway(inst ComputeInstance) string {
 func gcpReapplyRoutes() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	gcpInstanceMachines.Range(func(key, value any) bool {
-		link, ok := key.(string)
-		if !ok {
-			return true
-		}
-		machine, ok := value.(*gcpInstanceMachine)
-		if !ok || machine.handle == nil {
-			return true
-		}
+	for _, running := range gcpRunningInstances() {
+		link, handle := running.Key, running.Handle
 		inst, ok := gcpInstances.Get(link)
 		if !ok {
-			return true
+			continue
 		}
-		if err := machine.handle.SetGateway(ctx, gcpInstanceGateway(inst)); err != nil && !errors.Is(err, placement.ErrNoRouteControl) {
+		if err := handle.SetGateway(ctx, gcpInstanceGateway(inst)); err != nil && !errors.Is(err, placement.ErrNoRouteControl) {
 			log.Printf("compute: route %s: %v", link, err)
 		}
-		return true
-	})
+	}
 }
 
 // gcpTakeNATEgressReport writes what a NAT's sidecar reports to Cloud

@@ -23,6 +23,13 @@ Current state of the sockerless-cloud repository.
   their targets, AWS Lambda's Amazon SQS pollers receive and delete, Eventarc
   provisions and publishes through Pub/Sub and Cloud Storage, and Azure Event
   Grid writes dead letters to Blob Storage this way.
+- **One virtual machine lifecycle.** `sim/machine` boots, watches, stops,
+  starts, discards, adopts, captures and reads the console of Amazon EC2
+  instances, Compute Engine instances and Azure virtual machines on their
+  placement backend, each cloud mapping its states onto it through hooks.
+  An instance's interface carries the MAC its cloud assigned, and each
+  cloud's metadata service answers its instances alone, from their current
+  records.
 - **Shared mechanisms live in `sim`.** Workload-host coordinates, background
   work, workload launching, archive extraction, payload storage and sparse
   files, JWT signing and OpenID Connect federation, registry authentication and

@@ -204,6 +204,7 @@ type EC2Tag struct {
 type EC2Instance struct {
 	InstanceId             string
 	ReservationId          string
+	AmiLaunchIndex         int
 	ImageId                string
 	InstanceType           string
 	SubnetId               string
@@ -3209,15 +3210,15 @@ func ec2InstanceXML(inst EC2Instance) string {
       <description/>
       <ownerId>%s</ownerId>
       <status>in-use</status>
-      <macAddress>02:00:00:00:00:01</macAddress>
+      <macAddress>%s</macAddress>
       <privateIpAddress>%s</privateIpAddress>
-      <privateDnsName>ip-%s.%s.compute.internal</privateDnsName>
+      <privateDnsName>%s</privateDnsName>
       <sourceDestCheck>true</sourceDestCheck>
       <groupSet>%s</groupSet>
       <attachment><attachmentId>eni-attach-%s</attachmentId><deviceIndex>0</deviceIndex><status>attached</status><attachTime>%s</attachTime><deleteOnTermination>true</deleteOnTermination></attachment>
     </item></networkInterfaceSet>`,
-			inst.NetworkInterfaceId, inst.SubnetId, inst.VpcId, ec2Owner(), inst.PrivateIpAddress,
-			strings.ReplaceAll(inst.PrivateIpAddress, ".", "-"), awsRegion(), groups.String(), inst.NetworkInterfaceId, inst.LaunchTime)
+			inst.NetworkInterfaceId, inst.SubnetId, inst.VpcId, ec2Owner(), ec2InterfaceMAC(inst.NetworkInterfaceId), inst.PrivateIpAddress,
+			ec2PrivateDNSName(inst.PrivateIpAddress), groups.String(), inst.NetworkInterfaceId, inst.LaunchTime)
 	} else {
 		ni.WriteString("<networkInterfaceSet/>")
 	}
@@ -3269,6 +3270,10 @@ func ec2InstanceXML(inst EC2Instance) string {
 	if inst.PublicIpAddress != "" {
 		publicXML = fmt.Sprintf("<ipAddress>%s</ipAddress>", inst.PublicIpAddress)
 	}
+	dnsNameXML := "<dnsName/>"
+	if name := ec2PublicDNSName(inst); name != "" {
+		dnsNameXML = "<dnsName>" + name + "</dnsName>"
+	}
 	reasonXML := "<reason/>"
 	if inst.StateTransitionReason != "" {
 		reasonXML = fmt.Sprintf("<reason>%s</reason>", inst.StateTransitionReason)
@@ -3282,11 +3287,11 @@ func ec2InstanceXML(inst EC2Instance) string {
     <instanceId>%s</instanceId>
     <imageId>%s</imageId>
     <instanceState><code>%d</code><name>%s</name></instanceState>
-    <privateDnsName>ip-%s.%s.compute.internal</privateDnsName>
-    <dnsName/>
+    <privateDnsName>%s</privateDnsName>
     %s
     %s
-    <amiLaunchIndex>0</amiLaunchIndex>
+    %s
+    <amiLaunchIndex>%d</amiLaunchIndex>
     <productCodes/>
     <instanceType>%s</instanceType>
     <launchTime>%s</launchTime>
@@ -3309,7 +3314,7 @@ func ec2InstanceXML(inst EC2Instance) string {
     %s
   </item>`,
 		inst.InstanceId, inst.ImageId, instanceStateCode(inst.State), inst.State,
-		strings.ReplaceAll(inst.PrivateIpAddress, ".", "-"), awsRegion(), reasonXML, keyNameXML, inst.InstanceType, inst.LaunchTime,
+		ec2PrivateDNSName(inst.PrivateIpAddress), dnsNameXML, reasonXML, keyNameXML, inst.AmiLaunchIndex, inst.InstanceType, inst.LaunchTime,
 		ec2PlacementXML(inst), monitoringState, inst.SubnetId, inst.VpcId, inst.PrivateIpAddress, publicXML, inst.SourceDestCheck, groups.String(), stateReasonXML,
 		inst.Architecture, inst.RootDeviceName, inst.RootDeviceName, "vol-"+strings.TrimPrefix(inst.InstanceId, "i-"), inst.LaunchTime,
 		inst.EbsOptimized, iamXML, metaXML, cpuXML,
@@ -3622,6 +3627,7 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 		}
 		spec := base
 		spec.PrivateIP = privateIP
+		spec.AmiLaunchIndex = i
 		inst, err := ec2CreateInstance(spec)
 		if err != nil {
 			if i < minCount {
@@ -3724,8 +3730,11 @@ func runInstancesCounts(w http.ResponseWriter, r *http.Request) (int, int, bool)
 }
 
 type EC2InstanceCreateSpec struct {
-	Context                context.Context
-	ReservationId          string
+	Context       context.Context
+	ReservationId string
+	// AmiLaunchIndex is the instance's position among those its request
+	// launched.
+	AmiLaunchIndex         int
 	ImageId                string
 	InstanceType           string
 	Subnet                 EC2Subnet
@@ -3775,6 +3784,7 @@ func ec2CreateInstance(spec EC2InstanceCreateSpec) (EC2Instance, error) {
 	inst := EC2Instance{
 		InstanceId:             instanceID,
 		ReservationId:          spec.ReservationId,
+		AmiLaunchIndex:         spec.AmiLaunchIndex,
 		ImageId:                spec.ImageId,
 		InstanceType:           spec.InstanceType,
 		SubnetId:               spec.SubnetId,
@@ -5527,9 +5537,9 @@ func eniFieldsXML(eni EC2NetworkInterface) string {
     <ownerId>%s</ownerId>
     <requesterManaged>false</requesterManaged>
     <status>%s</status>
-    <macAddress>02:00:00:00:00:01</macAddress>
+    <macAddress>%s</macAddress>
     <privateIpAddress>%s</privateIpAddress>
-    <privateDnsName>ip-%s.%s.compute.internal</privateDnsName>
+    <privateDnsName>%s</privateDnsName>
     <sourceDestCheck>%s</sourceDestCheck>
     <interfaceType>%s</interfaceType>
     <groupSet>%s</groupSet>
@@ -5537,7 +5547,7 @@ func eniFieldsXML(eni EC2NetworkInterface) string {
     %s
     %s`,
 		eni.NetworkInterfaceId, eni.SubnetId, eni.VpcId, awsAvailabilityZone(), eni.Description, eni.OwnerId, status,
-		eni.PrivateIpAddress, strings.ReplaceAll(eni.PrivateIpAddress, ".", "-"), awsRegion(), sourceDest, ifaceType, groups.String(),
+		ec2InterfaceMAC(eni.NetworkInterfaceId), eni.PrivateIpAddress, ec2PrivateDNSName(eni.PrivateIpAddress), sourceDest, ifaceType, groups.String(),
 		privateIPs.String(), attachment, writeTagSetXML(eni.Tags))
 }
 

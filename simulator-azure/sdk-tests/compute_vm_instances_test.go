@@ -3,6 +3,7 @@ package azure_sdk_test
 import (
 	"encoding/base64"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -143,12 +144,48 @@ func TestCompute_VirtualMachineRunsCustomDataAndReadsItsMetadata(t *testing.T) {
 
 	// The guest reaches the Instance Metadata Service at the endpoint its
 	// environment names, over plain TCP from a shell with no HTTP client.
-	imds := runInGuest(t, rg, vmName, "imds", `bash -c 'host=${AZURE_INSTANCE_METADATA_ENDPOINT#http://}; host=${host%%/*}; `+
-		`exec 3<>/dev/tcp/$host/80; printf "GET /metadata/instance?api-version=2021-02-01 HTTP/1.0\r\nHost: 169.254.169.254\r\nMetadata: true\r\n\r\n" >&3; cat <&3'`)
+	read := func(step, path string) string {
+		return runInGuest(t, rg, vmName, step, `bash -c 'host=${AZURE_INSTANCE_METADATA_ENDPOINT#http://}; host=${host%%/*}; `+
+			`exec 3<>/dev/tcp/$host/80; printf "GET `+path+` HTTP/1.0\r\nHost: 169.254.169.254\r\nMetadata: true\r\n\r\n" >&3; cat <&3'`)
+	}
+	imds := read("imds", "/metadata/instance?api-version=2021-02-01")
 	assert.Contains(t, imds, `"name":"`+vmName+`"`, "the metadata service did not answer with the machine's own identity")
 	assert.Contains(t, imds, `"privateIpAddress":"`+address+`"`, "the metadata service did not answer with the machine's own interface")
 	assert.Contains(t, imds, `"userData":"`+base64.StdEncoding.EncodeToString([]byte("for-imds-only"))+`"`)
 	assert.Contains(t, imds, `"offer":"debian-12"`)
+
+	// The interface's MAC is the one the network interface resource reports,
+	// and the guest's own.
+	mac := strings.ReplaceAll(derefString(nic.Properties.MacAddress), "-", "")
+	require.NotEmpty(t, mac)
+	assert.Contains(t, imds, `"macAddress":"`+mac+`"`)
+	eth0 := runInGuest(t, rg, vmName, "mac", "cat /sys/class/net/eth0/address | tr -d :")
+	assert.Contains(t, eth0, "\n"+strings.ToLower(mac)+"\n", "the guest's interface carries the MAC the network interface reports")
+
+	vmClient, err := armcompute.NewVirtualMachinesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	vm, err := vmClient.Get(ctx, rg, vmName, nil)
+	require.NoError(t, err)
+	compute := read("compute", "/metadata/instance/compute?api-version=2021-02-01")
+	assert.Contains(t, compute, `"vmId":"`+derefString(vm.Properties.VMID)+`"`)
+	assert.Contains(t, compute, `"resourceGroupName":"`+rg+`"`)
+	assert.Contains(t, compute, `"subscriptionId":"`+subscriptionID+`"`)
+	assert.NotContains(t, compute, `"network"`, "the compute path answers the compute section alone")
+	network := read("network", "/metadata/instance/network?api-version=2021-02-01")
+	assert.Contains(t, network, `"privateIpAddress":"`+address+`"`)
+	assert.Contains(t, network, `"macAddress":"`+mac+`"`)
+	attested := read("attested", "/metadata/attested/document?api-version=2020-09-01&nonce=1234567890")
+	assert.Contains(t, attested, `"encoding":"pkcs7"`)
+	// The nonce is inside what was signed, so a document minted for one
+	// challenge cannot answer another.
+	signed := regexp.MustCompile(`"signature":"([^"]+)"`)
+	first := signed.FindStringSubmatch(attested)
+	require.Len(t, first, 2, "the attested document carries a signature: %s", attested)
+	other := signed.FindStringSubmatch(read("attested-other", "/metadata/attested/document?api-version=2020-09-01&nonce=9876543210"))
+	require.Len(t, other, 2)
+	assert.NotEqual(t, first[1], other[1], "the caller's nonce must change the document that was signed")
+	identity := read("identity", "/metadata/identity/info?api-version=2021-02-01")
+	assert.Regexp(t, `"tenantId":"[0-9a-f-]+"`, identity, "the metadata service names the tenant of the machine's identity")
 }
 
 // A deallocated machine keeps its OS disk and starts again on it; an image

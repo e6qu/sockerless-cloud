@@ -17,6 +17,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/ipam"
+	"github.com/e6qu/sockerless-cloud/sim/machine"
 	"github.com/e6qu/sockerless-cloud/sim/netrules"
 	"github.com/e6qu/sockerless-cloud/sim/sidecar"
 	"github.com/e6qu/sockerless-cloud/sim/sidecar/egress"
@@ -233,13 +234,6 @@ func computeWriteOperation(w http.ResponseWriter, name string) {
 // minutes and then returns the current state of the operation, which might be
 // DONE or still in progress".
 const computeOperationWaitBudget = 2 * time.Minute
-
-// computeInstanceBootBudget is how long the boot behind an insert operation is
-// given before it is abandoned and the operation reports the failure. It is
-// deliberately longer than computeOperationWaitBudget: a boot that overruns a
-// client's patience must still reach a verdict the next poll can read, rather
-// than being cut short by whoever stopped waiting first.
-const computeInstanceBootBudget = 5 * time.Minute
 
 // computeWaitOperation implements that contract: it blocks until the operation
 // reaches DONE, the budget runs out, or the client goes away, then answers with
@@ -2558,6 +2552,15 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 				if inst.NetworkInterfaces[i].AccessConfigs[j].NetworkTier == "" {
 					inst.NetworkInterfaces[i].AccessConfigs[j].NetworkTier = "PREMIUM"
 				}
+				// An access config that names no address gets an ephemeral one,
+				// which the instance holds until it is deleted.
+				if inst.NetworkInterfaces[i].AccessConfigs[j].NatIP == "" && inst.NetworkInterfaces[i].AccessConfigs[j].Type == "ONE_TO_ONE_NAT" {
+					ip, err := ipam.ReserveGCPPublicIPv4(fmt.Sprintf("%s/networkInterfaces/%d/accessConfigs/%d", inst.SelfLink, i, j), nil)
+					if err != nil {
+						return fmt.Errorf("reserve an ephemeral external address: %w", err)
+					}
+					inst.NetworkInterfaces[i].AccessConfigs[j].NatIP = ip.String()
+				}
 			}
 		}
 		if len(inst.NetworkInterfaces) == 0 {
@@ -2602,9 +2605,15 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 
 		booting := inst
 		bg.Go(func() {
-			ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), computeInstanceBootBudget)
-			defer cancel()
-			if err := gcpBootVM(ctx, &booting); err != nil {
+			ctx := context.WithoutCancel(r.Context())
+			err := gcpBootVM(ctx, &booting)
+			if errors.Is(err, machine.ErrHalted) {
+				// A stop that arrived while the instance booted owns its
+				// status now.
+				computeOpFinish(op.Name, nil)
+				return
+			}
+			if err != nil {
 				logger.Error().
 					Err(err).
 					Str("project", project).
@@ -2613,6 +2622,10 @@ func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork
 					Msg("failed to boot Compute Engine instance")
 				// An insert whose machine never came up leaves no instance
 				// behind, and the verdict lives on the operation.
+				if err := gcpDestroyVM(context.WithoutCancel(ctx), &booting); err != nil {
+					logger.Error().Err(err).Str("instance", booting.SelfLink).
+						Msg("failed to remove the machine of a Compute Engine instance that never came up")
+				}
 				instances.Delete(booting.SelfLink)
 				gcpReleaseInstanceAddresses(booting)
 				gcpDeleteInstanceDisks(booting)

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/netip"
 	"os"
 	"path"
@@ -85,6 +86,10 @@ type ContainerConfig struct {
 	// the network's range: the address the cloud API reports for the
 	// workload's interface. Empty lets the engine pick one.
 	IPv4Address string
+	// MACAddress is the hardware address of the workload's interface on
+	// Network, as the cloud assigns it to the interface. Empty lets the
+	// engine pick one.
+	MACAddress string
 	// ExtraNetworks are further engine networks the workload has an
 	// interface on, each at a fixed address in the network's range, with no
 	// route out through it: a site integrated into more than one virtual
@@ -1135,6 +1140,13 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 				return "", fmt.Errorf("container network address %q is not an IPv4 address", cfg.IPv4Address)
 			}
 			endpoint.IPAMConfig = &network.EndpointIPAMConfig{IPv4Address: addr}
+		}
+		if cfg.MACAddress != "" {
+			mac, err := net.ParseMAC(cfg.MACAddress)
+			if err != nil {
+				return "", fmt.Errorf("container MAC address %q: %w", cfg.MACAddress, err)
+			}
+			endpoint.MacAddress = network.HardwareAddr(mac)
 		}
 		networkCfg = &network.NetworkingConfig{
 			EndpointsConfig: map[string]*network.EndpointSettings{cfg.Network: endpoint},

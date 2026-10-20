@@ -29,8 +29,6 @@ import (
 //	POST /v1/apps/{appId}/metrics
 //	GET /v1/{resourceId}/query
 //	POST /v1/{resourceId}/query
-//	GET /metadata/attested/document
-//	GET /metadata/identity/info
 
 // insightsRead performs one data-plane read and decodes the JSON it answers.
 func insightsRead(t *testing.T, method, path string, body string) map[string]any {
@@ -218,54 +216,6 @@ func TestSDK_LogAnalytics_QueryByResourceID(t *testing.T) {
 	elsewhere, err := client.QueryResource(ctx, "/subscriptions/"+subscriptionID+"/resourceGroups/query-by-resource-other-rg", query, nil)
 	require.NoError(t, err)
 	assert.Empty(t, elsewhere.Tables[0].Rows, "another resource group's query reads none of them")
-}
-
-// The instance metadata service attests the instance it is asked on, and names
-// the tenant its managed identity belongs to.
-func TestSDK_InstanceMetadata_AttestationAndIdentity(t *testing.T) {
-	t.Parallel()
-	read := func(path string) (*http.Response, map[string]any) {
-		t.Helper()
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+path, nil)
-		require.NoError(t, err)
-		req.Header.Set("Metadata", "true")
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
-		t.Cleanup(func() { resp.Body.Close() })
-		if resp.StatusCode != http.StatusOK {
-			return resp, nil
-		}
-		decoded := map[string]any{}
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&decoded))
-		return resp, decoded
-	}
-
-	_, attested := read("/metadata/attested/document?api-version=2021-02-01&nonce=abc123")
-	require.NotNil(t, attested)
-	assert.Equal(t, "pkcs7", attested["encoding"])
-	signature, _ := attested["signature"].(string)
-	require.NotEmpty(t, signature)
-
-	// The nonce is inside what was signed, so a document minted for one
-	// challenge cannot answer another.
-	_, other := read("/metadata/attested/document?api-version=2021-02-01&nonce=zzz999")
-	otherSignature, _ := other["signature"].(string)
-	assert.NotEqual(t, signature, otherSignature,
-		"the caller's nonce must change the document that was signed")
-
-	_, identity := read("/metadata/identity/info?api-version=2021-02-01")
-	require.NotNil(t, identity)
-	assert.NotEmpty(t, identity["tenantId"])
-
-	// Every instance-metadata read requires the header, which is what stops a
-	// browser being tricked into making one.
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		baseURL+"/metadata/identity/info?api-version=2021-02-01", nil)
-	require.NoError(t, err)
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
 // A component's billing plan decides what it is entitled to, and its quota

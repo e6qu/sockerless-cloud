@@ -199,19 +199,10 @@ func ec2ReapplyRoutes(vpcID string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	ec2WorkloadsMu.Lock()
-	instanceIDs := make([]string, 0, len(ec2Workloads))
-	for id := range ec2Workloads {
-		instanceIDs = append(instanceIDs, id)
-	}
-	ec2WorkloadsMu.Unlock()
-	for _, id := range instanceIDs {
+	for _, running := range ec2RunningMachines() {
+		id, handle := running.Key, running.Handle
 		inst := ec2InstanceRecord(id)
 		if inst.VpcId != vpcID {
-			continue
-		}
-		handle, ok := ec2WorkloadHandle(id)
-		if !ok {
 			continue
 		}
 		ec2SetGateway(ctx, "instance "+id, handle, ec2SubnetGateway(inst.SubnetId))
