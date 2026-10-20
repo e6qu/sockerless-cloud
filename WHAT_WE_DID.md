@@ -3887,7 +3887,13 @@ compiled from the vendored models and Service Reference
 (`scripts/gen-spec-derived.sh`: the CloudWatch CBOR shapes, the error message
 members, the Step Functions REST integrations and the IAM resource types) and
 commits them with the specifications, and one unit test holds each Go-generated
-table to its generator's output.
+table to its generator's output. The condition-key coverage tests read only
+hand-written gate code: a generated wire table spells request members, and
+reading it once counted `s3express:SessionMode` and
+`cloudwatch:AlarmTagsPropagationEnabled` as resolved when nothing set them. The
+gate now sets both: the mode a `CreateSession` asks for (`ReadWrite` when the
+request names none), and `ActionConfiguration.AlarmTagsPropagation.Enabled` on
+the three alarm writes over Query, JSON and CBOR.
 
 An Amazon ECS task belongs to the deployment that started it, by
 `startedBy`, so a forced deployment, or one that changes only the network,

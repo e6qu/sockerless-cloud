@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/fxamacker/cbor/v2"
 )
@@ -13,13 +14,29 @@ func init() {
 }
 
 type cloudWatchConditionRequest struct {
-	DatasetIdentifier string                        `json:"DatasetIdentifier" cbor:"DatasetIdentifier"`
-	AlarmActions      []string                      `json:"AlarmActions" cbor:"AlarmActions"`
-	RuleDefinition    string                        `json:"RuleDefinition" cbor:"RuleDefinition"`
-	ResourceARN       string                        `json:"ResourceARN" cbor:"ResourceARN"`
-	ResourceArn       string                        `json:"ResourceArn" cbor:"ResourceArn"`
-	ManagedRules      []cloudWatchManagedRuleTarget `json:"ManagedRules" cbor:"ManagedRules"`
-	Tags              []cloudWatchConditionTag      `json:"Tags" cbor:"Tags"`
+	DatasetIdentifier   string                                  `json:"DatasetIdentifier" cbor:"DatasetIdentifier"`
+	AlarmActions        []string                                `json:"AlarmActions" cbor:"AlarmActions"`
+	RuleDefinition      string                                  `json:"RuleDefinition" cbor:"RuleDefinition"`
+	ResourceARN         string                                  `json:"ResourceARN" cbor:"ResourceARN"`
+	ResourceArn         string                                  `json:"ResourceArn" cbor:"ResourceArn"`
+	ManagedRules        []cloudWatchManagedRuleTarget           `json:"ManagedRules" cbor:"ManagedRules"`
+	Tags                []cloudWatchConditionTag                `json:"Tags" cbor:"Tags"`
+	ActionConfiguration *cloudWatchConditionActionConfiguration `json:"ActionConfiguration" cbor:"ActionConfiguration"`
+}
+
+type cloudWatchConditionActionConfiguration struct {
+	AlarmTagsPropagation *cloudWatchConditionTagsPropagation `json:"AlarmTagsPropagation" cbor:"AlarmTagsPropagation"`
+}
+
+type cloudWatchConditionTagsPropagation struct {
+	Enabled *bool `json:"Enabled" cbor:"Enabled"`
+}
+
+func (request cloudWatchConditionRequest) alarmTagsPropagationEnabled() *bool {
+	if request.ActionConfiguration == nil || request.ActionConfiguration.AlarmTagsPropagation == nil {
+		return nil
+	}
+	return request.ActionConfiguration.AlarmTagsPropagation.Enabled
 }
 
 type cloudWatchManagedRuleTarget struct {
@@ -75,6 +92,7 @@ func iamPopulateCloudWatchRequestConditionKeys(r *http.Request, operation string
 	switch operation {
 	case "PutMetricAlarm", "PutCompositeAlarm", "PutLogAlarm":
 		iamSetConditionValues(ctx, "cloudwatch:AlarmActions", request.AlarmActions...)
+		iamSetConditionBool(ctx, "cloudwatch:AlarmTagsPropagationEnabled", request.alarmTagsPropagationEnabled())
 	case "PutInsightRule":
 		iamSetConditionValues(ctx, "cloudwatch:requestInsightRuleLogGroups",
 			insightRuleLogGroupNames(request.RuleDefinition)...)
@@ -102,6 +120,12 @@ func cloudWatchDecodeConditionRequest(r *http.Request, body []byte) (cloudWatchC
 		request.RuleDefinition = r.FormValue("RuleDefinition")
 		request.ResourceARN = r.FormValue("ResourceARN")
 		request.ResourceArn = r.FormValue("ResourceArn")
+		if raw := r.FormValue("ActionConfiguration.AlarmTagsPropagation.Enabled"); raw != "" {
+			if enabled, err := strconv.ParseBool(raw); err == nil {
+				request.ActionConfiguration = &cloudWatchConditionActionConfiguration{
+					AlarmTagsPropagation: &cloudWatchConditionTagsPropagation{Enabled: &enabled}}
+			}
+		}
 		for i := 1; ; i++ {
 			arn := r.FormValue(fmt.Sprintf("ManagedRules.member.%d.ResourceARN", i))
 			if arn == "" {

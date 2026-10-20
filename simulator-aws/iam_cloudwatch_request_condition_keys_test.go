@@ -54,6 +54,40 @@ func TestCloudWatchConditionKeysReadAlarmActionsOverEveryProtocol(t *testing.T) 
 	assertPopulatedConditionValues(t, ctx, want)
 }
 
+func TestCloudWatchConditionKeysReadAlarmTagsPropagationOverEveryProtocol(t *testing.T) {
+	query := queryConditionRequest(url.Values{
+		"Action":    []string{"PutMetricAlarm"},
+		"Version":   []string{"2010-08-01"},
+		"AlarmName": []string{"a"},
+		"ActionConfiguration.AlarmTagsPropagation.Enabled": []string{"true"},
+	})
+	assertPopulatedConditionValues(t, populatedConditionContext(query, "cloudwatch", "PutMetricAlarm", ""),
+		map[string][]string{"cloudwatch:AlarmTagsPropagationEnabled": {"true"}})
+
+	ctx := populatedConditionContext(jsonConditionRequest(cloudWatchConditionTarget+"PutCompositeAlarm"),
+		"cloudwatch", "PutCompositeAlarm",
+		`{"AlarmName": "a", "AlarmRule": "ALARM(x)", "ActionConfiguration": {"AlarmTagsPropagation": {"Enabled": false}}}`)
+	assertPopulatedConditionValues(t, ctx, map[string][]string{"cloudwatch:AlarmTagsPropagationEnabled": {"false"}})
+
+	encoded, err := cbor.Marshal(map[string]any{
+		"AlarmName":           "a",
+		"ActionConfiguration": map[string]any{"AlarmTagsPropagation": map[string]any{"Enabled": true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodPost, "/service/GraniteServiceVersion20100801/operation/PutLogAlarm", nil)
+	r.Header.Set("Content-Type", "application/cbor")
+	assertPopulatedConditionValues(t, populatedConditionContext(r, "cloudwatch", "PutLogAlarm", string(encoded)),
+		map[string][]string{"cloudwatch:AlarmTagsPropagationEnabled": {"true"}})
+
+	omitted := populatedConditionContext(jsonConditionRequest(cloudWatchConditionTarget+"PutMetricAlarm"),
+		"cloudwatch", "PutMetricAlarm", `{"AlarmName": "a"}`)
+	if _, set := omitted["cloudwatch:AlarmTagsPropagationEnabled"]; set {
+		t.Errorf("a request without ActionConfiguration set cloudwatch:AlarmTagsPropagationEnabled: %v", omitted)
+	}
+}
+
 func TestCloudWatchConditionKeysReadInsightRuleResources(t *testing.T) {
 	ctx := populatedConditionContext(jsonConditionRequest(cloudWatchConditionTarget+"PutInsightRule"),
 		"cloudwatch", "PutInsightRule",
