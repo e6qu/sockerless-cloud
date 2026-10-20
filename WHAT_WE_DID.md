@@ -3237,6 +3237,10 @@ stops: the engine keeps a container's, and the agent keeps a guest's, read
 from guestinit while the guest runs and held per boot, so `GetConsoleOutput`,
 `getSerialPortOutput` and boot diagnostics read the same console whichever
 backend runs the machine, and a handle follows the boot in progress alone.
+A guest's console lives in its own memory until the agent has read it, so
+guestinit holds the machine up after its workload ends until the agent,
+having followed `/logs` to the end, posts `/logs/read`: a process that prints
+and exits at once loses no line to the power-off.
 `Capture` stores a machine's filesystem as an engine image: a container
 commits, and a guest's root filesystem is exported from its ext4 image with
 `debugfs`, which reads it without a mount, and imported as an image of the
