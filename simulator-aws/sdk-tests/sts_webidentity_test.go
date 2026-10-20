@@ -98,7 +98,9 @@ func registerWebIdentityRole(t *testing.T, issuerURL, audience string) string {
 		_, _ = c.DeleteOpenIDConnectProvider(ctx, &iam.DeleteOpenIDConnectProviderInput{OpenIDConnectProviderArn: aws.String(providerArn)})
 	})
 
-	role := "console-federation-role"
+	// The suite's tests federate at the same time, each through a role of
+	// its own.
+	role := uniqueName("console-federation-role")
 	_, err = c.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName:                 aws.String(role),
 		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Federated":"` + providerArn + `"},"Action":"sts:AssumeRoleWithWebIdentity"}]}`),
