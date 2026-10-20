@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/netip"
 	"os"
@@ -930,7 +931,8 @@ func bindHasRelabelOption(options string) bool {
 
 // StopAndRemoveContainer stops and removes the container, giving its process
 // the grace the cloud grants between SIGTERM and SIGKILL. It is idempotent
-// cleanup that callers defer, so there is nothing useful to report.
+// cleanup that callers defer, so it logs a removal that did not finish rather
+// than returning it.
 func StopAndRemoveContainer(containerID string, grace time.Duration) {
 	cli := DockerClient()
 	if cli == nil {
@@ -948,7 +950,10 @@ func StopAndRemoveContainer(containerID string, grace time.Duration) {
 	_, _ = cli.ContainerRemove(stopCtx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 	select {
 	case <-removed.Result:
-	case <-removed.Error:
+	case err := <-removed.Error:
+		if !cerrdefs.IsNotFound(err) {
+			log.Printf("remove container %s: %v", containerID, err)
+		}
 	}
 }
 

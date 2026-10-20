@@ -74,8 +74,7 @@ func Stop(cmd *exec.Cmd, grace time.Duration) error {
 	go func() { done <- cmd.Wait() }()
 	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		_ = cmd.Process.Kill()
-		<-done
-		return fmt.Errorf("signal the simulator to shut down: %w", err)
+		return errors.Join(fmt.Errorf("signal the simulator to shut down: %w", err), <-done)
 	}
 	select {
 	case err := <-done:
@@ -85,7 +84,6 @@ func Stop(cmd *exec.Cmd, grace time.Duration) error {
 		return nil
 	case <-time.After(grace):
 		_ = cmd.Process.Kill()
-		<-done
-		return fmt.Errorf("the simulator did not exit within %s of SIGTERM", grace)
+		return fmt.Errorf("the simulator did not exit within %s of SIGTERM, and the kill ended it with %v", grace, <-done)
 	}
 }

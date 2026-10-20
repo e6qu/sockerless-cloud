@@ -3895,6 +3895,12 @@ gate now sets both: the mode a `CreateSession` asks for (`ReadWrite` when the
 request names none), and `ActionConfiguration.AlarmTagsPropagation.Enabled` on
 the three alarm writes over Query, JSON and CBOR.
 
+From golangci-lint v2.15.0, errcheck counts a receive from an error channel
+that drops the value as an unchecked error. A proxy that waits for either
+direction to end signals on a completion channel instead,
+`StopAndRemoveContainer` logs a removal that did not finish, and the
+simulator test harness reports the exit status a kill produced.
+
 An Amazon ECS task belongs to the deployment that started it, by
 `startedBy`, so a forced deployment, or one that changes only the network,
 load balancers or volumes, replaces every task and the deployment it
