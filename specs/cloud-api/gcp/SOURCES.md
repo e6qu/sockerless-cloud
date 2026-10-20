@@ -18,11 +18,9 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `cloudresourcemanager-v1.discovery.json.gz` | `cloudresourcemanager.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261011` | 2026-10-13T15:04:12Z |
 | `cloudresourcemanager-v2.discovery.json.gz` | `cloudresourcemanager.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20261011` | 2026-10-13T15:04:12Z |
 | `cloudresourcemanager-v3.discovery.json.gz` | `cloudresourcemanager.googleapis.com` | `$discovery/rest?version=v3` | Apache-2.0 | `revision 20261011` | 2026-10-13T15:04:12Z |
-| `iam-v1.discovery.json.gz` | `iam.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261012` | 2026-10-13T15:04:12Z |
 | `pubsub-v1.discovery.json.gz` | `pubsub.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261006` | 2026-10-13T15:04:12Z |
 | `artifactregistry-v1.discovery.json.gz` | `artifactregistry.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261010` | 2026-10-19T13:08:07Z |
 | `bigquery-v2.discovery.json.gz` | `bigquery.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20261007` | 2026-10-19T13:08:07Z |
-| `cloudbilling-v1.discovery.json.gz` | `cloudbilling.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261009` | 2026-10-19T13:08:07Z |
 | `cloudbuild-v1.discovery.json.gz` | `cloudbuild.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261010` | 2026-10-19T13:08:07Z |
 | `cloudfunctions-v2.discovery.json.gz` | `cloudfunctions.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20261008` | 2026-10-19T13:08:07Z |
 | `cloudkms-v1.discovery.json.gz` | `cloudkms.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261010` | 2026-10-19T13:08:07Z |
@@ -36,3 +34,5 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `spanner-v1.discovery.json.gz` | `spanner.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261006` | 2026-10-19T13:08:08Z |
 | `storage-v1.discovery.json.gz` | `storage.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261013` | 2026-10-19T13:08:08Z |
 | `vpcaccess-v1.discovery.json.gz` | `vpcaccess.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261011` | 2026-10-19T13:08:08Z |
+| `cloudbilling-v1.discovery.json.gz` | `cloudbilling.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261016` | 2026-10-20T11:36:49Z |
+| `iam-v1.discovery.json.gz` | `iam.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261016` | 2026-10-20T11:36:49Z |
