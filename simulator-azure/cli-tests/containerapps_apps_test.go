@@ -31,7 +31,8 @@ func TestContainerAppsApps_CLI_CreateGetDelete(t *testing.T) {
 			}
 		}
 	}`
-	out := runCLI(t, azRest("PUT", appURL, body))
+	azRestLongRunning(t, "PUT", appURL, body)
+	out := runCLI(t, azRest("GET", appURL, ""))
 	var created struct {
 		Name       string `json:"name"`
 		Properties struct {
@@ -87,11 +88,14 @@ func TestContainerAppsApps_CLI_PatchMergeSemantics(t *testing.T) {
 			}
 		}
 	}`
-	runCLI(t, azRest("PUT", appURL, body))
+	azRestLongRunning(t, "PUT", appURL, body)
 	t.Cleanup(func() { _, _ = azRest("DELETE", appURL, "").CombinedOutput() })
 
-	out := runCLI(t, azRest("PATCH", appURL,
-		`{"tags":{"drop":null,"added":"new"},"properties":{"template":{"scale":{"minReplicas":2}}}}`))
+	// The scale change makes a revision, so the patch is accepted and
+	// provisions it.
+	azRestLongRunning(t, "PATCH", appURL,
+		`{"tags":{"drop":null,"added":"new"},"properties":{"template":{"scale":{"minReplicas":2}}}}`)
+	out := runCLI(t, azRest("GET", appURL, ""))
 	var patched struct {
 		Tags       map[string]string `json:"tags"`
 		Properties struct {
@@ -130,7 +134,7 @@ func TestContainerAppsApps_CLI_StartsRealReplicaAndLogs(t *testing.T) {
 			}
 		}
 	}`, envID, evalImageName)
-	runCLI(t, azRest("PUT", appURL, body))
+	azRestLongRunning(t, "PUT", appURL, body)
 	defer runCLI(t, azRest("DELETE", appURL, ""))
 
 	// Generous deadline so a slow real-replica start on a loaded CI runner
@@ -187,7 +191,7 @@ func TestContainerAppsApps_CLI_ConfigurationRoundTrip(t *testing.T) {
 			}
 		}
 	}`
-	runCLI(t, azRest("PUT", appURL, body))
+	azRestLongRunning(t, "PUT", appURL, body)
 	t.Cleanup(func() { _, _ = azRest("DELETE", appURL, "").CombinedOutput() })
 
 	type configShape struct {
@@ -297,4 +301,66 @@ func TestWebApps_CLI_UpdateAzureStorageAccounts(t *testing.T) {
 	assert.Equal(t, "AzureFiles", resp.Properties["data"].Type)
 	assert.Equal(t, "data-share", resp.Properties["data"].ShareName)
 	assert.Equal(t, "/mnt/data", resp.Properties["data"].MountPath)
+}
+
+// A create whose revision fails to provision answers InProgress, fails its
+// operation, and leaves the app Failed with the revision it failed on.
+func TestContainerAppsApps_CLI_FailedProvisioningKeepsTheApp(t *testing.T) {
+	t.Parallel()
+	appURL := acaURL("containerApps/cli-failed-app")
+	body := `{
+		"location": "eastus",
+		"properties": {
+			"environmentId": "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.App/managedEnvironments/sim-env",
+			"configuration": { "ingress": { "external": false, "targetPort": 8080 } },
+			"template": {
+				"containers": [{ "name": "main", "image": "mirror.gcr.io/library/alpine:latest", "command": ["sh", "-c", "exit 3"] }],
+				"scale": { "minReplicas": 1, "maxReplicas": 1 }
+			}
+		}
+	}`
+	stdout, stderr := runCLIStreams(t, azRest("PUT", appURL, body, "--debug"))
+	t.Cleanup(func() { _, _ = azRest("DELETE", appURL, "").CombinedOutput() })
+	var accepted struct {
+		Properties struct {
+			ProvisioningState string `json:"provisioningState"`
+		} `json:"properties"`
+	}
+	parseJSON(t, stdout, &accepted)
+	assert.Equal(t, "InProgress", accepted.Properties.ProvisioningState)
+
+	opURL := azDebugResponseHeader(stderr, "Azure-AsyncOperation")
+	require.NotEmpty(t, opURL, "the create names its operation")
+	var op struct {
+		Status string `json:"status"`
+		Error  struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	for {
+		out, debug := runCLIStreams(t, azRest("GET", opURL, "", "--debug"))
+		parseJSON(t, out, &op)
+		if op.Status != "InProgress" {
+			break
+		}
+		azAwaitRetryAfter(t, debug)
+	}
+	assert.Equal(t, "Failed", op.Status)
+	assert.Equal(t, "ContainerAppOperationError", op.Error.Code)
+
+	var app struct {
+		Properties struct {
+			ProvisioningState  string `json:"provisioningState"`
+			LatestRevisionName string `json:"latestRevisionName"`
+		} `json:"properties"`
+	}
+	parseJSON(t, runCLI(t, azRest("GET", appURL, "")), &app)
+	assert.Equal(t, "Failed", app.Properties.ProvisioningState)
+	var revision struct {
+		Properties struct {
+			ProvisioningState string `json:"provisioningState"`
+		} `json:"properties"`
+	}
+	parseJSON(t, runCLI(t, azRest("GET", acaURL("containerApps/cli-failed-app/revisions/"+app.Properties.LatestRevisionName), "")), &revision)
+	assert.Equal(t, "Failed", revision.Properties.ProvisioningState)
 }

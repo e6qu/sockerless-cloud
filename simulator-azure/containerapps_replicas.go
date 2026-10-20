@@ -306,6 +306,18 @@ func acaRevisionView(rev acaRevision, weights map[string]int32) ContainerAppRevi
 			RunningState:      "Stopped",
 		},
 	}
+	switch rev.ProvisioningState {
+	case acaRevisionFailed:
+		view.Properties.TrafficWeight = 0
+		view.Properties.ProvisioningState = acaRevisionFailed
+		view.Properties.RunningState = "Failed"
+		view.Properties.HealthState = "Unhealthy"
+		return view
+	case acaRevisionProvisioning:
+		view.Properties.ProvisioningState = acaRevisionProvisioning
+		view.Properties.RunningState = "Processing"
+		return view
+	}
 	if !rev.Active {
 		view.Properties.TrafficWeight = 0
 		view.Properties.LastActiveTime = rev.LastActiveTime.Format(time.RFC3339)

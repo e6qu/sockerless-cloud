@@ -3871,6 +3871,17 @@ target's type as its proto number, which maps through the API's table. A
 Cloud Run functions service gets its first revision recorded. A Container
 Apps traffic entry with a label answers on `{app}---{label}`.
 
+A Container Apps write that creates a revision answers at once, the app
+`InProgress` and the revision `Provisioning`, and provisions the revision in
+the background under the write's operation: a revision whose replicas start
+turns `Provisioned` and becomes the app's latest ready revision, which takes
+the traffic a single-revision app or a `latestRevision` entry sends, and only
+then does the previous revision of a single-revision app deactivate. A revision
+whose replicas fail to start fails the operation with
+`ContainerAppOperationError`, turns `Failed`, and leaves the app `Failed` on
+the revision that was ready before. A PATCH that creates a revision answers
+202. Provisioning a restart interrupts fails, as its operation does.
+
 An Amazon ECS task belongs to the deployment that started it, by
 `startedBy`, so a forced deployment, or one that changes only the network,
 load balancers or volumes, replaces every task and the deployment it

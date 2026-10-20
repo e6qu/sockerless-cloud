@@ -119,7 +119,7 @@ func acaTrafficLabels(app ContainerApp) map[string]string {
 		}
 		revision := entry.RevisionName
 		if entry.LatestRevision != nil && *entry.LatestRevision {
-			revision = app.Properties.LatestRevisionName
+			revision = app.Properties.LatestReadyRevisionName
 		}
 		labels[entry.Label] = revision
 	}
