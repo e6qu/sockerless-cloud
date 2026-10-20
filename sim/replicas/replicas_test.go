@@ -158,6 +158,8 @@ func TestConsecutiveExitsBackOff(t *testing.T) {
 	rec.await(t, "exited")
 	rec.await(t, "exited")
 	rec.await(t, "exited")
+	// The set asks for the third backoff before it starts the replacement.
+	rec.await(t, "started")
 	mu.Lock()
 	defer mu.Unlock()
 	if len(asked) < 3 || asked[0] != 1 || asked[1] != 2 || asked[2] != 3 {

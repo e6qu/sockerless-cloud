@@ -236,13 +236,22 @@ func (s *Set) Adopt(id string, group *workload.Group, started time.Time, release
 
 // supervise follows a replica to its end: a stop the set made is reported
 // once every member exited; an exit of its own is reported and, as the
-// restart policy allows, restarted in place or replaced.
+// restart policy allows, restarted in place or replaced. The replica's Done
+// closes before the hook that reports its end runs.
 func (s *Set) supervise(r *Replica) {
 	bg.Go(func() {
-		defer close(r.done)
+		ended := false
+		end := func() {
+			if !ended {
+				ended = true
+				close(r.done)
+			}
+		}
+		defer end()
 		for {
 			result, stopped := r.await()
 			if stopped {
+				end()
 				s.reportStopped(r)
 				return
 			}
@@ -263,6 +272,9 @@ func (s *Set) supervise(r *Replica) {
 			}
 			crashes := s.crashed(r)
 			s.mu.Unlock()
+			if !restart || !s.spec.InPlace {
+				end()
+			}
 			if s.hooks.Exited != nil {
 				s.hooks.Exited(r, result)
 			}
@@ -274,6 +286,7 @@ func (s *Set) supervise(r *Replica) {
 				return
 			}
 			if !s.restartInPlace(r, crashes) {
+				end()
 				s.reportStopped(r)
 				return
 			}
