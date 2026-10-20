@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -24,6 +23,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
+	"github.com/e6qu/sockerless-cloud/testutil/freeports"
 	"github.com/e6qu/sockerless-cloud/testutil/httpsgateway"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 
@@ -126,9 +126,12 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to create gateway state dir: %v", err)
 	}
 
-	simPort = freeTCPPort()
-	gatewayPort = freeTCPPort()
-	gatewayAdminPort := freeTCPPort()
+	ports, err := freeports.Pick(3)
+	if err != nil {
+		log.Fatalf("Failed to find free ports: %v", err)
+	}
+	simPort, gatewayPort = ports[0], ports[1]
+	gatewayAdminPort := ports[2]
 	caCertFile = filepath.Join(gatewayDir, "data", "caddy", "pki", "authorities", "local", "root.crt")
 
 	simCmd = exec.Command(binaryPath)
@@ -350,15 +353,6 @@ func mergeNoProxy(existing string, entries ...string) string {
 		merged = append(merged, entry)
 	}
 	return strings.Join(merged, ",")
-}
-
-func freeTCPPort() int {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		log.Fatalf("Failed to find free port: %v", err)
-	}
-	defer ln.Close()
-	return ln.Addr().(*net.TCPAddr).Port
 }
 
 func requireExecutable(name, purpose string) string {

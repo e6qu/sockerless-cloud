@@ -3901,6 +3901,12 @@ direction to end signals on a completion channel instead,
 `StopAndRemoveContainer` logs a removal that did not finish, and the
 simulator test harness reports the exit status a kill produced.
 
+A suite that hands several ports to the processes it starts picks them with
+`testutil/freeports.Pick`, which holds each port until it has found them all:
+choosing them one at a time released each before the next, so the system could
+return the same port twice, and the simulator and the HTTPS gateway's admin
+endpoint once both took one.
+
 An Amazon ECS task belongs to the deployment that started it, by
 `startedBy`, so a forced deployment, or one that changes only the network,
 load balancers or volumes, replaces every task and the deployment it
