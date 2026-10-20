@@ -355,18 +355,10 @@ func registerContainerAppsApps(srv *sim.Server) {
 			return
 		}
 
-		// Real ACA: PUT returns 201 Created with provisioningState=Creating
-		// + an Azure-AsyncOperation header pointing at an
-		// /providers/Microsoft.App/locations/{loc}/operationStatuses/{id}
-		// URL; the SDK poller (azcore.NewPoller) GETs that URL until
-		// status=Succeeded, then does a final GET on the resource itself.
-		// We match that flow: store the resource with Succeeded directly
-		// (so the final GET always returns the desired state), record an
-		// async operation that flips Creating→Succeeded after a small
-		// delay (50ms — compresses real Azure's 30-60s reconcile window),
-		// and emit Azure-AsyncOperation in the response header. The body
-		// still echoes Succeeded so SDK clients that bypass polling and
-		// read the body directly also see the right state.
+		// Container Apps answers a PUT with an Azure-AsyncOperation header
+		// that the SDK poller follows to the operationStatuses URL before
+		// it reads the app. Settle the revision's replicas before answering
+		// and issue the operation already Succeeded.
 		// The internal FQDN format mirrors real ACA:
 		// <app>.internal.<env>.<domain>, and a revision's
 		// <app>--<suffix>.internal.<env>.<domain>.
