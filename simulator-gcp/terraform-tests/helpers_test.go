@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
+	"github.com/e6qu/sockerless-cloud/testutil/freeports"
 	"github.com/e6qu/sockerless-cloud/testutil/httpsgateway"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 
@@ -186,8 +187,13 @@ func TestMain(m *testing.M) {
 		}
 		caddyBin = requireExecutable(caddyBin, "GCP Terraform HTTPS gateway tests")
 
-		gatewayPort = freeTCPPort()
-		gatewayAdminPort := freeTCPPort()
+		ports, err := freeports.Pick(2)
+		if err != nil {
+			simCmd.Process.Kill()
+			log.Fatalf("Failed to find free gateway ports: %v", err)
+		}
+		gatewayPort = ports[0]
+		gatewayAdminPort := ports[1]
 		caCertFile = filepath.Join(gatewayDir, "data", "caddy", "pki", "authorities", "local", "root.crt")
 		gatewayCmd = exec.Command(caddyBin, "run", "--config", filepath.Join(repoRoot, "make", "https-gateway", "Caddyfile"), "--adapter", "caddyfile")
 		gatewayCmd.Env = append(os.Environ(),
@@ -387,15 +393,6 @@ func mergeNoProxy(existing string, entries ...string) string {
 		merged = append(merged, entry)
 	}
 	return strings.Join(merged, ",")
-}
-
-func freeTCPPort() int {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		log.Fatalf("Failed to find free port: %v", err)
-	}
-	defer ln.Close()
-	return ln.Addr().(*net.TCPAddr).Port
 }
 
 func requireExecutable(name, purpose string) string {

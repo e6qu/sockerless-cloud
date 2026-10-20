@@ -10,9 +10,6 @@ cloudwatch:ListManagedInsightRules	aws:RequestTag/${TagKey}	no-request-member
 cloudwatch:ListManagedInsightRules	aws:TagKeys	no-request-member
 cloudwatch:ListMetrics	cloudwatch:HasAccessGrant	unmodelled
 cloudwatch:ListTagsForResource	cloudwatch:HasAccessGrant	unmodelled
-cloudwatch:PutCompositeAlarm	cloudwatch:AlarmTagsPropagationEnabled	unmodelled
-cloudwatch:PutLogAlarm	cloudwatch:AlarmTagsPropagationEnabled	unmodelled
-cloudwatch:PutMetricAlarm	cloudwatch:AlarmTagsPropagationEnabled	unmodelled
 cloudwatch:TagResource	cloudwatch:HasAccessGrant	unmodelled
 cloudwatch:UntagResource	cloudwatch:HasAccessGrant	unmodelled
 codebuild:UpdateProjectVisibility	aws:RequestTag/${TagKey}	no-request-member

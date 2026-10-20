@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -327,6 +326,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 	apps := sim.MakeStore[ContainerApp](srv.DB(), "aca_apps")
 	acaApps = apps
 	acaRevisions = sim.MakeStore[acaRevision](srv.DB(), "aca_app_revisions")
+	failInterruptedACAProvisioning()
 	registerContainerAppsReplicas(srv, apps)
 
 	const basePath = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.App"
@@ -413,13 +413,11 @@ func registerContainerAppsApps(srv *sim.Server) {
 		}
 		stampContainerAppServerDefaults(&app, appFqdn)
 
-		if !acaSettleAppIdentity(w, r, &app, existing, appFqdn) {
+		rev, ok := acaSettleAppIdentity(w, &app, existing, appFqdn)
+		if !ok {
 			return
 		}
-		apps.Put(resourceID, app)
-
-		// Set the ARM LRO headers so SDK pollers exercise the real flow.
-		opID := issueAzureAsyncOperation(nil)
+		opID := acaStoreProvisioning(&app, rev)
 		acaAsyncOpHeaders(w, r, sub, req.Location, opID)
 
 		if exists {
@@ -540,10 +538,8 @@ func registerContainerAppsApps(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, out)
 	})
 
-	// PATCH - Update containerApp. Real ACA models this as a
-	// long-running operation that settles to provisioningState=Succeeded;
-	// the SDK's body poller reads the Succeeded state off the 200 body and
-	// returns immediately.
+	// PATCH - Update containerApp: 202 with the operation while a revision
+	// the patch creates provisions, else 200 with the app.
 	srv.HandleFunc("PATCH "+basePath+"/containerApps/{appName}", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
@@ -597,10 +593,16 @@ func registerContainerAppsApps(srv *sim.Server) {
 			app.SystemData.LastModifiedAt = time.Now().UTC().Format(time.RFC3339Nano)
 		}
 
-		if !acaSettleAppIdentity(w, r, &app, prior, appFqdn) {
+		rev, ok := acaSettleAppIdentity(w, &app, prior, appFqdn)
+		if !ok {
 			return
 		}
-		apps.Put(resourceID, app)
+		opID := acaStoreProvisioning(&app, rev)
+		if app.Properties.ProvisioningState == acaProvisioningInProgress {
+			acaAsyncOpHeaders(w, r, sub, app.Location, opID)
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
 		sim.WriteJSON(w, http.StatusOK, app)
 	})
 
@@ -698,25 +700,52 @@ func registerContainerAppsApps(srv *sim.Server) {
 	})
 }
 
-// writeACARevisionError answers a create or update whose revisions could not
-// be brought in line with it.
-func writeACARevisionError(w http.ResponseWriter, app string, err error) {
-	var invalid *acaRevisionRequestError
-	if errors.As(err, &invalid) {
-		AzureError(w, "InvalidParameterValue", invalid.Error(), http.StatusBadRequest)
-		return
+const acaProvisioningInProgress = "InProgress"
+
+// failInterruptedACAProvisioning settles what an earlier process left
+// provisioning: its operation fails at restart, and so do the revision and
+// the app it provisioned.
+func failInterruptedACAProvisioning() {
+	for _, rev := range acaRevisions.List() {
+		if rev.ProvisioningState == acaRevisionProvisioning {
+			acaRevisions.Update(rev.ID, func(r *acaRevision) {
+				r.ProvisioningState = acaRevisionFailed
+				r.Active = false
+				r.LastActiveTime = time.Now().UTC()
+			})
+		}
 	}
-	AzureErrorf(w, "ContainerAppRevisionFailed", http.StatusInternalServerError,
-		"failed to start container app replica for %s: %v", app, err)
+	for _, app := range acaApps.List() {
+		if app.Properties.ProvisioningState == acaProvisioningInProgress {
+			acaApps.Update(app.ID, func(a *ContainerApp) { a.Properties.ProvisioningState = "Failed" })
+		}
+	}
+}
+
+// acaStoreProvisioning stores a written app and returns the operation its
+// write answers with: InProgress while a revision it created provisions, or
+// one it created before still does, and settled at once otherwise.
+func acaStoreProvisioning(app *ContainerApp, rev *acaRevision) string {
+	if rev != nil {
+		app.Properties.ProvisioningState = acaProvisioningInProgress
+		acaApps.Put(app.ID, *app)
+		appID, created := app.ID, *rev
+		return startAzureAsyncOperationOutcome(func() *AsyncOperationError {
+			return acaProvisionRevision(appID, created)
+		})
+	}
+	if latest, ok := acaAppRevision(app.ID, app.Properties.LatestRevisionName); ok && latest.ProvisioningState == acaRevisionProvisioning {
+		app.Properties.ProvisioningState = acaProvisioningInProgress
+	}
+	acaApps.Put(app.ID, *app)
+	return issueAzureAsyncOperation(nil)
 }
 
 // acaSettleAppIdentity validates an app's secrets against its identity, brings
 // the directory in step with its system-assigned identity and reconciles its
-// revisions, answering the request and restoring the directory and the stored
-// app when any of it fails. The app is stored before its replicas start, so a
-// replica that asks its identity endpoint for a token at once finds the
-// identity it was started with.
-func acaSettleAppIdentity(w http.ResponseWriter, r *http.Request, app *ContainerApp, prev ContainerApp, appFqdn string) bool {
+// revisions, returning the revision the write creates; it answers the request
+// and restores the directory when any of it fails.
+func acaSettleAppIdentity(w http.ResponseWriter, app *ContainerApp, prev ContainerApp, appFqdn string) (*acaRevision, bool) {
 	secrets := acaAppSecrets(*app)
 	var containers []JobContainer
 	if app.Properties.Template != nil {
@@ -724,30 +753,25 @@ func acaSettleAppIdentity(w http.ResponseWriter, r *http.Request, app *Container
 	}
 	if err := acaValidateSecretRefs(containers, secrets); err != nil {
 		AzureError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
-		return false
+		return nil, false
 	}
 	syncManagedIdentityPrincipal(prev.Identity, app.Identity, app.SystemIdentityClientID, app.Name)
 	if _, err := acaResolveSecrets(app.Identity, secrets); err != nil {
 		syncManagedIdentityPrincipal(app.Identity, prev.Identity, prev.SystemIdentityClientID, prev.Name)
 		AzureError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
-		return false
+		return nil, false
 	}
 	app.Properties.RunningStatus = prev.Properties.RunningStatus
 	if app.Properties.RunningStatus == "" {
 		app.Properties.RunningStatus = acaRunning
 	}
-	acaApps.Put(app.ID, *app)
-	if err := acaReconcileRevisions(r.Context(), app, appFqdn); err != nil {
-		if prev.ID != "" {
-			acaApps.Put(prev.ID, prev)
-		} else {
-			acaApps.Delete(app.ID)
-		}
+	rev, err := acaReconcileRevisions(app, appFqdn)
+	if err != nil {
 		syncManagedIdentityPrincipal(app.Identity, prev.Identity, prev.SystemIdentityClientID, prev.Name)
-		writeACARevisionError(w, app.Name, err)
-		return false
+		AzureError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
+		return nil, false
 	}
-	return true
+	return rev, true
 }
 
 func acaEnvironmentName(id string) string {

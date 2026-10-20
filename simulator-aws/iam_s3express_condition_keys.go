@@ -6,7 +6,8 @@ func init() {
 	registerIAMRequestConditionPopulator("s3express", iamPopulateS3ExpressConditionKeys)
 }
 
-// iamPopulateS3ExpressConditionKeys adds the access-point keys s3express
+// iamPopulateS3ExpressConditionKeys adds s3express:SessionMode, the mode a
+// CreateSession request asks for, and the access-point keys s3express
 // declares on the scope operations this simulator serves. AWS declares
 // s3express:DataAccessPointArn, s3express:DataAccessPointAccount and
 // s3express:AccessPointNetworkOrigin on PutAccessPointScope,
@@ -20,6 +21,14 @@ func init() {
 // not hold settles nothing: there is no access point to describe.
 func iamPopulateS3ExpressConditionKeys(r *http.Request, operation string, _ []byte, ctx map[string][]string) {
 	switch operation {
+	case "CreateSession":
+		// A request that names no mode asks for ReadWrite.
+		mode := r.Header.Get("x-amz-create-session-mode")
+		if mode == "" {
+			mode = "ReadWrite"
+		}
+		iamSetConditionValues(ctx, "s3express:SessionMode", mode)
+		return
 	case "PutAccessPointScope", "GetAccessPointScope", "DeleteAccessPointScope":
 	default:
 		return

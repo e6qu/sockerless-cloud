@@ -27,6 +27,19 @@ type acaRevision struct {
 	Active         bool                  `json:"active"`
 	Fqdn           string                `json:"fqdn"`
 	Template       *ContainerAppTemplate `json:"template"`
+	// ProvisioningState is Provisioning while the revision's replicas start,
+	// then Provisioned or Failed; a record without one was provisioned.
+	ProvisioningState string `json:"provisioningState,omitempty"`
+}
+
+const (
+	acaRevisionProvisioning = "Provisioning"
+	acaRevisionProvisioned  = "Provisioned"
+	acaRevisionFailed       = "Failed"
+)
+
+func (rev acaRevision) provisioned() bool {
+	return rev.ProvisioningState == "" || rev.ProvisioningState == acaRevisionProvisioned
 }
 
 var acaRevisions sim.Store[acaRevision]
@@ -142,10 +155,11 @@ func acaValidateTraffic(app ContainerApp, revisions []acaRevision) error {
 }
 
 // acaTrafficWeights returns the share of the app's ingress traffic each
-// revision carries. A single-revision app sends all of it to its latest
-// revision.
+// revision carries. A single-revision app sends all of it to its latest ready
+// revision, which a latestRevision entry names too, so a revision takes
+// traffic once it has provisioned.
 func acaTrafficWeights(app ContainerApp) map[string]int32 {
-	latest := app.Properties.LatestRevisionName
+	latest := app.Properties.LatestReadyRevisionName
 	if acaSingleRevisionMode(app) || app.Properties.Configuration.Ingress == nil || len(app.Properties.Configuration.Ingress.Traffic) == 0 {
 		return map[string]int32{latest: 100}
 	}
@@ -177,45 +191,95 @@ func acaPickRevision(app ContainerApp) (acaRevision, bool) {
 }
 
 // acaReconcileRevisions brings an app's revisions in line with the app it is
-// about to store: a template the latest revision does not carry becomes a new
-// active revision with replicas of its own; a configuration change restarts the
-// active revisions under the new configuration. A single-revision app then
-// keeps only its latest revision active, and inactive revisions beyond
+// about to store and returns the revision the app's template creates, if any:
+// a template the latest revision does not carry, or carried into a failed
+// provisioning, becomes a new active revision that provisions once the write
+// is answered. The revision mode then applies, and inactive revisions beyond
 // maxInactiveRevisions are removed, oldest first.
-func acaReconcileRevisions(ctx context.Context, app *ContainerApp, appFqdn string) error {
+func acaReconcileRevisions(app *ContainerApp, appFqdn string) (*acaRevision, error) {
 	revisions := acaAppRevisions(app.ID)
 	latest, hasLatest := acaAppRevision(app.ID, app.Properties.LatestRevisionName)
-	if !hasLatest || !acaTemplatesEqual(latest.Template, app.Properties.Template) {
-		name, seq, err := acaNextRevisionName(*app, revisions)
+	if hasLatest && latest.ProvisioningState != acaRevisionFailed && acaTemplatesEqual(latest.Template, app.Properties.Template) {
+		if err := acaValidateTraffic(*app, revisions); err != nil {
+			return nil, &acaRevisionRequestError{err}
+		}
+		acaEnforceRevisionMode(*app)
+		return nil, nil
+	}
+	name, seq, err := acaNextRevisionName(*app, revisions)
+	if err != nil {
+		return nil, &acaRevisionRequestError{err}
+	}
+	app.Properties.LatestRevisionName = name
+	app.Properties.LatestRevisionFqdn = acaRevisionFqdn(app.Name, appFqdn, name)
+	if err := acaValidateTraffic(*app, append(revisions, acaRevision{Name: name})); err != nil {
+		return nil, &acaRevisionRequestError{err}
+	}
+	rev := acaRevision{
+		ID:                acaRevisionID(app.ID, name),
+		AppID:             app.ID,
+		Name:              name,
+		Sequence:          seq,
+		CreatedTime:       time.Now().UTC(),
+		Active:            true,
+		Fqdn:              app.Properties.LatestRevisionFqdn,
+		Template:          app.Properties.Template,
+		ProvisioningState: acaRevisionProvisioning,
+	}
+	acaRevisions.Put(rev.ID, rev)
+	acaEnforceRevisionMode(*app)
+	return &rev, nil
+}
+
+// acaProvisionRevision starts a new revision's replicas and settles the
+// revision, and the app while the revision is still its latest: Provisioned
+// and Succeeded, with the revision its latest ready one, or both Failed, the
+// error the write's operation reports.
+func acaProvisionRevision(appID string, rev acaRevision) *AsyncOperationError {
+	app, ok := acaApps.Get(appID)
+	if !ok {
+		return nil
+	}
+	var err error
+	if app.Properties.RunningStatus != acaStopped {
+		err = startACARevisionReplicas(context.Background(), app, rev)
+	}
+	state := acaRevisionProvisioned
+	if err != nil {
+		state = acaRevisionFailed
+	}
+	if !acaRevisions.Update(rev.ID, func(r *acaRevision) {
+		r.ProvisioningState = state
 		if err != nil {
-			return &acaRevisionRequestError{err}
+			r.Active = false
+			r.LastActiveTime = time.Now().UTC()
 		}
-		app.Properties.LatestRevisionName = name
-		app.Properties.LatestRevisionFqdn = acaRevisionFqdn(app.Name, appFqdn, name)
-		if err := acaValidateTraffic(*app, append(revisions, acaRevision{Name: name})); err != nil {
-			return &acaRevisionRequestError{err}
-		}
-		rev := acaRevision{
-			ID:          acaRevisionID(app.ID, name),
-			AppID:       app.ID,
-			Name:        name,
-			Sequence:    seq,
-			CreatedTime: time.Now().UTC(),
-			Active:      true,
-			Fqdn:        app.Properties.LatestRevisionFqdn,
-			Template:    app.Properties.Template,
-		}
-		if app.Properties.RunningStatus != acaStopped {
-			if err := startACARevisionReplicas(ctx, *app, rev); err != nil {
-				return err
+	}) {
+		// The app went while its revision provisioned.
+		stopACAAppReplicas(rev.ID)
+		return nil
+	}
+	var settled ContainerApp
+	acaApps.Update(appID, func(a *ContainerApp) {
+		if a.Properties.LatestRevisionName == rev.Name {
+			if err != nil {
+				a.Properties.ProvisioningState = "Failed"
+			} else {
+				a.Properties.ProvisioningState = "Succeeded"
+				a.Properties.LatestReadyRevisionName = rev.Name
 			}
 		}
-		acaRevisions.Put(rev.ID, rev)
-		app.Properties.LatestReadyRevisionName = name
-	} else if err := acaValidateTraffic(*app, revisions); err != nil {
-		return &acaRevisionRequestError{err}
+		settled = *a
+	})
+	if settled.ID != "" {
+		acaEnforceRevisionMode(settled)
 	}
-	acaEnforceRevisionMode(*app)
+	if err != nil {
+		return &AsyncOperationError{
+			Code:    "ContainerAppOperationError",
+			Message: fmt.Sprintf("Failed to provision revision for container app '%s'. Error details: %v", app.Name, err),
+		}
+	}
 	return nil
 }
 
@@ -226,12 +290,16 @@ type acaRevisionRequestError struct{ err error }
 func (e *acaRevisionRequestError) Error() string { return e.err.Error() }
 
 // acaEnforceRevisionMode deactivates every revision but the latest of a
-// single-revision app and removes the inactive revisions the app keeps no
-// room for.
+// single-revision app, and the latest ready one while the latest provisions,
+// and removes the inactive revisions the app keeps no room for.
 func acaEnforceRevisionMode(app ContainerApp) {
 	if acaSingleRevisionMode(app) {
+		keep := map[string]bool{app.Properties.LatestRevisionName: true}
+		if latest, ok := acaAppRevision(app.ID, app.Properties.LatestRevisionName); !ok || !latest.provisioned() {
+			keep[app.Properties.LatestReadyRevisionName] = true
+		}
 		for _, rev := range acaAppRevisions(app.ID) {
-			if rev.Active && rev.Name != app.Properties.LatestRevisionName {
+			if rev.Active && !keep[rev.Name] {
 				acaDeactivateRevision(rev)
 			}
 		}

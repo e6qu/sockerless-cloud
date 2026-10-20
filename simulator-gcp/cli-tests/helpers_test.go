@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	mathrand "math/rand/v2"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,6 +19,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
+	"github.com/e6qu/sockerless-cloud/testutil/freeports"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 )
 
@@ -142,20 +142,11 @@ func TestMain(m *testing.M) {
 	httpProbeImageName = "sockerless-http-localhost-probe:gcp-cli"
 	buildGoScratchImage(httpProbeImageName, probeDir, "http-localhost-probe", workloadPlatform)
 
-	// Find free ports for HTTP and gRPC
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ports, err := freeports.Pick(2)
 	if err != nil {
-		log.Fatalf("Failed to find free port: %v", err)
+		log.Fatalf("Failed to find free HTTP and gRPC ports: %v", err)
 	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
-
-	ln2, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		log.Fatalf("Failed to find free gRPC port: %v", err)
-	}
-	grpcPort := ln2.Addr().(*net.TCPAddr).Port
-	ln2.Close()
+	port, grpcPort := ports[0], ports[1]
 
 	// Start simulator
 	simCmd = exec.Command(binaryPath)

@@ -528,9 +528,8 @@ func TestSDK_ContainerAppsApps_PatchMergesNotReplaces(t *testing.T) {
 	req.Header.Set("Authorization", simARMBearer)
 	patchResp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	patchBytes, _ := io.ReadAll(patchResp.Body)
-	patchResp.Body.Close()
-	require.Equal(t, 200, patchResp.StatusCode, "PATCH response: %s", patchBytes)
+	require.Equal(t, http.StatusAccepted, patchResp.StatusCode, "a template change provisions a revision")
+	patchBytes := []byte(awaitARMOperation[json.RawMessage](t, patchResp))
 
 	var patched struct {
 		Properties struct {
@@ -623,9 +622,8 @@ func TestSDK_ContainerAppsApps_PatchRFC7396Semantics(t *testing.T) {
 	req.Header.Set("Authorization", simARMBearer)
 	patchResp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	patchBytes, _ := io.ReadAll(patchResp.Body)
-	patchResp.Body.Close()
-	require.Equal(t, 200, patchResp.StatusCode, "PATCH response: %s", patchBytes)
+	require.Equal(t, http.StatusAccepted, patchResp.StatusCode, "a template change provisions a revision")
+	patchBytes := []byte(awaitARMOperation[json.RawMessage](t, patchResp))
 
 	var patched struct {
 		Tags       map[string]string `json:"tags"`

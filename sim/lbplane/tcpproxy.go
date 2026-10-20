@@ -176,14 +176,15 @@ func (p *TCPProxy) handle(client net.Conn) {
 		return
 	}
 	defer upstream.Close()
-	errs := make(chan error, 2)
+	// Either direction ending ends the connection, whatever ended it.
+	done := make(chan struct{}, 2)
 	go func() {
-		_, err := io.Copy(upstream, client)
-		errs <- err
+		_, _ = io.Copy(upstream, client)
+		done <- struct{}{}
 	}()
 	go func() {
-		_, err := io.Copy(client, upstream)
-		errs <- err
+		_, _ = io.Copy(client, upstream)
+		done <- struct{}{}
 	}()
-	<-errs
+	<-done
 }

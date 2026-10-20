@@ -3871,6 +3871,42 @@ target's type as its proto number, which maps through the API's table. A
 Cloud Run functions service gets its first revision recorded. A Container
 Apps traffic entry with a label answers on `{app}---{label}`.
 
+A Container Apps write that creates a revision answers at once, the app
+`InProgress` and the revision `Provisioning`, and provisions the revision in
+the background under the write's operation: a revision whose replicas start
+turns `Provisioned` and becomes the app's latest ready revision, which takes
+the traffic a single-revision app or a `latestRevision` entry sends, and only
+then does the previous revision of a single-revision app deactivate. A revision
+whose replicas fail to start fails the operation with
+`ContainerAppOperationError`, turns `Failed`, and leaves the app `Failed` on
+the revision that was ready before. A PATCH that creates a revision answers
+202. Provisioning a restart interrupts fails, as its operation does.
+
+The scheduled specification refresh regenerates the AWS simulator's tables
+compiled from the vendored models and Service Reference
+(`scripts/gen-spec-derived.sh`: the CloudWatch CBOR shapes, the error message
+members, the Step Functions REST integrations and the IAM resource types) and
+commits them with the specifications, and one unit test holds each Go-generated
+table to its generator's output. The condition-key coverage tests read only
+hand-written gate code: a generated wire table spells request members, and
+reading it once counted `s3express:SessionMode` and
+`cloudwatch:AlarmTagsPropagationEnabled` as resolved when nothing set them. The
+gate now sets both: the mode a `CreateSession` asks for (`ReadWrite` when the
+request names none), and `ActionConfiguration.AlarmTagsPropagation.Enabled` on
+the three alarm writes over Query, JSON and CBOR.
+
+From golangci-lint v2.15.0, errcheck counts a receive from an error channel
+that drops the value as an unchecked error. A proxy that waits for either
+direction to end signals on a completion channel instead,
+`StopAndRemoveContainer` logs a removal that did not finish, and the
+simulator test harness reports the exit status a kill produced.
+
+A suite that hands several ports to the processes it starts picks them with
+`testutil/freeports.Pick`, which holds each port until it has found them all:
+choosing them one at a time released each before the next, so the system could
+return the same port twice, and the simulator and the HTTPS gateway's admin
+endpoint once both took one.
+
 An Amazon ECS task belongs to the deployment that started it, by
 `startedBy`, so a forced deployment, or one that changes only the network,
 load balancers or volumes, replaces every task and the deployment it

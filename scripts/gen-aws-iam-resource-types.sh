@@ -186,4 +186,4 @@ EOF
 
 gofmt "$tmp" >"$DEST"
 
-echo "Generated $DEST ($(grep -c '^\t"' "$DEST") actions from ${#SERVICES[@]} services)"
+echo "Generated $DEST ($(grep -c $'^\t"' "$DEST") actions from ${#SERVICES[@]} services)"

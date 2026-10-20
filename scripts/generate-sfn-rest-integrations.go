@@ -4,7 +4,7 @@
 // into the small routing table used by generic AWS Step Functions AWS SDK
 // integrations. Run from the repository root:
 //
-//	go run scripts/generate-sfn-rest-integrations.go
+//	go run scripts/generate-sfn-rest-integrations.go [output path]
 package main
 
 import (
@@ -293,6 +293,9 @@ func main() {
 		panic(err)
 	}
 	output := filepath.Join("simulator-aws", "stepfunctions_rest_integrations_gen.go")
+	if len(os.Args) > 1 {
+		output = os.Args[1]
+	}
 	if err := os.WriteFile(output, formatted, 0o644); err != nil {
 		panic(err)
 	}

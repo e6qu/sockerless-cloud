@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
+	"github.com/e6qu/sockerless-cloud/testutil/freeports"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 )
 
@@ -294,21 +295,13 @@ func TestMain(m *testing.M) {
 	containerCommandImage = "sockerless-container-command:aws-cli"
 	buildGoScratchImage(containerCommandImage, containerCommandDir, "container-command", workloadPlatform)
 
-	// Find free port
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ports, err := freeports.Pick(2)
 	if err != nil {
-		log.Fatalf("Failed to find free port: %v", err)
+		log.Fatalf("Failed to find free API and diagnostics ports: %v", err)
 	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
-
+	port := ports[0]
 	simulatorPort = port
-	diagnosticsListener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		log.Fatalf("Failed to find a free diagnostics port: %v", err)
-	}
-	diagnosticsAddr = diagnosticsListener.Addr().String()
-	diagnosticsListener.Close()
+	diagnosticsAddr = net.JoinHostPort("127.0.0.1", strconv.Itoa(ports[1]))
 	persistenceDir, err = os.MkdirTemp("", "sockerless-aws-cli-state-")
 	if err != nil {
 		log.Fatalf("Failed to create simulator persistence directory: %v", err)
