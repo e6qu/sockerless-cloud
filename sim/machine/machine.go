@@ -83,6 +83,9 @@ type machine struct {
 
 	mu     sync.Mutex
 	handle placement.Handle
+	// watched closes once the watch of handle has seen it exit and forgot
+	// it, which is when a stop has finished.
+	watched <-chan struct{}
 	// id is the backend's identifier of the machine, which outlives the
 	// handle of a stopped machine: its kept root disk.
 	id string
@@ -185,15 +188,14 @@ func (m *Manager) wasHalted(mc *machine) bool {
 // attach takes a placed handle, watches it and returns once the init is
 // ready. A stop that arrived while the machine was placed cancels it here.
 func (m *Manager) attach(ctx context.Context, mc *machine, handle placement.Handle) error {
+	watched := m.track(mc, handle)
 	mc.mu.Lock()
-	mc.handle = handle
 	mc.id = handle.ID()
 	halted := mc.halted
 	mc.mu.Unlock()
-	bg.Go(func() { m.watch(mc, handle) })
 	if halted {
 		handle.Cancel()
-		<-handle.Exited()
+		<-watched
 		return ErrHalted
 	}
 	if err := awaitReady(ctx, handle); err != nil {
@@ -207,7 +209,7 @@ func (m *Manager) attach(ctx context.Context, mc *machine, handle placement.Hand
 			return ErrHalted
 		}
 		handle.Cancel()
-		<-handle.Exited()
+		<-watched
 		return err
 	}
 	mc.mu.Lock()
@@ -247,6 +249,21 @@ func awaitReady(ctx context.Context, handle placement.Handle) error {
 	case <-ctx.Done():
 		return &NotReadyError{ExitCode: -1, Err: ctx.Err()}
 	}
+}
+
+// track makes handle the machine's running one and watches it; the channel
+// closes once the watch has seen it exit and forgot it.
+func (m *Manager) track(mc *machine, handle placement.Handle) <-chan struct{} {
+	watched := make(chan struct{})
+	mc.mu.Lock()
+	mc.handle = handle
+	mc.watched = watched
+	mc.mu.Unlock()
+	bg.Go(func() {
+		defer close(watched)
+		m.watch(mc, handle)
+	})
+	return watched
 }
 
 // watch follows the handle to its exit. An exit nobody asked for is the guest
@@ -292,14 +309,14 @@ func (m *Manager) Halt(ctx context.Context, key string) error {
 		}
 	}
 	mc.mu.Lock()
-	handle := mc.handle
+	handle, watched := mc.handle, mc.watched
 	mc.mu.Unlock()
 	if handle == nil {
 		return nil
 	}
 	handle.Cancel()
 	select {
-	case <-handle.Exited():
+	case <-watched:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -448,10 +465,7 @@ func (m *Manager) Adopt(ctx context.Context, key string, existing *placement.Exi
 	if err != nil {
 		return Gone, nil, err
 	}
-	mc.mu.Lock()
-	mc.handle = handle
-	mc.mu.Unlock()
-	bg.Go(func() { m.watch(mc, handle) })
+	m.track(mc, handle)
 	ready := make(chan error, 1)
 	bg.Go(func() {
 		err := awaitReady(context.WithoutCancel(ctx), handle)
