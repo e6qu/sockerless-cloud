@@ -941,7 +941,15 @@ func StopAndRemoveContainer(containerID string, grace time.Duration) {
 	defer stopCancel()
 	timeout := int(grace / time.Second)
 	_, _ = cli.ContainerStop(stopCtx, containerID, client.ContainerStopOptions{Timeout: &timeout})
+	// The container's own watcher may be removing it already, and the engine
+	// then answers this remove at once; waiting for the removal returns only
+	// once the container and its anonymous volumes are gone.
+	removed := cli.ContainerWait(stopCtx, containerID, client.ContainerWaitOptions{Condition: container.WaitConditionRemoved})
 	_, _ = cli.ContainerRemove(stopCtx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+	select {
+	case <-removed.Result:
+	case <-removed.Error:
+	}
 }
 
 // ContainerIPv4 returns a running container's primary IPv4 address on its

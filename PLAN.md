@@ -225,7 +225,12 @@ tests, which prove the extraction changed no wire behaviour.
    between their bounds and stop, with their logs fanned out to readers.
    Amazon ECS services and deployments (task sets among them), Cloud Run
    services and worker pools, and Azure Container Apps apps implement these
-   today.
+   today. `sim/workload.StartGroup` and `sim/replicas` landed, with Cloud
+   Run worker pools and Container Apps revisions on them; `sim/revisions`
+   follows with Amazon ECS deployments that own their tasks by `startedBy`
+   (BUG-3541), Cloud Run services' revisions, traffic and instances
+   (BUG-3542), Container Apps labels (BUG-3330), and the template's probes,
+   scale rules and init containers (BUG-3540).
 4. **`sim/jobrun`: run to completion.** An execution with a task count,
    parallelism, per-task retries, a timeout, cancellation and recovery after
    a restart. Amazon ECS `RunTask` on AWS Fargate, Cloud Run jobs and Azure

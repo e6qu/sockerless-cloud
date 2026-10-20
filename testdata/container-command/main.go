@@ -14,7 +14,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: container-command hold|spin|http|serve|files-http|relay-http|probe-http|log|log-until|print|resolve|sleep|stdin-echo")
+		fmt.Fprintln(os.Stderr, "usage: container-command hold|spin|http|hostname-http|serve|files-http|relay-http|probe-http|log|log-until|print|resolve|sleep|stdin-echo")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -49,6 +49,25 @@ func main() {
 			_, _ = io.WriteString(w, os.Args[3])
 		})
 		if err := http.ListenAndServe(fmt.Sprintf(":%d", port), handler); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "hostname-http":
+		// An HTTP server that answers every request with the container's
+		// hostname.
+		if len(os.Args) != 3 {
+			fmt.Fprintln(os.Stderr, "usage: container-command hostname-http PORT")
+			os.Exit(2)
+		}
+		hostname, err := os.Hostname()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = io.WriteString(w, hostname)
+		})
+		if err := http.ListenAndServe(":"+os.Args[2], handler); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

@@ -450,3 +450,41 @@ func TestSDK_CloudRun_WorkloadsResumeAfterSimulatorRestart(t *testing.T) {
 	assert.Equal(t, []string{taskHost}, distinctLogHosts(taskMessages, "task"), "the execution started no other task")
 	assert.Equal(t, 1, countLogMessages(taskMessages, "task "+taskHost))
 }
+
+// A worker pool instance whose container exits is logged with its exit code
+// and replaced by a new instance, so the pool keeps its instance count.
+func TestSDK_CloudRun_WorkerPoolReplacesAnInstanceThatExits(t *testing.T) {
+	t.Parallel()
+	pools := newWorkerPoolsClient(t)
+	parent := "projects/test-project/locations/us-central1"
+	id := uniqueName("sdk-wp-exits")
+	name := parent + "/workerPools/" + id
+	createOp, err := pools.CreateWorkerPool(ctx, &runpb.CreateWorkerPoolRequest{
+		Parent:       parent,
+		WorkerPoolId: id,
+		WorkerPool: &runpb.WorkerPool{
+			Scaling: manualScaling(1),
+			Template: &runpb.WorkerPoolRevisionTemplate{
+				Containers: []*runpb.Container{{
+					Image:   "mirror.gcr.io/library/alpine:latest",
+					Command: []string{"sh", "-c", `echo "worker up $HOSTNAME"; sleep 2; exit 3`},
+				}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	_, err = createOp.Wait(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		if op, err := pools.DeleteWorkerPool(ctx, &runpb.DeleteWorkerPoolRequest{Name: name}); err == nil {
+			_, _ = op.Wait(ctx)
+		}
+	})
+
+	filter := `resource.type="cloud_run_worker_pool" AND resource.labels.worker_pool_name="` + id + `"`
+	messages := followLogMessages(t, filter, func(messages []string) bool {
+		return len(distinctLogHosts(messages, "worker up")) >= 2
+	})
+	assert.GreaterOrEqual(t, len(distinctLogHosts(messages, "worker up")), 2, "a new instance replaced the one that exited")
+	assert.Positive(t, countLogMessages(messages, "Container called exit(3)."), "the exit is logged with its code")
+}

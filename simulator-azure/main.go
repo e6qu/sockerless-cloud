@@ -78,6 +78,7 @@ func startAzureListeners(_ *sim.Server, cfg sim.Config) (func(context.Context) e
 		return nil, errors.Join(err, stop(context.Background()))
 	}
 	azureAdoptVMWorkloads(ctx)
+	adoptACAAppReplicas(ctx)
 	if amqpAddr := os.Getenv("SIM_SERVICEBUS_AMQP_LISTEN_ADDR"); amqpAddr != "" {
 		certFile := sim.EnvOr("SIM_SERVICEBUS_AMQP_TLS_CERT", cfg.TLSCert)
 		keyFile := sim.EnvOr("SIM_SERVICEBUS_AMQP_TLS_KEY", cfg.TLSKey)

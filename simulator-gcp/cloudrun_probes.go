@@ -312,7 +312,7 @@ func probeGRPC(ctx context.Context, addr, service string) error {
 // returns its exit code, or -1 when the backend reports none.
 func (inst *cloudRunServiceInstance) awaitExit(ctx context.Context) int64 {
 	inst.mu.Lock()
-	handles := append([]placement.Handle{inst.owner}, inst.handles...)
+	handles := append([]placement.Handle(nil), inst.handles...)
 	inst.mu.Unlock()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

@@ -47,10 +47,15 @@ func freeAzureSimPort(t *testing.T) int {
 
 func startPersistentAzureSimulator(t *testing.T, stateDir string, port int) *exec.Cmd {
 	t.Helper()
+	return startPersistentAzureSimulatorOn(t, "process", stateDir, port)
+}
+
+func startPersistentAzureSimulatorOn(t *testing.T, runtime, stateDir string, port int) *exec.Cmd {
+	t.Helper()
 	cmd := exec.Command(binaryPath)
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("SIM_LISTEN_ADDR=:%d", port),
-		"SIM_RUNTIME=process",
+		"SIM_RUNTIME="+runtime,
 		"SIM_PERSIST=true",
 		"SIM_DATA_DIR="+stateDir,
 		"SIM_LOG_LEVEL=warn",

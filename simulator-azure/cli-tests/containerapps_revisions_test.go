@@ -49,22 +49,22 @@ func TestContainerAppsCLI_RevisionsFollowTheTemplate(t *testing.T) {
 	}
 	appURL := fmt.Sprintf("%s/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/containerApps/%s?api-version=%s",
 		env.baseURL, subscriptionID, rg, app, acaAPIVersion)
-	template := func(expression string) string {
-		return fmt.Sprintf(`{"containers": [{"name": "main", "image": %q, "args": [%q]}],
-			"scale": {"minReplicas": 1, "maxReplicas": 1}}`, evalImageName, expression)
+	template := func(message string) string {
+		return fmt.Sprintf(`{"containers": [{"name": "main", "image": %q, "args": ["probe-retry", %q]}],
+			"scale": {"minReplicas": 1, "maxReplicas": 1}}`, httpProbeImageName, message)
 	}
 	azLongRunning(t, rest, "PUT", appURL, fmt.Sprintf(`{
 		"location": "eastus",
 		"properties": {
 			"configuration": {
 				"activeRevisionsMode": "Multiple",
-				"ingress": {"external": false, "targetPort": 80}
+				"ingress": {"external": false, "targetPort": 8080}
 			},
 			"template": %s
 		}
-	}`, template("1 + 1")))
+	}`, template("first")))
 	t.Cleanup(func() { azLongRunning(t, rest, "DELETE", appURL, "") })
-	runCLI(t, rest("PATCH", appURL, fmt.Sprintf(`{"properties": {"template": %s}}`, template("2 + 2"))))
+	runCLI(t, rest("PATCH", appURL, fmt.Sprintf(`{"properties": {"template": %s}}`, template("second"))))
 
 	list := func() map[string]cliRevision {
 		var revisions []cliRevision

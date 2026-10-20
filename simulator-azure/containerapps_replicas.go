@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
@@ -73,6 +74,13 @@ func (l *acaLog) end() {
 	l.changed = make(chan struct{})
 }
 
+// reopen takes appends again, after an end: the container restarted.
+func (l *acaLog) reopen() {
+	l.mu.Lock()
+	l.ended = false
+	l.mu.Unlock()
+}
+
 // since returns the entries from sequence number from on, the sequence number
 // after the last of them, whether the log has ended, and a channel that closes
 // on the next append or end.
@@ -91,6 +99,19 @@ type acaReplica struct {
 	revision   string
 	created    time.Time
 	containers []*acaReplicaContainer
+	// address is the pod's, which it keeps across restarts in place until
+	// release.
+	address string
+	release func()
+}
+
+// restarting counts a restart in place of every container of the replica.
+func (r *acaReplica) restarting() {
+	for _, c := range r.containers {
+		c.mu.Lock()
+		c.restarts++
+		c.mu.Unlock()
+	}
 }
 
 type acaReplicaContainer struct {
@@ -101,6 +122,7 @@ type acaReplicaContainer struct {
 	containerID string
 	terminated  bool
 	exitCode    int
+	restarts    int
 }
 
 // sink feeds the container's output to its log stream and to the
@@ -133,10 +155,12 @@ func (s acaReplicaContainerSink) WriteLog(line sim.LogLine) {
 func (c *acaReplicaContainer) track(handle placement.Handle, resourceID, envID, appName, revision, replica string) {
 	c.mu.Lock()
 	c.containerID = handle.ID()
+	c.terminated = false
 	c.mu.Unlock()
+	c.log.reopen()
 	acaRecordSystemEvent(resourceID, envID, appName, revision, replica, "ContainerCreated", fmt.Sprintf("Created container '%s'", c.name))
 	acaRecordSystemEvent(resourceID, envID, appName, revision, replica, "ContainerStarted", fmt.Sprintf("Started container '%s'", c.name))
-	go func() {
+	bg.Go(func() {
 		result := handle.Wait()
 		c.mu.Lock()
 		c.terminated = true
@@ -149,12 +173,12 @@ func (c *acaReplicaContainer) track(handle placement.Handle, resourceID, envID, 
 		}
 		acaRecordSystemEvent(resourceID, envID, appName, revision, replica, "ContainerTerminated",
 			fmt.Sprintf("Container '%s' was terminated with exit code '%d' and reason '%s'", c.name, result.ExitCode, reason))
-	}()
+	})
 }
 
-func newACAReplica(revision string, containerNames []string) *acaReplica {
+func newACAReplica(name, revision string, containerNames []string) *acaReplica {
 	replica := &acaReplica{
-		name:     fmt.Sprintf("%s-%s-%s", revision, randomSuffix(10), randomSuffix(5)),
+		name:     name,
 		revision: revision,
 		created:  time.Now().UTC(),
 	}
@@ -162,17 +186,6 @@ func newACAReplica(revision string, containerNames []string) *acaReplica {
 		replica.containers = append(replica.containers, &acaReplicaContainer{name: name, log: newACALog()})
 	}
 	return replica
-}
-
-// acaAppReplicas holds each revision's current replicas, keyed by revision ID.
-var acaAppReplicas sync.Map // map[revisionID][]*acaReplica
-
-func acaCurrentReplicas(revisionID string) []*acaReplica {
-	if v, ok := acaAppReplicas.Load(revisionID); ok {
-		replicas, _ := v.([]*acaReplica)
-		return replicas
-	}
-	return nil
 }
 
 // acaAppSystemLogs holds each app's system events, keyed by resource ID.
@@ -361,6 +374,7 @@ func acaReplicaView(r *http.Request, app ContainerApp, replica *acaReplica) Cont
 			ContainerID:  c.containerID,
 			Ready:        !c.terminated,
 			Started:      c.containerID != "",
+			RestartCount: int32(c.restarts),
 			RunningState: "Running",
 			LogStreamEndpoint: fmt.Sprintf("%s://%s/subscriptions/%s/resourceGroups/%s/containerApps/%s/revisions/%s/replicas/%s/containers/%s/logstream",
 				azureRequestScheme(r), r.Host, sub, rg, app.Name, replica.revision, replica.name, c.name),

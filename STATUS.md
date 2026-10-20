@@ -30,6 +30,13 @@ Current state of the sockerless-cloud repository.
   An instance's interface carries the MAC its cloud assigned, and each
   cloud's metadata service answers its instances alone, from their current
   records.
+- **Container groups and replica sets.** `sim/workload.StartGroup` starts a
+  group's containers in `dependsOn` order behind their startup checks, and
+  `sim/replicas` keeps a specification's replicas running, restarting or
+  replacing those that exit with a back-off, and taking them over after a
+  restart. Cloud Run jobs, services and worker pools start their containers
+  through the first; Cloud Run worker pools and Container Apps revisions are
+  replica sets.
 - **Shared mechanisms live in `sim`.** Workload-host coordinates, background
   work, workload launching, archive extraction, payload storage and sparse
   files, JWT signing and OpenID Connect federation, registry authentication and
