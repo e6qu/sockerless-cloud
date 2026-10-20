@@ -9,7 +9,7 @@
 //
 // Run from the repository root:
 //
-//	go run scripts/gen-aws-error-message-members.go
+//	go run scripts/gen-aws-error-message-members.go [output path]
 package main
 
 import (
@@ -125,7 +125,11 @@ func main() {
 	if err != nil {
 		fail("format: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join("simulator-aws", "aws_error_members_gen.go"), formatted, 0o644); err != nil {
+	output := filepath.Join("simulator-aws", "aws_error_members_gen.go")
+	if len(os.Args) > 1 {
+		output = os.Args[1]
+	}
+	if err := os.WriteFile(output, formatted, 0o644); err != nil {
 		fail("write: %v", err)
 	}
 }

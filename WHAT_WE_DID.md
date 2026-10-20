@@ -3882,6 +3882,13 @@ whose replicas fail to start fails the operation with
 the revision that was ready before. A PATCH that creates a revision answers
 202. Provisioning a restart interrupts fails, as its operation does.
 
+The scheduled specification refresh regenerates the AWS simulator's tables
+compiled from the vendored models and Service Reference
+(`scripts/gen-spec-derived.sh`: the CloudWatch CBOR shapes, the error message
+members, the Step Functions REST integrations and the IAM resource types) and
+commits them with the specifications, and one unit test holds each Go-generated
+table to its generator's output.
+
 An Amazon ECS task belongs to the deployment that started it, by
 `startedBy`, so a forced deployment, or one that changes only the network,
 load balancers or volumes, replaces every task and the deployment it

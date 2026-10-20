@@ -193,5 +193,9 @@ for cloud in "${CLOUDS[@]}"; do
   rm -f "$report"
 done
 
+if [ "$refreshed" -gt 0 ]; then
+  bash "$ROOT/scripts/gen-spec-derived.sh"
+fi
+
 echo "refresh-drifted-specs: refreshed $refreshed vendored specification(s)"
 exit "$failed"
