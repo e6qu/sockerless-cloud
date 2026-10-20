@@ -3,6 +3,7 @@ package azure_sdk_test
 import (
 	"encoding/base64"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -175,6 +176,16 @@ func TestCompute_VirtualMachineRunsCustomDataAndReadsItsMetadata(t *testing.T) {
 	assert.Contains(t, network, `"macAddress":"`+mac+`"`)
 	attested := read("attested", "/metadata/attested/document?api-version=2020-09-01&nonce=1234567890")
 	assert.Contains(t, attested, `"encoding":"pkcs7"`)
+	// The nonce is inside what was signed, so a document minted for one
+	// challenge cannot answer another.
+	signed := regexp.MustCompile(`"signature":"([^"]+)"`)
+	first := signed.FindStringSubmatch(attested)
+	require.Len(t, first, 2, "the attested document carries a signature: %s", attested)
+	other := signed.FindStringSubmatch(read("attested-other", "/metadata/attested/document?api-version=2020-09-01&nonce=9876543210"))
+	require.Len(t, other, 2)
+	assert.NotEqual(t, first[1], other[1], "the caller's nonce must change the document that was signed")
+	identity := read("identity", "/metadata/identity/info?api-version=2021-02-01")
+	assert.Regexp(t, `"tenantId":"[0-9a-f-]+"`, identity, "the metadata service names the tenant of the machine's identity")
 }
 
 // A deallocated machine keeps its OS disk and starts again on it; an image

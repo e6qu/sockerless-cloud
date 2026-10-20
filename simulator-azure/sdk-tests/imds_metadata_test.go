@@ -41,10 +41,17 @@ func readAll(r interface{ Read(p []byte) (int, error) }) ([]byte, error) {
 	return buf, nil
 }
 
+// Every instance-metadata read requires the header, which is what stops a
+// browser being tricked into making one.
 func TestIMDS_InstanceRequiresMetadataHeader(t *testing.T) {
 	t.Parallel()
-	resp, _ := imdsRead(t, "/metadata/instance?api-version=2021-02-01", false)
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	for _, path := range []string{
+		"/metadata/instance?api-version=2021-02-01",
+		"/metadata/identity/info?api-version=2021-02-01",
+	} {
+		resp, _ := imdsRead(t, path, false)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode, path)
+	}
 }
 
 // The Instance Metadata Service answers a virtual machine and nothing else.
