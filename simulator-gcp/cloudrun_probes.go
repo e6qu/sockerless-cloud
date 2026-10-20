@@ -310,6 +310,26 @@ func probeGRPC(ctx context.Context, addr, service string) error {
 
 // awaitExit waits for the first of the instance's containers to stop and
 // returns its exit code, or -1 when the backend reports none.
+// exited reports the exit code of a container of the instance that has
+// already exited, without waiting for one.
+func (inst *cloudRunServiceInstance) exited() (int64, bool) {
+	inst.mu.Lock()
+	handles := append([]placement.Handle(nil), inst.handles...)
+	inst.mu.Unlock()
+	for _, h := range handles {
+		select {
+		case <-h.Exited():
+			result := h.Wait()
+			if result.Error != nil && result.ExitCode < 0 {
+				return -1, true
+			}
+			return int64(result.ExitCode), true
+		default:
+		}
+	}
+	return 0, false
+}
+
 func (inst *cloudRunServiceInstance) awaitExit(ctx context.Context) int64 {
 	inst.mu.Lock()
 	handles := append([]placement.Handle(nil), inst.handles...)

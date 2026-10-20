@@ -3848,3 +3848,7 @@ after a restart holds the address it already had.
 container: when the container's own watcher was removing it already, the
 engine answered the second remove at once, and a caller could find the
 container's anonymous volumes still there.
+
+A Cloud Run instance whose container exits while a restart starts it counts
+the exit as one, logged and answered by the restart policy, rather than as a
+failed start.

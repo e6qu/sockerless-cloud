@@ -295,16 +295,22 @@ func runCloudRunInstance(inst InstanceV2) {
 		restarts := 0
 		for {
 			running, err := ensureCloudRunServiceInstance(ctx, inst.Name, instanceID, inst.VpcAccess, inst.Containers, inst.Volumes, sink)
+			// A container that exits while the instance starts is an exit of
+			// the instance's, which the restart policy answers like any other.
+			exitedWhileStarting := false
+			var exitCode int64
 			if err == nil {
 				_, err = running.awaitReady(ctx)
 				if err != nil {
+					if code, exited := running.exited(); exited && restarts > 0 {
+						err, exitedWhileStarting, exitCode = nil, true, code
+					}
 					deleteCloudRunServiceInstanceIf(inst.Name, running)
 				}
 			}
 			if ctx.Err() != nil {
 				return
 			}
-			var exitCode int64
 			if err != nil {
 				sink.WriteLog(sim.LogLine{Stream: "stderr", Text: fmt.Sprintf("The instance failed to start: %v", err)})
 				if restarts == 0 {
@@ -318,11 +324,13 @@ func runCloudRunInstance(inst InstanceV2) {
 					run.started(nil)
 					settleCloudRunInstance(inst.Name, run, nil)
 				}
-				exitCode = running.awaitExit(ctx)
-				if ctx.Err() != nil {
-					return
+				if !exitedWhileStarting {
+					exitCode = running.awaitExit(ctx)
+					if ctx.Err() != nil {
+						return
+					}
+					deleteCloudRunServiceInstanceIf(inst.Name, running)
 				}
-				deleteCloudRunServiceInstanceIf(inst.Name, running)
 			}
 			// The instance's record settles before its exit is logged, so a
 			// reader of the log finds the outcome already recorded.
