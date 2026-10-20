@@ -7,7 +7,7 @@ require (
 	github.com/PaesslerAG/jsonpath v0.1.1
 	github.com/beevik/etree v1.8.1
 	github.com/coreos/go-oidc/v3 v3.21.0
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261020044833-6d35b7925b80
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261020051954-9401eefe7c40
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261015114713-b9f0cc68a078
 	github.com/fxamacker/cbor/v2 v2.9.6
 	github.com/go-git/go-git/v5 v5.19.3
