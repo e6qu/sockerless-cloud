@@ -294,20 +294,20 @@ func TestMain(m *testing.M) {
 	containerCommandImage = "sockerless-container-command:aws-cli"
 	buildGoScratchImage(containerCommandImage, containerCommandDir, "container-command", workloadPlatform)
 
-	// Find free port
+	// Hold the API port while the diagnostics port is chosen, or the system
+	// can hand the one just released out again as the second.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		log.Fatalf("Failed to find free port: %v", err)
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
-
 	simulatorPort = port
 	diagnosticsListener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		log.Fatalf("Failed to find a free diagnostics port: %v", err)
 	}
 	diagnosticsAddr = diagnosticsListener.Addr().String()
+	ln.Close()
 	diagnosticsListener.Close()
 	persistenceDir, err = os.MkdirTemp("", "sockerless-aws-cli-state-")
 	if err != nil {
