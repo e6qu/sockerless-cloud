@@ -271,7 +271,7 @@ func ec2RegisterTestAMI(t *testing.T, c *ec2.Client) string {
 		RootDeviceName: aws.String("/dev/sda1"),
 		BlockDeviceMappings: []types.BlockDeviceMapping{{
 			DeviceName: aws.String("/dev/sda1"),
-			Ebs:        &types.EbsBlockDevice{SnapshotId: aws.String("snap-0123456789abcdef0"), VolumeSize: aws.Int32(8)},
+			Ebs:        &types.EbsBlockDevice{SnapshotId: aws.String(ec2RootSnapshot(t, c)), VolumeSize: aws.Int32(8)},
 		}},
 	})
 	require.NoError(t, err)

@@ -240,7 +240,8 @@ func (e *Env) run(t *testing.T, args ...string) ([]byte, error) {
 		return buf.Bytes(), err
 	case <-watchdog:
 		killGroup()
-		<-done // reap the killed process so no zombie/orphan remains
+		// Reap the killed process so no zombie or orphan remains.
+		t.Logf("terraform %v killed at the watchdog: %v", args, <-done)
 		t.Fatalf("terraform %v timed out near the test deadline (process group killed to avoid orphans)\n%s",
 			args, buf.Bytes())
 		return nil, nil

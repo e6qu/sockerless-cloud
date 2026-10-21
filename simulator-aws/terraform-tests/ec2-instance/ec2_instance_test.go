@@ -28,6 +28,9 @@ func TestEC2InstanceTerraform(t *testing.T) {
 	assert.Equal(t, "x86_64", outputs["captured_architecture"].Value)
 	assert.Equal(t, "running", outputs["clone_state"].Value)
 	assert.Equal(t, outputs["captured_ami"].Value, outputs["clone_ami"].Value)
+	assert.Equal(t, "terminate", outputs["clone_shutdown_behavior"].Value)
+	assert.Equal(t, "stop", outputs["golden_shutdown_behavior"].Value)
+	env.Terraform(t, "plan", "-detailed-exitcode")
 
 	env.Terraform(t, "destroy", "-auto-approve")
 }

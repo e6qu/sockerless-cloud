@@ -95,7 +95,7 @@ func TestEC2_AMILifecycleSDK(t *testing.T) {
 		RootDeviceName: aws.String("/dev/xvda"),
 		BlockDeviceMappings: []types.BlockDeviceMapping{{
 			DeviceName: aws.String("/dev/xvda"),
-			Ebs:        &types.EbsBlockDevice{SnapshotId: aws.String("snap-0123456789abcdef0"), VolumeSize: aws.Int32(16)},
+			Ebs:        &types.EbsBlockDevice{SnapshotId: aws.String(ec2RootSnapshot(t, c)), VolumeSize: aws.Int32(16)},
 		}},
 	})
 	require.NoError(t, err)
@@ -115,7 +115,7 @@ func TestEC2_AMILifecycleSDK(t *testing.T) {
 		ImdsSupport:    types.ImdsSupportValuesV20,
 		BlockDeviceMappings: []types.BlockDeviceMapping{{
 			DeviceName: aws.String("/dev/xvda"),
-			Ebs:        &types.EbsBlockDevice{SnapshotId: aws.String("snap-0123456789abcdef0")},
+			Ebs:        &types.EbsBlockDevice{SnapshotId: aws.String(ec2RootSnapshot(t, c))},
 		}},
 	})
 	require.NoError(t, err)
@@ -125,6 +125,14 @@ func TestEC2_AMILifecycleSDK(t *testing.T) {
 		Name: aws.String("registered-imdsv1-ami"), RootDeviceName: aws.String("/dev/xvda"), ImdsSupport: "v1.0",
 	})
 	requireAWSErrorCode(t, err, "InvalidParameterValue")
+	_, err = c.RegisterImage(ctx, &ec2.RegisterImageInput{
+		Name: aws.String("registered-nowhere-ami"), RootDeviceName: aws.String("/dev/xvda"),
+		BlockDeviceMappings: []types.BlockDeviceMapping{{
+			DeviceName: aws.String("/dev/xvda"),
+			Ebs:        &types.EbsBlockDevice{SnapshotId: aws.String("snap-0123456789abcdef0")},
+		}},
+	})
+	requireAWSErrorCode(t, err, "InvalidSnapshot.NotFound")
 
 	// CopyImage gets its own id and preserves source metadata.
 	cp, err := c.CopyImage(ctx, &ec2.CopyImageInput{

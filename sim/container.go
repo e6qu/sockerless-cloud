@@ -829,6 +829,36 @@ func drainImagePull(reader io.Reader, imageName string) error {
 // turns a moment of throttle into a failed workload. Bounded
 // exponential backoff per the strict rate-limit rule; everything
 // non-transient fails immediately.
+// InspectHeldImage inspects the image the engine holds for name. `docker load`
+// restores no repository digest, so the engine holds a digest-pinned image a
+// base-image archive restored only under the tag that spells its digest,
+// repo:sha256-<hex>, which is where the archive saves it.
+func InspectHeldImage(ctx context.Context, cli *client.Client, name string) (client.ImageInspectResult, error) {
+	held, err := cli.ImageInspect(ctx, name)
+	if err == nil {
+		return held, nil
+	}
+	if tag := digestTag(name); tag != "" {
+		if byTag, tagErr := cli.ImageInspect(ctx, tag); tagErr == nil {
+			return byTag, nil
+		}
+	}
+	return held, err
+}
+
+// digestTag is the local tag of a digest-pinned image, repo:sha256-<hex> for
+// repo:tag@sha256:<hex>, or "" for a name that pins no digest.
+func digestTag(name string) string {
+	repo, digest, pinned := strings.Cut(name, "@sha256:")
+	if !pinned {
+		return ""
+	}
+	if slash, colon := strings.LastIndex(repo, "/"), strings.LastIndex(repo, ":"); colon > slash {
+		repo = repo[:colon]
+	}
+	return repo + ":sha256-" + digest
+}
+
 func pullImage(ctx context.Context, cli *client.Client, imageName, platform, registryAuth string) error {
 	pullOpts := client.ImagePullOptions{RegistryAuth: registryAuth}
 	var wanted *ocispec.Platform
@@ -851,7 +881,7 @@ func pullImage(ctx context.Context, cli *client.Client, imageName, platform, reg
 	// assumed: the simulator's own architecture is routinely not the
 	// workload's, and starting an amd64 image where arm64 was asked for would
 	// be a worse answer than fetching.
-	held, err := cli.ImageInspect(ctx, imageName)
+	held, err := InspectHeldImage(ctx, cli, imageName)
 	switch {
 	case err != nil:
 		fmt.Fprintf(os.Stderr, "[sim-pull] image pull %s: not held: %v\n", imageName, err)
@@ -1066,7 +1096,7 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	// a locally-built image inspects fine yet create reports "no such image".
 	// The image ID is unambiguous on both Docker and Podman, so create by ID.
 	imageRef := cfg.Image
-	if inspect, err := cli.ImageInspect(ctx, cfg.Image); err == nil && inspect.ID != "" {
+	if inspect, err := InspectHeldImage(ctx, cli, cfg.Image); err == nil && inspect.ID != "" {
 		imageRef = inspect.ID
 	}
 
@@ -1181,13 +1211,17 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	if err != nil {
 		return "", err
 	}
-	resp, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
+	create := client.ContainerCreateOptions{
 		Config:           containerCfg,
 		HostConfig:       hostCfg,
 		NetworkingConfig: networkCfg,
 		Platform:         platform,
 		Name:             cfg.Name,
-	})
+	}
+	resp, err := cli.ContainerCreate(ctx, create)
+	if err != nil && cerrdefs.IsConflict(err) && reclaimOrphanedName(ctx, cli, cfg.Name) {
+		resp, err = cli.ContainerCreate(ctx, create)
+	}
 	if err != nil {
 		return "", fmt.Errorf("container create: %w", err)
 	}
@@ -1205,6 +1239,26 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 	}
 
 	return resp.ID, nil
+}
+
+// reclaimOrphanedName removes the container holding name when a simulator
+// process that is gone made it: the engine's names are the simulator's to
+// give, and a run that died before its cleanup leaves a container no live
+// simulator drives.
+func reclaimOrphanedName(ctx context.Context, cli *client.Client, name string) bool {
+	if name == "" {
+		return false
+	}
+	held, err := cli.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
+	if err != nil || held.Container.Config == nil {
+		return false
+	}
+	labels := held.Container.Config.Labels
+	if labels["sockerless-sim"] != "true" || labels["sockerless-sim-run"] == simulatorRunID || !ownerIsDead(labels) {
+		return false
+	}
+	_, err = cli.ContainerRemove(ctx, held.Container.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+	return err == nil
 }
 
 // SeedFile is one file written into a container before it starts.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -230,11 +231,14 @@ type EC2Instance struct {
 	CpuThreadsPerCore      int
 	RootVolumeSize         int
 	RootVolumeType         string
-	MetadataHttpTokens     string
-	MetadataHttpEndpoint   string
-	MetadataHopLimit       int
-	MetadataInstanceTags   string
-	Placement              EC2Placement
+	// ShutdownBehavior is InstanceInitiatedShutdownBehavior: "stop" or
+	// "terminate".
+	ShutdownBehavior     string
+	MetadataHttpTokens   string
+	MetadataHttpEndpoint string
+	MetadataHopLimit     int
+	MetadataInstanceTags string
+	Placement            EC2Placement
 	// StateTransitionReason is the free-text reason for the most recent
 	// state transition (the DescribeInstances <reason> element); empty
 	// while the instance is running.
@@ -3202,7 +3206,7 @@ func ec2InstanceXML(inst EC2Instance) string {
 		groups.WriteString("")
 	}
 	var ni strings.Builder
-	if inst.NetworkInterfaceId != "" {
+	if _, attached := ec2NetworkInterfaces.Get(inst.NetworkInterfaceId); attached && inst.NetworkInterfaceId != "" {
 		fmt.Fprintf(&ni, `<networkInterfaceSet><item>
       <networkInterfaceId>%s</networkInterfaceId>
       <subnetId>%s</subnetId>
@@ -3465,6 +3469,10 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InvalidAMIID.NotFound", fmt.Sprintf("The image id '[%s]' does not exist", imageID), http.StatusBadRequest)
 		return
 	}
+	if _, err := ec2ImageRootFS(image); errors.Is(err, errEC2ImageNotBootable) {
+		ec2ErrorXML(w, "InvalidAMIID.Unavailable", fmt.Sprintf("The image id '[%s]' is not available", imageID), http.StatusBadRequest)
+		return
+	}
 	instanceType := r.FormValue("InstanceType")
 	if instanceType == "" {
 		instanceType = ltData.InstanceType
@@ -3544,6 +3552,13 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 	// Instance knobs: request value, else launch-template value, else the AWS
 	// default the API documents (metadata options). These are the fields
 	// aws_instance reads back; dropping them forces drift every plan.
+	shutdownBehavior := ec2FormOrLT(r, "InstanceInitiatedShutdownBehavior", ltData.InstanceInitiatedShutdownBehavior)
+	if shutdownBehavior == "" {
+		shutdownBehavior = "stop"
+	}
+	if !ec2ValidShutdownBehavior(w, shutdownBehavior) {
+		return
+	}
 	var ltMetaTokens, ltMetaEndpoint, ltMetaHop, ltMetaTags string
 	if m := ltData.MetadataOptions; m != nil {
 		ltMetaTokens, ltMetaEndpoint, ltMetaHop, ltMetaTags = m.HttpTokens, m.HttpEndpoint, m.HttpPutResponseHopLimit, m.InstanceMetadataTags
@@ -3584,6 +3599,7 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 		Monitoring:             ec2BoolStr(ec2FormOrLT(r, "Monitoring.Enabled", ltData.MonitoringEnabled)),
 		UserData:               ec2FormOrLT(r, "UserData", ltData.UserData),
 		DisableApiTermination:  ec2BoolStr(ec2FormOrLT(r, "DisableApiTermination", ltData.DisableApiTermination)),
+		ShutdownBehavior:       shutdownBehavior,
 		SourceDestCheck:        true, // AWS default; ModifyInstanceAttribute can disable it
 		CpuCoreCount:           ec2AtoiOr(r.FormValue("CpuOptions.CoreCount"), 0),
 		CpuThreadsPerCore:      ec2AtoiOr(r.FormValue("CpuOptions.ThreadsPerCore"), 0),
@@ -3756,11 +3772,14 @@ type EC2InstanceCreateSpec struct {
 	CpuThreadsPerCore      int
 	RootVolumeSize         int
 	RootVolumeType         string
-	MetadataHttpTokens     string
-	MetadataHttpEndpoint   string
-	MetadataHopLimit       int
-	MetadataInstanceTags   string
-	Placement              EC2Placement
+	// ShutdownBehavior is InstanceInitiatedShutdownBehavior: "stop" or
+	// "terminate".
+	ShutdownBehavior     string
+	MetadataHttpTokens   string
+	MetadataHttpEndpoint string
+	MetadataHopLimit     int
+	MetadataInstanceTags string
+	Placement            EC2Placement
 }
 
 func ec2CreateInstance(spec EC2InstanceCreateSpec) (EC2Instance, error) {
@@ -3804,6 +3823,7 @@ func ec2CreateInstance(spec EC2InstanceCreateSpec) (EC2Instance, error) {
 		Monitoring:             spec.Monitoring,
 		UserData:               spec.UserData,
 		DisableApiTermination:  spec.DisableApiTermination,
+		ShutdownBehavior:       spec.ShutdownBehavior,
 		SourceDestCheck:        spec.SourceDestCheck,
 		CpuCoreCount:           spec.CpuCoreCount,
 		CpuThreadsPerCore:      spec.CpuThreadsPerCore,
@@ -4215,7 +4235,7 @@ func handleDescribeInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 	case "disableApiStop":
 		body = "<disableApiStop><value>false</value></disableApiStop>"
 	case "instanceInitiatedShutdownBehavior":
-		body = "<instanceInitiatedShutdownBehavior><value>stop</value></instanceInitiatedShutdownBehavior>"
+		body = fmt.Sprintf("<instanceInitiatedShutdownBehavior><value>%s</value></instanceInitiatedShutdownBehavior>", ec2ShutdownBehavior(inst))
 	case "rootDeviceName":
 		body = fmt.Sprintf("<rootDeviceName><value>%s</value></rootDeviceName>", inst.RootDeviceName)
 	case "sourceDestCheck":
@@ -4233,10 +4253,31 @@ func handleDescribeInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 </DescribeInstanceAttributeResponse>`, ec2Xmlns(), sim.NewUUID(), instanceID, body)
 }
 
+func ec2ValidShutdownBehavior(w http.ResponseWriter, value string) bool {
+	if value == "stop" || value == "terminate" {
+		return true
+	}
+	ec2ErrorXML(w, "InvalidParameterValue", fmt.Sprintf("Value (%s) for parameter instanceInitiatedShutdownBehavior is invalid. Valid values are 'stop' and 'terminate'.", value), http.StatusBadRequest)
+	return false
+}
+
+// ec2ShutdownBehavior is the instance's InstanceInitiatedShutdownBehavior; an
+// instance recorded without one has EC2's default.
+func ec2ShutdownBehavior(inst EC2Instance) string {
+	if inst.ShutdownBehavior == "" {
+		return "stop"
+	}
+	return inst.ShutdownBehavior
+}
+
 func handleModifyInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 	instanceID := r.FormValue("InstanceId")
 	if _, ok := ec2Instances.Get(instanceID); !ok {
 		ec2ErrorXML(w, "InvalidInstanceID.NotFound", fmt.Sprintf("The instance ID '%s' does not exist", instanceID), http.StatusBadRequest)
+		return
+	}
+	shutdownBehavior := r.FormValue("InstanceInitiatedShutdownBehavior.Value")
+	if shutdownBehavior != "" && !ec2ValidShutdownBehavior(w, shutdownBehavior) {
 		return
 	}
 	// Persist the modified attributes (previously a no-op: the set succeeded but
@@ -4257,6 +4298,9 @@ func handleModifyInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 		}
 		if v := r.FormValue("UserData.Value"); v != "" {
 			inst.UserData = v
+		}
+		if shutdownBehavior != "" {
+			inst.ShutdownBehavior = shutdownBehavior
 		}
 		if groups := ec2ParamList(r, "GroupId"); len(groups) > 0 {
 			inst.SecurityGroupIds = groups

@@ -3946,6 +3946,34 @@ project onto the v2 `vpcAccess` of a service's revision template and of a
 job's task template, and fold back when read, so a service or job created
 through the v1 surface runs on the VPC its annotations name.
 
+Compute Engine creates the `default` network of a project with the four
+ingress rules Google creates with it: `default-allow-internal` (TCP and UDP on
+every port and ICMP from `10.128.0.0/9`), `default-allow-ssh` (TCP 22),
+`default-allow-rdp` (TCP 3389) and `default-allow-icmp`, from anywhere, all at
+priority 65534. An Amazon EC2 instance keeps its
+`InstanceInitiatedShutdownBehavior` from `RunInstances` or its launch template
+and from `ModifyInstanceAttribute`, and `DescribeInstanceAttribute` reads it
+back; a guest that powers itself off stops the instance, or terminates it
+with its network interface and its delete-on-termination volumes when the
+attribute says `terminate`. The instance init honours the signals real init
+systems power off on, systemd's SIGRTMIN+4 and busybox init's SIGUSR2, so a
+guest's own poweroff ends it. `RunInstances` refuses an AMI that names no root
+filesystem `InvalidAMIID.Unavailable`, where the instance had launched and
+died, and `RegisterImage` refuses a root device mapping whose snapshot does
+not exist `InvalidSnapshot.NotFound`; the suites register AMIs over snapshots
+they create, and the instance type specification tests over the Amazon Linux
+AMI's root filesystem. The AWS SDK suite's Terraform provider mirror fetch runs with the host's
+proxy and CA bundle, so the suite runs from a host whose egress goes through a
+proxy. A container create whose name a container of a simulator process
+that is gone still holds removes that container and creates again, since the
+engine's names are the simulator's to give and a run that died before its
+cleanup leaves containers no live simulator drives. The simulator finds a
+digest-pinned image that a base-image archive restored under the tag that spells its
+digest (`repo:sha256-<hex>`, since `docker load` restores no repository
+digest), and starts the workload from it without asking the registry.
+`DescribeInstances` lists an instance's network interface only while the
+interface exists, so a terminated instance lists none, as on EC2.
+
 Every etag check holds the record it guards until its write is done: Secret
 Manager and Bigtable `SetIamPolicy` and their seeding `GetIamPolicy` share
 Cloud IAM's lock, and Bigtable memory layers, Organization Policy and

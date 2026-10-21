@@ -23,12 +23,12 @@ func LocalImagePlatform(ctx context.Context, image, registryAuth string) (string
 	if cli == nil {
 		return "", fmt.Errorf("docker client not initialized")
 	}
-	inspect, err := cli.ImageInspect(ctx, image)
+	inspect, err := sim.InspectHeldImage(ctx, cli, image)
 	if err != nil {
 		if pullErr := sim.PullImageWithCredential(ctx, image, "", registryAuth); pullErr != nil {
 			return "", fmt.Errorf("inspect image %q platform: %w; pull image: %w", image, err, pullErr)
 		}
-		inspect, err = cli.ImageInspect(ctx, image)
+		inspect, err = sim.InspectHeldImage(ctx, cli, image)
 		if err != nil {
 			return "", fmt.Errorf("inspect pulled image %q platform: %w", image, err)
 		}

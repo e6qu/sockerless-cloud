@@ -268,6 +268,10 @@ func handleRegisterImage(w http.ResponseWriter, r *http.Request) {
 	rootType := "instance-store"
 	size := 0
 	if snapID != "" {
+		if _, ok := ec2Snapshots.Get(snapID); !ok {
+			ec2ErrorXML(w, "InvalidSnapshot.NotFound", fmt.Sprintf("The snapshot %q does not exist", snapID), http.StatusBadRequest)
+			return
+		}
 		rootType = "ebs"
 		size = ec2AtoiOr(r.FormValue("BlockDeviceMapping.1.Ebs.VolumeSize"), 8)
 	}

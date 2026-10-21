@@ -534,6 +534,22 @@ func pullImageWithRetry(image string) {
 // provider is fetched before the task starts and committed into the workload
 // image as a filesystem mirror. The task itself therefore proves the AWS API
 // path without depending on undeclared internet egress.
+// hostEgressArgs hands the host's outbound proxy and the CA bundle that
+// proxy's certificates chain to into a container on the host network, so the
+// registry fetch takes the same egress path as the host's own.
+func hostEgressArgs() []string {
+	var args []string
+	for _, key := range []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"} {
+		if v, ok := os.LookupEnv(key); ok {
+			args = append(args, "-e", key+"="+v)
+		}
+	}
+	if bundle, ok := os.LookupEnv("SSL_CERT_FILE"); ok {
+		args = append(args, "-v", bundle+":/etc/ssl/certs/ca-certificates.crt:ro")
+	}
+	return args
+}
+
 func buildTerraformAWSImage(platform string) {
 	pullImageWithRetry(terraformECSBaseImage)
 
@@ -577,17 +593,21 @@ func buildTerraformAWSImage(platform string) {
 		if err := os.MkdirAll(mirrorPath, 0755); err != nil {
 			log.Fatalf("Failed to create Terraform AWS provider mirror: %v", err)
 		}
-		cmd := exec.Command(
-			"docker", "run", "--rm",
+		args := []string{
+			"run", "--rm",
 			"--network", "host",
 			"--platform", platform,
-			"-v", buildDir+":/workspace",
+			"-v", buildDir + ":/workspace",
 			"-w", "/workspace",
+		}
+		args = append(args, hostEgressArgs()...)
+		args = append(args,
 			terraformECSBaseImage,
 			"providers", "mirror",
 			"-platform="+platformName,
 			"/workspace/provider-mirror",
 		)
+		cmd := exec.Command("docker", args...)
 		if out, runErr := cmd.CombinedOutput(); runErr == nil {
 			lastErr = nil
 			break
