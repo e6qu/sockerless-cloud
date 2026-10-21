@@ -99,6 +99,8 @@ type acaReplica struct {
 	revision   string
 	created    time.Time
 	containers []*acaReplicaContainer
+	// initContainers ran to completion before containers started.
+	initContainers []*acaReplicaContainer
 	// address is the pod's, which it keeps across restarts in place until
 	// release.
 	address string
@@ -123,6 +125,29 @@ type acaReplicaContainer struct {
 	terminated  bool
 	exitCode    int
 	restarts    int
+	// ready is whether the container passed its startup probe and its
+	// readiness probe holds.
+	ready bool
+}
+
+func (c *acaReplicaContainer) setReady(ready bool) {
+	c.mu.Lock()
+	c.ready = ready
+	c.mu.Unlock()
+}
+
+// ready reports whether every container of the replica is ready, which is
+// when its ingress sends it requests.
+func (r *acaReplica) ready() bool {
+	for _, c := range r.containers {
+		c.mu.Lock()
+		ready := c.ready && !c.terminated
+		c.mu.Unlock()
+		if !ready {
+			return false
+		}
+	}
+	return true
 }
 
 // sink feeds the container's output to its log stream and to the
@@ -156,6 +181,7 @@ func (c *acaReplicaContainer) track(handle placement.Handle, resourceID, envID, 
 	c.mu.Lock()
 	c.containerID = handle.ID()
 	c.terminated = false
+	c.ready = false
 	c.mu.Unlock()
 	c.log.reopen()
 	acaRecordSystemEvent(resourceID, envID, appName, revision, replica, "ContainerCreated", fmt.Sprintf("Created container '%s'", c.name))
@@ -176,7 +202,7 @@ func (c *acaReplicaContainer) track(handle placement.Handle, resourceID, envID, 
 	})
 }
 
-func newACAReplica(name, revision string, containerNames []string) *acaReplica {
+func newACAReplica(name, revision string, containerNames, initNames []string) *acaReplica {
 	replica := &acaReplica{
 		name:     name,
 		revision: revision,
@@ -184,6 +210,9 @@ func newACAReplica(name, revision string, containerNames []string) *acaReplica {
 	}
 	for _, name := range containerNames {
 		replica.containers = append(replica.containers, &acaReplicaContainer{name: name, log: newACALog()})
+	}
+	for _, name := range initNames {
+		replica.initContainers = append(replica.initContainers, &acaReplicaContainer{name: name, log: newACALog()})
 	}
 	return replica
 }
@@ -276,6 +305,7 @@ type ContainerAppReplicaProps struct {
 	RunningState        string                         `json:"runningState"`
 	RunningStateDetails string                         `json:"runningStateDetails,omitempty"`
 	Containers          []ContainerAppReplicaContainer `json:"containers"`
+	InitContainers      []ContainerAppReplicaContainer `json:"initContainers,omitempty"`
 }
 
 // ContainerAppReplicaContainer mirrors armappcontainers.ReplicaContainer.
@@ -379,12 +409,13 @@ func acaReplicaView(r *http.Request, app ContainerApp, replica *acaReplica) Cont
 	if acaReplicaRunning(replica) {
 		view.Properties.RunningState = "Running"
 	}
-	for _, c := range replica.containers {
+	holder := func(c *acaReplicaContainer) ContainerAppReplicaContainer {
 		c.mu.Lock()
-		holder := ContainerAppReplicaContainer{
+		defer c.mu.Unlock()
+		h := ContainerAppReplicaContainer{
 			Name:         c.name,
 			ContainerID:  c.containerID,
-			Ready:        !c.terminated,
+			Ready:        c.ready && !c.terminated,
 			Started:      c.containerID != "",
 			RestartCount: int32(c.restarts),
 			RunningState: "Running",
@@ -392,14 +423,19 @@ func acaReplicaView(r *http.Request, app ContainerApp, replica *acaReplica) Cont
 				azureRequestScheme(r), r.Host, sub, rg, app.Name, replica.revision, replica.name, c.name),
 		}
 		if c.terminated {
-			holder.RunningState = "Terminated"
-			holder.RunningStateDetails = "Completed"
+			h.RunningState = "Terminated"
+			h.RunningStateDetails = "Completed"
 			if c.exitCode != 0 {
-				holder.RunningStateDetails = "Error"
+				h.RunningStateDetails = "Error"
 			}
 		}
-		c.mu.Unlock()
-		view.Properties.Containers = append(view.Properties.Containers, holder)
+		return h
+	}
+	for _, c := range replica.containers {
+		view.Properties.Containers = append(view.Properties.Containers, holder(c))
+	}
+	for _, c := range replica.initContainers {
+		view.Properties.InitContainers = append(view.Properties.InitContainers, holder(c))
 	}
 	return view
 }
@@ -567,7 +603,7 @@ func registerContainerAppsReplicas(srv *sim.Server, apps sim.Store[ContainerApp]
 		}
 		name := sim.PathParam(r, "containerName")
 		var container *acaReplicaContainer
-		for _, c := range replica.containers {
+		for _, c := range append(append([]*acaReplicaContainer(nil), replica.containers...), replica.initContainers...) {
 			if c.name == name {
 				container = c
 			}

@@ -5,16 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net"
 	"slices"
 	"sort"
-	"strconv"
 	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
-	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/replicas"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
@@ -163,68 +160,30 @@ func newACARevisionWorkload(ctx context.Context, app ContainerApp, rev acaRevisi
 }
 
 // members are the containers of one replica, the app's own and the Dapr
-// sidecar, labelled with the revision and the replica they belong to.
-func (wl acaRevisionWorkload) members(replica string) []workload.Member {
+// sidecar, labelled with the revision and the replica they belong to. Each of
+// the app's containers starts once its startup and readiness probes pass.
+func (wl acaRevisionWorkload) members(replica *acaReplica) []workload.Member {
 	containers := wl.app.Properties.Template.Containers
 	members := make([]workload.Member, 0, len(containers)+1)
-	for _, c := range containers {
-		container := acaAppContainer(wl.app, c, replica, wl.envID, wl.metadataEnv, wl.secrets)
+	for i, c := range containers {
+		container := acaAppContainer(wl.app, c, replica.name, wl.envID, wl.metadataEnv, wl.secrets)
 		container.Config.Labels[acaRevisionLabel] = wl.rev.ID
-		container.Config.Labels[acaReplicaLabel] = replica
+		container.Config.Labels[acaReplicaLabel] = replica.name
 		container.Config.Labels[acaContainerLabel] = c.Name
-		members = append(members, workload.Member{Container: container})
+		record, probes := replica.containers[i], acaContainerProbes(wl.app, c, i == 0)
+		members = append(members, workload.Member{Container: container,
+			Startup: func(ctx context.Context, member, owner placement.Handle) error {
+				return record.startProbes(ctx, probes, member, owner, func() { owner.Stop() })
+			}})
 	}
 	if d := containerAppDaprSpec(wl.app); d != nil {
-		dapr := acaAppDaprContainer(wl.app, d, replica)
+		dapr := acaAppDaprContainer(wl.app, d, replica.name)
 		dapr.Config.Labels[acaRevisionLabel] = wl.rev.ID
-		dapr.Config.Labels[acaReplicaLabel] = replica
+		dapr.Config.Labels[acaReplicaLabel] = replica.name
 		dapr.Config.Labels[acaContainerLabel] = "daprd"
 		members = append(members, workload.Member{Container: dapr})
 	}
-	if acaIngressEnabled(wl.app) {
-		port := int(acaIngressTargetPort(wl.app))
-		members[0].Startup = func(ctx context.Context, member, _ placement.Handle) error {
-			return acaAwaitListening(ctx, member, port)
-		}
-	}
 	return members
-}
-
-// Container Apps' default startup probe on the ingress target port: a TCP
-// connection, one second after the container starts and every second after,
-// each given three seconds, failing after 240 attempts.
-const (
-	acaStartupProbeDelay    = time.Second
-	acaStartupProbePeriod   = time.Second
-	acaStartupProbeTimeout  = 3 * time.Second
-	acaStartupProbeFailures = 240
-)
-
-// acaAwaitListening returns once the replica's main container accepts a
-// connection on port, as the default startup probe sees it, or fails when the
-// probe's attempts run out or the container exits.
-func acaAwaitListening(ctx context.Context, member placement.Handle, port int) error {
-	wait := acaStartupProbeDelay
-	var last error
-	for range acaStartupProbeFailures {
-		select {
-		case <-member.Exited():
-			return fmt.Errorf("the container exited before it listened on port %d", port)
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(wait):
-		}
-		wait = acaStartupProbePeriod
-		address, err := member.Address(ctx)
-		if err != nil || address == "" {
-			last = fmt.Errorf("the container has no address: %v", err)
-			continue
-		}
-		if last = lbplane.ProbeTCP(ctx, net.JoinHostPort(address, strconv.Itoa(port)), acaStartupProbeTimeout); last == nil {
-			return nil
-		}
-	}
-	return fmt.Errorf("startup probe failed: %w", last)
 }
 
 // newACARevisionRun is the replica set of a revision.
@@ -234,6 +193,10 @@ func newACARevisionRun(wl acaRevisionWorkload) *acaRevisionRun {
 	names := make([]string, 0, len(app.Properties.Template.Containers))
 	for _, c := range app.Properties.Template.Containers {
 		names = append(names, c.Name)
+	}
+	initNames := make([]string, 0, len(app.Properties.Template.InitContainers))
+	for _, c := range app.Properties.Template.InitContainers {
+		initNames = append(initNames, c.Name)
 	}
 	run.set = replicas.New(replicas.Spec{
 		NewID:   func() string { return acaReplicaName(rev.Name) },
@@ -246,11 +209,11 @@ func newACARevisionRun(wl acaRevisionWorkload) *acaRevisionRun {
 			if restarting {
 				replica.restarting()
 			} else {
-				replica = newACAReplica(name, rev.Name, names)
+				replica = newACAReplica(name, rev.Name, names, initNames)
 				acaRecordSystemEvent(app.ID, wl.envID, app.Name, rev.Name, replica.name, "AssigningReplica",
 					fmt.Sprintf("Replica '%s' has been scheduled to run on a node.", replica.name))
 			}
-			members := wl.members(name)
+			members := wl.members(replica)
 			// The pod holds its address across restarts in place; the
 			// replica's record releases it once the replica ends.
 			if !restarting {
@@ -267,6 +230,23 @@ func newACARevisionRun(wl acaRevisionWorkload) *acaRevisionRun {
 				}
 				return nil, nil, err
 			}
+			pod := func(cfg *sim.ContainerConfig) {
+				// A replica is a pod, and a pod's hostname is its name.
+				cfg.Hostname = replica.name
+				cfg.Network = wl.network.Network
+				cfg.NetworkAliases = wl.netAliases
+				cfg.DNS = wl.network.resolvers()
+				cfg.ExtraHosts = workloadhost.ExtraHosts()
+				cfg.IPv4Address = replica.address
+			}
+			// A pod runs its init containers once, not again when its
+			// containers restart in place.
+			if !restarting {
+				if err := wl.runInitContainers(ctx, backend, replica, pod); err != nil {
+					replica.release()
+					return nil, nil, err
+				}
+			}
 			group, err := workload.StartGroup(ctx, backend, members, workload.StartOptions{
 				Sink: func(i int) sim.LogSink {
 					if i < len(replica.containers) {
@@ -274,15 +254,7 @@ func newACARevisionRun(wl acaRevisionWorkload) *acaRevisionRun {
 					}
 					return &acaAppLogSink{app: app, container: "daprd"}
 				},
-				Owner: func(cfg *sim.ContainerConfig) {
-					// A replica is a pod, and a pod's hostname is its name.
-					cfg.Hostname = replica.name
-					cfg.Network = wl.network.Network
-					cfg.NetworkAliases = wl.netAliases
-					cfg.DNS = wl.network.resolvers()
-					cfg.ExtraHosts = workloadhost.ExtraHosts()
-					cfg.IPv4Address = replica.address
-				},
+				Owner: pod,
 				Placed: func(i int, h placement.Handle) {
 					if i < len(replica.containers) {
 						replica.containers[i].track(h, app.ID, wl.envID, app.Name, rev.Name, replica.name)
@@ -383,7 +355,10 @@ func acaPickReplica(revisionID string) (*workload.Group, bool) {
 	if !ok {
 		return nil, false
 	}
-	_, group, ok := run.set.Pick()
+	_, group, ok := run.set.Pick(func(r *replicas.Replica) bool {
+		replica, ok := run.replica(r.ID)
+		return ok && replica.ready()
+	})
 	return group, ok
 }
 
@@ -529,8 +504,16 @@ func adoptACAReplica(ctx context.Context, backend placement.Backend, wl acaRevis
 	for _, c := range app.Properties.Template.Containers {
 		names = append(names, c.Name)
 	}
-	replica := newACAReplica(replicaName, rev.Name, names)
-	members := wl.members(replicaName)
+	initNames := make([]string, 0, len(app.Properties.Template.InitContainers))
+	for _, c := range app.Properties.Template.InitContainers {
+		initNames = append(initNames, c.Name)
+	}
+	replica := newACAReplica(replicaName, rev.Name, names, initNames)
+	// The pod's init containers completed before its containers ran.
+	for _, c := range replica.initContainers {
+		c.terminated = true
+	}
+	members := wl.members(replica)
 	handles := make([]placement.Handle, 0, len(members))
 	cancel := func() {
 		for _, h := range handles {
@@ -567,6 +550,11 @@ func adoptACAReplica(ctx context.Context, backend placement.Backend, wl acaRevis
 		return nil, nil, err
 	}
 	replica.address, replica.release = address, release
+	// The replica ran ready before the restart; its probes carry on.
+	for i, c := range app.Properties.Template.Containers {
+		replica.containers[i].setReady(true)
+		replica.containers[i].watchProbes(acaContainerProbes(app, c, i == 0), handles[i], address, func() { handles[0].Stop() })
+	}
 	run.add(replica)
 	return &workload.Group{Main: handles[0], Sidecars: handles[1:]}, nil, nil
 }
@@ -580,4 +568,35 @@ func acaReplicaName(revision string) string {
 // acaIngressEnabled reports whether the app takes traffic through ingress.
 func acaIngressEnabled(app ContainerApp) bool {
 	return app.Properties.Configuration != nil && app.Properties.Configuration.Ingress != nil
+}
+
+// runInitContainers runs the template's init containers one after another
+// with the pod's address and hostname, each to a zero exit, before the app's
+// containers start.
+func (wl acaRevisionWorkload) runInitContainers(ctx context.Context, backend placement.Backend, replica *acaReplica, pod func(*sim.ContainerConfig)) error {
+	for i, c := range wl.app.Properties.Template.InitContainers {
+		container := acaAppContainer(wl.app, c, replica.name, wl.envID, wl.metadataEnv, wl.secrets)
+		container.Config.Name += "-init"
+		container.Config.Labels[acaRevisionLabel] = wl.rev.ID
+		container.Config.Labels[acaReplicaLabel] = replica.name
+		container.Config.Labels[acaContainerLabel] = c.Name
+		pod(&container.Config)
+		record := replica.initContainers[i]
+		handle, err := workload.Place(ctx, backend, "init", container, record.sink(wl.app, wl.rev.Name))
+		if err != nil {
+			return err
+		}
+		record.track(handle, wl.app.ID, wl.envID, wl.app.Name, wl.rev.Name, replica.name)
+		select {
+		case <-handle.Exited():
+		case <-ctx.Done():
+			handle.Cancel()
+			<-handle.Exited()
+			return ctx.Err()
+		}
+		if result := handle.Wait(); result.Error != nil || result.ExitCode != 0 {
+			return fmt.Errorf("init container '%s' exited %d: %v", c.Name, result.ExitCode, result.Error)
+		}
+	}
+	return nil
 }

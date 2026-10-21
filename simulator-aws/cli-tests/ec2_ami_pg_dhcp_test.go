@@ -29,6 +29,8 @@ func TestEC2CLI_AMIPlacementDhcp(t *testing.T) {
 	if ami == "" {
 		t.Fatal("create-image returned empty ImageId")
 	}
+	// The image is pending until its snapshots complete.
+	runCLI(t, awsCLI("ec2", "wait", "image-available", "--image-ids", ami))
 	got := q("ec2", "describe-images", "--image-ids", ami,
 		"--query", "Images[0].[Name,State,RootDeviceType]", "--output", "text")
 	if f := strings.Fields(got); len(f) != 3 || f[0] != "cli-golden-ami" || f[1] != "available" || f[2] != "ebs" {

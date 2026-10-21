@@ -477,15 +477,16 @@ func (s *Set) Replicas() []*Replica {
 	return out
 }
 
-// Pick is the next running replica in turn, for a front end that spreads its
-// requests across them.
-func (s *Set) Pick() (*Replica, *workload.Group, bool) {
+// Pick is the next running replica in turn that ready accepts, for a front
+// end that spreads its requests across them; a nil ready accepts every
+// running replica.
+func (s *Set) Pick(ready func(*Replica) bool) (*Replica, *workload.Group, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for range s.replicas {
 		r := s.replicas[s.next%len(s.replicas)]
 		s.next++
-		if group, ok := r.Group(); ok {
+		if group, ok := r.Group(); ok && (ready == nil || ready(r)) {
 			return r, group, true
 		}
 	}

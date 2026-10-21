@@ -212,7 +212,7 @@ func readContainerAppConsole(t *testing.T, apps *armappcontainers.ContainerAppsC
 	replica, err := replicas.GetReplica(ctx, rg, app, revision, ptrVal(listed.Value[0].Name), nil)
 	require.NoError(t, err)
 	endpoint := ""
-	for _, c := range replica.Properties.Containers {
+	for _, c := range append(replica.Properties.Containers, replica.Properties.InitContainers...) {
 		if ptrVal(c.Name) == container {
 			endpoint = ptrVal(c.LogStreamEndpoint)
 		}

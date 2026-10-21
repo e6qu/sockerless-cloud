@@ -755,6 +755,10 @@ func acaSettleAppIdentity(w http.ResponseWriter, app *ContainerApp, prev Contain
 		AzureError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
 		return nil, false
 	}
+	if err := acaValidateProbes(app.Properties.Template); err != nil {
+		AzureError(w, "InvalidParameterValue", err.Error(), http.StatusBadRequest)
+		return nil, false
+	}
 	syncManagedIdentityPrincipal(prev.Identity, app.Identity, app.SystemIdentityClientID, app.Name)
 	if _, err := acaResolveSecrets(app.Identity, secrets); err != nil {
 		syncManagedIdentityPrincipal(app.Identity, prev.Identity, prev.SystemIdentityClientID, prev.Name)

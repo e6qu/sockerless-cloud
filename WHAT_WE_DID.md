@@ -3907,6 +3907,17 @@ choosing them one at a time released each before the next, so the system could
 return the same port twice, and the simulator and the HTTPS gateway's admin
 endpoint once both took one.
 
+A Container Apps container's `probes` run with Kubernetes' semantics: a
+startup probe, then a first passing readiness probe, makes the container
+started and ready, which a replica must be in every container for ingress
+to send it requests; a failing readiness probe takes the replica out of
+ingress until it passes again, and a failing liveness probe restarts the
+replica in place. The container ingress targets gets the platform's TCP
+probes on the target port for every type its template leaves unset. A
+replica runs its `initContainers` one after another on its address, each to a
+zero exit, before its containers start, reports them under `initContainers`
+and streams their logs; one that fails fails the revision.
+
 An Amazon ECS task belongs to the deployment that started it, by
 `startedBy`, so a forced deployment, or one that changes only the network,
 load balancers or volumes, replaces every task and the deployment it

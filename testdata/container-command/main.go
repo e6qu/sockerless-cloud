@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"time"
 )
 
@@ -83,6 +84,29 @@ func main() {
 			_, _ = io.WriteString(w, value)
 		})
 		if err := http.ListenAndServe(":"+os.Args[2], handler); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "health-http":
+		// An HTTP server that answers / with RESPONSE and /healthz with 200
+		// until a POST to /unhealthy, after which /healthz answers 503.
+		if len(os.Args) != 4 {
+			fmt.Fprintln(os.Stderr, "usage: container-command health-http PORT RESPONSE")
+			os.Exit(2)
+		}
+		var unhealthy atomic.Bool
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, os.Args[3]) })
+		mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+			if unhealthy.Load() {
+				w.WriteHeader(http.StatusServiceUnavailable)
+			}
+		})
+		mux.HandleFunc("POST /unhealthy", func(http.ResponseWriter, *http.Request) {
+			fmt.Println("unhealthy")
+			unhealthy.Store(true)
+		})
+		if err := http.ListenAndServe(":"+os.Args[2], mux); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
