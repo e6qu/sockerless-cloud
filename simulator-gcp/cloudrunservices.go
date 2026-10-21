@@ -379,6 +379,8 @@ type cloudRunServiceInstance struct {
 	owner   placement.Handle
 	ingress placement.Handle
 	handles []placement.Handle
+	// group is the instance's containers once they all started.
+	group   *workload.Group
 	stopped bool
 }
 
@@ -390,22 +392,6 @@ func (inst *cloudRunServiceInstance) awaitReady(ctx context.Context) (string, er
 		return inst.address, inst.startErr
 	case <-ctx.Done():
 		return "", ctx.Err()
-	}
-}
-
-// ingressRunning reports whether the ingress container is still running.
-func (inst *cloudRunServiceInstance) ingressRunning() bool {
-	inst.mu.Lock()
-	ingress := inst.ingress
-	inst.mu.Unlock()
-	if ingress == nil {
-		return false
-	}
-	select {
-	case <-ingress.Exited():
-		return false
-	default:
-		return true
 	}
 }
 
@@ -431,10 +417,8 @@ var cloudRunServiceInstances = struct {
 	byName map[string]*cloudRunServiceInstance
 }{byName: map[string]*cloudRunServiceInstance{}}
 
-// ensureCloudRunServiceInstance returns the service's running instance, or
-// starts one: the container that owns its network namespace at once, and the
-// others and the startup probes in the background, in dependsOn order;
-// awaitReady waits for them.
+// ensureCloudRunServiceInstance returns the Cloud Run instance's running
+// containers, or starts them.
 func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, vpc *VpcAccess, containers []Container, volumes []Volume, sink sim.LogSink) (*cloudRunServiceInstance, error) {
 	specSig := serviceContainersSignature(containers, volumes)
 
@@ -448,6 +432,27 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 	cloudRunServiceInstances.Unlock()
 	stopCloudRunServiceInstance(old)
 
+	inst, err := startCloudRunServiceInstance(ctx, name, serviceID, sim.RandomHex(8), vpc, containers, volumes, sink)
+	if err != nil {
+		return nil, err
+	}
+	cloudRunServiceInstances.Lock()
+	if old := cloudRunServiceInstances.byName[name]; old != nil {
+		cloudRunServiceInstances.Unlock()
+		stopCloudRunServiceInstance(inst)
+		return nil, fmt.Errorf("instance %q replaced while starting", name)
+	}
+	cloudRunServiceInstances.byName[name] = inst
+	cloudRunServiceInstances.Unlock()
+	return inst, nil
+}
+
+// startCloudRunServiceInstance starts the containers of instance instanceID
+// of name, a service revision or a Cloud Run instance: the container that
+// owns its network namespace at once, and the others and the startup probes
+// in the background, in dependsOn order; awaitReady waits for them.
+func startCloudRunServiceInstance(ctx context.Context, name, serviceID, instanceID string, vpc *VpcAccess, containers []Container, volumes []Volume, sink sim.LogSink) (*cloudRunServiceInstance, error) {
+	specSig := serviceContainersSignature(containers, volumes)
 	order, err := cloudRunContainerStartOrder(containers)
 	if err != nil {
 		return nil, err
@@ -474,7 +479,6 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 			return nil, err
 		}
 	}
-	instanceID := sim.RandomHex(8)
 	netw, err := gcpCloudRunNetwork(ctx, project, resourceLocation(name), vpc, fmt.Sprintf("sockerless-sim-cloudrun-svc-%s-%s", serviceID, instanceID))
 	if err != nil {
 		return nil, err
@@ -552,15 +556,6 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 		releaseMounts: releaseMounts,
 	}
 	mountsHeld = false
-	cloudRunServiceInstances.Lock()
-	if old := cloudRunServiceInstances.byName[name]; old != nil {
-		cloudRunServiceInstances.Unlock()
-		close(inst.ready)
-		stopCloudRunServiceInstance(inst)
-		return nil, fmt.Errorf("service %q instance replaced while starting", name)
-	}
-	cloudRunServiceInstances.byName[name] = inst
-	cloudRunServiceInstances.Unlock()
 
 	// The first container to start owns the network namespace the others
 	// join, and with it the published ingress port, the network the
@@ -572,7 +567,7 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 	members[0].Startup = cloudRunMemberStartup(containers[0])
 	bg.Go(func() {
 		defer close(inst.ready)
-		_, err := workload.StartGroup(lifeCtx, backend, members, workload.StartOptions{
+		group, err := workload.StartGroup(lifeCtx, backend, members, workload.StartOptions{
 			Sink: func(int) sim.LogSink { return sink },
 			Owner: func(cfg *sim.ContainerConfig) {
 				netw.apply(cfg)
@@ -586,6 +581,7 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 		}
 		inst.mu.Lock()
 		ownerHandle := inst.owner
+		inst.group = group
 		inst.mu.Unlock()
 		inst.address, inst.startErr = cloudRunContainerRoute(lifeCtx, ownerHandle, ingressPort)
 	})
@@ -596,24 +592,6 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 // revisions its traffic no longer reaches, by weight or by tag.
 func stopUnroutedCloudRunRevisions(svc ServiceV2) {
 	stopCloudRunRevisionInstances(svc.Name, cloudRunRoutedRevisions(svc))
-}
-
-// stopCloudRunRevisionInstances stops the instance of every revision of the
-// service that keep does not name.
-func stopCloudRunRevisionInstances(serviceName string, keep map[string]bool) {
-	prefix := serviceName + "/revisions/"
-	var stopped []*cloudRunServiceInstance
-	cloudRunServiceInstances.Lock()
-	for name, inst := range cloudRunServiceInstances.byName {
-		if strings.HasPrefix(name, prefix) && !keep[name] {
-			delete(cloudRunServiceInstances.byName, name)
-			stopped = append(stopped, inst)
-		}
-	}
-	cloudRunServiceInstances.Unlock()
-	for _, inst := range stopped {
-		bg.Go(func() { stopCloudRunServiceInstance(inst) })
-	}
 }
 
 func deleteCloudRunServiceInstance(name string) {
@@ -844,6 +822,7 @@ func rollOutServiceRevision(svc ServiceV2, templateChanged bool) ServiceV2 {
 	crv2Services.Put(svc.Name, svc)
 	projectCloudRunV2ToV1(svc)
 	stopUnroutedCloudRunRevisions(svc)
+	keepCloudRunRevisionsWarm(svc)
 	return svc
 }
 
@@ -928,6 +907,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		services.Put(name, svc)
 		reconcileServiceRevision(revisionStore, name, svc.LatestCreatedRevision[strings.LastIndex(svc.LatestCreatedRevision, "/")+1:], svc)
 		projectCloudRunV2ToV1(svc)
+		keepCloudRunRevisionsWarm(svc)
 
 		lro := cloudRunLRO(project, location, svc, "type.googleapis.com/google.cloud.run.v2.Service")
 		sim.WriteJSON(w, http.StatusOK, lro)

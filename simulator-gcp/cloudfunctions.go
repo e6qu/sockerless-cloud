@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"sort"
@@ -236,6 +235,7 @@ func registerCloudFunctions(srv *sim.Server) {
 		reconcileServiceRevision(crv2Revisions, backingService.Name,
 			backingService.LatestCreatedRevision[strings.LastIndex(backingService.LatestCreatedRevision, "/")+1:], backingService)
 		projectCloudRunV2ToV1(backingService)
+		keepCloudRunRevisionsWarm(backingService)
 
 		functions.Put(name, fn)
 
@@ -606,17 +606,6 @@ func cloudFunctionRuntimes() []map[string]any {
 	return out
 }
 
-// cfLogSink implements sim.LogSink and writes log lines to Cloud Logging
-// for Cloud Function invocations.
-type cfLogSink struct {
-	project      string
-	functionName string
-}
-
-func (s *cfLogSink) WriteLog(line sim.LogLine) {
-	injectCloudFunctionLog(s.project, s.functionName, line.Text)
-}
-
 // applyFunctionPatch merges the updateMask fields of a PATCH body onto the
 // stored function. The mask carries dot-notation paths (description, labels,
 // buildConfig.*, serviceConfig.*); for the nested config objects a named
@@ -655,19 +644,4 @@ func applyFunctionPatch(fn, patch *storedFunction, mask string) (serviceConfigCh
 		serviceConfigChanged = true
 	}
 	return serviceConfigChanged
-}
-
-// injectCloudFunctionLog writes a log entry to the Cloud Logging store for a
-// Cloud Function invocation, using the resource type and labels that the
-// Cloud Functions backend's log filter expects.
-func injectCloudFunctionLog(project, functionName, text string) {
-	logName := fmt.Sprintf("projects/%s/logs/run.googleapis.com%%2Fstdout", project)
-	resource := cloudRunServiceLogResource(functionName)
-	if err := writeLogEntries(logName, &resource, nil, []LogEntry{{TextPayload: text}}); err != nil {
-		log.Printf("cloud functions logs: %v", err)
-	}
-}
-
-func cloudRunServiceLogResource(serviceID string) MonitoredResource {
-	return MonitoredResource{Type: "cloud_run_revision", Labels: map[string]string{"service_name": serviceID}}
 }

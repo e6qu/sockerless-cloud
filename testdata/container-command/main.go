@@ -15,7 +15,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: container-command hold|spin|http|hostname-http|env-http|serve|files-http|relay-http|probe-http|log|log-until|print|resolve|sleep|stdin-echo")
+		fmt.Fprintln(os.Stderr, "usage: container-command hold|spin|http|hostname-http|instance-http|env-http|serve|files-http|relay-http|probe-http|log|log-until|print|resolve|sleep|stdin-echo")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -69,6 +69,40 @@ func main() {
 			_, _ = io.WriteString(w, hostname)
 		})
 		if err := http.ListenAndServe(":"+os.Args[2], handler); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "instance-http":
+		// An HTTP server that logs the host it serves as when it starts and
+		// answers every request with that host, holding a request for the
+		// milliseconds its hold query parameter names first.
+		if len(os.Args) != 3 {
+			fmt.Fprintln(os.Stderr, "usage: container-command instance-http PORT")
+			os.Exit(2)
+		}
+		hostname, err := os.Hostname()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if hold := r.URL.Query().Get("hold"); hold != "" {
+				ms, err := strconv.Atoi(hold)
+				if err != nil || ms < 0 {
+					http.Error(w, "invalid hold "+hold, http.StatusBadRequest)
+					return
+				}
+				time.Sleep(time.Duration(ms) * time.Millisecond)
+			}
+			_, _ = io.WriteString(w, hostname)
+		})
+		listener, err := net.Listen("tcp", ":"+os.Args[2])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		fmt.Println("serving as " + hostname)
+		if err := http.Serve(listener, handler); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

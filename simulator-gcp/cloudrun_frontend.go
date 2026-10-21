@@ -166,27 +166,22 @@ func serveCloudRunService(w http.ResponseWriter, r *http.Request, svc ServiceV2,
 			startup += cloudRunStartupBound(sidecar)
 		}
 	}
-	sim.DeclareWait(r.Context(), startup+requestTimeout)
+	run := cloudRunRevisionRunFor(rev)
+	sim.DeclareWait(r.Context(), run.pendingQueue()+startup+requestTimeout)
 
-	serviceID := svc.Name[strings.LastIndex(svc.Name, "/")+1:]
-	sink := &cfLogSink{project: resourceProject(svc.Name), functionName: serviceID}
-	inst, err := ensureCloudRunServiceInstance(r.Context(), rev.Name, serviceID, rev.VpcAccess, containers, rev.Volumes, sink)
-	if err != nil {
-		cloudRunFrontEndError(w, http.StatusServiceUnavailable, html.EscapeString(fmt.Sprintf("The service could not start an instance: %v", err)))
+	inst, release, err := run.acquire(r.Context())
+	switch {
+	case errors.Is(err, errCloudRunNoInstance):
+		cloudRunFrontEndError(w, http.StatusTooManyRequests, cloudRunNoInstanceMessage)
 		return
-	}
-	address, err := inst.awaitReady(r.Context())
-	if err != nil {
+	case err != nil:
 		if r.Context().Err() == nil {
-			deleteCloudRunServiceInstanceIf(rev.Name, inst)
+			cloudRunFrontEndError(w, http.StatusServiceUnavailable, html.EscapeString(fmt.Sprintf("The instance failed to start: %v", err)))
 		}
-		cloudRunFrontEndError(w, http.StatusServiceUnavailable, html.EscapeString(fmt.Sprintf("The instance failed to start: %v", err)))
 		return
 	}
-	if err := forwardToCloudRunContainer(w, r, address, requestTimeout); err != nil {
-		if !inst.ingressRunning() {
-			deleteCloudRunServiceInstanceIf(rev.Name, inst)
-		}
+	defer release()
+	if err := forwardToCloudRunContainer(w, r, inst.address, requestTimeout); err != nil {
 		abortStartedForward(w, err)
 		cloudRunFrontEndError(w, http.StatusServiceUnavailable, html.EscapeString(fmt.Sprintf("The instance did not answer: %v", err)))
 	}

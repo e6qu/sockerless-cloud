@@ -261,6 +261,8 @@ func projectCloudRunV1ToV2(service CRService, project, location string) {
 		reconcileServiceRevision(crv2Revisions, projection.Name, revision, projection)
 	}
 	projectCloudRunV2ToV1(projection)
+	stopUnroutedCloudRunRevisions(projection)
+	keepCloudRunRevisionsWarm(projection)
 }
 
 func deleteCloudRunServiceProjections(project, location, serviceID string) {

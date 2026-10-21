@@ -173,12 +173,63 @@ func (s *Set) Scale(ctx context.Context, n int) error {
 			return ctx.Err()
 		}
 	}
+	return s.startMissing(ctx, missing)
+}
+
+// Raise makes at least n replicas run: it starts the missing ones and returns
+// once they run, or with the first start's error, and keeps any beyond n.
+func (s *Set) Raise(ctx context.Context, n int) error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return ErrClosed
+	}
+	if s.want >= n {
+		s.mu.Unlock()
+		return nil
+	}
+	s.want = n
+	missing := n - len(s.replicas)
+	s.mu.Unlock()
+	return s.startMissing(ctx, missing)
+}
+
+// Add starts one replica beyond the count the set keeps and returns it once
+// it runs. A set that keeps limit already starts none and returns nil; a start
+// that fails leaves the count as it was.
+func (s *Set) Add(ctx context.Context, limit int) (*Replica, error) {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return nil, ErrClosed
+	}
+	if s.want >= limit {
+		s.mu.Unlock()
+		return nil, nil
+	}
+	s.want++
+	s.mu.Unlock()
+	r, err := s.startOne(ctx)
+	if err != nil {
+		s.mu.Lock()
+		s.want--
+		s.mu.Unlock()
+	}
+	return r, err
+}
+
+// startMissing starts missing replicas at once and returns once they run, or
+// with the first start's error.
+func (s *Set) startMissing(ctx context.Context, missing int) error {
 	if missing <= 0 {
 		return nil
 	}
 	errs := make(chan error, missing)
 	for range missing {
-		go func() { errs <- s.startOne(ctx) }()
+		go func() {
+			_, err := s.startOne(ctx)
+			errs <- err
+		}()
 	}
 	var first error
 	for range missing {
@@ -196,15 +247,15 @@ func (s *Set) newReplica(id string, group *workload.Group, started time.Time, re
 }
 
 // startOne starts a replica and adds it to the set, unless the set no longer
-// wants it by the time it runs.
-func (s *Set) startOne(ctx context.Context) error {
+// wants it by the time it runs, and returns the replica it kept.
+func (s *Set) startOne(ctx context.Context) (*Replica, error) {
 	id := s.spec.NewID()
 	group, release, err := s.spec.Start(ctx, id)
 	if err != nil {
 		if s.hooks.Failed != nil {
 			s.hooks.Failed(id, err)
 		}
-		return fmt.Errorf("start replica %s: %w", id, err)
+		return nil, fmt.Errorf("start replica %s: %w", id, err)
 	}
 	r := s.newReplica(id, group, time.Now(), release)
 	s.mu.Lock()
@@ -216,12 +267,12 @@ func (s *Set) startOne(ctx context.Context) error {
 	s.supervise(r)
 	if !keep {
 		s.stop(r)
-		return nil
+		return nil, nil
 	}
 	if s.hooks.Started != nil {
 		s.hooks.Started(r)
 	}
-	return nil
+	return r, nil
 }
 
 // short reports whether the set wants another replica; s.mu is held.
@@ -391,7 +442,10 @@ func (s *Set) replace(crashes int) {
 		s.mu.Lock()
 		wanted := s.short()
 		s.mu.Unlock()
-		if !wanted || s.startOne(s.ctx) == nil {
+		if !wanted {
+			return
+		}
+		if _, err := s.startOne(s.ctx); err == nil {
 			return
 		}
 		s.mu.Lock()

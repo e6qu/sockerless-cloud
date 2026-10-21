@@ -3907,6 +3907,22 @@ choosing them one at a time released each before the next, so the system could
 return the same port twice, and the simulator and the HTTPS gateway's admin
 endpoint once both took one.
 
+A Cloud Run service revision runs its instances as a `sim/replicas` set. A
+request takes a place on an instance with room for it, at most the revision's
+`maxInstanceRequestConcurrency` at once (80 by default, 1 below one CPU); when
+none has room, the request starts another instance up to the revision's
+`maxInstanceCount` (100 by default), joining one already starting when that
+one has room for it. At the maximum, a request waits for a place for 3.5 times
+the revision's average startup time or 10 seconds, whichever is longer, and is
+then answered 429 "The request was aborted because there was no available
+instance." A revision the traffic reaches starts its `minInstanceCount`
+instances when it deploys. Instances scale in only when their revision stops
+taking traffic, since Cloud Run promises no idle time. An instance whose
+container exits is replaced with the worker pools' backoff. Each instance's
+output reaches Cloud Logging under its revision's full `cloud_run_revision`
+labels with its `instanceId`, stderr in its own log, and a restarted simulator
+adopts every instance of a routed revision back into its set.
+
 A Container Apps container's `probes` run with Kubernetes' semantics: a
 startup probe, then a first passing readiness probe, makes the container
 started and ready, which a replica must be in every container for ingress

@@ -274,3 +274,57 @@ func TestAReplacementThatFailsToStartIsRetried(t *testing.T) {
 	rec.await(t, "failed")
 	rec.await(t, "started")
 }
+
+// Add starts one replica at a time up to its limit, and Raise starts the
+// missing ones up to a floor while keeping those beyond it.
+func TestAddGrowsToTheLimitAndRaiseKeepsTheSurplus(t *testing.T) {
+	set := newSet(t, "sleep 300", Always, Hooks{})
+	ctx := context.Background()
+	for i := range 2 {
+		r, err := set.Add(ctx, 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r == nil {
+			t.Fatalf("Add %d started no replica below the limit", i)
+		}
+	}
+	if r, err := set.Add(ctx, 2); err != nil || r != nil {
+		t.Fatalf("Add at the limit = %v, %v; want no replica", r, err)
+	}
+	if err := set.Raise(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(set.Replicas()); got != 2 {
+		t.Fatalf("Raise below the count left %d replicas, want 2", got)
+	}
+	if err := set.Raise(ctx, 3); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(set.Replicas()); got != 3 {
+		t.Fatalf("Raise to 3 left %d replicas", got)
+	}
+}
+
+// A replica Add fails to start leaves the count as it was, so the next Add
+// still has room.
+func TestAFailedAddLeavesRoom(t *testing.T) {
+	set := New(Spec{
+		NewID: func() string { return "replica-" + sim.RandomHex(4) },
+		Start: func(context.Context, string) (*workload.Group, func(), error) {
+			return nil, nil, errors.New("no capacity")
+		},
+	}, Hooks{})
+	defer func() { _ = set.Stop(context.Background()) }()
+	for range 3 {
+		if _, err := set.Add(context.Background(), 1); err == nil {
+			t.Fatal("Add returned no error for a start that failed")
+		}
+	}
+	set.mu.Lock()
+	want := set.want
+	set.mu.Unlock()
+	if want != 0 {
+		t.Fatalf("failed starts left the count at %d", want)
+	}
+}
