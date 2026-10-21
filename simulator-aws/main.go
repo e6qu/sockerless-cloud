@@ -270,6 +270,7 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 			return nil, nil, nil, fmt.Errorf("restore AWS Amplify Hosting compute: %w", err)
 		}
 		recoverAmplifyJobs()
+		recoverECSGatewayWork()
 		s3RecoverBatchJobs()
 	}
 

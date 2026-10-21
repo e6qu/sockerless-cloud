@@ -46,6 +46,8 @@ func ecsSchedulerTestStores() {
 	ecsTaskDefinitions = sim.MakeStore[ECSTaskDefinition](nil, "ecs_task_definitions")
 	ecsTasks = sim.MakeStore[ECSTask](nil, "ecs_tasks")
 	ecsServices = sim.MakeStore[ECSService](nil, "ecs_services")
+	ecsGatewayRoutes = sim.MakeStore[ECSGatewayRoute](nil, "ecs_gateway_routes")
+	ecsServiceGatewayConnectors = sim.MakeStore[[]ecsGatewayConnector](nil, "ecs_service_gateway_connectors")
 	ecsServiceSchedulerStates = sim.MakeStore[ECSServiceSchedulerState](nil, "ecs_service_scheduler_states")
 	ecsServiceDeployments = sim.MakeStore[ECSServiceDeploymentRec](nil, "ecs_service_deployments")
 	ecsServiceRevisions = sim.MakeStore[ECSServiceRevisionRec](nil, "ecs_service_revisions")

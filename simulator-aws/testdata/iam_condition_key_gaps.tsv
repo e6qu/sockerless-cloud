@@ -27,11 +27,13 @@ ecr:ListTagsForResource	aws:RequestTag/${TagKey}	no-request-member
 ecr:ListTagsForResource	aws:TagKeys	no-request-member
 ecs:CreateExpressGatewayService	ecs:enable-ecs-managed-tags	no-request-member
 ecs:CreateExpressGatewayService	ecs:propagate-tags	no-request-member
+ecs:CreateGateway	ecs:enable-ecs-managed-tags	no-request-member
 ecs:DescribeTasks	aws:ResourceTag/${TagKey}	resource-unseeded
 ecs:GetTaskProtection	aws:ResourceTag/${TagKey}	resource-unseeded
 ecs:StopTask	aws:ResourceTag/${TagKey}	resource-unseeded
 ecs:UpdateExpressGatewayService	ecs:enable-ecs-managed-tags	no-request-member
 ecs:UpdateExpressGatewayService	ecs:propagate-tags	no-request-member
+ecs:UpdateGateway	ecs:enable-ecs-managed-tags	no-request-member
 ecs:UpdateTaskProtection	aws:ResourceTag/${TagKey}	resource-unseeded
 elasticloadbalancing:CreateLoadBalancer	aws:ResourceTag/${TagKey}	create-names-no-resource
 elasticloadbalancing:CreateLoadBalancer	elasticloadbalancing:ResourceTag/${TagKey}	create-names-no-resource

@@ -130,6 +130,8 @@ type ECSPortMapping struct {
 	ContainerPort int    `json:"containerPort"`
 	HostPort      int    `json:"hostPort,omitempty"`
 	Protocol      string `json:"protocol,omitempty"`
+	Name          string `json:"name,omitempty"`
+	AppProtocol   string `json:"appProtocol,omitempty"`
 }
 
 type ECSLogConfiguration struct {

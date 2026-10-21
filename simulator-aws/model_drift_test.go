@@ -43,19 +43,7 @@ import (
 // registration, and the source scan alone cannot tell the two apart. Scoped
 // entries are therefore also excluded from the staleness sweep — their
 // review lives with the catalogue their reason cites.
-var modelScopedDriftExemptions = map[string]string{
-	"ecs.smithy.json.gz:AssociateGatewayWithCluster":    "Amazon ECS gateways are not implemented (BUGS.md)",
-	"ecs.smithy.json.gz:CreateGateway":                  "Amazon ECS gateways are not implemented (BUGS.md)",
-	"ecs.smithy.json.gz:DeleteGateway":                  "Amazon ECS gateways are not implemented (BUGS.md)",
-	"ecs.smithy.json.gz:DescribeGateway":                "Amazon ECS gateways are not implemented (BUGS.md)",
-	"ecs.smithy.json.gz:DescribeGatewayResources":       "Amazon ECS gateways are not implemented (BUGS.md)",
-	"ecs.smithy.json.gz:DescribeGatewayRoute":           "Amazon ECS gateways are not implemented (BUGS.md)",
-	"ecs.smithy.json.gz:DisassociateGatewayFromCluster": "Amazon ECS gateways are not implemented (BUGS.md)",
-	"ecs.smithy.json.gz:ListGatewayClusterAssociations": "Amazon ECS gateways are not implemented (BUGS.md)",
-	"ecs.smithy.json.gz:ListGatewayRoutes":              "Amazon ECS gateways are not implemented (BUGS.md)",
-	"ecs.smithy.json.gz:ListGateways":                   "Amazon ECS gateways are not implemented (BUGS.md)",
-	"ecs.smithy.json.gz:UpdateGateway":                  "Amazon ECS gateways are not implemented (BUGS.md)",
-}
+var modelScopedDriftExemptions = map[string]string{}
 
 var modelDriftExemptions = map[string]string{
 	// S3 routes bucket subresources by query parameter, so these operation

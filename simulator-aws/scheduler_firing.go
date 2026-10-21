@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -396,15 +395,11 @@ func awsJSONError(body []byte) (code, message string) {
 	return code, message
 }
 
-// awsXMLError extracts <Code>/<Message> from a query-protocol error response
-// (SNS and other XML APIs).
+// awsXMLError extracts <Code>/<Message> from a query-protocol error response,
+// which Amazon SNS and Elastic Load Balancing nest in ErrorResponse>Error and
+// Amazon EC2 in Response>Errors>Error.
 func awsXMLError(body []byte) (code, message string) {
-	var e struct {
-		Code    string `xml:"Error>Code"`
-		Message string `xml:"Error>Message"`
-	}
-	_ = xml.Unmarshal(body, &e)
-	return e.Code, e.Message
+	return awsXMLText(body, "Code"), awsXMLText(body, "Message")
 }
 
 // cloudTrailRecordSchedulerFire records a CloudTrail event for a target the

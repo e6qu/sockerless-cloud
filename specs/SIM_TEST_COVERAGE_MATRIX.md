@@ -25,7 +25,7 @@ Legend:
 | `aws-dynamodb` | direct | direct | direct | `simulator-aws/sdk-tests/dynamodb_test.go`; `simulator-aws/cli-tests/dynamodb_test.go`; `simulator-aws/terraform-tests/main.tf` |
 | `aws-ec2` | direct | direct | direct | `simulator-aws/sdk-tests/ec2_test.go`; `simulator-aws/cli-tests/ec2_test.go`; `simulator-aws/terraform-tests/main.tf` |
 | `aws-ecr` | direct | direct | direct | `simulator-aws/sdk-tests/ecr_test.go`; `simulator-aws/cli-tests/ecr_test.go`; `simulator-aws/terraform-tests/main.tf` |
-| `aws-ecs` | direct | direct | direct | `simulator-aws/sdk-tests/ecs_test.go`; `simulator-aws/cli-tests/ecs_test.go`; `simulator-aws/terraform-tests/main.tf` |
+| `aws-ecs` | direct | direct | direct | `simulator-aws/sdk-tests/ecs_test.go`; `simulator-aws/sdk-tests/ecs_gateway_test.go`; `simulator-aws/cli-tests/ecs_test.go`; `simulator-aws/cli-tests/ecs_gateway_test.go`; `simulator-aws/terraform-tests/main.tf`; gateways have no Terraform resource in hashicorp/aws 6.69.1 (BUGS.md) |
 | `aws-efs` | direct | direct | direct | `simulator-aws/sdk-tests/efs_test.go`; `simulator-aws/cli-tests/efs_test.go`; `simulator-aws/terraform-tests/main.tf` |
 | `aws-elasticache` | direct | direct | direct | `simulator-aws/sdk-tests/rds_elasticache_test.go`; `simulator-aws/cli-tests/rds_elasticache_test.go`; `simulator-aws/terraform-tests/main.tf` |
 | `aws-elbv2` | direct | direct | direct | `simulator-aws/sdk-tests/elbv2_test.go`; `simulator-aws/cli-tests/elbv2_test.go`; `simulator-aws/terraform-tests/main.tf` |

@@ -43,6 +43,8 @@ type ECSServiceRevisionRec struct {
 	LaunchType         string  `json:"launchType,omitempty"`
 	PlatformVersion    string  `json:"platformVersion,omitempty"`
 	CreatedAt          float64 `json:"createdAt"`
+	// GatewayConnectors are the connectors the revision deployed with.
+	GatewayConnectors []ecsGatewayConnector `json:"gatewayConnectors,omitempty"`
 	// Namespace links the revision (and so the service) to a Cloud Map namespace
 	// for ListServicesByNamespace; never on the wire.
 	Namespace string `json:"-"`
@@ -69,7 +71,7 @@ func registerECSServiceDeployments(r *AWSRouter, srv *sim.Server) {
 // in-progress deployment, called on CreateService and UpdateService. namespace is
 // the Cloud Map namespace the service is associated with (for
 // ListServicesByNamespace), derived by the caller from serviceConnectConfiguration.
-func ecsRecordServiceDeployment(svc ECSService, namespace string) {
+func ecsRecordServiceDeployment(svc ECSService, namespace string) string {
 	now := ecsEpochSeconds()
 	for _, deployment := range ecsServiceDeployments.List() {
 		if deployment.ServiceArn != svc.ServiceArn || deployment.Status != "IN_PROGRESS" {
@@ -107,6 +109,7 @@ func ecsRecordServiceDeployment(svc ECSService, namespace string) {
 	// first stage one guards, before anything scales up.
 	ecsBeginDeploymentLifecycle(&deployment, svc)
 	ecsServiceDeployments.Put(depArn, deployment)
+	return revArn
 }
 
 func ecsCompleteServiceDeployments(serviceArn string, now float64) {
@@ -266,7 +269,11 @@ func handleECSDescribeServiceRevisions(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	var found []ECSServiceRevisionRec
+	type revisionView struct {
+		ECSServiceRevisionRec
+		EcsManagedResources map[string]any `json:"ecsManagedResources,omitempty"`
+	}
+	var found []revisionView
 	failures := []map[string]string{}
 	for _, arn := range req.ServiceRevisionArns {
 		rev, ok := ecsServiceRevisions.Get(arn)
@@ -274,7 +281,11 @@ func handleECSDescribeServiceRevisions(w http.ResponseWriter, r *http.Request) {
 			failures = append(failures, map[string]string{"arn": arn, "reason": "MISSING"})
 			continue
 		}
-		found = append(found, rev)
+		view := revisionView{ECSServiceRevisionRec: rev}
+		if connections := ecsGatewayConnectionsJSON(arn); len(connections) > 0 {
+			view.EcsManagedResources = map[string]any{"gatewayConnections": connections}
+		}
+		found = append(found, view)
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"serviceRevisions": found,

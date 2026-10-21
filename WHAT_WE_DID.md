@@ -3953,6 +3953,22 @@ ElastiCache serverless caches took a migration through `PrepareMigration`,
 `StartMigration`, `StopMigration` and `CompleteMigration` with the states
 and errors the model stated; the data sync itself waited on serverless
 caches running an engine.
+Amazon ECS served gateways: CreateGateway, DescribeGateway, ListGateways,
+UpdateGateway and DeleteGateway with the model's defaults, statuses and
+deletion protection; cluster associations that stay DISASSOCIATING until the
+cluster's last route through the gateway is gone; and gateway routes a
+service's `gatewayConnectors` decided on each deployment, connecting it to
+every associated gateway that matched its access types, VPC and Availability
+Zones. A route's work ran after the request as the gateway's infrastructure
+role, through the Elastic Load Balancing, Amazon EC2, AWS Certificate Manager
+and AWS WAF APIs: a shared Application Load Balancer with its security group
+and HTTPS listener for up to 25 routes, and per route a certificate for an
+`<id>.ecs.<region>.on.aws` hostname, a target group the service's tasks
+registered in, host-header and test-traffic listener rules, and an ingress
+rule in the service's security group. UpdateGateway applied its settings to
+every load balancer and reported `N/M load balancers updated`, with each
+failed call in `failures`; a service revision reported its
+`gatewayConnections`, and port mappings kept their `name` and `appProtocol`.
 
 The Knative Cloud Run surface carries a template's VPC egress as the
 `run.googleapis.com/vpc-access-connector`, `vpc-access-egress` and
