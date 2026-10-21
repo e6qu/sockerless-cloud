@@ -3944,7 +3944,9 @@ runs on pull requests as on `main`, one leg per set the jobs restore (each
 cloud's, the support module's and the Amazon RDS blue/green stack's), and the
 jobs that run containers wait for it, so a cache entry the cache evicted is
 fetched by one job rather than by every job at once against a registry that
-throttles per minute.
+throttles per minute. The lint job's limit (15 minutes) leaves room around
+its lint step's own, so a missed build cache no longer cancels it while it
+saves the cache after a lint that passed.
 
 The Amazon ECS task metadata endpoint waits for its task's start to settle
 before it answers, so a container that reads its metadata the moment it runs

@@ -56,7 +56,9 @@ jobs:
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     name: lint (${{ matrix.shard }})
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.timeout_minutes }}
+    # The lint step keeps its own limit; the job's leaves room for the setup
+    # before it and the cache save after it, which a missed build cache slows.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
