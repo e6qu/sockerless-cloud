@@ -3929,7 +3929,10 @@ bounds, which the v2 template holds in `scaling` rather than as annotations.
 The node agent names each guest's directory by a digest of the guest's ID,
 so Firecracker's API socket stays within a Unix socket path's 107 bytes for
 an ID of any admitted length, and a Firecracker that exits before opening
-the socket fails the start with its own output at once.
+the socket fails the start with its own output at once. Cloud IAM holds a policy's etag check and its write
+under one lock, so of two setIamPolicy calls carrying one etag exactly one
+writes and the other is refused ABORTED, and a getIamPolicy that seeds the
+default policy cannot overwrite one set in between.
 
 A Container Apps container's `probes` run with Kubernetes' semantics: a
 startup probe, then a first passing readiness probe, makes the container

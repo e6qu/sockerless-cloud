@@ -1229,6 +1229,8 @@ func registerIAM(srv *sim.Server) {
 			return
 		}
 
+		gcpIAMPolicyWrites.Lock()
+		defer gcpIAMPolicyWrites.Unlock()
 		current, present := resourcePolicies.Get("bucket/" + bucket)
 		if gcpIAMETagConflict(w, policy.Etag, current.Etag, present) {
 			return
@@ -2876,9 +2878,17 @@ func validateIAMMembers(bindings []IAMBinding) error {
 // resource: getIamPolicy / setIamPolicy / testIamPermissions. Every GCP
 // resource type exposes this triple; the sim's per-resource handlers
 // delegate the verb branch here.
+// gcpIAMPolicyWrites serializes each policy read-check-write here, so two
+// setIamPolicy calls carrying the same etag cannot both pass the check and the
+// later one silently drop the earlier one's bindings, and a getIamPolicy that
+// seeds the default cannot overwrite a policy set in between.
+var gcpIAMPolicyWrites sync.Mutex
+
 func handleResourceIAM(w http.ResponseWriter, r *http.Request, store sim.Store[IAMPolicy], resource, action string) {
 	switch action {
 	case "getIamPolicy":
+		gcpIAMPolicyWrites.Lock()
+		defer gcpIAMPolicyWrites.Unlock()
 		policy, ok := store.Get(resource)
 		if !ok {
 			policy = IAMPolicy{
@@ -2909,6 +2919,8 @@ func handleResourceIAM(w http.ResponseWriter, r *http.Request, store sim.Store[I
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 			return
 		}
+		gcpIAMPolicyWrites.Lock()
+		defer gcpIAMPolicyWrites.Unlock()
 		current, present := store.Get(resource)
 		if gcpIAMETagConflict(w, req.Policy.Etag, current.Etag, present) {
 			return
