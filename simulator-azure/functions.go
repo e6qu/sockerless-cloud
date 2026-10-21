@@ -1695,6 +1695,43 @@ func (e *containerExit) exitedBeforeAnswering(site string, port int) error {
 	return fmt.Errorf("site %q container exited before it answered on port %d: exit code %d", site, port, code)
 }
 
+// teardown is teardownLocked under the instance's lock.
+func (inst *azureFunctionInstance) teardown() {
+	inst.mu.Lock()
+	defer inst.mu.Unlock()
+	inst.teardownLocked()
+}
+
+// running reads the container the instance runs and its handle under the
+// instance's lock.
+func (inst *azureFunctionInstance) running() (string, placement.Handle) {
+	inst.mu.Lock()
+	defer inst.mu.Unlock()
+	return inst.containerID, inst.handle
+}
+
+// siteStart is what a started site container answers on.
+type siteStart struct {
+	containerID string
+	port        int
+	candidates  []string
+	address     string
+	exit        *containerExit
+	logsDone    <-chan struct{}
+}
+
+// start starts the site's container if none runs and reads what it answers
+// on, under the instance's lock.
+func (inst *azureFunctionInstance) start(site *Site) (siteStart, error) {
+	inst.mu.Lock()
+	defer inst.mu.Unlock()
+	if err := inst.ensureStarted(site); err != nil {
+		return siteStart{}, err
+	}
+	return siteStart{containerID: inst.containerID, port: inst.port, candidates: inst.candidates,
+		address: inst.address, exit: inst.exit, logsDone: inst.logsDone}, nil
+}
+
 // teardownLocked stops the instance's main container, its sidecars, and its log
 // stream, clearing the recorded handles. The VNet-integration networks stay
 // recorded: the integration belongs to the site, not to one container. Caller
@@ -1733,9 +1770,7 @@ func stopAzureFunctionInstance(siteName string) {
 	delete(azureFunctionInstances.bySite, siteName)
 	azureFunctionInstances.Unlock()
 	if inst != nil {
-		inst.mu.Lock()
-		inst.teardownLocked()
-		inst.mu.Unlock()
+		inst.teardown()
 	}
 	removeSiteHome(siteName)
 }
@@ -1746,9 +1781,7 @@ func stopAzureFunctionInstance(siteName string) {
 // Always On site, otherwise on the next request.
 func restartAzureFunctionInstance(site Site) {
 	inst := azfInstanceFor(site.Name)
-	inst.mu.Lock()
-	inst.teardownLocked()
-	inst.mu.Unlock()
+	inst.teardown()
 	startAlwaysOnSite(site)
 }
 

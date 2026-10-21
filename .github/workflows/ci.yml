@@ -56,7 +56,9 @@ jobs:
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     name: lint (${{ matrix.shard }})
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.timeout_minutes }}
+    # The lint step keeps its own limit; the job's leaves room for the setup
+    # before it and the cache save after it, which a missed build cache slows.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -333,21 +335,39 @@ jobs:
   # every new pull request found none, pulled each image from its registry in
   # every job, and spent minutes archiving the set, which ran the race job past
   # its time limit and sent ECR Public pulls into its anonymous throttle.
+  # The registries behind the base images throttle per project per minute, so
+  # one job per cloud fetches the set a run lacks and the jobs that run
+  # containers wait for it and restore the cache it saves, rather than each
+  # fetching the same images at once inside its own time limit.
   warm-base-images:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    name: warm base images (${{ matrix.cloud }})
+    needs: verified-on-pr
+    if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
+    name: warm base images (${{ matrix.cloud }}${{ matrix.base_images && ', one stack' || '' }})
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        cloud: [aws, gcp, azure]
+        include:
+          - {cloud: aws, module: simulator-aws}
+          - {cloud: gcp, module: simulator-gcp}
+          - {cloud: azure, module: simulator-azure}
+          # The race and node agent jobs run the support module's containers.
+          - {cloud: sim, module: sim}
+          # The tf stack that names its own small set (Amazon RDS blue/green).
+          - cloud: aws
+            base_images: "mirror.gcr.io/library/mysql:8.0.46 mirror.gcr.io/library/alpine:3.22 mirror.gcr.io/library/busybox:latest"
     steps:
       - uses: actions/checkout@v7.0.1
       - name: Resolve the base images the simulator jobs run containers from
         id: base-images-list
+        # Resolve the set and its digest exactly as the jobs that restore it
+        # do, so the key this job saves is the key they look up.
         run: |
-          images="$(bash scripts/base-images-for.sh simulator-${{ matrix.cloud }} | tr '\n' ' ')"
+          images="${{ matrix.base_images }}"
+          if [ -z "$images" ]; then
+            images="$(bash scripts/base-images-for.sh ${{ matrix.module }} | tr '\n' ' ')"
+          fi
           echo "images=$images" >> "$GITHUB_OUTPUT"
           echo "digest=$({ printf '%s' "$images"; cat scripts/warm-base-images.sh; } | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
       - name: Restore the base images
@@ -356,8 +376,7 @@ jobs:
         with:
           path: ~/.cache/sockerless/base-images.tar
           key: base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-${{ steps.base-images-list.outputs.digest }}
-          restore-keys: |
-            base-images-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cloud }}-
+          restore-keys: ${{ !matrix.base_images && format('base-images-{0}-{1}-{2}-', runner.os, runner.arch, matrix.cloud) || '' }}
       - name: Fetch the base images
         if: steps.base-images.outputs.cache-hit != 'true'
         run: |
@@ -373,7 +392,7 @@ jobs:
           key: ${{ steps.base-images.outputs.cache-primary-key }}
 
   sim:
-    needs: verified-on-pr
+    needs: [verified-on-pr, warm-base-images]
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -731,7 +750,7 @@ jobs:
         run: bash scripts/check-spec-violations.sh ${{ matrix.cloud }} "$RUNNER_TEMP/${{ matrix.cloud }}-spec-violations.jsonl"
 
   sim-aws-sdk:
-    needs: verified-on-pr
+    needs: [verified-on-pr, warm-base-images]
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     # The AWS SDK suite outgrew a single 15-minute job (the full run reached
     # the ceiling on runner-speed variance), so it fans out across four shards
@@ -1047,7 +1066,7 @@ jobs:
         run: bash scripts/check-spec-violations.sh aws "$RUNNER_TEMP/aws-spec-violations.jsonl"
 
   sim-aws-cli:
-    needs: verified-on-pr
+    needs: [verified-on-pr, warm-base-images]
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     name: sim (aws cli ${{ matrix.suite }})
     runs-on: ubuntu-24.04
@@ -1308,7 +1327,7 @@ jobs:
         run: bash scripts/check-spec-violations.sh aws "$RUNNER_TEMP/aws-cli-spec-violations.jsonl"
 
   tf:
-    needs: verified-on-pr
+    needs: [verified-on-pr, warm-base-images]
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     # Stock hashicorp/aws / hashicorp/google / hashicorp/azurerm
     # providers run against the sim binary via `terraform init` +
@@ -1646,7 +1665,7 @@ jobs:
       - run: cd "ui/packages/${{ matrix.package }}" && bun run test:e2e
 
   race:
-    needs: verified-on-pr
+    needs: [verified-on-pr, warm-base-images]
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     # The simulators' own unit tests under the race detector.
     #
@@ -1741,7 +1760,7 @@ jobs:
         timeout-minutes: 11
 
   race-sim:
-    needs: verified-on-pr
+    needs: [verified-on-pr, warm-base-images]
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     # The framework module's own unit tests under the race detector. They run
     # real containers — the reaper, the startup sweep, the memory observer, the
@@ -1788,7 +1807,7 @@ jobs:
         timeout-minutes: 11
 
   node-agent:
-    needs: verified-on-pr
+    needs: [verified-on-pr, warm-base-images]
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
     # The node agent's proof: the one job that needs /dev/kvm. It builds the
     # agent image on the runner's engine, which downloads Firecracker and the

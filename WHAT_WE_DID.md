@@ -3939,6 +3939,24 @@ two base images through the simulator's throttle-aware puller before the
 build's `FROM` lines need them, and that puller's retries wait 2, 4, 8, 16 and
 32 seconds, outlasting a registry's per-minute quota.
 
+CI fetches each set of base images once per run: the `warm-base-images` job
+runs on pull requests as on `main`, one leg per set the jobs restore (each
+cloud's, the support module's and the Amazon RDS blue/green stack's), and the
+jobs that run containers wait for it, so a cache entry the cache evicted is
+fetched by one job rather than by every job at once against a registry that
+throttles per minute. The lint job's limit (15 minutes) leaves room around
+its lint step's own, so a missed build cache no longer cancels it while it
+saves the cache after a lint that passed.
+
+The Amazon ECS task metadata endpoint waits for its task's start to settle
+before it answers, so a container that reads its metadata the moment it runs
+finds its task's containers rather than a 404. Compute Engine's
+`getSerialPortOutput` serves serial ports 1 to 4: the first carries the
+console, of which it keeps the last 1 MB and moves a `start` behind it up to
+the oldest byte kept, and the others carry nothing a container writes. Every
+App Service site path that takes the site instance's lock releases it
+through `defer`, so a panic in one cannot leave the site undeletable.
+
 A Container Apps container's `probes` run with Kubernetes' semantics: a
 startup probe, then a first passing readiness probe, makes the container
 started and ready, which a replica must be in every container for ingress

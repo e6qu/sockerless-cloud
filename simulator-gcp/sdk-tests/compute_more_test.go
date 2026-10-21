@@ -663,6 +663,14 @@ func TestCompute_InstanceActions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "compute#serialPortOutput", out.Kind)
 	assert.Contains(t, out.SelfLink, "/instances/"+name+"/serialPort")
+	second, err := svc.Instances.GetSerialPortOutput(moreProject, zone, name).Port(2).Do()
+	require.NoError(t, err)
+	assert.Empty(t, second.Contents, "a serial port the guest writes nothing to carries nothing")
+	assert.EqualValues(t, 0, second.Next)
+	_, err = svc.Instances.GetSerialPortOutput(moreProject, zone, name).Port(5).Do()
+	var badPort *googleapi.Error
+	require.ErrorAs(t, err, &badPort, "an instance has serial ports 1 to 4")
+	assert.Equal(t, http.StatusBadRequest, badPort.Code)
 
 	_, err = svc.Instances.SetDeletionProtection(moreProject, zone, name).DeletionProtection(true).Do()
 	require.NoError(t, err)

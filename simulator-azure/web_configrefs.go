@@ -235,20 +235,28 @@ func (inst *azureFunctionInstance) cacheReferencesLocked(siteID, containerID str
 // values stay cached for another period.
 func (inst *azureFunctionInstance) refreshReferences(siteID, containerID string) {
 	site, ok := webJobSite(siteID)
-	inst.mu.Lock()
-	if !ok || inst.containerID != containerID {
-		inst.mu.Unlock()
+	if !ok || !inst.reloadReferences(&site, siteID, containerID) {
 		return
 	}
-	references := webSiteReferenceValues(&site)
+	startAlwaysOnSite(site)
+}
+
+// reloadReferences stops the containers started as containerID when the
+// site's reference values changed since, and reports whether it did;
+// unchanged values stay cached for another period.
+func (inst *azureFunctionInstance) reloadReferences(site *Site, siteID, containerID string) bool {
+	inst.mu.Lock()
+	defer inst.mu.Unlock()
+	if inst.containerID != containerID {
+		return false
+	}
+	references := webSiteReferenceValues(site)
 	if references.equal(inst.references) {
 		inst.cacheReferencesLocked(siteID, containerID, references)
-		inst.mu.Unlock()
-		return
+		return false
 	}
 	inst.teardownLocked()
-	inst.mu.Unlock()
-	startAlwaysOnSite(site)
+	return true
 }
 
 // webKVRefResource wraps one reference's properties in the ApiKVReference

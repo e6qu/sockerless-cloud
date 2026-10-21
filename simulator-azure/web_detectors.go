@@ -174,9 +174,7 @@ func observeWebSite(site Site, resourceID string, from, to time.Time) webSiteObs
 		events:     webSiteEventsFor(resourceID, from, to),
 	}
 	inst := azfInstanceFor(site.Name)
-	inst.mu.Lock()
-	obs.containerID = inst.containerID
-	inst.mu.Unlock()
+	obs.containerID, _ = inst.running()
 	if obs.containerID == "" {
 		return obs
 	}

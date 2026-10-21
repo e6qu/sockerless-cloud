@@ -141,9 +141,7 @@ func webPlanWorkers(planID string) []webPlanWorker {
 	var out []webPlanWorker
 	for _, site := range webPlanSites(planID) {
 		inst := azfInstanceFor(site.Name)
-		inst.mu.Lock()
-		handle := inst.handle
-		inst.mu.Unlock()
+		_, handle := inst.running()
 		if handle == nil {
 			continue
 		}
@@ -490,9 +488,7 @@ func registerAppServicePlanNetworking(srv *sim.Server) {
 			// the site's next invoke starts a fresh one on its recorded
 			// VNet-integration networks.
 			inst := azfInstanceFor(wk.site.Name)
-			inst.mu.Lock()
-			inst.teardownLocked()
-			inst.mu.Unlock()
+			inst.teardown()
 			return wk, true
 		}
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,

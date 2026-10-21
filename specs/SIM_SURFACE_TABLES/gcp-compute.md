@@ -94,7 +94,7 @@ The extractor reads the route out of a single string literal, so a registration 
 | `POST /compute/v1/projects/{project}/zones/{zone}/instances/{name}/setMetadata` | ✓ `simulator-gcp/compute_more.go:1108::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/zones/{zone}/instances/{name}/attachDisk` | ✓ `simulator-gcp/compute_more.go:1127::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /compute/v1/projects/{project}/zones/{zone}/instances/{name}/detachDisk` | ✓ `simulator-gcp/compute_more.go:1145::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /compute/v1/projects/{project}/zones/{zone}/instances/{name}/serialPort` | ✓ `simulator-gcp/compute_more.go:1166::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /compute/v1/projects/{project}/zones/{zone}/instances/{name}/serialPort` | ✓ `simulator-gcp/compute_more.go:1169::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /compute/v1/projects/{project}/regions/{region}` | ○ `simulator-gcp/compute_more.go:821::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /compute/v1/projects/{project}/regions` | ○ `simulator-gcp/compute_more.go:824::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /compute/v1/projects/{project}/zones/{zone}/acceleratorTypes/{acceleratorType}` | ○ `simulator-gcp/compute_more.go:846::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

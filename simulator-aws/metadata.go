@@ -37,6 +37,7 @@ func registerHostMetadata(srv *sim.Server) {
 			http.Error(w, "ECS task metadata not found", http.StatusNotFound)
 			return
 		}
+		ecsAwaitTaskStart(r.Context(), id)
 		w.Header().Set("Content-Type", "application/json")
 		taskMetadata, ok := ecsTaskMetadataV4(id)
 		if !ok {
@@ -51,6 +52,7 @@ func registerHostMetadata(srv *sim.Server) {
 			http.Error(w, "ECS task metadata not found", http.StatusNotFound)
 			return
 		}
+		ecsAwaitTaskStart(r.Context(), id)
 		w.Header().Set("Content-Type", "application/json")
 		containerMetadata, ok := ecsContainerMetadataV4(id)
 		if !ok {

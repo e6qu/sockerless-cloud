@@ -1160,18 +1160,33 @@ func registerComputeInstanceActions(srv *sim.Server) {
 		zoneOp(w, r, "detachDisk")
 	})
 
-	// The serial console carries what the machine wrote since it was
-	// created; `start` is the byte offset the caller has already read, and
-	// `next` where the next read continues.
+	// The first serial port carries what the machine wrote to its console
+	// since it was created, of which Compute Engine keeps the last 1 MB;
+	// `start` is the byte offset the caller has already read, moved up to the
+	// oldest byte still kept, and `next` where the next read continues. Ports
+	// 2 to 4 carry what a guest writes to them, which nothing in a container
+	// does.
 	srv.HandleFunc("GET /compute/v1/projects/{project}/zones/{zone}/instances/{name}/serialPort", func(w http.ResponseWriter, r *http.Request) {
 		if !exists(r) {
 			notFound(w, r)
 			return
 		}
-		output, err := gcpInstanceSerialPortOutput(r.Context(), instSelfLink(r))
-		if err != nil {
-			GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
-			return
+		port := int64(1)
+		if v := r.URL.Query().Get("port"); v != "" {
+			parsed, err := parseComputeInt(v)
+			if err != nil || parsed < 1 || parsed > 4 {
+				GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid value for field 'port': '%s'", v)
+				return
+			}
+			port = parsed
+		}
+		output := ""
+		if port == 1 {
+			var err error
+			if output, err = gcpInstanceSerialPortOutput(r.Context(), instSelfLink(r)); err != nil {
+				GCPErrorf(w, http.StatusInternalServerError, "INTERNAL", "%v", err)
+				return
+			}
 		}
 		start := int64(0)
 		if v := r.URL.Query().Get("start"); v != "" {
@@ -1186,6 +1201,9 @@ func registerComputeInstanceActions(srv *sim.Server) {
 		if start > total {
 			start = total
 		}
+		if oldest := total - gcpSerialPortBuffer; start < oldest {
+			start = oldest
+		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"kind":     "compute#serialPortOutput",
 			"contents": output[start:],
@@ -1195,6 +1213,11 @@ func registerComputeInstanceActions(srv *sim.Server) {
 		})
 	})
 }
+
+// gcpSerialPortBuffer is how much of a serial port's output Compute Engine
+// keeps: "If the amount of serial console output exceeds the size of the
+// buffer (1 MB), the oldest output is discarded".
+const gcpSerialPortBuffer = 1 << 20
 
 func parseComputeInt(s string) (int64, error) {
 	var n int64
