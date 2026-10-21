@@ -91,9 +91,7 @@ type webThread struct {
 // which is the state a stopped site is in.
 func webSiteInstanceContainer(site Site) (string, bool) {
 	inst := azfInstanceFor(site.Name)
-	inst.mu.Lock()
-	id := inst.containerID
-	inst.mu.Unlock()
+	id, _ := inst.running()
 	if id == "" || !sim.ContainerRunning(id) {
 		return "", false
 	}

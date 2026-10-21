@@ -78,6 +78,10 @@ func TestGcloudComputeInstances_Lifecycle(t *testing.T) {
 	console := gcloudSerialPortOutput(t, name, zone, "startup-script exit status 0")
 	require.Contains(t, console, "startup-script: boot=1")
 	require.Contains(t, console, "startup-script: name="+name)
+	second, err := gcloudCLI("compute", "instances", "get-serial-port-output", name,
+		"--zone="+zone, "--port=2").Output()
+	require.NoError(t, err, "serial port 2")
+	require.NotContains(t, string(second), "startup-script", "only the first serial port carries the console")
 
 	// Each transition below is read back off the instance rather than trusted
 	// from the command's exit status: Compute Engine reports a stopped

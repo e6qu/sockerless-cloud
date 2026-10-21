@@ -239,10 +239,9 @@ func TestECS_TaskResolvesAPrivateHostedZoneThroughTheVPCResolver(t *testing.T) {
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			Name:  aws.String("resolver"),
 			Image: aws.String("mirror.gcr.io/library/busybox:latest"),
-			// The agent publishes a task's metadata as its containers come
-			// up; the SDKs retry the endpoint, and so does this script.
+			// The task's metadata answers from the container's first moment.
 			Command: []string{"sh", "-c",
-				`nslookup db.corp.internal && for i in 1 2 3 4 5 6 7 8 9 10; do wget -qO- "$ECS_CONTAINER_METADATA_URI_V4/task" && exit 0; sleep 1; done; exit 1`},
+				`nslookup db.corp.internal && wget -qO- "$ECS_CONTAINER_METADATA_URI_V4/task"`},
 			LogConfiguration: &ecstypes.LogConfiguration{
 				LogDriver: ecstypes.LogDriverAwslogs,
 				Options: map[string]string{

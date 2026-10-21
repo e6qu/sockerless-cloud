@@ -1933,7 +1933,41 @@ func ecsScheduleTaskStart(
 ) {
 	ecsHandOffTaskLifecycle(func(ctx context.Context) {
 		start(ctx, id, td, taskTags, overrides, taskVolumeHosts, launchType, containerInstanceKey)
-	}, nil)
+	}, ecsTaskStartBegins(id))
+}
+
+// ecsTaskStarts holds, for each task whose start is under way, a channel that
+// closes once the start settles: its containers' handles are stored, or the
+// start failed or was dropped.
+var ecsTaskStarts sync.Map
+
+// ecsTaskStartBegins records that the task's start is under way and returns
+// what settles it.
+func ecsTaskStartBegins(id string) func() {
+	settled := make(chan struct{})
+	ecsTaskStarts.Store(id, settled)
+	return func() {
+		ecsTaskStarts.CompareAndDelete(id, settled)
+		close(settled)
+	}
+}
+
+// ecsAwaitTaskStart waits for the task's start under way, if any, to settle,
+// so a container that reads its metadata at once finds its task's containers.
+func ecsAwaitTaskStart(ctx context.Context, id string) {
+	v, ok := ecsTaskStarts.Load(id)
+	if !ok {
+		return
+	}
+	settled, ok := v.(chan struct{})
+	if !ok {
+		return
+	}
+	sim.DeclareOpenEndedWait(ctx)
+	select {
+	case <-settled:
+	case <-ctx.Done():
+	}
 }
 
 // ecsHandOffTaskLifecycle runs one step of a task's lifecycle off the request

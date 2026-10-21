@@ -140,19 +140,15 @@ func appServiceForwardedHeaders(r *http.Request) func(http.Header) {
 // WEBSITES_CONTAINER_START_TIME_LIMIT passes.
 func siteContainerAddress(ctx context.Context, site *Site) (string, error) {
 	inst := azfInstanceFor(site.Name)
-	inst.mu.Lock()
-	if err := inst.ensureStarted(site); err != nil {
-		inst.mu.Unlock()
+	started, err := inst.start(site)
+	if err != nil {
 		return "", fmt.Errorf("site %q failed to start: %w", site.Name, err)
 	}
-	if inst.address != "" {
-		address := inst.address
-		inst.mu.Unlock()
-		return address, nil
+	if started.address != "" {
+		return started.address, nil
 	}
-	containerID, candidates, port := inst.containerID, inst.candidates, inst.port
-	exit, logsDone := inst.exit, inst.logsDone
-	inst.mu.Unlock()
+	containerID, candidates, port := started.containerID, started.candidates, started.port
+	exit, logsDone := started.exit, started.logsDone
 
 	limit := siteStartTimeLimit(site)
 	waitCtx, cancel := context.WithTimeout(ctx, limit)
@@ -199,12 +195,18 @@ func siteContainerAddress(ctx context.Context, site *Site) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	inst.mu.Lock()
-	if inst.containerID == containerID {
-		inst.address = parsed.Host
-	}
-	inst.mu.Unlock()
+	inst.answered(containerID, parsed.Host)
 	return parsed.Host, nil
+}
+
+// answered records the address the site's container answered on, unless
+// another container replaced it meanwhile.
+func (inst *azureFunctionInstance) answered(containerID, address string) {
+	inst.mu.Lock()
+	defer inst.mu.Unlock()
+	if inst.containerID == containerID {
+		inst.address = address
+	}
 }
 
 // appServiceWarmupPing asks each candidate for /robots933456.txt, the path the
@@ -278,9 +280,7 @@ func writeStoppedSitePage(w http.ResponseWriter) {
 func webApplySiteState(site Site) error {
 	if siteStopped(&site) {
 		inst := azfInstanceFor(site.Name)
-		inst.mu.Lock()
-		inst.teardownLocked()
-		inst.mu.Unlock()
+		inst.teardown()
 		webStopSiteWebJobs(site.ID)
 		return nil
 	}
