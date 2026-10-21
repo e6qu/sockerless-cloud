@@ -67,11 +67,12 @@ type CRServiceTemplate struct {
 }
 
 type CRTemplateSpec struct {
-	Containers         []CRContainer     `json:"containers,omitempty"`
-	Volumes            []CRVolume        `json:"volumes,omitempty"`
-	NodeSelector       map[string]string `json:"nodeSelector,omitempty"`
-	TimeoutSeconds     int64             `json:"timeoutSeconds,omitempty"`
-	ServiceAccountName string            `json:"serviceAccountName,omitempty"`
+	Containers           []CRContainer     `json:"containers,omitempty"`
+	ContainerConcurrency int64             `json:"containerConcurrency,omitempty"`
+	Volumes              []CRVolume        `json:"volumes,omitempty"`
+	NodeSelector         map[string]string `json:"nodeSelector,omitempty"`
+	TimeoutSeconds       int64             `json:"timeoutSeconds,omitempty"`
+	ServiceAccountName   string            `json:"serviceAccountName,omitempty"`
 }
 
 type CRContainer struct {

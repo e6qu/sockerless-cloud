@@ -863,8 +863,10 @@ func pullImage(ctx context.Context, cli *client.Client, imageName, platform, reg
 		fmt.Fprintf(os.Stderr, "[sim-pull] image pull %s: held for %s/%s, wanted %s\n",
 			imageName, held.Os, held.Architecture, platform)
 	}
+	// Registries meter pulls per minute (mirror.gcr.io answers "Requests per
+	// project ... per minute"), so the waits span more than one: 2+4+8+16+32s.
 	backoff := 2 * time.Second
-	const maxAttempts = 5
+	const maxAttempts = 6
 	for attempt := 1; ; attempt++ {
 		reader, err := cli.ImagePull(ctx, imageName, pullOpts)
 		var pullErr error
@@ -1001,6 +1003,12 @@ func ContainerRunning(id string) bool {
 // they can construct its container configuration.
 func PullImage(ctx context.Context, imageName, platform string) error {
 	return PullImageWithCredential(ctx, imageName, platform, "")
+}
+
+// PullImageOn pulls like PullImage through the engine cli rather than the
+// simulator runtime's own.
+func PullImageOn(ctx context.Context, cli *client.Client, imageName, platform string) error {
+	return pullImage(ctx, cli, imageName, platform, "")
 }
 
 // PullImageWithCredential pulls like PullImage, presenting registryAuth (the

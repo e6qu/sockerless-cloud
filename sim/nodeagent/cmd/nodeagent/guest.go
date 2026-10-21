@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -123,7 +125,23 @@ type agent struct {
 	guests map[string]*guest
 }
 
+// A Unix socket's path holds at most 107 bytes, and Firecracker cannot bind
+// a longer one, so a guest directory takes a fixed-length name derived from
+// the guest's ID and the longest socket name must fit after it.
+const (
+	maxSocketPath     = 107
+	longestSocketName = "firecracker.socket"
+)
+
+func guestDir(stateDir, id string) string {
+	sum := sha256.Sum256([]byte(id))
+	return filepath.Join(stateDir, "guests", hex.EncodeToString(sum[:16]))
+}
+
 func newAgent(cfg config) (*agent, error) {
+	if longest := filepath.Join(guestDir(cfg.stateDir, ""), longestSocketName); len(longest) > maxSocketPath {
+		return nil, fmt.Errorf("state directory %s leaves guest sockets such as %s longer than %d bytes", cfg.stateDir, longest, maxSocketPath)
+	}
 	if err := os.MkdirAll(filepath.Join(cfg.stateDir, "guests"), 0o755); err != nil {
 		return nil, err
 	}
@@ -230,7 +248,8 @@ func (a *agent) create(spec guestSpec) (*guest, error) {
 	if _, exists := a.guests[spec.ID]; exists {
 		return nil, errGuestExists
 	}
-	dir := filepath.Join(a.cfg.stateDir, "guests", spec.ID)
+	dir := guestDir(a.cfg.stateDir, spec.ID)
+	log.Printf("nodeagent: guest %s: state in %s", spec.ID, dir)
 	_ = os.RemoveAll(dir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
@@ -566,7 +585,7 @@ func (g *guest) start(ctx context.Context) error {
 		}
 		g.disks = append(g.disks, path)
 	}
-	cmd, err := g.launchFirecracker(ctx, tap, extraTaps)
+	cmd, ended, err := g.launchFirecracker(ctx, tap, extraTaps)
 	if err != nil {
 		g.teardown()
 		return err
@@ -577,7 +596,7 @@ func (g *guest) start(ctx context.Context) error {
 	g.startedAt = time.Now().UTC()
 	g.mu.Unlock()
 	boot, drained := g.console.beginBoot()
-	go g.watchProcess(cmd)
+	go g.watchProcess(ended)
 	go g.listenExit(boot)
 	go g.followGuestConsole(boot, drained)
 	if err := g.waitForInit(ctx); err != nil {
@@ -590,8 +609,8 @@ func (g *guest) start(ctx context.Context) error {
 
 // watchProcess records the machine's end when the Firecracker process ends,
 // which follows the guest's power-off or a stop.
-func (g *guest) watchProcess(cmd *exec.Cmd) {
-	_ = cmd.Wait()
+func (g *guest) watchProcess(ended <-chan struct{}) {
+	<-ended
 	g.markExited(-1, "")
 }
 

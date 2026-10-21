@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/moby/moby/client"
 )
 
@@ -97,6 +98,13 @@ func EnsureImage(ctx context.Context, cli *client.Client) (string, string, error
 	platform := "linux/" + arch
 	if _, err := cli.ImageInspect(ctx, image); err == nil {
 		return image, platform, nil
+	}
+	// The build's FROM lines would pull the bases without retrying a
+	// registry's throttle; pulled first, they are held when the build runs.
+	for _, base := range []string{goImage, runtimeImage} {
+		if err := sim.PullImageOn(ctx, cli, base, platform); err != nil {
+			return "", "", fmt.Errorf("node agent: %w", err)
+		}
 	}
 	buildArgs := map[string]*string{}
 	for _, key := range []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"} {

@@ -58,3 +58,37 @@ func TestCloudRunServiceProjectionCarriesContainerDependencies(t *testing.T) {
 		t.Fatalf("restored annotations = %v", back.Template.Annotations)
 	}
 }
+
+// A Knative service's containerConcurrency and its template's minScale and
+// maxScale annotations become the v2 template's request concurrency and
+// scaling, and the v2 template folds back to the same Knative fields.
+func TestCloudRunServiceProjectionCarriesScaling(t *testing.T) {
+	v1 := CRService{
+		Metadata: CRServiceMetadata{Name: "scaled"},
+		Spec: CRServiceSpec{Template: &CRServiceTemplate{
+			Metadata: &CRServiceMetadata{Annotations: map[string]string{
+				cloudRunMinScaleAnnotation: "1", cloudRunMaxScaleAnnotation: "4", "keep": "me",
+			}},
+			Spec: &CRTemplateSpec{ContainerConcurrency: 3, Containers: []CRContainer{{Image: "a"}}},
+		}},
+	}
+	v2 := cloudRunV1ToV2(v1, "p", "us-central1")
+	if got := v2.Template.MaxInstanceRequestConcurrency; got != 3 {
+		t.Fatalf("maxInstanceRequestConcurrency = %d, want 3", got)
+	}
+	if s := v2.Template.Scaling; s == nil || s.MinInstanceCount != 1 || s.MaxInstanceCount != 4 {
+		t.Fatalf("scaling = %+v, want min 1 max 4", s)
+	}
+	if _, kept := v2.Template.Annotations[cloudRunMaxScaleAnnotation]; kept || v2.Template.Annotations["keep"] != "me" {
+		t.Fatalf("v2 annotations = %v", v2.Template.Annotations)
+	}
+	back := cloudRunV2ToV1(v2, "p", "scaled")
+	if back.Spec.Template.Spec.ContainerConcurrency != 3 ||
+		back.Spec.Template.Metadata.Annotations[cloudRunMinScaleAnnotation] != "1" ||
+		back.Spec.Template.Metadata.Annotations[cloudRunMaxScaleAnnotation] != "4" {
+		t.Fatalf("folded back = %+v", back.Spec.Template)
+	}
+	if _, err := cloudRunUnfoldScaling(map[string]string{cloudRunMaxScaleAnnotation: "many"}, &RevisionTemplate{}); err == nil {
+		t.Fatal("a maxScale that is not an integer was accepted")
+	}
+}

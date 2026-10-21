@@ -277,12 +277,13 @@ func registerCloudSQLPrefix(srv *sim.Server, prefix string) {
 	srv.HandleFunc("GET "+prefix+"/projects/{project}/instances/{instance}/workloadCaptures", sqlUnserved("workloadCaptures.list", workloadCaptureWhy))
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/workloadCaptures:start", sqlUnserved("workloadCaptures.start", workloadCaptureWhy))
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/workloadCaptures:stop", sqlUnserved("workloadCaptures.stop", workloadCaptureWhy))
+	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/workloadCaptures:stopReplay", sqlUnserved("workloadCaptures.stopReplay", workloadCaptureWhy))
 	// "{workloadId}:startReplay" is one segment, and a ServeMux wildcard must
 	// be a whole one, so the verb is read from the segment.
 	srv.HandleFunc("POST "+prefix+"/projects/{project}/instances/{instance}/workloadCaptures/{workloadAction}", func(w http.ResponseWriter, r *http.Request) {
 		_, verb, _ := strings.Cut(sim.PathParam(r, "workloadAction"), ":")
 		switch verb {
-		case "startReplay", "stopReplay":
+		case "startReplay":
 			sqlUnserved("workloadCaptures."+verb, workloadCaptureWhy)(w, r)
 		default:
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown workload capture operation: %s", sim.PathParam(r, "workloadAction"))

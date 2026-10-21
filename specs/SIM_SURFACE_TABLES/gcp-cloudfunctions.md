@@ -17,7 +17,7 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /v2/projects/{project}/locations/{location}/functions` | ✓ `simulator-gcp/cloudfunctions.go:171::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v2/projects/{project}/locations/{location}/functions` | ✓ `simulator-gcp/cloudfunctions.go:170::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /v2/projects/{project}/locations/{location}/{functionsVerb}` | ✓ `simulator-gcp/cloudfunctions.go:251::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /v2/projects/{project}/locations/{location}/functions/{function}` | ✓ `simulator-gcp/cloudfunctions.go:281::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `PATCH /v2/projects/{project}/locations/{location}/functions/{function}` | ✓ `simulator-gcp/cloudfunctions.go:307::func` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

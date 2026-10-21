@@ -62,7 +62,7 @@ func (s cloudRunAdoptedLogSink) WriteLog(line sim.LogLine) {
 
 // newCloudRunAdoptedLogSink wraps sink, which writes the entries of resource
 // in project, for a container an earlier process started.
-func newCloudRunAdoptedLogSink(sink sim.LogSink, project string, resource MonitoredResource) cloudRunAdoptedLogSink {
+func newCloudRunAdoptedLogSink(sink sim.LogSink, project string, resource MonitoredResource, entryLabels map[string]string) cloudRunAdoptedLogSink {
 	adopted := cloudRunAdoptedLogSink{sink: sink}
 	if logEntries == nil {
 		return adopted
@@ -71,6 +71,9 @@ func newCloudRunAdoptedLogSink(sink sim.LogSink, project string, resource Monito
 		for _, stored := range logEntries.Values(fmt.Sprintf("projects/%s/logs/run.googleapis.com%%2F%s", project, stream)) {
 			entry := stored.Entry
 			if entry.Resource == nil || entry.Resource.Type != resource.Type || !cloudRunSameResource(entry.Resource.Labels, resource.Labels) {
+				continue
+			}
+			if !cloudRunEntryLabeled(entry.Labels, entryLabels) {
 				continue
 			}
 			if at, err := time.Parse(time.RFC3339Nano, entry.Timestamp); err == nil && at.After(adopted.after) {
@@ -82,7 +85,18 @@ func newCloudRunAdoptedLogSink(sink sim.LogSink, project string, resource Monito
 }
 
 func newCloudRunAdoptedResourceLogSink(sink *cloudRunResourceLogSink) cloudRunAdoptedLogSink {
-	return newCloudRunAdoptedLogSink(sink, sink.project, sink.resource)
+	return newCloudRunAdoptedLogSink(sink, sink.project, sink.resource, nil)
+}
+
+// cloudRunEntryLabeled reports whether a log entry carries every label want
+// names, with its value.
+func cloudRunEntryLabeled(labels, want map[string]string) bool {
+	for k, v := range want {
+		if labels[k] != v {
+			return false
+		}
+	}
+	return true
 }
 
 // cloudRunSameResource reports whether a log entry's resource labels name the
@@ -298,20 +312,35 @@ func adoptCloudRunInstance(inst InstanceV2, run bool) {
 }
 
 // adoptCloudRunServiceInstance records the running containers byName holds as
-// name's instance, serving already: they started and passed their startup
-// probes under the earlier process.
+// the Cloud Run instance name, serving already.
 func adoptCloudRunServiceInstance(name, specSig string, containers []Container, volumes []Volume, byName map[string]placement.Existing, sink sim.LogSink) error {
-	order, err := cloudRunContainerStartOrder(containers)
+	inst, err := adoptCloudRunInstanceContainers(name, specSig, containers, volumes, byName, sink)
 	if err != nil {
 		return err
+	}
+	cloudRunServiceInstances.Lock()
+	previous := cloudRunServiceInstances.byName[name]
+	cloudRunServiceInstances.byName[name] = inst
+	cloudRunServiceInstances.Unlock()
+	stopCloudRunServiceInstance(previous)
+	return nil
+}
+
+// adoptCloudRunInstanceContainers takes over the running containers byName
+// holds as one instance of name: they started and passed their startup probes
+// under the earlier process.
+func adoptCloudRunInstanceContainers(name, specSig string, containers []Container, volumes []Volume, byName map[string]placement.Existing, sink sim.LogSink) (*cloudRunServiceInstance, error) {
+	order, err := cloudRunContainerStartOrder(containers)
+	if err != nil {
+		return nil, err
 	}
 	writable, err := cloudRunWritableBuckets(containers, volumes)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	releaseMounts, err := gcsAcquireMounts(writable)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var handles []placement.Handle
 	byIndex := make([]placement.Handle, len(containers))
@@ -322,7 +351,7 @@ func adoptCloudRunServiceInstance(name, specSig string, containers []Container, 
 				h.Cancel()
 			}
 			releaseMounts()
-			return err
+			return nil, err
 		}
 		handles = append(handles, handle)
 		byIndex[i] = handle
@@ -344,7 +373,7 @@ func adoptCloudRunServiceInstance(name, specSig string, containers []Container, 
 			h.Cancel()
 		}
 		releaseMounts()
-		return err
+		return nil, err
 	}
 	_, stop := context.WithCancel(context.Background())
 	inst := &cloudRunServiceInstance{
@@ -356,14 +385,10 @@ func adoptCloudRunServiceInstance(name, specSig string, containers []Container, 
 		releaseMounts: releaseMounts,
 		ingress:       byIndex[0],
 		handles:       handles,
+		group:         &workload.Group{Main: byIndex[0], Sidecars: byIndex[1:]},
 	}
 	close(inst.ready)
-	cloudRunServiceInstances.Lock()
-	previous := cloudRunServiceInstances.byName[name]
-	cloudRunServiceInstances.byName[name] = inst
-	cloudRunServiceInstances.Unlock()
-	stopCloudRunServiceInstance(previous)
-	return nil
+	return inst, nil
 }
 
 // adoptCloudRunServiceInstances takes over, for every revision a stored
@@ -377,7 +402,6 @@ func adoptCloudRunServiceInstances() {
 		log.Printf("Cloud Run services: list the instances an earlier process left: %v", err)
 		return
 	}
-	adopted := map[string]bool{}
 	for _, id := range ids {
 		group := groups[id]
 		name := group[0].Labels[cloudRunResourceLabel]
@@ -385,16 +409,20 @@ func adoptCloudRunServiceInstances() {
 			// A Cloud Run instance runs on the same containers; adoptCloudRunInstance owns them.
 			continue
 		}
-		if !adopted[name] && adoptCloudRunServiceInstanceGroup(name, id, group) {
-			adopted[name] = true
-			continue
+		if !adoptCloudRunServiceInstanceGroup(name, id, group) {
+			removeCloudRunContainers(name, group)
 		}
-		removeCloudRunContainers(name, group)
+	}
+	if crv2Services != nil {
+		for _, svc := range crv2Services.List() {
+			keepCloudRunRevisionsWarm(svc)
+		}
 	}
 }
 
-// adoptCloudRunServiceInstanceGroup adopts group as the instance of the
-// service name when it runs the service's template whole.
+// adoptCloudRunServiceInstanceGroup adopts group as an instance of the
+// revision name when the service's traffic still reaches it and the group runs
+// its template whole.
 func adoptCloudRunServiceInstanceGroup(name, groupID string, group []placement.Existing) bool {
 	if crv2Services == nil || crv2Revisions == nil {
 		return false
@@ -417,12 +445,25 @@ func adoptCloudRunServiceInstanceGroup(name, groupID string, group []placement.E
 	if !ok {
 		return false
 	}
-	project, serviceID := resourceProject(name), serviceName[strings.LastIndex(serviceName, "/")+1:]
-	sink := newCloudRunAdoptedLogSink(&cfLogSink{project: project, functionName: serviceID}, project, cloudRunServiceLogResource(serviceID))
-	if err := adoptCloudRunServiceInstance(name, specSig, containers, volumes, byName, sink); err != nil {
+	project := resourceProject(name)
+	revisionSink := cloudRunRevisionLogSink(name, groupID)
+	sink := newCloudRunAdoptedLogSink(revisionSink, project, revisionSink.resource, map[string]string{"instanceId": groupID})
+	run := cloudRunRevisionRunFor(rev)
+	if len(run.set.Replicas()) >= run.max {
+		return false
+	}
+	inst, err := adoptCloudRunInstanceContainers(name, specSig, containers, volumes, byName, sink)
+	if err != nil {
 		log.Printf("Cloud Run service %s: adopt instance %s: %v", name, groupID, err)
 		return false
 	}
+	run.mu.Lock()
+	run.instances[groupID] = inst
+	run.mu.Unlock()
+	run.set.Adopt(groupID, inst.group, time.Now(), func() {
+		inst.stop()
+		inst.releaseMounts()
+	})
 	return true
 }
 
@@ -499,7 +540,7 @@ func adoptCloudRunJobExecution(name string, group []placement.Existing) error {
 		return err
 	}
 	project, jobID := resourceProject(name), exec.Job
-	sink := newCloudRunAdoptedLogSink(&crjLogSink{project: project, jobName: jobID}, project, cloudRunJobLogResource(jobID))
+	sink := newCloudRunAdoptedLogSink(&crjLogSink{project: project, jobName: jobID}, project, cloudRunJobLogResource(jobID), nil)
 	handles := make([]placement.Handle, 0, len(containers))
 	for i, c := range containers {
 		config := sim.ContainerConfig{CancelGracePeriod: cloudRunStopGrace}

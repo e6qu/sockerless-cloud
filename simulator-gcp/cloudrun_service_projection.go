@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -126,11 +127,14 @@ func cloudRunV2ToV1(service ServiceV2, project, serviceID string) CRService {
 		}
 		template = &CRServiceTemplate{
 			Metadata: &CRServiceMetadata{
-				Namespace:   project,
-				Labels:      service.Template.Labels,
-				Annotations: cloudRunFoldContainerDependencies(service.Template.Annotations, service.Template.Containers),
+				Namespace: project,
+				Labels:    service.Template.Labels,
+				Annotations: cloudRunFoldScaling(
+					cloudRunFoldContainerDependencies(service.Template.Annotations, service.Template.Containers),
+					service.Template.Scaling),
 			},
-			Spec: &CRTemplateSpec{Containers: containers, TimeoutSeconds: timeout},
+			Spec: &CRTemplateSpec{Containers: containers, TimeoutSeconds: timeout,
+				ContainerConcurrency: int64(service.Template.MaxInstanceRequestConcurrency)},
 		}
 	}
 	traffic := make([]CRTraffic, 0, len(service.Traffic))
@@ -193,10 +197,14 @@ func cloudRunV1ToV2(service CRService, project, location string) ServiceV2 {
 		if spec.TimeoutSeconds > 0 {
 			timeout = fmt.Sprintf("%ds", spec.TimeoutSeconds)
 		}
-		template = &RevisionTemplate{Containers: containers, Timeout: timeout}
+		template = &RevisionTemplate{Containers: containers, Timeout: timeout,
+			MaxInstanceRequestConcurrency: int32(spec.ContainerConcurrency)}
 		if service.Spec.Template.Metadata != nil {
 			template.Labels = service.Spec.Template.Metadata.Labels
 			annotations, err := cloudRunUnfoldContainerDependencies(service.Spec.Template.Metadata.Annotations, template.Containers)
+			if err == nil {
+				annotations, err = cloudRunUnfoldScaling(annotations, template)
+			}
 			if err != nil {
 				// cloudRunKnativeServiceValid refuses the service before it is stored.
 				panic(err)
@@ -261,6 +269,8 @@ func projectCloudRunV1ToV2(service CRService, project, location string) {
 		reconcileServiceRevision(crv2Revisions, projection.Name, revision, projection)
 	}
 	projectCloudRunV2ToV1(projection)
+	stopUnroutedCloudRunRevisions(projection)
+	keepCloudRunRevisionsWarm(projection)
 }
 
 func deleteCloudRunServiceProjections(project, location, serviceID string) {
@@ -292,7 +302,11 @@ func cloudRunKnativeServiceValid(w http.ResponseWriter, service CRService) bool 
 		return true
 	}
 	containers := convertEach(template.Spec.Containers, cloudRunV1ContainerToV2)
-	if _, err := cloudRunUnfoldContainerDependencies(template.Metadata.Annotations, containers); err != nil {
+	annotations, err := cloudRunUnfoldContainerDependencies(template.Metadata.Annotations, containers)
+	if err == nil {
+		_, err = cloudRunUnfoldScaling(annotations, &RevisionTemplate{})
+	}
+	if err != nil {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
 		return false
 	}
@@ -311,4 +325,70 @@ func cloudRunServiceTemplateValid(w http.ResponseWriter, template *RevisionTempl
 		return false
 	}
 	return true
+}
+
+// The Knative surface carries a revision's instance bounds as template
+// annotations; the v2 surface carries them in the template's scaling and
+// refuses the autoscaling.knative.dev annotations.
+const (
+	cloudRunMinScaleAnnotation = "autoscaling.knative.dev/minScale"
+	cloudRunMaxScaleAnnotation = "autoscaling.knative.dev/maxScale"
+)
+
+// cloudRunUnfoldScaling sets template's scaling from the minScale and
+// maxScale annotations and returns the annotations without them.
+func cloudRunUnfoldScaling(annotations map[string]string, template *RevisionTemplate) (map[string]string, error) {
+	bound := func(key string) (int32, bool, error) {
+		raw, ok := annotations[key]
+		if !ok {
+			return 0, false, nil
+		}
+		n, err := strconv.ParseInt(raw, 10, 32)
+		if err != nil || n < 0 {
+			return 0, false, fmt.Errorf("annotation %s must be a non-negative integer, got %q", key, raw)
+		}
+		return int32(n), true, nil
+	}
+	minimum, hasMin, err := bound(cloudRunMinScaleAnnotation)
+	if err != nil {
+		return nil, err
+	}
+	maximum, hasMax, err := bound(cloudRunMaxScaleAnnotation)
+	if err != nil {
+		return nil, err
+	}
+	if !hasMin && !hasMax {
+		return annotations, nil
+	}
+	if hasMin && hasMax && maximum > 0 && minimum > maximum {
+		return nil, fmt.Errorf("annotation %s (%d) must not exceed %s (%d)",
+			cloudRunMinScaleAnnotation, minimum, cloudRunMaxScaleAnnotation, maximum)
+	}
+	template.Scaling = &RevisionScaling{MinInstanceCount: minimum, MaxInstanceCount: maximum}
+	rest := make(map[string]string, len(annotations))
+	for k, v := range annotations {
+		if k != cloudRunMinScaleAnnotation && k != cloudRunMaxScaleAnnotation {
+			rest[k] = v
+		}
+	}
+	return rest, nil
+}
+
+// cloudRunFoldScaling returns annotations with scaling's bounds as the
+// minScale and maxScale annotations.
+func cloudRunFoldScaling(annotations map[string]string, scaling *RevisionScaling) map[string]string {
+	if scaling == nil || (scaling.MinInstanceCount == 0 && scaling.MaxInstanceCount == 0) {
+		return annotations
+	}
+	folded := make(map[string]string, len(annotations)+2)
+	for k, v := range annotations {
+		folded[k] = v
+	}
+	if scaling.MinInstanceCount > 0 {
+		folded[cloudRunMinScaleAnnotation] = strconv.Itoa(int(scaling.MinInstanceCount))
+	}
+	if scaling.MaxInstanceCount > 0 {
+		folded[cloudRunMaxScaleAnnotation] = strconv.Itoa(int(scaling.MaxInstanceCount))
+	}
+	return folded
 }
