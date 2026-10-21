@@ -94,6 +94,7 @@ func TestPubSubGRPC_ListTopicsResumesAfterTheLastTopicReturned(t *testing.T) {
 	t.Parallel()
 	pub, _ := psRawClient(t)
 	project := "projects/" + uniqueName("ps-continuation")
+	ensureProject(t, strings.TrimPrefix(project, "projects/"))
 	requireContinuation(t, continuationList{
 		put: func(t *testing.T, id string) {
 			_, err := pub.CreateTopic(ctx, &pubsubpb.Topic{Name: project + "/topics/" + id})

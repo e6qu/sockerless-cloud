@@ -22,6 +22,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -455,6 +456,8 @@ func crmOrgPolicyVerb(w http.ResponseWriter, r *http.Request, resource, action s
 	}
 
 	key := crmOrgPolicyKey(resource, c.Name)
+	crmOrgPolicyWrites.Lock()
+	defer crmOrgPolicyWrites.Unlock()
 	switch action {
 	case "getOrgPolicy":
 		// A resource with no policy of its own reads back the empty policy for
@@ -495,6 +498,10 @@ func crmOrgPolicyVerb(w http.ResponseWriter, r *http.Request, resource, action s
 	}
 	return true
 }
+
+// crmOrgPolicyWrites holds a policy's etag check and its write together, so
+// two writes carrying one etag cannot both pass.
+var crmOrgPolicyWrites sync.Mutex
 
 // crmOrgPolicyEtagOK enforces the optimistic concurrency the API documents: an
 // empty etag writes unconditionally, a supplied one must match the stored

@@ -1,6 +1,8 @@
 package gcp_sdk_test
 
 import (
+	"google.golang.org/api/googleapi"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -56,6 +58,28 @@ func TestSpanner_SplitPointsQuorumScansAndAdapter(t *testing.T) {
 	got, err := svc.Projects.Instances.Databases.Get(name).Do()
 	require.NoError(t, err)
 	require.NotNil(t, got.QuorumInfo)
+	require.NotEmpty(t, got.QuorumInfo.Etag, "the quorum info carries its own etag")
+
+	// A change carrying an etag the quorum info no longer has is refused, and
+	// one carrying the current etag applies and gives the info a new one.
+	_, err = svc.Projects.Instances.Databases.Changequorum(name,
+		&spanneradmin.ChangeQuorumRequest{
+			QuorumType: &spanneradmin.QuorumType{DualRegion: &spanneradmin.DualRegionQuorum{}},
+			Etag:       "stale",
+		}).Do()
+	var aborted *googleapi.Error
+	require.ErrorAs(t, err, &aborted)
+	assert.Equal(t, http.StatusConflict, aborted.Code)
+	_, err = svc.Projects.Instances.Databases.Changequorum(name,
+		&spanneradmin.ChangeQuorumRequest{
+			QuorumType: &spanneradmin.QuorumType{DualRegion: &spanneradmin.DualRegionQuorum{}},
+			Etag:       got.QuorumInfo.Etag,
+		}).Do()
+	require.NoError(t, err)
+	changed, err := svc.Projects.Instances.Databases.Get(name).Do()
+	require.NoError(t, err)
+	require.NotNil(t, changed.QuorumInfo.QuorumType.DualRegion)
+	assert.NotEqual(t, got.QuorumInfo.Etag, changed.QuorumInfo.Etag)
 
 	_, err = svc.Projects.Instances.Databases.Changequorum(name,
 		&spanneradmin.ChangeQuorumRequest{}).Do()

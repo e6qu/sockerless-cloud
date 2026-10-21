@@ -3939,6 +3939,21 @@ two base images through the simulator's throttle-aware puller before the
 build's `FROM` lines need them, and that puller's retries wait 2, 4, 8, 16 and
 32 seconds, outlasting a registry's per-minute quota.
 
+The Knative Cloud Run surface carries a template's VPC egress as the
+`run.googleapis.com/vpc-access-connector`, `vpc-access-egress` and
+`network-interfaces` annotations, which the v1 create and replace paths
+project onto the v2 `vpcAccess` of a service's revision template and of a
+job's task template, and fold back when read, so a service or job created
+through the v1 surface runs on the VPC its annotations name.
+
+Every etag check holds the record it guards until its write is done: Secret
+Manager and Bigtable `SetIamPolicy` and their seeding `GetIamPolicy` share
+Cloud IAM's lock, and Bigtable memory layers, Organization Policy and
+capability configs hold their own, so of two writers carrying one etag
+exactly one writes. Spanner `changequorum` refuses ABORTED an etag its
+database's quorum info no longer carries and gives each change a fresh
+etag, where it had stored the caller's.
+
 CI fetches each set of base images once per run: the `warm-base-images` job
 runs on pull requests as on `main`, one leg per set the jobs restore (each
 cloud's, the support module's and the Amazon RDS blue/green stack's), and the
@@ -3956,6 +3971,12 @@ console, of which it keeps the last 1 MB and moves a `start` behind it up to
 the oldest byte kept, and the others carry nothing a container writes. Every
 App Service site path that takes the site instance's lock releases it
 through `defer`, so a panic in one cannot leave the site undeletable.
+
+Pub/Sub creates a topic, subscription or snapshot only in a project Cloud
+Resource Manager holds as active, over REST and gRPC alike, and a snapshot
+only of a subscription that exists. The SDK suite creates every project its
+Pub/Sub tests name through Cloud Resource Manager (`ensureProject`), and the
+in-package tests put theirs in place under IDs a project can have.
 
 A Container Apps container's `probes` run with Kubernetes' semantics: a
 startup probe, then a first passing readiness probe, makes the container

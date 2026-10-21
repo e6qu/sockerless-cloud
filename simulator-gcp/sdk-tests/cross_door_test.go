@@ -229,6 +229,7 @@ func TestCrossDoor_Firestore(t *testing.T) {
 
 func TestCrossDoor_PubSub(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "cross-door-pubsub")
 	rest := pubsubService(t)
 	const project = "projects/cross-door-pubsub"
 	topicName := project + "/topics/" + uniqueName("crossing")

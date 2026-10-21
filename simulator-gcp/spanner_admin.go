@@ -324,11 +324,24 @@ func handleSpannerChangeQuorum(w http.ResponseWriter, r *http.Request, name stri
 		"initiator":  "USER",
 		"startTime":  time.Now().UTC().Format(time.RFC3339),
 	}
-	if req.Etag != "" {
-		quorum["etag"] = req.Etag
-	}
-	if !spannerDatabases.Update(name, func(db *spannerDatabase) { db.QuorumInfo = quorum }) {
+	// The etag is the quorum info's own, and a request carrying one changes
+	// the quorum only while it still matches, so two concurrent changes
+	// cannot both apply.
+	quorum["etag"] = gcpPolicyETag()
+	stale := false
+	if !spannerDatabases.Update(name, func(db *spannerDatabase) {
+		if current, _ := db.QuorumInfo["etag"].(string); req.Etag != "" && req.Etag != current {
+			stale = true
+			return
+		}
+		db.QuorumInfo = quorum
+	}) {
 		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "database %q not found", name)
+		return
+	}
+	if stale {
+		GCPErrorf(w, http.StatusConflict, "ABORTED",
+			"The etag does not match the database's current quorum info; read the database again and retry.")
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{

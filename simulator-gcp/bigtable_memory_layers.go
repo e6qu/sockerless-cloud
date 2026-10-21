@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	btadmin "cloud.google.com/go/bigtable/admin/apiv2/adminpb"
@@ -51,6 +52,10 @@ func bigtableMemoryLayerCluster(name string) (string, error) {
 
 // bigtableUpdateMemoryLayer enables the memory layer when enable is set and
 // disables it otherwise. A non-empty etag must be the layer's current one.
+// bigtableMemoryLayerWrites holds a memory layer's etag check and its write
+// together, so two updates carrying one etag cannot both pass.
+var bigtableMemoryLayerWrites sync.Mutex
+
 func bigtableUpdateMemoryLayer(name, etag string, maskPaths []string, enable bool) (bigtableMemoryLayer, error) {
 	clusterName, err := bigtableMemoryLayerCluster(name)
 	if err != nil {
@@ -63,6 +68,8 @@ func bigtableUpdateMemoryLayer(name, etag string, maskPaths []string, enable boo
 			return bigtableMemoryLayer{}, status.Errorf(codes.InvalidArgument, "field %q cannot be updated", path)
 		}
 	}
+	bigtableMemoryLayerWrites.Lock()
+	defer bigtableMemoryLayerWrites.Unlock()
 	layer := bigtableMemoryLayerForCluster(clusterName)
 	if etag != "" && etag != layer.Etag {
 		return bigtableMemoryLayer{}, status.Error(codes.Aborted, "etag mismatch")

@@ -2,12 +2,17 @@ package gcp_sdk_test
 
 import (
 	"encoding/base64"
+	"net/http"
 	"testing"
 
+	pubsubpb "cloud.google.com/go/pubsub/apiv1/pubsubpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	pubsub "google.golang.org/api/pubsub/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func pubsubService(t *testing.T) *pubsub.Service {
@@ -212,6 +217,7 @@ func TestPubSub_TopicListPagination(t *testing.T) {
 	t.Parallel()
 	svc := pubsubService(t)
 	proj := "pagination-ps-project"
+	ensureProject(t, proj)
 
 	// Create 3 topics.
 	topics := []string{
@@ -256,6 +262,7 @@ func TestPubSub_SubscriptionListPagination(t *testing.T) {
 	t.Parallel()
 	svc := pubsubService(t)
 	proj := "pagination-ps-sub-project"
+	ensureProject(t, proj)
 	topicName := "projects/" + proj + "/topics/pagination-topic"
 
 	_, err := svc.Projects.Topics.Create(topicName, &pubsub.Topic{Name: topicName}).Do()
@@ -301,4 +308,23 @@ func TestPubSub_SubscriptionListPagination(t *testing.T) {
 	for _, name := range subs {
 		require.Contains(t, got, name)
 	}
+}
+
+// Pub/Sub refuses to create a resource in a project Cloud Resource Manager
+// does not hold, over both transports.
+func TestPubSub_RefusesAProjectThatDoesNotExist(t *testing.T) {
+	t.Parallel()
+	missing := uniqueName("ps-no-such-project")
+	svc, err := pubsub.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
+	require.NoError(t, err)
+	name := "projects/" + missing + "/topics/orphan"
+	_, err = svc.Projects.Topics.Create(name, &pubsub.Topic{Name: name}).Do()
+	var refused *googleapi.Error
+	require.ErrorAs(t, err, &refused)
+	assert.Equal(t, http.StatusNotFound, refused.Code)
+	assert.Contains(t, refused.Message, "Requested project not found")
+
+	pub, _ := psRawClient(t)
+	_, err = pub.CreateTopic(ctx, &pubsubpb.Topic{Name: name})
+	assert.Equal(t, codes.NotFound, status.Code(err), "gRPC CreateTopic: %v", err)
 }

@@ -3,6 +3,7 @@ package gcp_sdk_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 // by endpoint rather than through the process-wide PUBSUB_EMULATOR_HOST.
 func newPSGRPCClient(t *testing.T, project string) *pubsub.Client {
 	t.Helper()
+	ensureProject(t, project)
 	c, err := pubsub.NewClient(ctx, project,
 		option.WithEndpoint(grpcAddr),
 		option.WithoutAuthentication(),
@@ -531,6 +533,7 @@ func TestPubSubGRPC_ListRefusesAMalformedPage(t *testing.T) {
 	t.Parallel()
 	pub, _ := psRawClient(t)
 	project := "projects/" + uniqueName("ps-grpc-paging")
+	ensureProject(t, strings.TrimPrefix(project, "projects/"))
 	for _, id := range []string{"a", "b", "c"} {
 		_, err := pub.CreateTopic(ctx, &pubsubpb.Topic{Name: project + "/topics/" + id})
 		require.NoError(t, err)

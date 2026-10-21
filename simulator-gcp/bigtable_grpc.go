@@ -1854,6 +1854,8 @@ func bigtableGetIamPolicy(req *iampb.GetIamPolicyRequest) (*iampb.Policy, error)
 	if !bigtableIAMResourceExists(resource) {
 		return nil, status.Errorf(codes.NotFound, "resource %q not found", resource)
 	}
+	gcpIAMPolicyWrites.Lock()
+	defer gcpIAMPolicyWrites.Unlock()
 	store := gcpResourceIAMStore()
 	policy, ok := store.Get(resource)
 	if !ok {
@@ -1874,6 +1876,8 @@ func bigtableSetIamPolicy(req *iampb.SetIamPolicyRequest) (*iampb.Policy, error)
 	if policy == nil {
 		return nil, status.Error(codes.InvalidArgument, "policy is required")
 	}
+	gcpIAMPolicyWrites.Lock()
+	defer gcpIAMPolicyWrites.Unlock()
 	store := gcpResourceIAMStore()
 	current, present := store.Get(resource)
 	if reqEtag := string(policy.GetEtag()); reqEtag != "" && (!present || reqEtag != current.Etag) {

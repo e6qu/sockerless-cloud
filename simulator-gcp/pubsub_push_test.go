@@ -81,18 +81,19 @@ func awaitPush(t *testing.T, received chan pushedRequest) pushedRequest {
 // account, and that a 2xx acknowledges the message.
 func TestPubSubPushDeliversWithOIDCTokenAndAcknowledges(t *testing.T) {
 	srv := buildPushTestSimulator(t)
+	activeTestProject(t, "unit-proj")
 	receiver, received, _ := pushReceiver(t, http.StatusNoContent)
-	gcpCall(t, srv, http.MethodPut, "/v1/projects/p/topics/orders", `{}`)
-	gcpCall(t, srv, http.MethodPut, "/v1/projects/p/subscriptions/orders-push", `{"topic":"projects/p/topics/orders",
+	gcpCall(t, srv, http.MethodPut, "/v1/projects/unit-proj/topics/orders", `{}`)
+	gcpCall(t, srv, http.MethodPut, "/v1/projects/unit-proj/subscriptions/orders-push", `{"topic":"projects/unit-proj/topics/orders",
 		"pushConfig":{"pushEndpoint":"`+receiver.URL+`/push","oidcToken":{"serviceAccountEmail":"pusher@p.iam.gserviceaccount.com","audience":"https://orders.example"}}}`)
 	data := base64.StdEncoding.EncodeToString([]byte("hello"))
-	published := gcpCall(t, srv, http.MethodPost, "/v1/projects/p/topics/orders:publish", `{"messages":[{"data":"`+data+`","attributes":{"k":"v"}}]}`)
+	published := gcpCall(t, srv, http.MethodPost, "/v1/projects/unit-proj/topics/orders:publish", `{"messages":[{"data":"`+data+`","attributes":{"k":"v"}}]}`)
 	ids, _ := published["messageIds"].([]any)
 
 	psPushSweep(context.Background())
 	pushed := awaitPush(t, received)
 	message, _ := pushed.body["message"].(map[string]any)
-	if pushed.body["subscription"] != "projects/p/subscriptions/orders-push" || message["data"] != data ||
+	if pushed.body["subscription"] != "projects/unit-proj/subscriptions/orders-push" || message["data"] != data ||
 		message["messageId"] != ids[0] || message["attributes"].(map[string]any)["k"] != "v" {
 		t.Fatalf("push body = %v", pushed.body)
 	}
@@ -111,7 +112,7 @@ func TestPubSubPushDeliversWithOIDCTokenAndAcknowledges(t *testing.T) {
 		t.Fatalf("OIDC claims = %s", claims)
 	}
 	bg.Await()
-	if q, _ := psQueues.Get("projects/p/subscriptions/orders-push"); len(q.Queue.Messages) != 0 {
+	if q, _ := psQueues.Get("projects/unit-proj/subscriptions/orders-push"); len(q.Queue.Messages) != 0 {
 		t.Fatalf("%d messages unacknowledged after the endpoint acknowledged", len(q.Queue.Messages))
 	}
 }
@@ -121,15 +122,16 @@ func TestPubSubPushDeliversWithOIDCTokenAndAcknowledges(t *testing.T) {
 // the dead-letter topic with the attributes Pub/Sub adds.
 func TestPubSubPushDeadLettersAfterMaxDeliveryAttempts(t *testing.T) {
 	srv := buildPushTestSimulator(t)
+	activeTestProject(t, "unit-proj")
 	receiver, received, count := pushReceiver(t, http.StatusInternalServerError)
-	gcpCall(t, srv, http.MethodPut, "/v1/projects/p/topics/jobs", `{}`)
-	gcpCall(t, srv, http.MethodPut, "/v1/projects/p/topics/jobs-dead", `{}`)
-	gcpCall(t, srv, http.MethodPut, "/v1/projects/p/subscriptions/jobs-dead-pull", `{"topic":"projects/p/topics/jobs-dead"}`)
-	gcpCall(t, srv, http.MethodPut, "/v1/projects/p/subscriptions/jobs-push", `{"topic":"projects/p/topics/jobs",
+	gcpCall(t, srv, http.MethodPut, "/v1/projects/unit-proj/topics/jobs", `{}`)
+	gcpCall(t, srv, http.MethodPut, "/v1/projects/unit-proj/topics/jobs-dead", `{}`)
+	gcpCall(t, srv, http.MethodPut, "/v1/projects/unit-proj/subscriptions/jobs-dead-pull", `{"topic":"projects/unit-proj/topics/jobs-dead"}`)
+	gcpCall(t, srv, http.MethodPut, "/v1/projects/unit-proj/subscriptions/jobs-push", `{"topic":"projects/unit-proj/topics/jobs",
 		"pushConfig":{"pushEndpoint":"`+receiver.URL+`"},
 		"retryPolicy":{"minimumBackoff":"0.05s","maximumBackoff":"0.2s"},
-		"deadLetterPolicy":{"deadLetterTopic":"projects/p/topics/jobs-dead","maxDeliveryAttempts":5}}`)
-	gcpCall(t, srv, http.MethodPost, "/v1/projects/p/topics/jobs:publish", `{"messages":[{"data":"`+base64.StdEncoding.EncodeToString([]byte("x"))+`"}]}`)
+		"deadLetterPolicy":{"deadLetterTopic":"projects/unit-proj/topics/jobs-dead","maxDeliveryAttempts":5}}`)
+	gcpCall(t, srv, http.MethodPost, "/v1/projects/unit-proj/topics/jobs:publish", `{"messages":[{"data":"`+base64.StdEncoding.EncodeToString([]byte("x"))+`"}]}`)
 	psPushSweep(context.Background())
 	for attempt := 1; attempt <= 5; attempt++ {
 		pushed := awaitPush(t, received)
@@ -142,14 +144,14 @@ func TestPubSubPushDeadLettersAfterMaxDeliveryAttempts(t *testing.T) {
 	// exhausted message is due for the dead-letter topic by then.
 	bg.Await()
 	psSweepDeadLetters(time.Now().Add(200*time.Millisecond + time.Millisecond))
-	dead := pullNow(t, "projects/p/subscriptions/jobs-dead-pull")
+	dead := pullNow(t, "projects/unit-proj/subscriptions/jobs-dead-pull")
 	if n := count.Load(); n != 5 {
 		t.Fatalf("endpoint saw %d attempts, want maxDeliveryAttempts=5", n)
 	}
 	attributes := dead[0].Message.Attributes
 	if attributes["CloudPubSubDeadLetterSourceDeliveryCount"] != "5" ||
 		attributes["CloudPubSubDeadLetterSourceSubscription"] != "jobs-push" ||
-		attributes["CloudPubSubDeadLetterSourceSubscriptionProject"] != "p" ||
+		attributes["CloudPubSubDeadLetterSourceSubscriptionProject"] != "unit-proj" ||
 		attributes["CloudPubSubDeadLetterSourceTopicPublishTime"] == "" {
 		t.Fatalf("dead-letter attributes = %v", attributes)
 	}
@@ -174,6 +176,7 @@ func pullNow(t *testing.T, subscription string) []psDelivered {
 // every delivery attempt, pushed or pulled, toward one total.
 func TestPubSubPushAndPullShareDeliveryAttempts(t *testing.T) {
 	srv := buildPushTestSimulator(t)
+	activeTestProject(t, "unit-proj")
 	// The endpoint rejects every push and holds its answer to the second
 	// until the test has switched the subscription to pull, so no third push
 	// can start while the switch is in flight.
@@ -192,14 +195,14 @@ func TestPubSubPushAndPullShareDeliveryAttempts(t *testing.T) {
 	}))
 	t.Cleanup(failing.Close)
 	accepting, accepted, _ := pushReceiver(t, http.StatusOK)
-	const sub = "projects/p/subscriptions/switch"
-	gcpCall(t, srv, http.MethodPut, "/v1/projects/p/topics/switch", `{}`)
-	gcpCall(t, srv, http.MethodPut, "/v1/projects/p/topics/switch-dead", `{}`)
-	gcpCall(t, srv, http.MethodPut, "/v1/"+sub, `{"topic":"projects/p/topics/switch",
+	const sub = "projects/unit-proj/subscriptions/switch"
+	gcpCall(t, srv, http.MethodPut, "/v1/projects/unit-proj/topics/switch", `{}`)
+	gcpCall(t, srv, http.MethodPut, "/v1/projects/unit-proj/topics/switch-dead", `{}`)
+	gcpCall(t, srv, http.MethodPut, "/v1/"+sub, `{"topic":"projects/unit-proj/topics/switch",
 		"pushConfig":{"pushEndpoint":"`+failing.URL+`"},
 		"retryPolicy":{"minimumBackoff":"0s","maximumBackoff":"0s"},
-		"deadLetterPolicy":{"deadLetterTopic":"projects/p/topics/switch-dead","maxDeliveryAttempts":10}}`)
-	gcpCall(t, srv, http.MethodPost, "/v1/projects/p/topics/switch:publish", `{"messages":[{"data":"`+base64.StdEncoding.EncodeToString([]byte("x"))+`"}]}`)
+		"deadLetterPolicy":{"deadLetterTopic":"projects/unit-proj/topics/switch-dead","maxDeliveryAttempts":10}}`)
+	gcpCall(t, srv, http.MethodPost, "/v1/projects/unit-proj/topics/switch:publish", `{"messages":[{"data":"`+base64.StdEncoding.EncodeToString([]byte("x"))+`"}]}`)
 	psPushSweep(context.Background())
 	for attempt := 1; attempt <= 2; attempt++ {
 		if got := awaitPush(t, failed).body["deliveryAttempt"]; got != float64(attempt) {

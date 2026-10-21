@@ -357,6 +357,9 @@ func (s *pubsubPublisherGRPC) CreateTopic(_ context.Context, req *pspb.Topic) (*
 	if name == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
 	}
+	if project := psResourceProject(name); !psProjectActive(project) {
+		return nil, status.Errorf(codes.NotFound, psProjectNotFound, project)
+	}
 	if _, exists := psTopics.Get(name); exists {
 		return nil, status.Errorf(codes.AlreadyExists, "Resource already exists (resource=%s)", name)
 	}
@@ -514,6 +517,9 @@ func (s *pubsubSubscriberGRPC) CreateSubscription(_ context.Context, req *pspb.S
 	topic := req.GetTopic()
 	if topic == "" {
 		return nil, status.Error(codes.InvalidArgument, "topic is required")
+	}
+	if project := psResourceProject(name); !psProjectActive(project) {
+		return nil, status.Errorf(codes.NotFound, psProjectNotFound, project)
 	}
 	if _, ok := psTopics.Get(topic); !ok {
 		return nil, status.Errorf(codes.NotFound, "Resource not found (resource=%s)", topic)
@@ -844,6 +850,9 @@ func (s *pubsubSubscriberGRPC) CreateSnapshot(_ context.Context, req *pspb.Creat
 	sub := req.GetSubscription()
 	if sub == "" {
 		return nil, status.Error(codes.InvalidArgument, "subscription is required")
+	}
+	if project := psResourceProject(name); !psProjectActive(project) {
+		return nil, status.Errorf(codes.NotFound, psProjectNotFound, project)
 	}
 	if _, ok := psSubscriptions.Get(sub); !ok {
 		return nil, status.Errorf(codes.NotFound, "Resource not found (resource=%s)", sub)

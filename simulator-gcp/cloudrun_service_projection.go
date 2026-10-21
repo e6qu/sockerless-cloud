@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -129,9 +130,9 @@ func cloudRunV2ToV1(service ServiceV2, project, serviceID string) CRService {
 			Metadata: &CRServiceMetadata{
 				Namespace: project,
 				Labels:    service.Template.Labels,
-				Annotations: cloudRunFoldScaling(
+				Annotations: cloudRunFoldVpcAccess(cloudRunFoldScaling(
 					cloudRunFoldContainerDependencies(service.Template.Annotations, service.Template.Containers),
-					service.Template.Scaling),
+					service.Template.Scaling), service.Template.VpcAccess),
 			},
 			Spec: &CRTemplateSpec{Containers: containers, TimeoutSeconds: timeout,
 				ContainerConcurrency: int64(service.Template.MaxInstanceRequestConcurrency)},
@@ -204,6 +205,9 @@ func cloudRunV1ToV2(service CRService, project, location string) ServiceV2 {
 			annotations, err := cloudRunUnfoldContainerDependencies(service.Spec.Template.Metadata.Annotations, template.Containers)
 			if err == nil {
 				annotations, err = cloudRunUnfoldScaling(annotations, template)
+			}
+			if err == nil {
+				annotations, template.VpcAccess, err = cloudRunUnfoldVpcAccess(annotations)
 			}
 			if err != nil {
 				// cloudRunKnativeServiceValid refuses the service before it is stored.
@@ -304,7 +308,10 @@ func cloudRunKnativeServiceValid(w http.ResponseWriter, service CRService) bool 
 	containers := convertEach(template.Spec.Containers, cloudRunV1ContainerToV2)
 	annotations, err := cloudRunUnfoldContainerDependencies(template.Metadata.Annotations, containers)
 	if err == nil {
-		_, err = cloudRunUnfoldScaling(annotations, &RevisionTemplate{})
+		annotations, err = cloudRunUnfoldScaling(annotations, &RevisionTemplate{})
+	}
+	if err == nil {
+		_, _, err = cloudRunUnfoldVpcAccess(annotations)
 	}
 	if err != nil {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
@@ -389,6 +396,79 @@ func cloudRunFoldScaling(annotations map[string]string, scaling *RevisionScaling
 	}
 	if scaling.MaxInstanceCount > 0 {
 		folded[cloudRunMaxScaleAnnotation] = strconv.Itoa(int(scaling.MaxInstanceCount))
+	}
+	return folded
+}
+
+// The Knative surface carries a template's VPC egress as annotations: the
+// Serverless VPC Access connector, the egress setting, and direct VPC egress's
+// network interfaces as a JSON list.
+const (
+	cloudRunVpcConnectorAnnotation     = "run.googleapis.com/vpc-access-connector"
+	cloudRunVpcEgressAnnotation        = "run.googleapis.com/vpc-access-egress"
+	cloudRunNetworkInterfaceAnnotation = "run.googleapis.com/network-interfaces"
+)
+
+// cloudRunUnfoldVpcAccess reads the VPC egress annotations into a v2
+// VpcAccess and returns the annotations without them.
+func cloudRunUnfoldVpcAccess(annotations map[string]string) (map[string]string, *VpcAccess, error) {
+	connector, hasConnector := annotations[cloudRunVpcConnectorAnnotation]
+	egress, hasEgress := annotations[cloudRunVpcEgressAnnotation]
+	interfaces, hasInterfaces := annotations[cloudRunNetworkInterfaceAnnotation]
+	if !hasConnector && !hasEgress && !hasInterfaces {
+		return annotations, nil, nil
+	}
+	vpc := &VpcAccess{Connector: connector}
+	switch egress {
+	case "":
+	case "all", "all-traffic":
+		vpc.Egress = "ALL_TRAFFIC"
+	case "private-ranges-only":
+		vpc.Egress = "PRIVATE_RANGES_ONLY"
+	default:
+		return nil, nil, fmt.Errorf("annotation %s must be all-traffic or private-ranges-only, got %q", cloudRunVpcEgressAnnotation, egress)
+	}
+	if hasInterfaces && interfaces != "" {
+		if err := json.Unmarshal([]byte(interfaces), &vpc.NetworkInterfaces); err != nil {
+			return nil, nil, fmt.Errorf("annotation %s is not a JSON list of network interfaces: %w", cloudRunNetworkInterfaceAnnotation, err)
+		}
+	}
+	rest := make(map[string]string, len(annotations))
+	for k, v := range annotations {
+		switch k {
+		case cloudRunVpcConnectorAnnotation, cloudRunVpcEgressAnnotation, cloudRunNetworkInterfaceAnnotation:
+		default:
+			rest[k] = v
+		}
+	}
+	return rest, vpc, nil
+}
+
+// cloudRunFoldVpcAccess returns annotations with vpc as the VPC egress
+// annotations.
+func cloudRunFoldVpcAccess(annotations map[string]string, vpc *VpcAccess) map[string]string {
+	if vpc == nil || (vpc.Connector == "" && vpc.Egress == "" && len(vpc.NetworkInterfaces) == 0) {
+		return annotations
+	}
+	folded := make(map[string]string, len(annotations)+3)
+	for k, v := range annotations {
+		folded[k] = v
+	}
+	if vpc.Connector != "" {
+		folded[cloudRunVpcConnectorAnnotation] = vpc.Connector
+	}
+	switch vpc.Egress {
+	case "ALL_TRAFFIC":
+		folded[cloudRunVpcEgressAnnotation] = "all-traffic"
+	case "PRIVATE_RANGES_ONLY":
+		folded[cloudRunVpcEgressAnnotation] = "private-ranges-only"
+	}
+	if len(vpc.NetworkInterfaces) > 0 {
+		encoded, err := json.Marshal(vpc.NetworkInterfaces)
+		if err != nil {
+			panic(err)
+		}
+		folded[cloudRunNetworkInterfaceAnnotation] = string(encoded)
 	}
 	return folded
 }

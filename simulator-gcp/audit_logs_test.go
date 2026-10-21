@@ -168,6 +168,7 @@ func TestAuditLogs_DataAccessFollowsAuditConfig(t *testing.T) {
 // request in its message's JSON form and the resource the call names.
 func TestAuditLogs_RESTCallsResolveToTheirRPC(t *testing.T) {
 	srv := buildOperationsTestSimulator(t)
+	activeTestProject(t, "audit-op")
 	gcpHostOK(t, srv, "secretmanager.googleapis.com", http.MethodPost, "/v1/projects/audit-op/secrets?secretId=db-password",
 		`{"replication":{"automatic":{}}}`)
 	gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPut, "/v1/projects/audit-op/topics/audit-topic", `{}`)

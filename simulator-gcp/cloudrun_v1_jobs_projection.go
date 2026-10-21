@@ -682,10 +682,12 @@ const cloudRunContainerDependenciesAnnotation = "run.googleapis.com/container-de
 // the container-dependencies annotation.
 func cloudRunV1ContainerDependencies(template *ExecutionTemplate) map[string]string {
 	var containers []Container
+	var vpc *VpcAccess
 	if template.Template != nil {
 		containers = template.Template.Containers
+		vpc = template.Template.VpcAccess
 	}
-	return cloudRunFoldContainerDependencies(template.Annotations, containers)
+	return cloudRunFoldVpcAccess(cloudRunFoldContainerDependencies(template.Annotations, containers), vpc)
 }
 
 // cloudRunV2ContainerDependencies moves a Knative execution template's
@@ -702,6 +704,16 @@ func cloudRunV2ContainerDependencies(template *ExecutionTemplate) error {
 	annotations, err := cloudRunUnfoldContainerDependencies(template.Annotations, containers)
 	if err != nil {
 		return err
+	}
+	annotations, vpc, err := cloudRunUnfoldVpcAccess(annotations)
+	if err != nil {
+		return err
+	}
+	if vpc != nil {
+		if template.Template == nil {
+			template.Template = &TaskTemplate{}
+		}
+		template.Template.VpcAccess = vpc
 	}
 	template.Annotations = annotations
 	return nil
