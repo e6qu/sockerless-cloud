@@ -208,6 +208,12 @@ var requiredAWSCLIOperations = [][2]string{
 	{"lambda", "checkpoint-durable-execution"},
 	{"lambda", "send-durable-execution-callback-heartbeat"},
 	{"lambda", "send-durable-execution-callback-success"},
+	{"rds", "create-db-capacity-reservation"},
+	{"rds", "describe-db-capacity-reservations"},
+	{"rds", "modify-db-capacity-reservation"},
+	{"rds", "cancel-db-capacity-reservation"},
+	{"elasticache", "prepare-migration"},
+	{"elasticache", "stop-migration"},
 }
 
 func TestMain(m *testing.M) {

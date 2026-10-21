@@ -134,6 +134,9 @@ type RDSInstance struct {
 	ServerCertificateValidTill string `json:",omitempty"`
 	// Restart is what the engine restart of a modifying instance applies.
 	Restart *RDSRestartModifications `json:",omitempty"`
+	// DBCapacityReservationIdentifier names the DB capacity reservation the
+	// instance belongs to, which a stopped instance keeps unless it detached.
+	DBCapacityReservationIdentifier string `json:",omitempty"`
 }
 
 // rdsRequestedBackupTarget is the BackupTarget a create or restore asks for,
@@ -500,6 +503,7 @@ func registerRDS(r *AWSQueryRouter, srv *sim.Server) {
 	registerRDSProxiesRoles(r, srv)
 	registerRDSRestoreExtras(r, srv)
 	registerRDSComplete(r, srv)
+	registerRDSCapacityReservations(r, srv)
 	rdsMigrateEngineVersions()
 	if err := rdsMoveVolumesToKindNames(); err != nil {
 		panic(fmt.Sprintf("move Amazon Relational Database Service volumes: %v", err))
@@ -579,6 +583,9 @@ func renderRDSInstance(i RDSInstance) string {
 	}
 	if i.PreferredMaintenanceWindow != "" {
 		fmt.Fprintf(&b, "<PreferredMaintenanceWindow>%s</PreferredMaintenanceWindow>", xmlEscape(i.PreferredMaintenanceWindow))
+	}
+	if reservation := rdsInstanceCapacityReservation(i); reservation != "" {
+		fmt.Fprintf(&b, "<DBCapacityReservationIdentifier>%s</DBCapacityReservationIdentifier>", xmlEscape(reservation))
 	}
 	b.WriteString(renderRDSInstanceSettings(i))
 	b.WriteString(renderRDSPendingModifiedValues(i))
@@ -714,6 +721,12 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 			rdsErrorXML(w, code, message, rdsInstanceSettingsErrorStatus(code), sim.RequestID(r.Context()))
 			return
 		}
+		releaseCapacity, code, message := rdsTakeLaunchCapacity(r, &inst, r.FormValue("LicenseModel"))
+		if code != "" {
+			rdsErrorXML(w, code, message, rdsCapacityErrorStatus(code), sim.RequestID(r.Context()))
+			return
+		}
+		defer releaseCapacity()
 		if err := rdsInstallAuroraInstanceEndpoint(&inst); err != nil {
 			rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
 			return
@@ -767,6 +780,12 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, code, message, rdsInstanceSettingsErrorStatus(code), sim.RequestID(r.Context()))
 		return
 	}
+	releaseCapacity, code, message := rdsTakeLaunchCapacity(r, &inst, r.FormValue("LicenseModel"))
+	if code != "" {
+		rdsErrorXML(w, code, message, rdsCapacityErrorStatus(code), sim.RequestID(r.Context()))
+		return
+	}
+	defer releaseCapacity()
 	if err := rdsInstallDataPlane(&inst, r.FormValue("MasterUserPassword")); err != nil {
 		rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
 		return
@@ -831,6 +850,12 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, code, message, rdsInstanceSettingsErrorStatus(code), sim.RequestID(r.Context()))
 		return
 	}
+	releaseCapacity, code, message := rdsRequestedCapacityReservationChange(r, instance, &requested, applyNow)
+	if code != "" {
+		rdsErrorXML(w, code, message, rdsCapacityErrorStatus(code), sim.RequestID(r.Context()))
+		return
+	}
+	defer releaseCapacity()
 	if newID := requested.DBInstanceIdentifier; newID != "" {
 		releaseNewID, claimed := rdsInstanceIdentifiers.claim(newID)
 		if !claimed {
@@ -1087,6 +1112,13 @@ func handleRDSAddTags(w http.ResponseWriter, r *http.Request) {
 		rdsXMLResponse(w, "AddTagsToResource", "", sim.RequestID(r.Context()))
 		return
 	}
+	if res, ok := findRDSCapacityReservationByARN(arn); ok {
+		rdsCapacityReservations.Update(res.Identifier, func(stored *RDSCapacityReservation) {
+			stored.Tags = mergeTags(stored.Tags, parseAWSQueryTagMap(r, "Tags.Tag"))
+		})
+		rdsXMLResponse(w, "AddTagsToResource", "", sim.RequestID(r.Context()))
+		return
+	}
 	rdsErrorXML(w, rdsTagResourceNotFoundCode(arn), "Resource not found", http.StatusNotFound, sim.RequestID(r.Context()))
 }
 
@@ -1128,6 +1160,10 @@ func handleRDSListTags(w http.ResponseWriter, r *http.Request) {
 	}
 	if og, ok := findRDSOptionGroupByARN(arn); ok {
 		rdsXMLResponse(w, "ListTagsForResource", renderRDSTagList(og.Tags), sim.RequestID(r.Context()))
+		return
+	}
+	if res, ok := findRDSCapacityReservationByARN(arn); ok {
+		rdsXMLResponse(w, "ListTagsForResource", renderRDSTagList(res.Tags), sim.RequestID(r.Context()))
 		return
 	}
 	rdsErrorXML(w, rdsTagResourceNotFoundCode(arn), "Resource not found", http.StatusNotFound, sim.RequestID(r.Context()))
@@ -1210,6 +1246,13 @@ func handleRDSRemoveTags(w http.ResponseWriter, r *http.Request) {
 		rdsXMLResponse(w, "RemoveTagsFromResource", "", sim.RequestID(r.Context()))
 		return
 	}
+	if res, ok := findRDSCapacityReservationByARN(arn); ok {
+		rdsCapacityReservations.Update(res.Identifier, func(stored *RDSCapacityReservation) {
+			removeAWSQueryTags(stored.Tags, r)
+		})
+		rdsXMLResponse(w, "RemoveTagsFromResource", "", sim.RequestID(r.Context()))
+		return
+	}
 	rdsErrorXML(w, rdsTagResourceNotFoundCode(arn), "Resource not found", http.StatusNotFound, sim.RequestID(r.Context()))
 }
 
@@ -1256,6 +1299,8 @@ func rdsTagResourceNotFoundCode(arn string) string {
 		return "DBParameterGroupNotFound"
 	case strings.Contains(arn, ":og:"):
 		return "OptionGroupNotFoundFault"
+	case strings.Contains(arn, ":db-capacity-reservation:"):
+		return "DBCapacityReservationNotFound"
 	}
 	return "DBInstanceNotFound"
 }
@@ -1585,6 +1630,12 @@ func handleRDSRestoreFromSnapshot(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, code, message, rdsInstanceSettingsErrorStatus(code), sim.RequestID(r.Context()))
 		return
 	}
+	releaseCapacity, code, message := rdsTakeLaunchCapacity(r, &inst, r.FormValue("LicenseModel"))
+	if code != "" {
+		rdsErrorXML(w, code, message, rdsCapacityErrorStatus(code), sim.RequestID(r.Context()))
+		return
+	}
+	defer releaseCapacity()
 	// The captured data is cloned into the new instance's volume before the
 	// engine can first start, so the restored engine boots on the snapshot's
 	// data. A snapshot taken on the modeled tier has no volume and seeds
@@ -2862,6 +2913,12 @@ func handleRDSStartInstance(w http.ResponseWriter, r *http.Request) {
 	if !rdsRequireInstanceState(w, r, instance, "stopped", "started") {
 		return
 	}
+	releaseCapacity, code, message := rdsTakeStartCapacity(r, &instance)
+	if code != "" {
+		rdsErrorXML(w, code, message, rdsCapacityErrorStatus(code), sim.RequestID(r.Context()))
+		return
+	}
+	defer releaseCapacity()
 	if err := rdsStartInstanceEngine(&instance); err != nil {
 		rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
 		return
@@ -2893,7 +2950,13 @@ func handleRDSStopInstance(w http.ResponseWriter, r *http.Request) {
 	}
 	// Amazon RDS answers stopping and lands stopped once the engine has shut
 	// down, which is when the engine container here has stopped.
-	rdsInstances.Update(id, func(i *RDSInstance) { i.DBInstanceStatus = "stopping" })
+	detach := strings.EqualFold(r.FormValue("DetachFromDBCapacityReservation"), "true")
+	rdsInstances.Update(id, func(i *RDSInstance) {
+		i.DBInstanceStatus = "stopping"
+		if detach {
+			i.DBCapacityReservationIdentifier = ""
+		}
+	})
 	updated, _ := rdsInstances.Get(id)
 	bg.Go(func() { rdsFinishStop(id) })
 	rdsXMLResponse(w, "StopDBInstance", renderRDSInstance(updated), sim.RequestID(r.Context()))

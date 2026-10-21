@@ -988,6 +988,12 @@ func handleRDSCreateReadReplica(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, code, message, rdsInstanceSettingsErrorStatus(code), requestID)
 		return
 	}
+	releaseCapacity, code, message := rdsTakeLaunchCapacity(r, &replica, "")
+	if code != "" {
+		fail(code, message, rdsCapacityErrorStatus(code))
+		return
+	}
+	defer releaseCapacity()
 	if served {
 		replica.DBInstanceStatus = "creating"
 		replica.MasterUserSecret = append([]byte(nil), src.MasterUserSecret...)

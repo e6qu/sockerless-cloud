@@ -55,12 +55,6 @@ var modelScopedDriftExemptions = map[string]string{
 	"ecs.smithy.json.gz:ListGatewayRoutes":              "Amazon ECS gateways are not implemented (BUGS.md)",
 	"ecs.smithy.json.gz:ListGateways":                   "Amazon ECS gateways are not implemented (BUGS.md)",
 	"ecs.smithy.json.gz:UpdateGateway":                  "Amazon ECS gateways are not implemented (BUGS.md)",
-	"elasticache.smithy.json.gz:PrepareMigration":       "ElastiCache serverless migration is not implemented (BUGS.md)",
-	"elasticache.smithy.json.gz:StopMigration":          "ElastiCache serverless migration is not implemented (BUGS.md)",
-	"rds.smithy.json.gz:CancelDBCapacityReservation":    "RDS DB capacity reservations are not implemented (BUGS.md)",
-	"rds.smithy.json.gz:CreateDBCapacityReservation":    "RDS DB capacity reservations are not implemented (BUGS.md)",
-	"rds.smithy.json.gz:DescribeDBCapacityReservations": "RDS DB capacity reservations are not implemented (BUGS.md)",
-	"rds.smithy.json.gz:ModifyDBCapacityReservation":    "RDS DB capacity reservations are not implemented (BUGS.md)",
 }
 
 var modelDriftExemptions = map[string]string{

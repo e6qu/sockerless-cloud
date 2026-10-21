@@ -411,8 +411,8 @@ var serviceCoverageFloor = map[string]int{
 	"AWSSecurityTokenServiceV20110615":     11,  // STS (awsQuery, unversioned)
 	"AWSIdentityManagementV20100508":       180, // IAM (awsQuery, unversioned)
 	"AmazonEC2ContainerRegistry_V20150921": 58,  // ECR
-	"AmazonElastiCacheV9":                  75,
-	"AmazonRDSv19":                         164,
+	"AmazonElastiCacheV9":                  77,
+	"AmazonRDSv19":                         168,
 	"AutoScaling_2011_01_01":               66,
 	"AWSGlue":                              306,
 	"AWSWAF_20190729":                      59,

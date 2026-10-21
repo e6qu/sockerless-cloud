@@ -3939,6 +3939,21 @@ two base images through the simulator's throttle-aware puller before the
 build's `FROM` lines need them, and that puller's retries wait 2, 4, 8, 16 and
 32 seconds, outlasting a registry's per-minute quota.
 
+Amazon RDS DB capacity reservations reserved capacity for one DB instance
+class and engine in each Availability Zone named, active at once or scheduled
+until a future start date with a capacity commitment, and expired at their end
+date. A DB instance launched, restored, replicated or started with
+`DBCapacityReservationIdentifier` took a unit in each zone it ran in, a
+Multi-AZ instance one in each of two; a stop gave the unit back and kept the
+reservation unless it detached, and `ModifyDBInstance` moved an instance onto
+a reservation, or off reserved capacity, with a new class or Multi-AZ
+setting, holding the unit from acceptance. Available capacity was counted
+from the instances themselves, so it could not drift from what ran.
+ElastiCache serverless caches took a migration through `PrepareMigration`,
+`StartMigration`, `StopMigration` and `CompleteMigration` with the states
+and errors the model stated; the data sync itself waited on serverless
+caches running an engine.
+
 The Knative Cloud Run surface carries a template's VPC egress as the
 `run.googleapis.com/vpc-access-connector`, `vpc-access-egress` and
 `network-interfaces` annotations, which the v1 create and replace paths

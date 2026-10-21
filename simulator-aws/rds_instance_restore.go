@@ -352,6 +352,12 @@ func rdsStartInstanceRestore(w http.ResponseWriter, r *http.Request, inst, src R
 	} else if port := atoiOrZero(r.FormValue("Port")); port > 0 {
 		inst.Port = port
 	}
+	releaseCapacity, code, message := rdsTakeLaunchCapacity(r, &inst, r.FormValue("LicenseModel"))
+	if code != "" {
+		rdsErrorXML(w, code, message, rdsCapacityErrorStatus(code), sim.RequestID(r.Context()))
+		return
+	}
+	defer releaseCapacity()
 	rdsInstances.Put(inst.DBInstanceIdentifier, inst)
 	id := inst.DBInstanceIdentifier
 	bg.Go(func() { rdsFinishInstanceRestore(id) })

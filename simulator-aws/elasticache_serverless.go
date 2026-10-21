@@ -44,6 +44,7 @@ type ECServerlessCache struct {
 	DailySnapshotTime      string
 	NetworkType            string
 	Tags                   map[string]string
+	Migration              *ECServerlessCacheMigration `json:",omitempty"`
 }
 
 // ECServerlessCacheSnapshot models the ServerlessCacheSnapshot shape.
@@ -178,6 +179,8 @@ func registerElastiCacheServerless(r *AWSQueryRouter, srv *sim.Server) {
 	r.RegisterVersioned(ecAPIVersion, "StartMigration", handleECStartMigration)
 	r.RegisterVersioned(ecAPIVersion, "CompleteMigration", handleECCompleteMigration)
 	r.RegisterVersioned(ecAPIVersion, "TestMigration", handleECTestMigration)
+	r.RegisterVersioned(ecAPIVersion, "PrepareMigration", handleECPrepareMigration)
+	r.RegisterVersioned(ecAPIVersion, "StopMigration", handleECStopMigration)
 }
 
 func ecServerlessCacheARN(name string) string {
@@ -272,6 +275,7 @@ func renderECServerlessCacheBody(c ECServerlessCache) string {
 		fmt.Fprintf(&b, "<DailySnapshotTime>%s</DailySnapshotTime>", xmlEscape(c.DailySnapshotTime))
 	}
 	fmt.Fprintf(&b, "<NetworkType>%s</NetworkType>", xmlEscape(c.NetworkType))
+	b.WriteString(renderECServerlessCacheMigration(c))
 	return b.String()
 }
 
@@ -1091,12 +1095,24 @@ func handleECPurchaseReservedCacheNodesOffering(w http.ResponseWriter, r *http.R
 }
 
 func handleECStartMigration(w http.ResponseWriter, r *http.Request) {
+	if serverless, ok := ecServerlessMigrationTarget(w, r); !ok || serverless {
+		if ok {
+			ecStartServerlessMigration(w, r)
+		}
+		return
+	}
 	ecReplGroupAction(w, r, "StartMigration", func(g *ECReplicationGroup) {
 		g.Status = "modifying"
 	})
 }
 
 func handleECCompleteMigration(w http.ResponseWriter, r *http.Request) {
+	if serverless, ok := ecServerlessMigrationTarget(w, r); !ok || serverless {
+		if ok {
+			ecCompleteServerlessMigration(w, r)
+		}
+		return
+	}
 	ecReplGroupAction(w, r, "CompleteMigration", func(g *ECReplicationGroup) {
 		g.Status = "available"
 	})

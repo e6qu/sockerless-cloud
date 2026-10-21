@@ -291,7 +291,10 @@ func rdsReconcileStandby(id string) error {
 	if !rdsRunsEngine(instance) {
 		zone := ""
 		if instance.MultiAZ {
-			zone = rdsStandbyAvailabilityZone(instance.AvailabilityZone)
+			zone = instance.SecondaryAvailabilityZone
+			if zone == "" || zone == instance.AvailabilityZone {
+				zone = rdsStandbyAvailabilityZone(instance.AvailabilityZone)
+			}
 		}
 		rdsSettleStandby(instance, zone)
 		return nil
