@@ -3932,7 +3932,9 @@ an ID of any admitted length, and a Firecracker that exits before opening
 the socket fails the start with its own output at once. Cloud IAM holds a policy's etag check and its write
 under one lock, so of two setIamPolicy calls carrying one etag exactly one
 writes and the other is refused ABORTED, and a getIamPolicy that seeds the
-default policy cannot overwrite one set in between.
+default policy cannot overwrite one set in between. Cloud SQL declares
+`workloadCaptures:stopReplay` unserved at the collection path the refreshed
+Cloud SQL Admin documents give it.
 
 A Container Apps container's `probes` run with Kubernetes' semantics: a
 startup probe, then a first passing readiness probe, makes the container

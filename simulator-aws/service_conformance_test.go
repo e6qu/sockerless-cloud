@@ -157,7 +157,7 @@ var serviceConformanceCatalog = map[string][]string{
 	// Amazon DynamoDB: all operations implemented, vector search included.
 	"DynamoDB_20120810": {},
 	// ECS: all real operations are implemented.
-	"AmazonEC2ContainerServiceV20141113": {},
+	"AmazonEC2ContainerServiceV20141113": {"AssociateGatewayWithCluster", "CreateGateway", "DeleteGateway", "DescribeGateway", "DescribeGatewayResources", "DescribeGatewayRoute", "DisassociateGatewayFromCluster", "ListGatewayClusterAssociations", "ListGatewayRoutes", "ListGateways", "UpdateGateway"},
 }
 
 // legacyQueryRegistrars maps a service's Smithy service-shape name to the
