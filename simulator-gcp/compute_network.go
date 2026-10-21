@@ -41,9 +41,11 @@ func gcpNICKey(inst *ComputeInstance, ni ComputeNetworkInterface) string {
 // gcpSubnetworkNetworkName is the engine network a subnetwork is realized as.
 // The engine bounds a network's name, and a subnetwork's self link does not
 // fit, so the name carries a digest of it; the self link itself rides on the
-// network's label.
+// network's label. The digest takes in the simulator's workload scope, so two
+// simulators on one engine that each hold the same subnetwork realize it as
+// two networks.
 func gcpSubnetworkNetworkName(subnetworkSelfLink string) string {
-	sum := sha256.Sum256([]byte(subnetworkSelfLink))
+	sum := sha256.Sum256([]byte(sim.WorkloadScope() + "\x00" + subnetworkSelfLink))
 	return "gcp-subnetwork-" + hex.EncodeToString(sum[:8])
 }
 

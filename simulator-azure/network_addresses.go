@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/ipam"
 )
 
@@ -40,11 +41,12 @@ func azureVNetIDOfSubnet(subnetID string) string {
 }
 
 // dockerNetForVNet names the engine network realizing a virtual network: its
-// name for the operator, and a digest of its resource id so two virtual
-// networks of one name in different resource groups or subscriptions are
-// two networks.
+// name for the operator, and a digest of its resource id and the simulator's
+// workload scope, so two virtual networks of one name in different resource
+// groups or subscriptions, or held by two simulators on one engine, are two
+// networks.
 func dockerNetForVNet(vnetID string) string {
-	sum := sha256.Sum256([]byte(strings.ToLower(vnetID)))
+	sum := sha256.Sum256([]byte(sim.WorkloadScope() + "\x00" + strings.ToLower(vnetID)))
 	return "sim-vnet-" + strings.ToLower(vnetID[strings.LastIndex(vnetID, "/")+1:]) + "-" + hex.EncodeToString(sum[:4])
 }
 

@@ -3990,7 +3990,12 @@ digest), and starts the workload from it without asking the registry.
 interface exists, so a terminated instance lists none, as on EC2. The containers of an
 Azure Container Instances group share the first container's network
 namespace, as the group model does: the first takes the group's address,
-the others join it, and they reach each other on localhost.
+the others join it, and they reach each other on localhost. The engine network realizing a
+Compute Engine subnetwork or an Azure virtual network takes the simulator's
+workload scope into its name, as the platform network does, so two
+simulators on one engine that hold the same subnetwork or virtual network
+realize it as two networks, each with its own sidecar; two of them over one
+range still cannot coexist on the engine (BUG-3482).
 
 Every etag check holds the record it guards until its write is done: Secret
 Manager and Bigtable `SetIamPolicy` and their seeding `GetIamPolicy` share
