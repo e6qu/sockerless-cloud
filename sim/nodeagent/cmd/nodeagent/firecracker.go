@@ -22,30 +22,37 @@ const (
 
 // launchFirecracker starts the machine over Firecracker's API: the kernel the
 // agent carries, the guest's root image, its empty disk slots, its tap and a
-// vsock for guestinit, then the boot.
-func (g *guest) launchFirecracker(ctx context.Context, tap string, extraTaps []string) (*exec.Cmd, error) {
+// vsock for guestinit, then the boot. The returned channel closes when the
+// Firecracker process ends.
+func (g *guest) launchFirecracker(ctx context.Context, tap string, extraTaps []string) (*exec.Cmd, <-chan struct{}, error) {
 	api := filepath.Join(g.dir, "firecracker.socket")
 	_ = os.Remove(api)
 	_ = os.Remove(g.vsockPath())
-	console, err := os.Create(filepath.Join(g.dir, "console.log"))
+	consolePath := filepath.Join(g.dir, "console.log")
+	console, err := os.Create(consolePath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	cmd := exec.Command(g.agent.cfg.firecracker, "--api-sock", api)
 	cmd.Stdout = console
 	cmd.Stderr = console
 	if err := cmd.Start(); err != nil {
 		_ = console.Close()
-		return nil, fmt.Errorf("start firecracker: %w", err)
+		return nil, nil, fmt.Errorf("start firecracker: %w", err)
 	}
 	_ = console.Close()
+	ended := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(ended)
+	}()
 	kill := func() {
 		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
+		<-ended
 	}
-	if err := waitForSocket(ctx, api, 10*time.Second); err != nil {
+	if err := waitForSocket(ctx, api, 10*time.Second, ended, consolePath); err != nil {
 		kill()
-		return nil, err
+		return nil, nil, err
 	}
 	mask := net.CIDRMask(g.address.Bits(), 32)
 	// An empty gateway in the kernel's ip= leaves the guest without a
@@ -53,7 +60,7 @@ func (g *guest) launchFirecracker(ctx context.Context, tap string, extraTaps []s
 	via, err := g.spec.Network.nextHop()
 	if err != nil {
 		kill()
-		return nil, err
+		return nil, nil, err
 	}
 	bootArgs := fmt.Sprintf("console=ttyS0 reboot=k panic=1 pci=off init=/sbin/sockerless-init ip=%s::%s:%s::eth0:off",
 		g.address.Addr(), via, net.IP(mask))
@@ -86,14 +93,14 @@ func (g *guest) launchFirecracker(ctx context.Context, tap string, extraTaps []s
 	for _, req := range requests {
 		if err := firecrackerRequest(ctx, api, http.MethodPut, req.path, req.body); err != nil {
 			kill()
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	if err := os.WriteFile(filepath.Join(g.dir, "firecracker.pid"), []byte(fmt.Sprint(cmd.Process.Pid)), 0o644); err != nil {
 		kill()
-		return nil, err
+		return nil, nil, err
 	}
-	return cmd, nil
+	return cmd, ended, nil
 }
 
 func (g *guest) patchDrive(ctx context.Context, driveID, path string) error {
@@ -103,7 +110,9 @@ func (g *guest) patchDrive(ctx context.Context, driveID, path string) error {
 
 func (g *guest) vsockPath() string { return filepath.Join(g.dir, "v.sock") }
 
-func waitForSocket(ctx context.Context, path string, timeout time.Duration) error {
+// waitForSocket waits for Firecracker to open its API socket, and gives up
+// with Firecracker's own output when the process ends first.
+func waitForSocket(ctx context.Context, path string, timeout time.Duration, ended <-chan struct{}, consolePath string) error {
 	deadline := time.Now().Add(timeout)
 	for {
 		if _, err := os.Stat(path); err == nil {
@@ -115,6 +124,9 @@ func waitForSocket(ctx context.Context, path string, timeout time.Duration) erro
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-ended:
+			output, _ := os.ReadFile(consolePath)
+			return fmt.Errorf("firecracker exited before opening %s: %s", path, strings.TrimSpace(string(output)))
 		case <-time.After(50 * time.Millisecond):
 		}
 	}

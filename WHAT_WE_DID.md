@@ -3921,7 +3921,15 @@ taking traffic, since Cloud Run promises no idle time. An instance whose
 container exits is replaced with the worker pools' backoff. Each instance's
 output reaches Cloud Logging under its revision's full `cloud_run_revision`
 labels with its `instanceId`, stderr in its own log, and a restarted simulator
-adopts every instance of a routed revision back into its set.
+adopts every instance of a routed revision back into its set. The Knative
+surface `gcloud run deploy` writes carries the same bounds: a template's
+`containerConcurrency` is the revision's request concurrency and its
+`autoscaling.knative.dev/minScale` and `maxScale` annotations its instance
+bounds, which the v2 template holds in `scaling` rather than as annotations.
+The node agent names each guest's directory by a digest of the guest's ID,
+so Firecracker's API socket stays within a Unix socket path's 107 bytes for
+an ID of any admitted length, and a Firecracker that exits before opening
+the socket fails the start with its own output at once.
 
 A Container Apps container's `probes` run with Kubernetes' semantics: a
 startup probe, then a first passing readiness probe, makes the container

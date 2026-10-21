@@ -273,9 +273,6 @@ type RevisionTemplate struct {
 	ClientVersion                 string            `json:"clientVersion,omitempty"`
 }
 
-// RevisionScaling caps min/max instance counts for a Cloud Run service
-// revision. The backend pins both to 1 today (long-running, single-
-// instance pattern) but the proto-JSON shape always carries them.
 type RevisionScaling struct {
 	MinInstanceCount int32 `json:"minInstanceCount,omitempty"`
 	MaxInstanceCount int32 `json:"maxInstanceCount,omitempty"`
