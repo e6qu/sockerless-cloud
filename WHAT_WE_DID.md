@@ -3987,7 +3987,10 @@ digest-pinned image that a base-image archive restored under the tag that spells
 digest (`repo:sha256-<hex>`, since `docker load` restores no repository
 digest), and starts the workload from it without asking the registry.
 `DescribeInstances` lists an instance's network interface only while the
-interface exists, so a terminated instance lists none, as on EC2.
+interface exists, so a terminated instance lists none, as on EC2. The containers of an
+Azure Container Instances group share the first container's network
+namespace, as the group model does: the first takes the group's address,
+the others join it, and they reach each other on localhost.
 
 Every etag check holds the record it guards until its write is done: Secret
 Manager and Bigtable `SetIamPolicy` and their seeding `GetIamPolicy` share

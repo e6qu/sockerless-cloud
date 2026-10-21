@@ -13,6 +13,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/gorilla/websocket"
 	dockerclient "github.com/moby/moby/client"
@@ -812,6 +813,9 @@ func aciStartGroupContainers(group ACIContainerGroup) error {
 		return err
 	}
 	groupAddress := ""
+	// The group's containers share one network namespace, the first
+	// container's, so they reach each other on localhost.
+	owner := ""
 	containers := aciContainers(&group)
 	for _, c := range containers {
 		name, _ := c["name"].(string)
@@ -822,6 +826,9 @@ func aciStartGroupContainers(group ACIContainerGroup) error {
 		}
 		key := aciRuntimeKey(group.ID, name)
 		if rec, ok := aciRuntimeRecords.Get(key); ok && rec.ContainerID != "" && rec.State == ACIStateRunning {
+			if owner == "" {
+				owner = rec.ContainerID
+			}
 			continue
 		}
 		command := stringSlice(props["command"])
@@ -881,20 +888,26 @@ func aciStartGroupContainers(group ACIContainerGroup) error {
 				cfg.Args = command[1:]
 			}
 		}
-		address, release, err := azureWorkloadAddress(context.Background(), network, subnetID, cfg.Name)
-		if err != nil {
-			return err
-		}
-		cfg.IPv4Address = address
-		handle, err := backend.Place(context.Background(), cfg, sink)
-		if err != nil {
-			release()
-			return err
-		}
-		azureReleaseOnExit(handle.Exited(), release)
-		if cfg.IPv4Address != "" {
-			if groupAddress == "" {
-				groupAddress = cfg.IPv4Address
+		var handle placement.Handle
+		if owner == "" {
+			address, release, err := azureWorkloadAddress(context.Background(), network, subnetID, cfg.Name)
+			if err != nil {
+				return err
+			}
+			cfg.IPv4Address = address
+			handle, err = backend.Place(context.Background(), cfg, sink)
+			if err != nil {
+				release()
+				return err
+			}
+			azureReleaseOnExit(handle.Exited(), release)
+			owner = handle.ID()
+			groupAddress = cfg.IPv4Address
+		} else {
+			cfg.Network, cfg.DNS = "", nil
+			handle, err = backend.PlaceMember(context.Background(), owner, cfg, sink)
+			if err != nil {
+				return fmt.Errorf("start container %q in the group's network namespace: %w", name, err)
 			}
 		}
 		start := time.Now().UTC().Format(time.RFC3339Nano)
