@@ -3934,7 +3934,10 @@ under one lock, so of two setIamPolicy calls carrying one etag exactly one
 writes and the other is refused ABORTED, and a getIamPolicy that seeds the
 default policy cannot overwrite one set in between. Cloud SQL declares
 `workloadCaptures:stopReplay` unserved at the collection path the refreshed
-Cloud SQL Admin documents give it.
+Cloud SQL Admin documents give it. The node agent's image build pulls its
+two base images through the simulator's throttle-aware puller before the
+build's `FROM` lines need them, and that puller's retries wait 2, 4, 8, 16 and
+32 seconds, outlasting a registry's per-minute quota.
 
 A Container Apps container's `probes` run with Kubernetes' semantics: a
 startup probe, then a first passing readiness probe, makes the container
