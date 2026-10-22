@@ -3989,6 +3989,17 @@ created real roles instead, through `serviceRole` (SDK), `cliServiceRole`
 (CLI), `persistentServiceRole` (a test's own restarted simulator) and
 `aws_iam_role` resources, and new tests proved each refusal for a role that
 did not exist and for one whose trust policy named another service.
+Amazon ECS refused, when it launched a task through `RunTask`, `StartTask`
+or a service's scheduler, a task role or execution role that
+`ecs-tasks.amazonaws.com` could not assume, from the task definition or the
+task's overrides, with the `ClientException` "ECS was unable to assume the
+role '<role>' that was provided for this task. …" that AWS re:Post's
+knowledge center quotes; the trust policy saw the task's ARN as
+`aws:SourceArn`. `RegisterTaskDefinition` checked nothing, as the Terraform
+AWS provider's lack of any propagation retry there implies, and a service's
+refused launch landed in its events. A task's container credentials served
+the overrides' task role when the overrides named one. The express gateway
+service's Terraform test created its execution and infrastructure roles.
 
 The Knative Cloud Run surface carries a template's VPC egress as the
 `run.googleapis.com/vpc-access-connector`, `vpc-access-egress` and

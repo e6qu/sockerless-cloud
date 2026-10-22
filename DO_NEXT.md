@@ -11,15 +11,14 @@
   `sim/jobrun`, `sim/funcrt`, the queue waiter in `sim/msgq` with Cloud
   Tasks, and `sim/eventbus` with its filter dialects and Cloud Scheduler,
   each in one pull request that moves its consumers and closes their bugs. AWS Step Functions and the Scheduler's
-  universal targets move onto `awsCall` with BUG-3529 (BUG-3533).
+  universal targets move onto `awsCall` (BUG-3533).
 - **Stage 6 of `PLAN.md`: distributed.** The agent on another host, reached
   over its API with its minted token, and networks that span hosts; the
   same-range gap (two live VPCs over one CIDR on one engine) lifts there.
-- **Amazon ECS refuses a task role IAM does not hold** (BUG-3529): check the
-  `taskRoleArn` and its trust policy at `RegisterTaskDefinition`, as Lambda,
-  CodeBuild, Batch, Glue and Amplify do, and give the ECS tests that pass
-  invented role ARNs real roles; then the role-taking operations BUG-3561
-  lists.
+- **More operations refuse a role IAM does not hold** (BUG-3561): the
+  role-taking operations the row lists, each in its service's own error,
+  with real roles in their tests; then Amazon ECS's infrastructure roles
+  (BUG-3562).
 - **Close the no-privilege gaps `BUGS.md` holds**: the NAT data planes'
   remainders (ICMP, packet counts, Cloud Monitoring for Cloud NAT, the
   public address as the source a peer sees, a subnet with no route out);

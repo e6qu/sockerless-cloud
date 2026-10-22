@@ -12,6 +12,8 @@ import (
 	batchtypes "github.com/aws/aws-sdk-go-v2/service/batch/types"
 	"github.com/aws/aws-sdk-go-v2/service/codebuild"
 	cbtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
+	"github.com/aws/aws-sdk-go-v2/service/ecs"
+	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/glue"
 	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
@@ -196,4 +198,80 @@ func TestAmplify_RefusesARoleItCannotAssume_SDK(t *testing.T) {
 		AppId: aws.String(appID), BranchName: aws.String("main"), ComputeRoleArn: aws.String(otherService),
 	})
 	requireAWSError(t, err, "BadRequestException", "computeRoleArn "+otherService+" cannot be assumed by amplify.amazonaws.com")
+}
+
+func ecsRoleRefusal(role string) string {
+	return "ECS was unable to assume the role '" + role + "' that was provided for this task. " +
+		"Please verify that the role being passed has the proper trust relationship and permissions " +
+		"and that your IAM user has permissions to pass this role."
+}
+
+// Amazon ECS registers a task definition whatever roles it names, and refuses
+// to launch a task whose task role or execution role it cannot assume, named
+// by the task definition or by the task's overrides.
+func TestECS_RefusesToLaunchATaskWithARoleItCannotAssume_SDK(t *testing.T) {
+	t.Parallel()
+	c := ecsClient()
+	otherService, absent := untrustedRoles(t)
+	cluster := uniqueName("ecs-role-trust")
+	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteCluster(context.Background(), &ecs.DeleteClusterInput{Cluster: aws.String(cluster)})
+	})
+	subnetID := createECSTestSubnet(t, "ecs-role-trust")
+
+	register := func(taskRole, executionRole string) *string {
+		input := &ecs.RegisterTaskDefinitionInput{
+			Family:                  aws.String(uniqueName("ecs-role-trust")),
+			NetworkMode:             ecstypes.NetworkModeAwsvpc,
+			RequiresCompatibilities: []ecstypes.Compatibility{ecstypes.CompatibilityFargate},
+			Cpu:                     aws.String("256"),
+			Memory:                  aws.String("512"),
+			ContainerDefinitions: []ecstypes.ContainerDefinition{{
+				Name:        aws.String("app"),
+				Image:       aws.String("mirror.gcr.io/library/alpine:3.21"),
+				Command:     []string{"true"},
+				StopTimeout: aws.Int32(2),
+			}},
+		}
+		if taskRole != "" {
+			input.TaskRoleArn = aws.String(taskRole)
+		}
+		if executionRole != "" {
+			input.ExecutionRoleArn = aws.String(executionRole)
+		}
+		out, err := c.RegisterTaskDefinition(ctx, input)
+		require.NoError(t, err)
+		return out.TaskDefinition.TaskDefinitionArn
+	}
+	run := func(taskDefinition *string, overrides *ecstypes.TaskOverride) (*ecs.RunTaskOutput, error) {
+		return c.RunTask(ctx, &ecs.RunTaskInput{
+			Cluster:        aws.String(cluster),
+			TaskDefinition: taskDefinition,
+			LaunchType:     ecstypes.LaunchTypeFargate,
+			Overrides:      overrides,
+			NetworkConfiguration: &ecstypes.NetworkConfiguration{
+				AwsvpcConfiguration: &ecstypes.AwsVpcConfiguration{Subnets: []string{subnetID}},
+			},
+		})
+	}
+
+	_, err = run(register(otherService, ""), nil)
+	requireAWSError(t, err, "ClientException", ecsRoleRefusal(otherService))
+	_, err = run(register("", absent), nil)
+	requireAWSError(t, err, "ClientException", ecsRoleRefusal(absent))
+
+	trusted := register(serviceRole(t, "ecs-tasks.amazonaws.com"), serviceRole(t, "ecs-tasks.amazonaws.com"))
+	_, err = run(trusted, &ecstypes.TaskOverride{TaskRoleArn: aws.String(otherService)})
+	requireAWSError(t, err, "ClientException", ecsRoleRefusal(otherService))
+	_, err = run(trusted, &ecstypes.TaskOverride{ExecutionRoleArn: aws.String(absent)})
+	requireAWSError(t, err, "ClientException", ecsRoleRefusal(absent))
+
+	out, err := run(trusted, nil)
+	require.NoError(t, err)
+	require.Len(t, out.Tasks, 1)
+	taskArn := aws.ToString(out.Tasks[0].TaskArn)
+	cleanupECSTask(t, c, cluster, taskArn)
+	waitTaskStopped(t, c, cluster, taskArn)
 }

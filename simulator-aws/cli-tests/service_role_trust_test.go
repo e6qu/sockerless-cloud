@@ -120,3 +120,40 @@ func TestAmplify_RefusesARoleItCannotAssume_CLI(t *testing.T) {
 		"--compute-role-arn", absent))
 	assertCLIRefusal(t, out, "BadRequestException", "computeRoleArn "+absent+" cannot be assumed by amplify.amazonaws.com")
 }
+
+func TestECS_RefusesToLaunchATaskWithARoleItCannotAssume_CLI(t *testing.T) {
+	t.Parallel()
+	otherService, absent := cliUntrustedRoles(t)
+	cluster := cliUniqueName("cli-ecs-role-trust")
+	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", cluster))
+	t.Cleanup(func() { _ = awsCLI("ecs", "delete-cluster", "--cluster", cluster).Run() })
+	subnetID := createCLIECSTestSubnet(t, cluster, "10.163.0.0/16")
+
+	register := func(roles ...string) string {
+		args := []string{"ecs", "register-task-definition", "--family", cliUniqueName("cli-ecs-role-trust"),
+			"--requires-compatibilities", "FARGATE", "--network-mode", "awsvpc", "--cpu", "256", "--memory", "512",
+			"--container-definitions", `[{"name":"app","image":"mirror.gcr.io/library/alpine:3.21","command":["true"],"stopTimeout":2}]`,
+			"--query", "taskDefinition.taskDefinitionArn", "--output", "text"}
+		return strings.TrimSpace(runCLI(t, awsCLI(append(args, roles...)...)))
+	}
+	run := func(taskDefinition string, extra ...string) []string {
+		return append([]string{"ecs", "run-task", "--cluster", cluster, "--task-definition", taskDefinition,
+			"--launch-type", "FARGATE", "--network-configuration", "awsvpcConfiguration={subnets=[" + subnetID + "]}"}, extra...)
+	}
+	refusal := func(role string) string {
+		return "ECS was unable to assume the role '" + role + "' that was provided for this task."
+	}
+
+	out := runCLIExpectError(t, awsCLI(run(register("--task-role-arn", otherService))...))
+	assertCLIRefusal(t, out, "ClientException", refusal(otherService))
+	out = runCLIExpectError(t, awsCLI(run(register("--execution-role-arn", absent))...))
+	assertCLIRefusal(t, out, "ClientException", refusal(absent))
+
+	trusted := register("--task-role-arn", cliServiceRole(t, "ecs-tasks.amazonaws.com"))
+	out = runCLIExpectError(t, awsCLI(run(trusted, "--overrides", `{"taskRoleArn":"`+otherService+`"}`)...))
+	assertCLIRefusal(t, out, "ClientException", refusal(otherService))
+
+	taskArn := strings.TrimSpace(runCLI(t, awsCLI(run(trusted, "--query", "tasks[0].taskArn", "--output", "text")...)))
+	cleanupCLIECSTask(t, cluster, taskArn)
+	waitECSTaskStoppedCLI(t, cluster, taskArn)
+}

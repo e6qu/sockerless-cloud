@@ -1485,6 +1485,43 @@ type ecsRunTaskInput struct {
 	ContainerInstanceKey string
 }
 
+func ecsTaskArn(clusterName, taskID string) string {
+	return "arn:aws:ecs:" + awsRegion() + ":" + awsAccountID() + ":task/" + clusterName + "/" + taskID
+}
+
+// ecsTaskRoles returns the task role and the execution role a task runs with:
+// its overrides', else its task definition's.
+func ecsTaskRoles(td ECSTaskDefinition, overrides *ECSTaskOverride) (taskRole, executionRole string) {
+	taskRole, executionRole = td.TaskRoleArn, td.ExecutionRoleArn
+	if overrides != nil {
+		if overrides.TaskRoleArn != "" {
+			taskRole = overrides.TaskRoleArn
+		}
+		if overrides.ExecutionRoleArn != "" {
+			executionRole = overrides.ExecutionRoleArn
+		}
+	}
+	return taskRole, executionRole
+}
+
+// ecsRefuseUnassumableTaskRoles refuses to launch a task whose task role or
+// execution role names no role or does not trust ecs-tasks.amazonaws.com.
+// Amazon ECS checks when it launches the task, not at RegisterTaskDefinition.
+func ecsRefuseUnassumableTaskRoles(td ECSTaskDefinition, overrides *ECSTaskOverride, taskArn string) *ecsRequestError {
+	taskRole, executionRole := ecsTaskRoles(td, overrides)
+	for _, role := range []string{taskRole, executionRole} {
+		if role == "" {
+			continue
+		}
+		if _, err := iamServiceTrustedRole(role, "ecs-tasks.amazonaws.com", taskArn); err != nil {
+			return &ecsRequestError{"ClientException", fmt.Sprintf("ECS was unable to assume the role '%s' that was provided for this task. "+
+				"Please verify that the role being passed has the proper trust relationship and permissions "+
+				"and that your IAM user has permissions to pass this role.", role), http.StatusBadRequest}
+		}
+	}
+	return nil
+}
+
 func ecsUpdateContainerInstanceTaskCounts(key string, pendingDelta, runningDelta int) {
 	if key == "" {
 		return
@@ -1647,13 +1684,21 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 		requestedSubnet = in.NetworkConfiguration.AwsvpcConfiguration.Subnets[0]
 	}
 
+	taskIDs := make([]string, in.Count)
+	for i := range taskIDs {
+		taskIDs[i] = sim.NewUUID()
+	}
+	if len(taskIDs) > 0 {
+		if rerr := ecsRefuseUnassumableTaskRoles(td, in.Overrides, ecsTaskArn(clusterName, taskIDs[0])); rerr != nil {
+			return nil, nil, rerr
+		}
+	}
+
 	tasks := []ECSTask{}
 	failures := []ecsFailure{}
 	requested := ecsRequestedTaskSize(td, in.Overrides)
-	for i := 0; i < in.Count; i++ {
-		_ = i
-		taskID := sim.NewUUID()
-		taskArn := fmt.Sprintf("arn:aws:ecs:"+awsRegion()+":"+awsAccountID()+":task/%s/%s", clusterName, taskID)
+	for _, taskID := range taskIDs {
+		taskArn := ecsTaskArn(clusterName, taskID)
 
 		// Placement comes first: nothing below — the ENI, the managed volume,
 		// the stored record — is allocated for a task the host cannot fit.

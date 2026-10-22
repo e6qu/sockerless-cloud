@@ -98,7 +98,8 @@ func ecsTaskRoleArn(taskID string) string {
 	if !ok {
 		return ""
 	}
-	return definition.TaskRoleArn
+	taskRole, _ := ecsTaskRoles(definition, task.Overrides)
+	return taskRole
 }
 
 // simListenAddr is the listen address main() serves on.
