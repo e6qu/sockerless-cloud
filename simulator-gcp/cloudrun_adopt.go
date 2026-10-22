@@ -225,7 +225,7 @@ func adoptCloudRunWorkerPoolInstances(pool WorkerPoolV2, run bool) {
 		group := groups[id]
 		if adopted < want {
 			if byName, ok := cloudRunAdoptable(group, id, specSig, "sockerless-sim-worker-pool-container", containers); ok {
-				instance, release, err := adoptCloudRunWorkerPoolInstance(pool.Name, revision, containers, volumes, byName)
+				instance, release, err := adoptCloudRunWorkerPoolInstance(pool.Name, revision, vpc, containers, volumes, byName)
 				if err == nil {
 					poolRun.set.Adopt(id, instance, time.Now(), release)
 					adopted++
@@ -247,7 +247,7 @@ func adoptCloudRunWorkerPoolInstances(pool WorkerPoolV2, run bool) {
 // adoptCloudRunWorkerPoolInstance takes over the containers of a worker pool
 // instance an earlier process started, with what to release once they have
 // exited.
-func adoptCloudRunWorkerPoolInstance(poolName, revision string, containers []Container, volumes []Volume, byName map[string]placement.Existing) (*workload.Group, func(), error) {
+func adoptCloudRunWorkerPoolInstance(poolName, revision string, vpc *VpcAccess, containers []Container, volumes []Volume, byName map[string]placement.Existing) (*workload.Group, func(), error) {
 	writable, err := cloudRunWritableBuckets(containers, volumes)
 	if err != nil {
 		return nil, nil, err
@@ -269,7 +269,7 @@ func adoptCloudRunWorkerPoolInstance(poolName, revision string, containers []Con
 		}
 		handles = append(handles, handle)
 	}
-	releaseAddress, err := gcpReservePlatformAddress(context.Background(), handles[0], poolName)
+	releaseAddress, err := gcpReserveAdoptedAddress(context.Background(), handles[0], poolName, vpc)
 	if err != nil {
 		for _, h := range handles {
 			h.Cancel()
@@ -300,7 +300,7 @@ func adoptCloudRunInstance(inst InstanceV2, run bool) {
 		group := groups[id]
 		if run && !adopted && len(inst.Containers) > 0 {
 			if byName, ok := cloudRunAdoptable(group, id, specSig, cloudRunContainerLabel, inst.Containers); ok {
-				if err := adoptCloudRunServiceInstance(inst.Name, specSig, inst.Containers, inst.Volumes, byName, newCloudRunAdoptedResourceLogSink(cloudRunInstanceLogSink(inst.Name))); err == nil {
+				if err := adoptCloudRunServiceInstance(inst.Name, specSig, inst.Containers, inst.Volumes, inst.VpcAccess, byName, newCloudRunAdoptedResourceLogSink(cloudRunInstanceLogSink(inst.Name))); err == nil {
 					adopted = true
 					continue
 				}
@@ -313,8 +313,8 @@ func adoptCloudRunInstance(inst InstanceV2, run bool) {
 
 // adoptCloudRunServiceInstance records the running containers byName holds as
 // the Cloud Run instance name, serving already.
-func adoptCloudRunServiceInstance(name, specSig string, containers []Container, volumes []Volume, byName map[string]placement.Existing, sink sim.LogSink) error {
-	inst, err := adoptCloudRunInstanceContainers(name, specSig, containers, volumes, byName, sink)
+func adoptCloudRunServiceInstance(name, specSig string, containers []Container, volumes []Volume, vpc *VpcAccess, byName map[string]placement.Existing, sink sim.LogSink) error {
+	inst, err := adoptCloudRunInstanceContainers(name, specSig, containers, volumes, vpc, byName, sink)
 	if err != nil {
 		return err
 	}
@@ -329,7 +329,7 @@ func adoptCloudRunServiceInstance(name, specSig string, containers []Container, 
 // adoptCloudRunInstanceContainers takes over the running containers byName
 // holds as one instance of name: they started and passed their startup probes
 // under the earlier process.
-func adoptCloudRunInstanceContainers(name, specSig string, containers []Container, volumes []Volume, byName map[string]placement.Existing, sink sim.LogSink) (*cloudRunServiceInstance, error) {
+func adoptCloudRunInstanceContainers(name, specSig string, containers []Container, volumes []Volume, vpc *VpcAccess, byName map[string]placement.Existing, sink sim.LogSink) (*cloudRunServiceInstance, error) {
 	order, err := cloudRunContainerStartOrder(containers)
 	if err != nil {
 		return nil, err
@@ -360,7 +360,7 @@ func adoptCloudRunInstanceContainers(name, specSig string, containers []Containe
 	address, err := cloudRunContainerRoute(context.Background(), owner, cloudRunContainerPort(containers[0]))
 	if err == nil {
 		var releaseAddress func()
-		if releaseAddress, err = gcpReservePlatformAddress(context.Background(), owner, name); err == nil {
+		if releaseAddress, err = gcpReserveAdoptedAddress(context.Background(), owner, name, vpc); err == nil {
 			mounts := releaseMounts
 			releaseMounts = func() {
 				mounts()
@@ -452,7 +452,7 @@ func adoptCloudRunServiceInstanceGroup(name, groupID string, group []placement.E
 	if len(run.set.Replicas()) >= run.max {
 		return false
 	}
-	inst, err := adoptCloudRunInstanceContainers(name, specSig, containers, volumes, byName, sink)
+	inst, err := adoptCloudRunInstanceContainers(name, specSig, containers, volumes, rev.VpcAccess, byName, sink)
 	if err != nil {
 		log.Printf("Cloud Run service %s: adopt instance %s: %v", name, groupID, err)
 		return false
@@ -557,7 +557,7 @@ func adoptCloudRunJobExecution(name string, group []placement.Existing) error {
 		}
 		handles = append(handles, handle)
 	}
-	releaseAddress, err := gcpReservePlatformAddress(context.Background(), handles[0], name)
+	releaseAddress, err := gcpReserveAdoptedAddress(context.Background(), handles[0], name, exec.Template.VpcAccess)
 	if err != nil {
 		for _, h := range handles {
 			h.Cancel()

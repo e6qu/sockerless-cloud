@@ -4075,3 +4075,9 @@ tests ran at once.
 
 A Cloud Run container reads its own instance id and
 `instance/region` from the metadata server.
+
+A restarted simulator that adopts a Cloud Run instance, revision instance,
+worker pool instance or job task with direct VPC egress holds the address
+the container keeps in the subnetwork's ledger, so the next workload on the
+subnetwork takes another address; an adopted workload without VPC egress
+holds its platform-network address as before.
