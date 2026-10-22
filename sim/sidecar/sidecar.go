@@ -311,3 +311,87 @@ func StartShares(ctx context.Context, spec SharesSpec, sink sim.LogSink) (*sim.C
 		return nil, ctx.Err()
 	}
 }
+
+// Forward is a TCP listener on a workload's own loopback, Listen, that relays
+// each connection to Upstream, an address on the workload's network.
+type Forward struct {
+	Listen   string
+	Upstream string
+}
+
+// forwarderLabel marks a forwarder container; its value is the name of the
+// workload it serves.
+const forwarderLabel = "sockerless-sim-forwarder"
+
+// ForwarderSpec places one forwarder: the sidecar program as the owner of a
+// workload's network namespace, placed with the workload's network settings
+// before the workload joins it, so the forwards listen before the workload's
+// first process runs.
+type ForwarderSpec struct {
+	// Namespace is the network side of the workload's configuration: its
+	// network, address, interface, aliases, hosts, resolvers, hostname and
+	// published ports.
+	Namespace sim.ContainerConfig
+	Forwards  []Forward
+	// Workload names the workload the forwarder serves, for its label.
+	Workload string
+}
+
+// StartForwarder runs a forwarder and returns its handle once its forwards
+// listen, or an error when ctx ends first; the container goes with the
+// handle's Cancel. It holds no capability: the listeners are unprivileged
+// ports.
+func StartForwarder(ctx context.Context, spec ForwarderSpec, sink sim.LogSink) (*sim.ContainerHandle, error) {
+	if len(spec.Forwards) == 0 {
+		return nil, errors.New("sidecar: a forwarder needs forwards")
+	}
+	cli := sim.DockerClient()
+	if err := sim.RequireContainerRuntime("starting a forwarder"); err != nil {
+		return nil, err
+	}
+	image, platform, err := ensureImage(ctx, cli)
+	if err != nil {
+		return nil, err
+	}
+	args := []string{"forward"}
+	for _, f := range spec.Forwards {
+		if strings.ContainsRune(f.Listen, '=') || strings.ContainsRune(f.Upstream, '=') {
+			return nil, fmt.Errorf("sidecar: forward %s to %s names an address with '='", f.Listen, f.Upstream)
+		}
+		args = append(args, f.Listen+"="+f.Upstream)
+	}
+	cfg := spec.Namespace
+	cfg.Image = image
+	cfg.Architecture = platform
+	cfg.Command = nil
+	cfg.Args = args
+	cfg.Labels = map[string]string{forwarderLabel: spec.Workload}
+	cfg.Sandbox = sim.SandboxProfile{
+		CapDrop:          []string{"ALL"},
+		NoNewPrivileges:  true,
+		DenyDockerSocket: true,
+		DenyHostNetwork:  true,
+		ReadonlyRootfs:   true,
+	}
+	listening := make(chan struct{})
+	var once sync.Once
+	handle, err := sim.StartContainerSyncContext(ctx, cfg, sim.FuncSink(func(line sim.LogLine) {
+		sink.WriteLog(line)
+		if strings.HasPrefix(line.Text, "sidecar: forward ") {
+			once.Do(func() { close(listening) })
+		}
+	}))
+	if err != nil {
+		return nil, err
+	}
+	select {
+	case <-listening:
+		return handle, nil
+	case <-handle.Exited():
+		handle.Cancel()
+		return nil, fmt.Errorf("sidecar: the forwarder %s ended before it listened", cfg.Name)
+	case <-ctx.Done():
+		handle.Cancel()
+		return nil, ctx.Err()
+	}
+}

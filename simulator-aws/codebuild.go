@@ -324,7 +324,7 @@ func cbAdoptBuildWorkload(
 	if remaining <= 0 {
 		remaining = time.Nanosecond
 	}
-	handle, err := sim.AdoptContainer(existing[0].ID, sim.ContainerConfig{Timeout: remaining}, sim.NoopSink{})
+	handle, err := cbEnvironmentBackend.Adopt(context.Background(), existing[0].ID, sim.ContainerConfig{Timeout: remaining}, sim.NoopSink{})
 	if err != nil {
 		return false, fmt.Errorf("adopt %s %s container: %w", resourceName, id, err)
 	}
@@ -896,13 +896,13 @@ func cbRunCommands(buildID string, project CBProject, plan cbBuildPlan, env map[
 	}
 	holder := roleHolder("codebuild", buildID)
 	defer revokeRoleCredentials(holder)
-	serviceEnv, err := cbEnvironmentServiceEnv(network, holder, serviceRole, buildID)
+	services, err := cbEnvironmentServiceEnv(network, holder, serviceRole, buildID)
 	if err != nil {
 		return -1, fmt.Sprintf("build environment service endpoint: %v", err)
 	}
 	// The project's and the build's own variables win over what the
 	// environment provides.
-	env = workloadhost.MergeEnv(serviceEnv, env)
+	env = workloadhost.MergeEnv(services.Env, env)
 	env["CODEBUILD_BUILD_ID"] = buildID
 	env["CODEBUILD_PROJECT_NAME"] = project.Name
 	env["CODEBUILD_SRC_DIR"] = "/codebuild/output/src"
@@ -916,7 +916,7 @@ func cbRunCommands(buildID string, project CBProject, plan cbBuildPlan, env map[
 		script.WriteString(command)
 		script.WriteByte('\n')
 	}
-	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
+	handle, err := services.place(context.Background(), cbEnvironmentBackend, sim.ContainerConfig{
 		Image:        image,
 		Architecture: architecture,
 		Command:      []string{"/bin/sh"},

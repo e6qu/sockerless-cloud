@@ -26,10 +26,10 @@
   public address as the source a peer sees, a subnet with no route out);
   the cloud-init modules and part types not yet run (BUG-3526); the
   Compute Engine metadata server's project attributes (BUG-3525); the fixed
-  link-local metadata address, whose container-backend half is a loopback
-  forwarder in the workload's namespace that the AWS SDKs' container
-  credential provider accepts (BUG-3485); packet capture and packet mirroring data
-  paths; managed block volume size and filesystem on the container backend.
+  link-local metadata addresses, whose remainder is a DNAT at the microVM
+  guest's tap and a loopback forwarder for host-network Amazon ECS tasks
+  (BUG-3485); packet capture and packet mirroring data paths; managed block
+  volume size and filesystem on the container backend.
 - **Fold the simulator CI shards back** from the first parallel run's per-test
   durations (BUG-3437), and stop repeating base-image loading, pre-builds and
   the Caddy install per job (BUG-3151).

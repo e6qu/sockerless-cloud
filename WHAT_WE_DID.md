@@ -3707,6 +3707,46 @@ until half its lifetime is left, and a sweep drops what holders that no
 longer run held. `StartBuild` honours `serviceRoleOverride`, and
 `RetryBuild` runs with the role and environment the retried build ran with.
 
+### A workload's own loopback serves its container credentials
+
+The AWS SDKs' container credential provider takes a plain-HTTP full URI only
+on a loopback address or the endpoint's link-local one (`169.254.170.2`,
+`169.254.170.23`), and a bridge network routes neither to the sidecar, so a
+URI naming the sidecar left every default credential chain in a task, a
+build, a job or a Glue job run with nothing; only a client that read the
+variable itself held the role. The container backend serves the endpoint
+on the workload's own loopback at `127.0.0.1:51679`, the address
+and port the Amazon ECS agent serves it on behind `169.254.170.2`.
+
+The sidecar binary's `forward` mode relays a loopback port to the network's
+sidecar byte for byte. It runs as the owner of the workload's network
+namespace: `placement.Forwarding`, which the container backend implements,
+places the forwarder first with every network setting the workload names
+(network, address, MAC, aliases, hosts, resolvers, hostname, published
+ports, extra networks), waits for it to report that it listens, and only
+then starts the workload joined to it. Placing the forwarder beside an
+already-running workload instead would race the workload's first read: an
+SDK that resolves credentials at start-up would find nothing listening, and
+the engine cannot join a namespace before its owner runs. The owner pattern
+is also how Amazon ECS builds an awsvpc task, around a pause container.
+
+The workload carries `sockerless-sim-forwarded-by` naming its forwarder, and
+the forwarder goes when the workload exits; the handle reports the exit only
+once the forwarder is gone, so a caller that removes the network next finds
+no endpoint left on it. A member placed beside the workload (the other
+containers of an awsvpc task) joins the forwarder's namespace directly and
+shares the loopback; each container of a bridge task has its own namespace
+and its own forwarder. The forwarder carries none of the workload's labels,
+so the services' own lookups by label never see it; a restarted simulator's
+`Adopt` reads the workload's label and takes the forwarder over with it,
+which Amazon ECS, AWS Batch and AWS CodeBuild do through the backend. The
+forwarder dials the sidecar's address per connection, so a sidecar the
+restarted simulator replaced at the same address keeps serving it. A
+published port reads through to the namespace owner, where the engine binds
+it, which kept the Elastic Load Balancing target lookup of awsvpc tasks
+working. The microVM backend and host-network tasks keep the sidecar or
+callback URI, recorded in BUG-3485.
+
 
 The SDK suite pulls the AWS Amplify managed build image before the tests
 run whenever a test that builds is selected, as it already pulled the images

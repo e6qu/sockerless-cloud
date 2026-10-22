@@ -440,7 +440,9 @@ func TestMain(m *testing.M) {
 	// error. Fetching it once here removes that race from every test.
 	pullImageWithRetry("mirror.gcr.io/library/busybox:latest")
 	if testRunSelects("TestSFN_AmazonECSAndCodeBuildIntegrations_SDK") ||
-		testRunSelects("TestECS_TaskRoleCredentialsAuthorizeWorkloadAWSCLI") {
+		testRunSelects("TestECS_TaskRoleCredentialsAuthorizeWorkloadAWSCLI") ||
+		testRunSelects("TestCodeBuild_BuildHoldsItsServiceRoleSession_SDK") ||
+		testRunSelects("TestBatch_JobHoldsItsJobRoleSession_SDK") {
 		// The integration's timeout measures the Step Functions execution,
 		// not registry transfer on a newly provisioned test host. These are the
 		// exact public images configured on the Amazon ECS task definition and

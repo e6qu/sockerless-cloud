@@ -72,7 +72,12 @@ Current state of the sockerless-cloud repository.
   (`sim/sidecar`) as its DNS server, at the address the cloud reserves for
   its resolver inside the range, and the sidecar forwards to the cloud's
   resolver with the network attached and metadata requests to the simulator
-  under a minted token.
+  under a minted token. A container workload that holds a role through the
+  container credentials endpoint (an Amazon ECS task on the awsvpc or bridge
+  network mode, an AWS CodeBuild build, an AWS Batch job, an AWS Glue job
+  run) reads it on its own loopback, `127.0.0.1:51679`, where a forwarder
+  that owns the workload's network namespace relays it to the sidecar, so
+  the AWS SDKs' default credential chain accepts it.
 - **Execution modes.** `PLAN.md` names three — embedded, embedded with node
   agents, distributed — under one rule: the simulator process holds no host
   privilege, and a workload container holds no capability. The

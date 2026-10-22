@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	"github.com/google/uuid"
@@ -1526,14 +1527,16 @@ func glueRunPythonJob(jobName, runID string, job GlueJob, script []byte, args ma
 	defer revokeRoleCredentials(holder)
 	// The job runs in its interpreter's container, taking the script and the
 	// job's arguments the way Glue hands them to a Python shell job.
-	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
+	backend := placement.ContainerBackend{}
+	credentials := grantContainerCredentials(backend, network, holder, job.Role, "GlueJobRunnerSession")
+	handle, err := credentials.place(context.Background(), backend, sim.ContainerConfig{
 		Image:        image,
 		Architecture: platform,
 		Command:      []string{"python3"},
 		Args:         append([]string{glueJobScriptDir + "/script.py"}, glueArgs(args)...),
 		WorkingDir:   glueJobScriptDir,
 		Binds:        []string{filepath.Clean(workDir) + ":" + glueJobScriptDir + ":z"},
-		Env: workloadhost.MergeEnv(grantContainerCredentials(network.MetadataOrigin(), holder, job.Role, "GlueJobRunnerSession"), map[string]string{
+		Env: workloadhost.MergeEnv(credentials.Env, map[string]string{
 			"AWS_DEFAULT_REGION": awsRegion(),
 			"AWS_REGION":         awsRegion(),
 		}),

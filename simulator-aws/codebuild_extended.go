@@ -1065,7 +1065,7 @@ func cbRunCommandExecution(id string, sandbox CBSandbox, command string) {
 
 	holder := roleHolder("codebuild-command", id)
 	defer revokeRoleCredentials(holder)
-	serviceEnv, err := cbEnvironmentServiceEnv(network, holder, sandbox.ServiceRole, id)
+	services, err := cbEnvironmentServiceEnv(network, holder, sandbox.ServiceRole, id)
 	if err != nil {
 		cbCompleteCommandExecution(id, -1, "", err.Error())
 		return
@@ -1082,14 +1082,14 @@ func cbRunCommandExecution(id string, sandbox CBSandbox, command string) {
 			stdout.WriteString(line.Text + "\n")
 		}
 	})
-	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
+	handle, err := services.place(context.Background(), cbEnvironmentBackend, sim.ContainerConfig{
 		Image:        image,
 		Architecture: platform,
 		Command:      []string{"/bin/sh"},
 		Args:         []string{"-c", command},
 		WorkingDir:   "/codebuild/output/src",
 		Binds:        []string{filepath.Clean(workDir) + ":/codebuild/output/src:z"},
-		Env: workloadhost.MergeEnv(serviceEnv, map[string]string{
+		Env: workloadhost.MergeEnv(services.Env, map[string]string{
 			"CODEBUILD_SRC_DIR":  "/codebuild/output/src",
 			"AWS_DEFAULT_REGION": awsRegion(),
 			"AWS_REGION":         awsRegion(),

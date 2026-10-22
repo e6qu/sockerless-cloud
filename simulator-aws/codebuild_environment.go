@@ -3,6 +3,7 @@ package main
 import (
 	"strings"
 
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
@@ -23,13 +24,16 @@ func cbEnvironmentImage(image string) string {
 // simulator on (real CodeBuild leaves AWS_ENDPOINT_URL unset and resolves
 // the regional hosts; here the services live in this process), and the
 // container credentials endpoint serving sessions of the project's service
-// role to holder, in sessions named for the build.
-func cbEnvironmentServiceEnv(network awsWorkloadNetwork, holder, serviceRole, buildID string) (map[string]string, error) {
+// role to holder, in sessions named for the build. A build environment is a
+// container on cbEnvironmentBackend.
+func cbEnvironmentServiceEnv(network awsWorkloadNetwork, holder, serviceRole, buildID string) (containerCredentials, error) {
 	addr, err := workloadhost.CallbackAddr(simListenAddr)
 	if err != nil {
-		return nil, err
+		return containerCredentials{}, err
 	}
-	env := grantContainerCredentials(network.MetadataOrigin(), holder, serviceRole, "AWSCodeBuild-"+buildID[strings.LastIndex(buildID, ":")+1:])
-	env["AWS_ENDPOINT_URL"] = "http://" + addr
-	return env, nil
+	credentials := grantContainerCredentials(cbEnvironmentBackend, network, holder, serviceRole, "AWSCodeBuild-"+buildID[strings.LastIndex(buildID, ":")+1:])
+	credentials.Env["AWS_ENDPOINT_URL"] = "http://" + addr
+	return credentials, nil
 }
+
+var cbEnvironmentBackend placement.Backend = placement.ContainerBackend{}

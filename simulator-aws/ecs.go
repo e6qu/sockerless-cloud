@@ -2559,15 +2559,17 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 	// their metadata: through the VPC's sidecar for an awsvpc task, the
 	// platform network's for a bridge task, and the simulator's own listener
 	// for a task sharing the container instance's network stack. A none task
-	// has no network to read anything over.
+	// has no network to read anything over. The credentials of an awsvpc or
+	// bridge task are on each network namespace's own loopback, which the
+	// task's awsvpc containers share and each bridge container has alone.
 	var (
 		taskNetwork awsWorkloadNetwork
 		eniAddress  string
-		metadataEnv map[string]string
+		metadata    containerCredentials
 	)
 	switch networkMode {
 	case ecsNetworkModeHost:
-		metadataEnv, err = hostNetworkMetadataEnv(taskID)
+		metadata.Env, err = hostNetworkMetadataEnv(taskID)
 		if err != nil {
 			return fail(fmt.Errorf("resolve Amazon ECS metadata callback: %w", err))
 		}
@@ -2577,13 +2579,13 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 		if err != nil {
 			return fail(err)
 		}
-		metadataEnv = ecsTaskMetadataEnv(taskNetwork.MetadataOrigin(), taskID)
+		metadata = ecsTaskMetadataEnv(backend, taskNetwork, taskID)
 	default:
 		taskNetwork, err = awsPlatformNetwork(ctx)
 		if err != nil {
 			return fail(fmt.Errorf("provision the container instance's network: %w", err))
 		}
-		metadataEnv = ecsTaskMetadataEnv(taskNetwork.MetadataOrigin(), taskID)
+		metadata = ecsTaskMetadataEnv(backend, taskNetwork, taskID)
 	}
 	var mainDockerID string
 
@@ -2683,7 +2685,7 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 			Command:           cd.EntryPoint,
 			Args:              command,
 			WorkingDir:        cd.WorkingDirectory,
-			Env:               workloadhost.MergeEnv(cmdEnv, metadataEnv),
+			Env:               workloadhost.MergeEnv(cmdEnv, metadata.Env),
 			Name:              containerName,
 			Labels: map[string]string{
 				"sockerless-sim-task":           taskID,
@@ -2751,7 +2753,7 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 		if networkMode == ecsNetworkModeAwsvpc && i > 0 {
 			handle, err = backend.PlaceMember(ctx, mainDockerID, cfg, sink)
 		} else {
-			handle, err = backend.Place(ctx, cfg, sink)
+			handle, err = metadata.place(ctx, backend, cfg, sink)
 		}
 		if err != nil {
 			return fail(fmt.Errorf("start task container %q: %w", cd.Name, err))

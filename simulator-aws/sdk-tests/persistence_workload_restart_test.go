@@ -52,8 +52,11 @@ func TestRunningAmazonECSAWSBatchAndCodeBuildWorkloadsSurviveSimulatorRestart_SD
 	)
 	_, err := ecsAPI.CreateCluster(testCtx, &ecs.CreateClusterInput{ClusterName: aws.String(clusterName)})
 	require.NoError(t, err)
+	// Each workload holds a role, so each serves its container credentials
+	// on its own loopback, which the restarted simulator takes over with it.
 	_, err = ecsAPI.RegisterTaskDefinition(testCtx, &ecs.RegisterTaskDefinitionInput{
-		Family: aws.String(familyName),
+		Family:      aws.String(familyName),
+		TaskRoleArn: aws.String(persistentServiceRole(t, endpoint, "persistent-ecs-task", "ecs-tasks.amazonaws.com")),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2),
 			Name:        aws.String("application"),
@@ -90,10 +93,11 @@ func TestRunningAmazonECSAWSBatchAndCodeBuildWorkloadsSurviveSimulatorRestart_SD
 		JobDefinitionName: aws.String(batchJDName),
 		Type:              batchtypes.JobDefinitionTypeContainer,
 		ContainerProperties: &batchtypes.ContainerProperties{
-			Image:   aws.String("mirror.gcr.io/library/busybox:latest"),
-			Command: []string{"sh", "-c", "sleep 8"},
-			Vcpus:   aws.Int32(1),
-			Memory:  aws.Int32(512),
+			Image:      aws.String("mirror.gcr.io/library/busybox:latest"),
+			Command:    []string{"sh", "-c", "sleep 8"},
+			Vcpus:      aws.Int32(1),
+			Memory:     aws.Int32(512),
+			JobRoleArn: aws.String(persistentServiceRole(t, endpoint, "persistent-batch-job", "ecs-tasks.amazonaws.com")),
 		},
 	})
 	require.NoError(t, err)

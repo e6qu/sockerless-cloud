@@ -219,6 +219,9 @@ func (h *ContainerHandle) PublishedPort(ctx context.Context, containerPort int) 
 	return PublishedHostPort(ctx, h.ContainerID, containerPort)
 }
 
+// maxNamespaceHops bounds how many network namespace joins a read follows.
+const maxNamespaceHops = 8
+
 // ErrNotRunning is wrapped by a read of a workload's published port when the
 // workload has stopped, or is gone, and so publishes none.
 var ErrNotRunning = errors.New("the workload is not running")
@@ -226,21 +229,33 @@ var ErrNotRunning = errors.New("the workload is not running")
 // PublishedHostPort returns the host port the engine bound for a running
 // container's containerPort/tcp. The engine allocates the port when it starts
 // the container and releases it when the container stops, so a resumed
-// container holds a new one: read it after every start.
+// container holds a new one: read it after every start. A container that
+// joined another's network namespace listens on the ports the engine bound
+// for that one.
 func PublishedHostPort(ctx context.Context, containerID string, containerPort int) (int, error) {
 	if err := RequireContainerRuntime("reading a container's published port"); err != nil {
 		return 0, err
 	}
-	inspected, err := dockerClient.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
-	if err != nil {
-		if cerrdefs.IsNotFound(err) {
-			return 0, fmt.Errorf("container %s: %w", containerID, ErrNotRunning)
+	var info container.InspectResponse
+	for id, hops := containerID, 0; ; hops++ {
+		inspected, err := dockerClient.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
+		if err != nil {
+			if cerrdefs.IsNotFound(err) {
+				return 0, fmt.Errorf("container %s: %w", id, ErrNotRunning)
+			}
+			return 0, fmt.Errorf("inspect container %s: %w", id, err)
 		}
-		return 0, fmt.Errorf("inspect container %s: %w", containerID, err)
-	}
-	info := inspected.Container
-	if info.State == nil || !info.State.Running {
-		return 0, fmt.Errorf("container %s publishes no port: %w", containerID, ErrNotRunning)
+		info = inspected.Container
+		if info.State == nil || !info.State.Running {
+			return 0, fmt.Errorf("container %s publishes no port: %w", id, ErrNotRunning)
+		}
+		if info.HostConfig == nil || !info.HostConfig.NetworkMode.IsContainer() {
+			break
+		}
+		if hops == maxNamespaceHops {
+			return 0, fmt.Errorf("container %s joins a chain of namespaces too long to follow", containerID)
+		}
+		id = info.HostConfig.NetworkMode.ConnectedContainer()
 	}
 	port, err := network.ParsePort(strconv.Itoa(containerPort) + "/tcp")
 	if err != nil {
@@ -519,8 +534,16 @@ func FindExistingContainers(labels map[string]string) ([]ExistingContainer, erro
 				entry.Labels[key] = value
 			}
 		}
-		if inspection.NetworkSettings != nil {
-			for containerPort, bindings := range inspection.NetworkSettings.Ports {
+		ports := inspection.NetworkSettings
+		if inspection.HostConfig != nil && inspection.HostConfig.NetworkMode.IsContainer() {
+			if owner, err := dockerClient.ContainerInspect(ctx, inspection.HostConfig.NetworkMode.ConnectedContainer(), client.ContainerInspectOptions{}); err == nil {
+				ports = owner.Container.NetworkSettings
+			} else if !cerrdefs.IsNotFound(err) {
+				return nil, err
+			}
+		}
+		if ports != nil {
+			for containerPort, bindings := range ports.Ports {
 				if len(bindings) == 0 {
 					continue
 				}
