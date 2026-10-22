@@ -3,8 +3,8 @@
 # This sim is its own Go module, resolved against the sibling support
 # modules (sim, ui-auth) through the repo-root go.work during
 # development and through tagged versions when installed with
-# `go install ...@version`. The default `build` produces a stripped,
-# no-UI binary; `make embed && make build` bakes the console SPA in.
+# `go install ...@version`. `build` embeds the console built in ui/ (build the UI first);
+# `build-api`, which the test suites use, builds without it.
 
 APP_NAME       := simulator-azure
 GO_PACKAGE     := .
@@ -76,10 +76,10 @@ SDK_TEST_TIMEOUT ?= 13m
 SDK_TEST_ARGS ?= ./...
 CLI_TEST_ARGS ?= ./...
 
-sdk-test-local: build ## go test the SDK-driven sim tests on a Linux host with real-network capabilities
+sdk-test-local: build-api ## go test the SDK-driven sim tests on a Linux host with real-network capabilities
 	cd sdk-tests && $(GO_ENV) bash ../../scripts/go-test-summary.sh -count=1 -timeout $(SDK_TEST_TIMEOUT) $(SDK_TEST_ARGS)
 
-cli-test: build ## go test the CLI-driven sim tests
+cli-test: build-api ## go test the CLI-driven sim tests
 	cd cli-tests && $(GO_ENV) bash ../../scripts/go-test-summary.sh -count=1 -timeout $(CLI_TEST_TIMEOUT) $(CLI_TEST_ARGS)
 
 # The azure terraform stack is Docker-only: this outer `go test` wraps a
@@ -95,7 +95,7 @@ TERRAFORM_TEST_TIMEOUT ?= 600s
 # standalone Microsoft.Subscription config).
 TERRAFORM_TEST_ARGS ?=
 
-terraform-test: build ## go test the terraform-driven sim tests (apply+destroy deadline = TERRAFORM_TEST_TIMEOUT)
+terraform-test: build-api ## go test the terraform-driven sim tests (apply+destroy deadline = TERRAFORM_TEST_TIMEOUT)
 	cd terraform-tests && TERRAFORM_TEST_TIMEOUT=$(TERRAFORM_TEST_TIMEOUT) $(GO_ENV) go test -v -count=1 -timeout 20m $(TERRAFORM_TEST_ARGS) ./...
 
 # Aggregate that runs every test category.

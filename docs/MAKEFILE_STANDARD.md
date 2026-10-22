@@ -60,7 +60,7 @@ target, so the target name always exists.
 | `help` | Print a one-line description of every target. Default goal. |
 | `install` | Fetch dependencies (`go mod download` / `bun install`). Idempotent. |
 | `build` | Produce the artefact. A simulator's `build` embeds the console built at `ui/packages/<name>/dist` (`-tags console`) and fails when it has not been built; a library's is a compile check. |
-| `build-api` | Build without an embedded console; a compile check for libraries. |
+| `build-api` | Build without an embedded console, as the `sdk-test`, `cli-test` and `terraform-test` targets do; a compile check for libraries. |
 | `test` | Run unit tests. |
 | `lint` | `go vet` + `gofmt -l` + `golangci-lint` where installed; UI packages type-check with `tsc --noEmit`. Non-zero exit on findings. |
 | `clean` | Remove the artefacts the module owns. |

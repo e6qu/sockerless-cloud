@@ -887,7 +887,7 @@ jobs:
       - name: Pre-build AWS SDK tests (warm build cache)
         run: |
           bash scripts/ci-go-mod-download.sh simulator-aws
-          cd simulator-aws && make build
+          cd simulator-aws && make build-api
           cd sdk-tests && CGO_ENABLED=0 go test -c -o /tmp/aws-sdk-tests.test .
         # This step exists to absorb a cold build, so its budget has to fit
         # one: measured at 3m16s against a warm cache and over six minutes
