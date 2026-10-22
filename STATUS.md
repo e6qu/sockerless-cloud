@@ -376,7 +376,13 @@ Current state of the sockerless-cloud repository.
   by presigned URL; DescribeLoadBalancerAttributes reports exactly the keys the
   reference lists for the load balancer's type at their defaults, and
   ModifyLoadBalancerAttributes refuses another type's key and checks each
-  value; a Gateway Load Balancer's ARN names `loadbalancer/gwy/`. An
+  value; a Gateway Load Balancer's ARN names `loadbalancer/gwy/`.
+  CreateLoadBalancer and SetSubnets take one subnet per Availability Zone
+  and an Application Load Balancer in at least two zones, and a dualstack
+  load balancer only on subnets with an IPv6 CIDR block; an Amazon ECS
+  gateway route whose load balancer is refused fails with the refusal. The
+  Region has three Availability Zones and the default VPC a default subnet in
+  each. An
   Application Load Balancer publishes `AWS/ApplicationELB` `RequestCount` and
   `RequestCountPerTarget` once a minute, and Application Auto Scaling target
   tracking sets ceil(current × metric ÷ target), so an Amazon ECS service

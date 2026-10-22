@@ -98,14 +98,15 @@ func TestECSGateway_ServiceConnectsThroughSharedLoadBalancer(t *testing.T) {
 		serviceName = "sdk-gw-svc"
 	)
 	roleArn := createECSGatewayInfrastructureRole(t, "sdk-gw-infrastructure")
-	_, subnetID := createECSTestVPCSubnet(t, "sdk-gw")
+	_, subnets := createECSTestVPCSubnets(t, "sdk-gw", 2)
+	subnetID := subnets[0]
 
 	created, err := ecsC.CreateGateway(ctx, &ecs.CreateGatewayInput{
 		Name:                  aws.String(gatewayName),
 		InfrastructureRoleArn: aws.String(roleArn),
 		Configuration: &ecstypes.GatewayConfigurationMemberHostSharedAlb{Value: ecstypes.HostSharedAlbConfiguration{
 			NetworkConfiguration: &ecstypes.GatewayElbNetworkConfiguration{
-				Subnets:       []string{subnetID},
+				Subnets:       subnets,
 				IpAddressType: ecstypes.GatewayElbIpAddressTypeIpv4,
 			},
 		}},

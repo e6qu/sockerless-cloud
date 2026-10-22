@@ -42,6 +42,11 @@ func TestECSGateway_CLI(t *testing.T) {
 		role    = "cli-gw-infrastructure"
 	)
 	subnetID := createCLIECSTestSubnet(t, "cli-gw", "10.237.0.0/16")
+	vpcID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "describe-subnets", "--subnet-ids", subnetID,
+		"--query", "Subnets[0].VpcId", "--output", "text")))
+	subnet2ID := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-subnet", "--vpc-id", vpcID,
+		"--cidr-block", "10.237.1.0/24", "--availability-zone", "us-east-1b", "--query", "Subnet.SubnetId", "--output", "text")))
+	t.Cleanup(func() { _ = awsCLI("ec2", "delete-subnet", "--subnet-id", subnet2ID).Run() })
 	roleArn := strings.TrimSpace(runCLI(t, awsCLI("iam", "create-role", "--role-name", role,
 		"--assume-role-policy-document", `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs.amazonaws.com"},"Action":"sts:AssumeRole"}]}`,
 		"--query", "Role.Arn", "--output", "text")))
@@ -59,7 +64,7 @@ func TestECSGateway_CLI(t *testing.T) {
 	}
 	parseJSON(t, runCLI(t, awsCLI("ecs", "create-gateway", "--name", gateway,
 		"--infrastructure-role-arn", roleArn,
-		"--configuration", `{"hostSharedAlb":{"scheme":"internal","networkConfiguration":{"subnets":["`+subnetID+`"],"ipAddressType":"ipv4"}}}`,
+		"--configuration", `{"hostSharedAlb":{"scheme":"internal","networkConfiguration":{"subnets":["`+subnetID+`","`+subnet2ID+`"],"ipAddressType":"ipv4"}}}`,
 		"--propagate-tags", "NONE",
 		"--output", "json")), &created)
 	assert.Equal(t, "ACTIVE", created.Status)

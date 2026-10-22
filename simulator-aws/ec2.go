@@ -568,20 +568,24 @@ func ec2Owner() string { return awsAccountID() }
 // subnet through this — faithfully, by the IsDefault VPC — rather than a
 // hardcoded ID.
 func defaultVPCSubnetID() string {
+	var subnets []string
 	for _, s := range ec2Subnets.List() {
 		if v, ok := ec2Vpcs.Get(s.VpcId); ok && v.IsDefault {
-			return s.SubnetId
+			subnets = append(subnets, s.SubnetId)
 		}
 	}
-	return ""
+	if len(subnets) == 0 {
+		return ""
+	}
+	slices.Sort(subnets)
+	return subnets[0]
 }
 
-// ensureSimDefaults seeds the account's default VPC + a default subnet, the same
-// way a real AWS account is auto-provisioned with a default VPC and one default
-// subnet per AZ (so DescribeVpcs/DescribeSubnets return them and a
-// subnet-less RunInstances has somewhere to land). The IDs are deterministic — a
-// simulator convention, like the fixed account ID — so coordinate-only callers
-// can reference them; nothing in the sim is keyed on a sockerless-specific name.
+// ensureSimDefaults seeds the account's default VPC and one default subnet per
+// Availability Zone, the way a real AWS account is provisioned (so
+// DescribeVpcs/DescribeSubnets return them and a subnet-less RunInstances has
+// somewhere to land). The IDs are deterministic — a simulator convention, like
+// the fixed account ID — so coordinate-only callers can reference them.
 // Idempotent; called on startup.
 func ensureSimDefaults() {
 	if _, ok := ec2Vpcs.Get("vpc-sim"); !ok {
@@ -595,12 +599,16 @@ func ensureSimDefaults() {
 			EnableDnsHostnames: true,
 		})
 	}
-	if _, ok := ec2Subnets.Get("subnet-0123456789abcdef0"); !ok {
-		ec2Subnets.Put("subnet-0123456789abcdef0", EC2Subnet{
-			SubnetId:            "subnet-0123456789abcdef0",
+	for i, zone := range awsAvailabilityZones() {
+		id := fmt.Sprintf("subnet-0123456789abcdef%d", i)
+		if _, ok := ec2Subnets.Get(id); ok {
+			continue
+		}
+		ec2Subnets.Put(id, EC2Subnet{
+			SubnetId:            id,
 			VpcId:               "vpc-sim",
-			CidrBlock:           "172.31.0.0/24",
-			AvailabilityZone:    awsAvailabilityZone(),
+			CidrBlock:           fmt.Sprintf("172.31.%d.0/24", 16*i),
+			AvailabilityZone:    zone,
 			State:               "available",
 			OwnerId:             ec2Owner(),
 			MapPublicIpOnLaunch: false,
@@ -819,12 +827,16 @@ func handleDescribeAccountAttributes(w http.ResponseWriter, r *http.Request) {
 
 func handleDescribeAvailabilityZones(w http.ResponseWriter, r *http.Request) {
 	region := awsRegion()
-	zone := awsAvailabilityZone()
+	var items strings.Builder
+	for _, zone := range awsAvailabilityZones() {
+		fmt.Fprintf(&items, `<item><zoneName>%s</zoneName><zoneId>%s</zoneId><zoneType>availability-zone</zoneType><regionName>%s</regionName><zoneState>available</zoneState><groupName>%s</groupName><networkBorderGroup>%s</networkBorderGroup></item>`,
+			zone, ec2AvailabilityZoneId(zone), region, region, region)
+	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeAvailabilityZonesResponse %s>
   <requestId>%s</requestId>
-  <availabilityZoneInfo><item><zoneName>%s</zoneName><zoneId>%s-az1</zoneId><zoneType>availability-zone</zoneType><regionName>%s</regionName><zoneState>available</zoneState><groupName>%s</groupName><networkBorderGroup>%s</networkBorderGroup></item></availabilityZoneInfo>
-</DescribeAvailabilityZonesResponse>`, ec2Xmlns(), sim.NewUUID(), zone, region, region, region, region)
+  <availabilityZoneInfo>%s</availabilityZoneInfo>
+</DescribeAvailabilityZonesResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleDescribeRegions(w http.ResponseWriter, r *http.Request) {
@@ -1173,6 +1185,26 @@ func subnetArn(s EC2Subnet) string {
 	return fmt.Sprintf("arn:aws:ec2:%s:%s:subnet/%s", awsRegion(), s.OwnerId, s.SubnetId)
 }
 
+// ec2SubnetIpv6AssociationID names the association of a subnet's one IPv6 CIDR
+// block.
+func ec2SubnetIpv6AssociationID(subnetID string) string {
+	return "subnet-cidr-assoc-" + strings.TrimPrefix(subnetID, "subnet-")
+}
+
+// ec2SubnetOfIpv6Association returns the subnet an IPv6 CIDR block association
+// names, while that subnet holds the block.
+func ec2SubnetOfIpv6Association(assocID string) (string, bool) {
+	suffix, ok := strings.CutPrefix(assocID, "subnet-cidr-assoc-")
+	if !ok || ec2Subnets == nil {
+		return "", false
+	}
+	subnet, ok := ec2Subnets.Get("subnet-" + suffix)
+	if !ok || subnet.Ipv6CidrBlock == "" {
+		return "", false
+	}
+	return subnet.SubnetId, true
+}
+
 // subnetItemBodyXML renders the inner subnet fields shared by CreateSubnet and
 // DescribeSubnets.
 func subnetItemBodyXML(s EC2Subnet) string {
@@ -1182,9 +1214,8 @@ func subnetItemBodyXML(s EC2Subnet) string {
 	}
 	ipv6 := ""
 	if s.Ipv6CidrBlock != "" {
-		assocID := "subnet-cidr-assoc-" + strings.TrimPrefix(s.SubnetId, "subnet-")
 		ipv6 = fmt.Sprintf(`<ipv6CidrBlockAssociationSet><item><associationId>%s</associationId><ipv6CidrBlock>%s</ipv6CidrBlock><ipv6CidrBlockState><state>associated</state></ipv6CidrBlockState></item></ipv6CidrBlockAssociationSet>`,
-			assocID, s.Ipv6CidrBlock)
+			ec2SubnetIpv6AssociationID(s.SubnetId), s.Ipv6CidrBlock)
 	}
 	return fmt.Sprintf(`<subnetId>%s</subnetId><vpcId>%s</vpcId><cidrBlock>%s</cidrBlock>`+
 		`<availabilityZone>%s</availabilityZone><availabilityZoneId>%s</availabilityZoneId>`+

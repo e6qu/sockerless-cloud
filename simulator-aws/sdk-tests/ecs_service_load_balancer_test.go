@@ -32,7 +32,8 @@ func TestECS_ServiceRegistersHealthyLoadBalancerTargets(t *testing.T) {
 		container   = "web"
 		port        = int32(8080)
 	)
-	vpcID, subnetID := createECSTestVPCSubnet(t, "svc-lb")
+	vpcID, subnets := createECSTestVPCSubnets(t, "svc-lb", 2)
+	subnetID := subnets[0]
 	_, err := ecsC.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -91,7 +92,7 @@ func TestECS_ServiceRegistersHealthyLoadBalancerTargets(t *testing.T) {
 	require.NoError(t, err)
 	loadBalancer, err := elbC.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
 		Name: aws.String("svc-lb-alb"), Type: elbtypes.LoadBalancerTypeEnumApplication,
-		Subnets: []string{subnetID},
+		Subnets: subnets,
 	})
 	require.NoError(t, err)
 	loadBalancerArn := aws.ToString(loadBalancer.LoadBalancers[0].LoadBalancerArn)

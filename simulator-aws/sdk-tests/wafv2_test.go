@@ -564,9 +564,9 @@ func TestWAFv2AssociateRegionalWebACLWithApplicationLoadBalancer(t *testing.T) {
 	require.NoError(t, err)
 	aclARN := aws.ToString(createOut.Summary.ARN)
 
-	_, subnetID := elbv2FidVPCSubnet(t, "10.252.0.0/16", "10.252.1.0/24")
+	_, subnets := elbv2FidVPCSubnets(t, "10.252.0.0/16", "10.252.1.0/24", "10.252.2.0/24")
 	elb := elbv2Client()
-	lbARN := elbv2FidLoadBalancer(t, elb, subnetID, "sdk-waf-alb", elbtypes.LoadBalancerTypeEnumApplication)
+	lbARN := elbv2FidLoadBalancer(t, elb, subnets, "sdk-waf-alb", elbtypes.LoadBalancerTypeEnumApplication)
 
 	_, err = c.AssociateWebACL(ctx, &wafv2.AssociateWebACLInput{
 		WebACLArn:   aws.String(aclARN),

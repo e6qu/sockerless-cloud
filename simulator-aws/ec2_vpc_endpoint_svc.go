@@ -662,8 +662,8 @@ func handleAssociateSubnetCidrBlock(w http.ResponseWriter, r *http.Request) {
 	if ipv6 == "" {
 		ipv6 = "2600:1f00:" + sim.NewUUID()[:4] + "::/64"
 	}
-	assocID := ec2ID("subnet-cidr-assoc")
-	ec2VpcCidrAssocs.Put(assocID, EC2VpcCidrAssoc{AssociationId: assocID, VpcId: subnetId, CidrBlock: ipv6, State: "associated"})
+	assocID := ec2SubnetIpv6AssociationID(subnetId)
+	ec2Subnets.Update(subnetId, func(s *EC2Subnet) { s.Ipv6CidrBlock = ipv6 })
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AssociateSubnetCidrBlockResponse %s>
   <requestId>%s</requestId>
@@ -674,18 +674,21 @@ func handleAssociateSubnetCidrBlock(w http.ResponseWriter, r *http.Request) {
 
 func handleDisassociateSubnetCidrBlock(w http.ResponseWriter, r *http.Request) {
 	assocID := r.FormValue("AssociationId")
-	assoc, ok := ec2VpcCidrAssocs.Get(assocID)
-	if !ok {
+	var cidr string
+	subnetID, ok := ec2SubnetOfIpv6Association(assocID)
+	if ok {
+		ec2Subnets.Update(subnetID, func(s *EC2Subnet) { cidr, s.Ipv6CidrBlock = s.Ipv6CidrBlock, "" })
+	}
+	if cidr == "" {
 		ec2ErrorXML(w, "InvalidSubnetCidrBlockAssociationID.NotFound", fmt.Sprintf("The subnet CIDR block association ID %q does not exist", assocID), http.StatusBadRequest)
 		return
 	}
-	ec2VpcCidrAssocs.Delete(assocID)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DisassociateSubnetCidrBlockResponse %s>
   <requestId>%s</requestId>
   <ipv6CidrBlockAssociation><associationId>%s</associationId><ipv6CidrBlock>%s</ipv6CidrBlock><ipv6CidrBlockState><state>disassociating</state></ipv6CidrBlockState></ipv6CidrBlockAssociation>
   <subnetId>%s</subnetId>
-</DisassociateSubnetCidrBlockResponse>`, ec2Xmlns(), sim.NewUUID(), assoc.AssociationId, assoc.CidrBlock, assoc.VpcId)
+</DisassociateSubnetCidrBlockResponse>`, ec2Xmlns(), sim.NewUUID(), assocID, cidr, subnetID)
 }
 
 func handleCreateSubnetCidrReservation(w http.ResponseWriter, r *http.Request) {

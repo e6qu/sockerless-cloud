@@ -84,7 +84,11 @@ func TestELBv2_LoadBalancerFidelitySDK(t *testing.T) {
 	ec2c := ec2Client()
 	vpc, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.151.0.0/16")})
 	require.NoError(t, err)
-	sn, err := ec2c.CreateSubnet(ctx, &ec2.CreateSubnetInput{VpcId: vpc.Vpc.VpcId, CidrBlock: aws.String("10.151.1.0/24"), AvailabilityZone: aws.String("us-east-1a")})
+	ipv6 := elbv2VPCIpv6Block(t, aws.ToString(vpc.Vpc.VpcId))
+	sn, err := ec2c.CreateSubnet(ctx, &ec2.CreateSubnetInput{
+		VpcId: vpc.Vpc.VpcId, CidrBlock: aws.String("10.151.1.0/24"), AvailabilityZone: aws.String("us-east-1a"),
+		Ipv6CidrBlock: aws.String(elbv2Ipv6SubnetRange(ipv6, 0)),
+	})
 	require.NoError(t, err)
 	subnetID := aws.ToString(sn.Subnet.SubnetId)
 

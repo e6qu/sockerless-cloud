@@ -4367,3 +4367,26 @@ plane, written in-process as the trusted Microsoft service Event Grid is,
 the event's JSON as the queue message's text and as the Service Bus
 message's body, retried and dead-lettered as a webhook delivery is. Service
 Bus admitted a trusted service's in-process call as Storage did.
+
+CreateLoadBalancer and SetSubnets held a load balancer to the subnet rules
+the Elastic Load Balancing model states for `Subnets` and `SubnetMappings`:
+one subnet per Availability Zone for every type, `InvalidConfigurationRequest`
+otherwise; an Application Load Balancer in at least two zones,
+`ValidationError` otherwise, where a Network or Gateway Load Balancer takes
+one; a subnet that does not exist `SubnetNotFound`. A dualstack load
+balancer, on create, SetSubnets or SetIpAddressType, took only subnets with
+an IPv6 CIDR block, `InvalidSubnet` otherwise; SetSubnets also applied the
+`IpAddressType` it names. The rules had been absent, so a single-zone
+Application Load Balancer came up and an Amazon ECS gateway route could not
+fail on its load balancer; now a dualstack gateway, the default, on the
+default VPC's IPv4-only subnets fails its route with
+`elasticloadbalancing:CreateLoadBalancer: InvalidSubnet`, passed through as
+the gateway documents its operation errors. AssociateSubnetCidrBlock gave the
+subnet its IPv6 block, which DescribeSubnets read back under the association
+ID that DisassociateSubnetCidrBlock removes, where the association had lived
+in a store the subnet never read. DescribeAvailabilityZones listed three
+zones with the zone IDs subnets carry, and the default VPC held a default
+subnet in each, so a gateway or Express service on the default VPC spans
+them; an Express service with no subnets takes all of them. Every test that
+built an Application Load Balancer in one zone gained a second subnet in a
+second zone, inside its existing VPC range.

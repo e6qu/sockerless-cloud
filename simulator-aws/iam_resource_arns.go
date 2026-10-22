@@ -1428,12 +1428,7 @@ func iamEC2ResourceARNs(r *http.Request, op string, types []string, region, acco
 			sort.Strings(out)
 			return out
 		}
-	case "DisassociateVpcCidrBlock", "DisassociateSubnetCidrBlock":
-		// One store holds both kinds of CIDR association and reuses a single
-		// field for what the association is on, so the stored id is read for
-		// what it is rather than for where it sits: an EC2 identifier states
-		// its own type, and it must be the type the action declares — a subnet
-		// association is not what a VPC disassociation authorizes against.
+	case "DisassociateVpcCidrBlock":
 		var out []string
 		for _, assoc := range lookup("AssociationId") {
 			if ec2VpcCidrAssocs == nil {
@@ -1448,6 +1443,17 @@ func iamEC2ResourceARNs(r *http.Request, op string, types []string, region, acco
 				continue
 			}
 			out = append(out, "arn:aws:ec2:"+region+":"+account+":"+resourceType+"/"+held.VpcId)
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
+	case "DisassociateSubnetCidrBlock":
+		var out []string
+		for _, assoc := range lookup("AssociationId") {
+			if subnetID, ok := ec2SubnetOfIpv6Association(assoc); ok && iamHasType(types, "subnet") {
+				out = append(out, "arn:aws:ec2:"+region+":"+account+":subnet/"+subnetID)
+			}
 		}
 		if len(out) > 0 {
 			sort.Strings(out)

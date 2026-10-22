@@ -274,6 +274,11 @@ func handleELBv2CreateLoadBalancer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	subnets := elbv2RequestSubnets(r)
+	if code, message := elbv2SubnetsRefusal(lbType, ipType, subnets); code != "" {
+		elbv2ErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	id := sim.RandomHex(16)
 	arn := fmt.Sprintf("arn:aws:elasticloadbalancing:%s:%s:loadbalancer/%s/%s/%s", awsRegion(), awsAccountID(), elbv2LoadBalancerKind(ELBv2LoadBalancer{Type: lbType}), name, id)
 	lb := ELBv2LoadBalancer{
@@ -284,8 +289,8 @@ func handleELBv2CreateLoadBalancer(w http.ResponseWriter, r *http.Request) {
 		Scheme:         scheme,
 		Type:           lbType,
 		State:          "active",
-		VpcID:          elbv2VPCFromSubnets(queryList(r, "Subnets")),
-		Subnets:        queryList(r, "Subnets"),
+		VpcID:          elbv2VPCFromSubnets(subnets),
+		Subnets:        subnets,
 		SecurityGroups: queryList(r, "SecurityGroups"),
 		IpAddressType:  ipType,
 		// NLBs default this to "on"; ALBs don't carry it. Honour the request.
@@ -451,15 +456,78 @@ func handleELBv2SetSecurityGroups(w http.ResponseWriter, r *http.Request) {
 
 func handleELBv2SetSubnets(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("LoadBalancerArn")
-	subnets := queryList(r, "Subnets")
+	subnets := elbv2RequestSubnets(r)
+	current, ok := elbv2LoadBalancers.Get(arn)
+	if !ok {
+		elbv2ErrorXML(w, "LoadBalancerNotFound", "Load balancer not found", http.StatusNotFound, sim.RequestID(r.Context()))
+		return
+	}
+	ipType := firstNonEmpty(r.FormValue("IpAddressType"), current.IpAddressType)
+	if code, message := elbv2SubnetsRefusal(current.Type, ipType, subnets); code != "" {
+		elbv2ErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	if !elbv2LoadBalancers.Update(arn, func(lb *ELBv2LoadBalancer) {
 		lb.Subnets = subnets
 		lb.VpcID = elbv2VPCFromSubnets(subnets)
+		lb.IpAddressType = ipType
 	}) {
 		elbv2ErrorXML(w, "LoadBalancerNotFound", "Load balancer not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
-	elbv2XMLResponse(w, "SetSubnets", "<AvailabilityZones>"+elbv2AvailabilityZonesXML(subnets)+"</AvailabilityZones>", sim.RequestID(r.Context()))
+	elbv2XMLResponse(w, "SetSubnets", "<AvailabilityZones>"+elbv2AvailabilityZonesXML(subnets)+"</AvailabilityZones><IpAddressType>"+xmlEscape(ipType)+"</IpAddressType>", sim.RequestID(r.Context()))
+}
+
+// elbv2RequestSubnets reads the subnets a request names through Subnets or
+// SubnetMappings.
+func elbv2RequestSubnets(r *http.Request) []string {
+	if subnets := queryList(r, "Subnets"); len(subnets) > 0 {
+		return subnets
+	}
+	var subnets []string
+	for i := 1; ; i++ {
+		id := r.FormValue(fmt.Sprintf("SubnetMappings.member.%d.SubnetId", i))
+		if id == "" {
+			return subnets
+		}
+		subnets = append(subnets, id)
+	}
+}
+
+// elbv2SubnetsRefusal answers the error Elastic Load Balancing returns for a
+// load balancer of lbType and ipType on subnets, or an empty code when they
+// fit: one subnet per Availability Zone, an Application Load Balancer in at
+// least two zones, and an IPv6 CIDR block on every subnet of a dualstack one.
+func elbv2SubnetsRefusal(lbType, ipType string, subnets []string) (code, message string) {
+	zones := map[string]bool{}
+	for _, id := range subnets {
+		subnet, ok := ec2Subnets.Get(id)
+		if !ok {
+			return "SubnetNotFound", fmt.Sprintf("The subnet ID '%s' is not valid", id)
+		}
+		if zones[subnet.AvailabilityZone] {
+			return "InvalidConfigurationRequest", "A load balancer cannot be attached to multiple subnets in the same Availability Zone"
+		}
+		zones[subnet.AvailabilityZone] = true
+	}
+	if lbType == "application" && len(zones) < 2 {
+		return "ValidationError", "At least two subnets in two different Availability Zones must be specified"
+	}
+	return elbv2IpAddressTypeRefusal(ipType, subnets)
+}
+
+// elbv2IpAddressTypeRefusal refuses a dualstack load balancer a subnet with no
+// IPv6 CIDR block.
+func elbv2IpAddressTypeRefusal(ipType string, subnets []string) (code, message string) {
+	if !strings.HasPrefix(ipType, "dualstack") {
+		return "", ""
+	}
+	for _, id := range subnets {
+		if subnet, _ := ec2Subnets.Get(id); subnet.Ipv6CidrBlock == "" {
+			return "InvalidSubnet", fmt.Sprintf("Subnet '%s' does not have an IPv6 CIDR block", id)
+		}
+	}
+	return "", ""
 }
 
 func handleELBv2CreateTargetGroup(w http.ResponseWriter, r *http.Request) {
@@ -1069,10 +1137,19 @@ func elbv2LoadBalancerXML(lb ELBv2LoadBalancer) string {
 }
 
 // handleELBv2SetIpAddressType changes an existing load balancer's ip_address_type
-// in place (aws_lb in-place update; previously unregistered → 404).
+// in place.
 func handleELBv2SetIpAddressType(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("LoadBalancerArn")
 	ipType := r.FormValue("IpAddressType")
+	current, ok := elbv2LoadBalancers.Get(arn)
+	if !ok {
+		elbv2ErrorXML(w, "LoadBalancerNotFound", "Load balancer not found", http.StatusNotFound, sim.RequestID(r.Context()))
+		return
+	}
+	if code, message := elbv2IpAddressTypeRefusal(ipType, current.Subnets); code != "" {
+		elbv2ErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	if !elbv2LoadBalancers.Update(arn, func(lb *ELBv2LoadBalancer) {
 		if ipType != "" {
 			lb.IpAddressType = ipType

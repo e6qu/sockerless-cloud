@@ -17,12 +17,14 @@ func TestELBv2ListenerRuleFidelityCLI(t *testing.T) {
 	vpcID := q("ec2", "create-vpc", "--cidr-block", "10.162.0.0/16", "--query", "Vpc.VpcId", "--output", "text")
 	subnetID := q("ec2", "create-subnet", "--vpc-id", vpcID, "--cidr-block", "10.162.1.0/24",
 		"--availability-zone", "us-east-1a", "--query", "Subnet.SubnetId", "--output", "text")
+	subnet2ID := q("ec2", "create-subnet", "--vpc-id", vpcID, "--cidr-block", "10.162.2.0/24",
+		"--availability-zone", "us-east-1b", "--query", "Subnet.SubnetId", "--output", "text")
 	tg1 := q("elbv2", "create-target-group", "--name", "cli-lr-tg1", "--protocol", "HTTP", "--port", "80",
 		"--vpc-id", vpcID, "--target-type", "ip", "--query", "TargetGroups[0].TargetGroupArn", "--output", "text")
 	tg2 := q("elbv2", "create-target-group", "--name", "cli-lr-tg2", "--protocol", "HTTP", "--port", "80",
 		"--vpc-id", vpcID, "--target-type", "ip", "--query", "TargetGroups[0].TargetGroupArn", "--output", "text")
 	lbArn := q("elbv2", "create-load-balancer", "--name", "cli-lr-alb", "--type", "application",
-		"--subnets", subnetID, "--query", "LoadBalancers[0].LoadBalancerArn", "--output", "text")
+		"--subnets", subnetID, subnet2ID, "--query", "LoadBalancers[0].LoadBalancerArn", "--output", "text")
 	defCert := importELBv2CertificateCLI(t, "cli-default.example.test")
 	sniCert := importELBv2CertificateCLI(t, "cli-sni.example.test")
 	port := availableELBv2ListenerPortCLI(t)

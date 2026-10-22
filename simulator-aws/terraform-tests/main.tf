@@ -117,8 +117,9 @@ data "aws_vpc" "by_filter" {
 }
 
 resource "aws_subnet" "tf_ec2_subnet" {
-  vpc_id     = aws_vpc.tf_ec2_vpc.id
-  cidr_block = "10.251.1.0/24"
+  vpc_id            = aws_vpc.tf_ec2_vpc.id
+  cidr_block        = "10.251.1.0/24"
+  availability_zone = "us-east-1a"
 }
 
 resource "aws_subnet" "tf_elbv2_subnet" {

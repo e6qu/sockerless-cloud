@@ -39,14 +39,15 @@ func TestELBv2_DuplicateNames(t *testing.T) {
 	tgName := uniqueName("dup-tg")
 	lbName := uniqueName("dup-lb")
 	c := elbv2Client()
+	_, subnets := elbv2FidVPCSubnets(t, "10.166.0.0/16", "10.166.1.0/24", "10.166.2.0/24")
 	_, err := c.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
 		Name:    aws.String(lbName),
-		Subnets: []string{"subnet-aaaa1111", "subnet-bbbb2222"},
+		Subnets: subnets,
 	})
 	require.NoError(t, err)
 	_, err = c.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
 		Name:    aws.String(lbName),
-		Subnets: []string{"subnet-aaaa1111", "subnet-bbbb2222"},
+		Subnets: subnets,
 	})
 	assert.Equal(t, "DuplicateLoadBalancerName", errCode(t, err))
 

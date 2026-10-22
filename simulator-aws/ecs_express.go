@@ -227,13 +227,12 @@ func handleECSCreateExpressGatewayService(w http.ResponseWriter, r *http.Request
 		netCfg = &expressNetworkConfiguration{}
 	}
 	if len(netCfg.Subnets) == 0 {
-		defaultSubnet := defaultVPCSubnetID()
-		if defaultSubnet == "" {
+		netCfg.Subnets = ecsDefaultVPCSubnets()
+		if len(netCfg.Subnets) == 0 {
 			AWSError(w, "InvalidParameterException",
 				"No default VPC subnet is available for the Express service.", http.StatusBadRequest)
 			return
 		}
-		netCfg.Subnets = []string{defaultSubnet}
 	}
 	accessType := "PUBLIC"
 

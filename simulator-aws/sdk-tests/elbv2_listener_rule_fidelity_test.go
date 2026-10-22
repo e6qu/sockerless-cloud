@@ -11,16 +11,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func elbv2FidVPCSubnet(t *testing.T, cidr, snCidr string) (string, string) {
+// elbv2FidVPCSubnets creates a VPC with one subnet per range, each in its own
+// Availability Zone.
+func elbv2FidVPCSubnets(t *testing.T, cidr string, subnetCidrs ...string) (string, []string) {
 	t.Helper()
 	ec2c := ec2Client()
 	vpc, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String(cidr)})
 	require.NoError(t, err)
-	sn, err := ec2c.CreateSubnet(ctx, &ec2.CreateSubnetInput{
-		VpcId: vpc.Vpc.VpcId, CidrBlock: aws.String(snCidr), AvailabilityZone: aws.String("us-east-1a"),
-	})
-	require.NoError(t, err)
-	return aws.ToString(vpc.Vpc.VpcId), aws.ToString(sn.Subnet.SubnetId)
+	var subnets []string
+	for i, subnetCidr := range subnetCidrs {
+		sn, err := ec2c.CreateSubnet(ctx, &ec2.CreateSubnetInput{
+			VpcId: vpc.Vpc.VpcId, CidrBlock: aws.String(subnetCidr), AvailabilityZone: aws.String("us-east-1" + string(rune('a'+i))),
+		})
+		require.NoError(t, err)
+		subnets = append(subnets, aws.ToString(sn.Subnet.SubnetId))
+	}
+	return aws.ToString(vpc.Vpc.VpcId), subnets
 }
 
 func elbv2FidTargetGroup(t *testing.T, elb *elbv2.Client, vpcID, name string) string {
@@ -34,11 +40,11 @@ func elbv2FidTargetGroup(t *testing.T, elb *elbv2.Client, vpcID, name string) st
 	return aws.ToString(tg.TargetGroups[0].TargetGroupArn)
 }
 
-func elbv2FidLoadBalancer(t *testing.T, elb *elbv2.Client, subnetID, name string, lbType elbtypes.LoadBalancerTypeEnum) string {
+func elbv2FidLoadBalancer(t *testing.T, elb *elbv2.Client, subnets []string, name string, lbType elbtypes.LoadBalancerTypeEnum) string {
 	t.Helper()
 	name = uniqueName(name)
 	lb, err := elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
-		Name: aws.String(name), Type: lbType, Subnets: []string{subnetID},
+		Name: aws.String(name), Type: lbType, Subnets: subnets,
 	})
 	require.NoError(t, err)
 	return aws.ToString(lb.LoadBalancers[0].LoadBalancerArn)
@@ -50,10 +56,10 @@ func elbv2FidLoadBalancer(t *testing.T, elb *elbv2.Client, subnetID, name string
 func TestELBv2_ListenerAuthAndForwardSDK(t *testing.T) {
 	t.Parallel()
 	elb := elbv2Client()
-	vpcID, subnetID := elbv2FidVPCSubnet(t, "10.160.0.0/16", "10.160.1.0/24")
+	vpcID, subnets := elbv2FidVPCSubnets(t, "10.160.0.0/16", "10.160.1.0/24", "10.160.2.0/24")
 	tg1 := elbv2FidTargetGroup(t, elb, vpcID, "fid-auth-tg1")
 	tg2 := elbv2FidTargetGroup(t, elb, vpcID, "fid-auth-tg2")
-	lbArn := elbv2FidLoadBalancer(t, elb, subnetID, "fid-auth-alb", elbtypes.LoadBalancerTypeEnumApplication)
+	lbArn := elbv2FidLoadBalancer(t, elb, subnets, "fid-auth-alb", elbtypes.LoadBalancerTypeEnumApplication)
 	certArn := importELBv2Certificate(t, "auth.example.test")
 	// HTTPS listener whose default action authenticates via OIDC, then forwards.
 	var ln *elbv2.CreateListenerOutput
@@ -151,9 +157,9 @@ func TestELBv2_ListenerAuthAndForwardSDK(t *testing.T) {
 func TestELBv2_ListenerCertsAndMutualAuthSDK(t *testing.T) {
 	t.Parallel()
 	elb := elbv2Client()
-	vpcID, subnetID := elbv2FidVPCSubnet(t, "10.161.0.0/16", "10.161.1.0/24")
+	vpcID, subnets := elbv2FidVPCSubnets(t, "10.161.0.0/16", "10.161.1.0/24", "10.161.2.0/24")
 	tg := elbv2FidTargetGroup(t, elb, vpcID, "fid-cert-tg")
-	lbArn := elbv2FidLoadBalancer(t, elb, subnetID, "fid-cert-alb", elbtypes.LoadBalancerTypeEnumApplication)
+	lbArn := elbv2FidLoadBalancer(t, elb, subnets, "fid-cert-alb", elbtypes.LoadBalancerTypeEnumApplication)
 	defCert := importELBv2Certificate(t, "default.example.test")
 	sniCert := importELBv2Certificate(t, "sni.example.test")
 	ignoreExpiry := true

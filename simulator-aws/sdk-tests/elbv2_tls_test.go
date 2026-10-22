@@ -49,6 +49,11 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 	})
 	require.NoError(t, err)
 	subnetID := aws.ToString(sn.Subnet.SubnetId)
+	sn2, err := ec2c.CreateSubnet(ctx, &ec2.CreateSubnetInput{
+		VpcId: vpc.Vpc.VpcId, CidrBlock: aws.String("10.180.2.0/24"), AvailabilityZone: aws.String("us-east-1b"),
+	})
+	require.NoError(t, err)
+	subnet2ID := aws.ToString(sn2.Subnet.SubnetId)
 
 	// Plain-HTTP backend target. Real ALB HTTPS listeners front HTTP targets.
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +121,7 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 	// Create an Application Load Balancer (internet-facing) — internet-facing so
 	// the sim records the AWS-shaped DNS name a real client resolves.
 	alb, err := elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
-		Name: aws.String(lbName), Type: elbtypes.LoadBalancerTypeEnumApplication, Subnets: []string{subnetID},
+		Name: aws.String(lbName), Type: elbtypes.LoadBalancerTypeEnumApplication, Subnets: []string{subnetID, subnet2ID},
 	})
 	require.NoError(t, err)
 	lbArn := aws.ToString(alb.LoadBalancers[0].LoadBalancerArn)

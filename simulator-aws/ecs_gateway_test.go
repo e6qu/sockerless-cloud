@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -61,8 +62,8 @@ func TestECSGatewayRouteLifecycle(t *testing.T) {
 	assert.Equal(t, "ACTIVE", created["status"])
 	gateway := ecsGatewayTestOK(t, srv, "DescribeGateway", map[string]any{"gateway": "gw"})["gateway"].(map[string]any)
 	alb := gateway["configuration"].(map[string]any)["hostSharedAlb"].(map[string]any)
-	assert.Equal(t, []any{"subnet-0123456789abcdef0"}, alb["networkConfiguration"].(map[string]any)["subnets"],
-		"a gateway without subnets takes the default VPC's")
+	assert.Equal(t, []any{"subnet-0123456789abcdef0", "subnet-0123456789abcdef1", "subnet-0123456789abcdef2"},
+		alb["networkConfiguration"].(map[string]any)["subnets"], "a gateway without subnets takes the default VPC's")
 	assert.EqualValues(t, 0, alb["currentAlbCount"])
 
 	code, out = ecsGatewayTestCall(t, srv, "CreateGateway", map[string]any{
@@ -174,7 +175,23 @@ func TestECSGatewayRouteLifecycle(t *testing.T) {
 	connected := ecsGatewayTestRoutes(t, srv, map[string]any{"cluster": "gw-cluster", "service": "svc-c"})
 	assert.Len(t, connected, 2, "a service connects to every eligible gateway")
 
-	for _, name := range []string{"svc-a", "svc-b", "svc-c"} {
+	ecsGatewayTestOK(t, srv, "CreateGateway", map[string]any{
+		"name": "gw-dualstack", "infrastructureRoleArn": roleArn, "deletionProtection": false,
+		"configuration": map[string]any{"hostSharedAlb": map[string]any{}},
+	})
+	ecsGatewayTestOK(t, srv, "AssociateGatewayWithCluster", map[string]any{"gateway": "gw-dualstack", "cluster": "gw-cluster"})
+	ecsGatewayTestOK(t, srv, "CreateService", service("svc-d", []map[string]any{{"portName": "web"}}))
+	bg.Await()
+	failed = ecsGatewayTestRoutes(t, srv, map[string]any{"gateway": "gw-dualstack", "cluster": "gw-cluster", "service": "svc-d"})
+	require.Len(t, failed, 1)
+	assert.Equal(t, "CREATE_FAILED", failed[0].(map[string]any)["status"],
+		"a dualstack gateway on the default VPC, whose subnets hold no IPv6 range, cannot create its load balancer")
+	described := ecsGatewayTestOK(t, srv, "DescribeServices", map[string]any{"cluster": "gw-cluster", "services": []string{"svc-d"}})
+	events, err := json.Marshal(described["services"].([]any)[0].(map[string]any)["events"])
+	require.NoError(t, err)
+	assert.Contains(t, string(events), "elasticloadbalancing:CreateLoadBalancer: InvalidSubnet")
+
+	for _, name := range []string{"svc-a", "svc-b", "svc-c", "svc-d"} {
 		ecsGatewayTestOK(t, srv, "UpdateService", map[string]any{"cluster": "gw-cluster", "service": name, "gatewayConnectors": []any{}})
 	}
 	bg.Await()
