@@ -18,12 +18,14 @@ import (
 // subscription's webhook.
 type eventGridDelivery struct {
 	SubscriptionID string
-	Endpoint       string
-	Events         []json.RawMessage
-	PublishedAt    time.Time
-	MaxAttempts    int
-	TimeToLive     time.Duration
-	DeadLetter     bool
+	// Destination is the subscription's endpointType when it is not a webhook.
+	Destination string
+	Endpoint    string
+	Events      []json.RawMessage
+	PublishedAt time.Time
+	MaxAttempts int
+	TimeToLive  time.Duration
+	DeadLetter  bool
 }
 
 var eventGridDeliveries *delivery.Dispatcher[eventGridDelivery]
@@ -94,6 +96,9 @@ func eventGridAttempt(ctx context.Context, item *delivery.Item[eventGridDelivery
 		}
 		return delivery.Retry
 	}
+	if d.Destination != "" && d.Destination != eventGridWebHook {
+		return eventGridDeliverToService(ctx, es, d, classify)
+	}
 	return delivery.Post(ctx, delivery.Request{URL: d.Endpoint, Header: header, Body: body, Timeout: 30 * time.Second}, classify)
 }
 
@@ -103,7 +108,7 @@ func eventGridAttempt(ctx context.Context, item *delivery.Item[eventGridDelivery
 func eventGridSubmit(scopeID string, events []json.RawMessage) {
 	now := time.Now().UTC()
 	for _, es := range eventGridSubscriptionsByTopic.LookupAll(eventGridSubscriptions, scopeID, eventGridSubscriptionTopics) {
-		endpoint := eventGridWebhookEndpoint(es)
+		kind, endpoint := eventGridDestination(es)
 		if endpoint == "" || es.Properties["provisioningState"] != "Succeeded" {
 			continue
 		}
@@ -113,9 +118,17 @@ func eventGridSubmit(scopeID string, events []json.RawMessage) {
 				admitted = append(admitted, event)
 			}
 		}
-		for _, batch := range eventGridBatches(es, admitted) {
+		batches := eventGridBatches(es, admitted)
+		if kind != eventGridWebHook {
+			batches = batches[:0]
+			for _, event := range admitted {
+				batches = append(batches, []json.RawMessage{event})
+			}
+		}
+		for _, batch := range batches {
 			d := eventGridDelivery{
 				SubscriptionID: es.ID,
+				Destination:    kind,
 				Endpoint:       endpoint,
 				Events:         batch,
 				PublishedAt:    now,

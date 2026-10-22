@@ -4331,3 +4331,11 @@ the load balancers whose listeners present a certificate and the CloudFront
 distributions whose viewer certificate it is, and ListCertificates' `InUse`
 and DeleteCertificate's in-use refusal followed it, where `InUseBy` had
 always been empty.
+
+Azure Event Grid delivered to an event subscription's Storage queue, Service
+Bus queue or Service Bus topic destination, where only webhooks had received
+events: each event went as its own message through the destination's data
+plane, written in-process as the trusted Microsoft service Event Grid is,
+the event's JSON as the queue message's text and as the Service Bus
+message's body, retried and dead-lettered as a webhook delivery is. Service
+Bus admitted a trusted service's in-process call as Storage did.
