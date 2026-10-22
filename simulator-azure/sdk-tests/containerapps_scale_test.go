@@ -1,12 +1,14 @@
 package azure_sdk_test
 
 import (
+	"net/http"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appcontainers/armappcontainers/v3"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/servicebus/armservicebus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -120,4 +122,66 @@ func TestSDK_ContainerAppsScale_QueueRuleFollowsTheQueueLength(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return len(listContainerAppReplicas(t, rg, name, revision)) == 0
 	}, 2*time.Minute, time.Second, "the emptied queue scales the revision to zero once the cooldown passes")
+}
+
+// A revision scales on a custom azure-servicebus rule: the rule reads its
+// queue's active messages from the namespace's management endpoint with a
+// signature the connection string's key makes, and the revision runs one
+// replica per messageCount of them, and none once they are received.
+func TestSDK_ContainerAppsScale_ServiceBusRuleFollowsActiveMessages(t *testing.T) {
+	t.Parallel()
+	rg, name := uniqueName("sdk-aca-sbscale-rg"), uniqueName("acasbscale")
+	ensureRG(t, rg)
+	namespace := uniqueName("acasbscale")
+	key := serviceBusNamespaceKey(t, namespace)
+	queues, err := armservicebus.NewQueuesClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	_, err = queues.CreateOrUpdate(ctx, "messaging-dataplane-rg", namespace, "jobs", armservicebus.SBQueue{}, nil)
+	require.NoError(t, err)
+
+	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	app := servingContainerApp(rg, "consumer", &armappcontainers.Configuration{
+		Secrets: []*armappcontainers.Secret{{
+			Name:  to.Ptr("bus-connection"),
+			Value: to.Ptr(messagingConnectionString(namespace, namespace+".servicebus.windows.net", key)),
+		}},
+	})
+	app.Properties.Template.Scale = &armappcontainers.Scale{
+		MinReplicas:     to.Ptr[int32](0),
+		MaxReplicas:     to.Ptr[int32](4),
+		CooldownPeriod:  to.Ptr[int32](2),
+		PollingInterval: to.Ptr[int32](1),
+		Rules: []*armappcontainers.ScaleRule{{
+			Name: to.Ptr("bus-rule"),
+			Custom: &armappcontainers.CustomScaleRule{
+				Type:     to.Ptr("azure-servicebus"),
+				Metadata: map[string]*string{"queueName": to.Ptr("jobs"), "messageCount": to.Ptr("3")},
+				Auth:     []*armappcontainers.ScaleRuleAuth{{SecretRef: to.Ptr("bus-connection"), TriggerParameter: to.Ptr("connection")}},
+			},
+		}},
+	}
+	created := createContainerApp(t, client, rg, name, app)
+	revision := ptrVal(created.Properties.LatestRevisionName)
+	assert.Empty(t, listContainerAppReplicas(t, rg, name, revision), "an empty queue asks for no replica")
+
+	for i := range 7 {
+		resp := sbReq(t, http.MethodPost, namespace, "/jobs/messages", []byte("job "+strconv.Itoa(i)), nil)
+		require.Equal(t, http.StatusCreated, resp.StatusCode)
+		resp.Body.Close()
+	}
+	// The replica list is the only place Container Apps reports a scale, and
+	// the scaler changes it on its polling interval.
+	require.Eventually(t, func() bool {
+		return len(listContainerAppReplicas(t, rg, name, revision)) == 3
+	}, 2*time.Minute, time.Second, "seven active messages at three per replica ask for three replicas")
+
+	for range 7 {
+		resp := sbReq(t, http.MethodDelete, namespace, "/jobs/messages/head?timeout=0", nil, nil)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		resp.Body.Close()
+	}
+	require.Eventually(t, func() bool {
+		return len(listContainerAppReplicas(t, rg, name, revision)) == 0
+	}, 2*time.Minute, time.Second, "the drained queue scales the revision to zero once the cooldown passes")
 }

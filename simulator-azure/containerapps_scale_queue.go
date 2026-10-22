@@ -5,9 +5,12 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -25,17 +28,26 @@ type acaQueueReader struct {
 	secrets  map[string]string
 }
 
-func (q acaQueueReader) length(ctx context.Context, rule ContainerAppQueueScaleRule) (int, error) {
-	var connection map[string]string
-	for _, auth := range rule.Auth {
+// connection is the connection string the rule's `connection` trigger
+// parameter takes from a secret, split into its fields, or nil.
+func (q acaQueueReader) connection(auths []ContainerAppScaleRuleAuth) (map[string]string, error) {
+	for _, auth := range auths {
 		if !strings.EqualFold(auth.TriggerParameter, "connection") {
 			continue
 		}
 		value, ok := q.secrets[auth.SecretRef]
 		if !ok {
-			return 0, fmt.Errorf("the rule's connection names secret %q, which the app does not hold", auth.SecretRef)
+			return nil, fmt.Errorf("the rule's connection names secret %q, which the app does not hold", auth.SecretRef)
 		}
-		connection = acaConnectionStringFields(value)
+		return acaConnectionStringFields(value), nil
+	}
+	return nil, nil
+}
+
+func (q acaQueueReader) length(ctx context.Context, rule ContainerAppQueueScaleRule) (int, error) {
+	connection, err := q.connection(rule.Auth)
+	if err != nil {
+		return 0, err
 	}
 	account := rule.AccountName
 	if account == "" {
@@ -75,6 +87,67 @@ func (q acaQueueReader) length(ctx context.Context, rule ContainerAppQueueScaleR
 		return 0, fmt.Errorf("the Queue service answered Get Queue Metadata with %d: %s", response.StatusCode, response.Body.String())
 	}
 	return strconv.Atoi(response.Header().Get("x-ms-approximate-messages-count"))
+}
+
+// serviceBusLength reads the active messages of an azure-servicebus rule's
+// queue, or of its topic's subscription, from the namespace's management
+// endpoint, with a Shared Access Signature the connection string's key signs.
+func (q acaQueueReader) serviceBusLength(ctx context.Context, rule ContainerAppCustomScaleRule) (int, error) {
+	connection, err := q.connection(rule.Auth)
+	if err != nil {
+		return 0, err
+	}
+	if connection == nil {
+		return 0, errors.New("the rule names no connection secret, and the Service Bus management endpoint takes a Shared Access Signature")
+	}
+	endpoint, err := url.Parse(connection["Endpoint"])
+	if err != nil || endpoint.Host == "" {
+		return 0, fmt.Errorf("the rule's connection string names no endpoint: %q", connection["Endpoint"])
+	}
+	entity := rule.Metadata["queueName"]
+	if entity == "" {
+		topic, subscription := rule.Metadata["topicName"], rule.Metadata["subscriptionName"]
+		if topic == "" || subscription == "" {
+			return 0, errors.New("the rule names neither a queue nor a topic and subscription")
+		}
+		entity = topic + "/Subscriptions/" + subscription
+	}
+	// The Azure SDKs sign the escaped, lower-cased audience.
+	audience := strings.ToLower(url.QueryEscape("https://" + endpoint.Host + "/" + entity))
+	expiry := strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
+	mac := hmac.New(sha256.New, []byte(connection["SharedAccessKey"]))
+	mac.Write([]byte(audience + "\n" + expiry))
+	token := "SharedAccessSignature sr=" + audience + "&sig=" +
+		url.QueryEscape(base64.StdEncoding.EncodeToString(mac.Sum(nil))) + "&se=" + expiry + "&skn=" + connection["SharedAccessKeyName"]
+
+	ctx = sim.WithCaller(azureServer.RequestContext(ctx), sim.Caller{Service: "Microsoft.App", Source: q.appID})
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/"+entity+"?api-version=2021-05", nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Host = endpoint.Host
+	req.Header.Set("Authorization", token)
+	response := azureServer.Call(req)
+	if response.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("the Service Bus management endpoint answered %s with %d: %s", entity, response.StatusCode, response.Body.String())
+	}
+	decoder := xml.NewDecoder(&response.Body)
+	for {
+		tok, err := decoder.Token()
+		if err == io.EOF {
+			return 0, fmt.Errorf("the description of %s carries no ActiveMessageCount", entity)
+		}
+		if err != nil {
+			return 0, err
+		}
+		if start, ok := tok.(xml.StartElement); ok && start.Name.Local == "ActiveMessageCount" {
+			var count int
+			if err := decoder.DecodeElement(&count, &start); err != nil {
+				return 0, err
+			}
+			return count, nil
+		}
+	}
 }
 
 // token is a Microsoft Entra token for Azure Storage of the app's managed

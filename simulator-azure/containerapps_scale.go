@@ -5,6 +5,7 @@ import (
 	"log"
 	"math"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,7 +25,10 @@ import (
 // period. An Azure Queue rule reads its queue's length every polling
 // interval, 30 seconds unless the scale names another, through Get Queue
 // Metadata as the rule's connection string or managed identity, and asks for
-// one replica per queueLength messages, 5 unless the rule names another; the
+// one replica per queueLength messages, 5 unless the rule names another. A
+// custom azure-servicebus rule reads its queue's or subscription's active
+// messages through the Service Bus management endpoint, signed with the
+// connection string's key, and asks for one replica per messageCount. The
 // revision runs the most any rule asks for.
 
 const (
@@ -35,6 +39,7 @@ const (
 	acaDefaultPollingSeconds   = 30
 	acaHTTPConcurrencyMetadata = "concurrentRequests"
 	acaDefaultQueueLength      = 5
+	acaServiceBusScaler        = "azure-servicebus"
 )
 
 // acaScaling is how a revision scales.
@@ -43,8 +48,10 @@ type acaScaling struct {
 	// concurrency is the HTTP rule's concurrent requests per replica, 0 when
 	// the revision scales on no HTTP rule.
 	concurrency int
-	// queues are the revision's Azure Queue rules.
-	queues []ContainerAppQueueScaleRule
+	// queues are the revision's Azure Queue rules, and serviceBus its custom
+	// azure-servicebus rules.
+	queues     []ContainerAppQueueScaleRule
+	serviceBus []ContainerAppCustomScaleRule
 	// otherRules reports a rule of another kind, which the simulator does not
 	// run.
 	otherRules bool
@@ -54,7 +61,12 @@ type acaScaling struct {
 
 // demandDriven reports whether a rule the simulator runs sizes the revision,
 // so it scales from what it is asked rather than holding a fixed count.
-func (sc acaScaling) demandDriven() bool { return sc.concurrency > 0 || len(sc.queues) > 0 }
+func (sc acaScaling) demandDriven() bool {
+	return sc.concurrency > 0 || sc.polled()
+}
+
+// polled reports whether a rule reads a queue the scaler polls.
+func (sc acaScaling) polled() bool { return len(sc.queues) > 0 || len(sc.serviceBus) > 0 }
 
 func acaRevisionScaling(template *ContainerAppTemplate, ingress bool) acaScaling {
 	sc := acaScaling{max: acaDefaultMaxReplicas, cooldown: acaDefaultCooldownSeconds * time.Second,
@@ -97,6 +109,8 @@ func acaRevisionScaling(template *ContainerAppTemplate, ingress bool) acaScaling
 			}
 		case rule.AzureQueue != nil:
 			sc.queues = append(sc.queues, *rule.AzureQueue)
+		case rule.Custom != nil && strings.EqualFold(rule.Custom.Type, acaServiceBusScaler):
+			sc.serviceBus = append(sc.serviceBus, *rule.Custom)
 		default:
 			sc.otherRules = true
 		}
@@ -136,7 +150,7 @@ func newACAScaler(run *acaRevisionRun, scaling acaScaling, queues acaQueueReader
 	if scaling.concurrency > 0 {
 		bg.Go(sc.evaluateEvery)
 	}
-	if len(scaling.queues) > 0 {
+	if scaling.polled() {
 		bg.Go(sc.pollQueues)
 	}
 	return sc
@@ -160,6 +174,19 @@ func (sc *acaScaler) pollQueues() {
 			target := acaDefaultQueueLength
 			if rule.QueueLength != nil && *rule.QueueLength > 0 {
 				target = int(*rule.QueueLength)
+			}
+			desired = max(desired, (length+target-1)/target)
+		}
+		for _, rule := range sc.scaling.serviceBus {
+			length, err := sc.queues.serviceBusLength(context.Background(), rule)
+			if err != nil {
+				log.Printf("Container Apps: azure-servicebus scale rule: %v", err)
+				ok = false
+				continue
+			}
+			target := acaDefaultQueueLength
+			if v, err := strconv.Atoi(rule.Metadata["messageCount"]); err == nil && v > 0 {
+				target = v
 			}
 			desired = max(desired, (length+target-1)/target)
 		}

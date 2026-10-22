@@ -4301,3 +4301,10 @@ replica per `queueLength` messages, 5 unless the rule named another. The
 revision ran the most any of its HTTP and queue rules asked for, between its
 minimum and maximum, and scaled to zero once its queues emptied and the
 cooldown passed, where a queue rule had kept one replica running.
+
+A custom `azure-servicebus` scale rule scaled a Container Apps revision on
+the active messages of its queue, or of its topic's subscription: every
+polling interval the scaler read the entity's description from the
+namespace's management endpoint, with a Shared Access Signature the rule's
+connection string signed, and asked for one replica per `messageCount`, 5
+unless the rule named another.
