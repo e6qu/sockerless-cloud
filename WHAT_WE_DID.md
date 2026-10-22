@@ -4412,3 +4412,12 @@ subnet in each, so a gateway or Express service on the default VPC spans
 them; an Express service with no subnets takes all of them. Every test that
 built an Application Load Balancer in one zone gained a second subnet in a
 second zone, inside its existing VPC range.
+
+A re-vendored model can name operations the cloud released after the SDK the
+suites pin. Amazon EC2's transit gateway attachment NAT arrived in the model
+the same day as the aws-sdk-go-v2 release carrying it, which the adoption
+quarantine still held, so no SDK test could drive an implementation. Such an
+operation takes a scoped drift exemption whose reason is `BUGS.md <id>`, and
+`TestScopedDriftExemptionsCiteOpenBugs` holds the exemption to that row: it
+fails once the row closes while the operation is still unserved, and once the
+operation is served while the exemption remains.
