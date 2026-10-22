@@ -210,7 +210,7 @@ var (
 // terraformECSBaseImage comes from Google's Docker Hub mirror at the index
 // digest Docker Hub serves: Docker Hub limits anonymous pulls per address.
 const (
-	terraformECSBaseImage = "mirror.gcr.io/hashicorp/terraform:1.16.6@sha256:bfffc1ded5fbf0a17beaaf22eb4793980abdb19d0761ff6a3a0efb2ab4d9b316"
+	terraformECSBaseImage = "mirror.gcr.io/hashicorp/terraform:1.17.0@sha256:4d1b496a256f2989bccdb04b9104a4ede97234b10fba90259e173e905ec4fb58"
 	terraformECSImage     = "sockerless-terraform-aws:aws-sdk"
 )
 

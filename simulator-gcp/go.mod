@@ -9,7 +9,7 @@ require (
 	cloud.google.com/go/bigtable v1.58.0
 	cloud.google.com/go/cloudbuild v1.35.0
 	cloud.google.com/go/eventarc v1.26.0
-	cloud.google.com/go/firestore v1.27.0
+	cloud.google.com/go/firestore v1.28.0
 	cloud.google.com/go/functions v1.26.0
 	cloud.google.com/go/iam v1.14.0
 	cloud.google.com/go/kms v1.35.0
