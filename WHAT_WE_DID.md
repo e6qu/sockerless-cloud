@@ -4194,3 +4194,8 @@ concurrency and sized the revision against the rule's `concurrentRequests`
 count had held for the `cooldownPeriod`. A request to a revision with no
 replica started one and waited for it to become ready. The template's
 `scale.rules` were stored and read back, where they had been dropped.
+
+Azure Container Registry refused a registry PUT for a name another registry
+held in any resource group or subscription, since the name is its login
+server's host name, where the simulator had stored a second registry under
+the same login server; the holder wrote its own registry again as before.
