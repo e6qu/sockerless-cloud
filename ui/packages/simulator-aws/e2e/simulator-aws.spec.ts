@@ -189,7 +189,7 @@ test.describe("Cloudscape visual fidelity", () => {
     await page.goto("/ui/ecs");
     const filter = page.getByRole("searchbox", { name: "Find tasks" });
     await expect(filter).toBeVisible();
-    await expect(filter.locator("xpath=ancestor::*[1]").locator("svg")).toHaveCount(1);
+    await expect(filter.locator("xpath=ancestor::*[2]").locator("svg")).toHaveCount(1);
     await expect(page.getByTestId("ecs-tasks-table").getByRole("button", { name: "Refresh" })).toBeVisible();
   });
 });
