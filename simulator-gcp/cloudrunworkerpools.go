@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/revisions"
 )
 
 // Cloud Run v2 Worker Pools slice. Worker pools are the v2 resource for
@@ -177,7 +178,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		pool = seedWorkerPoolV2Defaults(pool, project, location, poolID)
 		pool.Etag = sim.NewUUID()
 		pools.Put(name, pool)
-		reconcileWorkerPoolRevision(revisions, name, poolID+"-00001-abc", pool)
+		reconcileWorkerPoolRevision(revisions, name, pool.LatestCreatedRevision[strings.LastIndex(pool.LatestCreatedRevision, "/")+1:], pool)
 		op := startCloudRunReconcileOperation(project, location, pool, cloudRunWorkerPoolType)
 		runCloudRunWorkerPool(pool)
 		sim.WriteJSON(w, http.StatusOK, currentCloudRunOperation(op))
@@ -258,21 +259,14 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 			}
 			update = merged
 		}
-		update.Name = existing.Name
-		update.UID = existing.UID
-		update.CreateTime = existing.CreateTime
-		update.Generation = existing.Generation + 1
-		update.UpdateTime = nowTimestamp()
-		if update.LaunchStage == "" {
-			update.LaunchStage = existing.LaunchStage
+		update, revName, ok := rollOutCloudRunWorkerPool(w, existing, update)
+		if !ok {
+			return
 		}
-		revName := fmt.Sprintf("%s-%05d-abc", poolID, update.Generation)
-		carryCloudRunWorkerPoolStatus(&update, existing)
-		update.LatestCreatedRevision = fmt.Sprintf("%s/revisions/%s", name, revName)
-		beginCloudRunWorkerPoolReconcile(&update)
-		update.Etag = sim.NewUUID()
 		pools.Put(name, update)
-		reconcileWorkerPoolRevision(revisions, name, revName, update)
+		if revName != "" {
+			reconcileWorkerPoolRevision(revisions, name, revName, update)
+		}
 		op := startCloudRunReconcileOperation(project, location, update, cloudRunWorkerPoolType)
 		runCloudRunWorkerPool(update)
 		sim.WriteJSON(w, http.StatusOK, currentCloudRunOperation(op))
@@ -437,9 +431,59 @@ func seedWorkerPoolV2Defaults(pool WorkerPoolV2, project, location, poolID strin
 	pool.ObservedGeneration = 0
 	pool.LatestReadyRevision = ""
 	pool.InstanceSplitStatuses = nil
-	pool.LatestCreatedRevision = fmt.Sprintf("%s/revisions/%s-00001-abc", pool.Name, poolID)
+	pool.LatestCreatedRevision = pool.Name + "/revisions/" + cloudRunWorkerPoolRevisionID(poolID, pool.Generation, pool.Template)
 	beginCloudRunWorkerPoolReconcile(&pool)
 	return pool
+}
+
+// cloudRunWorkerPoolRevisionID names the revision a worker pool generation's
+// template deploys, as a service's does.
+func cloudRunWorkerPoolRevisionID(poolID string, generation int64, tmpl *WorkerPoolRevisionTemplate) string {
+	if tmpl != nil && tmpl.Revision != "" {
+		return tmpl.Revision
+	}
+	return fmt.Sprintf("%s-%05d-%s", poolID, generation, gcpRandomSuffix(3))
+}
+
+// rollOutCloudRunWorkerPool makes update existing's next generation and
+// answers the revision it deploys, empty when the template is unchanged. A
+// template revision name must begin with the pool's name and be one no
+// revision of the pool holds.
+func rollOutCloudRunWorkerPool(w http.ResponseWriter, existing, update WorkerPoolV2) (WorkerPoolV2, string, bool) {
+	poolID := existing.Name[strings.LastIndex(existing.Name, "/")+1:]
+	before, errBefore := revisions.Signature(existing.Template)
+	after, errAfter := revisions.Signature(update.Template)
+	templateChanged := errBefore != nil || errAfter != nil || before != after
+	if templateChanged && update.Template != nil && update.Template.Revision != "" {
+		if !strings.HasPrefix(update.Template.Revision, poolID+"-") {
+			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT",
+				"template.revision %q must begin with the worker pool name followed by a hyphen, %q.", update.Template.Revision, poolID+"-")
+			return WorkerPoolV2{}, "", false
+		}
+		if _, exists := crv2WorkerPoolRevisions.Get(existing.Name + "/revisions/" + update.Template.Revision); exists {
+			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS",
+				"Revision named '%s' with different configuration already exists.", update.Template.Revision)
+			return WorkerPoolV2{}, "", false
+		}
+	}
+	update.Name = existing.Name
+	update.UID = existing.UID
+	update.CreateTime = existing.CreateTime
+	update.Generation = existing.Generation + 1
+	update.UpdateTime = nowTimestamp()
+	if update.LaunchStage == "" {
+		update.LaunchStage = existing.LaunchStage
+	}
+	carryCloudRunWorkerPoolStatus(&update, existing)
+	update.LatestCreatedRevision = existing.LatestCreatedRevision
+	revName := ""
+	if templateChanged {
+		revName = cloudRunWorkerPoolRevisionID(poolID, update.Generation, update.Template)
+		update.LatestCreatedRevision = existing.Name + "/revisions/" + revName
+	}
+	beginCloudRunWorkerPoolReconcile(&update)
+	update.Etag = sim.NewUUID()
+	return update, revName, true
 }
 
 // carryCloudRunWorkerPoolStatus keeps the status an update does not change

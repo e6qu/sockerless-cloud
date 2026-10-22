@@ -289,7 +289,7 @@ var provisionedToolDirs []string
 func installGcloudCLI() string {
 	// Pinned Google Cloud CLI release. The versioned archive keeps the install
 	// deterministic across runs; bump this constant to move to a newer release.
-	const version = "500.0.0"
+	const version = "590.0.0"
 
 	var arch string
 	switch runtime.GOARCH {

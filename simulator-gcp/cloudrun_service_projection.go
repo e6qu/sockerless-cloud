@@ -135,8 +135,10 @@ func cloudRunV2ToV1(service ServiceV2, project, serviceID string) CRService {
 					service.Template.Scaling), service.Template.VpcAccess),
 			},
 			Spec: &CRTemplateSpec{Containers: containers, TimeoutSeconds: timeout,
-				ContainerConcurrency: int64(service.Template.MaxInstanceRequestConcurrency)},
+				ContainerConcurrency: int64(service.Template.MaxInstanceRequestConcurrency),
+				ServiceAccountName:   service.Template.ServiceAccount},
 		}
+		template.Metadata.Name = service.Template.Revision
 	}
 	traffic := make([]CRTraffic, 0, len(service.Traffic))
 	for _, target := range service.Traffic {
@@ -199,8 +201,9 @@ func cloudRunV1ToV2(service CRService, project, location string) ServiceV2 {
 			timeout = fmt.Sprintf("%ds", spec.TimeoutSeconds)
 		}
 		template = &RevisionTemplate{Containers: containers, Timeout: timeout,
-			MaxInstanceRequestConcurrency: int32(spec.ContainerConcurrency)}
+			MaxInstanceRequestConcurrency: int32(spec.ContainerConcurrency), ServiceAccount: spec.ServiceAccountName}
 		if service.Spec.Template.Metadata != nil {
+			template.Revision = service.Spec.Template.Metadata.Name
 			template.Labels = service.Spec.Template.Metadata.Labels
 			annotations, err := cloudRunUnfoldContainerDependencies(service.Spec.Template.Metadata.Annotations, template.Containers)
 			if err == nil {
@@ -258,23 +261,29 @@ func projectCloudRunV2ToV1(service ServiceV2) {
 	}
 }
 
-func projectCloudRunV1ToV2(service CRService, project, location string) {
-	if crv2Services == nil {
-		return
+// writeKnativeService creates or replaces a service written through the
+// Knative surface as the v2 service it projects, so it deploys a revision
+// under the same rules a v2 write does, and answers the record the write
+// leaves in namespace.
+func writeKnativeService(w http.ResponseWriter, service CRService, project, location, namespace string, create bool) (CRService, bool) {
+	written := cloudRunV1ToV2(service, project, location)
+	update := ServiceV2{Labels: written.Labels, Annotations: written.Annotations, Template: written.Template, Traffic: written.Traffic}
+	if create {
+		if _, ok := createCloudRunService(w, update, project, location, service.Metadata.Name); !ok {
+			return CRService{}, false
+		}
+	} else {
+		existing, ok := crv2Services.Get(written.Name)
+		if !ok {
+			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "service %q not found in namespace %q", service.Metadata.Name, namespace)
+			return CRService{}, false
+		}
+		if _, ok := updateCloudRunService(w, existing, update); !ok {
+			return CRService{}, false
+		}
 	}
-	projection := cloudRunV1ToV2(service, project, location)
-	// The Knative v1 surface and the v2 collection address one service record,
-	// so a write through v1 mints the same fresh fingerprint a v2 write does.
-	projection.Etag = sim.NewUUID()
-	settleCloudRunServiceTraffic(&projection)
-	crv2Services.Put(projection.Name, projection)
-	if crv2Revisions != nil {
-		revision := projection.LatestReadyRevision[strings.LastIndex(projection.LatestReadyRevision, "/")+1:]
-		reconcileServiceRevision(crv2Revisions, projection.Name, revision, projection)
-	}
-	projectCloudRunV2ToV1(projection)
-	stopUnroutedCloudRunRevisions(projection)
-	keepCloudRunRevisionsWarm(projection)
+	stored, _ := crv1Services.Get(namespace + "/" + service.Metadata.Name)
+	return stored, true
 }
 
 func deleteCloudRunServiceProjections(project, location, serviceID string) {

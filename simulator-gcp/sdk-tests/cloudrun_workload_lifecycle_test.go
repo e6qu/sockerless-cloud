@@ -133,7 +133,7 @@ func TestSDK_CloudRun_WorkerPoolDeployWaitsForItsInstances(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, ready.Reconciling)
 	assert.Equal(t, runpb.Condition_CONDITION_SUCCEEDED, ready.TerminalCondition.GetState())
-	assert.Equal(t, parent+"/workerPools/"+readyID+"/revisions/"+readyID+"-00001-abc", ready.LatestReadyRevision)
+	assert.Regexp(t, "^"+parent+"/workerPools/"+readyID+"/revisions/"+readyID+`-00001-[a-z0-9]{3}$`, ready.LatestReadyRevision)
 	assert.Equal(t, ready.Generation, ready.ObservedGeneration)
 }
 

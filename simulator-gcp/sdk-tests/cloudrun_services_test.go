@@ -146,8 +146,8 @@ func TestCloudRunServices_ReplaceBumpsGeneration(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal([]byte(updResp), &updated))
 	assert.Equal(t, int64(2), updated.Metadata.Generation, "replace should bump generation")
-	assert.Equal(t, "svc-rev-00002", updated.Status.LatestReadyRevisionName,
-		"each revision should get a new name")
+	assert.Regexp(t, `^svc-rev-00002-[a-z0-9]{3}$`, updated.Status.LatestReadyRevisionName,
+		"the changed template deploys a revision named for the generation")
 	assert.Equal(t, "v2", updated.Metadata.Labels["version"])
 
 	// Cleanup.

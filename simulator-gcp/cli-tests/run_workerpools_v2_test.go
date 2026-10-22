@@ -272,14 +272,19 @@ func TestCloudRunV2WorkerPools_Wire_CreateGetListPatchDelete(t *testing.T) {
 	require.Len(t, patched.Response.Template.Containers, 1, "an unmasked field survives the patch")
 	assert.Equal(t, commandImageName, patched.Response.Template.Containers[0].Image)
 
-	revsOut := httpDoJSON(t, "GET", workerPoolURL("cli-wp-roundtrip")+"/revisions", "")
-	var revs struct {
+	type revisionList struct {
 		Revisions []struct {
 			Name string `json:"name"`
 		} `json:"revisions"`
 	}
-	parseJSON(t, revsOut, &revs)
-	require.GreaterOrEqual(t, len(revs.Revisions), 2, "create + patch each materialize a revision")
+	var revs revisionList
+	parseJSON(t, httpDoJSON(t, "GET", workerPoolURL("cli-wp-roundtrip")+"/revisions", ""), &revs)
+	require.Len(t, revs.Revisions, 1, "a scaling change leaves the template alone and deploys no revision")
+
+	awaitRunOperation(t, httpDoJSON(t, "PATCH", workerPoolURL("cli-wp-roundtrip")+"?updateMask=template.labels",
+		`{"template": {"labels": {"rollout": "2"}}}`))
+	parseJSON(t, httpDoJSON(t, "GET", workerPoolURL("cli-wp-roundtrip")+"/revisions", ""), &revs)
+	require.Len(t, revs.Revisions, 2, "a template change deploys a revision")
 
 	httpDoJSON(t, "DELETE", baseURL+"/v2/"+revs.Revisions[0].Name, "")
 	httpDoJSON(t, "DELETE", workerPoolURL("cli-wp-roundtrip"), "")

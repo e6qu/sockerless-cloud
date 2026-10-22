@@ -405,6 +405,9 @@ func registerCloudRun(srv *sim.Server) {
 			},
 		})
 
+		if _, exists := revisions.Get(svcKey(namespace, revName)); exists {
+			return
+		}
 		revisions.Put(svcKey(namespace, revName), CRRevision{
 			APIVersion: "serving.knative.dev/v1",
 			Kind:       "Revision",
@@ -462,31 +465,11 @@ func registerCloudRun(srv *sim.Server) {
 			return
 		}
 
-		svc.APIVersion = "serving.knative.dev/v1"
-		svc.Kind = "Service"
-		svc.Metadata.UID = sim.NewUUID()
-		svc.Metadata.Generation = 1
-		svc.Metadata.ResourceVersion = "1"
-		svc.Metadata.CreationTimestamp = time.Now().UTC().Format(time.RFC3339)
-
-		svc.Status = &CRServiceStatus{
-			ObservedGeneration:        1,
-			LatestReadyRevisionName:   svc.Metadata.Name + "-00001",
-			LatestCreatedRevisionName: svc.Metadata.Name + "-00001",
-			URL:                       fmt.Sprintf("https://%s-%s.run.app", svc.Metadata.Name, namespace),
-			Address:                   &CRAddress{URL: fmt.Sprintf("http://%s.%s.svc.cluster.local", svc.Metadata.Name, namespace)},
-			Conditions: []CRCondition{{
-				Type:               "Ready",
-				Status:             "True",
-				LastTransitionTime: time.Now().UTC().Format(time.RFC3339),
-			}},
-			Traffic: crStatusTraffic(svc.Spec.Traffic, svc.Metadata.Name+"-00001"),
+		stored, ok := writeKnativeService(w, svc, namespace, cloudRunDefaultLocation, namespace, true)
+		if !ok {
+			return
 		}
-
-		services.Put(key, svc)
-		reconcileKnativeChildren(namespace, svc, svc.Metadata.Name+"-00001")
-		projectCloudRunV1ToV2(svc, namespace, cloudRunDefaultLocation)
-		sim.WriteJSON(w, http.StatusOK, svc)
+		sim.WriteJSON(w, http.StatusOK, stored)
 	})
 
 	// GetService: GET /apis/serving.knative.dev/v1/namespaces/{namespace}/services/{name}
@@ -541,33 +524,12 @@ func registerCloudRun(srv *sim.Server) {
 			knativeResourceVersion(existing.Metadata.Generation), update.Metadata.ResourceVersion) {
 			return
 		}
-		update.APIVersion = "serving.knative.dev/v1"
-		update.Kind = "Service"
 		update.Metadata.Name = name
-		update.Metadata.Namespace = namespace
-		update.Metadata.UID = existing.Metadata.UID
-		update.Metadata.Generation = existing.Metadata.Generation + 1
-		update.Metadata.ResourceVersion = fmt.Sprintf("%d", update.Metadata.Generation)
-		update.Metadata.CreationTimestamp = existing.Metadata.CreationTimestamp
-		revName := fmt.Sprintf("%s-%05d", name, update.Metadata.Generation)
-		update.Status = &CRServiceStatus{
-			ObservedGeneration:        update.Metadata.Generation,
-			LatestReadyRevisionName:   revName,
-			LatestCreatedRevisionName: revName,
-			URL:                       fmt.Sprintf("https://%s-%s.run.app", name, namespace),
-			Address:                   &CRAddress{URL: fmt.Sprintf("http://%s.%s.svc.cluster.local", name, namespace)},
-			Conditions: []CRCondition{{
-				Type:               "Ready",
-				Status:             "True",
-				LastTransitionTime: time.Now().UTC().Format(time.RFC3339),
-			}},
-			Traffic: crStatusTraffic(update.Spec.Traffic, revName),
+		stored, ok := writeKnativeService(w, update, namespace, cloudRunDefaultLocation, namespace, false)
+		if !ok {
+			return
 		}
-
-		services.Put(key, update)
-		reconcileKnativeChildren(namespace, update, revName)
-		projectCloudRunV1ToV2(update, namespace, cloudRunDefaultLocation)
-		sim.WriteJSON(w, http.StatusOK, update)
+		sim.WriteJSON(w, http.StatusOK, stored)
 	})
 
 	// DeleteService: DELETE /apis/serving.knative.dev/v1/namespaces/{namespace}/services/{name}
@@ -807,27 +769,11 @@ func registerCloudRun(srv *sim.Server) {
 				"service %q already exists in namespace %q", svc.Metadata.Name, namespace)
 			return
 		}
-		now := time.Now().UTC().Format(time.RFC3339)
-		svc.APIVersion = "serving.knative.dev/v1"
-		svc.Kind = "Service"
-		svc.Metadata.UID = sim.NewUUID()
-		svc.Metadata.Generation = 1
-		svc.Metadata.ResourceVersion = "1"
-		svc.Metadata.CreationTimestamp = now
-		revName := svc.Metadata.Name + "-00001"
-		svc.Status = &CRServiceStatus{
-			ObservedGeneration:        1,
-			LatestReadyRevisionName:   revName,
-			LatestCreatedRevisionName: revName,
-			URL:                       fmt.Sprintf("https://%s-%s.run.app", svc.Metadata.Name, namespace),
-			Address:                   &CRAddress{URL: fmt.Sprintf("http://%s.%s.svc.cluster.local", svc.Metadata.Name, namespace)},
-			Conditions:                []CRCondition{{Type: "Ready", Status: "True", LastTransitionTime: now}},
-			Traffic:                   crStatusTraffic(svc.Spec.Traffic, revName),
+		stored, ok := writeKnativeService(w, svc, sim.PathParam(r, "project"), namespace, namespace, true)
+		if !ok {
+			return
 		}
-		services.Put(key, svc)
-		reconcileKnativeChildren(namespace, svc, revName)
-		projectCloudRunV1ToV2(svc, sim.PathParam(r, "project"), namespace)
-		sim.WriteJSON(w, http.StatusOK, svc)
+		sim.WriteJSON(w, http.StatusOK, stored)
 	})
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{namespace}/services/{name}", func(w http.ResponseWriter, r *http.Request) {
 		namespace := sim.PathParam(r, "namespace")
@@ -878,29 +824,12 @@ func registerCloudRun(srv *sim.Server) {
 			knativeResourceVersion(existing.Metadata.Generation), update.Metadata.ResourceVersion) {
 			return
 		}
-		update.APIVersion = "serving.knative.dev/v1"
-		update.Kind = "Service"
 		update.Metadata.Name = name
-		update.Metadata.Namespace = namespace
-		update.Metadata.UID = existing.Metadata.UID
-		update.Metadata.Generation = existing.Metadata.Generation + 1
-		update.Metadata.ResourceVersion = fmt.Sprintf("%d", update.Metadata.Generation)
-		update.Metadata.CreationTimestamp = existing.Metadata.CreationTimestamp
-		revName := fmt.Sprintf("%s-%05d", name, update.Metadata.Generation)
-		now := time.Now().UTC().Format(time.RFC3339)
-		update.Status = &CRServiceStatus{
-			ObservedGeneration:        update.Metadata.Generation,
-			LatestReadyRevisionName:   revName,
-			LatestCreatedRevisionName: revName,
-			URL:                       fmt.Sprintf("https://%s-%s.run.app", name, namespace),
-			Address:                   &CRAddress{URL: fmt.Sprintf("http://%s.%s.svc.cluster.local", name, namespace)},
-			Conditions:                []CRCondition{{Type: "Ready", Status: "True", LastTransitionTime: now}},
-			Traffic:                   crStatusTraffic(update.Spec.Traffic, revName),
+		stored, ok := writeKnativeService(w, update, sim.PathParam(r, "project"), namespace, namespace, false)
+		if !ok {
+			return
 		}
-		services.Put(key, update)
-		reconcileKnativeChildren(namespace, update, revName)
-		projectCloudRunV1ToV2(update, sim.PathParam(r, "project"), namespace)
-		sim.WriteJSON(w, http.StatusOK, update)
+		sim.WriteJSON(w, http.StatusOK, stored)
 	})
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{namespace}/services/{name}", func(w http.ResponseWriter, r *http.Request) {
 		namespace := sim.PathParam(r, "namespace")

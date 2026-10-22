@@ -40,8 +40,9 @@ Current state of the sockerless-cloud repository.
   replica sets.
 - **Revisions and traffic.** `sim/revisions` gives a revision template its
   identity and picks a request's revision by traffic weight. Cloud Run
-  services deploy a revision per template change, route by traffic percent
-  and tag, and run an instance per revision; Container Apps routes by weight
+  services and worker pools deploy a revision per template change, through
+  the v2 and the Knative v1 surface alike, route by traffic percent and tag,
+  and run an instance per revision; Container Apps routes by weight
   and label. Amazon ECS tasks belong to their deployment by `startedBy`.
 - **Shared mechanisms live in `sim`.** Workload-host coordinates, background
   work, workload launching, archive extraction, payload storage and sparse

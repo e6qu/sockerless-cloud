@@ -4247,3 +4247,21 @@ request it fulfilled, which DescribeSpotInstanceRequests reported active and
 fulfilled at the call's maximum price, and the instance read `spot` from the
 metadata service's `instance-life-cycle`. Instances RequestSpotInstances
 launched carried the same.
+
+A Cloud Run service written through the Knative v1 surface, on its namespace
+path or its regional one, was created and updated as the v2 service it
+projects, so it deployed a revision under the v2 rules: only when the write
+changed the template, named `<service>-<generation in five digits>-<three
+random characters>` or by the template's own `metadata.name`, refused with
+`ALREADY_EXISTS` when that name was taken and checked against its traffic.
+The v1 surface had named every revision `<service>-<generation>` and minted
+one on every write. The template's `metadata.name` and `serviceAccountName`
+carried between the two surfaces, and a Knative revision record kept its
+identity across later writes. Worker pools, through either surface, took
+the same rules where every update had minted `<pool>-<generation>-abc`.
+
+The gcloud suite's own install and the test image pinned Google Cloud CLI
+590.0.0, the release CI's newest-build install was taking, where they had
+pinned 500.0.0 and 576.0.0: the older harness pin had no `run worker-pools`
+or `alpha run instances` group, so a run on a machine without gcloud failed
+on the client rather than on the simulator.

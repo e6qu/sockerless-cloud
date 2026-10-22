@@ -796,6 +796,67 @@ func reconcileServiceRevision(store sim.Store[RevisionV2], serviceName, revName 
 	store.Put(full, rev)
 }
 
+// createCloudRunService stores a new service and the revision its template
+// deploys, whichever surface wrote it.
+func createCloudRunService(w http.ResponseWriter, svc ServiceV2, project, location, serviceID string) (ServiceV2, bool) {
+	name := fmt.Sprintf("projects/%s/locations/%s/services/%s", project, location, serviceID)
+	// Cloud Run regional CPU quota check. When SIM_GCP_CPU_QUOTA_PER_REGION
+	// is set, each fresh revision deploy debits its CPU load against the
+	// per-(project, region) sliding-window budget. Reproduces /
+	// deterministically — the live cloud rejects with this same
+	// error when the regional cpu_allocation quota is exhausted.
+	if !regionalCPUQuotaInstance.tryDebit(project, location, serviceCPULoad(svc)) {
+		regionalCPUQuotaErrorJSON(w, name)
+		return ServiceV2{}, false
+	}
+	svc = seedServiceV2Defaults(svc, project, location, serviceID)
+	svc.Etag = sim.NewUUID()
+	crv2Services.Put(name, svc)
+	reconcileServiceRevision(crv2Revisions, name, svc.LatestCreatedRevision[strings.LastIndex(svc.LatestCreatedRevision, "/")+1:], svc)
+	projectCloudRunV2ToV1(svc)
+	keepCloudRunRevisionsWarm(svc)
+	return svc, true
+}
+
+// updateCloudRunService stores update as existing's next generation, whichever
+// surface wrote it: a changed template deploys a revision, under a name no
+// revision of the service holds, and the traffic must name revisions it has.
+func updateCloudRunService(w http.ResponseWriter, existing, update ServiceV2) (ServiceV2, bool) {
+	project, location, serviceID, _ := parseCloudRunV2ServiceName(existing.Name)
+	if !cloudRunServiceTemplateValid(w, update.Template) {
+		return ServiceV2{}, false
+	}
+	templateChanged := cloudRunTemplateChanged(existing.Template, update.Template)
+	if templateChanged && !cloudRunRevisionNameFree(w, crv2Revisions, existing.Name, serviceID, update.Template) {
+		return ServiceV2{}, false
+	}
+	if !cloudRunServiceTrafficValid(w, crv2Revisions, existing.Name, update.Traffic, update.Template, templateChanged) {
+		return ServiceV2{}, false
+	}
+
+	// A new revision's CPU load is charged against the regional
+	// sliding-window quota — a quota-exhausted UpdateService is the
+	// failure mode behind the Cloud Run functions overlay-and-swap path,
+	// which replaces the build output with the runtime overlay image.
+	if templateChanged && !regionalCPUQuotaInstance.tryDebit(project, location, serviceCPULoad(update)) {
+		regionalCPUQuotaErrorJSON(w, existing.Name)
+		return ServiceV2{}, false
+	}
+
+	// Preserve identity fields; allow template / labels / annotations / ingress to change.
+	update.Name = existing.Name
+	update.UID = existing.UID
+	update.CreateTime = existing.CreateTime
+	update.Generation = existing.Generation
+	if update.LaunchStage == "" {
+		update.LaunchStage = existing.LaunchStage
+	}
+	update.URI = existing.URI
+	update.LatestCreatedRevision = existing.LatestCreatedRevision
+	update.LatestReadyRevision = existing.LatestReadyRevision
+	return rollOutServiceRevision(update, templateChanged), true
+}
+
 // rollOutServiceRevision stores a service whose spec changed as its next
 // generation. A changed template deploys a new immutable revision; a change
 // to anything else, the traffic among them, deploys none.
@@ -888,23 +949,10 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 			return
 		}
 
-		// Cloud Run regional CPU quota check. When SIM_GCP_CPU_QUOTA_PER_REGION
-		// is set, each fresh revision deploy debits its CPU load against the
-		// per-(project, region) sliding-window budget. Reproduces /
-		// deterministically — the live cloud rejects with this same
-		// error when the regional cpu_allocation quota is exhausted.
-		if !regionalCPUQuotaInstance.tryDebit(project, location, serviceCPULoad(svc)) {
-			regionalCPUQuotaErrorJSON(w, name)
+		svc, ok := createCloudRunService(w, svc, project, location, serviceID)
+		if !ok {
 			return
 		}
-
-		svc = seedServiceV2Defaults(svc, project, location, serviceID)
-		svc.Etag = sim.NewUUID()
-
-		services.Put(name, svc)
-		reconcileServiceRevision(revisionStore, name, svc.LatestCreatedRevision[strings.LastIndex(svc.LatestCreatedRevision, "/")+1:], svc)
-		projectCloudRunV2ToV1(svc)
-		keepCloudRunRevisionsWarm(svc)
 
 		lro := cloudRunLRO(project, location, svc, "type.googleapis.com/google.cloud.run.v2.Service")
 		sim.WriteJSON(w, http.StatusOK, lro)
@@ -1028,38 +1076,10 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 			}
 			update = merged
 		}
-		if !cloudRunServiceTemplateValid(w, update.Template) {
+		update, ok = updateCloudRunService(w, existing, update)
+		if !ok {
 			return
 		}
-		templateChanged := cloudRunTemplateChanged(existing.Template, update.Template)
-		if templateChanged && !cloudRunRevisionNameFree(w, revisionStore, name, serviceID, update.Template) {
-			return
-		}
-		if !cloudRunServiceTrafficValid(w, revisionStore, name, update.Traffic, update.Template, templateChanged) {
-			return
-		}
-
-		// A new revision's CPU load is charged against the regional
-		// sliding-window quota — a quota-exhausted UpdateService is the
-		// failure mode behind the Cloud Run functions overlay-and-swap path,
-		// which replaces the build output with the runtime overlay image.
-		if templateChanged && !regionalCPUQuotaInstance.tryDebit(project, location, serviceCPULoad(update)) {
-			regionalCPUQuotaErrorJSON(w, name)
-			return
-		}
-
-		// Preserve identity fields; allow template / labels / annotations / ingress to change.
-		update.Name = existing.Name
-		update.UID = existing.UID
-		update.CreateTime = existing.CreateTime
-		update.Generation = existing.Generation
-		if update.LaunchStage == "" {
-			update.LaunchStage = existing.LaunchStage
-		}
-		update.URI = existing.URI
-		update.LatestCreatedRevision = existing.LatestCreatedRevision
-		update.LatestReadyRevision = existing.LatestReadyRevision
-		update = rollOutServiceRevision(update, templateChanged)
 		lro := cloudRunLRO(project, location, update, "type.googleapis.com/google.cloud.run.v2.Service")
 		sim.WriteJSON(w, http.StatusOK, lro)
 	})
