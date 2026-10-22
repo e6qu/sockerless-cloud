@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,64 +16,60 @@ import (
 
 // The `gcloud` CLI has two official non-interactive credential paths: a
 // service-account key file (covered by TestIAMServiceAccountKeysActivateCLI)
-// and the GCE metadata server, which is how it authenticates when it runs on
-// an instance. This file drives the second one against the simulator with the
-// real CLI, carrying no pre-minted access token: the credential gcloud uses is
-// the one it reads from the simulator's metadata server, and every command
-// below fails without it.
+// and the metadata server, which is how it authenticates on a workload Google
+// Cloud runs. This file drives the second with the real CLI from inside a
+// Cloud Run task, carrying no pre-minted access token: the credential gcloud
+// uses is the one it reads from the metadata server, which answers the
+// workloads Google Cloud runs and nothing else.
 
-// simMetadataHost is the host:port coordinate a client points GCE_METADATA_HOST
-// at. It is the only thing that differs from an on-instance gcloud, which finds
-// the metadata server at metadata.google.internal.
-func simMetadataHost(t *testing.T) string {
+// gcloudSDKRoot is the installation the suite's gcloud runs from.
+func gcloudSDKRoot(t *testing.T) string {
 	t.Helper()
-	u, err := url.Parse(baseURL)
+	root := strings.TrimSpace(runCLI(t, exec.Command("gcloud", "info", "--format=value(installation.sdk_root)")))
+	require.NotEmpty(t, root)
+	return root
+}
+
+// gcloudPythonImage runs the suite's gcloud inside a workload: the
+// installation brings everything but an interpreter.
+const gcloudPythonImage = "mirror.gcr.io/library/python:3.12-slim"
+
+// gcloudInWorkload runs the suite's gcloud as a process of container, a
+// workload's container, with the metadata coordinate the workload was given
+// and nothing else to authenticate with, and returns its standard output.
+func gcloudInWorkload(t *testing.T, container string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("docker", "inspect", "--format", "{{range .Config.Env}}{{println .}}{{end}}", container).Output()
 	require.NoError(t, err)
-	return u.Host
-}
-
-// gcloudMetadataCLI builds a gcloud command whose only credential is the
-// simulator's metadata server. The config dir is isolated and empty, and — in
-// deliberate contrast to gcloudCLI — no access token is placed in the
-// environment, so a command that succeeds proves gcloud obtained a usable
-// credential from the metadata server on its own.
-func gcloudMetadataCLI(t *testing.T, configDir string, args ...string) *exec.Cmd {
-	t.Helper()
-	host := simMetadataHost(t)
-	cmd := exec.Command("gcloud", args...)
-	// No credential file and no pre-minted token may stand in for the metadata
-	// server, so both are removed from the inherited environment rather than
-	// blanked — gcloud reads an empty GOOGLE_APPLICATION_CREDENTIALS as a
-	// credential file named "".
-	var env []string
-	for _, entry := range os.Environ() {
-		switch strings.SplitN(entry, "=", 2)[0] {
-		case "GOOGLE_APPLICATION_CREDENTIALS", "CLOUDSDK_AUTH_ACCESS_TOKEN":
-			continue
+	var metadataHost string
+	for _, entry := range strings.Split(string(out), "\n") {
+		if value, ok := strings.CutPrefix(entry, "GCE_METADATA_HOST="); ok {
+			metadataHost = value
 		}
-		env = append(env, entry)
 	}
-	cmd.Env = append(env,
-		"CLOUDSDK_CONFIG="+configDir,
-		"CLOUDSDK_CORE_DISABLE_PROMPTS=1",
-		"CLOUDSDK_CORE_PROJECT="+project,
-		// The metadata-server coordinate, in the three spellings the Google
-		// client libraries and gcloud read it from.
-		"GCE_METADATA_HOST="+host,
-		"GCE_METADATA_IP="+host,
-		"GCE_METADATA_ROOT="+host,
-		"CLOUDSDK_API_ENDPOINT_OVERRIDES_IAM="+baseURL+"/",
-		"CLOUDSDK_API_ENDPOINT_OVERRIDES_RUN="+baseURL+"/",
-	)
-	return cmd
+	require.NotEmpty(t, metadataHost, "the workload was given no metadata server")
+	cmd := exec.Command("docker", append([]string{"run", "--rm",
+		"--network", "container:" + container,
+		"--user", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()),
+		"--volume", gcloudSDKRoot(t) + ":/google-cloud-sdk:ro",
+		"--volume", t.TempDir() + ":/gcloud-config",
+		"--env", "HOME=/tmp",
+		"--env", "CLOUDSDK_CONFIG=/gcloud-config",
+		"--env", "CLOUDSDK_PYTHON=python3",
+		"--env", "CLOUDSDK_CORE_DISABLE_PROMPTS=1",
+		"--env", "CLOUDSDK_COMPONENT_MANAGER_DISABLE_UPDATE_CHECK=1",
+		"--env", "GCE_METADATA_HOST=" + metadataHost,
+		"--env", "GCE_METADATA_IP=" + metadataHost,
+		"--env", "GCE_METADATA_ROOT=" + metadataHost,
+		gcloudPythonImage, "/google-cloud-sdk/bin/gcloud"}, args...)...)
+	return runCLI(t, cmd)
 }
 
-// TestGCEMetadataServerGcloudCredentials drives the official on-instance gcloud
-// credential path end to end. gcloud discovers the instance's identity by
-// walking the metadata server's directory listings, reads that identity
-// recursively, mints an access token from it and authenticates a native
-// command with it — all against the simulator, differing from real Google only
-// in the GCE_METADATA_HOST coordinate.
+// TestGCEMetadataServerGcloudCredentials drives the on-workload gcloud
+// credential path end to end. gcloud in a Cloud Run task discovers the task's
+// identity by walking the metadata server's directory listings, reads it
+// recursively and mints access tokens from it, and a native command
+// authenticates with one.
 func TestGCEMetadataServerGcloudCredentials(t *testing.T) {
 	t.Parallel()
 	const accountID = "metadata-adc-sa"
@@ -82,28 +77,44 @@ func TestGCEMetadataServerGcloudCredentials(t *testing.T) {
 	runCLI(t, gcloudCLI("iam", "service-accounts", "create", accountID,
 		"--display-name=Metadata ADC SA", "--format=json"))
 
-	configDir := filepath.Join(tmpDir, "gcloud-metadata-config")
-	require.NoError(t, os.RemoveAll(configDir))
+	const job = "cli-metadata-gcloud"
+	runCLI(t, gcloudRegionalRunCLI("run", "jobs", "create", job,
+		"--region="+location,
+		"--image="+commandImageName,
+		"--args=hold",
+		"--service-account="+email,
+		"--task-timeout=600s",
+		"--max-retries=0",
+		"--quiet",
+	))
+	t.Cleanup(func() {
+		runCLI(t, gcloudRegionalRunCLI("run", "jobs", "delete", job, "--region="+location, "--quiet"))
+	})
+	execution := runJob(t, job).Execution
+	t.Cleanup(func() { httpDoJSON(t, "POST", fmt.Sprintf("%s/v2/%s:cancel", baseURL, execution), `{}`) })
+	container := jobContainerName(execution)
+	// Cloud Run reports no readiness for a task, so the test waits on its
+	// container.
+	require.Eventually(t, func() bool {
+		out, err := exec.Command("docker", "inspect", "--format", "{{.State.Running}}", container).Output()
+		return err == nil && strings.TrimSpace(string(out)) == "true"
+	}, 2*time.Minute, 250*time.Millisecond, "the task's container runs")
 
 	// gcloud reports the identity it read from the metadata server as its
-	// active account. Without the metadata server it has no account at all.
-	// Read from outside every workload, the server answers for the default
-	// project, whose Compute Engine default service account it names.
-	accounts := runCLI(t, gcloudMetadataCLI(t, configDir, "auth", "list", "--format=value(account)"))
-	assert.Contains(t, accounts, "123456789012-compute@developer.gserviceaccount.com",
-		"gcloud must adopt the metadata server's identity as its account, got %q", accounts)
+	// active account: the account the job runs as.
+	accounts := gcloudInWorkload(t, container, "auth", "list", "--format=value(account)")
+	assert.Equal(t, email, strings.TrimSpace(accounts))
 
-	// A native data-plane command authenticated only by the metadata-server
-	// credential. This is the call the issue reported as impossible.
-	listed := runCLI(t, gcloudMetadataCLI(t, configDir,
-		"iam", "service-accounts", "list", "--format=value(email)"))
-	assert.Contains(t, listed, email,
-		"a native gcloud command must authenticate with the metadata-server credential, got %q", listed)
+	// A native command authenticated by the token gcloud minted there.
+	token := strings.TrimSpace(gcloudInWorkload(t, container, "auth", "print-access-token"))
+	require.NotEmpty(t, token)
+	list := gcloudCLI("iam", "service-accounts", "list", "--format=value(email)")
+	list.Env = append(list.Env, "CLOUDSDK_AUTH_ACCESS_TOKEN="+token)
+	assert.Contains(t, runCLI(t, list), email)
 
 	// Application Default Credentials resolve through the same path, and the
-	// token they yield is accepted by the simulator's data plane.
-	adcToken := strings.TrimSpace(runCLI(t, gcloudMetadataCLI(t, configDir,
-		"auth", "application-default", "print-access-token")))
+	// token they yield is accepted by the data plane.
+	adcToken := strings.TrimSpace(gcloudInWorkload(t, container, "auth", "application-default", "print-access-token"))
 	require.NotEmpty(t, adcToken, "ADC must resolve to a token through the metadata server")
 	assertTokenAuthenticates(t, adcToken)
 }
@@ -142,13 +153,8 @@ func TestGCloudRegionPrefixedEndpointHost(t *testing.T) {
 			"spec": {"template": {"spec": {"containers": [{"image": "gcr.io/test-project/hello"}]}}}
 		}`, serviceName, project))
 
-	configDir := filepath.Join(tmpDir, "gcloud-region-prefix-config")
-	require.NoError(t, os.RemoveAll(configDir))
-
-	cmd := gcloudMetadataCLI(t, configDir, "run", "services", "list",
-		"--region="+location, "--format=value(metadata.name)")
-	cmd.Env = append(cmd.Env, "HTTP_PROXY="+baseURL, "NO_PROXY=")
-	listed := runCLI(t, cmd)
+	listed := runCLI(t, gcloudRegionalRunCLI("run", "services", "list",
+		"--region="+location, "--format=value(metadata.name)"))
 
 	assert.Contains(t, listed, serviceName,
 		"the simulator must answer the %s-prefixed host gcloud builds for a regional service, got %q",

@@ -12,11 +12,6 @@ import (
 	dockerclient "github.com/moby/moby/client"
 )
 
-// gceMetadataDefaultProject is the project a metadata read from outside every
-// workload is answered for: the simulator's default project, which Cloud
-// Resource Manager holds from the start.
-const gceMetadataDefaultProject = "sockerless"
-
 // gceMetadataWorkload is the resource a metadata request comes from: the
 // project it runs in and the service account it runs as. An empty
 // serviceAccount means the resource names none and runs as the project's
@@ -30,11 +25,11 @@ type gceMetadataWorkload struct {
 	region           string
 }
 
-// gceMetadataWorkloadFor places the caller of a metadata request: a Compute
-// Engine instance by its private address, a Cloud Run container by the address
-// of its network namespace. A caller that is neither reads the server as a
-// workload of the default project.
-func gceMetadataWorkloadFor(r *http.Request) gceMetadataWorkload {
+// gceMetadataCaller places the caller of a metadata request: a Compute Engine
+// instance by its private address, or a Cloud Run or Cloud Build container by
+// the address of its network namespace. Nothing else reaches a metadata
+// server.
+func gceMetadataCaller(r *http.Request) (gceMetadataWorkload, bool) {
 	if inst, ok := gcpMetadataInstanceFor(r); ok {
 		w := gceMetadataWorkload{project: gcpProjectFromSelfLink(inst.SelfLink)}
 		if len(inst.ServiceAccounts) > 0 {
@@ -43,21 +38,45 @@ func gceMetadataWorkloadFor(r *http.Request) gceMetadataWorkload {
 			}
 		}
 		if w.project != "" {
-			return w
+			return w, true
 		}
 	}
-	if w, ok := cloudRunMetadataWorkload(r); ok {
-		return w
-	}
-	return gceMetadataWorkload{project: gceMetadataDefaultProject}
+	return containerMetadataWorkload(r)
 }
 
-// cloudRunMetadataWorkload finds the simulator container whose network
+type gceMetadataWorkloadKey struct{}
+
+// gceMetadataAdmit admits a metadata read: one from a workload, which a
+// caller that is none cannot reach, carrying the header every read requires.
+// The returned request carries the workload for gceMetadataWorkloadFor.
+func gceMetadataAdmit(w http.ResponseWriter, r *http.Request) (*http.Request, bool) {
+	workload, ok := gceMetadataCaller(r)
+	if !ok {
+		metadataNotFound(w)
+		return r, false
+	}
+	if r.Header.Get("Metadata-Flavor") != "Google" {
+		http.Error(w, "Missing Metadata-Flavor:Google header.", http.StatusForbidden)
+		return r, false
+	}
+	w.Header().Set("Metadata-Flavor", "Google")
+	w.Header().Set("Server", "Metadata Server for VM")
+	return r.WithContext(context.WithValue(r.Context(), gceMetadataWorkloadKey{}, workload)), true
+}
+
+// gceMetadataWorkloadFor is the workload gceMetadataAdmit admitted the request
+// for.
+func gceMetadataWorkloadFor(r *http.Request) gceMetadataWorkload {
+	w, _ := r.Context().Value(gceMetadataWorkloadKey{}).(gceMetadataWorkload)
+	return w
+}
+
+// containerMetadataWorkload finds the simulator container whose network
 // namespace owns the request's source address, on the network whose sidecar
-// forwarded the request when one did, and reads the Cloud Run resource its
-// labels name. Sidecars join the first container's namespace, so every
-// container of an instance resolves to the same resource.
-func cloudRunMetadataWorkload(r *http.Request) (gceMetadataWorkload, bool) {
+// forwarded the request when one did, and reads the Cloud Run resource or
+// Cloud Build build its labels name. Sidecars join the first container's
+// namespace, so every container of an instance resolves to the same resource.
+func containerMetadataWorkload(r *http.Request) (gceMetadataWorkload, bool) {
 	docker := sim.DockerClient()
 	if docker == nil {
 		return gceMetadataWorkload{}, false
@@ -88,6 +107,9 @@ func cloudRunMetadataWorkload(r *http.Request) (gceMetadataWorkload, bool) {
 				continue
 			}
 			if ep != nil && ep.IPAddress == addr.Unmap() {
+				if w, ok := cloudBuildWorkloadFromLabels(c.Labels); ok {
+					return w, true
+				}
 				w, ok := cloudRunWorkloadFromLabels(c.Labels)
 				w.cloudRunInstance = c.ID
 				return w, ok
@@ -130,6 +152,24 @@ func cloudRunWorkloadFromLabels(labels map[string]string) (gceMetadataWorkload, 
 		return w, true
 	}
 	return gceMetadataWorkload{}, false
+}
+
+// cloudBuildWorkloadFromLabels reads the project and service account of the
+// build a step container runs for.
+func cloudBuildWorkloadFromLabels(labels map[string]string) (gceMetadataWorkload, bool) {
+	id := labels[cloudBuildStepLabel]
+	if id == "" || cbBuilds == nil {
+		return gceMetadataWorkload{}, false
+	}
+	b, ok := cbBuilds.Get(id)
+	if !ok {
+		return gceMetadataWorkload{}, false
+	}
+	account, err := cloudBuildServiceAccount(b)
+	if err != nil {
+		return gceMetadataWorkload{}, false
+	}
+	return gceMetadataWorkload{project: b.ProjectID, serviceAccount: account}, true
 }
 
 // projectID is the workload's project ID, which Cloud Resource Manager

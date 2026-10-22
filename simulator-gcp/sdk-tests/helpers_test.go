@@ -37,7 +37,10 @@ var (
 	evalImageName      string // Docker image containing eval-arithmetic binary
 	commandImageName   string // Docker image containing container-command binary
 	httpProbeImageName string // Docker image containing localhost probe/server binary
-	ctx                = context.Background()
+	// metadataClientImageName is a Cloud Run workload that reads the metadata
+	// server through the official Go clients.
+	metadataClientImageName string
+	ctx                     = context.Background()
 )
 
 func TestMain(m *testing.M) {
@@ -92,6 +95,10 @@ func TestMain(m *testing.M) {
 	probeDir, _ := filepath.Abs("../../testdata/http-localhost-probe")
 	httpProbeImageName = "sockerless-http-localhost-probe:gcp-sdk"
 	buildGoScratchImage(httpProbeImageName, probeDir, "http-localhost-probe", workloadPlatform)
+
+	metadataClientDir, _ := filepath.Abs("testdata/metadata-client")
+	metadataClientImageName = "sockerless-metadata-client:gcp-sdk"
+	buildGoScratchImage(metadataClientImageName, metadataClientDir, "metadata-client", workloadPlatform)
 
 	// The Cloud Run job tests run this image as their workload, so it is
 	// acquired here, with retries, and its absence fails the run: a pull that

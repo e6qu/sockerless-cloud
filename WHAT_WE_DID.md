@@ -4101,3 +4101,22 @@ worker pool instance or job task with direct VPC egress holds the address
 the container keeps in the subnetwork's ledger, so the next workload on the
 subnetwork takes another address; an adopted workload without VPC egress
 holds its platform-network address as before.
+
+The Compute Engine metadata server answered the workloads Google Cloud runs
+and nothing else: a Compute Engine instance by its private address, and a
+Cloud Run container or a Cloud Build step by the address of its network
+namespace, the step as its build's service account in its build's project.
+A caller that was none of them got the 404 of an origin with no metadata
+server, as the EC2 and Azure metadata services answer, where it had read the
+default project's values; a residency probe of `/` from it reached the
+console. The SDK tests read the server from a Cloud Run service of a
+metadata-client test image, which runs the official Go metadata client and
+Application Default Credentials inside the container, and the gcloud test
+runs the suite's gcloud in a Cloud Run task's network namespace with the
+task's metadata coordinate; an instance's startup script reads its own id,
+zone, hostname and project. The residency probe of `/`, which a wrapper
+answers ahead of the chain that attributes a sidecar's request to its
+workload, attributes the probe itself, so Python's google-auth finds the
+metadata server from a workload. The Google Cloud CLI suite removes the
+gcloud release it installs when it ends, where each run had left one in the
+temporary directory.

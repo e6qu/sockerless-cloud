@@ -220,6 +220,9 @@ func TestMain(m *testing.M) {
 	simCmd.Process.Kill()
 	simCmd.Wait()
 	os.RemoveAll(tmpDir)
+	for _, dir := range provisionedToolDirs {
+		os.RemoveAll(dir)
+	}
 	os.Exit(code)
 }
 
@@ -279,6 +282,10 @@ func installCBT(binDir string) {
 // without it) so the CLI suite runs instead of skipping — the same install-or-
 // fail contract the AWS cli-tests use for the aws CLI. Fatals loudly if the
 // install itself fails; never a skip, never a fallback.
+// provisionedToolDirs are the directories the harness installed tools into,
+// which it removes when the suite ends.
+var provisionedToolDirs []string
+
 func installGcloudCLI() string {
 	// Pinned Google Cloud CLI release. The versioned archive keeps the install
 	// deterministic across runs; bump this constant to move to a newer release.
@@ -306,6 +313,7 @@ func installGcloudCLI() string {
 	if err != nil {
 		log.Fatalf("Failed to create gcloud CLI install dir: %v", err)
 	}
+	provisionedToolDirs = append(provisionedToolDirs, binDir)
 
 	archive := fmt.Sprintf("google-cloud-cli-%s-%s-%s.tar.gz", version, osName, arch)
 	dlURL := "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/" + archive
