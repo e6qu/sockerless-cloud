@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -1326,9 +1327,15 @@ func TestGlue_ColumnStatistics_SDK(t *testing.T) {
 	assert.Empty(t, getP.ColumnStatisticsList)
 }
 
+// An account has one Data Catalog resource policy, so a test holds this from
+// putting its policy until its cleanup has deleted it.
+var glueCatalogPolicy sync.Mutex
+
 func TestGlue_ResourcePolicy_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
+	glueCatalogPolicy.Lock()
+	t.Cleanup(glueCatalogPolicy.Unlock)
 
 	policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::123456789012:root"},"Action":"glue:GetTable","Resource":"*"}]}`
 	put, err := c.PutResourcePolicy(ctx, &glue.PutResourcePolicyInput{

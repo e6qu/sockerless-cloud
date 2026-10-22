@@ -4432,3 +4432,8 @@ acts on an instance waits for the state the action requires, as the AWS CLI's
 `ec2 wait instance-running` does before `reboot-instances`: Amazon EC2 refuses
 to reboot a pending instance, and the instant committed sidecar had hidden
 that race.
+
+An account has one AWS Glue Data Catalog resource policy, and two parallel
+tests in each of the SDK and CLI suites put, read and deleted it; one deleted
+the other's policy between its put and its read. The tests that touch it hold
+one package mutex from the put until the delete, and stay parallel otherwise.

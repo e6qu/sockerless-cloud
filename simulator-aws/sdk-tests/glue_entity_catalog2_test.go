@@ -431,6 +431,8 @@ func TestGlue_CodeGen_SDK(t *testing.T) {
 	assert.Equal(t, "com.example.New", aws.ToString(getUDF.UserDefinedFunction.ClassName))
 
 	// GetResourcePolicies returns the stored catalog resource policy.
+	glueCatalogPolicy.Lock()
+	t.Cleanup(glueCatalogPolicy.Unlock)
 	_, err = c.PutResourcePolicy(ctx, &glue.PutResourcePolicyInput{
 		PolicyInJson: aws.String(`{"Version":"2012-10-17","Statement":[]}`),
 	})

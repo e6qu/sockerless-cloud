@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -1027,36 +1028,41 @@ func TestGlue_ColumnStatistics_CLI(t *testing.T) {
 	assert.Empty(t, gcs.ColumnStatisticsList)
 }
 
+// An account has one Data Catalog resource policy, so a test holds this while
+// the policy it put is the one it reads back, and deletes it before letting go.
+var glueCatalogPolicy sync.Mutex
+
 func TestGlue_ResourcePolicyAndCatalog_CLI(t *testing.T) {
 	t.Parallel()
 	policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::123456789012:root"},"Action":"glue:GetTable","Resource":"*"}]}`
-	out := runCLI(t, awsCLI("glue", "put-resource-policy", "--policy-in-json", policy))
-	var put struct {
-		PolicyHash string `json:"PolicyHash"`
-	}
-	parseJSON(t, out, &put)
-	assert.NotEmpty(t, put.PolicyHash)
-	t.Cleanup(func() {
-		runCLIIgnore(awsCLI("glue", "delete-resource-policy"))
-	})
+	func() {
+		glueCatalogPolicy.Lock()
+		defer glueCatalogPolicy.Unlock()
+		out := runCLI(t, awsCLI("glue", "put-resource-policy", "--policy-in-json", policy))
+		var put struct {
+			PolicyHash string `json:"PolicyHash"`
+		}
+		parseJSON(t, out, &put)
+		assert.NotEmpty(t, put.PolicyHash)
 
-	out = runCLI(t, awsCLI("glue", "get-resource-policy"))
-	var get struct {
-		PolicyInJson string `json:"PolicyInJson"`
-		PolicyHash   string `json:"PolicyHash"`
-	}
-	parseJSON(t, out, &get)
-	assert.Equal(t, policy, get.PolicyInJson)
-	assert.NotEmpty(t, get.PolicyHash)
+		out = runCLI(t, awsCLI("glue", "get-resource-policy"))
+		var get struct {
+			PolicyInJson string `json:"PolicyInJson"`
+			PolicyHash   string `json:"PolicyHash"`
+		}
+		parseJSON(t, out, &get)
+		assert.Equal(t, policy, get.PolicyInJson)
+		assert.NotEmpty(t, get.PolicyHash)
 
-	runCLI(t, awsCLI("glue", "delete-resource-policy"))
+		runCLI(t, awsCLI("glue", "delete-resource-policy"))
+	}()
 
 	// Data catalog encryption + catalog import status.
 	runCLI(t, awsCLI("glue", "put-data-catalog-encryption-settings",
 		"--data-catalog-encryption-settings",
 		`{"EncryptionAtRest":{"CatalogEncryptionMode":"SSE-KMS","SseAwsKmsKeyId":"arn:aws:kms:us-east-1:123456789012:key/abc"},"ConnectionPasswordEncryption":{"ReturnConnectionPasswordEncrypted":true}}`))
 
-	out = runCLI(t, awsCLI("glue", "get-data-catalog-encryption-settings"))
+	out := runCLI(t, awsCLI("glue", "get-data-catalog-encryption-settings"))
 	var enc struct {
 		DataCatalogEncryptionSettings struct {
 			EncryptionAtRest struct {
