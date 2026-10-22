@@ -44,5 +44,28 @@ func elbv2DNSRecords() []dns.RR {
 			A:   ip,
 		})
 	}
+	return append(out, ecsGatewayRouteDNSRecords()...)
+}
+
+// ecsGatewayRouteDNSRecords answer each Amazon ECS gateway route's hostname
+// with the address of the load balancer that carries it, as the on.aws names
+// Amazon ECS manages do, until the route is torn down.
+func ecsGatewayRouteDNSRecords() []dns.RR {
+	if ecsGatewayRoutes == nil {
+		return nil
+	}
+	var out []dns.RR
+	for _, route := range ecsGatewayRoutes.Filter(func(route ECSGatewayRoute) bool {
+		return route.Hostname != "" && route.LoadBalancerArn != "" && route.Status != ecsGatewayRouteDeleteInProgress
+	}) {
+		ip := net.ParseIP(elbv2NLBHostForReporting(route.LoadBalancerArn)).To4()
+		if ip == nil {
+			continue
+		}
+		out = append(out, &dns.A{
+			Hdr: dns.RR_Header{Name: dns.CanonicalName(route.Hostname), Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: elbv2DNSTTL},
+			A:   ip,
+		})
+	}
 	return out
 }

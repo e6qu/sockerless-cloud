@@ -1,7 +1,11 @@
 package aws_sdk_test
 
 import (
+	"context"
+	"crypto/tls"
 	"errors"
+	"net"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +18,7 @@ import (
 	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/dns/dnsmessage"
 )
 
 // createECSGatewayInfrastructureRole creates the role a gateway provisions its
@@ -223,6 +228,32 @@ func TestECSGateway_ServiceConnectsThroughSharedLoadBalancer(t *testing.T) {
 	hostname := strings.TrimPrefix(serviceURL, "https://")
 	require.NotEmpty(t, rules.Rules[0].Conditions)
 	assert.Equal(t, []string{hostname}, rules.Rules[0].Conditions[0].HostHeaderConfig.Values)
+	// The route's hostname resolves to its load balancer, whose HTTPS
+	// listener routes a request naming it by the route's rule — to the
+	// service's target group, which holds no task — where any other host
+	// meets the listener's default 404.
+	answer := dnsQuery(t, hostname, dnsmessage.TypeA)
+	require.NotEmpty(t, answer.Answers, "the route's hostname resolves")
+	address, ok := answer.Answers[0].Body.(*dnsmessage.AResource)
+	require.True(t, ok)
+	request := func(host string) int {
+		t.Helper()
+		client := &http.Client{Transport: &http.Transport{
+			// The simulator's AWS Certificate Manager signs the route's
+			// certificate with a CA no system trusts.
+			TLSClientConfig: &tls.Config{ServerName: host, InsecureSkipVerify: true},
+			DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, network, net.JoinHostPort(net.IP(address.A[:]).String(), "443"))
+			},
+		}}
+		resp, err := client.Get("https://" + host + "/")
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+	assert.Equal(t, http.StatusServiceUnavailable, request(hostname), "the route's rule forwards to its target group")
+	assert.Equal(t, http.StatusNotFound, request("elsewhere.example"), "another host meets the listener's default action")
+
 	targetGroupArn := aws.ToString(rules.Rules[0].Actions[0].TargetGroupArn)
 	targetGroups, err := elbC.DescribeTargetGroups(ctx, &elbv2.DescribeTargetGroupsInput{TargetGroupArns: []string{targetGroupArn}})
 	require.NoError(t, err)

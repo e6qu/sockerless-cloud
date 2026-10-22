@@ -4170,3 +4170,17 @@ away, and with the content unchanged once `timeout_sec` passed. Writes to
 the instance and project stores woke the waiting reads, so a guest agent or
 the official Go client's `Subscribe` learnt of a `setMetadata` or
 `setCommonInstanceMetadata` without reading again.
+
+An Application Load Balancer listener evaluated its rules by priority, the
+default rule last, each rule meeting a request only when every condition did
+and a condition when any of its values did: host-header and http-header
+values without case and with `*` and `?` wildcards, path-pattern values with
+wildcards and case against the path alone, http-request-method exactly,
+query-string pairs without case with an optional key, and source-ip ranges
+against the client's own address. The first matching rule's actions ran in
+order: a forward to a target in service of its target groups, skipping one a
+weighted forward weighs 0; a fixed response with its status, content type and
+body; or a redirect whose location filled `#{protocol}`, `#{host}`,
+`#{port}`, `#{path}` and `#{query}` from the request. An Amazon ECS gateway
+route's `on.aws` hostname resolved to the load balancer carrying it, so its
+host-header rule routed requests naming it.

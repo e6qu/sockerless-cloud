@@ -62,14 +62,13 @@ func handleELBv2DataPlane(w http.ResponseWriter, r *http.Request, lb ELBv2LoadBa
 		http.Error(w, "no matching load balancer listener", http.StatusNotFound)
 		return
 	}
-	elbv2ForwardToHealthyTarget(w, r, listener)
+	elbv2ServeListener(w, r, listener)
 }
 
-// elbv2ForwardToHealthyTarget forwards a request a listener accepted to a
-// target in service, which is the whole of what an HTTP or HTTPS listener does
-// once it has decoded the request.
-func elbv2ForwardToHealthyTarget(w http.ResponseWriter, r *http.Request, listener ELBv2Listener) {
-	targetGroup, target, ok := elbv2HealthyTargetForListener(listener)
+// elbv2ForwardToHealthyTarget forwards a request to a target in service of
+// the target groups the forward actions name.
+func elbv2ForwardToHealthyTarget(w http.ResponseWriter, r *http.Request, listener ELBv2Listener, actions []ELBv2Action) {
+	targetGroup, target, ok := elbv2HealthyTargetForActions(actions)
 	if !ok {
 		http.Error(w, "no healthy targets", http.StatusServiceUnavailable)
 		return
@@ -223,11 +222,29 @@ func elbv2DataPlaneListenerPort(r *http.Request) int {
 // enabled Availability Zones" — rather than checking a target because a
 // request arrived for it.
 func elbv2HealthyTargetForListener(listener ELBv2Listener) (ELBv2TargetGroup, ELBv2TargetDescription, bool) {
-	for _, action := range listener.DefaultActions {
-		if action.TargetGroupArn == "" {
+	return elbv2HealthyTargetForActions(listener.DefaultActions)
+}
+
+// elbv2HealthyTargetForActions picks a target of the target groups the
+// actions forward to; a target group a weighted forward gives a weight of 0
+// receives nothing.
+func elbv2HealthyTargetForActions(actions []ELBv2Action) (ELBv2TargetGroup, ELBv2TargetDescription, bool) {
+	var arns []string
+	for _, action := range actions {
+		if action.TargetGroupArn != "" {
+			arns = append(arns, action.TargetGroupArn)
+		}
+		if action.Forward == nil {
 			continue
 		}
-		tg, ok := elbv2TargetGroups.Get(action.TargetGroupArn)
+		for _, tuple := range action.Forward.TargetGroups {
+			if tuple.TargetGroupArn != "" && (tuple.Weight == nil || *tuple.Weight > 0) {
+				arns = append(arns, tuple.TargetGroupArn)
+			}
+		}
+	}
+	for _, arn := range arns {
+		tg, ok := elbv2TargetGroups.Get(arn)
 		if !ok {
 			continue
 		}
