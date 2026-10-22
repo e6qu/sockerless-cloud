@@ -82,7 +82,7 @@ func TestSFNCLI_Activities(t *testing.T) {
 	definition := fmt.Sprintf(`{"StartAt":"Work","States":{"Work":{"Type":"Task","Resource":%q,"End":true}}}`, created.ActivityArn)
 	out = runCLI(t, awsCLI("stepfunctions", "create-state-machine",
 		"--name", "sfn-cli-activity-sm", "--definition", definition,
-		"--role-arn", "arn:aws:iam::123456789012:role/sfn-role"))
+		"--role-arn", cliServiceRole(t, "states.amazonaws.com")))
 	var machine struct {
 		StateMachineArn string `json:"stateMachineArn"`
 	}
@@ -154,7 +154,7 @@ func TestSFNCLI_VersionsAndAliases(t *testing.T) {
 	out := runCLI(t, awsCLI("stepfunctions", "create-state-machine",
 		"--name", "sfn-cli-ver-sm",
 		"--definition", definition,
-		"--role-arn", "arn:aws:iam::123456789012:role/sfn-role"))
+		"--role-arn", cliServiceRole(t, "states.amazonaws.com")))
 	var sm struct {
 		StateMachineArn string `json:"stateMachineArn"`
 	}
@@ -243,7 +243,7 @@ func TestSFNCLI_TestState(t *testing.T) {
 	out := runCLI(t, awsCLIHostPrefixed("stepfunctions", "test-state",
 		"--definition", `{"Type":"Pass","Result":{"hello":"world"},"End":true}`,
 		"--input", `{"x":1}`,
-		"--role-arn", "arn:aws:iam::123456789012:role/sfn-role",
+		"--role-arn", cliServiceRole(t, "states.amazonaws.com"),
 		"--endpoint-url", endpoint))
 	var res struct {
 		Status string `json:"status"`
@@ -264,7 +264,7 @@ func TestSFNCLI_StartSyncExecution(t *testing.T) {
 	out := runCLI(t, awsCLI("stepfunctions", "create-state-machine",
 		"--name", "sfn-cli-sync-sm",
 		"--definition", definition,
-		"--role-arn", "arn:aws:iam::123456789012:role/sfn-role",
+		"--role-arn", cliServiceRole(t, "states.amazonaws.com"),
 		"--type", "EXPRESS"))
 	var sm struct {
 		StateMachineArn string `json:"stateMachineArn"`
@@ -295,7 +295,7 @@ func TestSFNCLI_NestedWorkflowIntegration(t *testing.T) {
 	out := runCLI(t, awsCLI("stepfunctions", "create-state-machine",
 		"--name", "sfn-cli-nested-child",
 		"--definition", childDefinition,
-		"--role-arn", "arn:aws:iam::123456789012:role/sfn-role"))
+		"--role-arn", cliServiceRole(t, "states.amazonaws.com")))
 	var child struct {
 		StateMachineArn string `json:"stateMachineArn"`
 	}
@@ -354,7 +354,7 @@ func TestSFNCLI_DescribeForExecutionAndRedrive(t *testing.T) {
 	out := runCLI(t, awsCLI("stepfunctions", "create-state-machine",
 		"--name", "sfn-cli-redrive-sm",
 		"--definition", definition,
-		"--role-arn", "arn:aws:iam::123456789012:role/sfn-role"))
+		"--role-arn", cliServiceRole(t, "states.amazonaws.com")))
 	var sm struct {
 		StateMachineArn string `json:"stateMachineArn"`
 	}
@@ -447,7 +447,7 @@ func TestSFNCLI_DistributedMapRun(t *testing.T) {
 	}`
 	out := runCLI(t, awsCLI("stepfunctions", "create-state-machine",
 		"--name", "sfn-cli-maprun-sm", "--definition", definition,
-		"--role-arn", "arn:aws:iam::123456789012:role/sfn-role"))
+		"--role-arn", cliServiceRole(t, "states.amazonaws.com")))
 	var machine struct {
 		StateMachineArn string `json:"stateMachineArn"`
 	}

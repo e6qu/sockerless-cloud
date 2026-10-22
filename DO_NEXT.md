@@ -18,9 +18,9 @@
   same-range gap (two live VPCs over one CIDR on one engine) lifts there.
 - **More operations refuse a role IAM does not hold** (BUG-3561): the
   role-taking operations the row lists, each in its service's own error,
-  with real roles in their tests; then AWS Step Functions state machines and
-  EventBridge Scheduler schedules (BUG-3563) and Amazon ECS's infrastructure
-  roles (BUG-3562).
+  with real roles in their tests; then Amazon ECS's infrastructure roles
+  (BUG-3562) and trust policies that name a regional service principal
+  (BUG-3568).
 - **Close the no-privilege gaps `BUGS.md` holds**: the NAT data planes'
   remainders (ICMP, packet counts, Cloud Monitoring for Cloud NAT, the
   public address as the source a peer sees, a subnet with no route out);

@@ -179,7 +179,7 @@ func TestScheduler_RetryPolicyRanges_SDK(t *testing.T) {
 	target := func(policy *schedtypes.RetryPolicy) *schedtypes.Target {
 		return &schedtypes.Target{
 			Arn:         aws.String("arn:aws:sqs:us-east-1:123456789012:scheduler-sdk-retry-ranges"),
-			RoleArn:     aws.String("arn:aws:iam::123456789012:role/scheduler-sdk-retry-ranges"),
+			RoleArn:     aws.String(serviceRole(t, "scheduler.amazonaws.com")),
 			RetryPolicy: policy,
 		}
 	}

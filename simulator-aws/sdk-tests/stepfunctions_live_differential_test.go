@@ -151,7 +151,7 @@ func TestSFNExecutionHistoryDifferentialAgainstAWS(t *testing.T) {
 	}
 	targets := []target{
 		{name: "real-aws", client: live, role: roleARN},
-		{name: "simulator", client: simulator, role: "arn:aws:iam::123456789012:role/sfn-role"},
+		{name: "simulator", client: simulator, role: serviceRole(t, "states.amazonaws.com")},
 	}
 	type observed struct {
 		output string
@@ -418,7 +418,7 @@ func TestSFNDistributedMapDifferentialAgainstAWS(t *testing.T) {
 	}
 	targets := []target{
 		{name: "real-aws", client: live, role: roleARN},
-		{name: "simulator", client: simulator, role: "arn:aws:iam::123456789012:role/sfn-role"},
+		{name: "simulator", client: simulator, role: serviceRole(t, "states.amazonaws.com")},
 	}
 	type observed struct {
 		status             sfntypes.MapRunStatus
@@ -503,7 +503,7 @@ func TestSFNControlPlaneDifferentialAgainstAWS(t *testing.T) {
 	}
 	targets := []target{
 		{name: "real-aws", client: live, role: roleARN},
-		{name: "simulator", client: simulator, role: "arn:aws:iam::123456789012:role/sfn-role"},
+		{name: "simulator", client: simulator, role: serviceRole(t, "states.amazonaws.com")},
 	}
 	type observed struct {
 		versionCount      int

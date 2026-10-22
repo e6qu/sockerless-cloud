@@ -135,7 +135,7 @@ func TestSFN_StateMachineCRUD_CLI(t *testing.T) {
 	out := runCLI(t, awsCLI("stepfunctions", "create-state-machine",
 		"--name", "sfn-cli-sm",
 		"--definition", definition,
-		"--role-arn", "arn:aws:iam::123456789012:role/sfn-role",
+		"--role-arn", cliServiceRole(t, "states.amazonaws.com"),
 		"--type", "STANDARD",
 	))
 	var created struct {
@@ -208,7 +208,7 @@ func TestSFN_ExecutionLifecycle_CLI(t *testing.T) {
 	out := runCLI(t, awsCLI("stepfunctions", "create-state-machine",
 		"--name", "sfn-cli-exec-sm",
 		"--definition", definition,
-		"--role-arn", "arn:aws:iam::123456789012:role/sfn-role",
+		"--role-arn", cliServiceRole(t, "states.amazonaws.com"),
 	))
 	var created struct {
 		StateMachineArn string `json:"stateMachineArn"`

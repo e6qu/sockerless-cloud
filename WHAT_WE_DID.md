@@ -4070,6 +4070,23 @@ integration's output and Lambda's `X-Amz-Function-Error` need, and the
 scheduler's own CloudTrail recording of universal targets went away because
 the request chain recorded them. The tests whose state machines run tasks
 created roles allowing those tasks' actions.
+AWS Step Functions and EventBridge Scheduler refused a role IAM did not hold
+when it was configured, not only when a task or target first called a
+service. Step Functions `CreateStateMachine`, `UpdateStateMachine` and
+`TestState` checked the execution role through `iamServiceTrustedRole` for
+`states.amazonaws.com`, with the state machine's ARN as `aws:SourceArn`, and
+answered `AccessDeniedException` "Neither the global service principal
+states.amazonaws.com, or the regional one is authorized to assume the
+provided role.", the code the Terraform AWS provider retries
+`CreateStateMachine` on. Scheduler `CreateSchedule` and `UpdateSchedule`
+checked the target's `RoleArn` for `scheduler.amazonaws.com`, with the
+schedule's ARN as `aws:SourceArn`, and answered the `ValidationException`
+"The execution role you provide must allow AWS EventBridge Scheduler to
+assume the role." the provider retries both on; `UpdateSchedule`, a full
+replacement, required its `Target` and `FlexibleTimeWindow` as the model
+does. Every SDK, CLI, Terraform and in-package test that had given a state
+machine or a schedule an invented role created a real one trusted by the
+service, and new SDK and CLI tests proved each refusal.
 
 The Knative Cloud Run surface carries a template's VPC egress as the
 `run.googleapis.com/vpc-access-connector`, `vpc-access-egress` and

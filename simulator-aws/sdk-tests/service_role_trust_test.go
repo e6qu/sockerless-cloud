@@ -16,8 +16,13 @@ import (
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/glue"
 	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
+	"github.com/aws/aws-sdk-go-v2/service/scheduler"
+	schedtypes "github.com/aws/aws-sdk-go-v2/service/scheduler/types"
+	"github.com/aws/aws-sdk-go-v2/service/sfn"
+	sfntypes "github.com/aws/aws-sdk-go-v2/service/sfn/types"
 	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -398,4 +403,107 @@ func TestECS_RefusesToLaunchATaskWithARoleItCannotAssume_SDK(t *testing.T) {
 	taskArn := aws.ToString(out.Tasks[0].TaskArn)
 	cleanupECSTask(t, c, cluster, taskArn)
 	waitTaskStopped(t, c, cluster, taskArn)
+}
+
+const statesRoleRefusal = "Neither the global service principal states.amazonaws.com, or the regional one is authorized to assume the provided role."
+
+// AWS Step Functions refuses an execution role it cannot assume, at create,
+// at update and in TestState, and evaluates the trust policy's aws:SourceArn
+// condition against the state machine's ARN.
+func TestStepFunctions_RefusesAnExecutionRoleItCannotAssume_SDK(t *testing.T) {
+	t.Parallel()
+	c := sfnClient()
+	otherService, absent := untrustedRoles(t)
+	const definition = `{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}`
+	create := func(name, role string) (*sfn.CreateStateMachineOutput, error) {
+		return c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
+			Name: aws.String(name), Definition: aws.String(definition), RoleArn: aws.String(role),
+		})
+	}
+	for _, role := range []string{otherService, absent} {
+		_, err := create(uniqueName("sfn-untrusted"), role)
+		requireAWSError(t, err, "AccessDeniedException", statesRoleRefusal)
+		_, err = c.TestState(ctx, &sfn.TestStateInput{Definition: aws.String(`{"Type":"Pass","End":true}`), RoleArn: aws.String(role)})
+		requireAWSError(t, err, "AccessDeniedException", statesRoleRefusal)
+	}
+
+	trusted := serviceRole(t, "states.amazonaws.com")
+	created, err := create(uniqueName("sfn-trusted"), trusted)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteStateMachine(context.Background(), &sfn.DeleteStateMachineInput{StateMachineArn: created.StateMachineArn})
+	})
+	_, err = c.UpdateStateMachine(ctx, &sfn.UpdateStateMachineInput{StateMachineArn: created.StateMachineArn, RoleArn: aws.String(otherService)})
+	requireAWSError(t, err, "AccessDeniedException", statesRoleRefusal)
+	described, err := c.DescribeStateMachine(ctx, &sfn.DescribeStateMachineInput{StateMachineArn: created.StateMachineArn})
+	require.NoError(t, err)
+	assert.Equal(t, trusted, aws.ToString(described.RoleArn))
+	tested, err := c.TestState(ctx, &sfn.TestStateInput{
+		Definition: aws.String(`{"Type":"Pass","End":true}`), RoleArn: aws.String(trusted), Input: aws.String(`{"ok":true}`),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, sfntypes.TestExecutionStatusSucceeded, tested.Status)
+
+	scopedName := uniqueName("sfn-scoped")
+	iamC := iamClient()
+	scoped, err := iamC.CreateRole(ctx, &iam.CreateRoleInput{
+		RoleName: aws.String(uniqueName("states-scoped")),
+		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+			`"Principal":{"Service":"states.amazonaws.com"},"Action":"sts:AssumeRole",` +
+			`"Condition":{"ArnLike":{"aws:SourceArn":"arn:aws:states:*:` + strings.Split(trusted, ":")[4] +
+			`:stateMachine:` + scopedName + `"}}}]}`),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = iamC.DeleteRole(context.Background(), &iam.DeleteRoleInput{RoleName: scoped.Role.RoleName})
+	})
+	_, err = create(uniqueName("sfn-unscoped"), aws.ToString(scoped.Role.Arn))
+	requireAWSError(t, err, "AccessDeniedException", statesRoleRefusal)
+	scopedMachine, err := create(scopedName, aws.ToString(scoped.Role.Arn))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteStateMachine(context.Background(), &sfn.DeleteStateMachineInput{StateMachineArn: scopedMachine.StateMachineArn})
+	})
+}
+
+const schedulerRoleRefusal = "The execution role you provide must allow AWS EventBridge Scheduler to assume the role."
+
+// EventBridge Scheduler refuses a target role it cannot assume, at create and
+// at update.
+func TestScheduler_RefusesATargetRoleItCannotAssume_SDK(t *testing.T) {
+	t.Parallel()
+	c := schedulerClient()
+	otherService, absent := untrustedRoles(t)
+	queue := "arn:aws:sqs:us-east-1:" + strings.Split(otherService, ":")[4] + ":" + uniqueName("scheduler-trust")
+	target := func(role string) *schedtypes.Target {
+		return &schedtypes.Target{Arn: aws.String(queue), RoleArn: aws.String(role), Input: aws.String("tick")}
+	}
+	window := &schedtypes.FlexibleTimeWindow{Mode: schedtypes.FlexibleTimeWindowModeOff}
+	for _, role := range []string{otherService, absent} {
+		_, err := c.CreateSchedule(ctx, &scheduler.CreateScheduleInput{
+			Name: aws.String(uniqueName("sched-untrusted")), ScheduleExpression: aws.String("rate(1 day)"),
+			FlexibleTimeWindow: window, Target: target(role),
+		})
+		requireAWSError(t, err, "ValidationException", schedulerRoleRefusal)
+	}
+
+	trusted := serviceRole(t, "scheduler.amazonaws.com")
+	name := uniqueName("sched-trusted")
+	_, err := c.CreateSchedule(ctx, &scheduler.CreateScheduleInput{
+		Name: aws.String(name), ScheduleExpression: aws.String("rate(1 day)"),
+		FlexibleTimeWindow: window, Target: target(trusted),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteSchedule(context.Background(), &scheduler.DeleteScheduleInput{Name: aws.String(name)})
+	})
+	_, err = c.UpdateSchedule(ctx, &scheduler.UpdateScheduleInput{
+		Name: aws.String(name), ScheduleExpression: aws.String("rate(2 days)"),
+		FlexibleTimeWindow: window, Target: target(otherService),
+	})
+	requireAWSError(t, err, "ValidationException", schedulerRoleRefusal)
+	got, err := c.GetSchedule(ctx, &scheduler.GetScheduleInput{Name: aws.String(name)})
+	require.NoError(t, err)
+	assert.Equal(t, trusted, aws.ToString(got.Target.RoleArn))
+	assert.Equal(t, "rate(1 day)", aws.ToString(got.ScheduleExpression))
 }

@@ -175,6 +175,18 @@ func sfnWriteErrorStatus(w http.ResponseWriter, status int, code string, msg str
 	_ = json.NewEncoder(w).Encode(awsErrorBody("sfn", code, msg))
 }
 
+// sfnCanAssumeRole writes Step Functions' refusal of an execution role that
+// names no role, or one whose trust policy does not let Step Functions assume
+// it on behalf of stateMachineArn.
+func sfnCanAssumeRole(w http.ResponseWriter, role, stateMachineArn string) bool {
+	if _, err := iamServiceTrustedRole(role, "states.amazonaws.com", stateMachineArn); err != nil {
+		sfnWriteError(w, "AccessDeniedException",
+			"Neither the global service principal states.amazonaws.com, or the regional one is authorized to assume the provided role.")
+		return false
+	}
+	return true
+}
+
 func handleSFNCreateStateMachine(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name                    string         `json:"name"`
@@ -241,6 +253,9 @@ func handleSFNCreateStateMachine(w http.ResponseWriter, r *http.Request) {
 		req.EncryptionConfiguration = map[string]any{"type": "AWS_OWNED_KEY"}
 	}
 	arn := sfnARN("stateMachine:" + req.Name)
+	if !sfnCanAssumeRole(w, req.RoleArn, arn) {
+		return
+	}
 	now := sfnEpochNow()
 	sm := SFNStateMachine{
 		StateMachineArn:         arn,
@@ -427,6 +442,9 @@ func handleSFNUpdateStateMachine(w http.ResponseWriter, r *http.Request) {
 		sm.Definition = req.Definition
 	}
 	if req.RoleArn != "" {
+		if !sfnCanAssumeRole(w, req.RoleArn, sm.StateMachineArn) {
+			return
+		}
 		sm.RoleArn = req.RoleArn
 	}
 	if req.LoggingConfiguration != nil {
@@ -2729,6 +2747,9 @@ func handleSFNTestState(w http.ResponseWriter, r *http.Request) {
 	}
 	if stateName == "" {
 		stateName = "TestState"
+	}
+	if req.RoleArn != "" && !sfnCanAssumeRole(w, req.RoleArn, "") {
+		return
 	}
 	if req.Context != "" && len(req.Mock) == 0 {
 		sfnWriteError(w, "ValidationException", "context can only be specified together with mock")

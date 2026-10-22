@@ -231,3 +231,48 @@ func TestECS_RefusesToLaunchATaskWithARoleItCannotAssume_CLI(t *testing.T) {
 	cleanupCLIECSTask(t, cluster, taskArn)
 	waitECSTaskStoppedCLI(t, cluster, taskArn)
 }
+
+func TestSFN_RefusesAnExecutionRoleItCannotAssume_CLI(t *testing.T) {
+	t.Parallel()
+	otherService, absent := cliUntrustedRoles(t)
+	const refusal = "Neither the global service principal states.amazonaws.com, or the regional one is authorized to assume the provided role."
+	const definition = `{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}`
+	create := func(name, role string) []string {
+		return []string{"stepfunctions", "create-state-machine", "--name", name, "--definition", definition,
+			"--role-arn", role, "--query", "stateMachineArn", "--output", "text"}
+	}
+	syncEndpoint := sfnSyncEndpoint(t)
+	for _, role := range []string{otherService, absent} {
+		out := runCLIExpectError(t, awsCLI(create(cliUniqueName("cli-sfn-untrusted"), role)...))
+		assertCLIRefusal(t, out, "AccessDeniedException", refusal)
+		out = runCLIExpectError(t, awsCLIHostPrefixed("stepfunctions", "test-state",
+			"--definition", `{"Type":"Pass","End":true}`, "--role-arn", role, "--endpoint-url", syncEndpoint))
+		assertCLIRefusal(t, out, "AccessDeniedException", refusal)
+	}
+
+	machine := strings.TrimSpace(runCLI(t, awsCLI(create(cliUniqueName("cli-sfn-trusted"), cliServiceRole(t, "states.amazonaws.com"))...)))
+	t.Cleanup(func() { _ = awsCLI("stepfunctions", "delete-state-machine", "--state-machine-arn", machine).Run() })
+	out := runCLIExpectError(t, awsCLI("stepfunctions", "update-state-machine", "--state-machine-arn", machine, "--role-arn", otherService))
+	assertCLIRefusal(t, out, "AccessDeniedException", refusal)
+}
+
+func TestScheduler_RefusesATargetRoleItCannotAssume_CLI(t *testing.T) {
+	t.Parallel()
+	otherService, absent := cliUntrustedRoles(t)
+	const refusal = "The execution role you provide must allow AWS EventBridge Scheduler to assume the role."
+	queue := "arn:aws:sqs:us-east-1:" + strings.Split(otherService, ":")[4] + ":" + cliUniqueName("cli-sched-trust")
+	schedule := func(operation, name, expression, role string) []string {
+		return []string{"scheduler", operation, "--name", name, "--schedule-expression", expression,
+			"--flexible-time-window", `{"Mode":"OFF"}`, "--target", `{"Arn":"` + queue + `","RoleArn":"` + role + `","Input":"tick"}`}
+	}
+	for _, role := range []string{otherService, absent} {
+		out := runCLIExpectError(t, awsCLI(schedule("create-schedule", cliUniqueName("cli-sched-untrusted"), "rate(1 day)", role)...))
+		assertCLIRefusal(t, out, "ValidationException", refusal)
+	}
+
+	name := cliUniqueName("cli-sched-trusted")
+	runCLI(t, awsCLI(schedule("create-schedule", name, "rate(1 day)", cliServiceRole(t, "scheduler.amazonaws.com"))...))
+	t.Cleanup(func() { _ = awsCLI("scheduler", "delete-schedule", "--name", name).Run() })
+	out := runCLIExpectError(t, awsCLI(schedule("update-schedule", name, "rate(2 days)", otherService)...))
+	assertCLIRefusal(t, out, "ValidationException", refusal)
+}

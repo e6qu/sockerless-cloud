@@ -138,7 +138,7 @@ func TestScheduler_ExpressionTimezoneValidationSDK(t *testing.T) {
 	c := schedulerClient()
 	target := &schedtypes.Target{
 		Arn:     aws.String("arn:aws:sqs:us-east-1:123456789012:scheduler-tz-target"),
-		RoleArn: aws.String("arn:aws:iam::123456789012:role/scheduler"),
+		RoleArn: aws.String(serviceRole(t, "scheduler.amazonaws.com")),
 	}
 	window := &schedtypes.FlexibleTimeWindow{Mode: schedtypes.FlexibleTimeWindowModeOff}
 	_, err := c.CreateSchedule(ctx, &scheduler.CreateScheduleInput{

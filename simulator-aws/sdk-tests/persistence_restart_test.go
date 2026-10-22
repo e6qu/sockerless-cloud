@@ -266,10 +266,11 @@ func TestAWSServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	statesRoleArn := persistentServiceRole(t, endpoint, "persistent-sfn-role", "states.amazonaws.com")
 	stateMachine, err := stepFunctionsAPI.CreateStateMachine(testCtx, &sfn.CreateStateMachineInput{
 		Name:       aws.String("persistent-state-machine"),
 		Definition: aws.String(`{"StartAt":"Persisted","States":{"Persisted":{"Type":"Pass","Result":{"value":"survived"},"End":true}}}`),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/persistent-sfn-role"),
+		RoleArn:    aws.String(statesRoleArn),
 		Type:       sfntypes.StateMachineTypeStandard,
 	})
 	require.NoError(t, err)
@@ -289,7 +290,7 @@ func TestAWSServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	waitMachine, err := stepFunctionsAPI.CreateStateMachine(testCtx, &sfn.CreateStateMachineInput{
 		Name:       aws.String("restart-wait-state-machine"),
 		Definition: aws.String(`{"StartAt":"WaitAcrossRestart","States":{"WaitAcrossRestart":{"Type":"Wait","Seconds":3,"Next":"Done"},"Done":{"Type":"Succeed"}}}`),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/persistent-sfn-role"),
+		RoleArn:    aws.String(statesRoleArn),
 		Type:       sfntypes.StateMachineTypeStandard,
 	})
 	require.NoError(t, err)

@@ -118,7 +118,7 @@ func TestSFNCLI_VersionsAndValidate(t *testing.T) {
 	t.Parallel()
 	const def = `{"StartAt":"x","States":{"x":{"Type":"Pass","End":true}}}`
 	sm := strings.TrimSpace(runCLI(t, awsCLI("stepfunctions", "create-state-machine", "--name", "cli-cov-sm",
-		"--definition", def, "--role-arn", "arn:aws:iam::123456789012:role/r", "--query", "stateMachineArn", "--output", "text")))
+		"--definition", def, "--role-arn", cliServiceRole(t, "states.amazonaws.com"), "--query", "stateMachineArn", "--output", "text")))
 	// A published version appears in the listing under the state machine that
 	// published it; a machine with no published version lists none.
 	var versions struct {

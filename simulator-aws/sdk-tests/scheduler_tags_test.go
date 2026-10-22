@@ -79,7 +79,7 @@ func TestScheduler_ScheduleTags(t *testing.T) {
 		FlexibleTimeWindow: &schedtypes.FlexibleTimeWindow{Mode: schedtypes.FlexibleTimeWindowModeOff},
 		Target: &schedtypes.Target{
 			Arn:     aws.String("arn:aws:lambda:us-east-1:123456789012:function:tagged"),
-			RoleArn: aws.String("arn:aws:iam::123456789012:role/scheduler-role"),
+			RoleArn: aws.String(serviceRole(t, "scheduler.amazonaws.com")),
 		},
 	})
 	require.NoError(t, err)

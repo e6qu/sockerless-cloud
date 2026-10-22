@@ -168,7 +168,7 @@ func TestSFN_StateMachineQualifierConditionKeyScopesTheGrant(t *testing.T) {
 	machine, err := admin.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String(machineName),
 		Definition: aws.String(`{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}`),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn:    aws.String(serviceRole(t, "states.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {

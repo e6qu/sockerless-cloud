@@ -744,7 +744,7 @@ func iamSeedConditionKeyFixtures(t *testing.T, srv *sim.Server) map[string]map[s
 		"PermissionsBoundary": {boundary}, "Tags.member.1.Key": {"owner"}, "Tags.member.1.Value": {"platform"}})
 	query(url.Values{"Action": {"CreateRole"}, "Version": {"2010-05-08"}, "RoleName": {"probe"},
 		"AssumeRolePolicyDocument": {`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
-			`"Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`},
+			`"Principal":{"Service":["lambda.amazonaws.com","states.amazonaws.com"]},"Action":"sts:AssumeRole"}]}`},
 		"PermissionsBoundary": {boundary}, "Tags.member.1.Key": {"owner"}, "Tags.member.1.Value": {"platform"}})
 
 	// Amazon S3 Access Grants: a tagged instance, a tagged location behind the

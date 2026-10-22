@@ -1035,8 +1035,21 @@ resource "aws_scheduler_schedule" "tf_schedule" {
 
   target {
     arn      = aws_lambda_function.tf_lambda.arn
-    role_arn = "arn:aws:iam::123456789012:role/tf-scheduler"
+    role_arn = aws_iam_role.tf_scheduler_role.arn
   }
+}
+
+resource "aws_iam_role" "tf_scheduler_role" {
+  name = "tf-scheduler"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "scheduler.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
 }
 
 data "aws_lambda_invocation" "tf_lambda_echo" {
@@ -1941,9 +1954,22 @@ output "s3_bucket_metric_name" {
 
 # ── Step Functions ──────────────────────────────────────────────────────────
 
+resource "aws_iam_role" "tf_sfn_role" {
+  name = "tf-sfn-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "states.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
 resource "aws_sfn_state_machine" "tf_sfn_sm" {
   name     = "tf-sfn-state-machine"
-  role_arn = "arn:aws:iam::123456789012:role/sfn-role"
+  role_arn = aws_iam_role.tf_sfn_role.arn
   publish  = true
 
   definition = jsonencode({

@@ -121,7 +121,7 @@ func TestCloudTrailRecordsSchedulerAPICallsSDK(t *testing.T) {
 		FlexibleTimeWindow: &schedtypes.FlexibleTimeWindow{Mode: schedtypes.FlexibleTimeWindowModeOff},
 		Target: &schedtypes.Target{
 			Arn:     aws.String("arn:aws:sqs:us-east-1:123456789012:ct-api-queue"),
-			RoleArn: aws.String("arn:aws:iam::123456789012:role/scheduler"),
+			RoleArn: aws.String(serviceRole(t, "scheduler.amazonaws.com")),
 		},
 	})
 	require.NoError(t, err)
