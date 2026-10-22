@@ -507,3 +507,26 @@ func TestScheduler_RefusesATargetRoleItCannotAssume_SDK(t *testing.T) {
 	assert.Equal(t, trusted, aws.ToString(got.Target.RoleArn))
 	assert.Equal(t, "rate(1 day)", aws.ToString(got.ScheduleExpression))
 }
+
+// A trust policy may name a service by its regional principal: Step Functions
+// takes a role trusting states.<region>.amazonaws.com in the Region it runs
+// in, and refuses one trusting another Region's.
+func TestStepFunctions_TakesARoleTrustingItsRegionalPrincipal_SDK(t *testing.T) {
+	t.Parallel()
+	c := sfnClient()
+	const definition = `{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}`
+	regional := serviceRole(t, "states.us-east-1.amazonaws.com")
+	created, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
+		Name: aws.String(uniqueName("sfn-regional")), Definition: aws.String(definition), RoleArn: aws.String(regional),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteStateMachine(context.Background(), &sfn.DeleteStateMachineInput{StateMachineArn: created.StateMachineArn})
+	})
+
+	elsewhere := serviceRole(t, "states.eu-west-1.amazonaws.com")
+	_, err = c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
+		Name: aws.String(uniqueName("sfn-elsewhere")), Definition: aws.String(definition), RoleArn: aws.String(elsewhere),
+	})
+	requireAWSError(t, err, "AccessDeniedException", statesRoleRefusal)
+}

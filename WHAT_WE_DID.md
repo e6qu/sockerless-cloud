@@ -4314,3 +4314,11 @@ provision before it split traffic with `latest`, which Container Apps
 resolves to the latest ready revision; it had sent the change and split the
 traffic at once, so on a slow runner the split landed on the earlier
 revision.
+
+A trust policy's `Service` principal named a service by its regional name in
+the simulator's Region, `states.us-east-1.amazonaws.com`, as well as by its
+global name, so AWS Step Functions and every other service whose role the
+simulator checks took a role that trusted the regional principal. AWS
+Systems Manager's cloud connector validation read the trust policy through
+the same evaluation, where it had searched the document's text for
+`ssm.amazonaws.com`.

@@ -17,12 +17,12 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `Action AmazonSSM.CreateCloudConnector` | ✓ `simulator-aws/ssm_cloud_connectors.go:60::handleSSMCreateCloudConnector` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonSSM.GetCloudConnector` | ✓ `simulator-aws/ssm_cloud_connectors.go:61::handleSSMGetCloudConnector` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonSSM.ListCloudConnectors` | ✓ `simulator-aws/ssm_cloud_connectors.go:62::handleSSMListCloudConnectors` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonSSM.UpdateCloudConnector` | ✓ `simulator-aws/ssm_cloud_connectors.go:63::handleSSMUpdateCloudConnector` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonSSM.DeleteCloudConnector` | ✓ `simulator-aws/ssm_cloud_connectors.go:64::handleSSMDeleteCloudConnector` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AmazonSSM.ValidateCloudConnector` | ✓ `simulator-aws/ssm_cloud_connectors.go:65::handleSSMValidateCloudConnector` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonSSM.CreateCloudConnector` | ✓ `simulator-aws/ssm_cloud_connectors.go:59::handleSSMCreateCloudConnector` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonSSM.GetCloudConnector` | ✓ `simulator-aws/ssm_cloud_connectors.go:60::handleSSMGetCloudConnector` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonSSM.ListCloudConnectors` | ✓ `simulator-aws/ssm_cloud_connectors.go:61::handleSSMListCloudConnectors` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonSSM.UpdateCloudConnector` | ✓ `simulator-aws/ssm_cloud_connectors.go:62::handleSSMUpdateCloudConnector` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonSSM.DeleteCloudConnector` | ✓ `simulator-aws/ssm_cloud_connectors.go:63::handleSSMDeleteCloudConnector` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AmazonSSM.ValidateCloudConnector` | ✓ `simulator-aws/ssm_cloud_connectors.go:64::handleSSMValidateCloudConnector` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AmazonSSM.CreateDocument` | ✓ `simulator-aws/ssm_documents.go:52::handleSSMCreateDocument` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AmazonSSM.DeleteDocument` | ✓ `simulator-aws/ssm_documents.go:53::handleSSMDeleteDocument` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AmazonSSM.DescribeDocument` | ✓ `simulator-aws/ssm_documents.go:54::handleSSMDescribeDocument` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

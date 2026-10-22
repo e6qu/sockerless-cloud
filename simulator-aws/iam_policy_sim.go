@@ -156,7 +156,7 @@ func iamPrincipalMatchKind(stmt iamStatement, callerArn string, ctx map[string][
 		}
 		for _, want := range p.Service {
 			for _, svc := range ctx["aws:CalledVia"] {
-				if want == svc {
+				if iamServicePrincipalNames(want, svc) {
 					return iamPrincipalNamed
 				}
 			}
@@ -179,6 +179,17 @@ func iamPrincipalMatchKind(stmt iamStatement, callerArn string, ctx map[string][
 		return iamPrincipalNamed
 	}
 	return matchOne(stmt.Principal)
+}
+
+// iamServicePrincipalNames reports whether a Service principal names a
+// service: by its global name, `states.amazonaws.com`, or by its regional name
+// in the simulator's Region, `states.us-east-1.amazonaws.com`.
+func iamServicePrincipalNames(principal, service string) bool {
+	if principal == service {
+		return true
+	}
+	name, ok := strings.CutSuffix(service, ".amazonaws.com")
+	return ok && principal == name+"."+awsRegion()+".amazonaws.com"
 }
 
 // iamAccountFromArn returns the account id of an account-principal — a bare
