@@ -3935,6 +3935,15 @@ gate now sets both: the mode a `CreateSession` asks for (`ReadWrite` when the
 request names none), and `ActionConfiguration.AlarmTagsPropagation.Enabled` on
 the three alarm writes over Query, JSON and CBOR.
 
+Amazon CloudWatch alarms of all three kinds store the `ActionConfiguration`
+they are written with and return it, with the alarm's `OKActions` and
+`InsufficientDataActions`, from every `DescribeAlarms` and
+`DescribeAlarmsForMetric` shape. Enabling `AlarmTagsPropagation` reads the
+alarm's tags, so the gate authorizes such a write against
+`cloudwatch:ListTagsForResource` on the alarm as well, as the model's
+documentation of `Enabled` requires. Query `PutCompositeAlarm` keeps the
+alarm's tags too.
+
 From golangci-lint v2.15.0, errcheck counts a receive from an error channel
 that drops the value as an unchecked error. A proxy that waits for either
 direction to end signals on a completion channel instead,

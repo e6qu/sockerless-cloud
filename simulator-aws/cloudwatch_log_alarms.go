@@ -27,28 +27,29 @@ import (
 // CWLogAlarm holds a log alarm and the identity of the scheduled query
 // PutLogAlarm provisioned for it.
 type CWLogAlarm struct {
-	AlarmName               string   `json:"AlarmName"`
-	AlarmArn                string   `json:"AlarmArn"`
-	AlarmDescription        string   `json:"AlarmDescription,omitempty"`
-	QueryString             string   `json:"QueryString"`
-	LogGroupIdentifiers     []string `json:"LogGroupIdentifiers,omitempty"`
-	QueryARN                string   `json:"QueryARN"`
-	ScheduledQueryRoleARN   string   `json:"ScheduledQueryRoleARN"`
-	ScheduleExpression      string   `json:"ScheduleExpression"`
-	StartTimeOffset         int64    `json:"StartTimeOffset"`
-	EndTimeOffset           int64    `json:"EndTimeOffset"`
-	AggregationExpression   string   `json:"AggregationExpression"`
-	QueryResultsToEvaluate  int32    `json:"QueryResultsToEvaluate"`
-	QueryResultsToAlarm     int32    `json:"QueryResultsToAlarm"`
-	Threshold               float64  `json:"Threshold"`
-	ComparisonOperator      string   `json:"ComparisonOperator"`
-	TreatMissingData        string   `json:"TreatMissingData,omitempty"`
-	ActionsEnabled          bool     `json:"ActionsEnabled"`
-	OKActions               []string `json:"OKActions,omitempty"`
-	AlarmActions            []string `json:"AlarmActions,omitempty"`
-	InsufficientDataActions []string `json:"InsufficientDataActions,omitempty"`
-	ActionLogLineCount      *int32   `json:"ActionLogLineCount,omitempty"`
-	ActionLogLineRoleArn    string   `json:"ActionLogLineRoleArn,omitempty"`
+	AlarmName               string                 `json:"AlarmName"`
+	AlarmArn                string                 `json:"AlarmArn"`
+	AlarmDescription        string                 `json:"AlarmDescription,omitempty"`
+	QueryString             string                 `json:"QueryString"`
+	LogGroupIdentifiers     []string               `json:"LogGroupIdentifiers,omitempty"`
+	QueryARN                string                 `json:"QueryARN"`
+	ScheduledQueryRoleARN   string                 `json:"ScheduledQueryRoleARN"`
+	ScheduleExpression      string                 `json:"ScheduleExpression"`
+	StartTimeOffset         int64                  `json:"StartTimeOffset"`
+	EndTimeOffset           int64                  `json:"EndTimeOffset"`
+	AggregationExpression   string                 `json:"AggregationExpression"`
+	QueryResultsToEvaluate  int32                  `json:"QueryResultsToEvaluate"`
+	QueryResultsToAlarm     int32                  `json:"QueryResultsToAlarm"`
+	Threshold               float64                `json:"Threshold"`
+	ComparisonOperator      string                 `json:"ComparisonOperator"`
+	TreatMissingData        string                 `json:"TreatMissingData,omitempty"`
+	ActionsEnabled          bool                   `json:"ActionsEnabled"`
+	OKActions               []string               `json:"OKActions,omitempty"`
+	AlarmActions            []string               `json:"AlarmActions,omitempty"`
+	InsufficientDataActions []string               `json:"InsufficientDataActions,omitempty"`
+	ActionLogLineCount      *int32                 `json:"ActionLogLineCount,omitempty"`
+	ActionLogLineRoleArn    string                 `json:"ActionLogLineRoleArn,omitempty"`
+	ActionConfiguration     *cwActionConfiguration `json:"ActionConfiguration,omitempty"`
 
 	ConfigurationUpdated int64             `json:"-"`
 	Tags                 map[string]string `json:"-"`
@@ -89,18 +90,19 @@ type cwPutLogAlarmInput struct {
 		AggregationExpression string    `json:"AggregationExpression" cbor:"AggregationExpression"`
 		Tags                  []cwTagKV `json:"Tags" cbor:"Tags"`
 	} `json:"ScheduledQueryConfiguration" cbor:"ScheduledQueryConfiguration"`
-	ActionLogLineCount      *int32    `json:"ActionLogLineCount" cbor:"ActionLogLineCount"`
-	ActionLogLineRoleArn    string    `json:"ActionLogLineRoleArn" cbor:"ActionLogLineRoleArn"`
-	ActionsEnabled          *bool     `json:"ActionsEnabled" cbor:"ActionsEnabled"`
-	OKActions               []string  `json:"OKActions" cbor:"OKActions"`
-	AlarmActions            []string  `json:"AlarmActions" cbor:"AlarmActions"`
-	InsufficientDataActions []string  `json:"InsufficientDataActions" cbor:"InsufficientDataActions"`
-	QueryResultsToEvaluate  *int32    `json:"QueryResultsToEvaluate" cbor:"QueryResultsToEvaluate"`
-	QueryResultsToAlarm     *int32    `json:"QueryResultsToAlarm" cbor:"QueryResultsToAlarm"`
-	Threshold               *float64  `json:"Threshold" cbor:"Threshold"`
-	ComparisonOperator      string    `json:"ComparisonOperator" cbor:"ComparisonOperator"`
-	TreatMissingData        string    `json:"TreatMissingData" cbor:"TreatMissingData"`
-	Tags                    []cwTagKV `json:"Tags" cbor:"Tags"`
+	ActionLogLineCount      *int32                 `json:"ActionLogLineCount" cbor:"ActionLogLineCount"`
+	ActionLogLineRoleArn    string                 `json:"ActionLogLineRoleArn" cbor:"ActionLogLineRoleArn"`
+	ActionsEnabled          *bool                  `json:"ActionsEnabled" cbor:"ActionsEnabled"`
+	OKActions               []string               `json:"OKActions" cbor:"OKActions"`
+	AlarmActions            []string               `json:"AlarmActions" cbor:"AlarmActions"`
+	InsufficientDataActions []string               `json:"InsufficientDataActions" cbor:"InsufficientDataActions"`
+	QueryResultsToEvaluate  *int32                 `json:"QueryResultsToEvaluate" cbor:"QueryResultsToEvaluate"`
+	QueryResultsToAlarm     *int32                 `json:"QueryResultsToAlarm" cbor:"QueryResultsToAlarm"`
+	Threshold               *float64               `json:"Threshold" cbor:"Threshold"`
+	ComparisonOperator      string                 `json:"ComparisonOperator" cbor:"ComparisonOperator"`
+	TreatMissingData        string                 `json:"TreatMissingData" cbor:"TreatMissingData"`
+	Tags                    []cwTagKV              `json:"Tags" cbor:"Tags"`
+	ActionConfiguration     *cwActionConfiguration `json:"ActionConfiguration" cbor:"ActionConfiguration"`
 }
 
 // cwValidateLogAlarm applies PutLogAlarm's modeled constraints. It returns the
@@ -147,6 +149,9 @@ func cwValidateLogAlarm(req *cwPutLogAlarmInput) (code, msg string, status int, 
 	}
 	if _, taken := cwCompositeAlarms.Get(req.AlarmName); taken {
 		return "ResourceConflict", "A composite alarm named " + req.AlarmName + " already exists.", http.StatusConflict, false
+	}
+	if code, msg, ok := cwValidateActionConfiguration(req.ActionConfiguration); !ok {
+		return code, msg, http.StatusBadRequest, false
 	}
 	return "", "", 0, true
 }
@@ -207,6 +212,7 @@ func cwApplyPutLogAlarm(req *cwPutLogAlarmInput) CWLogAlarm {
 		InsufficientDataActions: req.InsufficientDataActions,
 		ActionLogLineCount:      req.ActionLogLineCount,
 		ActionLogLineRoleArn:    req.ActionLogLineRoleArn,
+		ActionConfiguration:     req.ActionConfiguration,
 		ConfigurationUpdated:    time.Now().UTC().Unix(),
 	}
 	tags := req.Tags
@@ -439,33 +445,37 @@ func cwJSONLogAlarm(a CWLogAlarm, now time.Time) map[string]any {
 	if a.ActionLogLineRoleArn != "" {
 		out["ActionLogLineRoleArn"] = a.ActionLogLineRoleArn
 	}
+	if a.ActionConfiguration != nil {
+		out["ActionConfiguration"] = a.ActionConfiguration
+	}
 	return out
 }
 
 // cborLogAlarm is the DescribeAlarms LogAlarm response shape on the
 // rpc-v2-cbor surface, whose timestamps are CBOR times.
 type cborLogAlarm struct {
-	AlarmName                          string         `cbor:"AlarmName"`
-	AlarmArn                           string         `cbor:"AlarmArn"`
-	AlarmDescription                   string         `cbor:"AlarmDescription,omitempty"`
-	AlarmConfigurationUpdatedTimestamp time.Time      `cbor:"AlarmConfigurationUpdatedTimestamp"`
-	ActionsEnabled                     bool           `cbor:"ActionsEnabled"`
-	OKActions                          []string       `cbor:"OKActions,omitempty"`
-	AlarmActions                       []string       `cbor:"AlarmActions,omitempty"`
-	InsufficientDataActions            []string       `cbor:"InsufficientDataActions,omitempty"`
-	StateValue                         string         `cbor:"StateValue"`
-	StateReason                        string         `cbor:"StateReason,omitempty"`
-	StateUpdatedTimestamp              time.Time      `cbor:"StateUpdatedTimestamp"`
-	StateTransitionedTimestamp         time.Time      `cbor:"StateTransitionedTimestamp"`
-	ScheduledQueryConfiguration        map[string]any `cbor:"ScheduledQueryConfiguration"`
-	QueryResultsToEvaluate             int32          `cbor:"QueryResultsToEvaluate"`
-	QueryResultsToAlarm                int32          `cbor:"QueryResultsToAlarm"`
-	Threshold                          float64        `cbor:"Threshold"`
-	ComparisonOperator                 string         `cbor:"ComparisonOperator"`
-	TreatMissingData                   string         `cbor:"TreatMissingData,omitempty"`
-	EvaluationState                    string         `cbor:"EvaluationState,omitempty"`
-	ActionLogLineCount                 *int32         `cbor:"ActionLogLineCount,omitempty"`
-	ActionLogLineRoleArn               string         `cbor:"ActionLogLineRoleArn,omitempty"`
+	AlarmName                          string                 `cbor:"AlarmName"`
+	AlarmArn                           string                 `cbor:"AlarmArn"`
+	AlarmDescription                   string                 `cbor:"AlarmDescription,omitempty"`
+	AlarmConfigurationUpdatedTimestamp time.Time              `cbor:"AlarmConfigurationUpdatedTimestamp"`
+	ActionsEnabled                     bool                   `cbor:"ActionsEnabled"`
+	OKActions                          []string               `cbor:"OKActions,omitempty"`
+	AlarmActions                       []string               `cbor:"AlarmActions,omitempty"`
+	InsufficientDataActions            []string               `cbor:"InsufficientDataActions,omitempty"`
+	StateValue                         string                 `cbor:"StateValue"`
+	StateReason                        string                 `cbor:"StateReason,omitempty"`
+	StateUpdatedTimestamp              time.Time              `cbor:"StateUpdatedTimestamp"`
+	StateTransitionedTimestamp         time.Time              `cbor:"StateTransitionedTimestamp"`
+	ScheduledQueryConfiguration        map[string]any         `cbor:"ScheduledQueryConfiguration"`
+	QueryResultsToEvaluate             int32                  `cbor:"QueryResultsToEvaluate"`
+	QueryResultsToAlarm                int32                  `cbor:"QueryResultsToAlarm"`
+	Threshold                          float64                `cbor:"Threshold"`
+	ComparisonOperator                 string                 `cbor:"ComparisonOperator"`
+	TreatMissingData                   string                 `cbor:"TreatMissingData,omitempty"`
+	EvaluationState                    string                 `cbor:"EvaluationState,omitempty"`
+	ActionLogLineCount                 *int32                 `cbor:"ActionLogLineCount,omitempty"`
+	ActionLogLineRoleArn               string                 `cbor:"ActionLogLineRoleArn,omitempty"`
+	ActionConfiguration                *cwActionConfiguration `cbor:"ActionConfiguration,omitempty"`
 }
 
 func cborLogAlarmOf(a CWLogAlarm, now time.Time) cborLogAlarm {
@@ -492,6 +502,7 @@ func cborLogAlarmOf(a CWLogAlarm, now time.Time) cborLogAlarm {
 		EvaluationState:                    evalState,
 		ActionLogLineCount:                 a.ActionLogLineCount,
 		ActionLogLineRoleArn:               a.ActionLogLineRoleArn,
+		ActionConfiguration:                a.ActionConfiguration,
 	}
 }
 

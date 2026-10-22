@@ -70,9 +70,26 @@ func cwQueryMetricAlarmsXML(alarms []CWAlarm, now time.Time) string {
 			fmt.Fprintf(&members, "<member>%s</member>", xmlEscape(act))
 		}
 		members.WriteString("</AlarmActions>")
+		members.WriteString(cwQueryMemberList("OKActions", a.OKActions))
+		members.WriteString(cwQueryMemberList("InsufficientDataActions", a.InsufficientDataActions))
+		members.WriteString(cwActionConfigurationXML(a.ActionConfiguration))
 		fmt.Fprintf(&members, "<StateValue>%s</StateValue><StateReason>%s</StateReason><StateUpdatedTimestamp>%s</StateUpdatedTimestamp>",
 			state, xmlEscape(reason), now.Format(time.RFC3339))
 		members.WriteString("</member>")
 	}
 	return members.String()
+}
+
+// cwQueryMemberList renders a list member, empty when the list is.
+func cwQueryMemberList(name string, values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "<%s>", name)
+	for _, v := range values {
+		fmt.Fprintf(&b, "<member>%s</member>", xmlEscape(v))
+	}
+	fmt.Fprintf(&b, "</%s>", name)
+	return b.String()
 }
