@@ -467,4 +467,4 @@ func freeTCPUDPPort() (int, error) {
 // debianCatalogImage is the OCI image the simulator's public catalog boots a
 // Debian 12 instance from, pinned as the catalog pins it; the engine picks the
 // platform's manifest out of the index.
-const debianCatalogImage = "mirror.gcr.io/library/debian:12@sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858"
+const debianCatalogImage = "mirror.gcr.io/library/debian:12@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61"
