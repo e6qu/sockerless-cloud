@@ -4421,3 +4421,14 @@ operation takes a scoped drift exemption whose reason is `BUGS.md <id>`, and
 `TestScopedDriftExemptionsCiteOpenBugs` holds the exemption to that row: it
 fails once the row closes while the operation is still unserved, and once the
 operation is served while the exemption remains.
+
+The network sidecar's image, built on the engine since it left git, costs a
+cold runner over a minute, longer than a suite's first workload waits. CI
+builds it, and the microVM node agent's image, with `scripts/ci-engine-image.sh`:
+a start step launches `make sidecar-image` or `make node-agent-image` in the
+background at the top of the job, holding a lock in `RUNNER_TEMP` until the
+build ends, and a wait step before the suites blocks on that lock. A test that
+acts on an instance waits for the state the action requires, as the AWS CLI's
+`ec2 wait instance-running` does before `reboot-instances`: Amazon EC2 refuses
+to reboot a pending instance, and the instant committed sidecar had hidden
+that race.

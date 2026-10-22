@@ -92,7 +92,7 @@ func Start(ctx context.Context, spec Spec, sink sim.LogSink) (*sim.ContainerHand
 	if err := sim.RequireContainerRuntime("starting a network sidecar"); err != nil {
 		return nil, err
 	}
-	image, platform, err := ensureImage(ctx, cli)
+	image, platform, err := EnsureImage(ctx, cli)
 	if err != nil {
 		return nil, err
 	}
@@ -152,9 +152,9 @@ func isRefused(err error) bool {
 	return errors.As(err, &sysErr) && bytes.Contains([]byte(err.Error()), []byte("refused"))
 }
 
-// ensureImage builds the sidecar image for the engine's own architecture,
+// EnsureImage builds the sidecar image for the engine's own architecture,
 // once per engine and source version, and returns the image and its platform.
-func ensureImage(ctx context.Context, cli *client.Client) (string, string, error) {
+func EnsureImage(ctx context.Context, cli *client.Client) (string, string, error) {
 	image, platform, err := sim.EnsureEngineBuild(ctx, cli, build)
 	if err != nil {
 		return "", "", fmt.Errorf("sidecar: %w", err)
@@ -202,7 +202,7 @@ func StartShares(ctx context.Context, spec SharesSpec, sink sim.LogSink) (*sim.C
 	if err := sim.RequireContainerRuntime("starting a share container"); err != nil {
 		return nil, err
 	}
-	image, platform, err := ensureImage(ctx, cli)
+	image, platform, err := EnsureImage(ctx, cli)
 	if err != nil {
 		return nil, err
 	}
@@ -292,7 +292,7 @@ func StartForwarder(ctx context.Context, spec ForwarderSpec, sink sim.LogSink) (
 	if err := sim.RequireContainerRuntime("starting a forwarder"); err != nil {
 		return nil, err
 	}
-	image, platform, err := ensureImage(ctx, cli)
+	image, platform, err := EnsureImage(ctx, cli)
 	if err != nil {
 		return nil, err
 	}
