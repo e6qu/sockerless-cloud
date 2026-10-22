@@ -4011,7 +4011,11 @@ Compute Engine subnetwork or an Azure virtual network takes the simulator's
 workload scope into its name, as the platform network does, so two
 simulators on one engine that hold the same subnetwork or virtual network
 realize it as two networks, each with its own sidecar; two of them over one
-range still cannot coexist on the engine (BUG-3482).
+range still cannot coexist on the engine (BUG-3482). An App Service classic
+virtual network connection that names a whole virtual network leases the
+site's address from the network's first subnet, so a network interface
+created later in that virtual network cannot lease the address the site
+holds.
 
 Every etag check holds the record it guards until its write is done: Secret
 Manager and Bigtable `SetIamPolicy` and their seeding `GetIamPolicy` share

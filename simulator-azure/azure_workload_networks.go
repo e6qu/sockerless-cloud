@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"sort"
 	"strings"
 	"sync"
 
@@ -179,6 +180,28 @@ func azureSubnetVNetNetwork(ctx context.Context, subnetID string) (azureWorkload
 		return azureWorkloadNetwork{}, fmt.Errorf("subnet %s not found", subnetID)
 	}
 	return azureVNetNetwork(ctx, azureVNetIDOfSubnet(subnetID))
+}
+
+// azureWholeVNetSubnet is the subnet whose ledger records the address a
+// connection naming a whole virtual network takes: the network's first
+// subnet, so a network interface created later in the virtual network
+// cannot lease the same address. A virtual network without a subnet has
+// none.
+func azureWholeVNetSubnet(vnet VirtualNetwork) string {
+	for _, listed := range vnet.Properties.Subnets {
+		if subnet, ok := azureSubnetByID(listed.ID); ok {
+			return subnet.ID
+		}
+	}
+	prefix := strings.ToLower(vnet.ID) + "/subnets/"
+	subnets := azureSubnets.Filter(func(subnet Subnet) bool {
+		return strings.HasPrefix(strings.ToLower(subnet.ID), prefix)
+	})
+	if len(subnets) == 0 {
+		return ""
+	}
+	sort.Slice(subnets, func(i, j int) bool { return subnets[i].ID < subnets[j].ID })
+	return subnets[0].ID
 }
 
 // azureLeaseWorkloadAddress leases an address in the subnet for a workload

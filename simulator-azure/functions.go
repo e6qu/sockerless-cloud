@@ -1232,6 +1232,9 @@ func (inst *azureFunctionInstance) siteNetworkLocked(ctx context.Context, site *
 			break
 		}
 	}
+	if subnetID == "" {
+		subnetID = azureWholeVNetSubnet(vnet)
+	}
 	return network, subnetID, nil
 }
 
@@ -1294,7 +1297,10 @@ func (inst *azureFunctionInstance) extraNetworksLocked(ctx context.Context, site
 				break
 			}
 		}
-		// A connection naming the virtual network and no subnet leaves the
+		if lease.subnetID == "" {
+			lease.subnetID = azureWholeVNetSubnet(vnet)
+		}
+		// A connection to a virtual network that has no subnet leaves the
 		// address to the engine, which a guest cannot take: its backend
 		// refuses the placement.
 		if lease.subnetID != "" {
