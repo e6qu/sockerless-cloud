@@ -3956,6 +3956,14 @@ choosing them one at a time released each before the next, so the system could
 return the same port twice, and the simulator and the HTTPS gateway's admin
 endpoint once both took one.
 
+A test that restarts a simulator on the same state directory binds the same
+ports twice, so it picks them below the system's ephemeral range: a port from
+that range went to another connection while the first process was down, and
+the restarted simulator could not listen. A Cloud Run instance whose container
+exits as a restart finishes its startup probe exits rather than fails to
+start: the engine can report the container stopped before its exit reaches
+the instance, and the restart policy waits for that exit.
+
 A Cloud Run service revision runs its instances as a `sim/replicas` set. A
 request takes a place on an instance with room for it, at most the revision's
 `maxInstanceRequestConcurrency` at once (80 by default, 1 below one CPU); when

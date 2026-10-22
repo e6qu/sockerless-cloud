@@ -4,10 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
+	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -29,20 +32,52 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// freePersistentSimPorts allocates the HTTP and gRPC ports for a dedicated
-// simulator process. Both listeners stay open while both ports are chosen so
-// the OS cannot hand the same port out twice.
+// freePersistentSimPorts picks the HTTP and gRPC ports for a dedicated
+// simulator process below the system's ephemeral port range. A restart binds
+// the same ports again, and a port from that range can go to any connection
+// the suite opens while the first process is down.
 func freePersistentSimPorts(t *testing.T) (int, int) {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	first := ephemeralPortRangeStart(t)
+	const lowest = 10000
+	require.Greater(t, first, lowest+1, "the ephemeral port range starts at %d, leaving no port below it", first)
+	for {
+		httpPort := lowest + rand.IntN(first-lowest-1)
+		grpcPort := httpPort + 1
+		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", httpPort))
+		if err != nil {
+			continue
+		}
+		ln2, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", grpcPort))
+		ln.Close()
+		if err != nil {
+			continue
+		}
+		ln2.Close()
+		return httpPort, grpcPort
+	}
+}
+
+// ephemeralPortRangeStart reads the first port the system hands out for a
+// bind to port 0 or an outgoing connection.
+func ephemeralPortRangeStart(t *testing.T) int {
+	t.Helper()
+	var raw string
+	switch runtime.GOOS {
+	case "linux":
+		b, err := os.ReadFile("/proc/sys/net/ipv4/ip_local_port_range")
+		require.NoError(t, err)
+		raw = strings.Fields(string(b))[0]
+	case "darwin":
+		out, err := exec.Command("sysctl", "-n", "net.inet.ip.portrange.first").Output()
+		require.NoError(t, err)
+		raw = strings.TrimSpace(string(out))
+	default:
+		t.Fatalf("no ephemeral port range reader for %s", runtime.GOOS)
+	}
+	first, err := strconv.Atoi(raw)
 	require.NoError(t, err)
-	ln2, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	httpPort := ln.Addr().(*net.TCPAddr).Port
-	grpcPort := ln2.Addr().(*net.TCPAddr).Port
-	ln.Close()
-	ln2.Close()
-	return httpPort, grpcPort
+	return first
 }
 
 // startPersistentSimulator launches its own API-only simulator process with
