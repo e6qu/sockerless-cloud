@@ -2463,7 +2463,7 @@ func recoverComputeOperations() {
 }
 
 func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork], subnetworks sim.Store[ComputeSubnetwork]) {
-	instances := sim.MakeStore[ComputeInstance](srv.DB(), "compute_instances")
+	var instances sim.Store[ComputeInstance] = gceMetadataSource[ComputeInstance]{sim.MakeStore[ComputeInstance](srv.DB(), "compute_instances")}
 	registerComputeInstanceVerbs(srv, instances)
 	gcpInstances = instances
 	recoverComputeInstances(instances)

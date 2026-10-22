@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
+	computeapi "google.golang.org/api/compute/v1"
 	"google.golang.org/api/iam/v1"
 	"google.golang.org/api/option"
 )
@@ -29,9 +30,21 @@ import (
 // GET of the service with the given request header.
 func metadataReader(t *testing.T) func(path string, header http.Header) serviceAnswer {
 	t.Helper()
-	svc := createInvokableService(t, newServicesClient(t), "metadata-reader", &runpb.Service{
-		Template: &runpb.RevisionTemplate{Containers: []*runpb.Container{{Image: metadataClientImageName}}},
+	return metadataReaderIn(t, "test-project")
+}
+
+// metadataReaderIn is metadataReader in project, on one instance, so the
+// requests a test makes reach the same container.
+func metadataReaderIn(t *testing.T, project string) func(path string, header http.Header) serviceAnswer {
+	t.Helper()
+	client := newServicesClient(t)
+	svc := createInvokableServiceIn(t, client, "projects/"+project+"/locations/us-central1", "metadata-reader", &runpb.Service{
+		Template: &runpb.RevisionTemplate{
+			Scaling:    &runpb.RevisionScaling{MaxInstanceCount: 1},
+			Containers: []*runpb.Container{{Image: metadataClientImageName}},
+		},
 	})
+	grantOnService(t, client, svc.Name, "roles/run.invoker", "serviceAccount:"+sdkInvokerEmail(t), nil)
 	token := invokerIDToken(t, svc.Uri)
 	return func(path string, header http.Header) serviceAnswer {
 		t.Helper()
@@ -229,4 +242,42 @@ func TestMetadata_CloudRunReadsThroughTheOfficialClient(t *testing.T) {
 		_, err = svc.Projects.ServiceAccounts.List("projects/test-project").Do()
 		require.NoError(t, err, "the data plane accepts the token the workload's credentials minted")
 	})
+}
+
+// A container long-polls the metadata server through the official client's
+// Subscribe, which reads a value with its ETag and then waits with
+// wait_for_change and last_etag: a setCommonInstanceMetadata answers the
+// waiting read with the new value, and removing the key answers it with not
+// found.
+func TestMetadata_CloudRunSubscribesToProjectAttributes(t *testing.T) {
+	t.Parallel()
+	const project = "metadata-subscribe"
+	requireProject(t, project)
+	compute := computeService(t)
+	setAttributes := func(items ...*computeapi.MetadataItems) {
+		t.Helper()
+		_, err := compute.Projects.SetCommonInstanceMetadata(project, &computeapi.Metadata{Items: items}).Do()
+		require.NoError(t, err)
+	}
+	setAttributes(&computeapi.MetadataItems{Key: "watched", Value: stringPtr("first")})
+	get := metadataReaderIn(t, project)
+	read := func(path string) string {
+		t.Helper()
+		answer := get(path, nil)
+		require.Equal(t, http.StatusOK, answer.status, "%s: %s", path, answer.body)
+		return answer.body
+	}
+
+	assert.Equal(t, "first", read("/client/subscribe/start?path="+url.QueryEscape("project/attributes/watched")))
+	setAttributes(&computeapi.MetadataItems{Key: "watched", Value: stringPtr("second")})
+	assert.Equal(t, "second", read("/client/subscribe/next"))
+	setAttributes()
+	assert.Equal(t, "<deleted>", read("/client/subscribe/next"))
+
+	// Each answer carries an ETag of its content.
+	first := get(metadataRaw("project/attributes/"), metadataFlavor)
+	again := get(metadataRaw("project/attributes/"), metadataFlavor)
+	require.Equal(t, http.StatusOK, first.status, first.body)
+	assert.NotEmpty(t, first.header.Get("X-Metadata-ETag"))
+	assert.Equal(t, first.header.Get("X-Metadata-ETag"), again.header.Get("X-Metadata-ETag"))
 }

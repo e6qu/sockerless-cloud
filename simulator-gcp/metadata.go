@@ -54,7 +54,7 @@ func registerComputeMetadata(srv *sim.Server) {
 	handle := func(pattern string, h http.HandlerFunc) {
 		srv.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 			if r, ok := gceMetadataAdmit(w, r); ok {
-				h(w, r)
+				gceMetadataServe(w, r, h)
 			}
 		})
 	}

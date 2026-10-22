@@ -4120,3 +4120,12 @@ workload, attributes the probe itself, so Python's google-auth finds the
 metadata server from a workload. The Google Cloud CLI suite removes the
 gcloud release it installs when it ends, where each run had left one in the
 temporary directory.
+
+Every Compute Engine metadata answer carried an `ETag` naming its content,
+and a read with `wait_for_change=true` waited until the content differed
+from its `last_etag`, or from the content when it arrived without one,
+answering at once when it already did, with not found when the key went
+away, and with the content unchanged once `timeout_sec` passed. Writes to
+the instance and project stores woke the waiting reads, so a guest agent or
+the official Go client's `Subscribe` learnt of a `setMetadata` or
+`setCommonInstanceMetadata` without reading again.
