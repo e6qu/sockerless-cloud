@@ -28,7 +28,7 @@ import (
 // either populated or classified below with a concrete reason. "Not implemented
 // yet" is not a reason — say what the simulator would have to model first.
 //
-// A row matches one key, or a family when it ends in "*": the 65
+// A row matches one key, or a family when it ends in "*": the
 // kms:RecipientAttestation measurements share one reason and are one row. Every
 // row must match a key some vendored action declares, and no row may match a
 // key the gate now resolves, so the list cannot outlive what it excuses.
@@ -54,11 +54,13 @@ var iamUnmodelledConditionKeys = []iamUnmodelledConditionKey{
 		"from PutEvents' Source would be a guess that a policy could match on."},
 	{"events:SystemMetadata/ContentType", "Arrived with events:PutRawEvents and is also declared on PutEvents, but neither the " +
 		"Service Reference nor the Service Authorization Reference says what value it carries (2026-09-25)."},
+	{"kms:EncapsulationAlgorithm", "Declared only on kms:Encapsulate and kms:Decapsulate, operations the vendored " +
+		"KMS model does not contain and the simulator does not serve."},
 	{"lambda:Request/WebFunctionAuthType", "Declared only on lambda:CreateWebFunction, CreateWebFunctionEndpoint and " +
 		"UpdateWebFunctionEndpoint, operations the vendored Lambda model does not contain and the simulator does not serve."},
 	{"lambda:Resource/WebFunctionAuthType", "Declared only on lambda:DeleteWebFunctionEndpoint, GetWebFunctionEndpoint and " +
 		"InvokeWebFunctionEndpoint, operations the vendored Lambda model does not contain and the simulator does not serve."},
-	{"kms:RecipientAttestation:*", "Each of the 65 measurements (PCR0-31, the Nitro TPM registers, ImageSha384) is read " +
+	{"kms:RecipientAttestation:*", "Each measurement (the PCRs, the Nitro TPM registers, ImageSha384, PCR8's service name) is read " +
 		"out of the signed attestation document an enclave passes in the Recipient parameter. This simulator runs no " +
 		"Nitro enclave and mints no attestation document -- handleKMSGenerateRandom says as much about the Recipient " +
 		"path -- so there is no measurement to report, and a fabricated PCR would let a policy scoped to one enclave " +
