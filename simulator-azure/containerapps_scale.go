@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"math"
 	"strconv"
 	"sync"
@@ -20,7 +21,11 @@ import (
 // concurrentRequests, 10 unless it names another. A request that reaches a
 // revision with no replica starts one, and the revision scales in — to zero
 // when its minimum is 0 — once the lower count has held for its cooldown
-// period.
+// period. An Azure Queue rule reads its queue's length every polling
+// interval, 30 seconds unless the scale names another, through Get Queue
+// Metadata as the rule's connection string or managed identity, and asks for
+// one replica per queueLength messages, 5 unless the rule names another; the
+// revision runs the most any rule asks for.
 
 const (
 	acaHTTPScaleWindow         = 15 * time.Second
@@ -29,6 +34,7 @@ const (
 	acaDefaultCooldownSeconds  = 300
 	acaDefaultPollingSeconds   = 30
 	acaHTTPConcurrencyMetadata = "concurrentRequests"
+	acaDefaultQueueLength      = 5
 )
 
 // acaScaling is how a revision scales.
@@ -37,14 +43,22 @@ type acaScaling struct {
 	// concurrency is the HTTP rule's concurrent requests per replica, 0 when
 	// the revision scales on no HTTP rule.
 	concurrency int
+	// queues are the revision's Azure Queue rules.
+	queues []ContainerAppQueueScaleRule
 	// otherRules reports a rule of another kind, which the simulator does not
 	// run.
 	otherRules bool
 	cooldown   time.Duration
+	polling    time.Duration
 }
 
+// demandDriven reports whether a rule the simulator runs sizes the revision,
+// so it scales from what it is asked rather than holding a fixed count.
+func (sc acaScaling) demandDriven() bool { return sc.concurrency > 0 || len(sc.queues) > 0 }
+
 func acaRevisionScaling(template *ContainerAppTemplate, ingress bool) acaScaling {
-	sc := acaScaling{max: acaDefaultMaxReplicas, cooldown: acaDefaultCooldownSeconds * time.Second}
+	sc := acaScaling{max: acaDefaultMaxReplicas, cooldown: acaDefaultCooldownSeconds * time.Second,
+		polling: acaDefaultPollingSeconds * time.Second}
 	if template == nil || len(template.Containers) == 0 {
 		return acaScaling{}
 	}
@@ -62,6 +76,9 @@ func acaRevisionScaling(template *ContainerAppTemplate, ingress bool) acaScaling
 	if scale.CooldownPeriod != nil {
 		sc.cooldown = time.Duration(*scale.CooldownPeriod) * time.Second
 	}
+	if scale.PollingInterval != nil && *scale.PollingInterval > 0 {
+		sc.polling = time.Duration(*scale.PollingInterval) * time.Second
+	}
 	if len(scale.Rules) == 0 {
 		if ingress {
 			sc.concurrency = acaDefaultConcurrency
@@ -78,6 +95,8 @@ func acaRevisionScaling(template *ContainerAppTemplate, ingress bool) acaScaling
 			if sc.concurrency == 0 || n < sc.concurrency {
 				sc.concurrency = n
 			}
+		case rule.AzureQueue != nil:
+			sc.queues = append(sc.queues, *rule.AzureQueue)
 		default:
 			sc.otherRules = true
 		}
@@ -89,31 +108,73 @@ func acaRevisionScaling(template *ContainerAppTemplate, ingress bool) acaScaling
 // minimum, and one for a revision whose only rules the simulator does not
 // run, so its replica does the work those rules would start it for.
 func (sc acaScaling) baseline() int {
-	if sc.otherRules && sc.concurrency == 0 {
+	if sc.otherRules && !sc.demandDriven() {
 		return max(sc.min, 1)
 	}
 	return sc.min
 }
 
-// acaScaler sizes one revision's replica set on its HTTP requests.
+// acaScaler sizes one revision's replica set on its HTTP requests and its
+// queues.
 type acaScaler struct {
 	run     *acaRevisionRun
 	scaling acaScaling
+	queues  acaQueueReader
 
 	mu       sync.Mutex
 	requests []time.Time
+	// queueDesired is what the queue rules asked for at their last poll.
+	queueDesired int
 	// raised is when demand last asked for the count the set runs or more.
 	raised time.Time
 	stop   chan struct{}
 	once   sync.Once
 }
 
-func newACAScaler(run *acaRevisionRun, scaling acaScaling) *acaScaler {
-	sc := &acaScaler{run: run, scaling: scaling, raised: time.Now(), stop: make(chan struct{})}
+func newACAScaler(run *acaRevisionRun, scaling acaScaling, queues acaQueueReader) *acaScaler {
+	sc := &acaScaler{run: run, scaling: scaling, queues: queues, raised: time.Now(), stop: make(chan struct{})}
 	if scaling.concurrency > 0 {
 		bg.Go(sc.evaluateEvery)
 	}
+	if len(scaling.queues) > 0 {
+		bg.Go(sc.pollQueues)
+	}
 	return sc
+}
+
+// pollQueues reads the queue rules' queues every polling interval and sizes
+// the revision on them. A rule whose queue cannot be read leaves the count
+// its last reading asked for.
+func (sc *acaScaler) pollQueues() {
+	ticker := time.NewTicker(sc.scaling.polling)
+	defer ticker.Stop()
+	for {
+		desired, ok := 0, true
+		for _, rule := range sc.scaling.queues {
+			length, err := sc.queues.length(context.Background(), rule)
+			if err != nil {
+				log.Printf("Container Apps: azure-queue scale rule on %s/%s: %v", rule.AccountName, rule.QueueName, err)
+				ok = false
+				continue
+			}
+			target := acaDefaultQueueLength
+			if rule.QueueLength != nil && *rule.QueueLength > 0 {
+				target = int(*rule.QueueLength)
+			}
+			desired = max(desired, (length+target-1)/target)
+		}
+		sc.mu.Lock()
+		if ok || desired > sc.queueDesired {
+			sc.queueDesired = desired
+		}
+		sc.mu.Unlock()
+		sc.evaluate(time.Now())
+		select {
+		case <-sc.stop:
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 func (sc *acaScaler) close() { sc.once.Do(func() { close(sc.stop) }) }
@@ -139,7 +200,7 @@ func (sc *acaScaler) evaluateEvery() {
 }
 
 // evaluate sizes the revision from the requests of the window that just
-// closed.
+// closed and the queues' last reading.
 func (sc *acaScaler) evaluate(now time.Time) {
 	sc.mu.Lock()
 	recent := sc.requests[:0]
@@ -149,8 +210,11 @@ func (sc *acaScaler) evaluate(now time.Time) {
 		}
 	}
 	sc.requests = recent
-	concurrent := float64(len(recent)) / acaHTTPScaleWindow.Seconds()
-	desired := int(math.Ceil(concurrent / float64(sc.scaling.concurrency)))
+	desired := sc.queueDesired
+	if sc.scaling.concurrency > 0 {
+		concurrent := float64(len(recent)) / acaHTTPScaleWindow.Seconds()
+		desired = max(desired, int(math.Ceil(concurrent/float64(sc.scaling.concurrency))))
+	}
 	desired = min(max(desired, sc.scaling.min), sc.scaling.max)
 	running := len(sc.run.set.Replicas())
 	if desired >= running {

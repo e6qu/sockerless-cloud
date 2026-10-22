@@ -4274,3 +4274,13 @@ direct or with its load balancer, took its rules with it, where they had
 stayed behind. A weighted forward divided requests among its target groups
 by weight, a group weighted 0 receiving none, where every request had gone to
 the first group with a healthy target.
+
+A Container Apps revision scaled on its Azure Queue rules: every polling
+interval, 30 seconds unless the scale named another, the scaler read each
+rule's queue through the Queue service's Get Queue Metadata, signed with the
+account key of the connection string the rule's `connection` secret held or
+carrying a token of the managed identity the rule named, and asked for one
+replica per `queueLength` messages, 5 unless the rule named another. The
+revision ran the most any of its HTTP and queue rules asked for, between its
+minimum and maximum, and scaled to zero once its queues emptied and the
+cooldown passed, where a queue rule had kept one replica running.

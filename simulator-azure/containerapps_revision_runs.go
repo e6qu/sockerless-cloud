@@ -179,7 +179,9 @@ func (wl acaRevisionWorkload) members(replica *acaReplica) []workload.Member {
 func newACARevisionRun(wl acaRevisionWorkload, scaling acaScaling) *acaRevisionRun {
 	app, rev := wl.app, wl.rev
 	run := &acaRevisionRun{grace: acaAppStopGrace(app), replicas: map[string]*acaReplica{}}
-	defer func() { run.scaler = newACAScaler(run, scaling) }()
+	defer func() {
+		run.scaler = newACAScaler(run, scaling, acaQueueReader{appID: app.ID, identity: app.Identity, secrets: wl.secrets})
+	}()
 	names := make([]string, 0, len(app.Properties.Template.Containers))
 	for _, c := range app.Properties.Template.Containers {
 		names = append(names, c.Name)
@@ -298,7 +300,7 @@ func releaseAfterStartError(err error, release func()) {
 func startACARevisionReplicas(ctx context.Context, app ContainerApp, rev acaRevision) error {
 	scaling := acaRevisionScaling(rev.Template, acaIngressEnabled(app))
 	want := scaling.baseline()
-	if want == 0 && scaling.concurrency == 0 {
+	if want == 0 && !scaling.demandDriven() {
 		// Nothing can start a replica of a revision with no minimum and no
 		// rule its requests meet.
 		stopACAAppReplicas(rev.ID)
@@ -432,7 +434,7 @@ func adoptACAAppReplicas(ctx context.Context) {
 		rev, ok := acaRevisions.Get(revID)
 		app, appOK := acaApps.Get(rev.AppID)
 		scaling := acaRevisionScaling(rev.Template, acaIngressEnabled(app))
-		if !ok || !appOK || !rev.Active || app.Properties.RunningStatus == acaStopped || (scaling.baseline() == 0 && scaling.concurrency == 0) {
+		if !ok || !appOK || !rev.Active || app.Properties.RunningStatus == acaStopped || (scaling.baseline() == 0 && !scaling.demandDriven()) {
 			for _, group := range groups {
 				removeACAContainers(ctx, backend, group)
 			}
@@ -448,7 +450,7 @@ func adoptACAAppReplicas(ctx context.Context) {
 		}
 		for _, rev := range acaAppRevisions(app.ID) {
 			scaling := acaRevisionScaling(rev.Template, acaIngressEnabled(app))
-			if _, running := acaRevisionRunOf(rev.ID); rev.Active && !running && (scaling.baseline() > 0 || scaling.concurrency > 0) {
+			if _, running := acaRevisionRunOf(rev.ID); rev.Active && !running && (scaling.baseline() > 0 || scaling.demandDriven()) {
 				bg.Go(func() {
 					if err := startACARevisionReplicas(context.Background(), app, rev); err != nil {
 						log.Printf("Container Apps: start revision %s: %v", rev.Name, err)
@@ -481,7 +483,7 @@ func adoptACARevision(ctx context.Context, backend placement.Backend, app Contai
 	scaling := acaRevisionScaling(rev.Template, acaIngressEnabled(app))
 	run := newACARevisionRun(wl, scaling)
 	want := scaling.baseline()
-	if scaling.concurrency > 0 {
+	if scaling.demandDriven() {
 		// The replicas demand had raised run on; the cooldown scales them in.
 		want = min(max(want, len(groups)), scaling.max)
 	}
