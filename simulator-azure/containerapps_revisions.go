@@ -183,7 +183,7 @@ func acaPickRevision(app ContainerApp) (acaRevision, bool) {
 	weights := acaTrafficWeights(app)
 	var candidates []revisions.Weighted[acaRevision]
 	for _, rev := range acaAppRevisions(app.ID) {
-		if rev.Active && acaRevisionRunning(rev.ID) {
+		if rev.Active && acaRevisionServes(rev.ID) {
 			candidates = append(candidates, revisions.Weighted[acaRevision]{Revision: rev, Weight: int(weights[rev.Name])})
 		}
 	}

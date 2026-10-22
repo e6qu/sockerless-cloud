@@ -4184,3 +4184,13 @@ body; or a redirect whose location filled `#{protocol}`, `#{host}`,
 `#{port}`, `#{path}` and `#{query}` from the request. An Amazon ECS gateway
 route's `on.aws` hostname resolved to the load balancer carrying it, so its
 host-header rule routed requests naming it.
+
+A Container Apps revision scaled on its HTTP scale rule, or on the default
+one an app with ingress takes when its template names no rule, between its
+`minReplicas` (0 unless set) and `maxReplicas` (10 unless set). Every 15
+seconds the scaler took the requests of the past 15 seconds over 15 as the
+concurrency and sized the revision against the rule's `concurrentRequests`
+(10 unless set), scaling in, to zero when the minimum allowed, once the lower
+count had held for the `cooldownPeriod`. A request to a revision with no
+replica started one and waited for it to become ready. The template's
+`scale.rules` were stored and read back, where they had been dropped.
