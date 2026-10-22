@@ -45,7 +45,7 @@ func TestSFN_LambdaTaskHistory_SDK(t *testing.T) {
 	created, err := statesAPI.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String("sfn-sdk-lambda-history"),
 		Definition: aws.String(definition),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn:    aws.String(statesRole(t, "lambda:InvokeFunction")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -138,7 +138,7 @@ func TestSFN_NestedWorkflowIntegration_SDK(t *testing.T) {
 	parent, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String(parentName),
 		Definition: aws.String(parentDefinition),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn:    aws.String(statesRole(t, "states:StartExecution")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {

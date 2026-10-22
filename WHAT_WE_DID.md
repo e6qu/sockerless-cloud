@@ -4013,6 +4013,23 @@ assume provided role. Please verify role's TrustPolicy"),
 `CreateMLTransform` and `UpdateMLTransform` ("Unable to assume role <role>"),
 and `CreateSession` and `CreateDevEndpoint` (the job's message), each with
 the resource's ARN as `aws:SourceArn`.
+AWS Step Functions task states and EventBridge Scheduler universal targets
+called their services through `awsCall` as a session of the execution role,
+so the role's policies allowed and denied what a task or target did. An
+execution, a synchronous execution and `TestState` (which took its `roleArn`)
+carried the role and the state machine's ARN on their context; AWS Lambda
+invocations went through `Invoke`, Amazon SQS, Amazon EventBridge, Amazon ECS
+`RunTask`, AWS CodeBuild and nested `StartExecution` through their awsJson
+targets, Amazon SNS through its query API, and AWS SDK integrations through
+each protocol's request signed with the session, the REST ones included, which
+had been signed with the seeded administrator key. A role that allowed
+nothing failed the task with the service's `AccessDenied` error naming the
+assumed role; the Scheduler sent a refused universal target to its
+dead-letter queue. `awsCallResponse` returned the response headers a REST
+integration's output and Lambda's `X-Amz-Function-Error` need, and the
+scheduler's own CloudTrail recording of universal targets went away because
+the request chain recorded them. The tests whose state machines run tasks
+created roles allowing those tasks' actions.
 
 The Knative Cloud Run surface carries a template's VPC egress as the
 `run.googleapis.com/vpc-access-connector`, `vpc-access-egress` and

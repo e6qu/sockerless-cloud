@@ -180,10 +180,10 @@ func fireSchedule(s Schedule) {
 // schedulerAttemptTarget invokes the target's service once through its API,
 // as the schedule's execution role.
 func schedulerAttemptTarget(ctx context.Context, scheduleArn string, t schedulerTarget) delivery.Outcome {
-	if strings.HasPrefix(t.Arn, schedulerUniversalTargetPrefix) {
-		return fireUniversalTarget(t)
-	}
 	actor := awsActor{Service: "scheduler.amazonaws.com", Source: scheduleArn, Role: t.RoleArn}
+	if strings.HasPrefix(t.Arn, schedulerUniversalTargetPrefix) {
+		return fireUniversalTarget(ctx, actor, t)
+	}
 	switch {
 	case strings.Contains(t.Arn, ":ecs:") && t.EcsParameters != nil:
 		return fireECSTarget(ctx, actor, t)
@@ -228,9 +228,9 @@ const schedulerUniversalTargetPrefix = "arn:aws:scheduler:::aws-sdk:"
 
 // fireUniversalTarget calls the API action the target ARN names, as the
 // schedule's execution role, with the Input as its request parameters.
-func fireUniversalTarget(t schedulerTarget) delivery.Outcome {
+func fireUniversalTarget(ctx context.Context, actor awsActor, t schedulerTarget) delivery.Outcome {
 	service, action, ok := strings.Cut(strings.TrimPrefix(t.Arn, schedulerUniversalTargetPrefix), ":")
-	if !ok || service == "" || action == "" || strings.Contains(action, ":") || !awsSDKAuthorizableService(service) {
+	if !ok || service == "" || action == "" || strings.Contains(action, ":") || !awsSDKImplemented(service) {
 		return delivery.Permanent(ebTargetError{"UnsupportedTarget", "the simulator does not invoke targets of this service: " + t.Arn})
 	}
 	input := t.Input
@@ -241,33 +241,11 @@ func fireUniversalTarget(t schedulerTarget) delivery.Outcome {
 	if err := json.Unmarshal([]byte(input), &request); err != nil {
 		return delivery.Permanent(ebTargetError{"ValidationException", "The Input of a universal target must be the API request as a JSON object"})
 	}
-	var eventName, eventSource string
-	authorize := func(r *http.Request) *sfnExecutionError {
-		call, ok := iamActionForRequest(r)
-		if !ok {
-			return &sfnExecutionError{Name: "UnsupportedTarget", Cause: "the simulator does not invoke targets of this service: " + t.Arn}
-		}
-		eventSource, _ = awsEventSource(r)
-		_, eventName, _ = strings.Cut(call, ":")
-		if iamPermissionlessAction(call) {
-			return nil
-		}
-		for _, target := range iamAuthorizationTargets(r, call) {
-			if err := iamValidateServiceRoleCall(t.RoleArn, "scheduler.amazonaws.com", r, map[string]string{target.action: target.resource}); err != nil {
-				return &sfnExecutionError{Name: "AccessDeniedException", Cause: err.Error()}
-			}
-		}
-		return nil
-	}
-	_, callErr := awsSDKInvoke(service, action, request, authorize)
+	_, callErr := awsSDKInvoke(ctx, actor, service, action, request)
 	if callErr == nil {
-		cloudTrailRecordSchedulerFire(eventName, eventSource, "", "")
 		return delivery.Delivered()
 	}
 	code := strings.TrimPrefix(callErr.Name, service+".")
-	if eventName != "" && code != "AccessDeniedException" {
-		cloudTrailRecordSchedulerFireErr(eventName, eventSource, "", "", code, callErr.Cause)
-	}
 	failure := ebTargetError{code, callErr.Cause}
 	if code == "ThrottlingException" || code == "Throttling" || code == "InternalFailure" || code == "ServiceUnavailable" {
 		return delivery.Retryable(failure)
@@ -400,38 +378,4 @@ func awsJSONError(body []byte) (code, message string) {
 // Amazon EC2 in Response>Errors>Error.
 func awsXMLError(body []byte) (code, message string) {
 	return awsXMLText(body, "Code"), awsXMLText(body, "Message")
-}
-
-// cloudTrailRecordSchedulerFire records a CloudTrail event for a target the
-// Scheduler firing loop invoked in-process. These invocations call the target
-// handler directly (callJSONHandler / httptest), bypassing the central `POST /`
-// recording middleware. Real CloudTrail records the downstream call (RunTask /
-// SendMessage / Publish / Invoke) with `userIdentity.invokedBy =
-// scheduler.amazonaws.com`.
-func cloudTrailRecordSchedulerFire(eventName, source, resourceType, resourceName string) {
-	cloudTrailRecordSchedulerFireErr(eventName, source, resourceType, resourceName, "", "")
-}
-
-// cloudTrailRecordSchedulerFireErr records a scheduler-fired target invocation,
-// carrying errorCode/errorMessage when the downstream call failed.
-func cloudTrailRecordSchedulerFireErr(eventName, source, resourceType, resourceName, errorCode, errorMessage string) {
-	// A service-initiated DATA event (e.g. a scheduler-fired SQS SendMessage / SNS
-	// Publish / Lambda Invoke) is still a data event — LookupEvents never returns
-	// it, just as for a client-initiated one. Management targets (e.g. ECS
-	// RunTask) are recorded with invokedBy=scheduler.amazonaws.com.
-	if cloudTrailIsDataEvent(source, eventName) {
-		return
-	}
-	var resources []CloudTrailResource
-	if resourceName != "" {
-		resources = []CloudTrailResource{{ResourceType: resourceType, ResourceName: resourceName}}
-	}
-	cloudTrailRecord(CloudTrailEvent{
-		EventName:    eventName,
-		EventSource:  source,
-		InvokedBy:    "scheduler.amazonaws.com",
-		Resources:    resources,
-		ErrorCode:    errorCode,
-		ErrorMessage: errorMessage,
-	})
 }

@@ -976,6 +976,9 @@ func sfnRunExecution(ctx context.Context, execARN, definition, input string, can
 		}
 		close(interrupt)
 	})
+	if execution, ok := sfnExecutions.Get(execARN); ok {
+		ctx = sfnWithRole(ctx, execution.RoleArnSnapshot, execution.StateMachineArn)
+	}
 	output, status, err := sfnExecuteRecorded(ctx, execARN, definition, input, interrupt)
 	if errors.Is(err, errSFNAborted) {
 		return
@@ -2677,6 +2680,7 @@ func handleSFNUpdateMapRun(w http.ResponseWriter, r *http.Request) {
 func handleSFNTestState(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Definition string          `json:"definition"`
+		RoleArn    string          `json:"roleArn"`
 		Input      string          `json:"input"`
 		StateName  string          `json:"stateName"`
 		Variables  string          `json:"variables"`
@@ -2783,7 +2787,7 @@ func handleSFNTestState(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	lifetime := sim.LifetimeContext(r.Context())
-	output, status, err := sfnRunDefDepthWithVariables(lifetime, wrapped, input, lifetime.Done(), 0, variables)
+	output, status, err := sfnRunDefDepthWithVariables(sfnWithRole(lifetime, req.RoleArn, ""), wrapped, input, lifetime.Done(), 0, variables)
 
 	resp := map[string]any{
 		"inspectionData": map[string]any{"input": input},
@@ -2849,7 +2853,7 @@ func handleSFNStartSyncExecution(w http.ResponseWriter, r *http.Request) {
 	sim.DeclareWait(r.Context(), sfnExpressMaxDuration)
 	startDate := sfnEpochNow()
 	lifetime := sim.LifetimeContext(r.Context())
-	output, status, err := sfnExecute(lifetime, sm.Definition, input, lifetime.Done())
+	output, status, err := sfnExecute(sfnWithRole(lifetime, sm.RoleArn, sm.StateMachineArn), sm.Definition, input, lifetime.Done())
 	stopDate := sfnEpochNow()
 
 	resp := map[string]any{

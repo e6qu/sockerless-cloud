@@ -76,8 +76,9 @@ func persistentSDKConfig() aws.Config {
 }
 
 // persistentServiceRole creates, on the simulator at endpoint, a role whose
-// trust policy lets the service principal assume it.
-func persistentServiceRole(t *testing.T, endpoint, name, principal string) string {
+// trust policy lets the service principal assume it, allowed actions on
+// every resource.
+func persistentServiceRole(t *testing.T, endpoint, name, principal string, actions ...string) string {
 	t.Helper()
 	iamAPI := iam.NewFromConfig(persistentSDKConfig(), func(o *iam.Options) { o.BaseEndpoint = aws.String(endpoint) })
 	role, err := iamAPI.CreateRole(ctx, &iam.CreateRoleInput{
@@ -86,6 +87,15 @@ func persistentServiceRole(t *testing.T, endpoint, name, principal string) strin
 			principal + `"},"Action":"sts:AssumeRole"}]}`),
 	})
 	require.NoError(t, err)
+	if len(actions) > 0 {
+		allowed, err := json.Marshal(actions)
+		require.NoError(t, err)
+		_, err = iamAPI.PutRolePolicy(ctx, &iam.PutRolePolicyInput{
+			RoleName: aws.String(name), PolicyName: aws.String("actions"),
+			PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":` + string(allowed) + `,"Resource":"*"}]}`),
+		})
+		require.NoError(t, err)
+	}
 	return aws.ToString(role.Role.Arn)
 }
 

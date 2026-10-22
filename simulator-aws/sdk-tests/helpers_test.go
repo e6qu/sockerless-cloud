@@ -765,3 +765,10 @@ func serviceRole(t *testing.T, principal string) string {
 	t.Helper()
 	return createWorkloadRole(t, uniqueName(strings.SplitN(principal, ".", 2)[0]), principal)
 }
+
+// statesRole creates a uniquely named role AWS Step Functions may assume,
+// allowed actions on every resource, deleted when the test ends.
+func statesRole(t *testing.T, actions ...string) string {
+	t.Helper()
+	return createServiceRole(t, uniqueName("states"), "states.amazonaws.com", actions...)
+}

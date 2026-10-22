@@ -237,7 +237,7 @@ func TestSFNLambdaTaskHistoryDifferentialAgainstAWS(t *testing.T) {
 			states:     sfnClient(),
 			lambda:     lambdaClient(),
 			lambdaRole: serviceRole(t, "lambda.amazonaws.com"),
-			statesRole: "arn:aws:iam::123456789012:role/sfn-role",
+			statesRole: statesRole(t, "lambda:InvokeFunction"),
 		},
 	}
 	type observed struct {
@@ -328,7 +328,7 @@ func TestSFNNestedWorkflowDifferentialAgainstAWS(t *testing.T) {
 	}
 	targets := []target{
 		{name: "real-aws", client: live, role: roleARN},
-		{name: "simulator", client: simulator, role: "arn:aws:iam::123456789012:role/sfn-role"},
+		{name: "simulator", client: simulator, role: statesRole(t, "states:StartExecution")},
 	}
 	type observed struct {
 		parentOutput string

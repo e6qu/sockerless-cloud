@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"encoding/xml"
@@ -9,7 +8,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
@@ -374,12 +372,12 @@ func sfnInvokeTaskResource(ctx context.Context, resource string, input any, inpu
 	}
 	if strings.HasPrefix(resource, "arn:aws:states:::states:startExecution") ||
 		resource == "arn:aws:states:::aws-sdk:sfn:startExecution" {
-		return sfnInvokeNestedExecution(resource, input, context, cancel, heartbeat)
+		return sfnInvokeNestedExecution(ctx, resource, input, context, cancel, heartbeat)
 	}
 	if resource == "arn:aws:states:::sqs:sendMessage" ||
 		resource == "arn:aws:states:::sqs:sendMessage.waitForTaskToken" ||
 		resource == "arn:aws:states:::aws-sdk:sqs:sendMessage" {
-		result, taskErr := sfnInvokeJSONService(handleSQSSendMessage, input)
+		result, taskErr := sfnCallJSON(ctx, "sqs", "AmazonSQS.SendMessage", input)
 		if taskErr != nil {
 			return nil, taskErr
 		}
@@ -395,7 +393,7 @@ func sfnInvokeTaskResource(ctx context.Context, resource string, input any, inpu
 	if resource == "arn:aws:states:::sns:publish" ||
 		resource == "arn:aws:states:::sns:publish.waitForTaskToken" ||
 		resource == "arn:aws:states:::aws-sdk:sns:publish" {
-		result, taskErr := sfnInvokeSNSPublish(input)
+		result, taskErr := sfnInvokeSNSPublish(ctx, input)
 		if taskErr != nil {
 			return nil, taskErr
 		}
@@ -410,13 +408,7 @@ func sfnInvokeTaskResource(ctx context.Context, resource string, input any, inpu
 	}
 	if resource == "arn:aws:states:::events:putEvents" ||
 		resource == "arn:aws:states:::aws-sdk:eventbridge:putEvents" {
-		return sfnInvokeJSONService(handleEBPutEvents, input)
-	}
-	if resource == "arn:aws:states:::aws-sdk:cloudwatch:putMetricData" {
-		return sfnInvokeJSONService(handleCWJSONPutMetricData, input)
-	}
-	if resource == "arn:aws:states:::aws-sdk:cloudwatchlogs:putLogEvents" {
-		return sfnInvokeJSONService(handleCWPutLogEvents, input)
+		return sfnCallJSON(ctx, "events", "AWSEvents.PutEvents", input)
 	}
 	if resource == "arn:aws:states:::ecs:runTask" ||
 		resource == "arn:aws:states:::ecs:runTask.sync" ||
@@ -428,7 +420,7 @@ func sfnInvokeTaskResource(ctx context.Context, resource string, input any, inpu
 		return sfnInvokeCodeBuild(ctx, resource, input, context, cancel)
 	}
 	if strings.HasPrefix(resource, "arn:aws:states:::aws-sdk:") {
-		return sfnInvokeAWSSDK(resource, input)
+		return sfnInvokeAWSSDK(ctx, resource, input)
 	}
 	return nil, &sfnExecutionError{
 		Name:  "States.TaskFailed",
@@ -462,9 +454,59 @@ var sfnAWSJSONServiceTargets = map[string]string{
 	"wafv2":                  "AWSWAF_20190729",
 }
 
-// sfnInvokeAWSSDK dispatches a generic AWS SDK integration through the same
-// registered handler used by official clients.
-func sfnInvokeAWSSDK(resource string, input any) (any, *sfnExecutionError) {
+// sfnSigningNames maps an AWS SDK service name to the name its requests are
+// signed for, where the two differ.
+var sfnSigningNames = map[string]string{
+	"acmpca":                 "acm-pca",
+	"applicationautoscaling": "application-autoscaling",
+	"apigatewayv2":           "apigateway",
+	"cloudwatch":             "monitoring",
+	"cloudwatchlogs":         "logs",
+	"efs":                    "elasticfilesystem",
+	"elasticloadbalancingv2": "elasticloadbalancing",
+	"eventbridge":            "events",
+	"sfn":                    "states",
+}
+
+func sfnSigningName(service string) string {
+	if name, ok := sfnSigningNames[service]; ok {
+		return name
+	}
+	return service
+}
+
+type sfnActorKey struct{}
+
+// sfnWithRole is ctx for running a state machine whose tasks call AWS
+// services as a session of role, which AWS Step Functions assumes for
+// stateMachineArn.
+func sfnWithRole(ctx context.Context, role, stateMachineArn string) context.Context {
+	return context.WithValue(ctx, sfnActorKey{}, awsActor{Service: "states.amazonaws.com", Source: stateMachineArn, Role: role})
+}
+
+// sfnTaskActor is who a task state's service call is made as: a session of
+// the execution's role.
+func sfnTaskActor(ctx context.Context) (awsActor, *sfnExecutionError) {
+	actor, ok := ctx.Value(sfnActorKey{}).(awsActor)
+	if !ok || actor.Role == "" {
+		return awsActor{}, &sfnExecutionError{Name: "States.Runtime", Cause: "A task that calls an AWS service needs an execution role"}
+	}
+	return actor, nil
+}
+
+// sfnCallRefused is the task error for a call that never reached the service
+// because the role could not be assumed or the request not built.
+func sfnCallRefused(prefix string, err error) *sfnExecutionError {
+	var refused *awsCallError
+	if errors.As(err, &refused) {
+		return &sfnExecutionError{Name: prefix + refused.Code, Cause: refused.Message}
+	}
+	return &sfnExecutionError{Name: "States.Runtime", Cause: err.Error()}
+}
+
+// sfnInvokeAWSSDK calls the API operation an AWS SDK integration names, as
+// the execution's role.
+func sfnInvokeAWSSDK(ctx context.Context, resource string, input any) (any, *sfnExecutionError) {
 	const prefix = "arn:aws:states:::aws-sdk:"
 	integration := strings.TrimPrefix(resource, prefix)
 	parts := strings.Split(integration, ":")
@@ -474,41 +516,34 @@ func sfnInvokeAWSSDK(resource string, input any) (any, *sfnExecutionError) {
 			Cause: fmt.Sprintf("The resource provided in the task state is not a valid AWS SDK integration ARN: %s", resource),
 		}
 	}
-	return awsSDKInvoke(parts[0], parts[1], input, nil)
+	actor, actorErr := sfnTaskActor(ctx)
+	if actorErr != nil {
+		return nil, actorErr
+	}
+	return awsSDKInvoke(ctx, actor, parts[0], parts[1], input)
 }
 
-// awsSDKRequestAuthorizer vets the request an AWS SDK integration is about to
-// send; an error stops the call.
-type awsSDKRequestAuthorizer func(*http.Request) *sfnExecutionError
-
-// awsSDKAuthorizableService reports whether the IAM gate can derive the
-// action and resources of a call to service from its request: it can for
-// the awsJson and awsQuery protocols, whose requests name their operation.
-func awsSDKAuthorizableService(service string) bool {
+// awsSDKImplemented reports whether awsSDKInvoke can call service.
+func awsSDKImplemented(service string) bool {
+	_, restJSON := sfnAWSRESTJSONOperations[service]
+	_, restXML := sfnAWSRESTXMLOperations[service]
 	_, query := sfnAWSQueryServices[service]
 	_, json := sfnAWSJSONServiceTargets[service]
-	return query || json
+	return restJSON || restXML || query || json
 }
 
-// awsSDKInvoke calls one AWS API operation, named as an AWS SDK integration
-// names it: the SDK's service name and lower-camel operation name, whose
-// Smithy operation name starts uppercase. A non-nil authorize vets the request
-// first, and applies only to services awsSDKAuthorizableService admits.
-func awsSDKInvoke(service, action string, input any, authorize awsSDKRequestAuthorizer) (any, *sfnExecutionError) {
-	if authorize != nil && !awsSDKAuthorizableService(service) {
-		return nil, &sfnExecutionError{
-			Name:  "States.TaskFailed",
-			Cause: fmt.Sprintf("The service %q cannot be called as a role", service),
-		}
-	}
+// awsSDKInvoke calls one AWS API operation as actor through the service's
+// API, named as an AWS SDK integration names it: the SDK's service name and
+// lower-camel operation name, whose Smithy operation name starts uppercase.
+func awsSDKInvoke(ctx context.Context, actor awsActor, service, action string, input any) (any, *sfnExecutionError) {
 	if _, restJSONService := sfnAWSRESTJSONOperations[service]; restJSONService {
-		return sfnInvokeRESTJSONService(service, action, input)
+		return sfnInvokeRESTJSONService(ctx, actor, service, action, input)
 	}
 	if _, restXMLService := sfnAWSRESTXMLOperations[service]; restXMLService {
-		return sfnInvokeRESTXMLService(service, action, input)
+		return sfnInvokeRESTXMLService(ctx, actor, service, action, input)
 	}
 	if _, queryService := sfnAWSQueryServices[service]; queryService {
-		return sfnInvokeQueryService(service, action, input, authorize)
+		return sfnInvokeQueryService(ctx, actor, service, action, input)
 	}
 	targetPrefix, ok := sfnAWSJSONServiceTargets[service]
 	if !ok {
@@ -518,14 +553,13 @@ func awsSDKInvoke(service, action string, input any, authorize awsSDKRequestAuth
 		}
 	}
 	action = strings.ToUpper(action[:1]) + action[1:]
-	handler, ok := sfnAWSRouter.Handler(targetPrefix + "." + action)
-	if !ok {
+	if _, ok := sfnAWSRouter.Handler(targetPrefix + "." + action); !ok {
 		return nil, &sfnExecutionError{
 			Name:  "States.TaskFailed",
 			Cause: fmt.Sprintf("The operation %s:%s is not implemented by the AWS service slice", service, action),
 		}
 	}
-	return sfnInvokeJSONTarget(handler, targetPrefix+"."+action, input, authorize)
+	return awsCallJSONTask(ctx, actor, sfnSigningName(service), targetPrefix+"."+action, input)
 }
 
 func sfnInvokeECSRunTask(ctx context.Context, resource string, input, context any, cancel <-chan struct{}, heartbeat time.Duration) (any, *sfnExecutionError) {
@@ -542,7 +576,7 @@ func sfnInvokeECSRunTask(ctx context.Context, resource string, input, context an
 			tasks = append(tasks, task)
 		}
 	} else {
-		result, taskErr := sfnInvokeJSONService(handleECSRunTask, input)
+		result, taskErr := sfnCallJSON(ctx, "ecs", "AmazonEC2ContainerServiceV20141113.RunTask", input)
 		if taskErr != nil {
 			return nil, taskErr
 		}
@@ -658,24 +692,9 @@ func sfnInvokeCodeBuild(ctx context.Context, resource string, input, context any
 	syncIntegration := strings.HasSuffix(action, ".sync")
 	action = strings.TrimSuffix(action, ".sync")
 
-	var handler http.HandlerFunc
 	switch action {
-	case "startBuild":
-		handler = handleCBStartBuild
-	case "stopBuild":
-		handler = handleCBStopBuild
-	case "batchDeleteBuilds":
-		handler = handleCBBatchDeleteBuilds
-	case "batchGetReports":
-		handler = handleCBBatchGetReports
-	case "startBuildBatch":
-		handler = handleCBStartBuildBatch
-	case "stopBuildBatch":
-		handler = handleCBStopBuildBatch
-	case "retryBuildBatch":
-		handler = handleCBRetryBuildBatch
-	case "deleteBuildBatch":
-		handler = handleCBDeleteBuildBatch
+	case "startBuild", "stopBuild", "batchDeleteBuilds", "batchGetReports",
+		"startBuildBatch", "stopBuildBatch", "retryBuildBatch", "deleteBuildBatch":
 	default:
 		return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "unsupported AWS CodeBuild integration action: " + action}
 	}
@@ -691,7 +710,7 @@ func sfnInvokeCodeBuild(ctx context.Context, resource string, input, context any
 			return sfnWaitForCodeBuildBatch(ctx, checkpointID, cancel)
 		}
 	}
-	result, taskErr := sfnInvokeJSONService(handler, input)
+	result, taskErr := sfnCallJSON(ctx, "codebuild", "CodeBuild_20161006."+strings.ToUpper(action[:1])+action[1:], input)
 	if taskErr != nil || !syncIntegration {
 		return result, taskErr
 	}
@@ -839,51 +858,48 @@ func sfnWaitForCodeBuildBatch(ctx context.Context, batchID string, cancel <-chan
 	}
 }
 
-func sfnInvokeJSONService(handler http.HandlerFunc, input any) (any, *sfnExecutionError) {
-	return sfnInvokeJSONTarget(handler, "", input, nil)
+// sfnCallJSON calls an awsJson operation, named by its target, as the
+// execution's role.
+func sfnCallJSON(ctx context.Context, signingService, target string, input any) (any, *sfnExecutionError) {
+	actor, actorErr := sfnTaskActor(ctx)
+	if actorErr != nil {
+		return nil, actorErr
+	}
+	return awsCallJSONTask(ctx, actor, signingService, target, input)
 }
 
-// sfnInvokeJSONTarget calls an awsJson handler, sending target, when set, as
-// the X-Amz-Target header that names the operation to the IAM gate.
-func sfnInvokeJSONTarget(handler http.HandlerFunc, target string, input any, authorize awsSDKRequestAuthorizer) (any, *sfnExecutionError) {
-	body, err := json.Marshal(input)
+// awsCallJSONTask calls an awsJson operation as actor and returns its output
+// or the error it answered, as a task's result.
+func awsCallJSONTask(ctx context.Context, actor awsActor, signingService, target string, input any) (any, *sfnExecutionError) {
+	status, body, err := awsCallJSON(ctx, actor, signingService, target, "application/x-amz-json-1.0", input)
 	if err != nil {
-		return nil, &sfnExecutionError{Name: "States.Runtime", Cause: err.Error()}
+		return nil, sfnCallRefused("", err)
 	}
-	req := httptest.NewRequestWithContext(sfnAWSServer.RequestContext(context.Background()),
-		http.MethodPost, "/", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
-	if target != "" {
-		req.Header.Set("X-Amz-Target", target)
-	}
-	if authorize != nil {
-		if denied := authorize(req); denied != nil {
-			return nil, denied
-		}
-	}
-	rec := httptest.NewRecorder()
-	handler(rec, req)
-	if rec.Code >= http.StatusBadRequest {
-		code, message := awsJSONError(rec.Body.Bytes())
+	if status >= http.StatusBadRequest {
+		code, message := awsJSONError(body)
 		if code == "" {
 			code = "States.TaskFailed"
 		}
 		return nil, &sfnExecutionError{Name: code, Cause: message}
 	}
-	if rec.Body.Len() == 0 {
+	if len(body) == 0 {
 		return map[string]any{}, nil
 	}
 	var result any
-	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, &sfnExecutionError{Name: "States.Runtime", Cause: "service returned invalid JSON: " + err.Error()}
 	}
 	return result, nil
 }
 
-func sfnInvokeSNSPublish(input any) (any, *sfnExecutionError) {
+func sfnInvokeSNSPublish(ctx context.Context, input any) (any, *sfnExecutionError) {
 	parameters, ok := input.(map[string]any)
 	if !ok {
 		return nil, &sfnExecutionError{Name: "States.Runtime", Cause: "SNS integration parameters must be an object"}
+	}
+	actor, actorErr := sfnTaskActor(ctx)
+	if actorErr != nil {
+		return nil, actorErr
 	}
 	form := url.Values{}
 	for _, key := range []string{"TopicArn", "TargetArn", "PhoneNumber", "Message", "Subject", "MessageGroupId", "MessageDeduplicationId"} {
@@ -891,12 +907,12 @@ func sfnInvokeSNSPublish(input any) (any, *sfnExecutionError) {
 			form.Set(key, value)
 		}
 	}
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rec := httptest.NewRecorder()
-	handleSNSPublish(rec, req)
-	if rec.Code >= http.StatusBadRequest {
-		code, message := awsXMLError(rec.Body.Bytes())
+	status, body, err := awsCallQuery(ctx, actor, "sns", "Publish", "2010-03-31", form)
+	if err != nil {
+		return nil, sfnCallRefused("", err)
+	}
+	if status >= http.StatusBadRequest {
+		code, message := awsXMLError(body)
 		if code == "" {
 			code = "States.TaskFailed"
 		}
@@ -905,13 +921,13 @@ func sfnInvokeSNSPublish(input any) (any, *sfnExecutionError) {
 	var response struct {
 		MessageID string `xml:"PublishResult>MessageId"`
 	}
-	if err := xml.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+	if err := xml.Unmarshal(body, &response); err != nil {
 		return nil, &sfnExecutionError{Name: "States.Runtime", Cause: "Amazon SNS returned invalid XML: " + err.Error()}
 	}
 	return map[string]any{"MessageId": response.MessageID}, nil
 }
 
-func sfnInvokeNestedExecution(resource string, input, context any, cancel <-chan struct{}, heartbeat time.Duration) (any, *sfnExecutionError) {
+func sfnInvokeNestedExecution(ctx context.Context, resource string, input, context any, cancel <-chan struct{}, heartbeat time.Duration) (any, *sfnExecutionError) {
 	parameters, ok := input.(map[string]any)
 	if !ok {
 		return nil, &sfnExecutionError{Name: "States.Runtime", Cause: "StartExecution parameters must be an object"}
@@ -936,13 +952,19 @@ func sfnInvokeNestedExecution(resource string, input, context any, cancel <-chan
 			nestedInput = encoded
 		}
 	}
-	execution, startErr := sfnStartNestedExecution(stateMachineARN, name, nestedInput)
+	started, startErr := sfnCallJSON(ctx, "states", "AWSStepFunctions.StartExecution",
+		map[string]any{"stateMachineArn": stateMachineARN, "name": name, "input": nestedInput})
 	if startErr != nil {
+		if !strings.HasPrefix(startErr.Name, "States.") {
+			startErr.Name = "StepFunctions." + startErr.Name
+		}
 		return nil, startErr
 	}
+	startedExecution, _ := started.(map[string]any)
+	executionARN, _ := startedExecution["executionArn"].(string)
 	result := map[string]any{
-		"ExecutionArn": execution.ExecutionArn,
-		"StartDate":    execution.StartDate,
+		"ExecutionArn": executionARN,
+		"StartDate":    startedExecution["startDate"],
 	}
 	if strings.HasSuffix(resource, ".waitForTaskToken") {
 		task, tokenErr := sfnTaskFromContext(context)
@@ -961,7 +983,7 @@ func sfnInvokeNestedExecution(resource string, input, context any, cancel <-chan
 		case <-cancel:
 			return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "execution aborted"}
 		case <-ticker.C:
-			current, exists := sfnExecutions.Get(execution.ExecutionArn)
+			current, exists := sfnExecutions.Get(executionARN)
 			if !exists {
 				return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "nested execution no longer exists"}
 			}
@@ -990,80 +1012,38 @@ func sfnInvokeNestedExecution(resource string, input, context any, cancel <-chan
 	}
 }
 
-func sfnStartNestedExecution(stateMachineARN, name, input string) (SFNExecution, *sfnExecutionError) {
-	stateMachine, versionARN, aliasARN, ok := sfnResolveExecutionTarget(stateMachineARN)
-	if !ok {
-		return SFNExecution{}, &sfnExecutionError{
-			Name:  "StepFunctions.StateMachineDoesNotExist",
-			Cause: "State machine does not exist: " + stateMachineARN,
+// sfnInvokeLambda invokes function, by name or ARN, synchronously through
+// AWS Lambda's Invoke as the execution's role.
+func sfnInvokeLambda(ctx context.Context, function, payload string) (any, *sfnExecutionError) {
+	actor, actorErr := sfnTaskActor(ctx)
+	if actorErr != nil {
+		return nil, actorErr
+	}
+	response, err := awsCallResponse(ctx, actor, "lambda", http.MethodPost,
+		"/2015-03-31/functions/"+url.PathEscape(function)+"/invocations",
+		http.Header{"X-Amz-Invocation-Type": {"RequestResponse"}, "Content-Type": {"application/json"}}, []byte(payload))
+	if err != nil {
+		return nil, sfnCallRefused("Lambda.", err)
+	}
+	body := response.Body.Bytes()
+	if response.StatusCode >= http.StatusBadRequest {
+		code, message := awsJSONError(body)
+		if code == "" {
+			code = "Unknown"
 		}
+		return nil, &sfnExecutionError{Name: "Lambda." + code, Cause: message}
 	}
-	if err := sfnValidateDefinition(stateMachine.Definition); err != nil {
-		return SFNExecution{}, &sfnExecutionError{Name: "StepFunctions.InvalidDefinition", Cause: err.Error()}
-	}
-	executionARN := sfnARN("execution:" + stateMachine.Name + ":" + name)
-	sfnMu.Lock()
-	defer sfnMu.Unlock()
-	if _, exists := sfnExecutions.Get(executionARN); exists {
-		return SFNExecution{}, &sfnExecutionError{
-			Name:  "StepFunctions.ExecutionAlreadyExists",
-			Cause: "Execution already exists: " + executionARN,
-		}
-	}
-	now := sfnEpochNow()
-	execution := SFNExecution{
-		ExecutionArn:           executionARN,
-		StateMachineArn:        stateMachine.StateMachineArn,
-		StateMachineAliasArn:   aliasARN,
-		StateMachineVersionArn: versionARN,
-		Name:                   name,
-		Status:                 "RUNNING",
-		StartDate:              now,
-		Input:                  input,
-		DefinitionSnapshot:     stateMachine.Definition,
-		RoleArnSnapshot:        stateMachine.RoleArn,
-		TypeSnapshot:           stateMachine.Type,
-		RevisionIdSnapshot:     stateMachine.RevisionId,
-		UpdateDateSnapshot:     stateMachine.UpdateDate,
-		LoggingSnapshot:        stateMachine.LoggingConfiguration,
-		TracingSnapshot:        stateMachine.TracingConfiguration,
-		EncryptionSnapshot:     stateMachine.EncryptionConfiguration,
-	}
-	sfnExecutions.Put(executionARN, execution)
-	sfnAppendHistory(executionARN, "ExecutionStarted", map[string]any{
-		"input":        input,
-		"inputDetails": map[string]any{"truncated": false},
-		"roleArn":      stateMachine.RoleArn,
-	})
-	executionCancel := make(chan struct{})
-	sfnCancels.Store(executionARN, executionCancel)
-	sfnStartExecution(executionARN, stateMachine.Definition, input, executionCancel)
-	return execution, nil
-}
-
-func sfnInvokeLambda(ctx context.Context, name, payload string) (any, *sfnExecutionError) {
-	if i := strings.Index(name, ":function:"); i >= 0 {
-		name = name[i+len(":function:"):]
-	}
-	if i := strings.IndexByte(name, ':'); i >= 0 {
-		name = name[:i]
-	}
-	fn, ok := lambdaFunctions.Get(name)
-	if !ok {
-		return nil, &sfnExecutionError{Name: "Lambda.ResourceNotFoundException", Cause: "Function not found: " + name}
-	}
-	response, unhandled, _, _ := invokeLambdaViaRuntimeAPI(ctx, fn, []byte(payload))
-	if unhandled {
+	if response.Header().Get("X-Amz-Function-Error") != "" {
 		var detail map[string]any
-		_ = json.Unmarshal(response, &detail)
+		_ = json.Unmarshal(body, &detail)
 		errorType, _ := detail["errorType"].(string)
 		if errorType == "" {
 			errorType = "Lambda.Unknown"
 		}
-		return nil, &sfnExecutionError{Name: errorType, Cause: string(response)}
+		return nil, &sfnExecutionError{Name: errorType, Cause: string(body)}
 	}
-	value, err := sfnDecodeJSON(string(response))
-	if err != nil {
+	value, decodeErr := sfnDecodeJSON(string(body))
+	if decodeErr != nil {
 		return nil, &sfnExecutionError{Name: "States.Runtime", Cause: "AWS Lambda returned invalid JSON"}
 	}
 	return value, nil

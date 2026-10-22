@@ -100,7 +100,7 @@ func TestLambdaWorkInFlightEndsWithTheSimulatorAndResumes_SDK(t *testing.T) {
 		Name: aws.String("interrupted-lambda-task"),
 		Definition: aws.String(`{"StartAt":"Hold","States":{"Hold":{"Type":"Task","Resource":"` +
 			aws.ToString(task.Configuration.FunctionArn) + `","End":true}}}`),
-		RoleArn: aws.String("arn:aws:iam::123456789012:role/interrupted-lambda"),
+		RoleArn: aws.String(persistentServiceRole(t, endpoint, "interrupted-lambda-states", "states.amazonaws.com", "lambda:InvokeFunction")),
 	})
 	require.NoError(t, err)
 	execution, err := statesAPI.StartExecution(testCtx, &sfn.StartExecutionInput{

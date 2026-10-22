@@ -10,15 +10,17 @@
   workloads (BUG-3537); then
   `sim/jobrun`, `sim/funcrt`, the queue waiter in `sim/msgq` with Cloud
   Tasks, and `sim/eventbus` with its filter dialects and Cloud Scheduler,
-  each in one pull request that moves its consumers and closes their bugs. AWS Step Functions and the Scheduler's
-  universal targets move onto `awsCall` (BUG-3533).
+  each in one pull request that moves its consumers and closes their bugs.
+  AWS Step Functions' `.sync` waits (BUG-3533) and AWS Lambda's asynchronous
+  destinations (BUG-3564) move onto `awsCall`.
 - **Stage 6 of `PLAN.md`: distributed.** The agent on another host, reached
   over its API with its minted token, and networks that span hosts; the
   same-range gap (two live VPCs over one CIDR on one engine) lifts there.
 - **More operations refuse a role IAM does not hold** (BUG-3561): the
   role-taking operations the row lists, each in its service's own error,
-  with real roles in their tests; then Amazon ECS's infrastructure roles
-  (BUG-3562).
+  with real roles in their tests; then AWS Step Functions state machines and
+  EventBridge Scheduler schedules (BUG-3563) and Amazon ECS's infrastructure
+  roles (BUG-3562).
 - **Close the no-privilege gaps `BUGS.md` holds**: the NAT data planes'
   remainders (ICMP, packet counts, Cloud Monitoring for Cloud NAT, the
   public address as the source a peer sees, a subnet with no route out);

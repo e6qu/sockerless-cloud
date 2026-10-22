@@ -20,7 +20,8 @@ Current state of the sockerless-cloud repository.
   an in-process request through the whole request chain, made as the service
   principal `sim.Caller` names or as a session of a role the request is
   signed with. Amazon EventBridge rules and EventBridge Scheduler deliver to
-  their targets, AWS Lambda's Amazon SQS pollers receive and delete, Eventarc
+  their targets, AWS Step Functions task states call their services as the
+  execution role, AWS Lambda's Amazon SQS pollers receive and delete, Eventarc
   provisions and publishes through Pub/Sub and Cloud Storage, and Azure Event
   Grid writes dead letters to Blob Storage this way.
 - **One virtual machine lifecycle.** `sim/machine` boots, watches, stops,

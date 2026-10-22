@@ -178,7 +178,7 @@ func TestSimulatorStopsWithLifecycleWorkInFlight_SDK(t *testing.T) {
 		Name: aws.String("shutdown-in-flight"),
 		Definition: aws.String(`{"StartAt":"Hold","States":{"Hold":{"Type":"Task","Resource":"` +
 			aws.ToString(function.Configuration.FunctionArn) + `","End":true}}}`),
-		RoleArn: aws.String("arn:aws:iam::123456789012:role/shutdown-in-flight"),
+		RoleArn: aws.String(persistentServiceRole(t, endpoint, "shutdown-in-flight-states", "states.amazonaws.com", "lambda:InvokeFunction")),
 		Type:    sfntypes.StateMachineTypeExpress,
 	})
 	require.NoError(t, err)

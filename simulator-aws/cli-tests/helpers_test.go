@@ -643,6 +643,23 @@ func cliServiceRole(t *testing.T, principal string) string {
 	return created.Role.Arn
 }
 
+// cliStatesRole creates, with the AWS CLI, a uniquely named role AWS Step
+// Functions may assume, allowed actions on every resource, deleted when the
+// test ends.
+func cliStatesRole(t *testing.T, actions ...string) string {
+	t.Helper()
+	role := cliServiceRole(t, "states.amazonaws.com")
+	name := role[strings.LastIndex(role, "/")+1:]
+	allowed, err := json.Marshal(actions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runCLI(t, awsCLI("iam", "put-role-policy", "--role-name", name, "--policy-name", "actions", "--policy-document",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":`+string(allowed)+`,"Resource":"*"}]}`))
+	t.Cleanup(func() { _ = awsCLI("iam", "delete-role-policy", "--role-name", name, "--policy-name", "actions").Run() })
+	return role
+}
+
 func nativeDockerPlatform() string {
 	return "linux/" + runtime.GOARCH
 }

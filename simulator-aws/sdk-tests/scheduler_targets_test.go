@@ -135,6 +135,42 @@ func TestScheduler_TargetRunsAsTheExecutionRole_SDK(t *testing.T) {
 	assert.Empty(t, out.Messages, "the target queue received a message the role may not send")
 }
 
+// A universal target calls its API action as the execution role, whose
+// policies deny a call they do not allow; the refusal goes to the dead-letter
+// queue.
+func TestScheduler_UniversalTargetRunsAsTheExecutionRole_SDK(t *testing.T) {
+	t.Parallel()
+	queueURL, _ := createSchedulerTestQueue(t, "scheduler-sdk-universal-denied")
+	dlqURL, dlqARN := createSchedulerTestQueue(t, "scheduler-sdk-universal-dlq")
+	role := createServiceRole(t, "scheduler-sdk-universal-no-send", "scheduler.amazonaws.com", "sns:Publish")
+	iamC := iamClient()
+	_, err := iamC.PutRolePolicy(ctx, &iam.PutRolePolicyInput{
+		RoleName: aws.String("scheduler-sdk-universal-no-send"), PolicyName: aws.String("dead-letter"),
+		PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"sqs:SendMessage","Resource":"` + dlqARN + `"}]}`),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = iamC.DeleteRolePolicy(ctx, &iam.DeleteRolePolicyInput{
+			RoleName: aws.String("scheduler-sdk-universal-no-send"), PolicyName: aws.String("dead-letter"),
+		})
+	})
+	input, err := json.Marshal(map[string]string{"QueueUrl": aws.ToString(queueURL), "MessageBody": "universal-denied"})
+	require.NoError(t, err)
+
+	createOneTimeSchedule(t, "sdk-universal-denied", &schedtypes.Target{
+		Arn: aws.String("arn:aws:scheduler:::aws-sdk:sqs:sendMessage"), RoleArn: aws.String(role), Input: aws.String(string(input)),
+		DeadLetterConfig: &schedtypes.DeadLetterConfig{Arn: aws.String(dlqARN)},
+		RetryPolicy:      &schedtypes.RetryPolicy{MaximumRetryAttempts: aws.Int32(0)},
+	})
+
+	message := receiveWithAttributes(t, sqsClient(), dlqURL, 30*time.Second)
+	assert.Equal(t, string(input), aws.ToString(message.Body))
+	assert.Equal(t, "AccessDeniedException", messageAttribute(message, "ERROR_CODE"))
+	out, err := sqsClient().ReceiveMessage(ctx, &sqs.ReceiveMessageInput{QueueUrl: queueURL, WaitTimeSeconds: 1})
+	require.NoError(t, err)
+	assert.Empty(t, out.Messages, "the queue received a message the role may not send")
+}
+
 // CreateSchedule and UpdateSchedule refuse a RetryPolicy outside the ranges
 // the model declares.
 func TestScheduler_RetryPolicyRanges_SDK(t *testing.T) {

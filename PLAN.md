@@ -203,9 +203,10 @@ tests, which prove the extraction changed no wire behaviour.
    Amazon SQS pollers receive and delete, Eventarc provisions and publishes,
    and Azure Event Grid dead-letters this way — as the service principal the
    target's resource policy admits, or as a session of the target's role.
-   AWS Step Functions and the Scheduler's universal targets follow
-   (BUG-3533). Every library after
-   this one takes a delivery hook that makes such a call.
+   AWS Step Functions task states and the Scheduler's universal targets call
+   this way as a session of the execution role; Step Functions' `.sync` waits
+   (BUG-3533) and AWS Lambda's asynchronous destinations (BUG-3564) follow.
+   Every library after this one takes a delivery hook that makes such a call.
 2. **`sim/machine`: the virtual machine lifecycle.** Boot through the
    placement backend, ready, watch, stop keeping the disk, start, discard,
    release a detached disk, adopt after a simulator restart, capture an
