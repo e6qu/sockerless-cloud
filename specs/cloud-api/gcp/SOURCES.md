@@ -15,9 +15,7 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `cloudkms-v1.discovery.json.gz` | `cloudkms.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261010` | 2026-10-19T13:08:07Z |
 | `eventarc-v1.discovery.json.gz` | `eventarc.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261014` | 2026-10-19T13:08:08Z |
 | `firestore-v1.discovery.json.gz` | `firestore.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261013` | 2026-10-19T13:08:08Z |
-| `redis-v1.discovery.json.gz` | `redis.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261013` | 2026-10-19T13:08:08Z |
 | `spanner-v1.discovery.json.gz` | `spanner.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261006` | 2026-10-19T13:08:08Z |
-| `storage-v1.discovery.json.gz` | `storage.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261013` | 2026-10-19T13:08:08Z |
 | `vpcaccess-v1.discovery.json.gz` | `vpcaccess.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261011` | 2026-10-19T13:08:08Z |
 | `cloudbilling-v1.discovery.json.gz` | `cloudbilling.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261016` | 2026-10-20T11:36:49Z |
 | `iam-v1.discovery.json.gz` | `iam.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261016` | 2026-10-20T11:36:49Z |
@@ -36,3 +34,5 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `cloudfunctions-v2.discovery.json.gz` | `cloudfunctions.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20261015` | 2026-10-22T11:39:07Z |
 | `dataflow-v1b3.discovery.json.gz` | `dataflow.googleapis.com` | `$discovery/rest?version=v1b3` | Apache-2.0 | `revision 20261018` | 2026-10-22T11:39:07Z |
 | `logging-v2.discovery.json.gz` | `logging.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20261016` | 2026-10-22T11:39:07Z |
+| `redis-v1.discovery.json.gz` | `redis.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261016` | 2026-10-22T21:20:42Z |
+| `storage-v1.discovery.json.gz` | `storage.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261013` | 2026-10-22T21:20:42Z |
