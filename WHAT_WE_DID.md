@@ -4308,3 +4308,9 @@ polling interval the scaler read the entity's description from the
 namespace's management endpoint, with a Shared Access Signature the rule's
 connection string signed, and asked for one replica per `messageCount`, 5
 unless the rule named another.
+
+The Container Apps CLI revision test waited for its template change to
+provision before it split traffic with `latest`, which Container Apps
+resolves to the latest ready revision; it had sent the change and split the
+traffic at once, so on a slow runner the split landed on the earlier
+revision.

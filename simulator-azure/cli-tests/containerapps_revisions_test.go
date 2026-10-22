@@ -64,7 +64,10 @@ func TestContainerAppsCLI_RevisionsFollowTheTemplate(t *testing.T) {
 		}
 	}`, template("first")))
 	t.Cleanup(func() { azLongRunning(t, rest, "DELETE", appURL, "") })
-	runCLI(t, rest("PATCH", appURL, fmt.Sprintf(`{"properties": {"template": %s}}`, template("second"))))
+	// The traffic split below names the latest revision, which Container Apps
+	// resolves to the latest ready one, so the change waits until the
+	// revision it deploys has provisioned.
+	azLongRunning(t, rest, "PATCH", appURL, fmt.Sprintf(`{"properties": {"template": %s}}`, template("second")))
 
 	list := func() map[string]cliRevision {
 		var revisions []cliRevision
