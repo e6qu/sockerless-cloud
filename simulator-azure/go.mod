@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/Azure/go-amqp v1.7.0
 	github.com/containerd/errdefs v1.0.0
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261022072125-347b2e252b76
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261022152135-8b9885377097
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261015114713-b9f0cc68a078
 	github.com/go-git/go-git/v5 v5.19.3
 	github.com/gorilla/websocket v1.5.3
@@ -83,5 +83,5 @@ require (
 	modernc.org/libc v1.79.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
-	modernc.org/sqlite v1.60.1 // indirect
+	modernc.org/sqlite v1.61.0 // indirect
 )
