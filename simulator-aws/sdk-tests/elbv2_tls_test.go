@@ -139,7 +139,7 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 
 	// HTTPS listener on a high port (8443) carrying the issued ACM cert.
 	const listenerPort = 8443
-	_, err = elb.CreateListener(ctx, &elbv2.CreateListenerInput{
+	listenerOut, err := elb.CreateListener(ctx, &elbv2.CreateListenerInput{
 		LoadBalancerArn: aws.String(lbArn),
 		Protocol:        elbtypes.ProtocolEnumHttps,
 		Port:            aws.Int32(listenerPort),
@@ -147,6 +147,7 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 		DefaultActions:  []elbtypes.Action{{Type: elbtypes.ActionTypeEnumForward, TargetGroupArn: aws.String(tgArn)}},
 	})
 	require.NoError(t, err)
+	listenerArn := aws.ToString(listenerOut.Listeners[0].ListenerArn)
 
 	// Resolve the load balancer's DNS name through the resolver, then connect
 	// on the listener port over TLS.
@@ -180,6 +181,51 @@ func TestELBv2_HTTPSListenerTerminatesTLS(t *testing.T) {
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	assert.Equal(t, "https-terminated", string(body), "HTTPS listener must terminate TLS and forward plain HTTP to the target")
+
+	// AWS Certificate Manager names the load balancer as the certificate's
+	// user, and will not delete a certificate in use.
+	inUse, err := acmC.DescribeCertificate(ctx, &acm.DescribeCertificateInput{CertificateArn: aws.String(certArn)})
+	require.NoError(t, err)
+	assert.Equal(t, []string{lbArn}, inUse.Certificate.InUseBy)
+	_, err = acmC.DeleteCertificate(ctx, &acm.DeleteCertificateInput{CertificateArn: aws.String(certArn)})
+	var refused *acmtypes.ResourceInUseException
+	require.ErrorAs(t, err, &refused)
+
+	// A certificate added to the running listener is presented to a client
+	// that names its domain.
+	const second = "www.elb-tls.test"
+	secondOut, err := acmC.RequestCertificate(ctx, &acm.RequestCertificateInput{
+		DomainName: aws.String(second), ValidationMethod: acmtypes.ValidationMethodDns,
+	})
+	require.NoError(t, err)
+	secondArn := aws.ToString(secondOut.CertificateArn)
+	secondDesc, err := acmC.DescribeCertificate(ctx, &acm.DescribeCertificateInput{CertificateArn: aws.String(secondArn)})
+	require.NoError(t, err)
+	var secondChanges []r53types.Change
+	for _, dvo := range secondDesc.Certificate.DomainValidationOptions {
+		require.NotNil(t, dvo.ResourceRecord)
+		secondChanges = append(secondChanges, r53types.Change{
+			Action: r53types.ChangeActionUpsert,
+			ResourceRecordSet: &r53types.ResourceRecordSet{
+				Name: dvo.ResourceRecord.Name, Type: r53types.RRTypeCname, TTL: aws.Int64(60),
+				ResourceRecords: []r53types.ResourceRecord{{Value: dvo.ResourceRecord.Value}},
+			},
+		})
+	}
+	_, err = r53C.ChangeResourceRecordSets(ctx, &route53.ChangeResourceRecordSetsInput{
+		HostedZoneId: aws.String(zoneID), ChangeBatch: &r53types.ChangeBatch{Changes: secondChanges},
+	})
+	require.NoError(t, err)
+	waitForACMCertificateIssued(t, acmC, secondArn)
+	_, err = elb.AddListenerCertificates(ctx, &elbv2.AddListenerCertificatesInput{
+		ListenerArn: aws.String(listenerArn), Certificates: []elbtypes.Certificate{{CertificateArn: aws.String(secondArn)}},
+	})
+	require.NoError(t, err)
+	conn, err := tls.Dial("tcp", endpoint, &tls.Config{ServerName: second, InsecureSkipVerify: true})
+	require.NoError(t, err)
+	presented := conn.ConnectionState().PeerCertificates[0].DNSNames
+	require.NoError(t, conn.Close())
+	assert.Contains(t, presented, second, "the running listener presents the certificate added to it")
 }
 
 // TestELBv2_NLBTLSListenerTerminatesTLS proves a Network Load Balancer TLS

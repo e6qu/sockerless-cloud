@@ -4322,3 +4322,12 @@ simulator checks took a role that trusted the regional principal. AWS
 Systems Manager's cloud connector validation read the trust policy through
 the same evaluation, where it had searched the document's text for
 `ssm.amazonaws.com`.
+
+An HTTPS or TLS listener took its certificates from the listener's record at
+each handshake, so a certificate AddListenerCertificates or ModifyListener
+added reached a running listener, where it had presented the certificates it
+started with until it restarted. AWS Certificate Manager's `InUseBy` named
+the load balancers whose listeners present a certificate and the CloudFront
+distributions whose viewer certificate it is, and ListCertificates' `InUse`
+and DeleteCertificate's in-use refusal followed it, where `InUseBy` had
+always been empty.

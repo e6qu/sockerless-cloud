@@ -74,11 +74,19 @@ func elbv2StartListenerProxy(listener ELBv2Listener) error {
 	}
 	var tlsConfig *tls.Config
 	if elbv2ListenerIsTLS(listener) {
-		config, err := elbv2ListenerTLSConfig(listener)
-		if err != nil {
+		if _, err := elbv2ListenerTLSConfig(listener); err != nil {
 			return err
 		}
-		tlsConfig = config
+		// Each handshake takes the certificates the listener holds then, so
+		// ModifyListener and AddListenerCertificates reach a running listener.
+		arn := listener.Arn
+		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12, GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) {
+			current, ok := elbv2Listeners.Get(arn)
+			if !ok {
+				return nil, fmt.Errorf("listener %s no longer exists", arn)
+			}
+			return elbv2ListenerTLSConfig(current)
+		}}
 	}
 	elbv2ListenerProxyMu.Lock()
 	defer elbv2ListenerProxyMu.Unlock()

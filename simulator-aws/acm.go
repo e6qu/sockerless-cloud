@@ -17,6 +17,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -603,6 +604,7 @@ func handleACMSearchCertificates(w http.ResponseWriter, r *http.Request) {
 	results := []map[string]any{}
 	for _, stored := range acmCertificates.List() {
 		c := stored.Cert
+		c.InUseBy = acmCertificateUsers(c.CertificateArn)
 		if !acmMetadataFiltersMatch(filters, c) {
 			continue
 		}
@@ -883,7 +885,33 @@ func handleACMDescribeCertificate(w http.ResponseWriter, r *http.Request) {
 		acmWriteError(w, "InvalidParameterValueException", err.Error())
 		return
 	}
+	stored.Cert.InUseBy = acmCertificateUsers(stored.Cert.CertificateArn)
 	acmWriteJSON(w, http.StatusOK, map[string]ACMCertificate{"Certificate": stored.Cert})
+}
+
+// acmCertificateUsers are the resources that use a certificate: the load
+// balancers whose listeners present it, as their default or an SNI
+// certificate, and the CloudFront distributions it is the viewer certificate
+// of.
+func acmCertificateUsers(arn string) []string {
+	users := []string{}
+	if elbv2Listeners != nil {
+		for _, listener := range elbv2Listeners.List() {
+			if slices.Contains(listener.Certificates, arn) || slices.Contains(listener.SNICertificates, arn) {
+				users = append(users, listener.LoadBalancerArn)
+			}
+		}
+	}
+	if cfDistributions != nil {
+		for _, stored := range cfDistributions.ListPrefix("") {
+			distribution := stored.Item.Distribution
+			if vc := distribution.DistributionConfig.ViewerCertificate; vc != nil && vc.ACMCertificateArn == arn {
+				users = append(users, distribution.ARN)
+			}
+		}
+	}
+	slices.Sort(users)
+	return slices.Compact(users)
 }
 
 // acmReconcileIssuance transitions an Amazon-issued certificate from
@@ -1042,7 +1070,7 @@ func handleACMDeleteCertificate(w http.ResponseWriter, r *http.Request) {
 		acmWriteError(w, "ResourceNotFoundException", "Could not find certificate "+req.CertificateArn)
 		return
 	}
-	if len(stored.Cert.InUseBy) > 0 {
+	if len(acmCertificateUsers(stored.Cert.CertificateArn)) > 0 {
 		acmWriteError(w, "ResourceInUseException", "Certificate is in use and cannot be deleted")
 		return
 	}
