@@ -15,6 +15,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/lbplane"
+	"github.com/e6qu/sockerless-cloud/sim/revisions"
 )
 
 func registerELBv2DataPlane(srv *sim.Server) {
@@ -225,33 +226,44 @@ func elbv2HealthyTargetForListener(listener ELBv2Listener) (ELBv2TargetGroup, EL
 	return elbv2HealthyTargetForActions(listener.DefaultActions)
 }
 
-// elbv2HealthyTargetForActions picks a target of the target groups the
-// actions forward to; a target group a weighted forward gives a weight of 0
-// receives nothing.
+// elbv2HealthyTargetForActions picks a target of the target groups the first
+// forwarding action sends to: a weighted forward divides requests among its
+// target groups by weight, and a target group whose weight is 0 receives
+// nothing.
 func elbv2HealthyTargetForActions(actions []ELBv2Action) (ELBv2TargetGroup, ELBv2TargetDescription, bool) {
-	var arns []string
-	for _, action := range actions {
-		if action.TargetGroupArn != "" {
-			arns = append(arns, action.TargetGroupArn)
-		}
-		if action.Forward == nil {
-			continue
-		}
-		for _, tuple := range action.Forward.TargetGroups {
-			if tuple.TargetGroupArn != "" && (tuple.Weight == nil || *tuple.Weight > 0) {
-				arns = append(arns, tuple.TargetGroupArn)
-			}
-		}
+	type pick struct {
+		group  ELBv2TargetGroup
+		target ELBv2TargetDescription
 	}
-	for _, arn := range arns {
-		tg, ok := elbv2TargetGroups.Get(arn)
-		if !ok {
-			continue
-		}
-		for _, target := range tg.Targets {
-			if elbv2TargetReceivesTraffic(tg, target) {
-				return tg, target, true
+	for _, action := range actions {
+		var groups []revisions.Weighted[string]
+		switch {
+		case action.Forward != nil && len(action.Forward.TargetGroups) > 0:
+			for _, tuple := range action.Forward.TargetGroups {
+				weight := 1
+				if tuple.Weight != nil {
+					weight = *tuple.Weight
+				}
+				groups = append(groups, revisions.Weighted[string]{Revision: tuple.TargetGroupArn, Weight: weight})
 			}
+		case action.TargetGroupArn != "":
+			groups = append(groups, revisions.Weighted[string]{Revision: action.TargetGroupArn, Weight: 1})
+		}
+		var ready []revisions.Weighted[pick]
+		for _, g := range groups {
+			tg, ok := elbv2TargetGroups.Get(g.Revision)
+			if !ok {
+				continue
+			}
+			for _, target := range tg.Targets {
+				if elbv2TargetReceivesTraffic(tg, target) {
+					ready = append(ready, revisions.Weighted[pick]{Revision: pick{tg, target}, Weight: g.Weight})
+					break
+				}
+			}
+		}
+		if chosen, ok := revisions.Pick(ready); ok {
+			return chosen.group, chosen.target, true
 		}
 	}
 	return ELBv2TargetGroup{}, ELBv2TargetDescription{}, false

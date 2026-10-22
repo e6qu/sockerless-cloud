@@ -322,12 +322,17 @@ func handleELBv2DescribeLoadBalancers(w http.ResponseWriter, r *http.Request) {
 
 func handleELBv2DeleteLoadBalancer(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("LoadBalancerArn")
-	deleted, _ := elbv2LoadBalancers.Get(arn)
+	deleted, exists := elbv2LoadBalancers.Get(arn)
+	if exists && strings.EqualFold(elbv2LoadBalancerAttributes(arn)["deletion_protection.enabled"], "true") {
+		elbv2ErrorXML(w, "OperationNotPermitted",
+			fmt.Sprintf("Load balancer '%s' cannot be deleted because deletion protection is enabled", arn),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	elbv2LoadBalancers.Delete(arn)
 	ec2ReapplyIngress(deleted.VpcID)
 	for _, listener := range elbv2Listeners.Filter(func(l ELBv2Listener) bool { return l.LoadBalancerArn == arn }) {
-		elbv2Listeners.Delete(listener.Arn)
-		elbv2StopListenerProxy(listener.Arn)
+		elbv2DeleteListener(listener.Arn)
 	}
 	for _, tg := range elbv2TargetGroups.List() {
 		tg.LoadBalancerArns = removeString(tg.LoadBalancerArns, arn)
@@ -526,21 +531,31 @@ func handleELBv2DescribeTargetGroups(w http.ResponseWriter, r *http.Request) {
 	elbv2XMLResponse(w, "DescribeTargetGroups", b.String(), sim.RequestID(r.Context()))
 }
 
-func handleELBv2DeleteTargetGroup(w http.ResponseWriter, r *http.Request) {
-	arn := r.FormValue("TargetGroupArn")
-	elbv2TargetGroups.Delete(arn)
+// elbv2TargetGroupReferenced reports whether a listener's default actions or
+// a rule's actions forward to the target group.
+func elbv2TargetGroupReferenced(arn string) bool {
 	for _, listener := range elbv2Listeners.List() {
-		changed := false
-		for i := range listener.DefaultActions {
-			if listener.DefaultActions[i].TargetGroupArn == arn {
-				listener.DefaultActions[i].TargetGroupArn = ""
-				changed = true
-			}
-		}
-		if changed {
-			elbv2Listeners.Put(listener.Arn, listener)
+		if slices.Contains(elbv2ActionForwardTargets(listener.DefaultActions), arn) {
+			return true
 		}
 	}
+	for _, rule := range elbv2Rules.List() {
+		if slices.Contains(elbv2ActionForwardTargets(rule.Actions), arn) {
+			return true
+		}
+	}
+	return false
+}
+
+func handleELBv2DeleteTargetGroup(w http.ResponseWriter, r *http.Request) {
+	arn := r.FormValue("TargetGroupArn")
+	if elbv2TargetGroupReferenced(arn) {
+		elbv2ErrorXML(w, "ResourceInUse",
+			fmt.Sprintf("Target group '%s' is currently in use by a listener or a rule", arn),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	elbv2TargetGroups.Delete(arn)
 	elbv2XMLResponse(w, "DeleteTargetGroup", "", sim.RequestID(r.Context()))
 }
 
@@ -844,10 +859,17 @@ func handleELBv2ModifyListenerAttributes(w http.ResponseWriter, r *http.Request)
 }
 
 func handleELBv2DeleteListener(w http.ResponseWriter, r *http.Request) {
-	arn := r.FormValue("ListenerArn")
-	elbv2Listeners.Delete(arn)
-	elbv2StopListenerProxy(arn)
+	elbv2DeleteListener(r.FormValue("ListenerArn"))
 	elbv2XMLResponse(w, "DeleteListener", "", sim.RequestID(r.Context()))
+}
+
+// elbv2DeleteListener deletes a listener and its rules and stops serving it.
+func elbv2DeleteListener(arn string) {
+	elbv2Listeners.Delete(arn)
+	for _, rule := range elbv2Rules.Filter(func(rule ELBv2Rule) bool { return rule.ListenerArn == arn }) {
+		elbv2Rules.Delete(rule.Arn)
+	}
+	elbv2StopListenerProxy(arn)
 }
 
 // elbv2TaggedResourcesExist writes the not-found error of the first ARN a

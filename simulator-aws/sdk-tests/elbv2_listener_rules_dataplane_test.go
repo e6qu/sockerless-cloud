@@ -132,6 +132,20 @@ func TestELBv2_ListenerRulesRouteRequests(t *testing.T) {
 			Values: []elbtypes.QueryStringKeyValuePair{{Key: aws.String("go"), Value: aws.String("else*")}},
 		},
 	})
+	weighted := func(weightA, weightB int32) []elbtypes.Action {
+		return []elbtypes.Action{{Type: elbtypes.ActionTypeEnumForward, ForwardConfig: &elbtypes.ForwardActionConfig{
+			TargetGroups: []elbtypes.TargetGroupTuple{
+				{TargetGroupArn: aws.String(groupA), Weight: aws.Int32(weightA)},
+				{TargetGroupArn: aws.String(groupB), Weight: aws.Int32(weightB)},
+			},
+		}}}
+	}
+	rule(45, weighted(1, 3), elbtypes.RuleCondition{
+		Field: aws.String("path-pattern"), PathPatternConfig: &elbtypes.PathPatternConditionConfig{Values: []string{"/split"}},
+	})
+	rule(46, weighted(0, 1), elbtypes.RuleCondition{
+		Field: aws.String("path-pattern"), PathPatternConfig: &elbtypes.PathPatternConditionConfig{Values: []string{"/only-b"}},
+	})
 	rule(50, forward(groupA),
 		elbtypes.RuleCondition{Field: aws.String("host-header"), HostHeaderConfig: &elbtypes.HostHeaderConditionConfig{Values: []string{lbDNSName}}},
 		elbtypes.RuleCondition{Field: aws.String("path-pattern"), PathPatternConfig: &elbtypes.PathPatternConditionConfig{Values: []string{"/a?*"}}},
@@ -177,4 +191,45 @@ func TestELBv2_ListenerRulesRouteRequests(t *testing.T) {
 	status, _, body = send(http.MethodGet, "/a", nil)
 	assert.Equal(t, http.StatusNotFound, status, "/a?* needs a character after /a")
 	assert.Equal(t, "no route", body)
+
+	// A weighted forward divides requests among its target groups by weight;
+	// a group weighted 0 receives none.
+	served := map[string]int{}
+	for range 200 {
+		status, _, body := send(http.MethodGet, "/split", nil)
+		require.Equal(t, http.StatusOK, status)
+		served[body]++
+	}
+	assert.InDelta(t, 150, served["sdk-rules-b"], 40, "weights 1:3 send about three quarters to the second group: %v", served)
+	assert.Equal(t, 200, served["sdk-rules-a"]+served["sdk-rules-b"])
+	for range 20 {
+		_, _, body := send(http.MethodGet, "/only-b", nil)
+		require.Equal(t, "sdk-rules-b", body)
+	}
+
+	// A target group an action forwards to cannot be deleted.
+	_, err = elb.DeleteTargetGroup(ctx, &elbv2.DeleteTargetGroupInput{TargetGroupArn: aws.String(groupA)})
+	var inUse *elbtypes.ResourceInUseException
+	require.ErrorAs(t, err, &inUse)
+
+	// Deletion protection keeps the load balancer until it is turned off.
+	_, err = elb.ModifyLoadBalancerAttributes(ctx, &elbv2.ModifyLoadBalancerAttributesInput{
+		LoadBalancerArn: aws.String(lbArn),
+		Attributes:      []elbtypes.LoadBalancerAttribute{{Key: aws.String("deletion_protection.enabled"), Value: aws.String("true")}},
+	})
+	require.NoError(t, err)
+	_, err = elb.DeleteLoadBalancer(ctx, &elbv2.DeleteLoadBalancerInput{LoadBalancerArn: aws.String(lbArn)})
+	var protected *elbtypes.OperationNotPermittedException
+	require.ErrorAs(t, err, &protected)
+	_, err = elb.ModifyLoadBalancerAttributes(ctx, &elbv2.ModifyLoadBalancerAttributesInput{
+		LoadBalancerArn: aws.String(lbArn),
+		Attributes:      []elbtypes.LoadBalancerAttribute{{Key: aws.String("deletion_protection.enabled"), Value: aws.String("false")}},
+	})
+	require.NoError(t, err)
+	_, err = elb.DeleteLoadBalancer(ctx, &elbv2.DeleteLoadBalancerInput{LoadBalancerArn: aws.String(lbArn)})
+	require.NoError(t, err)
+	for _, arn := range []string{groupA, groupB} {
+		_, err = elb.DeleteTargetGroup(ctx, &elbv2.DeleteTargetGroupInput{TargetGroupArn: aws.String(arn)})
+		require.NoError(t, err, "with its load balancer, listener and rules gone, the group is no longer in use")
+	}
 }

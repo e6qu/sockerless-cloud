@@ -4265,3 +4265,12 @@ The gcloud suite's own install and the test image pinned Google Cloud CLI
 pinned 500.0.0 and 576.0.0: the older harness pin had no `run worker-pools`
 or `alpha run instances` group, so a run on a machine without gcloud failed
 on the client rather than on the simulator.
+
+Elastic Load Balancing refused DeleteLoadBalancer with `OperationNotPermitted`
+while `deletion_protection.enabled` was true, and DeleteTargetGroup with
+`ResourceInUse` while a listener's default actions or a rule's actions
+forwarded to the group, where both had gone through; a listener's deletion,
+direct or with its load balancer, took its rules with it, where they had
+stayed behind. A weighted forward divided requests among its target groups
+by weight, a group weighted 0 receiving none, where every request had gone to
+the first group with a healthy target.
