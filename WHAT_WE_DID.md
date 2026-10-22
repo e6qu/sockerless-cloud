@@ -1461,17 +1461,15 @@ On RDS for MySQL, RDS for MariaDB and Aurora MySQL an IAM token signs in the
 user its `DBUser` names only when that user was created `IDENTIFIED WITH
 AWSAuthenticationPlugin AS 'RDS'`. The stock images lack that plugin, so the
 simulator ships a real server plugin (`simulator-aws/rds_auth_plugin/`): C with
-no C library dependency, built by `build.sh` with clang and ld.lld per engine
-ABI on amd64 and arm64 and embedded in the binary, since `go install` cannot
-compile it. The engine loads plugins from `.sockerless-plugin` in its data
-volume (`--plugin-dir`, plus `--ignore-db-dirs` on MariaDB), so snapshots carry
-it; every start writes the build for the container's architecture there by
-rename and installs the plugin unless loaded. The endpoint validates the token
-and relays it as the password, which the engine admits only for a user
-identified with the plugin; a password login of such a user never reaches the
-engine. `scripts/check-rds-auth-plugin-build.sh` in `build-gates` rebuilds the
-shared objects and fails when a committed binary differs; the build links with
-no build ID and strips symbols, so it is reproducible.
+no C library dependency, which the simulator embeds as source and the engine
+compiles with clang and ld.lld per engine ABI for its own architecture, without
+a stack protector, which would import from a C library. The engine loads
+plugins from `.sockerless-plugin` in its data volume (`--plugin-dir`, plus
+`--ignore-db-dirs` on MariaDB), so snapshots carry it; every start writes the
+build there by rename and installs the plugin unless loaded. The endpoint
+validates the token and relays it as the password, which the engine admits only
+for a user identified with the plugin; a password login of such a user never
+reaches the engine.
 
 A blue/green deployment of a DB instance is a real green environment.
 CreateBlueGreenDeployment answers PROVISIONING and records a green instance
@@ -2708,10 +2706,10 @@ requests opened by `github-actions[bot]`, and the owner keeps that policy strict
 so outside contributors cannot run CI; the owner merges them by bypass. The
 Release workflow ends in a reconciliation job
 (`scripts/verify-release-complete.sh`) that fails unless every expected asset
-and image index exists. The simulator images build from the committed
-`simulator-<cloud>/dist` console bundle, with no console build stage, keep the
-Go caches in cache mounts and export no BuildKit cache, which only re-uploaded
-base layers. Manifest composition retries only a broken connection.
+and image index exists. The simulator images embed the console the
+`build-console` action builds before the image build, keep the Go caches in
+cache mounts and export no BuildKit cache, which only re-uploaded base
+layers. Manifest composition retries only a broken connection.
 
 Publishes are keyed per commit and never cancelled by a later merge; retention
 runs in its own workflow and spares anything younger than two hours, because a
@@ -3138,10 +3136,9 @@ network, the second-to-last address of a Compute Engine subnetwork), every
 workload names it with `--dns`, and the metadata URL travels in the variable
 the cloud's SDKs honour. A fixed link-local metadata address is a recorded gap.
 
-The sidecar is one static binary built reproducibly from `sim/sidecar/cmd`
-and committed, so `go install` ships it without a toolchain at run time;
-`scripts/check-sidecar-build.sh` rebuilds it and fails when the committed
-bytes differ. The sidecar forwards DNS to a per-network listener of the
+The sidecar is one static binary the engine compiles from the sources the
+simulator embeds (`sim.SidecarSource`), so no binary is committed and none can
+drift from its source. The sidecar forwards DNS to a per-network listener of the
 cloud's resolver, which attributes the query to that network and never to
 anything inside the message, and forwards metadata requests to the simulator
 with a token the simulator minted at start; the trust middleware verifies the
@@ -3955,6 +3952,23 @@ A suite that hands several ports to the processes it starts picks them with
 choosing them one at a time released each before the next, so the system could
 return the same port twice, and the simulator and the HTTPS gateway's admin
 endpoint once both took one.
+
+The repository holds no built artifact. The consoles' `dist/` bundles left git:
+a `-tags console` build embeds the bundle `make <simulator>/embed` copies from
+`ui/`, which the `build-console` action runs before the release binaries, the
+release's console archives and both image workflows, and a plain build, the one
+`go install` and every test suite make, serves the bundle `SIM_CONSOLE_DIR`
+names or no console. The `noui` tag went with them, and `build-noui` became
+`build-api`. The network sidecar and Amazon RDS's `AWSAuthenticationPlugin`,
+once committed binaries held to their sources by rebuild gates, are built on
+the container engine from embedded sources by `sim.EnsureEngineBuild`, as the
+microVM node agent was: from digest-pinned bases, tagged by a digest of the
+build context so an engine builds each source version once, for the engine's
+own architecture. A build reaches the network as the engine's own builds do;
+the simulator forwards only `GOPROXY`, since a proxy on its loopback is out of
+a build container's reach, and puts the roots `SSL_CERT_FILE` names into the
+context, which a build stage appends to its CA store so a TLS-inspecting proxy
+does not break it.
 
 A test that restarts a simulator on the same state directory binds the same
 ports twice, so it picks them below the system's ephemeral range: a port from

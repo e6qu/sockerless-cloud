@@ -1,7 +1,18 @@
-//go:build noui
+//go:build !console
 
 package main
 
-import "github.com/e6qu/sockerless-cloud/sim"
+import (
+	"io/fs"
 
-func registerUI(_ *sim.Server) {}
+	"github.com/e6qu/sockerless-cloud/sim"
+)
+
+// consoleBundle returns the console in dir; this build embeds none, so with no
+// dir the simulator serves no console.
+func consoleBundle(dir string) (fs.FS, error) {
+	if dir == "" {
+		return nil, nil
+	}
+	return sim.ConsoleBundle(dir)
+}

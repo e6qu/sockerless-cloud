@@ -84,7 +84,7 @@ if [[ -n "${SIMULATOR_PACKAGE:-}" ]]; then
   simulator_tmp="$(mktemp -d "${TMPDIR:-/tmp}/sockerless-e2e.XXXXXX")"
   (
     cd "$repo_root/$SIMULATOR_PACKAGE"
-    env CGO_ENABLED=0 go build -tags noui -o "$simulator_tmp/$SIMULATOR_NAME" .
+    env CGO_ENABLED=0 go build -o "$simulator_tmp/$SIMULATOR_NAME" .
   )
 
   simulator_url="http://127.0.0.1:${SIMULATOR_PORT}"

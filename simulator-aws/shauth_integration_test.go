@@ -12,8 +12,8 @@ import (
 
 // consoleAssets stands in for the embedded single-page application. The
 // simulator mounts its Shauth relying party from RegisterUI, which the
-// production build reaches through registerUI with the embedded `dist`
-// directory — and which the `noui` build compiles away entirely. Handing
+// `console` build reaches through registerUI with the embedded `dist`
+// directory, and a plain build only when SIM_CONSOLE_DIR names a bundle. Handing
 // RegisterUI a filesystem directly exercises the mounting contract itself, so
 // these tests assert the wiring under every build tag rather than only the one
 // that embeds the console.
@@ -28,9 +28,9 @@ const consoleConfigPath = "/ui/config.json"
 // ensureConsoleRegistered mounts the console — and with it the Shauth relying
 // party — if the build has not already done so.
 //
-// The production build embeds the console and registers it during
-// buildSimulator; the `noui` build compiles that away entirely, which is how
-// `make unit-test` and CI run. Registering unconditionally panics on the first
+// The `console` build embeds the console and registers it during
+// buildSimulator; a plain build, which is how `make unit-test` and CI run,
+// registers none. Registering unconditionally panics on the first
 // of those with a duplicate-pattern conflict, and skipping it entirely tests
 // nothing on the second. Probing the mux covers both, and asserts the same
 // contract either way.

@@ -13,7 +13,7 @@ REPO_ROOT     := $(abspath $(CURDIR)/$(REPO_ROOT_REL))
 include $(REPO_ROOT)/make/help.mk
 include $(REPO_ROOT)/make/colors.mk
 
-.PHONY: install build build-noui test test-integration lint clean
+.PHONY: install build build-api test test-integration lint clean
 
 # Build for a library means "compile-check": no binary output.
 install: ## install Go module deps
@@ -22,7 +22,7 @@ install: ## install Go module deps
 build: ## compile-check (no binary output for libraries)
 	$(GO_ENV) go build ./...
 
-build-noui: build ## compile-check alias for top-level no-UI fanout
+build-api: build ## compile-check alias for the top-level fan-out
 
 test: ## run unit tests
 	$(GO_ENV) go test $(GO_TEST_FLAGS) ./...

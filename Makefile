@@ -66,7 +66,7 @@ ALL_APPS := $(GO_UI_APPS) $(GO_APPS) $(UI_APPS)
 
 # ── Standard fan-out targets ────────────────────────────────────────
 
-.PHONY: install build build-noui test test-integration lint lint-ui lint-all clean upgrade-deps work-sum check-deps check-workflow-timeouts check-workflow-concurrency hooks
+.PHONY: install build build-api test test-integration lint lint-ui lint-all clean upgrade-deps work-sum check-deps check-workflow-timeouts check-workflow-concurrency hooks
 
 install: ## install deps in every app
 	@$(MAKE) -s _fanout TARGET=install APPS="$(ALL_APPS)"
@@ -79,8 +79,8 @@ hooks: ## install pre-commit / commit-msg / pre-push git hooks (one-time bootstr
 build: ## build every app
 	@$(MAKE) -s _fanout TARGET=build APPS="$(UI_APPS) $(GO_UI_APPS) $(GO_APPS)"
 
-build-noui: ## build every Go app with -tags noui (skips UI embed)
-	@$(MAKE) -s _fanout TARGET=build-noui APPS="$(GO_UI_APPS) $(GO_APPS)"
+build-api: ## build every Go app without an embedded console
+	@$(MAKE) -s _fanout TARGET=build-api APPS="$(GO_UI_APPS) $(GO_APPS)"
 
 test: ## unit-test every app
 	@$(MAKE) -s _fanout TARGET=test APPS="$(ALL_APPS)"
@@ -145,7 +145,7 @@ _fanout:
 .PHONY: FORCE
 FORCE:
 
-%/install %/build %/build-noui %/embed %/run %/dev %/test %/test-integration %/lint %/clean %/preview %/help %/docker-test %/docker-test-build %/unit-test %/sdk-test %/cli-test %/terraform-test %/terraform-https-test: FORCE
+%/install %/build %/build-api %/embed %/run %/dev %/test %/test-integration %/lint %/clean %/preview %/help %/docker-test %/docker-test-build %/unit-test %/sdk-test %/cli-test %/terraform-test %/terraform-https-test: FORCE
 	@$(MAKE) -s -C $* $(notdir $@)
 
 # ── Simulator Docker test harness ───────────────────────────────────

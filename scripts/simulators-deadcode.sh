@@ -2,9 +2,9 @@
 # Run deadcode on the cloud simulators to detect unreachable functions.
 #
 # Each simulator (aws/gcp/azure) is its own Go module with a `package main`
-# entry point at the module root, so deadcode is run per module with the `noui`
-# build tag (so the embedded dist/ build artifact is not required). Findings in
-# the module fail the gate.
+# entry point at the module root, so deadcode is run per module, without the
+# `console` tag that embeds a built console. Findings in the module fail the
+# gate.
 #
 # The framework module `sim` has no main package of its own, so it is judged
 # from the three programs that link it: a framework function every simulator
@@ -28,7 +28,7 @@ sim_reports=()
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 for cloud in aws gcp azure; do
-	if ! out=$(cd "$ROOT/simulator-$cloud" && "$DEADCODE" -tags noui -test \
+	if ! out=$(cd "$ROOT/simulator-$cloud" && "$DEADCODE" -test \
 		-filter 'github.com/e6qu/sockerless-cloud/(simulator-'"$cloud"'|sim)$' . 2>&1); then
 		echo "FAIL: simulator-$cloud deadcode analysis did not complete:" >&2
 		echo "$out" >&2

@@ -2,10 +2,9 @@
 # Release (one vX.Y.Z tag per release — no per-module tags, no latest) and
 # attaches everything a release ships:
 #
-#   - simulator binaries for linux/darwin × amd64/arm64, consoles embedded
-#     (built from the committed simulator-<cloud>/dist, exactly what the
-#     module at this tag serves),
-#   - the three console web bundles (the same committed dist trees),
+#   - simulator binaries for linux/darwin × amd64/arm64, each with its console
+#     built from ui/ at this tag and embedded (`-tags console`),
+#   - the three console web bundles, built the same way,
 #   - version-tagged multi-architecture container images: each architecture
 #     pushes ghcr.io/e6qu/sockerless-simulator-<cloud>:vX.Y.Z-<arch> from a
 #     NATIVE runner (no QEMU), and a manifest job composes the unsuffixed
@@ -50,6 +49,9 @@ jobs:
       - uses: ./.github/actions/install-go
         with:
           cache: 'true'
+      - uses: ./.github/actions/build-console
+        with:
+          simulator: simulator-${{ matrix.cloud }}
       - name: Build, archive, and upload (amd64 + arm64)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -60,7 +62,7 @@ jobs:
           for arch in amd64 arm64; do
             out="simulator-${{ matrix.cloud }}"
             GOOS=${{ matrix.goos }} GOARCH="$arch" CGO_ENABLED=0 \
-              go build -ldflags="-s -w" -o "$out" .
+              go build -tags console -ldflags="-s -w" -o "$out" .
             archive="simulator-${{ matrix.cloud }}_${TAG}_${{ matrix.goos }}_${arch}.tar.gz"
             tar -czf "$archive" "$out"
             sha256sum "$archive" > "$archive.sha256"
@@ -76,7 +78,16 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ inputs.tag_name }}
-      - name: Archive and upload the committed console bundles
+      - uses: ./.github/actions/build-console
+        with:
+          simulator: simulator-aws
+      - uses: ./.github/actions/build-console
+        with:
+          simulator: simulator-gcp
+      - uses: ./.github/actions/build-console
+        with:
+          simulator: simulator-azure
+      - name: Archive and upload the console bundles
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag_name }}
@@ -100,9 +111,9 @@ jobs:
       fail-fast: false
       matrix:
         image:
-          - { name: sockerless-simulator-aws, dockerfile: simulator-aws/Dockerfile, context: . }
-          - { name: sockerless-simulator-gcp, dockerfile: simulator-gcp/Dockerfile, context: . }
-          - { name: sockerless-simulator-azure, dockerfile: simulator-azure/Dockerfile, context: . }
+          - { name: sockerless-simulator-aws, simulator: simulator-aws, dockerfile: simulator-aws/Dockerfile, context: . }
+          - { name: sockerless-simulator-gcp, simulator: simulator-gcp, dockerfile: simulator-gcp/Dockerfile, context: . }
+          - { name: sockerless-simulator-azure, simulator: simulator-azure, dockerfile: simulator-azure/Dockerfile, context: . }
         arch:
           - { platform: linux/amd64, runner: ubuntu-latest, suffix: amd64 }
           - { platform: linux/arm64, runner: ubuntu-24.04-arm, suffix: arm64 }
@@ -110,6 +121,11 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ inputs.tag_name }}
+
+      # The image embeds the console, which the repository carries as source.
+      - uses: ./.github/actions/build-console
+        with:
+          simulator: ${{ matrix.image.simulator }}
 
       # BuildKit comes from Google's Docker Hub mirror at the digest Docker Hub
       # serves: Docker Hub limits anonymous pulls, and shared runners exhaust it.

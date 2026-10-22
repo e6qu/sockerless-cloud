@@ -79,7 +79,7 @@ func Start(t *testing.T, configDir string) *Env {
 	if configured := os.Getenv("SOCKERLESS_AWS_SIMULATOR_BINARY"); configured != "" {
 		binaryPath = requireExecutable(t, configured, "AWS Terraform tests")
 	} else {
-		build := exec.Command("go", "build", "-tags", "noui", "-o", binaryPath, ".")
+		build := exec.Command("go", "build", "-o", binaryPath, ".")
 		build.Dir = simDir
 		build.Env = append(os.Environ(), "CGO_ENABLED=0")
 		if out, err := build.CombinedOutput(); err != nil {

@@ -2,14 +2,17 @@
 *.exe
 *.dll
 *.so
-# The engine plugin the Amazon RDS data plane loads ships with the simulator,
-# built by its build.sh.
-!simulator-aws/rds_auth_plugin/*.so
 *.dylib
 *.test
 *.out
 __debug_bin*
 .gocache/
+
+# Console bundles a simulator embeds with -tags console, copied from
+# ui/packages/simulator-<cloud>/dist by `make embed`.
+simulator-aws/dist/
+simulator-gcp/dist/
+simulator-azure/dist/
 
 # Simulator binaries (built by `go build` / `make build`)
 simulator-aws/simulator-aws

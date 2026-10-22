@@ -257,8 +257,9 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 	// EventBridge Scheduler — REST/JSON protocol (path-based, no X-Amz-Target)
 	registerScheduler(srv)
 
-	// Embedded UI (no-op with -tags noui)
-	registerUI(srv)
+	if err := registerUI(srv, cfg.ConsoleDir); err != nil {
+		return nil, nil, nil, err
+	}
 
 	if options.startBackgroundEvaluators {
 		if err := recoverLambdaInvocations(); err != nil {

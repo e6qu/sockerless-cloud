@@ -98,15 +98,18 @@ Any fake, synthetic, hardcoded, or placeholder behavior is a **bug**, not a feat
 Releases are managed by **release-please** (`release-please-config.json`): Conventional Commits (`feat:` / `fix:` / `feat!:` …) on `main` accumulate into a release pull request; merging it creates exactly **one `vX.Y.Z` tag** and the GitHub Release. Never create per-module subdirectory tags and never a `latest`/floating tag. (The bootstrap `*/v0.1.0` module tags were deleted once v0.2.0 shipped; those module versions survive only in the Go module proxy cache, which keeps the sim modules' `require …/realexec v0.1.0` graph resolvable.)
 
 The `Release` workflow attaches every release artifact to that one tag:
-- simulator binaries for linux/darwin × amd64/arm64 with the consoles embedded (built from the committed `simulator-<cloud>/dist`),
+- simulator binaries for linux/darwin × amd64/arm64 with the consoles embedded (each built from `ui/` at the tag and embedded with `-tags console`),
 - the three console web bundles,
 - multi-architecture container images: `ghcr.io/e6qu/sockerless-simulator-<cloud>:vX.Y.Z-amd64` and `:vX.Y.Z-arm64` built on native runners, composed into the unsuffixed `:vX.Y.Z` OCI index. Release images are immortal; only the per-main-push short-SHA image stream is pruned.
 
 Because subdirectory Go modules can only be version-tagged with `<subdir>/vX.Y.Z` tags (which this policy forbids), Go consumers pin **the release commit**: `go get github.com/e6qu/sockerless-cloud/simulator-<cloud>@<release-commit>` records the pseudo-version; checkout- and git-context consumers use the `vX.Y.Z` tag directly.
 
-### Committed console dist
+### No built artifacts in git
 
-`simulator-<cloud>/dist/` (the built console SPA that `//go:embed all:dist` bakes into the binary) is **committed**, so `go install` from a version tag ships the console without needing bun. After any `ui/packages/simulator-*` change, rebuild and re-embed (`cd ui && bun install && bunx turbo run build --no-daemon; make simulator-<cloud>/embed`) and commit the regenerated `dist/` in the same PR.
+The repository carries sources, never what a build makes from them.
+
+- **Consoles**: `simulator-<cloud>/dist/` is git-ignored. A build with `-tags console` embeds the bundle that `make simulator-<cloud>/embed` copies there from `ui/packages/simulator-<cloud>/dist` (`make simulator-<cloud>/build` does both, and the `build-console` action does it in CI, the release and the images). A plain build — `go install`, the test suites — embeds none and serves the bundle `SIM_CONSOLE_DIR` names, or no console.
+- **Binaries a simulator places on the engine** (the network sidecar, Amazon RDS's `AWSAuthenticationPlugin`, the microVM node agent): the simulator embeds their sources and builds them on the container engine with `sim.EnsureEngineBuild`, from digest-pinned base images, once per engine and source version.
 
 ## Always fix CI failures and test failures
 

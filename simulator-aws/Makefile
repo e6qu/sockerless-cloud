@@ -47,7 +47,7 @@ include $(REPO_ROOT_REL)/make/go-app.mk
 UNIT_TEST_TIMEOUT ?= 10m
 
 unit-test: ## go test the simulator module's own package-internal tests (fast; AST/unit guards, no Docker/real-exec)
-	$(GO_ENV) go test -tags noui -count=1 -timeout $(UNIT_TEST_TIMEOUT) ./...
+	$(GO_ENV) go test -count=1 -timeout $(UNIT_TEST_TIMEOUT) ./...
 
 # The same tests under the race detector. Separate from unit-test because the
 # detector needs cgo, which unit-test deliberately does not have.
@@ -63,7 +63,7 @@ RACE_TEST_TIMEOUT ?= 20m
 RACE_TEST_PKGS ?= ./...
 
 race-test: ## go test the simulator module's own tests under the race detector
-	CGO_ENABLED=1 go test -tags noui -race -count=1 -timeout $(RACE_TEST_TIMEOUT) $(RACE_TEST_PKGS)
+	CGO_ENABLED=1 go test -race -count=1 -timeout $(RACE_TEST_TIMEOUT) $(RACE_TEST_PKGS)
 
 sdk-test: build ## go test the SDK-driven sim tests
 	cd sdk-tests && $(GO_ENV) bash ../../scripts/go-test-summary.sh -count=1 -timeout $(SDK_TEST_TIMEOUT) $(SDK_TEST_ARGS)

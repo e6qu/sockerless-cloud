@@ -5,9 +5,10 @@
 #   GO_PACKAGE   : Go package path to build (e.g. ./cmd/sockerless-backend-ecs)
 #
 # Optional — for apps that embed a UI bundle:
-#   UI_PACKAGE   : ui/packages/<name> directory basename (e.g. backend-ecs)
-#                  When set, `build` will try to embed the UI's dist/ if
-#                  present; falls back to `build-noui` when missing.
+#   UI_PACKAGE   : ui/packages/<name> directory basename (e.g. simulator-aws)
+#                  When set, `build` embeds the console built at
+#                  ui/packages/<UI_PACKAGE>/dist (build the UI first) with
+#                  `-tags console`; `build-api` builds without it.
 #
 # Optional — for `run`:
 #   DEFAULT_PORT : if set, gets exposed in `make run` echo banner
@@ -36,7 +37,7 @@ include $(REPO_ROOT)/make/colors.mk
 
 # ── Standardized targets ────────────────────────────────────────────
 
-.PHONY: install build build-noui embed run dev test test-integration test-faas-smoke lint clean
+.PHONY: install build build-api embed run dev test test-integration test-faas-smoke lint clean
 
 install: ## install Go module deps
 	$(GO_ENV) go mod download
@@ -46,26 +47,19 @@ install: ## install Go module deps
 # `-ldflags="$(GO_LDFLAGS)"` so the recipe quotes it correctly.
 GO_LDFLAGS_ARG := $(if $(GO_LDFLAGS),-ldflags="$(GO_LDFLAGS)",)
 
-build: ## build the binary (with UI when available, else falls back to build-noui)
+build: ## build the binary, embedding the console when the app has one
 ifndef UI_PACKAGE
-	$(call STEP,$(APP_NAME): building (no UI configured))
+	$(call STEP,$(APP_NAME): building)
 	$(GO_ENV) go build $(GO_BUILD_FLAGS) $(GO_LDFLAGS_ARG) -o $(APP_NAME) $(GO_PACKAGE)
 else
-	@if [ -d "$(UI_DIST_SRC)" ]; then \
-	  printf "$(COLOR_CYAN)▸ %s: embedding UI from %s$(COLOR_RESET)\n" \
-	    "$(APP_NAME)" "$(UI_DIST_SRC)" ; \
-	  rm -rf $(LOCAL_DIST) && cp -r $(UI_DIST_SRC) $(LOCAL_DIST) ; \
-	  $(GO_ENV) go build $(GO_BUILD_FLAGS) $(GO_LDFLAGS_ARG) -o $(APP_NAME) $(GO_PACKAGE) ; \
-	else \
-	  printf "$(COLOR_YEL)▸ %s: no UI dist at %s — falling back to build-noui$(COLOR_RESET)\n" \
-	    "$(APP_NAME)" "$(UI_DIST_SRC)" ; \
-	  $(MAKE) -s build-noui ; \
-	fi
+	@$(MAKE) -s embed
+	$(call STEP,$(APP_NAME): building with the console)
+	$(GO_ENV) go build -tags console $(GO_BUILD_FLAGS) $(GO_LDFLAGS_ARG) -o $(APP_NAME) $(GO_PACKAGE)
 endif
 
-build-noui: ## build the binary with -tags noui (no embedded UI)
-	$(call STEP,$(APP_NAME): building -tags noui)
-	$(GO_ENV) go build -tags noui $(GO_BUILD_FLAGS) $(GO_LDFLAGS_ARG) -o $(APP_NAME) $(GO_PACKAGE)
+build-api: ## build the binary without an embedded console
+	$(call STEP,$(APP_NAME): building without the console)
+	$(GO_ENV) go build $(GO_BUILD_FLAGS) $(GO_LDFLAGS_ARG) -o $(APP_NAME) $(GO_PACKAGE)
 
 # `embed` is exposed as a stand-alone target so a top-level orchestrator
 # can sequence ui-build → embed → go-build deterministically. It does
@@ -96,29 +90,25 @@ ifndef UI_PACKAGE
 else
 	@printf "$(COLOR_CYAN)▸ %s: dev mode — Go @ :$(or $(DEFAULT_PORT),9999) + Vite @ :5173$(COLOR_RESET)\n" "$(APP_NAME)"
 	@printf "$(COLOR_DIM)To start Vite, in another terminal:  cd $(REPO_ROOT)/ui/packages/$(UI_PACKAGE) && make run$(COLOR_RESET)\n"
-	@$(MAKE) -s build-noui
+	@$(MAKE) -s build-api
 	@$(RUN_ENV) ./$(APP_NAME) $(RUN_FLAGS)
 endif
 
 test: ## run unit tests
-ifdef UI_PACKAGE
-	$(GO_ENV) go test -tags noui ./...
-else
 	$(GO_ENV) go test ./...
-endif
 
 test-integration: ## run integration tests against the local simulator
-	$(GO_ENV) SOCKERLESS_TEST_TARGET=sim go test -tags 'noui integration' -v -timeout 15m ./...
+	$(GO_ENV) SOCKERLESS_TEST_TARGET=sim go test -tags integration -v -timeout 15m ./...
 
 test-faas-smoke: ## run this backend's sim-backed FaaS runner smoke test
 ifndef FAAS_SMOKE_TESTS
 	@printf "$(COLOR_DIM)$(APP_NAME): no FaaS smoke test configured.$(COLOR_RESET)\n"
 else
-	$(GO_ENV) SOCKERLESS_TEST_TARGET=sim go test -tags 'noui integration' -v -count=1 -run '$(FAAS_SMOKE_TESTS)' -timeout 15m ./...
+	$(GO_ENV) SOCKERLESS_TEST_TARGET=sim go test -tags integration -v -count=1 -run '$(FAAS_SMOKE_TESTS)' -timeout 15m ./...
 endif
 
 test-integration-cloud: ## run integration tests against the operator-supplied real cloud (requires SOCKERLESS_ENDPOINT_URL + per-backend ARM env vars)
-	$(GO_ENV) SOCKERLESS_TEST_TARGET=cloud go test -tags 'noui integration' -v -timeout 30m ./...
+	$(GO_ENV) SOCKERLESS_TEST_TARGET=cloud go test -tags integration -v -timeout 30m ./...
 
 # This repository's own modules are excluded. A release pins them by commit, so
 # they are required at a pseudo-version, and `@latest` prefers any semver tag
@@ -139,11 +129,7 @@ upgrade-deps: ## bump every direct require in go.mod to its latest (this reposit
 	$(GO_ENV) go mod tidy
 
 lint: ## go vet + gofmt check (golangci-lint when available)
-ifdef UI_PACKAGE
-	$(GO_ENV) go vet -tags noui ./...
-else
 	$(GO_ENV) go vet ./...
-endif
 	@unformatted=$$(gofmt -l .); \
 	if [ -n "$$unformatted" ]; then \
 	  printf "$(COLOR_RED)gofmt -l .$(COLOR_RESET)\n%s\n" "$$unformatted"; \
@@ -151,11 +137,7 @@ endif
 	fi
 	@if command -v golangci-lint >/dev/null 2>&1; then \
 	  printf "$(COLOR_DIM)$(APP_NAME): golangci-lint$(COLOR_RESET)\n"; \
-	  if [ -n "$(UI_PACKAGE)" ]; then \
-	    $(GO_ENV) golangci-lint run --build-tags noui ./...; \
-	  else \
-	    $(GO_ENV) golangci-lint run ./...; \
-	  fi; \
+	  $(GO_ENV) golangci-lint run ./...; \
 	fi
 
 clean: ## remove built binary + dist

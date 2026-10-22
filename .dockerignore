@@ -2,7 +2,7 @@
 
 # Release simulator images build the per-cloud binaries. Test harnesses,
 # generated test binaries, Terraform caches, and the console sources are not
-# part of the runtime image source context; the committed simulator-<cloud>/dist
+# part of the runtime image source context; the built simulator-<cloud>/dist
 # bundles are, since the binaries embed them.
 **/sdk-tests
 **/cli-tests

@@ -35,8 +35,8 @@ To embed a rebuilt console into its simulator binary, from the repo root:
 make simulator-aws/embed && make simulator-aws/build
 ```
 
-and commit the regenerated `simulator-aws/dist/` (see
-[`AGENTS.md § Committed console dist`](../AGENTS.md#committed-console-dist)).
+The bundle is a build output and stays out of git (see
+[`AGENTS.md § No built artifacts in git`](../AGENTS.md#no-built-artifacts-in-git)).
 
 ## Held dependency versions
 

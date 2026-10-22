@@ -317,8 +317,8 @@ jobs:
           bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}/sdk-tests
           bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}/cli-tests
           cd simulator-${{ matrix.cloud }}
-          CGO_ENABLED=0 go build -tags noui -o /dev/null .
-          CGO_ENABLED=0 go test -tags noui -c -o /dev/null .
+          CGO_ENABLED=0 go build -o /dev/null .
+          CGO_ENABLED=0 go test -c -o /dev/null .
           (cd sdk-tests && CGO_ENABLED=0 go test -c -o /dev/null .)
           (cd cli-tests && CGO_ENABLED=0 go test -c -o /dev/null .)
         timeout-minutes: 13
@@ -663,7 +663,7 @@ jobs:
         run: |
           bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}
           cd simulator-${{ matrix.cloud }}
-          CGO_ENABLED=0 go test -tags noui -count=1 -c -o /dev/null .
+          CGO_ENABLED=0 go test -count=1 -c -o /dev/null .
         timeout-minutes: 8
       - name: Run module unit tests
         # Shard-independent; the sdk suite carries them so they run once per
@@ -729,7 +729,7 @@ jobs:
         run: |
           bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}
           bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}/cli-tests
-          cd simulator-${{ matrix.cloud }} && CGO_ENABLED=0 go build -tags noui -o /dev/null .
+          cd simulator-${{ matrix.cloud }} && CGO_ENABLED=0 go build -o /dev/null .
           cd cli-tests && CGO_ENABLED=0 go test -c -o /dev/null .
         timeout-minutes: 10
       - name: Run CLI tests
@@ -866,7 +866,7 @@ jobs:
         run: |
           bash scripts/ci-go-mod-download.sh simulator-aws
           cd simulator-aws
-          CGO_ENABLED=0 go test -tags noui -count=1 -c -o /dev/null .
+          CGO_ENABLED=0 go test -count=1 -c -o /dev/null .
         timeout-minutes: 8
       - name: Run AWS module unit tests
         # The module unit tests are shard-independent; one shard carries them
@@ -1305,7 +1305,7 @@ jobs:
         run: |
           bash scripts/ci-go-mod-download.sh simulator-aws
           bash scripts/ci-go-mod-download.sh simulator-aws/cli-tests
-          cd simulator-aws && CGO_ENABLED=0 go build -tags noui -o /dev/null .
+          cd simulator-aws && CGO_ENABLED=0 go build -o /dev/null .
           cd cli-tests && CGO_ENABLED=0 go test -c -o /dev/null .
         timeout-minutes: 10
       - name: Prepare the engine's trust directory and the low ports for the runner
@@ -1751,7 +1751,7 @@ jobs:
         run: |
           bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}
           cd simulator-${{ matrix.cloud }}
-          CGO_ENABLED=1 go test -tags noui -race -count=1 -c -o /dev/null .
+          CGO_ENABLED=1 go test -race -count=1 -c -o /dev/null .
         timeout-minutes: 8
       - name: Run unit tests under the race detector
         run: |
@@ -1884,15 +1884,6 @@ jobs:
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v7.0.1
-      - name: Install the RDS authentication plugin toolchain
-        run: bash scripts/ci-apt-install.sh clang lld
-        timeout-minutes: 3
-      - name: Committed RDS authentication plugin binaries match their source
-        run: bash scripts/check-rds-auth-plugin-build.sh
-        timeout-minutes: 2
-      - name: Committed network sidecar binaries match their source
-        run: bash scripts/check-sidecar-build.sh
-        timeout-minutes: 3
       # install-go's own cache restores only an exact go.sum match, so a pin
       # or dependency move left the installable build compiling all three
       # simulators cold, past this job's budget. The entry below falls back

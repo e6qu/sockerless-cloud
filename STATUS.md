@@ -7,8 +7,9 @@ Current state of the sockerless-cloud repository.
 - **Three installable simulators.** `simulator-aws/`, `simulator-gcp/`,
   `simulator-azure/` are root Go modules
   (`github.com/e6qu/sockerless-cloud/simulator-<cloud>`) with no `replace`
-  directives, so `go install …@<release-commit>` works. Each embeds its console
-  from a committed `dist/`.
+  directives, so `go install …@<release-commit>` works. A `-tags console`
+  build embeds the console built from `ui/`; a plain build serves the bundle
+  `SIM_CONSOLE_DIR` names. No built artifact is committed.
 - **One framework module.** `sim/` (`github.com/e6qu/sockerless-cloud/sim`)
   is the server, container-engine layer, durable state, OCI data plane,
   middleware and parsing primitives every simulator is built on. It is
@@ -568,9 +569,6 @@ shape, and one whose scan set can go empty exits non-zero.
   shrink.
 - The required-status-check manifest compared against the workflows in
   pre-commit and against `main`'s live protection at push time.
-- `check-rds-auth-plugin-build.sh` in `build-gates` rebuilds the committed
-  Amazon RDS `AWSAuthenticationPlugin` shared objects from their C source with
-  their `build.sh` and fails when any committed binary differs.
 
 ## Continuous integration
 
