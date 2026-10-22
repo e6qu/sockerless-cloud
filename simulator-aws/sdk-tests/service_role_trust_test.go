@@ -251,7 +251,8 @@ func TestBatch_ComputeEnvironmentWithAServiceRoleItCannotAssumeIsInvalid_SDK(t *
 	assert.Empty(t, aws.ToString(ce.StatusReason))
 }
 
-// AWS CodeBuild refuses a build whose service role override it cannot assume.
+// AWS CodeBuild refuses a build or a batch build whose service role override
+// it cannot assume.
 func TestCodeBuild_RefusesAServiceRoleOverrideItCannotAssume_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
@@ -274,7 +275,45 @@ func TestCodeBuild_RefusesAServiceRoleOverrideItCannotAssume_SDK(t *testing.T) {
 	for _, role := range []string{otherService, absent} {
 		_, err := c.StartBuild(ctx, &codebuild.StartBuildInput{ProjectName: aws.String(name), ServiceRoleOverride: aws.String(role)})
 		requireAWSError(t, err, "InvalidInputException", "CodeBuild is not authorized to perform: sts:AssumeRole on "+role)
+		_, err = c.StartBuildBatch(ctx, &codebuild.StartBuildBatchInput{ProjectName: aws.String(name), ServiceRoleOverride: aws.String(role)})
+		requireAWSError(t, err, "InvalidInputException", "CodeBuild is not authorized to perform: sts:AssumeRole on "+role)
 	}
+}
+
+// AWS CodeBuild refuses a fleet service role it cannot assume, at create and
+// at update.
+func TestCodeBuild_RefusesAFleetServiceRoleItCannotAssume_SDK(t *testing.T) {
+	t.Parallel()
+	c := codebuildClient()
+	otherService, absent := untrustedRoles(t)
+	create := func(role string) (*codebuild.CreateFleetOutput, error) {
+		return c.CreateFleet(ctx, &codebuild.CreateFleetInput{
+			Name:             aws.String(uniqueName("cb-fleet-role")),
+			BaseCapacity:     aws.Int32(1),
+			ComputeType:      cbtypes.ComputeTypeBuildGeneral1Small,
+			EnvironmentType:  cbtypes.EnvironmentTypeLinuxContainer,
+			FleetServiceRole: aws.String(role),
+		})
+	}
+	for _, role := range []string{otherService, absent} {
+		_, err := create(role)
+		requireAWSError(t, err, "InvalidInputException", "CodeBuild is not authorized to perform: sts:AssumeRole on "+role)
+	}
+
+	trusted := serviceRole(t, "codebuild.amazonaws.com")
+	created, err := create(trusted)
+	require.NoError(t, err)
+	arn := aws.ToString(created.Fleet.Arn)
+	t.Cleanup(func() {
+		_, _ = c.DeleteFleet(context.Background(), &codebuild.DeleteFleetInput{Arn: aws.String(arn)})
+	})
+	assert.Equal(t, trusted, aws.ToString(created.Fleet.FleetServiceRole))
+	_, err = c.UpdateFleet(ctx, &codebuild.UpdateFleetInput{Arn: aws.String(arn), FleetServiceRole: aws.String(otherService)})
+	requireAWSError(t, err, "InvalidInputException", "CodeBuild is not authorized to perform: sts:AssumeRole on "+otherService)
+	got, err := c.BatchGetFleets(ctx, &codebuild.BatchGetFleetsInput{Names: []string{arn}})
+	require.NoError(t, err)
+	require.Len(t, got.Fleets, 1)
+	assert.Equal(t, trusted, aws.ToString(got.Fleets[0].FleetServiceRole))
 }
 
 // AWS Glue refuses a crawler, an interactive session, a machine learning
@@ -327,6 +366,78 @@ func TestGlue_RefusesARoleItCannotAssumeBeyondJobs_SDK(t *testing.T) {
 	})
 	_, err = c.UpdateMLTransform(ctx, &glue.UpdateMLTransformInput{TransformId: created.TransformId, Role: aws.String(absent)})
 	requireAWSError(t, err, "InvalidInputException", "Unable to assume role "+absent)
+}
+
+// AWS Glue refuses a data quality run, a table's column statistics task
+// settings, a column statistics task run or a blueprint run whose role it
+// cannot assume.
+func TestGlue_RefusesARunRoleItCannotAssume_SDK(t *testing.T) {
+	t.Parallel()
+	c := glueClient()
+	otherService, absent := untrustedRoles(t)
+	refusal := func(role string) string {
+		return "Role " + role + " should be given assume role permissions for Glue Service."
+	}
+	database, table, blueprint := uniqueName("glue-run-role"), "events", uniqueName("glue-run-role")
+	_, err := c.CreateDatabase(ctx, &glue.CreateDatabaseInput{DatabaseInput: &gluetypes.DatabaseInput{Name: aws.String(database)}})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteDatabase(context.Background(), &glue.DeleteDatabaseInput{Name: aws.String(database)})
+	})
+	_, err = c.CreateTable(ctx, &glue.CreateTableInput{DatabaseName: aws.String(database), TableInput: &gluetypes.TableInput{Name: aws.String(table)}})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteTable(context.Background(), &glue.DeleteTableInput{DatabaseName: aws.String(database), Name: aws.String(table)})
+	})
+	_, err = c.CreateBlueprint(ctx, &glue.CreateBlueprintInput{Name: aws.String(blueprint), BlueprintLocation: aws.String("s3://bucket/blueprint.zip")})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteBlueprint(context.Background(), &glue.DeleteBlueprintInput{Name: aws.String(blueprint)})
+	})
+
+	source := &gluetypes.DataSource{GlueTable: &gluetypes.GlueTable{DatabaseName: aws.String(database), TableName: aws.String(table)}}
+	settings := func(role string) error {
+		_, err := c.CreateColumnStatisticsTaskSettings(ctx, &glue.CreateColumnStatisticsTaskSettingsInput{
+			DatabaseName: aws.String(database), TableName: aws.String(table), Role: aws.String(role),
+		})
+		return err
+	}
+	for _, role := range []string{otherService, absent} {
+		_, err := c.StartDataQualityRulesetEvaluationRun(ctx, &glue.StartDataQualityRulesetEvaluationRunInput{
+			DataSource: source, Role: aws.String(role), RulesetNames: []string{uniqueName("glue-ruleset")},
+		})
+		requireAWSError(t, err, "InvalidInputException", refusal(role))
+		_, err = c.StartDataQualityRuleRecommendationRun(ctx, &glue.StartDataQualityRuleRecommendationRunInput{
+			DataSource: source, Role: aws.String(role),
+		})
+		requireAWSError(t, err, "InvalidInputException", refusal(role))
+		requireAWSError(t, settings(role), "InvalidInputException", refusal(role))
+		_, err = c.StartColumnStatisticsTaskRun(ctx, &glue.StartColumnStatisticsTaskRunInput{
+			DatabaseName: aws.String(database), TableName: aws.String(table), Role: aws.String(role),
+		})
+		requireAWSError(t, err, "InvalidInputException", refusal(role))
+		_, err = c.StartBlueprintRun(ctx, &glue.StartBlueprintRunInput{BlueprintName: aws.String(blueprint), RoleArn: aws.String(role)})
+		requireAWSError(t, err, "InvalidInputException", refusal(role))
+	}
+
+	trusted := serviceRole(t, "glue.amazonaws.com")
+	require.NoError(t, settings(trusted))
+	t.Cleanup(func() {
+		_, _ = c.DeleteColumnStatisticsTaskSettings(context.Background(), &glue.DeleteColumnStatisticsTaskSettingsInput{
+			DatabaseName: aws.String(database), TableName: aws.String(table),
+		})
+	})
+	_, err = c.UpdateColumnStatisticsTaskSettings(ctx, &glue.UpdateColumnStatisticsTaskSettingsInput{
+		DatabaseName: aws.String(database), TableName: aws.String(table), Role: aws.String(otherService),
+	})
+	requireAWSError(t, err, "InvalidInputException", refusal(otherService))
+	got, err := c.GetColumnStatisticsTaskSettings(ctx, &glue.GetColumnStatisticsTaskSettingsInput{
+		DatabaseName: aws.String(database), TableName: aws.String(table),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, trusted, aws.ToString(got.ColumnStatisticsTaskSettings.Role))
+	_, err = c.StartBlueprintRun(ctx, &glue.StartBlueprintRunInput{BlueprintName: aws.String(blueprint), RoleArn: aws.String(trusted)})
+	require.NoError(t, err)
 }
 
 func ecsRoleRefusal(role string) string {

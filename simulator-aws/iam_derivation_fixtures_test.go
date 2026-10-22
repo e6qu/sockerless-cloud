@@ -119,14 +119,15 @@ func iamSeedDerivationFixtures(t *testing.T,
 	// AWS Glue's data-quality runs, which its derivation resolves to the
 	// ruleset each is about. A recommendation run creates a ruleset; an
 	// evaluation run evaluates one and settles a result row per ruleset.
+	putServiceRole(t, "glue-data-quality-probe", "glue.amazonaws.com")
 	recommendation := iamFixtureJSON(t, jsonRouter, "AWSGlue.StartDataQualityRuleRecommendationRun",
-		`{"Role":"probe","CreatedRulesetName":"probe-ruleset","DataSource":{}}`,
+		`{"Role":"glue-data-quality-probe","CreatedRulesetName":"probe-ruleset","DataSource":{}}`,
 		`"RunId"\s*:\s*"([^"]+)"`)
 	out["glue:GetDataQualityRuleRecommendationRun:RunId"] = recommendation
 	out["glue:CancelDataQualityRuleRecommendationRun:RunId"] = recommendation
 
 	evaluation := iamFixtureJSON(t, jsonRouter, "AWSGlue.StartDataQualityRulesetEvaluationRun",
-		`{"Role":"probe","RulesetNames":["probe-ruleset"],"DataSource":{}}`,
+		`{"Role":"glue-data-quality-probe","RulesetNames":["probe-ruleset"],"DataSource":{}}`,
 		`"RunId"\s*:\s*"([^"]+)"`)
 	out["glue:GetDataQualityRulesetEvaluationRun:RunId"] = evaluation
 	out["glue:CancelDataQualityRulesetEvaluationRun:RunId"] = evaluation

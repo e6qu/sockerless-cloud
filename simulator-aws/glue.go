@@ -2651,9 +2651,8 @@ func glueRFC3339() string {
 	return time.Now().UTC().Format(time.RFC3339)
 }
 
-// glueGlueArn builds an arn:aws:glue ARN for the given resource path.
 func glueGlueArn(resource string) string {
-	return "arn:aws:glue:us-east-1:123456789012:" + resource
+	return "arn:aws:glue:" + awsRegion() + ":" + awsAccountID() + ":" + resource
 }
 
 func handleGlueCreateSecurityConfiguration(w http.ResponseWriter, r *http.Request) {

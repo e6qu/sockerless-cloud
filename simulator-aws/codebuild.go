@@ -386,10 +386,10 @@ func cbWriteError(w http.ResponseWriter, code string, msg string) {
 	_ = json.NewEncoder(w).Encode(awsErrorBody("codebuild", code, msg))
 }
 
-// cbCanAssumeRole writes CodeBuild's refusal of a service role that names no
-// role or whose trust policy does not let CodeBuild assume it.
-func cbCanAssumeRole(w http.ResponseWriter, role, projectName string) bool {
-	if _, err := iamServiceTrustedRole(role, "codebuild.amazonaws.com", cbARN("project/"+projectName)); err != nil {
+// cbCanAssumeRole writes CodeBuild's refusal of a role that names no role or
+// whose trust policy does not let CodeBuild assume it for sourceArn.
+func cbCanAssumeRole(w http.ResponseWriter, role, sourceArn string) bool {
+	if _, err := iamServiceTrustedRole(role, "codebuild.amazonaws.com", sourceArn); err != nil {
 		cbWriteError(w, "InvalidInputException", "CodeBuild is not authorized to perform: sts:AssumeRole on "+role)
 		return false
 	}
@@ -425,7 +425,7 @@ func handleCBCreateProject(w http.ResponseWriter, r *http.Request) {
 		cbWriteError(w, "ResourceAlreadyExistsException", "Project already exists: "+req.Name)
 		return
 	}
-	if !cbCanAssumeRole(w, req.ServiceRole, req.Name) {
+	if !cbCanAssumeRole(w, req.ServiceRole, cbARN("project/"+req.Name)) {
 		return
 	}
 
@@ -562,7 +562,7 @@ func handleCBUpdateProject(w http.ResponseWriter, r *http.Request) {
 		p.Environment = req.Environment
 	}
 	if req.ServiceRole != "" {
-		if !cbCanAssumeRole(w, req.ServiceRole, req.Name) {
+		if !cbCanAssumeRole(w, req.ServiceRole, cbARN("project/"+req.Name)) {
 			return
 		}
 		p.ServiceRole = req.ServiceRole
@@ -606,7 +606,7 @@ func handleCBStartBuild(w http.ResponseWriter, r *http.Request) {
 		cbWriteError(w, "ResourceNotFoundException", "Project not found: "+req.ProjectName)
 		return
 	}
-	if req.ServiceRoleOverride != "" && !cbCanAssumeRole(w, req.ServiceRoleOverride, req.ProjectName) {
+	if req.ServiceRoleOverride != "" && !cbCanAssumeRole(w, req.ServiceRoleOverride, cbARN("project/"+req.ProjectName)) {
 		return
 	}
 	plan, err := cbBuildPlanForProject(p, req.BuildspecOverride, req.SourceVersion)
@@ -893,6 +893,8 @@ func cbRunCommands(buildID string, project CBProject, plan cbBuildPlan, env map[
 	serviceRole := project.ServiceRole
 	if build, ok := cbBuilds.Get(buildID); ok && build.ServiceRole != "" {
 		serviceRole = build.ServiceRole
+	} else if batch, ok := cbBuildBatches.Get(buildID); ok && batch.ServiceRole != "" {
+		serviceRole = batch.ServiceRole
 	}
 	holder := roleHolder("codebuild", buildID)
 	defer revokeRoleCredentials(holder)

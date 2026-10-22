@@ -4096,6 +4096,25 @@ replacement, required its `Target` and `FlexibleTimeWindow` as the model
 does. Every SDK, CLI, Terraform and in-package test that had given a state
 machine or a schedule an invented role created a real one trusted by the
 service, and new SDK and CLI tests proved each refusal.
+AWS CodeBuild `CreateFleet` and `UpdateFleet` refused a `fleetServiceRole`
+it could not assume, with the fleet's ARN as `aws:SourceArn`, and
+`StartBuildBatch` took the `serviceRoleOverride` it had ignored: it refused
+one CodeBuild could not assume, as `StartBuild` does, carried it as the
+batch's `serviceRole`, and ran the batch's workload as it. The container
+credentials endpoint served a batch build's workload while the batch ran;
+it had counted only a running build as a live holder, so a batch's workload
+had held no credentials at all. AWS Glue
+`StartDataQualityRulesetEvaluationRun` and
+`StartDataQualityRuleRecommendationRun` (with the table the data source
+names as `aws:SourceArn`), `CreateColumnStatisticsTaskSettings`,
+`UpdateColumnStatisticsTaskSettings` and `StartColumnStatisticsTaskRun`
+(with the table's ARN) and `StartBlueprintRun` (with the blueprint's)
+refused a role Glue could not assume in the job's
+`InvalidInputException`. Glue ARNs named the simulator's region and
+account. The SDK, CLI and in-package tests that had passed these operations
+invented roles created real ones, and new SDK and CLI tests proved each
+refusal, the acceptance of a trusted role, and a batch build whose command
+succeeded only as a session of its override role.
 
 The Knative Cloud Run surface carries a template's VPC egress as the
 `run.googleapis.com/vpc-access-connector`, `vpc-access-egress` and

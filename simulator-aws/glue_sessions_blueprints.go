@@ -977,6 +977,9 @@ func handleGlueStartBlueprintRun(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "EntityNotFoundException", "Blueprint not found: "+req.BlueprintName)
 		return
 	}
+	if !glueCanAssumeRole(w, req.RoleArn, "blueprint/"+req.BlueprintName) {
+		return
+	}
 	runID := "blueprint-run-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:16]
 	now := glueEpochNow()
 	completed := now

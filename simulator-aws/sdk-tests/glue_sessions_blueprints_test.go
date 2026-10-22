@@ -234,7 +234,7 @@ func TestGlue_BlueprintLifecycle_SDK(t *testing.T) {
 
 	run, err := c.StartBlueprintRun(ctx, &glue.StartBlueprintRunInput{
 		BlueprintName: aws.String(name),
-		RoleArn:       aws.String("arn:aws:iam::123456789012:role/GlueRole"),
+		RoleArn:       aws.String(serviceRole(t, "glue.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	runID := aws.ToString(run.RunId)

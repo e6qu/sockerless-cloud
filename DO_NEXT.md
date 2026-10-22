@@ -16,10 +16,8 @@
 - **Stage 6 of `PLAN.md`: distributed.** The agent on another host, reached
   over its API with its minted token, and networks that span hosts; the
   same-range gap (two live VPCs over one CIDR on one engine) lifts there.
-- **More operations refuse a role IAM does not hold** (BUG-3561): the
-  role-taking operations the row lists, each in its service's own error,
-  with real roles in their tests; then Amazon ECS's infrastructure roles
-  (BUG-3562).
+- **Amazon ECS refuses an infrastructure role IAM does not hold**
+  (BUG-3562), in ECS's own error with real roles in its tests.
 - **Close the no-privilege gaps `BUGS.md` holds**: the NAT data planes'
   remainders (ICMP, packet counts, Cloud Monitoring for Cloud NAT, the
   public address as the source a peer sees, a subnet with no route out);

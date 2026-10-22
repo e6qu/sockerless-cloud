@@ -661,6 +661,15 @@ func handleGlueDeleteDataQualityRuleset(w http.ResponseWriter, r *http.Request) 
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }
 
+// glueDataSourceTable names the Glue table a data quality run reads, as the
+// resource path of its ARN.
+func glueDataSourceTable(source map[string]any) string {
+	table, _ := source["GlueTable"].(map[string]any)
+	database, _ := table["DatabaseName"].(string)
+	name, _ := table["TableName"].(string)
+	return "table/" + database + "/" + name
+}
+
 func handleGlueStartDataQualityRulesetEvaluationRun(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		DataSource           map[string]any `json:"DataSource"`
@@ -676,6 +685,9 @@ func handleGlueStartDataQualityRulesetEvaluationRun(w http.ResponseWriter, r *ht
 	}
 	if len(req.RulesetNames) == 0 {
 		glueWriteError(w, "InvalidInputException", "RulesetNames is required")
+		return
+	}
+	if !glueCanAssumeRole(w, req.Role, glueDataSourceTable(req.DataSource)) {
 		return
 	}
 
@@ -813,6 +825,9 @@ func handleGlueStartDataQualityRuleRecommendationRun(w http.ResponseWriter, r *h
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
+		return
+	}
+	if !glueCanAssumeRole(w, req.Role, glueDataSourceTable(req.DataSource)) {
 		return
 	}
 
@@ -1142,6 +1157,9 @@ func handleGlueCreateColumnStatisticsTaskSettings(w http.ResponseWriter, r *http
 		glueWriteError(w, "AlreadyExistsException", "ColumnStatisticsTaskSettings already exist for "+key)
 		return
 	}
+	if !glueCanAssumeRole(w, req.Role, "table/"+req.DatabaseName+"/"+req.TableName) {
+		return
+	}
 	settings := glueCSSettingsFromInput(req.DatabaseName, req.TableName, req.Role, req.Schedule, req.ColumnNameList, req.SampleSize, req.CatalogID, req.SecurityConfiguration)
 	glueCSTaskSettgs.Put(key, settings)
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
@@ -1208,6 +1226,9 @@ func handleGlueUpdateColumnStatisticsTaskSettings(w http.ResponseWriter, r *http
 		return
 	}
 	if req.Role != "" {
+		if !glueCanAssumeRole(w, req.Role, "table/"+req.DatabaseName+"/"+req.TableName) {
+			return
+		}
 		existing.Role = req.Role
 	}
 	if req.ColumnNameList != nil {
@@ -1276,6 +1297,9 @@ func handleGlueStartColumnStatisticsTaskRun(w http.ResponseWriter, r *http.Reque
 
 	if _, ok := glueTables.Get(glueTableKey(req.DatabaseName, req.TableName)); !ok {
 		glueWriteError(w, "EntityNotFoundException", "Table not found: "+req.TableName)
+		return
+	}
+	if !glueCanAssumeRole(w, req.Role, "table/"+req.DatabaseName+"/"+req.TableName) {
 		return
 	}
 	runID := glueHashID()

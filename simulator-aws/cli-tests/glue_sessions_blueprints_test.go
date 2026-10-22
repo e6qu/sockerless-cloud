@@ -252,7 +252,7 @@ func TestGlueBlueprintCLI(t *testing.T) {
 
 	out = runCLI(t, awsCLI("glue", "start-blueprint-run",
 		"--blueprint-name", name,
-		"--role-arn", "arn:aws:iam::123456789012:role/GlueRole",
+		"--role-arn", cliServiceRole(t, "glue.amazonaws.com"),
 	))
 	var run struct {
 		RunId string `json:"RunId"`

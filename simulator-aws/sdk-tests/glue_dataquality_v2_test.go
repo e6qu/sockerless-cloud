@@ -124,7 +124,7 @@ func TestGlue_DataQualityResultsV2_EvaluationRun_SDK(t *testing.T) {
 		DataSource: &gluetypes.DataSource{
 			GlueTable: &gluetypes.GlueTable{DatabaseName: aws.String(database), TableName: aws.String(table)},
 		},
-		Role:         aws.String("arn:aws:iam::123456789012:role/GlueRole"),
+		Role:         aws.String(serviceRole(t, "glue.amazonaws.com")),
 		RulesetNames: []string{rulesetName},
 	})
 	require.NoError(t, err)

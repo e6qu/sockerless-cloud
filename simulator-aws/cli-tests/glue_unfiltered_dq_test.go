@@ -100,7 +100,7 @@ func TestGlueDQAnnotationsCLI(t *testing.T) {
 	// annotation names a profile, and one nothing issued names nothing.
 	const rulesetName = "glue-dq-cli-annotations-ruleset"
 	runCLI(t, awsCLI("glue", "start-data-quality-ruleset-evaluation-run",
-		"--role", "arn:aws:iam::000000000000:role/dq",
+		"--role", cliServiceRole(t, "glue.amazonaws.com"),
 		"--ruleset-names", rulesetName,
 		"--data-source", "{}"))
 	out := runCLI(t, awsCLI("glue", "list-data-quality-results"))

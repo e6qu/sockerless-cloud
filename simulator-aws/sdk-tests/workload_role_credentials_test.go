@@ -141,6 +141,48 @@ func TestCodeBuild_BuildHoldsItsServiceRoleSession_SDK(t *testing.T) {
 	assertBuildSession(aws.ToString(retried.Build.Id), overrideRole)
 }
 
+// A batch build that names a serviceRoleOverride runs as that role, not as its
+// project's: its build command succeeds only when the AWS CLI's caller is a
+// session of the override role.
+func TestCodeBuild_BuildBatchRunsAsItsServiceRoleOverride_SDK(t *testing.T) {
+	t.Parallel()
+	c := codebuildClient()
+	name := uniqueName("cb-batch-role")
+	projectRole := createWorkloadRole(t, name, "codebuild.amazonaws.com")
+	overrideRole := createWorkloadRole(t, name+"-override", "codebuild.amazonaws.com")
+	command := "aws sts get-caller-identity --query Arn --output text | grep -q 'assumed-role/" + name + "-override/'"
+	_, err := c.CreateProject(ctx, &codebuild.CreateProjectInput{
+		Name: aws.String(name),
+		Source: &cbtypes.ProjectSource{
+			Type:      cbtypes.SourceTypeNoSource,
+			Buildspec: aws.String("version: 0.2\nphases:\n  build:\n    commands:\n      - \"" + command + "\"\n"),
+		},
+		Artifacts: &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
+		Environment: &cbtypes.ProjectEnvironment{
+			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String(awsCLIImage),
+			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
+		},
+		ServiceRole: aws.String(projectRole),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteProject(context.Background(), &codebuild.DeleteProjectInput{Name: aws.String(name)})
+	})
+
+	started, err := c.StartBuildBatch(ctx, &codebuild.StartBuildBatchInput{ProjectName: aws.String(name), ServiceRoleOverride: aws.String(overrideRole)})
+	require.NoError(t, err)
+	assert.Equal(t, overrideRole, aws.ToString(started.BuildBatch.ServiceRole))
+	var batch cbtypes.BuildBatch
+	require.Eventually(t, func() bool {
+		out, err := c.BatchGetBuildBatches(ctx, &codebuild.BatchGetBuildBatchesInput{Ids: []string{aws.ToString(started.BuildBatch.Id)}})
+		require.NoError(t, err)
+		batch = out.BuildBatches[0]
+		return batch.BuildBatchStatus != cbtypes.StatusTypeInProgress
+	}, cbBuildCompletionBudget, 100*time.Millisecond)
+	require.Equal(t, cbtypes.StatusTypeSucceeded, batch.BuildBatchStatus)
+	assert.Equal(t, overrideRole, aws.ToString(batch.ServiceRole))
+}
+
 // A job's AWS CLI resolves sessions of its job definition's job role through
 // its default credential chain, as an Amazon ECS task's resolves its task
 // role.

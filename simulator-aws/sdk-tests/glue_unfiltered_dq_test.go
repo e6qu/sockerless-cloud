@@ -110,7 +110,7 @@ func TestGlue_DQAnnotations_SDK(t *testing.T) {
 	// a caller can: run one, and read the profile off the result. An
 	// annotation names a profile, and one nothing issued names nothing.
 	_, err := c.StartDataQualityRulesetEvaluationRun(ctx, &glue.StartDataQualityRulesetEvaluationRunInput{
-		Role:         aws.String("arn:aws:iam::000000000000:role/dq"),
+		Role:         aws.String(serviceRole(t, "glue.amazonaws.com")),
 		RulesetNames: []string{"glue-dq-annotations-ruleset"},
 		DataSource:   &gluetypes.DataSource{},
 	})

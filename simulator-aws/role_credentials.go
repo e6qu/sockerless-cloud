@@ -76,8 +76,11 @@ var roleHolderLive = map[string]func(id string) bool{
 		return ok && live
 	},
 	"codebuild": func(id string) bool {
-		build, ok := cbBuilds.Get(id)
-		return ok && build.BuildStatus == "IN_PROGRESS"
+		if build, ok := cbBuilds.Get(id); ok {
+			return build.BuildStatus == "IN_PROGRESS"
+		}
+		batch, ok := cbBuildBatches.Get(id)
+		return ok && batch.BuildBatchStatus == "IN_PROGRESS"
 	},
 	"codebuild-command": func(id string) bool {
 		ce, ok := cbCommandExecs.Get(id)

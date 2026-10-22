@@ -152,7 +152,30 @@ func TestCodeBuild_RefusesAServiceRoleOverrideItCannotAssume_CLI(t *testing.T) {
 	for _, role := range []string{otherService, absent} {
 		out := runCLIExpectError(t, awsCLI("codebuild", "start-build", "--project-name", name, "--service-role-override", role))
 		assertCLIRefusal(t, out, "InvalidInputException", "CodeBuild is not authorized to perform: sts:AssumeRole on "+role)
+		out = runCLIExpectError(t, awsCLI("codebuild", "start-build-batch", "--project-name", name, "--service-role-override", role))
+		assertCLIRefusal(t, out, "InvalidInputException", "CodeBuild is not authorized to perform: sts:AssumeRole on "+role)
 	}
+}
+
+func TestCodeBuild_RefusesAFleetServiceRoleItCannotAssume_CLI(t *testing.T) {
+	t.Parallel()
+	otherService, absent := cliUntrustedRoles(t)
+	create := func(role string) []string {
+		return []string{"codebuild", "create-fleet", "--name", cliUniqueName("cli-cb-fleet-role"), "--base-capacity", "1",
+			"--compute-type", "BUILD_GENERAL1_SMALL", "--environment-type", "LINUX_CONTAINER", "--fleet-service-role", role}
+	}
+	for _, role := range []string{otherService, absent} {
+		out := runCLIExpectError(t, awsCLI(create(role)...))
+		assertCLIRefusal(t, out, "InvalidInputException", "CodeBuild is not authorized to perform: sts:AssumeRole on "+role)
+	}
+
+	trusted := cliServiceRole(t, "codebuild.amazonaws.com")
+	arn := strings.TrimSpace(runCLI(t, awsCLI(append(create(trusted), "--query", "fleet.arn", "--output", "text")...)))
+	t.Cleanup(func() { _ = awsCLI("codebuild", "delete-fleet", "--arn", arn).Run() })
+	out := runCLIExpectError(t, awsCLI("codebuild", "update-fleet", "--arn", arn, "--fleet-service-role", otherService))
+	assertCLIRefusal(t, out, "InvalidInputException", "CodeBuild is not authorized to perform: sts:AssumeRole on "+otherService)
+	assert.Equal(t, trusted, strings.TrimSpace(runCLI(t, awsCLI("codebuild", "batch-get-fleets", "--names", arn,
+		"--query", "fleets[0].fleetServiceRole", "--output", "text"))))
 }
 
 func TestGlue_RefusesARoleItCannotAssumeBeyondJobs_CLI(t *testing.T) {
@@ -193,6 +216,48 @@ func TestGlue_RefusesARoleItCannotAssumeBeyondJobs_CLI(t *testing.T) {
 	t.Cleanup(func() { _ = awsCLI("glue", "delete-ml-transform", "--transform-id", id).Run() })
 	out = runCLIExpectError(t, awsCLI("glue", "update-ml-transform", "--transform-id", id, "--role", absent))
 	assertCLIRefusal(t, out, "InvalidInputException", "Unable to assume role "+absent)
+}
+
+func TestGlue_RefusesARunRoleItCannotAssume_CLI(t *testing.T) {
+	t.Parallel()
+	otherService, absent := cliUntrustedRoles(t)
+	refusal := func(role string) string {
+		return "Role " + role + " should be given assume role permissions for Glue Service."
+	}
+	database, table, blueprint := cliUniqueName("cli-glue-run-role"), "events", cliUniqueName("cli-glue-run-role")
+	runCLI(t, awsCLI("glue", "create-database", "--database-input", `{"Name":"`+database+`"}`))
+	t.Cleanup(func() { _ = awsCLI("glue", "delete-database", "--name", database).Run() })
+	runCLI(t, awsCLI("glue", "create-table", "--database-name", database, "--table-input", `{"Name":"`+table+`"}`))
+	t.Cleanup(func() { _ = awsCLI("glue", "delete-table", "--database-name", database, "--name", table).Run() })
+	runCLI(t, awsCLI("glue", "create-blueprint", "--name", blueprint, "--blueprint-location", "s3://bucket/blueprint.zip"))
+	t.Cleanup(func() { _ = awsCLI("glue", "delete-blueprint", "--name", blueprint).Run() })
+
+	source := `{"GlueTable":{"DatabaseName":"` + database + `","TableName":"` + table + `"}}`
+	tableArgs := []string{"--database-name", database, "--table-name", table}
+	for _, role := range []string{otherService, absent} {
+		out := runCLIExpectError(t, awsCLI("glue", "start-data-quality-ruleset-evaluation-run", "--data-source", source,
+			"--role", role, "--ruleset-names", cliUniqueName("cli-glue-ruleset")))
+		assertCLIRefusal(t, out, "InvalidInputException", refusal(role))
+		out = runCLIExpectError(t, awsCLI("glue", "start-data-quality-rule-recommendation-run", "--data-source", source, "--role", role))
+		assertCLIRefusal(t, out, "InvalidInputException", refusal(role))
+		out = runCLIExpectError(t, awsCLI(append([]string{"glue", "create-column-statistics-task-settings", "--role", role}, tableArgs...)...))
+		assertCLIRefusal(t, out, "InvalidInputException", refusal(role))
+		out = runCLIExpectError(t, awsCLI(append([]string{"glue", "start-column-statistics-task-run", "--role", role}, tableArgs...)...))
+		assertCLIRefusal(t, out, "InvalidInputException", refusal(role))
+		out = runCLIExpectError(t, awsCLI("glue", "start-blueprint-run", "--blueprint-name", blueprint, "--role-arn", role))
+		assertCLIRefusal(t, out, "InvalidInputException", refusal(role))
+	}
+
+	trusted := cliServiceRole(t, "glue.amazonaws.com")
+	runCLI(t, awsCLI(append([]string{"glue", "create-column-statistics-task-settings", "--role", trusted}, tableArgs...)...))
+	t.Cleanup(func() {
+		_ = awsCLI(append([]string{"glue", "delete-column-statistics-task-settings"}, tableArgs...)...).Run()
+	})
+	out := runCLIExpectError(t, awsCLI(append([]string{"glue", "update-column-statistics-task-settings", "--role", otherService}, tableArgs...)...))
+	assertCLIRefusal(t, out, "InvalidInputException", refusal(otherService))
+	assert.Equal(t, trusted, strings.TrimSpace(runCLI(t, awsCLI(append([]string{"glue", "get-column-statistics-task-settings",
+		"--query", "ColumnStatisticsTaskSettings.Role", "--output", "text"}, tableArgs...)...))))
+	runCLI(t, awsCLI("glue", "start-blueprint-run", "--blueprint-name", blueprint, "--role-arn", trusted))
 }
 
 func TestECS_RefusesToLaunchATaskWithARoleItCannotAssume_CLI(t *testing.T) {
