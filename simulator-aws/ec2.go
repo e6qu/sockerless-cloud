@@ -238,7 +238,11 @@ type EC2Instance struct {
 	MetadataHttpEndpoint string
 	MetadataHopLimit     int
 	MetadataInstanceTags string
-	Placement            EC2Placement
+	// InstanceLifecycle is "spot" for a Spot Instance and empty for an
+	// On-Demand one; SpotInstanceRequestId names the request it fulfils.
+	InstanceLifecycle     string
+	SpotInstanceRequestId string
+	Placement             EC2Placement
 	// StateTransitionReason is the free-text reason for the most recent
 	// state transition (the DescribeInstances <reason> element); empty
 	// while the instance is running.
@@ -3311,7 +3315,7 @@ func ec2InstanceXML(inst EC2Instance) string {
     <rootDeviceName>%s</rootDeviceName>
     <blockDeviceMapping><item><deviceName>%s</deviceName><ebs><volumeId>%s</volumeId><status>attached</status><attachTime>%s</attachTime><deleteOnTermination>true</deleteOnTermination></ebs></item></blockDeviceMapping>
     <virtualizationType>hvm</virtualizationType>
-    <clientToken/>
+    <clientToken/>%s
     <ebsOptimized>%t</ebsOptimized>
     %s%s%s
     %s
@@ -3321,7 +3325,7 @@ func ec2InstanceXML(inst EC2Instance) string {
 		ec2PrivateDNSName(inst.PrivateIpAddress), dnsNameXML, reasonXML, keyNameXML, inst.AmiLaunchIndex, inst.InstanceType, inst.LaunchTime,
 		ec2PlacementXML(inst), monitoringState, inst.SubnetId, inst.VpcId, inst.PrivateIpAddress, publicXML, inst.SourceDestCheck, groups.String(), stateReasonXML,
 		inst.Architecture, inst.RootDeviceName, inst.RootDeviceName, "vol-"+strings.TrimPrefix(inst.InstanceId, "i-"), inst.LaunchTime,
-		inst.EbsOptimized, iamXML, metaXML, cpuXML,
+		ec2InstanceLifecycleXML(inst), inst.EbsOptimized, iamXML, metaXML, cpuXML,
 		writeTagSetXML(inst.Tags), ni.String())
 }
 
@@ -3434,6 +3438,15 @@ func runInstancesRootBlockDevice(r *http.Request, lt EC2LaunchTemplateData) (int
 		}
 	}
 	return 0, ""
+}
+
+// ec2InstanceLifecycleXML marks a Spot Instance and names its request; an
+// On-Demand instance carries neither.
+func ec2InstanceLifecycleXML(inst EC2Instance) string {
+	if inst.InstanceLifecycle == "" {
+		return ""
+	}
+	return "\n    <instanceLifecycle>" + inst.InstanceLifecycle + "</instanceLifecycle><spotInstanceRequestId>" + inst.SpotInstanceRequestId + "</spotInstanceRequestId>"
 }
 
 func handleRunInstances(w http.ResponseWriter, r *http.Request) {
@@ -3612,6 +3625,17 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 		Placement:              placement,
 	}
 
+	var spotOptions *EC2LTInstanceMarketOptions
+	if ec2FormOrLT(r, "InstanceMarketOptions.MarketType", ec2LTMarketType(ltData)) == "spot" {
+		spotOptions = &EC2LTInstanceMarketOptions{MarketType: "spot"}
+		if lt := ltData.InstanceMarketOptions; lt != nil {
+			*spotOptions = *lt
+		}
+		spotOptions.MaxPrice = ec2FormOrLT(r, "InstanceMarketOptions.SpotOptions.MaxPrice", spotOptions.MaxPrice)
+		spotOptions.SpotInstanceType = ec2FormOrLT(r, "InstanceMarketOptions.SpotOptions.SpotInstanceType", spotOptions.SpotInstanceType)
+		spotOptions.InstanceInterruptionBehavior = ec2FormOrLT(r, "InstanceMarketOptions.SpotOptions.InstanceInterruptionBehavior", spotOptions.InstanceInterruptionBehavior)
+	}
+
 	var instances []EC2Instance
 	for i := 0; i < maxCount; i++ {
 		if placement.HostId != "" {
@@ -3651,6 +3675,9 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			break
+		}
+		if spotOptions != nil {
+			inst = ec2FulfilSpotLaunch(inst, *spotOptions, tags)
 		}
 		if hasLT {
 			// Real AWS records launch-template provenance as system tags on the

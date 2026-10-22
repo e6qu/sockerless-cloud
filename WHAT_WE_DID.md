@@ -4199,3 +4199,11 @@ Azure Container Registry refused a registry PUT for a name another registry
 held in any resource group or subscription, since the name is its login
 server's host name, where the simulator had stored a second registry under
 the same login server; the holder wrote its own registry again as before.
+
+RunInstances with a spot market, named on the call or in its launch
+template, launched a Spot Instance: the instance carried `instanceLifecycle`
+`spot` and the `spotInstanceRequestId` of the one-time (or persistent)
+request it fulfilled, which DescribeSpotInstanceRequests reported active and
+fulfilled at the call's maximum price, and the instance read `spot` from the
+metadata service's `instance-life-cycle`. Instances RequestSpotInstances
+launched carried the same.

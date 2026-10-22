@@ -1041,6 +1041,10 @@ func handleRequestSpotInstances(w http.ResponseWriter, r *http.Request) {
 			Tags:                         ec2ParseTagSpecs(r),
 		}
 		ec2SpotInstanceRequests.Put(sir.SpotInstanceRequestId, sir)
+		ec2Instances.Update(instID, func(held *EC2Instance) {
+			held.InstanceLifecycle = "spot"
+			held.SpotInstanceRequestId = sir.SpotInstanceRequestId
+		})
 		items.WriteString("<item>")
 		items.WriteString(ec2SpotInstanceRequestXML(sir))
 		items.WriteString("</item>")
@@ -1619,4 +1623,52 @@ func handleDescribeHostReservations(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeHostReservationsResponse %s><requestId>%s</requestId><hostReservationSet>%s</hostReservationSet></DescribeHostReservationsResponse>`,
 		ec2Xmlns(), sim.NewUUID(), items.String())
+}
+
+// ec2FulfilSpotLaunch records the Spot Instance request a RunInstances call
+// with a spot market makes and the instance fulfils: a one-time request
+// unless the call names a persistent one, active and fulfilled, whose price
+// is the maximum the call names.
+func ec2FulfilSpotLaunch(inst EC2Instance, options EC2LTInstanceMarketOptions, tags []EC2Tag) EC2Instance {
+	reqType := options.SpotInstanceType
+	if reqType == "" {
+		reqType = "one-time"
+	}
+	interruption := options.InstanceInterruptionBehavior
+	if interruption == "" {
+		interruption = "terminate"
+	}
+	now := ec2NowMilli()
+	sir := EC2SpotInstanceRequest{
+		SpotInstanceRequestId:        ec2ID("sir"),
+		SpotPrice:                    options.MaxPrice,
+		Type:                         reqType,
+		State:                        "active",
+		StatusCode:                   "fulfilled",
+		StatusMessage:                "Your spot request is fulfilled.",
+		StatusUpdateTime:             now,
+		InstanceId:                   inst.InstanceId,
+		ProductDescription:           "Linux/UNIX",
+		LaunchedAvailabilityZone:     ec2InstanceAvailabilityZone(inst),
+		InstanceInterruptionBehavior: interruption,
+		CreateTime:                   now,
+		ImageId:                      inst.ImageId,
+		LaunchInstanceType:           inst.InstanceType,
+		Tags:                         tags,
+	}
+	ec2SpotInstanceRequests.Put(sir.SpotInstanceRequestId, sir)
+	ec2Instances.Update(inst.InstanceId, func(held *EC2Instance) {
+		held.InstanceLifecycle = "spot"
+		held.SpotInstanceRequestId = sir.SpotInstanceRequestId
+	})
+	inst.InstanceLifecycle = "spot"
+	inst.SpotInstanceRequestId = sir.SpotInstanceRequestId
+	return inst
+}
+
+func ec2LTMarketType(lt EC2LaunchTemplateData) string {
+	if lt.InstanceMarketOptions == nil {
+		return ""
+	}
+	return lt.InstanceMarketOptions.MarketType
 }
