@@ -21,9 +21,7 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `acm.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/acm.json` | Apache-2.0 | `f75a3c42cba93bf67e3bb698308cccf09ff26edd` | 2026-08-13T21:17:29Z |
 | `ecr.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/ecr.json` | Apache-2.0 | `ecbadc5d569e8e2b3907ed80baf4277fa82eb4ca` | 2026-08-19T20:44:16Z |
 | `wafv2.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/wafv2.json` | Apache-2.0 | `ccb3bdf540057a044839ce729a219b1020871007` | 2026-08-27T09:26:43Z |
-| `auto-scaling.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/auto-scaling.json` | Apache-2.0 | `4301eac62bf911560a570bec835db508b7b3ce9f` | 2026-08-27T09:26:46Z |
 | `elastic-load-balancing-v2.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/elastic-load-balancing-v2.json` | Apache-2.0 | `093c165c00746d3a1626dd638fa65eb77431da17` | 2026-09-04T11:15:47Z |
-| `sfn.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/sfn.json` | Apache-2.0 | `093c165c00746d3a1626dd638fa65eb77431da17` | 2026-09-04T11:15:48Z |
 | `cloudtrail.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/cloudtrail.json` | Apache-2.0 | `cc3942bb907ad993738d18d2a3ff1b99bf51cd4e` | 2026-09-09T11:11:06Z |
 | `s3-control.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/s3-control.json` | Apache-2.0 | `cc3942bb907ad993738d18d2a3ff1b99bf51cd4e` | 2026-09-09T11:11:07Z |
 | `sts.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/sts.json` | Apache-2.0 | `9fab903279c3ff20ef3ee8acd5129457b4f6e3ae` | 2026-09-15T11:35:26Z |
@@ -45,7 +43,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `alb-cloudwatch-metrics.md.gz` | `awsdocs/elb-application-load-balancers-user-guide@master` | `doc_source/load-balancer-cloudwatch-metrics.md` | CC-BY-SA-4.0 | `fb242939a8639ebd75f5a9cbd4b33acef51e1367` | 2026-10-17T00:40:14Z |
 | `ecs-cloudwatch-metrics.md.gz` | `awsdocs/amazon-ecs-developer-guide@master` | `doc_source/cloudwatch-metrics.md` | CC-BY-SA-4.0 | `a35b7671c57ce34babc04525a1d7b16fd4c9a8c6` | 2026-10-17T00:40:15Z |
 | `cloudfront.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/cloudfront.json` | Apache-2.0 | `14be3b3b24e5303a68c4ccc5a4e1a60701bf6806` | 2026-10-19T13:07:44Z |
-| `ec2.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/ec2.json` | Apache-2.0 | `14be3b3b24e5303a68c4ccc5a4e1a60701bf6806` | 2026-10-19T13:07:46Z |
 | `lambda.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/lambda.json` | Apache-2.0 | `14be3b3b24e5303a68c4ccc5a4e1a60701bf6806` | 2026-10-19T13:07:47Z |
 | `organizations.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/organizations.json` | Apache-2.0 | `14be3b3b24e5303a68c4ccc5a4e1a60701bf6806` | 2026-10-19T13:07:48Z |
 | `amplify.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/amplify.json` | Apache-2.0 | `6053b94af2b949aa80355a123d2def169c1f12a7` | 2026-10-20T11:36:32Z |
@@ -55,3 +52,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `ecs.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/ecs.json` | Apache-2.0 | `5ee00b8b4a4f174db1ad83beb2c36651a41150a1` | 2026-10-21T11:38:59Z |
 | `elasticache.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/elasticache.json` | Apache-2.0 | `5ee00b8b4a4f174db1ad83beb2c36651a41150a1` | 2026-10-21T11:39:00Z |
 | `rds.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/rds.json` | Apache-2.0 | `5ee00b8b4a4f174db1ad83beb2c36651a41150a1` | 2026-10-21T11:39:01Z |
+| `auto-scaling.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/auto-scaling.json` | Apache-2.0 | `e92707e9ed82a8800ab086bc2f5be33524b9d06b` | 2026-10-22T11:38:33Z |
+| `ec2.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/ec2.json` | Apache-2.0 | `e92707e9ed82a8800ab086bc2f5be33524b9d06b` | 2026-10-22T11:38:34Z |
+| `sfn.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/sfn.json` | Apache-2.0 | `e92707e9ed82a8800ab086bc2f5be33524b9d06b` | 2026-10-22T11:38:45Z |
