@@ -14,7 +14,7 @@ func TestGlueMLTaskRunCLI(t *testing.T) {
 		"--name", "glue-cli-mltask-tf",
 		"--input-record-tables", `[{"DatabaseName":"db","TableName":"tbl"}]`,
 		"--parameters", `{"TransformType":"FIND_MATCHES"}`,
-		"--role", "arn:aws:iam::123456789012:role/GlueRole",
+		"--role", cliServiceRole(t, "glue.amazonaws.com"),
 	))
 	var created struct {
 		TransformId string `json:"TransformId"`
@@ -74,7 +74,7 @@ func TestGlueCrawlerScheduleCLI(t *testing.T) {
 	const crawler = "glue-cli-sched-crawler"
 	runCLI(t, awsCLI("glue", "create-crawler",
 		"--name", crawler,
-		"--role", "arn:aws:iam::123456789012:role/glue-crawler-role",
+		"--role", cliServiceRole(t, "glue.amazonaws.com"),
 		"--schedule", "cron(15 12 * * ? *)",
 		"--targets", `{"S3Targets":[{"Path":"s3://bucket/data/"}]}`,
 	))

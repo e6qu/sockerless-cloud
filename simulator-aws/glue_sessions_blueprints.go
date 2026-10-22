@@ -237,6 +237,9 @@ func handleGlueCreateSession(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "AlreadyExistsException", "Session already exists: "+req.Id)
 		return
 	}
+	if !glueCanAssumeRole(w, req.Role, "session/"+req.Id) {
+		return
+	}
 	s := GlueSession{
 		Id:                    req.Id,
 		CreatedOn:             glueEpochNow(),
@@ -555,6 +558,9 @@ func handleGlueCreateDevEndpoint(w http.ResponseWriter, r *http.Request) {
 
 	if _, ok := glueDevEndpoints.Get(req.EndpointName); ok {
 		glueWriteError(w, "AlreadyExistsException", "DevEndpoint already exists: "+req.EndpointName)
+		return
+	}
+	if !glueCanAssumeRole(w, req.RoleArn, "devEndpoint/"+req.EndpointName) {
 		return
 	}
 	now := glueEpochNow()

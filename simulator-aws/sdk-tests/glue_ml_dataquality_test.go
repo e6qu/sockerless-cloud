@@ -24,7 +24,7 @@ func TestGlue_MLTransformLifecycle_SDK(t *testing.T) {
 		Parameters: &gluetypes.TransformParameters{
 			TransformType: gluetypes.TransformTypeFindMatches,
 		},
-		Role:        aws.String("arn:aws:iam::123456789012:role/GlueRole"),
+		Role:        aws.String(serviceRole(t, "glue.amazonaws.com")),
 		Description: aws.String("sdk ml transform"),
 	})
 	require.NoError(t, err)

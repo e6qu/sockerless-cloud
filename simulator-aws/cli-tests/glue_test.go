@@ -430,7 +430,7 @@ func TestGlue_CrawlerCRUD_CLI(t *testing.T) {
 	t.Parallel()
 	runCLI(t, awsCLI("glue", "create-crawler",
 		"--name", "glue-cli-crawler",
-		"--role", "arn:aws:iam::123456789012:role/glue-crawler-role",
+		"--role", cliServiceRole(t, "glue.amazonaws.com"),
 		"--database-name", "glue-cli-crawler-db",
 		"--targets", `{"S3Targets":[{"Path":"s3://bucket/data/"}]}`,
 		"--description", "cli crawler",
@@ -461,7 +461,7 @@ func TestGlue_CrawlerCRUD_CLI(t *testing.T) {
 
 	runCLI(t, awsCLI("glue", "update-crawler",
 		"--name", "glue-cli-crawler",
-		"--role", "arn:aws:iam::123456789012:role/glue-crawler-role",
+		"--role", cliServiceRole(t, "glue.amazonaws.com"),
 		"--description", "updated crawler",
 	))
 	out = runCLI(t, awsCLI("glue", "get-crawler", "--name", "glue-cli-crawler"))

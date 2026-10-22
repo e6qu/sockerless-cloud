@@ -32,7 +32,7 @@ func TestBatch_ComputeEnvironment_SDK(t *testing.T) {
 			MaxvCpus: aws.Int32(256),
 			Subnets:  []string{"subnet-00000001"},
 		},
-		ServiceRole: aws.String("arn:aws:iam::123456789012:role/aws-batch-service-role"),
+		ServiceRole: aws.String(serviceRole(t, "batch.amazonaws.com")),
 		Tags:        map[string]string{"env": "sdk"},
 	})
 	require.NoError(t, err)

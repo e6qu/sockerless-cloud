@@ -4000,6 +4000,19 @@ AWS provider's lack of any propagation retry there implies, and a service's
 refused launch landed in its events. A task's container credentials served
 the overrides' task role when the overrides named one. The express gateway
 service's Terraform test created its execution and infrastructure roles.
+AWS Batch accepted a compute environment whose service role
+`batch.amazonaws.com` could not assume and left it `INVALID`, with the
+`CLIENT_ERROR - Not authorized to perform sts:AssumeRole …` reason the AWS
+Batch User Guide quotes, so its queues placed no jobs on it; it read a bare
+role name as a role without a path, and an update to a role it could assume
+made the environment `VALID`. Batch ARNs named the simulator's region and
+account. AWS CodeBuild `StartBuild` refused a `serviceRoleOverride` it could
+not assume as `CreateProject` refuses a service role. AWS Glue refused an
+untrusted role in `CreateCrawler` and `UpdateCrawler` ("Service is unable to
+assume provided role. Please verify role's TrustPolicy"),
+`CreateMLTransform` and `UpdateMLTransform` ("Unable to assume role <role>"),
+and `CreateSession` and `CreateDevEndpoint` (the job's message), each with
+the resource's ARN as `aws:SourceArn`.
 
 The Knative Cloud Run surface carries a template's VPC egress as the
 `run.googleapis.com/vpc-access-connector`, `vpc-access-egress` and

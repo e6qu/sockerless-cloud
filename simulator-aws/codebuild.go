@@ -606,6 +606,9 @@ func handleCBStartBuild(w http.ResponseWriter, r *http.Request) {
 		cbWriteError(w, "ResourceNotFoundException", "Project not found: "+req.ProjectName)
 		return
 	}
+	if req.ServiceRoleOverride != "" && !cbCanAssumeRole(w, req.ServiceRoleOverride, req.ProjectName) {
+		return
+	}
 	plan, err := cbBuildPlanForProject(p, req.BuildspecOverride, req.SourceVersion)
 	if err != nil {
 		cbWriteError(w, "InvalidInputException", err.Error())

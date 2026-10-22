@@ -297,6 +297,9 @@ func handleGlueCreateMLTransform(w http.ResponseWriter, r *http.Request) {
 	defer glueMu.Unlock()
 
 	id := glueHashID()
+	if glueRefusesRole(w, req.Role, "mlTransform/"+id, "Unable to assume role "+req.Role) {
+		return
+	}
 	now := glueEpochNow()
 	t := GlueMLTransform{
 		TransformId:       id,
@@ -433,6 +436,9 @@ func handleGlueUpdateMLTransform(w http.ResponseWriter, r *http.Request) {
 		t.Parameters = req.Parameters
 	}
 	if req.Role != "" {
+		if glueRefusesRole(w, req.Role, "mlTransform/"+t.TransformId, "Unable to assume role "+req.Role) {
+			return
+		}
 		t.Role = req.Role
 	}
 	if req.GlueVersion != "" {

@@ -15,7 +15,7 @@ func TestGlueMLTransformCLI(t *testing.T) {
 		"--description", "cli ml transform",
 		"--input-record-tables", `[{"DatabaseName":"db","TableName":"tbl"}]`,
 		"--parameters", `{"TransformType":"FIND_MATCHES"}`,
-		"--role", "arn:aws:iam::123456789012:role/GlueRole",
+		"--role", cliServiceRole(t, "glue.amazonaws.com"),
 	))
 	var created struct {
 		TransformId string `json:"TransformId"`

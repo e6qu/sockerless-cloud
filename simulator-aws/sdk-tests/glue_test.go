@@ -668,7 +668,7 @@ func TestGlue_CrawlerCRUD_SDK(t *testing.T) {
 
 	_, err := c.CreateCrawler(ctx, &glue.CreateCrawlerInput{
 		Name:         aws.String("glue-sdk-crawler"),
-		Role:         aws.String("arn:aws:iam::123456789012:role/glue-crawler-role"),
+		Role:         aws.String(serviceRole(t, "glue.amazonaws.com")),
 		DatabaseName: aws.String("glue-sdk-crawler-db"),
 		Description:  aws.String("sdk crawler"),
 		TablePrefix:  aws.String("pfx_"),
@@ -701,7 +701,7 @@ func TestGlue_CrawlerCRUD_SDK(t *testing.T) {
 
 	_, err = c.UpdateCrawler(ctx, &glue.UpdateCrawlerInput{
 		Name:        aws.String("glue-sdk-crawler"),
-		Role:        aws.String("arn:aws:iam::123456789012:role/glue-crawler-role"),
+		Role:        aws.String(serviceRole(t, "glue.amazonaws.com")),
 		Description: aws.String("updated crawler"),
 		Targets: &gluetypes.CrawlerTargets{
 			S3Targets: []gluetypes.S3Target{{Path: aws.String("s3://bucket/data2/")}},

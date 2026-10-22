@@ -1250,15 +1250,23 @@ func handleGlueBatchDeletePartition(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, resp)
 }
 
-// glueCanAssumeRole writes Glue's refusal of a job role, named by ARN or by
-// name, that names no role or whose trust policy does not let Glue assume it.
-func glueCanAssumeRole(w http.ResponseWriter, role, jobName string) bool {
-	if _, err := iamServiceTrustedRole(role, "glue.amazonaws.com", glueGlueArn("job/"+jobName)); err != nil {
-		glueWriteError(w, "InvalidInputException",
-			"Role "+role+" should be given assume role permissions for Glue Service.")
-		return false
+// glueRefusesRole writes refusal, as Glue's InvalidInputException, when role,
+// named by ARN or by name, names no role or does not let Glue assume it for
+// the Glue resource it configures.
+func glueRefusesRole(w http.ResponseWriter, role, resource, refusal string) bool {
+	if _, err := iamServiceTrustedRole(role, "glue.amazonaws.com", glueGlueArn(resource)); err != nil {
+		glueWriteError(w, "InvalidInputException", refusal)
+		return true
 	}
-	return true
+	return false
+}
+
+const glueCrawlerRoleRefusal = "Service is unable to assume provided role. Please verify role's TrustPolicy"
+
+// glueCanAssumeRole refuses a job, session or development endpoint role
+// Glue cannot assume.
+func glueCanAssumeRole(w http.ResponseWriter, role, resource string) bool {
+	return !glueRefusesRole(w, role, resource, "Role "+role+" should be given assume role permissions for Glue Service.")
 }
 
 func handleGlueCreateJob(w http.ResponseWriter, r *http.Request) {
@@ -1290,7 +1298,7 @@ func handleGlueCreateJob(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "AlreadyExistsException", "Job already exists: "+req.Name)
 		return
 	}
-	if !glueCanAssumeRole(w, req.Role, req.Name) {
+	if !glueCanAssumeRole(w, req.Role, "job/"+req.Name) {
 		return
 	}
 	now := glueEpochNow()
@@ -1656,7 +1664,7 @@ func handleGlueUpdateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	// JobUpdate replaces the configuration; tags are preserved (they ride GetTags).
 	upd := req.JobUpdate
-	if !glueCanAssumeRole(w, upd.Role, req.JobName) {
+	if !glueCanAssumeRole(w, upd.Role, "job/"+req.JobName) {
 		return
 	}
 	job.Description = upd.Description
@@ -1774,6 +1782,9 @@ func handleGlueCreateCrawler(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "AlreadyExistsException", "Crawler already exists: "+req.Name)
 		return
 	}
+	if glueRefusesRole(w, req.Role, "crawler/"+req.Name, glueCrawlerRoleRefusal) {
+		return
+	}
 	now := glueEpochNow()
 	crawler := GlueCrawler{
 		Name:         req.Name,
@@ -1886,6 +1897,9 @@ func handleGlueUpdateCrawler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Role != "" {
+		if glueRefusesRole(w, req.Role, "crawler/"+req.Name, glueCrawlerRoleRefusal) {
+			return
+		}
 		crawler.Role = req.Role
 	}
 	if req.Targets != nil {

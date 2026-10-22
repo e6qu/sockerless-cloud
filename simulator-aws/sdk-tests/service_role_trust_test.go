@@ -200,6 +200,130 @@ func TestAmplify_RefusesARoleItCannotAssume_SDK(t *testing.T) {
 	requireAWSError(t, err, "BadRequestException", "computeRoleArn "+otherService+" cannot be assumed by amplify.amazonaws.com")
 }
 
+// AWS Batch accepts a compute environment whose service role it cannot
+// assume and leaves it INVALID, and an update to a role it can assume makes it
+// VALID.
+func TestBatch_ComputeEnvironmentWithAServiceRoleItCannotAssumeIsInvalid_SDK(t *testing.T) {
+	t.Parallel()
+	c := batchClient()
+	otherService, absent := untrustedRoles(t)
+	describe := func(name string) batchtypes.ComputeEnvironmentDetail {
+		out, err := c.DescribeComputeEnvironments(ctx, &batch.DescribeComputeEnvironmentsInput{ComputeEnvironments: []string{name}})
+		require.NoError(t, err)
+		require.Len(t, out.ComputeEnvironments, 1)
+		return out.ComputeEnvironments[0]
+	}
+	for _, role := range []string{otherService, absent, otherService[strings.LastIndex(otherService, "/")+1:]} {
+		name := uniqueName("batch-ce-untrusted")
+		_, err := c.CreateComputeEnvironment(ctx, &batch.CreateComputeEnvironmentInput{
+			ComputeEnvironmentName: aws.String(name), Type: batchtypes.CETypeUnmanaged, ServiceRole: aws.String(role),
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_, _ = c.DeleteComputeEnvironment(context.Background(), &batch.DeleteComputeEnvironmentInput{ComputeEnvironment: aws.String(name)})
+		})
+		ce := describe(name)
+		assert.Equal(t, batchtypes.CEStatusInvalid, ce.Status)
+		assert.True(t, strings.HasPrefix(aws.ToString(ce.StatusReason),
+			"CLIENT_ERROR - Not authorized to perform sts:AssumeRole (Service: AWSSecurityTokenService; Status Code: 403; Error Code: AccessDenied; Request ID: "),
+			aws.ToString(ce.StatusReason))
+	}
+
+	name := uniqueName("batch-ce-trusted")
+	_, err := c.CreateComputeEnvironment(ctx, &batch.CreateComputeEnvironmentInput{
+		ComputeEnvironmentName: aws.String(name), Type: batchtypes.CETypeUnmanaged, ServiceRole: aws.String(otherService),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteComputeEnvironment(context.Background(), &batch.DeleteComputeEnvironmentInput{ComputeEnvironment: aws.String(name)})
+	})
+	_, err = c.UpdateComputeEnvironment(ctx, &batch.UpdateComputeEnvironmentInput{
+		ComputeEnvironment: aws.String(name), ServiceRole: aws.String(serviceRole(t, "batch.amazonaws.com")),
+	})
+	require.NoError(t, err)
+	ce := describe(name)
+	assert.Equal(t, batchtypes.CEStatusValid, ce.Status)
+	assert.Empty(t, aws.ToString(ce.StatusReason))
+}
+
+// AWS CodeBuild refuses a build whose service role override it cannot assume.
+func TestCodeBuild_RefusesAServiceRoleOverrideItCannotAssume_SDK(t *testing.T) {
+	t.Parallel()
+	c := codebuildClient()
+	otherService, absent := untrustedRoles(t)
+	name := uniqueName("cb-override")
+	_, err := c.CreateProject(ctx, &codebuild.CreateProjectInput{
+		Name:      aws.String(name),
+		Source:    &cbtypes.ProjectSource{Type: cbtypes.SourceTypeNoSource, Buildspec: aws.String("version: 0.2")},
+		Artifacts: &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
+		Environment: &cbtypes.ProjectEnvironment{
+			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("aws/codebuild/standard:7.0"),
+			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
+		},
+		ServiceRole: aws.String(serviceRole(t, "codebuild.amazonaws.com")),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteProject(context.Background(), &codebuild.DeleteProjectInput{Name: aws.String(name)})
+	})
+	for _, role := range []string{otherService, absent} {
+		_, err := c.StartBuild(ctx, &codebuild.StartBuildInput{ProjectName: aws.String(name), ServiceRoleOverride: aws.String(role)})
+		requireAWSError(t, err, "InvalidInputException", "CodeBuild is not authorized to perform: sts:AssumeRole on "+role)
+	}
+}
+
+// AWS Glue refuses a crawler, an interactive session, a machine learning
+// transform or a development endpoint whose role it cannot assume.
+func TestGlue_RefusesARoleItCannotAssumeBeyondJobs_SDK(t *testing.T) {
+	t.Parallel()
+	c := glueClient()
+	otherService, absent := untrustedRoles(t)
+	const crawlerRefusal = "Service is unable to assume provided role. Please verify role's TrustPolicy"
+	jobRefusal := func(role string) string {
+		return "Role " + role + " should be given assume role permissions for Glue Service."
+	}
+	targets := &gluetypes.CrawlerTargets{S3Targets: []gluetypes.S3Target{{Path: aws.String("s3://bucket/prefix")}}}
+	transform := func(role string) (*glue.CreateMLTransformOutput, error) {
+		return c.CreateMLTransform(ctx, &glue.CreateMLTransformInput{
+			Name:              aws.String(uniqueName("glue-mlt")),
+			InputRecordTables: []gluetypes.GlueTable{{DatabaseName: aws.String("db"), TableName: aws.String("tbl")}},
+			Parameters:        &gluetypes.TransformParameters{TransformType: gluetypes.TransformTypeFindMatches},
+			Role:              aws.String(role),
+		})
+	}
+	for _, role := range []string{otherService, absent} {
+		_, err := c.CreateCrawler(ctx, &glue.CreateCrawlerInput{Name: aws.String(uniqueName("glue-crawler")), Role: aws.String(role), Targets: targets})
+		requireAWSError(t, err, "InvalidInputException", crawlerRefusal)
+		_, err = c.CreateSession(ctx, &glue.CreateSessionInput{
+			Id: aws.String(uniqueName("glue-session")), Role: aws.String(role),
+			Command: &gluetypes.SessionCommand{Name: aws.String("glueetl")},
+		})
+		requireAWSError(t, err, "InvalidInputException", jobRefusal(role))
+		_, err = transform(role)
+		requireAWSError(t, err, "InvalidInputException", "Unable to assume role "+role)
+		_, err = c.CreateDevEndpoint(ctx, &glue.CreateDevEndpointInput{EndpointName: aws.String(uniqueName("glue-dev")), RoleArn: aws.String(role)})
+		requireAWSError(t, err, "InvalidInputException", jobRefusal(role))
+	}
+
+	trusted := serviceRole(t, "glue.amazonaws.com")
+	crawler := uniqueName("glue-crawler")
+	_, err := c.CreateCrawler(ctx, &glue.CreateCrawlerInput{Name: aws.String(crawler), Role: aws.String(trusted), Targets: targets})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteCrawler(context.Background(), &glue.DeleteCrawlerInput{Name: aws.String(crawler)})
+	})
+	_, err = c.UpdateCrawler(ctx, &glue.UpdateCrawlerInput{Name: aws.String(crawler), Role: aws.String(otherService)})
+	requireAWSError(t, err, "InvalidInputException", crawlerRefusal)
+
+	created, err := transform(trusted)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteMLTransform(context.Background(), &glue.DeleteMLTransformInput{TransformId: created.TransformId})
+	})
+	_, err = c.UpdateMLTransform(ctx, &glue.UpdateMLTransformInput{TransformId: created.TransformId, Role: aws.String(absent)})
+	requireAWSError(t, err, "InvalidInputException", "Unable to assume role "+absent)
+}
+
 func ecsRoleRefusal(role string) string {
 	return "ECS was unable to assume the role '" + role + "' that was provided for this task. " +
 		"Please verify that the role being passed has the proper trust relationship and permissions " +
