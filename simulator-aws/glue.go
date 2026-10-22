@@ -1250,6 +1250,17 @@ func handleGlueBatchDeletePartition(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, resp)
 }
 
+// glueCanAssumeRole writes Glue's refusal of a job role, named by ARN or by
+// name, that names no role or whose trust policy does not let Glue assume it.
+func glueCanAssumeRole(w http.ResponseWriter, role, jobName string) bool {
+	if _, err := iamServiceTrustedRole(role, "glue.amazonaws.com", glueGlueArn("job/"+jobName)); err != nil {
+		glueWriteError(w, "InvalidInputException",
+			"Role "+role+" should be given assume role permissions for Glue Service.")
+		return false
+	}
+	return true
+}
+
 func handleGlueCreateJob(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name             string            `json:"Name"`
@@ -1277,6 +1288,9 @@ func handleGlueCreateJob(w http.ResponseWriter, r *http.Request) {
 
 	if _, ok := glueJobs.Get(req.Name); ok {
 		glueWriteError(w, "AlreadyExistsException", "Job already exists: "+req.Name)
+		return
+	}
+	if !glueCanAssumeRole(w, req.Role, req.Name) {
 		return
 	}
 	now := glueEpochNow()
@@ -1642,6 +1656,9 @@ func handleGlueUpdateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	// JobUpdate replaces the configuration; tags are preserved (they ride GetTags).
 	upd := req.JobUpdate
+	if !glueCanAssumeRole(w, upd.Role, req.JobName) {
+		return
+	}
 	job.Description = upd.Description
 	job.Role = upd.Role
 	job.Command = upd.Command

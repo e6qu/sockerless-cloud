@@ -162,7 +162,7 @@ func TestIntegration_LambdaFullLifecycle(t *testing.T) {
 	// Create function
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(fnName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/integration-role"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		Runtime:      lambdatypes.RuntimeNodejs18x,
 		Handler:      aws.String("index.handler"),
 		Code:         &lambdatypes.FunctionCode{ZipFile: lambdaDeploymentZip(t)},

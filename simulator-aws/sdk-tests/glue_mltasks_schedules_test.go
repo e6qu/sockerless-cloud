@@ -291,7 +291,7 @@ func TestGlue_WorkflowRunProperties_SDK(t *testing.T) {
 	job := uniqueName("glue-sdk-wfrun-job")
 	_, err = c.CreateJob(ctx, &glue.CreateJobInput{
 		Name:    aws.String(job),
-		Role:    aws.String("arn:aws:iam::123456789012:role/GlueRole"),
+		Role:    aws.String(serviceRole(t, "glue.amazonaws.com")),
 		Command: &gluetypes.JobCommand{Name: aws.String("glueetl")},
 	})
 	require.NoError(t, err)

@@ -50,7 +50,7 @@ func TestCodeBuild_ProjectCRUD_SDK(t *testing.T) {
 			Image:       aws.String("mirror.gcr.io/library/alpine:3.21"),
 			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
 		},
-		ServiceRole: aws.String("arn:aws:iam::123456789012:role/cb-role"),
+		ServiceRole: aws.String(serviceRole(t, "codebuild.amazonaws.com")),
 		Tags: []cbtypes.Tag{
 			{Key: aws.String("env"), Value: aws.String("sdk")},
 		},
@@ -124,7 +124,7 @@ func TestCodeBuild_BuildLifecycle_SDK(t *testing.T) {
 			Image:       aws.String("mirror.gcr.io/library/alpine:3.21"),
 			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
 		},
-		ServiceRole: aws.String("arn:aws:iam::123456789012:role/cb-role"),
+		ServiceRole: aws.String(serviceRole(t, "codebuild.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -233,7 +233,7 @@ phases:
 			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/library/alpine:3.21"),
 			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
 		},
-		ServiceRole: aws.String("arn:aws:iam::123456789012:role/cb-role"),
+		ServiceRole: aws.String(serviceRole(t, "codebuild.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -294,7 +294,7 @@ phases:
 			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/library/alpine:3.21"),
 			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
 		},
-		ServiceRole: aws.String("arn:aws:iam::123456789012:role/cb-role"),
+		ServiceRole: aws.String(serviceRole(t, "codebuild.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -326,7 +326,7 @@ func TestCodeBuild_ListBuildsSortOrder_SDK(t *testing.T) {
 		Source:      &cbtypes.ProjectSource{Type: cbtypes.SourceTypeNoSource, Buildspec: aws.String("version: 0.2\nphases:\n  build:\n    commands:\n      - printf ok\n")},
 		Artifacts:   &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
 		Environment: &cbtypes.ProjectEnvironment{Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/library/alpine:3.21"), ComputeType: cbtypes.ComputeTypeBuildGeneral1Small},
-		ServiceRole: aws.String("arn:aws:iam::123456789012:role/cb-role"),
+		ServiceRole: aws.String(serviceRole(t, "codebuild.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = c.DeleteProject(ctx, &codebuild.DeleteProjectInput{Name: aws.String(proj)}) })
@@ -377,7 +377,7 @@ func TestCodeBuild_FailedBuildPhaseContext_SDK(t *testing.T) {
 			Image:       aws.String("mirror.gcr.io/library/alpine:3.21"),
 			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
 		},
-		ServiceRole: aws.String("arn:aws:iam::123456789012:role/cb-role"),
+		ServiceRole: aws.String(serviceRole(t, "codebuild.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -425,7 +425,7 @@ func TestCodeBuild_StopAndRetryBuild_SDK(t *testing.T) {
 		Source:      &cbtypes.ProjectSource{Type: cbtypes.SourceTypeNoSource, Buildspec: aws.String("version: 0.2\nphases:\n  build:\n    commands:\n      - sleep 5\n")},
 		Artifacts:   &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
 		Environment: &cbtypes.ProjectEnvironment{Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/library/alpine:3.21"), ComputeType: cbtypes.ComputeTypeBuildGeneral1Small},
-		ServiceRole: aws.String("arn:aws:iam::123456789012:role/cb-role"),
+		ServiceRole: aws.String(serviceRole(t, "codebuild.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = c.DeleteProject(ctx, &codebuild.DeleteProjectInput{Name: aws.String(proj)}) })
@@ -501,7 +501,7 @@ func TestCodeBuild_ReportGroupsAndReports_SDK(t *testing.T) {
 		Source:      &cbtypes.ProjectSource{Type: cbtypes.SourceTypeNoSource, Buildspec: aws.String(buildspec)},
 		Artifacts:   &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
 		Environment: &cbtypes.ProjectEnvironment{Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/library/alpine:3.21"), ComputeType: cbtypes.ComputeTypeBuildGeneral1Small},
-		ServiceRole: aws.String("arn:aws:iam::123456789012:role/cb-role"),
+		ServiceRole: aws.String(serviceRole(t, "codebuild.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = c.DeleteProject(ctx, &codebuild.DeleteProjectInput{Name: aws.String(proj)}) })

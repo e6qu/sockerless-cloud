@@ -371,7 +371,7 @@ func TestGlue_CodeGen_SDK(t *testing.T) {
 	// A job for source-control sync.
 	_, err = c.CreateJob(ctx, &glue.CreateJobInput{
 		Name: aws.String("glue-sdk-codegen-job"),
-		Role: aws.String("arn:aws:iam::123456789012:role/GlueRole"),
+		Role: aws.String(serviceRole(t, "glue.amazonaws.com")),
 		Command: &gluetypes.JobCommand{
 			Name:           aws.String("glueetl"),
 			ScriptLocation: aws.String("s3://bucket/script.py"),

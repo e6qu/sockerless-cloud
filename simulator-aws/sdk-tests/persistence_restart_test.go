@@ -75,6 +75,20 @@ func persistentSDKConfig() aws.Config {
 	return sdkConfig()
 }
 
+// persistentServiceRole creates, on the simulator at endpoint, a role whose
+// trust policy lets the service principal assume it.
+func persistentServiceRole(t *testing.T, endpoint, name, principal string) string {
+	t.Helper()
+	iamAPI := iam.NewFromConfig(persistentSDKConfig(), func(o *iam.Options) { o.BaseEndpoint = aws.String(endpoint) })
+	role, err := iamAPI.CreateRole(ctx, &iam.CreateRoleInput{
+		RoleName: aws.String(name),
+		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"` +
+			principal + `"},"Action":"sts:AssumeRole"}]}`),
+	})
+	require.NoError(t, err)
+	return aws.ToString(role.Role.Arn)
+}
+
 func TestAWSServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	t.Parallel()
 	stateDir := t.TempDir()
@@ -284,7 +298,7 @@ func TestAWSServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	const functionName = "persistent-lambda"
 	_, err = lambdaAPI.CreateFunction(testCtx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(functionName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/persistent-lambda-role"),
+		Role:         aws.String(persistentServiceRole(t, endpoint, "persistent-lambda-role", "lambda.amazonaws.com")),
 		PackageType:  lambdatypes.PackageTypeImage,
 		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String("example.invalid/persistent:1")},
 	})
@@ -816,7 +830,7 @@ frontend:
 	const durableFunction = "persistent-durable-lambda"
 	_, err = lambdaAPI.CreateFunction(testCtx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(durableFunction),
-		Role:         aws.String("arn:aws:iam::123456789012:role/persistent-durable-role"),
+		Role:         aws.String(persistentServiceRole(t, endpoint, "persistent-durable-role", "lambda.amazonaws.com")),
 		Runtime:      lambdatypes.RuntimeNodejs20x,
 		Handler:      aws.String("index.handler"),
 		Code: &lambdatypes.FunctionCode{
@@ -910,7 +924,7 @@ exports.handler = async (event) => {
 };`
 	_, err = lambdaAPI.CreateFunction(testCtx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(functionName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/persistent-callback-role"),
+		Role:         aws.String(persistentServiceRole(t, endpoint, "persistent-callback-role", "lambda.amazonaws.com")),
 		Runtime:      lambdatypes.RuntimeNodejs20x,
 		Handler:      aws.String("index.handler"),
 		Code:         &lambdatypes.FunctionCode{ZipFile: lambdaNodeSourceZip(t, source)},

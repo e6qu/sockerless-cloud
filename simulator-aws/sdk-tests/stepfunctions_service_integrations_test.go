@@ -66,7 +66,7 @@ func TestSFN_GenericAWSSDKIntegrations_SDK(t *testing.T) {
 
 	_, err := lambdaAPI.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName:  aws.String(functionName),
-		Role:          aws.String("arn:aws:iam::123456789012:role/test-role"),
+		Role:          aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		PackageType:   lambdatypes.PackageTypeImage,
 		Code:          &lambdatypes.FunctionCode{ImageUri: aws.String(lambdaHandlerImageName)},
 		Architectures: nativeLambdaArchitectures(),
@@ -560,7 +560,7 @@ phases:
 			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/amazon/aws-cli:2.27.49"),
 			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
 		},
-		ServiceRole: aws.String("arn:aws:iam::123456789012:role/codebuild-role"),
+		ServiceRole: aws.String(serviceRole(t, "codebuild.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -656,7 +656,7 @@ phases:
 			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/library/alpine:3.21"),
 			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
 		},
-		ServiceRole: aws.String("arn:aws:iam::123456789012:role/codebuild-role"),
+		ServiceRole: aws.String(serviceRole(t, "codebuild.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -711,7 +711,7 @@ phases:
 			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/amazon/aws-cli:2.27.49"),
 			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
 		},
-		ServiceRole: aws.String("arn:aws:iam::123456789012:role/codebuild-role"),
+		ServiceRole: aws.String(serviceRole(t, "codebuild.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {

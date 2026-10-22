@@ -24,7 +24,7 @@ func cbCLICreateProject(t *testing.T, name, buildspec string) {
 		"--source", `{"type":"NO_SOURCE","buildspec":"`+buildspec+`"}`,
 		"--artifacts", `{"type":"NO_ARTIFACTS"}`,
 		"--environment", `{"type":"LINUX_CONTAINER","image":"mirror.gcr.io/library/alpine:3.21","computeType":"BUILD_GENERAL1_SMALL"}`,
-		"--service-role", "arn:aws:iam::123456789012:role/cb-role",
+		"--service-role", cliServiceRole(t, "codebuild.amazonaws.com"),
 	))
 	t.Cleanup(func() {
 		runCLI(t, awsCLI("codebuild", "delete-project", "--name", name))

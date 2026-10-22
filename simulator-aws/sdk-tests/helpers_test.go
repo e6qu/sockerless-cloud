@@ -758,3 +758,10 @@ var uniqueNameSequence atomic.Int64
 func uniqueName(prefix string) string {
 	return prefix + "-" + strconv.FormatInt(time.Now().UnixNano(), 36) + strconv.FormatInt(uniqueNameSequence.Add(1), 36)
 }
+
+// serviceRole creates a uniquely named role whose trust policy lets the
+// service principal assume it, deleted when the test ends.
+func serviceRole(t *testing.T, principal string) string {
+	t.Helper()
+	return createWorkloadRole(t, uniqueName(strings.SplitN(principal, ".", 2)[0]), principal)
+}

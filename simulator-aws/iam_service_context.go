@@ -129,6 +129,27 @@ func iamValidateServiceRoleCall(roleARN, service string, request *http.Request, 
 	return nil
 }
 
+// iamServiceTrustedRole returns the role ref names, by ARN or by the bare
+// name some services accept, once its trust policy lets service assume it on
+// behalf of sourceArn. A role created moments before qualifies: IAM in the
+// simulator has no propagation delay.
+func iamServiceTrustedRole(ref, service, sourceArn string) (IAMRole, error) {
+	role, ok := iamRoles.Get(iamRoleNameFromArn(ref))
+	if !ok || (strings.Contains(ref, ":") && role.Arn != ref) {
+		return IAMRole{}, fmt.Errorf("IAM role %s does not exist", ref)
+	}
+	trust, err := parseIAMPolicy(role.AssumeRolePolicyDocument)
+	if err != nil {
+		return IAMRole{}, fmt.Errorf("IAM role %s has an invalid trust policy: %w", ref, err)
+	}
+	src := iamServiceSource{Service: service, SourceArn: sourceArn, SourceAccount: awsAccountID()}
+	if decision, _ := iamEvalDecisionForPrincipal([]iamPolicyDoc{trust}, "sts:AssumeRole", role.Arn,
+		"service:"+service, iamServiceInitiatedConditionContext(src)); decision != "allowed" {
+		return IAMRole{}, fmt.Errorf("%s is not authorized to perform: sts:AssumeRole on resource: %s", service, role.Arn)
+	}
+	return role, nil
+}
+
 // iamServiceCallConditionContext is the condition context one cloud action an
 // AWS service performs on the principal's behalf is authorized against: the
 // service-initiation keys the call always settles, plus the keys the called

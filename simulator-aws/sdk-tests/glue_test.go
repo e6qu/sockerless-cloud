@@ -432,7 +432,7 @@ func TestGlue_JobCRUD_SDK(t *testing.T) {
 	create, err := c.CreateJob(ctx, &glue.CreateJobInput{
 		Name:            aws.String("glue-sdk-job"),
 		Description:     aws.String("sdk test job"),
-		Role:            aws.String("arn:aws:iam::123456789012:role/glue-role"),
+		Role:            aws.String(serviceRole(t, "glue.amazonaws.com")),
 		GlueVersion:     aws.String("4.0"),
 		WorkerType:      gluetypes.WorkerTypeG1x,
 		NumberOfWorkers: aws.Int32(int32(workers)),
@@ -572,7 +572,7 @@ func TestGlue_Tags_SDK(t *testing.T) {
 
 	create, err := c.CreateJob(ctx, &glue.CreateJobInput{
 		Name: aws.String("glue-sdk-tag-job"),
-		Role: aws.String("arn:aws:iam::123456789012:role/glue-role"),
+		Role: aws.String(serviceRole(t, "glue.amazonaws.com")),
 		Command: &gluetypes.JobCommand{
 			Name:           aws.String("glueetl"),
 			ScriptLocation: aws.String("s3://bucket/script.py"),
@@ -616,7 +616,7 @@ func TestGlue_JobUpdateListAndBatchStop_SDK(t *testing.T) {
 	create, err := c.CreateJob(ctx, &glue.CreateJobInput{
 		Name:        aws.String("glue-sdk-upd-job"),
 		Description: aws.String("before"),
-		Role:        aws.String("arn:aws:iam::123456789012:role/glue-role"),
+		Role:        aws.String(serviceRole(t, "glue.amazonaws.com")),
 		Command: &gluetypes.JobCommand{
 			Name:           aws.String("glueetl"),
 			ScriptLocation: aws.String("s3://bucket/script.py"),
@@ -632,7 +632,7 @@ func TestGlue_JobUpdateListAndBatchStop_SDK(t *testing.T) {
 		JobName: aws.String("glue-sdk-upd-job"),
 		JobUpdate: &gluetypes.JobUpdate{
 			Description: aws.String("after"),
-			Role:        aws.String("arn:aws:iam::123456789012:role/glue-role"),
+			Role:        aws.String(serviceRole(t, "glue.amazonaws.com")),
 			Command: &gluetypes.JobCommand{
 				Name:           aws.String("glueetl"),
 				ScriptLocation: aws.String("s3://bucket/updated.py"),
@@ -743,7 +743,7 @@ func TestGlue_TriggerCRUD_SDK(t *testing.T) {
 	// A dependent job for the trigger action.
 	_, err := c.CreateJob(ctx, &glue.CreateJobInput{
 		Name: aws.String("glue-sdk-trigger-job"),
-		Role: aws.String("arn:aws:iam::123456789012:role/glue-role"),
+		Role: aws.String(serviceRole(t, "glue.amazonaws.com")),
 		Command: &gluetypes.JobCommand{
 			Name:           aws.String("glueetl"),
 			ScriptLocation: aws.String("s3://bucket/script.py"),

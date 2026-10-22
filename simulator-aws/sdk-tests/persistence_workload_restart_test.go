@@ -117,7 +117,7 @@ func TestRunningAmazonECSAWSBatchAndCodeBuildWorkloadsSurviveSimulatorRestart_SD
 			Image:       aws.String("mirror.gcr.io/library/busybox:latest"),
 			ComputeType: codebuildtypes.ComputeTypeBuildGeneral1Small,
 		},
-		ServiceRole: aws.String("arn:aws:iam::123456789012:role/persistent-codebuild"),
+		ServiceRole: aws.String(persistentServiceRole(t, endpoint, "persistent-codebuild", "codebuild.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	build, err := codeBuildAPI.StartBuild(testCtx, &codebuild.StartBuildInput{

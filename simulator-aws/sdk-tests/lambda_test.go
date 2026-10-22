@@ -134,7 +134,7 @@ func TestLambdaRefusesReservedEnvironmentVariables(t *testing.T) {
 	lambdaAPI := lambdaClient()
 	_, err := lambdaAPI.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String("lambda-reserved-environment"),
-		Role:         aws.String("arn:aws:iam::123456789012:role/lambda-reserved-environment"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		Runtime:      lambdatypes.RuntimePython312,
 		Handler:      aws.String("index.handler"),
 		Code:         &lambdatypes.FunctionCode{ZipFile: lambdaPythonSourceZip(t, "def handler(event, context):\n    return {}\n")},
@@ -162,7 +162,7 @@ func TestLambda_FunctionConfigurationOmitsCodeAndTags(t *testing.T) {
 
 	createOut, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(fnName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		Runtime:      lambdatypes.RuntimeNodejs20x,
 		Handler:      aws.String("index.handler"),
 		Code:         &lambdatypes.FunctionCode{ZipFile: deployment},
@@ -213,7 +213,7 @@ func TestLambda_FunctionConfigurationOmitsCodeAndTags(t *testing.T) {
 
 	rawReq, err := json.Marshal(map[string]any{
 		"FunctionName": rawFn,
-		"Role":         "arn:aws:iam::123456789012:role/test-role",
+		"Role":         serviceRole(t, "lambda.amazonaws.com"),
 		"Runtime":      "nodejs20.x",
 		"Handler":      "index.handler",
 		"Code": map[string]string{
@@ -267,7 +267,7 @@ func TestLambda_InvokeCreatesLogStream(t *testing.T) {
 	// Create a Lambda function
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(fnName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		Runtime:      lambdatypes.RuntimeNodejs18x,
 		Handler:      aws.String("index.handler"),
 		Code:         &lambdatypes.FunctionCode{ZipFile: lambdaDeploymentZip(t)},
@@ -342,7 +342,7 @@ func TestLambda_InvokeRoundTrip(t *testing.T) {
 
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName:  aws.String(fnName),
-		Role:          aws.String("arn:aws:iam::123456789012:role/test-role"),
+		Role:          aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		PackageType:   lambdatypes.PackageTypeImage,
 		Code:          &lambdatypes.FunctionCode{ImageUri: aws.String(lambdaHandlerImageName)},
 		Architectures: nativeLambdaArchitectures(),
@@ -369,7 +369,7 @@ func TestLambda_InvokeZIPDeploymentPackage(t *testing.T) {
 
 	created, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(fnName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		Runtime:      lambdatypes.RuntimeNodejs20x,
 		Handler:      aws.String("index.handler"),
 		Code:         &lambdatypes.FunctionCode{ZipFile: deployment},
@@ -404,7 +404,7 @@ func TestLambda_InvokeHandlerError(t *testing.T) {
 
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName:  aws.String(fnName),
-		Role:          aws.String("arn:aws:iam::123456789012:role/test-role"),
+		Role:          aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		PackageType:   lambdatypes.PackageTypeImage,
 		Code:          &lambdatypes.FunctionCode{ImageUri: aws.String(lambdaHandlerImageName)},
 		Architectures: nativeLambdaArchitectures(),
@@ -438,7 +438,7 @@ func TestLambda_InvokeContainerCrash(t *testing.T) {
 
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(fnName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		PackageType:  lambdatypes.PackageTypeImage,
 		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String("mirror.gcr.io/library/alpine:latest")},
 		ImageConfig: &lambdatypes.ImageConfig{
@@ -491,7 +491,7 @@ func TestLambda_RuntimeAPILogsToCloudWatch(t *testing.T) {
 
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName:  aws.String(fnName),
-		Role:          aws.String("arn:aws:iam::123456789012:role/test-role"),
+		Role:          aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		PackageType:   lambdatypes.PackageTypeImage,
 		Code:          &lambdatypes.FunctionCode{ImageUri: aws.String(lambdaHandlerImageName)},
 		Architectures: nativeLambdaArchitectures(),
@@ -548,7 +548,7 @@ func TestLambda_MultipleInvokesCreateMultipleStreams(t *testing.T) {
 
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(fnName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		Runtime:      lambdatypes.RuntimeNodejs18x,
 		Handler:      aws.String("index.handler"),
 		Code:         &lambdatypes.FunctionCode{ZipFile: lambdaDeploymentZip(t)},
@@ -620,7 +620,7 @@ func TestLambda_VpcConfig_AllocatesENIPerSubnet(t *testing.T) {
 
 	createOut, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(fnName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/lambda-vpc"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		Runtime:      lambdatypes.RuntimeNodejs20x,
 		Handler:      aws.String("index.handler"),
 		Code: &lambdatypes.FunctionCode{
@@ -758,7 +758,7 @@ func TestLambda_VpcConfig_RuntimeReachesVpcResource(t *testing.T) {
 	fnName := "vpc-runtime-fn"
 	_, err = lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName:  aws.String(fnName),
-		Role:          aws.String("arn:aws:iam::123456789012:role/lambda-vpc"),
+		Role:          aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		PackageType:   lambdatypes.PackageTypeImage,
 		Code:          &lambdatypes.FunctionCode{ImageUri: aws.String(lambdaHandlerImageName)},
 		Architectures: nativeLambdaArchitectures(),
@@ -827,7 +827,7 @@ func TestLambda_VpcConfig_RejectsUnknownSubnet(t *testing.T) {
 	lc := lambdaClient()
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String("vpc-bad-fn"),
-		Role:         aws.String("arn:aws:iam::123456789012:role/lambda-vpc"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		Runtime:      lambdatypes.RuntimeNodejs20x,
 		Handler:      aws.String("index.handler"),
 		Code: &lambdatypes.FunctionCode{
@@ -848,7 +848,7 @@ func TestLambda_ListFunctions_Pagination(t *testing.T) {
 		_, err := client.CreateFunction(ctx, &lambda.CreateFunctionInput{
 			FunctionName: aws.String(n),
 			Runtime:      lambdatypes.RuntimeProvidedal2023,
-			Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
+			Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 			Handler:      aws.String("bootstrap"),
 			Code:         &lambdatypes.FunctionCode{ZipFile: lambdaDeploymentZip(t)},
 		})

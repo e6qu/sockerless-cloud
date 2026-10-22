@@ -17,11 +17,12 @@ import (
 // buildspec.
 func TestCodeBuild_RequestConditionKeysScopeTheGrant(t *testing.T) {
 	t.Parallel()
+	role := serviceRole(t, "codebuild.amazonaws.com")
 	akid, secret := restrictedCredential(t, "codebuild-vpc-and-buildspec",
 		`{"Version":"2012-10-17","Statement":[
 		  {"Effect":"Allow","Action":"codebuild:CreateProject","Resource":"*","Condition":{
 		    "StringEquals":{"codebuild:vpcConfig.vpcId":"vpc-allowed"}}},
-		  {"Effect":"Allow","Action":"iam:PassRole","Resource":"arn:aws:iam::123456789012:role/codebuild-service"},
+		  {"Effect":"Allow","Action":"iam:PassRole","Resource":"`+role+`"},
 		  {"Effect":"Allow","Action":"codebuild:StartBuild","Resource":"*"},
 		  {"Effect":"Deny","Action":"codebuild:StartBuild","Resource":"*","Condition":{
 		    "Null":{"codebuild:source.buildspec":"false"}}}]}`)
@@ -35,7 +36,7 @@ func TestCodeBuild_RequestConditionKeysScopeTheGrant(t *testing.T) {
 			Source:      &cbtypes.ProjectSource{Type: cbtypes.SourceTypeNoSource, Buildspec: aws.String("version: 0.2")},
 			Artifacts:   &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
 			Environment: &cbtypes.ProjectEnvironment{Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("aws/codebuild/standard:7.0"), ComputeType: cbtypes.ComputeTypeBuildGeneral1Small},
-			ServiceRole: aws.String("arn:aws:iam::123456789012:role/codebuild-service"),
+			ServiceRole: aws.String(role),
 			VpcConfig: &cbtypes.VpcConfig{VpcId: aws.String(vpcID),
 				Subnets: []string{"subnet-cond"}, SecurityGroupIds: []string{"sg-cond"}},
 		})

@@ -15,9 +15,11 @@
 - **Stage 6 of `PLAN.md`: distributed.** The agent on another host, reached
   over its API with its minted token, and networks that span hosts; the
   same-range gap (two live VPCs over one CIDR on one engine) lifts there.
-- **Services refuse a role IAM does not hold** (BUG-3529): check the role and
-  its trust policy at create time in Lambda, CodeBuild, Batch, Glue, ECS and
-  Amplify, and give the tests that pass invented role ARNs real roles.
+- **Amazon ECS refuses a task role IAM does not hold** (BUG-3529): check the
+  `taskRoleArn` and its trust policy at `RegisterTaskDefinition`, as Lambda,
+  CodeBuild, Batch, Glue and Amplify do, and give the ECS tests that pass
+  invented role ARNs real roles; then the role-taking operations BUG-3561
+  lists.
 - **Close the no-privilege gaps `BUGS.md` holds**: the NAT data planes'
   remainders (ICMP, packet counts, Cloud Monitoring for Cloud NAT, the
   public address as the source a peer sees, a subnet with no route out);

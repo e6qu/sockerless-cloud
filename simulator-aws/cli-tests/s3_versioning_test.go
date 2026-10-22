@@ -189,7 +189,7 @@ func TestLambda_CreateFunctionFromS3ObjectVersionCLI(t *testing.T) {
 		CodeSha256 string `json:"CodeSha256"`
 	}
 	parseJSON(t, runCLI(t, awsCLI("lambda", "create-function", "--function-name", "cli-versioned-code",
-		"--runtime", "nodejs20.x", "--role", "arn:aws:iam::123456789012:role/test-role", "--handler", "index.handler",
+		"--runtime", "nodejs20.x", "--role", cliServiceRole(t, "lambda.amazonaws.com"), "--handler", "index.handler",
 		"--code", "S3Bucket="+bucket+",S3Key=function.zip,S3ObjectVersion="+version)), &created)
 	t.Cleanup(func() { _ = awsCLI("lambda", "delete-function", "--function-name", "cli-versioned-code").Run() })
 	data, err := os.ReadFile(deployed)

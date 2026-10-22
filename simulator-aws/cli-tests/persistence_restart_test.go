@@ -27,7 +27,7 @@ func TestAWSServiceStateSurvivesSimulatorRestart_CLI(t *testing.T) {
 		"--function-name", functionName,
 		"--package-type", "Image",
 		"--code", "ImageUri=example.invalid/cli-persistence:1",
-		"--role", "arn:aws:iam::123456789012:role/cli-persistence-lambda"))
+		"--role", cliServiceRole(t, "lambda.amazonaws.com")))
 
 	var stateMachine struct {
 		StateMachineArn string `json:"stateMachineArn"`

@@ -292,7 +292,7 @@ func TestGlue_JobCRUD_CLI(t *testing.T) {
 
 	runCLI(t, awsCLI("glue", "create-job",
 		"--name", "glue-cli-job",
-		"--role", "arn:aws:iam::123456789012:role/glue-role",
+		"--role", cliServiceRole(t, "glue.amazonaws.com"),
 		"--command", `{"Name":"pythonshell","ScriptLocation":"s3://`+bucket+`/script.py"}`,
 		"--glue-version", "4.0",
 		"--worker-type", "G.1X",
@@ -380,7 +380,7 @@ func TestGlue_JobUpdateListBatchStop_CLI(t *testing.T) {
 	t.Parallel()
 	runCLI(t, awsCLI("glue", "create-job",
 		"--name", "glue-cli-upd-job",
-		"--role", "arn:aws:iam::123456789012:role/glue-role",
+		"--role", cliServiceRole(t, "glue.amazonaws.com"),
 		"--command", `{"Name":"glueetl","ScriptLocation":"s3://bucket/script.py"}`,
 		"--description", "before",
 	))
@@ -390,7 +390,7 @@ func TestGlue_JobUpdateListBatchStop_CLI(t *testing.T) {
 
 	runCLI(t, awsCLI("glue", "update-job",
 		"--job-name", "glue-cli-upd-job",
-		"--job-update", `{"Role":"arn:aws:iam::123456789012:role/glue-role","Command":{"Name":"glueetl","ScriptLocation":"s3://bucket/updated.py"},"Description":"after"}`,
+		"--job-update", `{"Role":"`+cliServiceRole(t, "glue.amazonaws.com")+`","Command":{"Name":"glueetl","ScriptLocation":"s3://bucket/updated.py"},"Description":"after"}`,
 	))
 
 	out := runCLI(t, awsCLI("glue", "get-job", "--job-name", "glue-cli-upd-job"))
@@ -502,7 +502,7 @@ func TestGlue_TriggerCRUD_CLI(t *testing.T) {
 	t.Parallel()
 	runCLI(t, awsCLI("glue", "create-job",
 		"--name", "glue-cli-trigger-job",
-		"--role", "arn:aws:iam::123456789012:role/glue-role",
+		"--role", cliServiceRole(t, "glue.amazonaws.com"),
 		"--command", `{"Name":"glueetl","ScriptLocation":"s3://bucket/script.py"}`,
 	))
 	t.Cleanup(func() {

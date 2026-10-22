@@ -245,8 +245,7 @@ tests, which prove the extraction changed no wire behaviour.
    the hook: the Lambda Runtime API, the Functions Framework's HTTP and
    CloudEvents contract, the Azure Functions host. Cloud Run functions stay
    Cloud Run services, as they are on Google Cloud, built from source with
-   Google Cloud's buildpacks. Polish: a role that cannot be assumed
-   (BUG-3529).
+   Google Cloud's buildpacks.
 6. **`sim/msgq` completed: queues.** The long-poll waiter that Amazon SQS,
    Pub/Sub and Azure Service Bus each implement (`sqsLongPoll`, `psPull`,
    `sbAwaitReceive`), dead-letter redrive and message moves, sessions and

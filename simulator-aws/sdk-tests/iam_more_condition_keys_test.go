@@ -228,7 +228,7 @@ func lambdaConditionFunction(t *testing.T, client *lambda.Client, name string) s
 	t.Helper()
 	created, err := client.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(name),
-		Role:         aws.String("arn:aws:iam::123456789012:role/lambda-role"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		PackageType:  lambdatypes.PackageTypeImage,
 		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String("mirror.gcr.io/library/busybox:latest")},
 	})

@@ -3969,6 +3969,26 @@ rule in the service's security group. UpdateGateway applied its settings to
 every load balancer and reported `N/M load balancers updated`, with each
 failed call in `failures`; a service revision reported its
 `gatewayConnections`, and port mappings kept their `name` and `appProtocol`.
+AWS Lambda, AWS CodeBuild, AWS Batch, AWS Glue and AWS Amplify refused a
+role IAM did not hold. `iamServiceTrustedRole` looked a role up by its ARN,
+or by the bare name Glue accepts, and evaluated its trust policy for
+`sts:AssumeRole` by the service principal with the service-initiation keys
+of the resource being configured; `awsAssumeServiceRole` used it too. Lambda
+`CreateFunction` and `UpdateFunctionConfiguration` answered
+`InvalidParameterValueException` "The role defined for the function cannot be
+assumed by Lambda."; CodeBuild `CreateProject` and `UpdateProject`
+answered `InvalidInputException`; Batch `RegisterJobDefinition` checked
+`jobRoleArn` and `executionRoleArn` against `ecs-tasks.amazonaws.com` and
+answered `ClientException`; Glue `CreateJob` and `UpdateJob` answered
+`InvalidInputException`; Amplify `CreateApp`, `UpdateApp`, `CreateBranch`
+and `UpdateBranch` checked `computeRoleArn` and `iamServiceRoleArn` and
+answered `BadRequestException`. A role created a moment before qualified,
+since the simulator's IAM has no propagation delay. The SDK, CLI and
+Terraform tests that had passed invented role ARNs to these operations
+created real roles instead, through `serviceRole` (SDK), `cliServiceRole`
+(CLI), `persistentServiceRole` (a test's own restarted simulator) and
+`aws_iam_role` resources, and new tests proved each refusal for a role that
+did not exist and for one whose trust policy named another service.
 
 The Knative Cloud Run surface carries a template's VPC egress as the
 `run.googleapis.com/vpc-access-connector`, `vpc-access-egress` and

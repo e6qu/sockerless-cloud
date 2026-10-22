@@ -82,7 +82,7 @@ func TestIAM_CodeBuildResourceScopedCLI(t *testing.T) {
 			"--source", `{"type":"NO_SOURCE"}`,
 			"--artifacts", `{"type":"NO_ARTIFACTS"}`,
 			"--environment", `{"type":"LINUX_CONTAINER","image":"mirror.gcr.io/library/alpine:3.21","computeType":"BUILD_GENERAL1_SMALL"}`,
-			"--service-role", "arn:aws:iam::123456789012:role/cli-build-role"))
+			"--service-role", cliServiceRole(t, "codebuild.amazonaws.com")))
 		project := project
 		t.Cleanup(func() { _ = awsCLI("codebuild", "delete-project", "--name", project).Run() })
 	}

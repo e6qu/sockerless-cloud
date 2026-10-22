@@ -144,7 +144,7 @@ func TestGlue_BatchGetFamilies_CLI(t *testing.T) {
 
 	const job = "glue-cli-batch-job"
 	runCLI(t, awsCLI("glue", "create-job",
-		"--name", job, "--role", "arn:aws:iam::123456789012:role/glue", "--command", `{"Name":"glueetl"}`))
+		"--name", job, "--role", cliServiceRole(t, "glue.amazonaws.com"), "--command", `{"Name":"glueetl"}`))
 	t.Cleanup(func() { runCLIIgnore(awsCLI("glue", "delete-job", "--job-name", job)) })
 
 	out = runCLI(t, awsCLI("glue", "batch-get-jobs", "--job-names", job, "no-such-job"))

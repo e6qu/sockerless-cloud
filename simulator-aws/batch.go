@@ -621,6 +621,16 @@ func handleBatchRegisterJobDefinition(w http.ResponseWriter, r *http.Request) {
 		batchWriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	for _, field := range []string{"jobRoleArn", "executionRoleArn"} {
+		role := batchString(req.ContainerProperties[field])
+		if role == "" {
+			continue
+		}
+		if _, err := iamServiceTrustedRole(role, "ecs-tasks.amazonaws.com", ""); err != nil {
+			batchWriteError(w, http.StatusBadRequest, fmt.Sprintf("%s %s cannot be assumed by ecs-tasks.amazonaws.com", field, role))
+			return
+		}
+	}
 
 	batchMu.Lock()
 	defer batchMu.Unlock()

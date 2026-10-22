@@ -315,7 +315,7 @@ func TestGlueSearchTablesCLI(t *testing.T) {
 	// Source-control sync on a job.
 	runCLI(t, awsCLI("glue", "create-job",
 		"--name", "glue-cli-codegen-job",
-		"--role", "arn:aws:iam::123456789012:role/GlueRole",
+		"--role", cliServiceRole(t, "glue.amazonaws.com"),
 		"--command", `{"Name":"glueetl","ScriptLocation":"s3://bucket/script.py"}`))
 	out = runCLI(t, awsCLI("glue", "update-job-from-source-control",
 		"--job-name", "glue-cli-codegen-job",

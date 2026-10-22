@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -76,19 +75,9 @@ func awsCall(ctx context.Context, actor awsActor, signingService, method, path s
 // awsAssumeServiceRole returns the session of actor.Role the service holds,
 // once the role's trust policy lets the service assume it.
 func awsAssumeServiceRole(actor awsActor) (IAMTempCred, error) {
-	roleName := iamRoleNameFromArn(actor.Role)
-	role, ok := iamRoles.Get(roleName)
-	if !ok || role.Arn != actor.Role {
-		return IAMTempCred{}, fmt.Errorf("IAM role %s does not exist", actor.Role)
-	}
-	trust, err := parseIAMPolicy(role.AssumeRolePolicyDocument)
+	role, err := iamServiceTrustedRole(actor.Role, actor.Service, actor.Source)
 	if err != nil {
-		return IAMTempCred{}, fmt.Errorf("IAM role %s has an invalid trust policy: %w", actor.Role, err)
-	}
-	src := iamServiceSource{Service: actor.Service, SourceArn: actor.Source, SourceAccount: awsAccountID()}
-	if decision, _ := iamEvalDecisionForPrincipal([]iamPolicyDoc{trust}, "sts:AssumeRole", actor.Role,
-		"service:"+actor.Service, iamServiceInitiatedConditionContext(src)); decision != "allowed" {
-		return IAMTempCred{}, fmt.Errorf("%s is not authorized to perform: sts:AssumeRole on resource: %s", actor.Service, actor.Role)
+		return IAMTempCred{}, err
 	}
 	session := actor.Session
 	if session == "" {

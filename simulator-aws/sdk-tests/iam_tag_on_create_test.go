@@ -206,7 +206,7 @@ func TestTagOnCreate_LambdaFunctionWithTagsNeedsTagResource(t *testing.T) {
 
 	_, err := restricted.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(uniqueName("toc-fn")),
-		Role:         aws.String("arn:aws:iam::123456789012:role/toc-fn-role"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		Handler:      aws.String("index.handler"),
 		Runtime:      lambdatypes.RuntimeNodejs20x,
 		Code:         &lambdatypes.FunctionCode{ZipFile: lambdaDeploymentZip(t)},
@@ -384,7 +384,7 @@ func TestTagOnCreate_LambdaTaggingIsScopedToTheFunction(t *testing.T) {
 	create := func(name string) error {
 		_, err := restricted.CreateFunction(ctx, &lambda.CreateFunctionInput{
 			FunctionName: aws.String(name),
-			Role:         aws.String("arn:aws:iam::123456789012:role/toc-fn-role"),
+			Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 			Handler:      aws.String("index.handler"),
 			Runtime:      lambdatypes.RuntimeNodejs20x,
 			Code:         &lambdatypes.FunctionCode{ZipFile: lambdaDeploymentZip(t)},

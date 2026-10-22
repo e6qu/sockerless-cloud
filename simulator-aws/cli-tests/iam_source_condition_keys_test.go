@@ -69,7 +69,7 @@ func TestLambda_FunctionURLPermissionConditionsCLI(t *testing.T) {
 	fn := fmt.Sprintf("cli-url-perm-%d", time.Now().UnixNano())
 	var created struct{ FunctionArn string }
 	parseJSON(t, runCLI(t, awsCLI("lambda", "create-function", "--function-name", fn, "--runtime", "nodejs18.x",
-		"--role", "arn:aws:iam::123456789012:role/test-role", "--handler", "index.handler",
+		"--role", cliServiceRole(t, "lambda.amazonaws.com"), "--handler", "index.handler",
 		"--zip-file", "fileb://"+zipPath, "--output", "json")), &created)
 	t.Cleanup(func() { _ = awsCLI("lambda", "delete-function", "--function-name", fn).Run() })
 

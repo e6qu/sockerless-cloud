@@ -44,7 +44,7 @@ func TestS3ControlCLI_AccessPointAndObjectLambda(t *testing.T) {
 		"--package-type", "Image",
 		"--code", "ImageUri="+lambdaHandlerImageName,
 		"--architectures", nativeLambdaArchitecture(),
-		"--role", "arn:aws:iam::"+s3ControlCLIAccount+":role/cli-olap"))
+		"--role", cliServiceRole(t, "lambda.amazonaws.com")))
 	t.Cleanup(func() {
 		_ = awsCLI("lambda", "delete-function", "--function-name", fnName).Run()
 	})

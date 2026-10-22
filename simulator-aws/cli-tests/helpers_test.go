@@ -613,6 +613,36 @@ func parseJSON(t *testing.T, data string, target any) {
 	}
 }
 
+var (
+	cliUniqueNameMu    sync.Mutex
+	cliUniqueNameCount int
+)
+
+// cliUniqueName suffixes prefix with an id unique to this run.
+func cliUniqueName(prefix string) string {
+	cliUniqueNameMu.Lock()
+	defer cliUniqueNameMu.Unlock()
+	cliUniqueNameCount++
+	return prefix + "-" + strconv.FormatInt(time.Now().UnixNano(), 36) + strconv.Itoa(cliUniqueNameCount)
+}
+
+// cliServiceRole creates, with `aws iam create-role`, a uniquely named role
+// whose trust policy lets the service principal assume it, deleted when the
+// test ends.
+func cliServiceRole(t *testing.T, principal string) string {
+	t.Helper()
+	name := cliUniqueName(strings.SplitN(principal, ".", 2)[0])
+	var created struct {
+		Role struct {
+			Arn string `json:"Arn"`
+		} `json:"Role"`
+	}
+	parseJSON(t, runCLI(t, awsCLI("iam", "create-role", "--role-name", name, "--assume-role-policy-document",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"`+principal+`"},"Action":"sts:AssumeRole"}]}`)), &created)
+	t.Cleanup(func() { _ = awsCLI("iam", "delete-role", "--role-name", name).Run() })
+	return created.Role.Arn
+}
+
 func nativeDockerPlatform() string {
 	return "linux/" + runtime.GOARCH
 }

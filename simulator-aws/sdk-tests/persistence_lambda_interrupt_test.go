@@ -48,11 +48,12 @@ func TestLambdaWorkInFlightEndsWithTheSimulatorAndResumes_SDK(t *testing.T) {
 		durableFunction = "interrupted-durable-execution"
 		taskFunction    = "interrupted-step-functions-task"
 	)
+	executionRole := persistentServiceRole(t, endpoint, "interrupted-lambda", "lambda.amazonaws.com")
 	var logGroupARNs []string
 	for _, name := range []string{durableFunction, taskFunction} {
 		input := &lambda.CreateFunctionInput{
 			FunctionName: aws.String(name),
-			Role:         aws.String("arn:aws:iam::123456789012:role/interrupted-lambda"),
+			Role:         aws.String(executionRole),
 			Runtime:      lambdatypes.RuntimeNodejs20x,
 			Handler:      aws.String("index.handler"),
 			Code:         &lambdatypes.FunctionCode{ZipFile: lambdaNodeSourceZip(t, holdSource)},

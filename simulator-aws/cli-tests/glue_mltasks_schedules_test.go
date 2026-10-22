@@ -234,7 +234,7 @@ func TestGlueWorkflowRunCLI(t *testing.T) {
 
 	const job = "glue-cli-wfrun-job"
 	runCLI(t, awsCLI("glue", "create-job", "--name", job,
-		"--role", "arn:aws:iam::123456789012:role/GlueRole",
+		"--role", cliServiceRole(t, "glue.amazonaws.com"),
 		"--command", `{"Name":"glueetl"}`))
 	t.Cleanup(func() {
 		runCLI(t, awsCLI("glue", "delete-job", "--job-name", job))
