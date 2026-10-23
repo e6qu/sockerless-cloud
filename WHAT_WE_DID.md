@@ -4437,3 +4437,28 @@ An account has one AWS Glue Data Catalog resource policy, and two parallel
 tests in each of the SDK and CLI suites put, read and deleted it; one deleted
 the other's policy between its put and its read. The tests that touch it hold
 one package mutex from the put until the delete, and stay parallel otherwise.
+
+### The egress sidecar reads a UDP flow's destination from a table dump
+
+The NAT egress sidecar learns where a redirected datagram was going from the
+connection tracker. ti-mo/conntrack v0.6.0 asks for that one entry with an
+acknowledged request, and under mdlayher/socket v0.6 and later the request
+never returns once the entry exists; the sidecar's single UDP read loop then
+stalled on the first datagram, so a guest's UDP never left through the gateway
+while its TCP did. Bisecting the dependency bump pinned it to the socket
+release, a probe outside the simulator reproduced it, and a dump of the table
+worked under every version. The sidecar now dumps the namespace's table, which
+holds only that gateway's flows, and picks the entry whose reply direction
+runs from its socket to the sender, keeping the current dependencies. The UDP
+path also reports each failure it had dropped silently: a receive error, a
+datagram without its original destination, a lookup that finds no entry, and a
+failed upstream read or reply.
+
+### Cloud Resource Manager Boundaries are declared
+
+The v3 Discovery refresh published Boundaries and BoundaryConfig on folders
+and organizations. They answer a declared 501 naming what is missing, because
+the Discovery document states neither how a Boundary provisions its Management
+Project nor when it becomes `ACTIVE`, and no client exposes them to test
+through; the coverage lock records the 28 new spellings as declared rather
+than served.
