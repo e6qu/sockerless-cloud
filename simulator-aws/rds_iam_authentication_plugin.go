@@ -1,10 +1,14 @@
 package main
 
 import (
-	"embed"
+	"context"
+	_ "embed"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"sync"
 
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/dbengine"
 )
 
@@ -13,10 +17,73 @@ import (
 // CREATE USER ... IDENTIFIED WITH AWSAuthenticationPlugin AS 'RDS'.
 const rdsIAMAuthenticationPlugin = "AWSAuthenticationPlugin"
 
-// rds_auth_plugin/build.sh builds the plugin for each engine and architecture.
+// rdsAuthPluginSource is AWSAuthenticationPlugin's source, which the engine
+// compiles for its own architecture with no C library.
 //
-//go:embed rds_auth_plugin/*.so
-var rdsAuthPlugins embed.FS
+//go:embed rds_auth_plugin/aws_authentication_plugin.c
+var rdsAuthPluginSource []byte
+
+const rdsAuthPluginBuildImage = "mirror.gcr.io/library/alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6"
+
+// rdsAuthPluginDockerfile compiles the plugin for one engine family; define
+// selects MariaDB's plugin interface.
+func rdsAuthPluginDockerfile(define string) string {
+	return `FROM ` + rdsAuthPluginBuildImage + ` AS build
+COPY ` + sim.EngineBuildTrustFile + ` /tmp/
+RUN cat /tmp/` + sim.EngineBuildTrustFile + ` >> /etc/ssl/certs/ca-certificates.crt && apk add --no-cache clang22 lld22
+COPY aws_authentication_plugin.c /src/
+RUN mkdir /out
+RUN clang ` + define + ` -std=c11 -O2 -Wall -Wextra -Werror \
+	-fPIC -ffreestanding -fno-builtin -fno-stack-protector -fvisibility=hidden -nostdlib -shared \
+	-fuse-ld=lld -Wl,--build-id=none -Wl,-z,relro,-z,now -Wl,-s \
+	-o /out/aws_authentication_plugin.so /src/aws_authentication_plugin.c
+
+FROM scratch
+COPY --from=build /out/aws_authentication_plugin.so /aws_authentication_plugin.so
+`
+}
+
+var (
+	rdsAuthPluginBuildsMu sync.Mutex
+	rdsAuthPluginBuilds   = map[string][]byte{}
+)
+
+// rdsAuthPlugin returns the plugin for flavor ("mysql" or "mariadb") built on
+// the engine for the engine's architecture.
+func rdsAuthPlugin(ctx context.Context, flavor string) ([]byte, error) {
+	define := ""
+	if flavor == "mariadb" {
+		define = "-DMARIADB"
+	}
+	cli := sim.DockerClient()
+	if cli == nil {
+		return nil, errors.New("building AWSAuthenticationPlugin needs the container engine")
+	}
+	image, _, err := sim.EnsureEngineBuild(ctx, cli, sim.EngineBuild{
+		Name:  "sockerless-rds-auth-plugin-" + flavor,
+		Bases: []string{rdsAuthPluginBuildImage},
+		Context: func(string) (map[string][]byte, error) {
+			return map[string][]byte{
+				"Dockerfile":                  []byte(rdsAuthPluginDockerfile(define)),
+				"aws_authentication_plugin.c": rdsAuthPluginSource,
+			}, nil
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	rdsAuthPluginBuildsMu.Lock()
+	defer rdsAuthPluginBuildsMu.Unlock()
+	if plugin, ok := rdsAuthPluginBuilds[image]; ok {
+		return plugin, nil
+	}
+	plugin, err := sim.ReadEngineImageFile(ctx, cli, image, "/aws_authentication_plugin.so")
+	if err != nil {
+		return nil, err
+	}
+	rdsAuthPluginBuilds[image] = plugin
+	return plugin, nil
+}
 
 // The engine loads plugins from a directory in its data volume, so a snapshot
 // or restore of the volume keeps the plugin with the users identified with it.
@@ -32,19 +99,14 @@ func rdsPluginArgs(engine dbengine.Engine) []string {
 	return args
 }
 
-// rdsInstallPluginScript writes the plugin for the engine's architecture into
-// its plugin directory, replacing the file by rename so a loaded copy stays
-// mapped, and installs the plugin unless the engine has it loaded.
+// rdsInstallPluginScript writes the plugin into the engine's plugin directory,
+// replacing the file by rename so a loaded copy stays mapped, and installs the
+// plugin unless the engine has it loaded.
 const rdsInstallPluginScript = `set -e
-case "$(uname -m)" in
-	x86_64) encoded="$AMD64" ;;
-	aarch64) encoded="$ARM64" ;;
-	*) echo "no AWSAuthenticationPlugin build for $(uname -m)"; exit 1 ;;
-esac
 mkdir -p "$PLUGIN_DIR"
 plugin="$PLUGIN_DIR/aws_authentication_plugin.so"
-if [ ! -f "$plugin" ] || [ "$(base64 -w 0 "$plugin")" != "$encoded" ]; then
-	printf %s "$encoded" | base64 -d > "$plugin.new"
+if [ ! -f "$plugin" ] || [ "$(base64 -w 0 "$plugin")" != "$PLUGIN" ]; then
+	printf %s "$PLUGIN" | base64 -d > "$plugin.new"
 	chmod 644 "$plugin.new"
 	mv "$plugin.new" "$plugin"
 fi
@@ -63,16 +125,12 @@ func rdsInstallIAMAuthenticationPlugin(engine *dbengine.Instance, rootPassword s
 	if engine.Engine.Client == dbengine.MariaDB114.Client {
 		flavor = "mariadb"
 	}
-	encoded := map[string]string{}
-	for _, arch := range []string{"amd64", "arm64"} {
-		plugin, err := rdsAuthPlugins.ReadFile("rds_auth_plugin/" + flavor + "-" + arch + ".so")
-		if err != nil {
-			return fmt.Errorf("read the %s AWSAuthenticationPlugin build: %w", arch, err)
-		}
-		encoded[arch] = base64.StdEncoding.EncodeToString(plugin)
+	plugin, err := rdsAuthPlugin(context.Background(), flavor)
+	if err != nil {
+		return fmt.Errorf("build %s: %w", rdsIAMAuthenticationPlugin, err)
 	}
-	err := engine.Exec([]string{"env",
-		"AMD64=" + encoded["amd64"], "ARM64=" + encoded["arm64"],
+	err = engine.Exec([]string{"env",
+		"PLUGIN=" + base64.StdEncoding.EncodeToString(plugin),
 		"PLUGIN_DIR=" + engine.Engine.DataPath + "/" + rdsPluginDirName,
 		"CLIENT=" + engine.Engine.Client, "ROOT_PASSWORD=" + rootPassword,
 		"sh", "-c", rdsInstallPluginScript})

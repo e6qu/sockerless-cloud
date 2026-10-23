@@ -106,6 +106,7 @@ func registerECSServices(r *AWSRouter, srv *sim.Server) {
 	// ECS Express Mode (Express Gateway services) — the managed
 	// ALB+Fargate+autoscaling bundle.
 	registerECSExpress(r, srv)
+	registerECSGateways(r, srv)
 }
 
 // ecsBuiltInCapacityProviders are the two AWS-managed providers every account
@@ -348,6 +349,7 @@ func handleECSCreateService(w http.ResponseWriter, r *http.Request) {
 		ServiceConnectConfiguration   json.RawMessage `json:"serviceConnectConfiguration"`
 		VolumeConfigurations          json.RawMessage `json:"volumeConfigurations"`
 		VpcLatticeConfigurations      json.RawMessage `json:"vpcLatticeConfigurations"`
+		GatewayConnectors             json.RawMessage `json:"gatewayConnectors"`
 		Tags                          []ECSTag        `json:"tags"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
@@ -433,10 +435,27 @@ func handleECSCreateService(w http.ResponseWriter, r *http.Request) {
 		VpcLatticeConfigurations:      req.VpcLatticeConfigurations,
 		Tags:                          req.Tags,
 	}
+	var connectors []ecsGatewayConnector
+	if len(req.GatewayConnectors) > 0 && string(req.GatewayConnectors) != "null" {
+		parsed, problem := ecsParseGatewayConnectors(req.GatewayConnectors)
+		if problem != "" {
+			AWSError(w, "InvalidParameterException", problem, http.StatusBadRequest)
+			return
+		}
+		connectors = parsed
+	}
+	gatewayPlan, problem := ecsPlanGatewayDeployment(cluster, svc, connectors)
+	if problem != "" {
+		AWSError(w, "InvalidParameterException", problem, http.StatusBadRequest)
+		return
+	}
 	svc.Deployments = []ECSDeployment{ecsServiceDeployment(svc, now)}
 	ecsServices.Put(key, svc)
 	ecsBeginServiceDeployment(key, ECSService{}, svc)
-	ecsRecordServiceDeployment(svc, ecsServiceConnectNamespace(svc.ServiceConnectConfiguration))
+	revisionArn := ecsRecordServiceDeployment(svc, ecsServiceConnectNamespace(svc.ServiceConnectConfiguration))
+	if len(connectors) > 0 {
+		ecsApplyGatewayDeployment(svc, gatewayPlan, revisionArn)
+	}
 	// CreateService records the requested state and answers with it; placing
 	// the tasks is the service scheduler's work. Amazon ECS answers a create
 	// for ten tasks with the service at runningCount 0 and a PRIMARY
@@ -674,6 +693,7 @@ func handleECSUpdateService(w http.ResponseWriter, r *http.Request) {
 		ServiceConnectConfiguration   json.RawMessage `json:"serviceConnectConfiguration"`
 		VolumeConfigurations          json.RawMessage `json:"volumeConfigurations"`
 		VpcLatticeConfigurations      json.RawMessage `json:"vpcLatticeConfigurations"`
+		GatewayConnectors             json.RawMessage `json:"gatewayConnectors"`
 		ForceNewDeployment            bool            `json:"forceNewDeployment"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
@@ -713,7 +733,20 @@ func handleECSUpdateService(w http.ResponseWriter, r *http.Request) {
 		req.CapacityProviderStrategy != nil ||
 		req.ServiceConnectConfiguration != nil ||
 		req.VolumeConfigurations != nil ||
-		req.VpcLatticeConfigurations != nil
+		req.VpcLatticeConfigurations != nil ||
+		req.GatewayConnectors != nil
+	connectors := ecsServiceCurrentGatewayConnectors(svc.ServiceArn)
+	if req.GatewayConnectors != nil {
+		connectors = nil
+		if string(req.GatewayConnectors) != "null" {
+			parsed, problem := ecsParseGatewayConnectors(req.GatewayConnectors)
+			if problem != "" {
+				AWSError(w, "InvalidParameterException", problem, http.StatusBadRequest)
+				return
+			}
+			connectors = parsed
+		}
+	}
 	if req.TaskDefinition != "" {
 		svc.TaskDefinition = req.TaskDefinition
 	}
@@ -769,6 +802,20 @@ func handleECSUpdateService(w http.ResponseWriter, r *http.Request) {
 	if req.VpcLatticeConfigurations != nil {
 		svc.VpcLatticeConfigurations = req.VpcLatticeConfigurations
 	}
+	var gatewayPlan *ecsGatewayDeployment
+	if deploymentRequired {
+		cluster, ok := ecsClusters.Get(clusterName)
+		if !ok {
+			AWSErrorf(w, "ClusterNotFoundException", http.StatusBadRequest, "Cluster not found: %s", clusterName)
+			return
+		}
+		plan, problem := ecsPlanGatewayDeployment(cluster, svc, connectors)
+		if problem != "" {
+			AWSError(w, "InvalidParameterException", problem, http.StatusBadRequest)
+			return
+		}
+		gatewayPlan = plan
+	}
 	now := ecsEpochSeconds()
 	if deploymentRequired {
 		// The deployment being replaced stays ACTIVE beside the new PRIMARY
@@ -785,7 +832,10 @@ func handleECSUpdateService(w http.ResponseWriter, r *http.Request) {
 	ecsServices.Put(key, svc)
 	if deploymentRequired {
 		ecsBeginServiceDeployment(key, previousService, svc)
-		ecsRecordServiceDeployment(svc, ecsServiceConnectNamespace(svc.ServiceConnectConfiguration))
+		revisionArn := ecsRecordServiceDeployment(svc, ecsServiceConnectNamespace(svc.ServiceConnectConfiguration))
+		if len(gatewayPlan.connectors) > 0 || ecsServiceUsesGateways(svc.ServiceArn) {
+			ecsApplyGatewayDeployment(svc, gatewayPlan, revisionArn)
+		}
 	}
 	// The update is recorded and answered with; applying it is the service
 	// scheduler's work, which starts new tasks and replaces running ones under
@@ -866,6 +916,7 @@ func handleECSDeleteService(w http.ResponseWriter, r *http.Request) {
 	ecsStopServiceTasks(svc)
 	ecsSyncServiceLoadBalancerTargets(svc)
 	ecsDeregisterServiceRegistryTasks(svc)
+	ecsDisconnectServiceFromGateways(svc)
 	ecsRequestServiceReconcile(key)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"service": svc})
 }

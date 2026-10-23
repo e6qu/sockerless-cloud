@@ -30,7 +30,7 @@ func TestEventBridgeAndScheduler_StartStepFunctionsExecutions_SDK(t *testing.T) 
 	stateMachine, err := stepFunctions.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String(stateMachineName),
 		Definition: aws.String(`{"StartAt":"Complete","States":{"Complete":{"Type":"Pass","End":true}}}`),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/step-functions-eventing"),
+		RoleArn:    aws.String(serviceRole(t, "states.amazonaws.com")),
 		Type:       sfntypes.StateMachineTypeStandard,
 	})
 	require.NoError(t, err)

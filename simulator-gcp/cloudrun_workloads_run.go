@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -302,7 +303,13 @@ func runCloudRunInstance(inst InstanceV2) {
 			if err == nil {
 				_, err = running.awaitReady(ctx)
 				if err != nil {
-					if code, exited := running.exited(); exited && restarts > 0 {
+					code, exited := running.exited()
+					// The engine can report the container stopped before its
+					// exit reaches the handle; that exit follows at once.
+					if !exited && errors.Is(err, sim.ErrNotRunning) {
+						code, exited = running.awaitExit(ctx), true
+					}
+					if exited && restarts > 0 {
 						err, exitedWhileStarting, exitCode = nil, true, code
 					}
 					deleteCloudRunServiceInstanceIf(inst.Name, running)

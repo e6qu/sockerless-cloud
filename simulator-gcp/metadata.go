@@ -51,14 +51,12 @@ const gceNetworkMTU = 1460
 // startup-script — add as workloads need them per the sim-parity-per-commit
 // rule.
 func registerComputeMetadata(srv *sim.Server) {
-	mustFlavor := func(w http.ResponseWriter, r *http.Request) bool {
-		if r.Header.Get("Metadata-Flavor") != "Google" {
-			http.Error(w, "Missing Metadata-Flavor:Google header.", http.StatusForbidden)
-			return false
-		}
-		w.Header().Set("Metadata-Flavor", "Google")
-		w.Header().Set("Server", "Metadata Server for VM")
-		return true
+	handle := func(pattern string, h http.HandlerFunc) {
+		srv.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+			if r, ok := gceMetadataAdmit(w, r); ok {
+				gceMetadataServe(w, r, h)
+			}
+		})
 	}
 	writeText := func(w http.ResponseWriter, s string) {
 		w.Header().Set("Content-Type", "application/text")
@@ -66,17 +64,11 @@ func registerComputeMetadata(srv *sim.Server) {
 	}
 
 	// /computeMetadata/v1/project/project-id
-	srv.HandleFunc("GET /computeMetadata/v1/project/project-id", func(w http.ResponseWriter, r *http.Request) {
-		if !mustFlavor(w, r) {
-			return
-		}
+	handle("GET /computeMetadata/v1/project/project-id", func(w http.ResponseWriter, r *http.Request) {
 		writeText(w, gceMetadataWorkloadFor(r).projectID())
 	})
 
-	srv.HandleFunc("GET /computeMetadata/v1/project/numeric-project-id", func(w http.ResponseWriter, r *http.Request) {
-		if !mustFlavor(w, r) {
-			return
-		}
+	handle("GET /computeMetadata/v1/project/numeric-project-id", func(w http.ResponseWriter, r *http.Request) {
 		number, ok := gceMetadataWorkloadFor(r).projectNumber()
 		if !ok {
 			metadataNotFound(w)
@@ -86,16 +78,10 @@ func registerComputeMetadata(srv *sim.Server) {
 	})
 
 	// /computeMetadata/v1/instance/{id|zone|name|hostname}
-	srv.HandleFunc("GET /computeMetadata/v1/instance/id", func(w http.ResponseWriter, r *http.Request) {
-		if !mustFlavor(w, r) {
-			return
-		}
+	handle("GET /computeMetadata/v1/instance/id", func(w http.ResponseWriter, r *http.Request) {
 		writeText(w, fmt.Sprint(metadataInstanceIDFor(r)))
 	})
-	srv.HandleFunc("GET /computeMetadata/v1/instance/region", func(w http.ResponseWriter, r *http.Request) {
-		if !mustFlavor(w, r) {
-			return
-		}
+	handle("GET /computeMetadata/v1/instance/region", func(w http.ResponseWriter, r *http.Request) {
 		region, ok := metadataInstanceRegion(r)
 		if !ok {
 			metadataNotFound(w)
@@ -103,10 +89,7 @@ func registerComputeMetadata(srv *sim.Server) {
 		}
 		writeText(w, region)
 	})
-	srv.HandleFunc("GET /computeMetadata/v1/instance/attributes/{key}", func(w http.ResponseWriter, r *http.Request) {
-		if !mustFlavor(w, r) {
-			return
-		}
+	handle("GET /computeMetadata/v1/instance/attributes/{key}", func(w http.ResponseWriter, r *http.Request) {
 		inst, ok := gcpMetadataInstanceFor(r)
 		if !ok {
 			metadataNotFound(w)
@@ -119,10 +102,7 @@ func registerComputeMetadata(srv *sim.Server) {
 		}
 		writeText(w, value)
 	})
-	srv.HandleFunc("GET /computeMetadata/v1/project/attributes/{key}", func(w http.ResponseWriter, r *http.Request) {
-		if !mustFlavor(w, r) {
-			return
-		}
+	handle("GET /computeMetadata/v1/project/attributes/{key}", func(w http.ResponseWriter, r *http.Request) {
 		value, ok := gceProjectAttributes(gceMetadataWorkloadFor(r).projectID())[sim.PathParam(r, "key")]
 		if !ok {
 			metadataNotFound(w)
@@ -130,10 +110,7 @@ func registerComputeMetadata(srv *sim.Server) {
 		}
 		writeText(w, value)
 	})
-	srv.HandleFunc("GET /computeMetadata/v1/instance/network-interfaces/{nic}/{key}", func(w http.ResponseWriter, r *http.Request) {
-		if !mustFlavor(w, r) {
-			return
-		}
+	handle("GET /computeMetadata/v1/instance/network-interfaces/{nic}/{key}", func(w http.ResponseWriter, r *http.Request) {
 		keys, ok := gceInterfaceKeys(r, sim.PathParam(r, "nic"))
 		if !ok {
 			metadataNotFound(w)
@@ -146,10 +123,7 @@ func registerComputeMetadata(srv *sim.Server) {
 		}
 		writeText(w, value)
 	})
-	srv.HandleFunc("GET /computeMetadata/v1/instance/network-interfaces/{nic}/access-configs/{config}/{key}", func(w http.ResponseWriter, r *http.Request) {
-		if !mustFlavor(w, r) {
-			return
-		}
+	handle("GET /computeMetadata/v1/instance/network-interfaces/{nic}/access-configs/{config}/{key}", func(w http.ResponseWriter, r *http.Request) {
 		keys, ok := gceAccessConfigKeys(r, sim.PathParam(r, "nic"), sim.PathParam(r, "config"))
 		if !ok {
 			metadataNotFound(w)
@@ -162,32 +136,20 @@ func registerComputeMetadata(srv *sim.Server) {
 		}
 		writeText(w, value)
 	})
-	srv.HandleFunc("GET /computeMetadata/v1/instance/zone", func(w http.ResponseWriter, r *http.Request) {
-		if !mustFlavor(w, r) {
-			return
-		}
+	handle("GET /computeMetadata/v1/instance/zone", func(w http.ResponseWriter, r *http.Request) {
 		writeText(w, metadataInstanceZone(r))
 	})
-	srv.HandleFunc("GET /computeMetadata/v1/instance/name", func(w http.ResponseWriter, r *http.Request) {
-		if !mustFlavor(w, r) {
-			return
-		}
+	handle("GET /computeMetadata/v1/instance/name", func(w http.ResponseWriter, r *http.Request) {
 		writeText(w, metadataInstanceName(r))
 	})
-	srv.HandleFunc("GET /computeMetadata/v1/instance/hostname", func(w http.ResponseWriter, r *http.Request) {
-		if !mustFlavor(w, r) {
-			return
-		}
+	handle("GET /computeMetadata/v1/instance/hostname", func(w http.ResponseWriter, r *http.Request) {
 		writeText(w, metadataInstanceHostname(r))
 	})
 
 	// /computeMetadata/v1/universe/universe-domain — the API host suffix a
 	// client builds every Google endpoint from. Google auth libraries and the
 	// `gcloud` CLI read it before choosing an endpoint.
-	srv.HandleFunc("GET /computeMetadata/v1/universe/universe-domain", func(w http.ResponseWriter, r *http.Request) {
-		if !mustFlavor(w, r) {
-			return
-		}
+	handle("GET /computeMetadata/v1/universe/universe-domain", func(w http.ResponseWriter, r *http.Request) {
 		writeText(w, metadataUniverseDomain)
 	})
 
@@ -197,10 +159,7 @@ func registerComputeMetadata(srv *sim.Server) {
 	// Compute Engine instance or Cloud Run resource names, or else its
 	// project's Compute Engine default service account. An account the
 	// workload does not run as has no keys here.
-	srv.HandleFunc("GET /computeMetadata/v1/instance/service-accounts/{sa}/email", func(w http.ResponseWriter, r *http.Request) {
-		if !mustFlavor(w, r) {
-			return
-		}
+	handle("GET /computeMetadata/v1/instance/service-accounts/{sa}/email", func(w http.ResponseWriter, r *http.Request) {
 		email, ok := metadataServiceAccountEmail(r, sim.PathParam(r, "sa"))
 		if !ok {
 			metadataNotFound(w)
@@ -208,10 +167,7 @@ func registerComputeMetadata(srv *sim.Server) {
 		}
 		writeText(w, email)
 	})
-	srv.HandleFunc("GET /computeMetadata/v1/instance/service-accounts/{sa}/scopes", func(w http.ResponseWriter, r *http.Request) {
-		if !mustFlavor(w, r) {
-			return
-		}
+	handle("GET /computeMetadata/v1/instance/service-accounts/{sa}/scopes", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := metadataServiceAccountEmail(r, sim.PathParam(r, "sa")); !ok {
 			metadataNotFound(w)
 			return
@@ -219,10 +175,7 @@ func registerComputeMetadata(srv *sim.Server) {
 		// Cloud-platform broad scope is what real GCE returns by default.
 		writeText(w, strings.Join(metadataServiceAccountScopes, "\n"))
 	})
-	srv.HandleFunc("GET /computeMetadata/v1/instance/service-accounts/{sa}/aliases", func(w http.ResponseWriter, r *http.Request) {
-		if !mustFlavor(w, r) {
-			return
-		}
+	handle("GET /computeMetadata/v1/instance/service-accounts/{sa}/aliases", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := metadataServiceAccountEmail(r, sim.PathParam(r, "sa")); !ok {
 			metadataNotFound(w)
 			return
@@ -235,10 +188,7 @@ func registerComputeMetadata(srv *sim.Server) {
 	// access-token key (see signAccessToken) so the data-plane bearer
 	// middleware verifies it exactly like an OAuth2 or federated token —
 	// the metadata server is the workload's real path to a usable token.
-	srv.HandleFunc("GET /computeMetadata/v1/instance/service-accounts/{sa}/token", func(w http.ResponseWriter, r *http.Request) {
-		if !mustFlavor(w, r) {
-			return
-		}
+	handle("GET /computeMetadata/v1/instance/service-accounts/{sa}/token", func(w http.ResponseWriter, r *http.Request) {
 		sa, ok := metadataServiceAccountEmail(r, sim.PathParam(r, "sa"))
 		if !ok {
 			metadataNotFound(w)
@@ -257,10 +207,7 @@ func registerComputeMetadata(srv *sim.Server) {
 	// A workload reads its identity token here to invoke a sibling Cloud Run
 	// service; the google.golang.org/api/idtoken compute source fetches it
 	// verbatim.
-	srv.HandleFunc("GET /computeMetadata/v1/instance/service-accounts/{sa}/identity", func(w http.ResponseWriter, r *http.Request) {
-		if !mustFlavor(w, r) {
-			return
-		}
+	handle("GET /computeMetadata/v1/instance/service-accounts/{sa}/identity", func(w http.ResponseWriter, r *http.Request) {
 		audience := r.URL.Query().Get("audience")
 		if audience == "" {
 			http.Error(w, "non-empty audience parameter required", http.StatusBadRequest)
@@ -278,7 +225,7 @@ func registerComputeMetadata(srv *sim.Server) {
 		_, _ = w.Write([]byte(token))
 	})
 
-	registerComputeMetadataDirectories(srv, mustFlavor)
+	registerComputeMetadataDirectories(srv, handle)
 }
 
 // The metadata server is a filesystem-shaped namespace: every node whose key
@@ -605,19 +552,13 @@ func gceMetadataServiceAccountChildren(r *http.Request) []gceMetadataEntry {
 // plus the trailing-slash redirect real Google answers a directory path with.
 // Each pattern is anchored with {$} so it claims only the directory itself and
 // never shadows the leaf handlers mounted beneath it.
-func registerComputeMetadataDirectories(srv *sim.Server, mustFlavor func(http.ResponseWriter, *http.Request) bool) {
+func registerComputeMetadataDirectories(srv *sim.Server, handle func(string, http.HandlerFunc)) {
 	dir := func(pattern string, children func(*http.Request) []gceMetadataEntry) {
-		srv.HandleFunc("GET "+pattern+"{$}", func(w http.ResponseWriter, r *http.Request) {
-			if !mustFlavor(w, r) {
-				return
-			}
+		handle("GET "+pattern+"{$}", func(w http.ResponseWriter, r *http.Request) {
 			writeMetadataDirectory(w, r, children(r))
 		})
 		// The same node addressed without its trailing slash.
-		srv.HandleFunc("GET "+strings.TrimSuffix(pattern, "/"), func(w http.ResponseWriter, r *http.Request) {
-			if !mustFlavor(w, r) {
-				return
-			}
+		handle("GET "+strings.TrimSuffix(pattern, "/"), func(w http.ResponseWriter, r *http.Request) {
 			redirectToMetadataDirectory(w, r)
 		})
 	}
@@ -634,17 +575,25 @@ func registerComputeMetadataDirectories(srv *sim.Server, mustFlavor func(http.Re
 	// the `Host` header names a service in endpoint_hosts.go, so the probe is
 	// answered ahead of the mux and every other request to `/` falls through
 	// to the origin's own root untouched.
+	//
+	// The wrapper runs ahead of the chain that attributes a request a sidecar
+	// forwarded to its workload, so it attributes the probe itself.
 	srv.WrapHandler(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		return sim.SidecarTrust(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodGet || r.URL.Path != "/" || r.Header.Get("Metadata-Flavor") != "Google" {
 				next.ServeHTTP(w, r)
 				return
 			}
-			if !mustFlavor(w, r) {
+			// A caller that is no workload reaches no metadata server, only
+			// the origin's own root.
+			if _, ok := gceMetadataCaller(r); !ok {
+				next.ServeHTTP(w, r)
 				return
 			}
-			writeMetadataDirectory(w, r, gceMetadataRootChildren(r))
-		})
+			if r, ok := gceMetadataAdmit(w, r); ok {
+				writeMetadataDirectory(w, r, gceMetadataRootChildren(r))
+			}
+		}))
 	})
 
 	dir("/computeMetadata/", gceMetadataVersions)

@@ -232,9 +232,10 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 	registerSubscriptionPolicy(srv)
 	registerSubscriptionOperations(srv)
 
-	// Embedded UI (no-op with -tags noui).
 	if includeUI {
-		registerUI(srv)
+		if err := registerUI(srv, cfg.ConsoleDir); err != nil {
+			return nil, err
+		}
 	}
 
 	// Runtime wire-shape validation (armed only when

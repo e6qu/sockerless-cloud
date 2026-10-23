@@ -824,14 +824,15 @@ func batchPlaceAttempt(ctx context.Context, cfg sim.ContainerConfig, sink sim.Lo
 	if err != nil {
 		return nil, fmt.Errorf("job network: %w", err)
 	}
-	cfg.Network = network.Name
-	cfg.DNS = network.DNS()
-	cfg.Env = workloadhost.MergeEnv(cfg.Env, grantContainerCredentials(network.MetadataOrigin(), roleHolder("batch", jobID), jobRole, sessionName))
 	backend, err := awsPlacement.For(placement.Service{Name: "batch"})
 	if err != nil {
 		return nil, err
 	}
-	return backend.Place(ctx, cfg, sink)
+	credentials := grantContainerCredentials(backend, network, roleHolder("batch", jobID), jobRole, sessionName)
+	cfg.Network = network.Name
+	cfg.DNS = network.DNS()
+	cfg.Env = workloadhost.MergeEnv(cfg.Env, credentials.Env)
+	return credentials.place(ctx, backend, cfg, sink)
 }
 
 func batchWatchAttempt(jobID string, number int, handle placement.Handle) {

@@ -371,7 +371,7 @@ func TestGlue_CodeGen_SDK(t *testing.T) {
 	// A job for source-control sync.
 	_, err = c.CreateJob(ctx, &glue.CreateJobInput{
 		Name: aws.String("glue-sdk-codegen-job"),
-		Role: aws.String("arn:aws:iam::123456789012:role/GlueRole"),
+		Role: aws.String(serviceRole(t, "glue.amazonaws.com")),
 		Command: &gluetypes.JobCommand{
 			Name:           aws.String("glueetl"),
 			ScriptLocation: aws.String("s3://bucket/script.py"),
@@ -431,6 +431,8 @@ func TestGlue_CodeGen_SDK(t *testing.T) {
 	assert.Equal(t, "com.example.New", aws.ToString(getUDF.UserDefinedFunction.ClassName))
 
 	// GetResourcePolicies returns the stored catalog resource policy.
+	glueCatalogPolicy.Lock()
+	t.Cleanup(glueCatalogPolicy.Unlock)
 	_, err = c.PutResourcePolicy(ctx, &glue.PutResourcePolicyInput{
 		PolicyInJson: aws.String(`{"Version":"2012-10-17","Statement":[]}`),
 	})

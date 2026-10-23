@@ -59,7 +59,7 @@ func TestIAM_ResourceARN_CodeBuild(t *testing.T) {
 				Image:       aws.String("mirror.gcr.io/library/alpine:3.21"),
 				ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
 			},
-			ServiceRole: aws.String("arn:aws:iam::123456789012:role/cb-scoped-role"),
+			ServiceRole: aws.String(serviceRole(t, "codebuild.amazonaws.com")),
 		})
 		require.NoError(t, err)
 		t.Cleanup(func() {

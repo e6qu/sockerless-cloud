@@ -61,7 +61,7 @@ func StartEgress(ctx context.Context, spec EgressSpec, sink sim.LogSink) (*sim.C
 	if err := sim.RequireContainerRuntime("starting an egress sidecar"); err != nil {
 		return nil, err
 	}
-	image, platform, err := ensureImage(ctx, cli)
+	image, platform, err := EnsureImage(ctx, cli)
 	if err != nil {
 		return nil, err
 	}

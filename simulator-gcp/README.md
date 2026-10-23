@@ -31,7 +31,7 @@ CI runs all four on every PR (`.github/workflows/ci.yml`).
 ```bash
 # 1. Build + start the sim (default :4567).
 cd simulator-gcp
-go build -tags noui -o simulator-gcp .
+go build -o simulator-gcp .
 ./simulator-gcp
 ```
 
@@ -179,8 +179,13 @@ then.
 ## Building
 
 ```bash
-cd simulator-gcp && go build -tags noui -o simulator-gcp .
+cd simulator-gcp && go build -o simulator-gcp .
 ```
+
+That build serves the APIs and no console. `make simulator-gcp/build` from the
+repository root, after `cd ui && bun install && bunx turbo run build`, embeds the
+console with `-tags console`; a plain build serves a built bundle when
+`SIM_CONSOLE_DIR` names it.
 
 ## Sample
 

@@ -14,12 +14,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECS_TaskRoleCredentialsAuthorizeWorkloadAWSCLI exercises the real
-// "GET /v4/{id}/credentials" metadata route from a launched workload.
+// TestECS_TaskRoleCredentialsAuthorizeWorkloadAWSCLI runs the AWS CLI in an
+// awsvpc task and in a bridge-mode task, each under a task role, and calls
+// STS with nothing but the CLI's default credential chain: the chain finds
+// the container credentials endpoint the Amazon ECS agent names in the task's
+// environment and accepts it, and the call is made as the task role.
 func TestECS_TaskRoleCredentialsAuthorizeWorkloadAWSCLI(t *testing.T) {
 	t.Parallel()
+	for _, mode := range []ecstypes.NetworkMode{ecstypes.NetworkModeAwsvpc, ecstypes.NetworkModeBridge} {
+		t.Run(string(mode), func(t *testing.T) {
+			t.Parallel()
+			runTaskRoleCredentialsTask(t, mode)
+		})
+	}
+}
+
+func runTaskRoleCredentialsTask(t *testing.T, mode ecstypes.NetworkMode) {
 	iamc := iamClient()
-	roleName := "ecs-task-role-credentials"
+	name := "task-role-credentials-" + string(mode)
+	roleName := "ecs-" + name
 	trust := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
 	roleOut, err := iamc.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName:                 aws.String(roleName),
@@ -42,49 +55,27 @@ func TestECS_TaskRoleCredentialsAuthorizeWorkloadAWSCLI(t *testing.T) {
 	require.NoError(t, err)
 
 	ecsc := ecsClient()
-	cluster := "task-role-credentials"
+	cluster := name
 	_, err = ecsc.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
-	subnetID := createECSTestSubnet(t, "task-role-credentials")
 
-	logGroup := "/ecs/task-role-credentials"
+	logGroup := "/ecs/" + name
 	logs := cwLogsClient()
 	_, _ = logs.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(logGroup)})
 	t.Cleanup(func() {
 		_, _ = logs.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(logGroup)})
 	})
 
-	taskDefinition, err := ecsc.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
-		Family:                  aws.String("task-role-credentials"),
-		NetworkMode:             ecstypes.NetworkModeAwsvpc,
-		RequiresCompatibilities: []ecstypes.Compatibility{ecstypes.CompatibilityFargate},
-		Cpu:                     aws.String("256"),
-		Memory:                  aws.String("512"),
-		TaskRoleArn:             roleOut.Role.Arn,
+	definition := &ecs.RegisterTaskDefinitionInput{
+		Family:      aws.String(name),
+		NetworkMode: mode,
+		TaskRoleArn: roleOut.Role.Arn,
 		ContainerDefinitions: []ecstypes.ContainerDefinition{{
 			StopTimeout: aws.Int32(2),
 			Name:        aws.String("aws-cli"),
 			Image:       aws.String("mirror.gcr.io/amazon/aws-cli:2.27.49"),
 			EntryPoint:  []string{"sh", "-c"},
-			Command: []string{`printf 'credentials-full=%s credentials-relative=%s\n' \
-"${AWS_CONTAINER_CREDENTIALS_FULL_URI:-}" "${AWS_CONTAINER_CREDENTIALS_RELATIVE_URI:-}"
-# A real-VPC task receives the standard ECS relative URI and the AWS CLI
-# consumes it directly. The cross-platform Docker-network tier cannot route
-# 169.254.170.2, while Botocore deliberately rejects its host-gateway alias as
-# a FULL_URI credential host. Exercise that tier's endpoint explicitly, then
-# pass the exact returned session credentials to the same real AWS CLI call.
-if [ -z "${AWS_CONTAINER_CREDENTIALS_RELATIVE_URI:-}" ]; then
-	eval "$(
-		curl --fail --silent "${AWS_CONTAINER_CREDENTIALS_FULL_URI}" |
-			python -c 'import json, sys
-try:
-    from shlex import quote
-except ImportError:
-    from pipes import quote
-d = json.load(sys.stdin)
-print("export AWS_ACCESS_KEY_ID=%s AWS_SECRET_ACCESS_KEY=%s AWS_SESSION_TOKEN=%s" % tuple(quote(d[k]) for k in ("AccessKeyId", "SecretAccessKey", "Token")))'
-	)"
-fi
+			Command: []string{`set -e
 # The Amazon ECS agent serves a task one credential until it refreshes it, so
 # two fetches a moment apart return the same access key.
 if [ -n "${AWS_CONTAINER_CREDENTIALS_RELATIVE_URI:-}" ]; then
@@ -121,29 +112,28 @@ aws sts get-caller-identity --query Arn --output text`},
 				},
 			},
 		}},
-	})
+	}
+	run := &ecs.RunTaskInput{Cluster: aws.String(cluster)}
+	if mode == ecstypes.NetworkModeAwsvpc {
+		definition.RequiresCompatibilities = []ecstypes.Compatibility{ecstypes.CompatibilityFargate}
+		definition.Cpu, definition.Memory = aws.String("256"), aws.String("512")
+		run.LaunchType = ecstypes.LaunchTypeFargate
+		run.NetworkConfiguration = &ecstypes.NetworkConfiguration{
+			AwsvpcConfiguration: &ecstypes.AwsVpcConfiguration{Subnets: []string{createECSTestSubnet(t, name)}},
+		}
+	}
+	taskDefinition, err := ecsc.RegisterTaskDefinition(ctx, definition)
 	require.NoError(t, err)
+	run.TaskDefinition = taskDefinition.TaskDefinition.TaskDefinitionArn
 
-	run, err := ecsc.RunTask(ctx, &ecs.RunTaskInput{
-		Cluster:        aws.String(cluster),
-		TaskDefinition: taskDefinition.TaskDefinition.TaskDefinitionArn,
-		LaunchType:     ecstypes.LaunchTypeFargate,
-		NetworkConfiguration: &ecstypes.NetworkConfiguration{
-			AwsvpcConfiguration: &ecstypes.AwsVpcConfiguration{
-				Subnets: []string{subnetID},
-			},
-		},
-	})
+	started, err := ecsc.RunTask(ctx, run)
 	require.NoError(t, err)
-	require.Len(t, run.Tasks, 1)
-	taskArn := aws.ToString(run.Tasks[0].TaskArn)
+	require.Len(t, started.Tasks, 1)
+	taskArn := aws.ToString(started.Tasks[0].TaskArn)
 	cleanupECSTask(t, ecsc, cluster, taskArn)
 
 	task := waitTaskStopped(t, ecsc, cluster, taskArn)
 	require.NotEmpty(t, task.Containers)
-	require.NotNil(t, task.Containers[0].ExitCode)
-	assert.Equal(t, int32(0), aws.ToInt32(task.Containers[0].ExitCode), aws.ToString(task.StoppedReason))
-
 	streams, err := logs.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{
 		LogGroupName: aws.String(logGroup),
 	})
@@ -158,7 +148,8 @@ aws sts get-caller-identity --query Arn --output text`},
 	for _, event := range events.Events {
 		messages = append(messages, aws.ToString(event.Message))
 	}
-	assert.Contains(t, strings.Join(messages, "\n"), "assumed-role/"+roleName+"/")
-	assert.Contains(t, strings.Join(messages, "\n"), "/v2/credentials/",
-		"the task reads its role's sessions from the container credentials endpoint")
+	output := strings.Join(messages, "\n")
+	require.NotNil(t, task.Containers[0].ExitCode)
+	assert.Equal(t, int32(0), aws.ToInt32(task.Containers[0].ExitCode), "%s\n%s", aws.ToString(task.StoppedReason), output)
+	assert.Contains(t, output, "assumed-role/"+roleName+"/")
 }

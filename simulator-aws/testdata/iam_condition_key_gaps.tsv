@@ -27,11 +27,13 @@ ecr:ListTagsForResource	aws:RequestTag/${TagKey}	no-request-member
 ecr:ListTagsForResource	aws:TagKeys	no-request-member
 ecs:CreateExpressGatewayService	ecs:enable-ecs-managed-tags	no-request-member
 ecs:CreateExpressGatewayService	ecs:propagate-tags	no-request-member
+ecs:CreateGateway	ecs:enable-ecs-managed-tags	no-request-member
 ecs:DescribeTasks	aws:ResourceTag/${TagKey}	resource-unseeded
 ecs:GetTaskProtection	aws:ResourceTag/${TagKey}	resource-unseeded
 ecs:StopTask	aws:ResourceTag/${TagKey}	resource-unseeded
 ecs:UpdateExpressGatewayService	ecs:enable-ecs-managed-tags	no-request-member
 ecs:UpdateExpressGatewayService	ecs:propagate-tags	no-request-member
+ecs:UpdateGateway	ecs:enable-ecs-managed-tags	no-request-member
 ecs:UpdateTaskProtection	aws:ResourceTag/${TagKey}	resource-unseeded
 elasticloadbalancing:CreateLoadBalancer	aws:ResourceTag/${TagKey}	create-names-no-resource
 elasticloadbalancing:CreateLoadBalancer	elasticloadbalancing:ResourceTag/${TagKey}	create-names-no-resource
@@ -198,6 +200,7 @@ kms:Decrypt	kms:RecipientAttestation:PCR5	unmodelled
 kms:Decrypt	kms:RecipientAttestation:PCR6	unmodelled
 kms:Decrypt	kms:RecipientAttestation:PCR7	unmodelled
 kms:Decrypt	kms:RecipientAttestation:PCR8	unmodelled
+kms:Decrypt	kms:RecipientAttestation:PCR8:ServiceName	unmodelled
 kms:Decrypt	kms:RecipientAttestation:PCR9	unmodelled
 kms:Decrypt	kms:ViaService	via-service
 kms:DeleteAlias	kms:ViaService	via-service
@@ -258,6 +261,7 @@ kms:DeriveSharedSecret	kms:RecipientAttestation:PCR5	unmodelled
 kms:DeriveSharedSecret	kms:RecipientAttestation:PCR6	unmodelled
 kms:DeriveSharedSecret	kms:RecipientAttestation:PCR7	unmodelled
 kms:DeriveSharedSecret	kms:RecipientAttestation:PCR8	unmodelled
+kms:DeriveSharedSecret	kms:RecipientAttestation:PCR8:ServiceName	unmodelled
 kms:DeriveSharedSecret	kms:RecipientAttestation:PCR9	unmodelled
 kms:DeriveSharedSecret	kms:ViaService	via-service
 kms:DescribeKey	kms:ViaService	via-service
@@ -323,6 +327,7 @@ kms:GenerateDataKey	kms:RecipientAttestation:PCR5	unmodelled
 kms:GenerateDataKey	kms:RecipientAttestation:PCR6	unmodelled
 kms:GenerateDataKey	kms:RecipientAttestation:PCR7	unmodelled
 kms:GenerateDataKey	kms:RecipientAttestation:PCR8	unmodelled
+kms:GenerateDataKey	kms:RecipientAttestation:PCR8:ServiceName	unmodelled
 kms:GenerateDataKey	kms:RecipientAttestation:PCR9	unmodelled
 kms:GenerateDataKey	kms:ViaService	via-service
 kms:GenerateDataKeyPair	kms:EncryptionAlgorithm	no-request-member
@@ -382,6 +387,7 @@ kms:GenerateDataKeyPair	kms:RecipientAttestation:PCR5	unmodelled
 kms:GenerateDataKeyPair	kms:RecipientAttestation:PCR6	unmodelled
 kms:GenerateDataKeyPair	kms:RecipientAttestation:PCR7	unmodelled
 kms:GenerateDataKeyPair	kms:RecipientAttestation:PCR8	unmodelled
+kms:GenerateDataKeyPair	kms:RecipientAttestation:PCR8:ServiceName	unmodelled
 kms:GenerateDataKeyPair	kms:RecipientAttestation:PCR9	unmodelled
 kms:GenerateDataKeyPair	kms:ViaService	via-service
 kms:GenerateDataKeyPairWithoutPlaintext	kms:EncryptionAlgorithm	no-request-member
@@ -445,6 +451,7 @@ kms:GenerateRandom	kms:RecipientAttestation:PCR5	unmodelled
 kms:GenerateRandom	kms:RecipientAttestation:PCR6	unmodelled
 kms:GenerateRandom	kms:RecipientAttestation:PCR7	unmodelled
 kms:GenerateRandom	kms:RecipientAttestation:PCR8	unmodelled
+kms:GenerateRandom	kms:RecipientAttestation:PCR8:ServiceName	unmodelled
 kms:GenerateRandom	kms:RecipientAttestation:PCR9	unmodelled
 kms:GetKeyLastUsage	kms:ViaService	via-service
 kms:GetKeyPolicy	kms:ViaService	via-service
@@ -452,10 +459,12 @@ kms:GetKeyRotationStatus	kms:ViaService	via-service
 kms:GetParametersForImport	kms:ViaService	via-service
 kms:GetPublicKey	kms:ViaService	via-service
 kms:ImportKeyMaterial	kms:ViaService	via-service
+kms:ListAliases	kms:ViaService	via-service
 kms:ListGrants	kms:GrantIsForAWSResource	via-service
 kms:ListGrants	kms:ViaService	via-service
 kms:ListKeyPolicies	kms:ViaService	via-service
 kms:ListKeyRotations	kms:ViaService	via-service
+kms:ListKeys	kms:ViaService	via-service
 kms:ListResourceTags	kms:ViaService	via-service
 kms:PutKeyPolicy	kms:ViaService	via-service
 kms:ReEncryptFrom	kms:ViaService	via-service

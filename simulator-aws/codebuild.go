@@ -324,7 +324,7 @@ func cbAdoptBuildWorkload(
 	if remaining <= 0 {
 		remaining = time.Nanosecond
 	}
-	handle, err := sim.AdoptContainer(existing[0].ID, sim.ContainerConfig{Timeout: remaining}, sim.NoopSink{})
+	handle, err := cbEnvironmentBackend.Adopt(context.Background(), existing[0].ID, sim.ContainerConfig{Timeout: remaining}, sim.NoopSink{})
 	if err != nil {
 		return false, fmt.Errorf("adopt %s %s container: %w", resourceName, id, err)
 	}
@@ -386,6 +386,16 @@ func cbWriteError(w http.ResponseWriter, code string, msg string) {
 	_ = json.NewEncoder(w).Encode(awsErrorBody("codebuild", code, msg))
 }
 
+// cbCanAssumeRole writes CodeBuild's refusal of a role that names no role or
+// whose trust policy does not let CodeBuild assume it for sourceArn.
+func cbCanAssumeRole(w http.ResponseWriter, role, sourceArn string) bool {
+	if _, err := iamServiceTrustedRole(role, "codebuild.amazonaws.com", sourceArn); err != nil {
+		cbWriteError(w, "InvalidInputException", "CodeBuild is not authorized to perform: sts:AssumeRole on "+role)
+		return false
+	}
+	return true
+}
+
 func handleCBCreateProject(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name         string         `json:"name"`
@@ -413,6 +423,9 @@ func handleCBCreateProject(w http.ResponseWriter, r *http.Request) {
 
 	if _, ok := cbProjects.Get(req.Name); ok {
 		cbWriteError(w, "ResourceAlreadyExistsException", "Project already exists: "+req.Name)
+		return
+	}
+	if !cbCanAssumeRole(w, req.ServiceRole, cbARN("project/"+req.Name)) {
 		return
 	}
 
@@ -549,6 +562,9 @@ func handleCBUpdateProject(w http.ResponseWriter, r *http.Request) {
 		p.Environment = req.Environment
 	}
 	if req.ServiceRole != "" {
+		if !cbCanAssumeRole(w, req.ServiceRole, cbARN("project/"+req.Name)) {
+			return
+		}
 		p.ServiceRole = req.ServiceRole
 	}
 	p.LastModified = cbEpochNow()
@@ -588,6 +604,9 @@ func handleCBStartBuild(w http.ResponseWriter, r *http.Request) {
 	p, ok := cbProjects.Get(req.ProjectName)
 	if !ok {
 		cbWriteError(w, "ResourceNotFoundException", "Project not found: "+req.ProjectName)
+		return
+	}
+	if req.ServiceRoleOverride != "" && !cbCanAssumeRole(w, req.ServiceRoleOverride, cbARN("project/"+req.ProjectName)) {
 		return
 	}
 	plan, err := cbBuildPlanForProject(p, req.BuildspecOverride, req.SourceVersion)
@@ -874,16 +893,18 @@ func cbRunCommands(buildID string, project CBProject, plan cbBuildPlan, env map[
 	serviceRole := project.ServiceRole
 	if build, ok := cbBuilds.Get(buildID); ok && build.ServiceRole != "" {
 		serviceRole = build.ServiceRole
+	} else if batch, ok := cbBuildBatches.Get(buildID); ok && batch.ServiceRole != "" {
+		serviceRole = batch.ServiceRole
 	}
 	holder := roleHolder("codebuild", buildID)
 	defer revokeRoleCredentials(holder)
-	serviceEnv, err := cbEnvironmentServiceEnv(network, holder, serviceRole, buildID)
+	services, err := cbEnvironmentServiceEnv(network, holder, serviceRole, buildID)
 	if err != nil {
 		return -1, fmt.Sprintf("build environment service endpoint: %v", err)
 	}
 	// The project's and the build's own variables win over what the
 	// environment provides.
-	env = workloadhost.MergeEnv(serviceEnv, env)
+	env = workloadhost.MergeEnv(services.Env, env)
 	env["CODEBUILD_BUILD_ID"] = buildID
 	env["CODEBUILD_PROJECT_NAME"] = project.Name
 	env["CODEBUILD_SRC_DIR"] = "/codebuild/output/src"
@@ -897,7 +918,7 @@ func cbRunCommands(buildID string, project CBProject, plan cbBuildPlan, env map[
 		script.WriteString(command)
 		script.WriteByte('\n')
 	}
-	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
+	handle, err := services.place(context.Background(), cbEnvironmentBackend, sim.ContainerConfig{
 		Image:        image,
 		Architecture: architecture,
 		Command:      []string{"/bin/sh"},

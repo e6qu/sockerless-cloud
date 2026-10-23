@@ -24,7 +24,7 @@ func TestGlue_MLTaskRunLifecycle_SDK(t *testing.T) {
 		Parameters: &gluetypes.TransformParameters{
 			TransformType: gluetypes.TransformTypeFindMatches,
 		},
-		Role: aws.String("arn:aws:iam::123456789012:role/GlueRole"),
+		Role: aws.String(serviceRole(t, "glue.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	id := aws.ToString(create.TransformId)
@@ -94,7 +94,7 @@ func TestGlue_CrawlerScheduleLifecycle_SDK(t *testing.T) {
 	crawler := uniqueName("glue-sdk-sched-crawler")
 	_, err := c.CreateCrawler(ctx, &glue.CreateCrawlerInput{
 		Name:     aws.String(crawler),
-		Role:     aws.String("arn:aws:iam::123456789012:role/glue-crawler-role"),
+		Role:     aws.String(serviceRole(t, "glue.amazonaws.com")),
 		Schedule: aws.String("cron(15 12 * * ? *)"),
 		Targets: &gluetypes.CrawlerTargets{
 			S3Targets: []gluetypes.S3Target{{Path: aws.String("s3://bucket/data/")}},
@@ -291,7 +291,7 @@ func TestGlue_WorkflowRunProperties_SDK(t *testing.T) {
 	job := uniqueName("glue-sdk-wfrun-job")
 	_, err = c.CreateJob(ctx, &glue.CreateJobInput{
 		Name:    aws.String(job),
-		Role:    aws.String("arn:aws:iam::123456789012:role/GlueRole"),
+		Role:    aws.String(serviceRole(t, "glue.amazonaws.com")),
 		Command: &gluetypes.JobCommand{Name: aws.String("glueetl")},
 	})
 	require.NoError(t, err)

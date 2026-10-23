@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/sidecar"
 	"github.com/e6qu/sockerless-cloud/sim/sidecar/egress"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
@@ -98,7 +99,8 @@ func ecsTaskRoleArn(taskID string) string {
 	if !ok {
 		return ""
 	}
-	return definition.TaskRoleArn
+	taskRole, _ := ecsTaskRoles(definition, task.Overrides)
+	return taskRole
 }
 
 // simListenAddr is the listen address main() serves on.
@@ -138,14 +140,15 @@ func ec2MetadataEnv(origin string) map[string]string {
 	}
 }
 
-// ecsTaskMetadataEnv is what the Amazon ECS agent gives a task's containers:
-// the task metadata endpoint, and the container credentials endpoint serving
-// the task role's sessions when the task has a role.
-func ecsTaskMetadataEnv(origin, taskID string) map[string]string {
-	env := grantContainerCredentials(origin, roleHolder("ecs", taskID), ecsTaskRoleArn(taskID), taskID)
-	env["ECS_CONTAINER_METADATA_URI_V4"] = origin + "/v4/" + taskID
-	env["ECS_CONTAINER_METADATA_URI"] = origin + "/v4/" + taskID
-	return env
+// ecsTaskMetadataEnv is what the Amazon ECS agent gives the containers of a
+// task backend places on network: the task metadata endpoint, and the
+// container credentials endpoint serving the task role's sessions when the
+// task has a role.
+func ecsTaskMetadataEnv(backend placement.Backend, network awsWorkloadNetwork, taskID string) containerCredentials {
+	credentials := grantContainerCredentials(backend, network, roleHolder("ecs", taskID), ecsTaskRoleArn(taskID), taskID)
+	credentials.Env["ECS_CONTAINER_METADATA_URI_V4"] = network.MetadataOrigin() + "/v4/" + taskID
+	credentials.Env["ECS_CONTAINER_METADATA_URI"] = network.MetadataOrigin() + "/v4/" + taskID
+	return credentials
 }
 
 // hostNetworkMetadataEnv is ecsTaskMetadataEnv for a task that shares
@@ -156,5 +159,9 @@ func hostNetworkMetadataEnv(taskID string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ecsTaskMetadataEnv("http://"+addr, taskID), nil
+	origin := "http://" + addr
+	env := grantContainerCredentialsAt(origin, roleHolder("ecs", taskID), ecsTaskRoleArn(taskID), taskID)
+	env["ECS_CONTAINER_METADATA_URI_V4"] = origin + "/v4/" + taskID
+	env["ECS_CONTAINER_METADATA_URI"] = origin + "/v4/" + taskID
+	return env, nil
 }

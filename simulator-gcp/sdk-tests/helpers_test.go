@@ -37,7 +37,10 @@ var (
 	evalImageName      string // Docker image containing eval-arithmetic binary
 	commandImageName   string // Docker image containing container-command binary
 	httpProbeImageName string // Docker image containing localhost probe/server binary
-	ctx                = context.Background()
+	// metadataClientImageName is a Cloud Run workload that reads the metadata
+	// server through the official Go clients.
+	metadataClientImageName string
+	ctx                     = context.Background()
 )
 
 func TestMain(m *testing.M) {
@@ -56,7 +59,7 @@ func TestMain(m *testing.M) {
 	}
 
 	simDir, _ := filepath.Abs("..")
-	build := exec.Command("go", "build", "-tags", "noui", "-o", binaryPath, ".")
+	build := exec.Command("go", "build", "-o", binaryPath, ".")
 	build.Dir = simDir
 	build.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {
@@ -92,6 +95,10 @@ func TestMain(m *testing.M) {
 	probeDir, _ := filepath.Abs("../../testdata/http-localhost-probe")
 	httpProbeImageName = "sockerless-http-localhost-probe:gcp-sdk"
 	buildGoScratchImage(httpProbeImageName, probeDir, "http-localhost-probe", workloadPlatform)
+
+	metadataClientDir, _ := filepath.Abs("testdata/metadata-client")
+	metadataClientImageName = "sockerless-metadata-client:gcp-sdk"
+	buildGoScratchImage(metadataClientImageName, metadataClientDir, "metadata-client", workloadPlatform)
 
 	// The Cloud Run job tests run this image as their workload, so it is
 	// acquired here, with retries, and its absence fails the run: a pull that
@@ -460,4 +467,4 @@ func freeTCPUDPPort() (int, error) {
 // debianCatalogImage is the OCI image the simulator's public catalog boots a
 // Debian 12 instance from, pinned as the catalog pins it; the engine picks the
 // platform's manifest out of the index.
-const debianCatalogImage = "mirror.gcr.io/library/debian:12@sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858"
+const debianCatalogImage = "mirror.gcr.io/library/debian:12@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61"

@@ -305,9 +305,10 @@ func handleCBBatchDeleteBuilds(w http.ResponseWriter, r *http.Request) {
 
 func handleCBStartBuildBatch(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ProjectName       string `json:"projectName"`
-		BuildspecOverride string `json:"buildspecOverride"`
-		SourceVersion     string `json:"sourceVersion"`
+		ProjectName         string `json:"projectName"`
+		BuildspecOverride   string `json:"buildspecOverride"`
+		SourceVersion       string `json:"sourceVersion"`
+		ServiceRoleOverride string `json:"serviceRoleOverride"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
@@ -316,6 +317,9 @@ func handleCBStartBuildBatch(w http.ResponseWriter, r *http.Request) {
 	p, ok := cbProjects.Get(req.ProjectName)
 	if !ok {
 		cbWriteError(w, "ResourceNotFoundException", "Project not found: "+req.ProjectName)
+		return
+	}
+	if req.ServiceRoleOverride != "" && !cbCanAssumeRole(w, req.ServiceRoleOverride, cbARN("project/"+req.ProjectName)) {
 		return
 	}
 	plan, err := cbBuildPlanForProject(p, req.BuildspecOverride, req.SourceVersion)
@@ -340,7 +344,7 @@ func handleCBStartBuildBatch(w http.ResponseWriter, r *http.Request) {
 		EndTime:            now,
 		Source:             p.Source,
 		Environment:        p.Environment,
-		ServiceRole:        p.ServiceRole,
+		ServiceRole:        firstNonEmpty(req.ServiceRoleOverride, p.ServiceRole),
 		Complete:           false,
 		BuildBatchNumber:   1,
 		Seq:                cbNextSeq(&cbBatchSeq),
@@ -638,6 +642,9 @@ func handleCBCreateFleet(w http.ResponseWriter, r *http.Request) {
 	}
 	id := req.Name + ":" + uuid.New().String()
 	arn := cbARN("fleet/" + id)
+	if req.FleetServiceRole != "" && !cbCanAssumeRole(w, req.FleetServiceRole, arn) {
+		return
+	}
 	now := cbEpochNow()
 	fleet := CBFleet{
 		Arn:                  arn,
@@ -703,6 +710,9 @@ func handleCBUpdateFleet(w http.ResponseWriter, r *http.Request) {
 		fleet.ImageID = req.ImageID
 	}
 	if req.FleetServiceRole != "" {
+		if !cbCanAssumeRole(w, req.FleetServiceRole, fleet.Arn) {
+			return
+		}
 		fleet.FleetServiceRole = req.FleetServiceRole
 	}
 	if req.Tags != nil {
@@ -1065,7 +1075,7 @@ func cbRunCommandExecution(id string, sandbox CBSandbox, command string) {
 
 	holder := roleHolder("codebuild-command", id)
 	defer revokeRoleCredentials(holder)
-	serviceEnv, err := cbEnvironmentServiceEnv(network, holder, sandbox.ServiceRole, id)
+	services, err := cbEnvironmentServiceEnv(network, holder, sandbox.ServiceRole, id)
 	if err != nil {
 		cbCompleteCommandExecution(id, -1, "", err.Error())
 		return
@@ -1082,14 +1092,14 @@ func cbRunCommandExecution(id string, sandbox CBSandbox, command string) {
 			stdout.WriteString(line.Text + "\n")
 		}
 	})
-	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
+	handle, err := services.place(context.Background(), cbEnvironmentBackend, sim.ContainerConfig{
 		Image:        image,
 		Architecture: platform,
 		Command:      []string{"/bin/sh"},
 		Args:         []string{"-c", command},
 		WorkingDir:   "/codebuild/output/src",
 		Binds:        []string{filepath.Clean(workDir) + ":/codebuild/output/src:z"},
-		Env: workloadhost.MergeEnv(serviceEnv, map[string]string{
+		Env: workloadhost.MergeEnv(services.Env, map[string]string{
 			"CODEBUILD_SRC_DIR":  "/codebuild/output/src",
 			"AWS_DEFAULT_REGION": awsRegion(),
 			"AWS_REGION":         awsRegion(),

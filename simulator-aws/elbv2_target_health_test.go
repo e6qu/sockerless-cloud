@@ -44,6 +44,8 @@ func elbv2TargetHealthTestStores() {
 	elbv2Rules = sim.MakeStore[ELBv2Rule](nil, "elbv2_rules")
 	ecsTasks = sim.MakeStore[ECSTask](nil, "ecs_tasks")
 	ecsServices = sim.MakeStore[ECSService](nil, "ecs_services")
+	ecsGatewayRoutes = sim.MakeStore[ECSGatewayRoute](nil, "ecs_gateway_routes")
+	ecsServiceGatewayConnectors = sim.MakeStore[[]ecsGatewayConnector](nil, "ecs_service_gateway_connectors")
 	elbv2TargetHealthTracker.Reset()
 }
 

@@ -43,7 +43,7 @@ func TestLambdaCLI_AddGetRemovePermission(t *testing.T) {
 	runCLI(t, awsCLI("lambda", "create-function",
 		"--function-name", fn,
 		"--runtime", "nodejs18.x",
-		"--role", "arn:aws:iam::123456789012:role/test-role",
+		"--role", cliServiceRole(t, "lambda.amazonaws.com"),
 		"--handler", "index.handler",
 		"--zip-file", "fileb://"+zipPath,
 		"--output", "json",

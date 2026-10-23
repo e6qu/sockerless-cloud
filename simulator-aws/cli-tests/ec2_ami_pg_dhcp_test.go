@@ -39,7 +39,7 @@ func TestEC2CLI_AMIPlacementDhcp(t *testing.T) {
 
 	reg := q("ec2", "register-image", "--name", "cli-registered-ami", "--architecture", "arm64",
 		"--root-device-name", "/dev/xvda",
-		"--block-device-mappings", "DeviceName=/dev/xvda,Ebs={SnapshotId=snap-0123456789abcdef0,VolumeSize=20}",
+		"--block-device-mappings", "DeviceName=/dev/xvda,Ebs={SnapshotId="+snapshotForEBSCLI(t, q)+",VolumeSize=20}",
 		"--query", "ImageId", "--output", "text")
 	if v := q("ec2", "describe-images", "--image-ids", reg,
 		"--query", "Images[0].Architecture", "--output", "text"); v != "arm64" {

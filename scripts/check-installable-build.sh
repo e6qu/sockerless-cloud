@@ -29,7 +29,7 @@ failed=0
 for cloud in aws gcp azure; do
 	module="simulator-${cloud}"
 	[[ -d $module ]] || continue
-	if output=$(cd "$module" && GOWORK=off CGO_ENABLED=0 go build -tags noui -o /dev/null . 2>&1); then
+	if output=$(cd "$module" && GOWORK=off CGO_ENABLED=0 go build -o /dev/null . 2>&1); then
 		echo "check-installable-build: ${module} builds from its pinned modules"
 		continue
 	fi

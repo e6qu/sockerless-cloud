@@ -1,12 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"sort"
 	"strconv"
@@ -192,7 +192,7 @@ func sfnQueryError(body io.Reader) (string, string) {
 	return code, message
 }
 
-func sfnInvokeQueryService(service, action string, input any, authorize awsSDKRequestAuthorizer) (any, *sfnExecutionError) {
+func sfnInvokeQueryService(ctx context.Context, actor awsActor, service, action string, input any) (any, *sfnExecutionError) {
 	config, ok := sfnAWSQueryServices[service]
 	if !ok {
 		return nil, &sfnExecutionError{
@@ -204,8 +204,7 @@ func sfnInvokeQueryService(service, action string, input any, authorize awsSDKRe
 		return nil, &sfnExecutionError{Name: "States.Runtime", Cause: "AWS Query service router is unavailable"}
 	}
 	action = strings.ToUpper(action[:1]) + action[1:]
-	handler, ok := sfnAWSQueryRouter.Handler(config.Version, action)
-	if !ok {
+	if _, ok := sfnAWSQueryRouter.Handler(config.Version, action); !ok {
 		return nil, &sfnExecutionError{
 			Name:  "States.TaskFailed",
 			Cause: fmt.Sprintf("The operation %s:%s is not implemented by the AWS service slice", service, action),
@@ -224,24 +223,19 @@ func sfnInvokeQueryService(service, action string, input any, authorize awsSDKRe
 	for _, key := range keys {
 		sfnEncodeQueryValue(form, key, inputValues[key], config.EC2Syntax)
 	}
-	request := httptest.NewRequestWithContext(sfnAWSServer.RequestContext(context.Background()),
-		http.MethodPost, "/", strings.NewReader(form.Encode()))
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	if authorize != nil {
-		if denied := authorize(request); denied != nil {
-			return nil, denied
-		}
+	status, body, err := awsCall(ctx, actor, sfnSigningName(service), http.MethodPost, "/",
+		http.Header{"Content-Type": {"application/x-www-form-urlencoded; charset=utf-8"}}, []byte(form.Encode()))
+	if err != nil {
+		return nil, sfnCallRefused(service+".", err)
 	}
-	response := httptest.NewRecorder()
-	handler(response, request)
-	if response.Code >= http.StatusBadRequest {
-		code, message := sfnQueryError(response.Body)
+	if status >= http.StatusBadRequest {
+		code, message := sfnQueryError(bytes.NewReader(body))
 		if code == "" {
-			code = http.StatusText(response.Code)
+			code = http.StatusText(status)
 		}
 		return nil, &sfnExecutionError{Name: service + "." + code, Cause: message}
 	}
-	output, err := sfnQueryOutput(response.Body)
+	output, err := sfnQueryOutput(bytes.NewReader(body))
 	if err != nil {
 		return nil, &sfnExecutionError{
 			Name:  "States.Runtime",

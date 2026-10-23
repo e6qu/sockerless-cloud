@@ -63,7 +63,7 @@ func TestCloudTrailRecordsSchedulerAPICallCLI(t *testing.T) {
 		"--name", name,
 		"--schedule-expression", "rate(1 hour)",
 		"--flexible-time-window", `{"Mode":"OFF"}`,
-		"--target", `{"Arn":"arn:aws:sqs:us-east-1:123456789012:cli-ct-q","RoleArn":"arn:aws:iam::123456789012:role/scheduler-role"}`,
+		"--target", `{"Arn":"arn:aws:sqs:us-east-1:123456789012:cli-ct-q","RoleArn":"`+cliServiceRole(t, "scheduler.amazonaws.com")+`"}`,
 	))
 	t.Cleanup(func() { _ = awsCLI("scheduler", "delete-schedule", "--name", name).Run() })
 

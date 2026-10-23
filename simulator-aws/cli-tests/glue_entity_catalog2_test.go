@@ -239,7 +239,6 @@ func TestGlueSearchTablesCLI(t *testing.T) {
 		_ = awsCLI("glue", "delete-user-defined-function", "--database-name", db, "--function-name", "udf1").Run()
 		_ = awsCLI("glue", "delete-job", "--job-name", "glue-cli-codegen-job").Run()
 		_ = awsCLI("glue", "delete-database", "--name", db).Run()
-		_ = awsCLI("glue", "delete-resource-policy").Run()
 	})
 
 	runCLI(t, awsCLI("glue", "create-table", "--database-name", db,
@@ -315,7 +314,7 @@ func TestGlueSearchTablesCLI(t *testing.T) {
 	// Source-control sync on a job.
 	runCLI(t, awsCLI("glue", "create-job",
 		"--name", "glue-cli-codegen-job",
-		"--role", "arn:aws:iam::123456789012:role/GlueRole",
+		"--role", cliServiceRole(t, "glue.amazonaws.com"),
 		"--command", `{"Name":"glueetl","ScriptLocation":"s3://bucket/script.py"}`))
 	out = runCLI(t, awsCLI("glue", "update-job-from-source-control",
 		"--job-name", "glue-cli-codegen-job",
@@ -357,9 +356,14 @@ func TestGlueSearchTablesCLI(t *testing.T) {
 	assert.Equal(t, "com.example.New", getUDF.UserDefinedFunction.ClassName)
 
 	// GetResourcePolicies enumerates the catalog resource policy.
-	runCLI(t, awsCLI("glue", "put-resource-policy",
-		"--policy-in-json", `{"Version":"2012-10-17","Statement":[]}`))
-	out = runCLI(t, awsCLI("glue", "get-resource-policies"))
+	func() {
+		glueCatalogPolicy.Lock()
+		defer glueCatalogPolicy.Unlock()
+		runCLI(t, awsCLI("glue", "put-resource-policy",
+			"--policy-in-json", `{"Version":"2012-10-17","Statement":[]}`))
+		out = runCLI(t, awsCLI("glue", "get-resource-policies"))
+		runCLI(t, awsCLI("glue", "delete-resource-policy"))
+	}()
 	var pols struct {
 		GetResourcePoliciesResponseList []struct {
 			PolicyInJson string `json:"PolicyInJson"`

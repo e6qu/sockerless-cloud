@@ -29,7 +29,7 @@ Anything any of these three tools does against the real Azure endpoint, it must 
 ```bash
 # 1. Build + start the sim (default :4568).
 cd simulator-azure
-go build -tags noui -o simulator-azure .
+go build -o simulator-azure .
 ./simulator-azure
 ```
 
@@ -262,8 +262,13 @@ These are the load-bearing wire-quirks the sim implements to satisfy the real ad
 ## Building
 
 ```bash
-cd simulator-azure && go build -tags noui -o simulator-azure .
+cd simulator-azure && go build -o simulator-azure .
 ```
+
+That build serves the APIs and no console. `make simulator-azure/build` from the
+repository root, after `cd ui && bun install && bunx turbo run build`, embeds the
+console with `-tags console`; a plain build serves a built bundle when
+`SIM_CONSOLE_DIR` names it.
 
 ## Sample
 

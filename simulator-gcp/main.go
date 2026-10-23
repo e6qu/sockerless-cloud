@@ -201,8 +201,9 @@ func buildSimulator(cfg sim.Config) (*sim.Server, error) {
 		return nil, err
 	}
 
-	// Embedded UI (no-op with -tags noui)
-	registerUI(srv)
+	if err := registerUI(srv, cfg.ConsoleDir); err != nil {
+		return nil, err
+	}
 
 	// Runtime wire-shape validation (armed only when
 	// SOCKERLESS_SPEC_VALIDATE is set; see spec_validator.go).

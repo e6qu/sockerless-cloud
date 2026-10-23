@@ -27,6 +27,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -308,6 +309,8 @@ var crmCapabilityConfigMutableFields = map[string]bool{
 
 func crmUpdateCapabilityConfig(collection string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		crmCapabilityConfigWrites.Lock()
+		defer crmCapabilityConfigWrites.Unlock()
 		cfg, ok := crmGetStoredCapabilityConfig(w, r, collection)
 		if !ok {
 			return
@@ -376,8 +379,14 @@ func crmUpdateCapabilityConfig(collection string) http.HandlerFunc {
 	}
 }
 
+// crmCapabilityConfigWrites holds an update's read, etag check and write
+// together, so a concurrent update or delete cannot slip between them.
+var crmCapabilityConfigWrites sync.Mutex
+
 func crmDeleteCapabilityConfig(collection string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		crmCapabilityConfigWrites.Lock()
+		defer crmCapabilityConfigWrites.Unlock()
 		cfg, ok := crmGetStoredCapabilityConfig(w, r, collection)
 		if !ok {
 			return

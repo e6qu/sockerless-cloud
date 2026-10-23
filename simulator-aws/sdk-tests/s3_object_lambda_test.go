@@ -144,7 +144,7 @@ func TestS3_ObjectLambdaGetObject(t *testing.T) {
 
 	_, err = lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName:  aws.String(fnName),
-		Role:          aws.String("arn:aws:iam::" + s3ObjectLambdaAccount + ":role/olap-transform"),
+		Role:          aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		PackageType:   lambdatypes.PackageTypeImage,
 		Code:          &lambdatypes.FunctionCode{ImageUri: aws.String(lambdaHandlerImageName)},
 		Architectures: nativeLambdaArchitectures(),

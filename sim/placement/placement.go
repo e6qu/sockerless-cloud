@@ -13,6 +13,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/netrules"
+	"github.com/e6qu/sockerless-cloud/sim/sidecar"
 )
 
 // Kind names a backend.
@@ -201,6 +202,20 @@ func memberShape(w Workload) error {
 		return fmt.Errorf("%w: %s", ErrOwnNetwork, w.Name)
 	}
 	return nil
+}
+
+// Forward is a TCP listener on a workload's own loopback that relays each
+// connection to an endpoint on the workload's network.
+type Forward = sidecar.Forward
+
+// Forwarding is a backend that serves forwards on a workload's loopback from
+// before the workload's first process runs: an endpoint of the workload's
+// network that a client accepts over plain HTTP only on a loopback address
+// (the AWS SDKs' container credential provider) reaches the workload there.
+type Forwarding interface {
+	// PlaceForwarded places w as Place does, with forwards listening in its
+	// network namespace; the forwards go when the workload exits.
+	PlaceForwarded(ctx context.Context, w Workload, forwards []Forward, sink sim.LogSink) (Handle, error)
 }
 
 // ErrNoBackend is wrapped when a service is configured onto a backend the

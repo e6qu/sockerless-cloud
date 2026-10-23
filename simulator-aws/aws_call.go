@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -51,13 +51,27 @@ func (e *awsCallError) Error() string { return e.Code + ": " + e.Message }
 // returns the status and body it answered. A role the service cannot assume
 // fails before anything is sent, as AWS fails the assumption.
 func awsCall(ctx context.Context, actor awsActor, signingService, method, path string, header http.Header, body []byte) (int, []byte, error) {
+	response, err := awsCallResponse(ctx, actor, signingService, method, path, header, body)
+	if err != nil {
+		var refused *awsCallError
+		if errors.As(err, &refused) {
+			return refused.Status, nil, err
+		}
+		return 0, nil, err
+	}
+	return response.StatusCode, response.Body.Bytes(), nil
+}
+
+// awsCallResponse is awsCall for a caller that reads the response's headers
+// too, as a REST protocol's output bindings do.
+func awsCallResponse(ctx context.Context, actor awsActor, signingService, method, path string, header http.Header, body []byte) (*sim.CallResponse, error) {
 	if body == nil {
 		body = []byte{}
 	}
 	ctx = sim.WithCaller(sfnAWSServer.RequestContext(ctx), sim.Caller{Service: actor.Service, Source: actor.Source, Account: awsAccountID()})
 	req, err := http.NewRequestWithContext(ctx, method, "http://"+awsCallHost+path, bytes.NewReader(body))
 	if err != nil {
-		return 0, nil, err
+		return nil, err
 	}
 	for name, values := range header {
 		req.Header[name] = values
@@ -65,30 +79,19 @@ func awsCall(ctx context.Context, actor awsActor, signingService, method, path s
 	if actor.Role != "" {
 		cred, err := awsAssumeServiceRole(actor)
 		if err != nil {
-			return http.StatusForbidden, nil, &awsCallError{Status: http.StatusForbidden, Code: "AccessDeniedException", Message: err.Error()}
+			return nil, &awsCallError{Status: http.StatusForbidden, Code: "AccessDeniedException", Message: err.Error()}
 		}
 		sigv4Sign(req, body, cred, signingService, time.Now())
 	}
-	response := sfnAWSServer.Call(req)
-	return response.StatusCode, response.Body.Bytes(), nil
+	return sfnAWSServer.Call(req), nil
 }
 
 // awsAssumeServiceRole returns the session of actor.Role the service holds,
 // once the role's trust policy lets the service assume it.
 func awsAssumeServiceRole(actor awsActor) (IAMTempCred, error) {
-	roleName := iamRoleNameFromArn(actor.Role)
-	role, ok := iamRoles.Get(roleName)
-	if !ok || role.Arn != actor.Role {
-		return IAMTempCred{}, fmt.Errorf("IAM role %s does not exist", actor.Role)
-	}
-	trust, err := parseIAMPolicy(role.AssumeRolePolicyDocument)
+	role, err := iamServiceTrustedRole(actor.Role, actor.Service, actor.Source)
 	if err != nil {
-		return IAMTempCred{}, fmt.Errorf("IAM role %s has an invalid trust policy: %w", actor.Role, err)
-	}
-	src := iamServiceSource{Service: actor.Service, SourceArn: actor.Source, SourceAccount: awsAccountID()}
-	if decision, _ := iamEvalDecisionForPrincipal([]iamPolicyDoc{trust}, "sts:AssumeRole", actor.Role,
-		"service:"+actor.Service, iamServiceInitiatedConditionContext(src)); decision != "allowed" {
-		return IAMTempCred{}, fmt.Errorf("%s is not authorized to perform: sts:AssumeRole on resource: %s", actor.Service, actor.Role)
+		return IAMTempCred{}, err
 	}
 	session := actor.Session
 	if session == "" {

@@ -103,6 +103,7 @@ func TestConformance_BigQueryTablePartitioningRoundTrip(t *testing.T) {
 
 func TestConformance_PubSubTopicSchemaSettingsRoundTrip(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	svc, err := pubsub.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	name := "projects/conformance-project/topics/conf-schema-topic"
@@ -334,6 +335,7 @@ func TestConformance_ComputeDeleteMissingNotFound(t *testing.T) {
 // returns 409 ALREADY_EXISTS like real Pub/Sub instead of overwriting.
 func TestConformance_PubSubDuplicateTopicConflict(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	svc, err := pubsub.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	name := "projects/conformance-project/topics/conf-dup-topic"
@@ -350,6 +352,7 @@ func TestConformance_PubSubDuplicateTopicConflict(t *testing.T) {
 // for subscriptions.
 func TestConformance_PubSubDuplicateSubscriptionConflict(t *testing.T) {
 	t.Parallel()
+	ensureProject(t, "conformance-project")
 	svc, err := pubsub.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	topic := "projects/conformance-project/topics/conf-dup-sub-topic"

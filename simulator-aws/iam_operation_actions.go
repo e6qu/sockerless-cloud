@@ -43,7 +43,34 @@ func iamOperationTargets(r *http.Request, service, operation string, resources [
 	if mapped, ok := iamOperationActions[service+":"+operation]; ok {
 		action = mapped
 	}
-	return append(on(action, resources...), iamTagOnCreateTargets(r, service, operation, resources)...)
+	targets := append(on(action, resources...), iamTagOnCreateTargets(r, service, operation, resources)...)
+	if service == "cloudwatch" {
+		targets = append(targets, iamCloudWatchTagsPropagationTargets(r, operation, resources)...)
+	}
+	return targets
+}
+
+// iamCloudWatchTagsPropagationTargets authorizes an alarm write that enables
+// AlarmTagsPropagation against cloudwatch:ListTagsForResource on the alarm too:
+// including the alarm's tags in its notifications reads them.
+func iamCloudWatchTagsPropagationTargets(r *http.Request, operation string, resources []string) []iamAuthorizationTarget {
+	switch operation {
+	case "PutMetricAlarm", "PutCompositeAlarm", "PutLogAlarm":
+	default:
+		return nil
+	}
+	request, ok := cloudWatchDecodeConditionRequest(r, iamRequestBody(r))
+	if !ok {
+		return nil
+	}
+	if enabled := request.alarmTagsPropagationEnabled(); enabled == nil || !*enabled {
+		return nil
+	}
+	targets := make([]iamAuthorizationTarget, 0, len(resources))
+	for _, arn := range resources {
+		targets = append(targets, iamAuthorizationTarget{action: "cloudwatch:ListTagsForResource", resource: arn})
+	}
+	return targets
 }
 
 // iamDynamoDBTransactWriteTargets authorizes each item of a transaction as the

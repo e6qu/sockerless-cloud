@@ -59,8 +59,8 @@ target, so the target name always exists.
 |---|---|
 | `help` | Print a one-line description of every target. Default goal. |
 | `install` | Fetch dependencies (`go mod download` / `bun install`). Idempotent. |
-| `build` | Produce the artefact. A simulator's `build` embeds the console when `ui/packages/<name>/dist` exists and falls back to `build-noui` otherwise; a library's is a compile check. |
-| `build-noui` | Build with `-tags noui`; a compile check for libraries. |
+| `build` | Produce the artefact. A simulator's `build` embeds the console built at `ui/packages/<name>/dist` (`-tags console`) and fails when it has not been built; a library's is a compile check. |
+| `build-api` | Build without an embedded console, as the `sdk-test`, `cli-test` and `terraform-test` targets do; a compile check for libraries. |
 | `test` | Run unit tests. |
 | `lint` | `go vet` + `gofmt -l` + `golangci-lint` where installed; UI packages type-check with `tsc --noEmit`. Non-zero exit on findings. |
 | `clean` | Remove the artefacts the module owns. |
@@ -128,7 +128,7 @@ Per-file detail is in [`make/README.md`](../make/README.md).
 The top-level Makefile has three jobs:
 
 - Maintain the explicit lists: `GO_UI_APPS`, `GO_APPS`, `UI_APPS`, `TEST_DIRS`.
-- Fan out the standard targets — `build`, `build-noui`, `test`,
+- Fan out the standard targets — `build`, `build-api`, `test`,
   `test-integration`, `lint`, `lint-ui`, `clean`, `install`, `upgrade-deps` —
   plus `check-deps`, `check-workflow-timeouts` and `check-workflow-concurrency`.
 - Delegate path targets: `make simulator-aws/build` runs

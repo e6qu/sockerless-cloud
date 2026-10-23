@@ -15,7 +15,7 @@ func TestGlueMLTransformCLI(t *testing.T) {
 		"--description", "cli ml transform",
 		"--input-record-tables", `[{"DatabaseName":"db","TableName":"tbl"}]`,
 		"--parameters", `{"TransformType":"FIND_MATCHES"}`,
-		"--role", "arn:aws:iam::123456789012:role/GlueRole",
+		"--role", cliServiceRole(t, "glue.amazonaws.com"),
 	))
 	var created struct {
 		TransformId string `json:"TransformId"`
@@ -120,7 +120,7 @@ func TestGlueDataQualityCLI(t *testing.T) {
 
 	out = runCLI(t, awsCLI("glue", "start-data-quality-ruleset-evaluation-run",
 		"--data-source", `{"GlueTable":{"DatabaseName":"db","TableName":"tbl"}}`,
-		"--role", "arn:aws:iam::123456789012:role/GlueRole",
+		"--role", cliServiceRole(t, "glue.amazonaws.com"),
 		"--ruleset-names", rulesetName,
 	))
 	var startRun struct {
@@ -168,7 +168,7 @@ func TestGlueDataQualityCLI(t *testing.T) {
 
 	out = runCLI(t, awsCLI("glue", "start-data-quality-rule-recommendation-run",
 		"--data-source", `{"GlueTable":{"DatabaseName":"db","TableName":"tbl"}}`,
-		"--role", "arn:aws:iam::123456789012:role/GlueRole",
+		"--role", cliServiceRole(t, "glue.amazonaws.com"),
 	))
 	var rec struct {
 		RunId string `json:"RunId"`
@@ -221,7 +221,7 @@ func TestGlueColumnStatisticsTaskCLI(t *testing.T) {
 	runCLI(t, awsCLI("glue", "create-column-statistics-task-settings",
 		"--database-name", dbName,
 		"--table-name", tblName,
-		"--role", "arn:aws:iam::123456789012:role/GlueRole",
+		"--role", cliServiceRole(t, "glue.amazonaws.com"),
 		"--column-name-list", "id", "name",
 		"--schedule", "cron(0 0 * * ? *)",
 	))
@@ -248,7 +248,7 @@ func TestGlueColumnStatisticsTaskCLI(t *testing.T) {
 
 	out = runCLI(t, awsCLI("glue", "start-column-statistics-task-run",
 		"--database-name", dbName, "--table-name", tblName,
-		"--role", "arn:aws:iam::123456789012:role/GlueRole",
+		"--role", cliServiceRole(t, "glue.amazonaws.com"),
 		"--column-name-list", "id"))
 	var startRun struct {
 		ColumnStatisticsTaskRunId string `json:"ColumnStatisticsTaskRunId"`

@@ -75,21 +75,35 @@ func ec2MachineDown(instanceID string) {
 }
 
 // ec2InstanceShutDown records an instance whose init exited on its own: the
-// instance shut itself down, which its default shutdown behaviour turns into
-// a stop.
+// instance shut itself down, and its InstanceInitiatedShutdownBehavior turns
+// that into a stop or a termination.
 func ec2InstanceShutDown(instanceID string) {
-	stopped := false
+	halted, terminating := false, false
+	var eni string
 	ec2Instances.Update(instanceID, func(i *EC2Instance) {
 		if i.State != "running" && i.State != "pending" {
 			return
 		}
-		stopped = true
+		halted = true
+		terminating = ec2ShutdownBehavior(*i) == "terminate"
+		eni = i.NetworkInterfaceId
 		i.State = "stopped"
+		if terminating {
+			i.State = "shutting-down"
+		}
 		i.StateTransitionReason = "Client.InstanceInitiatedShutdown: Instance initiated shutdown"
 		i.StateReasonCode = "Client.InstanceInitiatedShutdown"
 		i.StateReasonMessage = "Client.InstanceInitiatedShutdown: Instance initiated shutdown"
 	})
-	if stopped {
+	switch {
+	case !halted:
+	case terminating:
+		if eni != "" {
+			ec2NetworkInterfaces.Delete(eni)
+		}
+		ec2DeleteOnTerminationVolumes(instanceID)
+		ec2FinishHalt(instanceID, "terminated")
+	default:
 		ec2UpdateVolumeAttachmentsForInstance(instanceID, "attached", "in-use")
 	}
 }

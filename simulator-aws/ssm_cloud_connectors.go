@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -333,8 +332,8 @@ func handleSSMDeleteCloudConnector(w http.ResponseWriter, r *http.Request) {
 func ssmCloudConnectorFindings(c SSMCloudConnector) []map[string]any {
 	findings := make([]map[string]any, 0)
 
-	roleName := iamRoleNameFromArn(c.RoleArn)
-	role, roleFound := iamRoles.Get(roleName)
+	_, roleFound := iamRoles.Get(iamRoleNameFromArn(c.RoleArn))
+	_, untrusted := iamServiceTrustedRole(c.RoleArn, "ssm.amazonaws.com", "")
 	switch {
 	case !roleFound:
 		findings = append(findings, map[string]any{
@@ -342,7 +341,7 @@ func ssmCloudConnectorFindings(c SSMCloudConnector) []map[string]any {
 			"Code":    "AwsRoleAssumptionFailed",
 			"Message": "The role " + c.RoleArn + " does not exist.",
 		})
-	case !strings.Contains(role.AssumeRolePolicyDocument, "ssm.amazonaws.com"):
+	case untrusted != nil:
 		findings = append(findings, map[string]any{
 			"Type":    "ERROR",
 			"Code":    "AwsRoleAssumptionFailed",

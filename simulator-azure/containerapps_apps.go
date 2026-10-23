@@ -225,10 +225,49 @@ func acaAppStopGrace(app ContainerApp) time.Duration {
 
 // ContainerAppScale mirrors armappcontainers.Scale.
 type ContainerAppScale struct {
-	MinReplicas     *int32 `json:"minReplicas,omitempty"`
-	MaxReplicas     *int32 `json:"maxReplicas,omitempty"`
-	CooldownPeriod  *int32 `json:"cooldownPeriod,omitempty"`
-	PollingInterval *int32 `json:"pollingInterval,omitempty"`
+	MinReplicas     *int32                  `json:"minReplicas,omitempty"`
+	MaxReplicas     *int32                  `json:"maxReplicas,omitempty"`
+	CooldownPeriod  *int32                  `json:"cooldownPeriod,omitempty"`
+	PollingInterval *int32                  `json:"pollingInterval,omitempty"`
+	Rules           []ContainerAppScaleRule `json:"rules,omitempty"`
+}
+
+// ContainerAppScaleRule mirrors armappcontainers.ScaleRule: a named trigger of
+// one kind.
+type ContainerAppScaleRule struct {
+	Name       string                        `json:"name,omitempty"`
+	AzureQueue *ContainerAppQueueScaleRule   `json:"azureQueue,omitempty"`
+	Custom     *ContainerAppCustomScaleRule  `json:"custom,omitempty"`
+	HTTP       *ContainerAppTriggerScaleRule `json:"http,omitempty"`
+	TCP        *ContainerAppTriggerScaleRule `json:"tcp,omitempty"`
+}
+
+// ContainerAppTriggerScaleRule mirrors armappcontainers.HTTPScaleRule and
+// TCPScaleRule, which share their shape.
+type ContainerAppTriggerScaleRule struct {
+	Metadata map[string]string           `json:"metadata,omitempty"`
+	Auth     []ContainerAppScaleRuleAuth `json:"auth,omitempty"`
+	Identity string                      `json:"identity,omitempty"`
+}
+
+type ContainerAppCustomScaleRule struct {
+	Type     string                      `json:"type,omitempty"`
+	Metadata map[string]string           `json:"metadata,omitempty"`
+	Auth     []ContainerAppScaleRuleAuth `json:"auth,omitempty"`
+	Identity string                      `json:"identity,omitempty"`
+}
+
+type ContainerAppQueueScaleRule struct {
+	AccountName string                      `json:"accountName,omitempty"`
+	QueueName   string                      `json:"queueName,omitempty"`
+	QueueLength *int32                      `json:"queueLength,omitempty"`
+	Auth        []ContainerAppScaleRuleAuth `json:"auth,omitempty"`
+	Identity    string                      `json:"identity,omitempty"`
+}
+
+type ContainerAppScaleRuleAuth struct {
+	SecretRef        string `json:"secretRef,omitempty"`
+	TriggerParameter string `json:"triggerParameter,omitempty"`
 }
 
 // ContainerAppAuthToken mirrors armappcontainers.ContainerAppAuthToken
@@ -301,12 +340,16 @@ func stampContainerAppServerDefaults(app *ContainerApp, fqdn string) {
 	if app.Properties.Template.Scale == nil {
 		app.Properties.Template.Scale = &ContainerAppScale{}
 	}
+	if app.Properties.Template.Scale.MaxReplicas == nil {
+		maxReplicas := int32(acaDefaultMaxReplicas)
+		app.Properties.Template.Scale.MaxReplicas = &maxReplicas
+	}
 	if app.Properties.Template.Scale.CooldownPeriod == nil {
-		cooldown := int32(300)
+		cooldown := int32(acaDefaultCooldownSeconds)
 		app.Properties.Template.Scale.CooldownPeriod = &cooldown
 	}
 	if app.Properties.Template.Scale.PollingInterval == nil {
-		polling := int32(30)
+		polling := int32(acaDefaultPollingSeconds)
 		app.Properties.Template.Scale.PollingInterval = &polling
 	}
 }

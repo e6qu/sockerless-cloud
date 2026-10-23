@@ -58,7 +58,7 @@ func TestValidationSweep(t *testing.T) {
 		c := sfnClient()
 		_, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 			Name: aws.String("vsm-bad"), Definition: aws.String("{not valid asl"),
-			RoleArn: aws.String("arn:aws:iam::123456789012:role/r"),
+			RoleArn: aws.String(serviceRole(t, "states.amazonaws.com")),
 		})
 		assert.Equal(t, "InvalidDefinition", errCode(t, err))
 	})
@@ -67,7 +67,7 @@ func TestValidationSweep(t *testing.T) {
 		c := lambdaClient()
 		_, err := c.CreateFunction(ctx, &lambda.CreateFunctionInput{
 			FunctionName: aws.String("vf-mem"),
-			Role:         aws.String("arn:aws:iam::123456789012:role/r"),
+			Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 			Runtime:      lambdatypes.RuntimePython312,
 			Handler:      aws.String("app.handler"),
 			MemorySize:   aws.Int32(64), // below the 128 minimum

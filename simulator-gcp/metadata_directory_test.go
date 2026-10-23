@@ -16,18 +16,16 @@ import (
 // walk the tree the listings are rendered from and GET every node it names
 // against the simulator main() serves.
 
-// metadataTreeServer builds the simulator the way main() does and returns a
-// handler plus a helper that performs a metadata read against it.
+// metadataReaderAddress is the address httptest gives every request it makes,
+// which metadataTreeServer gives a Compute Engine instance.
+const metadataReaderAddress = "192.0.2.1"
+
+// metadataTreeServer builds the simulator the way main() does, runs a Compute
+// Engine instance of the test project at the address every httptest request
+// comes from, and returns a helper that performs a metadata read from it.
 func metadataTreeServer(t *testing.T) func(path string) *httptest.ResponseRecorder {
 	t.Helper()
-	t.Setenv("SIM_RUNTIME", "process")
-	srv, err := buildSimulator(sim.Config{Provider: "gcp", ListenAddr: ":0", LogLevel: "error"})
-	if err != nil {
-		t.Fatalf("buildSimulator: %v", err)
-	}
-	t.Cleanup(srv.StopBackground)
-	gcpTestCreateProject(t, srv, gcpTestProjectID)
-	srv.WrapHandler(bearerAuthMiddleware(srv))
+	srv := metadataReaderServer(t)
 	return func(path string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.Header.Set("Metadata-Flavor", "Google")
@@ -35,6 +33,59 @@ func metadataTreeServer(t *testing.T) func(path string) *httptest.ResponseRecord
 		srv.ServeHTTP(rec, req)
 		return rec
 	}
+}
+
+// metadataReaderServer is the simulator metadataTreeServer reads from.
+func metadataReaderServer(t *testing.T) *sim.Server {
+	t.Helper()
+	srv := metadataTestSimulator(t, func(srv *sim.Server) { gcpTestCreateProject(t, srv, gcpTestProjectID) })
+	selfLink := "https://www.googleapis.com/compute/v1/projects/" + gcpTestProjectID + "/zones/us-central1-a/instances/metadata-reader"
+	inst := ComputeInstance{
+		Id:       "4815162342",
+		Name:     "metadata-reader",
+		SelfLink: selfLink,
+		Zone:     "https://www.googleapis.com/compute/v1/projects/" + gcpTestProjectID + "/zones/us-central1-a",
+		NetworkInterfaces: []ComputeNetworkInterface{{
+			Name:      "nic0",
+			Network:   "https://www.googleapis.com/compute/v1/projects/" + gcpTestProjectID + "/global/networks/default",
+			NetworkIP: metadataReaderAddress,
+		}},
+	}
+	gcpInstances.Put(selfLink, inst)
+	gcpMetadataInstancesByIP.Store(metadataReaderAddress, inst)
+	t.Cleanup(func() { gcpMetadataInstancesByIP.Delete(metadataReaderAddress) })
+	return srv
+}
+
+// metadataTestSimulator builds the simulator, runs seed against it before its
+// requests need credentials, and then requires them as main() does.
+func metadataTestSimulator(t *testing.T, seed ...func(*sim.Server)) *sim.Server {
+	t.Helper()
+	t.Setenv("SIM_RUNTIME", "process")
+	srv, err := buildSimulator(sim.Config{Provider: "gcp", ListenAddr: ":0", LogLevel: "error"})
+	if err != nil {
+		t.Fatalf("buildSimulator: %v", err)
+	}
+	t.Cleanup(srv.StopBackground)
+	for _, s := range seed {
+		s(srv)
+	}
+	srv.WrapHandler(bearerAuthMiddleware(srv))
+	return srv
+}
+
+// metadataReaderRequest is a request the metadata server admitted from the
+// instance metadataTreeServer runs, from which the tree's expected children
+// are rendered.
+func metadataReaderRequest(t *testing.T) *http.Request {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Metadata-Flavor", "Google")
+	admitted, ok := gceMetadataAdmit(httptest.NewRecorder(), req)
+	if !ok {
+		t.Fatal("the metadata server did not admit the instance's read")
+	}
+	return admitted
 }
 
 // TestMetadataDirectoryListingsResolve walks every directory the metadata tree
@@ -65,8 +116,7 @@ func TestMetadataDirectoryListingsResolve(t *testing.T) {
 			}
 			childPath := dirPath + child.name
 			if child.isDir() {
-				req := httptest.NewRequest(http.MethodGet, childPath, nil)
-				walk(childPath+"/", child.children(req))
+				walk(childPath+"/", child.children(metadataReaderRequest(t)))
 				continue
 			}
 			// A leaf the listing names must be served. `identity` is the one
@@ -82,7 +132,7 @@ func TestMetadataDirectoryListingsResolve(t *testing.T) {
 		}
 	}
 
-	walk("/computeMetadata/v1/", gceMetadataV1Children(httptest.NewRequest(http.MethodGet, "/", nil)))
+	walk("/computeMetadata/v1/", gceMetadataV1Children(metadataReaderRequest(t)))
 }
 
 // TestMetadataRootResidencyProbe proves the probe every Google auth library
@@ -105,17 +155,22 @@ func TestMetadataRootResidencyProbe(t *testing.T) {
 		t.Errorf("root listing = %v, want [computeMetadata/]", got)
 	}
 
-	t.Setenv("SIM_RUNTIME", "process")
-	srv, err := buildSimulator(sim.Config{Provider: "gcp", ListenAddr: ":0", LogLevel: "error"})
-	if err != nil {
-		t.Fatalf("buildSimulator: %v", err)
-	}
-	t.Cleanup(srv.StopBackground)
-	srv.WrapHandler(bearerAuthMiddleware(srv))
+	srv := metadataTestSimulator(t)
 	plain := httptest.NewRecorder()
 	srv.ServeHTTP(plain, httptest.NewRequest(http.MethodGet, "/", nil))
 	if plain.Header().Get("Metadata-Flavor") != "" {
 		t.Errorf("GET / without the header must not be answered by the metadata server, got %v", plain.Header())
+	}
+
+	// A caller that is no workload reaches the origin's root, not a metadata
+	// server, whatever header it sends.
+	gcpMetadataInstancesByIP.Delete(metadataReaderAddress)
+	outside := httptest.NewRequest(http.MethodGet, "/", nil)
+	outside.Header.Set("Metadata-Flavor", "Google")
+	stray := httptest.NewRecorder()
+	srv.ServeHTTP(stray, outside)
+	if stray.Header().Get("Metadata-Flavor") != "" {
+		t.Errorf("GET / from outside every workload must not be answered by the metadata server, got %v", stray.Header())
 	}
 }
 
@@ -191,13 +246,7 @@ func TestMetadataRecursiveOmitsMintedLeaves(t *testing.T) {
 // gated by the same `Metadata-Flavor: Google` header real Google requires on
 // every metadata read.
 func TestMetadataDirectoryRequiresFlavorHeader(t *testing.T) {
-	t.Setenv("SIM_RUNTIME", "process")
-	srv, err := buildSimulator(sim.Config{Provider: "gcp", ListenAddr: ":0", LogLevel: "error"})
-	if err != nil {
-		t.Fatalf("buildSimulator: %v", err)
-	}
-	t.Cleanup(srv.StopBackground)
-	srv.WrapHandler(bearerAuthMiddleware(srv))
+	srv := metadataReaderServer(t)
 
 	for _, path := range []string{
 		"/computeMetadata/v1/",

@@ -87,6 +87,14 @@ func TestAmazonECSServiceAdoptsItsTaskAcrossSimulatorRestart_SDK(t *testing.T) {
 		Cluster: aws.String(cluster), Service: aws.String(service), Force: aws.Bool(true),
 	})
 	require.NoError(t, err)
+	// A persistent simulator leaves its workloads running when it stops, so
+	// the task stops before the cleanup stops the simulator.
+	require.NoError(t, ecs.NewTasksStoppedWaiter(client, func(o *ecs.TasksStoppedWaiterOptions) {
+		o.MinDelay = waiterMinDelay
+		o.MaxDelay = waiterMaxDelay
+	}).Wait(testCtx, &ecs.DescribeTasksInput{
+		Cluster: aws.String(cluster), Tasks: []string{originalTaskARN},
+	}, 30*time.Second))
 }
 
 // TestAmazonECSServiceReleasesItsVPCNetworkAcrossSimulatorRestart_SDK proves

@@ -66,7 +66,7 @@ func TestSFN_GenericAWSSDKIntegrations_SDK(t *testing.T) {
 
 	_, err := lambdaAPI.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName:  aws.String(functionName),
-		Role:          aws.String("arn:aws:iam::123456789012:role/test-role"),
+		Role:          aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		PackageType:   lambdatypes.PackageTypeImage,
 		Code:          &lambdatypes.FunctionCode{ImageUri: aws.String(lambdaHandlerImageName)},
 		Architectures: nativeLambdaArchitectures(),
@@ -248,7 +248,7 @@ func TestSFN_GenericAWSSDKIntegrations_SDK(t *testing.T) {
 	machine, err := statesAPI.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String("sfn-generic-sdk-" + suffix),
 		Definition: aws.String(string(definition)),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn:    aws.String(statesRole(t, "dynamodb:*", "secretsmanager:*", "glue:*", "budgets:*", "codebuild:*", "apigateway:*", "batch:*", "lambda:*", "s3:*", "route53:*", "cloudfront:*", "iam:*")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -430,7 +430,7 @@ func TestSFN_EventingAndObservabilityIntegrations_SDK(t *testing.T) {
 	require.NoError(t, err)
 	machine, err := statesAPI.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name: aws.String(machineName), Definition: aws.String(string(definition)),
-		RoleArn: aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn: aws.String(statesRole(t, "sqs:SendMessage", "sns:Publish", "events:PutEvents", "cloudwatch:PutMetricData")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -560,7 +560,7 @@ phases:
 			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/amazon/aws-cli:2.27.49"),
 			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
 		},
-		ServiceRole: aws.String("arn:aws:iam::123456789012:role/codebuild-role"),
+		ServiceRole: aws.String(serviceRole(t, "codebuild.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -608,7 +608,7 @@ phases:
 	require.NoError(t, err)
 	machine, err := statesAPI.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name: aws.String("sfn-ecs-codebuild-integrations"), Definition: aws.String(string(definition)),
-		RoleArn: aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn: aws.String(statesRole(t, "ecs:RunTask", "codebuild:StartBuild")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -656,7 +656,7 @@ phases:
 			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/library/alpine:3.21"),
 			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
 		},
-		ServiceRole: aws.String("arn:aws:iam::123456789012:role/codebuild-role"),
+		ServiceRole: aws.String(serviceRole(t, "codebuild.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -675,7 +675,7 @@ phases:
 	require.NoError(t, err)
 	failingMachine, err := statesAPI.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name: aws.String("sfn-codebuild-real-failure"), Definition: aws.String(string(failingDefinition)),
-		RoleArn: aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn: aws.String(statesRole(t, "codebuild:StartBuild")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -711,7 +711,7 @@ phases:
 			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/amazon/aws-cli:2.27.49"),
 			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
 		},
-		ServiceRole: aws.String("arn:aws:iam::123456789012:role/codebuild-role"),
+		ServiceRole: aws.String(serviceRole(t, "codebuild.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -739,7 +739,7 @@ phases:
 	require.NoError(t, err)
 	cancelMachine, err := statesAPI.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name: aws.String("sfn-codebuild-real-cancellation"), Definition: aws.String(string(cancelDefinition)),
-		RoleArn: aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn: aws.String(statesRole(t, "codebuild:StartBuild")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -908,7 +908,7 @@ timeout -s TERM 120 terraform apply -auto-approve -input=false -no-color`,
 	machine, err := statesAPI.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String("sfn-terraform-apply"),
 		Definition: aws.String(string(definition)),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn:    aws.String(statesRole(t, "ecs:RunTask")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -981,4 +981,56 @@ executionSucceeded:
 	attributes, err := queueAPI.ListQueueTags(ctx, &sqs.ListQueueTagsInput{QueueUrl: aws.String(queues.QueueUrls[0])})
 	require.NoError(t, err)
 	assert.Equal(t, "Terraform inside AWS Step Functions launched Amazon ECS", attributes.Tags["ProvisionedBy"])
+}
+
+// A task state calls its service as a session of the state machine's role:
+// the role's policies allow the call or deny it, for an optimized integration
+// and an AWS SDK integration alike.
+func TestSFN_TasksActAsTheExecutionRole_SDK(t *testing.T) {
+	t.Parallel()
+	statesAPI := sfnClient()
+	queueAPI := sqsClient()
+	queue, err := queueAPI.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(uniqueName("sfn-role-queue"))})
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = queueAPI.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: queue.QueueUrl}) })
+
+	run := func(resource string, parameters map[string]any, role string) *sfn.StartSyncExecutionOutput {
+		definition, err := json.Marshal(map[string]any{
+			"StartAt": "Call",
+			"States": map[string]any{
+				"Call": map[string]any{"Type": "Task", "Resource": resource, "Parameters": parameters, "End": true},
+			},
+		})
+		require.NoError(t, err)
+		machine, err := statesAPI.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
+			Name: aws.String(uniqueName("sfn-role")), Definition: aws.String(string(definition)),
+			RoleArn: aws.String(role), Type: sfntypes.StateMachineTypeExpress,
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_, _ = statesAPI.DeleteStateMachine(ctx, &sfn.DeleteStateMachineInput{StateMachineArn: machine.StateMachineArn})
+		})
+		execution, err := statesAPI.StartSyncExecution(ctx, &sfn.StartSyncExecutionInput{StateMachineArn: machine.StateMachineArn})
+		require.NoError(t, err)
+		return execution
+	}
+	send := map[string]any{"QueueUrl": aws.ToString(queue.QueueUrl), "MessageBody": "sent-as-the-role"}
+	const listFunctions = "arn:aws:states:::aws-sdk:lambda:listFunctions"
+
+	unpermitted := statesRole(t, "sns:Publish")
+	for resource, parameters := range map[string]map[string]any{"arn:aws:states:::sqs:sendMessage": send, listFunctions: {}} {
+		denied := run(resource, parameters, unpermitted)
+		assert.Equal(t, sfntypes.SyncExecutionStatusFailed, denied.Status, resource)
+		assert.Contains(t, aws.ToString(denied.Error), "AccessDenied", resource)
+		assert.Contains(t, aws.ToString(denied.Cause), "assumed-role/"+unpermitted[strings.LastIndex(unpermitted, "/")+1:]+"/", resource)
+	}
+
+	permitted := statesRole(t, "sqs:SendMessage", "lambda:ListFunctions")
+	for resource, parameters := range map[string]map[string]any{"arn:aws:states:::sqs:sendMessage": send, listFunctions: {}} {
+		allowed := run(resource, parameters, permitted)
+		assert.Equal(t, sfntypes.SyncExecutionStatusSucceeded, allowed.Status, "%s: %s %s",
+			resource, aws.ToString(allowed.Error), aws.ToString(allowed.Cause))
+	}
+	messages := receiveSQSMessages(t, queueAPI, queue.QueueUrl, 1, 5*time.Second)
+	assert.Equal(t, "sent-as-the-role", aws.ToString(messages[0].Body))
 }

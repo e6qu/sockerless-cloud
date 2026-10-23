@@ -333,7 +333,12 @@ func registerEC2IMDS(srv *sim.Server) {
 	leaf("/latest/meta-data/ami-launch-index", always(func(inst EC2Instance) string { return strconv.Itoa(inst.AmiLaunchIndex) }))
 	leaf("/latest/meta-data/reservation-id", always(func(inst EC2Instance) string { return inst.ReservationId }))
 	leaf("/latest/meta-data/instance-action", always(func(EC2Instance) string { return "none" }))
-	leaf("/latest/meta-data/instance-life-cycle", always(func(EC2Instance) string { return "on-demand" }))
+	leaf("/latest/meta-data/instance-life-cycle", always(func(inst EC2Instance) string {
+		if inst.InstanceLifecycle == "" {
+			return "on-demand"
+		}
+		return inst.InstanceLifecycle
+	}))
 	leaf("/latest/meta-data/mac", always(ec2InstanceMAC))
 	leaf("/latest/meta-data/security-groups", always(func(inst EC2Instance) string {
 		return strings.Join(imdsGroupNames(inst.SecurityGroupIds), "\n")

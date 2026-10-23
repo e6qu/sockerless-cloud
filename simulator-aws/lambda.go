@@ -565,6 +565,10 @@ func handleLambdaCreateFunction(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if !lambdaCanAssumeRole(w, req.Role, req.FunctionName) {
+		return
+	}
+
 	// Real Lambda allocates a Hyperplane ENI per VpcConfig.SubnetId, with
 	// an IP drawn from the subnet's CIDR. Validate the subnet exists and
 	// allocate one IP per subnet up front so DescribeFunction reflects
@@ -632,6 +636,17 @@ func lambdaCodeSha256(code *LambdaFunctionCode) string {
 	}
 	sum := sha256.Sum256(material)
 	return base64.StdEncoding.EncodeToString(sum[:])
+}
+
+// lambdaCanAssumeRole writes Lambda's refusal of an execution role that names
+// no role, or one whose trust policy does not let Lambda assume it.
+func lambdaCanAssumeRole(w http.ResponseWriter, role, functionName string) bool {
+	if _, err := iamServiceTrustedRole(role, "lambda.amazonaws.com", lambdaArn(functionName)); err != nil {
+		AWSError(w, "InvalidParameterValueException",
+			"The role defined for the function cannot be assumed by Lambda.", http.StatusBadRequest)
+		return false
+	}
+	return true
 }
 
 // lambdaDeploymentPackageBytes resolves the deployment archive from the same
@@ -943,6 +958,9 @@ func handleLambdaUpdateFunctionConfiguration(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if !lambdaCheckReservedEnvironment(w, req.Environment) {
+		return
+	}
+	if req.Role != nil && !lambdaCanAssumeRole(w, *req.Role, current.FunctionName) {
 		return
 	}
 

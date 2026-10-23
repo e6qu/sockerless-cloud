@@ -237,6 +237,9 @@ func handleGlueCreateSession(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "AlreadyExistsException", "Session already exists: "+req.Id)
 		return
 	}
+	if !glueCanAssumeRole(w, req.Role, "session/"+req.Id) {
+		return
+	}
 	s := GlueSession{
 		Id:                    req.Id,
 		CreatedOn:             glueEpochNow(),
@@ -555,6 +558,9 @@ func handleGlueCreateDevEndpoint(w http.ResponseWriter, r *http.Request) {
 
 	if _, ok := glueDevEndpoints.Get(req.EndpointName); ok {
 		glueWriteError(w, "AlreadyExistsException", "DevEndpoint already exists: "+req.EndpointName)
+		return
+	}
+	if !glueCanAssumeRole(w, req.RoleArn, "devEndpoint/"+req.EndpointName) {
 		return
 	}
 	now := glueEpochNow()
@@ -969,6 +975,9 @@ func handleGlueStartBlueprintRun(w http.ResponseWriter, r *http.Request) {
 
 	if _, ok := glueBlueprints.Get(req.BlueprintName); !ok {
 		glueWriteError(w, "EntityNotFoundException", "Blueprint not found: "+req.BlueprintName)
+		return
+	}
+	if !glueCanAssumeRole(w, req.RoleArn, "blueprint/"+req.BlueprintName) {
 		return
 	}
 	runID := "blueprint-run-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:16]

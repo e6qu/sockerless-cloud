@@ -260,7 +260,26 @@ func registerBatch(srv *sim.Server) {
 }
 
 func batchARN(resource string) string {
-	return fmt.Sprintf("arn:aws:batch:us-east-1:123456789012:%s", resource)
+	return "arn:aws:batch:" + awsRegion() + ":" + awsAccountID() + ":" + resource
+}
+
+// batchServiceRoleStatus is the status a compute environment settles in for
+// its service role. AWS Batch accepts any role at create and update, then
+// leaves the environment INVALID when it cannot assume the role; it reads a
+// bare name as a role without a path.
+func batchServiceRoleStatus(ce BatchComputeEnvironment) (status, reason string) {
+	role := ce.ServiceRole
+	if role == "" {
+		return "VALID", ""
+	}
+	if !strings.HasPrefix(role, "arn:") {
+		role = "arn:aws:iam::" + awsAccountID() + ":role/" + role
+	}
+	if _, err := iamServiceTrustedRole(role, "batch.amazonaws.com", ce.ComputeEnvironmentArn); err != nil {
+		return "INVALID", "CLIENT_ERROR - Not authorized to perform sts:AssumeRole (Service: AWSSecurityTokenService; " +
+			"Status Code: 403; Error Code: AccessDenied; Request ID: " + sim.NewUUID() + ")"
+	}
+	return "VALID", ""
 }
 
 func batchEpochMs() int64 {
@@ -322,12 +341,12 @@ func handleBatchCreateComputeEnvironment(w http.ResponseWriter, r *http.Request)
 		ComputeEnvironmentArn:  batchARN("compute-environment/" + req.ComputeEnvironmentName),
 		EcsClusterArn:          batchARN("cluster/" + req.ComputeEnvironmentName),
 		State:                  state,
-		Status:                 "VALID",
 		Type:                   ceType,
 		ComputeResources:       req.ComputeResources,
 		ServiceRole:            req.ServiceRole,
 		Tags:                   req.Tags,
 	}
+	ce.Status, ce.StatusReason = batchServiceRoleStatus(ce)
 	batchComputeEnvs.Put(req.ComputeEnvironmentName, ce)
 	batchDispatchLocked()
 	batchWriteJSON(w, http.StatusOK, map[string]any{
@@ -411,6 +430,7 @@ func handleBatchUpdateComputeEnvironment(w http.ResponseWriter, r *http.Request)
 	}
 	if req.ServiceRole != "" {
 		ce.ServiceRole = req.ServiceRole
+		ce.Status, ce.StatusReason = batchServiceRoleStatus(ce)
 	}
 	batchComputeEnvs.Put(name, ce)
 	batchDispatchLocked()
@@ -620,6 +640,16 @@ func handleBatchRegisterJobDefinition(w http.ResponseWriter, r *http.Request) {
 	if err := batchCheckReservedEnvironment(req.ContainerProperties); err != nil {
 		batchWriteError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	for _, field := range []string{"jobRoleArn", "executionRoleArn"} {
+		role := batchString(req.ContainerProperties[field])
+		if role == "" {
+			continue
+		}
+		if _, err := iamServiceTrustedRole(role, "ecs-tasks.amazonaws.com", ""); err != nil {
+			batchWriteError(w, http.StatusBadRequest, fmt.Sprintf("%s %s cannot be assumed by ecs-tasks.amazonaws.com", field, role))
+			return
+		}
 	}
 
 	batchMu.Lock()

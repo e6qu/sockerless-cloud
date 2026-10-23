@@ -1,10 +1,10 @@
-//go:build !noui
-
 package main
 
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -19,7 +19,11 @@ import (
 // and Cosmos must keep the root for its own clients.
 func TestBareRootReachesConsoleWhileCosmosKeepsAPIRoot(t *testing.T) {
 	t.Setenv("SIM_RUNTIME", "process")
-	srv, err := buildSimulator(sim.Config{Provider: "azure", ListenAddr: ":0", LogLevel: "error"})
+	console := t.TempDir()
+	if err := os.WriteFile(filepath.Join(console, "index.html"), []byte("<!doctype html><title>console</title>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv, err := buildSimulator(sim.Config{Provider: "azure", ListenAddr: ":0", LogLevel: "error", ConsoleDir: console})
 	if err != nil {
 		t.Fatalf("buildSimulator: %v", err)
 	}

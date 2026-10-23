@@ -522,6 +522,24 @@ type amplifyCreateAppReq struct {
 	CacheConfig                *AmplifyCacheConfig `json:"cacheConfig,omitempty"`
 }
 
+// amplifyCanAssumeRoles writes Amplify's refusal of a role, keyed by the
+// request field that names it, that names no role or whose trust policy does
+// not let Amplify assume it. An empty role is no role, which Amplify accepts.
+func amplifyCanAssumeRoles(w http.ResponseWriter, appID string, roles [][2]string) bool {
+	for _, named := range roles {
+		field, role := named[0], named[1]
+		if role == "" {
+			continue
+		}
+		if _, err := iamServiceTrustedRole(role, "amplify.amazonaws.com", amplifyAppARN(appID)); err != nil {
+			amplifyWriteError(w, http.StatusBadRequest, "BadRequestException",
+				fmt.Sprintf("%s %s cannot be assumed by amplify.amazonaws.com", field, role))
+			return false
+		}
+	}
+	return true
+}
+
 func handleAmplifyCreateApp(w http.ResponseWriter, r *http.Request) {
 	var req amplifyCreateAppReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -533,6 +551,11 @@ func handleAmplifyCreateApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := amplifyRandomID()
+	if !amplifyCanAssumeRoles(w, id, [][2]string{
+		{"computeRoleArn", req.ComputeRoleArn}, {"iamServiceRoleArn", req.IamServiceRoleArn},
+	}) {
+		return
+	}
 	now := amplifyEpoch()
 	platform := req.Platform
 	if platform == "" {
@@ -691,6 +714,16 @@ func handleAmplifyUpdateApp(w http.ResponseWriter, r *http.Request) {
 	var req amplifyUpdateAppReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		amplifyWriteError(w, http.StatusBadRequest, "BadRequestException", "could not decode: "+err.Error())
+		return
+	}
+	var roles [][2]string
+	if req.ComputeRoleArn != nil {
+		roles = append(roles, [2]string{"computeRoleArn", *req.ComputeRoleArn})
+	}
+	if req.IamServiceRoleArn != nil {
+		roles = append(roles, [2]string{"iamServiceRoleArn", *req.IamServiceRoleArn})
+	}
+	if !amplifyCanAssumeRoles(w, id, roles) {
 		return
 	}
 	a := &stored.App
@@ -877,6 +910,9 @@ func handleAmplifyCreateBranch(w http.ResponseWriter, r *http.Request) {
 		amplifyWriteError(w, http.StatusBadRequest, "BadRequestException", "branch already exists")
 		return
 	}
+	if !amplifyCanAssumeRoles(w, appID, [][2]string{{"computeRoleArn", req.ComputeRoleArn}}) {
+		return
+	}
 	now := amplifyEpoch()
 	stage := req.Stage
 	if stage == "" {
@@ -973,6 +1009,9 @@ func handleAmplifyUpdateBranch(w http.ResponseWriter, r *http.Request) {
 	var req amplifyUpdateBranchReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		amplifyWriteError(w, http.StatusBadRequest, "BadRequestException", "could not decode: "+err.Error())
+		return
+	}
+	if req.ComputeRoleArn != nil && !amplifyCanAssumeRoles(w, appID, [][2]string{{"computeRoleArn", *req.ComputeRoleArn}}) {
 		return
 	}
 	if req.Description != nil {

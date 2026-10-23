@@ -3,6 +3,7 @@ package aws_cli_test
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -63,7 +64,7 @@ func TestSFN_GenericAWSSDKIntegrations_CLI(t *testing.T) {
 	out := runCLI(t, awsCLI("stepfunctions", "create-state-machine",
 		"--name", "sfn-cli-sdk-"+suffix,
 		"--definition", string(definition),
-		"--role-arn", "arn:aws:iam::123456789012:role/sfn-role",
+		"--role-arn", cliStatesRole(t, "apigateway:*", "s3:*", "iam:*"),
 	))
 	var machine struct {
 		StateMachineArn string `json:"stateMachineArn"`
@@ -134,7 +135,7 @@ func TestSFN_StateMachineCRUD_CLI(t *testing.T) {
 	out := runCLI(t, awsCLI("stepfunctions", "create-state-machine",
 		"--name", "sfn-cli-sm",
 		"--definition", definition,
-		"--role-arn", "arn:aws:iam::123456789012:role/sfn-role",
+		"--role-arn", cliServiceRole(t, "states.amazonaws.com"),
 		"--type", "STANDARD",
 	))
 	var created struct {
@@ -207,7 +208,7 @@ func TestSFN_ExecutionLifecycle_CLI(t *testing.T) {
 	out := runCLI(t, awsCLI("stepfunctions", "create-state-machine",
 		"--name", "sfn-cli-exec-sm",
 		"--definition", definition,
-		"--role-arn", "arn:aws:iam::123456789012:role/sfn-role",
+		"--role-arn", cliServiceRole(t, "states.amazonaws.com"),
 	))
 	var created struct {
 		StateMachineArn string `json:"stateMachineArn"`
@@ -255,4 +256,46 @@ func TestSFN_ExecutionLifecycle_CLI(t *testing.T) {
 	require.Len(t, execList.Executions, 1)
 	assert.Equal(t, started.ExecutionArn, execList.Executions[0].ExecutionArn)
 	assert.Equal(t, "SUCCEEDED", execList.Executions[0].Status)
+}
+
+func TestSFN_TasksActAsTheExecutionRole_CLI(t *testing.T) {
+	t.Parallel()
+	queueURL := strings.TrimSpace(runCLI(t, awsCLI("sqs", "create-queue", "--queue-name", cliUniqueName("cli-sfn-role-queue"),
+		"--query", "QueueUrl", "--output", "text")))
+	t.Cleanup(func() { _ = awsCLI("sqs", "delete-queue", "--queue-url", queueURL).Run() })
+	definition, err := json.Marshal(map[string]any{
+		"StartAt": "Send",
+		"States": map[string]any{"Send": map[string]any{
+			"Type": "Task", "Resource": "arn:aws:states:::sqs:sendMessage", "End": true,
+			"Parameters": map[string]any{"QueueUrl": queueURL, "MessageBody": "sent-as-the-role"},
+		}},
+	})
+	require.NoError(t, err)
+	endpoint := sfnSyncEndpoint(t)
+	run := func(role string) (status, errorName, cause string) {
+		name := cliUniqueName("cli-sfn-role")
+		arn := strings.TrimSpace(runCLI(t, awsCLI("stepfunctions", "create-state-machine", "--name", name, "--type", "EXPRESS",
+			"--definition", string(definition), "--role-arn", role, "--query", "stateMachineArn", "--output", "text")))
+		t.Cleanup(func() { _ = awsCLI("stepfunctions", "delete-state-machine", "--state-machine-arn", arn).Run() })
+		var execution struct {
+			Status string `json:"status"`
+			Error  string `json:"error"`
+			Cause  string `json:"cause"`
+		}
+		parseJSON(t, runCLI(t, awsCLIHostPrefixed("stepfunctions", "start-sync-execution", "--state-machine-arn", arn,
+			"--endpoint-url", endpoint, "--output", "json")), &execution)
+		return execution.Status, execution.Error, execution.Cause
+	}
+
+	unpermitted := cliStatesRole(t, "sns:Publish")
+	status, errorName, cause := run(unpermitted)
+	assert.Equal(t, "FAILED", status)
+	assert.Contains(t, errorName, "AccessDenied")
+	assert.Contains(t, cause, "assumed-role/"+unpermitted[strings.LastIndex(unpermitted, "/")+1:]+"/")
+
+	status, errorName, cause = run(cliStatesRole(t, "sqs:SendMessage"))
+	assert.Equal(t, "SUCCEEDED", status, "%s: %s", errorName, cause)
+	body := strings.TrimSpace(runCLI(t, awsCLI("sqs", "receive-message", "--queue-url", queueURL, "--wait-time-seconds", "5",
+		"--query", "Messages[0].Body", "--output", "text")))
+	assert.Equal(t, "sent-as-the-role", body)
 }

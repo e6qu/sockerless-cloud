@@ -210,7 +210,7 @@ var (
 // terraformECSBaseImage comes from Google's Docker Hub mirror at the index
 // digest Docker Hub serves: Docker Hub limits anonymous pulls per address.
 const (
-	terraformECSBaseImage = "mirror.gcr.io/hashicorp/terraform:1.16.6@sha256:bfffc1ded5fbf0a17beaaf22eb4793980abdb19d0761ff6a3a0efb2ab4d9b316"
+	terraformECSBaseImage = "mirror.gcr.io/hashicorp/terraform:1.17.0@sha256:4d1b496a256f2989bccdb04b9104a4ede97234b10fba90259e173e905ec4fb58"
 	terraformECSImage     = "sockerless-terraform-aws:aws-sdk"
 )
 
@@ -410,7 +410,7 @@ func TestMain(m *testing.M) {
 			log.Fatalf("Failed to create simulator build dir: %v", err)
 		}
 		simDir, _ := filepath.Abs("..")
-		build := exec.Command("go", "build", "-tags", "noui", "-o", binaryPath, ".")
+		build := exec.Command("go", "build", "-o", binaryPath, ".")
 		build.Dir = simDir
 		build.Env = append(os.Environ(), "CGO_ENABLED=0")
 		if out, err := build.CombinedOutput(); err != nil {
@@ -440,7 +440,9 @@ func TestMain(m *testing.M) {
 	// error. Fetching it once here removes that race from every test.
 	pullImageWithRetry("mirror.gcr.io/library/busybox:latest")
 	if testRunSelects("TestSFN_AmazonECSAndCodeBuildIntegrations_SDK") ||
-		testRunSelects("TestECS_TaskRoleCredentialsAuthorizeWorkloadAWSCLI") {
+		testRunSelects("TestECS_TaskRoleCredentialsAuthorizeWorkloadAWSCLI") ||
+		testRunSelects("TestCodeBuild_BuildHoldsItsServiceRoleSession_SDK") ||
+		testRunSelects("TestBatch_JobHoldsItsJobRoleSession_SDK") {
 		// The integration's timeout measures the Step Functions execution,
 		// not registry transfer on a newly provisioned test host. These are the
 		// exact public images configured on the Amazon ECS task definition and
@@ -534,6 +536,22 @@ func pullImageWithRetry(image string) {
 // provider is fetched before the task starts and committed into the workload
 // image as a filesystem mirror. The task itself therefore proves the AWS API
 // path without depending on undeclared internet egress.
+// hostEgressArgs hands the host's outbound proxy and the CA bundle that
+// proxy's certificates chain to into a container on the host network, so the
+// registry fetch takes the same egress path as the host's own.
+func hostEgressArgs() []string {
+	var args []string
+	for _, key := range []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"} {
+		if v, ok := os.LookupEnv(key); ok {
+			args = append(args, "-e", key+"="+v)
+		}
+	}
+	if bundle, ok := os.LookupEnv("SSL_CERT_FILE"); ok {
+		args = append(args, "-v", bundle+":/etc/ssl/certs/ca-certificates.crt:ro")
+	}
+	return args
+}
+
 func buildTerraformAWSImage(platform string) {
 	pullImageWithRetry(terraformECSBaseImage)
 
@@ -577,17 +595,21 @@ func buildTerraformAWSImage(platform string) {
 		if err := os.MkdirAll(mirrorPath, 0755); err != nil {
 			log.Fatalf("Failed to create Terraform AWS provider mirror: %v", err)
 		}
-		cmd := exec.Command(
-			"docker", "run", "--rm",
+		args := []string{
+			"run", "--rm",
 			"--network", "host",
 			"--platform", platform,
-			"-v", buildDir+":/workspace",
+			"-v", buildDir + ":/workspace",
 			"-w", "/workspace",
+		}
+		args = append(args, hostEgressArgs()...)
+		args = append(args,
 			terraformECSBaseImage,
 			"providers", "mirror",
 			"-platform="+platformName,
 			"/workspace/provider-mirror",
 		)
+		cmd := exec.Command("docker", args...)
 		if out, runErr := cmd.CombinedOutput(); runErr == nil {
 			lastErr = nil
 			break
@@ -737,4 +759,18 @@ var uniqueNameSequence atomic.Int64
 // run, so a test run again against the same simulator names new resources.
 func uniqueName(prefix string) string {
 	return prefix + "-" + strconv.FormatInt(time.Now().UnixNano(), 36) + strconv.FormatInt(uniqueNameSequence.Add(1), 36)
+}
+
+// serviceRole creates a uniquely named role whose trust policy lets the
+// service principal assume it, deleted when the test ends.
+func serviceRole(t *testing.T, principal string) string {
+	t.Helper()
+	return createWorkloadRole(t, uniqueName(strings.SplitN(principal, ".", 2)[0]), principal)
+}
+
+// statesRole creates a uniquely named role AWS Step Functions may assume,
+// allowed actions on every resource, deleted when the test ends.
+func statesRole(t *testing.T, actions ...string) string {
+	t.Helper()
+	return createServiceRole(t, uniqueName("states"), "states.amazonaws.com", actions...)
 }

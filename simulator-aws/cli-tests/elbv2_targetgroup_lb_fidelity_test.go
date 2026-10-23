@@ -12,7 +12,9 @@ func TestELBv2TargetGroupLBFidelityCLI(t *testing.T) {
 	q := func(args ...string) string { return strings.TrimSpace(runCLI(t, awsCLI(args...))) }
 
 	vpcID := q("ec2", "create-vpc", "--cidr-block", "10.152.0.0/16", "--query", "Vpc.VpcId", "--output", "text")
+	ipv6 := elbv2VPCIpv6BlockCLI(t, vpcID)
 	subnetID := q("ec2", "create-subnet", "--vpc-id", vpcID, "--cidr-block", "10.152.1.0/24",
+		"--ipv6-cidr-block", elbv2Ipv6SubnetRangeCLI(t, ipv6, 0),
 		"--availability-zone", "us-east-1a", "--query", "Subnet.SubnetId", "--output", "text")
 
 	// HTTP target group with an explicit matcher.

@@ -19,6 +19,7 @@ func TestPubSub_GRPC_DeadLetterPolicy(t *testing.T) {
 	t.Parallel()
 	pub, sc := psRawClient(t)
 	project := "projects/ps-grpc-dlq"
+	ensureProject(t, "ps-grpc-dlq")
 	topic, dlt := project+"/topics/work", project+"/topics/dead"
 	for _, name := range []string{topic, dlt} {
 		psCreateTopic(t, pub, name)
@@ -79,6 +80,7 @@ func TestPubSub_GRPC_FilterAndOrdering(t *testing.T) {
 	t.Parallel()
 	pub, sc := psRawClient(t)
 	project := "projects/ps-grpc-order"
+	ensureProject(t, "ps-grpc-order")
 	topic := project + "/topics/events"
 	psCreateTopic(t, pub, topic)
 

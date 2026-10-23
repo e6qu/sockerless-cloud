@@ -621,7 +621,7 @@ func ecsServiceTaskUnhealthy(service ECSService, task ECSTask) bool {
 // target group and a target, which is not the same as a target being out of
 // service.
 func ecsServiceTaskTargetHealth(service ECSService, task ECSTask) (states []string, ok bool) {
-	bindings, err := ecsServiceLoadBalancers(service.LoadBalancers)
+	bindings, err := ecsServiceTargetBindings(service)
 	if err != nil {
 		return nil, false
 	}
@@ -677,7 +677,7 @@ func ecsRequestServiceReconcileForTargetGroup(targetGroupArn string) {
 		if service.Status != "ACTIVE" {
 			continue
 		}
-		bindings, err := ecsServiceLoadBalancers(service.LoadBalancers)
+		bindings, err := ecsServiceTargetBindings(service)
 		if err != nil {
 			continue
 		}
@@ -1059,7 +1059,7 @@ func validateECSServiceLoadBalancers(raw json.RawMessage, taskDefinition string)
 }
 
 func ecsSyncServiceLoadBalancerTargets(service ECSService) {
-	bindings, err := ecsServiceLoadBalancers(service.LoadBalancers)
+	bindings, err := ecsServiceTargetBindings(service)
 	if err != nil {
 		return
 	}

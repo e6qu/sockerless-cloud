@@ -26,11 +26,38 @@ provider "aws" {
     ec2            = var.endpoint
     elbv2          = var.endpoint
     appautoscaling = var.endpoint
+    iam            = var.endpoint
   }
 }
 
 resource "aws_ecs_cluster" "express" {
   name = "tf-express-cluster"
+}
+
+resource "aws_iam_role" "express_infra" {
+  name = "tf-express-infra"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ecs.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role" "express_exec" {
+  name = "tf-express-exec"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
 }
 
 # An ECS Express Gateway service: ECS provisions the managed bundle (Fargate
@@ -39,8 +66,8 @@ resource "aws_ecs_cluster" "express" {
 resource "aws_ecs_express_gateway_service" "web" {
   cluster                 = aws_ecs_cluster.express.name
   service_name            = "tf-express-web"
-  infrastructure_role_arn = "arn:aws:iam::000000000000:role/express-infra"
-  execution_role_arn      = "arn:aws:iam::000000000000:role/express-exec"
+  infrastructure_role_arn = aws_iam_role.express_infra.arn
+  execution_role_arn      = aws_iam_role.express_exec.arn
 
   primary_container {
     image          = "mirror.gcr.io/library/busybox:latest"

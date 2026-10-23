@@ -1428,12 +1428,7 @@ func iamEC2ResourceARNs(r *http.Request, op string, types []string, region, acco
 			sort.Strings(out)
 			return out
 		}
-	case "DisassociateVpcCidrBlock", "DisassociateSubnetCidrBlock":
-		// One store holds both kinds of CIDR association and reuses a single
-		// field for what the association is on, so the stored id is read for
-		// what it is rather than for where it sits: an EC2 identifier states
-		// its own type, and it must be the type the action declares — a subnet
-		// association is not what a VPC disassociation authorizes against.
+	case "DisassociateVpcCidrBlock":
 		var out []string
 		for _, assoc := range lookup("AssociationId") {
 			if ec2VpcCidrAssocs == nil {
@@ -1448,6 +1443,17 @@ func iamEC2ResourceARNs(r *http.Request, op string, types []string, region, acco
 				continue
 			}
 			out = append(out, "arn:aws:ec2:"+region+":"+account+":"+resourceType+"/"+held.VpcId)
+		}
+		if len(out) > 0 {
+			sort.Strings(out)
+			return out
+		}
+	case "DisassociateSubnetCidrBlock":
+		var out []string
+		for _, assoc := range lookup("AssociationId") {
+			if subnetID, ok := ec2SubnetOfIpv6Association(assoc); ok && iamHasType(types, "subnet") {
+				out = append(out, "arn:aws:ec2:"+region+":"+account+":subnet/"+subnetID)
+			}
 		}
 		if len(out) > 0 {
 			sort.Strings(out)
@@ -2736,6 +2742,14 @@ func iamECSResourceARNs(r *http.Request, op string, types []string, arn func(svc
 	if iamHasType(types, "task-definition") {
 		addNamed("task-definition/", iamECSTaskDefinitionIDs(r))
 	}
+	if iamHasType(types, "gateway-route") {
+		if routeArn := iamFirstJSONField(r, "gatewayRouteArn"); routeArn != "" {
+			out = append(out, routeArn)
+		}
+	}
+	if iamHasType(types, "gateway") {
+		out = append(out, iamECSGatewayARNs(r, op, arn)...)
+	}
 	if iamHasType(types, "cluster") {
 		// DescribeClusters names them in a list; everything else names one, and
 		// an omitted cluster is the default one.
@@ -2746,6 +2760,38 @@ func iamECSResourceARNs(r *http.Request, op string, types []string, arn func(svc
 		}
 	}
 	return out
+}
+
+// iamECSGatewayARNs derives the gateway a request names. A gateway's ARN ends
+// in an identifier Amazon ECS assigns, so a name resolves through the gateway
+// it names, and a create, whose gateway has no identifier yet, is the
+// wildcard over it. A route's ARN embeds its gateway's name and identifier.
+func iamECSGatewayARNs(r *http.Request, op string, arn func(svc, resource string) string) []string {
+	if op == "CreateGateway" {
+		if name := iamFirstJSONField(r, "name"); name != "" {
+			return []string{arn("ecs", "gateway/"+name+"/*")}
+		}
+		return nil
+	}
+	if routeArn := iamFirstJSONField(r, "gatewayRouteArn"); routeArn != "" {
+		if i := strings.Index(routeArn, ":gateway-route/"); i >= 0 {
+			parts := strings.SplitN(routeArn[i+len(":gateway-route/"):], "/", 3)
+			if len(parts) == 3 {
+				return []string{arn("ecs", "gateway/"+parts[0]+"/"+parts[1])}
+			}
+		}
+	}
+	ref := iamFirstJSONField(r, "gateway")
+	switch {
+	case ref == "":
+		return nil
+	case strings.HasPrefix(ref, "arn:"):
+		return []string{ref}
+	}
+	if gateway, ok := ecsResolveGateway(ref); ok {
+		return []string{gateway.GatewayArn}
+	}
+	return []string{arn("ecs", "gateway/"+ref+"/*")}
 }
 
 // iamECSClusterName resolves the cluster a request targets, accepting the name

@@ -110,7 +110,7 @@ func TestMain(m *testing.M) {
 	}
 
 	simDir, _ := filepath.Abs("..")
-	build := exec.Command("go", "build", "-tags", "noui", "-o", binaryPath, ".")
+	build := exec.Command("go", "build", "-o", binaryPath, ".")
 	build.Dir = simDir
 	build.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {

@@ -559,7 +559,7 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 		pool.Etag = sim.NewUUID()
 		if !dryRun {
 			crv2WorkerPools.Put(name, pool)
-			reconcileWorkerPoolRevision(crv2WorkerPoolRevisions, name, body.Metadata.Name+"-00001-abc", pool)
+			reconcileWorkerPoolRevision(crv2WorkerPoolRevisions, name, pool.LatestCreatedRevision[strings.LastIndex(pool.LatestCreatedRevision, "/")+1:], pool)
 			runCloudRunWorkerPool(pool)
 			pool = storedCloudRunWorkerPool(pool)
 		}
@@ -624,21 +624,17 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 			return
 		}
 		update := cloudRunV1WorkerPoolToV2(body)
-		update.Name = existing.Name
-		update.UID = existing.UID
-		update.CreateTime = existing.CreateTime
 		update.LaunchStage = existing.LaunchStage
 		update.Scaling = existing.Scaling
-		update.Generation = existing.Generation + 1
-		update.UpdateTime = nowTimestamp()
-		revName := fmt.Sprintf("%s-%05d-abc", id, update.Generation)
-		carryCloudRunWorkerPoolStatus(&update, existing)
-		update.LatestCreatedRevision = fmt.Sprintf("%s/revisions/%s", name, revName)
-		beginCloudRunWorkerPoolReconcile(&update)
-		update.Etag = sim.NewUUID()
+		update, revName, ok := rollOutCloudRunWorkerPool(w, existing, update)
+		if !ok {
+			return
+		}
 		if !dryRun {
 			crv2WorkerPools.Put(name, update)
-			reconcileWorkerPoolRevision(crv2WorkerPoolRevisions, name, revName, update)
+			if revName != "" {
+				reconcileWorkerPoolRevision(crv2WorkerPoolRevisions, name, revName, update)
+			}
 			runCloudRunWorkerPool(update)
 			update = storedCloudRunWorkerPool(update)
 		}

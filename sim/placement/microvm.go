@@ -261,7 +261,7 @@ func imageProcess(ctx context.Context, cli *client.Client, w Workload) (imageDet
 	if err := sim.PullImageWithCredential(ctx, w.Image, w.Architecture, w.RegistryAuth); err != nil {
 		return imageDetails{}, err
 	}
-	inspect, err := cli.ImageInspect(ctx, w.Image)
+	inspect, err := sim.InspectHeldImage(ctx, cli, w.Image)
 	if err != nil {
 		return imageDetails{}, fmt.Errorf("inspect %s: %w", w.Image, err)
 	}

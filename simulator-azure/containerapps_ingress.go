@@ -135,7 +135,7 @@ func acaRequestRevision(app ContainerApp, host string) (acaRevision, bool) {
 			continue
 		}
 		rev, ok := acaAppRevision(app.ID, name)
-		if !ok || !rev.Active || !acaRevisionRunning(rev.ID) {
+		if !ok || !rev.Active || !acaRevisionServes(rev.ID) {
 			return acaRevision{}, false
 		}
 		return rev, true
@@ -167,7 +167,9 @@ func acaIngressForwardedHeaders(r *http.Request) func(http.Header) {
 // body, and copies the response back — the App-ingress equivalent of Azure's
 // managed front-end.
 func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp, rev acaRevision) {
-	group, ok := acaPickReplica(rev.ID)
+	pickCtx, cancel := context.WithTimeout(r.Context(), acaIngressRequestTimeout)
+	defer cancel()
+	group, ok := acaAcquireReplica(pickCtx, rev.ID)
 	if !ok {
 		AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q has no ready replica", app.Name)
 		return

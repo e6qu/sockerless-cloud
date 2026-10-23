@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -159,7 +160,8 @@ func TestSimulatorErrorsSpellTheMessageAsEachServiceModels(t *testing.T) {
 				request.Header.Set("X-Amz-Target", c.target)
 				request.Header.Set("Content-Type", "application/x-amz-json-1.1")
 			}
-			sfnSignInternalAWSRequest(request, c.signingName, payload)
+			sigv4Sign(request, payload, IAMTempCred{AccessKeyID: seedAdminAccessKey, SecretAccessKey: seedAdminSecretKey},
+				c.signingName, time.Now())
 			recorder := httptest.NewRecorder()
 			srv.ServeHTTP(recorder, request)
 			if recorder.Code < http.StatusBadRequest {

@@ -9,11 +9,13 @@ import (
 	"net/netip"
 	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/client"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/netrules"
+	"github.com/e6qu/sockerless-cloud/sim/sidecar"
 )
 
 // ContainerBackend places workloads as containers on the engine the
@@ -44,10 +46,18 @@ func (ContainerBackend) Place(ctx context.Context, w Workload, sink sim.LogSink)
 }
 
 // PlaceMember starts w as a container in the owner container's network
-// namespace.
+// namespace: the namespace of the forwarder the owner joined, when it was
+// placed with forwards.
 func (ContainerBackend) PlaceMember(ctx context.Context, owner string, w Workload, sink sim.LogSink) (Handle, error) {
 	if err := memberShape(w); err != nil {
 		return nil, err
+	}
+	forwarder, err := forwarderOf(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
+	if forwarder != "" {
+		owner = forwarder
 	}
 	w.NetworkMode = "container:" + owner
 	h, err := sim.StartContainerSyncContext(ctx, w, sink)
@@ -57,12 +67,157 @@ func (ContainerBackend) PlaceMember(ctx context.Context, owner string, w Workloa
 	return containerHandle{h, w.CancelGracePeriod}, nil
 }
 
-func (ContainerBackend) Adopt(_ context.Context, id string, w Workload, sink sim.LogSink) (Handle, error) {
+// PlaceForwarded places a forwarder that owns the workload's network
+// namespace, with every network setting w names, and starts w joined to it
+// once the forwards listen. A workload that keeps its filesystem across stops
+// or names a network mode of its own has no namespace a forwarder can own.
+func (b ContainerBackend) PlaceForwarded(ctx context.Context, w Workload, forwards []Forward, sink sim.LogSink) (Handle, error) {
+	if len(forwards) == 0 {
+		return b.Place(ctx, w, sink)
+	}
+	if w.KeepOnExit || w.NetworkMode != "" {
+		return nil, fmt.Errorf("place %s with forwards: a workload that keeps its filesystem or names its own network mode has no namespace a forwarder can own", w.Name)
+	}
+	namespace := sim.ContainerConfig{
+		Network:        w.Network,
+		NetworkAliases: w.NetworkAliases,
+		IPv4Address:    w.IPv4Address,
+		MACAddress:     w.MACAddress,
+		Hostname:       w.Hostname,
+		ExtraHosts:     w.ExtraHosts,
+		DNS:            w.DNS,
+		PublishPorts:   w.PublishPorts,
+	}
+	if w.Name != "" {
+		// A dot keeps the name apart from every workload name a cloud
+		// derives from its own resource names, none of which carry one.
+		namespace.Name = w.Name + ".forwarder"
+	}
+	forwarder, err := sidecar.StartForwarder(ctx, sidecar.ForwarderSpec{Namespace: namespace, Forwards: forwards, Workload: w.Name}, sim.NoopSink{})
+	if err != nil {
+		return nil, fmt.Errorf("forwarder for %s: %w", w.Name, err)
+	}
+	release := func() {
+		forwarder.Cancel()
+		<-forwarder.Exited()
+	}
+	for _, extra := range w.ExtraNetworks {
+		var at netip.Addr
+		if extra.IPv4Address != "" {
+			if at, err = netip.ParseAddr(extra.IPv4Address); err != nil {
+				release()
+				return nil, fmt.Errorf("join %s at %q: %w", extra.Network, extra.IPv4Address, err)
+			}
+		}
+		if err := sim.ConnectContainerToNetworkAt(forwarder.ContainerID, extra.Network, nil, at); err != nil {
+			release()
+			return nil, fmt.Errorf("join %s: %w", extra.Network, err)
+		}
+	}
+	member := w
+	member.Labels = make(map[string]string, len(w.Labels)+1)
+	for k, v := range w.Labels {
+		member.Labels[k] = v
+	}
+	member.Labels[forwardedLabel] = forwarder.ContainerID
+	member.Network, member.NetworkAliases, member.IPv4Address, member.MACAddress = "", nil, "", ""
+	member.Hostname, member.ExtraHosts, member.DNS, member.PublishPorts, member.ExtraNetworks = "", nil, nil, nil, nil
+	member.NetworkMode = "container:" + forwarder.ContainerID
+	h, err := sim.StartContainerSyncContext(ctx, member, sink)
+	if err != nil {
+		release()
+		return nil, err
+	}
+	return newForwardedHandle(containerHandle{h, w.CancelGracePeriod}, forwarder), nil
+}
+
+// forwardedLabel marks a workload placed with forwards; its value is the
+// forwarder's container ID. A member placed beside the workload joins the
+// same forwarder and carries no such label: the forwarder goes with the
+// workload alone.
+const forwardedLabel = "sockerless-sim-forwarded-by"
+
+// Adopt takes over a container, and the forwarder it was placed with.
+func (ContainerBackend) Adopt(ctx context.Context, id string, w Workload, sink sim.LogSink) (Handle, error) {
+	forwarderID, err := adoptedForwarder(ctx, id)
+	if err != nil {
+		return nil, err
+	}
 	h, err := sim.AdoptContainer(id, w, sink)
 	if err != nil {
 		return nil, err
 	}
-	return containerHandle{h, w.CancelGracePeriod}, nil
+	member := containerHandle{h, w.CancelGracePeriod}
+	if forwarderID == "" {
+		return member, nil
+	}
+	forwarder, err := sim.AdoptContainer(forwarderID, sim.ContainerConfig{}, sim.NoopSink{})
+	if err != nil {
+		h.Cancel()
+		return nil, fmt.Errorf("adopt the forwarder of %s: %w", id, err)
+	}
+	return newForwardedHandle(member, forwarder), nil
+}
+
+// adoptedForwarder is the forwarder a container was placed with that still
+// exists, or empty.
+func adoptedForwarder(ctx context.Context, containerID string) (string, error) {
+	forwarderID, err := forwarderOf(ctx, containerID)
+	if err != nil || forwarderID == "" {
+		return "", err
+	}
+	inspectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if _, err := sim.DockerClient().ContainerInspect(inspectCtx, forwarderID, client.ContainerInspectOptions{}); err != nil {
+		if cerrdefs.IsNotFound(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("inspect the forwarder of %s: %w", containerID, err)
+	}
+	return forwarderID, nil
+}
+
+// forwarderOf is the forwarder a container was placed with, or empty.
+func forwarderOf(ctx context.Context, containerID string) (string, error) {
+	cli := sim.DockerClient()
+	if err := sim.RequireContainerRuntime("reading a container's network namespace"); err != nil {
+		return "", err
+	}
+	inspectCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	inspected, err := cli.ContainerInspect(inspectCtx, containerID, client.ContainerInspectOptions{})
+	if err != nil {
+		return "", fmt.Errorf("inspect container %s: %w", containerID, err)
+	}
+	if inspected.Container.Config == nil {
+		return "", nil
+	}
+	return inspected.Container.Config.Labels[forwardedLabel], nil
+}
+
+// forwardedHandle is a workload placed behind a forwarder: the workload's
+// handle, whose exit takes the forwarder with it before it reports.
+type forwardedHandle struct {
+	containerHandle
+	exited chan struct{}
+}
+
+func newForwardedHandle(member containerHandle, forwarder *sim.ContainerHandle) *forwardedHandle {
+	h := &forwardedHandle{containerHandle: member, exited: make(chan struct{})}
+	go func() {
+		<-member.ContainerHandle.Exited()
+		forwarder.Cancel()
+		<-forwarder.Exited()
+		close(h.exited)
+	}()
+	return h
+}
+
+func (h *forwardedHandle) Exited() <-chan struct{} { return h.exited }
+
+func (h *forwardedHandle) Wait() sim.ProcessResult {
+	<-h.exited
+	return h.containerHandle.Wait()
 }
 
 func (ContainerBackend) Restart(_ context.Context, id string, w Workload, sink sim.LogSink) (Handle, error) {

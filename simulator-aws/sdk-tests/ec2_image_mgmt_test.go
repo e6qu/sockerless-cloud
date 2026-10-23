@@ -14,6 +14,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// ec2RootSnapshot snapshots a fresh volume for an AMI's root device mapping.
+func ec2RootSnapshot(t *testing.T, c *ec2.Client) string {
+	t.Helper()
+	vol, err := c.CreateVolume(ctx, &ec2.CreateVolumeInput{
+		AvailabilityZone: aws.String("us-east-1a"), Size: aws.Int32(8), VolumeType: types.VolumeTypeGp3,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = c.DeleteVolume(ctx, &ec2.DeleteVolumeInput{VolumeId: vol.VolumeId}) })
+	snap, err := c.CreateSnapshot(ctx, &ec2.CreateSnapshotInput{VolumeId: vol.VolumeId})
+	require.NoError(t, err)
+	return aws.ToString(snap.SnapshotId)
+}
+
 // registerImageMgmtAMI registers a user AMI (from a block device mapping) the
 // image-management ops then operate on, returning its id.
 func registerImageMgmtAMI(t *testing.T, c *ec2.Client, name string) string {
@@ -24,7 +37,7 @@ func registerImageMgmtAMI(t *testing.T, c *ec2.Client, name string) string {
 		RootDeviceName: aws.String("/dev/sda1"),
 		BlockDeviceMappings: []types.BlockDeviceMapping{{
 			DeviceName: aws.String("/dev/sda1"),
-			Ebs:        &types.EbsBlockDevice{SnapshotId: aws.String("snap-0123456789abcdef0"), VolumeSize: aws.Int32(8)},
+			Ebs:        &types.EbsBlockDevice{SnapshotId: aws.String(ec2RootSnapshot(t, c)), VolumeSize: aws.Int32(8)},
 		}},
 	})
 	require.NoError(t, err)

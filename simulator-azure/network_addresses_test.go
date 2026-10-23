@@ -150,3 +150,42 @@ func TestAzureVNetResolverAddressAndNetworkNames(t *testing.T) {
 		t.Fatal("the engine network's name depends on the resource id's case")
 	}
 }
+
+// A connection that names a whole virtual network leases from the network's
+// first subnet, and from none when the network has no subnet.
+func TestAzureWholeVNetConnectionLeasesFromTheFirstSubnet(t *testing.T) {
+	priorSubnets := azureSubnets
+	azureSubnets = sim.MakeStore[Subnet](nil, "test_subnets")
+	defer func() { azureSubnets = priorSubnets }()
+
+	vnetID := "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/whole"
+	vnet := VirtualNetwork{ID: vnetID}
+	if got := azureWholeVNetSubnet(vnet); got != "" {
+		t.Fatalf("a virtual network without a subnet leases from %q", got)
+	}
+	for _, name := range []string{"second", "first"} {
+		azureSubnets.Put(vnetID+"/subnets/"+name, Subnet{ID: vnetID + "/subnets/" + name, Name: name,
+			Properties: SubnetProperties{AddressPrefix: "10.9.1.0/24"}})
+	}
+	if got := azureWholeVNetSubnet(vnet); got != vnetID+"/subnets/first" {
+		t.Fatalf("a network listing no subnet leases from %q, want the subnet whose ID sorts first", got)
+	}
+	vnet.Properties.Subnets = []Subnet{{ID: vnetID + "/subnets/second"}, {ID: vnetID + "/subnets/first"}}
+	subnetID := azureWholeVNetSubnet(vnet)
+	if subnetID != vnetID+"/subnets/second" {
+		t.Fatalf("the connection leases from %q, want the network's first listed subnet", subnetID)
+	}
+	azureForgetSubnetLedger(subnetID)
+	defer azureForgetSubnetLedger(subnetID)
+	site, err := azureLeaseWorkloadAddress(subnetID, "site")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nic, err := azureLeaseSubnetAddress(subnetID, "nic", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nic.String() == site {
+		t.Fatalf("an interface leased the address %s the connection holds", site)
+	}
+}

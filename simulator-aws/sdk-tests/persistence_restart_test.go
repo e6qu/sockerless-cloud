@@ -75,6 +75,30 @@ func persistentSDKConfig() aws.Config {
 	return sdkConfig()
 }
 
+// persistentServiceRole creates, on the simulator at endpoint, a role whose
+// trust policy lets the service principal assume it, allowed actions on
+// every resource.
+func persistentServiceRole(t *testing.T, endpoint, name, principal string, actions ...string) string {
+	t.Helper()
+	iamAPI := iam.NewFromConfig(persistentSDKConfig(), func(o *iam.Options) { o.BaseEndpoint = aws.String(endpoint) })
+	role, err := iamAPI.CreateRole(ctx, &iam.CreateRoleInput{
+		RoleName: aws.String(name),
+		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"` +
+			principal + `"},"Action":"sts:AssumeRole"}]}`),
+	})
+	require.NoError(t, err)
+	if len(actions) > 0 {
+		allowed, err := json.Marshal(actions)
+		require.NoError(t, err)
+		_, err = iamAPI.PutRolePolicy(ctx, &iam.PutRolePolicyInput{
+			RoleName: aws.String(name), PolicyName: aws.String("actions"),
+			PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":` + string(allowed) + `,"Resource":"*"}]}`),
+		})
+		require.NoError(t, err)
+	}
+	return aws.ToString(role.Role.Arn)
+}
+
 func TestAWSServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	t.Parallel()
 	stateDir := t.TempDir()
@@ -242,10 +266,11 @@ func TestAWSServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	statesRoleArn := persistentServiceRole(t, endpoint, "persistent-sfn-role", "states.amazonaws.com")
 	stateMachine, err := stepFunctionsAPI.CreateStateMachine(testCtx, &sfn.CreateStateMachineInput{
 		Name:       aws.String("persistent-state-machine"),
 		Definition: aws.String(`{"StartAt":"Persisted","States":{"Persisted":{"Type":"Pass","Result":{"value":"survived"},"End":true}}}`),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/persistent-sfn-role"),
+		RoleArn:    aws.String(statesRoleArn),
 		Type:       sfntypes.StateMachineTypeStandard,
 	})
 	require.NoError(t, err)
@@ -265,7 +290,7 @@ func TestAWSServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	waitMachine, err := stepFunctionsAPI.CreateStateMachine(testCtx, &sfn.CreateStateMachineInput{
 		Name:       aws.String("restart-wait-state-machine"),
 		Definition: aws.String(`{"StartAt":"WaitAcrossRestart","States":{"WaitAcrossRestart":{"Type":"Wait","Seconds":3,"Next":"Done"},"Done":{"Type":"Succeed"}}}`),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/persistent-sfn-role"),
+		RoleArn:    aws.String(statesRoleArn),
 		Type:       sfntypes.StateMachineTypeStandard,
 	})
 	require.NoError(t, err)
@@ -284,7 +309,7 @@ func TestAWSServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	const functionName = "persistent-lambda"
 	_, err = lambdaAPI.CreateFunction(testCtx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(functionName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/persistent-lambda-role"),
+		Role:         aws.String(persistentServiceRole(t, endpoint, "persistent-lambda-role", "lambda.amazonaws.com")),
 		PackageType:  lambdatypes.PackageTypeImage,
 		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String("example.invalid/persistent:1")},
 	})
@@ -816,7 +841,7 @@ frontend:
 	const durableFunction = "persistent-durable-lambda"
 	_, err = lambdaAPI.CreateFunction(testCtx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(durableFunction),
-		Role:         aws.String("arn:aws:iam::123456789012:role/persistent-durable-role"),
+		Role:         aws.String(persistentServiceRole(t, endpoint, "persistent-durable-role", "lambda.amazonaws.com")),
 		Runtime:      lambdatypes.RuntimeNodejs20x,
 		Handler:      aws.String("index.handler"),
 		Code: &lambdatypes.FunctionCode{
@@ -910,7 +935,7 @@ exports.handler = async (event) => {
 };`
 	_, err = lambdaAPI.CreateFunction(testCtx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(functionName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/persistent-callback-role"),
+		Role:         aws.String(persistentServiceRole(t, endpoint, "persistent-callback-role", "lambda.amazonaws.com")),
 		Runtime:      lambdatypes.RuntimeNodejs20x,
 		Handler:      aws.String("index.handler"),
 		Code:         &lambdatypes.FunctionCode{ZipFile: lambdaNodeSourceZip(t, source)},

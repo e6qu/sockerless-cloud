@@ -121,15 +121,16 @@ func TestLoggingSettingsShapeNewProjectsDefaultSink(t *testing.T) {
 // attribute.
 func TestLoggingSinkPublishesToPubSub(t *testing.T) {
 	srv := buildOperationsTestSimulator(t)
-	gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPut, "/v1/projects/ps/topics/logs", `{}`)
-	gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPut, "/v1/projects/ps/subscriptions/logs-sub", `{"topic":"projects/ps/topics/logs"}`)
-	gcpHostOK(t, srv, "logging.googleapis.com", http.MethodPost, "/v2/projects/ps/sinks", `{"name":"to-topic",
-		"destination":"pubsub.googleapis.com/projects/ps/topics/logs","filter":"severity>=ERROR"}`)
+	activeTestProject(t, "unit-proj-logs")
+	gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPut, "/v1/projects/unit-proj-logs/topics/logs", `{}`)
+	gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPut, "/v1/projects/unit-proj-logs/subscriptions/logs-sub", `{"topic":"projects/unit-proj-logs/topics/logs"}`)
+	gcpHostOK(t, srv, "logging.googleapis.com", http.MethodPost, "/v2/projects/unit-proj-logs/sinks", `{"name":"to-topic",
+		"destination":"pubsub.googleapis.com/projects/unit-proj-logs/topics/logs","filter":"severity>=ERROR"}`)
 	at := nowRFC3339()
 	gcpHostOK(t, srv, "logging.googleapis.com", http.MethodPost, "/v2/entries:write", `{"entries":[
-		{"logName":"projects/ps/logs/a","timestamp":"`+at+`","severity":"ERROR","textPayload":"published"},
-		{"logName":"projects/ps/logs/a","timestamp":"`+at+`","severity":"INFO","textPayload":"not published"}]}`)
-	out := gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPost, "/v1/projects/ps/subscriptions/logs-sub:pull", `{"maxMessages":10}`)
+		{"logName":"projects/unit-proj-logs/logs/a","timestamp":"`+at+`","severity":"ERROR","textPayload":"published"},
+		{"logName":"projects/unit-proj-logs/logs/a","timestamp":"`+at+`","severity":"INFO","textPayload":"not published"}]}`)
+	out := gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPost, "/v1/projects/unit-proj-logs/subscriptions/logs-sub:pull", `{"maxMessages":10}`)
 	received, _ := out["receivedMessages"].([]any)
 	if len(received) != 1 {
 		t.Fatalf("pulled %v", out)

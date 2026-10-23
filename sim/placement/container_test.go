@@ -142,3 +142,144 @@ func TestContainerBackendConsoleAndCapture(t *testing.T) {
 		t.Fatalf("the captured image does not carry the two boots: %q", out)
 	}
 }
+
+// A workload placed with a forward reaches an endpoint of its network on its
+// own loopback from its first instruction: the forwarder owns its namespace
+// and listens before the workload starts. A member placed beside it reaches
+// the same loopback, the workload's address is the forwarder's, and the
+// forwarder goes with the workload, also when a later process adopted it.
+func TestContainerBackendPlacesAWorkloadBehindALoopbackForwarder(t *testing.T) {
+	sim.InitDocker("aws", true, t.TempDir())
+	platform := "linux/" + runtime.GOARCH
+	if err := sim.PullImage(t.Context(), testImage, platform); err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Now().Format("150405.000000")
+	network := "sockerless-sim-placement-forward-" + strings.ReplaceAll(stamp, ".", "-")
+	if _, err := sim.EnsureDockerNetwork(network); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sim.RemoveDockerNetwork(network) })
+	sandbox := sim.SandboxProfile{CapDrop: []string{"ALL"}, NoNewPrivileges: true}
+	backend := ContainerBackend{}
+
+	upstream, err := backend.Place(t.Context(), Workload{
+		Image:        testImage,
+		Architecture: platform,
+		Command:      []string{"sh", "-c", "mkdir -p /tmp/www && echo from-upstream > /tmp/www/credentials && exec httpd -f -p 8080 -h /tmp/www"},
+		Name:         "sockerless-sim-placement-upstream-" + stamp,
+		Network:      network,
+		Sandbox:      sandbox,
+	}, sim.NoopSink{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(upstream.Cancel)
+	upstreamAddr, err := upstream.Address(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	forwards := []Forward{{Listen: "127.0.0.1:51679", Upstream: upstreamAddr + ":8080"}}
+
+	var mu sync.Mutex
+	var lines []string
+	sink := sim.FuncSink(func(line sim.LogLine) {
+		mu.Lock()
+		lines = append(lines, line.Text)
+		mu.Unlock()
+	})
+	once, err := backend.PlaceForwarded(t.Context(), Workload{
+		Image:        testImage,
+		Architecture: platform,
+		Command:      []string{"wget", "-qO-", "http://127.0.0.1:51679/credentials"},
+		Name:         "sockerless-sim-placement-forwarded-" + stamp,
+		Network:      network,
+		Sandbox:      sandbox,
+	}, forwards, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forwarderID, err := forwarderOf(t.Context(), once.ID())
+	if err != nil || forwarderID == "" {
+		t.Fatalf("the workload names no forwarder: %q, %v", forwarderID, err)
+	}
+	if result := once.Wait(); result.ExitCode != 0 {
+		mu.Lock()
+		defer mu.Unlock()
+		t.Fatalf("the workload's first read of its loopback failed (%d):\n%s", result.ExitCode, strings.Join(lines, "\n"))
+	}
+	mu.Lock()
+	out := strings.Join(lines, "\n")
+	mu.Unlock()
+	if strings.TrimSpace(out) != "from-upstream" {
+		t.Fatalf("the workload read %q through its loopback", out)
+	}
+	if sim.ContainerRunning(forwarderID) {
+		t.Fatal("the forwarder outlived the workload")
+	}
+
+	long, err := backend.PlaceForwarded(t.Context(), Workload{
+		Image:             testImage,
+		Architecture:      platform,
+		Command:           []string{"sleep", "300"},
+		Name:              "sockerless-sim-placement-forwarded-long-" + stamp,
+		Network:           network,
+		PublishPorts:      []int{8080},
+		Sandbox:           sandbox,
+		CancelGracePeriod: time.Second,
+	}, forwards, sim.NoopSink{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(long.Cancel)
+	forwarderID, err = forwarderOf(t.Context(), long.ID())
+	if err != nil || forwarderID == "" {
+		t.Fatalf("the workload names no forwarder: %q, %v", forwarderID, err)
+	}
+	address, err := long.Address(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	forwarderAddress, err := ContainerAddress(t.Context(), forwarderID)
+	if err != nil || address != forwarderAddress {
+		t.Fatalf("the workload's address %q is not its forwarder's %q (%v)", address, forwarderAddress, err)
+	}
+	hostPort, err := long.PublishedPort(t.Context(), 8080)
+	if err != nil {
+		t.Fatalf("the workload's published port: %v", err)
+	}
+	existing, err := backend.Find(t.Context(), map[string]string{forwardedLabel: forwarderID})
+	if err != nil || len(existing) != 1 || existing[0].ID != long.ID() {
+		t.Fatalf("Find returned %v, %v; want the workload alone", existing, err)
+	}
+	found, err := sim.FindExistingContainers(map[string]string{forwardedLabel: forwarderID})
+	if err != nil || len(found) != 1 || hostPort == 0 || found[0].PublishedPorts[8080] != hostPort {
+		t.Fatalf("the workload lists published ports %v (%v), want 8080 on %d", found, err, hostPort)
+	}
+	member, err := backend.PlaceMember(t.Context(), long.ID(), Workload{
+		Image:        testImage,
+		Architecture: platform,
+		Command:      []string{"wget", "-qO-", "http://127.0.0.1:51679/credentials"},
+		Name:         "sockerless-sim-placement-forwarded-member-" + stamp,
+		Sandbox:      sandbox,
+	}, sim.NoopSink{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := member.Wait(); result.ExitCode != 0 {
+		t.Fatalf("the member's read of the shared loopback exited %d", result.ExitCode)
+	}
+	if !sim.ContainerRunning(forwarderID) {
+		t.Fatal("the member's exit took the workload's forwarder")
+	}
+
+	adopted, err := backend.Adopt(t.Context(), long.ID(), Workload{CancelGracePeriod: time.Second}, sim.NoopSink{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adopted.Cancel()
+	<-adopted.Exited()
+	if sim.ContainerRunning(forwarderID) {
+		t.Fatal("the forwarder outlived the adopted workload")
+	}
+}

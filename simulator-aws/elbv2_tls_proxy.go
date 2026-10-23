@@ -62,6 +62,6 @@ func elbv2HTTPSListenerHandler(listenerArn string) http.Handler {
 			http.Error(w, "AWS WAF blocked the request", http.StatusForbidden)
 			return
 		}
-		elbv2ForwardToHealthyTarget(w, r, listener)
+		elbv2ServeListener(w, r, listener)
 	})
 }

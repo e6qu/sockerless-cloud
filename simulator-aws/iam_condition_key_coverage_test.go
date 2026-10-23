@@ -671,6 +671,8 @@ func iamSeedConditionKeyFixtures(t *testing.T, srv *sim.Server) map[string]map[s
 		`<vpcId>([^<]+)</vpcId>`)
 	subnet := field(query(url.Values{"Action": {"CreateSubnet"}, "Version": {"2016-11-15"},
 		"VpcId": {vpc}, "CidrBlock": {"10.0.1.0/24"}}), `<subnetId>([^<]+)</subnetId>`)
+	secondZoneSubnet := field(query(url.Values{"Action": {"CreateSubnet"}, "Version": {"2016-11-15"},
+		"VpcId": {vpc}, "CidrBlock": {"10.0.2.0/24"}, "AvailabilityZone": {awsRegion() + "b"}}), `<subnetId>([^<]+)</subnetId>`)
 
 	// Amazon S3: a tagged bucket, a tagged object in it, and a tagged access
 	// point over it.
@@ -744,7 +746,7 @@ func iamSeedConditionKeyFixtures(t *testing.T, srv *sim.Server) map[string]map[s
 		"PermissionsBoundary": {boundary}, "Tags.member.1.Key": {"owner"}, "Tags.member.1.Value": {"platform"}})
 	query(url.Values{"Action": {"CreateRole"}, "Version": {"2010-05-08"}, "RoleName": {"probe"},
 		"AssumeRolePolicyDocument": {`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
-			`"Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`},
+			`"Principal":{"Service":["lambda.amazonaws.com","states.amazonaws.com"]},"Action":"sts:AssumeRole"}]}`},
 		"PermissionsBoundary": {boundary}, "Tags.member.1.Key": {"owner"}, "Tags.member.1.Value": {"platform"}})
 
 	// Amazon S3 Access Grants: a tagged instance, a tagged location behind the
@@ -915,7 +917,7 @@ func iamSeedConditionKeyFixtures(t *testing.T, srv *sim.Server) map[string]map[s
 		}
 		return query(form)
 	}
-	loadBalancer := field(elbCall("CreateLoadBalancer", url.Values{"Name": {"probe"}, "Subnets.member.1": {subnet}}),
+	loadBalancer := field(elbCall("CreateLoadBalancer", url.Values{"Name": {"probe"}, "Subnets.member.1": {subnet}, "Subnets.member.2": {secondZoneSubnet}}),
 		`<LoadBalancerArn>([^<]+)</LoadBalancerArn>`)
 	targetGroup := field(elbCall("CreateTargetGroup", url.Values{"Name": {"probe"}, "Protocol": {"HTTP"},
 		"Port": {"80"}, "VpcId": {vpc}}), `<TargetGroupArn>([^<]+)</TargetGroupArn>`)

@@ -27,7 +27,7 @@ func TestAWSServiceStateSurvivesSimulatorRestart_CLI(t *testing.T) {
 		"--function-name", functionName,
 		"--package-type", "Image",
 		"--code", "ImageUri=example.invalid/cli-persistence:1",
-		"--role", "arn:aws:iam::123456789012:role/cli-persistence-lambda"))
+		"--role", cliServiceRole(t, "lambda.amazonaws.com")))
 
 	var stateMachine struct {
 		StateMachineArn string `json:"stateMachineArn"`
@@ -35,7 +35,7 @@ func TestAWSServiceStateSurvivesSimulatorRestart_CLI(t *testing.T) {
 	parseJSON(t, runCLI(t, awsCLI("stepfunctions", "create-state-machine",
 		"--name", machineName,
 		"--definition", `{"StartAt":"Persisted","States":{"Persisted":{"Type":"Succeed"}}}`,
-		"--role-arn", "arn:aws:iam::123456789012:role/cli-persistence-step-functions",
+		"--role-arn", cliServiceRole(t, "states.amazonaws.com"),
 		"--output", "json")), &stateMachine)
 
 	runCLI(t, awsCLI("events", "create-event-bus", "--name", eventBusName))
@@ -67,7 +67,7 @@ func TestAWSServiceStateSurvivesSimulatorRestart_CLI(t *testing.T) {
 		"--name", scheduleName,
 		"--schedule-expression", "at(2099-01-01T00:00:00)",
 		"--flexible-time-window", `{"Mode":"OFF"}`,
-		"--target", `{"Arn":"arn:aws:lambda:us-east-1:123456789012:function:`+functionName+`","RoleArn":"arn:aws:iam::123456789012:role/cli-persistence-scheduler"}`))
+		"--target", `{"Arn":"arn:aws:lambda:us-east-1:123456789012:function:`+functionName+`","RoleArn":"`+cliServiceRole(t, "scheduler.amazonaws.com")+`"}`))
 
 	restartCLISimulator(t)
 

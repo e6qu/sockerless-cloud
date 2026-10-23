@@ -121,6 +121,8 @@ func TestEC2CLI_MonitorAndInstanceOps(t *testing.T) {
 		t.Fatalf("unmonitor-instances: got %q, want disabled", unmon)
 	}
 
+	// Amazon EC2 refuses to reboot an instance that is still pending.
+	runCLI(t, awsCLI("ec2", "wait", "instance-running", "--instance-ids", inst))
 	runCLI(t, awsCLI("ec2", "reboot-instances", "--instance-ids", inst))
 	runCLI(t, awsCLI("ec2", "report-instance-status", "--instances", inst,
 		"--status", "impaired", "--reason-codes", "unresponsive"))

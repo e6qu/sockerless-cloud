@@ -45,7 +45,7 @@ func lambdaInvokeForMemoryReport(t *testing.T, name, source string, memorySize i
 	lc := lambdaClient()
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(name),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		Runtime:      lambdatypes.RuntimeNodejs18x,
 		Handler:      aws.String("index.handler"),
 		Timeout:      aws.Int32(30),

@@ -353,7 +353,7 @@ func TestGlueEntityRecordsAndBatchEvaluationRuns_SDK(t *testing.T) {
 				TableName:    aws.String("sales"),
 			},
 		},
-		Role:         aws.String("arn:aws:iam::000000000000:role/glue-data-quality"),
+		Role:         aws.String(serviceRole(t, "glue.amazonaws.com")),
 		RulesetNames: []string{rulesetName},
 	})
 	require.NoError(t, err)

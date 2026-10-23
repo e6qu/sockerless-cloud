@@ -91,7 +91,7 @@ func TestCodeBuildCLI_ListBuilds(t *testing.T) {
 		"--source", `{"type":"NO_SOURCE","buildspec":"version: 0.2\nphases:\n  build:\n    commands:\n      - printf ok\n"}`,
 		"--artifacts", `{"type":"NO_ARTIFACTS"}`,
 		"--environment", `{"type":"LINUX_CONTAINER","image":"mirror.gcr.io/library/busybox:latest","computeType":"BUILD_GENERAL1_SMALL"}`,
-		"--service-role", "arn:aws:iam::123456789012:role/cli-cov-codebuild"))
+		"--service-role", cliServiceRole(t, "codebuild.amazonaws.com")))
 	t.Cleanup(func() { _ = awsCLI("codebuild", "delete-project", "--name", project).Run() })
 
 	buildID := strings.TrimSpace(runCLI(t, awsCLI("codebuild", "start-build", "--project-name", project,
@@ -118,7 +118,7 @@ func TestSFNCLI_VersionsAndValidate(t *testing.T) {
 	t.Parallel()
 	const def = `{"StartAt":"x","States":{"x":{"Type":"Pass","End":true}}}`
 	sm := strings.TrimSpace(runCLI(t, awsCLI("stepfunctions", "create-state-machine", "--name", "cli-cov-sm",
-		"--definition", def, "--role-arn", "arn:aws:iam::123456789012:role/r", "--query", "stateMachineArn", "--output", "text")))
+		"--definition", def, "--role-arn", cliServiceRole(t, "states.amazonaws.com"), "--query", "stateMachineArn", "--output", "text")))
 	// A published version appears in the listing under the state machine that
 	// published it; a machine with no published version lists none.
 	var versions struct {

@@ -27,7 +27,7 @@ func TestGlue_SessionAndStatements_SDK(t *testing.T) {
 
 	create, err := c.CreateSession(ctx, &glue.CreateSessionInput{
 		Id:          aws.String(id),
-		Role:        aws.String("arn:aws:iam::123456789012:role/GlueRole"),
+		Role:        aws.String(serviceRole(t, "glue.amazonaws.com")),
 		Description: aws.String("sdk session"),
 		Command: &gluetypes.SessionCommand{
 			Name:          aws.String("glueetl"),
@@ -134,7 +134,7 @@ func TestGlue_DevEndpointLifecycle_SDK(t *testing.T) {
 
 	create, err := c.CreateDevEndpoint(ctx, &glue.CreateDevEndpointInput{
 		EndpointName: aws.String(name),
-		RoleArn:      aws.String("arn:aws:iam::123456789012:role/GlueRole"),
+		RoleArn:      aws.String(serviceRole(t, "glue.amazonaws.com")),
 		GlueVersion:  aws.String("3.0"),
 		WorkerType:   gluetypes.WorkerTypeG1x,
 		Arguments:    map[string]string{"k": "v"},
@@ -234,7 +234,7 @@ func TestGlue_BlueprintLifecycle_SDK(t *testing.T) {
 
 	run, err := c.StartBlueprintRun(ctx, &glue.StartBlueprintRunInput{
 		BlueprintName: aws.String(name),
-		RoleArn:       aws.String("arn:aws:iam::123456789012:role/GlueRole"),
+		RoleArn:       aws.String(serviceRole(t, "glue.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	runID := aws.ToString(run.RunId)

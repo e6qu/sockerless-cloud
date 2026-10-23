@@ -79,7 +79,7 @@ func Start(t *testing.T, configDir string) *Env {
 	if configured := os.Getenv("SOCKERLESS_AWS_SIMULATOR_BINARY"); configured != "" {
 		binaryPath = requireExecutable(t, configured, "AWS Terraform tests")
 	} else {
-		build := exec.Command("go", "build", "-tags", "noui", "-o", binaryPath, ".")
+		build := exec.Command("go", "build", "-o", binaryPath, ".")
 		build.Dir = simDir
 		build.Env = append(os.Environ(), "CGO_ENABLED=0")
 		if out, err := build.CombinedOutput(); err != nil {
@@ -240,7 +240,8 @@ func (e *Env) run(t *testing.T, args ...string) ([]byte, error) {
 		return buf.Bytes(), err
 	case <-watchdog:
 		killGroup()
-		<-done // reap the killed process so no zombie/orphan remains
+		// Reap the killed process so no zombie or orphan remains.
+		t.Logf("terraform %v killed at the watchdog: %v", args, <-done)
 		t.Fatalf("terraform %v timed out near the test deadline (process group killed to avoid orphans)\n%s",
 			args, buf.Bytes())
 		return nil, nil

@@ -174,7 +174,7 @@ func TestGlue_BatchGet_SDK(t *testing.T) {
 	crawler := uniqueName("glue-sdk-batch-crawler")
 	_, err := c.CreateCrawler(ctx, &glue.CreateCrawlerInput{
 		Name:    aws.String(crawler),
-		Role:    aws.String("arn:aws:iam::123456789012:role/glue"),
+		Role:    aws.String(serviceRole(t, "glue.amazonaws.com")),
 		Targets: &gluetypes.CrawlerTargets{},
 	})
 	require.NoError(t, err)
@@ -191,7 +191,7 @@ func TestGlue_BatchGet_SDK(t *testing.T) {
 	job := uniqueName("glue-sdk-batch-job")
 	_, err = c.CreateJob(ctx, &glue.CreateJobInput{
 		Name:    aws.String(job),
-		Role:    aws.String("arn:aws:iam::123456789012:role/glue"),
+		Role:    aws.String(serviceRole(t, "glue.amazonaws.com")),
 		Command: &gluetypes.JobCommand{Name: aws.String("glueetl")},
 	})
 	require.NoError(t, err)

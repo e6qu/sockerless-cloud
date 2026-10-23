@@ -151,7 +151,7 @@ func TestSFNExecutionHistoryDifferentialAgainstAWS(t *testing.T) {
 	}
 	targets := []target{
 		{name: "real-aws", client: live, role: roleARN},
-		{name: "simulator", client: simulator, role: "arn:aws:iam::123456789012:role/sfn-role"},
+		{name: "simulator", client: simulator, role: serviceRole(t, "states.amazonaws.com")},
 	}
 	type observed struct {
 		output string
@@ -236,8 +236,8 @@ func TestSFNLambdaTaskHistoryDifferentialAgainstAWS(t *testing.T) {
 			name:       "simulator",
 			states:     sfnClient(),
 			lambda:     lambdaClient(),
-			lambdaRole: "arn:aws:iam::123456789012:role/lambda-role",
-			statesRole: "arn:aws:iam::123456789012:role/sfn-role",
+			lambdaRole: serviceRole(t, "lambda.amazonaws.com"),
+			statesRole: statesRole(t, "lambda:InvokeFunction"),
 		},
 	}
 	type observed struct {
@@ -328,7 +328,7 @@ func TestSFNNestedWorkflowDifferentialAgainstAWS(t *testing.T) {
 	}
 	targets := []target{
 		{name: "real-aws", client: live, role: roleARN},
-		{name: "simulator", client: simulator, role: "arn:aws:iam::123456789012:role/sfn-role"},
+		{name: "simulator", client: simulator, role: statesRole(t, "states:StartExecution")},
 	}
 	type observed struct {
 		parentOutput string
@@ -418,7 +418,7 @@ func TestSFNDistributedMapDifferentialAgainstAWS(t *testing.T) {
 	}
 	targets := []target{
 		{name: "real-aws", client: live, role: roleARN},
-		{name: "simulator", client: simulator, role: "arn:aws:iam::123456789012:role/sfn-role"},
+		{name: "simulator", client: simulator, role: serviceRole(t, "states.amazonaws.com")},
 	}
 	type observed struct {
 		status             sfntypes.MapRunStatus
@@ -503,7 +503,7 @@ func TestSFNControlPlaneDifferentialAgainstAWS(t *testing.T) {
 	}
 	targets := []target{
 		{name: "real-aws", client: live, role: roleARN},
-		{name: "simulator", client: simulator, role: "arn:aws:iam::123456789012:role/sfn-role"},
+		{name: "simulator", client: simulator, role: serviceRole(t, "states.amazonaws.com")},
 	}
 	type observed struct {
 		versionCount      int
@@ -708,7 +708,7 @@ func TestLambdaZIPAndLayerDifferentialAgainstAWS(t *testing.T) {
 	}
 	targets := []target{
 		{name: "real-aws", client: live, role: roleARN},
-		{name: "simulator", client: simulator, role: "arn:aws:iam::123456789012:role/test-role"},
+		{name: "simulator", client: simulator, role: serviceRole(t, "lambda.amazonaws.com")},
 	}
 	type observed struct {
 		codeSize int64
@@ -829,7 +829,7 @@ func TestLambdaVersionAliasDifferentialAgainstAWS(t *testing.T) {
 	}
 	targets := []target{
 		{name: "real-aws", client: live, role: roleARN},
-		{name: "simulator", client: simulator, role: "arn:aws:iam::123456789012:role/test-role"},
+		{name: "simulator", client: simulator, role: serviceRole(t, "lambda.amazonaws.com")},
 	}
 	type observed struct {
 		versionPayload string

@@ -15,6 +15,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/lbplane"
+	"github.com/e6qu/sockerless-cloud/sim/revisions"
 )
 
 func registerELBv2DataPlane(srv *sim.Server) {
@@ -62,14 +63,13 @@ func handleELBv2DataPlane(w http.ResponseWriter, r *http.Request, lb ELBv2LoadBa
 		http.Error(w, "no matching load balancer listener", http.StatusNotFound)
 		return
 	}
-	elbv2ForwardToHealthyTarget(w, r, listener)
+	elbv2ServeListener(w, r, listener)
 }
 
-// elbv2ForwardToHealthyTarget forwards a request a listener accepted to a
-// target in service, which is the whole of what an HTTP or HTTPS listener does
-// once it has decoded the request.
-func elbv2ForwardToHealthyTarget(w http.ResponseWriter, r *http.Request, listener ELBv2Listener) {
-	targetGroup, target, ok := elbv2HealthyTargetForListener(listener)
+// elbv2ForwardToHealthyTarget forwards a request to a target in service of
+// the target groups the forward actions name.
+func elbv2ForwardToHealthyTarget(w http.ResponseWriter, r *http.Request, listener ELBv2Listener, actions []ELBv2Action) {
+	targetGroup, target, ok := elbv2HealthyTargetForActions(actions)
 	if !ok {
 		http.Error(w, "no healthy targets", http.StatusServiceUnavailable)
 		return
@@ -223,18 +223,47 @@ func elbv2DataPlaneListenerPort(r *http.Request) int {
 // enabled Availability Zones" — rather than checking a target because a
 // request arrived for it.
 func elbv2HealthyTargetForListener(listener ELBv2Listener) (ELBv2TargetGroup, ELBv2TargetDescription, bool) {
-	for _, action := range listener.DefaultActions {
-		if action.TargetGroupArn == "" {
-			continue
-		}
-		tg, ok := elbv2TargetGroups.Get(action.TargetGroupArn)
-		if !ok {
-			continue
-		}
-		for _, target := range tg.Targets {
-			if elbv2TargetReceivesTraffic(tg, target) {
-				return tg, target, true
+	return elbv2HealthyTargetForActions(listener.DefaultActions)
+}
+
+// elbv2HealthyTargetForActions picks a target of the target groups the first
+// forwarding action sends to: a weighted forward divides requests among its
+// target groups by weight, and a target group whose weight is 0 receives
+// nothing.
+func elbv2HealthyTargetForActions(actions []ELBv2Action) (ELBv2TargetGroup, ELBv2TargetDescription, bool) {
+	type pick struct {
+		group  ELBv2TargetGroup
+		target ELBv2TargetDescription
+	}
+	for _, action := range actions {
+		var groups []revisions.Weighted[string]
+		switch {
+		case action.Forward != nil && len(action.Forward.TargetGroups) > 0:
+			for _, tuple := range action.Forward.TargetGroups {
+				weight := 1
+				if tuple.Weight != nil {
+					weight = *tuple.Weight
+				}
+				groups = append(groups, revisions.Weighted[string]{Revision: tuple.TargetGroupArn, Weight: weight})
 			}
+		case action.TargetGroupArn != "":
+			groups = append(groups, revisions.Weighted[string]{Revision: action.TargetGroupArn, Weight: 1})
+		}
+		var ready []revisions.Weighted[pick]
+		for _, g := range groups {
+			tg, ok := elbv2TargetGroups.Get(g.Revision)
+			if !ok {
+				continue
+			}
+			for _, target := range tg.Targets {
+				if elbv2TargetReceivesTraffic(tg, target) {
+					ready = append(ready, revisions.Weighted[pick]{Revision: pick{tg, target}, Weight: g.Weight})
+					break
+				}
+			}
+		}
+		if chosen, ok := revisions.Pick(ready); ok {
+			return chosen.group, chosen.target, true
 		}
 	}
 	return ELBv2TargetGroup{}, ELBv2TargetDescription{}, false

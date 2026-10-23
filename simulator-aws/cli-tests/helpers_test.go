@@ -208,6 +208,12 @@ var requiredAWSCLIOperations = [][2]string{
 	{"lambda", "checkpoint-durable-execution"},
 	{"lambda", "send-durable-execution-callback-heartbeat"},
 	{"lambda", "send-durable-execution-callback-success"},
+	{"rds", "create-db-capacity-reservation"},
+	{"rds", "describe-db-capacity-reservations"},
+	{"rds", "modify-db-capacity-reservation"},
+	{"rds", "cancel-db-capacity-reservation"},
+	{"elasticache", "prepare-migration"},
+	{"elasticache", "stop-migration"},
 }
 
 func TestMain(m *testing.M) {
@@ -273,7 +279,7 @@ func TestMain(m *testing.M) {
 			log.Fatalf("Failed to create simulator build dir: %v", err)
 		}
 		simDir, _ := filepath.Abs("..")
-		build := exec.Command("go", "build", "-tags", "noui", "-o", binaryPath, ".")
+		build := exec.Command("go", "build", "-o", binaryPath, ".")
 		build.Dir = simDir
 		build.Env = append(os.Environ(), "CGO_ENABLED=0")
 		if out, err := build.CombinedOutput(); err != nil {
@@ -605,6 +611,53 @@ func parseJSON(t *testing.T, data string, target any) {
 	if err := json.Unmarshal([]byte(data), target); err != nil {
 		t.Fatalf("Failed to parse JSON: %v\nData: %s", err, data)
 	}
+}
+
+var (
+	cliUniqueNameMu    sync.Mutex
+	cliUniqueNameCount int
+)
+
+// cliUniqueName suffixes prefix with an id unique to this run.
+func cliUniqueName(prefix string) string {
+	cliUniqueNameMu.Lock()
+	defer cliUniqueNameMu.Unlock()
+	cliUniqueNameCount++
+	return prefix + "-" + strconv.FormatInt(time.Now().UnixNano(), 36) + strconv.Itoa(cliUniqueNameCount)
+}
+
+// cliServiceRole creates, with `aws iam create-role`, a uniquely named role
+// whose trust policy lets the service principal assume it, deleted when the
+// test ends.
+func cliServiceRole(t *testing.T, principal string) string {
+	t.Helper()
+	name := cliUniqueName(strings.SplitN(principal, ".", 2)[0])
+	var created struct {
+		Role struct {
+			Arn string `json:"Arn"`
+		} `json:"Role"`
+	}
+	parseJSON(t, runCLI(t, awsCLI("iam", "create-role", "--role-name", name, "--assume-role-policy-document",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"`+principal+`"},"Action":"sts:AssumeRole"}]}`)), &created)
+	t.Cleanup(func() { _ = awsCLI("iam", "delete-role", "--role-name", name).Run() })
+	return created.Role.Arn
+}
+
+// cliStatesRole creates, with the AWS CLI, a uniquely named role AWS Step
+// Functions may assume, allowed actions on every resource, deleted when the
+// test ends.
+func cliStatesRole(t *testing.T, actions ...string) string {
+	t.Helper()
+	role := cliServiceRole(t, "states.amazonaws.com")
+	name := role[strings.LastIndex(role, "/")+1:]
+	allowed, err := json.Marshal(actions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runCLI(t, awsCLI("iam", "put-role-policy", "--role-name", name, "--policy-name", "actions", "--policy-document",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":`+string(allowed)+`,"Resource":"*"}]}`))
+	t.Cleanup(func() { _ = awsCLI("iam", "delete-role-policy", "--role-name", name, "--policy-name", "actions").Run() })
+	return role
 }
 
 func nativeDockerPlatform() string {

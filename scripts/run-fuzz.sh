@@ -77,7 +77,7 @@ run_target() {
 	{
 		echo "=== [$dir] $relative $function_name (${seconds}s) ==="
 		cd "$dir" || return
-		CGO_ENABLED=0 go test -tags=noui -run='^$' -fuzz="^${function_name}\$" -fuzztime="${seconds}s" -parallel="$fuzz_parallel" "$relative"
+		CGO_ENABLED=0 go test -run='^$' -fuzz="^${function_name}\$" -fuzztime="${seconds}s" -parallel="$fuzz_parallel" "$relative"
 	} >"$log_file" 2>&1
 }
 
@@ -194,7 +194,7 @@ prebuild_packages() {
 	while IFS=$'\t' read -r dir relative; do
 		[[ -n "$relative" ]] || continue
 		echo "=== building test binary for [$dir] $relative ==="
-		if ! (cd "$dir" && CGO_ENABLED=0 go test -tags=noui -c -o /dev/null "$relative"); then
+		if ! (cd "$dir" && CGO_ENABLED=0 go test -c -o /dev/null "$relative"); then
 			echo "!!! FAILED TO BUILD: $dir $relative" >&2
 			exit_status=1
 			continue
@@ -215,7 +215,7 @@ prebuild_packages() {
 			'$1 == d && $2 == r { print $3; exit }' "$task_file")"
 		if [[ -n "$first_target" ]]; then
 			echo "=== warming the fuzz-instrumented build for [$dir] $relative ==="
-			(cd "$dir" && CGO_ENABLED=0 go test -tags=noui -run='^$' \
+			(cd "$dir" && CGO_ENABLED=0 go test -run='^$' \
 				-fuzz="^${first_target}\$" -fuzztime=1x "$relative" >/dev/null 2>&1) || true
 		fi
 	done < <(cut -f1,2 "$task_file" | sort -u)

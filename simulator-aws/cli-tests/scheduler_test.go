@@ -17,7 +17,7 @@ func TestSchedulerCLI_ScheduleLifecycle(t *testing.T) {
 		"--name", name,
 		"--schedule-expression", "rate(1 hour)",
 		"--flexible-time-window", `{"Mode":"OFF"}`,
-		"--target", `{"Arn":"arn:aws:lambda:us-east-1:123456789012:function:cli","RoleArn":"arn:aws:iam::123456789012:role/scheduler-role"}`,
+		"--target", `{"Arn":"arn:aws:lambda:us-east-1:123456789012:function:cli","RoleArn":"`+cliServiceRole(t, "scheduler.amazonaws.com")+`"}`,
 		"--output", "json"))
 	var created struct {
 		ScheduleArn string `json:"ScheduleArn"`
@@ -57,8 +57,8 @@ func TestSchedulerCLI_ScheduleLifecycle(t *testing.T) {
 func TestSchedulerCLI_EventBridgeAndUniversalTargets(t *testing.T) {
 	t.Parallel()
 	for name, target := range map[string]string{
-		"cli-eventbridge-target": `{"Arn":"arn:aws:events:us-east-1:123456789012:event-bus/default","RoleArn":"arn:aws:iam::123456789012:role/scheduler-role","Input":"{\"run\":\"nightly\"}","EventBridgeParameters":{"DetailType":"Nightly Run","Source":"scheduler.cli"}}`,
-		"cli-universal-target":   `{"Arn":"arn:aws:scheduler:::aws-sdk:sqs:sendMessage","RoleArn":"arn:aws:iam::123456789012:role/scheduler-role","Input":"{\"QueueUrl\":\"https://sqs.us-east-1.amazonaws.com/123456789012/cli\",\"MessageBody\":\"hello\"}"}`,
+		"cli-eventbridge-target": `{"Arn":"arn:aws:events:us-east-1:123456789012:event-bus/default","RoleArn":"` + cliServiceRole(t, "scheduler.amazonaws.com") + `","Input":"{\"run\":\"nightly\"}","EventBridgeParameters":{"DetailType":"Nightly Run","Source":"scheduler.cli"}}`,
+		"cli-universal-target":   `{"Arn":"arn:aws:scheduler:::aws-sdk:sqs:sendMessage","RoleArn":"` + cliServiceRole(t, "scheduler.amazonaws.com") + `","Input":"{\"QueueUrl\":\"https://sqs.us-east-1.amazonaws.com/123456789012/cli\",\"MessageBody\":\"hello\"}"}`,
 	} {
 		runCLI(t, awsCLI("scheduler", "create-schedule", "--name", name,
 			"--schedule-expression", "rate(1 hour)", "--flexible-time-window", `{"Mode":"OFF"}`,
@@ -97,6 +97,6 @@ func TestSchedulerCLI_RetryPolicyRange(t *testing.T) {
 	t.Parallel()
 	out := runCLIExpectError(t, awsCLI("scheduler", "create-schedule", "--name", "cli-retry-range",
 		"--schedule-expression", "rate(1 hour)", "--flexible-time-window", `{"Mode":"OFF"}`,
-		"--target", `{"Arn":"arn:aws:lambda:us-east-1:123456789012:function:cli","RoleArn":"arn:aws:iam::123456789012:role/scheduler-role","RetryPolicy":{"MaximumRetryAttempts":186}}`))
+		"--target", `{"Arn":"arn:aws:lambda:us-east-1:123456789012:function:cli","RoleArn":"`+cliServiceRole(t, "scheduler.amazonaws.com")+`","RetryPolicy":{"MaximumRetryAttempts":186}}`))
 	assert.Contains(t, out, "ValidationException")
 }

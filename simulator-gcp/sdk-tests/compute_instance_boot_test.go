@@ -3,6 +3,7 @@ package gcp_sdk_test
 import (
 	"fmt"
 	"net/netip"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -108,6 +109,10 @@ md() {
 	exec 3<&-
 }
 echo "name=$(md /computeMetadata/v1/instance/name)"
+echo "id=$(md /computeMetadata/v1/instance/id)"
+echo "zone=$(md /computeMetadata/v1/instance/zone)"
+echo "hostname=$(md /computeMetadata/v1/instance/hostname)"
+echo "project-id=$(md /computeMetadata/v1/project/project-id)"
 echo "marker=$(md /computeMetadata/v1/instance/attributes/marker)"
 echo "project-marker=$(md /computeMetadata/v1/project/attributes/project-marker)"
 echo "ip=$(md /computeMetadata/v1/instance/network-interfaces/0/ip)"
@@ -120,7 +125,7 @@ echo "external-ip=$(md /computeMetadata/v1/instance/network-interfaces/0/access-
 echo "db=$(getent hosts db.boot.internal | awk '{print $1}')"
 `
 	// Every instance of the project reads the project's common metadata.
-	requireProject(t, project)
+	number := requireProject(t, project)
 	_, err = svc.Projects.SetCommonInstanceMetadata(project, &compute.Metadata{Items: []*compute.MetadataItems{
 		{Key: "project-marker", Value: googleapi.String("from-the-project")},
 	}}).Do()
@@ -160,6 +165,10 @@ echo "db=$(getent hosts db.boot.internal | awk '{print $1}')"
 	assert.Contains(t, console, "startup-script: boot=1")
 	assert.Contains(t, console, "startup-script: name="+name, "the metadata server answers the instance's own name through the subnetwork's sidecar")
 	assert.Contains(t, console, "startup-script: marker=from-metadata", "the instance reads its custom metadata")
+	assert.Contains(t, console, "startup-script: id="+strconv.FormatUint(got.Id, 10), "the instance reads its own id")
+	assert.Contains(t, console, "startup-script: zone=projects/"+number+"/zones/"+zone)
+	assert.Contains(t, console, "startup-script: hostname="+name+"."+zone+".c."+project+".internal")
+	assert.Contains(t, console, "startup-script: project-id="+project)
 	assert.Contains(t, console, "startup-script: db=10.86.0.50", "the private zone of the network resolves through the subnetwork's resolver")
 	assert.Contains(t, console, "startup-script: project-marker=from-the-project", "the instance reads its project's common metadata")
 	iface := got.NetworkInterfaces[0]

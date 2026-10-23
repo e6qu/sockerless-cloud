@@ -1,16 +1,13 @@
 package main
 
 import (
-	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
@@ -51,40 +48,6 @@ type sfnRESTXMLShape struct {
 
 var sfnAWSServer *sim.Server
 
-func sfnSignInternalAWSRequest(request *http.Request, service string, payload []byte) {
-	now := time.Now().UTC()
-	amzDate := now.Format("20060102T150405Z")
-	date := now.Format("20060102")
-	request.Host = "localhost"
-	request.Header.Set("X-Amz-Date", amzDate)
-	signedHeaders := []string{"host", "x-amz-date"}
-	payloadHash := hexSHA256(payload)
-	if service == "s3" {
-		// Amazon S3 verifies the declared streaming payload hash without
-		// consuming the request body in its authentication middleware.
-		request.Header.Set("X-Amz-Content-Sha256", payloadHash)
-		signedHeaders = []string{"host", "x-amz-content-sha256", "x-amz-date"}
-	}
-	credential := credScope{
-		accessKeyID: seedAdminAccessKey,
-		date:        date,
-		region:      awsRegion(),
-		service:     service,
-	}
-	canonical := sigv4CanonicalRequest(
-		request,
-		signedHeaders,
-		sigv4CanonicalQuery(request.URL.Query(), false),
-		payloadHash,
-		service != "s3",
-	)
-	signature := sigv4Signature(seedAdminSecretKey, credential, amzDate, canonical)
-	request.Header.Set("Authorization", fmt.Sprintf(
-		"AWS4-HMAC-SHA256 Credential=%s/%s/%s/%s/aws4_request, SignedHeaders=%s, Signature=%s",
-		seedAdminAccessKey, date, awsRegion(), service, strings.Join(signedHeaders, ";"), signature,
-	))
-}
-
 func sfnInputMap(input any) (map[string]any, error) {
 	encoded, err := json.Marshal(input)
 	if err != nil {
@@ -123,7 +86,7 @@ func sfnRESTScalar(value any) string {
 	}
 }
 
-func sfnInvokeRESTJSONService(service, action string, input any) (any, *sfnExecutionError) {
+func sfnInvokeRESTJSONService(ctx context.Context, actor awsActor, service, action string, input any) (any, *sfnExecutionError) {
 	operations, ok := sfnAWSRESTJSONOperations[service]
 	if !ok {
 		return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "AWS REST-JSON service is not implemented: " + service}
@@ -204,22 +167,21 @@ func sfnInvokeRESTJSONService(service, action string, input any) (any, *sfnExecu
 		}
 		requestPath += separator + encoded
 	}
-	request := httptest.NewRequest(operation.Method, requestPath, bytes.NewReader(payload))
-	request.Header = headers
 	if len(payload) > 0 {
-		request.Header.Set("Content-Type", "application/json")
+		headers.Set("Content-Type", "application/json")
 	}
-	sfnSignInternalAWSRequest(request, service, payload)
-	response := httptest.NewRecorder()
-	sfnAWSServer.ServeHTTP(response, request)
-	if response.Code >= http.StatusBadRequest {
+	response, err := awsCallResponse(ctx, actor, sfnSigningName(service), operation.Method, requestPath, headers, payload)
+	if err != nil {
+		return nil, sfnCallRefused(service+".", err)
+	}
+	if response.StatusCode >= http.StatusBadRequest {
 		code, message := awsJSONError(response.Body.Bytes())
 		if code == "" {
-			code = http.StatusText(response.Code)
+			code = http.StatusText(response.StatusCode)
 		}
 		return nil, &sfnExecutionError{Name: service + "." + code, Cause: message}
 	}
-	output, err := sfnRESTJSONOutput(operation, response.Result())
+	output, err := sfnRESTJSONOutput(operation, response.Header(), response.Body.Bytes())
 	if err != nil {
 		return nil, &sfnExecutionError{
 			Name:  "States.Runtime",
@@ -229,12 +191,7 @@ func sfnInvokeRESTJSONService(service, action string, input any) (any, *sfnExecu
 	return output, nil
 }
 
-func sfnRESTJSONOutput(operation sfnRESTOperation, response *http.Response) (any, error) {
-	defer response.Body.Close()
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		return nil, err
-	}
+func sfnRESTJSONOutput(operation sfnRESTOperation, header http.Header, body []byte) (any, error) {
 	output := map[string]any{}
 	hasPayload := false
 	for _, binding := range operation.OutputBindings {
@@ -256,7 +213,7 @@ func sfnRESTJSONOutput(operation sfnRESTOperation, response *http.Response) (any
 				output[binding.Name] = value
 			}
 		case "header":
-			if value := response.Header.Get(binding.WireName); value != "" {
+			if value := header.Get(binding.WireName); value != "" {
 				output[binding.Name] = value
 			}
 		}

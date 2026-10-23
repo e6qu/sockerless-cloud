@@ -83,9 +83,9 @@ jobs:
       fail-fast: false
       matrix:
         image:
-          - { name: sockerless-simulator-aws, dockerfile: simulator-aws/Dockerfile, context: . }
-          - { name: sockerless-simulator-gcp, dockerfile: simulator-gcp/Dockerfile, context: . }
-          - { name: sockerless-simulator-azure, dockerfile: simulator-azure/Dockerfile, context: . }
+          - { name: sockerless-simulator-aws, simulator: simulator-aws, dockerfile: simulator-aws/Dockerfile, context: . }
+          - { name: sockerless-simulator-gcp, simulator: simulator-gcp, dockerfile: simulator-gcp/Dockerfile, context: . }
+          - { name: sockerless-simulator-azure, simulator: simulator-azure, dockerfile: simulator-azure/Dockerfile, context: . }
         arch:
           - { platform: linux/amd64, runner: ubuntu-latest, suffix: amd64 }
           - { platform: linux/arm64, runner: ubuntu-24.04-arm, suffix: arm64 }
@@ -96,6 +96,11 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.prepare.outputs.commit }}
+
+      # The image embeds the console, which the repository carries as source.
+      - uses: ./.github/actions/build-console
+        with:
+          simulator: ${{ matrix.image.simulator }}
 
       # BuildKit comes from Google's Docker Hub mirror at the digest Docker Hub
       # serves: Docker Hub limits anonymous pulls, and shared runners exhaust it.

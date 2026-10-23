@@ -22,7 +22,7 @@ func TestSFN_LambdaTaskHistory_SDK(t *testing.T) {
 	functionName := "sfn-sdk-history-lambda"
 	_, err := lambdaAPI.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(functionName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		PackageType:  lambdatypes.PackageTypeImage,
 		Code: &lambdatypes.FunctionCode{
 			ImageUri: aws.String(lambdaHandlerImageName),
@@ -45,7 +45,7 @@ func TestSFN_LambdaTaskHistory_SDK(t *testing.T) {
 	created, err := statesAPI.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String("sfn-sdk-lambda-history"),
 		Definition: aws.String(definition),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn:    aws.String(statesRole(t, "lambda:InvokeFunction")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -125,7 +125,7 @@ func TestSFN_NestedWorkflowIntegration_SDK(t *testing.T) {
 	child, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String(childName),
 		Definition: aws.String(`{"StartAt":"Complete","States":{"Complete":{"Type":"Pass","Parameters":{"child.$":"$"},"End":true}}}`),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn:    aws.String(serviceRole(t, "states.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -138,7 +138,7 @@ func TestSFN_NestedWorkflowIntegration_SDK(t *testing.T) {
 	parent, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String(parentName),
 		Definition: aws.String(parentDefinition),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn:    aws.String(statesRole(t, "states:StartExecution")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -200,7 +200,7 @@ func TestSFN_Activities_SDK(t *testing.T) {
 	machine, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String("sfn-sdk-activity-sm"),
 		Definition: aws.String(fmt.Sprintf(`{"StartAt":"Work","States":{"Work":{"Type":"Task","Resource":%q,"End":true}}}`, aws.ToString(create.ActivityArn))),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn:    aws.String(serviceRole(t, "states.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -265,7 +265,7 @@ func TestSFN_VersionsAndAliases_SDK(t *testing.T) {
 	sm, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String("sfn-sdk-ver-sm"),
 		Definition: aws.String(`{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}`),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn:    aws.String(serviceRole(t, "states.amazonaws.com")),
 		Publish:    true,
 	})
 	require.NoError(t, err)
@@ -347,7 +347,7 @@ func TestSFN_TestState_SDK(t *testing.T) {
 	out, err := c.TestState(ctx, &sfn.TestStateInput{
 		Definition: aws.String(`{"Type":"Pass","Result":{"hello":"world"},"End":true}`),
 		Input:      aws.String(`{"x":1}`),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn:    aws.String(serviceRole(t, "states.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, sfntypes.TestExecutionStatusSucceeded, out.Status)
@@ -363,7 +363,7 @@ func TestSFN_StartSyncExecution_SDK(t *testing.T) {
 	sm, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String("sfn-sdk-sync-sm"),
 		Definition: aws.String(`{"StartAt":"P","States":{"P":{"Type":"Pass","Result":{"ok":true},"End":true}}}`),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn:    aws.String(serviceRole(t, "states.amazonaws.com")),
 		Type:       sfntypes.StateMachineTypeExpress,
 	})
 	require.NoError(t, err)
@@ -403,7 +403,7 @@ func TestSFN_DescribeForExecutionAndRedrive_SDK(t *testing.T) {
 				"F":{"Type":"Fail","Error":"E","Cause":"boom"}
 			}
 		}`),
-		RoleArn: aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn: aws.String(serviceRole(t, "states.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -485,7 +485,7 @@ func TestSFN_MapRuns_SDK(t *testing.T) {
 				"End":true
 			}}
 		}`),
-		RoleArn: aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn: aws.String(serviceRole(t, "states.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {

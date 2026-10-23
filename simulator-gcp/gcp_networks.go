@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"strings"
 	"sync"
@@ -271,6 +272,20 @@ func gcpConnectorNetworkName(connectorName string) string {
 
 const gcpConnectorNetworkLabel = "sockerless-gcp-connector"
 
+// gcpDirectEgressSubnetwork is the subnetwork a Cloud Run workload's direct
+// VPC egress names.
+func gcpDirectEgressSubnetwork(project, region string, vpc *VpcAccess) string {
+	ni := vpc.NetworkInterfaces[0]
+	network := normalizeComputeGlobalNetworkRef(project, gcpDefaultString(ni.Network, "default"))
+	subnetRef := ni.Subnetwork
+	if subnetRef == "" {
+		// Cloud Run: "If subnetwork is not specified, the subnetwork with
+		// the same name as the network will be used."
+		subnetRef = network[strings.LastIndex(network, "/")+1:]
+	}
+	return normalizeComputeSubnetworkRef(project, region, subnetRef)
+}
+
 // gcpCloudRunNetwork is the network a Cloud Run workload runs on: the
 // subnetwork its direct VPC egress names, the subnetwork or range of the
 // Serverless VPC Access connector it names, or the platform network when it
@@ -279,15 +294,7 @@ const gcpConnectorNetworkLabel = "sockerless-gcp-connector"
 func gcpCloudRunNetwork(ctx context.Context, project, region string, vpc *VpcAccess, owner string) (gcpWorkloadNetwork, error) {
 	switch {
 	case vpc != nil && len(vpc.NetworkInterfaces) > 0:
-		ni := vpc.NetworkInterfaces[0]
-		network := normalizeComputeGlobalNetworkRef(project, gcpDefaultString(ni.Network, "default"))
-		subnetRef := ni.Subnetwork
-		if subnetRef == "" {
-			// Cloud Run: "If subnetwork is not specified, the subnetwork with
-			// the same name as the network will be used."
-			subnetRef = network[strings.LastIndex(network, "/")+1:]
-		}
-		return gcpAttachToSubnetwork(ctx, normalizeComputeSubnetworkRef(project, region, subnetRef), owner)
+		return gcpAttachToSubnetwork(ctx, gcpDirectEgressSubnetwork(project, region, vpc), owner)
 	case vpc != nil && vpc.Connector != "":
 		return gcpConnectorNetwork(ctx, project, region, vpc.Connector, owner)
 	}
@@ -312,10 +319,12 @@ func gcpPlatformWorkloadNetwork(ctx context.Context, owner string) (gcpWorkloadN
 	return netw, nil
 }
 
-// gcpReservePlatformAddress records the address of a workload an earlier
-// process placed on the platform network, so no lease of this process takes
-// it, and returns the release.
-func gcpReservePlatformAddress(ctx context.Context, owner placement.Handle, name string) (func(), error) {
+// gcpReserveAdoptedAddress records the address of a Cloud Run workload an
+// earlier process placed, so no lease of this process takes it, and returns
+// the release: in the subnetwork its direct VPC egress names, or on the
+// platform network. name is the workload's resource name, which carries its
+// project and region.
+func gcpReserveAdoptedAddress(ctx context.Context, owner placement.Handle, name string, vpc *VpcAccess) (func(), error) {
 	address, err := owner.Address(ctx)
 	if err != nil {
 		return nil, err
@@ -324,7 +333,32 @@ func gcpReservePlatformAddress(ctx context.Context, owner placement.Handle, name
 	if err != nil {
 		return nil, fmt.Errorf("address %q of %s: %w", address, name, err)
 	}
+	if vpc != nil && len(vpc.NetworkInterfaces) > 0 {
+		return gcpHoldWorkloadAddress(gcpDirectEgressSubnetwork(resourceProject(name), resourceLocation(name), vpc), name, addr)
+	}
 	return sim.ReservePlatformAddress(ctx, gcpPlatformNetworkName(), addr, name)
+}
+
+// gcpHoldWorkloadAddress records in the subnetwork's ledger that owner holds
+// addr, and returns the release.
+func gcpHoldWorkloadAddress(subnetLink, owner string, addr netip.Addr) (func(), error) {
+	gcpSubnetIPAMs.Lock()
+	defer gcpSubnetIPAMs.Unlock()
+	pool, err := gcpSubnetworkIPAMLocked(subnetLink)
+	if err != nil {
+		return nil, err
+	}
+	ip, err := pool.Reserve(owner, net.ParseIP(addr.String()))
+	if err != nil {
+		return nil, fmt.Errorf("subnetwork %s: hold %s for %s: %w", subnetLink, addr, owner, err)
+	}
+	return func() {
+		gcpSubnetIPAMs.Lock()
+		defer gcpSubnetIPAMs.Unlock()
+		if pool, ok := gcpSubnetIPAMs.pools[subnetLink]; ok {
+			pool.Release(ip)
+		}
+	}, nil
 }
 
 // gcpConnectorNetwork places a workload where a Serverless VPC Access

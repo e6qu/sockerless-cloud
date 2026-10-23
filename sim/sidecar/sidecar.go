@@ -7,16 +7,11 @@
 package sidecar
 
 import (
-	"archive/tar"
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"embed"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
+	"io/fs"
 	"net"
 	"net/netip"
 	"strconv"
@@ -25,16 +20,44 @@ import (
 	"time"
 
 	"github.com/moby/moby/client"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
 
-// The binaries are built by build.sh with the pinned toolchain; the gate
-// scripts/check-sidecar-build.sh keeps them equal to a rebuild of cmd/sidecar.
-//
-//go:embed bin/sidecar-linux-amd64 bin/sidecar-linux-arm64
-var binaries embed.FS
+// goImage compiles the sidecar on the engine.
+const goImage = "mirror.gcr.io/library/golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d"
+
+const dockerfile = `FROM ` + goImage + ` AS build
+ARG GOPROXY
+COPY ` + sim.EngineBuildTrustFile + ` /tmp/
+RUN cat /tmp/` + sim.EngineBuildTrustFile + ` >> /etc/ssl/certs/ca-certificates.crt
+WORKDIR /src
+COPY . .
+ENV CGO_ENABLED=0
+RUN go build -trimpath -ldflags="-s -w" -o /out/sidecar ./sidecar/cmd/sidecar
+
+FROM scratch
+COPY --from=build /out/sidecar /sidecar
+ENTRYPOINT ["/sidecar"]
+`
+
+// build compiles the sidecar from the sources the simulator carries.
+var build = sim.EngineBuild{
+	Name:  "sockerless-sidecar",
+	Bases: []string{goImage},
+	Context: func(string) (map[string][]byte, error) {
+		files := map[string][]byte{"Dockerfile": []byte(dockerfile)}
+		err := fs.WalkDir(sim.SidecarSource, ".", func(name string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || strings.HasSuffix(name, "_test.go") {
+				return err
+			}
+			data, err := sim.SidecarSource.ReadFile(name)
+			files[name] = data
+			return err
+		})
+		return files, err
+	},
+}
 
 // Spec places one sidecar.
 type Spec struct {
@@ -69,7 +92,7 @@ func Start(ctx context.Context, spec Spec, sink sim.LogSink) (*sim.ContainerHand
 	if err := sim.RequireContainerRuntime("starting a network sidecar"); err != nil {
 		return nil, err
 	}
-	image, platform, err := ensureImage(ctx, cli)
+	image, platform, err := EnsureImage(ctx, cli)
 	if err != nil {
 		return nil, err
 	}
@@ -129,94 +152,14 @@ func isRefused(err error) bool {
 	return errors.As(err, &sysErr) && bytes.Contains([]byte(err.Error()), []byte("refused"))
 }
 
-var imageMu sync.Mutex
-
-// ensureImage builds the sidecar image for the engine's own architecture from
-// nothing but the embedded binary, once per engine and source version, and
-// returns the image and its platform.
-func ensureImage(ctx context.Context, cli *client.Client) (string, string, error) {
-	imageMu.Lock()
-	defer imageMu.Unlock()
-	info, err := cli.Info(ctx, client.InfoOptions{})
+// EnsureImage builds the sidecar image for the engine's own architecture,
+// once per engine and source version, and returns the image and its platform.
+func EnsureImage(ctx context.Context, cli *client.Client) (string, string, error) {
+	image, platform, err := sim.EnsureEngineBuild(ctx, cli, build)
 	if err != nil {
-		return "", "", fmt.Errorf("sidecar: engine info: %w", err)
-	}
-	arch, err := goArch(info.Info.Architecture)
-	if err != nil {
-		return "", "", err
-	}
-	binary, err := binaries.ReadFile("bin/sidecar-linux-" + arch)
-	if err != nil {
-		return "", "", fmt.Errorf("sidecar: no binary for %s: %w", arch, err)
-	}
-	sum := sha256.Sum256(binary)
-	image := "sockerless-sidecar:" + hex.EncodeToString(sum[:])[:16]
-	platform := "linux/" + arch
-	if _, err := cli.ImageInspect(ctx, image); err == nil {
-		return image, platform, nil
-	}
-	var context bytes.Buffer
-	archive := tar.NewWriter(&context)
-	dockerfile := "FROM scratch\nCOPY sidecar /sidecar\nENTRYPOINT [\"/sidecar\"]\n"
-	for _, f := range []struct {
-		name string
-		mode int64
-		data []byte
-	}{{"Dockerfile", 0o644, []byte(dockerfile)}, {"sidecar", 0o755, binary}} {
-		if err := archive.WriteHeader(&tar.Header{Name: f.name, Mode: f.mode, Size: int64(len(f.data))}); err != nil {
-			return "", "", err
-		}
-		if _, err := archive.Write(f.data); err != nil {
-			return "", "", err
-		}
-	}
-	if err := archive.Close(); err != nil {
-		return "", "", err
-	}
-	result, err := cli.ImageBuild(ctx, &context, client.ImageBuildOptions{
-		Tags:       []string{image},
-		Dockerfile: "Dockerfile",
-		Remove:     true,
-		Platforms:  []ocispec.Platform{{OS: "linux", Architecture: arch}},
-	})
-	if err != nil {
-		return "", "", fmt.Errorf("sidecar: build %s: %w", image, err)
-	}
-	defer func() { _ = result.Body.Close() }()
-	if err := drainBuild(result.Body); err != nil {
-		return "", "", fmt.Errorf("sidecar: build %s: %w", image, err)
+		return "", "", fmt.Errorf("sidecar: %w", err)
 	}
 	return image, platform, nil
-}
-
-func goArch(engineArch string) (string, error) {
-	switch engineArch {
-	case "x86_64", "amd64":
-		return "amd64", nil
-	case "aarch64", "arm64":
-		return "arm64", nil
-	}
-	return "", fmt.Errorf("sidecar: no binary for the engine's architecture %q", engineArch)
-}
-
-func drainBuild(stream io.Reader) error {
-	dec := json.NewDecoder(stream)
-	for {
-		var event struct {
-			Error       string `json:"error"`
-			ErrorDetail struct {
-				Message string `json:"message"`
-			} `json:"errorDetail"`
-		}
-		if err := dec.Decode(&event); errors.Is(err, io.EOF) {
-			return nil
-		} else if err != nil {
-			return fmt.Errorf("malformed build stream: %w", err)
-		}
-		if msg := event.Error + event.ErrorDetail.Message; msg != "" {
-			return errors.New(msg)
-		}
-	}
 }
 
 // DNSUpstream renders the simulator's per-network listener as the sidecar
@@ -259,7 +202,7 @@ func StartShares(ctx context.Context, spec SharesSpec, sink sim.LogSink) (*sim.C
 	if err := sim.RequireContainerRuntime("starting a share container"); err != nil {
 		return nil, err
 	}
-	image, platform, err := ensureImage(ctx, cli)
+	image, platform, err := EnsureImage(ctx, cli)
 	if err != nil {
 		return nil, err
 	}
@@ -306,6 +249,90 @@ func StartShares(ctx context.Context, spec SharesSpec, sink sim.LogSink) (*sim.C
 	case <-handle.Exited():
 		handle.Cancel()
 		return nil, fmt.Errorf("sidecar: the share container %s ended before it served", spec.Name)
+	case <-ctx.Done():
+		handle.Cancel()
+		return nil, ctx.Err()
+	}
+}
+
+// Forward is a TCP listener on a workload's own loopback, Listen, that relays
+// each connection to Upstream, an address on the workload's network.
+type Forward struct {
+	Listen   string
+	Upstream string
+}
+
+// forwarderLabel marks a forwarder container; its value is the name of the
+// workload it serves.
+const forwarderLabel = "sockerless-sim-forwarder"
+
+// ForwarderSpec places one forwarder: the sidecar program as the owner of a
+// workload's network namespace, placed with the workload's network settings
+// before the workload joins it, so the forwards listen before the workload's
+// first process runs.
+type ForwarderSpec struct {
+	// Namespace is the network side of the workload's configuration: its
+	// network, address, interface, aliases, hosts, resolvers, hostname and
+	// published ports.
+	Namespace sim.ContainerConfig
+	Forwards  []Forward
+	// Workload names the workload the forwarder serves, for its label.
+	Workload string
+}
+
+// StartForwarder runs a forwarder and returns its handle once its forwards
+// listen, or an error when ctx ends first; the container goes with the
+// handle's Cancel. It holds no capability: the listeners are unprivileged
+// ports.
+func StartForwarder(ctx context.Context, spec ForwarderSpec, sink sim.LogSink) (*sim.ContainerHandle, error) {
+	if len(spec.Forwards) == 0 {
+		return nil, errors.New("sidecar: a forwarder needs forwards")
+	}
+	cli := sim.DockerClient()
+	if err := sim.RequireContainerRuntime("starting a forwarder"); err != nil {
+		return nil, err
+	}
+	image, platform, err := EnsureImage(ctx, cli)
+	if err != nil {
+		return nil, err
+	}
+	args := []string{"forward"}
+	for _, f := range spec.Forwards {
+		if strings.ContainsRune(f.Listen, '=') || strings.ContainsRune(f.Upstream, '=') {
+			return nil, fmt.Errorf("sidecar: forward %s to %s names an address with '='", f.Listen, f.Upstream)
+		}
+		args = append(args, f.Listen+"="+f.Upstream)
+	}
+	cfg := spec.Namespace
+	cfg.Image = image
+	cfg.Architecture = platform
+	cfg.Command = nil
+	cfg.Args = args
+	cfg.Labels = map[string]string{forwarderLabel: spec.Workload}
+	cfg.Sandbox = sim.SandboxProfile{
+		CapDrop:          []string{"ALL"},
+		NoNewPrivileges:  true,
+		DenyDockerSocket: true,
+		DenyHostNetwork:  true,
+		ReadonlyRootfs:   true,
+	}
+	listening := make(chan struct{})
+	var once sync.Once
+	handle, err := sim.StartContainerSyncContext(ctx, cfg, sim.FuncSink(func(line sim.LogLine) {
+		sink.WriteLog(line)
+		if strings.HasPrefix(line.Text, "sidecar: forward ") {
+			once.Do(func() { close(listening) })
+		}
+	}))
+	if err != nil {
+		return nil, err
+	}
+	select {
+	case <-listening:
+		return handle, nil
+	case <-handle.Exited():
+		handle.Cancel()
+		return nil, fmt.Errorf("sidecar: the forwarder %s ended before it listened", cfg.Name)
 	case <-ctx.Done():
 		handle.Cancel()
 		return nil, ctx.Err()

@@ -21,7 +21,7 @@ Pages read the real Azure Resource Manager and Azure Monitor APIs at the portal'
 
 ## Embedding
 
-`make embed` in `simulator-azure/` copies this package's `dist/` to `simulator-azure/dist/` (see `make/go-app.mk`), which the binary bundles via `//go:embed all:dist` (`simulator-azure/ui_embed.go`) and serves at `/ui/`. A `-tags noui` build skips it.
+`make embed` in `simulator-azure/` copies this package's `dist/` to `simulator-azure/dist/` (see `make/go-app.mk`), which the binary bundles via `//go:embed all:dist` (`simulator-azure/ui_embed.go`) in a `-tags console` build and serves at `/ui/`. A plain build embeds none and serves the bundle `SIM_CONSOLE_DIR` names.
 
 ## Development
 

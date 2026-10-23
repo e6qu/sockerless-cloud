@@ -107,7 +107,7 @@ func TestLambda_CallTimeIAMEnforcement(t *testing.T) {
 	// Denied action → AccessDeniedException.
 	_, err = lr.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String("should-be-denied"),
-		Role:         aws.String("arn:aws:iam::000000000000:role/r"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		Handler:      aws.String("index.handler"),
 		Runtime:      lambdatypes.RuntimeNodejs20x,
 		Code:         &lambdatypes.FunctionCode{ZipFile: lambdaDeploymentZip(t)},

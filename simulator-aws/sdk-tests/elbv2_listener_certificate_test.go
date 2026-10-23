@@ -25,7 +25,11 @@ func TestELBv2_HTTPSListenerCertificateRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	vpcID := aws.ToString(vpc.Vpc.VpcId)
 	sub, err := ec2c.CreateSubnet(ctx, &ec2.CreateSubnetInput{
-		VpcId: aws.String(vpcID), CidrBlock: aws.String("10.74.1.0/24"),
+		VpcId: aws.String(vpcID), CidrBlock: aws.String("10.74.1.0/24"), AvailabilityZone: aws.String("us-east-1a"),
+	})
+	require.NoError(t, err)
+	sub2, err := ec2c.CreateSubnet(ctx, &ec2.CreateSubnetInput{
+		VpcId: aws.String(vpcID), CidrBlock: aws.String("10.74.2.0/24"), AvailabilityZone: aws.String("us-east-1b"),
 	})
 	require.NoError(t, err)
 
@@ -36,7 +40,7 @@ func TestELBv2_HTTPSListenerCertificateRoundTrip(t *testing.T) {
 	lb, err := c.CreateLoadBalancer(ctx, &elasticloadbalancingv2.CreateLoadBalancerInput{
 		Name:    aws.String(lbName),
 		Type:    elbv2types.LoadBalancerTypeEnumApplication,
-		Subnets: []string{aws.ToString(sub.Subnet.SubnetId)},
+		Subnets: []string{aws.ToString(sub.Subnet.SubnetId), aws.ToString(sub2.Subnet.SubnetId)},
 	})
 	require.NoError(t, err)
 	lbArn := aws.ToString(lb.LoadBalancers[0].LoadBalancerArn)

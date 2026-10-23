@@ -8,9 +8,8 @@ require (
 	cloud.google.com/go/bigquery v1.85.0
 	cloud.google.com/go/bigtable v1.58.0
 	cloud.google.com/go/cloudbuild v1.35.0
-	cloud.google.com/go/compute/metadata v0.10.0
 	cloud.google.com/go/eventarc v1.26.0
-	cloud.google.com/go/firestore v1.26.0
+	cloud.google.com/go/firestore v1.28.0
 	cloud.google.com/go/functions v1.26.0
 	cloud.google.com/go/iam v1.14.0
 	cloud.google.com/go/kms v1.35.0
@@ -25,7 +24,7 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/stretchr/testify v1.12.1
-	google.golang.org/api v0.304.0
+	google.golang.org/api v0.307.0
 	google.golang.org/genproto v0.0.0-20261012220534-4341edf3f941
 	google.golang.org/genproto/googleapis/api v0.0.0-20261012220534-4341edf3f941
 	google.golang.org/grpc v1.84.0
@@ -33,6 +32,7 @@ require (
 )
 
 require (
+	cloud.google.com/go/compute/metadata v0.10.0 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/GoogleCloudPlatform/grpc-gcp-go/grpcgcp v1.6.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.62.0 // indirect
@@ -78,7 +78,7 @@ require (
 	github.com/google/s2a-go v0.1.11 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.23 // indirect
-	github.com/googleapis/gax-go/v2 v2.26.2 // indirect
+	github.com/googleapis/gax-go/v2 v2.27.0
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.9.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
@@ -98,7 +98,7 @@ require (
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261012220534-4341edf3f941 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261019180522-ce908d29299b // indirect
 )
 
 replace github.com/e6qu/sockerless-cloud/testutil => ../../testutil

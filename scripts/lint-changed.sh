@@ -24,20 +24,6 @@ fi
 sorted=$(printf '%s\n' "${modules[@]}" | sort -u)
 
 failed=0
-# Track placeholder dist/ directories so we tear them down on exit
-# regardless of whether linting succeeds or fails.
-placeholders=()
-# shellcheck disable=SC2317,SC2329  # invoked via `trap`, not directly
-cleanup() {
-  if [ "${#placeholders[@]}" -eq 0 ]; then
-    return
-  fi
-  for p in "${placeholders[@]}"; do
-    rm -rf "$p"
-  done
-}
-trap cleanup EXIT
-
 for mod in $sorted; do
   # A module may exist only to anchor shared metadata or generated assets.
   # golangci-lint reports a context-loading failure when that module has no
@@ -45,15 +31,6 @@ for mod in $sorted; do
   if ! find "$mod" -type f -name '*.go' -print -quit | grep -q .; then
     echo "lint: $mod (no Go source; skipped)"
     continue
-  fi
-  # Modules with a `//go:embed all:dist` directive fail to compile when
-  # dist/ doesn't exist, which masks every other lint finding. Stub a
-  # placeholder so the lint covers the rest of the package. Real
-  # builds rebuild dist/ in their own flow.
-  if grep -qr 'all:dist' "$mod"/*.go 2>/dev/null && [ ! -d "$mod/dist" ]; then
-    mkdir -p "$mod/dist"
-    touch "$mod/dist/.lint-placeholder"
-    placeholders+=("$mod/dist")
   fi
   echo "lint: $mod"
   # The timeout is .golangci.yml's; a second one here, shorter, failed the

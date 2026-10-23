@@ -6,16 +6,19 @@ import (
 	"testing"
 )
 
-// A read from outside every workload is answered for the default project:
-// its ID and number from Cloud Resource Manager and its Compute Engine default
-// service account, which IAM holds.
-func TestMetadataServesTheDefaultProjectFromCloudResourceManager(t *testing.T) {
+// An instance reads its project's ID and number from Cloud Resource Manager
+// and runs as the project's Compute Engine default service account, which IAM
+// holds; a caller that is no workload reaches no metadata server.
+func TestMetadataServesTheInstanceItsProjectFromCloudResourceManager(t *testing.T) {
 	get := metadataTreeServer(t)
+	number := gcpTestProjectNumber(t)
 	want := map[string]string{
-		"/computeMetadata/v1/project/project-id":                                              "sockerless",
-		"/computeMetadata/v1/project/numeric-project-id":                                      "123456789012",
-		"/computeMetadata/v1/instance/service-accounts/default/email":                         "123456789012-compute@developer.gserviceaccount.com",
-		"/computeMetadata/v1/instance/zone":                                                   "projects/123456789012/zones/us-central1-a",
+		"/computeMetadata/v1/project/project-id":                                              gcpTestProjectID,
+		"/computeMetadata/v1/project/numeric-project-id":                                      number,
+		"/computeMetadata/v1/instance/service-accounts/default/email":                         number + "-compute@developer.gserviceaccount.com",
+		"/computeMetadata/v1/instance/zone":                                                   "projects/" + number + "/zones/us-central1-a",
+		"/computeMetadata/v1/instance/name":                                                   "metadata-reader",
+		"/computeMetadata/v1/instance/id":                                                     "4815162342",
 		"/computeMetadata/v1/instance/service-accounts/other@x.iam.gserviceaccount.com/email": "",
 	}
 	for path, value := range want {
@@ -30,8 +33,19 @@ func TestMetadataServesTheDefaultProjectFromCloudResourceManager(t *testing.T) {
 			t.Fatalf("GET %s = %d %q, want %q", path, rec.Code, rec.Body.String(), value)
 		}
 	}
-	if _, ok := iamServiceAccounts.Get("projects/sockerless/serviceAccounts/123456789012-compute@developer.gserviceaccount.com"); !ok {
-		t.Fatal("IAM holds no Compute Engine default service account for the default project")
+	if _, ok := iamServiceAccounts.Get("projects/" + gcpTestProjectID + "/serviceAccounts/" + number + "-compute@developer.gserviceaccount.com"); !ok {
+		t.Fatal("IAM holds no Compute Engine default service account for the instance's project")
+	}
+
+	gcpMetadataInstancesByIP.Delete(metadataReaderAddress)
+	for _, path := range []string{
+		"/computeMetadata/v1/project/project-id",
+		"/computeMetadata/v1/instance/service-accounts/default/token",
+		"/computeMetadata/v1/instance/service-accounts/",
+	} {
+		if rec := get(path); rec.Code != http.StatusNotFound || rec.Header().Get("Metadata-Flavor") != "" {
+			t.Fatalf("GET %s from outside every workload = %d %v, want a 404 from no metadata server", path, rec.Code, rec.Header())
+		}
 	}
 }
 

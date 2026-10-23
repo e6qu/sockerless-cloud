@@ -117,8 +117,9 @@ data "aws_vpc" "by_filter" {
 }
 
 resource "aws_subnet" "tf_ec2_subnet" {
-  vpc_id     = aws_vpc.tf_ec2_vpc.id
-  cidr_block = "10.251.1.0/24"
+  vpc_id            = aws_vpc.tf_ec2_vpc.id
+  cidr_block        = "10.251.1.0/24"
+  availability_zone = "us-east-1a"
 }
 
 resource "aws_subnet" "tf_elbv2_subnet" {
@@ -957,9 +958,22 @@ resource "aws_apigatewayv2_stage" "tf_http_stage" {
   }
 }
 
+resource "aws_iam_role" "tf_lambda_role" {
+  name = "tf-lambda-execution-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
 resource "aws_lambda_function" "tf_lambda" {
   function_name                  = "tf-lambda-image"
-  role                           = "arn:aws:iam::123456789012:role/tf-lambda"
+  role                           = aws_iam_role.tf_lambda_role.arn
   package_type                   = "Image"
   image_uri                      = "123456789012.dkr.ecr.us-east-1.amazonaws.com/sockerless-lambda-runtime-handler:aws-terraform"
   architectures                  = [var.lambda_architecture]
@@ -1022,8 +1036,21 @@ resource "aws_scheduler_schedule" "tf_schedule" {
 
   target {
     arn      = aws_lambda_function.tf_lambda.arn
-    role_arn = "arn:aws:iam::123456789012:role/tf-scheduler"
+    role_arn = aws_iam_role.tf_scheduler_role.arn
   }
+}
+
+resource "aws_iam_role" "tf_scheduler_role" {
+  name = "tf-scheduler"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "scheduler.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
 }
 
 data "aws_lambda_invocation" "tf_lambda_echo" {
@@ -1928,9 +1955,22 @@ output "s3_bucket_metric_name" {
 
 # ── Step Functions ──────────────────────────────────────────────────────────
 
+resource "aws_iam_role" "tf_sfn_role" {
+  name = "tf-sfn-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "states.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
 resource "aws_sfn_state_machine" "tf_sfn_sm" {
   name     = "tf-sfn-state-machine"
-  role_arn = "arn:aws:iam::123456789012:role/sfn-role"
+  role_arn = aws_iam_role.tf_sfn_role.arn
   publish  = true
 
   definition = jsonencode({
@@ -1969,9 +2009,22 @@ output "sfn_alias_arn" {
 
 # ── CodeBuild ───────────────────────────────────────────────────────────────
 
+resource "aws_iam_role" "tf_cb_role" {
+  name = "tf-codebuild-service-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "codebuild.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
 resource "aws_codebuild_project" "tf_cb_project" {
   name         = "tf-codebuild-project"
-  service_role = "arn:aws:iam::123456789012:role/cb-role"
+  service_role = aws_iam_role.tf_cb_role.arn
 
   source {
     type      = "NO_SOURCE"
@@ -2019,9 +2072,22 @@ resource "aws_glue_catalog_table" "tf_glue_table" {
   }
 }
 
+resource "aws_iam_role" "tf_glue_role" {
+  name = "tf-glue-job-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "glue.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
 resource "aws_glue_job" "tf_glue_job" {
   name     = "tf-glue-job"
-  role_arn = "arn:aws:iam::123456789012:role/glue-role"
+  role_arn = aws_iam_role.tf_glue_role.arn
 
   command {
     script_location = "s3://tf-bucket/script.py"

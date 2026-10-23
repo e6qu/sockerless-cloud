@@ -189,6 +189,26 @@ func psSnapshotKey(project, name string) string {
 	return project + "/" + name
 }
 
+// psProjectNotFound is what Pub/Sub answers for a resource in a project that
+// does not exist or is not active.
+const psProjectNotFound = "Requested project not found or user does not have access to it (project=%s). " +
+	"Make sure to specify the unique project identifier and not the Google Cloud Console display name."
+
+// psProjectActive reports whether Cloud Resource Manager holds project, by ID
+// or number, as an active project.
+func psProjectActive(project string) bool {
+	p, ok := crmResolveProject(project)
+	return ok && p.State == "ACTIVE"
+}
+
+// psResourceProject is the project a projects/{project}/... resource name
+// names.
+func psResourceProject(name string) string {
+	rest := strings.TrimPrefix(name, "projects/")
+	project, _, _ := strings.Cut(rest, "/")
+	return project
+}
+
 func handlePSCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	snap := sim.PathParam(r, "snap")
@@ -200,8 +220,14 @@ func handlePSCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "bad request body: %v", err)
 		return
 	}
-	// Real Pub/Sub validates the subscription exists; sim defers
-	// (sub may not be in the store yet for a brand-new project).
+	if !psProjectActive(project) {
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", psProjectNotFound, project)
+		return
+	}
+	if _, ok := psSubscriptions.Get(req.Subscription); !ok {
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "Resource not found (resource=%s)", req.Subscription)
+		return
+	}
 	now := time.Now().UTC()
 	expire := now.Add(7 * 24 * time.Hour).Format(time.RFC3339)
 	// A snapshot records the TOPIC of the subscription it is taken from, not
@@ -398,6 +424,10 @@ func handlePSCreateTopic(w http.ResponseWriter, r *http.Request) {
 		gcpError(w, http.StatusBadRequest, "INVALID_ARGUMENT", err.Error())
 		return
 	}
+	if !psProjectActive(project) {
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", psProjectNotFound, project)
+		return
+	}
 	t := PSTopic{
 		Name:                     psTopicName(project, topic),
 		Labels:                   req.Labels,
@@ -521,6 +551,10 @@ func handlePSCreateSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Topic == "" {
 		gcpError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "topic is required")
+		return
+	}
+	if !psProjectActive(project) {
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", psProjectNotFound, project)
 		return
 	}
 	if _, ok := psTopics.Get(req.Topic); !ok {

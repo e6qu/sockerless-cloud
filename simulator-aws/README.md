@@ -30,7 +30,7 @@ CI runs all four on every pull request (`.github/workflows/ci.yml`). `test`/`tes
 ```bash
 # 1. Build + start the sim (default :4566).
 cd simulator-aws
-go build -tags noui -o simulator-aws .
+go build -o simulator-aws .
 SIM_LISTEN_ADDR=:4566 ./simulator-aws
 ```
 
@@ -355,8 +355,13 @@ $ terraform destroy -auto-approve
 
 ```bash
 cd simulator-aws
-go build -tags noui -o simulator-aws .
+go build -o simulator-aws .
 ```
+
+That build serves the APIs and no console. `make simulator-aws/build` from the
+repository root, after `cd ui && bun install && bunx turbo run build`, embeds the
+console with `-tags console`; a plain build serves a built bundle when
+`SIM_CONSOLE_DIR` names it.
 
 ## Testing
 

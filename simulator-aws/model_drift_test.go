@@ -42,25 +42,15 @@ import (
 // an unscoped S3 exemption would trip the staleness check on Glue's
 // registration, and the source scan alone cannot tell the two apart. Scoped
 // entries are therefore also excluded from the staleness sweep — their
-// review lives with the catalogue their reason cites.
+// review lives with the catalogue their reason cites. An entry whose reason is
+// "BUGS.md <id>" waits on that open row, and TestScopedDriftExemptionsCiteOpenBugs
+// holds it there.
 var modelScopedDriftExemptions = map[string]string{
-	"ecs.smithy.json.gz:AssociateGatewayWithCluster":    "Amazon ECS gateways are not implemented (BUGS.md)",
-	"ecs.smithy.json.gz:CreateGateway":                  "Amazon ECS gateways are not implemented (BUGS.md)",
-	"ecs.smithy.json.gz:DeleteGateway":                  "Amazon ECS gateways are not implemented (BUGS.md)",
-	"ecs.smithy.json.gz:DescribeGateway":                "Amazon ECS gateways are not implemented (BUGS.md)",
-	"ecs.smithy.json.gz:DescribeGatewayResources":       "Amazon ECS gateways are not implemented (BUGS.md)",
-	"ecs.smithy.json.gz:DescribeGatewayRoute":           "Amazon ECS gateways are not implemented (BUGS.md)",
-	"ecs.smithy.json.gz:DisassociateGatewayFromCluster": "Amazon ECS gateways are not implemented (BUGS.md)",
-	"ecs.smithy.json.gz:ListGatewayClusterAssociations": "Amazon ECS gateways are not implemented (BUGS.md)",
-	"ecs.smithy.json.gz:ListGatewayRoutes":              "Amazon ECS gateways are not implemented (BUGS.md)",
-	"ecs.smithy.json.gz:ListGateways":                   "Amazon ECS gateways are not implemented (BUGS.md)",
-	"ecs.smithy.json.gz:UpdateGateway":                  "Amazon ECS gateways are not implemented (BUGS.md)",
-	"elasticache.smithy.json.gz:PrepareMigration":       "ElastiCache serverless migration is not implemented (BUGS.md)",
-	"elasticache.smithy.json.gz:StopMigration":          "ElastiCache serverless migration is not implemented (BUGS.md)",
-	"rds.smithy.json.gz:CancelDBCapacityReservation":    "RDS DB capacity reservations are not implemented (BUGS.md)",
-	"rds.smithy.json.gz:CreateDBCapacityReservation":    "RDS DB capacity reservations are not implemented (BUGS.md)",
-	"rds.smithy.json.gz:DescribeDBCapacityReservations": "RDS DB capacity reservations are not implemented (BUGS.md)",
-	"rds.smithy.json.gz:ModifyDBCapacityReservation":    "RDS DB capacity reservations are not implemented (BUGS.md)",
+	// Amazon EC2 published transit gateway attachment NAT on 2026-10-22, and
+	// the aws-sdk-go-v2 release that carries it is still in its adoption
+	// quarantine, so no SDK test can drive an implementation yet.
+	"ec2.smithy.json.gz:GetTransitGatewayAttachmentNatConfiguration":    "BUGS.md 3574",
+	"ec2.smithy.json.gz:ModifyTransitGatewayAttachmentNatConfiguration": "BUGS.md 3574",
 }
 
 var modelDriftExemptions = map[string]string{
@@ -291,6 +281,31 @@ func TestS3SubresourceExemptionsAreRouted(t *testing.T) {
 		case strings.HasPrefix(operation, "Delete") && !spec.hasDelete:
 			t.Errorf("%s: the %q subresource does not accept DELETE, so the exemption's claim that "+
 				"this operation is routed there is false", operation, sub)
+		}
+	}
+}
+
+// TestScopedDriftExemptionsCiteOpenBugs holds each scoped exemption that cites
+// a bug to that bug: the row must still be open in BUGS.md, and the operation
+// must still be unserved. Closing the bug without implementing the operation,
+// or implementing it without dropping the exemption, fails here.
+func TestScopedDriftExemptionsCiteOpenBugs(t *testing.T) {
+	bugs, err := os.ReadFile(filepath.Join("..", "BUGS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := readAllHandwrittenSource(t)
+	for key, reason := range modelScopedDriftExemptions {
+		id, ok := strings.CutPrefix(reason, "BUGS.md ")
+		if !ok {
+			continue
+		}
+		if !strings.Contains(string(bugs), "\n| "+id+" |") {
+			t.Errorf("%s: exemption cites BUGS.md %s, which is not an open row", key, id)
+		}
+		operation := key[strings.LastIndex(key, ":")+1:]
+		if sourceNamesOperation(source, operation) {
+			t.Errorf("exemption for %q is stale: the operation now appears in the source; remove the entry", key)
 		}
 	}
 }

@@ -23,9 +23,14 @@ func awsAccountID() string {
 	return "123456789012"
 }
 
-// awsAvailabilityZone returns the canonical first AZ for the configured
-// region. Real AWS exposes one AZ per (region, AZ-letter) suffix; for
-// the sim's single-AZ default we return `<region>a`.
+// awsAvailabilityZones lists the configured Region's Availability Zones.
+func awsAvailabilityZones() []string {
+	region := awsRegion()
+	return []string{region + "a", region + "b", region + "c"}
+}
+
+// awsAvailabilityZone returns the Region's first Availability Zone, where a
+// resource lands when its request names none.
 func awsAvailabilityZone() string {
-	return awsRegion() + "a"
+	return awsAvailabilityZones()[0]
 }

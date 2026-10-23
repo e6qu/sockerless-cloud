@@ -33,6 +33,13 @@ type RDSPendingModifications struct {
 	// the endpoint presents the new CA's certificate only from the engine's
 	// next restart.
 	KeepCertificateUntilRestart bool `json:",omitempty"`
+	// CapacityReservationChange records a move onto the DB capacity
+	// reservation DBCapacityReservationIdentifier names, or off reserved
+	// capacity when it names none, and the Availability Zone of the standby
+	// the reservation serves.
+	CapacityReservationChange        bool   `json:",omitempty"`
+	DBCapacityReservationIdentifier  string `json:",omitempty"`
+	CapacityReservationSecondaryZone string `json:",omitempty"`
 }
 
 // RDSRestartModifications are the changes the engine restart of a modifying
@@ -86,6 +93,11 @@ func (p *RDSPendingModifications) merge(later RDSPendingModifications) RDSPendin
 	if later.StorageThroughput != nil {
 		merged.StorageThroughput = later.StorageThroughput
 	}
+	if later.CapacityReservationChange {
+		merged.CapacityReservationChange = true
+		merged.DBCapacityReservationIdentifier = later.DBCapacityReservationIdentifier
+		merged.CapacityReservationSecondaryZone = later.CapacityReservationSecondaryZone
+	}
 	return merged
 }
 
@@ -114,6 +126,9 @@ func renderRDSPendingModifiedValues(i RDSInstance) string {
 	}
 	if pending.MultiAZ != nil {
 		fmt.Fprintf(&b, "<MultiAZ>%t</MultiAZ>", *pending.MultiAZ)
+	}
+	if pending.CapacityReservationChange && pending.DBCapacityReservationIdentifier != "" {
+		fmt.Fprintf(&b, "<DBCapacityReservationIdentifier>%s</DBCapacityReservationIdentifier>", xmlEscape(pending.DBCapacityReservationIdentifier))
 	}
 	if version := i.PendingEngineVersion; version != "" || pending.EngineVersion != "" {
 		if version == "" {
@@ -415,6 +430,7 @@ func rdsApplyModifications(instance *RDSInstance, changes RDSPendingModification
 	if changes.BackupRetentionPeriod != nil {
 		instance.BackupRetentionPeriod = *changes.BackupRetentionPeriod
 	}
+	rdsApplyCapacityReservationChange(instance, changes)
 	if changes.MultiAZ != nil && *changes.MultiAZ != instance.MultiAZ {
 		rdsBeginAvailabilityConversion(instance, *changes.MultiAZ)
 	}

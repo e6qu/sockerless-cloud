@@ -1,16 +1,19 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
 // A workload a service runs under a role holds a session of that role: an
@@ -73,8 +76,11 @@ var roleHolderLive = map[string]func(id string) bool{
 		return ok && live
 	},
 	"codebuild": func(id string) bool {
-		build, ok := cbBuilds.Get(id)
-		return ok && build.BuildStatus == "IN_PROGRESS"
+		if build, ok := cbBuilds.Get(id); ok {
+			return build.BuildStatus == "IN_PROGRESS"
+		}
+		batch, ok := cbBuildBatches.Get(id)
+		return ok && batch.BuildBatchStatus == "IN_PROGRESS"
 	},
 	"codebuild-command": func(id string) bool {
 		ce, ok := cbCommandExecs.Get(id)
@@ -142,10 +148,52 @@ func containerCredentialsError(w http.ResponseWriter, status int, code, message 
 	_ = json.NewEncoder(w).Encode(map[string]string{"code": code, "message": message})
 }
 
+// containerCredentialsLoopback is where a workload's own loopback serves the
+// container credentials endpoint: where the Amazon ECS agent serves it
+// behind 169.254.170.2.
+const containerCredentialsLoopback = "127.0.0.1:51679"
+
+// containerCredentials is how a workload reaches the container credentials
+// endpoint: the environment that names it and the forwards that serve it on
+// the workload's loopback.
+type containerCredentials struct {
+	Env      map[string]string
+	Forwards []placement.Forward
+}
+
 // grantContainerCredentials hands holder an endpoint ID that serves sessions
-// of roleArn named sessionName, and returns the environment that points the
-// AWS SDKs' container credential provider at it through origin.
-func grantContainerCredentials(origin, holder, roleArn, sessionName string) map[string]string {
+// of roleArn named sessionName to a workload backend places on network. The
+// AWS SDKs' container credential provider takes a plain-HTTP full URI only
+// on a loopback address or the endpoint's link-local one, which a bridge
+// network cannot route, so on a backend that forwards a workload's loopback
+// the endpoint is that loopback, relayed to the network's sidecar; on any
+// other it is the sidecar itself.
+func grantContainerCredentials(backend placement.Backend, network awsWorkloadNetwork, holder, roleArn, sessionName string) containerCredentials {
+	if _, ok := backend.(placement.Forwarding); !ok || roleArn == "" {
+		return containerCredentials{Env: grantContainerCredentialsAt(network.MetadataOrigin(), holder, roleArn, sessionName)}
+	}
+	return containerCredentials{
+		Env:      grantContainerCredentialsAt("http://"+containerCredentialsLoopback, holder, roleArn, sessionName),
+		Forwards: []placement.Forward{{Listen: containerCredentialsLoopback, Upstream: net.JoinHostPort(network.Sidecar.String(), "80")}},
+	}
+}
+
+// place places w on backend with the forwards that serve its credentials.
+func (c containerCredentials) place(ctx context.Context, backend placement.Backend, w placement.Workload, sink sim.LogSink) (placement.Handle, error) {
+	if len(c.Forwards) == 0 {
+		return backend.Place(ctx, w, sink)
+	}
+	forwarding, ok := backend.(placement.Forwarding)
+	if !ok {
+		return nil, fmt.Errorf("place %s: the %s backend serves no forwards", w.Name, backend.Kind())
+	}
+	return forwarding.PlaceForwarded(ctx, w, c.Forwards, sink)
+}
+
+// grantContainerCredentialsAt hands holder an endpoint ID that serves
+// sessions of roleArn named sessionName, and returns the environment that
+// points the AWS SDKs' container credential provider at it through origin.
+func grantContainerCredentialsAt(origin, holder, roleArn, sessionName string) map[string]string {
 	if roleArn == "" {
 		return map[string]string{}
 	}

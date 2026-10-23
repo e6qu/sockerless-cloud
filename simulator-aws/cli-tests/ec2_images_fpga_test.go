@@ -171,7 +171,7 @@ func ec2RegisterTestAMICLI(t *testing.T, q func(args ...string) string) string {
 	t.Helper()
 	ami := q("ec2", "register-image", "--name", "imf-cli-test-ami", "--architecture", "x86_64",
 		"--root-device-name", "/dev/sda1",
-		"--block-device-mappings", "DeviceName=/dev/sda1,Ebs={SnapshotId=snap-0123456789abcdef0,VolumeSize=8}",
+		"--block-device-mappings", "DeviceName=/dev/sda1,Ebs={SnapshotId="+snapshotForEBSCLI(t, q)+",VolumeSize=8}",
 		"--query", "ImageId", "--output", "text")
 	if ami == "" {
 		t.Fatal("register-image returned empty ImageId")

@@ -130,7 +130,7 @@ func TestGlue_BatchGetFamilies_CLI(t *testing.T) {
 	t.Parallel()
 	const crawler = "glue-cli-batch-crawler"
 	runCLI(t, awsCLI("glue", "create-crawler",
-		"--name", crawler, "--role", "arn:aws:iam::123456789012:role/glue", "--targets", `{}`))
+		"--name", crawler, "--role", cliServiceRole(t, "glue.amazonaws.com"), "--targets", `{}`))
 	t.Cleanup(func() { runCLIIgnore(awsCLI("glue", "delete-crawler", "--name", crawler)) })
 
 	out := runCLI(t, awsCLI("glue", "batch-get-crawlers", "--crawler-names", crawler, "no-such-crawler"))
@@ -144,7 +144,7 @@ func TestGlue_BatchGetFamilies_CLI(t *testing.T) {
 
 	const job = "glue-cli-batch-job"
 	runCLI(t, awsCLI("glue", "create-job",
-		"--name", job, "--role", "arn:aws:iam::123456789012:role/glue", "--command", `{"Name":"glueetl"}`))
+		"--name", job, "--role", cliServiceRole(t, "glue.amazonaws.com"), "--command", `{"Name":"glueetl"}`))
 	t.Cleanup(func() { runCLIIgnore(awsCLI("glue", "delete-job", "--job-name", job)) })
 
 	out = runCLI(t, awsCLI("glue", "batch-get-jobs", "--job-names", job, "no-such-job"))

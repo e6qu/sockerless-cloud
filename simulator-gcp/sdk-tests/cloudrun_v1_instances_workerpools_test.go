@@ -166,7 +166,7 @@ func TestCloudRunV1_WorkerPoolsLifecycle(t *testing.T) {
 	assert.Equal(t, "run.googleapis.com/v1", created.ApiVersion)
 	assert.Equal(t, "WorkerPool", created.Kind)
 	require.NotNil(t, created.Status)
-	assert.Equal(t, id+"-00001-abc", created.Status.LatestReadyRevisionName)
+	assert.Regexp(t, "^"+id+`-00001-[a-z0-9]{3}$`, created.Status.LatestReadyRevisionName)
 	require.Len(t, created.Status.InstanceSplits, 1)
 	assert.True(t, created.Status.InstanceSplits[0].LatestRevision,
 		"the v2 LATEST allocation type renders as the Knative latestRevision flag")
@@ -182,8 +182,8 @@ func TestCloudRunV1_WorkerPoolsLifecycle(t *testing.T) {
 
 	// The revision the deploy materialized is readable over the v2 collection.
 	revision := getCloudRunV2JSON(t, fmt.Sprintf(
-		"/v2/projects/%s/locations/us-central1/workerPools/%s/revisions/%s-00001-abc", cloudRunV1Namespace, id, id))
-	assert.Contains(t, revision["name"], id+"-00001-abc")
+		"/v2/projects/%s/locations/us-central1/workerPools/%s/revisions/%s", cloudRunV1Namespace, id, created.Status.LatestReadyRevisionName))
+	assert.Contains(t, revision["name"], created.Status.LatestReadyRevisionName)
 
 	got, err := svc.Namespaces.Workerpools.Get(parent + "/workerpools/" + id).Do()
 	require.NoError(t, err)
@@ -202,7 +202,18 @@ func TestCloudRunV1_WorkerPoolsLifecycle(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), replaced.Metadata.Generation)
-	assert.Equal(t, id+"-00002-abc", replaced.Status.LatestCreatedRevisionName)
+	assert.Regexp(t, "^"+id+`-00002-[a-z0-9]{3}$`, replaced.Status.LatestCreatedRevisionName)
+
+	relabelled, err := svc.Namespaces.Workerpools.ReplaceWorkerPool(parent+"/workerpools/"+id, &run.WorkerPool{
+		Metadata: &run.ObjectMeta{Name: id, Labels: map[string]string{"tier": "batch3"}},
+		Spec: &run.WorkerPoolSpec{Template: &run.RevisionTemplate{
+			Spec: &run.RevisionSpec{Containers: []*run.Container{{Image: "gcr.io/test-project/pool:v2"}}},
+		}},
+	}).Do()
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), relabelled.Metadata.Generation)
+	assert.Equal(t, replaced.Status.LatestCreatedRevisionName, relabelled.Status.LatestCreatedRevisionName,
+		"a write that leaves the template alone deploys no revision")
 
 	status, err := svc.Namespaces.Workerpools.Delete(parent + "/workerpools/" + id).Do()
 	require.NoError(t, err)

@@ -22,7 +22,7 @@ func TestGlueSessionAndStatementsCLI(t *testing.T) {
 
 	out := runCLI(t, awsCLI("glue", "create-session",
 		"--id", id,
-		"--role", "arn:aws:iam::123456789012:role/GlueRole",
+		"--role", cliServiceRole(t, "glue.amazonaws.com"),
 		"--description", "cli session",
 		"--command", `{"Name":"glueetl","PythonVersion":"3"}`,
 		"--glue-version", "3.0",
@@ -131,7 +131,7 @@ func TestGlueDevEndpointCLI(t *testing.T) {
 
 	out := runCLI(t, awsCLI("glue", "create-dev-endpoint",
 		"--endpoint-name", name,
-		"--role-arn", "arn:aws:iam::123456789012:role/GlueRole",
+		"--role-arn", cliServiceRole(t, "glue.amazonaws.com"),
 		"--glue-version", "3.0",
 		"--arguments", `{"k":"v"}`,
 	))
@@ -252,7 +252,7 @@ func TestGlueBlueprintCLI(t *testing.T) {
 
 	out = runCLI(t, awsCLI("glue", "start-blueprint-run",
 		"--blueprint-name", name,
-		"--role-arn", "arn:aws:iam::123456789012:role/GlueRole",
+		"--role-arn", cliServiceRole(t, "glue.amazonaws.com"),
 	))
 	var run struct {
 		RunId string `json:"RunId"`

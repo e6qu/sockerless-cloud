@@ -130,6 +130,8 @@ type ECSPortMapping struct {
 	ContainerPort int    `json:"containerPort"`
 	HostPort      int    `json:"hostPort,omitempty"`
 	Protocol      string `json:"protocol,omitempty"`
+	Name          string `json:"name,omitempty"`
+	AppProtocol   string `json:"appProtocol,omitempty"`
 }
 
 type ECSLogConfiguration struct {
@@ -1483,6 +1485,43 @@ type ecsRunTaskInput struct {
 	ContainerInstanceKey string
 }
 
+func ecsTaskArn(clusterName, taskID string) string {
+	return "arn:aws:ecs:" + awsRegion() + ":" + awsAccountID() + ":task/" + clusterName + "/" + taskID
+}
+
+// ecsTaskRoles returns the task role and the execution role a task runs with:
+// its overrides', else its task definition's.
+func ecsTaskRoles(td ECSTaskDefinition, overrides *ECSTaskOverride) (taskRole, executionRole string) {
+	taskRole, executionRole = td.TaskRoleArn, td.ExecutionRoleArn
+	if overrides != nil {
+		if overrides.TaskRoleArn != "" {
+			taskRole = overrides.TaskRoleArn
+		}
+		if overrides.ExecutionRoleArn != "" {
+			executionRole = overrides.ExecutionRoleArn
+		}
+	}
+	return taskRole, executionRole
+}
+
+// ecsRefuseUnassumableTaskRoles refuses to launch a task whose task role or
+// execution role names no role or does not trust ecs-tasks.amazonaws.com.
+// Amazon ECS checks when it launches the task, not at RegisterTaskDefinition.
+func ecsRefuseUnassumableTaskRoles(td ECSTaskDefinition, overrides *ECSTaskOverride, taskArn string) *ecsRequestError {
+	taskRole, executionRole := ecsTaskRoles(td, overrides)
+	for _, role := range []string{taskRole, executionRole} {
+		if role == "" {
+			continue
+		}
+		if _, err := iamServiceTrustedRole(role, "ecs-tasks.amazonaws.com", taskArn); err != nil {
+			return &ecsRequestError{"ClientException", fmt.Sprintf("ECS was unable to assume the role '%s' that was provided for this task. "+
+				"Please verify that the role being passed has the proper trust relationship and permissions "+
+				"and that your IAM user has permissions to pass this role.", role), http.StatusBadRequest}
+		}
+	}
+	return nil
+}
+
 func ecsUpdateContainerInstanceTaskCounts(key string, pendingDelta, runningDelta int) {
 	if key == "" {
 		return
@@ -1645,13 +1684,21 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 		requestedSubnet = in.NetworkConfiguration.AwsvpcConfiguration.Subnets[0]
 	}
 
+	taskIDs := make([]string, in.Count)
+	for i := range taskIDs {
+		taskIDs[i] = sim.NewUUID()
+	}
+	if len(taskIDs) > 0 {
+		if rerr := ecsRefuseUnassumableTaskRoles(td, in.Overrides, ecsTaskArn(clusterName, taskIDs[0])); rerr != nil {
+			return nil, nil, rerr
+		}
+	}
+
 	tasks := []ECSTask{}
 	failures := []ecsFailure{}
 	requested := ecsRequestedTaskSize(td, in.Overrides)
-	for i := 0; i < in.Count; i++ {
-		_ = i
-		taskID := sim.NewUUID()
-		taskArn := fmt.Sprintf("arn:aws:ecs:"+awsRegion()+":"+awsAccountID()+":task/%s/%s", clusterName, taskID)
+	for _, taskID := range taskIDs {
+		taskArn := ecsTaskArn(clusterName, taskID)
 
 		// Placement comes first: nothing below — the ENI, the managed volume,
 		// the stored record — is allocated for a task the host cannot fit.
@@ -2512,15 +2559,17 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 	// their metadata: through the VPC's sidecar for an awsvpc task, the
 	// platform network's for a bridge task, and the simulator's own listener
 	// for a task sharing the container instance's network stack. A none task
-	// has no network to read anything over.
+	// has no network to read anything over. The credentials of an awsvpc or
+	// bridge task are on each network namespace's own loopback, which the
+	// task's awsvpc containers share and each bridge container has alone.
 	var (
 		taskNetwork awsWorkloadNetwork
 		eniAddress  string
-		metadataEnv map[string]string
+		metadata    containerCredentials
 	)
 	switch networkMode {
 	case ecsNetworkModeHost:
-		metadataEnv, err = hostNetworkMetadataEnv(taskID)
+		metadata.Env, err = hostNetworkMetadataEnv(taskID)
 		if err != nil {
 			return fail(fmt.Errorf("resolve Amazon ECS metadata callback: %w", err))
 		}
@@ -2530,13 +2579,13 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 		if err != nil {
 			return fail(err)
 		}
-		metadataEnv = ecsTaskMetadataEnv(taskNetwork.MetadataOrigin(), taskID)
+		metadata = ecsTaskMetadataEnv(backend, taskNetwork, taskID)
 	default:
 		taskNetwork, err = awsPlatformNetwork(ctx)
 		if err != nil {
 			return fail(fmt.Errorf("provision the container instance's network: %w", err))
 		}
-		metadataEnv = ecsTaskMetadataEnv(taskNetwork.MetadataOrigin(), taskID)
+		metadata = ecsTaskMetadataEnv(backend, taskNetwork, taskID)
 	}
 	var mainDockerID string
 
@@ -2636,7 +2685,7 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 			Command:           cd.EntryPoint,
 			Args:              command,
 			WorkingDir:        cd.WorkingDirectory,
-			Env:               workloadhost.MergeEnv(cmdEnv, metadataEnv),
+			Env:               workloadhost.MergeEnv(cmdEnv, metadata.Env),
 			Name:              containerName,
 			Labels: map[string]string{
 				"sockerless-sim-task":           taskID,
@@ -2704,7 +2753,7 @@ func startECSTaskContainers(ctx context.Context, taskID string, td ECSTaskDefini
 		if networkMode == ecsNetworkModeAwsvpc && i > 0 {
 			handle, err = backend.PlaceMember(ctx, mainDockerID, cfg, sink)
 		} else {
-			handle, err = backend.Place(ctx, cfg, sink)
+			handle, err = metadata.place(ctx, backend, cfg, sink)
 		}
 		if err != nil {
 			return fail(fmt.Errorf("start task container %q: %w", cd.Name, err))

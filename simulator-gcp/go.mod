@@ -9,7 +9,7 @@ require (
 	cloud.google.com/go/bigtable v1.58.0
 	cloud.google.com/go/cloudbuild v1.35.0
 	cloud.google.com/go/eventarc v1.26.0
-	cloud.google.com/go/firestore v1.26.0
+	cloud.google.com/go/firestore v1.28.0
 	cloud.google.com/go/functions v1.26.0
 	cloud.google.com/go/iam v1.14.0
 	cloud.google.com/go/kms v1.35.0
@@ -25,7 +25,7 @@ require (
 	cloud.google.com/go/vpcaccess v1.15.0
 	github.com/containerd/errdefs v1.0.0
 	github.com/distribution/reference v0.6.0
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261021155545-58ecf9db9069
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261022224443-763acd444f07
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261015114713-b9f0cc68a078
 	github.com/hamba/avro/v2 v2.31.0
 	github.com/klauspost/compress v1.20.3
@@ -41,7 +41,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261012220534-4341edf3f941
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
-	modernc.org/sqlite v1.60.1
+	modernc.org/sqlite v1.61.0
 )
 
 require (

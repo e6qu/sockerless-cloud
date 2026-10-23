@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -432,7 +433,7 @@ func TestGlue_JobCRUD_SDK(t *testing.T) {
 	create, err := c.CreateJob(ctx, &glue.CreateJobInput{
 		Name:            aws.String("glue-sdk-job"),
 		Description:     aws.String("sdk test job"),
-		Role:            aws.String("arn:aws:iam::123456789012:role/glue-role"),
+		Role:            aws.String(serviceRole(t, "glue.amazonaws.com")),
 		GlueVersion:     aws.String("4.0"),
 		WorkerType:      gluetypes.WorkerTypeG1x,
 		NumberOfWorkers: aws.Int32(int32(workers)),
@@ -572,7 +573,7 @@ func TestGlue_Tags_SDK(t *testing.T) {
 
 	create, err := c.CreateJob(ctx, &glue.CreateJobInput{
 		Name: aws.String("glue-sdk-tag-job"),
-		Role: aws.String("arn:aws:iam::123456789012:role/glue-role"),
+		Role: aws.String(serviceRole(t, "glue.amazonaws.com")),
 		Command: &gluetypes.JobCommand{
 			Name:           aws.String("glueetl"),
 			ScriptLocation: aws.String("s3://bucket/script.py"),
@@ -616,7 +617,7 @@ func TestGlue_JobUpdateListAndBatchStop_SDK(t *testing.T) {
 	create, err := c.CreateJob(ctx, &glue.CreateJobInput{
 		Name:        aws.String("glue-sdk-upd-job"),
 		Description: aws.String("before"),
-		Role:        aws.String("arn:aws:iam::123456789012:role/glue-role"),
+		Role:        aws.String(serviceRole(t, "glue.amazonaws.com")),
 		Command: &gluetypes.JobCommand{
 			Name:           aws.String("glueetl"),
 			ScriptLocation: aws.String("s3://bucket/script.py"),
@@ -632,7 +633,7 @@ func TestGlue_JobUpdateListAndBatchStop_SDK(t *testing.T) {
 		JobName: aws.String("glue-sdk-upd-job"),
 		JobUpdate: &gluetypes.JobUpdate{
 			Description: aws.String("after"),
-			Role:        aws.String("arn:aws:iam::123456789012:role/glue-role"),
+			Role:        aws.String(serviceRole(t, "glue.amazonaws.com")),
 			Command: &gluetypes.JobCommand{
 				Name:           aws.String("glueetl"),
 				ScriptLocation: aws.String("s3://bucket/updated.py"),
@@ -668,7 +669,7 @@ func TestGlue_CrawlerCRUD_SDK(t *testing.T) {
 
 	_, err := c.CreateCrawler(ctx, &glue.CreateCrawlerInput{
 		Name:         aws.String("glue-sdk-crawler"),
-		Role:         aws.String("arn:aws:iam::123456789012:role/glue-crawler-role"),
+		Role:         aws.String(serviceRole(t, "glue.amazonaws.com")),
 		DatabaseName: aws.String("glue-sdk-crawler-db"),
 		Description:  aws.String("sdk crawler"),
 		TablePrefix:  aws.String("pfx_"),
@@ -701,7 +702,7 @@ func TestGlue_CrawlerCRUD_SDK(t *testing.T) {
 
 	_, err = c.UpdateCrawler(ctx, &glue.UpdateCrawlerInput{
 		Name:        aws.String("glue-sdk-crawler"),
-		Role:        aws.String("arn:aws:iam::123456789012:role/glue-crawler-role"),
+		Role:        aws.String(serviceRole(t, "glue.amazonaws.com")),
 		Description: aws.String("updated crawler"),
 		Targets: &gluetypes.CrawlerTargets{
 			S3Targets: []gluetypes.S3Target{{Path: aws.String("s3://bucket/data2/")}},
@@ -743,7 +744,7 @@ func TestGlue_TriggerCRUD_SDK(t *testing.T) {
 	// A dependent job for the trigger action.
 	_, err := c.CreateJob(ctx, &glue.CreateJobInput{
 		Name: aws.String("glue-sdk-trigger-job"),
-		Role: aws.String("arn:aws:iam::123456789012:role/glue-role"),
+		Role: aws.String(serviceRole(t, "glue.amazonaws.com")),
 		Command: &gluetypes.JobCommand{
 			Name:           aws.String("glueetl"),
 			ScriptLocation: aws.String("s3://bucket/script.py"),
@@ -1326,9 +1327,15 @@ func TestGlue_ColumnStatistics_SDK(t *testing.T) {
 	assert.Empty(t, getP.ColumnStatisticsList)
 }
 
+// An account has one Data Catalog resource policy, so a test holds this from
+// putting its policy until its cleanup has deleted it.
+var glueCatalogPolicy sync.Mutex
+
 func TestGlue_ResourcePolicy_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
+	glueCatalogPolicy.Lock()
+	t.Cleanup(glueCatalogPolicy.Unlock)
 
 	policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::123456789012:root"},"Action":"glue:GetTable","Resource":"*"}]}`
 	put, err := c.PutResourcePolicy(ctx, &glue.PutResourcePolicyInput{

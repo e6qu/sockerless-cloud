@@ -13,7 +13,7 @@ func TestLambda_GetFunctionRepositoryTypeCLI(t *testing.T) {
 	name := "cli-repotype-func"
 	runCLI(t, awsCLI("lambda", "create-function",
 		"--function-name", name, "--runtime", "nodejs18.x",
-		"--role", "arn:aws:iam::123456789012:role/test-role", "--handler", "index.handler",
+		"--role", cliServiceRole(t, "lambda.amazonaws.com"), "--handler", "index.handler",
 		"--zip-file", "fileb://"+zipPath))
 	defer runCLI(t, awsCLI("lambda", "delete-function", "--function-name", name))
 

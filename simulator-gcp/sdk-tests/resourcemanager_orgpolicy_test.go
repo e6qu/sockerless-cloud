@@ -16,8 +16,10 @@ package gcp_sdk_test
 
 import (
 	"encoding/json"
+	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -803,4 +805,42 @@ func TestResourceManagerLiens_BothAPIVersionsShareOneCollection(t *testing.T) {
 	_, err = v3.Liens.Delete(v3Created.Name).Do()
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, 404, apiErr.Code)
+}
+
+// Concurrent setOrgPolicy calls carrying the etag one read returned race for
+// it: exactly one writes and every other is refused ABORTED.
+func TestOrgPolicy_OneWriterPerEtag(t *testing.T) {
+	t.Parallel()
+	svc := crmV1Service(t)
+	resource := orgPolicyProject(t, "sdk-orgpol-race")
+	set, err := svc.Projects.SetOrgPolicy(resource, &crmv1.SetOrgPolicyRequest{
+		Policy: &crmv1.OrgPolicy{Constraint: orgPolicyBooleanConstraint, BooleanPolicy: &crmv1.BooleanPolicy{Enforced: true}},
+	}).Do()
+	require.NoError(t, err)
+
+	const writers = 32
+	errs := make([]error, writers)
+	var wg sync.WaitGroup
+	for i := range writers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, errs[i] = svc.Projects.SetOrgPolicy(resource, &crmv1.SetOrgPolicyRequest{
+				Policy: &crmv1.OrgPolicy{Constraint: orgPolicyBooleanConstraint, Etag: set.Etag,
+					BooleanPolicy: &crmv1.BooleanPolicy{Enforced: i%2 == 0}},
+			}).Do()
+		}()
+	}
+	wg.Wait()
+	wrote := 0
+	for _, err := range errs {
+		if err == nil {
+			wrote++
+			continue
+		}
+		var apiErr *googleapi.Error
+		require.ErrorAs(t, err, &apiErr)
+		assert.Equal(t, http.StatusConflict, apiErr.Code)
+	}
+	assert.Equal(t, 1, wrote, "one writer per etag")
 }

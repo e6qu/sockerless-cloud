@@ -141,10 +141,12 @@ func TestCloudRunV1_ReconciledChildrenList_LabelSelectorAndPaging(t *testing.T) 
 			_, _ = svc.Namespaces.Services.Delete(parent + "/services/" + name).Do()
 		})
 	}
-	// A second deploy of one service adds a second revision, so the revision
-	// collection holds three members while the others hold two.
-	_, err := svc.Namespaces.Services.ReplaceService(parent+"/services/child-svc-a",
-		knativeServiceBody("child-svc-a", map[string]string{"tier": "frontend"})).Do()
+	// A second deploy of one service's changed template adds a second
+	// revision, so the revision collection holds three members while the
+	// others hold two.
+	redeploy := knativeServiceBody("child-svc-a", map[string]string{"tier": "frontend"})
+	redeploy.Spec.Template.Spec.Containers[0].Image = "gcr.io/x/child-svc-a-v2"
+	_, err := svc.Namespaces.Services.ReplaceService(parent+"/services/child-svc-a", redeploy).Do()
 	require.NoError(t, err)
 
 	// Configurations.

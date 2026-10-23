@@ -165,6 +165,23 @@ func scheduleGroupParam(r *http.Request, queryName string) string {
 	return "default"
 }
 
+// schedulerCanAssumeRole writes Scheduler's refusal of a target role that names
+// no role, or one whose trust policy does not let Scheduler assume it on behalf
+// of scheduleArn.
+func schedulerCanAssumeRole(w http.ResponseWriter, target json.RawMessage, scheduleArn string) bool {
+	role := schedulerParseTarget(target).RoleArn
+	if role == "" {
+		schedulerError(w, "ValidationException", http.StatusBadRequest, "Target.RoleArn is required")
+		return false
+	}
+	if _, err := iamServiceTrustedRole(role, "scheduler.amazonaws.com", scheduleArn); err != nil {
+		schedulerError(w, "ValidationException", http.StatusBadRequest,
+			"The execution role you provide must allow AWS EventBridge Scheduler to assume the role.")
+		return false
+	}
+	return true
+}
+
 func handleSchedulerCreateSchedule(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("Name")
 	var req struct {
@@ -210,6 +227,9 @@ func handleSchedulerCreateSchedule(w http.ResponseWriter, r *http.Request) {
 	if _, exists := schedules.Get(key); exists {
 		schedulerError(w, "ConflictException", http.StatusConflict,
 			"Schedule %q already exists in group %q", name, group)
+		return
+	}
+	if !schedulerCanAssumeRole(w, req.Target, schedulerScheduleARN(group, name)) {
 		return
 	}
 	state := req.State
@@ -317,6 +337,14 @@ func handleSchedulerUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	if !schedulerValidateExpression(w, req.ScheduleExpression, req.ScheduleExpressionTimezone) {
 		return
 	}
+	if req.Target == nil {
+		schedulerError(w, "ValidationException", http.StatusBadRequest, "Target is required")
+		return
+	}
+	if req.FlexibleTimeWindow == nil {
+		schedulerError(w, "ValidationException", http.StatusBadRequest, "FlexibleTimeWindow is required")
+		return
+	}
 	if !schedulerValidateRanges(w, req.Target, req.FlexibleTimeWindow) {
 		return
 	}
@@ -325,6 +353,9 @@ func handleSchedulerUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		schedulerError(w, "ResourceNotFoundException", http.StatusNotFound,
 			"Schedule %q not found in group %q", name, group)
+		return
+	}
+	if !schedulerCanAssumeRole(w, req.Target, existing.Arn) {
 		return
 	}
 	// UpdateSchedule is a full replacement of the mutable fields.

@@ -2198,6 +2198,55 @@ func normalizeComputeSubnetworkRef(project, region, ref string) string {
 	return fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", project, region, ref)
 }
 
+// gcpCreateDefaultNetworkFirewalls creates the ingress rules Compute Engine
+// creates with a project's default network.
+func gcpCreateDefaultNetworkFirewalls(project, networkLink string) {
+	everyPort := func(protocol string) ComputeFirewallAction {
+		return ComputeFirewallAction{IPProtocol: protocol, Ports: []string{"0-65535"}}
+	}
+	rules := []ComputeFirewall{
+		{
+			Name:         "default-allow-internal",
+			Description:  "Allow internal traffic on the default network",
+			SourceRanges: []string{"10.128.0.0/9"},
+			Allowed:      []ComputeFirewallAction{everyPort("tcp"), everyPort("udp"), {IPProtocol: "icmp"}},
+		},
+		{
+			Name:         "default-allow-ssh",
+			Description:  "Allow SSH from anywhere",
+			SourceRanges: []string{"0.0.0.0/0"},
+			Allowed:      []ComputeFirewallAction{{IPProtocol: "tcp", Ports: []string{"22"}}},
+		},
+		{
+			Name:         "default-allow-rdp",
+			Description:  "Allow RDP from anywhere",
+			SourceRanges: []string{"0.0.0.0/0"},
+			Allowed:      []ComputeFirewallAction{{IPProtocol: "tcp", Ports: []string{"3389"}}},
+		},
+		{
+			Name:         "default-allow-icmp",
+			Description:  "Allow ICMP from anywhere",
+			SourceRanges: []string{"0.0.0.0/0"},
+			Allowed:      []ComputeFirewallAction{{IPProtocol: "icmp"}},
+		},
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, fw := range rules {
+		fw.Kind = "compute#firewall"
+		fw.Id = computeNumericID()
+		fw.SelfLink = fmt.Sprintf("projects/%s/global/firewalls/%s", project, fw.Name)
+		fw.CreationTimestamp = now
+		fw.Network = networkLink
+		fw.Direction = "INGRESS"
+		fw.Priority = 65534
+		if _, exists := gcpFirewalls.Get(fw.SelfLink); exists {
+			continue
+		}
+		gcpFirewalls.Put(fw.SelfLink, fw)
+	}
+	gcpReapplyIngress()
+}
+
 func ensureGCPAutoModeSubnetwork(ctx context.Context, networks sim.Store[ComputeNetwork], subnetworks sim.Store[ComputeSubnetwork], project, region, networkLink string) (string, error) {
 	networkLink = normalizeComputeGlobalNetworkRef(project, networkLink)
 	net, ok := networks.Get(networkLink)
@@ -2212,6 +2261,7 @@ func ensureGCPAutoModeSubnetwork(ctx context.Context, networks sim.Store[Compute
 		}
 		net.RoutingConfig.RoutingMode = "REGIONAL"
 		networks.Put(networkLink, net)
+		gcpCreateDefaultNetworkFirewalls(project, networkLink)
 		ok = true
 	}
 	if !ok {
@@ -2413,7 +2463,7 @@ func recoverComputeOperations() {
 }
 
 func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork], subnetworks sim.Store[ComputeSubnetwork]) {
-	instances := sim.MakeStore[ComputeInstance](srv.DB(), "compute_instances")
+	var instances sim.Store[ComputeInstance] = gceMetadataSource[ComputeInstance]{sim.MakeStore[ComputeInstance](srv.DB(), "compute_instances")}
 	registerComputeInstanceVerbs(srv, instances)
 	gcpInstances = instances
 	recoverComputeInstances(instances)

@@ -49,6 +49,7 @@ func TestGCSDeleteBucketRefusesLiveObjects(t *testing.T) {
 // and that Cloud Storage's service agent may publish to.
 func TestGCSNotificationTopicValidated(t *testing.T) {
 	srv := buildOperationsTestSimulator(t)
+	activeTestProject(t, "unit-proj")
 	const host = "storage.googleapis.com"
 	gcpHostOK(t, srv, host, http.MethodPost, "/storage/v1/b?project=test-project", `{"name":"watched"}`)
 	create := func(topic string) (int, map[string]any) {
@@ -57,10 +58,10 @@ func TestGCSNotificationTopicValidated(t *testing.T) {
 
 	for _, malformed := range []string{
 		"topics/events",
-		"pubsub.googleapis.com/projects/p/topics/events",
-		"//pubsub.googleapis.com/projects/p/subscriptions/events",
-		"//pubsub.googleapis.com/projects/p/topics/9events",
-		"//pubsub.googleapis.com/projects/p/topics/goog-events",
+		"pubsub.googleapis.com/projects/unit-proj/topics/events",
+		"//pubsub.googleapis.com/projects/unit-proj/subscriptions/events",
+		"//pubsub.googleapis.com/projects/unit-proj/topics/9events",
+		"//pubsub.googleapis.com/projects/unit-proj/topics/goog-events",
 	} {
 		code, body := create(malformed)
 		if code != http.StatusBadRequest {
@@ -71,7 +72,7 @@ func TestGCSNotificationTopicValidated(t *testing.T) {
 		}
 	}
 
-	const topic = "//pubsub.googleapis.com/projects/p/topics/events"
+	const topic = "//pubsub.googleapis.com/projects/unit-proj/topics/events"
 	agent := "service-" + gcpTestProjectNumber(t) + "@gs-project-accounts.iam.gserviceaccount.com"
 	refusal := "The service account '" + agent + "' does not have permission to publish messages to to the Cloud Pub/Sub topic '" + topic + "', or that topic does not exist."
 	code, body := create(topic)
@@ -79,20 +80,20 @@ func TestGCSNotificationTopicValidated(t *testing.T) {
 		t.Fatalf("an absent topic answered %d %q %q", code, reason, message)
 	}
 
-	gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPut, "/v1/projects/p/topics/events", `{}`)
+	gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPut, "/v1/projects/unit-proj/topics/events", `{}`)
 	code, body = create(topic)
 	if message, reason := gcsErrorReason(t, body); code != http.StatusForbidden || reason != "forbidden" || message != refusal {
 		t.Fatalf("a topic the service agent may not publish to answered %d %q %q", code, reason, message)
 	}
 
-	gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPost, "/v1/projects/p/topics/events:setIamPolicy",
+	gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPost, "/v1/projects/unit-proj/topics/events:setIamPolicy",
 		`{"policy":{"bindings":[{"role":"roles/pubsub.publisher","members":["serviceAccount:`+agent+`"]}]}}`)
 	if code, body := create(topic); code != http.StatusOK {
 		t.Fatalf("a topic the service agent may publish to answered %d: %v", code, body)
 	}
 	// gcloud names the topic by its relative resource name; Cloud Storage
 	// stores the full one.
-	if code, body := create("projects/p/topics/events"); code != http.StatusOK || body["topic"] != topic {
+	if code, body := create("projects/unit-proj/topics/events"); code != http.StatusOK || body["topic"] != topic {
 		t.Fatalf("a relative topic name answered %d: %v", code, body)
 	}
 	if count := len(gcsBucketNotifications("watched")); count != 2 {

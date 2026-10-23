@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"time"
 
@@ -192,12 +195,19 @@ func lambdaDeliverAsyncDestination(destinationARN string, body []byte) {
 			snsFanout(destinationARN, sim.NewUUID(), "", string(body), nil)
 		}
 	case strings.HasPrefix(destinationARN, "arn:aws:events:"):
-		_, _ = sfnInvokeJSONService(handleEBPutEvents, map[string]any{"Entries": []map[string]any{{
+		entries, err := json.Marshal(map[string]any{"Entries": []map[string]any{{
 			"Source":       "lambda",
 			"DetailType":   "Lambda Function Invocation Result",
 			"Detail":       string(body),
 			"EventBusName": destinationARN,
 		}}})
+		if err != nil {
+			return
+		}
+		request := httptest.NewRequestWithContext(sfnAWSServer.RequestContext(context.Background()),
+			http.MethodPost, "/", bytes.NewReader(entries))
+		request.Header.Set("Content-Type", "application/x-amz-json-1.1")
+		handleEBPutEvents(httptest.NewRecorder(), request)
 	case strings.HasPrefix(destinationARN, "arn:aws:lambda:"):
 		if target, qualifier, ok := lambdaResolveInvocationTarget(destinationARN, ""); ok {
 			lambdaInvokeAsynchronously(target, body, qualifier)

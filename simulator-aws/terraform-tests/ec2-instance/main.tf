@@ -70,6 +70,8 @@ resource "aws_instance" "clone" {
   ami           = aws_ami_from_instance.golden.id
   instance_type = "t3.micro"
   subnet_id     = aws_subnet.main.id
+
+  instance_initiated_shutdown_behavior = "terminate"
 }
 
 output "ami_name" {
@@ -96,6 +98,14 @@ output "captured_architecture" {
 
 output "clone_state" {
   value = aws_instance.clone.instance_state
+}
+
+output "clone_shutdown_behavior" {
+  value = aws_instance.clone.instance_initiated_shutdown_behavior
+}
+
+output "golden_shutdown_behavior" {
+  value = aws_instance.golden.instance_initiated_shutdown_behavior
 }
 
 output "clone_ami" {

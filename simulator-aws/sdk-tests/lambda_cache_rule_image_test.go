@@ -34,7 +34,7 @@ func TestLambda_ImageThroughPullThroughCacheRule(t *testing.T) {
 	fnName := "cache-rule-image-fn"
 	_, err = lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(fnName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		PackageType:  lambdatypes.PackageTypeImage,
 		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String("123456789012.dkr.ecr.us-east-1.amazonaws.com/public-ecr-aws/" + strings.TrimPrefix(upstreamImage, "public.ecr.aws/"))},
 		ImageConfig:  &lambdatypes.ImageConfig{Command: []string{"sh", "-c", "echo through-the-cache-rule"}},

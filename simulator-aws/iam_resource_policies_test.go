@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -96,9 +97,19 @@ func TestIAMResourcePolicy_LambdaPolicyMirror(t *testing.T) {
 	if err := zipWriter.Close(); err != nil {
 		t.Fatalf("close Lambda ZIP: %v", err)
 	}
+	roleForm := url.Values{}
+	roleForm.Set("Version", "2010-05-08")
+	roleForm.Set("RoleName", "policy-fn-role")
+	roleForm.Set("AssumeRolePolicyDocument",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`)
+	rr := doReq(t, srv, queryReq("CreateRole", roleForm))
+	roleArn := regexp.MustCompile(`<Arn>([^<]+)</Arn>`).FindStringSubmatch(rr.Body.String())
+	if rr.Code != http.StatusOK || roleArn == nil {
+		t.Fatalf("CreateRole: status %d body %s", rr.Code, rr.Body.String())
+	}
 	create := fmt.Sprintf(
-		`{"FunctionName":"policy-fn","Role":"arn:aws:iam::000000000000:role/r","Code":{"ZipFile":%q},"Handler":"bootstrap","Runtime":"provided.al2023","PackageType":"Zip"}`,
-		base64.StdEncoding.EncodeToString(archive.Bytes()),
+		`{"FunctionName":"policy-fn","Role":%q,"Code":{"ZipFile":%q},"Handler":"bootstrap","Runtime":"provided.al2023","PackageType":"Zip"}`,
+		roleArn[1], base64.StdEncoding.EncodeToString(archive.Bytes()),
 	)
 	if rr := doReq(t, srv, lambdaReq("POST", "/2015-03-31/functions", create)); rr.Code != http.StatusCreated {
 		t.Fatalf("CreateFunction: status %d body %s", rr.Code, rr.Body.String())

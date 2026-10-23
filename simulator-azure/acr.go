@@ -181,6 +181,15 @@ func registerACR(srv *sim.Server) {
 
 		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerRegistry/registries/%s", sub, rg, name)
 
+		// A registry's name is its login server's host name, which Azure
+		// keeps unique across every subscription.
+		if held, taken := acrRegistriesByName.Lookup(acrRegistries, strings.ToLower(name), acrRegistryNameKeys); taken && !strings.EqualFold(held.ID, resourceID) {
+			AzureError(w, "AlreadyInUse", "The registry DNS name "+strings.ToLower(name)+".azurecr.io is already in use. "+
+				"You can check if the name is already claimed using following api: "+
+				"'https://docs.microsoft.com/en-us/rest/api/containerregistry/registries/checknameavailability'", http.StatusConflict)
+			return
+		}
+
 		sku := req.Sku
 		if sku == nil {
 			sku = &RegistrySku{Name: "Basic"}

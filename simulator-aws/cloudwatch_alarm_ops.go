@@ -27,18 +27,19 @@ import (
 // combine other alarms through an AlarmRule expression the sim does not
 // evaluate, so an unset state reports INSUFFICIENT_DATA.
 type CWCompositeAlarm struct {
-	AlarmName               string            `json:"AlarmName"`
-	AlarmArn                string            `json:"AlarmArn"`
-	AlarmDescription        string            `json:"AlarmDescription,omitempty"`
-	AlarmRule               string            `json:"AlarmRule"`
-	ActionsEnabled          bool              `json:"ActionsEnabled"`
-	AlarmActions            []string          `json:"AlarmActions,omitempty"`
-	OKActions               []string          `json:"OKActions,omitempty"`
-	InsufficientDataActions []string          `json:"InsufficientDataActions,omitempty"`
-	StateValue              string            `json:"StateValue,omitempty"`
-	StateReason             string            `json:"StateReason,omitempty"`
-	UpdatedTimestamp        int64             `json:"-"`
-	Tags                    map[string]string `json:"Tags,omitempty"`
+	AlarmName               string                 `json:"AlarmName"`
+	AlarmArn                string                 `json:"AlarmArn"`
+	AlarmDescription        string                 `json:"AlarmDescription,omitempty"`
+	AlarmRule               string                 `json:"AlarmRule"`
+	ActionsEnabled          bool                   `json:"ActionsEnabled"`
+	AlarmActions            []string               `json:"AlarmActions,omitempty"`
+	OKActions               []string               `json:"OKActions,omitempty"`
+	InsufficientDataActions []string               `json:"InsufficientDataActions,omitempty"`
+	StateValue              string                 `json:"StateValue,omitempty"`
+	StateReason             string                 `json:"StateReason,omitempty"`
+	UpdatedTimestamp        int64                  `json:"-"`
+	Tags                    map[string]string      `json:"Tags,omitempty"`
+	ActionConfiguration     *cwActionConfiguration `json:"ActionConfiguration,omitempty"`
 }
 
 // CWAlarmHistoryItem is one entry in an alarm's history (state change,
@@ -274,14 +275,15 @@ func handleCWJSONDescribeAlarmsForMetric(w http.ResponseWriter, r *http.Request)
 
 func handleCWJSONPutCompositeAlarm(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		AlarmName               string    `json:"AlarmName"`
-		AlarmRule               string    `json:"AlarmRule"`
-		AlarmDescription        string    `json:"AlarmDescription"`
-		ActionsEnabled          *bool     `json:"ActionsEnabled"`
-		AlarmActions            []string  `json:"AlarmActions"`
-		OKActions               []string  `json:"OKActions"`
-		InsufficientDataActions []string  `json:"InsufficientDataActions"`
-		Tags                    []cwTagKV `json:"Tags"`
+		AlarmName               string                 `json:"AlarmName"`
+		AlarmRule               string                 `json:"AlarmRule"`
+		AlarmDescription        string                 `json:"AlarmDescription"`
+		ActionsEnabled          *bool                  `json:"ActionsEnabled"`
+		AlarmActions            []string               `json:"AlarmActions"`
+		OKActions               []string               `json:"OKActions"`
+		InsufficientDataActions []string               `json:"InsufficientDataActions"`
+		Tags                    []cwTagKV              `json:"Tags"`
+		ActionConfiguration     *cwActionConfiguration `json:"ActionConfiguration"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidParameterValue", "invalid request body", http.StatusBadRequest)
@@ -295,8 +297,12 @@ func handleCWJSONPutCompositeAlarm(w http.ResponseWriter, r *http.Request) {
 		AWSError(w, "MissingParameter", "The parameter AlarmRule is required.", http.StatusBadRequest)
 		return
 	}
+	if code, msg, ok := cwValidateActionConfiguration(req.ActionConfiguration); !ok {
+		AWSError(w, code, msg, http.StatusBadRequest)
+		return
+	}
 	cwPutCompositeAlarm(req.AlarmName, req.AlarmRule, req.AlarmDescription, req.ActionsEnabled,
-		req.AlarmActions, req.OKActions, req.InsufficientDataActions, req.Tags)
+		req.AlarmActions, req.OKActions, req.InsufficientDataActions, req.Tags, req.ActionConfiguration)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -309,22 +315,25 @@ func cwJSONMetricAlarm(a CWAlarm, now time.Time) map[string]any {
 		dims = append(dims, map[string]string{"Name": d.Name, "Value": d.Value})
 	}
 	entry := map[string]any{
-		"AlarmName":             a.AlarmName,
-		"AlarmArn":              a.AlarmArn,
-		"AlarmDescription":      a.AlarmDescription,
-		"Namespace":             a.Namespace,
-		"MetricName":            a.MetricName,
-		"Dimensions":            dims,
-		"Period":                a.Period,
-		"EvaluationPeriods":     a.EvaluationPeriods,
-		"Threshold":             cwJSONStat(a.Threshold),
-		"ComparisonOperator":    a.ComparisonOperator,
-		"TreatMissingData":      a.TreatMissingData,
-		"ActionsEnabled":        a.ActionsEnabled,
-		"AlarmActions":          a.AlarmActions,
-		"StateValue":            state,
-		"StateReason":           reason,
-		"StateUpdatedTimestamp": float64(now.Unix()),
+		"AlarmName":               a.AlarmName,
+		"AlarmArn":                a.AlarmArn,
+		"AlarmDescription":        a.AlarmDescription,
+		"Namespace":               a.Namespace,
+		"MetricName":              a.MetricName,
+		"Dimensions":              dims,
+		"Period":                  a.Period,
+		"EvaluationPeriods":       a.EvaluationPeriods,
+		"Threshold":               cwJSONStat(a.Threshold),
+		"ComparisonOperator":      a.ComparisonOperator,
+		"TreatMissingData":        a.TreatMissingData,
+		"ActionsEnabled":          a.ActionsEnabled,
+		"AlarmActions":            a.AlarmActions,
+		"OKActions":               a.OKActions,
+		"InsufficientDataActions": a.InsufficientDataActions,
+		"ActionConfiguration":     a.ActionConfiguration,
+		"StateValue":              state,
+		"StateReason":             reason,
+		"StateUpdatedTimestamp":   float64(now.Unix()),
 	}
 	if a.ExtendedStatistic != "" {
 		entry["ExtendedStatistic"] = a.ExtendedStatistic
@@ -334,7 +343,7 @@ func cwJSONMetricAlarm(a CWAlarm, now time.Time) map[string]any {
 	return entry
 }
 
-func cwPutCompositeAlarm(name, rule, desc string, actionsEnabled *bool, alarmActions, okActions, idActions []string, tags []cwTagKV) {
+func cwPutCompositeAlarm(name, rule, desc string, actionsEnabled *bool, alarmActions, okActions, idActions []string, tags []cwTagKV, ac *cwActionConfiguration) {
 	enabled := true
 	if actionsEnabled != nil {
 		enabled = *actionsEnabled
@@ -349,6 +358,7 @@ func cwPutCompositeAlarm(name, rule, desc string, actionsEnabled *bool, alarmAct
 		AlarmActions:            alarmActions,
 		OKActions:               okActions,
 		InsufficientDataActions: idActions,
+		ActionConfiguration:     ac,
 		UpdatedTimestamp:        time.Now().UTC().Unix(),
 	}
 	if exists {
@@ -457,7 +467,8 @@ func cloudWatchCBORTargets(r *http.Request, op string) []iamAuthorizationTarget 
 	for _, resource := range resources {
 		targets = append(targets, iamAuthorizationTarget{action: "cloudwatch:" + op, resource: resource})
 	}
-	return append(targets, iamTagOnCreateTargets(r, "cloudwatch", op, resources)...)
+	targets = append(targets, iamTagOnCreateTargets(r, "cloudwatch", op, resources)...)
+	return append(targets, iamCloudWatchTagsPropagationTargets(r, op, resources)...)
 }
 
 // cwReadCBOR reads and CBOR-decodes a request body into v, writing the protocol
@@ -568,40 +579,22 @@ func handleCWCBORDescribeAlarmsForMetric(w http.ResponseWriter, r *http.Request)
 	alarms := make([]cborMetricAlarm, 0)
 	for _, a := range cwAlarmsForMetric(req.Namespace, req.MetricName, req.Dimensions) {
 		state, reason := cwAlarmEffectiveState(a)
-		alarms = append(alarms, cborMetricAlarm{
-			AlarmName:             a.AlarmName,
-			AlarmArn:              a.AlarmArn,
-			AlarmDescription:      a.AlarmDescription,
-			Namespace:             a.Namespace,
-			MetricName:            a.MetricName,
-			Dimensions:            a.Dimensions,
-			Statistic:             a.Statistic,
-			ExtendedStatistic:     a.ExtendedStatistic,
-			Period:                a.Period,
-			EvaluationPeriods:     a.EvaluationPeriods,
-			Threshold:             a.Threshold,
-			ComparisonOperator:    a.ComparisonOperator,
-			TreatMissingData:      a.TreatMissingData,
-			ActionsEnabled:        a.ActionsEnabled,
-			AlarmActions:          a.AlarmActions,
-			StateValue:            state,
-			StateReason:           reason,
-			StateUpdatedTimestamp: now,
-		})
+		alarms = append(alarms, cborMetricAlarmOf(a, state, reason, now))
 	}
 	cwWriteCBOR(w, map[string]any{"MetricAlarms": alarms})
 }
 
 func handleCWCBORPutCompositeAlarm(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		AlarmName               string    `cbor:"AlarmName"`
-		AlarmRule               string    `cbor:"AlarmRule"`
-		AlarmDescription        string    `cbor:"AlarmDescription"`
-		ActionsEnabled          *bool     `cbor:"ActionsEnabled"`
-		AlarmActions            []string  `cbor:"AlarmActions"`
-		OKActions               []string  `cbor:"OKActions"`
-		InsufficientDataActions []string  `cbor:"InsufficientDataActions"`
-		Tags                    []cwTagKV `cbor:"Tags"`
+		AlarmName               string                 `cbor:"AlarmName"`
+		AlarmRule               string                 `cbor:"AlarmRule"`
+		AlarmDescription        string                 `cbor:"AlarmDescription"`
+		ActionsEnabled          *bool                  `cbor:"ActionsEnabled"`
+		AlarmActions            []string               `cbor:"AlarmActions"`
+		OKActions               []string               `cbor:"OKActions"`
+		InsufficientDataActions []string               `cbor:"InsufficientDataActions"`
+		Tags                    []cwTagKV              `cbor:"Tags"`
+		ActionConfiguration     *cwActionConfiguration `cbor:"ActionConfiguration"`
 	}
 	if !cwReadCBOR(w, r, &req) {
 		return
@@ -614,8 +607,12 @@ func handleCWCBORPutCompositeAlarm(w http.ResponseWriter, r *http.Request) {
 		cwWriteCBORError(w, "MissingParameter", "The parameter AlarmRule is required.", http.StatusBadRequest)
 		return
 	}
+	if code, msg, ok := cwValidateActionConfiguration(req.ActionConfiguration); !ok {
+		cwWriteCBORError(w, code, msg, http.StatusBadRequest)
+		return
+	}
 	cwPutCompositeAlarm(req.AlarmName, req.AlarmRule, req.AlarmDescription, req.ActionsEnabled,
-		req.AlarmActions, req.OKActions, req.InsufficientDataActions, req.Tags)
+		req.AlarmActions, req.OKActions, req.InsufficientDataActions, req.Tags, req.ActionConfiguration)
 	cwWriteCBOR(w, map[string]any{})
 }
 
@@ -700,8 +697,17 @@ func handleCWQueryPutCompositeAlarm(w http.ResponseWriter, r *http.Request) {
 		b := v == "true"
 		enabled = &b
 	}
+	actionConfiguration, invalid := cwQueryActionConfiguration(r)
+	if invalid != "" {
+		cwQueryError(w, "InvalidParameterValue", invalid)
+		return
+	}
+	if code, msg, ok := cwValidateActionConfiguration(actionConfiguration); !ok {
+		cwQueryError(w, code, msg)
+		return
+	}
 	cwPutCompositeAlarm(name, rule, r.FormValue("AlarmDescription"), enabled,
 		cwQueryStringList(r, "AlarmActions"), cwQueryStringList(r, "OKActions"),
-		cwQueryStringList(r, "InsufficientDataActions"), nil)
+		cwQueryStringList(r, "InsufficientDataActions"), cwQueryTags(r), actionConfiguration)
 	cwQueryEmptyResponse(w, "PutCompositeAlarm")
 }

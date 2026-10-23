@@ -168,7 +168,7 @@ func TestSFN_StateMachineQualifierConditionKeyScopesTheGrant(t *testing.T) {
 	machine, err := admin.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String(machineName),
 		Definition: aws.String(`{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}`),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn:    aws.String(serviceRole(t, "states.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -228,7 +228,7 @@ func lambdaConditionFunction(t *testing.T, client *lambda.Client, name string) s
 	t.Helper()
 	created, err := client.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(name),
-		Role:         aws.String("arn:aws:iam::123456789012:role/lambda-role"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		PackageType:  lambdatypes.PackageTypeImage,
 		Code:         &lambdatypes.FunctionCode{ImageUri: aws.String("mirror.gcr.io/library/busybox:latest")},
 	})

@@ -14,6 +14,7 @@ func TestPubSub_SnapshotLifecycle(t *testing.T) {
 	t.Parallel()
 	svc := pubsubService(t)
 	const project = "snap-project"
+	ensureProject(t, project)
 	topic := "projects/" + project + "/topics/" + uniqueName("snap-topic")
 	subName := "projects/" + project + "/subscriptions/" + uniqueName("snap-sub")
 	snapName := "projects/" + project + "/snapshots/" + uniqueName("snap1")

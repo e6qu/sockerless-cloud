@@ -459,7 +459,9 @@ func TestContainerApps_ExecutionFailedStatus(t *testing.T) {
 func TestContainerApps_ExecutionLogsRealOutput(t *testing.T) {
 	t.Parallel()
 	acaCreateJobWithCommand(t, "exec-rg-b3ff", "exec-log-job", []string{"echo", "real aca output"})
-	_ = acaStartExecution(t, "exec-rg-b3ff", "exec-log-job")
+	execName := acaStartExecution(t, "exec-rg-b3ff", "exec-log-job")
+	exec := acaWaitExecution(t, "exec-rg-b3ff", "exec-log-job", execName)
+	require.Equal(t, "Succeeded", exec["properties"].(map[string]any)["status"], "the execution ran before its output is looked for")
 
 	// Poll until the process has run and its stdout is ingested (async in the
 	// sim) — a fixed sleep races a loaded runner.

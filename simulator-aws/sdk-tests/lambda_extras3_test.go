@@ -203,7 +203,7 @@ func TestLambda_CapacityProviders(t *testing.T) {
 	attachedFunction := "extras3-cp-function"
 	_, err = lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(attachedFunction),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		Runtime:      lambdatypes.RuntimeNodejs20x,
 		Handler:      aws.String("index.handler"),
 		Code: &lambdatypes.FunctionCode{
@@ -291,7 +291,7 @@ func TestLambda_DurableExecutionLifecycle(t *testing.T) {
 	fn := uniqueName("extras3-durable-fn")
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(fn),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		Runtime:      lambdatypes.RuntimeNodejs20x,
 		Handler:      aws.String("index.handler"),
 		Code: &lambdatypes.FunctionCode{
@@ -455,7 +455,7 @@ exports.handler = async (event) => {
 };`
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(fn),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		Runtime:      lambdatypes.RuntimeNodejs20x,
 		Handler:      aws.String("index.handler"),
 		Code: &lambdatypes.FunctionCode{

@@ -78,6 +78,11 @@ func registerServiceBusDataPlane(srv *sim.Server) {
 // rule at the addressed namespace or entity, so a rotated key takes effect
 // immediately.
 func authorizeSBHTTPRequest(w http.ResponseWriter, r *http.Request, namespace string) bool {
+	// A trusted Microsoft service writing on its own behalf, as Event Grid
+	// delivers to a queue or topic, is admitted without a signature.
+	if azureTrustedServiceCall(r) {
+		return true
+	}
 	audience, err := verifyMessagingSAS(namespace, r.Header.Get("Authorization"))
 	if err != nil {
 		authErr, ok := err.(*sasAuthError)

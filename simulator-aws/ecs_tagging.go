@@ -7,12 +7,9 @@ import (
 
 // Tagging for every Amazon ECS resource type AWS declares taggable.
 //
-// The service reference lists nine for ecs:TagResource — capacity provider,
-// cluster, container instance, daemon, daemon task definition, service, task,
-// task definition and task set — and the three tagging operations had covered
-// four of them, answering the other five with "tag-target type not implemented
-// in sim". Each of those five is a resource this simulator already holds, so
-// the refusal was a gap rather than a limit.
+// The service reference lists ten for ecs:TagResource — capacity provider,
+// cluster, container instance, daemon, daemon task definition, gateway,
+// service, task, task definition and task set.
 //
 // The three operations resolve the target the same way, through one function,
 // so a type cannot be taggable through TagResource and invisible to
@@ -118,6 +115,14 @@ func ecsResolveTaggable(resourceArn string) (*ecsTaggable, *ecsTagFault) {
 		return &ecsTaggable{tags: task.Tags, replace: func(tags []ECSTag) {
 			task.Tags = tags
 			ecsTasks.Put(id, task)
+		}}, nil
+	case strings.Contains(resourceArn, ":gateway/"):
+		gateway, ok := ecsGateways.Get(resourceArn)
+		if !ok {
+			return nil, &ecsTagFault{code: "GatewayNotFoundException", message: "The specified gateway wasn't found: " + resourceArn}
+		}
+		return &ecsTaggable{tags: gateway.Tags, replace: func(tags []ECSTag) {
+			ecsGateways.Update(resourceArn, func(current *ECSGateway) { current.Tags = tags })
 		}}, nil
 	case strings.Contains(resourceArn, ":cluster/"):
 		name := ecsClusterNameFromRef(resourceArn)

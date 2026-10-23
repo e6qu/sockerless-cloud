@@ -35,3 +35,41 @@ func TestCloudWatchCLI_MetricAlarms(t *testing.T) {
 		t.Fatalf("alarm should be deleted; MetricAlarms length = %q", remaining)
 	}
 }
+
+// TestCloudWatchCLI_AlarmActionConfiguration writes an alarm's
+// ActionConfiguration through put-metric-alarm and put-composite-alarm and reads
+// it back through describe-alarms.
+func TestCloudWatchCLI_AlarmActionConfiguration(t *testing.T) {
+	t.Parallel()
+	runCLI(t, awsCLI("cloudwatch", "put-metric-alarm",
+		"--alarm-name", "cli-ac-metric", "--namespace", "Custom/ActionConfigurationCLI", "--metric-name", "Errors",
+		"--comparison-operator", "GreaterThanThreshold", "--evaluation-periods", "1",
+		"--period", "60", "--threshold", "1", "--statistic", "Sum",
+		"--tags", "Key=team,Value=payments",
+		"--action-configuration", `{"AlarmTagsPropagation":{"Enabled":true,"IncludedTagKeys":["team"]}}`))
+	t.Cleanup(func() { runCLIIgnoreErr(awsCLI("cloudwatch", "delete-alarms", "--alarm-names", "cli-ac-metric")) })
+	t.Cleanup(func() { runCLIIgnoreErr(awsCLI("cloudwatch", "delete-alarms", "--alarm-names", "cli-ac-composite")) })
+	runCLI(t, awsCLI("cloudwatch", "put-composite-alarm",
+		"--alarm-name", "cli-ac-composite", "--alarm-rule", `ALARM("cli-ac-metric")`,
+		"--action-configuration", `{"AlarmTagsPropagation":{"Enabled":true,"ExcludedTagKeys":["internal"]}}`))
+
+	included := strings.TrimSpace(runCLI(t, awsCLI("cloudwatch", "describe-alarms",
+		"--alarm-names", "cli-ac-metric",
+		"--query", "MetricAlarms[0].ActionConfiguration.AlarmTagsPropagation.[Enabled, IncludedTagKeys[0]]", "--output", "text")))
+	if included != "True\tteam" {
+		t.Fatalf("metric alarm ActionConfiguration = %q, want enabled with IncludedTagKeys [team]", included)
+	}
+	excluded := strings.TrimSpace(runCLI(t, awsCLI("cloudwatch", "describe-alarms",
+		"--alarm-names", "cli-ac-composite", "--alarm-types", "CompositeAlarm",
+		"--query", "CompositeAlarms[0].ActionConfiguration.AlarmTagsPropagation.ExcludedTagKeys[0]", "--output", "text")))
+	if excluded != "internal" {
+		t.Fatalf("composite alarm ExcludedTagKeys = %q, want internal", excluded)
+	}
+
+	out := runCLIExpectError(t, awsCLI("cloudwatch", "put-composite-alarm",
+		"--alarm-name", "cli-ac-composite", "--alarm-rule", `ALARM("cli-ac-metric")`,
+		"--action-configuration", `{"AlarmTagsPropagation":{"Enabled":true,"IncludedTagKeys":["team"],"ExcludedTagKeys":["internal"]}}`))
+	if !strings.Contains(out, "InvalidParameterCombination") {
+		t.Fatalf("both key lists: %s, want InvalidParameterCombination", out)
+	}
+}

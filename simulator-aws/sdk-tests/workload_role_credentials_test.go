@@ -24,16 +24,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fetchContainerCredentials prints the session the container credentials
-// endpoint, /v2/credentials/{id}, serves, resolving the endpoint the way the
-// AWS SDKs do: the relative URI on the endpoint's link-local address when the
-// platform sets one, the full URI otherwise.
-const fetchContainerCredentials = `if [ -n "${AWS_CONTAINER_CREDENTIALS_RELATIVE_URI:-}" ]; then
-  uri="http://169.254.170.2${AWS_CONTAINER_CREDENTIALS_RELATIVE_URI}"
-else
-  uri="${AWS_CONTAINER_CREDENTIALS_FULL_URI}"
-fi
-printf 'credentials=%s\n' "$(wget -qO- "$uri" | tr -d '\n')"`
+// exportDefaultChainCredentials makes the AWS CLI resolve credentials through
+// its default chain inside the workload and print them as a credential
+// process hands them over: the session an AWS SDK in the workload signs with.
+var exportDefaultChainCredentials = []string{"aws", "configure", "export-credentials", "--format", "process"}
+
+// awsCLIImage is the image the AWS CLI runs from in a workload.
+const awsCLIImage = "mirror.gcr.io/amazon/aws-cli:2.27.49"
 
 // createWorkloadRole creates a role the service principal may assume.
 func createWorkloadRole(t *testing.T, name, principal string) string {
@@ -49,27 +46,26 @@ func createWorkloadRole(t *testing.T, name, principal string) string {
 	return aws.ToString(role.Role.Arn)
 }
 
-// assertRoleSession reads the credentials a workload printed and checks they
-// are a live session of roleArn named sessionName.
+// assertRoleSession reads the credentials a workload printed in the
+// credential process format and checks they are a live session of roleArn
+// named sessionName.
 func assertRoleSession(t *testing.T, output, roleArn, sessionName string) {
 	t.Helper()
-	var line string
-	for _, l := range strings.Split(output, "\n") {
-		if rest, ok := strings.CutPrefix(strings.TrimSpace(l), "credentials="); ok {
-			line = rest
-		}
+	start, end := strings.Index(output, "{"), strings.LastIndex(output, "}")
+	require.True(t, start >= 0 && end > start, "the workload printed no credentials:\n%s", output)
+	var cred struct {
+		Version                                                int
+		AccessKeyId, SecretAccessKey, SessionToken, Expiration string
 	}
-	require.NotEmpty(t, line, "the workload printed no credentials:\n%s", output)
-	var cred struct{ RoleArn, AccessKeyId, SecretAccessKey, Token, Expiration string }
-	require.NoError(t, json.Unmarshal([]byte(line), &cred), line)
-	assert.Equal(t, roleArn, cred.RoleArn)
+	require.NoError(t, json.Unmarshal([]byte(output[start:end+1]), &cred), output)
+	assert.Equal(t, 1, cred.Version)
 	expiration, err := time.Parse(time.RFC3339, cred.Expiration)
 	require.NoError(t, err)
 	assert.True(t, expiration.After(time.Now()))
 
 	session := sts.NewFromConfig(sdkConfig(), func(o *sts.Options) {
 		o.BaseEndpoint = aws.String(baseURL)
-		o.Credentials = credentials.NewStaticCredentialsProvider(cred.AccessKeyId, cred.SecretAccessKey, cred.Token)
+		o.Credentials = credentials.NewStaticCredentialsProvider(cred.AccessKeyId, cred.SecretAccessKey, cred.SessionToken)
 	})
 	identity, err := session.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
 	require.NoError(t, err)
@@ -91,9 +87,10 @@ func logStreamText(t *testing.T, group, stream string) string {
 	return strings.Join(lines, "\n")
 }
 
-// A build reads sessions of its service role, named for the build, from the
-// container credentials endpoint: the project's role, or the role the build
-// names in serviceRoleOverride, which a retry of the build keeps.
+// A build's AWS CLI resolves sessions of its service role, named for the
+// build, through its default credential chain: the project's role, or the
+// role the build names in serviceRoleOverride, which a retry of the build
+// keeps.
 func TestCodeBuild_BuildHoldsItsServiceRoleSession_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
@@ -104,11 +101,11 @@ func TestCodeBuild_BuildHoldsItsServiceRoleSession_SDK(t *testing.T) {
 		Name: aws.String(name),
 		Source: &cbtypes.ProjectSource{
 			Type:      cbtypes.SourceTypeNoSource,
-			Buildspec: aws.String("version: 0.2\nphases:\n  build:\n    commands:\n      - |\n" + indent(fetchContainerCredentials, "        ") + "\n"),
+			Buildspec: aws.String("version: 0.2\nphases:\n  build:\n    commands:\n      - " + strings.Join(exportDefaultChainCredentials, " ") + "\n"),
 		},
 		Artifacts: &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
 		Environment: &cbtypes.ProjectEnvironment{
-			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/library/alpine:3.21"),
+			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String(awsCLIImage),
 			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
 		},
 		ServiceRole: aws.String(projectRole),
@@ -144,8 +141,51 @@ func TestCodeBuild_BuildHoldsItsServiceRoleSession_SDK(t *testing.T) {
 	assertBuildSession(aws.ToString(retried.Build.Id), overrideRole)
 }
 
-// A job's container reads sessions of its job definition's job role from the
-// container credentials endpoint, as an Amazon ECS task reads its task role.
+// A batch build that names a serviceRoleOverride runs as that role, not as its
+// project's: its build command succeeds only when the AWS CLI's caller is a
+// session of the override role.
+func TestCodeBuild_BuildBatchRunsAsItsServiceRoleOverride_SDK(t *testing.T) {
+	t.Parallel()
+	c := codebuildClient()
+	name := uniqueName("cb-batch-role")
+	projectRole := createWorkloadRole(t, name, "codebuild.amazonaws.com")
+	overrideRole := createWorkloadRole(t, name+"-override", "codebuild.amazonaws.com")
+	command := "aws sts get-caller-identity --query Arn --output text | grep -q 'assumed-role/" + name + "-override/'"
+	_, err := c.CreateProject(ctx, &codebuild.CreateProjectInput{
+		Name: aws.String(name),
+		Source: &cbtypes.ProjectSource{
+			Type:      cbtypes.SourceTypeNoSource,
+			Buildspec: aws.String("version: 0.2\nphases:\n  build:\n    commands:\n      - \"" + command + "\"\n"),
+		},
+		Artifacts: &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
+		Environment: &cbtypes.ProjectEnvironment{
+			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String(awsCLIImage),
+			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
+		},
+		ServiceRole: aws.String(projectRole),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteProject(context.Background(), &codebuild.DeleteProjectInput{Name: aws.String(name)})
+	})
+
+	started, err := c.StartBuildBatch(ctx, &codebuild.StartBuildBatchInput{ProjectName: aws.String(name), ServiceRoleOverride: aws.String(overrideRole)})
+	require.NoError(t, err)
+	assert.Equal(t, overrideRole, aws.ToString(started.BuildBatch.ServiceRole))
+	var batch cbtypes.BuildBatch
+	require.Eventually(t, func() bool {
+		out, err := c.BatchGetBuildBatches(ctx, &codebuild.BatchGetBuildBatchesInput{Ids: []string{aws.ToString(started.BuildBatch.Id)}})
+		require.NoError(t, err)
+		batch = out.BuildBatches[0]
+		return batch.BuildBatchStatus != cbtypes.StatusTypeInProgress
+	}, cbBuildCompletionBudget, 100*time.Millisecond)
+	require.Equal(t, cbtypes.StatusTypeSucceeded, batch.BuildBatchStatus)
+	assert.Equal(t, overrideRole, aws.ToString(batch.ServiceRole))
+}
+
+// A job's AWS CLI resolves sessions of its job definition's job role through
+// its default credential chain, as an Amazon ECS task's resolves its task
+// role.
 func TestBatch_JobHoldsItsJobRoleSession_SDK(t *testing.T) {
 	t.Parallel()
 	c := batchClient()
@@ -155,7 +195,8 @@ func TestBatch_JobHoldsItsJobRoleSession_SDK(t *testing.T) {
 	definition := registerBatchJobDefinition(t, c, &batch.RegisterJobDefinitionInput{
 		JobDefinitionName: aws.String(name),
 		ContainerProperties: &batchtypes.ContainerProperties{
-			Command:    []string{"sh", "-c", fetchContainerCredentials},
+			Image:      aws.String(awsCLIImage),
+			Command:    exportDefaultChainCredentials[1:],
 			JobRoleArn: aws.String(roleArn),
 		},
 	})
@@ -170,7 +211,9 @@ func TestBatch_JobHoldsItsJobRoleSession_SDK(t *testing.T) {
 }
 
 // A Python shell job run reads sessions of the job's role, which AWS Glue
-// names GlueJobRunnerSession.
+// names GlueJobRunnerSession, from the container credentials endpoint its
+// environment names. The job's image carries no AWS SDK for Python, so the
+// script reads the endpoint itself.
 func TestGlue_JobRunHoldsItsRoleSession_SDK(t *testing.T) {
 	t.Parallel()
 	ensureGluePythonShellImage(t)
@@ -184,10 +227,11 @@ func TestGlue_JobRunHoldsItsRoleSession_SDK(t *testing.T) {
 		_, _ = s3c.DeleteObject(context.Background(), &s3.DeleteObjectInput{Bucket: aws.String(name), Key: aws.String("script.py")})
 		_, _ = s3c.DeleteBucket(context.Background(), &s3.DeleteBucketInput{Bucket: aws.String(name)})
 	})
-	script := `import os, urllib.request
+	script := `import json, os, urllib.request
 relative = os.environ.get("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")
 uri = "http://169.254.170.2" + relative if relative else os.environ["AWS_CONTAINER_CREDENTIALS_FULL_URI"]
-print("credentials=" + urllib.request.urlopen(uri).read().decode().strip())
+d = json.load(urllib.request.urlopen(uri))
+print(json.dumps({"Version": 1, "AccessKeyId": d["AccessKeyId"], "SecretAccessKey": d["SecretAccessKey"], "SessionToken": d["Token"], "Expiration": d["Expiration"]}))
 `
 	_, err = s3c.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(name), Key: aws.String("script.py"), Body: bytes.NewReader([]byte(script))})
 	require.NoError(t, err)
@@ -208,12 +252,4 @@ print("credentials=" + urllib.request.urlopen(uri).read().decode().strip())
 	}, glueJobRunCompletionBudget, 100*time.Millisecond)
 	require.Equal(t, gluetypes.JobRunStateSucceeded, state.JobRun.JobRunState, aws.ToString(state.JobRun.ErrorMessage))
 	assertRoleSession(t, logStreamText(t, "/aws-glue/jobs/output", aws.ToString(run.JobRunId)), roleArn, "GlueJobRunnerSession")
-}
-
-func indent(text, prefix string) string {
-	lines := strings.Split(text, "\n")
-	for i, line := range lines {
-		lines[i] = prefix + line
-	}
-	return strings.Join(lines, "\n")
 }

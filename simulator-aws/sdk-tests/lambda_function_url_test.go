@@ -54,7 +54,7 @@ func lambdaFunctionURLFunction(t *testing.T, authType lambdatypes.FunctionUrlAut
 	name := uniqueName("url-fn")
 	created, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName:  aws.String(name),
-		Role:          aws.String("arn:aws:iam::123456789012:role/test-role"),
+		Role:          aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		PackageType:   lambdatypes.PackageTypeImage,
 		Code:          &lambdatypes.FunctionCode{ImageUri: aws.String(lambdaHandlerImageName)},
 		Architectures: nativeLambdaArchitectures(),

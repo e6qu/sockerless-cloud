@@ -1,0 +1,25 @@
+name: Build a simulator console
+description: >-
+  Builds a simulator's console from ui/ and places the bundle at
+  simulator-<cloud>/dist, where `go build -tags console` embeds it. The
+  repository carries the console's sources only, so every build that ships a
+  console builds it here first.
+inputs:
+  simulator:
+    description: The simulator directory, such as simulator-aws.
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: ./.github/actions/install-bun
+    - name: Build the console
+      shell: bash
+      env:
+        SIMULATOR: ${{ inputs.simulator }}
+      run: |
+        set -euo pipefail
+        cd ui
+        bun install --frozen-lockfile
+        bunx turbo run build --no-daemon --filter="@sockerless/ui-$SIMULATOR"
+        cd ..
+        make -C "$SIMULATOR" embed

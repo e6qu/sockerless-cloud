@@ -349,7 +349,11 @@ func TestELBv2_ModifyCapacityReservationAndIpPools(t *testing.T) {
 	vpc, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.74.0.0/16")})
 	require.NoError(t, err)
 	sub, err := ec2c.CreateSubnet(ctx, &ec2.CreateSubnetInput{
-		VpcId: vpc.Vpc.VpcId, CidrBlock: aws.String("10.74.1.0/24"),
+		VpcId: vpc.Vpc.VpcId, CidrBlock: aws.String("10.74.1.0/24"), AvailabilityZone: aws.String("us-east-1a"),
+	})
+	require.NoError(t, err)
+	sub2, err := ec2c.CreateSubnet(ctx, &ec2.CreateSubnetInput{
+		VpcId: vpc.Vpc.VpcId, CidrBlock: aws.String("10.74.2.0/24"), AvailabilityZone: aws.String("us-east-1b"),
 	})
 	require.NoError(t, err)
 
@@ -357,7 +361,7 @@ func TestELBv2_ModifyCapacityReservationAndIpPools(t *testing.T) {
 	lb, err := c.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
 		Name:    aws.String("cap-mod-lb"),
 		Type:    elbtypes.LoadBalancerTypeEnumApplication,
-		Subnets: []string{aws.ToString(sub.Subnet.SubnetId)},
+		Subnets: []string{aws.ToString(sub.Subnet.SubnetId), aws.ToString(sub2.Subnet.SubnetId)},
 	})
 	require.NoError(t, err)
 	arn := aws.ToString(lb.LoadBalancers[0].LoadBalancerArn)

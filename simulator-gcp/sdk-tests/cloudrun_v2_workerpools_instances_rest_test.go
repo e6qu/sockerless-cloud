@@ -130,7 +130,7 @@ func TestSDK_RunV2REST_WorkerPools_FullSurface(t *testing.T) {
 	assert.Equal(t, "CONDITION_SUCCEEDED", got.TerminalCondition.State)
 	require.NotEmpty(t, got.InstanceSplitStatuses, "a ready worker pool reports its instance split")
 	assert.Equal(t, int64(100), got.InstanceSplitStatuses[0].Percent)
-	assert.Equal(t, name+"/revisions/"+id+"-00001-abc", got.LatestReadyRevision)
+	assert.Regexp(t, "^"+name+"/revisions/"+id+`-00001-[a-z0-9]{3}$`, got.LatestReadyRevision)
 
 	// List.
 	list, err := svc.Projects.Locations.WorkerPools.List(crV2Parent).Do()
@@ -158,7 +158,7 @@ func TestSDK_RunV2REST_WorkerPools_FullSurface(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), patched.Generation)
 	assert.Equal(t, int64(2), patched.ObservedGeneration, "a settled update observed its generation")
-	assert.Equal(t, name+"/revisions/"+id+"-00002-abc", patched.LatestReadyRevision)
+	assert.Regexp(t, "^"+name+"/revisions/"+id+`-00002-[a-z0-9]{3}$`, patched.LatestReadyRevision)
 	require.NotNil(t, patched.Template)
 	require.Len(t, patched.Template.Containers, 1)
 	require.Len(t, patched.Template.Containers[0].Env, 1)

@@ -3,8 +3,8 @@
 # This sim is its own Go module, resolved against the sibling support
 # modules (sim, ui-auth) through the repo-root go.work during
 # development and through tagged versions when installed with
-# `go install ...@version`. The default `build` produces a stripped,
-# no-UI binary; `make embed && make build` bakes the console SPA in.
+# `go install ...@version`. `build` embeds the console built in ui/ (build the UI first);
+# `build-api`, which the test suites use, builds without it.
 
 APP_NAME       := simulator-aws
 GO_PACKAGE     := .
@@ -47,7 +47,7 @@ include $(REPO_ROOT_REL)/make/go-app.mk
 UNIT_TEST_TIMEOUT ?= 10m
 
 unit-test: ## go test the simulator module's own package-internal tests (fast; AST/unit guards, no Docker/real-exec)
-	$(GO_ENV) go test -tags noui -count=1 -timeout $(UNIT_TEST_TIMEOUT) ./...
+	$(GO_ENV) go test -count=1 -timeout $(UNIT_TEST_TIMEOUT) ./...
 
 # The same tests under the race detector. Separate from unit-test because the
 # detector needs cgo, which unit-test deliberately does not have.
@@ -63,22 +63,22 @@ RACE_TEST_TIMEOUT ?= 20m
 RACE_TEST_PKGS ?= ./...
 
 race-test: ## go test the simulator module's own tests under the race detector
-	CGO_ENABLED=1 go test -tags noui -race -count=1 -timeout $(RACE_TEST_TIMEOUT) $(RACE_TEST_PKGS)
+	CGO_ENABLED=1 go test -race -count=1 -timeout $(RACE_TEST_TIMEOUT) $(RACE_TEST_PKGS)
 
-sdk-test: build ## go test the SDK-driven sim tests
+sdk-test: build-api ## go test the SDK-driven sim tests
 	cd sdk-tests && $(GO_ENV) bash ../../scripts/go-test-summary.sh -count=1 -timeout $(SDK_TEST_TIMEOUT) $(SDK_TEST_ARGS)
 
-cli-test: build ## go test the CLI-driven sim tests
+cli-test: build-api ## go test the CLI-driven sim tests
 	cd cli-tests && $(GO_ENV) bash ../../scripts/go-test-summary.sh -count=1 -timeout $(CLI_TEST_TIMEOUT) $(CLI_TEST_ARGS)
 
-terraform-test: build ## go test the terraform-driven sim tests
+terraform-test: build-api ## go test the terraform-driven sim tests
 	cd terraform-tests && SOCKERLESS_AWS_SIMULATOR_BINARY=$(CURDIR)/$(APP_NAME) $(GO_ENV) go test -p $(TERRAFORM_TEST_PACKAGE_PARALLELISM) $(TERRAFORM_TEST_JSON_FLAG) -v -count=1 -timeout $(TERRAFORM_TEST_TIMEOUT) $(TERRAFORM_TEST_ARGS) $(TERRAFORM_TEST_PACKAGES)
 
 terraform-https-test: ## go test terraform via the optional Caddy HTTPS gateway
 	@if [ "$$(uname -s)" = "Darwin" ]; then \
 	  $(MAKE) terraform-https-test-docker; \
 	else \
-	  $(MAKE) build && \
+	  $(MAKE) build-api && \
 	  cd terraform-tests && SOCKERLESS_AWS_SIMULATOR_BINARY=$(CURDIR)/$(APP_NAME) SOCKERLESS_TF_HTTPS_GATEWAY=1 $(GO_ENV) go test -p $(TERRAFORM_TEST_PACKAGE_PARALLELISM) $(TERRAFORM_TEST_JSON_FLAG) -v -count=1 -timeout $(TERRAFORM_TEST_TIMEOUT) $(TERRAFORM_TEST_ARGS) $(TERRAFORM_TEST_PACKAGES); \
 	fi
 

@@ -76,17 +76,18 @@ func psPublishREST(t *testing.T, srv *sim.Server, topic, data string) {
 // nothing to replay.
 func TestPubSubSeekReplaysRetainedAcknowledgedMessages(t *testing.T) {
 	srv := buildOperationsTestSimulator(t)
+	activeTestProject(t, "unit-proj")
 	const host = "pubsub.googleapis.com"
-	gcpHostOK(t, srv, host, http.MethodPut, "/v1/projects/p/topics/retain", `{}`)
-	gcpHostOK(t, srv, host, http.MethodPut, "/v1/projects/p/subscriptions/retaining", `{"topic":"projects/p/topics/retain","retainAckedMessages":true}`)
-	gcpHostOK(t, srv, host, http.MethodPut, "/v1/projects/p/subscriptions/plain", `{"topic":"projects/p/topics/retain"}`)
+	gcpHostOK(t, srv, host, http.MethodPut, "/v1/projects/unit-proj/topics/retain", `{}`)
+	gcpHostOK(t, srv, host, http.MethodPut, "/v1/projects/unit-proj/subscriptions/retaining", `{"topic":"projects/unit-proj/topics/retain","retainAckedMessages":true}`)
+	gcpHostOK(t, srv, host, http.MethodPut, "/v1/projects/unit-proj/subscriptions/plain", `{"topic":"projects/unit-proj/topics/retain"}`)
 
-	psPublishREST(t, srv, "projects/p/topics/retain", "before")
+	psPublishREST(t, srv, "projects/unit-proj/topics/retain", "before")
 	time.Sleep(5 * time.Millisecond) // separate the publish-time milliseconds
-	psPublishREST(t, srv, "projects/p/topics/retain", "after")
+	psPublishREST(t, srv, "projects/unit-proj/topics/retain", "after")
 
 	var seekTo string
-	for _, sub := range []string{"projects/p/subscriptions/retaining", "projects/p/subscriptions/plain"} {
+	for _, sub := range []string{"projects/unit-proj/subscriptions/retaining", "projects/unit-proj/subscriptions/plain"} {
 		got := psPullREST(t, srv, sub)
 		if len(got) != 2 || got[0].data != "after" || got[1].data != "before" {
 			t.Fatalf("%s pulled %v", sub, got)
@@ -99,11 +100,11 @@ func TestPubSubSeekReplaysRetainedAcknowledgedMessages(t *testing.T) {
 		gcpHostOK(t, srv, host, http.MethodPost, "/v1/"+sub+":seek", `{"time":"`+seekTo+`"}`)
 	}
 
-	replayed := psPullREST(t, srv, "projects/p/subscriptions/retaining")
+	replayed := psPullREST(t, srv, "projects/unit-proj/subscriptions/retaining")
 	if len(replayed) != 1 || replayed[0].data != "after" {
 		t.Fatalf("the seek replayed %v, want only the message published at the seek time", replayed)
 	}
-	if none := psPullREST(t, srv, "projects/p/subscriptions/plain"); len(none) != 0 {
+	if none := psPullREST(t, srv, "projects/unit-proj/subscriptions/plain"); len(none) != 0 {
 		t.Fatalf("a subscription that does not retain acknowledged messages replayed %v", none)
 	}
 }
@@ -112,34 +113,35 @@ func TestPubSubSeekReplaysRetainedAcknowledgedMessages(t *testing.T) {
 // takes the 10-second default.
 func TestPubSubAckDeadlineRange(t *testing.T) {
 	srv := buildOperationsTestSimulator(t)
+	activeTestProject(t, "unit-proj")
 	const host = "pubsub.googleapis.com"
-	gcpHostOK(t, srv, host, http.MethodPut, "/v1/projects/p/topics/deadline", `{}`)
+	gcpHostOK(t, srv, host, http.MethodPut, "/v1/projects/unit-proj/topics/deadline", `{}`)
 	for _, seconds := range []string{"5", "601"} {
-		code, out := gcpHostCall(t, srv, host, http.MethodPut, "/v1/projects/p/subscriptions/bad-"+seconds,
-			`{"topic":"projects/p/topics/deadline","ackDeadlineSeconds":`+seconds+`}`)
+		code, out := gcpHostCall(t, srv, host, http.MethodPut, "/v1/projects/unit-proj/subscriptions/bad-"+seconds,
+			`{"topic":"projects/unit-proj/topics/deadline","ackDeadlineSeconds":`+seconds+`}`)
 		if code != http.StatusBadRequest {
 			t.Fatalf("ackDeadlineSeconds %s answered %d %v", seconds, code, out)
 		}
 	}
-	sub := gcpHostOK(t, srv, host, http.MethodPut, "/v1/projects/p/subscriptions/ok", `{"topic":"projects/p/topics/deadline"}`)
+	sub := gcpHostOK(t, srv, host, http.MethodPut, "/v1/projects/unit-proj/subscriptions/ok", `{"topic":"projects/unit-proj/topics/deadline"}`)
 	if sub["ackDeadlineSeconds"] != float64(10) {
 		t.Fatalf("default ack deadline = %v", sub["ackDeadlineSeconds"])
 	}
-	if code, _ := gcpHostCall(t, srv, host, http.MethodPatch, "/v1/projects/p/subscriptions/ok",
+	if code, _ := gcpHostCall(t, srv, host, http.MethodPatch, "/v1/projects/unit-proj/subscriptions/ok",
 		`{"subscription":{"ackDeadlineSeconds":700},"updateMask":"ackDeadlineSeconds"}`); code != http.StatusBadRequest {
 		t.Fatalf("an update past 600 seconds answered %d", code)
 	}
 
 	grpcSub := &pubsubSubscriberGRPC{}
 	updated, err := grpcSub.UpdateSubscription(context.Background(), &pspb.UpdateSubscriptionRequest{
-		Subscription: &pspb.Subscription{Name: "projects/p/subscriptions/ok", AckDeadlineSeconds: 45},
+		Subscription: &pspb.Subscription{Name: "projects/unit-proj/subscriptions/ok", AckDeadlineSeconds: 45},
 		UpdateMask:   &fieldmaskpb.FieldMask{Paths: []string{"ack_deadline_seconds"}},
 	})
 	if err != nil || updated.GetAckDeadlineSeconds() != 45 {
 		t.Fatalf("a snake_case FieldMask update answered %v, %v", updated, err)
 	}
 	_, err = grpcSub.UpdateSubscription(context.Background(), &pspb.UpdateSubscriptionRequest{
-		Subscription: &pspb.Subscription{Name: "projects/p/subscriptions/ok"},
+		Subscription: &pspb.Subscription{Name: "projects/unit-proj/subscriptions/ok"},
 		UpdateMask:   &fieldmaskpb.FieldMask{Paths: []string{"no_such_field"}},
 	})
 	if status.Code(err) != codes.InvalidArgument {
@@ -152,23 +154,24 @@ func TestPubSubAckDeadlineRange(t *testing.T) {
 // the attributes Cloud Storage sets, filtered by event type and name prefix.
 func TestGCSNotificationsPublishObjectChanges(t *testing.T) {
 	srv := buildOperationsTestSimulator(t)
+	activeTestProject(t, "unit-proj")
 	const host = "storage.googleapis.com"
 	for _, topic := range []string{"gcs-events", "other"} {
-		gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPut, "/v1/projects/p/topics/"+topic, `{}`)
-		gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPost, "/v1/projects/p/topics/"+topic+":setIamPolicy",
+		gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPut, "/v1/projects/unit-proj/topics/"+topic, `{}`)
+		gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPost, "/v1/projects/unit-proj/topics/"+topic+":setIamPolicy",
 			`{"policy":{"bindings":[{"role":"roles/pubsub.publisher","members":["serviceAccount:service-`+gcpTestProjectNumber(t)+`@gs-project-accounts.iam.gserviceaccount.com"]}]}}`)
 	}
-	gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPut, "/v1/projects/p/subscriptions/gcs-events", `{"topic":"projects/p/topics/gcs-events"}`)
+	gcpHostOK(t, srv, "pubsub.googleapis.com", http.MethodPut, "/v1/projects/unit-proj/subscriptions/gcs-events", `{"topic":"projects/unit-proj/topics/gcs-events"}`)
 	gcpHostOK(t, srv, host, http.MethodPost, "/storage/v1/b?project=test-project", `{"name":"watched"}`)
 	first := gcpHostOK(t, srv, host, http.MethodPost, "/storage/v1/b/watched/notificationConfigs",
-		`{"topic":"//pubsub.googleapis.com/projects/p/topics/gcs-events","payload_format":"JSON_API_V1","event_types":["OBJECT_FINALIZE","OBJECT_DELETE"],"object_name_prefix":"in/","custom_attributes":{"team":"data"}}`)
+		`{"topic":"//pubsub.googleapis.com/projects/unit-proj/topics/gcs-events","payload_format":"JSON_API_V1","event_types":["OBJECT_FINALIZE","OBJECT_DELETE"],"object_name_prefix":"in/","custom_attributes":{"team":"data"}}`)
 	second := gcpHostOK(t, srv, host, http.MethodPost, "/storage/v1/b/watched/notificationConfigs",
-		`{"topic":"//pubsub.googleapis.com/projects/p/topics/other"}`)
+		`{"topic":"//pubsub.googleapis.com/projects/unit-proj/topics/other"}`)
 	if code, _ := gcpHostCall(t, srv, host, http.MethodDelete, "/storage/v1/b/watched/notificationConfigs/"+second["id"].(string), ``); code != http.StatusNoContent {
 		t.Fatalf("delete notification answered %d", code)
 	}
 	third := gcpHostOK(t, srv, host, http.MethodPost, "/storage/v1/b/watched/notificationConfigs",
-		`{"topic":"//pubsub.googleapis.com/projects/p/topics/other"}`)
+		`{"topic":"//pubsub.googleapis.com/projects/unit-proj/topics/other"}`)
 	if third["id"] == first["id"] {
 		t.Fatalf("a new configuration reused the id %v of one that exists", first["id"])
 	}
@@ -184,7 +187,7 @@ func TestGCSNotificationsPublishObjectChanges(t *testing.T) {
 		t.Fatalf("delete object answered %d", code)
 	}
 
-	got := psPullREST(t, srv, "projects/p/subscriptions/gcs-events")
+	got := psPullREST(t, srv, "projects/unit-proj/subscriptions/gcs-events")
 	events := map[string]pulledMessage{}
 	for _, m := range got {
 		events[m.attributes["eventType"]] = m
@@ -275,10 +278,10 @@ func TestEventarcStorageTriggerDeliversCloudEvents(t *testing.T) {
 func TestLoggingEntriesCopy(t *testing.T) {
 	srv := buildOperationsTestSimulator(t)
 	const host = "logging.googleapis.com"
-	bucket := "projects/p/locations/global/buckets/archive"
-	gcpHostOK(t, srv, host, http.MethodPost, "/v2/projects/p/locations/global/buckets?bucketId=archive", `{}`)
-	gcpHostOK(t, srv, host, http.MethodPost, "/v2/projects/p/sinks", `{"name":"to-archive",
-		"destination":"logging.googleapis.com/`+bucket+`","filter":"logName=\"projects/p/logs/app\"",
+	bucket := "projects/unit-proj/locations/global/buckets/archive"
+	gcpHostOK(t, srv, host, http.MethodPost, "/v2/projects/unit-proj/locations/global/buckets?bucketId=archive", `{}`)
+	gcpHostOK(t, srv, host, http.MethodPost, "/v2/projects/unit-proj/sinks", `{"name":"to-archive",
+		"destination":"logging.googleapis.com/`+bucket+`","filter":"logName=\"projects/unit-proj/logs/app\"",
 		"exclusions":[{"name":"noise","filter":"textPayload:\"noise\""}]}`)
 	day := time.Now().UTC().AddDate(0, 0, -2).Truncate(24 * time.Hour)
 	at := func(hour, minute int) string {
@@ -286,10 +289,10 @@ func TestLoggingEntriesCopy(t *testing.T) {
 	}
 	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=test-project", `{"name":"copies"}`)
 	gcpHostOK(t, srv, host, http.MethodPost, "/v2/entries:write", `{"entries":[
-		{"logName":"projects/p/logs/app","timestamp":"`+at(10, 15)+`","severity":"ERROR","textPayload":"disk full"},
-		{"logName":"projects/p/logs/app","timestamp":"`+at(11, 5)+`","severity":"INFO","textPayload":"started"},
-		{"logName":"projects/p/logs/app","timestamp":"`+at(10, 20)+`","severity":"ERROR","textPayload":"noise burst"},
-		{"logName":"projects/p/logs/other","timestamp":"`+at(10, 30)+`","severity":"ERROR","textPayload":"not routed"},
+		{"logName":"projects/unit-proj/logs/app","timestamp":"`+at(10, 15)+`","severity":"ERROR","textPayload":"disk full"},
+		{"logName":"projects/unit-proj/logs/app","timestamp":"`+at(11, 5)+`","severity":"INFO","textPayload":"started"},
+		{"logName":"projects/unit-proj/logs/app","timestamp":"`+at(10, 20)+`","severity":"ERROR","textPayload":"noise burst"},
+		{"logName":"projects/unit-proj/logs/other","timestamp":"`+at(10, 30)+`","severity":"ERROR","textPayload":"not routed"},
 		{"logName":"projects/q/logs/app","timestamp":"`+at(10, 30)+`","severity":"ERROR","textPayload":"another project"}]}`)
 
 	op := gcpHostOK(t, srv, host, http.MethodPost, "/v2/entries:copy",
@@ -316,9 +319,9 @@ func TestLoggingEntriesCopy(t *testing.T) {
 	}
 
 	for body, want := range map[string]int{
-		`{"name":"projects/p/locations/global/buckets/absent","destination":"storage.googleapis.com/copies"}`: http.StatusNotFound,
-		`{"name":"` + bucket + `","destination":"storage.googleapis.com/absent"}`:                             http.StatusNotFound,
-		`{"name":"` + bucket + `","destination":"bigquery.googleapis.com/projects/p/datasets/d"}`:             http.StatusBadRequest,
+		`{"name":"projects/unit-proj/locations/global/buckets/absent","destination":"storage.googleapis.com/copies"}`: http.StatusNotFound,
+		`{"name":"` + bucket + `","destination":"storage.googleapis.com/absent"}`:                                     http.StatusNotFound,
+		`{"name":"` + bucket + `","destination":"bigquery.googleapis.com/projects/unit-proj/datasets/d"}`:             http.StatusBadRequest,
 	} {
 		if code, _ := gcpHostCall(t, srv, host, http.MethodPost, "/v2/entries:copy", body); code != want {
 			t.Errorf("copy %s answered %d, want %d", body, code, want)

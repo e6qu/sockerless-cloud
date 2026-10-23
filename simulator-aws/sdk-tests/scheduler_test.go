@@ -33,7 +33,7 @@ func TestScheduler_ScheduleLifecycle(t *testing.T) {
 		},
 		Target: &schedtypes.Target{
 			Arn:     aws.String("arn:aws:lambda:us-east-1:123456789012:function:runner-job"),
-			RoleArn: aws.String("arn:aws:iam::123456789012:role/scheduler-role"),
+			RoleArn: aws.String(serviceRole(t, "scheduler.amazonaws.com")),
 		},
 	})
 	require.NoError(t, err)
@@ -60,7 +60,7 @@ func TestScheduler_ScheduleLifecycle(t *testing.T) {
 		FlexibleTimeWindow: &schedtypes.FlexibleTimeWindow{Mode: schedtypes.FlexibleTimeWindowModeOff},
 		Target: &schedtypes.Target{
 			Arn:     aws.String("arn:aws:lambda:us-east-1:123456789012:function:x"),
-			RoleArn: aws.String("arn:aws:iam::123456789012:role/scheduler-role"),
+			RoleArn: aws.String(serviceRole(t, "scheduler.amazonaws.com")),
 		},
 	})
 	require.Error(t, err, "duplicate schedule must raise ConflictException")
@@ -73,7 +73,7 @@ func TestScheduler_ScheduleLifecycle(t *testing.T) {
 		FlexibleTimeWindow: &schedtypes.FlexibleTimeWindow{Mode: schedtypes.FlexibleTimeWindowModeOff},
 		Target: &schedtypes.Target{
 			Arn:     aws.String("arn:aws:lambda:us-east-1:123456789012:function:runner-job"),
-			RoleArn: aws.String("arn:aws:iam::123456789012:role/scheduler-role"),
+			RoleArn: aws.String(serviceRole(t, "scheduler.amazonaws.com")),
 		},
 	})
 	require.NoError(t, err)
@@ -125,7 +125,7 @@ func TestScheduler_ScheduleGroups(t *testing.T) {
 		FlexibleTimeWindow: &schedtypes.FlexibleTimeWindow{Mode: schedtypes.FlexibleTimeWindowModeOff},
 		Target: &schedtypes.Target{
 			Arn:     aws.String("arn:aws:lambda:us-east-1:123456789012:function:g"),
-			RoleArn: aws.String("arn:aws:iam::123456789012:role/scheduler-role"),
+			RoleArn: aws.String(serviceRole(t, "scheduler.amazonaws.com")),
 		},
 	})
 	require.NoError(t, err)
@@ -172,7 +172,7 @@ func TestScheduler_ListSchedulesPages_SDK(t *testing.T) {
 			FlexibleTimeWindow: &schedtypes.FlexibleTimeWindow{Mode: schedtypes.FlexibleTimeWindowModeOff},
 			Target: &schedtypes.Target{
 				Arn:     aws.String("arn:aws:lambda:us-east-1:123456789012:function:paged"),
-				RoleArn: aws.String("arn:aws:iam::123456789012:role/scheduler-role"),
+				RoleArn: aws.String(serviceRole(t, "scheduler.amazonaws.com")),
 			},
 		})
 		require.NoError(t, err)

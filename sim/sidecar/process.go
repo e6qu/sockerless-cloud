@@ -51,7 +51,7 @@ func ReadProcess(ctx context.Context, containerID string, pid int, what string) 
 		return nil, err
 	}
 	cli := sim.DockerClient()
-	image, platform, err := ensureImage(ctx, cli)
+	image, platform, err := EnsureImage(ctx, cli)
 	if err != nil {
 		return nil, err
 	}

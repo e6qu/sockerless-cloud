@@ -112,7 +112,7 @@ func TestLambda_InitPhaseIsOutsideTheFunctionTimeout(t *testing.T) {
 
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(fnName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		Runtime:      lambdatypes.RuntimeNodejs18x,
 		Handler:      aws.String("index.handler"),
 		Timeout:      aws.Int32(3),
@@ -158,7 +158,7 @@ func TestLambda_InitPhaseBeyondItsLimitIsRetriedInsideTheFunctionTimeout(t *test
 
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(fnName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		Runtime:      lambdatypes.RuntimeNodejs18x,
 		Handler:      aws.String("index.handler"),
 		Timeout:      aws.Int32(3),

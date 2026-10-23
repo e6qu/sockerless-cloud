@@ -139,7 +139,9 @@ func Init(startupPath string) string {
 	}
 	lines = append(lines,
 		"touch "+ReadyPath,
-		"trap 'exit 0' TERM INT",
+		// SIGRTMIN+4 is systemd's poweroff signal and SIGUSR2 busybox init's,
+		// so a guest that powers itself off ends the init as it ends a real one.
+		"trap 'exit 0' TERM INT USR2 38",
 		"while :; do sleep 2147483647 & wait $!; done",
 		"",
 	)

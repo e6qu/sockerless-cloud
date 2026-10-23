@@ -33,8 +33,9 @@ const (
 
 // acaRevisionRun is a revision's running replicas.
 type acaRevisionRun struct {
-	set   *replicas.Set
-	grace time.Duration
+	set    *replicas.Set
+	scaler *acaScaler
+	grace  time.Duration
 
 	mu       sync.Mutex
 	replicas map[string]*acaReplica
@@ -89,18 +90,6 @@ func acaCurrentReplicas(revisionID string) []*acaReplica {
 	run.mu.Unlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].created.Before(out[j].created) })
 	return out
-}
-
-// acaRevisionReplicaCount is how many replicas a revision's template keeps
-// running: its minReplicas, one when the template names none.
-func acaRevisionReplicaCount(template *ContainerAppTemplate) int {
-	if template == nil || len(template.Containers) == 0 {
-		return 0
-	}
-	if template.Scale != nil && template.Scale.MinReplicas != nil {
-		return max(int(*template.Scale.MinReplicas), 0)
-	}
-	return 1
 }
 
 // acaReplicaRestartBackoff is how long a revision waits before it replaces a
@@ -187,9 +176,12 @@ func (wl acaRevisionWorkload) members(replica *acaReplica) []workload.Member {
 }
 
 // newACARevisionRun is the replica set of a revision.
-func newACARevisionRun(wl acaRevisionWorkload) *acaRevisionRun {
+func newACARevisionRun(wl acaRevisionWorkload, scaling acaScaling) *acaRevisionRun {
 	app, rev := wl.app, wl.rev
 	run := &acaRevisionRun{grace: acaAppStopGrace(app), replicas: map[string]*acaReplica{}}
+	defer func() {
+		run.scaler = newACAScaler(run, scaling, acaQueueReader{appID: app.ID, identity: app.Identity, secrets: wl.secrets})
+	}()
 	names := make([]string, 0, len(app.Properties.Template.Containers))
 	for _, c := range app.Properties.Template.Containers {
 		names = append(names, c.Name)
@@ -306,8 +298,11 @@ func releaseAfterStartError(err error, release func()) {
 // template run under the app's current configuration, replacing the replicas
 // it ran before once the new ones run.
 func startACARevisionReplicas(ctx context.Context, app ContainerApp, rev acaRevision) error {
-	want := acaRevisionReplicaCount(rev.Template)
-	if want == 0 {
+	scaling := acaRevisionScaling(rev.Template, acaIngressEnabled(app))
+	want := scaling.baseline()
+	if want == 0 && !scaling.demandDriven() {
+		// Nothing can start a replica of a revision with no minimum and no
+		// rule its requests meet.
 		stopACAAppReplicas(rev.ID)
 		return nil
 	}
@@ -315,17 +310,24 @@ func startACARevisionReplicas(ctx context.Context, app ContainerApp, rev acaRevi
 	if err != nil {
 		return err
 	}
-	run := newACARevisionRun(wl)
+	run := newACARevisionRun(wl, scaling)
 	if err := run.set.Scale(ctx, want); err != nil {
-		bg.Go(func() { _ = run.set.Stop(context.Background()) })
+		bg.Go(func() { run.stop(context.Background()) })
 		return err
 	}
 	if previous, ok := acaRevisionRuns.Swap(rev.ID, run); ok {
 		if prev, ok := previous.(*acaRevisionRun); ok {
-			bg.Go(func() { _ = prev.set.Stop(context.Background()) })
+			bg.Go(func() { prev.stop(context.Background()) })
 		}
 	}
 	return nil
+}
+
+// stop stops the revision's scaling and its replicas, and returns once they
+// have exited.
+func (run *acaRevisionRun) stop(ctx context.Context) {
+	run.scaler.close()
+	_ = run.set.Stop(ctx)
 }
 
 // stopACAAppReplicas stops the replicas of one revision in the background;
@@ -333,7 +335,7 @@ func startACARevisionReplicas(ctx context.Context, app ContainerApp, rev acaRevi
 func stopACAAppReplicas(revisionID string) {
 	if v, ok := acaRevisionRuns.LoadAndDelete(revisionID); ok {
 		if run, ok := v.(*acaRevisionRun); ok {
-			bg.Go(func() { _ = run.set.Stop(context.Background()) })
+			bg.Go(func() { run.stop(context.Background()) })
 		}
 	}
 }
@@ -343,18 +345,13 @@ func stopACAAppReplicas(revisionID string) {
 func stopACAAppReplicasAndWait(revisionID string) {
 	if v, ok := acaRevisionRuns.LoadAndDelete(revisionID); ok {
 		if run, ok := v.(*acaRevisionRun); ok {
-			_ = run.set.Stop(context.Background())
+			run.stop(context.Background())
 		}
 	}
 }
 
-// acaPickReplica is the next replica of the revision in turn, for the
-// ingress.
-func acaPickReplica(revisionID string) (*workload.Group, bool) {
-	run, ok := acaRevisionRunOf(revisionID)
-	if !ok {
-		return nil, false
-	}
+// pick is the next ready replica of the revision in turn.
+func (run *acaRevisionRun) pick() (*workload.Group, bool) {
 	_, group, ok := run.set.Pick(func(r *replicas.Replica) bool {
 		replica, ok := run.replica(r.ID)
 		return ok && replica.ready()
@@ -362,11 +359,40 @@ func acaPickReplica(revisionID string) (*workload.Group, bool) {
 	return group, ok
 }
 
-// acaRevisionRunning reports whether a revision has a replica running.
-func acaRevisionRunning(revisionID string) bool {
+// acaAcquireReplica is the replica the ingress forwards a request to: the
+// next ready one, or, for a revision the HTTP rule scaled to zero, one it
+// starts for the request, once it is ready.
+func acaAcquireReplica(ctx context.Context, revisionID string) (*workload.Group, bool) {
+	run, ok := acaRevisionRunOf(revisionID)
+	if !ok {
+		return nil, false
+	}
+	run.scaler.record(time.Now())
+	for {
+		changed := acaReadinessChange()
+		if group, ok := run.pick(); ok {
+			return group, true
+		}
+		if err := run.scaler.activate(ctx); err != nil || len(run.set.Replicas()) == 0 {
+			return nil, false
+		}
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return nil, false
+		}
+	}
+}
+
+// acaRevisionServes reports whether the ingress can send a revision requests:
+// it has a replica running, or its HTTP rule starts one for a request.
+func acaRevisionServes(revisionID string) bool {
 	run, ok := acaRevisionRunOf(revisionID)
 	if !ok {
 		return false
+	}
+	if run.scaler.scaling.concurrency > 0 {
+		return true
 	}
 	for _, r := range run.set.Replicas() {
 		if _, running := r.Group(); running {
@@ -407,7 +433,8 @@ func adoptACAAppReplicas(ctx context.Context) {
 	for revID, groups := range byRevision {
 		rev, ok := acaRevisions.Get(revID)
 		app, appOK := acaApps.Get(rev.AppID)
-		if !ok || !appOK || !rev.Active || app.Properties.RunningStatus == acaStopped || acaRevisionReplicaCount(rev.Template) == 0 {
+		scaling := acaRevisionScaling(rev.Template, acaIngressEnabled(app))
+		if !ok || !appOK || !rev.Active || app.Properties.RunningStatus == acaStopped || (scaling.baseline() == 0 && !scaling.demandDriven()) {
 			for _, group := range groups {
 				removeACAContainers(ctx, backend, group)
 			}
@@ -422,7 +449,8 @@ func adoptACAAppReplicas(ctx context.Context) {
 			continue
 		}
 		for _, rev := range acaAppRevisions(app.ID) {
-			if _, running := acaRevisionRunOf(rev.ID); rev.Active && !running && acaRevisionReplicaCount(rev.Template) > 0 {
+			scaling := acaRevisionScaling(rev.Template, acaIngressEnabled(app))
+			if _, running := acaRevisionRunOf(rev.ID); rev.Active && !running && (scaling.baseline() > 0 || scaling.demandDriven()) {
 				bg.Go(func() {
 					if err := startACARevisionReplicas(context.Background(), app, rev); err != nil {
 						log.Printf("Container Apps: start revision %s: %v", rev.Name, err)
@@ -452,8 +480,13 @@ func adoptACARevision(ctx context.Context, backend placement.Backend, app Contai
 	if err != nil {
 		return err
 	}
-	run := newACARevisionRun(wl)
-	want := acaRevisionReplicaCount(rev.Template)
+	scaling := acaRevisionScaling(rev.Template, acaIngressEnabled(app))
+	run := newACARevisionRun(wl, scaling)
+	want := scaling.baseline()
+	if scaling.demandDriven() {
+		// The replicas demand had raised run on; the cooldown scales them in.
+		want = min(max(want, len(groups)), scaling.max)
+	}
 	names := make([]string, 0, len(rev.Template.Containers))
 	for _, c := range rev.Template.Containers {
 		names = append(names, c.Name)

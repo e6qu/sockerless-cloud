@@ -38,7 +38,7 @@ func TestECSExpress_CreateAssemblyAndLifecycle(t *testing.T) {
 	cluster := expressCreateCluster(t, c, "express-cluster")
 	// Isolate the lifecycle from the shared default VPC: other shard tests
 	// launch into it, and the real-VPC tier plumbs task networking per VPC.
-	vpcID, subnetID := createECSTestVPCSubnet(t, "express-lifecycle")
+	vpcID, subnets := createECSTestVPCSubnets(t, "express-lifecycle", 2)
 	sg, err := ec2Client().CreateSecurityGroup(ctx, &ec2.CreateSecurityGroupInput{
 		GroupName:   aws.String("express-lifecycle"),
 		Description: aws.String("Amazon ECS Express Mode lifecycle test"),
@@ -67,7 +67,7 @@ func TestECSExpress_CreateAssemblyAndLifecycle(t *testing.T) {
 		ServiceName:           aws.String("web"),
 		InfrastructureRoleArn: aws.String("arn:aws:iam::000000000000:role/express-infra"),
 		NetworkConfiguration: &ecstypes.ExpressGatewayServiceNetworkConfiguration{
-			Subnets:        []string{subnetID},
+			Subnets:        subnets,
 			SecurityGroups: []string{aws.ToString(sg.GroupId)},
 		},
 		PrimaryContainer: &ecstypes.ExpressGatewayContainer{
@@ -265,7 +265,7 @@ func TestECSExpress_ALBConsolidation(t *testing.T) {
 	c := ecsClient()
 	cluster := expressCreateCluster(t, c, "express-consolidate")
 	ec2c := ec2Client()
-	vpcID, subnetID := createECSTestVPCSubnet(t, "express-consolidate")
+	vpcID, subnets := createECSTestVPCSubnets(t, "express-consolidate", 2)
 	securityGroup, err := ec2c.CreateSecurityGroup(ctx, &ec2.CreateSecurityGroupInput{
 		GroupName:   aws.String("express-consolidate"),
 		Description: aws.String("Amazon ECS Express Mode consolidation test"),
@@ -274,7 +274,7 @@ func TestECSExpress_ALBConsolidation(t *testing.T) {
 	require.NoError(t, err)
 
 	net := &ecstypes.ExpressGatewayServiceNetworkConfiguration{
-		Subnets:        []string{subnetID},
+		Subnets:        subnets,
 		SecurityGroups: []string{aws.ToString(securityGroup.GroupId)},
 	}
 

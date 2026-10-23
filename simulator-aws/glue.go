@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	"github.com/google/uuid"
@@ -1250,6 +1251,25 @@ func handleGlueBatchDeletePartition(w http.ResponseWriter, r *http.Request) {
 	glueWriteJSON(w, http.StatusOK, resp)
 }
 
+// glueRefusesRole writes refusal, as Glue's InvalidInputException, when role,
+// named by ARN or by name, names no role or does not let Glue assume it for
+// the Glue resource it configures.
+func glueRefusesRole(w http.ResponseWriter, role, resource, refusal string) bool {
+	if _, err := iamServiceTrustedRole(role, "glue.amazonaws.com", glueGlueArn(resource)); err != nil {
+		glueWriteError(w, "InvalidInputException", refusal)
+		return true
+	}
+	return false
+}
+
+const glueCrawlerRoleRefusal = "Service is unable to assume provided role. Please verify role's TrustPolicy"
+
+// glueCanAssumeRole refuses a job, session or development endpoint role
+// Glue cannot assume.
+func glueCanAssumeRole(w http.ResponseWriter, role, resource string) bool {
+	return !glueRefusesRole(w, role, resource, "Role "+role+" should be given assume role permissions for Glue Service.")
+}
+
 func handleGlueCreateJob(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name             string            `json:"Name"`
@@ -1277,6 +1297,9 @@ func handleGlueCreateJob(w http.ResponseWriter, r *http.Request) {
 
 	if _, ok := glueJobs.Get(req.Name); ok {
 		glueWriteError(w, "AlreadyExistsException", "Job already exists: "+req.Name)
+		return
+	}
+	if !glueCanAssumeRole(w, req.Role, "job/"+req.Name) {
 		return
 	}
 	now := glueEpochNow()
@@ -1504,14 +1527,16 @@ func glueRunPythonJob(jobName, runID string, job GlueJob, script []byte, args ma
 	defer revokeRoleCredentials(holder)
 	// The job runs in its interpreter's container, taking the script and the
 	// job's arguments the way Glue hands them to a Python shell job.
-	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
+	backend := placement.ContainerBackend{}
+	credentials := grantContainerCredentials(backend, network, holder, job.Role, "GlueJobRunnerSession")
+	handle, err := credentials.place(context.Background(), backend, sim.ContainerConfig{
 		Image:        image,
 		Architecture: platform,
 		Command:      []string{"python3"},
 		Args:         append([]string{glueJobScriptDir + "/script.py"}, glueArgs(args)...),
 		WorkingDir:   glueJobScriptDir,
 		Binds:        []string{filepath.Clean(workDir) + ":" + glueJobScriptDir + ":z"},
-		Env: workloadhost.MergeEnv(grantContainerCredentials(network.MetadataOrigin(), holder, job.Role, "GlueJobRunnerSession"), map[string]string{
+		Env: workloadhost.MergeEnv(credentials.Env, map[string]string{
 			"AWS_DEFAULT_REGION": awsRegion(),
 			"AWS_REGION":         awsRegion(),
 		}),
@@ -1642,6 +1667,9 @@ func handleGlueUpdateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	// JobUpdate replaces the configuration; tags are preserved (they ride GetTags).
 	upd := req.JobUpdate
+	if !glueCanAssumeRole(w, upd.Role, "job/"+req.JobName) {
+		return
+	}
 	job.Description = upd.Description
 	job.Role = upd.Role
 	job.Command = upd.Command
@@ -1757,6 +1785,9 @@ func handleGlueCreateCrawler(w http.ResponseWriter, r *http.Request) {
 		glueWriteError(w, "AlreadyExistsException", "Crawler already exists: "+req.Name)
 		return
 	}
+	if glueRefusesRole(w, req.Role, "crawler/"+req.Name, glueCrawlerRoleRefusal) {
+		return
+	}
 	now := glueEpochNow()
 	crawler := GlueCrawler{
 		Name:         req.Name,
@@ -1869,6 +1900,9 @@ func handleGlueUpdateCrawler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Role != "" {
+		if glueRefusesRole(w, req.Role, "crawler/"+req.Name, glueCrawlerRoleRefusal) {
+			return
+		}
 		crawler.Role = req.Role
 	}
 	if req.Targets != nil {
@@ -2617,9 +2651,8 @@ func glueRFC3339() string {
 	return time.Now().UTC().Format(time.RFC3339)
 }
 
-// glueGlueArn builds an arn:aws:glue ARN for the given resource path.
 func glueGlueArn(resource string) string {
-	return "arn:aws:glue:us-east-1:123456789012:" + resource
+	return "arn:aws:glue:" + awsRegion() + ":" + awsAccountID() + ":" + resource
 }
 
 func handleGlueCreateSecurityConfiguration(w http.ResponseWriter, r *http.Request) {

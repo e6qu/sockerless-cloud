@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -230,11 +231,18 @@ type EC2Instance struct {
 	CpuThreadsPerCore      int
 	RootVolumeSize         int
 	RootVolumeType         string
-	MetadataHttpTokens     string
-	MetadataHttpEndpoint   string
-	MetadataHopLimit       int
-	MetadataInstanceTags   string
-	Placement              EC2Placement
+	// ShutdownBehavior is InstanceInitiatedShutdownBehavior: "stop" or
+	// "terminate".
+	ShutdownBehavior     string
+	MetadataHttpTokens   string
+	MetadataHttpEndpoint string
+	MetadataHopLimit     int
+	MetadataInstanceTags string
+	// InstanceLifecycle is "spot" for a Spot Instance and empty for an
+	// On-Demand one; SpotInstanceRequestId names the request it fulfils.
+	InstanceLifecycle     string
+	SpotInstanceRequestId string
+	Placement             EC2Placement
 	// StateTransitionReason is the free-text reason for the most recent
 	// state transition (the DescribeInstances <reason> element); empty
 	// while the instance is running.
@@ -560,20 +568,24 @@ func ec2Owner() string { return awsAccountID() }
 // subnet through this — faithfully, by the IsDefault VPC — rather than a
 // hardcoded ID.
 func defaultVPCSubnetID() string {
+	var subnets []string
 	for _, s := range ec2Subnets.List() {
 		if v, ok := ec2Vpcs.Get(s.VpcId); ok && v.IsDefault {
-			return s.SubnetId
+			subnets = append(subnets, s.SubnetId)
 		}
 	}
-	return ""
+	if len(subnets) == 0 {
+		return ""
+	}
+	slices.Sort(subnets)
+	return subnets[0]
 }
 
-// ensureSimDefaults seeds the account's default VPC + a default subnet, the same
-// way a real AWS account is auto-provisioned with a default VPC and one default
-// subnet per AZ (so DescribeVpcs/DescribeSubnets return them and a
-// subnet-less RunInstances has somewhere to land). The IDs are deterministic — a
-// simulator convention, like the fixed account ID — so coordinate-only callers
-// can reference them; nothing in the sim is keyed on a sockerless-specific name.
+// ensureSimDefaults seeds the account's default VPC and one default subnet per
+// Availability Zone, the way a real AWS account is provisioned (so
+// DescribeVpcs/DescribeSubnets return them and a subnet-less RunInstances has
+// somewhere to land). The IDs are deterministic — a simulator convention, like
+// the fixed account ID — so coordinate-only callers can reference them.
 // Idempotent; called on startup.
 func ensureSimDefaults() {
 	if _, ok := ec2Vpcs.Get("vpc-sim"); !ok {
@@ -587,12 +599,16 @@ func ensureSimDefaults() {
 			EnableDnsHostnames: true,
 		})
 	}
-	if _, ok := ec2Subnets.Get("subnet-0123456789abcdef0"); !ok {
-		ec2Subnets.Put("subnet-0123456789abcdef0", EC2Subnet{
-			SubnetId:            "subnet-0123456789abcdef0",
+	for i, zone := range awsAvailabilityZones() {
+		id := fmt.Sprintf("subnet-0123456789abcdef%d", i)
+		if _, ok := ec2Subnets.Get(id); ok {
+			continue
+		}
+		ec2Subnets.Put(id, EC2Subnet{
+			SubnetId:            id,
 			VpcId:               "vpc-sim",
-			CidrBlock:           "172.31.0.0/24",
-			AvailabilityZone:    awsAvailabilityZone(),
+			CidrBlock:           fmt.Sprintf("172.31.%d.0/24", 16*i),
+			AvailabilityZone:    zone,
 			State:               "available",
 			OwnerId:             ec2Owner(),
 			MapPublicIpOnLaunch: false,
@@ -811,12 +827,16 @@ func handleDescribeAccountAttributes(w http.ResponseWriter, r *http.Request) {
 
 func handleDescribeAvailabilityZones(w http.ResponseWriter, r *http.Request) {
 	region := awsRegion()
-	zone := awsAvailabilityZone()
+	var items strings.Builder
+	for _, zone := range awsAvailabilityZones() {
+		fmt.Fprintf(&items, `<item><zoneName>%s</zoneName><zoneId>%s</zoneId><zoneType>availability-zone</zoneType><regionName>%s</regionName><zoneState>available</zoneState><groupName>%s</groupName><networkBorderGroup>%s</networkBorderGroup></item>`,
+			zone, ec2AvailabilityZoneId(zone), region, region, region)
+	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeAvailabilityZonesResponse %s>
   <requestId>%s</requestId>
-  <availabilityZoneInfo><item><zoneName>%s</zoneName><zoneId>%s-az1</zoneId><zoneType>availability-zone</zoneType><regionName>%s</regionName><zoneState>available</zoneState><groupName>%s</groupName><networkBorderGroup>%s</networkBorderGroup></item></availabilityZoneInfo>
-</DescribeAvailabilityZonesResponse>`, ec2Xmlns(), sim.NewUUID(), zone, region, region, region, region)
+  <availabilityZoneInfo>%s</availabilityZoneInfo>
+</DescribeAvailabilityZonesResponse>`, ec2Xmlns(), sim.NewUUID(), items.String())
 }
 
 func handleDescribeRegions(w http.ResponseWriter, r *http.Request) {
@@ -1165,6 +1185,26 @@ func subnetArn(s EC2Subnet) string {
 	return fmt.Sprintf("arn:aws:ec2:%s:%s:subnet/%s", awsRegion(), s.OwnerId, s.SubnetId)
 }
 
+// ec2SubnetIpv6AssociationID names the association of a subnet's one IPv6 CIDR
+// block.
+func ec2SubnetIpv6AssociationID(subnetID string) string {
+	return "subnet-cidr-assoc-" + strings.TrimPrefix(subnetID, "subnet-")
+}
+
+// ec2SubnetOfIpv6Association returns the subnet an IPv6 CIDR block association
+// names, while that subnet holds the block.
+func ec2SubnetOfIpv6Association(assocID string) (string, bool) {
+	suffix, ok := strings.CutPrefix(assocID, "subnet-cidr-assoc-")
+	if !ok || ec2Subnets == nil {
+		return "", false
+	}
+	subnet, ok := ec2Subnets.Get("subnet-" + suffix)
+	if !ok || subnet.Ipv6CidrBlock == "" {
+		return "", false
+	}
+	return subnet.SubnetId, true
+}
+
 // subnetItemBodyXML renders the inner subnet fields shared by CreateSubnet and
 // DescribeSubnets.
 func subnetItemBodyXML(s EC2Subnet) string {
@@ -1174,9 +1214,8 @@ func subnetItemBodyXML(s EC2Subnet) string {
 	}
 	ipv6 := ""
 	if s.Ipv6CidrBlock != "" {
-		assocID := "subnet-cidr-assoc-" + strings.TrimPrefix(s.SubnetId, "subnet-")
 		ipv6 = fmt.Sprintf(`<ipv6CidrBlockAssociationSet><item><associationId>%s</associationId><ipv6CidrBlock>%s</ipv6CidrBlock><ipv6CidrBlockState><state>associated</state></ipv6CidrBlockState></item></ipv6CidrBlockAssociationSet>`,
-			assocID, s.Ipv6CidrBlock)
+			ec2SubnetIpv6AssociationID(s.SubnetId), s.Ipv6CidrBlock)
 	}
 	return fmt.Sprintf(`<subnetId>%s</subnetId><vpcId>%s</vpcId><cidrBlock>%s</cidrBlock>`+
 		`<availabilityZone>%s</availabilityZone><availabilityZoneId>%s</availabilityZoneId>`+
@@ -3202,7 +3241,7 @@ func ec2InstanceXML(inst EC2Instance) string {
 		groups.WriteString("")
 	}
 	var ni strings.Builder
-	if inst.NetworkInterfaceId != "" {
+	if _, attached := ec2NetworkInterfaces.Get(inst.NetworkInterfaceId); attached && inst.NetworkInterfaceId != "" {
 		fmt.Fprintf(&ni, `<networkInterfaceSet><item>
       <networkInterfaceId>%s</networkInterfaceId>
       <subnetId>%s</subnetId>
@@ -3307,7 +3346,7 @@ func ec2InstanceXML(inst EC2Instance) string {
     <rootDeviceName>%s</rootDeviceName>
     <blockDeviceMapping><item><deviceName>%s</deviceName><ebs><volumeId>%s</volumeId><status>attached</status><attachTime>%s</attachTime><deleteOnTermination>true</deleteOnTermination></ebs></item></blockDeviceMapping>
     <virtualizationType>hvm</virtualizationType>
-    <clientToken/>
+    <clientToken/>%s
     <ebsOptimized>%t</ebsOptimized>
     %s%s%s
     %s
@@ -3317,7 +3356,7 @@ func ec2InstanceXML(inst EC2Instance) string {
 		ec2PrivateDNSName(inst.PrivateIpAddress), dnsNameXML, reasonXML, keyNameXML, inst.AmiLaunchIndex, inst.InstanceType, inst.LaunchTime,
 		ec2PlacementXML(inst), monitoringState, inst.SubnetId, inst.VpcId, inst.PrivateIpAddress, publicXML, inst.SourceDestCheck, groups.String(), stateReasonXML,
 		inst.Architecture, inst.RootDeviceName, inst.RootDeviceName, "vol-"+strings.TrimPrefix(inst.InstanceId, "i-"), inst.LaunchTime,
-		inst.EbsOptimized, iamXML, metaXML, cpuXML,
+		ec2InstanceLifecycleXML(inst), inst.EbsOptimized, iamXML, metaXML, cpuXML,
 		writeTagSetXML(inst.Tags), ni.String())
 }
 
@@ -3432,6 +3471,15 @@ func runInstancesRootBlockDevice(r *http.Request, lt EC2LaunchTemplateData) (int
 	return 0, ""
 }
 
+// ec2InstanceLifecycleXML marks a Spot Instance and names its request; an
+// On-Demand instance carries neither.
+func ec2InstanceLifecycleXML(inst EC2Instance) string {
+	if inst.InstanceLifecycle == "" {
+		return ""
+	}
+	return "\n    <instanceLifecycle>" + inst.InstanceLifecycle + "</instanceLifecycle><spotInstanceRequestId>" + inst.SpotInstanceRequestId + "</spotInstanceRequestId>"
+}
+
 func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 	// ClientToken idempotency: the aws-sdk-go-v2 auto-fills ClientToken (it
 	// carries the Smithy idempotencyToken trait) and re-sends the same value on
@@ -3463,6 +3511,10 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 	image, ok := ec2LookupImage(imageID)
 	if !ok {
 		ec2ErrorXML(w, "InvalidAMIID.NotFound", fmt.Sprintf("The image id '[%s]' does not exist", imageID), http.StatusBadRequest)
+		return
+	}
+	if _, err := ec2ImageRootFS(image); errors.Is(err, errEC2ImageNotBootable) {
+		ec2ErrorXML(w, "InvalidAMIID.Unavailable", fmt.Sprintf("The image id '[%s]' is not available", imageID), http.StatusBadRequest)
 		return
 	}
 	instanceType := r.FormValue("InstanceType")
@@ -3544,6 +3596,13 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 	// Instance knobs: request value, else launch-template value, else the AWS
 	// default the API documents (metadata options). These are the fields
 	// aws_instance reads back; dropping them forces drift every plan.
+	shutdownBehavior := ec2FormOrLT(r, "InstanceInitiatedShutdownBehavior", ltData.InstanceInitiatedShutdownBehavior)
+	if shutdownBehavior == "" {
+		shutdownBehavior = "stop"
+	}
+	if !ec2ValidShutdownBehavior(w, shutdownBehavior) {
+		return
+	}
 	var ltMetaTokens, ltMetaEndpoint, ltMetaHop, ltMetaTags string
 	if m := ltData.MetadataOptions; m != nil {
 		ltMetaTokens, ltMetaEndpoint, ltMetaHop, ltMetaTags = m.HttpTokens, m.HttpEndpoint, m.HttpPutResponseHopLimit, m.InstanceMetadataTags
@@ -3584,6 +3643,7 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 		Monitoring:             ec2BoolStr(ec2FormOrLT(r, "Monitoring.Enabled", ltData.MonitoringEnabled)),
 		UserData:               ec2FormOrLT(r, "UserData", ltData.UserData),
 		DisableApiTermination:  ec2BoolStr(ec2FormOrLT(r, "DisableApiTermination", ltData.DisableApiTermination)),
+		ShutdownBehavior:       shutdownBehavior,
 		SourceDestCheck:        true, // AWS default; ModifyInstanceAttribute can disable it
 		CpuCoreCount:           ec2AtoiOr(r.FormValue("CpuOptions.CoreCount"), 0),
 		CpuThreadsPerCore:      ec2AtoiOr(r.FormValue("CpuOptions.ThreadsPerCore"), 0),
@@ -3594,6 +3654,17 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 		MetadataHopLimit:       ec2AtoiOr(ec2FormOrLT(r, "MetadataOptions.HttpPutResponseHopLimit", ltMetaHop), 1),
 		MetadataInstanceTags:   metaTags,
 		Placement:              placement,
+	}
+
+	var spotOptions *EC2LTInstanceMarketOptions
+	if ec2FormOrLT(r, "InstanceMarketOptions.MarketType", ec2LTMarketType(ltData)) == "spot" {
+		spotOptions = &EC2LTInstanceMarketOptions{MarketType: "spot"}
+		if lt := ltData.InstanceMarketOptions; lt != nil {
+			*spotOptions = *lt
+		}
+		spotOptions.MaxPrice = ec2FormOrLT(r, "InstanceMarketOptions.SpotOptions.MaxPrice", spotOptions.MaxPrice)
+		spotOptions.SpotInstanceType = ec2FormOrLT(r, "InstanceMarketOptions.SpotOptions.SpotInstanceType", spotOptions.SpotInstanceType)
+		spotOptions.InstanceInterruptionBehavior = ec2FormOrLT(r, "InstanceMarketOptions.SpotOptions.InstanceInterruptionBehavior", spotOptions.InstanceInterruptionBehavior)
 	}
 
 	var instances []EC2Instance
@@ -3635,6 +3706,9 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			break
+		}
+		if spotOptions != nil {
+			inst = ec2FulfilSpotLaunch(inst, *spotOptions, tags)
 		}
 		if hasLT {
 			// Real AWS records launch-template provenance as system tags on the
@@ -3756,11 +3830,14 @@ type EC2InstanceCreateSpec struct {
 	CpuThreadsPerCore      int
 	RootVolumeSize         int
 	RootVolumeType         string
-	MetadataHttpTokens     string
-	MetadataHttpEndpoint   string
-	MetadataHopLimit       int
-	MetadataInstanceTags   string
-	Placement              EC2Placement
+	// ShutdownBehavior is InstanceInitiatedShutdownBehavior: "stop" or
+	// "terminate".
+	ShutdownBehavior     string
+	MetadataHttpTokens   string
+	MetadataHttpEndpoint string
+	MetadataHopLimit     int
+	MetadataInstanceTags string
+	Placement            EC2Placement
 }
 
 func ec2CreateInstance(spec EC2InstanceCreateSpec) (EC2Instance, error) {
@@ -3804,6 +3881,7 @@ func ec2CreateInstance(spec EC2InstanceCreateSpec) (EC2Instance, error) {
 		Monitoring:             spec.Monitoring,
 		UserData:               spec.UserData,
 		DisableApiTermination:  spec.DisableApiTermination,
+		ShutdownBehavior:       spec.ShutdownBehavior,
 		SourceDestCheck:        spec.SourceDestCheck,
 		CpuCoreCount:           spec.CpuCoreCount,
 		CpuThreadsPerCore:      spec.CpuThreadsPerCore,
@@ -4215,7 +4293,7 @@ func handleDescribeInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 	case "disableApiStop":
 		body = "<disableApiStop><value>false</value></disableApiStop>"
 	case "instanceInitiatedShutdownBehavior":
-		body = "<instanceInitiatedShutdownBehavior><value>stop</value></instanceInitiatedShutdownBehavior>"
+		body = fmt.Sprintf("<instanceInitiatedShutdownBehavior><value>%s</value></instanceInitiatedShutdownBehavior>", ec2ShutdownBehavior(inst))
 	case "rootDeviceName":
 		body = fmt.Sprintf("<rootDeviceName><value>%s</value></rootDeviceName>", inst.RootDeviceName)
 	case "sourceDestCheck":
@@ -4233,10 +4311,31 @@ func handleDescribeInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 </DescribeInstanceAttributeResponse>`, ec2Xmlns(), sim.NewUUID(), instanceID, body)
 }
 
+func ec2ValidShutdownBehavior(w http.ResponseWriter, value string) bool {
+	if value == "stop" || value == "terminate" {
+		return true
+	}
+	ec2ErrorXML(w, "InvalidParameterValue", fmt.Sprintf("Value (%s) for parameter instanceInitiatedShutdownBehavior is invalid. Valid values are 'stop' and 'terminate'.", value), http.StatusBadRequest)
+	return false
+}
+
+// ec2ShutdownBehavior is the instance's InstanceInitiatedShutdownBehavior; an
+// instance recorded without one has EC2's default.
+func ec2ShutdownBehavior(inst EC2Instance) string {
+	if inst.ShutdownBehavior == "" {
+		return "stop"
+	}
+	return inst.ShutdownBehavior
+}
+
 func handleModifyInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 	instanceID := r.FormValue("InstanceId")
 	if _, ok := ec2Instances.Get(instanceID); !ok {
 		ec2ErrorXML(w, "InvalidInstanceID.NotFound", fmt.Sprintf("The instance ID '%s' does not exist", instanceID), http.StatusBadRequest)
+		return
+	}
+	shutdownBehavior := r.FormValue("InstanceInitiatedShutdownBehavior.Value")
+	if shutdownBehavior != "" && !ec2ValidShutdownBehavior(w, shutdownBehavior) {
 		return
 	}
 	// Persist the modified attributes (previously a no-op: the set succeeded but
@@ -4257,6 +4356,9 @@ func handleModifyInstanceAttribute(w http.ResponseWriter, r *http.Request) {
 		}
 		if v := r.FormValue("UserData.Value"); v != "" {
 			inst.UserData = v
+		}
+		if shutdownBehavior != "" {
+			inst.ShutdownBehavior = shutdownBehavior
 		}
 		if groups := ec2ParamList(r, "GroupId"); len(groups) > 0 {
 			inst.SecurityGroupIds = groups

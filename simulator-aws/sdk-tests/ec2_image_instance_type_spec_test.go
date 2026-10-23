@@ -11,14 +11,19 @@ import (
 )
 
 // registerAMIForInstanceTypeSpec registers an AMI the caller owns, which is the
-// only kind whose instance type specification may be set.
+// only kind whose instance type specification may be set, over the root
+// filesystem of the Amazon Linux AMI so its instances boot.
 func registerAMIForInstanceTypeSpec(t *testing.T, c *ec2.Client, name string) string {
 	t.Helper()
+	base, err := c.DescribeImages(ctx, &ec2.DescribeImagesInput{ImageIds: []string{ec2AmazonLinuxAMI(t)}})
+	require.NoError(t, err)
+	require.Len(t, base.Images, 1)
 	out, err := c.RegisterImage(ctx, &ec2.RegisterImageInput{
 		Name:               aws.String(name),
 		Architecture:       types.ArchitectureValuesX8664,
 		RootDeviceName:     aws.String("/dev/xvda"),
 		VirtualizationType: aws.String("hvm"),
+		ImageLocation:      base.Images[0].ImageLocation,
 	})
 	require.NoError(t, err)
 	return aws.ToString(out.ImageId)

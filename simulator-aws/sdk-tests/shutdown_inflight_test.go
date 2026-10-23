@@ -140,7 +140,7 @@ func TestSimulatorStopsWithLifecycleWorkInFlight_SDK(t *testing.T) {
 	const functionName = "shutdown-in-flight"
 	_, err = lambdaAPI.CreateFunction(testCtx, &lambda.CreateFunctionInput{
 		FunctionName:  aws.String(functionName),
-		Role:          aws.String("arn:aws:iam::123456789012:role/shutdown-in-flight"),
+		Role:          aws.String(persistentServiceRole(t, endpoint, "shutdown-in-flight", "lambda.amazonaws.com")),
 		PackageType:   lambdatypes.PackageTypeImage,
 		Code:          &lambdatypes.FunctionCode{ImageUri: aws.String(containerCommandImage)},
 		ImageConfig:   &lambdatypes.ImageConfig{Command: []string{"hold"}},
@@ -178,7 +178,7 @@ func TestSimulatorStopsWithLifecycleWorkInFlight_SDK(t *testing.T) {
 		Name: aws.String("shutdown-in-flight"),
 		Definition: aws.String(`{"StartAt":"Hold","States":{"Hold":{"Type":"Task","Resource":"` +
 			aws.ToString(function.Configuration.FunctionArn) + `","End":true}}}`),
-		RoleArn: aws.String("arn:aws:iam::123456789012:role/shutdown-in-flight"),
+		RoleArn: aws.String(persistentServiceRole(t, endpoint, "shutdown-in-flight-states", "states.amazonaws.com", "lambda:InvokeFunction")),
 		Type:    sfntypes.StateMachineTypeExpress,
 	})
 	require.NoError(t, err)

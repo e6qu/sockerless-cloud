@@ -274,7 +274,7 @@ func TestGCPSubnetworkNetworkSpansItsRange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if spec.Name != "gcp-subnetwork-"+hex.EncodeToString(sha256sum(subnet.SelfLink)[:8]) || len(spec.Name) > 63 {
+	if spec.Name != "gcp-subnetwork-"+hex.EncodeToString(sha256sum(sim.WorkloadScope() + "\x00" + subnet.SelfLink)[:8]) || len(spec.Name) > 63 {
 		t.Fatalf("engine network name = %q", spec.Name)
 	}
 	if spec.CIDR.String() != "10.213.7.0/24" || spec.Gateway.String() != "10.213.7.1" {

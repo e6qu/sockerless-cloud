@@ -20,6 +20,8 @@ func appScalingTestStores(t *testing.T) {
 	cwMetrics = sim.MakeStore[[]CWMetricDatum](nil, "cw_metrics")
 	cwMetricStreams = sim.MakeStore[CWMetricStream](nil, "cw_metric_streams")
 	ecsServices = sim.MakeStore[ECSService](nil, "ecs_services")
+	ecsGatewayRoutes = sim.MakeStore[ECSGatewayRoute](nil, "ecs_gateway_routes")
+	ecsServiceGatewayConnectors = sim.MakeStore[[]ecsGatewayConnector](nil, "ecs_service_gateway_connectors")
 	appScalingAlarmInvocations.Clear()
 	t.Cleanup(bg.Await)
 }

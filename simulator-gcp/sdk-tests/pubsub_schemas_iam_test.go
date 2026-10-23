@@ -213,6 +213,7 @@ func TestPubSub_ResourceIAM(t *testing.T) {
 	t.Parallel()
 	svc := pubsubService(t)
 	const project = "ps-iam-project"
+	ensureProject(t, project)
 	parent := "projects/" + project
 	topic := parent + "/topics/" + uniqueName("iam-topic")
 	sub := parent + "/subscriptions/" + uniqueName("iam-sub")
@@ -310,6 +311,7 @@ func TestPubSub_TopicSubCollections(t *testing.T) {
 	t.Parallel()
 	svc := pubsubService(t)
 	const project = "ps-subcoll-project"
+	ensureProject(t, project)
 	parent := "projects/" + project
 	topic := parent + "/topics/" + uniqueName("subcoll-topic")
 	sub := parent + "/subscriptions/" + uniqueName("subcoll-sub")
@@ -337,6 +339,7 @@ func TestPubSub_ModifyPushConfigAndDetach(t *testing.T) {
 	t.Parallel()
 	svc := pubsubService(t)
 	const project = "ps-detach-project"
+	ensureProject(t, project)
 	parent := "projects/" + project
 	topic := parent + "/topics/" + uniqueName("detach-topic")
 	sub := parent + "/subscriptions/" + uniqueName("detach-sub")
@@ -375,6 +378,7 @@ func TestPubSub_SnapshotPatch(t *testing.T) {
 	t.Parallel()
 	svc := pubsubService(t)
 	const project = "ps-snappatch-project"
+	ensureProject(t, project)
 	parent := "projects/" + project
 	topic := parent + "/topics/" + uniqueName("snappatch-topic")
 	sub := parent + "/subscriptions/" + uniqueName("snappatch-sub")

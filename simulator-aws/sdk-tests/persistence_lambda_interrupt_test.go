@@ -48,11 +48,12 @@ func TestLambdaWorkInFlightEndsWithTheSimulatorAndResumes_SDK(t *testing.T) {
 		durableFunction = "interrupted-durable-execution"
 		taskFunction    = "interrupted-step-functions-task"
 	)
+	executionRole := persistentServiceRole(t, endpoint, "interrupted-lambda", "lambda.amazonaws.com")
 	var logGroupARNs []string
 	for _, name := range []string{durableFunction, taskFunction} {
 		input := &lambda.CreateFunctionInput{
 			FunctionName: aws.String(name),
-			Role:         aws.String("arn:aws:iam::123456789012:role/interrupted-lambda"),
+			Role:         aws.String(executionRole),
 			Runtime:      lambdatypes.RuntimeNodejs20x,
 			Handler:      aws.String("index.handler"),
 			Code:         &lambdatypes.FunctionCode{ZipFile: lambdaNodeSourceZip(t, holdSource)},
@@ -99,7 +100,7 @@ func TestLambdaWorkInFlightEndsWithTheSimulatorAndResumes_SDK(t *testing.T) {
 		Name: aws.String("interrupted-lambda-task"),
 		Definition: aws.String(`{"StartAt":"Hold","States":{"Hold":{"Type":"Task","Resource":"` +
 			aws.ToString(task.Configuration.FunctionArn) + `","End":true}}}`),
-		RoleArn: aws.String("arn:aws:iam::123456789012:role/interrupted-lambda"),
+		RoleArn: aws.String(persistentServiceRole(t, endpoint, "interrupted-lambda-states", "states.amazonaws.com", "lambda:InvokeFunction")),
 	})
 	require.NoError(t, err)
 	execution, err := statesAPI.StartExecution(testCtx, &sfn.StartExecutionInput{

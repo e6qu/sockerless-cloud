@@ -15,7 +15,7 @@ func TestCodeBuild_ProjectCRUD_CLI(t *testing.T) {
 		"--source", `{"type":"NO_SOURCE"}`,
 		"--artifacts", `{"type":"NO_ARTIFACTS"}`,
 		"--environment", `{"type":"LINUX_CONTAINER","image":"mirror.gcr.io/library/alpine:3.21","computeType":"BUILD_GENERAL1_SMALL"}`,
-		"--service-role", "arn:aws:iam::123456789012:role/cb-role",
+		"--service-role", cliServiceRole(t, "codebuild.amazonaws.com"),
 	))
 	var created struct {
 		Project struct {
@@ -63,7 +63,7 @@ func TestCodeBuild_Build_CLI(t *testing.T) {
 		"--source", `{"type":"NO_SOURCE","buildspec":"version: 0.2\nphases:\n  build:\n    commands:\n      - printf codebuild-cli-ready\n"}`,
 		"--artifacts", `{"type":"NO_ARTIFACTS"}`,
 		"--environment", `{"type":"LINUX_CONTAINER","image":"mirror.gcr.io/library/alpine:3.21","computeType":"BUILD_GENERAL1_SMALL"}`,
-		"--service-role", "arn:aws:iam::123456789012:role/cb-role",
+		"--service-role", cliServiceRole(t, "codebuild.amazonaws.com"),
 	))
 	t.Cleanup(func() {
 		runCLI(t, awsCLI("codebuild", "delete-project", "--name", "cb-cli-build-proj"))
@@ -119,7 +119,7 @@ func TestCodeBuildCLI_StopAndRetryBuild(t *testing.T) {
 		"--source", `{"type":"NO_SOURCE","buildspec":"version: 0.2\nphases:\n  build:\n    commands:\n      - sleep 5\n"}`,
 		"--artifacts", `{"type":"NO_ARTIFACTS"}`,
 		"--environment", `{"type":"LINUX_CONTAINER","image":"mirror.gcr.io/library/alpine:3.21","computeType":"BUILD_GENERAL1_SMALL"}`,
-		"--service-role", "arn:aws:iam::123456789012:role/cb-role",
+		"--service-role", cliServiceRole(t, "codebuild.amazonaws.com"),
 	))
 	t.Cleanup(func() {
 		runCLI(t, awsCLI("codebuild", "delete-project", "--name", "cb-cli-stop-proj"))
@@ -217,7 +217,7 @@ func TestCodeBuildCLI_ReportGroupsAndReports(t *testing.T) {
 		"--source", `{"type":"NO_SOURCE","buildspec":"`+buildspec+`"}`,
 		"--artifacts", `{"type":"NO_ARTIFACTS"}`,
 		"--environment", `{"type":"LINUX_CONTAINER","image":"mirror.gcr.io/library/alpine:3.21","computeType":"BUILD_GENERAL1_SMALL"}`,
-		"--service-role", "arn:aws:iam::123456789012:role/cb-role",
+		"--service-role", cliServiceRole(t, "codebuild.amazonaws.com"),
 	))
 	t.Cleanup(func() {
 		runCLI(t, awsCLI("codebuild", "delete-project", "--name", "cb-cli-report-proj"))

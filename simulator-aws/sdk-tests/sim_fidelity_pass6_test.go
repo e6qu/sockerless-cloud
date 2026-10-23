@@ -159,7 +159,7 @@ func TestLambda_GetFunctionRepositoryType(t *testing.T) {
 	name := "fidelity-repotype"
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(name),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		Runtime:      lambdatypes.RuntimeNodejs20x,
 		Handler:      aws.String("index.handler"),
 		Code:         &lambdatypes.FunctionCode{ZipFile: lambdaDeploymentZip(t)},

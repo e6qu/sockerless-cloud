@@ -21,7 +21,7 @@ Pages read the real Google Cloud APIs at the console's configured cloud coordina
 
 ## Embedding
 
-`make embed` in `simulator-gcp/` copies this package's `dist/` to `simulator-gcp/dist/` (see `make/go-app.mk`), which the binary bundles via `//go:embed all:dist` (`simulator-gcp/ui_embed.go`) and serves at `/ui/`. A `-tags noui` build skips it.
+`make embed` in `simulator-gcp/` copies this package's `dist/` to `simulator-gcp/dist/` (see `make/go-app.mk`), which the binary bundles via `//go:embed all:dist` (`simulator-gcp/ui_embed.go`) in a `-tags console` build and serves at `/ui/`. A plain build embeds none and serves the bundle `SIM_CONSOLE_DIR` names.
 
 ## Development
 

@@ -2,13 +2,15 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"sort"
 	"strings"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 func sfnRESTXMLName(member sfnRESTXMLMember) string {
@@ -123,7 +125,7 @@ func sfnWriteRESTXMLShape(
 	return nil
 }
 
-func sfnRESTXMLOutput(response *httptest.ResponseRecorder, operation sfnRESTOperation) (any, error) {
+func sfnRESTXMLOutput(response *sim.CallResponse, operation sfnRESTOperation) (any, error) {
 	output := map[string]any{}
 	var payloadBinding *sfnRESTBinding
 	for index := range operation.OutputBindings {
@@ -157,7 +159,7 @@ func sfnRESTXMLOutput(response *httptest.ResponseRecorder, operation sfnRESTOper
 	return output, nil
 }
 
-func sfnInvokeRESTXMLService(service, action string, input any) (any, *sfnExecutionError) {
+func sfnInvokeRESTXMLService(ctx context.Context, actor awsActor, service, action string, input any) (any, *sfnExecutionError) {
 	operations, ok := sfnAWSRESTXMLOperations[service]
 	if !ok {
 		return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "AWS REST-XML service is not implemented: " + service}
@@ -254,18 +256,17 @@ func sfnInvokeRESTXMLService(service, action string, input any) (any, *sfnExecut
 		}
 		requestPath += separator + encoded
 	}
-	request := httptest.NewRequest(operation.Method, requestPath, bytes.NewReader(payload))
-	request.Header = headers
 	if len(payload) > 0 {
-		request.Header.Set("Content-Type", "application/xml")
+		headers.Set("Content-Type", "application/xml")
 	}
-	sfnSignInternalAWSRequest(request, service, payload)
-	response := httptest.NewRecorder()
-	sfnAWSServer.ServeHTTP(response, request)
-	if response.Code >= http.StatusBadRequest {
-		code, message := sfnQueryError(response.Body)
+	response, err := awsCallResponse(ctx, actor, sfnSigningName(service), operation.Method, requestPath, headers, payload)
+	if err != nil {
+		return nil, sfnCallRefused(service+".", err)
+	}
+	if response.StatusCode >= http.StatusBadRequest {
+		code, message := sfnQueryError(bytes.NewReader(response.Body.Bytes()))
 		if code == "" {
-			code = http.StatusText(response.Code)
+			code = http.StatusText(response.StatusCode)
 		}
 		return nil, &sfnExecutionError{Name: service + "." + code, Cause: message}
 	}

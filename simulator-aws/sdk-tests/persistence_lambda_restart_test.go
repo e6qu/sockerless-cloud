@@ -47,7 +47,7 @@ func TestAcceptedAWSLambdaAsynchronousInvocationSurvivesSimulatorRestart_SDK(t *
 	const functionName = "persistent-async-invocation"
 	_, err = lambdaAPI.CreateFunction(testCtx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(functionName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/persistent-lambda"),
+		Role:         aws.String(persistentServiceRole(t, endpoint, "persistent-lambda", "lambda.amazonaws.com")),
 		Runtime:      lambdatypes.RuntimeNodejs20x,
 		Handler:      aws.String("index.handler"),
 		Code: &lambdatypes.FunctionCode{ZipFile: lambdaNodeSourceZip(t,

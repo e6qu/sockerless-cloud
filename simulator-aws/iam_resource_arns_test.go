@@ -2269,8 +2269,9 @@ func TestIAMResourceARNs_WindowExecutionNamesItsWindow(t *testing.T) {
 func TestIAMResourceARNs_GlueProfileNamesItsRuleset(t *testing.T) {
 	_, jsonRouter, _ := buildConformanceSimulator(t)
 
+	putServiceRole(t, "glue-data-quality-probe", "glue.amazonaws.com")
 	iamFixtureJSON(t, jsonRouter, "AWSGlue.StartDataQualityRulesetEvaluationRun",
-		`{"Role":"probe","RulesetNames":["nightly-rules"],"DataSource":{}}`,
+		`{"Role":"glue-data-quality-probe","RulesetNames":["nightly-rules"],"DataSource":{}}`,
 		`"RunId"\s*:\s*"([^"]+)"`)
 	result := iamFixtureJSON(t, jsonRouter, "AWSGlue.ListDataQualityResults",
 		`{}`, `"ResultId"\s*:\s*"([^"]+)"`)

@@ -24,7 +24,7 @@ func TestGlue_MLTransformLifecycle_SDK(t *testing.T) {
 		Parameters: &gluetypes.TransformParameters{
 			TransformType: gluetypes.TransformTypeFindMatches,
 		},
-		Role:        aws.String("arn:aws:iam::123456789012:role/GlueRole"),
+		Role:        aws.String(serviceRole(t, "glue.amazonaws.com")),
 		Description: aws.String("sdk ml transform"),
 	})
 	require.NoError(t, err)
@@ -128,7 +128,7 @@ func TestGlue_DataQualityLifecycle_SDK(t *testing.T) {
 				TableName:    aws.String("tbl"),
 			},
 		},
-		Role:         aws.String("arn:aws:iam::123456789012:role/GlueRole"),
+		Role:         aws.String(serviceRole(t, "glue.amazonaws.com")),
 		RulesetNames: []string{rulesetName},
 	})
 	require.NoError(t, err)
@@ -198,7 +198,7 @@ func TestGlue_DataQualityLifecycle_SDK(t *testing.T) {
 				TableName:    aws.String("tbl"),
 			},
 		},
-		Role: aws.String("arn:aws:iam::123456789012:role/GlueRole"),
+		Role: aws.String(serviceRole(t, "glue.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	recID := aws.ToString(rec.RunId)
@@ -280,7 +280,7 @@ func TestGlue_ColumnStatisticsTaskLifecycle_SDK(t *testing.T) {
 	_, err = c.CreateColumnStatisticsTaskSettings(ctx, &glue.CreateColumnStatisticsTaskSettingsInput{
 		DatabaseName:   aws.String(dbName),
 		TableName:      aws.String(tblName),
-		Role:           aws.String("arn:aws:iam::123456789012:role/GlueRole"),
+		Role:           aws.String(serviceRole(t, "glue.amazonaws.com")),
 		ColumnNameList: []string{"id", "name"},
 		Schedule:       aws.String("cron(0 0 * * ? *)"),
 	})
@@ -316,7 +316,7 @@ func TestGlue_ColumnStatisticsTaskLifecycle_SDK(t *testing.T) {
 	start, err := c.StartColumnStatisticsTaskRun(ctx, &glue.StartColumnStatisticsTaskRunInput{
 		DatabaseName:   aws.String(dbName),
 		TableName:      aws.String(tblName),
-		Role:           aws.String("arn:aws:iam::123456789012:role/GlueRole"),
+		Role:           aws.String(serviceRole(t, "glue.amazonaws.com")),
 		ColumnNameList: []string{"id"},
 	})
 	require.NoError(t, err)

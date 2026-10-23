@@ -44,6 +44,7 @@ type psPullResult struct {
 func TestPubSub_GRPC_PullWaitsForPublish(t *testing.T) {
 	t.Parallel()
 	pub, sub := psGapicClients(t)
+	ensureProject(t, "ps-pull-wait")
 	topic := "projects/ps-pull-wait/topics/" + uniqueName("wait-topic")
 	subName := "projects/ps-pull-wait/subscriptions/" + uniqueName("wait-sub")
 	_, err := pub.CreateTopic(ctx, &pubsubpb.Topic{Name: topic})
@@ -85,6 +86,7 @@ func TestPubSub_GRPC_PullWaitsForPublish(t *testing.T) {
 func TestPubSub_GRPC_PullWaitsForNack(t *testing.T) {
 	t.Parallel()
 	pub, sub := psGapicClients(t)
+	ensureProject(t, "ps-pull-wait")
 	topic := "projects/ps-pull-wait/topics/" + uniqueName("nack-topic")
 	subName := "projects/ps-pull-wait/subscriptions/" + uniqueName("nack-sub")
 	_, err := pub.CreateTopic(ctx, &pubsubpb.Topic{Name: topic})
@@ -124,6 +126,7 @@ func TestPubSub_GRPC_PullWaitsForNack(t *testing.T) {
 func TestPubSub_REST_PullWaitsForPublish(t *testing.T) {
 	t.Parallel()
 	svc := pubsubService(t)
+	ensureProject(t, "ps-pull-wait")
 	topic := "projects/ps-pull-wait/topics/" + uniqueName("rest-wait-topic")
 	subName := "projects/ps-pull-wait/subscriptions/" + uniqueName("rest-wait-sub")
 	_, err := svc.Projects.Topics.Create(topic, &pubsub.Topic{}).Do()

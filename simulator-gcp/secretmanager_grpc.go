@@ -720,6 +720,8 @@ func (s *secretManagerGRPC) SetIamPolicy(ctx context.Context, req *iampb.SetIamP
 	if policy == nil {
 		return nil, status.Error(codes.InvalidArgument, "policy is required")
 	}
+	gcpIAMPolicyWrites.Lock()
+	defer gcpIAMPolicyWrites.Unlock()
 	store := gcpResourceIAMStore()
 	current, present := store.Get(resource)
 	reqEtag := string(req.GetPolicy().GetEtag())
@@ -740,6 +742,8 @@ func (s *secretManagerGRPC) GetIamPolicy(ctx context.Context, req *iampb.GetIamP
 	if _, ok := smSecrets.Get(resource); !ok {
 		return nil, status.Errorf(codes.NotFound, "Secret %s not found", resource)
 	}
+	gcpIAMPolicyWrites.Lock()
+	defer gcpIAMPolicyWrites.Unlock()
 	store := gcpResourceIAMStore()
 	policy, ok := store.Get(resource)
 	if !ok {

@@ -7,8 +7,9 @@ Current state of the sockerless-cloud repository.
 - **Three installable simulators.** `simulator-aws/`, `simulator-gcp/`,
   `simulator-azure/` are root Go modules
   (`github.com/e6qu/sockerless-cloud/simulator-<cloud>`) with no `replace`
-  directives, so `go install …@<release-commit>` works. Each embeds its console
-  from a committed `dist/`.
+  directives, so `go install …@<release-commit>` works. A `-tags console`
+  build embeds the console built from `ui/`; a plain build serves the bundle
+  `SIM_CONSOLE_DIR` names. No built artifact is committed.
 - **One framework module.** `sim/` (`github.com/e6qu/sockerless-cloud/sim`)
   is the server, container-engine layer, durable state, OCI data plane,
   middleware and parsing primitives every simulator is built on. It is
@@ -20,7 +21,8 @@ Current state of the sockerless-cloud repository.
   an in-process request through the whole request chain, made as the service
   principal `sim.Caller` names or as a session of a role the request is
   signed with. Amazon EventBridge rules and EventBridge Scheduler deliver to
-  their targets, AWS Lambda's Amazon SQS pollers receive and delete, Eventarc
+  their targets, AWS Step Functions task states call their services as the
+  execution role, AWS Lambda's Amazon SQS pollers receive and delete, Eventarc
   provisions and publishes through Pub/Sub and Cloud Storage, and Azure Event
   Grid writes dead letters to Blob Storage this way.
 - **One virtual machine lifecycle.** `sim/machine` boots, watches, stops,
@@ -39,8 +41,9 @@ Current state of the sockerless-cloud repository.
   replica sets.
 - **Revisions and traffic.** `sim/revisions` gives a revision template its
   identity and picks a request's revision by traffic weight. Cloud Run
-  services deploy a revision per template change, route by traffic percent
-  and tag, and run an instance per revision; Container Apps routes by weight
+  services and worker pools deploy a revision per template change, through
+  the v2 and the Knative v1 surface alike, route by traffic percent and tag,
+  and run an instance per revision; Container Apps routes by weight
   and label. Amazon ECS tasks belong to their deployment by `startedBy`.
 - **Shared mechanisms live in `sim`.** Workload-host coordinates, background
   work, workload launching, archive extraction, payload storage and sparse
@@ -71,7 +74,12 @@ Current state of the sockerless-cloud repository.
   (`sim/sidecar`) as its DNS server, at the address the cloud reserves for
   its resolver inside the range, and the sidecar forwards to the cloud's
   resolver with the network attached and metadata requests to the simulator
-  under a minted token.
+  under a minted token. A container workload that holds a role through the
+  container credentials endpoint (an Amazon ECS task on the awsvpc or bridge
+  network mode, an AWS CodeBuild build, an AWS Batch job, an AWS Glue job
+  run) reads it on its own loopback, `127.0.0.1:51679`, where a forwarder
+  that owns the workload's network namespace relays it to the sidecar, so
+  the AWS SDKs' default credential chain accepts it.
 - **Execution modes.** `PLAN.md` names three — embedded, embedded with node
   agents, distributed — under one rule: the simulator process holds no host
   privilege, and a workload container holds no capability. The
@@ -369,7 +377,13 @@ Current state of the sockerless-cloud repository.
   by presigned URL; DescribeLoadBalancerAttributes reports exactly the keys the
   reference lists for the load balancer's type at their defaults, and
   ModifyLoadBalancerAttributes refuses another type's key and checks each
-  value; a Gateway Load Balancer's ARN names `loadbalancer/gwy/`. An
+  value; a Gateway Load Balancer's ARN names `loadbalancer/gwy/`.
+  CreateLoadBalancer and SetSubnets take one subnet per Availability Zone
+  and an Application Load Balancer in at least two zones, and a dualstack
+  load balancer only on subnets with an IPv6 CIDR block; an Amazon ECS
+  gateway route whose load balancer is refused fails with the refusal. The
+  Region has three Availability Zones and the default VPC a default subnet in
+  each. An
   Application Load Balancer publishes `AWS/ApplicationELB` `RequestCount` and
   `RequestCountPerTarget` once a minute, and Application Auto Scaling target
   tracking sets ceil(current × metric ÷ target), so an Amazon ECS service
@@ -555,9 +569,6 @@ shape, and one whose scan set can go empty exits non-zero.
   shrink.
 - The required-status-check manifest compared against the workflows in
   pre-commit and against `main`'s live protection at push time.
-- `check-rds-auth-plugin-build.sh` in `build-gates` rebuilds the committed
-  Amazon RDS `AWSAuthenticationPlugin` shared objects from their C source with
-  their `build.sh` and fails when any committed binary differs.
 
 ## Continuous integration
 

@@ -33,7 +33,7 @@ func TestSFN_StateMachineCRUD_SDK(t *testing.T) {
 	create, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String("sfn-sdk-sm"),
 		Definition: aws.String(`{"Comment":"test","StartAt":"Pass","States":{"Pass":{"Type":"Pass","End":true}}}`),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn:    aws.String(serviceRole(t, "states.amazonaws.com")),
 		Type:       sfntypes.StateMachineTypeStandard,
 	})
 	require.NoError(t, err)
@@ -126,7 +126,7 @@ func TestSFN_ExecutionLifecycle_SDK(t *testing.T) {
 	create, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String(machineName),
 		Definition: aws.String(`{"Comment":"exec test","StartAt":"Pass","States":{"Pass":{"Type":"Pass","End":true}}}`),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn:    aws.String(serviceRole(t, "states.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -168,7 +168,7 @@ func TestSFN_StopExecution_SDK(t *testing.T) {
 	create, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String("sfn-sdk-stop-sm"),
 		Definition: aws.String(`{"StartAt":"Wait","States":{"Wait":{"Type":"Wait","Seconds":5,"End":true}}}`),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn:    aws.String(serviceRole(t, "states.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -202,7 +202,7 @@ func TestSFN_FailState_SDK(t *testing.T) {
 	create, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String("sfn-sdk-fail-sm"),
 		Definition: aws.String(`{"StartAt":"Fail","States":{"Fail":{"Type":"Fail","Error":"Manual","Cause":"expected failure"}}}`),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn:    aws.String(serviceRole(t, "states.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -238,7 +238,7 @@ func TestSFNDescribeStateMachineOmitsTags(t *testing.T) {
 
 	create, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String(machineName),
-		RoleArn:    aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn:    aws.String(serviceRole(t, "states.amazonaws.com")),
 		Definition: aws.String(`{"StartAt":"Done","States":{"Done":{"Type":"Succeed"}}}`),
 		Tags:       []sfntypes.Tag{{Key: aws.String("env"), Value: aws.String("test")}},
 	})
@@ -278,7 +278,7 @@ func TestSFN_GetExecutionHistory_SDK(t *testing.T) {
 			`"C":{"Type":"Choice","Choices":[{"Variable":"$.x","NumericGreaterThan":5,"Next":"Big"}],"Default":"Small"},` +
 			`"Big":{"Type":"Pass","Result":"big","End":true},` +
 			`"Small":{"Type":"Pass","Result":"small","End":true}}}`),
-		RoleArn: aws.String("arn:aws:iam::123456789012:role/sfn-role"),
+		RoleArn: aws.String(serviceRole(t, "states.amazonaws.com")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {

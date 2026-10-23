@@ -202,6 +202,9 @@ type BitbucketServerConfig struct {
 
 var cbBuilds sim.Store[Build]
 
+// cloudBuildStepLabel names the build a step container runs for.
+const cloudBuildStepLabel = "sockerless-sim-build"
+
 // cbRunning holds the cancel function of the context a build's steps execute
 // under, keyed by build ID, for as long as those steps are running and until
 // the build's record has settled from them. Cancelling a build is not a status
@@ -1318,7 +1321,7 @@ func runContainerStep(ctx context.Context, b Build, workDir string, step *BuildS
 		Env:          env,
 		Binds:        []string{workDir + ":" + cloudBuildWorkspace},
 		WorkingDir:   cloudBuildStepContainerDir(step.Dir),
-		Labels:       map[string]string{"sockerless-sim-build": b.ID},
+		Labels:       map[string]string{cloudBuildStepLabel: b.ID},
 		Sandbox:      SandboxCloudBuild,
 	}
 	netw.apply(&cfg)

@@ -274,7 +274,7 @@ func TestConformanceLambdaImageConfigResponse(t *testing.T) {
 	fnName := "conf-lambda-imageconfig"
 	_, err := c.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(fnName),
-		Role:         aws.String("arn:aws:iam::123456789012:role/test-role"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		PackageType:  lambdatypes.PackageTypeImage,
 		Code: &lambdatypes.FunctionCode{
 			ImageUri: aws.String("123456789012.dkr.ecr.us-east-1.amazonaws.com/x:latest"),
@@ -811,7 +811,7 @@ func TestConformanceBatchDescribeComputeEnvironmentsPagination(t *testing.T) {
 				Type: batchtypes.CRTypeEc2, MinvCpus: aws.Int32(0), MaxvCpus: aws.Int32(16),
 				Subnets: []string{"subnet-00000001"},
 			},
-			ServiceRole: aws.String("arn:aws:iam::123456789012:role/aws-batch-service-role"),
+			ServiceRole: aws.String(serviceRole(t, "batch.amazonaws.com")),
 		})
 		require.NoError(t, err)
 		t.Cleanup(func() {

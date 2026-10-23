@@ -134,6 +134,7 @@ func (c *acaReplicaContainer) setReady(ready bool) {
 	c.mu.Lock()
 	c.ready = ready
 	c.mu.Unlock()
+	acaReadinessChanged()
 }
 
 // ready reports whether every container of the replica is ready, which is

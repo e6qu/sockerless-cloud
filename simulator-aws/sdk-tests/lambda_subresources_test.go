@@ -16,7 +16,7 @@ func lambdaCreateFn(t *testing.T, c *lambda.Client, name string) string {
 	t.Helper()
 	out, err := c.CreateFunction(context.Background(), &lambda.CreateFunctionInput{
 		FunctionName: aws.String(name),
-		Role:         aws.String("arn:aws:iam::123456789012:role/r"),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
 		PackageType:  types.PackageTypeImage,
 		Code: &types.FunctionCode{
 			ImageUri: aws.String("local/image:1"),

@@ -955,6 +955,14 @@ func createECSTestSubnet(t *testing.T, name string) string {
 
 func createECSTestVPCSubnet(t *testing.T, name string) (string, string) {
 	t.Helper()
+	vpcID, subnets := createECSTestVPCSubnets(t, name, 1)
+	return vpcID, subnets[0]
+}
+
+// createECSTestVPCSubnets creates a VPC with count subnets, each in its own
+// Availability Zone, as an Application Load Balancer needs at least two.
+func createECSTestVPCSubnets(t *testing.T, name string, count int) (string, []string) {
+	t.Helper()
 	ec2c := ec2Client()
 	// Keep ECS helper VPCs in 10.225.0.0/16 through 10.249.0.0/16, clear of
 	// the fixed CIDRs other SDK tests use (which occupy ranges through
@@ -965,7 +973,6 @@ func createECSTestVPCSubnet(t *testing.T, name string) (string, string) {
 	n := int(ecsTestSubnetCounter.Add(1) % 400)
 	second, third := 225+n/16, (n%16)*16
 	vpcCIDR := fmt.Sprintf("10.%d.%d.0/20", second, third)
-	subnetCIDR := fmt.Sprintf("10.%d.%d.0/24", second, third)
 
 	vpcOut, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{
 		CidrBlock: aws.String(vpcCIDR),
@@ -980,28 +987,33 @@ func createECSTestVPCSubnet(t *testing.T, name string) (string, string) {
 	require.NoError(t, err)
 	vpcID := aws.ToString(vpcOut.Vpc.VpcId)
 
-	subnetOut, err := ec2c.CreateSubnet(ctx, &ec2.CreateSubnetInput{
-		VpcId:     aws.String(vpcID),
-		CidrBlock: aws.String(subnetCIDR),
-		TagSpecifications: []ec2types.TagSpecification{{
-			ResourceType: ec2types.ResourceTypeSubnet,
-			Tags: []ec2types.Tag{{
-				Key:   aws.String("Name"),
-				Value: aws.String(name + "-subnet"),
-			}},
-		}},
-	})
-	require.NoError(t, err)
-	subnetID := aws.ToString(subnetOut.Subnet.SubnetId)
-
+	var subnets []string
 	t.Cleanup(func() {
-		stopECSTasksInSubnet(t, ecsClient(), subnetID)
-		_, err := ec2c.DeleteSubnet(ctx, &ec2.DeleteSubnetInput{SubnetId: aws.String(subnetID)})
-		require.NoError(t, err, "delete ECS test subnet %s once its tasks stopped", subnetID)
-		_, err = ec2c.DeleteVpc(ctx, &ec2.DeleteVpcInput{VpcId: aws.String(vpcID)})
+		for _, subnetID := range subnets {
+			stopECSTasksInSubnet(t, ecsClient(), subnetID)
+			_, err := ec2c.DeleteSubnet(ctx, &ec2.DeleteSubnetInput{SubnetId: aws.String(subnetID)})
+			require.NoError(t, err, "delete ECS test subnet %s once its tasks stopped", subnetID)
+		}
+		_, err := ec2c.DeleteVpc(ctx, &ec2.DeleteVpcInput{VpcId: aws.String(vpcID)})
 		require.NoError(t, err, "delete ECS test VPC %s", vpcID)
 	})
-	return vpcID, subnetID
+	for i := range count {
+		subnetOut, err := ec2c.CreateSubnet(ctx, &ec2.CreateSubnetInput{
+			VpcId:            aws.String(vpcID),
+			CidrBlock:        aws.String(fmt.Sprintf("10.%d.%d.0/24", second, third+i)),
+			AvailabilityZone: aws.String("us-east-1" + string(rune('a'+i))),
+			TagSpecifications: []ec2types.TagSpecification{{
+				ResourceType: ec2types.ResourceTypeSubnet,
+				Tags: []ec2types.Tag{{
+					Key:   aws.String("Name"),
+					Value: aws.String(name + "-subnet"),
+				}},
+			}},
+		})
+		require.NoError(t, err)
+		subnets = append(subnets, aws.ToString(subnetOut.Subnet.SubnetId))
+	}
+	return vpcID, subnets
 }
 
 // stopECSTasksInSubnet stops every Amazon ECS task whose network interface is

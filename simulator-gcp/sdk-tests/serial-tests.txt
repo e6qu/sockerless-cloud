@@ -14,16 +14,6 @@ TestIAM_ProjectIAMPolicy	changes the project IAM policy every other test is auth
 TestIAM_ProjectIAMPolicyEtagConflict	changes the project IAM policy every other test is authorized under
 TestIAM_ProjectIAMPolicyInvalidMember	changes the project IAM policy every other test is authorized under
 TestIAM_TestPermissionsAnswersFromThePolicyNotTheQuestion	changes the project IAM policy every other test is authorized under
-TestMetadataSDK_ApplicationDefaultCredentials	sets an environment variable of the test process
-TestMetadataSDK_Email	sets an environment variable of the test process
-TestMetadataSDK_GenericGet	sets an environment variable of the test process
-TestMetadataSDK_Hostname	sets an environment variable of the test process
-TestMetadataSDK_InstanceName	sets an environment variable of the test process
-TestMetadataSDK_ProjectID	sets an environment variable of the test process
-TestMetadataSDK_RecursiveDirectoryRead	sets an environment variable of the test process
-TestMetadataSDK_ServiceAccountsDirectoryListing	sets an environment variable of the test process
-TestMetadataSDK_UniverseDomain	sets an environment variable of the test process
-TestMetadataSDK_Zone	sets an environment variable of the test process
 TestOrgPolicy_BooleanConstraintIsEnforcedByTheServiceItGoverns	sets organization policy constraints other tests are governed by
 TestOrgPolicy_ConstraintCatalogIsTheAcceptedSet	sets organization policy constraints other tests are governed by
 TestOrgPolicy_EffectivePolicyResolvesThroughTheHierarchy	sets organization policy constraints other tests are governed by

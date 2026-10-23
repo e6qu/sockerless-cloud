@@ -317,8 +317,8 @@ jobs:
           bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}/sdk-tests
           bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}/cli-tests
           cd simulator-${{ matrix.cloud }}
-          CGO_ENABLED=0 go build -tags noui -o /dev/null .
-          CGO_ENABLED=0 go test -tags noui -c -o /dev/null .
+          CGO_ENABLED=0 go build -o /dev/null .
+          CGO_ENABLED=0 go test -c -o /dev/null .
           (cd sdk-tests && CGO_ENABLED=0 go test -c -o /dev/null .)
           (cd cli-tests && CGO_ENABLED=0 go test -c -o /dev/null .)
         timeout-minutes: 13
@@ -572,6 +572,19 @@ jobs:
           # shellcheck disable=SC2086
           bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
             ${{ steps.base-images-list.outputs.images }}
+      - name: Start the network sidecar image build
+        # The suites' first workload waits on the sidecar image, and a cold
+        # build takes longer than a test gives it; the build runs while the job
+        # does other work, and the wait step below blocks on it.
+        run: bash scripts/ci-engine-image.sh sidecar-image start
+        timeout-minutes: 3
+      - name: Start the node agent image build
+        # The simulator starts the agent before it listens, and the harness
+        # gives it two minutes to listen; a cold build of the agent image
+        # takes longer than that, so it builds while the job does other work.
+        if: matrix.placement
+        run: bash scripts/ci-engine-image.sh node-agent-image start
+        timeout-minutes: 3
       # The Cloud Firestore emulator is a Java program, and the component
       # refuses anything below a Java 21 runtime, which the runner's default
       # `java` is not. The runner does ship newer runtimes alongside it, each
@@ -663,7 +676,10 @@ jobs:
         run: |
           bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}
           cd simulator-${{ matrix.cloud }}
-          CGO_ENABLED=0 go test -tags noui -count=1 -c -o /dev/null .
+          CGO_ENABLED=0 go test -count=1 -c -o /dev/null .
+        timeout-minutes: 8
+      - name: Wait for the network sidecar image
+        run: bash scripts/ci-engine-image.sh sidecar-image wait
         timeout-minutes: 8
       - name: Run module unit tests
         # Shard-independent; the sdk suite carries them so they run once per
@@ -692,14 +708,9 @@ jobs:
         run: |
           test -c /dev/kvm
           sudo chmod 0666 /dev/kvm
-      - name: Build the node agent image
-        # The simulator starts the agent before it listens, and the harness
-        # gives it two minutes to listen; a cold build of the agent image
-        # takes longer than that, so the image is built here first.
+      - name: Wait for the node agent image
         if: matrix.placement
-        run: |
-          bash scripts/ci-go-mod-download.sh sim
-          make node-agent-image
+        run: bash scripts/ci-engine-image.sh node-agent-image wait
         timeout-minutes: 8
       - name: Run SDK tests
         if: matrix.suite == 'sdk'
@@ -729,7 +740,7 @@ jobs:
         run: |
           bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}
           bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}/cli-tests
-          cd simulator-${{ matrix.cloud }} && CGO_ENABLED=0 go build -tags noui -o /dev/null .
+          cd simulator-${{ matrix.cloud }} && CGO_ENABLED=0 go build -o /dev/null .
           cd cli-tests && CGO_ENABLED=0 go test -c -o /dev/null .
         timeout-minutes: 10
       - name: Run CLI tests
@@ -866,7 +877,7 @@ jobs:
         run: |
           bash scripts/ci-go-mod-download.sh simulator-aws
           cd simulator-aws
-          CGO_ENABLED=0 go test -tags noui -count=1 -c -o /dev/null .
+          CGO_ENABLED=0 go test -count=1 -c -o /dev/null .
         timeout-minutes: 8
       - name: Run AWS module unit tests
         # The module unit tests are shard-independent; one shard carries them
@@ -887,7 +898,7 @@ jobs:
       - name: Pre-build AWS SDK tests (warm build cache)
         run: |
           bash scripts/ci-go-mod-download.sh simulator-aws
-          cd simulator-aws && make build
+          cd simulator-aws && make build-api
           cd sdk-tests && CGO_ENABLED=0 go test -c -o /tmp/aws-sdk-tests.test .
         # This step exists to absorb a cold build, so its budget has to fit
         # one: measured at 3m16s against a warm cache and over six minutes
@@ -961,6 +972,19 @@ jobs:
           # shellcheck disable=SC2086
           bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
             ${{ steps.base-images-list.outputs.images }}
+      - name: Start the network sidecar image build
+        # The suites' first workload waits on the sidecar image, and a cold
+        # build takes longer than a test gives it; the build runs while the job
+        # does other work, and the wait step below blocks on it.
+        run: bash scripts/ci-engine-image.sh sidecar-image start
+        timeout-minutes: 3
+      - name: Start the node agent image build
+        # The simulator starts the agent before it listens, and the harness
+        # gives it two minutes to listen; a cold build of the agent image
+        # takes longer than that, so it builds while the job does other work.
+        if: matrix.placement
+        run: bash scripts/ci-engine-image.sh node-agent-image start
+        timeout-minutes: 3
       - name: Prepare the engine's trust directory and the low ports for the runner
         # The suite installs a registry's authority under /etc/docker/certs.d
         # for the engine to trust it and receives mail on port 25, and the
@@ -973,14 +997,12 @@ jobs:
         run: |
           test -c /dev/kvm
           sudo chmod 0666 /dev/kvm
-      - name: Build the node agent image
-        # The simulator starts the agent before it listens, and the harness
-        # gives it two minutes to listen; a cold build of the agent image
-        # takes longer than that, so the image is built here first.
+      - name: Wait for the node agent image
         if: matrix.placement
-        run: |
-          bash scripts/ci-go-mod-download.sh sim
-          make node-agent-image
+        run: bash scripts/ci-engine-image.sh node-agent-image wait
+        timeout-minutes: 8
+      - name: Wait for the network sidecar image
+        run: bash scripts/ci-engine-image.sh sidecar-image wait
         timeout-minutes: 8
       - name: Run AWS SDK tests
         # The suite has exhausted the runner volume from a 89 GB starting
@@ -1296,6 +1318,12 @@ jobs:
           # shellcheck disable=SC2086
           bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
             ${{ steps.base-images-list.outputs.images }}
+      - name: Start the network sidecar image build
+        # The suites' first workload waits on the sidecar image, and a cold
+        # build takes longer than a test gives it; the build runs while the job
+        # does other work, and the wait step below blocks on it.
+        run: bash scripts/ci-engine-image.sh sidecar-image start
+        timeout-minutes: 3
       # Download modules and compile the simulator and the CLI test binary in
       # their own budgeted step, as the runner user, so the timed test run
       # below holds the tests alone and what this compiles is what the cache
@@ -1305,7 +1333,7 @@ jobs:
         run: |
           bash scripts/ci-go-mod-download.sh simulator-aws
           bash scripts/ci-go-mod-download.sh simulator-aws/cli-tests
-          cd simulator-aws && CGO_ENABLED=0 go build -tags noui -o /dev/null .
+          cd simulator-aws && CGO_ENABLED=0 go build -o /dev/null .
           cd cli-tests && CGO_ENABLED=0 go test -c -o /dev/null .
         timeout-minutes: 10
       - name: Prepare the engine's trust directory and the low ports for the runner
@@ -1315,6 +1343,9 @@ jobs:
         run: |
           sudo install -d -m 0755 -o "$(id -u)" -g "$(id -g)" /etc/docker/certs.d
           sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0
+      - name: Wait for the network sidecar image
+        run: bash scripts/ci-engine-image.sh sidecar-image wait
+        timeout-minutes: 8
       - name: Run AWS CLI tests
         run: |
           cd simulator-aws
@@ -1547,6 +1578,12 @@ jobs:
           # shellcheck disable=SC2086
           bash scripts/warm-base-images.sh ~/.cache/sockerless/base-images.tar \
             ${{ steps.base-images-list.outputs.images }}
+      - name: Start the network sidecar image build
+        # The suites' first workload waits on the sidecar image, and a cold
+        # build takes longer than a test gives it; the build runs while the job
+        # does other work, and the wait step below blocks on it.
+        run: bash scripts/ci-engine-image.sh sidecar-image start
+        timeout-minutes: 3
       # Terraform is installed from its own release archive rather than
       # through hashicorp/setup-terraform. The runner downloads every action a
       # workflow references before it evaluates any step's condition, so an
@@ -1570,6 +1607,9 @@ jobs:
       - name: Install Caddy
         run: |
           bash scripts/install-caddy.sh
+      - name: Wait for the network sidecar image
+        run: bash scripts/ci-engine-image.sh sidecar-image wait
+        timeout-minutes: 8
       - name: Run terraform tests
         run: |
           cd simulator-${{ matrix.cloud }}
@@ -1751,7 +1791,7 @@ jobs:
         run: |
           bash scripts/ci-go-mod-download.sh simulator-${{ matrix.cloud }}
           cd simulator-${{ matrix.cloud }}
-          CGO_ENABLED=1 go test -tags noui -race -count=1 -c -o /dev/null .
+          CGO_ENABLED=1 go test -race -count=1 -c -o /dev/null .
         timeout-minutes: 8
       - name: Run unit tests under the race detector
         run: |
@@ -1884,15 +1924,6 @@ jobs:
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v7.0.1
-      - name: Install the RDS authentication plugin toolchain
-        run: bash scripts/ci-apt-install.sh clang lld
-        timeout-minutes: 3
-      - name: Committed RDS authentication plugin binaries match their source
-        run: bash scripts/check-rds-auth-plugin-build.sh
-        timeout-minutes: 2
-      - name: Committed network sidecar binaries match their source
-        run: bash scripts/check-sidecar-build.sh
-        timeout-minutes: 3
       # install-go's own cache restores only an exact go.sum match, so a pin
       # or dependency move left the installable build compiling all three
       # simulators cold, past this job's budget. The entry below falls back
