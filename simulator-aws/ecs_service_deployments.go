@@ -282,8 +282,14 @@ func handleECSDescribeServiceRevisions(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		view := revisionView{ECSServiceRevisionRec: rev}
+		if managed := ecsExpressManagedResourcesJSON(arn); managed != nil {
+			view.EcsManagedResources = managed
+		}
 		if connections := ecsGatewayConnectionsJSON(arn); len(connections) > 0 {
-			view.EcsManagedResources = map[string]any{"gatewayConnections": connections}
+			if view.EcsManagedResources == nil {
+				view.EcsManagedResources = map[string]any{}
+			}
+			view.EcsManagedResources["gatewayConnections"] = connections
 		}
 		found = append(found, view)
 	}

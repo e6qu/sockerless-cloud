@@ -16,19 +16,21 @@ import (
 
 // RunTask is asynchronous on real ECS: it returns while the task is still
 // PROVISIONING and the managed-EBS volume hydrates behind an ATTACHING
-// attachment. The simulator used to copy the snapshot's data inline in the
-// request handler, so RunTask blocked for the length of the copy — roughly 5s
-// per GiB — and a reverse proxy in front of the simulator turned that into a
-// 502 for the caller. Preparing the volume must therefore record the restore
-// without performing it.
+// attachment. Amazon EC2 answers CreateVolume with the volume creating and
+// fills it from the snapshot behind the response, so preparing the volume
+// records the hydration the task waits for on its transition path and never
+// copies the snapshot's data itself.
 func TestPrepareManagedEBSVolumesDefersSnapshotRestore(t *testing.T) {
 	t.Setenv("SIM_EBS_DATA_DIR", t.TempDir())
+	t.Setenv("SIM_RUNTIME", "process")
+	t.Setenv("SIM_DNS_PORT", "0")
 	// Background work from an earlier test must finish before the stores
 	// it is reading are replaced.
 	bg.Await()
-	ec2Snapshots = sim.MakeStore[EC2Snapshot](nil, "ec2_snapshots")
-	ec2Volumes = sim.MakeStore[EC2Volume](nil, "ec2_volumes")
-	ecsTasks = sim.MakeStore[ECSTask](nil, "ecs_tasks")
+	server, _, _, err := buildSimulator(sim.Config{Provider: "aws", ListenAddr: ":0", LogLevel: "error"})
+	require.NoError(t, err)
+	t.Cleanup(server.StopBackground)
+	roleArn := putServiceRole(t, "volume-infrastructure", "ecs.amazonaws.com", "ec2:CreateVolume")
 
 	snapshotPayload := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(snapshotPayload, "workspace.txt"), []byte("restored"), 0o644))
@@ -43,26 +45,29 @@ func TestPrepareManagedEBSVolumesDefersSnapshotRestore(t *testing.T) {
 	configs := []ECSTaskVolumeConfiguration{{
 		Name: "workspace",
 		ManagedEBSVolume: &ECSTaskManagedEBSVolumeConfiguration{
+			RoleArn:    roleArn,
 			SizeInGiB:  8,
 			SnapshotId: "snap-defer",
 		},
 	}}
 
-	hosts, attachments, restores, reqErr := ecsPrepareManagedEBSVolumes(
-		context.Background(), td, configs, "task-defer", "")
+	taskArn := "arn:aws:ecs:" + awsRegion() + ":" + awsAccountID() + ":task/default/task-defer"
+	hosts, attachments, restores, reqErr := ecsPrepareManagedEBSVolumes(context.Background(), td, configs, taskArn, "")
 	require.Nil(t, reqErr)
 	require.Len(t, attachments, 1)
 	require.Equal(t, "ATTACHING", attachments[0].Status)
-	require.Len(t, restores, 1, "the snapshot restore must be recorded for the transition path")
+	require.Len(t, restores, 1, "the hydration must be recorded for the transition path")
+	volumeID := ecsTaskDetail(attachments[0].Details, "volumeId")
+	require.Equal(t, volumeID, restores[0].HydratingVolumeID)
+	owner, ok := ecsManagedVolumeOwners.Get(volumeID)
+	require.True(t, ok, "the role that created the volume is recorded for its deletion")
+	require.Equal(t, roleArn, owner.RoleArn)
 
 	destination := hosts["workspace"]
 	require.NotEmpty(t, destination)
-	entries, err := os.ReadDir(destination)
-	require.NoError(t, err)
-	require.Empty(t, entries, "the RunTask request path must not copy snapshot data")
 
-	// The transition path performs the copy and only then reports ATTACHED.
-	ecsTasks.Put("task-defer", ECSTask{TaskArn: "arn:task-defer", Attachments: attachments})
+	// The transition path waits for the hydration and only then reports ATTACHED.
+	ecsTasks.Put("task-defer", ECSTask{TaskArn: taskArn, Attachments: attachments})
 	require.NoError(t, ecsRunPendingEBSRestores(context.Background(), "task-defer", restores))
 
 	restored, err := os.ReadFile(filepath.Join(destination, "workspace.txt"))
@@ -73,4 +78,8 @@ func TestPrepareManagedEBSVolumesDefersSnapshotRestore(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, stored.Attachments, 1)
 	require.Equal(t, "ATTACHED", stored.Attachments[0].Status)
+	volume, ok := ec2Volumes.Get(volumeID)
+	require.True(t, ok)
+	require.Equal(t, "in-use", volume.State, "the task holds the volume once it is hydrated")
+	require.Equal(t, "snap-defer", volume.SnapshotId)
 }

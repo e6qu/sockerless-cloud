@@ -479,12 +479,13 @@ func TestECS_CLI_ManagedEBSVolumeSnapshotRoundTrip(t *testing.T) {
 	}
 	parseJSON(t, out, &writerTD)
 
+	volumeRole := createCLIECSRole(t, awsCLI, "cli-ebs-roundtrip-volumes", "ecs.amazonaws.com", cliECSVolumeInfrastructureActions...)
 	out = runCLI(t, awsCLI("ecs", "run-task",
 		"--cluster", "cli-ebs-roundtrip",
 		"--task-definition", writerTD.TaskDefinition.TaskDefinitionArn,
 		"--launch-type", "FARGATE",
 		"--network-configuration", `awsvpcConfiguration={subnets=[`+subnetID+`]}`,
-		"--volume-configurations", `[{"name":"workspace","managedEBSVolume":{"roleArn":"arn:aws:iam::123456789012:role/ecsInfrastructureRole","sizeInGiB":1,"volumeType":"gp3","terminationPolicy":{"deleteOnTermination":false},"tagSpecifications":[{"resourceType":"volume","tags":[{"key":"purpose","value":"cli-roundtrip"}]}]}}]`,
+		"--volume-configurations", `[{"name":"workspace","managedEBSVolume":{"roleArn":"`+volumeRole+`","sizeInGiB":1,"volumeType":"gp3","terminationPolicy":{"deleteOnTermination":false},"tagSpecifications":[{"resourceType":"volume","tags":[{"key":"purpose","value":"cli-roundtrip"}]}]}}]`,
 		"--output", "json",
 	))
 	var runWriter struct {
@@ -564,7 +565,7 @@ func TestECS_CLI_ManagedEBSVolumeSnapshotRoundTrip(t *testing.T) {
 		"--task-definition", readerTD.TaskDefinition.TaskDefinitionArn,
 		"--launch-type", "FARGATE",
 		"--network-configuration", `awsvpcConfiguration={subnets=[`+subnetID+`]}`,
-		"--volume-configurations", `[{"name":"workspace","managedEBSVolume":{"roleArn":"arn:aws:iam::123456789012:role/ecsInfrastructureRole","snapshotId":"`+snapResult.SnapshotId+`","volumeType":"gp3"}}]`,
+		"--volume-configurations", `[{"name":"workspace","managedEBSVolume":{"roleArn":"`+volumeRole+`","snapshotId":"`+snapResult.SnapshotId+`","volumeType":"gp3"}}]`,
 		"--output", "json",
 	))
 	var runReader struct {

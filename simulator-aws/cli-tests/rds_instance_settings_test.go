@@ -21,6 +21,7 @@ type cliInstanceSettings struct {
 	Iops                    int    `json:"Iops"`
 	StorageThroughput       int    `json:"StorageThroughput"`
 	CACertificateIdentifier string `json:"CACertificateIdentifier"`
+	LicenseModel            string `json:"LicenseModel"`
 	DBSubnetGroup           struct {
 		DBSubnetGroupName string `json:"DBSubnetGroupName"`
 	} `json:"DBSubnetGroup"`
@@ -65,8 +66,9 @@ func TestRDSCLI_ModifyDBInstanceSettingsPortAndRename(t *testing.T) {
 	suffix := strconv.FormatInt(time.Now().UnixNano(), 36)
 	id, newID := "cli-settings-"+suffix, "cli-renamed-"+suffix
 	subnetGroup, optionGroup := "cli-settings-subnets-"+suffix, "cli-settings-options-"+suffix
+	_, subnets := createCLIVPCSubnets(t, "10.102.0.0/16", 2)
 	runCLI(t, awsCLI("rds", "create-db-subnet-group", "--db-subnet-group-name", subnetGroup,
-		"--db-subnet-group-description", "instance settings", "--subnet-ids", "subnet-aaaa1111", "subnet-bbbb2222"))
+		"--db-subnet-group-description", "instance settings", "--subnet-ids", subnets[0], subnets[1]))
 	runCLI(t, awsCLI("rds", "create-option-group", "--option-group-name", optionGroup, "--engine-name", "postgres",
 		"--major-engine-version", "16", "--option-group-description", "instance settings"))
 	t.Cleanup(func() {
@@ -102,6 +104,7 @@ func TestRDSCLI_ModifyDBInstanceSettingsPortAndRename(t *testing.T) {
 	assert.Equal(t, optionGroup, created.OptionGroupMemberships[0].OptionGroupName)
 	assert.Equal(t, "in-sync", created.OptionGroupMemberships[0].Status)
 	assert.Equal(t, "rds-ca-rsa4096-g1", created.CACertificateIdentifier)
+	assert.Equal(t, "postgresql-license", created.LicenseModel, "RDS for PostgreSQL has one license model")
 	conn := cliConnectPostgres(t, ctx, created.Endpoint.Address, created.Endpoint.Port)
 	_, err := conn.Exec(ctx, `CREATE TABLE ledger (entry text); INSERT INTO ledger VALUES ('before the rename')`)
 	require.NoError(t, err)

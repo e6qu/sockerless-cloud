@@ -137,10 +137,12 @@ func TestBQCoverage_TabledataAndJobs(t *testing.T) {
 	require.Len(t, td.Rows, 2)
 
 	// jobs.insert with a query configuration runs the query.
+	googleSQL := false
 	job, err := svc.Jobs.Insert(proj, &bigquery.Job{
 		Configuration: &bigquery.JobConfiguration{
 			Query: &bigquery.JobConfigurationQuery{
-				Query: "SELECT id, kind FROM `cov-project.job_ds.evt` WHERE kind = 'deploy'",
+				Query:        "SELECT id, kind FROM `cov-project.job_ds.evt` WHERE kind = 'deploy'",
+				UseLegacySql: &googleSQL,
 			},
 		},
 	}).Do()

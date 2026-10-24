@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -16,8 +17,9 @@ import (
 // an Amazon SQS queue, an AWS Lambda function, an Amazon SNS topic and a
 // CloudWatch Logs log group as events.amazonaws.com, which the target's
 // resource policy must admit; an Amazon ECS cluster, an AWS Batch job queue,
-// an Amazon Kinesis data stream, an AWS Step Functions state machine and
-// another event bus as the target's RoleArn.
+// an Amazon Kinesis data stream, an AWS Step Functions state machine, an AWS
+// CodeBuild project, an Amazon Data Firehose delivery stream, a Systems
+// Manager Run Command document and another event bus as the target's RoleArn.
 
 // ebTargetActor is who EventBridge calls a target as for the rule.
 func ebTargetActor(ruleArn string, target EBTarget, withRole bool) awsActor {
@@ -192,6 +194,67 @@ func ebSubmitJob(ctx context.Context, ruleArn string, target EBTarget) delivery.
 	return ebCallResult(status, response, err, false)
 }
 
+// ebStartBuild starts a build of the project the target names. A target with
+// its own input passes it as the StartBuild request, as an Amazon ECS target
+// passes its input as the task override.
+func ebStartBuild(ctx context.Context, ruleArn string, target EBTarget, body string) delivery.Outcome {
+	if refused := ebRequireRole(target); refused != nil {
+		return *refused
+	}
+	var request map[string]any
+	if ebCustomInput(target) {
+		if json.Unmarshal([]byte(body), &request) != nil || request == nil {
+			return delivery.Permanent(ebTargetError{"InvalidParameterException", "The input for an AWS CodeBuild target is not the JSON of a StartBuild request"})
+		}
+	} else {
+		request = map[string]any{}
+	}
+	request["projectName"] = target.Arn[strings.LastIndex(target.Arn, "/")+1:]
+	status, response, err := awsCallJSON(ctx, ebTargetActor(ruleArn, target, true), "codebuild", "CodeBuild_20161006.StartBuild", "application/x-amz-json-1.1", request)
+	return ebCallResult(status, response, err, false)
+}
+
+// ebPutFirehoseRecord puts the event on the delivery stream as one record.
+func ebPutFirehoseRecord(ctx context.Context, ruleArn string, target EBTarget, body string) delivery.Outcome {
+	if refused := ebRequireRole(target); refused != nil {
+		return *refused
+	}
+	input := map[string]any{
+		"DeliveryStreamName": target.Arn[strings.LastIndex(target.Arn, "/")+1:],
+		"Record":             map[string]any{"Data": base64.StdEncoding.EncodeToString([]byte(body))},
+	}
+	status, response, err := awsCallJSON(ctx, ebTargetActor(ruleArn, target, true), "firehose", "Firehose_20150804.PutRecord", "application/x-amz-json-1.1", input)
+	return ebCallResult(status, response, err, false)
+}
+
+// ebSendCommand sends the document the target names to the instances its
+// RunCommandTargets select. Nothing from the event reaches Run Command; a
+// target with its own input passes it as the document's parameters.
+func ebSendCommand(ctx context.Context, ruleArn string, target EBTarget, body string) delivery.Outcome {
+	if refused := ebRequireRole(target); refused != nil {
+		return *refused
+	}
+	var params struct {
+		RunCommandTargets []SSMTarget `json:"RunCommandTargets"`
+	}
+	if len(target.RunCommandParameters) == 0 || json.Unmarshal(target.RunCommandParameters, &params) != nil || len(params.RunCommandTargets) == 0 {
+		return delivery.Permanent(ebTargetError{"InvalidParameterException", "Target " + target.Arn + " names no RunCommandParameters.RunCommandTargets"})
+	}
+	request := map[string]any{
+		"DocumentName": target.Arn[strings.Index(target.Arn, ":document/")+len(":document/"):],
+		"Targets":      params.RunCommandTargets,
+	}
+	if ebCustomInput(target) {
+		var parameters map[string][]string
+		if json.Unmarshal([]byte(body), &parameters) != nil || parameters == nil {
+			return delivery.Permanent(ebTargetError{"InvalidParameterException", "The input for an Amazon EC2 Run Command target is not the JSON of the document's parameters"})
+		}
+		request["Parameters"] = parameters
+	}
+	status, response, err := awsCallJSON(ctx, ebTargetActor(ruleArn, target, true), "ssm", "AmazonSSM.SendCommand", "application/x-amz-json-1.1", request)
+	return ebCallResult(status, response, err, false)
+}
+
 // ebPutOnBus sends the event to another event bus as it arrived, which that
 // bus's rules then match.
 func ebPutOnBus(ctx context.Context, ruleArn string, target EBTarget, record EBEventRecord) delivery.Outcome {
@@ -213,15 +276,11 @@ func ebPutOnBus(ctx context.Context, ruleArn string, target EBTarget, record EBE
 	if outcome := ebCallResult(status, response, err, false); !outcome.OK() {
 		return outcome
 	}
-	var result struct {
-		FailedEntryCount int `json:"FailedEntryCount"`
-		Entries          []struct {
-			ErrorCode    string `json:"ErrorCode"`
-			ErrorMessage string `json:"ErrorMessage"`
-		} `json:"Entries"`
-	}
-	if json.Unmarshal(response, &result) == nil && result.FailedEntryCount > 0 && len(result.Entries) > 0 {
-		return delivery.Permanent(ebTargetError{result.Entries[0].ErrorCode, result.Entries[0].ErrorMessage})
+	var entryErr *awsCallError
+	if err := ebPutEventsEntryError(response); errors.As(err, &entryErr) {
+		return delivery.Permanent(ebTargetError{entryErr.Code, entryErr.Message})
+	} else if err != nil {
+		return delivery.Permanent(err)
 	}
 	return delivery.Delivered()
 }

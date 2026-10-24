@@ -141,9 +141,10 @@ func TestCodeBuild_BuildHoldsItsServiceRoleSession_SDK(t *testing.T) {
 	assertBuildSession(aws.ToString(retried.Build.Id), overrideRole)
 }
 
-// A batch build that names a serviceRoleOverride runs as that role, not as its
-// project's: its build command succeeds only when the AWS CLI's caller is a
-// session of the override role.
+// The builds of a batch build that names a serviceRoleOverride run as that
+// role, not as their project's: the build command succeeds only when the AWS
+// CLI's caller is a session of the override role. The batch's service role
+// passes the override role to each build it starts.
 func TestCodeBuild_BuildBatchRunsAsItsServiceRoleOverride_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
@@ -154,10 +155,12 @@ func TestCodeBuild_BuildBatchRunsAsItsServiceRoleOverride_SDK(t *testing.T) {
 	_, err := c.CreateProject(ctx, &codebuild.CreateProjectInput{
 		Name: aws.String(name),
 		Source: &cbtypes.ProjectSource{
-			Type:      cbtypes.SourceTypeNoSource,
-			Buildspec: aws.String("version: 0.2\nphases:\n  build:\n    commands:\n      - \"" + command + "\"\n"),
+			Type: cbtypes.SourceTypeNoSource,
+			Buildspec: aws.String("version: 0.2\nbatch:\n  build-list:\n    - identifier: whoami\n" +
+				"phases:\n  build:\n    commands:\n      - \"" + command + "\"\n"),
 		},
-		Artifacts: &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
+		BuildBatchConfig: &cbtypes.ProjectBuildBatchConfig{ServiceRole: aws.String(cbBatchRole(t, "iam:PassRole"))},
+		Artifacts:        &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
 		Environment: &cbtypes.ProjectEnvironment{
 			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String(awsCLIImage),
 			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
@@ -179,8 +182,10 @@ func TestCodeBuild_BuildBatchRunsAsItsServiceRoleOverride_SDK(t *testing.T) {
 		batch = out.BuildBatches[0]
 		return batch.BuildBatchStatus != cbtypes.StatusTypeInProgress
 	}, cbBuildCompletionBudget, 100*time.Millisecond)
-	require.Equal(t, cbtypes.StatusTypeSucceeded, batch.BuildBatchStatus)
+	require.Equal(t, cbtypes.StatusTypeSucceeded, batch.BuildBatchStatus, "phases: %+v", batch.Phases)
 	assert.Equal(t, overrideRole, aws.ToString(batch.ServiceRole))
+	require.Len(t, batch.BuildGroups, 1)
+	assert.Equal(t, cbtypes.StatusTypeSucceeded, batch.BuildGroups[0].CurrentBuildSummary.BuildStatus)
 }
 
 // A job's AWS CLI resolves sessions of its job definition's job role through

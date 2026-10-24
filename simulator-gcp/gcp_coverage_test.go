@@ -74,7 +74,7 @@ var gcpDeclaredMethodTotals = map[string]int{
 	"cloudkms-v1":             174,
 	"cloudresourcemanager-v1": 76,
 	"cloudresourcemanager-v2": 24,
-	"cloudresourcemanager-v3": 156,
+	"cloudresourcemanager-v3": 184,
 	"cloudrun-v1":             152,
 	"cloudrun-v2":             119,
 	"compute-v1":              2036,
@@ -258,6 +258,10 @@ var gcpMethodFloor = map[string]int{
 	// project a create is documented to make when the caller supplies none is
 	// a real project in the store every other Cloud Resource Manager read
 	// serves — not a name pointing at nothing.
+	// Unserved, each answering a declared 501: the folders' and organizations'
+	// boundaries collection and boundaryConfig singleton, whose Management
+	// Project provisioning and CREATING-to-ACTIVE progression no vendored
+	// source states and no client exposes.
 	"cloudresourcemanager-v3": 156,
 
 	// Cloud Resource Manager v2: every documented method is served. v2's only

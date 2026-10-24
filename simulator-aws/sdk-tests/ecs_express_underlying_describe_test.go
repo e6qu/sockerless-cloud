@@ -9,7 +9,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/applicationautoscaling"
 	aastypes "github.com/aws/aws-sdk-go-v2/service/applicationautoscaling/types"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
@@ -17,14 +16,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECSExpress_UnderlyingResourcesDescribeFaithfully drives a full Express
-// Gateway assembly, then verifies that EACH backing resource the assembly wrote
-// into the real sim stores (ALB, target group, HTTPS listener, ACM certificate,
-// security group, Application Auto Scaling target + target-tracking policy)
-// describes back through its OWN service API with every field a real
-// aws-sdk-go-v2 / terraform client reads. This guards the Describe handlers of
-// elbv2, acm, application_autoscaling, and ec2 against silently dropping fields
-// or failing to filter by the assembly's identifiers.
+// TestECSExpress_UnderlyingResourcesDescribeFaithfully creates an Express
+// service and follows the resources DescribeServiceRevisions reports Amazon
+// ECS manages for it — load balancer, HTTPS listener, listener rule, target
+// group, certificate, security groups, scalable target and scaling policy —
+// into the service that holds each, where it describes back with every field
+// a real aws-sdk-go-v2 / terraform client reads.
 func TestECSExpress_UnderlyingResourcesDescribeFaithfully(t *testing.T) {
 	t.Parallel()
 	ecsc := ecsClient()
@@ -39,7 +36,7 @@ func TestECSExpress_UnderlyingResourcesDescribeFaithfully(t *testing.T) {
 	out, err := ecsc.CreateExpressGatewayService(ctx, &ecs.CreateExpressGatewayServiceInput{
 		Cluster:               aws.String(cluster),
 		ServiceName:           aws.String(svcName),
-		InfrastructureRoleArn: aws.String("arn:aws:iam::000000000000:role/express-infra"),
+		InfrastructureRoleArn: aws.String(createECSExpressInfrastructureRole(t, "express-underlying")),
 		HealthCheckPath:       aws.String("/healthz"),
 		PrimaryContainer: &ecstypes.ExpressGatewayContainer{
 			Image:         aws.String(containerCommandImage),
@@ -59,56 +56,87 @@ func TestECSExpress_UnderlyingResourcesDescribeFaithfully(t *testing.T) {
 	})
 	require.NotEmpty(t, out.Service.ActiveConfigurations)
 	endpoint := aws.ToString(out.Service.ActiveConfigurations[0].IngressPaths[0].Endpoint)
-	albHost := strings.TrimPrefix(endpoint, "https://")
-	require.NotEmpty(t, albHost)
+	hostname := strings.TrimPrefix(endpoint, "https://")
+	require.NotEmpty(t, hostname)
 
-	// ---- ALB: DescribeLoadBalancers returns it with the full read-back shape. ----
-	lbs, err := elb.DescribeLoadBalancers(ctx, &elbv2.DescribeLoadBalancersInput{})
-	require.NoError(t, err)
-	var albArn string
-	for _, lb := range lbs.LoadBalancers {
-		if strings.EqualFold(aws.ToString(lb.DNSName), albHost) {
-			albArn = aws.ToString(lb.LoadBalancerArn)
-			assert.Equal(t, "internet-facing", string(lb.Scheme))
-			assert.Equal(t, "application", string(lb.Type))
-			require.NotNil(t, lb.State)
-			assert.Equal(t, "active", string(lb.State.Code))
-			break
-		}
+	managed := expressManagedResources(t, ecsc, out.Service)
+	require.Len(t, managed.IngressPaths, 1)
+	path := managed.IngressPaths[0]
+	assert.Equal(t, ecstypes.AccessTypePublic, path.AccessType)
+	assert.Equal(t, endpoint, aws.ToString(path.Endpoint))
+	for name, resource := range map[string]ecstypes.ManagedResourceStatus{
+		"loadBalancer": path.LoadBalancer.Status,
+		"certificate":  path.Certificate.Status,
+		"listener":     path.Listener.Status,
+		"rule":         path.Rule.Status,
+	} {
+		assert.Equal(t, ecstypes.ManagedResourceStatusActive, resource, name)
 	}
-	require.NotEmpty(t, albArn, "Express ALB not found via DescribeLoadBalancers")
+	require.Len(t, path.TargetGroups, 1)
+	assert.Equal(t, ecstypes.ManagedResourceStatusActive, path.TargetGroups[0].Status)
+	assert.Equal(t, "/healthz", aws.ToString(path.TargetGroups[0].HealthCheckPath))
+	assert.Equal(t, int32(8080), path.TargetGroups[0].Port)
 
-	// Filter by ARN must return exactly the one ALB.
-	byArn, err := elb.DescribeLoadBalancers(ctx, &elbv2.DescribeLoadBalancersInput{
-		LoadBalancerArns: []string{albArn},
-	})
+	// ---- ALB: DescribeLoadBalancers returns it with the full read-back shape,
+	// in the scheme, subnets and security groups the managed resource names. ----
+	albArn := aws.ToString(path.LoadBalancer.Arn)
+	byArn, err := elb.DescribeLoadBalancers(ctx, &elbv2.DescribeLoadBalancersInput{LoadBalancerArns: []string{albArn}})
 	require.NoError(t, err)
 	require.Len(t, byArn.LoadBalancers, 1)
-	assert.Equal(t, albArn, aws.ToString(byArn.LoadBalancers[0].LoadBalancerArn))
+	lb := byArn.LoadBalancers[0]
+	assert.Equal(t, "internet-facing", string(lb.Scheme))
+	assert.Equal(t, aws.ToString(path.LoadBalancer.Scheme), string(lb.Scheme))
+	assert.Equal(t, "application", string(lb.Type))
+	require.NotNil(t, lb.State)
+	assert.Equal(t, "active", string(lb.State.Code))
+	var subnets []string
+	for _, zone := range lb.AvailabilityZones {
+		subnets = append(subnets, aws.ToString(zone.SubnetId))
+	}
+	assert.ElementsMatch(t, path.LoadBalancer.SubnetIds, subnets)
+	assert.ElementsMatch(t, path.LoadBalancer.SecurityGroupIds, lb.SecurityGroups)
 
 	// ---- Listener: DescribeListeners(LoadBalancerArn) returns the HTTPS:443
-	// listener with the ACM cert and a forward DefaultAction to the TG. ----
-	ls, err := elb.DescribeListeners(ctx, &elbv2.DescribeListenersInput{
-		LoadBalancerArn: aws.String(albArn),
-	})
+	// listener carrying the service's certificate. ----
+	ls, err := elb.DescribeListeners(ctx, &elbv2.DescribeListenersInput{LoadBalancerArn: aws.String(albArn)})
 	require.NoError(t, err)
 	require.Len(t, ls.Listeners, 1, "expected one HTTPS listener on the Express ALB")
 	listener := ls.Listeners[0]
+	assert.Equal(t, aws.ToString(path.Listener.Arn), aws.ToString(listener.ListenerArn))
 	assert.Equal(t, "HTTPS", string(listener.Protocol))
 	assert.Equal(t, int32(443), aws.ToInt32(listener.Port))
-	require.NotEmpty(t, listener.Certificates, "listener must carry the ACM certificate")
-	certArn := aws.ToString(listener.Certificates[0].CertificateArn)
+	certArn := aws.ToString(path.Certificate.Arn)
 	require.NotEmpty(t, certArn)
-	require.NotEmpty(t, listener.DefaultActions)
-	assert.Equal(t, "forward", string(listener.DefaultActions[0].Type))
-	tgArn := aws.ToString(listener.DefaultActions[0].TargetGroupArn)
-	require.NotEmpty(t, tgArn, "listener default action must forward to a target group")
+	var onListener bool
+	for _, certificate := range listener.Certificates {
+		onListener = onListener || aws.ToString(certificate.CertificateArn) == certArn
+	}
+	assert.True(t, onListener, "the listener carries the service's certificate")
+
+	// ---- Rule: DescribeRules(ListenerArn) holds the service's host-header
+	// rule, forwarding the hostname to its target group. ----
+	rules, err := elb.DescribeRules(ctx, &elbv2.DescribeRulesInput{ListenerArn: listener.ListenerArn})
+	require.NoError(t, err)
+	tgArn := aws.ToString(path.TargetGroups[0].Arn)
+	var routed bool
+	for _, rule := range rules.Rules {
+		if aws.ToString(rule.RuleArn) != aws.ToString(path.Rule.Arn) {
+			continue
+		}
+		routed = true
+		require.Len(t, rule.Conditions, 1)
+		assert.Equal(t, "host-header", aws.ToString(rule.Conditions[0].Field))
+		require.NotNil(t, rule.Conditions[0].HostHeaderConfig)
+		assert.Equal(t, []string{hostname}, rule.Conditions[0].HostHeaderConfig.Values)
+		require.Len(t, rule.Actions, 1)
+		assert.Equal(t, "forward", string(rule.Actions[0].Type))
+		assert.Equal(t, tgArn, aws.ToString(rule.Actions[0].TargetGroupArn))
+	}
+	assert.True(t, routed, "the listener holds the service's rule")
 
 	// ---- Target group: DescribeTargetGroups returns ip target type, HTTP,
-	// the container port, health-check path, and the VPC. ----
-	tgs, err := elb.DescribeTargetGroups(ctx, &elbv2.DescribeTargetGroupsInput{
-		TargetGroupArns: []string{tgArn},
-	})
+	// the container port, health-check path, and the ALB that uses it. ----
+	tgs, err := elb.DescribeTargetGroups(ctx, &elbv2.DescribeTargetGroupsInput{TargetGroupArns: []string{tgArn}})
 	require.NoError(t, err)
 	require.Len(t, tgs.TargetGroups, 1)
 	tg := tgs.TargetGroups[0]
@@ -116,45 +144,56 @@ func TestECSExpress_UnderlyingResourcesDescribeFaithfully(t *testing.T) {
 	assert.Equal(t, int32(8080), aws.ToInt32(tg.Port))
 	assert.Equal(t, "ip", string(tg.TargetType))
 	assert.Equal(t, "/healthz", aws.ToString(tg.HealthCheckPath))
-	// The TG must report the ALB in LoadBalancerArns (wired by the listener).
 	assert.Contains(t, tg.LoadBalancerArns, albArn)
 
 	// ---- Certificate: DescribeCertificate returns the managed cert ISSUED,
-	// AMAZON_ISSUED, for the ALB DNS name. ----
-	dc, err := acmc.DescribeCertificate(ctx, &acm.DescribeCertificateInput{
-		CertificateArn: aws.String(certArn),
-	})
+	// AMAZON_ISSUED, for the service's hostname. ----
+	dc, err := acmc.DescribeCertificate(ctx, &acm.DescribeCertificateInput{CertificateArn: aws.String(certArn)})
 	require.NoError(t, err)
 	require.NotNil(t, dc.Certificate)
 	assert.Equal(t, "ISSUED", string(dc.Certificate.Status))
 	assert.Equal(t, "AMAZON_ISSUED", string(dc.Certificate.Type))
-	assert.Equal(t, albHost, aws.ToString(dc.Certificate.DomainName))
+	assert.Equal(t, hostname, aws.ToString(dc.Certificate.DomainName))
+	assert.Equal(t, hostname, aws.ToString(path.Certificate.DomainName))
 
-	// ---- Security group: DescribeSecurityGroups (filter by group-name) returns
-	// the Express-created SG with its VpcId and OwnerId. ----
-	sgs, err := ec2c.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{
-		Filters: []ec2types.Filter{{
-			Name:   aws.String("group-name"),
-			Values: []string{"express-" + svcName},
-		}},
-	})
+	// ---- Security groups: the load balancer's and the tasks', each described
+	// by DescribeSecurityGroups with its VpcId and OwnerId. ----
+	require.Len(t, path.LoadBalancerSecurityGroups, 1)
+	require.Len(t, managed.ServiceSecurityGroups, 1)
+	groupIDs := map[string]string{}
+	for name, group := range map[string]ecstypes.ManagedSecurityGroup{
+		"load balancer": path.LoadBalancerSecurityGroups[0],
+		"service":       managed.ServiceSecurityGroups[0],
+	} {
+		assert.Equal(t, ecstypes.ManagedResourceStatusActive, group.Status, name)
+		arn := aws.ToString(group.Arn)
+		groupID := arn[strings.LastIndex(arn, "/")+1:]
+		require.True(t, strings.HasPrefix(groupID, "sg-"), "%s security group ARN %q", name, arn)
+		groupIDs[name] = groupID
+		described, err := ec2c.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{GroupIds: []string{groupID}})
+		require.NoError(t, err, name)
+		require.Len(t, described.SecurityGroups, 1, name)
+		assert.Equal(t, groupID, aws.ToString(described.SecurityGroups[0].GroupId))
+		assert.Equal(t, aws.ToString(lb.VpcId), aws.ToString(described.SecurityGroups[0].VpcId))
+		assert.NotEmpty(t, aws.ToString(described.SecurityGroups[0].OwnerId))
+	}
+	assert.Contains(t, lb.SecurityGroups, groupIDs["load balancer"])
+	// The tasks run in the group Amazon ECS created for them.
+	backing, err := ecsc.DescribeServices(ctx, &ecs.DescribeServicesInput{Cluster: aws.String(cluster), Services: []string{svcName}})
 	require.NoError(t, err)
-	require.Len(t, sgs.SecurityGroups, 1, "expected the Express-created security group")
-	sg := sgs.SecurityGroups[0]
-	groupID := aws.ToString(sg.GroupId)
-	require.NotEmpty(t, groupID)
-	assert.NotEmpty(t, aws.ToString(sg.OwnerId))
-	// Filter by group-id must round-trip the same group.
-	byID, err := ec2c.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{
-		GroupIds: []string{groupID},
-	})
-	require.NoError(t, err)
-	require.Len(t, byID.SecurityGroups, 1)
-	assert.Equal(t, groupID, aws.ToString(byID.SecurityGroups[0].GroupId))
+	require.Len(t, backing.Services, 1)
+	require.NotNil(t, backing.Services[0].NetworkConfiguration)
+	require.NotNil(t, backing.Services[0].NetworkConfiguration.AwsvpcConfiguration)
+	assert.Equal(t, []string{groupIDs["service"]}, backing.Services[0].NetworkConfiguration.AwsvpcConfiguration.SecurityGroups)
 
 	// ---- Scalable target: DescribeScalableTargets filtered by ResourceIds +
 	// ScalableDimension returns the ecs:service:DesiredCount target with the
-	// requested min/max capacity. ----
+	// requested min/max capacity, which the managed resource repeats. ----
+	require.NotNil(t, managed.AutoScaling)
+	require.NotNil(t, managed.AutoScaling.ScalableTarget)
+	assert.Equal(t, ecstypes.ManagedResourceStatusActive, managed.AutoScaling.ScalableTarget.Status)
+	assert.Equal(t, int32(2), managed.AutoScaling.ScalableTarget.MinCapacity)
+	assert.Equal(t, int32(7), managed.AutoScaling.ScalableTarget.MaxCapacity)
 	resourceID := "service/" + cluster + "/" + svcName
 	stOut, err := aa.DescribeScalableTargets(ctx, &applicationautoscaling.DescribeScalableTargetsInput{
 		ServiceNamespace:  aastypes.ServiceNamespaceEcs,
@@ -168,10 +207,17 @@ func TestECSExpress_UnderlyingResourcesDescribeFaithfully(t *testing.T) {
 	assert.Equal(t, aastypes.ScalableDimensionECSServiceDesiredCount, st.ScalableDimension)
 	assert.Equal(t, int32(2), aws.ToInt32(st.MinCapacity))
 	assert.Equal(t, int32(7), aws.ToInt32(st.MaxCapacity))
+	assert.Equal(t, aws.ToString(managed.AutoScaling.ScalableTarget.Arn), aws.ToString(st.ScalableTargetARN))
 
 	// ---- Scaling policy: DescribeScalingPolicies filtered by ResourceId +
 	// ScalableDimension returns the target-tracking policy with its predefined
-	// metric + target value. ----
+	// metric + target value, and the alarms the managed resources list. ----
+	require.Len(t, managed.AutoScaling.ApplicationAutoScalingPolicies, 1)
+	managedPolicy := managed.AutoScaling.ApplicationAutoScalingPolicies[0]
+	assert.Equal(t, ecstypes.ManagedResourceStatusActive, managedPolicy.Status)
+	assert.Equal(t, "TargetTrackingScaling", aws.ToString(managedPolicy.PolicyType))
+	assert.Equal(t, "ECSServiceAverageCPUUtilization", aws.ToString(managedPolicy.Metric))
+	assert.Equal(t, float64(55), managedPolicy.TargetValue)
 	spOut, err := aa.DescribeScalingPolicies(ctx, &applicationautoscaling.DescribeScalingPoliciesInput{
 		ServiceNamespace:  aastypes.ServiceNamespaceEcs,
 		ResourceId:        aws.String(resourceID),
@@ -180,6 +226,7 @@ func TestECSExpress_UnderlyingResourcesDescribeFaithfully(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, spOut.ScalingPolicies, 1)
 	policy := spOut.ScalingPolicies[0]
+	assert.Equal(t, aws.ToString(managedPolicy.Arn), aws.ToString(policy.PolicyARN))
 	assert.Equal(t, aastypes.PolicyTypeTargetTrackingScaling, policy.PolicyType)
 	require.NotNil(t, policy.TargetTrackingScalingPolicyConfiguration, "target-tracking config must round-trip")
 	cfg := policy.TargetTrackingScalingPolicyConfiguration
@@ -187,4 +234,14 @@ func TestECSExpress_UnderlyingResourcesDescribeFaithfully(t *testing.T) {
 	require.NotNil(t, cfg.PredefinedMetricSpecification)
 	assert.Equal(t, aastypes.MetricTypeECSServiceAverageCPUUtilization,
 		cfg.PredefinedMetricSpecification.PredefinedMetricType)
+	var alarmArns []string
+	for _, alarm := range policy.Alarms {
+		alarmArns = append(alarmArns, aws.ToString(alarm.AlarmARN))
+	}
+	var managedAlarms []string
+	for _, alarm := range managed.MetricAlarms {
+		assert.Equal(t, ecstypes.ManagedResourceStatusActive, alarm.Status)
+		managedAlarms = append(managedAlarms, aws.ToString(alarm.Arn))
+	}
+	assert.ElementsMatch(t, alarmArns, managedAlarms)
 }

@@ -10,10 +10,11 @@ import (
 // monitor_routing.go decides where a log row lands and what a query reads.
 // A workspace keeps its rows under its customer id, so one workspace's query
 // never reads another's. Rows reach a workspace only through what names it:
-// a Container Apps environment's appLogsConfiguration, the workspace a
-// workspace-based Application Insights component names, or a data collection
-// rule's Log Analytics destination. A classic Application Insights component
-// keeps its telemetry in its own store.
+// a Container Apps environment's appLogsConfiguration, a diagnostic setting
+// on the resource, the workspace a workspace-based Application Insights
+// component names, or a data collection rule's Log Analytics destination. A
+// classic Application Insights component keeps its telemetry in its own
+// store.
 
 // logRowsKey is where a workspace keeps one table's rows.
 func logRowsKey(customerID, table string) string {
@@ -75,12 +76,47 @@ func acaLogWorkspace(envID string) (Workspace, bool) {
 	return ws, ok
 }
 
-// acaWorkspaceLog writes a Container Apps row to the table of the workspace the
-// resource's environment names; an environment that names none keeps no
-// Log Analytics rows.
-func acaWorkspaceLog(envID, resourceID, table string, row monitorLogRow) {
-	ws, ok := acaLogWorkspace(envID)
-	if !ok {
+// acaLogDestination is a workspace a Container Apps environment's rows of one
+// category reach: the custom log table (<category>_CL) of the workspace its
+// appLogsConfiguration names when the destination is log-analytics, or the
+// resource-specific table (<category>) of each workspace a diagnostic setting
+// on the environment sends the category to when it is azure-monitor ("Log
+// options in Azure Container Apps").
+type acaLogDestination struct {
+	customerID       string
+	resourceSpecific bool
+}
+
+func acaLogDestinations(envID, category string) []acaLogDestination {
+	if envID == "" || acaEnvironments == nil {
+		return nil
+	}
+	env, ok := acaEnvironments.Get(envID)
+	if !ok || env.Properties.AppLogsConfiguration == nil {
+		return nil
+	}
+	switch strings.ToLower(env.Properties.AppLogsConfiguration.Destination) {
+	case "log-analytics":
+		if ws, ok := acaLogWorkspace(envID); ok {
+			return []acaLogDestination{{customerID: ws.Properties.CustomerID}}
+		}
+	case "azure-monitor":
+		var out []acaLogDestination
+		for _, ws := range azureDiagnosticLogWorkspaces(envID, category) {
+			out = append(out, acaLogDestination{customerID: ws.Properties.CustomerID, resourceSpecific: true})
+		}
+		return out
+	}
+	return nil
+}
+
+// acaWorkspaceLog writes a Container Apps row of the category — the custom
+// log table's columns, suffixed _s — to every workspace the resource's
+// environment sends the category to; an environment that names none keeps
+// no Log Analytics rows.
+func acaWorkspaceLog(envID, resourceID, category string, row monitorLogRow) {
+	destinations := acaLogDestinations(envID, category)
+	if len(destinations) == 0 {
 		return
 	}
 	if _, set := row["TimeGenerated"]; !set {
@@ -88,10 +124,34 @@ func acaWorkspaceLog(envID, resourceID, table string, row monitorLogRow) {
 	}
 	row["EnvironmentName_s"] = acaEnvironmentName(envID)
 	row["_ResourceId"] = resourceID
-	appendWorkspaceLogRow(ws.Properties.CustomerID, table, row)
+	for _, d := range destinations {
+		if !d.resourceSpecific {
+			appendWorkspaceLogRow(d.customerID, category+"_CL", row)
+			continue
+		}
+		appendWorkspaceLogRow(d.customerID, category, acaResourceSpecificRow(row, category, d.customerID))
+	}
 }
 
-// acaConsoleLog writes a line a container printed to ContainerAppConsoleLogs_CL.
+// acaResourceSpecificRow is the row as the resource-specific table holds it:
+// the custom log table's columns without their _s suffix, and the columns
+// every Azure table carries. ContainerAppSystemLogs' Type is the event's
+// severity, which the row already carries; elsewhere Type names the table.
+func acaResourceSpecificRow(row monitorLogRow, table, customerID string) monitorLogRow {
+	out := monitorLogRow{}
+	for key, value := range row {
+		out[strings.TrimSuffix(key, "_s")] = value
+	}
+	if _, set := out["Type"]; !set {
+		out["Type"] = table
+	}
+	out["TenantId"] = customerID
+	out["SourceSystem"] = "Azure"
+	out["_SubscriptionId"] = azureSubscriptionOfID(row["_ResourceId"])
+	return out
+}
+
+// acaConsoleLog writes a line a container printed to ContainerAppConsoleLogs.
 func acaConsoleLog(envID, resourceID string, line sim.LogLine, row monitorLogRow) {
 	stream := line.Stream
 	if stream == "" {
@@ -102,12 +162,12 @@ func acaConsoleLog(envID, resourceID string, line sim.LogLine, row monitorLogRow
 	if !line.Timestamp.IsZero() {
 		row["TimeGenerated"] = line.Timestamp.UTC().Format(time.RFC3339Nano)
 	}
-	acaWorkspaceLog(envID, resourceID, "ContainerAppConsoleLogs_CL", row)
+	acaWorkspaceLog(envID, resourceID, "ContainerAppConsoleLogs", row)
 }
 
-// acaJobSystemLog writes a job's lifecycle event to ContainerAppSystemLogs_CL.
+// acaJobSystemLog writes a job's lifecycle event to ContainerAppSystemLogs.
 func acaJobSystemLog(job ContainerAppJob, execName, eventType, message string) {
-	acaWorkspaceLog(job.Properties.EnvironmentID, job.ID, "ContainerAppSystemLogs_CL", monitorLogRow{
+	acaWorkspaceLog(job.Properties.EnvironmentID, job.ID, "ContainerAppSystemLogs", monitorLogRow{
 		"JobName_s":       job.Name,
 		"ExecutionName_s": execName,
 		"Log_s":           message,
@@ -159,7 +219,9 @@ func appInsightsTelemetryKey(c AppInsightsComponent, table string) (string, bool
 }
 
 // siteLogDestination is where a site's container output goes: the site's own
-// docker log, and the AppTraces table of the component it is connected to.
+// docker log, the AppTraces table of the component it is connected to, and
+// the AppServiceConsoleLogs table of every workspace a diagnostic setting on
+// the site sends that category to.
 type siteLogDestination struct {
 	siteID    string
 	roleName  string
@@ -180,6 +242,18 @@ func newSiteLogDestination(site *Site) siteLogDestination {
 func (d siteLogDestination) write(at time.Time, message string) {
 	ts := at.UTC().Format(time.RFC3339Nano)
 	appendSiteDockerLog(d.siteID, ts, message)
+	for _, ws := range azureDiagnosticLogWorkspaces(d.siteID, "AppServiceConsoleLogs") {
+		appendWorkspaceLogRow(ws.Properties.CustomerID, "AppServiceConsoleLogs", monitorLogRow{
+			"TimeGenerated":     ts,
+			"Category":          "AppServiceConsoleLogs",
+			"ResultDescription": message,
+			"_ResourceId":       d.siteID,
+			"_SubscriptionId":   azureSubscriptionOfID(d.siteID),
+			"TenantId":          ws.Properties.CustomerID,
+			"SourceSystem":      "Azure",
+			"Type":              "AppServiceConsoleLogs",
+		})
+	}
 	if d.tracesKey == "" {
 		return
 	}

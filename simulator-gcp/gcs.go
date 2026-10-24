@@ -2283,11 +2283,8 @@ func registerGCSManagedFolders(srv *sim.Server, buckets sim.Store[Bucket], bucke
 		if own, ok := gcpResourcePolicies.Get("managedFolder/" + bucket + "/" + name); ok {
 			policies = append(policies, own)
 		}
-		gcsWriteTestPermissions(w, r, policies, gcpIAMResource{
-			Name:    "projects/_/buckets/" + bucket + "/managedFolders/" + name,
-			Type:    "storage.googleapis.com/ManagedFolder",
-			Service: "storage.googleapis.com",
-		})
+		gcsWriteTestPermissions(w, r, policies,
+			gcsIAMResource(bucket, "projects/_/buckets/"+bucket+"/managedFolders/"+name, "storage.googleapis.com/ManagedFolder"))
 	})
 }
 
@@ -2764,11 +2761,8 @@ func registerGCSBucketLifecycle(srv *sim.Server, buckets sim.Store[Bucket], obje
 		if !bucketExists(w, bucket) {
 			return
 		}
-		gcsWriteTestPermissions(w, r, gcsBucketPolicies(bucket), gcpIAMResource{
-			Name:    "projects/_/buckets/" + bucket,
-			Type:    "storage.googleapis.com/Bucket",
-			Service: "storage.googleapis.com",
-		})
+		gcsWriteTestPermissions(w, r, gcsBucketPolicies(bucket),
+			gcsIAMResource(bucket, "projects/_/buckets/"+bucket, "storage.googleapis.com/Bucket"))
 	})
 
 	// lockRetentionPolicy / restore both return the Bucket resource.

@@ -80,7 +80,7 @@ func ec2EnsureNatGatewayEgress(ctx context.Context, natgw EC2NatGateway, network
 	if err != nil {
 		return fmt.Errorf("NAT gateway %s private address %q: %w", natgw.NatGatewayId, natgw.NatGatewayAddresses[0].PrivateIp, err)
 	}
-	origin, err := workloadhost.CallbackAddr(simListenAddr)
+	origin, err := workloadhost.CallbackAddr(simCallbackListenAddr)
 	if err != nil {
 		return fmt.Errorf("NAT gateway %s: workload callback: %w", natgw.NatGatewayId, err)
 	}

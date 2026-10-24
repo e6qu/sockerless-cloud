@@ -22,7 +22,11 @@ Current state of the sockerless-cloud repository.
   principal `sim.Caller` names or as a session of a role the request is
   signed with. Amazon EventBridge rules and EventBridge Scheduler deliver to
   their targets, AWS Step Functions task states call their services as the
-  execution role, AWS Lambda's Amazon SQS pollers receive and delete, Eventarc
+  execution role and wait on `.sync` work by waking on the service's store
+  writes and reading the state back through its API, AWS Lambda delivers
+  asynchronous destinations as the execution role, AWS CodeBuild batch builds
+  start their builds as the batch service role, AWS Lambda's Amazon SQS
+  pollers receive and delete, Eventarc
   provisions and publishes through Pub/Sub and Cloud Storage, and Azure Event
   Grid writes dead letters to Blob Storage this way.
 - **One virtual machine lifecycle.** `sim/machine` boots, watches, stops,
@@ -186,7 +190,7 @@ Current state of the sockerless-cloud repository.
   routes, each verified against that table. IAM resource derivation covers
   2,009 of 2,017 served operations; the eight others name no resource and
   authorize against `"*"`. Every condition key the vendored Service References
-  declare (653 over 1,917 actions) is resolved by the gate or classified as
+  declare (695 over 2,007 actions) is resolved by the gate or classified as
   unmodelled with the reason, and per action the gate builds 3,695 of 4,310
   (action, key) pairs on served operations, the other 615 listed with reasons
   in `testdata/iam_condition_key_gaps.tsv` (BUG-2965 holds the 16 that need a
@@ -196,7 +200,14 @@ Current state of the sockerless-cloud repository.
   is authorized route by route in the namespace AWS publishes each action under
   (s3, s3express, s3-outposts, s3-object-lambda); DeleteBucketLifecycleConfiguration
   is tested as ungated because no vendored document declares its action. Each
-  control-plane resource has one tag set.
+  control-plane resource has one tag set. A directory bucket's operations are
+  authorized as the s3express actions the S3 User Guide's table lists, on the
+  bucket's s3express ARN (BUG-3586 holds those it does not list). The REST-gated services resolve their
+  keys from the request: Route 53's change-batch and VPC keys, AWS Batch's
+  per-container job-definition keys, Amazon EFS's `Encrypted` and
+  `CreateAction`, and the `apigateway:Request/` and `Resource/` keys of the
+  Amazon API Gateway portal and routing-rule operations, which are authorized
+  as their own actions rather than as HTTP methods.
 - **Google Cloud**: 5,585 of 5,585 Discovery method spellings across 31
   documents reach a route that names them — 5,531 served and 54 answering a
   declared 501; the gRPC surfaces serve 213 of 216 methods, the three unserved

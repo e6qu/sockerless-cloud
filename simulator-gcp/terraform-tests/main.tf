@@ -367,6 +367,12 @@ resource "google_cloud_run_v2_service" "tf_crv2_svc" {
     }
   }
 
+  # Service-level scaling, divided among the revisions of the traffic split;
+  # a maximum alone starts no instance of an image the stack never pushes.
+  scaling {
+    max_instance_count = 2
+  }
+
   depends_on = [google_artifact_registry_repository.tf_ar_docker]
 }
 
@@ -576,9 +582,11 @@ resource "google_cloudfunctions2_function" "tf_gcfv2_function" {
   }
 
   service_config {
-    max_instance_count = 1
-    available_memory   = "256M"
-    timeout_seconds    = 60
+    max_instance_count            = 1
+    available_memory              = "256M"
+    timeout_seconds               = 60
+    vpc_connector                 = google_vpc_access_connector.tf_connector.id
+    vpc_connector_egress_settings = "ALL_TRAFFIC"
   }
 
   depends_on = [google_storage_bucket_object.tf_function_source]
@@ -1158,6 +1166,18 @@ output "cloud_run_v2_service_uri" {
   value = google_cloud_run_v2_service.tf_crv2_svc.uri
 }
 
+output "cloud_run_v2_service_scaling_max_instance_count" {
+  value = google_cloud_run_v2_service.tf_crv2_svc.scaling[0].max_instance_count
+}
+
+output "cloudfunctions2_function_vpc_connector" {
+  value = google_cloudfunctions2_function.tf_gcfv2_function.service_config[0].vpc_connector
+}
+
+output "cloudfunctions2_function_vpc_connector_egress_settings" {
+  value = google_cloudfunctions2_function.tf_gcfv2_function.service_config[0].vpc_connector_egress_settings
+}
+
 output "cloud_run_v2_job_id" {
   value = google_cloud_run_v2_job.tf_crv2_job.id
 }
@@ -1420,6 +1440,76 @@ output "gcs_service_agent" {
 
 output "test_project_number" {
   value = data.google_project.test_project.number
+}
+
+resource "google_bigquery_table" "tf_bq_partitioned" {
+  dataset_id          = google_bigquery_dataset.tf_bq_dataset.dataset_id
+  table_id            = "partitioned_events"
+  deletion_protection = false
+
+  time_partitioning {
+    type  = "DAY"
+    field = "at"
+  }
+  clustering = ["id"]
+
+  schema = jsonencode([
+    { name = "id", type = "INTEGER", mode = "NULLABLE" },
+    { name = "at", type = "TIMESTAMP", mode = "NULLABLE" }
+  ])
+}
+
+resource "google_storage_bucket_object" "tf_bq_load_source" {
+  name    = "bigquery/events.csv"
+  bucket  = google_storage_bucket.tf_bucket.name
+  content = "3,2024-01-04 00:00:00 UTC\n"
+}
+
+resource "google_bigquery_job" "tf_bq_load" {
+  job_id = "tf_load_events_${random_id.bucket_suffix.hex}"
+
+  load {
+    source_uris = ["gs://${google_storage_bucket.tf_bucket.name}/${google_storage_bucket_object.tf_bq_load_source.name}"]
+    destination_table {
+      project_id = google_bigquery_dataset.tf_bq_dataset.project
+      dataset_id = google_bigquery_dataset.tf_bq_dataset.dataset_id
+      table_id   = "loaded_events"
+    }
+    schema_update_options = []
+    write_disposition     = "WRITE_EMPTY"
+    source_format         = "CSV"
+    autodetect            = true
+    time_partitioning {
+      type = "DAY"
+    }
+  }
+}
+
+resource "google_bigquery_job" "tf_bq_dml" {
+  job_id = "tf_dml_insert_${random_id.bucket_suffix.hex}"
+
+  query {
+    query              = "INSERT INTO ${google_bigquery_dataset.tf_bq_dataset.dataset_id}.${google_bigquery_table.tf_bq_partitioned.table_id} (id, at) VALUES (1, TIMESTAMP '2024-01-02 03:04:05+00'), (2, TIMESTAMP '2024-01-03 00:00:00+00')"
+    use_legacy_sql     = false
+    create_disposition = ""
+    write_disposition  = ""
+  }
+}
+
+output "bigquery_dml_job_id" {
+  value = google_bigquery_job.tf_bq_dml.job_id
+}
+
+output "bigquery_dml_job_state" {
+  value = google_bigquery_job.tf_bq_dml.status[0].state
+}
+
+output "bigquery_load_job_state" {
+  value = google_bigquery_job.tf_bq_load.status[0].state
+}
+
+output "bigquery_partitioned_field" {
+  value = google_bigquery_table.tf_bq_partitioned.time_partitioning[0].field
 }
 
 output "bigquery_service_agent" {

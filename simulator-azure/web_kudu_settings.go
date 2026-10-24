@@ -15,8 +15,9 @@ import (
 // /api/settings reads every setting Kudu acts on — its defaults, under the
 // settings written through this API, under the site's app settings — and
 // /api/settings/{key} reads one; POST /api/settings writes settings and
-// DELETE /api/settings/{key} removes one. The settings written here live in
-// the site's file system, so a slot swap carries them with the content.
+// DELETE /api/settings/{key} removes one. Kudu keeps the settings written
+// here in /home/site/deployments/settings.xml; the simulator keeps them in a
+// store beside the site, which a slot swap moves with the content.
 
 // kuduSiteSettings holds the settings written through the API, keyed by the
 // site's resource ID.

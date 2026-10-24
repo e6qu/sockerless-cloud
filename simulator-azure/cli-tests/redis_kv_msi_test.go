@@ -145,6 +145,21 @@ func TestManagedIdentityCLI_FederatedAndList(t *testing.T) {
 	opsOut := runCLI(t, azRest("GET", baseURL+"/providers/Microsoft.ManagedIdentity/operations?api-version=2024-11-30", ""))
 	require.Contains(t, opsOut, "Microsoft.ManagedIdentity/userAssignedIdentities/read")
 
-	saOut := runCLI(t, azRest("GET", fmt.Sprintf("%s/subscriptions/%s/providers/Microsoft.ManagedIdentity/identities/default?api-version=2024-11-30", baseURL, subscriptionID), ""))
-	require.Contains(t, saOut, "principalId")
+	// SystemAssignedIdentities_GetByScope names a resource; a subscription
+	// carries no system-assigned identity.
+	siteURL := armURL("Microsoft.Web", "sites/climsi-scope-app", "2025-03-01")
+	var site struct {
+		ID       string `json:"id"`
+		Identity struct {
+			PrincipalID string `json:"principalId"`
+		} `json:"identity"`
+	}
+	parseJSON(t, runCLI(t, azRest("PUT", siteURL, `{"location":"eastus","kind":"app,linux","identity":{"type":"SystemAssigned"},"properties":{"siteConfig":{"linuxFxVersion":"DOCKER|mirror.gcr.io/library/alpine:latest"}}}`)), &site)
+	t.Cleanup(func() { _ = azRest("DELETE", siteURL, "").Run() })
+	require.NotEmpty(t, site.Identity.PrincipalID)
+	saOut := runCLI(t, azRest("GET", fmt.Sprintf("%s%s/providers/Microsoft.ManagedIdentity/identities/default?api-version=2024-11-30", baseURL, site.ID), ""))
+	require.Contains(t, saOut, site.Identity.PrincipalID)
+	subscriptionOut, err := azRest("GET", fmt.Sprintf("%s/subscriptions/%s/providers/Microsoft.ManagedIdentity/identities/default?api-version=2024-11-30", baseURL, subscriptionID), "").CombinedOutput()
+	require.Error(t, err, "a subscription has no system-assigned identity: %s", subscriptionOut)
+	require.Contains(t, string(subscriptionOut), "ResourceNotFound")
 }

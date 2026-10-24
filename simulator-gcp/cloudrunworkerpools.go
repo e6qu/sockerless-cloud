@@ -54,21 +54,21 @@ type WorkerPoolV2 struct {
 // for a worker pool. Unlike a Service's RevisionTemplate there is no
 // per-revision scaling (worker-pool scaling is manual, at the pool level).
 type WorkerPoolRevisionTemplate struct {
-	Labels                        map[string]string `json:"labels,omitempty"`
-	Annotations                   map[string]string `json:"annotations,omitempty"`
-	Revision                      string            `json:"revision,omitempty"`
-	Containers                    []Container       `json:"containers,omitempty"`
-	Volumes                       []Volume          `json:"volumes,omitempty"`
-	VpcAccess                     *VpcAccess        `json:"vpcAccess,omitempty"`
-	ServiceAccount                string            `json:"serviceAccount,omitempty"`
-	NodeSelector                  *NodeSelector     `json:"nodeSelector,omitempty"`
-	ServiceMesh                   *ServiceMesh      `json:"serviceMesh,omitempty"`
-	Client                        string            `json:"client,omitempty"`
-	ClientVersion                 string            `json:"clientVersion,omitempty"`
-	EncryptionKey                 string            `json:"encryptionKey,omitempty"`
-	EncryptionKeyRevocationAction enumString        `json:"encryptionKeyRevocationAction,omitempty"`
-	EncryptionKeyShutdownDuration string            `json:"encryptionKeyShutdownDuration,omitempty"`
-	GpuZonalRedundancyDisabled    bool              `json:"gpuZonalRedundancyDisabled,omitempty"`
+	Labels                        map[string]string                           `json:"labels,omitempty"`
+	Annotations                   map[string]string                           `json:"annotations,omitempty"`
+	Revision                      string                                      `json:"revision,omitempty"`
+	Containers                    []Container                                 `json:"containers,omitempty"`
+	Volumes                       []Volume                                    `json:"volumes,omitempty"`
+	VpcAccess                     *VpcAccess                                  `json:"vpcAccess,omitempty"`
+	ServiceAccount                string                                      `json:"serviceAccount,omitempty"`
+	NodeSelector                  *NodeSelector                               `json:"nodeSelector,omitempty"`
+	ServiceMesh                   *ServiceMesh                                `json:"serviceMesh,omitempty"`
+	Client                        string                                      `json:"client,omitempty"`
+	ClientVersion                 string                                      `json:"clientVersion,omitempty"`
+	EncryptionKey                 string                                      `json:"encryptionKey,omitempty"`
+	EncryptionKeyRevocationAction protoEnum[runEncryptionKeyRevocationAction] `json:"encryptionKeyRevocationAction,omitempty"`
+	EncryptionKeyShutdownDuration string                                      `json:"encryptionKeyShutdownDuration,omitempty"`
+	GpuZonalRedundancyDisabled    bool                                        `json:"gpuZonalRedundancyDisabled,omitempty"`
 }
 
 // NodeSelector mirrors google.cloud.run.v2.NodeSelector — the GPU
@@ -90,10 +90,10 @@ type NodeSelector struct {
 // plan, so they are modelled from the wire the official clients speak. See
 // specs/SIM_SURFACE_TABLES/gcp-cloudrun.md for the revision mismatch.
 type WorkerPoolScaling struct {
-	ScalingMode         enumString `json:"scalingMode,omitempty"`
-	MinInstanceCount    int32      `json:"minInstanceCount,omitempty"`
-	MaxInstanceCount    int32      `json:"maxInstanceCount,omitempty"`
-	ManualInstanceCount int32      `json:"manualInstanceCount,omitempty"`
+	ScalingMode         protoEnum[runScalingMode] `json:"scalingMode,omitempty"`
+	MinInstanceCount    int32                     `json:"minInstanceCount,omitempty"`
+	MaxInstanceCount    int32                     `json:"maxInstanceCount,omitempty"`
+	ManualInstanceCount int32                     `json:"manualInstanceCount,omitempty"`
 }
 
 // InstanceSplit mirrors google.cloud.run.v2.InstanceSplit (and the

@@ -648,7 +648,15 @@ func cliServiceRole(t *testing.T, principal string) string {
 // test ends.
 func cliStatesRole(t *testing.T, actions ...string) string {
 	t.Helper()
-	role := cliServiceRole(t, "states.amazonaws.com")
+	return cliRoleAllowing(t, "states.amazonaws.com", actions...)
+}
+
+// cliRoleAllowing creates, with the AWS CLI, a uniquely named role the service
+// principal may assume, allowed actions on every resource, deleted when the
+// test ends.
+func cliRoleAllowing(t *testing.T, principal string, actions ...string) string {
+	t.Helper()
+	role := cliServiceRole(t, principal)
 	name := role[strings.LastIndex(role, "/")+1:]
 	allowed, err := json.Marshal(actions)
 	if err != nil {

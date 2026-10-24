@@ -40,14 +40,23 @@ func TestELBv2_DuplicateNames(t *testing.T) {
 	lbName := uniqueName("dup-lb")
 	c := elbv2Client()
 	_, subnets := elbv2FidVPCSubnets(t, "10.166.0.0/16", "10.166.1.0/24", "10.166.2.0/24")
-	_, err := c.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
+	created, err := c.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
 		Name:    aws.String(lbName),
 		Subnets: subnets,
 	})
 	require.NoError(t, err)
+	// "If you attempt to create multiple load balancers with the same
+	// settings, each call succeeds"; a differing one is a duplicate name.
+	again, err := c.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
+		Name:    aws.String(lbName),
+		Subnets: subnets,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, aws.ToString(created.LoadBalancers[0].LoadBalancerArn), aws.ToString(again.LoadBalancers[0].LoadBalancerArn))
 	_, err = c.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
 		Name:    aws.String(lbName),
 		Subnets: subnets,
+		Tags:    []elbv2types.Tag{{Key: aws.String("env"), Value: aws.String("other")}},
 	})
 	assert.Equal(t, "DuplicateLoadBalancerName", errCode(t, err))
 

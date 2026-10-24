@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -95,4 +96,63 @@ func TestCloudRun_CLI_ServiceScalesOnConcurrency(t *testing.T) {
 		require.Equal(t, http.StatusOK, a.status, "body=%q", a.body)
 		assert.True(t, hosts[a.body], "no instance beyond --max-instances: %q", a.body)
 	}
+}
+
+// `gcloud run deploy --scaling=2` puts the service under manual scaling at two
+// instances, which the Knative surface carries as the service's scalingMode
+// and manualInstanceCount annotations and the v2 surface as its scaling, and
+// the service runs exactly two instances before any request reaches it.
+// gcloud offers no wait on a service's instances, so `logging read` is
+// repeated until both have announced themselves.
+func TestCloudRun_CLI_ServiceManualScalingRunsTheInstanceCount(t *testing.T) {
+	t.Parallel()
+	const service = "cli-svc-manual-scaling"
+	runCLI(t, gcloudRegionalRunCLI("run", "deploy", service,
+		"--region="+location,
+		"--no-allow-unauthenticated",
+		"--quiet",
+		"--image="+commandImageName,
+		"--args=instance-http,8080",
+		"--port=8080",
+		"--scaling=2",
+	))
+	t.Cleanup(func() {
+		runCLI(t, gcloudRegionalRunCLI("run", "services", "delete", service, "--region="+location, "--quiet"))
+	})
+
+	var described struct {
+		Metadata struct {
+			Annotations map[string]string `json:"annotations"`
+		} `json:"metadata"`
+	}
+	parseJSON(t, runCLI(t, gcloudRegionalRunCLI("run", "services", "describe", service, "--region="+location, "--format=json")), &described)
+	assert.Equal(t, "manual", described.Metadata.Annotations["run.googleapis.com/scalingMode"])
+	assert.Equal(t, "2", described.Metadata.Annotations["run.googleapis.com/manualInstanceCount"])
+
+	var stored struct {
+		Scaling struct {
+			ScalingMode         string `json:"scalingMode"`
+			ManualInstanceCount int    `json:"manualInstanceCount"`
+		} `json:"scaling"`
+	}
+	parseJSON(t, httpDoJSON(t, "GET", runServiceURL(service), ""), &stored)
+	assert.Equal(t, "MANUAL", stored.Scaling.ScalingMode)
+	assert.Equal(t, 2, stored.Scaling.ManualInstanceCount)
+
+	var entries []struct {
+		Labels map[string]string `json:"labels"`
+	}
+	instances := map[string]bool{}
+	require.Eventually(t, func() bool {
+		parseJSON(t, runCLI(t, gcloudCLI("logging", "read",
+			`resource.type="cloud_run_revision" AND resource.labels.service_name="`+service+`" AND textPayload:"serving as "`,
+			"--format=json",
+		)), &entries)
+		for _, entry := range entries {
+			instances[entry.Labels["instanceId"]] = true
+		}
+		return len(instances) >= 2
+	}, 90*time.Second, time.Second, "the service never announced two instances: %v", instances)
+	assert.Len(t, instances, 2, "manual scaling runs exactly the instance count")
+	assert.NotContains(t, instances, "")
 }

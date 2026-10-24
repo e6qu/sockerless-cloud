@@ -155,7 +155,7 @@ func TestLoggingSinkDeliversHourlyToCloudStorage(t *testing.T) {
 	srv := buildOperationsTestSimulator(t)
 	gcpHostOK(t, srv, "storage.googleapis.com", http.MethodPost, "/storage/v1/b?project=test-project", `{"name":"log-archive"}`)
 	gcpHostOK(t, srv, "logging.googleapis.com", http.MethodPost, "/v2/projects/gcs/sinks", `{"name":"to-gcs",
-		"destination":"storage.googleapis.com/log-archive"}`)
+		"destination":"storage.googleapis.com/log-archive","filter":"logName=\"projects/gcs/logs/app\""}`)
 	at := time.Now().UTC()
 	write := func(payload string) {
 		gcpHostOK(t, srv, "logging.googleapis.com", http.MethodPost, "/v2/entries:write", `{"entries":[

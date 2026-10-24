@@ -23,8 +23,8 @@ import (
 // the Repository hostname the site reports in hostNameSslStates: zip deploy
 // (/api/zipdeploy), OneDeploy (/api/publish) and the deployment records both
 // write (/api/deployments, and the legacy /deployments the warmup probe
-// reads). Its WebJobs API, VFS, command and settings APIs and log stream live
-// in the web_kudu_*.go files beside it. Requests authenticate with the site's
+// reads). Its WebJobs API, VFS, zip, command, settings, process and
+// diagnostics APIs and log stream live in the web_kudu_*.go files beside it. Requests authenticate with the site's
 // publishing credentials (or
 // the subscription's deployment user) as HTTP basic auth while the scm basic
 // publishing credentials policy allows it, or with a Microsoft Entra bearer
@@ -269,7 +269,21 @@ func serveKudu(w http.ResponseWriter, r *http.Request, site *Site) {
 		serveKuduVFS(w, r, site, rel, dir)
 		return
 	}
+	if rel, dir, ok := kuduZipPath(r.URL.Path); ok {
+		serveKuduZip(w, r, site, rel, dir)
+		return
+	}
+	if rel, ok := kuduLogStreamPath(r.URL.Path); ok {
+		if kuduMethod(w, r, http.MethodGet) {
+			kuduLogStream(w, r, site, rel)
+		}
+		return
+	}
 	p := strings.TrimSuffix(strings.ToLower(r.URL.Path), "/")
+	if rest, ok := strings.CutPrefix(p, "/api/processes"); ok && (rest == "" || strings.HasPrefix(rest, "/")) {
+		serveKuduProcesses(w, r, site, strings.Trim(r.URL.Path[len("/api/processes"):], "/"))
+		return
+	}
 	if key, ok := strings.CutPrefix(p, "/api/settings"); ok && (key == "" || strings.HasPrefix(key, "/")) {
 		kuduSettingsAPI(w, r, site, strings.Trim(r.URL.Path[len("/api/settings"):], "/"))
 		return
@@ -304,14 +318,19 @@ func serveKudu(w http.ResponseWriter, r *http.Request, site *Site) {
 		}
 		sim.DeclareOpenEndedWait(r.Context())
 		kuduCommand(w, r, site)
-	case p == "/logstream" || p == "/api/logstream":
+	case p == "/dump" || p == "/api/dump":
 		if !kuduMethod(w, r, http.MethodGet) {
 			return
 		}
-		kuduLogStream(w, r, site)
+		kuduDump(w, r, site)
+	case p == "/api/logs/docker" || p == "/api/logs/docker/zip":
+		if !kuduMethod(w, r, http.MethodGet) {
+			return
+		}
+		kuduContainerLogs(w, r, site, strings.HasSuffix(p, "/zip"))
 	default:
 		kuduError(w, http.StatusNotImplemented,
-			"App Service SCM site: %s %s is not implemented by the simulator, which serves the Kudu deployment API (/api/zipdeploy, /api/publish, /api/deployments), the WebJobs API (/api/webjobs, /api/triggeredwebjobs, /api/continuouswebjobs), the VFS (/api/vfs, /vfs), the command API (/api/command), the settings API (/api/settings) and the log stream of the site's container output (/logstream)",
+			"App Service SCM site: %s %s is not implemented by the simulator, which serves the Kudu deployment API (/api/zipdeploy, /api/publish, /api/deployments), the WebJobs API (/api/webjobs, /api/triggeredwebjobs, /api/continuouswebjobs), the VFS (/api/vfs, /vfs), the zip API (/api/zip), the command API (/api/command), the settings API (/api/settings), the process API (/api/processes), the diagnostics dump (/api/dump), the container logs (/api/logs/docker) and the log stream (/logstream)",
 			r.Method, r.URL.Path)
 	}
 }

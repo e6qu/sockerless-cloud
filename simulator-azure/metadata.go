@@ -122,9 +122,19 @@ func azureIMDSRequest(w http.ResponseWriter, r *http.Request) (azureMetadataVM, 
 	if !mustMetadataHeader(w, r) {
 		return azureMetadataVM{}, false
 	}
-	booted, ok := azureMetadataVMsByIP.ForRequest(r)
+	booted, ok := azureIMDSMachine(r)
 	if !ok {
 		sim.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "Not found"})
+		return azureMetadataVM{}, false
+	}
+	return booted, true
+}
+
+// azureIMDSMachine is the virtual machine a metadata request comes from, with
+// its machine and interface records as they are now.
+func azureIMDSMachine(r *http.Request) (azureMetadataVM, bool) {
+	booted, ok := azureMetadataVMsByIP.ForRequest(r)
+	if !ok {
 		return azureMetadataVM{}, false
 	}
 	if vm, found := azureVMs.Get(booted.VM.ID); found {
@@ -250,7 +260,8 @@ func azureResourceGroupFromID(id, defaultResourceGroup string) string {
 	return defaultResourceGroup
 }
 
-// simListenAddr is the listen address main() serves on.
+// simListenAddr is the plain-HTTP listen address the workloads call back on,
+// which differs from the API listener's when that one terminates TLS.
 var simListenAddr string
 
 // hostMetadataEnv returns the platform environment of an App Service or Azure
@@ -335,11 +346,19 @@ func registerAzureInstanceAttestation(srv *sim.Server) {
 		})
 	})
 
+	// Identity_GetInfo: the tenant of the requesting machine's system-assigned
+	// identity.
 	srv.HandleFunc("GET /metadata/identity/info", func(w http.ResponseWriter, r *http.Request) {
-		if !mustMetadataHeader(w, r) {
+		if r.Header.Get("Metadata") != "true" {
+			imdsIdentityError(w, http.StatusBadRequest, "bad_request_102", "Required metadata header not specified")
 			return
 		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"tenantId": simTenantID})
+		vm, ok := azureIMDSMachine(r)
+		if !ok || !vm.VM.Identity.systemAssigned() {
+			imdsIdentityError(w, http.StatusBadRequest, "invalid_request", "Identity not found")
+			return
+		}
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"tenantId": vm.VM.Identity.TenantID})
 	})
 }
 

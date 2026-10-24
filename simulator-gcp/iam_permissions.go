@@ -95,9 +95,9 @@ func gcpRoleIncludedPermissions(role string) []string {
 		}
 	}
 	// A custom role is named projects/{p}/roles/{id} or
-	// organizations/{o}/roles/{id}, and the store holds it under its id.
-	if i := strings.LastIndex(role, "/roles/"); i >= 0 {
-		if custom, ok := iamCustomRoles.Get(role[i+len("/roles/"):]); ok {
+	// organizations/{o}/roles/{id}, which is what the store holds it under.
+	if iamCustomRoles != nil && strings.Contains(role, "/roles/") {
+		if custom, ok := iamCustomRoles.Get(role); ok {
 			return custom.IncludedPermissions
 		}
 	}

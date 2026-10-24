@@ -11,6 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/batch"
 	batchtypes "github.com/aws/aws-sdk-go-v2/service/batch/types"
+	"github.com/aws/aws-sdk-go-v2/service/codebuild"
+	cbtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
@@ -18,10 +20,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	ktypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/scheduler"
 	schedtypes "github.com/aws/aws-sdk-go-v2/service/scheduler/types"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -292,4 +297,114 @@ func TestScheduler_TargetFailureGoesToTheDeadLetterQueue_SDK(t *testing.T) {
 	} {
 		assert.Equal(t, want, aws.ToString(message.MessageAttributes[name].StringValue), name)
 	}
+}
+
+// An AWS CodeBuild target starts a build of the project as the target's role,
+// with the target's input as the StartBuild request.
+func TestEventBridge_CodeBuildTargetStartsTheBuild_SDK(t *testing.T) {
+	t.Parallel()
+	cb := codebuildClient()
+	project, rule := uniqueName("eb-codebuild-target"), uniqueName("eb-codebuild-target")
+	created, err := cb.CreateProject(ctx, &codebuild.CreateProjectInput{
+		Name: aws.String(project),
+		Source: &cbtypes.ProjectSource{
+			Type:      cbtypes.SourceTypeNoSource,
+			Buildspec: aws.String("version: 0.2\nphases:\n  build:\n    commands:\n      - printf \"$EVENT_SOURCE\"\n"),
+		},
+		Artifacts: &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
+		Environment: &cbtypes.ProjectEnvironment{
+			Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/library/alpine:3.21"),
+			ComputeType: cbtypes.ComputeTypeBuildGeneral1Small,
+		},
+		ServiceRole: aws.String(serviceRole(t, "codebuild.amazonaws.com")),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = cb.DeleteProject(ctx, &codebuild.DeleteProjectInput{Name: aws.String(project)}) })
+	role := createServiceRole(t, uniqueName("eb-codebuild-target-role"), "events.amazonaws.com", "codebuild:StartBuild")
+	putEventBridgeTarget(t, rule, ebtypes.Target{
+		Id: aws.String("build"), Arn: created.Project.Arn, RoleArn: aws.String(role),
+		Input: aws.String(`{"environmentVariablesOverride":[{"name":"EVENT_SOURCE","value":"from-eventbridge","type":"PLAINTEXT"}]}`),
+	})
+	putEventBridgeEvent(t, rule, `{"id":3}`)
+
+	var buildID string
+	require.Eventually(t, func() bool {
+		builds, listErr := cb.ListBuildsForProject(ctx, &codebuild.ListBuildsForProjectInput{ProjectName: aws.String(project)})
+		if listErr != nil || len(builds.Ids) != 1 {
+			return false
+		}
+		buildID = builds.Ids[0]
+		return true
+	}, 30*time.Second, 500*time.Millisecond, "the rule must start one build of %s", project)
+	var build cbtypes.Build
+	require.Eventually(t, func() bool {
+		builds, getErr := cb.BatchGetBuilds(ctx, &codebuild.BatchGetBuildsInput{Ids: []string{buildID}})
+		if getErr != nil || len(builds.Builds) != 1 {
+			return false
+		}
+		build = builds.Builds[0]
+		return build.BuildStatus != cbtypes.StatusTypeInProgress
+	}, cbBuildCompletionBudget, 500*time.Millisecond)
+	assert.Equal(t, cbtypes.StatusTypeSucceeded, build.BuildStatus)
+	var overridden []string
+	for _, variable := range build.Environment.EnvironmentVariables {
+		overridden = append(overridden, aws.ToString(variable.Name)+"="+aws.ToString(variable.Value))
+	}
+	assert.Contains(t, overridden, "EVENT_SOURCE=from-eventbridge", "the target's input is the StartBuild request")
+}
+
+// An Amazon Data Firehose target puts the event on the delivery stream as one
+// record, which the stream delivers to its destination.
+func TestEventBridge_FirehoseTargetPutsTheRecord_SDK(t *testing.T) {
+	t.Parallel()
+	streamARN, bucket := createImmediateFirehose(t, "eb-firehose-target")
+	rule := uniqueName("eb-firehose-target")
+	role := createServiceRole(t, uniqueName("eb-firehose-target-role"), "events.amazonaws.com", "firehose:PutRecord")
+	putEventBridgeTarget(t, rule, ebtypes.Target{Id: aws.String("stream"), Arn: aws.String(streamARN), RoleArn: aws.String(role)})
+	putEventBridgeEvent(t, rule, `{"id":4}`)
+
+	s3c := s3Client()
+	require.Eventually(t, func() bool {
+		objects, listErr := s3c.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String(bucket), Prefix: aws.String("initial/")})
+		return listErr == nil && len(objects.Contents) == 1
+	}, 30*time.Second, 500*time.Millisecond, "the stream must deliver the rule's one record")
+	var event struct {
+		Source string         `json:"source"`
+		Detail map[string]any `json:"detail"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(readOnlyS3ObjectWithPrefix(t, bucket, "initial/")), &event))
+	assert.Equal(t, rule, event.Source)
+	assert.Equal(t, float64(4), event.Detail["id"])
+}
+
+// A Systems Manager Run Command target sends the document to the instances
+// the RunCommandTargets name, with the target's input as the document's
+// parameters.
+func TestEventBridge_RunCommandTargetSendsTheCommand_SDK(t *testing.T) {
+	t.Parallel()
+	ec2API, ssmAPI := ec2Client(), ssmClient()
+	instanceID := launchSSMManagedInstanceFor(t, ec2API, "10.8.0.0/16")
+	rule := uniqueName("eb-run-command-target")
+	role := createServiceRole(t, uniqueName("eb-run-command-role"), "events.amazonaws.com", "ssm:SendCommand")
+	putEventBridgeTarget(t, rule, ebtypes.Target{
+		Id: aws.String("command"), Arn: aws.String("arn:aws:ssm:us-east-1:123456789012:document/AWS-RunShellScript"), RoleArn: aws.String(role),
+		Input: aws.String(`{"commands":["echo from-eventbridge"]}`),
+		RunCommandParameters: &ebtypes.RunCommandParameters{RunCommandTargets: []ebtypes.RunCommandTarget{{
+			Key: aws.String("InstanceIds"), Values: []string{instanceID},
+		}}},
+	})
+	putEventBridgeEvent(t, rule, `{"id":5}`)
+
+	var commandID string
+	require.Eventually(t, func() bool {
+		commands, listErr := ssmAPI.ListCommands(ctx, &ssm.ListCommandsInput{InstanceId: aws.String(instanceID)})
+		if listErr != nil || len(commands.Commands) != 1 {
+			return false
+		}
+		commandID = aws.ToString(commands.Commands[0].CommandId)
+		return true
+	}, 30*time.Second, 500*time.Millisecond, "the rule must send one command to %s", instanceID)
+	invocation := waitForSSMCommandExecuted(t, ssmAPI, commandID, instanceID)
+	assert.Equal(t, ssmtypes.CommandInvocationStatusSuccess, invocation.Status)
+	assert.Equal(t, "from-eventbridge\n", aws.ToString(invocation.StandardOutputContent))
 }

@@ -114,7 +114,9 @@ func schedulerRecorded(eventName string, h http.HandlerFunc) http.HandlerFunc {
 	restRegisterOp("scheduler.amazonaws.com", eventName)
 	return func(w http.ResponseWriter, r *http.Request) {
 		rec := &cloudTrailStatusRecorder{ResponseWriter: w}
-		h(rec, r)
+		if iamEnforceRESTRoute(rec, r, "scheduler.amazonaws.com") {
+			h(rec, r)
+		}
 		if rec.statusCode() >= 500 {
 			return
 		}

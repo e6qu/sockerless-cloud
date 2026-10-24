@@ -50,15 +50,18 @@ type EBTarget struct {
 	// re-emitting the raw JSON preserves every sub-shape so ListTargetsByRule
 	// returns what PutTargets received (terraform aws_cloudwatch_event_target
 	// reads these back).
-	EcsParameters        json.RawMessage `json:"EcsParameters,omitempty"`
-	InputTransformer     json.RawMessage `json:"InputTransformer,omitempty"`
-	RetryPolicy          json.RawMessage `json:"RetryPolicy,omitempty"`
-	DeadLetterConfig     json.RawMessage `json:"DeadLetterConfig,omitempty"`
-	SqsParameters        json.RawMessage `json:"SqsParameters,omitempty"`
-	HttpParameters       json.RawMessage `json:"HttpParameters,omitempty"`
-	BatchParameters      json.RawMessage `json:"BatchParameters,omitempty"`
-	RunCommandParameters json.RawMessage `json:"RunCommandParameters,omitempty"`
-	KinesisParameters    json.RawMessage `json:"KinesisParameters,omitempty"`
+	EcsParameters               json.RawMessage `json:"EcsParameters,omitempty"`
+	InputTransformer            json.RawMessage `json:"InputTransformer,omitempty"`
+	RetryPolicy                 json.RawMessage `json:"RetryPolicy,omitempty"`
+	DeadLetterConfig            json.RawMessage `json:"DeadLetterConfig,omitempty"`
+	SqsParameters               json.RawMessage `json:"SqsParameters,omitempty"`
+	HttpParameters              json.RawMessage `json:"HttpParameters,omitempty"`
+	BatchParameters             json.RawMessage `json:"BatchParameters,omitempty"`
+	RunCommandParameters        json.RawMessage `json:"RunCommandParameters,omitempty"`
+	KinesisParameters           json.RawMessage `json:"KinesisParameters,omitempty"`
+	RedshiftDataParameters      json.RawMessage `json:"RedshiftDataParameters,omitempty"`
+	SageMakerPipelineParameters json.RawMessage `json:"SageMakerPipelineParameters,omitempty"`
+	AppSyncParameters           json.RawMessage `json:"AppSyncParameters,omitempty"`
 }
 
 type EBEventRecord struct {

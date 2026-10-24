@@ -10,16 +10,27 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
 type bqCopyConfig struct {
-	SourceTable       *BQTableRef  `json:"sourceTable"`
-	SourceTables      []BQTableRef `json:"sourceTables"`
-	DestinationTable  *BQTableRef  `json:"destinationTable"`
-	CreateDisposition string       `json:"createDisposition"`
-	WriteDisposition  string       `json:"writeDisposition"`
-	OperationType     string       `json:"operationType"`
+	SourceTable               *BQTableRef  `json:"sourceTable"`
+	SourceTables              []BQTableRef `json:"sourceTables"`
+	DestinationTable          *BQTableRef  `json:"destinationTable"`
+	CreateDisposition         string       `json:"createDisposition"`
+	WriteDisposition          string       `json:"writeDisposition"`
+	OperationType             string       `json:"operationType"`
+	DestinationExpirationTime string       `json:"destinationExpirationTime"`
+}
+
+// bqCopyTypes is the source and destination table type each copy
+// operationType moves between, as the Discovery's enum describes them.
+var bqCopyTypes = map[string][2]string{
+	"COPY":     {"TABLE", "TABLE"},
+	"SNAPSHOT": {"TABLE", "SNAPSHOT"},
+	"RESTORE":  {"SNAPSHOT", "TABLE"},
+	"CLONE":    {"TABLE", "TABLE"},
 }
 
 // bqInsertCopyJob starts a copy job: the rows of one or more tables that
@@ -40,10 +51,21 @@ func bqInsertCopyJob(r *http.Request, project string, req BQJob) (storedBQJob, e
 		return storedBQJob{}, apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "Required parameter is missing: destinationTable")
 	}
 	switch cfg.OperationType {
-	case "", "OPERATION_TYPE_UNSPECIFIED", "COPY":
+	case "", "OPERATION_TYPE_UNSPECIFIED":
+		cfg.OperationType = "COPY"
+	case "COPY", "SNAPSHOT", "RESTORE", "CLONE":
 	default:
-		return storedBQJob{}, apiRefuse(http.StatusNotImplemented, "NOT_IMPLEMENTED",
-			"the simulator runs copy jobs of operationType COPY, not %s", cfg.OperationType)
+		return storedBQJob{}, apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid value for operationType: %s", cfg.OperationType)
+	}
+	if cfg.OperationType != "COPY" && len(sources) > 1 {
+		return storedBQJob{}, apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "A %s copy takes one source table", cfg.OperationType)
+	}
+	if cfg.DestinationExpirationTime != "" {
+		at, err := time.Parse(time.RFC3339Nano, cfg.DestinationExpirationTime)
+		if err != nil {
+			return storedBQJob{}, apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid value for destinationExpirationTime: %s", cfg.DestinationExpirationTime)
+		}
+		cfg.DestinationExpirationTime = bqExpiration(at)
 	}
 	for i := range sources {
 		if sources[i].DatasetID == "" || sources[i].TableID == "" {
@@ -105,8 +127,12 @@ func bqRunCopy(ctx context.Context, r *http.Request, cfg bqCopyConfig, sources [
 		if !ok {
 			return bqFail("notFound", "Not found: Table %s", bqTableName(ref))
 		}
-		if table.Type != "" && table.Type != "TABLE" {
-			return bqFail("invalid", "Cannot copy %s %s: a copy job reads tables.", strings.ToLower(table.Type), bqTableName(ref))
+		sourceType := table.Type
+		if sourceType == "" {
+			sourceType = "TABLE"
+		}
+		if want := bqCopyTypes[cfg.OperationType][0]; sourceType != want {
+			return bqFail("invalid", "Cannot run a %s copy from %s %s: its source must be a %s.", cfg.OperationType, strings.ToLower(sourceType), bqTableName(ref), strings.ToLower(want))
 		}
 		if i == 0 {
 			first = table
@@ -133,6 +159,13 @@ func bqRunCopy(ctx context.Context, r *http.Request, cfg bqCopyConfig, sources [
 			return bqFail("notFound", "Not found: Table %s", bqTableName(dest))
 		}
 		existing, _ := bqRows.Get(key)
+		destType := bqCopyTypes[cfg.OperationType][1]
+		if exists && table.Type == "SNAPSHOT" {
+			return bqFail("invalid", "Cannot write to snapshot %s: a table snapshot is read-only.", bqTableName(dest))
+		}
+		if exists && destType == "SNAPSHOT" {
+			return bqFail("duplicate", "Already Exists: Table %s", bqTableName(dest))
+		}
 		switch cfg.WriteDisposition {
 		case "WRITE_TRUNCATE":
 			existing.Rows = nil
@@ -154,6 +187,21 @@ func bqRunCopy(ctx context.Context, r *http.Request, cfg bqCopyConfig, sources [
 			}
 		}
 		table.Schema = first.Schema
+		now := time.Now().UTC().Format(time.RFC3339Nano)
+		base := &bqBaseTable{BaseTableReference: sources[0]}
+		switch cfg.OperationType {
+		case "SNAPSHOT":
+			table.Type, base.SnapshotTime = "SNAPSHOT", now
+			table.SnapshotDefinition = base
+		case "CLONE":
+			table.Type, base.CloneTime = "TABLE", now
+			table.CloneDefinition = base
+		case "RESTORE":
+			table.Type, table.SnapshotDefinition = "TABLE", nil
+		}
+		if cfg.DestinationExpirationTime != "" {
+			table.ExpirationTime = cfg.DestinationExpirationTime
+		}
 		existing.Rows = append(existing.Rows, rows...)
 		if existing.Rows == nil {
 			existing.Rows = []map[string]any{}
@@ -292,7 +340,7 @@ func bqRunExtract(ctx context.Context, cfg bqExtractConfig, source BQTableRef, u
 	counts := make([]string, 0, len(uris))
 	for i, uri := range uris {
 		part := set.Rows[len(set.Rows)*i/len(uris) : len(set.Rows)*(i+1)/len(uris)]
-		files, err := bqEncodeExtract(cfg, fields, part, format, compression, delim)
+		files, err := bqEncodeExtract(cfg, fields, part, format, compression, delim, bqExtractFileLimit)
 		if err != nil {
 			return err
 		}
@@ -326,14 +374,16 @@ func bqRunExtract(ctx context.Context, cfg bqExtractConfig, source BQTableRef, u
 // bqEncodeExtract writes rows in format, starting a new file whenever one
 // reaches bqExtractFileLimit. A destination receives at least one file, which
 // for CSV holds the header alone when there are no rows.
-func bqEncodeExtract(cfg bqExtractConfig, fields []BQFieldSchema, rows []map[string]any, format, compression string, delim rune) ([][]byte, error) {
+func bqEncodeExtract(cfg bqExtractConfig, fields []BQFieldSchema, rows []map[string]any, format, compression string, delim rune, limit int64) ([][]byte, error) {
 	switch format {
 	case "AVRO":
-		data, err := bqEncodeAvro(fields, rows, compression, cfg.UseAvroLogicalTypes)
-		return [][]byte{data}, err
+		return bqEncodeShards(fields, rows, limit, func(part []map[string]any) ([]byte, error) {
+			return bqEncodeAvro(fields, part, compression, cfg.UseAvroLogicalTypes)
+		})
 	case "PARQUET":
-		data, err := bqEncodeParquet(fields, rows, compression)
-		return [][]byte{data}, err
+		return bqEncodeShards(fields, rows, limit, func(part []map[string]any) ([]byte, error) {
+			return bqEncodeParquet(fields, part, compression)
+		})
 	}
 	header := cfg.PrintHeader == nil || *cfg.PrintHeader
 	var (
@@ -382,7 +432,7 @@ func bqEncodeExtract(cfg bqExtractConfig, fields []BQFieldSchema, rows []map[str
 		if err != nil {
 			return nil, err
 		}
-		if !empty && buf.Len()+len(line) > bqExtractFileLimit {
+		if !empty && int64(buf.Len()+len(line)) > limit {
 			if err := finish(); err != nil {
 				return nil, err
 			}
@@ -394,6 +444,37 @@ func bqEncodeExtract(cfg bqExtractConfig, fields []BQFieldSchema, rows []map[str
 		empty = false
 	}
 	if err := finish(); err != nil {
+		return nil, err
+	}
+	return files, nil
+}
+
+// bqEncodeShards splits rows into runs of at most limit bytes of table data
+// (their logical size) and writes each run as one complete file; every
+// destination receives at least one file.
+func bqEncodeShards(fields []BQFieldSchema, rows []map[string]any, limit int64, encode func([]map[string]any) ([]byte, error)) ([][]byte, error) {
+	var files [][]byte
+	start := 0
+	var size int64
+	flush := func(end int) error {
+		data, err := encode(rows[start:end])
+		if err != nil {
+			return err
+		}
+		files = append(files, data)
+		start, size = end, 0
+		return nil
+	}
+	for i, row := range rows {
+		rowSize := bqRowSize(fields, row)
+		if i > start && size+rowSize > limit {
+			if err := flush(i); err != nil {
+				return nil, err
+			}
+		}
+		size += rowSize
+	}
+	if err := flush(len(rows)); err != nil {
 		return nil, err
 	}
 	return files, nil

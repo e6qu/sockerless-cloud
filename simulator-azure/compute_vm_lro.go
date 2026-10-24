@@ -187,8 +187,12 @@ func azureSettleVMOperation(id string, opErr *AsyncOperationError) {
 // azureForgetVM drops everything the simulator holds about a deleted machine,
 // and detaches its network interfaces, which outlive it.
 func azureForgetVM(id string) {
-	if vm, ok := azureVMs.Get(id); ok && azureNICs != nil {
+	if vm, ok := azureVMs.Get(id); ok {
+		syncManagedIdentityPrincipal(vm.Identity, nil, "", "")
 		for _, ref := range vm.Properties.NetworkProfile.NetworkInterfaces {
+			if azureNICs == nil {
+				break
+			}
 			azureNICs.Update(ref.ID, func(nic *NetworkInterface) {
 				if nic.Properties.VirtualMachine != nil && strings.EqualFold(nic.Properties.VirtualMachine.ID, id) {
 					nic.Properties.VirtualMachine = nil

@@ -130,10 +130,13 @@ func TestEC2_ModifyInstanceMetadataOptionsSDK(t *testing.T) {
 	require.NoError(t, err)
 	terminateEC2InstancesOnCleanup(t, c, run)
 	id := aws.ToString(run.Instances[0].InstanceId)
+	require.NotNil(t, run.Instances[0].MetadataOptions)
+	assert.Equal(t, types.InstanceMetadataProtocolStateDisabled, run.Instances[0].MetadataOptions.HttpProtocolIpv6, "the IPv6 endpoint is disabled unless the launch enables it")
 
 	_, err = c.ModifyInstanceMetadataOptions(ctx, &ec2.ModifyInstanceMetadataOptionsInput{
 		InstanceId: aws.String(id),
 		HttpTokens: types.HttpTokensStateRequired, HttpPutResponseHopLimit: aws.Int32(3),
+		HttpProtocolIpv6: types.InstanceMetadataProtocolStateEnabled,
 	})
 	require.NoError(t, err)
 
@@ -141,6 +144,7 @@ func TestEC2_ModifyInstanceMetadataOptionsSDK(t *testing.T) {
 	require.NotNil(t, got.MetadataOptions)
 	assert.Equal(t, types.HttpTokensStateRequired, got.MetadataOptions.HttpTokens, "metadata http_tokens must persist after modify")
 	assert.Equal(t, int32(3), aws.ToInt32(got.MetadataOptions.HttpPutResponseHopLimit))
+	assert.Equal(t, types.InstanceMetadataProtocolStateEnabled, got.MetadataOptions.HttpProtocolIpv6, "the IPv6 endpoint setting persists after modify")
 }
 
 // TestEC2_LaunchTemplateMarketCreditSDK covers the launch-template

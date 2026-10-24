@@ -5,9 +5,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -232,6 +235,35 @@ func TestWebAppStage3_NativeAzKeysAndWebJobs(t *testing.T) {
 	runOut := runCLI(t, env.command("rest", "--method", "GET", "--url",
 		strings.Replace(historyURL, "/history?", "/history/"+runID+"?", 1), "-o", "json"))
 	assert.Contains(t, runOut, `"Success"`)
+
+	// `az webapp log download` fetches Kudu's diagnostics dump at /dump on the
+	// SCM host, which resolves nowhere on this host, so `az rest` fetches the
+	// same URL addressed to the simulator with the SCM hostname as Host: a zip
+	// of the site's LogFiles, where the job's output landed in the day's
+	// docker log, and of its deployments.
+	logFile := filepath.Join(t.TempDir(), "logs.zip")
+	runCLI(t, env.command("rest", "--method", "GET", "--url", env.baseURL+"/dump",
+		"--headers", "Host="+app+".scm."+strings.TrimPrefix(env.baseURL, "https://"), "--output-file", logFile))
+	dump, err := zip.OpenReader(logFile)
+	require.NoError(t, err, "the download is not a zip")
+	defer dump.Close()
+	dockerLog := regexp.MustCompile(`^LogFiles/\d{4}_\d{2}_\d{2}_[0-9a-f]+_docker\.log$`)
+	var dumpNames []string
+	found := false
+	for _, f := range dump.File {
+		dumpNames = append(dumpNames, f.Name)
+		if !dockerLog.MatchString(f.Name) {
+			continue
+		}
+		found = true
+		rc, err := f.Open()
+		require.NoError(t, err)
+		content, err := io.ReadAll(rc)
+		rc.Close()
+		require.NoError(t, err)
+		assert.Contains(t, string(content), "report ran", "the docker log holds the triggered job's output")
+	}
+	assert.True(t, found, "the dump carries the day's docker log; entries: %v", dumpNames)
 
 	// The continuous job auto-started with the deployment and runs a real
 	// container; stop and start are observable through its status.

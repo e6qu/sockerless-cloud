@@ -4,7 +4,9 @@
 #
 # AWS + Azure pins are upstream commit SHAs: drift means the upstream file
 # changed in a commit after the pin. GCP pins are Discovery "revision"
-# fields: drift means the live document's revision moved.
+# fields: drift means the live document's revision moved. A vendored Google
+# documentation page is pinned at the "Last updated" date its footer
+# declares: drift means the page says it was updated since.
 #
 # Usage: scripts/check-spec-freshness.sh [--baseline <ref>] [aws|gcp|azure]
 #        (default: all clouds, no baseline)
@@ -168,6 +170,35 @@ check_aws_service_reference() {
   rm -f "$index"
 }
 
+# A vendored documentation page (scripts/fetch-gcp-doc.sh) is pinned at the
+# "Last updated" date the page carries; drift means the live page carries a
+# later one. The page is captured as served, since the refresh converts it.
+check_gcp_doc() {
+  local sources="$1" file="$2" url="$3" pin="$4" capture_dir="$5" page live pinned
+  page="$(mktemp)"
+  if ! curl -fsSL --max-time 30 -H 'Cache-Control: no-cache' -o "$page" "$url" 2>/dev/null; then
+    echo "?     $file: cannot fetch $url"
+    fail=1
+    rm -f "$page"
+    return 0
+  fi
+  live="$(grep -o 'Last updated [0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\} UTC' "$page" | head -1 | sed 's/Last updated \(.*\) UTC/\1/')"
+  pinned="${pin#modified}"
+  if [ -z "$live" ]; then
+    echo "?     $file: the page at $url carries no 'Last updated' date"
+    fail=1
+  elif [[ "$pinned" < "$live" ]]; then
+    report_drift "$sources" "$file" "$pin" "$file: pinned $pinned, page last updated $live ($url)"
+    if [ -n "$capture_dir" ]; then
+      gzip -9 -n -c "$page" >"$capture_dir/${file%.md.gz}.html.gz"
+      echo "      captured the page of $live in $capture_dir/${file%.md.gz}.html.gz"
+    fi
+  else
+    echo "ok    $file (pinned $pinned, page last updated $live)"
+  fi
+  rm -f "$page"
+}
+
 check_gcp() {
   local sources="$ROOT/specs/cloud-api/gcp/SOURCES.md"
   local probes="${SPEC_FRESHNESS_GCP_PROBES:-3}"
@@ -189,6 +220,10 @@ check_gcp() {
     srcpath="$(echo "$srcpath" | tr -d ' \`')"
     pin="$(echo "$pin" | tr -d ' \`')"
     url="https://$host/${srcpath//\\/}"
+    case "$pin" in modified*)
+      check_gcp_doc "$sources" "$file" "$url" "$pin" "$capture_dir"
+      continue ;;
+    esac
     revisions=()
     newest_file=""
     newest_revision=""
@@ -238,6 +273,7 @@ check_gcp() {
   done < <(grep '^| `' "$sources")
   rm -rf "$probe_dir"
 }
+
 
 for cloud in $CLOUDS; do
   echo "== $cloud"

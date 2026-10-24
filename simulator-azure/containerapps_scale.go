@@ -20,9 +20,14 @@ import (
 // seconds: "the number of concurrent requests is calculated as the number of
 // requests in the past 15 seconds divided by 15", against the rule's
 // concurrentRequests, 10 unless it names another. A request that reaches a
-// revision with no replica starts one, and the revision scales in — to zero
-// when its minimum is 0 — once the lower count has held for its cooldown
-// period. An Azure Queue rule reads its queue's length every polling
+// revision with no replica starts one. The revision scales in once the lower
+// count has held for the scale-down stabilization window, 300 seconds, and
+// to zero once no rule has asked for a replica for the cooldown period, 300
+// seconds unless the scale names another ("Scale behavior" in "Set scaling
+// rules in Azure Container Apps": "Scale down only happens if the condition
+// is satisfied for 300 seconds (scale down stabilization window). Once the
+// queue length is 0, KEDA waits for 300 seconds (cool down period) before
+// scaling the app to 0"). An Azure Queue rule reads its queue's length every polling
 // interval, 30 seconds unless the scale names another, through Get Queue
 // Metadata as the rule's connection string or managed identity, and asks for
 // one replica per queueLength messages, 5 unless the rule names another. A
@@ -36,6 +41,7 @@ const (
 	acaDefaultConcurrency      = 10
 	acaDefaultMaxReplicas      = 10
 	acaDefaultCooldownSeconds  = 300
+	acaScaleDownStabilization  = 300 * time.Second
 	acaDefaultPollingSeconds   = 30
 	acaHTTPConcurrencyMetadata = "concurrentRequests"
 	acaDefaultQueueLength      = 5
@@ -139,14 +145,16 @@ type acaScaler struct {
 	requests []time.Time
 	// queueDesired is what the queue rules asked for at their last poll.
 	queueDesired int
-	// raised is when demand last asked for the count the set runs or more.
-	raised time.Time
-	stop   chan struct{}
-	once   sync.Once
+	// raised is when demand last asked for the count the set runs or more,
+	// and active when a rule last asked for any replica.
+	raised, active time.Time
+	stop           chan struct{}
+	once           sync.Once
 }
 
 func newACAScaler(run *acaRevisionRun, scaling acaScaling, queues acaQueueReader) *acaScaler {
-	sc := &acaScaler{run: run, scaling: scaling, queues: queues, raised: time.Now(), stop: make(chan struct{})}
+	now := time.Now()
+	sc := &acaScaler{run: run, scaling: scaling, queues: queues, raised: now, active: now, stop: make(chan struct{})}
 	if scaling.concurrency > 0 {
 		bg.Go(sc.evaluateEvery)
 	}
@@ -242,12 +250,15 @@ func (sc *acaScaler) evaluate(now time.Time) {
 		concurrent := float64(len(recent)) / acaHTTPScaleWindow.Seconds()
 		desired = max(desired, int(math.Ceil(concurrent/float64(sc.scaling.concurrency))))
 	}
+	if desired > 0 {
+		sc.active = now
+	}
 	desired = min(max(desired, sc.scaling.min), sc.scaling.max)
 	running := len(sc.run.set.Replicas())
 	if desired >= running {
 		sc.raised = now
 	}
-	scaleIn := desired < running && now.Sub(sc.raised) >= sc.scaling.cooldown
+	scaleIn := desired < running && acaScaleInDue(now, sc.raised, sc.active, desired, sc.scaling.cooldown)
 	sc.mu.Unlock()
 	switch {
 	case desired > running:
@@ -255,6 +266,17 @@ func (sc *acaScaler) evaluate(now time.Time) {
 	case scaleIn:
 		_ = sc.run.set.Scale(context.Background(), desired)
 	}
+}
+
+// acaScaleInDue reports whether a revision running more replicas than desired
+// scales in now: to zero once no rule has asked for a replica for the
+// cooldown period, and to a lower nonzero count once the lower count has held
+// for the scale-down stabilization window.
+func acaScaleInDue(now, raised, active time.Time, desired int, cooldown time.Duration) bool {
+	if desired == 0 {
+		return now.Sub(active) >= cooldown
+	}
+	return now.Sub(raised) >= acaScaleDownStabilization
 }
 
 // activate starts a replica for a request that reached the revision when it
@@ -266,6 +288,7 @@ func (sc *acaScaler) activate(ctx context.Context) error {
 	}
 	sc.mu.Lock()
 	sc.raised = time.Now()
+	sc.active = sc.raised
 	sc.mu.Unlock()
 	return sc.run.set.Raise(ctx, 1)
 }

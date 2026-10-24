@@ -10,6 +10,7 @@
 //	SIM_AZURE_PORT   — port to listen on, ahead of SIM_LISTEN_ADDR
 //	SIM_TLS_CERT     — TLS certificate file (optional)
 //	SIM_TLS_KEY      — TLS key file (optional)
+//	SIM_CALLBACK_LISTEN_ADDR — plain-HTTP address the workloads' metadata and identity requests reach beside a TLS listener (default: a free port on every interface)
 //	SIM_RUNTIME      — "docker" by default; "process" starts API-only mode for runs that do not execute workloads
 //	SIM_SERVICEBUS_AMQP_LISTEN_ADDR — raw Service Bus AMQP/TLS listen address (optional)
 //	SIM_LOG_LEVEL    — log level: trace, debug, info, warn, error (default "info")
@@ -38,12 +39,14 @@ func main() {
 			if _, err := azureAdvertisedEndpointConfigFromEnv(); err != nil {
 				return err
 			}
-			// The sidecars forward workloads' metadata requests to the
-			// address the simulator serves on.
-			simListenAddr = cfg.ListenAddr
 			return configureAzurePlacement(cfg.Placement)
 		},
-		Build: buildSimulator,
+		Build: func(cfg sim.Config) (*sim.Server, error) {
+			// The sidecars forward workloads' metadata requests to the
+			// plain-HTTP address the simulator serves them on.
+			simListenAddr = cfg.CallbackListenAddr
+			return buildSimulator(cfg)
+		},
 		Start: startAzureListeners,
 	})
 }
@@ -117,6 +120,7 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 	// Azure Resource Manager matches paths case-insensitively and its clients
 	// spell them differently, so every request is canonicalized before routing.
 	cfg.RewriteRequest = azureNormalizeRequestPath
+	cfg.TLSConfigForClient = azureTLSConfigForClient
 	srv, err := sim.NewServer(cfg)
 	if err != nil {
 		return nil, err

@@ -1317,11 +1317,12 @@ func handleSSMSendCommand(w http.ResponseWriter, r *http.Request) {
 			targets = append(targets, t.Values...)
 		}
 	}
-	// A command runs on managed nodes: instances whose machine is up. Any
-	// other target fails the whole request, as Systems Manager refuses it.
+	// A command runs on managed nodes: instances whose SSM Agent reports and
+	// whose machine is up. Any other target fails the whole request, as
+	// Systems Manager refuses it.
 	var invalid []string
 	for _, id := range targets {
-		if _, ok := ec2WorkloadHandle(id); !ok {
+		if _, ok := ec2WorkloadHandle(id); !ok || !ssmManagedNodeOnline(id) {
 			invalid = append(invalid, id)
 		}
 	}

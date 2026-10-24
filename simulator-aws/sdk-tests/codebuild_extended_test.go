@@ -3,10 +3,12 @@ package aws_sdk_test
 import (
 	"encoding/base64"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/codebuild"
 	cbtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
 	"github.com/stretchr/testify/assert"
@@ -29,65 +31,222 @@ func cbCreateBuildspecProject(t *testing.T, c *codebuild.Client, name, buildspec
 	t.Cleanup(func() { _, _ = c.DeleteProject(ctx, &codebuild.DeleteProjectInput{Name: aws.String(name)}) })
 }
 
+// cbBatchRole creates a role CodeBuild may assume to start, stop and retry a
+// batch's builds, as a batch build's service role must.
+func cbBatchRole(t *testing.T, extra ...string) string {
+	t.Helper()
+	actions := append([]string{"codebuild:StartBuild", "codebuild:StopBuild", "codebuild:RetryBuild"}, extra...)
+	return createServiceRole(t, uniqueName("cb-batch"), "codebuild.amazonaws.com", actions...)
+}
+
+// cbCreateBatchProject creates a NO_SOURCE project whose buildspec carries a
+// batch section, with a buildBatchConfig naming a batch service role.
+func cbCreateBatchProject(t *testing.T, c *codebuild.Client, name, buildspec string) {
+	t.Helper()
+	_, err := c.CreateProject(ctx, &codebuild.CreateProjectInput{
+		Name:        aws.String(name),
+		Source:      &cbtypes.ProjectSource{Type: cbtypes.SourceTypeNoSource, Buildspec: aws.String(buildspec)},
+		Artifacts:   &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
+		Environment: &cbtypes.ProjectEnvironment{Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/library/alpine:3.21"), ComputeType: cbtypes.ComputeTypeBuildGeneral1Small},
+		ServiceRole: aws.String(serviceRole(t, "codebuild.amazonaws.com")),
+		BuildBatchConfig: &cbtypes.ProjectBuildBatchConfig{
+			ServiceRole:  aws.String(cbBatchRole(t)),
+			Restrictions: &cbtypes.BatchRestrictions{MaximumBuildsAllowed: aws.Int32(4)},
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = c.DeleteProject(ctx, &codebuild.DeleteProjectInput{Name: aws.String(name)}) })
+}
+
+func cbAwaitBuildBatch(t *testing.T, c *codebuild.Client, id string) cbtypes.BuildBatch {
+	t.Helper()
+	var batch cbtypes.BuildBatch
+	require.Eventually(t, func() bool {
+		out, err := c.BatchGetBuildBatches(ctx, &codebuild.BatchGetBuildBatchesInput{Ids: []string{id}})
+		require.NoError(t, err)
+		require.Len(t, out.BuildBatches, 1)
+		batch = out.BuildBatches[0]
+		return batch.BuildBatchStatus != cbtypes.StatusTypeInProgress
+	}, cbBuildCompletionBudget, 100*time.Millisecond)
+	return batch
+}
+
+func cbBuildIDFromArn(arn string) string {
+	return arn[strings.Index(arn, ":build/")+len(":build/"):]
+}
+
+// cbBuildLog returns what a build printed to its CloudWatch Logs stream.
+func cbBuildLog(t *testing.T, build cbtypes.Build) string {
+	t.Helper()
+	events, err := cwLogsClient().FilterLogEvents(ctx, &cloudwatchlogs.FilterLogEventsInput{
+		LogGroupName:   build.Logs.GroupName,
+		LogStreamNames: []string{aws.ToString(build.Logs.StreamName)},
+	})
+	require.NoError(t, err)
+	var lines []string
+	for _, e := range events.Events {
+		lines = append(lines, aws.ToString(e.Message))
+	}
+	return strings.Join(lines, "\n")
+}
+
 // TestCodeBuild_BuildBatches_SDK covers StartBuildBatch, BatchGetBuildBatches,
 // ListBuildBatches, ListBuildBatchesForProject, StopBuildBatch, RetryBuildBatch,
-// DeleteBuildBatch, plus BatchDeleteBuilds.
+// DeleteBuildBatch, plus BatchDeleteBuilds: a build-list batch starts one
+// build per task, each a member of the batch with the task's variables.
 func TestCodeBuild_BuildBatches_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
-	proj := "cb-sdk-batch-project"
-	cbCreateBuildspecProject(t, c, proj, "version: 0.2\nphases:\n  build:\n    commands:\n      - printf ok\n")
+	proj := uniqueName("cb-sdk-batch")
+	cbCreateBatchProject(t, c, proj, "version: 0.2\n"+
+		"batch:\n  build-list:\n"+
+		"    - identifier: first\n      env:\n        variables:\n          TASK: one\n"+
+		"    - identifier: second\n      env:\n        variables:\n          TASK: two\n"+
+		"phases:\n  build:\n    commands:\n      - echo task-$TASK\n")
 
 	start, err := c.StartBuildBatch(ctx, &codebuild.StartBuildBatchInput{ProjectName: aws.String(proj)})
 	require.NoError(t, err)
-	require.NotNil(t, start.BuildBatch)
 	batchID := aws.ToString(start.BuildBatch.Id)
-	require.NotEmpty(t, batchID)
 	assert.Equal(t, proj, aws.ToString(start.BuildBatch.ProjectName))
 
-	var lastBatchStatus cbtypes.StatusType
-	batchSucceeded := assert.Eventually(t, func() bool {
-		bg, err := c.BatchGetBuildBatches(ctx, &codebuild.BatchGetBuildBatchesInput{Ids: []string{batchID}})
+	batch := cbAwaitBuildBatch(t, c, batchID)
+	require.Equal(t, cbtypes.StatusTypeSucceeded, batch.BuildBatchStatus, "phases: %+v", batch.Phases)
+	require.Len(t, batch.BuildGroups, 2)
+	logs := map[string]string{}
+	for _, group := range batch.BuildGroups {
+		require.NotNil(t, group.CurrentBuildSummary, aws.ToString(group.Identifier))
+		assert.Equal(t, cbtypes.StatusTypeSucceeded, group.CurrentBuildSummary.BuildStatus)
+		builds, err := c.BatchGetBuilds(ctx, &codebuild.BatchGetBuildsInput{Ids: []string{cbBuildIDFromArn(aws.ToString(group.CurrentBuildSummary.Arn))}})
 		require.NoError(t, err)
-		if len(bg.BuildBatches) == 1 {
-			lastBatchStatus = bg.BuildBatches[0].BuildBatchStatus
-		}
-		return len(bg.BuildBatches) == 1 && bg.BuildBatches[0].BuildBatchStatus == cbtypes.StatusTypeSucceeded
-	}, cbBuildCompletionBudget, 100*time.Millisecond)
-	require.True(t, batchSucceeded, "build batch did not reach SUCCEEDED; last status: %s", lastBatchStatus)
+		require.Len(t, builds.Builds, 1)
+		assert.Equal(t, aws.ToString(batch.Arn), aws.ToString(builds.Builds[0].BuildBatchArn))
+		logs[aws.ToString(group.Identifier)] = cbBuildLog(t, builds.Builds[0])
+	}
+	assert.Contains(t, logs["first"], "task-one")
+	assert.Contains(t, logs["second"], "task-two")
 
 	lb, err := c.ListBuildBatches(ctx, &codebuild.ListBuildBatchesInput{})
 	require.NoError(t, err)
 	assert.Contains(t, lb.Ids, batchID)
-
 	lbp, err := c.ListBuildBatchesForProject(ctx, &codebuild.ListBuildBatchesForProjectInput{ProjectName: aws.String(proj)})
 	require.NoError(t, err)
 	assert.Contains(t, lbp.Ids, batchID)
 
-	// RetryBuildBatch produces a fresh batch resource.
-	retry, err := c.RetryBuildBatch(ctx, &codebuild.RetryBuildBatchInput{Id: aws.String(batchID)})
-	require.NoError(t, err)
-	require.NotNil(t, retry.BuildBatch)
-	retryID := aws.ToString(retry.BuildBatch.Id)
-	assert.NotEqual(t, batchID, retryID)
+	// "Only batch builds that have failed can be retried."
+	_, err = c.RetryBuildBatch(ctx, &codebuild.RetryBuildBatchInput{Id: aws.String(batchID)})
+	requireAWSErrorCode(t, err, "InvalidInputException")
 
-	// StopBuildBatch on an already-settled batch is idempotent.
 	stop, err := c.StopBuildBatch(ctx, &codebuild.StopBuildBatchInput{Id: aws.String(batchID)})
 	require.NoError(t, err)
-	require.NotNil(t, stop.BuildBatch)
+	assert.Equal(t, cbtypes.StatusTypeSucceeded, stop.BuildBatch.BuildBatchStatus)
 
-	_, err = c.DeleteBuildBatch(ctx, &codebuild.DeleteBuildBatchInput{Id: aws.String(batchID)})
+	deleted, err := c.DeleteBuildBatch(ctx, &codebuild.DeleteBuildBatchInput{Id: aws.String(batchID)})
 	require.NoError(t, err)
-	_, err = c.DeleteBuildBatch(ctx, &codebuild.DeleteBuildBatchInput{Id: aws.String(retryID)})
-	require.NoError(t, err)
+	assert.Len(t, deleted.BuildsDeleted, 2)
 
-	// BatchDeleteBuilds round-trip on a regular build.
 	sb, err := c.StartBuild(ctx, &codebuild.StartBuildInput{ProjectName: aws.String(proj)})
 	require.NoError(t, err)
 	buildID := aws.ToString(sb.Build.Id)
 	del, err := c.BatchDeleteBuilds(ctx, &codebuild.BatchDeleteBuildsInput{Ids: []string{buildID}})
 	require.NoError(t, err)
 	assert.Contains(t, del.BuildsDeleted, buildID)
+}
+
+// A build-graph task waits for the tasks it depends on: the second build
+// starts after the first one ends.
+func TestCodeBuild_BuildGraphOrdersBuilds_SDK(t *testing.T) {
+	t.Parallel()
+	c := codebuildClient()
+	proj := uniqueName("cb-sdk-graph")
+	cbCreateBatchProject(t, c, proj, "version: 0.2\n"+
+		"batch:\n  fast-fail: true\n  build-graph:\n"+
+		"    - identifier: compile\n"+
+		"    - identifier: package\n      depend-on:\n        - compile\n"+
+		"phases:\n  build:\n    commands:\n      - sleep 1\n")
+
+	start, err := c.StartBuildBatch(ctx, &codebuild.StartBuildBatchInput{ProjectName: aws.String(proj)})
+	require.NoError(t, err)
+	batch := cbAwaitBuildBatch(t, c, aws.ToString(start.BuildBatch.Id))
+	require.Equal(t, cbtypes.StatusTypeSucceeded, batch.BuildBatchStatus, "phases: %+v", batch.Phases)
+	require.Len(t, batch.BuildGroups, 2)
+	builds := map[string]cbtypes.Build{}
+	for _, group := range batch.BuildGroups {
+		require.NotNil(t, group.CurrentBuildSummary)
+		out, err := c.BatchGetBuilds(ctx, &codebuild.BatchGetBuildsInput{Ids: []string{cbBuildIDFromArn(aws.ToString(group.CurrentBuildSummary.Arn))}})
+		require.NoError(t, err)
+		builds[aws.ToString(group.Identifier)] = out.Builds[0]
+	}
+	assert.Equal(t, []string{"compile"}, batch.BuildGroups[1].DependsOn)
+	assert.False(t, aws.ToTime(builds["package"].StartTime).Before(aws.ToTime(builds["compile"].EndTime)),
+		"package started %s, before compile ended %s", aws.ToTime(builds["package"].StartTime), aws.ToTime(builds["compile"].EndTime))
+}
+
+// A batch defining more builds than its restrictions allow starts none.
+func TestCodeBuild_BuildBatchRestrictions_SDK(t *testing.T) {
+	t.Parallel()
+	c := codebuildClient()
+	proj := uniqueName("cb-sdk-restrict")
+	cbCreateBatchProject(t, c, proj, "version: 0.2\n"+
+		"batch:\n  build-matrix:\n    dynamic:\n      env:\n        variables:\n          N: [1, 2, 3, 4, 5]\n"+
+		"phases:\n  build:\n    commands:\n      - echo $N\n")
+
+	got, err := c.BatchGetProjects(ctx, &codebuild.BatchGetProjectsInput{Names: []string{proj}})
+	require.NoError(t, err)
+	require.NotNil(t, got.Projects[0].BuildBatchConfig)
+	assert.Equal(t, int32(4), aws.ToInt32(got.Projects[0].BuildBatchConfig.Restrictions.MaximumBuildsAllowed))
+
+	start, err := c.StartBuildBatch(ctx, &codebuild.StartBuildBatchInput{ProjectName: aws.String(proj)})
+	require.NoError(t, err)
+	batch := cbAwaitBuildBatch(t, c, aws.ToString(start.BuildBatch.Id))
+	assert.Equal(t, cbtypes.StatusTypeFailed, batch.BuildBatchStatus)
+	assert.Empty(t, batch.BuildGroups)
+}
+
+// StartBuild's imageOverride chooses the image the build runs: the project's
+// busybox image has no /etc/os-release and the override's Alpine image does.
+// A repeated request with the same idempotencyToken answers the same build.
+func TestCodeBuild_StartBuildOverrides_SDK(t *testing.T) {
+	t.Parallel()
+	c := codebuildClient()
+	proj := uniqueName("cb-sdk-override")
+	_, err := c.CreateProject(ctx, &codebuild.CreateProjectInput{
+		Name:        aws.String(proj),
+		Source:      &cbtypes.ProjectSource{Type: cbtypes.SourceTypeNoSource, Buildspec: aws.String("version: 0.2\nphases:\n  build:\n    commands:\n      - cat /etc/os-release\n")},
+		Artifacts:   &cbtypes.ProjectArtifacts{Type: cbtypes.ArtifactsTypeNoArtifacts},
+		Environment: &cbtypes.ProjectEnvironment{Type: cbtypes.EnvironmentTypeLinuxContainer, Image: aws.String("mirror.gcr.io/library/busybox:latest"), ComputeType: cbtypes.ComputeTypeBuildGeneral1Small},
+		ServiceRole: aws.String(serviceRole(t, "codebuild.amazonaws.com")),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = c.DeleteProject(ctx, &codebuild.DeleteProjectInput{Name: aws.String(proj)}) })
+
+	input := &codebuild.StartBuildInput{
+		ProjectName:              aws.String(proj),
+		ImageOverride:            aws.String("mirror.gcr.io/library/alpine:3.21"),
+		TimeoutInMinutesOverride: aws.Int32(15),
+		IdempotencyToken:         aws.String(uniqueName("token")),
+	}
+	first, err := c.StartBuild(ctx, input)
+	require.NoError(t, err)
+	assert.Equal(t, "mirror.gcr.io/library/alpine:3.21", aws.ToString(first.Build.Environment.Image))
+	assert.Equal(t, int32(15), aws.ToInt32(first.Build.TimeoutInMinutes))
+
+	repeated, err := c.StartBuild(ctx, input)
+	require.NoError(t, err)
+	assert.Equal(t, aws.ToString(first.Build.Id), aws.ToString(repeated.Build.Id))
+	changed := *input
+	changed.TimeoutInMinutesOverride = aws.Int32(20)
+	_, err = c.StartBuild(ctx, &changed)
+	requireAWSErrorCode(t, err, "InvalidInputException")
+
+	var build cbtypes.Build
+	require.Eventually(t, func() bool {
+		out, err := c.BatchGetBuilds(ctx, &codebuild.BatchGetBuildsInput{Ids: []string{aws.ToString(first.Build.Id)}})
+		require.NoError(t, err)
+		build = out.Builds[0]
+		return build.BuildStatus != cbtypes.StatusTypeInProgress
+	}, cbBuildCompletionBudget, 100*time.Millisecond)
+	require.Equal(t, cbtypes.StatusTypeSucceeded, build.BuildStatus, "phases: %+v", build.Phases)
+	assert.Contains(t, cbBuildLog(t, build), "ID=alpine")
 }
 
 // TestCodeBuild_Fleets_SDK covers CreateFleet, UpdateFleet, BatchGetFleets,

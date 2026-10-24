@@ -227,6 +227,11 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	gcfServiceURI := outputs.must(t, "cloudfunctions2_function_service_uri")
 	require.True(t, strings.HasPrefix(gcfServiceURI, "https://tf-gcfv2-function-") && strings.HasSuffix(gcfServiceURI, "-us-central1.a.run.app"),
 		"service_config.uri is the run.app URL of the function's service; got %s", gcfServiceURI)
+	require.Equal(t, outputs.must(t, "vpc_access_connector_id"), outputs.must(t, "cloudfunctions2_function_vpc_connector"),
+		"service_config.vpc_connector round-trips the connector the function egresses through")
+	require.Equal(t, "ALL_TRAFFIC", outputs.must(t, "cloudfunctions2_function_vpc_connector_egress_settings"))
+	require.Equal(t, float64(2), outputs.mustNumber(t, "cloud_run_v2_service_scaling_max_instance_count"),
+		"the service-level scaling block round-trips beside the template's")
 
 	eventarcID := outputs.must(t, "eventarc_trigger_id")
 	require.Contains(t, eventarcID, "projects/test-project/locations/us-central1/triggers/tf-eventarc-trigger",
@@ -361,6 +366,36 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	bqTableLabelEnv := outputs.must(t, "bigquery_table_label_env")
 	require.Equal(t, "terraform", bqTableLabelEnv,
 		"BigQuery table labels must round-trip through terraform state; got env=%s", bqTableLabelEnv)
+
+	require.Equal(t, "at", outputs.must(t, "bigquery_partitioned_field"),
+		"the table's time partitioning round-trips through terraform state")
+	require.Equal(t, "DONE", outputs.must(t, "bigquery_load_job_state"), "the load job finished")
+	require.Equal(t, "DONE", outputs.must(t, "bigquery_dml_job_state"), "the DML query job finished")
+	var dmlJob struct {
+		Status     struct{ ErrorResult map[string]any }
+		Statistics struct {
+			Query struct {
+				StatementType string
+				DmlStats      map[string]string
+			}
+		}
+	}
+	bqGetJSON(t, "/bigquery/v2/projects/test-project/jobs/"+outputs.must(t, "bigquery_dml_job_id"), &dmlJob)
+	require.Nil(t, dmlJob.Status.ErrorResult, "the DML job succeeded")
+	require.Equal(t, "INSERT", dmlJob.Statistics.Query.StatementType)
+	require.Equal(t, "2", dmlJob.Statistics.Query.DmlStats["insertedRowCount"], "the job reports the rows it inserted")
+	var partitioned struct {
+		NumRows string
+	}
+	bqGetJSON(t, "/bigquery/v2/projects/test-project/datasets/tf_test_dataset/tables/partitioned_events", &partitioned)
+	require.Equal(t, "2", partitioned.NumRows, "the DML job's rows are in the table")
+	var loaded struct {
+		NumRows          string
+		TimePartitioning struct{ Type string }
+	}
+	bqGetJSON(t, "/bigquery/v2/projects/test-project/datasets/tf_test_dataset/tables/loaded_events", &loaded)
+	require.Equal(t, "1", loaded.NumRows)
+	require.Equal(t, "DAY", loaded.TimePartitioning.Type, "the load's time partitioning shapes the table it creates")
 
 	fsDocName := outputs.must(t, "firestore_document_name")
 	require.Contains(t, fsDocName, "projects/test-project/databases/(default)/documents/tf-users/alice",
@@ -593,6 +628,19 @@ func readOutputs(t *testing.T) tfOutputs {
 	var outputs tfOutputs
 	require.NoError(t, json.Unmarshal(out, &outputs))
 	return outputs
+}
+
+// bqGetJSON reads a BigQuery resource terraform state does not carry.
+func bqGetJSON(t *testing.T, path string, out any) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, baseURL+path, nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode, "GET %s", path)
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(out))
 }
 
 // awaitSerialPortOutput reads an instance's serial console through the

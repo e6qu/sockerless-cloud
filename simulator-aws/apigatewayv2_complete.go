@@ -190,7 +190,7 @@ func handleAPIGWv2CreatePortal(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	p := APIGWv2Portal{
 		PortalId:                  portalID,
-		PortalArn:                 fmt.Sprintf("arn:aws:apigateway:%s::/portals/%s", awsRegion(), portalID),
+		PortalArn:                 fmt.Sprintf("arn:aws:apigateway:%s:%s:/portals/%s", awsRegion(), awsAccountID(), portalID),
 		PublishStatus:             "DISABLED",
 		Authorization:             req.Authorization,
 		PortalContent:             req.PortalContent,
@@ -314,7 +314,7 @@ func handleAPIGWv2CreatePortalProduct(w http.ResponseWriter, r *http.Request) {
 	productID := sim.NewUUID()[:10]
 	p := APIGWv2PortalProduct{
 		PortalProductId:  productID,
-		PortalProductArn: fmt.Sprintf("arn:aws:apigateway:%s::/portalproducts/%s", awsRegion(), productID),
+		PortalProductArn: fmt.Sprintf("arn:aws:apigateway:%s:%s:/portalproducts/%s", awsRegion(), awsAccountID(), productID),
 		DisplayName:      req.DisplayName,
 		Description:      req.Description,
 		LastModified:     time.Now().UTC().Format(time.RFC3339),
@@ -449,7 +449,7 @@ func handleAPIGWv2CreateProductPage(w http.ResponseWriter, r *http.Request) {
 	pageID := sim.NewUUID()[:10]
 	pg := APIGWv2ProductPage{
 		ProductPageId:   pageID,
-		ProductPageArn:  fmt.Sprintf("arn:aws:apigateway:%s::/portalproducts/%s/productpages/%s", awsRegion(), productID, pageID),
+		ProductPageArn:  fmt.Sprintf("arn:aws:apigateway:%s:%s:/portalproducts/%s/productpages/%s", awsRegion(), awsAccountID(), productID, pageID),
 		PortalProductId: productID,
 		DisplayContent:  req.DisplayContent,
 		LastModified:    time.Now().UTC().Format(time.RFC3339),
@@ -563,7 +563,7 @@ func handleAPIGWv2CreateProductRestEndpointPage(w http.ResponseWriter, r *http.R
 	pageID := sim.NewUUID()[:10]
 	pg := APIGWv2ProductRestEndpointPage{
 		ProductRestEndpointPageId:  pageID,
-		ProductRestEndpointPageArn: fmt.Sprintf("arn:aws:apigateway:%s::/portalproducts/%s/productrestendpointpages/%s", awsRegion(), productID, pageID),
+		ProductRestEndpointPageArn: fmt.Sprintf("arn:aws:apigateway:%s:%s:/portalproducts/%s/productrestendpointpages/%s", awsRegion(), awsAccountID(), productID, pageID),
 		PortalProductId:            productID,
 		RestEndpointIdentifier:     req.RestEndpointIdentifier,
 		DisplayContent:             apigwv2RestEndpointDisplayResponse(req.DisplayContent),
@@ -715,7 +715,7 @@ func handleAPIGWv2CreateRoutingRule(w http.ResponseWriter, r *http.Request) {
 	ruleID := sim.NewUUID()[:10]
 	rr := APIGWv2RoutingRule{
 		RoutingRuleId:  ruleID,
-		RoutingRuleArn: fmt.Sprintf("arn:aws:apigateway:%s::/domainnames/%s/routingrules/%s", awsRegion(), domainName, ruleID),
+		RoutingRuleArn: fmt.Sprintf("arn:aws:apigateway:%s:%s:/domainnames/%s/routingrules/%s", awsRegion(), awsAccountID(), domainName, ruleID),
 		DomainName:     domainName,
 		Priority:       req.Priority,
 		Actions:        req.Actions,
@@ -769,7 +769,7 @@ func handleAPIGWv2PutRoutingRule(w http.ResponseWriter, r *http.Request) {
 	}
 	rr := APIGWv2RoutingRule{
 		RoutingRuleId:  ruleID,
-		RoutingRuleArn: fmt.Sprintf("arn:aws:apigateway:%s::/domainnames/%s/routingrules/%s", awsRegion(), domainName, ruleID),
+		RoutingRuleArn: fmt.Sprintf("arn:aws:apigateway:%s:%s:/domainnames/%s/routingrules/%s", awsRegion(), awsAccountID(), domainName, ruleID),
 		DomainName:     domainName,
 		Priority:       req.Priority,
 		Actions:        req.Actions,

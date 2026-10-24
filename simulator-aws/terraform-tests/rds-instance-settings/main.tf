@@ -2,7 +2,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "6.69.1"
+      version = "6.70.0"
     }
   }
 }
@@ -52,13 +52,26 @@ provider "aws" {
   skip_requesting_account_id  = true
 
   endpoints {
+    ec2 = var.endpoint
     rds = var.endpoint
   }
 }
 
+resource "aws_vpc" "settings" {
+  cidr_block = "10.95.0.0/16"
+}
+
+# A DB subnet group needs subnets in two Availability Zones.
+resource "aws_subnet" "settings" {
+  for_each          = { a = "10.95.0.0/24", b = "10.95.1.0/24" }
+  vpc_id            = aws_vpc.settings.id
+  cidr_block        = each.value
+  availability_zone = "us-east-1${each.key}"
+}
+
 resource "aws_db_subnet_group" "settings" {
   name       = "tf-rds-settings"
-  subnet_ids = ["subnet-aaaa1111", "subnet-bbbb2222"]
+  subnet_ids = [for subnet in aws_subnet.settings : subnet.id]
 }
 
 resource "aws_db_option_group" "first" {

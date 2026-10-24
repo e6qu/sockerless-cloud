@@ -44,10 +44,11 @@ func cloudRunSpecDigest(specSig string) string {
 }
 
 // cloudRunAdoptedLogSink drops the lines an adopted container wrote by the
-// resource's newest log entry, which the earlier process already wrote to
-// Cloud Logging, since an adopted container's log stream replays its whole
-// output. Entries carry the millisecond they were written, never earlier than
-// the line.
+// time the resource's newest log entry was received, which the earlier process
+// already wrote to Cloud Logging, since an adopted container's log stream
+// replays its whole output. An entry is received at the millisecond it was
+// written, never earlier than the line; its own timestamp is the line's, or
+// whatever time a structured line states.
 type cloudRunAdoptedLogSink struct {
 	sink  sim.LogSink
 	after time.Time
@@ -76,7 +77,7 @@ func newCloudRunAdoptedLogSink(sink sim.LogSink, project string, resource Monito
 			if !cloudRunEntryLabeled(entry.Labels, entryLabels) {
 				continue
 			}
-			if at, err := time.Parse(time.RFC3339Nano, entry.Timestamp); err == nil && at.After(adopted.after) {
+			if at, err := time.Parse(time.RFC3339Nano, entry.ReceiveTimestamp); err == nil && at.After(adopted.after) {
 				adopted.after = at
 			}
 		}
@@ -448,7 +449,7 @@ func adoptCloudRunServiceInstanceGroup(name, groupID string, group []placement.E
 	project := resourceProject(name)
 	revisionSink := cloudRunRevisionLogSink(name, groupID)
 	sink := newCloudRunAdoptedLogSink(revisionSink, project, revisionSink.resource, map[string]string{"instanceId": groupID})
-	run := cloudRunRevisionRunFor(rev)
+	run := cloudRunRevisionRunFor(svc, rev)
 	if len(run.set.Replicas()) >= run.max {
 		return false
 	}

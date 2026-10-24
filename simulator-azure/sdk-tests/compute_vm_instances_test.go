@@ -129,6 +129,7 @@ func TestCompute_VirtualMachineRunsCustomDataAndReadsItsMetadata(t *testing.T) {
 	createOperationsVM(t, rg, vmName, nicID, func(vm *armcompute.VirtualMachine) {
 		vm.Properties.OSProfile.CustomData = to.Ptr(base64.StdEncoding.EncodeToString([]byte(script)))
 		vm.Properties.UserData = to.Ptr(base64.StdEncoding.EncodeToString([]byte("for-imds-only")))
+		vm.Identity = &armcompute.VirtualMachineIdentity{Type: to.Ptr(armcompute.ResourceIdentityTypeSystemAssigned)}
 	})
 
 	ran := runInGuest(t, rg, vmName, "custom-data", "cat /var/tmp/custom-data; cat /var/log/cloud-init-output.log")
@@ -185,7 +186,8 @@ func TestCompute_VirtualMachineRunsCustomDataAndReadsItsMetadata(t *testing.T) {
 	require.Len(t, other, 2)
 	assert.NotEqual(t, first[1], other[1], "the caller's nonce must change the document that was signed")
 	identity := read("identity", "/metadata/identity/info?api-version=2021-02-01")
-	assert.Regexp(t, `"tenantId":"[0-9a-f-]+"`, identity, "the metadata service names the tenant of the machine's identity")
+	require.NotNil(t, vm.Identity)
+	assert.Contains(t, identity, `"tenantId":"`+derefString(vm.Identity.TenantID)+`"`, "the metadata service names the tenant of the machine's identity")
 }
 
 // A deallocated machine keeps its OS disk and starts again on it; an image

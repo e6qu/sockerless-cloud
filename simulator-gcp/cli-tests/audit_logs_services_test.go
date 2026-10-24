@@ -94,3 +94,27 @@ func TestAuditLogsCLI_ComputeKMSIAMDNS(t *testing.T) {
 	assert.Equal(t, "dns.managedZones.create", entry.ProtoPayload.AuthorizationInfo[0].Permission)
 	assert.Equal(t, "dns_managed_zone", entry.Resource.Type)
 }
+
+// TestAuditLogsCLI_LoggingSinkAndAPIGatewayAPI creates a Cloud Logging sink
+// and an API Gateway API with gcloud and reads each service's Admin Activity
+// entry back: the methodName, permission and operation its audit-logging page
+// states.
+func TestAuditLogsCLI_LoggingSinkAndAPIGatewayAPI(t *testing.T) {
+	t.Parallel()
+	sink := uniqueName("cli-audit-sink")
+	runCLI(t, gcloudCLI("logging", "sinks", "create", sink, "storage.googleapis.com/"+sink, "--quiet"))
+	t.Cleanup(func() { _ = gcloudCLI("logging", "sinks", "delete", sink, "--quiet").Run() })
+	entry := readAuditEntry(t, "google.logging.v2.ConfigServiceV2.CreateSink", "projects/"+project+"/sinks/"+sink)
+	assert.Equal(t, "logging.googleapis.com", entry.ProtoPayload.ServiceName)
+	assert.Equal(t, "logging.sinks.create", entry.ProtoPayload.AuthorizationInfo[0].Permission)
+
+	api := uniqueName("cli-audit-api")
+	runCLI(t, gcloudCLI("api-gateway", "apis", "create", api, "--async", "--quiet"))
+	t.Cleanup(func() { _ = gcloudCLI("api-gateway", "apis", "delete", api, "--async", "--quiet").Run() })
+	entry = readAuditEntry(t, "google.cloud.apigateway.v1.ApiGatewayService.CreateApi", "projects/"+project+"/locations/global/apis/"+api)
+	assert.Equal(t, "apigateway.googleapis.com", entry.ProtoPayload.ServiceName)
+	assert.Equal(t, "apigateway.apis.create", entry.ProtoPayload.AuthorizationInfo[0].Permission)
+	assert.Equal(t, "apigateway.googleapis.com", entry.Operation.Producer)
+	assert.NotEmpty(t, entry.Operation.ID)
+	assert.True(t, entry.Operation.First)
+}

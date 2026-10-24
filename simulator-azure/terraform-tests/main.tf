@@ -34,12 +34,14 @@ resource "azurerm_resource_group" "main" {
 
 # ---------- Virtual Network + Subnet ----------
 
+# Two address prefixes: the virtual network is one routing domain over both,
+# and the machine below lives in a subnet of the second.
 resource "azurerm_virtual_network" "main" {
   name                = "tf-test-vnet"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
 
-  address_space = ["10.0.0.0/16"]
+  address_space = ["10.0.0.0/16", "10.111.0.0/16"]
 }
 
 resource "azurerm_subnet" "main" {
@@ -47,6 +49,17 @@ resource "azurerm_subnet" "main" {
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = azurerm_virtual_network.main.name
   address_prefixes     = ["10.0.1.0/24"]
+}
+
+resource "azurerm_subnet" "second_prefix" {
+  name                 = "tf-test-subnet-second-prefix"
+  resource_group_name  = azurerm_resource_group.main.name
+  virtual_network_name = azurerm_virtual_network.main.name
+  address_prefixes     = ["10.111.1.0/24"]
+}
+
+output "azrm_vnet_address_space" {
+  value = azurerm_virtual_network.main.address_space
 }
 
 # ---------- Network Security Group + rule ----------
@@ -250,6 +263,8 @@ resource "azurerm_lb_rule" "az_lb_rule" {
   probe_id                       = azurerm_lb_probe.az_lb_probe.id
 }
 
+# The machine's interface sits in the subnet of the network's second address
+# prefix, so the realized machine takes an address there.
 resource "azurerm_network_interface" "az_vm_nic" {
   name                = "tf-azrm-vm-nic"
   resource_group_name = azurerm_resource_group.az_rg.name
@@ -257,10 +272,14 @@ resource "azurerm_network_interface" "az_vm_nic" {
 
   ip_configuration {
     name                          = "internal"
-    subnet_id                     = azurerm_subnet.main.id
+    subnet_id                     = azurerm_subnet.second_prefix.id
     private_ip_address_allocation = "Dynamic"
     primary                       = true
   }
+}
+
+output "azrm_vm_nic_private_ip_address" {
+  value = azurerm_network_interface.az_vm_nic.private_ip_address
 }
 
 # A network interface with a secondary IP configuration: each configuration
@@ -338,6 +357,13 @@ resource "azurerm_linux_virtual_machine" "az_vm" {
   # shows up as perpetual drift in the follow-up plan.
   boot_diagnostics {
     storage_account_uri = azurerm_storage_account.main.primary_blob_endpoint
+  }
+
+  # The machine's own identity, whose principal the provider reads back from
+  # identity.principalId and which the Instance Metadata Service inside the
+  # machine mints tokens for.
+  identity {
+    type = "SystemAssigned"
   }
 }
 
@@ -951,6 +977,22 @@ resource "azurerm_linux_web_app" "az_node_app" {
       node_version = "20-lts"
     }
   }
+}
+
+# A diagnostic setting on the Node web app sends its console logs to the Log
+# Analytics workspace: Microsoft.Insights/diagnosticSettings on the site.
+resource "azurerm_monitor_diagnostic_setting" "az_node_app_logs" {
+  name                       = "tf-azrm-node-app-logs"
+  target_resource_id         = azurerm_linux_web_app.az_node_app.id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.az_law.id
+
+  enabled_log {
+    category = "AppServiceConsoleLogs"
+  }
+}
+
+output "azrm_node_app_diagnostic_setting_id" {
+  value = azurerm_monitor_diagnostic_setting.az_node_app_logs.id
 }
 
 # zip_deploy_file publishes the package to the app's SCM site: the provider
@@ -1616,6 +1658,10 @@ output "azrm_redis_firewall_rule_id" {
 
 output "azrm_uai_id" {
   value = azurerm_user_assigned_identity.az_uai.id
+}
+
+output "azrm_vm_principal_id" {
+  value = azurerm_linux_virtual_machine.az_vm.identity[0].principal_id
 }
 
 output "azrm_lb_id" {

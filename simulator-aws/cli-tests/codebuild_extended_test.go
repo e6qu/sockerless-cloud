@@ -1,6 +1,7 @@
 package aws_cli_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -33,11 +34,27 @@ func cbCLICreateProject(t *testing.T, name, buildspec string) {
 
 // TestCodeBuildCLI_BuildBatches covers start-build-batch, batch-get-build-batches,
 // list-build-batches, list-build-batches-for-project, stop-build-batch,
-// retry-build-batch, delete-build-batch, and batch-delete-builds.
+// retry-build-batch, delete-build-batch, and batch-delete-builds: a
+// build-list batch starts a build per task and reports each in buildGroups.
 func TestCodeBuildCLI_BuildBatches(t *testing.T) {
 	t.Parallel()
-	proj := "cb-cli-batch-proj"
-	cbCLICreateProject(t, proj, "version: 0.2\\nphases:\\n  build:\\n    commands:\\n      - printf ok\\n")
+	proj := cliUniqueName("cb-cli-batch")
+	batchRole := cliServiceRole(t, "codebuild.amazonaws.com")
+	batchRoleName := batchRole[strings.LastIndex(batchRole, "/")+1:]
+	runCLI(t, awsCLI("iam", "put-role-policy", "--role-name", batchRoleName, "--policy-name", "batch", "--policy-document",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["codebuild:StartBuild","codebuild:StopBuild","codebuild:RetryBuild"],"Resource":"*"}]}`))
+	t.Cleanup(func() {
+		_ = awsCLI("iam", "delete-role-policy", "--role-name", batchRoleName, "--policy-name", "batch").Run()
+	})
+	runCLI(t, awsCLI("codebuild", "create-project",
+		"--name", proj,
+		"--source", `{"type":"NO_SOURCE","buildspec":"version: 0.2\nbatch:\n  build-list:\n    - identifier: linux\n    - identifier: docs\nphases:\n  build:\n    commands:\n      - printf ok\n"}`,
+		"--artifacts", `{"type":"NO_ARTIFACTS"}`,
+		"--environment", `{"type":"LINUX_CONTAINER","image":"mirror.gcr.io/library/alpine:3.21","computeType":"BUILD_GENERAL1_SMALL"}`,
+		"--service-role", cliServiceRole(t, "codebuild.amazonaws.com"),
+		"--build-batch-config", `{"serviceRole":"`+batchRole+`","restrictions":{"maximumBuildsAllowed":2,"computeTypesAllowed":["BUILD_GENERAL1_SMALL"]}}`,
+	))
+	t.Cleanup(func() { runCLI(t, awsCLI("codebuild", "delete-project", "--name", proj)) })
 
 	out := runCLI(t, awsCLI("codebuild", "start-build-batch", "--project-name", proj))
 	var start struct {
@@ -51,16 +68,30 @@ func TestCodeBuildCLI_BuildBatches(t *testing.T) {
 	assert.Equal(t, proj, start.BuildBatch.ProjectName)
 	batchID := start.BuildBatch.ID
 
+	var bg struct {
+		BuildBatches []struct {
+			BuildBatchStatus string `json:"buildBatchStatus"`
+			BuildGroups      []struct {
+				Identifier          string `json:"identifier"`
+				CurrentBuildSummary struct {
+					Arn         string `json:"arn"`
+					BuildStatus string `json:"buildStatus"`
+				} `json:"currentBuildSummary"`
+			} `json:"buildGroups"`
+		} `json:"buildBatches"`
+	}
 	require.Eventually(t, func() bool {
-		o := runCLI(t, awsCLI("codebuild", "batch-get-build-batches", "--ids", batchID))
-		var bg struct {
-			BuildBatches []struct {
-				BuildBatchStatus string `json:"buildBatchStatus"`
-			} `json:"buildBatches"`
-		}
-		parseJSON(t, o, &bg)
-		return len(bg.BuildBatches) == 1 && bg.BuildBatches[0].BuildBatchStatus == "SUCCEEDED"
+		parseJSON(t, runCLI(t, awsCLI("codebuild", "batch-get-build-batches", "--ids", batchID)), &bg)
+		return len(bg.BuildBatches) == 1 && bg.BuildBatches[0].BuildBatchStatus != "IN_PROGRESS"
 	}, cbCLIBuildCompletionBudget, 100*time.Millisecond)
+	require.Equal(t, "SUCCEEDED", bg.BuildBatches[0].BuildBatchStatus)
+	var identifiers []string
+	for _, group := range bg.BuildBatches[0].BuildGroups {
+		identifiers = append(identifiers, group.Identifier)
+		assert.Equal(t, "SUCCEEDED", group.CurrentBuildSummary.BuildStatus)
+		assert.Contains(t, group.CurrentBuildSummary.Arn, ":build/"+proj+":")
+	}
+	assert.ElementsMatch(t, []string{"linux", "docs"}, identifiers)
 
 	out = runCLI(t, awsCLI("codebuild", "list-build-batches"))
 	var lb struct {
@@ -76,21 +107,17 @@ func TestCodeBuildCLI_BuildBatches(t *testing.T) {
 	parseJSON(t, out, &lbp)
 	require.Contains(t, lbp.Ids, batchID)
 
-	out = runCLI(t, awsCLI("codebuild", "retry-build-batch", "--id", batchID))
-	var retry struct {
-		BuildBatch struct {
-			ID string `json:"id"`
-		} `json:"buildBatch"`
-	}
-	parseJSON(t, out, &retry)
-	require.NotEmpty(t, retry.BuildBatch.ID)
-	assert.NotEqual(t, batchID, retry.BuildBatch.ID)
+	// A succeeded batch build cannot be retried.
+	assert.Contains(t, runCLIExpectError(t, awsCLI("codebuild", "retry-build-batch", "--id", batchID)), "InvalidInputException")
 
 	runCLI(t, awsCLI("codebuild", "stop-build-batch", "--id", batchID))
-	runCLI(t, awsCLI("codebuild", "delete-build-batch", "--id", batchID))
-	runCLI(t, awsCLI("codebuild", "delete-build-batch", "--id", retry.BuildBatch.ID))
+	out = runCLI(t, awsCLI("codebuild", "delete-build-batch", "--id", batchID))
+	var deleted struct {
+		BuildsDeleted []string `json:"buildsDeleted"`
+	}
+	parseJSON(t, out, &deleted)
+	assert.Len(t, deleted.BuildsDeleted, 2)
 
-	// batch-delete-builds round-trip on a regular build.
 	out = runCLI(t, awsCLI("codebuild", "start-build", "--project-name", proj))
 	var sb struct {
 		Build struct {
@@ -104,6 +131,53 @@ func TestCodeBuildCLI_BuildBatches(t *testing.T) {
 	}
 	parseJSON(t, out, &del)
 	require.Contains(t, del.BuildsDeleted, sb.Build.ID)
+}
+
+// start-build --image-override runs the build in the override's image: the
+// project's busybox image has no /etc/os-release and Alpine's has.
+func TestCodeBuildCLI_StartBuildImageOverride(t *testing.T) {
+	t.Parallel()
+	proj := cliUniqueName("cb-cli-image")
+	runCLI(t, awsCLI("codebuild", "create-project",
+		"--name", proj,
+		"--source", `{"type":"NO_SOURCE","buildspec":"version: 0.2\nphases:\n  build:\n    commands:\n      - cat /etc/os-release\n"}`,
+		"--artifacts", `{"type":"NO_ARTIFACTS"}`,
+		"--environment", `{"type":"LINUX_CONTAINER","image":"mirror.gcr.io/library/busybox:latest","computeType":"BUILD_GENERAL1_SMALL"}`,
+		"--service-role", cliServiceRole(t, "codebuild.amazonaws.com"),
+	))
+	t.Cleanup(func() { runCLI(t, awsCLI("codebuild", "delete-project", "--name", proj)) })
+
+	out := runCLI(t, awsCLI("codebuild", "start-build", "--project-name", proj,
+		"--image-override", "mirror.gcr.io/library/alpine:3.21"))
+	var start struct {
+		Build struct {
+			ID          string `json:"id"`
+			Environment struct {
+				Image string `json:"image"`
+			} `json:"environment"`
+		} `json:"build"`
+	}
+	parseJSON(t, out, &start)
+	assert.Equal(t, "mirror.gcr.io/library/alpine:3.21", start.Build.Environment.Image)
+
+	var builds struct {
+		Builds []struct {
+			BuildStatus string `json:"buildStatus"`
+			Logs        struct {
+				GroupName  string `json:"groupName"`
+				StreamName string `json:"streamName"`
+			} `json:"logs"`
+		} `json:"builds"`
+	}
+	require.Eventually(t, func() bool {
+		parseJSON(t, runCLI(t, awsCLI("codebuild", "batch-get-builds", "--ids", start.Build.ID)), &builds)
+		return builds.Builds[0].BuildStatus != "IN_PROGRESS"
+	}, cbCLIBuildCompletionBudget, 100*time.Millisecond)
+	require.Equal(t, "SUCCEEDED", builds.Builds[0].BuildStatus)
+	logs := runCLI(t, awsCLI("logs", "filter-log-events",
+		"--log-group-name", builds.Builds[0].Logs.GroupName,
+		"--log-stream-names", builds.Builds[0].Logs.StreamName))
+	assert.Contains(t, logs, "ID=alpine")
 }
 
 // TestCodeBuildCLI_Fleets covers create-fleet, update-fleet, batch-get-fleets,

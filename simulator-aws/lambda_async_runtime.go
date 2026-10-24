@@ -1,13 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
+	"net/url"
 	"strings"
 	"time"
 
@@ -180,37 +179,102 @@ func lambdaCompleteAsyncInvocation(item delivery.Item[LambdaAsyncInvocation], re
 	if err != nil {
 		return
 	}
-	lambdaDeliverAsyncDestination(destination.Destination, body)
+	if err := lambdaDeliverAsyncDestination(context.Background(), invocation.Function, destination.Destination, body); err != nil {
+		lambdaRecordDestinationDeliveryFailure(invocation.Function, destination.Destination, err)
+	}
 }
 
-func lambdaDeliverAsyncDestination(destinationARN string, body []byte) {
+// lambdaDestinationActor is who AWS Lambda sends a function's invocation
+// record as: a session of the function's execution role, whose policies must
+// allow the send.
+func lambdaDestinationActor(function LambdaFunction) awsActor {
+	return awsActor{Service: "lambda.amazonaws.com", Source: function.FunctionArn, Role: function.Role}
+}
+
+// lambdaDeliverAsyncDestination sends the record to the destination through
+// the destination service's API as the function's execution role and returns
+// what the service refused.
+func lambdaDeliverAsyncDestination(ctx context.Context, function LambdaFunction, destinationARN string, body []byte) error {
+	actor := lambdaDestinationActor(function)
+	var (
+		status    int
+		response  []byte
+		err       error
+		xmlErrors bool
+	)
 	switch {
 	case strings.HasPrefix(destinationARN, "arn:aws:sqs:"):
-		queueName := snsTopicNameFromARN(destinationARN)
-		if _, ok := sqsQueues.Get(queueName); ok {
-			sqsEnqueueBody(queueName, string(body))
-		}
+		queue := destinationARN[strings.LastIndex(destinationARN, ":")+1:]
+		status, response, err = awsCallJSON(ctx, actor, "sqs", "AmazonSQS.SendMessage", "application/x-amz-json-1.0",
+			map[string]any{"QueueUrl": sqsQueueURL(queue), "MessageBody": string(body)})
 	case strings.HasPrefix(destinationARN, "arn:aws:sns:"):
-		if _, ok := snsTopics.Get(snsTopicNameFromARN(destinationARN)); ok {
-			snsFanout(destinationARN, sim.NewUUID(), "", string(body), nil)
-		}
+		xmlErrors = true
+		status, response, err = awsCallQuery(ctx, actor, "sns", "Publish", "2010-03-31",
+			url.Values{"TopicArn": {destinationARN}, "Message": {string(body)}})
 	case strings.HasPrefix(destinationARN, "arn:aws:events:"):
-		entries, err := json.Marshal(map[string]any{"Entries": []map[string]any{{
-			"Source":       "lambda",
-			"DetailType":   "Lambda Function Invocation Result",
-			"Detail":       string(body),
-			"EventBusName": destinationARN,
-		}}})
-		if err != nil {
-			return
+		status, response, err = awsCallJSON(ctx, actor, "events", "AWSEvents.PutEvents", "application/x-amz-json-1.1",
+			map[string]any{"Entries": []map[string]any{{
+				"Source":       "lambda",
+				"DetailType":   "Lambda Function Invocation Result",
+				"Detail":       string(body),
+				"EventBusName": destinationARN,
+			}}})
+		if err == nil && status < http.StatusBadRequest {
+			return ebPutEventsEntryError(response)
 		}
-		request := httptest.NewRequestWithContext(sfnAWSServer.RequestContext(context.Background()),
-			http.MethodPost, "/", bytes.NewReader(entries))
-		request.Header.Set("Content-Type", "application/x-amz-json-1.1")
-		handleEBPutEvents(httptest.NewRecorder(), request)
 	case strings.HasPrefix(destinationARN, "arn:aws:lambda:"):
-		if target, qualifier, ok := lambdaResolveInvocationTarget(destinationARN, ""); ok {
-			lambdaInvokeAsynchronously(target, body, qualifier)
-		}
+		status, response, err = awsCall(ctx, actor, "lambda", http.MethodPost,
+			"/2015-03-31/functions/"+url.PathEscape(destinationARN)+"/invocations",
+			http.Header{"X-Amz-Invocation-Type": {"Event"}, "Content-Type": {"application/json"}}, body)
+	default:
+		return &awsCallError{Status: http.StatusBadRequest, Code: "InvalidParameterValueException",
+			Message: "The destination ARN " + destinationARN + " is not an Amazon SQS queue, Amazon SNS topic, AWS Lambda function or Amazon EventBridge event bus"}
 	}
+	if err != nil {
+		return err
+	}
+	if status >= http.StatusBadRequest {
+		code, message := awsJSONError(response)
+		if xmlErrors {
+			code, message = awsXMLError(response)
+		}
+		return &awsCallError{Status: status, Code: code, Message: message}
+	}
+	return nil
+}
+
+// ebPutEventsEntryError is the error a PutEvents response reports for its one
+// entry, if it reports one.
+func ebPutEventsEntryError(response []byte) error {
+	var result struct {
+		FailedEntryCount int `json:"FailedEntryCount"`
+		Entries          []struct {
+			ErrorCode    string `json:"ErrorCode"`
+			ErrorMessage string `json:"ErrorMessage"`
+		} `json:"Entries"`
+	}
+	if err := json.Unmarshal(response, &result); err != nil {
+		return err
+	}
+	if result.FailedEntryCount > 0 && len(result.Entries) > 0 {
+		return &awsCallError{Status: http.StatusBadRequest, Code: result.Entries[0].ErrorCode, Message: result.Entries[0].ErrorMessage}
+	}
+	return nil
+}
+
+// lambdaRecordDestinationDeliveryFailure reports a record the destination did
+// not accept the way AWS Lambda does: in the function's
+// DestinationDeliveryFailures metric and in the simulator's log.
+func lambdaRecordDestinationDeliveryFailure(function LambdaFunction, destinationARN string, err error) {
+	cwStoreDatum(CWMetricDatum{
+		Namespace:  "AWS/Lambda",
+		MetricName: "DestinationDeliveryFailures",
+		Dimensions: []CWDimension{{Name: "FunctionName", Value: function.FunctionName}},
+		Value:      1,
+		Unit:       "Count",
+		Timestamp:  float64(time.Now().Unix()),
+	})
+	logger := sfnAWSServer.Logger()
+	logger.Warn().Str("function", function.FunctionArn).Str("destination", destinationARN).Err(err).
+		Msg("AWS Lambda could not deliver an asynchronous invocation record to its destination")
 }

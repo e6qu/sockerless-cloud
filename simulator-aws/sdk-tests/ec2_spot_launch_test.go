@@ -23,6 +23,7 @@ func TestEC2_RunInstancesLaunchesASpotInstance(t *testing.T) {
 	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
 		ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
+		IamInstanceProfile: ssmManagedProfileSpec(t),
 		InstanceMarketOptions: &types.InstanceMarketOptionsRequest{
 			MarketType:  types.MarketTypeSpot,
 			SpotOptions: &types.SpotMarketOptions{MaxPrice: aws.String("0.0104")},

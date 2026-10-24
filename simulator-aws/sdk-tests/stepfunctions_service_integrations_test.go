@@ -608,7 +608,7 @@ phases:
 	require.NoError(t, err)
 	machine, err := statesAPI.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name: aws.String("sfn-ecs-codebuild-integrations"), Definition: aws.String(string(definition)),
-		RoleArn: aws.String(statesRole(t, "ecs:RunTask", "codebuild:StartBuild")),
+		RoleArn: aws.String(statesRole(t, "ecs:RunTask", "ecs:DescribeTasks", "codebuild:StartBuild", "codebuild:BatchGetBuilds")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -675,7 +675,7 @@ phases:
 	require.NoError(t, err)
 	failingMachine, err := statesAPI.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name: aws.String("sfn-codebuild-real-failure"), Definition: aws.String(string(failingDefinition)),
-		RoleArn: aws.String(statesRole(t, "codebuild:StartBuild")),
+		RoleArn: aws.String(statesRole(t, "codebuild:StartBuild", "codebuild:BatchGetBuilds")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -739,7 +739,7 @@ phases:
 	require.NoError(t, err)
 	cancelMachine, err := statesAPI.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name: aws.String("sfn-codebuild-real-cancellation"), Definition: aws.String(string(cancelDefinition)),
-		RoleArn: aws.String(statesRole(t, "codebuild:StartBuild")),
+		RoleArn: aws.String(statesRole(t, "codebuild:StartBuild", "codebuild:BatchGetBuilds", "codebuild:StopBuild")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -908,7 +908,7 @@ timeout -s TERM 120 terraform apply -auto-approve -input=false -no-color`,
 	machine, err := statesAPI.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String("sfn-terraform-apply"),
 		Definition: aws.String(string(definition)),
-		RoleArn:    aws.String(statesRole(t, "ecs:RunTask")),
+		RoleArn:    aws.String(statesRole(t, "ecs:RunTask", "ecs:DescribeTasks", "ecs:StopTask")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -1033,4 +1033,109 @@ func TestSFN_TasksActAsTheExecutionRole_SDK(t *testing.T) {
 	}
 	messages := receiveSQSMessages(t, queueAPI, queue.QueueUrl, 1, 5*time.Second)
 	assert.Equal(t, "sent-as-the-role", aws.ToString(messages[0].Body))
+}
+
+// TestSFN_SyncIntegrationsActAsTheExecutionRole_SDK proves a .sync integration
+// waits through the service's API as the execution role: a role allowed
+// ecs:RunTask but not ecs:DescribeTasks starts the task and then fails the
+// state with the ECS-named refusal, and stopping a parent execution stops the
+// nested execution it waits on through states:StopExecution.
+func TestSFN_SyncIntegrationsActAsTheExecutionRole_SDK(t *testing.T) {
+	t.Parallel()
+	statesAPI := sfnClient()
+	ecsAPI := ecsClient()
+
+	cluster := uniqueName("sfn-sync-role")
+	_, err := ecsAPI.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
+	require.NoError(t, err)
+	taskDefinition, err := ecsAPI.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+		Family: aws.String(uniqueName("sfn-sync-role")),
+		ContainerDefinitions: []ecstypes.ContainerDefinition{{
+			StopTimeout: aws.Int32(2), Name: aws.String("work"),
+			Image: aws.String(containerCommandImage), Command: []string{"hold"},
+		}},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		tasks, _ := ecsAPI.ListTasks(ctx, &ecs.ListTasksInput{Cluster: aws.String(cluster)})
+		for _, task := range tasks.TaskArns {
+			_, _ = ecsAPI.StopTask(ctx, &ecs.StopTaskInput{Cluster: aws.String(cluster), Task: aws.String(task)})
+		}
+		_, _ = ecsAPI.DeregisterTaskDefinition(ctx, &ecs.DeregisterTaskDefinitionInput{TaskDefinition: taskDefinition.TaskDefinition.TaskDefinitionArn})
+		_, _ = ecsAPI.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)})
+	})
+	definition, err := json.Marshal(map[string]any{
+		"StartAt": "RunTask",
+		"States": map[string]any{
+			"RunTask": map[string]any{
+				"Type": "Task", "Resource": "arn:aws:states:::ecs:runTask.sync",
+				"Parameters": map[string]any{
+					"Cluster": cluster, "TaskDefinition": aws.ToString(taskDefinition.TaskDefinition.TaskDefinitionArn),
+				},
+				"End": true,
+			},
+		},
+	})
+	require.NoError(t, err)
+	runOnly := statesRole(t, "ecs:RunTask")
+	machine, err := statesAPI.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
+		Name: aws.String(uniqueName("sfn-sync-role")), Definition: aws.String(string(definition)), RoleArn: aws.String(runOnly),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = statesAPI.DeleteStateMachine(ctx, &sfn.DeleteStateMachineInput{StateMachineArn: machine.StateMachineArn})
+	})
+	execution, err := statesAPI.StartExecution(ctx, &sfn.StartExecutionInput{StateMachineArn: machine.StateMachineArn})
+	require.NoError(t, err)
+	var described *sfn.DescribeExecutionOutput
+	require.Eventually(t, func() bool {
+		described, err = statesAPI.DescribeExecution(ctx, &sfn.DescribeExecutionInput{ExecutionArn: execution.ExecutionArn})
+		return err == nil && described.Status != sfntypes.ExecutionStatusRunning
+	}, time.Minute, 200*time.Millisecond)
+	assert.Equal(t, sfntypes.ExecutionStatusFailed, described.Status)
+	assert.Equal(t, "ECS.AccessDeniedException", aws.ToString(described.Error))
+	assert.Contains(t, aws.ToString(described.Cause), "assumed-role/"+runOnly[strings.LastIndex(runOnly, "/")+1:]+"/")
+	tasks, err := ecsAPI.ListTasks(ctx, &ecs.ListTasksInput{Cluster: aws.String(cluster)})
+	require.NoError(t, err)
+	assert.Len(t, tasks.TaskArns, 1, "the role may run the task; only the wait on it is refused")
+
+	child, err := statesAPI.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
+		Name:       aws.String(uniqueName("sfn-sync-child")),
+		Definition: aws.String(`{"StartAt":"Hold","States":{"Hold":{"Type":"Wait","Seconds":300,"End":true}}}`),
+		RoleArn:    aws.String(serviceRole(t, "states.amazonaws.com")),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = statesAPI.DeleteStateMachine(ctx, &sfn.DeleteStateMachineInput{StateMachineArn: child.StateMachineArn})
+	})
+	parentDefinition := fmt.Sprintf(
+		`{"StartAt":"Child","States":{"Child":{"Type":"Task","Resource":"arn:aws:states:::states:startExecution.sync:2","Parameters":{"StateMachineArn":%q},"End":true}}}`,
+		aws.ToString(child.StateMachineArn))
+	parent, err := statesAPI.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
+		Name: aws.String(uniqueName("sfn-sync-parent")), Definition: aws.String(parentDefinition),
+		RoleArn: aws.String(statesRole(t, "states:StartExecution", "states:DescribeExecution", "states:StopExecution")),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = statesAPI.DeleteStateMachine(ctx, &sfn.DeleteStateMachineInput{StateMachineArn: parent.StateMachineArn})
+	})
+	started, err := statesAPI.StartExecution(ctx, &sfn.StartExecutionInput{StateMachineArn: parent.StateMachineArn})
+	require.NoError(t, err)
+	// The child starts behind the parent's task state; ListExecutions is the
+	// only place it appears, and Step Functions offers no waiter for it.
+	var childExecution string
+	require.Eventually(t, func() bool {
+		children, listErr := statesAPI.ListExecutions(ctx, &sfn.ListExecutionsInput{StateMachineArn: child.StateMachineArn})
+		if listErr != nil || len(children.Executions) != 1 {
+			return false
+		}
+		childExecution = aws.ToString(children.Executions[0].ExecutionArn)
+		return true
+	}, 30*time.Second, 200*time.Millisecond)
+	_, err = statesAPI.StopExecution(ctx, &sfn.StopExecutionInput{ExecutionArn: started.ExecutionArn})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		childDescribed, describeErr := statesAPI.DescribeExecution(ctx, &sfn.DescribeExecutionInput{ExecutionArn: aws.String(childExecution)})
+		return describeErr == nil && childDescribed.Status == sfntypes.ExecutionStatusAborted
+	}, 30*time.Second, 200*time.Millisecond, "stopping the parent must stop the nested execution it waits on")
 }

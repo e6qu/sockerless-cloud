@@ -1246,6 +1246,11 @@ func createAndStartContainer(ctx context.Context, cli *client.Client, cfg Contai
 		resp, err = cli.ContainerCreate(ctx, create)
 	}
 	if err != nil {
+		// The engine can finish a create whose request the client abandoned
+		// when ctx ended, so remove what it may have made under the name.
+		if cfg.Name != "" && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+			removeCreated(ctx, cli, cfg.Name)
+		}
 		return "", fmt.Errorf("container create: %w", err)
 	}
 	if err := seedContainer(ctx, cli, resp.ID, cfg.Seed); err != nil {

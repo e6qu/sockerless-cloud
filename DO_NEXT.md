@@ -11,8 +11,14 @@
   `sim/jobrun`, `sim/funcrt`, the queue waiter in `sim/msgq` with Cloud
   Tasks, and `sim/eventbus` with its filter dialects and Cloud Scheduler,
   each in one pull request that moves its consumers and closes their bugs.
-  AWS Step Functions' `.sync` waits (BUG-3533) and AWS Lambda's asynchronous
-  destinations (BUG-3564) move onto `awsCall`.
+- **Finish the AWS integration remainders**: Step Functions' EventBridge
+  managed rules (BUG-3533), Lambda's Amazon S3 destination (BUG-3564),
+  EventBridge's remaining target types and `tag:` Run Command targets
+  (BUG-3534), CodeBuild fleets, artifacts and batch timeouts (BUG-3570), and
+  Amazon RDS resources beyond DB instances in their Region (BUG-3358).
+- **Elastic Load Balancing's data plane**: the authenticate actions, the
+  remaining routing algorithms and stickiness types, and captured refusal
+  messages (BUG-3554).
 - **Stage 6 of `PLAN.md`: distributed.** The agent on another host, reached
   over its API with its minted token, and networks that span hosts; the
   same-range gap (two live VPCs over one CIDR on one engine) lifts there.

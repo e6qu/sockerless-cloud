@@ -1,10 +1,12 @@
 package aws_sdk_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/stretchr/testify/assert"
@@ -269,9 +271,47 @@ func TestSSM_CommandLifecycle(t *testing.T) {
 	})
 	requireAWSErrorCode(t, err, "InvalidInstanceId")
 
+	// A running instance whose profile does not let SSM Agent register it is
+	// no managed node: Run Command refuses it and DescribeInstanceInformation
+	// does not list it.
 	ec2c := ec2Client()
-	instanceID := launchInstanceFor(t, ec2c, "10.205.0.0/16")
-	waitForEC2InstanceRunning(t, ec2c, instanceID)
+	unmanaged := launchInstanceFor(t, ec2c, "10.168.0.0/16")
+	waitForEC2InstanceRunning(t, ec2c, unmanaged)
+	_, err = c.SendCommand(ctx, &ssm.SendCommandInput{
+		DocumentName: aws.String(docName),
+		InstanceIds:  []string{unmanaged},
+	})
+	requireAWSErrorCode(t, err, "InvalidInstanceId")
+	_, err = c.DescribeInstanceInformation(ctx, &ssm.DescribeInstanceInformationInput{
+		Filters: []ssmtypes.InstanceInformationStringFilter{{Key: aws.String("InstanceIds"), Values: []string{unmanaged}}},
+	})
+	requireAWSErrorCode(t, err, "InvalidInstanceId")
+
+	instanceID := launchSSMManagedInstanceFor(t, ec2c, "10.205.0.0/16")
+	described, err := ec2c.DescribeInstances(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{instanceID}})
+	require.NoError(t, err)
+	instance := described.Reservations[0].Instances[0]
+	nodes, err := c.DescribeInstanceInformation(ctx, &ssm.DescribeInstanceInformationInput{
+		Filters: []ssmtypes.InstanceInformationStringFilter{{Key: aws.String("InstanceIds"), Values: []string{instanceID}}},
+	})
+	require.NoError(t, err)
+	require.Len(t, nodes.InstanceInformationList, 1)
+	node := nodes.InstanceInformationList[0]
+	assert.Equal(t, ssmtypes.PingStatusOnline, node.PingStatus)
+	assert.Equal(t, ssmtypes.ResourceTypeEc2Instance, node.ResourceType)
+	assert.Equal(t, ssmtypes.PlatformTypeLinux, node.PlatformType)
+	assert.Equal(t, "Amazon Linux", aws.ToString(node.PlatformName), "SSM Agent reports the platform the AMI runs")
+	assert.Equal(t, "2023", aws.ToString(node.PlatformVersion))
+	assert.Equal(t, aws.ToString(instance.PrivateIpAddress), aws.ToString(node.IPAddress))
+	assert.Equal(t, aws.ToString(instance.PrivateDnsName), aws.ToString(node.ComputerName))
+	assert.Equal(t, aws.ToString(instance.IamInstanceProfile.Arn)[strings.LastIndex(aws.ToString(instance.IamInstanceProfile.Arn), "/")+1:], aws.ToString(node.IamRole))
+	byPlatform, err := c.DescribeInstanceInformation(ctx, &ssm.DescribeInstanceInformationInput{
+		Filters: []ssmtypes.InstanceInformationStringFilter{{Key: aws.String("PlatformTypes"), Values: []string{"Windows"}}},
+	})
+	require.NoError(t, err)
+	for _, listed := range byPlatform.InstanceInformationList {
+		assert.NotEqual(t, instanceID, aws.ToString(listed.InstanceId), "a PlatformTypes filter leaves out a Linux node")
+	}
 
 	send, err := c.SendCommand(ctx, &ssm.SendCommandInput{
 		DocumentName: aws.String(docName),

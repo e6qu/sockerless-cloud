@@ -19,6 +19,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/lbplane"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 )
 
@@ -133,8 +134,13 @@ type amplifyComputeInstance struct {
 	jobID     string
 	hostPort  int
 	bundleDir string
-	handle    *sim.ContainerHandle
+	handle    placement.Handle
 }
+
+// amplifyComputeBackend places compute containers; it forwards a container's
+// loopback, where the container credentials endpoint serves the compute's
+// role sessions.
+var amplifyComputeBackend placement.Backend = placement.ContainerBackend{}
 
 var (
 	amplifyComputeMu        sync.Mutex
@@ -171,14 +177,19 @@ func recoverAmplifyComputeInstances() error {
 			}
 			jobID = job.Job.Summary.JobId
 		}
-		if !workload.Running {
-			if err := sim.StartExistingContainer(workload.ID); err != nil {
-				return fmt.Errorf("restart AWS Amplify Hosting compute container %s: %w", workload.ID, err)
-			}
-		}
-		handle, err := sim.AdoptContainer(workload.ID, sim.ContainerConfig{}, sim.NoopSink{})
+		handle, err := amplifyComputeBackend.Adopt(context.Background(), workload.ID, sim.ContainerConfig{}, sim.NoopSink{})
 		if err != nil {
 			return fmt.Errorf("adopt AWS Amplify Hosting compute container %s: %w", workload.ID, err)
+		}
+		if !workload.Running {
+			// A compute that went down starts again on the branch's next
+			// request, from the deployment that is active then.
+			handle.Cancel()
+			revokeRoleCredentials(roleHolder("amplify", key))
+			if dir := workload.Labels["sockerless-amplify-bundle-dir"]; dir != "" {
+				_ = os.RemoveAll(dir)
+			}
+			continue
 		}
 		hostPort, err := handle.PublishedPort(context.Background(), amplifyComputePort)
 		if err != nil {
@@ -215,6 +226,7 @@ func amplifyStopComputeLocked(key string) {
 	if instance.handle != nil {
 		instance.handle.Cancel()
 	}
+	revokeRoleCredentials(roleHolder("amplify", key))
 	if instance.bundleDir != "" {
 		_ = os.RemoveAll(instance.bundleDir)
 	}
@@ -271,15 +283,18 @@ func amplifyEnsureCompute(app AmplifyApp, br AmplifyBranch, content *amplifyHost
 	}
 	env["PORT"] = strconv.Itoa(amplifyComputePort)
 	// The compute runs under the branch's compute role, or the app's when the
-	// branch names none.
+	// branch names none: its SDKs read the role's sessions from the container
+	// credentials endpoint for as long as the compute lives.
 	computeRole := firstNonEmpty(br.ComputeRoleArn, app.ComputeRoleArn)
 	network, err := awsPlatformNetwork(context.Background())
 	if err != nil {
 		_ = os.RemoveAll(bundleDir)
 		return 0, fmt.Errorf("compute network: %w", err)
 	}
+	holder := roleHolder("amplify", key)
+	credentials := grantContainerCredentials(amplifyComputeBackend, network, holder, computeRole, app.AppId)
 
-	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
+	handle, err := credentials.place(context.Background(), amplifyComputeBackend, sim.ContainerConfig{
 		Image:        image,
 		Architecture: "linux/" + runtime.GOARCH,
 		Command:      []string{"node", compute.Entrypoint},
@@ -288,7 +303,7 @@ func amplifyEnsureCompute(app AmplifyApp, br AmplifyBranch, content *amplifyHost
 		// relabel lets the confined workload read the real host directory on
 		// enforcing hosts and is accepted as a no-op by Docker elsewhere.
 		Binds:   []string{bundleDir + ":/bundle:ro,z"},
-		Env:     workloadhost.MergeEnv(env, roleEnvironmentCredentials(roleHolder("amplify", key), computeRole, app.AppId)),
+		Env:     workloadhost.MergeEnv(env, credentials.Env),
 		Network: network.Name,
 		DNS:     network.DNS(),
 		Labels: map[string]string{
@@ -300,17 +315,20 @@ func amplifyEnsureCompute(app AmplifyApp, br AmplifyBranch, content *amplifyHost
 		Sandbox:      SandboxFargate,
 	}, sim.NoopSink{})
 	if err != nil {
+		revokeRoleCredentials(holder)
 		_ = os.RemoveAll(bundleDir)
 		return 0, fmt.Errorf("start compute container: %w", err)
 	}
 	hostPort, err := handle.PublishedPort(context.Background(), amplifyComputePort)
 	if err != nil {
 		handle.Cancel()
+		revokeRoleCredentials(holder)
 		_ = os.RemoveAll(bundleDir)
 		return 0, fmt.Errorf("start compute container: %w", err)
 	}
 	if err := amplifyWaitForPort(hostPort, 60*time.Second); err != nil {
 		handle.Cancel()
+		revokeRoleCredentials(holder)
 		_ = os.RemoveAll(bundleDir)
 		return 0, fmt.Errorf("compute entrypoint %s never listened on PORT %d: %w", compute.Entrypoint, amplifyComputePort, err)
 	}

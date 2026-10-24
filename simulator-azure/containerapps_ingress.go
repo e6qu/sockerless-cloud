@@ -148,17 +148,23 @@ func acaRequestRevision(app ContainerApp, host string) (acaRevision, bool) {
 const acaIngressRequestTimeout = 240 * time.Second
 
 // acaIngressForwardedHeaders adds the headers the ingress documents: the
-// client's IP appended to X-Forwarded-For, and X-Forwarded-Proto overwritten
-// with the protocol the client used.
-func acaIngressForwardedHeaders(r *http.Request) func(http.Header) {
+// client's IP appended to X-Forwarded-For, X-Forwarded-Proto overwritten
+// with the protocol the client used, and the client certificate as
+// X-Forwarded-Client-Cert when the ingress accepts or requires one.
+func acaIngressForwardedHeaders(r *http.Request, app ContainerApp) func(http.Header) {
 	clientIP, _ := lbplane.ClientAddress(r)
 	proto := "http"
 	if r.TLS != nil {
 		proto = "https"
 	}
+	clientCert := acaClientCertHeader(r, app)
 	return func(h http.Header) {
 		lbplane.AppendToHeaderList(h, "X-Forwarded-For", ", ", clientIP)
 		h.Set("X-Forwarded-Proto", proto)
+		h.Del("X-Forwarded-Client-Cert")
+		if clientCert != "" {
+			h.Set("X-Forwarded-Client-Cert", clientCert)
+		}
 	}
 }
 
@@ -195,7 +201,7 @@ func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp, r
 		Address:       net.JoinHostPort(ip, strconv.Itoa(int(acaIngressTargetPort(app)))),
 		Path:          r.URL.EscapedPath(),
 		RawQuery:      r.URL.RawQuery,
-		RequestHeader: acaIngressForwardedHeaders(r),
+		RequestHeader: acaIngressForwardedHeaders(r, app),
 		Timeout:       acaIngressRequestTimeout,
 	}
 	sim.DeclareWait(r.Context(), up.Timeout)

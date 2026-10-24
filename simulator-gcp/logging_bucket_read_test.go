@@ -37,6 +37,9 @@ func TestLoggingEntriesListReadsBucketsAndViews(t *testing.T) {
 		var payloads []string
 		for _, e := range entries {
 			entry, _ := e.(map[string]any)
+			if loggingIsAuditEntry(entry) {
+				continue
+			}
 			payload, _ := entry["textPayload"].(string)
 			payloads = append(payloads, payload)
 		}

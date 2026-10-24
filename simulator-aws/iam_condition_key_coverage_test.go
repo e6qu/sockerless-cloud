@@ -96,8 +96,6 @@ var iamConditionKeyGapReasons = map[string]string{
 	"job-operation-shape": "A batch job's Operation structure takes exactly one member. The probe fills every " +
 		"member, which is an operation no client sends, and the gate rightly names none; a one-member request is " +
 		"covered by TestS3ControlConditionKeysReadTheRequestedJob.",
-	"access-request-unmodelled": "The just-in-time node access request a Session Manager session is opened " +
-		"under. The simulator models no access requests.",
 }
 
 // iamConditionKeyPair is one key an action declares.

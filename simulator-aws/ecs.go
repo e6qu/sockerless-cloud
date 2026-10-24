@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,7 +18,6 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/placement"
-	"github.com/e6qu/sockerless-cloud/sim/sparse"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 
@@ -409,6 +410,8 @@ var (
 	// An empty store answers the question truthfully (nothing is registered,
 	// so nothing is associated); a nil one panicked in the middle of serving.
 	ecsTasks sim.Store[ECSTask] = sim.NewStateStore[ECSTask]()
+	// ecsTaskChanges wakes a waiter on a task when the store writes it.
+	ecsTaskChanges = newStoreChanges()
 	// ecsRevisionMu guards the task-definition revision index. Resolving a
 	// revision is a read on the hot path of every describe and every task
 	// start; registering one is the write. Reads take RLock, writes keep Lock,
@@ -607,7 +610,8 @@ func registerECS(r *AWSRouter, srv *sim.Server) {
 	// Read in bulk by every ListTaskDefinitions and ListTaskDefinitionFamilies,
 	// so the rows stay in memory rather than each call decoding them all.
 	ecsTaskDefinitions = sim.MakeCachedStore[ECSTaskDefinition](srv.DB(), "ecs_task_definitions")
-	ecsTasks = sim.MakeStore[ECSTask](srv.DB(), "ecs_tasks")
+	ecsTasks = announcing(sim.MakeStore[ECSTask](srv.DB(), "ecs_tasks"), ecsTaskChanges)
+	ecsManagedVolumeOwners = sim.MakeStore[ecsManagedVolumeOwner](srv.DB(), "ecs_managed_volume_owners")
 	ecsBackgroundServer = srv
 	startStoreSweeper(srv, ecsSweepStoppedTasks)
 	startECSServiceMetricsPublisher(srv)
@@ -1169,11 +1173,13 @@ type ecsPendingEBSRestore struct {
 	// the volume comes from a snapshot.
 	DockerSrc string
 	DockerDst string
-	HostSrc   string
-	HostDst   string
+	// HydratingVolumeID is a volume Amazon EC2 is still restoring from an
+	// Amazon EC2 snapshot, which the task waits for.
+	HydratingVolumeID string
 }
 
-func ecsPrepareManagedEBSVolumes(ctx context.Context, td ECSTaskDefinition, configs []ECSTaskVolumeConfiguration, taskID, requestedSubnet string) (map[string]string, []ECSAttachment, []ecsPendingEBSRestore, *ecsRequestError) {
+func ecsPrepareManagedEBSVolumes(ctx context.Context, td ECSTaskDefinition, configs []ECSTaskVolumeConfiguration, taskArn, requestedSubnet string) (map[string]string, []ECSAttachment, []ecsPendingEBSRestore, *ecsRequestError) {
+	taskID := taskArn[strings.LastIndex(taskArn, "/")+1:]
 	allowed := ecsConfiguredAtLaunchVolumes(td)
 	hosts := map[string]string{}
 	var attachments []ECSAttachment
@@ -1199,6 +1205,13 @@ func ecsPrepareManagedEBSVolumes(ctx context.Context, td ECSTaskDefinition, conf
 		managed := cfg.ManagedEBSVolume
 		if managed == nil {
 			return nil, nil, nil, &ecsRequestError{"ClientException", fmt.Sprintf("Volume %s requires managedEBSVolume", cfg.Name), http.StatusBadRequest}
+		}
+		if managed.RoleArn == "" {
+			return nil, nil, nil, &ecsRequestError{"InvalidParameterException", fmt.Sprintf("Volume %s requires managedEBSVolume.roleArn", cfg.Name), http.StatusBadRequest}
+		}
+		actor := awsActor{Service: "ecs.amazonaws.com", Source: taskArn, Role: managed.RoleArn}
+		if _, err := awsAssumeServiceRole(actor); err != nil {
+			return nil, nil, nil, &ecsRequestError{"InvalidParameterException", fmt.Sprintf("The roleArn of volume %s could not be assumed. Verify the role exists and its trust policy allows ECS to assume it.", cfg.Name), http.StatusBadRequest}
 		}
 
 		size := managed.SizeInGiB
@@ -1238,88 +1251,59 @@ func ecsPrepareManagedEBSVolumes(ctx context.Context, td ECSTaskDefinition, conf
 			deleteOnTermination = *managed.TerminationPolicy.DeleteOnTermination
 		}
 
-		volumeID := ec2ID("vol")
-		now := time.Now().UTC().Format(time.RFC3339)
-		vol := EC2Volume{
-			VolumeId:         volumeID,
-			Size:             size,
-			SnapshotId:       snapshotID,
-			AvailabilityZone: az,
-			State:            "in-use",
-			CreateTime:       now,
-			VolumeType:       volumeType,
-			Iops:             managed.Iops,
-			Throughput:       managed.Throughput,
-			Encrypted:        managed.Encrypted,
-			Tags:             ecsManagedEBSTags(managed.TagSpecifications),
-			Attachments: []EC2VolumeAttachment{{
-				VolumeId:            volumeID,
-				InstanceId:          taskID,
-				Device:              cfg.Name,
-				State:               "attached",
-				AttachTime:          now,
-				DeleteOnTermination: deleteOnTermination,
-			}},
-		}
-		// In process mode (SIM_RUNTIME=process) there is no Docker client, so
-		// back the managed-EBS volume with a host-path directory — the same
-		// in-memory model ec2:CreateVolume uses — rather than a Docker named
-		// volume. Otherwise the deleteOnTermination cleanup (ebsRemoveDockerVolume)
-		// would dereference the nil Docker client and panic the transition
-		// goroutine. Container mode keeps the Docker named volume.
 		processMode := sim.DockerClient() == nil
-		if processMode {
-			if err := ebsPrepareVolumeHostPath(&vol); err != nil {
-				return nil, nil, nil, &ecsRequestError{"InternalError", fmt.Sprintf("could not create managed EBS volume data path: %v", err), http.StatusInternalServerError}
-			}
-		} else {
-			vol.DockerVolumeName = ebsECSDockerVolumeName(volumeID)
-		}
-		// Filling the volume from a snapshot is deferred to the task's
-		// transition: see ecsPendingEBSRestore.
 		if snapshotDockerVolumeName != "" && processMode {
 			return nil, nil, nil, &ecsRequestError{"InvalidParameterException", fmt.Sprintf("managed-EBS snapshot %s is Docker-volume-backed and cannot be restored under SIM_RUNTIME=process — start the simulator in container runtime to restore it", snapshotID), http.StatusBadRequest}
 		}
-		if !processMode && snapshotHostPath == "" {
+		vol, requestErr := ecsCreateManagedEBSVolume(ctx, actor, cfg.Name, managed, size, snapshotID, volumeType, az)
+		if requestErr != nil {
+			return nil, nil, nil, requestErr
+		}
+		volumeID := vol.VolumeId
+		ecsManagedVolumeOwners.Put(volumeID, ecsManagedVolumeOwner{TaskArn: taskArn, RoleArn: managed.RoleArn})
+		// Amazon EC2 holds the volume; the task's hold on it is Amazon ECS's own
+		// record, as a Fargate task is no instance AttachVolume names.
+		vol.State = "in-use"
+		vol.Attachments = []EC2VolumeAttachment{{
+			VolumeId:            volumeID,
+			InstanceId:          taskID,
+			Device:              cfg.Name,
+			State:               "attached",
+			AttachTime:          time.Now().UTC().Format(time.RFC3339),
+			DeleteOnTermination: deleteOnTermination,
+		}}
+		// A volume restored from an Amazon EC2 snapshot hydrates on the host,
+		// where the task mounts it once it is available. Any other volume the
+		// engine holds as a named volume, so sibling task containers reach it
+		// wherever the simulator runs; in process mode there is no engine, and
+		// the host path Amazon EC2 made serves.
+		if snapshotHostPath != "" {
 			restores = append(restores, ecsPendingEBSRestore{
-				AttachmentID: "ebs-" + volumeID,
-				VolumeName:   cfg.Name,
-				DockerSrc:    snapshotDockerVolumeName,
-				DockerDst:    vol.DockerVolumeName,
+				AttachmentID:      "ebs-" + volumeID,
+				VolumeName:        cfg.Name,
+				HydratingVolumeID: volumeID,
 			})
-		} else if snapshotHostPath != "" {
-			// Snapshot came from an EC2 volume (host-path); fall back to
-			// directory copy. Only works in on-host topology where the sim process runs
-			// on the same machine as the Docker host.
-			if err := ebsPrepareVolumeHostPath(&vol); err != nil {
-				return nil, nil, nil, &ecsRequestError{"InternalError", fmt.Sprintf("could not create managed EBS volume data path: %v", err), http.StatusInternalServerError}
+		}
+		if snapshotHostPath == "" && !processMode {
+			_ = os.RemoveAll(vol.HostPath)
+			vol.HostPath = ""
+			vol.DockerVolumeName = ebsECSDockerVolumeName(volumeID)
+			// Filling the volume from a snapshot is deferred to the task's
+			// transition: see ecsPendingEBSRestore.
+			if snapshotDockerVolumeName != "" {
+				restores = append(restores, ecsPendingEBSRestore{
+					AttachmentID: "ebs-" + volumeID,
+					VolumeName:   cfg.Name,
+					DockerSrc:    snapshotDockerVolumeName,
+					DockerDst:    vol.DockerVolumeName,
+				})
 			}
-			restores = append(restores, ecsPendingEBSRestore{
-				AttachmentID: "ebs-" + volumeID,
-				VolumeName:   cfg.Name,
-				HostSrc:      snapshotHostPath,
-				HostDst:      vol.HostPath,
-			})
-			// Use host-path bind-mount for this volume since the data is on-disk.
-			ec2Volumes.Put(volumeID, vol)
-			hosts[cfg.Name] = vol.HostPath
-			attachments = append(attachments, ECSAttachment{
-				Id:     "ebs-" + volumeID,
-				Type:   "AmazonElasticBlockStorage",
-				Status: "ATTACHING",
-				Details: []ECSKeyValuePair{
-					{Name: "volumeName", Value: cfg.Name},
-					{Name: "volumeId", Value: volumeID},
-					{Name: "deleteOnTermination", Value: strconv.FormatBool(deleteOnTermination)},
-				},
-			})
-			continue
 		}
 		ec2Volumes.Put(volumeID, vol)
-		if processMode {
-			hosts[cfg.Name] = vol.HostPath
-		} else {
+		if vol.DockerVolumeName != "" {
 			hosts[cfg.Name] = vol.DockerVolumeName
+		} else {
+			hosts[cfg.Name] = vol.HostPath
 		}
 		attachments = append(attachments, ECSAttachment{
 			Id:     "ebs-" + volumeID,
@@ -1335,6 +1319,68 @@ func ecsPrepareManagedEBSVolumes(ctx context.Context, td ECSTaskDefinition, conf
 	return hosts, attachments, restores, nil
 }
 
+// ecsManagedVolumeOwner is the task a managed Amazon EBS volume was created
+// for and the infrastructure role that created it, which releases it.
+type ecsManagedVolumeOwner struct {
+	TaskArn string `json:"taskArn"`
+	RoleArn string `json:"roleArn"`
+}
+
+var ecsManagedVolumeOwners sim.Store[ecsManagedVolumeOwner]
+
+// ecsCreateManagedEBSVolume creates a task's volume through Amazon EC2 as the
+// volume's infrastructure role, with the parameters the configuration maps
+// 1:1 onto CreateVolume.
+func ecsCreateManagedEBSVolume(ctx context.Context, actor awsActor, name string, managed *ECSTaskManagedEBSVolumeConfiguration, size int, snapshotID, volumeType, az string) (EC2Volume, *ecsRequestError) {
+	form := url.Values{
+		"AvailabilityZone": {az},
+		"Size":             {strconv.Itoa(size)},
+		"VolumeType":       {volumeType},
+	}
+	if snapshotID != "" {
+		form.Set("SnapshotId", snapshotID)
+	}
+	if managed.Iops > 0 {
+		form.Set("Iops", strconv.Itoa(managed.Iops))
+	}
+	if managed.Throughput > 0 {
+		form.Set("Throughput", strconv.Itoa(managed.Throughput))
+	}
+	if managed.Encrypted {
+		form.Set("Encrypted", "true")
+	}
+	if managed.KmsKeyId != "" {
+		form.Set("KmsKeyId", managed.KmsKeyId)
+	}
+	if tags := ecsManagedEBSTags(managed.TagSpecifications); len(tags) > 0 {
+		form.Set("TagSpecification.1.ResourceType", "volume")
+		for i, tag := range tags {
+			form.Set(fmt.Sprintf("TagSpecification.1.Tag.%d.Key", i+1), tag.Key)
+			form.Set(fmt.Sprintf("TagSpecification.1.Tag.%d.Value", i+1), tag.Value)
+		}
+	}
+	status, body, err := awsCallQuery(ctx, actor, "ec2", "CreateVolume", "2016-11-15", form)
+	code, message := "", ""
+	switch {
+	case err != nil:
+		code, message = "InternalFailure", err.Error()
+		var refused *awsCallError
+		if errors.As(err, &refused) {
+			code, message = refused.Code, refused.Message
+		}
+	case status >= 400:
+		code, message = awsXMLError(body)
+	}
+	if code != "" {
+		return EC2Volume{}, &ecsRequestError{"ClientException", fmt.Sprintf("The role %s could not create the volume for %s: %s: %s", actor.Role, name, code, message), http.StatusBadRequest}
+	}
+	vol, ok := ec2Volumes.Get(awsXMLText(body, "volumeId"))
+	if !ok {
+		return EC2Volume{}, &ecsRequestError{"ServerException", fmt.Sprintf("The volume created for %s was not found", name), http.StatusInternalServerError}
+	}
+	return vol, nil
+}
+
 // ecsRunPendingEBSRestores hydrates managed-EBS volumes created from a snapshot
 // and marks their attachments ATTACHED once the data is in place. It runs on the
 // task's transition path rather than in the RunTask handler, so a large restore
@@ -1347,9 +1393,12 @@ func ecsRunPendingEBSRestores(ctx context.Context, taskID string, restores []ecs
 			if err := ebsCopyDockerVolumes(ctx, restore.DockerSrc, restore.DockerDst); err != nil {
 				return fmt.Errorf("volume %s: %w", restore.VolumeName, err)
 			}
-		case restore.HostDst != "":
-			if err := sparse.CopyTree(restore.HostDst, restore.HostSrc); err != nil {
+		case restore.HydratingVolumeID != "":
+			if err := ec2AwaitVolumeHydrated(ctx, restore.HydratingVolumeID); err != nil {
 				return fmt.Errorf("volume %s: %w", restore.VolumeName, err)
+			}
+			if vol, ok := ec2Volumes.Get(restore.HydratingVolumeID); ok && vol.State == "error" {
+				return fmt.Errorf("volume %s: Amazon EC2 could not restore %s from its snapshot", restore.VolumeName, vol.VolumeId)
 			}
 		}
 		ecsTasks.Update(taskID, func(t *ECSTask) {
@@ -1364,14 +1413,14 @@ func ecsRunPendingEBSRestores(ctx context.Context, taskID string, restores []ecs
 }
 
 // ecsCleanupTaskManagedEBS releases the task's managed-EBS volumes and returns
-// the container-engine volumes the caller must then remove with
-// ebsRemoveDockerVolumes.
+// the ones whose termination policy deletes them, which the caller then
+// deletes with ecsDeleteManagedVolumes.
 //
 // Every caller runs this inside an ecsTasks.Update callback, which holds the
 // task store's write lock for as long as the callback runs — every other
-// task's transition and every DescribeTasks waits behind it. Removing a volume
-// is an engine call, so that part is handed to the caller to do once the lock
-// is released rather than done here.
+// task's transition and every DescribeTasks waits behind it. Deleting a volume
+// is a call to Amazon EC2 that removes an engine volume, so that part is
+// handed to the caller to do once the lock is released rather than done here.
 func ecsCleanupTaskManagedEBS(task *ECSTask) (doomed []string) {
 	for i := range task.Attachments {
 		att := &task.Attachments[i]
@@ -1382,33 +1431,38 @@ func ecsCleanupTaskManagedEBS(task *ECSTask) (doomed []string) {
 		if volumeID == "" {
 			continue
 		}
-		deleteOnTermination, _ := strconv.ParseBool(ecsTaskDetail(att.Details, "deleteOnTermination"))
-		if deleteOnTermination {
-			if vol, ok := ec2Volumes.Get(volumeID); ok {
-				if vol.DockerVolumeName != "" {
-					doomed = append(doomed, vol.DockerVolumeName)
-				} else {
-					_ = os.RemoveAll(vol.HostPath)
-				}
-			}
-			ec2Volumes.Delete(volumeID)
-		} else {
-			ec2Volumes.Update(volumeID, func(vol *EC2Volume) {
-				vol.State = "available"
-				vol.Attachments = nil
-			})
+		ec2Volumes.Update(volumeID, func(vol *EC2Volume) {
+			vol.State = "available"
+			vol.Attachments = nil
+		})
+		if deleteOnTermination, _ := strconv.ParseBool(ecsTaskDetail(att.Details, "deleteOnTermination")); deleteOnTermination {
+			doomed = append(doomed, volumeID)
 		}
 		att.Status = "DETACHED"
 	}
 	return doomed
 }
 
-// ebsRemoveDockerVolumes removes the container-engine volumes a stopped task's
-// managed-EBS cleanup gave up. Call it after the ecsTasks.Update that produced
-// them has returned.
-func ebsRemoveDockerVolumes(names []string) {
-	for _, name := range names {
-		ebsRemoveDockerVolume(name)
+// ecsDeleteManagedVolumes deletes a stopped task's volumes through Amazon EC2
+// as the infrastructure role that created each, as the termination policy
+// asks. Call it after the ecsTasks.Update that released them has returned. A
+// volume the role is refused stays, as it does in AWS, and the refusal is
+// logged.
+func ecsDeleteManagedVolumes(volumeIDs []string) {
+	for _, volumeID := range volumeIDs {
+		owner, _ := ecsManagedVolumeOwners.Get(volumeID)
+		actor := awsActor{Service: "ecs.amazonaws.com", Source: owner.TaskArn, Role: owner.RoleArn}
+		status, body, err := awsCallQuery(context.Background(), actor, "ec2", "DeleteVolume", "2016-11-15", url.Values{"VolumeId": {volumeID}})
+		switch {
+		case err != nil:
+			log.Printf("Amazon ECS: the volume %s of %s was not deleted: %v", volumeID, owner.TaskArn, err)
+			continue
+		case status >= 400:
+			code, message := awsXMLError(body)
+			log.Printf("Amazon ECS: the volume %s of %s was not deleted: %s: %s", volumeID, owner.TaskArn, code, message)
+			continue
+		}
+		ecsManagedVolumeOwners.Delete(volumeID)
 	}
 }
 
@@ -1757,7 +1811,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 		}
 		taskTags = append(taskTags, in.Tags...)
 
-		taskVolumeHosts, ebsAttachments, pendingRestores, ebsErr := ecsPrepareManagedEBSVolumes(ctx, td, in.VolumeConfigurations, taskID, requestedSubnet)
+		taskVolumeHosts, ebsAttachments, pendingRestores, ebsErr := ecsPrepareManagedEBSVolumes(ctx, td, in.VolumeConfigurations, taskArn, requestedSubnet)
 		if ebsErr != nil {
 			return nil, nil, ebsErr
 		}
@@ -1869,7 +1923,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 						}
 						doomedVolumes = ecsReleaseTaskAttachments(t)
 					})
-					ebsRemoveDockerVolumes(doomedVolumes)
+					ecsDeleteManagedVolumes(doomedVolumes)
 					ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, -1, 0)
 					if task, ok := ecsTasks.Get(id); ok {
 						ecsRequestServiceReconcileForTask(task)
@@ -1923,7 +1977,7 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 					}
 					doomedVolumes = ecsReleaseTaskAttachments(t)
 				})
-				ebsRemoveDockerVolumes(doomedVolumes)
+				ecsDeleteManagedVolumes(doomedVolumes)
 				ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, -1, 0)
 				if task, ok := ecsTasks.Get(id); ok {
 					ecsRequestServiceReconcileForTask(task)
@@ -2103,7 +2157,7 @@ func ecsWatchTaskProcesses(taskID, containerInstanceKey string, processes *ecsTa
 				}
 				doomedVolumes = ecsReleaseTaskAttachments(t)
 			})
-			ebsRemoveDockerVolumes(doomedVolumes)
+			ecsDeleteManagedVolumes(doomedVolumes)
 			if transitioned {
 				ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, 0, -1)
 				if task, ok := ecsTasks.Get(taskID); ok {
@@ -2222,7 +2276,7 @@ func ecsResumePendingTask(ctx context.Context, task ECSTask, definition ECSTaskD
 			}
 			doomedVolumes = ecsReleaseTaskAttachments(current)
 		})
-		ebsRemoveDockerVolumes(doomedVolumes)
+		ecsDeleteManagedVolumes(doomedVolumes)
 		ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, -1, 0)
 		if current, ok := ecsTasks.Get(taskID); ok {
 			ecsRequestServiceReconcileForTask(current)
@@ -2320,7 +2374,7 @@ func ecsMarkMissingRunningTaskStopped(task ECSTask) {
 		}
 		doomedVolumes = ecsReleaseTaskAttachments(current)
 	})
-	ebsRemoveDockerVolumes(doomedVolumes)
+	ecsDeleteManagedVolumes(doomedVolumes)
 	if !transitioned {
 		return
 	}
@@ -3187,7 +3241,7 @@ func ecsFinishTaskStop(ctx context.Context, taskID string) {
 		}
 		doomedVolumes = ecsReleaseTaskAttachments(t)
 	})
-	ebsRemoveDockerVolumes(doomedVolumes)
+	ecsDeleteManagedVolumes(doomedVolumes)
 	if !transitioned {
 		return
 	}

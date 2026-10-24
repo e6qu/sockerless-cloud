@@ -36,7 +36,7 @@ func registerOperations(srv *sim.Server) {
 	// what a client polling a create hits.
 	srv.HandleFunc("GET /v2/operations/{operation...}", func(w http.ResponseWriter, r *http.Request) {
 		name := fmt.Sprintf("operations/%s", sim.PathParam(r, "operation"))
-		if op, ok := crOperations.Get(name); ok {
+		if op, ok := gcpLookupOperation(name); ok {
 			sim.WriteJSON(w, http.StatusOK, op)
 			return
 		}
@@ -48,7 +48,9 @@ func registerOperations(srv *sim.Server) {
 	srv.HandleFunc("DELETE /v1/projects/{project}/locations/{location}/operations/{operation}", handleLocationOperationDelete("v1"))
 	srv.HandleFunc("DELETE /v2/projects/{project}/locations/{location}/operations/{operation}", handleLocationOperationDelete("v2"))
 
-	// Get operation - v1 prefix
+	// Get operation - v1 prefix. Cloud Build's regional build operations are
+	// a view of the build record rather than a stored operation, so the
+	// location's builds are searched after the operation stores.
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/operations/{operation}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
@@ -57,6 +59,10 @@ func registerOperations(srv *sim.Server) {
 
 		if op, ok := gcpLookupOperation(name); ok {
 			sim.WriteJSON(w, http.StatusOK, op)
+			return
+		}
+		if build, ok := cbLocationBuild(project, location, opID); ok {
+			cbWriteBuildOperation(w, project, build)
 			return
 		}
 		// Real GCP returns NOT_FOUND when an operation doesn't exist; a
@@ -145,6 +151,9 @@ func handleLocationOperationsList(version string) http.HandlerFunc {
 		out := crOperations.Filter(owned)
 		if logOperations != nil {
 			out = append(out, logOperations.Filter(owned)...)
+		}
+		for i, op := range out {
+			out[i] = gcpCurrentOperation(op)
 		}
 		page, next, ok := paginateList(w, r, out, gcpAsc(func(v Operation) string { return v.Name }))
 		if !ok {

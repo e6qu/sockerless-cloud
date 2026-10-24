@@ -20,7 +20,7 @@ func TestBigQueryAndFirestore_Wire_RESTFlows(t *testing.T) {
 	insertBody := `{"rows":[{"json":{"id":"evt-1","kind":"build"}},{"json":{"id":"evt-2","kind":"deploy"}}]}`
 	httpDoJSON(t, "POST", baseURL+"/bigquery/v2/projects/test-project/datasets/cli_dataset/tables/events/insertAll", insertBody)
 
-	query := `{"query":"SELECT id, kind FROM ` + "`test-project.cli_dataset.events`" + ` WHERE kind = 'deploy'"}`
+	query := `{"useLegacySql":false,"query":"SELECT id, kind FROM ` + "`test-project.cli_dataset.events`" + ` WHERE kind = 'deploy'"}`
 	out := httpDoJSON(t, "POST", baseURL+"/bigquery/v2/projects/test-project/queries", query)
 	if !strings.Contains(out, `"totalRows":"1"`) {
 		t.Fatalf("BigQuery query did not return one row: %s", out)

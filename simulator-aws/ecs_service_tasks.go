@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"sort"
 	"strconv"
@@ -1087,6 +1089,10 @@ func ecsSyncServiceLoadBalancerTargets(service ECSService) {
 				desired[key] = target
 			}
 		}
+		if service.RoleArn != "" {
+			ecsSyncServiceTargetsAsRole(service, targetGroup, managed, desired)
+			continue
+		}
 		// A task the service no longer runs is deregistered rather than dropped:
 		// Elastic Load Balancing drains a target for the target group's
 		// deregistration delay however the removal was requested, so a scaled-in
@@ -1141,6 +1147,79 @@ func ecsSyncServiceLoadBalancerTargets(service ECSService) {
 
 func ecsServiceTargetKey(target ELBv2TargetDescription) string {
 	return fmt.Sprintf("%s:%d", target.ID, target.Port)
+}
+
+// ecsSyncServiceTargetsAsRole registers and deregisters a service's targets
+// through Elastic Load Balancing as the role the service was created with,
+// which is how Amazon ECS reaches a load balancer for a service that names
+// one. A service without a role is Amazon ECS's own service-linked role's,
+// whose AWS managed policy this simulator does not hold, and keeps its target
+// group directly. A call the role is refused is a service event.
+func ecsSyncServiceTargetsAsRole(service ECSService, targetGroup ELBv2TargetGroup, managed map[string]bool, desired map[string]ELBv2TargetDescription) {
+	var register, deregister []ELBv2TargetDescription
+	held := map[string]bool{}
+	for _, target := range targetGroup.Targets {
+		key := ecsServiceTargetKey(target)
+		if !managed[key] {
+			continue
+		}
+		held[key] = true
+		if replacement, ok := desired[key]; ok {
+			// Registering a draining target again cancels its drain.
+			if !target.DeregisteringAt.IsZero() {
+				register = append(register, replacement)
+			}
+			continue
+		}
+		if target.DeregisteringAt.IsZero() {
+			deregister = append(deregister, target)
+		}
+	}
+	for key, target := range desired {
+		if !held[key] {
+			register = append(register, target)
+		}
+	}
+	byKey := func(targets []ELBv2TargetDescription) {
+		sort.Slice(targets, func(i, j int) bool {
+			return ecsServiceTargetKey(targets[i]) < ecsServiceTargetKey(targets[j])
+		})
+	}
+	byKey(register)
+	byKey(deregister)
+	actor := awsActor{Service: "ecs.amazonaws.com", Source: service.ServiceArn, Role: service.RoleArn}
+	for _, call := range []struct {
+		action  string
+		targets []ELBv2TargetDescription
+	}{{"RegisterTargets", register}, {"DeregisterTargets", deregister}} {
+		if len(call.targets) == 0 {
+			continue
+		}
+		form := url.Values{"TargetGroupArn": {targetGroup.Arn}}
+		for i, target := range call.targets {
+			form.Set(fmt.Sprintf("Targets.member.%d.Id", i+1), target.ID)
+			form.Set(fmt.Sprintf("Targets.member.%d.Port", i+1), strconv.Itoa(target.Port))
+		}
+		status, body, err := awsCallQuery(context.Background(), actor, "elasticloadbalancing", call.action, elbv2APIVersion, form)
+		code, message := "", ""
+		switch {
+		case err != nil:
+			code, message = "InternalFailure", err.Error()
+			var refused *awsCallError
+			if errors.As(err, &refused) {
+				code, message = refused.Code, refused.Message
+			}
+		case status >= 400:
+			code, message = awsXMLError(body)
+		default:
+			continue
+		}
+		key := ecsServiceKey(ecsClusterNameFromRef(service.ClusterArn), service.ServiceName)
+		ecsServices.Update(key, func(current *ECSService) {
+			ecsAppendServiceEvent(current, fmt.Sprintf("(service %s) failed to %s in (target-group %s) with (error %s: %s)",
+				service.ServiceName, call.action, targetGroup.Arn, code, message))
+		})
+	}
 }
 
 func ecsServiceLoadBalancerTarget(

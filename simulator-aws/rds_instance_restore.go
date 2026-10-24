@@ -263,7 +263,7 @@ func handleRDSRestoreInstanceToPointInTime(w http.ResponseWriter, r *http.Reques
 func rdsInstancePointInTimeSource(w http.ResponseWriter, r *http.Request) (src RDSInstance, retained *RDSInstanceAutomatedBackup, ok bool) {
 	requestID := sim.RequestID(r.Context())
 	if srcID := r.FormValue("SourceDBInstanceIdentifier"); srcID != "" {
-		src, ok = rdsInstances.Get(srcID)
+		src, ok = rdsInstanceIn(r, srcID)
 		if !ok {
 			rdsErrorXML(w, "DBInstanceNotFound", fmt.Sprintf("DBInstance %s not found.", srcID), http.StatusNotFound, requestID)
 		}
@@ -358,8 +358,14 @@ func rdsStartInstanceRestore(w http.ResponseWriter, r *http.Request, inst, src R
 		return
 	}
 	defer releaseCapacity()
-	rdsInstances.Put(inst.DBInstanceIdentifier, inst)
 	id := inst.DBInstanceIdentifier
+	releaseQuota, code, message := rdsClaimInstanceQuota(inst.region(), id)
+	if code != "" {
+		rdsErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	defer releaseQuota()
+	rdsInstances.Put(id, inst)
 	bg.Go(func() { rdsFinishInstanceRestore(id) })
 	rdsXMLResponse(w, operation, renderRDSInstance(inst), sim.RequestID(r.Context()))
 }

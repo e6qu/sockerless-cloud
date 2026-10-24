@@ -769,14 +769,6 @@ func sqsEnqueue(name string, e sqsSendEntry) (result sqsEnqueueResult) {
 	return result
 }
 
-// sqsEnqueueBody appends a raw message body to a queue with the MD5 and
-// timestamp a real delivery sets, the same store mutation a SendMessage
-// performs. It is the in-process enqueue path SNS→SQS fan-out uses to
-// deliver a Notification envelope; a subsequent ReceiveMessage returns it.
-func sqsEnqueueBody(queueName, body string) {
-	sqsEnqueueBodyWithAttributes(queueName, body, nil)
-}
-
 func sqsEnqueueBodyWithAttributes(queueName, body string, attributes map[string]SQSMessageAttribute) {
 	_ = sqsEnqueue(queueName, sqsSendEntry{MessageBody: body, MessageAttributes: attributes})
 	if q, ok := sqsQueues.Get(queueName); ok {

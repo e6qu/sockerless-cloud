@@ -776,5 +776,7 @@ func defaultMetadataZone(r *http.Request) string {
 	return "us-central1-a"
 }
 
-// simListenAddr is the listen address main() serves on.
-var simListenAddr string
+// simListenAddr is the API listen address main() serves on, and
+// simCallbackListenAddr the plain-HTTP one the workloads call back on; the
+// two differ when the API listener terminates TLS.
+var simListenAddr, simCallbackListenAddr string

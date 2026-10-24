@@ -1,6 +1,7 @@
 package aws_sdk_test
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	r53types "github.com/aws/aws-sdk-go-v2/service/route53/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
@@ -20,8 +22,57 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// ssmManagedNodePolicy is the permission SSM Agent needs to register the
+// instance as a managed node, which the AmazonSSMManagedInstanceCore managed
+// policy grants on AWS.
+const ssmManagedNodePolicy = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ssm:UpdateInstanceInformation","ssmmessages:*","ec2messages:*"],"Resource":"*"}]}`
+
+// ssmManagedInstanceProfile creates an instance profile whose role lets SSM
+// Agent register the instance as a managed node, and returns its name.
+func ssmManagedInstanceProfile(t *testing.T) string {
+	t.Helper()
+	iamc := iamClient()
+	name := uniqueName("ssm-managed")
+	_, err := iamc.CreateRole(ctx, &iam.CreateRoleInput{
+		RoleName:                 aws.String(name),
+		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`),
+	})
+	require.NoError(t, err)
+	_, err = iamc.PutRolePolicy(ctx, &iam.PutRolePolicyInput{
+		RoleName: aws.String(name), PolicyName: aws.String("ssm-managed-node"), PolicyDocument: aws.String(ssmManagedNodePolicy),
+	})
+	require.NoError(t, err)
+	_, err = iamc.CreateInstanceProfile(ctx, &iam.CreateInstanceProfileInput{InstanceProfileName: aws.String(name)})
+	require.NoError(t, err)
+	_, err = iamc.AddRoleToInstanceProfile(ctx, &iam.AddRoleToInstanceProfileInput{InstanceProfileName: aws.String(name), RoleName: aws.String(name)})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = iamc.RemoveRoleFromInstanceProfile(ctx, &iam.RemoveRoleFromInstanceProfileInput{InstanceProfileName: aws.String(name), RoleName: aws.String(name)})
+		_, _ = iamc.DeleteInstanceProfile(ctx, &iam.DeleteInstanceProfileInput{InstanceProfileName: aws.String(name)})
+		_, _ = iamc.DeleteRolePolicy(ctx, &iam.DeleteRolePolicyInput{RoleName: aws.String(name), PolicyName: aws.String("ssm-managed-node")})
+		_, _ = iamc.DeleteRole(ctx, &iam.DeleteRoleInput{RoleName: aws.String(name)})
+	})
+	return name
+}
+
+// ssmManagedProfileSpec is the RunInstances member that gives the instance a
+// profile SSM Agent registers it under.
+func ssmManagedProfileSpec(t *testing.T) *types.IamInstanceProfileSpecification {
+	t.Helper()
+	return &types.IamInstanceProfileSpecification{Name: aws.String(ssmManagedInstanceProfile(t))}
+}
+
+// launchSSMManagedInstanceFor launches an instance in its own VPC with a
+// profile SSM Agent registers it under, and waits until it runs.
+func launchSSMManagedInstanceFor(t *testing.T, c *ec2.Client, cidr string) string {
+	t.Helper()
+	return ec2UserDataInstance(t, c, cidr, "")
+}
+
 // ec2UserDataInstance launches an Amazon Linux 2023 instance in its own VPC
-// with the user data script and waits until it runs.
+// with the user data script, as a managed node Run Command reaches, and waits
+// until it runs.
 func ec2UserDataInstance(t *testing.T, c *ec2.Client, cidr, userData string) string {
 	t.Helper()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String(cidr)})
@@ -31,7 +82,8 @@ func ec2UserDataInstance(t *testing.T, c *ec2.Client, cidr, userData string) str
 	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
 		ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
-		UserData: aws.String(base64.StdEncoding.EncodeToString([]byte(userData))),
+		IamInstanceProfile: ssmManagedProfileSpec(t),
+		UserData:           aws.String(base64.StdEncoding.EncodeToString([]byte(userData))),
 	})
 	require.NoError(t, err)
 	terminateEC2InstancesOnCleanup(t, c, run)
@@ -86,6 +138,19 @@ curl -sS -H "X-aws-ec2-metadata-token: $token" "${AWS_EC2_METADATA_SERVICE_ENDPO
 	assert.Equal(t, privateIP+"\n", ssmShell(t, s, instanceID, "cat /var/tmp/local-ipv4; echo"))
 	assert.Equal(t, hostname+"\n", ssmShell(t, s, instanceID, "uname -n"))
 	assert.Contains(t, ssmShell(t, s, instanceID, "cat /etc/os-release"), "Amazon Linux 2023")
+
+	// The VPC's resolver answers the reverse of another interface's address
+	// with that interface's private DNS name; the instance's own address is
+	// in its /etc/hosts, which getent reads first.
+	eni, err := c.CreateNetworkInterface(ctx, &ec2.CreateNetworkInterfaceInput{SubnetId: inst.SubnetId})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DeleteNetworkInterface(ctx, &ec2.DeleteNetworkInterfaceInput{NetworkInterfaceId: eni.NetworkInterface.NetworkInterfaceId})
+	})
+	eniIP, eniName := aws.ToString(eni.NetworkInterface.PrivateIpAddress), aws.ToString(eni.NetworkInterface.PrivateDnsName)
+	require.NotEmpty(t, eniName)
+	assert.Equal(t, eniIP+" "+eniName, strings.Join(strings.Fields(ssmShell(t, s, instanceID, "getent hosts "+eniIP)), " "),
+		"the VPC's resolver answers the address's PTR record with the interface's private DNS name")
 }
 
 // Stopping an instance keeps its root disk for the next start; an AMI created
@@ -135,6 +200,7 @@ func TestEC2_StopKeepsTheRootDiskAndCreateImageCapturesIt(t *testing.T) {
 	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
 		ImageId: aws.String(amiID), InstanceType: types.InstanceTypeT3Micro,
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: desc.Reservations[0].Instances[0].SubnetId,
+		IamInstanceProfile: ssmManagedProfileSpec(t),
 	})
 	require.NoError(t, err)
 	terminateEC2InstancesOnCleanup(t, c, run)
@@ -348,11 +414,13 @@ func TestEC2_SecurityGroupFiltersWhatAnInstanceReceives(t *testing.T) {
 	_, err = c.AuthorizeSecurityGroupIngress(ctx, &ec2.AuthorizeSecurityGroupIngressInput{GroupId: web.GroupId, IpPermissions: permission(80)})
 	require.NoError(t, err)
 
+	profile := ssmManagedProfileSpec(t)
 	launch := func(userData string, groups []string) string {
 		run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
 			ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
 			MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet, SecurityGroupIds: groups,
-			UserData: aws.String(base64.StdEncoding.EncodeToString([]byte(userData))),
+			IamInstanceProfile: profile,
+			UserData:           aws.String(base64.StdEncoding.EncodeToString([]byte(userData))),
 		})
 		require.NoError(t, err)
 		terminateEC2InstancesOnCleanup(t, c, run)

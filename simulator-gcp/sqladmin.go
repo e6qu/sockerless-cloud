@@ -717,6 +717,7 @@ func newSQLOperationRunning(project, opType, targetID string) SQLOperation {
 // sqlSettleOperation completes a RUNNING operation, recording the failure —
 // in the sql#operationErrors shape — when the work it tracked failed.
 func sqlSettleOperation(project, name string, workErr error) {
+	defer gcpOperationSignalDone(name)
 	sqlOperations.Update(sqlOperationKey(project, name), func(op *SQLOperation) {
 		op.Status = "DONE"
 		op.EndTime = nowTimestamp()

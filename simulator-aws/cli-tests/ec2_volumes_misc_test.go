@@ -107,12 +107,22 @@ func TestEC2CLI_CoipDefaultVpc(t *testing.T) {
 		t.Fatalf("delete-coip-cidr: got %q, want 10.41.0.0/24", del)
 	}
 
-	// The account is auto-provisioned with a default VPC; create-default-vpc fails.
+	// The account is provisioned with a default VPC and a default subnet per
+	// zone; create-default-vpc fails, and so does a second default subnet in
+	// a zone: "You can have only one default subnet per Availability Zone."
 	runCLIExpectError(t, awsCLI("ec2", "create-default-vpc"))
-	sn := q("ec2", "create-default-subnet", "--availability-zone", "us-east-1c",
-		"--query", "Subnet.VpcId", "--output", "text")
-	if sn == "" {
-		t.Fatal("create-default-subnet returned empty VpcId")
+	out := runCLIExpectError(t, awsCLI("ec2", "create-default-subnet", "--availability-zone", "us-east-1c"))
+	if !strings.Contains(out, "DefaultSubnetAlreadyExistsInAvailabilityZone") {
+		t.Fatalf("create-default-subnet in a zone with a default subnet: got %q", out)
+	}
+	sn := q("ec2", "describe-subnets", "--filters", "Name=default-for-az,Values=true", "Name=availability-zone,Values=us-east-1c",
+		"--query", "Subnets[].[CidrBlock,DefaultForAz]", "--output", "text")
+	if sn != "172.31.32.0/20\tTrue" {
+		t.Fatalf("the zone's default subnet: got %q, want the third /20 of the default VPC", sn)
+	}
+	out = runCLIExpectError(t, awsCLI("ec2", "create-default-subnet", "--availability-zone", "us-east-1c", "--availability-zone-id", "use1-az3"))
+	if !strings.Contains(out, "InvalidParameterCombination") {
+		t.Fatalf("create-default-subnet with both zone members: got %q", out)
 	}
 }
 

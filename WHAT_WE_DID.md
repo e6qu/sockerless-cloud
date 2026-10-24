@@ -379,8 +379,9 @@ simulator it runs from the workspace; the installable graph is CI's gate.
   keys name the request member they read, so one resolver serves them; other
   services register request-settled keys per service. A key is populated only
   where AWS's definition fixes its value, so AWS Glue's Lake Formation keys and
-  `s3:JobSuspendedCause` stay absent. A key counts as built only for a service
-  whose prefix the source composes or whose populator is registered.
+  `s3:JobSuspendedCause` stay absent. A key counts as built only where code
+  spells its whole name, or a table its populator writes under the service's
+  prefix names it; a bare word credits nothing.
 - **Each service's keys and tags are spelled as that service spells them.**
   Amazon RDS declares `rds:db-tag/`, `rds:cluster-tag/` and nine more per
   resource type and has no `rds:ResourceTag/`; IAM users and roles carry
@@ -4437,3 +4438,583 @@ An account has one AWS Glue Data Catalog resource policy, and two parallel
 tests in each of the SDK and CLI suites put, read and deleted it; one deleted
 the other's policy between its put and its read. The tests that touch it hold
 one package mutex from the put until the delete, and stay parallel otherwise.
+
+### Cloud Run structured logs and service-level scaling
+
+A line a Cloud Run service, worker pool, instance, job or Cloud Functions
+container writes that is a JSON object becomes the entry's `jsonPayload`, with
+the special fields the Logging agent's configuration page lists lifted onto
+the `LogEntry`: `severity` (a LogSeverity name, any case), `httpRequest`, the
+time fields in the documented order (`timestamp{seconds,nanos}`, then
+`timestampSeconds`/`timestampNanos`, then RFC 3339 `time`; the one used leaves
+the payload, the others stay), `logging.googleapis.com/insertId`, `/labels`
+(merged with the instance label), `/operation`, `/sourceLocation`, `/spanId`,
+`/trace` and `/trace_sampled`; `message` stays in the payload. Every entry
+carries the line's own timestamp and a `receiveTimestamp`, and a stderr line
+lands in `run.googleapis.com%2Fstderr`, where jobs had written every line to
+stdout. `LogEntry` gained `trace`, `spanId`, `traceSampled`, `sourceLocation`
+and `httpRequest` on REST and gRPC, so `trace=` and `jsonPayload.message=`
+filters and the BigQuery export see them. One builder, `cloudRunLogEntry`,
+serves every sink, and the adopted-container sink drops replays by
+`receiveTimestamp`.
+
+A service's `scaling` applies: its min, max and manual counts are divided
+among the revisions of the traffic split by percent, in the traffic list's
+order, the first-listed revisions taking the rounded-up values as the
+min-instances page's worked example shows, and a tag-only revision takes no
+share, since the page counts only revisions "part of a traffic split". The
+effective maximum is the smaller of the revision's own and the service share,
+the effective minimum the larger, capped at the maximum; under MANUAL a
+revision in the split runs exactly its share. An existing revision run
+rescales when its bounds change, so a scaling or traffic change without a new
+revision takes effect. The Knative v1 surface folds the Service-scoped
+`run.googleapis.com/minScale`, `maxScale`, `manualInstanceCount` and
+`scalingMode` annotations, so `gcloud run deploy --scaling=N` reaches the v2
+record. A Cloud Functions `serviceConfig`'s `minInstanceCount` and
+`maxInstanceCount` become the backing service template's scaling, and its
+`vpcConnector` and `vpcConnectorEgressSettings` the template's `vpcAccess`.
+
+Every reader of the operation stores (REST get, list, wait and cancel, the v2
+flat get, gRPC Get, Wait and List) goes through `gcpCurrentOperation`, which
+rebuilds a running RunJob operation's metadata from the execution record. A
+regional `CreateBuild`'s operation is named
+`projects/{p}/locations/{l}/operations/{buildId}` and served and cancelled on
+that collection; a global build keeps `operations/build/{p}/{id}`.
+
+The bug that had a Serverless VPC Access connector hide private zones from a
+`PRIVATE_RANGES_ONLY` workload rested on a wrong premise: the vendored
+private-networking page states that with a connector or Direct VPC egress all
+DNS queries go to the VPC's DNS server by default, so the simulator's
+resolution was kept.
+
+### Google documentation pages are vendored with a date pin
+
+Some behaviour the Discovery documents leave out is stated only on a
+documentation page. `scripts/fetch-gcp-doc.sh <path> <name>` fetches a
+docs.cloud.google.com page's article, converts it to Markdown with pandoc and
+vendors it under `specs/cloud-api/gcp/` with a `SOURCES.md` row pinned
+`modified<date>` at the page's "Last updated" footer;
+`check-spec-freshness.sh` compares that date with the live page and
+`refresh-drifted-specs.sh` re-fetches a drifted page; the pages share the one
+provenance table with the Discovery documents, told apart by their pin.
+
+### IAM Conditions follow the resource attribute reference
+
+`gcpIAMResourceNamed` had supplied `resource.name`, `resource.type` and
+`resource.service` for every policy, with types for a hand-picked few. The IAM
+Conditions resource attribute reference lists which resource types recognise
+the attributes and the name format of each, and states that other services
+recognise none; Cloud Run's access page adds that Cloud Run conditions read
+`request.host` and `request.path` only. The table is the reference's for every
+collection the simulator holds a policy for (BigQuery, Bigtable, Cloud KMS,
+Cloud Logging, Secret Manager, Spanner, Firestore, Compute Engine, Resource
+Manager), store-key prefixes are stripped to the reference's names, and
+resources outside the reference supply no attributes, so a condition on
+`resource.type` for a Cloud Run service evaluates false as it does on Google
+Cloud.
+
+`resource.matchTag`, `matchTagId`, `hasTagKey` and `hasTagKeyId` are CEL
+member functions on the condition's `resource` value, which carries the
+resource's effective tags: the bindings on the resource plus those on its
+project, folders and organization, the nearest binding winning per key, as the
+Resource Manager tags overview describes. `effectiveTags` and
+`effectiveTagBindingCollections` answer from the same inheritance. API
+Gateway's policy store keeps the binding condition it had dropped on write and
+serves the Go SDK's GET `:getIamPolicy`, and API Gateway and Cloud KMS
+evaluate conditions in `testIamPermissions`. A custom role had never granted
+its permissions, because the lookup used the role's id where the store keyed
+by full name, and a tag value's namespaced name had been its key's id.
+
+### Cloud Audit Logs read each service's audit-logging page
+
+The audit-logging pages of Cloud Run, BigQuery, Cloud SQL, Cloud Logging,
+Resource Manager, Service Usage, Serverless VPC Access, API Gateway and
+Dataflow are vendored and compiled by `scripts/gen-gcp-audit-methods.go` into
+`simulator-gcp/audit_methods_vendored.json`: the methodName, audit category
+and permissions each service records. A service the table covers writes an
+entry exactly for the methods its page lists; the proto-defined services join
+the one-platform list, and the Discovery-defined Cloud Run Admin v1, BigQuery,
+Cloud SQL and Dataflow resolve their Discovery method to the page's method
+name. Cloud Run's `RunJob` is a Data Access `DATA_WRITE` entry and
+`SubmitBuild` checks `cloudbuild.builds.create`, as the page states. Cloud
+Build's `CreateBuild`, Cloud SQL's operations and Resource Manager v1's
+`CreateProject` write the operation's last entry.
+
+### Virtual machine identities on the Instance Metadata Service
+
+A virtual machine carries its `VirtualMachineIdentity`, settled through the
+same `applyManagedIdentity` App Service and Container Apps use; a PATCH reads
+the user-assigned dictionary as Azure Resource Manager does, a null entry
+detaching. The IMDS token endpoint resolves the requesting machine from its
+address, requires `Metadata: true` (400 `bad_request_102`), mints for the
+machine's system-assigned identity or the user-assigned identity `client_id`,
+`object_id` or `msi_res_id` selects, and refuses any other identity or a
+caller that is no machine with 400 `invalid_request` "Identity not found", all
+in the swagger's `IdentityErrorResponse` body, the token response carrying the
+`IdentityTokenResponse` members. The simulator-wide identity went away:
+`SystemAssignedIdentities_GetByScope` answers the system-assigned identity of
+the resource its scope names, and 404 for a scope with none.
+
+### Client certificates through the front ends
+
+`sim.Config.TLSConfigForClient` is a cloud-neutral hook the listener passes as
+`GetConfigForClient`. The Azure simulator asks a client for a certificate when
+the SNI names a site with `clientCertEnabled` or a container app whose ingress
+`clientCertificateMode` is `accept` or `require`. Sites round-trip
+`clientCertEnabled`, `clientCertMode` and `clientCertExclusionPaths`, and
+container apps `clientCertificateMode`. App Service forwards the certificate
+as `X-ARR-ClientCert`, answers 403 to a Required site's request without one
+outside the exclusion paths, and forwards none for an excluded path; Container
+Apps ingress forwards `X-Forwarded-Client-Cert` as
+`Hash=…;Cert="…";Chain="…"`, drops a client-sent copy, and `ignore` drops the
+certificate, as the vendored Learn pages describe.
+
+### Kudu diagnostics
+
+The SCM site serves the zip API, `/api/dump` and `/dump`, `/api/logs/docker`
+and the process API over the same process reads Azure Resource Manager
+answers, from the vendored Kudu controllers. A site's container output lands
+in `/home/LogFiles/YYYY_MM_DD_<machine>_docker.log`, where the machine name is
+the instance name the container gets as its hostname, and
+`/logstream[/{path}]` follows the files under `LogFiles/{path}` at Kudu's
+Linux watcher cadence of 1.5 seconds.
+
+### Amazon RDS quota, subnet groups and license models
+
+Amazon RDS enforces the DBInstances quota of 40 under one lock. The count
+covers stored DB instances, instances still being provisioned, and the unused
+capacity of active DB capacity reservations, and every operation the model
+declares `InstanceQuotaExceeded` on refuses past it;
+ModifyDBCapacityReservation checks only increases, as the model states.
+DescribeAccountAttributes reports the same count. DB subnet groups resolve
+their subnets from Amazon EC2, refuse an unknown subnet or mixed VPCs with
+`InvalidSubnet` and fewer than two Availability Zones with
+`DBSubnetGroupDoesNotCoverEnoughAZs`, and report the subnets' own VPC and
+zones; an instance created in a group without a named zone takes the group's
+first zone, a Multi-AZ standby its second. DBInstance reports its
+LicenseModel, checked against the values the CreateDBInstance reference lists
+for the engine.
+
+### Systems Manager managed nodes, instance metadata and reverse lookups
+
+AWS Systems Manager registers a running Amazon EC2 instance as a managed node
+when its instance profile's role allows `ssm:UpdateInstanceInformation`, at
+boot and when the profile changes, and termination deregisters it. The node's
+platform comes from the instance's own `/etc/os-release`, replacing a
+hard-coded Ubuntu and agent version. SendCommand refuses an instance that is
+no online managed node with `InvalidInstanceId`, and
+DescribeInstanceInformation honours its filters and leaves out stopped and
+terminated instances. Instance metadata serves an interface's
+`ipv4-associations/`, and `HttpProtocolIpv6` round-trips. The Amazon-provided
+DNS server answers PTR records for interface and public addresses.
+
+### Amplify compute refreshes its role
+
+AWS Amplify Hosting compute containers had taken a one-shot environment
+session of the compute role, which expired an hour into a running compute.
+They are placed through `grantContainerCredentials` and the container
+backend's forwarded placement, so the compute's SDKs read the role from the
+container credentials endpoint on the compute's own loopback and refresh it
+there, and recovery adopts the compute and its forwarder.
+
+### Workload callbacks under TLS
+
+`sim.Main` binds the listeners before `Program.Build` and hands the build a
+`Config.CallbackListenAddr` resolved to the bound port; the server adopts the
+listeners and serves on them once `Program.Start` returns. When the API
+listener terminates TLS, `sim.Main` also opens a plain-HTTP callback listener
+at `Config.CallbackListenAddr` (`SIM_CALLBACK_LISTEN_ADDR`, a free port on
+every interface by default) that serves the same handler chain, so the sidecar
+trust middleware applies unchanged. The three simulators point their network
+sidecars, NAT egresses and metadata URLs at the callback address, because a
+sidecar's scratch image carries no trust store for the simulator's certificate
+and a workload's `IDENTITY_ENDPOINT` is plain HTTP. A simulator without TLS
+keeps its single listener.
+
+### One engine network per virtual network address prefix
+
+Docker's bridge driver refuses several subnets per network, so each IPv4
+prefix of an Azure virtual network's address space is an engine network of its
+own, the first named `sim-vnet-<name>` and each other that name with a digest
+of the prefix, each with a sidecar at its prefix's reserved resolver address
+and registered with the private DNS catalog. `azureSubnetNetwork` resolves a
+subnet to its prefix's network, and virtual machines, sites, Container Apps
+environments, container groups, NAT egresses and the node agent attach through
+it.
+
+### Azure Monitor diagnostic settings
+
+`Microsoft.Insights/diagnosticSettings` and `diagnosticSettingsCategories` are
+vendored and served on resource-group resources, with categories for sites,
+Container Apps environments and container apps taken from the vendored
+supported-logs pages, writes validated against them and the `allLogs` and
+`audit` groups, and at most five settings per resource. A setting enabling
+`AppServiceConsoleLogs` routes a site's console lines to that table of its
+workspace, and an environment whose logs destination is `azure-monitor` sends
+`ContainerAppConsoleLogs` and `ContainerAppSystemLogs` to the
+resource-specific tables, with the columns the vendored table reference pages
+list.
+
+### Container Apps scale-in
+
+The scaler waits out the 300-second scale-down stabilization window before
+scaling in between nonzero counts, and applies the cooldown period only to the
+step to zero, measured from the last time a rule asked for a replica, as the
+"Scale behavior" section of "Set scaling rules in Azure Container Apps"
+states.
+
+### GoogleSQL on the BigQuery engine
+
+The query engine rewrites GoogleSQL onto SQLite before running it: typed
+literals (TIMESTAMP, DATE, DATETIME, TIME, NUMERIC, JSON, INTERVAL), raw and
+bytes strings, EXTRACT, CAST and SAFE_CAST, the `SAFE.` prefix, array literals
+and subscripts with OFFSET, ORDINAL and their SAFE forms, IN UNNEST, field
+access into RECORD columns and UNNEST range variables, UNNEST WITH OFFSET as
+`json_each`, QUALIFY as a filtering outer query, and `SELECT *` expanded
+against the loaded schemas with EXCEPT and REPLACE. Functions registered on
+the connection cover the date, time and timestamp families with the FORMAT and
+PARSE format elements, the safe arithmetic, the array, regexp, string and JSON
+functions, FARM_FINGERPRINT, the digests and the aggregates SQLite lacks, each
+following its vendored reference page. A function's runtime error reports as
+itself rather than as a syntax error.
+
+INSERT, UPDATE, DELETE, MERGE and TRUNCATE TABLE run against the loaded table
+and write the result back, reporting `statementType`, `numDmlAffectedRows` and
+`dmlStats`; CREATE TABLE (with a column list or AS SELECT, OR REPLACE, IF NOT
+EXISTS, PARTITION BY, CLUSTER BY and OPTIONS), CREATE VIEW, ALTER TABLE ADD
+COLUMN and DROP run and report `ddlOperationPerformed` and `ddlTargetTable`. A
+multi-statement query runs each statement as a child job with `parentJobId`
+and `scriptStatistics`, with DECLARE, SET, IF and BEGIN…END. A query without a
+`destinationTable` writes its result to an anonymous table in the project's
+hidden dataset, which expires after 24 hours as "Writing query results"
+states. `jobs.query` reads the QueryRequest members the Discovery declares,
+and every rendered row honours `formatOptions.useInt64Timestamp` and
+`timestampOutputFormat`, with the Discovery's FLOAT64 seconds as the default;
+the simulator had rendered microseconds whatever the request asked. A query
+that leaves `useLegacySql` at its Discovery default of true answers 501,
+because the engine runs no legacy SQL.
+
+### BigQuery load, copy, extract and streaming options
+
+A load applies `timePartitioning`, `rangePartitioning` and `clustering` to the
+table it creates, `schemaUpdateOptions` on WRITE_APPEND and
+WRITE_TRUNCATE_DATA, `decimalTargetTypes`, and the CSV date, time and
+timestamp formats and `timeZone`. A copy runs `operationType` SNAPSHOT,
+RESTORE and CLONE as table types with `snapshotDefinition` and
+`cloneDefinition`, and honours `destinationExpirationTime`. Avro and Parquet
+extracts shard at the 1 GB limit, each shard a complete file. `insertAll`
+de-duplicates `insertId`s within the streaming page's one-minute window and
+streams a `templateSuffix` into an instance table created from the template's
+schema.
+
+### Express Mode and ECS roles act through the services' APIs
+
+Amazon ECS Express Mode creates its security groups and their rules, the
+Application Load Balancer, target group, HTTPS listener and host-header rule,
+the certificate, and the scalable target and target-tracking policy through
+Amazon EC2, Elastic Load Balancing, AWS Certificate Manager and Application
+Auto Scaling as the infrastructure role, through the client ECS gateways use,
+generalised as `ecsInfrastructureClient`. It had written each straight into
+the services' stores, so Elastic Load Balancing's subnet rules never reached
+it. A role ECS cannot assume is refused with `InvalidParameterException`; a
+refusal from a service lands on that managed resource as `FAILED` with the
+service's error as `statusReason`, and the resources depending on it are not
+attempted. DescribeServiceRevisions reports the resources as the model's
+`ECSManagedResources`. Up to 25 services with one network configuration share
+a load balancer, each reached through its own `<id>.ecs.<region>.on.aws`
+hostname with its own certificate and rule, and teardown goes through the same
+APIs.
+
+A task's `managedEBSVolume.roleArn` must be assumable by `ecs.amazonaws.com`,
+and the volume is created and deleted through Amazon EC2 as that role.
+CreateService's `role` is permitted only with a load balancer outside the
+awsvpc network mode, as the model states, must be assumable, and registers and
+deregisters the service's targets through Elastic Load Balancing as that role.
+Amazon EC2 answers a CreateVolume from a snapshot `creating` and fills the
+volume behind the response, and Elastic Load Balancing keeps a target group's
+`LoadBalancerArns` current as rules that forward to it change.
+
+### The IAM gate covers REST routes
+
+The call-time IAM gate had covered only Query and JSON protocol requests and
+three hand-mapped REST services. `scripts/generate-sfn-rest-integrations.go`
+compiles every operation's Smithy `http` trait into the `awsRESTRoutes` table,
+which names a REST request's operation from its method and path, and the REST
+routes of AWS Amplify, Amazon API Gateway, AWS Batch, Amazon EFS, EventBridge
+Scheduler, Amazon CloudFront and Route 53 pass the gate, their resources
+derived from path labels, query and document through the ARN formats of the
+vendored Service Reference documents. Each service refuses in its own model's
+shape: `AccessDeniedException` for Scheduler, Batch, EFS and API Gateway v2,
+`UnauthorizedException` for Amplify and API Gateway v1, `AccessDenied` for
+CloudFront and Route 53. A Scheduler universal target to a REST action, which
+already ran as the execution role, is now judged as it.
+
+### The REST services' declared condition keys
+
+Gating the REST services brought their declared condition keys into the
+measure, and each was resolved from the request where the service documents
+the value, or classified where it does not. The gate records the operation
+and labels a REST request's route names on the request, so
+`iamRequestWireOperation` and the populators read a REST operation as they
+read an X-Amz-Target or an Action parameter; the gate reads the body through
+that copy and hands the restored body back to the handler.
+
+- Route 53 writes `route53:ChangeResourceRecordSetsActions`, `…RecordTypes`
+  and `…NormalizedRecordNames` from the change batch, and `route53:VPCs` as
+  `VPCId=<vpc-id>,VPCRegion=<region>` on the six operations the Route 53
+  Developer Guide lists, in the forms its "Normalizing the Route 53 condition
+  key values" section prescribes: record names lowercased, without the
+  trailing dot, every other character as a three-digit octal escape.
+- AWS Batch authorizes a RegisterJobDefinition once per container, each with
+  that container's `batch:Image`, `Privileged`, `User`, `LogDriver`, awslogs
+  options or Amazon EKS keys, because the AWS Batch User Guide says it
+  "evaluates condition keys on each container". `batch:SchedulingPriority`
+  comes from SubmitServiceJob and UpdateServiceJob.
+- Amazon EFS writes `elasticfilesystem:Encrypted` from CreateFileSystem, and
+  gained its request-tag shape, so a create carrying tags is also authorized as
+  `elasticfilesystem:TagResource` with `elasticfilesystem:CreateAction` naming
+  the create. `AccessedViaMountTarget` is classified: it belongs to the
+  mount-time client actions, and the simulator bind-mounts a file system with
+  no NFS client authorization.
+- Amazon API Gateway's portal, portal product, product page and routing-rule
+  operations are authorized as the actions of their own names the Service
+  Reference's operation table maps them to — CreatePortal also as
+  `apigateway:GetPortalProduct` on the products it includes and as
+  `apigateway:POST` — with the `apigateway:Request/` keys from the request and
+  the routing rule's `apigateway:Resource/` keys from the stored rule. Every
+  other operation stays the HTTP-method action on its path.
+  `apigateway:Request/ProductRestEndpointPageEndpointPrefix` is classified: no
+  request member carries an endpoint prefix. The portal, product, page and
+  routing-rule ARNs carry the account, as the reference's formats do.
+
+### A declared key counts as built only where its whole name is written
+
+`TestIAM_DeclaredConditionKeysAreResolvedOrClassified` counted a key built
+when its bare name appeared anywhere in the package source and its service
+registered a populator, so a struct tag, a response field or a form parameter
+of the same word credited it, and nine keys no code built passed:
+`elasticfilesystem:AccessPointArn`, `events:PolicyName`, `s3:logType`,
+`s3express:LocationName`, `s3express:Permissions`, the two `s3express`
+encryption keys, `ssm:AccessRequestId` and `sts:AWSServiceName`. The scan
+reads the package's Go string literals through `go/ast`, leaves struct tags
+out, and credits a key only for a literal of its whole name or of a templated
+key's prefix, for an entry of a table a populator writes under one service
+prefix (`codeBuildConditionKeys`, the Amazon S3 header and query tables), or
+for the separator-led name the Amazon S3 namespaces compose. No credited key's
+literals all sit outside a write into a condition context.
+
+The stricter measure showed that a directory bucket's operations were
+authorized as s3 actions on the s3 ARN, so the s3express populator's
+CreateSession keys were never read. Directory-bucket operations are authorized
+in the s3express namespace on the bucket's s3express ARN, as the Amazon S3 User
+Guide's "Authenticating and authorizing requests" table lists them: the
+Regional operations as their own actions (an inventory delete as
+`PutInventoryConfiguration`), ListDirectoryBuckets as
+`ListAllMyDirectoryBuckets`, and CreateSession and the Zonal object operations
+as `s3express:CreateSession`, except that a Zonal request signed with a
+session is authorized by the session alone. A directory bucket's policy is held
+at its s3express ARN. CreateSession reads `s3express:SessionMode` and its two
+encryption headers, CreateBucket `s3express:LocationName`, and
+PutBucketInventoryConfiguration `s3express:InventoryAccessibleOptionalFields`.
+The other keys are classified, each with what the simulator would have to model.
+
+### IAM condition tag lookups and the mux overlap scanner
+
+IAM condition evaluation resolves a resource's effective tags on every
+request, so the tag binding and tag value lookups it makes are answered from
+generation indexes rather than by decoding each store. The route overlap
+scanner treated `{$}` as a wildcard and paired Cosmos DB's account root (`GET
+/{$}`) with Azure Resource Manager's by-ID route; `{$}` anchors a pattern at
+its end and shadows nothing, and the scanner now says so.
+
+### The egress sidecar reads a UDP flow's destination from a table dump
+
+The NAT egress sidecar learns where a redirected datagram was going from the
+connection tracker. ti-mo/conntrack v0.6.0 asks for that one entry with an
+acknowledged request, and under mdlayher/socket v0.6 and later the request
+never returns once the entry exists; the sidecar's single UDP read loop then
+stalled on the first datagram, so a guest's UDP never left through the gateway
+while its TCP did. Bisecting the dependency bump pinned it to the socket
+release, a probe outside the simulator reproduced it, and a dump of the table
+worked under every version. The sidecar now dumps the namespace's table, which
+holds only that gateway's flows, and picks the entry whose reply direction
+runs from its socket to the sender, keeping the current dependencies. The UDP
+path also reports each failure it had dropped silently: a receive error, a
+datagram without its original destination, a lookup that finds no entry, and a
+failed upstream read or reply.
+
+### Cloud Resource Manager Boundaries are declared
+
+The v3 Discovery refresh published Boundaries and BoundaryConfig on folders
+and organizations. They answer a declared 501 naming what is missing, because
+the Discovery document states neither how a Boundary provisions its Management
+Project nor when it becomes `ACTIVE`, and no client exposes them to test
+through; the coverage lock records the 28 new spellings as declared rather
+than served.
+
+### Elastic Load Balancing creates, subnet mappings and stickiness
+
+CreateLoadBalancer answers the existing load balancer for a repeated create
+with the same settings and refuses a differing one with
+`DuplicateLoadBalancerName`. A subnet mapping keeps its `AllocationId`,
+`PrivateIPv4Address`, `IPv6Address` and `SourceNatIpv6Prefix`, which
+CreateLoadBalancer, SetSubnets and DescribeLoadBalancers return as
+`LoadBalancerAddresses` and `SourceNatIpv6Prefixes`. A request naming both
+`Subnets` and `SubnetMappings`, an address member on anything but a Network
+Load Balancer, an unknown allocation and an address outside its subnet are
+refused. On the data plane, a weighted forward with target group stickiness
+sets the `AWSALBTG` cookie and keeps a client on its target group, and a
+target group with `lb_cookie` stickiness sets `AWSALB` and keeps a client on
+its target; both cookies carry an HMAC under a per-simulator key. An enabled
+stickiness without `DurationSeconds`, or outside 1 to 604800, is refused with
+`ValidationError`.
+
+### Amazon EC2 default subnets, zones and VPC IPv6 blocks
+
+The seeded default subnets are /20s carrying `defaultForAz` and their zone
+ids. CreateDefaultVpc creates a default subnet per zone, and
+CreateDefaultSubnet takes the next free /20 and refuses a second default
+subnet in a zone with `DefaultSubnetAlreadyExistsInAvailabilityZone` and the
+text the Amazon EC2 API Reference gives it; a default VPC with no free /20
+answers `InvalidSubnet.Conflict`. CreateSubnet refuses an unknown zone, naming
+only the parameter, a block outside the VPC's blocks and an overlapping one,
+and takes only a /64 of the VPC's IPv6 blocks. CreateVpc and
+AssociateVpcCidrBlock hold Amazon-provided /56 IPv6 blocks, which DescribeVpcs
+lists beside the secondary IPv4 associations, and DescribeAvailabilityZones
+honours `ZoneNames`, `ZoneIds` and its filters.
+
+### Lambda destinations, Step Functions waits and EventBridge targets act through service APIs
+
+AWS Lambda sends an asynchronous invocation's record to its Amazon SQS, Amazon
+SNS, AWS Lambda or Amazon EventBridge destination by calling that service's
+API as the function's execution role, so a role that may not deliver is
+refused as it would be in the cloud, and a refused delivery counts in
+`AWS/Lambda` `DestinationDeliveryFailures`. An AWS Step Functions `.sync`
+integration with Amazon ECS or AWS CodeBuild starts its work, reads it and
+stops it through the service's API as the execution role. Rather than reading
+the store on a timer, it sleeps until the service's store writes the task,
+build or batch, then confirms the state through the API; ECS tasks, CodeBuild
+builds and CodeBuild batches announce each write for this. Amazon EventBridge
+rules deliver to AWS CodeBuild with `StartBuild`, to Amazon Data Firehose with
+`PutRecord` and to Systems Manager Run Command with `SendCommand`, each as the
+target's role, and a Run Command target runs its document on the SSM managed
+node it names.
+
+### AWS CodeBuild batch builds and overrides, and Amazon RDS instances in their Region
+
+StartBuild and StartBuildBatch decode every member their input declares, apply
+each to the build as the project it runs (image, environment type, compute
+type, timeout, source location, type, auth and clone depth, buildspec, logs,
+cache, encryption key, artifacts, debug session and auto-retry limit) and
+report them back. An `idempotencyToken` answers the same build within five
+minutes. A batch build reads its buildspec's `batch` section (`build-list`,
+`build-graph` or `build-matrix`) as the vendored CodeBuild User Guide pages
+state, and starts, stops and retries each build through StartBuild, StopBuild
+and RetryBuild as its `buildBatchConfig` service role. It honours `depend-on`,
+`fast-fail`, `ignore-failure` and the project's batch restrictions, and
+reports `buildGroups`. Projects store `buildBatchConfig` and the other Project
+members CreateProject and UpdateProject receive. On Amazon RDS, a DB instance
+lives in the Region its creating request is signed for: its ARN and
+Availability Zone name that Region, and DescribeDBInstances and identifier
+lookups answer only there. A restore from a replicated automated backup
+creates its instance in the destination Region, and the `DBInstances` quota
+counts per Region.
+
+### CodeBuild builds from Step Functions keep their overrides
+
+Step Functions takes the CodeBuild integration's parameters in PascalCase
+(`EnvironmentVariablesOverride` entries carry `Name`, `Value` and `Type`) and
+now renames them to CodeBuild's camelCase members before calling StartBuild
+and the batch operations. CodeBuild reads its override entries by member name,
+so a build a state machine started had run without the environment variables
+it passed. A project whose source names no buildspec now reads `buildspec.yml`
+from the source root; StartBuild had refused the empty path as outside the
+source directory.
+
+### Dependencies bundled with the sweep
+
+The AWS Terraform stacks moved to hashicorp/aws 6.70.0, the Azure console to
+`@fluentui/react-components` 9.74.11, and the image pins to the digests Docker
+Hub and its mirror serve: `alpine:3.24`, `amazonlinux:2023` and
+`golang:1.27-alpine`, with the sidecar and node agent builders moving from
+`golang:1.27.2-alpine` to `golang:1.27.3-alpine`. Provider 6.70.0 still
+exposes no alarm `ActionConfiguration` and no Amazon ECS gateway resource.
+
+### Cloud Logging audits itself, and model-required members are always reported
+
+Cloud Logging's own configuration calls (CreateBucket, CreateView, CreateSink)
+write Admin Activity audit entries to the project's `_Required` bucket, as the
+service does, so the logging tests that read a whole project or bucket now set
+those audit entries aside and read only the entries they wrote. Amazon ECS
+`DescribeServiceRevisions` reports every Express ingress path's `endpoint`, a
+failed load balancer's `scheme` and a target group's `port`, `healthCheckPort`
+and `healthCheckPath` whether or not the resource was provisioned, as the
+model requires, and Systems Manager `ListNodes` leaves out a node's members it
+has no value for, as InstanceInformation already did. Azure's virtual machine
+metadata test gives its machine a system-assigned identity, since IMDS answers
+`identity/info` only for a machine that has one, and the App Service
+Environment recommendations test places its subnet inside its own virtual
+network. The Step Functions Terraform workflow's role holds the
+`ecs:DescribeTasks` and `ecs:StopTask` its `.sync` wait calls, and the
+conformance list covers the IMDS `ipv4-associations` routes.
+
+### A create abandoned mid-request leaves no container
+
+A machine discarded while its boot was still creating the container could
+leave that container behind: the boot's context ended after the engine had
+accepted the create, so the client returned the context's error and no
+identifier, and Discard had nothing to remove. A create that fails because its
+context ended now removes the container the engine may have made under the
+workload's name, as a failed start or seed already did.
+
+### A server that does not persist removes its payload stores
+
+A server without `Persist` kept each payload store (Amazon S3, Cloud Storage,
+Azure Blob Storage, Memorystore backups) in a fresh temporary directory and
+never removed it, so every unit-test server and every simulator run left its
+bytes in the system's temporary directory; a long session accumulated over a
+thousand. The server now records those directories and removes them when it
+stops, at the end of `Serve`'s shutdown after the database closes, and in
+`StopBackground`, which a server built without serving stops through.
+
+### Google Cloud enums sent as numbers read back as names
+
+The REST transport of Google's Go clients sends an enum as its proto number,
+and the API answers with its name. The simulator kept a number it received as
+its digits, so a Cloud Run service's `scalingMode`, `executionEnvironment` and
+`encryptionKeyRevocationAction`, an instance's `restartPolicy`, a condition's
+`state` and a function's `environment` read back as `"2"`, and code comparing
+`scalingMode` to `MANUAL` never matched one set through a Go client. Cloud
+Functions refused `vpcConnectorEgressSettings` and `ingressSettings` sent as
+numbers outright. One table-driven `protoEnum` type now maps each number
+through the enum's declared values, taken from the Go SDK's descriptors or the
+Discovery document's enum order, treats zero as unset and refuses a number the
+enum does not declare. Two SDK tests expected what no client would see:
+logadmin unescapes the `%2F` in a `LogName` it returns, and DeleteLog writes
+an Admin Activity audit entry, so the audit log is listed afterwards.
+
+### Two tests waited on the wrong moment
+
+The node agent's microVM test read from its member as soon as the member
+printed `member up`, which its shell does just before `exec httpd`, so on a
+slow runner the first read reached a port nothing listened on yet; busybox
+`httpd -f` announces nothing once it binds, so the guest now retries that port
+until it answers, for at most ten seconds. The structured Cloud Run log test
+stamped its line with a fixed January date that Cloud Logging's thirty-day
+retention discards, so the line never reached the tail; it now stamps the line
+a minute in the past.
+
+### A restarted simulator's resumed work knows the callback address
+
+The callback address had become known only after the build, when `sim.Main`
+bound the listeners, and the simulators recorded it in `Program.Start`. A
+persistent AWS simulator resumes its previous process's work during the build:
+Amazon ECS service reconciles, AWS Step Functions executions and AWS Lambda
+invocations start there, and one that reached a workload before `Start` saw an
+empty address. The network sidecars memoized `invalid simulator listen port
+""`, so every task the restarted service scheduler placed failed and the
+deployment never stabilized, and a resumed Step Functions Lambda task got the
+same error back as an unhandled function error and failed its execution.
+`sim.Main` now binds the listeners before `Program.Build` and passes the
+resolved address in the configuration the build receives, and the three
+simulators record it as their build begins.

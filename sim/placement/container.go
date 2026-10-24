@@ -199,11 +199,12 @@ func forwarderOf(ctx context.Context, containerID string) (string, error) {
 // handle, whose exit takes the forwarder with it before it reports.
 type forwardedHandle struct {
 	containerHandle
-	exited chan struct{}
+	forwarder *sim.ContainerHandle
+	exited    chan struct{}
 }
 
 func newForwardedHandle(member containerHandle, forwarder *sim.ContainerHandle) *forwardedHandle {
-	h := &forwardedHandle{containerHandle: member, exited: make(chan struct{})}
+	h := &forwardedHandle{containerHandle: member, forwarder: forwarder, exited: make(chan struct{})}
 	go func() {
 		<-member.ContainerHandle.Exited()
 		forwarder.Cancel()
@@ -214,6 +215,12 @@ func newForwardedHandle(member containerHandle, forwarder *sim.ContainerHandle) 
 }
 
 func (h *forwardedHandle) Exited() <-chan struct{} { return h.exited }
+
+// PublishedPort is the forwarder's: the forwarder owns the namespace the
+// workload's ports are published from.
+func (h *forwardedHandle) PublishedPort(ctx context.Context, port int) (int, error) {
+	return h.forwarder.PublishedPort(ctx, port)
+}
 
 func (h *forwardedHandle) Wait() sim.ProcessResult {
 	<-h.exited

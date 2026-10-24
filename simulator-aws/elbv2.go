@@ -1,9 +1,11 @@
 package main
 
 import (
+	"crypto/rand"
 	"fmt"
 	"maps"
 	"net/http"
+	"net/netip"
 	"os"
 	"slices"
 	"sort"
@@ -17,15 +19,18 @@ import (
 const elbv2APIVersion = "2015-12-01"
 
 type ELBv2LoadBalancer struct {
-	Arn                       string
-	Name                      string
-	DNSName                   string
-	CanonicalZone             string
-	Scheme                    string
-	Type                      string
-	State                     string
-	VpcID                     string
-	Subnets                   []string
+	Arn           string
+	Name          string
+	DNSName       string
+	CanonicalZone string
+	Scheme        string
+	Type          string
+	State         string
+	VpcID         string
+	Subnets       []string
+	// SubnetMappings holds the addresses a request's SubnetMappings named per
+	// subnet; a request that named Subnets leaves it empty.
+	SubnetMappings            []ELBv2SubnetMapping
 	SecurityGroups            []string
 	IpAddressType             string
 	CustomerOwnedIpv4Pool     string
@@ -38,6 +43,14 @@ type ELBv2LoadBalancer struct {
 	MinimumCapacityUnits string
 	// Ipv4IpamPoolId is the IPAM pool assigned via ModifyIpPools.
 	Ipv4IpamPoolId string
+}
+
+type ELBv2SubnetMapping struct {
+	SubnetId            string
+	AllocationId        string
+	PrivateIPv4Address  string
+	IPv6Address         string
+	SourceNatIpv6Prefix string
 }
 
 type ELBv2TargetGroup struct {
@@ -266,16 +279,8 @@ func handleELBv2CreateLoadBalancer(w http.ResponseWriter, r *http.Request) {
 	if ipType == "" {
 		ipType = "ipv4"
 	}
-	for _, existing := range elbv2LoadBalancers.List() {
-		if existing.Name == name {
-			elbv2ErrorXML(w, "DuplicateLoadBalancerName",
-				fmt.Sprintf("A load balancer with the same name '%s' exists, but with different settings.", name),
-				http.StatusBadRequest, sim.RequestID(r.Context()))
-			return
-		}
-	}
-	subnets := elbv2RequestSubnets(r)
-	if code, message := elbv2SubnetsRefusal(lbType, ipType, subnets); code != "" {
+	subnets, mappings, code, message := elbv2RequestSubnets(r, lbType, scheme, ipType)
+	if code != "" {
 		elbv2ErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
@@ -291,6 +296,7 @@ func handleELBv2CreateLoadBalancer(w http.ResponseWriter, r *http.Request) {
 		State:          "active",
 		VpcID:          elbv2VPCFromSubnets(subnets),
 		Subnets:        subnets,
+		SubnetMappings: mappings,
 		SecurityGroups: queryList(r, "SecurityGroups"),
 		IpAddressType:  ipType,
 		// NLBs default this to "on"; ALBs don't carry it. Honour the request.
@@ -305,9 +311,58 @@ func handleELBv2CreateLoadBalancer(w http.ResponseWriter, r *http.Request) {
 	if lbType == "application" && len(lb.SecurityGroups) == 0 {
 		lb.SecurityGroups = ec2DefaultSecurityGroupIDs(lb.VpcID)
 	}
+	// "This operation is idempotent ... If you attempt to create multiple load
+	// balancers with the same settings, each call succeeds."
+	for _, existing := range elbv2LoadBalancers.List() {
+		if existing.Name != name {
+			continue
+		}
+		if elbv2SameLoadBalancerSettings(existing, lb) {
+			elbv2XMLResponse(w, "CreateLoadBalancer", "<LoadBalancers>"+elbv2LoadBalancerXML(existing)+"</LoadBalancers>", sim.RequestID(r.Context()))
+			return
+		}
+		elbv2ErrorXML(w, "DuplicateLoadBalancerName",
+			fmt.Sprintf("A load balancer with the same name '%s' exists, but with different settings.", name),
+			http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	lb.SubnetMappings = elbv2AssignSourceNatPrefixes(lb.SubnetMappings)
 	elbv2LoadBalancers.Put(arn, lb)
 	ec2ReapplyIngress(lb.VpcID)
 	elbv2XMLResponse(w, "CreateLoadBalancer", "<LoadBalancers>"+elbv2LoadBalancerXML(lb)+"</LoadBalancers>", sim.RequestID(r.Context()))
+}
+
+// elbv2SameLoadBalancerSettings reports whether a create request that built
+// candidate asked for the load balancer existing already is. A subnet mapping
+// whose source NAT prefix the request left to the load balancer matches any
+// prefix the existing one was assigned.
+func elbv2SameLoadBalancerSettings(existing, candidate ELBv2LoadBalancer) bool {
+	sorted := func(values []string) []string { return slices.Sorted(slices.Values(values)) }
+	bySubnet := func(mappings []ELBv2SubnetMapping) []ELBv2SubnetMapping {
+		return slices.SortedFunc(slices.Values(mappings), func(a, b ELBv2SubnetMapping) int {
+			return strings.Compare(a.SubnetId, b.SubnetId)
+		})
+	}
+	requested, held := bySubnet(candidate.SubnetMappings), bySubnet(existing.SubnetMappings)
+	if len(requested) != len(held) {
+		return false
+	}
+	for i := range requested {
+		if requested[i].SourceNatIpv6Prefix == elbv2SourceNatPrefixAutoAssigned && held[i].SourceNatIpv6Prefix != "" {
+			requested[i].SourceNatIpv6Prefix = held[i].SourceNatIpv6Prefix
+		}
+		if requested[i] != held[i] {
+			return false
+		}
+	}
+	return existing.Type == candidate.Type &&
+		existing.Scheme == candidate.Scheme &&
+		existing.IpAddressType == candidate.IpAddressType &&
+		existing.CustomerOwnedIpv4Pool == candidate.CustomerOwnedIpv4Pool &&
+		existing.EnforceSGInboundOnPrivate == candidate.EnforceSGInboundOnPrivate &&
+		slices.Equal(sorted(existing.Subnets), sorted(candidate.Subnets)) &&
+		slices.Equal(sorted(existing.SecurityGroups), sorted(candidate.SecurityGroups)) &&
+		maps.Equal(existing.Tags, candidate.Tags)
 }
 
 func handleELBv2DescribeLoadBalancers(w http.ResponseWriter, r *http.Request) {
@@ -456,42 +511,149 @@ func handleELBv2SetSecurityGroups(w http.ResponseWriter, r *http.Request) {
 
 func handleELBv2SetSubnets(w http.ResponseWriter, r *http.Request) {
 	arn := r.FormValue("LoadBalancerArn")
-	subnets := elbv2RequestSubnets(r)
 	current, ok := elbv2LoadBalancers.Get(arn)
 	if !ok {
 		elbv2ErrorXML(w, "LoadBalancerNotFound", "Load balancer not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
 	ipType := firstNonEmpty(r.FormValue("IpAddressType"), current.IpAddressType)
-	if code, message := elbv2SubnetsRefusal(current.Type, ipType, subnets); code != "" {
+	subnets, mappings, code, message := elbv2RequestSubnets(r, current.Type, current.Scheme, ipType)
+	if code != "" {
 		elbv2ErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
+	mappings = elbv2AssignSourceNatPrefixes(mappings)
 	if !elbv2LoadBalancers.Update(arn, func(lb *ELBv2LoadBalancer) {
 		lb.Subnets = subnets
+		lb.SubnetMappings = mappings
 		lb.VpcID = elbv2VPCFromSubnets(subnets)
 		lb.IpAddressType = ipType
 	}) {
 		elbv2ErrorXML(w, "LoadBalancerNotFound", "Load balancer not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
-	elbv2XMLResponse(w, "SetSubnets", "<AvailabilityZones>"+elbv2AvailabilityZonesXML(subnets)+"</AvailabilityZones><IpAddressType>"+xmlEscape(ipType)+"</IpAddressType>", sim.RequestID(r.Context()))
+	lb, _ := elbv2LoadBalancers.Get(arn)
+	elbv2XMLResponse(w, "SetSubnets", "<AvailabilityZones>"+elbv2AvailabilityZonesXML(lb)+"</AvailabilityZones><IpAddressType>"+xmlEscape(ipType)+"</IpAddressType>", sim.RequestID(r.Context()))
 }
 
+// elbv2SourceNatPrefixAutoAssigned is the SourceNatIpv6Prefix value that
+// leaves the prefix to the load balancer.
+const elbv2SourceNatPrefixAutoAssigned = "auto_assigned"
+
 // elbv2RequestSubnets reads the subnets a request names through Subnets or
-// SubnetMappings.
-func elbv2RequestSubnets(r *http.Request) []string {
-	if subnets := queryList(r, "Subnets"); len(subnets) > 0 {
-		return subnets
-	}
-	var subnets []string
+// SubnetMappings, with each mapping's addresses, and answers the refusal a
+// load balancer of lbType, scheme and ipType meets on them: "You must specify
+// either subnets or subnet mappings, but not both."
+func elbv2RequestSubnets(r *http.Request, lbType, scheme, ipType string) (subnets []string, mappings []ELBv2SubnetMapping, code, message string) {
+	subnets = queryList(r, "Subnets")
 	for i := 1; ; i++ {
-		id := r.FormValue(fmt.Sprintf("SubnetMappings.member.%d.SubnetId", i))
+		base := fmt.Sprintf("SubnetMappings.member.%d", i)
+		id := r.FormValue(base + ".SubnetId")
 		if id == "" {
-			return subnets
+			break
 		}
-		subnets = append(subnets, id)
+		mappings = append(mappings, ELBv2SubnetMapping{
+			SubnetId:            id,
+			AllocationId:        r.FormValue(base + ".AllocationId"),
+			PrivateIPv4Address:  r.FormValue(base + ".PrivateIPv4Address"),
+			IPv6Address:         r.FormValue(base + ".IPv6Address"),
+			SourceNatIpv6Prefix: r.FormValue(base + ".SourceNatIpv6Prefix"),
+		})
 	}
+	if len(subnets) > 0 && len(mappings) > 0 {
+		return nil, nil, "InvalidConfigurationRequest", "You must specify either Subnets or SubnetMappings, but not both"
+	}
+	for _, mapping := range mappings {
+		subnets = append(subnets, mapping.SubnetId)
+	}
+	if code, message = elbv2SubnetsRefusal(lbType, ipType, subnets); code != "" {
+		return nil, nil, code, message
+	}
+	if code, message = elbv2SubnetMappingsRefusal(lbType, scheme, mappings); code != "" {
+		return nil, nil, code, message
+	}
+	return subnets, mappings, "", ""
+}
+
+// elbv2SubnetMappingsRefusal checks each mapping's addresses against the
+// member documentation: the address members are "[Network Load Balancers]"
+// only, an Elastic IP address is "for an internet-facing load balancer" and
+// a private IPv4 address "for an internal load balancer" from "the IPv4
+// range of the subnet", and a source NAT prefix is "an IPv6 prefix (/80
+// netmask) from the subnet CIDR block or auto_assigned".
+func elbv2SubnetMappingsRefusal(lbType, scheme string, mappings []ELBv2SubnetMapping) (code, message string) {
+	for _, mapping := range mappings {
+		subnet, _ := ec2Subnets.Get(mapping.SubnetId)
+		for _, member := range []struct{ name, value string }{
+			{"AllocationId", mapping.AllocationId},
+			{"PrivateIPv4Address", mapping.PrivateIPv4Address},
+			{"IPv6Address", mapping.IPv6Address},
+			{"SourceNatIpv6Prefix", mapping.SourceNatIpv6Prefix},
+		} {
+			if member.value != "" && lbType != "network" {
+				return "InvalidConfigurationRequest", fmt.Sprintf("%s is supported only for Network Load Balancers", member.name)
+			}
+		}
+		if mapping.AllocationId != "" {
+			if scheme != "internet-facing" {
+				return "InvalidConfigurationRequest", "AllocationId is supported only for an internet-facing load balancer"
+			}
+			if _, ok := ec2ElasticIPs.Get(mapping.AllocationId); !ok {
+				return "AllocationIdNotFound", "The specified allocation ID does not exist."
+			}
+		}
+		if mapping.PrivateIPv4Address != "" {
+			if scheme != "internal" {
+				return "InvalidConfigurationRequest", "PrivateIPv4Address is supported only for an internal load balancer"
+			}
+			if !elbv2AddressInBlock(mapping.PrivateIPv4Address, subnet.CidrBlock) {
+				return "InvalidConfigurationRequest", fmt.Sprintf("PrivateIPv4Address '%s' is not in the IPv4 range of subnet '%s'", mapping.PrivateIPv4Address, mapping.SubnetId)
+			}
+		}
+		if mapping.IPv6Address != "" && !elbv2AddressInBlock(mapping.IPv6Address, subnet.Ipv6CidrBlock) {
+			return "InvalidConfigurationRequest", fmt.Sprintf("IPv6Address '%s' is not in the IPv6 CIDR block of subnet '%s'", mapping.IPv6Address, mapping.SubnetId)
+		}
+		if prefix := mapping.SourceNatIpv6Prefix; prefix != "" && prefix != elbv2SourceNatPrefixAutoAssigned {
+			parsed, err := netip.ParsePrefix(prefix)
+			block, blockErr := netip.ParsePrefix(subnet.Ipv6CidrBlock)
+			if err != nil || blockErr != nil || parsed.Bits() != 80 || !block.Contains(parsed.Addr()) {
+				return "InvalidConfigurationRequest", fmt.Sprintf("SourceNatIpv6Prefix '%s' is not a /80 prefix of the IPv6 CIDR block of subnet '%s'", prefix, mapping.SubnetId)
+			}
+		}
+	}
+	return "", ""
+}
+
+func elbv2AddressInBlock(address, block string) bool {
+	addr, err := netip.ParseAddr(address)
+	prefix, prefixErr := netip.ParsePrefix(block)
+	return err == nil && prefixErr == nil && prefix.Contains(addr)
+}
+
+// elbv2AssignSourceNatPrefixes replaces each auto_assigned source NAT prefix
+// with "an IPv6 prefix selected at random from the subnet CIDR block".
+func elbv2AssignSourceNatPrefixes(mappings []ELBv2SubnetMapping) []ELBv2SubnetMapping {
+	assigned := slices.Clone(mappings)
+	for i, mapping := range assigned {
+		if mapping.SourceNatIpv6Prefix != elbv2SourceNatPrefixAutoAssigned {
+			continue
+		}
+		subnet, _ := ec2Subnets.Get(mapping.SubnetId)
+		block, err := netip.ParsePrefix(subnet.Ipv6CidrBlock)
+		if err != nil {
+			continue
+		}
+		addr := block.Masked().Addr().As16()
+		var random [16]byte
+		rand.Read(random[:])
+		for bit := block.Bits(); bit < 80; bit++ {
+			if random[bit/8]&(1<<(7-bit%8)) != 0 {
+				addr[bit/8] |= 1 << (7 - bit%8)
+			}
+		}
+		assigned[i].SourceNatIpv6Prefix = netip.PrefixFrom(netip.AddrFrom16(addr), 80).String()
+	}
+	return assigned
 }
 
 // elbv2SubnetsRefusal answers the error Elastic Load Balancing returns for a
@@ -838,6 +1000,10 @@ func handleELBv2CreateListener(w http.ResponseWriter, r *http.Request) {
 		Attributes:      defaultELBv2ListenerAttributes(lb.Type),
 		Tags:            parseELBv2Tags(r, "Tags"),
 	}
+	if code, message := elbv2ActionsRefusal(listener.DefaultActions); code != "" {
+		elbv2ErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	elbv2Listeners.Put(arn, listener)
 	if err := elbv2StartListenerDataPlane(listener); err != nil {
 		elbv2Listeners.Delete(arn)
@@ -1132,7 +1298,7 @@ func elbv2LoadBalancerXML(lb ELBv2LoadBalancer) string {
 	}
 	return fmt.Sprintf(`<member><LoadBalancerArn>%s</LoadBalancerArn><DNSName>%s</DNSName>%s<CreatedTime>%s</CreatedTime><LoadBalancerName>%s</LoadBalancerName><Scheme>%s</Scheme><VpcId>%s</VpcId><State><Code>%s</Code></State><Type>%s</Type><AvailabilityZones>%s</AvailabilityZones><SecurityGroups>%s</SecurityGroups><IpAddressType>%s</IpAddressType>%s</member>`,
 		xmlEscape(lb.Arn), xmlEscape(lb.DNSName), zone, xmlEscape(lb.CreatedTime), xmlEscape(lb.Name),
-		xmlEscape(lb.Scheme), xmlEscape(lb.VpcID), xmlEscape(lb.State), xmlEscape(lb.Type), elbv2AvailabilityZonesXML(lb.Subnets),
+		xmlEscape(lb.Scheme), xmlEscape(lb.VpcID), xmlEscape(lb.State), xmlEscape(lb.Type), elbv2AvailabilityZonesXML(lb),
 		elbv2StringMembersXMLInner(lb.SecurityGroups), xmlEscape(lb.IpAddressType), extra)
 }
 
@@ -1162,14 +1328,41 @@ func handleELBv2SetIpAddressType(w http.ResponseWriter, r *http.Request) {
 	elbv2XMLResponse(w, "SetIpAddressType", fmt.Sprintf("<IpAddressType>%s</IpAddressType>", xmlEscape(lb.IpAddressType)), sim.RequestID(r.Context()))
 }
 
-func elbv2AvailabilityZonesXML(subnets []string) string {
+// elbv2AvailabilityZonesXML renders the load balancer's subnets with the
+// addresses its subnet mappings gave each: an Elastic IP address by its
+// allocation, a private IPv4 address, an IPv6 address, and the source NAT
+// prefix.
+func elbv2AvailabilityZonesXML(lb ELBv2LoadBalancer) string {
 	var b strings.Builder
-	for _, subnet := range subnets {
+	for _, subnet := range lb.Subnets {
 		az := awsAvailabilityZone()
 		if s, ok := ec2Subnets.Get(subnet); ok && s.AvailabilityZone != "" {
 			az = s.AvailabilityZone
 		}
-		fmt.Fprintf(&b, "<member><ZoneName>%s</ZoneName><SubnetId>%s</SubnetId></member>", xmlEscape(az), xmlEscape(subnet))
+		fmt.Fprintf(&b, "<member><ZoneName>%s</ZoneName><SubnetId>%s</SubnetId>", xmlEscape(az), xmlEscape(subnet))
+		for _, mapping := range lb.SubnetMappings {
+			if mapping.SubnetId != subnet {
+				continue
+			}
+			if mapping.AllocationId != "" || mapping.PrivateIPv4Address != "" || mapping.IPv6Address != "" {
+				b.WriteString("<LoadBalancerAddresses><member>")
+				if mapping.AllocationId != "" {
+					eip, _ := ec2ElasticIPs.Get(mapping.AllocationId)
+					fmt.Fprintf(&b, "<IpAddress>%s</IpAddress><AllocationId>%s</AllocationId>", xmlEscape(eip.PublicIp), xmlEscape(mapping.AllocationId))
+				}
+				if mapping.PrivateIPv4Address != "" {
+					fmt.Fprintf(&b, "<IpAddress>%s</IpAddress><PrivateIPv4Address>%s</PrivateIPv4Address>", xmlEscape(mapping.PrivateIPv4Address), xmlEscape(mapping.PrivateIPv4Address))
+				}
+				if mapping.IPv6Address != "" {
+					fmt.Fprintf(&b, "<IPv6Address>%s</IPv6Address>", xmlEscape(mapping.IPv6Address))
+				}
+				b.WriteString("</member></LoadBalancerAddresses>")
+			}
+			if mapping.SourceNatIpv6Prefix != "" {
+				fmt.Fprintf(&b, "<SourceNatIpv6Prefixes><member>%s</member></SourceNatIpv6Prefixes>", xmlEscape(mapping.SourceNatIpv6Prefix))
+			}
+		}
+		b.WriteString("</member>")
 	}
 	return b.String()
 }
@@ -1459,6 +1652,25 @@ func parseELBv2ActionsPrefix(r *http.Request, prefix string) []ELBv2Action {
 		actions = append(actions, action)
 	}
 	return actions
+}
+
+// elbv2ActionsRefusal answers the refusal a listener's or rule's actions meet:
+// a forward's target group stickiness "range is 1-604800 seconds (7 days). You
+// must specify this value when enabling target group stickiness."
+func elbv2ActionsRefusal(actions []ELBv2Action) (code, message string) {
+	for _, action := range actions {
+		if action.Forward == nil || action.Forward.Stickiness == nil || !action.Forward.Stickiness.Enabled {
+			continue
+		}
+		duration := action.Forward.Stickiness.DurationSeconds
+		if duration == nil {
+			return "ValidationError", "TargetGroupStickinessConfig.DurationSeconds must be specified when target group stickiness is enabled"
+		}
+		if *duration < 1 || *duration > 604800 {
+			return "ValidationError", fmt.Sprintf("TargetGroupStickinessConfig.DurationSeconds '%d' must be in the range 1-604800", *duration)
+		}
+	}
+	return "", ""
 }
 
 // elbv2ActionsXML renders an action list under the given wrapper element
