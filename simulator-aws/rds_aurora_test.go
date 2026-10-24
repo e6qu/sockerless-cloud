@@ -30,6 +30,7 @@ func rdsResetAuroraStores(t *testing.T) {
 	t.Helper()
 	bg.Await()
 	rdsInstances = sim.MakeStore[RDSInstance](nil, "rds_instances")
+	rdsCapacityReservations = sim.MakeStore[RDSCapacityReservation](nil, "rds_capacity_reservations")
 	rdsClusters = sim.MakeStore[RDSCluster](nil, "rds_clusters")
 	rdsClusterSnapshots = sim.MakeStore[RDSClusterSnapshot](nil, "rds_cluster_snapshots")
 	rdsSnapshots = sim.MakeStore[RDSSnapshot](nil, "rds_snapshots")
