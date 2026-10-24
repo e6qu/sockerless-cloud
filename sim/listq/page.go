@@ -169,7 +169,13 @@ func ColumnPage[T any](items []T, columns []Column, token string, size, def, max
 	_, end, _, _ := Window(Decimal, len(index)-start, "", size, def, max)
 	end += start
 	if end < len(index) && end > start {
-		encoded, err := json.Marshal(rows[index[end-1]])
+		// The values travel as bytes, since a key spelled for its order, such
+		// as one inverted for a descending term, need not be valid UTF-8.
+		last := make([][]byte, len(columns))
+		for c, value := range rows[index[end-1]] {
+			last[c] = []byte(value)
+		}
+		encoded, err := json.Marshal(last)
 		if err != nil {
 			return nil, "", err
 		}
@@ -194,9 +200,13 @@ func columnMarker(token string, terms int) ([]string, bool) {
 	if !ok {
 		return nil, false
 	}
-	var after []string
-	if json.Unmarshal([]byte(body), &after) != nil || len(after) != terms {
+	var values [][]byte
+	if json.Unmarshal([]byte(body), &values) != nil || len(values) != terms {
 		return nil, false
+	}
+	after := make([]string, terms)
+	for c, value := range values {
+		after[c] = string(value)
 	}
 	return after, true
 }

@@ -33,6 +33,34 @@ func TestColumnPageResumesAfterItsLastRow(t *testing.T) {
 	}
 }
 
+// A key spelled for its order alone, such as one inverted byte by byte to run
+// descending, is no valid UTF-8; a page resumes after it all the same.
+func TestKeyPageResumesAfterAKeyThatIsNotText(t *testing.T) {
+	inverted := func(s string) string {
+		b := []byte(s)
+		for i := range b {
+			b[i] = ^b[i]
+		}
+		return string(b)
+	}
+	items := []string{"c", "b", "a"}
+	var seen []string
+	token := ""
+	for range len(items) + 1 {
+		page, next, err := KeyPage(items, inverted, token, 1, 0, 0)
+		if err != nil {
+			t.Fatalf("page after %q: %v", token, err)
+		}
+		seen = append(seen, page...)
+		if token = next; token == "" {
+			break
+		}
+	}
+	if !slices.Equal(seen, []string{"c", "b", "a"}) {
+		t.Fatalf("paged %v, want every item once, newest first", seen)
+	}
+}
+
 func TestIntKeyOrdersAsTheIntegersDo(t *testing.T) {
 	ordered := []int64{-1 << 62, -10, -1, 0, 1, 9, 10, 1 << 62}
 	for i := 1; i < len(ordered); i++ {
