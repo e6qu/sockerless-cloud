@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math/rand/v2"
 	"net"
@@ -101,17 +100,12 @@ func handleGCPComputeLoadBalancerDataPlane(w http.ResponseWriter, r *http.Reques
 		up.RequestHeader = gcpExternalForwardedHeaders(r, fr)
 		up.ResponseHeader = func(_ int, h http.Header) { lbplane.AppendToHeaderList(h, "Via", ", ", gcpLoadBalancerVia) }
 	}
-	err := lbplane.Forward(w, r, up)
-	abortStartedForward(w, err)
-	switch {
-	case err == nil:
-	case errors.Is(err, lbplane.ErrNotAdmitted):
-		http.Error(w, "no healthy backends", http.StatusServiceUnavailable)
-	case errors.Is(err, lbplane.ErrClientWentAway):
-		w.WriteHeader(lbplane.StatusClientClosedRequest)
-	default:
-		http.Error(w, err.Error(), http.StatusBadGateway)
-	}
+	_ = lbplane.Serve(w, r, up, lbplane.Answers{
+		NotAdmitted: func(w http.ResponseWriter, _ error) {
+			http.Error(w, "no healthy backends", http.StatusServiceUnavailable)
+		},
+		Failed: func(w http.ResponseWriter, err error) { http.Error(w, err.Error(), http.StatusBadGateway) },
+	})
 }
 
 // gcpLoadBalancerVia is the Via entry an external Application Load Balancer
@@ -128,10 +122,7 @@ func gcpExternalLoadBalancingScheme(scheme string) bool {
 // "Via: 1.1 google", and an X-Cloud-Trace-Context when the client sent none.
 func gcpExternalForwardedHeaders(r *http.Request, fr ComputeForwardingRule) func(http.Header) {
 	clientIP, _ := lbplane.ClientAddress(r)
-	proto := "http"
-	if r.TLS != nil {
-		proto = "https"
-	}
+	proto := lbplane.ClientProto(r)
 	return func(h http.Header) {
 		lbplane.AppendToHeaderList(h, "X-Forwarded-For", ",", clientIP+","+lbplane.Hostname(fr.IPAddress))
 		h.Set("X-Forwarded-Proto", proto)

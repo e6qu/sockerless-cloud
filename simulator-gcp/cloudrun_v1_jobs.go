@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 // Cloud Run Admin v1 (Knative) surface for the Cloud Run Jobs family:
@@ -125,7 +126,7 @@ func knativeListPage[T any](w http.ResponseWriter, r *http.Request, items []T, f
 	token := r.URL.Query().Get("continue")
 	page, next, err := gcpKeyPageOf(items, append([]gcpSortKey[T]{first}, rest...), token, size, 0, 0)
 	switch {
-	case errors.Is(err, errGCPPageToken):
+	case errors.Is(err, listq.ErrBadToken):
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid continue token %q", token)
 		return nil, "", false
 	case err != nil:

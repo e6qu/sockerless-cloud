@@ -1,18 +1,17 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
 // Route 53 health checkers probe an endpoint every RequestInterval seconds and
@@ -262,11 +261,9 @@ func r53Probe(ctx context.Context, cfg R53HealthCheckConfig) r53ProbeResult {
 	}
 	address := net.JoinHostPort(host, strconv.Itoa(port))
 	if kind == "TCP" {
-		conn, err := (&net.Dialer{Timeout: r53TCPTimeout}).DialContext(ctx, "tcp", address)
-		if err != nil {
+		if err := lbplane.ProbeTCP(ctx, address, r53TCPTimeout); err != nil {
 			return r53ProbeResult{status: "Failure: " + r53ProbeError(err)}
 		}
-		_ = conn.Close()
 		return r53ProbeResult{ok: true, status: "Success: TCP connection established"}
 	}
 
@@ -274,52 +271,31 @@ func r53Probe(ctx context.Context, cfg R53HealthCheckConfig) r53ProbeResult {
 	if secure {
 		scheme = "https"
 	}
-	path := cfg.ResourcePath
-	if path == "" {
-		path = "/"
+	probe := lbplane.HTTPProbe{
+		Scheme:          scheme,
+		Address:         address,
+		Host:            cfg.FullyQualifiedDomainName,
+		Path:            cfg.ResourcePath,
+		Timeout:         r53ConnectTimeout + r53ResponseTimeout,
+		ConnectTimeout:  r53ConnectTimeout,
+		ResponseTimeout: r53ResponseTimeout,
+		Match:           lbplane.StatusRange(200, 399),
 	}
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, scheme+"://"+address+path, nil)
-	if err != nil {
-		return r53ProbeResult{status: "Failure: " + err.Error()}
-	}
-	if cfg.FullyQualifiedDomainName != "" {
-		req.Host = cfg.FullyQualifiedDomainName
-	}
-	serverName := ""
 	if cfg.EnableSNI != nil && *cfg.EnableSNI {
-		serverName = cfg.FullyQualifiedDomainName
-	}
-	client := &http.Client{
-		Timeout: r53ConnectTimeout + r53ResponseTimeout,
-		Transport: &http.Transport{
-			DialContext:           (&net.Dialer{Timeout: r53ConnectTimeout}).DialContext,
-			ResponseHeaderTimeout: r53ResponseTimeout,
-			// Route 53 checkers do not validate the endpoint's certificate.
-			TLSClientConfig: &tls.Config{ServerName: serverName, InsecureSkipVerify: true}, //nolint:gosec
-			Proxy:           nil,
-		},
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return r53ProbeResult{status: "Failure: " + r53ProbeError(err)}
-	}
-	defer func() { _ = resp.Body.Close() }()
-	code := fmt.Sprintf("HTTP Status Code %d, %s", resp.StatusCode, http.StatusText(resp.StatusCode))
-	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
-		return r53ProbeResult{status: "Failure: " + code}
+		probe.ServerName = cfg.FullyQualifiedDomainName
 	}
 	if strings.HasSuffix(kind, "_STR_MATCH") {
-		body, err := io.ReadAll(io.LimitReader(resp.Body, r53SearchWindow))
-		if err != nil {
-			return r53ProbeResult{status: "Failure: " + r53ProbeError(err)}
-		}
-		if !bytes.Contains(body, []byte(cfg.SearchString)) {
-			return r53ProbeResult{status: "Failure: the response body did not contain the search string"}
-		}
+		probe.BodyContains, probe.BodyLimit = cfg.SearchString, r53SearchWindow
+	}
+	status, err := lbplane.ProbeHTTP(ctx, probe)
+	code := fmt.Sprintf("HTTP Status Code %d, %s", status, http.StatusText(status))
+	switch {
+	case errors.As(err, new(*lbplane.StatusMismatchError)):
+		return r53ProbeResult{status: "Failure: " + code}
+	case errors.As(err, new(*lbplane.BodyMismatchError)):
+		return r53ProbeResult{status: "Failure: the response body did not contain the search string"}
+	case err != nil:
+		return r53ProbeResult{status: "Failure: " + r53ProbeError(err)}
 	}
 	return r53ProbeResult{ok: true, status: "Success: " + code}
 }

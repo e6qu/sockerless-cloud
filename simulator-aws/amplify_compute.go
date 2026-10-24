@@ -452,13 +452,7 @@ func amplifyServeManifestTarget(w http.ResponseWriter, r *http.Request, app Ampl
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return true
 		}
-		served, err := amplifyProxyToCompute(w, r, port, interceptNotFound)
-		abortStartedForward(w, err)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return true
-		}
-		return served
+		return amplifyProxyToCompute(w, r, port, interceptNotFound)
 	case "ImageOptimization":
 		return amplifyServeImageOptimization(w, r, app, br, content, target, interceptNotFound)
 	default:
@@ -471,10 +465,10 @@ func amplifyServeManifestTarget(w http.ResponseWriter, r *http.Request, app Ampl
 // interceptNotFound, a 404 from compute is discarded and reported unserved
 // (nothing written) so the caller's fallback target applies; every other
 // response streams through untouched.
-func amplifyProxyToCompute(w http.ResponseWriter, r *http.Request, port int, interceptNotFound bool) (bool, error) {
+func amplifyProxyToCompute(w http.ResponseWriter, r *http.Request, port int, interceptNotFound bool) bool {
 	const exchangeTimeout = 30 * time.Second
 	sim.DeclareWait(r.Context(), exchangeTimeout)
-	err := lbplane.Forward(w, r, lbplane.Upstream{
+	err := lbplane.Serve(w, r, lbplane.Upstream{
 		Scheme:   "http",
 		Address:  net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
 		Path:     r.URL.EscapedPath(),
@@ -483,9 +477,8 @@ func amplifyProxyToCompute(w http.ResponseWriter, r *http.Request, port int, int
 		Decline: func(status int) bool {
 			return interceptNotFound && status == http.StatusNotFound
 		},
+	}, lbplane.Answers{
+		Failed: func(w http.ResponseWriter, err error) { http.Error(w, err.Error(), http.StatusBadGateway) },
 	})
-	if errors.Is(err, lbplane.ErrDeclined) {
-		return false, nil
-	}
-	return true, err
+	return !errors.Is(err, lbplane.ErrDeclined)
 }

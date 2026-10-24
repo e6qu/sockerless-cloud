@@ -8,9 +8,11 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
-func intKey(n int) string { return azureIntKey(int64(n)) }
+func intKey(n int) string { return listq.IntKey(int64(n)) }
 
 func strKey(s string) string { return s }
 

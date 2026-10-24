@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 // ECS Service family — terraform-provider-aws declares `aws_ecs_service` for
@@ -676,7 +677,7 @@ func handleECSListTaskDefinitions(w http.ResponseWriter, r *http.Request) {
 	// sorts after :2); sort=DESC returns newest-revision-first.
 	descending := strings.EqualFold(req.Sort, "DESC")
 	page, next, pageOK := awsKeyPage(w, ecsBadToken, defs, func(d tdRef) string {
-		k := d.family + "\x00" + awsIntKey(int64(d.revision))
+		k := d.family + "\x00" + listq.IntKey(int64(d.revision))
 		if descending {
 			return awsDescKey(k)
 		}

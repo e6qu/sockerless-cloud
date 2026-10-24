@@ -423,11 +423,11 @@ func ec2ImageMatchesFilters(img EC2Image, filters map[string][]string) bool {
 				return false
 			}
 		case "name":
-			if !slices.ContainsFunc(vals, func(v string) bool { return awsWildcardMatch(v, img.Name) }) {
+			if !slices.ContainsFunc(vals, func(v string) bool { return ec2FilterWildcard.Match(v, img.Name) }) {
 				return false
 			}
 		case "description":
-			if !slices.ContainsFunc(vals, func(v string) bool { return awsWildcardMatch(v, img.Description) }) {
+			if !slices.ContainsFunc(vals, func(v string) bool { return ec2FilterWildcard.Match(v, img.Description) }) {
 				return false
 			}
 		case "is-public":

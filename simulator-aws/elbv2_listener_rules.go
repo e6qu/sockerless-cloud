@@ -75,19 +75,19 @@ func elbv2ConditionMatches(r *http.Request, c ELBv2RuleCondition) bool {
 	case "host-header":
 		// "Host conditions ... not case-sensitive" and matched against the
 		// host name, which carries no port.
-		host := strings.ToLower(elbv2RequestHostname(r))
-		return slices.ContainsFunc(c.Values, func(v string) bool { return elbv2Wildcard(strings.ToLower(v), host) })
+		host := elbv2RequestHostname(r)
+		return slices.ContainsFunc(c.Values, func(v string) bool { return elbv2FoldedWildcard.Match(v, host) })
 	case "path-pattern":
 		// "A path pattern is case-sensitive ... The path pattern is applied
 		// only to the path of the URL, not to its query parameters."
-		return slices.ContainsFunc(c.Values, func(v string) bool { return elbv2Wildcard(v, r.URL.Path) })
+		return slices.ContainsFunc(c.Values, func(v string) bool { return elbv2Wildcard.Match(v, r.URL.Path) })
 	case "http-header":
 		// "The comparison strings are not case-sensitive." The header name
 		// is not either, as HTTP has it.
 		values := r.Header.Values(c.HttpHeaderName)
 		return slices.ContainsFunc(c.Values, func(v string) bool {
 			return slices.ContainsFunc(values, func(got string) bool {
-				return elbv2Wildcard(strings.ToLower(v), strings.ToLower(got))
+				return elbv2FoldedWildcard.Match(v, got)
 			})
 		})
 	case "http-request-method":
@@ -99,11 +99,11 @@ func elbv2ConditionMatches(r *http.Request, c ELBv2RuleCondition) bool {
 		query := r.URL.Query()
 		return slices.ContainsFunc(c.QueryStrings, func(kv ELBv2QueryStringKV) bool {
 			for key, values := range query {
-				if kv.Key != "" && !elbv2Wildcard(strings.ToLower(kv.Key), strings.ToLower(key)) {
+				if kv.Key != "" && !elbv2FoldedWildcard.Match(kv.Key, key) {
 					continue
 				}
 				if slices.ContainsFunc(values, func(got string) bool {
-					return elbv2Wildcard(strings.ToLower(kv.Value), strings.ToLower(got))
+					return elbv2FoldedWildcard.Match(kv.Value, got)
 				}) {
 					return true
 				}
@@ -127,32 +127,13 @@ func elbv2ConditionMatches(r *http.Request, c ELBv2RuleCondition) bool {
 	return false
 }
 
-// elbv2Wildcard matches s against pattern, in which * stands for any run of
-// characters and ? for one.
-func elbv2Wildcard(pattern, s string) bool {
-	p, i := []rune(pattern), []rune(s)
-	pi, si, star, mark := 0, 0, -1, 0
-	for si < len(i) {
-		switch {
-		case pi < len(p) && (p[pi] == '?' || p[pi] == i[si]):
-			pi++
-			si++
-		case pi < len(p) && p[pi] == '*':
-			star, mark = pi, si
-			pi++
-		case star >= 0:
-			pi = star + 1
-			mark++
-			si = mark
-		default:
-			return false
-		}
-	}
-	for pi < len(p) && p[pi] == '*' {
-		pi++
-	}
-	return pi == len(p)
-}
+// elbv2Wildcard is a rule condition's wildcard, in which * stands for any run
+// of characters and ? for one; elbv2FoldedWildcard is it for the conditions
+// that compare without regard to case.
+var (
+	elbv2Wildcard       = sim.Wildcard{AnyOne: true}
+	elbv2FoldedWildcard = sim.Wildcard{AnyOne: true, FoldCase: true}
+)
 
 func elbv2RequestHostname(r *http.Request) string {
 	if host, _, err := net.SplitHostPort(r.Host); err == nil {

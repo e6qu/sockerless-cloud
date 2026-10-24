@@ -7,12 +7,12 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim/placement"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
-	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"github.com/e6qu/sockerless-cloud/sim/replicas"
 )
 
 // cloudRunDefaultContainerPort is the port Cloud Run sends requests to, and
@@ -161,72 +161,46 @@ func cloudRunNamespacePorts(containers []Container, serves bool) []int {
 // at; containerPort is the probed container's own port.
 func runStartupProbe(ctx context.Context, p Probe, route func(int) (string, error), containerPort int, exited <-chan struct{}) error {
 	target := probeTarget{route: route, port: containerPort}
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	go func() {
-		select {
-		case <-exited:
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
-	stopped := func(err error) error {
-		select {
-		case <-exited:
-			return errors.New("the container exited before its startup probe succeeded")
-		default:
-		}
-		return err
+	seconds := func(n int32) time.Duration { return time.Duration(n) * time.Second }
+	probe := replicas.Probe{
+		Check:            func(ctx context.Context) error { return probeOnce(ctx, p, target, seconds(p.TimeoutSeconds)) },
+		InitialDelay:     seconds(p.InitialDelaySeconds),
+		Period:           seconds(p.PeriodSeconds),
+		Timeout:          seconds(p.TimeoutSeconds),
+		FailureThreshold: int(p.FailureThreshold),
 	}
-
-	if p.InitialDelaySeconds > 0 {
-		select {
-		case <-ctx.Done():
-			return stopped(ctx.Err())
-		case <-time.After(time.Duration(p.InitialDelaySeconds) * time.Second):
-		}
+	err := probe.Await(ctx, time.Now(), exited)
+	if errors.Is(err, replicas.ErrExited) {
+		return errors.New("the container exited before its startup probe succeeded")
 	}
-	timeout := time.Duration(p.TimeoutSeconds) * time.Second
-	period := time.Duration(p.PeriodSeconds) * time.Second
-	var lastErr error
-	for failures := 0; ; {
-		started := time.Now()
-		lastErr = probeOnce(ctx, p, target, timeout)
-		if lastErr == nil {
-			return nil
-		}
-		if ctx.Err() != nil {
-			return stopped(fmt.Errorf("%w: %w", ctx.Err(), lastErr))
-		}
-		failures++
-		if failures >= int(p.FailureThreshold) {
-			return fmt.Errorf("startup probe failed %d time(s): %w", failures, lastErr)
-		}
-		select {
-		case <-ctx.Done():
-			return stopped(fmt.Errorf("%w: %w", ctx.Err(), lastErr))
-		case <-time.After(time.Until(started.Add(period))):
-		}
-	}
+	return err
 }
 
-// probeOnce makes one probe attempt, bounded by the probe's timeout.
+// probeOnce makes one probe attempt; ctx ends when the probe's timeout does.
 func probeOnce(ctx context.Context, p Probe, target probeTarget, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 	switch {
 	case p.HTTPGet != nil:
 		addr, err := target.address(p.HTTPGet.Port)
 		if err != nil {
 			return err
 		}
-		return probeHTTPGet(ctx, addr, p.HTTPGet)
+		probe := lbplane.HTTPProbe{Scheme: "http", Address: addr, Path: p.HTTPGet.Path, Header: http.Header{},
+			Timeout: timeout, Match: lbplane.StatusRange(200, 399)}
+		for _, h := range p.HTTPGet.HTTPHeaders {
+			if strings.EqualFold(h.Name, "Host") {
+				probe.Host = h.Value
+				continue
+			}
+			probe.Header.Add(h.Name, h.Value)
+		}
+		_, err = lbplane.ProbeHTTP(ctx, probe)
+		return err
 	case p.GRPC != nil:
 		addr, err := target.address(p.GRPC.Port)
 		if err != nil {
 			return err
 		}
-		return probeGRPC(ctx, addr, p.GRPC.Service)
+		return lbplane.ProbeGRPC(ctx, addr, p.GRPC.Service, timeout)
 	default:
 		var port int32
 		if p.TCPSocket != nil {
@@ -244,11 +218,9 @@ func probeOnce(ctx context.Context, p Probe, target probeTarget, timeout time.Du
 // connection until the attempt's timeout: Cloud Run's default probe waits up to
 // its 240-second timeout for the port to open.
 func probeTCP(ctx context.Context, addr string) error {
-	dialer := &net.Dialer{Timeout: time.Second}
 	for {
-		conn, err := dialer.DialContext(ctx, "tcp", addr)
+		err := lbplane.ProbeTCP(ctx, addr, time.Second)
 		if err == nil {
-			_ = conn.Close()
 			return nil
 		}
 		select {
@@ -257,55 +229,6 @@ func probeTCP(ctx context.Context, addr string) error {
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
-}
-
-// probeHTTPGet succeeds when the container answers the GET with a status from
-// 200 to 399.
-func probeHTTPGet(ctx context.Context, addr string, action *HTTPGetAction) error {
-	path := action.Path
-	if path == "" {
-		path = "/"
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+path, nil)
-	if err != nil {
-		return err
-	}
-	for _, h := range action.HTTPHeaders {
-		req.Header.Add(h.Name, h.Value)
-	}
-	client := &http.Client{
-		Transport: &http.Transport{DisableKeepAlives: true},
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("HTTP probe GET %s: %w", path, err)
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
-		return fmt.Errorf("HTTP probe GET %s answered %d", path, resp.StatusCode)
-	}
-	return nil
-}
-
-// probeGRPC succeeds when the container's gRPC health service reports the
-// named service SERVING.
-func probeGRPC(ctx context.Context, addr, service string) error {
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return err
-	}
-	defer func() { _ = conn.Close() }()
-	resp, err := healthpb.NewHealthClient(conn).Check(ctx, &healthpb.HealthCheckRequest{Service: service})
-	if err != nil {
-		return fmt.Errorf("gRPC health probe: %w", err)
-	}
-	if resp.GetStatus() != healthpb.HealthCheckResponse_SERVING {
-		return fmt.Errorf("gRPC health probe: service %q is %s", service, resp.GetStatus())
-	}
-	return nil
 }
 
 // awaitExit waits for the first of the instance's containers to stop and

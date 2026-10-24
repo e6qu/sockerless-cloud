@@ -13,6 +13,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/google/uuid"
 )
@@ -1027,9 +1028,9 @@ func handleBatchListJobs(w http.ResponseWriter, r *http.Request) {
 			return job.ArrayJobID == "" && batchNameFromARN(job.JobQueue) == queueName
 		})
 	}
-	key := func(job BatchJob) string { return awsDescKey(awsIntKey(job.CreatedAt)) + "\x00" + job.JobID }
+	key := func(job BatchJob) string { return awsDescKey(listq.IntKey(job.CreatedAt)) + "\x00" + job.JobID }
 	if req.ArrayJobID != "" {
-		key = func(job BatchJob) string { return awsIntKey(int64(*job.ArrayProperties.Index)) }
+		key = func(job BatchJob) string { return listq.IntKey(int64(*job.ArrayProperties.Index)) }
 	}
 
 	// A filter lists jobs in every status, except that SHARE_IDENTIFIER

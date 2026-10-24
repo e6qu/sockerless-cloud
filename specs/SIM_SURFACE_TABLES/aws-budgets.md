@@ -17,20 +17,20 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `Action AWSBudgetServiceGateway.CreateBudget` | ✓ `simulator-aws/budgets.go:79::handleBudgetsCreateBudget` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSBudgetServiceGateway.DescribeBudget` | ✓ `simulator-aws/budgets.go:80::handleBudgetsDescribeBudget` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSBudgetServiceGateway.DeleteBudget` | ✓ `simulator-aws/budgets.go:81::handleBudgetsDeleteBudget` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSBudgetServiceGateway.UpdateBudget` | ✓ `simulator-aws/budgets.go:82::handleBudgetsUpdateBudget` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSBudgetServiceGateway.DescribeBudgets` | ✓ `simulator-aws/budgets.go:83::handleBudgetsDescribeBudgets` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSBudgetServiceGateway.CreateNotification` | ✓ `simulator-aws/budgets.go:84::handleBudgetsCreateNotification` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSBudgetServiceGateway.DescribeNotificationsForBudget` | ✓ `simulator-aws/budgets.go:85::handleBudgetsDescribeNotificationsForBudget` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSBudgetServiceGateway.DeleteNotification` | ✓ `simulator-aws/budgets.go:86::handleBudgetsDeleteNotification` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSBudgetServiceGateway.CreateSubscriber` | ✓ `simulator-aws/budgets.go:87::handleBudgetsCreateSubscriber` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSBudgetServiceGateway.DescribeSubscribersForNotification` | ✓ `simulator-aws/budgets.go:88::handleBudgetsDescribeSubscribersForNotification` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSBudgetServiceGateway.DeleteSubscriber` | ✓ `simulator-aws/budgets.go:89::handleBudgetsDeleteSubscriber` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSBudgetServiceGateway.ListTagsForResource` | ✓ `simulator-aws/budgets.go:90::handleBudgetsListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSBudgetServiceGateway.TagResource` | ✓ `simulator-aws/budgets.go:91::handleBudgetsTagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action AWSBudgetServiceGateway.UntagResource` | ✓ `simulator-aws/budgets.go:92::handleBudgetsUntagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSBudgetServiceGateway.CreateBudget` | ✓ `simulator-aws/budgets.go:80::handleBudgetsCreateBudget` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSBudgetServiceGateway.DescribeBudget` | ✓ `simulator-aws/budgets.go:81::handleBudgetsDescribeBudget` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSBudgetServiceGateway.DeleteBudget` | ✓ `simulator-aws/budgets.go:82::handleBudgetsDeleteBudget` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSBudgetServiceGateway.UpdateBudget` | ✓ `simulator-aws/budgets.go:83::handleBudgetsUpdateBudget` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSBudgetServiceGateway.DescribeBudgets` | ✓ `simulator-aws/budgets.go:84::handleBudgetsDescribeBudgets` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSBudgetServiceGateway.CreateNotification` | ✓ `simulator-aws/budgets.go:85::handleBudgetsCreateNotification` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSBudgetServiceGateway.DescribeNotificationsForBudget` | ✓ `simulator-aws/budgets.go:86::handleBudgetsDescribeNotificationsForBudget` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSBudgetServiceGateway.DeleteNotification` | ✓ `simulator-aws/budgets.go:87::handleBudgetsDeleteNotification` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSBudgetServiceGateway.CreateSubscriber` | ✓ `simulator-aws/budgets.go:88::handleBudgetsCreateSubscriber` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSBudgetServiceGateway.DescribeSubscribersForNotification` | ✓ `simulator-aws/budgets.go:89::handleBudgetsDescribeSubscribersForNotification` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSBudgetServiceGateway.DeleteSubscriber` | ✓ `simulator-aws/budgets.go:90::handleBudgetsDeleteSubscriber` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSBudgetServiceGateway.ListTagsForResource` | ✓ `simulator-aws/budgets.go:91::handleBudgetsListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSBudgetServiceGateway.TagResource` | ✓ `simulator-aws/budgets.go:92::handleBudgetsTagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action AWSBudgetServiceGateway.UntagResource` | ✓ `simulator-aws/budgets.go:93::handleBudgetsUntagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSBudgetServiceGateway.UpdateNotification` | ✓ `simulator-aws/budgets_actions.go:472::handleBudgetsUpdateNotification` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSBudgetServiceGateway.UpdateSubscriber` | ✓ `simulator-aws/budgets_actions.go:473::handleBudgetsUpdateSubscriber` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action AWSBudgetServiceGateway.DescribeBudgetNotificationsForAccount` | ✓ `simulator-aws/budgets_actions.go:474::handleBudgetsDescribeBudgetNotificationsForAccount` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

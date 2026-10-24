@@ -18,6 +18,7 @@ import (
 
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/kvstore"
 	"github.com/e6qu/sockerless-cloud/sim/listq"
 	"github.com/e6qu/sockerless-cloud/sim/logstore"
 	monitoredres "google.golang.org/genproto/googleapis/api/monitoredres"
@@ -237,7 +238,7 @@ func listLogEntries(filter string, resourceNames []string, pageSize int, pageTok
 		gcpAsc(func(e orderedEntry) string { return e.entry.InsertID }),
 		gcpAsc(func(e orderedEntry) string { return e.entry.LogName }),
 	}, pageToken, pageSize, 0, 0)
-	if errors.Is(err, errGCPPageToken) {
+	if errors.Is(err, listq.ErrBadToken) {
 		return nil, "", fmt.Errorf("invalid pageToken %q: %w", pageToken, err)
 	}
 	if err != nil {
@@ -527,30 +528,8 @@ func registerCloudLogging(srv *sim.Server) {
 		log.Fatalf("cloud logging: %v", err)
 	}
 	logStorageBatches = sim.MakeStore[loggingStorageBatch](srv.DB(), "logging_storage_batches")
-	srv.StartBackground("cloud logging export to cloud storage", func(ctx context.Context) {
-		ticker := time.NewTicker(loggingStorageFlushInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case now := <-ticker.C:
-				loggingFlushStorageExports(now)
-			}
-		}
-	})
-	srv.StartBackground("cloud logging retention sweep", func(ctx context.Context) {
-		ticker := time.NewTicker(loggingRetentionSweepInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case now := <-ticker.C:
-				loggingSweepRetention(now)
-			}
-		}
-	})
+	kvstore.StartSweeper(srv, "cloud logging export to cloud storage", loggingStorageFlushInterval, func(now time.Time) { loggingFlushStorageExports(now) })
+	kvstore.StartSweeper(srv, "cloud logging retention sweep", loggingRetentionSweepInterval, func(now time.Time) { loggingSweepRetention(now) })
 }
 
 func loggingSinkKey(project, sink string) string {

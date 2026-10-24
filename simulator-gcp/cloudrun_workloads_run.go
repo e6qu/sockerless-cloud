@@ -7,7 +7,6 @@ import (
 	"log"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
@@ -116,20 +115,6 @@ func cloudRunWorkerPoolInstanceCount(pool WorkerPoolV2) int {
 	return int(pool.Scaling.ManualInstanceCount)
 }
 
-// cloudRunWorkerPoolRestartBackoff is how long a worker pool waits before it
-// replaces an instance that exited, doubling from 10 seconds to 5 minutes
-// with the instances in a row that exited within 10 minutes of starting.
-func cloudRunWorkerPoolRestartBackoff(consecutive int) time.Duration {
-	wait := 10 * time.Second
-	for range consecutive - 1 {
-		wait *= 2
-		if wait >= 5*time.Minute {
-			return 5 * time.Minute
-		}
-	}
-	return wait
-}
-
 // newCloudRunWorkerPoolRun is the instance set of a pool revision's template:
 // every instance runs its containers as one container group until the main
 // container exits, and the pool replaces an instance that exited.
@@ -141,8 +126,10 @@ func newCloudRunWorkerPoolRun(poolName, revision string, vpc *VpcAccess, contain
 	set := replicas.New(replicas.Spec{
 		NewID:   func() string { return sim.RandomHex(8) },
 		Restart: replicas.Always,
-		Backoff: cloudRunWorkerPoolRestartBackoff,
-		Settled: 10 * time.Minute,
+		// Cloud Run documents no restart back-off; its instances back off as the
+		// kubelet backs a crashing container off.
+		Backoff: replicas.CrashLoopBackoff,
+		Settled: replicas.CrashLoopSettled,
 		Start: func(ctx context.Context, instanceID string) (*workload.Group, func(), error) {
 			group, release, err := startCloudRunContainerGroup(ctx, cloudRunContainerGroup{
 				project:    resourceProject(poolName),

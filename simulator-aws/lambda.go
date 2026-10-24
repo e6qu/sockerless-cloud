@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 // lambdaProcessHandles tracks running Lambda containers for cancellation.
@@ -1212,7 +1213,7 @@ func handleLambdaListFunctions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	page, next, pageOK := awsKeyPage(w, lambdaBadToken, all, func(l listed) string {
-		return l.config.FunctionName + "\x00" + awsIntKey(int64(l.pos))
+		return l.config.FunctionName + "\x00" + listq.IntKey(int64(l.pos))
 	}, marker, maxItems, 50)
 	if !pageOK {
 		return

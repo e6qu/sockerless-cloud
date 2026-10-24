@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -336,10 +337,7 @@ type cloudRunServiceInstance struct {
 	// Cloud Storage volumes once its containers have stopped.
 	releaseMounts func()
 
-	mu sync.Mutex
-	// owner is the container that owns the instance's network namespace, the
-	// first to start, and publishes the ingress port.
-	owner   placement.Handle
+	mu      sync.Mutex
 	ingress placement.Handle
 	handles []placement.Handle
 	// group is the instance's containers once they all started.
@@ -360,12 +358,9 @@ func (inst *cloudRunServiceInstance) awaitReady(ctx context.Context) (string, er
 
 // placed records a container the instance placed, or cancels it when the
 // instance stopped while it started.
-func (inst *cloudRunServiceInstance) placed(owner bool, ingress bool, h placement.Handle) {
+func (inst *cloudRunServiceInstance) placed(ingress bool, h placement.Handle) {
 	inst.mu.Lock()
 	defer inst.mu.Unlock()
-	if owner {
-		inst.owner = h
-	}
 	if ingress {
 		inst.ingress = h
 	}
@@ -416,7 +411,7 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 // in the background, in dependsOn order; awaitReady waits for them.
 func startCloudRunServiceInstance(ctx context.Context, name, serviceID, instanceID string, vpc *VpcAccess, containers []Container, volumes []Volume, sink sim.LogSink) (*cloudRunServiceInstance, error) {
 	specSig := serviceContainersSignature(containers, volumes)
-	order, err := cloudRunContainerStartOrder(containers)
+	_, err := cloudRunContainerStartOrder(containers)
 	if err != nil {
 		return nil, err
 	}
@@ -525,9 +520,30 @@ func startCloudRunServiceInstance(ctx context.Context, name, serviceID, instance
 	// instance sits on and the hosts file the metadata server's name
 	// resolves in. The ingress container always runs its startup probe,
 	// Cloud Run's default TCP probe when it configures none.
-	owner := order[0]
 	ingressPort := cloudRunContainerPort(containers[0])
-	members[0].Startup = cloudRunMemberStartup(containers[0])
+	// The instance is ready, at the address its ingress port answers on, once
+	// the ingress container passes its startup probe: the route is read while
+	// the container runs, since one that exits right after its probe passed is
+	// a ready instance's exit, which no later read of its route could tell from
+	// a failed start.
+	ingressStartup := cloudRunMemberStartup(containers[0])
+	var ingressAddress string
+	members[0].Startup = func(ctx context.Context, member, owner placement.Handle) error {
+		address, err := cloudRunContainerRoute(ctx, owner, ingressPort)
+		if err != nil {
+			select {
+			case <-member.Exited():
+				return errors.New("failed its startup probe: the container exited before its startup probe succeeded")
+			default:
+			}
+			return err
+		}
+		if err := ingressStartup(ctx, member, owner); err != nil {
+			return err
+		}
+		ingressAddress = address
+		return nil
+	}
 	bg.Go(func() {
 		defer close(inst.ready)
 		group, err := workload.StartGroup(lifeCtx, backend, members, workload.StartOptions{
@@ -536,17 +552,16 @@ func startCloudRunServiceInstance(ctx context.Context, name, serviceID, instance
 				netw.apply(cfg)
 				cfg.PublishPorts = cloudRunNamespacePorts(containers, true)
 			},
-			Placed: func(i int, h placement.Handle) { inst.placed(i == owner, i == 0, h) },
+			Placed: func(i int, h placement.Handle) { inst.placed(i == 0, h) },
 		})
 		if err != nil {
 			inst.startErr = err
 			return
 		}
 		inst.mu.Lock()
-		ownerHandle := inst.owner
 		inst.group = group
 		inst.mu.Unlock()
-		inst.address, inst.startErr = cloudRunContainerRoute(lifeCtx, ownerHandle, ingressPort)
+		inst.address = ingressAddress
 	})
 	return inst, nil
 }

@@ -41,9 +41,9 @@ func awsSeqPage[T any](w http.ResponseWriter, bad awsBadToken, all []T, desc boo
 	}
 	key := func(s seq) string {
 		if desc {
-			return awsDescKey(awsIntKey(int64(s.pos)))
+			return awsDescKey(listq.IntKey(int64(s.pos)))
 		}
-		return awsIntKey(int64(s.pos))
+		return listq.IntKey(int64(s.pos))
 	}
 	page, next, ok := awsKeyPage(w, bad, wrapped, key, token, size, def)
 	if !ok {
@@ -54,11 +54,6 @@ func awsSeqPage[T any](w http.ResponseWriter, bad awsBadToken, all []T, desc boo
 		out[i] = s.item
 	}
 	return out, next, true
-}
-
-// awsIntKey spells n so that string order matches numeric order.
-func awsIntKey(n int64) string {
-	return fmt.Sprintf("%020d", uint64(n)^(1<<63))
 }
 
 // awsFloatKey spells f so that string order matches numeric order.

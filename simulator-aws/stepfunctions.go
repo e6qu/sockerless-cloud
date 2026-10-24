@@ -16,6 +16,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 	"github.com/google/uuid"
 )
 
@@ -595,7 +596,7 @@ func handleSFNListStateMachineVersions(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxResults = *req.MaxResults
 	}
-	page, nextToken, pageOK := awsKeyPage(w, sfnBadToken, versions, func(it SFNStateMachineVersion) string { return awsDescKey(awsIntKey(int64(it.Version))) }, req.NextToken, maxResults, 100)
+	page, nextToken, pageOK := awsKeyPage(w, sfnBadToken, versions, func(it SFNStateMachineVersion) string { return awsDescKey(listq.IntKey(int64(it.Version))) }, req.NextToken, maxResults, 100)
 	if !pageOK {
 		return
 	}

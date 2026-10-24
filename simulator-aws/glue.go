@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
@@ -3639,7 +3640,7 @@ func handleGlueGetTableVersions(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, versions, func(it GlueTableVersion) string { n, _ := strconv.Atoi(it.VersionId); return awsIntKey(int64(n)) }, req.NextToken, maxR, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, versions, func(it GlueTableVersion) string { n, _ := strconv.Atoi(it.VersionId); return listq.IntKey(int64(n)) }, req.NextToken, maxR, 100)
 	if !pageOK {
 		return
 	}
@@ -4196,7 +4197,7 @@ func handleGlueListSchemaVersions(w http.ResponseWriter, r *http.Request) {
 	if req.MaxResults != nil {
 		maxR = *req.MaxResults
 	}
-	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, versions, func(it GlueSchemaVersion) string { return awsIntKey(it.VersionNumber) }, req.NextToken, maxR, 25)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, versions, func(it GlueSchemaVersion) string { return listq.IntKey(it.VersionNumber) }, req.NextToken, maxR, 25)
 	if !pageOK {
 		return
 	}

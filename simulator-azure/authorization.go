@@ -1021,28 +1021,9 @@ func rbacRolePermissions(guid string) []builtinRolePermission {
 // case-insensitively, with * standing for any run of characters.
 func rbacActionMatchesAny(patterns []string, action string) bool {
 	for _, p := range patterns {
-		if rbacWildcardMatch(strings.ToLower(p), strings.ToLower(action)) {
+		if (sim.Wildcard{FoldCase: true}).Match(p, action) {
 			return true
 		}
 	}
 	return false
-}
-
-func rbacWildcardMatch(pattern, s string) bool {
-	parts := strings.Split(pattern, "*")
-	if len(parts) == 1 {
-		return pattern == s
-	}
-	if !strings.HasPrefix(s, parts[0]) {
-		return false
-	}
-	s = s[len(parts[0]):]
-	for _, mid := range parts[1 : len(parts)-1] {
-		i := strings.Index(s, mid)
-		if i < 0 {
-			return false
-		}
-		s = s[i+len(mid):]
-	}
-	return strings.HasSuffix(s, parts[len(parts)-1])
 }

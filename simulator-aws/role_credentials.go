@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/kvstore"
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
@@ -111,7 +112,7 @@ func roleHolderIsLive(holder string) bool {
 func registerRoleCredentials(srv *sim.Server) {
 	roleHeldSessions = sim.MakeStore[roleHeldSession](srv.DB(), "role_held_sessions")
 	containerCredentialGrants = sim.MakeStore[containerCredentialGrant](srv.DB(), "container_credential_grants")
-	startStoreSweeper(srv, sweepRoleCredentials)
+	kvstore.StartSweeper(srv, "role credential expiry", storeSweepInterval, func(now time.Time) { sweepRoleCredentials(now) })
 
 	// The container credentials endpoint serves the session an ID was granted
 	// for, in the shape the AWS SDKs' container credential provider reads.

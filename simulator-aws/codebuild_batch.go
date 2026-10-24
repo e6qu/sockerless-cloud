@@ -15,6 +15,8 @@ import (
 
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
+
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 // A batch build starts the builds its buildspec's batch section names
@@ -960,7 +962,7 @@ func cbWriteBuildBatchIDsPage(w http.ResponseWriter, all []CBBuildBatch, project
 	}
 	descending := !strings.EqualFold(sortOrder, "ASCENDING")
 	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, batches, func(b CBBuildBatch) string {
-		return cbOrderKey(awsIntKey(b.Seq), descending)
+		return cbOrderKey(listq.IntKey(b.Seq), descending)
 	}, nextToken, maxResults, 100)
 	if !pageOK {
 		return

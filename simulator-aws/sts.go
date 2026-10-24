@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/kvstore"
 )
 
 // STS: AssumeRole / AssumeRoleWithWebIdentity / GetSessionToken / GetCallerIdentity.
@@ -287,7 +288,7 @@ func stsTokenExpiration(akid, token string) (time.Time, bool) {
 // expired credential authorizes nothing, and a caller that presents one is
 // still told so by stsTokenExpiration.
 func startTempCredSweeper(srv *sim.Server) {
-	startStoreSweeper(srv, stsSweepExpiredTempCreds)
+	kvstore.StartSweeper(srv, "AWS STS temporary credential expiry", storeSweepInterval, func(now time.Time) { stsSweepExpiredTempCreds(now) })
 }
 
 // stsSweepExpiredTempCreds deletes expired temporary credentials and the

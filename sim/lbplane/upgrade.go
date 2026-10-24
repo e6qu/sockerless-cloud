@@ -41,10 +41,10 @@ func IsUpgradeRequest(r *http.Request) bool {
 // answers something it never received, and the peer reports a HANDSHAKE TIMEOUT
 // rather than a connection error. So this runs for every 101, whatever the protocol.
 //
-// Returns an error only for failures that happen BEFORE the client connection is
-// hijacked, so the caller can still write an error response. Once the hijack
-// succeeds the ResponseWriter is spent and nothing may be written to it; a tunnel
-// torn down by either peer is a normal ending, not a proxy error, so it reports nil.
+// A failure before the client connection is hijacked leaves the caller free to
+// write an error response. Once the hijack succeeds the ResponseWriter is spent,
+// so a failure to write the handshake wraps ErrAnswerStarted; a tunnel torn down
+// by either peer is a normal ending, not a proxy error, so it reports nil.
 //
 // A positive idle closes the tunnel once that long passes with no byte read from
 // either peer, and activity runs whenever a byte is.
@@ -75,14 +75,14 @@ func tunnelUpgradedResponse(w http.ResponseWriter, resp *http.Response, idle tim
 	}
 	fmt.Fprintf(&handshake, "HTTP/1.1 %s\r\n", status)
 	if err := resp.Header.Write(&handshake); err != nil {
-		return fmt.Errorf("serialize upgrade response headers: %w", err)
+		return fmt.Errorf("%w: serialize upgrade response headers: %w", ErrAnswerStarted, err)
 	}
 	handshake.WriteString("\r\n")
 	if _, err := clientBuf.Write(handshake.Bytes()); err != nil {
-		return fmt.Errorf("write upgrade response: %w", err)
+		return fmt.Errorf("%w: write upgrade response: %w", ErrAnswerStarted, err)
 	}
 	if err := clientBuf.Flush(); err != nil {
-		return fmt.Errorf("flush upgrade response: %w", err)
+		return fmt.Errorf("%w: flush upgrade response: %w", ErrAnswerStarted, err)
 	}
 
 	// Read the client through clientBuf, never through the raw connection: a client

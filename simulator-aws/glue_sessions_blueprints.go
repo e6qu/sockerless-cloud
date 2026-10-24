@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 	"github.com/google/uuid"
 )
 
@@ -488,7 +489,7 @@ func handleGlueListStatements(w http.ResponseWriter, r *http.Request) {
 			filtered = append(filtered, st)
 		}
 	}
-	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, filtered, func(it GlueStatement) string { return awsIntKey(int64(it.Id)) }, req.NextToken, 0, 100)
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, filtered, func(it GlueStatement) string { return listq.IntKey(int64(it.Id)) }, req.NextToken, 0, 100)
 	if !pageOK {
 		return
 	}

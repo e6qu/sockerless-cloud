@@ -5640,7 +5640,7 @@ func handleDescribeInstanceTypeOfferings(w http.ResponseWriter, r *http.Request)
 	var types []string
 	catalog, _ := ec2InstanceTypeCatalog()
 	for _, t := range catalog {
-		if patterns := filters["instance-type"]; len(patterns) > 0 && !slices.ContainsFunc(patterns, func(p string) bool { return awsWildcardMatch(p, t.Name) }) {
+		if patterns := filters["instance-type"]; len(patterns) > 0 && !slices.ContainsFunc(patterns, func(p string) bool { return ec2FilterWildcard.Match(p, t.Name) }) {
 			continue
 		}
 		types = append(types, t.Name)

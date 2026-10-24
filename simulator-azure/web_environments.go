@@ -13,6 +13,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/ipam"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 // App Service Environments (Microsoft.Web/hostingEnvironments) and Kubernetes
@@ -1318,7 +1319,7 @@ func aseStampCapacities(row AppServiceEnvironmentResource) []azureKeyed[map[stri
 	for _, pool := range asePoolsUnder(row.ID, "workerPools") {
 		key := "1/" + pool.Name
 		if n, err := strconv.ParseInt(pool.Name, 10, 64); err == nil {
-			key = "1/" + azureIntKey(n)
+			key = "1/" + listq.IntKey(n)
 		}
 		pools = append(pools, keyedPool{key, pool})
 	}

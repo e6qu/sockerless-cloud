@@ -117,38 +117,38 @@ func functionsLRO(r *http.Request, project, location, target string, resource an
 
 var cloudFunctions sim.Store[storedFunction]
 
+// cloudFunctionsDomain is the domain of every cloudfunctions.net URL.
+const cloudFunctionsDomain = ".cloudfunctions.net"
+
 // registerCloudFunctionsFrontEnd serves each function on its cloudfunctions.net
 // URL, https://<region>-<project>.cloudfunctions.net/<function>: the request,
 // with the function's name taken off the front of its path, goes to the Cloud
 // Run service that serves the function, as a request to its run.app URL does.
 func registerCloudFunctionsFrontEnd(srv *sim.Server) {
-	srv.WrapHandler(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			hostname := lbplane.Hostname(r.Host)
-			if !strings.HasSuffix(hostname, ".cloudfunctions.net") {
-				next.ServeHTTP(w, r)
-				return
-			}
+	srv.WrapHandler(lbplane.HostRouter{
+		Domains: []string{cloudFunctionsDomain},
+		Route: func(r *http.Request, hostname string) (http.Handler, bool) {
 			functionID, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
 			fn, ok := cloudFunctionByURL("https://" + hostname + "/" + functionID)
 			if !ok {
-				cloudRunFrontEndError(w, http.StatusNotFound, "The requested URL was not found on this server.")
-				return
+				return nil, false
 			}
 			svc, ok := cloudFunctionService(fn)
 			if !ok {
-				cloudRunFrontEndError(w, http.StatusNotFound, "The requested URL was not found on this server.")
-				return
+				return nil, false
 			}
-			forwarded := r.Clone(r.Context())
-			forwarded.URL.Path = "/" + strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/"+functionID), "/")
-			forwarded.URL.RawPath = ""
-			if r.URL.RawPath != "" {
-				forwarded.URL.RawPath = "/" + strings.TrimPrefix(strings.TrimPrefix(r.URL.RawPath, "/"+functionID), "/")
-			}
-			serveCloudRunService(w, forwarded, svc, fn.URL)
-		})
-	})
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				forwarded := r.Clone(r.Context())
+				forwarded.URL.Path = "/" + strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/"+functionID), "/")
+				forwarded.URL.RawPath = ""
+				if r.URL.RawPath != "" {
+					forwarded.URL.RawPath = "/" + strings.TrimPrefix(strings.TrimPrefix(r.URL.RawPath, "/"+functionID), "/")
+				}
+				serveCloudRunService(w, forwarded, svc, fn.URL)
+			}), true
+		},
+		NotFound: cloudRunNotFound,
+	}.Wrap)
 }
 
 var cloudFunctionsByURL sim.GenerationIndex[storedFunction]

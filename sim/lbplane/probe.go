@@ -3,6 +3,7 @@ package lbplane
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -10,6 +11,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 // StatusMatcher is a set of HTTP status codes a health check counts as a
@@ -75,12 +80,22 @@ type HTTPProbe struct {
 	// host's roots; without it the probe accepts any certificate, as a health
 	// checker that does not validate its targets does.
 	VerifyCertificate bool
-	Address           string
+	// ServerName is the TLS server name an https probe sends; empty derives it
+	// from Address, as an https client does.
+	ServerName string
+	Address    string
 	// Host is the Host header the probe sends; empty sends Address.
-	Host    string
-	Path    string
-	Timeout time.Duration
-	Match   StatusMatcher
+	Host string
+	Path string
+	// Header holds the further request headers the probe sends.
+	Header http.Header
+	// Timeout bounds the whole check. ConnectTimeout, when set, bounds opening
+	// the connection, and ResponseTimeout, when set, bounds the wait for the
+	// response's headers once the request is sent.
+	Timeout         time.Duration
+	ConnectTimeout  time.Duration
+	ResponseTimeout time.Duration
+	Match           StatusMatcher
 	// BodyContains, when set, must appear within the first BodyLimit bytes of
 	// the response.
 	BodyContains string
@@ -116,8 +131,8 @@ func ProbeHTTP(ctx context.Context, probe HTTPProbe) (int, error) {
 		return 0, fmt.Errorf("a health check needs a timeout")
 	}
 	path := probe.Path
-	if path == "" {
-		path = "/"
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
 	}
 	ctx, cancel := context.WithTimeout(ctx, probe.Timeout)
 	defer cancel()
@@ -125,15 +140,33 @@ func ProbeHTTP(ctx context.Context, probe HTTPProbe) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	for name, values := range probe.Header {
+		req.Header[name] = append([]string(nil), values...)
+	}
 	if probe.Host != "" {
 		req.Host = probe.Host
 	}
+	connect := probe.ConnectTimeout
+	if connect <= 0 {
+		connect = probe.Timeout
+	}
+	// A health checker opens its own connection for each check, straight to
+	// the target: never through a proxy, never reusing one a request opened.
+	transport := &http.Transport{
+		DialContext:           (&net.Dialer{Timeout: connect}).DialContext,
+		TLSHandshakeTimeout:   probe.Timeout,
+		ResponseHeaderTimeout: probe.ResponseTimeout,
+		DisableKeepAlives:     true,
+		TLSClientConfig: &tls.Config{
+			ServerName:         probe.ServerName,
+			InsecureSkipVerify: !probe.VerifyCertificate, //nolint:gosec // a health checker that does not validate its targets accepts any certificate
+		},
+	}
+	defer transport.CloseIdleConnections()
 	client := http.Client{
+		Transport:     transport,
 		Timeout:       probe.Timeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}
-	if strings.EqualFold(probe.Scheme, "https") && !probe.VerifyCertificate {
-		client.Transport = unverifiedTransport
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -170,4 +203,29 @@ func ProbeTCP(ctx context.Context, address string, timeout time.Duration) error 
 		return err
 	}
 	return conn.Close()
+}
+
+// ProbeGRPC is a gRPC health check: it calls the target's
+// grpc.health.v1.Health/Check for service, the empty name standing for the
+// server as a whole, and succeeds when the target reports it SERVING.
+func ProbeGRPC(ctx context.Context, address, service string, timeout time.Duration) error {
+	if timeout <= 0 {
+		return fmt.Errorf("a health check needs a timeout")
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	conn, err := grpc.NewClient("passthrough:///"+address, grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithNoProxy())
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	resp, err := healthpb.NewHealthClient(conn).Check(ctx, &healthpb.HealthCheckRequest{Service: service})
+	if err != nil {
+		return fmt.Errorf("gRPC health check: %w", err)
+	}
+	if resp.GetStatus() != healthpb.HealthCheckResponse_SERVING {
+		return fmt.Errorf("gRPC health check: service %q is %s", service, resp.GetStatus())
+	}
+	return nil
 }

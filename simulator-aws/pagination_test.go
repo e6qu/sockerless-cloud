@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 // Each AWS service answers a page token it never issued with the error its
@@ -92,8 +94,8 @@ func TestAWSPageSizes(t *testing.T) {
 func TestAWSOrderKeys(t *testing.T) {
 	ints := []int64{-5, -1, 0, 1, 9, 10, 1 << 40}
 	for i := 1; i < len(ints); i++ {
-		if awsIntKey(ints[i-1]) >= awsIntKey(ints[i]) {
-			t.Errorf("awsIntKey(%d) does not sort before awsIntKey(%d)", ints[i-1], ints[i])
+		if listq.IntKey(ints[i-1]) >= listq.IntKey(ints[i]) {
+			t.Errorf("listq.IntKey(%d) does not sort before listq.IntKey(%d)", ints[i-1], ints[i])
 		}
 	}
 	floats := []float64{-2.5, -0.5, 0, 0.25, 1, 1.5, 1e12}

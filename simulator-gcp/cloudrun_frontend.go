@@ -34,10 +34,13 @@ func cloudRunServiceURI(project, location, serviceID string) string {
 	return fmt.Sprintf("https://%s-%s-%s.a.run.app", serviceID, hash, location)
 }
 
-// isCloudRunHost reports whether a Host header names a run.app host. No Google
-// API is served on run.app, so such a request is always for a workload.
+// cloudRunDomain is the domain of every run.app URL. No Google API is served
+// on run.app, so a request for a host under it is always for a workload.
+const cloudRunDomain = ".run.app"
+
+// isCloudRunHost reports whether a Host header names a run.app host.
 func isCloudRunHost(host string) bool {
-	return strings.HasSuffix(lbplane.Hostname(host), ".run.app")
+	return strings.HasSuffix(lbplane.Hostname(host), cloudRunDomain)
 }
 
 var cloudRunServicesByHost sim.GenerationIndex[ServiceV2]
@@ -92,27 +95,27 @@ func cloudRunInstanceByHost(host string) (InstanceV2, bool) {
 // headers and body, to the service's ingress container, which is started if no
 // instance is running, and the container's answer comes back untouched. A
 // Cloud Run instance's urls reach its running ingress container the same way.
-// The simulator serves every host on its one endpoint, so it dispatches on the
-// Host header.
 func registerCloudRunFrontEnd(srv *sim.Server) {
-	srv.WrapHandler(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !isCloudRunHost(r.Host) {
-				next.ServeHTTP(w, r)
-				return
+	srv.WrapHandler(lbplane.HostRouter{
+		Domains: []string{cloudRunDomain},
+		Route: func(_ *http.Request, hostname string) (http.Handler, bool) {
+			if svc, ok := cloudRunServiceByHost(hostname); ok {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serveCloudRunService(w, r, svc) }), true
 			}
-			if svc, ok := cloudRunServiceByHost(r.Host); ok {
-				serveCloudRunService(w, r, svc)
-				return
+			if inst, ok := cloudRunInstanceByHost(hostname); ok {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serveCloudRunInstance(w, r, inst) }), true
 			}
-			if inst, ok := cloudRunInstanceByHost(r.Host); ok {
-				serveCloudRunInstance(w, r, inst)
-				return
-			}
-			cloudRunFrontEndError(w, http.StatusNotFound, "The requested URL was not found on this server.")
-		})
-	})
+			return nil, false
+		},
+		NotFound: cloudRunNotFound,
+	}.Wrap)
 }
+
+// cloudRunNotFound is the front end's answer to a hostname that names no
+// workload.
+var cloudRunNotFound = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	cloudRunFrontEndError(w, http.StatusNotFound, "The requested URL was not found on this server.")
+})
 
 // cloudRunFrontEndError writes the plain error page Google's front end answers
 // with; it is not a Google API error, so it carries no JSON error envelope.
@@ -181,18 +184,14 @@ func serveCloudRunService(w http.ResponseWriter, r *http.Request, svc ServiceV2,
 		return
 	}
 	defer release()
-	if err := forwardToCloudRunContainer(w, r, inst.address, requestTimeout); err != nil {
-		abortStartedForward(w, err)
-		cloudRunFrontEndError(w, http.StatusServiceUnavailable, html.EscapeString(fmt.Sprintf("The instance did not answer: %v", err)))
-	}
+	forwardToCloudRunContainer(w, r, inst.address, requestTimeout)
 }
 
 // forwardToCloudRunContainer relays the request to the ingress container at
-// address and its answer back, answering a caller that went away or a request
-// that timed out before the container answered, and returns any other failure
-// for the caller to answer or, once the answer has started, abort.
-func forwardToCloudRunContainer(w http.ResponseWriter, r *http.Request, address string, timeout time.Duration) error {
-	err := lbplane.Forward(w, r, lbplane.Upstream{
+// address and its answer back, answering with Google's front-end pages when
+// the container gives none.
+func forwardToCloudRunContainer(w http.ResponseWriter, r *http.Request, address string, timeout time.Duration) {
+	_ = lbplane.Serve(w, r, lbplane.Upstream{
 		Scheme:        "http",
 		Address:       address,
 		Path:          r.URL.EscapedPath(),
@@ -200,19 +199,14 @@ func forwardToCloudRunContainer(w http.ResponseWriter, r *http.Request, address 
 		Header:        cloudRunForwardedHeader(r.Header),
 		RequestHeader: cloudRunRequestHeaders(r),
 		Timeout:       timeout,
+	}, lbplane.Answers{
+		Timeout: func(w http.ResponseWriter, _ error) {
+			cloudRunFrontEndError(w, http.StatusGatewayTimeout, "upstream request timeout")
+		},
+		Failed: func(w http.ResponseWriter, err error) {
+			cloudRunFrontEndError(w, http.StatusServiceUnavailable, html.EscapeString(fmt.Sprintf("The instance did not answer: %v", err)))
+		},
 	})
-	switch {
-	case err == nil:
-	case forwardStarted(err):
-		return err
-	case errors.Is(err, lbplane.ErrClientWentAway):
-		w.WriteHeader(lbplane.StatusClientClosedRequest)
-	case errors.Is(err, context.DeadlineExceeded):
-		cloudRunFrontEndError(w, http.StatusGatewayTimeout, "upstream request timeout")
-	default:
-		return err
-	}
-	return nil
 }
 
 // serveCloudRunInstance serves a request to a Cloud Run instance on its
@@ -236,10 +230,7 @@ func serveCloudRunInstance(w http.ResponseWriter, r *http.Request, inst Instance
 		cloudRunFrontEndError(w, http.StatusServiceUnavailable, html.EscapeString(fmt.Sprintf("The instance failed to start: %v", err)))
 		return
 	}
-	if err := forwardToCloudRunContainer(w, r, address, cloudRunDefaultRequestTimeout); err != nil {
-		abortStartedForward(w, err)
-		cloudRunFrontEndError(w, http.StatusServiceUnavailable, html.EscapeString(fmt.Sprintf("The instance did not answer: %v", err)))
-	}
+	forwardToCloudRunContainer(w, r, address, cloudRunDefaultRequestTimeout)
 }
 
 // cloudRunForwardedHeader is the request header a container receives. Cloud
@@ -270,10 +261,7 @@ func cloudRunForwardedHeader(in http.Header) http.Header {
 // X-Cloud-Trace-Context to a request that carries none.
 func cloudRunRequestHeaders(r *http.Request) func(http.Header) {
 	clientIP, _ := lbplane.ClientAddress(r)
-	proto := "http"
-	if r.TLS != nil {
-		proto = "https"
-	}
+	proto := lbplane.ClientProto(r)
 	return func(h http.Header) {
 		for name := range h {
 			if strings.HasPrefix(name, "X-Google-") {

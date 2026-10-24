@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -9,6 +8,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/kvstore"
 	"github.com/e6qu/sockerless-cloud/sim/logstore"
 )
 
@@ -122,18 +122,7 @@ func registerAzureMonitor(srv *sim.Server) {
 	if err := monitorMigrateRows(srv.DB()); err != nil {
 		log.Fatalf("azure monitor logs: %v", err)
 	}
-	srv.StartBackground("azure monitor logs retention sweep", func(ctx context.Context) {
-		ticker := time.NewTicker(monitorRetentionSweepInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case now := <-ticker.C:
-				monitorSweepRetention(now)
-			}
-		}
-	})
+	kvstore.StartSweeper(srv, "azure monitor logs retention sweep", monitorRetentionSweepInterval, func(now time.Time) { monitorSweepRetention(now) })
 
 	// Subscription-scoped list of soft-deleted workspaces. Real Azure
 	// keeps deleted workspaces recoverable for 14 days; terraform-

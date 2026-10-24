@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"strings"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // The AWS content-filter grammar that Amazon EventBridge event patterns,
@@ -345,7 +347,7 @@ func awsMatcherMatches(op string, operand, v any) bool {
 		return isString && strings.EqualFold(s, want)
 	case "wildcard":
 		p, _ := operand.(string)
-		return isString && awsWildcardMatch(p, s)
+		return isString && awsWildcard.Match(p, s)
 	case "cidr":
 		c, _ := operand.(string)
 		_, network, err := net.ParseCIDR(c)
@@ -466,38 +468,11 @@ func awsToFloat(v any) (float64, bool) {
 	return 0, false
 }
 
-// awsWildcardMatch matches s against p, where '*' stands for any run of
+// awsWildcard is an event pattern's wildcard filter: '*' stands for any run of
 // characters and "\*" for a literal star; nothing else is special.
-func awsWildcardMatch(p, s string) bool {
-	var parts []string
-	var cur strings.Builder
-	for i := 0; i < len(p); i++ {
-		switch {
-		case p[i] == '\\' && i+1 < len(p) && p[i+1] == '*':
-			cur.WriteByte('*')
-			i++
-		case p[i] == '*':
-			parts = append(parts, cur.String())
-			cur.Reset()
-		default:
-			cur.WriteByte(p[i])
-		}
-	}
-	parts = append(parts, cur.String())
-	if len(parts) == 1 {
-		return s == parts[0]
-	}
-	if !strings.HasPrefix(s, parts[0]) {
-		return false
-	}
-	s = s[len(parts[0]):]
-	last := parts[len(parts)-1]
-	for _, mid := range parts[1 : len(parts)-1] {
-		i := strings.Index(s, mid)
-		if i < 0 {
-			return false
-		}
-		s = s[i+len(mid):]
-	}
-	return len(s) >= len(last) && strings.HasSuffix(s, last)
-}
+var awsWildcard = sim.Wildcard{Escapes: "*"}
+
+// ec2FilterWildcard is an Amazon EC2 filter value: '*' stands for any run of
+// characters, '?' for one, and a backslash makes the next '*', '?' or '\'
+// literal.
+var ec2FilterWildcard = sim.Wildcard{AnyOne: true, Escapes: `*?\`}

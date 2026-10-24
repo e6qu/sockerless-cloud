@@ -16,6 +16,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -1455,7 +1456,7 @@ func handleCBListBuilds(w http.ResponseWriter, r *http.Request) {
 func cbBuildIDsPage(w http.ResponseWriter, builds []CBBuild, sortOrder, token string) ([]string, string, bool) {
 	descending := !strings.EqualFold(sortOrder, "ASCENDING")
 	page, next, ok := awsKeyPage(w, cbBadToken, builds, func(b CBBuild) string {
-		return cbOrderKey(awsIntKey(b.Seq), descending)
+		return cbOrderKey(listq.IntKey(b.Seq), descending)
 	}, token, 0, 100)
 	if !ok {
 		return nil, "", false

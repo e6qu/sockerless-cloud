@@ -26,6 +26,7 @@ import (
 	dockerclient "github.com/moby/moby/client"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/kvstore"
 )
 
 // ECS types
@@ -613,7 +614,7 @@ func registerECS(r *AWSRouter, srv *sim.Server) {
 	ecsTasks = announcing(sim.MakeStore[ECSTask](srv.DB(), "ecs_tasks"), ecsTaskChanges)
 	ecsManagedVolumeOwners = sim.MakeStore[ecsManagedVolumeOwner](srv.DB(), "ecs_managed_volume_owners")
 	ecsBackgroundServer = srv
-	startStoreSweeper(srv, ecsSweepStoppedTasks)
+	kvstore.StartSweeper(srv, "Amazon ECS stopped task retention", storeSweepInterval, func(now time.Time) { ecsSweepStoppedTasks(now) })
 	startECSServiceMetricsPublisher(srv)
 	ecsRebuildRevisionIndex()
 

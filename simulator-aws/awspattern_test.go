@@ -174,7 +174,7 @@ func TestAWSWildcardMatch(t *testing.T) {
 		{`a\*c`, "abc", false},
 		{"ab*ab", "ab", false},
 	} {
-		if got := awsWildcardMatch(c.p, c.s); got != c.want {
+		if got := awsWildcard.Match(c.p, c.s); got != c.want {
 			t.Errorf("wildcard %q on %q = %v, want %v", c.p, c.s, got, c.want)
 		}
 	}

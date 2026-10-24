@@ -21,6 +21,11 @@ var ErrClientWentAway = errors.New("client closed the request before the target 
 // load-balancer access logs record for a request its client abandoned.
 const StatusClientClosedRequest = 499
 
+// ErrAnswerStarted marks a forward that failed after the target's status and
+// headers reached the client, which can then no longer be answered with an
+// error status.
+var ErrAnswerStarted = errors.New("the target's answer was cut off")
+
 // ErrDeclined reports that Upstream.Decline refused the target's answer, so
 // Forward wrote nothing and the caller may still answer the client.
 var ErrDeclined = errors.New("the target's answer was declined")
@@ -216,10 +221,13 @@ func Forward(w http.ResponseWriter, r *http.Request, up Upstream) error {
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	if _, err = io.Copy(w, idle.reader(resp.Body)); err != nil && errors.Is(context.Cause(ctx), ErrIdleTimeout) {
-		return ErrIdleTimeout
+	if _, err = io.Copy(w, idle.reader(resp.Body)); err != nil {
+		if errors.Is(context.Cause(ctx), ErrIdleTimeout) {
+			err = ErrIdleTimeout
+		}
+		return fmt.Errorf("%w: %w", ErrAnswerStarted, err)
 	}
-	return err
+	return nil
 }
 
 // Hostname reduces a Host header to the name a data plane is addressed by: no

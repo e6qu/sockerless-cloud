@@ -378,7 +378,6 @@ func adoptCloudRunInstanceContainers(name, specSig string, containers []Containe
 	}
 	_, stop := context.WithCancel(context.Background())
 	inst := &cloudRunServiceInstance{
-		owner:         owner,
 		specSig:       specSig,
 		stop:          stop,
 		ready:         make(chan struct{}),

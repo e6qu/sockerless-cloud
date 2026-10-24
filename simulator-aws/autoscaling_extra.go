@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 // ASGroupExtras holds the per-group attachment / configuration state introduced
@@ -579,7 +580,7 @@ func handleASXDescribeNotificationConfigurations(w http.ResponseWriter, r *http.
 			configs = append(configs, nc{group: ex.GroupName, cfg: n, pos: pos})
 		}
 	}
-	key := func(c nc) string { return c.group + "\x00" + awsIntKey(int64(c.pos)) }
+	key := func(c nc) string { return c.group + "\x00" + listq.IntKey(int64(c.pos)) }
 	page, next, pageOK := awsKeyPage(w, asBadToken, configs, key, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
 	if !pageOK {
 		return

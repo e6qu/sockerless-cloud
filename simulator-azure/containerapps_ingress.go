@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -15,51 +14,39 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
-// registerContainerAppsIngress implements Azure Container Apps ingress: an App
-// with ingress is reached at its FQDN (`properties.latestRevisionFqdn`), and
-// the platform routes that hostname to the App's running replica. The sim
-// collapses every App onto its single endpoint, so — exactly like the storage
-// data-plane and Functions virtual-host routing — it dispatches by the HTTP
-// Host header: a request whose Host matches an App's ingress FQDN is reverse-
-// proxied to that App's replica container (on its target port 8080), verbatim.
-// A client (the SDK, the CLI, curl, anything else) reaches an App the same way against
-// real ACA and the sim, differing only in the endpoint coordinate it points the
-// TCP connection at while carrying the App FQDN as the Host header.
+// registerContainerAppsIngress implements Azure Container Apps ingress: an app
+// with ingress is reached at its FQDN (`properties.latestRevisionFqdn`), a
+// labelled traffic entry at its label's FQDN and an active revision at its own,
+// and the platform routes that hostname to one of the revision's ready
+// replicas.
 func registerContainerAppsIngress(srv *sim.Server) {
-	srv.WrapHandler(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			host := acaRequestHost(r.Host)
-			if app, ok := acaAppByIngressFqdn(host); ok {
-				rev, ok := acaRequestRevision(app, host)
-				if !ok {
-					AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q has no running replica", app.Name)
-					return
-				}
-				proxyACAIngress(w, r, app, rev)
-				return
-			}
-			if rev, ok := acaRevisionByFqdn(host); ok && rev.Active {
-				if app, ok := acaApps.Get(rev.AppID); ok {
-					proxyACAIngress(w, r, app, rev)
-					return
-				}
-			}
-			next.ServeHTTP(w, r)
-		})
-	})
+	srv.WrapHandler(lbplane.HostRouter{Route: acaIngressRoute}.Wrap)
 }
 
-func acaRequestHost(host string) string {
-	if i := strings.LastIndex(host, ":"); i >= 0 {
-		return host[:i]
+// acaIngressRoute finds the app or revision a hostname names.
+func acaIngressRoute(_ *http.Request, host string) (http.Handler, bool) {
+	if app, ok := acaAppByIngressFqdn(host); ok {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			rev, ok := acaRequestRevision(app, host)
+			if !ok {
+				AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q has no running replica", app.Name)
+				return
+			}
+			proxyACAIngress(w, r, app, rev)
+		}), true
 	}
-	return host
+	if rev, ok := acaRevisionByFqdn(host); ok && rev.Active {
+		if app, ok := acaApps.Get(rev.AppID); ok {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { proxyACAIngress(w, r, app, rev) }), true
+		}
+	}
+	return nil, false
 }
 
 // acaIngressServesHost reports whether a request carrying host reaches a
 // container app or one of its revisions rather than the simulator's own APIs.
 func acaIngressServesHost(host string) bool {
-	host = acaRequestHost(host)
+	host = lbplane.Hostname(host)
 	if _, ok := acaAppByIngressFqdn(host); ok {
 		return true
 	}
@@ -153,10 +140,7 @@ const acaIngressRequestTimeout = 240 * time.Second
 // X-Forwarded-Client-Cert when the ingress accepts or requires one.
 func acaIngressForwardedHeaders(r *http.Request, app ContainerApp) func(http.Header) {
 	clientIP, _ := lbplane.ClientAddress(r)
-	proto := "http"
-	if r.TLS != nil {
-		proto = "https"
-	}
+	proto := lbplane.ClientProto(r)
 	clientCert := acaClientCertHeader(r, app)
 	return func(h http.Header) {
 		lbplane.AppendToHeaderList(h, "X-Forwarded-For", ", ", clientIP)
@@ -207,18 +191,15 @@ func proxyACAIngress(w http.ResponseWriter, r *http.Request, app ContainerApp, r
 	sim.DeclareWait(r.Context(), up.Timeout)
 
 	up.Body = bytes.NewReader(body)
-	err = lbplane.Forward(w, r, up)
-	abortStartedForward(w, err)
-	switch {
-	case err == nil:
-	case errors.Is(err, lbplane.ErrClientWentAway):
-		w.WriteHeader(lbplane.StatusClientClosedRequest)
-	case errors.Is(err, context.DeadlineExceeded) && errors.As(err, new(*lbplane.SendError)):
+	_ = lbplane.Serve(w, r, up, lbplane.Answers{
 		// The ingress's Envoy front end answers a route timeout with this local reply.
-		w.Header().Set("Content-Type", "text/plain")
-		w.WriteHeader(http.StatusGatewayTimeout)
-		_, _ = io.WriteString(w, "upstream request timeout")
-	default:
-		AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q ingress: %v", app.Name, err)
-	}
+		Timeout: func(w http.ResponseWriter, _ error) {
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(http.StatusGatewayTimeout)
+			_, _ = io.WriteString(w, "upstream request timeout")
+		},
+		Failed: func(w http.ResponseWriter, err error) {
+			AzureErrorf(w, "BadGateway", http.StatusBadGateway, "container app %q ingress: %v", app.Name, err)
+		},
+	})
 }

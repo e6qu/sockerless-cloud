@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/kvstore"
 )
 
 // CloudTrail Lake control plane: event data stores, Lake queries (run
@@ -113,7 +114,7 @@ func registerCloudTrailLake(r *AWSRouter, srv *sim.Server) {
 	cloudTrailImports = sim.MakeStore[CloudTrailImport](srv.DB(), "cloudtrail_imports")
 	cloudTrailOrgAdmins = sim.MakeStore[CloudTrailOrgAdmin](srv.DB(), "cloudtrail_org_admins")
 	cloudTrailLakeEvents = sim.MakeStore[CloudTrailLakeEvent](srv.DB(), "cloudtrail_lake_events")
-	startStoreSweeper(srv, cloudTrailSweepLake)
+	kvstore.StartSweeper(srv, "CloudTrail Lake event data store retention", storeSweepInterval, func(now time.Time) { cloudTrailSweepLake(now) })
 
 	ops := map[string]http.HandlerFunc{
 		"CreateEventDataStore":                 handleCloudTrailCreateEventDataStore,

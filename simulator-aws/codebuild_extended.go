@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	"github.com/google/uuid"
@@ -601,7 +602,7 @@ func cbWriteSandboxIDsPage(w http.ResponseWriter, all []CBSandbox, project, sort
 	}
 	descending := !strings.EqualFold(sortOrder, "ASCENDING")
 	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, boxes, func(sb CBSandbox) string {
-		return cbOrderKey(awsIntKey(sb.Seq), descending)
+		return cbOrderKey(listq.IntKey(sb.Seq), descending)
 	}, nextToken, maxResults, 100)
 	if !pageOK {
 		return
@@ -821,7 +822,7 @@ func handleCBListCommandExecutionsForSandbox(w http.ResponseWriter, r *http.Requ
 	}
 	descending := !strings.EqualFold(req.SortOrder, "ASCENDING")
 	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, execs, func(ce CBCommandExecution) string {
-		return cbOrderKey(awsIntKey(ce.Seq), descending)
+		return cbOrderKey(listq.IntKey(ce.Seq), descending)
 	}, req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return
@@ -1041,7 +1042,7 @@ func handleCBDescribeCodeCoverages(w http.ResponseWriter, r *http.Request) {
 		if byPercentage {
 			primary = awsFloatKey(c.coverage.LineCoveragePercentage)
 		}
-		return cbOrderKey(primary+"\x00"+awsIntKey(int64(c.pos)), descending)
+		return cbOrderKey(primary+"\x00"+listq.IntKey(int64(c.pos)), descending)
 	}, req.NextToken, req.MaxResults, 100)
 	if !pageOK {
 		return

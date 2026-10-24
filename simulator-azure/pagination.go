@@ -49,7 +49,7 @@ func armPage[T any](w http.ResponseWriter, r *http.Request, items []T, key func(
 func armSeqPage[T any](w http.ResponseWriter, r *http.Request, items []T) ([]T, string, bool) {
 	keyed := make([]azureKeyed[T], len(items))
 	for i, item := range items {
-		keyed[i] = azureKeyed[T]{azureIntKey(int64(i)), item}
+		keyed[i] = azureKeyed[T]{listq.IntKey(int64(i)), item}
 	}
 	return armKeyedPage(w, r, keyed)
 }
@@ -92,11 +92,6 @@ func azurePage[T any](w http.ResponseWriter, r *http.Request, keyed []azureKeyed
 		out[i] = k.item
 	}
 	return out, next, true
-}
-
-// azureIntKey spells n so that string order matches numeric order.
-func azureIntKey(n int64) string {
-	return fmt.Sprintf("%020d", uint64(n)^(1<<63))
 }
 
 // azureNameIDKey orders by name, then by resource ID, for a list whose names
@@ -152,5 +147,5 @@ func acrCatalogPage(r *http.Request, repos []string) ([]string, string) {
 // creation time, then by the position the version was appended at, which
 // separates versions created within the same second.
 func kvVersionOrder(created int64, appended int) string {
-	return azureIntKey(created) + azureIntKey(int64(appended))
+	return listq.IntKey(created) + listq.IntKey(int64(appended))
 }

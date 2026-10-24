@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/kvstore"
 )
 
 // AWS WAFv2 — JSON 1.1 over POST / + X-Amz-Target=AWSWAF_20190729.<Op>.
@@ -249,7 +250,7 @@ func registerWAFv2(r *AWSRouter, srv *sim.Server) {
 	wafManagedRuleSet = sim.MakeStore[wafStoredManagedRuleSet](srv.DB(), "wafv2_managed_rule_sets")
 	wafPermissionPolicies = sim.MakeStore[string](srv.DB(), "wafv2_permission_policies")
 	wafSampledRequests = sim.MakeStore[wafSampledRequest](srv.DB(), "wafv2_sampled_requests")
-	startStoreSweeper(srv, wafSweepSampledRequests)
+	kvstore.StartSweeper(srv, "AWS WAF sampled request retention", storeSweepInterval, func(now time.Time) { wafSweepSampledRequests(now) })
 	wafAssociations = sim.MakeStore[wafAssociation](srv.DB(), "wafv2_associations")
 	wafRateWindows = sim.MakeStore[wafRateWindow](srv.DB(), "wafv2_rate_windows")
 	wafSeedManagedRuleSets()

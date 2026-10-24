@@ -11,6 +11,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 type ASLaunchConfiguration struct {
@@ -385,7 +386,7 @@ func handleASDescribeScalingActivities(w http.ResponseWriter, r *http.Request) {
 	}
 	page, next, pageOK := awsKeyPage(w, asBadToken, activities, func(it ScalingActivity) string {
 		t, _ := time.Parse(time.RFC3339, it.StartTime)
-		return awsDescKey(awsIntKey(t.UnixNano())) + "\x00" + it.ActivityId
+		return awsDescKey(listq.IntKey(t.UnixNano())) + "\x00" + it.ActivityId
 	}, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
 	if !pageOK {
 		return
@@ -808,7 +809,7 @@ func handleASDescribeAutoScalingInstances(w http.ResponseWriter, r *http.Request
 			instances = append(instances, asgInstance{instanceID: id, asg: asg, pos: pos})
 		}
 	}
-	key := func(i asgInstance) string { return i.asg.Name + "\x00" + awsIntKey(int64(i.pos)) }
+	key := func(i asgInstance) string { return i.asg.Name + "\x00" + listq.IntKey(int64(i.pos)) }
 	page, next, pageOK := awsKeyPage(w, asBadToken, instances, key, r.FormValue("NextToken"), asAtoiDefault(r.FormValue("MaxRecords"), 0), 0)
 	if !pageOK {
 		return

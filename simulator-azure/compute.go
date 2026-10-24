@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -746,7 +745,7 @@ func handleAzureLoadBalancerDataPlane(w http.ResponseWriter, r *http.Request, lb
 		idle = 4 * time.Minute
 	}
 	sim.DeclareWait(r.Context(), idle)
-	err := lbplane.Forward(w, r, lbplane.Upstream{
+	_ = lbplane.Serve(w, r, lbplane.Upstream{
 		Scheme:   "http",
 		Address:  target.Address,
 		Path:     r.URL.EscapedPath(),
@@ -757,20 +756,13 @@ func handleAzureLoadBalancerDataPlane(w http.ResponseWriter, r *http.Request, lb
 		Admit: func(client netip.Addr) error {
 			return azureAdmitIngress("Tcp", client, target.Address, target.Port)
 		},
-	})
-	abortStartedForward(w, err)
-	switch {
-	case err == nil:
-	case errors.Is(err, lbplane.ErrClientWentAway):
-		w.WriteHeader(lbplane.StatusClientClosedRequest)
-	case errors.Is(err, lbplane.ErrNotAdmitted):
+	}, lbplane.Answers{
 		// The backend's groups dropped the flow's packets: the client's
 		// connection ends without an answer, as it does behind Azure Load
 		// Balancer, where nothing sends a reset for a dropped packet.
-		azureCloseWithoutAnswer(w)
-	default:
-		http.Error(w, err.Error(), http.StatusBadGateway)
-	}
+		NotAdmitted: func(w http.ResponseWriter, _ error) { lbplane.CloseWithoutAnswer(w) },
+		Failed:      func(w http.ResponseWriter, err error) { http.Error(w, err.Error(), http.StatusBadGateway) },
+	})
 }
 
 func azureLoadBalancerRuleForRequest(r *http.Request, lb LoadBalancer, frontend LoadBalancerChild) (LoadBalancerChild, bool) {

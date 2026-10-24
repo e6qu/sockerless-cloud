@@ -146,6 +146,10 @@ func privateCAError(w http.ResponseWriter, code, message string) {
 	AWSError(w, code, message, http.StatusBadRequest)
 }
 
+var privateCABadToken awsBadToken = func(w http.ResponseWriter, token string) {
+	privateCAError(w, "InvalidNextTokenException", awsBadTokenMessage(token))
+}
+
 func privateCAARN(id string) string {
 	return "arn:aws:acm-pca:" + awsRegion() + ":" + awsAccountID() + ":certificate-authority/" + id
 }
@@ -697,24 +701,17 @@ func handlePrivateCAList(w http.ResponseWriter, r *http.Request) {
 		privateCAError(w, "InvalidArgsException", "The request body could not be parsed.")
 		return
 	}
-	cas := privateCAs.List()
-	sort.Slice(cas, func(i, j int) bool { return cas[i].ARN < cas[j].ARN })
-	start, _ := strconv.Atoi(req.NextToken)
-	if start < 0 || start > len(cas) {
-		start = 0
+	page, next, ok := awsKeyPage(w, privateCABadToken, privateCAs.List(), func(ca privateCA) string { return ca.ARN }, req.NextToken, req.MaxResults, 100)
+	if !ok {
+		return
 	}
-	limit := req.MaxResults
-	if limit <= 0 || limit > 100 {
-		limit = 100
-	}
-	end := min(start+limit, len(cas))
-	items := make([]map[string]any, 0, end-start)
-	for _, ca := range cas[start:end] {
+	items := make([]map[string]any, 0, len(page))
+	for _, ca := range page {
 		items = append(items, privateCAResponse(ca))
 	}
 	out := map[string]any{"CertificateAuthorities": items}
-	if end < len(cas) {
-		out["NextToken"] = strconv.Itoa(end)
+	if next != "" {
+		out["NextToken"] = next
 	}
 	sim.WriteJSON(w, http.StatusOK, out)
 }

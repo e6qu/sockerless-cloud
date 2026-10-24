@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/kvstore"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 	"github.com/e6qu/sockerless-cloud/sim/logstore"
 )
 
@@ -270,7 +272,7 @@ func registerCloudWatchLogs(r *AWSRouter, srv *sim.Server) {
 	}
 	cwSequences = sim.MakeStore[int64](srv.DB(), "cw_sequences")
 	cwQueries = sim.MakeStore[CWQuery](srv.DB(), "cw_insights_queries")
-	startStoreSweeperEvery(srv, cwRetentionSweepInterval, cwSweepLogs)
+	kvstore.StartSweeper(srv, "CloudWatch Logs retention", cwRetentionSweepInterval, func(now time.Time) { cwSweepLogs(now) })
 	registerCloudWatchInsights(r)
 	registerCloudWatchLogsOps(r, srv)
 	registerCloudWatchLogsExtra2(r, srv)
@@ -521,7 +523,7 @@ func handleCWDescribeLogStreams(w http.ResponseWriter, r *http.Request) {
 	key := func(s CWLogStream) string {
 		k := s.LogStreamName
 		if req.OrderBy == "LastEventTime" {
-			k = awsIntKey(s.LastEventTimestamp) + "\x00" + k
+			k = listq.IntKey(s.LastEventTimestamp) + "\x00" + k
 		}
 		if desc {
 			return awsDescKey(k)

@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 const (
@@ -393,31 +395,10 @@ func eventarcSegmentsMatch(pattern, segments []string) bool {
 		}
 		return false
 	}
-	if len(segments) == 0 || !eventarcGlobMatch(pattern[0], segments[0]) {
+	if len(segments) == 0 || !(sim.Wildcard{}).Match(pattern[0], segments[0]) {
 		return false
 	}
 	return eventarcSegmentsMatch(pattern[1:], segments[1:])
-}
-
-// eventarcGlobMatch matches one segment against a pattern whose only
-// wildcard is "*".
-func eventarcGlobMatch(pattern, segment string) bool {
-	parts := strings.Split(pattern, "*")
-	if len(parts) == 1 {
-		return pattern == segment
-	}
-	if !strings.HasPrefix(segment, parts[0]) {
-		return false
-	}
-	rest := segment[len(parts[0]):]
-	for _, part := range parts[1 : len(parts)-1] {
-		i := strings.Index(rest, part)
-		if i < 0 {
-			return false
-		}
-		rest = rest[i+len(part):]
-	}
-	return len(rest) >= len(parts[len(parts)-1]) && strings.HasSuffix(rest, parts[len(parts)-1])
 }
 
 // eventarcCloudEvent renders a message as the binary-mode CloudEvent Eventarc

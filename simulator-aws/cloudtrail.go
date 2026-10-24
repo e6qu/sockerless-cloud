@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/kvstore"
 )
 
 type CloudTrailTrail struct {
@@ -151,7 +152,7 @@ func registerCloudTrail(r *AWSRouter, srv *sim.Server) {
 	cloudTrailDeliveries = sim.MakeStore[CloudTrailDelivery](srv.DB(), "cloudtrail_deliveries")
 	cloudTrailEvents = sim.MakeStore[CloudTrailEvent](srv.DB(), "cloudtrail_events")
 	cloudTrailChannels = sim.MakeStore[CloudTrailChannel](srv.DB(), "cloudtrail_channels")
-	startStoreSweeper(srv, cloudTrailSweepHistory)
+	kvstore.StartSweeper(srv, "CloudTrail event history retention", storeSweepInterval, func(now time.Time) { cloudTrailSweepHistory(now) })
 
 	for _, op := range []string{
 		"CreateTrail", "DescribeTrails", "GetTrail", "UpdateTrail", "GetTrailStatus",

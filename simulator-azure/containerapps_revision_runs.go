@@ -92,21 +92,6 @@ func acaCurrentReplicas(revisionID string) []*acaReplica {
 	return out
 }
 
-// acaReplicaRestartBackoff is how long a revision waits before it replaces a
-// replica that exited: Kubernetes' crash-loop back-off, doubling from 10
-// seconds to 5 minutes with the replicas in a row that exited within 10
-// minutes of starting.
-func acaReplicaRestartBackoff(consecutive int) time.Duration {
-	wait := 10 * time.Second
-	for range consecutive - 1 {
-		wait *= 2
-		if wait >= 5*time.Minute {
-			return 5 * time.Minute
-		}
-	}
-	return wait
-}
-
 // acaRevisionWorkload is what a revision's replicas start with: the network
 // and the configuration they run under.
 type acaRevisionWorkload struct {
@@ -194,8 +179,8 @@ func newACARevisionRun(wl acaRevisionWorkload, scaling acaScaling) *acaRevisionR
 		NewID:   func() string { return acaReplicaName(rev.Name) },
 		Restart: replicas.Always,
 		InPlace: true,
-		Backoff: acaReplicaRestartBackoff,
-		Settled: 10 * time.Minute,
+		Backoff: replicas.CrashLoopBackoff,
+		Settled: replicas.CrashLoopSettled,
 		Start: func(ctx context.Context, name string) (*workload.Group, func(), error) {
 			replica, restarting := run.replica(name)
 			if restarting {

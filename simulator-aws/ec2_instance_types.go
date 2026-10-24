@@ -140,7 +140,7 @@ func ec2InstanceTypeXML(t ec2InstanceTypeFacts) string {
 // ec2InstanceTypeFilters are the DescribeInstanceTypes filters over the facts
 // the catalog carries. A value matches when any of the filter's values does.
 var ec2InstanceTypeFilters = map[string]func(t ec2InstanceTypeFacts, value string) bool{
-	"instance-type": func(t ec2InstanceTypeFacts, v string) bool { return awsWildcardMatch(v, t.Name) },
+	"instance-type": func(t ec2InstanceTypeFacts, v string) bool { return ec2FilterWildcard.Match(v, t.Name) },
 	"current-generation": func(t ec2InstanceTypeFacts, v string) bool {
 		return v == strconv.FormatBool(t.CurrentGeneration)
 	},
