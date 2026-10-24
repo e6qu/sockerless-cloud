@@ -26,7 +26,7 @@ require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da
 	github.com/distribution/reference v0.6.0
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261024164515-14c10811a313
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261024173146-5e9c91355c57
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261015114713-b9f0cc68a078
 	github.com/hamba/avro/v2 v2.31.0
 	github.com/klauspost/compress v1.20.3
