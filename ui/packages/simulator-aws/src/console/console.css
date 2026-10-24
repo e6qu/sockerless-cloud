@@ -13,31 +13,79 @@
   font-family: var(--aws-font);
 }
 
-/* Global header ----------------------------------------------------------
- * `TopNavigation` (in AwsConsole.tsx) renders the identity, the services
- * search row, and the notification/settings/support utilities with its own
- * genuine dark "top-navigation" visual context — no CSS of this console's
- * own is involved in that part. The account cluster (region, the operator's
- * signed-in identity, the theme toggle) sits beside it, outside
- * `TopNavigation`'s own DOM, so it needs its own rule to sit on the same
- * dark strip rather than the page's light/dark surface colour. */
+/* Global header: TopNavigation pinned to the top of the viewport, which
+ * AppLayout's headerSelector offsets its own sticky elements below. */
 .aws-header {
-  display: flex;
-  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 1002;
   background: var(--aws-header-bg);
-  color: var(--aws-header-fg);
 }
-.aws-header-account {
+.aws-topnav-search {
   display: flex;
   align-items: center;
-  gap: 12px;
-  flex-shrink: 0;
-  padding: 0 16px;
-  color: var(--aws-header-fg);
+  gap: 8px;
+  inline-size: 100%;
 }
-.aws-header-region {
-  font-size: 12px;
-  white-space: nowrap;
+.aws-topnav-search-field {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  max-inline-size: 560px;
+}
+
+/* Services menu: a full-width panel docked under the header, categories on
+ * the left and the services of the chosen category on the right. Its colours
+ * come from Cloudscape design tokens, set inline in AwsShell.tsx. */
+.aws-services-panel {
+  position: fixed;
+  inset-inline: 0;
+  z-index: 1001;
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) 1fr;
+  max-block-size: calc(100vh - 120px);
+  box-shadow: 0 4px 20px 1px rgb(0 7 22 / 10%);
+}
+.aws-services-panel-categories,
+.aws-services-panel-services {
+  padding: 20px 24px;
+  overflow-y: auto;
+}
+.aws-services-panel ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.aws-services-panel-categories li {
+  padding: 5px 0;
+}
+.aws-services-panel-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px 32px;
+}
+.aws-pill {
+  margin-inline-start: 8px;
+}
+
+/* Console Home widgets */
+.aws-home-list,
+.aws-home-solutions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px 24px;
+}
+.aws-home-list {
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+}
+.aws-home-solutions {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+@media (max-width: 688px) {
+  .aws-services-panel {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Log events viewer -------------------------------------------------------

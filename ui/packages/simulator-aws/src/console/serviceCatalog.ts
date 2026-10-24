@@ -1,193 +1,565 @@
 /**
- * The AWS service catalog the console's side navigation renders.
+ * The AWS service catalog the console's shell renders: the Services menu, the
+ * unified search, Console Home's recently visited list, every service's own
+ * side navigation, and the breadcrumb trail all read from this one table.
  *
- * The real AWS Management Console groups its "All services" menu the way AWS
- * itself categorizes its services — Compute, Containers, Storage, Database,
- * Networking & Content Delivery, and so on — and lists every service AWS
- * offers, not only the ones a given account uses. This simulator follows the
- * same shape and is honest about the gap between the two: a service
- * sockerless implements links to its real page; every other service AWS
- * offers is still listed, under its real category, but links to a page that
- * says plainly that sockerless has not implemented it. Hiding the
- * unimplemented services would make the simulator's coverage look broader
- * than it is; leaving AWS's other categories out entirely would make the
- * navigation read as sockerless's own invention rather than AWS's console.
- *
- * Honesty runs in both directions. An entry marked `supported: false` is a
- * claim that the AWS simulator implements nothing an operator could use, and
- * it is only ever correct when the simulator registers no usable read surface
- * for that service. Every entry below with a real route is backed by the
- * simulator's own registered operations — Amazon EC2's `DescribeInstances`,
- * Amazon DynamoDB's `ListTables`, AWS Systems Manager's `DescribeParameters`,
- * and so on — reached through the same AWS APIs a real console reads.
+ * The real AWS Management Console lists every service AWS offers under the
+ * category AWS files it in, whether or not an account uses it. This console
+ * does the same and is honest about its own reach: a service it has pages for
+ * links to them; every other service still appears, under its real category,
+ * and links to a page that says this console has no page for it. That is a
+ * statement about the console, not about the cloud it reads, so it holds
+ * whichever AWS endpoint the console is pointed at.
  */
 
-export interface NavService {
-  /** The service's real, fully-qualified AWS name — the link's visible and
-   * accessible text. */
-  label: string;
-  to: string;
-  /** Services sockerless has built a page for. Defaults to true; every entry
-   * that sockerless has not implemented links to the honest "not supported"
-   * page instead of a real console page, and its link renders the
-   * "Not supported" pill. */
+export interface NavLink {
+  text: string;
+  href: string;
+  /** The page title of the link's `<href>/create` flow, for its breadcrumb. */
+  create?: string;
+}
+
+export interface NavSection {
+  /** The section heading the real service console's side navigation shows;
+   * absent for the links that sit above the first heading. */
+  text?: string;
+  items: NavLink[];
+}
+
+export interface ConsoleService {
+  id: string;
+  /** The name the AWS Services menu shows. */
+  name: string;
+  /** The one-line description the AWS Services menu shows under the name. */
+  description: string;
+  category: string;
+  /** The service's landing route in this console. */
+  home: string;
+  /** The service's documentation landing page. */
+  docs: string;
+  /** Route prefixes this service's pages live under, beyond `home`. */
+  owns?: string[];
+  /** The service console's own side navigation. */
+  nav?: NavSection[];
+  /** False for a service this console has no pages for. */
   supported?: boolean;
 }
 
-export interface NavGroup {
-  /** The category AWS's own "All services" menu groups this service under. */
-  label: string;
-  items: NavService[];
+const NO_PAGE = "/ui/not-supported/";
+
+function unsupported(id: string, name: string, description: string, category: string, docs: string): ConsoleService {
+  return { id, name, description, category, home: NO_PAGE + id, docs, supported: false };
 }
 
-const NOT_SUPPORTED = "/ui/not-supported/";
+export const CATEGORIES = [
+  "Analytics",
+  "Application Integration",
+  "Cloud Financial Management",
+  "Compute",
+  "Containers",
+  "Database",
+  "Developer Tools",
+  "Front-end Web & Mobile",
+  "Management & Governance",
+  "Networking & Content Delivery",
+  "Security, Identity, & Compliance",
+  "Storage",
+] as const;
 
-export const NAV_GROUPS: NavGroup[] = [
-  { label: "Dashboard", items: [{ label: "Overview", to: "/ui/" }] },
+export const SERVICES: ConsoleService[] = [
   {
-    label: "Compute",
-    items: [
-      { label: "EC2", to: "/ui/ec2" },
-      { label: "EC2 Auto Scaling", to: "/ui/autoscaling" },
-      { label: "Lambda", to: "/ui/lambda" },
-      { label: "AWS Batch", to: "/ui/batch" },
-      { label: "Elastic Beanstalk", to: NOT_SUPPORTED + "elastic-beanstalk", supported: false },
-      { label: "Lightsail", to: NOT_SUPPORTED + "lightsail", supported: false },
+    id: "ec2",
+    name: "EC2",
+    description: "Virtual Servers in the Cloud",
+    category: "Compute",
+    home: "/ui/ec2/home",
+    docs: "https://docs.aws.amazon.com/ec2/",
+    owns: ["/ui/ec2", "/ui/autoscaling", "/ui/elb"],
+    nav: [
+      { items: [{ text: "Dashboard", href: "/ui/ec2/home" }] },
+      { text: "Instances", items: [{ text: "Instances", href: "/ui/ec2" }] },
+      { text: "Elastic Block Store", items: [{ text: "Volumes", href: "/ui/ec2/volumes" }] },
+      {
+        text: "Network & Security",
+        items: [
+          { text: "Security Groups", href: "/ui/ec2/security-groups" },
+          { text: "Key Pairs", href: "/ui/ec2/key-pairs", create: "Create key pair" },
+        ],
+      },
+      {
+        text: "Load Balancing",
+        items: [
+          { text: "Load Balancers", href: "/ui/elb" },
+          { text: "Target Groups", href: "/ui/elb/target-groups" },
+        ],
+      },
+      { text: "Auto Scaling", items: [{ text: "Auto Scaling Groups", href: "/ui/autoscaling" }] },
     ],
   },
   {
-    label: "Containers",
-    items: [
-      { label: "Elastic Container Service", to: "/ui/ecs" },
-      { label: "Elastic Container Registry", to: "/ui/ecr" },
-      { label: "Elastic Kubernetes Service", to: NOT_SUPPORTED + "eks", supported: false },
+    id: "lambda",
+    name: "Lambda",
+    description: "Run code without thinking about servers",
+    category: "Compute",
+    home: "/ui/lambda",
+    docs: "https://docs.aws.amazon.com/lambda/",
+    nav: [{ items: [{ text: "Functions", href: "/ui/lambda" }] }],
+  },
+  {
+    id: "batch",
+    name: "Batch",
+    description: "Fully managed batch processing at any scale",
+    category: "Compute",
+    home: "/ui/batch",
+    docs: "https://docs.aws.amazon.com/batch/",
+    nav: [
+      {
+        items: [
+          { text: "Jobs", href: "/ui/batch" },
+          { text: "Job queues", href: "/ui/batch/job-queues" },
+          { text: "Job definitions", href: "/ui/batch/job-definitions" },
+          { text: "Compute environments", href: "/ui/batch/compute-environments" },
+        ],
+      },
+    ],
+  },
+  unsupported("elastic-beanstalk", "Elastic Beanstalk", "Run and Manage Web Apps", "Compute", "https://docs.aws.amazon.com/elastic-beanstalk/"),
+  unsupported("lightsail", "Lightsail", "Launch and Manage Virtual Private Servers", "Compute", "https://docs.aws.amazon.com/lightsail/"),
+  {
+    id: "ecs",
+    name: "Elastic Container Service",
+    description: "Highly secure, reliable, and scalable way to run containers",
+    category: "Containers",
+    home: "/ui/ecs",
+    docs: "https://docs.aws.amazon.com/ecs/",
+    nav: [{ items: [{ text: "Tasks", href: "/ui/ecs" }, { text: "Services", href: "/ui/ecs/services" }] }],
+  },
+  {
+    id: "ecr",
+    name: "Elastic Container Registry",
+    description: "Fully-managed Docker container registry",
+    category: "Containers",
+    home: "/ui/ecr",
+    docs: "https://docs.aws.amazon.com/ecr/",
+    nav: [{ text: "Private registry", items: [{ text: "Repositories", href: "/ui/ecr" }] }],
+  },
+  unsupported("eks", "Elastic Kubernetes Service", "The most trusted way to start, run, and scale Kubernetes", "Containers", "https://docs.aws.amazon.com/eks/"),
+  {
+    id: "s3",
+    name: "S3",
+    description: "Scalable Storage in the Cloud",
+    category: "Storage",
+    home: "/ui/s3",
+    docs: "https://docs.aws.amazon.com/s3/",
+    nav: [{ items: [{ text: "General purpose buckets", href: "/ui/s3", create: "Create bucket" }] }],
+  },
+  {
+    id: "efs",
+    name: "EFS",
+    description: "Managed File Storage for EC2",
+    category: "Storage",
+    home: "/ui/efs",
+    docs: "https://docs.aws.amazon.com/efs/",
+    nav: [{ text: "Elastic File System", items: [{ text: "File systems", href: "/ui/efs" }] }],
+  },
+  unsupported("s3-glacier", "S3 Glacier", "Archive Storage in the Cloud", "Storage", "https://docs.aws.amazon.com/amazonglacier/"),
+  unsupported("backup", "AWS Backup", "Centrally manage and automate backups across AWS services", "Storage", "https://docs.aws.amazon.com/aws-backup/"),
+  {
+    id: "rds",
+    name: "Aurora and RDS",
+    description: "Managed Relational Database Service",
+    category: "Database",
+    home: "/ui/rds",
+    docs: "https://docs.aws.amazon.com/rds/",
+    nav: [{ items: [{ text: "Databases", href: "/ui/rds" }] }],
+  },
+  {
+    id: "dynamodb",
+    name: "DynamoDB",
+    description: "Managed NoSQL Database",
+    category: "Database",
+    home: "/ui/dynamodb",
+    docs: "https://docs.aws.amazon.com/dynamodb/",
+    nav: [{ items: [{ text: "Tables", href: "/ui/dynamodb" }] }],
+  },
+  {
+    id: "elasticache",
+    name: "ElastiCache",
+    description: "In-Memory Cache",
+    category: "Database",
+    home: "/ui/elasticache",
+    docs: "https://docs.aws.amazon.com/elasticache/",
+    nav: [{ text: "Resources", items: [{ text: "Clusters", href: "/ui/elasticache" }] }],
+  },
+  unsupported("redshift", "Amazon Redshift", "Fast, Simple, Cost-Effective Data Warehousing", "Database", "https://docs.aws.amazon.com/redshift/"),
+  {
+    id: "vpc",
+    name: "VPC",
+    description: "Isolated Cloud Resources",
+    category: "Networking & Content Delivery",
+    home: "/ui/vpc",
+    docs: "https://docs.aws.amazon.com/vpc/",
+    nav: [{ text: "Virtual private cloud", items: [{ text: "Your VPCs", href: "/ui/vpc" }] }],
+  },
+  {
+    id: "cloudfront",
+    name: "CloudFront",
+    description: "Global Content Delivery Network",
+    category: "Networking & Content Delivery",
+    home: "/ui/cloudfront",
+    docs: "https://docs.aws.amazon.com/cloudfront/",
+    nav: [{ items: [{ text: "Distributions", href: "/ui/cloudfront" }] }],
+  },
+  {
+    id: "route53",
+    name: "Route 53",
+    description: "Scalable DNS and Domain Name Registration",
+    category: "Networking & Content Delivery",
+    home: "/ui/route53",
+    docs: "https://docs.aws.amazon.com/route53/",
+    nav: [{ items: [{ text: "Hosted zones", href: "/ui/route53" }] }],
+  },
+  {
+    id: "apigateway",
+    name: "API Gateway",
+    description: "Build, Deploy and Manage APIs",
+    category: "Networking & Content Delivery",
+    home: "/ui/apigateway",
+    docs: "https://docs.aws.amazon.com/apigateway/",
+    nav: [{ items: [{ text: "APIs", href: "/ui/apigateway" }] }],
+  },
+  {
+    id: "cloudmap",
+    name: "Cloud Map",
+    description: "Build a dynamic map of your cloud",
+    category: "Networking & Content Delivery",
+    home: "/ui/cloudmap",
+    docs: "https://docs.aws.amazon.com/cloud-map/",
+    nav: [{ items: [{ text: "Namespaces", href: "/ui/cloudmap" }, { text: "Services", href: "/ui/cloudmap/services" }] }],
+  },
+  unsupported("direct-connect", "Direct Connect", "Dedicated Network Connection to AWS", "Networking & Content Delivery", "https://docs.aws.amazon.com/directconnect/"),
+  {
+    id: "codebuild",
+    name: "CodeBuild",
+    description: "Build and Test Code",
+    category: "Developer Tools",
+    home: "/ui/codebuild",
+    docs: "https://docs.aws.amazon.com/codebuild/",
+    nav: [{ text: "Build", items: [{ text: "Build projects", href: "/ui/codebuild" }, { text: "Build history", href: "/ui/codebuild/history" }] }],
+  },
+  unsupported("codepipeline", "CodePipeline", "Release Software using Continuous Delivery", "Developer Tools", "https://docs.aws.amazon.com/codepipeline/"),
+  {
+    id: "amplify",
+    name: "AWS Amplify",
+    description: "Build, deploy, host, and manage scalable web and mobile apps",
+    category: "Front-end Web & Mobile",
+    home: "/ui/amplify",
+    docs: "https://docs.aws.amazon.com/amplify/",
+    nav: [{ items: [{ text: "All apps", href: "/ui/amplify" }] }],
+  },
+  {
+    id: "kinesis",
+    name: "Kinesis",
+    description: "Work with Real-Time Streaming Data",
+    category: "Analytics",
+    home: "/ui/kinesis",
+    docs: "https://docs.aws.amazon.com/kinesis/",
+    nav: [{ items: [{ text: "Data streams", href: "/ui/kinesis" }] }],
+  },
+  {
+    id: "firehose",
+    name: "Amazon Data Firehose",
+    description: "Reliably load real-time streams into data lakes, warehouses, and analytics services",
+    category: "Analytics",
+    home: "/ui/firehose",
+    docs: "https://docs.aws.amazon.com/firehose/",
+    nav: [{ items: [{ text: "Firehose streams", href: "/ui/firehose" }] }],
+  },
+  {
+    id: "glue",
+    name: "AWS Glue",
+    description: "Serverless data integration service",
+    category: "Analytics",
+    home: "/ui/glue",
+    docs: "https://docs.aws.amazon.com/glue/",
+    nav: [
+      { text: "Data Catalog", items: [{ text: "Databases", href: "/ui/glue" }] },
+      { text: "ETL", items: [{ text: "ETL jobs", href: "/ui/glue/jobs" }] },
+    ],
+  },
+  unsupported("athena", "Athena", "Query Data in S3 using SQL", "Analytics", "https://docs.aws.amazon.com/athena/"),
+  unsupported("emr", "EMR", "Managed Hadoop Framework", "Analytics", "https://docs.aws.amazon.com/emr/"),
+  {
+    id: "sns",
+    name: "Simple Notification Service",
+    description: "SNS managed message topics for Pub/Sub",
+    category: "Application Integration",
+    home: "/ui/sns",
+    docs: "https://docs.aws.amazon.com/sns/",
+    nav: [{ items: [{ text: "Topics", href: "/ui/sns" }, { text: "Subscriptions", href: "/ui/sns/subscriptions" }] }],
+  },
+  {
+    id: "sqs",
+    name: "Simple Queue Service",
+    description: "Managed Message Queues",
+    category: "Application Integration",
+    home: "/ui/sqs",
+    docs: "https://docs.aws.amazon.com/sqs/",
+    nav: [{ items: [{ text: "Queues", href: "/ui/sqs" }] }],
+  },
+  {
+    id: "eventbridge",
+    name: "Amazon EventBridge",
+    description: "Serverless service for building event-driven applications",
+    category: "Application Integration",
+    home: "/ui/eventbridge",
+    docs: "https://docs.aws.amazon.com/eventbridge/",
+    owns: ["/ui/scheduler"],
+    nav: [
+      {
+        text: "Buses",
+        items: [
+          { text: "Event buses", href: "/ui/eventbridge/event-buses" },
+          { text: "Rules", href: "/ui/eventbridge" },
+        ],
+      },
+      {
+        text: "Scheduler",
+        items: [
+          { text: "Schedules", href: "/ui/scheduler" },
+          { text: "Schedule groups", href: "/ui/scheduler/groups" },
+        ],
+      },
     ],
   },
   {
-    label: "Storage",
-    items: [
-      { label: "Simple Storage Service", to: "/ui/s3" },
-      { label: "Elastic File System", to: "/ui/efs" },
-      { label: "S3 Glacier", to: NOT_SUPPORTED + "s3-glacier", supported: false },
-      { label: "AWS Backup", to: NOT_SUPPORTED + "backup", supported: false },
+    id: "stepfunctions",
+    name: "Step Functions",
+    description: "Coordination for Distributed Applications",
+    category: "Application Integration",
+    home: "/ui/stepfunctions",
+    docs: "https://docs.aws.amazon.com/step-functions/",
+    nav: [{ items: [{ text: "State machines", href: "/ui/stepfunctions" }] }],
+  },
+  unsupported("mq", "Amazon MQ", "Managed message broker service", "Application Integration", "https://docs.aws.amazon.com/amazon-mq/"),
+  {
+    id: "budgets",
+    name: "Budgets",
+    description: "Set custom cost and usage budgets",
+    category: "Cloud Financial Management",
+    home: "/ui/budgets",
+    docs: "https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html",
+    nav: [{ text: "Budgets and planning", items: [{ text: "Budgets", href: "/ui/budgets" }] }],
+  },
+  unsupported("cost-explorer", "Cost Explorer", "Visualize, understand, and manage your AWS costs and usage", "Cloud Financial Management", "https://docs.aws.amazon.com/cost-management/latest/userguide/ce-what-is.html"),
+  {
+    id: "cloudwatch",
+    name: "CloudWatch",
+    description: "Monitor Resources and Applications",
+    category: "Management & Governance",
+    home: "/ui/cloudwatch",
+    docs: "https://docs.aws.amazon.com/cloudwatch/",
+    owns: ["/ui/logs"],
+    nav: [
+      { text: "Alarms", items: [{ text: "All alarms", href: "/ui/cloudwatch" }] },
+      { text: "Logs", items: [{ text: "Log groups", href: "/ui/logs" }] },
+      { text: "Dashboards", items: [{ text: "Dashboards", href: "/ui/cloudwatch/dashboards" }] },
     ],
   },
   {
-    label: "Database",
-    items: [
-      { label: "RDS", to: "/ui/rds" },
-      { label: "DynamoDB", to: "/ui/dynamodb" },
-      { label: "ElastiCache", to: "/ui/elasticache" },
-      { label: "Amazon Redshift", to: NOT_SUPPORTED + "redshift", supported: false },
+    id: "cloudtrail",
+    name: "CloudTrail",
+    description: "Track User Activity and API Usage",
+    category: "Management & Governance",
+    home: "/ui/cloudtrail",
+    docs: "https://docs.aws.amazon.com/cloudtrail/",
+    nav: [{ items: [{ text: "Event history", href: "/ui/cloudtrail" }, { text: "Trails", href: "/ui/cloudtrail/trails" }] }],
+  },
+  {
+    id: "organizations",
+    name: "AWS Organizations",
+    description: "Central governance and management across AWS accounts",
+    category: "Management & Governance",
+    home: "/ui/organizations",
+    docs: "https://docs.aws.amazon.com/organizations/",
+    nav: [{ items: [{ text: "AWS accounts", href: "/ui/organizations" }] }],
+  },
+  {
+    id: "ssm",
+    name: "Systems Manager",
+    description: "Access, manage, and configure your AWS resources",
+    category: "Management & Governance",
+    home: "/ui/ssm",
+    docs: "https://docs.aws.amazon.com/systems-manager/",
+    nav: [
+      {
+        text: "Application Tools",
+        items: [{ text: "Parameter Store", href: "/ui/ssm" }],
+      },
+      { text: "Change Management Tools", items: [{ text: "Documents", href: "/ui/ssm/documents" }] },
+    ],
+  },
+  unsupported("cloudformation", "CloudFormation", "Create and Manage Resources with Templates", "Management & Governance", "https://docs.aws.amazon.com/cloudformation/"),
+  unsupported("config", "Config", "Track Resource Inventory and Changes", "Management & Governance", "https://docs.aws.amazon.com/config/"),
+  {
+    id: "iam",
+    name: "IAM",
+    description: "Manage access to AWS resources",
+    category: "Security, Identity, & Compliance",
+    home: "/ui/iam",
+    docs: "https://docs.aws.amazon.com/iam/",
+    nav: [
+      {
+        text: "Access management",
+        items: [
+          { text: "Users", href: "/ui/iam" },
+          { text: "Roles", href: "/ui/iam/roles", create: "Create role" },
+          { text: "Policies", href: "/ui/iam/policies", create: "Create policy" },
+          { text: "Identity providers", href: "/ui/iam/identity-providers" },
+        ],
+      },
     ],
   },
   {
-    label: "Networking & content delivery",
-    items: [
-      { label: "VPC", to: "/ui/vpc" },
-      { label: "CloudFront", to: "/ui/cloudfront" },
-      { label: "Route 53", to: "/ui/route53" },
-      { label: "API Gateway", to: "/ui/apigateway" },
-      { label: "Elastic Load Balancing", to: "/ui/elb" },
-      { label: "AWS Cloud Map", to: "/ui/cloudmap" },
-      { label: "AWS Direct Connect", to: NOT_SUPPORTED + "direct-connect", supported: false },
-    ],
+    id: "secretsmanager",
+    name: "Secrets Manager",
+    description: "Easily rotate, manage, and retrieve secrets throughout their lifecycle",
+    category: "Security, Identity, & Compliance",
+    home: "/ui/secretsmanager",
+    docs: "https://docs.aws.amazon.com/secretsmanager/",
+    nav: [{ items: [{ text: "Secrets", href: "/ui/secretsmanager" }] }],
   },
   {
-    label: "Developer tools",
-    items: [
-      { label: "CodeBuild", to: "/ui/codebuild" },
-      { label: "CodePipeline", to: NOT_SUPPORTED + "codepipeline", supported: false },
-    ],
+    id: "kms",
+    name: "Key Management Service",
+    description: "Securely Generate and Manage AWS Encryption Keys",
+    category: "Security, Identity, & Compliance",
+    home: "/ui/kms",
+    docs: "https://docs.aws.amazon.com/kms/",
+    nav: [{ items: [{ text: "Customer managed keys", href: "/ui/kms" }] }],
   },
   {
-    label: "Front-end web & mobile",
-    items: [{ label: "AWS Amplify", to: "/ui/amplify" }],
+    id: "acm",
+    name: "Certificate Manager",
+    description: "Provision, Manage, and Deploy SSL/TLS Certificates",
+    category: "Security, Identity, & Compliance",
+    home: "/ui/acm",
+    docs: "https://docs.aws.amazon.com/acm/",
+    nav: [{ items: [{ text: "List certificates", href: "/ui/acm" }, { text: "ACME endpoints", href: "/ui/acm/acme-endpoints" }] }],
   },
   {
-    label: "Analytics",
-    items: [
-      { label: "Kinesis Data Streams", to: "/ui/kinesis" },
-      { label: "Amazon Data Firehose", to: "/ui/firehose" },
-      { label: "AWS Glue", to: "/ui/glue" },
-      { label: "Amazon Athena", to: NOT_SUPPORTED + "athena", supported: false },
-      { label: "Amazon EMR", to: NOT_SUPPORTED + "emr", supported: false },
-    ],
+    id: "private-ca",
+    name: "AWS Private Certificate Authority",
+    description: "Create private certificates to identify resources and protect data",
+    category: "Security, Identity, & Compliance",
+    home: "/ui/private-ca",
+    docs: "https://docs.aws.amazon.com/privateca/",
+    nav: [{ items: [{ text: "Private certificate authorities", href: "/ui/private-ca" }] }],
   },
   {
-    label: "Application integration",
-    items: [
-      { label: "Simple Notification Service", to: "/ui/sns" },
-      { label: "Simple Queue Service", to: "/ui/sqs" },
-      { label: "Amazon EventBridge", to: "/ui/eventbridge" },
-      { label: "Amazon EventBridge Scheduler", to: "/ui/scheduler" },
-      { label: "AWS Step Functions", to: "/ui/stepfunctions" },
-      { label: "Amazon MQ", to: NOT_SUPPORTED + "mq", supported: false },
-    ],
+    id: "waf",
+    name: "WAF & Shield",
+    description: "Protect your web applications from common web exploits",
+    category: "Security, Identity, & Compliance",
+    home: "/ui/waf",
+    docs: "https://docs.aws.amazon.com/waf/",
+    nav: [{ text: "AWS WAF", items: [{ text: "Web ACLs", href: "/ui/waf" }, { text: "IP sets", href: "/ui/waf/ip-sets" }] }],
   },
-  {
-    label: "Cloud financial management",
-    items: [
-      { label: "AWS Budgets", to: "/ui/budgets" },
-      { label: "AWS Cost Explorer", to: NOT_SUPPORTED + "cost-explorer", supported: false },
-    ],
-  },
-  {
-    label: "Management & Governance",
-    items: [
-      { label: "CloudWatch", to: "/ui/cloudwatch" },
-      { label: "CloudWatch Logs", to: "/ui/logs" },
-      { label: "AWS CloudTrail", to: "/ui/cloudtrail" },
-      { label: "AWS Organizations", to: "/ui/organizations" },
-      { label: "Systems Manager", to: "/ui/ssm" },
-      { label: "CloudFormation", to: NOT_SUPPORTED + "cloudformation", supported: false },
-      { label: "AWS Config", to: NOT_SUPPORTED + "config", supported: false },
-    ],
-  },
-  {
-    label: "Security, identity, and compliance",
-    items: [
-      { label: "Identity and Access Management", to: "/ui/iam" },
-      { label: "Secrets Manager", to: "/ui/secretsmanager" },
-      { label: "Key Management Service", to: "/ui/kms" },
-      { label: "AWS Certificate Manager", to: "/ui/acm" },
-      { label: "AWS Private Certificate Authority", to: "/ui/private-ca" },
-      { label: "AWS WAF", to: "/ui/waf" },
-      { label: "Amazon Cognito", to: NOT_SUPPORTED + "cognito", supported: false },
-      { label: "GuardDuty", to: NOT_SUPPORTED + "guardduty", supported: false },
-    ],
-  },
+  unsupported("cognito", "Cognito", "Consumer Identity Management and AWS Credentials for Mobile Apps", "Security, Identity, & Compliance", "https://docs.aws.amazon.com/cognito/"),
+  unsupported("guardduty", "GuardDuty", "Intelligent Threat Detection to Protect Your AWS Accounts and Workloads", "Security, Identity, & Compliance", "https://docs.aws.amazon.com/guardduty/"),
 ];
 
-/** Looks up a not-supported service's real name from the slug in its route
- * (`/ui/not-supported/:service`), so the honest page and the breadcrumb trail
- * state the service AWS itself calls it, not the URL slug. */
-export function findNavService(slug: string): NavService | undefined {
-  const to = NOT_SUPPORTED + slug;
-  for (const group of NAV_GROUPS) {
-    const found = group.items.find((item) => item.to === to);
-    if (found) return found;
-  }
-  return undefined;
+export function findService(id: string): ConsoleService | undefined {
+  return SERVICES.find((service) => service.id === id);
 }
 
+function underPrefix(pathname: string, prefix: string): boolean {
+  return pathname === prefix || pathname.startsWith(prefix + "/");
+}
+
+/** The service whose pages a route belongs to, by the longest route prefix it
+ * owns; undefined for Console Home. */
+export function serviceForPath(pathname: string): ConsoleService | undefined {
+  if (pathname.startsWith(NO_PAGE)) return findService(pathname.slice(NO_PAGE.length));
+  let best: { service: ConsoleService; length: number } | undefined;
+  for (const service of SERVICES) {
+    if (service.supported === false) continue;
+    const prefixes = [service.home, ...(service.owns ?? []), ...(service.nav ?? []).flatMap((section) => section.items.map((item) => item.href))];
+    for (const prefix of prefixes) {
+      if (underPrefix(pathname, prefix) && (!best || prefix.length > best.length)) {
+        best = { service, length: prefix.length };
+      }
+    }
+  }
+  return best?.service;
+}
+
+/** The side-navigation link a route sits under: an exact match first, then the
+ * longest link whose route is a parent of it. */
+export function navLinkForPath(service: ConsoleService, pathname: string): { link: NavLink; exact: boolean } | undefined {
+  const links = (service.nav ?? []).flatMap((section) => section.items);
+  const exact = links.find((link) => link.href === pathname);
+  if (exact) return { link: exact, exact: true };
+  const parents = links.filter((link) => pathname.startsWith(link.href + "/")).sort((a, b) => b.href.length - a.href.length);
+  return parents[0] ? { link: parents[0], exact: false } : undefined;
+}
+
+export interface SearchEntry {
+  /** "service" for a service, "feature" for one of its side-navigation pages. */
+  kind: "service" | "feature";
+  label: string;
+  description: string;
+  href: string;
+  service: ConsoleService;
+}
+
+/** Every service and every service feature the unified search can find. */
+export const SEARCH_ENTRIES: SearchEntry[] = SERVICES.flatMap((service) => [
+  { kind: "service" as const, label: service.name, description: service.description, href: service.home, service },
+  ...(service.nav ?? []).flatMap((section) =>
+    section.items.map((item) => ({
+      kind: "feature" as const,
+      label: item.text,
+      description: service.name,
+      href: item.href,
+      service,
+    })),
+  ),
+]);
+
 /**
- * Narrows the catalog to services whose name matches `query`, the way the
- * real console's "Services" mega-menu search field narrows its grouped
- * columns as an operator types. Matching is case-insensitive and by
- * substring, on the service's real name only — never on the category label,
- * since a match on "Containers" itself would keep every unrelated service in
- * that category visible. A category with no matching service is dropped
- * entirely rather than rendered empty. An empty (or all-whitespace) query
- * returns every group and every item, unfiltered.
+ * Narrows the search index to entries whose name or service matches the
+ * query, case-insensitively and by substring. Services rank ahead of features,
+ * and a name that starts with the query ranks ahead of one that contains it.
  */
-export function filterNavGroups(groups: NavGroup[], query: string): NavGroup[] {
+export function searchConsole(query: string, entries: SearchEntry[] = SEARCH_ENTRIES): SearchEntry[] {
   const needle = query.trim().toLowerCase();
-  if (!needle) return groups;
-  return groups
-    .map((group) => ({
-      label: group.label,
-      items: group.items.filter((item) => item.label.toLowerCase().includes(needle)),
-    }))
-    .filter((group) => group.items.length > 0);
+  if (!needle) return [];
+  const rank = (entry: SearchEntry) => {
+    const label = entry.label.toLowerCase();
+    const position = label.indexOf(needle);
+    const base = entry.kind === "service" ? 0 : 10;
+    if (position === 0) return base;
+    if (position > 0) return base + 1;
+    return base + 2;
+  };
+  return entries
+    .filter(
+      (entry) =>
+        entry.label.toLowerCase().includes(needle) ||
+        entry.service.name.toLowerCase().includes(needle) ||
+        (entry.kind === "service" && entry.description.toLowerCase().includes(needle)),
+    )
+    .sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label));
+}
+
+/** The services of one category, or of the whole catalog, whose name matches
+ * the Services menu's filter. */
+export function filterServices(query: string, category?: string): ConsoleService[] {
+  const needle = query.trim().toLowerCase();
+  return SERVICES.filter(
+    (service) =>
+      (!category || service.category === category) &&
+      (!needle || service.name.toLowerCase().includes(needle) || service.description.toLowerCase().includes(needle)),
+  ).sort((a, b) => a.name.localeCompare(b.name));
 }

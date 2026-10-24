@@ -1,4 +1,4 @@
-import { AwsButton, AwsResourceTable, AwsStatus, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsResourceTable, AwsStatus, AwsRefreshButton, type AwsColumn } from "../console/index.js";
 import { formatTimestamp } from "../console/format.js";
 import { fetchCloudFrontDistributions, type CloudFrontDistribution } from "../api.js";
 
@@ -50,9 +50,7 @@ export function CloudFrontPage() {
       tableTestId="cloudfront-table"
       errorTestId="cloudfront-error"
       actions={({ refetch, isFetching }) => (
-        <AwsButton onClick={refetch} disabled={isFetching}>
-          {isFetching ? "Refreshing…" : "Refresh"}
-        </AwsButton>
+        <AwsRefreshButton onClick={refetch} loading={isFetching} />
       )}
     />
   );

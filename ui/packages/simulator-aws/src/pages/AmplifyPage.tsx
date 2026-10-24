@@ -5,7 +5,7 @@ import Input from "@cloudscape-design/components/input";
 import Select from "@cloudscape-design/components/select";
 import SpaceBetween from "@cloudscape-design/components/space-between";
 import Textarea from "@cloudscape-design/components/textarea";
-import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsStatus, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsStatus, AwsRefreshButton, type AwsColumn } from "../console/index.js";
 import { formatEpoch } from "../console/format.js";
 import {
   createAmplifyApp,
@@ -287,6 +287,7 @@ export function AmplifyPage() {
         errorTestId="amplify-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton
               data-testid="amplify-manage-hosting"
               disabled={selected.length !== 1}
@@ -300,9 +301,6 @@ export function AmplifyPage() {
               onClick={() => setDeleting({ apps: selected, clearSelection })}
             >
               Delete
-            </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
             </AwsButton>
             <AwsButton variant="primary" data-testid="amplify-create-app" onClick={() => setCreating(true)}>
               Create app

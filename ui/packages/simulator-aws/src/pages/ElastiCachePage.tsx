@@ -1,4 +1,4 @@
-import { AwsButton, AwsResourceTable, AwsStatus, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsResourceTable, AwsStatus, AwsRefreshButton, type AwsColumn } from "../console/index.js";
 import { fetchElastiCacheClusters, type ElastiCacheCluster } from "../api.js";
 
 // Amazon ElastiCache — Caches. DescribeCacheClusters on the real ElastiCache
@@ -39,9 +39,7 @@ export function ElastiCachePage() {
       tableTestId="elasticache-table"
       errorTestId="elasticache-error"
       actions={({ refetch, isFetching }) => (
-        <AwsButton onClick={refetch} disabled={isFetching}>
-          {isFetching ? "Refreshing…" : "Refresh"}
-        </AwsButton>
+        <AwsRefreshButton onClick={refetch} loading={isFetching} />
       )}
     />
   );

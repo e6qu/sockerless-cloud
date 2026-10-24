@@ -13,6 +13,8 @@ import {
   AwsRowLink,
   AwsStatus,
   type AwsColumn,
+  AwsRefreshButton,
+  AwsDeleteModal,
 } from "../console/index.js";
 import { formatBytes, formatEpoch } from "../console/format.js";
 import {
@@ -25,6 +27,10 @@ import {
 // Amazon DynamoDB — Tables. ListTables plus a DescribeTable per table (DynamoDB
 // has no operation that answers every table's properties at once), CreateTable
 // and DeleteTable for the header actions.
+
+// DynamoDB's BillingMode as the real console's Capacity mode column names it.
+const capacityMode = (billingMode: string) =>
+  billingMode === "PAY_PER_REQUEST" ? "On-demand" : billingMode === "PROVISIONED" ? "Provisioned" : billingMode || "–";
 
 const columns: AwsColumn<DynamoDBTable>[] = [
   {
@@ -46,7 +52,7 @@ const columns: AwsColumn<DynamoDBTable>[] = [
     value: (row) => row.partitionKey,
   },
   { id: "sortKey", header: "Sort key", cell: (row) => row.sortKey || "–", value: (row) => row.sortKey },
-  { id: "billingMode", header: "Capacity mode", cell: (row) => row.billingMode, value: (row) => row.billingMode },
+  { id: "billingMode", header: "Capacity mode", cell: (row) => capacityMode(row.billingMode), value: (row) => capacityMode(row.billingMode) },
   { id: "itemCount", header: "Item count", cell: (row) => String(row.itemCount), value: (row) => String(row.itemCount) },
   {
     id: "tableSizeBytes",
@@ -192,22 +198,13 @@ export function DeleteTablesModal({
     },
   });
   return (
-    <AwsModal
+    <AwsDeleteModal
       title={tables.length === 1 ? `Delete ${tables[0].tableName}?` : `Delete ${tables.length} tables?`}
+      confirmationText="confirm"
       onDismiss={onClose}
-      footer={
-        <>
-          <AwsButton onClick={onClose}>Cancel</AwsButton>
-          <AwsButton
-            variant="primary"
-            data-testid="dynamodb-delete-table-confirm"
-            disabled={remove.isPending}
-            onClick={() => remove.mutate()}
-          >
-            {remove.isPending ? "Deleting…" : "Delete"}
-          </AwsButton>
-        </>
-      }
+      onDelete={() => remove.mutate()}
+      pending={remove.isPending}
+      testIdPrefix="dynamodb-delete-table"
     >
       <p>Deleting a table is permanent and deletes every item it holds.</p>
       <ul>
@@ -223,7 +220,7 @@ export function DeleteTablesModal({
           {remove.error instanceof Error ? remove.error.message : "The request failed."}
         </AwsErrorAlert>
       )}
-    </AwsModal>
+    </AwsDeleteModal>
   );
 }
 
@@ -247,6 +244,7 @@ export function DynamoDBTablesPage() {
         errorTestId="dynamodb-tables-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton
               data-testid="dynamodb-view-table"
               disabled={selected.length !== 1}
@@ -260,9 +258,6 @@ export function DynamoDBTablesPage() {
               onClick={() => setDeleting({ tables: selected, clearSelection })}
             >
               Delete
-            </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
             </AwsButton>
             <AwsButton variant="primary" data-testid="dynamodb-create-table" onClick={() => setCreating(true)}>
               Create table

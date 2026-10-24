@@ -11,6 +11,7 @@ import {
   AwsRowLink,
   AwsStatus,
   type AwsColumn,
+  AwsRefreshButton,
 } from "../console/index.js";
 import { formatBytes, formatEpoch } from "../console/format.js";
 import { createEFSFileSystem, deleteEFSFileSystem, fetchEFSFileSystems, type EFSFileSystem } from "../api.js";
@@ -189,6 +190,7 @@ export function EFSFileSystemsPage() {
         errorTestId="efs-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton
               data-testid="efs-view-file-system"
               disabled={selected.length !== 1}
@@ -202,9 +204,6 @@ export function EFSFileSystemsPage() {
               onClick={() => setDeleting({ fileSystems: selected, clearSelection })}
             >
               Delete
-            </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
             </AwsButton>
             <AwsButton variant="primary" data-testid="efs-create-file-system" onClick={() => setCreating(true)}>
               Create file system

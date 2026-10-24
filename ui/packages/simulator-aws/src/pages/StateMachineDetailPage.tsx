@@ -25,6 +25,7 @@ import {
   TagsEditorModal,
   type AwsColumn,
   type AwsTab,
+  AwsRefreshButton,
 } from "../console/index.js";
 import { formatEpoch } from "../console/format.js";
 import {
@@ -725,9 +726,7 @@ export function StateMachineDetailPage() {
         tableTestId="sfn-executions-table"
         errorTestId="sfn-executions-error"
         actions={({ refetch, isFetching }) => (
-          <AwsButton onClick={refetch} disabled={isFetching}>
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </AwsButton>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
         )}
       />
       {starting && <StartExecutionModal stateMachineArn={stateMachineArn} onClose={() => setStarting(false)} />}

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Select from "@cloudscape-design/components/select";
-import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsRefreshButton, type AwsColumn } from "../console/index.js";
 import { deleteWAFWebACL, fetchWAFIPSets, fetchWAFWebACLs, type WAFIPSet, type WAFScope, type WAFWebACL } from "../api.js";
 
 // AWS WAF — Web ACLs and IP sets. Every WAF read takes a Scope: regional
@@ -87,7 +87,7 @@ function DeleteWebACLsModal({
   );
 }
 
-export function WAFPage() {
+export function WAFPage({ view = "web-acls" }: { view?: "web-acls" | "ip-sets" }) {
   const [scope, setScope] = useState<WAFScope>("REGIONAL");
   const [deleting, setDeleting] = useState<{ acls: WAFWebACL[]; clearSelection: () => void } | null>(null);
   const selectedScope = SCOPES.find((option) => option.value === scope) ?? SCOPES[0];
@@ -104,6 +104,7 @@ export function WAFPage() {
   );
   return (
     <>
+      {view === "web-acls" && (
       <AwsResourceTable<WAFWebACL>
         title="Web ACLs"
         description="AWS WAF web ACLs for the selected resource type."
@@ -118,6 +119,7 @@ export function WAFPage() {
         errorTestId="waf-web-acls-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             {scopeSelect}
             <AwsButton
               data-testid="waf-delete-web-acl"
@@ -126,15 +128,13 @@ export function WAFPage() {
             >
               Delete
             </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
-            </AwsButton>
           </>
         )}
       />
+      )}
+      {view === "ip-sets" && (
       <AwsResourceTable<WAFIPSet>
         title="IP sets"
-        headingVariant="h2"
         description="AWS WAF IP sets for the selected resource type."
         columns={ipSetColumns}
         queryKey={["waf-ip-sets", scope]}
@@ -146,11 +146,10 @@ export function WAFPage() {
         tableTestId="waf-ip-sets-table"
         errorTestId="waf-ip-sets-error"
         actions={({ refetch, isFetching }) => (
-          <AwsButton onClick={refetch} disabled={isFetching}>
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </AwsButton>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
         )}
       />
+      )}
       {deleting && (
         <DeleteWebACLsModal
           acls={deleting.acls}

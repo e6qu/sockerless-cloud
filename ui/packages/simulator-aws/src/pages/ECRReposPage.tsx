@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Input from "@cloudscape-design/components/input";
 import FormField from "@cloudscape-design/components/form-field";
-import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsRowLink, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsRowLink, AwsRefreshButton, type AwsColumn, AwsDeleteModal } from "../console/index.js";
 import { formatEpoch } from "../console/format.js";
 import { createECRRepository, deleteECRRepo, fetchECRRepos, type ECRRepo } from "../api.js";
 
@@ -109,22 +109,13 @@ export function DeleteReposModal({
     },
   });
   return (
-    <AwsModal
+    <AwsDeleteModal
       title={repos.length === 1 ? `Delete ${repos[0].name}?` : `Delete ${repos.length} repositories?`}
+      confirmationText="delete"
       onDismiss={onClose}
-      footer={
-        <>
-          <AwsButton onClick={onClose}>Cancel</AwsButton>
-          <AwsButton
-            variant="primary"
-            data-testid="ecr-delete-repo-confirm"
-            disabled={remove.isPending}
-            onClick={() => remove.mutate()}
-          >
-            {remove.isPending ? "Deleting…" : "Delete"}
-          </AwsButton>
-        </>
-      }
+      onDelete={() => remove.mutate()}
+      pending={remove.isPending}
+      testIdPrefix="ecr-delete-repo"
     >
       <p>Deleting a repository is permanent and deletes every image it holds.</p>
       <ul>
@@ -140,7 +131,7 @@ export function DeleteReposModal({
           {remove.error instanceof Error ? remove.error.message : "The request failed."}
         </AwsErrorAlert>
       )}
-    </AwsModal>
+    </AwsDeleteModal>
   );
 }
 
@@ -163,6 +154,7 @@ export function ECRReposPage() {
         tableTestId="ecr-repos-table"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton
               data-testid="ecr-view-repo"
               disabled={selected.length !== 1}
@@ -176,9 +168,6 @@ export function ECRReposPage() {
               onClick={() => setDeleting({ repos: selected, clearSelection })}
             >
               Delete
-            </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
             </AwsButton>
             <AwsButton variant="primary" data-testid="ecr-create-repo" onClick={() => setCreating(true)}>
               Create repository

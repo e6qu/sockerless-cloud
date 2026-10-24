@@ -4,7 +4,7 @@ import Input from "@cloudscape-design/components/input";
 import FormField from "@cloudscape-design/components/form-field";
 import Select from "@cloudscape-design/components/select";
 import SpaceBetween from "@cloudscape-design/components/space-between";
-import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsRefreshButton, type AwsColumn } from "../console/index.js";
 import { formatEpoch } from "../console/format.js";
 import {
   createSSMParameter,
@@ -182,11 +182,12 @@ function DeleteParametersModal({
   );
 }
 
-export function SystemsManagerPage() {
+export function SystemsManagerPage({ view = "parameters" }: { view?: "parameters" | "documents" }) {
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<{ parameters: SSMParameter[]; clearSelection: () => void } | null>(null);
   return (
     <>
+      {view === "parameters" && (
       <AwsResourceTable<SSMParameter>
         title="Parameter Store"
         description="Systems Manager parameters in this account and Region."
@@ -201,6 +202,7 @@ export function SystemsManagerPage() {
         errorTestId="ssm-parameters-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton
               data-testid="ssm-delete-parameter"
               disabled={selected.length === 0}
@@ -208,18 +210,16 @@ export function SystemsManagerPage() {
             >
               Delete
             </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
-            </AwsButton>
             <AwsButton variant="primary" data-testid="ssm-create-parameter" onClick={() => setCreating(true)}>
               Create parameter
             </AwsButton>
           </>
         )}
       />
+      )}
+      {view === "documents" && (
       <AwsResourceTable<SSMDocument>
         title="Documents"
-        headingVariant="h2"
         description="Systems Manager documents in this account and Region."
         columns={documentColumns}
         queryKey={["ssm-documents"]}
@@ -231,11 +231,10 @@ export function SystemsManagerPage() {
         tableTestId="ssm-documents-table"
         errorTestId="ssm-documents-error"
         actions={({ refetch, isFetching }) => (
-          <AwsButton onClick={refetch} disabled={isFetching}>
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </AwsButton>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
         )}
       />
+      )}
       {creating && <CreateParameterModal onClose={() => setCreating(false)} />}
       {deleting && (
         <DeleteParametersModal

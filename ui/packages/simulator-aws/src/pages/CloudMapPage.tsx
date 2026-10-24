@@ -1,4 +1,4 @@
-import { AwsButton, AwsResourceTable, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsResourceTable, AwsRefreshButton, type AwsColumn } from "../console/index.js";
 import { formatEpoch } from "../console/format.js";
 import {
   fetchCloudMapNamespaces,
@@ -47,9 +47,10 @@ const serviceColumns: AwsColumn<CloudMapService>[] = [
   },
 ];
 
-export function CloudMapPage() {
+export function CloudMapPage({ view = "namespaces" }: { view?: "namespaces" | "services" }) {
   return (
     <>
+      {view === "namespaces" && (
       <AwsResourceTable<CloudMapNamespace>
         title="Namespaces"
         description="AWS Cloud Map namespaces in this account and Region."
@@ -63,14 +64,13 @@ export function CloudMapPage() {
         tableTestId="cloudmap-namespaces-table"
         errorTestId="cloudmap-namespaces-error"
         actions={({ refetch, isFetching }) => (
-          <AwsButton onClick={refetch} disabled={isFetching}>
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </AwsButton>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
         )}
       />
+      )}
+      {view === "services" && (
       <AwsResourceTable<CloudMapService>
         title="Services"
-        headingVariant="h2"
         description="The services registered across every namespace."
         columns={serviceColumns}
         queryKey={["cloudmap-services"]}
@@ -82,11 +82,10 @@ export function CloudMapPage() {
         tableTestId="cloudmap-services-table"
         errorTestId="cloudmap-services-error"
         actions={({ refetch, isFetching }) => (
-          <AwsButton onClick={refetch} disabled={isFetching}>
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </AwsButton>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
         )}
       />
+      )}
     </>
   );
 }

@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { MemoryRouter } from "react-router";
 import {
   CreateAccountStatusPanel,
   OrganizationNotInUsePanel,
@@ -35,7 +36,7 @@ describe("CreateAccountStatusPanel", () => {
     const panel = screen.getByTestId("org-create-status");
     expect(panel.textContent).toContain(baseStatus.id);
     expect(panel.textContent).toContain("Sandbox");
-    expect(panel.querySelector('[class*="status-in-progress"]')?.textContent).toContain("IN_PROGRESS");
+    expect(panel.querySelector('[class*="status-in-progress"]')?.textContent).toContain("In progress");
     expect(screen.queryByTestId("org-created-account-id")).toBeNull();
     expect(screen.getByRole("status").textContent).toContain("creating the account");
   });
@@ -52,7 +53,7 @@ describe("CreateAccountStatusPanel", () => {
       />,
     );
     const panel = screen.getByTestId("org-create-status");
-    expect(panel.querySelector('[class*="status-success"]')?.textContent).toContain("SUCCEEDED");
+    expect(panel.querySelector('[class*="status-success"]')?.textContent).toContain("Succeeded");
     expect(screen.getByTestId("org-created-account-id").textContent).toBe("123456789013");
     expect(screen.queryByRole("alert")).toBeNull();
   });
@@ -69,7 +70,7 @@ describe("CreateAccountStatusPanel", () => {
       />,
     );
     const panel = screen.getByTestId("org-create-status");
-    expect(panel.querySelector('[class*="status-error"]')?.textContent).toContain("FAILED");
+    expect(panel.querySelector('[class*="status-error"]')?.textContent).toContain("Failed");
     const alert = screen.getByTestId("org-error");
     expect(alert.textContent).toContain("could not be created");
     expect(alert.textContent).toContain("EMAIL_ALREADY_EXISTS");
@@ -81,7 +82,7 @@ describe("OrganizationNotInUsePanel", () => {
 
   it("offers Create an organization as the primary action", () => {
     let created = 0;
-    render(<OrganizationNotInUsePanel onCreate={() => (created += 1)} isPending={false} />);
+    render(<OrganizationNotInUsePanel onCreate={() => (created += 1)} isPending={false} />, { wrapper: MemoryRouter });
     const create = screen.getByTestId("org-create-organization");
     expect(create.textContent).toBe("Create an organization");
     fireEvent.click(create);
@@ -96,6 +97,7 @@ describe("OrganizationNotInUsePanel", () => {
         isPending
         errorMessage="CreateOrganization: AccessDeniedException: not authorized"
       />,
+      { wrapper: MemoryRouter },
     );
     expect((screen.getByTestId("org-create-organization") as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId("org-error").textContent).toContain("AccessDeniedException");

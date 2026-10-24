@@ -12,6 +12,7 @@ import {
   AwsResourceTable,
   AwsStatus,
   type AwsColumn,
+  AwsRefreshButton,
 } from "../console/index.js";
 import { formatEpoch } from "../console/format.js";
 import {
@@ -186,6 +187,7 @@ export function FirehosePage() {
         errorTestId="firehose-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton disabled={selected.length !== 1} onClick={() => setSending(selected[0] ?? null)}>
               Send test data
             </AwsButton>
@@ -209,9 +211,6 @@ export function FirehosePage() {
               )}
             >
               Delete
-            </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
             </AwsButton>
             <AwsButton variant="primary" onClick={() => setCreating(true)}>Create delivery stream</AwsButton>
           </>

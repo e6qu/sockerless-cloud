@@ -16,6 +16,7 @@ import {
   AwsPageHeader,
   AwsResourceTable,
   type AwsColumn,
+  AwsRefreshButton,
 } from "../console/index.js";
 import { formatBytes, formatEpoch, formatRetention } from "../console/format.js";
 import {
@@ -219,15 +220,13 @@ export function LogGroupDetailPage() {
         tableTestId="logs-streams-table"
         actions={({ selected, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton
               data-testid="logs-view-stream-events"
               disabled={selected.length !== 1}
               onClick={() => setViewingStream(selected[0].name)}
             >
               View recent events
-            </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
             </AwsButton>
           </>
         )}

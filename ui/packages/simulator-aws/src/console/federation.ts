@@ -13,13 +13,39 @@ import { signedFetch, type AwsCredentials } from "./sigv4.js";
 // with no identity provider — a local or test instance — reads unsigned, the
 // mode the account control reports.
 
-// The single Region this console operates in: every SigV4 signature scopes to
-// it, and the header/Overview badges display it, so the UI can never show a
-// Region other than the one requests are actually signed for.
-export const REGION = "us-east-1";
+// The Region the console operates in: every SigV4 signature scopes to it and
+// the header's Region selector displays it, so the console never shows a Region
+// other than the one its requests are signed for. The real console starts in US
+// East (N. Virginia) and remembers the operator's last choice.
+const REGION_STORAGE_KEY = "aws-console:region";
+const DEFAULT_REGION = "us-east-1";
 
-interface ConsoleConfig {
+function storedRegion(): string {
+  try {
+    return window.localStorage.getItem(REGION_STORAGE_KEY) || DEFAULT_REGION;
+  } catch {
+    return DEFAULT_REGION;
+  }
+}
+
+let activeRegion = storedRegion();
+
+export function currentRegion(): string {
+  return activeRegion;
+}
+
+export function selectRegion(region: string): void {
+  activeRegion = region;
+  try {
+    window.localStorage.setItem(REGION_STORAGE_KEY, region);
+  } catch {
+    // Storage is unavailable (a private window); the choice lasts for this page.
+  }
+}
+
+export interface ConsoleConfig {
   identityEndpoint?: string;
+  logoutEndpoint?: string;
   cloudApiEndpoint?: string;
   federationEndpoint?: string;
   federationAudience?: string; // the role ARN to assume
@@ -30,7 +56,7 @@ let configPromise: Promise<ConsoleConfig> | null = null;
 let cachedCreds: { value: AwsCredentials; expiresAt: number } | null = null;
 let inflightCreds: Promise<AwsCredentials> | null = null;
 
-async function consoleConfig(): Promise<ConsoleConfig> {
+export async function consoleConfig(): Promise<ConsoleConfig> {
   if (!configPromise) {
     configPromise = fetch("/ui/config.json", { credentials: "include" }).then((response) => {
       if (!response.ok) throw new Error(`/ui/config.json returned HTTP ${response.status}`);
@@ -103,7 +129,7 @@ export interface AwsRequest {
   method?: string;
   path?: string;
   headers?: Record<string, string>;
-  body?: string;
+  body?: string | Uint8Array<ArrayBuffer>;
 }
 
 // awsFetch reaches a real AWS API at the configured cloud coordinate, signing
@@ -120,7 +146,7 @@ export async function awsFetch(request: AwsRequest): Promise<Response> {
       method,
       url,
       service: request.service,
-      region: REGION,
+      region: activeRegion,
       headers: request.headers,
       body: request.body,
       credentials: await federatedCredentials(config),

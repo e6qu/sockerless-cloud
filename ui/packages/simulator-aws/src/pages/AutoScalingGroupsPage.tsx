@@ -1,4 +1,4 @@
-import { AwsButton, AwsResourceTable, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsResourceTable, AwsRefreshButton, type AwsColumn } from "../console/index.js";
 import { formatTimestamp } from "../console/format.js";
 import { fetchAutoScalingGroups, type AutoScalingGroup } from "../api.js";
 
@@ -50,9 +50,7 @@ export function AutoScalingGroupsPage() {
       tableTestId="autoscaling-groups-table"
       errorTestId="autoscaling-groups-error"
       actions={({ refetch, isFetching }) => (
-        <AwsButton onClick={refetch} disabled={isFetching}>
-          {isFetching ? "Refreshing…" : "Refresh"}
-        </AwsButton>
+        <AwsRefreshButton onClick={refetch} loading={isFetching} />
       )}
     />
   );

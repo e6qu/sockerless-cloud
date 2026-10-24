@@ -1,4 +1,4 @@
-import { AwsButton, AwsResourceTable, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsResourceTable, AwsRefreshButton, type AwsColumn } from "../console/index.js";
 import { formatEpoch, formatTimestamp } from "../console/format.js";
 import {
   fetchAPIGatewayRestApis,
@@ -58,9 +58,7 @@ export function APIGatewayPage() {
         tableTestId="apigateway-rest-apis-table"
         errorTestId="apigateway-rest-apis-error"
         actions={({ refetch, isFetching }) => (
-          <AwsButton onClick={refetch} disabled={isFetching}>
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </AwsButton>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
         )}
       />
       <AwsResourceTable<APIGatewayV2Api>
@@ -77,9 +75,7 @@ export function APIGatewayPage() {
         tableTestId="apigateway-v2-apis-table"
         errorTestId="apigateway-v2-apis-error"
         actions={({ refetch, isFetching }) => (
-          <AwsButton onClick={refetch} disabled={isFetching}>
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </AwsButton>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
         )}
       />
     </>

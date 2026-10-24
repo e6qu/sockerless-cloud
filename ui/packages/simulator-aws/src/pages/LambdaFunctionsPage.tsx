@@ -13,6 +13,8 @@ import {
   AwsRowLink,
   AwsStatus,
   type AwsColumn,
+  AwsRefreshButton,
+  AwsDeleteModal,
 } from "../console/index.js";
 import { formatTimestamp } from "../console/format.js";
 import {
@@ -255,22 +257,13 @@ export function DeleteFunctionsModal({
     },
   });
   return (
-    <AwsModal
+    <AwsDeleteModal
       title={functions.length === 1 ? `Delete ${functions[0].name}?` : `Delete ${functions.length} functions?`}
+      confirmationText="confirm"
       onDismiss={onClose}
-      footer={
-        <>
-          <AwsButton onClick={onClose}>Cancel</AwsButton>
-          <AwsButton
-            variant="primary"
-            data-testid="lambda-delete-function-confirm"
-            disabled={remove.isPending}
-            onClick={() => remove.mutate()}
-          >
-            {remove.isPending ? "Deleting…" : "Delete"}
-          </AwsButton>
-        </>
-      }
+      onDelete={() => remove.mutate()}
+      pending={remove.isPending}
+      testIdPrefix="lambda-delete-function"
     >
       <p>Deleting a function is permanent. Its versions, aliases, and event source mappings are deleted with it.</p>
       <ul>
@@ -286,7 +279,7 @@ export function DeleteFunctionsModal({
           {remove.error instanceof Error ? remove.error.message : "The request failed."}
         </AwsErrorAlert>
       )}
-    </AwsModal>
+    </AwsDeleteModal>
   );
 }
 
@@ -309,6 +302,7 @@ export function LambdaFunctionsPage() {
         tableTestId="lambda-functions-table"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton
               data-testid="lambda-view-function"
               disabled={selected.length !== 1}
@@ -322,9 +316,6 @@ export function LambdaFunctionsPage() {
               onClick={() => setDeleting({ functions: selected, clearSelection })}
             >
               Delete
-            </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
             </AwsButton>
             <AwsButton variant="primary" data-testid="lambda-create-function" onClick={() => setCreating(true)}>
               Create function

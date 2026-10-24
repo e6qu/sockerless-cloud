@@ -10,6 +10,7 @@ import {
   AwsResourceTable,
   AwsStatus,
   type AwsColumn,
+  AwsRefreshButton,
 } from "../console/index.js";
 import {
   fetchEC2SecurityGroups,
@@ -96,9 +97,7 @@ export function VPCDetailPage() {
         tableTestId="vpc-subnets-table"
         errorTestId="vpc-subnets-error"
         actions={({ refetch, isFetching }) => (
-          <AwsButton onClick={refetch} disabled={isFetching}>
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </AwsButton>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
         )}
       />
       <AwsResourceTable<EC2SecurityGroup>
@@ -115,9 +114,7 @@ export function VPCDetailPage() {
         tableTestId="vpc-security-groups-table"
         errorTestId="vpc-security-groups-error"
         actions={({ refetch, isFetching }) => (
-          <AwsButton onClick={refetch} disabled={isFetching}>
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </AwsButton>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
         )}
       />
     </>

@@ -4,7 +4,7 @@ import Input from "@cloudscape-design/components/input";
 import Textarea from "@cloudscape-design/components/textarea";
 import FormField from "@cloudscape-design/components/form-field";
 import SpaceBetween from "@cloudscape-design/components/space-between";
-import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsStatus, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsStatus, AwsRefreshButton, type AwsColumn } from "../console/index.js";
 import { formatBytes, formatTimestamp } from "../console/format.js";
 import {
   deleteCWAlarms,
@@ -178,7 +178,7 @@ function CreateDashboardModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function CloudWatchPage() {
+export function CloudWatchPage({ view = "alarms" }: { view?: "alarms" | "dashboards" }) {
   const queryClient = useQueryClient();
   const [deleting, setDeleting] = useState<{ alarms: CWAlarm[]; clearSelection: () => void } | null>(null);
   const [creating, setCreating] = useState(false);
@@ -195,6 +195,7 @@ export function CloudWatchPage() {
   });
   return (
     <>
+      {view === "alarms" && (
       <AwsResourceTable<CWAlarm>
         title="Alarms"
         description="CloudWatch alarms in this account and Region."
@@ -209,6 +210,7 @@ export function CloudWatchPage() {
         errorTestId="cloudwatch-alarms-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton disabled={selected.length === 0 || actions.isPending} onClick={() => actions.mutate({ alarms: selected, enabled: true })}>Enable actions</AwsButton>
             <AwsButton disabled={selected.length === 0 || actions.isPending} onClick={() => actions.mutate({ alarms: selected, enabled: false })}>Disable actions</AwsButton>
             <AwsButton
@@ -220,15 +222,13 @@ export function CloudWatchPage() {
             </AwsButton>
             <AwsButton onClick={() => setPuttingMetric(true)}>Put metric data</AwsButton>
             <AwsButton variant="primary" onClick={() => setCreating(true)}>Create alarm</AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
-            </AwsButton>
           </>
         )}
       />
+      )}
+      {view === "dashboards" && (
       <AwsResourceTable<CWDashboard>
         title="Dashboards"
-        headingVariant="h2"
         description="CloudWatch dashboards in this account."
         columns={dashboardColumns}
         queryKey={["cw-dashboards"]}
@@ -241,12 +241,13 @@ export function CloudWatchPage() {
         errorTestId="cloudwatch-dashboards-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton disabled={selected.length === 0 || removeDashboards.isPending} onClick={() => removeDashboards.mutate(selected, { onSuccess: clearSelection })}>Delete</AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>{isFetching ? "Refreshing…" : "Refresh"}</AwsButton>
             <AwsButton variant="primary" onClick={() => setCreatingDashboard(true)}>Create dashboard</AwsButton>
           </>
         )}
       />
+      )}
       {deleting && (
         <DeleteAlarmsModal alarms={deleting.alarms} clearSelection={deleting.clearSelection} onClose={() => setDeleting(null)} />
       )}

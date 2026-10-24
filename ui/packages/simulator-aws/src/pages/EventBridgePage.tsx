@@ -4,7 +4,7 @@ import Input from "@cloudscape-design/components/input";
 import Textarea from "@cloudscape-design/components/textarea";
 import FormField from "@cloudscape-design/components/form-field";
 import SpaceBetween from "@cloudscape-design/components/space-between";
-import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsStatus, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsStatus, AwsRefreshButton, type AwsColumn } from "../console/index.js";
 import {
   createEventBus,
   deleteEventBus,
@@ -227,7 +227,7 @@ function CreateEventBusModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function EventBridgePage() {
+export function EventBridgePage({ view = "rules" }: { view?: "rules" | "event-buses" }) {
   const queryClient = useQueryClient();
   const [deleting, setDeleting] = useState<{ rules: EventBridgeRule[]; clearSelection: () => void } | null>(null);
   const [creating, setCreating] = useState(false);
@@ -250,6 +250,7 @@ export function EventBridgePage() {
   });
   return (
     <>
+      {view === "rules" && (
       <AwsResourceTable<EventBridgeRule>
         title="Rules"
         description="EventBridge rules in this account and Region."
@@ -264,6 +265,7 @@ export function EventBridgePage() {
         errorTestId="eventbridge-rules-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton disabled={selected.length !== 1} onClick={() => setManaging(selected[0] ?? null)}>Manage targets</AwsButton>
             <AwsButton
               data-testid="eventbridge-enable-rule"
@@ -286,23 +288,21 @@ export function EventBridgePage() {
             >
               Delete
             </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
-            </AwsButton>
             <AwsButton onClick={() => setSending(true)}>Send event</AwsButton>
             <AwsButton variant="primary" onClick={() => setCreating(true)}>Create rule</AwsButton>
           </>
         )}
       />
+      )}
       {setState.isError && (
         <AwsErrorAlert testId="eventbridge-rule-state-error">
           <strong>Could not change the rule state.</strong>{" "}
           {setState.error instanceof Error ? setState.error.message : "The request failed."}
         </AwsErrorAlert>
       )}
+      {view === "event-buses" && (
       <AwsResourceTable<EventBus>
         title="Event buses"
-        headingVariant="h2"
         description="The event buses rules match events on."
         columns={busColumns}
         queryKey={["eventbridge-buses"]}
@@ -315,19 +315,18 @@ export function EventBridgePage() {
         errorTestId="eventbridge-buses-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton
               disabled={selected.length === 0 || selected.some((bus) => bus.name === "default") || removeBuses.isPending}
               onClick={() => removeBuses.mutate(selected, { onSuccess: clearSelection })}
             >
               Delete
             </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
-            </AwsButton>
             <AwsButton variant="primary" onClick={() => setCreatingBus(true)}>Create event bus</AwsButton>
           </>
         )}
       />
+      )}
       {deleting && (
         <DeleteRulesModal rules={deleting.rules} clearSelection={deleting.clearSelection} onClose={() => setDeleting(null)} />
       )}

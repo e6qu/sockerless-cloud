@@ -4,7 +4,7 @@ import Input from "@cloudscape-design/components/input";
 import FormField from "@cloudscape-design/components/form-field";
 import Checkbox from "@cloudscape-design/components/checkbox";
 import SpaceBetween from "@cloudscape-design/components/space-between";
-import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsRefreshButton, type AwsColumn } from "../console/index.js";
 import { formatEpoch } from "../console/format.js";
 import {
   createCloudTrailTrail,
@@ -105,7 +105,7 @@ function EventDetailModal({ event, onClose }: { event: CloudTrailEvent; onClose:
   );
 }
 
-export function CloudTrailPage() {
+export function CloudTrailPage({ view = "events" }: { view?: "events" | "trails" }) {
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
   const [eventDetail, setEventDetail] = useState<CloudTrailEvent | null>(null);
@@ -123,6 +123,7 @@ export function CloudTrailPage() {
   });
   return (
     <>
+      {view === "trails" && (
       <AwsResourceTable<CloudTrailTrail>
         title="Trails"
         description="AWS CloudTrail trails in this account and Region."
@@ -137,17 +138,18 @@ export function CloudTrailPage() {
         errorTestId="cloudtrail-trails-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton disabled={selected.length === 0 || logging.isPending} onClick={() => logging.mutate({ trails: selected, enabled: true })}>Start logging</AwsButton>
             <AwsButton disabled={selected.length === 0 || logging.isPending} onClick={() => logging.mutate({ trails: selected, enabled: false })}>Stop logging</AwsButton>
             <AwsButton disabled={selected.length === 0 || remove.isPending} onClick={() => remove.mutate(selected, { onSuccess: clearSelection })}>Delete</AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>{isFetching ? "Refreshing…" : "Refresh"}</AwsButton>
             <AwsButton variant="primary" onClick={() => setCreating(true)}>Create trail</AwsButton>
           </>
         )}
       />
+      )}
+      {view === "events" && (
       <AwsResourceTable<CloudTrailEvent>
         title="Event history"
-        headingVariant="h2"
         description="The management events CloudTrail recorded for this account."
         columns={eventColumns}
         queryKey={["cloudtrail-events"]}
@@ -160,11 +162,12 @@ export function CloudTrailPage() {
         errorTestId="cloudtrail-events-error"
         actions={({ selected, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton disabled={selected.length !== 1} onClick={() => setEventDetail(selected[0] ?? null)}>View event</AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>{isFetching ? "Refreshing…" : "Refresh"}</AwsButton>
           </>
         )}
       />
+      )}
       {creating && <CreateTrailModal onClose={() => setCreating(false)} />}
       {eventDetail && <EventDetailModal event={eventDetail} onClose={() => setEventDetail(null)} />}
     </>

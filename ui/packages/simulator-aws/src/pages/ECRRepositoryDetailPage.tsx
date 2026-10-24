@@ -18,6 +18,7 @@ import {
   removedKeys,
   TagsEditorModal,
   type AwsColumn,
+  AwsRefreshButton,
 } from "../console/index.js";
 import { formatBytes, formatEpoch } from "../console/format.js";
 import {
@@ -197,9 +198,7 @@ export function ECRRepositoryDetailPage() {
         rowKey={(row) => row.digest}
         tableTestId="ecr-images-table"
         actions={({ refetch, isFetching }) => (
-          <AwsButton onClick={refetch} disabled={isFetching}>
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </AwsButton>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
         )}
       />
       {editing && repo.data && <EditRepoSettingsModal repo={repo.data} onClose={() => setEditing(false)} />}

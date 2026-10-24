@@ -19,56 +19,53 @@ simulator-versus-cloud branch anywhere in the data plane.
 `src/api.ts` holds one reader (and writer) per AWS operation the console
 drives, named for the operation it calls.
 
+## Shell
+
+The shell mirrors the AWS Management Console:
+
+- **Top navigation** (`src/console/AwsShell.tsx`) — the AWS logo linking to
+  Console Home, the Services menu (the catalog by category, with Recently
+  visited first), the unified search (services and their features; `Alt+S`
+  focuses it), Settings (visual mode and density), the Region selector (the
+  Regions EC2 `DescribeRegions` answers; the choice is the Region every request
+  is signed for), and the account menu (the federated principal and account
+  from STS `GetCallerIdentity`, with Sign out). It carries no control that does
+  nothing: there is no notifications bell or CloudShell, because nothing here
+  backs them.
+- **Service side navigation**, **breadcrumbs**, and the **help panel**
+  (`src/console/AwsApp.tsx`) — each service's own navigation sections, a trail
+  rooted at the service, and the service's help with its documentation link.
+- **Flash notifications** (`src/console/notifications.tsx`) report the outcome
+  of create and delete operations.
+- **Tables** (`src/console/AwsTable.tsx`) — Cloudscape `Table` with
+  `PropertyFilter`, pagination, and collection preferences (page size, visible
+  columns, wrap lines, striped rows, compact mode) remembered per table.
+- **Delete confirmation** (`AwsDeleteModal`) — the real console's pattern of
+  typing a confirmation word or the resource name before Delete enables.
+
 ## Pages
 
-The side navigation (`src/console/serviceCatalog.ts`) lists AWS's own service
-catalog, grouped the way AWS's "All services" menu groups it. A service the
-simulator implements links to its page; a service it does not links to the
-honest "not supported" page and carries a "Not supported" pill. That flag is a
-claim about the simulator's real coverage: it is only ever set for a service
-the simulator registers no usable read surface for.
+`src/console/serviceCatalog.ts` is the one table the shell reads: every AWS
+service under the category AWS files it in, its Services-menu description, its
+landing route, and its side navigation. A service this console has pages for
+links to them; every other service still appears and links to a page that says
+this console has no page for it — a statement about the console, true whichever
+AWS endpoint it is pointed at. `src/main.tsx` holds the routes. Console Home
+(`/ui/`) shows Recently visited, Welcome to AWS, and Build a solution.
 
-| Route | Service | Leading operation |
-| --- | --- | --- |
-| `/ui/` | Overview | per-service list reads |
-| `/ui/ec2`, `/ui/ec2/:instanceId` | Amazon EC2 | `DescribeInstances`, `DescribeVolumes` |
-| `/ui/autoscaling` | Amazon EC2 Auto Scaling | `DescribeAutoScalingGroups` |
-| `/ui/lambda`, `/ui/lambda/:name` | AWS Lambda | `ListFunctions`, `GetFunction` |
-| `/ui/batch` | AWS Batch | `DescribeJobQueues`, `DescribeComputeEnvironments` |
-| `/ui/ecs`, `/ui/ecs/:taskArn` | Amazon Elastic Container Service | `ListTasks`, `DescribeTasks` |
-| `/ui/ecr`, `/ui/ecr/:name` | Amazon Elastic Container Registry | `DescribeRepositories`, `DescribeImages` |
-| `/ui/s3`, `/ui/s3/:name` | Amazon Simple Storage Service | `ListBuckets`, `ListObjectsV2` |
-| `/ui/efs`, `/ui/efs/:fileSystemId` | Amazon Elastic File System | `DescribeFileSystems`, `DescribeMountTargets` |
-| `/ui/rds` | Amazon Relational Database Service | `DescribeDBInstances`, `DescribeDBClusters` |
-| `/ui/dynamodb`, `/ui/dynamodb/:name` | Amazon DynamoDB | `ListTables`, `DescribeTable` |
-| `/ui/elasticache` | Amazon ElastiCache | `DescribeCacheClusters` |
-| `/ui/vpc`, `/ui/vpc/:vpcId` | Amazon Virtual Private Cloud | `DescribeVpcs`, `DescribeSubnets`, `DescribeSecurityGroups` |
-| `/ui/cloudfront` | Amazon CloudFront | `ListDistributions` |
-| `/ui/route53`, `/ui/route53/:hostedZoneId` | Amazon Route 53 | `ListHostedZones`, `ListResourceRecordSets` |
-| `/ui/apigateway` | Amazon API Gateway | `GetRestApis`, `GetApis` |
-| `/ui/elb` | Elastic Load Balancing | `DescribeLoadBalancers`, `DescribeTargetGroups` |
-| `/ui/cloudmap` | AWS Cloud Map | `ListNamespaces`, `ListServices` |
-| `/ui/codebuild` | AWS CodeBuild | `ListProjects`, `BatchGetProjects` |
-| `/ui/amplify` | AWS Amplify | `ListApps` |
-| `/ui/kinesis` | Amazon Kinesis Data Streams | `ListStreams`, `DescribeStreamSummary` |
-| `/ui/glue` | AWS Glue | `GetDatabases`, `GetJobs` |
-| `/ui/sns` | Amazon Simple Notification Service | `ListTopics`, `ListSubscriptions` |
-| `/ui/sqs` | Amazon Simple Queue Service | `ListQueues`, `GetQueueAttributes` |
-| `/ui/eventbridge` | Amazon EventBridge | `ListRules`, `ListEventBuses` |
-| `/ui/scheduler` | Amazon EventBridge Scheduler | `ListSchedules`, `ListScheduleGroups` |
-| `/ui/stepfunctions`, `/ui/stepfunctions/:stateMachineArn` | AWS Step Functions | `ListStateMachines`, `ListExecutions` |
-| `/ui/cloudwatch` | Amazon CloudWatch | `DescribeAlarms`, `ListDashboards` |
-| `/ui/logs`, `/ui/logs/:name` | Amazon CloudWatch Logs | `DescribeLogGroups`, `GetLogEvents` |
-| `/ui/cloudtrail` | AWS CloudTrail | `DescribeTrails`, `LookupEvents` |
-| `/ui/organizations`, `/ui/organizations/accounts/:accountId` | AWS Organizations | `ListAccounts`, `DescribeAccount` |
-| `/ui/ssm` | AWS Systems Manager | `DescribeParameters`, `ListDocuments` |
-| `/ui/iam`, `/ui/iam/users/:userName` | AWS Identity and Access Management | `ListUsers`, `ListAccessKeys` |
-| `/ui/secretsmanager` | AWS Secrets Manager | `ListSecrets` |
-| `/ui/kms` | AWS Key Management Service | `ListKeys`, `DescribeKey`, `ListAliases` |
-| `/ui/acm` | AWS Certificate Manager | `ListCertificates` |
-| `/ui/waf` | AWS WAF | `ListWebACLs`, `ListIPSets` |
-| `/ui/budgets` | AWS Budgets | `GetCallerIdentity`, `DescribeBudgets` |
-| `/ui/not-supported/:service` | — | none: the honest not-supported page |
+Create flows the real console runs as full pages are full pages here: Create
+bucket (`/ui/s3/create`), Create key pair (`/ui/ec2/key-pairs/create`), Create
+policy (`/ui/iam/policies/create`), and the three-step Create role wizard
+(`/ui/iam/roles/create`).
+
+## Browser suite
+
+`e2e/` signs the operator in exactly as a deployment does. Microsoft Entra ID,
+as `simulator-azure` serves it, is the OpenID Connect issuer;
+`e2e/global-setup.ts` registers it as an IAM OpenID Connect identity provider
+and creates the role the console assumes with `AssumeRoleWithWebIdentity`. The
+suite then drives real create, list, describe, and delete flows through the
+console against the simulator, and audits every page with axe-core.
 
 ## Embedding
 

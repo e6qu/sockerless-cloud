@@ -4,7 +4,7 @@ import Input from "@cloudscape-design/components/input";
 import FormField from "@cloudscape-design/components/form-field";
 import Textarea from "@cloudscape-design/components/textarea";
 import SpaceBetween from "@cloudscape-design/components/space-between";
-import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsRefreshButton, type AwsColumn, AwsDeleteModal } from "../console/index.js";
 import { formatEpoch } from "../console/format.js";
 import {
   createSQSQueue,
@@ -131,22 +131,13 @@ function DeleteQueuesModal({
     },
   });
   return (
-    <AwsModal
+    <AwsDeleteModal
       title={queues.length === 1 ? `Delete ${queues[0].name}?` : `Delete ${queues.length} queues?`}
+      confirmationText="confirm"
       onDismiss={onClose}
-      footer={
-        <>
-          <AwsButton onClick={onClose}>Cancel</AwsButton>
-          <AwsButton
-            variant="primary"
-            data-testid="sqs-delete-queue-confirm"
-            disabled={remove.isPending}
-            onClick={() => remove.mutate()}
-          >
-            {remove.isPending ? "Deleting…" : "Delete"}
-          </AwsButton>
-        </>
-      }
+      onDelete={() => remove.mutate()}
+      pending={remove.isPending}
+      testIdPrefix="sqs-delete-queue"
     >
       <p>Deleting a queue is permanent and discards every message still in it.</p>
       <ul>
@@ -162,7 +153,7 @@ function DeleteQueuesModal({
           {remove.error instanceof Error ? remove.error.message : "The request failed."}
         </AwsErrorAlert>
       )}
-    </AwsModal>
+    </AwsDeleteModal>
   );
 }
 
@@ -268,6 +259,7 @@ export function SQSPage() {
         errorTestId="sqs-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton disabled={selected.length !== 1} onClick={() => setManaging(selected[0] ?? null)}>
               Send and receive messages
             </AwsButton>
@@ -277,9 +269,6 @@ export function SQSPage() {
               onClick={() => setDeleting({ queues: selected, clearSelection })}
             >
               Delete
-            </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
             </AwsButton>
             <AwsButton variant="primary" data-testid="sqs-create-queue" onClick={() => setCreating(true)}>
               Create queue

@@ -10,6 +10,7 @@ import {
   AwsResourceTable,
   AwsStatus,
   type AwsColumn,
+  AwsRefreshButton,
 } from "../console/index.js";
 import { formatBytes, formatEpoch } from "../console/format.js";
 import { fetchEFSFileSystems, fetchEFSMountTargets, type EFSMountTarget } from "../api.js";
@@ -93,9 +94,7 @@ export function EFSFileSystemDetailPage() {
         tableTestId="efs-mount-targets-table"
         errorTestId="efs-mount-targets-error"
         actions={({ refetch, isFetching }) => (
-          <AwsButton onClick={refetch} disabled={isFetching}>
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </AwsButton>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
         )}
       />
     </>

@@ -1,159 +1,192 @@
-import { useState, type ReactNode } from "react";
-import { BrowserRouter, Routes, useLocation } from "react-router";
-import { ErrorBoundary, OperatorAccount } from "@sockerless/ui-core/components";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { BrowserRouter, Routes, useLocation, useNavigate } from "react-router";
+import { ErrorBoundary } from "@sockerless/ui-core/components";
 import AppLayout from "@cloudscape-design/components/app-layout";
-import { AwsBreadcrumbs, AwsHeader, AwsSideNavigation } from "./AwsConsole.js";
-import { REGION } from "./federation.js";
-import { findNavService, NAV_GROUPS } from "./serviceCatalog.js";
+import BreadcrumbGroup from "@cloudscape-design/components/breadcrumb-group";
+import SideNavigation, { type SideNavigationProps } from "@cloudscape-design/components/side-navigation";
+import HelpPanel from "@cloudscape-design/components/help-panel";
+import Link from "@cloudscape-design/components/link";
+import { AwsTopNavigation, ServicesMenu } from "./AwsShell.js";
+import { ConsoleFlashbar, NotificationsProvider } from "./notifications.js";
+import { recordVisit } from "./recent.js";
+import { navLinkForPath, serviceForPath, type ConsoleService } from "./serviceCatalog.js";
 
-// Every service route's breadcrumb label, keyed by its own route. The labels
-// are the services' real, fully-qualified AWS names, matching the side
-// navigation's own entries in serviceCatalog.ts.
-const CRUMBS: Record<string, string> = {
-  "/ui/": "Overview",
-  "/ui/ecs": "Elastic Container Service",
-  "/ui/lambda": "Lambda",
-  "/ui/ecr": "Elastic Container Registry",
-  "/ui/s3": "Simple Storage Service",
-  "/ui/logs": "CloudWatch Logs",
-  "/ui/organizations": "AWS Organizations",
-  "/ui/iam": "Identity and Access Management",
-  "/ui/ec2": "EC2",
-  "/ui/autoscaling": "EC2 Auto Scaling",
-  "/ui/batch": "AWS Batch",
-  "/ui/efs": "Elastic File System",
-  "/ui/rds": "RDS",
-  "/ui/dynamodb": "DynamoDB",
-  "/ui/elasticache": "ElastiCache",
-  "/ui/vpc": "VPC",
-  "/ui/cloudfront": "CloudFront",
-  "/ui/route53": "Route 53",
-  "/ui/apigateway": "API Gateway",
-  "/ui/elb": "Elastic Load Balancing",
-  "/ui/cloudmap": "AWS Cloud Map",
-  "/ui/codebuild": "CodeBuild",
-  "/ui/amplify": "AWS Amplify",
-  "/ui/kinesis": "Kinesis Data Streams",
-  "/ui/firehose": "Amazon Data Firehose",
-  "/ui/glue": "AWS Glue",
-  "/ui/sns": "Simple Notification Service",
-  "/ui/sqs": "Simple Queue Service",
-  "/ui/eventbridge": "Amazon EventBridge",
-  "/ui/scheduler": "Amazon EventBridge Scheduler",
-  "/ui/stepfunctions": "AWS Step Functions",
-  "/ui/cloudwatch": "CloudWatch",
-  "/ui/cloudtrail": "AWS CloudTrail",
-  "/ui/ssm": "Systems Manager",
-  "/ui/secretsmanager": "Secrets Manager",
-  "/ui/kms": "Key Management Service",
-  "/ui/acm": "AWS Certificate Manager",
-  "/ui/private-ca": "AWS Private Certificate Authority",
-  "/ui/waf": "AWS WAF",
-  "/ui/budgets": "AWS Budgets",
-};
+interface Crumb {
+  text: string;
+  href?: string;
+}
 
-const IAM_USER_PREFIX = "/ui/iam/users/";
-const ORG_ACCOUNT_PREFIX = "/ui/organizations/accounts/";
-const ECS_SERVICE_PREFIX = "/ui/ecs/services/";
-const NOT_SUPPORTED_PREFIX = "/ui/not-supported/";
-
-// Resource detail routes nest under their service the way the real console
-// breadcrumbs them: <service> > <resource identifier>. Every prefix here has
-// a matching `:id`/`:name` route in main.tsx.
-const RESOURCE_DETAIL_PREFIXES: { prefix: string; service: string; to: string }[] = [
-  { prefix: "/ui/ecs/", service: "Elastic Container Service", to: "/ui/ecs" },
-  { prefix: "/ui/lambda/", service: "Lambda", to: "/ui/lambda" },
-  { prefix: "/ui/ecr/", service: "Elastic Container Registry", to: "/ui/ecr" },
-  { prefix: "/ui/s3/", service: "Simple Storage Service", to: "/ui/s3" },
-  { prefix: "/ui/logs/", service: "CloudWatch Logs", to: "/ui/logs" },
-  { prefix: "/ui/ec2/", service: "EC2", to: "/ui/ec2" },
-  { prefix: "/ui/vpc/", service: "VPC", to: "/ui/vpc" },
-  { prefix: "/ui/dynamodb/", service: "DynamoDB", to: "/ui/dynamodb" },
-  { prefix: "/ui/efs/", service: "Elastic File System", to: "/ui/efs" },
-  { prefix: "/ui/route53/", service: "Route 53", to: "/ui/route53" },
-  { prefix: "/ui/stepfunctions/", service: "AWS Step Functions", to: "/ui/stepfunctions" },
-];
-
-function crumbTrail(pathname: string): { label: string; to?: string }[] {
-  // Detail pages nest under their service the way the real console breadcrumbs
-  // them: IAM > Users > <user name>, AWS Organizations > <account id>.
-  if (pathname.startsWith(IAM_USER_PREFIX)) {
-    return [
-      { label: "Simulator", to: "/ui/" },
-      { label: "Identity and Access Management", to: "/ui/iam" },
-      { label: decodeURIComponent(pathname.slice(IAM_USER_PREFIX.length)) },
-    ];
+function decodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
   }
-  if (pathname.startsWith(ORG_ACCOUNT_PREFIX)) {
-    return [
-      { label: "Simulator", to: "/ui/" },
-      { label: "AWS Organizations", to: "/ui/organizations" },
-      { label: decodeURIComponent(pathname.slice(ORG_ACCOUNT_PREFIX.length)) },
-    ];
+}
+
+/**
+ * The breadcrumb trail the real console shows above a service page: the
+ * service, the side-navigation page the route sits under, and the resource a
+ * detail route names.
+ */
+export function crumbTrail(service: ConsoleService | undefined, pathname: string): Crumb[] {
+  if (!service) return [];
+  const trail: Crumb[] = [{ text: service.name, href: service.home }];
+  if (service.supported === false) return trail;
+  const match = navLinkForPath(service, pathname);
+  if (!match) return trail;
+  if (match.exact) {
+    if (match.link.href !== service.home || trail[0].text !== match.link.text) trail.push({ text: match.link.text });
+    return trail;
   }
-  if (pathname.startsWith(ECS_SERVICE_PREFIX)) {
-    const [cluster = "", service = ""] = pathname.slice(ECS_SERVICE_PREFIX.length).split("/");
-    return [
-      { label: "Simulator", to: "/ui/" },
-      { label: "Elastic Container Service", to: "/ui/ecs" },
-      { label: decodeURIComponent(cluster) },
-      { label: decodeURIComponent(service) },
-    ];
+  trail.push({ text: match.link.text, href: match.link.href });
+  const rest = pathname.slice(match.link.href.length + 1).split("/").filter(Boolean).map(decodeSegment);
+  if (match.link.create && rest.length === 1 && rest[0] === "create") {
+    trail.push({ text: match.link.create });
+  } else if (service.id === "ecs" && match.link.href === "/ui/ecs/services" && rest.length === 2) {
+    trail.push({ text: rest[0] }, { text: rest[1] });
+  } else if (service.id === "stepfunctions" && rest[1] === "executions" && rest.length === 3) {
+    trail.push({ text: rest[0], href: `${match.link.href}/${encodeURIComponent(rest[0])}` }, { text: rest[2] });
+  } else if (rest.length > 0) {
+    trail.push({ text: rest[rest.length - 1] });
   }
-  for (const entry of RESOURCE_DETAIL_PREFIXES) {
-    if (pathname.startsWith(entry.prefix)) {
-      return [
-        { label: "Simulator", to: "/ui/" },
-        { label: entry.service, to: entry.to },
-        { label: decodeURIComponent(pathname.slice(entry.prefix.length)) },
-      ];
+  return trail;
+}
+
+function navigationItems(service: ConsoleService): SideNavigationProps.Item[] {
+  const items: SideNavigationProps.Item[] = [];
+  for (const section of service.nav ?? []) {
+    const links = section.items.map((link) => ({ type: "link" as const, text: link.text, href: link.href }));
+    if (section.text) {
+      items.push({ type: "section", text: section.text, items: links, defaultExpanded: true });
+    } else {
+      items.push(...links);
     }
   }
-  if (pathname.startsWith(NOT_SUPPORTED_PREFIX)) {
-    const slug = pathname.slice(NOT_SUPPORTED_PREFIX.length);
-    return [
-      { label: "Simulator", to: "/ui/" },
-      { label: findNavService(slug)?.label ?? slug },
-    ];
-  }
-  return [
-    { label: "Simulator", to: "/ui/" },
-    { label: CRUMBS[pathname] ?? "Overview" },
-  ];
+  return items;
+}
+
+const HelpContext = createContext<() => void>(() => undefined);
+const ServicesMenuContext = createContext<() => void>(() => undefined);
+
+/** Opens the help panel, the way an "Info" link beside a page heading does. */
+export function useOpenHelp(): () => void {
+  return useContext(HelpContext);
+}
+
+/** Opens the header's Services menu, the way Console Home's "View all
+ * services" does. */
+export function useOpenServicesMenu(): () => void {
+  return useContext(ServicesMenuContext);
+}
+
+function ServiceHelp({ service }: { service: ConsoleService }) {
+  return (
+    <HelpPanel
+      header={<h2>{service.name}</h2>}
+      footer={
+        <div>
+          <h3>Learn more</h3>
+          <ul>
+            <li>
+              <Link href={service.docs} external>
+                {service.name} documentation
+              </Link>
+            </li>
+          </ul>
+        </div>
+      }
+    >
+      <p>{service.description}.</p>
+    </HelpPanel>
+  );
 }
 
 function ConsoleFrame({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
-  // Cloudscape's own `AppLayout` keeps the navigation open by default and
-  // owns the toggle control (and its accessible name) that collapses it —
-  // this is the only navigation-open state the console keeps.
+  const navigate = useNavigate();
+  const service = serviceForPath(pathname);
   const [navigationOpen, setNavigationOpen] = useState(true);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [servicesOpen, setServicesOpen] = useState(false);
+  const closeServices = useCallback(() => setServicesOpen(false), []);
+
+  useEffect(() => {
+    if (service && service.supported !== false) recordVisit(service.id);
+  }, [service]);
+
+  useEffect(() => {
+    if (!service) document.title = "Console Home";
+  }, [service]);
+
+  const hasNavigation = Boolean(service?.nav?.length);
+  const activeHref = service ? (navLinkForPath(service, pathname)?.link.href ?? pathname) : pathname;
+  const trail = crumbTrail(service, pathname);
+
   return (
     <div className="aws">
-      <a href="#main-content" className="sl-skip-link">Skip to main content</a>
-      <AwsHeader region={REGION} account={<OperatorAccount />} services={NAV_GROUPS} />
-      <AppLayout
-        navigation={<AwsSideNavigation groups={NAV_GROUPS} activeHref={pathname} />}
-        navigationOpen={navigationOpen}
-        onNavigationChange={(event) => setNavigationOpen(event.detail.open)}
-        breadcrumbs={<AwsBreadcrumbs trail={crumbTrail(pathname)} />}
-        toolsHide
-        content={
-          // AppLayout's own `content` slot already renders inside a real
-          // `<main>` landmark — wrapping it in a second one here duplicated
-          // the main landmark (axe: landmark-no-duplicate-main). This stays
-          // a plain element so `#main-content`/the skip link still has
-          // something to focus.
-          <div id="main-content" tabIndex={-1}>
-            {children}
-          </div>
-        }
-        ariaLabels={{
-          navigation: "Service",
-          navigationToggle: "Open navigation",
-          navigationClose: "Close navigation",
-        }}
-      />
+      <a href="#main-content" className="sl-skip-link">
+        Skip to main content
+      </a>
+      <div id="aws-console-header" className="aws-header">
+        <AwsTopNavigation servicesOpen={servicesOpen} onToggleServices={() => setServicesOpen((current) => !current)} />
+      </div>
+      <ServicesMenu open={servicesOpen} onClose={closeServices} />
+      <ServicesMenuContext.Provider value={() => setServicesOpen(true)}>
+      <HelpContext.Provider value={() => setToolsOpen(true)}>
+        <AppLayout
+          headerSelector="#aws-console-header"
+          navigationHide={!hasNavigation}
+          navigation={
+            service && hasNavigation ? (
+              <SideNavigation
+                header={{ text: service.name, href: service.home }}
+                activeHref={activeHref}
+                items={navigationItems(service)}
+                onFollow={(event) => {
+                  if (event.detail.external) return;
+                  event.preventDefault();
+                  navigate(event.detail.href);
+                }}
+              />
+            ) : undefined
+          }
+          navigationOpen={navigationOpen}
+          onNavigationChange={(event) => setNavigationOpen(event.detail.open)}
+          breadcrumbs={
+            trail.length > 0 ? (
+              <BreadcrumbGroup
+                ariaLabel="Breadcrumbs"
+                items={trail.map((crumb) => ({ text: crumb.text, href: crumb.href ?? pathname }))}
+                onFollow={(event) => {
+                  event.preventDefault();
+                  if (event.detail.href !== pathname) navigate(event.detail.href);
+                }}
+              />
+            ) : undefined
+          }
+          notifications={<ConsoleFlashbar />}
+          toolsHide={!service}
+          tools={service ? <ServiceHelp service={service} /> : undefined}
+          toolsOpen={toolsOpen}
+          onToolsChange={(event) => setToolsOpen(event.detail.open)}
+          content={
+            <div id="main-content" tabIndex={-1}>
+              {children}
+            </div>
+          }
+          ariaLabels={{
+            navigation: "Service navigation",
+            navigationToggle: "Open navigation",
+            navigationClose: "Close navigation",
+            tools: "Help panel",
+            toolsToggle: "Open help panel",
+            toolsClose: "Close help panel",
+            notifications: "Notifications",
+          }}
+        />
+      </HelpContext.Provider>
+      </ServicesMenuContext.Provider>
     </div>
   );
 }
@@ -162,9 +195,11 @@ export function AwsApp({ children }: { children: ReactNode }) {
   return (
     <ErrorBoundary>
       <BrowserRouter>
-        <ConsoleFrame>
-          <Routes>{children}</Routes>
-        </ConsoleFrame>
+        <NotificationsProvider>
+          <ConsoleFrame>
+            <Routes>{children}</Routes>
+          </ConsoleFrame>
+        </NotificationsProvider>
       </BrowserRouter>
     </ErrorBoundary>
   );

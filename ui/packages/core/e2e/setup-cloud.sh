@@ -62,13 +62,14 @@ hmac_hex() {
 # its control-plane chokepoint; an unsigned request is rejected with 403.
 #
 #   $1 base URL (e.g. http://127.0.0.1:19320)
-#   $2 X-Amz-Target header value
-#   $3 request body
-#   $4 signing service (e.g. ecs)
-aws_sigv4_post() {
-  local base="$1" target="$2" body="$3" service="$4"
+#   $2 Content-Type header value
+#   $3 X-Amz-Target header value, or empty for a protocol that names the
+#      operation in the body (the Query protocol)
+#   $4 request body
+#   $5 signing service (e.g. ecs)
+aws_sigv4_request() {
+  local base="$1" content_type="$2" target="$3" body="$4" service="$5"
   local access_key="test" secret="test" region="us-east-1"
-  local content_type="application/x-amz-json-1.1"
 
   local host="${base#http://}"
   host="${host#https://}"
@@ -81,13 +82,19 @@ aws_sigv4_post() {
   local payload_hash
   payload_hash="$(printf '%s' "$body" | hex_sha256)"
 
-  local signed_headers="content-type;host;x-amz-content-sha256;x-amz-date;x-amz-target"
+  local signed_headers="content-type;host;x-amz-content-sha256;x-amz-date"
   local canonical_headers="content-type:${content_type}
 host:${host}
 x-amz-content-sha256:${payload_hash}
 x-amz-date:${amzdate}
-x-amz-target:${target}
 "
+  local target_header=()
+  if [[ -n "$target" ]]; then
+    signed_headers="${signed_headers};x-amz-target"
+    canonical_headers="${canonical_headers}x-amz-target:${target}
+"
+    target_header=(--header "X-Amz-Target: ${target}")
+  fi
   local canonical_request="POST
 /
 
@@ -114,7 +121,7 @@ $(printf '%s' "$canonical_request" | hex_sha256)"
   curl --fail --silent --show-error \
     --request POST \
     --header "Content-Type: ${content_type}" \
-    --header "X-Amz-Target: ${target}" \
+    ${target_header[@]+"${target_header[@]}"} \
     --header "X-Amz-Date: ${amzdate}" \
     --header "X-Amz-Content-Sha256: ${payload_hash}" \
     --header "Authorization: AWS4-HMAC-SHA256 Credential=${access_key}/${scope}, SignedHeaders=${signed_headers}, Signature=${signature}" \
@@ -122,7 +129,55 @@ $(printf '%s' "$canonical_request" | hex_sha256)"
     "${base}/" >/dev/null
 }
 
+# aws_sigv4_post calls an awsJson (1.1) operation by its X-Amz-Target.
+aws_sigv4_post() {
+  aws_sigv4_request "$1" "application/x-amz-json-1.1" "$2" "$3" "$4"
+}
+
+# aws_query calls a Query-protocol operation (IAM, STS): a form-encoded POST
+# whose Action, Version, and parameters are the name=value arguments after the
+# base URL and the signing service.
+aws_query() {
+  local base="$1" service="$2"
+  shift 2
+  local body="" pair name value
+  for pair in "$@"; do
+    name="${pair%%=*}"
+    value="${pair#*=}"
+    body="${body:+${body}&}${name}=$(jq -rn --arg v "$value" '$v|@uri')"
+  done
+  aws_sigv4_request "$base" "application/x-www-form-urlencoded; charset=utf-8" "" "$body" "$service"
+}
+
 case "$SIMULATOR_SETUP" in
+  aws-console-federation)
+    # The console federates its operator the way a deployment wires it: an IAM
+    # OpenID Connect identity provider for the issuer the console signs
+    # operators in with, and the role the console assumes with that assertion.
+    if [[ -z "${FEDERATION_ISSUER:-}" || -z "${FEDERATION_CLIENT_ID:-}" || -z "${FEDERATION_ROLE_NAME:-}" ]]; then
+      echo "ERROR: FEDERATION_ISSUER, FEDERATION_CLIENT_ID, and FEDERATION_ROLE_NAME are required" >&2
+      exit 1
+    fi
+    provider="${FEDERATION_ISSUER#http://}"
+    provider="${provider#https://}"
+    aws_query "$SIMULATOR_URL" iam Action=CreateOpenIDConnectProvider Version=2010-05-08 \
+      "Url=${FEDERATION_ISSUER}" "ClientIDList.member.1=${FEDERATION_CLIENT_ID}" \
+      "ThumbprintList.member.1=0000000000000000000000000000000000000000"
+    trust="$(jq -cn --arg provider "$provider" --arg client "$FEDERATION_CLIENT_ID" '{
+      Version: "2012-10-17",
+      Statement: [{
+        Effect: "Allow",
+        Principal: {Federated: ("arn:aws:iam::123456789012:oidc-provider/" + $provider)},
+        Action: "sts:AssumeRoleWithWebIdentity",
+        Condition: {StringEquals: {($provider + ":aud"): $client}}
+      }]
+    }')"
+    aws_query "$SIMULATOR_URL" iam Action=CreateRole Version=2010-05-08 \
+      "RoleName=${FEDERATION_ROLE_NAME}" "AssumeRolePolicyDocument=${trust}"
+    aws_query "$SIMULATOR_URL" iam Action=PutRolePolicy Version=2010-05-08 \
+      "RoleName=${FEDERATION_ROLE_NAME}" PolicyName=ConsoleAdministrator \
+      'PolicyDocument={"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}'
+    ;;
   aws-ecs)
     aws_sigv4_post \
       "$SIMULATOR_URL" \

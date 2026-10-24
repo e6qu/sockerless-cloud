@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Input from "@cloudscape-design/components/input";
 import FormField from "@cloudscape-design/components/form-field";
-import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsRowLink, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsRowLink, AwsRefreshButton, type AwsColumn, AwsDeleteModal } from "../console/index.js";
 import { createIAMUser, deleteIAMUser, fetchIAMUsers, type IAMUserSummary } from "../api.js";
 
 // AWS Identity and Access Management (IAM) users. The list, creation, and
@@ -103,22 +103,13 @@ function DeleteUsersModal({
     },
   });
   return (
-    <AwsModal
+    <AwsDeleteModal
       title={users.length === 1 ? `Delete ${users[0].userName}?` : `Delete ${users.length} users?`}
+      confirmationText="confirm"
       onDismiss={onClose}
-      footer={
-        <>
-          <AwsButton onClick={onClose}>Cancel</AwsButton>
-          <AwsButton
-            variant="primary"
-            data-testid="iam-delete-user-confirm"
-            disabled={remove.isPending}
-            onClick={() => remove.mutate()}
-          >
-            {remove.isPending ? "Deleting…" : "Delete"}
-          </AwsButton>
-        </>
-      }
+      onDelete={() => remove.mutate()}
+      pending={remove.isPending}
+      testIdPrefix="iam-delete-user"
     >
       <p>
         Deleting a user is permanent. IAM refuses to delete a user that still has access keys, inline or attached
@@ -137,7 +128,7 @@ function DeleteUsersModal({
           {remove.error instanceof Error ? remove.error.message : "The request failed."}
         </AwsErrorAlert>
       )}
-    </AwsModal>
+    </AwsDeleteModal>
   );
 }
 
@@ -158,15 +149,13 @@ export function IAMUsersPage() {
         rowKey={(row) => row.userName}
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton
               data-testid="iam-delete-user"
               disabled={selected.length === 0}
               onClick={() => setDeleting({ users: selected, clearSelection })}
             >
               Delete
-            </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
             </AwsButton>
             <AwsButton variant="primary" data-testid="iam-create-user" onClick={() => setCreating(true)}>
               Create user

@@ -4,8 +4,7 @@ import FormField from "@cloudscape-design/components/form-field";
 import Input from "@cloudscape-design/components/input";
 import Select from "@cloudscape-design/components/select";
 import SpaceBetween from "@cloudscape-design/components/space-between";
-import Tabs from "@cloudscape-design/components/tabs";
-import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsStatus, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsStatus, AwsRefreshButton, type AwsColumn } from "../console/index.js";
 import { formatEpoch } from "../console/format.js";
 import {
   createACMAcmeDomainValidation,
@@ -131,15 +130,13 @@ function CertificatesPane() {
         errorTestId="acm-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton
               data-testid="acm-delete-certificate"
               disabled={selected.length === 0}
               onClick={() => setDeleting({ certificates: selected, clearSelection })}
             >
               Delete
-            </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
             </AwsButton>
           </>
         )}
@@ -403,6 +400,7 @@ function ACMEEndpointsPane() {
         errorTestId="acm-acme-endpoints-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton variant="primary" data-testid="acm-create-acme-endpoint" onClick={() => setCreating(true)}>
               Create endpoint
             </AwsButton>
@@ -418,9 +416,6 @@ function ACMEEndpointsPane() {
             >
               Delete
             </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
-            </AwsButton>
           </>
         )}
       />
@@ -430,17 +425,6 @@ function ACMEEndpointsPane() {
   );
 }
 
-export function ACMCertificatesPage() {
-  const [activeTabId, setActiveTabId] = useState("certificates");
-  return (
-    <Tabs
-      ariaLabel="AWS Certificate Manager resources"
-      activeTabId={activeTabId}
-      onChange={(event) => setActiveTabId(event.detail.activeTabId)}
-      tabs={[
-        { id: "certificates", label: "Certificates", content: <CertificatesPane /> },
-        { id: "acme", label: "ACME endpoints", content: <ACMEEndpointsPane /> },
-      ]}
-    />
-  );
+export function ACMCertificatesPage({ view = "certificates" }: { view?: "certificates" | "acme" }) {
+  return view === "certificates" ? <CertificatesPane /> : <ACMEEndpointsPane />;
 }

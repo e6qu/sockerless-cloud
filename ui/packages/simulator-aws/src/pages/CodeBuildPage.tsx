@@ -11,6 +11,7 @@ import {
   AwsResourceTable,
   AwsStatus,
   type AwsColumn,
+  AwsRefreshButton,
 } from "../console/index.js";
 import { formatEpoch } from "../console/format.js";
 import {
@@ -178,7 +179,7 @@ function DeleteProjectsModal({
   );
 }
 
-export function CodeBuildPage() {
+export function CodeBuildPage({ view = "projects" }: { view?: "projects" | "history" }) {
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<{ projects: CodeBuildProject[]; clearSelection: () => void } | null>(null);
@@ -200,6 +201,7 @@ export function CodeBuildPage() {
   });
   return (
     <>
+      {view === "projects" && (
       <AwsResourceTable<CodeBuildProject>
         title="Build projects"
         description="Create projects and start their containerized builds."
@@ -214,6 +216,7 @@ export function CodeBuildPage() {
         errorTestId="codebuild-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton
               data-testid="codebuild-start-build"
               disabled={selected.length === 0 || start.isPending}
@@ -228,16 +231,16 @@ export function CodeBuildPage() {
             >
               Delete
             </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>{isFetching ? "Refreshing…" : "Refresh"}</AwsButton>
             <AwsButton variant="primary" data-testid="codebuild-create-project" onClick={() => setCreating(true)}>
               Create build project
             </AwsButton>
           </>
         )}
       />
+      )}
+      {view === "history" && (
       <AwsResourceTable<CodeBuildBuild>
         title="Build history"
-        headingVariant="h2"
         description="Actual build containers and their terminal exit-derived status."
         columns={buildColumns}
         queryKey={["codebuild-builds"]}
@@ -251,16 +254,17 @@ export function CodeBuildPage() {
         errorTestId="codebuild-builds-error"
         actions={({ selected, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton
               disabled={selected.length === 0 || selected.some((build) => build.status !== "IN_PROGRESS") || stop.isPending}
               onClick={() => stop.mutate(selected)}
             >
               Stop
             </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>{isFetching ? "Refreshing…" : "Refresh"}</AwsButton>
           </>
         )}
       />
+      )}
       {creating && <CreateProjectModal onClose={() => setCreating(false)} />}
       {deleting && (
         <DeleteProjectsModal

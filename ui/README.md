@@ -27,7 +27,9 @@ From this directory:
 - `bunx turbo run typecheck` / `test` — TypeScript + vitest across the
   workspace.
 - `cd packages/simulator-aws && bun run test:e2e` — Playwright browser suite
-  (builds the backing simulator binary via the `core/e2e` harness).
+  (builds the backing simulator binary via the `core/e2e` harness, plus
+  `simulator-azure`, whose Microsoft Entra ID signs the console's operator in).
+  `SERVER_BIN` and `SIMULATOR_BIN` name prebuilt binaries instead.
 
 To embed a rebuilt console into its simulator binary, from the repo root:
 

@@ -1,25 +1,27 @@
 import { useState } from "react";
-import { useNavigate } from "react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import ButtonDropdown from "@cloudscape-design/components/button-dropdown";
 import {
   AwsButton,
   AwsErrorAlert,
   AwsModal,
+  AwsRefreshButton,
   AwsResourceTable,
   AwsRowLink,
   AwsStatus,
+  errorText,
+  useNotify,
   type AwsColumn,
+  type AwsStatusKind,
 } from "../console/index.js";
 import { formatTimestamp } from "../console/format.js";
 import {
   fetchEC2Instances,
-  fetchEC2Volumes,
   rebootEC2Instances,
   startEC2Instances,
   stopEC2Instances,
   terminateEC2Instances,
   type EC2Instance,
-  type EC2Volume,
 } from "../api.js";
 
 // Amazon Elastic Compute Cloud (EC2) — Instances. The table is the real
@@ -28,82 +30,66 @@ import {
 // them), and the Instance state actions are the real StartInstances,
 // StopInstances, RebootInstances, and TerminateInstances operations.
 
+/** EC2's instance-state names, with the status indicator the real console
+ * draws for each. */
+const INSTANCE_STATE_KIND: Record<string, AwsStatusKind> = {
+  pending: "warning",
+  running: "success",
+  "shutting-down": "warning",
+  stopping: "warning",
+  stopped: "inactive",
+  terminated: "inactive",
+};
+
+export function InstanceState({ state }: { state: string }) {
+  return <AwsStatus status={state ? state[0].toUpperCase() + state.slice(1) : "–"} kind={INSTANCE_STATE_KIND[state] ?? "inactive"} />;
+}
+
 const columns: AwsColumn<EC2Instance>[] = [
-  {
-    id: "name",
-    header: "Name",
-    cell: (row) => row.name || "–",
-    value: (row) => row.name,
-  },
+  { id: "name", header: "Name", cell: (row) => row.name || "–", value: (row) => row.name },
   {
     id: "instanceId",
     header: "Instance ID",
-    cell: (row) => (
-      <AwsRowLink to={`/ui/ec2/${encodeURIComponent(row.instanceId)}`}>{row.instanceId}</AwsRowLink>
-    ),
+    cell: (row) => <AwsRowLink to={`/ui/ec2/${encodeURIComponent(row.instanceId)}`}>{row.instanceId}</AwsRowLink>,
     value: (row) => row.instanceId,
   },
-  {
-    id: "state",
-    header: "Instance state",
-    cell: (row) => <AwsStatus status={row.state} />,
-    value: (row) => row.state,
-  },
+  { id: "state", header: "Instance state", cell: (row) => <InstanceState state={row.state} />, value: (row) => row.state },
   { id: "instanceType", header: "Instance type", cell: (row) => row.instanceType, value: (row) => row.instanceType },
+  { id: "availabilityZone", header: "Availability Zone", cell: (row) => row.availabilityZone, value: (row) => row.availabilityZone },
+  { id: "publicIpAddress", header: "Public IPv4 address", cell: (row) => row.publicIpAddress || "–", value: (row) => row.publicIpAddress },
+  { id: "privateIpAddress", header: "Private IPv4 address", cell: (row) => row.privateIpAddress || "–", value: (row) => row.privateIpAddress },
   {
-    id: "privateIpAddress",
-    header: "Private IPv4 address",
-    cell: (row) => row.privateIpAddress || "–",
-    value: (row) => row.privateIpAddress,
+    id: "securityGroups",
+    header: "Security group name",
+    cell: (row) => row.securityGroups.map((group) => group.groupName).join(", ") || "–",
+    value: (row) => row.securityGroups.map((group) => group.groupName).join(", "),
   },
-  {
-    id: "availabilityZone",
-    header: "Availability Zone",
-    cell: (row) => row.availabilityZone,
-    value: (row) => row.availabilityZone,
-  },
-  {
-    id: "launchTime",
-    header: "Launch time",
-    cell: (row) => formatTimestamp(row.launchTime),
-    value: (row) => row.launchTime,
-  },
-];
-
-// Amazon Elastic Block Store volumes live in the same EC2 API, and the real
-// console lists them under EC2's own navigation — DescribeVolumes.
-const volumeColumns: AwsColumn<EC2Volume>[] = [
-  { id: "volumeId", header: "Volume ID", cell: (row) => row.volumeId, value: (row) => row.volumeId },
-  { id: "state", header: "Volume state", cell: (row) => <AwsStatus status={row.state} />, value: (row) => row.state },
-  { id: "size", header: "Size", cell: (row) => `${row.size} GiB`, value: (row) => String(row.size) },
-  { id: "volumeType", header: "Volume type", cell: (row) => row.volumeType, value: (row) => row.volumeType },
-  {
-    id: "availabilityZone",
-    header: "Availability Zone",
-    cell: (row) => row.availabilityZone,
-    value: (row) => row.availabilityZone,
-  },
-  {
-    id: "encrypted",
-    header: "Encrypted",
-    cell: (row) => (row.encrypted ? "Yes" : "No"),
-    value: (row) => (row.encrypted ? "Yes" : "No"),
-  },
-  {
-    id: "createTime",
-    header: "Created",
-    cell: (row) => formatTimestamp(row.createTime),
-    value: (row) => row.createTime,
-  },
+  { id: "keyName", header: "Key name", cell: (row) => row.keyName || "–", value: (row) => row.keyName },
+  { id: "launchTime", header: "Launch time", cell: (row) => formatTimestamp(row.launchTime), value: (row) => row.launchTime },
 ];
 
 type InstanceAction = "start" | "stop" | "reboot" | "terminate";
 
-const ACTION_LABELS: Record<InstanceAction, { title: string; verb: string; body: string }> = {
-  start: { title: "Start instances", verb: "Start", body: "Starting a stopped instance resumes it on new host hardware." },
-  stop: { title: "Stop instances", verb: "Stop", body: "Stopping an instance shuts down the guest operating system; its root volume and its instance ID are kept." },
-  reboot: { title: "Reboot instances", verb: "Reboot", body: "Rebooting is equivalent to an operating-system restart; the instance keeps its public IPv4 address and its instance store." },
-  terminate: { title: "Terminate instances", verb: "Terminate", body: "Terminating an instance is permanent. You cannot start a terminated instance again." },
+const ACTION_LABELS: Record<InstanceAction, { title: string; verb: string; done: string; body: string }> = {
+  start: { title: "Start instance?", verb: "Start", done: "Successfully started", body: "Starting a stopped instance resumes it on new host hardware." },
+  stop: {
+    title: "Stop instance?",
+    verb: "Stop",
+    done: "Successfully stopped",
+    body: "Stopping an instance shuts down the guest operating system; its root volume and its instance ID are kept.",
+  },
+  reboot: {
+    title: "Reboot instance?",
+    verb: "Reboot",
+    done: "Successfully rebooted",
+    body: "Rebooting is equivalent to an operating-system restart; the instance keeps its public IPv4 address and its instance store.",
+  },
+  terminate: {
+    title: "Terminate (delete) instance?",
+    verb: "Terminate (delete)",
+    done: "Successfully initiated termination of",
+    body: "Terminating an instance is permanent. You cannot start a terminated instance again.",
+  },
 };
 
 const RUN_ACTION: Record<InstanceAction, (ids: string[]) => Promise<void>> = {
@@ -125,11 +111,14 @@ export function InstanceStateModal({
   clearSelection: () => void;
 }) {
   const queryClient = useQueryClient();
+  const notify = useNotify();
   const labels = ACTION_LABELS[action];
+  const ids = instances.map((instance) => instance.instanceId);
   const change = useMutation({
-    mutationFn: () => RUN_ACTION[action](instances.map((instance) => instance.instanceId)),
+    mutationFn: () => RUN_ACTION[action](ids),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["ec2-instances"] }),
     onSuccess: () => {
+      notify("success", `${labels.done} ${ids.join(", ")}`);
       clearSelection();
       onClose();
     },
@@ -140,14 +129,11 @@ export function InstanceStateModal({
       onDismiss={onClose}
       footer={
         <>
-          <AwsButton onClick={onClose}>Cancel</AwsButton>
-          <AwsButton
-            variant="primary"
-            data-testid="ec2-instance-state-confirm"
-            disabled={change.isPending}
-            onClick={() => change.mutate()}
-          >
-            {change.isPending ? `${labels.verb}ing…` : labels.verb}
+          <AwsButton variant="link" onClick={onClose}>
+            Cancel
+          </AwsButton>
+          <AwsButton variant="primary" data-testid="ec2-instance-state-confirm" loading={change.isPending} onClick={() => change.mutate()}>
+            {labels.verb}
           </AwsButton>
         </>
       }
@@ -163,16 +149,40 @@ export function InstanceStateModal({
       </ul>
       {change.isError && (
         <AwsErrorAlert>
-          <strong>Could not {labels.verb.toLowerCase()} the instances.</strong>{" "}
-          {change.error instanceof Error ? change.error.message : "The request failed."}
+          <strong>Failed to {labels.verb.toLowerCase()} the instances.</strong> {errorText(change.error)}
         </AwsErrorAlert>
       )}
     </AwsModal>
   );
 }
 
+/** The Instance state menu the real console's Instances page carries. */
+export function InstanceStateDropdown({
+  selected,
+  onAction,
+}: {
+  selected: EC2Instance[];
+  onAction: (action: InstanceAction) => void;
+}) {
+  const none = selected.length === 0;
+  const allIn = (...states: string[]) => !none && selected.every((instance) => states.includes(instance.state));
+  return (
+    <ButtonDropdown
+      disabled={none}
+      items={[
+        { id: "stop", text: "Stop instance", disabled: !allIn("running", "pending") },
+        { id: "start", text: "Start instance", disabled: !allIn("stopped") },
+        { id: "reboot", text: "Reboot instance", disabled: !allIn("running") },
+        { id: "terminate", text: "Terminate (delete) instance", disabled: allIn("terminated", "shutting-down") },
+      ]}
+      onItemClick={(event) => onAction(event.detail.id as InstanceAction)}
+    >
+      Instance state
+    </ButtonDropdown>
+  );
+}
+
 export function EC2InstancesPage() {
-  const navigate = useNavigate();
   const [pending, setPending] = useState<{
     action: InstanceAction;
     instances: EC2Instance[];
@@ -182,76 +192,23 @@ export function EC2InstancesPage() {
     <>
       <AwsResourceTable<EC2Instance>
         title="Instances"
-        description="EC2 instances in this account and Region."
         columns={columns}
         queryKey={["ec2-instances"]}
         queryFn={fetchEC2Instances}
-        filterPlaceholder="Find instances"
+        filterPlaceholder="Find Instance by attribute or tag (case-sensitive)"
         emptyTitle="No instances"
-        emptyDescription="No EC2 instances exist in this account and Region."
+        emptyDescription="You do not have any instances in this Region."
         rowKey={(row) => row.instanceId}
         tableTestId="ec2-instances-table"
         errorTestId="ec2-instances-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
-            <AwsButton
-              data-testid="ec2-view-instance"
-              disabled={selected.length !== 1}
-              onClick={() => navigate(`/ui/ec2/${encodeURIComponent(selected[0].instanceId)}`)}
-            >
-              View details
-            </AwsButton>
-            <AwsButton
-              data-testid="ec2-start-instance"
-              disabled={selected.length === 0}
-              onClick={() => setPending({ action: "start", instances: selected, clearSelection })}
-            >
-              Start
-            </AwsButton>
-            <AwsButton
-              data-testid="ec2-stop-instance"
-              disabled={selected.length === 0}
-              onClick={() => setPending({ action: "stop", instances: selected, clearSelection })}
-            >
-              Stop
-            </AwsButton>
-            <AwsButton
-              data-testid="ec2-reboot-instance"
-              disabled={selected.length === 0}
-              onClick={() => setPending({ action: "reboot", instances: selected, clearSelection })}
-            >
-              Reboot
-            </AwsButton>
-            <AwsButton
-              data-testid="ec2-terminate-instance"
-              disabled={selected.length === 0}
-              onClick={() => setPending({ action: "terminate", instances: selected, clearSelection })}
-            >
-              Terminate
-            </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
-            </AwsButton>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
+            <InstanceStateDropdown
+              selected={selected}
+              onAction={(action) => setPending({ action, instances: selected, clearSelection })}
+            />
           </>
-        )}
-      />
-      <AwsResourceTable<EC2Volume>
-        title="Volumes"
-        headingVariant="h2"
-        description="Amazon EBS volumes in this account and Region."
-        columns={volumeColumns}
-        queryKey={["ec2-volumes"]}
-        queryFn={fetchEC2Volumes}
-        filterPlaceholder="Find volumes"
-        emptyTitle="No volumes"
-        emptyDescription="No Amazon EBS volumes exist in this account and Region."
-        rowKey={(row) => row.volumeId}
-        tableTestId="ec2-volumes-table"
-        errorTestId="ec2-volumes-error"
-        actions={({ refetch, isFetching }) => (
-          <AwsButton onClick={refetch} disabled={isFetching}>
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </AwsButton>
         )}
       />
       {pending && (
