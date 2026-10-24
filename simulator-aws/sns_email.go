@@ -80,30 +80,16 @@ func snsDeliverEmailConfirmation(sub SNSSubscription) {
 			snsEnvelopeString(envelope, "SubscribeURL") + "\r\n\r\n" +
 			"Token: " + snsEnvelopeString(envelope, "Token") + "\r\n"
 	}
-	snsSendEmail(sub, "AWS Notification - Subscription Confirmation", body)
+	if err := snsSendEmail(sub, "AWS Notification - Subscription Confirmation", body); err != nil {
+		cwEvalLogger.Error().Err(err).Str("endpoint", sub.Endpoint).Str("subscriptionARN", sub.ARN).
+			Msg("Amazon SNS email confirmation failed")
+	}
 }
 
-func snsDeliverEmailNotification(sub SNSSubscription, messageID, subject, message string, attributes map[string]SQSMessageAttribute) {
-	body := message
-	if strings.EqualFold(sub.Protocol, "email-json") {
-		encoded, _ := json.Marshal(snsNotificationEmailEnvelope(sub, messageID, subject, message, attributes))
-		body = string(encoded)
-	}
-	if subject == "" {
-		subject = "AWS Notification Message"
-	}
-	metric := "NumberOfNotificationsDelivered"
-	if !snsSendEmail(sub, subject, body) {
-		metric = "NumberOfNotificationsFailed"
-	}
-	snsPutTopicMetric(snsTopicNameFromARN(sub.TopicARN), metric, 1, "Count")
-}
-
-func snsSendEmail(sub SNSSubscription, subject, body string) bool {
+func snsSendEmail(sub SNSSubscription, subject, body string) error {
 	domain, err := snsEmailDomain(sub.Endpoint)
 	if err != nil {
-		cwEvalLogger.Error().Err(err).Str("endpoint", sub.Endpoint).Msg("Amazon SNS email endpoint is invalid")
-		return false
+		return err
 	}
 	subject = strings.NewReplacer("\r", " ", "\n", " ").Replace(subject)
 	message := []byte("From: AWS Notifications <no-reply@sns.amazonaws.com>\r\n" +
@@ -111,10 +97,5 @@ func snsSendEmail(sub SNSSubscription, subject, body string) bool {
 		"Subject: " + subject + "\r\n" +
 		"MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n" +
 		body + "\r\n")
-	if err := awsDeliverSMTP(domain, "no-reply@sns.amazonaws.com", []string{sub.Endpoint}, message); err != nil {
-		cwEvalLogger.Error().Err(err).Str("endpoint", sub.Endpoint).Str("subscriptionARN", sub.ARN).
-			Msg("Amazon SNS email delivery failed")
-		return false
-	}
-	return true
+	return awsDeliverSMTP(domain, "no-reply@sns.amazonaws.com", []string{sub.Endpoint}, message)
 }

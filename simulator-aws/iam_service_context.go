@@ -59,7 +59,7 @@ func iamServiceInitiatedRequest(src iamServiceSource) *http.Request {
 // Direct client calls (everything that hits POST /) are never service-initiated,
 // so this is nil for them: nothing stamps a client's request. A
 // service-initiated call is either the sim's internal event delivery (see
-// snsDeliverToLambda), which authorizes the target's resource policy directly
+// snsAttemptLambda), which authorizes the target's resource policy directly
 // with iamEvalServiceInitiated, or an internal call the sim makes on the
 // principal's behalf, which stamps the source with iamStampServiceInitiation and
 // is authorized through the gate.

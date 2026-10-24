@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/eventbus"
 )
 
 const (
@@ -312,39 +313,71 @@ func eventarcDeliveringThrough(subscription string) (EventarcTrigger, bool) {
 	return EventarcTrigger{}, false
 }
 
+// eventarcAuditEvent is a Cloud Audit Logs entry written in a project and
+// location.
+type eventarcAuditEvent struct {
+	Entry             LogEntry
+	Project, Location string
+}
+
+// eventarcAuditPublish is an audit entry bound for a trigger's transport
+// topic.
+type eventarcAuditPublish struct {
+	Trigger, Project, Topic, Data string
+}
+
+// eventarcAuditBus hands each audit entry to the transport topic of every
+// trigger that routes it; the topic's push subscription owns the delivery to
+// the destination and its retries.
+var eventarcAuditBus = eventbus.New(nil, eventbus.Config[eventarcAuditEvent, EventarcTrigger, eventarcAuditPublish]{
+	Subscriptions: eventarcAuditLogTriggers,
+	Admits: func(t EventarcTrigger, e eventarcAuditEvent) bool {
+		return eventarcAuditLogMatches(t, e.Entry.ProtoPayload, e.Project, e.Location)
+	},
+	Transform: func(t EventarcTrigger, events []eventarcAuditEvent) (eventarcAuditPublish, bool) {
+		pubsub, _ := t.Transport["pubsub"].(map[string]any)
+		topic, _ := pubsub["topic"].(string)
+		body, err := json.Marshal(events[0].Entry)
+		if err != nil {
+			log.Printf("eventarc: audit log entry %s: %v", events[0].Entry.InsertID, err)
+			return eventarcAuditPublish{}, false
+		}
+		return eventarcAuditPublish{Trigger: t.Name, Project: events[0].Project, Topic: topic,
+			Data: base64.StdEncoding.EncodeToString(body)}, topic != ""
+	},
+	Sink: func(_ EventarcTrigger, p eventarcAuditPublish) { eventarcPublishAuditEntry(p) },
+})
+
+// eventarcAuditLogTriggers lists the project's Cloud Audit Logs triggers.
+func eventarcAuditLogTriggers(project string) []EventarcTrigger {
+	var triggers []EventarcTrigger
+	for _, row := range eventarcTriggers.ListPrefix(project + "/") {
+		if eventarcIsAuditLogTrigger(row.Item) {
+			triggers = append(triggers, row.Item)
+		}
+	}
+	return triggers
+}
+
 // eventarcRouteAuditLog publishes a Cloud Audit Logs entry to the transport
 // topic of every trigger of the project that routes it.
 func eventarcRouteAuditLog(entry LogEntry, project, location string) {
 	if eventarcTriggers == nil {
 		return
 	}
-	var data string
-	for _, row := range eventarcTriggers.ListPrefix(project + "/") {
-		t := row.Item
-		if !eventarcIsAuditLogTrigger(t) || !eventarcAuditLogMatches(t, entry.ProtoPayload, project, location) {
-			continue
-		}
-		pubsub, _ := t.Transport["pubsub"].(map[string]any)
-		topic, _ := pubsub["topic"].(string)
-		if topic == "" {
-			continue
-		}
-		if data == "" {
-			body, err := json.Marshal(entry)
-			if err != nil {
-				log.Printf("eventarc: audit log entry %s: %v", entry.InsertID, err)
-				return
-			}
-			data = base64.StdEncoding.EncodeToString(body)
-		}
-		agent, err := eventarcServiceAgent(project)
-		if err == nil {
-			err = gcpCallAs(context.Background(), agent, http.MethodPost, "/v1/"+topic+":publish",
-				map[string]any{"messages": []map[string]any{{"data": data}}}, nil)
-		}
-		if err != nil {
-			log.Printf("eventarc: trigger %s: %v", t.Name, err)
-		}
+	eventarcAuditBus.Publish(project, eventarcAuditEvent{Entry: entry, Project: project, Location: location})
+}
+
+// eventarcPublishAuditEntry publishes the entry to the trigger's transport
+// topic as the project's Eventarc service agent.
+func eventarcPublishAuditEntry(p eventarcAuditPublish) {
+	agent, err := eventarcServiceAgent(p.Project)
+	if err == nil {
+		err = gcpCallAs(context.Background(), agent, http.MethodPost, "/v1/"+p.Topic+":publish",
+			map[string]any{"messages": []map[string]any{{"data": p.Data}}}, nil)
+	}
+	if err != nil {
+		log.Printf("eventarc: trigger %s: %v", p.Trigger, err)
 	}
 }
 

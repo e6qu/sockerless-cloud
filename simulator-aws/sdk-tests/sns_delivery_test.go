@@ -430,3 +430,74 @@ func snsAwaitDeliveryStatus(t *testing.T, logs *cloudwatchlogs.Client, group, me
 	require.Equal(t, messageID, entry.Notification.MessageID)
 	return entry
 }
+
+// TestSNS_ManagedEndpointRefusalsAreRedriven proves that Amazon SNS hands a
+// notification an Amazon SQS or AWS Lambda subscription refused to the
+// subscription's dead-letter queue, with the RequestID, ErrorCode and
+// ErrorMessage attributes it adds, and counts each redrive.
+func TestSNS_ManagedEndpointRefusalsAreRedriven(t *testing.T) {
+	t.Parallel()
+	snsC, sqsC, lc := snsClient(), sqsClient(), lambdaClient()
+	since := time.Now().UTC().Add(-time.Minute)
+
+	topicName := uniqueName("sns-managed-refused")
+	topic, err := snsC.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String(topicName)})
+	require.NoError(t, err)
+	topicARN := aws.ToString(topic.TopicArn)
+	t.Cleanup(func() { _, _ = snsC.DeleteTopic(ctx, &sns.DeleteTopicInput{TopicArn: topic.TopicArn}) })
+
+	dlq, err := sqsC.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(uniqueName("sns-managed-dlq"))})
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = sqsC.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: dlq.QueueUrl}) })
+	dlqARN := queueARNOf(t, sqsC, dlq.QueueUrl)
+	setQueuePolicyAllowingSNS(t, sqsC, aws.ToString(dlq.QueueUrl), dlqARN, topicARN)
+	redrive := map[string]string{"RedrivePolicy": `{"deadLetterTargetArn":"` + dlqARN + `"}`}
+
+	closed, err := sqsC.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(uniqueName("sns-managed-closed"))})
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = sqsC.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: closed.QueueUrl}) })
+	_, err = snsC.Subscribe(ctx, &sns.SubscribeInput{
+		TopicArn: topic.TopicArn, Protocol: aws.String("sqs"), Endpoint: aws.String(queueARNOf(t, sqsC, closed.QueueUrl)),
+		Attributes: redrive,
+	})
+	require.NoError(t, err)
+
+	fnName := uniqueName("sns-managed-fn")
+	fn, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
+		FunctionName: aws.String(fnName),
+		Role:         aws.String(serviceRole(t, "lambda.amazonaws.com")),
+		Runtime:      lambdatypes.RuntimeNodejs20x,
+		Handler:      aws.String("index.handler"),
+		Code:         &lambdatypes.FunctionCode{ZipFile: lambdaDeploymentZip(t)},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = lc.DeleteFunction(ctx, &lambda.DeleteFunctionInput{FunctionName: aws.String(fnName)}) })
+	_, err = snsC.Subscribe(ctx, &sns.SubscribeInput{
+		TopicArn: topic.TopicArn, Protocol: aws.String("lambda"), Endpoint: fn.FunctionArn, Attributes: redrive,
+	})
+	require.NoError(t, err)
+
+	published, err := snsC.Publish(ctx, &sns.PublishInput{TopicArn: topic.TopicArn, Message: aws.String("refused twice")})
+	require.NoError(t, err)
+
+	codes := map[string]bool{}
+	for len(codes) < 2 {
+		received, err := sqsC.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+			QueueUrl: dlq.QueueUrl, WaitTimeSeconds: 20, MaxNumberOfMessages: 10, MessageAttributeNames: []string{"All"},
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, received.Messages, "both refused notifications reach the dead-letter queue")
+		for _, m := range received.Messages {
+			var envelope map[string]any
+			require.NoError(t, json.Unmarshal([]byte(aws.ToString(m.Body)), &envelope))
+			assert.Equal(t, "Notification", envelope["Type"])
+			assert.Equal(t, aws.ToString(published.MessageId), envelope["MessageId"])
+			assert.Equal(t, "refused twice", envelope["Message"])
+			assert.NotEmpty(t, aws.ToString(m.MessageAttributes["RequestID"].StringValue))
+			assert.NotEmpty(t, aws.ToString(m.MessageAttributes["ErrorMessage"].StringValue))
+			codes[aws.ToString(m.MessageAttributes["ErrorCode"].StringValue)] = true
+		}
+	}
+	assert.Equal(t, map[string]bool{"AccessDenied": true, "AccessDeniedException": true}, codes)
+	assert.Equal(t, float64(2), snsTopicMetricSum(t, topicName, "NumberOfNotificationsRedrivenToDlq", since))
+}

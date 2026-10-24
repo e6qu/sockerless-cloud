@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim/delivery"
+	"github.com/e6qu/sockerless-cloud/sim/eventbus"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 	"github.com/e6qu/sockerless-cloud/sim/msgq"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -139,9 +141,67 @@ func psPolicy(s PSSubscription) msgq.Policy {
 	return pol
 }
 
+// psRoute is a subscription a topic's messages fan out to, with its parsed
+// filter.
+type psRoute struct {
+	Subscription PSSubscription
+	Filter       listq.Node
+}
+
+// psFanOut is the run of one publish's messages a subscription's filter
+// admitted.
+type psFanOut struct {
+	Subscription PSSubscription
+	Messages     []PSMessage
+}
+
+// psTopicBus enqueues a publish on every attached subscription whose filter a
+// message passes; the subscription's queue owns retries and dead-lettering.
+var psTopicBus = eventbus.New(nil, eventbus.Config[PSMessage, psRoute, psFanOut]{
+	Subscriptions: psTopicRoutes,
+	Admits:        func(route psRoute, m PSMessage) bool { return route.Filter.Eval(psFilterDoc(m.Attributes)) },
+	Batch:         func(psRoute) eventbus.Limits { return eventbus.Limits{MaxEvents: math.MaxInt} },
+	Transform: func(route psRoute, messages []PSMessage) (psFanOut, bool) {
+		return psFanOut{Subscription: route.Subscription, Messages: messages}, true
+	},
+	Sink: func(_ psRoute, f psFanOut) { psEnqueue(f) },
+})
+
+// psTopicRoutes lists the topic's attached subscriptions. A subscription
+// whose stored filter does not parse receives nothing.
+func psTopicRoutes(topic string) []psRoute {
+	var routes []psRoute
+	for _, sub := range psSubscriptions.Filter(func(s PSSubscription) bool { return s.Topic == topic && !s.Detached }) {
+		filter, err := psParseFilter(sub.Filter)
+		if err != nil {
+			continue
+		}
+		routes = append(routes, psRoute{Subscription: sub, Filter: filter})
+	}
+	return routes
+}
+
+func psEnqueue(f psFanOut) {
+	sub := f.Subscription
+	pol := psPolicy(sub)
+	now := time.Now()
+	psQueues.Upsert(sub.Name, func(q *psQueue) {
+		q.Subscription = sub.Name
+		for _, m := range f.Messages {
+			opts := msgq.EnqueueOpts{ID: m.MessageId}
+			if sub.EnableMessageOrdering {
+				opts.Group = m.OrderingKey
+			}
+			q.Queue.Enqueue(m, opts, pol, now)
+		}
+	})
+	psSignalSubscription(sub.Name)
+}
+
 // psPublishMessages assigns each message an id and publish time and fans it
-// out to every attached subscription of the topic whose filter it passes.
-// Returns the ids in publish order.
+// out to every attached subscription of the topic whose filter it passes; a
+// message the filter rejects is acknowledged on arrival. Returns the ids in
+// publish order.
 func psPublishMessages(tName string, msgs []PSMessage) ([]string, error) {
 	if _, ok := psTopics.Get(tName); !ok {
 		return nil, status.Errorf(codes.NotFound, "Resource not found (resource=%s)", tName)
@@ -150,29 +210,7 @@ func psPublishMessages(tName string, msgs []PSMessage) ([]string, error) {
 		msgs[i].MessageId = generateUUIDLocal()
 		msgs[i].PublishTime = nowTimestamp()
 	}
-	now := time.Now()
-	for _, sub := range psSubscriptions.Filter(func(s PSSubscription) bool { return s.Topic == tName && !s.Detached }) {
-		filter, err := psParseFilter(sub.Filter)
-		if err != nil {
-			continue
-		}
-		pol := psPolicy(sub)
-		psQueues.Upsert(sub.Name, func(q *psQueue) {
-			q.Subscription = sub.Name
-			for _, m := range msgs {
-				// A message the filter rejects is acknowledged on arrival.
-				if !filter.Eval(psFilterDoc(m.Attributes)) {
-					continue
-				}
-				opts := msgq.EnqueueOpts{ID: m.MessageId}
-				if sub.EnableMessageOrdering {
-					opts.Group = m.OrderingKey
-				}
-				q.Queue.Enqueue(m, opts, pol, now)
-			}
-		})
-		psSignalSubscription(sub.Name)
-	}
+	psTopicBus.Publish(tName, msgs...)
 	ids := make([]string, 0, len(msgs))
 	for _, m := range msgs {
 		ids = append(ids, m.MessageId)
