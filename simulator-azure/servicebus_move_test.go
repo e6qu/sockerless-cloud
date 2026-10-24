@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 // newServiceBusMoveTestStores wires the stores the Microsoft.ServiceBus move
@@ -18,6 +19,7 @@ import (
 // verification path the data plane uses.
 func newServiceBusMoveTestStores(t *testing.T) {
 	t.Helper()
+	bg.Await()
 	sbNamespaces = sim.MakeStore[SBNamespace](nil, "test_sb_namespaces")
 	sbQueues = sim.MakeStore[SBQueue](nil, "test_sb_queues")
 	sbTopics = sim.MakeStore[SBTopic](nil, "test_sb_topics")
@@ -35,6 +37,7 @@ func newServiceBusMoveTestStores(t *testing.T) {
 		sbAuthRules, sbNetworkRules, sbPrivateConns, sbDRConfigs, sbMigrations = nil, nil, nil, nil, nil
 		ehAuthRules, azureKeyGens = nil, nil
 	})
+	t.Cleanup(bg.Await)
 }
 
 // seedServiceBusMoveNamespace provisions a namespace with the root

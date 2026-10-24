@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 )
 
 func newServiceBusQueueTestStores(t *testing.T) {
@@ -18,6 +19,7 @@ func newServiceBusQueueTestStores(t *testing.T) {
 	saved := sbQueueDurable
 	sbQueueDurable = sim.MakeStore[sbQueueRecord](nil, "test_sb_queue_messages")
 	t.Cleanup(func() { sbQueueDurable = saved })
+	t.Cleanup(bg.Await)
 	id := sbNamespaceID("sub", "rg", "ns")
 	sbNamespaces.Put(id, SBNamespace{ID: id, Name: "ns"})
 }
