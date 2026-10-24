@@ -47,7 +47,7 @@ const columns: GcpColumn<CloudRunJob>[] = [
   {
     id: "name",
     header: "Name",
-    cell: (row) => <Link className="gc-cell-link" to={`/ui/cloudrun/${shortName(row.name)}`}>{shortName(row.name)}</Link>,
+    cell: (row) => <Link className="gc-cell-link" to={`/ui/run/jobs/details/us-central1/${shortName(row.name)}/executions`}>{shortName(row.name)}</Link>,
     value: (row) => shortName(row.name),
   },
   { id: "state", header: "Status of last execution", cell: (row) => <GcpStatus status={jobState(row)} />, value: jobState },

@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ServiceAccountKeysTable } from "../pages/ServiceAccountDetailPage.js";
 import { ServiceAccountKeyMintedDialog, gcloudUsage } from "../pages/ServiceAccountKeyMintedDialog.js";
@@ -131,9 +132,11 @@ describe("CreateServiceAccountDialog", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     return render(
       <QueryClientProvider client={queryClient}>
-        <ProjectProvider>
-          <CreateServiceAccountDialog onClose={() => {}} onCreated={() => {}} />
-        </ProjectProvider>
+        <MemoryRouter>
+          <ProjectProvider>
+            <CreateServiceAccountDialog onClose={() => {}} onCreated={() => {}} />
+          </ProjectProvider>
+        </MemoryRouter>
       </QueryClientProvider>,
     );
   }

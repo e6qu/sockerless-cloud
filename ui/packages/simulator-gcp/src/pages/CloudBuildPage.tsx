@@ -37,7 +37,7 @@ const columns: GcpColumn<CloudBuild>[] = [
     id: "id",
     header: "Build",
     cell: (row) => (
-      <Link className="gc-cell-link" to={`/ui/cloudbuild/${row.id}`}>
+      <Link className="gc-cell-link" to={`/ui/cloud-build/builds/${row.id}`}>
         {row.id}
       </Link>
     ),
@@ -270,10 +270,8 @@ export function CloudBuildDetailPage() {
 
   return (
     <>
-      <div className="gc-detail-back">
-        <Link to="/ui/cloudbuild">‹ Cloud Build history</Link>
-      </div>
       <GcpPageHeader
+        backTo="/ui/cloud-build/builds"
         title={id}
         description="Cloud Build build"
         onRefresh={() => void build.refetch()}

@@ -41,7 +41,7 @@ const columns: GcpColumn<BigQueryDataset>[] = [
     id: "name",
     header: "Dataset ID",
     cell: (row) => (
-      <Link className="gc-cell-link" to={`/ui/bigquery/${datasetId(row)}`}>
+      <Link className="gc-cell-link" to={`/ui/bigquery/datasets/${datasetId(row)}`}>
         {datasetId(row)}
       </Link>
     ),
@@ -250,10 +250,8 @@ export function BigQueryDatasetDetailPage() {
 
   return (
     <>
-      <div className="gc-detail-back">
-        <Link to="/ui/bigquery">‹ BigQuery datasets</Link>
-      </div>
       <GcpPageHeader
+        backTo="/ui/bigquery"
         title={name}
         description="BigQuery dataset"
         actions={[{ label: "Delete", testId: "bigquery-dataset-delete", onSelect: () => setDeleting(true) }]}

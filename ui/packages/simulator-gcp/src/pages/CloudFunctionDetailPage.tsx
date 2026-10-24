@@ -32,7 +32,7 @@ export function CloudFunctionDetailPage() {
       <GcpResourceDetail<CloudFunction>
         title={shortName(name)}
         description="Cloud Run function"
-        backTo="/ui/functions"
+        backTo="/ui/functions/list"
         backLabel="Cloud Run functions"
         queryKey={["cloud-function", project, name]}
         queryFn={() => fetchCloudFunction(project, name)}
@@ -107,7 +107,7 @@ export function CloudFunctionDetailPage() {
           onClose={() => setDeleting(false)}
           onDeleted={() => {
             void queryClient.invalidateQueries({ queryKey: ["cloud-functions-real", project] });
-            navigate("/ui/functions");
+            navigate("/ui/functions/list");
           }}
         />
       ) : null}

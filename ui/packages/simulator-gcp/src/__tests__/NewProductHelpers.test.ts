@@ -105,10 +105,10 @@ describe("Eventarc readers", () => {
 
 describe("replicationLabel", () => {
   it("names the replication oneof arm the secret carries", () => {
-    expect(replicationLabel({ name: "s", replication: { automatic: {} } })).toBe("Automatic");
+    expect(replicationLabel({ name: "s", replication: { automatic: {} } })).toBe("Automatically replicated");
     expect(
       replicationLabel({ name: "s", replication: { userManaged: { replicas: [{ location: "us-central1" }] } } }),
-    ).toBe("User managed (us-central1)");
+    ).toBe("us-central1");
     expect(replicationLabel({ name: "s" })).toBe("—");
   });
 });

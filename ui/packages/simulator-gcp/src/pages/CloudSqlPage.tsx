@@ -42,7 +42,7 @@ const columns: GcpColumn<SqlInstance>[] = [
     id: "name",
     header: "Instance ID",
     cell: (row) => (
-      <Link className="gc-cell-link" to={`/ui/sql/${row.name}`}>
+      <Link className="gc-cell-link" to={`/ui/sql/instances/${row.name}/overview`}>
         {row.name}
       </Link>
     ),
@@ -321,10 +321,8 @@ export function CloudSqlInstanceDetailPage() {
 
   return (
     <>
-      <div className="gc-detail-back">
-        <Link to="/ui/sql">‹ Cloud SQL instances</Link>
-      </div>
       <GcpPageHeader
+        backTo="/ui/sql/instances"
         title={name}
         description="Cloud SQL instance"
         actions={[
@@ -413,7 +411,7 @@ export function CloudSqlInstanceDetailPage() {
         />
       )}
       {deleting ? (
-        <DeleteInstanceDialog name={name} onClose={() => setDeleting(false)} onDeleted={() => navigate("/ui/sql")} />
+        <DeleteInstanceDialog name={name} onClose={() => setDeleting(false)} onDeleted={() => navigate("/ui/sql/instances")} />
       ) : null}
       {creatingDatabase ? (
         <CreateDatabaseDialog

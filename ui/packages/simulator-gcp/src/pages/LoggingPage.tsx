@@ -1,174 +1,126 @@
 import { useState } from "react";
-import { GcpResourceTable, GcpStatus, type GcpColumn } from "../console/index.js";
-import { GcpDialog } from "../console/GcpDialog.js";
-import { shortName, formatTimestamp } from "../console/format.js";
-import { fetchLogEntries, type LogEntry, type LogSeverity } from "../api.js";
+import { useSearchParams } from "react-router";
+import { useQuery } from "@tanstack/react-query";
+import { GcpPageHeader, GcpStatus } from "../console/GcpConsole.js";
+import { LoadError, Loading } from "../console/GcpResourceDetail.js";
+import { Icon } from "../console/icons.js";
+import { formatTimestamp } from "../console/format.js";
 import { useProject } from "../console/project.js";
+import { fetchLogEntries, type LogEntry, type LogSeverity } from "../api.js";
+import { logSummary, severityKind } from "./LogsTab.js";
 
-// Cloud Logging omits severity when it is the default; the console reads that
-// as DEFAULT rather than a blank cell.
-const severityOf = (row: LogEntry) => row.severity ?? "DEFAULT";
+// The severity ladder Cloud Logging orders severity>= comparisons on.
+const SEVERITY_LEVELS: LogSeverity[] = ["DEFAULT", "DEBUG", "INFO", "NOTICE", "WARNING", "ERROR", "CRITICAL", "ALERT", "EMERGENCY"];
 
-// The severity ladder Cloud Logging's query language orders `severity>=`
-// comparisons on (logging/v2 LogSeverity), offered as the Logs Explorer's own
-// "Minimum severity" picker composes it.
-const SEVERITY_LEVELS: LogSeverity[] = [
-  "DEFAULT",
-  "DEBUG",
-  "INFO",
-  "NOTICE",
-  "WARNING",
-  "ERROR",
-  "CRITICAL",
-  "ALERT",
-  "EMERGENCY",
-];
+const logId = (logName: string) => decodeURIComponent(logName.slice(logName.indexOf("/logs/") + 6));
 
-const summaryOf = (row: LogEntry): string =>
-  row.textPayload ?? (row.jsonPayload ? JSON.stringify(row.jsonPayload) : "");
-
-// LogEntryDetailDialog is the entry-expansion the real Logs Explorer's
-// clicked-row detail panel offers: the full entry — resource, insert ID, and
-// either its text or JSON payload — rather than the one-line summary the
-// table shows.
-export function LogEntryDetailDialog({ entry, onClose }: { entry: LogEntry; onClose: () => void }) {
-  const resourceLabels = Object.entries(entry.resource?.labels ?? {});
+function LogRow({ entry }: { entry: LogEntry }) {
+  const [open, setOpen] = useState(false);
+  const severity = entry.severity ?? "DEFAULT";
   return (
-    <GcpDialog title="Log entry" testId="log-entry-dialog" onClose={onClose}>
-      <dl className="gc-detail-grid">
-        <div className="gc-detail-pair">
-          <dt>Timestamp</dt>
-          <dd>{formatTimestamp(entry.timestamp)}</dd>
-        </div>
-        <div className="gc-detail-pair">
-          <dt>Severity</dt>
-          <dd><GcpStatus status={severityOf(entry)} /></dd>
-        </div>
-        <div className="gc-detail-pair">
-          <dt>Log name</dt>
-          <dd>{entry.logName}</dd>
-        </div>
-        <div className="gc-detail-pair">
-          <dt>Insert ID</dt>
-          <dd>{entry.insertId ?? "—"}</dd>
-        </div>
-        <div className="gc-detail-pair">
-          <dt>Resource type</dt>
-          <dd>{entry.resource?.type ?? "—"}</dd>
-        </div>
-      </dl>
-      {resourceLabels.length > 0 ? (
-        <>
-          <h2 className="gc-detail-heading">Resource labels</h2>
-          <dl className="gc-detail-grid">
-            {resourceLabels.map(([key, value]) => (
-              <div className="gc-detail-pair" key={key}>
-                <dt>{key}</dt>
-                <dd>{value}</dd>
-              </div>
-            ))}
-          </dl>
-        </>
+    <li className="gc-log-row">
+      <button
+        type="button"
+        className="gc-log-row-toggle"
+        aria-expanded={open}
+        data-testid={`log-entry-${entry.insertId ?? entry.timestamp}`}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <Icon name={open ? "expand_more" : "chevron_right"} size="1.25em" />
+        <GcpStatus status={severity} kind={severityKind(entry.severity)} label={severity} />
+        <span className="gc-log-time">{formatTimestamp(entry.timestamp)}</span>
+        <span className="gc-log-name">{logId(entry.logName)}</span>
+        <span className="gc-log-summary">{logSummary(entry)}</span>
+      </button>
+      {open ? (
+        <pre className="gc-code gc-log-json" data-testid="log-entry-payload">
+          {JSON.stringify(entry, null, 2)}
+        </pre>
       ) : null}
-      <h2 className="gc-detail-heading">Payload</h2>
-      <pre className="gc-code" data-testid="log-entry-payload">
-        {entry.jsonPayload ? JSON.stringify(entry.jsonPayload, null, 2) : entry.textPayload || "—"}
-      </pre>
-      <div className="gc-dialog-actions">
-        <button type="button" className="gc-button-primary" onClick={onClose}>Close</button>
-      </div>
-    </GcpDialog>
+    </li>
   );
 }
 
+// Logs Explorer: a Cloud Logging query and a minimum severity, sent as the
+// entries:list filter, and the matching entries newest first, each one
+// expanding to the full LogEntry.
 export function LoggingPage() {
   const { project } = useProject();
+  const [params, setParams] = useSearchParams();
+  const initial = params.get("query") ?? "";
+  const [queryInput, setQueryInput] = useState(initial);
+  const [query, setQuery] = useState(initial);
   const [severity, setSeverity] = useState<LogSeverity | "">("");
-  const [queryInput, setQueryInput] = useState("");
-  const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<LogEntry | null>(null);
-
-  // Composed exactly the way the real Logs Explorer's query box and severity
-  // picker combine: AND-joined clauses in the Cloud Logging query language,
-  // sent to the real `entries:list` filter field rather than filtered
-  // client-side.
-  const filter = [severity ? `severity>="${severity}"` : "", query].filter(Boolean).join(" AND ");
-
-  const columns: GcpColumn<LogEntry>[] = [
-    { id: "timestamp", header: "Timestamp", cell: (row) => formatTimestamp(row.timestamp), value: (row) => row.timestamp },
-    { id: "severity", header: "Severity", cell: (row) => <GcpStatus status={severityOf(row)} />, value: severityOf },
-    { id: "logName", header: "Log name", cell: (row) => shortName(row.logName), value: (row) => row.logName },
-    { id: "message", header: "Summary", cell: (row) => summaryOf(row), value: summaryOf },
-    {
-      id: "details",
-      header: "Details",
-      cell: (row) => (
-        <button
-          type="button"
-          className="gc-button-text"
-          data-testid={`log-entry-details-${row.insertId ?? `${row.timestamp}-${row.logName}`}`}
-          onClick={() => setSelected(row)}
-        >
-          View
-        </button>
-      ),
-      value: () => "",
-    },
-  ];
+  const filter = [severity ? `severity>=${severity}` : "", query].filter(Boolean).join(" AND ");
+  const entries = useQuery({
+    queryKey: ["log-entries-real", project, filter],
+    queryFn: () => fetchLogEntries(project, filter || undefined),
+  });
 
   return (
     <>
+      <GcpPageHeader title="Logs Explorer" onRefresh={() => void entries.refetch()} refreshing={entries.isFetching} />
       <form
         className="gc-log-query"
         data-testid="log-query-form"
         onSubmit={(event) => {
           event.preventDefault();
-          setQuery(queryInput.trim());
+          const next = queryInput.trim();
+          setQuery(next);
+          const updated = new URLSearchParams(params);
+          if (next) updated.set("query", next);
+          else updated.delete("query");
+          setParams(updated, { replace: true });
         }}
       >
-        <label className="gc-log-query-field" style={{ flex: 1 }}>
+        <label className="gc-log-query-field gc-log-query-editor">
           Query
-          <input
-            type="text"
+          <textarea
+            rows={3}
             data-testid="log-query-input"
-            placeholder='resource.type="cloud_run_job" AND textPayload:"error"'
+            placeholder='resource.type="gce_instance" AND textPayload:"error"'
             value={queryInput}
             onChange={(event) => setQueryInput(event.target.value)}
           />
         </label>
         <label className="gc-log-query-field">
-          Minimum severity
-          <select
-            data-testid="log-severity-select"
-            value={severity}
-            onChange={(event) => setSeverity(event.target.value as LogSeverity | "")}
-          >
-            <option value="">Any</option>
+          Severity
+          <select data-testid="log-severity-select" value={severity} onChange={(event) => setSeverity(event.target.value as LogSeverity | "")}>
+            <option value="">All severities</option>
             {SEVERITY_LEVELS.map((level) => (
-              <option key={level} value={level}>{level}</option>
+              <option key={level} value={level}>
+                {level.charAt(0) + level.slice(1).toLowerCase()} and above
+              </option>
             ))}
           </select>
         </label>
-        <button type="submit" className="gc-button-primary" data-testid="log-query-run">Run query</button>
+        <button type="submit" className="gc-button-primary" data-testid="log-query-run">
+          <Icon name="play_arrow" size="1.25em" />
+          Run query
+        </button>
       </form>
-
-      <GcpResourceTable<LogEntry>
-        title="Logs Explorer"
-        description="Search, filter, and inspect log entries across the project."
-        columns={columns}
-        queryKey={["log-entries-real", project, filter]}
-        queryFn={() => fetchLogEntries(project, filter || undefined)}
-        filterPlaceholder="Filter loaded entries"
-        resourceNoun="log entries"
-        empty={{
-          headline: "No log entries match this query",
-          description: "Entries written across the project appear here as it runs.",
-          primaryLabel: "Refresh",
-        }}
-        rowKey={(row) => `${row.insertId ?? ""}|${row.timestamp}|${row.logName}|${row.textPayload ?? ""}`}
-      />
-
-      {selected ? <LogEntryDetailDialog entry={selected} onClose={() => setSelected(null)} /> : null}
+      <section className="gc-table-card" aria-labelledby="log-results-heading">
+        <div className="gc-log-results-header">
+          <h2 id="log-results-heading">Query results</h2>
+          <span>{entries.data ? `${entries.data.length} log entries` : ""}</span>
+        </div>
+        {entries.isError ? (
+          <LoadError error={entries.error} noun="log entries" />
+        ) : entries.isLoading ? (
+          <Loading noun="log entries" />
+        ) : (entries.data ?? []).length === 0 ? (
+          <div className="gc-empty">
+            <p className="gc-empty-headline">No data found</p>
+            <p className="gc-empty-description">No log entries match the query. Edit the query or widen the severity.</p>
+          </div>
+        ) : (
+          <ul className="gc-log-list" data-testid="log-results">
+            {(entries.data ?? []).map((entry, index) => (
+              <LogRow key={`${entry.insertId ?? ""}-${entry.timestamp}-${index}`} entry={entry} />
+            ))}
+          </ul>
+        )}
+      </section>
     </>
   );
 }

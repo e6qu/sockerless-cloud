@@ -4,6 +4,9 @@ import { GcpResourceTable, GcpStatus, type GcpColumn } from "../console/index.js
 import { GcpDialog } from "../console/GcpDialog.js";
 import { PROJECTS_QUERY_PREFIX } from "../console/ProjectPicker.js";
 import { formatTimestamp } from "../console/format.js";
+import { Icon } from "../console/icons.js";
+import { useOperations } from "../console/notifications.js";
+import { useProject } from "../console/project.js";
 import {
   crmProjectNumber,
   deleteProject,
@@ -29,8 +32,14 @@ export function DeleteProjectDialog({
   onClose: () => void;
   onDeleted: () => void;
 }) {
+  const { track } = useOperations();
   const remove = useMutation({
-    mutationFn: async () => waitCrmOperation(await deleteProject(project.projectId)),
+    mutationFn: () =>
+      track(
+        `Shut down project "${project.projectId}"`,
+        async () => waitCrmOperation(await deleteProject(project.projectId)),
+        `Shut down project "${project.projectId}"`,
+      ),
     onSuccess: onDeleted,
   });
   return (
@@ -64,68 +73,65 @@ export function DeleteProjectDialog({
 
 export function ManageProjectsPage() {
   const queryClient = useQueryClient();
+  const { setProject } = useProject();
   const [deleting, setDeleting] = useState<CrmProject | null>(null);
 
   const columns: GcpColumn<CrmProject>[] = [
     {
       id: "name",
       header: "Name",
-      cell: (row) => (
-        <span data-testid={`manage-project-row-${row.projectId}`}>{row.displayName || row.projectId}</span>
-      ),
+      cell: (row) =>
+        row.state === "ACTIVE" ? (
+          <button
+            type="button"
+            className="gc-link-button"
+            data-testid={`manage-project-row-${row.projectId}`}
+            onClick={() => setProject(row.projectId, "/ui/home/dashboard")}
+          >
+            <Icon name="account_tree" size="1.15em" />
+            {row.displayName || row.projectId}
+          </button>
+        ) : (
+          <span data-testid={`manage-project-row-${row.projectId}`}>{row.displayName || row.projectId}</span>
+        ),
       value: (row) => row.displayName || row.projectId,
     },
     { id: "id", header: "ID", cell: (row) => row.projectId, value: (row) => row.projectId },
-    { id: "number", header: "Number", cell: crmProjectNumber, value: crmProjectNumber },
+    { id: "number", header: "Number", cell: crmProjectNumber, value: crmProjectNumber, defaultHidden: true },
     {
       id: "state",
-      header: "State",
-      cell: (row) => <GcpStatus status={row.state === "DELETE_REQUESTED" ? "Pending deletion" : (row.state ?? "Unknown")} />,
-      value: (row) => row.state ?? "",
-    },
-    {
-      id: "created",
-      header: "Created",
-      cell: (row) => formatTimestamp(row.createTime ?? ""),
-      value: (row) => row.createTime ?? "",
-    },
-    {
-      id: "actions",
-      header: "Actions",
+      header: "Status",
       cell: (row) =>
         row.state === "DELETE_REQUESTED" ? (
-          "—"
+          <GcpStatus status="Pending deletion" kind="warning" />
         ) : (
-          <button
-            type="button"
-            className="gc-button-text"
-            data-testid={`project-delete-${row.projectId}`}
-            aria-label={`Shut down ${row.projectId}`}
-            onClick={() => setDeleting(row)}
-          >
-            Shut down
-          </button>
+          <GcpStatus status={row.state ?? "Unknown"} label={row.state === "ACTIVE" ? "Active" : (row.state ?? "Unknown")} />
         ),
-      value: () => "",
+      value: (row) => row.state ?? "",
     },
+    { id: "created", header: "Created", cell: (row) => formatTimestamp(row.createTime ?? ""), value: (row) => row.createTime ?? "" },
   ];
 
   return (
     <>
       <GcpResourceTable<CrmProject>
         title="Manage resources"
-        description="Projects the signed-in principal can see, across their full lifecycle. Shutting a project down schedules it for deletion after a 30-day pending period."
+        actions={[{ label: "Create project", icon: "add", to: "/ui/projectcreate", testId: "project-create" }]}
+        rowActions={(row) => [
+          {
+            label: "Delete",
+            disabled: row.state !== "ACTIVE",
+            onSelect: () => setDeleting(row),
+          },
+        ]}
         columns={columns}
         queryKey={ALL_PROJECTS_QUERY_KEY}
         queryFn={() => searchProjects()}
-        filterPlaceholder="Filter projects"
         resourceNoun="projects"
-        empty={{
-          headline: "No projects to manage",
-          description: "Projects you create appear here with their lifecycle state and deletion controls.",
-          primaryLabel: "Create project",
-        }}
+        testId="manage-projects-table"
+        empty={{ headline: "No projects", description: "Projects you create appear here with their lifecycle state." }}
         rowKey={(row) => row.projectId}
+        rowLabel={(row) => row.projectId}
       />
       {deleting ? (
         <DeleteProjectDialog

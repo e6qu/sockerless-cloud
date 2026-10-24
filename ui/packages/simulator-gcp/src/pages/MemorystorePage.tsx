@@ -23,7 +23,7 @@ const columns: GcpColumn<RedisInstance>[] = [
     id: "name",
     header: "Instance ID",
     cell: (row) => (
-      <Link className="gc-cell-link" to={`/ui/memorystore/${shortName(row.name)}`}>
+      <Link className="gc-cell-link" to={`/ui/memorystore/redis/instances/${shortName(row.name)}/details`}>
         {shortName(row.name)}
       </Link>
     ),
@@ -257,10 +257,8 @@ export function MemorystoreInstanceDetailPage() {
 
   return (
     <>
-      <div className="gc-detail-back">
-        <Link to="/ui/memorystore">‹ Memorystore for Redis</Link>
-      </div>
       <GcpPageHeader
+        backTo="/ui/memorystore/redis/instances"
         title={name}
         description="Memorystore for Redis instance"
         onRefresh={() => void instance.refetch()}

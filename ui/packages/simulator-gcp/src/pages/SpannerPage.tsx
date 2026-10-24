@@ -27,7 +27,7 @@ const columns: GcpColumn<SpannerInstance>[] = [
     id: "name",
     header: "Instance ID",
     cell: (row) => (
-      <Link className="gc-cell-link" to={`/ui/spanner/${shortName(row.name)}`}>
+      <Link className="gc-cell-link" to={`/ui/spanner/instances/${shortName(row.name)}/details/databases`}>
         {shortName(row.name)}
       </Link>
     ),
@@ -269,10 +269,8 @@ export function SpannerInstanceDetailPage() {
 
   return (
     <>
-      <div className="gc-detail-back">
-        <Link to="/ui/spanner">‹ Spanner instances</Link>
-      </div>
       <GcpPageHeader
+        backTo="/ui/spanner/instances"
         title={name}
         description="Spanner instance"
         actions={[{ label: "Delete", testId: "spanner-instance-delete", onSelect: () => setDeleting(true) }]}
@@ -340,7 +338,7 @@ export function SpannerInstanceDetailPage() {
         <DeleteSpannerInstanceDialog
           name={name}
           onClose={() => setDeleting(false)}
-          onDeleted={() => navigate("/ui/spanner")}
+          onDeleted={() => navigate("/ui/spanner/instances")}
         />
       ) : null}
     </>

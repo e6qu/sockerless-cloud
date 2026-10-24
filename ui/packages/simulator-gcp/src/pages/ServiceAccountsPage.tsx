@@ -170,7 +170,7 @@ export function ServiceAccountsPage() {
       id: "email",
       header: "Email",
       cell: (row) => (
-        <Link className="gc-cell-link" data-testid={`sa-row-${row.email}`} to={`/ui/serviceaccounts/${row.email}`}>
+        <Link className="gc-cell-link" data-testid={`sa-row-${row.email}`} to={`/ui/iam-admin/serviceaccounts/details/${row.email}`}>
           {row.email}
         </Link>
       ),

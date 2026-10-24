@@ -1,5 +1,8 @@
-import { Link, useParams } from "react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { Link, useNavigate, useParams } from "react-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { GcpDialog } from "../console/GcpDialog.js";
+import { useOperations } from "../console/notifications.js";
 import { GcpResourceTable, type GcpColumn } from "../console/index.js";
 import { GcpPageHeader, GcpStatus } from "../console/GcpConsole.js";
 import { GcpTabs } from "../console/GcpTabs.js";
@@ -14,8 +17,10 @@ import {
   type ComputeFirewall,
   type ComputeNetwork,
   type ComputeSubnetwork,
+  deleteComputeNetwork,
+  waitComputeOperation,
 } from "../api.js";
-import { useProject } from "../console/project.js";
+import { useProject, useProjectPath } from "../console/project.js";
 
 const lastSegment = (value: string | undefined): string => (value ? shortName(value) : "—");
 
@@ -33,7 +38,7 @@ const columns: GcpColumn<ComputeNetwork>[] = [
     id: "name",
     header: "Name",
     cell: (row) => (
-      <Link className="gc-cell-link" to={`/ui/vpc/${row.name}`}>
+      <Link className="gc-cell-link" to={`/ui/networking/networks/details/${row.name}`}>
         {row.name}
       </Link>
     ),
@@ -59,12 +64,62 @@ const columns: GcpColumn<ComputeNetwork>[] = [
   },
 ];
 
+function DeleteNetworksDialog({ names, onClose, onDone }: { names: string[]; onClose: () => void; onDone: () => void }) {
+  const { project } = useProject();
+  const { track } = useOperations();
+  const subject = names.length === 1 ? `VPC network "${names[0]}"` : `${names.length} VPC networks`;
+  const remove = useMutation({
+    mutationFn: () =>
+      track(
+        `Delete ${subject}`,
+        () =>
+          Promise.all(
+            names.map(async (name) => waitComputeOperation(project, "global", await deleteComputeNetwork(project, name))),
+          ),
+        `Deleted ${subject}`,
+      ),
+    onSuccess: onDone,
+  });
+  return (
+    <GcpDialog title={`Delete ${subject}?`} testId="vpc-delete-dialog" onClose={onClose}>
+      <p>Deleting a VPC network removes it permanently. Its instances, custom subnets and firewall rules must be deleted first.</p>
+      {remove.isError ? (
+        <div className="gc-message gc-message-error" role="alert">
+          <strong>Couldn't delete {subject}.</strong>{" "}
+          {remove.error instanceof Error ? remove.error.message : "The API did not respond."}
+        </div>
+      ) : null}
+      <div className="gc-dialog-actions">
+        <button type="button" className="gc-button-text" onClick={onClose}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="gc-button-primary gc-button-danger"
+          data-testid="vpc-delete-confirm"
+          disabled={remove.isPending}
+          onClick={() => remove.mutate()}
+        >
+          {remove.isPending ? "Deleting…" : "Delete"}
+        </button>
+      </div>
+    </GcpDialog>
+  );
+}
+
 export function VpcNetworkPage() {
   const { project } = useProject();
+  const queryClient = useQueryClient();
+  const [deleting, setDeleting] = useState<string[] | null>(null);
   return (
+    <>
     <GcpResourceTable<ComputeNetwork>
       title="VPC networks"
-      description="A Virtual Private Cloud network is a virtual version of a physical network, implemented inside Google's production network."
+      actions={[{ label: "Create VPC network", icon: "add", to: "/ui/networking/networks/add", testId: "vpc-create" }]}
+      selectionActions={(selected) => [
+        { label: "Delete", icon: "delete", onSelect: () => setDeleting(selected.map((row) => row.name)) },
+      ]}
+      testId="vpc-networks-table"
       columns={columns}
       queryKey={["compute-networks", project]}
       queryFn={() => fetchComputeNetworks(project)}
@@ -77,6 +132,17 @@ export function VpcNetworkPage() {
       }}
       rowKey={(row) => row.name}
     />
+    {deleting ? (
+      <DeleteNetworksDialog
+        names={deleting}
+        onClose={() => setDeleting(null)}
+        onDone={() => {
+          setDeleting(null);
+          void queryClient.invalidateQueries({ queryKey: ["compute-networks", project] });
+        }}
+      />
+    ) : null}
+    </>
   );
 }
 
@@ -101,15 +167,23 @@ export function VpcNetworkDetailPage() {
   });
 
   const data = network.data;
+  const navigate = useNavigate();
+  const path = useProjectPath();
+  const [deleting, setDeleting] = useState(false);
 
   return (
     <>
-      <div className="gc-detail-back">
-        <Link to="/ui/vpc">‹ VPC networks</Link>
-      </div>
+      {deleting ? (
+        <DeleteNetworksDialog
+          names={[name]}
+          onClose={() => setDeleting(false)}
+          onDone={() => navigate(path("/ui/networking/networks/list"))}
+        />
+      ) : null}
       <GcpPageHeader
+        backTo="/ui/networking/networks/list"
         title={name}
-        description="VPC network"
+        actions={[{ label: "Delete VPC network", icon: "delete", testId: "vpc-delete", onSelect: () => setDeleting(true) }]}
         onRefresh={() => {
           void network.refetch();
           void subnets.refetch();

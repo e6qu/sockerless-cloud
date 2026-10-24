@@ -27,7 +27,7 @@ const columns: GcpColumn<DnsManagedZone>[] = [
     id: "name",
     header: "Zone name",
     cell: (row) => (
-      <Link className="gc-cell-link" to={`/ui/dns/${row.name}`}>
+      <Link className="gc-cell-link" to={`/ui/net-services/dns/zones/${row.name}/details`}>
         {row.name}
       </Link>
     ),
@@ -247,10 +247,8 @@ export function CloudDnsZoneDetailPage() {
 
   return (
     <>
-      <div className="gc-detail-back">
-        <Link to="/ui/dns">‹ Cloud DNS</Link>
-      </div>
       <GcpPageHeader
+        backTo="/ui/net-services/dns/zones"
         title={name}
         description="Cloud DNS managed zone"
         actions={[{ label: "Delete", testId: "dns-zone-delete", onSelect: () => setDeleting(true) }]}
@@ -316,7 +314,7 @@ export function CloudDnsZoneDetailPage() {
         />
       )}
       {deleting ? (
-        <DeleteZoneDialog name={name} onClose={() => setDeleting(false)} onDeleted={() => navigate("/ui/dns")} />
+        <DeleteZoneDialog name={name} onClose={() => setDeleting(false)} onDeleted={() => navigate("/ui/net-services/dns/zones")} />
       ) : null}
     </>
   );

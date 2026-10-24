@@ -1,8 +1,13 @@
 Roboto is licensed under the Apache License, Version 2.0.
 https://github.com/googlefonts/roboto — Copyright the Roboto Project Authors.
 
-The Material Symbols icon paths vendored in ../icons.tsx are likewise licensed
-under the Apache License, Version 2.0.
+Google Sans is licensed under the SIL Open Font License, Version 1.1; the
+license text is in OFL-GoogleSans.txt.
+https://github.com/googlefonts/googlesans — Copyright 2025 The Google Sans
+Project Authors.
+
+The Material Symbols icon paths vendored in ../icons.tsx are licensed under
+the Apache License, Version 2.0.
 https://github.com/google/material-design-icons — Copyright Google LLC.
 
 A copy of the Apache License 2.0 is available at

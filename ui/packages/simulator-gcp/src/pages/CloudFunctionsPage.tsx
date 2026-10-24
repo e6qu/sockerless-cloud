@@ -234,7 +234,7 @@ const columns: GcpColumn<CloudFunction>[] = [
   {
     id: "name",
     header: "Name",
-    cell: (row) => <Link className="gc-cell-link" to={`/ui/functions/${shortName(row.name)}`}>{shortName(row.name)}</Link>,
+    cell: (row) => <Link className="gc-cell-link" to={`/ui/functions/details/us-central1/${shortName(row.name)}`}>{shortName(row.name)}</Link>,
     value: (row) => shortName(row.name),
   },
   { id: "state", header: "State", cell: (row) => <GcpStatus status={row.state ?? "UNKNOWN"} />, value: (row) => row.state ?? "" },

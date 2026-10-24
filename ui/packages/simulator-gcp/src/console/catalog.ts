@@ -1,148 +1,403 @@
 import type { IconName } from "./icons.js";
 
-// The real console's hamburger menu opens a navigation drawer listing the
-// Google Cloud product catalog, grouped the way the console groups it
-// (Compute, Serverless, Storage, Databases, Networking, Operations,
-// Analytics, Artificial Intelligence, Developer Tools, API Management,
-// APIs & Services, IAM & Admin, Security). The simulator implements a
-// substantial slice of Google Cloud, so the catalog carries the real
-// information architecture truthfully: every product Google Cloud offers is
-// listed, every product whose real API the simulator serves links to its
-// page, and only the products with no simulated API at all are marked
-// "Not supported".
+// The console's product catalog: every product this console has pages for,
+// grouped into the categories the real console's "View all products" page
+// uses, each with the side navigation the product shows and the documentation
+// its help menu links to. A product appears here only when the APIs its pages
+// read are served; there are no placeholder entries.
 //
-// The "Not supported" chip is a claim about the simulator, so it is only
-// correct where the simulator serves no API for the product. A product whose
-// real REST surface the simulator answers — Compute Engine, Cloud SQL,
-// Spanner, Bigtable, Firestore, Memorystore for Redis, Cloud DNS, Cloud Load
-// Balancing, Serverless VPC Access, BigQuery, Pub/Sub, Dataflow, Cloud Build,
-// Eventarc, API Gateway, Service Usage, Cloud KMS, Secret Manager and Cloud
-// IAM — links to its own page instead.
-//
-// Icons are Material Symbols Outlined glyphs (the console's own icon set),
-// not the trademarked per-product logos the real catalog uses — see
-// PLAN.md § "Simulator Console Parity" ("without copying proprietary
-// assets").
+// Paths follow the real console's URL structure under the /ui/ base
+// (console.cloud.google.com/compute/instances → /ui/compute/instances); the
+// selected project rides on every URL as ?project=, as it does there.
 
-export interface CatalogItem {
-  /** Route slug for the "not supported" page; also used as the React key. */
+export interface NavItem {
+  label: string;
+  to: string;
+  /** Further path prefixes that mark this item current (detail and create pages). */
+  match?: string[];
+}
+
+export interface NavSection {
+  heading?: string;
+  items: NavItem[];
+}
+
+export interface ConsoleProduct {
   id: string;
-  /** The product's real Google Cloud name. */
   name: string;
   icon: IconName;
-  /** Present, and `to` set, only for products the simulator implements. */
-  to?: string;
+  category: string;
+  description: string;
+  docs: string;
+  nav: NavSection[];
 }
 
-export interface CatalogGroup {
-  label: string;
-  items: CatalogItem[];
-}
+export const CATEGORIES = [
+  "Compute",
+  "Serverless",
+  "Storage",
+  "Databases",
+  "Networking",
+  "Operations",
+  "Analytics",
+  "CI/CD",
+  "Integration services",
+  "Security",
+  "Management",
+] as const;
 
-export const CATALOG: CatalogGroup[] = [
+export const PRODUCTS: ConsoleProduct[] = [
   {
-    label: "Compute",
-    items: [
-      { id: "compute-engine", name: "Compute Engine", icon: "computer", to: "/ui/compute" },
-      { id: "kubernetes-engine", name: "Kubernetes Engine", icon: "hub" },
-      { id: "cloud-run", name: "Cloud Run", icon: "deployed_code", to: "/ui/cloudrun" },
-      { id: "app-engine", name: "App Engine", icon: "package_2" },
+    id: "compute",
+    name: "Compute Engine",
+    icon: "computer",
+    category: "Compute",
+    description: "Virtual machines running in Google's data centers",
+    docs: "https://cloud.google.com/compute/docs",
+    nav: [
+      {
+        heading: "Virtual machines",
+        items: [
+          {
+            label: "VM instances",
+            to: "/ui/compute/instances",
+            match: ["/ui/compute/instancesAdd", "/ui/compute/instancesDetail"],
+          },
+        ],
+      },
+      { heading: "Storage", items: [{ label: "Disks", to: "/ui/compute/disks" }] },
     ],
   },
   {
-    label: "Serverless",
-    items: [
-      { id: "cloud-run-functions", name: "Cloud Run functions", icon: "function", to: "/ui/functions" },
-      { id: "workflows", name: "Workflows", icon: "list_alt" },
-      { id: "eventarc", name: "Eventarc", icon: "notifications", to: "/ui/eventarc" },
+    id: "run",
+    name: "Cloud Run",
+    icon: "deployed_code",
+    category: "Serverless",
+    description: "Run containers on a fully managed platform",
+    docs: "https://cloud.google.com/run/docs",
+    nav: [
+      {
+        items: [
+          { label: "Services", to: "/ui/run", match: ["/ui/run/detail", "/ui/run/create"] },
+          { label: "Jobs", to: "/ui/run/jobs" },
+        ],
+      },
     ],
   },
   {
-    label: "Storage",
-    items: [
-      { id: "cloud-storage", name: "Cloud Storage", icon: "database", to: "/ui/gcs" },
-      { id: "filestore", name: "Filestore", icon: "inventory_2" },
+    id: "functions",
+    name: "Cloud Run functions",
+    icon: "function",
+    category: "Serverless",
+    description: "Event-driven functions that run on Cloud Run",
+    docs: "https://cloud.google.com/functions/docs",
+    nav: [{ items: [{ label: "Functions", to: "/ui/functions/list", match: ["/ui/functions/details"] }] }],
+  },
+  {
+    id: "storage",
+    name: "Cloud Storage",
+    icon: "storage",
+    category: "Storage",
+    description: "Object storage for companies of all sizes",
+    docs: "https://cloud.google.com/storage/docs",
+    nav: [
+      {
+        items: [{ label: "Buckets", to: "/ui/storage/browser", match: ["/ui/storage/create-bucket"] }],
+      },
     ],
   },
   {
-    label: "Databases",
-    items: [
-      { id: "cloud-sql", name: "Cloud SQL", icon: "database", to: "/ui/sql" },
-      { id: "firestore", name: "Firestore", icon: "database", to: "/ui/firestore" },
-      { id: "spanner", name: "Spanner", icon: "database", to: "/ui/spanner" },
-      { id: "bigtable", name: "Bigtable", icon: "database", to: "/ui/bigtable" },
-      { id: "memorystore", name: "Memorystore for Redis", icon: "database", to: "/ui/memorystore" },
+    id: "sql",
+    name: "SQL",
+    icon: "database",
+    category: "Databases",
+    description: "Managed MySQL, PostgreSQL and SQL Server",
+    docs: "https://cloud.google.com/sql/docs",
+    nav: [{ items: [{ label: "Instances", to: "/ui/sql/instances" }] }],
+  },
+  {
+    id: "firestore",
+    name: "Firestore",
+    icon: "data_object",
+    category: "Databases",
+    description: "Serverless document database",
+    docs: "https://cloud.google.com/firestore/docs",
+    nav: [{ items: [{ label: "Databases", to: "/ui/firestore/databases" }] }],
+  },
+  {
+    id: "spanner",
+    name: "Spanner",
+    icon: "table_chart",
+    category: "Databases",
+    description: "Globally distributed relational database",
+    docs: "https://cloud.google.com/spanner/docs",
+    nav: [{ items: [{ label: "Instances", to: "/ui/spanner/instances" }] }],
+  },
+  {
+    id: "bigtable",
+    name: "Bigtable",
+    icon: "grid_view",
+    category: "Databases",
+    description: "Wide-column NoSQL database for large analytical and operational workloads",
+    docs: "https://cloud.google.com/bigtable/docs",
+    nav: [{ items: [{ label: "Instances", to: "/ui/bigtable/instances" }] }],
+  },
+  {
+    id: "memorystore",
+    name: "Memorystore",
+    icon: "memory",
+    category: "Databases",
+    description: "Managed Redis for in-memory caching",
+    docs: "https://cloud.google.com/memorystore/docs/redis",
+    nav: [{ heading: "Redis", items: [{ label: "Instances", to: "/ui/memorystore/redis/instances" }] }],
+  },
+  {
+    id: "networking",
+    name: "VPC network",
+    icon: "lan",
+    category: "Networking",
+    description: "Virtual private networks, subnets and firewall rules",
+    docs: "https://cloud.google.com/vpc/docs",
+    nav: [
+      {
+        items: [
+          { label: "VPC networks", to: "/ui/networking/networks/list", match: ["/ui/networking/networks"] },
+          { label: "Serverless VPC access", to: "/ui/networking/connectors/list" },
+        ],
+      },
     ],
   },
   {
-    label: "Networking",
-    items: [
-      { id: "vpc-network", name: "VPC network", icon: "lan", to: "/ui/vpc" },
-      { id: "cloud-load-balancing", name: "Cloud Load Balancing", icon: "lan", to: "/ui/loadbalancing" },
-      { id: "cloud-dns", name: "Cloud DNS", icon: "lan", to: "/ui/dns" },
-      { id: "serverless-vpc-access", name: "Serverless VPC Access", icon: "lan", to: "/ui/vpcaccess" },
+    id: "net-services",
+    name: "Network services",
+    icon: "router",
+    category: "Networking",
+    description: "Load balancing and Cloud DNS",
+    docs: "https://cloud.google.com/load-balancing/docs",
+    nav: [
+      {
+        items: [
+          { label: "Load balancing", to: "/ui/net-services/loadbalancing/list/loadBalancers" },
+          { label: "Cloud DNS", to: "/ui/net-services/dns/zones", match: ["/ui/net-services/dns"] },
+        ],
+      },
     ],
   },
   {
-    label: "Operations",
-    items: [
-      { id: "logging", name: "Logging", icon: "monitoring", to: "/ui/logging" },
-      { id: "monitoring", name: "Monitoring", icon: "query_stats" },
-      { id: "error-reporting", name: "Error Reporting", icon: "help" },
+    id: "logs",
+    name: "Logging",
+    icon: "article",
+    category: "Operations",
+    description: "Store, search and analyze log data",
+    docs: "https://cloud.google.com/logging/docs",
+    nav: [{ items: [{ label: "Logs Explorer", to: "/ui/logs/query" }] }],
+  },
+  {
+    id: "bigquery",
+    name: "BigQuery",
+    icon: "query_stats",
+    category: "Analytics",
+    description: "Serverless data warehouse",
+    docs: "https://cloud.google.com/bigquery/docs",
+    nav: [{ items: [{ label: "Datasets", to: "/ui/bigquery", match: ["/ui/bigquery/datasets"] }] }],
+  },
+  {
+    id: "cloudpubsub",
+    name: "Pub/Sub",
+    icon: "send",
+    category: "Analytics",
+    description: "Asynchronous messaging between services",
+    docs: "https://cloud.google.com/pubsub/docs",
+    nav: [
+      {
+        items: [
+          { label: "Topics", to: "/ui/cloudpubsub/topic/list", match: ["/ui/cloudpubsub/topic"] },
+          {
+            label: "Subscriptions",
+            to: "/ui/cloudpubsub/subscription/list",
+            match: ["/ui/cloudpubsub/subscription"],
+          },
+        ],
+      },
     ],
   },
   {
-    label: "Analytics",
-    items: [
-      { id: "bigquery", name: "BigQuery", icon: "query_stats", to: "/ui/bigquery" },
-      { id: "pub-sub", name: "Pub/Sub", icon: "notifications", to: "/ui/pubsub" },
-      { id: "dataflow", name: "Dataflow", icon: "integration_instructions", to: "/ui/dataflow" },
+    id: "dataflow",
+    name: "Dataflow",
+    icon: "integration_instructions",
+    category: "Analytics",
+    description: "Stream and batch data processing",
+    docs: "https://cloud.google.com/dataflow/docs",
+    nav: [{ items: [{ label: "Jobs", to: "/ui/dataflow/jobs", match: ["/ui/dataflow/jobs"] }] }],
+  },
+  {
+    id: "artifacts",
+    name: "Artifact Registry",
+    icon: "inventory_2",
+    category: "CI/CD",
+    description: "Store and manage container images and language packages",
+    docs: "https://cloud.google.com/artifact-registry/docs",
+    nav: [{ items: [{ label: "Repositories", to: "/ui/artifacts", match: ["/ui/artifacts"] }] }],
+  },
+  {
+    id: "cloud-build",
+    name: "Cloud Build",
+    icon: "build",
+    category: "CI/CD",
+    description: "Build, test and deploy on serverless infrastructure",
+    docs: "https://cloud.google.com/build/docs",
+    nav: [{ items: [{ label: "History", to: "/ui/cloud-build/builds", match: ["/ui/cloud-build/builds"] }] }],
+  },
+  {
+    id: "eventarc",
+    name: "Eventarc",
+    icon: "webhook",
+    category: "Integration services",
+    description: "Route events from Google Cloud sources to destinations",
+    docs: "https://cloud.google.com/eventarc/docs",
+    nav: [{ items: [{ label: "Triggers", to: "/ui/eventarc/triggers", match: ["/ui/eventarc/triggers"] }] }],
+  },
+  {
+    id: "api-gateway",
+    name: "API Gateway",
+    icon: "api",
+    category: "Integration services",
+    description: "Create, secure and monitor APIs for serverless backends",
+    docs: "https://cloud.google.com/api-gateway/docs",
+    nav: [{ items: [{ label: "APIs", to: "/ui/api-gateway" }] }],
+  },
+  {
+    id: "security",
+    name: "Security",
+    icon: "shield",
+    category: "Security",
+    description: "Secret Manager and Key Management",
+    docs: "https://cloud.google.com/secret-manager/docs",
+    nav: [
+      {
+        heading: "Data protection",
+        items: [
+          { label: "Secret Manager", to: "/ui/security/secret-manager", match: ["/ui/security/secret-manager"] },
+          {
+            label: "Key Management",
+            to: "/ui/security/kms/keyrings",
+            match: ["/ui/security/kms"],
+          },
+        ],
+      },
     ],
   },
   {
-    label: "Artificial Intelligence",
-    items: [{ id: "vertex-ai", name: "Vertex AI", icon: "smart_toy" }],
-  },
-  {
-    label: "Developer Tools",
-    items: [
-      { id: "artifact-registry", name: "Artifact Registry", icon: "inventory_2", to: "/ui/ar" },
-      { id: "cloud-build", name: "Cloud Build", icon: "integration_instructions", to: "/ui/cloudbuild" },
-      { id: "cloud-source-repositories", name: "Cloud Source Repositories", icon: "list_alt" },
+    id: "iam-admin",
+    name: "IAM & Admin",
+    icon: "security",
+    category: "Management",
+    description: "Permissions, service accounts, roles and identity federation",
+    docs: "https://cloud.google.com/iam/docs",
+    nav: [
+      {
+        items: [
+          { label: "IAM", to: "/ui/iam-admin/iam" },
+          { label: "Manage resources", to: "/ui/cloud-resource-manager" },
+          { label: "Workforce Identity Federation", to: "/ui/iam-admin/workforce-identity-pools" },
+          {
+            label: "Service accounts",
+            to: "/ui/iam-admin/serviceaccounts",
+            match: ["/ui/iam-admin/serviceaccounts"],
+          },
+          { label: "Roles", to: "/ui/iam-admin/roles" },
+        ],
+      },
     ],
   },
   {
-    label: "API Management",
-    items: [{ id: "api-gateway", name: "API Gateway", icon: "lan", to: "/ui/apigateway" }],
-  },
-  {
-    label: "APIs & Services",
-    items: [{ id: "enabled-apis", name: "Enabled APIs & services", icon: "list_alt", to: "/ui/apis" }],
-  },
-  {
-    label: "IAM & Admin",
-    items: [
-      { id: "service-accounts", name: "Service accounts", icon: "manage_accounts", to: "/ui/serviceaccounts" },
-      { id: "manage-resources", name: "Manage resources", icon: "folder_data", to: "/ui/projects" },
-      { id: "iam", name: "IAM", icon: "token", to: "/ui/iam" },
-      { id: "organization-policies", name: "Organization policies", icon: "security" },
-    ],
-  },
-  {
-    label: "Security",
-    items: [
-      { id: "security-command-center", name: "Security Command Center", icon: "security" },
-      { id: "cloud-kms", name: "Cloud KMS", icon: "token", to: "/ui/kms" },
-      { id: "secret-manager", name: "Secret Manager", icon: "token", to: "/ui/secrets" },
-    ],
+    id: "apis",
+    name: "APIs & Services",
+    icon: "api",
+    category: "Management",
+    description: "Enable and manage the APIs a project uses",
+    docs: "https://cloud.google.com/service-usage/docs",
+    nav: [{ items: [{ label: "Enabled APIs & services", to: "/ui/apis/dashboard" }] }],
   },
 ];
 
-export function findCatalogItem(id: string | undefined): CatalogItem | undefined {
-  if (!id) return undefined;
-  for (const group of CATALOG) {
-    const item = group.items.find((candidate) => candidate.id === id);
-    if (item) return item;
+/** The real console's default pins, among the products this console has. */
+export const DEFAULT_PINNED = ["apis", "iam-admin", "compute", "storage", "bigquery", "networking", "run", "sql"];
+
+export function productHome(product: ConsoleProduct): string {
+  return product.nav[0].items[0].to;
+}
+
+function itemMatches(item: NavItem, pathname: string): boolean {
+  return [item.to, ...(item.match ?? [])].some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
+
+/** The product whose pages the path belongs to, and the navigation item that is current. */
+export function locate(pathname: string): { product?: ConsoleProduct; item?: NavItem } {
+  let best: { product: ConsoleProduct; item: NavItem; length: number } | undefined;
+  for (const product of PRODUCTS) {
+    for (const section of product.nav) {
+      for (const item of section.items) {
+        if (!itemMatches(item, pathname)) continue;
+        const length = Math.max(
+          ...[item.to, ...(item.match ?? [])]
+            .filter((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
+            .map((prefix) => prefix.length),
+        );
+        if (!best || length > best.length) best = { product, item, length };
+      }
+    }
   }
-  return undefined;
+  return best ? { product: best.product, item: best.item } : {};
+}
+
+export function findProduct(id: string): ConsoleProduct | undefined {
+  return PRODUCTS.find((product) => product.id === id);
+}
+
+export interface SearchEntry {
+  label: string;
+  detail: string;
+  to: string;
+  icon: IconName;
+}
+
+/** Products and their pages, as the search box offers them. */
+export function searchEntries(): SearchEntry[] {
+  const entries: SearchEntry[] = [];
+  for (const product of PRODUCTS) {
+    entries.push({ label: product.name, detail: product.description, to: productHome(product), icon: product.icon });
+    for (const section of product.nav) {
+      for (const item of section.items) {
+        if (item.label === product.name) continue;
+        entries.push({ label: item.label, detail: product.name, to: item.to, icon: product.icon });
+      }
+    }
+  }
+  return entries;
+}
+
+export function searchCatalog(query: string): SearchEntry[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return [];
+  const scored = searchEntries()
+    .map((entry) => {
+      const label = entry.label.toLowerCase();
+      const detail = entry.detail.toLowerCase();
+      const score = label.startsWith(needle)
+        ? 0
+        : label.split(/[^a-z0-9]+/).some((word) => word.startsWith(needle))
+          ? 1
+          : label.includes(needle)
+            ? 2
+            : detail.includes(needle)
+              ? 3
+              : -1;
+      return { entry, score };
+    })
+    .filter(({ score }) => score >= 0);
+  scored.sort((a, b) => a.score - b.score || a.entry.label.localeCompare(b.entry.label));
+  return scored.map(({ entry }) => entry);
 }

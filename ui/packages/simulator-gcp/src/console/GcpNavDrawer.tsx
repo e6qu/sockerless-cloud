@@ -1,68 +1,84 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Link, NavLink } from "react-router";
+import { useEffect, useRef, useState, type RefObject } from "react";
+import { Link } from "react-router";
 import { Icon } from "./icons.js";
-import { CATALOG } from "./catalog.js";
+import { CATEGORIES, PRODUCTS, findProduct, locate, productHome, type ConsoleProduct } from "./catalog.js";
+import { usePinnedProducts } from "./pins.js";
+import { useProjectPath } from "./project.js";
 
-// NotSupportedChip is the reusable "not supported" affordance: a Material
-// filled-tonal chip whose meaning is carried by its own text and aria-label,
-// never by colour alone (WCAG 2.1 SC 1.4.1). Placed inside a link whose
-// visible text already names the product, the two concatenate into an
-// accessible name like "Compute Engine Not supported in this simulator".
-export function NotSupportedChip() {
+export function PinButton({ product }: { product: ConsoleProduct }) {
+  const { pinned, toggle } = usePinnedProducts();
+  const isPinned = pinned.includes(product.id);
+  const label = isPinned ? `Unpin ${product.name}` : `Pin ${product.name}`;
   return (
-    <span className="gc-chip gc-chip-unsupported" aria-label="Not supported in this simulator">
-      Not supported
-    </span>
+    <button
+      type="button"
+      className={isPinned ? "gc-pin gc-pin-on" : "gc-pin"}
+      aria-label={label}
+      aria-pressed={isPinned}
+      title={label}
+      onClick={() => toggle(product.id)}
+    >
+      <Icon name={isPinned ? "keep" : "keep_off"} size="1.15em" />
+    </button>
   );
 }
 
-// The real console's hamburger opens a navigation drawer listing the full
-// Google Cloud product catalog, grouped into the console's own categories.
-// This is that drawer: every product Google Cloud offers, the ones the
-// simulator implements linking straight to their page, the rest carrying the
-// NotSupportedChip and routing to a short honest explanation instead of being
-// silently omitted or faked.
-export function GcpNavDrawer({ open, onClose, triggerRef }: {
+function ProductRow({ product, current, onNavigate }: { product: ConsoleProduct; current: boolean; onNavigate: () => void }) {
+  const path = useProjectPath();
+  return (
+    <li className="gc-drawer-row">
+      <Link
+        to={path(productHome(product))}
+        className={current ? "gc-drawer-link gc-drawer-link-active" : "gc-drawer-link"}
+        aria-current={current ? "page" : undefined}
+        onClick={onNavigate}
+      >
+        <Icon name={product.icon} size="1.25em" />
+        <span>{product.name}</span>
+      </Link>
+      <PinButton product={product} />
+    </li>
+  );
+}
+
+// The navigation menu the top bar's ☰ opens, as in the real console: Cloud
+// overview, the pinned products, and every product by category under More
+// products, each with its pin.
+export function GcpNavDrawer({
+  open,
+  onClose,
+  triggerRef,
+  pathname,
+}: {
   open: boolean;
   onClose: () => void;
   triggerRef: RefObject<HTMLButtonElement | null>;
+  pathname: string;
 }) {
-  const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
-  const [filter, setFilter] = useState("");
-
-  // The real console's product menu filters the catalog live as the operator
-  // types, matching the AWS console's services flyout. Groups with no match
-  // drop out; an empty result says so rather than showing a blank panel.
-  const groups = useMemo(() => {
-    const needle = filter.trim().toLowerCase();
-    if (!needle) return CATALOG;
-    return CATALOG.map((group) => ({
-      ...group,
-      items: group.items.filter((item) => item.name.toLowerCase().includes(needle)),
-    })).filter((group) => group.items.length > 0);
-  }, [filter]);
+  const { pinned } = usePinnedProducts();
+  const [moreOpen, setMoreOpen] = useState(false);
+  const path = useProjectPath();
+  const currentProduct = locate(pathname).product?.id;
 
   useEffect(() => {
     if (!open) return;
     closeRef.current?.focus();
+    const trigger = triggerRef.current;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      triggerRef.current?.focus();
+      trigger?.focus();
     };
-    // Deliberately keyed on `open` alone: `onClose` is `() => setNavOpen(false)`,
-    // whose body only calls a `useState` setter (identity-stable across
-    // renders), and `triggerRef` is a ref object (identity-stable by
-    // definition), so re-running this effect whenever the caller re-renders
-    // would re-focus the close button and steal focus from wherever the
-    // operator tabbed to inside the drawer.
+    // onClose and triggerRef keep their identity across renders; re-running on
+    // them would pull focus back to the close button while the operator tabs.
   }, [open]);
 
   if (!open) return null;
+  const pinnedProducts = pinned.map(findProduct).filter((product): product is ConsoleProduct => Boolean(product));
 
   return (
     <div
@@ -72,82 +88,74 @@ export function GcpNavDrawer({ open, onClose, triggerRef }: {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div
-        ref={panelRef}
-        className="gc-drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Google Cloud products"
-        data-testid="nav-drawer"
-      >
+      <div className="gc-drawer" role="dialog" aria-modal="true" aria-label="Navigation menu" data-testid="nav-drawer">
         <div className="gc-drawer-header">
-          <span className="gc-drawer-title">Google Cloud products</span>
-          <button
-            ref={closeRef}
-            type="button"
-            className="gc-icon-button"
-            aria-label="Close navigation"
-            onClick={onClose}
-          >
-            <Icon name="chevron_left" />
+          <button ref={closeRef} type="button" className="gc-icon-button" aria-label="Close navigation menu" onClick={onClose}>
+            <Icon name="menu" />
           </button>
+          <span className="gc-wordmark">Google Cloud</span>
         </div>
-        <p className="gc-drawer-note">
-          This simulator implements a slice of Google Cloud. Supported products open their page; the
-          rest are marked <NotSupportedChip />.
-        </p>
-        <div className="gc-drawer-search">
-          <Icon name="search" size="1.25em" style={{ color: "var(--gc-fg-secondary)" }} />
-          <input
-            type="search"
-            aria-label="Search products"
-            placeholder="Search products"
-            data-testid="nav-drawer-search"
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-          />
-        </div>
-        {groups.length === 0 ? (
-          <p className="gc-drawer-note" data-testid="nav-drawer-empty">No products match “{filter}”.</p>
-        ) : null}
-        {groups.map((group) => (
-          <div className="gc-drawer-group" key={group.label}>
-            <h3 className="gc-drawer-group-label" id={`drawer-group-${group.label}`}>{group.label}</h3>
-            <ul aria-labelledby={`drawer-group-${group.label}`}>
-              {group.items.map((item) =>
-                item.to ? (
-                  <li key={item.id}>
-                    <NavLink
-                      to={item.to}
-                      className={({ isActive }) =>
-                        isActive ? "gc-drawer-link gc-drawer-link-active" : "gc-drawer-link"
-                      }
-                      onClick={onClose}
-                      data-testid={`drawer-item-${item.id}`}
-                    >
-                      <Icon name={item.icon} size="1.25em" />
-                      <span>{item.name}</span>
-                    </NavLink>
-                  </li>
-                ) : (
-                  <li key={item.id}>
-                    <Link
-                      to={`/ui/not-supported/${item.id}`}
-                      className="gc-drawer-link gc-drawer-link-unsupported"
-                      onClick={onClose}
-                      data-testid={`drawer-item-${item.id}`}
-                      aria-label={`${item.name}, not supported in this simulator`}
-                    >
-                      <Icon name={item.icon} size="1.25em" />
-                      <span>{item.name}</span>
-                      <NotSupportedChip />
-                    </Link>
-                  </li>
-                ),
-              )}
+        <nav aria-label="Navigation menu">
+          <h2 className="gc-drawer-group-label" id="drawer-overview">Cloud overview</h2>
+          <ul aria-labelledby="drawer-overview">
+            {[
+              { label: "Welcome", to: "/ui/welcome", icon: "home" as const },
+              { label: "Dashboard", to: "/ui/home/dashboard", icon: "dashboard" as const },
+              { label: "Activity", to: "/ui/home/activity", icon: "history" as const },
+            ].map((entry) => (
+              <li key={entry.to} className="gc-drawer-row">
+                <Link
+                  to={path(entry.to)}
+                  className={pathname === entry.to ? "gc-drawer-link gc-drawer-link-active" : "gc-drawer-link"}
+                  aria-current={pathname === entry.to ? "page" : undefined}
+                  onClick={onClose}
+                >
+                  <Icon name={entry.icon} size="1.25em" />
+                  <span>{entry.label}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <h2 className="gc-drawer-group-label" id="drawer-pinned">Pinned products</h2>
+          {pinnedProducts.length === 0 ? (
+            <p className="gc-drawer-note">Pin a product to keep it here.</p>
+          ) : (
+            <ul aria-labelledby="drawer-pinned" data-testid="drawer-pinned">
+              {pinnedProducts.map((product) => (
+                <ProductRow key={product.id} product={product} current={product.id === currentProduct} onNavigate={onClose} />
+              ))}
             </ul>
-          </div>
-        ))}
+          )}
+          <button
+            type="button"
+            className="gc-drawer-more"
+            aria-expanded={moreOpen}
+            onClick={() => setMoreOpen((value) => !value)}
+          >
+            <Icon name={moreOpen ? "expand_more" : "chevron_right"} size="1.25em" />
+            More products
+          </button>
+          {moreOpen
+            ? CATEGORIES.map((category) => {
+                const products = PRODUCTS.filter((product) => product.category === category);
+                if (products.length === 0) return null;
+                const id = `drawer-category-${category.replace(/[^a-z]/gi, "")}`;
+                return (
+                  <div key={category} className="gc-drawer-group">
+                    <h3 className="gc-drawer-group-label" id={id}>{category}</h3>
+                    <ul aria-labelledby={id}>
+                      {products.map((product) => (
+                        <ProductRow key={product.id} product={product} current={product.id === currentProduct} onNavigate={onClose} />
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })
+            : null}
+          <Link className="gc-drawer-all" to={path("/ui/products")} onClick={onClose}>
+            View all products
+          </Link>
+        </nav>
       </div>
     </div>
   );

@@ -39,7 +39,7 @@ const columns: GcpColumn<EventarcTrigger>[] = [
     id: "name",
     header: "Name",
     cell: (row) => (
-      <Link className="gc-cell-link" to={`/ui/eventarc/${shortName(row.name)}`}>
+      <Link className="gc-cell-link" to={`/ui/eventarc/triggers/${shortName(row.name)}`}>
         {shortName(row.name)}
       </Link>
     ),
@@ -194,10 +194,8 @@ export function EventarcTriggerDetailPage() {
 
   return (
     <>
-      <div className="gc-detail-back">
-        <Link to="/ui/eventarc">‹ Eventarc triggers</Link>
-      </div>
       <GcpPageHeader
+        backTo="/ui/eventarc/triggers"
         title={name}
         description="Eventarc trigger"
         actions={[{ label: "Delete", testId: "eventarc-trigger-delete", onSelect: () => setDeleting(true) }]}

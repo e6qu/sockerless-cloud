@@ -33,7 +33,7 @@ const columns: GcpColumn<BigtableInstance>[] = [
     id: "name",
     header: "Instance ID",
     cell: (row) => (
-      <Link className="gc-cell-link" to={`/ui/bigtable/${shortName(row.name)}`}>
+      <Link className="gc-cell-link" to={`/ui/bigtable/instances/${shortName(row.name)}/overview`}>
         {shortName(row.name)}
       </Link>
     ),
@@ -273,10 +273,8 @@ export function BigtableInstanceDetailPage() {
 
   return (
     <>
-      <div className="gc-detail-back">
-        <Link to="/ui/bigtable">‹ Bigtable instances</Link>
-      </div>
       <GcpPageHeader
+        backTo="/ui/bigtable/instances"
         title={name}
         description="Bigtable instance"
         actions={[{ label: "Delete", testId: "bigtable-instance-delete", onSelect: () => setDeleting(true) }]}
@@ -369,7 +367,7 @@ export function BigtableInstanceDetailPage() {
         <DeleteBigtableInstanceDialog
           name={name}
           onClose={() => setDeleting(false)}
-          onDeleted={() => navigate("/ui/bigtable")}
+          onDeleted={() => navigate("/ui/bigtable/instances")}
         />
       ) : null}
     </>

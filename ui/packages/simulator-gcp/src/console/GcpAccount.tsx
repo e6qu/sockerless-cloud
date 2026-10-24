@@ -1,20 +1,18 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Icon } from "./icons.js";
+import { useDismiss } from "./menu.js";
 
-// The account control the console keeps at the top right: a circular avatar
-// that opens a menu with the signed-in identity and a sign-out. It carries the
-// `data-shauth-*` markers the browser qualification uses — the identity on the
-// always-visible trigger, sign-out inside the menu — so the console reads as
-// Google Cloud's while still being driven by the same qualification.
-//
-// When no identity provider is configured — a local or test simulator — it
-// shows a neutral avatar rather than an error, so an unauthenticated console
-// still looks like a console instead of a broken one.
+// The account control at the top right: the signed-in operator's avatar,
+// opening a card with their identity, the workforce pool provider the console
+// federates them through, and Sign out. It carries the `data-shauth-*` markers
+// the browser qualification drives. A console with no identity provider — a
+// local instance — runs unauthenticated and shows no account control at all.
 
 interface UIConfig {
   identityEndpoint?: string;
   logoutEndpoint?: string;
+  federationAudience?: string;
 }
 
 interface Identity {
@@ -31,18 +29,31 @@ async function getJSON<T>(endpoint: string): Promise<T> {
   return (await response.json()) as T;
 }
 
-function displayName(identity: Identity): string {
-  return identity.name || identity.preferred_username || identity.login || identity.email || "Operator";
-}
-
-export function GcpAccount() {
-  const [open, setOpen] = useState(false);
-  const config = useQuery({
+export function useConsoleConfig() {
+  return useQuery({
     queryKey: ["console-ui-config"],
     queryFn: () => getJSON<UIConfig>("/ui/config.json"),
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
   });
+}
+
+function displayName(identity: Identity): string {
+  return identity.name || identity.preferred_username || identity.login || identity.email || "Operator";
+}
+
+/** The workforce pool provider the federation audience names, as `pool / provider`. */
+export function workforceProvider(audience: string | undefined): string | null {
+  const match = audience?.match(/workforcePools\/([^/]+)\/providers\/([^/]+)$/);
+  return match ? `${match[1]} / ${match[2]}` : null;
+}
+
+export function GcpAccount() {
+  const [open, setOpen] = useState(false);
+  const wrapper = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  useDismiss(wrapper, open, () => setOpen(false), trigger);
+  const config = useConsoleConfig();
   const identityEndpoint = config.data?.identityEndpoint;
   const identity = useQuery({
     queryKey: ["console-operator-identity", identityEndpoint],
@@ -52,50 +63,48 @@ export function GcpAccount() {
     staleTime: 30_000,
   });
 
-  // A neutral avatar whenever there is no established identity — no provider
-  // configured, still loading, or the identity could not be read. The console
-  // stays presentable; it never renders an error into its own chrome.
-  if (!identityEndpoint || !config.data?.logoutEndpoint || !identity.data) {
-    return (
-      <span className="gc-avatar gc-avatar-anonymous" role="img" aria-label="Account">
-        <Icon name="account_circle" size="1.5em" />
-      </span>
-    );
-  }
+  if (!identityEndpoint || !config.data?.logoutEndpoint || !identity.data) return null;
 
   const name = displayName(identity.data);
   const initial = name.slice(0, 1).toUpperCase();
+  const provider = workforceProvider(config.data.federationAudience);
+  const avatar = (large: boolean) => (
+    <span className={large ? "gc-avatar gc-avatar-large" : "gc-avatar"} aria-hidden>
+      {identity.data.picture ? <img src={identity.data.picture} alt="" referrerPolicy="no-referrer" /> : initial}
+    </span>
+  );
 
   return (
-    <div className="gc-account" data-shauth-user={name}>
+    <div className="gc-menu-anchor" ref={wrapper} data-shauth-user={name}>
       <button
+        ref={trigger}
         type="button"
-        className="gc-avatar"
+        className="gc-avatar-button"
         data-shauth-account-trigger
-        aria-haspopup="menu"
+        aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={`Google Account: ${name}`}
+        title={`Google Account: ${name}`}
         onClick={() => setOpen((value) => !value)}
       >
-        {identity.data.picture ? (
-          <img src={identity.data.picture} alt="" referrerPolicy="no-referrer" />
-        ) : (
-          <span aria-hidden>{initial}</span>
-        )}
+        {avatar(false)}
       </button>
       {open ? (
-        <div className="gc-account-menu" role="menu">
-          <div className="gc-account-identity">
-            <span className="gc-avatar gc-avatar-large" aria-hidden>
-              {identity.data.picture ? <img src={identity.data.picture} alt="" referrerPolicy="no-referrer" /> : initial}
-            </span>
-            <div>
-              <p className="gc-account-name">{name}</p>
-              {identity.data.email ? <p className="gc-account-email">{identity.data.email}</p> : null}
-            </div>
-          </div>
+        <div className="gc-menu gc-menu-end gc-account-card" role="dialog" aria-label="Account">
+          {identity.data.email ? <p className="gc-account-email">{identity.data.email}</p> : null}
+          {avatar(true)}
+          <p className="gc-account-name">Hi, {name}!</p>
+          {provider ? (
+            <p className="gc-account-provider">
+              <Icon name="badge" size="1.1em" />
+              Signed in through Workforce Identity Federation ({provider})
+            </p>
+          ) : null}
           <form method="post" action={config.data.logoutEndpoint} className="gc-account-signout">
-            <button type="submit" data-shauth-sign-out>Sign out</button>
+            <button type="submit" data-shauth-sign-out>
+              <Icon name="logout" size="1.25em" />
+              Sign out
+            </button>
           </form>
         </div>
       ) : null}

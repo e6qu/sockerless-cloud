@@ -39,7 +39,7 @@ const columns: GcpColumn<KmsKeyRing>[] = [
     id: "name",
     header: "Key ring",
     cell: (row) => (
-      <Link className="gc-cell-link" to={`/ui/kms/${shortName(row.name)}`}>
+      <Link className="gc-cell-link" to={`/ui/security/kms/keyring/manage/us-central1/${shortName(row.name)}/key`}>
         {shortName(row.name)}
       </Link>
     ),
@@ -215,10 +215,8 @@ export function CloudKmsKeyRingDetailPage() {
 
   return (
     <>
-      <div className="gc-detail-back">
-        <Link to="/ui/kms">‹ Cloud KMS key rings</Link>
-      </div>
       <GcpPageHeader
+        backTo="/ui/security/kms/keyrings"
         title={name}
         description="Cloud KMS key ring"
         actions={[{ label: "Create key", icon: "add", testId: "kms-keyring-create-key", onSelect: () => setCreating(true) }]}
@@ -254,7 +252,7 @@ export function CloudKmsKeyRingDetailPage() {
                     {
                       header: "Key name",
                       cell: (row) => (
-                        <Link className="gc-cell-link" to={`/ui/kms/${name}/${shortName(row.name)}`}>
+                        <Link className="gc-cell-link" to={`/ui/security/kms/key/manage/us-central1/${name}/${shortName(row.name)}`}>
                           {shortName(row.name)}
                         </Link>
                       ),
@@ -326,10 +324,8 @@ export function CloudKmsCryptoKeyDetailPage() {
 
   return (
     <>
-      <div className="gc-detail-back">
-        <Link to={`/ui/kms/${name}`}>‹ {name}</Link>
-      </div>
       <GcpPageHeader
+        backTo={`/ui/security/kms/keyring/manage/us-central1/${name}/key`}
         title={key}
         description="Cloud KMS key"
         onRefresh={() => {

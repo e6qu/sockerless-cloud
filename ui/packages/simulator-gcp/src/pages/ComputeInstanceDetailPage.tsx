@@ -1,18 +1,17 @@
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { GcpPageHeader, GcpStatus } from "../console/GcpConsole.js";
+import { Copyable, GcpPageHeader, GcpStatus } from "../console/GcpConsole.js";
 import { GcpTabs } from "../console/GcpTabs.js";
+import { DetailList, LoadError, Loading } from "../console/GcpResourceDetail.js";
 import { shortName, formatTimestamp } from "../console/format.js";
 import { fetchComputeInstance, type ComputeInstance } from "../api.js";
-import { useProject } from "../console/project.js";
-import { InstanceLifecycleDialog } from "./ComputeEnginePage.js";
+import { useProject, useProjectPath } from "../console/project.js";
+import { InstanceLifecycleDialog, statusLabel, type LifecycleAction } from "./ComputeEnginePage.js";
+import { LogsTab } from "./LogsTab.js";
 
 const lastSegment = (value: string | undefined): string => (value ? shortName(value) : "—");
 
-// NetworkInterfacesTable and DisksTable are the detail page's two sub-resource
-// tables, presentational so their rendering is testable apart from the query
-// that loads the instance.
 export function NetworkInterfacesTable({ instance }: { instance: ComputeInstance }) {
   const rows = instance.networkInterfaces ?? [];
   return (
@@ -20,10 +19,10 @@ export function NetworkInterfacesTable({ instance }: { instance: ComputeInstance
       <table className="gc-table" data-testid="compute-nics-table">
         <thead>
           <tr>
-            <th>Name</th>
-            <th>Network</th>
-            <th>Subnetwork</th>
-            <th>Internal IP</th>
+            <th scope="col">Name</th>
+            <th scope="col">Network</th>
+            <th scope="col">Subnetwork</th>
+            <th scope="col">Primary internal IP address</th>
           </tr>
         </thead>
         <tbody>
@@ -31,7 +30,7 @@ export function NetworkInterfacesTable({ instance }: { instance: ComputeInstance
             <tr>
               <td className="gc-table-state" colSpan={4}>
                 <div className="gc-empty">
-                  <p className="gc-empty-headline">This instance has no network interfaces</p>
+                  <p className="gc-empty-headline">No network interfaces</p>
                   <p className="gc-empty-description">Interfaces attached to the instance appear here.</p>
                 </div>
               </td>
@@ -59,10 +58,10 @@ export function DisksTable({ instance }: { instance: ComputeInstance }) {
       <table className="gc-table" data-testid="compute-disks-table">
         <thead>
           <tr>
-            <th>Device name</th>
-            <th>Source</th>
-            <th>Boot</th>
-            <th>Mode</th>
+            <th scope="col">Device name</th>
+            <th scope="col">Name</th>
+            <th scope="col">Boot</th>
+            <th scope="col">Mode</th>
           </tr>
         </thead>
         <tbody>
@@ -70,7 +69,7 @@ export function DisksTable({ instance }: { instance: ComputeInstance }) {
             <tr>
               <td className="gc-table-state" colSpan={4}>
                 <div className="gc-empty">
-                  <p className="gc-empty-headline">This instance has no attached disks</p>
+                  <p className="gc-empty-headline">No attached disks</p>
                   <p className="gc-empty-description">Disks attached to the instance appear here.</p>
                 </div>
               </td>
@@ -95,85 +94,97 @@ export function ComputeInstanceDetailPage() {
   const { zone = "", name = "" } = useParams();
   const { project } = useProject();
   const navigate = useNavigate();
-  const [pending, setPending] = useState<"start" | "stop" | "delete" | null>(null);
+  const path = useProjectPath();
+  const [pending, setPending] = useState<LifecycleAction | null>(null);
   const instance = useQuery({
     queryKey: ["compute-instance", project, zone, name],
     queryFn: () => fetchComputeInstance(project, zone, name),
   });
-
-  // The lifecycle actions address the instance by the zone and name in the
-  // route, not the loaded resource, so they render (and are operable) before
-  // the read settles — the same way the list pages' "Create …" header action
-  // doesn't wait on a successful list read.
-  const actions = [
-    { label: "Start", icon: "play_arrow" as const, testId: "compute-instance-start", onSelect: () => setPending("start") },
-    { label: "Stop", icon: "block" as const, testId: "compute-instance-stop", onSelect: () => setPending("stop") },
-    { label: "Delete", testId: "compute-instance-delete", onSelect: () => setPending("delete") },
-  ];
-
   const data = instance.data;
 
   return (
     <>
-      <div className="gc-detail-back">
-        <Link to="/ui/compute">‹ VM instances</Link>
-      </div>
       <GcpPageHeader
+        backTo="/ui/compute/instances"
         title={name}
-        description="Compute Engine VM instance"
-        actions={actions}
+        actions={[
+          { label: "Start / Resume", icon: "play_arrow", testId: "compute-instance-start", onSelect: () => setPending("start") },
+          { label: "Stop", icon: "stop", testId: "compute-instance-stop", onSelect: () => setPending("stop") },
+          { label: "Delete", icon: "delete", testId: "compute-instance-delete", onSelect: () => setPending("delete") },
+        ]}
         onRefresh={() => void instance.refetch()}
         refreshing={instance.isFetching}
       />
-
       {instance.isError ? (
-        <div className="gc-message gc-message-error" role="alert">
-          <strong>Couldn't load this instance.</strong>{" "}
-          {instance.error instanceof Error ? instance.error.message : "The simulator did not respond."}
-        </div>
+        <LoadError error={instance.error} noun="this instance" />
       ) : instance.isLoading || !data ? (
-        <div className="gc-loading" role="status">Loading instance…</div>
+        <Loading noun="instance" />
       ) : (
         <GcpTabs
-          label="Instance detail"
+          label="Instance details"
           tabs={[
             {
               id: "details",
               label: "Details",
               content: (
-                <dl className="gc-detail-grid">
-                  {[
-                    { label: "Status", value: <GcpStatus status={data.status ?? "Unknown"} /> },
-                    { label: "Zone", value: lastSegment(data.zone) },
-                    { label: "Machine type", value: lastSegment(data.machineType) },
-                    { label: "Instance ID", value: data.id ?? "—" },
-                    { label: "Created", value: formatTimestamp(data.creationTimestamp ?? "") },
-                    { label: "Network tags", value: (data.tags?.items ?? []).join(", ") || "—" },
-                    { label: "Description", value: data.description || "—" },
-                  ].map((property) => (
-                    <div className="gc-detail-pair" key={property.label}>
-                      <dt>{property.label}</dt>
-                      <dd>{property.value}</dd>
-                    </div>
-                  ))}
-                </dl>
+                <>
+                  <h2 className="gc-detail-heading">Basic information</h2>
+                  <DetailList
+                    properties={[
+                      { label: "Name", value: <Copyable value={data.name} /> },
+                      { label: "Instance ID", value: data.id ? <Copyable value={data.id} /> : "—" },
+                      { label: "Status", value: <GcpStatus status={data.status ?? "UNKNOWN"} label={statusLabel(data.status ?? "UNKNOWN")} /> },
+                      { label: "Zone", value: lastSegment(data.zone) },
+                      { label: "Creation time", value: formatTimestamp(data.creationTimestamp ?? "") },
+                      { label: "Description", value: data.description || "None" },
+                      {
+                        label: "Labels",
+                        value: Object.entries(data.labels ?? {}).length
+                          ? Object.entries(data.labels ?? {}).map(([key, value]) => (
+                              <span key={key} className="gc-label-chip">
+                                {key}: {value}
+                              </span>
+                            ))
+                          : "None",
+                      },
+                    ]}
+                  />
+                  <h2 className="gc-detail-heading">Machine configuration</h2>
+                  <DetailList
+                    properties={[
+                      { label: "Machine type", value: lastSegment(data.machineType) },
+                      { label: "Network tags", value: (data.tags?.items ?? []).join(", ") || "None" },
+                    ]}
+                  />
+                  <h2 className="gc-detail-heading">Network interfaces</h2>
+                  <NetworkInterfacesTable instance={data} />
+                  <h2 className="gc-detail-heading">Storage</h2>
+                  <DisksTable instance={data} />
+                </>
               ),
             },
-            { id: "network", label: "Network interfaces", content: <NetworkInterfacesTable instance={data} /> },
-            { id: "disks", label: "Disks", content: <DisksTable instance={data} /> },
+            {
+              id: "logs",
+              label: "Logs",
+              content: (
+                <LogsTab
+                  testId="compute-instance-logs"
+                  filter={`resource.type="gce_instance" AND resource.labels.instance_id="${data.id ?? ""}"`}
+                />
+              ),
+            },
           ]}
         />
       )}
       {pending ? (
         <InstanceLifecycleDialog
           project={project}
-          zone={zone}
-          name={name}
+          targets={[{ zone, name }]}
           action={pending}
           onClose={() => setPending(null)}
           onDone={() => {
             setPending(null);
-            if (pending === "delete") navigate("/ui/compute");
+            if (pending === "delete") navigate(path("/ui/compute/instances"));
             else void instance.refetch();
           }}
         />

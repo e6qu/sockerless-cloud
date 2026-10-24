@@ -13,11 +13,13 @@ export function GcpDialog({
   title,
   children,
   testId,
+  wide,
   onClose,
 }: {
   title: string;
   children: ReactNode;
   testId?: string;
+  wide?: boolean;
   onClose?: () => void;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -47,7 +49,7 @@ export function GcpDialog({
     >
       <div
         ref={dialogRef}
-        className="gc-dialog"
+        className={wide ? "gc-dialog gc-dialog-wide" : "gc-dialog"}
         role="dialog"
         aria-modal="true"
         aria-label={title}

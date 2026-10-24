@@ -39,7 +39,7 @@ const columns: GcpColumn<DataflowJob>[] = [
     id: "name",
     header: "Name",
     cell: (row) => (
-      <Link className="gc-cell-link" to={`/ui/dataflow/${row.id}`}>
+      <Link className="gc-cell-link" to={`/ui/dataflow/jobs/${row.id}`}>
         {row.name ?? row.id}
       </Link>
     ),
@@ -206,10 +206,8 @@ export function DataflowJobDetailPage() {
 
   return (
     <>
-      <div className="gc-detail-back">
-        <Link to="/ui/dataflow">‹ Dataflow jobs</Link>
-      </div>
       <GcpPageHeader
+        backTo="/ui/dataflow/jobs"
         title={data?.name ?? id}
         description="Dataflow job"
         onRefresh={() => {

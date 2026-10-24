@@ -5,15 +5,40 @@ import { GcpResourceTable, type GcpColumn } from "../console/index.js";
 import { GcpDialog } from "../console/GcpDialog.js";
 import { LabelsEditor, labelsToPairs, pairsToLabels, type LabelPair } from "../console/LabelsEditor.js";
 import { shortName, formatTimestamp } from "../console/format.js";
-import { createGCSBucket, deleteGCSBucket, fetchGCSBuckets, updateGCSBucket, type GCSBucket } from "../api.js";
-import { useProject } from "../console/project.js";
+import { useOperations } from "../console/notifications.js";
+import { useProject, useProjectPath } from "../console/project.js";
+import { deleteGCSBucket, fetchGCSBuckets, updateGCSBucket, type GCSBucket } from "../api.js";
 
-// Cloud Storage's default storage classes, as the Edit bucket page offers them.
-const STORAGE_CLASSES = ["STANDARD", "NEARLINE", "COLDLINE", "ARCHIVE"] as const;
+// Cloud Storage's storage classes, in the order the console offers them.
+export const STORAGE_CLASSES = ["STANDARD", "NEARLINE", "COLDLINE", "ARCHIVE"] as const;
 
-// labelsDiff turns an edited labels map into the storage.buckets.patch body:
-// GCS deep-merges `labels`, and a null value removes a key, so a key the
-// operator dropped must be sent as null rather than simply omitted.
+export function storageClassLabel(storageClass: string | undefined): string {
+  return storageClass ? storageClass.charAt(0) + storageClass.slice(1).toLowerCase() : "—";
+}
+
+export function locationTypeLabel(locationType: string | undefined): string {
+  switch (locationType) {
+    case "region":
+      return "Region";
+    case "dual-region":
+      return "Dual-region";
+    case "multi-region":
+      return "Multi-region";
+    default:
+      return "—";
+  }
+}
+
+export function publicAccessLabel(bucket: GCSBucket): string {
+  return bucket.iamConfiguration?.publicAccessPrevention === "enforced" ? "Not public" : "Subject to object ACLs";
+}
+
+export function accessControlLabel(bucket: GCSBucket): string {
+  return bucket.iamConfiguration?.uniformBucketLevelAccess?.enabled ? "Uniform" : "Fine-grained";
+}
+
+// storage.buckets.patch deep-merges `labels`, and a null value removes a key,
+// so a key the operator dropped is sent as null rather than omitted.
 function labelsDiff(
   original: Record<string, string> = {},
   next: Record<string, string>,
@@ -25,9 +50,8 @@ function labelsDiff(
   return patch;
 }
 
-// EditBucketDialog edits the fields the real Edit bucket page edits — the
-// default storage class and the bucket's labels — through the real
-// storage.buckets.patch operation. Shared by the detail page's Edit action.
+// EditBucketDialog edits the default storage class and the labels through
+// storage.buckets.patch.
 export function EditBucketDialog({
   bucket,
   onClose,
@@ -39,28 +63,27 @@ export function EditBucketDialog({
 }) {
   const [storageClass, setStorageClass] = useState(bucket.storageClass ?? "STANDARD");
   const [pairs, setPairs] = useState<LabelPair[]>(labelsToPairs(bucket.labels));
+  const { track } = useOperations();
+  const name = shortName(bucket.name);
 
   const save = useMutation({
     mutationFn: () =>
-      updateGCSBucket(shortName(bucket.name), {
-        storageClass,
-        labels: labelsDiff(bucket.labels, pairsToLabels(pairs)),
-      }),
+      track(
+        `Update bucket "${name}"`,
+        () => updateGCSBucket(name, { storageClass, labels: labelsDiff(bucket.labels, pairsToLabels(pairs)) }),
+        `Updated bucket "${name}"`,
+      ),
     onSuccess: onSaved,
   });
 
   return (
     <GcpDialog title="Edit bucket" testId="gcs-edit-dialog" onClose={onClose}>
       <label className="gc-field">
-        Default storage class
-        <select
-          value={storageClass}
-          data-testid="gcs-edit-storage-class"
-          onChange={(event) => setStorageClass(event.target.value)}
-        >
+        <span className="gc-field-label">Default storage class</span>
+        <select value={storageClass} data-testid="gcs-edit-storage-class" onChange={(event) => setStorageClass(event.target.value)}>
           {STORAGE_CLASSES.map((candidate) => (
             <option key={candidate} value={candidate}>
-              {candidate}
+              {storageClassLabel(candidate)}
             </option>
           ))}
         </select>
@@ -73,14 +96,10 @@ export function EditBucketDialog({
         </div>
       ) : null}
       <div className="gc-dialog-actions">
-        <button type="button" className="gc-button-text" onClick={onClose}>Cancel</button>
-        <button
-          type="button"
-          className="gc-button-primary"
-          data-testid="gcs-edit-submit"
-          disabled={save.isPending}
-          onClick={() => save.mutate()}
-        >
+        <button type="button" className="gc-button-text" onClick={onClose}>
+          Cancel
+        </button>
+        <button type="button" className="gc-button-primary" data-testid="gcs-edit-submit" disabled={save.isPending} onClick={() => save.mutate()}>
           {save.isPending ? "Saving…" : "Save"}
         </button>
       </div>
@@ -88,54 +107,50 @@ export function EditBucketDialog({
   );
 }
 
-const columns: GcpColumn<GCSBucket>[] = [
-  {
-    id: "name",
-    header: "Name",
-    cell: (row) => <Link className="gc-cell-link" to={`/ui/gcs/${shortName(row.name)}`}>{shortName(row.name)}</Link>,
-    value: (row) => shortName(row.name),
-  },
-  { id: "location", header: "Location", cell: (row) => row.location ?? "—", value: (row) => row.location ?? "" },
-  { id: "storageClass", header: "Storage class", cell: (row) => row.storageClass ?? "—", value: (row) => row.storageClass ?? "" },
-  { id: "timeCreated", header: "Created", cell: (row) => formatTimestamp(row.timeCreated ?? ""), value: (row) => row.timeCreated ?? "" },
-];
-
-// DeleteBucketDialog is shared by the list's per-row action and the bucket
-// detail page's header action — the same real storage.buckets.delete
-// operation (DELETE /storage/v1/b/{bucket}, answered 204 No Content) either
-// way.
+// DeleteBucketDialog deletes one or more buckets through storage.buckets.delete
+// after the operator types DELETE, the confirmation the real console asks for.
 export function DeleteBucketDialog({
-  name,
+  names,
   onClose,
   onDeleted,
 }: {
-  name: string;
+  names: string[];
   onClose: () => void;
   onDeleted: () => void;
 }) {
+  const [confirmation, setConfirmation] = useState("");
+  const { track } = useOperations();
+  const subject = names.length === 1 ? `bucket "${names[0]}"` : `${names.length} buckets`;
   const remove = useMutation({
-    mutationFn: () => deleteGCSBucket(name),
+    mutationFn: () =>
+      track(`Delete ${subject}`, () => Promise.all(names.map((name) => deleteGCSBucket(name))), `Deleted ${subject}`),
     onSuccess: onDeleted,
   });
   return (
-    <GcpDialog title="Delete bucket?" testId="gcs-delete-dialog" onClose={onClose}>
+    <GcpDialog title={names.length === 1 ? `Delete bucket?` : `Delete ${names.length} buckets?`} testId="gcs-delete-dialog" onClose={onClose}>
       <p>
-        Deleting <strong>{name}</strong> permanently removes the bucket and every object it holds.
-        This can't be undone.
+        {names.length === 1 ? <strong>{names[0]}</strong> : names.join(", ")} will be deleted permanently. A bucket that still
+        holds objects can't be deleted.
       </p>
+      <label className="gc-field">
+        <span className="gc-field-label">To confirm deletion, type DELETE</span>
+        <input type="text" value={confirmation} data-testid="gcs-delete-confirmation" onChange={(event) => setConfirmation(event.target.value)} />
+      </label>
       {remove.isError ? (
         <div className="gc-message gc-message-error" role="alert">
-          <strong>Couldn't delete the bucket.</strong>{" "}
+          <strong>Couldn't delete {subject}.</strong>{" "}
           {remove.error instanceof Error ? remove.error.message : "The API did not respond."}
         </div>
       ) : null}
       <div className="gc-dialog-actions">
-        <button type="button" className="gc-button-text" onClick={onClose}>Cancel</button>
+        <button type="button" className="gc-button-text" onClick={onClose}>
+          Cancel
+        </button>
         <button
           type="button"
-          className="gc-button-primary"
+          className="gc-button-primary gc-button-danger"
           data-testid="gcs-delete-confirm"
-          disabled={remove.isPending}
+          disabled={confirmation !== "DELETE" || remove.isPending}
           onClick={() => remove.mutate()}
         >
           {remove.isPending ? "Deleting…" : "Delete"}
@@ -145,134 +160,76 @@ export function DeleteBucketDialog({
   );
 }
 
-// Cloud Storage's bucket-name contract: 3–63 characters, lowercase letters,
-// digits, hyphens, underscores and dots, starting and ending with a letter
-// or digit — checked before submitting so the dialog explains the rule the
-// way the real Create bucket page does.
-const BUCKET_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$/;
-
-export function CreateBucketDialog({
-  onClose,
-  onCreated,
-}: {
-  onClose: () => void;
-  onCreated: () => void;
-}) {
-  const { project } = useProject();
-  const [name, setName] = useState("");
-
-  const create = useMutation({
-    mutationFn: () => createGCSBucket(project, name),
-    onSuccess: onCreated,
-  });
-
-  const valid = BUCKET_NAME_PATTERN.test(name);
-
+function BucketName({ bucket }: { bucket: GCSBucket }) {
+  const path = useProjectPath();
+  const name = shortName(bucket.name);
   return (
-    <GcpDialog title="Create a bucket" testId="gcs-create-dialog" onClose={onClose}>
-      <label className="gc-field">
-        Name your bucket
-        <input
-          type="text"
-          value={name}
-          data-testid="gcs-create-name"
-          onChange={(event) => setName(event.target.value)}
-        />
-        <p className="gc-field-hint">
-          3–63 characters. Lowercase letters, numbers, dashes (-), underscores (_) and dots (.); must start and
-          end with a letter or number.
-        </p>
-      </label>
-      {create.isError ? (
-        <div className="gc-message gc-message-error" role="alert">
-          <strong>Couldn't create the bucket.</strong>{" "}
-          {create.error instanceof Error ? create.error.message : "The API did not respond."}
-        </div>
-      ) : null}
-      <div className="gc-dialog-actions">
-        <button type="button" className="gc-button-text" onClick={onClose}>Cancel</button>
-        <button
-          type="button"
-          className="gc-button-primary"
-          data-testid="gcs-create-submit"
-          disabled={!valid || create.isPending}
-          onClick={() => create.mutate()}
-        >
-          {create.isPending ? "Creating…" : "Create"}
-        </button>
-      </div>
-    </GcpDialog>
+    <Link className="gc-cell-link" to={path(`/ui/storage/browser/${name}`)}>
+      {name}
+    </Link>
   );
 }
+
+const columns: GcpColumn<GCSBucket>[] = [
+  { id: "name", header: "Name", cell: (row) => <BucketName bucket={row} />, value: (row) => shortName(row.name) },
+  { id: "created", header: "Created", cell: (row) => formatTimestamp(row.timeCreated ?? ""), value: (row) => row.timeCreated ?? "" },
+  {
+    id: "locationType",
+    header: "Location type",
+    cell: (row) => locationTypeLabel(row.locationType),
+    value: (row) => locationTypeLabel(row.locationType),
+  },
+  { id: "location", header: "Location", cell: (row) => (row.location ?? "—").toLowerCase(), value: (row) => (row.location ?? "").toLowerCase() },
+  {
+    id: "storageClass",
+    header: "Default storage class",
+    cell: (row) => storageClassLabel(row.storageClass),
+    value: (row) => storageClassLabel(row.storageClass),
+  },
+  { id: "updated", header: "Last modified", cell: (row) => formatTimestamp(row.updated ?? ""), value: (row) => row.updated ?? "" },
+  { id: "publicAccess", header: "Public access", cell: publicAccessLabel, value: publicAccessLabel },
+  { id: "accessControl", header: "Access control", cell: accessControlLabel, value: accessControlLabel },
+  {
+    id: "labels",
+    header: "Labels",
+    cell: (row) => Object.entries(row.labels ?? {}).map(([key, value]) => `${key}: ${value}`).join(", ") || "—",
+    value: (row) => Object.entries(row.labels ?? {}).map(([key, value]) => `${key}:${value}`).join(" "),
+    defaultHidden: true,
+  },
+];
 
 export function GCSBucketsPage() {
   const { project } = useProject();
   const queryClient = useQueryClient();
-  const [creating, setCreating] = useState(false);
-  const [deleting, setDeleting] = useState<string | null>(null);
-
-  const refresh = () => void queryClient.invalidateQueries({ queryKey: ["gcs-buckets-real", project] });
-
-  const columnsWithActions: GcpColumn<GCSBucket>[] = [
-    ...columns,
-    {
-      id: "actions",
-      header: "Actions",
-      cell: (row) => {
-        const name = shortName(row.name);
-        return (
-          <button
-            type="button"
-            className="gc-button-text"
-            data-testid={`gcs-delete-${name}`}
-            aria-label={`Delete ${name}`}
-            onClick={() => setDeleting(name)}
-          >
-            Delete
-          </button>
-        );
-      },
-      value: () => "",
-    },
-  ];
-
+  const [deleting, setDeleting] = useState<string[] | null>(null);
   return (
     <>
       <GcpResourceTable<GCSBucket>
-        title="Cloud Storage"
-        description="Buckets hold your objects — durable, scalable storage for any amount of data."
-        actions={[
-          { label: "Create bucket", icon: "add", primary: true, testId: "gcs-create-bucket", onSelect: () => setCreating(true) },
+        title="Buckets"
+        actions={[{ label: "Create", icon: "add", to: "/ui/storage/create-bucket", testId: "gcs-create-bucket" }]}
+        selectionActions={(selected) => [
+          { label: "Delete", icon: "delete", testId: "gcs-delete-selected", onSelect: () => setDeleting(selected.map((row) => shortName(row.name))) },
         ]}
-        columns={columnsWithActions}
+        rowActions={(row) => [{ label: "Delete", onSelect: () => setDeleting([shortName(row.name)]) }]}
+        columns={columns}
         queryKey={["gcs-buckets-real", project]}
         queryFn={() => fetchGCSBuckets(project)}
-        filterPlaceholder="Filter buckets"
         resourceNoun="buckets"
+        testId="gcs-buckets-table"
         empty={{
-          headline: "Store any amount of data",
-          description: "Create a bucket to store and serve objects with Cloud Storage.",
-          primaryLabel: "Create bucket",
-          onPrimary: () => setCreating(true),
+          headline: "No buckets",
+          description: "Buckets hold your objects: durable, scalable storage for any amount of data.",
         }}
         rowKey={(row) => row.name}
+        rowLabel={(row) => shortName(row.name)}
       />
-      {creating ? (
-        <CreateBucketDialog
-          onClose={() => setCreating(false)}
-          onCreated={() => {
-            setCreating(false);
-            refresh();
-          }}
-        />
-      ) : null}
       {deleting ? (
         <DeleteBucketDialog
-          name={deleting}
+          names={deleting}
           onClose={() => setDeleting(null)}
           onDeleted={() => {
             setDeleting(null);
-            refresh();
+            void queryClient.invalidateQueries({ queryKey: ["gcs-buckets-real", project] });
           }}
         />
       ) : null}

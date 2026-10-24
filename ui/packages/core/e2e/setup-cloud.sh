@@ -42,6 +42,17 @@ azure_arm_bearer() {
     | sed -n 's/.*"access_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
 }
 
+# gcp_bootstrap_token mints an access token for the simulator's bootstrap
+# principal at the OAuth 2.0 token endpoint: a token request that carries no
+# service-account assertion. The metadata server answers only workloads, so an
+# administrator's script outside one provisions with this credential. Emits
+# the raw access token on stdout.
+gcp_bootstrap_token() {
+  curl --fail --silent --show-error \
+    --data-urlencode "grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer" \
+    "$1/token" | jq -r .access_token
+}
+
 # hex_sha256 emits the lowercase hex SHA-256 of its stdin.
 hex_sha256() {
   openssl dgst -sha256 -hex | sed 's/^.*= //'
@@ -178,6 +189,37 @@ case "$SIMULATOR_SETUP" in
       "RoleName=${FEDERATION_ROLE_NAME}" PolicyName=ConsoleAdministrator \
       'PolicyDocument={"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}'
     ;;
+  gcp-console-federation)
+    # The console federates its operator the way a deployment wires Workforce
+    # Identity Federation: a workforce pool, an OpenID Connect provider beneath
+    # it for the issuer the console signs operators in with, and an allow
+    # policy granting the pool's principals the project.
+    if [[ -z "${FEDERATION_ISSUER:-}" || -z "${FEDERATION_CLIENT_ID:-}" || -z "${FEDERATION_POOL:-}" ||
+      -z "${FEDERATION_PROVIDER:-}" || -z "${FEDERATION_PROJECT:-}" ]]; then
+      echo "ERROR: FEDERATION_ISSUER, FEDERATION_CLIENT_ID, FEDERATION_POOL, FEDERATION_PROVIDER, and FEDERATION_PROJECT are required" >&2
+      exit 1
+    fi
+    gcp_token="$(gcp_bootstrap_token "$SIMULATOR_URL")"
+    gcp_post() {
+      curl --fail --silent --show-error --request POST \
+        --header "Content-Type: application/json" --header "Authorization: Bearer ${gcp_token}" \
+        --data "$2" "$SIMULATOR_URL$1" >/dev/null
+    }
+    gcp_post "/v1/locations/global/workforcePools?workforcePoolId=${FEDERATION_POOL}" \
+      '{"parent":"organizations/123456789012","displayName":"Console operators"}'
+    gcp_post "/v1/locations/global/workforcePools/${FEDERATION_POOL}/providers?workforcePoolProviderId=${FEDERATION_PROVIDER}" \
+      "$(jq -cn --arg issuer "$FEDERATION_ISSUER" --arg client "$FEDERATION_CLIENT_ID" '{
+        displayName: "Console sign-in",
+        oidc: {issuerUri: $issuer, clientId: $client, webSsoConfig: {responseType: "CODE", assertionClaimsBehavior: "ONLY_ID_TOKEN_CLAIMS"}},
+        attributeMapping: {"google.subject": "assertion.sub"}
+      }')"
+    policy="$(curl --fail --silent --show-error --request POST \
+      --header "Content-Type: application/json" --header "Authorization: Bearer ${gcp_token}" \
+      --data '{}' "$SIMULATOR_URL/v1/projects/${FEDERATION_PROJECT}:getIamPolicy")"
+    member="principalSet://iam.googleapis.com/locations/global/workforcePools/${FEDERATION_POOL}/*"
+    gcp_post "/v1/projects/${FEDERATION_PROJECT}:setIamPolicy" \
+      "$(jq -c --arg member "$member" '{policy: (. | .bindings = ((.bindings // []) + [{role: "roles/owner", members: [$member]}]))}' <<<"$policy")"
+    ;;
   aws-ecs)
     aws_sigv4_post \
       "$SIMULATOR_URL" \
@@ -186,11 +228,8 @@ case "$SIMULATOR_SETUP" in
       "ecs"
     ;;
   gcp)
-    # The simulator now verifies bearer tokens on its Cloud Storage data plane,
-    # so obtain a real token from its GCE metadata server (the same coordinate a
-    # workload uses on real GCE) and present it, exactly as the backend does.
-    gcp_token="$(curl --fail --silent -H "Metadata-Flavor: Google" \
-      "$SIMULATOR_URL/computeMetadata/v1/instance/service-accounts/default/token" | jq -r .access_token)"
+    # The simulator verifies bearer tokens on its Cloud Storage data plane.
+    gcp_token="$(gcp_bootstrap_token "$SIMULATOR_URL")"
     curl --fail --silent --show-error \
       --request POST \
       --header "Content-Type: application/json" \
