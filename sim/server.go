@@ -503,30 +503,13 @@ func (s *Server) ListenAndServe() error {
 func (s *Server) serveTLS() bool { return s.config.TLSCert != "" && s.config.TLSKey != "" }
 
 // Listen binds the API listener at ListenAddr and, when it serves TLS, the
-// plain-HTTP callback listener at CallbackListenAddr, without serving yet. A
-// workload's sidecar forwards its metadata requests to a plain URL, so a TLS
-// deployment serves the same chain plain on a second port for the engine's
-// networks.
+// plain-HTTP callback listener at CallbackListenAddr, without serving yet.
 func (s *Server) Listen() error {
-	ln, err := net.Listen("tcp", s.config.ListenAddr)
+	bound, err := listen(s.config)
 	if err != nil {
 		return err
 	}
-	s.ln = ln
-	if !s.serveTLS() {
-		return nil
-	}
-	callbackAddr := s.config.CallbackListenAddr
-	if callbackAddr == "" {
-		callbackAddr = ":0"
-	}
-	callbackLn, err := net.Listen("tcp", callbackAddr)
-	if err != nil {
-		_ = ln.Close()
-		s.ln = nil
-		return fmt.Errorf("callback listener %s: %w", callbackAddr, err)
-	}
-	s.callbackLn = callbackLn
+	s.adoptListeners(bound)
 	return nil
 }
 
@@ -534,25 +517,70 @@ func (s *Server) Listen() error {
 // back on, with the port Listen bound: ListenAddr without TLS, else the
 // callback listener's.
 func (s *Server) CallbackListenAddr() string {
-	if s.callbackLn == nil {
-		return s.config.ListenAddr
-	}
-	host, _, err := net.SplitHostPort(s.config.CallbackListenAddr)
-	if err != nil {
-		host = ""
-	}
-	_, port, _ := net.SplitHostPort(s.callbackLn.Addr().String())
-	return net.JoinHostPort(host, port)
+	return listeners{api: s.ln, callback: s.callbackLn}.callbackAddr(s.config)
+}
+
+// adoptListeners makes bound the listeners Serve serves on.
+func (s *Server) adoptListeners(bound listeners) {
+	s.ln, s.callbackLn = bound.api, bound.callback
 }
 
 // closeListeners closes what Listen bound, for a server that will not serve.
 func (s *Server) closeListeners() {
-	for _, ln := range []net.Listener{s.ln, s.callbackLn} {
+	listeners{api: s.ln, callback: s.callbackLn}.close()
+	s.ln, s.callbackLn = nil, nil
+}
+
+// listeners are a server's API listener and, beside a TLS one, its plain-HTTP
+// callback listener. A workload's sidecar forwards its metadata requests to a
+// plain URL, so a TLS deployment serves the same chain plain on a second port
+// for the engine's networks.
+type listeners struct {
+	api, callback net.Listener
+}
+
+// listen binds the listeners cfg names.
+func listen(cfg Config) (listeners, error) {
+	ln, err := net.Listen("tcp", cfg.ListenAddr)
+	if err != nil {
+		return listeners{}, err
+	}
+	if cfg.TLSCert == "" || cfg.TLSKey == "" {
+		return listeners{api: ln}, nil
+	}
+	callbackAddr := cfg.CallbackListenAddr
+	if callbackAddr == "" {
+		callbackAddr = ":0"
+	}
+	callbackLn, err := net.Listen("tcp", callbackAddr)
+	if err != nil {
+		_ = ln.Close()
+		return listeners{}, fmt.Errorf("callback listener %s: %w", callbackAddr, err)
+	}
+	return listeners{api: ln, callback: callbackLn}, nil
+}
+
+// callbackAddr is the address the workloads of a server configured by cfg
+// call back on: the callback listener's bound port at cfg's
+// CallbackListenAddr host, or ListenAddr when there is no callback listener.
+func (l listeners) callbackAddr(cfg Config) string {
+	if l.callback == nil {
+		return cfg.ListenAddr
+	}
+	host, _, err := net.SplitHostPort(cfg.CallbackListenAddr)
+	if err != nil {
+		host = ""
+	}
+	_, port, _ := net.SplitHostPort(l.callback.Addr().String())
+	return net.JoinHostPort(host, port)
+}
+
+func (l listeners) close() {
+	for _, ln := range []net.Listener{l.api, l.callback} {
 		if ln != nil {
 			_ = ln.Close()
 		}
 	}
-	s.ln, s.callbackLn = nil, nil
 }
 
 // Serve serves on the listeners Listen bound and blocks until shutdown.

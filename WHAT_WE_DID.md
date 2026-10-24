@@ -4619,12 +4619,13 @@ there, and recovery adopts the compute and its forwarder.
 
 ### Workload callbacks under TLS
 
-The framework's server binds its listeners before `Program.Start`
-(`Server.Listen`, then `Server.Serve`). When the API listener terminates TLS,
-the server also opens a plain-HTTP callback listener at
-`Config.CallbackListenAddr` (`SIM_CALLBACK_LISTEN_ADDR`, a free port on every
-interface by default) that serves the same handler chain, so the sidecar trust
-middleware applies unchanged. The three simulators point their network
+`sim.Main` binds the listeners before `Program.Build` and hands the build a
+`Config.CallbackListenAddr` resolved to the bound port; the server adopts the
+listeners and serves on them once `Program.Start` returns. When the API
+listener terminates TLS, `sim.Main` also opens a plain-HTTP callback listener
+at `Config.CallbackListenAddr` (`SIM_CALLBACK_LISTEN_ADDR`, a free port on
+every interface by default) that serves the same handler chain, so the sidecar
+trust middleware applies unchanged. The three simulators point their network
 sidecars, NAT egresses and metadata URLs at the callback address, because a
 sidecar's scratch image carries no trust store for the simulator's certificate
 and a workload's `IDENTITY_ENDPOINT` is plain HTTP. A simulator without TLS
@@ -5002,3 +5003,18 @@ until it answers, for at most ten seconds. The structured Cloud Run log test
 stamped its line with a fixed January date that Cloud Logging's thirty-day
 retention discards, so the line never reached the tail; it now stamps the line
 a minute in the past.
+
+### A restarted simulator's resumed work knows the callback address
+
+The callback address had become known only after the build, when `sim.Main`
+bound the listeners, and the simulators recorded it in `Program.Start`. A
+persistent AWS simulator resumes its previous process's work during the build:
+Amazon ECS service reconciles, AWS Step Functions executions and AWS Lambda
+invocations start there, and one that reached a workload before `Start` saw an
+empty address. The network sidecars memoized `invalid simulator listen port
+""`, so every task the restarted service scheduler placed failed and the
+deployment never stabilized, and a resumed Step Functions Lambda task got the
+same error back as an unhandled function error and failed its execution.
+`sim.Main` now binds the listeners before `Program.Build` and passes the
+resolved address in the configuration the build receives, and the three
+simulators record it as their build begins.

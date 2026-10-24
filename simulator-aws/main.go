@@ -41,13 +41,14 @@ func main() {
 			return awsConfigurePlacement(cfg)
 		},
 		Build: func(cfg sim.Config) (*sim.Server, error) {
+			// Workloads reach the instance metadata and container metadata
+			// endpoints at the plain-HTTP address the simulator serves them
+			// on, the workloads the build resumes among them.
+			simCallbackListenAddr = cfg.CallbackListenAddr
 			srv, _, _, err := buildSimulator(cfg)
 			return srv, err
 		},
 		Start: func(_ *sim.Server, cfg sim.Config) (func(context.Context) error, error) {
-			// Workloads reach the instance metadata and container metadata
-			// endpoints at the plain-HTTP address the simulator serves them on.
-			simCallbackListenAddr = cfg.CallbackListenAddr
 			stopAgent, err := awsStartPlacement(context.Background(), cfg.Persist)
 			if err != nil {
 				return nil, err

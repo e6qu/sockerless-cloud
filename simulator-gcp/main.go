@@ -45,6 +45,9 @@ func main() {
 			return gcpConfigurePlacement(cfg)
 		},
 		Build: func(cfg sim.Config) (*sim.Server, error) {
+			// Workloads reach the metadata server and the sidecars at the
+			// plain-HTTP address the simulator serves them on.
+			simCallbackListenAddr = cfg.CallbackListenAddr
 			srv, err := buildSimulator(cfg)
 			if err != nil {
 				return nil, err
@@ -65,9 +68,6 @@ func main() {
 // that run only in the serving process: building the route table in-process
 // (route conformance, coverage probing) must not start one.
 func startGCPListeners(srv *sim.Server, cfg sim.Config) (func(context.Context) error, error) {
-	// Workloads reach the metadata server and the sidecars at the plain-HTTP
-	// address the simulator serves them on.
-	simCallbackListenAddr = cfg.CallbackListenAddr
 	grpcPort := grpcPortFromConfig(cfg.ListenAddr)
 	if p := os.Getenv("SIM_GCP_GRPC_PORT"); p != "" {
 		grpcPort = p

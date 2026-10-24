@@ -29,9 +29,9 @@ type Config struct {
 	// identity endpoints their network sidecars forward to, which a container
 	// reaches without the operator's certificate authority. It serves the
 	// whole handler chain, plain. Set via SIM_CALLBACK_LISTEN_ADDR; empty
-	// takes a free port on every interface, and Listen records the bound
-	// address here. Without TLS the one listener serves everything and this
-	// is ListenAddr.
+	// takes a free port on every interface, and Main resolves it to the bound
+	// address before Program.Build runs. Without TLS the one listener serves
+	// everything and this is ListenAddr.
 	CallbackListenAddr string
 
 	// TLSConfigForClient, when set, picks a connection's TLS configuration

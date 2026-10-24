@@ -41,7 +41,12 @@ func main() {
 			}
 			return configureAzurePlacement(cfg.Placement)
 		},
-		Build: buildSimulator,
+		Build: func(cfg sim.Config) (*sim.Server, error) {
+			// The sidecars forward workloads' metadata requests to the
+			// plain-HTTP address the simulator serves them on.
+			simListenAddr = cfg.CallbackListenAddr
+			return buildSimulator(cfg)
+		},
 		Start: startAzureListeners,
 	})
 }
@@ -50,9 +55,6 @@ func main() {
 // the raw Service Bus AMQP listener an operator configured, and adopts the
 // virtual machines a previous process of a persistent simulator left running.
 func startAzureListeners(_ *sim.Server, cfg sim.Config) (func(context.Context) error, error) {
-	// The sidecars forward workloads' metadata requests to the plain-HTTP
-	// address the simulator serves them on.
-	simListenAddr = cfg.CallbackListenAddr
 	ctx, cancel := context.WithCancel(context.Background())
 	var dnsServers []*dnsserver.Server
 	stop := func(ctx context.Context) error {
