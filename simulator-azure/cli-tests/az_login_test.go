@@ -220,9 +220,11 @@ func startAzTLSSimulator(t *testing.T, extraEnv ...string) azLoginEnv {
 		t.Fatalf("release reserved port: %v", err)
 	}
 
+	// Bound on every interface, as the suite's simulator is, so the workloads
+	// the tests place reach it through the engine's bridge.
 	cmd := exec.Command(binaryPath)
 	cmd.Env = append(os.Environ(),
-		"SIM_LISTEN_ADDR="+addr,
+		"SIM_LISTEN_ADDR="+port,
 		"SIM_TLS_CERT="+certPath,
 		"SIM_TLS_KEY="+keyPath,
 	)

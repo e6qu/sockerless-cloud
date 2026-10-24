@@ -2,6 +2,7 @@ package sim
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -28,7 +29,11 @@ import (
 type Server struct {
 	config Config
 	logger zerolog.Logger
-	mux    *http.ServeMux
+	// ephemeralPayloads are the payload directories a server that does not
+	// persist made in the system's temporary directory, removed when it stops.
+	ephemeralMu       sync.Mutex
+	ephemeralPayloads []string
+	mux               *http.ServeMux
 	// routed is the routing core: the mux plus the middlewares that must run
 	// after a request has been claimed. WrapHandler wraps this, so a
 	// host-addressed data plane intercepts ahead of the generic path handlers
@@ -58,6 +63,10 @@ type Server struct {
 	// stop runs at shutdown once the workers have returned and before the
 	// database closes, so what it stops can still read and write state.
 	stop func(context.Context) error
+
+	// ln is the API listener Listen bound, and callbackLn the plain-HTTP
+	// listener beside it when the API listener serves TLS (nil otherwise).
+	ln, callbackLn net.Listener
 
 	// routePatterns records every mux pattern registered through
 	// Handle/HandleFunc, in registration order. The spec-conformance
@@ -459,7 +468,22 @@ func (s *Server) stopBackground() {
 // caller that builds a server without serving on it — a test exercising one
 // registered subsystem, say — has to do it explicitly, or those workers keep
 // running against package-level state after the caller is finished with it.
-func (s *Server) StopBackground() { s.stopBackground() }
+func (s *Server) StopBackground() {
+	s.stopBackground()
+	s.removeEphemeralPayloads()
+}
+
+func (s *Server) removeEphemeralPayloads() {
+	s.ephemeralMu.Lock()
+	dirs := s.ephemeralPayloads
+	s.ephemeralPayloads = nil
+	s.ephemeralMu.Unlock()
+	for _, dir := range dirs {
+		if err := os.RemoveAll(dir); err != nil {
+			s.logger.Warn().Err(err).Str("dir", dir).Msg("shutdown: remove the payload store")
+		}
+	}
+}
 
 // OnStop registers what shutdown runs after the HTTP server has drained and
 // the background workers have returned, while the database is still open: the
@@ -467,25 +491,129 @@ func (s *Server) StopBackground() { s.stopBackground() }
 // HTTP port read and write state as they stop.
 func (s *Server) OnStop(stop func(context.Context) error) { s.stop = stop }
 
-// ListenAndServe starts the server and blocks until shutdown.
-// It listens for SIGTERM and SIGINT for graceful shutdown.
+// ListenAndServe binds the listeners and serves until shutdown.
 func (s *Server) ListenAndServe() error {
-	srv := &http.Server{
-		Addr:    s.config.ListenAddr,
-		Handler: s.finalHandler(),
-		// Bound only the header read (slowloris protection). A fixed
-		// ReadTimeout/WriteTimeout caps the WHOLE body, which cuts off large
-		// image-layer / build-context uploads + downloads under load —
-		// surfacing as an "i/o timeout" 500 on a slow OCI/S3 transfer on a
-		// loaded CI runner.
-		ReadHeaderTimeout: 30 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		// Every request's context descends from the background context, so
-		// the cancellation that stops the workers also ends an open long poll
-		// or Live Tail session: Shutdown waits for in-flight requests, and a
-		// request blocked on its own context would otherwise hold the drain
-		// to its bound.
-		BaseContext: func(net.Listener) context.Context { return s.backgroundCtx },
+	if err := s.Listen(); err != nil {
+		return err
+	}
+	return s.Serve()
+}
+
+// serveTLS reports whether the API listener terminates TLS.
+func (s *Server) serveTLS() bool { return s.config.TLSCert != "" && s.config.TLSKey != "" }
+
+// Listen binds the API listener at ListenAddr and, when it serves TLS, the
+// plain-HTTP callback listener at CallbackListenAddr, without serving yet.
+func (s *Server) Listen() error {
+	bound, err := listen(s.config)
+	if err != nil {
+		return err
+	}
+	s.adoptListeners(bound)
+	return nil
+}
+
+// CallbackListenAddr is the plain-HTTP listen address the workloads call
+// back on, with the port Listen bound: ListenAddr without TLS, else the
+// callback listener's.
+func (s *Server) CallbackListenAddr() string {
+	return listeners{api: s.ln, callback: s.callbackLn}.callbackAddr(s.config)
+}
+
+// adoptListeners makes bound the listeners Serve serves on.
+func (s *Server) adoptListeners(bound listeners) {
+	s.ln, s.callbackLn = bound.api, bound.callback
+}
+
+// closeListeners closes what Listen bound, for a server that will not serve.
+func (s *Server) closeListeners() {
+	listeners{api: s.ln, callback: s.callbackLn}.close()
+	s.ln, s.callbackLn = nil, nil
+}
+
+// listeners are a server's API listener and, beside a TLS one, its plain-HTTP
+// callback listener. A workload's sidecar forwards its metadata requests to a
+// plain URL, so a TLS deployment serves the same chain plain on a second port
+// for the engine's networks.
+type listeners struct {
+	api, callback net.Listener
+}
+
+// listen binds the listeners cfg names.
+func listen(cfg Config) (listeners, error) {
+	ln, err := net.Listen("tcp", cfg.ListenAddr)
+	if err != nil {
+		return listeners{}, err
+	}
+	if cfg.TLSCert == "" || cfg.TLSKey == "" {
+		return listeners{api: ln}, nil
+	}
+	callbackAddr := cfg.CallbackListenAddr
+	if callbackAddr == "" {
+		callbackAddr = ":0"
+	}
+	callbackLn, err := net.Listen("tcp", callbackAddr)
+	if err != nil {
+		_ = ln.Close()
+		return listeners{}, fmt.Errorf("callback listener %s: %w", callbackAddr, err)
+	}
+	return listeners{api: ln, callback: callbackLn}, nil
+}
+
+// callbackAddr is the address the workloads of a server configured by cfg
+// call back on: the callback listener's bound port at cfg's
+// CallbackListenAddr host, or ListenAddr when there is no callback listener.
+func (l listeners) callbackAddr(cfg Config) string {
+	if l.callback == nil {
+		return cfg.ListenAddr
+	}
+	host, _, err := net.SplitHostPort(cfg.CallbackListenAddr)
+	if err != nil {
+		host = ""
+	}
+	_, port, _ := net.SplitHostPort(l.callback.Addr().String())
+	return net.JoinHostPort(host, port)
+}
+
+func (l listeners) close() {
+	for _, ln := range []net.Listener{l.api, l.callback} {
+		if ln != nil {
+			_ = ln.Close()
+		}
+	}
+}
+
+// Serve serves on the listeners Listen bound and blocks until shutdown.
+// It listens for SIGTERM and SIGINT for graceful shutdown.
+func (s *Server) Serve() error {
+	if s.ln == nil {
+		return errors.New("Serve before Listen")
+	}
+	handler := s.finalHandler()
+	httpServer := func(addr string) *http.Server {
+		return &http.Server{
+			Addr:    addr,
+			Handler: handler,
+			// Bound only the header read (slowloris protection). A fixed
+			// ReadTimeout/WriteTimeout caps the WHOLE body, which cuts off large
+			// image-layer / build-context uploads + downloads under load —
+			// surfacing as an "i/o timeout" 500 on a slow OCI/S3 transfer on a
+			// loaded CI runner.
+			ReadHeaderTimeout: 30 * time.Second,
+			IdleTimeout:       120 * time.Second,
+			// Every request's context descends from the background context, so
+			// the cancellation that stops the workers also ends an open long poll
+			// or Live Tail session: Shutdown waits for in-flight requests, and a
+			// request blocked on its own context would otherwise hold the drain
+			// to its bound.
+			BaseContext: func(net.Listener) context.Context { return s.backgroundCtx },
+		}
+	}
+	srv := httpServer(s.config.ListenAddr)
+	// The callback server is the same chain, plain, on the second listener.
+	var callback *http.Server
+	if s.callbackLn != nil {
+		callback = httpServer(s.CallbackListenAddr())
 	}
 
 	// Register before serving, so a signal that arrives as soon as the port
@@ -508,27 +636,42 @@ func (s *Server) ListenAndServe() error {
 		defer cancel()
 		started := time.Now()
 		err := srv.Shutdown(ctx)
+		if callback != nil {
+			err = errors.Join(err, callback.Shutdown(ctx))
+		}
 		s.logger.Info().Dur("took", time.Since(started)).Msg("shutdown: HTTP server drained")
 		done <- err
 	}()
 
-	// Bind before announcing: the banner's "Listening on" line is what a
-	// harness waits for, so it must not appear before the port answers.
-	ln, err := net.Listen("tcp", s.config.ListenAddr)
+	// The listeners are bound, so the banner's "Listening on" line, which a
+	// harness waits for, names ports that answer.
+	var err error
+	if s.serveTLS() {
+		srv.TLSConfig, err = s.tlsConfig()
+	}
 	switch {
 	case err != nil:
-	case s.config.TLSCert != "" && s.config.TLSKey != "":
+		s.closeListeners()
+	case s.serveTLS():
 		s.printBanner()
-		s.logger.Info().
-			Str("addr", s.config.ListenAddr).
-			Msg("starting HTTPS server")
-		err = srv.ServeTLS(ln, s.config.TLSCert, s.config.TLSKey)
+		callbackDone := make(chan error, 1)
+		go func() {
+			s.logger.Info().Str("addr", s.CallbackListenAddr()).Msg("starting HTTP callback server")
+			callbackDone <- callback.Serve(s.callbackLn)
+		}()
+		s.logger.Info().Str("addr", s.config.ListenAddr).Msg("starting HTTPS server")
+		err = srv.ServeTLS(s.ln, "", "")
+		if err == http.ErrServerClosed {
+			if callbackErr := <-callbackDone; callbackErr != http.ErrServerClosed {
+				err = callbackErr
+			}
+		} else {
+			_ = callback.Close()
+		}
 	default:
 		s.printBanner()
-		s.logger.Info().
-			Str("addr", s.config.ListenAddr).
-			Msg("starting HTTP server")
-		err = srv.Serve(ln)
+		s.logger.Info().Str("addr", s.config.ListenAddr).Msg("starting HTTP server")
+		err = srv.Serve(s.ln)
 	}
 
 	if err == http.ErrServerClosed {
@@ -549,7 +692,24 @@ func (s *Server) ListenAndServe() error {
 	closeErr := CloseDB(s.db)
 	s.logger.Info().Dur("took", time.Since(started)).Msg("shutdown: database closed")
 	s.db = nil
+	s.removeEphemeralPayloads()
 	return errors.Join(err, closeErr)
+}
+
+// tlsConfig is the listener's TLS configuration: its certificate, and the
+// per-connection hook when the cloud set one.
+func (s *Server) tlsConfig() (*tls.Config, error) {
+	cert, err := tls.LoadX509KeyPair(s.config.TLSCert, s.config.TLSKey)
+	if err != nil {
+		return nil, fmt.Errorf("load the TLS certificate: %w", err)
+	}
+	cfg := &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
+	if hook := s.config.TLSConfigForClient; hook != nil {
+		cfg.GetConfigForClient = func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+			return hook(hello, cfg.Clone())
+		}
+	}
+	return cfg, nil
 }
 
 // RegisterUI registers an embedded SPA at /ui/ and redirects GET / to /ui/.
@@ -642,6 +802,9 @@ func (s *Server) printBanner() {
 	fmt.Fprintf(os.Stderr, "\n")
 	fmt.Fprintf(os.Stderr, "  Sockerless Cloud %s Simulator\n", s.config.Provider)
 	fmt.Fprintf(os.Stderr, "  Listening on %s\n", s.config.ListenAddr)
+	if s.callbackLn != nil {
+		fmt.Fprintf(os.Stderr, "  Workload callbacks (plain HTTP) on %s\n", s.CallbackListenAddr())
+	}
 	if s.runtimeMode.ExecutesWorkloads() {
 		fmt.Fprintf(os.Stderr, "  Container runtime: %s\n", RuntimeInfo())
 	} else {

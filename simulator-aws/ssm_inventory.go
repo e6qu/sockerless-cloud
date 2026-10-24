@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -170,7 +171,9 @@ func ssmComplianceKey(resourceID, complianceType, itemID string) string {
 
 // ssmTrackManagedInstance upserts a managed-instance row, registering the
 // node the first time it reports inventory/compliance and refreshing the
-// last-ping time on every subsequent report.
+// last-ping time on every subsequent report. A node that reports only
+// through these calls states no platform: SSM Agent reports a node's platform
+// when it registers the node (ssmRegisterManagedNode).
 func ssmTrackManagedInstance(instanceID string) {
 	now := float64(time.Now().Unix())
 	if mi, ok := ssmManagedInstances.Get(instanceID); ok {
@@ -186,15 +189,32 @@ func ssmTrackManagedInstance(instanceID string) {
 	ssmManagedInstances.Put(instanceID, SSMManagedInstance{
 		InstanceId:       instanceID,
 		PingStatus:       "Online",
-		PlatformType:     "Linux",
-		PlatformName:     "Ubuntu",
-		PlatformVersion:  "22.04",
-		AgentVersion:     "3.3.0.0",
 		ResourceType:     resourceType,
-		ComputerName:     instanceID + ".sockerless.internal",
 		RegistrationDate: now,
 		LastPingDateTime: now,
 	})
+}
+
+// ssmInstanceInformationWire is the InstanceInformation / InstanceProperty
+// members a node states; a member the node has no value for is left out.
+func ssmInstanceInformationWire(m SSMManagedInstance) map[string]any {
+	info := map[string]any{
+		"InstanceId":       m.InstanceId,
+		"PingStatus":       m.PingStatus,
+		"LastPingDateTime": m.LastPingDateTime,
+		"ResourceType":     m.ResourceType,
+		"RegistrationDate": m.RegistrationDate,
+	}
+	for key, value := range map[string]string{
+		"AgentVersion": m.AgentVersion, "PlatformType": m.PlatformType, "PlatformName": m.PlatformName,
+		"PlatformVersion": m.PlatformVersion, "ComputerName": m.ComputerName, "IPAddress": m.IPAddress,
+		"Name": m.Name, "IamRole": m.IamRole, "ActivationId": m.ActivationId,
+	} {
+		if value != "" {
+			info[key] = value
+		}
+	}
+	return info
 }
 
 func handleSSMPutInventory(w http.ResponseWriter, r *http.Request) {
@@ -874,6 +894,16 @@ func handleSSMListNodes(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]map[string]any, 0, len(page))
 	for _, m := range page {
+		instance := map[string]any{"AgentType": "amazon-ssm-agent", "ManagedStatus": "Managed"}
+		for key, value := range map[string]string{
+			"AgentVersion": m.AgentVersion, "ComputerName": m.ComputerName, "InstanceStatus": m.PingStatus,
+			"IpAddress": m.IPAddress, "PlatformType": m.PlatformType, "PlatformName": m.PlatformName,
+			"PlatformVersion": m.PlatformVersion, "ResourceType": m.ResourceType,
+		} {
+			if value != "" {
+				instance[key] = value
+			}
+		}
 		out = append(out, map[string]any{
 			"Id":          m.InstanceId,
 			"CaptureTime": m.LastPingDateTime,
@@ -881,20 +911,7 @@ func handleSSMListNodes(w http.ResponseWriter, r *http.Request) {
 			"Owner": map[string]any{
 				"AccountId": awsAccountID(),
 			},
-			"NodeType": map[string]any{
-				"Instance": map[string]any{
-					"AgentType":       "amazon-ssm-agent",
-					"AgentVersion":    m.AgentVersion,
-					"ComputerName":    m.ComputerName,
-					"InstanceStatus":  m.PingStatus,
-					"IpAddress":       m.IPAddress,
-					"ManagedStatus":   "Managed",
-					"PlatformType":    m.PlatformType,
-					"PlatformName":    m.PlatformName,
-					"PlatformVersion": m.PlatformVersion,
-					"ResourceType":    m.ResourceType,
-				},
-			},
+			"NodeType": map[string]any{"Instance": instance},
 		})
 	}
 	resp := map[string]any{"Nodes": out}
@@ -965,44 +982,53 @@ func ssmNodeAttributeValue(m SSMManagedInstance, attr string) string {
 
 func handleSSMDescribeInstanceInformation(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		MaxResults int    `json:"MaxResults"`
-		NextToken  string `json:"NextToken"`
+		InstanceInformationFilterList []struct {
+			Key      string   `json:"key"`
+			ValueSet []string `json:"valueSet"`
+		} `json:"InstanceInformationFilterList"`
+		Filters    []ssmInstanceInformationFilter `json:"Filters"`
+		MaxResults int                            `json:"MaxResults"`
+		NextToken  string                         `json:"NextToken"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	all := ssmManagedInstanceList()
+	filters := req.Filters
+	for _, f := range req.InstanceInformationFilterList {
+		filters = append(filters, ssmInstanceInformationFilter{Key: f.Key, Values: f.ValueSet})
+	}
+	if code, message := ssmInstanceInformationFilters(filters); code != "" {
+		AWSError(w, code, message, http.StatusBadRequest)
+		return
+	}
+	var all []SSMManagedInstance
+	for _, node := range ssmManagedInstanceList() {
+		if ssmNodeListed(node) && ssmNodeMatchesFilters(node, filters) {
+			all = append(all, node)
+		}
+	}
+	for _, f := range filters {
+		if f.Key != "InstanceIds" {
+			continue
+		}
+		for _, id := range f.Values {
+			if !slices.ContainsFunc(all, func(node SSMManagedInstance) bool { return node.InstanceId == id }) {
+				AWSErrorf(w, "InvalidInstanceId", http.StatusBadRequest,
+					"The following instance IDs aren't valid or don't exist: %s", id)
+				return
+			}
+		}
+	}
 	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMManagedInstance) string { return it.InstanceId }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}
 	out := make([]map[string]any, 0, len(page))
 	for _, m := range page {
-		info := map[string]any{
-			"InstanceId":       m.InstanceId,
-			"PingStatus":       m.PingStatus,
-			"LastPingDateTime": m.LastPingDateTime,
-			"AgentVersion":     m.AgentVersion,
-			"IsLatestVersion":  true,
-			"PlatformType":     m.PlatformType,
-			"PlatformName":     m.PlatformName,
-			"PlatformVersion":  m.PlatformVersion,
-			"ResourceType":     m.ResourceType,
-			"ComputerName":     m.ComputerName,
-			"RegistrationDate": m.RegistrationDate,
-		}
-		if m.IPAddress != "" {
-			info["IPAddress"] = m.IPAddress
-		}
-		if m.Name != "" {
-			info["Name"] = m.Name
-		}
-		if m.IamRole != "" {
-			info["IamRole"] = m.IamRole
-		}
-		if m.ActivationId != "" {
-			info["ActivationId"] = m.ActivationId
+		info := ssmInstanceInformationWire(m)
+		if m.AgentVersion != "" {
+			info["IsLatestVersion"] = true
 		}
 		out = append(out, info)
 	}
@@ -1029,29 +1055,7 @@ func handleSSMDescribeInstanceProperties(w http.ResponseWriter, r *http.Request)
 	}
 	out := make([]map[string]any, 0, len(page))
 	for _, m := range page {
-		prop := map[string]any{
-			"InstanceId":       m.InstanceId,
-			"Name":             m.Name,
-			"PingStatus":       m.PingStatus,
-			"LastPingDateTime": m.LastPingDateTime,
-			"AgentVersion":     m.AgentVersion,
-			"PlatformType":     m.PlatformType,
-			"PlatformName":     m.PlatformName,
-			"PlatformVersion":  m.PlatformVersion,
-			"ResourceType":     m.ResourceType,
-			"ComputerName":     m.ComputerName,
-			"RegistrationDate": m.RegistrationDate,
-		}
-		if m.IPAddress != "" {
-			prop["IPAddress"] = m.IPAddress
-		}
-		if m.IamRole != "" {
-			prop["IamRole"] = m.IamRole
-		}
-		if m.ActivationId != "" {
-			prop["ActivationId"] = m.ActivationId
-		}
-		out = append(out, prop)
+		out = append(out, ssmInstanceInformationWire(m))
 	}
 	resp := map[string]any{"InstanceProperties": out}
 	if next != "" {

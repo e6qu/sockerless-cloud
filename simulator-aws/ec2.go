@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,6 +47,7 @@ type EC2Subnet struct {
 	Ipv6CidrBlock                           string
 	AvailabilityZone                        string
 	AvailabilityZoneId                      string
+	DefaultForAz                            bool
 	State                                   string
 	Tags                                    []EC2Tag
 	MapPublicIpOnLaunch                     bool
@@ -238,6 +242,9 @@ type EC2Instance struct {
 	MetadataHttpEndpoint string
 	MetadataHopLimit     int
 	MetadataInstanceTags string
+	// MetadataHttpProtocolIpv6 is HttpProtocolIpv6, the IPv6 endpoint of the
+	// instance metadata service: "enabled" or "disabled", the default.
+	MetadataHttpProtocolIpv6 string
 	// InstanceLifecycle is "spot" for a Spot Instance and empty for an
 	// On-Demand one; SpotInstanceRequestId names the request it fulfils.
 	InstanceLifecycle     string
@@ -599,20 +606,14 @@ func ensureSimDefaults() {
 			EnableDnsHostnames: true,
 		})
 	}
+	// A default subnet is "a size /20 IPv4 CIDR block in the specified
+	// Availability Zone in your default VPC".
 	for i, zone := range awsAvailabilityZones() {
 		id := fmt.Sprintf("subnet-0123456789abcdef%d", i)
 		if _, ok := ec2Subnets.Get(id); ok {
 			continue
 		}
-		ec2Subnets.Put(id, EC2Subnet{
-			SubnetId:            id,
-			VpcId:               "vpc-sim",
-			CidrBlock:           fmt.Sprintf("172.31.%d.0/24", 16*i),
-			AvailabilityZone:    zone,
-			State:               "available",
-			OwnerId:             ec2Owner(),
-			MapPublicIpOnLaunch: false,
-		})
+		ec2Subnets.Put(id, ec2NewDefaultSubnet(id, "vpc-sim", zone, fmt.Sprintf("172.31.%d.0/20", 16*i), false))
 	}
 }
 
@@ -827,10 +828,46 @@ func handleDescribeAccountAttributes(w http.ResponseWriter, r *http.Request) {
 
 func handleDescribeAvailabilityZones(w http.ResponseWriter, r *http.Request) {
 	region := awsRegion()
+	zones := awsAvailabilityZones()
+	names := ec2ParamList(r, "ZoneName")
+	ids := ec2ParamList(r, "ZoneId")
+	for _, name := range names {
+		if !slices.Contains(zones, name) {
+			ec2ErrorXML(w, "InvalidParameterValue", fmt.Sprintf("Value (%s) for parameter ZoneName is invalid.", name), http.StatusBadRequest)
+			return
+		}
+	}
+	for _, id := range ids {
+		if !slices.ContainsFunc(zones, func(zone string) bool { return ec2AvailabilityZoneId(zone) == id }) {
+			ec2ErrorXML(w, "InvalidParameterValue", fmt.Sprintf("Value (%s) for parameter ZoneId is invalid.", id), http.StatusBadRequest)
+			return
+		}
+	}
+	filters := ec2Filters(r)
+	for name := range filters {
+		switch name {
+		case "zone-name", "zone-id", "state", "region-name", "zone-type", "group-name":
+		default:
+			ec2ErrorXML(w, "InvalidParameterValue", fmt.Sprintf("The filter '%s' is invalid", name), http.StatusBadRequest)
+			return
+		}
+	}
 	var items strings.Builder
-	for _, zone := range awsAvailabilityZones() {
+	for _, zone := range zones {
+		id := ec2AvailabilityZoneId(zone)
+		if len(names) > 0 && !ec2StrInValues(zone, names) || len(ids) > 0 && !ec2StrInValues(id, ids) {
+			continue
+		}
+		fields := map[string]string{"zone-name": zone, "zone-id": id, "state": "available", "region-name": region, "zone-type": "availability-zone", "group-name": region}
+		matches := true
+		for name, values := range filters {
+			matches = matches && ec2StrInValues(fields[name], values)
+		}
+		if !matches {
+			continue
+		}
 		fmt.Fprintf(&items, `<item><zoneName>%s</zoneName><zoneId>%s</zoneId><zoneType>availability-zone</zoneType><regionName>%s</regionName><zoneState>available</zoneState><groupName>%s</groupName><networkBorderGroup>%s</networkBorderGroup></item>`,
-			zone, ec2AvailabilityZoneId(zone), region, region, region)
+			zone, id, region, region, region)
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DescribeAvailabilityZonesResponse %s>
@@ -874,6 +911,9 @@ func handleCreateVpc(w http.ResponseWriter, r *http.Request) {
 		EnableDnsHostnames: false,
 	}
 	ec2Vpcs.Put(id, vpc)
+	if r.FormValue("AmazonProvidedIpv6CidrBlock") == "true" {
+		ec2AssociateVpcIpv6Block(id, ec2AmazonProvidedIpv6Block())
+	}
 	ec2CreateDefaultSecurityGroup(id)
 	accountControl := currentAccountVpcEncryptionControl()
 	switch accountControl.Mode {
@@ -921,8 +961,21 @@ func vpcItemBodyXML(vpc EC2Vpc) string {
 	// well as in cidrBlock; data.aws_vpc reads cidr_block_associations from it.
 	// The sim synthesizes a stable association id from the VPC id.
 	assocID := "vpc-cidr-assoc-" + strings.TrimPrefix(vpc.VpcId, "vpc-")
-	cidrAssoc := fmt.Sprintf(`<cidrBlockAssociationSet><item><associationId>%s</associationId><cidrBlock>%s</cidrBlock><cidrBlockState><state>associated</state></cidrBlockState></item></cidrBlockAssociationSet>`,
+	var cidrAssoc strings.Builder
+	fmt.Fprintf(&cidrAssoc, `<cidrBlockAssociationSet><item><associationId>%s</associationId><cidrBlock>%s</cidrBlock><cidrBlockState><state>associated</state></cidrBlockState></item>`,
 		assocID, vpc.CidrBlock)
+	for _, assoc := range ec2VpcIpv4Assocs(vpc.VpcId) {
+		fmt.Fprintf(&cidrAssoc, `<item><associationId>%s</associationId><cidrBlock>%s</cidrBlock><cidrBlockState><state>%s</state></cidrBlockState></item>`,
+			assoc.AssociationId, assoc.CidrBlock, assoc.State)
+	}
+	cidrAssoc.WriteString("</cidrBlockAssociationSet>")
+	if ipv6 := ec2VpcIpv6Assocs(vpc.VpcId); len(ipv6) > 0 {
+		cidrAssoc.WriteString("<ipv6CidrBlockAssociationSet>")
+		for _, assoc := range ipv6 {
+			cidrAssoc.WriteString("<item>" + ec2VpcIpv6AssocBodyXML(assoc) + "</item>")
+		}
+		cidrAssoc.WriteString("</ipv6CidrBlockAssociationSet>")
+	}
 	tenancy := vpc.InstanceTenancy
 	if tenancy == "" {
 		tenancy = "default"
@@ -936,7 +989,14 @@ func vpcItemBodyXML(vpc EC2Vpc) string {
 		encryptionControl = "<encryptionControl>" + vpcEncryptionControlXML(control) + "</encryptionControl>"
 	}
 	return fmt.Sprintf(`<vpcId>%s</vpcId><cidrBlock>%s</cidrBlock><state>%s</state><ownerId>%s</ownerId><isDefault>%t</isDefault><instanceTenancy>%s</instanceTenancy><dhcpOptionsId>%s</dhcpOptionsId>%s%s%s`,
-		vpc.VpcId, vpc.CidrBlock, vpc.State, vpc.OwnerId, vpc.IsDefault, tenancy, dhcpOptionsID, cidrAssoc, encryptionControl, writeTagSetXML(vpc.Tags))
+		vpc.VpcId, vpc.CidrBlock, vpc.State, vpc.OwnerId, vpc.IsDefault, tenancy, dhcpOptionsID, cidrAssoc.String(), encryptionControl, writeTagSetXML(vpc.Tags))
+}
+
+// ec2VpcIpv6AssocBodyXML renders a VPC's IPv6 CIDR block association as
+// DescribeVpcs, AssociateVpcCidrBlock and DisassociateVpcCidrBlock list it.
+func ec2VpcIpv6AssocBodyXML(assoc EC2VpcCidrAssoc) string {
+	return fmt.Sprintf(`<associationId>%s</associationId><ipv6CidrBlock>%s</ipv6CidrBlock><ipv6CidrBlockState><state>%s</state></ipv6CidrBlockState><networkBorderGroup>%s</networkBorderGroup><ipv6Pool>%s</ipv6Pool>`,
+		assoc.AssociationId, assoc.Ipv6CidrBlock, assoc.State, assoc.NetworkBorderGroup, assoc.Ipv6Pool)
 }
 
 func vpcItemXML(vpc EC2Vpc) string {
@@ -978,15 +1038,40 @@ func ec2VpcMatchesFilters(v EC2Vpc, filters map[string][]string) bool {
 			if !ec2StrInValues(v.VpcId, vals) {
 				return false
 			}
-		case "cidr", "cidr-block-association.cidr-block":
+		case "cidr":
 			if !ec2StrInValues(v.CidrBlock, vals) {
+				return false
+			}
+		case "cidr-block-association.cidr-block":
+			if !slices.ContainsFunc(ec2VpcIpv4Blocks(v), func(block netip.Prefix) bool { return ec2StrInValues(block.String(), vals) }) {
+				return false
+			}
+		case "cidr-block-association.association-id":
+			primary := "vpc-cidr-assoc-" + strings.TrimPrefix(v.VpcId, "vpc-")
+			if !ec2StrInValues(primary, vals) && !slices.ContainsFunc(ec2VpcIpv4Assocs(v.VpcId), func(assoc EC2VpcCidrAssoc) bool { return ec2StrInValues(assoc.AssociationId, vals) }) {
+				return false
+			}
+		case "cidr-block-association.state":
+			if !ec2StrInValues("associated", vals) && !slices.ContainsFunc(ec2VpcIpv4Assocs(v.VpcId), func(assoc EC2VpcCidrAssoc) bool { return ec2StrInValues(assoc.State, vals) }) {
+				return false
+			}
+		case "ipv6-cidr-block-association.ipv6-cidr-block":
+			if !slices.ContainsFunc(ec2VpcIpv6Blocks(v.VpcId), func(block netip.Prefix) bool { return ec2StrInValues(block.String(), vals) }) {
+				return false
+			}
+		case "ipv6-cidr-block-association.association-id":
+			if !slices.ContainsFunc(ec2VpcIpv6Assocs(v.VpcId), func(assoc EC2VpcCidrAssoc) bool { return ec2StrInValues(assoc.AssociationId, vals) }) {
+				return false
+			}
+		case "ipv6-cidr-block-association.state":
+			if !slices.ContainsFunc(ec2VpcIpv6Assocs(v.VpcId), func(assoc EC2VpcCidrAssoc) bool { return ec2StrInValues(assoc.State, vals) }) {
 				return false
 			}
 		case "state":
 			if !ec2StrInValues(v.State, vals) {
 				return false
 			}
-		case "is-default":
+		case "is-default", "isDefault":
 			if v.IsDefault != ec2StrInValues("true", vals) {
 				return false
 			}
@@ -1048,6 +1133,9 @@ func handleDeleteVpc(w http.ResponseWriter, r *http.Request) {
 	}) {
 		ec2VpcEncryptionControls.Delete(control.VpcEncryptionControlId)
 	}
+	for _, assoc := range ec2VpcCidrAssocs.Filter(func(assoc EC2VpcCidrAssoc) bool { return assoc.VpcId == id }) {
+		ec2VpcCidrAssocs.Delete(assoc.AssociationId)
+	}
 	ec2Vpcs.Delete(id)
 
 	w.Header().Set("Content-Type", "text/xml")
@@ -1107,14 +1195,49 @@ func handleModifyVpcAttribute(w http.ResponseWriter, r *http.Request) {
 
 func handleCreateSubnet(w http.ResponseWriter, r *http.Request) {
 	vpcId := r.FormValue("VpcId")
-	cidr := r.FormValue("CidrBlock")
-	az := r.FormValue("AvailabilityZone")
-	if az == "" {
+	vpc, ok := ec2Vpcs.Get(vpcId)
+	if !ok {
+		ec2ErrorXML(w, "InvalidVpcID.NotFound", fmt.Sprintf("The vpc ID '%s' does not exist", vpcId), http.StatusBadRequest)
+		return
+	}
+	// "Default: Amazon Web Services selects one for you."
+	az, azID := r.FormValue("AvailabilityZone"), r.FormValue("AvailabilityZoneId")
+	if az == "" && azID == "" {
 		az = awsAvailabilityZone()
 	}
-	azID := r.FormValue("AvailabilityZoneId")
-	if azID == "" {
-		azID = ec2AvailabilityZoneId(az)
+	az, azID, code, message := ec2KnownZone(az, azID)
+	if code != "" {
+		ec2ErrorXML(w, code, message, http.StatusBadRequest)
+		return
+	}
+	ipv6Native := r.FormValue("Ipv6Native") == "true"
+	cidr := r.FormValue("CidrBlock")
+	ipv6 := r.FormValue("Ipv6CidrBlock")
+	// "For an IPv4 only subnet, specify an IPv4 CIDR block. ... For an IPv6
+	// only subnet, specify an IPv6 CIDR block. For a dual stack subnet,
+	// specify both."
+	switch {
+	case ipv6Native && cidr != "":
+		ec2ErrorXML(w, "InvalidParameterCombination", "CidrBlock is not supported for an IPv6 only subnet", http.StatusBadRequest)
+		return
+	case ipv6Native && ipv6 == "":
+		ec2ErrorXML(w, "MissingParameter", "The request must contain the parameter Ipv6CidrBlock for an IPv6 only subnet", http.StatusBadRequest)
+		return
+	case !ipv6Native && cidr == "":
+		ec2ErrorXML(w, "MissingParameter", "The request must contain the parameter CidrBlock", http.StatusBadRequest)
+		return
+	}
+	if cidr != "" {
+		if cidr, code, message = ec2SubnetIpv4BlockRefusal(vpc, cidr); code != "" {
+			ec2ErrorXML(w, code, message, http.StatusBadRequest)
+			return
+		}
+	}
+	if ipv6 != "" {
+		if code, message := ec2SubnetIpv6BlockRefusal(vpcId, "", ipv6); code != "" {
+			ec2ErrorXML(w, code, message, http.StatusBadRequest)
+			return
+		}
 	}
 	tags := parseTags(r)
 	id := ec2ID("subnet")
@@ -1123,13 +1246,13 @@ func handleCreateSubnet(w http.ResponseWriter, r *http.Request) {
 		SubnetId:                       id,
 		VpcId:                          vpcId,
 		CidrBlock:                      cidr,
-		Ipv6CidrBlock:                  r.FormValue("Ipv6CidrBlock"),
+		Ipv6CidrBlock:                  ipv6,
 		AvailabilityZone:               az,
 		AvailabilityZoneId:             azID,
 		State:                          "available",
 		Tags:                           tags,
 		OwnerId:                        ec2Owner(),
-		Ipv6Native:                     r.FormValue("Ipv6Native") == "true",
+		Ipv6Native:                     ipv6Native,
 		PrivateDnsHostnameTypeOnLaunch: "ip-name",
 	}
 	ec2Subnets.Put(id, subnet)
@@ -1222,7 +1345,7 @@ func subnetItemBodyXML(s EC2Subnet) string {
 		`<availableIpAddressCount>%d</availableIpAddressCount><state>%s</state>`+
 		`<mapPublicIpOnLaunch>%t</mapPublicIpOnLaunch><mapCustomerOwnedIpOnLaunch>%t</mapCustomerOwnedIpOnLaunch>`+
 		`<assignIpv6AddressOnCreation>%t</assignIpv6AddressOnCreation><enableDns64>%t</enableDns64>`+
-		`<ipv6Native>%t</ipv6Native><defaultForAz>false</defaultForAz>`+
+		`<ipv6Native>%t</ipv6Native><defaultForAz>%t</defaultForAz>`+
 		`<privateDnsNameOptionsOnLaunch><hostnameType>%s</hostnameType><enableResourceNameDnsARecord>%t</enableResourceNameDnsARecord><enableResourceNameDnsAAAARecord>%t</enableResourceNameDnsAAAARecord></privateDnsNameOptionsOnLaunch>`+
 		`<subnetArn>%s</subnetArn><ownerId>%s</ownerId>%s%s`,
 		s.SubnetId, s.VpcId, s.CidrBlock,
@@ -1230,7 +1353,7 @@ func subnetItemBodyXML(s EC2Subnet) string {
 		ec2SubnetAvailableIPs(s.CidrBlock), s.State,
 		s.MapPublicIpOnLaunch, s.MapCustomerOwnedIpOnLaunch,
 		s.AssignIpv6AddressOnCreation, s.EnableDns64,
-		s.Ipv6Native,
+		s.Ipv6Native, s.DefaultForAz,
 		hostnameType, s.EnableResourceNameDnsARecordOnLaunch, s.EnableResourceNameDnsAAAARecordOnLaunch,
 		subnetArn(s), s.OwnerId, ipv6, writeTagSetXML(s.Tags))
 }
@@ -1270,9 +1393,21 @@ func ec2SubnetMatchesFilters(s EC2Subnet, filters map[string][]string) bool {
 			if !ec2StrInValues(s.OwnerId, vals) {
 				return false
 			}
-		case "default-for-az":
-			if ec2StrInValues("true", vals) {
-				return false // the sim creates no default-for-az subnets
+		case "default-for-az", "defaultForAz":
+			if !ec2StrInValues(strconv.FormatBool(s.DefaultForAz), vals) {
+				return false
+			}
+		case "ipv6-cidr-block-association.ipv6-cidr-block":
+			if s.Ipv6CidrBlock == "" || !ec2StrInValues(s.Ipv6CidrBlock, vals) {
+				return false
+			}
+		case "ipv6-cidr-block-association.association-id":
+			if s.Ipv6CidrBlock == "" || !ec2StrInValues(ec2SubnetIpv6AssociationID(s.SubnetId), vals) {
+				return false
+			}
+		case "ipv6-cidr-block-association.state":
+			if s.Ipv6CidrBlock == "" || !ec2StrInValues("associated", vals) {
+				return false
 			}
 		default:
 			if handled, match := ec2TagFilterMatch(name, vals, s.Tags); handled && !match {
@@ -3303,8 +3438,8 @@ func ec2InstanceXML(inst EC2Instance) string {
 	if metaTags == "" {
 		metaTags = "disabled"
 	}
-	metaXML := fmt.Sprintf("<metadataOptions><state>applied</state><httpTokens>%s</httpTokens><httpPutResponseHopLimit>%d</httpPutResponseHopLimit><httpEndpoint>%s</httpEndpoint><httpProtocolIpv6>disabled</httpProtocolIpv6><instanceMetadataTags>%s</instanceMetadataTags></metadataOptions>",
-		metaTokens, metaHop, metaEndpoint, metaTags)
+	metaXML := fmt.Sprintf("<metadataOptions><state>applied</state><httpTokens>%s</httpTokens><httpPutResponseHopLimit>%d</httpPutResponseHopLimit><httpEndpoint>%s</httpEndpoint><httpProtocolIpv6>%s</httpProtocolIpv6><instanceMetadataTags>%s</instanceMetadataTags></metadataOptions>",
+		metaTokens, metaHop, metaEndpoint, ec2MetadataHttpProtocolIpv6(inst), metaTags)
 	publicXML := ""
 	if inst.PublicIpAddress != "" {
 		publicXML = fmt.Sprintf("<ipAddress>%s</ipAddress>", inst.PublicIpAddress)
@@ -3603,9 +3738,9 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 	if !ec2ValidShutdownBehavior(w, shutdownBehavior) {
 		return
 	}
-	var ltMetaTokens, ltMetaEndpoint, ltMetaHop, ltMetaTags string
+	var ltMetaTokens, ltMetaEndpoint, ltMetaHop, ltMetaTags, ltMetaIpv6 string
 	if m := ltData.MetadataOptions; m != nil {
-		ltMetaTokens, ltMetaEndpoint, ltMetaHop, ltMetaTags = m.HttpTokens, m.HttpEndpoint, m.HttpPutResponseHopLimit, m.InstanceMetadataTags
+		ltMetaTokens, ltMetaEndpoint, ltMetaHop, ltMetaTags, ltMetaIpv6 = m.HttpTokens, m.HttpEndpoint, m.HttpPutResponseHopLimit, m.InstanceMetadataTags, m.HttpProtocolIpv6
 	}
 	metaTokens := ec2FormOrLT(r, "MetadataOptions.HttpTokens", ltMetaTokens)
 	if metaTokens == "" {
@@ -3626,34 +3761,35 @@ func handleRunInstances(w http.ResponseWriter, r *http.Request) {
 	}
 	rootSize, rootType := runInstancesRootBlockDevice(r, ltData)
 	base := EC2InstanceCreateSpec{
-		Context:                r.Context(),
-		ReservationId:          reservationID,
-		ImageId:                imageID,
-		InstanceType:           instanceType,
-		Subnet:                 subnet,
-		SubnetId:               subnetID,
-		SecurityGroupIds:       sgIDs,
-		Tags:                   tags,
-		LaunchTime:             launchTime,
-		State:                  "pending",
-		KeyName:                ec2FormOrLT(r, "KeyName", ltData.KeyName),
-		IamInstanceProfileArn:  ec2FormOrLT(r, "IamInstanceProfile.Arn", ltData.IamInstanceProfileArn),
-		IamInstanceProfileName: ec2FormOrLT(r, "IamInstanceProfile.Name", ltData.IamInstanceProfileName),
-		EbsOptimized:           ec2BoolStr(ec2FormOrLT(r, "EbsOptimized", ltData.EbsOptimized)),
-		Monitoring:             ec2BoolStr(ec2FormOrLT(r, "Monitoring.Enabled", ltData.MonitoringEnabled)),
-		UserData:               ec2FormOrLT(r, "UserData", ltData.UserData),
-		DisableApiTermination:  ec2BoolStr(ec2FormOrLT(r, "DisableApiTermination", ltData.DisableApiTermination)),
-		ShutdownBehavior:       shutdownBehavior,
-		SourceDestCheck:        true, // AWS default; ModifyInstanceAttribute can disable it
-		CpuCoreCount:           ec2AtoiOr(r.FormValue("CpuOptions.CoreCount"), 0),
-		CpuThreadsPerCore:      ec2AtoiOr(r.FormValue("CpuOptions.ThreadsPerCore"), 0),
-		RootVolumeSize:         rootSize,
-		RootVolumeType:         rootType,
-		MetadataHttpTokens:     metaTokens,
-		MetadataHttpEndpoint:   metaEndpoint,
-		MetadataHopLimit:       ec2AtoiOr(ec2FormOrLT(r, "MetadataOptions.HttpPutResponseHopLimit", ltMetaHop), 1),
-		MetadataInstanceTags:   metaTags,
-		Placement:              placement,
+		Context:                  r.Context(),
+		ReservationId:            reservationID,
+		ImageId:                  imageID,
+		InstanceType:             instanceType,
+		Subnet:                   subnet,
+		SubnetId:                 subnetID,
+		SecurityGroupIds:         sgIDs,
+		Tags:                     tags,
+		LaunchTime:               launchTime,
+		State:                    "pending",
+		KeyName:                  ec2FormOrLT(r, "KeyName", ltData.KeyName),
+		IamInstanceProfileArn:    ec2FormOrLT(r, "IamInstanceProfile.Arn", ltData.IamInstanceProfileArn),
+		IamInstanceProfileName:   ec2FormOrLT(r, "IamInstanceProfile.Name", ltData.IamInstanceProfileName),
+		EbsOptimized:             ec2BoolStr(ec2FormOrLT(r, "EbsOptimized", ltData.EbsOptimized)),
+		Monitoring:               ec2BoolStr(ec2FormOrLT(r, "Monitoring.Enabled", ltData.MonitoringEnabled)),
+		UserData:                 ec2FormOrLT(r, "UserData", ltData.UserData),
+		DisableApiTermination:    ec2BoolStr(ec2FormOrLT(r, "DisableApiTermination", ltData.DisableApiTermination)),
+		ShutdownBehavior:         shutdownBehavior,
+		SourceDestCheck:          true, // AWS default; ModifyInstanceAttribute can disable it
+		CpuCoreCount:             ec2AtoiOr(r.FormValue("CpuOptions.CoreCount"), 0),
+		CpuThreadsPerCore:        ec2AtoiOr(r.FormValue("CpuOptions.ThreadsPerCore"), 0),
+		RootVolumeSize:           rootSize,
+		RootVolumeType:           rootType,
+		MetadataHttpTokens:       metaTokens,
+		MetadataHttpEndpoint:     metaEndpoint,
+		MetadataHopLimit:         ec2AtoiOr(ec2FormOrLT(r, "MetadataOptions.HttpPutResponseHopLimit", ltMetaHop), 1),
+		MetadataInstanceTags:     metaTags,
+		MetadataHttpProtocolIpv6: ec2FormOrLT(r, "MetadataOptions.HttpProtocolIpv6", ltMetaIpv6),
+		Placement:                placement,
 	}
 
 	var spotOptions *EC2LTInstanceMarketOptions
@@ -3832,12 +3968,13 @@ type EC2InstanceCreateSpec struct {
 	RootVolumeType         string
 	// ShutdownBehavior is InstanceInitiatedShutdownBehavior: "stop" or
 	// "terminate".
-	ShutdownBehavior     string
-	MetadataHttpTokens   string
-	MetadataHttpEndpoint string
-	MetadataHopLimit     int
-	MetadataInstanceTags string
-	Placement            EC2Placement
+	ShutdownBehavior         string
+	MetadataHttpTokens       string
+	MetadataHttpEndpoint     string
+	MetadataHopLimit         int
+	MetadataInstanceTags     string
+	MetadataHttpProtocolIpv6 string
+	Placement                EC2Placement
 }
 
 func ec2CreateInstance(spec EC2InstanceCreateSpec) (EC2Instance, error) {
@@ -3859,39 +3996,40 @@ func ec2CreateInstance(spec EC2InstanceCreateSpec) (EC2Instance, error) {
 		rootVolType = "gp3"
 	}
 	inst := EC2Instance{
-		InstanceId:             instanceID,
-		ReservationId:          spec.ReservationId,
-		AmiLaunchIndex:         spec.AmiLaunchIndex,
-		ImageId:                spec.ImageId,
-		InstanceType:           spec.InstanceType,
-		SubnetId:               spec.SubnetId,
-		VpcId:                  spec.Subnet.VpcId,
-		State:                  spec.State,
-		PrivateIpAddress:       spec.PrivateIP,
-		SecurityGroupIds:       spec.SecurityGroupIds,
-		Tags:                   spec.Tags,
-		LaunchTime:             spec.LaunchTime,
-		KeyName:                spec.KeyName,
-		Architecture:           ec2ImageArchitecture(spec.ImageId),
-		RootDeviceName:         rootDevice,
-		NetworkInterfaceId:     eniID,
-		IamInstanceProfileArn:  spec.IamInstanceProfileArn,
-		IamInstanceProfileName: spec.IamInstanceProfileName,
-		EbsOptimized:           spec.EbsOptimized,
-		Monitoring:             spec.Monitoring,
-		UserData:               spec.UserData,
-		DisableApiTermination:  spec.DisableApiTermination,
-		ShutdownBehavior:       spec.ShutdownBehavior,
-		SourceDestCheck:        spec.SourceDestCheck,
-		CpuCoreCount:           spec.CpuCoreCount,
-		CpuThreadsPerCore:      spec.CpuThreadsPerCore,
-		RootVolumeSize:         rootVolSize,
-		RootVolumeType:         rootVolType,
-		MetadataHttpTokens:     spec.MetadataHttpTokens,
-		MetadataHttpEndpoint:   spec.MetadataHttpEndpoint,
-		MetadataHopLimit:       spec.MetadataHopLimit,
-		MetadataInstanceTags:   spec.MetadataInstanceTags,
-		Placement:              spec.Placement,
+		InstanceId:               instanceID,
+		ReservationId:            spec.ReservationId,
+		AmiLaunchIndex:           spec.AmiLaunchIndex,
+		ImageId:                  spec.ImageId,
+		InstanceType:             spec.InstanceType,
+		SubnetId:                 spec.SubnetId,
+		VpcId:                    spec.Subnet.VpcId,
+		State:                    spec.State,
+		PrivateIpAddress:         spec.PrivateIP,
+		SecurityGroupIds:         spec.SecurityGroupIds,
+		Tags:                     spec.Tags,
+		LaunchTime:               spec.LaunchTime,
+		KeyName:                  spec.KeyName,
+		Architecture:             ec2ImageArchitecture(spec.ImageId),
+		RootDeviceName:           rootDevice,
+		NetworkInterfaceId:       eniID,
+		IamInstanceProfileArn:    spec.IamInstanceProfileArn,
+		IamInstanceProfileName:   spec.IamInstanceProfileName,
+		EbsOptimized:             spec.EbsOptimized,
+		Monitoring:               spec.Monitoring,
+		UserData:                 spec.UserData,
+		DisableApiTermination:    spec.DisableApiTermination,
+		ShutdownBehavior:         spec.ShutdownBehavior,
+		SourceDestCheck:          spec.SourceDestCheck,
+		CpuCoreCount:             spec.CpuCoreCount,
+		CpuThreadsPerCore:        spec.CpuThreadsPerCore,
+		RootVolumeSize:           rootVolSize,
+		RootVolumeType:           rootVolType,
+		MetadataHttpTokens:       spec.MetadataHttpTokens,
+		MetadataHttpEndpoint:     spec.MetadataHttpEndpoint,
+		MetadataHopLimit:         spec.MetadataHopLimit,
+		MetadataInstanceTags:     spec.MetadataInstanceTags,
+		MetadataHttpProtocolIpv6: spec.MetadataHttpProtocolIpv6,
+		Placement:                spec.Placement,
 	}
 	ec2Instances.Put(instanceID, inst)
 	ec2NetworkInterfaces.Put(eniID, EC2NetworkInterface{
@@ -4393,6 +4531,9 @@ func handleModifyInstanceMetadataOptions(w http.ResponseWriter, r *http.Request)
 		if v := r.FormValue("InstanceMetadataTags"); v != "" {
 			inst.MetadataInstanceTags = v
 		}
+		if v := r.FormValue("HttpProtocolIpv6"); v != "" {
+			inst.MetadataHttpProtocolIpv6 = v
+		}
 	})
 	inst, _ := ec2Instances.Get(instanceID)
 	hop := inst.MetadataHopLimit
@@ -4401,9 +4542,9 @@ func handleModifyInstanceMetadataOptions(w http.ResponseWriter, r *http.Request)
 	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ModifyInstanceMetadataOptionsResponse %s><requestId>%s</requestId><instanceId>%s</instanceId>`+
-		`<instanceMetadataOptions><state>applied</state><httpTokens>%s</httpTokens><httpPutResponseHopLimit>%d</httpPutResponseHopLimit><httpEndpoint>%s</httpEndpoint><instanceMetadataTags>%s</instanceMetadataTags></instanceMetadataOptions>`+
+		`<instanceMetadataOptions><state>applied</state><httpTokens>%s</httpTokens><httpPutResponseHopLimit>%d</httpPutResponseHopLimit><httpEndpoint>%s</httpEndpoint><httpProtocolIpv6>%s</httpProtocolIpv6><instanceMetadataTags>%s</instanceMetadataTags></instanceMetadataOptions>`+
 		`</ModifyInstanceMetadataOptionsResponse>`,
-		ec2Xmlns(), sim.NewUUID(), instanceID, inst.MetadataHttpTokens, hop, inst.MetadataHttpEndpoint, inst.MetadataInstanceTags)
+		ec2Xmlns(), sim.NewUUID(), instanceID, inst.MetadataHttpTokens, hop, inst.MetadataHttpEndpoint, ec2MetadataHttpProtocolIpv6(inst), inst.MetadataInstanceTags)
 }
 
 func handleCreateTags(w http.ResponseWriter, r *http.Request) {
@@ -4875,16 +5016,80 @@ func handleCreateVolume(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "InternalError", fmt.Sprintf("could not create volume data path: %v", err), http.StatusInternalServerError)
 		return
 	}
+	// A volume restored from a snapshot is answered creating and hydrates
+	// behind the response, as Amazon EC2 does; it is available once its data
+	// is in place.
 	if snapshotHostPath != "" {
-		if err := sparse.CopyTree(vol.HostPath, snapshotHostPath); err != nil {
-			ec2ErrorXML(w, "InternalError", fmt.Sprintf("could not restore snapshot data: %v", err), http.StatusInternalServerError)
-			return
-		}
+		vol.State = "creating"
 	}
 	ec2Volumes.Put(vol.VolumeId, vol)
+	if snapshotHostPath != "" {
+		ec2HydrateVolume(vol.VolumeId, vol.HostPath, snapshotHostPath)
+	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateVolumeResponse %s><requestId>%s</requestId>%s</CreateVolumeResponse>`,
 		ec2Xmlns(), sim.NewUUID(), ec2VolumeFieldsXML(vol))
+}
+
+// ec2VolumeHydrations holds, for each volume whose snapshot data is still
+// copying, a channel closed when the copy ends.
+var (
+	ec2VolumeHydrationsMu sync.Mutex
+	ec2VolumeHydrations   = map[string]chan struct{}{}
+)
+
+// ec2HydrateVolume copies a snapshot's data into a creating volume and makes
+// it available, or puts it in error when the copy fails.
+func ec2HydrateVolume(volumeID, destination, source string) {
+	done := make(chan struct{})
+	ec2VolumeHydrationsMu.Lock()
+	ec2VolumeHydrations[volumeID] = done
+	ec2VolumeHydrationsMu.Unlock()
+	finish := func() {
+		ec2VolumeHydrationsMu.Lock()
+		delete(ec2VolumeHydrations, volumeID)
+		ec2VolumeHydrationsMu.Unlock()
+		close(done)
+	}
+	hydrate := func() {
+		if err := sparse.CopyTree(destination, source); err != nil {
+			log.Printf("Amazon EC2: restore snapshot data into %s: %v", volumeID, err)
+			ec2Volumes.Update(volumeID, func(vol *EC2Volume) { vol.State = "error" })
+			return
+		}
+		ec2Volumes.Update(volumeID, func(vol *EC2Volume) {
+			if vol.State == "creating" {
+				vol.State = "available"
+			}
+		})
+	}
+	run, ok := bg.Handoff(hydrate)
+	if !ok {
+		hydrate()
+		finish()
+		return
+	}
+	go func() {
+		defer finish()
+		run()
+	}()
+}
+
+// ec2AwaitVolumeHydrated returns once a volume's snapshot data is in place,
+// at once for a volume that is not hydrating.
+func ec2AwaitVolumeHydrated(ctx context.Context, volumeID string) error {
+	ec2VolumeHydrationsMu.Lock()
+	done, hydrating := ec2VolumeHydrations[volumeID]
+	ec2VolumeHydrationsMu.Unlock()
+	if !hydrating {
+		return nil
+	}
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func handleAttachVolume(w http.ResponseWriter, r *http.Request) {

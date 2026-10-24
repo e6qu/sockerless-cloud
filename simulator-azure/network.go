@@ -1566,6 +1566,15 @@ func azureMaterializeSubnet(sn Subnet) (string, string, int) {
 				fmt.Sprintf("Address prefix %s of resource %s is not formatted correctly.", prefix, sn.ID), http.StatusBadRequest
 		}
 	}
+	// A subnet is carved from its virtual network's address space; the
+	// network's engine network spans that space and nothing outside it.
+	if vnet, ok := azureVnets.Get(azureVNetIDOfSubnet(sn.ID)); ok {
+		if outside, inside := azureSubnetInsideVNet(sn, vnet); !inside {
+			return "InvalidParameter",
+				fmt.Sprintf("Subnet %s is not valid in virtual network %s: its address prefix %s is outside the virtual network's address space %s.",
+					sn.ID, vnet.ID, outside, strings.Join(vnet.Properties.AddressSpace.AddressPrefixes, ", ")), http.StatusBadRequest
+		}
+	}
 	azureSubnets.Put(sn.ID, sn)
 	azureReapplyIngress()
 	return "", "", 0

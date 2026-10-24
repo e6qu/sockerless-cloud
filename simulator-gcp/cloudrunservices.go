@@ -19,40 +19,6 @@ import (
 	apipb "google.golang.org/genproto/googleapis/api"
 )
 
-// enumString accepts both proto-JSON enum encodings: the canonical
-// string ("INGRESS_TRAFFIC_INTERNAL_ONLY") and the numeric form (4)
-// emitted by some Go REST clients (run/apiv2.NewServicesRESTClient
-// serializes IngressTraffic as a number even though the wire spec
-// allows both). Real Cloud Run accepts either; the sim must too.
-type enumString string
-
-func (e *enumString) UnmarshalJSON(data []byte) error {
-	if len(data) == 0 || string(data) == "null" {
-		*e = ""
-		return nil
-	}
-	if data[0] == '"' {
-		var s string
-		if err := json.Unmarshal(data, &s); err != nil {
-			return err
-		}
-		*e = enumString(s)
-		return nil
-	}
-	// Numeric enum form — keep the digits as the string value.
-	// The sim doesn't validate ingress against a known set; readers
-	// only round-trip it on Get/List, so preserving the bytes works.
-	*e = enumString(string(data))
-	return nil
-}
-
-func (e enumString) MarshalJSON() ([]byte, error) {
-	if e == "" {
-		return []byte("null"), nil
-	}
-	return json.Marshal(string(e))
-}
-
 // launchStageString is a resource's launch stage. The REST transport of the
 // Go clients sends enums as their proto numbers, and a read has to answer
 // with the name the API declares, so a number maps through google.api's own
@@ -221,10 +187,10 @@ type ServiceV2 struct {
 // ServiceScaling mirrors GoogleCloudRunV2ServiceScaling — service-level
 // scaling settings applied across revisions.
 type ServiceScaling struct {
-	MinInstanceCount    int32      `json:"minInstanceCount,omitempty"`
-	MaxInstanceCount    int32      `json:"maxInstanceCount,omitempty"`
-	ManualInstanceCount int32      `json:"manualInstanceCount,omitempty"`
-	ScalingMode         enumString `json:"scalingMode,omitempty"`
+	MinInstanceCount    int32                     `json:"minInstanceCount,omitempty"`
+	MaxInstanceCount    int32                     `json:"maxInstanceCount,omitempty"`
+	ManualInstanceCount int32                     `json:"manualInstanceCount,omitempty"`
+	ScalingMode         protoEnum[runScalingMode] `json:"scalingMode,omitempty"`
 }
 
 // ServiceBuildConfig mirrors GoogleCloudRunV2BuildConfig (the SDK type is
@@ -250,27 +216,27 @@ type MultiRegionSettings struct {
 // RevisionTemplate is the v2 Cloud Run revision template. Mirrors the
 // runpb.RevisionTemplate fields the backend's buildServiceSpec sets.
 type RevisionTemplate struct {
-	Labels                        map[string]string `json:"labels,omitempty"`
-	Annotations                   map[string]string `json:"annotations,omitempty"`
-	Revision                      string            `json:"revision,omitempty"`
-	Containers                    []Container       `json:"containers,omitempty"`
-	Volumes                       []Volume          `json:"volumes,omitempty"`
-	Scaling                       *RevisionScaling  `json:"scaling,omitempty"`
-	VpcAccess                     *VpcAccess        `json:"vpcAccess,omitempty"`
-	Timeout                       string            `json:"timeout,omitempty"`
-	ServiceAccount                string            `json:"serviceAccount,omitempty"`
-	ExecutionEnvironment          enumString        `json:"executionEnvironment,omitempty"`
-	MaxInstanceRequestConcurrency int32             `json:"maxInstanceRequestConcurrency,omitempty"`
-	SessionAffinity               bool              `json:"sessionAffinity,omitempty"`
-	HealthCheckDisabled           bool              `json:"healthCheckDisabled,omitempty"`
-	EncryptionKey                 string            `json:"encryptionKey,omitempty"`
-	EncryptionKeyRevocationAction enumString        `json:"encryptionKeyRevocationAction,omitempty"`
-	EncryptionKeyShutdownDuration string            `json:"encryptionKeyShutdownDuration,omitempty"`
-	GpuZonalRedundancyDisabled    bool              `json:"gpuZonalRedundancyDisabled,omitempty"`
-	NodeSelector                  *NodeSelector     `json:"nodeSelector,omitempty"`
-	ServiceMesh                   *ServiceMesh      `json:"serviceMesh,omitempty"`
-	Client                        string            `json:"client,omitempty"`
-	ClientVersion                 string            `json:"clientVersion,omitempty"`
+	Labels                        map[string]string                           `json:"labels,omitempty"`
+	Annotations                   map[string]string                           `json:"annotations,omitempty"`
+	Revision                      string                                      `json:"revision,omitempty"`
+	Containers                    []Container                                 `json:"containers,omitempty"`
+	Volumes                       []Volume                                    `json:"volumes,omitempty"`
+	Scaling                       *RevisionScaling                            `json:"scaling,omitempty"`
+	VpcAccess                     *VpcAccess                                  `json:"vpcAccess,omitempty"`
+	Timeout                       string                                      `json:"timeout,omitempty"`
+	ServiceAccount                string                                      `json:"serviceAccount,omitempty"`
+	ExecutionEnvironment          protoEnum[runExecutionEnvironment]          `json:"executionEnvironment,omitempty"`
+	MaxInstanceRequestConcurrency int32                                       `json:"maxInstanceRequestConcurrency,omitempty"`
+	SessionAffinity               bool                                        `json:"sessionAffinity,omitempty"`
+	HealthCheckDisabled           bool                                        `json:"healthCheckDisabled,omitempty"`
+	EncryptionKey                 string                                      `json:"encryptionKey,omitempty"`
+	EncryptionKeyRevocationAction protoEnum[runEncryptionKeyRevocationAction] `json:"encryptionKeyRevocationAction,omitempty"`
+	EncryptionKeyShutdownDuration string                                      `json:"encryptionKeyShutdownDuration,omitempty"`
+	GpuZonalRedundancyDisabled    bool                                        `json:"gpuZonalRedundancyDisabled,omitempty"`
+	NodeSelector                  *NodeSelector                               `json:"nodeSelector,omitempty"`
+	ServiceMesh                   *ServiceMesh                                `json:"serviceMesh,omitempty"`
+	Client                        string                                      `json:"client,omitempty"`
+	ClientVersion                 string                                      `json:"clientVersion,omitempty"`
 }
 
 type RevisionScaling struct {
@@ -334,14 +300,14 @@ type RevisionV2 struct {
 	Containers  []Container       `json:"containers,omitempty"`
 	Volumes     []Volume          `json:"volumes,omitempty"`
 	// The revision runs as the service account its template named.
-	ServiceAccount                string      `json:"serviceAccount,omitempty"`
-	ExecutionEnvironment          enumString  `json:"executionEnvironment,omitempty"`
-	MaxInstanceRequestConcurrency int32       `json:"maxInstanceRequestConcurrency,omitempty"`
-	SessionAffinity               bool        `json:"sessionAffinity,omitempty"`
-	EncryptionKey                 string      `json:"encryptionKey,omitempty"`
-	Conditions                    []Condition `json:"conditions,omitempty"`
-	Etag                          string      `json:"etag,omitempty"`
-	Reconciling                   bool        `json:"reconciling,omitempty"`
+	ServiceAccount                string                             `json:"serviceAccount,omitempty"`
+	ExecutionEnvironment          protoEnum[runExecutionEnvironment] `json:"executionEnvironment,omitempty"`
+	MaxInstanceRequestConcurrency int32                              `json:"maxInstanceRequestConcurrency,omitempty"`
+	SessionAffinity               bool                               `json:"sessionAffinity,omitempty"`
+	EncryptionKey                 string                             `json:"encryptionKey,omitempty"`
+	Conditions                    []Condition                        `json:"conditions,omitempty"`
+	Etag                          string                             `json:"etag,omitempty"`
+	Reconciling                   bool                               `json:"reconciling,omitempty"`
 }
 
 func containerEnvMap(envVars []EnvVar) map[string]string {
@@ -1189,6 +1155,12 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 			}
 			sim.WriteJSON(w, http.StatusOK, op)
 		case "cancel":
+			// A regional build's operation is a view of the build record;
+			// cancelling it cancels the build.
+			if build, ok := cbLocationBuild(project, location, opID); ok {
+				handleCloudBuildCancelOperation(w, build.ID)
+				return
+			}
 			handleGCPCancelOperation(w, name)
 		default:
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown operation action %q", opAction)

@@ -60,7 +60,7 @@ func awsNetworkSidecars() (*sidecar.Manager, error) {
 			networkSidecarsErr = errNoNetworkSidecars
 			return
 		}
-		origin, err := workloadhost.CallbackAddr(simListenAddr)
+		origin, err := workloadhost.CallbackAddr(simCallbackListenAddr)
 		if err != nil {
 			networkSidecarsErr = fmt.Errorf("network sidecars: workload callback: %w", err)
 			return
@@ -255,15 +255,20 @@ func route53DNSBindPort() string {
 // for EC2 interfaces: inside a VPC whose DNS support is on, each of the VPC's
 // interfaces by its private DNS name, and an instance's public DNS name by
 // its private address; outside every VPC, the public DNS name by the public
-// address.
+// address. Each address answers its name in reverse, as a PTR record.
 func ec2ProvidedDNSRecords(vpcID string) []dns.RR {
 	var out []dns.RR
-	record := func(name, ip string) {
+	// record answers name with ip; reverse also answers ip with name, which
+	// an address does for the one name it is the address of.
+	record := func(name, ip string, reverse bool) {
 		addr := net.ParseIP(ip).To4()
 		if name == "" || addr == nil {
 			return
 		}
 		out = append(out, &dns.A{Hdr: dns.RR_Header{Name: dns.Fqdn(name), Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ec2ProvidedDNSTTL}, A: addr})
+		if owner, err := dns.ReverseAddr(ip); reverse && err == nil {
+			out = append(out, &dns.PTR{Hdr: dns.RR_Header{Name: owner, Rrtype: dns.TypePTR, Class: dns.ClassINET, Ttl: ec2ProvidedDNSTTL}, Ptr: dns.Fqdn(name)})
+		}
 	}
 	if vpcID != "" {
 		vpc, ok := ec2Vpcs.Get(vpcID)
@@ -274,7 +279,7 @@ func ec2ProvidedDNSRecords(vpcID string) []dns.RR {
 			if eni.VpcId != vpcID {
 				continue
 			}
-			record(ec2PrivateDNSName(eni.PrivateIpAddress), eni.PrivateIpAddress)
+			record(ec2PrivateDNSName(eni.PrivateIpAddress), eni.PrivateIpAddress, true)
 		}
 	}
 	for _, inst := range ec2Instances.List() {
@@ -283,9 +288,9 @@ func ec2ProvidedDNSRecords(vpcID string) []dns.RR {
 		}
 		switch {
 		case vpcID == "":
-			record(ec2PublicDNSName(inst), inst.PublicIpAddress)
+			record(ec2PublicDNSName(inst), inst.PublicIpAddress, true)
 		case inst.VpcId == vpcID:
-			record(ec2PublicDNSName(inst), inst.PrivateIpAddress)
+			record(ec2PublicDNSName(inst), inst.PrivateIpAddress, false)
 		}
 	}
 	return out

@@ -4,28 +4,29 @@ go 1.26.3
 
 require (
 	cel.dev/cel-go v0.32.0
-	cloud.google.com/go/apigateway v1.16.0
-	cloud.google.com/go/artifactregistry v1.27.0
+	cloud.google.com/go/apigateway v1.17.0
+	cloud.google.com/go/artifactregistry v1.28.0
 	cloud.google.com/go/bigtable v1.58.0
-	cloud.google.com/go/cloudbuild v1.35.0
-	cloud.google.com/go/eventarc v1.26.0
-	cloud.google.com/go/firestore v1.28.0
-	cloud.google.com/go/functions v1.26.0
-	cloud.google.com/go/iam v1.14.0
-	cloud.google.com/go/kms v1.35.0
-	cloud.google.com/go/logging v1.20.0
-	cloud.google.com/go/longrunning v1.3.0
+	cloud.google.com/go/cloudbuild v1.36.0
+	cloud.google.com/go/eventarc v1.27.0
+	cloud.google.com/go/firestore v1.29.0
+	cloud.google.com/go/functions v1.27.0
+	cloud.google.com/go/iam v1.15.0
+	cloud.google.com/go/kms v1.36.0
+	cloud.google.com/go/logging v1.21.0
+	cloud.google.com/go/longrunning v1.4.0
 	cloud.google.com/go/pubsub v1.51.1
-	cloud.google.com/go/redis v1.27.0
-	cloud.google.com/go/resourcemanager v1.17.0
-	cloud.google.com/go/run v1.23.0
-	cloud.google.com/go/secretmanager v1.22.0
+	cloud.google.com/go/redis v1.28.0
+	cloud.google.com/go/resourcemanager v1.18.0
+	cloud.google.com/go/run v1.24.0
+	cloud.google.com/go/secretmanager v1.23.0
 	cloud.google.com/go/serviceusage v1.16.0
 	cloud.google.com/go/spanner v1.96.1
-	cloud.google.com/go/vpcaccess v1.15.0
+	cloud.google.com/go/vpcaccess v1.16.0
 	github.com/containerd/errdefs v1.0.0
+	github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da
 	github.com/distribution/reference v0.6.0
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261022224443-763acd444f07
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261024145951-9c0a057ddb46
 	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261015114713-b9f0cc68a078
 	github.com/hamba/avro/v2 v2.31.0
 	github.com/klauspost/compress v1.20.3
@@ -33,12 +34,13 @@ require (
 	github.com/moby/moby/api v1.56.1
 	github.com/moby/moby/client v0.6.2
 	github.com/parquet-go/parquet-go v0.32.0
+	github.com/stretchr/testify v1.12.1
 	github.com/ulikunitz/xz v0.5.17
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/sys v0.49.0
-	google.golang.org/genproto v0.0.0-20261012220534-4341edf3f941
-	google.golang.org/genproto/googleapis/api v0.0.0-20261012220534-4341edf3f941
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261012220534-4341edf3f941
+	google.golang.org/genproto v0.0.0-20261019180522-ce908d29299b
+	google.golang.org/genproto/googleapis/api v0.0.0-20261019180522-ce908d29299b
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261019180522-ce908d29299b
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.61.0
@@ -46,7 +48,7 @@ require (
 
 require (
 	cel.dev/expr v0.25.3 // indirect
-	cloud.google.com/go/pubsub/v2 v2.7.0 // indirect
+	cloud.google.com/go/pubsub/v2 v2.8.0 // indirect
 	github.com/Microsoft/go-winio v0.6.4 // indirect
 	github.com/andybalholm/brotli v1.2.6 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect

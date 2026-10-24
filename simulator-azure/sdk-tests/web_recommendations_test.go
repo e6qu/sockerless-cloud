@@ -98,14 +98,9 @@ func TestSDK_Recommendations_SubscriptionAndSiteScopes(t *testing.T) {
 // environment rather than a site.
 func TestSDK_Recommendations_HostingEnvironmentScope(t *testing.T) {
 	t.Parallel()
-	// An App Service Environment is placed in a virtual network subnet, and
-	// creating a real subnet needs the Linux network capabilities the
-	// simulator's fabric is built on. A host that cannot provide them skips;
-	// Linux runs the test.
-
 	rg, name := "sdk-recommendation-ase-rg", "sdk-recommendation-ase"
 	ensureRG(t, rg)
-	subnetID := requireSubnet(t, rg, "sdk-recommendation-vnet", "10.61.0.0/16", "ase-subnet", aseSubnet)
+	subnetID := requireSubnet(t, rg, "sdk-recommendation-vnet", "10.61.0.0/16", "ase-subnet", "10.61.1.0/24")
 
 	envs := environmentsClient(t)
 	poller, err := envs.BeginCreateOrUpdate(ctx, rg, name, armappservice.EnvironmentResource{

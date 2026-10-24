@@ -84,14 +84,16 @@ for cloud in aws azure gcp; do
       # `/storage/v1/b/`. Patterns like `/{bucket}/{key...}` ARE
       # root-greedy because the first segment matches anything.
       first_seg="$(echo "$pattern" | awk -F'/' '{print $2}')"
-      if ! [[ "$first_seg" =~ ^\{ ]]; then continue; fi
+      # `{$}` is no wildcard: it anchors the pattern at its end, so `/{$}`
+      # matches `/` alone and shadows nothing.
+      if ! [[ "$first_seg" =~ ^\{ ]] || [[ "$first_seg" == '{$}' ]]; then continue; fi
 
       while IFS=$'\t' read -r src2 line2 route2 handler2; do
         [[ "$src/$line/$handler" == "$src2/$line2/$handler2" ]] && continue
         [[ "$src" == "$src2" ]] && continue
         pat2="${route2#"$method" }"
         first2="$(echo "$pat2" | awk -F'/' '{print $2}')"
-        if [[ -z "$first2" || ! "$first2" =~ ^\{ ]]; then
+        if [[ -z "$first2" || ! "$first2" =~ ^\{ || "$first2" == '{$}' ]]; then
           continue
         fi
         if [[ "$pattern" != "$pat2" ]]; then

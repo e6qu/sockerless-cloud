@@ -137,7 +137,7 @@ func gcpEnsureSubnetworkNAT(ctx context.Context, subnet ComputeSubnetwork, netwo
 	if err != nil {
 		return fmt.Errorf("subnetwork %s range %q: %w", subnet.SelfLink, subnet.IpCidrRange, err)
 	}
-	origin, err := workloadhost.CallbackAddr(simListenAddr)
+	origin, err := workloadhost.CallbackAddr(simCallbackListenAddr)
 	if err != nil {
 		return fmt.Errorf("cloud nat %s: workload callback: %w", covering.nat.Name, err)
 	}

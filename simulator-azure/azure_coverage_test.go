@@ -106,6 +106,7 @@ var azureDeclaredOperationTotals = map[string]int{
 	"logic-arm-logic-2019-05-01":                                      106,
 	"monitor-dataplane-datacollectionrules-2023-01-01":                1,
 	"monitor-dataplane-operationalinsights-v1":                        7,
+	"msi-arm-managedidentity-2023-01-31":                              12,
 	"msi-arm-managedidentity-2024-11-30":                              12,
 	"network-arm-applicationgateway-2025-03-01":                       22,
 	"network-arm-applicationsecuritygroup-2025-03-01":                 6,
@@ -129,6 +130,8 @@ var azureDeclaredOperationTotals = map[string]int{
 	"operationalinsights-arm-tables-2022-10-01":                       7,
 	"monitor-arm-datacollection-2024-03-11":                           18,
 	"monitor-arm-metrics-2024-02-01":                                  6,
+	"monitor-arm-diagnosticssettings-2021-05-01-preview":              4,
+	"monitor-arm-diagnosticssettingscategories-2017-05-01-preview":    2,
 	"postgresql-arm-openapi-2025-08-01":                               66,
 	"privatedns-arm-privatedns-2024-06-01":                            17,
 	"redis-arm-redis-2024-11-01":                                      41,
@@ -298,7 +301,10 @@ var azureMethodFloor = map[string]int{
 	// — so the probe collapsed a whole resource ID into one synthetic segment.
 	//
 	// Raised from 5 by those two, completing the document.
-	"monitor-dataplane-operationalinsights-v1":        7,
+	"monitor-dataplane-operationalinsights-v1": 7,
+	// The 2023-01-31 document declares the same twelve operations as
+	// 2024-11-30 and the same routes serve both.
+	"msi-arm-managedidentity-2023-01-31":              12,
 	"msi-arm-managedidentity-2024-11-30":              12,
 	"network-arm-applicationgateway-2025-03-01":       22,
 	"network-arm-applicationsecuritygroup-2025-03-01": 6,
@@ -345,10 +351,16 @@ var azureMethodFloor = map[string]int{
 	// namespaces and metrics, and the subscription-scoped definitions and
 	// metrics (GET and POST) over a region's NAT gateways, one series per
 	// gateway.
-	"monitor-arm-metrics-2024-02-01":       6,
-	"postgresql-arm-openapi-2025-08-01":    66,
-	"privatedns-arm-privatedns-2024-06-01": 17,
-	"redis-arm-redis-2024-11-01":           41,
+	"monitor-arm-metrics-2024-02-01": 6,
+	// Diagnostic settings on a resource-group resource, with the categories a
+	// site, a Container Apps environment and a container app offer; a setting
+	// routes a site's console lines and an environment's console and system
+	// logs to the workspace it names.
+	"monitor-arm-diagnosticssettings-2021-05-01-preview":           4,
+	"monitor-arm-diagnosticssettingscategories-2017-05-01-preview": 2,
+	"postgresql-arm-openapi-2025-08-01":                            66,
+	"privatedns-arm-privatedns-2024-06-01":                         17,
+	"redis-arm-redis-2024-11-01":                                   41,
 	// Lowered from 36. The generic-resource operations — the five methods on
 	// "/{resourceId}" and the five on ".../providers/{ns}/{parentResourcePath}/
 	// {type}/{name}" — all mux-miss. Their templates are almost pure parameters,

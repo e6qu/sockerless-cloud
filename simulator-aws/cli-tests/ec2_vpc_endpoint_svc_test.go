@@ -127,11 +127,17 @@ func TestEC2CLI_SubnetCidrRoundTrip(t *testing.T) {
 	t.Parallel()
 	vpc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-vpc",
 		"--cidr-block", "10.70.0.0/16", "--query", "Vpc.VpcId", "--output", "text")))
+	ipv6 := elbv2VPCIpv6BlockCLI(t, vpc)
 	sub := strings.TrimSpace(runCLI(t, awsCLI("ec2", "create-subnet",
 		"--vpc-id", vpc, "--cidr-block", "10.70.1.0/24", "--query", "Subnet.SubnetId", "--output", "text")))
 
+	// A subnet takes a /64 of its VPC's IPv6 CIDR block.
+	out := runCLIExpectError(t, awsCLI("ec2", "associate-subnet-cidr-block", "--subnet-id", sub, "--ipv6-cidr-block", "2001:db8:1::/64"))
+	if !strings.Contains(out, "InvalidSubnet.Range") {
+		t.Fatalf("an IPv6 block outside the VPC's: got %q", out)
+	}
 	subAssoc := strings.TrimSpace(runCLI(t, awsCLI("ec2", "associate-subnet-cidr-block",
-		"--subnet-id", sub, "--ipv6-cidr-block", "2600:1f00:dead:1::/64",
+		"--subnet-id", sub, "--ipv6-cidr-block", elbv2Ipv6SubnetRangeCLI(t, ipv6, 1),
 		"--query", "Ipv6CidrBlockAssociation.AssociationId", "--output", "text")))
 	if subAssoc == "" || subAssoc == "None" {
 		t.Fatalf("subnet cidr association id = %q, want non-empty", subAssoc)

@@ -203,7 +203,7 @@ func rdsInstanceLogFiles(inst RDSInstance) []rdsLogFile {
 
 func handleRDSDescribeLogFiles(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBInstanceIdentifier")
-	inst, ok := rdsInstances.Get(id)
+	inst, ok := rdsInstanceIn(r, id)
 	if !ok {
 		rdsErrorXML(w, "DBInstanceNotFound", fmt.Sprintf("DBInstance %q not found", id), http.StatusNotFound, sim.RequestID(r.Context()))
 		return
@@ -311,7 +311,7 @@ func rdsLogFilePortion(data []byte, marker string, numberOfLines int) (portion [
 
 func handleRDSDownloadLogFilePortion(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBInstanceIdentifier")
-	inst, ok := rdsInstances.Get(id)
+	inst, ok := rdsInstanceIn(r, id)
 	if !ok {
 		rdsErrorXML(w, "DBInstanceNotFound", fmt.Sprintf("DBInstance %q not found", id), http.StatusNotFound, sim.RequestID(r.Context()))
 		return

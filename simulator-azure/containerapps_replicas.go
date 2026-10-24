@@ -258,7 +258,7 @@ func acaRecordSystemEvent(resourceID, envID, appName, revision, replica, reason,
 		return
 	}
 	acaSystemLog(resourceID).append(acaLogEntry{at: now, text: string(line)})
-	acaWorkspaceLog(envID, resourceID, "ContainerAppSystemLogs_CL", monitorLogRow{
+	acaWorkspaceLog(envID, resourceID, "ContainerAppSystemLogs", monitorLogRow{
 		"TimeGenerated":      now.Format(time.RFC3339Nano),
 		"ContainerAppName_s": appName,
 		"RevisionName_s":     revision,

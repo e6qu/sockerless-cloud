@@ -24,13 +24,8 @@ type cloudRunResourceLogSink struct {
 }
 
 func (s *cloudRunResourceLogSink) WriteLog(line sim.LogLine) {
-	stream := "stdout"
-	if line.Stream == "stderr" {
-		stream = "stderr"
-	}
 	resource := s.resource
-	if err := writeLogEntries(fmt.Sprintf("projects/%s/logs/run.googleapis.com%%2F%s", s.project, stream), &resource,
-		nil, []LogEntry{{TextPayload: line.Text}}); err != nil {
+	if err := writeLogEntries(cloudRunLogName(s.project, line.Stream), &resource, nil, []LogEntry{cloudRunLogEntry(line)}); err != nil {
 		log.Printf("cloud run logs: %v", err)
 	}
 }

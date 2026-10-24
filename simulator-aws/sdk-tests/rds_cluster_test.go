@@ -140,15 +140,38 @@ func TestRDS_DBSubnetGroupLifecycle(t *testing.T) {
 	t.Parallel()
 	c := rdsClient()
 	name := "test-subnet-group"
-	_, err := c.CreateDBSubnetGroup(ctx, &rds.CreateDBSubnetGroupInput{
+	vpcID, subnets := createECSTestVPCSubnets(t, name, 2)
+	otherVPC, otherSubnets := createECSTestVPCSubnets(t, name+"-other", 3)
+	_, oneZone := createECSTestVPCSubnets(t, name+"-one-zone", 1)
+
+	// The group's subnets must exist, share a VPC and cover two Availability
+	// Zones.
+	for _, refusal := range []struct {
+		subnets []string
+		code    string
+	}{
+		{[]string{subnets[0], "subnet-0f1e2d3c4b5a69788"}, "InvalidSubnet"},
+		{[]string{subnets[0], otherSubnets[1]}, "InvalidSubnet"},
+		{oneZone, "DBSubnetGroupDoesNotCoverEnoughAZs"},
+	} {
+		_, err := c.CreateDBSubnetGroup(ctx, &rds.CreateDBSubnetGroupInput{
+			DBSubnetGroupName:        aws.String(name),
+			DBSubnetGroupDescription: aws.String("sim subnet group"),
+			SubnetIds:                refusal.subnets,
+		})
+		assertAWSAPIErrorCode(t, err, refusal.code)
+	}
+
+	created, err := c.CreateDBSubnetGroup(ctx, &rds.CreateDBSubnetGroupInput{
 		DBSubnetGroupName:        aws.String(name),
 		DBSubnetGroupDescription: aws.String("sim subnet group"),
-		SubnetIds:                []string{"subnet-aaaa1111", "subnet-bbbb2222"},
+		SubnetIds:                subnets,
 		Tags: []rdstypes.Tag{
 			{Key: aws.String("team"), Value: aws.String("data")},
 		},
 	})
 	require.NoError(t, err)
+	assert.Equal(t, vpcID, aws.ToString(created.DBSubnetGroup.VpcId), "the group's VPC is its subnets' VPC")
 	t.Cleanup(func() {
 		_, _ = c.DeleteDBSubnetGroup(ctx, &rds.DeleteDBSubnetGroupInput{
 			DBSubnetGroupName: aws.String(name),
@@ -164,9 +187,10 @@ func TestRDS_DBSubnetGroupLifecycle(t *testing.T) {
 	assert.Equal(t, "sim subnet group", aws.ToString(got.DBSubnetGroupDescription))
 	assert.Equal(t, "Complete", aws.ToString(got.SubnetGroupStatus))
 	require.Len(t, got.Subnets, 2)
-	assert.Equal(t, "subnet-aaaa1111", aws.ToString(got.Subnets[0].SubnetIdentifier))
+	assert.Equal(t, subnets[0], aws.ToString(got.Subnets[0].SubnetIdentifier))
 	require.NotNil(t, got.Subnets[0].SubnetAvailabilityZone)
-	assert.NotEmpty(t, aws.ToString(got.Subnets[0].SubnetAvailabilityZone.Name))
+	assert.Equal(t, "us-east-1a", aws.ToString(got.Subnets[0].SubnetAvailabilityZone.Name), "each subnet reports the Availability Zone Amazon EC2 holds it in")
+	assert.Equal(t, "us-east-1b", aws.ToString(got.Subnets[1].SubnetAvailabilityZone.Name))
 	groupARN := aws.ToString(got.DBSubnetGroupArn)
 	require.NotEmpty(t, groupARN)
 
@@ -180,7 +204,7 @@ func TestRDS_DBSubnetGroupLifecycle(t *testing.T) {
 	_, err = c.ModifyDBSubnetGroup(ctx, &rds.ModifyDBSubnetGroupInput{
 		DBSubnetGroupName:        aws.String(name),
 		DBSubnetGroupDescription: aws.String("updated description"),
-		SubnetIds:                []string{"subnet-cccc3333", "subnet-dddd4444", "subnet-eeee5555"},
+		SubnetIds:                otherSubnets,
 	})
 	require.NoError(t, err)
 
@@ -191,6 +215,7 @@ func TestRDS_DBSubnetGroupLifecycle(t *testing.T) {
 	require.Len(t, desc2.DBSubnetGroups, 1)
 	assert.Equal(t, "updated description", aws.ToString(desc2.DBSubnetGroups[0].DBSubnetGroupDescription))
 	require.Len(t, desc2.DBSubnetGroups[0].Subnets, 3)
+	assert.Equal(t, otherVPC, aws.ToString(desc2.DBSubnetGroups[0].VpcId), "the modified group moves to its new subnets' VPC")
 
 	_, err = c.DeleteDBSubnetGroup(ctx, &rds.DeleteDBSubnetGroupInput{
 		DBSubnetGroupName: aws.String(name),

@@ -40,7 +40,7 @@ func cbHandleRetryBuild(w http.ResponseWriter, r *http.Request, project, id stri
 	retried.ID = sim.NewUUID()
 	retried.Status = "QUEUED"
 	retried.CreateTime = time.Now().UTC().Format(time.RFC3339)
-	retried.Name = fmt.Sprintf("projects/%s/locations/global/builds/%s", project, retried.ID)
+	retried.Name = fmt.Sprintf("projects/%s/locations/%s/builds/%s", project, resourceLocation(original.Name), retried.ID)
 	cbBuilds.Put(retried.ID, retried)
 	cbWriteBuildOperation(w, project, startCloudBuild(retried))
 }
@@ -204,6 +204,30 @@ func cbBuildTerminal(status string) bool {
 	return false
 }
 
+// cbBuildOperationName names the operation that tracks a build: a global
+// build's lives in the top-level operations collection, a regional build's in
+// its location's projects.locations.operations collection, which is the
+// collection the v1 document serves regional operations.get from.
+func cbBuildOperationName(project string, build Build) string {
+	if location := resourceLocation(build.Name); location != "" && location != "global" {
+		return gcpLocationOperationName(project, location, build.ID)
+	}
+	return fmt.Sprintf("operations/build/%s/%s", project, build.ID)
+}
+
+// cbLocationBuild is the build whose regional operation is
+// projects/{project}/locations/{location}/operations/{id}.
+func cbLocationBuild(project, location, id string) (Build, bool) {
+	if cbBuilds == nil || location == "global" {
+		return Build{}, false
+	}
+	build, ok := cbBuilds.Get(id)
+	if !ok || build.ProjectID != project || resourceLocation(build.Name) != location {
+		return Build{}, false
+	}
+	return build, true
+}
+
 // cbBuildOperation renders the operation that tracks a build. Cloud Build's
 // build operations are a view of the build record: the metadata is a
 // BuildOperationMetadata carrying the build as it stands, and the operation is
@@ -212,7 +236,7 @@ func cbBuildTerminal(status string) bool {
 func cbBuildOperation(project string, build Build) CloudBuildOperation {
 	_, stepsRunning := cbRunning.Load(build.ID)
 	op := CloudBuildOperation{
-		Name: fmt.Sprintf("operations/build/%s/%s", project, build.ID),
+		Name: cbBuildOperationName(project, build),
 		Done: cbBuildTerminal(build.Status) && !stepsRunning,
 		Metadata: map[string]any{
 			"@type": "type.googleapis.com/google.devtools.cloudbuild.v1.BuildOperationMetadata",

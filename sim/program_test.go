@@ -3,6 +3,7 @@ package sim
 import (
 	"context"
 	"errors"
+	"net"
 	"strings"
 	"testing"
 )
@@ -53,6 +54,30 @@ func TestRunStopsAtTheFirstFailingStep(t *testing.T) {
 		})
 		if !errors.Is(err, refused) || seen.Provider != "gcp" || seen.ListenAddr != "127.0.0.1:0" {
 			t.Fatalf("err = %v, config = %+v", err, seen)
+		}
+	})
+
+	t.Run("build sees the bound callback address", func(t *testing.T) {
+		certPath, keyPath := writeTestServerCertificate(t)
+		t.Setenv("SIM_TLS_CERT", certPath)
+		t.Setenv("SIM_TLS_KEY", keyPath)
+		t.Setenv("SIM_CALLBACK_LISTEN_ADDR", "127.0.0.1:0")
+		var seen Config
+		err := run(Program{
+			Provider:    "gcp",
+			DefaultPort: "4567",
+			Build:       func(cfg Config) (*Server, error) { seen = cfg; return nil, refused },
+		})
+		if !errors.Is(err, refused) {
+			t.Fatalf("err = %v, want the build error", err)
+		}
+		host, port, splitErr := net.SplitHostPort(seen.CallbackListenAddr)
+		if splitErr != nil || host != "127.0.0.1" || port == "0" {
+			t.Fatalf("Build saw CallbackListenAddr %q, want the port the callback listener bound", seen.CallbackListenAddr)
+		}
+		if conn, dialErr := net.Dial("tcp", seen.CallbackListenAddr); dialErr == nil {
+			_ = conn.Close()
+			t.Fatal("the callback listener still accepts after a failed build")
 		}
 	})
 

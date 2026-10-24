@@ -125,6 +125,10 @@ type ContainerAppIngress struct {
 	Transport  string                      `json:"transport,omitempty"`
 	Fqdn       string                      `json:"fqdn,omitempty"`
 	Traffic    []ContainerAppTrafficWeight `json:"traffic,omitempty"`
+	// ClientCertificateMode is the ingress's mTLS setting: ignore drops a
+	// client certificate, accept forwards one as X-Forwarded-Client-Cert,
+	// require also refuses a client that presents none.
+	ClientCertificateMode string `json:"clientCertificateMode,omitempty"`
 }
 
 // ContainerAppTrafficWeight mirrors armappcontainers.TrafficWeight: a share of

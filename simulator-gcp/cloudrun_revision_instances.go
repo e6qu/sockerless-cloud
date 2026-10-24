@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +44,7 @@ type cloudRunRevisionRun struct {
 	set         *replicas.Set
 	specSig     string
 	min, max    int
+	exact       bool
 	concurrency int
 
 	mu        sync.Mutex
@@ -91,30 +93,184 @@ func cloudRunRevisionScale(rev RevisionV2) (minimum, maximum, concurrency int) {
 }
 
 // cloudRunRevisionRunFor is the revision's run, started when it has none or
-// its containers changed under the same name.
-func cloudRunRevisionRunFor(rev RevisionV2) *cloudRunRevisionRun {
+// its containers changed under the same name, and brought to the instance
+// bounds the service and the revision set it today.
+func cloudRunRevisionRunFor(svc ServiceV2, rev RevisionV2) *cloudRunRevisionRun {
 	specSig := serviceContainersSignature(rev.Containers, rev.Volumes)
-	minimum, maximum, concurrency := cloudRunRevisionScale(rev)
+	scale := cloudRunEffectiveScale(svc, rev)
 	cloudRunRevisionRuns.Lock()
 	run := cloudRunRevisionRuns.byName[rev.Name]
 	var previous *cloudRunRevisionRun
 	if run == nil || run.specSig != specSig {
 		previous = run
-		run = newCloudRunRevisionRun(rev, specSig, minimum, maximum, concurrency)
+		run = newCloudRunRevisionRun(rev, specSig, scale.concurrency)
 		cloudRunRevisionRuns.byName[rev.Name] = run
 	}
 	cloudRunRevisionRuns.Unlock()
 	if previous != nil {
 		bg.Go(func() { _ = previous.set.Stop(context.Background()) })
 	}
+	run.rescale(scale)
 	return run
 }
 
-func newCloudRunRevisionRun(rev RevisionV2, specSig string, minimum, maximum, concurrency int) *cloudRunRevisionRun {
+// cloudRunRevisionScaleBounds is the instance count a revision runs between.
+// exact holds under manual scaling, where the revision runs min instances
+// whatever the traffic.
+type cloudRunRevisionScaleBounds struct {
+	min, max    int
+	exact       bool
+	concurrency int
+}
+
+// cloudRunEffectiveScale is the instance bounds a revision runs within once
+// the service's own scaling is divided among the revisions of its traffic
+// split, as the Cloud Run pages on minimum instances, maximum instances and
+// manual scaling state (specs/cloud-api/gcp/cloudrun-{min,max}-instances.md.gz
+// and cloudrun-manual-scaling.md.gz):
+//
+//   - a service-level count is divided across the revisions in the traffic
+//     split by their traffic share, a fractional share rounded so the
+//     revisions listed first in the traffic take the rounded-up values; a
+//     revision only a tag reaches is not in the split and takes no share;
+//   - the effective maximum is the smaller of the revision's and the
+//     service's share, the effective minimum the larger of the revision's and
+//     the service's share, capped at the effective maximum;
+//   - under manual scaling a revision in the split runs exactly its share and
+//     its own bounds are ignored; a tag-only revision runs exactly its own
+//     minimum when it sets one and otherwise scales to at most one instance.
+func cloudRunEffectiveScale(svc ServiceV2, rev RevisionV2) cloudRunRevisionScaleBounds {
+	revMin, revMax, concurrency := cloudRunRevisionScale(rev)
+	bounds := cloudRunRevisionScaleBounds{min: revMin, max: revMax, concurrency: concurrency}
+	scaling := svc.Scaling
+	if scaling == nil {
+		return bounds
+	}
+	share, inSplit := cloudRunServiceShares(svc)[rev.Name]
+	if scaling.ScalingMode == "MANUAL" {
+		bounds.exact = true
+		switch {
+		case inSplit:
+			bounds.min, bounds.max = share.manual, share.manual
+		case revMin > 0:
+			bounds.min, bounds.max = revMin, revMin
+		default:
+			bounds.min, bounds.max, bounds.exact = 0, 1, false
+		}
+		return bounds
+	}
+	if !inSplit {
+		return bounds
+	}
+	if scaling.MaxInstanceCount > 0 {
+		bounds.max = min(revMax, share.max)
+	}
+	if scaling.MinInstanceCount > 0 {
+		bounds.min = max(revMin, share.min)
+	}
+	bounds.min = min(bounds.min, bounds.max)
+	return bounds
+}
+
+// cloudRunServiceShare is one revision's part of the service-level counts.
+type cloudRunServiceShare struct{ min, max, manual int }
+
+// cloudRunServiceShares divides the service's instance counts among the
+// revisions its traffic splits by percent, in the order the traffic lists
+// them. Manual scaling counts manualInstanceCount, or minInstanceCount when
+// that is unset, which the API describes as scaling to exactly min instances.
+func cloudRunServiceShares(svc ServiceV2) map[string]cloudRunServiceShare {
+	var names []string
+	percents := map[string]int32{}
+	for _, target := range svc.Traffic {
+		if target.Percent <= 0 {
+			continue
+		}
+		name := svc.Name + "/revisions/" + cloudRunTargetRevision(svc, target)
+		if _, seen := percents[name]; !seen {
+			names = append(names, name)
+		}
+		percents[name] += target.Percent
+	}
+	weights := make([]int32, len(names))
+	for i, name := range names {
+		weights[i] = percents[name]
+	}
+	manual := int(svc.Scaling.ManualInstanceCount)
+	if manual == 0 {
+		manual = int(svc.Scaling.MinInstanceCount)
+	}
+	mins := cloudRunApportion(int(svc.Scaling.MinInstanceCount), weights)
+	maxes := cloudRunApportion(int(svc.Scaling.MaxInstanceCount), weights)
+	manuals := cloudRunApportion(manual, weights)
+	shares := make(map[string]cloudRunServiceShare, len(names))
+	for i, name := range names {
+		shares[name] = cloudRunServiceShare{min: mins[i], max: maxes[i], manual: manuals[i]}
+	}
+	return shares
+}
+
+// cloudRunApportion divides total by weights so the parts sum to total: each
+// part is its proportional share rounded down, and the remainder goes one
+// each to the parts with the largest fractions, earlier-listed first among
+// equals.
+func cloudRunApportion(total int, weights []int32) []int {
+	parts := make([]int, len(weights))
+	var sum int32
+	for _, w := range weights {
+		sum += w
+	}
+	if total <= 0 || sum <= 0 {
+		return parts
+	}
+	remainders := make([]int, len(weights))
+	left := total
+	for i, w := range weights {
+		exact := total * int(w)
+		parts[i] = exact / int(sum)
+		remainders[i] = exact % int(sum)
+		left -= parts[i]
+	}
+	order := make([]int, len(weights))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool { return remainders[order[a]] > remainders[order[b]] })
+	for _, i := range order[:left] {
+		parts[i]++
+	}
+	return parts
+}
+
+// rescale brings the run to bounds when they changed: it starts the instances
+// below the minimum and stops those above the maximum, newest first. Bounds
+// that did not change leave the set to keep its own count, since the set
+// counts a starting instance only once it runs.
+func (run *cloudRunRevisionRun) rescale(bounds cloudRunRevisionScaleBounds) {
+	run.mu.Lock()
+	changed := run.min != bounds.min || run.max != bounds.max || run.exact != bounds.exact
+	run.min, run.max, run.exact = bounds.min, bounds.max, bounds.exact
+	run.mu.Unlock()
+	if !changed {
+		return
+	}
+	bg.Go(func() {
+		switch {
+		case bounds.exact:
+			_ = run.set.Scale(context.Background(), bounds.min)
+		case len(run.set.Replicas()) > bounds.max:
+			_ = run.set.Scale(context.Background(), bounds.max)
+		default:
+			_ = run.set.Raise(context.Background(), bounds.min)
+		}
+	})
+}
+
+func newCloudRunRevisionRun(rev RevisionV2, specSig string, concurrency int) *cloudRunRevisionRun {
 	serviceName, _, _ := strings.Cut(rev.Name, "/revisions/")
 	serviceID := serviceName[strings.LastIndex(serviceName, "/")+1:]
 	run := &cloudRunRevisionRun{
-		specSig: specSig, min: minimum, max: maximum, concurrency: concurrency,
+		specSig: specSig, concurrency: concurrency,
 		instances: map[string]*cloudRunServiceInstance{},
 		inflight:  map[string]int{},
 		changed:   make(chan struct{}),
@@ -265,8 +421,10 @@ func (run *cloudRunRevisionRun) done(id string) {
 	run.mu.Unlock()
 }
 
-// keepCloudRunRevisionsWarm starts the minimum instances of every revision
-// the service's traffic reaches.
+// keepCloudRunRevisionsWarm brings every revision the service's traffic
+// reaches to its instance bounds: it starts the minimum instances of one that
+// has none running yet, and rescales one already running when the service's
+// scaling or traffic changed them.
 func keepCloudRunRevisionsWarm(svc ServiceV2) {
 	if crv2Revisions == nil {
 		return
@@ -276,9 +434,11 @@ func keepCloudRunRevisionsWarm(svc ServiceV2) {
 		if !ok || len(rev.Containers) == 0 || rev.Containers[0].Image == "" {
 			continue
 		}
-		if minimum, _, _ := cloudRunRevisionScale(rev); minimum > 0 {
-			run := cloudRunRevisionRunFor(rev)
-			bg.Go(func() { _ = run.set.Raise(context.Background(), minimum) })
+		cloudRunRevisionRuns.Lock()
+		_, running := cloudRunRevisionRuns.byName[name]
+		cloudRunRevisionRuns.Unlock()
+		if running || cloudRunEffectiveScale(svc, rev).min > 0 {
+			cloudRunRevisionRunFor(svc, rev)
 		}
 	}
 }
@@ -323,13 +483,13 @@ type cloudRunRevisionLog struct {
 }
 
 func (s *cloudRunRevisionLog) WriteLog(line sim.LogLine) {
-	stream := "stdout"
-	if line.Stream == "stderr" {
-		stream = "stderr"
-	}
 	resource := s.resource
-	if err := writeLogEntries(fmt.Sprintf("projects/%s/logs/run.googleapis.com%%2F%s", s.project, stream), &resource,
-		nil, []LogEntry{{TextPayload: line.Text, Labels: map[string]string{"instanceId": s.instanceID}}}); err != nil {
+	entry := cloudRunLogEntry(line)
+	if entry.Labels == nil {
+		entry.Labels = map[string]string{}
+	}
+	entry.Labels["instanceId"] = s.instanceID
+	if err := writeLogEntries(cloudRunLogName(s.project, line.Stream), &resource, nil, []LogEntry{entry}); err != nil {
 		log.Printf("cloud run logs: %v", err)
 	}
 }

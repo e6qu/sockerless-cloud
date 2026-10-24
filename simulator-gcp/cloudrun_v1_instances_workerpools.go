@@ -188,7 +188,7 @@ func cloudRunV1InstanceToV2(instance CRInstance) InstanceV2 {
 		converted.Containers = cloudRunV1ContainersToV2(instance.Spec.Containers)
 		converted.Volumes = cloudRunV1VolumesToV2(instance.Spec.Volumes)
 		converted.NodeSelector = cloudRunV1NodeSelectorToV2(instance.Spec.NodeSelector)
-		converted.RestartPolicy = enumString(instance.Spec.RestartPolicy)
+		converted.RestartPolicy = protoEnum[runRestartPolicy](instance.Spec.RestartPolicy)
 		converted.ServiceAccount = instance.Spec.ServiceAccountName
 	}
 	return converted

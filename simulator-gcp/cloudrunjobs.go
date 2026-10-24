@@ -390,10 +390,8 @@ type RPCStatus struct {
 	Message string `json:"message,omitempty"`
 }
 
-// Condition represents a status condition on a resource. State is
-// proto-JSON: real run/apiv2 REST clients serialize the enum as a
-// number on PATCH (e.g. `"state": 2` for CONDITION_SUCCEEDED), so
-// enumString accepts both forms.
+// Condition represents a status condition on a resource; run/apiv2 REST
+// clients send its state as a number.
 // Condition carries three reason fields, each with its own enum in the
 // Discovery document. Those enums are not exhaustive for `reason`: gcloud's
 // own cancellation poller reads condition["reason"] and compares it to the
@@ -401,13 +399,13 @@ type RPCStatus struct {
 // sends values the document does not list. The simulator answers what the real
 // client expects, and the spec validator skips this field for that reason.
 type Condition struct {
-	Type               string     `json:"type"`
-	State              enumString `json:"state"`
-	Message            string     `json:"message,omitempty"`
-	LastTransitionTime string     `json:"lastTransitionTime,omitempty"`
-	Reason             string     `json:"reason,omitempty"`
-	ExecutionReason    string     `json:"executionReason,omitempty"`
-	RevisionReason     string     `json:"revisionReason,omitempty"`
+	Type               string                       `json:"type"`
+	State              protoEnum[runConditionState] `json:"state"`
+	Message            string                       `json:"message,omitempty"`
+	LastTransitionTime string                       `json:"lastTransitionTime,omitempty"`
+	Reason             string                       `json:"reason,omitempty"`
+	ExecutionReason    string                       `json:"executionReason,omitempty"`
+	RevisionReason     string                       `json:"revisionReason,omitempty"`
 }
 
 // Operation represents a long-running operation. Kind and SelfLink are the two
@@ -500,6 +498,20 @@ func startCloudRunJobRunOperation(project, location string, exec Execution) Oper
 	}
 	if current, ok := crOperations.Get(op.Name); ok {
 		return current
+	}
+	return op
+}
+
+// gcpCurrentOperation is op as a reader sees it now: a RunJob operation that
+// is still running carries the execution as it stands, not as it started.
+// Every reader of the operation stores, REST and gRPC, passes through here.
+func gcpCurrentOperation(op Operation) Operation {
+	if op.Done || op.Metadata["@type"] != cloudRunExecutionType || crjExecutions == nil {
+		return op
+	}
+	name, _ := op.Metadata["name"].(string)
+	if exec, ok := crjExecutions.Get(name); ok {
+		op.Metadata = gcpOperationAny(exec, cloudRunExecutionType)
 	}
 	return op
 }
@@ -1381,8 +1393,8 @@ func concludeCloudRunJobExecution(execName string, taskCount int32, project, job
 			message = cloudRunExecutionFailureMessage(*e)
 		}
 		e.Conditions = []Condition{
-			{Type: "Ready", State: enumString(state), LastTransitionTime: completionTime, Reason: reason, Message: message},
-			{Type: "Completed", State: enumString(state), LastTransitionTime: completionTime, Reason: reason, Message: message},
+			{Type: "Ready", State: protoEnum[runConditionState](state), LastTransitionTime: completionTime, Reason: reason, Message: message},
+			{Type: "Completed", State: protoEnum[runConditionState](state), LastTransitionTime: completionTime, Reason: reason, Message: message},
 		}
 		e.Reconciling = false
 		e.Etag = sim.NewUUID()
@@ -1419,7 +1431,7 @@ func concludeCloudRunJobExecution(execName string, taskCount int32, project, job
 			t.CompletionTime = completionTime
 			t.Conditions = []Condition{
 				{Type: "Started", State: "CONDITION_SUCCEEDED", LastTransitionTime: completionTime},
-				{Type: "Completed", State: enumString(taskState), LastTransitionTime: completionTime, Reason: taskReason},
+				{Type: "Completed", State: protoEnum[runConditionState](taskState), LastTransitionTime: completionTime, Reason: taskReason},
 			}
 			t.LastAttemptResult = &TaskAttemptResult{
 				Status:   attemptStatus,
@@ -1506,27 +1518,20 @@ func stopCloudRunExecutionWorkload(group *workload.Group) {
 	}
 }
 
-// injectCloudRunJobLog writes a log entry to the Cloud Logging store for a
-// Cloud Run Job execution, using the same resource type and labels that the
-// backend's log filter expects.
-func injectCloudRunJobLog(project, jobName, text string) {
-	logName := fmt.Sprintf("projects/%s/logs/run.googleapis.com%%2Fstdout", project)
-	resource := cloudRunJobLogResource(jobName)
-	if err := writeLogEntries(logName, &resource, nil, []LogEntry{{TextPayload: text}}); err != nil {
-		log.Printf("cloud run job logs: %v", err)
-	}
-}
-
 func cloudRunJobLogResource(jobID string) MonitoredResource {
 	return MonitoredResource{Type: "cloud_run_job", Labels: map[string]string{"job_name": jobID}}
 }
 
-// crjLogSink implements sim.LogSink and writes log lines to Cloud Logging.
+// crjLogSink writes an execution's container output to Cloud Logging under
+// the job, each stream to its own log.
 type crjLogSink struct {
 	project string
 	jobName string
 }
 
 func (s *crjLogSink) WriteLog(line sim.LogLine) {
-	injectCloudRunJobLog(s.project, s.jobName, line.Text)
+	resource := cloudRunJobLogResource(s.jobName)
+	if err := writeLogEntries(cloudRunLogName(s.project, line.Stream), &resource, nil, []LogEntry{cloudRunLogEntry(line)}); err != nil {
+		log.Printf("cloud run job logs: %v", err)
+	}
 }

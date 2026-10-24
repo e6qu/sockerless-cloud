@@ -159,7 +159,7 @@ func cloudRunV2ToV1(service ServiceV2, project, serviceID string) CRService {
 		Metadata: CRServiceMetadata{
 			Name: serviceID, Namespace: project, UID: service.UID,
 			Generation: service.Generation, ResourceVersion: fmt.Sprintf("%d", service.Generation),
-			Labels: service.Labels, Annotations: service.Annotations, CreationTimestamp: created,
+			Labels: service.Labels, Annotations: cloudRunFoldServiceScaling(service.Annotations, service.Scaling), CreationTimestamp: created,
 		},
 		Spec: CRServiceSpec{Template: template, Traffic: traffic},
 		Status: &CRServiceStatus{
@@ -229,9 +229,14 @@ func cloudRunV1ToV2(service CRService, project, location string) ServiceV2 {
 			Type: allocation, Revision: target.RevisionName, Percent: target.Percent, Tag: target.Tag,
 		})
 	}
+	annotations, scaling, err := cloudRunUnfoldServiceScaling(service.Metadata.Annotations)
+	if err != nil {
+		// cloudRunKnativeServiceValid refuses the service before it is stored.
+		panic(err)
+	}
 	return ServiceV2{
 		Name: name, UID: service.Metadata.UID, Generation: service.Metadata.Generation,
-		Labels: service.Metadata.Labels, Annotations: service.Metadata.Annotations,
+		Labels: service.Metadata.Labels, Annotations: annotations, Scaling: scaling,
 		CreateTime: created, UpdateTime: nowTimestamp(), Template: template, Traffic: traffic,
 		TerminalCondition:     &Condition{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: nowTimestamp()},
 		Conditions:            []Condition{{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: nowTimestamp()}},
@@ -267,7 +272,7 @@ func projectCloudRunV2ToV1(service ServiceV2) {
 // leaves in namespace.
 func writeKnativeService(w http.ResponseWriter, service CRService, project, location, namespace string, create bool) (CRService, bool) {
 	written := cloudRunV1ToV2(service, project, location)
-	update := ServiceV2{Labels: written.Labels, Annotations: written.Annotations, Template: written.Template, Traffic: written.Traffic}
+	update := ServiceV2{Labels: written.Labels, Annotations: written.Annotations, Scaling: written.Scaling, Template: written.Template, Traffic: written.Traffic}
 	if create {
 		if _, ok := createCloudRunService(w, update, project, location, service.Metadata.Name); !ok {
 			return CRService{}, false
@@ -310,6 +315,10 @@ func deleteCloudRunServiceProjections(project, location, serviceID string) {
 // whose container-dependencies annotation is malformed, names a container the
 // template does not define, or forms a cycle.
 func cloudRunKnativeServiceValid(w http.ResponseWriter, service CRService) bool {
+	if _, _, err := cloudRunUnfoldServiceScaling(service.Metadata.Annotations); err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+		return false
+	}
 	template := service.Spec.Template
 	if template == nil || template.Spec == nil || template.Metadata == nil {
 		return true
@@ -405,6 +414,95 @@ func cloudRunFoldScaling(annotations map[string]string, scaling *RevisionScaling
 	}
 	if scaling.MaxInstanceCount > 0 {
 		folded[cloudRunMaxScaleAnnotation] = strconv.Itoa(int(scaling.MaxInstanceCount))
+	}
+	return folded
+}
+
+// The Knative surface carries a service's own scaling as the Service-scoped
+// annotations the v1 document lists; gcloud writes the mode in lower case and
+// reads "manual" back.
+const (
+	cloudRunServiceMinScaleAnnotation    = "run.googleapis.com/minScale"
+	cloudRunServiceMaxScaleAnnotation    = "run.googleapis.com/maxScale"
+	cloudRunServiceManualCountAnnotation = "run.googleapis.com/manualInstanceCount"
+	cloudRunServiceScalingModeAnnotation = "run.googleapis.com/scalingMode"
+)
+
+// cloudRunUnfoldServiceScaling reads a service's scaling out of its
+// annotations and returns the annotations without them.
+func cloudRunUnfoldServiceScaling(annotations map[string]string) (map[string]string, *ServiceScaling, error) {
+	count := func(key string) (int32, bool, error) {
+		raw, ok := annotations[key]
+		if !ok {
+			return 0, false, nil
+		}
+		n, err := strconv.ParseInt(raw, 10, 32)
+		if err != nil || n < 0 {
+			return 0, false, fmt.Errorf("annotation %s must be a non-negative integer, got %q", key, raw)
+		}
+		return int32(n), true, nil
+	}
+	scaling := &ServiceScaling{}
+	var set bool
+	for key, field := range map[string]*int32{
+		cloudRunServiceMinScaleAnnotation:    &scaling.MinInstanceCount,
+		cloudRunServiceMaxScaleAnnotation:    &scaling.MaxInstanceCount,
+		cloudRunServiceManualCountAnnotation: &scaling.ManualInstanceCount,
+	} {
+		n, has, err := count(key)
+		if err != nil {
+			return nil, nil, err
+		}
+		*field = n
+		set = set || has
+	}
+	if mode, has := annotations[cloudRunServiceScalingModeAnnotation]; has {
+		switch strings.ToLower(mode) {
+		case "manual":
+			scaling.ScalingMode = "MANUAL"
+		case "automatic":
+			scaling.ScalingMode = "AUTOMATIC"
+		default:
+			return nil, nil, fmt.Errorf("annotation %s must be manual or automatic, got %q", cloudRunServiceScalingModeAnnotation, mode)
+		}
+		set = true
+	}
+	if !set {
+		return annotations, nil, nil
+	}
+	rest := make(map[string]string, len(annotations))
+	for k, v := range annotations {
+		switch k {
+		case cloudRunServiceMinScaleAnnotation, cloudRunServiceMaxScaleAnnotation,
+			cloudRunServiceManualCountAnnotation, cloudRunServiceScalingModeAnnotation:
+			continue
+		}
+		rest[k] = v
+	}
+	return rest, scaling, nil
+}
+
+// cloudRunFoldServiceScaling returns annotations with the service's scaling
+// as its Service-scoped annotations.
+func cloudRunFoldServiceScaling(annotations map[string]string, scaling *ServiceScaling) map[string]string {
+	if scaling == nil {
+		return annotations
+	}
+	folded := make(map[string]string, len(annotations)+4)
+	for k, v := range annotations {
+		folded[k] = v
+	}
+	for key, n := range map[string]int32{
+		cloudRunServiceMinScaleAnnotation:    scaling.MinInstanceCount,
+		cloudRunServiceMaxScaleAnnotation:    scaling.MaxInstanceCount,
+		cloudRunServiceManualCountAnnotation: scaling.ManualInstanceCount,
+	} {
+		if n > 0 {
+			folded[key] = strconv.Itoa(int(n))
+		}
+	}
+	if mode := string(scaling.ScalingMode); mode == "MANUAL" || mode == "AUTOMATIC" {
+		folded[cloudRunServiceScalingModeAnnotation] = strings.ToLower(mode)
 	}
 	return folded
 }

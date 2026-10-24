@@ -1,10 +1,10 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -62,6 +62,16 @@ type BQTable struct {
 	View                   json.RawMessage `json:"view,omitempty"`
 	MaterializedView       json.RawMessage `json:"materializedView,omitempty"`
 	RequirePartitionFilter *bool           `json:"requirePartitionFilter,omitempty"`
+	SnapshotDefinition     *bqBaseTable    `json:"snapshotDefinition,omitempty"`
+	CloneDefinition        *bqBaseTable    `json:"cloneDefinition,omitempty"`
+}
+
+// bqBaseTable is the Discovery's SnapshotDefinition and CloneDefinition: the
+// table a snapshot or clone was taken of, and when.
+type bqBaseTable struct {
+	BaseTableReference BQTableRef `json:"baseTableReference"`
+	SnapshotTime       string     `json:"snapshotTime,omitempty"`
+	CloneTime          string     `json:"cloneTime,omitempty"`
 }
 
 type BQTableRef struct {
@@ -75,10 +85,11 @@ type BQSchema struct {
 }
 
 type BQFieldSchema struct {
-	Name   string          `json:"name"`
-	Type   string          `json:"type,omitempty"`
-	Mode   string          `json:"mode,omitempty"`
-	Fields []BQFieldSchema `json:"fields,omitempty"`
+	Name        string          `json:"name"`
+	Type        string          `json:"type,omitempty"`
+	Mode        string          `json:"mode,omitempty"`
+	Fields      []BQFieldSchema `json:"fields,omitempty"`
+	Description string          `json:"description,omitempty"`
 }
 
 type BQRowSet struct {
@@ -107,6 +118,9 @@ type storedBQJob struct {
 	// Result is the evaluated query result served by GetQueryResults.
 	// Store-only: never emitted as a Job member.
 	Result BQQueryResult `json:"result,omitempty"`
+	// ResultRows holds the result rows in their stored cell form; each read
+	// renders them under its own formatOptions.
+	ResultRows []map[string]any `json:"resultRows,omitempty"`
 }
 
 type BQJobRef struct {
@@ -129,6 +143,7 @@ type BQQueryResult struct {
 	CacheHit            bool         `json:"cacheHit"`
 	TotalBytesBilled    string       `json:"totalBytesBilled,omitempty"`
 	TotalBytesProcessed string       `json:"totalBytesProcessed,omitempty"`
+	NumDMLAffectedRows  string       `json:"numDmlAffectedRows,omitempty"`
 }
 
 type BQTableRow struct {
@@ -410,8 +425,11 @@ func handleBQGetDataset(w http.ResponseWriter, r *http.Request) {
 
 func handleBQListDatasets(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
+	// A hidden dataset, whose name begins with an underscore, is listed only
+	// when the request asks for all datasets.
+	includeHidden := r.URL.Query().Get("all") == "true"
 	all := bqDatasets.Filter(func(d BQDataset) bool {
-		return d.DatasetReference.ProjectID == project
+		return d.DatasetReference.ProjectID == project && (includeHidden || !bqHiddenDataset(d.DatasetReference.DatasetID))
 	})
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	listed, listOK := gcpApplyListParams(w, r, all)
@@ -517,7 +535,7 @@ func handleBQInsertTable(w http.ResponseWriter, r *http.Request) {
 
 func handleBQGetTable(w http.ResponseWriter, r *http.Request) {
 	project, dataset, table := sim.PathParam(r, "project"), sim.PathParam(r, "dataset"), sim.PathParam(r, "table")
-	t, ok := bqTables.Get(bqTableKey(project, dataset, table))
+	t, ok := bqLiveTable(bqTableKey(project, dataset, table))
 	if !ok {
 		bqErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Table %s:%s.%s", project, dataset, table)
 		return
@@ -535,12 +553,16 @@ func handleBQGetTable(w http.ResponseWriter, r *http.Request) {
 
 func handleBQListTables(w http.ResponseWriter, r *http.Request) {
 	project, dataset := sim.PathParam(r, "project"), sim.PathParam(r, "dataset")
+	// A temporary result table in a hidden dataset is read by name only.
 	all := bqTables.Filter(func(t BQTable) bool {
-		return t.TableReference.ProjectID == project && t.TableReference.DatasetID == dataset
+		return t.TableReference.ProjectID == project && t.TableReference.DatasetID == dataset && !bqHiddenDataset(dataset)
 	})
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	items := make([]map[string]any, 0, len(all))
 	for _, t := range all {
+		if _, live := bqLiveTable(bqTableKey(project, dataset, t.TableReference.TableID)); !live {
+			continue
+		}
 		items = append(items, map[string]any{
 			"kind":           "bigquery#table",
 			"id":             t.ID,
@@ -615,8 +637,9 @@ func handleBQInsertAll(w http.ResponseWriter, r *http.Request) {
 			InsertID string         `json:"insertId,omitempty"`
 			JSON     map[string]any `json:"json"`
 		} `json:"rows"`
-		SkipInvalidRows     bool `json:"skipInvalidRows,omitempty"`
-		IgnoreUnknownValues bool `json:"ignoreUnknownValues,omitempty"`
+		SkipInvalidRows     bool   `json:"skipInvalidRows,omitempty"`
+		IgnoreUnknownValues bool   `json:"ignoreUnknownValues,omitempty"`
+		TemplateSuffix      string `json:"templateSuffix,omitempty"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		bqErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid insertAll body: %v", err)
@@ -624,6 +647,32 @@ func handleBQInsertAll(w http.ResponseWriter, r *http.Request) {
 	}
 	if t.Schema == nil || len(t.Schema.Fields) == 0 {
 		bqErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "The destination table has no schema.")
+		return
+	}
+	if req.TemplateSuffix != "" {
+		// The base table is a template: the rows land in an instance table
+		// named <table><suffix>, created from the template's schema.
+		if !bqTemplateSuffixRE.MatchString(req.TemplateSuffix) {
+			bqErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid templateSuffix: %s. A template suffix contains only letters, numbers and underscores.", req.TemplateSuffix)
+			return
+		}
+		if t.Type == "VIEW" {
+			bqErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "A template table cannot be a view: %s", bqTableName(t.TableReference))
+			return
+		}
+		table += req.TemplateSuffix
+		key = bqTableKey(project, dataset, table)
+		instance, exists := bqLiveTable(key)
+		if !exists {
+			instance = BQTable{TableReference: BQTableRef{ProjectID: project, DatasetID: dataset, TableID: table}, Schema: t.Schema}
+			instance = bqApplyTableDefaults(r, instance, project, dataset, table)
+			bqTables.Put(key, instance)
+			bqRows.Put(key, BQRowSet{Rows: []map[string]any{}})
+		}
+		t = instance
+	}
+	if t.Type != "" && t.Type != "TABLE" {
+		bqErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Streaming into a %s is not supported: %s", strings.ToLower(t.Type), bqTableName(t.TableReference))
 		return
 	}
 	// Each row is stored in the cell forms tabledata.list and queries read;
@@ -655,14 +704,35 @@ func handleBQInsertAll(w http.ResponseWriter, r *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"kind": "bigquery#tableDataInsertAllResponse", "insertErrors": insertErrors})
 		return
 	}
-	rowSet, _ := bqRows.Get(key)
-	for _, row := range stored {
-		if row != nil {
+	// A row whose insertId the table received within the de-duplication
+	// window, in this request or an earlier one, is acknowledged and not
+	// stored again.
+	err := bqWriteTable(r.Context(), BQTableRef{ProjectID: project, DatasetID: dataset, TableID: table}, func() error {
+		rowSet, _ := bqRows.Get(key)
+		var ids []string
+		inRequest := map[string]bool{}
+		for i, row := range stored {
+			if row == nil {
+				continue
+			}
+			if id := req.Rows[i].InsertID; id != "" {
+				if inRequest[id] || bqInsertIDs.has(key, id) {
+					continue
+				}
+				inRequest[id] = true
+				ids = append(ids, id)
+			}
 			rowSet.Rows = append(rowSet.Rows, row)
 		}
+		bqRows.Put(key, rowSet)
+		bqTables.Put(key, bqApplyTableDefaults(r, t, project, dataset, table))
+		bqInsertIDs.record(key, ids)
+		return nil
+	})
+	if err != nil {
+		writeAPIError(w, err)
+		return
 	}
-	bqRows.Put(key, rowSet)
-	bqTables.Put(key, bqApplyTableDefaults(r, t, project, dataset, table))
 	resp := map[string]any{"kind": "bigquery#tableDataInsertAllResponse"}
 	if len(insertErrors) > 0 {
 		resp["insertErrors"] = insertErrors
@@ -672,9 +742,14 @@ func handleBQInsertAll(w http.ResponseWriter, r *http.Request) {
 
 func handleBQTableDataList(w http.ResponseWriter, r *http.Request) {
 	project, dataset, table := sim.PathParam(r, "project"), sim.PathParam(r, "dataset"), sim.PathParam(r, "table")
-	t, ok := bqTables.Get(bqTableKey(project, dataset, table))
+	t, ok := bqLiveTable(bqTableKey(project, dataset, table))
 	if !ok {
 		bqErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Table %s:%s.%s", project, dataset, table)
+		return
+	}
+	fo, err := bqFormatOptionsFromQuery(r.URL.Query())
+	if err != nil {
+		writeAPIError(w, err)
 		return
 	}
 	rowSet, _ := bqRows.Get(bqTableKey(project, dataset, table))
@@ -719,7 +794,7 @@ func handleBQTableDataList(w http.ResponseWriter, r *http.Request) {
 	if end > len(rowSet.Rows) {
 		end = len(rowSet.Rows)
 	}
-	rows := bqEncodeRows(t.Schema, rowSet.Rows[start:end])
+	rows := bqEncodeRows(t.Schema, rowSet.Rows[start:end], fo)
 	resp := map[string]any{
 		"kind":      "bigquery#tableDataList",
 		"totalRows": strconv.Itoa(len(rowSet.Rows)),
@@ -731,27 +806,96 @@ func handleBQTableDataList(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
+// handleBQQuery serves jobs.query: the QueryRequest's statement runs at once
+// as a job, and the response carries the first page of its result under the
+// request's formatOptions and maxResults.
 func handleBQQuery(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	var req struct {
-		Query          string        `json:"query"`
-		Location       string        `json:"location,omitempty"`
-		DefaultDataset *BQDatasetRef `json:"defaultDataset,omitempty"`
+		Query           string             `json:"query"`
+		Location        string             `json:"location,omitempty"`
+		DefaultDataset  *BQDatasetRef      `json:"defaultDataset,omitempty"`
+		UseLegacySQL    *bool              `json:"useLegacySql,omitempty"`
+		ParameterMode   string             `json:"parameterMode,omitempty"`
+		QueryParameters []bqQueryParameter `json:"queryParameters,omitempty"`
+		MaxResults      *int64             `json:"maxResults,omitempty"`
+		TimeoutMs       *int64             `json:"timeoutMs,omitempty"`
+		DryRun          bool               `json:"dryRun,omitempty"`
+		FormatOptions   *struct {
+			UseInt64Timestamp     bool   `json:"useInt64Timestamp,omitempty"`
+			TimestampOutputFormat string `json:"timestampOutputFormat,omitempty"`
+		} `json:"formatOptions,omitempty"`
+		Labels          map[string]string `json:"labels,omitempty"`
+		JobCreationMode string            `json:"jobCreationMode,omitempty"`
+		RequestID       string            `json:"requestId,omitempty"`
+		UseQueryCache   *bool             `json:"useQueryCache,omitempty"`
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		bqErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid query body: %v", err)
 		return
 	}
-	result, _, err := bqEvaluateQuery(r.Context(), project, req.DefaultDataset, req.Query)
-	if err != nil {
-		bqErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
+	if strings.TrimSpace(req.Query) == "" {
+		bqErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Required parameter is missing: query")
+		return
+	}
+	switch req.JobCreationMode {
+	case "", "JOB_CREATION_MODE_UNSPECIFIED", "JOB_CREATION_REQUIRED", "JOB_CREATION_OPTIONAL":
+	default:
+		bqErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid value for jobCreationMode: %s", req.JobCreationMode)
+		return
+	}
+	fo := bqFormatOptions{"FLOAT64"}
+	if req.FormatOptions != nil {
+		var err error
+		if fo, err = bqFormatOptionsOf(req.FormatOptions.TimestampOutputFormat, req.FormatOptions.UseInt64Timestamp); err != nil {
+			writeAPIError(w, err)
+			return
+		}
+	}
+	cfg := bqQueryConfig{Query: req.Query, DefaultDataset: req.DefaultDataset, UseLegacySQL: req.UseLegacySQL, ParameterMode: req.ParameterMode, QueryParameters: req.QueryParameters}
+	if err := cfg.check(); err != nil {
+		writeAPIError(w, err)
 		return
 	}
 	jobID := "job_" + sim.NewUUID()
-	job := bqDoneQueryJob(r, project, jobID, req.Location, req.Query, result)
-	bqJobs.Put(bqJobKey(project, jobID), job)
-	result.Kind = "bigquery#queryResponse"
-	sim.WriteJSON(w, http.StatusOK, result)
+	configuration := map[string]any{"query": map[string]any{"query": req.Query, "useLegacySql": req.UseLegacySQL != nil && *req.UseLegacySQL}, "jobType": "QUERY"}
+	if req.DryRun {
+		configuration["dryRun"] = true
+	}
+	if len(req.Labels) > 0 {
+		configuration["labels"] = req.Labels
+	}
+	run, err := bqRunQueryJob(r.Context(), r, project, jobID, req.Location, configuration, cfg, req.DryRun)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+	if run.statusErr != nil {
+		writeAPIError(w, bqQueryRefusal(run.statusErr))
+		return
+	}
+	if !req.DryRun {
+		bqJobs.Put(bqJobKey(project, jobID), run.job)
+	}
+	q := url.Values{}
+	if req.MaxResults != nil {
+		q.Set("maxResults", strconv.FormatInt(*req.MaxResults, 10))
+	}
+	resp, err := bqQueryResponse(run.job, "bigquery#queryResponse", q, fo)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+	resp["queryId"] = jobID
+	if req.DryRun {
+		// A dry run creates no job: the response carries the validation's
+		// statistics and the result schema alone.
+		delete(resp, "jobReference")
+		delete(resp, "rows")
+		delete(resp, "totalRows")
+		delete(resp, "pageToken")
+	}
+	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
 func handleBQInsertJob(w http.ResponseWriter, r *http.Request) {
@@ -760,6 +904,9 @@ func handleBQInsertJob(w http.ResponseWriter, r *http.Request) {
 	if err := sim.ReadJSON(r, &req); err != nil {
 		bqErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid job body: %v", err)
 		return
+	}
+	if req.Configuration == nil {
+		req.Configuration = map[string]any{}
 	}
 	var start func(*http.Request, string, BQJob) (storedBQJob, error)
 	switch {
@@ -787,7 +934,6 @@ func handleBQInsertJob(w http.ResponseWriter, r *http.Request) {
 		bqErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "Already Exists: Job %s:%s", project, jobID)
 		return
 	}
-	location := req.JobReference.Location
 	var cfg bqQueryConfig
 	if err := bqDecodeConfig(req.Configuration, "query", &cfg); err != nil {
 		writeAPIError(w, err)
@@ -797,31 +943,26 @@ func handleBQInsertJob(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, err)
 		return
 	}
-	query := cfg.Query
-	result := BQQueryResult{JobComplete: true, TotalRows: "0", CacheHit: false, TotalBytesProcessed: "0"}
-	var rows []map[string]any
-	if query != "" {
-		var err error
-		result, rows, err = bqEvaluateQuery(r.Context(), project, cfg.DefaultDataset, query)
-		if err != nil {
-			bqErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%v", err)
-			return
-		}
+	dryRun, err := bqDecodeDryRun(req.Configuration)
+	if err != nil {
+		writeAPIError(w, err)
+		return
 	}
-	var failure error
-	if cfg.DestinationTable != nil {
-		failure = bqWriteQueryDestination(r.Context(), r, project, cfg, result.Schema, rows)
+	if strings.TrimSpace(cfg.Query) == "" {
+		bqErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "Required parameter is missing: query")
+		return
 	}
-	job := bqDoneQueryJob(r, project, jobID, location, query, result)
-	job.Configuration = req.Configuration
-	if failure != nil {
-		proto := bqJobFailure(failure)
-		job.Status["errorResult"] = proto
-		job.Status["errors"] = []any{proto}
-		job.Result = BQQueryResult{}
+	req.Configuration["jobType"] = "QUERY"
+	run, err := bqRunQueryJob(r.Context(), r, project, jobID, req.JobReference.Location, req.Configuration, cfg, dryRun)
+	if err != nil {
+		writeAPIError(w, err)
+		return
 	}
-	bqJobs.Put(bqJobKey(project, jobID), job)
-	sim.WriteJSON(w, http.StatusOK, job.BQJob)
+	// A dry run validates and reports statistics without storing a job.
+	if !dryRun {
+		bqJobs.Put(bqJobKey(project, jobID), run.job)
+	}
+	sim.WriteJSON(w, http.StatusOK, run.job.BQJob)
 }
 
 func handleBQGetJob(w http.ResponseWriter, r *http.Request) {
@@ -834,9 +975,18 @@ func handleBQGetJob(w http.ResponseWriter, r *http.Request) {
 	sim.WriteJSON(w, http.StatusOK, job.BQJob)
 }
 
+// handleBQListJobs lists the top-level jobs, or with parentJobId the child
+// jobs a script ran.
 func handleBQListJobs(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
-	all := bqJobs.Filter(func(j storedBQJob) bool { return j.JobReference.ProjectID == project })
+	parent := r.URL.Query().Get("parentJobId")
+	all := bqJobs.Filter(func(j storedBQJob) bool {
+		if j.JobReference.ProjectID != project {
+			return false
+		}
+		jobParent, _ := j.Statistics["parentJobId"].(string)
+		return jobParent == parent
+	})
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 	// jobs.list items follow the lighter JobListJobs shape: the running state
 	// is a top-level `state` field (mirrored from status.state), not nested.
@@ -872,77 +1022,20 @@ func handleBQGetQueryResults(w http.ResponseWriter, r *http.Request) {
 		bqErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Job %s:%s", project, jobID)
 		return
 	}
-	if proto, failed := job.Status["errorResult"].(map[string]any); failed {
-		reason, _ := proto["reason"].(string)
-		message, _ := proto["message"].(string)
-		status, ok := bqFailureStatuses[reason]
-		if !ok {
-			status = bqFailureStatuses["backendError"]
-		}
-		bqError(w, status.code, message, status.status)
+	if bqJobError(w, job) {
 		return
 	}
-	result := job.Result
-	result.Kind = "bigquery#getQueryResultsResponse"
-	// GetQueryResultsResponse declares totalBytesProcessed but not
-	// totalBytesBilled (a QueryResponse-only member).
-	result.TotalBytesBilled = ""
-	sim.WriteJSON(w, http.StatusOK, result)
-}
-
-func bqDoneQueryJob(r *http.Request, project, jobID, location, query string, result BQQueryResult) storedBQJob {
-	if location == "" {
-		location = "US"
-	}
-	queryStats := map[string]any{"totalBytesProcessed": "0", "cacheHit": false}
-	if query != "" {
-		queryStats["statementType"] = "SELECT"
-	}
-	return storedBQJob{
-		BQJob: BQJob{
-			Kind:     "bigquery#job",
-			Etag:     bqEtag(jobID),
-			ID:       project + ":" + jobID,
-			SelfLink: gcpSelfLink(r, "/bigquery/v2/projects/"+project+"/jobs/"+jobID),
-			JobReference: BQJobRef{
-				ProjectID: project,
-				JobID:     jobID,
-				Location:  location,
-			},
-			Configuration: map[string]any{"query": map[string]any{"query": query}},
-			Status:        map[string]any{"state": "DONE"},
-			Statistics: map[string]any{
-				"creationTime": bqMillisNow(),
-				"startTime":    bqMillisNow(),
-				"endTime":      bqMillisNow(),
-				"query":        queryStats,
-			},
-		},
-		Result: result,
-	}
-}
-
-func bqEvaluateQuery(ctx context.Context, defaultProject string, defaultDataset *BQDatasetRef, query string) (BQQueryResult, []map[string]any, error) {
-	dataset := ""
-	if defaultDataset != nil && defaultDataset.DatasetID != "" {
-		dataset = defaultDataset.DatasetID
-		if defaultDataset.ProjectID != "" {
-			dataset = defaultDataset.ProjectID + "." + dataset
-		}
-	}
-	schema, rows, err := bqEvaluateSQL(ctx, defaultProject, dataset, query)
+	fo, err := bqFormatOptionsFromQuery(r.URL.Query())
 	if err != nil {
-		return BQQueryResult{}, nil, err
+		writeAPIError(w, err)
+		return
 	}
-	return BQQueryResult{
-		Schema:              schema,
-		Rows:                bqEncodeRows(schema, rows),
-		TotalRows:           strconv.Itoa(len(rows)),
-		JobComplete:         true,
-		CacheHit:            false,
-		TotalBytesBilled:    "0",
-		TotalBytesProcessed: "0",
-	}, rows, nil
+	resp, err := bqQueryResponse(job, "bigquery#getQueryResultsResponse", r.URL.Query(), fo)
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
 // bqParseTableRef resolves a `dataset.table` or `project.dataset.table`
@@ -1432,7 +1525,7 @@ func handleBQRAPVerb(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func bqEncodeRows(schema *BQSchema, rows []map[string]any) []BQTableRow {
+func bqEncodeRows(schema *BQSchema, rows []map[string]any, fo bqFormatOptions) []BQTableRow {
 	var fields []BQFieldSchema
 	if schema != nil {
 		fields = schema.Fields
@@ -1449,22 +1542,25 @@ func bqEncodeRows(schema *BQSchema, rows []map[string]any) []BQTableRow {
 	}
 	out := make([]BQTableRow, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, bqEncodeRow(fields, row))
+		out = append(out, bqEncodeRow(fields, row, fo))
 	}
 	return out
 }
 
 // bqEncodeRow writes a row in the tabledata wire form: each cell is {"v": …},
 // a RECORD cell holds a nested row, and a REPEATED cell a list of cells.
-func bqEncodeRow(fields []BQFieldSchema, row map[string]any) BQTableRow {
+func bqEncodeRow(fields []BQFieldSchema, row map[string]any, fo bqFormatOptions) BQTableRow {
 	tr := BQTableRow{F: make([]map[string]any, 0, len(fields))}
 	for _, f := range fields {
-		tr.F = append(tr.F, map[string]any{"v": bqEncodeCell(f, row[f.Name])})
+		tr.F = append(tr.F, map[string]any{"v": bqEncodeCell(f, row[f.Name], fo)})
 	}
 	return tr
 }
 
-func bqEncodeCell(f BQFieldSchema, v any) any {
+func bqEncodeCell(f BQFieldSchema, v any, fo bqFormatOptions) any {
+	if v == nil {
+		return nil
+	}
 	if bqRepeated(f) {
 		items, ok := v.([]any)
 		if !ok {
@@ -1474,12 +1570,15 @@ func bqEncodeCell(f BQFieldSchema, v any) any {
 		elem.Mode = "NULLABLE"
 		out := make([]any, 0, len(items))
 		for _, item := range items {
-			out = append(out, map[string]any{"v": bqEncodeCell(elem, item)})
+			out = append(out, map[string]any{"v": bqEncodeCell(elem, item, fo)})
 		}
 		return out
 	}
 	if obj, ok := v.(map[string]any); ok && bqType(f) == "STRUCT" {
-		return bqEncodeRow(f.Fields, obj)
+		return bqEncodeRow(f.Fields, obj, fo)
+	}
+	if bqType(f) == "TIMESTAMP" {
+		return fo.timestampCell(v)
 	}
 	return v
 }

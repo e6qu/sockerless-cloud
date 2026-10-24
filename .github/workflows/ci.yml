@@ -1206,7 +1206,7 @@ jobs:
           # each of the create, the replica and the promotion, so the replica
           # and engine version upgrade tests run apart.
           - suite: rds-read-replica
-            run: '^Test(RDSCLI_(ReadReplica|ReleasedEngineVersion))'
+            run: '^Test(RDSCLI_(ReadReplica|ReleasedEngineVersion|ReplicatedBackup))'
             timeout: 1200s
             timeout_minutes: 15
           # A Multi-AZ instance starts a primary and a standby engine, and its

@@ -231,13 +231,50 @@ func imdsInterfaceKeys(inst EC2Instance, eni EC2NetworkInterface) map[string]str
 		keys["vpc-ipv4-cidr-block"] = vpc.CidrBlock
 		keys["vpc-ipv4-cidr-blocks"] = vpc.CidrBlock
 	}
-	if eni.NetworkInterfaceId == inst.NetworkInterfaceId && inst.PublicIpAddress != "" {
-		keys["public-ipv4s"] = inst.PublicIpAddress
-		if name := ec2PublicDNSName(inst); name != "" {
+	if associations := imdsPublicAddresses(inst, eni); len(associations) > 0 {
+		public := sortedKeys(associations)
+		keys["public-ipv4s"] = strings.Join(public, "\n")
+		keys["ipv4-associations/"] = strings.Join(public, "\n")
+		if name := ec2PublicDNSName(inst); name != "" && eni.NetworkInterfaceId == inst.NetworkInterfaceId {
 			keys["public-hostname"] = name
 		}
 	}
 	return keys
+}
+
+// imdsPublicAddresses maps each public IPv4 address of the interface to the
+// private address it is associated with: the address the instance's primary
+// interface got at launch, and the Elastic IP addresses associated with the
+// interface or with the instance.
+func imdsPublicAddresses(inst EC2Instance, eni EC2NetworkInterface) map[string]string {
+	associations := map[string]string{}
+	primary := eni.NetworkInterfaceId == inst.NetworkInterfaceId
+	if primary && inst.PublicIpAddress != "" {
+		associations[inst.PublicIpAddress] = eni.PrivateIpAddress
+	}
+	for _, eip := range ec2ElasticIPs.List() {
+		if eip.AssociationId == "" {
+			continue
+		}
+		if eip.NetworkInterfaceId != eni.NetworkInterfaceId && (!primary || eip.NetworkInterfaceId != "" || eip.InstanceId != inst.InstanceId) {
+			continue
+		}
+		private := eip.PrivateIpAddress
+		if private == "" {
+			private = eni.PrivateIpAddress
+		}
+		associations[eip.PublicIp] = private
+	}
+	return associations
+}
+
+// ec2MetadataHttpProtocolIpv6 is the instance's HttpProtocolIpv6 metadata
+// option, disabled unless the instance enabled it.
+func ec2MetadataHttpProtocolIpv6(inst EC2Instance) string {
+	if inst.MetadataHttpProtocolIpv6 == "" {
+		return "disabled"
+	}
+	return inst.MetadataHttpProtocolIpv6
 }
 
 // imdsBlockDevices maps the instance's block devices to their device names:
@@ -405,6 +442,40 @@ func registerEC2IMDS(srv *sim.Server) {
 			return
 		}
 		imdsText(w, value)
+	})
+	srv.HandleFunc("GET /latest/meta-data/network/interfaces/macs/{mac}/ipv4-associations/{$}", func(w http.ResponseWriter, r *http.Request) {
+		inst, ok := imdsRequest(w, r)
+		if !ok {
+			return
+		}
+		eni, ok := imdsInterfaceByMAC(inst, sim.PathParam(r, "mac"))
+		if !ok {
+			imdsNotFound(w)
+			return
+		}
+		listing, ok := imdsInterfaceKeys(inst, eni)["ipv4-associations/"]
+		if !ok {
+			imdsNotFound(w)
+			return
+		}
+		imdsText(w, listing)
+	})
+	srv.HandleFunc("GET /latest/meta-data/network/interfaces/macs/{mac}/ipv4-associations/{ip}", func(w http.ResponseWriter, r *http.Request) {
+		inst, ok := imdsRequest(w, r)
+		if !ok {
+			return
+		}
+		eni, ok := imdsInterfaceByMAC(inst, sim.PathParam(r, "mac"))
+		if !ok {
+			imdsNotFound(w)
+			return
+		}
+		private, ok := imdsPublicAddresses(inst, eni)[sim.PathParam(r, "ip")]
+		if !ok {
+			imdsNotFound(w)
+			return
+		}
+		imdsText(w, private)
 	})
 	leaf("/latest/meta-data/placement/{$}", always(func(EC2Instance) string { return "availability-zone\nregion" }))
 	leaf("/latest/meta-data/placement/region", always(func(EC2Instance) string { return awsRegion() }))

@@ -1,8 +1,11 @@
 package azure_sdk_test
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v5"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/stretchr/testify/assert"
@@ -112,11 +115,38 @@ func TestMSI_OperationsAndSystemAssigned(t *testing.T) {
 	}
 	assert.Greater(t, count, 0, "Microsoft.ManagedIdentity operations list must be non-empty")
 
+	// SystemAssignedIdentities_GetByScope answers the system-assigned
+	// identity of the resource the scope names; a subscription carries none.
+	rg, name := "msi-scope-rg", "msi-scope-app"
+	ensureMSIResourceGroup(t, rg)
+	sites, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
+	require.NoError(t, err)
+	t.Cleanup(func() { azureDeleteSite(rg, name) })
+	poller, err := sites.BeginCreateOrUpdate(ctx, rg, name, armappservice.Site{
+		Location: ptrStr("eastus"),
+		Kind:     ptrStr("app,linux"),
+		Identity: &armappservice.ManagedServiceIdentity{Type: to.Ptr(armappservice.ManagedServiceIdentityTypeSystemAssigned)},
+		Properties: &armappservice.SiteProperties{
+			ServerFarmID: ptrStr(webMoreEnsurePlan(t, rg, name+"-plan")),
+			SiteConfig:   &armappservice.SiteConfig{LinuxFxVersion: ptrStr("DOCKER|mirror.gcr.io/library/alpine:latest")},
+		},
+	}, nil)
+	require.NoError(t, err)
+	site, err := poller.PollUntilDone(ctx, nil)
+	require.NoError(t, err)
+	require.NotNil(t, site.Identity)
+
 	saClient, err := armmsi.NewSystemAssignedIdentitiesClient(&fakeCredential{}, clientOpts())
 	require.NoError(t, err)
-	resp, err := saClient.GetByScope(ctx, "subscriptions/"+subscriptionID, nil)
+	resp, err := saClient.GetByScope(ctx, strings.TrimPrefix(*site.ID, "/"), nil)
 	require.NoError(t, err)
 	require.NotNil(t, resp.Properties)
-	assert.NotEmpty(t, *resp.Properties.PrincipalID)
+	assert.Equal(t, *site.Identity.PrincipalID, *resp.Properties.PrincipalID)
+	assert.Equal(t, *site.Identity.TenantID, *resp.Properties.TenantID)
 	assert.NotEmpty(t, *resp.Properties.ClientID)
+	assert.Equal(t, *site.ID+"/providers/Microsoft.ManagedIdentity/identities/default", *resp.ID)
+
+	_, err = saClient.GetByScope(ctx, "subscriptions/"+subscriptionID, nil)
+	require.Error(t, err, "a subscription has no system-assigned identity")
+	assert.Contains(t, err.Error(), "ResourceNotFound")
 }

@@ -135,12 +135,20 @@ type NetworkInterfaceIPConfigurationProperties struct {
 }
 
 type VirtualMachine struct {
-	ID         string            `json:"id"`
-	Name       string            `json:"name"`
-	Type       string            `json:"type"`
-	Location   string            `json:"location"`
-	Tags       map[string]string `json:"tags,omitempty"`
-	Properties VMProperties      `json:"properties"`
+	ID       string            `json:"id"`
+	Name     string            `json:"name"`
+	Type     string            `json:"type"`
+	Location string            `json:"location"`
+	Tags     map[string]string `json:"tags,omitempty"`
+	// Identity is the machine's VirtualMachineIdentity, whose shape App
+	// Service's ManagedServiceIdentity shares; the Instance Metadata Service
+	// mints tokens for the identities it names.
+	Identity   *SiteIdentity `json:"identity,omitempty"`
+	Properties VMProperties  `json:"properties"`
+	// SystemIdentityClientID is the application ID of the machine's
+	// system-assigned identity, which the directory reads and the identity's
+	// wire shape does not carry.
+	SystemIdentityClientID string `json:"-"`
 }
 
 type VMProperties struct {
@@ -1216,6 +1224,13 @@ func registerVirtualMachines(srv *sim.Server) {
 			AzureError(w, fault.code, fault.message, fault.status)
 			return
 		}
+		prev, _ := azureVMs.Get(id)
+		identity, identityClientID, err := applyManagedIdentity(req.Identity, prev.Identity, prev.SystemIdentityClientID)
+		if err != nil {
+			AzureError(w, "InvalidParameter", err.Error(), http.StatusBadRequest)
+			return
+		}
+		vm.Identity, vm.SystemIdentityClientID = identity, identityClientID
 		created, busy := false, false
 		azureVMs.Upsert(id, func(stored *VirtualMachine) {
 			if stored.ID != "" && azureVMOperationRunning(stored.Properties.ProvisioningState) {
@@ -1239,6 +1254,7 @@ func registerVirtualMachines(srv *sim.Server) {
 			azureVMOperationConflict(w, "CreateOrUpdate", id)
 			return
 		}
+		syncManagedIdentityPrincipal(prev.Identity, vm.Identity, vm.SystemIdentityClientID, vm.Name)
 		priorState, _ := azureVMStates.Get(id)
 		if created {
 			priorState = "PowerState/deallocated"
@@ -1290,6 +1306,7 @@ func registerVirtualMachines(srv *sim.Server) {
 			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "vmName"))
 		var patch struct {
 			Tags       map[string]string `json:"tags"`
+			Identity   *SiteIdentity     `json:"identity"`
 			Properties *struct {
 				HardwareProfile map[string]any    `json:"hardwareProfile"`
 				StorageProfile  map[string]any    `json:"storageProfile"`
@@ -1301,10 +1318,21 @@ func registerVirtualMachines(srv *sim.Server) {
 			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+		prev, ok := azureVMs.Get(id)
+		if !ok {
+			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
+			return
+		}
+		identity, identityClientID, err := applyManagedIdentityPatch(patch.Identity, prev.Identity, prev.SystemIdentityClientID)
+		if err != nil {
+			AzureError(w, "InvalidParameter", err.Error(), http.StatusBadRequest)
+			return
+		}
 		if !azureVMs.Update(id, func(vm *VirtualMachine) {
 			if patch.Tags != nil {
 				vm.Tags = patch.Tags
 			}
+			vm.Identity, vm.SystemIdentityClientID = identity, identityClientID
 			if patch.Properties == nil {
 				return
 			}
@@ -1325,6 +1353,7 @@ func registerVirtualMachines(srv *sim.Server) {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "The Resource %q was not found.", id)
 			return
 		}
+		syncManagedIdentityPrincipal(prev.Identity, identity, identityClientID, prev.Name)
 		azureReconcileAutoRegisteredRecords()
 		vm, _ := azureVMs.Get(id)
 		sim.WriteJSON(w, http.StatusOK, vm)

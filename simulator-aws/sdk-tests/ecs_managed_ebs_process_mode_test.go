@@ -1,6 +1,7 @@
 package aws_sdk_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -80,6 +82,20 @@ func TestECS_ManagedEBSRunTaskProcessMode(t *testing.T) {
 	url := startProcessModeSim(t)
 	ecsc := ecs.NewFromConfig(sdkConfig(), func(o *ecs.Options) { o.BaseEndpoint = aws.String(url) })
 	ec2c := ec2.NewFromConfig(sdkConfig(), func(o *ec2.Options) { o.BaseEndpoint = aws.String(url) })
+	iamc := iam.NewFromConfig(sdkConfig(), func(o *iam.Options) { o.BaseEndpoint = aws.String(url) })
+	role, err := iamc.CreateRole(ctx, &iam.CreateRoleInput{
+		RoleName: aws.String("managed-ebs-process"),
+		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+			`"Principal":{"Service":"ecs.amazonaws.com"},"Action":"sts:AssumeRole"}]}`),
+	})
+	require.NoError(t, err)
+	allowed, err := json.Marshal(ecsVolumeInfrastructureActions)
+	require.NoError(t, err)
+	_, err = iamc.PutRolePolicy(ctx, &iam.PutRolePolicyInput{
+		RoleName: aws.String("managed-ebs-process"), PolicyName: aws.String("volumes"),
+		PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":` + string(allowed) + `,"Resource":"*"}]}`),
+	})
+	require.NoError(t, err)
 
 	vpcOut, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.245.0.0/16")})
 	require.NoError(t, err)
@@ -127,7 +143,7 @@ func TestECS_ManagedEBSRunTaskProcessMode(t *testing.T) {
 		VolumeConfigurations: []ecstypes.TaskVolumeConfiguration{{
 			Name: aws.String("workspace"),
 			ManagedEBSVolume: &ecstypes.TaskManagedEBSVolumeConfiguration{
-				RoleArn:    aws.String("arn:aws:iam::123456789012:role/ecsInfrastructureRole"),
+				RoleArn:    role.Role.Arn,
 				SizeInGiB:  aws.Int32(1),
 				VolumeType: aws.String("gp3"),
 				// deleteOnTermination=true exercises the cleanup path that

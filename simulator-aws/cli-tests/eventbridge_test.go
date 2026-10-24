@@ -3,6 +3,7 @@ package aws_cli_test
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -368,4 +369,84 @@ func setEBQueuePolicyCLI(t *testing.T, queueURL, queueARN, ruleArn string) {
 		`"Condition":{"ArnEquals":{"aws:SourceArn":"` + ruleArn + `"}}}]}`
 	attrs, _ := json.Marshal(map[string]string{"Policy": policy})
 	runCLI(t, awsCLI("sqs", "set-queue-attributes", "--queue-url", queueURL, "--attributes", string(attrs)))
+}
+
+// TestEventBridgeCLI_CodeBuildTargetAndTargetParameters reads back the
+// Amazon Redshift Data API, SageMaker pipeline and AppSync parameters of
+// targets put with the AWS CLI, and proves an AWS CodeBuild project target
+// starts a build as the target's role when its rule matches an event.
+func TestEventBridgeCLI_CodeBuildTargetAndTargetParameters(t *testing.T) {
+	t.Parallel()
+	role := cliRoleAllowing(t, "events.amazonaws.com", "codebuild:StartBuild")
+
+	parametersRule := cliUniqueName("eb-cli-parameters")
+	runCLI(t, awsCLI("events", "put-rule", "--name", parametersRule, "--event-pattern", `{"source":["`+parametersRule+`"]}`))
+	t.Cleanup(func() {
+		runCLI(t, awsCLI("events", "remove-targets", "--rule", parametersRule, "--ids", "redshift", "pipeline", "graphql"))
+		runCLI(t, awsCLI("events", "delete-rule", "--name", parametersRule))
+	})
+	redshift := map[string]any{"Database": "dev", "DbUser": "awsuser", "Sql": "select 1", "StatementName": "eb-cli", "WithEvent": true}
+	pipeline := map[string]any{"PipelineParameterList": []any{map[string]any{"Name": "source", "Value": "eventbridge"}}}
+	graphQL := map[string]any{"GraphQLOperation": "mutation Publish($detail: String!) { publish(detail: $detail) { detail } }"}
+	targets, err := json.Marshal([]map[string]any{
+		{"Id": "redshift", "Arn": "arn:aws:redshift:us-east-1:123456789012:cluster:eb-cli-warehouse", "RoleArn": role, "RedshiftDataParameters": redshift},
+		{"Id": "pipeline", "Arn": "arn:aws:sagemaker:us-east-1:123456789012:pipeline/eb-cli-pipeline", "RoleArn": role, "SageMakerPipelineParameters": pipeline},
+		{"Id": "graphql", "Arn": "arn:aws:appsync:us-east-1:123456789012:endpoints/graphql-api/ebcliapi", "RoleArn": role, "AppSyncParameters": graphQL},
+	})
+	require.NoError(t, err)
+	out := runCLI(t, awsCLI("events", "put-targets", "--rule", parametersRule, "--targets", string(targets)))
+	var put struct {
+		FailedEntryCount int `json:"FailedEntryCount"`
+	}
+	parseJSON(t, out, &put)
+	require.Zero(t, put.FailedEntryCount)
+	out = runCLI(t, awsCLI("events", "list-targets-by-rule", "--rule", parametersRule))
+	var listed struct {
+		Targets []map[string]any `json:"Targets"`
+	}
+	parseJSON(t, out, &listed)
+	byID := map[string]map[string]any{}
+	for _, target := range listed.Targets {
+		byID[target["Id"].(string)] = target
+	}
+	require.Len(t, byID, 3)
+	assert.Equal(t, redshift, byID["redshift"]["RedshiftDataParameters"])
+	assert.Equal(t, pipeline, byID["pipeline"]["SageMakerPipelineParameters"])
+	assert.Equal(t, graphQL, byID["graphql"]["AppSyncParameters"])
+
+	project := cliUniqueName("eb-cli-codebuild")
+	out = runCLI(t, awsCLI("codebuild", "create-project",
+		"--name", project,
+		"--source", `{"type":"NO_SOURCE","buildspec":"version: 0.2\nphases:\n  build:\n    commands:\n      - echo from-eventbridge\n"}`,
+		"--artifacts", `{"type":"NO_ARTIFACTS"}`,
+		"--environment", `{"type":"LINUX_CONTAINER","image":"mirror.gcr.io/library/alpine:3.21","computeType":"BUILD_GENERAL1_SMALL"}`,
+		"--service-role", cliServiceRole(t, "codebuild.amazonaws.com"),
+	))
+	var created struct {
+		Project struct {
+			Arn string `json:"arn"`
+		} `json:"project"`
+	}
+	parseJSON(t, out, &created)
+	t.Cleanup(func() { runCLI(t, awsCLI("codebuild", "delete-project", "--name", project)) })
+	buildRule := cliUniqueName("eb-cli-codebuild")
+	runCLI(t, awsCLI("events", "put-rule", "--name", buildRule, "--event-pattern", `{"source":["`+buildRule+`"]}`))
+	t.Cleanup(func() {
+		runCLI(t, awsCLI("events", "remove-targets", "--rule", buildRule, "--ids", "build"))
+		runCLI(t, awsCLI("events", "delete-rule", "--name", buildRule))
+	})
+	runCLI(t, awsCLI("events", "put-targets", "--rule", buildRule,
+		"--targets", `[{"Id":"build","Arn":"`+created.Project.Arn+`","RoleArn":"`+role+`"}]`))
+	entries, err := json.Marshal([]map[string]string{{"Source": buildRule, "DetailType": "build", "Detail": `{"cli":true}`}})
+	require.NoError(t, err)
+	runCLI(t, awsCLI("events", "put-events", "--entries", string(entries)))
+	// The build starts behind the delivery and list-builds-for-project is
+	// where it appears; AWS CodeBuild offers no waiter for a build to exist.
+	var builds struct {
+		IDs []string `json:"ids"`
+	}
+	require.Eventually(t, func() bool {
+		parseJSON(t, runCLI(t, awsCLI("codebuild", "list-builds-for-project", "--project-name", project)), &builds)
+		return len(builds.IDs) == 1
+	}, 30*time.Second, 500*time.Millisecond, "the rule must start one build of %s", project)
 }

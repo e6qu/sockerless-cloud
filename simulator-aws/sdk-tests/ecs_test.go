@@ -387,7 +387,7 @@ func TestECS_ManagedEBSVolumeSnapshotRoundTripSDK(t *testing.T) {
 		VolumeConfigurations: []ecstypes.TaskVolumeConfiguration{{
 			Name: aws.String("workspace"),
 			ManagedEBSVolume: &ecstypes.TaskManagedEBSVolumeConfiguration{
-				RoleArn:    aws.String("arn:aws:iam::123456789012:role/ecsInfrastructureRole"),
+				RoleArn:    aws.String(createECSVolumeInfrastructureRole(t)),
 				SizeInGiB:  aws.Int32(1),
 				VolumeType: aws.String("gp3"),
 				TerminationPolicy: &ecstypes.TaskManagedEBSVolumeTerminationPolicy{
@@ -469,7 +469,7 @@ echo EBS_ROUNDTRIP_OK`},
 		VolumeConfigurations: []ecstypes.TaskVolumeConfiguration{{
 			Name: aws.String("workspace"),
 			ManagedEBSVolume: &ecstypes.TaskManagedEBSVolumeConfiguration{
-				RoleArn:    aws.String("arn:aws:iam::123456789012:role/ecsInfrastructureRole"),
+				RoleArn:    aws.String(createECSVolumeInfrastructureRole(t)),
 				SnapshotId: aws.String(snapshotID),
 				VolumeType: aws.String("gp3"),
 			},
@@ -559,7 +559,7 @@ echo EBS_ISOLATION_OK`},
 		VolumeConfigurations: []ecstypes.TaskVolumeConfiguration{{
 			Name: aws.String("data"),
 			ManagedEBSVolume: &ecstypes.TaskManagedEBSVolumeConfiguration{
-				RoleArn:        aws.String("arn:aws:iam::123456789012:role/ecsInfrastructureRole"),
+				RoleArn:        aws.String(createECSVolumeInfrastructureRole(t)),
 				SizeInGiB:      aws.Int32(1),
 				FilesystemType: ecstypes.TaskFilesystemTypeExt4,
 			},
@@ -601,7 +601,7 @@ echo EBS_ISOLATION_OK`},
 		VolumeConfigurations: []ecstypes.TaskVolumeConfiguration{{
 			Name: aws.String("data"),
 			ManagedEBSVolume: &ecstypes.TaskManagedEBSVolumeConfiguration{
-				RoleArn:        aws.String("arn:aws:iam::123456789012:role/ecsInfrastructureRole"),
+				RoleArn:        aws.String(createECSVolumeInfrastructureRole(t)),
 				SizeInGiB:      aws.Int32(1),
 				FilesystemType: ecstypes.TaskFilesystemTypeExt4,
 			},
@@ -629,7 +629,7 @@ echo EBS_ISOLATION_OK`},
 		VolumeConfigurations: []ecstypes.TaskVolumeConfiguration{{
 			Name: aws.String("data"),
 			ManagedEBSVolume: &ecstypes.TaskManagedEBSVolumeConfiguration{
-				RoleArn:        aws.String("arn:aws:iam::123456789012:role/ecsInfrastructureRole"),
+				RoleArn:        aws.String(createECSVolumeInfrastructureRole(t)),
 				SizeInGiB:      aws.Int32(1),
 				FilesystemType: ecstypes.TaskFilesystemType("btrfs"),
 			},
@@ -945,6 +945,22 @@ func ecsRunTaskHelper(t *testing.T, name string, containerDef ecstypes.Container
 	cleanupECSTask(t, client, clusterName, taskArn)
 
 	return client, clusterName, taskArn
+}
+
+// ecsVolumeInfrastructureActions are the Amazon EC2 actions the AWS managed
+// policy AmazonECSInfrastructureRolePolicyForVolumes grants the infrastructure
+// role that creates, attaches and deletes a task's Amazon EBS volumes.
+var ecsVolumeInfrastructureActions = []string{
+	"ec2:CreateVolume", "ec2:DeleteVolume", "ec2:AttachVolume", "ec2:DetachVolume",
+	"ec2:DescribeVolumes", "ec2:DescribeSnapshots", "ec2:ModifyVolume", "ec2:CreateTags",
+}
+
+// createECSVolumeInfrastructureRole creates the role Amazon ECS manages a
+// task's Amazon EBS volumes as: trusted by ecs.amazonaws.com and allowed the
+// volume actions.
+func createECSVolumeInfrastructureRole(t *testing.T) string {
+	t.Helper()
+	return createServiceRole(t, uniqueName("ecs-volumes"), "ecs.amazonaws.com", ecsVolumeInfrastructureActions...)
 }
 
 func createECSTestSubnet(t *testing.T, name string) string {

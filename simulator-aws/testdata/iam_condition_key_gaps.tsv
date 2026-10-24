@@ -614,7 +614,7 @@ ssm:ResumeSession	ssm:resourceTag/aws:ssmmessages:target-id	unmodelled
 ssm:SendCommand	aws:ResourceTag/${TagKey}	resource-unseeded
 ssm:SendCommand	ssm:resourceTag/${TagKey}	unmodelled
 ssm:StartSession	aws:ResourceTag/${TagKey}	resource-unseeded
-ssm:StartSession	ssm:AccessRequestId	access-request-unmodelled
+ssm:StartSession	ssm:AccessRequestId	unmodelled
 ssm:StartSession	ssm:SessionDocumentAccessCheck	unmodelled
 ssm:StartSession	ssm:resourceTag/${TagKey}	unmodelled
 ssm:TerminateSession	ssm:resourceTag/aws:ssmmessages:session-id	unmodelled

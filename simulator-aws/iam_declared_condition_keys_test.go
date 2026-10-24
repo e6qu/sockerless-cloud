@@ -3,9 +3,15 @@ package main
 import (
 	"compress/gzip"
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -166,12 +172,18 @@ var iamUnmodelledConditionKeys = []iamUnmodelledConditionKey{
 		"object operation, so there is no such object to read tags from."},
 	{"s3-outposts:RequestObjectTag*", "The tags an Outposts object write carries, on operations the simulator does " +
 		"not serve."},
-	{"s3express:AllAccessRestrictedToLocalZoneGroup", "Declared on s3express:CreateSession, the directory-bucket " +
-		"session operation the simulator does not serve; it also describes a local zone group, which the simulator " +
-		"models nothing of."},
-	{"s3express:InventoryAccessibleOptionalFields", "Declared on s3express:PutInventoryConfiguration. The simulator " +
-		"serves inventory configuration on the general-purpose data plane, where it populates the s3 spelling of this " +
-		"key; it serves no directory-bucket inventory operation."},
+	{"s3express:AllAccessRestrictedToLocalZoneGroup", "Declared on s3express:CreateSession, and the AWS Local Zone " +
+		"network border groups the request is restricted to. The simulator places directory buckets in Availability " +
+		"Zones only and models no Local Zone or network border group, so no session request is restricted to one."},
+	{"s3express:Permissions", "Declared on s3express:CreateSession as \"the permission requested by Access Point " +
+		"Scope configuration, such as GetObject, PutObject\". Neither the Service Reference, the Service Authorization " +
+		"Reference nor the S3 Express One Zone pages say whether a session request carries the scope of the access " +
+		"point it is addressed through, the operations the session will serve, or something else, and the " +
+		"CreateSession request has no member naming a permission, so any value would be a guess a policy could " +
+		"match on."},
+	{"s3:logType", "Declared only on s3:AllowVendedLogDeliveryForResource, the authorization a log-vending AWS " +
+		"service performs against a destination bucket. The simulator vends no logs into S3; see the " +
+		"s3:deliverySourceArn row."},
 
 	{"s3:isReplicationPauseRequest", "True when a PutReplicationConfiguration request is the one that pauses " +
 		"replication. The vendored Amazon S3 model has no pause: its ReplicationConfiguration is Role and Rules, and a " +
@@ -189,6 +201,25 @@ var iamUnmodelledConditionKeys = []iamUnmodelledConditionKey{
 		"publishes no value space for it -- the reference gives only the key and its type, and the vendored S3 model " +
 		"has no member carrying it -- so the simulator would have to invent the strings a policy compares against, " +
 		"and a wrong spelling silently never matches while looking implemented."},
+
+	{"elasticfilesystem:Access*", "elasticfilesystem:AccessPointArn and AccessedViaMountTarget describe an NFS " +
+		"client's mount -- the access point and whether a mount target carries it -- and are declared only on " +
+		"elasticfilesystem:ClientMount, ClientRootAccess and ClientWrite, the actions Amazon EFS authorizes when a " +
+		"client mounts with IAM authorization, not API operations. The simulator serves a file system to an Amazon " +
+		"ECS task or AWS Lambda function as a host directory bound into the container, with no NFS mount and no " +
+		"client authorization, so no mount is ever authorized as these actions."},
+	{"events:PolicyName", "Declared only on events:PutResourcePolicy, GetResourcePolicy and DeleteResourcePolicy, " +
+		"operations the vendored EventBridge model does not contain and the simulator does not serve."},
+	{"ssm:AccessRequestId", "The just-in-time node access request a Session Manager session is opened under, " +
+		"declared on ssm:StartSession. The StartSession request names no access request, and the simulator models " +
+		"no access requests to look one up from."},
+	{"sts:AWSServiceName", "Declared only on sts:GetServiceBearerToken, an operation the vendored AWS STS model does " +
+		"not contain and the simulator does not serve."},
+	{"apigateway:Request/ProductRestEndpointPageEndpointPrefix", "Declared on apigateway:CreateProductRestEndpointPage " +
+		"and UpdateProductRestEndpointPage as \"a ProductRestEndpointPage's EndpointPrefix that is passed in the " +
+		"request\", but the vendored API Gateway V2 model has no endpoint-prefix member on either request: the " +
+		"nearest, DisplayContentOverrides$Endpoint, is a whole endpoint URL override, and no reference says the key " +
+		"is read from it, so a value taken from it would be a guess a policy could match on."},
 
 	{"sts:RoleAuthorizedByIdp", "Set when the identity provider itself authorized the role in the token it issued. " +
 		"The simulator's web-identity federation reads the standard registered claims and the provider's " +
@@ -269,34 +300,21 @@ func iamDeclaredConditionKeys(t *testing.T) map[string][]string {
 	return declared
 }
 
-// iamConditionKeySpellings is every string literal that would make a key
-// reachable, for a key whose service the source is known to serve. AWS writes
-// a templated key with a placeholder the code never contains —
-// aws:ResourceTag/${TagKey}, kms:EncryptionContext:${key},
+// iamConditionKeySpellings is every string literal, lowered, that would make a
+// key reachable. AWS writes a templated key with a placeholder the code never
+// contains — aws:ResourceTag/${TagKey}, kms:EncryptionContext:${key},
 // secretsmanager:ResourceTag/tag-key — so the code is credited for the literal
 // prefix it concatenates the tag onto.
 //
-// Two forms drop the service prefix, and both are deliberately narrow, because
-// a bare name matches any string literal in the package and would credit one
-// service for another's key:
-//
-//   - the bare name, only when the source registers a populator for that
-//     service or writes its prefix as a literal ("codebuild:"+key), since both
-//     name their own keys bare;
-//   - the separator-led ":Name", only when the source composes that key's
-//     prefix — ctx[service+":TlsVersion"], written once for every Amazon S3
-//     namespace — so no literal carries the prefix at all.
-func iamConditionKeySpellings(key, source string, composed, registered map[string]bool) []string {
+// A key is spelled whole, service prefix and all. A bare name is an ordinary
+// word that any request member, response field or form parameter spells, so it
+// credits nothing. An Amazon S3 namespace's keys are written once for every
+// namespace, as ctx[service+":TlsVersion"], so the separator-led ":TlsVersion"
+// credits the key for the namespaces iamS3ConditionNamespaces lists.
+func iamConditionKeySpellings(key string, pkg iamPackageKeys) []string {
 	forms := map[string]bool{key: true}
 	if service, rest, ok := strings.Cut(key, ":"); ok && service != "" && rest != "" {
-		// A service whose prefix the source writes as a literal -- AWS
-		// CodeBuild's ctx["codebuild:"+key] over its declared key list -- names
-		// its keys bare, and so does one with a registered populator.
-		lowered := strings.ToLower(service)
-		if registered[lowered] || strings.Contains(source, `"`+lowered+`:"`) {
-			forms[rest] = true
-		}
-		if composed[lowered] {
+		if pkg.composed[strings.ToLower(service)] {
 			forms[":"+rest] = true
 		}
 	}
@@ -314,86 +332,108 @@ func iamConditionKeySpellings(key, source string, composed, registered map[strin
 	}
 	out := make([]string, 0, len(forms))
 	for form := range forms {
-		out = append(out, form)
+		out = append(out, strings.ToLower(form))
 	}
 	sort.Strings(out)
 	return out
 }
 
-// iamPopulatorServices are the services a per-service condition-key populator
-// is registered for, read from the source's own registration calls. Only those
-// write their keys unprefixed.
-func iamPopulatorServices(source string) map[string]bool {
-	services := map[string]bool{}
-	// iamPackageSource lowers the source once so the key scan is
-	// case-insensitive, so these patterns are lowered to match it.
-	const call = `registeriamrequestconditionpopulator("`
-	for rest := source; ; {
-		i := strings.Index(rest, call)
-		if i < 0 {
-			break
-		}
-		rest = rest[i+len(call):]
-		if j := strings.Index(rest, `"`); j > 0 {
-			services[strings.ToLower(rest[:j])] = true
-		}
-	}
-	return services
+// iamKeyTables are the tables a populator ranges over, writing each entry
+// under one service prefix -- ctx["codebuild:"+key], ctx["s3:"+header] -- so
+// an entry spells the key of that service it names.
+var iamKeyTables = map[string]string{
+	"codeBuildConditionKeys":       "codebuild",
+	"s3RequestHeaderConditionKeys": "s3",
+	"s3RequestQueryConditionKeys":  "s3",
 }
 
-// iamComposedKeyServices are the services whose condition-key prefix the
-// source composes rather than spells: the Amazon S3 namespaces, read from the
-// map that lists them.
-func iamComposedKeyServices(source string) map[string]bool {
-	services := map[string]bool{}
-	start := strings.Index(source, "var iams3conditionnamespaces = map[string]bool{")
-	if start < 0 {
-		return services
-	}
-	block := source[start:]
-	if end := strings.Index(block, "}"); end > 0 {
-		block = block[:end]
-	}
-	for _, line := range strings.Split(block, "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, `"`) {
-			continue
-		}
-		if name, _, ok := strings.Cut(strings.TrimPrefix(line, `"`), `"`); ok && name != "" {
-			services[strings.ToLower(name)] = true
-		}
-	}
-	return services
+// iamPackageKeys is what the scan reads out of the simulator package's
+// non-test Go files, lowered because IAM condition key names are not case
+// sensitive and the services disagree on case (ssm:resourceTag against
+// aws:ResourceTag): every string literal, every key an iamKeyTables entry
+// spells, and the namespaces iamS3ConditionNamespaces lists. A struct tag
+// spells a wire member and a generated wire table spells request members, so
+// neither is read.
+type iamPackageKeys struct {
+	spelled  map[string]bool
+	composed map[string]bool
 }
 
-// iamPackageSource is every non-test Go file of the simulator package, lowered
-// once so the scan is case-insensitive: IAM condition key names are not case
-// sensitive, and the services disagree on case (ssm:resourceTag against
-// aws:ResourceTag).
-func iamPackageSource(t *testing.T) string {
+func readIAMPackageKeys(t *testing.T) iamPackageKeys {
 	t.Helper()
-	entries, err := os.ReadDir(".")
+	files, err := filepath.Glob("*.go")
 	if err != nil {
-		t.Fatalf("read the package directory: %v", err)
+		t.Fatalf("glob the package: %v", err)
 	}
-	var b strings.Builder
-	for _, entry := range entries {
-		name := entry.Name()
-		// A generated wire table spells request members, not condition keys.
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, "_gen.go") {
+	pkg := iamPackageKeys{spelled: map[string]bool{}, composed: map[string]bool{}}
+	tablesRead := map[string]bool{}
+	fset := token.NewFileSet()
+	for _, name := range files {
+		if strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, "_gen.go") {
 			continue
 		}
-		data, err := os.ReadFile(name)
+		file, err := parser.ParseFile(fset, name, nil, parser.SkipObjectResolution)
 		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
+			t.Fatalf("parse %s: %v", name, err)
 		}
-		b.Write(data)
-		b.WriteByte('\n')
+		tags := map[*ast.BasicLit]bool{}
+		ast.Inspect(file, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.ImportSpec:
+				return false
+			case *ast.Field:
+				if n.Tag != nil {
+					tags[n.Tag] = true
+				}
+			case *ast.ValueSpec:
+				for i, ident := range n.Names {
+					service, keyed := iamKeyTables[ident.Name]
+					if (!keyed && ident.Name != "iamS3ConditionNamespaces") || i >= len(n.Values) {
+						continue
+					}
+					entries, _ := n.Values[i].(*ast.CompositeLit)
+					if entries == nil {
+						continue
+					}
+					tablesRead[ident.Name] = true
+					for _, entry := range entries.Elts {
+						if kv, ok := entry.(*ast.KeyValueExpr); ok {
+							entry = kv.Key
+						}
+						name, ok := iamStringLiteral(entry)
+						if !ok {
+							continue
+						}
+						if keyed {
+							pkg.spelled[strings.ToLower(service+":"+name)] = true
+						} else {
+							pkg.composed[strings.ToLower(name)] = true
+						}
+					}
+				}
+			case *ast.BasicLit:
+				if value, ok := iamStringLiteral(n); ok && !tags[n] {
+					pkg.spelled[strings.ToLower(value)] = true
+				}
+			}
+			return true
+		})
 	}
-	if b.Len() == 0 {
-		t.Fatal("scanned no package source")
+	for _, table := range append(slices.Collect(maps.Keys(iamKeyTables)), "iamS3ConditionNamespaces") {
+		if !tablesRead[table] {
+			t.Fatalf("read no %s out of the package -- this test reads its entries", table)
+		}
 	}
-	return strings.ToLower(b.String())
+	return pkg
+}
+
+func iamStringLiteral(expr ast.Expr) (string, bool) {
+	lit, ok := expr.(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return "", false
+	}
+	value, err := strconv.Unquote(lit.Value)
+	return value, err == nil
 }
 
 // iamServiceResourceTagServices is the set of service prefixes whose targeted
@@ -439,13 +479,8 @@ func iamServiceResourceTagServices(t *testing.T) map[string]bool {
 // classified key has since been wired (so the list cannot rot into an excuse).
 func TestIAM_DeclaredConditionKeysAreResolvedOrClassified(t *testing.T) {
 	declared := iamDeclaredConditionKeys(t)
-	source := iamPackageSource(t)
-
+	pkg := readIAMPackageKeys(t)
 	dispatched := iamServiceResourceTagServices(t)
-	registered, composed := iamPopulatorServices(source), iamComposedKeyServices(source)
-	if len(registered) == 0 || len(composed) == 0 {
-		t.Fatal("read no populator registrations or composed namespaces out of the package source")
-	}
 	mentioned := func(key string) bool {
 		// <service>:ResourceTag/<k> is written as service+":ResourceTag/"+k,
 		// so no literal names the service. It is resolved exactly for the
@@ -455,8 +490,8 @@ func TestIAM_DeclaredConditionKeysAreResolvedOrClassified(t *testing.T) {
 				return true
 			}
 		}
-		for _, form := range iamConditionKeySpellings(key, source, composed, registered) {
-			if strings.Contains(source, `"`+strings.ToLower(form)) {
+		for _, form := range iamConditionKeySpellings(key, pkg) {
+			if pkg.spelled[form] {
 				return true
 			}
 		}

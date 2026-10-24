@@ -385,7 +385,8 @@ func TestAuditLogs_RPCPermissionsAndMethodNames(t *testing.T) {
 	}{
 		{"google.cloud.run.v2.Services.CreateService", "google.cloud.run.v2.Services.CreateService", auditAdminWrite, "run.services.create",
 			map[string]any{"parent": "projects/p/locations/l", "serviceId": "s"}},
-		{"google.cloud.run.v2.Jobs.RunJob", "", auditAdminWrite, "run.jobs.run", map[string]any{"name": "projects/p/locations/l/jobs/j"}},
+		{"google.cloud.run.v2.Jobs.RunJob", "", auditDataWrite, "run.jobs.run", map[string]any{"name": "projects/p/locations/l/jobs/j"}},
+		{"google.cloud.run.v2.Builds.SubmitBuild", "", auditAdminWrite, "cloudbuild.builds.create", map[string]any{"parent": "projects/p/locations/l"}},
 		{"google.cloud.secretmanager.v1.SecretManagerService.AccessSecretVersion", "", auditDataRead, "secretmanager.versions.access",
 			map[string]any{"name": "projects/p/secrets/s/versions/1"}},
 		{"google.cloud.secretmanager.v1.SecretManagerService.ListSecretVersions", "", auditAdminRead, "secretmanager.versions.list",

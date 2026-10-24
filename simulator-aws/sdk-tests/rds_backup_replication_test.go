@@ -106,15 +106,27 @@ func TestRDS_AutomatedBackupsReplicateToAnotherRegion(t *testing.T) {
 
 	source.exec(t, `INSERT INTO ledger VALUES ('after-replication')`)
 	replicatingID := "sdk-replicated-backups-replicating"
-	_, err = destination.RestoreDBInstanceToPointInTime(ctx, &rds.RestoreDBInstanceToPointInTimeInput{
+	restored, err := destination.RestoreDBInstanceToPointInTime(ctx, &rds.RestoreDBInstanceToPointInTimeInput{
 		SourceDBInstanceAutomatedBackupsArn: backupARN,
 		TargetDBInstanceIdentifier:          aws.String(replicatingID),
 		UseLatestRestorableTime:             aws.Bool(true),
 	})
 	require.NoError(t, err)
-	f.cleanup(replicatingID)
-	assert.Equal(t, []string{"after-replication", "before-replication"}, f.connect(replicatingID).entries(t),
+	inDestination := rdsInstanceFixture{t: t, ctx: ctx, client: destination, family: "postgres"}
+	inDestination.cleanup(replicatingID)
+	// The restored instance lives in the Region the restore was called in.
+	assert.Equal(t, "arn:aws:rds:us-west-2:123456789012:db:"+replicatingID, aws.ToString(restored.DBInstance.DBInstanceArn))
+	assert.True(t, strings.HasPrefix(aws.ToString(restored.DBInstance.AvailabilityZone), "us-west-2"),
+		"the restored instance's Availability Zone is in us-west-2, got %s", aws.ToString(restored.DBInstance.AvailabilityZone))
+	assert.Equal(t, []string{"after-replication", "before-replication"}, inDestination.connect(replicatingID).entries(t),
 		"a restore from the replicating backup holds every row the source committed")
+	_, err = f.client.DescribeDBInstances(ctx, &rds.DescribeDBInstancesInput{DBInstanceIdentifier: aws.String(replicatingID)})
+	assertAWSAPIErrorCode(t, err, "DBInstanceNotFound")
+	inSourceRegion, err := f.client.DescribeDBInstances(ctx, &rds.DescribeDBInstancesInput{})
+	require.NoError(t, err)
+	for _, instance := range inSourceRegion.DBInstances {
+		assert.NotEqual(t, replicatingID, aws.ToString(instance.DBInstanceIdentifier), "us-east-1 lists no instance of us-west-2")
+	}
 
 	_, err = destination.DeleteDBInstanceAutomatedBackup(ctx, &rds.DeleteDBInstanceAutomatedBackupInput{
 		DBInstanceAutomatedBackupsArn: backupARN,
@@ -146,8 +158,8 @@ func TestRDS_AutomatedBackupsReplicateToAnotherRegion(t *testing.T) {
 		UseLatestRestorableTime:             aws.Bool(true),
 	})
 	require.NoError(t, err)
-	f.cleanup(retainedID)
-	assert.Equal(t, []string{"after-replication", "before-replication", "before-stop"}, f.connect(retainedID).entries(t),
+	inDestination.cleanup(retainedID)
+	assert.Equal(t, []string{"after-replication", "before-replication", "before-stop"}, inDestination.connect(retainedID).entries(t),
 		"the retained replicated backup restores what it copied before the replication stopped, after its source is gone")
 
 	deleted, err := destination.DeleteDBInstanceAutomatedBackup(ctx, &rds.DeleteDBInstanceAutomatedBackupInput{

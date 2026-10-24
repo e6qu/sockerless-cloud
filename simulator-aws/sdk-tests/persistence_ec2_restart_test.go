@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,9 +26,27 @@ func TestEC2InstanceSurvivesSimulatorRestart_SDK(t *testing.T) {
 	cfg := persistentSDKConfig()
 	ec2API := ec2.NewFromConfig(cfg, func(o *ec2.Options) { o.BaseEndpoint = aws.String(endpoint) })
 	ssmAPI := ssm.NewFromConfig(cfg, func(o *ssm.Options) { o.BaseEndpoint = aws.String(endpoint) })
+	iamAPI := iam.NewFromConfig(cfg, func(o *iam.Options) { o.BaseEndpoint = aws.String(endpoint) })
 
 	cmd := startPersistentSimulator(t, stateDir, tcpPort, udpPort, "docker")
 	t.Cleanup(func() { shutdownSimulator(cmd) })
+
+	// The instance's profile lets SSM Agent register it as a managed node,
+	// which the restarted simulator still reaches through Run Command.
+	profile := "restart-ssm-managed"
+	_, err := iamAPI.CreateRole(ctx, &iam.CreateRoleInput{
+		RoleName:                 aws.String(profile),
+		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`),
+	})
+	require.NoError(t, err)
+	_, err = iamAPI.PutRolePolicy(ctx, &iam.PutRolePolicyInput{
+		RoleName: aws.String(profile), PolicyName: aws.String("ssm-managed-node"), PolicyDocument: aws.String(ssmManagedNodePolicy),
+	})
+	require.NoError(t, err)
+	_, err = iamAPI.CreateInstanceProfile(ctx, &iam.CreateInstanceProfileInput{InstanceProfileName: aws.String(profile)})
+	require.NoError(t, err)
+	_, err = iamAPI.AddRoleToInstanceProfile(ctx, &iam.AddRoleToInstanceProfileInput{InstanceProfileName: aws.String(profile), RoleName: aws.String(profile)})
+	require.NoError(t, err)
 
 	images, err := ec2API.DescribeImages(ctx, &ec2.DescribeImagesInput{
 		Owners: []string{"amazon"},
@@ -45,7 +64,8 @@ func TestEC2InstanceSurvivesSimulatorRestart_SDK(t *testing.T) {
 	run, err := ec2API.RunInstances(ctx, &ec2.RunInstancesInput{
 		ImageId: images.Images[0].ImageId, InstanceType: types.InstanceTypeT3Micro,
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet,
-		UserData: aws.String(base64.StdEncoding.EncodeToString([]byte("#!/bin/sh\necho before-restart > /var/tmp/marker\n"))),
+		IamInstanceProfile: &types.IamInstanceProfileSpecification{Name: aws.String(profile)},
+		UserData:           aws.String(base64.StdEncoding.EncodeToString([]byte("#!/bin/sh\necho before-restart > /var/tmp/marker\n"))),
 	})
 	require.NoError(t, err)
 	instanceID := aws.ToString(run.Instances[0].InstanceId)

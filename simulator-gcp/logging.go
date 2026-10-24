@@ -45,11 +45,44 @@ type LogEntry struct {
 	JsonPayload map[string]any     `json:"jsonPayload,omitempty"`
 	// ProtoPayload is the JSON form of a google.protobuf.Any: its "@type"
 	// names the message, such as google.cloud.audit.AuditLog.
-	ProtoPayload     map[string]any     `json:"protoPayload,omitempty"`
-	InsertID         string             `json:"insertId,omitempty"`
-	Labels           map[string]string  `json:"labels,omitempty"`
-	Operation        *LogEntryOperation `json:"operation,omitempty"`
-	ReceiveTimestamp string             `json:"receiveTimestamp,omitempty"`
+	ProtoPayload     map[string]any          `json:"protoPayload,omitempty"`
+	InsertID         string                  `json:"insertId,omitempty"`
+	Labels           map[string]string       `json:"labels,omitempty"`
+	Operation        *LogEntryOperation      `json:"operation,omitempty"`
+	HttpRequest      *LogEntryHttpRequest    `json:"httpRequest,omitempty"`
+	SourceLocation   *LogEntrySourceLocation `json:"sourceLocation,omitempty"`
+	Trace            string                  `json:"trace,omitempty"`
+	SpanID           string                  `json:"spanId,omitempty"`
+	TraceSampled     bool                    `json:"traceSampled,omitempty"`
+	ReceiveTimestamp string                  `json:"receiveTimestamp,omitempty"`
+}
+
+// LogEntrySourceLocation mirrors the API's LogEntrySourceLocation; line is an
+// int64, which the JSON form spells as a string.
+type LogEntrySourceLocation struct {
+	File     string `json:"file,omitempty"`
+	Line     int64  `json:"line,omitempty,string"`
+	Function string `json:"function,omitempty"`
+}
+
+// LogEntryHttpRequest mirrors the API's HttpRequest; its int64 sizes are
+// strings in JSON and latency is a google.protobuf.Duration such as "1.5s".
+type LogEntryHttpRequest struct {
+	RequestMethod                  string `json:"requestMethod,omitempty"`
+	RequestUrl                     string `json:"requestUrl,omitempty"`
+	RequestSize                    int64  `json:"requestSize,omitempty,string"`
+	Status                         int32  `json:"status,omitempty"`
+	ResponseSize                   int64  `json:"responseSize,omitempty,string"`
+	UserAgent                      string `json:"userAgent,omitempty"`
+	RemoteIp                       string `json:"remoteIp,omitempty"`
+	ServerIp                       string `json:"serverIp,omitempty"`
+	Referer                        string `json:"referer,omitempty"`
+	Latency                        string `json:"latency,omitempty"`
+	CacheLookup                    bool   `json:"cacheLookup,omitempty"`
+	CacheHit                       bool   `json:"cacheHit,omitempty"`
+	CacheValidatedWithOriginServer bool   `json:"cacheValidatedWithOriginServer,omitempty"`
+	CacheFillBytes                 int64  `json:"cacheFillBytes,omitempty,string"`
+	Protocol                       string `json:"protocol,omitempty"`
 }
 
 // LogEntryOperation ties together the entries of one long-running operation:
@@ -357,6 +390,9 @@ func writeLogEntries(logName string, resource *MonitoredResource, labels map[str
 		}
 		if entry.Timestamp == "" {
 			entry.Timestamp = nowTimestamp()
+		}
+		if entry.ReceiveTimestamp == "" {
+			entry.ReceiveTimestamp = nowTimestamp()
 		}
 		if entry.InsertID == "" {
 			entry.InsertID = sim.NewUUID()
@@ -1039,6 +1075,15 @@ func protoToLogEntry(pe *loggingpb.LogEntry) (LogEntry, error) {
 	if op := pe.GetOperation(); op != nil {
 		entry.Operation = &LogEntryOperation{ID: op.GetId(), Producer: op.GetProducer(), First: op.GetFirst(), Last: op.GetLast()}
 	}
+	if loc := pe.GetSourceLocation(); loc != nil {
+		entry.SourceLocation = &LogEntrySourceLocation{File: loc.GetFile(), Line: loc.GetLine(), Function: loc.GetFunction()}
+	}
+	if req := pe.GetHttpRequest(); req != nil {
+		entry.HttpRequest = logEntryHttpRequestFromProto(req)
+	}
+	entry.Trace = pe.GetTrace()
+	entry.SpanID = pe.GetSpanId()
+	entry.TraceSampled = pe.GetTraceSampled()
 
 	switch p := pe.Payload.(type) {
 	case *loggingpb.LogEntry_TextPayload:
@@ -1108,6 +1153,19 @@ func logEntryToProto(e LogEntry) (*loggingpb.LogEntry, error) {
 	if op := e.Operation; op != nil {
 		pe.Operation = &loggingpb.LogEntryOperation{Id: op.ID, Producer: op.Producer, First: op.First, Last: op.Last}
 	}
+	if loc := e.SourceLocation; loc != nil {
+		pe.SourceLocation = &loggingpb.LogEntrySourceLocation{File: loc.File, Line: loc.Line, Function: loc.Function}
+	}
+	if e.HttpRequest != nil {
+		req, err := logEntryHttpRequestToProto(e.HttpRequest)
+		if err != nil {
+			return nil, fmt.Errorf("entry %q httpRequest: %w", e.InsertID, err)
+		}
+		pe.HttpRequest = req
+	}
+	pe.Trace = e.Trace
+	pe.SpanId = e.SpanID
+	pe.TraceSampled = e.TraceSampled
 
 	switch {
 	case e.TextPayload != "":

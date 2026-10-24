@@ -21,6 +21,8 @@ import (
 type bqParquetOptions struct {
 	EnableListInference bool `json:"enableListInference"`
 	EnumAsString        bool `json:"enumAsString"`
+	// decimals is the load's decimalTargetTypes.
+	decimals []string
 }
 
 func bqParquetLogical(n parquet.Node) format.LogicalTypeValue {
@@ -120,10 +122,7 @@ func bqParquetField(name string, n parquet.Node, opts bqParquetOptions) (BQField
 		}
 		return f, nil
 	case *format.DecimalType:
-		f.Type = "NUMERIC"
-		if lt.Scale > 9 || lt.Precision-lt.Scale > 29 {
-			f.Type = "BIGNUMERIC"
-		}
+		f.Type = bqDecimalTargetType(opts.decimals, int(lt.Precision), int(lt.Scale))
 		return f, nil
 	}
 	switch n.Type().Kind() {
@@ -273,6 +272,7 @@ func bqParseParquetSources(cfg bqLoadConfig, schema *BQSchema, sources []bqSourc
 	if cfg.ParquetOptions != nil {
 		opts = *cfg.ParquetOptions
 	}
+	opts.decimals = cfg.DecimalTargetTypes
 	var (
 		rows       []map[string]any
 		fileSchema *BQSchema

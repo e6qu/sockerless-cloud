@@ -1,9 +1,39 @@
 package aws_cli_test
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 )
+
+// createCLIECSRole creates a role trusted by principal and allowed actions on
+// every resource, through the CLI the test runs its other calls with.
+func createCLIECSRole(t *testing.T, cli func(args ...string) *exec.Cmd, name, principal string, actions ...string) string {
+	t.Helper()
+	roleArn := strings.TrimSpace(runCLI(t, cli("iam", "create-role", "--role-name", name,
+		"--assume-role-policy-document", `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"`+principal+`"},"Action":"sts:AssumeRole"}]}`,
+		"--query", "Role.Arn", "--output", "text")))
+	runCLI(t, cli("iam", "put-role-policy", "--role-name", name, "--policy-name", "infrastructure",
+		"--policy-document", `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["`+strings.Join(actions, `","`)+`"],"Resource":"*"}]}`))
+	t.Cleanup(func() {
+		_ = cli("iam", "delete-role-policy", "--role-name", name, "--policy-name", "infrastructure").Run()
+		_ = cli("iam", "delete-role", "--role-name", name).Run()
+	})
+	return roleArn
+}
+
+// cliECSVolumeInfrastructureActions are the Amazon EC2 actions the AWS managed
+// policy AmazonECSInfrastructureRolePolicyForVolumes grants the role that
+// manages a task's Amazon EBS volumes.
+var cliECSVolumeInfrastructureActions = []string{
+	"ec2:CreateVolume", "ec2:DeleteVolume", "ec2:AttachVolume", "ec2:DetachVolume",
+	"ec2:DescribeVolumes", "ec2:DescribeSnapshots", "ec2:ModifyVolume", "ec2:CreateTags",
+}
+
+func createCLIECSExpressInfrastructureRole(t *testing.T, name string) string {
+	t.Helper()
+	return createCLIECSRole(t, awsCLI, name, "ecs.amazonaws.com", "elasticloadbalancing:*", "ec2:*", "acm:*", "application-autoscaling:*")
+}
 
 // TestECS_CLI_ExpressModeLifecycle drives the ECS Express Mode (Express Gateway service)
 // lifecycle through the aws CLI:
@@ -21,7 +51,7 @@ func TestECS_CLI_ExpressModeLifecycle(t *testing.T) {
 	createOut := runCLI(t, awsCLI("ecs", "create-express-gateway-service",
 		"--cluster", cluster,
 		"--service-name", "cli-web",
-		"--infrastructure-role-arn", "arn:aws:iam::000000000000:role/express-infra",
+		"--infrastructure-role-arn", createCLIECSExpressInfrastructureRole(t, "cli-express-infrastructure"),
 		"--primary-container", `{"image":"`+containerCommandImage+`","containerPort":8080,"command":["http","8080","express-ok"]}`,
 		"--tags", "key=env,value=test",
 		"--output", "json"))
@@ -124,11 +154,13 @@ func TestECS_CLI_ExpressModeErrors(t *testing.T) {
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", cluster))
 	t.Cleanup(func() { _ = awsCLI("ecs", "delete-cluster", "--cluster", cluster).Run() })
 
+	infrastructureRole := createCLIECSExpressInfrastructureRole(t, "cli-express-errors-infrastructure")
+
 	// taskDefinitionArn + primaryContainer together → InvalidParameterException.
 	mutexErr := runCLIExpectError(t, awsCLI("ecs", "create-express-gateway-service",
 		"--cluster", cluster,
 		"--service-name", "cli-mutex",
-		"--infrastructure-role-arn", "arn:aws:iam::000000000000:role/express-infra",
+		"--infrastructure-role-arn", infrastructureRole,
 		"--task-definition-arn", "arn:aws:ecs:us-east-1:000000000000:task-definition/foo:1",
 		"--primary-container", `{"image":"mirror.gcr.io/library/busybox:latest"}`))
 	if !strings.Contains(mutexErr, "InvalidParameterException") {
@@ -146,9 +178,20 @@ func TestECS_CLI_ExpressModeErrors(t *testing.T) {
 	clErr := runCLIExpectError(t, awsCLI("ecs", "create-express-gateway-service",
 		"--cluster", "cli-no-such-cluster",
 		"--service-name", "cli-orphan",
-		"--infrastructure-role-arn", "arn:aws:iam::000000000000:role/express-infra",
+		"--infrastructure-role-arn", infrastructureRole,
 		"--primary-container", `{"image":"mirror.gcr.io/library/busybox:latest"}`))
 	if !strings.Contains(clErr, "ClusterNotFoundException") {
 		t.Fatalf("expected ClusterNotFoundException, got: %s", clErr)
+	}
+
+	// A role whose trust policy does not let Amazon ECS assume it → InvalidParameterException.
+	notTrusted := createCLIECSRole(t, awsCLI, "cli-express-not-trusted", "lambda.amazonaws.com", "elasticloadbalancing:*")
+	roleErr := runCLIExpectError(t, awsCLI("ecs", "create-express-gateway-service",
+		"--cluster", cluster,
+		"--service-name", "cli-unassumable",
+		"--infrastructure-role-arn", notTrusted,
+		"--primary-container", `{"image":"mirror.gcr.io/library/busybox:latest"}`))
+	if !strings.Contains(roleErr, "InvalidParameterException") {
+		t.Fatalf("expected InvalidParameterException for a role ECS cannot assume, got: %s", roleErr)
 	}
 }

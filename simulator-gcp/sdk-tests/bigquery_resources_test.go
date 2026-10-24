@@ -304,10 +304,12 @@ func TestBigQueryJobCancelAndDelete(t *testing.T) {
 	require.NoError(t, err)
 
 	// A query job completes synchronously in the sim.
+	googleSQL := false
 	job, err := svc.Jobs.Insert(project, &bigquery.Job{
 		Configuration: &bigquery.JobConfiguration{
 			Query: &bigquery.JobConfigurationQuery{
-				Query: "SELECT * FROM `" + dataset + "." + table + "`",
+				Query:        "SELECT * FROM `" + dataset + "." + table + "`",
+				UseLegacySql: &googleSQL,
 			},
 		},
 	}).Do()

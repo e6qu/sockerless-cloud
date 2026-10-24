@@ -35,6 +35,13 @@ func jsonTagRequest(target, body string) *http.Request {
 	return r
 }
 
+// restTagRequest builds the restJson1 request a REST service's SDK would send.
+func restTagRequest(method, target, body string) *http.Request {
+	r := httptest.NewRequest(method, target, strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	return r
+}
+
 func requestTagContext(r *http.Request, service string) map[string][]string {
 	ctx := map[string][]string{}
 	iamPopulateRequestTags(r, service, ctx)
@@ -262,6 +269,21 @@ func TestIAMRequestTagsPerServiceWireShape(t *testing.T) {
 				"aws:RequestTag/owner": {"analytics"},
 				"aws:TagKeys":          {"owner"},
 			}},
+		// Amazon EFS (restJson1) carries a Key/Value list in the body, and its
+		// UntagResource names the keys in the tagKeys query parameter.
+		{"an Amazon EFS file system created with tags", "elasticfilesystem",
+			restTagRequest(http.MethodPost, "/2015-02-01/file-systems",
+				`{"CreationToken":"a","Tags":[{"Key":"owner","Value":"storage"}]}`),
+			map[string][]string{
+				"aws:RequestTag/owner": {"storage"},
+				"aws:TagKeys":          {"owner"},
+			}},
+		{"an Amazon EFS resource untagged", "elasticfilesystem",
+			restTagRequest(http.MethodDelete, "/2015-02-01/resource-tags/fs-1?tagKeys=owner&tagKeys=env", ``),
+			map[string][]string{"aws:TagKeys": {"owner", "env"}}},
+		{"an Amazon EFS file system untagged through the legacy DeleteTags", "elasticfilesystem",
+			restTagRequest(http.MethodPost, "/2015-02-01/delete-tags/fs-1", `{"TagKeys":["owner"]}`),
+			map[string][]string{"aws:TagKeys": {"owner"}}},
 		// AWS Secrets Manager uses Key/Value.
 		{"an AWS Secrets Manager secret created with tags", "secretsmanager",
 			jsonTagRequest("secretsmanager.CreateSecret",

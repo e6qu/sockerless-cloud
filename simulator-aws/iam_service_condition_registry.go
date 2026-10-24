@@ -28,8 +28,12 @@ func iamRunRequestConditionPopulators(r *http.Request, service, operation string
 // always the action it is authorized as: a request that tags a resource as it
 // creates it is additionally authorized as the service's tagging action, while
 // the request itself is the create. A query-protocol service names the
-// operation in its Action parameter, an awsJson one in X-Amz-Target.
+// operation in its Action parameter, an awsJson one in X-Amz-Target, and a REST
+// one in the route its request takes.
 func iamRequestWireOperation(r *http.Request) string {
+	if operation := iamRESTOperation(r); operation != "" {
+		return operation
+	}
 	if target := r.Header.Get("X-Amz-Target"); target != "" {
 		if i := strings.LastIndex(target, "."); i >= 0 {
 			return target[i+1:]

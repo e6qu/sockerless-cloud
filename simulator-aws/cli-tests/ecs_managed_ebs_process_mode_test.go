@@ -85,6 +85,7 @@ func TestECS_CLI_ManagedEBSProcessMode(t *testing.T) {
 	}
 
 	runCLI(t, cli("ecs", "create-cluster", "--cluster-name", "managed-ebs-process-cli"))
+	roleArn := createCLIECSRole(t, cli, "managed-ebs-process-cli", "ecs.amazonaws.com", cliECSVolumeInfrastructureActions...)
 
 	tdOut := runCLI(t, cli("ecs", "register-task-definition",
 		"--family", "managed-ebs-process-cli",
@@ -105,7 +106,7 @@ func TestECS_CLI_ManagedEBSProcessMode(t *testing.T) {
 
 	// deleteOnTermination=true exercises the volume cleanup that dereferenced
 	// the nil Docker client in process mode.
-	volCfg := `[{"name":"workspace","managedEBSVolume":{"roleArn":"arn:aws:iam::123456789012:role/ecsInfrastructureRole","sizeInGiB":1,"volumeType":"gp3","terminationPolicy":{"deleteOnTermination":true}}}]`
+	volCfg := `[{"name":"workspace","managedEBSVolume":{"roleArn":"` + roleArn + `","sizeInGiB":1,"volumeType":"gp3","terminationPolicy":{"deleteOnTermination":true}}}]`
 	runOut := runCLI(t, cli("ecs", "run-task",
 		"--cluster", "managed-ebs-process-cli",
 		"--task-definition", td.TaskDefinition.TaskDefinitionArn,

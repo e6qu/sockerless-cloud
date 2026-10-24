@@ -93,8 +93,8 @@ func TestBQSQLRefusesWhatItCannotRun(t *testing.T) {
 		"SELECT * FROM people":                      "must be qualified with a dataset",
 		"SELECT nosuchcolumn FROM ds.people":        "no such column",
 		"SELECT name FROM ds.people WHERE 'open":    "Unclosed string literal",
-		"INSERT INTO ds.people (name) VALUES ('x')": "INSERT statements are not supported",
-		"SELECT 1; SELECT 2":                        "scripts are not supported",
+		"INSERT INTO ds.people (name) VALUES ('x')": "Expected a query statement",
+		"SELECT 1; SELECT 2":                        "Expected end of input",
 	} {
 		if _, _, err := bqEvaluateSQL(context.Background(), "p", "", query); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: %v, want %q", query, err, want)

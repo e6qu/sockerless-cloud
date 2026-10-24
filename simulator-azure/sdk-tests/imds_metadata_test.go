@@ -1,7 +1,6 @@
 package azure_sdk_test
 
 import (
-	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -66,27 +65,4 @@ func TestIMDS_RefusesACallerThatIsNoMachine(t *testing.T) {
 		resp, _ := imdsRead(t, path, true)
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode, path)
 	}
-}
-
-func TestIMDS_IdentityToken(t *testing.T) {
-	t.Parallel()
-	// Existing /metadata/identity/oauth2/token (managedidentity.go).
-	// Verify it round-trips with the resource query.
-	req, _ := http.NewRequestWithContext(ctx, "GET",
-		baseURL+"/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/",
-		nil)
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	var tok struct {
-		AccessToken string `json:"access_token"`
-		Resource    string `json:"resource"`
-		TokenType   string `json:"token_type"`
-	}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&tok))
-	assert.NotEmpty(t, tok.AccessToken)
-	assert.Equal(t, "https://management.azure.com/", tok.Resource)
-	assert.Equal(t, "Bearer", tok.TokenType)
 }

@@ -384,6 +384,15 @@ func handleECSCreateService(w http.ResponseWriter, r *http.Request) {
 			"Cluster not found: %s", clusterName)
 		return
 	}
+	serviceArn := ecsArn("service", clusterName+"/"+req.ServiceName)
+	if req.Role != "" {
+		roleArn, message := ecsServiceRoleARN(serviceArn, req.Role, req.LoadBalancers, req.TaskDefinition)
+		if message != "" {
+			AWSError(w, "InvalidParameterException", message, http.StatusBadRequest)
+			return
+		}
+		req.Role = roleArn
+	}
 	key := ecsServiceKey(clusterName, req.ServiceName)
 	if existing, ok := ecsServices.Get(key); ok && existing.Status == "ACTIVE" {
 		AWSErrorf(w, "InvalidParameterException", http.StatusBadRequest,
@@ -404,7 +413,7 @@ func handleECSCreateService(w http.ResponseWriter, r *http.Request) {
 	}
 	now := ecsEpochSeconds()
 	svc := ECSService{
-		ServiceArn:                    ecsArn("service", clusterName+"/"+req.ServiceName),
+		ServiceArn:                    serviceArn,
 		ServiceName:                   req.ServiceName,
 		ClusterArn:                    cluster.ClusterArn,
 		TaskDefinition:                req.TaskDefinition,
@@ -464,6 +473,25 @@ func handleECSCreateService(w http.ResponseWriter, r *http.Request) {
 	svc, _ = ecsServices.Get(key)
 	ecsRequestServiceReconcile(key)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"service": svc})
+}
+
+// ecsServiceRoleARN resolves the role a CreateService names, which lets Amazon
+// ECS register the service's tasks with its load balancer. The role is only
+// permitted with a load balancer and a task definition outside the awsvpc
+// network mode, and Amazon ECS must be able to assume it.
+func ecsServiceRoleARN(serviceArn, ref string, loadBalancers json.RawMessage, taskDefinition string) (string, string) {
+	bindings, err := ecsServiceLoadBalancers(loadBalancers)
+	if err != nil || len(bindings) == 0 {
+		return "", "The role parameter is only permitted with a load balancer."
+	}
+	if definition, ok := ecsServiceTaskDefinition(taskDefinition); ok && definition.NetworkMode == ecsNetworkModeAwsvpc {
+		return "", "The role parameter is not permitted when the task definition uses the awsvpc network mode."
+	}
+	role, err := iamServiceTrustedRole(ref, "ecs.amazonaws.com", serviceArn)
+	if err != nil {
+		return "", "The role could not be assumed. Verify the role exists and its trust policy allows ECS to assume it."
+	}
+	return role.Arn, ""
 }
 
 // ecsServiceConnectNamespace extracts the Cloud Map namespace from a service's

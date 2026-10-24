@@ -285,7 +285,7 @@ func TestInstanceRunsItsCloudConfigInCloudInitsStages(t *testing.T) {
 
 // amazonLinuxImage carries no shadow-utils, which the accounts module does
 // without.
-const amazonLinuxImage = "mirror.gcr.io/library/amazonlinux:2023@sha256:8ed3c0a996841537f75607e7d1de2114d8150391f75792e8da9268738547e73f"
+const amazonLinuxImage = "mirror.gcr.io/library/amazonlinux:2023@sha256:c04a1012acc483977f61f7f91c28624a39a621e56a59781319a75dec528be9b6"
 
 // On Amazon Linux 2023 the default user is ec2-user, in the wheel group,
 // holding the key pair's key, though the image has no useradd.

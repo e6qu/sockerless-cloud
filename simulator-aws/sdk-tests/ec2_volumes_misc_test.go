@@ -223,9 +223,10 @@ func TestEC2_CoipCidrSDK(t *testing.T) {
 }
 
 // TestEC2_DefaultVpcSDK covers CreateDefaultVpc / CreateDefaultSubnet. The
-// account is auto-provisioned with a default VPC (as a real AWS account is), so
-// CreateDefaultVpc reports DefaultVpcAlreadyExists and CreateDefaultSubnet lands
-// a default subnet in that VPC.
+// account is provisioned with a default VPC and "a default subnet in each
+// Availability Zone", so CreateDefaultVpc reports DefaultVpcAlreadyExists and
+// CreateDefaultSubnet refuses a second default subnet in a zone: "You can have
+// only one default subnet per Availability Zone."
 func TestEC2_DefaultVpcSDK(t *testing.T) {
 	t.Parallel()
 	c := ec2Client()
@@ -237,20 +238,46 @@ func TestEC2_DefaultVpcSDK(t *testing.T) {
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, "DefaultVpcAlreadyExists", apiErr.ErrorCode())
 
-	// Locate the seeded default VPC, then create a default subnet in a fresh AZ.
+	// The seeded default VPC holds a /20 default subnet per zone.
 	vpcs, err := c.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{
 		Filters: []types.Filter{{Name: aws.String("is-default"), Values: []string{"true"}}},
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, vpcs.Vpcs)
 	defVpcID := aws.ToString(vpcs.Vpcs[0].VpcId)
-
-	sn, err := c.CreateDefaultSubnet(ctx, &ec2.CreateDefaultSubnetInput{
-		AvailabilityZone: aws.String("us-east-1b"),
-	})
+	zones, err := c.DescribeAvailabilityZones(ctx, &ec2.DescribeAvailabilityZonesInput{ZoneNames: []string{"us-east-1b"}})
 	require.NoError(t, err)
-	assert.Equal(t, defVpcID, aws.ToString(sn.Subnet.VpcId))
-	assert.True(t, aws.ToBool(sn.Subnet.MapPublicIpOnLaunch))
+	require.Len(t, zones.AvailabilityZones, 1)
+	zoneID := aws.ToString(zones.AvailabilityZones[0].ZoneId)
+	defaults, err := c.DescribeSubnets(ctx, &ec2.DescribeSubnetsInput{Filters: []types.Filter{
+		{Name: aws.String("default-for-az"), Values: []string{"true"}},
+		{Name: aws.String("availability-zone"), Values: []string{"us-east-1b"}},
+	}})
+	require.NoError(t, err)
+	require.Len(t, defaults.Subnets, 1)
+	assert.Equal(t, defVpcID, aws.ToString(defaults.Subnets[0].VpcId))
+	assert.Equal(t, "172.31.16.0/20", aws.ToString(defaults.Subnets[0].CidrBlock))
+	assert.True(t, aws.ToBool(defaults.Subnets[0].DefaultForAz))
+	assert.Equal(t, zoneID, aws.ToString(defaults.Subnets[0].AvailabilityZoneId))
+
+	errorCode := func(err error) string {
+		t.Helper()
+		var apiErr smithy.APIError
+		require.ErrorAs(t, err, &apiErr)
+		return apiErr.ErrorCode()
+	}
+	_, err = c.CreateDefaultSubnet(ctx, &ec2.CreateDefaultSubnetInput{AvailabilityZone: aws.String("us-east-1b")})
+	assert.Equal(t, "DefaultSubnetAlreadyExistsInAvailabilityZone", errorCode(err))
+	_, err = c.CreateDefaultSubnet(ctx, &ec2.CreateDefaultSubnetInput{AvailabilityZoneId: aws.String(zoneID)})
+	assert.Equal(t, "DefaultSubnetAlreadyExistsInAvailabilityZone", errorCode(err), "the zone id names the same zone")
+	// "Either AvailabilityZone or AvailabilityZoneId must be specified, but
+	// not both."
+	_, err = c.CreateDefaultSubnet(ctx, &ec2.CreateDefaultSubnetInput{AvailabilityZone: aws.String("us-east-1b"), AvailabilityZoneId: aws.String(zoneID)})
+	assert.Equal(t, "InvalidParameterCombination", errorCode(err))
+	_, err = c.CreateDefaultSubnet(ctx, &ec2.CreateDefaultSubnetInput{})
+	assert.Equal(t, "MissingParameter", errorCode(err))
+	_, err = c.CreateDefaultSubnet(ctx, &ec2.CreateDefaultSubnetInput{AvailabilityZone: aws.String("us-east-1z")})
+	assert.Equal(t, "InvalidParameterValue", errorCode(err))
 }
 
 // TestEC2_PrefixListsSDK covers DescribePrefixLists (AWS-managed + customer

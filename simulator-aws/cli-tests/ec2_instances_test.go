@@ -3,9 +3,35 @@ package aws_cli_test
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
+
+// ssmManagedNodePolicyCLI is the permission SSM Agent needs to register the
+// instance as a managed node, which the AmazonSSMManagedInstanceCore managed
+// policy grants on AWS.
+const ssmManagedNodePolicyCLI = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ssm:UpdateInstanceInformation","ssmmessages:*","ec2messages:*"],"Resource":"*"}]}`
+
+// ssmManagedInstanceProfileCLI creates an instance profile whose role lets
+// SSM Agent register the instance as a managed node, and returns its name.
+func ssmManagedInstanceProfileCLI(t *testing.T) string {
+	t.Helper()
+	name := "cli-ssm-managed-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	runCLI(t, awsCLI("iam", "create-role", "--role-name", name, "--assume-role-policy-document",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`))
+	runCLI(t, awsCLI("iam", "put-role-policy", "--role-name", name, "--policy-name", "ssm-managed-node", "--policy-document", ssmManagedNodePolicyCLI))
+	runCLI(t, awsCLI("iam", "create-instance-profile", "--instance-profile-name", name))
+	runCLI(t, awsCLI("iam", "add-role-to-instance-profile", "--instance-profile-name", name, "--role-name", name))
+	t.Cleanup(func() {
+		_ = awsCLI("iam", "remove-role-from-instance-profile", "--instance-profile-name", name, "--role-name", name).Run()
+		_ = awsCLI("iam", "delete-instance-profile", "--instance-profile-name", name).Run()
+		_ = awsCLI("iam", "delete-role-policy", "--role-name", name, "--policy-name", "ssm-managed-node").Run()
+		_ = awsCLI("iam", "delete-role", "--role-name", name).Run()
+	})
+	return name
+}
 
 // ssmShellCLI runs a shell command on the instance through Run Command and
 // returns its standard output.
@@ -41,8 +67,9 @@ func TestEC2InstanceUserDataAndImageCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	ami := ec2AmazonLinuxAMI(t)
+	profile := "Name=" + ssmManagedInstanceProfileCLI(t)
 	instanceID := q("ec2", "run-instances", "--image-id", ami, "--instance-type", "t3.micro",
-		"--subnet-id", subnetID, "--user-data", "file://"+userData,
+		"--subnet-id", subnetID, "--user-data", "file://"+userData, "--iam-instance-profile", profile,
 		"--query", "Instances[0].InstanceId", "--output", "text")
 	terminateCLIInstanceOnCleanup(t, instanceID)
 	runCLI(t, awsCLI("ec2", "wait", "instance-running", "--instance-ids", instanceID))
@@ -52,6 +79,19 @@ func TestEC2InstanceUserDataAndImageCLI(t *testing.T) {
 	hostname := "ip-" + strings.ReplaceAll(privateIP, ".", "-")
 	if got := strings.TrimSpace(ssmShellCLI(t, instanceID, "uname -n")); got != hostname {
 		t.Fatalf("hostname = %q, want %q", got, hostname)
+	}
+	// The VPC's resolver answers the reverse of another interface's address
+	// with that interface's private DNS name; the instance's own address is
+	// in its /etc/hosts, which getent reads first.
+	eni := q("ec2", "create-network-interface", "--subnet-id", subnetID,
+		"--query", "NetworkInterface.[NetworkInterfaceId,PrivateIpAddress,PrivateDnsName]", "--output", "text")
+	eniFields := strings.Fields(eni)
+	if len(eniFields) != 3 {
+		t.Fatalf("create-network-interface answered %q", eni)
+	}
+	t.Cleanup(func() { _ = awsCLI("ec2", "delete-network-interface", "--network-interface-id", eniFields[0]).Run() })
+	if got := strings.Join(strings.Fields(ssmShellCLI(t, instanceID, "getent hosts "+eniFields[1])), " "); got != eniFields[1]+" "+eniFields[2] {
+		t.Fatalf("reverse lookup of %s = %q, want the interface's private DNS name %q", eniFields[1], got, eniFields[2])
 	}
 	if got := strings.TrimSpace(ssmShellCLI(t, instanceID, "cat /var/tmp/marker")); got != "golden" {
 		t.Fatalf("user data marker = %q, want golden", got)
@@ -74,7 +114,7 @@ func TestEC2InstanceUserDataAndImageCLI(t *testing.T) {
 	t.Cleanup(func() { _ = awsCLI("ec2", "deregister-image", "--image-id", imageID).Run() })
 	runCLI(t, awsCLI("ec2", "wait", "image-available", "--image-ids", imageID))
 	clone := q("ec2", "run-instances", "--image-id", imageID, "--instance-type", "t3.micro",
-		"--subnet-id", subnetID, "--query", "Instances[0].InstanceId", "--output", "text")
+		"--subnet-id", subnetID, "--iam-instance-profile", profile, "--query", "Instances[0].InstanceId", "--output", "text")
 	terminateCLIInstanceOnCleanup(t, clone)
 	runCLI(t, awsCLI("ec2", "wait", "instance-running", "--instance-ids", clone))
 	if got := strings.TrimSpace(ssmShellCLI(t, clone, "cat /var/tmp/marker")); got != "golden" {

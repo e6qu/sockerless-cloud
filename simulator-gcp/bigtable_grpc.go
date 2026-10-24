@@ -100,6 +100,7 @@ func grpcAnyFromJSON(body any) (*anypb.Any, error) {
 // shape. The stored response carries the @type the REST rendering wrote, which
 // is what lets it become a protobuf Any again.
 func grpcOperationFromStored(stored Operation) (*longrunningpb.Operation, error) {
+	stored = gcpCurrentOperation(stored)
 	op := &longrunningpb.Operation{Name: stored.Name, Done: stored.Done}
 	if stored.Response != nil {
 		response, err := grpcAnyFromJSON(stored.Response)

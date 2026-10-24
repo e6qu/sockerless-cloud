@@ -54,7 +54,7 @@ func gcpOperationStores() []sim.Store[Operation] {
 func gcpLookupOperation(name string) (Operation, bool) {
 	for _, store := range gcpOperationStores() {
 		if op, ok := store.Get(name); ok {
-			return op, true
+			return gcpCurrentOperation(op), true
 		}
 	}
 	return Operation{}, false

@@ -192,7 +192,7 @@ func TestEntraAuthority_MSALGoAcquiresTokenThroughTenantDiscovery(t *testing.T) 
 	dir := t.TempDir()
 	certPath, keyPath := writeAuthorityTLSCert(t, dir, authorityHost)
 
-	addr := startTLSSimulator(t, certPath, keyPath)
+	addr := startTLSSimulator(t, certPath, keyPath, "SIM_RUNTIME=process")
 	httpClient := authorityRoutedHTTPClient(t, certPath, authorityHost, addr)
 
 	cred, err := confidential.NewCredFromSecret("test-client-secret")
@@ -284,33 +284,38 @@ func writeAuthorityTLSCert(t *testing.T, dir, host string) (string, string) {
 }
 
 // startTLSSimulator runs a second simulator process with TLS terminated, and
-// returns its listen address. MSAL refuses a plain-http authority, so the
-// authority coordinate has to be an https one.
-func startTLSSimulator(t *testing.T, certPath, keyPath string) string {
+// returns its loopback address. MSAL refuses a plain-http authority, so the
+// authority coordinate has to be an https one. The simulator binds every
+// interface, as the suite's does, so the workloads a test places reach it
+// through the engine's bridge; extraEnv adds to its environment, and without
+// a SIM_RUNTIME of its own it runs the full workload runtime.
+func startTLSSimulator(t *testing.T, certPath, keyPath string, extraEnv ...string) string {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("reserve port for the TLS simulator: %v", err)
 	}
 	addr := listener.Addr().String()
+	port := addr[strings.LastIndex(addr, ":"):]
 	if err := listener.Close(); err != nil {
 		t.Fatalf("release reserved port: %v", err)
 	}
 
 	cmd := exec.Command(binaryPath)
 	cmd.Env = append(os.Environ(),
-		"SIM_LISTEN_ADDR="+addr,
+		"SIM_LISTEN_ADDR="+port,
 		"SIM_TLS_CERT="+certPath,
 		"SIM_TLS_KEY="+keyPath,
-		"SIM_RUNTIME=process",
 	)
+	cmd.Env = append(cmd.Env, extraEnv...)
 	cmd.Stdout = os.Stdout
 	if err := simready.Start(cmd, os.Stderr); err != nil {
 		t.Fatalf("start the TLS simulator: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
+		if err := simready.Stop(cmd, simShutdownGrace); err != nil {
+			t.Errorf("stop the TLS simulator: %v", err)
+		}
 	})
 	return addr
 }

@@ -9,6 +9,7 @@
 //	SIM_AWS_PORT     — port to listen on, ahead of SIM_LISTEN_ADDR
 //	SIM_TLS_CERT     — TLS certificate file (optional)
 //	SIM_TLS_KEY      — TLS key file (optional)
+//	SIM_CALLBACK_LISTEN_ADDR — plain-HTTP address the workloads' metadata requests reach beside a TLS listener (default: a free port on every interface)
 //	SIM_RUNTIME      — "docker" by default; "process" starts API-only mode for runs that do not execute workloads
 //	SIM_LOG_LEVEL    — log level: trace, debug, info, warn, error (default "info")
 //
@@ -35,12 +36,15 @@ func main() {
 		Provider:    "aws",
 		DefaultPort: "4566",
 		Configure: func(cfg *sim.Config) error {
-			// Workloads reach the instance metadata and container metadata
-			// endpoints at the address the simulator serves on.
+			// Images at the simulator's own port are its registry's.
 			simListenAddr = cfg.ListenAddr
 			return awsConfigurePlacement(cfg)
 		},
 		Build: func(cfg sim.Config) (*sim.Server, error) {
+			// Workloads reach the instance metadata and container metadata
+			// endpoints at the plain-HTTP address the simulator serves them
+			// on, the workloads the build resumes among them.
+			simCallbackListenAddr = cfg.CallbackListenAddr
 			srv, _, _, err := buildSimulator(cfg)
 			return srv, err
 		},
@@ -273,6 +277,9 @@ func buildSimulatorWithOptions(cfg sim.Config, options simulatorBuildOptions) (*
 		recoverAmplifyJobs()
 		recoverECSGatewayWork()
 		s3RecoverBatchJobs()
+		if err := cbRecoverBuildBatches(); err != nil {
+			return nil, nil, nil, fmt.Errorf("restore AWS CodeBuild build batches: %w", err)
+		}
 	}
 
 	return srv, awsRouter, queryRouter, nil

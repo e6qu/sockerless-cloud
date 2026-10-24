@@ -97,6 +97,13 @@ refresh_gcp() {
   fi
   host="$(field "$row" 2)"
   srcpath="$(field "$row" 3)"
+  # A documentation page, vendored as Markdown, refreshes from the live page:
+  # the capture is the page as served, which the fetcher converts itself.
+  case "$file" in *.md.gz)
+    echo "refresh google documentation page $srcpath ($file)"
+    bash "$ROOT/scripts/fetch-gcp-doc.sh" "$srcpath" "${file%.md.gz}"
+    return ;;
+  esac
   # `$discovery/rest?version=v2` for a per-host document, and
   # `discovery/v1/apis/<name>/<version>/rest` for one only the central index
   # serves. fetch-gcp-discovery.sh selects between them explicitly.

@@ -1,0 +1,4218 @@
+{
+ "sources": [
+  {
+   "file": "run-audit-logging.md.gz",
+   "service": "run.googleapis.com"
+  },
+  {
+   "file": "bigquery-audit-logs.md.gz",
+   "service": "bigquery.googleapis.com"
+  },
+  {
+   "file": "sql-audit-logging.md.gz",
+   "service": "cloudsql.googleapis.com"
+  },
+  {
+   "file": "logging-audit-logging.md.gz",
+   "service": "logging.googleapis.com"
+  },
+  {
+   "file": "resource-manager-audit-logging.md.gz",
+   "service": "cloudresourcemanager.googleapis.com"
+  },
+  {
+   "file": "service-usage-audit-logging.md.gz",
+   "service": "serviceusage.googleapis.com"
+  },
+  {
+   "file": "vpcaccess-audit-logging.md.gz",
+   "service": "vpcaccess.googleapis.com"
+  },
+  {
+   "file": "api-gateway-audit-logging.md.gz",
+   "service": "apigateway.googleapis.com"
+  },
+  {
+   "file": "dataflow-audit-logging.md.gz",
+   "service": "dataflow.googleapis.com"
+  }
+ ],
+ "retrieved": "2026-10-24",
+ "note": "Each service's audited methods, read from its audit-logging page vendored under specs/cloud-api/gcp/ by scripts/gen-gcp-audit-methods.go. logType is the audit log category the page states: ADMIN_WRITE for Admin Activity, and for Data Access the broadest data type among the permissions the method checks. Resource Manager lists its operations as versioned identifiers without permissions.",
+ "methods": [
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "GetIamPolicy",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "apigateway.apis.getIamPolicy",
+     "type": "ADMIN_READ"
+    },
+    {
+     "permission": "apigateway.gateways.getIamPolicy",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "SetIamPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "apigateway.apiconfigs.setIamPolicy",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "apigateway.apis.setIamPolicy",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "apigateway.gateways.setIamPolicy",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1.ApiGatewayService.CreateApi",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "apigateway.apis.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1.ApiGatewayService.CreateApiConfig",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "apigateway.apiconfigs.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1.ApiGatewayService.CreateGateway",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "apigateway.gateways.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1.ApiGatewayService.DeleteApi",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "apigateway.apis.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1.ApiGatewayService.DeleteApiConfig",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "apigateway.apiconfigs.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1.ApiGatewayService.DeleteGateway",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "apigateway.gateways.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1.ApiGatewayService.GetApi",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "apigateway.apis.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1.ApiGatewayService.GetApiConfig",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "apigateway.apiconfigs.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1.ApiGatewayService.GetGateway",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "apigateway.gateways.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1.ApiGatewayService.ListApiConfigs",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "apigateway.apiconfigs.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1.ApiGatewayService.ListApis",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "apigateway.apis.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1.ApiGatewayService.ListGateways",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "apigateway.gateways.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1.ApiGatewayService.UpdateApi",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "apigateway.apis.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1.ApiGatewayService.UpdateApiConfig",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "apigateway.apiconfigs.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1.ApiGatewayService.UpdateGateway",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "apigateway.gateways.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1beta.ApiGatewayService.CreateApi",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "apigateway.apis.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1beta.ApiGatewayService.CreateApiConfig",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "apigateway.apiconfigs.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1beta.ApiGatewayService.CreateGateway",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "apigateway.gateways.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1beta.ApiGatewayService.DeleteApi",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "apigateway.apis.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1beta.ApiGatewayService.DeleteApiConfig",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "apigateway.apiconfigs.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1beta.ApiGatewayService.DeleteGateway",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "apigateway.gateways.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1beta.ApiGatewayService.GetApi",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "apigateway.apis.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1beta.ApiGatewayService.GetApiConfig",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "apigateway.apiconfigs.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1beta.ApiGatewayService.GetGateway",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "apigateway.gateways.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1beta.ApiGatewayService.ListApiConfigs",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "apigateway.apiconfigs.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1beta.ApiGatewayService.ListApis",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "apigateway.apis.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1beta.ApiGatewayService.ListGateways",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "apigateway.gateways.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1beta.ApiGatewayService.UpdateApi",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "apigateway.apis.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1beta.ApiGatewayService.UpdateApiConfig",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "apigateway.apiconfigs.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.cloud.apigateway.v1beta.ApiGatewayService.UpdateGateway",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "apigateway.gateways.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.longrunning.Operations.CancelOperation",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "apigateway.operations.cancel",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.longrunning.Operations.DeleteOperation",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "apigateway.operations.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.longrunning.Operations.GetOperation",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "apigateway.operations.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "apigateway.googleapis.com",
+   "method": "google.longrunning.Operations.ListOperations",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "apigateway.operations.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "datasetservice.delete",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.datasets.delete",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.models.delete",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.routines.delete",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.tables.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "datasetservice.insert",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.datasets.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "datasetservice.update",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.datasets.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.DatasetService.DeleteDataset",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.datasets.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.DatasetService.InsertDataset",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.datasets.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.DatasetService.PatchDataset",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.datasets.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.DatasetService.UndeleteDataset",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.datasets.create",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.datasets.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.DatasetService.UpdateDataset",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.datasets.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.JobService.CancelJob",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "bigquery.jobs.create",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.jobs.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.JobService.DeleteJob",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.JobService.GetQueryResults",
+   "logType": "DATA_READ",
+   "permissions": [
+    {
+     "permission": "bigquery.tables.getData",
+     "type": "DATA_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.JobService.InsertJob",
+   "logType": "DATA_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.jobs.create",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.tables.getData",
+     "type": "DATA_READ"
+    },
+    {
+     "permission": "bigquery.tables.updateData",
+     "type": "DATA_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.JobService.Query",
+   "logType": "DATA_READ",
+   "permissions": [
+    {
+     "permission": "bigquery.jobs.create",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.tables.getData",
+     "type": "DATA_READ"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.ModelService.DeleteModel",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.ModelService.PatchModel",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.RoutineService.DeleteRoutine",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.routines.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.RoutineService.InsertRoutine",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.routines.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.RoutineService.UpdateRoutine",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.RowAccessPolicyService.BatchDeleteRowAccessPolicies",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.rowAccessPolicies.delete",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.rowAccessPolicies.setIamPolicy",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.RowAccessPolicyService.CreateRowAccessPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.rowAccessPolicies.create",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.rowAccessPolicies.setIamPolicy",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.tables.getData",
+     "type": "DATA_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.RowAccessPolicyService.DeleteRowAccessPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.rowAccessPolicies.delete",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.rowAccessPolicies.setIamPolicy",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.RowAccessPolicyService.UpdateRowAccessPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.rowAccessPolicies.setIamPolicy",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.rowAccessPolicies.update",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.tables.getData",
+     "type": "DATA_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.TableDataService.List",
+   "logType": "DATA_READ",
+   "permissions": [
+    {
+     "permission": "bigquery.tables.getData",
+     "type": "DATA_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.TableService.DeleteTable",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.tables.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.TableService.InsertTable",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.tables.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.TableService.PatchTable",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.tables.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.cloud.bigquery.v2.TableService.UpdateTable",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.tables.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "google.iam.v1.IAMPolicy.SetIamPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.datasets.update",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.tables.setIamPolicy",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "jobservice.cancel",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "bigquery.jobs.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "jobservice.getqueryresults",
+   "logType": "DATA_READ",
+   "permissions": [
+    {
+     "permission": "bigquery.jobs.create",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.tables.getData",
+     "type": "DATA_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "jobservice.insert",
+   "logType": "DATA_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.jobs.create",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.tables.create",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.tables.getData",
+     "type": "DATA_READ"
+    },
+    {
+     "permission": "bigquery.tables.update",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.tables.updateData",
+     "type": "DATA_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "jobservice.jobcompleted",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "jobservice.query",
+   "logType": "DATA_READ",
+   "permissions": [
+    {
+     "permission": "bigquery.jobs.create",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.tables.getData",
+     "type": "DATA_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "tabledataservice.list",
+   "logType": "DATA_READ",
+   "permissions": [
+    {
+     "permission": "bigquery.jobs.create",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.tables.getData",
+     "type": "DATA_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "tableservice.delete",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.tables.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "tableservice.insert",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.tables.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "bigquery.googleapis.com",
+   "method": "tableservice.update",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "bigquery.tables.delete",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "bigquery.tables.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.folders.clearOrgPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.folders.getEffectiveOrgPolicy",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.folders.getOrgPolicy",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.folders.listAvailableOrgPolicyConstraints",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.folders.listOrgPolicies",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.folders.setOrgPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.organizations.clearOrgPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.organizations.get",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.organizations.getEffectiveOrgPolicy",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.organizations.getIamPolicy",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.organizations.getOrgPolicy",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.organizations.listAvailableOrgPolicyConstraints",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.organizations.listOrgPolicies",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.organizations.setIamPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.organizations.setOrgPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.projects.clearOrgPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.projects.create",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.projects.delete",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.projects.get",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.projects.getEffectiveOrgPolicy",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.projects.getIamPolicy",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.projects.listAvailableOrgPolicyConstraints",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.projects.listOrgPolicies",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.projects.setIamPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.projects.setOrgPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.projects.undelete",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1.projects.update",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1beta1.organizations.get",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1beta1.organizations.getIamPolicy",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1beta1.organizations.setIamPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1beta1.organizations.update",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1beta1.projects.create",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1beta1.projects.delete",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1beta1.projects.get",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1beta1.projects.getIamPolicy",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1beta1.projects.setIamPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1beta1.projects.undelete",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v1beta1.projects.update",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v2.folders.create",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v2.folders.delete",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v2.folders.get",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v2.folders.getIamPolicy",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v2.folders.list",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v2.folders.move",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v2.folders.setIamPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v2.folders.undelete",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v2.folders.update",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v2beta1.folders.create",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v2beta1.folders.delete",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v2beta1.folders.get",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v2beta1.folders.getIamPolicy",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v2beta1.folders.list",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v2beta1.folders.move",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v2beta1.folders.setIamPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v2beta1.folders.undelete",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v2beta1.folders.update",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.folders.create",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.folders.delete",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.folders.get",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.folders.getIamPolicy",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.folders.list",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.folders.move",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.folders.patch",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.folders.search",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.folders.setIamPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.folders.undelete",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.organizations.get",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.organizations.getIamPolicy",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.organizations.search",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.organizations.setIamPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.projects.create",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.projects.delete",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.projects.get",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.projects.getIamPolicy",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.projects.list",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.projects.move",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.projects.patch",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.projects.search",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.projects.setIamPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.projects.undelete",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.tagBindings.create",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.tagBindings.delete",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.tagKeys.create",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.tagKeys.delete",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.tagKeys.get",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.tagKeys.getIamPolicy",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.tagKeys.list",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.tagKeys.patch",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.tagKeys.setIamPermissions",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.tagValues.create",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.tagValues.delete",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.tagValues.get",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.tagValues.getIamPolicy",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.tagValues.list",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.tagValues.patch",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudresourcemanager.googleapis.com",
+   "method": "cloudresourcemanager.v3.tagValues.setIamPermissions",
+   "logType": "ADMIN_WRITE",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.backupRuns.create",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.backupRuns.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.backupRuns.delete",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.backupRuns.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.backupRuns.get",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "cloudsql.backupRuns.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.backupRuns.list",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "cloudsql.backupRuns.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.backups.create",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.backupRuns.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.backups.delete",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.backupRuns.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.backups.list",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "cloudsql.backupRuns.list",
+     "type": "ADMIN_READ"
+    },
+    {
+     "permission": "cloudsql.instances.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.backups.update",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.backupRuns.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.databases.create",
+   "logType": "DATA_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.databases.create",
+     "type": "DATA_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.databases.delete",
+   "logType": "DATA_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.databases.delete",
+     "type": "DATA_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.databases.get",
+   "logType": "DATA_READ",
+   "permissions": [
+    {
+     "permission": "cloudsql.databases.get",
+     "type": "DATA_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.databases.list",
+   "logType": "DATA_READ",
+   "permissions": [
+    {
+     "permission": "cloudsql.databases.list",
+     "type": "DATA_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.databases.update",
+   "logType": "DATA_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.databases.update",
+     "type": "DATA_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.addServerCa",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.addServerCa",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.clone",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.clone",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.connect",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.connect",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.create",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.delete",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.demoteMaster",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.demoteMaster",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.executeSql",
+   "logType": "DATA_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.executeSql",
+     "type": "DATA_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.export",
+   "logType": "DATA_READ",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.export",
+     "type": "DATA_READ"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.failover",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.failover",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.get",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.import",
+   "logType": "DATA_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.import",
+     "type": "DATA_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.list",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.listServerCas",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.listServerCas",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.login",
+   "logType": "DATA_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.login",
+     "type": "DATA_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.migrate",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.migrate",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.promoteReplica",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.promoteReplica",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.query",
+   "logType": "ADMIN_READ",
+   "permissions": [],
+   "longRunning": false
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.reencrypt",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.reencrypt",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.resetSslConfig",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.resetSslConfig",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.restart",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.restart",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.restoreBackup",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.restoreBackup",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.rotateServerCa",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.rotateServerCa",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.startReplica",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.startReplica",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.stopReplica",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.stopReplica",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.truncateLog",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.truncateLog",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.instances.update",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.operations.get",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.operations.list",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "cloudsql.instances.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.sslCerts.create",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.sslCerts.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.sslCerts.delete",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.sslCerts.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.sslCerts.get",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "cloudsql.sslCerts.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.sslCerts.list",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "cloudsql.sslCerts.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.users.create",
+   "logType": "DATA_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.users.create",
+     "type": "DATA_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.users.delete",
+   "logType": "DATA_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.users.delete",
+     "type": "DATA_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.users.get",
+   "logType": "DATA_READ",
+   "permissions": [
+    {
+     "permission": "cloudsql.users.get",
+     "type": "DATA_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.users.list",
+   "logType": "DATA_READ",
+   "permissions": [
+    {
+     "permission": "cloudsql.users.list",
+     "type": "DATA_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "cloudsql.googleapis.com",
+   "method": "cloudsql.users.update",
+   "logType": "DATA_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudsql.users.update",
+     "type": "DATA_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "dataflow.googleapis.com",
+   "method": "dataflow.jobs.cancel",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "dataflow.jobs.cancel",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "dataflow.jobs.updateContents",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "dataflow.googleapis.com",
+   "method": "dataflow.jobs.create",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "dataflow.jobs.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "dataflow.googleapis.com",
+   "method": "resourcemanager.projects.get",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "resourcemanager.projects.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.cloud.location.Locations.GetLocation",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "logging.locations.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.cloud.location.Locations.ListLocations",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "logging.locations.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.iam.v1.IAMPolicy.GetIamPolicy",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "logging.views.getIamPolicy",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.iam.v1.IAMPolicy.SetIamPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.views.setIamPolicy",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.CopyLogEntries",
+   "logType": "DATA_READ",
+   "permissions": [
+    {
+     "permission": "logging.buckets.copyLogEntries",
+     "type": "DATA_READ"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.CreateBucket",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.buckets.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.CreateBucketAsync",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.buckets.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.CreateExclusion",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.exclusions.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.CreateLink",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.links.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.CreateLogScope",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.logScopes.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.CreateSink",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.sinks.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.CreateView",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.views.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.DeleteBucket",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.buckets.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.DeleteExclusion",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.exclusions.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.DeleteLink",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.links.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.DeleteLogScope",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.logScopes.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.DeleteSink",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.sinks.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.DeleteView",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.views.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.GetBucket",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "logging.buckets.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.GetCmekSettings",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "logging.settings.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.GetExclusion",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "logging.exclusions.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.GetLink",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "logging.links.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.GetLogScope",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "logging.logScopes.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.GetSettings",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "logging.settings.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.GetSink",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "logging.sinks.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.GetView",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "logging.views.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.ListBuckets",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "logging.buckets.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.ListExclusions",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "logging.exclusions.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.ListLinks",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "logging.links.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.ListLogScopes",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "logging.logScopes.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.ListSinks",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "logging.sinks.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.ListViews",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "logging.views.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.UndeleteBucket",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.buckets.undelete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.UpdateBucket",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.buckets.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.UpdateBucketAsync",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.buckets.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.UpdateCmekSettings",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.settings.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.UpdateExclusion",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.exclusions.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.UpdateLogScope",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.logScopes.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.UpdateSettings",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.settings.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.UpdateSink",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.sinks.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.ConfigServiceV2.UpdateView",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.views.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.LoggingServiceV2.DeleteLog",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.logs.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.LoggingServiceV2.ListLogEntries",
+   "logType": "DATA_READ",
+   "permissions": [
+    {
+     "permission": "logging.logEntries.list",
+     "type": "DATA_READ"
+    },
+    {
+     "permission": "logging.privateLogEntries.list",
+     "type": "DATA_READ"
+    },
+    {
+     "permission": "logging.views.access",
+     "type": "DATA_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.LoggingServiceV2.ListLogs",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "logging.logs.list",
+     "type": "ADMIN_READ"
+    },
+    {
+     "permission": "logging.views.listLogs",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.MetricsServiceV2.CreateLogMetric",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.logMetrics.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.MetricsServiceV2.DeleteLogMetric",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.logMetrics.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.MetricsServiceV2.GetLogMetric",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "logging.logMetrics.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.MetricsServiceV2.ListLogMetrics",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "logging.logMetrics.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.logging.v2.MetricsServiceV2.UpdateLogMetric",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.logMetrics.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.longrunning.Operations.CancelOperation",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "logging.operations.cancel",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.longrunning.Operations.GetOperation",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "logging.operations.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "logging.googleapis.com",
+   "method": "google.longrunning.Operations.ListOperations",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "logging.operations.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.location.Locations.ListLocations",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.locations.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.AuthorizedDomains.ListAuthorizedDomains",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.authorizeddomains.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Configurations.GetConfiguration",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.configurations.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Configurations.ListConfigurations",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.configurations.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.DomainMappings.CreateDomainMapping",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.domainmappings.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.DomainMappings.DeleteDomainMapping",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.domainmappings.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.DomainMappings.GetDomainMapping",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.domainmappings.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.DomainMappings.ListDomainMappings",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.domainmappings.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Executions.CancelExecution",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.executions.cancel",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Executions.DeleteExecution",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.executions.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Executions.GetExecution",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.executions.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Executions.ListExecutions",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.executions.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Jobs.CreateJob",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.jobs.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Jobs.DeleteJob",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.jobs.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Jobs.GetIamPolicy",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.jobs.getIamPolicy",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Jobs.GetJob",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.jobs.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Jobs.ListJobs",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.jobs.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Jobs.ReplaceJob",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.jobs.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Jobs.RunJob",
+   "logType": "DATA_WRITE",
+   "permissions": [
+    {
+     "permission": "run.jobs.run",
+     "type": "DATA_WRITE"
+    },
+    {
+     "permission": "run.jobs.runWithOverrides",
+     "type": "DATA_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Jobs.SetIamPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.jobs.setIamPolicy",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Revisions.DeleteRevision",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.revisions.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Revisions.GetRevision",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.revisions.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Revisions.ListRevisions",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.revisions.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Routes.GetRoute",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.routes.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Routes.ListRoutes",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.routes.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Services.CreateService",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.services.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Services.DeleteService",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.operations.get",
+     "type": "ADMIN_READ"
+    },
+    {
+     "permission": "run.services.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Services.GetIamPolicy",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.services.getIamPolicy",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Services.GetService",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.services.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Services.ListServices",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.services.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Services.ReplaceService",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.operations.get",
+     "type": "ADMIN_READ"
+    },
+    {
+     "permission": "run.services.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Services.SetIamPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.services.setIamPolicy",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Tasks.GetTask",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.tasks.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v1.Tasks.ListTasks",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.tasks.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Builds.SubmitBuild",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "cloudbuild.builds.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Executions.CancelExecution",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.executions.cancel",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Executions.DeleteExecution",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.executions.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Executions.GetExecution",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.executions.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Executions.ListExecutions",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.executions.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.ExportServices.ExportImage",
+   "logType": "DATA_READ",
+   "permissions": [
+    {
+     "permission": "run.locations.exportImage",
+     "type": "DATA_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.ExportServices.ExportImageMetadata",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.locations.exportMetadata",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.ExportServices.ExportProjectMetadata",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.locations.exportMetadata",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.ExportServices.ExportResourceMetadata",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.locations.exportMetadata",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.ExportServices.ExportStatus",
+   "logType": "DATA_READ",
+   "permissions": [
+    {
+     "permission": "run.locations.exportImage",
+     "type": "DATA_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Jobs.CreateJob",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.jobs.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Jobs.DeleteJob",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.jobs.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Jobs.GetIamPolicy",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.jobs.getIamPolicy",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Jobs.GetJob",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.jobs.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Jobs.ListJobs",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.jobs.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Jobs.RunJob",
+   "logType": "DATA_WRITE",
+   "permissions": [
+    {
+     "permission": "run.jobs.run",
+     "type": "DATA_WRITE"
+    },
+    {
+     "permission": "run.jobs.runWithOverrides",
+     "type": "DATA_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Jobs.SetIamPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.jobs.setIamPolicy",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Jobs.UpdateJob",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.jobs.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Revisions.DeleteRevision",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.revisions.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Revisions.GetRevision",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.revisions.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Revisions.ListRevisions",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.revisions.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Services.CreateService",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.services.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Services.DeleteService",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.services.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Services.GetIamPolicy",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.services.getIamPolicy",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Services.GetService",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.services.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Services.ListServices",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.services.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Services.SetIamPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.services.setIamPolicy",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Services.UpdateService",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.services.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Tasks.GetTask",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.tasks.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.Tasks.ListTasks",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.tasks.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.WorkerPools.CreateWorkerPool",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.workerpools.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.WorkerPools.DeleteWorkerPool",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.workerpools.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.WorkerPools.GetWorkerPool",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.workerpools.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.WorkerPools.ListWorkerPools",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.workerpools.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.cloud.run.v2.WorkerPools.UpdateWorkerPool",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.workerpools.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.longrunning.Operations.DeleteOperation",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "run.operations.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.longrunning.Operations.GetOperation",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.operations.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.longrunning.Operations.ListOperations",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.operations.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "run.googleapis.com",
+   "method": "google.longrunning.Operations.WaitOperation",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "run.operations.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "serviceusage.googleapis.com",
+   "method": "google.api.serviceusage.v1.ServiceUsage.BatchEnableServices",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "servicemanagement.services.bind",
+     "type": "DATA_WRITE"
+    },
+    {
+     "permission": "serviceusage.services.enable",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "serviceusage.googleapis.com",
+   "method": "google.api.serviceusage.v1.ServiceUsage.DisableService",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "serviceusage.services.disable",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "serviceusage.googleapis.com",
+   "method": "google.api.serviceusage.v1.ServiceUsage.EnableService",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "serviceusage.services.enable",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "serviceusage.googleapis.com",
+   "method": "google.api.serviceusage.v1beta1.ServiceUsage.BatchEnableServices",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "servicemanagement.services.bind",
+     "type": "DATA_WRITE"
+    },
+    {
+     "permission": "serviceusage.services.enable",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "serviceusage.googleapis.com",
+   "method": "google.api.serviceusage.v1beta1.ServiceUsage.CreateAdminOverride",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "serviceusage.quotas.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "serviceusage.googleapis.com",
+   "method": "google.api.serviceusage.v1beta1.ServiceUsage.CreateConsumerOverride",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "serviceusage.quotas.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "serviceusage.googleapis.com",
+   "method": "google.api.serviceusage.v1beta1.ServiceUsage.DeleteAdminOverride",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "serviceusage.quotas.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "serviceusage.googleapis.com",
+   "method": "google.api.serviceusage.v1beta1.ServiceUsage.DeleteConsumerOverride",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "serviceusage.quotas.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "serviceusage.googleapis.com",
+   "method": "google.api.serviceusage.v1beta1.ServiceUsage.DisableService",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "serviceusage.services.disable",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "serviceusage.googleapis.com",
+   "method": "google.api.serviceusage.v1beta1.ServiceUsage.EnableService",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "servicemanagement.services.bind",
+     "type": "DATA_WRITE"
+    },
+    {
+     "permission": "serviceusage.services.enable",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "serviceusage.googleapis.com",
+   "method": "google.api.serviceusage.v1beta1.ServiceUsage.ImportAdminOverrides",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "serviceusage.quotas.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "serviceusage.googleapis.com",
+   "method": "google.api.serviceusage.v1beta1.ServiceUsage.ImportConsumerOverrides",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "serviceusage.quotas.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "serviceusage.googleapis.com",
+   "method": "google.api.serviceusage.v1beta1.ServiceUsage.UpdateAdminOverride",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "serviceusage.quotas.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "serviceusage.googleapis.com",
+   "method": "google.api.serviceusage.v1beta1.ServiceUsage.UpdateConsumerOverride",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "serviceusage.quotas.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "serviceusage.googleapis.com",
+   "method": "google.api.serviceusage.v2beta.ServiceUsage.UpdateConsumerPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "serviceusage.consumerpolicy.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "serviceusage.googleapis.com",
+   "method": "google.api.serviceusage.v2beta.ServiceUsage.UpdateContentSecurityPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "serviceusage.contentsecuritypolicy.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "serviceusage.googleapis.com",
+   "method": "google.api.serviceusage.v2beta.ServiceUsage.UpdateMcpPolicy",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "serviceusage.mcppolicy.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "serviceusage.googleapis.com",
+   "method": "google.longrunning.Operations.GetOperation",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "serviceusage.operations.get",
+     "type": "DATA_READ"
+    },
+    {
+     "permission": "serviceusage.services.enable",
+     "type": "ADMIN_WRITE"
+    },
+    {
+     "permission": "serviceusage.services.get",
+     "type": "DATA_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "vpcaccess.googleapis.com",
+   "method": "google.cloud.vpcaccess.v1.VpcAccessService.CreateConnector",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "vpcaccess.connectors.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "vpcaccess.googleapis.com",
+   "method": "google.cloud.vpcaccess.v1.VpcAccessService.DeleteConnector",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "vpcaccess.connectors.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "vpcaccess.googleapis.com",
+   "method": "google.cloud.vpcaccess.v1.VpcAccessService.GetConnector",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "vpcaccess.connectors.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "vpcaccess.googleapis.com",
+   "method": "google.cloud.vpcaccess.v1.VpcAccessService.ListConnectors",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "vpcaccess.connectors.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "vpcaccess.googleapis.com",
+   "method": "google.cloud.vpcaccess.v1.VpcAccessService.UpdateConnector",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "vpcaccess.connectors.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "vpcaccess.googleapis.com",
+   "method": "google.cloud.vpcaccess.v1beta1.VpcAccessService.CreateConnector",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "vpcaccess.connectors.create",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "vpcaccess.googleapis.com",
+   "method": "google.cloud.vpcaccess.v1beta1.VpcAccessService.DeleteConnector",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "vpcaccess.connectors.delete",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "vpcaccess.googleapis.com",
+   "method": "google.cloud.vpcaccess.v1beta1.VpcAccessService.GetConnector",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "vpcaccess.connectors.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "vpcaccess.googleapis.com",
+   "method": "google.cloud.vpcaccess.v1beta1.VpcAccessService.ListConnectors",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "vpcaccess.connectors.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "vpcaccess.googleapis.com",
+   "method": "google.cloud.vpcaccess.v1beta1.VpcAccessService.UpdateConnector",
+   "logType": "ADMIN_WRITE",
+   "permissions": [
+    {
+     "permission": "vpcaccess.connectors.update",
+     "type": "ADMIN_WRITE"
+    }
+   ],
+   "longRunning": true
+  },
+  {
+   "service": "vpcaccess.googleapis.com",
+   "method": "google.longrunning.Operations.GetOperation",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "vpcaccess.operations.get",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  },
+  {
+   "service": "vpcaccess.googleapis.com",
+   "method": "google.longrunning.Operations.ListOperations",
+   "logType": "ADMIN_READ",
+   "permissions": [
+    {
+     "permission": "vpcaccess.operations.list",
+     "type": "ADMIN_READ"
+    }
+   ],
+   "longRunning": false
+  }
+ ]
+}

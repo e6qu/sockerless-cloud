@@ -36,6 +36,7 @@ func TestEC2InstanceCloudConfigCLI(t *testing.T) {
 	}
 	instanceID := q("ec2", "run-instances", "--image-id", ec2AmazonLinuxAMI(t), "--instance-type", "t3.micro",
 		"--subnet-id", subnetID, "--key-name", keyName, "--user-data", "file://"+userData,
+		"--iam-instance-profile", "Name="+ssmManagedInstanceProfileCLI(t),
 		"--query", "Instances[0].InstanceId", "--output", "text")
 	terminateCLIInstanceOnCleanup(t, instanceID)
 	runCLI(t, awsCLI("ec2", "wait", "instance-running", "--instance-ids", instanceID))

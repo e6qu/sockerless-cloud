@@ -6,6 +6,33 @@ import (
 	"time"
 )
 
+// Container Apps scales in to a lower nonzero count once the lower demand has
+// held for the 300-second scale-down stabilization window, and to zero once no
+// rule has asked for a replica for the cooldown period ("Scale behavior" in
+// app-containerapps-scale-app.md.gz).
+func TestACAScaleInDue(t *testing.T) {
+	now := time.Date(2026, 1, 1, 1, 0, 0, 0, time.UTC)
+	const cooldown = 60 * time.Second
+	for _, tc := range []struct {
+		name                     string
+		sinceRaised, sinceActive time.Duration
+		desired                  int
+		want                     bool
+	}{
+		{"nonzero inside the window", 299 * time.Second, 0, 1, false},
+		{"nonzero after the window", 300 * time.Second, 0, 1, true},
+		{"nonzero past the cooldown but inside the window", 120 * time.Second, 0, 2, false},
+		{"zero inside the cooldown", 400 * time.Second, 59 * time.Second, 0, false},
+		{"zero after the cooldown", 61 * time.Second, 60 * time.Second, 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := acaScaleInDue(now, now.Add(-tc.sinceRaised), now.Add(-tc.sinceActive), tc.desired, cooldown); got != tc.want {
+				t.Fatalf("acaScaleInDue = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // A revision scales on its HTTP rule, or on the default one when it has
 // ingress and names none, and on its queue rules; a revision with neither runs
 // its minimum, and one whose only rules the simulator does not run keeps a

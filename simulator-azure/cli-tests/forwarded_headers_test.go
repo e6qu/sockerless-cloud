@@ -80,6 +80,23 @@ func TestWebApp_CLI_ForwardedRequestHeaders(t *testing.T) {
 	assert.NotEmpty(t, clientPort)
 	assert.Equal(t, "https", got.Get("X-Forwarded-Proto"))
 	assert.Equal(t, "https", got.Get("X-AppService-Proto"))
+
+	// TLS mutual authentication: `az webapp update --set` writes the three
+	// client certificate members and `az webapp show` reads them back.
+	var site struct {
+		ClientCertEnabled        bool   `json:"clientCertEnabled"`
+		ClientCertMode           string `json:"clientCertMode"`
+		ClientCertExclusionPaths string `json:"clientCertExclusionPaths"`
+	}
+	parseJSON(t, runCLI(t, env.command("webapp", "update", "-g", rg, "-n", app, "-o", "json",
+		"--set", "clientCertEnabled=true", "clientCertMode=Required", "clientCertExclusionPaths=/public;/health")), &site)
+	assert.True(t, site.ClientCertEnabled)
+	assert.Equal(t, "Required", site.ClientCertMode)
+	assert.Equal(t, "/public;/health", site.ClientCertExclusionPaths)
+	parseJSON(t, runCLI(t, env.command("webapp", "show", "-g", rg, "-n", app, "-o", "json")), &site)
+	assert.True(t, site.ClientCertEnabled)
+	assert.Equal(t, "Required", site.ClientCertMode)
+	assert.Equal(t, "/public;/health", site.ClientCertExclusionPaths)
 }
 
 // TestContainerAppsCLI_IngressForwardedRequestHeaders creates a container app
@@ -131,4 +148,22 @@ func TestContainerAppsCLI_IngressForwardedRequestHeaders(t *testing.T) {
 	require.NotNil(t, client, "X-Forwarded-For %q", got.Get("X-Forwarded-For"))
 	assert.True(t, client.IsLoopback(), "X-Forwarded-For %q", got.Get("X-Forwarded-For"))
 	assert.Equal(t, "https", got.Get("X-Forwarded-Proto"))
+
+	// clientCertificateMode is written the way the Container Apps
+	// documentation shows, an `az rest` PATCH of the ingress, and
+	// `az containerapp show` reads it back.
+	runCLI(t, rest("PATCH", appURL, `{"properties":{"configuration":{"ingress":{"clientCertificateMode":"require"}}}}`))
+	var shown struct {
+		Properties struct {
+			Configuration struct {
+				Ingress struct {
+					ClientCertificateMode string `json:"clientCertificateMode"`
+					TargetPort            int    `json:"targetPort"`
+				} `json:"ingress"`
+			} `json:"configuration"`
+		} `json:"properties"`
+	}
+	parseJSON(t, runCLI(t, env.command("containerapp", "show", "-g", rg, "-n", app, "-o", "json")), &shown)
+	assert.Equal(t, "require", shown.Properties.Configuration.Ingress.ClientCertificateMode)
+	assert.Equal(t, 8080, shown.Properties.Configuration.Ingress.TargetPort, "the PATCH keeps the rest of the ingress")
 }

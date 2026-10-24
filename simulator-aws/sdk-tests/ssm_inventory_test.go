@@ -273,7 +273,6 @@ func TestSSM_InstanceInformation(t *testing.T) {
 	require.NotNil(t, info, "DescribeInstanceInformation must include the node")
 	assert.Equal(t, ssmtypes.PingStatusOnline, info.PingStatus)
 	assert.Equal(t, ssmtypes.ResourceTypeManagedInstance, info.ResourceType)
-	require.NotNil(t, info.IsLatestVersion)
 
 	dip, err := c.DescribeInstanceProperties(ctx, &ssm.DescribeInstancePropertiesInput{})
 	require.NoError(t, err)
@@ -281,7 +280,7 @@ func TestSSM_InstanceInformation(t *testing.T) {
 	for _, p := range dip.InstanceProperties {
 		if p.InstanceId != nil && *p.InstanceId == instanceID {
 			foundProp = true
-			assert.Equal(t, "3.3.0.0", *p.AgentVersion)
+			assert.Equal(t, ssmtypes.PingStatusOnline, p.PingStatus)
 		}
 	}
 	assert.True(t, foundProp, "DescribeInstanceProperties must include the node")

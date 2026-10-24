@@ -111,8 +111,9 @@ func handleGCPAPIGWIamAction(w http.ResponseWriter, r *http.Request) {
 
 // GCPAPIGWIamBinding mirrors google.iam.v1.Binding.
 type GCPAPIGWIamBinding struct {
-	Role    string   `json:"role"`
-	Members []string `json:"members"`
+	Role      string          `json:"role"`
+	Members   []string        `json:"members"`
+	Condition json.RawMessage `json:"condition,omitempty"`
 }
 
 // GCPAPIGWIamPolicy is the canonical google.iam.v1.Policy shape.
@@ -163,7 +164,7 @@ func handleGCPAPIGWTestIamPermissions(w http.ResponseWriter, r *http.Request, gw
 	policy := IAMPolicy{Version: stored.Version, Etag: stored.Etag}
 	for _, binding := range stored.Bindings {
 		policy.Bindings = append(policy.Bindings,
-			IAMBinding{Role: binding.Role, Members: binding.Members})
+			IAMBinding(binding))
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"permissions": gcpAnswerTestIamPermissions(r, policy, req.Permissions, gcpIAMResourceNamed(fmt.Sprintf(
@@ -373,6 +374,12 @@ func handleGCPAPIGWCreateGateway(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGCPAPIGWGetGateway(w http.ResponseWriter, r *http.Request) {
+	// getIamPolicy is a GET on the gateway with the verb after the colon,
+	// which the wildcard captures along with the gateway's ID.
+	if gw, ok := strings.CutSuffix(sim.PathParam(r, "gw"), ":getIamPolicy"); ok {
+		handleGCPAPIGWGetIamPolicy(w, r, gw)
+		return
+	}
 	name := fmt.Sprintf("projects/%s/locations/%s/gateways/%s",
 		sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "gw"))
 	g, ok := apigwGateways.Get(name)

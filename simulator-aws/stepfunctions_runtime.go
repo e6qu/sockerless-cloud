@@ -568,13 +568,11 @@ func sfnInvokeECSRunTask(ctx context.Context, resource string, input, context an
 		failures []any
 	)
 	if checkpoint, ok := sfnLoadTaskCheckpoint(context, resource); ok && strings.HasSuffix(resource, ".sync") {
-		for _, taskID := range checkpoint.ResourceIDs {
-			task, exists := ecsTasks.Get(taskID)
-			if !exists {
-				return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "checkpointed Amazon ECS task no longer exists: " + taskID}
-			}
-			tasks = append(tasks, task)
+		described, describeErr := sfnDescribeECSTasks(ctx, checkpoint.ResourceIDs)
+		if describeErr != nil {
+			return nil, describeErr
 		}
+		tasks = described
 	} else {
 		result, taskErr := sfnCallJSON(ctx, "ecs", "AmazonEC2ContainerServiceV20141113.RunTask", input)
 		if taskErr != nil {
@@ -591,11 +589,7 @@ func sfnInvokeECSRunTask(ctx context.Context, resource string, input, context an
 		}
 		failures, _ = response["failures"].([]any)
 		if strings.HasSuffix(resource, ".sync") {
-			taskIDs := make([]string, 0, len(tasks))
-			for _, task := range tasks {
-				taskIDs = append(taskIDs, task.TaskID())
-			}
-			sfnStoreTaskCheckpoint(context, resource, taskIDs)
+			sfnStoreTaskCheckpoint(context, resource, ecsTaskARNs(tasks))
 		}
 	}
 	optimized := !strings.Contains(resource, ":::aws-sdk:")
@@ -612,12 +606,12 @@ func sfnInvokeECSRunTask(ctx context.Context, resource string, input, context an
 	if strings.HasSuffix(resource, ".waitForTaskToken") {
 		task, tokenErr := sfnTaskFromContext(context)
 		if tokenErr != nil {
-			sfnStopECSTasks(tasks, "AWS Step Functions callback integration failed")
+			sfnStopECSTasks(ctx, tasks, "AWS Step Functions callback integration failed")
 			return nil, tokenErr
 		}
 		value, waitErr := sfnWaitForTaskToken(task, cancel, heartbeat)
 		if waitErr != nil && ctx.Err() == nil {
-			sfnStopECSTasks(tasks, "AWS Step Functions callback integration stopped")
+			sfnStopECSTasks(ctx, tasks, "AWS Step Functions callback integration stopped")
 			return nil, waitErr
 		}
 		return value, nil
@@ -625,48 +619,142 @@ func sfnInvokeECSRunTask(ctx context.Context, resource string, input, context an
 	if !strings.HasSuffix(resource, ".sync") {
 		return output, nil
 	}
+	return sfnWaitForECSTasks(ctx, tasks, output, cancel)
+}
 
-	ticker := time.NewTicker(20 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-cancel:
-			// A task the simulator's stop interrupts belongs to the next
-			// process, which resumes waiting on it.
-			if ctx.Err() == nil {
-				sfnStopECSTasks(tasks, "AWS Step Functions execution aborted")
+func ecsTaskARNs(tasks []ECSTask) []string {
+	arns := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		arns = append(arns, task.TaskArn)
+	}
+	return arns
+}
+
+// sfnDescribeECSTasks reads the tasks through DescribeTasks as the execution's
+// role. A task Amazon ECS no longer holds fails the state.
+func sfnDescribeECSTasks(ctx context.Context, taskARNs []string) ([]ECSTask, *sfnExecutionError) {
+	if len(taskARNs) == 0 {
+		return nil, nil
+	}
+	response, callErr := sfnServiceCall(ctx, "ECS.", "ecs", "AmazonEC2ContainerServiceV20141113.DescribeTasks", "application/x-amz-json-1.1",
+		map[string]any{"cluster": ecsClusterNameFromTaskARN(taskARNs[0]), "tasks": taskARNs})
+	if callErr != nil {
+		return nil, callErr
+	}
+	if failures, _ := response["failures"].([]any); len(failures) > 0 {
+		failure, _ := failures[0].(map[string]any)
+		return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: fmt.Sprintf("Amazon ECS task %v no longer exists: %v", failure["arn"], failure["reason"])}
+	}
+	return sfnDecodeECSTasks(response["tasks"])
+}
+
+// ecsClusterNameFromTaskARN reads the cluster segment of
+// arn:aws:ecs:region:account:task/cluster/id.
+func ecsClusterNameFromTaskARN(taskARN string) string {
+	_, path, _ := strings.Cut(taskARN, ":task/")
+	cluster, _, _ := strings.Cut(path, "/")
+	return cluster
+}
+
+// sfnWaitForECSTasks waits until every task stopped, reading them through
+// DescribeTasks as the execution's role each time one changes, and fails the
+// state when a container exited with a non-zero status.
+func sfnWaitForECSTasks(ctx context.Context, tasks []ECSTask, output map[string]any, cancel <-chan struct{}) (any, *sfnExecutionError) {
+	if len(tasks) == 0 {
+		return output, nil
+	}
+	taskARNs := ecsTaskARNs(tasks)
+	return sfnAwaitSettled(ctx, cancel, ecsTaskChanges, tasks[0].TaskID(), func() (any, string, *sfnExecutionError) {
+		current, describeErr := sfnDescribeECSTasks(ctx, taskARNs)
+		if describeErr != nil {
+			return nil, "", describeErr
+		}
+		for _, task := range current {
+			if task.LastStatus != ECSTaskStatusStopped {
+				return nil, task.TaskID(), nil
 			}
-			return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "execution aborted"}
-		case <-ticker.C:
-			current := make([]ECSTask, 0, len(tasks))
-			allStopped := true
-			for _, started := range tasks {
-				task, exists := ecsTasks.Get(started.TaskID())
-				if !exists {
-					return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "Amazon ECS task no longer exists: " + started.TaskArn}
-				}
-				current = append(current, task)
-				if task.LastStatus != ECSTaskStatusStopped {
-					allStopped = false
-				}
-			}
-			if !allStopped {
-				continue
-			}
-			for _, task := range current {
-				for _, container := range task.Containers {
-					if container.ExitCode != nil && *container.ExitCode != 0 {
-						return nil, &sfnExecutionError{
-							Name:  "States.TaskFailed",
-							Cause: fmt.Sprintf("Amazon ECS task %s container %s exited with status %d", task.TaskArn, container.Name, *container.ExitCode),
-						}
+		}
+		for _, task := range current {
+			for _, container := range task.Containers {
+				if container.ExitCode != nil && *container.ExitCode != 0 {
+					return nil, "", &sfnExecutionError{
+						Name:  "States.TaskFailed",
+						Cause: fmt.Sprintf("Amazon ECS task %s container %s exited with status %d", task.TaskArn, container.Name, *container.ExitCode),
 					}
 				}
 			}
-			output["Tasks"] = ecsTasksWire(current)
-			return output, nil
+		}
+		output["Tasks"] = ecsTasksWire(current)
+		return output, "", nil
+	}, func() {
+		sfnStopECSTasks(ctx, tasks, "AWS Step Functions execution aborted")
+	})
+}
+
+// sfnAwaitSettled waits for a resource to settle. check reads it through its
+// service's API as the execution's role and names the store item whose next
+// write is worth another read, or none once the resource settled, so the wait
+// sleeps between changes instead of reading on a timer. cancel aborts the
+// wait and abort stops the resource, unless the simulator itself is stopping:
+// the next process resumes the wait from its checkpoint.
+func sfnAwaitSettled(ctx context.Context, cancel <-chan struct{}, changes *storeChanges, pending string,
+	check func() (any, string, *sfnExecutionError), abort func()) (any, *sfnExecutionError) {
+	for {
+		changed := changes.Changed(pending)
+		result, next, checkErr := check()
+		if checkErr != nil {
+			return nil, checkErr
+		}
+		if next == "" {
+			return result, nil
+		}
+		if next != pending {
+			pending = next
+			continue
+		}
+		select {
+		case <-cancel:
+			if ctx.Err() == nil {
+				abort()
+			}
+			return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "execution aborted"}
+		case <-changed:
 		}
 	}
+}
+
+// sfnServiceCall calls an awsJson operation as the execution's role and names
+// an error after the service, as Step Functions names an optimized
+// integration's errors (ECS.AccessDeniedException).
+func sfnServiceCall(ctx context.Context, prefix, signingService, target, contentType string, input any) (map[string]any, *sfnExecutionError) {
+	actor, actorErr := sfnTaskActor(ctx)
+	if actorErr != nil {
+		return nil, actorErr
+	}
+	status, body, err := awsCallJSON(ctx, actor, signingService, target, contentType, input)
+	if err != nil {
+		return nil, sfnCallRefused(prefix, err)
+	}
+	if status >= http.StatusBadRequest {
+		code, message := awsJSONError(body)
+		if code == "" {
+			return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: message}
+		}
+		return nil, &sfnExecutionError{Name: prefix + code, Cause: message}
+	}
+	response := map[string]any{}
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &response); err != nil {
+			return nil, &sfnExecutionError{Name: "States.Runtime", Cause: "service returned invalid JSON: " + err.Error()}
+		}
+	}
+	return response, nil
+}
+
+func sfnLogRefusedStop(kind, id string, stopErr *sfnExecutionError) {
+	logger := sfnAWSServer.Logger()
+	logger.Warn().Str("resource", id).Str("error", stopErr.Name).Str("cause", stopErr.Cause).
+		Msg("AWS Step Functions could not stop the " + kind + " of an execution it aborted")
 }
 
 func sfnDecodeECSTasks(value any) ([]ECSTask, *sfnExecutionError) {
@@ -681,9 +769,15 @@ func sfnDecodeECSTasks(value any) ([]ECSTask, *sfnExecutionError) {
 	return tasks, nil
 }
 
-func sfnStopECSTasks(tasks []ECSTask, reason string) {
+// sfnStopECSTasks stops the tasks through StopTask as the execution's role. A
+// stop the service refuses is logged: the aborting execution has nowhere else
+// to report it.
+func sfnStopECSTasks(ctx context.Context, tasks []ECSTask, reason string) {
 	for _, task := range tasks {
-		stopECSTask(task.TaskID(), reason, "ServiceSchedulerInitiated")
+		if _, stopErr := sfnServiceCall(ctx, "ECS.", "ecs", "AmazonEC2ContainerServiceV20141113.StopTask", "application/x-amz-json-1.1",
+			map[string]any{"cluster": task.ClusterArn, "task": task.TaskArn, "reason": reason}); stopErr != nil {
+			sfnLogRefusedStop("Amazon ECS task", task.TaskArn, stopErr)
+		}
 	}
 }
 
@@ -710,7 +804,7 @@ func sfnInvokeCodeBuild(ctx context.Context, resource string, input, context any
 			return sfnWaitForCodeBuildBatch(ctx, checkpointID, cancel)
 		}
 	}
-	result, taskErr := sfnCallJSON(ctx, "codebuild", "CodeBuild_20161006."+strings.ToUpper(action[:1])+action[1:], input)
+	result, taskErr := sfnCallJSON(ctx, "codebuild", "CodeBuild_20161006."+strings.ToUpper(action[:1])+action[1:], sfnCamelCaseMembers(input))
 	if taskErr != nil || !syncIntegration {
 		return result, taskErr
 	}
@@ -735,6 +829,32 @@ func sfnInvokeCodeBuild(ctx context.Context, resource string, input, context any
 		return sfnWaitForCodeBuildBatch(ctx, batch.ID, cancel)
 	default:
 		return result, nil
+	}
+}
+
+// sfnCamelCaseMembers renames a task's PascalCase parameters to the
+// camelCase members of a service whose API spells them so, at every depth.
+// Use it only for operations whose input holds no free-form map, where every
+// object key is a member name.
+func sfnCamelCaseMembers(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		renamed := make(map[string]any, len(typed))
+		for key, member := range typed {
+			if key != "" {
+				key = strings.ToLower(key[:1]) + key[1:]
+			}
+			renamed[key] = sfnCamelCaseMembers(member)
+		}
+		return renamed
+	case []any:
+		renamed := make([]any, len(typed))
+		for i, member := range typed {
+			renamed[i] = sfnCamelCaseMembers(member)
+		}
+		return renamed
+	default:
+		return value
 	}
 }
 
@@ -806,56 +926,73 @@ func sfnDecodeCodeBuildBatch(value any) (CBBuildBatch, *sfnExecutionError) {
 	return batch, nil
 }
 
-func sfnWaitForCodeBuildBuild(ctx context.Context, buildID string, cancel <-chan struct{}) (any, *sfnExecutionError) {
-	ticker := time.NewTicker(20 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-cancel:
-			if ctx.Err() == nil {
-				cbStopBuildByID(buildID)
-			}
-			return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "execution aborted"}
-		case <-ticker.C:
-			build, exists := cbBuilds.Get(buildID)
-			if !exists {
-				return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "AWS CodeBuild build no longer exists: " + buildID}
-			}
-			if build.BuildStatus == "IN_PROGRESS" {
-				continue
-			}
-			if build.BuildStatus != "SUCCEEDED" {
-				return nil, &sfnExecutionError{Name: "CodeBuild.BuildFailed", Cause: "AWS CodeBuild build ended with status " + build.BuildStatus}
-			}
-			return map[string]any{"Build": build}, nil
-		}
+// sfnCodeBuildWait is how a .sync integration reads and stops one kind of
+// AWS CodeBuild resource: a build or a build batch.
+type sfnCodeBuildWait struct {
+	kind, get, stop, member, failure, output string
+	changes                                  *storeChanges
+	status                                   func(any) (any, string, *sfnExecutionError)
+}
+
+var (
+	sfnCodeBuildBuildWait = sfnCodeBuildWait{
+		kind: "AWS CodeBuild build", get: "BatchGetBuilds", stop: "StopBuild", member: "builds",
+		failure: "CodeBuild.BuildFailed", output: "Build", changes: cbBuildChanges,
+		status: func(value any) (any, string, *sfnExecutionError) {
+			build, err := sfnDecodeCodeBuildBuild(value)
+			return build, build.BuildStatus, err
+		},
 	}
+	sfnCodeBuildBatchWait = sfnCodeBuildWait{
+		kind: "AWS CodeBuild build batch", get: "BatchGetBuildBatches", stop: "StopBuildBatch", member: "buildBatches",
+		failure: "CodeBuild.BuildBatchFailed", output: "BuildBatch", changes: cbBuildBatchChanges,
+		status: func(value any) (any, string, *sfnExecutionError) {
+			batch, err := sfnDecodeCodeBuildBatch(value)
+			return batch, batch.BuildBatchStatus, err
+		},
+	}
+)
+
+func sfnWaitForCodeBuildBuild(ctx context.Context, buildID string, cancel <-chan struct{}) (any, *sfnExecutionError) {
+	return sfnWaitForCodeBuild(ctx, sfnCodeBuildBuildWait, buildID, cancel)
 }
 
 func sfnWaitForCodeBuildBatch(ctx context.Context, batchID string, cancel <-chan struct{}) (any, *sfnExecutionError) {
-	ticker := time.NewTicker(20 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-cancel:
-			if ctx.Err() == nil {
-				cbStopBuildBatchByID(batchID)
-			}
-			return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "execution aborted"}
-		case <-ticker.C:
-			batch, exists := cbBuildBatches.Get(batchID)
-			if !exists {
-				return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "AWS CodeBuild build batch no longer exists: " + batchID}
-			}
-			if batch.BuildBatchStatus == "IN_PROGRESS" {
-				continue
-			}
-			if batch.BuildBatchStatus != "SUCCEEDED" {
-				return nil, &sfnExecutionError{Name: "CodeBuild.BuildBatchFailed", Cause: "AWS CodeBuild build batch ended with status " + batch.BuildBatchStatus}
-			}
-			return map[string]any{"BuildBatch": batch}, nil
+	return sfnWaitForCodeBuild(ctx, sfnCodeBuildBatchWait, batchID, cancel)
+}
+
+// sfnWaitForCodeBuild waits for the build or build batch to end, reading it
+// through its BatchGet operation as the execution's role each time it
+// changes, and stops it through its Stop operation when the execution aborts.
+func sfnWaitForCodeBuild(ctx context.Context, wait sfnCodeBuildWait, id string, cancel <-chan struct{}) (any, *sfnExecutionError) {
+	const target = "CodeBuild_20161006."
+	return sfnAwaitSettled(ctx, cancel, wait.changes, id, func() (any, string, *sfnExecutionError) {
+		response, callErr := sfnServiceCall(ctx, "CodeBuild.", "codebuild", target+wait.get, "application/x-amz-json-1.1",
+			map[string]any{"ids": []string{id}})
+		if callErr != nil {
+			return nil, "", callErr
 		}
-	}
+		found, _ := response[wait.member].([]any)
+		if len(found) == 0 {
+			return nil, "", &sfnExecutionError{Name: "States.TaskFailed", Cause: wait.kind + " no longer exists: " + id}
+		}
+		resource, status, decodeErr := wait.status(found[0])
+		if decodeErr != nil {
+			return nil, "", decodeErr
+		}
+		if status == "IN_PROGRESS" {
+			return nil, id, nil
+		}
+		if status != "SUCCEEDED" {
+			return nil, "", &sfnExecutionError{Name: wait.failure, Cause: wait.kind + " ended with status " + status}
+		}
+		return map[string]any{wait.output: resource}, "", nil
+	}, func() {
+		if _, stopErr := sfnServiceCall(ctx, "CodeBuild.", "codebuild", target+wait.stop, "application/x-amz-json-1.1",
+			map[string]any{"id": id}); stopErr != nil {
+			sfnLogRefusedStop(wait.kind, id, stopErr)
+		}
+	})
 }
 
 // sfnCallJSON calls an awsJson operation, named by its target, as the
@@ -976,40 +1113,50 @@ func sfnInvokeNestedExecution(ctx context.Context, resource string, input, conte
 	if !strings.Contains(resource, ".sync") {
 		return result, nil
 	}
-	ticker := time.NewTicker(20 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-cancel:
-			return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "execution aborted"}
-		case <-ticker.C:
-			current, exists := sfnExecutions.Get(executionARN)
-			if !exists {
-				return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "nested execution no longer exists"}
-			}
-			if current.Status == "RUNNING" {
-				continue
-			}
-			result["StopDate"] = current.StopDate
-			result["Status"] = current.Status
-			result["Name"] = current.Name
-			result["StateMachineArn"] = current.StateMachineArn
-			result["Input"] = current.Input
-			if current.Status != "SUCCEEDED" {
-				return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: current.Cause}
-			}
-			if strings.HasSuffix(resource, ".sync:2") {
-				output, decodeErr := sfnDecodeJSON(current.Output)
-				if decodeErr != nil {
-					return nil, &sfnExecutionError{Name: "States.Runtime", Cause: decodeErr.Error()}
-				}
-				result["Output"] = output
-			} else {
-				result["Output"] = current.Output
-			}
-			return result, nil
+	return sfnWaitForNestedExecution(ctx, resource, executionARN, result, cancel)
+}
+
+// sfnWaitForNestedExecution waits for the child execution to end, reading it
+// through DescribeExecution as the execution's role each time it changes, and
+// stops it through StopExecution when the parent is aborted.
+func sfnWaitForNestedExecution(ctx context.Context, resource, executionARN string, result map[string]any, cancel <-chan struct{}) (any, *sfnExecutionError) {
+	const target = "AWSStepFunctions."
+	return sfnAwaitSettled(ctx, cancel, sfnExecutionChanges, executionARN, func() (any, string, *sfnExecutionError) {
+		described, callErr := sfnServiceCall(ctx, "StepFunctions.", "states", target+"DescribeExecution", "application/x-amz-json-1.0",
+			map[string]any{"executionArn": executionARN})
+		if callErr != nil {
+			return nil, "", callErr
 		}
-	}
+		status, _ := described["status"].(string)
+		if status == "RUNNING" {
+			return nil, executionARN, nil
+		}
+		result["StopDate"] = described["stopDate"]
+		result["Status"] = status
+		result["Name"] = described["name"]
+		result["StateMachineArn"] = described["stateMachineArn"]
+		result["Input"] = described["input"]
+		if status != "SUCCEEDED" {
+			cause, _ := described["cause"].(string)
+			return nil, "", &sfnExecutionError{Name: "States.TaskFailed", Cause: cause}
+		}
+		output, _ := described["output"].(string)
+		if strings.HasSuffix(resource, ".sync:2") {
+			decoded, decodeErr := sfnDecodeJSON(output)
+			if decodeErr != nil {
+				return nil, "", &sfnExecutionError{Name: "States.Runtime", Cause: decodeErr.Error()}
+			}
+			result["Output"] = decoded
+		} else {
+			result["Output"] = output
+		}
+		return result, "", nil
+	}, func() {
+		if _, stopErr := sfnServiceCall(ctx, "StepFunctions.", "states", target+"StopExecution", "application/x-amz-json-1.0",
+			map[string]any{"executionArn": executionARN}); stopErr != nil {
+			sfnLogRefusedStop("nested execution", executionARN, stopErr)
+		}
+	})
 }
 
 // sfnInvokeLambda invokes function, by name or ARN, synchronously through

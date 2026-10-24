@@ -790,7 +790,7 @@ func aciGroupNetwork(ctx context.Context, group ACIContainerGroup) (azureWorkloa
 		if subnetID == "" {
 			continue
 		}
-		network, err := azureSubnetVNetNetwork(ctx, subnetID)
+		network, err := azureSubnetNetwork(ctx, placementContainerInstances, subnetID)
 		if err != nil {
 			return azureWorkloadNetwork{}, "", fmt.Errorf("subnet %s of container group %s: %w", subnetID, group.Name, err)
 		}

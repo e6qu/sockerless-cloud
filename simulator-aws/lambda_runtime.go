@@ -554,7 +554,7 @@ func invokeLambdaViaRuntimeAPI(ctx context.Context, fn LambdaFunction, payload [
 	// host; here the services live in this simulator, so the container is given
 	// the address it can reach the simulator on. The function's own environment
 	// still wins, so a function configured for a specific endpoint keeps it.
-	endpoint, err := workloadhost.CallbackAddr(simListenAddr)
+	endpoint, err := workloadhost.CallbackAddr(simCallbackListenAddr)
 	if err != nil {
 		return lambdaErrorPayload(fmt.Sprintf("resolve the simulator endpoint: %v", err)), true, 1, nil
 	}

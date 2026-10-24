@@ -96,14 +96,14 @@ func appendLogRow(storeKey string, row monitorLogRow) {
 	monitorAppendRow(monitorLogs, storeKey, row)
 }
 
-// appendSiteDockerLog keeps one line of a site's container output and hands
-// it to the site's open log streams.
+// appendSiteDockerLog keeps one line of a site's container output and
+// writes it to the day's docker log file in the site's LogFiles.
 func appendSiteDockerLog(siteID, at, message string) {
 	scope := strings.ToLower(siteID)
 	row := monitorLogRow{"TimeGenerated": at, "Message": message}
 	monitorAppendRow(webSiteDockerLogs, scope, row)
 	webRotateSiteDockerLog(siteID, scope, webDockerLogLineBytes(row), time.Now())
-	kuduPublishLogLine(siteID, at+" "+message)
+	webAppendDockerLogFile(siteID, at, message)
 }
 
 func registerAzureMonitor(srv *sim.Server) {
@@ -118,6 +118,7 @@ func registerAzureMonitor(srv *sim.Server) {
 	registerLogAnalyticsTables(srv, armBase)
 	registerDataCollectionEndpoints(srv)
 	registerDataCollectionRules(srv)
+	registerDiagnosticSettings(srv)
 	if err := monitorMigrateRows(srv.DB()); err != nil {
 		log.Fatalf("azure monitor logs: %v", err)
 	}

@@ -18,7 +18,9 @@ type Program struct {
 	// Configure, when set, checks or records the resolved configuration before
 	// anything is built.
 	Configure func(*Config) error
-	// Build constructs the server with every service slice registered.
+	// Build constructs the server with every service slice registered, with
+	// the configuration's CallbackListenAddr resolved to the address the
+	// server's listeners bound.
 	Build func(Config) (*Server, error)
 	// Start, when set, starts what serves beside the HTTP port. The stop it
 	// returns runs once the HTTP server has shut down and its workers have
@@ -57,17 +59,28 @@ func run(p Program) error {
 	defer func() { _ = obs.Shutdown(context.Background()) }()
 	cfg.LogWriter = obs.LogWriter
 
-	srv, err := p.Build(cfg)
+	// The listeners bind before Build: a persistent simulator's build resumes
+	// the workloads its previous process left in flight, which call back on
+	// the address the callback listener binds.
+	bound, err := listen(cfg)
 	if err != nil {
 		return fmt.Errorf("simulator startup: %w", err)
 	}
+	cfg.CallbackListenAddr = bound.callbackAddr(cfg)
+	srv, err := p.Build(cfg)
+	if err != nil {
+		bound.close()
+		return fmt.Errorf("simulator startup: %w", err)
+	}
+	srv.adoptListeners(bound)
 	if p.Start != nil {
 		stop, err := p.Start(srv, cfg)
 		if err != nil {
 			srv.StopBackground()
+			srv.closeListeners()
 			return fmt.Errorf("simulator startup: %w", err)
 		}
 		srv.OnStop(stop)
 	}
-	return srv.ListenAndServe()
+	return srv.Serve()
 }

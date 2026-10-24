@@ -66,10 +66,11 @@ func TestRDS_ModifyDBInstanceStorageGroupsAndCertificate(t *testing.T) {
 	c := rdsClient()
 	f := rdsInstanceFixture{t: t, ctx: ctx, client: c, family: "postgres"}
 	subnetGroup := uniqueName("sdk-settings-subnets")
+	_, subnets := createECSTestVPCSubnets(t, subnetGroup, 2)
 	_, err := c.CreateDBSubnetGroup(ctx, &rds.CreateDBSubnetGroupInput{
 		DBSubnetGroupName:        aws.String(subnetGroup),
 		DBSubnetGroupDescription: aws.String("instance settings"),
-		SubnetIds:                []string{"subnet-aaaa1111", "subnet-bbbb2222"},
+		SubnetIds:                subnets,
 	})
 	require.NoError(t, err)
 	optionGroup := uniqueName("sdk-settings-options")
@@ -111,6 +112,7 @@ func TestRDS_ModifyDBInstanceStorageGroupsAndCertificate(t *testing.T) {
 	certificates, err := c.DescribeCertificates(ctx, &rds.DescribeCertificatesInput{})
 	require.NoError(t, err)
 	assert.Equal(t, "gp3", aws.ToString(created.DBInstance.StorageType), "Amazon RDS gives an instance without a storage type gp3")
+	assert.Equal(t, "postgresql-license", aws.ToString(created.DBInstance.LicenseModel), "RDS for PostgreSQL has one license model")
 	assert.False(t, aws.ToBool(created.DBInstance.MultiAZ))
 	assert.Equal(t, map[string]string{"default:postgres-16": "in-sync"}, rdsOptionGroupStatuses(*created.DBInstance))
 	assert.Equal(t, aws.ToString(certificates.DefaultCertificateForNewLaunches), aws.ToString(created.DBInstance.CACertificateIdentifier))

@@ -217,19 +217,9 @@ func azureVMInstanceSpec(ctx context.Context, vm VirtualMachine) (vminstance.Spe
 	nic, _ := azureNICs.Get(vm.Properties.NetworkProfile.NetworkInterfaces[0].ID)
 	ipcfg := azurePrimaryIPConfig(nic)
 	subnetID := ipcfg.Properties.Subnet.ID
-	vnetID := azureVNetIDOfSubnet(subnetID)
-	network, err := azureVNetNetwork(ctx, vnetID)
+	network, err := azureSubnetNetwork(ctx, placementVirtualMachines, subnetID)
 	if err != nil {
 		return vminstance.Spec{}, azureMetadataVM{}, err
-	}
-	if vnet, ok := azureVnets.Get(vnetID); ok {
-		prefix, err := azureVNetIPv4Prefix(vnet)
-		if err != nil {
-			return vminstance.Spec{}, azureMetadataVM{}, err
-		}
-		if err := azureJoinMicroVMNetwork(ctx, placementVirtualMachines, vnet.ID, prefix, network.Network); err != nil {
-			return vminstance.Spec{}, azureMetadataVM{}, err
-		}
 	}
 	size, _ := vm.Properties.HardwareProfile["vmSize"].(string)
 	cores, memoryMB, ok := azureVMSizeSpec(size)

@@ -85,7 +85,7 @@ func startCloudDNSServer() (*dnsserver.Server, error) {
 	if sim.RequireContainerRuntime("starting network sidecars") != nil {
 		return srv, nil
 	}
-	origin, err := workloadhost.CallbackAddr(simListenAddr)
+	origin, err := workloadhost.CallbackAddr(simCallbackListenAddr)
 	if err != nil {
 		_ = srv.Close()
 		return nil, fmt.Errorf("workload callback: %w", err)

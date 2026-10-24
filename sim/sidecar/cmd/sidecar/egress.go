@@ -128,7 +128,7 @@ func serveEgress(ctx context.Context, out io.Writer) error {
 		return fmt.Errorf("open the connection tracker: %w", err)
 	}
 	defer func() { _ = tracker.Close() }()
-	p := &egressProxy{cfg: cfg, reporter: newReporter(cfg), tracker: tracker, stopping: make(chan struct{})}
+	p := &egressProxy{out: out, cfg: cfg, reporter: newReporter(cfg), tracker: tracker, stopping: make(chan struct{})}
 	fmt.Fprintf(out, "sidecar: egress %s tcp %s udp %s for %s -> %s\n", cfg.gateway, tcp.Addr(), udp.LocalAddr(), joinPrefixes(cfg.sources), cfg.upstream)
 	var wg sync.WaitGroup
 	wg.Add(3)
@@ -295,6 +295,7 @@ func originalDestination(conn *net.TCPConn) (netip.AddrPort, error) {
 }
 
 type egressProxy struct {
+	out      io.Writer
 	cfg      egressConfig
 	reporter *reporter
 	tracker  *conntrack.Conn
@@ -490,10 +491,14 @@ func (p *egressProxy) serveUDP(ctx context.Context, conn *net.UDPConn) {
 	for {
 		n, oobn, _, client, err := conn.ReadMsgUDP(buf, oob)
 		if err != nil {
+			if ctx.Err() == nil {
+				fmt.Fprintf(p.out, "sidecar: egress %s: receive datagram: %v\n", p.cfg.gateway, err)
+			}
 			return
 		}
 		local, ok := redirectedUDPDestination(oob[:oobn])
 		if !ok {
+			fmt.Fprintf(p.out, "sidecar: egress %s: datagram from %s carries no original destination\n", p.cfg.gateway, client)
 			continue
 		}
 		p.forwardUDP(ctx, conn, client.AddrPort(), local, buf[:n])
@@ -525,22 +530,29 @@ func redirectedUDPDestination(oob []byte) (netip.AddrPort, bool) {
 
 // originalUDPDestination asks the connection tracker where a redirected
 // datagram flow was going: the entry whose reply direction runs from the
-// socket's address to the sender holds the destination the sender named.
+// socket's address to the sender holds the destination the sender named. It
+// reads the namespace's table rather than asking for the one entry, because
+// ti-mo/conntrack's acknowledged single-entry query never returns under
+// mdlayher/socket v0.6 and later while a dump does.
 func (p *egressProxy) originalUDPDestination(local, src netip.AddrPort) (netip.AddrPort, error) {
-	var query conntrack.Flow
-	query.TupleReply = conntrack.Tuple{
-		IP:    conntrack.IPTuple{SourceAddress: local.Addr(), DestinationAddress: src.Addr()},
-		Proto: conntrack.ProtoTuple{Protocol: unix.IPPROTO_UDP, SourcePort: local.Port(), DestinationPort: src.Port()},
-	}
-	entry, err := p.tracker.Get(query)
+	flows, err := p.tracker.Dump(nil)
 	if err != nil {
 		return netip.AddrPort{}, err
 	}
-	dst := netip.AddrPortFrom(entry.TupleOrig.IP.DestinationAddress.Unmap(), entry.TupleOrig.Proto.DestinationPort)
-	if !dst.IsValid() || dst == local {
-		return netip.AddrPort{}, errors.New("the datagram was not redirected")
+	for _, entry := range flows {
+		reply := entry.TupleReply
+		if reply.Proto.Protocol != unix.IPPROTO_UDP ||
+			reply.IP.SourceAddress.Unmap() != local.Addr() || reply.Proto.SourcePort != local.Port() ||
+			reply.IP.DestinationAddress.Unmap() != src.Addr() || reply.Proto.DestinationPort != src.Port() {
+			continue
+		}
+		dst := netip.AddrPortFrom(entry.TupleOrig.IP.DestinationAddress.Unmap(), entry.TupleOrig.Proto.DestinationPort)
+		if !dst.IsValid() || dst == local {
+			return netip.AddrPort{}, errors.New("the datagram was not redirected")
+		}
+		return dst, nil
 	}
-	return dst, nil
+	return netip.AddrPort{}, errors.New("the connection tracker holds no entry for the datagram")
 }
 
 func (p *egressProxy) forwardUDP(ctx context.Context, conn *net.UDPConn, src, local netip.AddrPort, payload []byte) {
@@ -558,6 +570,7 @@ func (p *egressProxy) forwardUDP(ctx context.Context, conn *net.UDPConn, src, lo
 	if !ok {
 		dst, err := p.originalUDPDestination(local, src)
 		if err != nil {
+			fmt.Fprintf(p.out, "sidecar: egress %s: datagram from %s to %s: no original destination: %v\n", p.cfg.gateway, src, local, err)
 			return
 		}
 		upstream, err := net.DialUDP("udp4", nil, net.UDPAddrFromAddrPort(dst))
@@ -585,11 +598,15 @@ func (p *egressProxy) forwardUDP(ctx context.Context, conn *net.UDPConn, src, lo
 			for {
 				n, err := upstream.Read(buf)
 				if err != nil {
+					if !errors.Is(err, net.ErrClosed) {
+						fmt.Fprintf(p.out, "sidecar: egress %s: read reply from %s: %v\n", p.cfg.gateway, dst, err)
+					}
 					return
 				}
 				uf.flow.bytesIn.Add(int64(n))
 				uf.flow.touch()
 				if _, err := conn.WriteToUDPAddrPort(buf[:n], src); err != nil {
+					fmt.Fprintf(p.out, "sidecar: egress %s: return reply to %s: %v\n", p.cfg.gateway, src, err)
 					return
 				}
 			}

@@ -25,7 +25,7 @@ import (
 
 const memberImage = "mirror.gcr.io/library/busybox:latest"
 
-const guestImage = "mirror.gcr.io/library/golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d"
+const guestImage = "mirror.gcr.io/library/golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c"
 
 // The agent's proof, on a host with /dev/kvm: the agent starts as a container
 // on an engine network, a guest built from an OCI image boots on that network
@@ -169,7 +169,10 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 	if addr, err := member.Address(execCtx); err != nil || addr != "10.79.0.10" {
 		t.Fatalf("the member's address is %q (%v), want the guest's", addr, err)
 	}
-	served, err := handle.Exec(execCtx, []string{"wget", "-qO-", "http://127.0.0.1:8080/hello"})
+	// "member up" precedes exec httpd, which signals nothing once it binds, so
+	// the first read retries the port until it answers.
+	served, err := handle.Exec(execCtx, []string{"sh", "-c",
+		"for try in $(seq 100); do wget -qO- http://127.0.0.1:8080/hello && exit 0; sleep 0.1; done; exit 1"})
 	if err != nil || served.ExitCode != 0 || strings.TrimSpace(served.Stdout) != "from the member" {
 		t.Fatalf("the first process read %+v (%v) from the member on localhost", served, err)
 	}

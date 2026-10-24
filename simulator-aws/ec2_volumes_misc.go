@@ -670,6 +670,8 @@ func handleCreateDefaultVpc(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// "Creates a default VPC with a size /16 IPv4 CIDR block and a default
+	// subnet in each Availability Zone."
 	vpc := EC2Vpc{
 		VpcId:              ec2ID("vpc"),
 		CidrBlock:          "172.31.0.0/16",
@@ -681,15 +683,17 @@ func handleCreateDefaultVpc(w http.ResponseWriter, r *http.Request) {
 		EnableDnsHostnames: true,
 	}
 	ec2Vpcs.Put(vpc.VpcId, vpc)
+	ec2DefaultVpcSubnets(vpc)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateDefaultVpcResponse %s><requestId>%s</requestId><vpc>%s</vpc></CreateDefaultVpcResponse>`,
 		ec2Xmlns(), sim.NewUUID(), vpcItemBodyXML(vpc))
 }
 
 func handleCreateDefaultSubnet(w http.ResponseWriter, r *http.Request) {
-	az := r.FormValue("AvailabilityZone")
-	if az == "" {
-		az = awsAvailabilityZone()
+	zone, _, code, message := ec2RequestZone(r.FormValue("AvailabilityZone"), r.FormValue("AvailabilityZoneId"))
+	if code != "" {
+		ec2ErrorXML(w, code, message, http.StatusBadRequest)
+		return
 	}
 	// A default subnet lives in the account's default VPC.
 	var defVpc EC2Vpc
@@ -705,17 +709,21 @@ func handleCreateDefaultSubnet(w http.ResponseWriter, r *http.Request) {
 		ec2ErrorXML(w, "DefaultVpcDoesNotExist", "No default VPC exists for this account in this region.", http.StatusBadRequest)
 		return
 	}
-	subnet := EC2Subnet{
-		SubnetId:                       ec2ID("subnet"),
-		VpcId:                          defVpc.VpcId,
-		CidrBlock:                      "172.31.0.0/20",
-		AvailabilityZone:               az,
-		AvailabilityZoneId:             ec2AvailabilityZoneId(az),
-		State:                          "available",
-		OwnerId:                        ec2Owner(),
-		MapPublicIpOnLaunch:            true,
-		PrivateDnsHostnameTypeOnLaunch: "ip-name",
+	// "You can have only one default subnet per Availability Zone."
+	for _, s := range ec2Subnets.Filter(func(s EC2Subnet) bool { return s.VpcId == defVpc.VpcId && s.DefaultForAz }) {
+		if s.AvailabilityZone == zone {
+			ec2ErrorXML(w, "DefaultSubnetAlreadyExistsInAvailabilityZone",
+				"A default subnet already exists in the specified Availability Zone. You can have only one default subnet per Availability Zone.",
+				http.StatusBadRequest)
+			return
+		}
 	}
+	cidr, ok := ec2FreeDefaultSubnetBlock(defVpc)
+	if !ok {
+		ec2ErrorXML(w, "InvalidSubnet.Conflict", fmt.Sprintf("Every /20 of the default VPC %s conflicts with that of another subnet", defVpc.VpcId), http.StatusBadRequest)
+		return
+	}
+	subnet := ec2NewDefaultSubnet(ec2ID("subnet"), defVpc.VpcId, zone, cidr, true)
 	ec2Subnets.Put(subnet.SubnetId, subnet)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<CreateDefaultSubnetResponse %s><requestId>%s</requestId><subnet>%s</subnet></CreateDefaultSubnetResponse>`,

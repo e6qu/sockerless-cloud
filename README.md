@@ -80,6 +80,7 @@ Environment knobs (per sim — full list in each sub-README):
 | `SIM_LISTEN_ADDR` | `:4566` / `:4567` / `:4568` | Listen address |
 | `SIM_AWS_PORT` / `SIM_GCP_PORT` / `SIM_AZURE_PORT` | unset | Port to listen on, ahead of `SIM_LISTEN_ADDR` |
 | `SIM_TLS_CERT`, `SIM_TLS_KEY` | unset | Enable HTTPS (required by some Terraform providers — see [`simulator-azure/README.md § Special handling`](simulator-azure/README.md)) |
+| `SIM_CALLBACK_LISTEN_ADDR` | a free port on every interface | With TLS on, the plain-HTTP address the simulator also serves on for the workloads it places: their network sidecars forward instance metadata and identity requests there, which a container reaches without the operator's certificate authority. Without TLS the one listener serves everything. |
 | `SIM_RUNTIME` | `docker` | Workload runtime mode. The default initializes Docker/Podman for execution. Set `process` only for explicit API-only runs that do not invoke workload-execution APIs. |
 | `SIM_PERSIST` | `false` | `true` keeps state, payloads and running workloads across restarts. |
 | `SIM_DATA_DIR` | temporary directory | Root of the SQLite store and the bulk-data directories. |

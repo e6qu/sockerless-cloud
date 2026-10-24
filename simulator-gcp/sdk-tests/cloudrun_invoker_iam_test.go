@@ -272,12 +272,24 @@ func TestSDK_CloudRunV2Services_InvokerBindingConditions(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, status, "an expired grant must not admit the principal")
 	revokeOnService(t, client, svc.Name, "roles/run.invoker", member)
 
+	// Cloud Run is outside the IAM Conditions resource attribute reference:
+	// its conditions read the request, and one that reads resource.type or
+	// resource.name cannot be satisfied on a service, so the grant admits no
+	// one.
 	grantOnService(t, client, svc.Name, "roles/run.invoker", member, &expr.Expr{
 		Title:      "this service",
 		Expression: fmt.Sprintf(`resource.type == "run.googleapis.com/Service" && resource.name == %q`, svc.Name),
 	})
+	status, _, _ = invokeService(t, token, svc.Uri, http.MethodGet, "/", "")
+	assert.Equal(t, http.StatusForbidden, status, "a condition on resource attributes Cloud Run does not supply grants nothing")
+	revokeOnService(t, client, svc.Name, "roles/run.invoker", member)
+
+	grantOnService(t, client, svc.Name, "roles/run.invoker", member, &expr.Expr{
+		Title:      "current",
+		Expression: `request.time > timestamp("2001-01-01T00:00:00Z")`,
+	})
 	status, _, body := invokeService(t, token, svc.Uri, http.MethodGet, "/", "")
-	assert.Equal(t, http.StatusOK, status, "a condition naming the service admits the principal: %q", body)
+	assert.Equal(t, http.StatusOK, status, "a condition that holds admits the principal: %q", body)
 
 	// The same condition on the project grants nothing on another service.
 	editProjectPolicy(t, "test-project", func(policy *cloudresourcemanager.Policy) {

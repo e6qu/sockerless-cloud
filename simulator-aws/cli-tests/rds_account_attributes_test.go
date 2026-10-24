@@ -1,6 +1,7 @@
 package aws_cli_test
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -48,6 +49,21 @@ func TestRDSCLI_AccountAttributes(t *testing.T) {
 	assert.Equal(t, int64(40), base["DBInstances"][1])
 	assert.Equal(t, int64(100000), base["AllocatedStorage"][1])
 
+	// A reservation of one DB instance in each of two Availability Zones
+	// counts two against the DBInstances quota while nothing uses it.
+	reservation := "cli-acct-attr-reservation"
+	t.Cleanup(func() {
+		_ = awsCLI("rds", "cancel-db-capacity-reservation", "--db-capacity-reservation-identifier", reservation).Run()
+	})
+	runCLI(t, awsCLI("rds", "create-db-capacity-reservation",
+		"--db-capacity-reservation-name", reservation,
+		"--db-instance-class", "db.t3.micro",
+		"--engine", "postgres",
+		"--capacity-per-availability-zone", "1",
+		"--availability-zones", "us-east-1a", "us-east-1b"))
+	assert.Equal(t, base["DBInstances"][0]+2, rdsAccountAttributes(t)["DBInstances"][0],
+		"DBInstances usage must count the unused capacity of the reservation")
+
 	instID := "cli-acct-attr-db"
 	t.Cleanup(func() {
 		_ = awsCLI("rds", "delete-db-instance",
@@ -59,11 +75,25 @@ func TestRDSCLI_AccountAttributes(t *testing.T) {
 		"--db-instance-class", "db.t3.micro",
 		"--allocated-storage", "45",
 		"--master-username", "admin",
-		"--master-user-password", "password123!"))
+		"--master-user-password", "password123!",
+		"--db-capacity-reservation-identifier", reservation))
 
 	now := rdsAccountAttributes(t)
-	assert.Equal(t, base["DBInstances"][0]+1, now["DBInstances"][0],
-		"DBInstances usage must count the new DB instance")
+	assert.Equal(t, base["DBInstances"][0]+2, now["DBInstances"][0],
+		"a DB instance that takes a unit of reserved capacity leaves DBInstances usage where it was")
 	assert.Equal(t, base["AllocatedStorage"][0]+45, now["AllocatedStorage"][0],
 		"AllocatedStorage usage must add the new instance's allocated storage")
+
+	// A reservation whose capacity would exceed the remaining quota is refused.
+	remaining := now["DBInstances"][1] - now["DBInstances"][0]
+	assert.Contains(t, runCLIExpectError(t, awsCLI("rds", "create-db-capacity-reservation",
+		"--db-capacity-reservation-name", "cli-acct-attr-over-quota",
+		"--db-instance-class", "db.t3.micro",
+		"--engine", "postgres",
+		"--capacity-per-availability-zone", strconv.FormatInt(remaining+1, 10),
+		"--availability-zones", "us-east-1c")), "InstanceQuotaExceeded")
+
+	runCLI(t, awsCLI("rds", "cancel-db-capacity-reservation", "--db-capacity-reservation-identifier", reservation))
+	assert.Equal(t, base["DBInstances"][0]+1, rdsAccountAttributes(t)["DBInstances"][0],
+		"a cancelled reservation no longer counts; the DB instance does")
 }

@@ -30,6 +30,7 @@ func TestEC2InstanceTerraform(t *testing.T) {
 	assert.Equal(t, outputs["captured_ami"].Value, outputs["clone_ami"].Value)
 	assert.Equal(t, "terminate", outputs["clone_shutdown_behavior"].Value)
 	assert.Equal(t, "stop", outputs["golden_shutdown_behavior"].Value)
+	assert.NotEmpty(t, outputs["association_id"].Value, "the association targets the instance SSM Agent registered under its profile")
 	env.Terraform(t, "plan", "-detailed-exitcode")
 
 	env.Terraform(t, "destroy", "-auto-approve")

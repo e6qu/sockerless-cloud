@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,7 @@ type RDSInstance struct {
 	AvailabilityZone     string
 	InstanceCreateTime   string
 	ARN                  string
+	Region               string
 	// ReadReplicaSource is the source DB instance identifier when this
 	// instance is a read replica (created by CreateDBInstanceReadReplica);
 	// empty for primary instances.
@@ -127,6 +129,7 @@ type RDSInstance struct {
 	Iops                    int    `json:",omitempty"`
 	StorageThroughput       int    `json:",omitempty"`
 	DBSubnetGroupName       string `json:",omitempty"`
+	LicenseModel            string `json:",omitempty"`
 	OptionGroupName         string `json:",omitempty"`
 	CACertificateIdentifier string `json:",omitempty"`
 	// ServerCertificateValidTill is when the server certificate the endpoint
@@ -262,8 +265,21 @@ type RDSSubnetGroup struct {
 	VpcId                    string
 	SubnetGroupStatus        string
 	SubnetIds                []string
-	ARN                      string
-	Tags                     map[string]string
+	// SubnetZones are the Availability Zones of SubnetIds, in the same order.
+	SubnetZones []string
+	ARN         string
+	Tags        map[string]string
+}
+
+// Zones are the distinct Availability Zones the group's subnets cover.
+func (g RDSSubnetGroup) Zones() []string {
+	var zones []string
+	for _, zone := range g.SubnetZones {
+		if !slices.Contains(zones, zone) {
+			zones = append(zones, zone)
+		}
+	}
+	return zones
 }
 
 // RDSParamGroup models a DB parameter group. Parameters holds the values
@@ -530,7 +546,7 @@ func rdsRequestedBool(r *http.Request, name string) *bool {
 }
 
 func rdsInstanceARN(id string) string {
-	return fmt.Sprintf("arn:aws:rds:%s:%s:db:%s", awsRegion(), awsAccountID(), id)
+	return rdsInstanceARNIn(awsRegion(), id)
 }
 
 func rdsResourceID() string {
@@ -560,6 +576,9 @@ func renderRDSInstance(i RDSInstance) string {
 	fmt.Fprintf(&b, "<DBInstanceClass>%s</DBInstanceClass>", xmlEscape(i.DBInstanceClass))
 	fmt.Fprintf(&b, "<Engine>%s</Engine>", xmlEscape(i.Engine))
 	fmt.Fprintf(&b, "<EngineVersion>%s</EngineVersion>", xmlEscape(i.EngineVersion))
+	if i.LicenseModel != "" {
+		fmt.Fprintf(&b, "<LicenseModel>%s</LicenseModel>", xmlEscape(i.LicenseModel))
+	}
 	fmt.Fprintf(&b, "<DBInstanceStatus>%s</DBInstanceStatus>", xmlEscape(i.DBInstanceStatus))
 	if i.DBClusterIdentifier != "" {
 		fmt.Fprintf(&b, "<DBClusterIdentifier>%s</DBClusterIdentifier>", xmlEscape(i.DBClusterIdentifier))
@@ -658,7 +677,7 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 	if p := atoiOrZero(r.FormValue("Port")); p > 0 {
 		port = p
 	}
-	az := awsRegion() + "a"
+	az := rdsRequestRegion(r) + "a"
 	if v := r.FormValue("AvailabilityZone"); v != "" {
 		az = v
 	}
@@ -696,15 +715,14 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 			DBInstanceStatus:                "available",
 			MasterUsername:                  cluster.MasterUsername,
 			DBName:                          cluster.DatabaseName,
-			Endpoint:                        fmt.Sprintf("%s.%s.rds.amazonaws.com", id, awsRegion()),
 			Port:                            cluster.Port,
 			AvailabilityZone:                az,
 			InstanceCreateTime:              time.Now().UTC().Format(time.RFC3339),
-			ARN:                             rdsInstanceARN(id),
 			Tags:                            parseAWSQueryTagMap(r, "Tags.Tag"),
 			EnableIAMDatabaseAuthentication: cluster.EnableIAMDatabaseAuthentication,
 			DBClusterIdentifier:             clusterID,
 		}
+		rdsPlaceInstance(r, &inst)
 		groupName, code, message := rdsInstanceParameterGroup(r.FormValue("DBParameterGroupName"), inst.Engine, inst.EngineVersion)
 		if code != "" {
 			rdsErrorXML(w, code, message, rdsParameterGroupErrorStatus(code), sim.RequestID(r.Context()))
@@ -727,6 +745,12 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer releaseCapacity()
+		releaseQuota, code, message := rdsClaimInstanceQuota(inst.region(), id)
+		if code != "" {
+			rdsErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
+			return
+		}
+		defer releaseQuota()
 		if err := rdsInstallAuroraInstanceEndpoint(&inst); err != nil {
 			rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
 			return
@@ -765,17 +789,16 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 		MasterUsername:                  r.FormValue("MasterUsername"),
 		DBName:                          r.FormValue("DBName"),
 		AllocatedStorage:                atoiOrZero(r.FormValue("AllocatedStorage")),
-		Endpoint:                        fmt.Sprintf("%s.%s.rds.amazonaws.com", id, awsRegion()),
 		Port:                            port,
 		AvailabilityZone:                az,
 		InstanceCreateTime:              time.Now().UTC().Format(time.RFC3339),
-		ARN:                             rdsInstanceARN(id),
 		Tags:                            parseAWSQueryTagMap(r, "Tags.Tag"),
 		EnableIAMDatabaseAuthentication: strings.EqualFold(r.FormValue("EnableIAMDatabaseAuthentication"), "true"),
 		DeletionProtection:              strings.EqualFold(r.FormValue("DeletionProtection"), "true"),
 		DBClusterIdentifier:             clusterID,
 		BackupTarget:                    rdsRequestedBackupTarget(r),
 	}
+	rdsPlaceInstance(r, &inst)
 	if code, message := rdsRequestedInstanceSettings(r, &inst); code != "" {
 		rdsErrorXML(w, code, message, rdsInstanceSettingsErrorStatus(code), sim.RequestID(r.Context()))
 		return
@@ -786,6 +809,12 @@ func handleRDSCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseCapacity()
+	releaseQuota, code, message := rdsClaimInstanceQuota(inst.region(), id)
+	if code != "" {
+		rdsErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	defer releaseQuota()
 	if err := rdsInstallDataPlane(&inst, r.FormValue("MasterUserPassword")); err != nil {
 		rdsErrorXML(w, "ProvisioningFailure", err.Error(), http.StatusInternalServerError, sim.RequestID(r.Context()))
 		return
@@ -799,9 +828,13 @@ func handleRDSDescribe(w http.ResponseWriter, r *http.Request) {
 	wanted := r.FormValue("DBInstanceIdentifier")
 	wantedResourceID := rdsFilterValue(r, "dbi-resource-id")
 	matched := false
+	region := rdsRequestRegion(r)
 	var b strings.Builder
 	b.WriteString("<DBInstances>")
 	for _, i := range rdsInstances.List() {
+		if i.region() != region {
+			continue
+		}
 		if wanted != "" && i.DBInstanceIdentifier != wanted && i.DbiResourceId != wanted {
 			continue
 		}
@@ -823,7 +856,7 @@ func handleRDSDescribe(w http.ResponseWriter, r *http.Request) {
 
 func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBInstanceIdentifier")
-	instance, ok := rdsInstances.Get(id)
+	instance, ok := rdsInstanceIn(r, id)
 	if !ok {
 		rdsErrorXML(w, "DBInstanceNotFound", "DB instance not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
@@ -956,7 +989,7 @@ func handleRDSModify(w http.ResponseWriter, r *http.Request) {
 
 func handleRDSDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBInstanceIdentifier")
-	inst, ok := rdsInstances.Get(id)
+	inst, ok := rdsInstanceIn(r, id)
 	if !ok {
 		rdsErrorXML(w, "DBInstanceNotFound", "DB instance not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
@@ -1416,7 +1449,7 @@ func handleRDSCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	inst, ok := rdsInstances.Get(instID)
+	inst, ok := rdsInstanceIn(r, instID)
 	if !ok {
 		rdsErrorXML(w, "DBInstanceNotFound",
 			fmt.Sprintf("DBInstance %q not found", instID),
@@ -1617,9 +1650,10 @@ func handleRDSRestoreFromSnapshot(w http.ResponseWriter, r *http.Request) {
 		MasterUsername:             snap.MasterUsername,
 		DBName:                     snap.DBName,
 		AllocatedStorage:           snap.AllocatedStorage,
-		AvailabilityZone:           awsRegion() + "a",
+		AvailabilityZone:           rdsRequestRegion(r) + "a",
 		InstanceCreateTime:         time.Now().UTC().Format(time.RFC3339),
-		ARN:                        rdsInstanceARN(newInstID),
+		Region:                     rdsRequestRegion(r),
+		ARN:                        rdsInstanceARNIn(rdsRequestRegion(r), newInstID),
 		Tags:                       parseAWSQueryTagMap(r, "Tags.Tag"),
 		BackupTarget:               rdsRequestedBackupTarget(r),
 		// The engine starts with the credentials the captured data was
@@ -1636,6 +1670,12 @@ func handleRDSRestoreFromSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseCapacity()
+	releaseQuota, code, message := rdsClaimInstanceQuota(inst.region(), newInstID)
+	if code != "" {
+		rdsErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
+	defer releaseQuota()
 	// The captured data is cloned into the new instance's volume before the
 	// engine can first start, so the restored engine boots on the snapshot's
 	// data. A snapshot taken on the modeled tier has no volume and seeds
@@ -1659,7 +1699,7 @@ func handleRDSRestoreFromSnapshot(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// A snapshot from the modeled tier carries no credential and gets no
 		// data plane, the same as its source had.
-		inst.Endpoint = fmt.Sprintf("%s.%s.rds.amazonaws.com", newInstID, awsRegion())
+		inst.Endpoint = rdsInstanceEndpointIn(inst.region(), newInstID)
 		inst.Port = rdsDefaultPort(snap.Engine)
 	}
 	rdsInstances.Put(newInstID, inst)
@@ -1669,7 +1709,7 @@ func handleRDSRestoreFromSnapshot(w http.ResponseWriter, r *http.Request) {
 
 func handleRDSReboot(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBInstanceIdentifier")
-	inst, ok := rdsInstances.Get(id)
+	inst, ok := rdsInstanceIn(r, id)
 	if !ok {
 		rdsErrorXML(w, "DBInstanceNotFound", "DB instance not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
@@ -2146,16 +2186,41 @@ func renderRDSSubnetGroup(g RDSSubnetGroup) string {
 	fmt.Fprintf(&b, "<DBSubnetGroupArn>%s</DBSubnetGroupArn>", xmlEscape(g.ARN))
 	b.WriteString("<Subnets>")
 	for i, sid := range g.SubnetIds {
-		az := awsRegion() + string(rune('a'+i%3))
 		b.WriteString("<Subnet>")
 		fmt.Fprintf(&b, "<SubnetIdentifier>%s</SubnetIdentifier>", xmlEscape(sid))
-		fmt.Fprintf(&b, "<SubnetAvailabilityZone><Name>%s</Name></SubnetAvailabilityZone>", xmlEscape(az))
+		if i < len(g.SubnetZones) {
+			fmt.Fprintf(&b, "<SubnetAvailabilityZone><Name>%s</Name></SubnetAvailabilityZone>", xmlEscape(g.SubnetZones[i]))
+		}
 		b.WriteString("<SubnetStatus>Active</SubnetStatus>")
 		b.WriteString("</Subnet>")
 	}
 	b.WriteString("</Subnets>")
 	b.WriteString("</DBSubnetGroup>")
 	return b.String()
+}
+
+// rdsSubnetGroupSubnets resolves the Amazon EC2 subnets a DB subnet group
+// names: they must exist, share one VPC and cover two or more Availability
+// Zones.
+func rdsSubnetGroupSubnets(ids []string) (vpcID string, zones []string, code, message string) {
+	if len(ids) == 0 {
+		return "", nil, "InvalidParameterValue", "The parameter SubnetIds must be provided and must not be blank."
+	}
+	for _, id := range ids {
+		subnet, ok := ec2Subnets.Get(id)
+		if !ok {
+			return "", nil, "InvalidSubnet", fmt.Sprintf("The subnet ID '%s' does not exist", id)
+		}
+		if vpcID != "" && subnet.VpcId != vpcID {
+			return "", nil, "InvalidSubnet", "The requested subnet is invalid, or multiple subnets were requested that are not all in a common VPC."
+		}
+		vpcID = subnet.VpcId
+		zones = append(zones, subnet.AvailabilityZone)
+	}
+	if len(RDSSubnetGroup{SubnetZones: zones}.Zones()) < 2 {
+		return "", nil, "DBSubnetGroupDoesNotCoverEnoughAZs", "Subnets in the DB subnet group should cover at least two Availability Zones unless there is only one Availability Zone."
+	}
+	return vpcID, zones, "", ""
 }
 
 func handleRDSCreateSubnetGroup(w http.ResponseWriter, r *http.Request) {
@@ -2168,16 +2233,19 @@ func handleRDSCreateSubnetGroup(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "DBSubnetGroupAlreadyExists", "DB subnet group already exists", http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
-	vpcID := r.FormValue("VpcId")
-	if vpcID == "" {
-		vpcID = "vpc-" + strings.ReplaceAll(sim.NewUUID(), "-", "")[:17]
+	ids := parseRDSSubnetIDs(r)
+	vpcID, zones, code, message := rdsSubnetGroupSubnets(ids)
+	if code != "" {
+		rdsErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
 	}
 	g := RDSSubnetGroup{
 		DBSubnetGroupName:        name,
 		DBSubnetGroupDescription: r.FormValue("DBSubnetGroupDescription"),
 		VpcId:                    vpcID,
 		SubnetGroupStatus:        "Complete",
-		SubnetIds:                parseRDSSubnetIDs(r),
+		SubnetIds:                ids,
+		SubnetZones:              zones,
 		ARN:                      rdsSubnetGroupARN(name),
 		Tags:                     parseAWSQueryTagMap(r, "Tags.Tag"),
 	}
@@ -2213,13 +2281,17 @@ func handleRDSModifySubnetGroup(w http.ResponseWriter, r *http.Request) {
 		rdsErrorXML(w, "DBSubnetGroupNotFoundFault", "DB subnet group not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
+	ids := parseRDSSubnetIDs(r)
+	vpcID, zones, code, message := rdsSubnetGroupSubnets(ids)
+	if code != "" {
+		rdsErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	rdsSubnetGroups.Update(name, func(g *RDSSubnetGroup) {
 		if v := r.FormValue("DBSubnetGroupDescription"); v != "" {
 			g.DBSubnetGroupDescription = v
 		}
-		if ids := parseRDSSubnetIDs(r); len(ids) > 0 {
-			g.SubnetIds = ids
-		}
+		g.VpcId, g.SubnetIds, g.SubnetZones = vpcID, ids, zones
 	})
 	updated, _ := rdsSubnetGroups.Get(name)
 	rdsXMLResponse(w, "ModifyDBSubnetGroup", renderRDSSubnetGroup(updated), sim.RequestID(r.Context()))
@@ -2902,7 +2974,7 @@ func rdsRequireInstanceState(w http.ResponseWriter, r *http.Request, instance RD
 
 func handleRDSStartInstance(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBInstanceIdentifier")
-	if _, ok := rdsInstances.Get(id); !ok {
+	if _, ok := rdsInstanceIn(r, id); !ok {
 		rdsErrorXML(w, "DBInstanceNotFound", "DB instance not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
@@ -2931,7 +3003,7 @@ func handleRDSStartInstance(w http.ResponseWriter, r *http.Request) {
 
 func handleRDSStopInstance(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBInstanceIdentifier")
-	instance, ok := rdsInstances.Get(id)
+	instance, ok := rdsInstanceIn(r, id)
 	if !ok {
 		rdsErrorXML(w, "DBInstanceNotFound", "DB instance not found", http.StatusNotFound, sim.RequestID(r.Context()))
 		return

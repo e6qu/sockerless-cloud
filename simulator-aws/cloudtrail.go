@@ -944,7 +944,9 @@ func cloudTrailRecordedRESTDynamic(eventName cloudTrailRESTEventNameFunc, source
 			r.Body = io.NopCloser(bytes.NewReader(body))
 		}
 		rec := &cloudTrailStatusRecorder{ResponseWriter: w}
-		handler(rec, r)
+		if iamEnforceRESTRoute(rec, r, source) {
+			handler(rec, r)
+		}
 		if cloudTrailEvents == nil || rec.statusCode() >= 500 {
 			return
 		}

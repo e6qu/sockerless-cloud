@@ -45,7 +45,8 @@ func TestEC2_InstanceRunsItsCloudConfig(t *testing.T) {
 	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
 		ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: subnet, KeyName: aws.String(keyName),
-		UserData: aws.String(base64.StdEncoding.EncodeToString([]byte(userData))),
+		IamInstanceProfile: ssmManagedProfileSpec(t),
+		UserData:           aws.String(base64.StdEncoding.EncodeToString([]byte(userData))),
 	})
 	require.NoError(t, err)
 	terminateEC2InstancesOnCleanup(t, c, run)

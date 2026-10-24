@@ -64,7 +64,7 @@ func TestStepFunctionsAmazonECSSynchronousTaskSurvivesSimulatorRestart_SDK(t *te
 	machine, err := statesAPI.CreateStateMachine(testCtx, &sfn.CreateStateMachineInput{
 		Name:       aws.String("persistent-step-functions-ecs"),
 		Definition: aws.String(string(definition)),
-		RoleArn:    aws.String(persistentServiceRole(t, endpoint, "persistent-step-functions", "states.amazonaws.com", "ecs:RunTask")),
+		RoleArn:    aws.String(persistentServiceRole(t, endpoint, "persistent-step-functions", "states.amazonaws.com", "ecs:RunTask", "ecs:DescribeTasks")),
 	})
 	require.NoError(t, err)
 	execution, err := statesAPI.StartExecution(testCtx, &sfn.StartExecutionInput{

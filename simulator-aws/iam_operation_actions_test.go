@@ -184,6 +184,7 @@ func TestOperationsAreAuthorizedAsTheirActions(t *testing.T) {
 		loadBalancer   = "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/50dc6c495c0c9188"
 		listener       = "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/web/50dc6c495c0c9188/f2f7dc8efc522ab2"
 		taskDefinition = "arn:aws:ecs:us-east-1:123456789012:task-definition/web:3"
+		fileSystems    = "arn:aws:elasticfilesystem:us-east-1:123456789012:file-system/*"
 	)
 	for name, tc := range map[string]struct {
 		r                  *http.Request
@@ -215,6 +216,15 @@ func TestOperationsAreAuthorizedAsTheirActions(t *testing.T) {
 		"a budget with tags also tags": {
 			jsonRequest(`{"ResourceTags":[{"Key":"k","Value":"v"}]}`), "budgets", "CreateBudget", []string{budget},
 			[]string{"budgets:ModifyBudget " + budget, "budgets:TagResource " + budget},
+		},
+		"a tagged Amazon EFS file system also tags the file system": {
+			jsonRequest(`{"CreationToken":"a","Tags":[{"Key":"team","Value":"a"}]}`), "elasticfilesystem", "CreateFileSystem",
+			[]string{fileSystems},
+			[]string{"elasticfilesystem:CreateFileSystem " + fileSystems, "elasticfilesystem:TagResource " + fileSystems},
+		},
+		"an untagged Amazon EFS file system tags nothing": {
+			jsonRequest(`{"CreationToken":"a"}`), "elasticfilesystem", "CreateFileSystem", []string{fileSystems},
+			[]string{"elasticfilesystem:CreateFileSystem " + fileSystems},
 		},
 		"a budget without tags tags nothing": {
 			jsonRequest(`{}`), "budgets", "CreateBudget", []string{budget},
