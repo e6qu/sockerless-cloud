@@ -629,3 +629,90 @@ func TestFederationSubjectExposesTheAssertionToTheConsole(t *testing.T) {
 		t.Fatalf("federation-subject omitted the assertion: %s", recorder.Body.String())
 	}
 }
+
+// TestCallbackAcceptsAnIDTokenWithoutAccessTokenHash pins OpenID Connect Core
+// 3.1.3.6: at_hash is optional in the authorization code flow, and Microsoft
+// Entra ID omits it there. A present at_hash must still match.
+func TestCallbackAcceptsAnIDTokenWithoutAccessTokenHash(t *testing.T) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.RS256, Key: privateKey}, (&jose.SignerOptions{}).WithHeader("kid", "key-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var issuer, atHash string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"issuer": issuer, "authorization_endpoint": issuer + "/authorize",
+			"token_endpoint": issuer + "/token", "jwks_uri": issuer + "/keys",
+		})
+	})
+	mux.HandleFunc("/keys", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{Key: privateKey.Public(), KeyID: "key-1", Algorithm: "RS256", Use: "sig"}}})
+	})
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		now := time.Now()
+		claims := map[string]any{
+			"iss": issuer, "sub": "operator", "aud": "simulator-test", "nonce": "nonce-1",
+			"iat": now.Unix(), "exp": now.Add(time.Hour).Unix(), "name": "Operator",
+		}
+		if atHash != "" {
+			claims["at_hash"] = atHash
+		}
+		payload, err := json.Marshal(claims)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		signed, err := signer.Sign(payload)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		raw, err := signed.CompactSerialize()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "issued-access-token", "token_type": "Bearer", "expires_in": 3600, "id_token": raw})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	issuer = server.URL
+
+	config := testConfig()
+	config.Issuer = issuer
+	config.InsecureCookies = true
+	auth, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	callback := func() *httptest.ResponseRecorder {
+		t.Helper()
+		tx := transaction{State: "state-1", Nonce: "nonce-1", Verifier: "verifier-1", ReturnTo: "/ui/", Expires: time.Now().Add(time.Minute).Unix()}
+		value, err := auth.sign(tx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodGet, CallbackPath+"?state=state-1&code=auth-code-1", nil)
+		request.AddCookie(&http.Cookie{Name: auth.transactionCookieName(), Value: value})
+		recorder := httptest.NewRecorder()
+		auth.callback(recorder, request)
+		return recorder
+	}
+
+	if recorder := callback(); recorder.Code != http.StatusFound || recorder.Header().Get("Location") != "/ui/" {
+		t.Fatalf("callback without at_hash = %d %q, want 302 to /ui/: %s", recorder.Code, recorder.Header().Get("Location"), recorder.Body.String())
+	}
+
+	atHash = "bWlzbWF0Y2hlZC1oYXNo"
+	if recorder := callback(); recorder.Code != http.StatusForbidden {
+		t.Fatalf("callback with a mismatched at_hash = %d, want 403", recorder.Code)
+	}
+}
