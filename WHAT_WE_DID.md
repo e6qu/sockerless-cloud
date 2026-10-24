@@ -4868,3 +4868,30 @@ Hub and its mirror serve: `alpine:3.24`, `amazonlinux:2023` and
 `golang:1.27-alpine`, with the sidecar and node agent builders moving from
 `golang:1.27.2-alpine` to `golang:1.27.3-alpine`. Provider 6.70.0 still
 exposes no alarm `ActionConfiguration` and no Amazon ECS gateway resource.
+
+### Cloud Logging audits itself, and model-required members are always reported
+
+Cloud Logging's own configuration calls (CreateBucket, CreateView, CreateSink)
+write Admin Activity audit entries to the project's `_Required` bucket, as the
+service does, so the logging tests that read a whole project or bucket now set
+those audit entries aside and read only the entries they wrote. Amazon ECS
+`DescribeServiceRevisions` reports every Express ingress path's `endpoint`, a
+failed load balancer's `scheme` and a target group's `port`, `healthCheckPort`
+and `healthCheckPath` whether or not the resource was provisioned, as the
+model requires, and Systems Manager `ListNodes` leaves out a node's members it
+has no value for, as InstanceInformation already did. Azure's virtual machine
+metadata test gives its machine a system-assigned identity, since IMDS answers
+`identity/info` only for a machine that has one, and the App Service
+Environment recommendations test places its subnet inside its own virtual
+network. The Step Functions Terraform workflow's role holds the
+`ecs:DescribeTasks` and `ecs:StopTask` its `.sync` wait calls, and the
+conformance list covers the IMDS `ipv4-associations` routes.
+
+### A create abandoned mid-request leaves no container
+
+A machine discarded while its boot was still creating the container could
+leave that container behind: the boot's context ended after the engine had
+accepted the create, so the client returned the context's error and no
+identifier, and Discard had nothing to remove. A create that fails because its
+context ended now removes the container the engine may have made under the
+workload's name, as a failed start or seed already did.

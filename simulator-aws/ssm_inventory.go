@@ -894,6 +894,16 @@ func handleSSMListNodes(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]map[string]any, 0, len(page))
 	for _, m := range page {
+		instance := map[string]any{"AgentType": "amazon-ssm-agent", "ManagedStatus": "Managed"}
+		for key, value := range map[string]string{
+			"AgentVersion": m.AgentVersion, "ComputerName": m.ComputerName, "InstanceStatus": m.PingStatus,
+			"IpAddress": m.IPAddress, "PlatformType": m.PlatformType, "PlatformName": m.PlatformName,
+			"PlatformVersion": m.PlatformVersion, "ResourceType": m.ResourceType,
+		} {
+			if value != "" {
+				instance[key] = value
+			}
+		}
 		out = append(out, map[string]any{
 			"Id":          m.InstanceId,
 			"CaptureTime": m.LastPingDateTime,
@@ -901,20 +911,7 @@ func handleSSMListNodes(w http.ResponseWriter, r *http.Request) {
 			"Owner": map[string]any{
 				"AccountId": awsAccountID(),
 			},
-			"NodeType": map[string]any{
-				"Instance": map[string]any{
-					"AgentType":       "amazon-ssm-agent",
-					"AgentVersion":    m.AgentVersion,
-					"ComputerName":    m.ComputerName,
-					"InstanceStatus":  m.PingStatus,
-					"IpAddress":       m.IPAddress,
-					"ManagedStatus":   "Managed",
-					"PlatformType":    m.PlatformType,
-					"PlatformName":    m.PlatformName,
-					"PlatformVersion": m.PlatformVersion,
-					"ResourceType":    m.ResourceType,
-				},
-			},
+			"NodeType": map[string]any{"Instance": instance},
 		})
 	}
 	resp := map[string]any{"Nodes": out}

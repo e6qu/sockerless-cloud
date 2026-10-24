@@ -16,11 +16,22 @@ func loggingPayloads(t *testing.T, srv *sim.Server, resourceName string) []strin
 	var payloads []string
 	for _, e := range entries {
 		entry, _ := e.(map[string]any)
+		if loggingIsAuditEntry(entry) {
+			continue
+		}
 		payload, _ := entry["textPayload"].(string)
 		payloads = append(payloads, payload)
 	}
 	slices.Sort(payloads)
 	return payloads
+}
+
+// loggingIsAuditEntry reports whether entry is an audit log entry Cloud
+// Logging wrote for a call the test made, such as its own CreateSink, rather
+// than an entry the test wrote.
+func loggingIsAuditEntry(entry map[string]any) bool {
+	proto, _ := entry["protoPayload"].(map[string]any)
+	return proto["@type"] == "type.googleapis.com/google.cloud.audit.AuditLog"
 }
 
 // A scope starts with the _Required and _Default buckets and the sinks that

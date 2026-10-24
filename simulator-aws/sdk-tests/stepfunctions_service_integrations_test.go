@@ -908,7 +908,7 @@ timeout -s TERM 120 terraform apply -auto-approve -input=false -no-color`,
 	machine, err := statesAPI.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String("sfn-terraform-apply"),
 		Definition: aws.String(string(definition)),
-		RoleArn:    aws.String(statesRole(t, "ecs:RunTask")),
+		RoleArn:    aws.String(statesRole(t, "ecs:RunTask", "ecs:DescribeTasks", "ecs:StopTask")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {

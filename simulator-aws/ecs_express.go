@@ -795,10 +795,13 @@ func expressServicesOnLoadBalancer(lbArn, exceptServiceArn string) []ECSExpressS
 // infrastructure role, and returns the security groups its tasks run in. A
 // refusal is recorded on the resource refused; the resources that need it are
 // not attempted.
+// expressLoadBalancerScheme is the scheme of every Express service's load
+// balancer, since an Express service is PUBLIC.
+const expressLoadBalancerScheme = "internet-facing"
+
 func expressProvisionIngress(client ecsGatewayClient, svc *ECSExpressService, subnets, callerSecurityGroups []string, port int, healthCheckPath string) []string {
-	scheme := "internet-facing"
 	vpc, _ := ecsSubnetsPlacement(subnets)
-	lb, ok := expressEnsureLoadBalancer(client, svc, scheme, subnets, callerSecurityGroups, vpc)
+	lb, ok := expressEnsureLoadBalancer(client, svc, expressLoadBalancerScheme, subnets, callerSecurityGroups, vpc)
 	securityGroups := callerSecurityGroups
 	if len(securityGroups) == 0 && ok {
 		securityGroups = expressCreateServiceSecurityGroup(client, svc, vpc, lb.SecurityGroupID, port)
@@ -1011,13 +1014,13 @@ func expressCreateTargetGroup(client ecsGatewayClient, svc *ECSExpressService, v
 		"Matcher.HttpCode":           {"200"},
 	}
 	ecsGatewayELBTags(form, expressManagedTags())
+	svc.TargetGroupPort = port
 	body, failure := client.elb("CreateTargetGroup", form)
 	if failure != nil {
 		svc.TargetGroup.fail(failure)
 		return failure
 	}
 	svc.TargetGroup = expressResourceActive(awsXMLText(body, "TargetGroupArn"))
-	svc.TargetGroupPort = port
 	return nil
 }
 
@@ -1364,9 +1367,8 @@ func ecsExpressManagedResourcesJSON(revisionArn string) map[string]any {
 		}
 		return out
 	}
-	path := map[string]any{"accessType": svc.AccessType}
+	path := map[string]any{"accessType": svc.AccessType, "endpoint": "https://" + svc.Hostname}
 	if lb, ok := ecsExpressLoadBalancers.Get(svc.LoadBalancerArn); ok {
-		path["endpoint"] = "https://" + svc.Hostname
 		path["loadBalancer"] = resource(lb.LoadBalancer, map[string]any{
 			"scheme": lb.Scheme, "subnetIds": lb.Subnets, "securityGroupIds": []string{lb.SecurityGroupID},
 		})
@@ -1375,7 +1377,7 @@ func ecsExpressManagedResourcesJSON(revisionArn string) map[string]any {
 			path["listener"] = resource(lb.Listener, nil)
 		}
 	} else if svc.LoadBalancerFailure != nil {
-		path["loadBalancer"] = resource(*svc.LoadBalancerFailure, nil)
+		path["loadBalancer"] = resource(*svc.LoadBalancerFailure, map[string]any{"scheme": expressLoadBalancerScheme})
 	}
 	if svc.Certificate.created() {
 		path["certificate"] = resource(svc.Certificate, map[string]any{"domainName": svc.Hostname})
@@ -1384,11 +1386,10 @@ func ecsExpressManagedResourcesJSON(revisionArn string) map[string]any {
 		path["rule"] = resource(svc.Rule, nil)
 	}
 	if svc.TargetGroup.created() {
-		extra := map[string]any{}
-		if svc.TargetGroup.active() {
-			extra["port"] = svc.TargetGroupPort
-			extra["healthCheckPort"] = svc.TargetGroupPort
-			extra["healthCheckPath"] = svc.ActiveConfigurations[len(svc.ActiveConfigurations)-1].HealthCheckPath
+		extra := map[string]any{
+			"port":            svc.TargetGroupPort,
+			"healthCheckPort": svc.TargetGroupPort,
+			"healthCheckPath": svc.ActiveConfigurations[len(svc.ActiveConfigurations)-1].HealthCheckPath,
 		}
 		path["targetGroups"] = []map[string]any{resource(svc.TargetGroup, extra)}
 	}
