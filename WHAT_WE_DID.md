@@ -4747,6 +4747,44 @@ shape: `AccessDeniedException` for Scheduler, Batch, EFS and API Gateway v2,
 CloudFront and Route 53. A Scheduler universal target to a REST action, which
 already ran as the execution role, is now judged as it.
 
+### The REST services' declared condition keys
+
+Gating the REST services brought their declared condition keys into the
+measure, and each was resolved from the request where the service documents
+the value, or classified where it does not. The gate records the operation
+and labels a REST request's route names on the request, so
+`iamRequestWireOperation` and the populators read a REST operation as they
+read an X-Amz-Target or an Action parameter; the gate reads the body through
+that copy and hands the restored body back to the handler.
+
+- Route 53 writes `route53:ChangeResourceRecordSetsActions`, `…RecordTypes`
+  and `…NormalizedRecordNames` from the change batch, and `route53:VPCs` as
+  `VPCId=<vpc-id>,VPCRegion=<region>` on the six operations the Route 53
+  Developer Guide lists, in the forms its "Normalizing the Route 53 condition
+  key values" section prescribes: record names lowercased, without the
+  trailing dot, every other character as a three-digit octal escape.
+- AWS Batch authorizes a RegisterJobDefinition once per container, each with
+  that container's `batch:Image`, `Privileged`, `User`, `LogDriver`, awslogs
+  options or Amazon EKS keys, because the AWS Batch User Guide says it
+  "evaluates condition keys on each container". `batch:SchedulingPriority`
+  comes from SubmitServiceJob and UpdateServiceJob.
+- Amazon EFS writes `elasticfilesystem:Encrypted` from CreateFileSystem, and
+  gained its request-tag shape, so a create carrying tags is also authorized as
+  `elasticfilesystem:TagResource` with `elasticfilesystem:CreateAction` naming
+  the create. `AccessedViaMountTarget` is classified: it belongs to the
+  mount-time client actions, and the simulator bind-mounts a file system with
+  no NFS client authorization.
+- Amazon API Gateway's portal, portal product, product page and routing-rule
+  operations are authorized as the actions of their own names the Service
+  Reference's operation table maps them to — CreatePortal also as
+  `apigateway:GetPortalProduct` on the products it includes and as
+  `apigateway:POST` — with the `apigateway:Request/` keys from the request and
+  the routing rule's `apigateway:Resource/` keys from the stored rule. Every
+  other operation stays the HTTP-method action on its path.
+  `apigateway:Request/ProductRestEndpointPageEndpointPrefix` is classified: no
+  request member carries an endpoint prefix. The portal, product, page and
+  routing-rule ARNs carry the account, as the reference's formats do.
+
 ### IAM condition tag lookups and the mux overlap scanner
 
 IAM condition evaluation resolves a resource's effective tags on every

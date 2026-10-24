@@ -40,9 +40,9 @@ import (
 // while letting it remove the rest. Each row also records where its service's
 // untagging operation carries that key list.
 //
-// AWS Lambda (restJson1) and the Amazon S3 control plane (restXml) reach the
-// gate through iamEnforceREST, so their rows read the REST body and the
-// tagKeys query parameter their models bind.
+// AWS Lambda and Amazon EFS (restJson1) and the Amazon S3 control plane
+// (restXml) reach the gate through iamEnforceREST, so their rows read the REST
+// body and the tagKeys query parameter their models bind.
 
 // iamJSONTagList is a JSON body member holding a list of tag structures,
 // together with the key and value member names that service's tag structure
@@ -274,6 +274,13 @@ var iamRequestTagShapes = map[string]iamRequestTagShape{
 	// UntagResource binds its key list to the repeated `tagKeys` query
 	// parameter.
 	"lambda": {jsonMap: []string{"Tags"}, keyURL: "tagKeys"},
+
+	// Amazon EFS (restJson1). efs.smithy.json.gz carries a `Tags` list of
+	// `Key`/`Value` on CreateFileSystemRequest, CreateAccessPointRequest,
+	// TagResourceRequest and the legacy CreateTagsRequest; UntagResource binds
+	// its key list to `tagKeys` and the legacy DeleteTags sends `TagKeys` in
+	// its body.
+	"elasticfilesystem": {jsonList: []iamJSONTagList{iamKeyValueTagList("Tags")}, keyJSON: []string{"TagKeys"}, keyURL: "tagKeys"},
 
 	// Amazon S3 (restXml). s3.smithy.json.gz carries CreateBucket's tags as
 	// CreateBucketConfiguration$Tags, a list of `Tag`. s3-control.smithy.json.gz

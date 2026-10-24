@@ -190,6 +190,17 @@ var iamUnmodelledConditionKeys = []iamUnmodelledConditionKey{
 		"has no member carrying it -- so the simulator would have to invent the strings a policy compares against, " +
 		"and a wrong spelling silently never matches while looking implemented."},
 
+	{"elasticfilesystem:AccessedViaMountTarget", "Whether an NFS client mounts through a mount target, declared only " +
+		"on elasticfilesystem:ClientMount, ClientRootAccess and ClientWrite -- the actions Amazon EFS authorizes when a " +
+		"client mounts with IAM authorization, not API operations. The simulator serves a file system to an Amazon " +
+		"ECS task or AWS Lambda function as a host directory bound into the container, with no NFS mount and no " +
+		"client authorization, so no mount is ever authorized as these actions."},
+	{"apigateway:Request/ProductRestEndpointPageEndpointPrefix", "Declared on apigateway:CreateProductRestEndpointPage " +
+		"and UpdateProductRestEndpointPage as \"a ProductRestEndpointPage's EndpointPrefix that is passed in the " +
+		"request\", but the vendored API Gateway V2 model has no endpoint-prefix member on either request: the " +
+		"nearest, DisplayContentOverrides$Endpoint, is a whole endpoint URL override, and no reference says the key " +
+		"is read from it, so a value taken from it would be a guess a policy could match on."},
+
 	{"sts:RoleAuthorizedByIdp", "Set when the identity provider itself authorized the role in the token it issued. " +
 		"The simulator's web-identity federation reads the standard registered claims and the provider's " +
 		"thumbprint; the provider-asserted role authorization is not part of the OpenID Connect token it mints, so " +

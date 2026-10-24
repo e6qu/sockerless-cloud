@@ -35,6 +35,8 @@ func iamOperationTargets(r *http.Request, service, operation string, resources [
 		return iamDynamoDBTransactWriteTargets(r)
 	case "dynamodb:ExecuteStatement", "dynamodb:BatchExecuteStatement", "dynamodb:ExecuteTransaction":
 		return iamDynamoDBPartiQLTargets(r)
+	case "batch:RegisterJobDefinition":
+		return append(iamBatchJobDefinitionTargets(r, resources), iamTagOnCreateTargets(r, service, operation, resources)...)
 	}
 	if service == "s3" {
 		return s3AuthorizationTargets(r, operation, resources)

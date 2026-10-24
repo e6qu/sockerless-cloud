@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -61,36 +62,132 @@ func iamEnforceRESTRoute(w http.ResponseWriter, r *http.Request, source string) 
 	if !ok {
 		return true
 	}
-	if iamAccessKeyIDFromRequest(r) == "" {
-		if src := iamDeliverySource(r); src != nil && sim.InProcess(r) {
-			if denied, allowed := iamServicePrincipalAllowed(*src, iamRESTAuthorizationTargets(r, gate.service, operation, labels)); !allowed {
-				gate.deny(w, r, src.Service, denied)
+	routed := iamWithRESTOperation(r, operation, labels)
+	// The gate reads the body through the routed copy, which then holds the
+	// body the handler reads from r.
+	defer func() { r.Body = routed.Body }()
+	if iamAccessKeyIDFromRequest(routed) == "" {
+		if src := iamDeliverySource(routed); src != nil && sim.InProcess(routed) {
+			if denied, allowed := iamServicePrincipalAllowed(*src, iamRESTAuthorizationTargets(routed, gate.service, operation, labels)); !allowed {
+				gate.deny(w, routed, src.Service, denied)
 				return false
 			}
 		}
 		return true
 	}
-	for _, target := range iamRESTAuthorizationTargets(r, gate.service, operation, labels) {
-		if !iamEnforceREST(w, r, target, gate.deny) {
+	for _, target := range iamRESTAuthorizationTargets(routed, gate.service, operation, labels) {
+		if !iamEnforceREST(w, routed, target, gate.deny) {
 			return false
 		}
 	}
-	return iamEnforcePassRoleWith(w, r, gate.service+":"+operation, gate.deny)
+	return iamEnforcePassRoleWith(w, routed, gate.service+":"+operation, gate.deny)
+}
+
+// awsRESTOperationKey carries the operation a REST request's route names, with
+// the values of the route's labels: the request spells the operation nowhere,
+// as an X-Amz-Target or an Action parameter would.
+type awsRESTOperationKey struct{}
+
+type awsRESTRequestRoute struct {
+	operation string
+	labels    map[string][]string
+}
+
+func iamWithRESTOperation(r *http.Request, operation string, labels map[string][]string) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), awsRESTOperationKey{}, awsRESTRequestRoute{operation, labels}))
+}
+
+func iamRESTOperation(r *http.Request) string {
+	route, _ := r.Context().Value(awsRESTOperationKey{}).(awsRESTRequestRoute)
+	return route.operation
+}
+
+// iamRESTLabel is the value of the label the route a REST request took binds
+// under name, as the operation's Smithy http trait spells it.
+func iamRESTLabel(r *http.Request, name string) string {
+	route, _ := r.Context().Value(awsRESTOperationKey{}).(awsRESTRequestRoute)
+	if values := route.labels[name]; len(values) > 0 {
+		return values[0]
+	}
+	return ""
 }
 
 // iamRESTAuthorizationTargets is what a REST request is authorized as. Amazon
-// API Gateway authorizes the HTTP method on the request's own path, which is
-// the resource the Service Reference publishes for every one of its types;
-// every other service authorizes the operation's actions on the resources the
-// request names.
+// API Gateway authorizes most operations as the HTTP method on the request's
+// own path, which is the resource the Service Reference publishes for every
+// one of its types, and its portal and routing-rule operations as actions of
+// their own; every other service authorizes the operation's actions on the
+// resources the request names.
 func iamRESTAuthorizationTargets(r *http.Request, service, operation string, labels map[string][]string) []iamAuthorizationTarget {
 	if service == "apigateway" {
-		return []iamAuthorizationTarget{{
-			action:   "apigateway:" + r.Method,
-			resource: "arn:aws:apigateway:" + iamRESTRegion(r) + "::" + r.URL.Path,
-		}}
+		return iamAPIGatewayAuthorizationTargets(r, operation, labels)
 	}
 	return iamOperationTargets(r, service, operation, iamRESTResourceARNs(r, service, operation, labels))
+}
+
+var iamAPIGatewayMethodActions = map[string]bool{
+	"GET": true, "POST": true, "PUT": true, "PATCH": true, "DELETE": true,
+}
+
+// iamAPIGatewayAdditionalActions are the actions the Service Reference's
+// operation table authorizes a portal operation as beside its own.
+var iamAPIGatewayAdditionalActions = map[string][]string{
+	"CreatePortal":        {"GetPortalProduct", "POST"},
+	"CreatePortalProduct": {"POST"},
+	"UpdatePortal":        {"GetPortalProduct"},
+	"PreviewPortal":       {"GetPortalProduct"},
+	"PublishPortal":       {"GetPortalProduct"},
+}
+
+// iamAPIGatewayAuthorizationTargets authorizes an operation the Service
+// Reference maps to an HTTP-method action as that method on the request's
+// path, and one it maps to an action of the operation's own name -- a portal,
+// portal product, product page or routing rule -- as that action on the
+// resources the request names.
+func iamAPIGatewayAuthorizationTargets(r *http.Request, operation string, labels map[string][]string) []iamAuthorizationTarget {
+	method := iamAuthorizationTarget{
+		action:   "apigateway:" + r.Method,
+		resource: "arn:aws:apigateway:" + iamRESTRegion(r) + "::" + r.URL.Path,
+	}
+	action := iamRESTAction("apigateway", operation)
+	if _, declared := iamActionResourceTypes["apigateway:"+action]; !declared || iamAPIGatewayMethodActions[action] {
+		return []iamAuthorizationTarget{method}
+	}
+	targets := iamOperationTargets(r, "apigateway", operation, iamRESTResourceARNs(r, "apigateway", operation, labels))
+	for _, additional := range iamAPIGatewayAdditionalActions[operation] {
+		if additional == "POST" {
+			targets = append(targets, method)
+			continue
+		}
+		for _, product := range iamAPIGatewayPortalProducts(r, operation, labels) {
+			targets = append(targets, iamAuthorizationTarget{action: "apigateway:" + additional, resource: product})
+		}
+	}
+	return targets
+}
+
+// iamAPIGatewayPortalProducts are the portal products a portal operation reads:
+// those a create or an update includes, and those the portal being published
+// or previewed includes.
+func iamAPIGatewayPortalProducts(r *http.Request, operation string, labels map[string][]string) []string {
+	if operation == "CreatePortal" || operation == "UpdatePortal" {
+		var request struct {
+			IncludedPortalProductArns []string `json:"includedPortalProductArns"`
+		}
+		if !iamDecodeJSONRequest(iamRequestBody(r), &request) {
+			return nil
+		}
+		return request.IncludedPortalProductArns
+	}
+	ids := labels["PortalId"]
+	if len(ids) == 0 {
+		return nil
+	}
+	portal, ok := apigwv2Portals.Get(ids[0])
+	if !ok {
+		return nil
+	}
+	return portal.IncludedPortalProductArns
 }
 
 func iamRESTRegion(r *http.Request) string {
