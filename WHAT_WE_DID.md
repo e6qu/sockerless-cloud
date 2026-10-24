@@ -4959,3 +4959,14 @@ Discovery document's enum order, treats zero as unset and refuses a number the
 enum does not declare. Two SDK tests expected what no client would see:
 logadmin unescapes the `%2F` in a `LogName` it returns, and DeleteLog writes
 an Admin Activity audit entry, so the audit log is listed afterwards.
+
+### Two tests waited on the wrong moment
+
+The node agent's microVM test read from its member as soon as the member
+printed `member up`, which its shell does just before `exec httpd`, so on a
+slow runner the first read reached a port nothing listened on yet; busybox
+`httpd -f` announces nothing once it binds, so the guest now retries that port
+until it answers, for at most ten seconds. The structured Cloud Run log test
+stamped its line with a fixed January date that Cloud Logging's thirty-day
+retention discards, so the line never reached the tail; it now stamps the line
+a minute in the past.

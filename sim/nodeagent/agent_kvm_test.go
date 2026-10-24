@@ -169,7 +169,10 @@ func TestNodeAgentBootsAGuestFromAnOCIImage(t *testing.T) {
 	if addr, err := member.Address(execCtx); err != nil || addr != "10.79.0.10" {
 		t.Fatalf("the member's address is %q (%v), want the guest's", addr, err)
 	}
-	served, err := handle.Exec(execCtx, []string{"wget", "-qO-", "http://127.0.0.1:8080/hello"})
+	// "member up" precedes exec httpd, which signals nothing once it binds, so
+	// the first read retries the port until it answers.
+	served, err := handle.Exec(execCtx, []string{"sh", "-c",
+		"for try in $(seq 100); do wget -qO- http://127.0.0.1:8080/hello && exit 0; sleep 0.1; done; exit 1"})
 	if err != nil || served.ExitCode != 0 || strings.TrimSpace(served.Stdout) != "from the member" {
 		t.Fatalf("the first process read %+v (%v) from the member on localhost", served, err)
 	}
