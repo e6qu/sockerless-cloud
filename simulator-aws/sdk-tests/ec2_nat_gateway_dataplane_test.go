@@ -95,7 +95,8 @@ func TestEC2_NatGatewayCarriesAPrivateSubnetsConnections(t *testing.T) {
 	run, err := c.RunInstances(ctx, &ec2.RunInstancesInput{
 		ImageId: aws.String(ec2AmazonLinuxAMI(t)), InstanceType: types.InstanceTypeT3Micro,
 		MinCount: aws.Int32(1), MaxCount: aws.Int32(1), SubnetId: private,
-		UserData: aws.String(base64.StdEncoding.EncodeToString([]byte("#!/bin/sh\necho up\n"))),
+		IamInstanceProfile: ssmManagedProfileSpec(t),
+		UserData:           aws.String(base64.StdEncoding.EncodeToString([]byte("#!/bin/sh\necho up\n"))),
 	})
 	require.NoError(t, err)
 	terminateEC2InstancesOnCleanup(t, c, run)

@@ -311,7 +311,7 @@ func TestSFNCLI_NestedWorkflowIntegration(t *testing.T) {
 	out = runCLI(t, awsCLI("stepfunctions", "create-state-machine",
 		"--name", "sfn-cli-nested-parent",
 		"--definition", parentDefinition,
-		"--role-arn", cliStatesRole(t, "states:StartExecution")))
+		"--role-arn", cliStatesRole(t, "states:StartExecution", "states:DescribeExecution")))
 	var parent struct {
 		StateMachineArn string `json:"stateMachineArn"`
 	}

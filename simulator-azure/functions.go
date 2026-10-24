@@ -56,14 +56,21 @@ type SiteProperties struct {
 	// HostNameSslStates names the site's hostnames by role: the Standard host
 	// requests reach and the Repository (SCM) host deployments go to.
 	HostNameSslStates []HostNameSslState `json:"hostNameSslStates,omitempty"`
-	ServerFarmID      string             `json:"serverFarmId,omitempty"`
-	SKU               string             `json:"sku,omitempty"`
+	ServerFarmID      string             `json:"serverFarmId"`
+	SKU               string             `json:"sku"`
 	Reserved          bool               `json:"reserved,omitempty"`
 	SiteConfig        *SiteConfig        `json:"siteConfig,omitempty"`
 	ResourceGroup     string             `json:"resourceGroup,omitempty"`
 	LastModifiedTime  string             `json:"lastModifiedTimeUtc,omitempty"`
 	HTTPSOnly         bool               `json:"httpsOnly,omitempty"`
-	ClientCertMode    string             `json:"clientCertMode,omitempty"`
+	// ClientCertEnabled, ClientCertMode and ClientCertExclusionPaths are the
+	// site's TLS mutual authentication: with client certificates enabled the
+	// front end asks the client for one and forwards it to the app as
+	// X-ARR-ClientCert; Required refuses a request without one outside the
+	// exclusion paths.
+	ClientCertEnabled        bool   `json:"clientCertEnabled"`
+	ClientCertMode           string `json:"clientCertMode,omitempty"`
+	ClientCertExclusionPaths string `json:"clientCertExclusionPaths,omitempty"`
 	// VirtualNetworkSubnetID is the modern spelling of regional VNet
 	// integration (`az webapp vnet-integration add`, terraform's
 	// virtual_network_subnet_id): writing it joins the site to the subnet's
@@ -392,7 +399,9 @@ func registerAzureFunctions(srv *sim.Server) {
 				ResourceGroup:             rg,
 				LastModifiedTime:          time.Now().UTC().Format(time.RFC3339),
 				HTTPSOnly:                 req.Properties.HTTPSOnly,
+				ClientCertEnabled:         req.Properties.ClientCertEnabled,
 				ClientCertMode:            clientCertMode,
+				ClientCertExclusionPaths:  req.Properties.ClientCertExclusionPaths,
 				HostingEnvironmentProfile: hostingEnvironment,
 			},
 		}
@@ -1213,29 +1222,34 @@ func (inst *azureFunctionInstance) siteNetworkLocked(ctx context.Context, site *
 	if !ok {
 		return azureWorkloadNetwork{}, "", fmt.Errorf("virtual network %s of site %s no longer exists", inst.vnets[0], site.Name)
 	}
-	network, err := azureVNetNetwork(ctx, vnet.ID)
+	subnetID := siteConnectionSubnet(site, vnet)
+	network, err := siteVNetNetwork(ctx, vnet, subnetID)
 	if err != nil {
 		return azureWorkloadNetwork{}, "", fmt.Errorf("attach site %s to virtual network %s: %w", site.Name, vnet.ID, err)
 	}
-	prefix, err := azureVNetIPv4Prefix(vnet)
-	if err != nil {
-		return azureWorkloadNetwork{}, "", err
-	}
-	if err := azureJoinMicroVMNetwork(ctx, placementWeb, vnet.ID, prefix, network.Network); err != nil {
-		return azureWorkloadNetwork{}, "", fmt.Errorf("attach site %s to virtual network %s: %w", site.Name, vnet.ID, err)
-	}
-	subnetID := ""
+	return network, subnetID, nil
+}
+
+// siteConnectionSubnet is the subnet the site's connection to the virtual
+// network names, else the network's first subnet, else "".
+func siteConnectionSubnet(site *Site, vnet VirtualNetwork) string {
 	for _, conn := range siteVnetConnections(site.ID) {
 		if strings.Contains(conn.Properties.VnetResourceID, "/subnets/") &&
 			strings.EqualFold(azureVNetIDOfSubnet(conn.Properties.VnetResourceID), vnet.ID) {
-			subnetID = conn.Properties.VnetResourceID
-			break
+			return conn.Properties.VnetResourceID
 		}
 	}
-	if subnetID == "" {
-		subnetID = azureWholeVNetSubnet(vnet)
+	return azureWholeVNetSubnet(vnet)
+}
+
+// siteVNetNetwork is the engine network a site's container joins for its
+// connection to the virtual network: the network of the prefix its subnet
+// lies in, or the first prefix's for a connection naming no subnet.
+func siteVNetNetwork(ctx context.Context, vnet VirtualNetwork, subnetID string) (azureWorkloadNetwork, error) {
+	if subnetID != "" {
+		return azureSubnetNetwork(ctx, placementWeb, subnetID)
 	}
-	return network, subnetID, nil
+	return azureVNetNetworkFor(ctx, placementWeb, vnet.ID)
 }
 
 // siteNetworkCurrentLocked reports whether the running container is on the
@@ -1275,31 +1289,13 @@ func (inst *azureFunctionInstance) extraNetworksLocked(ctx context.Context, site
 			release()
 			return nil, nil, fmt.Errorf("virtual network %s of site %s no longer exists", vnetID, site.Name)
 		}
-		network, err := azureVNetNetwork(ctx, vnet.ID)
+		lease := siteExtraNetwork{owner: owner, subnetID: siteConnectionSubnet(site, vnet)}
+		network, err := siteVNetNetwork(ctx, vnet, lease.subnetID)
 		if err != nil {
 			release()
 			return nil, nil, fmt.Errorf("attach site %s to virtual network %s: %w", site.Name, vnet.ID, err)
 		}
-		prefix, err := azureVNetIPv4Prefix(vnet)
-		if err != nil {
-			release()
-			return nil, nil, err
-		}
-		if err := azureJoinMicroVMNetwork(ctx, placementWeb, vnet.ID, prefix, network.Network); err != nil {
-			release()
-			return nil, nil, fmt.Errorf("attach site %s to virtual network %s: %w", site.Name, vnet.ID, err)
-		}
-		lease := siteExtraNetwork{network: network.Network, owner: owner}
-		for _, conn := range siteVnetConnections(site.ID) {
-			if strings.Contains(conn.Properties.VnetResourceID, "/subnets/") &&
-				strings.EqualFold(azureVNetIDOfSubnet(conn.Properties.VnetResourceID), vnet.ID) {
-				lease.subnetID = conn.Properties.VnetResourceID
-				break
-			}
-		}
-		if lease.subnetID == "" {
-			lease.subnetID = azureWholeVNetSubnet(vnet)
-		}
+		lease.network = network.Network
 		// A connection to a virtual network that has no subnet leaves the
 		// address to the engine, which a guest cannot take: its backend
 		// refuses the placement.
@@ -1547,6 +1543,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 	env := workloadhost.MergeEnv(inheritedEnv, appServicePlatformEnv(site),
 		map[string]string{"PORT": strconv.Itoa(port)}, metadataEnv, containerEnv)
 	sink := newFuncLogSink(site)
+	machine := webNewSiteMachineName(site.Name)
 
 	name := fmt.Sprintf("sockerless-sim-azure-site-%s-%s", siteStorageName(site.Name), sim.RandomHex(8))
 	address, releaseLease, err := azureWorkloadAddress(ctx, network, subnetID, name)
@@ -1576,6 +1573,7 @@ func (inst *azureFunctionInstance) startLocked(site *Site) error {
 		Args:         args,
 		Binds:        binds,
 		Name:         name,
+		Hostname:     machine,
 		Labels: map[string]string{
 			"sockerless-sim-type": "azure-site",
 			"sockerless-site":     site.Name,

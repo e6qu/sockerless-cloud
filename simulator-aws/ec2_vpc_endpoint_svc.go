@@ -58,12 +58,17 @@ type EC2AllowedPrincipal struct {
 	ServiceId           string
 }
 
-// EC2VpcCidrAssoc records a secondary IPv4 CIDR association on a VPC.
+// EC2VpcCidrAssoc records a CIDR block association on a VPC: a secondary IPv4
+// block in CidrBlock, or an IPv6 block in Ipv6CidrBlock with the border group
+// it is advertised from and the pool it came from.
 type EC2VpcCidrAssoc struct {
-	AssociationId string
-	VpcId         string
-	CidrBlock     string
-	State         string
+	AssociationId      string
+	VpcId              string
+	CidrBlock          string
+	Ipv6CidrBlock      string
+	NetworkBorderGroup string
+	Ipv6Pool           string
+	State              string
 }
 
 type EC2SubnetCidrReservation struct {
@@ -619,11 +624,10 @@ func handleAssociateVpcCidrBlock(w http.ResponseWriter, r *http.Request) {
 	}
 	if ipv6 != "" || amazonIpv6 {
 		if ipv6 == "" {
-			// Amazon hands out a /56 from its pool.
-			ipv6 = "2600:1f00:" + sim.NewUUID()[:4] + "::/56"
+			ipv6 = ec2AmazonProvidedIpv6Block()
 		}
-		assocID := ec2ID("vpc-cidr-assoc")
-		ipv6XML = fmt.Sprintf("<ipv6CidrBlockAssociation><associationId>%s</associationId><ipv6CidrBlock>%s</ipv6CidrBlock><ipv6CidrBlockState><state>associated</state></ipv6CidrBlockState><networkBorderGroup>%s</networkBorderGroup><ipv6Pool>Amazon</ipv6Pool></ipv6CidrBlockAssociation>", assocID, ipv6, awsRegion())
+		assoc := ec2AssociateVpcIpv6Block(vpcId, ipv6)
+		ipv6XML = "<ipv6CidrBlockAssociation>" + ec2VpcIpv6AssocBodyXML(assoc) + "</ipv6CidrBlockAssociation>"
 	}
 
 	w.Header().Set("Content-Type", "text/xml")
@@ -641,26 +645,41 @@ func handleDisassociateVpcCidrBlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ec2VpcCidrAssocs.Delete(assocID)
+	assoc.State = "disassociating"
+	association := fmt.Sprintf("<cidrBlockAssociation><associationId>%s</associationId><cidrBlock>%s</cidrBlock><cidrBlockState><state>%s</state></cidrBlockState></cidrBlockAssociation>",
+		assoc.AssociationId, assoc.CidrBlock, assoc.State)
+	if assoc.Ipv6CidrBlock != "" {
+		association = "<ipv6CidrBlockAssociation>" + ec2VpcIpv6AssocBodyXML(assoc) + "</ipv6CidrBlockAssociation>"
+	}
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DisassociateVpcCidrBlockResponse %s>
   <requestId>%s</requestId>
-  <cidrBlockAssociation><associationId>%s</associationId><cidrBlock>%s</cidrBlock><cidrBlockState><state>disassociating</state></cidrBlockState></cidrBlockAssociation>
+  %s
   <vpcId>%s</vpcId>
-</DisassociateVpcCidrBlockResponse>`, ec2Xmlns(), sim.NewUUID(), assoc.AssociationId, assoc.CidrBlock, assoc.VpcId)
+</DisassociateVpcCidrBlockResponse>`, ec2Xmlns(), sim.NewUUID(), association, assoc.VpcId)
 }
 
 func handleAssociateSubnetCidrBlock(w http.ResponseWriter, r *http.Request) {
 	subnetId := r.FormValue("SubnetId")
-	if _, ok := ec2Subnets.Get(subnetId); !ok {
+	subnet, ok := ec2Subnets.Get(subnetId)
+	if !ok {
 		ec2ErrorXML(w, "InvalidSubnetID.NotFound", fmt.Sprintf("The subnet ID %q does not exist", subnetId), http.StatusBadRequest)
 		return
 	}
-	// AssociateSubnetCidrBlock only adds an IPv6 CIDR (the IPv4 secondary CIDR
-	// of a subnet is set at create time); its result carries only the IPv6
-	// association.
+	// "Associates a CIDR block with your subnet. You can only associate a
+	// single IPv6 CIDR block with your subnet."
 	ipv6 := r.FormValue("Ipv6CidrBlock")
 	if ipv6 == "" {
-		ipv6 = "2600:1f00:" + sim.NewUUID()[:4] + "::/64"
+		ec2ErrorXML(w, "MissingParameter", "The request must contain the parameter Ipv6CidrBlock", http.StatusBadRequest)
+		return
+	}
+	if subnet.Ipv6CidrBlock != "" {
+		ec2ErrorXML(w, "InvalidParameterValue", fmt.Sprintf("The subnet '%s' already has the IPv6 CIDR block '%s'. You can only associate a single IPv6 CIDR block with your subnet.", subnetId, subnet.Ipv6CidrBlock), http.StatusBadRequest)
+		return
+	}
+	if code, message := ec2SubnetIpv6BlockRefusal(subnet.VpcId, subnetId, ipv6); code != "" {
+		ec2ErrorXML(w, code, message, http.StatusBadRequest)
+		return
 	}
 	assocID := ec2SubnetIpv6AssociationID(subnetId)
 	ec2Subnets.Update(subnetId, func(s *EC2Subnet) { s.Ipv6CidrBlock = ipv6 })

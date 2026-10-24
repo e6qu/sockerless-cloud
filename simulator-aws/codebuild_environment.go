@@ -27,7 +27,7 @@ func cbEnvironmentImage(image string) string {
 // role to holder, in sessions named for the build. A build environment is a
 // container on cbEnvironmentBackend.
 func cbEnvironmentServiceEnv(network awsWorkloadNetwork, holder, serviceRole, buildID string) (containerCredentials, error) {
-	addr, err := workloadhost.CallbackAddr(simListenAddr)
+	addr, err := workloadhost.CallbackAddr(simCallbackListenAddr)
 	if err != nil {
 		return containerCredentials{}, err
 	}

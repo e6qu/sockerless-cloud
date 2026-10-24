@@ -103,8 +103,10 @@ func ecsTaskRoleArn(taskID string) string {
 	return taskRole
 }
 
-// simListenAddr is the listen address main() serves on.
-var simListenAddr string
+// simListenAddr is the API listen address main() serves on, and
+// simCallbackListenAddr the plain-HTTP one the workloads call back on; the
+// two differ when the API listener terminates TLS.
+var simListenAddr, simCallbackListenAddr string
 
 func rewriteHostDockerInternalEnv(env map[string]string) map[string]string {
 	containerized := workloadhost.InContainer()
@@ -155,7 +157,7 @@ func ecsTaskMetadataEnv(backend placement.Backend, network awsWorkloadNetwork, t
 // the container instance's network stack: it has no sidecar, so it reaches
 // the simulator's listener directly.
 func hostNetworkMetadataEnv(taskID string) (map[string]string, error) {
-	addr, err := workloadhost.CallbackAddr(simListenAddr)
+	addr, err := workloadhost.CallbackAddr(simCallbackListenAddr)
 	if err != nil {
 		return nil, err
 	}

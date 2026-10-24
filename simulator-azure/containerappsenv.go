@@ -236,13 +236,18 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 			sub, rg, envName)
 
 		// An environment on a virtual network's infrastructure subnet joins
-		// that network's engine network; any other environment is a
-		// networking domain of its own, which matches ACA's managed-VNet
-		// model. Either network is created when the environment's first
-		// workload attaches.
+		// the engine network of the prefix that subnet lies in; any other
+		// environment is a networking domain of its own, which matches ACA's
+		// managed-VNet model. Either network is created when the
+		// environment's first workload attaches. A subnet not stored yet
+		// names the network's first prefix; the environment's workloads
+		// cannot lease an address in the subnet until it exists.
 		dockerNetName := acaEnvironmentNetworkName(resourceID)
 		if vnet, ok := acaInfrastructureVNet(req.Properties); ok {
 			dockerNetName = dockerNetForVNet(vnet.ID)
+			if name, err := azureSubnetNetworkName(acaInfrastructureSubnetID(req.Properties)); err == nil {
+				dockerNetName = name
+			}
 		}
 
 		env := ContainerAppEnvironment{
@@ -880,35 +885,31 @@ func acaEnvironmentNetworkName(envID string) string {
 // environment joined, or "" for an environment on a network of its own.
 func acaEnvironmentVNetID(env ContainerAppEnvironment) string {
 	vnet, ok := acaInfrastructureVNet(env.Properties)
-	if !ok || dockerNetForVNet(vnet.ID) != env.DockerNetworkName {
+	if !ok {
 		return ""
 	}
-	return vnet.ID
+	if name, err := azureSubnetNetworkName(acaInfrastructureSubnetID(env.Properties)); err == nil && name == env.DockerNetworkName {
+		return vnet.ID
+	}
+	if dockerNetForVNet(vnet.ID) == env.DockerNetworkName {
+		return vnet.ID
+	}
+	return ""
 }
 
 // acaEnvironmentNetwork is the engine network a workload of the environment
-// attaches to, with its sidecar as the workload's resolver — a virtual
-// network's, created on first use, or the environment's own — and the subnet
-// a workload leases its address in when the environment is on a virtual
-// network's infrastructure subnet.
+// attaches to, with its sidecar as the workload's resolver — that of the
+// prefix its infrastructure subnet lies in, created on first use, or the
+// environment's own — and the subnet a workload leases its address in when
+// the environment is on a virtual network's infrastructure subnet.
 func acaEnvironmentNetwork(ctx context.Context, env ContainerAppEnvironment) (azureWorkloadNetwork, string, error) {
 	if vnetID := acaEnvironmentVNetID(env); vnetID != "" {
-		network, err := azureVNetNetwork(ctx, vnetID)
+		subnetID := acaInfrastructureSubnetID(env.Properties)
+		network, err := azureSubnetNetwork(ctx, placementContainerApps, subnetID)
 		if err != nil {
 			return azureWorkloadNetwork{}, "", err
 		}
-		vnet, ok := azureVnets.Get(vnetID)
-		if !ok {
-			return azureWorkloadNetwork{}, "", fmt.Errorf("virtual network %s not found", vnetID)
-		}
-		prefix, err := azureVNetIPv4Prefix(vnet)
-		if err != nil {
-			return azureWorkloadNetwork{}, "", err
-		}
-		if err := azureJoinMicroVMNetwork(ctx, placementContainerApps, vnetID, prefix, network.Network); err != nil {
-			return azureWorkloadNetwork{}, "", err
-		}
-		return network, acaInfrastructureSubnetID(env.Properties), nil
+		return network, subnetID, nil
 	}
 	if env.DockerNetworkName == "" {
 		return azureWorkloadNetwork{}, "", fmt.Errorf("managed environment %s has no network", env.ID)

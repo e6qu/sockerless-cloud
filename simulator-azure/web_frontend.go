@@ -89,6 +89,12 @@ func serveSiteRequest(w http.ResponseWriter, r *http.Request, site *Site) {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
+	if appServiceClientCertRequired(r, site) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, "<html><head><title>403 Forbidden</title></head><body>403 Forbidden: the site requires a client certificate.</body></html>")
+		return
+	}
 	sim.DeclareWait(r.Context(), azureFunctionsHTTPRequestLimit)
 	address, err := siteContainerAddress(r.Context(), site)
 	if errors.Is(err, errSiteStopped) {
@@ -104,7 +110,7 @@ func serveSiteRequest(w http.ResponseWriter, r *http.Request, site *Site) {
 		Address:       address,
 		Path:          r.URL.EscapedPath(),
 		RawQuery:      r.URL.RawQuery,
-		RequestHeader: appServiceForwardedHeaders(r),
+		RequestHeader: appServiceForwardedHeaders(r, site),
 		Timeout:       azureFunctionsHTTPRequestLimit,
 	})
 	abortStartedForward(w, err)
@@ -119,18 +125,24 @@ func serveSiteRequest(w http.ResponseWriter, r *http.Request, site *Site) {
 
 // appServiceForwardedHeaders adds the headers App Service's front end, which
 // terminates TLS, documents for the app: the protocol the client used as
-// X-Forwarded-Proto and X-AppService-Proto, and the client's address appended
-// to X-Forwarded-For with its port, as Application Request Routing writes it.
-func appServiceForwardedHeaders(r *http.Request) func(http.Header) {
+// X-Forwarded-Proto and X-AppService-Proto, the client's address appended
+// to X-Forwarded-For with its port, as Application Request Routing writes it,
+// and the client certificate as X-ARR-ClientCert when the site asks for one.
+func appServiceForwardedHeaders(r *http.Request, site *Site) func(http.Header) {
 	client := r.RemoteAddr
 	proto := "http"
 	if r.TLS != nil {
 		proto = "https"
 	}
+	clientCert := appServiceClientCertHeader(r, site)
 	return func(h http.Header) {
 		lbplane.AppendToHeaderList(h, "X-Forwarded-For", ", ", client)
 		h.Set("X-Forwarded-Proto", proto)
 		h.Set("X-AppService-Proto", proto)
+		h.Del("X-ARR-ClientCert")
+		if clientCert != "" {
+			h.Set("X-ARR-ClientCert", clientCert)
+		}
 	}
 }
 

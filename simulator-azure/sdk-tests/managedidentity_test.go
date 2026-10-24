@@ -12,35 +12,56 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestMSI_TokenEndpoint_VMShape pins the instance metadata service's token
-// endpoint, which answers the standard token payload DefaultAzureCredential
-// reads.
-func TestMSI_TokenEndpoint_VMShape(t *testing.T) {
-	t.Parallel()
-	resp, err := http.Get(baseURL + "/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fmanagement.azure.com%2F")
+// The Instance Metadata Service's token endpoint
+// (/metadata/identity/oauth2/token) speaks for the requesting virtual
+// machine's identity alone; the tokens it mints are read from inside a
+// machine in compute_vm_identity_test.go. What a caller that is no machine
+// gets is IMDS's error body: error and error_description.
+
+func imdsTokenFromHost(t *testing.T, query string, withHeader bool) (*http.Response, map[string]string) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/metadata/identity/oauth2/token?"+query, nil)
+	require.NoError(t, err)
+	if withHeader {
+		req.Header.Set("Metadata", "true")
+	}
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	raw, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(raw, &body), "%s", raw)
+	return resp, body
+}
 
-	body, _ := io.ReadAll(resp.Body)
-	var payload map[string]any
-	require.NoError(t, json.Unmarshal(body, &payload))
+// A token request without the Metadata header is refused before anything else
+// is looked at, which is what stops a browser being tricked into making one.
+func TestMSI_TokenEndpointRequiresMetadataHeader(t *testing.T) {
+	t.Parallel()
+	resp, body := imdsTokenFromHost(t, "api-version=2018-02-01&resource=https%3A%2F%2Fmanagement.azure.com%2F", false)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	assert.Equal(t, "bad_request_102", body["error"])
+	assert.Equal(t, "Required metadata header not specified", body["error_description"])
+}
 
-	tok, _ := payload["access_token"].(string)
-	require.NotEmpty(t, tok, "access_token must be present")
-	// The MSI token is a real signed JWT (3 dot-separated segments), not a
-	// synthetic string, so resource servers can verify it via the JWKS endpoint.
-	parts := strings.Split(tok, ".")
-	require.Len(t, parts, 3, "MSI access_token must be a 3-part JWT")
-	claims := decodeJWTClaims(t, tok)
-	assert.Equal(t, "https://management.azure.com/", claims["aud"], "JWT aud must equal the requested resource")
-	assert.NotEmpty(t, claims["oid"], "JWT must carry the identity's oid")
-	assert.Equal(t, claims["oid"], claims["sub"], "MSI token sub equals oid")
-	assert.Equal(t, "Bearer", payload["token_type"])
-	assert.Equal(t, "https://management.azure.com/", payload["resource"])
-	assert.NotEmpty(t, payload["expires_on"])
-	_, hasRefresh := payload["refresh_token"]
-	assert.False(t, hasRefresh, "IdentityTokenResponse has no refresh_token member")
+// A caller that is no virtual machine has no identity for the metadata
+// service to speak for.
+func TestMSI_TokenEndpointRefusesACallerThatIsNoMachine(t *testing.T) {
+	t.Parallel()
+	resp, body := imdsTokenFromHost(t, "api-version=2018-02-01&resource=https%3A%2F%2Fmanagement.azure.com%2F", true)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	assert.Equal(t, "invalid_request", body["error"])
+	assert.Equal(t, "Identity not found", body["error_description"])
+	_, hasToken := body["access_token"]
+	assert.False(t, hasToken)
+}
+
+func TestMSI_TokenEndpointRejectsMissingResource(t *testing.T) {
+	t.Parallel()
+	resp, body := imdsTokenFromHost(t, "api-version=2018-02-01", true)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "real IMDS rejects requests without 'resource'; sim must too")
+	assert.Equal(t, "invalid_request", body["error"])
 }
 
 // decodeJWTClaims decodes the payload segment of a JWT into a claims map.
@@ -53,13 +74,4 @@ func decodeJWTClaims(t *testing.T, token string) map[string]any {
 	var claims map[string]any
 	require.NoError(t, json.Unmarshal(payloadJSON, &claims))
 	return claims
-}
-
-func TestMSI_TokenEndpoint_RejectsMissingResource(t *testing.T) {
-	t.Parallel()
-	resp, err := http.Get(baseURL + "/metadata/identity/oauth2/token?api-version=2018-02-01")
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode,
-		"real IMDS rejects requests without 'resource'; sim must too")
 }

@@ -7,6 +7,7 @@
 package sim
 
 import (
+	"crypto/tls"
 	"net/http"
 	"os"
 	"strings"
@@ -22,6 +23,23 @@ type Config struct {
 
 	// TLSKey is the path to the TLS private key file.
 	TLSKey string
+
+	// CallbackListenAddr is the plain-HTTP address the simulator serves beside
+	// a TLS listener for the workloads it places: the instance metadata and
+	// identity endpoints their network sidecars forward to, which a container
+	// reaches without the operator's certificate authority. It serves the
+	// whole handler chain, plain. Set via SIM_CALLBACK_LISTEN_ADDR; empty
+	// takes a free port on every interface, and Listen records the bound
+	// address here. Without TLS the one listener serves everything and this
+	// is ListenAddr.
+	CallbackListenAddr string
+
+	// TLSConfigForClient, when set, picks a connection's TLS configuration
+	// from its ClientHello. base is a copy of the listener's configuration,
+	// carrying its certificate; the hook returns it adjusted, or nil to keep
+	// it as it is. A cloud whose front end asks the clients of some hostnames
+	// for a certificate decides that here, by the hello's ServerName.
+	TLSConfigForClient func(hello *tls.ClientHelloInfo, base *tls.Config) (*tls.Config, error)
 
 	// LogLevel is the zerolog log level (trace, debug, info, warn, error).
 	LogLevel string
@@ -74,6 +92,7 @@ type Config struct {
 //	SIM_LISTEN_ADDR — listen address (default ":" + defaultPort)
 //	SIM_TLS_CERT    — TLS certificate file path
 //	SIM_TLS_KEY     — TLS private key file path
+//	SIM_CALLBACK_LISTEN_ADDR — plain-HTTP address for workload callbacks beside a TLS listener (see Config.CallbackListenAddr)
 //	SIM_LOG_LEVEL   — log level (default "info")
 //	SIM_UI_OIDC_ISSUER        — Shauth or another OpenID Connect issuer
 //	SIM_UI_OIDC_CLIENT_ID     — simulator dashboard relying-party client ID
@@ -93,6 +112,7 @@ func ConfigFromEnv(provider, defaultPort string) Config {
 		ListenAddr:                 listenAddr,
 		TLSCert:                    os.Getenv("SIM_TLS_CERT"),
 		TLSKey:                     os.Getenv("SIM_TLS_KEY"),
+		CallbackListenAddr:         os.Getenv("SIM_CALLBACK_LISTEN_ADDR"),
 		LogLevel:                   EnvOr("SIM_LOG_LEVEL", "info"),
 		Provider:                   provider,
 		DataDir:                    os.Getenv("SIM_DATA_DIR"),

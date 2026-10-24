@@ -317,7 +317,8 @@ func handleRDSCreateBlueGreenDeployment(w http.ResponseWriter, r *http.Request) 
 		Port:                            blue.Port,
 		AvailabilityZone:                blue.AvailabilityZone,
 		InstanceCreateTime:              time.Now().UTC().Format(time.RFC3339),
-		ARN:                             rdsInstanceARN(greenID),
+		Region:                          blue.Region,
+		ARN:                             rdsInstanceARNIn(blue.region(), greenID),
 		ReadReplicaSource:               blue.DBInstanceIdentifier,
 		Tags:                            mergeTags(nil, blue.Tags),
 		MasterUserSecret:                append([]byte(nil), blue.MasterUserSecret...),
@@ -338,6 +339,7 @@ func handleRDSCreateBlueGreenDeployment(w http.ResponseWriter, r *http.Request) 
 		StorageThroughput:               blue.StorageThroughput,
 		DBSubnetGroupName:               blue.DBSubnetGroupName,
 		OptionGroupName:                 blue.OptionGroupName,
+		LicenseModel:                    blue.LicenseModel,
 		CACertificateIdentifier:         blue.CACertificateIdentifier,
 	}
 	rdsAssignInstanceDefaults(&green)
@@ -352,6 +354,12 @@ func handleRDSCreateBlueGreenDeployment(w http.ResponseWriter, r *http.Request) 
 		CreateTime:                    time.Now().UTC().Format(time.RFC3339),
 		Tags:                          parseAWSQueryTagMap(r, "Tags.Tag"),
 	}
+	releaseQuota, code, message := rdsClaimInstanceQuota(green.region(), greenID)
+	if code != "" {
+		fail(code, message, http.StatusBadRequest)
+		return
+	}
+	defer releaseQuota()
 	rdsBlueGreenDeployments.Put(id, d)
 	rdsInstances.Put(greenID, green)
 	rdsInstances.Update(blue.DBInstanceIdentifier, func(i *RDSInstance) {
@@ -600,7 +608,7 @@ func rdsRestartBlueGreenPlanes(ids ...string) {
 func rdsSwapBlueGreenRecords(blue, green RDSInstance, retiredID string) {
 	retired := blue
 	retired.DBInstanceIdentifier = retiredID
-	retired.ARN = rdsInstanceARN(retiredID)
+	retired.ARN = rdsInstanceARNIn(retired.region(), retiredID)
 	retired.Endpoint = ""
 	retired.ReadReplicas = rdsRemoveString(blue.ReadReplicas, green.DBInstanceIdentifier)
 

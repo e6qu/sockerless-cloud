@@ -87,19 +87,24 @@ type appServiceIdentity struct {
 	principalID, clientID, resourceID string
 }
 
-// selectWorkloadIdentity resolves the identity a request names among those of
-// the resource resourceID: the user-assigned identity its client_id,
-// principal_id, object_id or mi_res_id selects, or the system-assigned
-// identity when it names none. It reports false when the resource has no such
-// identity.
+// selectWorkloadIdentity resolves the identity an IDENTITY_ENDPOINT request
+// names among those of the resource resourceID, by its client_id,
+// principal_id (object_id) or mi_res_id query parameter.
 func selectWorkloadIdentity(id *SiteIdentity, resourceID string, r *http.Request) (appServiceIdentity, bool) {
 	q := r.URL.Query()
-	clientID := strings.TrimSpace(q.Get("client_id"))
 	principalID := strings.TrimSpace(q.Get("principal_id"))
 	if principalID == "" {
 		principalID = strings.TrimSpace(q.Get("object_id"))
 	}
-	miResID := strings.TrimSpace(q.Get("mi_res_id"))
+	return selectManagedIdentity(id, resourceID, strings.TrimSpace(q.Get("client_id")), principalID, strings.TrimSpace(q.Get("mi_res_id")))
+}
+
+// selectManagedIdentity resolves the identity a token request names among
+// those of the resource resourceID: the user-assigned identity clientID,
+// principalID or resource ID miResID selects, or the system-assigned identity
+// when all three are empty. It reports false when the resource has no such
+// identity.
+func selectManagedIdentity(id *SiteIdentity, resourceID, clientID, principalID, miResID string) (appServiceIdentity, bool) {
 	if clientID == "" && principalID == "" && miResID == "" {
 		if !id.systemAssigned() || id.PrincipalID == "" {
 			return appServiceIdentity{}, false

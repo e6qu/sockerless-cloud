@@ -155,7 +155,7 @@ func rdsIsDefaultGroupName(name string) bool {
 // the AccountQuota shape and captures the first fifteen, in this order, in its
 // DescribeAccountAttributes example); the used values are counted from the
 // simulator's RDS state.
-func rdsAccountQuotas() []rdsAccountQuota {
+func rdsAccountQuotas(region string) []rdsAccountQuota {
 	instances := rdsInstances.List()
 	var allocatedStorage int64
 	for _, i := range instances {
@@ -204,7 +204,7 @@ func rdsAccountQuotas() []rdsAccountQuota {
 	}
 
 	return []rdsAccountQuota{
-		{"DBInstances", int64(len(instances)), 40},
+		{"DBInstances", int64(rdsDBInstancesUsage(region)), rdsDBInstancesQuota},
 		{"ReservedDBInstances", int64(len(rdsReservedInstances.List())), 40},
 		{"AllocatedStorage", allocatedStorage, 100000},
 		{"DBSecurityGroups", int64(len(rdsDBSecurityGroups.List())), 25},
@@ -240,7 +240,7 @@ func rdsAccountQuotas() []rdsAccountQuota {
 func handleRDSDescribeAccountAttributes(w http.ResponseWriter, r *http.Request) {
 	var b strings.Builder
 	b.WriteString("<AccountQuotas>")
-	for _, q := range rdsAccountQuotas() {
+	for _, q := range rdsAccountQuotas(rdsRequestRegion(r)) {
 		fmt.Fprintf(&b, "<AccountQuota><AccountQuotaName>%s</AccountQuotaName><Used>%d</Used><Max>%d</Max></AccountQuota>",
 			xmlEscape(q.Name), q.Used, q.Max)
 	}
@@ -546,7 +546,7 @@ func handleRDSDescribeServerlessV2PlatformVersions(w http.ResponseWriter, r *htt
 
 func handleRDSDescribeValidDBInstanceModifications(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBInstanceIdentifier")
-	if _, ok := rdsInstances.Get(id); !ok {
+	if _, ok := rdsInstanceIn(r, id); !ok {
 		rdsErrorXML(w, "DBInstanceNotFound",
 			fmt.Sprintf("DBInstance %q not found", id),
 			http.StatusNotFound, sim.RequestID(r.Context()))
@@ -721,7 +721,7 @@ func handleRDSSwitchoverGlobalCluster(w http.ResponseWriter, r *http.Request) {
 
 func handleRDSSwitchoverReadReplica(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBInstanceIdentifier")
-	replica, ok := rdsInstances.Get(id)
+	replica, ok := rdsInstanceIn(r, id)
 	if !ok {
 		rdsErrorXML(w, "DBInstanceNotFound",
 			fmt.Sprintf("DBInstance %q not found", id),

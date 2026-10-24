@@ -101,6 +101,12 @@ func ebAttemptTarget(ctx context.Context, d ebTargetDelivery) delivery.Outcome {
 		return ebPutStreamRecord(ctx, d.RuleArn, target, d.Record, body)
 	case strings.HasPrefix(target.Arn, "arn:aws:batch:"):
 		return ebSubmitJob(ctx, d.RuleArn, target)
+	case strings.HasPrefix(target.Arn, "arn:aws:codebuild:") && strings.Contains(target.Arn, ":project/"):
+		return ebStartBuild(ctx, d.RuleArn, target, body)
+	case strings.HasPrefix(target.Arn, "arn:aws:firehose:") && strings.Contains(target.Arn, ":deliverystream/"):
+		return ebPutFirehoseRecord(ctx, d.RuleArn, target, body)
+	case strings.HasPrefix(target.Arn, "arn:aws:ssm:") && strings.Contains(target.Arn, ":document/"):
+		return ebSendCommand(ctx, d.RuleArn, target, body)
 	case strings.HasPrefix(target.Arn, "arn:aws:events:") && strings.Contains(target.Arn, ":api-destination/"):
 		return ebInvokeApiDestination(ctx, target, body)
 	case strings.HasPrefix(target.Arn, "arn:aws:events:") && strings.Contains(target.Arn, ":event-bus/"):

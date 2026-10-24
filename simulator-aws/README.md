@@ -51,6 +51,7 @@ aws iam create-service-linked-role --aws-service-name cloudfront.amazonaws.com
 | `SIM_LISTEN_ADDR` | `:4566` | Listen address (`host:port`). |
 | `SIM_AWS_PORT` | unset | Port to listen on, ahead of `SIM_LISTEN_ADDR`. |
 | `SIM_TLS_CERT`, `SIM_TLS_KEY` | unset | Enable HTTPS with the given cert/key. |
+| `SIM_CALLBACK_LISTEN_ADDR` | a free port on every interface | With TLS on, the plain-HTTP address the workloads' metadata requests reach through their network sidecars. |
 | `SIM_RUNTIME` | `docker` | Initializes Docker/Podman for workload execution. Set `process` only for explicit API-only runs that do not invoke ECS/Lambda workload execution. |
 | `SIM_PERSIST` | `false` | `true` keeps state across restarts and leaves running workloads for the next process to adopt. |
 | `SIM_PLACEMENT` | unset | The per-service placement table, `service[:qualifier]=container|microvm` comma-separated (`ec2=microvm,ecs:FARGATE=microvm,lambda=container,batch=container`). Every service unnamed runs on containers. Naming a microVM service starts a node agent on the platform network, which needs a Linux engine with `/dev/kvm`. |

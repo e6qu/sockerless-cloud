@@ -7,12 +7,7 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 |---|---|---|---|---|---|
 | `discovery-v1.discovery.json.gz` | `discovery.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20200806` | 2026-10-06T10:43:37Z |
 | `secretmanager-v1.discovery.json.gz` | `secretmanager.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20260925` | 2026-10-07T14:37:45Z |
-| `cloudresourcemanager-v1.discovery.json.gz` | `cloudresourcemanager.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261011` | 2026-10-13T15:04:12Z |
-| `cloudresourcemanager-v2.discovery.json.gz` | `cloudresourcemanager.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20261011` | 2026-10-13T15:04:12Z |
-| `cloudresourcemanager-v3.discovery.json.gz` | `cloudresourcemanager.googleapis.com` | `$discovery/rest?version=v3` | Apache-2.0 | `revision 20261011` | 2026-10-13T15:04:12Z |
-| `artifactregistry-v1.discovery.json.gz` | `artifactregistry.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261010` | 2026-10-19T13:08:07Z |
 | `cloudbuild-v1.discovery.json.gz` | `cloudbuild.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261010` | 2026-10-19T13:08:07Z |
-| `cloudkms-v1.discovery.json.gz` | `cloudkms.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261010` | 2026-10-19T13:08:07Z |
 | `eventarc-v1.discovery.json.gz` | `eventarc.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261014` | 2026-10-19T13:08:08Z |
 | `firestore-v1.discovery.json.gz` | `firestore.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261013` | 2026-10-19T13:08:08Z |
 | `spanner-v1.discovery.json.gz` | `spanner.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261006` | 2026-10-19T13:08:08Z |
@@ -35,4 +30,56 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `dataflow-v1b3.discovery.json.gz` | `dataflow.googleapis.com` | `$discovery/rest?version=v1b3` | Apache-2.0 | `revision 20261018` | 2026-10-22T11:39:07Z |
 | `logging-v2.discovery.json.gz` | `logging.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20261016` | 2026-10-22T11:39:07Z |
 | `redis-v1.discovery.json.gz` | `redis.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261016` | 2026-10-22T21:20:42Z |
-| `storage-v1.discovery.json.gz` | `storage.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261013` | 2026-10-22T21:20:42Z |
+| `artifactregistry-v1.discovery.json.gz` | `artifactregistry.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261022` | 2026-10-23T11:42:07Z |
+| `cloudkms-v1.discovery.json.gz` | `cloudkms.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261016` | 2026-10-23T11:42:07Z |
+| `cloudresourcemanager-v1.discovery.json.gz` | `cloudresourcemanager.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261018` | 2026-10-23T11:42:07Z |
+| `cloudresourcemanager-v2.discovery.json.gz` | `cloudresourcemanager.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20261018` | 2026-10-23T11:42:07Z |
+| `cloudresourcemanager-v3.discovery.json.gz` | `cloudresourcemanager.googleapis.com` | `$discovery/rest?version=v3` | Apache-2.0 | `revision 20261018` | 2026-10-23T11:42:07Z |
+| `storage-v1.discovery.json.gz` | `storage.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261020` | 2026-10-23T11:42:07Z |
+| `cloudrun-logging.md.gz` | `docs.cloud.google.com` | `run/docs/logging` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-23T08:37:49Z |
+| `logging-agent-configuration.md.gz` | `docs.cloud.google.com` | `logging/docs/agent/logging/configuration` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-23T08:37:55Z |
+| `cloudrun-private-networking.md.gz` | `docs.cloud.google.com` | `run/docs/securing/private-networking` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-23T08:38:11Z |
+| `cloudrun-min-instances.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/min-instances` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-23T08:38:14Z |
+| `cloudrun-max-instances.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/max-instances` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-23T08:38:15Z |
+| `cloudrun-manual-scaling.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/services/manual-scaling` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-23T08:38:17Z |
+| `iam-conditions-resource-attributes.md.gz` | `docs.cloud.google.com` | `iam/docs/conditions-resource-attributes` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T08:46:53Z |
+| `iam-conditions-attribute-reference.md.gz` | `docs.cloud.google.com` | `iam/docs/conditions-attribute-reference` | CC-BY-4.0 | `modified2026-10-21` | 2026-10-23T08:46:58Z |
+| `resource-manager-tags-overview.md.gz` | `docs.cloud.google.com` | `resource-manager/docs/tags/tags-overview` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-23T08:46:59Z |
+| `run-managing-access.md.gz` | `docs.cloud.google.com` | `run/docs/securing/managing-access` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-23T08:47:03Z |
+| `run-audit-logging.md.gz` | `docs.cloud.google.com` | `run/docs/audit-logging` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-23T08:47:04Z |
+| `bigquery-audit-logs.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/auditlogs` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T08:47:06Z |
+| `sql-audit-logging.md.gz` | `docs.cloud.google.com` | `sql/docs/mysql/audit-logging` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-23T08:47:09Z |
+| `logging-audit-logging.md.gz` | `docs.cloud.google.com` | `logging/docs/audit-logging` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-23T08:47:11Z |
+| `resource-manager-audit-logging.md.gz` | `docs.cloud.google.com` | `resource-manager/docs/audit-logging` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-23T08:47:14Z |
+| `service-usage-audit-logging.md.gz` | `docs.cloud.google.com` | `service-usage/docs/audit-logging` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-23T08:47:15Z |
+| `vpcaccess-audit-logging.md.gz` | `docs.cloud.google.com` | `vpc/docs/serverless-vpc-access-audit-logging` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-23T08:47:17Z |
+| `api-gateway-audit-logging.md.gz` | `docs.cloud.google.com` | `api-gateway/docs/audit-logging` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T08:47:18Z |
+| `dataflow-audit-logging.md.gz` | `docs.cloud.google.com` | `dataflow/docs/audit-logging` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T08:47:21Z |
+| `logging-resource-list.md.gz` | `docs.cloud.google.com` | `logging/docs/api/v2/resource-list` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-23T08:47:24Z |
+| `bigquery-writing-results.md.gz` | `docs.cloud.google.com` | `bigquery/docs/writing-results` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-23T18:51:28Z |
+| `bigquery-cached-results.md.gz` | `docs.cloud.google.com` | `bigquery/docs/cached-results` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:51:30Z |
+| `bigquery-timestamp-functions.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/timestamp_functions` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:51:30Z |
+| `bigquery-date-functions.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/date_functions` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-23T18:51:32Z |
+| `bigquery-datetime-functions.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/datetime_functions` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-23T18:51:33Z |
+| `bigquery-time-functions.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/time_functions` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:51:34Z |
+| `bigquery-conversion-functions.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/conversion_functions` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:51:49Z |
+| `bigquery-array-functions.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/array_functions` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:51:50Z |
+| `bigquery-aggregate-functions.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/aggregate_functions` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:51:52Z |
+| `bigquery-string-functions.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/string_functions` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:51:55Z |
+| `bigquery-json-functions.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/json_functions` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:51:58Z |
+| `bigquery-hash-functions.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/hash_functions` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:51:59Z |
+| `bigquery-mathematical-functions.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/mathematical_functions` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:52:01Z |
+| `bigquery-conditional-expressions.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/conditional_expressions` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:52:02Z |
+| `bigquery-functions-reference.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/functions-reference` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:52:04Z |
+| `bigquery-query-syntax.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/query-syntax` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:52:10Z |
+| `bigquery-operators.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/operators` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:52:13Z |
+| `bigquery-lexical.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/lexical` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:52:15Z |
+| `bigquery-data-types.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/data-types` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:52:18Z |
+| `bigquery-format-elements.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/format-elements` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:52:20Z |
+| `bigquery-dml.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/dml-syntax` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:52:22Z |
+| `bigquery-ddl.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/data-definition-language` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:52:31Z |
+| `bigquery-procedural-language.md.gz` | `docs.cloud.google.com` | `bigquery/docs/reference/standard-sql/procedural-language` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:52:33Z |
+| `bigquery-multi-statement-queries.md.gz` | `docs.cloud.google.com` | `bigquery/docs/multi-statement-queries` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:52:34Z |
+| `bigquery-streaming.md.gz` | `docs.cloud.google.com` | `bigquery/docs/streaming-data-into-bigquery` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:52:37Z |
+| `bigquery-table-snapshots.md.gz` | `docs.cloud.google.com` | `bigquery/docs/table-snapshots-intro` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:52:38Z |
+| `bigquery-table-clones.md.gz` | `docs.cloud.google.com` | `bigquery/docs/table-clones-intro` | CC-BY-4.0 | `modified2026-10-20` | 2026-10-23T18:52:39Z |

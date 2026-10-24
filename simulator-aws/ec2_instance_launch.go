@@ -42,8 +42,11 @@ func ec2MachineManager() (*machine.Manager, error) {
 		return nil, err
 	}
 	ec2Machines = machine.New(backend, machine.Hooks{
-		Booting:       ec2MachineBooting,
-		Ready:         func(id string) { ec2ReapplyIngress(ec2InstanceRecord(id).VpcId) },
+		Booting: ec2MachineBooting,
+		Ready: func(id string) {
+			ec2ReapplyIngress(ec2InstanceRecord(id).VpcId)
+			ssmRegisterManagedNode(id)
+		},
 		Down:          ec2MachineDown,
 		GuestShutdown: ec2InstanceShutDown,
 		Forgotten:     func(id string) { ec2ReapplyIngress(ec2InstanceRecord(id).VpcId) },
@@ -450,6 +453,7 @@ func ec2FinishHalt(instanceID, next string) {
 		ctx := context.Background()
 		if next == "terminated" {
 			ec2DiscardWorkload(ctx, instanceID)
+			ssmDeregisterTerminatedNode(instanceID)
 		} else {
 			ec2StopWorkload(ctx, instanceID)
 		}

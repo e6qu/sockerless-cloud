@@ -43,21 +43,41 @@ type CBProject struct {
 	Tags         []CBTag        `json:"tags,omitempty"`
 	// LogsConfig is the project's log settings as CreateProject received
 	// them; cbLogsLocation reads the CloudWatch Logs half.
-	LogsConfig map[string]any `json:"logsConfig,omitempty"`
+	LogsConfig              map[string]any   `json:"logsConfig,omitempty"`
+	SecondarySources        []map[string]any `json:"secondarySources,omitempty"`
+	SecondarySourceVersions []map[string]any `json:"secondarySourceVersions,omitempty"`
+	SecondaryArtifacts      []map[string]any `json:"secondaryArtifacts,omitempty"`
+	Cache                   map[string]any   `json:"cache,omitempty"`
+	EncryptionKey           string           `json:"encryptionKey,omitempty"`
+	BuildBatchConfig        map[string]any   `json:"buildBatchConfig,omitempty"`
+	AutoRetryLimit          *int             `json:"autoRetryLimit,omitempty"`
 }
 
 type CBBuild struct {
-	ID            string         `json:"id"`
-	Arn           string         `json:"arn"`
-	ProjectName   string         `json:"projectName"`
-	SourceVersion string         `json:"sourceVersion,omitempty"`
-	BuildStatus   string         `json:"buildStatus"`
-	StartTime     float64        `json:"startTime"`
-	EndTime       float64        `json:"endTime"`
-	Phases        []CBPhase      `json:"phases"`
-	Logs          map[string]any `json:"logs"`
-	Environment   map[string]any `json:"environment,omitempty"`
-	ReportArns    []string       `json:"reportArns,omitempty"`
+	ID                      string             `json:"id"`
+	Arn                     string             `json:"arn"`
+	ProjectName             string             `json:"projectName"`
+	SourceVersion           string             `json:"sourceVersion,omitempty"`
+	BuildStatus             string             `json:"buildStatus"`
+	StartTime               float64            `json:"startTime"`
+	EndTime                 float64            `json:"endTime"`
+	Phases                  []CBPhase          `json:"phases"`
+	Source                  map[string]any     `json:"source,omitempty"`
+	SecondarySources        []map[string]any   `json:"secondarySources,omitempty"`
+	SecondarySourceVersions []map[string]any   `json:"secondarySourceVersions,omitempty"`
+	Artifacts               map[string]any     `json:"artifacts,omitempty"`
+	SecondaryArtifacts      []map[string]any   `json:"secondaryArtifacts,omitempty"`
+	Cache                   map[string]any     `json:"cache,omitempty"`
+	Logs                    map[string]any     `json:"logs"`
+	Environment             map[string]any     `json:"environment,omitempty"`
+	ServiceRole             string             `json:"serviceRole,omitempty"`
+	TimeoutInMinutes        int                `json:"timeoutInMinutes,omitempty"`
+	QueuedTimeoutInMinutes  int                `json:"queuedTimeoutInMinutes,omitempty"`
+	EncryptionKey           string             `json:"encryptionKey,omitempty"`
+	DebugSession            map[string]any     `json:"debugSession,omitempty"`
+	BuildBatchArn           string             `json:"buildBatchArn,omitempty"`
+	AutoRetryConfig         *CBAutoRetryConfig `json:"autoRetryConfig,omitempty"`
+	ReportArns              []string           `json:"reportArns,omitempty"`
 	// Seq is a sim-internal monotonic creation order used to sort ListBuilds
 	// faithfully by start order; it's not part of the CodeBuild wire shape.
 	Seq int64 `json:"-"`
@@ -77,9 +97,16 @@ type CBBuild struct {
 	// instead of executing the commands again.
 	BuildPlan          *cbBuildPlan      `json:"-"`
 	RuntimeEnvironment map[string]string `json:"-"`
-	// ServiceRole is the role the build runs as: the build's
-	// serviceRoleOverride, or its project's service role.
-	ServiceRole string `json:"-"`
+	// Project is the project as this build runs it, the build's overrides
+	// applied; recovery and RetryBuild run from it.
+	Project CBProject `json:"-"`
+}
+
+type CBAutoRetryConfig struct {
+	AutoRetryLimit    int    `json:"autoRetryLimit"`
+	AutoRetryNumber   int    `json:"autoRetryNumber"`
+	NextAutoRetry     string `json:"nextAutoRetry,omitempty"`
+	PreviousAutoRetry string `json:"previousAutoRetry,omitempty"`
 }
 
 type CBPhase struct {
@@ -219,6 +246,7 @@ const cbAWSOwnedKMSKeyID = "aws-owned-codebuild"
 var (
 	cbProjects          sim.Store[CBProject]
 	cbBuilds            sim.Store[CBBuild]
+	cbBuildChanges      = newStoreChanges()
 	cbReportGrps        sim.Store[CBReportGroup]
 	cbReports           sim.Store[CBReport]
 	cbReportResults     sim.Store[CBReportResults]
@@ -231,12 +259,13 @@ var (
 
 func registerCodeBuild(r *AWSRouter, srv *sim.Server) {
 	cbProjects = sim.MakeStore[CBProject](srv.DB(), "codebuild_projects")
-	cbBuilds = sim.MakeStore[CBBuild](srv.DB(), "codebuild_builds")
+	cbBuilds = announcing(sim.MakeStore[CBBuild](srv.DB(), "codebuild_builds"), cbBuildChanges)
 	cbReportGrps = sim.MakeStore[CBReportGroup](srv.DB(), "codebuild_report_groups")
 	cbReports = sim.MakeStore[CBReport](srv.DB(), "codebuild_reports")
 	cbReportResults = sim.MakeStore[CBReportResults](srv.DB(), "codebuild_report_results")
 	cbSourceCreds = sim.MakeStore[CBSourceCredential](srv.DB(), "codebuild_source_credentials")
 	cbSourceCredSecrets = sim.MakeStore[cbSourceCredentialSecret](srv.DB(), "codebuild_source_credential_secrets")
+	cbIdempotencyTokens = sim.MakeStore[cbIdempotencyRecord](srv.DB(), "codebuild_idempotency_tokens")
 	cbRebuildBuildSequence()
 	cbBuildCancelMu.Lock()
 	cbBuildCancels = make(map[string]func())
@@ -348,9 +377,9 @@ func cbRecoverBuilds() error {
 		if build.BuildStatus != "IN_PROGRESS" {
 			continue
 		}
-		project, ok := cbProjects.Get(build.ProjectName)
-		if !ok {
-			return fmt.Errorf("build %s references missing project %s", build.ID, build.ProjectName)
+		project := build.Project
+		if project.Name == "" {
+			return fmt.Errorf("build %s has no persisted build settings", build.ID)
 		}
 		adopted, err := cbAdoptBuildWorkload(
 			build.ID,
@@ -408,6 +437,7 @@ func handleCBCreateProject(w http.ResponseWriter, r *http.Request) {
 		QueueTimeout int            `json:"queuedTimeoutInMinutes"`
 		Tags         []CBTag        `json:"tags"`
 		LogsConfig   map[string]any `json:"logsConfig"`
+		cbProjectSettings
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
@@ -426,6 +456,9 @@ func handleCBCreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !cbCanAssumeRole(w, req.ServiceRole, cbARN("project/"+req.Name)) {
+		return
+	}
+	if !cbCanAssumeBatchRole(w, req.BuildBatchConfig, cbARN("project/"+req.Name)) {
 		return
 	}
 
@@ -460,6 +493,7 @@ func handleCBCreateProject(w http.ResponseWriter, r *http.Request) {
 		Tags:         req.Tags,
 		LogsConfig:   req.LogsConfig,
 	}
+	req.apply(&p)
 	cbProjects.Put(req.Name, p)
 	cbWriteJSON(w, http.StatusOK, map[string]any{"project": p})
 }
@@ -535,6 +569,7 @@ func handleCBUpdateProject(w http.ResponseWriter, r *http.Request) {
 		Artifacts   map[string]any `json:"artifacts"`
 		Environment map[string]any `json:"environment"`
 		ServiceRole string         `json:"serviceRole"`
+		cbProjectSettings
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
@@ -549,6 +584,10 @@ func handleCBUpdateProject(w http.ResponseWriter, r *http.Request) {
 		cbWriteError(w, "ResourceNotFoundException", "Project not found: "+req.Name)
 		return
 	}
+	if !cbCanAssumeBatchRole(w, req.BuildBatchConfig, p.Arn) {
+		return
+	}
+	req.apply(&p)
 	if req.Description != "" {
 		p.Description = req.Description
 	}
@@ -589,13 +628,7 @@ func handleCBDeleteProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleCBStartBuild(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ProjectName                  string           `json:"projectName"`
-		BuildspecOverride            string           `json:"buildspecOverride"`
-		SourceVersion                string           `json:"sourceVersion"`
-		EnvironmentVariablesOverride []map[string]any `json:"environmentVariablesOverride"`
-		ServiceRoleOverride          string           `json:"serviceRoleOverride"`
-	}
+	var req cbStartBuildInput
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
@@ -606,49 +639,121 @@ func handleCBStartBuild(w http.ResponseWriter, r *http.Request) {
 		cbWriteError(w, "ResourceNotFoundException", "Project not found: "+req.ProjectName)
 		return
 	}
-	if req.ServiceRoleOverride != "" && !cbCanAssumeRole(w, req.ServiceRoleOverride, cbARN("project/"+req.ProjectName)) {
+	if req.ServiceRoleOverride != "" && !cbCanAssumeRole(w, req.ServiceRoleOverride, p.Arn) {
 		return
 	}
-	plan, err := cbBuildPlanForProject(p, req.BuildspecOverride, req.SourceVersion)
+	effective, err := cbApplyBuildOverrides(p, req)
 	if err != nil {
 		cbWriteError(w, "InvalidInputException", err.Error())
 		return
 	}
-	reportSpecs, err := cbBuildReportSpecs(p, req.BuildspecOverride)
+	plan, err := cbBuildPlanForProject(effective, req.SourceVersion)
 	if err != nil {
 		cbWriteError(w, "InvalidInputException", err.Error())
 		return
 	}
+	reportSpecs, err := cbBuildReportSpecs(effective)
+	if err != nil {
+		cbWriteError(w, "InvalidInputException", err.Error())
+		return
+	}
+	batchArn := cbCallerBuildBatchArn(r, p.Name)
+	token := req.IdempotencyToken
+	keyed := req
+	keyed.IdempotencyToken = ""
+	digest := cbRequestDigest(keyed)
 
 	cbMu.Lock()
 	defer cbMu.Unlock()
 
-	buildID := req.ProjectName + ":" + uuid.New().String()
+	id, repeated, err := cbIdempotentID("StartBuild", token, digest)
+	if err != nil {
+		cbWriteError(w, "InvalidInputException", err.Error())
+		return
+	}
+	if build, found := cbBuilds.Get(id); repeated && found {
+		cbWriteJSON(w, http.StatusOK, map[string]any{"build": build})
+		return
+	}
+	build := cbLaunchBuild(effective, plan, reportSpecs, req.SourceVersion, cbDebugSession(req.DebugSessionEnabled),
+		batchArn, cbNewAutoRetryConfig(effective, 0, ""))
+	cbRecordIdempotencyToken("StartBuild", token, digest, build.ID)
+	cbWriteJSON(w, http.StatusOK, map[string]any{"build": build})
+}
+
+// cbNewAutoRetryConfig is the autoRetryConfig of the number-th automatic
+// retry of a build of project, previous naming the build it retries; nil when
+// the build retries nothing automatically.
+func cbNewAutoRetryConfig(project CBProject, number int, previous string) *CBAutoRetryConfig {
+	if project.AutoRetryLimit == nil {
+		return nil
+	}
+	return &CBAutoRetryConfig{AutoRetryLimit: *project.AutoRetryLimit, AutoRetryNumber: number, PreviousAutoRetry: previous}
+}
+
+// cbCallerBuildBatchArn is the ARN of the batch build a request starts a build
+// for: CodeBuild starts each build of a batch as the batch's service role, for
+// the batch.
+func cbCallerBuildBatchArn(r *http.Request, projectName string) string {
+	caller, ok := sim.CallerOf(r.Context())
+	if !ok || caller.Service != "codebuild.amazonaws.com" {
+		return ""
+	}
+	batchID, ok := strings.CutPrefix(caller.Source, cbARN("build-batch/"))
+	if !ok {
+		return ""
+	}
+	batch, ok := cbBuildBatches.Get(batchID)
+	if !ok || batch.ProjectName != projectName {
+		return ""
+	}
+	return batch.Arn
+}
+
+// cbLaunchBuild records a build of effective, the project as the build runs
+// it, and starts it. Caller holds cbMu.
+func cbLaunchBuild(effective CBProject, plan cbBuildPlan, reports []cbReportSpec, sourceVersion string,
+	debugSession map[string]any, batchArn string, autoRetry *CBAutoRetryConfig,
+) CBBuild {
+	buildID := effective.Name + ":" + uuid.New().String()
 	now := cbEpochNow()
-	runtimeEnvironment := cbEnvironment(p.Environment, req.EnvironmentVariablesOverride)
+	runtimeEnvironment := cbEnvironment(effective.Environment, nil)
 	build := CBBuild{
-		ID:                 buildID,
-		Arn:                cbARN("build/" + buildID),
-		ProjectName:        req.ProjectName,
-		SourceVersion:      req.SourceVersion,
-		ServiceRole:        firstNonEmpty(req.ServiceRoleOverride, p.ServiceRole),
-		BuildStatus:        "IN_PROGRESS",
-		Seq:                cbNextBuildSeq(),
-		StartTime:          now,
-		EndTime:            now,
-		Environment:        p.Environment,
-		Reports:            reportSpecs,
-		BuildPlan:          &plan,
-		RuntimeEnvironment: runtimeEnvironment,
+		ID:                      buildID,
+		Arn:                     cbARN("build/" + buildID),
+		ProjectName:             effective.Name,
+		SourceVersion:           sourceVersion,
+		BuildStatus:             "IN_PROGRESS",
+		Seq:                     cbNextBuildSeq(),
+		StartTime:               now,
+		EndTime:                 now,
+		Source:                  effective.Source,
+		SecondarySources:        effective.SecondarySources,
+		SecondarySourceVersions: effective.SecondarySourceVersions,
+		Artifacts:               cbBuildArtifacts(effective.Artifacts),
+		SecondaryArtifacts:      cbBuildArtifactsList(effective.SecondaryArtifacts),
+		Cache:                   effective.Cache,
+		Environment:             effective.Environment,
+		ServiceRole:             effective.ServiceRole,
+		TimeoutInMinutes:        int(cbBuildTimeout(effective) / time.Minute),
+		QueuedTimeoutInMinutes:  effective.QueueTimeout,
+		EncryptionKey:           effective.EncryptionKey,
+		DebugSession:            debugSession,
+		BuildBatchArn:           batchArn,
+		AutoRetryConfig:         autoRetry,
+		Reports:                 reports,
+		BuildPlan:               &plan,
+		RuntimeEnvironment:      runtimeEnvironment,
+		Project:                 effective,
 		Phases: []CBPhase{
 			{PhaseType: "SUBMITTED", PhaseStatus: "SUCCEEDED", StartTime: now, EndTime: now, DurationInSeconds: 0},
 			{PhaseType: "BUILD", PhaseStatus: "IN_PROGRESS", StartTime: now},
 		},
-		Logs: cbLogsLocation(p, buildID),
+		Logs: cbLogsLocation(effective, buildID),
 	}
 	cbBuilds.Put(buildID, build)
-	go cbRunBuild(buildID, p, plan, runtimeEnvironment)
-	cbWriteJSON(w, http.StatusOK, map[string]any{"build": build})
+	go cbRunBuild(buildID, effective, plan, runtimeEnvironment)
+	return build
 }
 
 func handleCBStopBuild(w http.ResponseWriter, r *http.Request) {
@@ -689,13 +794,15 @@ func cbStopBuildByID(buildID string) CBBuild {
 			{PhaseType: "COMPLETED", PhaseStatus: "STOPPED", StartTime: now, EndTime: now, DurationInSeconds: 0},
 		}
 		cbBuilds.Put(buildID, build)
+		cbNotifyBuildBatch(build)
 	}
 	return build
 }
 
 func handleCBRetryBuild(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ID string `json:"id"`
+		ID               string `json:"id"`
+		IdempotencyToken string `json:"idempotencyToken"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
@@ -707,56 +814,35 @@ func handleCBRetryBuild(w http.ResponseWriter, r *http.Request) {
 		cbWriteError(w, "ResourceNotFoundException", "Build not found: "+req.ID)
 		return
 	}
-	p, ok := cbProjects.Get(prior.ProjectName)
-	if !ok {
-		cbWriteError(w, "ResourceNotFoundException", "Project not found: "+prior.ProjectName)
+	if prior.Project.Name == "" {
+		cbWriteError(w, "InvalidInputException", "build "+req.ID+" has no persisted build settings")
 		return
 	}
-	plan, err := cbBuildPlanForProject(p, "", prior.SourceVersion)
+	plan, err := cbBuildPlanForProject(prior.Project, prior.SourceVersion)
 	if err != nil {
 		cbWriteError(w, "InvalidInputException", err.Error())
 		return
 	}
-	reportSpecs, err := cbBuildReportSpecs(p, "")
-	if err != nil {
-		cbWriteError(w, "InvalidInputException", err.Error())
-		return
-	}
+	batchArn := cbCallerBuildBatchArn(r, prior.ProjectName)
+	digest := cbRequestDigest(req.ID)
 
 	cbMu.Lock()
 	defer cbMu.Unlock()
 
-	// RetryBuild starts a fresh build of the same project (a new build id),
-	// mirroring real CodeBuild which produces a new build resource.
-	buildID := prior.ProjectName + ":" + uuid.New().String()
-	now := cbEpochNow()
-	// The retry runs with the settings the build it retries ran with.
-	runtimeEnvironment := prior.RuntimeEnvironment
-	if runtimeEnvironment == nil {
-		runtimeEnvironment = cbEnvironment(p.Environment, nil)
+	id, repeated, err := cbIdempotentID("RetryBuild", req.IdempotencyToken, digest)
+	if err != nil {
+		cbWriteError(w, "InvalidInputException", err.Error())
+		return
 	}
-	build := CBBuild{
-		ID:                 buildID,
-		Arn:                cbARN("build/" + buildID),
-		ProjectName:        prior.ProjectName,
-		SourceVersion:      prior.SourceVersion,
-		ServiceRole:        firstNonEmpty(prior.ServiceRole, p.ServiceRole),
-		BuildStatus:        "IN_PROGRESS",
-		Seq:                cbNextBuildSeq(),
-		StartTime:          now,
-		EndTime:            now,
-		Environment:        p.Environment,
-		Reports:            reportSpecs,
-		BuildPlan:          &plan,
-		RuntimeEnvironment: runtimeEnvironment,
-		Phases: []CBPhase{
-			{PhaseType: "SUBMITTED", PhaseStatus: "SUCCEEDED", StartTime: now, EndTime: now, DurationInSeconds: 0},
-			{PhaseType: "BUILD", PhaseStatus: "IN_PROGRESS", StartTime: now},
-		},
-		Logs: cbLogsLocation(p, buildID),
+	if build, found := cbBuilds.Get(id); repeated && found {
+		cbWriteJSON(w, http.StatusOK, map[string]any{"build": build})
+		return
 	}
-	cbBuilds.Put(buildID, build)
-	go cbRunBuild(buildID, p, plan, runtimeEnvironment)
+	// RetryBuild starts a new build with the settings the build it retries
+	// ran with.
+	build := cbLaunchBuild(prior.Project, plan, prior.Reports, prior.SourceVersion, prior.DebugSession,
+		batchArn, cbNewAutoRetryConfig(prior.Project, 0, ""))
+	cbRecordIdempotencyToken("RetryBuild", req.IdempotencyToken, digest, build.ID)
 	cbWriteJSON(w, http.StatusOK, map[string]any{"build": build})
 }
 
@@ -773,17 +859,19 @@ type cbBuildspec struct {
 type cbBuildPlan struct {
 	Commands      []string
 	SourceVersion string
+	// BuildspecPath is the buildspec file, relative to the source directory,
+	// that a build reads once its source is checked out; empty reads
+	// buildspec.yml.
+	BuildspecPath string
 }
 
-// cbBuildReportSpecs returns the reports a project's buildspec declares, in
-// report-group-key order (empty when the buildspec has no reports section).
-func cbBuildReportSpecs(p CBProject, override string) ([]cbReportSpec, error) {
-	buildspec := override
-	if buildspec == "" {
-		buildspec = cbString(p.Source["buildspec"])
-	}
-	if buildspec == "" {
-		return nil, nil
+// cbBuildReportSpecs returns the reports an inline buildspec of project
+// declares, in report-group-key order.
+func cbBuildReportSpecs(project CBProject) ([]cbReportSpec, error) {
+	buildspec := cbString(project.Source["buildspec"])
+	inline, err := cbInlineBuildspec(buildspec)
+	if err != nil || !inline {
+		return nil, err
 	}
 	var spec cbBuildspec
 	if err := yaml.Unmarshal([]byte(buildspec), &spec); err != nil {
@@ -806,14 +894,20 @@ func cbBuildReportSpecs(p CBProject, override string) ([]cbReportSpec, error) {
 	return specs, nil
 }
 
-func cbBuildCommands(p CBProject, override string) ([]string, error) {
-	buildspec := override
-	if buildspec == "" {
-		buildspec = cbString(p.Source["buildspec"])
+// cbInlineBuildspec reports whether a project's or a build's buildspec is a
+// buildspec declaration rather than the path of a buildspec file.
+func cbInlineBuildspec(buildspec string) (bool, error) {
+	if strings.TrimSpace(buildspec) == "" {
+		return false, nil
 	}
-	if buildspec == "" {
-		return nil, fmt.Errorf("source.buildspec is required for NO_SOURCE builds")
+	var document yaml.Node
+	if err := yaml.Unmarshal([]byte(buildspec), &document); err != nil {
+		return false, fmt.Errorf("invalid buildspec: %w", err)
 	}
+	return len(document.Content) == 1 && document.Content[0].Kind == yaml.MappingNode, nil
+}
+
+func cbBuildspecCommands(buildspec string) ([]string, error) {
 	var spec cbBuildspec
 	if err := yaml.Unmarshal([]byte(buildspec), &spec); err != nil {
 		return nil, fmt.Errorf("invalid buildspec: %w", err)
@@ -828,16 +922,36 @@ func cbBuildCommands(p CBProject, override string) ([]string, error) {
 	return commands, nil
 }
 
-func cbBuildPlanForProject(project CBProject, override, sourceVersion string) (cbBuildPlan, error) {
-	if override == "" && cbString(project.Source["buildspec"]) == "" &&
-		!strings.EqualFold(cbString(project.Source["type"]), "NO_SOURCE") {
-		return cbBuildPlan{SourceVersion: sourceVersion}, nil
+// cbBuildPlanForProject plans a build of project, its overrides applied: an
+// inline buildspec's commands, or the buildspec file its source holds.
+func cbBuildPlanForProject(project CBProject, sourceVersion string) (cbBuildPlan, error) {
+	buildspec := cbString(project.Source["buildspec"])
+	plan := cbBuildPlan{SourceVersion: sourceVersion}
+	if strings.HasPrefix(buildspec, "arn:") {
+		return cbBuildPlan{}, fmt.Errorf("buildspec %s names an Amazon S3 object, which the AWS service slice does not read", buildspec)
 	}
-	commands, err := cbBuildCommands(project, override)
+	inline, err := cbInlineBuildspec(buildspec)
 	if err != nil {
 		return cbBuildPlan{}, err
 	}
-	return cbBuildPlan{Commands: commands, SourceVersion: sourceVersion}, nil
+	noSource := strings.EqualFold(cbString(project.Source["type"]), "NO_SOURCE")
+	switch {
+	case inline:
+		plan.Commands, err = cbBuildspecCommands(buildspec)
+		if err != nil {
+			return cbBuildPlan{}, err
+		}
+	case noSource && buildspec == "":
+		return cbBuildPlan{}, fmt.Errorf("source.buildspec is required for NO_SOURCE builds")
+	case noSource:
+		return cbBuildPlan{}, fmt.Errorf("buildspec %s names a file, and a NO_SOURCE build has no source to read it from", buildspec)
+	default:
+		if buildspec != "" && !filepath.IsLocal(filepath.FromSlash(buildspec)) {
+			return cbBuildPlan{}, fmt.Errorf("buildspec %s is not a path within the source directory", buildspec)
+		}
+		plan.BuildspecPath = buildspec
+	}
+	return plan, nil
 }
 
 func cbRunBuild(buildID string, project CBProject, plan cbBuildPlan, env map[string]string) {
@@ -845,6 +959,7 @@ func cbRunBuild(buildID string, project CBProject, plan cbBuildPlan, env map[str
 	cbCompleteBuild(buildID, exitCode, reason)
 }
 
+// cbRunCommands runs a build of project, the project as the build runs it.
 func cbRunCommands(buildID string, project CBProject, plan cbBuildPlan, env map[string]string) (int, string) {
 	workDir, err := os.MkdirTemp("", "sockerless-codebuild-*")
 	if err != nil {
@@ -852,24 +967,24 @@ func cbRunCommands(buildID string, project CBProject, plan cbBuildPlan, env map[
 	}
 	// The workspace outlives this function: cbCompleteBuild reads the build's
 	// raw report files out of it and removes it afterwards, so an adopted build
-	// finds it too.
+	// finds it too. A build deleted while it ran leaves no record to find it by.
 	cbRecordBuildWorkspace(buildID, workDir)
+	defer func() {
+		if _, ok := cbBuilds.Get(buildID); !ok {
+			_ = os.RemoveAll(workDir)
+		}
+	}()
 
 	if err := cbCheckoutSource(project, plan.SourceVersion, workDir); err != nil {
 		return -1, err.Error()
 	}
 	if len(plan.Commands) == 0 {
-		buildspec, err := os.ReadFile(filepath.Join(workDir, "buildspec.yml"))
+		path := firstNonEmpty(plan.BuildspecPath, "buildspec.yml")
+		buildspec, err := os.ReadFile(filepath.Join(workDir, filepath.FromSlash(path)))
 		if err != nil {
-			return -1, fmt.Sprintf("read source buildspec.yml: %v", err)
+			return -1, fmt.Sprintf("read source %s: %v", path, err)
 		}
-		projectWithBuildspec := project
-		projectWithBuildspec.Source = make(map[string]any, len(project.Source)+1)
-		for key, value := range project.Source {
-			projectWithBuildspec.Source[key] = value
-		}
-		projectWithBuildspec.Source["buildspec"] = string(buildspec)
-		plan.Commands, err = cbBuildCommands(projectWithBuildspec, "")
+		plan.Commands, err = cbBuildspecCommands(string(buildspec))
 		if err != nil {
 			return -1, err.Error()
 		}
@@ -890,15 +1005,9 @@ func cbRunCommands(buildID string, project CBProject, plan cbBuildPlan, env map[
 	if err != nil {
 		return -1, fmt.Sprintf("build environment network: %v", err)
 	}
-	serviceRole := project.ServiceRole
-	if build, ok := cbBuilds.Get(buildID); ok && build.ServiceRole != "" {
-		serviceRole = build.ServiceRole
-	} else if batch, ok := cbBuildBatches.Get(buildID); ok && batch.ServiceRole != "" {
-		serviceRole = batch.ServiceRole
-	}
 	holder := roleHolder("codebuild", buildID)
 	defer revokeRoleCredentials(holder)
-	services, err := cbEnvironmentServiceEnv(network, holder, serviceRole, buildID)
+	services, err := cbEnvironmentServiceEnv(network, holder, project.ServiceRole, buildID)
 	if err != nil {
 		return -1, fmt.Sprintf("build environment service endpoint: %v", err)
 	}
@@ -948,6 +1057,17 @@ func cbRunCommands(buildID string, project CBProject, plan cbBuildPlan, env map[
 	return 0, ""
 }
 
+// cbInt reads a whole number from a decoded JSON member or a Go int.
+func cbInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int(n), true
+	case int:
+		return n, true
+	}
+	return 0, false
+}
+
 func cbCheckoutSource(project CBProject, sourceVersion, workDir string) error {
 	sourceType := strings.ToUpper(cbString(project.Source["type"]))
 	switch sourceType {
@@ -959,6 +1079,18 @@ func cbCheckoutSource(project CBProject, sourceVersion, workDir string) error {
 			return fmt.Errorf("source.location is required for %s", sourceType)
 		}
 		options := &git.CloneOptions{URL: location, Depth: 1, SingleBranch: true}
+		// gitCloneDepth 0 clones the whole history.
+		if depth, ok := cbInt(project.Source["gitCloneDepth"]); ok {
+			options.Depth = depth
+		}
+		if insecure, _ := project.Source["insecureSsl"].(bool); insecure {
+			options.InsecureSkipTLS = true
+		}
+		if submodules, ok := project.Source["gitSubmodulesConfig"].(map[string]any); ok {
+			if fetch, _ := submodules["fetchSubmodules"].(bool); fetch {
+				options.RecurseSubmodules = git.DefaultSubmoduleRecursionDepth
+			}
+		}
 		if sourceVersion != "" && sourceVersion != "HEAD" {
 			options.Depth = 0
 			options.SingleBranch = false
@@ -1070,10 +1202,7 @@ func cbRecordBuildWorkspace(buildID, workspace string) {
 func cbRegisterBuildCancel(buildID string, cancel func()) {
 	cbBuildCancelMu.Lock()
 	cbBuildCancels[buildID] = cancel
-	build, exists := cbBuilds.Get(buildID)
-	batch, batchExists := cbBuildBatches.Get(buildID)
-	if (exists && build.BuildStatus == "IN_PROGRESS") ||
-		(batchExists && batch.BuildBatchStatus == "IN_PROGRESS") {
+	if build, exists := cbBuilds.Get(buildID); exists && build.BuildStatus == "IN_PROGRESS" {
 		cbBuildCancelMu.Unlock()
 		return
 	}
@@ -1139,7 +1268,24 @@ func cbCompleteBuild(buildID string, exitCode int, reason string) {
 
 	build = cbProduceBuildReports(build, now)
 	cbReleaseBuildWorkspace(&build)
+	if retry := build.AutoRetryConfig; status == "FAILED" && retry != nil && retry.AutoRetryNumber < retry.AutoRetryLimit {
+		build.AutoRetryConfig.NextAutoRetry = cbAutoRetryBuild(build).Arn
+	}
 	cbBuilds.Put(buildID, build)
+	cbNotifyBuildBatch(build)
+}
+
+// cbAutoRetryBuild retries a failed build as its autoRetryConfig asks: a new
+// build with the settings the failed one ran with, numbered after it. Caller
+// holds cbMu.
+func cbAutoRetryBuild(failed CBBuild) CBBuild {
+	plan := cbBuildPlan{SourceVersion: failed.SourceVersion}
+	if failed.BuildPlan != nil {
+		plan = *failed.BuildPlan
+	}
+	retry := *failed.AutoRetryConfig
+	return cbLaunchBuild(failed.Project, plan, failed.Reports, failed.SourceVersion, failed.DebugSession, failed.BuildBatchArn,
+		&CBAutoRetryConfig{AutoRetryLimit: retry.AutoRetryLimit, AutoRetryNumber: retry.AutoRetryNumber + 1, PreviousAutoRetry: failed.Arn})
 }
 
 // cbReleaseBuildWorkspace removes the build environment's source directory once

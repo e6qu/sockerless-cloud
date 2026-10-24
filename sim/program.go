@@ -20,9 +20,10 @@ type Program struct {
 	Configure func(*Config) error
 	// Build constructs the server with every service slice registered.
 	Build func(Config) (*Server, error)
-	// Start, when set, starts what serves beside the HTTP port. The stop it
-	// returns runs once the HTTP server has shut down and its workers have
-	// returned, before the database closes.
+	// Start, when set, starts what serves beside the HTTP port, with the
+	// configuration's CallbackListenAddr resolved to the address the server
+	// bound. The stop it returns runs once the HTTP server has shut down and
+	// its workers have returned, before the database closes.
 	Start func(*Server, Config) (stop func(context.Context) error, err error)
 }
 
@@ -61,13 +62,21 @@ func run(p Program) error {
 	if err != nil {
 		return fmt.Errorf("simulator startup: %w", err)
 	}
+	// The listeners bind before Start, so what starts beside the HTTP port
+	// knows the address the workloads call back on.
+	if err := srv.Listen(); err != nil {
+		srv.StopBackground()
+		return fmt.Errorf("simulator startup: %w", err)
+	}
+	cfg.CallbackListenAddr = srv.CallbackListenAddr()
 	if p.Start != nil {
 		stop, err := p.Start(srv, cfg)
 		if err != nil {
 			srv.StopBackground()
+			srv.closeListeners()
 			return fmt.Errorf("simulator startup: %w", err)
 		}
 		srv.OnStop(stop)
 	}
-	return srv.ListenAndServe()
+	return srv.Serve()
 }

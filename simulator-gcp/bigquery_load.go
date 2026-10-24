@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf16"
 	"unicode/utf8"
 
@@ -53,6 +54,21 @@ type bqLoadConfig struct {
 	Autodetect          bool              `json:"autodetect"`
 	UseAvroLogicalTypes bool              `json:"useAvroLogicalTypes"`
 	ParquetOptions      *bqParquetOptions `json:"parquetOptions"`
+	TimePartitioning    json.RawMessage   `json:"timePartitioning"`
+	RangePartitioning   json.RawMessage   `json:"rangePartitioning"`
+	Clustering          json.RawMessage   `json:"clustering"`
+	SchemaUpdateOptions []string          `json:"schemaUpdateOptions"`
+	DecimalTargetTypes  []string          `json:"decimalTargetTypes"`
+	DateFormat          string            `json:"dateFormat"`
+	TimeFormat          string            `json:"timeFormat"`
+	TimestampFormat     string            `json:"timestampFormat"`
+	DatetimeFormat      string            `json:"datetimeFormat"`
+	TimeZone            string            `json:"timeZone"`
+	JSONExtension       string            `json:"jsonExtension"`
+	// Options the simulator refuses rather than ignores.
+	HivePartitioningOptions json.RawMessage `json:"hivePartitioningOptions"`
+	SourceColumnMatch       string          `json:"sourceColumnMatch"`
+	ReferenceFileSchemaURI  string          `json:"referenceFileSchemaUri"`
 }
 
 // bqSource is one file of a load's source data.
@@ -117,7 +133,227 @@ func bqParseLoadConfig(configuration map[string]any) (bqLoadConfig, string, erro
 	if cfg.NullMarker != "" && len(cfg.NullMarkers) > 0 {
 		return cfg, "", apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "null_marker and null_markers cannot be set at the same time.")
 	}
+	cfg.TimePartitioning, cfg.RangePartitioning, cfg.Clustering = bqJSONMember(cfg.TimePartitioning), bqJSONMember(cfg.RangePartitioning), bqJSONMember(cfg.Clustering)
+	if bqJSONMember(cfg.HivePartitioningOptions) != nil {
+		return cfg, "", apiRefuse(http.StatusNotImplemented, "NOT_IMPLEMENTED", "the simulator does not load hive-partitioned source data")
+	}
+	if cfg.ReferenceFileSchemaURI != "" {
+		return cfg, "", apiRefuse(http.StatusNotImplemented, "NOT_IMPLEMENTED", "the simulator does not read a referenceFileSchemaUri")
+	}
+	switch cfg.SourceColumnMatch {
+	case "", "SOURCE_COLUMN_MATCH_UNSPECIFIED", "POSITION":
+	default:
+		return cfg, "", apiRefuse(http.StatusNotImplemented, "NOT_IMPLEMENTED", "the simulator matches CSV columns by position, not %s", cfg.SourceColumnMatch)
+	}
+	switch cfg.JSONExtension {
+	case "", "JSON_EXTENSION_UNSPECIFIED":
+	case "GEOJSON":
+		if format != "NEWLINE_DELIMITED_JSON" {
+			return cfg, "", apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "jsonExtension GEOJSON requires sourceFormat NEWLINE_DELIMITED_JSON")
+		}
+		return cfg, "", apiRefuse(http.StatusNotImplemented, "NOT_IMPLEMENTED", "the simulator does not load newline-delimited GeoJSON")
+	default:
+		return cfg, "", apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid value for jsonExtension: %s", cfg.JSONExtension)
+	}
+	for _, opt := range cfg.SchemaUpdateOptions {
+		if opt != "ALLOW_FIELD_ADDITION" && opt != "ALLOW_FIELD_RELAXATION" {
+			return cfg, "", apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid schema update option: %s", opt)
+		}
+	}
+	if len(cfg.SchemaUpdateOptions) > 0 && cfg.WriteDisposition != "WRITE_APPEND" && cfg.WriteDisposition != "WRITE_TRUNCATE_DATA" {
+		return cfg, "", apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "Schema update options should only be specified with WRITE_APPEND or WRITE_TRUNCATE_DATA disposition, or with WRITE_TRUNCATE disposition on a table partition.")
+	}
+	seen := map[string]bool{}
+	for _, t := range cfg.DecimalTargetTypes {
+		if t != "NUMERIC" && t != "BIGNUMERIC" && t != "STRING" {
+			return cfg, "", apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid decimal target type: %s", t)
+		}
+		if seen[t] {
+			return cfg, "", apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "decimalTargetTypes cannot contain duplicate types: %s", t)
+		}
+		seen[t] = true
+	}
+	if cfg.TimeZone != "" {
+		if _, err := bqLoadZone(cfg.TimeZone); err != nil {
+			return cfg, "", apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid timeZone: %s", cfg.TimeZone)
+		}
+	}
+	if cfg.TimePartitioning != nil && cfg.RangePartitioning != nil {
+		return cfg, "", apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "Only one of timePartitioning and rangePartitioning should be specified.")
+	}
 	return cfg, format, nil
+}
+
+// bqJSONMember is a configuration member as given, or nil when absent or
+// JSON null.
+func bqJSONMember(raw json.RawMessage) json.RawMessage {
+	if len(bytes.TrimSpace(raw)) == 0 || string(bytes.TrimSpace(raw)) == "null" {
+		return nil
+	}
+	return raw
+}
+
+// bqCheckTableLayout checks a new table's partitioning and clustering
+// against its schema as the TimePartitioning, RangePartitioning and
+// Clustering members describe them.
+func bqCheckTableLayout(table BQTable) error {
+	fields := bqSchemaFields(table.Schema)
+	if table.TimePartitioning != nil {
+		var tp struct{ Type, Field string }
+		if err := json.Unmarshal(table.TimePartitioning, &tp); err != nil {
+			return bqFail("invalid", "Invalid timePartitioning: %v", err)
+		}
+		switch tp.Type {
+		case "DAY", "HOUR", "MONTH", "YEAR":
+		default:
+			return bqFail("invalid", "Invalid time partitioning type: %s. The supported types are DAY, HOUR, MONTH and YEAR.", tp.Type)
+		}
+		if tp.Field != "" {
+			f, ok := bqFieldAtPath(fields, []string{tp.Field})
+			if !ok {
+				return bqFail("invalid", "The field specified for time partitioning can only be of type TIMESTAMP, DATE or DATETIME. The field %s does not exist.", tp.Field)
+			}
+			if t := bqType(f); bqRepeated(f) || (t != "TIMESTAMP" && t != "DATE" && t != "DATETIME") {
+				return bqFail("invalid", "The field specified for time partitioning can only be of type TIMESTAMP, DATE or DATETIME. The type found is: %s.", bqSQLTypeName(f))
+			}
+		}
+	}
+	if table.RangePartitioning != nil {
+		var rp struct{ Field string }
+		if err := json.Unmarshal(table.RangePartitioning, &rp); err != nil {
+			return bqFail("invalid", "Invalid rangePartitioning: %v", err)
+		}
+		f, ok := bqFieldAtPath(fields, []string{rp.Field})
+		if !ok || bqRepeated(f) || bqType(f) != "INT64" {
+			return bqFail("invalid", "The field specified for range partitioning must be a top-level INT64 column: %s", rp.Field)
+		}
+	}
+	if table.Clustering != nil {
+		var cl struct{ Fields []string }
+		if err := json.Unmarshal(table.Clustering, &cl); err != nil {
+			return bqFail("invalid", "Invalid clustering: %v", err)
+		}
+		if len(cl.Fields) == 0 || len(cl.Fields) > 4 {
+			return bqFail("invalid", "Clustering takes one to four fields; %d were given", len(cl.Fields))
+		}
+		for _, name := range cl.Fields {
+			f, ok := bqFieldAtPath(fields, []string{name})
+			if !ok || bqNested(f) {
+				return bqFail("invalid", "The field %s specified for clustering must be a top-level, non-repeated, simple-type column", name)
+			}
+		}
+	}
+	return nil
+}
+
+// bqCSVTemporal reads a CSV DATE, TIME, DATETIME or TIMESTAMP value under the
+// load's dateFormat, timeFormat, datetimeFormat, timestampFormat and
+// timeZone, and answers the canonical text bqCoerce reads; ok is false when
+// no option applies.
+func bqCSVTemporal(cfg bqLoadConfig, typ, value string) (string, bool, error) {
+	format := map[string]string{"DATE": cfg.DateFormat, "TIME": cfg.TimeFormat, "DATETIME": cfg.DatetimeFormat, "TIMESTAMP": cfg.TimestampFormat}[typ]
+	if format == "" && (typ != "TIMESTAMP" || cfg.TimeZone == "") {
+		return "", false, nil
+	}
+	loc := time.UTC
+	if cfg.TimeZone != "" {
+		zone, err := bqLoadZone(cfg.TimeZone)
+		if err != nil {
+			return "", false, err
+		}
+		loc = zone
+	}
+	var t time.Time
+	if format != "" {
+		parsed, err := bqParseTime(format, value, loc)
+		if err != nil {
+			return "", false, bqConvertErr("Could not parse '%s' as %s with format %s", value, typ, format)
+		}
+		t = parsed
+	} else {
+		if bqZoneSuffixRE.MatchString(strings.TrimSpace(value)) {
+			return "", false, nil
+		}
+		civil, err := bqParseDateTime(strings.NewReplacer("T", " ").Replace(strings.TrimSpace(value)))
+		if err != nil {
+			return "", false, bqConvertErr("Could not convert value '%s' to TIMESTAMP", value)
+		}
+		t = time.Date(civil.Year(), civil.Month(), civil.Day(), civil.Hour(), civil.Minute(), civil.Second(), civil.Nanosecond(), loc)
+	}
+	switch typ {
+	case "DATE":
+		return t.Format("2006-01-02"), true, nil
+	case "TIME":
+		return bqFormatClock(t), true, nil
+	case "DATETIME":
+		return t.Format("2006-01-02 ") + bqFormatClock(t), true, nil
+	}
+	return t.UTC().Format("2006-01-02 15:04:05.999999") + " UTC", true, nil
+}
+
+// bqDecimalTargetType picks the type a source decimal of precision and scale
+// loads as, in the order NUMERIC, BIGNUMERIC, STRING, among the types the
+// load allows (NUMERIC alone by default), as decimalTargetTypes describes.
+func bqDecimalTargetType(allowed []string, precision, scale int) string {
+	if len(allowed) == 0 {
+		allowed = []string{"NUMERIC"}
+	}
+	has := map[string]bool{}
+	for _, t := range allowed {
+		has[t] = true
+	}
+	fits := map[string]bool{
+		"NUMERIC":    scale <= 9 && precision-scale <= 29,
+		"BIGNUMERIC": scale <= 38 && precision-scale <= 38,
+		"STRING":     true,
+	}
+	for _, t := range []string{"NUMERIC", "BIGNUMERIC", "STRING"} {
+		if has[t] && fits[t] {
+			return t
+		}
+	}
+	for _, t := range []string{"STRING", "BIGNUMERIC", "NUMERIC"} {
+		if has[t] {
+			return t
+		}
+	}
+	return "NUMERIC"
+}
+
+// bqApplySchemaUpdate merges a load's schema into the destination's under
+// its schemaUpdateOptions: ALLOW_FIELD_ADDITION adds NULLABLE fields and
+// ALLOW_FIELD_RELAXATION turns REQUIRED fields NULLABLE.
+func bqApplySchemaUpdate(cfg bqLoadConfig, existing, loaded []BQFieldSchema) ([]BQFieldSchema, error) {
+	allow := map[string]bool{}
+	for _, o := range cfg.SchemaUpdateOptions {
+		allow[o] = true
+	}
+	out := append([]BQFieldSchema(nil), existing...)
+	for _, f := range loaded {
+		i := -1
+		for j := range out {
+			if strings.EqualFold(out[j].Name, f.Name) {
+				i = j
+			}
+		}
+		if i < 0 {
+			if !allow["ALLOW_FIELD_ADDITION"] {
+				return nil, bqFail("invalid", "Provided Schema does not match Table. Cannot add fields (field: %s)", f.Name)
+			}
+			if strings.EqualFold(f.Mode, "REQUIRED") {
+				return nil, bqFail("invalid", "Provided Schema does not match Table. Cannot add required fields to an existing schema. (field: %s)", f.Name)
+			}
+			out = append(out, f)
+			continue
+		}
+		if strings.EqualFold(out[i].Mode, "REQUIRED") && !strings.EqualFold(f.Mode, "REQUIRED") {
+			if !allow["ALLOW_FIELD_RELAXATION"] {
+				return nil, bqFail("invalid", "Provided Schema does not match Table. Field %s has changed mode from REQUIRED to NULLABLE", f.Name)
+			}
+			out[i].Mode = "NULLABLE"
+		}
+	}
+	return out, nil
 }
 
 func bqLoadProject(cfg bqLoadConfig, project string) string {
@@ -242,7 +478,7 @@ func bqGunzip(src bqSource) (bqSource, error) {
 // job's. Nil leaves the schema to be read from the data.
 func bqLoadSchema(cfg bqLoadConfig, format string, table BQTable, exists bool) *BQSchema {
 	tableSchema := exists && table.Schema != nil && len(table.Schema.Fields) > 0
-	if tableSchema && cfg.WriteDisposition != "WRITE_TRUNCATE" {
+	if tableSchema && cfg.WriteDisposition != "WRITE_TRUNCATE" && len(cfg.SchemaUpdateOptions) == 0 {
 		return table.Schema
 	}
 	if cfg.Schema != nil && len(cfg.Schema.Fields) > 0 {
@@ -310,15 +546,27 @@ func bqRunLoad(ctx context.Context, r *http.Request, project string, cfg bqLoadC
 		if !exists && cfg.CreateDisposition == "CREATE_NEVER" {
 			return bqFail("notFound", "Not found: Table %s:%s.%s", dest.ProjectID, dest.DatasetID, dest.TableID)
 		}
+		if exists && table.Type != "" && table.Type != "TABLE" {
+			return bqFail("invalid", "Cannot load data into %s %s.", strings.ToLower(table.Type), bqTableName(dest))
+		}
 		existing, _ := bqRows.Get(key)
 		if cfg.WriteDisposition == "WRITE_EMPTY" && len(existing.Rows) > 0 {
 			return bqFail("duplicate", "Already Exists: Table %s:%s.%s", dest.ProjectID, dest.DatasetID, dest.TableID)
 		}
 		switch {
 		case !exists:
-			table = BQTable{TableReference: dest, Schema: schema}
+			table = BQTable{TableReference: dest, Schema: schema, TimePartitioning: cfg.TimePartitioning, RangePartitioning: cfg.RangePartitioning, Clustering: cfg.Clustering}
+			if err := bqCheckTableLayout(table); err != nil {
+				return err
+			}
 		case cfg.WriteDisposition == "WRITE_TRUNCATE" || table.Schema == nil || len(table.Schema.Fields) == 0:
 			table.Schema = schema
+		case len(cfg.SchemaUpdateOptions) > 0:
+			merged, err := bqApplySchemaUpdate(cfg, table.Schema.Fields, bqSchemaFields(schema))
+			if err != nil {
+				return err
+			}
+			table.Schema = &BQSchema{Fields: merged}
 		}
 		if cfg.WriteDisposition == "WRITE_TRUNCATE" || cfg.WriteDisposition == "WRITE_TRUNCATE_DATA" {
 			existing.Rows = nil
@@ -725,7 +973,15 @@ func bqCSVRow(cfg bqLoadConfig, schema *BQSchema, markers []string, record bqCSV
 			row[f.Name] = nil
 			continue
 		}
-		v, err := bqCoerce(f, record.values[i], false)
+		text := record.values[i]
+		canonical, formatted, err := bqCSVTemporal(cfg, bqType(f), text)
+		if err != nil {
+			return nil, err.Error()
+		}
+		if formatted {
+			text = canonical
+		}
+		v, err := bqCoerce(f, text, false)
 		if err != nil {
 			return nil, err.Error()
 		}

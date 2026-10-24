@@ -39,18 +39,27 @@ func TestCloudBuild_RegionalBuildCreateAndRetry(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, op.Done, "the operation comes back before the build runs")
 
-	// The build is addressable under the location it was created in.
+	// The build is addressable under the location it was created in, and so
+	// is the operation that tracks it.
 	created := buildFromOperation(t, op)
 	require.NotEmpty(t, created.Id)
 	assert.Contains(t, created.Name, "/locations/us-central1/builds/")
+	require.True(t, strings.HasPrefix(op.Name, parent+"/operations/"), "operation %q is not in the regional operations collection", op.Name)
+	fetched, err := svc.Projects.Locations.Operations.Get(op.Name).Do()
+	require.NoError(t, err)
+	assert.Equal(t, op.Name, fetched.Name)
+	assert.Equal(t, created.Id, buildFromOperation(t, fetched).Id)
 
-	// Retrying creates a new build rather than re-running the record.
+	// Retrying creates a new build rather than re-running the record, in the
+	// same location.
 	retried, err := svc.Projects.Locations.Builds.Retry(
 		parent+"/builds/"+created.Id, &cloudbuild.RetryBuildRequest{}).Do()
 	require.NoError(t, err)
 	require.False(t, retried.Done, "the retried build runs after the operation comes back")
 	second := buildFromOperation(t, retried)
 	assert.NotEqual(t, created.Id, second.Id, "retry starts a new build")
+	assert.Contains(t, second.Name, "/locations/us-central1/builds/")
+	require.True(t, strings.HasPrefix(retried.Name, parent+"/operations/"), "operation %q is not in the regional operations collection", retried.Name)
 
 	// Both records survive.
 	got, err := svc.Projects.Locations.Builds.Get(parent + "/builds/" + created.Id).Do()

@@ -840,7 +840,7 @@ func rdsDetachDeletedInstance(instance RDSInstance) {
 func handleRDSPromoteReadReplica(w http.ResponseWriter, r *http.Request) {
 	requestID := sim.RequestID(r.Context())
 	id := r.FormValue("DBInstanceIdentifier")
-	inst, ok := rdsInstances.Get(id)
+	inst, ok := rdsInstanceIn(r, id)
 	if !ok {
 		rdsErrorXML(w, "DBInstanceNotFound", fmt.Sprintf("DBInstance %s not found.", id), http.StatusNotFound, requestID)
 		return
@@ -906,6 +906,10 @@ func handleRDSCreateReadReplica(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	src, ok := findRDSByARN(srcID)
+	// A source in another Region is named by its ARN.
+	if ok && !strings.HasPrefix(srcID, "arn:") && src.region() != rdsRequestRegion(r) {
+		ok = false
+	}
 	if !ok {
 		fail("DBInstanceNotFound", fmt.Sprintf("DBInstance %s not found.", srcID), http.StatusNotFound)
 		return
@@ -943,7 +947,7 @@ func handleRDSCreateReadReplica(w http.ResponseWriter, r *http.Request) {
 	if class == "" {
 		class = src.DBInstanceClass
 	}
-	az := awsRegion() + "a"
+	az := rdsRequestRegion(r) + "a"
 	if v := r.FormValue("AvailabilityZone"); v != "" {
 		az = v
 	}
@@ -967,11 +971,12 @@ func handleRDSCreateReadReplica(w http.ResponseWriter, r *http.Request) {
 		MasterUsername:                  src.MasterUsername,
 		DBName:                          src.DBName,
 		AllocatedStorage:                src.AllocatedStorage,
-		Endpoint:                        fmt.Sprintf("%s.%s.rds.amazonaws.com", id, awsRegion()),
+		Endpoint:                        rdsInstanceEndpointIn(rdsRequestRegion(r), id),
 		Port:                            port,
 		AvailabilityZone:                az,
 		InstanceCreateTime:              time.Now().UTC().Format(time.RFC3339),
-		ARN:                             rdsInstanceARN(id),
+		Region:                          rdsRequestRegion(r),
+		ARN:                             rdsInstanceARNIn(rdsRequestRegion(r), id),
 		ReadReplicaSource:               src.DBInstanceIdentifier,
 		Tags:                            parseAWSQueryTagMap(r, "Tags.Tag"),
 		BackupTarget:                    rdsRequestedBackupTarget(r),
@@ -983,6 +988,7 @@ func handleRDSCreateReadReplica(w http.ResponseWriter, r *http.Request) {
 		Iops:                            src.Iops,
 		StorageThroughput:               src.StorageThroughput,
 		OptionGroupName:                 src.OptionGroupName,
+		LicenseModel:                    src.LicenseModel,
 	}
 	if code, message := rdsRequestedInstanceSettings(r, &replica); code != "" {
 		rdsErrorXML(w, code, message, rdsInstanceSettingsErrorStatus(code), requestID)
@@ -994,6 +1000,12 @@ func handleRDSCreateReadReplica(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseCapacity()
+	releaseQuota, code, message := rdsClaimInstanceQuota(replica.region(), id)
+	if code != "" {
+		fail(code, message, http.StatusBadRequest)
+		return
+	}
+	defer releaseQuota()
 	if served {
 		replica.DBInstanceStatus = "creating"
 		replica.MasterUserSecret = append([]byte(nil), src.MasterUserSecret...)

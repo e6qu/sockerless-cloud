@@ -11,7 +11,7 @@ import (
 // mirror.gcr.io pinned by the digest the registry serves for the tag;
 // scripts/check-latest-deps.sh keeps the pins current.
 const (
-	ec2AmazonLinux2023OCI = "mirror.gcr.io/library/amazonlinux:2023@sha256:8ed3c0a996841537f75607e7d1de2114d8150391f75792e8da9268738547e73f"
+	ec2AmazonLinux2023OCI = "mirror.gcr.io/library/amazonlinux:2023@sha256:c04a1012acc483977f61f7f91c28624a39a621e56a59781319a75dec528be9b6"
 	ec2Ubuntu2404OCI      = "mirror.gcr.io/library/ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac"
 	ec2Debian12OCI        = "mirror.gcr.io/library/debian:12@sha256:854dd8ab51d62866dbd8f5431d15ce77b12983a2a4a1e1fe43a2395dc7ef9f61"
 )

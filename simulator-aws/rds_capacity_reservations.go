@@ -396,6 +396,10 @@ func handleRDSCreateCapacityReservation(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
+	if rdsDBInstancesUsed(awsRegion(), now)+capacity*len(zones) > rdsDBInstancesQuota {
+		fail("InstanceQuotaExceeded", rdsInstanceQuotaExceededMessage)
+		return
+	}
 	rdsCapacityReservations.Put(res.Identifier, res)
 	rdsXMLResponse(w, "CreateDBCapacityReservation",
 		"<DBCapacityReservation>"+renderRDSCapacityReservation(res, now)+"</DBCapacityReservation>", requestID)
@@ -639,6 +643,11 @@ func handleRDSModifyCapacityReservation(w http.ResponseWriter, r *http.Request) 
 			fail("InvalidParameterValue", fmt.Sprintf("During the capacity commitment, CapacityPerAvailabilityZone can't be less than %d.", res.CommittedCapacityPerAZ))
 			return
 		}
+		if increase := capacity - res.CapacityPerZone; increase > 0 &&
+			rdsDBInstancesUsed(awsRegion(), now)+increase*len(res.AvailabilityZones) > rdsDBInstancesQuota {
+			fail("InstanceQuotaExceeded", rdsInstanceQuotaExceededMessage)
+			return
+		}
 		res.CapacityPerZone = capacity
 	}
 	rdsCapacityReservations.Put(res.Identifier, res)
@@ -770,6 +779,60 @@ func rdsHoldCapacity(id string, hold rdsCapacityHold) func() {
 		defer rdsCapacity.Unlock()
 		delete(rdsCapacityHolds, id)
 	}
+}
+
+// rdsDBInstancesQuota is the DBInstances quota of an account in a Region.
+const rdsDBInstancesQuota = 40
+
+// rdsInstanceQuotaClaims maps each DB instance a request is provisioning, and
+// the store does not hold yet, to its Region. Hold rdsCapacity.
+var rdsInstanceQuotaClaims = map[string]string{}
+
+// rdsDBInstancesUsed counts what the DBInstances quota of region holds at
+// now: the account's DB instances there, the ones requests are provisioning
+// there, and the unused capacity of its active reservations, which the
+// simulator's own Region holds. Hold rdsCapacity.
+func rdsDBInstancesUsed(region string, now time.Time) int {
+	used := len(rdsInstances.Filter(func(instance RDSInstance) bool { return instance.region() == region }))
+	for id, claimed := range rdsInstanceQuotaClaims {
+		if _, stored := rdsInstances.Get(id); !stored && claimed == region {
+			used++
+		}
+	}
+	if region != awsRegion() {
+		return used
+	}
+	for _, res := range rdsCapacityReservations.List() {
+		for _, zone := range res.AvailabilityZones {
+			used += rdsAvailableCapacity(res, zone, "", now)
+		}
+	}
+	return used
+}
+
+func rdsDBInstancesUsage(region string) int {
+	rdsCapacity.Lock()
+	defer rdsCapacity.Unlock()
+	return rdsDBInstancesUsed(region, time.Now().UTC())
+}
+
+const rdsInstanceQuotaExceededMessage = "The request would result in the user exceeding the allowed number of DB instances."
+
+// rdsClaimInstanceQuota takes one DB instance of region's quota for the
+// instance id a request provisions. The caller releases the claim once it
+// stored the instance or gave up.
+func rdsClaimInstanceQuota(region, id string) (release func(), code, message string) {
+	rdsCapacity.Lock()
+	defer rdsCapacity.Unlock()
+	if rdsDBInstancesUsed(region, time.Now().UTC())+1 > rdsDBInstancesQuota {
+		return nil, "InstanceQuotaExceeded", rdsInstanceQuotaExceededMessage
+	}
+	rdsInstanceQuotaClaims[id] = region
+	return func() {
+		rdsCapacity.Lock()
+		defer rdsCapacity.Unlock()
+		delete(rdsInstanceQuotaClaims, id)
+	}, "", ""
 }
 
 // rdsTakeStartCapacity places a stopped instance a StartDBInstance starts: in

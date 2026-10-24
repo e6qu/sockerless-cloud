@@ -188,6 +188,18 @@ func TestStackProductionShape(t *testing.T) {
 		"Lambda function URL must use AWS's regional lambda-url host shape")
 	require.JSONEq(t, `{"source":"terraform"}`, outputs.must(t, "lambda_invocation_result"),
 		"Lambda Terraform invocation must round-trip through the Runtime API handler")
+	require.Equal(t, outputs.must(t, "eventbridge_queue_arn"), outputs.must(t, "lambda_event_invoke_config_destination"),
+		"aws_lambda_function_event_invoke_config must read its Amazon SQS destination back through GetFunctionEventInvokeConfig")
+
+	require.Equal(t, outputs.must(t, "codebuild_project_arn"), outputs.must(t, "eventbridge_codebuild_target_arn"),
+		"aws_cloudwatch_event_target must read its AWS CodeBuild project target back through ListTargetsByRule")
+	require.Contains(t, outputs.must(t, "eventbridge_codebuild_target_role_arn"), ":role/tf-eventbridge-codebuild-role",
+		"aws_cloudwatch_event_target must read the role EventBridge starts the build as back through ListTargetsByRule")
+
+	require.Contains(t, outputs.must(t, "codebuild_batch_service_role"), ":role/tf-codebuild-service-role",
+		"the CodeBuild project's build_batch_config must round-trip through BatchGetProjects")
+	require.Equal(t, "3", outputs.must(t, "codebuild_batch_maximum_builds_allowed"),
+		"the CodeBuild project's batch restrictions must round-trip through BatchGetProjects")
 
 	require.True(t, strings.HasPrefix(acmARN, "arn:aws:acm:us-east-1:"),
 		"ACM certificate must live in us-east-1 for CloudFront use; got %s", acmARN)
@@ -234,6 +246,17 @@ func TestStackProductionShape(t *testing.T) {
 	elbv2RuleArn := outputs.must(t, "elbv2_listener_rule_arn")
 	require.Contains(t, elbv2RuleArn, ":listener-rule/app/tf-alb/",
 		"ELBv2 listener-rule ARN must use the listener-rule/app resource path; got %s", elbv2RuleArn)
+
+	require.Equal(t, outputs.must(t, "ec2_nlb_eip_allocation_id"), outputs.must(t, "elbv2_nlb_subnet_mapping_allocation_id"),
+		"aws_lb subnet_mapping must read back the Elastic IP allocation CreateLoadBalancer was given, from the subnet's LoadBalancerAddresses")
+	require.Equal(t, "172.31.32.0/20", outputs.must(t, "ec2_default_subnet_cidr"),
+		"aws_default_subnet must adopt the zone's existing /20 default subnet through the default-for-az filter")
+	require.Equal(t, "true", outputs.must(t, "ec2_default_subnet_existing"),
+		"aws_default_subnet must find the default subnet the account is provisioned with rather than create one")
+	require.Regexp(t, `/56$`, outputs.must(t, "ec2_vpc_ipv6_cidr"),
+		"aws_vpc assign_generated_ipv6_cidr_block must read back the Amazon-provided /56 from DescribeVpcs")
+	require.Regexp(t, `/64$`, outputs.must(t, "ec2_ipv6_subnet_cidr"),
+		"aws_subnet ipv6_cidr_block must read back the /64 CreateSubnet took from the VPC's block")
 
 	natGatewayID := outputs.must(t, "ec2_nat_gateway_id")
 	require.True(t, strings.HasPrefix(natGatewayID, "nat-"),

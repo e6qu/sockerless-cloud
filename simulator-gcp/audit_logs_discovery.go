@@ -22,6 +22,9 @@ import (
 type auditDiscoveryAPI struct {
 	file        string
 	serviceName string
+	// host is the label of the host the API is served on when it is not the
+	// label of its serviceName: Cloud SQL's sqladmin.googleapis.com.
+	host string
 	// servicePath is the path the API's method paths are relative to.
 	servicePath string
 	record      func(call *auditDiscoveryCall) (auditRecord, bool)
@@ -45,6 +48,7 @@ type auditDiscoveryCall struct {
 	method   *auditDiscoveryMethod
 	vars     map[string]string
 	path     []string
+	host     string
 	body     map[string]any
 	response map[string]any
 	status   map[string]any
@@ -53,6 +57,11 @@ type auditDiscoveryCall struct {
 var auditDiscoveryAPIs = []*auditDiscoveryAPI{
 	{file: "discovery/compute-v1.discovery.json.gz", serviceName: "compute.googleapis.com", record: auditComputeRecord},
 	{file: "discovery/dns-v1.discovery.json.gz", serviceName: "dns.googleapis.com", record: auditDNSRecord},
+	{file: "discovery/cloudrun-v1.discovery.json.gz", serviceName: "run.googleapis.com", record: auditRunV1Record},
+	{file: "discovery/bigquery-v2.discovery.json.gz", serviceName: "bigquery.googleapis.com", record: auditBigQueryRecord},
+	{file: "discovery/sqladmin-v1.discovery.json.gz", serviceName: "cloudsql.googleapis.com", host: "sqladmin", record: auditCloudSQLRecord},
+	{file: "discovery/sqladmin-v1beta4.discovery.json.gz", serviceName: "cloudsql.googleapis.com", host: "sqladmin", record: auditCloudSQLRecord},
+	{file: "discovery/dataflow-v1b3.discovery.json.gz", serviceName: "dataflow.googleapis.com", record: auditDataflowRecord},
 }
 
 var (
@@ -110,7 +119,9 @@ func auditLoadDiscovery() error {
 							responseRef: m.Response.Ref,
 						}
 						for _, s := range dm.segments {
-							if !strings.HasPrefix(s, "{") {
+							// A custom method's verb, {id}:verb, is a literal
+							// of its segment.
+							if !strings.HasPrefix(s, "{") || strings.Contains(s, "}:") {
 								dm.literals++
 							}
 						}
@@ -140,11 +151,20 @@ func auditMatchDiscovery(method, path string) (*auditDiscoveryMethod, map[string
 		ok := true
 		for i, s := range m.segments {
 			if name, isVar := strings.CutPrefix(s, "{"); isVar {
-				if parts[i] == "" {
+				name, custom, _ := strings.Cut(name, "}")
+				part := parts[i]
+				if custom != "" {
+					if !strings.HasSuffix(part, custom) {
+						ok = false
+						break
+					}
+					part = strings.TrimSuffix(part, custom)
+				}
+				if part == "" {
 					ok = false
 					break
 				}
-				vars[strings.TrimSuffix(name, "}")] = parts[i]
+				vars[name] = part
 			} else if s != parts[i] {
 				ok = false
 				break
@@ -163,14 +183,18 @@ func auditResolveDiscovery(r *http.Request) (*auditPending, bool) {
 	if !ok || strings.HasSuffix(m.id, ".testIamPermissions") {
 		return nil, false
 	}
-	label, _, _ := strings.Cut(m.api.serviceName, ".")
+	label := m.api.host
+	if label == "" {
+		label, _, _ = strings.Cut(m.api.serviceName, ".")
+	}
 	write := r.Method != http.MethodGet
+	host := r.Host
 	return &auditPending{
 		serviceLabel:    label,
 		captureRequest:  write,
 		captureResponse: write,
 		complete: func(status int, requestBody, responseBody []byte) (auditRecord, bool) {
-			call := &auditDiscoveryCall{method: m, vars: vars, path: parts, status: auditRESTStatus(status, responseBody)}
+			call := &auditDiscoveryCall{method: m, vars: vars, path: parts, host: host, status: auditRESTStatus(status, responseBody)}
 			if len(requestBody) > 0 {
 				_ = json.Unmarshal(requestBody, &call.body)
 			}
@@ -500,6 +524,9 @@ func auditResolveCRM(r *http.Request) (*auditPending, bool) {
 					var response map[string]any
 					if json.Unmarshal(responseBody, &response) == nil {
 						rec.response = response
+						if m.methodName == "CreateProject" {
+							rec.longRunning = auditLongRunningOperation(response)
+						}
 					}
 				}
 			}

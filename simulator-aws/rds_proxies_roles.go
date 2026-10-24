@@ -693,7 +693,7 @@ func handleRDSRegisterProxyTargets(w http.ResponseWriter, r *http.Request) {
 	}
 	var registered []RDSProxyTarget
 	for _, instID := range parseRDSIndexedStringList(r, "DBInstanceIdentifiers.member") {
-		inst, ok := rdsInstances.Get(instID)
+		inst, ok := rdsInstanceIn(r, instID)
 		if !ok {
 			rdsErrorXML(w, "DBInstanceNotFound", fmt.Sprintf("DBInstance %q not found", instID), http.StatusNotFound, sim.RequestID(r.Context()))
 			return
@@ -743,7 +743,7 @@ func handleRDSDeregisterProxyTargets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, instID := range parseRDSIndexedStringList(r, "DBInstanceIdentifiers.member") {
-		if inst, ok := rdsInstances.Get(instID); ok {
+		if inst, ok := rdsInstanceIn(r, instID); ok {
 			rdsProxyTargets.Delete(proxyName + "/" + inst.DbiResourceId)
 		}
 	}
@@ -814,7 +814,7 @@ func handleRDSRemoveRoleFromCluster(w http.ResponseWriter, r *http.Request) {
 func handleRDSAddRoleToInstance(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBInstanceIdentifier")
 	roleArn := r.FormValue("RoleArn")
-	if _, ok := rdsInstances.Get(id); !ok {
+	if _, ok := rdsInstanceIn(r, id); !ok {
 		rdsErrorXML(w, "DBInstanceNotFound", fmt.Sprintf("DBInstance %q not found", id), http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}
@@ -828,7 +828,7 @@ func handleRDSAddRoleToInstance(w http.ResponseWriter, r *http.Request) {
 
 func handleRDSRemoveRoleFromInstance(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("DBInstanceIdentifier")
-	if _, ok := rdsInstances.Get(id); !ok {
+	if _, ok := rdsInstanceIn(r, id); !ok {
 		rdsErrorXML(w, "DBInstanceNotFound", fmt.Sprintf("DBInstance %q not found", id), http.StatusNotFound, sim.RequestID(r.Context()))
 		return
 	}

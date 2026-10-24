@@ -1447,9 +1447,11 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 	registerCloudBilling(srv, resourcePolicies)
 	registerCloudResourceManagerV2(srv, resourcePolicies)
 	registerCRMCapabilityConfigs(srv)
-	tagKeys := sim.MakeStore[CRMTagKey](srv.DB(), "crm_tag_keys")
-	tagValues := sim.MakeStore[CRMTagValue](srv.DB(), "crm_tag_values")
-	tagBindings := sim.MakeStore[CRMTagBinding](srv.DB(), "crm_tag_bindings")
+	registerCRMBoundaries(srv)
+	crmTagKeys = sim.MakeStore[CRMTagKey](srv.DB(), "crm_tag_keys")
+	crmTagValues = sim.MakeStore[CRMTagValue](srv.DB(), "crm_tag_values")
+	crmTagBindings = sim.MakeStore[CRMTagBinding](srv.DB(), "crm_tag_bindings")
+	tagKeys, tagValues, tagBindings := crmTagKeys, crmTagValues, crmTagBindings
 	tagHolds := sim.MakeStore[CRMTagHold](srv.DB(), "crm_tag_holds")
 	folderCapabilities := sim.MakeStore[CRMCapability](srv.DB(), "crm_folder_capabilities")
 	tagBindingCollections := sim.MakeStore[CRMTagBindingCollection](srv.DB(), "crm_tag_binding_collections")
@@ -1974,11 +1976,17 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
 			return
 		}
+		// A value's namespaced name is its key's followed by the value's
+		// short name: 123456789012/env/prod.
+		namespaced := crmNamespaced(req.Parent, req.ShortName)
+		if key, ok := tagKeys.Get(req.Parent); ok && key.NamespacedName != "" {
+			namespaced = key.NamespacedName + "/" + req.ShortName
+		}
 		v := CRMTagValue{
 			Name:           "tagValues/" + gcpNumericID(18),
 			Parent:         req.Parent,
 			ShortName:      req.ShortName,
-			NamespacedName: crmNamespaced(req.Parent, req.ShortName),
+			NamespacedName: namespaced,
 			Description:    req.Description,
 			CreateTime:     nowTimestamp(),
 			UpdateTime:     nowTimestamp(),
@@ -2108,45 +2116,9 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 		sim.WriteJSON(w, http.StatusOK, crmLRO(map[string]any{}, typeEmpty, crmMetaDeleteTagBinding))
 	})
 
-	// The tags in force on a resource. This simulator models no hierarchy
-	// inheritance, so every effective tag is one bound directly to the
-	// resource asked about — which is what the bindings record. Answering an
-	// empty list for a resource that has bindings would contradict the read
-	// that created them.
-	effectiveTagsFor := func(parent string) []map[string]any {
-		out := []map[string]any{}
-		if parent == "" {
-			return out
-		}
-		bound := tagBindings.Filter(func(b CRMTagBinding) bool { return b.Parent == parent })
-		sort.Slice(bound, func(i, j int) bool { return bound[i].Name < bound[j].Name })
-		for _, b := range bound {
-			tag := map[string]any{"inherited": false}
-			if b.TagValue != "" {
-				tag["tagValue"] = b.TagValue
-			}
-			if b.TagValueNamespacedName != "" {
-				tag["namespacedTagValue"] = b.TagValueNamespacedName
-			}
-			// The key a value belongs to is the value's own parent, which the
-			// simulator holds; a namespaced value spells its key in front of
-			// the last slash.
-			if value, ok := tagValues.Get(b.TagValue); ok {
-				if value.Parent != "" {
-					tag["tagKey"] = value.Parent
-				}
-				if key, ok := tagKeys.Get(value.Parent); ok && key.NamespacedName != "" {
-					tag["namespacedTagKey"] = key.NamespacedName
-					tag["tagKeyParentName"] = key.Parent
-				}
-			}
-			out = append(out, tag)
-		}
-		return out
-	}
 	srv.HandleFunc("GET /v3/effectiveTags", func(w http.ResponseWriter, r *http.Request) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"effectiveTags": effectiveTagsFor(r.URL.Query().Get("parent")),
+			"effectiveTags": crmEffectiveTags(r.URL.Query().Get("parent")),
 		})
 	})
 
@@ -2235,20 +2207,23 @@ func registerCRMv3(srv *sim.Server, projectPolicies, resourcePolicies sim.Store[
 	srv.HandleFunc("GET /v3/locations/{location}/effectiveTagBindingCollections/{collection}", func(w http.ResponseWriter, r *http.Request) {
 		resource := collectionResource(r)
 		// Effective tags are the ones in force: what the collection holds
-		// directly, plus what a tagBindings create bound to the same resource.
-		// No hierarchy is modelled, so nothing else is in force.
+		// directly, plus what a tagBindings create bound to the resource and
+		// what it inherits from its ancestors.
 		effective := map[string]string{}
 		direct, _ := tagBindingCollections.Get("locations/" + sim.PathParam(r, "location") +
 			"/tagBindingCollections/" + sim.PathParam(r, "collection"))
 		for key, value := range direct.Tags {
 			effective[key] = value
 		}
-		for _, tag := range effectiveTagsFor(resource) {
-			key, keyOK := tag["namespacedTagKey"].(string)
-			value, valueOK := tag["namespacedTagValue"].(string)
-			if keyOK && valueOK && key != "" && value != "" {
-				effective[key] = value
+		for _, tag := range crmEffectiveTags(resource) {
+			value, ok := tagValues.Get(tag.TagValue)
+			if tag.NamespacedTagKey == "" || !ok || value.ShortName == "" {
+				continue
 			}
+			if _, bound := effective[tag.NamespacedTagKey]; bound && tag.Inherited {
+				continue
+			}
+			effective[tag.NamespacedTagKey] = value.ShortName
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"name": "locations/" + sim.PathParam(r, "location") +

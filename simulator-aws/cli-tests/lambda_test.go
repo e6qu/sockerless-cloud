@@ -551,3 +551,77 @@ func TestLambda_DeleteFunction(t *testing.T) {
 		assert.NotEqual(t, "delete-test-func", f.FunctionName)
 	}
 }
+
+// TestLambda_AsyncDestinationDeliversAsTheRole_CLI configures an Amazon SQS
+// OnSuccess destination with put-function-event-invoke-config, invokes the
+// function asynchronously and receives the invocation record, which AWS
+// Lambda sends as the execution role, whose policy allows sqs:SendMessage.
+func TestLambda_AsyncDestinationDeliversAsTheRole_CLI(t *testing.T) {
+	t.Parallel()
+	fnName := cliUniqueName("cli-async-destination")
+	out := runCLI(t, awsCLI("sqs", "create-queue", "--queue-name", cliUniqueName("cli-lambda-destination")))
+	var queue struct {
+		QueueUrl string `json:"QueueUrl"`
+	}
+	parseJSON(t, out, &queue)
+	t.Cleanup(func() { runCLI(t, awsCLI("sqs", "delete-queue", "--queue-url", queue.QueueUrl)) })
+	out = runCLI(t, awsCLI("sqs", "get-queue-attributes", "--queue-url", queue.QueueUrl, "--attribute-names", "QueueArn"))
+	var attrs struct {
+		Attributes map[string]string `json:"Attributes"`
+	}
+	parseJSON(t, out, &attrs)
+
+	runCLI(t, awsCLI("lambda", "create-function",
+		"--function-name", fnName,
+		"--package-type", "Image",
+		"--role", cliRoleAllowing(t, "lambda.amazonaws.com", "sqs:SendMessage"),
+		"--code", "ImageUri="+lambdaHandlerImageName,
+		"--architectures", nativeLambdaArchitecture(),
+	))
+	t.Cleanup(func() { runCLI(t, awsCLI("lambda", "delete-function", "--function-name", fnName)) })
+	runCLI(t, awsCLI("lambda", "put-function-event-invoke-config",
+		"--function-name", fnName,
+		"--maximum-retry-attempts", "0",
+		"--destination-config", `{"OnSuccess":{"Destination":"`+attrs.Attributes["QueueArn"]+`"}}`,
+	))
+
+	payloadFile := filepath.Join(tmpDir, fnName+"-payload.json")
+	require.NoError(t, os.WriteFile(payloadFile, []byte(`{"msg":"cli-destination"}`), 0644))
+	out = runCLI(t, awsCLI("lambda", "invoke",
+		"--function-name", fnName,
+		"--invocation-type", "Event",
+		"--payload", "fileb://"+payloadFile,
+		"--cli-binary-format", "raw-in-base64-out",
+		filepath.Join(tmpDir, fnName+"-output.json"),
+		"--output", "json",
+	))
+	var invoked struct {
+		StatusCode int `json:"StatusCode"`
+	}
+	parseJSON(t, out, &invoked)
+	assert.Equal(t, 202, invoked.StatusCode)
+
+	// receive-message long-polls the queue; the record arrives once the
+	// asynchronous invocation ran, which a cold runtime may take longer than
+	// one poll's twenty seconds to do.
+	var received struct {
+		Messages []struct {
+			Body string `json:"Body"`
+		} `json:"Messages"`
+	}
+	deadline := time.Now().Add(90 * time.Second)
+	for len(received.Messages) == 0 && time.Now().Before(deadline) {
+		out = runCLI(t, awsCLI("sqs", "receive-message", "--queue-url", queue.QueueUrl, "--wait-time-seconds", "20"))
+		if strings.TrimSpace(out) != "" {
+			parseJSON(t, out, &received)
+		}
+	}
+	require.Len(t, received.Messages, 1, "the invocation record must reach the destination queue")
+	var record struct {
+		RequestContext map[string]any `json:"requestContext"`
+		RequestPayload map[string]any `json:"requestPayload"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(received.Messages[0].Body), &record))
+	assert.Equal(t, "Success", record.RequestContext["condition"])
+	assert.Equal(t, "cli-destination", record.RequestPayload["msg"])
+}

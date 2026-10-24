@@ -572,17 +572,19 @@ func rdsInstanceFromSource(r *http.Request, newID string, src RDSInstance, engin
 		MasterUsername:       src.MasterUsername,
 		DBName:               src.DBName,
 		AllocatedStorage:     storage,
-		Endpoint:             fmt.Sprintf("%s.%s.rds.amazonaws.com", newID, awsRegion()),
+		Endpoint:             rdsInstanceEndpointIn(rdsRequestRegion(r), newID),
 		Port:                 rdsDefaultPort(engine),
-		AvailabilityZone:     awsRegion() + "a",
+		AvailabilityZone:     rdsRequestRegion(r) + "a",
 		InstanceCreateTime:   time.Now().UTC().Format(time.RFC3339),
-		ARN:                  rdsInstanceARN(newID),
+		Region:               rdsRequestRegion(r),
+		ARN:                  rdsInstanceARNIn(rdsRequestRegion(r), newID),
 		Tags:                 parseAWSQueryTagMap(r, "Tags.Tag"),
 		BackupTarget:         rdsRequestedBackupTarget(r),
 		StorageType:          src.StorageType,
 		Iops:                 src.Iops,
 		StorageThroughput:    src.StorageThroughput,
 		OptionGroupName:      src.OptionGroupName,
+		LicenseModel:         src.LicenseModel,
 	}
 	if code, message := rdsRequestedInstanceSettings(r, &inst); code != "" {
 		return RDSInstance{}, code, message

@@ -654,10 +654,16 @@ type ecsGatewayClient struct {
 }
 
 func ecsGatewayClientFor(gateway ECSGateway) ecsGatewayClient {
+	return ecsInfrastructureClient(gateway.GatewayArn, gateway.InfrastructureRoleArn)
+}
+
+// ecsInfrastructureClient makes the calls Amazon ECS makes as an
+// infrastructure role on behalf of the resource sourceArn names.
+func ecsInfrastructureClient(sourceArn, roleArn string) ecsGatewayClient {
 	return ecsGatewayClient{actor: awsActor{
 		Service: "ecs.amazonaws.com",
-		Source:  gateway.GatewayArn,
-		Role:    gateway.InfrastructureRoleArn,
+		Source:  sourceArn,
+		Role:    roleArn,
 	}}
 }
 
@@ -1097,12 +1103,18 @@ func ecsGatewayApplyLoadBalancerAttributes(client ecsGatewayClient, gateway ECSG
 // ecsGatewayIssueCertificate requests the route's certificate. The hostname
 // is in a domain AWS owns, so AWS validates it as soon as it is requested.
 func ecsGatewayIssueCertificate(client ecsGatewayClient, gateway ECSGateway, route *ECSGatewayRoute) (string, *ecsGatewayCallFailure) {
+	return ecsIssueManagedCertificate(client, route.Hostname, ecsGatewayManagedTags(gateway, route.GatewayRouteArn))
+}
+
+// ecsIssueManagedCertificate requests a certificate for a hostname in a domain
+// AWS owns, which AWS validates as soon as it is requested.
+func ecsIssueManagedCertificate(client ecsGatewayClient, hostname string, managedTags [][2]string) (string, *ecsGatewayCallFailure) {
 	var tags []acmTag
-	for _, tag := range ecsGatewayManagedTags(gateway, route.GatewayRouteArn) {
+	for _, tag := range managedTags {
 		tags = append(tags, acmTag{Key: tag[0], Value: tag[1]})
 	}
 	body, failure := client.json("acm", "acm", "CertificateManager.RequestCertificate", "RequestCertificate",
-		acmRequestCertificateReq{DomainName: route.Hostname, ValidationMethod: "DNS", Tags: tags})
+		acmRequestCertificateReq{DomainName: hostname, ValidationMethod: "DNS", Tags: tags})
 	if failure != nil {
 		return "", failure
 	}

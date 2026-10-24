@@ -328,7 +328,7 @@ func TestSFNNestedWorkflowDifferentialAgainstAWS(t *testing.T) {
 	}
 	targets := []target{
 		{name: "real-aws", client: live, role: roleARN},
-		{name: "simulator", client: simulator, role: statesRole(t, "states:StartExecution")},
+		{name: "simulator", client: simulator, role: statesRole(t, "states:StartExecution", "states:DescribeExecution")},
 	}
 	type observed struct {
 		parentOutput string

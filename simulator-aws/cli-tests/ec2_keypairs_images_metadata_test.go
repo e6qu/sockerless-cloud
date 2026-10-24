@@ -69,10 +69,14 @@ func TestEC2KeyPairsImagesMetadataCLI(t *testing.T) {
 	instID := q("ec2", "run-instances", "--image-id", ec2AmazonLinuxAMI(t), "--instance-type", "t3.micro",
 		"--subnet-id", subnetID, "--query", "Instances[0].InstanceId", "--output", "text")
 	terminateCLIInstanceOnCleanup(t, instID)
-	runCLI(t, awsCLI("ec2", "modify-instance-metadata-options", "--instance-id", instID,
-		"--http-tokens", "required", "--http-put-response-hop-limit", "3"))
 	if v := q("ec2", "describe-instances", "--instance-ids", instID,
-		"--query", "Reservations[0].Instances[0].MetadataOptions.HttpTokens", "--output", "text"); v != "required" {
-		t.Fatalf("metadata http_tokens after modify: got %q, want required", v)
+		"--query", "Reservations[0].Instances[0].MetadataOptions.HttpProtocolIpv6", "--output", "text"); v != "disabled" {
+		t.Fatalf("metadata HttpProtocolIpv6 at launch: got %q, want disabled", v)
+	}
+	runCLI(t, awsCLI("ec2", "modify-instance-metadata-options", "--instance-id", instID,
+		"--http-tokens", "required", "--http-put-response-hop-limit", "3", "--http-protocol-ipv6", "enabled"))
+	if v := q("ec2", "describe-instances", "--instance-ids", instID,
+		"--query", "Reservations[0].Instances[0].MetadataOptions.[HttpTokens,HttpProtocolIpv6]", "--output", "text"); v != "required\tenabled" {
+		t.Fatalf("metadata options after modify: got %q, want required and enabled", v)
 	}
 }

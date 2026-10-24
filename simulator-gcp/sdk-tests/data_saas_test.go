@@ -55,8 +55,10 @@ func TestBigQuery_DatasetTableQueryLifecycle(t *testing.T) {
 	}).Do()
 	require.NoError(t, err)
 
+	googleSQL := false
 	q, err := svc.Jobs.Query("test-project", &bigquery.QueryRequest{
-		Query: "SELECT id, kind FROM `test-project.sdk_dataset.events` WHERE kind = 'deploy'",
+		Query:        "SELECT id, kind FROM `test-project.sdk_dataset.events` WHERE kind = 'deploy'",
+		UseLegacySql: &googleSQL,
 	}).Do()
 	require.NoError(t, err)
 	require.True(t, q.JobComplete)

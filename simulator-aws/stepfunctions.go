@@ -84,16 +84,19 @@ type SFNTag struct {
 var (
 	sfnStateMachines sim.Store[SFNStateMachine]
 	sfnExecutions    sim.Store[SFNExecution]
-	sfnCancels       sync.Map
-	sfnMu            sync.Mutex
-	sfnAWSRouter     *AWSRouter
+	// sfnExecutionChanges wakes a parent waiting on a nested execution when
+	// the store writes it.
+	sfnExecutionChanges = newStoreChanges()
+	sfnCancels          sync.Map
+	sfnMu               sync.Mutex
+	sfnAWSRouter        *AWSRouter
 )
 
 func registerStepFunctions(r *AWSRouter, srv *sim.Server) {
 	sfnAWSRouter = r
 	sfnAWSServer = srv
 	sfnStateMachines = sim.MakeStore[SFNStateMachine](srv.DB(), "sfn_state_machines")
-	sfnExecutions = sim.MakeStore[SFNExecution](srv.DB(), "sfn_executions")
+	sfnExecutions = announcing(sim.MakeStore[SFNExecution](srv.DB(), "sfn_executions"), sfnExecutionChanges)
 	sfnHistories = sim.MakeStore[[]sfnHistoryEvent](srv.DB(), "sfn_execution_histories")
 
 	r.Register("AWSStepFunctions.CreateStateMachine", handleSFNCreateStateMachine)

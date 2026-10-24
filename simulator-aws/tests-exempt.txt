@@ -37,3 +37,13 @@ POST /acme/{endpoint}/{resource}/{id}
 # The link inside an AWS Certificate Manager domain-validation email, followed
 # by a person approving the request in a browser.
 GET /acm/email-validation/{token}
+
+# The ipv4-associations instance metadata category is read by the guest of an
+# instance through the metadata service, with the interface's MAC and the
+# Elastic IP address it was given at run time, so no suite names its path
+# literally; sdk-tests/ec2_imds_test.go reads both routes from inside the
+# instance.
+GET /latest/meta-data/network/interfaces/macs/{mac}/ipv4-associations/{$}
+# The private address one public address of the interface is associated with,
+# read by the guest the same way; sdk-tests/ec2_imds_test.go reads it.
+GET /latest/meta-data/network/interfaces/macs/{mac}/ipv4-associations/{ip}

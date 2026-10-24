@@ -14,10 +14,12 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/amplify"
 	amplifytypes "github.com/aws/aws-sdk-go-v2/service/amplify/types"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	r53types "github.com/aws/aws-sdk-go-v2/service/route53/types"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/e6qu/sockerless-cloud/testutil/githttp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -167,9 +169,11 @@ func TestAmplifyHostingSSRComputeE2E(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 
+	computeRole := serviceRole(t, "amplify.amazonaws.com")
 	app, err := c.CreateApp(ctx, &amplify.CreateAppInput{
-		Name:     aws.String("ssr-app-" + time.Now().Format("150405.000000")),
-		Platform: amplifytypes.PlatformWebCompute,
+		Name:           aws.String("ssr-app-" + time.Now().Format("150405.000000")),
+		Platform:       amplifytypes.PlatformWebCompute,
+		ComputeRoleArn: aws.String(computeRole),
 	})
 	require.NoError(t, err)
 	appID := aws.ToString(app.App.AppId)
@@ -193,8 +197,18 @@ func TestAmplifyHostingSSRComputeE2E(t *testing.T) {
 	require.NoError(t, err)
 	// Tiny node http server answering with dynamic content; the deployment
 	// spec's compute entrypoints listen on PORT (3000).
+	// Under /creds the server reports how it holds AWS credentials: the
+	// container credentials endpoint the SDKs' default chain reads, and the
+	// session it serves.
 	entrypoint := `const http = require('http');
-http.createServer((req, res) => {
+http.createServer(async (req, res) => {
+  if (req.url === '/creds') {
+    const uri = process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI || '';
+    const session = uri ? await (await fetch(uri)).json() : null;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({uri, staticKey: 'AWS_ACCESS_KEY_ID' in process.env, session}));
+    return;
+  }
   res.setHeader('content-type', 'text/plain');
   res.end('ssr-dynamic:' + req.url);
 }).listen(process.env.PORT);
@@ -221,6 +235,29 @@ http.createServer((req, res) => {
 	resp, body = amplifyHostGet(t, host, "/search?q=x", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "ssr-dynamic:/search?q=x", string(body))
+
+	// The compute holds its role through the container credentials endpoint
+	// on its own loopback, which its SDKs refresh from, not through static
+	// keys in its environment; the session it reads is the compute role's.
+	resp, body = amplifyHostGet(t, host, "/creds", nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "compute credentials: %s", body)
+	var creds struct {
+		URI       string `json:"uri"`
+		StaticKey bool   `json:"staticKey"`
+		Session   struct{ AccessKeyId, SecretAccessKey, Token, Expiration string }
+	}
+	require.NoError(t, json.Unmarshal(body, &creds), string(body))
+	assert.True(t, strings.HasPrefix(creds.URI, "http://127.0.0.1:"), "AWS_CONTAINER_CREDENTIALS_FULL_URI %q names the compute's loopback", creds.URI)
+	assert.False(t, creds.StaticKey, "the compute gets no static AWS_ACCESS_KEY_ID")
+	require.NotEmpty(t, creds.Session.AccessKeyId)
+	require.NotEmpty(t, creds.Session.Expiration)
+	identity, err := sts.NewFromConfig(sdkConfig(), func(o *sts.Options) {
+		o.BaseEndpoint = aws.String(baseURL)
+		o.Credentials = credentials.NewStaticCredentialsProvider(creds.Session.AccessKeyId, creds.Session.SecretAccessKey, creds.Session.Token)
+	}).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	require.NoError(t, err)
+	roleName := computeRole[strings.LastIndex(computeRole, "/")+1:]
+	assert.Equal(t, "arn:aws:sts::"+strings.Split(computeRole, ":")[4]+":assumed-role/"+roleName+"/"+appID, aws.ToString(identity.Arn))
 }
 
 func amplifyServeGitRepo(t *testing.T, branch string, files map[string]string) string {

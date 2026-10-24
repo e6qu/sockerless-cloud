@@ -67,7 +67,7 @@ func bqAvroBranch(name string, u *avro.UnionSchema) (avro.Schema, bool, error) {
 }
 
 // bqAvroField is the column an Avro field loads as.
-func bqAvroField(name string, s avro.Schema, logical bool) (BQFieldSchema, error) {
+func bqAvroField(name string, s avro.Schema, logical bool, decimals []string) (BQFieldSchema, error) {
 	s = bqAvroDeref(s)
 	mode := "REQUIRED"
 	if u, ok := s.(*avro.UnionSchema); ok {
@@ -83,14 +83,14 @@ func bqAvroField(name string, s avro.Schema, logical bool) (BQFieldSchema, error
 	f := BQFieldSchema{Name: name, Mode: mode}
 	switch t := s.(type) {
 	case *avro.ArraySchema:
-		elem, err := bqAvroField(name, t.Items(), logical)
+		elem, err := bqAvroField(name, t.Items(), logical, decimals)
 		if err != nil {
 			return f, err
 		}
 		elem.Mode = "REPEATED"
 		return elem, nil
 	case *avro.MapSchema:
-		value, err := bqAvroField("value", t.Values(), logical)
+		value, err := bqAvroField("value", t.Values(), logical, decimals)
 		if err != nil {
 			return f, err
 		}
@@ -100,7 +100,7 @@ func bqAvroField(name string, s avro.Schema, logical bool) (BQFieldSchema, error
 	case *avro.RecordSchema:
 		f.Type = "RECORD"
 		for _, sub := range t.Fields() {
-			field, err := bqAvroField(sub.Name(), sub.Type(), logical)
+			field, err := bqAvroField(sub.Name(), sub.Type(), logical, decimals)
 			if err != nil {
 				return f, err
 			}
@@ -113,7 +113,7 @@ func bqAvroField(name string, s avro.Schema, logical bool) (BQFieldSchema, error
 	case *avro.FixedSchema:
 		f.Type = "BYTES"
 		if ls := t.Logical(); logical && ls != nil && ls.Type() == avro.Decimal {
-			f.Type = bqAvroDecimalType(ls)
+			f.Type = bqAvroDecimalType(ls, decimals)
 		}
 		return f, nil
 	}
@@ -133,7 +133,7 @@ func bqAvroField(name string, s avro.Schema, logical bool) (BQFieldSchema, error
 			f.Type = "DATETIME"
 			return f, nil
 		case avro.Decimal:
-			f.Type = bqAvroDecimalType(ls)
+			f.Type = bqAvroDecimalType(ls, decimals)
 			return f, nil
 		}
 	}
@@ -154,12 +154,14 @@ func bqAvroField(name string, s avro.Schema, logical bool) (BQFieldSchema, error
 	return f, nil
 }
 
-// bqAvroDecimalType is NUMERIC when the decimal fits it, BIGNUMERIC otherwise.
-func bqAvroDecimalType(ls avro.LogicalSchema) string {
-	if d, ok := ls.(*avro.DecimalLogicalSchema); ok && (d.Scale() > 9 || d.Precision()-d.Scale() > 29) {
-		return "BIGNUMERIC"
+// bqAvroDecimalType is the type an Avro decimal loads as under the load's
+// decimalTargetTypes.
+func bqAvroDecimalType(ls avro.LogicalSchema, decimals []string) string {
+	d, ok := ls.(*avro.DecimalLogicalSchema)
+	if !ok {
+		return bqDecimalTargetType(decimals, 38, 9)
 	}
-	return "NUMERIC"
+	return bqDecimalTargetType(decimals, d.Precision(), d.Scale())
 }
 
 // bqAvroValue turns a decoded Avro value into the source value its column
@@ -294,7 +296,7 @@ func bqParseAvroSources(cfg bqLoadConfig, schema *BQSchema, sources []bqSource) 
 		if fileSchema == nil {
 			fileSchema = &BQSchema{}
 			for _, f := range record.Fields() {
-				field, err := bqAvroField(f.Name(), f.Type(), cfg.UseAvroLogicalTypes)
+				field, err := bqAvroField(f.Name(), f.Type(), cfg.UseAvroLogicalTypes, cfg.DecimalTargetTypes)
 				if err != nil {
 					return nil, nil, err
 				}

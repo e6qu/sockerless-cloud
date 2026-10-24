@@ -48,8 +48,9 @@ var (
 	// azureNATEgresses holds the running sidecar of each NAT gateway, by the
 	// gateway's lower-cased resource id.
 	azureNATEgresses = map[string]*azureNATEgress{}
-	// azureVNetNetworksUp holds the engine network of every virtual network
-	// this process realized, by the network's lower-cased resource id.
+	// azureVNetNetworksUp holds the lower-cased resource id of the virtual
+	// network behind every prefix network this process realized, by the
+	// engine network's name.
 	azureVNetNetworksUp sync.Map
 )
 
@@ -98,16 +99,21 @@ func azureEnsureNATGatewayEgress(ctx context.Context, gw NatGateway) error {
 		return nil
 	}
 	vnetID := azureVNetIDOfSubnet(subnets[0].ID)
-	networkValue, up := azureVNetNetworksUp.Load(strings.ToLower(vnetID))
-	if !up {
-		return nil
-	}
-	network, _ := networkValue.(string)
 	vnet, ok := azureVnets.Get(vnetID)
 	if !ok {
 		return fmt.Errorf("virtual network %s of NAT gateway %s not found", vnetID, gw.ID)
 	}
-	vnetPrefix, err := azureVNetIPv4Prefix(vnet)
+	// The sidecar sits on the engine network of the prefix the gateway's
+	// first subnet lies in.
+	prefix, first, err := azureVNetPrefixOfSubnet(vnet, subnets[0])
+	if err != nil {
+		return err
+	}
+	network := dockerNetForVNetPrefix(vnet.ID, prefix, first)
+	if _, up := azureVNetNetworksUp.Load(network); !up {
+		return nil
+	}
+	vnetPrefixes, err := azureVNetIPv4Prefixes(vnet)
 	if err != nil {
 		return err
 	}
@@ -147,7 +153,7 @@ func azureEnsureNATGatewayEgress(ctx context.Context, gw NatGateway) error {
 		Name:         "sockerless-sim-nat-" + sanitizeContainerName(gw.Name) + "-" + sim.RandomHex(4),
 		Gateway:      gw.ID,
 		Sources:      prefixes,
-		Local:        []netip.Prefix{vnetPrefix},
+		Local:        vnetPrefixes,
 		TCPIdle:      idle,
 		UDPIdle:      azureNATGatewayUDPIdle,
 		HTTPUpstream: "http://" + origin,

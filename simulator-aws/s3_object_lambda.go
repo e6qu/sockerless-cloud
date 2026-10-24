@@ -845,7 +845,7 @@ func s3ObjectLambdaEvent(r *http.Request, olap S3ObjectLambdaAccessPoint, route,
 // coordinate it points at — and it uses the address a function container can
 // actually reach the simulator on, the same one its Runtime API arrives on.
 func s3ObjectLambdaInputURL(bucket, key string) (string, error) {
-	addr, err := workloadhost.CallbackAddr(simListenAddr)
+	addr, err := workloadhost.CallbackAddr(simCallbackListenAddr)
 	if err != nil {
 		return "", fmt.Errorf("resolve the simulator address a function reaches: %w", err)
 	}

@@ -39,6 +39,8 @@ func TestTerraformKMSKeyRingCryptoKey(t *testing.T) {
 	// that dropped rotationPeriod leaves this empty.
 	require.Equal(t, "604800s", outputs.must(t, "crypto_key_rotation_period"),
 		"the crypto key's rotation schedule must survive create + read")
+	require.Equal(t, "keys only", outputs.must(t, "crypto_key_iam_condition_title"),
+		"the conditional binding reads back with the condition it was written with")
 
 	// A second plan must be empty. Everything the create sent and the read did
 	// not return shows up here as perpetual drift — the half of the round trip

@@ -1856,7 +1856,7 @@ func kmsHandleTestIamPermissions(w http.ResponseWriter, r *http.Request, resourc
 	policy := IAMPolicy{Version: stored.Version, Etag: stored.Etag}
 	for _, binding := range stored.Bindings {
 		policy.Bindings = append(policy.Bindings,
-			IAMBinding{Role: binding.Role, Members: binding.Members})
+			IAMBinding(binding))
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"permissions": gcpAnswerTestIamPermissions(r, policy, req.Permissions, gcpIAMResourceNamed(resource))})

@@ -293,7 +293,10 @@ func auditLongRunningOperation(response map[string]any) *auditOperation {
 	done, _ := response["done"].(bool)
 	return &auditOperation{id: id, done: done, settled: func() (map[string]any, map[string]any, bool) {
 		op, ok := gcpLookupOperation(id)
-		if !ok || !op.Done {
+		if !ok {
+			return auditCloudBuildOperationSettled(id)
+		}
+		if !op.Done {
 			return nil, nil, false
 		}
 		var result map[string]any
@@ -307,4 +310,30 @@ func auditLongRunningOperation(response map[string]any) *auditOperation {
 		}
 		return result, auditStatus(0, ""), true
 	}}
+}
+
+// auditCloudBuildOperationSettled reads a build operation's outcome: Cloud
+// Build names its operations operations/build/{project}/{build} and renders
+// them from the build record.
+func auditCloudBuildOperationSettled(name string) (map[string]any, map[string]any, bool) {
+	rest, ok := strings.CutPrefix(name, "operations/build/")
+	if !ok || cbBuilds == nil {
+		return nil, nil, false
+	}
+	project, buildID, ok := strings.Cut(rest, "/")
+	if !ok {
+		return nil, nil, false
+	}
+	build, ok := cbBuilds.Get(buildID)
+	if !ok {
+		return nil, nil, false
+	}
+	op := cbBuildOperation(project, build)
+	if !op.Done {
+		return nil, nil, false
+	}
+	if op.Error != nil {
+		return nil, auditStatus(op.Error.Code, op.Error.Message), true
+	}
+	return op.Response, auditStatus(0, ""), true
 }

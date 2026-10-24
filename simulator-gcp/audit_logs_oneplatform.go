@@ -30,6 +30,9 @@ type auditAPI struct {
 	// methodName is the methodName the service records for an RPC; nil for
 	// the RPC's full name.
 	methodName func(protoreflect.MethodDescriptor) string
+	// vendoredKey names the RPC the way the service's vendored audit-logging
+	// page lists it, when that differs from the methodName it records.
+	vendoredKey func(protoreflect.MethodDescriptor) string
 }
 
 // auditOnePlatformServices are the RPC services whose calls the simulator
@@ -59,6 +62,40 @@ var auditOnePlatformServices = []auditAPI{
 	{service: "google.bigtable.admin.v2.BigtableTableAdmin"},
 	{service: "google.firestore.admin.v1.FirestoreAdmin"},
 	{service: "google.iam.admin.v1.IAM", methodName: auditIAMAdminMethodName},
+	{service: "google.logging.v2.ConfigServiceV2"},
+	{service: "google.logging.v2.LoggingServiceV2"},
+	{service: "google.logging.v2.MetricsServiceV2"},
+	{service: "google.api.serviceusage.v1.ServiceUsage"},
+	{service: "google.cloud.vpcaccess.v1.VpcAccessService"},
+	{service: "google.cloud.apigateway.v1.ApiGatewayService"},
+	{service: "google.cloud.resourcemanager.v3.Projects", methodName: auditSimpleMethodName, vendoredKey: auditCRMv3Key},
+	{service: "google.cloud.resourcemanager.v3.TagKeys", methodName: auditSimpleMethodName, vendoredKey: auditCRMv3Key},
+	{service: "google.cloud.resourcemanager.v3.TagValues", methodName: auditSimpleMethodName, vendoredKey: auditCRMv3Key},
+	{service: "google.cloud.resourcemanager.v3.TagBindings", methodName: auditSimpleMethodName, vendoredKey: auditCRMv3Key},
+}
+
+// auditCRMv3Key is the identifier Resource Manager's audit-logging page lists
+// an RPC under: cloudresourcemanager.v3.<collection>.<verb>, the verb being
+// the RPC's name without its resource, as patch for UpdateProject and
+// setIamPermissions for a tag key's or value's SetIamPolicy.
+func auditCRMv3Key(m protoreflect.MethodDescriptor) string {
+	service := string(m.Parent().Name())
+	collection := strings.ToLower(service[:1]) + service[1:]
+	verb := string(m.Name())
+	for _, noun := range []string{collection, auditSingular(collection)} {
+		if trimmed, ok := strings.CutSuffix(strings.ToLower(verb), strings.ToLower(noun)); ok && trimmed != "" {
+			verb = verb[:len(trimmed)]
+			break
+		}
+	}
+	verb = strings.ToLower(verb[:1]) + verb[1:]
+	switch {
+	case verb == "update":
+		verb = "patch"
+	case verb == "setIamPolicy" && (collection == "tagKeys" || collection == "tagValues"):
+		verb = "setIamPermissions"
+	}
+	return "cloudresourcemanager.v3." + collection + "." + verb
 }
 
 // auditSimpleMethodName is the RPC's simple name, which Cloud KMS records:
@@ -116,6 +153,8 @@ type auditRPC struct {
 	method      protoreflect.MethodDescriptor
 	serviceName string
 	methodName  string
+	// vendoredKey names the RPC in the service's vendored audit-logging page.
+	vendoredKey string
 	logType     string
 	bindings    []*auditHTTPBinding
 }
@@ -180,14 +219,19 @@ func auditLoadRPCs() error {
 			methods := service.Methods()
 			for i := range methods.Len() {
 				m := methods.Get(i)
-				logType, audited := auditRPCLogType(m)
-				if !audited {
-					continue
-				}
-				rpc := &auditRPC{method: m, serviceName: host, methodName: string(m.FullName()), logType: logType}
+				rpc := &auditRPC{method: m, serviceName: host, methodName: string(m.FullName())}
 				if api.methodName != nil {
 					rpc.methodName = api.methodName(m)
 				}
+				rpc.vendoredKey = rpc.methodName
+				if api.vendoredKey != nil {
+					rpc.vendoredKey = api.vendoredKey(m)
+				}
+				logType, audited := auditRPCLogType(m, host, rpc.vendoredKey)
+				if !audited {
+					continue
+				}
+				rpc.logType = logType
 				rule, _ := proto.GetExtension(m.Options(), annotations.E_Http).(*annotations.HttpRule)
 				if rule != nil {
 					for _, r := range append([]*annotations.HttpRule{rule}, rule.GetAdditionalBindings()...) {
@@ -207,11 +251,17 @@ func auditLoadRPCs() error {
 	return auditRPCsErr
 }
 
-// auditRPCLogType is the audit log type an RPC writes: a configuration read
-// is ADMIN_READ, a data-plane call its own type, any other call ADMIN_WRITE.
-func auditRPCLogType(m protoreflect.MethodDescriptor) (string, bool) {
+// auditRPCLogType is the audit log type an RPC writes. A service whose
+// audit-logging page is vendored audits exactly the methods the page lists,
+// in the category it states. For the others a configuration read is
+// ADMIN_READ, a data-plane call its own type, any other call ADMIN_WRITE.
+func auditRPCLogType(m protoreflect.MethodDescriptor, host, vendoredKey string) (string, bool) {
 	if auditUnloggedRPCs[m.FullName()] || m.Name() == "TestIamPermissions" || m.IsStreamingClient() || m.IsStreamingServer() {
 		return "", false
+	}
+	if auditVendoredCovers(host) {
+		vendored, ok := auditVendoredLookup(host, vendoredKey)
+		return vendored.LogType, ok
 	}
 	if logType, ok := auditRPCLogTypes[m.FullName()]; ok {
 		return logType, true
@@ -550,8 +600,9 @@ func auditVersionSegment(segment string) bool {
 // auditPermissionPrefixes are the IAM permission prefixes of the APIs whose
 // permissions do not start with the label of their host.
 var auditPermissionPrefixes = map[string]string{
-	"bigtableadmin.googleapis.com": "bigtable",
-	"firestore.googleapis.com":     "datastore",
+	"bigtableadmin.googleapis.com":        "bigtable",
+	"firestore.googleapis.com":            "datastore",
+	"cloudresourcemanager.googleapis.com": "resourcemanager",
 }
 
 // auditPermissionCollections renames the collections whose permissions name
@@ -592,7 +643,6 @@ var auditRPCPermissions = map[protoreflect.FullName]string{
 	"google.pubsub.v1.Publisher.DetachSubscription":                          "pubsub.topics.detachSubscription",
 	"google.pubsub.v1.Publisher.ListTopicSubscriptions":                      "pubsub.topics.get",
 	"google.pubsub.v1.Publisher.ListTopicSnapshots":                          "pubsub.topics.get",
-	"google.cloud.run.v2.Builds.SubmitBuild":                                 "run.builds.create",
 	"google.cloud.functions.v2.FunctionService.GenerateUploadUrl":            "cloudfunctions.functions.sourceCodeSet",
 	"google.cloud.functions.v2.FunctionService.GenerateDownloadUrl":          "cloudfunctions.functions.sourceCodeGet",
 	"google.devtools.cloudbuild.v1.CloudBuild.RunBuildTrigger":               "cloudbuild.builds.create",
@@ -618,6 +668,9 @@ var auditRPCPermissions = map[protoreflect.FullName]string{
 func (rpc *auditRPC) permission(request map[string]any, resourceName string) string {
 	if permission, ok := auditRPCPermissions[rpc.method.FullName()]; ok {
 		return permission
+	}
+	if vendored, ok := auditVendoredLookup(rpc.serviceName, rpc.vendoredKey); ok && len(vendored.Permissions) > 0 {
+		return vendored.permission()
 	}
 	binding := rpc.auditBindingFor(request)
 	if binding == nil {
@@ -780,21 +833,8 @@ func auditOnePlatformResource(rpc *auditRPC, project, resourceName string) *Moni
 	location := auditLocation(resourceName)
 	switch rpc.serviceName {
 	case "run.googleapis.com":
-		if service := auditPathSegmentAfter(resourceName, "services"); service != "" {
-			return &MonitoredResource{Type: "cloud_run_revision", Labels: map[string]string{
-				"project_id":         project,
-				"location":           location,
-				"service_name":       service,
-				"configuration_name": "",
-				"revision_name":      auditPathSegmentAfter(resourceName, "revisions"),
-			}}
-		}
-		if job := auditPathSegmentAfter(resourceName, "jobs"); job != "" {
-			return &MonitoredResource{Type: "cloud_run_job", Labels: map[string]string{
-				"project_id": project,
-				"location":   location,
-				"job_name":   job,
-			}}
+		if resource := auditRunResource(project, location, resourceName); resource != nil {
+			return resource
 		}
 	case "pubsub.googleapis.com":
 		if topic := auditPathSegmentAfter(resourceName, "topics"); topic != "" {
@@ -834,6 +874,10 @@ func auditOnePlatformResource(rpc *auditRPC, project, resourceName string) *Moni
 				"region":        location,
 				"function_name": function,
 			}}
+		}
+	case "cloudresourcemanager.googleapis.com":
+		if strings.HasPrefix(resourceName, "projects/") && !strings.Contains(strings.TrimPrefix(resourceName, "projects/"), "/") {
+			return &MonitoredResource{Type: "project", Labels: map[string]string{"project_id": project}}
 		}
 	}
 	return &MonitoredResource{Type: "audited_resource", Labels: map[string]string{

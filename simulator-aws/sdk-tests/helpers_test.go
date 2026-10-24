@@ -774,3 +774,10 @@ func statesRole(t *testing.T, actions ...string) string {
 	t.Helper()
 	return createServiceRole(t, uniqueName("states"), "states.amazonaws.com", actions...)
 }
+
+// lambdaRole creates a uniquely named execution role AWS Lambda may assume,
+// allowed actions on every resource, deleted when the test ends.
+func lambdaRole(t *testing.T, actions ...string) string {
+	t.Helper()
+	return createServiceRole(t, uniqueName("lambda"), "lambda.amazonaws.com", actions...)
+}

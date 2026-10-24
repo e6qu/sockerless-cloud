@@ -11,6 +11,7 @@
 //	SIM_GCP_GRPC_PORT   — gRPC listen port (default: HTTP port + 2, so the default coexists with the Azure simulator's :4568)
 //	SIM_TLS_CERT        — TLS certificate file (optional)
 //	SIM_TLS_KEY         — TLS key file (optional)
+//	SIM_CALLBACK_LISTEN_ADDR — plain-HTTP address the workloads' metadata requests reach beside a TLS listener (default: a free port on every interface)
 //	SIM_RUNTIME         — "docker" by default; "process" starts API-only mode for runs that do not execute workloads
 //	SIM_LOG_LEVEL       — log level: trace, debug, info, warn, error (default "info")
 //
@@ -39,8 +40,7 @@ func main() {
 		Provider:    "gcp",
 		DefaultPort: "4567",
 		Configure: func(cfg *sim.Config) error {
-			// Workloads reach the metadata server and the sidecars at the
-			// address the simulator serves on.
+			// Images at the simulator's own port are its registry's.
 			simListenAddr = cfg.ListenAddr
 			return gcpConfigurePlacement(cfg)
 		},
@@ -65,6 +65,9 @@ func main() {
 // that run only in the serving process: building the route table in-process
 // (route conformance, coverage probing) must not start one.
 func startGCPListeners(srv *sim.Server, cfg sim.Config) (func(context.Context) error, error) {
+	// Workloads reach the metadata server and the sidecars at the plain-HTTP
+	// address the simulator serves them on.
+	simCallbackListenAddr = cfg.CallbackListenAddr
 	grpcPort := grpcPortFromConfig(cfg.ListenAddr)
 	if p := os.Getenv("SIM_GCP_GRPC_PORT"); p != "" {
 		grpcPort = p

@@ -314,9 +314,45 @@ func rdsAssignInstanceDefaults(instance *RDSInstance) {
 	}
 }
 
+// rdsInstanceLicenseModel is the license model an instance of engine holds
+// when the request names requested over the one it starts from, per the
+// values the CreateDBInstance reference lists for the engine. An engine with
+// one license model holds it; RDS for Db2 defaults to bring-your-own-license;
+// RDS for Oracle and RDS for Microsoft SQL Server hold only what the request
+// names.
+func rdsInstanceLicenseModel(engine, requested, current string) (license, code, message string) {
+	var valid []string
+	defaulted := current
+	switch {
+	case strings.HasPrefix(engine, "db2"):
+		valid = []string{"bring-your-own-license", "marketplace-license"}
+		if defaulted == "" {
+			defaulted = "bring-your-own-license"
+		}
+	case engine == "mariadb", engine == "mysql":
+		valid, defaulted = []string{"general-public-license"}, "general-public-license"
+	case engine == "postgres":
+		valid, defaulted = []string{"postgresql-license"}, "postgresql-license"
+	case strings.HasPrefix(engine, "sqlserver"):
+		valid = []string{"license-included", "bring-your-own-media"}
+	case strings.HasPrefix(engine, "oracle"):
+		valid = []string{"bring-your-own-license", "license-included"}
+	default:
+		return current, "", ""
+	}
+	if requested == "" {
+		return defaulted, "", ""
+	}
+	if !slices.Contains(valid, requested) {
+		return "", "InvalidParameterValue", fmt.Sprintf("Invalid license model %q for %s. Valid values: %s.", requested, engine, strings.Join(valid, " | "))
+	}
+	return requested, "", ""
+}
+
 // rdsRequestedInstanceSettings reads the members a request that creates an
 // instance sets over what the instance starts from: MultiAZ, the storage
-// members, the DB subnet group, the option group and the CA certificate.
+// members, the DB subnet group, the license model, the option group and the
+// CA certificate.
 func rdsRequestedInstanceSettings(r *http.Request, instance *RDSInstance) (string, string) {
 	if multiAZ := rdsRequestedBool(r, "MultiAZ"); multiAZ != nil {
 		if *multiAZ && r.FormValue("AvailabilityZone") != "" {
@@ -333,10 +369,24 @@ func rdsRequestedInstanceSettings(r *http.Request, instance *RDSInstance) (strin
 	}
 	instance.StorageType, instance.Iops, instance.StorageThroughput = storage.Type, storage.Iops, storage.Throughput
 	if name := r.FormValue("DBSubnetGroupName"); name != "" {
-		if _, ok := rdsSubnetGroups.Get(name); !ok {
+		group, ok := rdsSubnetGroups.Get(name)
+		if !ok {
 			return "DBSubnetGroupNotFoundFault", fmt.Sprintf("DBSubnetGroup %q not found", name)
 		}
 		instance.DBSubnetGroupName = name
+		if zones := group.Zones(); r.FormValue("AvailabilityZone") == "" && len(zones) > 0 {
+			instance.AvailabilityZone = zones[0]
+			if instance.MultiAZ && !rdsIsAurora(instance.Engine) {
+				instance.SecondaryAvailabilityZone = zones[1]
+			}
+		}
+	}
+	if !rdsIsAurora(instance.Engine) {
+		license, code, message := rdsInstanceLicenseModel(instance.Engine, r.FormValue("LicenseModel"), instance.LicenseModel)
+		if code != "" {
+			return code, message
+		}
+		instance.LicenseModel = license
 	}
 	if name := r.FormValue("OptionGroupName"); name != "" {
 		if rdsIsAurora(instance.Engine) {
@@ -485,8 +535,8 @@ func rdsRenameInstance(instance *RDSInstance, newID string) {
 	oldID := instance.DBInstanceIdentifier
 	oldARN := instance.ARN
 	instance.DBInstanceIdentifier = newID
-	instance.ARN = rdsInstanceARN(newID)
-	instance.Endpoint = fmt.Sprintf("%s.%s.rds.amazonaws.com", newID, awsRegion())
+	instance.ARN = rdsInstanceARNIn(instance.region(), newID)
+	instance.Endpoint = rdsInstanceEndpointIn(instance.region(), newID)
 	rdsInstances.Put(newID, *instance)
 	rdsInstances.Delete(oldID)
 	rename := func(ids []string) []string {

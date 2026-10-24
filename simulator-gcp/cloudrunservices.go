@@ -1189,6 +1189,12 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 			}
 			sim.WriteJSON(w, http.StatusOK, op)
 		case "cancel":
+			// A regional build's operation is a view of the build record;
+			// cancelling it cancels the build.
+			if build, ok := cbLocationBuild(project, location, opID); ok {
+				handleCloudBuildCancelOperation(w, build.ID)
+				return
+			}
 			handleGCPCancelOperation(w, name)
 		default:
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown operation action %q", opAction)

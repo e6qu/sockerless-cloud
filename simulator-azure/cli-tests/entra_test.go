@@ -326,32 +326,17 @@ func TestEntra_ApplicationServicePrincipalAndUserPatch(t *testing.T) {
 	assert.Equal(t, "CLI Patched", gotUser.DisplayName)
 }
 
-// TestMSI_TokenIsSignedJWT verifies the IMDS/MSI token endpoint returns a real
-// signed JWT carrying the identity's oid/aud claims, not a synthetic string.
-func TestMSI_TokenIsSignedJWT(t *testing.T) {
+// The Instance Metadata Service's token endpoint speaks for the requesting
+// virtual machine's identity, so a request from the CLI's host, which is no
+// machine, gets IMDS's invalid_request "Identity not found"; a machine's
+// tokens are read in the compute identity test.
+func TestMSI_TokenEndpointRefusesACallerThatIsNoMachine(t *testing.T) {
 	t.Parallel()
-	resp, err := http.Get(baseURL + "/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fmanagement.azure.com%2F")
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	var payload struct {
-		AccessToken string `json:"access_token"`
-		TokenType   string `json:"token_type"`
-	}
-	raw, _ := io.ReadAll(resp.Body)
-	require.NoError(t, json.Unmarshal(raw, &payload), string(raw))
-	assert.Equal(t, "Bearer", payload.TokenType)
-
-	parts := strings.Split(payload.AccessToken, ".")
-	require.Len(t, parts, 3, "MSI access_token must be a 3-part JWT")
-	claimsJSON, err := base64.RawURLEncoding.DecodeString(parts[1])
-	require.NoError(t, err)
-	var claims map[string]any
-	require.NoError(t, json.Unmarshal(claimsJSON, &claims))
-	assert.Equal(t, "https://management.azure.com/", claims["aud"])
-	assert.NotEmpty(t, claims["oid"])
-	assert.Equal(t, claims["oid"], claims["sub"])
-	assert.NotEmpty(t, claims["tid"])
+	out, err := azRest("GET", baseURL+"/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fmanagement.azure.com%2F", "",
+		"--headers", "Metadata=true", "--skip-authorization-header").CombinedOutput()
+	require.Error(t, err, "the token endpoint answered a caller that is no machine: %s", out)
+	assert.Contains(t, string(out), "invalid_request")
+	assert.Contains(t, string(out), "Identity not found")
 }
 
 // TestEntra_IDTokenGroupsViaAuthCodeFlow provisions a user + group via the

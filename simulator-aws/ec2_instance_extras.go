@@ -213,6 +213,7 @@ func handleAssociateIamInstanceProfile(w http.ResponseWriter, r *http.Request) {
 		i.IamInstanceProfileArn = arn
 		i.IamInstanceProfileName = strings.TrimPrefix(arn, fmt.Sprintf("arn:aws:iam::%s:instance-profile/", awsAccountID()))
 	})
+	ssmRegisterManagedNode(instanceID)
 	_ = inst
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<AssociateIamInstanceProfileResponse %s><requestId>%s</requestId><iamInstanceProfileAssociation>%s</iamInstanceProfileAssociation></AssociateIamInstanceProfileResponse>`,
@@ -232,6 +233,7 @@ func handleDisassociateIamInstanceProfile(w http.ResponseWriter, r *http.Request
 		i.IamInstanceProfileArn = ""
 		i.IamInstanceProfileName = ""
 	})
+	ssmRegisterManagedNode(assoc.InstanceId)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<DisassociateIamInstanceProfileResponse %s><requestId>%s</requestId><iamInstanceProfileAssociation>%s</iamInstanceProfileAssociation></DisassociateIamInstanceProfileResponse>`,
 		ec2Xmlns(), sim.NewUUID(), ec2IamInstanceProfileAssocXML(assoc))
@@ -259,6 +261,7 @@ func handleReplaceIamInstanceProfileAssociation(w http.ResponseWriter, r *http.R
 		i.IamInstanceProfileArn = arn
 		i.IamInstanceProfileName = strings.TrimPrefix(arn, fmt.Sprintf("arn:aws:iam::%s:instance-profile/", awsAccountID()))
 	})
+	ssmRegisterManagedNode(old.InstanceId)
 	w.Header().Set("Content-Type", "text/xml")
 	fmt.Fprintf(w, `<ReplaceIamInstanceProfileAssociationResponse %s><requestId>%s</requestId><iamInstanceProfileAssociation>%s</iamInstanceProfileAssociation></ReplaceIamInstanceProfileAssociationResponse>`,
 		ec2Xmlns(), sim.NewUUID(), ec2IamInstanceProfileAssocXML(old))

@@ -25,33 +25,6 @@ import (
 // (X-Amz-Target: CodeBuild_20161006.<Op>), matching the real wire shapes the
 // AWS SDK Go v2 and the `aws` CLI parse.
 
-// CBBuildBatch mirrors the CodeBuild BuildBatch shape. A batch settles SUCCEEDED
-// the same way a single build does; the sim tracks its terminal state on a real
-// store rather than fabricating it.
-type CBBuildBatch struct {
-	ID                    string         `json:"id"`
-	Arn                   string         `json:"arn"`
-	ProjectName           string         `json:"projectName"`
-	BuildBatchStatus      string         `json:"buildBatchStatus"`
-	CurrentPhase          string         `json:"currentPhase,omitempty"`
-	StartTime             float64        `json:"startTime"`
-	EndTime               float64        `json:"endTime"`
-	Source                map[string]any `json:"source,omitempty"`
-	Environment           map[string]any `json:"environment,omitempty"`
-	ServiceRole           string         `json:"serviceRole,omitempty"`
-	BuildTimeoutInMinutes int            `json:"buildTimeoutInMinutes,omitempty"`
-	Complete              bool           `json:"complete"`
-	Initiator             string         `json:"initiator,omitempty"`
-	BuildBatchNumber      int64          `json:"buildBatchNumber,omitempty"`
-	Phases                []CBPhase      `json:"phases,omitempty"`
-	// Seq orders ListBuildBatches by start order; sim-internal, not wire.
-	Seq int64 `json:"-"`
-	// BuildPlan and RuntimeEnvironment preserve execution inputs across the
-	// narrow pre-container restart window.
-	BuildPlan          *cbBuildPlan      `json:"-"`
-	RuntimeEnvironment map[string]string `json:"-"`
-}
-
 // CBFleet mirrors the CodeBuild Fleet shape (a compute fleet resource keyed by
 // ARN). A fleet settles ACTIVE on create.
 type CBFleet struct {
@@ -131,29 +104,27 @@ type CBWebhook struct {
 }
 
 var (
-	cbBuildBatches sim.Store[CBBuildBatch]
-	cbFleets       sim.Store[CBFleet]
-	cbSandboxes    sim.Store[CBSandbox]
-	cbCommandExecs sim.Store[CBCommandExecution]
-	cbWebhooks     sim.Store[CBWebhook]
-	cbResourcePols sim.Store[IAMResourcePolicy]
-	cbBatchSeq     int64
-	cbSandboxSeq   int64
-	cbCmdSeq       int64
-	cbSeqMu        sync.Mutex
+	cbBuildBatches      sim.Store[CBBuildBatch]
+	cbBuildBatchChanges = newStoreChanges()
+	cbFleets            sim.Store[CBFleet]
+	cbSandboxes         sim.Store[CBSandbox]
+	cbCommandExecs      sim.Store[CBCommandExecution]
+	cbWebhooks          sim.Store[CBWebhook]
+	cbResourcePols      sim.Store[IAMResourcePolicy]
+	cbBatchSeq          int64
+	cbSandboxSeq        int64
+	cbCmdSeq            int64
+	cbSeqMu             sync.Mutex
 )
 
 func registerCodeBuildExtended(r *AWSRouter, srv *sim.Server) {
-	cbBuildBatches = sim.MakeStore[CBBuildBatch](srv.DB(), "codebuild_build_batches")
+	cbBuildBatches = announcing(sim.MakeStore[CBBuildBatch](srv.DB(), "codebuild_build_batches"), cbBuildBatchChanges)
 	cbFleets = sim.MakeStore[CBFleet](srv.DB(), "codebuild_fleets")
 	cbSandboxes = sim.MakeStore[CBSandbox](srv.DB(), "codebuild_sandboxes")
 	cbCommandExecs = sim.MakeStore[CBCommandExecution](srv.DB(), "codebuild_command_executions")
 	cbWebhooks = sim.MakeStore[CBWebhook](srv.DB(), "codebuild_webhooks")
 	cbResourcePols = sim.MakeStore[IAMResourcePolicy](srv.DB(), "codebuild_resource_policies")
 	cbRebuildSequences()
-	if err := cbRecoverBuildBatches(); err != nil {
-		panic(fmt.Sprintf("restore AWS CodeBuild build batches: %v", err))
-	}
 
 	// Builds
 	r.Register("CodeBuild_20161006.BatchDeleteBuilds", handleCBBatchDeleteBuilds)
@@ -234,36 +205,6 @@ func cbRebuildSequences() {
 	}
 }
 
-func cbRecoverBuildBatches() error {
-	for _, batch := range cbBuildBatches.List() {
-		if batch.BuildBatchStatus != "IN_PROGRESS" {
-			continue
-		}
-		project, ok := cbProjects.Get(batch.ProjectName)
-		if !ok {
-			return fmt.Errorf("build batch %s references missing project %s", batch.ID, batch.ProjectName)
-		}
-		adopted, err := cbAdoptBuildWorkload(
-			batch.ID,
-			"build batch",
-			batch.StartTime,
-			cbBuildTimeout(project),
-			cbCompleteBuildBatch,
-		)
-		if err != nil {
-			return err
-		}
-		if adopted {
-			continue
-		}
-		if batch.BuildPlan == nil {
-			return fmt.Errorf("build batch %s has neither a workload container nor a persisted build plan", batch.ID)
-		}
-		go cbRunBuildBatch(batch.ID, project, *batch.BuildPlan, batch.RuntimeEnvironment)
-	}
-	return nil
-}
-
 func cbNextSeq(p *int64) int64 {
 	cbSeqMu.Lock()
 	defer cbSeqMu.Unlock()
@@ -301,313 +242,6 @@ func handleCBBatchDeleteBuilds(w http.ResponseWriter, r *http.Request) {
 		"buildsDeleted":    deleted,
 		"buildsNotDeleted": notDel,
 	})
-}
-
-func handleCBStartBuildBatch(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ProjectName         string `json:"projectName"`
-		BuildspecOverride   string `json:"buildspecOverride"`
-		SourceVersion       string `json:"sourceVersion"`
-		ServiceRoleOverride string `json:"serviceRoleOverride"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		cbWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-	p, ok := cbProjects.Get(req.ProjectName)
-	if !ok {
-		cbWriteError(w, "ResourceNotFoundException", "Project not found: "+req.ProjectName)
-		return
-	}
-	if req.ServiceRoleOverride != "" && !cbCanAssumeRole(w, req.ServiceRoleOverride, cbARN("project/"+req.ProjectName)) {
-		return
-	}
-	plan, err := cbBuildPlanForProject(p, req.BuildspecOverride, req.SourceVersion)
-	if err != nil {
-		cbWriteError(w, "InvalidInputException", err.Error())
-		return
-	}
-
-	cbMu.Lock()
-	defer cbMu.Unlock()
-
-	batchID := req.ProjectName + ":" + uuid.New().String()
-	now := cbEpochNow()
-	runtimeEnvironment := cbEnvironment(p.Environment, nil)
-	batch := CBBuildBatch{
-		ID:                 batchID,
-		Arn:                cbARN("build-batch/" + batchID),
-		ProjectName:        req.ProjectName,
-		BuildBatchStatus:   "IN_PROGRESS",
-		CurrentPhase:       "SUBMITTED",
-		StartTime:          now,
-		EndTime:            now,
-		Source:             p.Source,
-		Environment:        p.Environment,
-		ServiceRole:        firstNonEmpty(req.ServiceRoleOverride, p.ServiceRole),
-		Complete:           false,
-		BuildBatchNumber:   1,
-		Seq:                cbNextSeq(&cbBatchSeq),
-		BuildPlan:          &plan,
-		RuntimeEnvironment: runtimeEnvironment,
-		Phases: []CBPhase{
-			{PhaseType: "SUBMITTED", PhaseStatus: "SUCCEEDED", StartTime: now, EndTime: now, DurationInSeconds: 0},
-			{PhaseType: "COMBINE_ARTIFACTS", PhaseStatus: "IN_PROGRESS", StartTime: now},
-		},
-	}
-	cbBuildBatches.Put(batchID, batch)
-	go cbRunBuildBatch(batchID, p, plan, runtimeEnvironment)
-	cbWriteJSON(w, http.StatusOK, map[string]any{"buildBatch": batch})
-}
-
-func cbRunBuildBatch(batchID string, project CBProject, plan cbBuildPlan, environment map[string]string) {
-	exitCode, reason := cbRunCommands(batchID, project, plan, environment)
-	cbCompleteBuildBatch(batchID, exitCode, reason)
-}
-
-func cbCompleteBuildBatch(batchID string, exitCode int, reason string) {
-	cbMu.Lock()
-	defer cbMu.Unlock()
-	batch, ok := cbBuildBatches.Get(batchID)
-	if !ok || batch.BuildBatchStatus != "IN_PROGRESS" {
-		return
-	}
-	now := cbEpochNow()
-	status := "SUCCEEDED"
-	if exitCode != 0 {
-		status = "FAILED"
-	}
-	batch.BuildBatchStatus = status
-	// A batch's phases are typed by BuildBatchPhaseType, which has no
-	// COMPLETED: where a Build ends on a COMPLETED phase, a batch ends on the
-	// outcome itself — SUCCEEDED, FAILED or STOPPED. Naming the terminal phase
-	// COMPLETED put a value in the field that the type does not have.
-	batch.CurrentPhase = status
-	batch.EndTime = now
-	batch.Complete = true
-	batch.Phases = []CBPhase{
-		{PhaseType: "SUBMITTED", PhaseStatus: "SUCCEEDED", StartTime: batch.StartTime, EndTime: batch.StartTime, DurationInSeconds: 0},
-		{PhaseType: "COMBINE_ARTIFACTS", PhaseStatus: status, StartTime: batch.StartTime, EndTime: now, DurationInSeconds: now - batch.StartTime},
-		{PhaseType: status, PhaseStatus: status, StartTime: now, EndTime: now, DurationInSeconds: 0},
-	}
-	if reason != "" {
-		batch.Phases[1].Contexts = []CBPhaseContext{{StatusCode: "COMMAND_EXECUTION_ERROR", Message: reason}}
-	}
-	cbBuildBatches.Put(batchID, batch)
-}
-
-func handleCBStopBuildBatch(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		cbWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-
-	batch, ok := cbResolveBuildBatch(req.ID)
-	if !ok {
-		cbWriteError(w, "ResourceNotFoundException", "Build batch not found: "+req.ID)
-		return
-	}
-	batch = cbStopBuildBatchByID(batch.ID)
-	cbWriteJSON(w, http.StatusOK, map[string]any{"buildBatch": batch})
-}
-
-func cbStopBuildBatchByID(batchID string) CBBuildBatch {
-	cbMu.Lock()
-	defer cbMu.Unlock()
-	batch, ok := cbResolveBuildBatch(batchID)
-	if !ok {
-		return CBBuildBatch{}
-	}
-	if batch.BuildBatchStatus == "IN_PROGRESS" {
-		cbCancelBuild(batchID)
-		now := cbEpochNow()
-		batch.BuildBatchStatus = "STOPPED"
-		batch.CurrentPhase = "STOPPED"
-		batch.EndTime = now
-		batch.Complete = true
-		cbBuildBatches.Put(batch.ID, batch)
-	}
-	return batch
-}
-
-func handleCBRetryBuildBatch(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		cbWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-
-	cbMu.Lock()
-	defer cbMu.Unlock()
-
-	prior, ok := cbResolveBuildBatch(req.ID)
-	if !ok {
-		cbWriteError(w, "ResourceNotFoundException", "Build batch not found: "+req.ID)
-		return
-	}
-	project, ok := cbProjects.Get(prior.ProjectName)
-	if !ok {
-		cbWriteError(w, "ResourceNotFoundException", "Project not found: "+prior.ProjectName)
-		return
-	}
-	plan, err := cbBuildPlanForProject(project, "", "")
-	if err != nil {
-		cbWriteError(w, "InvalidInputException", err.Error())
-		return
-	}
-	// RetryBuildBatch starts a fresh batch of the same project (a new id),
-	// mirroring real CodeBuild which produces a new batch resource.
-	batchID := prior.ProjectName + ":" + uuid.New().String()
-	now := cbEpochNow()
-	runtimeEnvironment := cbEnvironment(project.Environment, nil)
-	batch := CBBuildBatch{
-		ID:                 batchID,
-		Arn:                cbARN("build-batch/" + batchID),
-		ProjectName:        prior.ProjectName,
-		BuildBatchStatus:   "IN_PROGRESS",
-		CurrentPhase:       "SUBMITTED",
-		StartTime:          now,
-		EndTime:            now,
-		Source:             prior.Source,
-		Environment:        prior.Environment,
-		ServiceRole:        prior.ServiceRole,
-		BuildBatchNumber:   prior.BuildBatchNumber + 1,
-		Seq:                cbNextSeq(&cbBatchSeq),
-		BuildPlan:          &plan,
-		RuntimeEnvironment: runtimeEnvironment,
-		Phases: []CBPhase{
-			{PhaseType: "SUBMITTED", PhaseStatus: "SUCCEEDED", StartTime: now, EndTime: now, DurationInSeconds: 0},
-			{PhaseType: "COMBINE_ARTIFACTS", PhaseStatus: "IN_PROGRESS", StartTime: now},
-		},
-	}
-	cbBuildBatches.Put(batchID, batch)
-	go cbRunBuildBatch(batchID, project, plan, runtimeEnvironment)
-	cbWriteJSON(w, http.StatusOK, map[string]any{"buildBatch": batch})
-}
-
-func handleCBDeleteBuildBatch(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		cbWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-
-	cbMu.Lock()
-	defer cbMu.Unlock()
-
-	batch, ok := cbResolveBuildBatch(req.ID)
-	if !ok {
-		// DeleteBuildBatch on a missing batch returns the unmatched id in
-		// buildsNotDeleted, not an error (matches real CodeBuild).
-		cbWriteJSON(w, http.StatusOK, map[string]any{
-			"statusCode": "BUILD_BATCH_NOT_FOUND",
-			"buildsNotDeleted": []map[string]any{
-				{"id": req.ID, "statusCode": "BUILD_BATCH_NOT_FOUND"},
-			},
-		})
-		return
-	}
-	cbBuildBatches.Delete(batch.ID)
-	cbWriteJSON(w, http.StatusOK, map[string]any{
-		"statusCode":       "DELETED",
-		"buildsDeleted":    []string{},
-		"buildsNotDeleted": []map[string]any{},
-	})
-}
-
-func handleCBBatchGetBuildBatches(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		IDs []string `json:"ids"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		cbWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-	found := []CBBuildBatch{}
-	notFound := []string{}
-	for _, id := range req.IDs {
-		if b, ok := cbResolveBuildBatch(id); ok {
-			found = append(found, b)
-		} else {
-			notFound = append(notFound, id)
-		}
-	}
-	cbWriteJSON(w, http.StatusOK, map[string]any{
-		"buildBatches":         found,
-		"buildBatchesNotFound": notFound,
-	})
-}
-
-func handleCBListBuildBatches(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		SortOrder  string `json:"sortOrder"`
-		MaxResults int    `json:"maxResults"`
-		NextToken  string `json:"nextToken"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
-		cbWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-	cbWriteBuildBatchIDsPage(w, cbBuildBatches.List(), "", req.SortOrder, req.MaxResults, req.NextToken)
-}
-
-func handleCBListBuildBatchesForProject(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ProjectName string `json:"projectName"`
-		SortOrder   string `json:"sortOrder"`
-		MaxResults  int    `json:"maxResults"`
-		NextToken   string `json:"nextToken"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
-		cbWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-	cbWriteBuildBatchIDsPage(w, cbBuildBatches.List(), req.ProjectName, req.SortOrder, req.MaxResults, req.NextToken)
-}
-
-func cbWriteBuildBatchIDsPage(w http.ResponseWriter, all []CBBuildBatch, project, sortOrder string, maxResults int, nextToken string) {
-	var batches []CBBuildBatch
-	for _, b := range all {
-		if project == "" || b.ProjectName == project {
-			batches = append(batches, b)
-		}
-	}
-	descending := !strings.EqualFold(sortOrder, "ASCENDING")
-	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, batches, func(b CBBuildBatch) string {
-		return cbOrderKey(awsIntKey(b.Seq), descending)
-	}, nextToken, maxResults, 100)
-	if !pageOK {
-		return
-	}
-	ids := make([]string, 0, len(page))
-	for _, b := range page {
-		ids = append(ids, b.ID)
-	}
-	resp := map[string]any{"ids": ids}
-	if nextTok != "" {
-		resp["nextToken"] = nextTok
-	}
-	cbWriteJSON(w, http.StatusOK, resp)
-}
-
-// cbResolveBuildBatch finds a batch by id or ARN.
-func cbResolveBuildBatch(idOrARN string) (CBBuildBatch, bool) {
-	if b, ok := cbBuildBatches.Get(idOrARN); ok {
-		return b, true
-	}
-	for _, b := range cbBuildBatches.List() {
-		if b.Arn == idOrARN {
-			return b, true
-		}
-	}
-	return CBBuildBatch{}, false
 }
 
 func handleCBCreateFleet(w http.ResponseWriter, r *http.Request) {

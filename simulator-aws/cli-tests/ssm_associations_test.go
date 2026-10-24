@@ -263,10 +263,29 @@ func TestSSMCLI_CommandLifecycle(t *testing.T) {
 	vpcID := q("ec2", "create-vpc", "--cidr-block", "10.217.0.0/16", "--query", "Vpc.VpcId", "--output", "text")
 	subnetID := q("ec2", "create-subnet", "--vpc-id", vpcID, "--cidr-block", "10.217.1.0/24",
 		"--query", "Subnet.SubnetId", "--output", "text")
-	instanceID := q("ec2", "run-instances", "--image-id", ec2AmazonLinuxAMI(t), "--instance-type", "t3.micro",
+	// A running instance whose profile does not let SSM Agent register it is
+	// no managed node: Run Command refuses it and describe-instance-information
+	// does not list it.
+	unmanaged := q("ec2", "run-instances", "--image-id", ec2AmazonLinuxAMI(t), "--instance-type", "t3.micro",
 		"--subnet-id", subnetID, "--query", "Instances[0].InstanceId", "--output", "text")
+	terminateCLIInstanceOnCleanup(t, unmanaged)
+	runCLI(t, awsCLI("ec2", "wait", "instance-running", "--instance-ids", unmanaged))
+	require.Contains(t, runCLIExpectError(t, awsCLI("ssm", "send-command",
+		"--document-name", docName, "--instance-ids", unmanaged)), "InvalidInstanceId")
+	require.Contains(t, runCLIExpectError(t, awsCLI("ssm", "describe-instance-information",
+		"--filters", "Key=InstanceIds,Values="+unmanaged)), "InvalidInstanceId")
+
+	instanceID := q("ec2", "run-instances", "--image-id", ec2AmazonLinuxAMI(t), "--instance-type", "t3.micro",
+		"--subnet-id", subnetID, "--iam-instance-profile", "Name="+ssmManagedInstanceProfileCLI(t),
+		"--query", "Instances[0].InstanceId", "--output", "text")
 	terminateCLIInstanceOnCleanup(t, instanceID)
 	runCLI(t, awsCLI("ec2", "wait", "instance-running", "--instance-ids", instanceID))
+	privateIP := q("ec2", "describe-instances", "--instance-ids", instanceID,
+		"--query", "Reservations[0].Instances[0].PrivateIpAddress", "--output", "text")
+	node := q("ssm", "describe-instance-information", "--filters", "Key=InstanceIds,Values="+instanceID,
+		"--query", "InstanceInformationList[0].[PingStatus,ResourceType,PlatformType,PlatformName,PlatformVersion,IPAddress]", "--output", "text")
+	require.Equal(t, strings.Join([]string{"Online", "EC2Instance", "Linux", "Amazon Linux", "2023", privateIP}, "\t"), node,
+		"SSM Agent registers the instance with the platform the AMI runs")
 
 	sendOut := runCLI(t, awsCLI("ssm", "send-command",
 		"--document-name", docName,

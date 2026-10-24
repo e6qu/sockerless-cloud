@@ -5,7 +5,7 @@ terraform {
       # aws_ecs_express_gateway_service was added in terraform-provider-aws
       # v6.23.0 (ECS Express Mode, launched 2025-11-21). Pin a version that has
       # the resource.
-      version = "6.69.1"
+      version = "6.70.0"
     }
   }
 }
@@ -47,6 +47,22 @@ resource "aws_iam_role" "express_infra" {
   })
 }
 
+# The infrastructure role provisions the service's load balancer, target
+# group, listener rule, certificate, security groups and auto scaling.
+resource "aws_iam_role_policy" "express_infra" {
+  name = "tf-express-infrastructure"
+  role = aws_iam_role.express_infra.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["elasticloadbalancing:*", "ec2:*", "acm:*", "application-autoscaling:*"]
+      Resource = "*"
+    }]
+  })
+}
+
 resource "aws_iam_role" "express_exec" {
   name = "tf-express-exec"
 
@@ -68,6 +84,8 @@ resource "aws_ecs_express_gateway_service" "web" {
   service_name            = "tf-express-web"
   infrastructure_role_arn = aws_iam_role.express_infra.arn
   execution_role_arn      = aws_iam_role.express_exec.arn
+
+  depends_on = [aws_iam_role_policy.express_infra]
 
   primary_container {
     image          = "mirror.gcr.io/library/busybox:latest"

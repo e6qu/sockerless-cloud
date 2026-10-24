@@ -2,15 +2,23 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"strings"
 )
 
 type bqQueryConfig struct {
-	Query             string        `json:"query"`
-	DefaultDataset    *BQDatasetRef `json:"defaultDataset"`
-	DestinationTable  *BQTableRef   `json:"destinationTable"`
-	CreateDisposition string        `json:"createDisposition"`
-	WriteDisposition  string        `json:"writeDisposition"`
+	Query             string             `json:"query"`
+	DefaultDataset    *BQDatasetRef      `json:"defaultDataset"`
+	DestinationTable  *BQTableRef        `json:"destinationTable"`
+	CreateDisposition string             `json:"createDisposition"`
+	WriteDisposition  string             `json:"writeDisposition"`
+	UseLegacySQL      *bool              `json:"useLegacySql"`
+	ParameterMode     string             `json:"parameterMode"`
+	QueryParameters   []bqQueryParameter `json:"queryParameters"`
+	TimePartitioning  json.RawMessage    `json:"timePartitioning"`
+	RangePartitioning json.RawMessage    `json:"rangePartitioning"`
+	Clustering        json.RawMessage    `json:"clustering"`
 }
 
 func (cfg bqQueryConfig) check() error {
@@ -26,6 +34,19 @@ func (cfg bqQueryConfig) check() error {
 	}
 	if d := cfg.DestinationTable; d != nil && (d.DatasetID == "" || d.TableID == "") {
 		return apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "Invalid destination table reference")
+	}
+	if strings.TrimSpace(cfg.Query) == "" {
+		return apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "Required parameter is missing: query")
+	}
+	// jobs.insert defaults useLegacySql to true; the simulator's engine reads
+	// GoogleSQL only.
+	if cfg.UseLegacySQL == nil || *cfg.UseLegacySQL {
+		if !strings.HasPrefix(strings.TrimSpace(strings.ToLower(cfg.Query)), "#standardsql") {
+			return apiRefuse(http.StatusNotImplemented, "NOT_IMPLEMENTED", "The simulator runs GoogleSQL queries; set useLegacySql to false")
+		}
+	}
+	if (cfg.TimePartitioning != nil || cfg.RangePartitioning != nil || cfg.Clustering != nil) && cfg.DestinationTable == nil {
+		return apiRefuse(http.StatusBadRequest, "INVALID_ARGUMENT", "Partitioning and clustering specifications require a destination table")
 	}
 	return nil
 }
@@ -63,7 +84,7 @@ func bqWriteQueryDestination(ctx context.Context, r *http.Request, project strin
 			if cfg.CreateDisposition == "CREATE_NEVER" {
 				return bqFail("notFound", "Not found: Table %s", bqTableName(dest))
 			}
-			table = BQTable{TableReference: dest}
+			table = BQTable{TableReference: dest, TimePartitioning: cfg.TimePartitioning, RangePartitioning: cfg.RangePartitioning, Clustering: cfg.Clustering}
 		}
 		if table.Type != "" && table.Type != "TABLE" {
 			return bqFail("invalid", "Cannot write query results to %s %s.", table.Type, bqTableName(dest))

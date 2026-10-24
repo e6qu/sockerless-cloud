@@ -138,7 +138,7 @@ func TestSFN_NestedWorkflowIntegration_SDK(t *testing.T) {
 	parent, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
 		Name:       aws.String(parentName),
 		Definition: aws.String(parentDefinition),
-		RoleArn:    aws.String(statesRole(t, "states:StartExecution")),
+		RoleArn:    aws.String(statesRole(t, "states:StartExecution", "states:DescribeExecution")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {

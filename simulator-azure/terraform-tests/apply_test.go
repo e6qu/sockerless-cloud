@@ -183,6 +183,10 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.Contains(t, azrmUAI, "/providers/Microsoft.ManagedIdentity/userAssignedIdentities/tf-azrm-uai",
 		"azurerm managed identity id must include canonical ARM path; got %s", azrmUAI)
 
+	azrmVMPrincipal := outputs.must(t, "azrm_vm_principal_id")
+	require.Regexp(t, `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, azrmVMPrincipal,
+		"the machine's system-assigned identity reads back with its principal; got %q", azrmVMPrincipal)
+
 	azrmLB := outputs.must(t, "azrm_lb_id")
 	require.Contains(t, azrmLB, "/providers/Microsoft.Network/loadBalancers/tf-azrm-lb",
 		"azurerm Load Balancer id must include canonical ARM path; got %s", azrmLB)
@@ -266,6 +270,9 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	azrmLAW := outputs.must(t, "azrm_law_id")
 	require.Contains(t, azrmLAW, "/providers/Microsoft.OperationalInsights/workspaces/tf-azrm-law",
 		"azurerm Log Analytics workspace id must include canonical ARM path; got %s", azrmLAW)
+	require.Contains(t, outputs.must(t, "azrm_node_app_diagnostic_setting_id"),
+		"/providers/Microsoft.Web/sites/tf-azrm-node-app|tf-azrm-node-app-logs",
+		"the diagnostic setting's id names the site it is on and the setting")
 
 	azrmTable := outputs.must(t, "azrm_law_table_id")
 	require.Contains(t, azrmTable, "/workspaces/tf-azrm-law/tables/TfEvents_CL",
@@ -458,6 +465,11 @@ func TestTerraformApplyDestroy(t *testing.T) {
 		[]string{azrmAppGateway + "/httpListeners/listener"},
 		outputs.mustList(t, "azrm_application_gateway_listener_ids"),
 		"the gateway must report its declared listener, addressed under itself")
+
+	require.ElementsMatch(t, []string{"10.0.0.0/16", "10.111.0.0/16"}, outputs.mustList(t, "azrm_vnet_address_space"),
+		"the virtual network reports both address prefixes")
+	require.True(t, strings.HasPrefix(outputs.must(t, "azrm_vm_nic_private_ip_address"), "10.111.1."),
+		"the machine's interface in the second prefix's subnet takes an address there; got %s", outputs.must(t, "azrm_vm_nic_private_ip_address"))
 
 	multiIPPrimary := outputs.must(t, "azrm_multi_ip_nic_primary_private_ip_address")
 	multiIPAddresses := outputs.mustList(t, "azrm_multi_ip_nic_private_ip_addresses")

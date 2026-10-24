@@ -24,4 +24,6 @@ package azure_sdk_test
 //   GET /subscriptions/{subscriptionId}/providers/Microsoft.ManagedIdentity/userAssignedIdentities
 //     — TestMSI_UpdateAndList (armmsi UserAssignedIdentitiesClient.NewListBySubscriptionPager)
 //   GET /subscriptions/{subscriptionId}/providers/Microsoft.ManagedIdentity/identities/default
-//     — TestMSI_OperationsAndSystemAssigned (armmsi SystemAssignedIdentitiesClient.GetByScope)
+//     — TestMSI_OperationsAndSystemAssigned (armmsi SystemAssignedIdentitiesClient.GetByScope, a scope with no identity)
+//   GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/{resourceProviderNamespace}/{resourceType}/{resourceName}/{childType}/{childName}/providers/Microsoft.ManagedIdentity/identities/default
+//     — TestSDK_WebMore_Slots (armmsi SystemAssignedIdentitiesClient.GetByScope on a deployment slot)

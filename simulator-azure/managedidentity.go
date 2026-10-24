@@ -3,56 +3,12 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 )
-
-// systemAssignedIdentity is the stable identity the IMDS/MSI endpoint
-// represents when a token request carries no user-assigned selector. Real IMDS
-// always speaks for the compute resource's own (system-assigned) identity, so
-// the sim mints tokens for a fixed identity rather than depending on a
-// user-assigned one having been provisioned.
-var systemAssignedIdentity = UserAssignedIdentity{
-	Properties: IdentityProperties{
-		TenantId:    simTenantID,
-		PrincipalId: "22222222-2222-2222-2222-222222222222",
-		ClientId:    "33333333-3333-3333-3333-333333333333",
-	},
-}
-
-// resolveTokenIdentity selects the managed identity an IMDS/MSI token request
-// targets. IMDS accepts client_id, object_id (the principalId), or mi_res_id
-// (the ARM resource ID) to disambiguate a user-assigned identity; absent all
-// three it speaks for the resource's system-assigned identity. It reports false
-// only when a selector is given but matches no provisioned user-assigned
-// identity.
-func resolveTokenIdentity(identities sim.Store[UserAssignedIdentity], q url.Values) (UserAssignedIdentity, bool) {
-	clientID := strings.TrimSpace(q.Get("client_id"))
-	objectID := strings.TrimSpace(q.Get("object_id"))
-	miResID := strings.TrimSpace(q.Get("mi_res_id"))
-
-	if clientID != "" || objectID != "" || miResID != "" {
-		matches := identities.Filter(func(i UserAssignedIdentity) bool {
-			switch {
-			case clientID != "":
-				return strings.EqualFold(i.Properties.ClientId, clientID)
-			case objectID != "":
-				return strings.EqualFold(i.Properties.PrincipalId, objectID)
-			default:
-				return strings.EqualFold(i.ID, miResID)
-			}
-		})
-		if len(matches) == 0 {
-			return UserAssignedIdentity{}, false
-		}
-		return matches[0], true
-	}
-
-	return systemAssignedIdentity, true
-}
 
 // simTenantID is the single Entra tenant the simulator presents. Real Azure
 // resources (managed identities, service principals, role-assignment principals)
@@ -123,11 +79,6 @@ func registerManagedIdentity(srv *sim.Server) {
 	identities := sim.MakeStore[UserAssignedIdentity](srv.DB(), "managed_identities")
 	azureManagedIdentities = identities
 	azureFederatedCredentials = sim.MakeStore[FederatedIdentityCredential](srv.DB(), "managed_identity_federated_credentials")
-
-	// The system-assigned identity the IMDS/MSI endpoint speaks for is always a
-	// directory service principal, so its principalId resolves via Graph.
-	entraRegisterServicePrincipal(systemAssignedIdentity.Properties.PrincipalId,
-		systemAssignedIdentity.Properties.ClientId, "system-assigned", "ManagedIdentity")
 
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.ManagedIdentity"
 
@@ -220,64 +171,15 @@ func registerManagedIdentity(srv *sim.Server) {
 	srv.HandleFunc("DELETE "+armBase+"/userAssignedIdentities/{identityName}/federatedIdentityCredentials/{ficName}", handleFederatedCredentialDelete)
 	srv.HandleFunc("GET "+armBase+"/userAssignedIdentities/{identityName}/federatedIdentityCredentials", handleFederatedCredentialList)
 
-	// Provider operations metadata + the scope-level system-assigned identity read.
+	// Provider operations metadata, and SystemAssignedIdentities_GetByScope,
+	// whose scope is the resource carrying the identity: an Azure Resource
+	// Manager resource or a nested one (a deployment slot).
 	srv.HandleFunc("GET /providers/Microsoft.ManagedIdentity/operations", handleManagedIdentityOperations)
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.ManagedIdentity/identities/default", handleSystemAssignedIdentityGetByScope)
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/{resourceProviderNamespace}/{resourceType}/{resourceName}/providers/Microsoft.ManagedIdentity/identities/default", handleSystemAssignedIdentityGetByScope)
+	srv.HandleFunc("GET /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/{resourceProviderNamespace}/{resourceType}/{resourceName}/{childType}/{childName}/providers/Microsoft.ManagedIdentity/identities/default", handleSystemAssignedIdentityGetByScope)
 
-	// The instance metadata service's token endpoint, which a virtual
-	// machine reaches at http://169.254.169.254/metadata/identity/oauth2/token.
-	tokenHandler := func(w http.ResponseWriter, r *http.Request) {
-		resource := r.URL.Query().Get("resource")
-		if resource == "" {
-			AzureError(w, "InvalidRequestContent",
-				"missing required 'resource' query parameter (audience the token is scoped to)",
-				http.StatusBadRequest)
-			return
-		}
-
-		// Resolve which managed identity is requesting the token. IMDS selects a
-		// user-assigned identity by client_id, object_id (principalId), or
-		// mi_res_id (the ARM resource ID); absent all three it uses the (single)
-		// identity provisioned in this sim. The minted JWT carries that
-		// identity's oid/clientId so resource servers can authorize it.
-		identity, ok := resolveTokenIdentity(identities, r.URL.Query())
-		if !ok {
-			AzureError(w, "invalid_request",
-				"no managed identity matches the requested client_id/object_id/mi_res_id; create one first (PUT .../userAssignedIdentities/{name})",
-				http.StatusBadRequest)
-			return
-		}
-
-		now := time.Now()
-		token, err := mintAzureSimSignedJWT(map[string]any{
-			"aud":       resource,
-			"iss":       fmt.Sprintf("https://sts.windows.net/%s/", identity.Properties.TenantId),
-			"oid":       identity.Properties.PrincipalId,
-			"sub":       identity.Properties.PrincipalId,
-			"tid":       identity.Properties.TenantId,
-			"appid":     identity.Properties.ClientId,
-			"client_id": identity.Properties.ClientId,
-			"iat":       now.Unix(),
-			"nbf":       now.Unix(),
-			"exp":       now.Add(time.Hour).Unix(),
-			"ver":       "1.0",
-		})
-		if err != nil {
-			AzureError(w, "InternalServerError", err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"access_token": token,
-			"expires_in":   "3600",
-			"expires_on":   fmt.Sprintf("%d", now.Unix()+3600),
-			"not_before":   fmt.Sprintf("%d", now.Unix()),
-			"resource":     resource,
-			"token_type":   "Bearer",
-			"client_id":    identity.Properties.ClientId,
-		})
-	}
-	srv.HandleFunc("GET /metadata/identity/oauth2/token", tokenHandler)
+	srv.HandleFunc("GET /metadata/identity/oauth2/token", handleIMDSIdentityToken)
 
 	// DELETE - Delete managed identity
 	srv.HandleFunc("DELETE "+armBase+"/userAssignedIdentities/{identityName}", func(w http.ResponseWriter, r *http.Request) {
@@ -453,21 +355,129 @@ func handleManagedIdentityOperations(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// handleSystemAssignedIdentityGetByScope returns the system-assigned identity
-// associated with the queried scope. The simulator presents a single stable
-// system-assigned identity (the one the IMDS/MSI endpoint speaks for).
+// imdsIdentityError writes the Instance Metadata Service's identity error
+// body (IdentityErrorResponse: error and error_description).
+func imdsIdentityError(w http.ResponseWriter, status int, code, description string) {
+	sim.WriteJSON(w, status, map[string]string{"error": code, "error_description": description})
+}
+
+// imdsInvalidRequest is the description IMDS documents for invalid_request.
+const imdsInvalidRequest = "The request is missing a required parameter, includes an invalid parameter value, includes a parameter more than once, or is otherwise malformed."
+
+// handleIMDSIdentityToken is Identity_GetToken: the Instance Metadata Service
+// mints a token for the requesting virtual machine's own managed identity —
+// its system-assigned identity, or the user-assigned identity it carries that
+// client_id, object_id or msi_res_id selects. A request from no machine, or
+// for an identity the machine does not carry, is refused with IMDS's
+// invalid_request "Identity not found".
+func handleIMDSIdentityToken(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Metadata") != "true" {
+		imdsIdentityError(w, http.StatusBadRequest, "bad_request_102", "Required metadata header not specified")
+		return
+	}
+	q := r.URL.Query()
+	resource := strings.TrimSpace(q.Get("resource"))
+	clientID, objectID, msiResID := strings.TrimSpace(q.Get("client_id")), strings.TrimSpace(q.Get("object_id")), strings.TrimSpace(q.Get("msi_res_id"))
+	selectors := 0
+	for _, v := range []string{clientID, objectID, msiResID} {
+		if v != "" {
+			selectors++
+		}
+	}
+	if resource == "" || selectors > 1 || len(q["resource"]) > 1 {
+		imdsIdentityError(w, http.StatusBadRequest, "invalid_request", imdsInvalidRequest)
+		return
+	}
+	vm, ok := azureIMDSMachine(r)
+	if !ok {
+		imdsIdentityError(w, http.StatusBadRequest, "invalid_request", "Identity not found")
+		return
+	}
+	identity, ok := selectManagedIdentity(vm.VM.Identity, vm.VM.ID, clientID, objectID, msiResID)
+	if !ok {
+		imdsIdentityError(w, http.StatusBadRequest, "invalid_request", "Identity not found")
+		return
+	}
+	now := time.Now()
+	expires := now.Add(24 * time.Hour)
+	token, err := mintAzureSimSignedJWT(map[string]any{
+		"aud":       resource,
+		"iss":       fmt.Sprintf("https://sts.windows.net/%s/", simTenantID),
+		"oid":       identity.principalID,
+		"sub":       identity.principalID,
+		"tid":       simTenantID,
+		"appid":     identity.clientID,
+		"idtyp":     "app",
+		"xms_mirid": identity.resourceID,
+		"iat":       now.Unix(),
+		"nbf":       now.Unix(),
+		"exp":       expires.Unix(),
+		"ver":       "1.0",
+	})
+	if err != nil {
+		imdsIdentityError(w, http.StatusInternalServerError, "server_error", err.Error())
+		return
+	}
+	lifetime := strconv.FormatInt(int64(expires.Sub(now)/time.Second), 10)
+	out := map[string]any{
+		"access_token":   token,
+		"client_id":      identity.clientID,
+		"expires_in":     lifetime,
+		"expires_on":     strconv.FormatInt(expires.Unix(), 10),
+		"ext_expires_in": lifetime,
+		"not_before":     strconv.FormatInt(now.Unix(), 10),
+		"resource":       resource,
+		"token_type":     "Bearer",
+	}
+	if objectID != "" {
+		out["object_id"] = identity.principalID
+	}
+	if msiResID != "" {
+		out["msi_res_id"] = identity.resourceID
+	}
+	sim.WriteJSON(w, http.StatusOK, out)
+}
+
+// azureResourceIdentity is the managed identity of the resource resourceID —
+// a virtual machine, an App Service app or slot, a container app or a
+// Container Apps job — with its system-assigned identity's client ID and the
+// resource's location.
+func azureResourceIdentity(resourceID string) (identity *SiteIdentity, clientID, location string, ok bool) {
+	if vm, found := azureVMs.Get(resourceID); found {
+		return vm.Identity, vm.SystemIdentityClientID, vm.Location, true
+	}
+	if site, found := webSiteRecord(resourceID); found {
+		return site.Identity, site.SystemIdentityClientID, site.Location, true
+	}
+	if app, found := acaApps.Get(resourceID); found {
+		return app.Identity, app.SystemIdentityClientID, app.Location, true
+	}
+	if job, found := acaJobs.Get(resourceID); found {
+		return job.Identity, job.SystemIdentityClientID, job.Location, true
+	}
+	return nil, "", "", false
+}
+
+// handleSystemAssignedIdentityGetByScope answers SystemAssignedIdentities_GetByScope
+// with the system-assigned identity of the resource the scope names.
 func handleSystemAssignedIdentityGetByScope(w http.ResponseWriter, r *http.Request) {
-	sub := sim.PathParam(r, "subscriptionId")
-	scope := fmt.Sprintf("/subscriptions/%s", sub)
+	const suffix = "/providers/Microsoft.ManagedIdentity/identities/default"
+	scope := r.URL.Path[:len(r.URL.Path)-len(suffix)]
+	identity, clientID, location, ok := azureResourceIdentity(scope)
+	if !ok || !identity.systemAssigned() {
+		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
+			"The Resource 'Microsoft.ManagedIdentity/identities/default' under scope '%s' was not found: the scope carries no system-assigned identity.", scope)
+		return
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"id":       scope + "/providers/Microsoft.ManagedIdentity/identities/default",
+		"id":       scope + suffix,
 		"name":     "default",
 		"type":     "Microsoft.ManagedIdentity/identities",
-		"location": "",
+		"location": location,
 		"properties": map[string]any{
-			"tenantId":    systemAssignedIdentity.Properties.TenantId,
-			"principalId": systemAssignedIdentity.Properties.PrincipalId,
-			"clientId":    systemAssignedIdentity.Properties.ClientId,
+			"tenantId":    identity.TenantID,
+			"principalId": identity.PrincipalID,
+			"clientId":    clientID,
 		},
 	})
 }

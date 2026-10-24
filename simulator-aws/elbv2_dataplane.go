@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -9,8 +12,10 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -19,6 +24,7 @@ import (
 )
 
 func registerELBv2DataPlane(srv *sim.Server) {
+	elbv2LoadStickinessKey(srv)
 	srv.WrapHandler(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if lb, ok := elbv2LoadBalancerFromDataPlaneHost(r.Host); ok {
@@ -69,7 +75,7 @@ func handleELBv2DataPlane(w http.ResponseWriter, r *http.Request, lb ELBv2LoadBa
 // elbv2ForwardToHealthyTarget forwards a request to a target in service of
 // the target groups the forward actions name.
 func elbv2ForwardToHealthyTarget(w http.ResponseWriter, r *http.Request, listener ELBv2Listener, actions []ELBv2Action) {
-	targetGroup, target, ok := elbv2HealthyTargetForActions(actions)
+	targetGroup, target, cookies, ok := elbv2HealthyTargetForActions(r, actions)
 	if !ok {
 		http.Error(w, "no healthy targets", http.StatusServiceUnavailable)
 		return
@@ -96,6 +102,11 @@ func elbv2ForwardToHealthyTarget(w http.ResponseWriter, r *http.Request, listene
 		RequestHeader: elbv2ForwardedHeaders(r, listener, elbv2LoadBalancerAttributes(listener.LoadBalancerArn)),
 		IdleTimeout:   idle,
 		Activity:      func() { sim.DeclareWait(r.Context(), time.Since(started)+idle) },
+		ResponseHeader: func(_ int, header http.Header) {
+			for _, cookie := range cookies {
+				header.Add("Set-Cookie", cookie.String())
+			}
+		},
 		// "The load balancer establishes TLS connections with the targets
 		// using certificates that you install on the targets. The load balancer
 		// does not validate these certificates."
@@ -223,18 +234,84 @@ func elbv2DataPlaneListenerPort(r *http.Request) int {
 // enabled Availability Zones" — rather than checking a target because a
 // request arrived for it.
 func elbv2HealthyTargetForListener(listener ELBv2Listener) (ELBv2TargetGroup, ELBv2TargetDescription, bool) {
-	return elbv2HealthyTargetForActions(listener.DefaultActions)
+	tg, target, _, ok := elbv2HealthyTargetForActions(nil, listener.DefaultActions)
+	return tg, target, ok
+}
+
+// Elastic Load Balancing reserves these cookie names for the load balancer:
+// AWSALBTG carries a weighted forward's target group stickiness, AWSALB a
+// target group's lb_cookie stickiness to one target.
+const (
+	elbv2TargetGroupStickinessCookie = "AWSALBTG"
+	elbv2TargetStickinessCookie      = "AWSALB"
+)
+
+// elbv2StickinessKey signs the stickiness cookies the load balancer sets, so a
+// client cannot name a target group or target of its choosing. The key
+// outlives a restart with the rest of the state, so the cookies clients hold
+// stay valid across one.
+var elbv2StickinessKey []byte
+
+func elbv2LoadStickinessKey(srv *sim.Server) {
+	keys := sim.MakeStore[string](srv.DB(), "elbv2_stickiness_keys")
+	keys.Upsert("cookie", func(key *string) {
+		if *key == "" {
+			*key = sim.RandomHex(32)
+		}
+	})
+	key, _ := keys.Get("cookie")
+	elbv2StickinessKey = []byte(key)
+}
+
+// elbv2StickyCookie makes a cookie whose value carries payload under the load
+// balancer's signature, good for duration seconds.
+func elbv2StickyCookie(name, payload string, duration int) *http.Cookie {
+	mac := hmac.New(sha256.New, elbv2StickinessKey)
+	mac.Write([]byte(payload))
+	value := base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	return &http.Cookie{Name: name, Value: value, Path: "/", MaxAge: duration}
+}
+
+// elbv2StickyCookiePayload reads the payload of the named cookie a request
+// carries, when the load balancer signed it.
+func elbv2StickyCookiePayload(r *http.Request, name string) (string, bool) {
+	if r == nil {
+		return "", false
+	}
+	cookie, err := r.Cookie(name)
+	if err != nil {
+		return "", false
+	}
+	encoded, signature, ok := strings.Cut(cookie.Value, ".")
+	if !ok {
+		return "", false
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return "", false
+	}
+	got, err := base64.RawURLEncoding.DecodeString(signature)
+	if err != nil {
+		return "", false
+	}
+	mac := hmac.New(sha256.New, elbv2StickinessKey)
+	mac.Write(payload)
+	if !hmac.Equal(got, mac.Sum(nil)) {
+		return "", false
+	}
+	return string(payload), true
 }
 
 // elbv2HealthyTargetForActions picks a target of the target groups the first
 // forwarding action sends to: a weighted forward divides requests among its
 // target groups by weight, and a target group whose weight is 0 receives
-// nothing.
-func elbv2HealthyTargetForActions(actions []ELBv2Action) (ELBv2TargetGroup, ELBv2TargetDescription, bool) {
-	type pick struct {
-		group  ELBv2TargetGroup
-		target ELBv2TargetDescription
-	}
+// nothing. With target group stickiness enabled, "requests from a client
+// should be routed to the same target group" for DurationSeconds: a request
+// carrying the AWSALBTG cookie the load balancer set stays with that target
+// group while it has a target in service, and a request without one is given
+// the cookie for the group the weights chose. The cookies to set come back
+// with the choice.
+func elbv2HealthyTargetForActions(r *http.Request, actions []ELBv2Action) (ELBv2TargetGroup, ELBv2TargetDescription, []*http.Cookie, bool) {
 	for _, action := range actions {
 		var groups []revisions.Weighted[string]
 		switch {
@@ -249,24 +326,99 @@ func elbv2HealthyTargetForActions(actions []ELBv2Action) (ELBv2TargetGroup, ELBv
 		case action.TargetGroupArn != "":
 			groups = append(groups, revisions.Weighted[string]{Revision: action.TargetGroupArn, Weight: 1})
 		}
-		var ready []revisions.Weighted[pick]
+		var ready []revisions.Weighted[ELBv2TargetGroup]
 		for _, g := range groups {
-			tg, ok := elbv2TargetGroups.Get(g.Revision)
-			if !ok {
-				continue
+			if tg, ok := elbv2TargetGroups.Get(g.Revision); ok && len(elbv2ReadyTargets(tg)) > 0 {
+				ready = append(ready, revisions.Weighted[ELBv2TargetGroup]{Revision: tg, Weight: g.Weight})
 			}
-			for _, target := range tg.Targets {
-				if elbv2TargetReceivesTraffic(tg, target) {
-					ready = append(ready, revisions.Weighted[pick]{Revision: pick{tg, target}, Weight: g.Weight})
-					break
+		}
+		var cookies []*http.Cookie
+		stickiness := action.Forward != nil && action.Forward.Stickiness != nil &&
+			action.Forward.Stickiness.Enabled && action.Forward.Stickiness.DurationSeconds != nil
+		var tg ELBv2TargetGroup
+		found := false
+		if stickiness {
+			if arn, ok := elbv2StickyCookiePayload(r, elbv2TargetGroupStickinessCookie); ok {
+				if i := slices.IndexFunc(ready, func(w revisions.Weighted[ELBv2TargetGroup]) bool { return w.Revision.Arn == arn }); i >= 0 {
+					tg, found = ready[i].Revision, true
 				}
 			}
 		}
-		if chosen, ok := revisions.Pick(ready); ok {
-			return chosen.group, chosen.target, true
+		if !found {
+			if tg, found = revisions.Pick(ready); !found {
+				continue
+			}
+			if stickiness {
+				cookies = append(cookies, elbv2StickyCookie(elbv2TargetGroupStickinessCookie, tg.Arn, *action.Forward.Stickiness.DurationSeconds))
+			}
+		}
+		target, cookie := elbv2PickTarget(r, tg)
+		if cookie != nil {
+			cookies = append(cookies, cookie)
+		}
+		return tg, target, cookies, true
+	}
+	return ELBv2TargetGroup{}, ELBv2TargetDescription{}, nil, false
+}
+
+// elbv2ReadyTargets lists the targets of a target group that receive traffic,
+// in registration order.
+func elbv2ReadyTargets(tg ELBv2TargetGroup) []ELBv2TargetDescription {
+	var ready []ELBv2TargetDescription
+	for _, target := range tg.Targets {
+		if elbv2TargetReceivesTraffic(tg, target) {
+			ready = append(ready, target)
 		}
 	}
-	return ELBv2TargetGroup{}, ELBv2TargetDescription{}, false
+	return ready
+}
+
+// elbv2RoundRobin counts the requests each target group has routed, which
+// the default load_balancing.algorithm.type, round_robin, turns among the
+// targets in service.
+var elbv2RoundRobin = struct {
+	sync.Mutex
+	routed map[string]uint64
+}{routed: map[string]uint64{}}
+
+func elbv2RoundRobinNext(targetGroupArn string) uint64 {
+	elbv2RoundRobin.Lock()
+	defer elbv2RoundRobin.Unlock()
+	n := elbv2RoundRobin.routed[targetGroupArn]
+	elbv2RoundRobin.routed[targetGroupArn] = n + 1
+	return n
+}
+
+// elbv2PickTarget picks the target of tg a request goes to. With
+// stickiness.enabled and stickiness.type lb_cookie, "requests from a client
+// should be routed to the same target" for stickiness.lb_cookie.duration_seconds,
+// "1 day (86400 seconds)" by default: a request carrying the AWSALB cookie the
+// load balancer set stays with that target while it is in service, and a
+// request without one is given the cookie for the target round robin chose.
+func elbv2PickTarget(r *http.Request, tg ELBv2TargetGroup) (ELBv2TargetDescription, *http.Cookie) {
+	ready := elbv2ReadyTargets(tg)
+	attrs := tg.Attributes
+	sticky := attrs["stickiness.enabled"] == "true" && attrs["stickiness.type"] == "lb_cookie"
+	if sticky {
+		if payload, ok := elbv2StickyCookiePayload(r, elbv2TargetStickinessCookie); ok {
+			if i := slices.IndexFunc(ready, func(t ELBv2TargetDescription) bool { return elbv2TargetStickinessPayload(tg, t) == payload }); i >= 0 {
+				return ready[i], nil
+			}
+		}
+	}
+	target := ready[int(elbv2RoundRobinNext(tg.Arn)%uint64(len(ready)))]
+	if !sticky {
+		return target, nil
+	}
+	duration, err := strconv.Atoi(attrs["stickiness.lb_cookie.duration_seconds"])
+	if err != nil {
+		duration = 86400
+	}
+	return target, elbv2StickyCookie(elbv2TargetStickinessCookie, elbv2TargetStickinessPayload(tg, target), duration)
+}
+
+func elbv2TargetStickinessPayload(tg ELBv2TargetGroup, target ELBv2TargetDescription) string {
+	return tg.Arn + "|" + target.ID + "|" + strconv.Itoa(target.Port)
 }
 
 func elbv2TargetHostHeader(incomingHost string, listener ELBv2Listener) string {

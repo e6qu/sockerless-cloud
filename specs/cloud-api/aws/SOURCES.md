@@ -55,3 +55,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `ec2.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/ec2.json` | Apache-2.0 | `414c9e49432f7b6e585ea6a8d1abcf9f13573768` | 2026-10-22T21:13:43Z |
 | `glue.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/glue.json` | Apache-2.0 | `414c9e49432f7b6e585ea6a8d1abcf9f13573768` | 2026-10-22T21:20:37Z |
 | `lambda.smithy.json.gz` | `aws/aws-sdk-go-v2` | `codegen/sdk-codegen/aws-models/lambda.json` | Apache-2.0 | `414c9e49432f7b6e585ea6a8d1abcf9f13573768` | 2026-10-22T21:20:37Z |
+| `ec2-instance-metadata-categories.md.gz` | `awsdocs/amazon-ec2-user-guide@master` | `doc_source/instancedata-data-categories.md` | CC-BY-SA-4.0 | `d289961421fa79447add68ca26e3ec5ae96fdf41` | 2026-10-23T08:57:31Z |
+| `codebuild-batch-build-buildspec.md.gz` | `awsdocs/aws-codebuild-user-guide@main` | `doc_source/batch-build-buildspec.md` | CC-BY-SA-4.0 | `4559e91530d50870e135129c8a3a6685ff8edf2d` | 2026-10-23T14:40:16Z |
+| `codebuild-batch-build.md.gz` | `awsdocs/aws-codebuild-user-guide@main` | `doc_source/batch-build.md` | CC-BY-SA-4.0 | `c77fb275e5abaa69020e8ec8a0221e51c03daf70` | 2026-10-23T14:40:24Z |

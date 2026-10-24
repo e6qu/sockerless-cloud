@@ -10,11 +10,13 @@ import (
 	"sync"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
 // Every workload container is a member of an engine network that carries a
-// sidecar: a virtual network's engine network, a Container Apps environment's
-// own network, or the platform network for a workload on no virtual network.
+// sidecar: the engine network of a virtual network's address prefix, a
+// Container Apps environment's own network, or the platform network for a
+// workload on no virtual network.
 // The sidecar answers DNS at the address Azure reserves for its resolver and
 // forwards metadata to the simulator, so the catalog attributes a query to
 // the network it came through and the metadata handlers see the workload's
@@ -80,11 +82,10 @@ func azurePlatformNetwork(ctx context.Context) (azureWorkloadNetwork, error) {
 	return azureWorkloadNetwork{Network: name, DNS: dns}, nil
 }
 
-// azureVNetNetwork realizes the virtual network as an engine network with its
-// sidecar at the address Azure reserves for its resolver, and registers the
-// network so the catalog answers its queries with the zones linked to the
-// virtual network.
-func azureVNetNetwork(ctx context.Context, vnetID string) (azureWorkloadNetwork, error) {
+// azureVNetNetworkFor realizes the engine network of the virtual network's
+// first address prefix, for an attach point that names the whole network and
+// no subnet, and, for a service placed on guests, joins the node agent to it.
+func azureVNetNetworkFor(ctx context.Context, service placement.Service, vnetID string) (azureWorkloadNetwork, error) {
 	vnet, ok := azureVnets.Get(vnetID)
 	if !ok {
 		return azureWorkloadNetwork{}, fmt.Errorf("virtual network %s not found", vnetID)
@@ -93,7 +94,67 @@ func azureVNetNetwork(ctx context.Context, vnetID string) (azureWorkloadNetwork,
 	if err != nil {
 		return azureWorkloadNetwork{}, err
 	}
-	name := dockerNetForVNet(vnet.ID)
+	return azureJoinedVNetPrefixNetwork(ctx, service, vnet, prefix, true)
+}
+
+// azureSubnetNetwork realizes the engine network of the address prefix the
+// subnet lies in — the network a workload in the subnet attaches to — and,
+// for a service placed on guests, joins the node agent to it.
+func azureSubnetNetwork(ctx context.Context, service placement.Service, subnetID string) (azureWorkloadNetwork, error) {
+	subnet, ok := azureSubnetByID(subnetID)
+	if !ok {
+		return azureWorkloadNetwork{}, fmt.Errorf("subnet %s not found", subnetID)
+	}
+	vnet, ok := azureVnets.Get(azureVNetIDOfSubnet(subnet.ID))
+	if !ok {
+		return azureWorkloadNetwork{}, fmt.Errorf("virtual network %s not found", azureVNetIDOfSubnet(subnet.ID))
+	}
+	prefix, first, err := azureVNetPrefixOfSubnet(vnet, subnet)
+	if err != nil {
+		return azureWorkloadNetwork{}, err
+	}
+	return azureJoinedVNetPrefixNetwork(ctx, service, vnet, prefix, first)
+}
+
+// azureSubnetNetworkName names the engine network of the prefix the subnet
+// lies in, without realizing it.
+func azureSubnetNetworkName(subnetID string) (string, error) {
+	subnet, ok := azureSubnetByID(subnetID)
+	if !ok {
+		return "", fmt.Errorf("subnet %s not found", subnetID)
+	}
+	vnet, ok := azureVnets.Get(azureVNetIDOfSubnet(subnet.ID))
+	if !ok {
+		return "", fmt.Errorf("virtual network %s not found", azureVNetIDOfSubnet(subnet.ID))
+	}
+	prefix, first, err := azureVNetPrefixOfSubnet(vnet, subnet)
+	if err != nil {
+		return "", err
+	}
+	return dockerNetForVNetPrefix(vnet.ID, prefix, first), nil
+}
+
+func azureJoinedVNetPrefixNetwork(ctx context.Context, service placement.Service, vnet VirtualNetwork, prefix netip.Prefix, first bool) (azureWorkloadNetwork, error) {
+	network, err := azureVNetPrefixNetwork(ctx, vnet, prefix, first)
+	if err != nil {
+		return azureWorkloadNetwork{}, err
+	}
+	if err := azureJoinMicroVMNetwork(ctx, service, vnet.ID, prefix, network.Network); err != nil {
+		return azureWorkloadNetwork{}, fmt.Errorf("join virtual network %s at %s: %w", vnet.ID, prefix, err)
+	}
+	return network, nil
+}
+
+// azureVNetPrefixNetwork realizes one address prefix of the virtual network
+// as an engine network with its sidecar at the address Azure reserves for its
+// resolver in that prefix, and registers the network so the catalog answers
+// its queries with the zones linked to the virtual network. Each prefix is
+// an engine network of its own: the engine's bridge driver spans one range
+// per network. The engine isolates its bridges from each other, so a workload
+// in one prefix does not reach one in another prefix of the same virtual
+// network, where Azure routes between them.
+func azureVNetPrefixNetwork(ctx context.Context, vnet VirtualNetwork, prefix netip.Prefix, first bool) (azureWorkloadNetwork, error) {
+	name := dockerNetForVNetPrefix(vnet.ID, prefix, first)
 	if _, err := sim.EnsureCloudNetwork(ctx, sim.CloudNetwork{Name: name, CIDR: prefix}); err != nil {
 		return azureWorkloadNetwork{}, err
 	}
@@ -102,7 +163,7 @@ func azureVNetNetwork(ctx context.Context, vnetID string) (azureWorkloadNetwork,
 	if err != nil {
 		return azureWorkloadNetwork{}, err
 	}
-	azureVNetNetworksUp.Store(strings.ToLower(vnet.ID), name)
+	azureVNetNetworksUp.Store(name, strings.ToLower(vnet.ID))
 	if err := azureEnsureVNetNATGateways(ctx, vnet.ID); err != nil {
 		return azureWorkloadNetwork{}, err
 	}
@@ -149,12 +210,34 @@ func azureVNetMicroVMAgentAddress(vnetID string, vnetPrefix netip.Prefix) netip.
 	return azureVNetResolverAddress(vnetID, vnetPrefix).Next()
 }
 
-// azureRemoveVNetNetwork removes the virtual network's engine network, its
-// sidecar and the node agent off it first; the engine refuses while a
-// workload is still attached.
+// azureVNetNetworkNames lists the engine networks of the virtual network's
+// prefixes: one per stored prefix, and any this process realized for a
+// prefix the network no longer has.
+func azureVNetNetworkNames(vnetID string) []string {
+	names := []string{dockerNetForVNet(vnetID)}
+	seen := map[string]bool{names[0]: true}
+	if vnet, ok := azureVnets.Get(vnetID); ok {
+		if prefixes, err := azureVNetIPv4Prefixes(vnet); err == nil {
+			for i, prefix := range prefixes {
+				if name := dockerNetForVNetPrefix(vnet.ID, prefix, i == 0); !seen[name] {
+					names, seen[name] = append(names, name), true
+				}
+			}
+		}
+	}
+	azureResolverNetworks.Range(func(key, value any) bool {
+		if name, _ := key.(string); !seen[name] && value == strings.ToLower(vnetID) {
+			names, seen[name] = append(names, name), true
+		}
+		return true
+	})
+	return names
+}
+
+// azureRemoveVNetNetwork removes the engine network of each of the virtual
+// network's prefixes, its sidecar and the node agent off it first; the engine
+// refuses while a workload is still attached.
 func azureRemoveVNetNetwork(ctx context.Context, vnetID string) error {
-	network := dockerNetForVNet(vnetID)
-	azureVNetNetworksUp.Delete(strings.ToLower(vnetID))
 	if azureNatGateways != nil {
 		for _, gw := range azureNatGateways.List() {
 			if subnets, _ := azureNATGatewaySubnets(gw.ID); len(subnets) > 0 && strings.EqualFold(azureVNetIDOfSubnet(subnets[0].ID), vnetID) {
@@ -162,24 +245,18 @@ func azureRemoveVNetNetwork(ctx context.Context, vnetID string) error {
 			}
 		}
 	}
-	azureRemoveSidecar(network)
-	if err := azureLeaveMicroVMNetwork(ctx, network); err != nil {
-		return err
+	for _, network := range azureVNetNetworkNames(vnetID) {
+		azureVNetNetworksUp.Delete(network)
+		azureRemoveSidecar(network)
+		if err := azureLeaveMicroVMNetwork(ctx, network); err != nil {
+			return err
+		}
+		if err := sim.RemoveDockerNetwork(network); err != nil {
+			return err
+		}
+		azureResolverNetworks.Delete(network)
 	}
-	if err := sim.RemoveDockerNetwork(network); err != nil {
-		return err
-	}
-	azureResolverNetworks.Delete(network)
 	return nil
-}
-
-// azureSubnetVNetNetwork is the engine network of the subnet's virtual
-// network, with the subnet's own identifier for leases on it.
-func azureSubnetVNetNetwork(ctx context.Context, subnetID string) (azureWorkloadNetwork, error) {
-	if _, ok := azureSubnetByID(subnetID); !ok {
-		return azureWorkloadNetwork{}, fmt.Errorf("subnet %s not found", subnetID)
-	}
-	return azureVNetNetwork(ctx, azureVNetIDOfSubnet(subnetID))
 }
 
 // azureWholeVNetSubnet is the subnet whose ledger records the address a

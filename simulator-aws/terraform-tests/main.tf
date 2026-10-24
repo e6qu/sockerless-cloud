@@ -4,7 +4,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "6.69.1"
+      version = "6.70.0"
     }
   }
 }
@@ -94,7 +94,25 @@ resource "aws_kinesis_stream_consumer" "tf_consumer" {
 data "aws_caller_identity" "current" {}
 
 resource "aws_vpc" "tf_ec2_vpc" {
-  cidr_block = "10.251.0.0/16"
+  cidr_block                       = "10.251.0.0/16"
+  assign_generated_ipv6_cidr_block = true
+}
+
+# A dual stack subnet takes a /64 of the VPC's Amazon-provided IPv6 block.
+resource "aws_subnet" "tf_ipv6_subnet" {
+  vpc_id            = aws_vpc.tf_ec2_vpc.id
+  cidr_block        = "10.251.3.0/24"
+  ipv6_cidr_block   = cidrsubnet(aws_vpc.tf_ec2_vpc.ipv6_cidr_block, 8, 1)
+  availability_zone = "us-east-1c"
+}
+
+# The account's default VPC and the default subnet of one zone, which the
+# provider adopts through DescribeVpcs is-default and DescribeSubnets
+# default-for-az rather than creating.
+resource "aws_default_vpc" "tf_default" {}
+
+resource "aws_default_subnet" "tf_default_c" {
+  availability_zone = "us-east-1c"
 }
 
 resource "aws_vpc_encryption_control" "tf_ec2_vpc" {
@@ -1019,6 +1037,42 @@ resource "aws_lambda_permission" "tf_lambda_url_public" {
   function_name          = aws_lambda_function.tf_lambda.function_name
   principal              = "*"
   function_url_auth_type = "NONE"
+}
+
+# AWS Lambda sends an asynchronous invocation's record to its destination as
+# the execution role, so the role's policy allows the send.
+resource "aws_iam_role_policy" "tf_lambda_destination_policy" {
+  name = "tf-lambda-destination"
+  role = aws_iam_role.tf_lambda_role.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["sqs:SendMessage"]
+      Resource = aws_sqs_queue.tf_eventbridge_queue.arn
+    }]
+  })
+}
+
+resource "aws_lambda_function_event_invoke_config" "tf_lambda_destinations" {
+  function_name          = aws_lambda_function.tf_lambda.function_name
+  maximum_retry_attempts = 0
+
+  destination_config {
+    on_success {
+      destination = aws_sqs_queue.tf_eventbridge_queue.arn
+    }
+  }
+
+  depends_on = [aws_iam_role_policy.tf_lambda_destination_policy]
+}
+
+output "lambda_event_invoke_config_destination" {
+  value = aws_lambda_function_event_invoke_config.tf_lambda_destinations.destination_config[0].on_success[0].destination
+}
+
+output "eventbridge_queue_arn" {
+  value = aws_sqs_queue.tf_eventbridge_queue.arn
 }
 
 # EventBridge Scheduler — cron/rate-driven invocation of the runner Lambda.
@@ -2041,6 +2095,16 @@ resource "aws_codebuild_project" "tf_cb_project" {
     compute_type = "BUILD_GENERAL1_SMALL"
   }
 
+  build_batch_config {
+    service_role    = aws_iam_role.tf_cb_role.arn
+    timeout_in_mins = 120
+
+    restrictions {
+      maximum_builds_allowed = 3
+      compute_types_allowed  = ["BUILD_GENERAL1_SMALL"]
+    }
+  }
+
   tags = {
     env = "terraform"
   }
@@ -2048,6 +2112,55 @@ resource "aws_codebuild_project" "tf_cb_project" {
 
 output "codebuild_project_arn" {
   value = aws_codebuild_project.tf_cb_project.arn
+}
+output "codebuild_batch_service_role" {
+  value = aws_codebuild_project.tf_cb_project.build_batch_config[0].service_role
+}
+output "codebuild_batch_maximum_builds_allowed" {
+  value = tostring(aws_codebuild_project.tf_cb_project.build_batch_config[0].restrictions[0].maximum_builds_allowed)
+}
+
+# Amazon EventBridge starts a build of a CodeBuild project target as the
+# target's role, so the role's policy allows codebuild:StartBuild.
+resource "aws_iam_role" "tf_eventbridge_codebuild_role" {
+  name = "tf-eventbridge-codebuild-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "events.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "tf_eventbridge_codebuild_policy" {
+  name = "tf-eventbridge-codebuild"
+  role = aws_iam_role.tf_eventbridge_codebuild_role.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["codebuild:StartBuild"]
+      Resource = aws_codebuild_project.tf_cb_project.arn
+    }]
+  })
+}
+
+resource "aws_cloudwatch_event_target" "tf_eventbridge_codebuild_target" {
+  rule      = aws_cloudwatch_event_rule.tf_eventbridge_rule.name
+  target_id = "tf-eventbridge-codebuild"
+  arn       = aws_codebuild_project.tf_cb_project.arn
+  role_arn  = aws_iam_role.tf_eventbridge_codebuild_role.arn
+}
+
+output "eventbridge_codebuild_target_arn" {
+  value = aws_cloudwatch_event_target.tf_eventbridge_codebuild_target.arn
+}
+
+output "eventbridge_codebuild_target_role_arn" {
+  value = aws_cloudwatch_event_target.tf_eventbridge_codebuild_target.role_arn
 }
 
 # ── Glue ────────────────────────────────────────────────────────────────────
@@ -2265,4 +2378,45 @@ output "service_discovery_http_namespace_id" {
 
 output "service_discovery_service_id" {
   value = aws_service_discovery_service.tf_svc.id
+}
+
+# A Network Load Balancer with an Elastic IP address per subnet, which the
+# provider writes as subnet_mapping and reads back from the subnet's
+# LoadBalancerAddresses.
+resource "aws_eip" "tf_nlb_eip" {
+  domain = "vpc"
+}
+
+resource "aws_lb" "tf_nlb" {
+  name               = "tf-nlb"
+  load_balancer_type = "network"
+
+  subnet_mapping {
+    subnet_id     = aws_subnet.tf_elbv2_subnet.id
+    allocation_id = aws_eip.tf_nlb_eip.id
+  }
+}
+
+output "ec2_nlb_eip_allocation_id" {
+  value = aws_eip.tf_nlb_eip.id
+}
+
+output "elbv2_nlb_subnet_mapping_allocation_id" {
+  value = one(aws_lb.tf_nlb.subnet_mapping).allocation_id
+}
+
+output "ec2_vpc_ipv6_cidr" {
+  value = aws_vpc.tf_ec2_vpc.ipv6_cidr_block
+}
+
+output "ec2_ipv6_subnet_cidr" {
+  value = aws_subnet.tf_ipv6_subnet.ipv6_cidr_block
+}
+
+output "ec2_default_subnet_cidr" {
+  value = aws_default_subnet.tf_default_c.cidr_block
+}
+
+output "ec2_default_subnet_existing" {
+  value = tostring(aws_default_subnet.tf_default_c.existing_default_subnet)
 }

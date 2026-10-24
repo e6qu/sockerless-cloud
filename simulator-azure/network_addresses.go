@@ -15,11 +15,12 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim/ipam"
 )
 
-// A virtual network is one engine network over the first IPv4 prefix of its
-// address space (azure_workload_networks.go), created when the first workload
-// attaches to it and removed with the network. A subnet is an address ledger over its own prefix: every
-// network interface, platform-owned or not, holds a lease on it, and the
-// stored interfaces rebuild the ledger after a restart.
+// A virtual network is one engine network per IPv4 prefix of its address
+// space (azure_workload_networks.go), each created when the first workload
+// attaches to it and removed with the network. A subnet lies inside one of
+// those prefixes and is an address ledger over its own prefix: every network
+// interface, platform-owned or not, holds a lease on it, and the stored
+// interfaces rebuild the ledger after a restart.
 
 // azureSubnetReservation is what Azure Virtual Network keeps in every subnet:
 // the network address, the default gateway, the two addresses Azure DNS maps
@@ -50,19 +51,101 @@ func dockerNetForVNet(vnetID string) string {
 	return "sim-vnet-" + strings.ToLower(vnetID[strings.LastIndex(vnetID, "/")+1:]) + "-" + hex.EncodeToString(sum[:4])
 }
 
-// azureVNetIPv4Prefix is the prefix the virtual network's engine network
-// spans: the first IPv4 member of addressSpace.addressPrefixes.
-func azureVNetIPv4Prefix(vnet VirtualNetwork) (netip.Prefix, error) {
+// dockerNetForVNetPrefix names the engine network realizing one address
+// prefix of a virtual network: the network's own name for its first prefix,
+// and that name with a digest of the prefix for each later one. The engine's
+// bridge driver spans one range per network, so a virtual network with
+// several prefixes is several engine networks.
+func dockerNetForVNetPrefix(vnetID string, prefix netip.Prefix, first bool) string {
+	name := dockerNetForVNet(vnetID)
+	if first {
+		return name
+	}
+	sum := sha256.Sum256([]byte(prefix.Masked().String()))
+	return name + "-" + hex.EncodeToString(sum[:3])
+}
+
+// azureVNetPrefixOfSubnet is the address prefix of the virtual network the
+// subnet's IPv4 range lies in, and whether it is the network's first.
+func azureVNetPrefixOfSubnet(vnet VirtualNetwork, subnet Subnet) (netip.Prefix, bool, error) {
+	cidr, err := azureSubnetIPv4CIDR(subnet.Properties)
+	if err != nil {
+		return netip.Prefix{}, false, err
+	}
+	subnetPrefix, err := netip.ParsePrefix(cidr)
+	if err != nil {
+		return netip.Prefix{}, false, fmt.Errorf("subnet %s: address prefix %q: %w", subnet.ID, cidr, err)
+	}
+	prefixes, err := azureVNetIPv4Prefixes(vnet)
+	if err != nil {
+		return netip.Prefix{}, false, err
+	}
+	for i, prefix := range prefixes {
+		if prefix.Bits() <= subnetPrefix.Bits() && prefix.Contains(subnetPrefix.Masked().Addr()) {
+			return prefix, i == 0, nil
+		}
+	}
+	return netip.Prefix{}, false, fmt.Errorf("subnet %s (%s) lies outside the address space of virtual network %s (%s)",
+		subnet.ID, cidr, vnet.ID, strings.Join(vnet.Properties.AddressSpace.AddressPrefixes, ", "))
+}
+
+// azureVNetIPv4Prefixes are the IPv4 members of addressSpace.addressPrefixes,
+// in their order, which the virtual network's engine network spans.
+func azureVNetIPv4Prefixes(vnet VirtualNetwork) ([]netip.Prefix, error) {
+	var prefixes []netip.Prefix
 	for _, raw := range vnet.Properties.AddressSpace.AddressPrefixes {
 		prefix, err := netip.ParsePrefix(raw)
 		if err != nil {
-			return netip.Prefix{}, fmt.Errorf("virtual network %s: address prefix %q: %w", vnet.ID, raw, err)
+			return nil, fmt.Errorf("virtual network %s: address prefix %q: %w", vnet.ID, raw, err)
 		}
 		if prefix.Addr().Is4() {
-			return prefix, nil
+			prefixes = append(prefixes, prefix)
 		}
 	}
-	return netip.Prefix{}, fmt.Errorf("virtual network %s has no IPv4 address prefix", vnet.ID)
+	if len(prefixes) == 0 {
+		return nil, fmt.Errorf("virtual network %s has no IPv4 address prefix", vnet.ID)
+	}
+	return prefixes, nil
+}
+
+// azureVNetIPv4Prefix is the first IPv4 prefix of the address space, whose
+// reserved addresses the resolver's sidecar and the node agent take.
+func azureVNetIPv4Prefix(vnet VirtualNetwork) (netip.Prefix, error) {
+	prefixes, err := azureVNetIPv4Prefixes(vnet)
+	if err != nil {
+		return netip.Prefix{}, err
+	}
+	return prefixes[0], nil
+}
+
+// azureSubnetInsideVNet reports whether every IPv4 prefix of the subnet lies
+// inside one of the virtual network's address prefixes, naming the first
+// that does not.
+func azureSubnetInsideVNet(sn Subnet, vnet VirtualNetwork) (string, bool) {
+	vnetPrefixes, err := azureVNetIPv4Prefixes(vnet)
+	if err != nil {
+		return "", true
+	}
+	for _, raw := range append([]string{sn.Properties.AddressPrefix}, sn.Properties.AddressPrefixes...) {
+		if raw == "" {
+			continue
+		}
+		prefix, err := netip.ParsePrefix(raw)
+		if err != nil || !prefix.Addr().Is4() {
+			continue
+		}
+		inside := false
+		for _, vnetPrefix := range vnetPrefixes {
+			if vnetPrefix.Bits() <= prefix.Bits() && vnetPrefix.Contains(prefix.Masked().Addr()) {
+				inside = true
+				break
+			}
+		}
+		if !inside {
+			return raw, false
+		}
+	}
+	return "", true
 }
 
 // azureSubnetIPv4CIDR is the prefix a subnet leases addresses from: its

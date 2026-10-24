@@ -25,6 +25,42 @@ func expressCreateCluster(t *testing.T, c *ecs.Client, name string) string {
 	return name
 }
 
+// createECSExpressInfrastructureRole creates the role an Express service
+// provisions its load balancer, target group, listener rule, certificate,
+// security groups and auto scaling as: trusted by ecs.amazonaws.com, and
+// allowed those services.
+func createECSExpressInfrastructureRole(t *testing.T, name string) string {
+	t.Helper()
+	return createServiceRole(t, uniqueName(name), "ecs.amazonaws.com",
+		"elasticloadbalancing:*", "ec2:*", "acm:*", "application-autoscaling:*")
+}
+
+// expressManagedResources reads the resources Amazon ECS manages for the
+// service's current revision, which DescribeServiceRevisions reports.
+func expressManagedResources(t *testing.T, c *ecs.Client, svc *ecstypes.ECSExpressGatewayService) *ecstypes.ECSManagedResources {
+	t.Helper()
+	require.NotEmpty(t, svc.ActiveConfigurations)
+	revision := svc.ActiveConfigurations[len(svc.ActiveConfigurations)-1].ServiceRevisionArn
+	require.NotEmpty(t, aws.ToString(revision))
+	out, err := c.DescribeServiceRevisions(ctx, &ecs.DescribeServiceRevisionsInput{ServiceRevisionArns: []string{aws.ToString(revision)}})
+	require.NoError(t, err)
+	require.Len(t, out.ServiceRevisions, 1, "failures: %v", out.Failures)
+	require.NotNil(t, out.ServiceRevisions[0].EcsManagedResources)
+	return out.ServiceRevisions[0].EcsManagedResources
+}
+
+// expressLoadBalancerArn is the load balancer that serves the service's
+// ingress path, as the managed resources report it.
+func expressLoadBalancerArn(t *testing.T, c *ecs.Client, svc *ecstypes.ECSExpressGatewayService) string {
+	t.Helper()
+	managed := expressManagedResources(t, c, svc)
+	require.Len(t, managed.IngressPaths, 1)
+	require.NotNil(t, managed.IngressPaths[0].LoadBalancer)
+	assert.Equal(t, ecstypes.ManagedResourceStatusActive, managed.IngressPaths[0].LoadBalancer.Status,
+		aws.ToString(managed.IngressPaths[0].LoadBalancer.StatusReason))
+	return aws.ToString(managed.IngressPaths[0].LoadBalancer.Arn)
+}
+
 // TestECSExpress_CreateAssemblyAndLifecycle drives the full ECS Express Mode
 // service lifecycle (Create/Describe/Update/Delete) through the ECS SDK and
 // asserts both the control-plane response shape and the faithful assembly: the
@@ -65,7 +101,7 @@ func TestECSExpress_CreateAssemblyAndLifecycle(t *testing.T) {
 	out, err := c.CreateExpressGatewayService(ctx, &ecs.CreateExpressGatewayServiceInput{
 		Cluster:               aws.String(cluster),
 		ServiceName:           aws.String("web"),
-		InfrastructureRoleArn: aws.String("arn:aws:iam::000000000000:role/express-infra"),
+		InfrastructureRoleArn: aws.String(createECSExpressInfrastructureRole(t, "express-lifecycle")),
 		NetworkConfiguration: &ecstypes.ExpressGatewayServiceNetworkConfiguration{
 			Subnets:        subnets,
 			SecurityGroups: []string{aws.ToString(sg.GroupId)},
@@ -93,26 +129,19 @@ func TestECSExpress_CreateAssemblyAndLifecycle(t *testing.T) {
 	assert.Equal(t, "512", aws.ToString(cfg.Memory))
 	assert.Equal(t, "/ping", aws.ToString(cfg.HealthCheckPath))
 
-	// Ingress path: PUBLIC, https endpoint.
+	// Ingress path: PUBLIC, an https endpoint in a domain AWS owns, served by
+	// the load balancer the managed resources name.
 	require.NotEmpty(t, cfg.IngressPaths)
 	ingress := cfg.IngressPaths[0]
 	assert.Equal(t, ecstypes.AccessTypePublic, ingress.AccessType)
 	endpoint := aws.ToString(ingress.Endpoint)
 	require.True(t, strings.HasPrefix(endpoint, "https://"), "endpoint %q must start https://", endpoint)
-	albHost := strings.TrimPrefix(endpoint, "https://")
-
-	// The ALB exists via ELBv2 and its DNSName matches the ingress endpoint host.
-	lbs, err := elb.DescribeLoadBalancers(ctx, &elbv2.DescribeLoadBalancersInput{})
+	assert.True(t, strings.HasSuffix(endpoint, ".on.aws"), endpoint)
+	albArn := expressLoadBalancerArn(t, c, svc)
+	lbs, err := elb.DescribeLoadBalancers(ctx, &elbv2.DescribeLoadBalancersInput{LoadBalancerArns: []string{albArn}})
 	require.NoError(t, err)
-	var matched bool
-	for _, lb := range lbs.LoadBalancers {
-		if strings.EqualFold(aws.ToString(lb.DNSName), albHost) {
-			matched = true
-			assert.Equal(t, "internet-facing", string(lb.Scheme))
-			break
-		}
-	}
-	assert.True(t, matched, "no ALB with DNSName %q found in DescribeLoadBalancers", albHost)
+	require.Len(t, lbs.LoadBalancers, 1)
+	assert.Equal(t, "internet-facing", string(lbs.LoadBalancers[0].Scheme))
 
 	// The Application Auto Scaling scalable target exists at service/<cluster>/<svc>.
 	resourceID := "service/" + cluster + "/web"
@@ -200,12 +229,8 @@ func TestECSExpress_CreateAssemblyAndLifecycle(t *testing.T) {
 	assert.Equal(t, ecstypes.ExpressGatewayServiceStatusCodeDraining, del.Service.Status.StatusCode)
 
 	// The ALB is gone (it was the only service on it).
-	lbsAfter, err := elb.DescribeLoadBalancers(ctx, &elbv2.DescribeLoadBalancersInput{})
-	require.NoError(t, err)
-	for _, lb := range lbsAfter.LoadBalancers {
-		assert.NotEqualf(t, strings.ToLower(albHost), strings.ToLower(aws.ToString(lb.DNSName)),
-			"ALB %q should have been torn down on Delete", albHost)
-	}
+	_, err = elb.DescribeLoadBalancers(ctx, &elbv2.DescribeLoadBalancersInput{LoadBalancerArns: []string{albArn}})
+	assert.Equal(t, "LoadBalancerNotFound", errCode(t, err), "ALB %s should have been torn down on Delete", albArn)
 
 	// The scalable target is gone.
 	stAfter, err := aa.DescribeScalableTargets(ctx, &applicationautoscaling.DescribeScalableTargetsInput{
@@ -227,12 +252,13 @@ func TestECSExpress_Errors(t *testing.T) {
 	// client-side by the SDK before the request is sent (matching real AWS). The
 	// server-side InvalidParameterException for a missing infra role is exercised
 	// by the CLI test, which can send a request without it.
+	infrastructureRole := createECSExpressInfrastructureRole(t, "express-errors")
 
 	// Create with BOTH taskDefinitionArn and primaryContainer → InvalidParameterException.
 	_, err := c.CreateExpressGatewayService(ctx, &ecs.CreateExpressGatewayServiceInput{
 		Cluster:               aws.String(cluster),
 		ServiceName:           aws.String("mutex-violation"),
-		InfrastructureRoleArn: aws.String("arn:aws:iam::000000000000:role/express-infra"),
+		InfrastructureRoleArn: aws.String(infrastructureRole),
 		TaskDefinitionArn:     aws.String("arn:aws:ecs:us-east-1:000000000000:task-definition/foo:1"),
 		PrimaryContainer: &ecstypes.ExpressGatewayContainer{
 			Image: aws.String("mirror.gcr.io/library/busybox:latest"),
@@ -250,12 +276,29 @@ func TestECSExpress_Errors(t *testing.T) {
 	_, err = c.CreateExpressGatewayService(ctx, &ecs.CreateExpressGatewayServiceInput{
 		Cluster:               aws.String("no-such-cluster"),
 		ServiceName:           aws.String("orphan"),
-		InfrastructureRoleArn: aws.String("arn:aws:iam::000000000000:role/express-infra"),
+		InfrastructureRoleArn: aws.String(infrastructureRole),
 		PrimaryContainer: &ecstypes.ExpressGatewayContainer{
 			Image: aws.String("mirror.gcr.io/library/busybox:latest"),
 		},
 	})
 	assert.Equal(t, "ClusterNotFoundException", errCode(t, err))
+
+	// A role whose trust policy does not let Amazon ECS assume it, and a role
+	// that does not exist, are refused before anything is provisioned.
+	for name, role := range map[string]string{
+		"not trusted": serviceRole(t, "lambda.amazonaws.com"),
+		"missing":     "arn:aws:iam::000000000000:role/express-infra-missing",
+	} {
+		_, err = c.CreateExpressGatewayService(ctx, &ecs.CreateExpressGatewayServiceInput{
+			Cluster:               aws.String(cluster),
+			ServiceName:           aws.String("unassumable"),
+			InfrastructureRoleArn: aws.String(role),
+			PrimaryContainer: &ecstypes.ExpressGatewayContainer{
+				Image: aws.String("mirror.gcr.io/library/busybox:latest"),
+			},
+		})
+		assert.Equal(t, "InvalidParameterException", errCode(t, err), name)
+	}
 }
 
 // TestECSExpress_ALBConsolidation asserts two Express services with identical
@@ -278,11 +321,12 @@ func TestECSExpress_ALBConsolidation(t *testing.T) {
 		SecurityGroups: []string{aws.ToString(securityGroup.GroupId)},
 	}
 
-	mkEndpointHost := func(name string) string {
+	infrastructureRole := createECSExpressInfrastructureRole(t, "express-consolidate")
+	create := func(name string) (string, string) {
 		out, err := c.CreateExpressGatewayService(ctx, &ecs.CreateExpressGatewayServiceInput{
 			Cluster:               aws.String(cluster),
 			ServiceName:           aws.String(name),
-			InfrastructureRoleArn: aws.String("arn:aws:iam::000000000000:role/express-infra"),
+			InfrastructureRoleArn: aws.String(infrastructureRole),
 			NetworkConfiguration:  net,
 			PrimaryContainer: &ecstypes.ExpressGatewayContainer{
 				Image:         aws.String(containerCommandImage),
@@ -296,10 +340,11 @@ func TestECSExpress_ALBConsolidation(t *testing.T) {
 		})
 		require.NotEmpty(t, out.Service.ActiveConfigurations)
 		require.NotEmpty(t, out.Service.ActiveConfigurations[0].IngressPaths)
-		return strings.TrimPrefix(aws.ToString(out.Service.ActiveConfigurations[0].IngressPaths[0].Endpoint), "https://")
+		return aws.ToString(out.Service.ActiveConfigurations[0].IngressPaths[0].Endpoint), expressLoadBalancerArn(t, c, out.Service)
 	}
 
-	host1 := mkEndpointHost("svc-a")
-	host2 := mkEndpointHost("svc-b")
-	assert.Equal(t, host1, host2, "two Express services with identical network config must share one ALB DNSName")
+	endpointA, albA := create("svc-a")
+	endpointB, albB := create("svc-b")
+	assert.Equal(t, albA, albB, "two Express services with identical network config must share one ALB")
+	assert.NotEqual(t, endpointA, endpointB, "each Express service has its own hostname on the shared ALB")
 }

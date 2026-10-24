@@ -2,7 +2,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "6.69.1"
+      version = "6.70.0"
     }
   }
 }
@@ -20,7 +20,41 @@ provider "aws" {
 
   endpoints {
     ec2 = var.endpoint
+    iam = var.endpoint
+    ssm = var.endpoint
   }
+}
+
+# The instance's profile lets SSM Agent register it as a managed node, as
+# AmazonSSMManagedInstanceCore does on AWS.
+resource "aws_iam_role" "ssm" {
+  name = "tf-ec2-instance-ssm"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "ssm" {
+  name = "ssm-managed-node"
+  role = aws_iam_role.ssm.name
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["ssm:UpdateInstanceInformation", "ssmmessages:*", "ec2messages:*"]
+      Resource = "*"
+    }]
+  })
+}
+
+resource "aws_iam_instance_profile" "ssm" {
+  name = "tf-ec2-instance-ssm"
+  role = aws_iam_role.ssm.name
 }
 
 # The published Amazon Linux 2023 AMI, selected the way an operator selects
@@ -50,14 +84,36 @@ resource "aws_subnet" "main" {
 }
 
 resource "aws_instance" "golden" {
-  ami           = data.aws_ami.al2023.id
-  instance_type = "t3.micro"
-  subnet_id     = aws_subnet.main.id
-  user_data     = "#!/bin/sh\necho terraform-user-data-ran\n"
+  ami                  = data.aws_ami.al2023.id
+  instance_type        = "t3.micro"
+  subnet_id            = aws_subnet.main.id
+  iam_instance_profile = aws_iam_instance_profile.ssm.name
+  user_data            = "#!/bin/sh\necho terraform-user-data-ran\n"
+
+  depends_on = [aws_iam_role_policy.ssm]
 
   tags = {
     Name = "golden"
   }
+}
+
+# Run Command reaches the instance once SSM Agent registered it as a managed
+# node under its profile's role.
+resource "aws_ssm_association" "golden" {
+  name = "AWS-RunShellScript"
+
+  targets {
+    key    = "InstanceIds"
+    values = [aws_instance.golden.id]
+  }
+
+  parameters = {
+    commands = "echo association-ran"
+  }
+}
+
+output "association_id" {
+  value = aws_ssm_association.golden.association_id
 }
 
 # An AMI captured from the running instance, which a second instance boots.

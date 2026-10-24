@@ -46,8 +46,20 @@ func TestCLIAzureARMFoundationEndpoints(t *testing.T) {
 		t.Fatalf("vaultUri = %q, want %q", vault.Properties.VaultURI, wantVaultURI)
 	}
 
+	// The policy grants a managed identity created here, by its principal.
+	var identity struct {
+		Properties struct {
+			PrincipalID string `json:"principalId"`
+		} `json:"properties"`
+	}
+	identityURL := armURL("Microsoft.ManagedIdentity", "userAssignedIdentities/clishimkv-reader", "2023-01-31")
+	parseJSON(t, runCLI(t, azRest("PUT", identityURL, `{"location":"eastus"}`)), &identity)
+	t.Cleanup(func() { _ = azRest("DELETE", identityURL, "").Run() })
+	if identity.Properties.PrincipalID == "" {
+		t.Fatal("the created identity has no principalId")
+	}
 	out = runCLI(t, azRest("PUT", strings.TrimSuffix(vaultURL, "?api-version=2024-11-01")+"/accessPolicies/add?api-version=2024-11-01",
-		`{"properties":{"accessPolicies":[{"tenantId":"00000000-0000-0000-0000-000000000000","objectId":"22222222-2222-2222-2222-222222222222","permissions":{"secrets":["get"]}}]}}`))
+		fmt.Sprintf(`{"properties":{"accessPolicies":[{"tenantId":"00000000-0000-0000-0000-000000000000","objectId":%q,"permissions":{"secrets":["get"]}}]}}`, identity.Properties.PrincipalID)))
 	var accessPolicies struct {
 		Properties struct {
 			AccessPolicies []any `json:"accessPolicies"`

@@ -2,7 +2,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "6.69.1"
+      version = "6.70.0"
     }
   }
 }
@@ -453,6 +453,7 @@ resource "aws_instance" "nat" {
     http_tokens                 = "required"
     http_endpoint               = "enabled"
     http_put_response_hop_limit = 2
+    http_protocol_ipv6          = "enabled"
   }
   launch_template {
     id      = aws_launch_template.nat.id

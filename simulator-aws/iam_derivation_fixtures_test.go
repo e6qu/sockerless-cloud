@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strings"
@@ -37,9 +38,9 @@ func iamSeedDerivationFixtures(t *testing.T,
 	// Amazon EC2's route-table association: a VPC to hold it, a subnet to
 	// attach to, and the association the disassociate names.
 	vpc := iamFixtureEC2(t, queryRouter, "CreateVpc",
-		map[string]string{"CidrBlock": "10.0.0.0/16"}, `<vpcId>([^<]+)</vpcId>`)
+		map[string]string{"CidrBlock": "10.255.0.0/16"}, `<vpcId>([^<]+)</vpcId>`)
 	subnet := iamFixtureEC2(t, queryRouter, "CreateSubnet",
-		map[string]string{"VpcId": vpc, "CidrBlock": "10.0.1.0/24"}, `<subnetId>([^<]+)</subnetId>`)
+		map[string]string{"VpcId": vpc, "CidrBlock": "10.255.1.0/24"}, `<subnetId>([^<]+)</subnetId>`)
 	routeTable := iamFixtureEC2(t, queryRouter, "CreateRouteTable",
 		map[string]string{"VpcId": vpc}, `<routeTableId>([^<]+)</routeTableId>`)
 	association := iamFixtureEC2(t, queryRouter, "AssociateRouteTable",
@@ -104,8 +105,16 @@ func iamSeedDerivationFixtures(t *testing.T,
 		map[string]string{"VpcId": vpc, "CidrBlock": "10.2.0.0/16"},
 		`<associationId>([^<]+)</associationId>`)
 	out["ec2:DisassociateVpcCidrBlock:AssociationId"] = vpcCidr
+	// A subnet's IPv6 block is a /64 of an IPv6 block its VPC holds.
+	vpcIpv6, err := netip.ParsePrefix(iamFixtureEC2(t, queryRouter, "AssociateVpcCidrBlock",
+		map[string]string{"VpcId": vpc, "AmazonProvidedIpv6CidrBlock": "true"},
+		`<ipv6CidrBlock>([^<]+)</ipv6CidrBlock>`))
+	if err != nil {
+		t.Fatalf("the VPC's IPv6 block: %v", err)
+	}
 	subnetCidr := iamFixtureEC2(t, queryRouter, "AssociateSubnetCidrBlock",
-		map[string]string{"SubnetId": subnet}, `<associationId>([^<]+)</associationId>`)
+		map[string]string{"SubnetId": subnet, "Ipv6CidrBlock": netip.PrefixFrom(vpcIpv6.Masked().Addr(), 64).String()},
+		`<associationId>([^<]+)</associationId>`)
 	out["ec2:DisassociateSubnetCidrBlock:AssociationId"] = subnetCidr
 
 	// A CloudWatch Logs Insights query, which the results read names by the

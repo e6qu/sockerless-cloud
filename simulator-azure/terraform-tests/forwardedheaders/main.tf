@@ -59,6 +59,13 @@ resource "azurerm_linux_web_app" "xff" {
     WEBSITES_PORT = "8080"
   }
 
+  # TLS mutual authentication: the front end asks a client for a certificate
+  # and forwards it as X-ARR-ClientCert; Optional lets a client without one
+  # through, and the excluded path is never asked.
+  client_certificate_enabled         = true
+  client_certificate_mode            = "Optional"
+  client_certificate_exclusion_paths = "/public"
+
   site_config {
     app_command_line = "nc -lk -p 8080 -e sh -c \"${local.echo_headers}\""
 
@@ -92,8 +99,9 @@ resource "azurerm_container_app" "xff" {
   revision_mode                = "Single"
 
   ingress {
-    external_enabled = true
-    target_port      = 8080
+    external_enabled        = true
+    target_port             = 8080
+    client_certificate_mode = "accept"
     traffic_weight {
       latest_revision = true
       percentage      = 100
@@ -120,4 +128,12 @@ output "app_hostname" {
 
 output "container_app_fqdn" {
   value = azurerm_container_app.xff.ingress[0].fqdn
+}
+
+output "app_client_certificate_mode" {
+  value = azurerm_linux_web_app.xff.client_certificate_mode
+}
+
+output "container_app_client_certificate_mode" {
+  value = azurerm_container_app.xff.ingress[0].client_certificate_mode
 }

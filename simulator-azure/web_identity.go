@@ -106,6 +106,35 @@ func applyManagedIdentity(requested, prev *SiteIdentity, prevClientID string) (*
 	return out, clientID, nil
 }
 
+// applyManagedIdentityPatch settles the ManagedServiceIdentity a PATCH asks
+// for. A PATCH names a change to the user-assigned identities, as Azure
+// Resource Manager reads a dictionary in a PATCH: a key with a value attaches
+// that identity, a key with null detaches it, and the rest stay as they were
+// (`az vm identity remove` sends null for each identity it takes away).
+func applyManagedIdentityPatch(requested, prev *SiteIdentity, prevClientID string) (*SiteIdentity, string, error) {
+	if requested == nil || !strings.Contains(strings.ToLower(requested.Type), "userassigned") {
+		return applyManagedIdentity(requested, prev, prevClientID)
+	}
+	merged := &SiteIdentity{Type: requested.Type, UserAssignedIdentities: map[string]*SiteUserAssignedIdentity{}}
+	if prev != nil {
+		for rid, uai := range prev.UserAssignedIdentities {
+			merged.UserAssignedIdentities[rid] = uai
+		}
+	}
+	for rid, uai := range requested.UserAssignedIdentities {
+		if uai == nil {
+			for existing := range merged.UserAssignedIdentities {
+				if strings.EqualFold(existing, rid) {
+					delete(merged.UserAssignedIdentities, existing)
+				}
+			}
+			continue
+		}
+		merged.UserAssignedIdentities[rid] = uai
+	}
+	return applyManagedIdentity(merged, prev, prevClientID)
+}
+
 // webUserAssignedIdentity finds a user-assigned identity by its ARM ID,
 // matching case-insensitively as ARM does.
 func webUserAssignedIdentity(rid string) (UserAssignedIdentity, bool) {

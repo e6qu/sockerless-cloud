@@ -80,11 +80,12 @@ func TestECSManagedEBSAwsvpcReachability(t *testing.T) {
 		"--query", "taskDefinition.taskDefinitionArn", "--output", "text")
 	registerTaskDef(q, "ebs-vpc-client", "trap 'exit 143' TERM; sleep 120 & wait")
 
+	volumeRole := createCLIECSRole(t, awsCLI, "cli-ebs-vpc-volumes", "ecs.amazonaws.com", cliECSVolumeInfrastructureActions...)
 	server := q("ecs", "run-task",
 		"--cluster", "default",
 		"--task-definition", "ebs-vpc-server",
 		"--network-configuration", `awsvpcConfiguration={subnets=[`+subnetID+`]}`,
-		"--volume-configurations", `[{"name":"workspace","managedEBSVolume":{"roleArn":"arn:aws:iam::123456789012:role/ecsInfrastructureRole","sizeInGiB":1,"volumeType":"gp3"}}]`,
+		"--volume-configurations", `[{"name":"workspace","managedEBSVolume":{"roleArn":"`+volumeRole+`","sizeInGiB":1,"volumeType":"gp3"}}]`,
 		"--query", "tasks[0].taskArn", "--output", "text")
 	client := runTask(q, "ebs-vpc-client", subnetID)
 	t.Cleanup(func() {

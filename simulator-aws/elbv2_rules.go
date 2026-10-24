@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -66,8 +67,51 @@ func handleELBv2CreateRule(w http.ResponseWriter, r *http.Request) {
 		Actions:     parseELBv2ActionsPrefix(r, "Actions"),
 		Tags:        parseELBv2Tags(r, "Tags"),
 	}
+	if code, message := elbv2ActionsRefusal(rule.Actions); code != "" {
+		elbv2ErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
+		return
+	}
 	elbv2Rules.Put(rule.Arn, rule)
+	elbv2ReconcileTargetGroupLoadBalancers(listener.LoadBalancerArn)
 	elbv2XMLResponse(w, "CreateRule", "<Rules>"+elbv2RuleXML(rule)+"</Rules>", sim.RequestID(r.Context()))
+}
+
+// elbv2ReconcileTargetGroupLoadBalancers makes each target group's
+// LoadBalancerArns name the load balancer while a listener default action or
+// a rule of one of its listeners forwards to the group, and not after.
+func elbv2ReconcileTargetGroupLoadBalancers(lbArn string) {
+	forwarded := map[string]bool{}
+	note := func(actions []ELBv2Action) {
+		for _, action := range actions {
+			if action.TargetGroupArn != "" {
+				forwarded[action.TargetGroupArn] = true
+			}
+			if action.Forward != nil {
+				for _, tuple := range action.Forward.TargetGroups {
+					forwarded[tuple.TargetGroupArn] = true
+				}
+			}
+		}
+	}
+	for _, listener := range elbv2Listeners.Filter(func(l ELBv2Listener) bool { return l.LoadBalancerArn == lbArn }) {
+		note(listener.DefaultActions)
+		for _, rule := range elbv2Rules.Filter(func(rule ELBv2Rule) bool { return rule.ListenerArn == listener.Arn }) {
+			note(rule.Actions)
+		}
+	}
+	for _, tg := range elbv2TargetGroups.List() {
+		held := slices.Contains(tg.LoadBalancerArns, lbArn)
+		if forwarded[tg.Arn] == held {
+			continue
+		}
+		elbv2TargetGroups.Update(tg.Arn, func(tg *ELBv2TargetGroup) {
+			if forwarded[tg.Arn] {
+				tg.LoadBalancerArns = appendUnique(tg.LoadBalancerArns, lbArn)
+			} else {
+				tg.LoadBalancerArns = removeString(tg.LoadBalancerArns, lbArn)
+			}
+		})
+	}
 }
 
 func handleELBv2DescribeRules(w http.ResponseWriter, r *http.Request) {
@@ -129,19 +173,30 @@ func handleELBv2ModifyRule(w http.ResponseWriter, r *http.Request) {
 		rule.Conditions = conds
 	}
 	if actions := parseELBv2ActionsPrefix(r, "Actions"); len(actions) > 0 {
+		if code, message := elbv2ActionsRefusal(actions); code != "" {
+			elbv2ErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
+			return
+		}
 		rule.Actions = actions
 	}
 	elbv2Rules.Put(ruleArn, rule)
+	if listener, ok := elbv2Listeners.Get(rule.ListenerArn); ok {
+		elbv2ReconcileTargetGroupLoadBalancers(listener.LoadBalancerArn)
+	}
 	elbv2XMLResponse(w, "ModifyRule", "<Rules>"+elbv2RuleXML(rule)+"</Rules>", sim.RequestID(r.Context()))
 }
 
 func handleELBv2DeleteRule(w http.ResponseWriter, r *http.Request) {
 	ruleArn := r.FormValue("RuleArn")
-	if _, ok := elbv2Rules.Get(ruleArn); !ok {
+	rule, ok := elbv2Rules.Get(ruleArn)
+	if !ok {
 		elbv2ErrorXML(w, "RuleNotFound", "Rule not found", http.StatusBadRequest, sim.RequestID(r.Context()))
 		return
 	}
 	elbv2Rules.Delete(ruleArn)
+	if listener, ok := elbv2Listeners.Get(rule.ListenerArn); ok {
+		elbv2ReconcileTargetGroupLoadBalancers(listener.LoadBalancerArn)
+	}
 	elbv2XMLResponse(w, "DeleteRule", "", sim.RequestID(r.Context()))
 }
 
@@ -160,6 +215,10 @@ func handleELBv2ModifyListener(w http.ResponseWriter, r *http.Request) {
 		listener.Protocol = proto
 	}
 	if actions := parseELBv2ActionsPrefix(r, "DefaultActions"); len(actions) > 0 {
+		if code, message := elbv2ActionsRefusal(actions); code != "" {
+			elbv2ErrorXML(w, code, message, http.StatusBadRequest, sim.RequestID(r.Context()))
+			return
+		}
 		listener.DefaultActions = actions
 	}
 	if certs := parseELBv2Certificates(r); len(certs) > 0 {

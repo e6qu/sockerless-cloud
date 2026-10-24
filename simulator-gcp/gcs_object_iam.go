@@ -77,11 +77,8 @@ func registerGCSObjectIAM(srv *sim.Server, buckets sim.Store[Bucket], objects si
 		if !ok {
 			return
 		}
-		gcsWriteTestPermissions(w, r, gcsObjectPolicies(bucket, object), gcpIAMResource{
-			Name:    "projects/_/buckets/" + bucket + "/objects/" + object,
-			Type:    "storage.googleapis.com/Object",
-			Service: "storage.googleapis.com",
-		})
+		gcsWriteTestPermissions(w, r, gcsObjectPolicies(bucket, object),
+			gcsIAMResource(bucket, "projects/_/buckets/"+bucket+"/objects/"+object, "storage.googleapis.com/Object"))
 	})
 }
 
@@ -105,6 +102,13 @@ var (
 // gcsBucketPolicies are the policies that govern a bucket and what it holds:
 // its project's, its own, and, while uniform bucket-level access is off, its
 // ACL read as the legacy role Cloud Storage maps each ACL role to.
+// gcsIAMResource is a Cloud Storage resource as a binding's condition sees it,
+// in the bucket's project for the tags it inherits.
+func gcsIAMResource(bucket, name, kind string) gcpIAMResource {
+	owner, _ := gcsBuckets.Get(bucket)
+	return gcpIAMResource{Name: name, Type: kind, Service: "storage.googleapis.com", project: owner.Project}
+}
+
 func gcsBucketPolicies(name string) []IAMPolicy {
 	bucket, _ := gcsBuckets.Get(name)
 	own, ok := gcpResourcePolicies.Get("bucket/" + name)

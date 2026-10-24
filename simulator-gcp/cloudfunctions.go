@@ -58,6 +58,11 @@ type ServiceConfig struct {
 	AvailableCpu     string `json:"availableCpu,omitempty"` // CPU limit (e.g. "1", "0.5", "2"). Real Cloud Functions Gen2 default: 1.
 	MaxInstanceCount int    `json:"maxInstanceCount,omitempty"`
 	MinInstanceCount int    `json:"minInstanceCount,omitempty"`
+	// VpcConnector names a Serverless VPC Access connector as
+	// projects/*/locations/*/connectors/*; VpcConnectorEgressSettings is
+	// PRIVATE_RANGES_ONLY or ALL_TRAFFIC.
+	VpcConnector               string `json:"vpcConnector,omitempty"`
+	VpcConnectorEgressSettings string `json:"vpcConnectorEgressSettings,omitempty"`
 	// AllTrafficOnLatestRevision + IngressSettings carry provider defaults
 	// (true / ALLOW_ALL); the read-back must echo them or terraform-provider-
 	// google plans an in-place service_config update on every refresh.
@@ -534,7 +539,8 @@ func cloudFunctionURL(project, location, functionID string) string {
 
 // applyFunctionServiceConfig carries a function's serviceConfig onto the
 // template of the Cloud Run service that serves it: its CPU, its environment
-// variables and its request timeout, which defaults to 60 seconds.
+// variables, its request timeout, which defaults to 60 seconds, its instance
+// bounds and the Serverless VPC Access connector it egresses through.
 func applyFunctionServiceConfig(svc *ServiceV2, fn storedFunction) {
 	if svc.Template == nil || len(svc.Template.Containers) == 0 {
 		return
@@ -543,9 +549,21 @@ func applyFunctionServiceConfig(svc *ServiceV2, fn storedFunction) {
 	container.Resources = functionCPUResources(fn)
 	timeout := 60
 	var env []EnvVar
+	svc.Template.Scaling = nil
+	svc.Template.VpcAccess = nil
 	if sc := fn.ServiceConfig; sc != nil {
 		if sc.TimeoutSeconds > 0 {
 			timeout = sc.TimeoutSeconds
+		}
+		if sc.MinInstanceCount > 0 || sc.MaxInstanceCount > 0 {
+			svc.Template.Scaling = &RevisionScaling{MinInstanceCount: int32(sc.MinInstanceCount), MaxInstanceCount: int32(sc.MaxInstanceCount)}
+		}
+		if sc.VpcConnector != "" {
+			svc.Template.VpcAccess = &VpcAccess{Connector: sc.VpcConnector}
+			switch sc.VpcConnectorEgressSettings {
+			case "PRIVATE_RANGES_ONLY", "ALL_TRAFFIC":
+				svc.Template.VpcAccess.Egress = vpcEgressString(sc.VpcConnectorEgressSettings)
+			}
 		}
 		names := make([]string, 0, len(sc.EnvironmentVariables))
 		for name := range sc.EnvironmentVariables {

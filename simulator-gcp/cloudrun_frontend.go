@@ -166,7 +166,7 @@ func serveCloudRunService(w http.ResponseWriter, r *http.Request, svc ServiceV2,
 			startup += cloudRunStartupBound(sidecar)
 		}
 	}
-	run := cloudRunRevisionRunFor(rev)
+	run := cloudRunRevisionRunFor(svc, rev)
 	sim.DeclareWait(r.Context(), run.pendingQueue()+startup+requestTimeout)
 
 	inst, release, err := run.acquire(r.Context())

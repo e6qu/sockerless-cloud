@@ -15,7 +15,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: container-command hold|spin|http|hostname-http|instance-http|env-http|serve|files-http|relay-http|probe-http|log|log-until|print|resolve|sleep|stdin-echo")
+		fmt.Fprintln(os.Stderr, "usage: container-command hold|spin|http|hostname-http|instance-http|log-http|env-http|serve|files-http|relay-http|probe-http|log|log-until|print|resolve|sleep|stdin-echo")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -102,6 +102,26 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Println("serving as " + hostname)
+		if err := http.Serve(listener, handler); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "log-http":
+		// An HTTP server that writes LINE to stdout once it listens and
+		// answers every request with "ok".
+		if len(os.Args) != 4 {
+			fmt.Fprintln(os.Stderr, "usage: container-command log-http PORT LINE")
+			os.Exit(2)
+		}
+		listener, err := net.Listen("tcp", ":"+os.Args[2])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		fmt.Println(os.Args[3])
+		handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = io.WriteString(w, "ok")
+		})
 		if err := http.Serve(listener, handler); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)

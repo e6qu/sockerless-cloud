@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -165,21 +166,34 @@ func TestEC2_SubnetCidrRoundTrip(t *testing.T) {
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.30.0.0/16")})
 	require.NoError(t, err)
 	vpcID := aws.ToString(vpc.Vpc.VpcId)
+	ipv6 := elbv2VPCIpv6Block(t, vpcID)
 	sub, err := c.CreateSubnet(ctx, &ec2.CreateSubnetInput{
 		VpcId: aws.String(vpcID), CidrBlock: aws.String("10.30.1.0/24"),
 	})
 	require.NoError(t, err)
 	subID := aws.ToString(sub.Subnet.SubnetId)
 
+	// A subnet takes a /64 of its VPC's IPv6 CIDR block, and only one.
+	_, err = c.AssociateSubnetCidrBlock(ctx, &ec2.AssociateSubnetCidrBlockInput{
+		SubnetId: aws.String(subID), Ipv6CidrBlock: aws.String("2001:db8:1::/64"),
+	})
+	var apiErr smithy.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, "InvalidSubnet.Range", apiErr.ErrorCode())
 	assoc, err := c.AssociateSubnetCidrBlock(ctx, &ec2.AssociateSubnetCidrBlockInput{
 		SubnetId:      aws.String(subID),
-		Ipv6CidrBlock: aws.String("2600:1f00:abcd:1::/64"),
+		Ipv6CidrBlock: aws.String(elbv2Ipv6SubnetRange(ipv6, 1)),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, assoc.Ipv6CidrBlockAssociation)
 	subAssocID := aws.ToString(assoc.Ipv6CidrBlockAssociation.AssociationId)
 	require.NotEmpty(t, subAssocID)
 	assert.Equal(t, subID, aws.ToString(assoc.SubnetId))
+	_, err = c.AssociateSubnetCidrBlock(ctx, &ec2.AssociateSubnetCidrBlockInput{
+		SubnetId: aws.String(subID), Ipv6CidrBlock: aws.String(elbv2Ipv6SubnetRange(ipv6, 2)),
+	})
+	require.ErrorAs(t, err, &apiErr, "You can only associate a single IPv6 CIDR block with your subnet")
+	assert.Equal(t, "InvalidParameterValue", apiErr.ErrorCode())
 
 	_, err = c.DisassociateSubnetCidrBlock(ctx, &ec2.DisassociateSubnetCidrBlockInput{
 		AssociationId: aws.String(subAssocID),

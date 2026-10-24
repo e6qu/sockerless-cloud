@@ -67,7 +67,12 @@ func TestIMDS_InstanceReadsItsOwnMetadataAndRoleSession(t *testing.T) {
 	require.NoError(t, err)
 	_, err = iamc.AddRoleToInstanceProfile(ctx, &iam.AddRoleToInstanceProfileInput{InstanceProfileName: aws.String(name), RoleName: aws.String(name)})
 	require.NoError(t, err)
+	_, err = iamc.PutRolePolicy(ctx, &iam.PutRolePolicyInput{
+		RoleName: aws.String(name), PolicyName: aws.String("ssm-managed-node"), PolicyDocument: aws.String(ssmManagedNodePolicy),
+	})
+	require.NoError(t, err)
 	t.Cleanup(func() {
+		_, _ = iamc.DeleteRolePolicy(context.Background(), &iam.DeleteRolePolicyInput{RoleName: aws.String(name), PolicyName: aws.String("ssm-managed-node")})
 		_, _ = iamc.RemoveRoleFromInstanceProfile(context.Background(), &iam.RemoveRoleFromInstanceProfileInput{InstanceProfileName: aws.String(name), RoleName: aws.String(name)})
 		_, _ = iamc.DeleteInstanceProfile(context.Background(), &iam.DeleteInstanceProfileInput{InstanceProfileName: aws.String(name)})
 		_, _ = iamc.DeleteRole(context.Background(), &iam.DeleteRoleInput{RoleName: aws.String(name)})
@@ -151,6 +156,25 @@ curl -sS -H "X-aws-ec2-metadata-token: $token" "${AWS_EC2_METADATA_SERVICE_ENDPO
 	assert.Equal(t, aws.ToString(vpc.Vpc.VpcId), macKey("vpc-id"))
 	assert.Equal(t, "10.217.0.0/16", macKey("vpc-ipv4-cidr-block"))
 	assert.Equal(t, aws.ToString(inst.PrivateIpAddress), macKey("local-ipv4s"))
+
+	// An Elastic IP address associated with the instance appears under the
+	// interface's public addresses, and ipv4-associations maps it to the
+	// private address it is associated with.
+	assert.Equal(t, "404", status(`-H "X-aws-ec2-metadata-token: $(curl -sS -X PUT "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60")" "${AWS_EC2_METADATA_SERVICE_ENDPOINT}latest/meta-data/network/interfaces/macs/`+mac+`/public-ipv4s"`),
+		"an interface without a public address has no public-ipv4s")
+	eip, err := c.AllocateAddress(ctx, &ec2.AllocateAddressInput{Domain: types.DomainTypeVpc})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.ReleaseAddress(context.Background(), &ec2.ReleaseAddressInput{AllocationId: eip.AllocationId})
+	})
+	association, err := c.AssociateAddress(ctx, &ec2.AssociateAddressInput{AllocationId: eip.AllocationId, InstanceId: aws.String(instanceID)})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = c.DisassociateAddress(context.Background(), &ec2.DisassociateAddressInput{AssociationId: association.AssociationId})
+	})
+	assert.Equal(t, aws.ToString(eip.PublicIp), macKey("public-ipv4s"))
+	assert.Equal(t, aws.ToString(eip.PublicIp), macKey("ipv4-associations/"))
+	assert.Equal(t, aws.ToString(inst.PrivateIpAddress), macKey("ipv4-associations/"+aws.ToString(eip.PublicIp)))
 	require.NotEmpty(t, eni.Groups)
 	assert.Equal(t, aws.ToString(eni.Groups[0].GroupId), macKey("security-group-ids"))
 	assert.Equal(t, aws.ToString(eni.Groups[0].GroupName), imds("/latest/meta-data/security-groups"))

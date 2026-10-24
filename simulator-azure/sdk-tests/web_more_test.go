@@ -1,10 +1,12 @@
 package azure_sdk_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v5"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -313,6 +315,7 @@ func TestSDK_WebMore_Slots(t *testing.T) {
 	slotPoller, err := client.BeginCreateOrUpdateSlot(ctx, rg, name, slot, armappservice.Site{
 		Location: to.Ptr("eastus"),
 		Kind:     to.Ptr("functionapp,linux,container"),
+		Identity: &armappservice.ManagedServiceIdentity{Type: to.Ptr(armappservice.ManagedServiceIdentityTypeSystemAssigned)},
 		Properties: &armappservice.SiteProperties{
 			ServerFarmID: to.Ptr(planID),
 			SiteConfig:   &armappservice.SiteConfig{},
@@ -325,6 +328,15 @@ func TestSDK_WebMore_Slots(t *testing.T) {
 	got, err := client.GetSlot(ctx, rg, name, slot, nil)
 	require.NoError(t, err)
 	require.NotNil(t, got.Name)
+
+	// A slot's system-assigned identity is its own, and
+	// SystemAssignedIdentities_GetByScope on the slot answers it.
+	require.NotNil(t, got.Identity)
+	saClient, err := armmsi.NewSystemAssignedIdentitiesClient(cred, clientOpts())
+	require.NoError(t, err)
+	byScope, err := saClient.GetByScope(ctx, strings.TrimPrefix(*got.ID, "/"), nil)
+	require.NoError(t, err)
+	assert.Equal(t, *got.Identity.PrincipalID, *byScope.Properties.PrincipalID)
 
 	// List slots.
 	slotPager := client.NewListSlotsPager(rg, name, nil)
