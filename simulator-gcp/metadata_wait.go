@@ -7,63 +7,14 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/signals"
 )
 
 // gceMetadataChanges wakes the metadata reads that wait for a change: every
-// write to a store the metadata tree renders from closes the channel and
-// opens the next.
-var gceMetadataChanges = struct {
-	sync.Mutex
-	next chan struct{}
-}{next: make(chan struct{})}
-
-func gceMetadataChanged() {
-	gceMetadataChanges.Lock()
-	defer gceMetadataChanges.Unlock()
-	close(gceMetadataChanges.next)
-	gceMetadataChanges.next = make(chan struct{})
-}
-
-func gceMetadataNextChange() <-chan struct{} {
-	gceMetadataChanges.Lock()
-	defer gceMetadataChanges.Unlock()
-	return gceMetadataChanges.next
-}
-
-// gceMetadataSource is a store the metadata tree renders from, which wakes
-// the waiting reads on every write.
-type gceMetadataSource[T any] struct {
-	sim.Store[T]
-}
-
-func (s gceMetadataSource[T]) Put(id string, item T) {
-	s.Store.Put(id, item)
-	gceMetadataChanged()
-}
-
-func (s gceMetadataSource[T]) Delete(id string) bool {
-	defer gceMetadataChanged()
-	return s.Store.Delete(id)
-}
-
-func (s gceMetadataSource[T]) Update(id string, fn func(*T)) bool {
-	defer gceMetadataChanged()
-	return s.Store.Update(id, fn)
-}
-
-func (s gceMetadataSource[T]) Upsert(id string, fn func(*T)) {
-	s.Store.Upsert(id, fn)
-	gceMetadataChanged()
-}
-
-func (s gceMetadataSource[T]) Prune(expired func(T) bool) int {
-	defer gceMetadataChanged()
-	return s.Store.Prune(expired)
-}
+// store the metadata tree renders from announces each write to it.
+var gceMetadataChanges = signals.New[string]()
 
 // gceMetadataAnswer holds an answer rendered before it is sent.
 type gceMetadataAnswer struct {
@@ -124,7 +75,7 @@ func gceMetadataServe(w http.ResponseWriter, r *http.Request, h http.HandlerFunc
 	}
 	last := query.Get("last_etag")
 	for {
-		change := gceMetadataNextChange()
+		change := gceMetadataChanges.Any()
 		answer := &gceMetadataAnswer{header: http.Header{}}
 		h(answer, r)
 		if answer.status != 0 && answer.status != http.StatusOK {

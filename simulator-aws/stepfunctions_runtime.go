@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/signals"
 	"github.com/google/uuid"
 )
 
@@ -697,7 +698,7 @@ func sfnWaitForECSTasks(ctx context.Context, tasks []ECSTask, output map[string]
 // sleeps between changes instead of reading on a timer. cancel aborts the
 // wait and abort stops the resource, unless the simulator itself is stopping:
 // the next process resumes the wait from its checkpoint.
-func sfnAwaitSettled(ctx context.Context, cancel <-chan struct{}, changes *storeChanges, pending string,
+func sfnAwaitSettled(ctx context.Context, cancel <-chan struct{}, changes *signals.Keyed[string], pending string,
 	check func() (any, string, *sfnExecutionError), abort func()) (any, *sfnExecutionError) {
 	for {
 		changed := changes.Changed(pending)
@@ -930,7 +931,7 @@ func sfnDecodeCodeBuildBatch(value any) (CBBuildBatch, *sfnExecutionError) {
 // AWS CodeBuild resource: a build or a build batch.
 type sfnCodeBuildWait struct {
 	kind, get, stop, member, failure, output string
-	changes                                  *storeChanges
+	changes                                  *signals.Keyed[string]
 	status                                   func(any) (any, string, *sfnExecutionError)
 }
 
@@ -1215,38 +1216,46 @@ func sfnWaitForTaskToken(task SFNActivityTask, cancel <-chan struct{}, heartbeat
 		task.LastHB = sfnEpochNow()
 		sfnActivityTasks.Put(task.TaskToken, task)
 	}
-	ticker := time.NewTicker(20 * time.Millisecond)
-	defer ticker.Stop()
 	for {
-		select {
-		case <-cancel:
-			return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "execution aborted"}
-		case <-ticker.C:
-			current, ok := sfnActivityTasks.Get(task.TaskToken)
-			if !ok {
-				return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "task token no longer exists"}
+		changed := sfnActivityTaskChanges.Changed(task.TaskToken)
+		current, ok := sfnActivityTasks.Get(task.TaskToken)
+		if !ok {
+			return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "task token no longer exists"}
+		}
+		switch current.Status {
+		case "SUCCEEDED":
+			value, err := sfnDecodeJSON(current.Output)
+			if err != nil {
+				return nil, &sfnExecutionError{Name: "States.Runtime", Cause: "task output is not valid JSON"}
 			}
-			switch current.Status {
-			case "SUCCEEDED":
-				value, err := sfnDecodeJSON(current.Output)
-				if err != nil {
-					return nil, &sfnExecutionError{Name: "States.Runtime", Cause: "task output is not valid JSON"}
-				}
-				return value, nil
-			case "FAILED":
-				name := current.Error
-				if name == "" {
-					name = "States.TaskFailed"
-				}
-				return nil, &sfnExecutionError{Name: name, Cause: current.Cause}
+			return value, nil
+		case "FAILED":
+			name := current.Error
+			if name == "" {
+				name = "States.TaskFailed"
 			}
-			if heartbeat > 0 && current.Status == "RUNNING" &&
-				time.Since(time.Unix(0, int64(current.LastHB*float64(time.Second)))) >= heartbeat {
+			return nil, &sfnExecutionError{Name: name, Cause: current.Cause}
+		}
+		var heartbeatDue <-chan time.Time
+		stop := func() bool { return false }
+		if heartbeat > 0 && current.Status == "RUNNING" {
+			remaining := heartbeat - time.Since(time.Unix(0, int64(current.LastHB*float64(time.Second))))
+			if remaining <= 0 {
 				current.Status = "TIMED_OUT"
 				sfnActivityTasks.Put(current.TaskToken, current)
 				return nil, &sfnExecutionError{Name: "States.HeartbeatTimeout", Cause: "Task heartbeat timed out"}
 			}
+			timer := time.NewTimer(remaining)
+			heartbeatDue, stop = timer.C, timer.Stop
 		}
+		select {
+		case <-cancel:
+			stop()
+			return nil, &sfnExecutionError{Name: "States.TaskFailed", Cause: "execution aborted"}
+		case <-changed:
+		case <-heartbeatDue:
+		}
+		stop()
 	}
 }
 

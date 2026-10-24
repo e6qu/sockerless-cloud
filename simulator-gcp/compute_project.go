@@ -27,7 +27,7 @@ import (
 var gcpComputeProjects sim.Store[map[string]any]
 
 func registerComputeProject(srv *sim.Server) {
-	var projects sim.Store[map[string]any] = gceMetadataSource[map[string]any]{sim.MakeStore[map[string]any](srv.DB(), "compute_projects")}
+	projects := sim.Announcing(sim.MakeStore[map[string]any](srv.DB(), "compute_projects"), gceMetadataChanges)
 	gcpComputeProjects = projects
 	// The service projects attached to each host, keyed by host project.
 	xpnResources := sim.MakeStore[map[string]any](srv.DB(), "compute_xpn_resources")

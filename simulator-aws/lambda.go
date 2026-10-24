@@ -348,14 +348,14 @@ func registerLambda(srv *sim.Server, startBackgroundPollers bool) {
 	// Invoke is a CloudTrail DATA event (excluded from LookupEvents); the
 	// function-management ops are management events.
 	cloudTrailDeclareDataEvents("lambda.amazonaws.com", "Invoke")
-	lambdaFunctions = sim.MakeStore[LambdaFunction](srv.DB(), "lambda_functions")
+	lambdaFunctions = sim.Announcing(sim.MakeStore[LambdaFunction](srv.DB(), "lambda_functions"), lambdaFunctionChanges)
 	lambdaConcurrency = sim.MakeStore[int](srv.DB(), "lambda_concurrency")
 	registerLambdaAsyncInvocations(srv)
 	lambdaVersions = sim.MakeStore[[]LambdaVersion](srv.DB(), "lambda_versions")
 	lambdaAliases = sim.MakeStore[map[string]LambdaAlias](srv.DB(), "lambda_aliases")
 	lambdaPolicies = sim.MakeStore[[]LambdaPolicyStatement](srv.DB(), "lambda_policies")
 	lambdaURLConfigs = sim.MakeStore[LambdaFunctionUrlConfig](srv.DB(), "lambda_url_configs")
-	lambdaESMs = sim.MakeStore[LambdaEventSourceMapping](srv.DB(), "lambda_event_source_mappings")
+	lambdaESMs = sim.Announcing(sim.MakeStore[LambdaEventSourceMapping](srv.DB(), "lambda_event_source_mappings"), lambdaESMChanges)
 	lambdaLayers = sim.MakeStore[[]LambdaLayerVersion](srv.DB(), "lambda_layers")
 	lambdaESMLogger = srv.Logger()
 	lambdaBackgroundServer = srv

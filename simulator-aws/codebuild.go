@@ -17,6 +17,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/listq"
+	"github.com/e6qu/sockerless-cloud/sim/signals"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -247,7 +248,7 @@ const cbAWSOwnedKMSKeyID = "aws-owned-codebuild"
 var (
 	cbProjects          sim.Store[CBProject]
 	cbBuilds            sim.Store[CBBuild]
-	cbBuildChanges      = newStoreChanges()
+	cbBuildChanges      = signals.New[string]()
 	cbReportGrps        sim.Store[CBReportGroup]
 	cbReports           sim.Store[CBReport]
 	cbReportResults     sim.Store[CBReportResults]
@@ -260,7 +261,7 @@ var (
 
 func registerCodeBuild(r *AWSRouter, srv *sim.Server) {
 	cbProjects = sim.MakeStore[CBProject](srv.DB(), "codebuild_projects")
-	cbBuilds = announcing(sim.MakeStore[CBBuild](srv.DB(), "codebuild_builds"), cbBuildChanges)
+	cbBuilds = sim.Announcing(sim.MakeStore[CBBuild](srv.DB(), "codebuild_builds"), cbBuildChanges)
 	cbReportGrps = sim.MakeStore[CBReportGroup](srv.DB(), "codebuild_report_groups")
 	cbReports = sim.MakeStore[CBReport](srv.DB(), "codebuild_reports")
 	cbReportResults = sim.MakeStore[CBReportResults](srv.DB(), "codebuild_report_results")

@@ -1,15 +1,16 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/signals"
 )
 
 // AsyncOperationStatus is the ARM operation-status envelope a polled
@@ -46,10 +47,15 @@ type AsyncOperationError struct {
 	Details []map[string]any `json:"details,omitempty"`
 }
 
-var azureAsyncOps sim.Store[AsyncOperationStatus]
+var (
+	azureAsyncOps sim.Store[AsyncOperationStatus]
+	// azureAsyncOpChanges announces an operation's ID on every write of it,
+	// which its settling makes.
+	azureAsyncOpChanges = signals.New[string]()
+)
 
 func registerAzureAsyncOperations(srv *sim.Server) {
-	azureAsyncOps = sim.MakeStore[AsyncOperationStatus](srv.DB(), "azure_async_ops")
+	azureAsyncOps = sim.Announcing(sim.MakeStore[AsyncOperationStatus](srv.DB(), "azure_async_ops"), azureAsyncOpChanges)
 	// An operation completes via an in-process goroutine, so a persisted row
 	// still InProgress after a restart can never complete — its goroutine died
 	// with the previous process. Real ARM fails an operation its backend lost
@@ -160,39 +166,22 @@ func startAzureAsyncOperationResult(work func() (json.RawMessage, *AsyncOperatio
 		Status:    "InProgress",
 		StartTime: time.Now().UTC().Format(time.RFC3339Nano),
 	})
-	done := make(chan struct{})
-	azureAsyncOpsRunningMu.Lock()
-	azureAsyncOpsRunning[opID] = done
-	azureAsyncOpsRunningMu.Unlock()
 	bg.Go(func() {
 		result, opErr := work()
 		azureAsyncOps.Update(opID, func(op *AsyncOperationStatus) {
 			settleAzureAsyncOperation(op, result, opErr)
 		})
-		azureAsyncOpsRunningMu.Lock()
-		delete(azureAsyncOpsRunning, opID)
-		azureAsyncOpsRunningMu.Unlock()
-		close(done)
 	})
 	return opID
 }
 
-// azureAsyncOpsRunning maps the ID of each operation whose work runs in the
-// background to a channel that closes once the operation has settled.
-var (
-	azureAsyncOpsRunningMu sync.Mutex
-	azureAsyncOpsRunning   = map[string]chan struct{}{}
-)
-
-// azureAsyncOperationSettled returns the channel that closes when the
-// background operation opID settles, or nil when no such operation is running.
-func azureAsyncOperationSettled(opID string) <-chan struct{} {
-	azureAsyncOpsRunningMu.Lock()
-	defer azureAsyncOpsRunningMu.Unlock()
-	if done, ok := azureAsyncOpsRunning[opID]; ok {
-		return done
-	}
-	return nil
+// azureAwaitAsyncOperation returns once operation opID is no longer
+// InProgress, or is not one of azureAsyncOps' operations, or ctx ends.
+func azureAwaitAsyncOperation(ctx context.Context, opID string) error {
+	return azureAsyncOpChanges.Await(ctx, opID, func() bool {
+		op, ok := azureAsyncOps.Get(opID)
+		return !ok || op.Status != "InProgress"
+	})
 }
 
 func settleAzureAsyncOperation(op *AsyncOperationStatus, result json.RawMessage, opErr *AsyncOperationError) {

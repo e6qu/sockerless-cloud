@@ -951,7 +951,7 @@ func registerComputeOperationsMore(srv *sim.Server) {
 			GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", name)
 			return
 		}
-		gcpOperationSignalDone(name)
+		gcpOperationDone.Announce(name)
 		w.WriteHeader(http.StatusNoContent)
 	}
 	srv.HandleFunc("DELETE /compute/v1/projects/{project}/zones/{zone}/operations/{name}", delOp)

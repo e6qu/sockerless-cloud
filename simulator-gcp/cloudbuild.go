@@ -949,7 +949,7 @@ func executeCancellableBuild(ctx context.Context, b Build) Build {
 	})
 	// The build's operation is done once its record is terminal and its
 	// steps have stopped; whoever waits on the operation learns of it here.
-	defer gcpOperationSignalDone(cbBuildOperation(b.ProjectID, b).Name)
+	defer gcpOperationDone.Announce(cbBuildOperation(b.ProjectID, b).Name)
 	if cancelledFirst {
 		stored, _ := cbBuilds.Get(b.ID)
 		return stored

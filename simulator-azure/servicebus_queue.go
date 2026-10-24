@@ -221,9 +221,7 @@ func sbSend(namespace, address string, out sbOutgoing) []string {
 	if window := sbTopicDedup(namespace, address); window > 0 {
 		dup := false
 		sbQueueDurable.Upsert(sbQueueKey(namespace, address), func(rec *sbQueueRecord) {
-			if _, dup = rec.Queue.Dedup.Lookup(out.messageID, now); !dup {
-				rec.Queue.Dedup.Remember(out.messageID, out.messageID, 0, window, now)
-			}
+			_, dup = rec.Queue.Dedup.Admit(out.messageID, out.messageID, 0, window, now)
 		})
 		if dup {
 			return nil
@@ -257,18 +255,11 @@ func sbEnqueue(namespace, path string, out sbOutgoing, now time.Time) (uint64, b
 	})
 	if !dup {
 		if out.delay > 0 {
-			sbNotifyReceiversAt(namespace, path, stored.AvailableAt)
+			sbReceivers.Arm(sbQueueKey(namespace, path))
 		}
 		sbSignalEnqueue(namespace, path)
 	}
 	return stored.Seq, dup
-}
-
-// sbNotifyReceiversAt hands an entity's waiting receivers its messages at the
-// millisecond the queue stored as a message's next availability, which can
-// fall after the duration that set it.
-func sbNotifyReceiversAt(namespace, path string, availableAt int64) {
-	bg.AfterFunc(max(time.Until(time.UnixMilli(availableAt)), 0), func() { sbNotifyReceivers(namespace, path) })
 }
 
 // sbSchedule enqueues messages at their scheduled enqueue time and returns
@@ -358,7 +349,7 @@ func sbReceive(namespace, path, session string, max int, peekLock bool) ([]msgq.
 	})
 	if peekLock && len(got.Leased) > 0 {
 		// Hand the messages to waiting receivers again once their locks run out.
-		sbNotifyReceiversAt(namespace, path, got.Leased[0].AvailableAt)
+		sbReceivers.Arm(sbQueueKey(namespace, path))
 	}
 	sbDeadLetter(namespace, path, got.DeadLettered, "MaxDeliveryCountExceeded",
 		"Message could not be consumed after "+strconv.Itoa(settings.maxDelivery)+" delivery attempts.")
@@ -388,11 +379,17 @@ func sbDeadLetter(namespace, path string, msgs []msgq.Message[sbPayload], reason
 	sbNotifyReceivers(namespace, sbDeadLetterPath(path))
 }
 
-// sbNotifyReceivers hands the messages available at path to the AMQP
-// receivers holding credit for it. It runs on a goroutine of its own because
-// a receive can make messages available while its connection's lock is held.
+// sbNotifyReceivers wakes the receivers waiting on path and hands its
+// available messages to the AMQP receivers holding credit for it.
 func sbNotifyReceivers(namespace, path string) {
 	sbSignalEnqueue(namespace, path)
+	sbHandToAMQPReceivers(namespace, path)
+}
+
+// sbHandToAMQPReceivers hands the messages available at path to the AMQP
+// receivers holding credit for it. It runs on a goroutine of its own because
+// a receive can make messages available while its connection's lock is held.
+func sbHandToAMQPReceivers(namespace, path string) {
 	bg.Go(func() {
 		// A failed transfer means the receiver's connection is going away;
 		// its serve loop tears the connection down and the messages stay.
@@ -472,14 +469,13 @@ func sbRenewLock(namespace, path, lockToken string) (time.Time, error) {
 	settings := sbSettings(namespace, path)
 	now := time.Now()
 	var held bool
-	var locked msgq.Message[sbPayload]
 	sbQueueDurable.Update(sbQueueKey(namespace, path), func(rec *sbQueueRecord) {
-		locked, _, held = rec.Queue.Extend(lockToken, settings.lock, settings.policy(), now)
+		_, _, held = rec.Queue.Extend(lockToken, settings.lock, settings.policy(), now)
 	})
 	if !held {
 		return time.Time{}, errSBLockLost
 	}
-	sbNotifyReceiversAt(namespace, path, locked.AvailableAt)
+	// The timer armed at the lock's old end re-arms itself at its new one.
 	return now.Add(settings.lock), nil
 }
 

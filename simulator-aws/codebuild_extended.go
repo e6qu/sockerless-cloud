@@ -14,6 +14,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/listq"
+	"github.com/e6qu/sockerless-cloud/sim/signals"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	"github.com/google/uuid"
@@ -106,7 +107,7 @@ type CBWebhook struct {
 
 var (
 	cbBuildBatches      sim.Store[CBBuildBatch]
-	cbBuildBatchChanges = newStoreChanges()
+	cbBuildBatchChanges = signals.New[string]()
 	cbFleets            sim.Store[CBFleet]
 	cbSandboxes         sim.Store[CBSandbox]
 	cbCommandExecs      sim.Store[CBCommandExecution]
@@ -119,7 +120,7 @@ var (
 )
 
 func registerCodeBuildExtended(r *AWSRouter, srv *sim.Server) {
-	cbBuildBatches = announcing(sim.MakeStore[CBBuildBatch](srv.DB(), "codebuild_build_batches"), cbBuildBatchChanges)
+	cbBuildBatches = sim.Announcing(sim.MakeStore[CBBuildBatch](srv.DB(), "codebuild_build_batches"), cbBuildBatchChanges)
 	cbFleets = sim.MakeStore[CBFleet](srv.DB(), "codebuild_fleets")
 	cbSandboxes = sim.MakeStore[CBSandbox](srv.DB(), "codebuild_sandboxes")
 	cbCommandExecs = sim.MakeStore[CBCommandExecution](srv.DB(), "codebuild_command_executions")

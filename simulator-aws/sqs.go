@@ -17,6 +17,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/msgq"
+	"github.com/e6qu/sockerless-cloud/sim/signals"
 )
 
 // Amazon Simple Queue Service (SQS) implements managed standard and FIFO
@@ -206,7 +207,12 @@ func sqsRenderMessageAttributes(attrs map[string]SQSMessageAttribute) map[string
 	return out
 }
 
-var sqsQueues sim.Store[SQSQueue]
+var (
+	sqsQueues sim.Store[SQSQueue]
+	// sqsQueueChanges announces a queue's name on every write of it: its
+	// creation, deletion, attributes and messages.
+	sqsQueueChanges = signals.New[string]()
+)
 
 const (
 	sqsDefaultVisibilityTimeout = 30
@@ -321,7 +327,7 @@ func registerSQS(r *AWSRouter, srv *sim.Server) {
 	cloudTrailDeclareDataEvents("sqs.amazonaws.com",
 		"SendMessage", "SendMessageBatch", "ReceiveMessage", "DeleteMessage",
 		"DeleteMessageBatch", "ChangeMessageVisibility", "ChangeMessageVisibilityBatch")
-	sqsQueues = sim.MakeStore[SQSQueue](srv.DB(), "sqs_queues")
+	sqsQueues = sim.Announcing(sim.MakeStore[SQSQueue](srv.DB(), "sqs_queues"), sqsQueueChanges)
 	if err := sqsMigrateQueues(srv.DB()); err != nil {
 		log.Fatalf("sqs: %v", err)
 	}
@@ -957,7 +963,7 @@ func handleSQSReceiveMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sim.DeclareWait(r.Context(), time.Duration(waitSeconds)*time.Second)
-	picked, ok := sqsLongPoll(r.Context().Done(), name, maxN, visTimeout, time.Now().Add(time.Duration(waitSeconds)*time.Second))
+	picked, ok := sqsLongPoll(r.Context(), name, maxN, visTimeout, time.Now().Add(time.Duration(waitSeconds)*time.Second))
 	if !ok {
 		return
 	}

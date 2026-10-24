@@ -1065,13 +1065,6 @@ func (s *firestoreGRPC) Write(srv fspb.Firestore_WriteServer) error {
 
 // Listen — the bidirectional watch stream
 
-// fsListenPollInterval is how often a Listen stream consults the document
-// store's generation counter. The counter is the store's own change signal —
-// it advances on every write that changed the store and on no other event — so
-// a stream that re-reads its targets when the generation moves reports real
-// writes and nothing else.
-const fsListenPollInterval = 25 * time.Millisecond
-
 // fsListenTarget is one target on a Listen stream: the spec the client added
 // and the snapshot last reported for it (document name → the version that
 // snapshot carried), which is what the next sweep diffs against.
@@ -1113,13 +1106,28 @@ func (s *firestoreGRPC) Listen(srv fspb.Firestore_ListenServer) error {
 	}()
 
 	// Every response is sent from this loop, so the stream has exactly one
-	// writer.
+	// writer. The store's generation advances on every write that changed it
+	// and on no other event, so a stream that re-reads its targets when the
+	// generation moved reports real writes and nothing else.
 	targets := map[int32]*fsListenTarget{}
 	generation := fsDocuments.Generation()
-	ticker := time.NewTicker(fsListenPollInterval)
-	defer ticker.Stop()
 
 	for {
+		written := fsDocumentChanges.Any()
+		if current := fsDocuments.Generation(); current != generation {
+			generation = current
+			if len(targets) > 0 {
+				readTime := fsNow()
+				for _, id := range fsListenTargetIDs(targets) {
+					if err := fsListenSyncTarget(srv, id, targets[id], readTime); err != nil {
+						return err
+					}
+				}
+				if err := fsListenSendTargetChange(srv, fspb.TargetChange_NO_CHANGE, nil, readTime); err != nil {
+					return err
+				}
+			}
+		}
 		select {
 		case <-ctx.Done():
 			return nil
@@ -1133,22 +1141,7 @@ func (s *firestoreGRPC) Listen(srv fspb.Firestore_ListenServer) error {
 			if err := fsListenHandleRequest(srv, targets, req); err != nil {
 				return err
 			}
-		case <-ticker.C:
-			current := fsDocuments.Generation()
-			if current == generation || len(targets) == 0 {
-				generation = current
-				continue
-			}
-			generation = current
-			readTime := fsNow()
-			for _, id := range fsListenTargetIDs(targets) {
-				if err := fsListenSyncTarget(srv, id, targets[id], readTime); err != nil {
-					return err
-				}
-			}
-			if err := fsListenSendTargetChange(srv, fspb.TargetChange_NO_CHANGE, nil, readTime); err != nil {
-				return err
-			}
+		case <-written:
 		}
 	}
 }

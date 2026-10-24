@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/signals"
 )
 
 type IAMRole struct {
@@ -65,14 +66,17 @@ var (
 	iamAttachedPolicies sim.Store[IAMAttachedPolicy]
 	iamPolicies         sim.Store[IAMPolicy]
 	iamInstanceProfiles sim.Store[IAMInstanceProfile]
+	// iamChanges announces every write to a role or a policy, any of which
+	// can change what a role's session is allowed.
+	iamChanges = signals.New[string]()
 )
 
 func registerIAM(r *AWSQueryRouter, srv *sim.Server) {
 	registerIAMAccountProperties(r, srv)
-	iamRoles = sim.MakeStore[IAMRole](srv.DB(), "iam_roles")
-	iamRolePolicies = sim.MakeStore[IAMRolePolicy](srv.DB(), "iam_role_policies")
-	iamAttachedPolicies = sim.MakeStore[IAMAttachedPolicy](srv.DB(), "iam_attached_policies")
-	iamPolicies = sim.MakeStore[IAMPolicy](srv.DB(), "iam_policies")
+	iamRoles = sim.Announcing(sim.MakeStore[IAMRole](srv.DB(), "iam_roles"), iamChanges)
+	iamRolePolicies = sim.Announcing(sim.MakeStore[IAMRolePolicy](srv.DB(), "iam_role_policies"), iamChanges)
+	iamAttachedPolicies = sim.Announcing(sim.MakeStore[IAMAttachedPolicy](srv.DB(), "iam_attached_policies"), iamChanges)
+	iamPolicies = sim.Announcing(sim.MakeStore[IAMPolicy](srv.DB(), "iam_policies"), iamChanges)
 	iamInstanceProfiles = sim.MakeStore[IAMInstanceProfile](srv.DB(), "iam_instance_profiles")
 
 	r.Register("CreateRole", handleIAMCreateRole)

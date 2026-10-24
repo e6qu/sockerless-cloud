@@ -156,7 +156,7 @@ func recordComputeOp(rec ComputeOperationRecord) {
 // accompanying HTTP status is the one the simulator answers when it cannot
 // bring a machine up.
 func computeOpFinish(name string, err error) {
-	defer gcpOperationSignalDone(name)
+	defer gcpOperationDone.Announce(name)
 	computeOpRegistry.Update(name, func(rec *ComputeOperationRecord) {
 		rec.Status = "DONE"
 		rec.Progress = 100
@@ -242,15 +242,15 @@ func computeWaitOperation(w http.ResponseWriter, r *http.Request, name string) {
 	sim.DeclareWait(r.Context(), computeOperationWaitBudget)
 	// Subscribe before reading, so a finish between the read and the wait still
 	// wakes it.
-	done := gcpOperationDoneSignal(name)
+	done := gcpOperationDone.Changed(name)
 	rec, ok := computeOpRegistry.Get(name)
 	if !ok {
-		gcpOperationSignalDone(name)
+		gcpOperationDone.Announce(name)
 		GCPErrorf(w, http.StatusNotFound, "notFound", "operation %q not found", name)
 		return
 	}
 	if rec.Status == "DONE" {
-		gcpOperationSignalDone(name)
+		gcpOperationDone.Announce(name)
 	} else {
 		budget := time.NewTimer(computeOperationWaitBudget)
 		defer budget.Stop()
@@ -2463,7 +2463,7 @@ func recoverComputeOperations() {
 }
 
 func registerComputeInstances(srv *sim.Server, networks sim.Store[ComputeNetwork], subnetworks sim.Store[ComputeSubnetwork]) {
-	var instances sim.Store[ComputeInstance] = gceMetadataSource[ComputeInstance]{sim.MakeStore[ComputeInstance](srv.DB(), "compute_instances")}
+	instances := sim.Announcing(sim.MakeStore[ComputeInstance](srv.DB(), "compute_instances"), gceMetadataChanges)
 	registerComputeInstanceVerbs(srv, instances)
 	gcpInstances = instances
 	recoverComputeInstances(instances)

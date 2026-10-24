@@ -2,8 +2,10 @@ package main
 
 import (
 	"errors"
-	"sync"
+	"strings"
 	"time"
+
+	"github.com/e6qu/sockerless-cloud/sim/msgq"
 )
 
 // Service Bus message sessions. A session-enabled queue or subscription
@@ -185,32 +187,30 @@ func sbTopicScheduledCount(namespace, topic string, subs []string) int32 {
 	return int32(len(waiting))
 }
 
-// sbEnqueueSignals wakes whatever waits for an entity to gain a receivable
-// message or a free session: each waiter holds the channel current when it
-// looked, and the next signal closes it.
-var sbEnqueueSignals = struct {
-	sync.Mutex
-	ch map[string]chan struct{}
-}{ch: map[string]chan struct{}{}}
-
-func sbEnqueueSignal(namespace, path string) <-chan struct{} {
-	key := sbQueueKey(namespace, path)
-	sbEnqueueSignals.Lock()
-	defer sbEnqueueSignals.Unlock()
-	ch := sbEnqueueSignals.ch[key]
-	if ch == nil {
-		ch = make(chan struct{})
-		sbEnqueueSignals.ch[key] = ch
+// sbReceivers wakes whatever waits for an entity, keyed by sbQueueKey, to
+// gain a receivable message or a free session, and at the instant a scheduled
+// or locked message becomes receivable hands it to the AMQP receivers holding
+// credit for it.
+var sbReceivers = msgq.NewWaiter(func(key string, now time.Time) (time.Time, bool) {
+	namespace, path, ok := strings.Cut(key, "/")
+	if !ok {
+		return time.Time{}, false
 	}
-	return ch
-}
-
-func sbSignalEnqueue(namespace, path string) {
-	key := sbQueueKey(namespace, path)
-	sbEnqueueSignals.Lock()
-	defer sbEnqueueSignals.Unlock()
-	if ch := sbEnqueueSignals.ch[key]; ch != nil {
-		close(ch)
-		delete(sbEnqueueSignals.ch, key)
+	rec, ok := sbQueueDurable.Get(key)
+	if !ok {
+		return time.Time{}, false
 	}
+	return rec.Queue.NextChange(sbSettings(namespace, path).policy(), now)
+})
+
+func sbSignalEnqueue(namespace, path string) { sbReceivers.Signal(sbQueueKey(namespace, path)) }
+
+// The hook names functions that reach sbReceivers, which its initializer
+// cannot without an initialization cycle.
+func init() {
+	sbReceivers.OnDue(func(key string) {
+		if namespace, path, ok := strings.Cut(key, "/"); ok {
+			sbHandToAMQPReceivers(namespace, path)
+		}
+	})
 }

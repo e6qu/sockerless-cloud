@@ -31,7 +31,7 @@ const (
 
 func azureLROTestStore(t *testing.T) {
 	t.Helper()
-	azureAsyncOps = sim.MakeStore[AsyncOperationStatus](nil, "azure_async_ops")
+	azureAsyncOps = sim.Announcing(sim.MakeStore[AsyncOperationStatus](nil, "azure_async_ops"), azureAsyncOpChanges)
 	t.Cleanup(bg.Await)
 }
 

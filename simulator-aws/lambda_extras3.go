@@ -18,6 +18,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/signals"
 )
 
 // This file completes the Lambda restJson1 control-plane slice: the
@@ -35,7 +36,7 @@ func registerLambdaExtras3(srv *sim.Server) {
 	lambdaResource := cloudTrailRESTResource("AWS::Lambda::Function", "name", "arn")
 	lambdaCapacityProviders = sim.MakeStore[LambdaCapacityProvider](srv.DB(), "lambda_capacity_providers")
 	lambdaScalingCfgs = sim.MakeStore[lambdaStoredScalingConfig](srv.DB(), "lambda_function_scaling_configs")
-	lambdaDurableStore = sim.MakeStore[lambdaDurableExecution](srv.DB(), "lambda_durable_executions")
+	lambdaDurableStore = sim.Announcing(sim.MakeStore[lambdaDurableExecution](srv.DB(), "lambda_durable_executions"), lambdaDurableChanges)
 	lambdaDurableCallbackStore = sim.MakeStore[lambdaDurableCallbackState](srv.DB(), "lambda_durable_callbacks")
 
 	// ListLayers shares GET /2018-10-31/layers with GetLayerVersionByArn; the
@@ -705,8 +706,11 @@ var (
 	// polling those three is what a durable-execution client spends its time
 	// doing. A section that writes, or reads and then writes based on what it
 	// read, keeps taking Lock; neither is reentrant.
-	lambdaDurableMu            sync.RWMutex
-	lambdaDurableStore         sim.Store[lambdaDurableExecution]
+	lambdaDurableMu    sync.RWMutex
+	lambdaDurableStore sim.Store[lambdaDurableExecution]
+	// lambdaDurableChanges announces an execution's ARN on every write of
+	// it, which every change of its status makes.
+	lambdaDurableChanges       = signals.New[string]()
 	lambdaDurableCallbackStore sim.Store[lambdaDurableCallbackState]
 	// keyed by DurableExecutionArn.
 	lambdaDurableExecs = map[string]*lambdaDurableExecution{}
@@ -928,23 +932,23 @@ func lambdaDurableInvocationPayload(arn string) ([]byte, bool) {
 	return payload, err == nil
 }
 
-func lambdaDurableStatus(arn string) (status string, result []byte, unhandled bool, changed <-chan struct{}) {
+func lambdaDurableStatus(arn string) (status string, result []byte, unhandled bool) {
 	lambdaDurableMu.Lock()
 	defer lambdaDurableMu.Unlock()
 	execution, ok := lambdaDurableExecs[arn]
 	if !ok {
-		return "FAILED", lambdaErrorPayload("Durable execution not found"), true, nil
+		return "FAILED", lambdaErrorPayload("Durable execution not found"), true
 	}
 	switch execution.Status {
 	case "SUCCEEDED":
-		return execution.Status, []byte(execution.Result), false, execution.ChangeCh
+		return execution.Status, []byte(execution.Result), false
 	case "FAILED", "STOPPED", "TIMED_OUT":
 		if encoded, err := json.Marshal(execution.ErrorObj); err == nil && len(encoded) > 0 {
-			return execution.Status, encoded, true, execution.ChangeCh
+			return execution.Status, encoded, true
 		}
-		return execution.Status, lambdaErrorPayload("Durable execution " + strings.ToLower(execution.Status)), true, execution.ChangeCh
+		return execution.Status, lambdaErrorPayload("Durable execution " + strings.ToLower(execution.Status)), true
 	default:
-		return execution.Status, nil, false, execution.ChangeCh
+		return execution.Status, nil, false
 	}
 }
 
@@ -1002,7 +1006,7 @@ func lambdaRunDurableCoordinator(ctx context.Context, arn string, function Lambd
 			return
 		}
 		lambdaProcessDurableInvocationResponse(arn, response, unhandled)
-		status, _, _, _ := lambdaDurableStatus(arn)
+		status, _, _ := lambdaDurableStatus(arn)
 		if status != "RUNNING" {
 			return
 		}
@@ -1036,17 +1040,16 @@ func lambdaRunDurableCoordinator(ctx context.Context, arn string, function Lambd
 }
 
 func lambdaWaitForDurableExecution(ctx context.Context, arn string) ([]byte, bool) {
-	ticker := time.NewTicker(25 * time.Millisecond)
-	defer ticker.Stop()
 	for {
-		status, result, unhandled, _ := lambdaDurableStatus(arn)
+		changed := lambdaDurableChanges.Changed(arn)
+		status, result, unhandled := lambdaDurableStatus(arn)
 		if status != "RUNNING" {
 			return result, unhandled
 		}
 		select {
 		case <-ctx.Done():
 			return lambdaErrorPayload("Synchronous durable invocation ended before the execution completed: " + ctx.Err().Error()), true
-		case <-ticker.C:
+		case <-changed:
 		}
 	}
 }

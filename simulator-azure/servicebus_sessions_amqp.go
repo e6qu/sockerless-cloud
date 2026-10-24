@@ -84,7 +84,7 @@ func (c *sbAMQPConn) acceptSession(frame amqpFrame, link *sbAMQPLink, requested 
 	defer timer.Stop()
 	expired := timer.C
 	for {
-		signal := sbEnqueueSignal(namespace, path)
+		signal := sbReceivers.Changed(sbQueueKey(namespace, path))
 		session, until, ok, err := sbAcceptSession(namespace, path, requested, link.owner)
 		if err != nil {
 			c.refuseSession(frame, link, "com.microsoft:session-cannot-be-locked", err.Error())

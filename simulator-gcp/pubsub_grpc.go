@@ -674,7 +674,7 @@ func (s *pubsubSubscriberGRPC) ModifyPushConfig(_ context.Context, req *pspb.Mod
 		}
 	}
 	psSubscriptions.Update(sub, func(s *PSSubscription) { s.PushConfig = rest })
-	psWakePush()
+	psSignalSubscription(sub)
 	return &emptypb.Empty{}, nil
 }
 
@@ -721,19 +721,20 @@ func (s *pubsubSubscriberGRPC) StreamingPull(stream pspb.Subscriber_StreamingPul
 	}
 
 	// Reader loop: applies acks and modacks embedded in client messages, and
-	// signals shutdown when the stream closes.
-	clientErr := make(chan error, 1)
+	// ends the stream with the error that closed the client's side.
+	ctx, closeStream := context.WithCancelCause(ctx)
+	defer closeStream(nil)
 	bg.JoinedGo(func() {
-		clientErr <- psStreamingPullReadLoop(stream, subName)
+		closeStream(psStreamingPullReadLoop(stream, subName))
 	})
 
 	for {
 		// A select that finds both the client's cancellation and an arrival
 		// ready picks either, so check the stream before leasing into it.
-		if err := ctx.Err(); err != nil {
-			return err
+		if ctx.Err() != nil {
+			return context.Cause(ctx)
 		}
-		arrival := psSubscriptionSignal(subName)
+		arrival := psArrivals.Changed(subName)
 		// Count messages currently inflight for this subscription so flow control
 		// is honoured — the client will not ack faster than its handlers run, so
 		// capping outstanding delivery prevents flooding it.
@@ -759,22 +760,8 @@ func (s *pubsubSubscriberGRPC) StreamingPull(stream pspb.Subscriber_StreamingPul
 				}
 			}
 		}
-		var lapse <-chan time.Time
-		stop := func() bool { return false }
-		if next, ok := psNextQueueChange(subName, time.Now()); ok {
-			timer := time.NewTimer(time.Until(next))
-			lapse, stop = timer.C, timer.Stop
-		}
-		select {
-		case <-ctx.Done():
-			stop()
-			return ctx.Err()
-		case e := <-clientErr:
-			stop()
-			return e
-		case <-arrival:
-			stop()
-		case <-lapse:
+		if psArrivals.Wait(ctx, subName, arrival, time.Time{}) != nil {
+			return context.Cause(ctx)
 		}
 	}
 }

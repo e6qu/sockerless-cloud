@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/signals"
 )
 
 // fsEnum is a Firestore enum field value: the canonical uppercase name the
@@ -167,10 +168,15 @@ type fsWrite struct {
 	CurrentDocument  *fsPrecondition      `json:"currentDocument,omitempty"`
 }
 
-var fsDocuments sim.Store[FSDocument]
+var (
+	fsDocuments sim.Store[FSDocument]
+	// fsDocumentChanges announces a document's name on every write of it,
+	// which wakes the Listen streams.
+	fsDocumentChanges = signals.New[string]()
+)
 
 func registerFirestore(srv *sim.Server) {
-	fsDocuments = sim.MakeStore[FSDocument](srv.DB(), "firestore_documents")
+	fsDocuments = sim.Announcing(sim.MakeStore[FSDocument](srv.DB(), "firestore_documents"), fsDocumentChanges)
 
 	fsTransactions = sim.MakeStore[fsTxn](srv.DB(), "firestore_transactions")
 

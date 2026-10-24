@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/msgq"
+	"github.com/e6qu/sockerless-cloud/sim/signals"
 	"github.com/rs/zerolog"
 )
 
@@ -18,34 +18,71 @@ var (
 	lambdaESMLogger zerolog.Logger
 	lambdaESMRunMu  sync.Mutex
 	lambdaESMActive = map[string]bool{}
+	// lambdaESMChanges announces a mapping's UUID on every write of it, and
+	// lambdaFunctionChanges a function's name.
+	lambdaESMChanges      = signals.New[string]()
+	lambdaFunctionChanges = signals.New[string]()
 )
 
+func lambdaESMPollsSQS(mapping LambdaEventSourceMapping) bool {
+	return mapping.State == "Enabled" && strings.HasPrefix(mapping.EventSourceArn, "arn:aws:sqs:")
+}
+
+// startLambdaEventSourcePollers runs a poller for each enabled Amazon SQS
+// event source mapping, starting one whenever a mapping is created, enabled or
+// updated.
 func startLambdaEventSourcePollers(srv *sim.Server) {
 	srv.StartBackground("Lambda event source poller", func(ctx context.Context) {
-		ticker := time.NewTicker(200 * time.Millisecond)
-		defer ticker.Stop()
 		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-			}
-			mappings := make([]LambdaEventSourceMapping, 0, lambdaESMs.Len())
+			changed := lambdaESMChanges.Any()
 			for _, mapping := range lambdaESMs.List() {
-				if mapping.State == "Enabled" && strings.HasPrefix(mapping.EventSourceArn, "arn:aws:sqs:") {
-					mappings = append(mappings, mapping)
-				}
-			}
-			for _, mapping := range mappings {
-				if lambdaBeginESMRun(mapping.UUID) {
-					mapping := mapping
+				if lambdaESMPollsSQS(mapping) && lambdaBeginESMRun(mapping.UUID) {
+					uuid := mapping.UUID
 					srv.StartBackground("Lambda event source mapping", func(ctx context.Context) {
-						lambdaPollSQSMapping(ctx, mapping)
+						lambdaRunSQSMapping(ctx, uuid)
 					})
 				}
 			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-changed:
+			}
 		}
 	})
+}
+
+// lambdaRunSQSMapping polls a mapping's queue batch after batch while the
+// mapping stays enabled. A batch that fails for a reason no message can
+// clear — the function, the queue or the execution role refusing the
+// poller — waits for the mapping, the function, the queue or IAM to change
+// before the next.
+func lambdaRunSQSMapping(ctx context.Context, uuid string) {
+	defer func() {
+		lambdaFinishESMRun(uuid)
+		// A mapping enabled again while this run was ending needs another.
+		lambdaESMChanges.Announce(uuid)
+	}()
+	for ctx.Err() == nil {
+		mappingChanged := lambdaESMChanges.Changed(uuid)
+		iamChanged := iamChanges.Any()
+		mapping, ok := lambdaESMs.Get(uuid)
+		if !ok || !lambdaESMPollsSQS(mapping) {
+			return
+		}
+		functionChanged := lambdaFunctionChanges.Changed(snsTopicNameFromARN(mapping.FunctionArn))
+		queueChanged := sqsQueueChanges.Changed(sqsNameFromARN(mapping.EventSourceArn))
+		if lambdaPollSQSMapping(ctx, mapping) {
+			continue
+		}
+		select {
+		case <-ctx.Done():
+		case <-mappingChanged:
+		case <-functionChanged:
+		case <-queueChanged:
+		case <-iamChanged:
+		}
+	}
 }
 
 func lambdaBeginESMRun(uuid string) bool {
@@ -84,22 +121,24 @@ const lambdaESMReceiveWait = 20
 
 // lambdaPollSQSMapping receives one batch from the mapping's queue, invokes
 // the function with the messages its filters admit and deletes what the
-// function handled, calling Amazon SQS as the function's execution role.
-func lambdaPollSQSMapping(ctx context.Context, mapping LambdaEventSourceMapping) {
-	defer lambdaFinishESMRun(mapping.UUID)
+// function handled, calling Amazon SQS as the function's execution role. It
+// reports false when the batch failed for a reason that polling again cannot
+// clear; a function error is not one, as the queue redelivers the batch once
+// its visibility timeout ends.
+func lambdaPollSQSMapping(ctx context.Context, mapping LambdaEventSourceMapping) bool {
 	if ctx.Err() != nil {
-		return
+		return true
 	}
 	functionName := snsTopicNameFromARN(mapping.FunctionArn)
 	function, ok := lambdaFunctions.Get(functionName)
 	if !ok {
 		lambdaSetESMProcessingResult(mapping.UUID, "PROBLEM: AWS Lambda function not found")
-		return
+		return false
 	}
 	filters, err := lambdaESMFilters(mapping.FilterCriteria)
 	if err != nil {
 		lambdaSetESMProcessingResult(mapping.UUID, "PROBLEM: "+err.Error())
-		return
+		return false
 	}
 	actor := awsActor{Service: "lambda.amazonaws.com", Source: mapping.EventSourceMappingArn, Role: function.Role}
 	queueURL := sqsQueueURL(mapping.EventSourceArn[strings.LastIndex(mapping.EventSourceArn, ":")+1:])
@@ -115,17 +154,18 @@ func lambdaPollSQSMapping(ctx context.Context, mapping LambdaEventSourceMapping)
 			"MessageSystemAttributeNames": []string{"All"}, "MessageAttributeNames": []string{"All"},
 		})
 		if outcome := ebCallResult(status, body, err, false); !outcome.OK() {
-			if ctx.Err() == nil {
-				lambdaSetESMProcessingResult(mapping.UUID, "PROBLEM: "+outcome.Err.Error())
+			if ctx.Err() != nil {
+				return true
 			}
-			return
+			lambdaSetESMProcessingResult(mapping.UUID, "PROBLEM: "+outcome.Err.Error())
+			return false
 		}
 		var page struct {
 			Messages []sqsReceivedMessage `json:"Messages"`
 		}
 		if err := json.Unmarshal(body, &page); err != nil {
 			lambdaSetESMProcessingResult(mapping.UUID, "PROBLEM: Amazon SQS answered ReceiveMessage with "+err.Error())
-			return
+			return false
 		}
 		if len(page.Messages) == 0 {
 			break
@@ -133,7 +173,7 @@ func lambdaPollSQSMapping(ctx context.Context, mapping LambdaEventSourceMapping)
 		received = append(received, page.Messages...)
 	}
 	if len(received) == 0 || ctx.Err() != nil {
-		return
+		return true
 	}
 
 	// Lambda deletes the Amazon SQS messages its filter criteria reject
@@ -146,7 +186,7 @@ func lambdaPollSQSMapping(ctx context.Context, mapping LambdaEventSourceMapping)
 		pass, err := lambdaRecordPassesFilters(filters, record)
 		if err != nil {
 			lambdaSetESMProcessingResult(mapping.UUID, "PROBLEM: "+err.Error())
-			return
+			return false
 		}
 		if !pass {
 			filteredOut = append(filteredOut, received[i].ReceiptHandle)
@@ -155,22 +195,25 @@ func lambdaPollSQSMapping(ctx context.Context, mapping LambdaEventSourceMapping)
 		messages = append(messages, received[i])
 		records = append(records, record)
 	}
-	if !lambdaESMDelete(ctx, actor, mapping, queueURL, filteredOut) || len(messages) == 0 {
-		return
+	if !lambdaESMDelete(ctx, actor, mapping, queueURL, filteredOut) {
+		return false
+	}
+	if len(messages) == 0 {
+		return true
 	}
 
 	payload, err := json.Marshal(map[string]any{"Records": records})
 	if err != nil {
 		lambdaSetESMProcessingResult(mapping.UUID, "PROBLEM: failed to serialize Amazon SQS event")
-		return
+		return false
 	}
 	response, unhandled, _, _ := invokeLambdaViaRuntimeAPI(ctx, function, payload)
 	if ctx.Err() != nil {
-		return
+		return true
 	}
 	if unhandled {
 		lambdaSetESMProcessingResult(mapping.UUID, "PROBLEM: Function call failed")
-		return
+		return true
 	}
 
 	failed := lambdaSQSBatchFailures(mapping, response)
@@ -181,7 +224,7 @@ func lambdaPollSQSMapping(ctx context.Context, mapping LambdaEventSourceMapping)
 		}
 	}
 	if !lambdaESMDelete(ctx, actor, mapping, queueURL, receipts) {
-		return
+		return false
 	}
 	lambdaSetESMProcessingResult(mapping.UUID, "OK")
 	lambdaESMLogger.Info().
@@ -190,6 +233,7 @@ func lambdaPollSQSMapping(ctx context.Context, mapping LambdaEventSourceMapping)
 		Int("records", len(messages)).
 		Int("failedRecords", len(failed)).
 		Msg("AWS Lambda processed Amazon SQS event source batch")
+	return true
 }
 
 // lambdaESMDelete deletes handled messages with DeleteMessageBatch, ten to a
@@ -285,7 +329,13 @@ func sqsDeleteReceiptHandles(queueName string, receipts []string) {
 	sqsSignalQueue(queueName)
 }
 
+// lambdaSetESMProcessingResult records the outcome of a batch. It leaves the
+// mapping untouched when the outcome repeats, so a poller that waits for its
+// mapping to change after a failure does not wake on its own report.
 func lambdaSetESMProcessingResult(uuid, result string) {
+	if mapping, ok := lambdaESMs.Get(uuid); !ok || mapping.LastProcessingResult == result {
+		return
+	}
 	lambdaESMs.Update(uuid, func(mapping *LambdaEventSourceMapping) {
 		mapping.LastProcessingResult = result
 		mapping.LastModified = lambdaNowEpoch()

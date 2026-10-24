@@ -21,6 +21,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/ipam"
+	"github.com/e6qu/sockerless-cloud/sim/signals"
 	"github.com/e6qu/sockerless-cloud/sim/sparse"
 )
 
@@ -5031,25 +5032,25 @@ func handleCreateVolume(w http.ResponseWriter, r *http.Request) {
 		ec2Xmlns(), sim.NewUUID(), ec2VolumeFieldsXML(vol))
 }
 
-// ec2VolumeHydrations holds, for each volume whose snapshot data is still
-// copying, a channel closed when the copy ends.
+// ec2VolumeHydrating holds the volumes whose snapshot data is still
+// copying; ec2VolumeHydrations announces a volume when its copy ends.
 var (
 	ec2VolumeHydrationsMu sync.Mutex
-	ec2VolumeHydrations   = map[string]chan struct{}{}
+	ec2VolumeHydrating    = map[string]bool{}
+	ec2VolumeHydrations   = signals.New[string]()
 )
 
 // ec2HydrateVolume copies a snapshot's data into a creating volume and makes
 // it available, or puts it in error when the copy fails.
 func ec2HydrateVolume(volumeID, destination, source string) {
-	done := make(chan struct{})
 	ec2VolumeHydrationsMu.Lock()
-	ec2VolumeHydrations[volumeID] = done
+	ec2VolumeHydrating[volumeID] = true
 	ec2VolumeHydrationsMu.Unlock()
 	finish := func() {
 		ec2VolumeHydrationsMu.Lock()
-		delete(ec2VolumeHydrations, volumeID)
+		delete(ec2VolumeHydrating, volumeID)
 		ec2VolumeHydrationsMu.Unlock()
-		close(done)
+		ec2VolumeHydrations.Announce(volumeID)
 	}
 	hydrate := func() {
 		if err := sparse.CopyTree(destination, source); err != nil {
@@ -5078,18 +5079,11 @@ func ec2HydrateVolume(volumeID, destination, source string) {
 // ec2AwaitVolumeHydrated returns once a volume's snapshot data is in place,
 // at once for a volume that is not hydrating.
 func ec2AwaitVolumeHydrated(ctx context.Context, volumeID string) error {
-	ec2VolumeHydrationsMu.Lock()
-	done, hydrating := ec2VolumeHydrations[volumeID]
-	ec2VolumeHydrationsMu.Unlock()
-	if !hydrating {
-		return nil
-	}
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	return ec2VolumeHydrations.Await(ctx, volumeID, func() bool {
+		ec2VolumeHydrationsMu.Lock()
+		defer ec2VolumeHydrationsMu.Unlock()
+		return !ec2VolumeHydrating[volumeID]
+	})
 }
 
 func handleAttachVolume(w http.ResponseWriter, r *http.Request) {

@@ -131,6 +131,12 @@ func AfterFunc(d time.Duration, f func()) *Timer {
 	return pending
 }
 
+// Pending reports whether the timer is armed and has neither fired nor been
+// stopped, by its owner or by a drain.
+func (t *Timer) Pending() bool {
+	return t.timer != nil && !t.released.Load()
+}
+
 // Stop cancels the timer, reporting whether it stopped it before it fired.
 func (t *Timer) Stop() bool {
 	if t.timer == nil {

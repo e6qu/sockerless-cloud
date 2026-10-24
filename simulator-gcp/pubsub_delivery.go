@@ -151,13 +151,11 @@ func psPublishMessages(tName string, msgs []PSMessage) ([]string, error) {
 		msgs[i].PublishTime = nowTimestamp()
 	}
 	now := time.Now()
-	wakePush := false
 	for _, sub := range psSubscriptions.Filter(func(s PSSubscription) bool { return s.Topic == tName && !s.Detached }) {
 		filter, err := psParseFilter(sub.Filter)
 		if err != nil {
 			continue
 		}
-		wakePush = wakePush || psPushes(sub)
 		pol := psPolicy(sub)
 		psQueues.Upsert(sub.Name, func(q *psQueue) {
 			q.Subscription = sub.Name
@@ -174,9 +172,6 @@ func psPublishMessages(tName string, msgs []PSMessage) ([]string, error) {
 			}
 		})
 		psSignalSubscription(sub.Name)
-	}
-	if wakePush {
-		psWakePush()
 	}
 	ids := make([]string, 0, len(msgs))
 	for _, m := range msgs {
@@ -421,31 +416,32 @@ func psRestore(subName string, msgs []PSMessage) {
 }
 
 // pubsubDeadLetterSweeper forwards the messages whose last permitted delivery
-// attempt ran out of ack deadline, without waiting for another pull.
+// attempt ran out of ack deadline, at the instant it runs out, without
+// waiting for another pull.
 func pubsubDeadLetterSweeper(ctx context.Context) {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
 	for {
-		var now time.Time
-		select {
-		case <-ctx.Done():
+		changed := psArrivals.Any()
+		if psArrivals.WaitAny(ctx, changed, psSweepDeadLetters(time.Now())) != nil {
 			return
-		case now = <-ticker.C:
 		}
-		psSweepDeadLetters(now)
 	}
 }
 
-func psSweepDeadLetters(now time.Time) {
+// psSweepDeadLetters forwards the exhausted messages of every subscription
+// that dead-letters, and returns those subscriptions.
+func psSweepDeadLetters(now time.Time) []string {
+	var swept []string
 	for _, s := range psSubscriptions.Filter(func(s PSSubscription) bool {
 		return s.DeadLetterPolicy != nil && s.DeadLetterPolicy.DeadLetterTopic != ""
 	}) {
+		swept = append(swept, s.Name)
 		var exhausted []msgq.Message[PSMessage]
 		psQueues.Update(s.Name, func(q *psQueue) {
 			exhausted = q.Queue.Exhausted(psPolicy(s), now)
 		})
 		psForwardDeadLetters(s, exhausted)
 	}
+	return swept
 }
 
 // psWriteRPCError answers a REST call with the status a shared delivery

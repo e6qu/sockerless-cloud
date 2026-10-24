@@ -81,12 +81,17 @@ func (d Dedup) Lookup(key string, now time.Time) (DedupRecord, bool) {
 	return rec, ok
 }
 
-// Remember records key for window from now.
-func (d *Dedup) Remember(key, id string, seq uint64, window time.Duration, now time.Time) {
+// Admit reports whether key names a live record, returning it, and otherwise
+// records key for window from now as naming id and seq.
+func (d *Dedup) Admit(key, id string, seq uint64, window time.Duration, now time.Time) (DedupRecord, bool) {
+	if rec, ok := d.Lookup(key, now); ok {
+		return rec, true
+	}
 	if *d == nil {
 		*d = Dedup{}
 	}
 	(*d)[key] = DedupRecord{ID: id, Seq: seq, ExpiresAt: ms(now) + window.Milliseconds()}
+	return DedupRecord{}, false
 }
 
 // Queue holds a queue's messages in enqueue order.
@@ -156,8 +161,13 @@ func deadline(t time.Time, d time.Duration) int64 {
 // record it stores nothing and returns the original's identity with dup true.
 func (q *Queue[P]) Enqueue(payload P, opts EnqueueOpts, pol Policy, now time.Time) (Message[P], bool) {
 	n := ms(now)
-	if rec, ok := q.Dedup.Lookup(opts.DedupKey, now); ok && opts.DedupKey != "" && pol.DedupWindow > 0 {
-		return Message[P]{ID: rec.ID, Seq: rec.Seq, Payload: payload, DedupID: opts.DedupID, Group: opts.Group}, true
+	if opts.ID == "" {
+		opts.ID = uuid.NewString()
+	}
+	if opts.DedupKey != "" && pol.DedupWindow > 0 {
+		if rec, dup := q.Dedup.Admit(opts.DedupKey, opts.ID, q.NextSeq+1, pol.DedupWindow, now); dup {
+			return Message[P]{ID: rec.ID, Seq: rec.Seq, Payload: payload, DedupID: opts.DedupID, Group: opts.Group}, true
+		}
 	}
 	q.NextSeq++
 	m := Message[P]{
@@ -169,9 +179,6 @@ func (q *Queue[P]) Enqueue(payload P, opts EnqueueOpts, pol Policy, now time.Tim
 		Group:       opts.Group,
 		DedupID:     opts.DedupID,
 	}
-	if m.ID == "" {
-		m.ID = uuid.NewString()
-	}
 	if opts.Delay > 0 {
 		m.DelayedUntil = m.AvailableAt
 	}
@@ -179,9 +186,6 @@ func (q *Queue[P]) Enqueue(payload P, opts EnqueueOpts, pol Policy, now time.Tim
 		m.ExpiresAt = deadline(now, opts.TTL)
 	}
 	q.Messages = append(q.Messages, m)
-	if opts.DedupKey != "" && pol.DedupWindow > 0 {
-		q.Dedup.Remember(opts.DedupKey, m.ID, m.Seq, pol.DedupWindow, now)
-	}
 	return m, false
 }
 

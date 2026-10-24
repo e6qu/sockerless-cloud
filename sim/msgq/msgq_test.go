@@ -247,7 +247,12 @@ func TestReleaseDoesNotCountTheDelivery(t *testing.T) {
 
 func TestDedupOutsideAQueue(t *testing.T) {
 	var d Dedup
-	d.Remember("k", "id", 1, time.Minute, t0)
+	if _, dup := d.Admit("k", "id", 1, time.Minute, t0); dup {
+		t.Fatal("first admit reported a duplicate")
+	}
+	if rec, dup := d.Admit("k", "other", 2, time.Minute, t0.Add(59*time.Second)); !dup || rec.ID != "id" || rec.Seq != 1 {
+		t.Fatalf("admit inside the window = %+v %v", rec, dup)
+	}
 	if rec, ok := d.Lookup("k", t0.Add(59*time.Second)); !ok || rec.ID != "id" {
 		t.Fatalf("lookup = %+v %v", rec, ok)
 	}

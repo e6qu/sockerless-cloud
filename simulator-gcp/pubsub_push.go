@@ -15,48 +15,34 @@ import (
 const psPushBatch = 1000
 
 // startPubSubPush delivers every push subscription's backlog as soon as a
-// publish or a push-config change wakes it, and once a second for the messages
-// whose pull lease ran out, until the server stops. A push leases messages
-// from the same queue a pull does, so delivery attempts, ack deadlines, retry
-// backoff and dead-lettering stay one mechanism whichever way the subscription
-// is configured.
+// publish, a negative acknowledgement or a push-config change signals it, and
+// at the instant a lapsed lease or a retry backoff makes a message deliverable
+// again, until the server stops. A push leases messages from the same queue a
+// pull does, so delivery attempts, ack deadlines, retry backoff and
+// dead-lettering stay one mechanism whichever way the subscription is
+// configured.
 func startPubSubPush(srv *sim.Server) {
 	srv.StartBackground("Pub/Sub push", func(ctx context.Context) {
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
 		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-			case <-psPushWake:
-			}
-			// A wake and a stop can be ready together; select picks at random.
-			if ctx.Err() != nil {
+			changed := psArrivals.Any()
+			if psArrivals.WaitAny(ctx, changed, psPushSweep(ctx)) != nil {
 				return
 			}
-			psPushSweep(ctx)
 		}
 	})
 }
 
-// psPushWake holds at most one pending request for the push loop to deliver
-// now: Pub/Sub pushes a message when it is published, not on a schedule.
-var psPushWake = make(chan struct{}, 1)
-
-func psWakePush() {
-	select {
-	case psPushWake <- struct{}{}:
-	default:
-	}
-}
-
-func psPushSweep(ctx context.Context) {
+// psPushSweep pushes the available messages of every push subscription, and
+// returns those subscriptions.
+func psPushSweep(ctx context.Context) []string {
+	var pushing []string
 	for _, sub := range psSubscriptions.List() {
 		if psPushes(sub) {
+			pushing = append(pushing, sub.Name)
 			psPushSubscription(ctx, sub.Name)
 		}
 	}
+	return pushing
 }
 
 func psPushes(sub PSSubscription) bool {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -64,8 +65,8 @@ func deleteResourceGroupAndWait(t *testing.T, srv *sim.Server, group string) str
 	if !strings.HasPrefix(location.Path, prefix) {
 		t.Fatalf("Location %q is not under %s", location, prefix)
 	}
-	if settled := azureAsyncOperationSettled(strings.TrimPrefix(location.Path, prefix)); settled != nil {
-		<-settled
+	if err := azureAwaitAsyncOperation(context.Background(), strings.TrimPrefix(location.Path, prefix)); err != nil {
+		t.Fatalf("await the delete: %v", err)
 	}
 	return location.RequestURI()
 }

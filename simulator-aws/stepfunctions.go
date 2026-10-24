@@ -17,6 +17,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/listq"
+	"github.com/e6qu/sockerless-cloud/sim/signals"
 	"github.com/google/uuid"
 )
 
@@ -87,7 +88,7 @@ var (
 	sfnExecutions    sim.Store[SFNExecution]
 	// sfnExecutionChanges wakes a parent waiting on a nested execution when
 	// the store writes it.
-	sfnExecutionChanges = newStoreChanges()
+	sfnExecutionChanges = signals.New[string]()
 	sfnCancels          sync.Map
 	sfnMu               sync.Mutex
 	sfnAWSRouter        *AWSRouter
@@ -97,7 +98,7 @@ func registerStepFunctions(r *AWSRouter, srv *sim.Server) {
 	sfnAWSRouter = r
 	sfnAWSServer = srv
 	sfnStateMachines = sim.MakeStore[SFNStateMachine](srv.DB(), "sfn_state_machines")
-	sfnExecutions = announcing(sim.MakeStore[SFNExecution](srv.DB(), "sfn_executions"), sfnExecutionChanges)
+	sfnExecutions = sim.Announcing(sim.MakeStore[SFNExecution](srv.DB(), "sfn_executions"), sfnExecutionChanges)
 	sfnHistories = sim.MakeStore[[]sfnHistoryEvent](srv.DB(), "sfn_execution_histories")
 
 	r.Register("AWSStepFunctions.CreateStateMachine", handleSFNCreateStateMachine)
@@ -119,7 +120,7 @@ func registerStepFunctions(r *AWSRouter, srv *sim.Server) {
 	// Activities — named task-poll resources with an ARN, plus the
 	// task-token lifecycle GetActivityTask/SendTask* manage.
 	sfnActivities = sim.MakeStore[SFNActivity](srv.DB(), "sfn_activities")
-	sfnActivityTasks = sim.MakeStore[SFNActivityTask](srv.DB(), "sfn_activity_tasks")
+	sfnActivityTasks = sim.Announcing(sim.MakeStore[SFNActivityTask](srv.DB(), "sfn_activity_tasks"), sfnActivityTaskChanges)
 	r.Register("AWSStepFunctions.CreateActivity", handleSFNCreateActivity)
 	r.Register("AWSStepFunctions.DeleteActivity", handleSFNDeleteActivity)
 	r.Register("AWSStepFunctions.DescribeActivity", handleSFNDescribeActivity)
@@ -1798,6 +1799,9 @@ type SFNActivityTask struct {
 var (
 	sfnActivities    sim.Store[SFNActivity]
 	sfnActivityTasks sim.Store[SFNActivityTask]
+	// sfnActivityTaskChanges announces a task token when the store writes
+	// its task: a worker taking it, a heartbeat, a result.
+	sfnActivityTaskChanges = signals.New[string]()
 )
 
 func handleSFNCreateActivity(w http.ResponseWriter, r *http.Request) {
@@ -1927,9 +1931,8 @@ func handleSFNGetActivityTask(w http.ResponseWriter, r *http.Request) {
 	sim.DeclareWait(r.Context(), sfnActivityTaskPollLimit)
 	deadline := time.NewTimer(sfnActivityTaskPollLimit)
 	defer deadline.Stop()
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
 	for {
+		scheduled := sfnActivityTaskChanges.Any()
 		sfnMu.Lock()
 		for _, task := range sfnActivityTasks.List() {
 			if task.ActivityArn == req.ActivityArn && task.Status == "SCHEDULED" {
@@ -1951,7 +1954,7 @@ func handleSFNGetActivityTask(w http.ResponseWriter, r *http.Request) {
 		case <-deadline.C:
 			sfnWriteJSON(w, http.StatusOK, map[string]any{})
 			return
-		case <-ticker.C:
+		case <-scheduled:
 		}
 	}
 }

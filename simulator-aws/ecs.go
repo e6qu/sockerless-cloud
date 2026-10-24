@@ -18,6 +18,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/placement"
+	"github.com/e6qu/sockerless-cloud/sim/signals"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 
@@ -412,7 +413,7 @@ var (
 	// so nothing is associated); a nil one panicked in the middle of serving.
 	ecsTasks sim.Store[ECSTask] = sim.NewStateStore[ECSTask]()
 	// ecsTaskChanges wakes a waiter on a task when the store writes it.
-	ecsTaskChanges = newStoreChanges()
+	ecsTaskChanges = signals.New[string]()
 	// ecsRevisionMu guards the task-definition revision index. Resolving a
 	// revision is a read on the hot path of every describe and every task
 	// start; registering one is the write. Reads take RLock, writes keep Lock,
@@ -611,7 +612,7 @@ func registerECS(r *AWSRouter, srv *sim.Server) {
 	// Read in bulk by every ListTaskDefinitions and ListTaskDefinitionFamilies,
 	// so the rows stay in memory rather than each call decoding them all.
 	ecsTaskDefinitions = sim.MakeCachedStore[ECSTaskDefinition](srv.DB(), "ecs_task_definitions")
-	ecsTasks = announcing(sim.MakeStore[ECSTask](srv.DB(), "ecs_tasks"), ecsTaskChanges)
+	ecsTasks = sim.Announcing(sim.MakeStore[ECSTask](srv.DB(), "ecs_tasks"), ecsTaskChanges)
 	ecsManagedVolumeOwners = sim.MakeStore[ecsManagedVolumeOwner](srv.DB(), "ecs_managed_volume_owners")
 	ecsBackgroundServer = srv
 	kvstore.StartSweeper(srv, "Amazon ECS stopped task retention", storeSweepInterval, func(now time.Time) { ecsSweepStoppedTasks(now) })
@@ -668,17 +669,20 @@ func registerECS(r *AWSRouter, srv *sim.Server) {
 			return
 		}
 
-		// Poll for the container handle — it may not be stored yet if the
-		// Docker container is still starting (async after RUNNING state).
+		// Wait while the task starts: it stores its container handles before
+		// it reports RUNNING, and a task that settled without them has none.
 		var handle placement.Handle
-		for i := 0; i < 20; i++ {
+		if err := ecsTaskChanges.Await(r.Context(), taskID, func() bool {
 			if v, ok := ecsProcessHandles.Load(taskID); ok {
 				if procs, ok := v.(*ecsTaskProcesses); ok {
 					handle = procs.firstHandle()
 				}
-				break
+				return true
 			}
-			time.Sleep(250 * time.Millisecond)
+			task, ok := ecsTasks.Get(taskID)
+			return !ok || task.LastStatus == ECSTaskStatusRunning || task.LastStatus == ECSTaskStatusStopped
+		}); err != nil {
+			return
 		}
 		if handle == nil {
 			http.Error(w, "no running container for task "+taskID, http.StatusNotFound)
@@ -1989,6 +1993,9 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 			// Containers are actually running. Report RUNNING and wire up
 			// lifecycle waits. Store handles before marking RUNNING so any
 			// concurrent observer that sees RUNNING also sees handles.
+			if processes != nil {
+				ecsProcessHandles.Store(id, processes)
+			}
 			now := ecsEpochSeconds()
 			ecsTasks.Update(id, func(t *ECSTask) {
 				t.LastStatus = ECSTaskStatusRunning
@@ -2006,7 +2013,6 @@ func runECSTasks(ctx context.Context, in ecsRunTaskInput) ([]ECSTask, []ecsFailu
 			fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: RUNNING %s\n", id, phases.Summary())
 			ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, -1, 1)
 			if processes != nil {
-				ecsProcessHandles.Store(id, processes)
 				ecsWatchTaskProcesses(id, containerInstanceKey, processes)
 			}
 			if task, ok := ecsTasks.Get(id); ok {
@@ -2286,6 +2292,9 @@ func ecsResumePendingTask(ctx context.Context, task ECSTask, definition ECSTaskD
 	}
 	startedAt := ecsEpochSeconds()
 	fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: RUNNING (resumed after restart) %s\n", taskID, phases.Summary())
+	if processes != nil {
+		ecsProcessHandles.Store(taskID, processes)
+	}
 	ecsTasks.Update(taskID, func(current *ECSTask) {
 		current.LastStatus = ECSTaskStatusRunning
 		current.Connectivity = "CONNECTED"
@@ -2299,7 +2308,6 @@ func ecsResumePendingTask(ctx context.Context, task ECSTask, definition ECSTaskD
 	})
 	ecsUpdateContainerInstanceTaskCounts(containerInstanceKey, -1, 1)
 	if processes != nil {
-		ecsProcessHandles.Store(taskID, processes)
 		ecsWatchTaskProcesses(taskID, containerInstanceKey, processes)
 	}
 	if current, ok := ecsTasks.Get(taskID); ok {
@@ -3721,22 +3729,14 @@ func handleECSExecuteCommand(srv *sim.Server) http.HandlerFunc {
 
 		sessionID := sim.NewUUID()
 
-		// Store the session
-		// Look up the Docker container ID for this task. Because RUNNING is now
-		// reported only after the container handle is stored, a brief grace
-		// poll is enough to cover the tiny window between the store and the
-		// status update on extremely loaded runners.
+		// A task reports RUNNING only once its container handles are stored.
 		var dockerContainerID string
-		for i := 0; i < 10; i++ {
-			if v, ok := ecsProcessHandles.Load(taskID); ok {
-				if procs, ok := v.(*ecsTaskProcesses); ok {
-					if handle := procs.handleFor(container.Name); handle != nil {
-						dockerContainerID = handle.ID()
-						break
-					}
+		if v, ok := ecsProcessHandles.Load(taskID); ok {
+			if procs, ok := v.(*ecsTaskProcesses); ok {
+				if handle := procs.handleFor(container.Name); handle != nil {
+					dockerContainerID = handle.ID()
 				}
 			}
-			time.Sleep(100 * time.Millisecond)
 		}
 		if dockerContainerID == "" {
 			AWSError(w, "TargetNotConnectedException",

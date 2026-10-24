@@ -98,7 +98,7 @@ func TestServiceBusRESTReceiveWaitsForAScheduledMessageAfterARestart(t *testing.
 	var rec sbQueueRecord
 	rec.Queue.Enqueue(sbPayload{Body: []byte("stored")}, msgq.EnqueueOpts{ID: "m", Delay: time.Second}, sbSettings("ns", "q").policy(), now)
 	sbQueueDurable.Put(sbQueueKey("ns", "q"), rec)
-	sbRearmAvailability(now)
+	sbArmStoredQueues()
 	got := sbRESTReceive(http.MethodDelete, "/q/messages/head?timeout=60")
 	if got.Code != http.StatusOK || got.Body.String() != "stored" {
 		t.Fatalf("receive = %d %q, want the stored scheduled message", got.Code, got.Body)
