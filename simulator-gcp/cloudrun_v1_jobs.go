@@ -529,6 +529,11 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
 		id, action, found := strings.Cut(sim.PathParam(r, "jobAction"), ":")
+		if !found && gcpServiceFromHost(r) != gcpServiceCloudRun {
+			// Cloud Scheduler's jobs.get shares the URI; it has no GET verb.
+			handleCSGetJob(w, r, id)
+			return
+		}
 		if !found || action != "getIamPolicy" {
 			// getIamPolicy is the whole of the Cloud Run Admin v1 jobs GET
 			// surface: anything else on that path is a method

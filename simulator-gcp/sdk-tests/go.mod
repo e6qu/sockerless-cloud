@@ -17,6 +17,7 @@ require (
 	cloud.google.com/go/redis v1.28.0
 	cloud.google.com/go/resourcemanager v1.18.0
 	cloud.google.com/go/run v1.24.0
+	cloud.google.com/go/scheduler v1.18.0
 	cloud.google.com/go/secretmanager v1.23.0
 	cloud.google.com/go/storage v1.70.0
 	github.com/e6qu/sockerless-cloud/testutil v0.1.0

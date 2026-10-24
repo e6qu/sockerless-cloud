@@ -83,3 +83,6 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `dataflow-audit-logging.md.gz` | `docs.cloud.google.com` | `dataflow/docs/audit-logging` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-24T11:23:20Z |
 | `iam-conditions-attribute-reference.md.gz` | `docs.cloud.google.com` | `iam/docs/conditions-attribute-reference` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-24T11:23:21Z |
 | `iam-conditions-resource-attributes.md.gz` | `docs.cloud.google.com` | `iam/docs/conditions-resource-attributes` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-24T11:23:23Z |
+| `cloudscheduler-v1.discovery.json.gz` | `cloudscheduler.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261004` | 2026-10-24T18:33:06Z |
+| `scheduler-retry-jobs.md.gz` | `docs.cloud.google.com` | `scheduler/docs/configuring/retry-jobs` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-24T18:34:24Z |
+| `scheduler-cron-job-schedules.md.gz` | `docs.cloud.google.com` | `scheduler/docs/configuring/cron-job-schedules` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-24T18:34:33Z |

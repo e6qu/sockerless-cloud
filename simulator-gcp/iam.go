@@ -2616,6 +2616,7 @@ var gcpAuditableServices = []string{
 	"cloudfunctions.googleapis.com",
 	"cloudkms.googleapis.com",
 	"cloudresourcemanager.googleapis.com",
+	"cloudscheduler.googleapis.com",
 	"compute.googleapis.com",
 	"dataflow.googleapis.com",
 	"dns.googleapis.com",

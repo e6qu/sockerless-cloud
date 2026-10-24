@@ -89,6 +89,7 @@ func startGCPListeners(srv *sim.Server, cfg sim.Config) (func(context.Context) e
 	spannerBackupScheduleTicker().Start(srv, "Cloud Spanner backup schedules", 30*time.Second)
 	srv.StartBackground("Pub/Sub dead-letter sweeper", pubsubDeadLetterSweeper)
 	startPubSubPush(srv)
+	startCloudScheduler(srv)
 	resumeCloudRunWorkloads()
 	return func(context.Context) error {
 		gcpStopPlacement(cfg.Persist)
@@ -192,6 +193,7 @@ func buildSimulator(cfg sim.Config) (*sim.Server, error) {
 	registerComputeMore3(srv)
 	registerComputePacketMirroring(srv)
 	registerVPCAccess(srv)
+	registerCloudScheduler(srv)
 	registerIAM(srv)
 	registerOAuth2(srv)
 	registerSTS(srv)

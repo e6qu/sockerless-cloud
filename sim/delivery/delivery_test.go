@@ -132,6 +132,34 @@ func TestDispatcherEndsOnExhaustionRejectionAndAge(t *testing.T) {
 	}
 }
 
+func TestPolicyBothLimitsRetriesUntilEachLimitIsReached(t *testing.T) {
+	cases := []struct {
+		name     string
+		policy   Policy
+		attempts int
+		age      time.Duration
+		reason   Reason
+		done     bool
+	}{
+		{"either: attempts", Policy{MaxAttempts: 2, MaxAge: time.Hour}, 2, time.Second, AttemptsExhausted, true},
+		{"either: retry", Policy{MaxAttempts: 2}, 1, time.Hour, AttemptsExhausted, false},
+		{"both: no limits ends at once", Policy{BothLimits: true}, 1, 0, AttemptsExhausted, true},
+		{"both: count alone", Policy{MaxAttempts: 3, BothLimits: true}, 2, time.Hour, AttemptsExhausted, false},
+		{"both: count reached", Policy{MaxAttempts: 3, BothLimits: true}, 3, 0, AttemptsExhausted, true},
+		{"both: age alone", Policy{MaxAttempts: 1, MaxAge: time.Minute, BothLimits: true}, 5, time.Second, AgeExceeded, false},
+		{"both: age reached", Policy{MaxAttempts: 1, MaxAge: time.Minute, BothLimits: true}, 5, time.Minute, AgeExceeded, true},
+		{"both: age reached, count left", Policy{MaxAttempts: 4, MaxAge: time.Minute, BothLimits: true}, 2, time.Hour, AgeExceeded, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			reason, done := c.policy.exhausted(c.attempts, c.age)
+			if done != c.done || (done && reason != c.reason) {
+				t.Fatalf("exhausted(%d, %v) = %s, %v; want %s, %v", c.attempts, c.age, reason, done, c.reason, c.done)
+			}
+		})
+	}
+}
+
 func TestDispatcherResumesPersistedDeliveries(t *testing.T) {
 	store := sim.NewStateStore[Item[payload]]()
 	store.Put("carried", Item[payload]{

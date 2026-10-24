@@ -19,6 +19,7 @@ require (
 	cloud.google.com/go/redis v1.28.0
 	cloud.google.com/go/resourcemanager v1.18.0
 	cloud.google.com/go/run v1.24.0
+	cloud.google.com/go/scheduler v1.18.0
 	cloud.google.com/go/secretmanager v1.23.0
 	cloud.google.com/go/serviceusage v1.16.0
 	cloud.google.com/go/spanner v1.96.1
