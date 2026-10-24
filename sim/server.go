@@ -29,7 +29,11 @@ import (
 type Server struct {
 	config Config
 	logger zerolog.Logger
-	mux    *http.ServeMux
+	// ephemeralPayloads are the payload directories a server that does not
+	// persist made in the system's temporary directory, removed when it stops.
+	ephemeralMu       sync.Mutex
+	ephemeralPayloads []string
+	mux               *http.ServeMux
 	// routed is the routing core: the mux plus the middlewares that must run
 	// after a request has been claimed. WrapHandler wraps this, so a
 	// host-addressed data plane intercepts ahead of the generic path handlers
@@ -464,7 +468,22 @@ func (s *Server) stopBackground() {
 // caller that builds a server without serving on it — a test exercising one
 // registered subsystem, say — has to do it explicitly, or those workers keep
 // running against package-level state after the caller is finished with it.
-func (s *Server) StopBackground() { s.stopBackground() }
+func (s *Server) StopBackground() {
+	s.stopBackground()
+	s.removeEphemeralPayloads()
+}
+
+func (s *Server) removeEphemeralPayloads() {
+	s.ephemeralMu.Lock()
+	dirs := s.ephemeralPayloads
+	s.ephemeralPayloads = nil
+	s.ephemeralMu.Unlock()
+	for _, dir := range dirs {
+		if err := os.RemoveAll(dir); err != nil {
+			s.logger.Warn().Err(err).Str("dir", dir).Msg("shutdown: remove the payload store")
+		}
+	}
+}
 
 // OnStop registers what shutdown runs after the HTTP server has drained and
 // the background workers have returned, while the database is still open: the
@@ -645,6 +664,7 @@ func (s *Server) Serve() error {
 	closeErr := CloseDB(s.db)
 	s.logger.Info().Dur("took", time.Since(started)).Msg("shutdown: database closed")
 	s.db = nil
+	s.removeEphemeralPayloads()
 	return errors.Join(err, closeErr)
 }
 

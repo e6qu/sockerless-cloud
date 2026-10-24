@@ -4933,3 +4933,13 @@ accepted the create, so the client returned the context's error and no
 identifier, and Discard had nothing to remove. A create that fails because its
 context ended now removes the container the engine may have made under the
 workload's name, as a failed start or seed already did.
+
+### A server that does not persist removes its payload stores
+
+A server without `Persist` kept each payload store (Amazon S3, Cloud Storage,
+Azure Blob Storage, Memorystore backups) in a fresh temporary directory and
+never removed it, so every unit-test server and every simulator run left its
+bytes in the system's temporary directory; a long session accumulated over a
+thousand. The server now records those directories and removes them when it
+stops, at the end of `Serve`'s shutdown after the database closes, and in
+`StopBackground`, which a server built without serving stops through.

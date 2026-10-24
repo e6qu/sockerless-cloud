@@ -11,7 +11,7 @@ import (
 
 // Payloads returns the payload store called name. A persistent server keeps it
 // beside its database, so a restart serves the same bytes; otherwise it lives
-// as long as the process, like the in-memory stores.
+// in a temporary directory the server removes when it stops.
 func (s *Server) Payloads(name string) (*blobstore.Payloads, error) {
 	if strings.ContainsAny(name, `/\`) || name == "" || name == "." || name == ".." {
 		return nil, fmt.Errorf("payload store name %q is not a single path element", name)
@@ -25,6 +25,9 @@ func (s *Server) Payloads(name string) (*blobstore.Payloads, error) {
 			return nil, fmt.Errorf("payload store %s: %w", name, err)
 		}
 		dir = temp
+		s.ephemeralMu.Lock()
+		s.ephemeralPayloads = append(s.ephemeralPayloads, temp)
+		s.ephemeralMu.Unlock()
 	}
 	return blobstore.OpenPayloads(dir)
 }
