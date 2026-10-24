@@ -390,10 +390,8 @@ type RPCStatus struct {
 	Message string `json:"message,omitempty"`
 }
 
-// Condition represents a status condition on a resource. State is
-// proto-JSON: real run/apiv2 REST clients serialize the enum as a
-// number on PATCH (e.g. `"state": 2` for CONDITION_SUCCEEDED), so
-// enumString accepts both forms.
+// Condition represents a status condition on a resource; run/apiv2 REST
+// clients send its state as a number.
 // Condition carries three reason fields, each with its own enum in the
 // Discovery document. Those enums are not exhaustive for `reason`: gcloud's
 // own cancellation poller reads condition["reason"] and compares it to the
@@ -401,13 +399,13 @@ type RPCStatus struct {
 // sends values the document does not list. The simulator answers what the real
 // client expects, and the spec validator skips this field for that reason.
 type Condition struct {
-	Type               string     `json:"type"`
-	State              enumString `json:"state"`
-	Message            string     `json:"message,omitempty"`
-	LastTransitionTime string     `json:"lastTransitionTime,omitempty"`
-	Reason             string     `json:"reason,omitempty"`
-	ExecutionReason    string     `json:"executionReason,omitempty"`
-	RevisionReason     string     `json:"revisionReason,omitempty"`
+	Type               string                       `json:"type"`
+	State              protoEnum[runConditionState] `json:"state"`
+	Message            string                       `json:"message,omitempty"`
+	LastTransitionTime string                       `json:"lastTransitionTime,omitempty"`
+	Reason             string                       `json:"reason,omitempty"`
+	ExecutionReason    string                       `json:"executionReason,omitempty"`
+	RevisionReason     string                       `json:"revisionReason,omitempty"`
 }
 
 // Operation represents a long-running operation. Kind and SelfLink are the two
@@ -1395,8 +1393,8 @@ func concludeCloudRunJobExecution(execName string, taskCount int32, project, job
 			message = cloudRunExecutionFailureMessage(*e)
 		}
 		e.Conditions = []Condition{
-			{Type: "Ready", State: enumString(state), LastTransitionTime: completionTime, Reason: reason, Message: message},
-			{Type: "Completed", State: enumString(state), LastTransitionTime: completionTime, Reason: reason, Message: message},
+			{Type: "Ready", State: protoEnum[runConditionState](state), LastTransitionTime: completionTime, Reason: reason, Message: message},
+			{Type: "Completed", State: protoEnum[runConditionState](state), LastTransitionTime: completionTime, Reason: reason, Message: message},
 		}
 		e.Reconciling = false
 		e.Etag = sim.NewUUID()
@@ -1433,7 +1431,7 @@ func concludeCloudRunJobExecution(execName string, taskCount int32, project, job
 			t.CompletionTime = completionTime
 			t.Conditions = []Condition{
 				{Type: "Started", State: "CONDITION_SUCCEEDED", LastTransitionTime: completionTime},
-				{Type: "Completed", State: enumString(taskState), LastTransitionTime: completionTime, Reason: taskReason},
+				{Type: "Completed", State: protoEnum[runConditionState](taskState), LastTransitionTime: completionTime, Reason: taskReason},
 			}
 			t.LastAttemptResult = &TaskAttemptResult{
 				Status:   attemptStatus,

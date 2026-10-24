@@ -4943,3 +4943,19 @@ bytes in the system's temporary directory; a long session accumulated over a
 thousand. The server now records those directories and removes them when it
 stops, at the end of `Serve`'s shutdown after the database closes, and in
 `StopBackground`, which a server built without serving stops through.
+
+### Google Cloud enums sent as numbers read back as names
+
+The REST transport of Google's Go clients sends an enum as its proto number,
+and the API answers with its name. The simulator kept a number it received as
+its digits, so a Cloud Run service's `scalingMode`, `executionEnvironment` and
+`encryptionKeyRevocationAction`, an instance's `restartPolicy`, a condition's
+`state` and a function's `environment` read back as `"2"`, and code comparing
+`scalingMode` to `MANUAL` never matched one set through a Go client. Cloud
+Functions refused `vpcConnectorEgressSettings` and `ingressSettings` sent as
+numbers outright. One table-driven `protoEnum` type now maps each number
+through the enum's declared values, taken from the Go SDK's descriptors or the
+Discovery document's enum order, treats zero as unset and refuses a number the
+enum does not declare. Two SDK tests expected what no client would see:
+logadmin unescapes the `%2F` in a `LogName` it returns, and DeleteLog writes
+an Admin Activity audit entry, so the audit log is listed afterwards.

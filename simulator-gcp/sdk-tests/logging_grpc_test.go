@@ -95,9 +95,11 @@ func TestCloudLogging_GRPC_ListLogsAndDeleteLog(t *testing.T) {
 	require.Equal(t, doomed, entry.GetLogName())
 	require.Equal(t, "doomed entry", entry.GetTextPayload())
 
-	// DeleteLog removes the log's entries, so the log stops being listed.
+	// DeleteLog removes the log's entries, so the log stops being listed, and
+	// writes its own Admin Activity audit entry, so the audit log is.
 	require.NoError(t, c.DeleteLog(ctx, &loggingpb.DeleteLogRequest{LogName: doomed}))
-	require.Equal(t, []string{kept}, loggingListLogNames(t, c, parent))
+	audit := parent + "/logs/cloudaudit.googleapis.com%2Factivity"
+	require.Equal(t, []string{audit, kept}, loggingListLogNames(t, c, parent))
 
 	_, err = c.ListLogEntries(ctx, &loggingpb.ListLogEntriesRequest{
 		ResourceNames: []string{parent},
@@ -108,7 +110,7 @@ func TestCloudLogging_GRPC_ListLogsAndDeleteLog(t *testing.T) {
 	// The log reappears when it receives a new entry, exactly as Cloud Logging
 	// documents.
 	loggingWriteTextEntry(t, c, doomed, "written again")
-	require.Equal(t, []string{doomed, kept}, loggingListLogNames(t, c, parent))
+	require.Equal(t, []string{audit, doomed, kept}, loggingListLogNames(t, c, parent))
 
 	// Deleting a log that holds nothing is not an error; a log resource that
 	// holds no entries does not exist to be missed.

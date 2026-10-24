@@ -139,8 +139,9 @@ func TestCloudRun_RunJobStderrLineLandsInTheStderrLog(t *testing.T) {
 		require.NoError(t, err)
 		logs[entry.Payload.(string)] = entry.LogName
 	}
+	// logadmin unescapes the log id's %2F in the LogName it returns.
 	assert.Equal(t, map[string]string{
-		marker:          "projects/test-project/logs/run.googleapis.com%2Fstderr",
-		marker + "-out": "projects/test-project/logs/run.googleapis.com%2Fstdout",
+		marker:          "projects/test-project/logs/run.googleapis.com/stderr",
+		marker + "-out": "projects/test-project/logs/run.googleapis.com/stdout",
 	}, logs)
 }

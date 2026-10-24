@@ -16,16 +16,16 @@ import (
 
 // Function represents a Cloud Functions v2 function.
 type Function struct {
-	Name          string            `json:"name"`
-	Description   string            `json:"description,omitempty"`
-	BuildConfig   *BuildConfig      `json:"buildConfig,omitempty"`
-	ServiceConfig *ServiceConfig    `json:"serviceConfig,omitempty"`
-	State         string            `json:"state"`
-	CreateTime    string            `json:"createTime"`
-	UpdateTime    string            `json:"updateTime"`
-	Labels        map[string]string `json:"labels,omitempty"`
-	Environment   enumString        `json:"environment,omitempty"`
-	URL           string            `json:"url,omitempty"`
+	Name          string                          `json:"name"`
+	Description   string                          `json:"description,omitempty"`
+	BuildConfig   *BuildConfig                    `json:"buildConfig,omitempty"`
+	ServiceConfig *ServiceConfig                  `json:"serviceConfig,omitempty"`
+	State         string                          `json:"state"`
+	CreateTime    string                          `json:"createTime"`
+	UpdateTime    string                          `json:"updateTime"`
+	Labels        map[string]string               `json:"labels,omitempty"`
+	Environment   protoEnum[functionsEnvironment] `json:"environment,omitempty"`
+	URL           string                          `json:"url,omitempty"`
 	// UpgradeInfo carries the 1st-Gen→2nd-Gen migration state. It is
 	// populated only for functions an upgrade-lifecycle verb has touched;
 	// the upgrade colon-verbs transition upgradeInfo.upgradeState.
@@ -61,14 +61,14 @@ type ServiceConfig struct {
 	// VpcConnector names a Serverless VPC Access connector as
 	// projects/*/locations/*/connectors/*; VpcConnectorEgressSettings is
 	// PRIVATE_RANGES_ONLY or ALL_TRAFFIC.
-	VpcConnector               string `json:"vpcConnector,omitempty"`
-	VpcConnectorEgressSettings string `json:"vpcConnectorEgressSettings,omitempty"`
+	VpcConnector               string                                 `json:"vpcConnector,omitempty"`
+	VpcConnectorEgressSettings protoEnum[functionsVPCConnectorEgress] `json:"vpcConnectorEgressSettings,omitempty"`
 	// AllTrafficOnLatestRevision + IngressSettings carry provider defaults
 	// (true / ALLOW_ALL); the read-back must echo them or terraform-provider-
 	// google plans an in-place service_config update on every refresh.
-	AllTrafficOnLatestRevision *bool             `json:"allTrafficOnLatestRevision,omitempty"`
-	IngressSettings            string            `json:"ingressSettings,omitempty"`
-	EnvironmentVariables       map[string]string `json:"environmentVariables,omitempty"`
+	AllTrafficOnLatestRevision *bool                       `json:"allTrafficOnLatestRevision,omitempty"`
+	IngressSettings            protoEnum[functionsIngress] `json:"ingressSettings,omitempty"`
+	EnvironmentVariables       map[string]string           `json:"environmentVariables,omitempty"`
 }
 
 // storedServiceConfig is the persisted/request-side ServiceConfig. It embeds
