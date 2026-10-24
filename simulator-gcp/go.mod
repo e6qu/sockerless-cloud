@@ -27,7 +27,7 @@ require (
 	github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da
 	github.com/distribution/reference v0.6.0
 	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261024202830-cbdfb24ec44f
-	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261015114713-b9f0cc68a078
+	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261024204221-18c159cbeb4a
 	github.com/hamba/avro/v2 v2.31.0
 	github.com/klauspost/compress v1.20.3
 	github.com/miekg/dns v1.1.73
