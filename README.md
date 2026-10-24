@@ -60,18 +60,14 @@ Full statement and rationale in [AGENTS.md → Simulator architecture — cloud-
 ## Quick start — all three at once
 
 ```sh
-docker compose up
-```
-
-This builds and starts all three simulators on their default ports with health checks.
-
-Equivalent without compose:
-
-```sh
 (cd simulator-aws && go run . &)
 (cd simulator-gcp && go run . &)
 (cd simulator-azure && go run . &)
 ```
+
+Each starts on its default port and prints `Listening on` once the port
+answers. The release images run the same way, with the engine socket mounted
+(see Install).
 
 Environment knobs (per sim — full list in each sub-README):
 
@@ -83,6 +79,7 @@ Environment knobs (per sim — full list in each sub-README):
 | `SIM_CALLBACK_LISTEN_ADDR` | a free port on every interface | With TLS on, the plain-HTTP address the simulator also serves on for the workloads it places: their network sidecars forward instance metadata and identity requests there, which a container reaches without the operator's certificate authority. Without TLS the one listener serves everything. |
 | `SIM_RUNTIME` | `docker` | Workload runtime mode. The default initializes Docker/Podman for execution. Set `process` only for explicit API-only runs that do not invoke workload-execution APIs. |
 | `SIM_PERSIST` | `false` | `true` keeps state, payloads and running workloads across restarts. |
+| `SIM_PLACEMENT` | unset | Per-service placement, `service[:qualifier]=container\|microvm` comma-separated. Every service unnamed runs on containers; a microVM service starts a node agent, which needs a Linux engine with `/dev/kvm`. |
 | `SIM_DATA_DIR` | temporary directory | Root of the SQLite store and the bulk-data directories. |
 | `SIM_SERVICEBUS_AMQP_LISTEN_ADDR` | unset | Azure-only raw Service Bus AMQP/TLS listener; requires `SIM_SERVICEBUS_AMQP_TLS_CERT` / `SIM_SERVICEBUS_AMQP_TLS_KEY` or the shared TLS cert/key |
 | `SIM_LOG_LEVEL` | `info` | Log level (`trace`, `debug`, `info`, `warn`, `error`) |
@@ -174,8 +171,7 @@ each simulator's `docs/terraform.md` shows how a client trusts it.
 A session that drives all three simulators with their real clients:
 
 ```sh
-# 1. Start all three simulators
-docker compose up -d
+# 1. Start all three simulators (see Quick start)
 
 # 2. Drive each one with its real reference adaptor
 export AWS_ENDPOINT_URL=http://localhost:4566 AWS_REGION=us-east-1 \
@@ -255,7 +251,7 @@ Discovery documents, Azure Swagger):
 
 The three simulators are built on one framework module, [`sim/`](sim/README.md)
 (`github.com/e6qu/sockerless-cloud/sim`), pinned by each simulator like the
-the other support module (`ui-auth/`): the HTTP server and its
+other support module, `ui-auth/`: the HTTP server and its
 console and monitoring routes, the container-engine layer every workload runs
 on, durable state on SQLite, the OCI Distribution data plane the registries
 mount, request logging and tracing, and the bounds-safe parsing primitives.
@@ -271,13 +267,13 @@ The simulators reimplement each service's semantics rather than approximating th
 - **Log injection** writes entries to the same tables and log groups that the real services would, queryable through the same APIs (KQL for Azure, Cloud Logging filters for GCP, CloudWatch for AWS).
 - **Exec and attach reach the real container.** Amazon ECS `ExecuteCommand` and the Azure App Service and Container Apps exec surfaces run their command inside the workload's own container through the engine's exec API, bridged over the same WebSocket protocol the real service uses.
 
-Each simulator runs on a single machine.
+Each simulator and its node agents run on a single machine.
 
-## Workload execution — host model
+## Workload execution
 
-Every execution-service (ECS, Lambda, Cloud Run, Cloud Functions, Cloud Run Jobs, ACA, App Service / AZF) runs the workload on a **Docker host** shaped per cloud-product. Workloads never run as `os/exec` host processes of the simulator binary itself — `simulator-<cloud>/sdk-tests/host_dispatch_test.go` enforces that distinction. The workload's architecture, read from the cloud resource that declares it, flows through `ContainerConfig.Architecture` to the engine's image-pull and container-create `Platform` option.
+Every compute service (Amazon EC2, Amazon ECS, AWS Lambda, AWS Batch, Compute Engine, Cloud Run, Cloud Run functions, Azure virtual machines, Container Apps, Container Instances, App Service, Azure Functions and the build services) runs its workloads on a placement backend: a container on the engine by default, or a Firecracker microVM on a node agent for the services `SIM_PLACEMENT` names. Workloads never run as `os/exec` host processes of the simulator binary — `simulator-<cloud>/sdk-tests/host_dispatch_test.go` enforces that — and the simulator process holds no host privilege. The workload's architecture, read from the cloud resource that declares it, reaches the engine's image pull and container create.
 
-The host model is stated in full in each simulator's README, beside the execution services it applies to.
+Each simulator's README states the model beside the execution services it applies to.
 
 Each workload streams stdout/stderr in real time into the cloud-native log sink:
 
@@ -290,7 +286,7 @@ Each workload streams stdout/stderr in real time into the cloud-native log sink:
 | Cloud Functions | Cloud Logging | `entries.list` / `ListLogEntries` |
 | Azure Functions | Log Analytics (AppTraces) | KQL via `QueryWorkspace` |
 
-The FaaS simulators (Lambda, Cloud Functions, Azure Functions) invoke the function image's own HTTP listener or Runtime API inside the container; nothing runs as a host process.
+AWS Lambda, Cloud Run functions and Azure Functions invoke the function image's own HTTP listener or Runtime API inside the container; nothing runs as a host process.
 
 ## ECS ExecuteCommand
 
@@ -319,7 +315,7 @@ Open simulator bugs live in [`BUGS.md`](BUGS.md); the tooling quirks that are no
 ## What's out of scope
 
 - **Cloud-side production deployments.** Simulators are for local development and CI. A production deployment talks to the real cloud endpoints; the point of the simulators is that the same client code reaches both.
-- **Multi-region / cross-region replication.** Each sim is single-region; multi-region routing belongs to real cloud infra.
+- **Multi-region deployments.** Each simulator serves one home Region; a few services (Amazon RDS DB instances and their backup replication) honour the Region a request is signed for.
 - **Published price sheets and vendor catalogs.** Google Cloud Billing's SKU catalog and the like are somebody else's published data; a partial copy would be fabrication, so those surfaces answer with what this installation publishes, which is nothing. Quota enforcement exists where a cloud enforces it (`SIM_GCP_CPU_QUOTA_PER_REGION` wires Cloud Run's regional CPU budget).
 - **Identity providers outside the simulator.** Every credential is verified — SigV4 signatures against the principal's stored secret, Google Cloud and Microsoft Entra bearers against the simulator's own signing keys — but the identities are the ones the simulator's IAM, Google Cloud IAM and Microsoft Entra slices minted. A real external identity provider is a coordinate the deployment supplies, not something the simulator stands in for.
 - **Outbound delivery to carriers and push services.** Amazon SNS SMS and mobile push need a telecommunications carrier or Apple's and Google's hosts, which no AWS API provisions; those deliveries fail naming the missing dependency.
