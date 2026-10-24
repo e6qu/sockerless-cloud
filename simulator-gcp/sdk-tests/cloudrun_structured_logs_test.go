@@ -27,11 +27,14 @@ func TestSDK_CloudRunV2Services_StructuredLogLine(t *testing.T) {
 	t.Parallel()
 	serviceID := uniqueName("v2-svc-json")
 	trace := fmt.Sprintf("projects/test-project/traces/%032x", uint64(mathrand.Uint32())<<32|uint64(mathrand.Uint32()))
+	// Cloud Logging discards an entry stamped before its bucket's retention,
+	// so the line's own time is recent.
+	stamped := time.Now().UTC().Add(-time.Minute).Truncate(time.Millisecond)
 	line, err := json.Marshal(map[string]any{
 		"severity":                              "warning",
 		"message":                               "structured hello",
 		"component":                             "test",
-		"time":                                  "2026-01-02T03:04:05.678Z",
+		"time":                                  stamped.Format("2006-01-02T15:04:05.000Z07:00"),
 		"logging.googleapis.com/labels":         map[string]string{"team": "sim", "tier": "web"},
 		"logging.googleapis.com/trace":          trace,
 		"logging.googleapis.com/spanId":         "000000000000004a",
@@ -98,7 +101,7 @@ func TestSDK_CloudRunV2Services_StructuredLogLine(t *testing.T) {
 	assert.Equal(t, int32(204), entry.GetHttpRequest().GetStatus())
 	assert.Equal(t, int64(7), entry.GetHttpRequest().GetResponseSize())
 	assert.Equal(t, 1500*time.Millisecond, entry.GetHttpRequest().GetLatency().AsDuration())
-	assert.Equal(t, "2026-01-02T03:04:05.678Z", entry.GetTimestamp().AsTime().Format("2006-01-02T15:04:05.000Z07:00"))
+	assert.True(t, stamped.Equal(entry.GetTimestamp().AsTime()), "the entry carries the line's time, %v", entry.GetTimestamp().AsTime())
 	assert.Equal(t, "projects/test-project/logs/run.googleapis.com%2Fstdout", entry.GetLogName())
 }
 
