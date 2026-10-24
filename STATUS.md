@@ -200,7 +200,9 @@ Current state of the sockerless-cloud repository.
   is authorized route by route in the namespace AWS publishes each action under
   (s3, s3express, s3-outposts, s3-object-lambda); DeleteBucketLifecycleConfiguration
   is tested as ungated because no vendored document declares its action. Each
-  control-plane resource has one tag set. The REST-gated services resolve their
+  control-plane resource has one tag set. A directory bucket's operations are
+  authorized as the s3express actions the S3 User Guide's table lists, on the
+  bucket's s3express ARN (BUG-3586 holds those it does not list). The REST-gated services resolve their
   keys from the request: Route 53's change-batch and VPC keys, AWS Batch's
   per-container job-definition keys, Amazon EFS's `Encrypted` and
   `CreateAction`, and the `apigateway:Request/` and `Resource/` keys of the

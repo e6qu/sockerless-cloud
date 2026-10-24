@@ -167,6 +167,9 @@ func s3AuthorizationTargets(r *http.Request, operation string, resources []strin
 		}
 		return targets
 	}
+	if targets, directory := s3ExpressAuthorizationTargets(r, operation); directory {
+		return targets
+	}
 	switch operation {
 	case "PutObject", "CreateMultipartUpload":
 		return append(on("PutObject", resources...), s3WriteSettingTargets(r, resources)...)

@@ -101,11 +101,15 @@ func s3IsExpressControlHost(host string) bool {
 // Both reach the regional control endpoint, so either signal identifies the
 // operation.
 func s3ServeListDirectoryBuckets(w http.ResponseWriter, r *http.Request) bool {
-	if !s3IsExpressControlHost(r.Host) && r.URL.Query().Get("x-id") != "ListDirectoryBuckets" {
+	if !s3IsListDirectoryBuckets(r) {
 		return false
 	}
 	handleS3ListDirectoryBuckets(w, r)
 	return true
+}
+
+func s3IsListDirectoryBuckets(r *http.Request) bool {
+	return s3IsExpressControlHost(r.Host) || r.URL.Query().Get("x-id") == "ListDirectoryBuckets"
 }
 
 // s3ListDirectoryBucketsResult is the listing's response body. Its buckets

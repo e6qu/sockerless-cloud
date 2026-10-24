@@ -379,8 +379,9 @@ simulator it runs from the workspace; the installable graph is CI's gate.
   keys name the request member they read, so one resolver serves them; other
   services register request-settled keys per service. A key is populated only
   where AWS's definition fixes its value, so AWS Glue's Lake Formation keys and
-  `s3:JobSuspendedCause` stay absent. A key counts as built only for a service
-  whose prefix the source composes or whose populator is registered.
+  `s3:JobSuspendedCause` stay absent. A key counts as built only where code
+  spells its whole name, or a table its populator writes under the service's
+  prefix names it; a bare word credits nothing.
 - **Each service's keys and tags are spelled as that service spells them.**
   Amazon RDS declares `rds:db-tag/`, `rds:cluster-tag/` and nine more per
   resource type and has no `rds:ResourceTag/`; IAM users and roles carry
@@ -4784,6 +4785,37 @@ that copy and hands the restored body back to the handler.
   `apigateway:Request/ProductRestEndpointPageEndpointPrefix` is classified: no
   request member carries an endpoint prefix. The portal, product, page and
   routing-rule ARNs carry the account, as the reference's formats do.
+
+### A declared key counts as built only where its whole name is written
+
+`TestIAM_DeclaredConditionKeysAreResolvedOrClassified` counted a key built
+when its bare name appeared anywhere in the package source and its service
+registered a populator, so a struct tag, a response field or a form parameter
+of the same word credited it, and nine keys no code built passed:
+`elasticfilesystem:AccessPointArn`, `events:PolicyName`, `s3:logType`,
+`s3express:LocationName`, `s3express:Permissions`, the two `s3express`
+encryption keys, `ssm:AccessRequestId` and `sts:AWSServiceName`. The scan
+reads the package's Go string literals through `go/ast`, leaves struct tags
+out, and credits a key only for a literal of its whole name or of a templated
+key's prefix, for an entry of a table a populator writes under one service
+prefix (`codeBuildConditionKeys`, the Amazon S3 header and query tables), or
+for the separator-led name the Amazon S3 namespaces compose. No credited key's
+literals all sit outside a write into a condition context.
+
+The stricter measure showed that a directory bucket's operations were
+authorized as s3 actions on the s3 ARN, so the s3express populator's
+CreateSession keys were never read. Directory-bucket operations are authorized
+in the s3express namespace on the bucket's s3express ARN, as the Amazon S3 User
+Guide's "Authenticating and authorizing requests" table lists them: the
+Regional operations as their own actions (an inventory delete as
+`PutInventoryConfiguration`), ListDirectoryBuckets as
+`ListAllMyDirectoryBuckets`, and CreateSession and the Zonal object operations
+as `s3express:CreateSession`, except that a Zonal request signed with a
+session is authorized by the session alone. A directory bucket's policy is held
+at its s3express ARN. CreateSession reads `s3express:SessionMode` and its two
+encryption headers, CreateBucket `s3express:LocationName`, and
+PutBucketInventoryConfiguration `s3express:InventoryAccessibleOptionalFields`.
+The other keys are classified, each with what the simulator would have to model.
 
 ### IAM condition tag lookups and the mux overlap scanner
 
