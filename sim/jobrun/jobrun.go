@@ -87,7 +87,8 @@ type Workload interface {
 	// reports how it ended.
 	Wait() Exit
 	// Stop asks the workload to stop, with the grace the cloud gives it;
-	// Wait then returns.
+	// Wait then returns. It may block for that grace: the execution calls it
+	// on a goroutine of its own, never under its lock.
 	Stop()
 }
 
@@ -492,7 +493,7 @@ func (e *Execution) stopRemainingLocked() {
 			at.stopped = true
 			at.cancel()
 			if at.workload != nil {
-				at.workload.Stop()
+				stopWorkload(at.workload)
 			}
 		}
 		e.changedLocked(i)
@@ -540,7 +541,7 @@ func (e *Execution) attemptStarted(i int, at *attempt, w Workload, err error) {
 	defer e.mu.Unlock()
 	if e.attempts[i] != at {
 		if w != nil {
-			w.Stop()
+			stopWorkload(w)
 		}
 		return
 	}
@@ -561,7 +562,7 @@ func (e *Execution) attemptStarted(i int, at *attempt, w Workload, err error) {
 		t.FirstStarted = t.Started
 	}
 	if at.stopped || at.taskExpired {
-		w.Stop()
+		stopWorkload(w)
 	} else {
 		e.armTimersLocked(t, at)
 	}
@@ -592,8 +593,16 @@ func (e *Execution) timedOut(i int, at *attempt, task bool) {
 	at.timedOut = true
 	at.taskExpired = at.taskExpired || task
 	if at.workload != nil {
-		at.workload.Stop()
+		stopWorkload(at.workload)
 	}
+}
+
+// stopWorkload stops w without waiting out its grace, so a cancel or a
+// timeout answers at once and the execution's lock stays free while the
+// workload stops. A drain must not drop the stop, or the workload would keep
+// running past its run.
+func stopWorkload(w Workload) {
+	bg.JoinedGo(w.Stop)
 }
 
 // watchAttempt waits on its own goroutine for the attempt's workload to exit,

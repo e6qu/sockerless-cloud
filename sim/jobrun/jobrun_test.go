@@ -431,3 +431,51 @@ func TestSpecValidation(t *testing.T) {
 		t.Error("Resume without an Adopt hook accepted")
 	}
 }
+
+// graceWorkload holds its Stop until the test releases it, as a container
+// that ignores SIGTERM holds a stop for its whole grace.
+type graceWorkload struct {
+	*fakeWorkload
+	stopping chan struct{}
+	release  chan struct{}
+}
+
+func (w *graceWorkload) Stop() {
+	close(w.stopping)
+	<-w.release
+	w.end(137)
+}
+
+func TestCancelAnswersBeforeTheWorkloadsGraceEnds(t *testing.T) {
+	h := newHarness(t)
+	w := &graceWorkload{fakeWorkload: newFakeWorkload(), stopping: make(chan struct{}), release: make(chan struct{})}
+	started := make(chan struct{})
+	h.startFn = func(context.Context, Task) (Workload, error) {
+		close(started)
+		return w, nil
+	}
+	e, err := Start(Spec{Tasks: 1}, h.hooks())
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	cancelled := make(chan struct{})
+	go func() {
+		e.Cancel()
+		close(cancelled)
+	}()
+	select {
+	case <-cancelled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Cancel waited for the workload's grace")
+	}
+	<-w.stopping
+	if c := e.Counts(); c.Cancelled != 1 {
+		t.Fatalf("counts while the workload stops = %+v, want 1 cancelled", c)
+	}
+	close(w.release)
+	awaitDone(t, e)
+	if tasks := e.Tasks(); tasks[0].Last == nil || tasks[0].Last.Code != 137 {
+		t.Errorf("task 0 last attempt = %+v, want the code it stopped with", tasks[0].Last)
+	}
+}
