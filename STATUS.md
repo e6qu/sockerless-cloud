@@ -28,7 +28,8 @@ The state of the sockerless-cloud repository. `PLAN.md` holds the roadmap,
   credentials through its cloud's own federation primitive.
 - **Docs.** `docs/so-you-want-to-build-a-cloud.md` explains what a cloud is
   made of: the core services in build order, the `sim` library behind each,
-  and what is still missing.
+  what is still missing, and how the simulators compare with LocalStack and
+  Floci.
 - **Specifications.** `specs/cloud-api/{aws,gcp,azure}` vendors the Smithy
   models, Discovery documents, Swagger documents, the AWS Service Reference
   and dated documentation pages, each row of a `SOURCES.md` pinned and

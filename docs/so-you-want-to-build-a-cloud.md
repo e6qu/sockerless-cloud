@@ -325,8 +325,8 @@ Where each one fits:
 - **LocalStack** offers the broadest commercial package: paid support, team
   features such as Cloud Pods, and per-tier services. Commercial use needs a
   paid plan.
-- **Floci** is the fast, MIT-licensed AWS stand-in with the widest AWS service
-  list of the three and a small native-image footprint. It runs more of AWS's
+- **Floci** is the fast, MIT-licensed AWS stand-in with a wide AWS service
+  list and a small native-image footprint. It runs more of AWS's
   heavy services on real engines than sockerless-cloud does today, Amazon
   ElastiCache among them (BUG-3732). Its compatibility tests check the SDK and
   IaC calls they exercise; by default it accepts any credentials.
