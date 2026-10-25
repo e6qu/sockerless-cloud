@@ -129,7 +129,7 @@ func handleGlueImportCatalogToGlue(w http.ResponseWriter, r *http.Request) {
 	now := glueEpochNow()
 	settings.ImportCompleted = true
 	settings.ImportTime = &now
-	settings.ImportedBy = "arn:aws:iam::123456789012:root"
+	settings.ImportedBy = awsCallerArn(r)
 	glueCatalogSettgs.Put(glueCatalogSettingsKey, settings)
 	glueWriteJSON(w, http.StatusOK, map[string]any{})
 }

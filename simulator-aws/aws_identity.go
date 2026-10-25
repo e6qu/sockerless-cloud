@@ -1,6 +1,9 @@
 package main
 
-import "os"
+import (
+	"net/http"
+	"os"
+)
 
 // AWS identity helpers. Real AWS reads the region from the endpoint
 // host (`<service>.<region>.amazonaws.com`) and the account from
@@ -21,6 +24,16 @@ func awsAccountID() string {
 		return a
 	}
 	return "123456789012"
+}
+
+// awsCallerArn is the principal a service records as a resource's creator or
+// modifier: the identity that signed the request, or the account root for the
+// simulator's own service credential.
+func awsCallerArn(r *http.Request) string {
+	if arn, _, ok := stsCallerIdentity(r); ok {
+		return arn
+	}
+	return "arn:aws:iam::" + awsAccountID() + ":root"
 }
 
 // awsAvailabilityZones lists the configured Region's Availability Zones.
