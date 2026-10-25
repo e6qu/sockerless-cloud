@@ -660,60 +660,6 @@ func registerECS(r *AWSRouter, srv *sim.Server) {
 		handleECSExecWebSocket(sessionID)(w, r)
 	})
 
-	// Archive upload endpoint: forward tar archive to the Docker container backing an ECS task
-	srv.HandleFunc("PUT /sockerless/tasks/{taskId}/archive", func(w http.ResponseWriter, r *http.Request) {
-		taskID := r.PathValue("taskId")
-		path := r.URL.Query().Get("path")
-		if path == "" {
-			http.Error(w, "missing path query parameter", http.StatusBadRequest)
-			return
-		}
-
-		// Wait while the task starts: it stores its container handles before
-		// it reports RUNNING, and a task that settled without them has none.
-		var handle placement.Handle
-		if err := ecsTaskChanges.Await(r.Context(), taskID, func() bool {
-			if v, ok := ecsProcessHandles.Load(taskID); ok {
-				if procs, ok := v.(*ecsTaskProcesses); ok {
-					handle = procs.firstHandle()
-				}
-				return true
-			}
-			task, ok := ecsTasks.Get(taskID)
-			return !ok || task.LastStatus == ECSTaskStatusRunning || task.LastStatus == ECSTaskStatusStopped
-		}); err != nil {
-			return
-		}
-		if handle == nil {
-			http.Error(w, "no running container for task "+taskID, http.StatusNotFound)
-			return
-		}
-
-		cli := sim.DockerClient()
-		if cli == nil {
-			http.Error(w, "docker client not available", http.StatusInternalServerError)
-			return
-		}
-
-		// Create target directory if it doesn't exist
-		mkdirExec, mkdirErr := cli.ExecCreate(r.Context(), handle.ID(), dockerclient.ExecCreateOptions{
-			Cmd: []string{"mkdir", "-p", path},
-		})
-		if mkdirErr == nil {
-			_, _ = cli.ExecStart(r.Context(), mkdirExec.ID, dockerclient.ExecStartOptions{})
-		}
-
-		_, err := cli.CopyToContainer(r.Context(), handle.ID(), dockerclient.CopyToContainerOptions{
-			DestinationPath:           path,
-			Content:                   r.Body,
-			AllowOverwriteDirWithFile: true,
-		})
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	})
 }
 
 func ecsRebuildRevisionIndex() {
