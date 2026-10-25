@@ -347,6 +347,19 @@ func handleCreateNatGateway(w http.ResponseWriter, r *http.Request) {
 	if connectivityType == "" {
 		connectivityType = "public"
 	}
+	// A gateway placed in a subnet is zonal, the default; a regional gateway
+	// spans the VPC's zones without one, which this simulator does not run.
+	availabilityMode := r.FormValue("AvailabilityMode")
+	switch availabilityMode {
+	case "", "zonal":
+		availabilityMode = "zonal"
+	case "regional":
+		ec2ErrorXML(w, "UnsupportedOperation", "Regional NAT gateways are not supported by this simulator.", http.StatusBadRequest)
+		return
+	default:
+		ec2ErrorXML(w, "InvalidParameterValue", fmt.Sprintf("Value (%s) for parameter availabilityMode is invalid.", availabilityMode), http.StatusBadRequest)
+		return
+	}
 	tags := parseTags(r)
 	id := ec2ID("nat")
 
@@ -377,6 +390,7 @@ func handleCreateNatGateway(w http.ResponseWriter, r *http.Request) {
 		VpcId:            vpcId,
 		State:            "available",
 		ConnectivityType: connectivityType,
+		AvailabilityMode: availabilityMode,
 		Tags:             tags,
 		NatGatewayAddresses: []EC2NatGatewayAddress{{
 			AllocationId:       allocId,
@@ -409,11 +423,12 @@ func handleCreateNatGateway(w http.ResponseWriter, r *http.Request) {
     <natGatewayId>%s</natGatewayId><subnetId>%s</subnetId>
     <vpcId>%s</vpcId><state>available</state>
     <connectivityType>%s</connectivityType>
+    <availabilityMode>%s</availabilityMode>
     %s
     <createTime>%s</createTime>
     %s
   </natGateway>
-</CreateNatGatewayResponse>`, ec2Xmlns(), sim.NewUUID(), id, subnetId, vpcId, connectivityType, natgwAddrSetXML(natgw.NatGatewayAddresses), natgw.CreateTime, writeTagSetXML(tags))
+</CreateNatGatewayResponse>`, ec2Xmlns(), sim.NewUUID(), id, subnetId, vpcId, connectivityType, availabilityMode, natgwAddrSetXML(natgw.NatGatewayAddresses), natgw.CreateTime, writeTagSetXML(tags))
 }
 
 // natgwAddrSetXML renders the natGatewayAddressSet shared by CreateNatGateway
@@ -453,12 +468,21 @@ func ec2NatConnectivityType(n EC2NatGateway) string {
 	return n.ConnectivityType
 }
 
+// ec2NatAvailabilityMode reads a gateway stored before the field existed as
+// zonal, which every gateway placed in a subnet is.
+func ec2NatAvailabilityMode(n EC2NatGateway) string {
+	if n.AvailabilityMode == "" {
+		return "zonal"
+	}
+	return n.AvailabilityMode
+}
+
 func natgwItemXML(n EC2NatGateway) string {
 	return fmt.Sprintf(`<item>
     <natGatewayId>%s</natGatewayId><subnetId>%s</subnetId><vpcId>%s</vpcId>
-    <state>%s</state><connectivityType>%s</connectivityType>%s<createTime>%s</createTime>
+    <state>%s</state><connectivityType>%s</connectivityType><availabilityMode>%s</availabilityMode>%s<createTime>%s</createTime>
     %s
-  </item>`, n.NatGatewayId, n.SubnetId, n.VpcId, n.State, ec2NatConnectivityType(n), natgwAddrSetXML(n.NatGatewayAddresses), n.CreateTime, writeTagSetXML(n.Tags))
+  </item>`, n.NatGatewayId, n.SubnetId, n.VpcId, n.State, ec2NatConnectivityType(n), ec2NatAvailabilityMode(n), natgwAddrSetXML(n.NatGatewayAddresses), n.CreateTime, writeTagSetXML(n.Tags))
 }
 
 func handleDescribeNatGateways(w http.ResponseWriter, r *http.Request) {

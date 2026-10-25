@@ -68,6 +68,7 @@ type EC2NatGateway struct {
 	VpcId               string
 	State               string
 	ConnectivityType    string
+	AvailabilityMode    string
 	Tags                []EC2Tag
 	NatGatewayAddresses []EC2NatGatewayAddress
 	CreateTime          string

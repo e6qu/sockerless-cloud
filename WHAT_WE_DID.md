@@ -642,6 +642,10 @@ balancers, certificates and scaling through the services' APIs as the
 infrastructure role; writing straight into another service's store skipped
 that service's rules.
 
+A NAT gateway reports its `availabilityMode`: terraform-provider-aws reads a
+zonal gateway's addresses only when the mode says zonal, so a gateway without it
+left `public_ip` empty.
+
 Every service that takes a role refuses one IAM does not hold or whose trust
 policy does not admit the service (`iamServiceTrustedRole`), and tests that
 had passed invented role ARNs create real roles. A trust policy's `Service`
@@ -715,6 +719,11 @@ simulator's view of each path, every change the simulator makes happens under
 one mutex, and a barrier makes each JSON API request wait for the events
 queued before it. Files open with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`
 (BUG-3084 holds the rest).
+
+Put Block List stores the blob's Content-MD5 only from `x-ms-blob-content-md5`
+and clears it otherwise, and its response `Content-MD5` covers the block list,
+as the Blob Storage specification states; storing the assembled blob's MD5 made
+azurerm's `content_md5` drift on every plan.
 
 A Cloud Storage bucket reports its `locationType` (multi-region,
 dual-region including the predefined pairs, or region), which a relocation

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/md5"
 	"encoding/base64"
 	"encoding/xml"
 	"fmt"
@@ -1572,8 +1573,22 @@ func handleCommitBlockList(w http.ResponseWriter, r *http.Request, account, cont
 		return
 	}
 	defer r.Body.Close()
+	listBody, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeStorageError(w, "InvalidInput", err.Error(), http.StatusBadRequest)
+		return
+	}
+	// Content-MD5 covers the block list itself, not the blob it assembles.
+	listMD5 := md5.Sum(listBody)
+	listMD5Base64 := base64.StdEncoding.EncodeToString(listMD5[:])
+	if stated := r.Header.Get("Content-MD5"); stated != "" && stated != listMD5Base64 {
+		writeStorageError(w, "Md5Mismatch",
+			"The MD5 value specified in the request did not match with the MD5 value calculated by the server.",
+			http.StatusBadRequest)
+		return
+	}
 	var req blockListRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := xml.Unmarshal(listBody, &req); err != nil {
 		writeStorageError(w, "InvalidXmlDocument",
 			"XML specified is not syntactically valid.", http.StatusBadRequest)
 		return
@@ -1666,7 +1681,6 @@ func handleCommitBlockList(w http.ResponseWriter, r *http.Request, account, cont
 		CreationTime:       blobNowHTTP(),
 		Metadata:           collectMetadata(r),
 		Tags:               parseBlobTagsHeader(r.Header.Get("x-ms-tags")),
-		ContentMD5:         digests.MD5Base64(),
 		Body:               assembled,
 		Size:               digests.Size,
 		AccessTier:         "Hot",
@@ -1675,7 +1689,7 @@ func handleCommitBlockList(w http.ResponseWriter, r *http.Request, account, cont
 	}
 	applyBlobHTTPHeaders(&committedBlob, r)
 	if committedBlob.ContentType == "" {
-		committedBlob.ContentType = r.Header.Get("Content-Type")
+		committedBlob.ContentType = "application/octet-stream"
 	}
 	if tier := r.Header.Get("x-ms-access-tier"); tier != "" {
 		committedBlob.AccessTier = tier
@@ -1686,7 +1700,9 @@ func handleCommitBlockList(w http.ResponseWriter, r *http.Request, account, cont
 	putBlobObject(committedBlob)
 	w.Header().Set("ETag", committedBlob.ETag)
 	w.Header().Set("Last-Modified", committedBlob.LastModified)
-	w.Header().Set("Content-MD5", committedBlob.ContentMD5)
+	if r.Header.Get("Content-MD5") != "" {
+		w.Header().Set("Content-MD5", listMD5Base64)
+	}
 	w.WriteHeader(http.StatusCreated)
 }
 
