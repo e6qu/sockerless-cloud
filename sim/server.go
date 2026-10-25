@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 	uiauth "github.com/e6qu/sockerless-cloud/ui-auth"
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -683,6 +684,12 @@ func (s *Server) Serve() error {
 	started := time.Now()
 	s.stopBackground()
 	s.logger.Info().Dur("took", time.Since(started)).Msg("shutdown: background workers returned")
+	// One-shot work a request or a loop handed to package bg (a job's
+	// attempt starting, a timer's callback) writes the stores when it ends,
+	// so it finishes, or is cancelled, before the database closes.
+	started = time.Now()
+	bg.Await()
+	s.logger.Info().Dur("took", time.Since(started)).Msg("shutdown: background work drained")
 	if s.stop != nil {
 		started = time.Now()
 		err = errors.Join(err, s.stop(context.Background()))

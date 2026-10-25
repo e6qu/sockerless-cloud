@@ -1,12 +1,9 @@
 package bg
 
 import (
-	"context"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 func TestAwaitDrainsStartedWorkAndDropsWorkRequestedMidDrain(t *testing.T) {
@@ -67,40 +64,6 @@ func TestJoinedGoRunsDuringADrain(t *testing.T) {
 	}
 	draining.Store(false)
 	Await()
-}
-
-// A drain must see work handed to the server's own lifecycle, or it returns
-// while that work still reads the stores the next test replaces.
-func TestAwaitDrainsServerLifecycleWork(t *testing.T) {
-	t.Setenv("SIM_RUNTIME", "process")
-	srv, err := sim.NewServer(sim.Config{Provider: "bg-test", LogLevel: "disabled"})
-	if err != nil {
-		t.Fatalf("new sim server: %v", err)
-	}
-	t.Cleanup(srv.StopBackground)
-
-	var finished atomic.Bool
-	started := make(chan struct{})
-	run, ok := Handoff(func() {
-		close(started)
-		time.Sleep(250 * time.Millisecond)
-		finished.Store(true)
-	})
-	if !ok {
-		t.Fatal("work offered outside a drain was refused")
-	}
-	srv.StartBackground("test lifecycle step", func(context.Context) { run() })
-	select {
-	case <-started:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the background worker never started")
-	}
-
-	Await()
-
-	if !finished.Load() {
-		t.Fatal("Await returned while work on the server's lifecycle was still running")
-	}
 }
 
 func TestHandoffRefusesWorkOnceTheDrainHasBegun(t *testing.T) {

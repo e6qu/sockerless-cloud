@@ -12,7 +12,9 @@
 // sim.Server.StartBackground and StopBackground; Handoff counts work handed to
 // that lifecycle.
 //
-// Nothing in production drains: Await is a test barrier. While a drain runs,
+// Await is a test barrier, and sim.Server's shutdown drains once, after the
+// HTTP server and the background loops have stopped and before the database
+// closes, so no work writes a store that is gone. While a drain runs,
 // work requested is dropped rather than started, because work chains — an
 // Amazon ECS reconciliation requests another whenever it moves a task — and a
 // drain that kept admitting it would wait on a group that never empties.
