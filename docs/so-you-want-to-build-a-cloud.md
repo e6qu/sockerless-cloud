@@ -299,6 +299,51 @@ Mechanisms two or three clouds still implement separately (`PLAN.md`, M3):
   Container Instances paths that still reach the engine directly.
 - The copy-paste gate lowered from 150 to 120 tokens, clearing what it finds.
 
+## How this compares with LocalStack and Floci
+
+LocalStack and Floci are the two best-known local AWS emulators, and both
+reach past AWS. The comparison below reflects their own documentation as of
+October 2026; both move quickly, so check each project's current pages before
+relying on a row.
+
+| | sockerless-cloud | LocalStack | Floci |
+|---|---|---|---|
+| **License and cost** | AGPL-3.0, no account or token | One image, which needs an account and an auth token since 23 March 2026; a free Hobby tier for non-commercial use, paid Base, Ultimate and Enterprise tiers for commercial use | MIT, no account or token |
+| **Clouds** | AWS, Google Cloud and Azure, one Go binary each | AWS; its site also lists Azure and Snowflake emulators | AWS (`floci`), with sibling emulators for Azure (`floci-az`), Google Cloud (`floci-gcp`) and Oracle Cloud (`floci-oci`) |
+| **Built with** | Go, on a shared `sim` framework | Python | Java on Quarkus, compiled to a GraalVM native image |
+| **Breadth** | Every operation of 42 vendored AWS Smithy models served or exempt; every method spelling of 33 Google Cloud Discovery documents routed; 2,653 of 2,660 Azure Swagger operations served | Broad AWS coverage; which services a user gets depends on the tier | Its site claims 126 AWS services; an independent review counted 85 in its service matrix |
+| **Contract** | The cloud's own specification, vendored; responses validated against it at run time; coverage ratchets in CI | Not stated in the pages consulted | "Real wire protocols"; compatibility tests (below) |
+| **Authentication** | SigV4 verified on every AWS request; an IAM gate authorizes every operation, always on | IAM enforcement off by default, enabled with `ENFORCE_IAM=1`; not on the Hobby tier | Any non-empty credentials by default; stricter checks opt-in per service |
+| **Heavy services** | Real engines: PostgreSQL, MySQL and MariaDB for the managed databases, Redis for Memorystore, containers or Firecracker microVMs for compute | Container-backed RDS and ECS from the Base tier, EKS from Ultimate | Real engines in containers: Lambda runtimes, RDS, ElastiCache on Valkey, DocumentDB on MongoDB, MSK on Redpanda, EKS on k3s, and more |
+| **Networks** | Each VPC, subnetwork or virtual network is an engine network over its own range, with the resolver and metadata at the addresses the cloud reserves | Not compared here | Not compared here |
+| **State** | Durable on SQLite by default; a restarted simulator adopts its workloads and resumes background work | Persistence and Cloud Pods from the Base tier | Four modes: memory, persistent, hybrid and write-ahead log |
+| **Tests** | Every operation through the official Go SDK, the vendor CLI and the Terraform provider, enforced by a pre-commit hook | Not compared here | 2,576 compatibility tests across five SDKs (Java, Node.js, Python, Go, AWS CLI) and three IaC tools (Terraform, OpenTofu, CDK) |
+| **Console** | One per cloud, reading only the cloud's real APIs, signing in through the cloud's own federation | A web application | `floci-ui` |
+
+Where each one fits:
+
+- **LocalStack** offers the broadest commercial package: paid support, team
+  features such as Cloud Pods, and per-tier services. Commercial use needs a
+  paid plan.
+- **Floci** is the fast, MIT-licensed AWS stand-in with the widest AWS service
+  list of the three and a small native-image footprint. It runs more of AWS's
+  heavy services on real engines than sockerless-cloud does today, Amazon
+  ElastiCache among them (BUG-3732). Its compatibility tests check the SDK and
+  IaC calls they exercise; by default it accepts any credentials.
+- **sockerless-cloud** is narrower per cloud and trades breadth for a contract:
+  each operation it serves is checked against the cloud's own specification,
+  signed and authorized as the cloud would, exercised through three real
+  client surfaces, and backed by real work. Its three clouds share one
+  framework, so one mechanism serves all three: the leased queue behind
+  Amazon SQS, Pub/Sub and Azure Service Bus, the replica set behind Amazon
+  ECS, Cloud Run and Azure Container Apps.
+
+Sources: [LocalStack's pricing changes](https://blog.localstack.cloud/2026-upcoming-pricing-changes/),
+[LocalStack licensing](https://docs.localstack.cloud/aws/licensing/),
+[LocalStack IAM policy enforcement](https://docs.localstack.cloud/aws/capabilities/security-testing/iam-policy-enforcement),
+[Floci](https://floci.io/), [Floci on GitHub](https://github.com/floci-io/floci),
+[an independent Floci and LocalStack review](https://wavect.io/blog/floci-vs-localstack-aws-emulator.md).
+
 ## Rules that kept three clouds honest
 
 - **Specifications are the contract.** Vendor them, validate against them at
