@@ -45,10 +45,21 @@ var azureGraphCORSSurface = azureCORSSurface{
 	exposeHeaders: "request-id, client-request-id, content-type",
 }
 
+// azureLogsCORSSurface mirrors the Log Analytics and Application Insights
+// query APIs (api.loganalytics.io, api.applicationinsights.io), which serve
+// CORS so a browser can run a Kusto query with its own token.
+var azureLogsCORSSurface = azureCORSSurface{
+	allowMethods:  "GET, POST, OPTIONS",
+	allowHeaders:  "authorization, content-type, accept, prefer, x-ms-app, x-ms-client-request-id",
+	exposeHeaders: "x-ms-request-id, content-type",
+}
+
 // azureCORSSurfaceFor reports the CORS surface a request path belongs to.
 // Azure Resource Manager control-plane paths always begin with
 // /subscriptions, /providers, or /tenants (the only tenant-scoped, unscoped,
-// and directory-list ARM roots); Microsoft Graph is served at /v1.0. Every
+// and directory-list ARM roots); Microsoft Graph is served at /v1.0, and the
+// Log Analytics and Application Insights query APIs at /v1/workspaces and
+// /v1/apps. Every
 // other path — the Microsoft Entra OAuth2/OpenID surface
 // (/{tenant}/oauth2/*, /{tenant}/v2.0/.well-known/*), the console's own
 // /auth/* auth layer, the OCI/ACR/storage/Key Vault/Service Bus/Event Grid
@@ -62,6 +73,8 @@ func azureCORSSurfaceFor(path string) (azureCORSSurface, bool) {
 		return azureARMCORSSurface, true
 	case strings.HasPrefix(path, "/v1.0"):
 		return azureGraphCORSSurface, true
+	case strings.HasPrefix(path, "/v1/workspaces/"), strings.HasPrefix(path, "/v1/apps/"):
+		return azureLogsCORSSurface, true
 	default:
 		return azureCORSSurface{}, false
 	}

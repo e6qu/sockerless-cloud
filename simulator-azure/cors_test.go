@@ -76,6 +76,52 @@ func TestAzureCORS_PreflightToGraphPathReturnsCORSHeaders(t *testing.T) {
 // Access-Control-Allow-Origin, so the browser's fetch() can read the
 // response — the header a preflight alone would not prove out, since real
 // browsers send Origin on the actual request too.
+// TestAzureCORS_SliceDispatchersCarryAllowOrigin proves a response a slice's
+// own dispatcher writes, ahead of the mux, still carries the access-control
+// headers: the role definitions list and the tags of a resource scope.
+func TestAzureCORS_SliceDispatchersCarryAllowOrigin(t *testing.T) {
+	srv := buildAuthTestSim(t)
+	now := time.Now()
+	tok, err := mintAzureSimJWT(simTenantID, "https://management.azure.com/", now, now.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("mint token: %v", err)
+	}
+	for _, path := range []string{
+		"/subscriptions/sub/providers/Microsoft.Authorization/roleDefinitions?api-version=2022-04-01",
+		"/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/a/providers/Microsoft.Resources/tags/default?api-version=2021-04-01",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set("Origin", corsTestOrigin)
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != corsTestOrigin {
+			t.Errorf("%s: Access-Control-Allow-Origin = %q, want %q (status %d)", path, got, corsTestOrigin, rec.Code)
+		}
+	}
+}
+
+// TestAzureCORS_PreflightToLogAnalyticsQuery proves a browser may POST a
+// Kusto query to a workspace's query API.
+func TestAzureCORS_PreflightToLogAnalyticsQuery(t *testing.T) {
+	srv := buildAuthTestSim(t)
+	req := httptest.NewRequest(http.MethodOptions, "/v1/workspaces/00000000-0000-0000-0000-000000000000/query", nil)
+	req.Header.Set("Origin", corsTestOrigin)
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	req.Header.Set("Access-Control-Request-Headers", "authorization, content-type")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("preflight status = %d, want 204: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != corsTestOrigin {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want %q", got, corsTestOrigin)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Methods"); !strings.Contains(got, "POST") {
+		t.Fatalf("Access-Control-Allow-Methods = %q, want it to include POST", got)
+	}
+}
+
 func TestAzureCORS_ActualGETCarriesAllowOrigin(t *testing.T) {
 	srv := buildAuthTestSim(t)
 	now := time.Now()

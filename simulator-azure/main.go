@@ -157,13 +157,6 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 	// the mux to avoid route conflicts with ACR's /v2/{path...}).
 	srv.WrapHandler(AzureAuthMiddleware)
 
-	// CORS is outermost: a browser's preflight OPTIONS request for Azure
-	// Resource Manager or Microsoft Graph must be answered before the ARM
-	// bearer and api-version middlewares run, exactly as real Azure's edge
-	// answers a preflight ahead of the resource provider's own auth check —
-	// the request carries neither a bearer token nor api-version by design.
-	srv.WrapHandler(AzureCORSMiddleware)
-
 	// Register Azure service routes
 	// Entra registers first: it initializes the directory stores (and the
 	// token-issuance state) that later registrations write at register
@@ -242,6 +235,11 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 			return nil, err
 		}
 	}
+
+	// Wrap CORS around every slice's dispatcher: Azure's edge answers a
+	// browser's preflight before the bearer and api-version checks, and every
+	// response a dispatcher writes carries the access-control headers.
+	srv.WrapHandler(AzureCORSMiddleware)
 
 	// Runtime wire-shape validation (armed only when
 	// SOCKERLESS_SPEC_VALIDATE is set; see spec_validator.go). Wrapped
