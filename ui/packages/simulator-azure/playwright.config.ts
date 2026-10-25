@@ -20,6 +20,9 @@ export default defineConfig({
   ],
   webServer: {
     command: `bash ../core/e2e/start-backend.sh`,
+    // Playwright SIGKILLs the process group by default, which skips the script's
+    // cleanup and the simulators' own shutdown, leaking their workloads.
+    gracefulShutdown: { signal: "SIGTERM", timeout: 60_000 },
     env: {
       SERVER_PORT: String(PORT),
       HEALTH_URL: HEALTH,
