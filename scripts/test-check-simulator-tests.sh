@@ -7,12 +7,18 @@ set -euo pipefail
 check="$(cd "$(dirname "$0")" && pwd)/check-simulator-tests.sh"
 failures=0
 
+# A pre-commit hook runs with GIT_DIR, GIT_INDEX_FILE and their kin pointing at
+# the repository being committed to; a throwaway repository built under them
+# would write that repository's config and index instead of its own.
+# shellcheck disable=SC2046
+unset $(git rev-parse --local-env-vars)
+export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com
+export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
+
 new_repo() {
     local dir
     dir="$(mktemp -d)"
     git -C "$dir" init -q
-    git -C "$dir" config user.email test@example.com
-    git -C "$dir" config user.name test
     mkdir -p "$dir/simulator-gcp" "$dir/simulator-aws"
     echo "$dir"
 }
