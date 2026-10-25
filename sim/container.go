@@ -529,8 +529,12 @@ func FindExistingContainers(labels map[string]string) ([]ExistingContainer, erro
 	found := make([]ExistingContainer, 0, len(summaries.Items))
 	for _, summary := range summaries.Items {
 		inspected, err := dockerClient.ContainerInspect(ctx, summary.ID, client.ContainerInspectOptions{})
+		if containerNotFoundError(err) {
+			// The engine removed it after the listing.
+			continue
+		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("inspect container %s: %w", summary.ID, err)
 		}
 		inspection := inspected.Container
 		entry := ExistingContainer{
