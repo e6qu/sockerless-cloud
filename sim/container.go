@@ -688,6 +688,10 @@ func RemoveContainer(containerID string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	_, err := dockerClient.ContainerRemove(ctx, containerID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+	if cerrdefs.IsConflict(err) && strings.Contains(err.Error(), "already in progress") {
+		// Another remover holds the container; its removal is the one to wait on.
+		return WaitContainerRemoved(containerID, 30*time.Second)
+	}
 	if err != nil && !cerrdefs.IsNotFound(err) {
 		return fmt.Errorf("remove container %s: %w", containerID, err)
 	}
