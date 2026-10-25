@@ -71,9 +71,24 @@ jobs:
             timeout_minutes: 6
     steps:
       - uses: actions/checkout@v7.0.1
+      # install-go's own cache restores only an exact go.sum match, so every
+      # pin or dependency move linted the simulators cold — compiling every
+      # dependency and analysing every package from nothing — and a job the
+      # runner lost that way never saved an entry for the next run. This one
+      # falls back to the newest older entry and keeps golangci-lint's own
+      # analysis cache beside the build cache.
       - uses: ./.github/actions/install-go
+      - name: Restore the Go module, build and lint caches for this shard
+        uses: actions/cache@v6.1.0
         with:
-          cache: 'true'
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/.cache/golangci-lint
+          key: lint-go-${{ matrix.shard }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.work', '**/go.sum', '.golangci.yml') }}
+          restore-keys: |
+            lint-go-${{ matrix.shard }}-${{ runner.os }}-${{ runner.arch }}-
+            sim-go-${{ runner.os }}-${{ runner.arch }}-aws-
       - name: Install golangci-lint
         # Built from source through the Go module proxy rather than fetched
         # from the GitHub releases CDN: the install script's own downloader
