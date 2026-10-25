@@ -25,10 +25,18 @@ if ! REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); then
 fi
 cd "$REPO_ROOT"
 
-# The release builds every simulator for these platforms; a support module
-# that compiles only on Linux breaks `go install` on a Mac and the release's
-# darwin binaries alike.
-platforms=(linux/amd64 linux/arm64 darwin/amd64 darwin/arm64)
+# Usage: check-installable-build.sh [GOOS/GOARCH ...]
+#
+# The release builds every simulator for linux and darwin on amd64 and arm64;
+# a support module that compiles only on Linux breaks `go install` on a Mac
+# and the release's darwin binaries alike. Name the platforms to build; with
+# none, build the host's. CI builds the host's in its build gates and the
+# other release platforms in a job each.
+if [[ $# -gt 0 ]]; then
+	platforms=("$@")
+else
+	platforms=("$(go env GOOS)/$(go env GOARCH)")
+fi
 
 failed=0
 for cloud in aws gcp azure; do

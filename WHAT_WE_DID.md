@@ -1070,7 +1070,10 @@ holds release-please on it for every later run; removing the label freed it,
 and release-please computed v3.0.0 from main's own history although the v2.4.0
 tag's commit is not on main. The release builds for darwin and from the
 Dockerfiles, which no pull request job did, so `check-installable-build.sh`
-builds all four release platforms and checks each Dockerfile's workspace.
+builds the platforms it is given and checks each Dockerfile's workspace;
+`build-gates` builds the runner's platform and one `release platform build`
+job each of the other three, since a cold cross-compile of the three
+simulators outruns the build gates' budget.
 Publishes are keyed per commit and never cancelled; retention
 spares anything under two hours old, because a publish between its two
 per-architecture pushes looks abandoned. `actions/setup-go` went because the

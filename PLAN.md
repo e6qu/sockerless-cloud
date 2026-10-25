@@ -126,8 +126,9 @@ consoles' patterns.
   and no AWS images (the AWS Dockerfile's workspace named the removed
   `realexec` module); its tag holds that code, so the release that follows
   these fixes is the first complete 3.x release.
-  `check-installable-build.sh` now builds every simulator for the four
-  release platforms and checks each Dockerfile's workspace.
+  CI now builds every simulator for the four release platforms —
+  `build-gates` the runner's, the `release platform build` jobs the other
+  three — and checks each Dockerfile's workspace.
 - **Remaining.** Create a GitHub App with contents, pull-requests and
   workflows permissions, install it on the repository, store its ID and
   private key as Actions secrets, and run release-please with its

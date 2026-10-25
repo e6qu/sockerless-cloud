@@ -1949,6 +1949,36 @@ jobs:
       - name: simulators jscpd (UI ≥200 tokens)
         run: bash scripts/simulators-jscpd.sh
 
+  # The release builds each simulator for four platforms; build-gates builds
+  # the runner's, and this job the other three, each on a runner of its own,
+  # because one cold cross-compile of the three simulators takes about six
+  # minutes.
+  release-platform-build:
+    name: release platform build (${{ matrix.platform }})
+    needs: verified-on-pr
+    if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux/arm64, darwin/amd64, darwin/arm64]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/install-go
+      - name: Restore the Go module and build caches for this platform
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: release-platform-go-${{ strategy.job-index }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.work', '**/go.sum') }}
+          restore-keys: |
+            release-platform-go-${{ strategy.job-index }}-${{ runner.os }}-${{ runner.arch }}-
+      - name: Every simulator builds from its pinned modules for ${{ matrix.platform }}
+        run: bash scripts/check-installable-build.sh "${{ matrix.platform }}"
+        timeout-minutes: 12
+
   build-gates:
     needs: verified-on-pr
     if: ${{ !cancelled() && needs.verified-on-pr.outputs.verified != 'true' }}
