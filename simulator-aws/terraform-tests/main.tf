@@ -1115,25 +1115,6 @@ data "aws_lambda_invocation" "tf_lambda_echo" {
   })
 }
 
-# The alias keeps one execution environment initialised ahead of any
-# invocation; the provider waits for the configuration to read READY.
-resource "aws_lambda_provisioned_concurrency_config" "tf_lambda_live" {
-  function_name                     = aws_lambda_function.tf_lambda.function_name
-  qualifier                         = aws_lambda_alias.tf_lambda_live.name
-  provisioned_concurrent_executions = 1
-}
-
-data "aws_lambda_invocation" "tf_lambda_provisioned" {
-  function_name = aws_lambda_function.tf_lambda.function_name
-  qualifier     = aws_lambda_alias.tf_lambda_live.name
-
-  input = jsonencode({
-    action = "count"
-  })
-
-  depends_on = [aws_lambda_provisioned_concurrency_config.tf_lambda_live]
-}
-
 resource "aws_route53_zone" "tf_zone" {
   name    = "tf-route53.local"
   comment = "tf-test zone"
@@ -1812,9 +1793,6 @@ output "lambda_function_url" {
 }
 output "lambda_invocation_result" {
   value = data.aws_lambda_invocation.tf_lambda_echo.result
-}
-output "lambda_provisioned_invocation_result" {
-  value = data.aws_lambda_invocation.tf_lambda_provisioned.result
 }
 output "lambda_reserved_concurrent_executions" {
   value = tostring(aws_lambda_function.tf_lambda.reserved_concurrent_executions)

@@ -231,6 +231,7 @@ func (r *lambdaEnvironmentRegistry) reconcile(function string) {
 		versions = append(versions, entry)
 	}
 	r.mu.Unlock()
+	defer lambdaEnvironmentChanges.Announce(function)
 	for _, p := range retire {
 		p.Retire()
 	}

@@ -71,6 +71,23 @@ func serve(client *http.Client, base string) {
 	invocations++
 	payloadStr := string(payload)
 	switch {
+	case os.Getenv("INVOCATION_CALLBACK_URL") != "":
+		// The function forwards each event to the URL and answers with what
+		// it returns: an error status becomes the function's error.
+		answer, err := client.Post(os.Getenv("INVOCATION_CALLBACK_URL"), "application/json", bytes.NewReader(payload))
+		if err != nil {
+			errorPayload, _ := json.Marshal(map[string]string{"errorMessage": err.Error(), "errorType": "HandlerError"})
+			postError(base, requestID, errorPayload)
+			break
+		}
+		body, _ := io.ReadAll(answer.Body)
+		answer.Body.Close()
+		if answer.StatusCode >= 400 {
+			errorPayload, _ := json.Marshal(map[string]string{"errorMessage": string(body), "errorType": "HandlerError"})
+			postError(base, requestID, errorPayload)
+			break
+		}
+		postResponse(base, requestID, body)
 	case strings.Contains(payloadStr, `"action":"count"`):
 		postResponse(base, requestID, []byte(fmt.Sprintf(`{"invocations":%d,"initializationType":%q}`,
 			invocations, os.Getenv("AWS_LAMBDA_INITIALIZATION_TYPE"))))

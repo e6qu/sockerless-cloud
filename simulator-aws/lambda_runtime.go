@@ -84,6 +84,7 @@ type runtimeAPISidecar struct {
 	// that they are ready by sending a Next API request."
 	ready     chan struct{}
 	readyOnce sync.Once
+	readyAt   time.Time
 	// initFailed closes once the runtime reported an initialisation error.
 	initFailed     chan struct{}
 	initFailedOnce sync.Once
@@ -173,7 +174,10 @@ func (s *runtimeAPISidecar) handleNext(w http.ResponseWriter, r *http.Request) {
 	if previous != nil {
 		previous.endedOnce.Do(func() { close(previous.ended) })
 	}
-	s.readyOnce.Do(func() { close(s.ready) })
+	s.readyOnce.Do(func() {
+		s.readyAt = time.Now()
+		close(s.ready)
+	})
 
 	var inv *lambdaInvocation
 	select {

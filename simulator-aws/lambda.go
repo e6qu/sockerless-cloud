@@ -361,8 +361,11 @@ func registerLambda(srv *sim.Server, startBackgroundPollers bool) {
 		<-ctx.Done()
 		lambdaEnvironments.retireAll()
 	})
+	lambdaESMShards = sim.MakeStore[lambdaESMShardState](srv.DB(), "lambda_event_source_mapping_shards")
+	lambdaESMTags = sim.MakeStore[map[string]string](srv.DB(), "lambda_event_source_mapping_tags")
 	if startBackgroundPollers {
 		startLambdaEventSourcePollers(srv)
+		startLambdaStreamEventSourcePollers(srv)
 	}
 
 	mux := srv
@@ -623,7 +626,11 @@ func handleLambdaCreateFunction(w http.ResponseWriter, r *http.Request) {
 	}
 	lambdaFunctions.Put(req.FunctionName, fn)
 	if req.Publish {
-		publishLambdaVersion(req.FunctionName, "", fn)
+		// With Publish, CreateFunction answers with the configuration of the
+		// version it published, Version "1".
+		published := publishLambdaVersion(req.FunctionName, "", fn)
+		sim.WriteJSON(w, http.StatusCreated, lambdaConfigurationFromVersion(published))
+		return
 	}
 
 	sim.WriteJSON(w, http.StatusCreated, lambdaConfiguration(fn))
@@ -1270,8 +1277,39 @@ func lambdaConfigurationFromVersion(v LambdaVersion) lambdaFunctionConfiguration
 	}
 }
 
+// lambdaESMUUIDFromARN is the mapping an event source mapping ARN names.
+func lambdaESMUUIDFromARN(arn string) (string, bool) {
+	_, uuid, found := strings.Cut(arn, ":event-source-mapping:")
+	return uuid, found
+}
+
+// lambdaUpdateESMTags changes an event source mapping's tags, reporting false
+// when the mapping does not exist.
+func lambdaUpdateESMTags(w http.ResponseWriter, uuid string, change func(tags map[string]string)) bool {
+	if _, ok := lambdaESMs.Get(uuid); !ok {
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+			"Event source mapping not found: %s", uuid)
+		return false
+	}
+	lambdaESMTags.Upsert(uuid, func(tags *map[string]string) {
+		if *tags == nil {
+			*tags = map[string]string{}
+		}
+		change(*tags)
+	})
+	return true
+}
+
 func handleLambdaListTags(w http.ResponseWriter, r *http.Request) {
 	arn := r.PathValue("arn")
+	if uuid, ok := lambdaESMUUIDFromARN(arn); ok {
+		if !lambdaUpdateESMTags(w, uuid, func(map[string]string) {}) {
+			return
+		}
+		tags, _ := lambdaESMTags.Get(uuid)
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"Tags": tags})
+		return
+	}
 	// Extract function name from ARN
 	name := arn
 	if strings.Contains(arn, ":function:") {
@@ -1323,6 +1361,16 @@ func (s *lambdaLogSink) WriteLog(line sim.LogLine) {
 // (the sim's lambdaArn helper hardcodes 123456789012).
 func handleLambdaUntagResource(w http.ResponseWriter, r *http.Request) {
 	arn := r.PathValue("arn")
+	if uuid, ok := lambdaESMUUIDFromARN(arn); ok {
+		if lambdaUpdateESMTags(w, uuid, func(tags map[string]string) {
+			for _, k := range r.URL.Query()["tagKeys"] {
+				delete(tags, k)
+			}
+		}) {
+			w.WriteHeader(http.StatusNoContent)
+		}
+		return
+	}
 	name := arn
 	if strings.Contains(arn, ":function:") {
 		parts := strings.SplitN(arn, ":function:", 2)
@@ -1366,6 +1414,16 @@ func handleLambdaTagResource(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if uuid, ok := lambdaESMUUIDFromARN(arn); ok {
+		if lambdaUpdateESMTags(w, uuid, func(tags map[string]string) {
+			for k, v := range req.Tags {
+				tags[k] = v
+			}
+		}) {
+			w.WriteHeader(http.StatusNoContent)
+		}
 		return
 	}
 

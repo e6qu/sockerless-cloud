@@ -42,7 +42,10 @@ type lambdaEnvironment struct {
 	mu      sync.Mutex
 	handle  placement.Handle
 	attempt int
-	stderr  bytes.Buffer
+	// placedAt is when the current container started, which begins its Init
+	// phase.
+	placedAt time.Time
+	stderr   bytes.Buffer
 	// initialised reports that the runtime has asked for its first
 	// invocation, ending the Init phase.
 	initialised bool
@@ -239,8 +242,17 @@ func (e *lambdaEnvironment) place(ctx context.Context) error {
 	}
 	e.mu.Lock()
 	e.handle = handle
+	e.placedAt = time.Now()
 	e.mu.Unlock()
 	return nil
+}
+
+// initDuration is how long the Init phase took, from the container's start
+// to the runtime's first Next request.
+func (e *lambdaEnvironment) initDuration() time.Duration {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.api.readyAt.Sub(e.placedAt)
 }
 
 func (e *lambdaEnvironment) currentHandle() placement.Handle {
@@ -303,8 +315,10 @@ func (e *lambdaEnvironment) resetStderr() {
 // INIT_REPORT entry: "SnapStart and provisioned concurrency functions always
 // emit INIT_REPORT."
 func (e *lambdaEnvironment) provisionInit(ctx context.Context) error {
-	start := time.Now()
-	limit := time.NewTimer(lambdaProvisionedInitLimit(e.fn))
+	e.mu.Lock()
+	start := e.placedAt
+	e.mu.Unlock()
+	limit := time.NewTimer(lambdaProvisionedInitLimit(e.fn) - time.Since(start))
 	defer limit.Stop()
 	report := func(status string) {
 		appendLambdaLog(e.logKey, time.Now().UnixMilli(), fmt.Sprintf(
@@ -349,15 +363,17 @@ const (
 // function timeout: Lambda bounds the Init phase by its own limit and starts
 // the Invoke phase only when the runtime asks for its first invocation.
 func (e *lambdaEnvironment) initPhase(ctx context.Context) (lambdaInitOutcome, time.Duration, []byte) {
-	start := time.Now()
-	timer := time.NewTimer(lambdaInitPhaseLimit)
+	e.mu.Lock()
+	start := e.placedAt
+	e.mu.Unlock()
+	timer := time.NewTimer(lambdaInitPhaseLimit - time.Since(start))
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
 		return lambdaInitInterrupted, 0, nil
 	case <-e.api.ready:
 		e.initialised = true
-		return lambdaInitDone, time.Since(start), nil
+		return lambdaInitDone, e.initDuration(), nil
 	case <-e.api.initFailed:
 		result := e.api.initError
 		if len(result) == 0 {
@@ -542,6 +558,7 @@ func invokeLambdaViaRuntimeAPI(ctx context.Context, fn LambdaFunction, payload [
 	} else {
 		lease.Discard()
 	}
+	lambdaEnvironmentChanges.Announce(fn.FunctionName)
 	return result.payload, result.unhandled, nil
 }
 
