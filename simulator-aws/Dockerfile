@@ -11,12 +11,12 @@ WORKDIR /src/simulator-aws
 # The repository go.work lists the sdk/cli/terraform test modules, which
 # .dockerignore keeps out of the image context. Replace it with a minimal
 # workspace covering just this simulator and its support modules, so the
-# build resolves the working tree's sim/realexec/ui-auth instead of failing on
+# build resolves the working tree's sim/ui-auth instead of failing on
 # the absent test modules.
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     rm /src/go.work /src/go.work.sum && \
-    go work init . ../sim ../realexec ../ui-auth && \
+    go work init . ../sim ../ui-auth && \
     CGO_ENABLED=0 go build -tags console -ldflags="-s -w" -o /simulator-aws .
 
 FROM mirror.gcr.io/library/alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a

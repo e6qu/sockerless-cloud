@@ -905,7 +905,7 @@ func (s *Server) opOpen(st *compoundState, d *decoder, r *encoder) uint32 {
 		}
 		_ = f.Close()
 		if createMode == createExclusive {
-			times := []unix.Timespec{unix.NsecToTimespec(verifierTime(verifier)), {Nsec: unix.UTIME_OMIT}}
+			times := []unix.Timespec{unix.NsecToTimespec(verifierTime(verifier)), {Nsec: utimeOmit}}
 			_ = unix.UtimesNanoAt(unix.AT_FDCWD, path, times, 0)
 			set.set(attrTimeAccess)
 		} else {
@@ -962,14 +962,14 @@ func (s *Server) opOpen(st *compoundState, d *decoder, r *encoder) uint32 {
 // file's access time.
 func exclusiveVerifier(st *syscall.Stat_t) string {
 	var v [8]byte
-	v[0] = byte(st.Atim.Sec >> 24)
-	v[1] = byte(st.Atim.Sec >> 16)
-	v[2] = byte(st.Atim.Sec >> 8)
-	v[3] = byte(st.Atim.Sec)
-	v[4] = byte(st.Atim.Nsec >> 24)
-	v[5] = byte(st.Atim.Nsec >> 16)
-	v[6] = byte(st.Atim.Nsec >> 8)
-	v[7] = byte(st.Atim.Nsec)
+	v[0] = byte(statAtime(st).Sec >> 24)
+	v[1] = byte(statAtime(st).Sec >> 16)
+	v[2] = byte(statAtime(st).Sec >> 8)
+	v[3] = byte(statAtime(st).Sec)
+	v[4] = byte(statAtime(st).Nsec >> 24)
+	v[5] = byte(statAtime(st).Nsec >> 16)
+	v[6] = byte(statAtime(st).Nsec >> 8)
+	v[7] = byte(statAtime(st).Nsec)
 	return string(v[:])
 }
 

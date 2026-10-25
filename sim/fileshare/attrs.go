@@ -138,7 +138,7 @@ func (a fileAttrs) change() uint64 {
 	if a.st == nil {
 		return 1
 	}
-	return uint64(a.st.Ctim.Sec)*1e9 + uint64(a.st.Ctim.Nsec)
+	return uint64(statCtime(a.st).Sec)*1e9 + uint64(statCtime(a.st).Nsec)
 }
 
 // encodeAttrs answers the requested attributes the server supports: the
@@ -230,18 +230,18 @@ func (e *encoder) encodeAttrs(want bitmap, a fileAttrs) {
 			}
 		case attrRawDev:
 			if a.st != nil {
-				vals.uint32(unix.Major(a.st.Rdev))
-				vals.uint32(unix.Minor(a.st.Rdev))
+				vals.uint32(unix.Major(statRdev(a.st)))
+				vals.uint32(unix.Minor(statRdev(a.st)))
 			} else {
 				vals.uint32(0)
 				vals.uint32(0)
 			}
 		case attrSpaceAvail:
-			vals.uint64(blocks(fsStat.Bavail, fsStat.Bsize, haveFS))
+			vals.uint64(blocks(fsStat.Bavail, fsBlockSize(&fsStat), haveFS))
 		case attrSpaceFree:
-			vals.uint64(blocks(fsStat.Bfree, fsStat.Bsize, haveFS))
+			vals.uint64(blocks(fsStat.Bfree, fsBlockSize(&fsStat), haveFS))
 		case attrSpaceTotal:
-			vals.uint64(blocks(fsStat.Blocks, fsStat.Bsize, haveFS))
+			vals.uint64(blocks(fsStat.Blocks, fsBlockSize(&fsStat), haveFS))
 		case attrSpaceUsed:
 			if a.st != nil {
 				vals.uint64(uint64(a.st.Blocks) * 512)
@@ -250,7 +250,7 @@ func (e *encoder) encodeAttrs(want bitmap, a fileAttrs) {
 			}
 		case attrTimeAccess:
 			if a.st != nil {
-				vals.nfstime(statTime(a.st.Atim))
+				vals.nfstime(statTime(statAtime(a.st)))
 			} else {
 				vals.nfstime(time.Unix(0, 0))
 			}
@@ -261,13 +261,13 @@ func (e *encoder) encodeAttrs(want bitmap, a fileAttrs) {
 			vals.uint32(1)
 		case attrTimeMetadata:
 			if a.st != nil {
-				vals.nfstime(statTime(a.st.Ctim))
+				vals.nfstime(statTime(statCtime(a.st)))
 			} else {
 				vals.nfstime(time.Unix(0, 0))
 			}
 		case attrTimeModify:
 			if a.st != nil {
-				vals.nfstime(statTime(a.st.Mtim))
+				vals.nfstime(statTime(statMtime(a.st)))
 			} else {
 				vals.nfstime(time.Unix(0, 0))
 			}
@@ -405,14 +405,14 @@ func (a settable) apply(path string) (bitmap, uint32) {
 		}
 	}
 	if a.atime != nil || a.mtime != nil || a.atimeNow || a.mtimeNow {
-		times := []unix.Timespec{{Nsec: unix.UTIME_OMIT}, {Nsec: unix.UTIME_OMIT}}
+		times := []unix.Timespec{{Nsec: utimeOmit}, {Nsec: utimeOmit}}
 		if a.atimeNow {
-			times[0] = unix.Timespec{Nsec: unix.UTIME_NOW}
+			times[0] = unix.Timespec{Nsec: utimeNow}
 		} else if a.atime != nil {
 			times[0] = unix.NsecToTimespec(a.atime.UnixNano())
 		}
 		if a.mtimeNow {
-			times[1] = unix.Timespec{Nsec: unix.UTIME_NOW}
+			times[1] = unix.Timespec{Nsec: utimeNow}
 		} else if a.mtime != nil {
 			times[1] = unix.NsecToTimespec(a.mtime.UnixNano())
 		}
