@@ -52,6 +52,58 @@ VM instances as containers, node agents with the microVM backend) and the
 first libraries of the service work: the in-process service seams,
 `sim/machine`, `sim/workload` groups, `sim/replicas` and `sim/revisions`.
 
+**M2 — stage 5 library extractions.** Five mechanisms that two or three
+clouds had each implemented moved into `sim`, with every consumer driven
+through them and the consumers' SDK, CLI and Terraform suites showing no wire
+change:
+
+1. **`sim/msgq` completed.** One long-poll `Waiter` and one deduplication
+   path (`Dedup.Admit`) under Amazon SQS, Pub/Sub and Azure Service Bus;
+   Cloud Tasks v2 served on `msgq`, dispatching HTTP tasks through
+   `sim/delivery`, with SDK, gcloud and Terraform tests. Dead-letter routing,
+   Service Bus sessions and SQS message moves stayed with each cloud. Closed
+   BUG-3605.
+2. **One host-routed front end.** `lbplane.HostRouter` and `lbplane.Serve`
+   under Cloud Run, Cloud Run functions, Container Apps ingress, App Service
+   and AWS Lambda function URLs; the three `frontend_forward.go` copies went.
+   The container probe runner and the crash-loop back-off moved into
+   `sim/replicas` beside it (M3 item 4). BUG-3127 narrowed to API Gateway's
+   execute-api, which now has a front end to register on. BUG-3242 stayed
+   open: the probe still runs from the simulator, not inside the instance's
+   network namespace.
+3. **`sim/eventbus`.** Fan-out under Amazon EventBridge, Amazon SNS (every
+   protocol), Azure Event Grid, Pub/Sub topics and Eventarc audit-log
+   triggers, each cloud's filter dialect behind the hook; Cloud Scheduler v1
+   on `sim/cron` and `sim/delivery`. EventBridge Scheduler stayed on `cron`
+   and `delivery` directly, because a schedule addresses one target. Closed
+   BUG-3604 and BUG-3605; BUG-3534 and BUG-3535 already named only the target
+   types whose services do not exist.
+4. **`sim/jobrun`.** Cloud Run jobs and Container Apps jobs run task by task
+   on it. Amazon ECS `RunTask` and AWS Batch stayed off it. `RunTask(count)`
+   starts independent tasks with no retries, no execution parent and no
+   completion policy, so the library adds nothing. AWS Batch returns each
+   attempt to RUNNABLE to wait for compute-environment vCPUs and fair share,
+   and its array children are independent jobs with their own dependencies,
+   so the library's start-the-next-attempt-now loop would change Batch's wire
+   states; Batch's `evaluateOnExit` has the shape of the library's `Retry`
+   hook. Closed BUG-3600 and BUG-3601; narrowed BUG-3173.
+5. **`sim/funcrt`.** AWS Lambda runs on it: execution-environment reuse,
+   scale-out, reserved and account concurrency, provisioned concurrency, and
+   the event-source pollers for Amazon SQS and Amazon Kinesis. Azure Functions
+   and Cloud Run functions stayed off it. The Functions host runs as an App
+   Service site instance shared by every request, which dispatches and limits
+   invocations inside its container and polls its own triggers, and which
+   about fifteen App Service features read; there is no per-invocation
+   environment, throttle or reset for a pool to own. Cloud Run functions are
+   Cloud Run services, whose instances `sim/replicas` already scales by
+   request concurrency, minimum and maximum instances and idle scale-in, and
+   whose event triggers are Eventarc on `sim/eventbus`. Closed BUG-3602;
+   narrowed BUG-3603 to the sources whose services do not exist.
+
+The same pull request landed M3 items 1, 4 and 13 and M4's `sim` duplicates
+(marked below), and rebuilt the AWS and Google Cloud consoles on their real
+consoles' patterns.
+
 ## Milestones
 
 ### M1 — Releases flow again
@@ -80,88 +132,21 @@ first libraries of the service work: the in-process service seams,
   runs with the App's token.
 - **Closes.** BUG-3465.
 
-### M2 — Stage 5 library extractions
-
-This pull request carries the five remaining planned extractions. Each moves a
-mechanism two or three clouds implement on their own into one `sim` package,
-drives every consumer through it, and closes the consumers' rows that the
-mechanism caused.
-
-1. **`sim/msgq` completed — queues.**
-   - *Scope:* one long-poll waiter (a per-queue change signal plus a timer to
-     the next moment the queue changes by itself) replacing `sqsLongPoll`,
-     `psPull` and `sbAwaitReceive`; dead-letter routing on exhaustion and
-     deduplication through one path (`EnqueueOpts`) for Amazon SQS, Pub/Sub
-     and Azure Service Bus; Cloud Tasks as Google Cloud's task queue on
-     `msgq`, dispatching HTTP tasks through `sim/delivery`.
-   - *Exit:* the three receive paths and Cloud Tasks run on the package; the
-     SQS, Pub/Sub, Service Bus and Queue Storage suites pass unchanged;
-     Cloud Tasks has SDK, gcloud and Terraform tests.
-   - *Closes:* BUG-3605 (Cloud Tasks half).
-2. **One host-routed front end in `sim/lbplane`.**
-   - *Scope:* the host lookup, forward, client-gone handling, forwarded
-     headers and request timeout that the Cloud Run, Cloud Run functions,
-     Container Apps ingress, App Service and AWS Lambda function URL front
-     ends each implement (`frontend_forward.go` exists three times); Lambda
-     function URLs move onto it; each cloud keeps its header builder.
-   - *Exit:* every host-routed front end registers through the package and
-     the copies are gone.
-   - *Closes:* the front-end part of BUG-3127 (API Gateway's execute-api then
-     has a front end to serve on); BUG-3242 where the probe moves with it.
-3. **`sim/eventbus` — event routing.**
-   - *Scope:* fan-out from an event to its matching subscriptions with a
-     filter-dialect hook, an input transform, batching, delivery through
-     `sim/delivery` with the subscription's retry policy, a dead-letter
-     target, and archive and replay. Consumers: Amazon EventBridge rules,
-     Amazon SNS (every protocol), Azure Event Grid subscriptions, Eventarc
-     triggers and Pub/Sub push. The dialects (AWS event patterns, Event Grid
-     advanced filters, Eventarc attribute and path patterns, the Pub/Sub
-     filter) stay per cloud behind the hook. Cloud Scheduler joins
-     EventBridge Scheduler and Container Apps scheduled jobs on `sim/cron`.
-   - *Exit:* the five fan-outs run on the package; Cloud Scheduler has SDK,
-     gcloud and Terraform tests.
-   - *Closes:* BUG-3604, BUG-3605 (Cloud Scheduler half); narrows BUG-3534
-     and BUG-3535 to the target types whose services do not exist.
-4. **`sim/jobrun` — run to completion.**
-   - *Scope:* an execution of N tasks with parallelism, per-task attempts and
-     retries, a timeout, cancellation before or while running, and adoption
-     or failure after a restart, reporting counts and per-task outcomes
-     through hooks the clouds map onto their conditions, states and
-     long-running operations. AWS Batch (attempts, `retryStrategy`, array
-     jobs, timeouts) seeds it; Cloud Run jobs, Container Apps jobs and Amazon
-     ECS `RunTask` move onto it.
-   - *Exit:* Cloud Run jobs run one container group per task with
-     `CLOUD_RUN_TASK_INDEX`, `CLOUD_RUN_TASK_COUNT` and
-     `CLOUD_RUN_TASK_ATTEMPT`; Container Apps jobs honour parallelism,
-     completion count and retry limit and recover after a restart.
-   - *Closes:* BUG-3600, BUG-3601; narrows BUG-3173.
-5. **`sim/funcrt` — functions.**
-   - *Scope:* an execution-environment pool — reuse of an idle environment,
-     scale-out to the function's concurrency, reserved concurrency
-     (throttling) and provisioned concurrency (warm environments), idle
-     retirement — and the event-source poller, with the invoke protocol as
-     the hook: the Lambda Runtime API, the Azure Functions host, and the
-     Functions Framework contract Cloud Run functions serve through Cloud
-     Run.
-   - *Exit:* AWS Lambda invokes through the pool; an idle environment is
-     reused; `PutFunctionConcurrency` throttles; the Azure Functions and
-     Cloud Run functions paths reach the package through their hooks.
-   - *Closes:* BUG-3602; the polling half of BUG-3603.
-
 ### M3 — New shared libraries
 
 Mechanisms the survey of the three simulators found implemented two or more
 times outside `sim`, in order of value over effort. Each item names what it
 unifies; this pull request carries those it lands, and the rest stay planned.
 
-1. **Keyed change signal and announcing store** (high value, low effort).
+1. **Keyed change signal and announcing store** — *landed* as `sim/signals`
+   and `sim.Announcing`, closing BUG-3608 (high value, low effort).
    The `map[key]chan struct{}` wake-up written about nine times —
    `simulator-aws/store_changes.go` and `sqs_wait.go`, `kinesis_streaming.go`,
    EC2 volume hydrations; `simulator-gcp/operations_wait.go`,
    `pubsub_pull.go`, `metadata_wait.go`; `simulator-azure/servicebus_sessions.go`,
-   `arm_lro.go` — as one `sim` primitive beside `Store.Generation`. The
-   polling tickers move onto it. *Closes:* BUG-3608; the polling half of
-   BUG-3603.
+   `arm_lro.go` — as one `sim` primitive beside `Store.Generation`. Every
+   one of them and the polling tickers over the simulators' own stores moved
+   onto it; the Kudu log stream keeps Kudu's own watcher cadence.
 2. **Long-running operation tracker** (high, medium). Running → done with a
    result or error, work on `sim/bg`, a done signal, `Await` bounded by the
    caller, and restart recovery as a hook (Azure fails, Google Cloud
@@ -172,12 +157,14 @@ unifies; this pull request carries those it lands, and the rest stay planned.
    separately in `simulator-aws/kms_crypto.go`, `simulator-gcp/cloudkms.go`
    and `cloudkms_grpc.go`, and `simulator-azure/keyvault.go`, which does not
    use `simkms` at all.
-4. **Probe runner and crash-loop back-off in `sim/replicas`** (medium–high,
-   low). Cloud Run's TCP, HTTP and gRPC probes and startup loop
-   (`cloudrun_probes.go`) and Container Apps' await and watch loops
-   (`containerapps_probes.go`) over `lbplane.ProbeHTTP`/`ProbeTCP`; the
-   byte-identical restart back-offs of Container Apps replicas and Cloud Run
-   worker pools. Narrows BUG-3311 and BUG-3539.
+4. **Probe runner and crash-loop back-off in `sim/replicas`** — *landed*
+   with M2's front end (medium–high, low). Cloud Run's TCP, HTTP and gRPC
+   probes and startup loop (`cloudrun_probes.go`) and Container Apps' await
+   and watch loops (`containerapps_probes.go`) over `lbplane.ProbeHTTP`,
+   `ProbeTCP` and `ProbeGRPC`; the byte-identical restart back-offs of
+   Container Apps replicas and Cloud Run worker pools. BUG-3311 and BUG-3539
+   stay open on their own causes: no source confirms the back-off for Cloud
+   Run, and a replica's containers share one network-namespace owner.
 5. **Time-bounded soft delete** (medium–high, medium). One settle-at-deadline
    mechanism for Azure Key Vault, AWS KMS pending deletion, AWS Secrets
    Manager recovery windows, Cloud Storage soft delete, Cloud KMS version
@@ -207,9 +194,12 @@ unifies; this pull request carries those it lands, and the rest stay planned.
 12. **Versioned secrets** (medium). Versions, stages and the random password
     generator shared by AWS Secrets Manager, Systems Manager parameters,
     Secret Manager and Key Vault secrets.
-13. **Glob matcher** (low–medium, trivial). The wildcard matchers of Elastic
-    Load Balancing rules, the IAM policy simulator, Azure RBAC, Eventarc path
-    patterns and AWS event patterns, and their variants.
+13. **Glob matcher** — *landed* as `sim.Wildcard` (low–medium, trivial).
+    The wildcard matchers of Elastic Load Balancing rules, the IAM policy
+    simulator, Azure RBAC, Eventarc path patterns, AWS event patterns and
+    Amazon EC2 filters run on it. AWS Batch `evaluateOnExit`, Amplify remote
+    patterns, CodeBuild report globs and Cloud Storage `matchGlob` keep their
+    own, because their syntaxes are segment-aware or richer than `*` and `?`.
 14. **Idempotency tokens** (low–medium). Client-token handling with request
     digest and window, written ad hoc across about forty AWS files and
     Google Cloud's `requestId`; `msgq.Dedup` is close.
@@ -217,7 +207,10 @@ unifies; this pull request carries those it lands, and the rest stay planned.
 ### M4 — Cleanups
 
 Intra-module work that makes the code smaller and the gates tighter; no wire
-behaviour changes.
+behaviour changes. The Google Cloud cleanups are in progress — the split
+registration closures, Memorystore for Redis and Cloud Build on the placement
+backend, and waits on the engine instead of a clock; the AWS and Azure
+cleanups come next.
 
 - **AWS request decoding and errors.** Every JSON body through
   `sim.ReadJSON`; one error envelope writer parameterised by protocol in
@@ -237,11 +230,15 @@ behaviour changes.
 - **Placement everywhere.** Route the workloads that reach the engine
   directly through `placement.Backend`. *Closes:* BUG-3609.
 - **Waits on events, not clocks.** Remove the fixed sleeps and retry loops in
-  simulator code. *Closes:* BUG-3607; narrows BUG-3213 and BUG-3154.
-- **`sim` duplicates in the simulators.** `simulator-aws/store_sweep.go` and
-  the hand-rolled sweepers onto `kvstore.StartSweeper`; `awsIntKey` and
-  `azureIntKey` and `gcpColumnPageOf` into `listq`; the unused
-  `listq.OffsetPage` and `TokenPage` removed.
+  simulator code; Amazon ECS's handle-lookup and archive retry loops already
+  went with `sim/signals`. *Closes:* BUG-3607; narrows BUG-3213 and
+  BUG-3154.
+- **`sim` duplicates in the simulators** — *landed* with M2's front end.
+  The AWS store sweeper copy and the hand-rolled Azure Monitor and Cloud
+  Logging sweepers run on `kvstore.StartSweeper`; `listq.IntKey` replaced
+  `awsIntKey` and `azureIntKey`, and `listq.ColumnPage` replaced
+  `gcpColumnPageOf`. `listq.OffsetPage` and `TokenPage` stayed, now used by
+  AWS Glue, AWS Budgets and DynamoDB `ExecuteStatement`.
 - **Tighten the copy-paste gate stepwise.** `scripts/simulators-dupl.sh`
   holds zero groups at 200 tokens; lower the threshold to 150, then 120,
   clearing the groups each step finds.

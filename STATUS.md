@@ -49,12 +49,59 @@ Shared mechanisms, one package each:
 
 | Area | Packages |
 |---|---|
-| Placement and machines | `placement` (container and microVM backends behind one interface, chosen by `SIM_PLACEMENT`), `nodeagent` (the Firecracker agent and its guest init), `machine` (VM lifecycle), `vminstance` (image catalogs, cloud-init over user data), `workload` (container groups and builds), `replicas`, `revisions`, `fileshare` (NFSv4 shares to guests), `procimage`, `workloadhost` |
-| Networks | `sim.EnsureCloudNetwork` with `ipam` and `netrules`, `sidecar` (resolver, metadata, NAT egress, credential forwarder), `dnsserver`, `lbplane` (load-balancer and front-end data plane) |
-| Messaging and events | `msgq` (leased queues), `streamlog` (partitioned logs), `delivery` (persisted push delivery with retries and dead letters), `cron` |
-| Storage and data | `blobstore`, `sparse`, `kvstore`, `listq`, `logstore`, `dbengine` with `pgwire` and `mysqlwire` |
+| Placement and machines | `placement` (container and microVM backends behind one interface, chosen by `SIM_PLACEMENT`), `nodeagent` (the Firecracker agent and its guest init), `machine` (VM lifecycle), `vminstance` (image catalogs, cloud-init over user data, an empty `/run` per boot), `workload` (container groups and builds), `replicas` (replica sets, the container probe runner and the crash-loop back-off), `revisions`, `fileshare` (NFSv4 shares to guests), `procimage`, `workloadhost` |
+| Networks | `sim.EnsureCloudNetwork` with `ipam` and `netrules`, `sidecar` (resolver, metadata, NAT egress, credential forwarder), `dnsserver`, `lbplane` (load-balancer data plane, the host-routed front end `HostRouter` with its forward `Serve`, and HTTP, TCP and gRPC health probes) |
+| Messaging and events | `signals` (keyed change signals; `sim.Announcing` stores announce their writes), `msgq` (leased queues and the long-poll `Waiter`), `streamlog` (partitioned logs), `eventbus` (fan-out with a filter hook, batching, input transformation, archive and replay), `delivery` (persisted push delivery with retries and dead letters), `cron` |
+| Runs and functions | `jobrun` (executions of N tasks with parallelism, retries, timeouts, cancellation and restart recovery), `funcrt` (execution-environment pools, concurrency limits, provisioned environments and event-source pollers) |
+| Storage and data | `blobstore`, `sparse`, `kvstore`, `listq` (offset, key and multi-column pages, filters, ordering), `logstore`, `dbengine` with `pgwire` and `mysqlwire` |
 | Identity and keys | `simjwt`, `oidcfed`, `simkms`, registry authentication (`ociauth.go`) |
-| Plumbing | `bg` (counted background work), `archive`, `Server.Call` (in-process calls through the whole request chain) |
+| Plumbing | `bg` (counted background work), `archive`, `Server.Call` (in-process calls through the whole request chain), `Wildcard` (the one `*` pattern matcher) |
+
+## Services on the shared libraries
+
+- **`msgq`**: Amazon SQS, Pub/Sub subscriptions, Azure Service Bus entities,
+  Azure Queue Storage and Cloud Tasks queues. Its `Waiter` serves SQS
+  `ReceiveMessage`, Pub/Sub `Pull`, `StreamingPull`, push and the dead-letter
+  sweep, the Service Bus REST receive and AMQP session accept, and Cloud Tasks
+  dispatch; Service Bus deduplicates through `Dedup.Admit` as SQS does.
+  Dead-letter routing, Service Bus sessions and SQS message moves stay with
+  each cloud.
+- **`signals`**: every wait for a store change. No simulator keeps a
+  hand-rolled channel map, and the tickers over the simulators' own stores
+  are gone: Step Functions task tokens and `GetActivityTask`, synchronous
+  Lambda durable invocations, Firestore `Listen`, the metadata server's
+  `wait_for_change`, and operation and ARM asynchronous-operation waits all
+  wake on the write. The Kudu log stream keeps the 1.5-second cadence of
+  Kudu's own Linux file watcher, because the site's container writes those
+  files.
+- **`eventbus`**: Amazon EventBridge rules, scheduled rules, archives and
+  replays; Amazon SNS, every protocol through one dispatcher with the
+  per-protocol retry policy and the subscription's dead-letter queue; Azure
+  Event Grid subscriptions; Pub/Sub topic fan-out and Eventarc Cloud Audit
+  Logs triggers, both into queues that own their retries.
+- **`cron` and `delivery`**: Cloud Scheduler, EventBridge Scheduler and
+  Container Apps scheduled jobs; Cloud Tasks HTTP tasks go out through
+  `delivery.Post`, keeping their attempts in the queue.
+- **`lbplane`**: `HostRouter` fronts Cloud Run services and instances, Cloud
+  Run functions, Container Apps ingress, App Service sites and slots, and
+  AWS Lambda function URLs. Those and Amplify Hosting compute, Elastic Load
+  Balancing, Application Gateway, Azure Load Balancer and the Google Cloud
+  load balancers forward through `Serve`. Route 53 health checks probe
+  through `ProbeHTTP` and `ProbeTCP`.
+- **`replicas`**: Cloud Run startup probes and Container Apps startup,
+  readiness and liveness probes run on `Probes`; Container Apps revisions and
+  Cloud Run services and worker pools restart under `CrashLoopBackoff`.
+- **`jobrun`**: Cloud Run jobs run one container group per task attempt with
+  `CLOUD_RUN_TASK_INDEX`, `CLOUD_RUN_TASK_COUNT` and `CLOUD_RUN_TASK_ATTEMPT`,
+  honouring parallelism, `maxRetries` and the per-attempt timeout; Container
+  Apps jobs run their replicas under parallelism, `replicaCompletionCount`,
+  `replicaRetryLimit` and `replicaTimeout`. Both resume after a restart.
+  Amazon ECS `RunTask` and AWS Batch keep their own schedulers.
+- **`funcrt`**: AWS Lambda reuses execution environments, scales out, is
+  throttled by reserved concurrency and the account's unreserved concurrency,
+  keeps provisioned environments warm, and polls Amazon SQS and Amazon Kinesis
+  Data Streams event sources. Azure Functions keeps its App Service site
+  instance and Cloud Run functions stay Cloud Run services on `replicas`.
 
 ## What the simulators serve
 
@@ -65,10 +112,10 @@ Shared mechanisms, one package each:
   (`testdata/iam_condition_key_gaps.tsv`), and authorizes tag-on-create as the
   service's tagging action; Query, JSON, REST and Smithy RPC v2 CBOR routes
   all pass it.
-- **Google Cloud**: every method spelling across the 31 vendored Discovery
-  documents reaches a route that serves it or answers a declared 501; the
-  gRPC door serves all but three methods, each named in the simulator's
-  README. Every gRPC service is crossed against its REST door.
+- **Google Cloud**: every method spelling across the 33 vendored Discovery
+  documents, Cloud Tasks and Cloud Scheduler among them, reaches a route that
+  serves it or answers a declared 501; the gRPC door serves all but three
+  methods, each named in the simulator's README. Every gRPC service is crossed against its REST door.
 - **Azure**: 2,653 of 2,660 Swagger operations across 122 documents are
   served; the seven others answer a declared 501.
 - **Coverage ratchets** hold a served floor and every document's declared
@@ -115,6 +162,61 @@ Shared mechanisms, one package each:
   bearers against the simulator's signing keys, Azure Storage Shared Key and
   shared access signatures, Cosmos DB keys, and each registry's tokens.
 
+## Consoles
+
+- **AWS** (Cloudscape) follows the AWS Management Console: Console Home, the
+  Services menu, unified search (Alt+S), the Region selector filled from
+  `DescribeRegions`, per-service side navigation, PropertyFilter tables with
+  remembered preferences, typed delete confirmations, and full-page creates
+  for S3 buckets, EC2 key pairs, IAM roles and policies.
+- **Google Cloud** follows console.cloud.google.com: the project picker,
+  product search ("/"), the navigation menu with pinned products, the real
+  console's URLs under `/ui/` with `?project=`, filter-bar tables, full-page
+  creates with Equivalent code, and operations waited on through each API's
+  own wait.
+- **Azure** keeps its earlier portal shell; its rebuild on the Azure portal's
+  patterns follows (`DO_NEXT.md`).
+- **Browser suites** (Playwright, one per console) sign their operator in the
+  way a deployment does: simulator-azure's Microsoft Entra ID is the OpenID
+  Connect issuer, federated into AWS through `AssumeRoleWithWebIdentity` and
+  into Google Cloud through Workforce Identity Federation, which each suite's
+  `e2e/global-setup.ts` provisions through the real APIs. They drive create,
+  list, describe and delete flows through the UI and run axe-core on every
+  page: 123 tests for AWS, 116 for Google Cloud.
+- **Harness requirements.** On Linux Playwright launches
+  `ui/packages/core/e2e/isolated-chromium.sh`, which runs Chromium in a
+  network namespace of its own under `unshare --user --map-root-user pasta`,
+  forwarding the suite's loopback ports. The host needs `pasta` (the `passt`
+  package; `scripts/install-passt.sh` installs the pinned Ubuntu build),
+  unprivileged user namespaces (on Ubuntu 24.04,
+  `kernel.apparmor_restrict_unprivileged_userns=0`) and a `/dev/net/tun` the
+  user can open. `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` names the Chromium to
+  run; without it the suite runs the full Chromium build Playwright
+  installed. On macOS Chromium launches directly. Playwright stops the
+  backend with SIGTERM, so `start-backend.sh` removes its build and the
+  simulators' workloads.
+
+## Running the suites in a sandbox
+
+- **gcloud**: unset `CLOUDSDK_PROXY_TYPE`, `CLOUDSDK_PROXY_ADDRESS`,
+  `CLOUDSDK_PROXY_PORT` and `CLOUDSDK_AUTH_ACCESS_TOKEN` before the Google
+  Cloud CLI and Terraform suites: an agent environment that points gcloud at
+  its own proxy sends the suite's local calls to a relay that refuses them
+  with 405, and a `no_proxy` naming `127.0.0.1` makes gcloud's regional hosts
+  bypass the proxy the harness routes them through.
+- **Azure**: `*.localhost` must resolve to loopback. A resolver that sends
+  those names upstream breaks the Azure Terraform suites and the registry
+  pushes of the Azure Container Registry Tasks tests (BUG-3228, BUG-3333).
+- **Firewall and NAT data planes**: on some sandbox hosts (one ran its
+  engine with `bridge-nf-call-iptables=1`) the Compute Engine firewall and
+  Cloud NAT tests and the Amazon EC2 security-group and NAT gateway tests
+  fail on every run (BUG-3652).
+- **Disk**: the suites build simulators, images and Terraform provider
+  caches, and a full disk fails them with ENOSPC in places that look
+  unrelated. A simulator killed without its reaper leaves its networks
+  behind; the next run reclaims a dead run's range, removing the dead run's
+  own containers on it first.
+
 ## Gates
 
 Every gate has been shown to fail on a planted violation of its own shape, and
@@ -154,10 +256,13 @@ a gate whose scan set can go empty exits non-zero.
 `.github/workflows/ci.yml` runs per-cloud lint and unit tests; the SDK, CLI
 and Terraform suites in shards sized by measured cost, each test in exactly
 one shard; microVM shards that place a service on Firecracker guests on the
-runner's KVM; console vitest, typecheck, build and Playwright; race jobs per
+runner's KVM; console vitest, typecheck, build and Playwright (each browser
+job installs `pasta` and allows unprivileged user namespaces); race jobs per
 module; the node-agent KVM proof; and the quality and build gates. Every job
-holds a fifteen-minute ceiling. A `warm-base-images` job fetches each base
-image set once per run into a cache the other jobs restore, and every suite
+holds a fifteen-minute ceiling. Each lint shard keeps its own Go and
+golangci-lint cache and restores the newest older entry when its exact key
+misses. A `warm-base-images` job fetches each base image set once per run
+into a cache the other jobs restore, and every suite
 takes base images through `testutil/baseimage.Ensure`; Docker's official
 images come from `mirror.gcr.io`. A push to `main` whose tree already passed
 on its pull request skips the suites (`scripts/ci-verified-on-pr.sh`).

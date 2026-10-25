@@ -76,23 +76,38 @@ module. What each move taught:
   reads repeat or skip an item, so every AWS and Azure list pages through
   `KeyPage` (the last key returned behind a marker byte) and every Google
   Cloud list resumes strictly after the last item's sort values under the
-  client's `orderBy`. BigQuery `tabledata.list` alone keeps a row-index
-  token, because a table only grows between truncations (BUG-3448 holds the
-  truncation case).
+  client's `orderBy` through `ColumnPage`, of which `KeyPage` is the
+  one-column case. A token carries those sort values as bytes: carried as a
+  string it lost non-UTF-8 keys, which Amplify's pagination test caught.
+  `IntKey` replaced the AWS and Azure copies of the integer key spelling.
+  BigQuery `tabledata.list` alone keeps a row-index token, because a table
+  only grows between truncations (BUG-3448 holds the truncation case).
 - **`kvstore`**: throughput token buckets, ordered read-write locks, TTL
   sweeping and change logs, behind Cosmos DB, Azure Table storage and DynamoDB.
   A requests-per-second limiter was rejected as a fake: provisioned
   throughput spends the units the request consumes.
 - **`msgq`, `streamlog`, `delivery`, `cron`**: Amazon SQS, Pub/Sub, Azure
-  Service Bus and Queue Storage lease from one queue engine; Amazon Kinesis
-  and Azure Event Hubs append to one partitioned log; push delivery persists
-  each attempt and resumes after a restart; one cron evaluator fires
-  EventBridge rules and Scheduler schedules in their time zones, Application
-  Auto Scaling scheduled actions, Container Apps scheduled jobs and Logic Apps
-  recurrences. `delivery.Post` keeps the receiver's answer, up to a mebibyte,
+  Service Bus, Queue Storage and Cloud Tasks lease from one queue engine;
+  Amazon Kinesis and Azure Event Hubs append to one partitioned log; push
+  delivery persists each attempt and resumes after a restart; one cron
+  evaluator fires EventBridge rules, EventBridge Scheduler schedules and Cloud
+  Scheduler jobs in their time zones, Application Auto Scaling scheduled
+  actions, Container Apps scheduled jobs and Logic Apps recurrences. `delivery.Post` keeps the receiver's answer, up to a mebibyte,
   so Amazon SNS's delivery-status log records it as `providerResponse`.
 - **`lbplane`**: one load-balancer and front-end data plane that never follows
-  a target's redirect and grades a probe by the cloud's own matcher.
+  a target's redirect and grades a probe by the cloud's own matcher. A
+  forward that fails after the target's status reached the client says so
+  with `ErrAnswerStarted`; callers that inferred it from what the error was
+  not read a security-group refusal as a started answer, so three load
+  balancers sent 200 and cut the stream where they document a 502 or 503.
+- **`signals`**: one keyed change signal in place of nine hand-written
+  channel maps, with one rule a waiter follows — take the channel before
+  reading the state it guards — which its unit tests prove by racing a writer
+  against a waiter. `sim.Announcing` wraps a store so every write announces
+  itself.
+- **`Wildcard`**: one `*` matcher, with `?`, escapes and case folding as
+  options, behind five services' copies. Matchers whose syntax is
+  segment-aware or richer (`**`, classes, alternation) keep their own.
 - **`dbengine`** with `pgwire` and `mysqlwire`: the managed relational data
   plane of Amazon RDS, Cloud SQL and Azure Database for PostgreSQL. The MySQL
   relay answers an auth switch and, with no TLS to the engine, completes a full
@@ -503,6 +518,12 @@ The metadata services read the instance's current record; each cloud's
 metadata service answers its own workloads and nothing else, since an
 invented default machine answered every other caller.
 
+A VM's `/run` is volatile: each boot starts with an empty one
+(`SandboxProfile.VolatileRun` mounts a tmpfs, as the microVM guest init
+already did). On the root disk, the readiness marker, cloud-init's
+`result.json` and the per-boot status files survived a restart, so a rebooted
+instance reported ready before its second boot ran.
+
 ## Services
 
 ### App Service and Azure Functions
@@ -549,6 +570,35 @@ executions without a workload. A cancel records its condition before stopping
 instances, since a stop that settled first once marked a cancelled deploy
 failed. Structured JSON log lines become `jsonPayload` with the Logging
 agent's special fields lifted, through one builder for every sink.
+
+An instance is ready the moment its ingress container passes its startup
+probe, at the route read while that container ran; reading the route again
+after the probe turned a container that exited right after passing into a
+failed start instead of a ready instance's exit for the restart policy. A
+`CancelExecution` operation stays running until the execution's tasks have
+stopped and completes with the settled execution, kept apart from the
+`RunJob` operation that reports a cancellation as its error; done early, it
+let the execution's etag change after the caller read it. Every Knative list
+carries `metadata`, with `continue` only when more pages exist, because
+gcloud reads `metadata.continue_` without checking.
+
+### Cloud Tasks and Cloud Scheduler
+
+Both are served from their vendored Discovery documents on the shared
+libraries, as the AWS and Azure counterparts were. A Cloud Tasks queue's
+tasks live in a `msgq` queue: the next attempt is the message's availability
+and a dispatch its lease for the dispatch deadline, so a simulator that stops
+mid-dispatch dispatches the task again once the lease lapses. Dispatches wake
+on the queue's signal and next-change timer — a schedule or retry time, a
+lapsed lease, the token bucket's next token — never on a ticker. A Cloud
+Scheduler job fires on `sim/cron` in its time zone and delivers through
+`sim/delivery`, which gained `Policy.BothLimits` because Cloud Scheduler
+retries until both `retryCount` and `maxRetryDuration` run out, and
+`Request.Method` because both services send the target's own method. The two
+share their Google retry backoff (doubling `maxDoublings` times, then linear,
+capped), their push authorization and their HTTP-status-to-code mapping.
+What no vendored page states is a `BUGS.md` row, not a guess written as
+fact.
 
 ### Image pulls and build services
 
@@ -654,6 +704,11 @@ one mutex, and a barrier makes each JSON API request wait for the events
 queued before it. Files open with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`
 (BUG-3084 holds the rest).
 
+A Cloud Storage bucket reports its `locationType` (multi-region,
+dual-region including the predefined pairs, or region), which a relocation
+updates, and an object written without a storage class takes the bucket's
+default.
+
 State a cloud derives with nobody calling — a future-dated Capacity
 Reservation becoming active — is derived on every read rather than stored,
 since a timer could be late. An Azure cross-resource-group move rewrites
@@ -718,6 +773,93 @@ queueing services share into `sim`:
 - **`sim/revisions`.** A template's identity by content and the choice of a
   revision by traffic weight, for Cloud Run (both surfaces, which once minted a
   revision on every write) and Container Apps.
+- **`sim/msgq`'s waiter.** Amazon SQS, Pub/Sub and Service Bus each wrote the
+  same long poll: a per-queue signal plus a timer to the next moment the
+  queue changes by itself. `msgq.Waiter` is that algorithm once, and
+  `Queue.NextChange` names the moment. Service Bus's per-message timers became
+  the waiter's self-re-arming `Arm`. Dead-letter routing, sessions and
+  message moves stayed per cloud, since each is one cloud's concept.
+- **The host-routed front end.** `lbplane.HostRouter` claims a request by
+  its Host and asks the cloud's `Route` hook, a generation-index lookup, for
+  the handler; `lbplane.Serve` is the one forward with a front end's own
+  answers. A Lambda function URL routes to an invoke handler instead of a
+  forward. The probes moved with it: `replicas.Probes` runs startup,
+  liveness and readiness with the kubelet's semantics, and
+  `replicas.CrashLoopBackoff` holds the kubelet's back-off, since Cloud Run
+  documents no back-off of its own.
+- **`sim/eventbus`.** The fan-out loops were small and alike; the filter
+  dialects, input transformations, payloads and target calls were not, so
+  they stayed per cloud behind hooks. Amazon SNS delivers every protocol
+  through one dispatcher with the retry policy SNS documents for that kind of
+  endpoint, and a notification that fails for good reaches the
+  subscription's dead-letter queue. An EventBridge input transformation is
+  applied once, at publish, and stored with the delivery. A queue that owns
+  its retries — a Pub/Sub subscription, an Eventarc transport topic — is a
+  `Sink`, so push keeps sharing its retries with pull.
+- **`sim/jobrun`.** An execution of N tasks with parallelism, per-attempt and
+  per-task timeouts, retries, a completion policy, cancellation and
+  restart resume, with no store and no wire shape. Cloud Run jobs run one
+  container group per task attempt with the documented `CLOUD_RUN_*`
+  variables; Container Apps jobs run replicas until `replicaCompletionCount`
+  succeed and resume after a restart instead of staying Running for good.
+  Amazon ECS `RunTask` and AWS Batch kept their schedulers: ECS tasks are
+  independent with no execution, and Batch's RUNNABLE accounting would change
+  under the library's loop.
+- **`sim/funcrt`.** An AWS Lambda execution environment keeps its container,
+  Runtime API listener, address and log stream for its life, so a handler's
+  globals persist and sequential invocations share a stream. A unit returns
+  to a concurrency limit only once its environment is idle again, so the next
+  invocation reuses it instead of starting another. AWS documents no idle
+  timeout, so an environment retires on an update, a delete, an alias change
+  or before its role session lapses, never on a timer. A throttled
+  asynchronous event retries under `delivery.Deferred`, which spends no
+  attempt. Azure Functions and Cloud Run functions stayed off the pool: the
+  first dispatches inside one long-lived host container, the second is
+  already `sim/replicas`.
+
+## Consoles
+
+The AWS and Google Cloud consoles were rebuilt on their real consoles'
+patterns — the AWS Management Console's Console Home, Services menu, unified
+search, Region selector and per-service navigation; console.cloud.google.com's
+project picker, navigation menu, URL structure, filter bar and full-page
+creates — still reading only real cloud APIs. Decorative controls nothing
+backed (notification bells, support icons, a hardcoded "Service health"
+badge, "Not supported" product pages) went, because a control that does
+nothing is a fake. A console gap whose API the simulator does not serve is a
+`BUGS.md` row naming that API.
+
+- **Sign-in is a deployment's.** The AWS and Google Cloud browser suites
+  sign their operator in through simulator-azure's Microsoft Entra ID and
+  federate through the cloud's own primitive, provisioned by
+  `global-setup.ts` through the real APIs; the Google Cloud vitest tests that
+  mocked fetch for the rebuilt pages went in favour of browser flows. ui-auth verifies `at_hash` only when the
+  issuer sends one: OpenID Connect Core makes it optional in the code flow,
+  Entra omits it, and a console signing in through Entra got a 403 at the
+  callback.
+- **The signer is the SDK's.** The console's SigV4 signer sends
+  `x-amz-content-sha256` to Amazon S3 and builds the canonical query string
+  sorted and RFC 3986-encoded, as SigV4 defines it; without the header S3
+  cannot verify a request that has a body.
+- **Isolate the browser from the host's interfaces.** Chromium's Linux
+  network-change notifier treats every rtnetlink address message on its host
+  as an IP address change, with no switch to narrow it, and flushes its
+  socket pools with `ERR_NETWORK_CHANGED`, aborting every request still
+  waiting for a connection. The simulators' workloads add and remove engine
+  bridges throughout a run, so a `page.goto` failed at random. Chromium runs
+  under `unshare --user --map-root-user pasta --config-net --tcp-ns <ports>`
+  (`isolated-chromium.sh`): it sees only its loopback and a tap nothing
+  changes, and reaches the console and its identity provider on the host's
+  loopback at unchanged URLs. The leading user namespace lets pasta map UID 0
+  as root or not. Retrying or serialising the tests would have left the cause
+  in place.
+- **Stop the webServer with SIGTERM.** Playwright kills its webServer's
+  process group with SIGKILL by default, so the backend script's exit trap
+  never ran and every run leaked its simulator build and the simulators'
+  containers and networks; `gracefulShutdown` sends SIGTERM.
+- **Attach document-level shortcut listeners before paint.** The Alt+S and
+  "/" search shortcuts attach in `useLayoutEffect`, so a key pressed right
+  after load is never lost.
 
 ## Measurement and gates
 
@@ -764,6 +906,11 @@ fails once the row closes or the operation is served.
   mutex from put to delete.
 - **A boundary is asserted at a small parameterised limit**, a fuzz failure
   becomes a seed, and a soak test sizes its pool to the machine.
+- **Drain `sim/bg` before swapping stores.** A test fixture that replaces
+  store globals calls `bg.Await` first and as its last cleanup: a Service Bus
+  scheduled-message timer armed by one test once fired into the next test's
+  stores. A unit test also passes alone and twice in one process; two failed
+  only after another test had set state up, or on their second run.
 - **A tool a suite needs is installed in `TestMain`**, never skipped: gcloud
   with its `alpha` and `beta` tracks (installing a track on first use ate each
   test's budget), `cbt`, the AWS CLI.
@@ -882,6 +1029,14 @@ spares anything under two hours old, because a publish between its two
 per-architecture pushes looks abandoned. `actions/setup-go` went because the
 runner fetched it once per job from codeload with no retry; a local action
 downloads Go from the module proxy with retries.
+
+A CI cache needs a fallback key. The lint shards restored only an exact
+match, so every pin or dependency move linted `simulator-aws` cold, and a
+runner lost mid-lint saved nothing; each shard now keeps its own Go and
+golangci-lint cache and restores the newest older entry. The browser jobs
+install `passt` from the Ubuntu archive pool, checked against the signed
+index's SHA-256, and lift Ubuntu 24.04's AppArmor restriction on
+unprivileged user namespaces, which the runner image leaves in force.
 
 Dependencies of every class are held to their newest release past a 24-hour
 quarantine; `ui/bunfig.toml` sets the same minimum release age, because caret
