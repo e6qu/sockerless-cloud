@@ -17,13 +17,13 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /v1/projects/{project}/locations/{location}/jobs` | ✓ `simulator-gcp/cloudscheduler.go:179::handleCSCreateJob` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/locations/{location}/jobs` | ○ `simulator-gcp/cloudscheduler.go:180::handleCSListJobs` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /v1/projects/{project}/locations/{location}/jobs/{job}` | ✓ `simulator-gcp/cloudscheduler.go:181::handleCSPatchJob` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /v1/projects/{project}/locations/{location}/jobs/{job}` | ✓ `simulator-gcp/cloudscheduler.go:182::handleCSDeleteJob` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /v1/projects/{project}/locations/{location}/jobs/{jobAction}` | ✓ `simulator-gcp/cloudscheduler.go:183::handleCSJobAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /v1/projects/{project}/locations/{location}/cmekConfig` | 501 `simulator-gcp/cloudscheduler.go:188::cmek` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PATCH /v1/projects/{project}/locations/{location}/cmekConfig` | 501 `simulator-gcp/cloudscheduler.go:189::cmek` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/locations/{location}/jobs` | ✓ `simulator-gcp/cloudscheduler.go:173::handleCSCreateJob` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/locations/{location}/jobs` | ○ `simulator-gcp/cloudscheduler.go:174::handleCSListJobs` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /v1/projects/{project}/locations/{location}/jobs/{job}` | ✓ `simulator-gcp/cloudscheduler.go:175::handleCSPatchJob` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /v1/projects/{project}/locations/{location}/jobs/{job}` | ✓ `simulator-gcp/cloudscheduler.go:176::handleCSDeleteJob` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /v1/projects/{project}/locations/{location}/jobs/{jobAction}` | ✓ `simulator-gcp/cloudscheduler.go:177::handleCSJobAction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /v1/projects/{project}/locations/{location}/cmekConfig` | 501 `simulator-gcp/cloudscheduler.go:182::cmek` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PATCH /v1/projects/{project}/locations/{location}/cmekConfig` | 501 `simulator-gcp/cloudscheduler.go:183::cmek` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

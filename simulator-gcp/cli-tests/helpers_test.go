@@ -207,7 +207,7 @@ func TestMain(m *testing.M) {
 			"iamcredentials.googleapis.com", "logging.googleapis.com", "pubsub.googleapis.com"},
 		{"redis.googleapis.com", "run.googleapis.com", "secretmanager.googleapis.com",
 			"spanner.googleapis.com", "sqladmin.googleapis.com", "storage.googleapis.com",
-			"vpcaccess.googleapis.com", "cloudscheduler.googleapis.com"},
+			"vpcaccess.googleapis.com", "cloudscheduler.googleapis.com", "cloudtasks.googleapis.com"},
 	} {
 		if out, err := gcloudCLI(append([]string{"services", "enable"}, batch...)...).CombinedOutput(); err != nil {
 			simCmd.Process.Kill()
@@ -407,6 +407,7 @@ func gcloudCLI(args ...string) *exec.Cmd {
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_CLOUDKMS="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_VPCACCESS="+vpcAccessEndpoint,
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_CLOUDSCHEDULER="+cloudSchedulerEndpoint,
+		"CLOUDSDK_API_ENDPOINT_OVERRIDES_CLOUDTASKS="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_COMPUTE="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_ARTIFACTREGISTRY="+baseURL+"/",
 		"CLOUDSDK_API_ENDPOINT_OVERRIDES_EVENTARC="+eventarcEndpoint,

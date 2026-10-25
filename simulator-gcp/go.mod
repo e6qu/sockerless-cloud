@@ -8,6 +8,7 @@ require (
 	cloud.google.com/go/artifactregistry v1.28.0
 	cloud.google.com/go/bigtable v1.58.0
 	cloud.google.com/go/cloudbuild v1.36.0
+	cloud.google.com/go/cloudtasks v1.21.0
 	cloud.google.com/go/eventarc v1.27.0
 	cloud.google.com/go/firestore v1.29.0
 	cloud.google.com/go/functions v1.27.0

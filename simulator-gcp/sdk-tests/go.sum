@@ -17,6 +17,8 @@ cloud.google.com/go/bigtable v1.58.0 h1:fkf7bI0DBkKN85uRrfEEpkbufSc48b4PVIZCRud3
 cloud.google.com/go/bigtable v1.58.0/go.mod h1:fZ/QM3mBog9JYJ5KV1z2xqv2+vfHGvoazGJllGQClds=
 cloud.google.com/go/cloudbuild v1.36.0 h1:MqlyiKjtiIquUYhfrIIKqGaWmCJUeuOH4Y1oc4EXNjw=
 cloud.google.com/go/cloudbuild v1.36.0/go.mod h1:l61dO9wnjSWD2HZMMTXwxL5bWKBhN/yXaDaHCX5+stY=
+cloud.google.com/go/cloudtasks v1.21.0 h1:9/hJzEQwxHO3LAnRQZq4CoBgLRunU58jSIgYA0JM2ww=
+cloud.google.com/go/cloudtasks v1.21.0/go.mod h1:HKiAjy/Q855vfmbInJn7i1DxQ0vbyUgoKva6Q51m7eA=
 cloud.google.com/go/compute/metadata v0.10.0 h1:pyKMUQSwchgkIBBJGdILqQbs/BNJXqwSA7Ej6LAvvtY=
 cloud.google.com/go/compute/metadata v0.10.0/go.mod h1:rGFHRrIif570kSibjFTMbt6/4/tzgJWFGI/HVol4GIk=
 cloud.google.com/go/datacatalog v1.33.0 h1:8V80PpoAGdOOr2QhBrp4wZ66MDCbATdAB/fmVmo5rlU=

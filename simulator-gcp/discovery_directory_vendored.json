@@ -185,6 +185,21 @@
   },
   {
    "kind": "discovery#directoryItem",
+   "id": "cloudtasks:v2",
+   "name": "cloudtasks",
+   "version": "v2",
+   "title": "Cloud Tasks API",
+   "description": "Manages the execution of large numbers of distributed requests.",
+   "discoveryRestUrl": "https://cloudtasks.googleapis.com/$discovery/rest?version=v2",
+   "icons": {
+    "x16": "https://www.gstatic.com/images/branding/product/1x/googleg_16dp.png",
+    "x32": "https://www.gstatic.com/images/branding/product/1x/googleg_32dp.png"
+   },
+   "documentationLink": "https://cloud.google.com/tasks/",
+   "preferred": true
+  },
+  {
+   "kind": "discovery#directoryItem",
    "id": "compute:v1",
    "name": "compute",
    "version": "v1",
@@ -496,6 +511,7 @@
    "cloudresourcemanager:v2",
    "cloudresourcemanager:v3",
    "cloudscheduler:v1",
+   "cloudtasks:v2",
    "compute:v1",
    "dataflow:v1b3",
    "discovery:v1",
@@ -523,6 +539,7 @@
    "cloudresourcemanager:v1",
    "cloudresourcemanager:v2",
    "cloudscheduler:v1",
+   "cloudtasks:v2",
    "dataflow:v1b3",
    "discovery:v1",
    "firestore:v1",
@@ -550,6 +567,7 @@
   "cloudkms": "v1",
   "cloudresourcemanager": "v3",
   "cloudscheduler": "v1beta1",
+  "cloudtasks": "v2beta3",
   "compute": "v1",
   "dataflow": "v1b3",
   "discovery": "v1",

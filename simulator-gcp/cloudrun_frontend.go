@@ -392,7 +392,11 @@ func postToCloudRunService(ctx context.Context, svc ServiceV2, req delivery.Requ
 		ctx, cancel = context.WithTimeout(ctx, req.Timeout)
 		defer cancel()
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, req.URL, bytes.NewReader(req.Body))
+	method := req.Method
+	if method == "" {
+		method = http.MethodPost
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, method, req.URL, bytes.NewReader(req.Body))
 	if err != nil {
 		return delivery.Permanent(fmt.Errorf("build request to %s: %w", req.URL, err))
 	}

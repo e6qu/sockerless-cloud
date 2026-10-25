@@ -68,6 +68,7 @@ var auditOnePlatformServices = []auditAPI{
 	{service: "google.api.serviceusage.v1.ServiceUsage"},
 	{service: "google.cloud.vpcaccess.v1.VpcAccessService"},
 	{service: "google.cloud.scheduler.v1.CloudScheduler"},
+	{service: "google.cloud.tasks.v2.CloudTasks"},
 	{service: "google.cloud.apigateway.v1.ApiGatewayService"},
 	{service: "google.cloud.resourcemanager.v3.Projects", methodName: auditSimpleMethodName, vendoredKey: auditCRMv3Key},
 	{service: "google.cloud.resourcemanager.v3.TagKeys", methodName: auditSimpleMethodName, vendoredKey: auditCRMv3Key},

@@ -90,3 +90,7 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `cloudrun-job-parallelism.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/parallelism` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-24T23:08:07Z |
 | `cloudrun-job-max-retries.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/max-retries` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-24T23:08:07Z |
 | `cloudrun-job-task-timeout.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/task-timeout` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-24T23:08:08Z |
+| `cloudtasks-v2.discovery.json.gz` | `cloudtasks.googleapis.com` | `$discovery/rest?version=v2` | Apache-2.0 | `revision 20261005` | 2026-10-25T03:26:10Z |
+| `tasks-creating-http-target-tasks.md.gz` | `docs.cloud.google.com` | `tasks/docs/creating-http-target-tasks` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-25T03:34:55Z |
+| `tasks-configuring-queues.md.gz` | `docs.cloud.google.com` | `tasks/docs/configuring-queues` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-25T03:34:56Z |
+| `tasks-quotas.md.gz` | `docs.cloud.google.com` | `tasks/docs/quotas` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-25T03:34:57Z |

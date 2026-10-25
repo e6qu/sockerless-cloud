@@ -49,6 +49,7 @@ var gcpIAMResourceTypes = []struct {
 	{regexp.MustCompile(`^projects/[^/]+/locations/[^/]+/keyRings/[^/]+$`), "cloudkms.googleapis.com", "cloudkms.googleapis.com/KeyRing"},
 	{regexp.MustCompile(`^projects/[^/]+/locations/[^/]+/keyRings/[^/]+/cryptoKeys/[^/]+$`), "cloudkms.googleapis.com", "cloudkms.googleapis.com/CryptoKey"},
 	{regexp.MustCompile(`^projects/[^/]+/locations/[^/]+/keyRings/[^/]+/cryptoKeys/[^/]+/cryptoKeyVersions/[^/]+$`), "cloudkms.googleapis.com", "cloudkms.googleapis.com/CryptoKeyVersion"},
+	{regexp.MustCompile(`^projects/[^/]+/locations/[^/]+/queues/[^/]+$`), "cloudtasks.googleapis.com", "cloudtasks.googleapis.com/Queue"},
 	{regexp.MustCompile(`^projects/[^/]+/locations/[^/]+/buckets/[^/]+$`), "logging.googleapis.com", "logging.googleapis.com/LogBucket"},
 	{regexp.MustCompile(`^projects/[^/]+/locations/[^/]+/buckets/[^/]+/views/[^/]+$`), "logging.googleapis.com", "logging.googleapis.com/LogView"},
 	{regexp.MustCompile(`^projects/[^/]+/secrets/[^/]+$`), "secretmanager.googleapis.com", "secretmanager.googleapis.com/Secret"},

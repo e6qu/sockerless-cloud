@@ -62,14 +62,8 @@ type CSHTTP struct {
 	HTTPMethod csEnum            `json:"httpMethod,omitempty"`
 	Headers    map[string]string `json:"headers,omitempty"`
 	Body       string            `json:"body,omitempty"`
-	OAuthToken *struct {
-		ServiceAccountEmail string `json:"serviceAccountEmail,omitempty"`
-		Scope               string `json:"scope,omitempty"`
-	} `json:"oauthToken,omitempty"`
-	OidcToken *struct {
-		ServiceAccountEmail string `json:"serviceAccountEmail,omitempty"`
-		Audience            string `json:"audience,omitempty"`
-	} `json:"oidcToken,omitempty"`
+	OAuthToken *gcpOAuthToken    `json:"oauthToken,omitempty"`
+	OidcToken  *gcpOIDCToken     `json:"oidcToken,omitempty"`
 }
 
 // CSStatus is the google.rpc.Status of a job's last attempted execution;
@@ -622,13 +616,17 @@ func csStartExecution(name string, scheduleTime time.Time, scheduled bool) {
 	}
 }
 
-// csBackoff is the wait before retry n: minBackoffDuration doubled
-// maxDoublings times, then grown by the last doubled interval each retry,
-// never more than maxBackoffDuration.
+// csBackoff is the wait before retry n under a job's RetryConfig.
 func csBackoff(rc CSRetryConfig) func(int) time.Duration {
 	minWait, _ := psParseDuration(rc.MinBackoffDuration)
 	maxWait, _ := psParseDuration(rc.MaxBackoffDuration)
-	doublings := rc.MaxDoublings
+	return googleRetryBackoff(minWait, maxWait, rc.MaxDoublings)
+}
+
+// googleRetryBackoff is the wait before retry n that Cloud Scheduler and Cloud
+// Tasks document: minWait doubled doublings times, then grown by the last
+// doubled interval each retry, never more than maxWait.
+func googleRetryBackoff(minWait, maxWait time.Duration, doublings int) func(int) time.Duration {
 	return func(retry int) time.Duration {
 		step := retry - 1
 		var wait time.Duration
@@ -706,7 +704,7 @@ func csPublish(ctx context.Context, job CSJob) (delivery.Outcome, CSStatus) {
 	if err != nil {
 		var refused *gcpCallError
 		if errors.As(err, &refused) {
-			return delivery.Retryable(err).WithStatus(refused.Code), CSStatus{Code: csCode(refused.Code), Message: refused.Message}
+			return delivery.Retryable(err).WithStatus(refused.Code), CSStatus{Code: rpcCodeForHTTPStatus(refused.Code), Message: refused.Message}
 		}
 		return delivery.Retryable(err), CSStatus{Code: int(codes.Unavailable)}
 	}
@@ -745,23 +743,8 @@ func csRequest(ctx context.Context, job CSJob, e csExecution) (delivery.Outcome,
 	if e.Scheduled {
 		req.Header.Set("X-CloudScheduler-ScheduleTime", e.ScheduleTime.UTC().Format(time.RFC3339))
 	}
-	now := time.Now()
-	switch {
-	case t.OidcToken != nil:
-		audience := t.OidcToken.Audience
-		if audience == "" {
-			audience = t.URI
-		}
-		req.Header.Set("Authorization", "Bearer "+signServiceAccountIDToken(t.OidcToken.ServiceAccountEmail, audience, true, now, now.Add(time.Hour)))
-	case t.OAuthToken != nil:
-		scope := t.OAuthToken.Scope
-		if scope == "" {
-			scope = "https://www.googleapis.com/auth/cloud-platform"
-		}
-		req.Header.Set("Authorization", "Bearer "+signWithAccessKey(map[string]any{
-			"iss": googleTokenIssuer, "aud": simAccessTokenAudience, "sub": t.OAuthToken.ServiceAccountEmail,
-			"iat": now.Unix(), "exp": now.Add(time.Hour).Unix(), "scope": scope,
-		}))
+	if auth := gcpPushAuthorization(t.OidcToken, t.OAuthToken, t.URI, time.Now()); auth != "" {
+		req.Header.Set("Authorization", auth)
 	}
 	resp, err := csHTTPClient.Do(req)
 	if err != nil {
@@ -776,7 +759,7 @@ func csRequest(ctx context.Context, job CSJob, e csExecution) (delivery.Outcome,
 		return delivery.Delivered().WithStatus(resp.StatusCode), CSStatus{}
 	}
 	return delivery.Retryable(fmt.Errorf("%s answered %d", t.URI, resp.StatusCode)).WithStatus(resp.StatusCode),
-		CSStatus{Code: csCode(resp.StatusCode)}
+		CSStatus{Code: rpcCodeForHTTPStatus(resp.StatusCode)}
 }
 
 var csHTTPClient = &http.Client{
@@ -802,8 +785,9 @@ func csFinishExecution(item delivery.Item[csExecution], _ delivery.Reason) {
 	}
 }
 
-// csCode is the google.rpc.Code a job's status records for an HTTP status.
-func csCode(status int) int {
+// rpcCodeForHTTPStatus is the google.rpc.Code Cloud Scheduler and Cloud Tasks
+// record for a target's HTTP status.
+func rpcCodeForHTTPStatus(status int) int {
 	if status == http.StatusUnauthorized {
 		return int(codes.Unauthenticated)
 	}

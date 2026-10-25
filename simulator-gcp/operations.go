@@ -104,6 +104,7 @@ var gcpLocationOperationPackages = map[string]map[string][]string{
 	},
 	"v2": {
 		"cloudfunctions": {"google.cloud.functions.v2"},
+		"cloudtasks":     {"google.cloud.tasks.v2"},
 		"logging":        {"google.logging.v2"},
 		"run":            {"google.cloud.run.v1", "google.cloud.run.v2"},
 	},
