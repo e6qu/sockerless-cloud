@@ -12,7 +12,8 @@ Three clouds built side by side show what a cloud is made of. The same dozen
 mechanisms turn up under every vendor's names, and once a mechanism exists
 once, each cloud's service on top of it is mostly wire shapes. This post
 covers, in order:
-- where each cloud's API specification comes from;
+- where each cloud's API specification comes from, what is generated from it,
+  how coverage of it is checked, and how a slice of it is chosen;
 - the services a cloud cannot do without, and the APIs to build first;
 - the libraries those services stand on;
 - the control-plane machinery behind the public API;
@@ -44,34 +45,128 @@ cloud only in coordinates.** No `if sim` in a test, no simulator-only header,
 no shortcut a real client would never take. A shortcut proves the shortcut
 works, never the client.
 
-## Getting the cloud APIs
+## From specification to served slice
 
 Every cloud publishes its API as a machine-readable specification, and the
-SDKs are generated from it. Vendor those files, pin each to the commit or
-revision it came from, and never edit them: they are the contract every
-handler and every response is checked against.
+SDKs are generated from it. This project treats those files as the contract:
+it vendors them, decides which ones it serves, checks every handler and every
+response against them, and gates the build on how much of each one it serves.
+The pipeline is the same for the three clouds; the formats and the gates
+differ.
 
-| Cloud | Specification | Where it comes from | How this repository vendors it |
+```mermaid
+flowchart LR
+    upstream["Upstream specifications<br/>Smithy · Discovery · Swagger<br/>+ documentation pages"] -->|"fetch-*-spec.sh<br/>pinned, never edited"| vendored[("specs/cloud-api/&lt;cloud&gt;<br/>+ SOURCES.md")]
+    vendored -->|"gen-spec-derived.sh"| tables["Generated tables<br/>*_gen.go"]
+    vendored --> gates["Coverage gates<br/>implemented-or-exempt ·<br/>served floors · declared 501s ·<br/>no phantom coverage"]
+    vendored --> validator["Run-time shape validation<br/>SOCKERLESS_SPEC_VALIDATE"]
+    handlers["Handwritten handlers<br/>simulator-&lt;cloud&gt;/*.go"] --> gates
+    tables --> handlers
+    suites["SDK · CLI · Terraform suites"] --> validator
+    validator -->|"violations not on the<br/>shrinking allowlist fail CI"| ci["CI"]
+    gates --> ci
+    freshness["Daily freshness job"] -->|"re-vendor what moved"| vendored
+```
+
+### Where the specifications come from
+
+| Cloud | Specification | Upstream | Vendored by |
 |---|---|---|---|
-| AWS | Smithy 2.0 JSON models, one per service | The models the AWS SDKs are generated from, at `codegen/sdk-codegen/aws-models/<service>.json` in [`aws/aws-sdk-go-v2`](https://github.com/aws/aws-sdk-go-v2) | `scripts/fetch-aws-spec.sh <service> [<ref>]` pins the ref to a commit SHA |
-| AWS | The Service Reference: each operation's resource ARN formats, condition keys and actions | `servicereference.us-east-1.amazonaws.com`, the JSON behind the Service Authorization Reference | `scripts/fetch-aws-service-reference.sh <service>`; the IAM gate derives every operation's resources from it |
-| Google Cloud | Discovery documents, one per API version | Each API's `https://<api>.googleapis.com/$discovery/rest?version=<v>`, or `https://www.googleapis.com/discovery/v1/apis/<api>/<v>/rest` | `scripts/fetch-gcp-discovery.sh`, pinned by the document's `revision` |
-| Google Cloud | Protocol buffer definitions for the gRPC surface | [`googleapis/googleapis`](https://github.com/googleapis/googleapis), compiled into the Go client libraries | Through the `cloud.google.com/go` modules the simulator imports |
-| Azure | OpenAPI 2.0 (Swagger) documents per resource provider and API version | `specification/<service>/resource-manager/...` and `.../data-plane/...` in [`Azure/azure-rest-api-specs`](https://github.com/Azure/azure-rest-api-specs) | `scripts/fetch-azure-spec.sh`, pinned to a commit SHA |
-| All | Behaviour the specification does not state | The service's documentation pages: timeouts, defaults, state machines, error texts | `scripts/fetch-{aws,gcp,azure}-doc.sh` store dated copies beside the models |
+| AWS | Smithy 2.0 JSON models, one per service (42 vendored) | The models the AWS SDKs are generated from, `codegen/sdk-codegen/aws-models/<service>.json` in [`aws/aws-sdk-go-v2`](https://github.com/aws/aws-sdk-go-v2) | `scripts/fetch-aws-spec.sh <service> [<ref>]`, which resolves the ref to a commit SHA |
+| AWS | The Service Reference: each action's resource types, ARN formats and condition keys (43 services) | `servicereference.us-east-1.amazonaws.com`, the JSON behind the Service Authorization Reference | `scripts/fetch-aws-service-reference.sh <service>` |
+| Google Cloud | Discovery documents, one per API version (33 vendored) | `https://<api>.googleapis.com/$discovery/rest?version=<v>`, or `https://www.googleapis.com/discovery/v1/apis/<api>/<v>/rest` | `scripts/fetch-gcp-discovery.sh`, pinned by the document's `revision` |
+| Google Cloud | Protocol buffer definitions of the gRPC services | [`googleapis/googleapis`](https://github.com/googleapis/googleapis), compiled into the Go client libraries | The `cloud.google.com/go` `…pb` packages the simulator imports for its gRPC door |
+| Azure | OpenAPI 2.0 (Swagger) documents, per resource provider and API version (129 files, 122 of them with operations) | `specification/<service>/resource-manager/…` and `…/data-plane/…` in [`Azure/azure-rest-api-specs`](https://github.com/Azure/azure-rest-api-specs) | `scripts/fetch-azure-spec.sh`, pinned to a commit SHA |
+| All | What the specification leaves out: timeouts, defaults, state machines, error texts, event tables | The services' documentation pages | `scripts/fetch-{aws,gcp,azure}-doc.sh`, dated copies beside the models |
 
-Each cloud's `specs/cloud-api/<cloud>/SOURCES.md` records every file's
-upstream path, license, pin and fetch time. A daily job re-vendors whatever
-moved upstream; `scripts/gen-spec-derived.sh` regenerates the tables compiled
-from the specifications; and the coverage ratchets fail a build when a served
-operation stops reaching a route, or when a method the specification declares
-neither serves nor answers a declared `501`.
+Each `specs/cloud-api/<cloud>/SOURCES.md` records every file's upstream path,
+license, pin and fetch time. `scripts/check-spec-freshness.sh` compares each
+pin with its upstream, and a scheduled job runs it daily at 06:00 UTC and
+pushes the refresh onto the open pull request. A refresh lands together with
+whatever it changes: regenerated tables, moved floors, and the operations it
+added served or declared.
 
 The specification states shapes, not behaviour. It says `RunInstances` takes
 an `InstanceType` and returns a `Reservation`; it does not say the instance
 waits in `pending` until its machine boots, or that a deleted KMS key waits
-seven to thirty days. That part comes from the documentation, and when the
-documentation is silent, from a capture against the real cloud.
+seven to thirty days. That part comes from the documentation pages, and where
+they are silent, from a capture against the real cloud, recorded as a
+`BUGS.md` row until one exists.
+
+### What is generated, and what is not
+
+The handlers are handwritten. A generated stub per operation would compile and
+answer, and that is the problem: it would count as served while doing no real
+work, which this project treats as a bug. What the specifications generate
+instead is the tables a handler would otherwise get wrong by hand.
+`scripts/gen-spec-derived.sh` regenerates them all after every re-vendor:
+
+| Generated file | From | What it gives the handlers |
+|---|---|---|
+| `simulator-aws/aws_error_members_gen.go` | Every vendored Smithy model | The member each error shape carries its message under (`message` or `Message`; the models disagree and the SDKs read exactly one), the service shape behind each `X-Amz-Target`, and each service's SigV4 signing name |
+| `simulator-aws/cloudwatch_cbor_shapes_gen.go` | The CloudWatch model | Every operation's shapes reduced to what Smithy RPC v2 CBOR and awsJson 1.0 encode differently, so one JSON handler serves both protocols |
+| `simulator-aws/stepfunctions_rest_integrations_gen.go` | The models' HTTP traits | The REST routing table for Step Functions' AWS SDK integrations, and the route table the IAM gate names a REST request's operation with |
+| `simulator-aws/iam_resource_types_gen.go` | The Service Reference | The resource types and ARN formats each action authorizes against, which the Smithy models do not carry |
+| `simulator-gcp/audit_methods_vendored.json` | The vendored audit-logging pages | Which methods a service audits, under which `methodName` and log category, checking which permissions |
+
+The tables compile, and the conformance tests check them against the
+specifications they came from.
+
+### How coverage is checked
+
+Each cloud measures how much of every vendored specification it serves, and
+the build fails when that number moves without someone saying why.
+
+| Check | AWS | Google Cloud | Azure |
+|---|---|---|---|
+| Every route names a real operation | `TestJSONTargetsExistInSmithyModels`, `TestQueryActionsExistInSmithyModels`, `TestRESTRoutesExistInSmithyModels` | Routes are probed per Discovery method (below) | Routes are probed per Swagger operation (below) |
+| Every operation is served or accounted for | `TestVendoredModelOperationsAreImplementedOrExempt`: an operation of a vendored model that no handwritten source names fails the build unless it is exempt with a reason, either a routing equivalence or an open `BUGS.md` row it must cite | `TestServiceConformance_GCPCoverageFloor`: every documented method is rendered into a concrete request and sent through the real handler chain; the served count per document is an exact-equality floor | `TestServiceConformance_AzureCoverageFloor`: the same probe and floor per Swagger document |
+| A re-vendor cannot add operations silently | The same test: a new operation is unnamed until it is served or exempt | `gcpDeclaredMethodTotals` locks each document's declared method count | `azureDeclaredOperationTotals` locks each document's declared operation count |
+| An unserved operation says so | Unimplemented operations answer the protocol's own unknown-operation error | `TestServiceConformance_GCPUnservedMethodsDeclareThemselves`: every unserved method answers a declared `501` naming what is missing, never the router's `404` | `TestServiceConformance_AzureUnservedOperationsDeclareThemselves`, the same rule |
+| No phantom coverage | `TestServiceConformance_LegacyQueryShadowing`: an operation one service does not serve must not be answered by another service's handler | `TestServiceConformance_GCPNoPhantomCoverage`: a method counts only if the route that answered it names it, so a wildcard route cannot answer for its siblings | `TestServiceConformance_AzureNoPhantomCoverage`, case-insensitive as Azure Resource Manager paths are |
+| The probe itself is sound | — | `TestServiceConformance_GCPCoverageProbeIsSound`, and a gRPC floor per service (`TestGRPCCoverageFloor`) | `TestServiceConformance_AzureCoverageProbeIsSound`, and `TestServiceConformance_AzureProbedHandlersAreHealthy` (no panic, no 5xx) |
+| Responses match the shapes | Run-time validation: with `SOCKERLESS_SPEC_VALIDATE` set, every response in the SDK, CLI and Terraform suites is checked against the vendored specification, and `scripts/check-spec-violations.sh` fails CI on any divergence not on `spec-violation-allowlist.txt`, whose every entry cites a bug and which only shrinks | The same | The same |
+| Every operation is exercised by real clients | `scripts/check-simulator-tests.sh`, a pre-commit hook: a commit that registers an operation must add an SDK, CLI or Terraform test that references it, or a `tests-exempt.txt` entry with its reason | The same | The same |
+| The record is readable | `specs/SIM_SURFACE_TABLES/<surface>.md`, generated by `scripts/seed-surface-tables.sh`: per operation, its handler and its SDK and Terraform tests | The same | The same |
+
+The probe is what makes the Google Cloud and Azure numbers honest. Matching a
+documented path against registered route patterns by shape alone counts a
+method as served whenever any pattern could spell its URI: a `{+name}`
+template under an unrelated route, or a colon-verb handler that matches every
+custom method and then rejects the verb. Only the response says whether a
+handler serves it.
+
+### How a slice is chosen
+
+A slice is chosen by vendoring. Vendoring a specification is a commitment:
+from then on, every operation in it must be served, or be accounted for
+operation by operation.
+
+- **AWS: by service model.** Vendor a service's Smithy model and every
+  operation in it must be implemented or exempt.
+  `TestVendoredModelsAreConsumed` refuses a vendored model nothing uses, so
+  a model is vendored when its service is built. The 42 vendored models are
+  served or exempt in full. An exemption is either a routing equivalence —
+  the S3 bucket operations a handler serves through subresources such as
+  `?acl` and `?cors` without naming them, which
+  `TestS3SubresourceExemptionsAreRouted` holds to their routes — or an open
+  bug, such as an operation newer than the SDK release the tests can pin.
+- **Google Cloud: by Discovery document.** A service enters with its Discovery
+  document; every method spelling must then reach a route that serves it or
+  answers a declared `501`. The per-document floor records the honest served
+  count. Compute Engine's 2,000-odd methods are far from fully served, and the
+  floor says so rather than hiding the gap.
+- **Azure: by Swagger document.** A resource provider enters with its Swagger
+  documents at one API version; 2,653 of the 2,660 operations across them are
+  served, and the other seven answer a declared `501`.
+
+Which services to vendor follows [the core services](#the-must-have-core-services):
+identity first, then the resource hierarchy, keys, networking, compute,
+storage, the registry, messaging, databases and observability. Within a
+service, the [APIs to build first](#the-apis-to-build-first) are the calls a
+client's create, wait, read, update, tag, delete loop makes. The floors and
+exemptions then keep the slice's boundary visible: anything outside it either
+answers a declared `501` or appears on a list with its reason.
 
 ## Before the first service: the foundation
 
