@@ -1,5 +1,74 @@
 # Changelog
 
+## [3.0.0](https://github.com/e6qu/sockerless-cloud/compare/v2.4.0...v3.0.0) (2026-10-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove host privilege; engine networks, sidecars, placement, node agent
+
+### Features
+
+* a restarted simulator adopts its node agent and guests ([972a672](https://github.com/e6qu/sockerless-cloud/commit/972a6727bf56d7673a5422bd9d31fc12f0831639))
+* Amazon ECS Fargate and Container Apps run on guests in CI ([608fb43](https://github.com/e6qu/sockerless-cloud/commit/608fb439c4f19343fa8da5ebd6e109b525cca562))
+* Amazon RDS Multi-AZ standby engines and ForceFailover ([#290](https://github.com/e6qu/sockerless-cloud/issues/290)) ([46c780c](https://github.com/e6qu/sockerless-cloud/commit/46c780cb90788f006340d746081ca24eb33c2357))
+* answer Route 53 aliases to load balancers with their addresses ([3ff433f](https://github.com/e6qu/sockerless-cloud/commit/3ff433f0e64fee8f21245c03e10c83f6b6356655))
+* answer Route 53, Azure DNS and Cloud DNS zones through a shared sim/dnsserver ([#315](https://github.com/e6qu/sockerless-cloud/issues/315)) ([ccffd6a](https://github.com/e6qu/sockerless-cloud/commit/ccffd6a10becd01d6bd73c146b877fa0c0e69989))
+* **aws:** log Amazon SNS delivery status and publish topic metrics ([#307](https://github.com/e6qu/sockerless-cloud/issues/307)) ([9d15be5](https://github.com/e6qu/sockerless-cloud/commit/9d15be50f72fe0ee9c1f82c3f816669a0958ae94))
+* BigQuery SQL engine, query destinations, key paging, docker log rotation ([7354b46](https://github.com/e6qu/sockerless-cloud/commit/7354b46c50d7dfd9d1f2abb6cbac50635a75644b))
+* Cloud Map hosted zones, BigQuery log sinks and SNS topic fidelity ([#320](https://github.com/e6qu/sockerless-cloud/issues/320)) ([f9c3702](https://github.com/e6qu/sockerless-cloud/commit/f9c37021b30e7751f6faea82e8e47b8dcf773dc9))
+* Cloud Map instance health in DNS answers; BigQuery BOOL predicates ([717f446](https://github.com/e6qu/sockerless-cloud/commit/717f446d3f8b9b661c1b4fed1887b41678c487ad))
+* cloud-init runs #cloud-config user data on the instance images ([2ae669c](https://github.com/e6qu/sockerless-cloud/commit/2ae669ccbc93c6a784705de3abcdb2c2ef4757a6))
+* container groups place through the backend and a guest takes members ([87245e3](https://github.com/e6qu/sockerless-cloud/commit/87245e38b241e77ec20818cb53ba5c4fff4f7fb8))
+* each AWS workload holds its role through its own service's channel ([86a2709](https://github.com/e6qu/sockerless-cloud/commit/86a2709f842a79a414b26218299d2708d004aa10))
+* ECS service utilization metrics; ALB minutes at close; warm base images ([512f0b9](https://github.com/e6qu/sockerless-cloud/commit/512f0b9e1ed8c57be1c8952469e4a89810523fb2))
+* engine volumes and single files reach guests as shares ([a9934c5](https://github.com/e6qu/sockerless-cloud/commit/a9934c5806137685b2780020b4a45e96275606f3))
+* evaluate Route 53 CloudWatch alarm health checks ([6f810a1](https://github.com/e6qu/sockerless-cloud/commit/6f810a1a60c18ffaf109de563dec8458ce44d777))
+* extract the remaining service libraries, overhaul the docs and plan, and unblock releases ([#352](https://github.com/e6qu/sockerless-cloud/issues/352)) ([be9dc05](https://github.com/e6qu/sockerless-cloud/commit/be9dc05711fdc31a7d25d7cf8d25bb23422981ac))
+* file shares and further networks reach guests, and App Service runs on guests in CI ([b28c216](https://github.com/e6qu/sockerless-cloud/commit/b28c216dba26ecfec776c2c1844a4a353862f29a))
+* finish stage 8 with Azure Monitor Logs retention, Cloud Logging routing and key-cursor list pages ([#313](https://github.com/e6qu/sockerless-cloud/issues/313)) ([5a510a3](https://github.com/e6qu/sockerless-cloud/commit/5a510a33985009909bb63b3136556454ff25b155))
+* forwarded-request headers on front ends and per-type ELB attributes ([#283](https://github.com/e6qu/sockerless-cloud/issues/283)) ([cd49050](https://github.com/e6qu/sockerless-cloud/commit/cd49050d0f6fdb00f11076505052349bd53cfb87))
+* NAT gateway, Cloud NAT and Azure NAT Gateway data planes on guests ([6276695](https://github.com/e6qu/sockerless-cloud/commit/627669552ccb2a60c8bad8ee751e86d9b200f26f))
+* one sim/machine lifecycle for the three clouds' virtual machines ([81c003f](https://github.com/e6qu/sockerless-cloud/commit/81c003fcab0229d905de2759624b6d51f7cc2f9b))
+* probe Route 53 health checks and route record sets by policy ([7e6a3e1](https://github.com/e6qu/sockerless-cloud/commit/7e6a3e1e1d5d7f0c3a4d1ef995dfee80c66b038d))
+* provision Container Apps revisions after the write answers ([381842a](https://github.com/e6qu/sockerless-cloud/commit/381842affd005e988a51114889f9ad9f5958ef11))
+* record Amazon RDS events from the vendored event table ([f3ef052](https://github.com/e6qu/sockerless-cloud/commit/f3ef0525ae99ab43113ba405176cb76079486c00))
+* register Azure VMs in private zones and apply Cloud DNS policies ([1f24a05](https://github.com/e6qu/sockerless-cloud/commit/1f24a050925b61366c10102d23626704ae2a769d))
+* remove host privilege; engine networks, sidecars, placement, node agent ([d900a24](https://github.com/e6qu/sockerless-cloud/commit/d900a243d351aa35803435084cb9e9b9e4c5dcd8))
+* replica sets for Cloud Run worker pools and Container Apps revisions ([c5a13f0](https://github.com/e6qu/sockerless-cloud/commit/c5a13f00bb9860d77dccfbdc774182ad8e1c259b))
+* revisions and traffic for Cloud Run, Container Apps and Amazon ECS ([4767877](https://github.com/e6qu/sockerless-cloud/commit/476787756fce811feb7d3830f7fd2ad4c85c415d))
+* run Container Apps probes and init containers ([#346](https://github.com/e6qu/sockerless-cloud/issues/346)) ([49c9e00](https://github.com/e6qu/sockerless-cloud/commit/49c9e003c68295b91b9c89281549679fce6938df))
+* run the instance tests on the microVM backend in KVM shards ([302f1e9](https://github.com/e6qu/sockerless-cloud/commit/302f1e944f8016b8ff0a861aa168c805685455f8))
+* scale Cloud Run service instances on request concurrency ([#347](https://github.com/e6qu/sockerless-cloud/issues/347)) ([58ecf9d](https://github.com/e6qu/sockerless-cloud/commit/58ecf9db90693ef7a45e5e18b65fdfc69254f576))
+* security groups, firewall rules and NSGs filter at the guest's tap ([e4e3305](https://github.com/e6qu/sockerless-cloud/commit/e4e330586ada20259c9ff8d13e0d94a982207b12))
+* send every namespace workload's DNS to its cloud's resolver ([#317](https://github.com/e6qu/sockerless-cloud/issues/317)) ([60f7faf](https://github.com/e6qu/sockerless-cloud/commit/60f7faf136ba3e4c98897954f03ebcce6e3d6207))
+* serve AWS Glue system logs and scale on ALB request counts ([#292](https://github.com/e6qu/sockerless-cloud/issues/292)) ([80db022](https://github.com/e6qu/sockerless-cloud/commit/80db022e27d361c2dded504dabee276a7a5c7a64))
+* services reach each other through each other's APIs ([22e19b5](https://github.com/e6qu/sockerless-cloud/commit/22e19b5884303160511d4561fcf58632cb0396ad))
+* start every simulator through a shared sim.Main sequence ([#316](https://github.com/e6qu/sockerless-cloud/issues/316)) ([c467861](https://github.com/e6qu/sockerless-cloud/commit/c467861906a352acd913eb73556938074bd1e06c))
+
+
+### Bug Fixes
+
+* adopt the AWS SDK batch and recover MySQL base backups with the binary log ([#282](https://github.com/e6qu/sockerless-cloud/issues/282)) ([5bd3571](https://github.com/e6qu/sockerless-cloud/commit/5bd3571ee98b7c0ac9f2d768ad4c4244b7506a7e))
+* **aws:** expire Amazon S3 presigned URLs after X-Amz-Expires ([fb8dde4](https://github.com/e6qu/sockerless-cloud/commit/fb8dde4505b258623bdc21243d3ec7b4d9b2e9f7))
+* **azure:** delete a resource group's resources as a long-running operation ([50cc727](https://github.com/e6qu/sockerless-cloud/commit/50cc7270f61dcefc8caa07c830e2f8b5f020a40b))
+* **azure:** refuse requests under a missing or deleting resource group ([dd65384](https://github.com/e6qu/sockerless-cloud/commit/dd653846b571bcc3c7e5c7a5af9525efe7a17ab4))
+* close and narrow open bugs across the AWS, Google Cloud and Azure simulators ([#351](https://github.com/e6qu/sockerless-cloud/issues/351)) ([14c1081](https://github.com/e6qu/sockerless-cloud/commit/14c10811a31386a05b9636e839b567b9b646d534))
+* **gcp:** drop Cloud Run job log lines no container printed; Cosmos shard ([a62dff4](https://github.com/e6qu/sockerless-cloud/commit/a62dff4ad3ed657022158b66f88924f25f469f5f))
+* give Dedicated Hosts their Price List properties and capacity ([#289](https://github.com/e6qu/sockerless-cloud/issues/289)) ([29f67d4](https://github.com/e6qu/sockerless-cloud/commit/29f67d4970c211ad936cbc1caf4171905a55c183))
+* keep digest-pinned container images current against Docker Hub ([#291](https://github.com/e6qu/sockerless-cloud/issues/291)) ([71d927e](https://github.com/e6qu/sockerless-cloud/commit/71d927e42f61bb9c79d5a825f605f575f003b3e9))
+* key-based GCP lists, per-service operations, deterministic tests ([bf4b812](https://github.com/e6qu/sockerless-cloud/commit/bf4b812f086d3650339766a471f0635c7f4b760c))
+* key-based GCP page tokens, scoped operations, test projects, RDS renames ([fadb35a](https://github.com/e6qu/sockerless-cloud/commit/fadb35acf95e4b40cb7e79fb7bf324d04892a215))
+* parallel-suite failures, int64 worker pool disk size, specs and docs ([7b89569](https://github.com/e6qu/sockerless-cloud/commit/7b89569d8dbd20fecf3672abbf704ba662c41989))
+* per-Region load balancer hosted zones; deps; three CI flakes ([f09ffa9](https://github.com/e6qu/sockerless-cloud/commit/f09ffa9bcdfc206c601897e6a6e1b5ab4d5d6573))
+* publish every workload port and wait on the guest's boot line ([#288](https://github.com/e6qu/sockerless-cloud/issues/288)) ([5c03a2e](https://github.com/e6qu/sockerless-cloud/commit/5c03a2e98d152e91ba82424584a5a987e3cb2f17))
+* refuse an Amazon RDS create repeated while the first provisions ([#295](https://github.com/e6qu/sockerless-cloud/issues/295)) ([9fef299](https://github.com/e6qu/sockerless-cloud/commit/9fef2991ae133d099b96d15854794657e0c629be))
+* role checks, loopback credentials, ALB rules, Container Apps scaling and revision rules ([#349](https://github.com/e6qu/sockerless-cloud/issues/349)) ([271c994](https://github.com/e6qu/sockerless-cloud/commit/271c994013bbb7a68324432330b29c17dcdbf375))
+* service-owned S3 buckets, DISABLED Service Usage default, deterministic lock tests ([#300](https://github.com/e6qu/sockerless-cloud/issues/300)) ([184478f](https://github.com/e6qu/sockerless-cloud/commit/184478f1c2d96848e18a7fef7fe95386de996ac6))
+* **sim:** report and retry a failed container log read ([#306](https://github.com/e6qu/sockerless-cloud/issues/306)) ([e6a0740](https://github.com/e6qu/sockerless-cloud/commit/e6a0740da4675f9c503c7dd90891f73881a338e3))
+* take simulator images off Docker Hub and hold the snapshot capture in its test ([#286](https://github.com/e6qu/sockerless-cloud/issues/286)) ([ca5e757](https://github.com/e6qu/sockerless-cloud/commit/ca5e75704c90c8bf47fe3eba516a4bd4af929f96))
+* task metadata, serial ports, site locks, and one base-image fetch per run ([#348](https://github.com/e6qu/sockerless-cloud/issues/348)) ([0843758](https://github.com/e6qu/sockerless-cloud/commit/08437588a9d101b84602f806f3441a3037932b01))
+
 ## [2.4.0](https://github.com/e6qu/sockerless-cloud/compare/v2.3.0...v2.4.0) (2026-10-11)
 
 
