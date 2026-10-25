@@ -27,9 +27,19 @@ The state of the sockerless-cloud repository. `PLAN.md` holds the roadmap,
   and `core`. A console reads only real cloud APIs and federates operator
   credentials through its cloud's own federation primitive.
 - **Docs.** `docs/so-you-want-to-build-a-cloud.md` explains what a cloud is
-  made of: the core services in build order, the `sim` library behind each,
-  what is still missing, and how the simulators compare with LocalStack and
-  Floci.
+  made of:
+  - where the API specifications come from, and the core services in build
+    order with the APIs to build first;
+  - the `sim` library behind each service, and the control-plane mechanisms
+    behind the public API;
+  - what is still missing;
+  - a comparison with LocalStack and Floci, with per-service feature tables
+    and Mermaid diagrams of the three control planes.
+
+  `docs/tutorial.md` builds one stack on all three simulators with Terraform.
+  Its configurations live beside the tests that apply them (the `tutorial`
+  directories of each simulator's `terraform-tests`), and CI runs them as
+  `tf (aws tutorial)`, `tf (gcp tutorial)` and `tf (azure tutorial)`.
 - **Specifications.** `specs/cloud-api/{aws,gcp,azure}` vendors the Smithy
   models, Discovery documents, Swagger documents, the AWS Service Reference
   and dated documentation pages, each row of a `SOURCES.md` pinned and

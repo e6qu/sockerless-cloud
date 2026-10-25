@@ -949,6 +949,12 @@ fails once the row closes or the operation is served.
   below the ephemeral range when a restarted simulator must bind them again;
   a DNS port comes from `freeports.TCPUDP`, free on both protocols on every
   interface.
+- **A tutorial is a test.** Each cloud's tutorial configuration is the
+  fixture its Terraform test applies, and the test checks the outputs the
+  tutorial tells the reader to look for, so a step that stops working fails
+  CI. Its function and container steps check real work: the Lambda
+  function's return value, the Azure function's response, a Fargate service
+  in steady state.
 - **A helper two suites need lives in `testutil`**, never as a copy per
   suite: copies of the workload image builder drifted until only five of
   seven built with `GOWORK=off`. What stays per suite is what sets one

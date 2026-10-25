@@ -10,9 +10,17 @@ Azure virtual machine boots, a Cloud SQL instance is a real PostgreSQL.
 
 Three clouds built side by side show what a cloud is made of. The same dozen
 mechanisms turn up under every vendor's names, and once a mechanism exists
-once, each cloud's service on top of it is mostly wire shapes. This post lines
-up the services a cloud cannot do without, the libraries those services stand
-on, and the extractions still left to make.
+once, each cloud's service on top of it is mostly wire shapes. This post
+covers, in order:
+- where each cloud's API specification comes from;
+- the services a cloud cannot do without, and the APIs to build first;
+- the libraries those services stand on;
+- the control-plane machinery behind the public API;
+- what is still missing;
+- how the result compares with LocalStack and Floci.
+
+[The tutorial](tutorial.md) builds one stack of those services on all three
+simulators with Terraform, step by step.
 
 ## What a cloud is, seen from a client
 
@@ -35,6 +43,35 @@ project builds on: **a client of the simulator differs from a client of the
 cloud only in coordinates.** No `if sim` in a test, no simulator-only header,
 no shortcut a real client would never take. A shortcut proves the shortcut
 works, never the client.
+
+## Getting the cloud APIs
+
+Every cloud publishes its API as a machine-readable specification, and the
+SDKs are generated from it. Vendor those files, pin each to the commit or
+revision it came from, and never edit them: they are the contract every
+handler and every response is checked against.
+
+| Cloud | Specification | Where it comes from | How this repository vendors it |
+|---|---|---|---|
+| AWS | Smithy 2.0 JSON models, one per service | The models the AWS SDKs are generated from, at `codegen/sdk-codegen/aws-models/<service>.json` in [`aws/aws-sdk-go-v2`](https://github.com/aws/aws-sdk-go-v2) | `scripts/fetch-aws-spec.sh <service> [<ref>]` pins the ref to a commit SHA |
+| AWS | The Service Reference: each operation's resource ARN formats, condition keys and actions | `servicereference.us-east-1.amazonaws.com`, the JSON behind the Service Authorization Reference | `scripts/fetch-aws-service-reference.sh <service>`; the IAM gate derives every operation's resources from it |
+| Google Cloud | Discovery documents, one per API version | Each API's `https://<api>.googleapis.com/$discovery/rest?version=<v>`, or `https://www.googleapis.com/discovery/v1/apis/<api>/<v>/rest` | `scripts/fetch-gcp-discovery.sh`, pinned by the document's `revision` |
+| Google Cloud | Protocol buffer definitions for the gRPC surface | [`googleapis/googleapis`](https://github.com/googleapis/googleapis), compiled into the Go client libraries | Through the `cloud.google.com/go` modules the simulator imports |
+| Azure | OpenAPI 2.0 (Swagger) documents per resource provider and API version | `specification/<service>/resource-manager/...` and `.../data-plane/...` in [`Azure/azure-rest-api-specs`](https://github.com/Azure/azure-rest-api-specs) | `scripts/fetch-azure-spec.sh`, pinned to a commit SHA |
+| All | Behaviour the specification does not state | The service's documentation pages: timeouts, defaults, state machines, error texts | `scripts/fetch-{aws,gcp,azure}-doc.sh` store dated copies beside the models |
+
+Each cloud's `specs/cloud-api/<cloud>/SOURCES.md` records every file's
+upstream path, license, pin and fetch time. A daily job re-vendors whatever
+moved upstream; `scripts/gen-spec-derived.sh` regenerates the tables compiled
+from the specifications; and the coverage ratchets fail a build when a served
+operation stops reaching a route, or when a method the specification declares
+neither serves nor answers a declared `501`.
+
+The specification states shapes, not behaviour. It says `RunInstances` takes
+an `InstanceType` and returns a `Reservation`; it does not say the instance
+waits in `pending` until its machine boots, or that a deleted KMS key waits
+seven to thirty days. That part comes from the documentation, and when the
+documentation is silent, from a capture against the real cloud.
 
 ## Before the first service: the foundation
 
@@ -226,6 +263,32 @@ AWS Amplify Hosting), content delivery (Amazon CloudFront), analytics (AWS
 Glue, BigQuery) — and a console, which reads only the cloud's real APIs and
 signs its operator in through the cloud's own federation primitive.
 
+## The APIs to build first
+
+A cloud is useful long before it is complete. What decides the order is what
+a client's loop calls: an infrastructure tool creates a resource, waits for it,
+reads it back field by field, updates it, tags it and deletes it, and an
+application then uses the resource's data plane. Build those calls for one
+service end to end — including the read-back that makes a second
+`terraform plan` empty — before starting the next.
+
+| Service | The control-plane calls a client's loop makes | The data plane |
+|---|---|---|
+| Identity | AWS STS `GetCallerIdentity`, `AssumeRole`; IAM `CreateRole`, `PutRolePolicy`, `GetRole`; Google OAuth 2.0 token endpoint, `serviceAccounts.*`; Microsoft Entra token endpoint, ARM role assignments | Signature and token verification on every request |
+| Amazon VPC / VPC network / Virtual Network | `CreateVpc`, `CreateSubnet`, `CreateSecurityGroup`, `AuthorizeSecurityGroupIngress`, route tables, `Describe*` with filters; `networks.insert`, `subnetworks.insert`, `firewalls.insert`; ARM `virtualNetworks`, `subnets`, `networkSecurityGroups` PUT, GET, DELETE | Addresses, DNS and metadata inside the network |
+| NAT | `AllocateAddress`, `CreateNatGateway`, `DescribeNatGateways`; `addresses.insert`, `routers.insert` with a NAT; ARM `natGateways`, `publicIPPrefixes` | Egress for the private subnet |
+| Virtual machines | `RunInstances`, `DescribeInstances`, `StopInstances`, `StartInstances`, `TerminateInstances`, `DescribeImages`; `instances.insert`, `get`, `stop`, `start`, `delete`, `images.getFromFamily`; ARM `virtualMachines` PUT, GET, `powerOff`, `start`, DELETE | Boot, cloud-init, instance metadata, serial console |
+| Container service | `CreateCluster`, `RegisterTaskDefinition`, `CreateService`, `DescribeServices`, `DescribeTasks`, `UpdateService`, `DeleteService`; Cloud Run `services.create`, `get`, `patch`, `delete` with their operations; ARM `containerApps` and `managedEnvironments` | Running the containers and routing requests to them |
+| Object storage | `CreateBucket`, `PutObject`, `GetObject`, `HeadObject`, `ListObjectsV2`, `DeleteObject`, the bucket configuration calls; `buckets.insert`, `objects.insert`, `objects.get`; ARM `storageAccounts` and Blob `Put Blob`, `Get Blob`, `List Blobs` | The objects themselves |
+| Key-value or document store | `CreateTable`, `DescribeTable`, `PutItem`, `GetItem`, `Query`, `DeleteTable`; Firestore `documents.createDocument`, `get`, `patch`, `runQuery`; ARM `databaseAccounts`, `sqlDatabases`, `containers` and the Cosmos DB documents API | Reads and writes with the store's consistency |
+| Queue | `CreateQueue`, `GetQueueUrl`, `GetQueueAttributes`, `SendMessage`, `ReceiveMessage`, `DeleteMessage`, `DeleteQueue`; Pub/Sub `topics.create`, `subscriptions.create`, `publish`, `pull`, `acknowledge`; ARM `namespaces`, `queues` and the Service Bus send and receive | Leases, visibility timeouts, redelivery and dead letters |
+| Function | `CreateFunction`, `GetFunction`, `Invoke`, `CreateEventSourceMapping`; Cloud Functions `functions.create` with its build, `get`; ARM `sites` with `kind` functionapp, the deployment site's zip deploy, host keys | Execution environments, cold and warm starts, event sources |
+| Logs and monitoring | `CreateLogGroup`, `PutLogEvents`, `FilterLogEvents`, `PutMetricData`, `PutMetricAlarm`, `DescribeAlarms`; Cloud Logging `entries.write`, `entries.list`, `metrics.create`; ARM `workspaces`, `components` and the Logs ingestion and query APIs | Log and metric ingestion, alarm evaluation |
+
+Two calls every service needs and is easy to forget: **tagging** (Terraform
+reads and writes tags on almost every resource) and **list with filters and
+pages** (every `Describe*` and `list` call, and every data source).
+
 ## The library map
 
 The 34 packages under `sim/`, by the layer they serve:
@@ -246,6 +309,53 @@ in unit tests without a simulator. Each consumer keeps its SDK, CLI and
 Terraform tests, which show that moving a cloud onto a library changed no
 wire behaviour.
 
+## The control plane behind the API
+
+The public API is the thin part. Behind every `Create*` call sits machinery no
+specification describes, and a cloud is mostly that machinery: the parts that
+turn a stored record into running work, keep it running, and clean it up.
+These are the ones this project had to build, and where each lives.
+
+| Mechanism | What it does | Where |
+|---|---|---|
+| Request pipeline | Route by protocol, authenticate the signature or token, authorize against the policy, validate the response against the specification, write the cloud's error envelope | `sim.Server` middleware, each cloud's router and auth |
+| Authorization derivation | Work out which resources and condition keys an operation touches, so a policy can be evaluated at all | AWS: the Service Reference's ARN formats; each cloud's IAM, IAM policy or RBAC evaluation |
+| Durable state with change signals | Every resource is a row; a write announces its key, and whatever waits on that resource wakes | `sim.Store`, `sim.Announcing`, `sim/signals` |
+| Asynchronous provisioning | Answer the request at once, then do the work behind it and move the resource through its states (`pending` → `running`, `CREATING` → `ACTIVE`), as the cloud does | `sim/bg`, long-running operations, each service's state machine |
+| Reconcilers | Hold the declared state against reality: N replicas of a revision, the tasks of a job, warm function environments, event-source pollers, health checks | `sim/replicas`, `sim/jobrun`, `sim/funcrt`, `lbplane` probes |
+| Timed work | Delivery retries with back-off, schedules, retention sweeps, TTLs, alarm evaluation — each on the cloud's documented cadence | `sim/delivery`, `sim/cron`, `kvstore.StartSweeper`, evaluators |
+| Placement | Choose where a workload runs, and run it there: a container on the engine, or a Firecracker microVM on a node agent | `sim/placement`, `sim/nodeagent` |
+| Network substrate | An engine network per VPC over the range the user chose; a sidecar at the addresses the cloud reserves, serving DNS, metadata and NAT egress | `sim.EnsureCloudNetwork`, `sim/ipam`, `sim/sidecar`, `sim/netrules` |
+| Workload identity | Deliver credentials to code running inside the cloud through the cloud's own channel: instance metadata, the Lambda runtime's variables, the metadata server, managed identity | each cloud's metadata handlers behind the sidecar, `sim/simjwt` |
+| Service-to-service calls | One service calls another through the whole request pipeline, as a service principal, so the callee's authorization and validation apply | `sim.Server.Call` |
+| Front ends and DNS | Route data-plane traffic by host name to the workload behind it; answer every hosted zone | `lbplane.HostRouter`, `sim/dnsserver` |
+| Restart recovery | A restarted process adopts the containers, guests and in-flight work the last one left, by label | each service's recovery, `SIM_PERSIST` |
+| Garbage collection | Reap the containers, networks and volumes of a run that ended | the container reaper and the startup sweep |
+
+```mermaid
+flowchart LR
+    client["SDK, CLI or Terraform"] --> server["sim.Server<br/>middleware chain"]
+    subgraph front["Request pipeline"]
+        server --> router["Protocol router<br/>(AWS Query/JSON/REST/CBOR,<br/>Google REST/gRPC, Azure ARM)"]
+        router --> authn["Authenticate<br/>SigV4 · OAuth 2.0 · Entra"]
+        authn --> authz["Authorize<br/>IAM gate · IAM policy · RBAC"]
+        authz --> handler["Service handler"]
+        handler --> validate["Validate response<br/>against vendored spec"]
+    end
+    handler --> store[("Durable stores<br/>SQLite")]
+    store -- "announce" --> signals["sim/signals"]
+    handler --> bg["sim/bg<br/>work behind the request"]
+    signals --> controllers
+    bg --> controllers["Reconcilers and timers<br/>replicas · jobrun · funcrt ·<br/>delivery · cron · evaluators"]
+    controllers --> placement["sim/placement"]
+    placement --> engine["Container engine"]
+    placement --> agent["Node agent<br/>Firecracker microVMs"]
+    engine --> network["Engine network per VPC<br/>+ sidecar: DNS · metadata · NAT"]
+    agent --> network
+    handler -- "sim.Server.Call<br/>as a service principal" --> router
+    network -- "metadata, credentials" --> router
+```
+
 ## What is still missing
 
 ### Gaps in the core services
@@ -260,6 +370,8 @@ wire behaviour.
   and attaching data disks, is not served.
 - **Cloud Monitoring.** Google Cloud has no metrics service, so nothing on
   Google Cloud can alarm or autoscale on a metric.
+- **Azure Monitor metric alerts.** Azure Monitor serves metrics but no metric
+  alert rules, so nothing on Azure can alarm on a metric.
 - **Filestore.** Google Cloud has no managed file share.
 
 ### Extractions, ranked by value over effort
@@ -309,16 +421,131 @@ relying on a row.
 | | sockerless-cloud | LocalStack | Floci |
 |---|---|---|---|
 | **License and cost** | AGPL-3.0, no account or token | One image, which needs an account and an auth token since 23 March 2026; a free Hobby tier for non-commercial use, paid Base, Ultimate and Enterprise tiers for commercial use | MIT, no account or token |
-| **Clouds** | AWS, Google Cloud and Azure, one Go binary each | AWS; its site also lists Azure and Snowflake emulators | AWS (`floci`), with sibling emulators for Azure (`floci-az`), Google Cloud (`floci-gcp`) and Oracle Cloud (`floci-oci`) |
+| **Clouds** | AWS, Google Cloud and Azure, one Go binary each | AWS; LocalStack for Azure in public preview; Snowflake | AWS (`floci`), with sibling emulators for Azure (`floci-az`), Google Cloud (`floci-gcp`) and Oracle Cloud (`floci-oci`) |
 | **Built with** | Go, on a shared `sim` framework | Python | Java on Quarkus, compiled to a GraalVM native image |
 | **Breadth** | Every operation of 42 vendored AWS Smithy models served or exempt; every method spelling of 33 Google Cloud Discovery documents routed; 2,653 of 2,660 Azure Swagger operations served | Broad AWS coverage; which services a user gets depends on the tier | Its site claims 126 AWS services; an independent review counted 85 in its service matrix |
 | **Contract** | The cloud's own specification, vendored; responses validated against it at run time; coverage ratchets in CI | Not stated in the pages consulted | "Real wire protocols"; compatibility tests (below) |
 | **Authentication** | SigV4 verified on every AWS request; an IAM gate authorizes every operation, always on | IAM enforcement off by default, enabled with `ENFORCE_IAM=1`; not on the Hobby tier | Any non-empty credentials by default; stricter checks opt-in per service |
 | **Heavy services** | Real engines: PostgreSQL, MySQL and MariaDB for the managed databases, Redis for Memorystore, containers or Firecracker microVMs for compute | Container-backed RDS and ECS from the Base tier, EKS from Ultimate | Real engines in containers: Lambda runtimes, RDS, ElastiCache on Valkey, DocumentDB on MongoDB, MSK on Redpanda, EKS on k3s, and more |
-| **Networks** | Each VPC, subnetwork or virtual network is an engine network over its own range, with the resolver and metadata at the addresses the cloud reserves | Not compared here | Not compared here |
-| **State** | Durable on SQLite by default; a restarted simulator adopts its workloads and resumes background work | Persistence and Cloud Pods from the Base tier | Four modes: memory, persistent, hybrid and write-ahead log |
+| **Networks** | Each VPC, subnetwork or virtual network is an engine network over its own range, with the resolver, metadata and NAT at the addresses the cloud reserves | A DNS server that answers `*.amazonaws.com` with LocalStack's address; network behaviour not described | One Docker network per VPC; NAT gateways and routing are records |
+| **State** | SQLite; with `SIM_PERSIST`, kept across restarts, and a restarted simulator adopts its workloads and resumes background work | Persistence and Cloud Pods from the Base tier | Four modes: memory, persistent, hybrid and write-ahead log |
 | **Tests** | Every operation through the official Go SDK, the vendor CLI and the Terraform provider, enforced by a pre-commit hook | Not compared here | 2,576 compatibility tests across five SDKs (Java, Node.js, Python, Go, AWS CLI) and three IaC tools (Terraform, OpenTofu, CDK) |
 | **Console** | One per cloud, reading only the cloud's real APIs, signing in through the cloud's own federation | A web application | `floci-ui` |
+
+### The tutorial's services, tool by tool
+
+The services [the tutorial](tutorial.md) builds, and how each tool serves
+them. **Real** means the tool runs the work, such as a container for the
+instance or task, a function runtime, or an egress path. **Record** means the
+API stores and returns the resource but nothing runs behind it. **API** means
+the operations exist and the pages consulted do not say what runs behind them.
+LocalStack tiers are Hobby (H), Base (B), Ultimate (U) and Enterprise (E).
+
+**AWS**
+
+| Service | sockerless-cloud | LocalStack for AWS | Floci |
+|---|---|---|---|
+| Amazon EC2 | Real: a container or a Firecracker microVM per instance, booted with cloud-init | Real from Base, through its Docker VM manager; Hobby serves the API only | Real: a Docker container per instance |
+| Amazon VPC | Real: an engine network over the VPC's own range; security groups enforced on mediated flows and at a microVM's tap | API; only the `default` security group, applied at instance creation | Real network: one Docker network per VPC; subnets are address slices; security groups and network ACLs not enforced unless the opt-in nftables mode is on |
+| NAT gateway | Real: an egress sidecar | API | Record |
+| Amazon ECS on AWS Fargate | Real: `awsvpc` tasks on the VPC's network | Real containers, from Base | Real containers, with an ENI per `awsvpc` task |
+| Amazon S3 | Real | All tiers | Real (in-process) |
+| Amazon DynamoDB | Real | All tiers, on its own emulator | Real (in-process) |
+| AWS Lambda | Real: AWS's runtime images, warm reuse, concurrency limits | Real: AWS's runtime images, all tiers | Real: AWS's runtime images |
+| Amazon SQS | Real | All tiers | Real (in-process) |
+| Amazon CloudWatch | Real: metrics, alarms evaluated, Logs | All tiers; metric alarms evaluated, composite alarms not | Real: single-metric alarms evaluated, Logs |
+
+**Google Cloud.** LocalStack has released no Google Cloud emulator.
+
+| Service | sockerless-cloud | Floci (`floci-gcp`) |
+|---|---|---|
+| Compute Engine | Real: a container or microVM per instance, with the metadata server and serial console | Record: instance and disk lifecycle, no guest execution |
+| VPC network and subnetwork | Real: an engine network per subnetwork range; firewall rules at a microVM's tap | Record |
+| Cloud NAT | Real: an egress sidecar | Not listed |
+| Cloud Run | Real: revisions scaled on request concurrency | Real: Docker |
+| Cloud Storage | Real | Real (in-process) |
+| Firestore | Real, including `Listen` | Real (in-process), including the listen stream |
+| Cloud Run functions | Real: built from source, run as Cloud Run services | Record: control plane only, no invocation |
+| Pub/Sub | Real, over REST and gRPC | Real (in-process), over REST and gRPC |
+| Cloud Logging | Real | Real (in-process) |
+| Cloud Monitoring | Not served | Real (in-process) |
+
+**Azure**
+
+| Service | sockerless-cloud | LocalStack for Azure (public preview) | Floci (`floci-az`) |
+|---|---|---|---|
+| Virtual Machines | Real: a container or microVM per machine, with cloud-init and the Instance Metadata Service | Not listed | Record by default; a Linux container per machine when `mocked` is off |
+| Virtual Network | Real: an engine network per address prefix; network security groups at a microVM's tap | API | Record |
+| NAT Gateway | Real: an egress sidecar | API | Not listed |
+| Container Apps | Real: revisions, replicas, scale rules, ingress | Real: containers on a k3d cluster per environment; scaling and traffic weights not enforced | Real: Docker, with HTTP ingress |
+| Blob Storage | Real | Real | Real (in-process) |
+| Cosmos DB for NoSQL | Real: the documents API with keys and consistency levels | Real: the NoSQL data plane, no change feed or RU metering | Real (in-process) |
+| Azure Functions | Real: the Functions host on the App Service platform | Real: the Functions host for Python, Node.js and .NET | Real: a warm container pool, HTTP triggers |
+| Service Bus | Real, over REST and AMQP | API | An optional Artemis sidecar, or a record |
+| Azure Monitor and Log Analytics | Real: Log Analytics and Application Insights; metric alerts not served | API | HTTP APIs, a subset of KQL |
+
+Sources for these tables: [LocalStack licensing](https://docs.localstack.cloud/aws/licensing/),
+LocalStack's [EC2](https://docs.localstack.cloud/aws/services/ec2/),
+[ECS](https://docs.localstack.cloud/aws/services/ecs/),
+[Lambda](https://docs.localstack.cloud/aws/services/lambda/),
+[DynamoDB](https://docs.localstack.cloud/aws/services/dynamodb/) and
+[CloudWatch](https://docs.localstack.cloud/aws/services/cloudwatch/) pages,
+[LocalStack for Azure](https://docs.localstack.cloud/azure/) with its
+[Container Apps](https://docs.localstack.cloud/azure/services/container-apps/),
+[Cosmos DB](https://docs.localstack.cloud/azure/services/cosmos-db/) and
+[Functions](https://docs.localstack.cloud/azure/services/functions-app/) pages;
+Floci's [services](https://floci.io/floci/services/),
+[EC2](https://floci.io/floci/services/ec2/),
+[ECS](https://floci.io/floci/services/ecs/) and
+[CloudWatch](https://floci.io/floci/services/cloudwatch/) pages, and the
+[`floci-gcp`](https://github.com/floci-io/floci-gcp) and
+[`floci-az`](https://github.com/floci-io/floci-az) READMEs.
+
+### Three control planes
+
+sockerless-cloud's control plane is drawn
+[above](#the-control-plane-behind-the-api). LocalStack's and Floci's, as their
+own architecture documentation describes them:
+
+**LocalStack** ([concepts](https://github.com/localstack/localstack/blob/main/docs/localstack-concepts/README.md),
+[DNS server](https://docs.localstack.cloud/aws/tooling/dns-server/)):
+
+```mermaid
+flowchart LR
+    client["SDK, CLI or Terraform"] --> gateway["Gateway<br/>Hypercorn ASGI"]
+    gateway --> chain["Handler chain<br/>request handlers"]
+    chain --> parser["ASF protocol parser<br/>parse_service_request"]
+    parser --> loader["Service loader<br/>plux plugins"]
+    loader --> provider["Service provider<br/>services/&lt;svc&gt;/provider.py"]
+    provider --> moto["moto backends<br/>for what the provider<br/>does not implement"]
+    provider --> stores[("Stores<br/>per account and Region")]
+    stores -. "persistence<br/>(paid tiers)" .-> disk[("Disk")]
+    provider --> docker["Docker engine<br/>Lambda · ECS · EC2"]
+    chain --> response["Response handlers<br/>serializer · schema validation"]
+    dns["DNS server :53<br/>*.amazonaws.com → LocalStack"] --> gateway
+    docker -. "containers resolve through" .-> dns
+```
+
+**Floci** ([README](https://github.com/floci-io/floci)):
+
+```mermaid
+flowchart LR
+    client["SDK, CLI or Terraform"] --> router["HTTP router :4566<br/>JAX-RS · Vert.x<br/>GraalVM native image"]
+    router --> stateless["Stateless services<br/>SQS · SNS · IAM · STS ·<br/>KMS · CloudWatch · ..."]
+    router --> stateful["Stateful services<br/>S3 · DynamoDB · Streams"]
+    router --> containers["Container services<br/>Lambda · RDS · ElastiCache ·<br/>ECS · EC2 · EKS · ..."]
+    stateless --> storage[("StorageBackend<br/>memory · hybrid ·<br/>persistent · wal")]
+    stateful --> storage
+    containers --> docker["Docker engine"]
+    containers --> sidecars["Sidecars<br/>floci-duck (Athena) · ..."]
+```
+
+The structural difference is where the work runs. LocalStack and Floci serve
+most services inside their own process and send the heavy ones to Docker.
+sockerless-cloud stores state in-process too, but every workload goes through
+one placement interface onto a container or a microVM, on a network that
+stands in for the cloud's own, so a VPC's addresses, resolver, metadata and
+NAT behave as they do in the cloud.
 
 Where each one fits:
 
