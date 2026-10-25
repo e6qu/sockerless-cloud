@@ -59,24 +59,10 @@ func ec2NetworkInterfaceMatchesFilters(eni EC2NetworkInterface, filters map[stri
 }
 
 func handleDescribeNetworkInterfaces(w http.ResponseWriter, r *http.Request) {
-	ids := ec2ParamList(r, "NetworkInterfaceId")
-	var enis []EC2NetworkInterface
-	if len(ids) > 0 {
-		for _, id := range ids {
-			eni, ok := ec2NetworkInterfaces.Get(id)
-			if !ok {
-				ec2ErrorXML(w, "InvalidNetworkInterfaceID.NotFound", fmt.Sprintf("The networkInterface ID '%s' does not exist", id), http.StatusBadRequest)
-				return
-			}
-			enis = append(enis, eni)
-		}
-	} else {
-		filters := ec2Filters(r)
-		for _, eni := range ec2NetworkInterfaces.List() {
-			if ec2NetworkInterfaceMatchesFilters(eni, filters) {
-				enis = append(enis, eni)
-			}
-		}
+	enis, ok := ec2NamedOrMatching(w, r, ec2NetworkInterfaces, "NetworkInterfaceId", "InvalidNetworkInterfaceID.NotFound",
+		"The networkInterface ID '%s' does not exist", ec2NetworkInterfaceMatchesFilters)
+	if !ok {
+		return
 	}
 	var items strings.Builder
 	for _, eni := range enis {

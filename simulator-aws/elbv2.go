@@ -1185,33 +1185,7 @@ type elbv2NotFound struct {
 }
 
 func filterELBv2LoadBalancers(r *http.Request) ([]ELBv2LoadBalancer, *elbv2NotFound) {
-	if arns := queryList(r, "LoadBalancerArns"); len(arns) > 0 {
-		var out []ELBv2LoadBalancer
-		for _, arn := range arns {
-			lb, ok := elbv2LoadBalancers.Get(arn)
-			if !ok {
-				return nil, &elbv2NotFound{"LoadBalancerNotFound", fmt.Sprintf("Load balancers '[%s]' not found", arn)}
-			}
-			out = append(out, lb)
-		}
-		return out, nil
-	}
-	if names := queryList(r, "Names"); len(names) > 0 {
-		byName := make(map[string]ELBv2LoadBalancer)
-		for _, lb := range elbv2LoadBalancers.List() {
-			byName[lb.Name] = lb
-		}
-		var out []ELBv2LoadBalancer
-		for _, n := range names {
-			lb, ok := byName[n]
-			if !ok {
-				return nil, &elbv2NotFound{"LoadBalancerNotFound", fmt.Sprintf("Load balancers '[%s]' not found", n)}
-			}
-			out = append(out, lb)
-		}
-		return out, nil
-	}
-	return elbv2LoadBalancers.List(), nil
+	return elbv2FindByARNOrName(r, "LoadBalancerArns", elbv2LoadBalancers, func(it ELBv2LoadBalancer) string { return it.Name }, "LoadBalancerNotFound", "Load balancers")
 }
 
 func filterELBv2TargetGroups(r *http.Request) ([]ELBv2TargetGroup, *elbv2NotFound) {
@@ -2133,4 +2107,37 @@ func atoiDefault(s string, def int) int {
 		return def
 	}
 	return n
+}
+
+// elbv2FindByARNOrName returns the resources the request names by ARN under
+// arnParam or by name under Names, refusing one that does not exist, or every
+// resource when it names none.
+func elbv2FindByARNOrName[T any](r *http.Request, arnParam string, store sim.Store[T], name func(T) string, notFoundCode, what string) ([]T, *elbv2NotFound) {
+	if arns := queryList(r, arnParam); len(arns) > 0 {
+		var out []T
+		for _, arn := range arns {
+			item, ok := store.Get(arn)
+			if !ok {
+				return nil, &elbv2NotFound{notFoundCode, fmt.Sprintf("%s '[%s]' not found", what, arn)}
+			}
+			out = append(out, item)
+		}
+		return out, nil
+	}
+	if names := queryList(r, "Names"); len(names) > 0 {
+		byName := make(map[string]T)
+		for _, item := range store.List() {
+			byName[name(item)] = item
+		}
+		var out []T
+		for _, n := range names {
+			item, ok := byName[n]
+			if !ok {
+				return nil, &elbv2NotFound{notFoundCode, fmt.Sprintf("%s '[%s]' not found", what, n)}
+			}
+			out = append(out, item)
+		}
+		return out, nil
+	}
+	return store.List(), nil
 }

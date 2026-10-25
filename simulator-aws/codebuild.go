@@ -1572,31 +1572,14 @@ func handleCBDeleteReportGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleCBListReportGroups(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		SortOrder  string `json:"sortOrder"`
-		MaxResults int    `json:"maxResults"`
-		NextToken  string `json:"nextToken"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		cbWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-
-	all := cbReportGrps.List()
-	arns := make([]string, 0, len(all))
-	for _, rg := range all {
-		arns = append(arns, rg.Arn)
-	}
-	descending := strings.EqualFold(req.SortOrder, "DESCENDING")
-	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, arns, func(s string) string { return cbOrderKey(s, descending) }, req.NextToken, req.MaxResults, 100)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"reportGroups": page}
-	if nextTok != "" {
-		resp["nextToken"] = nextTok
-	}
-	cbWriteJSON(w, http.StatusOK, resp)
+	cbListSortedARNs(w, r, "reportGroups", func() []string {
+		all := cbReportGrps.List()
+		arns := make([]string, 0, len(all))
+		for _, rg := range all {
+			arns = append(arns, rg.Arn)
+		}
+		return arns
+	})
 }
 
 func handleCBBatchGetReportGroups(w http.ResponseWriter, r *http.Request) {
@@ -1871,4 +1854,28 @@ func cbEnvironmentValues(v any) map[string]string {
 		env[name] = value
 	}
 	return env
+}
+
+// cbListSortedARNs answers a List call with the ARNs arns returns, ordered by
+// the request's sortOrder, a nextToken page at a time.
+func cbListSortedARNs(w http.ResponseWriter, r *http.Request, field string, arns func() []string) {
+	var req struct {
+		SortOrder  string `json:"sortOrder"`
+		MaxResults int    `json:"maxResults"`
+		NextToken  string `json:"nextToken"`
+	}
+	if err := sim.ReadJSON(r, &req); err != nil {
+		cbWriteError(w, "InvalidInputException", "invalid JSON")
+		return
+	}
+	descending := strings.EqualFold(req.SortOrder, "DESCENDING")
+	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, arns(), func(s string) string { return cbOrderKey(s, descending) }, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
+	resp := map[string]any{field: page}
+	if nextTok != "" {
+		resp["nextToken"] = nextTok
+	}
+	cbWriteJSON(w, http.StatusOK, resp)
 }

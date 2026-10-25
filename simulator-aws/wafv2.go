@@ -544,37 +544,9 @@ type wafListReq struct {
 }
 
 func handleWAFListWebACLs(w http.ResponseWriter, r *http.Request) {
-	var req wafListReq
-	if err := sim.ReadJSON(r, &req); err != nil {
-		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
-		return
-	}
-	type summary struct {
-		Name        string `json:"Name"`
-		Id          string `json:"Id"`
-		Description string `json:"Description,omitempty"`
-		LockToken   string `json:"LockToken"`
-		ARN         string `json:"ARN"`
-	}
-	items := []summary{}
-	for _, s := range wafWebACLs.List() {
-		if s.Scope != req.Scope {
-			continue
-		}
-		items = append(items, summary{
-			Name: s.WebACL.Name, Id: s.WebACL.Id,
-			Description: s.WebACL.Description, LockToken: s.LockToken, ARN: s.WebACL.ARN,
-		})
-	}
-	page, next, pageOK := awsKeyPage(w, wafBadToken, items, func(s summary) string { return s.Name }, req.NextMarker, req.Limit, 100)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"WebACLs": page}
-	if next != "" {
-		resp["NextMarker"] = next
-	}
-	wafWriteJSON(w, resp)
+	wafListSummaries(w, r, wafWebACLs, "WebACLs", func(s wafStoredWebACL) (string, wafSummary) {
+		return s.Scope, wafSummary{Name: s.WebACL.Name, Id: s.WebACL.Id, Description: s.WebACL.Description, LockToken: s.LockToken, ARN: s.WebACL.ARN}
+	})
 }
 
 type wafAssocReq struct {
@@ -832,37 +804,9 @@ func handleWAFDeleteIPSet(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleWAFListIPSets(w http.ResponseWriter, r *http.Request) {
-	var req wafListReq
-	if err := sim.ReadJSON(r, &req); err != nil {
-		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
-		return
-	}
-	type summary struct {
-		Name        string `json:"Name"`
-		Id          string `json:"Id"`
-		Description string `json:"Description,omitempty"`
-		LockToken   string `json:"LockToken"`
-		ARN         string `json:"ARN"`
-	}
-	items := []summary{}
-	for _, s := range wafIPSets.List() {
-		if s.Scope != req.Scope {
-			continue
-		}
-		items = append(items, summary{
-			Name: s.IPSet.Name, Id: s.IPSet.Id,
-			Description: s.IPSet.Description, LockToken: s.LockToken, ARN: s.IPSet.ARN,
-		})
-	}
-	page, next, pageOK := awsKeyPage(w, wafBadToken, items, func(s summary) string { return s.Name }, req.NextMarker, req.Limit, 100)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"IPSets": page}
-	if next != "" {
-		resp["NextMarker"] = next
-	}
-	wafWriteJSON(w, resp)
+	wafListSummaries(w, r, wafIPSets, "IPSets", func(s wafStoredIPSet) (string, wafSummary) {
+		return s.Scope, wafSummary{Name: s.IPSet.Name, Id: s.IPSet.Id, Description: s.IPSet.Description, LockToken: s.LockToken, ARN: s.IPSet.ARN}
+	})
 }
 
 type wafCreateRuleGroupReq struct {
@@ -1005,34 +949,9 @@ func handleWAFDeleteRuleGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleWAFListRuleGroups(w http.ResponseWriter, r *http.Request) {
-	var req wafListReq
-	if err := sim.ReadJSON(r, &req); err != nil {
-		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
-		return
-	}
-	type summary struct {
-		Name        string `json:"Name"`
-		Id          string `json:"Id"`
-		Description string `json:"Description,omitempty"`
-		LockToken   string `json:"LockToken"`
-		ARN         string `json:"ARN"`
-	}
-	items := []summary{}
-	for _, s := range wafRuleGroups.List() {
-		if s.Scope != req.Scope {
-			continue
-		}
-		items = append(items, summary{Name: s.RuleGroup.Name, Id: s.RuleGroup.Id, Description: s.RuleGroup.Description, LockToken: s.LockToken, ARN: s.RuleGroup.ARN})
-	}
-	page, next, pageOK := awsKeyPage(w, wafBadToken, items, func(s summary) string { return s.Name }, req.NextMarker, req.Limit, 100)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"RuleGroups": page}
-	if next != "" {
-		resp["NextMarker"] = next
-	}
-	wafWriteJSON(w, resp)
+	wafListSummaries(w, r, wafRuleGroups, "RuleGroups", func(s wafStoredRuleGroup) (string, wafSummary) {
+		return s.Scope, wafSummary{Name: s.RuleGroup.Name, Id: s.RuleGroup.Id, Description: s.RuleGroup.Description, LockToken: s.LockToken, ARN: s.RuleGroup.ARN}
+	})
 }
 
 type wafCreateRegexReq struct {
@@ -1143,34 +1062,9 @@ func handleWAFDeleteRegexSet(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleWAFListRegexSets(w http.ResponseWriter, r *http.Request) {
-	var req wafListReq
-	if err := sim.ReadJSON(r, &req); err != nil {
-		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
-		return
-	}
-	type summary struct {
-		Name        string `json:"Name"`
-		Id          string `json:"Id"`
-		Description string `json:"Description,omitempty"`
-		LockToken   string `json:"LockToken"`
-		ARN         string `json:"ARN"`
-	}
-	items := []summary{}
-	for _, s := range wafRegexSets.List() {
-		if s.Scope != req.Scope {
-			continue
-		}
-		items = append(items, summary{Name: s.RegexSet.Name, Id: s.RegexSet.Id, Description: s.RegexSet.Description, LockToken: s.LockToken, ARN: s.RegexSet.ARN})
-	}
-	page, next, pageOK := awsKeyPage(w, wafBadToken, items, func(s summary) string { return s.Name }, req.NextMarker, req.Limit, 100)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"RegexPatternSets": page}
-	if next != "" {
-		resp["NextMarker"] = next
-	}
-	wafWriteJSON(w, resp)
+	wafListSummaries(w, r, wafRegexSets, "RegexPatternSets", func(s wafStoredRegex) (string, wafSummary) {
+		return s.Scope, wafSummary{Name: s.RegexSet.Name, Id: s.RegexSet.Id, Description: s.RegexSet.Description, LockToken: s.LockToken, ARN: s.RegexSet.ARN}
+	})
 }
 
 func wafGetTagsByARN(arn string) ([]wafTag, bool) {
@@ -2767,4 +2661,39 @@ func handleWAFGetTopPathStatisticsByTraffic(w http.ResponseWriter, r *http.Reque
 		"TopCategories":     []any{},
 		"TotalRequestCount": 0,
 	})
+}
+
+// wafSummary is what a List call returns for a web ACL, IP set, rule group or
+// regex pattern set.
+type wafSummary struct {
+	Name        string `json:"Name"`
+	Id          string `json:"Id"`
+	Description string `json:"Description,omitempty"`
+	LockToken   string `json:"LockToken"`
+	ARN         string `json:"ARN"`
+}
+
+// wafListSummaries answers a List call with the summaries of store's resources
+// in the request's scope, a NextMarker page at a time.
+func wafListSummaries[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], field string, summarize func(T) (string, wafSummary)) {
+	var req wafListReq
+	if err := sim.ReadJSON(r, &req); err != nil {
+		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
+		return
+	}
+	items := []wafSummary{}
+	for _, stored := range store.List() {
+		if scope, summary := summarize(stored); scope == req.Scope {
+			items = append(items, summary)
+		}
+	}
+	page, next, pageOK := awsKeyPage(w, wafBadToken, items, func(s wafSummary) string { return s.Name }, req.NextMarker, req.Limit, 100)
+	if !pageOK {
+		return
+	}
+	resp := map[string]any{field: page}
+	if next != "" {
+		resp["NextMarker"] = next
+	}
+	wafWriteJSON(w, resp)
 }

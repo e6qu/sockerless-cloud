@@ -465,33 +465,7 @@ func elbv2TrustStoreAssociationKey(a ELBv2TrustStoreAssociation) string {
 }
 
 func filterELBv2TrustStores(r *http.Request) ([]ELBv2TrustStore, *elbv2NotFound) {
-	if arns := queryList(r, "TrustStoreArns"); len(arns) > 0 {
-		var out []ELBv2TrustStore
-		for _, arn := range arns {
-			ts, ok := elbv2TrustStores.Get(arn)
-			if !ok {
-				return nil, &elbv2NotFound{"TrustStoreNotFound", fmt.Sprintf("Trust stores '[%s]' not found", arn)}
-			}
-			out = append(out, ts)
-		}
-		return out, nil
-	}
-	if names := queryList(r, "Names"); len(names) > 0 {
-		byName := make(map[string]ELBv2TrustStore)
-		for _, ts := range elbv2TrustStores.List() {
-			byName[ts.Name] = ts
-		}
-		var out []ELBv2TrustStore
-		for _, n := range names {
-			ts, ok := byName[n]
-			if !ok {
-				return nil, &elbv2NotFound{"TrustStoreNotFound", fmt.Sprintf("Trust stores '[%s]' not found", n)}
-			}
-			out = append(out, ts)
-		}
-		return out, nil
-	}
-	return elbv2TrustStores.List(), nil
+	return elbv2FindByARNOrName(r, "TrustStoreArns", elbv2TrustStores, func(it ELBv2TrustStore) string { return it.Name }, "TrustStoreNotFound", "Trust stores")
 }
 
 // elbv2SSLPolicy is one predefined ELB security policy.

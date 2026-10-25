@@ -292,32 +292,7 @@ func handleGlueGetWorkflow(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGlueListWorkflows(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		NextToken  string `json:"NextToken"`
-		MaxResults *int   `json:"MaxResults"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		glueWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-	all := glueWorkflows.List()
-	names := make([]string, 0, len(all))
-	for _, wf := range all {
-		names = append(names, wf.Name)
-	}
-	maxR := 0
-	if req.MaxResults != nil {
-		maxR = *req.MaxResults
-	}
-	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, names, func(it string) string { return it }, req.NextToken, maxR, 25)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"Workflows": page}
-	if nextTok != "" {
-		resp["NextToken"] = nextTok
-	}
-	glueWriteJSON(w, http.StatusOK, resp)
+	glueListNames(w, r, glueWorkflows, func(it GlueWorkflow) string { return it.Name }, "Workflows", 25)
 }
 
 func handleGlueDeleteWorkflow(w http.ResponseWriter, r *http.Request) {

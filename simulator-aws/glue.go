@@ -537,3 +537,35 @@ func glueRFC3339() string {
 func glueGlueArn(resource string) string {
 	return "arn:aws:glue:" + awsRegion() + ":" + awsAccountID() + ":" + resource
 }
+
+// glueListNames answers a List call with the names of store's resources, a
+// NextToken page at a time.
+func glueListNames[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], name func(T) string, field string, defaultMax int) {
+	gluePage(w, r, store.List, name, func(it T) any { return name(it) }, field, defaultMax)
+}
+
+// gluePage answers a List or Get call with the wire form of the items list
+// returns, a NextToken page at a time in the order of key.
+func gluePage[T any](w http.ResponseWriter, r *http.Request, list func() []T, key func(T) string, wire func(T) any, field string, defaultMax int) {
+	var req struct {
+		NextToken  string `json:"NextToken"`
+		MaxResults *int   `json:"MaxResults"`
+	}
+	if err := sim.ReadJSON(r, &req); err != nil {
+		glueWriteError(w, "InvalidInputException", "invalid JSON")
+		return
+	}
+	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, list(), key, req.NextToken, derefIntDefault(req.MaxResults, 0), defaultMax)
+	if !pageOK {
+		return
+	}
+	out := make([]any, 0, len(page))
+	for _, item := range page {
+		out = append(out, wire(item))
+	}
+	resp := map[string]any{field: out}
+	if nextTok != "" {
+		resp["NextToken"] = nextTok
+	}
+	glueWriteJSON(w, http.StatusOK, resp)
+}

@@ -681,32 +681,8 @@ func ec2CapResFleetFieldsXML(crf EC2CapacityReservationFleet) string {
 }
 
 func handleDescribeCapacityReservationFleets(w http.ResponseWriter, r *http.Request) {
-	ids := ec2ParamList(r, "CapacityReservationFleetId")
-	results := make([]EC2CapacityReservationFleet, 0)
-	if len(ids) > 0 {
-		for _, id := range ids {
-			crf, ok := ec2CapacityReservationFleets.Get(id)
-			if !ok {
-				ec2ErrorXML(w, "InvalidCapacityReservationFleetId.NotFound", fmt.Sprintf("The Capacity Reservation Fleet ID %q does not exist", id), http.StatusBadRequest)
-				return
-			}
-			results = append(results, crf)
-		}
-	} else {
-		results = append(results, ec2CapacityReservationFleets.List()...)
-	}
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].CapacityReservationFleetId < results[j].CapacityReservationFleetId
-	})
-	var items strings.Builder
-	for _, crf := range results {
-		items.WriteString("<item>")
-		items.WriteString(ec2CapResFleetFieldsXML(crf))
-		items.WriteString("</item>")
-	}
-	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DescribeCapacityReservationFleetsResponse %s><requestId>%s</requestId><capacityReservationFleetSet>%s</capacityReservationFleetSet></DescribeCapacityReservationFleetsResponse>`,
-		ec2Xmlns(), sim.NewUUID(), items.String())
+	ec2DescribeEach(w, r, ec2CapacityReservationFleets, "CapacityReservationFleetId", "InvalidCapacityReservationFleetId.NotFound", "The Capacity Reservation Fleet ID %q does not exist",
+		func(it EC2CapacityReservationFleet) string { return it.CapacityReservationFleetId }, ec2CapResFleetFieldsXML, "DescribeCapacityReservationFleets", "capacityReservationFleetSet")
 }
 
 func handleModifyCapacityReservationFleet(w http.ResponseWriter, r *http.Request) {
@@ -890,30 +866,8 @@ func ec2FleetFieldsXML(fleet EC2Fleet) string {
 }
 
 func handleDescribeFleets(w http.ResponseWriter, r *http.Request) {
-	ids := ec2ParamList(r, "FleetId")
-	results := make([]EC2Fleet, 0)
-	if len(ids) > 0 {
-		for _, id := range ids {
-			f, ok := ec2Fleets.Get(id)
-			if !ok {
-				ec2ErrorXML(w, "InvalidFleetId.NotFound", fmt.Sprintf("The fleet ID %q does not exist", id), http.StatusBadRequest)
-				return
-			}
-			results = append(results, f)
-		}
-	} else {
-		results = append(results, ec2Fleets.List()...)
-	}
-	sort.Slice(results, func(i, j int) bool { return results[i].FleetId < results[j].FleetId })
-	var items strings.Builder
-	for _, f := range results {
-		items.WriteString("<item>")
-		items.WriteString(ec2FleetFieldsXML(f))
-		items.WriteString("</item>")
-	}
-	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DescribeFleetsResponse %s><requestId>%s</requestId><fleetSet>%s</fleetSet></DescribeFleetsResponse>`,
-		ec2Xmlns(), sim.NewUUID(), items.String())
+	ec2DescribeEach(w, r, ec2Fleets, "FleetId", "InvalidFleetId.NotFound", "The fleet ID %q does not exist",
+		func(it EC2Fleet) string { return it.FleetId }, ec2FleetFieldsXML, "DescribeFleets", "fleetSet")
 }
 
 func handleDescribeFleetInstances(w http.ResponseWriter, r *http.Request) {
@@ -1466,30 +1420,8 @@ func ec2ScheduledInstanceXML(si EC2ScheduledInstance) string {
 }
 
 func handleDescribeScheduledInstances(w http.ResponseWriter, r *http.Request) {
-	ids := ec2ParamList(r, "ScheduledInstanceId")
-	results := make([]EC2ScheduledInstance, 0)
-	if len(ids) > 0 {
-		for _, id := range ids {
-			si, ok := ec2ScheduledInstances.Get(id)
-			if !ok {
-				ec2ErrorXML(w, "InvalidScheduledInstance", fmt.Sprintf("The scheduled instance ID %q does not exist", id), http.StatusBadRequest)
-				return
-			}
-			results = append(results, si)
-		}
-	} else {
-		results = append(results, ec2ScheduledInstances.List()...)
-	}
-	sort.Slice(results, func(i, j int) bool { return results[i].ScheduledInstanceId < results[j].ScheduledInstanceId })
-	var items strings.Builder
-	for _, si := range results {
-		items.WriteString("<item>")
-		items.WriteString(ec2ScheduledInstanceXML(si))
-		items.WriteString("</item>")
-	}
-	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DescribeScheduledInstancesResponse %s><requestId>%s</requestId><scheduledInstanceSet>%s</scheduledInstanceSet></DescribeScheduledInstancesResponse>`,
-		ec2Xmlns(), sim.NewUUID(), items.String())
+	ec2DescribeEach(w, r, ec2ScheduledInstances, "ScheduledInstanceId", "InvalidScheduledInstance", "The scheduled instance ID %q does not exist",
+		func(it EC2ScheduledInstance) string { return it.ScheduledInstanceId }, ec2ScheduledInstanceXML, "DescribeScheduledInstances", "scheduledInstanceSet")
 }
 
 func handleRunScheduledInstances(w http.ResponseWriter, r *http.Request) {

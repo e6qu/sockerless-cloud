@@ -481,29 +481,7 @@ func handleSFNTagResource(w http.ResponseWriter, r *http.Request) {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
-
-	sfnMu.Lock()
-	defer sfnMu.Unlock()
-
-	name := sfnNameFromARN(req.ResourceArn)
-	if strings.Contains(req.ResourceArn, ":activity:") {
-		activity, ok := sfnActivities.Get(name)
-		if !ok {
-			sfnWriteError(w, "ResourceNotFound", "Resource not found: "+req.ResourceArn)
-			return
-		}
-		activity.Tags = sfnMergeTags(activity.Tags, req.Tags)
-		sfnActivities.Put(name, activity)
-	} else {
-		sm, ok := sfnStateMachines.Get(name)
-		if !ok {
-			sfnWriteError(w, "ResourceNotFound", "Resource not found: "+req.ResourceArn)
-			return
-		}
-		sm.Tags = sfnMergeTags(sm.Tags, req.Tags)
-		sfnStateMachines.Put(name, sm)
-	}
-	sfnWriteJSON(w, http.StatusOK, map[string]any{})
+	sfnRetag(w, req.ResourceArn, func(tags []SFNTag) []SFNTag { return sfnMergeTags(tags, req.Tags) })
 }
 
 func handleSFNUntagResource(w http.ResponseWriter, r *http.Request) {
@@ -515,29 +493,7 @@ func handleSFNUntagResource(w http.ResponseWriter, r *http.Request) {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
-
-	sfnMu.Lock()
-	defer sfnMu.Unlock()
-
-	name := sfnNameFromARN(req.ResourceArn)
-	if strings.Contains(req.ResourceArn, ":activity:") {
-		activity, ok := sfnActivities.Get(name)
-		if !ok {
-			sfnWriteError(w, "ResourceNotFound", "Resource not found: "+req.ResourceArn)
-			return
-		}
-		activity.Tags = sfnRemoveTags(activity.Tags, req.TagKeys)
-		sfnActivities.Put(name, activity)
-	} else {
-		sm, ok := sfnStateMachines.Get(name)
-		if !ok {
-			sfnWriteError(w, "ResourceNotFound", "Resource not found: "+req.ResourceArn)
-			return
-		}
-		sm.Tags = sfnRemoveTags(sm.Tags, req.TagKeys)
-		sfnStateMachines.Put(name, sm)
-	}
-	sfnWriteJSON(w, http.StatusOK, map[string]any{})
+	sfnRetag(w, req.ResourceArn, func(tags []SFNTag) []SFNTag { return sfnRemoveTags(tags, req.TagKeys) })
 }
 
 func handleSFNListTagsForResource(w http.ResponseWriter, r *http.Request) {
@@ -2968,4 +2924,31 @@ func sfnParallelMapStateCount(definition sfnDefinition) int {
 		}
 	}
 	return count
+}
+
+// sfnRetag replaces the tags of the state machine or activity arn names with
+// what retag makes of them.
+func sfnRetag(w http.ResponseWriter, arn string, retag func([]SFNTag) []SFNTag) {
+	sfnMu.Lock()
+	defer sfnMu.Unlock()
+
+	name := sfnNameFromARN(arn)
+	if strings.Contains(arn, ":activity:") {
+		activity, ok := sfnActivities.Get(name)
+		if !ok {
+			sfnWriteError(w, "ResourceNotFound", "Resource not found: "+arn)
+			return
+		}
+		activity.Tags = retag(activity.Tags)
+		sfnActivities.Put(name, activity)
+	} else {
+		sm, ok := sfnStateMachines.Get(name)
+		if !ok {
+			sfnWriteError(w, "ResourceNotFound", "Resource not found: "+arn)
+			return
+		}
+		sm.Tags = retag(sm.Tags)
+		sfnStateMachines.Put(name, sm)
+	}
+	sfnWriteJSON(w, http.StatusOK, map[string]any{})
 }

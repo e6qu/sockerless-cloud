@@ -470,27 +470,8 @@ func ec2ExportImageFieldsXML(t EC2ExportImageTask) string {
 }
 
 func handleDescribeExportImageTasks(w http.ResponseWriter, r *http.Request) {
-	ids := ec2ParamList(r, "ExportImageTaskId")
-	results := make([]EC2ExportImageTask, 0)
-	for _, t := range ec2ExportImageTasks.List() {
-		if len(ids) > 0 && !ec2StrInValues(t.ExportImageTaskId, ids) {
-			continue
-		}
-		results = append(results, t)
-	}
-	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2ExportImageTask) string { return it.ExportImageTaskId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
-	if !pageOK {
-		return
-	}
-	var items strings.Builder
-	for _, t := range results {
-		items.WriteString("<item>")
-		items.WriteString(ec2ExportImageFieldsXML(t))
-		items.WriteString("</item>")
-	}
-	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DescribeExportImageTasksResponse %s><requestId>%s</requestId><exportImageTaskSet>%s</exportImageTaskSet>%s</DescribeExportImageTasksResponse>`,
-		ec2Xmlns(), sim.NewUUID(), items.String(), ec2NextTokenXML(nextToken))
+	ec2DescribePaged(w, r, ec2ExportImageTasks, "ExportImageTaskId",
+		func(it EC2ExportImageTask) string { return it.ExportImageTaskId }, ec2ExportImageFieldsXML, "DescribeExportImageTasks", "exportImageTaskSet")
 }
 
 func ec2ImportImageFieldsXML(t EC2ImportImageTask) string {
@@ -552,27 +533,8 @@ func ec2ImportImageFieldsXML(t EC2ImportImageTask) string {
 }
 
 func handleDescribeImportImageTasks(w http.ResponseWriter, r *http.Request) {
-	ids := ec2ParamList(r, "ImportTaskId")
-	results := make([]EC2ImportImageTask, 0)
-	for _, t := range ec2ImportImageTasks.List() {
-		if len(ids) > 0 && !ec2StrInValues(t.ImportTaskId, ids) {
-			continue
-		}
-		results = append(results, t)
-	}
-	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2ImportImageTask) string { return it.ImportTaskId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
-	if !pageOK {
-		return
-	}
-	var items strings.Builder
-	for _, t := range results {
-		items.WriteString("<item>")
-		items.WriteString(ec2ImportImageFieldsXML(t))
-		items.WriteString("</item>")
-	}
-	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DescribeImportImageTasksResponse %s><requestId>%s</requestId><importImageTaskSet>%s</importImageTaskSet>%s</DescribeImportImageTasksResponse>`,
-		ec2Xmlns(), sim.NewUUID(), items.String(), ec2NextTokenXML(nextToken))
+	ec2DescribePaged(w, r, ec2ImportImageTasks, "ImportTaskId",
+		func(it EC2ImportImageTask) string { return it.ImportTaskId }, ec2ImportImageFieldsXML, "DescribeImportImageTasks", "importImageTaskSet")
 }
 
 func handleEnableFastLaunch(w http.ResponseWriter, r *http.Request) {
@@ -645,27 +607,8 @@ func ec2FastLaunchFieldsXML(fl EC2FastLaunch) string {
 }
 
 func handleDescribeFastLaunchImages(w http.ResponseWriter, r *http.Request) {
-	ids := ec2ParamList(r, "ImageId")
-	results := make([]EC2FastLaunch, 0)
-	for _, fl := range ec2FastLaunchImages.List() {
-		if len(ids) > 0 && !ec2StrInValues(fl.ImageId, ids) {
-			continue
-		}
-		results = append(results, fl)
-	}
-	results, nextToken, pageOK := awsKeyPage(w, ec2BadToken, results, func(it EC2FastLaunch) string { return it.ImageId }, r.FormValue("NextToken"), ec2AtoiOr(r.FormValue("MaxResults"), 0), 0)
-	if !pageOK {
-		return
-	}
-	var items strings.Builder
-	for _, fl := range results {
-		items.WriteString("<item>")
-		items.WriteString(ec2FastLaunchFieldsXML(fl))
-		items.WriteString("</item>")
-	}
-	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DescribeFastLaunchImagesResponse %s><requestId>%s</requestId><fastLaunchImageSet>%s</fastLaunchImageSet>%s</DescribeFastLaunchImagesResponse>`,
-		ec2Xmlns(), sim.NewUUID(), items.String(), ec2NextTokenXML(nextToken))
+	ec2DescribePaged(w, r, ec2FastLaunchImages, "ImageId",
+		func(it EC2FastLaunch) string { return it.ImageId }, ec2FastLaunchFieldsXML, "DescribeFastLaunchImages", "fastLaunchImageSet")
 }
 
 // handleDescribeImageReferences returns the EC2 resources that reference each

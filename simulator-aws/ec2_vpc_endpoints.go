@@ -147,24 +147,10 @@ func handleCreateVpcEndpoint(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDescribeVpcEndpoints(w http.ResponseWriter, r *http.Request) {
-	ids := ec2ParamList(r, "VpcEndpointId")
-	var eps []EC2VpcEndpoint
-	if len(ids) > 0 {
-		for _, id := range ids {
-			ep, ok := ec2VpcEndpoints.Get(id)
-			if !ok {
-				ec2ErrorXML(w, "InvalidVpcEndpointId.NotFound", fmt.Sprintf("The Vpc Endpoint Id %q does not exist", id), http.StatusBadRequest)
-				return
-			}
-			eps = append(eps, ep)
-		}
-	} else {
-		filters := ec2Filters(r)
-		for _, ep := range ec2VpcEndpoints.List() {
-			if ec2VpcEndpointMatchesFilters(ep, filters) {
-				eps = append(eps, ep)
-			}
-		}
+	eps, ok := ec2NamedOrMatching(w, r, ec2VpcEndpoints, "VpcEndpointId", "InvalidVpcEndpointId.NotFound",
+		"The Vpc Endpoint Id %q does not exist", ec2VpcEndpointMatchesFilters)
+	if !ok {
+		return
 	}
 
 	var items strings.Builder

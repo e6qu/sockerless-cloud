@@ -510,28 +510,16 @@ func handleAPIGWGetDocumentationPart(w http.ResponseWriter, r *http.Request) {
 func handleAPIGWUpdateDocumentationPart(w http.ResponseWriter, r *http.Request) {
 	restApiId := sim.PathParam(r, "restApiId")
 	key := restApiId + "/" + sim.PathParam(r, "documentationPartId")
-	p, ok := apigwDocParts.Get(key)
+	item, ok := apigwDocParts.Get(key)
 	if !ok {
 		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid Documentation part identifier specified")
 		return
 	}
-	var req struct {
-		PatchOperations []apigwPatchOp `json:"patchOperations"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+	if !apigwPatchString(w, r, "properties", &item.Properties) {
 		return
 	}
-	for _, op := range req.PatchOperations {
-		if op.Op != "replace" && op.Op != "add" {
-			continue
-		}
-		if strings.TrimPrefix(op.Path, "/") == "properties" {
-			p.Properties = op.Value
-		}
-	}
-	apigwDocParts.Put(key, p)
-	sim.WriteJSON(w, http.StatusOK, p)
+	apigwDocParts.Put(key, item)
+	sim.WriteJSON(w, http.StatusOK, item)
 }
 
 func handleAPIGWDeleteDocumentationPart(w http.ResponseWriter, r *http.Request) {
@@ -631,28 +619,16 @@ func handleAPIGWGetDocumentationVersion(w http.ResponseWriter, r *http.Request) 
 func handleAPIGWUpdateDocumentationVersion(w http.ResponseWriter, r *http.Request) {
 	restApiId := sim.PathParam(r, "restApiId")
 	key := restApiId + "/" + sim.PathParam(r, "documentationVersion")
-	v, ok := apigwDocVersions.Get(key)
+	item, ok := apigwDocVersions.Get(key)
 	if !ok {
 		AWSErrorf(w, "NotFoundException", http.StatusNotFound, "Invalid documentation version specified")
 		return
 	}
-	var req struct {
-		PatchOperations []apigwPatchOp `json:"patchOperations"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+	if !apigwPatchString(w, r, "description", &item.Description) {
 		return
 	}
-	for _, op := range req.PatchOperations {
-		if op.Op != "replace" && op.Op != "add" {
-			continue
-		}
-		if strings.TrimPrefix(op.Path, "/") == "description" {
-			v.Description = op.Value
-		}
-	}
-	apigwDocVersions.Put(key, v)
-	sim.WriteJSON(w, http.StatusOK, v)
+	apigwDocVersions.Put(key, item)
+	sim.WriteJSON(w, http.StatusOK, item)
 }
 
 func handleAPIGWDeleteDocumentationVersion(w http.ResponseWriter, r *http.Request) {
@@ -1101,4 +1077,25 @@ func apigwTagsForARN(arn string) map[string]string {
 		}
 	}
 	return nil
+}
+
+// apigwPatchString applies the request's replace and add operations on path to
+// value.
+func apigwPatchString(w http.ResponseWriter, r *http.Request, path string, value *string) bool {
+	var req struct {
+		PatchOperations []apigwPatchOp `json:"patchOperations"`
+	}
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		return false
+	}
+	for _, op := range req.PatchOperations {
+		if op.Op != "replace" && op.Op != "add" {
+			continue
+		}
+		if strings.TrimPrefix(op.Path, "/") == path {
+			*value = op.Value
+		}
+	}
+	return true
 }

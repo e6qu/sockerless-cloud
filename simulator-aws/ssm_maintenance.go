@@ -299,31 +299,7 @@ func handleSSMUpdateMaintenanceWindow(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSSMDescribeMaintenanceWindows(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		NextToken  string `json:"NextToken"`
-		MaxResults int    `json:"MaxResults"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	all := ssmWindows.List()
-	if all == nil {
-		all = []SSMMaintenanceWindow{}
-	}
-	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMMaintenanceWindow) string { return it.WindowId }, req.NextToken, req.MaxResults, 50)
-	if !pageOK {
-		return
-	}
-	out := make([]map[string]any, 0, len(page))
-	for _, m := range page {
-		out = append(out, ssmWindowIdentityWire(m))
-	}
-	resp := map[string]any{"WindowIdentities": out}
-	if next != "" {
-		resp["NextToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
+	ssmDescribePage(w, r, ssmWindows, func(it SSMMaintenanceWindow) string { return it.WindowId }, ssmWindowIdentityWire, "WindowIdentities")
 }
 
 func handleSSMRegisterTarget(w http.ResponseWriter, r *http.Request) {
@@ -566,4 +542,34 @@ func ssmTargetsWire(targets []SSMTarget) []map[string]any {
 		})
 	}
 	return out
+}
+
+// ssmDescribePage answers a Describe call with the wire form of store's
+// resources, a NextToken page at a time.
+func ssmDescribePage[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], key func(T) string, wire func(T) map[string]any, field string) {
+	var req struct {
+		NextToken  string `json:"NextToken"`
+		MaxResults int    `json:"MaxResults"`
+	}
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	all := store.List()
+	if all == nil {
+		all = []T{}
+	}
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, key, req.NextToken, req.MaxResults, 50)
+	if !pageOK {
+		return
+	}
+	out := make([]map[string]any, 0, len(page))
+	for _, item := range page {
+		out = append(out, wire(item))
+	}
+	resp := map[string]any{field: out}
+	if next != "" {
+		resp["NextToken"] = next
+	}
+	sim.WriteJSON(w, http.StatusOK, resp)
 }

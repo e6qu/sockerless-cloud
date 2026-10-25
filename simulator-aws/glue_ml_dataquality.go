@@ -345,57 +345,11 @@ func handleGlueGetMLTransform(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGlueGetMLTransforms(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		NextToken  string `json:"NextToken"`
-		MaxResults *int   `json:"MaxResults"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		glueWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-	all := glueMLTransforms.List()
-	maxR := 0
-	if req.MaxResults != nil {
-		maxR = *req.MaxResults
-	}
-	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, all, func(it GlueMLTransform) string { return it.TransformId }, req.NextToken, maxR, 100)
-	if !pageOK {
-		return
-	}
-	transforms := make([]glueMLTransformWire, 0, len(page))
-	for _, t := range page {
-		transforms = append(transforms, glueMLTransformWire{t})
-	}
-	resp := map[string]any{"Transforms": transforms}
-	if nextTok != "" {
-		resp["NextToken"] = nextTok
-	}
-	glueWriteJSON(w, http.StatusOK, resp)
+	gluePage(w, r, glueMLTransforms.List, func(it GlueMLTransform) string { return it.TransformId }, func(it GlueMLTransform) any { return glueMLTransformWire{it} }, "Transforms", 100)
 }
 
 func handleGlueListMLTransforms(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		NextToken  string `json:"NextToken"`
-		MaxResults *int   `json:"MaxResults"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		glueWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-	all := glueMLTransforms.List()
-	ids := make([]string, 0, len(all))
-	for _, t := range all {
-		ids = append(ids, t.TransformId)
-	}
-	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, ids, func(it string) string { return it }, req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"TransformIds": page}
-	if nextTok != "" {
-		resp["NextToken"] = nextTok
-	}
-	glueWriteJSON(w, http.StatusOK, resp)
+	glueListNames(w, r, glueMLTransforms, func(it GlueMLTransform) string { return it.TransformId }, "TransformIds", 100)
 }
 
 func handleGlueUpdateMLTransform(w http.ResponseWriter, r *http.Request) {
@@ -781,36 +735,9 @@ func handleGlueCancelDataQualityRulesetEvaluationRun(w http.ResponseWriter, r *h
 }
 
 func handleGlueListDataQualityRulesetEvaluationRuns(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		NextToken  string `json:"NextToken"`
-		MaxResults *int   `json:"MaxResults"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		glueWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-	all := glueDQEvalRuns.List()
-	runs := make([]map[string]any, 0, len(all))
-	for _, run := range all {
-		d := map[string]any{
-			"RunId":     run.RunId,
-			"Status":    run.Status,
-			"StartedOn": run.StartedOn,
-		}
-		if run.DataSource != nil {
-			d["DataSource"] = run.DataSource
-		}
-		runs = append(runs, d)
-	}
-	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, runs, awsFieldKey("RunId"), req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"Runs": page}
-	if nextTok != "" {
-		resp["NextToken"] = nextTok
-	}
-	glueWriteJSON(w, http.StatusOK, resp)
+	gluePage(w, r, glueDQEvalRuns.List, func(it GlueDQRulesetEvaluationRun) string { return it.RunId }, func(it GlueDQRulesetEvaluationRun) any {
+		return glueDQRunSummary(it.RunId, it.Status, it.StartedOn, it.DataSource)
+	}, "Runs", 100)
 }
 
 func handleGlueStartDataQualityRuleRecommendationRun(w http.ResponseWriter, r *http.Request) {
@@ -910,36 +837,9 @@ func handleGlueCancelDataQualityRuleRecommendationRun(w http.ResponseWriter, r *
 }
 
 func handleGlueListDataQualityRuleRecommendationRuns(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		NextToken  string `json:"NextToken"`
-		MaxResults *int   `json:"MaxResults"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		glueWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-	all := glueDQRecRuns.List()
-	runs := make([]map[string]any, 0, len(all))
-	for _, run := range all {
-		d := map[string]any{
-			"RunId":     run.RunId,
-			"Status":    run.Status,
-			"StartedOn": run.StartedOn,
-		}
-		if run.DataSource != nil {
-			d["DataSource"] = run.DataSource
-		}
-		runs = append(runs, d)
-	}
-	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, runs, awsFieldKey("RunId"), req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"Runs": page}
-	if nextTok != "" {
-		resp["NextToken"] = nextTok
-	}
-	glueWriteJSON(w, http.StatusOK, resp)
+	gluePage(w, r, glueDQRecRuns.List, func(it GlueDQRuleRecommendationRun) string { return it.RunId }, func(it GlueDQRuleRecommendationRun) any {
+		return glueDQRunSummary(it.RunId, it.Status, it.StartedOn, it.DataSource)
+	}, "Runs", 100)
 }
 
 // glueDQResultPayload renders a stored result row as a GetDataQualityResult /
@@ -1368,28 +1268,7 @@ func handleGlueGetColumnStatisticsTaskRuns(w http.ResponseWriter, r *http.Reques
 }
 
 func handleGlueListColumnStatisticsTaskRuns(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		NextToken  string `json:"NextToken"`
-		MaxResults *int   `json:"MaxResults"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		glueWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-	all := glueCSTaskRuns.List()
-	ids := make([]string, 0, len(all))
-	for _, run := range all {
-		ids = append(ids, run.ColumnStatisticsTaskRunId)
-	}
-	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, ids, func(it string) string { return it }, req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"ColumnStatisticsTaskRunIds": page}
-	if nextTok != "" {
-		resp["NextToken"] = nextTok
-	}
-	glueWriteJSON(w, http.StatusOK, resp)
+	glueListNames(w, r, glueCSTaskRuns, func(it GlueColumnStatsTaskRun) string { return it.ColumnStatisticsTaskRunId }, "ColumnStatisticsTaskRunIds", 100)
 }
 
 func handleGlueStopColumnStatisticsTaskRun(w http.ResponseWriter, r *http.Request) {
@@ -1434,4 +1313,17 @@ func derefIntDefault(p *int, def int) int {
 		return def
 	}
 	return *p
+}
+
+// glueDQRunSummary is a data quality run as a List call summarises it.
+func glueDQRunSummary(runID, status string, startedOn float64, dataSource map[string]any) map[string]any {
+	d := map[string]any{
+		"RunId":     runID,
+		"Status":    status,
+		"StartedOn": startedOn,
+	}
+	if dataSource != nil {
+		d["DataSource"] = dataSource
+	}
+	return d
 }

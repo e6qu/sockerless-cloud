@@ -399,30 +399,14 @@ func handleCBBatchGetFleets(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleCBListFleets(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		SortOrder  string `json:"sortOrder"`
-		MaxResults int    `json:"maxResults"`
-		NextToken  string `json:"nextToken"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		cbWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-	all := cbFleets.List()
-	arns := make([]string, 0, len(all))
-	for _, f := range all {
-		arns = append(arns, f.Arn)
-	}
-	descending := strings.EqualFold(req.SortOrder, "DESCENDING")
-	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, arns, func(s string) string { return cbOrderKey(s, descending) }, req.NextToken, req.MaxResults, 100)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"fleets": page}
-	if nextTok != "" {
-		resp["nextToken"] = nextTok
-	}
-	cbWriteJSON(w, http.StatusOK, resp)
+	cbListSortedARNs(w, r, "fleets", func() []string {
+		all := cbFleets.List()
+		arns := make([]string, 0, len(all))
+		for _, f := range all {
+			arns = append(arns, f.Arn)
+		}
+		return arns
+	})
 }
 
 // cbResolveFleet finds a fleet by ARN or name.
@@ -1337,59 +1321,27 @@ func handleCBListCuratedEnvironmentImages(w http.ResponseWriter, r *http.Request
 // resource policy. The sim has no cross-account sharing, so it returns the set
 // of project ARNs that carry a resource policy — a real, derivable shared set.
 func handleCBListSharedProjects(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		SortOrder  string `json:"sortOrder"`
-		MaxResults int    `json:"maxResults"`
-		NextToken  string `json:"nextToken"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		cbWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-	var arns []string
-	for _, pol := range cbResourcePols.List() {
-		if strings.Contains(pol.ARN, ":project/") {
-			arns = append(arns, pol.ARN)
+	cbListSortedARNs(w, r, "projects", func() []string {
+		var arns []string
+		for _, pol := range cbResourcePols.List() {
+			if strings.Contains(pol.ARN, ":project/") {
+				arns = append(arns, pol.ARN)
+			}
 		}
-	}
-	descending := strings.EqualFold(req.SortOrder, "DESCENDING")
-	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, arns, func(s string) string { return cbOrderKey(s, descending) }, req.NextToken, req.MaxResults, 100)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"projects": page}
-	if nextTok != "" {
-		resp["nextToken"] = nextTok
-	}
-	cbWriteJSON(w, http.StatusOK, resp)
+		return arns
+	})
 }
 
 // handleCBListSharedReportGroups returns the report groups shared via a resource
 // policy (the report-group ARNs carrying a policy).
 func handleCBListSharedReportGroups(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		SortOrder  string `json:"sortOrder"`
-		MaxResults int    `json:"maxResults"`
-		NextToken  string `json:"nextToken"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		cbWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-	var arns []string
-	for _, pol := range cbResourcePols.List() {
-		if strings.Contains(pol.ARN, ":report-group/") {
-			arns = append(arns, pol.ARN)
+	cbListSortedARNs(w, r, "reportGroups", func() []string {
+		var arns []string
+		for _, pol := range cbResourcePols.List() {
+			if strings.Contains(pol.ARN, ":report-group/") {
+				arns = append(arns, pol.ARN)
+			}
 		}
-	}
-	descending := strings.EqualFold(req.SortOrder, "DESCENDING")
-	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, arns, func(s string) string { return cbOrderKey(s, descending) }, req.NextToken, req.MaxResults, 100)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"reportGroups": page}
-	if nextTok != "" {
-		resp["nextToken"] = nextTok
-	}
-	cbWriteJSON(w, http.StatusOK, resp)
+		return arns
+	})
 }

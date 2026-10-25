@@ -681,32 +681,7 @@ func handleGlueBatchGetDevEndpoints(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGlueListDevEndpoints(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		NextToken  string `json:"NextToken"`
-		MaxResults *int   `json:"MaxResults"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		glueWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-	all := glueDevEndpoints.List()
-	maxR := 0
-	if req.MaxResults != nil {
-		maxR = *req.MaxResults
-	}
-	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, all, func(it GlueDevEndpoint) string { return it.EndpointName }, req.NextToken, maxR, 100)
-	if !pageOK {
-		return
-	}
-	names := make([]string, 0, len(page))
-	for _, de := range page {
-		names = append(names, de.EndpointName)
-	}
-	resp := map[string]any{"DevEndpointNames": names}
-	if nextTok != "" {
-		resp["NextToken"] = nextTok
-	}
-	glueWriteJSON(w, http.StatusOK, resp)
+	glueListNames(w, r, glueDevEndpoints, func(it GlueDevEndpoint) string { return it.EndpointName }, "DevEndpointNames", 100)
 }
 
 func handleGlueUpdateDevEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -870,32 +845,7 @@ func handleGlueBatchGetBlueprints(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGlueListBlueprints(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		NextToken  string `json:"NextToken"`
-		MaxResults *int   `json:"MaxResults"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		glueWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-	all := glueBlueprints.List()
-	maxR := 0
-	if req.MaxResults != nil {
-		maxR = *req.MaxResults
-	}
-	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, all, func(it GlueBlueprint) string { return it.Name }, req.NextToken, maxR, 25)
-	if !pageOK {
-		return
-	}
-	names := make([]string, 0, len(page))
-	for _, bp := range page {
-		names = append(names, bp.Name)
-	}
-	resp := map[string]any{"Blueprints": names}
-	if nextTok != "" {
-		resp["NextToken"] = nextTok
-	}
-	glueWriteJSON(w, http.StatusOK, resp)
+	glueListNames(w, r, glueBlueprints, func(it GlueBlueprint) string { return it.Name }, "Blueprints", 25)
 }
 
 func handleGlueUpdateBlueprint(w http.ResponseWriter, r *http.Request) {

@@ -74,11 +74,6 @@ var (
 )
 
 func registerIAMAccountReports(r *AWSQueryRouter, srv *sim.Server) {
-	iamServiceJobs = sim.MakeStore[IAMServiceJob](srv.DB(), "iam_service_jobs")
-	iamDelegations = sim.MakeStore[IAMDelegationRequest](srv.DB(), "iam_delegation_requests")
-	iamAccountFlags = sim.MakeStore[IAMAccountFeature](srv.DB(), "iam_account_flags")
-	iamCredReportGen = sim.MakeStore[IAMAccountFeature](srv.DB(), "iam_cred_report_gen")
-
 	for action, h := range map[string]http.HandlerFunc{
 		// Account reports / summary.
 		"GetAccountSummary":              handleIAMGetAccountSummary,
@@ -116,6 +111,10 @@ func registerIAMAccountReports(r *AWSQueryRouter, srv *sim.Server) {
 	} {
 		r.Register(action, h)
 	}
+	iamServiceJobs = sim.MakeStore[IAMServiceJob](srv.DB(), "iam_service_jobs")
+	iamDelegations = sim.MakeStore[IAMDelegationRequest](srv.DB(), "iam_delegation_requests")
+	iamAccountFlags = sim.MakeStore[IAMAccountFeature](srv.DB(), "iam_account_flags")
+	iamCredReportGen = sim.MakeStore[IAMAccountFeature](srv.DB(), "iam_cred_report_gen")
 }
 
 // iamResultXML writes a standard awsQuery IAM response wrapping the supplied

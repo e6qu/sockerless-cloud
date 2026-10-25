@@ -472,31 +472,7 @@ func ssmBumpVersion(v string) string {
 }
 
 func handleSSMDescribeOpsItems(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		NextToken  string `json:"NextToken"`
-		MaxResults int    `json:"MaxResults"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	all := ssmOpsItems.List()
-	if all == nil {
-		all = []SSMOpsItem{}
-	}
-	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMOpsItem) string { return it.OpsItemId }, req.NextToken, req.MaxResults, 50)
-	if !pageOK {
-		return
-	}
-	out := make([]map[string]any, 0, len(page))
-	for _, o := range page {
-		out = append(out, ssmOpsItemSummaryWire(o))
-	}
-	resp := map[string]any{"OpsItemSummaries": out}
-	if next != "" {
-		resp["NextToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
+	ssmDescribePage(w, r, ssmOpsItems, func(it SSMOpsItem) string { return it.OpsItemId }, ssmOpsItemSummaryWire, "OpsItemSummaries")
 }
 
 func handleSSMAssociateOpsItemRelatedItem(w http.ResponseWriter, r *http.Request) {

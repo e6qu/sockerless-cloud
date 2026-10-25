@@ -98,33 +98,7 @@ func handleGlueGetCrawler(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGlueGetCrawlers(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		NextToken  string `json:"NextToken"`
-		MaxResults *int   `json:"MaxResults"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		glueWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-
-	all := glueCrawlers.List()
-	maxR := 0
-	if req.MaxResults != nil {
-		maxR = *req.MaxResults
-	}
-	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, all, func(it GlueCrawler) string { return it.Name }, req.NextToken, maxR, 25)
-	if !pageOK {
-		return
-	}
-	crawlers := make([]glueCrawlerWire, 0, len(page))
-	for _, c := range page {
-		crawlers = append(crawlers, glueCrawlerWire{c})
-	}
-	resp := map[string]any{"Crawlers": crawlers}
-	if nextTok != "" {
-		resp["NextToken"] = nextTok
-	}
-	glueWriteJSON(w, http.StatusOK, resp)
+	gluePage(w, r, glueCrawlers.List, func(it GlueCrawler) string { return it.Name }, func(it GlueCrawler) any { return glueCrawlerWire{it} }, "Crawlers", 25)
 }
 
 func handleGlueUpdateCrawler(w http.ResponseWriter, r *http.Request) {
@@ -259,33 +233,7 @@ func handleGlueStopCrawler(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGlueListCrawlers(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		NextToken  string `json:"NextToken"`
-		MaxResults *int   `json:"MaxResults"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		glueWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-
-	all := glueCrawlers.List()
-	names := make([]string, 0, len(all))
-	for _, c := range all {
-		names = append(names, c.Name)
-	}
-	maxR := 0
-	if req.MaxResults != nil {
-		maxR = *req.MaxResults
-	}
-	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, names, func(it string) string { return it }, req.NextToken, maxR, 25)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"CrawlerNames": page}
-	if nextTok != "" {
-		resp["NextToken"] = nextTok
-	}
-	glueWriteJSON(w, http.StatusOK, resp)
+	glueListNames(w, r, glueCrawlers, func(it GlueCrawler) string { return it.Name }, "CrawlerNames", 25)
 }
 
 func handleGlueCreateTrigger(w http.ResponseWriter, r *http.Request) {

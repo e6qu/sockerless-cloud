@@ -116,8 +116,7 @@ func registerCloudFrontKeys(srv *sim.Server) {
 
 func handleCFCreatePublicKey(w http.ResponseWriter, r *http.Request) {
 	var cfg CFPublicKeyConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode PublicKeyConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "PublicKeyConfig", &cfg) {
 		return
 	}
 	if cfg.Name == "" {
@@ -178,18 +177,11 @@ func handleCFUpdatePublicKey(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchPublicKey", "The specified public key does not exist.")
 		return
 	}
-	ifMatch := r.Header.Get("If-Match")
-	if ifMatch == "" {
-		cfWriteError(w, http.StatusBadRequest, "InvalidIfMatchVersion", "The If-Match header is required.")
-		return
-	}
-	if ifMatch != stored.ETag {
-		cfWriteError(w, http.StatusPreconditionFailed, "PreconditionFailed", "The If-Match version is missing or does not match the resource's current ETag.")
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	var cfg CFPublicKeyConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode PublicKeyConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "PublicKeyConfig", &cfg) {
 		return
 	}
 	cfg.Xmlns = ""
@@ -208,13 +200,7 @@ func handleCFDeletePublicKey(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchPublicKey", "The specified public key does not exist.")
 		return
 	}
-	ifMatch := r.Header.Get("If-Match")
-	if ifMatch == "" {
-		cfWriteError(w, http.StatusBadRequest, "InvalidIfMatchVersion", "The If-Match header is required.")
-		return
-	}
-	if ifMatch != stored.ETag {
-		cfWriteError(w, http.StatusPreconditionFailed, "PreconditionFailed", "The If-Match version is missing or does not match the resource's current ETag.")
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	cfPublicKeys.Delete(id)
@@ -243,8 +229,7 @@ func handleCFListPublicKeys(w http.ResponseWriter, r *http.Request) {
 
 func handleCFCreateKeyGroup(w http.ResponseWriter, r *http.Request) {
 	var cfg CFKeyGroupConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode KeyGroupConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "KeyGroupConfig", &cfg) {
 		return
 	}
 	if cfg.Name == "" {
@@ -301,18 +286,11 @@ func handleCFUpdateKeyGroup(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchResource", "The specified key group does not exist.")
 		return
 	}
-	ifMatch := r.Header.Get("If-Match")
-	if ifMatch == "" {
-		cfWriteError(w, http.StatusBadRequest, "InvalidIfMatchVersion", "The If-Match header is required.")
-		return
-	}
-	if ifMatch != stored.ETag {
-		cfWriteError(w, http.StatusPreconditionFailed, "PreconditionFailed", "The If-Match version is missing or does not match the resource's current ETag.")
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	var cfg CFKeyGroupConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode KeyGroupConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "KeyGroupConfig", &cfg) {
 		return
 	}
 	cfg.Xmlns = ""
@@ -332,13 +310,7 @@ func handleCFDeleteKeyGroup(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchResource", "The specified key group does not exist.")
 		return
 	}
-	ifMatch := r.Header.Get("If-Match")
-	if ifMatch == "" {
-		cfWriteError(w, http.StatusBadRequest, "InvalidIfMatchVersion", "The If-Match header is required.")
-		return
-	}
-	if ifMatch != stored.ETag {
-		cfWriteError(w, http.StatusPreconditionFailed, "PreconditionFailed", "The If-Match version is missing or does not match the resource's current ETag.")
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	cfKeyGroups.Delete(id)

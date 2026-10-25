@@ -263,25 +263,18 @@ func handleR53GetHealthCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleR53ListHealthChecks(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	maxItems := 100
-	if raw := q.Get("maxitems"); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed >= 1 && parsed <= 1000 {
-			maxItems = parsed
-		}
-	}
 	items := []R53HealthCheck{}
 	for _, sc := range r53HealthChecks.List() {
 		items = append(items, sc.HealthCheck)
 	}
-	page, next, pageOK := awsKeyPage(w, r53BadToken, items, func(it R53HealthCheck) string { return it.Id }, q.Get("marker"), maxItems, 0)
+	page, next, maxItems, pageOK := r53MarkerPage(w, r, items, func(it R53HealthCheck) string { return it.Id }, 1000)
 	if !pageOK {
 		return
 	}
 	r53WriteXML(w, http.StatusOK, R53ListHealthChecksResponse{
 		Xmlns:        r53Namespace,
 		HealthChecks: page,
-		Marker:       q.Get("marker"),
+		Marker:       r.URL.Query().Get("marker"),
 		IsTruncated:  next != "",
 		NextMarker:   next,
 		MaxItems:     strconv.Itoa(maxItems),
@@ -990,4 +983,18 @@ func handleR53ListGeoLocations(w http.ResponseWriter, r *http.Request) {
 func r53ChildID() string {
 	return strings.ToLower(strings.TrimPrefix(r53ChangeID(), "C")) + "-" +
 		strconv.FormatInt(time.Now().UnixNano()%1000000, 10)
+}
+
+// r53MarkerPage pages items by the request's marker and maxitems, which runs
+// from 1 to limit and is 100 when the request names none or one out of range.
+func r53MarkerPage[T any](w http.ResponseWriter, r *http.Request, items []T, id func(T) string, limit int) ([]T, string, int, bool) {
+	q := r.URL.Query()
+	maxItems := 100
+	if raw := q.Get("maxitems"); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed >= 1 && parsed <= limit {
+			maxItems = parsed
+		}
+	}
+	page, next, pageOK := awsKeyPage(w, r53BadToken, items, id, q.Get("marker"), maxItems, 0)
+	return page, next, maxItems, pageOK
 }

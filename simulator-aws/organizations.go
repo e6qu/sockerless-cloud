@@ -651,22 +651,15 @@ func handleOrgListAccounts(w http.ResponseWriter, _ *http.Request) {
 }
 
 func handleOrgListAccountsForParent(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ParentId string `json:"ParentId"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+	parentID, ok := orgReadParentID(w, r)
+	if !ok {
 		return
 	}
-	if req.ParentId == "" {
-		AWSError(w, "InvalidInputException", "ParentId is required", http.StatusBadRequest)
-		return
-	}
-	accts := orgAccounts.Filter(func(a OrgAccount) bool { return a.ParentId == req.ParentId })
-	sort.Slice(accts, func(i, j int) bool { return accts[i].Id < accts[j].Id })
+	children := orgAccounts.Filter(func(it OrgAccount) bool { return it.ParentId == parentID })
+	sort.Slice(children, func(i, j int) bool { return children[i].Id < children[j].Id })
 	out := []map[string]any{}
-	for _, a := range accts {
-		out = append(out, orgAccountToMap(a))
+	for _, child := range children {
+		out = append(out, orgAccountToMap(child))
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"Accounts": out})
 }
@@ -857,22 +850,15 @@ func handleOrgUpdateOU(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleOrgListOUsForParent(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ParentId string `json:"ParentId"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+	parentID, ok := orgReadParentID(w, r)
+	if !ok {
 		return
 	}
-	if req.ParentId == "" {
-		AWSError(w, "InvalidInputException", "ParentId is required", http.StatusBadRequest)
-		return
-	}
-	ous := orgOUs.Filter(func(o OrgOU) bool { return o.ParentId == req.ParentId })
-	sort.Slice(ous, func(i, j int) bool { return ous[i].Id < ous[j].Id })
+	children := orgOUs.Filter(func(it OrgOU) bool { return it.ParentId == parentID })
+	sort.Slice(children, func(i, j int) bool { return children[i].Id < children[j].Id })
 	out := []map[string]any{}
-	for _, o := range ous {
-		out = append(out, orgOUToMap(o))
+	for _, child := range children {
+		out = append(out, orgOUToMap(child))
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"OrganizationalUnits": out})
 }
@@ -1834,4 +1820,19 @@ func handleOrgListTagsForResource(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"Tags": out})
+}
+
+func orgReadParentID(w http.ResponseWriter, r *http.Request) (string, bool) {
+	var req struct {
+		ParentId string `json:"ParentId"`
+	}
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "InvalidInputException", "Invalid request body", http.StatusBadRequest)
+		return "", false
+	}
+	if req.ParentId == "" {
+		AWSError(w, "InvalidInputException", "ParentId is required", http.StatusBadRequest)
+		return "", false
+	}
+	return req.ParentId, true
 }

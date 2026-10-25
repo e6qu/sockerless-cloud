@@ -542,8 +542,7 @@ func registerCloudFrontExtras2(srv *sim.Server) {
 
 func handleCFCreateFLE(w http.ResponseWriter, r *http.Request) {
 	var cfg CFFieldLevelEncryptionConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode FieldLevelEncryptionConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "FieldLevelEncryptionConfig", &cfg) {
 		return
 	}
 	if cfg.CallerReference == "" {
@@ -596,13 +595,11 @@ func handleCFUpdateFLE(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchFieldLevelEncryptionConfig", "The specified configuration for field-level encryption doesn't exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	var cfg CFFieldLevelEncryptionConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode FieldLevelEncryptionConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "FieldLevelEncryptionConfig", &cfg) {
 		return
 	}
 	cfg.Xmlns = ""
@@ -622,8 +619,7 @@ func handleCFDeleteFLE(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchFieldLevelEncryptionConfig", "The specified configuration for field-level encryption doesn't exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	cfFLEConfigs.Delete(id)
@@ -651,8 +647,7 @@ func handleCFListFLE(w http.ResponseWriter, _ *http.Request) {
 
 func handleCFCreateFLEProfile(w http.ResponseWriter, r *http.Request) {
 	var cfg CFFieldLevelEncryptionProfileConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode FieldLevelEncryptionProfileConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "FieldLevelEncryptionProfileConfig", &cfg) {
 		return
 	}
 	if cfg.CallerReference == "" {
@@ -705,13 +700,11 @@ func handleCFUpdateFLEProfile(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchFieldLevelEncryptionProfile", "The specified profile for field-level encryption doesn't exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	var cfg CFFieldLevelEncryptionProfileConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode FieldLevelEncryptionProfileConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "FieldLevelEncryptionProfileConfig", &cfg) {
 		return
 	}
 	cfg.Xmlns = ""
@@ -731,8 +724,7 @@ func handleCFDeleteFLEProfile(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchFieldLevelEncryptionProfile", "The specified profile for field-level encryption doesn't exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	cfFLEProfiles.Delete(id)
@@ -764,8 +756,7 @@ func cfKVSARN(name string) string {
 
 func handleCFCreateKVS(w http.ResponseWriter, r *http.Request) {
 	var req CFKeyValueStoreCreateRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode CreateKeyValueStoreRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "CreateKeyValueStoreRequest", &req) {
 		return
 	}
 	if req.Name == "" {
@@ -816,13 +807,11 @@ func handleCFUpdateKVS(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "EntityNotFound", "The key value store does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	var req CFKeyValueStoreUpdateRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode UpdateKeyValueStoreRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "UpdateKeyValueStoreRequest", &req) {
 		return
 	}
 	newETag := cfETag()
@@ -843,8 +832,7 @@ func handleCFDeleteKVS(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "EntityNotFound", "The key value store does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	cfKeyValueStores.Delete(name)
@@ -888,8 +876,7 @@ func cfRealtimeLogKey(name, arn string) string {
 
 func handleCFCreateRealtimeLog(w http.ResponseWriter, r *http.Request) {
 	var req CFRealtimeLogConfigCreateRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode CreateRealtimeLogConfigRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "CreateRealtimeLogConfigRequest", &req) {
 		return
 	}
 	if req.Name == "" {
@@ -915,8 +902,7 @@ func handleCFCreateRealtimeLog(w http.ResponseWriter, r *http.Request) {
 
 func handleCFGetRealtimeLog(w http.ResponseWriter, r *http.Request) {
 	var req CFRealtimeLogConfigLookupRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode GetRealtimeLogConfigRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "GetRealtimeLogConfigRequest", &req) {
 		return
 	}
 	key := cfRealtimeLogKey(req.Name, req.ARN)
@@ -931,8 +917,7 @@ func handleCFGetRealtimeLog(w http.ResponseWriter, r *http.Request) {
 
 func handleCFUpdateRealtimeLog(w http.ResponseWriter, r *http.Request) {
 	var req CFRealtimeLogConfigUpdateRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode UpdateRealtimeLogConfigRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "UpdateRealtimeLogConfigRequest", &req) {
 		return
 	}
 	key := cfRealtimeLogKey(req.Name, req.ARN)
@@ -957,8 +942,7 @@ func handleCFUpdateRealtimeLog(w http.ResponseWriter, r *http.Request) {
 
 func handleCFDeleteRealtimeLog(w http.ResponseWriter, r *http.Request) {
 	var req CFRealtimeLogConfigLookupRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode DeleteRealtimeLogConfigRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "DeleteRealtimeLogConfigRequest", &req) {
 		return
 	}
 	key := cfRealtimeLogKey(req.Name, req.ARN)
@@ -1027,8 +1011,7 @@ func handleCFCreateStreamingDist(w http.ResponseWriter, r *http.Request) {
 	var cfg CFStreamingDistributionConfig
 	if r.URL.Query().Has("WithTags") {
 		var wrap CFStreamingDistributionConfigWithTags
-		if err := xml.NewDecoder(r.Body).Decode(&wrap); err != nil {
-			cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode StreamingDistributionConfigWithTags: "+err.Error())
+		if !cfDecodeXML(w, r, "StreamingDistributionConfigWithTags", &wrap) {
 			return
 		}
 		cfg = wrap.StreamingDistributionConfig
@@ -1090,13 +1073,11 @@ func handleCFUpdateStreamingDist(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchStreamingDistribution", "The specified streaming distribution does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	var cfg CFStreamingDistributionConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode StreamingDistributionConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "StreamingDistributionConfig", &cfg) {
 		return
 	}
 	cfg.Xmlns = ""
@@ -1117,8 +1098,7 @@ func handleCFDeleteStreamingDist(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchStreamingDistribution", "The specified streaming distribution does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	cfStreamingDistributions.Delete(id)
@@ -1162,8 +1142,7 @@ func cfVpcOriginARN(id string) string {
 
 func handleCFCreateVpcOrigin(w http.ResponseWriter, r *http.Request) {
 	var req CFVpcOriginCreateRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode CreateVpcOriginRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "CreateVpcOriginRequest", &req) {
 		return
 	}
 	cfg := req.VpcOriginEndpointConfig
@@ -1214,13 +1193,11 @@ func handleCFUpdateVpcOrigin(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "EntityNotFound", "The VPC origin does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	var cfg CFVpcOriginEndpointConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode VpcOriginEndpointConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "VpcOriginEndpointConfig", &cfg) {
 		return
 	}
 	cfg.Xmlns = ""
@@ -1241,8 +1218,7 @@ func handleCFDeleteVpcOrigin(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "EntityNotFound", "The VPC origin does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	stored.Origin.Status = "Deleting"
@@ -1280,8 +1256,7 @@ func cfAnycastARN(id string) string {
 
 func handleCFCreateAnycastIpList(w http.ResponseWriter, r *http.Request) {
 	var req CFAnycastIpListCreateRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode CreateAnycastIpListRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "CreateAnycastIpListRequest", &req) {
 		return
 	}
 	if req.Name == "" {
@@ -1329,8 +1304,7 @@ func handleCFDeleteAnycastIpList(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "EntityNotFound", "The Anycast static IP list does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	cfAnycastIpLists.Delete(id)

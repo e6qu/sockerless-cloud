@@ -264,31 +264,8 @@ func ec2CustomerGatewayFieldsXML(cgw EC2CustomerGateway) string {
 }
 
 func handleDescribeCustomerGateways(w http.ResponseWriter, r *http.Request) {
-	ids := ec2ParamList(r, "CustomerGatewayId")
-	for _, id := range ids {
-		if _, ok := ec2CustomerGateways.Get(id); !ok {
-			ec2ErrorXML(w, "InvalidCustomerGatewayID.NotFound", fmt.Sprintf("The customer gateway ID '%s' does not exist", id), http.StatusBadRequest)
-			return
-		}
-	}
-	filters := ec2Filters(r)
-	var items strings.Builder
-	list := ec2CustomerGateways.List()
-	sort.Slice(list, func(i, j int) bool { return list[i].CustomerGatewayId < list[j].CustomerGatewayId })
-	for _, cgw := range list {
-		if len(ids) > 0 && !ec2StrInValues(cgw.CustomerGatewayId, ids) {
-			continue
-		}
-		if !ec2CustomerGatewayMatchesFilters(cgw, filters) {
-			continue
-		}
-		items.WriteString("<item>")
-		items.WriteString(ec2CustomerGatewayFieldsXML(cgw))
-		items.WriteString("</item>")
-	}
-	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DescribeCustomerGatewaysResponse %s><requestId>%s</requestId><customerGatewaySet>%s</customerGatewaySet></DescribeCustomerGatewaysResponse>`,
-		ec2Xmlns(), sim.NewUUID(), items.String())
+	ec2DescribeMatching(w, r, ec2CustomerGateways, "CustomerGatewayId", "InvalidCustomerGatewayID.NotFound", "The customer gateway ID '%s' does not exist",
+		func(it EC2CustomerGateway) string { return it.CustomerGatewayId }, ec2CustomerGatewayMatchesFilters, ec2CustomerGatewayFieldsXML, "DescribeCustomerGateways", "customerGatewaySet")
 }
 
 func ec2CustomerGatewayMatchesFilters(cgw EC2CustomerGateway, filters map[string][]string) bool {
@@ -378,31 +355,8 @@ func ec2VpnGatewayFieldsXML(vgw EC2VpnGateway) string {
 }
 
 func handleDescribeVpnGateways(w http.ResponseWriter, r *http.Request) {
-	ids := ec2ParamList(r, "VpnGatewayId")
-	for _, id := range ids {
-		if _, ok := ec2VpnGateways.Get(id); !ok {
-			ec2ErrorXML(w, "InvalidVpnGatewayID.NotFound", fmt.Sprintf("The VPN gateway ID '%s' does not exist", id), http.StatusBadRequest)
-			return
-		}
-	}
-	filters := ec2Filters(r)
-	var items strings.Builder
-	list := ec2VpnGateways.List()
-	sort.Slice(list, func(i, j int) bool { return list[i].VpnGatewayId < list[j].VpnGatewayId })
-	for _, vgw := range list {
-		if len(ids) > 0 && !ec2StrInValues(vgw.VpnGatewayId, ids) {
-			continue
-		}
-		if !ec2VpnGatewayMatchesFilters(vgw, filters) {
-			continue
-		}
-		items.WriteString("<item>")
-		items.WriteString(ec2VpnGatewayFieldsXML(vgw))
-		items.WriteString("</item>")
-	}
-	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DescribeVpnGatewaysResponse %s><requestId>%s</requestId><vpnGatewaySet>%s</vpnGatewaySet></DescribeVpnGatewaysResponse>`,
-		ec2Xmlns(), sim.NewUUID(), items.String())
+	ec2DescribeMatching(w, r, ec2VpnGateways, "VpnGatewayId", "InvalidVpnGatewayID.NotFound", "The VPN gateway ID '%s' does not exist",
+		func(it EC2VpnGateway) string { return it.VpnGatewayId }, ec2VpnGatewayMatchesFilters, ec2VpnGatewayFieldsXML, "DescribeVpnGateways", "vpnGatewaySet")
 }
 
 func ec2VpnGatewayMatchesFilters(vgw EC2VpnGateway, filters map[string][]string) bool {
@@ -643,31 +597,8 @@ func statusToTelemetry(status string) string {
 }
 
 func handleDescribeVpnConnections(w http.ResponseWriter, r *http.Request) {
-	ids := ec2ParamList(r, "VpnConnectionId")
-	for _, id := range ids {
-		if _, ok := ec2VpnConnections.Get(id); !ok {
-			ec2ErrorXML(w, "InvalidVpnConnectionID.NotFound", fmt.Sprintf("The vpnConnection ID '%s' does not exist", id), http.StatusBadRequest)
-			return
-		}
-	}
-	filters := ec2Filters(r)
-	var items strings.Builder
-	list := ec2VpnConnections.List()
-	sort.Slice(list, func(i, j int) bool { return list[i].VpnConnectionId < list[j].VpnConnectionId })
-	for _, conn := range list {
-		if len(ids) > 0 && !ec2StrInValues(conn.VpnConnectionId, ids) {
-			continue
-		}
-		if !ec2VpnConnectionMatchesFilters(conn, filters) {
-			continue
-		}
-		items.WriteString("<item>")
-		items.WriteString(ec2VpnConnectionFieldsXML(conn))
-		items.WriteString("</item>")
-	}
-	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DescribeVpnConnectionsResponse %s><requestId>%s</requestId><vpnConnectionSet>%s</vpnConnectionSet></DescribeVpnConnectionsResponse>`,
-		ec2Xmlns(), sim.NewUUID(), items.String())
+	ec2DescribeMatching(w, r, ec2VpnConnections, "VpnConnectionId", "InvalidVpnConnectionID.NotFound", "The vpnConnection ID '%s' does not exist",
+		func(it EC2VpnConnection) string { return it.VpnConnectionId }, ec2VpnConnectionMatchesFilters, ec2VpnConnectionFieldsXML, "DescribeVpnConnections", "vpnConnectionSet")
 }
 
 func ec2VpnConnectionMatchesFilters(conn EC2VpnConnection, filters map[string][]string) bool {
@@ -1018,31 +949,8 @@ func ec2ClientVpnEndpointFieldsXML(ep EC2ClientVpnEndpoint) string {
 }
 
 func handleDescribeClientVpnEndpoints(w http.ResponseWriter, r *http.Request) {
-	ids := ec2ParamList(r, "ClientVpnEndpointId")
-	for _, id := range ids {
-		if _, ok := ec2ClientVpnEndpoint.Get(id); !ok {
-			ec2ErrorXML(w, "InvalidClientVpnEndpointId.NotFound", fmt.Sprintf("The Client VPN endpoint '%s' does not exist", id), http.StatusBadRequest)
-			return
-		}
-	}
-	filters := ec2Filters(r)
-	var items strings.Builder
-	list := ec2ClientVpnEndpoint.List()
-	sort.Slice(list, func(i, j int) bool { return list[i].ClientVpnEndpointId < list[j].ClientVpnEndpointId })
-	for _, ep := range list {
-		if len(ids) > 0 && !ec2StrInValues(ep.ClientVpnEndpointId, ids) {
-			continue
-		}
-		if !ec2ClientVpnEndpointMatchesFilters(ep, filters) {
-			continue
-		}
-		items.WriteString("<item>")
-		items.WriteString(ec2ClientVpnEndpointFieldsXML(ep))
-		items.WriteString("</item>")
-	}
-	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DescribeClientVpnEndpointsResponse %s><requestId>%s</requestId><clientVpnEndpoint>%s</clientVpnEndpoint></DescribeClientVpnEndpointsResponse>`,
-		ec2Xmlns(), sim.NewUUID(), items.String())
+	ec2DescribeMatching(w, r, ec2ClientVpnEndpoint, "ClientVpnEndpointId", "InvalidClientVpnEndpointId.NotFound", "The Client VPN endpoint '%s' does not exist",
+		func(it EC2ClientVpnEndpoint) string { return it.ClientVpnEndpointId }, ec2ClientVpnEndpointMatchesFilters, ec2ClientVpnEndpointFieldsXML, "DescribeClientVpnEndpoints", "clientVpnEndpoint")
 }
 
 func ec2ClientVpnEndpointMatchesFilters(ep EC2ClientVpnEndpoint, filters map[string][]string) bool {

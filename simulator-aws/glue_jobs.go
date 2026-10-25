@@ -124,33 +124,7 @@ func (j glueJobWire) MarshalJSON() ([]byte, error) {
 }
 
 func handleGlueGetJobs(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		NextToken  string `json:"NextToken"`
-		MaxResults *int   `json:"MaxResults"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		glueWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-
-	all := glueJobs.List()
-	maxR := 0
-	if req.MaxResults != nil {
-		maxR = *req.MaxResults
-	}
-	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, all, func(it GlueJob) string { return it.Name }, req.NextToken, maxR, 25)
-	if !pageOK {
-		return
-	}
-	jobs := make([]glueJobWire, 0, len(page))
-	for _, job := range page {
-		jobs = append(jobs, glueJobWire{job})
-	}
-	resp := map[string]any{"Jobs": jobs}
-	if nextTok != "" {
-		resp["NextToken"] = nextTok
-	}
-	glueWriteJSON(w, http.StatusOK, resp)
+	gluePage(w, r, glueJobs.List, func(it GlueJob) string { return it.Name }, func(it GlueJob) any { return glueJobWire{it} }, "Jobs", 25)
 }
 
 func handleGlueDeleteJob(w http.ResponseWriter, r *http.Request) {
@@ -449,33 +423,7 @@ func handleGlueUpdateJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGlueListJobs(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		NextToken  string `json:"NextToken"`
-		MaxResults *int   `json:"MaxResults"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		glueWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-
-	all := glueJobs.List()
-	names := make([]string, 0, len(all))
-	for _, job := range all {
-		names = append(names, job.Name)
-	}
-	maxR := 0
-	if req.MaxResults != nil {
-		maxR = *req.MaxResults
-	}
-	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, names, func(it string) string { return it }, req.NextToken, maxR, 25)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"JobNames": page}
-	if nextTok != "" {
-		resp["NextToken"] = nextTok
-	}
-	glueWriteJSON(w, http.StatusOK, resp)
+	glueListNames(w, r, glueJobs, func(it GlueJob) string { return it.Name }, "JobNames", 25)
 }
 
 func handleGlueBatchStopJobRun(w http.ResponseWriter, r *http.Request) {

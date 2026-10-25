@@ -174,8 +174,7 @@ func registerCloudFrontExtras(srv *sim.Server) {
 
 func handleCFCreateOAI(w http.ResponseWriter, r *http.Request) {
 	var cfg CFOriginAccessIdentityConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode CloudFrontOriginAccessIdentityConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "CloudFrontOriginAccessIdentityConfig", &cfg) {
 		return
 	}
 	if cfg.CallerReference == "" {
@@ -228,13 +227,11 @@ func handleCFUpdateOAI(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchCloudFrontOriginAccessIdentity", "The specified origin access identity does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	var cfg CFOriginAccessIdentityConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode CloudFrontOriginAccessIdentityConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "CloudFrontOriginAccessIdentityConfig", &cfg) {
 		return
 	}
 	cfg.Xmlns = ""
@@ -253,8 +250,7 @@ func handleCFDeleteOAI(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchCloudFrontOriginAccessIdentity", "The specified origin access identity does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	cfOAIs.Delete(id)
@@ -283,8 +279,7 @@ func handleCFListOAIs(w http.ResponseWriter, _ *http.Request) {
 
 func handleCFCreateCDP(w http.ResponseWriter, r *http.Request) {
 	var cfg CFContinuousDeploymentPolicyConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode ContinuousDeploymentPolicyConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "ContinuousDeploymentPolicyConfig", &cfg) {
 		return
 	}
 	cfg.Xmlns = ""
@@ -333,13 +328,11 @@ func handleCFUpdateCDP(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchContinuousDeploymentPolicy", "The specified continuous deployment policy does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	var cfg CFContinuousDeploymentPolicyConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode ContinuousDeploymentPolicyConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "ContinuousDeploymentPolicyConfig", &cfg) {
 		return
 	}
 	cfg.Xmlns = ""
@@ -359,8 +352,7 @@ func handleCFDeleteCDP(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchContinuousDeploymentPolicy", "The specified continuous deployment policy does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	cfContinuousDeploymentPolicy.Delete(id)
@@ -388,8 +380,7 @@ func handleCFCreateMonitoringSubscription(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var sub CFMonitoringSubscription
-	if err := xml.NewDecoder(r.Body).Decode(&sub); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode MonitoringSubscription: "+err.Error())
+	if !cfDecodeXML(w, r, "MonitoringSubscription", &sub) {
 		return
 	}
 	sub.Xmlns = cfNamespace
@@ -447,4 +438,24 @@ func cfWriteIfMatchError(w http.ResponseWriter, code string) {
 		return
 	}
 	cfWriteError(w, http.StatusPreconditionFailed, "PreconditionFailed", "The If-Match version is missing or does not match the resource's current ETag.")
+}
+
+// cfIfMatches refuses a request whose If-Match header is missing or names
+// another version than etag.
+func cfIfMatches(w http.ResponseWriter, r *http.Request, etag string) bool {
+	if code := cfRequireIfMatch(r, etag); code != "" {
+		cfWriteIfMatchError(w, code)
+		return false
+	}
+	return true
+}
+
+// cfDecodeXML reads the request's XML body into v, refusing a malformed one as
+// MalformedXML naming the element it expected.
+func cfDecodeXML(w http.ResponseWriter, r *http.Request, element string, v any) bool {
+	if err := xml.NewDecoder(r.Body).Decode(v); err != nil {
+		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode "+element+": "+err.Error())
+		return false
+	}
+	return true
 }
