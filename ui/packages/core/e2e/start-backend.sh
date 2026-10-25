@@ -100,6 +100,9 @@ if [[ -n "${SIMULATOR_PACKAGE:-}" ]]; then
   simulator_env=(env -u SIM_CONSOLE_DIR -u SIM_UI_OIDC_ISSUER -u SIM_UI_OIDC_CLIENT_ID -u SIM_UI_OIDC_CLIENT_SECRET
     -u SIM_UI_PUBLIC_URL -u SIM_UI_SESSION_SECRET -u SIM_UI_INSECURE_COOKIES
     SIM_LISTEN_ADDR=":${SIMULATOR_PORT}" SIM_RUNTIME=process SIM_LOG_LEVEL=warn)
+  while IFS= read -r name; do
+    simulator_env=("${simulator_env[0]}" -u "$name" "${simulator_env[@]:1}")
+  done < <(compgen -e | grep '^SOCKERLESS_CONSOLE_' || true)
   simulator_url="http://127.0.0.1:${SIMULATOR_PORT}"
   if [[ -n "${SIMULATOR_GRPC_PORT:-}" ]]; then
     "${simulator_env[@]}" SIM_GCP_GRPC_PORT="${SIMULATOR_GRPC_PORT}" "$simulator_bin" &
