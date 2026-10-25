@@ -1,9 +1,9 @@
 import { defineConfig } from "@playwright/test";
+import { chromiumLaunchOptions } from "../core/e2e/chromium";
 import { FEDERATION, IDENTITY_PORT, PORT } from "./e2e/federation";
 
 const BIN = process.env.SERVER_BIN;
 const HEALTH = `http://localhost:${PORT}/health`;
-const chromiumExecutable = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -17,7 +17,7 @@ export default defineConfig({
     headless: true,
   },
   projects: [
-    { name: "chromium", use: { browserName: "chromium", launchOptions: chromiumExecutable ? { executablePath: chromiumExecutable } : {} } },
+    { name: "chromium", use: { browserName: "chromium", launchOptions: chromiumLaunchOptions([PORT, IDENTITY_PORT]) } },
   ],
   webServer: {
     command: `bash ../core/e2e/start-backend.sh`,
