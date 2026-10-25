@@ -10,29 +10,20 @@
   passing; then creates a GitHub App with contents, pull-requests and
   workflows permissions, installs it on the repository, and runs
   release-please with its installation token.
-- **M4: the remaining cleanups.** Finish the Google Cloud part (the split
-  registration closures, Memorystore for Redis and Cloud Build on the
-  placement backend, waits on the engine), then AWS (body decoding and one
-  error envelope, BUG-3610; the ARN builder and tag-set helpers; splitting
-  `ec2.go`, `glue.go`, `ecs.go`, `rds.go` and the functions over 300 lines)
-  and Azure (the ARM resource ID builder and one ARM CRUD shape; splitting
-  `keyvault.go`, `registerAzureFunctions`, `registerAzureFiles` and
-  `registerNetwork`). Beside them: the shared test helpers (BUG-3611),
-  placement everywhere (BUG-3609), the invented timers (BUG-3607) and the
-  copy-paste threshold at 150 tokens.
+- **M4: the remaining cleanups.** The AWS ARN builder and parser and the
+  tag-set helpers; placement for the sites BUG-3609 names; clearing the 39
+  clone groups `dupl` finds at 120 tokens, then lowering
+  `scripts/simulators-dupl.sh` to 120.
 - **M3: the next shared libraries in ranked order** — the long-running
   operation tracker, asymmetric cryptography in `sim/simkms`, time-bounded
   soft delete (BUG-3606), then the build runner.
-- **Azure.** Rebuild the Azure console on the Azure portal's patterns, as the
-  AWS and Google Cloud consoles were, and fix the header disclosure flake
-  (BUG-3690). Close the Azure service gaps the M2 work left in view: Event
+- **Azure.** Fix the Azure console's header disclosure flake (BUG-3690).
+  Close the Azure service gaps the M2 work left in view: Event
   Grid's Azure Functions, Event Hubs and Hybrid Connections destinations
   (BUG-3535), the Functions host's other stacks (BUG-3237), App Service site
   homes shared across runs (BUG-3631), a job replica's own environment
   (BUG-3650) and Azure Container Registry cache rules (BUG-3612).
-- **Follow-ups of the M2 libraries.** Remove the non-AWS Amazon ECS archive
-  route, which violates cloud-API fidelity (BUG-3622), and take the
-  lifecycle lock on an ECS task resume (BUG-3621); reset a Lambda
+- **Follow-ups of the M2 libraries.** Reset an AWS Lambda
   environment in place (BUG-3700), keep an event source mapping's qualifier
   (BUG-3701), and serve DynamoDB Streams as a `funcrt` source (BUG-3603);
   deliver Amazon SNS to SQS and Lambda through `sim.Server.Call` (BUG-3641);

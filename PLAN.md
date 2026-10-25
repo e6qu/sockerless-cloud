@@ -100,8 +100,8 @@ change:
    whose event triggers are Eventarc on `sim/eventbus`. Closed BUG-3602;
    narrowed BUG-3603 to the sources whose services do not exist.
 
-The same pull request landed M3 items 1, 4 and 13 and M4's `sim` duplicates
-(marked below), and rebuilt the AWS and Google Cloud consoles on their real
+The same pull request landed M3 items 1, 4 and 13 and most of M4 (marked
+below), and rebuilt the AWS, Google Cloud and Azure consoles on their real
 consoles' patterns.
 
 ## Milestones
@@ -207,32 +207,41 @@ unifies; this pull request carries those it lands, and the rest stay planned.
 ### M4 — Cleanups
 
 Intra-module work that makes the code smaller and the gates tighter; no wire
-behaviour changes. The Google Cloud cleanups are in progress — the split
-registration closures, Memorystore for Redis and Cloud Build on the placement
-backend, and waits on the engine instead of a clock; the AWS and Azure
-cleanups come next.
+behaviour changes. This pull request landed every item marked *landed*; the
+ARN and tag-set helpers, the rest of placement everywhere and the 120-token
+step stay planned.
 
-- **AWS request decoding and errors.** Every JSON body through
-  `sim.ReadJSON`; one error envelope writer parameterised by protocol in
-  place of the twenty per-service helpers. *Closes:* BUG-3610.
-- **ARN builder and parser** for AWS (about 170 hand-built ARNs and 24
+- **AWS request decoding and errors** — *landed*. Every JSON body goes
+  through `sim.ReadJSON`, and `awsWriteError` writes each protocol's envelope
+  in place of the twenty-five per-service writers. Closed BUG-3610.
+- **ARN builder and parser** for AWS (about 200 hand-built ARNs and 24
   `*FromARN` parsers) and **tag-set helpers** (the eight tag-merge copies).
-- **Azure resource IDs and ARM CRUD.** An ARM resource ID builder in place of
-  244 hand-formatted IDs and 158 `*ID()` builders; one generic ARM CRUD shape
-  in place of the network and Event Grid variants.
-- **Split giant registration closures and files.** `registerIAM`,
+- **Azure resource IDs and ARM CRUD** — *landed*. One ARM resource ID builder
+  and one generic ARM CRUD shape for the network and Event Grid resources.
+- **Split giant registration closures and files** — *landed*. `registerIAM`,
   `registerCRMv3`, `registerGCS`, `registerCompute`, `registerARSubresources`
   in Google Cloud; `keyvault.go`, `registerAzureFunctions`,
   `registerAzureFiles`, `registerNetwork` in Azure; `ec2.go`, `glue.go`,
-  `ecs.go`, `rds.go` and the functions over 300 lines in AWS.
-- **Shared test helpers into `testutil`** and `testutil/githttp` with push
-  mode. *Closes:* BUG-3611.
+  `ecs.go` and `rds.go` in AWS, where no function now runs past 300 lines.
+- **Shared test helpers into `testutil`** — *landed*. `testutil/scratchimage`
+  builds the suites' workload images, `testutil/uniquename` names their
+  resources, `freeports.TCPUDP` picks a DNS port, and `githttp.StartRepo`
+  serves a repository the Azure suites push to; the per-suite copies went.
+  `runCLI` and `terraformCmd` stay per suite, because each sets its own
+  cloud's CLI environment. Closed BUG-3611.
 - **Placement everywhere.** Route the workloads that reach the engine
-  directly through `placement.Backend`. *Closes:* BUG-3609.
-- **Waits on events, not clocks.** Remove the fixed sleeps and retry loops in
-  simulator code; Amazon ECS's handle-lookup and archive retry loops already
-  went with `sim/signals`. *Closes:* BUG-3607; narrows BUG-3213 and
-  BUG-3154.
+  directly through `placement.Backend`. Amplify Hosting builds and compute,
+  AWS Batch and AWS CodeBuild recovery, Elastic Load Balancing's task
+  addresses, Memorystore for Redis, Cloud Build and App Service's process
+  kills and configuration reads moved; the sites BUG-3609 names remain.
+- **Waits on events, not clocks** — *landed*. Amazon ECS, Amplify Hosting,
+  Memorystore for Redis and the Container Apps group wait on workload events;
+  `sim.WaitContainerRemoved` and `sim.RemoveVolumeSettled` wait on the
+  engine's removal of the container; the node agent's guest init drains its
+  console instead of sleeping before the reset. Amazon RDS replication start
+  and an Amplify Hosting or App Service port opening raise no event, so those
+  waits poll the engine's own status. Closed BUG-3607; AWS Batch service jobs
+  stay BUG-3213.
 - **`sim` duplicates in the simulators** — *landed* with M2's front end.
   The AWS store sweeper copy and the hand-rolled Azure Monitor and Cloud
   Logging sweepers run on `kvstore.StartSweeper`; `listq.IntKey` replaced
@@ -240,8 +249,9 @@ cleanups come next.
   `gcpColumnPageOf`. `listq.OffsetPage` and `TokenPage` stayed, now used by
   AWS Glue, AWS Budgets and DynamoDB `ExecuteStatement`.
 - **Tighten the copy-paste gate stepwise.** `scripts/simulators-dupl.sh`
-  holds zero groups at 200 tokens; lower the threshold to 150, then 120,
-  clearing the groups each step finds.
+  holds zero groups at 150 tokens (*landed*); at 120 tokens it finds 32
+  groups in AWS, 2 in Google Cloud and 5 in Azure, which the next step
+  clears before lowering the threshold again.
 
 ### M5 — Distributed
 

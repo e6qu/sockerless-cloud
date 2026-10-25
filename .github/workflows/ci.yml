@@ -1942,7 +1942,7 @@ jobs:
         run: cd ui && bun install --frozen-lockfile
       - name: simulators deadcode
         run: bash scripts/simulators-deadcode.sh
-      - name: simulators dupl (Go ≥200 tokens)
+      - name: simulators dupl (Go ≥150 tokens)
         run: bash scripts/simulators-dupl.sh
       - name: simulators knip (dead TS exports)
         run: bash scripts/simulators-knip.sh

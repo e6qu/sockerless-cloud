@@ -762,6 +762,17 @@ behind (Event Grid validation handshakes, Logic Apps runs, Container Apps
 revision provisioning). Google Cloud's builds and BigQuery jobs record
 PENDING or QUEUED, answer at once and run behind their operation.
 
+Simulator code waits on the event a wait stands for: a workload's exit, the
+engine's removal of a container (`ContainerWait` with the `removed`
+condition, which `sim.WaitContainerRemoved` and `sim.RemoveVolumeSettled`
+use), a `sim/signals` change signal, a drained serial console. Where nothing
+raises an event, it polls the engine's own status on a short cadence and ends
+at once on the workload's exit: a port that starts listening (Amplify Hosting
+compute, App Service warm-up) and a replica's replication starting (Amazon RDS
+read replicas and Multi-AZ standbys, whose engines report it only in
+`SHOW REPLICA STATUS` and `pg_stat_wal_receiver`). The remaining tickers are
+cadences the clouds document.
+
 ## The service libraries
 
 Stage 5 of the plan moved the mechanisms the clouds' compute, eventing and
@@ -838,11 +849,11 @@ queueing services share into `sim`:
 
 ## Consoles
 
-The AWS and Google Cloud consoles were rebuilt on their real consoles'
-patterns — the AWS Management Console's Console Home, Services menu, unified
-search, Region selector and per-service navigation; console.cloud.google.com's
-project picker, navigation menu, URL structure, filter bar and full-page
-creates — still reading only real cloud APIs. Decorative controls nothing
+The three consoles were rebuilt on their real consoles' patterns — the AWS
+Management Console's Console Home, Services menu, unified search, Region
+selector and per-service navigation; console.cloud.google.com's project
+picker, navigation menu, URL structure, filter bar and full-page creates; the
+Azure portal's top bar, browse and resource blades and create wizards — still reading only real cloud APIs. Decorative controls nothing
 backed (notification bells, support icons, a hardcoded "Service health"
 badge, "Not supported" product pages) went, because a control that does
 nothing is a fake. A console gap whose API the simulator does not serve is a
@@ -919,7 +930,8 @@ fails once the row closes or the operation is served.
   replacement is the scheduler working; two in flight for one failed task is
   the bug.
 - **Tests run in parallel** unless `serial-tests.txt` names why not, and name
-  their resources per run (`uniqueName`, `uniqueAlnumName`); an account-wide
+  their resources per run (`uniquename.New`, `uniquename.Alnum`: eight hex
+  digits from a per-process random start, distinct for every call); an account-wide
   setting is restored at cleanup and never asserted by list length. Shared
   account singletons (the Glue Data Catalog policy) are held by a package
   mutex from put to delete.
@@ -934,7 +946,13 @@ fails once the row closes or the operation is served.
   with its `alpha` and `beta` tracks (installing a track on first use ate each
   test's budget), `cbt`, the AWS CLI.
 - **Ports a suite hands out are picked together** (`testutil/freeports`),
-  below the ephemeral range when a restarted simulator must bind them again.
+  below the ephemeral range when a restarted simulator must bind them again;
+  a DNS port comes from `freeports.TCPUDP`, free on both protocols on every
+  interface.
+- **A helper two suites need lives in `testutil`**, never as a copy per
+  suite: copies of the workload image builder drifted until only five of
+  seven built with `GOWORK=off`. What stays per suite is what sets one
+  cloud's environment (`runCLI`, `terraformCmd`).
 - **smithy-go's closed request body** answers `io.EOF` from `WriteTo`, and
   net/http's extra read then closed connections under parallel event streams;
   the AWS SDK suite hands the transport bodies without `io.WriterTo`

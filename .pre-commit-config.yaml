@@ -266,7 +266,7 @@ repos:
         always_run: false
 
       - id: simulators-dupl
-        name: simulator copy-paste Go (dupl ≥200 tokens)
+        name: simulator copy-paste Go (dupl ≥150 tokens)
         entry: bash scripts/simulators-dupl.sh
         language: system
         pass_filenames: false

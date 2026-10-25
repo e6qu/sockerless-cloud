@@ -15,7 +15,8 @@ The state of the sockerless-cloud repository. `PLAN.md` holds the roadmap,
 - **Support modules.** `sim/` is the cloud-neutral framework; `ui-auth/` is
   the consoles' OpenID Connect layer and the `GET /monitoring/observation`
   endpoint; `testutil/` holds test-only helpers (`simready`, `freeports`,
-  `baseimage`, `httpsgateway`, `registrytrust`, `samlidp`, `githttp`). The
+  `baseimage`, `scratchimage`, `uniquename`, `httpsgateway`, `registrytrust`,
+  `samlidp`, `githttp`), which the nine suites share instead of copying. The
   simulators pin `sim` and `ui-auth` by pseudo-version and resolve them
   locally through the root `go.work`.
 - **Test modules.** `simulator-<cloud>/{sdk,cli,terraform}-tests` are separate
@@ -232,7 +233,7 @@ a gate whose scan set can go empty exits non-zero.
   `check-locked-helpers.sh`, `check-casefold-slice.sh`,
   `check-repo-config-sane.sh`, `scan-mux-overlap.sh`, the generated surface
   tables, the shard-coverage checks, `simulators-deadcode.sh`,
-  `simulators-dupl.sh` (zero clone groups at 200 tokens),
+  `simulators-dupl.sh` (zero clone groups at 150 tokens),
   `simulators-knip.sh`, `gofmt`, `golangci-lint`, `shellcheck`,
   `terraform fmt`, workflow timeouts and concurrency, and the
   required-status-check manifest, which a pre-push hook also compares against
