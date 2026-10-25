@@ -522,7 +522,13 @@ func finishCloudRunJobRunOperations(execName string) {
 	if crOperations == nil {
 		return
 	}
+	defer finishCloudRunExecutionCancelOperations(execName)
 	running := crOperations.Filter(func(op Operation) bool {
+		if crjCancelOps != nil {
+			if _, cancelling := crjCancelOps.Get(op.Name); cancelling {
+				return false
+			}
+		}
 		return !op.Done && op.Metadata["@type"] == cloudRunExecutionType && op.Metadata["name"] == execName
 	})
 	if len(running) == 0 {
@@ -544,6 +550,60 @@ func finishCloudRunJobRunOperations(execName string) {
 			}
 			o.Response = body
 		})
+	}
+}
+
+// startCloudRunExecutionCancelOperation records the operation CancelExecution
+// returns. Cloud Run completes it once the execution's tasks have stopped, so
+// a client the operation wakes reads the execution as the cancel left it; an
+// execution with nothing left running completes it at once.
+func startCloudRunExecutionCancelOperation(project, location string, exec Execution) Operation {
+	op := Operation{
+		Name:     gcpLocationOperationName(project, location, sim.NewUUID()),
+		Metadata: gcpOperationAny(exec, cloudRunExecutionType),
+	}
+	crjCancelOps.Put(op.Name, exec.Name)
+	crOperations.Put(op.Name, op)
+	// The run may have concluded before the records above existed, and its
+	// settle then had no cancel operation to complete.
+	if _, running := crjRuns.Load(exec.Name); !running {
+		finishCloudRunExecutionCancelOperations(exec.Name)
+	}
+	if current, ok := crOperations.Get(op.Name); ok {
+		return current
+	}
+	return op
+}
+
+// finishCloudRunExecutionCancelOperations completes the CancelExecution
+// operations of the execution named execName with its final record.
+func finishCloudRunExecutionCancelOperations(execName string) {
+	if crjCancelOps == nil || crOperations == nil {
+		return
+	}
+	pending := crOperations.Filter(func(op Operation) bool {
+		if op.Done || op.Metadata["name"] != execName {
+			return false
+		}
+		_, cancelling := crjCancelOps.Get(op.Name)
+		return cancelling
+	})
+	if len(pending) == 0 {
+		return
+	}
+	exec, found := crjExecutions.Get(execName)
+	for _, op := range pending {
+		gcpFinishOperation(op.Name, func(o *Operation) {
+			if !found {
+				o.Error = &OperationError{Code: int(codes.NotFound),
+					Message: fmt.Sprintf("execution %q was deleted before its cancellation finished", execName)}
+				return
+			}
+			body := gcpOperationAny(exec, cloudRunExecutionType)
+			o.Metadata = body
+			o.Response = body
+		})
+		crjCancelOps.Delete(op.Name)
 	}
 }
 
@@ -635,6 +695,11 @@ var (
 	crjJobs       sim.Store[Job]
 	crjExecutions sim.Store[Execution]
 	crjTasks      sim.Store[Task]
+	// crjCancelOps names each CancelExecution operation still running, by
+	// operation name, with the execution it cancels: it completes with the
+	// execution as its response, where a RunJob operation completes with
+	// the cancellation as its error.
+	crjCancelOps sim.Store[string]
 )
 
 func registerCloudRunJobs(srv *sim.Server) {
@@ -642,6 +707,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 	executions := sim.MakeStore[Execution](srv.DB(), "crj_executions")
 	tasks := sim.MakeStore[Task](srv.DB(), "crj_tasks")
 	crjJobs, crjExecutions, crjTasks = jobs, executions, tasks
+	crjCancelOps = sim.MakeStore[string](srv.DB(), "crj_cancel_operations")
 	if crOperations == nil {
 		crOperations = sim.MakeStore[Operation](srv.DB(), "operations")
 	}
@@ -920,8 +986,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "execution %q not found", name)
 			return
 		}
-		lro := cloudRunLRO(project, location, exec, "type.googleapis.com/google.cloud.run.v2.Execution")
-		sim.WriteJSON(w, http.StatusOK, lro)
+		sim.WriteJSON(w, http.StatusOK, startCloudRunExecutionCancelOperation(project, location, exec))
 	})
 
 	// UpdateJob: PATCH /v2/projects/{project}/locations/{location}/jobs/{job}
