@@ -3,7 +3,24 @@ package main
 import (
 	"net/http/httptest"
 	"testing"
+	"time"
 )
+
+func TestActivityLogFilterEventChannels(t *testing.T) {
+	event := ActivityLogEvent{EventTimestamp: time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)}
+	for raw, want := range map[string]bool{
+		"eventTimestamp ge '2026-10-01T00:00:00Z' and eventChannels eq 'Admin, Operation'": true,
+		"eventTimestamp ge '2026-10-01T00:00:00Z' and eventChannels eq 'Admin'":            false,
+	} {
+		filter, err := parseActivityLogFilter(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := filter.matches(event); got != want {
+			t.Errorf("%q matched an Operation-channel event: %v, want %v", raw, got, want)
+		}
+	}
+}
 
 func TestActivityLogOperationOf(t *testing.T) {
 	const sub = "/subscriptions/s"

@@ -5,6 +5,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -34,7 +35,6 @@ type activityLogValue struct {
 type ActivityLogEvent struct {
 	Authorization        map[string]string `json:"authorization"`
 	Caller               string            `json:"caller,omitempty"`
-	Channels             string            `json:"channels"`
 	CorrelationID        string            `json:"correlationId"`
 	Description          string            `json:"description"`
 	EventDataID          string            `json:"eventDataId"`
@@ -262,7 +262,6 @@ func AzureActivityLogMiddleware(next http.Handler) http.Handler {
 			azureActivityLog.Put(id, ActivityLogEvent{
 				Authorization: map[string]string{"action": op.action, "scope": op.resourceID},
 				Caller:        caller,
-				Channels:      "Operation",
 				CorrelationID: correlationID,
 				EventDataID:   id,
 				EventName:     activityLogValue{Value: name, LocalizedValue: activityLogWords(strings.Replace(name, "Request", " request", 1))},
@@ -328,7 +327,7 @@ type activityLogFilter struct {
 	from, to                                            time.Time
 	resourceGroup, resourceURI, provider, correlationID string
 	caller, status, subStatus                           string
-	levels                                              []string
+	levels, channels                                    []string
 }
 
 // parseActivityLogFilter reads the documented $filter grammar: a time span
@@ -381,6 +380,7 @@ func parseActivityLogFilter(raw string) (activityLogFilter, error) {
 		case field == "levels":
 			filter.levels = strings.Split(value, ",")
 		case field == "eventchannels":
+			filter.channels = strings.Split(value, ",")
 		default:
 			return filter, fmt.Errorf("the filter field %q is not supported", fields[0])
 		}
@@ -443,6 +443,13 @@ func (f activityLogFilter) matches(event ActivityLogEvent) bool {
 	case f.status != "" && !strings.EqualFold(event.Status.Value, f.status):
 		return false
 	case f.subStatus != "" && !strings.EqualFold(event.SubStatus.Value, f.subStatus):
+		return false
+	}
+	// Every event the simulator records is an Azure Resource Manager
+	// operation, which Azure files under the Operation channel.
+	if len(f.channels) > 0 && !slices.ContainsFunc(f.channels, func(channel string) bool {
+		return strings.EqualFold(strings.TrimSpace(channel), "Operation")
+	}) {
 		return false
 	}
 	if len(f.levels) > 0 {
@@ -509,7 +516,6 @@ func activityLogProject(event ActivityLogEvent, selected map[string]bool) any {
 	full := map[string]any{
 		"authorization":        event.Authorization,
 		"caller":               event.Caller,
-		"channels":             event.Channels,
 		"correlationId":        event.CorrelationID,
 		"description":          event.Description,
 		"eventDataId":          event.EventDataID,
