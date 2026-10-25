@@ -319,23 +319,7 @@ func handleEventarcCreateTrigger(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleEventarcGetTrigger(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	location := sim.PathParam(r, "location")
-	trigger := sim.PathParam(r, "trigger")
-	if id, action, found := strings.Cut(trigger, ":"); found {
-		if action == "getIamPolicy" {
-			handleResourceIAM(w, r, gcpResourceIAMStore(), eventarcTriggerName(project, location, id), action)
-			return
-		}
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on trigger %q", action, id)
-		return
-	}
-	t, ok := eventarcTriggers.Get(eventarcTriggerKey(project, location, trigger))
-	if !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "trigger %q not found", trigger)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, t)
+	eventarcGet(w, r, eventarcTriggers, "trigger", "trigger", eventarcTriggerKey, eventarcTriggerName)
 }
 
 func handleEventarcListTriggers(w http.ResponseWriter, r *http.Request) {
@@ -447,23 +431,7 @@ func handleEventarcCreateChannel(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleEventarcGetChannel(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	location := sim.PathParam(r, "location")
-	channel := sim.PathParam(r, "channel")
-	if id, action, found := strings.Cut(channel, ":"); found {
-		if action == "getIamPolicy" {
-			handleResourceIAM(w, r, gcpResourceIAMStore(), eventarcChannelName(project, location, id), action)
-			return
-		}
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on channel %q", action, id)
-		return
-	}
-	c, ok := eventarcChannels.Get(eventarcChannelKey(project, location, channel))
-	if !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "channel %q not found", channel)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, c)
+	eventarcGet(w, r, eventarcChannels, "channel", "channel", eventarcChannelKey, eventarcChannelName)
 }
 
 func handleEventarcListChannels(w http.ResponseWriter, r *http.Request) {
@@ -644,23 +612,7 @@ func handleEventarcCreateChannelConnection(w http.ResponseWriter, r *http.Reques
 }
 
 func handleEventarcGetChannelConnection(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	location := sim.PathParam(r, "location")
-	connection := sim.PathParam(r, "connection")
-	if id, action, found := strings.Cut(connection, ":"); found {
-		if action == "getIamPolicy" {
-			handleResourceIAM(w, r, gcpResourceIAMStore(), eventarcChannelConnectionName(project, location, id), action)
-			return
-		}
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on channel connection %q", action, id)
-		return
-	}
-	cc, ok := eventarcChannelConnections.Get(eventarcChannelConnectionKey(project, location, connection))
-	if !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "channel connection %q not found", connection)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, cc)
+	eventarcGet(w, r, eventarcChannelConnections, "connection", "channel connection", eventarcChannelConnectionKey, eventarcChannelConnectionName)
 }
 
 func handleEventarcListChannelConnections(w http.ResponseWriter, r *http.Request) {
@@ -831,52 +783,14 @@ func eventarcResKey(project, location, id string) string {
 }
 
 func handleEventarcCreateEnrollment(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	location := sim.PathParam(r, "location")
-	id := r.URL.Query().Get("enrollmentId")
-	if id == "" {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "enrollmentId is required")
-		return
-	}
-	var req EventarcEnrollment
-	if err := sim.ReadJSON(r, &req); err != nil {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "bad request body: %v", err)
-		return
-	}
-	key := eventarcResKey(project, location, id)
-	if _, exists := eventarcEnrollments.Get(key); exists {
-		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "enrollment %q already exists", eventarcEnrollmentName(project, location, id))
-		return
-	}
-	now := nowTimestamp()
-	req.Name = eventarcEnrollmentName(project, location, id)
-	req.Uid = sim.NewUUID()
-	req.Etag = sim.NewUUID()
-	req.CreateTime = now
-	req.UpdateTime = now
-	eventarcEnrollments.Put(key, req)
-	op := eventarcLRO(r, project, location, req.Name, req, "type.googleapis.com/google.cloud.eventarc.v1.Enrollment")
-	sim.WriteJSON(w, http.StatusOK, op)
+	eventarcCreate(w, r, eventarcEnrollments, "enrollmentId", "enrollment", "type.googleapis.com/google.cloud.eventarc.v1.Enrollment", eventarcEnrollmentName,
+		func(req *EventarcEnrollment, name, now string) {
+			req.Name, req.Uid, req.Etag, req.CreateTime, req.UpdateTime = name, sim.NewUUID(), sim.NewUUID(), now, now
+		})
 }
 
 func handleEventarcGetEnrollment(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	location := sim.PathParam(r, "location")
-	id := sim.PathParam(r, "enrollment")
-	if rid, action, found := strings.Cut(id, ":"); found {
-		if action == "getIamPolicy" {
-			handleResourceIAM(w, r, gcpResourceIAMStore(), eventarcEnrollmentName(project, location, rid), action)
-			return
-		}
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on enrollment %q", action, rid)
-		return
-	}
-	e, ok := eventarcEnrollments.Get(eventarcResKey(project, location, id))
-	if !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "enrollment %q not found", id)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, e)
+	eventarcGet(w, r, eventarcEnrollments, "enrollment", "enrollment", eventarcResKey, eventarcEnrollmentName)
 }
 
 func handleEventarcListEnrollments(w http.ResponseWriter, r *http.Request) {
@@ -951,32 +865,10 @@ func handleEventarcEnrollmentIAMAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleEventarcCreateMessageBus(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	location := sim.PathParam(r, "location")
-	id := r.URL.Query().Get("messageBusId")
-	if id == "" {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "messageBusId is required")
-		return
-	}
-	var req EventarcMessageBus
-	if err := sim.ReadJSON(r, &req); err != nil {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "bad request body: %v", err)
-		return
-	}
-	key := eventarcResKey(project, location, id)
-	if _, exists := eventarcMessageBuses.Get(key); exists {
-		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "messageBus %q already exists", eventarcMessageBusName(project, location, id))
-		return
-	}
-	now := nowTimestamp()
-	req.Name = eventarcMessageBusName(project, location, id)
-	req.Uid = sim.NewUUID()
-	req.Etag = sim.NewUUID()
-	req.CreateTime = now
-	req.UpdateTime = now
-	eventarcMessageBuses.Put(key, req)
-	op := eventarcLRO(r, project, location, req.Name, req, "type.googleapis.com/google.cloud.eventarc.v1.MessageBus")
-	sim.WriteJSON(w, http.StatusOK, op)
+	eventarcCreate(w, r, eventarcMessageBuses, "messageBusId", "messageBus", "type.googleapis.com/google.cloud.eventarc.v1.MessageBus", eventarcMessageBusName,
+		func(req *EventarcMessageBus, name, now string) {
+			req.Name, req.Uid, req.Etag, req.CreateTime, req.UpdateTime = name, sim.NewUUID(), sim.NewUUID(), now, now
+		})
 }
 
 // handleEventarcMessageBusGet serves the plain Get plus the two colon-verbs
@@ -1095,52 +987,14 @@ func handleEventarcMessageBusIAMAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleEventarcCreatePipeline(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	location := sim.PathParam(r, "location")
-	id := r.URL.Query().Get("pipelineId")
-	if id == "" {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "pipelineId is required")
-		return
-	}
-	var req EventarcPipeline
-	if err := sim.ReadJSON(r, &req); err != nil {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "bad request body: %v", err)
-		return
-	}
-	key := eventarcResKey(project, location, id)
-	if _, exists := eventarcPipelines.Get(key); exists {
-		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "pipeline %q already exists", eventarcPipelineName(project, location, id))
-		return
-	}
-	now := nowTimestamp()
-	req.Name = eventarcPipelineName(project, location, id)
-	req.Uid = sim.NewUUID()
-	req.Etag = sim.NewUUID()
-	req.CreateTime = now
-	req.UpdateTime = now
-	eventarcPipelines.Put(key, req)
-	op := eventarcLRO(r, project, location, req.Name, req, "type.googleapis.com/google.cloud.eventarc.v1.Pipeline")
-	sim.WriteJSON(w, http.StatusOK, op)
+	eventarcCreate(w, r, eventarcPipelines, "pipelineId", "pipeline", "type.googleapis.com/google.cloud.eventarc.v1.Pipeline", eventarcPipelineName,
+		func(req *EventarcPipeline, name, now string) {
+			req.Name, req.Uid, req.Etag, req.CreateTime, req.UpdateTime = name, sim.NewUUID(), sim.NewUUID(), now, now
+		})
 }
 
 func handleEventarcGetPipeline(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	location := sim.PathParam(r, "location")
-	id := sim.PathParam(r, "pipeline")
-	if rid, action, found := strings.Cut(id, ":"); found {
-		if action == "getIamPolicy" {
-			handleResourceIAM(w, r, gcpResourceIAMStore(), eventarcPipelineName(project, location, rid), action)
-			return
-		}
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on pipeline %q", action, rid)
-		return
-	}
-	p, ok := eventarcPipelines.Get(eventarcResKey(project, location, id))
-	if !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "pipeline %q not found", id)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, p)
+	eventarcGet(w, r, eventarcPipelines, "pipeline", "pipeline", eventarcResKey, eventarcPipelineName)
 }
 
 func handleEventarcListPipelines(w http.ResponseWriter, r *http.Request) {
@@ -1227,52 +1081,14 @@ func handleEventarcPipelineIAMAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleEventarcCreateGoogleAPISource(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	location := sim.PathParam(r, "location")
-	id := r.URL.Query().Get("googleApiSourceId")
-	if id == "" {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "googleApiSourceId is required")
-		return
-	}
-	var req EventarcGoogleAPISource
-	if err := sim.ReadJSON(r, &req); err != nil {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "bad request body: %v", err)
-		return
-	}
-	key := eventarcResKey(project, location, id)
-	if _, exists := eventarcGoogleAPISources.Get(key); exists {
-		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "googleApiSource %q already exists", eventarcGoogleAPISourceName(project, location, id))
-		return
-	}
-	now := nowTimestamp()
-	req.Name = eventarcGoogleAPISourceName(project, location, id)
-	req.Uid = sim.NewUUID()
-	req.Etag = sim.NewUUID()
-	req.CreateTime = now
-	req.UpdateTime = now
-	eventarcGoogleAPISources.Put(key, req)
-	op := eventarcLRO(r, project, location, req.Name, req, "type.googleapis.com/google.cloud.eventarc.v1.GoogleApiSource")
-	sim.WriteJSON(w, http.StatusOK, op)
+	eventarcCreate(w, r, eventarcGoogleAPISources, "googleApiSourceId", "googleApiSource", "type.googleapis.com/google.cloud.eventarc.v1.GoogleApiSource", eventarcGoogleAPISourceName,
+		func(req *EventarcGoogleAPISource, name, now string) {
+			req.Name, req.Uid, req.Etag, req.CreateTime, req.UpdateTime = name, sim.NewUUID(), sim.NewUUID(), now, now
+		})
 }
 
 func handleEventarcGetGoogleAPISource(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	location := sim.PathParam(r, "location")
-	id := sim.PathParam(r, "source")
-	if rid, action, found := strings.Cut(id, ":"); found {
-		if action == "getIamPolicy" {
-			handleResourceIAM(w, r, gcpResourceIAMStore(), eventarcGoogleAPISourceName(project, location, rid), action)
-			return
-		}
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on googleApiSource %q", action, rid)
-		return
-	}
-	s, ok := eventarcGoogleAPISources.Get(eventarcResKey(project, location, id))
-	if !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "googleApiSource %q not found", id)
-		return
-	}
-	sim.WriteJSON(w, http.StatusOK, s)
+	eventarcGet(w, r, eventarcGoogleAPISources, "source", "googleApiSource", eventarcResKey, eventarcGoogleAPISourceName)
 }
 
 func handleEventarcListGoogleAPISources(w http.ResponseWriter, r *http.Request) {
@@ -1421,4 +1237,54 @@ func handleEventarcGetLocation(w http.ResponseWriter, r *http.Request) {
 		"locationId":  location,
 		"displayName": location,
 	})
+}
+
+// eventarcCreate creates a resource of store with the ID the query parameter
+// idParam names, stamped with its name, identifiers and times, and answers a
+// settled operation carrying it as typeURL.
+func eventarcCreate[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], idParam, noun, typeURL string,
+	name func(project, location, id string) string, stamp func(req *T, name, now string)) {
+	project := sim.PathParam(r, "project")
+	location := sim.PathParam(r, "location")
+	id := r.URL.Query().Get(idParam)
+	if id == "" {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "%s is required", idParam)
+		return
+	}
+	var req T
+	if err := sim.ReadJSON(r, &req); err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "bad request body: %v", err)
+		return
+	}
+	key := eventarcResKey(project, location, id)
+	if _, exists := store.Get(key); exists {
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "%s %q already exists", noun, name(project, location, id))
+		return
+	}
+	resourceName := name(project, location, id)
+	stamp(&req, resourceName, nowTimestamp())
+	store.Put(key, req)
+	sim.WriteJSON(w, http.StatusOK, eventarcLRO(r, project, location, resourceName, req, typeURL))
+}
+
+// eventarcGet answers the read of the resource of store the path parameter
+// param names, and the getIamPolicy method the same path carries as a verb.
+func eventarcGet[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], param, noun string, key, name func(project, location, id string) string) {
+	project := sim.PathParam(r, "project")
+	location := sim.PathParam(r, "location")
+	id := sim.PathParam(r, param)
+	if rid, action, found := strings.Cut(id, ":"); found {
+		if action == "getIamPolicy" {
+			handleResourceIAM(w, r, gcpResourceIAMStore(), name(project, location, rid), action)
+			return
+		}
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on %s %q", action, noun, rid)
+		return
+	}
+	v, ok := store.Get(key(project, location, id))
+	if !ok {
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", noun, id)
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, v)
 }

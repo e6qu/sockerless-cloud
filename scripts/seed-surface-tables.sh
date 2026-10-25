@@ -112,6 +112,10 @@ table_for_file() {
     gcp:cloudrun|gcp:cloudrunjobs|gcp:cloudrunservices) echo "gcp-cloudrun" ;;
     gcp:cloudrun*) echo "gcp-cloudrun" ;;
     gcp:compute_more*) echo "gcp-compute" ;;
+    gcp:compute_networks|gcp:compute_instance_templates|gcp:compute_firewalls|gcp:compute_routers|gcp:compute_instances|gcp:compute_disks|gcp:compute_instance_groups) echo "gcp-compute" ;;
+    gcp:gcs_buckets|gcp:gcs_objects|gcp:gcs_uploads|gcp:gcs_folders|gcp:gcs_caches|gcp:gcs_hmac_keys) echo "gcp-gcs" ;;
+    gcp:iam_*|gcp:cloudresourcemanager_v3|gcp:cloudresourcemanager_v3_tags) echo "gcp-iam" ;;
+    gcp:artifactregistry_packages|gcp:artifactregistry_files|gcp:artifactregistry_rules|gcp:artifactregistry_media) echo "gcp-artifactregistry" ;;
     gcp:logging_admin) echo "gcp-logging" ;;
     gcp:token_signing) echo "gcp-iam" ;;
     *) echo "$1-$2" ;;

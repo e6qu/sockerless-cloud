@@ -311,19 +311,7 @@ func handlePSListTopicSnapshots(w http.ResponseWriter, r *http.Request) {
 			names = append(names, s.Name)
 		}
 	}
-	sort.Strings(names)
-	page, next, ok := paginateList(w, r, names, gcpAsc(func(v string) string { return v }))
-	if !ok {
-		return
-	}
-	if page == nil {
-		page = []string{}
-	}
-	resp := map[string]any{"snapshots": page}
-	if next != "" {
-		resp["nextPageToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
+	psWriteNames(w, r, "snapshots", names)
 }
 
 // handlePSListTopicSubscriptions lists the names of the subscriptions
@@ -340,19 +328,7 @@ func handlePSListTopicSubscriptions(w http.ResponseWriter, r *http.Request) {
 			names = append(names, s.Name)
 		}
 	}
-	sort.Strings(names)
-	page, next, ok := paginateList(w, r, names, gcpAsc(func(v string) string { return v }))
-	if !ok {
-		return
-	}
-	if page == nil {
-		page = []string{}
-	}
-	resp := map[string]any{"subscriptions": page}
-	if next != "" {
-		resp["nextPageToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
+	psWriteNames(w, r, "subscriptions", names)
 }
 
 // handlePSPatchSnapshot is `projects.snapshots.patch`. Labels and
@@ -466,27 +442,8 @@ func handlePSGetTopic(w http.ResponseWriter, r *http.Request) {
 }
 
 func handlePSListTopics(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	prefix := fmt.Sprintf("projects/%s/topics/", project)
-	var all []PSTopic
-	for _, t := range psTopics.List() {
-		if strings.HasPrefix(t.Name, prefix) {
-			all = append(all, t)
-		}
-	}
-	if all == nil {
-		all = []PSTopic{}
-	}
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	page, next, ok := paginateList(w, r, all, gcpAsc(func(v PSTopic) string { return v.Name }))
-	if !ok {
-		return
-	}
-	resp := map[string]any{"topics": page}
-	if next != "" {
-		resp["nextPageToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
+	prefix := fmt.Sprintf("projects/%s/topics/", sim.PathParam(r, "project"))
+	psWriteList(w, r, psTopics, prefix, "topics", func(v PSTopic) string { return v.Name })
 }
 
 func handlePSDeleteTopic(w http.ResponseWriter, r *http.Request) {
@@ -739,27 +696,8 @@ func splitMask(mask string) []string {
 }
 
 func handlePSListSubscriptions(w http.ResponseWriter, r *http.Request) {
-	project := sim.PathParam(r, "project")
-	prefix := fmt.Sprintf("projects/%s/subscriptions/", project)
-	var all []PSSubscription
-	for _, s := range psSubscriptions.List() {
-		if strings.HasPrefix(s.Name, prefix) {
-			all = append(all, s)
-		}
-	}
-	if all == nil {
-		all = []PSSubscription{}
-	}
-	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-	page, next, ok := paginateList(w, r, all, gcpAsc(func(v PSSubscription) string { return v.Name }))
-	if !ok {
-		return
-	}
-	resp := map[string]any{"subscriptions": page}
-	if next != "" {
-		resp["nextPageToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
+	prefix := fmt.Sprintf("projects/%s/subscriptions/", sim.PathParam(r, "project"))
+	psWriteList(w, r, psSubscriptions, prefix, "subscriptions", func(v PSSubscription) string { return v.Name })
 }
 
 func handlePSDeleteSubscription(w http.ResponseWriter, r *http.Request) {
@@ -1342,4 +1280,43 @@ func gcpError(w http.ResponseWriter, status int, code, message string) {
 // generateUUIDLocal returns an opaque, unique messageId or ackId.
 func generateUUIDLocal() string {
 	return fmt.Sprintf("%d-%s", time.Now().UnixNano(), sim.RandomHex(8))
+}
+
+// psWriteNames answers a list of resource names, paged in name order, under
+// member.
+func psWriteNames(w http.ResponseWriter, r *http.Request, member string, names []string) {
+	sort.Strings(names)
+	page, next, ok := paginateList(w, r, names, gcpAsc(func(v string) string { return v }))
+	if !ok {
+		return
+	}
+	if page == nil {
+		page = []string{}
+	}
+	resp := map[string]any{member: page}
+	if next != "" {
+		resp["nextPageToken"] = next
+	}
+	sim.WriteJSON(w, http.StatusOK, resp)
+}
+
+// psWriteList answers a list of the resources of store named under prefix,
+// paged in name order, under member.
+func psWriteList[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], prefix, member string, name func(T) string) {
+	all := []T{}
+	for _, v := range store.List() {
+		if strings.HasPrefix(name(v), prefix) {
+			all = append(all, v)
+		}
+	}
+	sort.Slice(all, func(i, j int) bool { return name(all[i]) < name(all[j]) })
+	page, next, ok := paginateList(w, r, all, gcpAsc(name))
+	if !ok {
+		return
+	}
+	resp := map[string]any{member: page}
+	if next != "" {
+		resp["nextPageToken"] = next
+	}
+	sim.WriteJSON(w, http.StatusOK, resp)
 }

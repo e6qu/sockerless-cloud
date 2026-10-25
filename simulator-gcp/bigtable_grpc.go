@@ -225,13 +225,7 @@ func (s *bigtableInstanceAdminGRPC) GetInstance(_ context.Context, req *btadmin.
 
 func (s *bigtableInstanceAdminGRPC) ListInstances(_ context.Context, req *btadmin.ListInstancesRequest) (*btadmin.ListInstancesResponse, error) {
 	prefix := req.GetParent() + "/instances/"
-	out := bigtableInstances.Filter(func(inst bigtableInstance) bool { return strings.HasPrefix(inst.Name, prefix) })
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	resp := &btadmin.ListInstancesResponse{Instances: make([]*btadmin.Instance, 0, len(out))}
-	for _, inst := range out {
-		resp.Instances = append(resp.Instances, bigtableInstanceToPB(inst))
-	}
-	return resp, nil
+	return &btadmin.ListInstancesResponse{Instances: gcpProtoList(bigtableInstances, prefix, func(v bigtableInstance) string { return v.Name }, bigtableInstanceToPB)}, nil
 }
 
 func (s *bigtableInstanceAdminGRPC) DeleteInstance(_ context.Context, req *btadmin.DeleteInstanceRequest) (*emptypb.Empty, error) {
@@ -322,13 +316,7 @@ func (s *bigtableInstanceAdminGRPC) GetCluster(_ context.Context, req *btadmin.G
 
 func (s *bigtableInstanceAdminGRPC) ListClusters(_ context.Context, req *btadmin.ListClustersRequest) (*btadmin.ListClustersResponse, error) {
 	prefix := req.GetParent() + "/clusters/"
-	out := bigtableClusters.Filter(func(cluster bigtableCluster) bool { return strings.HasPrefix(cluster.Name, prefix) })
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	resp := &btadmin.ListClustersResponse{Clusters: make([]*btadmin.Cluster, 0, len(out))}
-	for _, cluster := range out {
-		resp.Clusters = append(resp.Clusters, bigtableClusterToPB(cluster))
-	}
-	return resp, nil
+	return &btadmin.ListClustersResponse{Clusters: gcpProtoList(bigtableClusters, prefix, func(v bigtableCluster) string { return v.Name }, bigtableClusterToPB)}, nil
 }
 
 func (s *bigtableInstanceAdminGRPC) DeleteCluster(_ context.Context, req *btadmin.DeleteClusterRequest) (*emptypb.Empty, error) {
@@ -361,13 +349,7 @@ func (s *bigtableTableAdminGRPC) CreateTable(_ context.Context, req *btadmin.Cre
 
 func (s *bigtableTableAdminGRPC) ListTables(_ context.Context, req *btadmin.ListTablesRequest) (*btadmin.ListTablesResponse, error) {
 	prefix := req.GetParent() + "/tables/"
-	out := bigtableTables.Filter(func(table bigtableTable) bool { return strings.HasPrefix(table.Name, prefix) })
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	resp := &btadmin.ListTablesResponse{Tables: make([]*btadmin.Table, 0, len(out))}
-	for _, table := range out {
-		resp.Tables = append(resp.Tables, bigtableTableToPB(table))
-	}
-	return resp, nil
+	return &btadmin.ListTablesResponse{Tables: gcpProtoList(bigtableTables, prefix, func(v bigtableTable) string { return v.Name }, bigtableTableToPB)}, nil
 }
 
 func (s *bigtableTableAdminGRPC) GetTable(_ context.Context, req *btadmin.GetTableRequest) (*btadmin.Table, error) {
@@ -1004,22 +986,10 @@ func (s *bigtableInstanceAdminGRPC) CreateLogicalView(_ context.Context, req *bt
 	if err != nil {
 		return nil, err
 	}
-	if req.GetLogicalView() == nil {
-		return nil, status.Error(codes.InvalidArgument, "logical_view is required")
-	}
-	body, err := bigtableCreateResource(bigtableLogicalViewKind(), name, req.GetLogicalView())
-	if err != nil {
-		return nil, err
-	}
-	created, err := bigtableStoredProto(body, &btadmin.LogicalView{})
-	if err != nil {
-		return nil, err
-	}
-	return bigtableDoneOperation(name, created, &btadmin.CreateLogicalViewMetadata{
-		OriginalRequest: proto.CloneOf(req),
-		StartTime:       timestamppb.New(requested),
-		EndTime:         timestamppb.Now(),
-	})
+	return bigtableCreateViewOperation(bigtableLogicalViewKind(), name, req.GetLogicalView(), req.GetLogicalView() != nil, "logical_view", &btadmin.LogicalView{}, requested,
+		func(start, end *timestamppb.Timestamp) proto.Message {
+			return &btadmin.CreateLogicalViewMetadata{OriginalRequest: proto.CloneOf(req), StartTime: start, EndTime: end}
+		})
 }
 
 func (s *bigtableInstanceAdminGRPC) GetLogicalView(_ context.Context, req *btadmin.GetLogicalViewRequest) (*btadmin.LogicalView, error) {
@@ -1039,24 +1009,10 @@ func (s *bigtableInstanceAdminGRPC) ListLogicalViews(_ context.Context, req *bta
 }
 
 func (s *bigtableInstanceAdminGRPC) UpdateLogicalView(_ context.Context, req *btadmin.UpdateLogicalViewRequest) (*longrunningpb.Operation, error) {
-	requested := time.Now()
-	view := req.GetLogicalView()
-	if view.GetName() == "" {
-		return nil, status.Error(codes.InvalidArgument, "logical_view.name is required")
-	}
-	body, err := bigtableUpdateResource(bigtableLogicalViewKind(), view.GetName(), view, req.GetUpdateMask())
-	if err != nil {
-		return nil, err
-	}
-	updated, err := bigtableStoredProto(body, &btadmin.LogicalView{})
-	if err != nil {
-		return nil, err
-	}
-	return bigtableDoneOperation(view.GetName(), updated, &btadmin.UpdateLogicalViewMetadata{
-		OriginalRequest: proto.CloneOf(req),
-		StartTime:       timestamppb.New(requested),
-		EndTime:         timestamppb.Now(),
-	})
+	return bigtableUpdateViewOperation(bigtableLogicalViewKind(), req.GetLogicalView(), req.GetUpdateMask(), "logical_view", &btadmin.LogicalView{}, time.Now(),
+		func(start, end *timestamppb.Timestamp) proto.Message {
+			return &btadmin.UpdateLogicalViewMetadata{OriginalRequest: proto.CloneOf(req), StartTime: start, EndTime: end}
+		})
 }
 
 func (s *bigtableInstanceAdminGRPC) DeleteLogicalView(_ context.Context, req *btadmin.DeleteLogicalViewRequest) (*emptypb.Empty, error) {
@@ -1074,22 +1030,10 @@ func (s *bigtableInstanceAdminGRPC) CreateMaterializedView(_ context.Context, re
 	if err != nil {
 		return nil, err
 	}
-	if req.GetMaterializedView() == nil {
-		return nil, status.Error(codes.InvalidArgument, "materialized_view is required")
-	}
-	body, err := bigtableCreateResource(bigtableMatViewKind(), name, req.GetMaterializedView())
-	if err != nil {
-		return nil, err
-	}
-	created, err := bigtableStoredProto(body, &btadmin.MaterializedView{})
-	if err != nil {
-		return nil, err
-	}
-	return bigtableDoneOperation(name, created, &btadmin.CreateMaterializedViewMetadata{
-		OriginalRequest: proto.CloneOf(req),
-		StartTime:       timestamppb.New(requested),
-		EndTime:         timestamppb.Now(),
-	})
+	return bigtableCreateViewOperation(bigtableMatViewKind(), name, req.GetMaterializedView(), req.GetMaterializedView() != nil, "materialized_view", &btadmin.MaterializedView{}, requested,
+		func(start, end *timestamppb.Timestamp) proto.Message {
+			return &btadmin.CreateMaterializedViewMetadata{OriginalRequest: proto.CloneOf(req), StartTime: start, EndTime: end}
+		})
 }
 
 func (s *bigtableInstanceAdminGRPC) GetMaterializedView(_ context.Context, req *btadmin.GetMaterializedViewRequest) (*btadmin.MaterializedView, error) {
@@ -1109,24 +1053,10 @@ func (s *bigtableInstanceAdminGRPC) ListMaterializedViews(_ context.Context, req
 }
 
 func (s *bigtableInstanceAdminGRPC) UpdateMaterializedView(_ context.Context, req *btadmin.UpdateMaterializedViewRequest) (*longrunningpb.Operation, error) {
-	requested := time.Now()
-	view := req.GetMaterializedView()
-	if view.GetName() == "" {
-		return nil, status.Error(codes.InvalidArgument, "materialized_view.name is required")
-	}
-	body, err := bigtableUpdateResource(bigtableMatViewKind(), view.GetName(), view, req.GetUpdateMask())
-	if err != nil {
-		return nil, err
-	}
-	updated, err := bigtableStoredProto(body, &btadmin.MaterializedView{})
-	if err != nil {
-		return nil, err
-	}
-	return bigtableDoneOperation(view.GetName(), updated, &btadmin.UpdateMaterializedViewMetadata{
-		OriginalRequest: proto.CloneOf(req),
-		StartTime:       timestamppb.New(requested),
-		EndTime:         timestamppb.Now(),
-	})
+	return bigtableUpdateViewOperation(bigtableMatViewKind(), req.GetMaterializedView(), req.GetUpdateMask(), "materialized_view", &btadmin.MaterializedView{}, time.Now(),
+		func(start, end *timestamppb.Timestamp) proto.Message {
+			return &btadmin.UpdateMaterializedViewMetadata{OriginalRequest: proto.CloneOf(req), StartTime: start, EndTime: end}
+		})
 }
 
 func (s *bigtableInstanceAdminGRPC) DeleteMaterializedView(_ context.Context, req *btadmin.DeleteMaterializedViewRequest) (*emptypb.Empty, error) {
@@ -1665,22 +1595,10 @@ func (s *bigtableTableAdminGRPC) CreateAuthorizedView(_ context.Context, req *bt
 	if err != nil {
 		return nil, err
 	}
-	if req.GetAuthorizedView() == nil {
-		return nil, status.Error(codes.InvalidArgument, "authorized_view is required")
-	}
-	body, err := bigtableCreateResource(bigtableAuthViewKind(), name, req.GetAuthorizedView())
-	if err != nil {
-		return nil, err
-	}
-	created, err := bigtableStoredProto(body, &btadmin.AuthorizedView{})
-	if err != nil {
-		return nil, err
-	}
-	return bigtableDoneOperation(name, created, &btadmin.CreateAuthorizedViewMetadata{
-		OriginalRequest: proto.CloneOf(req),
-		RequestTime:     timestamppb.New(requested),
-		FinishTime:      timestamppb.Now(),
-	})
+	return bigtableCreateViewOperation(bigtableAuthViewKind(), name, req.GetAuthorizedView(), req.GetAuthorizedView() != nil, "authorized_view", &btadmin.AuthorizedView{}, requested,
+		func(start, end *timestamppb.Timestamp) proto.Message {
+			return &btadmin.CreateAuthorizedViewMetadata{OriginalRequest: proto.CloneOf(req), RequestTime: start, FinishTime: end}
+		})
 }
 
 func (s *bigtableTableAdminGRPC) GetAuthorizedView(_ context.Context, req *btadmin.GetAuthorizedViewRequest) (*btadmin.AuthorizedView, error) {
@@ -1717,24 +1635,10 @@ func bigtableAuthorizedViewForResponseView(view *btadmin.AuthorizedView, respons
 }
 
 func (s *bigtableTableAdminGRPC) UpdateAuthorizedView(_ context.Context, req *btadmin.UpdateAuthorizedViewRequest) (*longrunningpb.Operation, error) {
-	requested := time.Now()
-	view := req.GetAuthorizedView()
-	if view.GetName() == "" {
-		return nil, status.Error(codes.InvalidArgument, "authorized_view.name is required")
-	}
-	body, err := bigtableUpdateResource(bigtableAuthViewKind(), view.GetName(), view, req.GetUpdateMask())
-	if err != nil {
-		return nil, err
-	}
-	updated, err := bigtableStoredProto(body, &btadmin.AuthorizedView{})
-	if err != nil {
-		return nil, err
-	}
-	return bigtableDoneOperation(view.GetName(), updated, &btadmin.UpdateAuthorizedViewMetadata{
-		OriginalRequest: proto.CloneOf(req),
-		RequestTime:     timestamppb.New(requested),
-		FinishTime:      timestamppb.Now(),
-	})
+	return bigtableUpdateViewOperation(bigtableAuthViewKind(), req.GetAuthorizedView(), req.GetUpdateMask(), "authorized_view", &btadmin.AuthorizedView{}, time.Now(),
+		func(start, end *timestamppb.Timestamp) proto.Message {
+			return &btadmin.UpdateAuthorizedViewMetadata{OriginalRequest: proto.CloneOf(req), RequestTime: start, FinishTime: end}
+		})
 }
 
 func (s *bigtableTableAdminGRPC) DeleteAuthorizedView(_ context.Context, req *btadmin.DeleteAuthorizedViewRequest) (*emptypb.Empty, error) {
@@ -1928,4 +1832,46 @@ func (s *bigtableTableAdminGRPC) SetIamPolicy(_ context.Context, req *iampb.SetI
 
 func (s *bigtableTableAdminGRPC) TestIamPermissions(ctx context.Context, req *iampb.TestIamPermissionsRequest) (*iampb.TestIamPermissionsResponse, error) {
 	return bigtableTestIamPermissions(ctx, req)
+}
+
+// bigtableCreateViewOperation stores view, of kind, under name and answers the
+// settled operation carrying it as stored, with the metadata metadata builds
+// from when the request arrived and finished. present is false when the
+// request carries no view in field.
+func bigtableCreateViewOperation[V proto.Message](kind bigtableResourceKind, name string, view proto.Message, present bool, field string,
+	stored V, requested time.Time, metadata func(start, end *timestamppb.Timestamp) proto.Message) (*longrunningpb.Operation, error) {
+	if !present {
+		return nil, status.Error(codes.InvalidArgument, field+" is required")
+	}
+	body, err := bigtableCreateResource(kind, name, view)
+	if err != nil {
+		return nil, err
+	}
+	created, err := bigtableStoredProto(body, stored)
+	if err != nil {
+		return nil, err
+	}
+	return bigtableDoneOperation(name, created, metadata(timestamppb.New(requested), timestamppb.Now()))
+}
+
+// bigtableUpdateViewOperation applies an update of a view of kind under mask
+// and answers the settled operation carrying it as stored, with the metadata
+// metadata builds from when the request arrived and finished.
+func bigtableUpdateViewOperation[V interface {
+	proto.Message
+	GetName() string
+}, S proto.Message](kind bigtableResourceKind, view V, mask *fieldmaskpb.FieldMask, field string, stored S, requested time.Time,
+	metadata func(start, end *timestamppb.Timestamp) proto.Message) (*longrunningpb.Operation, error) {
+	if view.GetName() == "" {
+		return nil, status.Error(codes.InvalidArgument, field+".name is required")
+	}
+	body, err := bigtableUpdateResource(kind, view.GetName(), view, mask)
+	if err != nil {
+		return nil, err
+	}
+	updated, err := bigtableStoredProto(body, stored)
+	if err != nil {
+		return nil, err
+	}
+	return bigtableDoneOperation(view.GetName(), updated, metadata(timestamppb.New(requested), timestamppb.Now()))
 }

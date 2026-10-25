@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // protoEnumTable names a proto enum's values by number, as the API's
@@ -94,4 +95,29 @@ type runExecutionEnvironment struct{}
 
 func (runExecutionEnvironment) enumNames() map[int32]string {
 	return map[int32]string{1: "EXECUTION_ENVIRONMENT_GEN1", 2: "EXECUTION_ENVIRONMENT_GEN2"}
+}
+
+// protoEnumNameOf reads a proto enum's JSON value as the enum's name: a name
+// as written, a number through names, every number the descriptor declares
+// included. what and unknown word the refusals.
+func protoEnumNameOf(data []byte, names map[int32]string, what, unknown string) (string, error) {
+	if len(data) == 0 || string(data) == "null" {
+		return "", nil
+	}
+	if data[0] == '"' {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return "", err
+		}
+		return s, nil
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 32)
+	if err != nil {
+		return "", fmt.Errorf("%s %s: %w", what, data, err)
+	}
+	name, ok := names[int32(n)]
+	if !ok {
+		return "", fmt.Errorf("%s %s", unknown, data)
+	}
+	return name, nil
 }

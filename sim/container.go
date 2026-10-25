@@ -1012,29 +1012,6 @@ func StopAndRemoveContainer(containerID string, grace time.Duration) {
 	}
 }
 
-// ContainerIPv4 returns a running container's primary IPv4 address on its
-// docker network, or "" if unavailable. A sim running inside a harness
-// container reaches a workload by this bridge IP (routable container-to-
-// container) rather than a host-published port, which binds the host's
-// loopback — not the sim container's.
-func ContainerIPv4(id string) string {
-	if dockerClient == nil {
-		return ""
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	insp, err := dockerClient.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
-	if err != nil || insp.Container.NetworkSettings == nil {
-		return ""
-	}
-	for _, ep := range insp.Container.NetworkSettings.Networks {
-		if ep != nil && ep.IPAddress.IsValid() {
-			return ep.IPAddress.String()
-		}
-	}
-	return ""
-}
-
 // ContainerRunning reports whether the container with the given id exists and
 // is currently running, which is how a slice that keeps a long-lived workload
 // decides whether it is already up before routing an invoke to it.

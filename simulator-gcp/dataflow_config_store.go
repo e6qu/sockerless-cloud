@@ -2,7 +2,6 @@ package main
 
 import (
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -76,20 +75,7 @@ func registerDataflowConfigStore(srv *sim.Server) {
 
 		srv.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
 			prefix := parentName(r) + "/configStoreSettings/"
-			held := settings.Filter(func(m map[string]any) bool {
-				name, _ := m["name"].(string)
-				return strings.HasPrefix(name, prefix)
-			})
-			sort.Slice(held, func(i, j int) bool {
-				a, _ := held[i]["name"].(string)
-				b, _ := held[j]["name"].(string)
-				return a < b
-			})
-			items := []any{}
-			for _, setting := range held {
-				items = append(items, setting)
-			}
-			sim.WriteJSON(w, http.StatusOK, map[string]any{"configStoreSettings": items})
+			gcpWriteNamedMaps(w, settings, prefix, "configStoreSettings")
 		})
 
 		srv.HandleFunc("GET "+base+"/{configStoreSettingsId}", func(w http.ResponseWriter, r *http.Request) {

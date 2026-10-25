@@ -1203,24 +1203,9 @@ func bqApplyModelDefaults(m BQModel, project, dataset, model string) BQModel {
 }
 
 func handleBQListModels(w http.ResponseWriter, r *http.Request) {
-	project, dataset := sim.PathParam(r, "project"), sim.PathParam(r, "dataset")
-	if _, ok := bqDatasets.Get(bqDatasetKey(project, dataset)); !ok {
-		bqErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Dataset %s:%s", project, dataset)
-		return
-	}
-	all := bqModels.Filter(func(m BQModel) bool {
-		return m.ModelReference.ProjectID == project && m.ModelReference.DatasetID == dataset
+	bqWriteDatasetList(w, r, bqModels, "models", func(v BQModel) (string, string, string) {
+		return v.ModelReference.ProjectID, v.ModelReference.DatasetID, v.ModelReference.ModelID
 	})
-	sort.Slice(all, func(i, j int) bool { return all[i].ModelReference.ModelID < all[j].ModelReference.ModelID })
-	page, next, ok := paginateListCompute(w, r, all, gcpAsc(func(m BQModel) string { return m.ModelReference.ModelID }))
-	if !ok {
-		return
-	}
-	resp := map[string]any{"models": page}
-	if next != "" {
-		resp["nextPageToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
 func handleBQGetModel(w http.ResponseWriter, r *http.Request) {
@@ -1286,24 +1271,9 @@ func bqApplyRoutineDefaults(rt BQRoutine, project, dataset, routine string) BQRo
 }
 
 func handleBQListRoutines(w http.ResponseWriter, r *http.Request) {
-	project, dataset := sim.PathParam(r, "project"), sim.PathParam(r, "dataset")
-	if _, ok := bqDatasets.Get(bqDatasetKey(project, dataset)); !ok {
-		bqErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Dataset %s:%s", project, dataset)
-		return
-	}
-	all := bqRoutines.Filter(func(rt BQRoutine) bool {
-		return rt.RoutineReference.ProjectID == project && rt.RoutineReference.DatasetID == dataset
+	bqWriteDatasetList(w, r, bqRoutines, "routines", func(v BQRoutine) (string, string, string) {
+		return v.RoutineReference.ProjectID, v.RoutineReference.DatasetID, v.RoutineReference.RoutineID
 	})
-	sort.Slice(all, func(i, j int) bool { return all[i].RoutineReference.RoutineID < all[j].RoutineReference.RoutineID })
-	page, next, ok := paginateListCompute(w, r, all, gcpAsc(func(rt BQRoutine) string { return rt.RoutineReference.RoutineID }))
-	if !ok {
-		return
-	}
-	resp := map[string]any{"routines": page}
-	if next != "" {
-		resp["nextPageToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
 }
 
 func handleBQInsertRoutine(w http.ResponseWriter, r *http.Request) {
@@ -1620,4 +1590,32 @@ func bqError(w http.ResponseWriter, code int, message, status string) {
 
 func bqErrorf(w http.ResponseWriter, code int, status, format string, args ...any) {
 	bqError(w, code, fmt.Sprintf(format, args...), status)
+}
+
+// bqWriteDatasetList answers the list of a dataset's resources in store,
+// which ref names by project, dataset and ID, paged in ID order under member.
+func bqWriteDatasetList[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], member string, ref func(T) (project, dataset, id string)) {
+	project, dataset := sim.PathParam(r, "project"), sim.PathParam(r, "dataset")
+	if _, ok := bqDatasets.Get(bqDatasetKey(project, dataset)); !ok {
+		bqErrorf(w, http.StatusNotFound, "NOT_FOUND", "Not found: Dataset %s:%s", project, dataset)
+		return
+	}
+	id := func(v T) string {
+		_, _, id := ref(v)
+		return id
+	}
+	all := store.Filter(func(v T) bool {
+		p, d, _ := ref(v)
+		return p == project && d == dataset
+	})
+	sort.Slice(all, func(i, j int) bool { return id(all[i]) < id(all[j]) })
+	page, next, ok := paginateListCompute(w, r, all, gcpAsc(id))
+	if !ok {
+		return
+	}
+	resp := map[string]any{member: page}
+	if next != "" {
+		resp["nextPageToken"] = next
+	}
+	sim.WriteJSON(w, http.StatusOK, resp)
 }

@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1040,13 +1039,7 @@ func (s *spannerDataGRPC) GetSession(_ context.Context, req *sppb.GetSessionRequ
 
 func (s *spannerDataGRPC) ListSessions(_ context.Context, req *sppb.ListSessionsRequest) (*sppb.ListSessionsResponse, error) {
 	prefix := req.GetDatabase() + "/sessions/"
-	out := spannerSessions.Filter(func(sess spannerSession) bool { return strings.HasPrefix(sess.Name, prefix) })
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	resp := &sppb.ListSessionsResponse{Sessions: make([]*sppb.Session, 0, len(out))}
-	for _, sess := range out {
-		resp.Sessions = append(resp.Sessions, spannerStoredSessionToProto(sess))
-	}
-	return resp, nil
+	return &sppb.ListSessionsResponse{Sessions: gcpProtoList(spannerSessions, prefix, func(v spannerSession) string { return v.Name }, spannerStoredSessionToProto)}, nil
 }
 
 func (s *spannerDataGRPC) DeleteSession(_ context.Context, req *sppb.DeleteSessionRequest) (*emptypb.Empty, error) {

@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -71,20 +70,7 @@ func registerFirestoreChangeStreams(srv *sim.Server) {
 
 	srv.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
 		prefix := parent(r) + "/changeStreams/"
-		held := streams.Filter(func(m map[string]any) bool {
-			name, _ := m["name"].(string)
-			return strings.HasPrefix(name, prefix)
-		})
-		sort.Slice(held, func(i, j int) bool {
-			a, _ := held[i]["name"].(string)
-			b, _ := held[j]["name"].(string)
-			return a < b
-		})
-		items := []any{}
-		for _, stream := range held {
-			items = append(items, stream)
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"changeStreams": items})
+		gcpWriteNamedMaps(w, streams, prefix, "changeStreams")
 	})
 
 	srv.HandleFunc("GET "+base+"/{changeStream}", func(w http.ResponseWriter, r *http.Request) {

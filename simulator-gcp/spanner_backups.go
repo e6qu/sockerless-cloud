@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -387,22 +386,7 @@ func handleSpannerGetBackup(w http.ResponseWriter, r *http.Request, instance, ba
 
 func handleSpannerListBackups(w http.ResponseWriter, r *http.Request, instance string) {
 	prefix := spannerInstanceName(sim.PathParam(r, "project"), instance) + "/backups/"
-	out := spannerBackups.Filter(func(b spannerBackup) bool { return strings.HasPrefix(b.Name, prefix) })
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	listed, listOK := gcpApplyListParams(w, r, out)
-	if !listOK {
-		return
-	}
-	out = listed
-	page, next, ok := paginateList(w, r, out, gcpAsc(func(v spannerBackup) string { return v.Name }))
-	if !ok {
-		return
-	}
-	body := map[string]any{"backups": page}
-	if next != "" {
-		body["nextPageToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, body)
+	gcpWriteList(w, r, spannerBackups, prefix, "backups", func(v spannerBackup) string { return v.Name })
 }
 
 func handleSpannerUpdateBackup(w http.ResponseWriter, r *http.Request, instance, backup string) {
@@ -662,22 +646,7 @@ func handleSpannerListBackupSchedules(w http.ResponseWriter, r *http.Request, in
 		return
 	}
 	prefix := dbName + "/backupSchedules/"
-	out := spannerBackupSchedules.Filter(func(s spannerBackupSchedule) bool { return strings.HasPrefix(s.Name, prefix) })
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	listed, listOK := gcpApplyListParams(w, r, out)
-	if !listOK {
-		return
-	}
-	out = listed
-	page, next, ok := paginateList(w, r, out, gcpAsc(func(v spannerBackupSchedule) string { return v.Name }))
-	if !ok {
-		return
-	}
-	body := map[string]any{"backupSchedules": page}
-	if next != "" {
-		body["nextPageToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, body)
+	gcpWriteList(w, r, spannerBackupSchedules, prefix, "backupSchedules", func(v spannerBackupSchedule) string { return v.Name })
 }
 
 func handleSpannerUpdateBackupSchedule(w http.ResponseWriter, r *http.Request, database, scheduleID string) {

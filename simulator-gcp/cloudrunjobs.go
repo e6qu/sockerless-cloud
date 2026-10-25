@@ -808,24 +808,7 @@ func registerCloudRunJobs(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
 		prefix := fmt.Sprintf("projects/%s/locations/%s/jobs/", project, location)
-
-		result := jobs.Filter(func(j Job) bool {
-			return strings.HasPrefix(j.Name, prefix)
-		})
-		if result == nil {
-			result = []Job{}
-		}
-		sortCloudRunJobs(result)
-		page, next, ok := paginateList(w, r, result, gcpAsc(func(j Job) string { return j.Name }))
-		if !ok {
-			return
-		}
-
-		resp := map[string]any{"jobs": page}
-		if next != "" {
-			resp["nextPageToken"] = next
-		}
-		sim.WriteJSON(w, http.StatusOK, resp)
+		gcpWritePage(w, r, jobs, prefix, "jobs", func(j Job) string { return j.Name })
 	})
 
 	// Delete job

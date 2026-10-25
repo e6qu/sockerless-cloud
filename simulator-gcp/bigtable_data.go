@@ -1386,52 +1386,26 @@ func (s *bigtableDataGRPC) OpenTable(stream btpb.Bigtable_OpenTableServer) error
 		if err := proto.Unmarshal(payload, &open); err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "open_session payload is not an OpenTableRequest: %v", err)
 		}
-		tableName := open.GetTableName()
-		td, err := btRequireTable(tableName)
-		if err != nil {
-			return nil, err
-		}
-		instance := btInstanceOfTable(tableName)
-		if err := btRequireAppProfile(instance, open.GetAppProfileId()); err != nil {
-			return nil, err
-		}
-		clusterID, zoneID, err := btInstanceCluster(instance)
-		if err != nil {
-			return nil, err
-		}
-		canRead, canWrite := btSessionPermissions(int32(open.GetPermission()))
-		openPayload, err := proto.Marshal(&btpb.OpenTableResponse{})
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "encoding OpenTableResponse: %v", err)
-		}
-		return &btSession{
-			openPayload: openPayload,
-			clusterID:   clusterID,
-			zoneID:      zoneID,
-			serve: func(payload []byte) ([]byte, error) {
+		return btOpenSession(open.GetTableName(), nil, open.GetAppProfileId(), int32(open.GetPermission()), &btpb.OpenTableResponse{},
+			func(payload []byte) (*btpb.SessionReadRowRequest, *btpb.SessionMutateRowRequest, error) {
 				var req btpb.TableRequest
 				if err := proto.Unmarshal(payload, &req); err != nil {
-					return nil, status.Errorf(codes.InvalidArgument, "virtual RPC payload is not a TableRequest: %v", err)
+					return nil, nil, status.Errorf(codes.InvalidArgument, "virtual RPC payload is not a TableRequest: %v", err)
 				}
-				var resp btpb.TableResponse
 				switch p := req.GetPayload().(type) {
 				case *btpb.TableRequest_ReadRow:
-					row, err := btSessionReadRow(td, nil, p.ReadRow, canRead)
-					if err != nil {
-						return nil, err
-					}
-					resp.Payload = &btpb.TableResponse_ReadRow{ReadRow: &btpb.SessionReadRowResponse{Row: row}}
+					return p.ReadRow, nil, nil
 				case *btpb.TableRequest_MutateRow:
-					if err := btSessionMutateRow(tableName, td, nil, p.MutateRow, canWrite); err != nil {
-						return nil, err
-					}
-					resp.Payload = &btpb.TableResponse_MutateRow{MutateRow: &btpb.SessionMutateRowResponse{}}
-				default:
-					return nil, status.Error(codes.InvalidArgument, "TableRequest carries no read_row or mutate_row")
+					return nil, p.MutateRow, nil
 				}
-				return proto.Marshal(&resp)
+				return nil, nil, status.Error(codes.InvalidArgument, "TableRequest carries no read_row or mutate_row")
 			},
-		}, nil
+			func(read *btpb.SessionReadRowResponse, mutate *btpb.SessionMutateRowResponse) proto.Message {
+				if read != nil {
+					return &btpb.TableResponse{Payload: &btpb.TableResponse_ReadRow{ReadRow: read}}
+				}
+				return &btpb.TableResponse{Payload: &btpb.TableResponse_MutateRow{MutateRow: mutate}}
+			})
 	})
 }
 
@@ -1441,57 +1415,76 @@ func (s *bigtableDataGRPC) OpenAuthorizedView(stream btpb.Bigtable_OpenAuthorize
 		if err := proto.Unmarshal(payload, &open); err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "open_session payload is not an OpenAuthorizedViewRequest: %v", err)
 		}
-		viewName := open.GetAuthorizedViewName()
-		subset, tableName, err := btAuthorizedViewSubset(viewName)
+		subset, tableName, err := btAuthorizedViewSubset(open.GetAuthorizedViewName())
 		if err != nil {
 			return nil, err
 		}
-		td, err := btRequireTable(tableName)
-		if err != nil {
-			return nil, err
-		}
-		instance := btInstanceOfTable(tableName)
-		if err := btRequireAppProfile(instance, open.GetAppProfileId()); err != nil {
-			return nil, err
-		}
-		clusterID, zoneID, err := btInstanceCluster(instance)
-		if err != nil {
-			return nil, err
-		}
-		canRead, canWrite := btSessionPermissions(int32(open.GetPermission()))
-		openPayload, err := proto.Marshal(&btpb.OpenAuthorizedViewResponse{})
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "encoding OpenAuthorizedViewResponse: %v", err)
-		}
-		return &btSession{
-			openPayload: openPayload,
-			clusterID:   clusterID,
-			zoneID:      zoneID,
-			serve: func(payload []byte) ([]byte, error) {
+		return btOpenSession(tableName, subset, open.GetAppProfileId(), int32(open.GetPermission()), &btpb.OpenAuthorizedViewResponse{},
+			func(payload []byte) (*btpb.SessionReadRowRequest, *btpb.SessionMutateRowRequest, error) {
 				var req btpb.AuthorizedViewRequest
 				if err := proto.Unmarshal(payload, &req); err != nil {
-					return nil, status.Errorf(codes.InvalidArgument, "virtual RPC payload is not an AuthorizedViewRequest: %v", err)
+					return nil, nil, status.Errorf(codes.InvalidArgument, "virtual RPC payload is not an AuthorizedViewRequest: %v", err)
 				}
-				var resp btpb.AuthorizedViewResponse
 				switch p := req.GetPayload().(type) {
 				case *btpb.AuthorizedViewRequest_ReadRow:
-					row, err := btSessionReadRow(td, subset, p.ReadRow, canRead)
-					if err != nil {
-						return nil, err
-					}
-					resp.Payload = &btpb.AuthorizedViewResponse_ReadRow{ReadRow: &btpb.SessionReadRowResponse{Row: row}}
+					return p.ReadRow, nil, nil
 				case *btpb.AuthorizedViewRequest_MutateRow:
-					if err := btSessionMutateRow(tableName, td, subset, p.MutateRow, canWrite); err != nil {
-						return nil, err
-					}
-					resp.Payload = &btpb.AuthorizedViewResponse_MutateRow{MutateRow: &btpb.SessionMutateRowResponse{}}
-				default:
-					return nil, status.Error(codes.InvalidArgument, "AuthorizedViewRequest carries no read_row or mutate_row")
+					return nil, p.MutateRow, nil
 				}
-				return proto.Marshal(&resp)
+				return nil, nil, status.Error(codes.InvalidArgument, "AuthorizedViewRequest carries no read_row or mutate_row")
 			},
-		}, nil
+			func(read *btpb.SessionReadRowResponse, mutate *btpb.SessionMutateRowResponse) proto.Message {
+				if read != nil {
+					return &btpb.AuthorizedViewResponse{Payload: &btpb.AuthorizedViewResponse_ReadRow{ReadRow: read}}
+				}
+				return &btpb.AuthorizedViewResponse{Payload: &btpb.AuthorizedViewResponse_MutateRow{MutateRow: mutate}}
+			})
 	})
+}
+
+// btOpenSession is the session an open_session request starts on tableName,
+// or on the subset of it an authorized view exposes, through appProfile: the
+// cluster that serves it, the response its handshake carries, and the virtual
+// RPCs it answers as its permission allows. decode reads a virtual RPC into
+// the read or the mutation it carries, and encode wraps the answer.
+func btOpenSession(tableName string, subset *btViewSubset, appProfile string, permission int32, opened proto.Message,
+	decode func([]byte) (*btpb.SessionReadRowRequest, *btpb.SessionMutateRowRequest, error),
+	encode func(*btpb.SessionReadRowResponse, *btpb.SessionMutateRowResponse) proto.Message) (*btSession, error) {
+	td, err := btRequireTable(tableName)
+	if err != nil {
+		return nil, err
+	}
+	instance := btInstanceOfTable(tableName)
+	if err := btRequireAppProfile(instance, appProfile); err != nil {
+		return nil, err
+	}
+	clusterID, zoneID, err := btInstanceCluster(instance)
+	if err != nil {
+		return nil, err
+	}
+	canRead, canWrite := btSessionPermissions(permission)
+	openPayload, err := proto.Marshal(opened)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "encoding %s: %v", opened.ProtoReflect().Descriptor().Name(), err)
+	}
+	serve := func(payload []byte) ([]byte, error) {
+		read, mutate, err := decode(payload)
+		if err != nil {
+			return nil, err
+		}
+		if read != nil {
+			row, err := btSessionReadRow(td, subset, read, canRead)
+			if err != nil {
+				return nil, err
+			}
+			return proto.Marshal(encode(&btpb.SessionReadRowResponse{Row: row}, nil))
+		}
+		if err := btSessionMutateRow(tableName, td, subset, mutate, canWrite); err != nil {
+			return nil, err
+		}
+		return proto.Marshal(encode(nil, &btpb.SessionMutateRowResponse{}))
+	}
+	return &btSession{openPayload: openPayload, clusterID: clusterID, zoneID: zoneID, serve: serve}, nil
 }
 
 // btSessionReadRow serves one session read from the table's cell store,

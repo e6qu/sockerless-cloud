@@ -240,18 +240,9 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET /apis/run.googleapis.com/v1/namespaces/{namespace}/jobs", func(w http.ResponseWriter, r *http.Request) {
-		namespace := sim.PathParam(r, "namespace")
-		prefix := cloudRunV1JobsPrefix(namespace)
-		selector := r.URL.Query().Get("labelSelector")
-		items := make([]CRJob, 0)
-		for _, job := range crjJobs.Filter(func(j Job) bool { return strings.HasPrefix(j.Name, prefix) }) {
-			projected, ok := cloudRunV2JobToV1(job)
-			if !ok || !knativeLabelSelectorMatches(selector, projected.Metadata.Labels) {
-				continue
-			}
-			items = append(items, projected)
-		}
-		page, next, ok := knativeListPage(w, r, items, gcpAsc(func(v CRJob) string { return v.Metadata.Name }))
+		page, next, ok := knativeProjectedPage(w, r, crjJobs, cloudRunV1JobsPrefix(sim.PathParam(r, "namespace")),
+			func(j Job) string { return j.Name }, cloudRunV2JobToV1,
+			func(v CRJob) map[string]string { return v.Metadata.Labels }, func(v CRJob) string { return v.Metadata.Name })
 		if !ok {
 			return
 		}
@@ -385,20 +376,9 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET /apis/run.googleapis.com/v1/namespaces/{namespace}/executions", func(w http.ResponseWriter, r *http.Request) {
-		namespace := sim.PathParam(r, "namespace")
-		prefix := cloudRunV1JobsPrefix(namespace)
-		selector := r.URL.Query().Get("labelSelector")
-		items := make([]CRExecution, 0)
-		for _, execution := range crjExecutions.Filter(func(e Execution) bool {
-			return strings.HasPrefix(e.Name, prefix)
-		}) {
-			projected, ok := cloudRunV2ExecutionToV1(execution)
-			if !ok || !knativeLabelSelectorMatches(selector, projected.Metadata.Labels) {
-				continue
-			}
-			items = append(items, projected)
-		}
-		page, next, ok := knativeListPage(w, r, items, gcpAsc(func(v CRExecution) string { return v.Metadata.Name }))
+		page, next, ok := knativeProjectedPage(w, r, crjExecutions, cloudRunV1JobsPrefix(sim.PathParam(r, "namespace")),
+			func(e Execution) string { return e.Name }, cloudRunV2ExecutionToV1,
+			func(v CRExecution) map[string]string { return v.Metadata.Labels }, func(v CRExecution) string { return v.Metadata.Name })
 		if !ok {
 			return
 		}
@@ -580,4 +560,21 @@ func cloudRunV1JobIAM(w http.ResponseWriter, r *http.Request, project, location,
 		return
 	}
 	handleResourceIAM(w, r, gcpResourceIAMStore(), name, action)
+}
+
+// knativeProjectedPage pages the resources of store named under prefix, each
+// projected onto its Knative form and kept when the request's labelSelector
+// matches its labels, in the order name gives.
+func knativeProjectedPage[S, V any](w http.ResponseWriter, r *http.Request, store sim.Store[S], prefix string, storedName func(S) string,
+	project func(S) (V, bool), labels func(V) map[string]string, name func(V) string) ([]V, string, bool) {
+	selector := r.URL.Query().Get("labelSelector")
+	items := make([]V, 0)
+	for _, stored := range store.Filter(func(v S) bool { return strings.HasPrefix(storedName(v), prefix) }) {
+		projected, ok := project(stored)
+		if !ok || !knativeLabelSelectorMatches(selector, labels(projected)) {
+			continue
+		}
+		items = append(items, projected)
+	}
+	return knativeListPage(w, r, items, gcpAsc(name))
 }

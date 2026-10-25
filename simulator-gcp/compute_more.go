@@ -986,41 +986,11 @@ func registerComputeOperationsMore(srv *sim.Server) {
 // compute_loadbalancing.go (their stores are package globals).
 func registerComputeAggregatedExisting(srv *sim.Server) {
 	srv.HandleFunc("GET /compute/v1/projects/{project}/aggregated/subnetworks", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		prefix := fmt.Sprintf("projects/%s/regions/", project)
-		grouped := map[string]map[string]any{}
-		if gcpSubnetworks != nil {
-			for _, s := range gcpSubnetworks.Filter(func(s ComputeSubnetwork) bool { return strings.HasPrefix(s.SelfLink, prefix) }) {
-				key := computeScopeKeyFromRest(strings.TrimPrefix(s.SelfLink, fmt.Sprintf("projects/%s/", project)))
-				entry, ok := grouped[key]
-				if !ok {
-					entry = map[string]any{"subnetworks": []ComputeSubnetwork{}}
-					grouped[key] = entry
-				}
-				list, _ := entry["subnetworks"].([]ComputeSubnetwork)
-				entry["subnetworks"] = append(list, s)
-			}
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"kind": "compute#subnetworkAggregatedList", "items": grouped})
+		computeWriteRegionalAggregate(w, gcpSubnetworks, sim.PathParam(r, "project"), "compute#subnetworkAggregatedList", "subnetworks", func(v ComputeSubnetwork) string { return v.SelfLink })
 	})
 
 	srv.HandleFunc("GET /compute/v1/projects/{project}/aggregated/addresses", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		prefix := fmt.Sprintf("projects/%s/regions/", project)
-		grouped := map[string]map[string]any{}
-		if gcpAddresses != nil {
-			for _, a := range gcpAddresses.Filter(func(a ComputeAddress) bool { return strings.HasPrefix(a.SelfLink, prefix) }) {
-				key := computeScopeKeyFromRest(strings.TrimPrefix(a.SelfLink, fmt.Sprintf("projects/%s/", project)))
-				entry, ok := grouped[key]
-				if !ok {
-					entry = map[string]any{"addresses": []ComputeAddress{}}
-					grouped[key] = entry
-				}
-				list, _ := entry["addresses"].([]ComputeAddress)
-				entry["addresses"] = append(list, a)
-			}
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"kind": "compute#addressAggregatedList", "items": grouped})
+		computeWriteRegionalAggregate(w, gcpAddresses, sim.PathParam(r, "project"), "compute#addressAggregatedList", "addresses", func(v ComputeAddress) string { return v.SelfLink })
 	})
 
 	globalGroup := func(w http.ResponseWriter, collection, kind string, items any) {

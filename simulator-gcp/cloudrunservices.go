@@ -27,25 +27,9 @@ import (
 type launchStageString string
 
 func (e *launchStageString) UnmarshalJSON(data []byte) error {
-	if len(data) == 0 || string(data) == "null" {
-		*e = ""
-		return nil
-	}
-	if data[0] == '"' {
-		var s string
-		if err := json.Unmarshal(data, &s); err != nil {
-			return err
-		}
-		*e = launchStageString(s)
-		return nil
-	}
-	n, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 32)
+	name, err := protoEnumNameOf(data, apipb.LaunchStage_name, "launch stage", "unknown launch stage enum")
 	if err != nil {
-		return fmt.Errorf("launch stage %s: %w", data, err)
-	}
-	name, ok := apipb.LaunchStage_name[int32(n)]
-	if !ok {
-		return fmt.Errorf("unknown launch stage enum %s", data)
+		return err
 	}
 	*e = launchStageString(name)
 	return nil
@@ -974,22 +958,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
 		prefix := fmt.Sprintf("projects/%s/locations/%s/services/", project, location)
-		result := services.Filter(func(s ServiceV2) bool {
-			return strings.HasPrefix(s.Name, prefix)
-		})
-		if result == nil {
-			result = []ServiceV2{}
-		}
-		sortCloudRunServices(result)
-		page, next, ok := paginateList(w, r, result, gcpAsc(func(s ServiceV2) string { return s.Name }))
-		if !ok {
-			return
-		}
-		resp := map[string]any{"services": page}
-		if next != "" {
-			resp["nextPageToken"] = next
-		}
-		sim.WriteJSON(w, http.StatusOK, resp)
+		gcpWritePage(w, r, services, prefix, "services", func(s ServiceV2) string { return s.Name })
 	})
 
 	// DeleteService: DELETE /v2/projects/{project}/locations/{location}/services/{service}
@@ -1083,20 +1052,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		location := sim.PathParam(r, "location")
 		serviceID := sim.PathParam(r, "service")
 		prefix := fmt.Sprintf("projects/%s/locations/%s/services/%s/revisions/", project, location, serviceID)
-		result := revisionStore.Filter(func(rev RevisionV2) bool { return strings.HasPrefix(rev.Name, prefix) })
-		if result == nil {
-			result = []RevisionV2{}
-		}
-		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-		page, next, ok := paginateList(w, r, result, gcpAsc(func(v RevisionV2) string { return v.Name }))
-		if !ok {
-			return
-		}
-		resp := map[string]any{"revisions": page}
-		if next != "" {
-			resp["nextPageToken"] = next
-		}
-		sim.WriteJSON(w, http.StatusOK, resp)
+		gcpWritePage(w, r, revisionStore, prefix, "revisions", func(v RevisionV2) string { return v.Name })
 	})
 	srv.HandleFunc("DELETE /v2/projects/{project}/locations/{location}/services/{service}/revisions/{revision}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
@@ -1104,17 +1060,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		serviceID := sim.PathParam(r, "service")
 		revisionID := sim.PathParam(r, "revision")
 		name := fmt.Sprintf("projects/%s/locations/%s/services/%s/revisions/%s", project, location, serviceID, revisionID)
-		rev, ok := revisionStore.Get(name)
-		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "revision %q not found", name)
-			return
-		}
-		if !cloudRunEtagOK(w, "revision", rev.Name, rev.Etag, r.URL.Query().Get("etag")) {
-			return
-		}
-		revisionStore.Delete(name)
-		lro := cloudRunLRO(project, location, rev, "type.googleapis.com/google.cloud.run.v2.Revision")
-		sim.WriteJSON(w, http.StatusOK, lro)
+		cloudRunDeleteRevision(w, r, revisionStore, project, location, name)
 	})
 
 	// getIamPolicy rides the GET service handler's colon-split above.
@@ -1188,4 +1134,19 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/operations/{opAction}", operationVerb)
 
 	registerCloudRunFrontEnd(srv)
+}
+
+// cloudRunDeleteRevision answers the delete of the revision of store called
+// name, held to the etag the request names.
+func cloudRunDeleteRevision(w http.ResponseWriter, r *http.Request, store sim.Store[RevisionV2], project, location, name string) {
+	rev, ok := store.Get(name)
+	if !ok {
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "revision %q not found", name)
+		return
+	}
+	if !cloudRunEtagOK(w, "revision", rev.Name, rev.Etag, r.URL.Query().Get("etag")) {
+		return
+	}
+	store.Delete(name)
+	sim.WriteJSON(w, http.StatusOK, cloudRunLRO(project, location, rev, "type.googleapis.com/google.cloud.run.v2.Revision"))
 }

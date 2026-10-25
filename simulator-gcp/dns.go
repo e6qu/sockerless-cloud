@@ -775,17 +775,8 @@ func registerCloudDNSPolicies(srv *sim.Server, policies sim.Store[storedDNSPolic
 	srv.HandleFunc("POST /dns/v1/projects/{project}/policies", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		var p DNSPolicy
-		if err := sim.ReadJSON(r, &p); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
-			return
-		}
-		if p.Name == "" {
-			GCPError(w, http.StatusBadRequest, "name is required", "INVALID_ARGUMENT")
-			return
-		}
-		key := project + "/" + p.Name
-		if _, exists := policies.Get(key); exists {
-			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "policy %q already exists", p.Name)
+		key, ok := dnsReadNew(w, r, policies, project, &p, "name", "policy", func(p *DNSPolicy) string { return p.Name })
+		if !ok {
 			return
 		}
 		if p.ID == "" {
@@ -844,22 +835,9 @@ func registerCloudDNSPolicies(srv *sim.Server, policies sim.Store[storedDNSPolic
 	})
 
 	patchOrUpdatePolicy := func(w http.ResponseWriter, r *http.Request, replace bool) {
-		project := sim.PathParam(r, "project")
-		name := sim.PathParam(r, "policy")
-		key := project + "/" + name
-		sp, ok := policies.Get(key)
-		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "policy %q not found", name)
-			return
-		}
-		var body DNSPolicy
-		if err := sim.ReadJSON(r, &body); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
-			return
-		}
-		updated := dnsApplyPolicyUpdate(sp.Policy, body, replace)
-		policies.Put(key, storedDNSPolicy{Project: project, Policy: updated})
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"policy": updated})
+		dnsPatchOrUpdate(w, r, policies, "policy", "policy", replace,
+			func(sp storedDNSPolicy) DNSPolicy { return sp.Policy }, dnsApplyPolicyUpdate,
+			func(project string, p DNSPolicy) storedDNSPolicy { return storedDNSPolicy{Project: project, Policy: p} })
 	}
 	srv.HandleFunc("PATCH /dns/v1/projects/{project}/policies/{policy}", func(w http.ResponseWriter, r *http.Request) {
 		patchOrUpdatePolicy(w, r, false)
@@ -875,17 +853,8 @@ func registerCloudDNSResponsePolicies(srv *sim.Server, responsePolicies sim.Stor
 	srv.HandleFunc("POST /dns/v1/projects/{project}/responsePolicies", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		var p DNSResponsePolicy
-		if err := sim.ReadJSON(r, &p); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
-			return
-		}
-		if p.ResponsePolicyName == "" {
-			GCPError(w, http.StatusBadRequest, "responsePolicyName is required", "INVALID_ARGUMENT")
-			return
-		}
-		key := project + "/" + p.ResponsePolicyName
-		if _, exists := responsePolicies.Get(key); exists {
-			GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "response policy %q already exists", p.ResponsePolicyName)
+		key, ok := dnsReadNew(w, r, responsePolicies, project, &p, "responsePolicyName", "response policy", func(p *DNSResponsePolicy) string { return p.ResponsePolicyName })
+		if !ok {
 			return
 		}
 		if p.ID == "" {
@@ -947,22 +916,11 @@ func registerCloudDNSResponsePolicies(srv *sim.Server, responsePolicies sim.Stor
 	})
 
 	patchOrUpdateRP := func(w http.ResponseWriter, r *http.Request, replace bool) {
-		project := sim.PathParam(r, "project")
-		name := sim.PathParam(r, "responsePolicy")
-		key := project + "/" + name
-		sp, ok := responsePolicies.Get(key)
-		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "response policy %q not found", name)
-			return
-		}
-		var body DNSResponsePolicy
-		if err := sim.ReadJSON(r, &body); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
-			return
-		}
-		updated := dnsApplyResponsePolicyUpdate(sp.Policy, body, replace)
-		responsePolicies.Put(key, storedDNSResponsePolicy{Project: project, Policy: updated})
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"responsePolicy": updated})
+		dnsPatchOrUpdate(w, r, responsePolicies, "responsePolicy", "response policy", replace,
+			func(sp storedDNSResponsePolicy) DNSResponsePolicy { return sp.Policy }, dnsApplyResponsePolicyUpdate,
+			func(project string, p DNSResponsePolicy) storedDNSResponsePolicy {
+				return storedDNSResponsePolicy{Project: project, Policy: p}
+			})
 	}
 	srv.HandleFunc("PATCH /dns/v1/projects/{project}/responsePolicies/{responsePolicy}", func(w http.ResponseWriter, r *http.Request) {
 		patchOrUpdateRP(w, r, false)
@@ -1543,4 +1501,47 @@ func dnssecOwnerWire(dnsName string) []byte {
 	}
 	out = append(out, 0) // root label
 	return out
+}
+
+// dnsReadNew reads a create request's body into p and answers the refusals
+// every create of a project's named resource shares: an unreadable body, a
+// missing name, and a name already in use. key is the resource's key in store.
+func dnsReadNew[P, S any](w http.ResponseWriter, r *http.Request, store sim.Store[S], project string, p *P, field, noun string, name func(*P) string) (string, bool) {
+	if err := sim.ReadJSON(r, p); err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		return "", false
+	}
+	if name(p) == "" {
+		GCPError(w, http.StatusBadRequest, field+" is required", "INVALID_ARGUMENT")
+		return "", false
+	}
+	key := project + "/" + name(p)
+	if _, exists := store.Get(key); exists {
+		GCPErrorf(w, http.StatusConflict, "ALREADY_EXISTS", "%s %q already exists", noun, name(p))
+		return "", false
+	}
+	return key, true
+}
+
+// dnsPatchOrUpdate answers the patch, or with replace the update, of the
+// project's resource of store the path parameter param names, which the
+// response carries under param.
+func dnsPatchOrUpdate[S, P any](w http.ResponseWriter, r *http.Request, store sim.Store[S], param, noun string, replace bool,
+	policy func(S) P, apply func(current, body P, replace bool) P, wrap func(project string, p P) S) {
+	project := sim.PathParam(r, "project")
+	name := sim.PathParam(r, param)
+	key := project + "/" + name
+	stored, ok := store.Get(key)
+	if !ok {
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", noun, name)
+		return
+	}
+	var body P
+	if err := sim.ReadJSON(r, &body); err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		return
+	}
+	updated := apply(policy(stored), body, replace)
+	store.Put(key, wrap(project, updated))
+	sim.WriteJSON(w, http.StatusOK, map[string]any{param: updated})
 }

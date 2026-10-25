@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -104,24 +103,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 	// GetInstance (the {instance} wildcard also carries the GET-side
 	// `{instance}:getIamPolicy` verb).
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/instances/{instance}", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		location := sim.PathParam(r, "location")
-		instParam := sim.PathParam(r, "instance")
-		if id, action, found := strings.Cut(instParam, ":"); found {
-			if action == "getIamPolicy" {
-				instanceIAM(w, r, instances, project, location, id, action)
-				return
-			}
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on instance %q", action, id)
-			return
-		}
-		name := fmt.Sprintf("projects/%s/locations/%s/instances/%s", project, location, instParam)
-		inst, ok := instances.Get(name)
-		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", name)
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, inst)
+		cloudRunGetWithIAM(w, r, instances, "instance", "instances", "instance", instanceIAM)
 	})
 
 	// ListInstances
@@ -129,20 +111,7 @@ func registerCloudRunInstancesV2(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
 		prefix := fmt.Sprintf("projects/%s/locations/%s/instances/", project, location)
-		result := instances.Filter(func(i InstanceV2) bool { return strings.HasPrefix(i.Name, prefix) })
-		if result == nil {
-			result = []InstanceV2{}
-		}
-		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-		page, next, ok := paginateList(w, r, result, gcpAsc(func(v InstanceV2) string { return v.Name }))
-		if !ok {
-			return
-		}
-		resp := map[string]any{"instances": page}
-		if next != "" {
-			resp["nextPageToken"] = next
-		}
-		sim.WriteJSON(w, http.StatusOK, resp)
+		gcpWritePage(w, r, instances, prefix, "instances", func(v InstanceV2) string { return v.Name })
 	})
 
 	// UpdateInstance (PATCH, honoring updateMask).
@@ -357,4 +326,29 @@ func seedInstanceV2Defaults(inst InstanceV2, project, location, instanceID strin
 		inst.URLs = []string{cloudRunServiceURI(project, location, instanceID)}
 	}
 	return inst
+}
+
+// cloudRunGetWithIAM answers the read of the resource of store the path
+// parameter param names under collection, and the getIamPolicy method the
+// same path carries as a verb, which iam serves.
+func cloudRunGetWithIAM[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], param, collection, noun string,
+	iam func(w http.ResponseWriter, r *http.Request, store sim.Store[T], project, location, id, action string)) {
+	project := sim.PathParam(r, "project")
+	location := sim.PathParam(r, "location")
+	ref := sim.PathParam(r, param)
+	if id, action, found := strings.Cut(ref, ":"); found {
+		if action == "getIamPolicy" {
+			iam(w, r, store, project, location, id, action)
+			return
+		}
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on %s %q", action, noun, id)
+		return
+	}
+	name := fmt.Sprintf("projects/%s/locations/%s/%s/%s", project, location, collection, ref)
+	v, ok := store.Get(name)
+	if !ok {
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", noun, name)
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, v)
 }

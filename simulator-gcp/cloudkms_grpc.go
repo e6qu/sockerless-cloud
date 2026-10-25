@@ -348,22 +348,11 @@ func kmsCryptoKeyToProto(k kmsStoredCryptoKey) *kmspb.CryptoKey {
 func (s *cloudKmsGRPC) ListKeyRings(ctx context.Context, req *kmspb.ListKeyRingsRequest) (*kmspb.ListKeyRingsResponse, error) {
 	parent := kmsNormalizeName(req.GetParent())
 	prefix := parent + "/keyRings/"
-	var all []*kmspb.KeyRing
-	for _, kr := range kmsKeyRings.List() {
-		if strings.HasPrefix(kr.Name, prefix) {
-			all = append(all, kmsKeyRingToProto(kr))
-		}
-	}
-	page, next, err := grpcKeyPage(all, req.GetPageSize(), req.GetPageToken(),
-		gcpAsc(func(v *kmspb.KeyRing) string { return v.GetName() }))
+	page, next, total, err := kmsGRPCPage(kmsKeyRings, prefix, func(v kmsKeyRing) string { return v.Name }, kmsKeyRingToProto, req.GetPageSize(), req.GetPageToken())
 	if err != nil {
 		return nil, err
 	}
-	return &kmspb.ListKeyRingsResponse{
-		KeyRings:      page,
-		NextPageToken: next,
-		TotalSize:     int32(len(all)),
-	}, nil
+	return &kmspb.ListKeyRingsResponse{KeyRings: page, NextPageToken: next, TotalSize: total}, nil
 }
 
 func (s *cloudKmsGRPC) GetKeyRing(ctx context.Context, req *kmspb.GetKeyRingRequest) (*kmspb.KeyRing, error) {
@@ -395,22 +384,11 @@ func (s *cloudKmsGRPC) CreateKeyRing(ctx context.Context, req *kmspb.CreateKeyRi
 func (s *cloudKmsGRPC) ListCryptoKeys(ctx context.Context, req *kmspb.ListCryptoKeysRequest) (*kmspb.ListCryptoKeysResponse, error) {
 	parent := kmsNormalizeName(req.GetParent())
 	prefix := parent + "/cryptoKeys/"
-	var all []*kmspb.CryptoKey
-	for _, k := range kmsCryptoKeys.List() {
-		if strings.HasPrefix(k.Name, prefix) {
-			all = append(all, kmsCryptoKeyToProto(k))
-		}
-	}
-	page, next, err := grpcKeyPage(all, req.GetPageSize(), req.GetPageToken(),
-		gcpAsc(func(v *kmspb.CryptoKey) string { return v.GetName() }))
+	page, next, total, err := kmsGRPCPage(kmsCryptoKeys, prefix, func(v kmsStoredCryptoKey) string { return v.Name }, kmsCryptoKeyToProto, req.GetPageSize(), req.GetPageToken())
 	if err != nil {
 		return nil, err
 	}
-	return &kmspb.ListCryptoKeysResponse{
-		CryptoKeys:    page,
-		NextPageToken: next,
-		TotalSize:     int32(len(all)),
-	}, nil
+	return &kmspb.ListCryptoKeysResponse{CryptoKeys: page, NextPageToken: next, TotalSize: total}, nil
 }
 
 func (s *cloudKmsGRPC) GetCryptoKey(ctx context.Context, req *kmspb.GetCryptoKeyRequest) (*kmspb.CryptoKey, error) {
@@ -1106,22 +1084,11 @@ func (s *cloudKmsGRPC) GetImportJob(ctx context.Context, req *kmspb.GetImportJob
 func (s *cloudKmsGRPC) ListImportJobs(ctx context.Context, req *kmspb.ListImportJobsRequest) (*kmspb.ListImportJobsResponse, error) {
 	parent := kmsNormalizeName(req.GetParent())
 	prefix := parent + "/importJobs/"
-	var all []*kmspb.ImportJob
-	for _, job := range kmsImportJobs.List() {
-		if strings.HasPrefix(job.Name, prefix) {
-			all = append(all, kmsImportJobToProto(job))
-		}
-	}
-	page, next, err := grpcKeyPage(all, req.GetPageSize(), req.GetPageToken(),
-		gcpAsc(func(v *kmspb.ImportJob) string { return v.GetName() }))
+	page, next, total, err := kmsGRPCPage(kmsImportJobs, prefix, func(v kmsImportJob) string { return v.Name }, kmsImportJobToProto, req.GetPageSize(), req.GetPageToken())
 	if err != nil {
 		return nil, err
 	}
-	return &kmspb.ListImportJobsResponse{
-		ImportJobs:    page,
-		NextPageToken: next,
-		TotalSize:     int32(len(all)),
-	}, nil
+	return &kmspb.ListImportJobsResponse{ImportJobs: page, NextPageToken: next, TotalSize: total}, nil
 }
 
 // key import and trusted-key-wrapped export
@@ -1661,4 +1628,23 @@ func kmsParentLocation(parent string) string {
 		}
 	}
 	return ""
+}
+
+// kmsGRPCPage pages the resources of store named under prefix, each converted
+// by toProto, in name order, with the total the list holds.
+func kmsGRPCPage[T any, P interface {
+	proto.Message
+	GetName() string
+}](store sim.Store[T], prefix string, name func(T) string, toProto func(T) P, pageSize int32, token string) ([]P, string, int32, error) {
+	var all []P
+	for _, v := range store.List() {
+		if strings.HasPrefix(name(v), prefix) {
+			all = append(all, toProto(v))
+		}
+	}
+	page, next, err := grpcKeyPage(all, pageSize, token, gcpAsc(func(v P) string { return v.GetName() }))
+	if err != nil {
+		return nil, "", 0, err
+	}
+	return page, next, int32(len(all)), nil
 }

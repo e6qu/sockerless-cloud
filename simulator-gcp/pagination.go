@@ -187,14 +187,6 @@ func grpcKeyPage[T any](items []T, pageSize int32, pageToken string, first gcpSo
 	return page, next, nil
 }
 
-func sortCloudRunJobs(items []Job) {
-	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-}
-
-func sortCloudRunServices(items []ServiceV2) {
-	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-}
-
 func sortCloudRunExecutions(items []Execution) {
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
 }
@@ -258,4 +250,16 @@ func gcpResourceOperationMetadata(response map[string]any) map[string]any {
 
 func gcpPolicyETag() string {
 	return base64.StdEncoding.EncodeToString([]byte(sim.NewUUID()))
+}
+
+// gcpProtoList is the resources of store named under prefix, in name order,
+// each converted by toProto: a gRPC list the API does not page.
+func gcpProtoList[T, P any](store sim.Store[T], prefix string, name func(T) string, toProto func(T) P) []P {
+	found := store.Filter(func(v T) bool { return strings.HasPrefix(name(v), prefix) })
+	sort.Slice(found, func(i, j int) bool { return name(found[i]) < name(found[j]) })
+	out := make([]P, 0, len(found))
+	for _, v := range found {
+		out = append(out, toProto(v))
+	}
+	return out
 }

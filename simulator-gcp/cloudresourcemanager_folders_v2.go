@@ -114,21 +114,8 @@ func registerCloudResourceManagerV2(srv *sim.Server, resourcePolicies sim.Store[
 	})
 
 	srv.HandleFunc("POST /v2/folders:search", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Query     string `json:"query"`
-			PageSize  int    `json:"pageSize"`
-			PageToken string `json:"pageToken"`
-		}
-		if err := sim.ReadJSON(r, &req); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
-			return
-		}
-		rows := crmFolders.Filter(func(f CRMFolder) bool { return crmV2FolderMatch(f, req.Query) })
-		out := make([]crmV2FolderMsg, 0, len(rows))
-		for _, f := range rows {
-			out = append(out, crmV2Folder(f))
-		}
-		crmWriteSearchPage(w, "folders", out, gcpAsc(func(f crmV2FolderMsg) string { return f.Name }), req.PageSize, req.PageToken)
+		crmSearch(w, r, crmFolders, "folders", func(req crmSearchRequest) string { return req.Query },
+			crmV2FolderMatch, crmV2Folder, func(f crmV2FolderMsg) string { return f.Name })
 	})
 
 	srv.HandleFunc("GET /v2/folders/{folder}", func(w http.ResponseWriter, r *http.Request) {
