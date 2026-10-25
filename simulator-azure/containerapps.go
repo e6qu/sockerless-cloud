@@ -1,26 +1,19 @@
 package main
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
-	"github.com/e6qu/sockerless-cloud/sim/bg"
-	"github.com/e6qu/sockerless-cloud/sim/workload"
-	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/gorilla/websocket"
 	dockerclient "github.com/moby/moby/client"
 )
-
-// Container handle tracker for Container Apps Jobs real execution
-var acaProcessHandles sync.Map // map[execID]*acaGroup
 
 // ContainerAppJob represents an Azure Container Apps Job resource.
 type ContainerAppJob struct {
@@ -233,7 +226,8 @@ var acaJobs sim.Store[ContainerAppJob]
 func registerContainerApps(srv *sim.Server) {
 	jobs := sim.MakeStore[ContainerAppJob](srv.DB(), "aca_jobs")
 	executions := sim.MakeStore[JobExecution](srv.DB(), "aca_executions")
-	acaJobs = jobs
+	acaJobs, acaExecutions = jobs, executions
+	acaRuns = sim.MakeStore[acaExecutionRun](srv.DB(), "aca_execution_runs")
 
 	const basePath = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.App"
 
@@ -473,15 +467,16 @@ func registerContainerApps(srv *sim.Server) {
 		job.Properties.ProvisioningState = "Deleting"
 		jobs.Put(resourceID, job)
 		opID := issueAzureAsyncOperation(func() {
-			jobs.Delete(resourceID)
-			syncManagedIdentityPrincipal(job.Identity, nil, "", "")
-			// Also delete associated executions
+			// Deleting a job stops its running executions and removes them.
 			execs := executions.Filter(func(e JobExecution) bool {
 				return strings.HasPrefix(e.ID, resourceID+"/executions/")
 			})
 			for _, e := range execs {
+				stopACAJobExecution(job, e.ID)
 				executions.Delete(e.ID)
 			}
+			jobs.Delete(resourceID)
+			syncManagedIdentityPrincipal(job.Identity, nil, "", "")
 		})
 		acaAsyncOpHeaders(w, r, sub, job.Location, opID)
 		w.WriteHeader(http.StatusAccepted)
@@ -557,19 +552,10 @@ func registerContainerApps(srv *sim.Server) {
 		})
 		stopped := make([]JobExecution, 0, len(running))
 		for _, e := range running {
-			if v, ok := acaProcessHandles.LoadAndDelete(e.ID); ok {
-				if group, ok := v.(*acaGroup); ok {
-					group.Stop(acaDefaultTerminationGrace)
-				}
-			}
-			executions.Update(e.ID, func(ex *JobExecution) {
-				ex.Properties.Status = "Stopped"
-				ex.Properties.EndTime = time.Now().UTC().Format(time.RFC3339)
-			})
+			stopACAJobExecution(job, e.ID)
 			if updated, ok := executions.Get(e.ID); ok {
 				stopped = append(stopped, updated)
 			}
-			acaJobSystemLog(job, e.Name, "Normal", "Execution stopped")
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": stopped})
 	})
@@ -628,23 +614,8 @@ func registerContainerApps(srv *sim.Server) {
 		execID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s/executions/%s",
 			sub, rg, jobName, execName)
 
-		// Cancel running container if any
-		if v, ok := acaProcessHandles.LoadAndDelete(execID); ok {
-			if group, ok := v.(*acaGroup); ok {
-				group.Stop(acaDefaultTerminationGrace)
-			}
-		}
-
-		ok := executions.Update(execID, func(e *JobExecution) {
-			e.Properties.Status = "Stopped"
-			e.Properties.EndTime = time.Now().UTC().Format(time.RFC3339)
-		})
-		if ok {
-			if job, found := jobs.Get(fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s", sub, rg, jobName)); found {
-				acaJobSystemLog(job, execName, "Normal", "Execution stopped")
-			}
-		}
-
+		job, _ := jobs.Get(fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s", sub, rg, jobName))
+		ok := stopACAJobExecution(job, execID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The execution '%s' for job '%s' was not found.", execName, jobName)
@@ -687,179 +658,9 @@ func acaSettleJobIdentity(w http.ResponseWriter, job, prev ContainerAppJob) bool
 	return true
 }
 
-// acaStartJobExecution starts one execution of job's template: its containers
-// run to completion, bounded by the job's replicaTimeout, and the execution
-// records how they ended.
-func acaStartJobExecution(executions sim.Store[JobExecution], job ContainerAppJob, template *JobTemplate) JobExecution {
-	name := job.Name
-	execName := fmt.Sprintf("%s-%s", name, randomSuffix(7))
-	execID := fmt.Sprintf("%s/executions/%s", job.ID, execName)
-
-	exec := JobExecution{
-		ID:   execID,
-		Name: execName,
-		Type: "Microsoft.App/jobs/executions",
-		Properties: JobExecutionProperties{
-			Status:    "Running",
-			StartTime: time.Now().UTC().Format(time.RFC3339),
-			Template:  jobExecutionTemplate(template),
-		},
-	}
-
-	executions.Put(execID, exec)
-
-	acaJobSystemLog(job, execName, "Normal", "Container started")
-
-	// Auto-stop execution after replica timeout or process exit
-	replicaTimeout := 0
-	if job.Properties.Configuration != nil {
-		replicaTimeout = job.Properties.Configuration.ReplicaTimeout
-	}
-	id, jobShortName, envID, tmpl := execID, name, job.Properties.EnvironmentID, template
-	bg.Go(func() {
-		timeout := 1800 * time.Second // Azure default
-		if replicaTimeout > 0 {
-			timeout = time.Duration(replicaTimeout) * time.Second
-		}
-
-		succeeded := true
-		if tmpl != nil && len(tmpl.Containers) > 0 {
-			// Container execution
-			shortExecID := id
-			if idx := strings.LastIndex(id, "/"); idx >= 0 {
-				shortExecID = id[idx+1:]
-			}
-
-			// The execution runs on the environment's network, where the
-			// job's short name is its alias, so executions in one
-			// environment resolve each other as the environment's internal
-			// DNS resolves them.
-			sink := &acaLogSink{job: job}
-			var group *acaGroup
-			network, subnetID, err := acaWorkloadNetwork(context.Background(), envID)
-			if err == nil {
-				group, err = startACAJobContainers(context.Background(), id, shortExecID, job, tmpl, envID, timeout, network, subnetID, []string{jobShortName}, sink)
-			}
-			if err != nil {
-				succeeded = false
-				acaJobSystemLog(job, execName, "Warning", err.Error())
-			} else {
-				acaProcessHandles.Store(id, group)
-				result := group.Main.Wait()
-				acaProcessHandles.Delete(id)
-				for _, h := range group.Sidecars {
-					h.Cancel()
-				}
-				succeeded = result.ExitCode == 0
-			}
-		} else {
-			// No image — no-op (template has no containers)
-			succeeded = true
-		}
-
-		completed := false
-		executions.Update(id, func(e *JobExecution) {
-			if e.Properties.Status != "Running" {
-				return
-			}
-			completed = true
-			if succeeded {
-				e.Properties.Status = "Succeeded"
-			} else {
-				e.Properties.Status = "Failed"
-			}
-			e.Properties.EndTime = time.Now().UTC().Format(time.RFC3339)
-		})
-		if completed {
-			if succeeded {
-				acaJobSystemLog(job, execName, "Normal", "Execution completed successfully")
-			} else {
-				acaJobSystemLog(job, execName, "Warning", "Execution failed")
-			}
-		}
-	})
-	return exec
-}
-
-func startACAJobContainers(ctx context.Context, execID, shortExecID string, job ContainerAppJob, tmpl *JobTemplate, envID string, timeout time.Duration, network azureWorkloadNetwork, subnetID string, netAliases []string, sink sim.LogSink) (*acaGroup, error) {
-	if tmpl == nil || len(tmpl.Containers) == 0 {
-		return nil, fmt.Errorf("execution has no containers")
-	}
-
-	volByName := make(map[string]JobVolume, len(tmpl.Volumes))
-	for _, v := range tmpl.Volumes {
-		volByName[v.Name] = v
-	}
-	metadataEnv, err := workloadMetadataEnv(job.ID, job.Identity, network.DNS)
-	if err != nil {
-		return nil, err
-	}
-	secrets, err := acaResolveSecrets(job.Identity, acaJobSecrets(job))
-	if err != nil {
-		return nil, err
-	}
-	registries := acaJobWorkloadRegistries(job.Properties.Configuration, secrets)
-	member := func(c JobContainer, name string) workload.Container {
-		var binds []string
-		for _, mp := range c.VolumeMounts {
-			v, ok := volByName[mp.VolumeName]
-			if !ok || !strings.EqualFold(v.StorageType, "AzureFile") || v.StorageName == "" {
-				continue
-			}
-			acct, share, found := LookupEnvStorageBinding(envID, v.StorageName)
-			if !found {
-				continue
-			}
-			binds = append(binds, FileShareHostDir(acct, share)+":"+mp.MountPath)
-		}
-		cmdEnv := acaContainerEnv(c, secrets)
-		return workload.Container{Name: c.Name, Config: sim.ContainerConfig{
-			CancelGracePeriod: acaDefaultTerminationGrace,
-			Image:             sim.ResolveLocalImage(c.Image),
-			// The host pulls each container's image with the credential the
-			// job declared for its registry, as Container Apps does.
-			RegistryAuth: acrWorkloadRegistryAuth(c.Image, registries),
-			Command:      c.Command,
-			Args:         c.Args,
-			Env:          workloadhost.MergeEnv(cmdEnv, metadataEnv),
-			Timeout:      timeout,
-			Name:         name,
-			Labels: map[string]string{
-				"sockerless-sim-type":                "aca-job-execution",
-				"sockerless-exec-id":                 execID,
-				"sockerless-sim-execution-container": c.Name,
-			},
-			Binds:   binds,
-			Sandbox: SandboxACA,
-		}}
-	}
-
-	main := member(tmpl.Containers[0], fmt.Sprintf("sockerless-sim-azure-execution-%s", shortExecID))
-	main.Config.Network = network.Network
-	main.Config.NetworkAliases = netAliases
-	main.Config.DNS = network.resolvers()
-	main.Config.ExtraHosts = workloadhost.ExtraHosts()
-	address, release, err := azureWorkloadAddress(ctx, network, subnetID, main.Config.Name)
-	if err != nil {
-		return nil, err
-	}
-	main.Config.IPv4Address = address
-	sidecars := make([]workload.Container, 0, len(tmpl.Containers)-1)
-	for i, c := range tmpl.Containers[1:] {
-		sidecars = append(sidecars, member(c, fmt.Sprintf("sockerless-sim-azure-execution-%s-sidecar-%d", shortExecID, i)))
-	}
-	group, err := acaStartGroup(ctx, main, sidecars, sink)
-	if err != nil {
-		release()
-		return nil, err
-	}
-	azureReleaseOnExit(group.Main.Exited(), release)
-	return group, nil
-}
-
 // handleACAJobExec serves the ACA jobs-exec WebSocket. The user
-// command arrives as `?command=<urlencoded>`; the running execution
-// container is looked up in acaProcessHandles; the WebSocket is then
+// command arrives as `?command=<urlencoded>`; the main container of the
+// execution's first running replica is looked up; the WebSocket is then
 // bridged to a docker exec session against that container.
 func handleACAJobExec(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
@@ -874,19 +675,12 @@ func handleACAJobExec(w http.ResponseWriter, r *http.Request) {
 
 	execID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/jobs/%s/executions/%s",
 		sub, rg, jobName, execName)
-	v, ok := acaProcessHandles.Load(execID)
-	if !ok {
-		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
-			"No running execution container for '%s/%s'", jobName, execName)
-		return
+	var handle placement.Handle
+	if v, ok := acaJobRuns.Load(execID); ok {
+		if run, ok := v.(*acaJobRun); ok {
+			handle = run.mainContainer()
+		}
 	}
-	procs, ok := v.(*acaGroup)
-	if !ok {
-		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
-			"No running execution container for '%s/%s'", jobName, execName)
-		return
-	}
-	handle := procs.Main
 	if handle == nil {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"No running execution container for '%s/%s'", jobName, execName)

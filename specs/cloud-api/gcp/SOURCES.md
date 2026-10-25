@@ -86,3 +86,7 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `cloudscheduler-v1.discovery.json.gz` | `cloudscheduler.googleapis.com` | `$discovery/rest?version=v1` | Apache-2.0 | `revision 20261004` | 2026-10-24T18:33:06Z |
 | `scheduler-retry-jobs.md.gz` | `docs.cloud.google.com` | `scheduler/docs/configuring/retry-jobs` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-24T18:34:24Z |
 | `scheduler-cron-job-schedules.md.gz` | `docs.cloud.google.com` | `scheduler/docs/configuring/cron-job-schedules` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-24T18:34:33Z |
+| `cloudrun-container-contract.md.gz` | `docs.cloud.google.com` | `run/docs/container-contract` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-24T23:08:06Z |
+| `cloudrun-job-parallelism.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/parallelism` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-24T23:08:07Z |
+| `cloudrun-job-max-retries.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/max-retries` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-24T23:08:07Z |
+| `cloudrun-job-task-timeout.md.gz` | `docs.cloud.google.com` | `run/docs/configuring/task-timeout` | CC-BY-4.0 | `modified2026-10-22` | 2026-10-24T23:08:08Z |

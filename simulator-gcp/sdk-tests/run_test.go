@@ -451,6 +451,7 @@ func createAndRunJobInProject(t *testing.T, project, jobID string, image string,
 		"template": map[string]any{
 			"template": map[string]any{
 				"timeout":    timeout,
+				"maxRetries": 0,
 				"containers": containers,
 			},
 		},

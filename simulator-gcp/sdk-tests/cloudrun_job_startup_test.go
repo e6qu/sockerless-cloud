@@ -87,6 +87,7 @@ func TestSDK_CloudRun_RunJob_StartupProbeFailureFailsTask(t *testing.T) {
 				ProbeType:        &runpb.Probe_TcpSocket{TcpSocket: &runpb.TCPSocketAction{Port: 9191}},
 			},
 		}},
+		Retries: &runpb.TaskTemplate_MaxRetries{MaxRetries: 0},
 		Timeout: durationpb.New(60 * time.Second),
 	})
 

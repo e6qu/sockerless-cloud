@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -49,51 +48,38 @@ func cloudRunJobTemplateValid(w http.ResponseWriter, template *ExecutionTemplate
 	return true
 }
 
-// crjStartups holds, per execution, the cancel of the start of its containers
-// while dependencies' startup probes still hold some of them back.
-var crjStartups sync.Map // map[execName]context.CancelFunc
-
-// stopCloudRunExecutionRun stops whatever an execution still runs: the start
-// of containers waiting on a dependency, and the containers already running.
-func stopCloudRunExecutionRun(execName string) {
-	if v, ok := crjStartups.Load(execName); ok {
-		if cancel, ok := v.(context.CancelFunc); ok {
-			cancel()
-		}
-	}
-	if v, ok := crjProcessHandles.Load(execName); ok {
-		if group, ok := v.(*workload.Group); ok {
-			stopCloudRunExecutionWorkload(group)
-		}
-	}
-}
-
-// startCloudRunJobContainers starts a job task's containers as one Cloud Run
-// container group, under names and labels that tie them to the execution.
-func startCloudRunJobContainers(ctx context.Context, execID, execShort string, taskTmpl *TaskTemplate, timeout time.Duration, sink sim.LogSink) (*workload.Group, func(), error) {
-	if taskTmpl == nil || len(taskTmpl.Containers) == 0 {
-		return nil, nil, fmt.Errorf("execution has no containers")
-	}
+// startCloudRunJobContainers starts one attempt of one task of an execution
+// as its own Cloud Run container group, under names and labels that tie its
+// containers to the execution, task and attempt, with the variables Cloud
+// Run's container contract gives a job's task.
+func startCloudRunJobContainers(ctx context.Context, execName, execID string, index, attempt int, taskTmpl *TaskTemplate, env map[string]string, sink sim.LogSink) (*workload.Group, func(), error) {
+	base := fmt.Sprintf("sockerless-sim-gcp-job-%s-%d-%d", cloudRunShortID(execID), index, attempt)
 	return startCloudRunContainerGroup(ctx, cloudRunContainerGroup{
-		project:    resourceProject(execID),
-		region:     resourceLocation(execID),
+		project:    resourceProject(execName),
+		region:     resourceLocation(execName),
 		vpc:        taskTmpl.VpcAccess,
 		containers: taskTmpl.Containers,
 		volumes:    taskTmpl.Volumes,
-		timeout:    timeout,
+		env:        env,
 		name: func(i int) string {
 			if i > 0 {
-				return fmt.Sprintf("sockerless-sim-gcp-job-%s-sidecar-%d", execShort, i-1)
+				return fmt.Sprintf("%s-sidecar-%d", base, i-1)
 			}
-			return fmt.Sprintf("sockerless-sim-gcp-job-%s", execShort)
+			return base
 		},
 		labels: func(c Container) map[string]string {
-			return map[string]string{
-				cloudRunTaskExecutionLabel: execID,
-				cloudRunTaskContainerLabel: c.Name,
-			}
+			return cloudRunJobTaskLabels(execName, index, attempt, c.Name)
 		},
 	}, sink)
+}
+
+// cloudRunShortID is id cut to the twelve characters a container name keeps
+// of it.
+func cloudRunShortID(id string) string {
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
 }
 
 // cloudRunContainerGroup is one Cloud Run instance's containers that serve no
@@ -109,8 +95,11 @@ type cloudRunContainerGroup struct {
 	// timeout bounds the containers' run; zero leaves them running until
 	// stopped.
 	timeout time.Duration
-	name    func(i int) string
-	labels  func(c Container) map[string]string
+	// env is what the platform sets in every container, over the
+	// container's own variables of the same name.
+	env    map[string]string
+	name   func(i int) string
+	labels func(c Container) map[string]string
 }
 
 // startCloudRunContainerGroup starts the group's containers in their dependsOn
@@ -174,7 +163,7 @@ func startCloudRunContainerGroup(ctx context.Context, g cloudRunContainerGroup, 
 				RegistryAuth:      auths[i],
 				Command:           c.Command,
 				Args:              c.Args,
-				Env:               workloadhost.MergeEnv(cmdEnv, netw.env()),
+				Env:               workloadhost.MergeEnv(cmdEnv, g.env, netw.env()),
 				Timeout:           g.timeout,
 				Name:              g.name(i),
 				Labels:            g.labels(c),

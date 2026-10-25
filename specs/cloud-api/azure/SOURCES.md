@@ -153,3 +153,4 @@ matching `scripts/fetch-*-spec.sh` script, which rewrites this table.
 | `kudu-process-controller.cs.gz` | `projectkudu/kudu@master` | `Kudu.Services/Diagnostics/ProcessController.cs` | Apache-2.0 | `a1cd26703b13fd4909a379eed2a6838dde527adb` | 2026-10-23T08:44:26Z |
 | `msi-arm-managedidentity-2023-01-31.swagger.json.gz` | `Azure/azure-rest-api-specs` | `specification/msi/resource-manager/Microsoft.ManagedIdentity/ManagedIdentity/stable/2023-01-31/ManagedIdentity.json` | MIT | `37886acc4980d7ac8753fafe90619cae296eb477` | 2026-10-23T09:00:43Z |
 | `kudu-naive-file-system-watcher.cs.gz` | `projectkudu/kudu@master` | `Kudu.Core/Infrastructure/NaiveFileSystemWatcher.cs` | Apache-2.0 | `bc86bf58148bae773044f9e18a28333d5677b1a3` | 2026-10-23T13:17:43Z |
+| `app-containerapps-jobs.md.gz` | `MicrosoftDocs/azure-docs@main` | `articles/container-apps/jobs.md` | CC-BY-4.0 | `76aa9366f4e775e0f0799ecc938f49166fa81d4a` | 2026-10-24T23:11:01Z |

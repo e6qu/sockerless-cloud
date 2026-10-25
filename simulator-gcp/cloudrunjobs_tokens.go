@@ -109,7 +109,7 @@ func cloudRunTokenExecutionOutcome(execName string, toCompletion bool) (*Operati
 	if exec.CompletionTime != "" {
 		return cloudRunExecutionOperationError(exec), true
 	}
-	if _, running := crjProcessHandles.Load(execName); running && !toCompletion {
+	if !toCompletion && cloudRunExecutionStarted(execName) {
 		return nil, true
 	}
 	return nil, false

@@ -58,11 +58,14 @@ func TestCloudRun_JobArithmeticLogs(t *testing.T) {
 const jobLogWaitTimeout = 90 * time.Second
 
 // jobLogEntry is the part of a Cloud Logging entry the Cloud Run job tests
-// assert on: the monitored resource that produced it and the text it carried.
+// assert on: the monitored resource that produced it, its labels, when it was
+// written and the text it carried.
 type jobLogEntry struct {
 	insertID     string
 	resourceType string
 	jobName      string
+	labels       map[string]string
+	timestamp    time.Time
 	message      string
 }
 
@@ -86,7 +89,7 @@ func readJobLogEntries(t *testing.T, client *logadmin.Client, jobName string) []
 			return entries
 		}
 		require.NoError(t, err, "read the Cloud Logging entries of job %q", jobName)
-		record := jobLogEntry{insertID: entry.InsertID}
+		record := jobLogEntry{insertID: entry.InsertID, labels: entry.Labels, timestamp: entry.Timestamp}
 		if entry.Resource != nil {
 			record.resourceType = entry.Resource.Type
 			record.jobName = entry.Resource.Labels["job_name"]
@@ -128,6 +131,8 @@ func waitForProjectJobLogEntries(t *testing.T, project, jobName string, match fu
 			insertID:     pe.GetInsertId(),
 			resourceType: pe.GetResource().GetType(),
 			jobName:      pe.GetResource().GetLabels()["job_name"],
+			labels:       pe.GetLabels(),
+			timestamp:    pe.GetTimestamp().AsTime(),
 			message:      pe.GetTextPayload(),
 		})
 	}

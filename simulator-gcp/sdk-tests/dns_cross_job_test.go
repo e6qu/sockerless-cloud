@@ -154,11 +154,9 @@ func TestDNS_CrossJobResolution(t *testing.T) {
 	assert.Contains(t, string(logs), "gcp-cross-job-dns-ok")
 }
 
-// jobContainerName derives the simulator's Docker container name from
-// a Cloud Run Job execution resource name. Matches the convention in
-// simulator-gcp/cloudrunjobs_start.go:
-//
-//	name := "sockerless-sim-gcp-job-" + execShort[:12]
+// jobContainerName is the engine name of the main container of an
+// execution's first task's first attempt, as startCloudRunJobContainers names
+// it.
 func jobContainerName(executionName string) string {
 	last := executionName
 	if idx := strings.LastIndex(executionName, "/"); idx >= 0 {
@@ -167,7 +165,7 @@ func jobContainerName(executionName string) string {
 	if len(last) > 12 {
 		last = last[:12]
 	}
-	return "sockerless-sim-gcp-job-" + last
+	return "sockerless-sim-gcp-job-" + last + "-0-0"
 }
 
 // containerIP returns the container's IPv4 address on the one engine

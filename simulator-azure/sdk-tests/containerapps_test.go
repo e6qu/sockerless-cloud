@@ -330,7 +330,9 @@ func acaGetExecution(t *testing.T, rg, jobName, execName string) map[string]any 
 // being frozen.
 func TestContainerApps_ExecutionRunningState(t *testing.T) {
 	t.Parallel()
-	acaCreateJobWithCommand(t, "status-rg", "running-job", []string{"sleep", "30"})
+	// The replica answers the SIGTERM its replicaTimeout sends, so the
+	// execution ends at the timeout rather than after the termination grace.
+	acaCreateJobWithCommand(t, "status-rg", "running-job", []string{"sh", "-c", "trap 'exit 143' TERM; sleep 30 & wait $!"})
 	execName := acaStartExecution(t, "status-rg", "running-job")
 
 	var props map[string]any

@@ -118,3 +118,48 @@ func TestCloudRun_CLI_DeleteJobStopsItsRunningExecution(t *testing.T) {
 	require.NotNil(t, op.Error, "the deleted execution ends its RunJob operation")
 	assert.Equal(t, 5, op.Error.Code, "google.rpc.Code.NOT_FOUND")
 }
+
+// `gcloud run jobs create --tasks --parallelism --max-retries` runs every task
+// as its own container with its index in CLOUD_RUN_TASK_INDEX: the task that
+// fails its first attempt is retried, `executions describe` counts the retry,
+// and `executions tasks list` reports it on that task alone.
+func TestCloudRun_CLI_JobRunsEachTaskWithRetries(t *testing.T) {
+	t.Parallel()
+	const job = "cli-job-tasks"
+	runCLI(t, gcloudRegionalRunCLI("run", "jobs", "create", job,
+		"--region="+location,
+		"--image=alpine:latest",
+		"--tasks=3",
+		"--parallelism=2",
+		"--max-retries=1",
+		"--task-timeout=60s",
+		"--command=sh",
+		`--args=-c,[ "$CLOUD_RUN_TASK_INDEX" = 1 ] && [ "$CLOUD_RUN_TASK_ATTEMPT" = 0 ] && exit 5; echo task-$CLOUD_RUN_TASK_INDEX-of-$CLOUD_RUN_TASK_COUNT`,
+		"--quiet",
+	))
+	t.Cleanup(func() {
+		runCLI(t, gcloudRegionalRunCLI("run", "jobs", "delete", job, "--region="+location, "--quiet"))
+	})
+	execution := strings.TrimSpace(runCLI(t, gcloudRegionalRunCLI("run", "jobs", "execute", job,
+		"--region="+location, "--wait", "--quiet", "--format=value(metadata.name)")))
+	require.NotEmpty(t, execution)
+
+	counts := runCLI(t, gcloudRegionalRunCLI("run", "jobs", "executions", "describe", execution,
+		"--region="+location, "--format=value(spec.parallelism,status.succeededCount,status.retriedCount)"))
+	assert.Equal(t, []string{"2", "3", "1"}, strings.Fields(counts))
+
+	listed := runCLI(t, gcloudRegionalRunCLI("run", "jobs", "executions", "tasks", "list",
+		"--execution="+execution, "--region="+location, "--sort-by=status.index",
+		"--format=value(status.index,status.retried)"))
+	var retried []string
+	for _, line := range strings.Split(strings.TrimSpace(listed), "\n") {
+		retried = append(retried, strings.Join(strings.Fields(line), ":"))
+	}
+	assert.Equal(t, []string{"0", "1:1", "2"}, retried, "only task 1 retried")
+
+	logs := runCLI(t, gcloudCLI("logging", "read",
+		`resource.type="cloud_run_job" AND resource.labels.job_name="`+job+`"`, "--format=value(textPayload)"))
+	for _, want := range []string{"task-0-of-3", "task-1-of-3", "task-2-of-3"} {
+		assert.Contains(t, logs, want)
+	}
+}

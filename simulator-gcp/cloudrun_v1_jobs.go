@@ -136,12 +136,11 @@ func knativeListPage[T any](w http.ResponseWriter, r *http.Request, items []T, f
 	return page, next, true
 }
 
-// knativeListMeta returns the list envelope's metadata for a continue token,
-// or nil when the page is the whole collection.
+// knativeListMeta returns the list envelope's metadata, which carries the
+// continue token of a page that is not the last. Every list carries it:
+// `gcloud run jobs executions tasks list` reads metadata.continue off the
+// response without checking for the metadata first.
 func knativeListMeta(next string) *CRListMeta {
-	if next == "" {
-		return nil
-	}
 	return &CRListMeta{Continue: next}
 }
 
@@ -218,14 +217,7 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 			{Type: "ConfigurationsReady", State: "CONDITION_SUCCEEDED", LastTransitionTime: now},
 			{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: now},
 		}
-		if job.Template != nil {
-			if job.Template.Parallelism == 0 {
-				job.Template.Parallelism = 1
-			}
-			if job.Template.TaskCount == 0 {
-				job.Template.TaskCount = 1
-			}
-		}
+		cloudRunJobTemplateDefaults(job.Template)
 		job.Etag = sim.NewUUID()
 		holdCloudRunJobForExecutionToken(&job, now)
 		if !dryRun {
@@ -313,14 +305,7 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 			{Type: "ConfigurationsReady", State: "CONDITION_SUCCEEDED", LastTransitionTime: update.UpdateTime},
 			{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: update.UpdateTime},
 		}
-		if update.Template != nil {
-			if update.Template.Parallelism == 0 {
-				update.Template.Parallelism = 1
-			}
-			if update.Template.TaskCount == 0 {
-				update.Template.TaskCount = 1
-			}
-		}
+		cloudRunJobTemplateDefaults(update.Template)
 		update.Etag = sim.NewUUID()
 		holdCloudRunJobForExecutionToken(&update, update.UpdateTime)
 		if !dryRun {
