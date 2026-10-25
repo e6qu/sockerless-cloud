@@ -418,6 +418,10 @@ func registerBlobDataPlane(srv *sim.Server) {
 				return
 			}
 			if account, rest, ok := splitPathStyleAccount(r.URL.Path); ok {
+				// A preflight carries no credential to authorize.
+				if r.Method == http.MethodOptions && blobHandleCORS(w, r, account) {
+					return
+				}
 				// Authorized against the path the client signed — the one
 				// still carrying the account segment — before the handler's
 				// rewrite, which is also how Azurite verifies a path-style
@@ -465,7 +469,8 @@ func hasAzureStorageSignal(r *http.Request) bool {
 	if q.Get("restype") != "" || q.Get("comp") != "" || q.Get("sv") != "" {
 		return true
 	}
-	return false
+	// A browser's preflight names the storage headers the request will send.
+	return strings.Contains(strings.ToLower(r.Header.Get("Access-Control-Request-Headers")), "x-ms-")
 }
 
 // hasNonStorageAzureSubdomain reports whether the host carries an
@@ -635,6 +640,11 @@ func blobBlockKey(account, container, blob, blockID string) string {
 // happens to sit under the same method: a fall-through would perform a DIFFERENT
 // operation than the caller asked for and report it as success.
 func handleBlobDataPlane(w http.ResponseWriter, r *http.Request, account string) {
+	// A browser's preflight carries no credential; the account's CORS rules
+	// answer it before authorization.
+	if blobHandleCORS(w, r, account) {
+		return
+	}
 	path := strings.TrimPrefix(r.URL.Path, "/")
 	q := r.URL.Query()
 	comp, restype := q.Get("comp"), q.Get("restype")

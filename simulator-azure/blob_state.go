@@ -270,16 +270,17 @@ func blobSetDeleteRetentionPolicy(account string, policy *BlobRetentionPolicy) {
 	blobServicePropsStore.Put(account, cfg)
 }
 
-// blobServicePropsWithSoftDelete renders the ARM property bag with the blob
-// soft-delete policy read from where it lives, so the ARM resource reports the
-// setting a data-plane write made and vice versa.
-func blobServicePropsWithSoftDelete(account string, props map[string]any) map[string]any {
-	out := make(map[string]any, len(props)+1)
+// blobServiceARMProps renders the ARM property bag with the blob soft-delete
+// policy and the CORS rules read from where they live, so the ARM resource
+// reports the settings a data-plane write made and vice versa.
+func blobServiceARMProps(account string, props map[string]any) map[string]any {
+	out := make(map[string]any, len(props)+2)
 	for k, v := range props {
 		out[k] = v
 	}
-	out["deleteRetentionPolicy"] = blobDeleteRetentionPolicyARM(
-		blobServiceProperties(account).DeleteRetentionPolicy)
+	dataPlane := blobServiceProperties(account)
+	out["deleteRetentionPolicy"] = blobDeleteRetentionPolicyARM(dataPlane.DeleteRetentionPolicy)
+	out["cors"] = blobCorsARM(dataPlane.Cors)
 	return out
 }
 

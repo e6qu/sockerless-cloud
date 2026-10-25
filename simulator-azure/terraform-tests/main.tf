@@ -93,6 +93,18 @@ resource "azurerm_storage_account" "main" {
   location                 = azurerm_resource_group.main.location
   account_tier             = "Standard"
   account_replication_type = "LRS"
+
+  # The Blob service's CORS rules, which the service enforces on a browser's
+  # cross-origin requests.
+  blob_properties {
+    cors_rule {
+      allowed_origins    = ["https://console.example.com"]
+      allowed_methods    = ["GET", "PUT"]
+      allowed_headers    = ["x-ms-*"]
+      exposed_headers    = ["x-ms-request-id"]
+      max_age_in_seconds = 600
+    }
+  }
 }
 
 # ---------- Key vault (runner credential storage) ----------

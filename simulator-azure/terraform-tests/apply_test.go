@@ -125,6 +125,8 @@ func TestTerraformApplyDestroy(t *testing.T) {
 	require.True(t, strings.Contains(blobEndpoint, "tftestsa12345.blob."),
 		"blob endpoint must include account subdomain (azurerm storage SDK parses URLs this way); got %s", blobEndpoint)
 
+	assertBlobCORSPreflight(t, blobEndpoint)
+
 	kvID := outputs.must(t, "key_vault_id")
 	require.Contains(t, kvID, "/providers/Microsoft.KeyVault/vaults/tf-test-kv",
 		"key vault id must include the canonical ARM path; got %s", kvID)
@@ -828,4 +830,29 @@ func readOutputs(t *testing.T, dir string) tfOutputs {
 	var outputs tfOutputs
 	require.NoError(t, json.Unmarshal(out, &outputs))
 	return outputs
+}
+
+// assertBlobCORSPreflight sends a browser's preflight to the account's Blob
+// endpoint: the origin the cors_rule allows is answered, another is refused.
+func assertBlobCORSPreflight(t *testing.T, blobEndpoint string) {
+	t.Helper()
+	client, err := trustedHTTPClient(caCertFile)
+	require.NoError(t, err)
+	preflight := func(origin string) *http.Response {
+		req, err := http.NewRequest(http.MethodOptions, strings.TrimRight(blobEndpoint, "/")+"/?comp=list", nil)
+		require.NoError(t, err)
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Access-Control-Request-Method", "GET")
+		req.Header.Set("Access-Control-Request-Headers", "x-ms-version")
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		_, _ = io.Copy(io.Discard, resp.Body)
+		require.NoError(t, resp.Body.Close())
+		return resp
+	}
+	allowed := preflight("https://console.example.com")
+	require.Equal(t, http.StatusOK, allowed.StatusCode, "the cors_rule allows the console origin")
+	require.Equal(t, "https://console.example.com", allowed.Header.Get("Access-Control-Allow-Origin"))
+	require.Equal(t, http.StatusForbidden, preflight("https://elsewhere.example.com").StatusCode,
+		"an origin no rule allows is refused")
 }

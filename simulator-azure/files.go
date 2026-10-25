@@ -844,9 +844,15 @@ func registerAzureFiles(srv *sim.Server) {
 			blobSetDeleteRetentionPolicy(account, policy)
 		}
 		delete(props, "deleteRetentionPolicy")
+		// CORS rules are likewise the data-plane document's, which the
+		// service evaluates every cross-origin request against.
+		if rules, ok := blobARMCors(props); ok {
+			blobSetCors(account, rules)
+		}
+		delete(props, "cors")
 		blobServiceProps.Put(acctID, props)
 		sim.WriteJSON(w, http.StatusOK,
-			blobServiceResponse(resourceID, blobServicePropsWithSoftDelete(account, props)))
+			blobServiceResponse(resourceID, blobServiceARMProps(account, props)))
 	})
 	srv.HandleFunc("GET "+blobServicePath, func(w http.ResponseWriter, r *http.Request) {
 		acctID, resourceID, account, rg := blobServiceResourceID(r)
@@ -860,7 +866,7 @@ func registerAzureFiles(srv *sim.Server) {
 			props = map[string]any{}
 		}
 		sim.WriteJSON(w, http.StatusOK,
-			blobServiceResponse(resourceID, blobServicePropsWithSoftDelete(account, props)))
+			blobServiceResponse(resourceID, blobServiceARMProps(account, props)))
 	})
 
 	tableBasePath := armBase + "/storageAccounts/{accountName}/tableServices/default/tables"
