@@ -118,6 +118,8 @@ test.describe("Console shell", () => {
 
   test("exposes a skip link ahead of the console content", async ({ page }) => {
     await page.goto("/ui/storage/browser");
+    await expect(page.locator(".sl-skip-link")).toBeAttached();
+    await expect(page.locator("#main-content")).toBeAttached();
     await page.locator("body").focus();
     await page.keyboard.press("Tab");
     await expect(page.locator(".sl-skip-link")).toBeFocused();

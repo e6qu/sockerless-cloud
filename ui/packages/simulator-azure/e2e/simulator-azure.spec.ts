@@ -144,6 +144,8 @@ test.describe("Sign-in and the portal shell", () => {
 
   test("exposes a skip link ahead of the content", async ({ page }) => {
     await page.goto("/ui/home");
+    await expect(page.locator(".sl-skip-link")).toBeAttached();
+    await expect(page.locator("#main-content")).toBeAttached();
     await page.locator("body").focus();
     await page.keyboard.press("Tab");
     await expect(page.locator(".sl-skip-link")).toBeFocused();
