@@ -339,58 +339,40 @@ func registerEC2IMDS(srv *sim.Server) {
 		imdsText(w, token)
 	})
 
-	leaf := func(path string, value func(EC2Instance) (string, bool)) {
-		srv.HandleFunc("GET "+path, func(w http.ResponseWriter, r *http.Request) {
-			inst, ok := imdsRequest(w, r)
-			if !ok {
-				return
-			}
-			v, ok := value(inst)
-			if !ok {
-				imdsNotFound(w)
-				return
-			}
-			imdsText(w, v)
-		})
-	}
-	always := func(f func(EC2Instance) string) func(EC2Instance) (string, bool) {
-		return func(inst EC2Instance) (string, bool) { return f(inst), true }
-	}
-
-	leaf("/latest/meta-data/{$}", always(imdsListing))
-	leaf("/latest/meta-data/instance-id", always(func(inst EC2Instance) string { return inst.InstanceId }))
-	leaf("/latest/meta-data/instance-type", always(func(inst EC2Instance) string { return inst.InstanceType }))
-	leaf("/latest/meta-data/ami-id", always(func(inst EC2Instance) string { return inst.ImageId }))
-	leaf("/latest/meta-data/local-ipv4", always(func(inst EC2Instance) string { return inst.PrivateIpAddress }))
+	imdsLeaf(srv, "/latest/meta-data/{$}", imdsAlways(imdsListing))
+	imdsLeaf(srv, "/latest/meta-data/instance-id", imdsAlways(func(inst EC2Instance) string { return inst.InstanceId }))
+	imdsLeaf(srv, "/latest/meta-data/instance-type", imdsAlways(func(inst EC2Instance) string { return inst.InstanceType }))
+	imdsLeaf(srv, "/latest/meta-data/ami-id", imdsAlways(func(inst EC2Instance) string { return inst.ImageId }))
+	imdsLeaf(srv, "/latest/meta-data/local-ipv4", imdsAlways(func(inst EC2Instance) string { return inst.PrivateIpAddress }))
 	for _, name := range []string{"hostname", "local-hostname"} {
-		leaf("/latest/meta-data/"+name, always(func(inst EC2Instance) string {
+		imdsLeaf(srv, "/latest/meta-data/"+name, imdsAlways(func(inst EC2Instance) string {
 			return ec2PrivateDNSName(inst.PrivateIpAddress)
 		}))
 	}
-	leaf("/latest/meta-data/ami-launch-index", always(func(inst EC2Instance) string { return strconv.Itoa(inst.AmiLaunchIndex) }))
-	leaf("/latest/meta-data/reservation-id", always(func(inst EC2Instance) string { return inst.ReservationId }))
-	leaf("/latest/meta-data/instance-action", always(func(EC2Instance) string { return "none" }))
-	leaf("/latest/meta-data/instance-life-cycle", always(func(inst EC2Instance) string {
+	imdsLeaf(srv, "/latest/meta-data/ami-launch-index", imdsAlways(func(inst EC2Instance) string { return strconv.Itoa(inst.AmiLaunchIndex) }))
+	imdsLeaf(srv, "/latest/meta-data/reservation-id", imdsAlways(func(inst EC2Instance) string { return inst.ReservationId }))
+	imdsLeaf(srv, "/latest/meta-data/instance-action", imdsAlways(func(EC2Instance) string { return "none" }))
+	imdsLeaf(srv, "/latest/meta-data/instance-life-cycle", imdsAlways(func(inst EC2Instance) string {
 		if inst.InstanceLifecycle == "" {
 			return "on-demand"
 		}
 		return inst.InstanceLifecycle
 	}))
-	leaf("/latest/meta-data/mac", always(ec2InstanceMAC))
-	leaf("/latest/meta-data/security-groups", always(func(inst EC2Instance) string {
+	imdsLeaf(srv, "/latest/meta-data/mac", imdsAlways(ec2InstanceMAC))
+	imdsLeaf(srv, "/latest/meta-data/security-groups", imdsAlways(func(inst EC2Instance) string {
 		return strings.Join(imdsGroupNames(inst.SecurityGroupIds), "\n")
 	}))
-	leaf("/latest/meta-data/public-ipv4", func(inst EC2Instance) (string, bool) {
+	imdsLeaf(srv, "/latest/meta-data/public-ipv4", func(inst EC2Instance) (string, bool) {
 		return inst.PublicIpAddress, inst.PublicIpAddress != ""
 	})
-	leaf("/latest/meta-data/public-hostname", func(inst EC2Instance) (string, bool) {
+	imdsLeaf(srv, "/latest/meta-data/public-hostname", func(inst EC2Instance) (string, bool) {
 		name := ec2PublicDNSName(inst)
 		return name, name != ""
 	})
-	leaf("/latest/meta-data/services/{$}", always(func(EC2Instance) string { return "domain\npartition" }))
-	leaf("/latest/meta-data/services/domain", always(func(EC2Instance) string { return "amazonaws.com" }))
-	leaf("/latest/meta-data/services/partition", always(func(EC2Instance) string { return "aws" }))
-	leaf("/latest/meta-data/block-device-mapping/{$}", always(func(inst EC2Instance) string {
+	imdsLeaf(srv, "/latest/meta-data/services/{$}", imdsAlways(func(EC2Instance) string { return "domain\npartition" }))
+	imdsLeaf(srv, "/latest/meta-data/services/domain", imdsAlways(func(EC2Instance) string { return "amazonaws.com" }))
+	imdsLeaf(srv, "/latest/meta-data/services/partition", imdsAlways(func(EC2Instance) string { return "aws" }))
+	imdsLeaf(srv, "/latest/meta-data/block-device-mapping/{$}", imdsAlways(func(inst EC2Instance) string {
 		return strings.Join(sortedKeys(imdsBlockDevices(inst)), "\n")
 	}))
 	srv.HandleFunc("GET /latest/meta-data/block-device-mapping/{device}", func(w http.ResponseWriter, r *http.Request) {
@@ -405,9 +387,36 @@ func registerEC2IMDS(srv *sim.Server) {
 		}
 		imdsText(w, name)
 	})
-	leaf("/latest/meta-data/network/{$}", always(func(EC2Instance) string { return "interfaces/" }))
-	leaf("/latest/meta-data/network/interfaces/{$}", always(func(EC2Instance) string { return "macs/" }))
-	leaf("/latest/meta-data/network/interfaces/macs/{$}", always(func(inst EC2Instance) string {
+	registerEC2IMDSNetwork(srv)
+	registerEC2IMDSIdentity(srv)
+}
+
+// imdsLeaf serves path with the value the asking instance settles, or 404
+// where it settles none.
+func imdsLeaf(srv *sim.Server, path string, value func(EC2Instance) (string, bool)) {
+	srv.HandleFunc("GET "+path, func(w http.ResponseWriter, r *http.Request) {
+		inst, ok := imdsRequest(w, r)
+		if !ok {
+			return
+		}
+		v, ok := value(inst)
+		if !ok {
+			imdsNotFound(w)
+			return
+		}
+		imdsText(w, v)
+	})
+}
+
+func imdsAlways(f func(EC2Instance) string) func(EC2Instance) (string, bool) {
+	return func(inst EC2Instance) (string, bool) { return f(inst), true }
+}
+
+// registerEC2IMDSNetwork serves the instance's network interfaces by MAC.
+func registerEC2IMDSNetwork(srv *sim.Server) {
+	imdsLeaf(srv, "/latest/meta-data/network/{$}", imdsAlways(func(EC2Instance) string { return "interfaces/" }))
+	imdsLeaf(srv, "/latest/meta-data/network/interfaces/{$}", imdsAlways(func(EC2Instance) string { return "macs/" }))
+	imdsLeaf(srv, "/latest/meta-data/network/interfaces/macs/{$}", imdsAlways(func(inst EC2Instance) string {
 		var macs []string
 		for _, eni := range imdsInterfaces(inst) {
 			macs = append(macs, ec2InterfaceMAC(eni.NetworkInterfaceId)+"/")
@@ -477,9 +486,9 @@ func registerEC2IMDS(srv *sim.Server) {
 		}
 		imdsText(w, private)
 	})
-	leaf("/latest/meta-data/placement/{$}", always(func(EC2Instance) string { return "availability-zone\nregion" }))
-	leaf("/latest/meta-data/placement/region", always(func(EC2Instance) string { return awsRegion() }))
-	leaf("/latest/meta-data/placement/availability-zone", always(ec2InstanceAvailabilityZone))
+	imdsLeaf(srv, "/latest/meta-data/placement/{$}", imdsAlways(func(EC2Instance) string { return "availability-zone\nregion" }))
+	imdsLeaf(srv, "/latest/meta-data/placement/region", imdsAlways(func(EC2Instance) string { return awsRegion() }))
+	imdsLeaf(srv, "/latest/meta-data/placement/availability-zone", imdsAlways(ec2InstanceAvailabilityZone))
 
 	// An instance launched with a key pair lists it under public-keys, as
 	// index=name, with its OpenSSH public key beneath the index.
@@ -490,22 +499,26 @@ func registerEC2IMDS(srv *sim.Server) {
 		kp, ok := ec2KeyPairs.Get(inst.KeyName)
 		return kp, ok && kp.PublicKey != ""
 	}
-	leaf("/latest/meta-data/public-keys/{$}", func(inst EC2Instance) (string, bool) {
+	imdsLeaf(srv, "/latest/meta-data/public-keys/{$}", func(inst EC2Instance) (string, bool) {
 		kp, ok := keyPair(inst)
 		return "0=" + kp.KeyName, ok
 	})
-	leaf("/latest/meta-data/public-keys/0/{$}", func(inst EC2Instance) (string, bool) {
+	imdsLeaf(srv, "/latest/meta-data/public-keys/0/{$}", func(inst EC2Instance) (string, bool) {
 		_, ok := keyPair(inst)
 		return "openssh-key", ok
 	})
-	leaf("/latest/meta-data/public-keys/0/openssh-key", func(inst EC2Instance) (string, bool) {
+	imdsLeaf(srv, "/latest/meta-data/public-keys/0/openssh-key", func(inst EC2Instance) (string, bool) {
 		kp, ok := keyPair(inst)
 		return kp.PublicKey + "\n", ok
 	})
+}
 
+// registerEC2IMDSIdentity serves the instance profile's credentials, the
+// instance's tags and its identity document.
+func registerEC2IMDSIdentity(srv *sim.Server) {
 	// An instance with a profile reads its profile and its role's
 	// credentials, a session of the role named for the instance.
-	leaf("/latest/meta-data/iam/{$}", func(inst EC2Instance) (string, bool) {
+	imdsLeaf(srv, "/latest/meta-data/iam/{$}", func(inst EC2Instance) (string, bool) {
 		_, _, ok := ec2InstanceProfileRole(inst)
 		return "info\nsecurity-credentials/", ok
 	})
@@ -526,7 +539,7 @@ func registerEC2IMDS(srv *sim.Server) {
 			"InstanceProfileId":  profile.InstanceProfileId,
 		})
 	})
-	leaf("/latest/meta-data/iam/security-credentials/{$}", func(inst EC2Instance) (string, bool) {
+	imdsLeaf(srv, "/latest/meta-data/iam/security-credentials/{$}", func(inst EC2Instance) (string, bool) {
 		_, role, ok := ec2InstanceProfileRole(inst)
 		return role, ok
 	})
@@ -555,10 +568,10 @@ func registerEC2IMDS(srv *sim.Server) {
 
 	// An instance whose metadata options allow tags in the metadata reads
 	// its tag keys and values.
-	leaf("/latest/meta-data/tags/{$}", func(inst EC2Instance) (string, bool) {
+	imdsLeaf(srv, "/latest/meta-data/tags/{$}", func(inst EC2Instance) (string, bool) {
 		return "instance", ec2InstanceTagsEnabled(inst)
 	})
-	leaf("/latest/meta-data/tags/instance", func(inst EC2Instance) (string, bool) {
+	imdsLeaf(srv, "/latest/meta-data/tags/instance", func(inst EC2Instance) (string, bool) {
 		if !ec2InstanceTagsEnabled(inst) {
 			return "", false
 		}

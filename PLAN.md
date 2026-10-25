@@ -3,298 +3,266 @@
 The simulators serve their declared surfaces: every vendored AWS model is
 implemented or exempt, and every Google Cloud Discovery method and Azure
 Swagger operation reaches a route that serves it or answers a declared 501
-naming what is missing. `STATUS.md` is the snapshot, `DO_NEXT.md` the work
-items, `WHAT_WE_DID.md` the decisions behind the code and `BUGS.md` the open
-bugs.
+naming what is missing. The roadmap below deepens what those routes do —
+compute, eventing and queueing services that behave alike across the three
+clouds because they share one mechanism — and keeps the releases flowing.
+`STATUS.md` is the snapshot, `DO_NEXT.md` the next steps, `WHAT_WE_DID.md` the
+decisions behind the code and `BUGS.md` the open bugs.
 
-## Execution modes
+## Principles that guide the work
 
-A simulator runs in one of three modes. The modes differ only in where
-workloads run; the cloud APIs, the stores and the consoles are the same.
+- **No host privilege.** The simulator process holds no capability, device,
+  privileged port or `nftables` rule, and starts no helper that holds one on
+  its behalf; a workload container holds no capability. The container engine
+  is the only privileged thing it talks to, as an ordinary client. What needs
+  more runs in a node agent the operator chose to deploy.
+- **Execution modes.** *Embedded*: one binary per cloud against a Docker or
+  Podman engine; every workload, managed engine and network sidecar is a
+  container. *Embedded with node agents*: the same, plus node agents —
+  containers granted `/dev/kvm` — that boot Firecracker guests for the
+  services configured onto them. *Distributed*: control plane and agents on
+  separate hosts (milestone M5). `SIM_RUNTIME=process` places no workload.
+- **Placement is the simulator's configuration, never the cloud's API.** One
+  backend interface in `sim/placement` with a container and a microVM
+  implementation; `SIM_PLACEMENT` picks per service, refined by a cloud's own
+  attribute (an Amazon ECS launch type). Every workload path goes through it.
+- **Networks without privilege.** A VPC, Compute Engine subnetwork or Azure
+  virtual network prefix is an engine network over its own range; the cloud's
+  resolver and metadata addresses are a sidecar at the address the cloud
+  reserves inside the range; NAT is an egress sidecar. Security groups and
+  firewalls are enforced on mediated flows and at a guest's tap; the
+  container-to-container gap stays recorded.
+- **A library holds mechanism, not wire shapes.** A shared package under
+  `sim/` states its contract in its package documentation, proves it in unit
+  tests without a simulator, and reaches each cloud through hooks; each cloud
+  keeps its wire shapes, error envelopes, names and state vocabulary. Each
+  consumer keeps its SDK, CLI and Terraform tests, which prove an extraction
+  changed no wire behaviour.
+- **Services reach each other through their APIs.** `sim.Server.Call` serves
+  an in-process request through the whole chain a client's request takes, as
+  the service principal `sim.Caller` names or a session of the role the
+  service acts as. Every library that delivers to a target takes a hook that
+  makes such a call.
 
-- **Embedded.** One binary per cloud, talking to a Docker or Podman engine as
-  an ordinary user. Everything that runs runs as a container on an engine
-  network: the workloads, the managed engines (RDS, ElastiCache, Cloud SQL,
-  Memorystore, Azure Database, Azure Cache) and the sidecars that stand in
-  for a cloud's resolver, metadata and NAT addresses. Amazon EC2, Compute
-  Engine and Azure virtual machine instances are containers. This is the
-  default, and the mode CI and developer machines run.
-- **Embedded with node agents.** The same binary and the same engine
-  networks, plus one or more node agents that boot Firecracker microVMs. A
-  node agent is a container on the engine network like any other member; it
-  is the only thing that holds `/dev/kvm` and the tap devices its guests use.
-  The binary starts an agent as a container with the engine granting
-  `/dev/kvm` when a service is configured for microVMs; an operator opts in
-  through configuration and nothing else changes.
-- **Distributed.** The control plane and the node agents as separate services
-  on separate hosts, over the same backend interface the embedded modes use,
-  with networks spanning hosts. This is the eventual target; the interfaces
-  below are shaped for it and nothing is built for it yet.
+## Landed
 
-`SIM_RUNTIME=process` stays the API-only mode: it places no workload at all.
+Stages 1–4 of the execution model (privileged tier removed, unprivileged
+networks and sidecars, the placement interface with the container backend and
+VM instances as containers, node agents with the microVM backend) and the
+first libraries of the service work: the in-process service seams,
+`sim/machine`, `sim/workload` groups, `sim/replicas` and `sim/revisions`.
 
-**The simulator process holds no host privilege, in any mode.** No capability,
-no device, no privileged port, no network namespace, no `nftables` rule, no
-helper container that holds a capability on the simulator's behalf. The
-container engine is the only privileged thing the simulator talks to, as an
-ordinary client. Whatever needs more lives in a node agent the operator chose
-to deploy.
+**M2 — stage 5 library extractions.** Five mechanisms that two or three
+clouds had each implemented moved into `sim`, with every consumer driven
+through them and the consumers' SDK, CLI and Terraform suites showing no wire
+change:
 
-## Placement: backends per service
+1. **`sim/msgq` completed.** One long-poll `Waiter` and one deduplication
+   path (`Dedup.Admit`) under Amazon SQS, Pub/Sub and Azure Service Bus;
+   Cloud Tasks v2 served on `msgq`, dispatching HTTP tasks through
+   `sim/delivery`, with SDK, gcloud and Terraform tests. Dead-letter routing,
+   Service Bus sessions and SQS message moves stayed with each cloud. Closed
+   BUG-3605.
+2. **One host-routed front end.** `lbplane.HostRouter` and `lbplane.Serve`
+   under Cloud Run, Cloud Run functions, Container Apps ingress, App Service
+   and AWS Lambda function URLs; the three `frontend_forward.go` copies went.
+   The container probe runner and the crash-loop back-off moved into
+   `sim/replicas` beside it (M3 item 4). BUG-3127 narrowed to API Gateway's
+   execute-api, which now has a front end to register on. BUG-3242 stayed
+   open: the probe still runs from the simulator, not inside the instance's
+   network namespace.
+3. **`sim/eventbus`.** Fan-out under Amazon EventBridge, Amazon SNS (every
+   protocol), Azure Event Grid, Pub/Sub topics and Eventarc audit-log
+   triggers, each cloud's filter dialect behind the hook; Cloud Scheduler v1
+   on `sim/cron` and `sim/delivery`. EventBridge Scheduler stayed on `cron`
+   and `delivery` directly, because a schedule addresses one target. Closed
+   BUG-3604 and BUG-3605; BUG-3534 and BUG-3535 already named only the target
+   types whose services do not exist.
+4. **`sim/jobrun`.** Cloud Run jobs and Container Apps jobs run task by task
+   on it. Amazon ECS `RunTask` and AWS Batch stayed off it. `RunTask(count)`
+   starts independent tasks with no retries, no execution parent and no
+   completion policy, so the library adds nothing. AWS Batch returns each
+   attempt to RUNNABLE to wait for compute-environment vCPUs and fair share,
+   and its array children are independent jobs with their own dependencies,
+   so the library's start-the-next-attempt-now loop would change Batch's wire
+   states; Batch's `evaluateOnExit` has the shape of the library's `Retry`
+   hook. Closed BUG-3600 and BUG-3601; narrowed BUG-3173.
+5. **`sim/funcrt`.** AWS Lambda runs on it: execution-environment reuse,
+   scale-out, reserved and account concurrency, provisioned concurrency, and
+   the event-source pollers for Amazon SQS and Amazon Kinesis. Azure Functions
+   and Cloud Run functions stayed off it. The Functions host runs as an App
+   Service site instance shared by every request, which dispatches and limits
+   invocations inside its container and polls its own triggers, and which
+   about fifteen App Service features read; there is no per-invocation
+   environment, throttle or reset for a pool to own. Cloud Run functions are
+   Cloud Run services, whose instances `sim/replicas` already scales by
+   request concurrency, minimum and maximum instances and idle scale-in, and
+   whose event triggers are Eventarc on `sim/eventbus`. Closed BUG-3602;
+   narrowed BUG-3603 to the sources whose services do not exist.
 
-Where a workload runs is a property of the service, chosen in the simulator's
-own configuration, never through a cloud API, a header or an environment
-variable a workload sees.
+The same pull request landed M3 items 1, 4 and 13 and most of M4 (marked
+below), and rebuilt the AWS, Google Cloud and Azure consoles on their real
+consoles' patterns.
 
-- **Backend interface.** `sim` defines one cloud-neutral interface for
-  placing a workload — start, stop, adopt, exec, logs, publish, attach to a
-  network — with two implementations: the **container backend**, which talks
-  to the engine directly, and the **microVM backend**, which talks to a node
-  agent. Each cloud's service maps its resources onto the interface and keeps
-  its wire shapes, states and errors in its own module. In distributed mode
-  both implementations talk to agents on other hosts.
-- **Service classes.**
-  1. *Compute services* always offer both backends: anything that runs user
-     code — Amazon EC2, ECS, AWS Lambda, AWS Batch, App Runner, Compute
-     Engine, Cloud Run, Cloud Functions, Azure Virtual Machines, Container
-     Apps, Container Instances, App Service, Azure Functions. The microVM
-     form follows the cloud's own: a Lambda invocation or a Fargate task in
-     its own microVM, an EC2 instance as a full guest.
-  2. *Managed engines* offer both where the cloud runs a real server process:
-     Amazon RDS and Aurora, ElastiCache, Cloud SQL, Memorystore, Azure
-     Database and Azure Cache run the engine in a container by default, or
-     inside a microVM when configured.
-  3. *Control-plane services* — Amazon S3, SQS, DNS, IAM and the like — run
-     inside the simulator process and place no workload.
-- **Configuration** is a table of services, each naming its backend;
-  containers are every service's default. A service whose cloud distinguishes
-  placements by its own attributes — an ECS task's launch type, an RDS
-  instance's class — may refine the choice on that attribute, so the mapping
-  is faithful to the cloud's vocabulary and still the simulator's own.
-- **Images for VM instances on containers.** An AMI, a Compute Engine image
-  and an Azure marketplace image name an OCI image. Each simulator publishes
-  its own catalog — Amazon Linux, Ubuntu and Debian mapped to pinned images
-  from the registries `scripts/base-images-for.sh` admits — and
-  `RegisterImage`, `ImportImage`, `images.insert` and the Azure image
-  resources take an OCI reference. User data runs under a small init the
-  simulator supplies; on a node agent the same AMI boots a root filesystem
-  built from that image.
+## Milestones
 
-## Networks without privilege
+### M1 — Releases flow again
 
-- **A VPC, a Google Cloud network or an Azure virtual network is an engine
-  network** whose address range is the cloud resource's own CIDR; a subnet is
-  a range inside it; every workload, container or microVM, is a member whose
-  engine-assigned address is the one its elastic network interface, NIC or
-  instance reports, asked of the engine at attach. One network model replaces
-  the two the simulators had (engine networks for some workloads, host
-  namespaces for others). An engine refuses two live networks over one
-  address range, so two live VPCs sharing a CIDR do not coexist on one
-  engine: a recorded gap, lifted where agents on other hosts carry them.
-- **The cloud's resolver is a sidecar.** A bridge network carries one subnet
-  and refuses a link-local one, so one sidecar per network sits at the
-  address the cloud reserves inside the range — the VPC's base plus two, the
-  Compute Engine subnetwork's second-to-last address, the Azure virtual
-  network's base plus two — forwarding DNS to the simulator's resolver and
-  metadata requests to its handlers under a token the simulator minted for
-  it. Every workload on the network names the sidecar as its DNS server and
-  takes its metadata URL from the variable the cloud's SDKs honour
-  (`AWS_EC2_METADATA_SERVICE_ENDPOINT`, `ECS_CONTAINER_METADATA_URI_V4`,
-  `AWS_CONTAINER_CREDENTIALS_FULL_URI`, `GCE_METADATA_HOST`,
-  `IDENTITY_ENDPOINT`); the fixed link-local metadata address is a recorded
-  gap. The resolver attributes a query to the network
-  its sidecar serves, never to anything inside the message.
-- **NAT and egress.** A sidecar proxy per network replaces `nftables` SNAT;
-  the NAT gateway's, Cloud NAT's or Azure NAT Gateway's public address is the
-  sidecar's.
-- **Peering and private endpoints** are a container on both networks.
-- **Load balancers** keep `sim/lbplane`: loopback listeners, TLS
-  termination, probes and forwarding need no privilege.
-- **Security groups, NSGs and firewalls** are enforced on every flow the
-  simulator mediates — load balancers, published ports, NAT egress — and not
-  between two containers on one network, because filtering their traffic
-  needs a capability. That gap is a `BUGS.md` row, closed on node agents,
-  where the agent filters at the guest's tap.
+- **Goal.** A merge to `main` that release-please turns into a release produces
+  the `vX.Y.Z` tag, the GitHub Release and every artifact the `Release`
+  workflow attaches.
+- **Cause.** release-please tags the release pull request's merge commit.
+  When a merge that changes `.github/workflows` lands between that merge and
+  the release run, the commit to tag carries other workflow files than
+  main's head, and GitHub refuses the Actions `GITHUB_TOKEN` — a GitHub App
+  token without the `workflows` permission, which it cannot be granted — to
+  create a ref there. That stranded the 2.4.1 release pull request (#284) on
+  `68af5b1`, which main's replaced history no longer contains.
+- **Scope.** In this pull request: drop the unreleased 2.4.1 entry from
+  `CHANGELOG.md` and set `.release-please-manifest.json` back to 2.4.0, so the
+  next release is computed from main's own history. Owner actions: remove
+  `autorelease: pending` from #284 so release-please stops retrying it; create
+  a GitHub App with contents, pull-requests and workflows permissions, install
+  it on the repository, and run release-please with its installation token,
+  which removes the recurrence.
+- **Exit.** After this pull request merges and the label is gone, the next
+  push to `main` opens a fresh release pull request, and its release run
+  creates the tag, the GitHub Release, the binaries, console bundles and image
+  index, with `scripts/verify-release-complete.sh` passing; release-please
+  runs with the App's token.
+- **Closes.** BUG-3465.
 
-## Node agents
+### M3 — New shared libraries
 
-A node agent runs microVMs for the services configured onto it. It is a
-container on the engine network, started by the binary with the engine
-granting `/dev/kvm`, and inside its own namespace it owns the tap devices its
-guests use and the bridge that joins them to its network interface, so a guest
-is a network member with an address like any container. It boots Firecracker
-guests from root filesystems built from the same OCI images the container
-backend runs, adds a group's other containers to a guest as members from
-their own images on the guest's disk slots, serves the microVM backend's
-interface over its API, filters at each tap what the guest's security group
-allows, and reports guest lifecycle and logs per process. The `firecracker (microVM arithmetic)` CI job proves the agent, not
-the host. In distributed mode the same agent runs on another host.
+Mechanisms the survey of the three simulators found implemented two or more
+times outside `sim`, in order of value over effort. Each item names what it
+unifies; this pull request carries those it lands, and the rest stay planned.
 
-## Stages
+1. **Keyed change signal and announcing store** — *landed* as `sim/signals`
+   and `sim.Announcing`, closing BUG-3608 (high value, low effort).
+   The `map[key]chan struct{}` wake-up written about nine times —
+   `simulator-aws/store_changes.go` and `sqs_wait.go`, `kinesis_streaming.go`,
+   EC2 volume hydrations; `simulator-gcp/operations_wait.go`,
+   `pubsub_pull.go`, `metadata_wait.go`; `simulator-azure/servicebus_sessions.go`,
+   `arm_lro.go` — as one `sim` primitive beside `Store.Generation`. Every
+   one of them and the polling tickers over the simulators' own stores moved
+   onto it; the Kudu log stream keeps Kudu's own watcher cadence.
+2. **Long-running operation tracker** (high, medium). Running → done with a
+   result or error, work on `sim/bg`, a done signal, `Await` bounded by the
+   caller, and restart recovery as a hook (Azure fails, Google Cloud
+   re-adopts). Unifies Google Cloud's `operations*.go` and Compute Engine's
+   zone operations with Azure's `arm_lro.go` and `compute_vm_lro.go`.
+3. **Asymmetric cryptography in `sim/simkms`** (high, low–medium). RSA and EC
+   key generation, PSS, PKCS #1 v1.5 and ECDSA signing, OAEP and HMAC, written
+   separately in `simulator-aws/kms_crypto.go`, `simulator-gcp/cloudkms.go`
+   and `cloudkms_grpc.go`, and `simulator-azure/keyvault.go`, which does not
+   use `simkms` at all.
+4. **Probe runner and crash-loop back-off in `sim/replicas`** — *landed*
+   with M2's front end (medium–high, low). Cloud Run's TCP, HTTP and gRPC
+   probes and startup loop (`cloudrun_probes.go`) and Container Apps' await
+   and watch loops (`containerapps_probes.go`) over `lbplane.ProbeHTTP`,
+   `ProbeTCP` and `ProbeGRPC`; the byte-identical restart back-offs of
+   Container Apps replicas and Cloud Run worker pools. BUG-3311 and BUG-3539
+   stay open on their own causes: no source confirms the back-off for Cloud
+   Run, and a replica's containers share one network-namespace owner.
+5. **Time-bounded soft delete** (medium–high, medium). One settle-at-deadline
+   mechanism for Azure Key Vault, AWS KMS pending deletion, AWS Secrets
+   Manager recovery windows, Cloud Storage soft delete, Cloud KMS version
+   destruction, Blob and Files soft delete and the EC2 Recycle Bin.
+   *Closes:* BUG-3606.
+6. **Build runner** (medium–high, high). The step pipeline, workspace,
+   registry credentials, push and cleanup shared by AWS CodeBuild, Cloud
+   Build and Azure Container Registry Tasks (`codebuild.go`, `cloudbuild.go`,
+   `acr_tasks*.go`). Narrows BUG-3225, BUG-3343, BUG-3570.
+7. **Simulated certificate authority `sim/simca`** (medium, low). The
+   `x509.CreateCertificate` sites in AWS Certificate Manager, AWS Private CA,
+   Amazon RDS, Amazon SNS, Memorystore for Redis, IAM, Key Vault and
+   `sim/dbengine`.
+8. **Registry ingest and token service** (medium). Image-save ingestion and
+   manifest hydration shared by Amazon ECR pull-through cache and Artifact
+   Registry remote repositories, extended to Azure Container Registry cache
+   rules; one Docker token flow for Artifact Registry and Azure Container
+   Registry over `sim/ociauth.go`. *Closes:* BUG-3612.
+9. **Field masks and merge patch** (medium, low). The dozen Google Cloud
+   `updateMask` implementations and Azure's RFC 7396 merge patch.
+10. **Metric time series, aggregation and alarms** (medium). Amazon
+    CloudWatch's aggregation and percentiles beside Azure Monitor metrics; a
+    base for Cloud Monitoring (BUG-3522) and Azure metric alerts, and the
+    autoscalers that read metrics (BUG-3434).
+11. **API audit capture middleware** (medium). AWS CloudTrail and Cloud Audit
+    Logs capture; a base for the Azure Activity Log. Narrows BUG-3119.
+12. **Versioned secrets** (medium). Versions, stages and the random password
+    generator shared by AWS Secrets Manager, Systems Manager parameters,
+    Secret Manager and Key Vault secrets.
+13. **Glob matcher** — *landed* as `sim.Wildcard` (low–medium, trivial).
+    The wildcard matchers of Elastic Load Balancing rules, the IAM policy
+    simulator, Azure RBAC, Eventarc path patterns, AWS event patterns and
+    Amazon EC2 filters run on it. AWS Batch `evaluateOnExit`, Amplify remote
+    patterns, CodeBuild report globs and Cloud Storage `matchGlob` keep their
+    own, because their syntaxes are segment-aware or richer than `*` and `?`.
+14. **Idempotency tokens** (low–medium). Client-token handling with request
+    digest and window, written ad hoc across about forty AWS files and
+    Google Cloud's `requestId`; `msgq.Dedup` is close.
 
-Stages 1 to 4 landed in one pull request, with the shared libraries below.
+### M4 — Cleanups
 
-1. **Remove the privileged machinery.** Delete the host-namespace fabric,
-   the `nftables` rules, the realized-network DNAT and the in-process
-   Firecracker launch, with their host tests, Makefile targets and CI job,
-   the capability probes, and the `realexec_host` build tag; delete the two
-   helper containers that held privilege on the simulator's behalf — the
-   `CAP_NET_ADMIN` container that plumbed an Amazon ECS task's elastic
-   network interface address and the `--privileged` container that attached
-   a managed EBS volume's image to a loop device. The VPC engine network
-   takes the VPC's CIDR and an awsvpc task or VPC Lambda invocation takes
-   its interface address from the engine, which is what the helper did. A
-   managed EBS volume on the container backend is an engine volume. The
-   privilege a cloud lets a workload ask for — a container definition's
-   `privileged`, a CodeBuild project's `privilegedMode`, an ACR task step's
-   `privileged` — is not granted on the container backend: the workload runs
-   without it, and what then fails is a `BUGS.md` row a node agent's guest
-   closes, like the volume's size bound. `lbplane`, IPAM and the rule parsers
-   moved from `realexec` into `sim`, and `realexec` is gone. Amazon EC2, Compute Engine and Azure virtual machine
-   instances refuse to launch until stage 3, with the cloud's provisioning
-   error.
-2. **Unprivileged networks.** The per-network sidecars for resolver and
-   metadata addresses (closing BUG-3473 and retiring the per-record engine
-   aliases), the NAT sidecar, peering, and security groups on mediated flows
-   with the container-to-container gap filed.
-3. **Placement interface and the container backend for VM instances.** The
-   `sim` backend interface with the container implementation behind every
-   compute service and managed engine, the per-service configuration table,
-   the image catalogs, and EC2, Compute Engine and Azure virtual machine
-   instances as containers with user data, metadata and lifecycle through the
-   three client surfaces.
-4. **Node agents and the microVM backend.** The agent image, its API, guest
-   boot from OCI-built root filesystems, tap filtering, the microVM backend
-   in `sim`, and each compute service and managed engine configurable onto
-   it; the node-agent CI job boots a guest through the agent.
-5. **Service libraries.** Polish the compute, eventing and queueing services
-   to completion and extract what they share into cloud-neutral libraries
-   (below).
-6. **Distributed.** Agents on other hosts and networks that span them, once
-   the first five stages hold.
+Intra-module work that makes the code smaller and the gates tighter; no wire
+behaviour changes. This pull request landed every item marked *landed*; the
+ARN and tag-set helpers, the rest of placement everywhere and the 120-token
+step stay planned.
 
-## Stage 5: service libraries
+- **AWS request decoding and errors** — *landed*. Every JSON body goes
+  through `sim.ReadJSON`, and `awsWriteError` writes each protocol's envelope
+  in place of the twenty-five per-service writers. Closed BUG-3610.
+- **ARN builder and parser** for AWS (about 200 hand-built ARNs and 24
+  `*FromARN` parsers) and **tag-set helpers** (the eight tag-merge copies).
+- **Azure resource IDs and ARM CRUD** — *landed*. One ARM resource ID builder
+  and one generic ARM CRUD shape for the network and Event Grid resources.
+- **Split giant registration closures and files** — *landed*. `registerIAM`,
+  `registerCRMv3`, `registerGCS`, `registerCompute`, `registerARSubresources`
+  in Google Cloud; `keyvault.go`, `registerAzureFunctions`,
+  `registerAzureFiles`, `registerNetwork` in Azure; `ec2.go`, `glue.go`,
+  `ecs.go` and `rds.go` in AWS, where no function now runs past 300 lines.
+- **Shared test helpers into `testutil`** — *landed*. `testutil/scratchimage`
+  builds the suites' workload images, `testutil/uniquename` names their
+  resources, `freeports.TCPUDP` picks a DNS port, and `githttp.StartRepo`
+  serves a repository the Azure suites push to; the per-suite copies went.
+  `runCLI` and `terraformCmd` stay per suite, because each sets its own
+  cloud's CLI environment. Closed BUG-3611.
+- **Placement everywhere.** Route the workloads that reach the engine
+  directly through `placement.Backend`. Amplify Hosting builds and compute,
+  AWS Batch and AWS CodeBuild recovery, Elastic Load Balancing's task
+  addresses, Memorystore for Redis, Cloud Build and App Service's process
+  kills and configuration reads moved; the sites BUG-3609 names remain.
+- **Waits on events, not clocks** — *landed*. Amazon ECS, Amplify Hosting,
+  Memorystore for Redis and the Container Apps group wait on workload events;
+  `sim.WaitContainerRemoved` and `sim.RemoveVolumeSettled` wait on the
+  engine's removal of the container; the node agent's guest init drains its
+  console instead of sleeping before the reset. Amazon RDS replication start
+  and an Amplify Hosting or App Service port opening raise no event, so those
+  waits poll the engine's own status. Closed BUG-3607; AWS Batch service jobs
+  stay BUG-3213.
+- **`sim` duplicates in the simulators** — *landed* with M2's front end.
+  The AWS store sweeper copy and the hand-rolled Azure Monitor and Cloud
+  Logging sweepers run on `kvstore.StartSweeper`; `listq.IntKey` replaced
+  `awsIntKey` and `azureIntKey`, and `listq.ColumnPage` replaced
+  `gcpColumnPageOf`. `listq.OffsetPage` and `TokenPage` stayed, now used by
+  AWS Glue, AWS Budgets and DynamoDB `ExecuteStatement`.
+- **Tighten the copy-paste gate stepwise.** `scripts/simulators-dupl.sh`
+  holds zero groups at 150 tokens (*landed*); at 120 tokens it finds 32
+  groups in AWS, 2 in Google Cloud and 5 in Azure, which the next step
+  clears before lowering the threshold again.
 
-The services this stage covers are the virtual machines (Amazon EC2,
-Compute Engine, Azure virtual machines), the container services (Amazon ECS
-on AWS Fargate and on container instances, Cloud Run services, jobs and
-worker pools, Azure Container Apps apps and jobs), the function services
-(AWS Lambda, Cloud Run functions, Azure Functions), the event routers
-(Amazon EventBridge with EventBridge Scheduler, Eventarc with Cloud
-Scheduler, Azure Event Grid) and the queues (Amazon SQS, Pub/Sub with Cloud
-Tasks, Azure Service Bus and Azure Queue Storage). Each one implements the same
-mechanism its counterparts in the other clouds implement, in code of its
-own. The stage moves each mechanism into one library in `sim/`, drives every
-consumer through it, and polishes each service until its rows in `BUGS.md`
-are closed.
+### M5 — Distributed
 
-A library here is a package of the `sim` module that holds the mechanism and
-none of a cloud's wire shapes, error envelopes or names: its package
-documentation states the contract, its unit tests exercise that contract
-without a simulator, and a cloud reaches it through hooks, as `sim/msgq` and
-`sim/delivery` already work. Each consumer keeps its SDK, CLI and Terraform
-tests, which prove the extraction changed no wire behaviour.
-
-1. **Seams between services.** A service reaches another through that
-   service's API, as the clouds' own services do: `sim.Server.Call` serves an
-   in-process request through the whole chain a client's request takes, and
-   `sim.Caller` on its context names the service principal it is made as.
-   Amazon EventBridge rules and EventBridge Scheduler deliver, AWS Lambda's
-   Amazon SQS pollers receive and delete, Eventarc provisions and publishes,
-   and Azure Event Grid dead-letters this way — as the service principal the
-   target's resource policy admits, or as a session of the target's role.
-   AWS Step Functions task states and the Scheduler's universal targets call
-   this way as a session of the execution role; Step Functions' `.sync` waits
-   (BUG-3533) and AWS Lambda's asynchronous destinations (BUG-3564) follow.
-   Every library after this one takes a delivery hook that makes such a call.
-2. **`sim/machine`: the virtual machine lifecycle.** Boot through the
-   placement backend, ready, watch, stop keeping the disk, start, discard,
-   release a detached disk, adopt after a simulator restart, capture an
-   image, and the console across boots, with the cloud's state names and
-   transitions as hooks. Amazon EC2, Compute Engine and Azure virtual
-   machines run on it (landed), each interface with the MAC its cloud
-   assigns, and their metadata services answer from the instance's current
-   record. Polish left: the instance metadata categories still unserved
-   (BUG-3528), the Compute Engine metadata server's `wait-for-change`
-   (BUG-3525), cloud-init's remaining modules (BUG-3526, BUG-3527), the
-   link-local metadata addresses (BUG-3485), and Systems Manager managed
-   nodes (BUG-3532).
-3. **`sim/revisions` and `sim/replicas`: long-running container services.**
-   Revisions hold a template signature, the next revision name, traffic
-   weights and the pick of a revision per request, rolling replacement, and
-   the pruning of inactive revisions. Replicas start, adopt, probe, scale
-   between their bounds and stop, with their logs fanned out to readers.
-   Amazon ECS services and deployments (task sets among them), Cloud Run
-   services and worker pools, and Azure Container Apps apps implement these
-   today. `sim/workload.StartGroup` and `sim/replicas` landed, with Cloud
-   Run worker pools and Container Apps revisions on them, then
-   `sim/revisions` with Cloud Run services' revisions and traffic, Container
-   Apps labels and Amazon ECS deployments that own their tasks. Polish left:
-   Cloud Run service instances scaled on concurrency and the Knative
-   surface's revisions (BUG-3542), and the
-   Container Apps template's probes, scale rules and init containers
-   (BUG-3540).
-4. **`sim/jobrun`: run to completion.** An execution with a task count,
-   parallelism, per-task retries, a timeout, cancellation and recovery after
-   a restart. Amazon ECS `RunTask` on AWS Fargate, Cloud Run jobs and Azure
-   Container Apps jobs implement it today; AWS Batch joins once it holds.
-5. **`sim/funcrt`: functions.** The deployment package and its layers, the
-   runtime image catalog, the execution-environment pool (reuse, scaling,
-   reserved and provisioned concurrency), the timeout, asynchronous
-   invocation with retries and its destinations, and the event-source
-   poller that hands a queue's batches to a function. The invoke protocol is
-   the hook: the Lambda Runtime API, the Functions Framework's HTTP and
-   CloudEvents contract, the Azure Functions host. Cloud Run functions stay
-   Cloud Run services, as they are on Google Cloud, built from source with
-   Google Cloud's buildpacks.
-6. **`sim/msgq` completed: queues.** The long-poll waiter that Amazon SQS,
-   Pub/Sub and Azure Service Bus each implement (`sqsLongPoll`, `psPull`,
-   `sbAwaitReceive`), dead-letter redrive and message moves, sessions and
-   ordered groups, and deduplication. Cloud Tasks joins Pub/Sub as Google
-   Cloud's task queue, dispatching HTTP tasks through `sim/delivery`.
-7. **`sim/eventbus`: event routing.** The fan-out from an event to the
-   subscriptions that match it, with a filter hook, an input transform,
-   batching, delivery through `sim/delivery` with the subscription's retry
-   policy, a dead-letter target, and archive and replay. Its filter dialects
-   are libraries of their own: Amazon EventBridge event patterns (today
-   `awspattern.go`, shared with Amazon SNS and AWS Lambda filters), Azure
-   Event Grid advanced filters, and Eventarc's attribute filters beside the
-   Pub/Sub filter on `sim/listq`. Amazon EventBridge rules, Eventarc
-   triggers, Azure Event Grid subscriptions and Pub/Sub push subscriptions
-   implement the fan-out today; Cloud Scheduler joins EventBridge Scheduler
-   and Container Apps' scheduled jobs on `sim/cron`.
-8. **One host-routed front end.** AWS Lambda function URLs route by host
-   themselves, beside Cloud Run's, Azure Container Apps' and App Service's
-   front ends over `sim/lbplane`; one front end in `sim/lbplane` serves
-   them all.
-
-The order follows the dependencies: the seams first, since every library
-after them delivers to targets (landed); the machine lifecycle next, since every
-compute service places on what it learns (landed); then revisions and replicas, jobs,
-functions, queues, and event routing, each in its own pull request with its
-consumers moved onto it and its services' bugs closed.
-
-## Shared functionality in cloud-neutral packages
-
-Each mechanism the three simulators implement alike lives in a cloud-neutral
-package under `sim/`; each
-cloud's wire shapes, error envelopes and naming stay in its own module and
-reach the shared code through hooks. Landed: workload host and launch helpers
-(`sim/workloadhost`, `sim/workload`, `sim/bg`, `sim/archive`); identity
-(`sim/simjwt`, `sim/oidcfed`, registry authentication); the database engine
-(`sim/dbengine` with `pgwire` and `mysqlwire`); the load-balancer data plane
-(`sim/lbplane`); object storage (`sim.PrefixStore`, `sim/blobstore`,
-`sim/sparse`, `Server.Payloads`, `sim.KeyedLocks`); list queries and
-key-value primitives (`sim/listq`, `sim/kvstore`); messaging, delivery, cron
-and streams (`sim/msgq`, `sim/delivery`, `sim/cron`, `sim/streamlog`), which
-stage 5 extends; keys
-and logs (`sim/simkms`, `sim/logstore`); DNS (`sim/dnsserver`); and startup
-(`sim.Main`, `sim.Program`); networks and placement (`sim.EnsureCloudNetwork`
-with `sim/ipam` and `sim/netrules`, `sim/sidecar`, `sim/placement`,
-`sim/vminstance`, `sim/nodeagent`).
+Node agents on other hosts, reached over their API with the token minted for
+them, and engine networks that span hosts, so a cloud network's range is
+placed on an agent that holds no live network over it. *Closes:* BUG-3482;
+lifts the container-backend gaps (BUG-3480, BUG-3481, BUG-3483, BUG-3484,
+BUG-3486) for services placed on agents.
 
 ## Maintenance
 
 Keep the vendored specifications in sync with upstream and serve what a
-re-vendor adds, hold the measured floors, and close the open bugs in
-`BUGS.md` as their blockers lift.
+re-vendor adds, hold the measured floors, keep dependencies current, and close
+the open bugs in `BUGS.md` as their blockers lift.

@@ -29,8 +29,10 @@ func Success2xx(status int) Class {
 	return Retry
 }
 
-// Request is one webhook POST.
+// Request is one push request.
 type Request struct {
+	// Method is the HTTP method; empty sends POST.
+	Method  string
 	URL     string
 	Header  http.Header
 	Body    []byte
@@ -50,7 +52,11 @@ func Post(ctx context.Context, req Request, classify Classifier) Outcome {
 		ctx, cancel = context.WithTimeout(ctx, req.Timeout)
 		defer cancel()
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, req.URL, bytes.NewReader(req.Body))
+	method := req.Method
+	if method == "" {
+		method = http.MethodPost
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, method, req.URL, bytes.NewReader(req.Body))
 	if err != nil {
 		return Permanent(fmt.Errorf("build request to %s: %w", req.URL, err))
 	}

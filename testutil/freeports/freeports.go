@@ -36,3 +36,31 @@ func Pick(n int) ([]int, error) {
 	}
 	return ports, nil
 }
+
+// TCPUDP returns a port free on every interface for both TCP and UDP, for a
+// listener such as a DNS server that binds both on the wildcard address.
+func TCPUDP() (int, error) {
+	const attempts = 100
+	for range attempts {
+		tcpListener, err := net.Listen("tcp", ":0")
+		if err != nil {
+			return 0, fmt.Errorf("find a free port: %w", err)
+		}
+		addr, ok := tcpListener.Addr().(*net.TCPAddr)
+		if !ok {
+			_ = tcpListener.Close()
+			return 0, fmt.Errorf("a TCP listener reported address %v", tcpListener.Addr())
+		}
+		port := addr.Port
+		udpListener, udpErr := net.ListenPacket("udp", fmt.Sprintf(":%d", port))
+		tcpCloseErr := tcpListener.Close()
+		if udpErr != nil {
+			continue
+		}
+		if err := errors.Join(tcpCloseErr, udpListener.Close()); err != nil {
+			return 0, err
+		}
+		return port, nil
+	}
+	return 0, fmt.Errorf("no port was free on both TCP and UDP after %d attempts", attempts)
+}

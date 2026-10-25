@@ -11,6 +11,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appcontainers/armappcontainers/v3"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +20,7 @@ import (
 // overwrites X-Forwarded-Proto with the protocol the client used.
 func TestSDK_ContainerAppsIngress_ForwardedRequestHeaders(t *testing.T) {
 	t.Parallel()
-	rg, name := uniqueName("sdk-aca-xff-rg"), uniqueName("acaxff")
+	rg, name := uniquename.New("sdk-aca-xff-rg"), uniquename.New("acaxff")
 	ensureRG(t, rg)
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)

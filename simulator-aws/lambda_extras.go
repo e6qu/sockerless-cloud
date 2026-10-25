@@ -37,9 +37,79 @@ type LambdaEventSourceMapping struct {
 	Queues                         []string       `json:"Queues,omitempty"`
 	FunctionResponseTypes          []string       `json:"FunctionResponseTypes,omitempty"`
 	FilterCriteria                 map[string]any `json:"FilterCriteria,omitempty"`
+	// The stream settings an Amazon Kinesis mapping reads its shards by.
+	StartingPositionTimestamp  *float64                 `json:"StartingPositionTimestamp,omitempty"`
+	MaximumRetryAttempts       *int                     `json:"MaximumRetryAttempts,omitempty"`
+	MaximumRecordAgeInSeconds  *int                     `json:"MaximumRecordAgeInSeconds,omitempty"`
+	BisectBatchOnFunctionError *bool                    `json:"BisectBatchOnFunctionError,omitempty"`
+	DestinationConfig          *lambdaDestinationConfig `json:"DestinationConfig,omitempty"`
+}
+
+// lambdaESMStreamSettings are the stream settings CreateEventSourceMapping and
+// UpdateEventSourceMapping take.
+type lambdaESMStreamSettings struct {
+	StartingPositionTimestamp  *float64                 `json:"StartingPositionTimestamp"`
+	MaximumRetryAttempts       *int                     `json:"MaximumRetryAttempts"`
+	MaximumRecordAgeInSeconds  *int                     `json:"MaximumRecordAgeInSeconds"`
+	BisectBatchOnFunctionError *bool                    `json:"BisectBatchOnFunctionError"`
+	DestinationConfig          *lambdaDestinationConfig `json:"DestinationConfig"`
+}
+
+// apply sets the settings the request names.
+func (s lambdaESMStreamSettings) apply(esm *LambdaEventSourceMapping) {
+	if s.StartingPositionTimestamp != nil {
+		esm.StartingPositionTimestamp = s.StartingPositionTimestamp
+	}
+	if s.MaximumRetryAttempts != nil {
+		esm.MaximumRetryAttempts = s.MaximumRetryAttempts
+	}
+	if s.MaximumRecordAgeInSeconds != nil {
+		esm.MaximumRecordAgeInSeconds = s.MaximumRecordAgeInSeconds
+	}
+	if s.BisectBatchOnFunctionError != nil {
+		esm.BisectBatchOnFunctionError = s.BisectBatchOnFunctionError
+	}
+	if s.DestinationConfig != nil {
+		esm.DestinationConfig = s.DestinationConfig
+	}
+}
+
+// lambdaESMStreamDefaults fills the settings a Kinesis mapping reports when
+// the request leaves them out, from the defaults AWS documents for them
+// (services-kinesis-parameters.md.gz): BatchSize 100, MaximumRetryAttempts and
+// MaximumRecordAgeInSeconds -1, BisectBatchOnFunctionError false,
+// ParallelizationFactor 1, MaximumBatchingWindowInSeconds 0.
+func lambdaESMStreamDefaults(esm *LambdaEventSourceMapping) {
+	value := func(n int) *int { return &n }
+	if esm.BatchSize == nil {
+		esm.BatchSize = value(100)
+	}
+	if esm.MaximumRetryAttempts == nil {
+		esm.MaximumRetryAttempts = value(-1)
+	}
+	if esm.MaximumRecordAgeInSeconds == nil {
+		esm.MaximumRecordAgeInSeconds = value(-1)
+	}
+	if esm.ParallelizationFactor == nil {
+		esm.ParallelizationFactor = value(1)
+	}
+	if esm.MaximumBatchingWindowInSeconds == nil {
+		esm.MaximumBatchingWindowInSeconds = value(0)
+	}
+	if esm.BisectBatchOnFunctionError == nil {
+		off := false
+		esm.BisectBatchOnFunctionError = &off
+	}
+	if esm.DestinationConfig == nil {
+		esm.DestinationConfig = &lambdaDestinationConfig{OnFailure: &lambdaDestination{}}
+	}
 }
 
 var lambdaESMs sim.Store[LambdaEventSourceMapping] // keyed by UUID
+
+// lambdaESMTags holds each mapping's tags, which ListTags reads and the
+// mapping's configuration does not carry.
+var lambdaESMTags sim.Store[map[string]string]
 
 func lambdaESMArn(uuid string) string {
 	return fmt.Sprintf("arn:aws:lambda:%s:%s:event-source-mapping:%s", awsRegion(), awsAccountID(), uuid)
@@ -69,17 +139,19 @@ func lambdaResolveFunctionArn(functionName string) (string, bool) {
 
 func handleLambdaCreateEventSourceMapping(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		FunctionName                   string         `json:"FunctionName"`
-		EventSourceArn                 string         `json:"EventSourceArn"`
-		Enabled                        *bool          `json:"Enabled"`
-		BatchSize                      *int           `json:"BatchSize"`
-		MaximumBatchingWindowInSeconds *int           `json:"MaximumBatchingWindowInSeconds"`
-		ParallelizationFactor          *int           `json:"ParallelizationFactor"`
-		StartingPosition               string         `json:"StartingPosition"`
-		Topics                         []string       `json:"Topics"`
-		Queues                         []string       `json:"Queues"`
-		FunctionResponseTypes          []string       `json:"FunctionResponseTypes"`
-		FilterCriteria                 map[string]any `json:"FilterCriteria"`
+		FunctionName                   string            `json:"FunctionName"`
+		EventSourceArn                 string            `json:"EventSourceArn"`
+		Enabled                        *bool             `json:"Enabled"`
+		BatchSize                      *int              `json:"BatchSize"`
+		MaximumBatchingWindowInSeconds *int              `json:"MaximumBatchingWindowInSeconds"`
+		ParallelizationFactor          *int              `json:"ParallelizationFactor"`
+		StartingPosition               string            `json:"StartingPosition"`
+		Topics                         []string          `json:"Topics"`
+		Queues                         []string          `json:"Queues"`
+		FunctionResponseTypes          []string          `json:"FunctionResponseTypes"`
+		FilterCriteria                 map[string]any    `json:"FilterCriteria"`
+		Tags                           map[string]string `json:"Tags"`
+		lambdaESMStreamSettings
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
@@ -107,6 +179,21 @@ func handleLambdaCreateEventSourceMapping(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
+	kinesis := strings.HasPrefix(req.EventSourceArn, "arn:aws:kinesis:")
+	if kinesis {
+		if _, exists := kinesisStreamByNameOrARN("", req.EventSourceArn); !exists {
+			AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+				"Event source does not exist: %s", req.EventSourceArn)
+			return
+		}
+		switch req.StartingPosition {
+		case "TRIM_HORIZON", "LATEST", "AT_TIMESTAMP":
+		default:
+			AWSError(w, "InvalidParameterValueException",
+				"StartingPosition must be TRIM_HORIZON, LATEST or AT_TIMESTAMP for an Amazon Kinesis event source", http.StatusBadRequest)
+			return
+		}
+	}
 
 	uuid := sim.NewUUID()
 	state := "Enabled"
@@ -130,6 +217,13 @@ func handleLambdaCreateEventSourceMapping(w http.ResponseWriter, r *http.Request
 		Queues:                         req.Queues,
 		FunctionResponseTypes:          req.FunctionResponseTypes,
 		FilterCriteria:                 req.FilterCriteria,
+	}
+	req.apply(&esm)
+	if kinesis {
+		lambdaESMStreamDefaults(&esm)
+	}
+	if len(req.Tags) > 0 {
+		lambdaESMTags.Put(uuid, req.Tags)
 	}
 	lambdaESMs.Put(uuid, esm)
 	sim.WriteJSON(w, http.StatusAccepted, esm)
@@ -200,6 +294,7 @@ func handleLambdaUpdateEventSourceMapping(w http.ResponseWriter, r *http.Request
 		ParallelizationFactor          *int           `json:"ParallelizationFactor"`
 		FunctionResponseTypes          []string       `json:"FunctionResponseTypes"`
 		FilterCriteria                 map[string]any `json:"FilterCriteria"`
+		lambdaESMStreamSettings
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
@@ -246,6 +341,7 @@ func handleLambdaUpdateEventSourceMapping(w http.ResponseWriter, r *http.Request
 	if req.FilterCriteria != nil {
 		esm.FilterCriteria = req.FilterCriteria
 	}
+	req.apply(&esm)
 	esm.LastModified = lambdaNowEpoch()
 	esm.StateTransitionReason = "USER_INITIATED"
 	lambdaESMs.Put(uuid, esm)
@@ -261,6 +357,10 @@ func handleLambdaDeleteEventSourceMapping(w http.ResponseWriter, r *http.Request
 		return
 	}
 	lambdaESMs.Delete(uuid)
+	lambdaESMTags.Delete(uuid)
+	for _, shard := range lambdaESMShards.ListPrefix(uuid + "\x00") {
+		lambdaESMShards.Delete(shard.ID)
+	}
 	esm.State = "Deleting"
 	esm.StateTransitionReason = "USER_INITIATED"
 	esm.LastModified = lambdaNowEpoch()
@@ -608,9 +708,37 @@ func handleLambdaPutFunctionConcurrency(w http.ResponseWriter, r *http.Request) 
 			"ReservedConcurrentExecutions is required", http.StatusBadRequest)
 		return
 	}
-	lambdaConcurrency.Put(name, *req.ReservedConcurrentExecutions)
+	reserved := *req.ReservedConcurrentExecutions
+	if reserved < 0 {
+		AWSError(w, "InvalidParameterValueException",
+			"1 validation error detected: Value at 'reservedConcurrentExecutions' failed to satisfy constraint: Member must have value greater than or equal to 0",
+			http.StatusBadRequest)
+		return
+	}
+	current, _ := lambdaConcurrency.Get(name)
+	if lambdaUnreservedConcurrency()+current-reserved < lambdaMinimumUnreservedConcurrency {
+		AWSErrorf(w, "InvalidParameterValueException", http.StatusBadRequest,
+			"Specified ReservedConcurrentExecutions for function decreases account's UnreservedConcurrentExecution below its minimum value of [%d].",
+			lambdaMinimumUnreservedConcurrency)
+		return
+	}
+	// "It's possible to allocate both reserved concurrency and provisioned
+	// concurrency for the same function. In such cases, the provisioned
+	// concurrency cannot exceed the reserved concurrency."
+	provisioned := 0
+	for _, n := range lambdaProvisionedTargets(name) {
+		provisioned += n
+	}
+	if reserved < provisioned {
+		AWSErrorf(w, "InvalidParameterValueException", http.StatusBadRequest,
+			"Specified ReservedConcurrentExecutions for function is less than the %d units of provisioned concurrency configured on its versions and aliases.",
+			provisioned)
+		return
+	}
+	lambdaConcurrency.Put(name, reserved)
+	lambdaEnvironments.reconcile(name)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
-		"ReservedConcurrentExecutions": *req.ReservedConcurrentExecutions,
+		"ReservedConcurrentExecutions": reserved,
 	})
 }
 
@@ -638,6 +766,7 @@ func handleLambdaDeleteFunctionConcurrency(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	lambdaConcurrency.Delete(name)
+	lambdaEnvironments.reconcile(name)
 	w.WriteHeader(http.StatusNoContent)
 }
 

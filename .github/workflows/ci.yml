@@ -71,9 +71,24 @@ jobs:
             timeout_minutes: 6
     steps:
       - uses: actions/checkout@v7.0.1
+      # install-go's own cache restores only an exact go.sum match, so every
+      # pin or dependency move linted the simulators cold — compiling every
+      # dependency and analysing every package from nothing — and a job the
+      # runner lost that way never saved an entry for the next run. This one
+      # falls back to the newest older entry and keeps golangci-lint's own
+      # analysis cache beside the build cache.
       - uses: ./.github/actions/install-go
+      - name: Restore the Go module, build and lint caches for this shard
+        uses: actions/cache@v6.1.0
         with:
-          cache: 'true'
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/.cache/golangci-lint
+          key: lint-go-${{ matrix.shard }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.work', '**/go.sum', '.golangci.yml') }}
+          restore-keys: |
+            lint-go-${{ matrix.shard }}-${{ runner.os }}-${{ runner.arch }}-
+            sim-go-${{ runner.os }}-${{ runner.arch }}-aws-
       - name: Install golangci-lint
         # Built from source through the Go module proxy rather than fetched
         # from the GitHub releases CDN: the install script's own downloader
@@ -1490,6 +1505,10 @@ jobs:
             cloud: aws
             tf_packages: "./sns-delivery-status"
             timeout_minutes: 12
+          - suite: aws AWS Lambda concurrency
+            cloud: aws
+            tf_packages: "./lambda-concurrency"
+            timeout_minutes: 12
           - suite: gcp
             cloud: gcp
             timeout_minutes: 12
@@ -1702,6 +1721,19 @@ jobs:
       # drops one, fails loudly at browser launch naming what is absent.
       - run: cd ui && bunx playwright install chromium
         timeout-minutes: 5
+      # The suites run Chromium in a network namespace of its own, through
+      # pasta, so the bridges and veth pairs the simulators' workloads add to
+      # the engine do not abort its requests with ERR_NETWORK_CHANGED (see
+      # ui/packages/core/e2e/isolated-chromium.sh). The namespace sits inside an
+      # unprivileged user namespace, and Ubuntu 24.04's AppArmor denies
+      # capabilities there to every program without a profile granting them,
+      # which the runner image leaves in force.
+      - name: Install pasta and allow unprivileged user namespaces
+        run: |
+          bash scripts/install-passt.sh
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
       - run: cd "ui/packages/${{ matrix.package }}" && bun run test:e2e
 
   race:
@@ -1910,7 +1942,7 @@ jobs:
         run: cd ui && bun install --frozen-lockfile
       - name: simulators deadcode
         run: bash scripts/simulators-deadcode.sh
-      - name: simulators dupl (Go ≥200 tokens)
+      - name: simulators dupl (Go ≥150 tokens)
         run: bash scripts/simulators-dupl.sh
       - name: simulators knip (dead TS exports)
         run: bash scripts/simulators-knip.sh
@@ -2028,4 +2060,7 @@ jobs:
         run: |
           bash scripts/test-workflow-concurrency.sh
           bash scripts/check-workflow-concurrency.sh
+        timeout-minutes: 5
+      - name: The testing contract tells a moved registration from a new one
+        run: bash scripts/test-check-simulator-tests.sh
         timeout-minutes: 5

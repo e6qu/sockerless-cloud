@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -25,8 +26,8 @@ import (
 // HTTP is involved on the data path.
 func TestELBv2_NLBRawTCPRoundTrip(t *testing.T) {
 	t.Parallel()
-	lbName := uniqueName("nlb-rawtcp")
-	tgName := uniqueName("nlb-rawtcp-tg")
+	lbName := uniquename.New("nlb-rawtcp")
+	tgName := uniquename.New("nlb-rawtcp-tg")
 	elb := elbv2Client()
 	ec2c := ec2Client()
 
@@ -136,8 +137,8 @@ func TestELBv2_NLBRawTCPRoundTrip(t *testing.T) {
 // a Route53 alias target can reference it.
 func TestELBv2_NLBDescribeStableHostname(t *testing.T) {
 	t.Parallel()
-	lbName := uniqueName("nlb-stable")
-	tgName := uniqueName("nlb-stable-tg")
+	lbName := uniquename.New("nlb-stable")
+	tgName := uniquename.New("nlb-stable-tg")
 	elb := elbv2Client()
 	ec2c := ec2Client()
 

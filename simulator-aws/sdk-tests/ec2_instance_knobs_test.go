@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -88,7 +89,7 @@ func TestEC2_InstanceKnobFidelitySDK(t *testing.T) {
 // image/type.
 func TestEC2_RunInstancesAppliesLaunchTemplateSDK(t *testing.T) {
 	t.Parallel()
-	ltName := uniqueName("knob-lt")
+	ltName := uniquename.New("knob-lt")
 	c := ec2Client()
 	vpc, err := c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.131.0.0/16")})
 	require.NoError(t, err)

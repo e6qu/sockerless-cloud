@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,7 +30,7 @@ func TestSSM_CreateCarriesTags(t *testing.T) {
 		assert.Equal(t, "platform", aws.ToString(listed.TagList[0].Value))
 	}
 
-	parameter := uniqueName("/tag-on-create/parameter")
+	parameter := uniquename.New("/tag-on-create/parameter")
 	_, err := c.PutParameter(ctx, &ssm.PutParameterInput{
 		Name: aws.String(parameter), Type: ssmtypes.ParameterTypeString, Value: aws.String("v1"), Tags: tags,
 	})
@@ -42,7 +43,7 @@ func TestSSM_CreateCarriesTags(t *testing.T) {
 	})
 	assertAWSAPIErrorCode(t, err, "ValidationException")
 
-	document := uniqueName("tag-on-create-document")
+	document := uniquename.New("tag-on-create-document")
 	_, err = c.CreateDocument(ctx, &ssm.CreateDocumentInput{
 		Name:           aws.String(document),
 		Content:        aws.String(`{"schemaVersion":"2.2","mainSteps":[{"action":"aws:runShellScript","name":"s","inputs":{"runCommand":["echo hi"]}}]}`),
@@ -72,7 +73,7 @@ func TestSSM_CreateCarriesTags(t *testing.T) {
 	assertTagged(ssmtypes.ResourceTypeForTaggingAutomation, aws.ToString(automation.AutomationExecutionId))
 
 	window, err := c.CreateMaintenanceWindow(ctx, &ssm.CreateMaintenanceWindowInput{
-		Name: aws.String(uniqueName("tag-on-create-window")), Schedule: aws.String("cron(0 16 ? * TUE *)"),
+		Name: aws.String(uniquename.New("tag-on-create-window")), Schedule: aws.String("cron(0 16 ? * TUE *)"),
 		Duration: aws.Int32(4), Cutoff: 1, AllowUnassociatedTargets: true, Tags: tags,
 	})
 	require.NoError(t, err)
@@ -82,7 +83,7 @@ func TestSSM_CreateCarriesTags(t *testing.T) {
 	assertTagged(ssmtypes.ResourceTypeForTaggingMaintenanceWindow, aws.ToString(window.WindowId))
 
 	baseline, err := c.CreatePatchBaseline(ctx, &ssm.CreatePatchBaselineInput{
-		Name: aws.String(uniqueName("tag-on-create-baseline")), OperatingSystem: ssmtypes.OperatingSystemUbuntu,
+		Name: aws.String(uniquename.New("tag-on-create-baseline")), OperatingSystem: ssmtypes.OperatingSystemUbuntu,
 		ApprovedPatches: []string{"patch-1"}, Tags: tags,
 	})
 	require.NoError(t, err)
@@ -99,7 +100,7 @@ func TestSSM_CreateCarriesTags(t *testing.T) {
 	assertTagged(ssmtypes.ResourceTypeForTaggingOpsItem, aws.ToString(opsItem.OpsItemId))
 
 	iamc := iamClient()
-	roleName := uniqueName("SSMTagOnCreateRole")
+	roleName := uniquename.New("SSMTagOnCreateRole")
 	role, err := iamc.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName: aws.String(roleName),
 		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
@@ -108,7 +109,7 @@ func TestSSM_CreateCarriesTags(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = iamc.DeleteRole(ctx, &iam.DeleteRoleInput{RoleName: aws.String(roleName)}) })
 	connector, err := c.CreateCloudConnector(ctx, &ssm.CreateCloudConnectorInput{
-		DisplayName:        aws.String(uniqueName("tag-on-create-connector")),
+		DisplayName:        aws.String(uniquename.New("tag-on-create-connector")),
 		RoleArn:            role.Role.Arn,
 		ConfigConnectorArn: aws.String("arn:aws:config:us-east-1:000000000000:connector/azure"),
 		Configuration: ssmCloudConnectorAzureConfig("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",

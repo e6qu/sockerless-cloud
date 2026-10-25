@@ -6,6 +6,7 @@ import (
 
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"cloud.google.com/go/run/apiv2/runpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -18,7 +19,7 @@ import (
 // the traffic lists first, which takes the rounded-up share.
 func TestSDK_CloudRunV2Services_ServiceScalingIsDividedAmongTheTrafficSplit(t *testing.T) {
 	t.Parallel()
-	serviceID := uniqueName("v2-svc-split")
+	serviceID := uniquename.New("v2-svc-split")
 	tailCtx, cancel := context.WithTimeout(ctx, jobLogWaitTimeout)
 	defer cancel()
 	stream, early := openReadyTail(t, tailCtx, newLoggingV2Client(t), "test-project",

@@ -17,7 +17,6 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -66,7 +65,7 @@ func registerSNSHTTPDelivery(srv *sim.Server) {
 	snsSigningCertPEM = identity.CertificatePEM
 	snsSigningCertName = hex.EncodeToString(sum[:])
 
-	registerSNSHTTPDeliveries(srv)
+	registerSNSDeliveries(srv)
 
 	srv.HandleFunc("GET /SimpleNotificationService-"+snsSigningCertName+".pem", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/x-pem-file")
@@ -121,39 +120,51 @@ func snsSigningCertificateURL(sub SNSSubscription) string {
 		"/SimpleNotificationService-" + snsSigningCertName + ".pem"
 }
 
+// snsDeliverHTTPConfirmation posts the SubscriptionConfirmation message to a
+// new HTTP/S subscription under its delivery policy.
 func snsDeliverHTTPConfirmation(sub SNSSubscription) {
 	envelope := snsConfirmationEnvelope(sub)
-	messageID := snsEnvelopeString(envelope, "MessageId")
-	snsPostHTTP(sub, "SubscriptionConfirmation", envelope, messageID, "")
-}
-
-func snsDeliverHTTPNotification(sub SNSSubscription, messageID, subject, message string, attributes map[string]SQSMessageAttribute) {
-	if strings.EqualFold(sub.Attributes["RawMessageDelivery"], "true") {
-		snsPostHTTP(sub, "Notification", nil, messageID, message)
+	body, err := json.Marshal(envelope)
+	if err != nil {
+		cwEvalLogger.Error().Err(err).Str("endpoint", sub.Endpoint).Msg("Amazon SNS HTTP envelope does not encode")
 		return
 	}
-	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
-	unsubscribeURL := snsControlURL(sub, "Unsubscribe", url.Values{
-		"SubscriptionArn": {sub.ARN},
+	snsTopicBus.Submit(snsSubscriberDelivery{
+		Protocol:        strings.ToLower(sub.Protocol),
+		SubscriptionARN: sub.ARN,
+		Endpoint:        sub.Endpoint,
+		TopicARN:        sub.TopicARN,
+		MessageType:     "SubscriptionConfirmation",
+		MessageID:       snsEnvelopeString(envelope, "MessageId"),
+		MessageMD5:      snsMessageMD5(snsEnvelopeString(envelope, "Message")),
+		Body:            body,
+		Policy:          snsEffectiveHTTPRetryPolicy(sub),
 	})
+}
+
+// snsHTTPNotificationEnvelope is the signed Notification an HTTP/S endpoint
+// receives without raw message delivery.
+func snsHTTPNotificationEnvelope(sub SNSSubscription, m snsMessage) map[string]any {
 	envelope := map[string]any{
 		"Type":             "Notification",
-		"MessageId":        messageID,
+		"MessageId":        m.MessageID,
 		"TopicArn":         sub.TopicARN,
-		"Message":          message,
-		"Timestamp":        timestamp,
+		"Message":          m.Message,
+		"Timestamp":        time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
 		"SignatureVersion": "1",
 		"SigningCertURL":   snsSigningCertificateURL(sub),
-		"UnsubscribeURL":   unsubscribeURL,
+		"UnsubscribeURL": snsControlURL(sub, "Unsubscribe", url.Values{
+			"SubscriptionArn": {sub.ARN},
+		}),
 	}
-	if subject != "" {
-		envelope["Subject"] = subject
+	if m.Subject != "" {
+		envelope["Subject"] = m.Subject
 	}
-	if messageAttributes := snsMessageAttributesEnvelope(attributes); messageAttributes != nil {
+	if messageAttributes := snsMessageAttributesEnvelope(m.Attributes); messageAttributes != nil {
 		envelope["MessageAttributes"] = messageAttributes
 	}
 	envelope["Signature"] = snsSignEnvelope(envelope)
-	snsPostHTTP(sub, "Notification", envelope, messageID, "")
+	return envelope
 }
 
 func snsEnvelopeString(envelope map[string]any, field string) string {
@@ -188,66 +199,7 @@ func snsSignEnvelope(envelope map[string]any) string {
 	return base64.StdEncoding.EncodeToString(signature)
 }
 
-// snsHTTPDelivery is one message Amazon SNS owes an HTTP or HTTPS endpoint.
-type snsHTTPDelivery struct {
-	SubscriptionARN string
-	Endpoint        string
-	TopicARN        string
-	MessageType     string
-	MessageID       string
-	MessageMD5      string
-	Raw             bool
-	Body            []byte
-	Policy          snsRetryPolicy
-	RequestID       string
-}
-
-var snsHTTPDeliveries *delivery.Dispatcher[snsHTTPDelivery]
-
-func registerSNSHTTPDeliveries(srv *sim.Server) {
-	store := sim.MakeStore[delivery.Item[snsHTTPDelivery]](srv.DB(), "sns_http_deliveries")
-	snsHTTPDeliveries = delivery.New(srv, "Amazon SNS HTTP/S deliveries", store, delivery.Handler[snsHTTPDelivery]{
-		Policy: func(d snsHTTPDelivery) delivery.Policy {
-			return delivery.Policy{MaxAttempts: d.Policy.NumRetries + 1, Backoff: d.Policy.delay}
-		},
-		Attempt: snsAttemptHTTP,
-		Finish:  snsFinishHTTP,
-	})
-	snsHTTPDeliveries.Resume()
-}
-
-func snsPostHTTP(sub SNSSubscription, messageType string, envelope map[string]any, messageID, raw string) {
-	d := snsHTTPDelivery{
-		SubscriptionARN: sub.ARN,
-		Endpoint:        sub.Endpoint,
-		TopicARN:        sub.TopicARN,
-		MessageType:     messageType,
-		MessageID:       messageID,
-		Raw:             envelope == nil,
-		Body:            []byte(raw),
-		MessageMD5:      snsMessageMD5(raw),
-		Policy:          snsEffectiveHTTPRetryPolicy(sub),
-		RequestID:       sim.NewUUID(),
-	}
-	if envelope != nil {
-		body, err := json.Marshal(envelope)
-		if err != nil {
-			cwEvalLogger.Error().Err(err).Str("endpoint", sub.Endpoint).Msg("Amazon SNS HTTP envelope does not encode")
-			return
-		}
-		d.Body = body
-		d.MessageID = snsEnvelopeString(envelope, "MessageId")
-		d.TopicARN = snsEnvelopeString(envelope, "TopicArn")
-		d.MessageMD5 = snsMessageMD5(snsEnvelopeString(envelope, "Message"))
-	}
-	snsHTTPDeliveries.Submit(d.RequestID, d)
-}
-
-func snsAttemptHTTP(ctx context.Context, item *delivery.Item[snsHTTPDelivery]) delivery.Outcome {
-	d := item.Payload
-	if _, ok := snsSubscriptions.Get(d.SubscriptionARN); !ok && d.MessageType == "Notification" {
-		return delivery.Permanent(fmt.Errorf("subscription %s no longer exists", d.SubscriptionARN))
-	}
+func snsAttemptHTTP(ctx context.Context, d snsSubscriberDelivery) delivery.Outcome {
 	header := http.Header{}
 	header.Set("Content-Type", "text/plain; charset=UTF-8")
 	header.Set("x-amz-sns-message-type", d.MessageType)
@@ -271,49 +223,6 @@ func snsHTTPStatusClass(status int) delivery.Class {
 		return delivery.Retry
 	}
 	return delivery.Reject
-}
-
-// snsFinishHTTP moves a notification Amazon SNS could not deliver to the
-// subscription's dead-letter queue, carrying the RequestID, ErrorCode and
-// ErrorMessage attributes the service adds.
-func snsFinishHTTP(item delivery.Item[snsHTTPDelivery], reason delivery.Reason) {
-	d := item.Payload
-	if d.MessageType == "Notification" {
-		providerResponse := item.LastResponse
-		if item.LastStatus == 0 {
-			providerResponse = item.LastError
-		}
-		snsRecordDelivery(snsDelivery{
-			TopicARN: d.TopicARN, MessageID: d.MessageID, MessageMD5: d.MessageMD5, PublishedAt: item.EnqueuedAt,
-			Protocol: "http", Destination: d.Endpoint, Delivered: reason == delivery.Succeeded,
-			StatusCode: item.LastStatus, ProviderResponse: providerResponse, Attempts: item.Attempts,
-		})
-	}
-	if reason == delivery.Succeeded {
-		return
-	}
-	cwEvalLogger.Error().Str("endpoint", d.Endpoint).Str("reason", string(reason)).Str("error", item.LastError).
-		Int("attempts", item.Attempts).Msg("Amazon SNS HTTP delivery failed")
-	if d.MessageType != "Notification" {
-		return
-	}
-	sub, ok := snsSubscriptions.Get(d.SubscriptionARN)
-	if !ok {
-		return
-	}
-	dlq := snsRedriveTarget(sub)
-	if dlq == "" {
-		return
-	}
-	errorCode := "EndpointUnavailable"
-	if item.LastStatus != 0 {
-		errorCode = strconv.Itoa(item.LastStatus)
-	}
-	snsDeadLetter(sub, dlq, string(d.Body), map[string]SQSMessageAttribute{
-		"RequestID":    {DataType: "String", StringValue: d.RequestID},
-		"ErrorCode":    {DataType: "String", StringValue: errorCode},
-		"ErrorMessage": {DataType: "String", StringValue: item.LastError},
-	})
 }
 
 // snsRedriveTarget is the dead-letter queue ARN of a subscription's

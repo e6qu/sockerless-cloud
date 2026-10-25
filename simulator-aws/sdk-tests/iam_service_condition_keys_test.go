@@ -17,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +26,7 @@ import (
 // its access key, so a test can call as a principal the policy governs.
 func restrictedCredential(t *testing.T, user, policy string) (akid, secret string) {
 	t.Helper()
-	user = uniqueName(user)
+	user = uniquename.New(user)
 	iamc := iamClient()
 	_, err := iamc.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
@@ -255,8 +256,8 @@ func TestIAM_PermissionsBoundaryConditionKeyScopesTheGrant(t *testing.T) {
 // policy uses to require that everything created be labelled.
 func TestRDS_RequestTagConditionKeyScopesTheGrant(t *testing.T) {
 	t.Parallel()
-	untaggedGroup := uniqueName("cond-untagged-group")
-	taggedGroup := uniqueName("cond-tagged-group")
+	untaggedGroup := uniquename.New("cond-untagged-group")
+	taggedGroup := uniquename.New("cond-tagged-group")
 	akid, secret := restrictedCredential(t, "rds-must-tag-env",
 		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",
 		  "Action":["rds:CreateDBParameterGroup","rds:AddTagsToResource"],

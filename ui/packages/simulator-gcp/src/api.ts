@@ -226,6 +226,14 @@ export interface GCSBucket {
   timeCreated?: string;
   updated?: string;
   labels?: Record<string, string>;
+  locationType?: string;
+  projectNumber?: string;
+  iamConfiguration?: {
+    uniformBucketLevelAccess?: { enabled?: boolean };
+    publicAccessPrevention?: string;
+  };
+  softDeletePolicy?: { retentionDurationSeconds?: string };
+  versioning?: { enabled?: boolean };
 }
 
 // The real Cloud Storage object resource (storage#object).
@@ -266,6 +274,7 @@ export interface LogEntry {
   severity?: LogSeverity;
   textPayload?: string;
   jsonPayload?: Record<string, unknown>;
+  protoPayload?: AuditLogPayload;
   insertId?: string;
   resource?: LogEntryResource;
   labels?: Record<string, string>;
@@ -357,22 +366,6 @@ export const fetchARRepos = async (project: string): Promise<ARRepo[]> =>
 export const fetchARRepo = (project: string, name: string): Promise<ARRepo> =>
   authorizedJSON<ARRepo>(`${repositoriesParent(project)}/${name}`);
 
-// projects.locations.repositories.create — a long-running operation. The
-// simulator (like real Artifact Registry for a plain repository create)
-// settles it synchronously and returns it already `done`, but the console
-// drives it through the same operations.get poll loop a real client uses
-// (waitArOperation below) rather than assuming immediate completion.
-export const createARRepository = (
-  project: string,
-  location: string,
-  repositoryId: string,
-  format = "DOCKER",
-): Promise<CrmOperation> =>
-  authorizedJSONPost<CrmOperation>(
-    `/v1/projects/${project}/locations/${location}/repositories?repositoryId=${encodeURIComponent(repositoryId)}`,
-    { format },
-  );
-
 // operations.get for the /v1/projects/.../locations/.../operations/{id}
 // collection Artifact Registry (and Cloud Run Jobs/Services) LROs live
 // under — distinct from the Cloud Resource Manager v3 operations collection
@@ -421,12 +414,6 @@ export const fetchARImages = async (project: string, repo: string): Promise<ARDo
 export const fetchGCSBuckets = async (project: string): Promise<GCSBucket[]> =>
   (await authorizedJSON<{ items?: GCSBucket[] }>(`/storage/v1/b?project=${project}`)).items ?? [];
 
-// storage.buckets.insert — the wire body is just `{ "name": <name> }`; the
-// simulator (and real GCS) fill in the rest (id, selfLink, timeCreated,
-// location defaulting to "US", storageClass defaulting to "STANDARD").
-export const createGCSBucket = (project: string, name: string): Promise<GCSBucket> =>
-  authorizedJSONPost<GCSBucket>(`/storage/v1/b?project=${encodeURIComponent(project)}`, { name });
-
 // Bucket names are global in Cloud Storage; the read addresses the bucket
 // directly, without a project segment.
 export const fetchGCSBucket = (name: string): Promise<GCSBucket> =>
@@ -447,10 +434,6 @@ export const updateGCSBucket = (
   name: string,
   patch: { labels?: Record<string, string | null>; storageClass?: string },
 ): Promise<GCSBucket> => authorizedJSONPatch<GCSBucket>(`/storage/v1/b/${name}`, patch);
-
-// objects.list — the bucket's stored objects, the real console's "Objects" tab.
-export const fetchGCSObjects = async (bucket: string): Promise<GCSObject[]> =>
-  (await authorizedJSON<{ items?: GCSObject[] }>(`/storage/v1/b/${bucket}/o`)).items ?? [];
 
 // The real IAM ServiceAccount resource (iam.googleapis.com v1), as the API
 // returns it.
@@ -721,13 +704,9 @@ export const stopComputeInstance = (project: string, zone: string, name: string)
 export const deleteComputeInstance = (project: string, zone: string, name: string): Promise<ComputeOperation> =>
   authorizedJSONDelete<ComputeOperation>(`${computeParent(project)}/zones/${zone}/instances/${name}`);
 
-export const fetchComputeZoneOperation = (project: string, zone: string, name: string): Promise<ComputeOperation> =>
-  authorizedJSON<ComputeOperation>(`${computeParent(project)}/zones/${zone}/operations/${name}`);
-
 // waitComputeZoneOperation drives a zonal Compute Engine Operation to
-// completion the way gcloud and terraform-provider-google do: poll
-// zoneOperations.get until status is DONE, then surface the operation's own
-// error. Never assumes a returned operation already settled.
+// completion through zoneOperations.wait, which blocks until the operation is
+// DONE or its own deadline passes, then surfaces the operation's own error.
 export const waitComputeZoneOperation = async (
   project: string,
   zone: string,
@@ -735,8 +714,10 @@ export const waitComputeZoneOperation = async (
 ): Promise<ComputeOperation> => {
   let current = operation;
   while (current.status !== "DONE") {
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    current = await fetchComputeZoneOperation(project, zone, current.name);
+    current = await authorizedJSONPost<ComputeOperation>(
+      `${computeParent(project)}/zones/${zone}/operations/${current.name}/wait`,
+      {},
+    );
   }
   const failure = current.error?.errors?.[0];
   if (failure) {
@@ -1305,26 +1286,8 @@ export const fetchPubSubSubscriptions = async (project: string): Promise<PubSubS
   (await authorizedJSON<{ subscriptions?: PubSubSubscription[] }>(`${pubsubParent(project)}/subscriptions`))
     .subscriptions ?? [];
 
-// projects.topics.create is a PUT on the topic's own resource name — the
-// method Pub/Sub uses instead of POST-to-collection.
-export const createPubSubTopic = (project: string, topic: string): Promise<PubSubTopic> =>
-  authorizedJSONPut<PubSubTopic>(`${pubsubParent(project)}/topics/${topic}`, {});
-
 export const deletePubSubTopic = (project: string, topic: string): Promise<unknown> =>
   authorizedJSONDelete(`${pubsubParent(project)}/topics/${topic}`);
-
-// projects.subscriptions.create is likewise a PUT on the subscription's name;
-// the body carries the topic it attaches to.
-export const createPubSubSubscription = (
-  project: string,
-  subscription: string,
-  topic: string,
-  ackDeadlineSeconds: number,
-): Promise<PubSubSubscription> =>
-  authorizedJSONPut<PubSubSubscription>(`${pubsubParent(project)}/subscriptions/${subscription}`, {
-    topic: `projects/${project}/topics/${topic}`,
-    ackDeadlineSeconds,
-  });
 
 export const deletePubSubSubscription = (project: string, subscription: string): Promise<unknown> =>
   authorizedJSONDelete(`${pubsubParent(project)}/subscriptions/${subscription}`);
@@ -1624,13 +1587,6 @@ export const fetchSecret = (project: string, secret: string): Promise<SecretReso
 export const fetchSecretVersions = async (project: string, secret: string): Promise<SecretVersion[]> =>
   (await authorizedJSON<{ versions?: SecretVersion[] }>(`${secretsParent(project)}/${secret}/versions`)).versions ?? [];
 
-// projects.secrets.create — POST ?secretId=, synchronous; the body carries the
-// replication policy the real API requires.
-export const createSecret = (project: string, secretId: string): Promise<SecretResource> =>
-  authorizedJSONPost<SecretResource>(`${secretsParent(project)}?secretId=${encodeURIComponent(secretId)}`, {
-    replication: { automatic: {} },
-  });
-
 export const deleteSecret = (project: string, secret: string): Promise<unknown> =>
   authorizedJSONDelete(`${secretsParent(project)}/${secret}`);
 
@@ -1638,7 +1594,7 @@ export const deleteSecret = (project: string, secret: string): Promise<unknown> 
 // real API and `gcloud secrets versions add` send it.
 export const addSecretVersion = (project: string, secret: string, value: string): Promise<SecretVersion> =>
   authorizedJSONPost<SecretVersion>(`${secretsParent(project)}/${secret}:addVersion`, {
-    payload: { data: btoa(value) },
+    payload: { data: encodeBase64(value) },
   });
 
 // ---------------------------------------------------------------------------
@@ -1678,3 +1634,563 @@ export const setProjectIamPolicy = (project: string, policy: IamPolicy): Promise
 // roles.list — the predefined roles a grant can name.
 export const fetchIamRoles = async (): Promise<IamRole[]> =>
   (await authorizedJSON<{ roles?: IamRole[] }>("/v1/roles")).roles ?? [];
+
+// A write a create page sends and shows under Equivalent code.
+export interface ApiRequest {
+  method: "POST" | "PUT" | "PATCH";
+  path: string;
+  body: unknown;
+}
+
+export const sendRequest = <T>(request: ApiRequest): Promise<T> =>
+  request.method === "POST"
+    ? authorizedJSONPost<T>(request.path, request.body)
+    : request.method === "PUT"
+      ? authorizedJSONPut<T>(request.path, request.body)
+      : authorizedJSONPatch<T>(request.path, request.body);
+
+// ---------------------------------------------------------------------------
+// Cloud Audit Logs, Cloud Resource Manager projects.get
+// ---------------------------------------------------------------------------
+
+// The Cloud Audit Logs payload (google.cloud.audit.AuditLog) an Admin Activity
+// entry carries in protoPayload.
+export interface AuditLogPayload {
+  "@type"?: string;
+  methodName?: string;
+  serviceName?: string;
+  resourceName?: string;
+  authenticationInfo?: { principalEmail?: string; principalSubject?: string };
+  status?: { code?: number; message?: string };
+}
+
+// The project's Admin Activity audit log, newest first: what the real
+// console's Activity page lists.
+export const fetchActivity = (project: string): Promise<LogEntry[]> =>
+  fetchLogEntries(project, `logName="projects/${project}/logs/cloudaudit.googleapis.com%2Factivity"`);
+
+export const fetchProject = (projectId: string): Promise<CrmProject> =>
+  authorizedJSON<CrmProject>(`/v3/projects/${projectId}`);
+
+// ---------------------------------------------------------------------------
+// Cloud Run services (run.googleapis.com/v2)
+// ---------------------------------------------------------------------------
+
+// google.longrunning WaitOperation on Cloud Run's operation collection: the
+// call blocks until the operation is done or the timeout passes.
+export const waitRunOperation = async (operation: CrmOperation): Promise<CrmOperation> => {
+  let current = operation;
+  while (!current.done) {
+    current = await authorizedJSONPost<CrmOperation>(`/v2/${current.name}:wait`, { timeout: "60s" });
+  }
+  if (current.error) throw new Error(current.error.message ?? `operation ${current.name} failed`);
+  return current;
+};
+
+export interface CloudRunService {
+  name: string;
+  uid?: string;
+  description?: string;
+  uri?: string;
+  urls?: string[];
+  creator?: string;
+  lastModifier?: string;
+  createTime?: string;
+  updateTime?: string;
+  ingress?: string;
+  launchStage?: string;
+  labels?: Record<string, string>;
+  reconciling?: boolean;
+  latestReadyRevision?: string;
+  latestCreatedRevision?: string;
+  terminalCondition?: CloudRunJobCondition;
+  conditions?: CloudRunJobCondition[];
+  traffic?: { type?: string; revision?: string; percent?: number }[];
+  template?: {
+    serviceAccount?: string;
+    timeout?: string;
+    maxInstanceRequestConcurrency?: number;
+    scaling?: { minInstanceCount?: number; maxInstanceCount?: number };
+    containers?: (CloudRunContainer & {
+      ports?: { containerPort?: number }[];
+      resources?: { limits?: Record<string, string> };
+    })[];
+  };
+}
+
+export interface CloudRunRevision {
+  name: string;
+  createTime?: string;
+  conditions?: CloudRunJobCondition[];
+  containers?: CloudRunContainer[];
+}
+
+const servicesParent = (project: string, region = CONSOLE_REGION) =>
+  `/v2/projects/${project}/locations/${region}/services`;
+
+export const fetchCloudRunServices = async (project: string): Promise<CloudRunService[]> =>
+  (await authorizedJSON<{ services?: CloudRunService[] }>(servicesParent(project))).services ?? [];
+
+export const fetchCloudRunService = (project: string, region: string, name: string): Promise<CloudRunService> =>
+  authorizedJSON<CloudRunService>(`${servicesParent(project, region)}/${name}`);
+
+export const fetchCloudRunRevisions = async (
+  project: string,
+  region: string,
+  name: string,
+): Promise<CloudRunRevision[]> =>
+  (await authorizedJSON<{ revisions?: CloudRunRevision[] }>(`${servicesParent(project, region)}/${name}/revisions`))
+    .revisions ?? [];
+
+export const deleteCloudRunService = (project: string, region: string, name: string): Promise<CrmOperation> =>
+  authorizedJSONDelete<CrmOperation>(`${servicesParent(project, region)}/${name}`);
+
+export interface CloudRunServiceConfig {
+  image: string;
+  port: number;
+  minInstances: number;
+  maxInstances: number;
+  ingress: string;
+  env: CloudRunEnvVar[];
+}
+
+// projects.locations.services.create — POST ?serviceId=, a long-running operation.
+export const cloudRunServiceRequest = (
+  project: string,
+  region: string,
+  serviceId: string,
+  config: CloudRunServiceConfig,
+): ApiRequest => ({
+  method: "POST",
+  path: `${servicesParent(project, region)}?serviceId=${encodeURIComponent(serviceId)}`,
+  body: {
+    ingress: config.ingress,
+    template: {
+      scaling: { minInstanceCount: config.minInstances, maxInstanceCount: config.maxInstances },
+      containers: [
+        {
+          image: config.image,
+          ports: [{ containerPort: config.port }],
+          ...(config.env.length > 0 ? { env: config.env } : {}),
+        },
+      ],
+    },
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Compute Engine: the catalog the Create an instance page offers, and writes
+// ---------------------------------------------------------------------------
+
+export interface ComputeZone {
+  name: string;
+  region?: string;
+  status?: string;
+}
+
+export interface ComputeMachineType {
+  name: string;
+  architecture?: string;
+  description?: string;
+  guestCpus?: number;
+  memoryMb?: number;
+}
+
+export interface ComputeImage {
+  name: string;
+  architecture?: string;
+  family?: string;
+  selfLink?: string;
+  description?: string;
+  deprecated?: { state?: string };
+}
+
+export const fetchComputeZones = async (project: string): Promise<ComputeZone[]> =>
+  (await authorizedJSON<{ items?: ComputeZone[] }>(`${computeParent(project)}/zones`)).items ?? [];
+
+export const fetchMachineTypes = async (project: string, zone: string): Promise<ComputeMachineType[]> =>
+  (await authorizedJSON<{ items?: ComputeMachineType[] }>(`${computeParent(project)}/zones/${zone}/machineTypes`))
+    .items ?? [];
+
+// images.list on a public image project, as the boot disk picker lists an
+// operating system's images.
+export const fetchPublicImages = async (imageProject: string): Promise<ComputeImage[]> =>
+  (await authorizedJSON<{ items?: ComputeImage[] }>(`/compute/v1/projects/${imageProject}/global/images`)).items ?? [];
+
+export interface ComputeInstanceConfig {
+  name: string;
+  zone: string;
+  machineType: string;
+  sourceImage: string;
+  diskSizeGb: number;
+  diskType: string;
+  network: string;
+  labels: Record<string, string>;
+  externalIp: boolean;
+}
+
+// instances.insert with the body gcloud compute instances create sends: a
+// boot disk initialized from the image and one interface on the network.
+export const computeInstanceRequest = (project: string, config: ComputeInstanceConfig): ApiRequest => ({
+  method: "POST",
+  path: `${computeParent(project)}/zones/${config.zone}/instances`,
+  body: {
+    name: config.name,
+    machineType: `zones/${config.zone}/machineTypes/${config.machineType}`,
+    ...(Object.keys(config.labels).length > 0 ? { labels: config.labels } : {}),
+    disks: [
+      {
+        boot: true,
+        autoDelete: true,
+        initializeParams: {
+          sourceImage: config.sourceImage,
+          diskSizeGb: String(config.diskSizeGb),
+          diskType: `zones/${config.zone}/diskTypes/${config.diskType}`,
+        },
+      },
+    ],
+    networkInterfaces: [
+      {
+        network: `global/networks/${config.network}`,
+        ...(config.externalIp ? { accessConfigs: [{ name: "External NAT", type: "ONE_TO_ONE_NAT" }] } : {}),
+      },
+    ],
+  },
+});
+
+export const deleteComputeDisk = (project: string, zone: string, name: string): Promise<ComputeOperation> =>
+  authorizedJSONDelete<ComputeOperation>(`${computeParent(project)}/zones/${zone}/disks/${name}`);
+
+// ---------------------------------------------------------------------------
+// Cloud Storage: Create a bucket, and the Objects tab
+// ---------------------------------------------------------------------------
+
+export interface GCSBucketConfig {
+  name: string;
+  location: string;
+  storageClass: string;
+  uniformAccess: boolean;
+  publicAccessPrevention: boolean;
+  labels: Record<string, string>;
+}
+
+export const gcsBucketRequest = (project: string, config: GCSBucketConfig): ApiRequest => ({
+  method: "POST",
+  path: `/storage/v1/b?project=${encodeURIComponent(project)}`,
+  body: {
+    name: config.name,
+    location: config.location,
+    storageClass: config.storageClass,
+    ...(Object.keys(config.labels).length > 0 ? { labels: config.labels } : {}),
+    iamConfiguration: {
+      uniformBucketLevelAccess: { enabled: config.uniformAccess },
+      publicAccessPrevention: config.publicAccessPrevention ? "enforced" : "inherited",
+    },
+  },
+});
+
+// objects.insert as a simple media upload: the request body is the object's
+// bytes, and its content type the object's.
+export const uploadGCSObject = async (bucket: string, name: string, file: Blob): Promise<GCSObject> => {
+  const path = `/upload/storage/v1/b/${bucket}/o?uploadType=media&name=${encodeURIComponent(name)}`;
+  const response = await authorizedFetch(path, {
+    method: "POST",
+    headers: { "Content-Type": file.type || "application/octet-stream" },
+    body: file,
+  });
+  if (!response.ok) throw new Error(`${path} returned HTTP ${response.status}: ${await response.text()}`);
+  return (await response.json()) as GCSObject;
+};
+
+export const deleteGCSObject = (bucket: string, name: string): Promise<void> =>
+  authorizedJSONDelete<void>(`/storage/v1/b/${bucket}/o/${encodeURIComponent(name)}`);
+
+// objects.get with alt=media: the object's own bytes.
+export const downloadGCSObject = async (bucket: string, name: string): Promise<Blob> => {
+  const path = `/storage/v1/b/${bucket}/o/${encodeURIComponent(name)}?alt=media`;
+  const response = await authorizedFetch(path);
+  if (!response.ok) throw new Error(`${path} returned HTTP ${response.status}`);
+  return response.blob();
+};
+
+export const fetchBucketIamPolicy = (bucket: string): Promise<IamPolicy> =>
+  authorizedJSON<IamPolicy>(`/storage/v1/b/${bucket}/iam`);
+
+// ---------------------------------------------------------------------------
+// Pub/Sub messaging: publish to a topic, pull from and acknowledge on a
+// subscription
+// ---------------------------------------------------------------------------
+
+export interface PubSubReceivedMessage {
+  ackId: string;
+  message: { data?: string; messageId?: string; publishTime?: string; attributes?: Record<string, string> };
+  deliveryAttempt?: number;
+}
+
+export const fetchPubSubSubscription = (project: string, subscription: string): Promise<PubSubSubscription> =>
+  authorizedJSON<PubSubSubscription>(`${pubsubParent(project)}/subscriptions/${subscription}`);
+
+export const encodeBase64 = (value: string): string => btoa(String.fromCharCode(...new TextEncoder().encode(value)));
+
+export const decodeBase64 = (value: string): string =>
+  new TextDecoder().decode(Uint8Array.from(atob(value), (char) => char.charCodeAt(0)));
+
+export const publishPubSubMessage = (
+  project: string,
+  topic: string,
+  data: string,
+  attributes: Record<string, string>,
+): Promise<{ messageIds: string[] }> =>
+  authorizedJSONPost<{ messageIds: string[] }>(`${pubsubParent(project)}/topics/${topic}:publish`, {
+    messages: [{ data: encodeBase64(data), ...(Object.keys(attributes).length > 0 ? { attributes } : {}) }],
+  });
+
+export const pullPubSubMessages = async (
+  project: string,
+  subscription: string,
+  maxMessages: number,
+): Promise<PubSubReceivedMessage[]> =>
+  (
+    await authorizedJSONPost<{ receivedMessages?: PubSubReceivedMessage[] }>(
+      `${pubsubParent(project)}/subscriptions/${subscription}:pull`,
+      { maxMessages },
+    )
+  ).receivedMessages ?? [];
+
+export const acknowledgePubSubMessages = (project: string, subscription: string, ackIds: string[]): Promise<unknown> =>
+  authorizedJSONPost(`${pubsubParent(project)}/subscriptions/${subscription}:acknowledge`, { ackIds });
+
+// ---------------------------------------------------------------------------
+// Secret Manager: create with a replication policy, read and act on versions
+// ---------------------------------------------------------------------------
+
+export interface SecretCreateConfig {
+  secretId: string;
+  locations: string[];
+  labels: Record<string, string>;
+}
+
+export const secretRequest = (project: string, config: SecretCreateConfig): ApiRequest => ({
+  method: "POST",
+  path: `${secretsParent(project)}?secretId=${encodeURIComponent(config.secretId)}`,
+  body: {
+    replication:
+      config.locations.length > 0
+        ? { userManaged: { replicas: config.locations.map((location) => ({ location })) } }
+        : { automatic: {} },
+    ...(Object.keys(config.labels).length > 0 ? { labels: config.labels } : {}),
+  },
+});
+
+export const accessSecretVersion = async (project: string, secret: string, version: string): Promise<string> => {
+  const result = await authorizedJSON<{ payload?: { data?: string } }>(
+    `${secretsParent(project)}/${secret}/versions/${version}:access`,
+  );
+  return decodeBase64(result.payload?.data ?? "");
+};
+
+export const changeSecretVersionState = (
+  project: string,
+  secret: string,
+  version: string,
+  action: "enable" | "disable" | "destroy",
+): Promise<SecretVersion> =>
+  authorizedJSONPost<SecretVersion>(`${secretsParent(project)}/${secret}/versions/${version}:${action}`, {});
+
+// ---------------------------------------------------------------------------
+// Workforce Identity Federation (iam.googleapis.com/v1)
+// ---------------------------------------------------------------------------
+
+export interface WorkforcePool {
+  name: string;
+  displayName?: string;
+  description?: string;
+  state?: string;
+  disabled?: boolean;
+  parent?: string;
+  sessionDuration?: string;
+}
+
+export interface WorkforcePoolProvider {
+  name: string;
+  displayName?: string;
+  state?: string;
+  disabled?: boolean;
+  attributeMapping?: Record<string, string>;
+  oidc?: { issuerUri?: string; clientId?: string };
+  saml?: { idpMetadataXml?: string };
+}
+
+export const fetchWorkforcePools = async (organization: string): Promise<WorkforcePool[]> =>
+  (
+    await authorizedJSON<{ workforcePools?: WorkforcePool[] }>(
+      `/v1/locations/global/workforcePools?parent=${encodeURIComponent(organization)}`,
+    )
+  ).workforcePools ?? [];
+
+export const fetchWorkforcePoolProviders = async (pool: string): Promise<WorkforcePoolProvider[]> =>
+  (await authorizedJSON<{ workforcePoolProviders?: WorkforcePoolProvider[] }>(`/v1/${pool}/providers`))
+    .workforcePoolProviders ?? [];
+
+// ---------------------------------------------------------------------------
+// VPC networks: create and delete
+// ---------------------------------------------------------------------------
+
+export interface VpcNetworkConfig {
+  name: string;
+  description: string;
+  autoCreateSubnetworks: boolean;
+  routingMode: "REGIONAL" | "GLOBAL";
+  mtu: number;
+}
+
+export const vpcNetworkRequest = (project: string, config: VpcNetworkConfig): ApiRequest => ({
+  method: "POST",
+  path: `${computeParent(project)}/global/networks`,
+  body: {
+    name: config.name,
+    ...(config.description ? { description: config.description } : {}),
+    autoCreateSubnetworks: config.autoCreateSubnetworks,
+    routingConfig: { routingMode: config.routingMode },
+    mtu: config.mtu,
+  },
+});
+
+export interface SubnetConfig {
+  name: string;
+  region: string;
+  ipCidrRange: string;
+}
+
+export const subnetworkRequest = (project: string, network: string, subnet: SubnetConfig): ApiRequest => ({
+  method: "POST",
+  path: `${computeParent(project)}/regions/${subnet.region}/subnetworks`,
+  body: { name: subnet.name, network: `global/networks/${network}`, ipCidrRange: subnet.ipCidrRange },
+});
+
+// globalOperations.wait and regionOperations.wait block until the operation
+// is DONE or their own deadline passes.
+export const waitComputeOperation = async (
+  project: string,
+  scope: string,
+  operation: ComputeOperation,
+): Promise<ComputeOperation> => {
+  let current = operation;
+  while (current.status !== "DONE") {
+    current = await authorizedJSONPost<ComputeOperation>(`${computeParent(project)}/${scope}/operations/${current.name}/wait`, {});
+  }
+  const failure = current.error?.errors?.[0];
+  if (failure) throw new Error(failure.message ?? `operation ${current.name} failed`);
+  return current;
+};
+
+export const deleteComputeNetwork = (project: string, name: string): Promise<ComputeOperation> =>
+  authorizedJSONDelete<ComputeOperation>(`${computeParent(project)}/global/networks/${name}`);
+
+// objects.list with a prefix and the "/" delimiter: the objects at one level
+// of the bucket's folder hierarchy and the folder prefixes beneath it, as the
+// Objects tab browses them.
+export const fetchGCSObjectLevel = async (
+  bucket: string,
+  prefix: string,
+): Promise<{ objects: GCSObject[]; prefixes: string[] }> => {
+  const params = new URLSearchParams({ delimiter: "/" });
+  if (prefix) params.set("prefix", prefix);
+  const page = await authorizedJSON<{ items?: GCSObject[]; prefixes?: string[] }>(`/storage/v1/b/${bucket}/o?${params}`);
+  return { objects: (page.items ?? []).filter((object) => object.name !== prefix), prefixes: page.prefixes ?? [] };
+};
+
+// projects.topics.create, a PUT on the topic's own resource name.
+export const pubsubTopicRequest = (project: string, topicId: string, retentionSeconds?: number): ApiRequest => ({
+  method: "PUT",
+  path: `${pubsubParent(project)}/topics/${topicId}`,
+  body: retentionSeconds ? { messageRetentionDuration: `${retentionSeconds}s` } : {},
+});
+
+export interface PubSubSubscriptionConfig {
+  topic: string;
+  ackDeadlineSeconds: number;
+  retentionSeconds: number;
+  retainAckedMessages: boolean;
+  pushEndpoint: string;
+}
+
+// projects.subscriptions.create, a PUT on the subscription's resource name.
+export const pubsubSubscriptionRequest = (
+  project: string,
+  subscriptionId: string,
+  config: PubSubSubscriptionConfig,
+): ApiRequest => ({
+  method: "PUT",
+  path: `${pubsubParent(project)}/subscriptions/${subscriptionId}`,
+  body: {
+    topic: `projects/${project}/topics/${config.topic}`,
+    ackDeadlineSeconds: config.ackDeadlineSeconds,
+    messageRetentionDuration: `${config.retentionSeconds}s`,
+    retainAckedMessages: config.retainAckedMessages,
+    ...(config.pushEndpoint ? { pushConfig: { pushEndpoint: config.pushEndpoint } } : {}),
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Cloud Scheduler (cloudscheduler.googleapis.com/v1)
+// ---------------------------------------------------------------------------
+
+export interface SchedulerJob {
+  name: string;
+  description?: string;
+  schedule?: string;
+  timeZone?: string;
+  state?: "ENABLED" | "PAUSED" | "DISABLED" | "UPDATE_FAILED" | string;
+  status?: { code?: number; message?: string };
+  scheduleTime?: string;
+  lastAttemptTime?: string;
+  userUpdateTime?: string;
+  attemptDeadline?: string;
+  pubsubTarget?: { topicName?: string; data?: string; attributes?: Record<string, string> };
+  httpTarget?: { uri?: string; httpMethod?: string; body?: string; headers?: Record<string, string> };
+}
+
+const schedulerParent = (project: string, location = CONSOLE_REGION) =>
+  `/v1/projects/${project}/locations/${location}/jobs`;
+
+export const fetchSchedulerJobs = async (project: string): Promise<SchedulerJob[]> =>
+  (await authorizedJSON<{ jobs?: SchedulerJob[] }>(schedulerParent(project))).jobs ?? [];
+
+export interface SchedulerJobConfig {
+  name: string;
+  description: string;
+  schedule: string;
+  timeZone: string;
+  target: "http" | "pubsub";
+  uri: string;
+  httpMethod: string;
+  topic: string;
+  body: string;
+}
+
+export const schedulerJobRequest = (project: string, config: SchedulerJobConfig): ApiRequest => ({
+  method: "POST",
+  path: schedulerParent(project),
+  body: {
+    name: `projects/${project}/locations/${CONSOLE_REGION}/jobs/${config.name}`,
+    ...(config.description ? { description: config.description } : {}),
+    schedule: config.schedule,
+    timeZone: config.timeZone,
+    ...(config.target === "http"
+      ? {
+          httpTarget: {
+            uri: config.uri,
+            httpMethod: config.httpMethod,
+            ...(config.body ? { body: encodeBase64(config.body) } : {}),
+          },
+        }
+      : { pubsubTarget: { topicName: `projects/${project}/topics/${config.topic}`, data: encodeBase64(config.body) } }),
+  },
+});
+
+// jobs.run, jobs.pause and jobs.resume: custom methods on the job.
+export const schedulerJobAction = (jobName: string, action: "run" | "pause" | "resume"): Promise<SchedulerJob> =>
+  authorizedJSONPost<SchedulerJob>(`/v1/${jobName}:${action}`, {});
+
+export const deleteSchedulerJob = (jobName: string): Promise<unknown> => authorizedJSONDelete(`/v1/${jobName}`);

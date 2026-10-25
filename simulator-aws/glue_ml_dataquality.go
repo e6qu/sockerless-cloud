@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
 	"strings"
 
@@ -284,7 +283,7 @@ func handleGlueCreateMLTransform(w http.ResponseWriter, r *http.Request) {
 		MaxRetries        *int              `json:"MaxRetries"`
 		Tags              map[string]string `json:"Tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -328,7 +327,7 @@ func handleGlueGetMLTransform(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TransformId string `json:"TransformId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -346,57 +345,11 @@ func handleGlueGetMLTransform(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGlueGetMLTransforms(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		NextToken  string `json:"NextToken"`
-		MaxResults *int   `json:"MaxResults"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
-		glueWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-	all := glueMLTransforms.List()
-	maxR := 0
-	if req.MaxResults != nil {
-		maxR = *req.MaxResults
-	}
-	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, all, func(it GlueMLTransform) string { return it.TransformId }, req.NextToken, maxR, 100)
-	if !pageOK {
-		return
-	}
-	transforms := make([]glueMLTransformWire, 0, len(page))
-	for _, t := range page {
-		transforms = append(transforms, glueMLTransformWire{t})
-	}
-	resp := map[string]any{"Transforms": transforms}
-	if nextTok != "" {
-		resp["NextToken"] = nextTok
-	}
-	glueWriteJSON(w, http.StatusOK, resp)
+	gluePage(w, r, glueMLTransforms.List, func(it GlueMLTransform) string { return it.TransformId }, func(it GlueMLTransform) any { return glueMLTransformWire{it} }, "Transforms", 100)
 }
 
 func handleGlueListMLTransforms(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		NextToken  string `json:"NextToken"`
-		MaxResults *int   `json:"MaxResults"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
-		glueWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-	all := glueMLTransforms.List()
-	ids := make([]string, 0, len(all))
-	for _, t := range all {
-		ids = append(ids, t.TransformId)
-	}
-	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, ids, func(it string) string { return it }, req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"TransformIds": page}
-	if nextTok != "" {
-		resp["NextToken"] = nextTok
-	}
-	glueWriteJSON(w, http.StatusOK, resp)
+	glueListNames(w, r, glueMLTransforms, func(it GlueMLTransform) string { return it.TransformId }, "TransformIds", 100)
 }
 
 func handleGlueUpdateMLTransform(w http.ResponseWriter, r *http.Request) {
@@ -413,7 +366,7 @@ func handleGlueUpdateMLTransform(w http.ResponseWriter, r *http.Request) {
 		Timeout         *int           `json:"Timeout"`
 		MaxRetries      *int           `json:"MaxRetries"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -468,7 +421,7 @@ func handleGlueDeleteMLTransform(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TransformId string `json:"TransformId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -493,7 +446,7 @@ func handleGlueCreateDataQualityRuleset(w http.ResponseWriter, r *http.Request) 
 		TargetTable                      map[string]any    `json:"TargetTable"`
 		DataQualitySecurityConfiguration string            `json:"DataQualitySecurityConfiguration"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -532,7 +485,7 @@ func handleGlueGetDataQualityRuleset(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"Name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -567,7 +520,7 @@ func handleGlueListDataQualityRulesets(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"NextToken"`
 		MaxResults *int   `json:"MaxResults"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -610,7 +563,7 @@ func handleGlueUpdateDataQualityRuleset(w http.ResponseWriter, r *http.Request) 
 		Description string `json:"Description"`
 		Ruleset     string `json:"Ruleset"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -645,7 +598,7 @@ func handleGlueDeleteDataQualityRuleset(w http.ResponseWriter, r *http.Request) 
 	var req struct {
 		Name string `json:"Name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -679,7 +632,7 @@ func handleGlueStartDataQualityRulesetEvaluationRun(w http.ResponseWriter, r *ht
 		AdditionalRunOptions map[string]any `json:"AdditionalRunOptions"`
 		RulesetNames         []string       `json:"RulesetNames"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -744,7 +697,7 @@ func handleGlueGetDataQualityRulesetEvaluationRun(w http.ResponseWriter, r *http
 	var req struct {
 		RunId string `json:"RunId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -760,7 +713,7 @@ func handleGlueCancelDataQualityRulesetEvaluationRun(w http.ResponseWriter, r *h
 	var req struct {
 		RunId string `json:"RunId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -782,36 +735,9 @@ func handleGlueCancelDataQualityRulesetEvaluationRun(w http.ResponseWriter, r *h
 }
 
 func handleGlueListDataQualityRulesetEvaluationRuns(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		NextToken  string `json:"NextToken"`
-		MaxResults *int   `json:"MaxResults"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
-		glueWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-	all := glueDQEvalRuns.List()
-	runs := make([]map[string]any, 0, len(all))
-	for _, run := range all {
-		d := map[string]any{
-			"RunId":     run.RunId,
-			"Status":    run.Status,
-			"StartedOn": run.StartedOn,
-		}
-		if run.DataSource != nil {
-			d["DataSource"] = run.DataSource
-		}
-		runs = append(runs, d)
-	}
-	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, runs, awsFieldKey("RunId"), req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"Runs": page}
-	if nextTok != "" {
-		resp["NextToken"] = nextTok
-	}
-	glueWriteJSON(w, http.StatusOK, resp)
+	gluePage(w, r, glueDQEvalRuns.List, func(it GlueDQRulesetEvaluationRun) string { return it.RunId }, func(it GlueDQRulesetEvaluationRun) any {
+		return glueDQRunSummary(it.RunId, it.Status, it.StartedOn, it.DataSource)
+	}, "Runs", 100)
 }
 
 func handleGlueStartDataQualityRuleRecommendationRun(w http.ResponseWriter, r *http.Request) {
@@ -823,7 +749,7 @@ func handleGlueStartDataQualityRuleRecommendationRun(w http.ResponseWriter, r *h
 		CreatedRulesetName               string         `json:"CreatedRulesetName"`
 		DataQualitySecurityConfiguration string         `json:"DataQualitySecurityConfiguration"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -876,7 +802,7 @@ func handleGlueGetDataQualityRuleRecommendationRun(w http.ResponseWriter, r *htt
 	var req struct {
 		RunId string `json:"RunId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -892,7 +818,7 @@ func handleGlueCancelDataQualityRuleRecommendationRun(w http.ResponseWriter, r *
 	var req struct {
 		RunId string `json:"RunId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -911,36 +837,9 @@ func handleGlueCancelDataQualityRuleRecommendationRun(w http.ResponseWriter, r *
 }
 
 func handleGlueListDataQualityRuleRecommendationRuns(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		NextToken  string `json:"NextToken"`
-		MaxResults *int   `json:"MaxResults"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
-		glueWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-	all := glueDQRecRuns.List()
-	runs := make([]map[string]any, 0, len(all))
-	for _, run := range all {
-		d := map[string]any{
-			"RunId":     run.RunId,
-			"Status":    run.Status,
-			"StartedOn": run.StartedOn,
-		}
-		if run.DataSource != nil {
-			d["DataSource"] = run.DataSource
-		}
-		runs = append(runs, d)
-	}
-	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, runs, awsFieldKey("RunId"), req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"Runs": page}
-	if nextTok != "" {
-		resp["NextToken"] = nextTok
-	}
-	glueWriteJSON(w, http.StatusOK, resp)
+	gluePage(w, r, glueDQRecRuns.List, func(it GlueDQRuleRecommendationRun) string { return it.RunId }, func(it GlueDQRuleRecommendationRun) any {
+		return glueDQRunSummary(it.RunId, it.Status, it.StartedOn, it.DataSource)
+	}, "Runs", 100)
 }
 
 // glueDQResultPayload renders a stored result row as a GetDataQualityResult /
@@ -971,7 +870,7 @@ func handleGlueGetDataQualityResult(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ResultId string `json:"ResultId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -987,7 +886,7 @@ func handleGlueBatchGetDataQualityResult(w http.ResponseWriter, r *http.Request)
 	var req struct {
 		ResultIds []string `json:"ResultIds"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1012,7 +911,7 @@ func handleGlueListDataQualityResults(w http.ResponseWriter, r *http.Request) {
 		NextToken  string `json:"NextToken"`
 		MaxResults *int   `json:"MaxResults"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1044,7 +943,7 @@ func handleGlueListDataQualityStatistics(w http.ResponseWriter, r *http.Request)
 		NextToken  string `json:"NextToken"`
 		MaxResults *int   `json:"MaxResults"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1094,7 +993,7 @@ func handleGlueGetDataQualityModel(w http.ResponseWriter, r *http.Request) {
 		StatisticId string `json:"StatisticId"`
 		ProfileId   string `json:"ProfileId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1114,7 +1013,7 @@ func handleGlueGetDataQualityModelResult(w http.ResponseWriter, r *http.Request)
 		StatisticId string `json:"StatisticId"`
 		ProfileId   string `json:"ProfileId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1136,7 +1035,7 @@ func handleGlueCreateColumnStatisticsTaskSettings(w http.ResponseWriter, r *http
 		CatalogID             string   `json:"CatalogID"`
 		SecurityConfiguration string   `json:"SecurityConfiguration"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1188,7 +1087,7 @@ func handleGlueGetColumnStatisticsTaskSettings(w http.ResponseWriter, r *http.Re
 		DatabaseName string `json:"DatabaseName"`
 		TableName    string `json:"TableName"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1211,7 +1110,7 @@ func handleGlueUpdateColumnStatisticsTaskSettings(w http.ResponseWriter, r *http
 		CatalogID             string   `json:"CatalogID"`
 		SecurityConfiguration string   `json:"SecurityConfiguration"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1256,7 +1155,7 @@ func handleGlueDeleteColumnStatisticsTaskSettings(w http.ResponseWriter, r *http
 		DatabaseName string `json:"DatabaseName"`
 		TableName    string `json:"TableName"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1283,7 +1182,7 @@ func handleGlueStartColumnStatisticsTaskRun(w http.ResponseWriter, r *http.Reque
 		CatalogID             string   `json:"CatalogID"`
 		SecurityConfiguration string   `json:"SecurityConfiguration"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1328,7 +1227,7 @@ func handleGlueGetColumnStatisticsTaskRun(w http.ResponseWriter, r *http.Request
 	var req struct {
 		ColumnStatisticsTaskRunId string `json:"ColumnStatisticsTaskRunId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1347,7 +1246,7 @@ func handleGlueGetColumnStatisticsTaskRuns(w http.ResponseWriter, r *http.Reques
 		NextToken    string `json:"NextToken"`
 		MaxResults   *int   `json:"MaxResults"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1369,28 +1268,7 @@ func handleGlueGetColumnStatisticsTaskRuns(w http.ResponseWriter, r *http.Reques
 }
 
 func handleGlueListColumnStatisticsTaskRuns(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		NextToken  string `json:"NextToken"`
-		MaxResults *int   `json:"MaxResults"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
-		glueWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-	all := glueCSTaskRuns.List()
-	ids := make([]string, 0, len(all))
-	for _, run := range all {
-		ids = append(ids, run.ColumnStatisticsTaskRunId)
-	}
-	page, nextTok, pageOK := awsKeyPage(w, glueBadToken, ids, func(it string) string { return it }, req.NextToken, derefIntDefault(req.MaxResults, 0), 100)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"ColumnStatisticsTaskRunIds": page}
-	if nextTok != "" {
-		resp["NextToken"] = nextTok
-	}
-	glueWriteJSON(w, http.StatusOK, resp)
+	glueListNames(w, r, glueCSTaskRuns, func(it GlueColumnStatsTaskRun) string { return it.ColumnStatisticsTaskRunId }, "ColumnStatisticsTaskRunIds", 100)
 }
 
 func handleGlueStopColumnStatisticsTaskRun(w http.ResponseWriter, r *http.Request) {
@@ -1398,7 +1276,7 @@ func handleGlueStopColumnStatisticsTaskRun(w http.ResponseWriter, r *http.Reques
 		DatabaseName string `json:"DatabaseName"`
 		TableName    string `json:"TableName"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1435,4 +1313,17 @@ func derefIntDefault(p *int, def int) int {
 		return def
 	}
 	return *p
+}
+
+// glueDQRunSummary is a data quality run as a List call summarises it.
+func glueDQRunSummary(runID, status string, startedOn float64, dataSource map[string]any) map[string]any {
+	d := map[string]any{
+		"RunId":     runID,
+		"Status":    status,
+		"StartedOn": startedOn,
+	}
+	if dataSource != nil {
+		d["DataSource"] = dataSource
+	}
+	return d
 }

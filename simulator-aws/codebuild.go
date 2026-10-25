@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,6 +15,8 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
+	"github.com/e6qu/sockerless-cloud/sim/signals"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -246,7 +247,7 @@ const cbAWSOwnedKMSKeyID = "aws-owned-codebuild"
 var (
 	cbProjects          sim.Store[CBProject]
 	cbBuilds            sim.Store[CBBuild]
-	cbBuildChanges      = newStoreChanges()
+	cbBuildChanges      = signals.New[string]()
 	cbReportGrps        sim.Store[CBReportGroup]
 	cbReports           sim.Store[CBReport]
 	cbReportResults     sim.Store[CBReportResults]
@@ -259,7 +260,7 @@ var (
 
 func registerCodeBuild(r *AWSRouter, srv *sim.Server) {
 	cbProjects = sim.MakeStore[CBProject](srv.DB(), "codebuild_projects")
-	cbBuilds = announcing(sim.MakeStore[CBBuild](srv.DB(), "codebuild_builds"), cbBuildChanges)
+	cbBuilds = sim.Announcing(sim.MakeStore[CBBuild](srv.DB(), "codebuild_builds"), cbBuildChanges)
 	cbReportGrps = sim.MakeStore[CBReportGroup](srv.DB(), "codebuild_report_groups")
 	cbReports = sim.MakeStore[CBReport](srv.DB(), "codebuild_reports")
 	cbReportResults = sim.MakeStore[CBReportResults](srv.DB(), "codebuild_report_results")
@@ -337,7 +338,7 @@ func cbAdoptBuildWorkload(
 	timeout time.Duration,
 	complete func(string, int, string),
 ) (bool, error) {
-	existing, err := sim.FindExistingContainers(map[string]string{
+	existing, err := cbEnvironmentBackend.Find(context.Background(), map[string]string{
 		"sockerless-codebuild-build": id,
 	})
 	if err != nil {
@@ -409,10 +410,7 @@ func cbWriteJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func cbWriteError(w http.ResponseWriter, code string, msg string) {
-	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
-	w.Header().Set("X-Amzn-Errortype", code)
-	w.WriteHeader(http.StatusBadRequest)
-	_ = json.NewEncoder(w).Encode(awsErrorBody("codebuild", code, msg))
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsJSON11, Model: "codebuild"}, http.StatusBadRequest, code, msg, "")
 }
 
 // cbCanAssumeRole writes CodeBuild's refusal of a role that names no role or
@@ -439,7 +437,7 @@ func handleCBCreateProject(w http.ResponseWriter, r *http.Request) {
 		LogsConfig   map[string]any `json:"logsConfig"`
 		cbProjectSettings
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -502,7 +500,7 @@ func handleCBBatchGetProjects(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Names []string `json:"names"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -538,7 +536,7 @@ func handleCBListProjects(w http.ResponseWriter, r *http.Request) {
 		SortOrder string `json:"sortOrder"`
 		NextToken string `json:"nextToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -571,7 +569,7 @@ func handleCBUpdateProject(w http.ResponseWriter, r *http.Request) {
 		ServiceRole string         `json:"serviceRole"`
 		cbProjectSettings
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -615,7 +613,7 @@ func handleCBDeleteProject(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -629,7 +627,7 @@ func handleCBDeleteProject(w http.ResponseWriter, r *http.Request) {
 
 func handleCBStartBuild(w http.ResponseWriter, r *http.Request) {
 	var req cbStartBuildInput
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -760,7 +758,7 @@ func handleCBStopBuild(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID string `json:"id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -804,7 +802,7 @@ func handleCBRetryBuild(w http.ResponseWriter, r *http.Request) {
 		ID               string `json:"id"`
 		IdempotencyToken string `json:"idempotencyToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1372,7 +1370,7 @@ func handleCBBatchGetBuilds(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		IDs []string `json:"ids"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1404,7 +1402,7 @@ func handleCBListBuildsForProject(w http.ResponseWriter, r *http.Request) {
 		SortOrder   string `json:"sortOrder"`
 		NextToken   string `json:"nextToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1432,7 +1430,7 @@ func handleCBListBuilds(w http.ResponseWriter, r *http.Request) {
 		SortOrder string `json:"sortOrder"`
 		NextToken string `json:"nextToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1455,7 +1453,7 @@ func handleCBListBuilds(w http.ResponseWriter, r *http.Request) {
 func cbBuildIDsPage(w http.ResponseWriter, builds []CBBuild, sortOrder, token string) ([]string, string, bool) {
 	descending := !strings.EqualFold(sortOrder, "ASCENDING")
 	page, next, ok := awsKeyPage(w, cbBadToken, builds, func(b CBBuild) string {
-		return cbOrderKey(awsIntKey(b.Seq), descending)
+		return cbOrderKey(listq.IntKey(b.Seq), descending)
 	}, token, 0, 100)
 	if !ok {
 		return nil, "", false
@@ -1482,7 +1480,7 @@ func handleCBCreateReportGroup(w http.ResponseWriter, r *http.Request) {
 		ExportConfig map[string]any `json:"exportConfig"`
 		Tags         []CBTag        `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1524,7 +1522,7 @@ func handleCBUpdateReportGroup(w http.ResponseWriter, r *http.Request) {
 		ExportConfig map[string]any `json:"exportConfig"`
 		Tags         []CBTag        `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1553,7 +1551,7 @@ func handleCBDeleteReportGroup(w http.ResponseWriter, r *http.Request) {
 		Arn           string `json:"arn"`
 		DeleteReports bool   `json:"deleteReports"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1574,38 +1572,21 @@ func handleCBDeleteReportGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleCBListReportGroups(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		SortOrder  string `json:"sortOrder"`
-		MaxResults int    `json:"maxResults"`
-		NextToken  string `json:"nextToken"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
-		cbWriteError(w, "InvalidInputException", "invalid JSON")
-		return
-	}
-
-	all := cbReportGrps.List()
-	arns := make([]string, 0, len(all))
-	for _, rg := range all {
-		arns = append(arns, rg.Arn)
-	}
-	descending := strings.EqualFold(req.SortOrder, "DESCENDING")
-	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, arns, func(s string) string { return cbOrderKey(s, descending) }, req.NextToken, req.MaxResults, 100)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"reportGroups": page}
-	if nextTok != "" {
-		resp["nextToken"] = nextTok
-	}
-	cbWriteJSON(w, http.StatusOK, resp)
+	cbListSortedARNs(w, r, "reportGroups", func() []string {
+		all := cbReportGrps.List()
+		arns := make([]string, 0, len(all))
+		for _, rg := range all {
+			arns = append(arns, rg.Arn)
+		}
+		return arns
+	})
 }
 
 func handleCBBatchGetReportGroups(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ReportGroupArns []string `json:"reportGroupArns"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1637,7 +1618,7 @@ func handleCBListReports(w http.ResponseWriter, r *http.Request) {
 		MaxResults int    `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1651,7 +1632,7 @@ func handleCBListReportsForReportGroup(w http.ResponseWriter, r *http.Request) {
 		MaxResults     int    `json:"maxResults"`
 		NextToken      string `json:"nextToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1694,7 +1675,7 @@ func handleCBBatchGetReports(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ReportArns []string `json:"reportArns"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1728,7 +1709,7 @@ func handleCBImportSourceCredentials(w http.ResponseWriter, r *http.Request) {
 		AuthType        string `json:"authType"`
 		ShouldOverwrite *bool  `json:"shouldOverwrite"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1792,7 +1773,7 @@ func handleCBDeleteSourceCredentials(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Arn string `json:"arn"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1873,4 +1854,28 @@ func cbEnvironmentValues(v any) map[string]string {
 		env[name] = value
 	}
 	return env
+}
+
+// cbListSortedARNs answers a List call with the ARNs arns returns, ordered by
+// the request's sortOrder, a nextToken page at a time.
+func cbListSortedARNs(w http.ResponseWriter, r *http.Request, field string, arns func() []string) {
+	var req struct {
+		SortOrder  string `json:"sortOrder"`
+		MaxResults int    `json:"maxResults"`
+		NextToken  string `json:"nextToken"`
+	}
+	if err := sim.ReadJSON(r, &req); err != nil {
+		cbWriteError(w, "InvalidInputException", "invalid JSON")
+		return
+	}
+	descending := strings.EqualFold(req.SortOrder, "DESCENDING")
+	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, arns(), func(s string) string { return cbOrderKey(s, descending) }, req.NextToken, req.MaxResults, 100)
+	if !pageOK {
+		return
+	}
+	resp := map[string]any{field: page}
+	if nextTok != "" {
+		resp["nextToken"] = nextTok
+	}
+	cbWriteJSON(w, http.StatusOK, resp)
 }

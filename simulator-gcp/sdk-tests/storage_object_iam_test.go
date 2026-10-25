@@ -3,6 +3,7 @@ package gcp_sdk_test
 import (
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/option"
@@ -17,7 +18,7 @@ import (
 
 func TestGCS_ObjectIamPolicyRoundTrip(t *testing.T) {
 	t.Parallel()
-	bucketObjectIamBucket := uniqueName("object-iam-bucket")
+	bucketObjectIamBucket := uniquename.New("object-iam-bucket")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketObjectIamBucket)
 	mustUploadObject(t, svc, bucketObjectIamBucket, "reports/q3.txt", "figures")
@@ -64,7 +65,7 @@ func TestGCS_ObjectIamPolicyRoundTrip(t *testing.T) {
 // the bucket.
 func TestGCS_ObjectIamReportsWhatIsMissing(t *testing.T) {
 	t.Parallel()
-	bucketObjectIamAbsent := uniqueName("object-iam-absent")
+	bucketObjectIamAbsent := uniquename.New("object-iam-absent")
 	svc := storageService(t)
 	mustCreateBucket(t, svc, bucketObjectIamAbsent)
 
@@ -83,11 +84,11 @@ func TestGCS_ObjectIamReportsWhatIsMissing(t *testing.T) {
 func TestGCS_ObjectTestPermissionsAnswerFromPoliciesAndACLs(t *testing.T) {
 	t.Parallel()
 	owner := storageService(t)
-	bucket := uniqueName("object-perms")
+	bucket := uniquename.New("object-perms")
 	mustCreateBucket(t, owner, bucket)
 	mustUploadObject(t, owner, bucket, "held.txt", "figures")
 
-	accountID := uniqueName("objperm")
+	accountID := uniquename.New("objperm")
 	_, _, keyFile := mintServiceAccountKeyFile(t, accountID)
 	email := accountID + "@test-project.iam.gserviceaccount.com"
 	asAccount, err := storageapi.NewService(ctx,

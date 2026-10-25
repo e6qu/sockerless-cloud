@@ -2,56 +2,55 @@
 
 ## Next
 
-- **Stage 5 of `PLAN.md`: service libraries.** The seams, `sim/machine`,
-  `sim/replicas` and `sim/revisions` landed; the step's polish is Cloud Run
-  service instances as replica sets scaled on concurrency (BUG-3542),
-  Container Apps TCP and custom scale rules and job probes
-  (BUG-3540) and a metadata server that answers only
-  workloads (BUG-3537); then
-  `sim/jobrun`, `sim/funcrt`, the queue waiter in `sim/msgq` with Cloud
-  Tasks, and `sim/eventbus` with its filter dialects and Cloud Scheduler,
-  each in one pull request that moves its consumers and closes their bugs.
-- **Finish the AWS integration remainders**: Step Functions' EventBridge
-  managed rules (BUG-3533), Lambda's Amazon S3 destination (BUG-3564),
-  EventBridge's remaining target types and `tag:` Run Command targets
-  (BUG-3534), CodeBuild fleets, artifacts and batch timeouts (BUG-3570), and
-  Amazon RDS resources beyond DB instances in their Region (BUG-3358).
-- **Elastic Load Balancing's data plane**: the authenticate actions, the
-  remaining routing algorithms and stickiness types, and captured refusal
-  messages (BUG-3554).
-- **Stage 6 of `PLAN.md`: distributed.** The agent on another host, reached
-  over its API with its minted token, and networks that span hosts; the
-  same-range gap (two live VPCs over one CIDR on one engine) lifts there.
-- **Amazon ECS refuses an infrastructure role IAM does not hold**
-  (BUG-3562), in ECS's own error with real roles in its tests.
-- **Close the no-privilege gaps `BUGS.md` holds**: the NAT data planes'
-  remainders (ICMP, packet counts, Cloud Monitoring for Cloud NAT, the
-  public address as the source a peer sees, a subnet with no route out);
-  the cloud-init modules and part types not yet run (BUG-3526); the
-  Compute Engine metadata server's project attributes (BUG-3525); the fixed
-  link-local metadata addresses, whose remainder is a DNAT at the microVM
-  guest's tap and a loopback forwarder for host-network Amazon ECS tasks
-  (BUG-3485); packet capture and packet mirroring data paths; managed block
-  volume size and filesystem on the container backend.
-- **Fold the simulator CI shards back** from the first parallel run's per-test
-  durations (BUG-3437), and stop repeating base-image loading, pre-builds and
-  the Caddy install per job (BUG-3151).
+- **M1 of `PLAN.md`: the owner's release actions** (BUG-3465). Once this pull
+  request merges, the owner removes `autorelease: pending` from the stale
+  2.4.1 release pull request (#284) and confirms the next push to `main`
+  opens a fresh release pull request whose release run creates its tag,
+  GitHub Release and artifacts with `scripts/verify-release-complete.sh`
+  passing; then creates a GitHub App with contents, pull-requests and
+  workflows permissions, installs it on the repository, and runs
+  release-please with its installation token.
+- **M4: the remaining cleanups.** The AWS ARN builder and parser and the
+  tag-set helpers; placement for the sites BUG-3609 names; clearing the 39
+  clone groups `dupl` finds at 120 tokens, then lowering
+  `scripts/simulators-dupl.sh` to 120.
+- **M3: the next shared libraries in ranked order** — the long-running
+  operation tracker, asymmetric cryptography in `sim/simkms`, time-bounded
+  soft delete (BUG-3606), then the build runner.
+- **Azure.** Fix the Azure console's header disclosure flake (BUG-3690).
+  Close the Azure service gaps the M2 work left in view: Event
+  Grid's Azure Functions, Event Hubs and Hybrid Connections destinations
+  (BUG-3535), the Functions host's other stacks (BUG-3237), App Service site
+  homes shared across runs (BUG-3631), a job replica's own environment
+  (BUG-3650) and Azure Container Registry cache rules (BUG-3612).
+- **Follow-ups of the M2 libraries.** Reset an AWS Lambda
+  environment in place (BUG-3700), keep an event source mapping's qualifier
+  (BUG-3701), and serve DynamoDB Streams as a `funcrt` source (BUG-3603);
+  deliver Amazon SNS to SQS and Lambda through `sim.Server.Call` (BUG-3641);
+  run Cloud Run liveness probes (BUG-3630); serve Cloud Tasks over gRPC
+  (BUG-3710).
+- **CI cost**: fold the simulator shards back from the parallel suites'
+  measured durations (BUG-3437) and stop repeating builds and image loads
+  per job (BUG-3151, BUG-3575, BUG-3515); watch the browser jobs, which
+  build a second simulator as the identity provider (BUG-3669); stop the
+  dependency-quarantine hook downloading a Go toolchain per run (BUG-3730).
 
 ## Standing work
 
-- **Verify engine-touching changes on the CI engine.** Developer machines run
-  Podman behind the docker socket and CI runs moby; Podman implements volume
-  options in `mount(8)` that moby passes to `mount(2)`, which is how `o=loop`
-  passed locally and failed on CI. Prefer a mechanism neither engine
-  interprets, and when only CI can confirm a claim, say so.
 - **Serve what a re-vendor adds.** The daily specification refresh pushes onto
-  the open pull request; serve or declare every moved total, and show a falling
-  served count to be a withdrawal, naming in the floor comment which methods
-  moved and why. A measured Google number counts method spellings — most
-  methods appear twice, as an expanded `flatPath` and a `{+name}` template.
+  the open pull request; serve or declare every moved total, and show a
+  falling served count to be a withdrawal, naming in the floor comment which
+  methods moved and why. A measured Google number counts method spellings —
+  most methods appear twice, as an expanded `flatPath` and a `{+name}`
+  template.
 - **Keep the negative control.** Watch a new or moved gate fail once on a
   planted violation of its own shape; a gate whose scan set can go empty exits
   non-zero.
+- **Verify engine-touching changes on the CI engine.** CI runs moby; a
+  developer machine may run Podman behind the docker socket, and the two
+  interpret volume options, uploads and image stores differently. Prefer a
+  mechanism neither engine interprets, and when only CI can confirm a claim,
+  say so.
 - **IAM derivation fixtures.** Add an `iamCreatesItsOnlyDeclaredType` entry
   when a new create needs one, and creation calls to
   `iamSeedDerivationFixtures`, keyed `<service>:<operation>:<member>`, when a
@@ -64,41 +63,43 @@
 
 ## Tooling quirks that are not simulator defects
 
+- In an agent sandbox, unset gcloud's proxy variables and make `*.localhost`
+  resolve to loopback before running the suites (`STATUS.md`, Running the
+  suites in a sandbox). A console browser suite there needs `pasta` and
+  unprivileged user namespaces like CI's runner.
+- gcloud retries a declared 501 with backoff, so a CLI test that asserts one
+  takes about 30 seconds.
 - `simulator-{gcp,azure}/sdk-tests/route_coverage_paths_test.go` is a
   wire-path index whose owning test rejects a duplicated line, outside
   pre-commit. Anchored-insertion edits duplicate a line when a later edit
   anchors on one an earlier edit added; run that simulator's SDK suite.
-- Two simulator suites at once starve a developer host's Podman: the SDK suite
-  fails with `Get "http://%2Fvar%2Frun%2Fdocker.sock/_ping": context deadline
-  exceeded` while the CLI suite holds the engine. Run them in sequence.
-- A failure naming `podman.service` ("Stopping 'podman.service', but its
-  triggering units are still active") is the local Podman machine going down
-  mid-run; it looks like a different flake each time. Read the whole output
-  first.
-- Podman can drop `buildx` with `rpc error: ... EOF` at `exporting to docker
-  image format`, failing the Terraform harness before Terraform runs.
-  `podman machine stop && podman machine start` clears it; never restart the
-  machine while another suite runs.
 - The Google Cloud Terraform package runs under `-timeout 300s` and takes
   about 163 s with a warm provider cache; a cold cache dies at the deadline
   with a goroutine dump from `runTimed`'s watchdog. Re-run before diagnosing.
-- `docker push` sends a blob in one `PATCH` and finalizes with `PUT`; Podman
-  sends it on the `PUT` with no `PATCH`. Judge `/v2/` upload behaviour on the
-  CI engine.
-- A dangling entry in a Podman container store fails every
-  `ContainerList(All: true)` — the call `sim.FindExistingContainers` makes —
-  with `container not known`, which presents as unrelated Lambda, Step
-  Functions and reaper failures that pass in isolation. Clear it with
-  `docker rm -f <dangling id>`.
 - The Azure SDK suite starts Microsoft's Cosmos DB emulator once from
   `TestMain`. Its readiness failure classifies itself: "still starting" means
-  host starvation, anything else means the emulator never answered. The
-  readiness budget stays put: `go test` gets thirteen minutes, the step
-  fourteen.
+  host starvation, anything else means the emulator never answered.
 - Azure CLI 2.88's `az keyvault update --set tags.<k>=<v>` sends a PUT without
   the changed tags, and `az keyvault show` reports a stale tag set after a
   server-side change. The simulator answers correctly; the Key Vault CLI tests
   avoid both commands.
+- **On a Podman host:**
+  - Two simulator suites at once starve the engine: the SDK suite fails with
+    `Get "http://%2Fvar%2Frun%2Fdocker.sock/_ping": context deadline
+    exceeded` while the CLI suite holds it. Run them in sequence.
+  - A failure naming `podman.service` ("Stopping 'podman.service', but its
+    triggering units are still active") is the Podman machine going down
+    mid-run; it looks like a different flake each time.
+  - `buildx` can drop with `rpc error: ... EOF` at `exporting to docker image
+    format`, failing the Terraform harness before Terraform runs; `podman
+    machine stop && podman machine start` clears it, never while another
+    suite runs.
+  - `docker push` sends a blob in one `PATCH` and finalizes with `PUT`;
+    Podman sends it on the `PUT`. Judge `/v2/` upload behaviour on moby.
+  - A dangling entry in the container store fails every
+    `ContainerList(All: true)` with `container not known`, which presents as
+    unrelated AWS Lambda, Step Functions and reaper failures; clear it with
+    `docker rm -f <dangling id>`.
 
 ## Declined catalog work
 

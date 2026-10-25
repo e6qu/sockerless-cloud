@@ -9,6 +9,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventgrid/armeventgrid"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -113,7 +114,7 @@ func TestSDK_Compute_UsageCountsWhatIsHeld(t *testing.T) {
 // system topic whose source is that resource.
 func TestSDK_EventGrid_ExtensionTopic(t *testing.T) {
 	t.Parallel()
-	rg := uniqueName("eventgrid-extension-rg")
+	rg := uniquename.New("eventgrid-extension-rg")
 	ensureRG(t, rg)
 
 	client, err := armeventgrid.NewExtensionTopicsClient(&fakeCredential{}, clientOpts())

@@ -1087,25 +1087,8 @@ func handleBigtableGetAuthView(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleBigtablePatchAuthView(w http.ResponseWriter, r *http.Request) {
-	requested := time.Now()
-	name := bigtableAuthViewName(r, sim.PathParam(r, "authView"))
-	body, ok := bigtableAuthViews.Get(name)
-	if !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "authorized view %q not found", name)
-		return
-	}
-	patch := bigtableReadResourceBody(w, r)
-	if patch == nil {
-		return
-	}
-	bigtableApplyUpdateMask(body, patch, r.URL.Query().Get("updateMask"))
-	body["name"] = name
-	body["etag"] = gcpPolicyETag()
-	bigtableAuthViews.Put(name, body)
-	original := map[string]any{"authorizedView": bigtableNamedPatch(patch, name), "updateMask": r.URL.Query().Get("updateMask")}
-	op := newBigtableAdminLRO(sim.PathParam(r, "project"), map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.AuthorizedView",
-		bigtableAdminMetadata("UpdateAuthorizedViewMetadata", bigtableRequestTimes(original, requested)))
-	sim.WriteJSON(w, http.StatusOK, op)
+	bigtablePatchView(w, r, bigtableAuthViews, bigtableAuthViewName(r, sim.PathParam(r, "authView")), "authorized view", "authorizedView",
+		"type.googleapis.com/google.bigtable.admin.v2.AuthorizedView", "UpdateAuthorizedViewMetadata", bigtableRequestTimes)
 }
 
 // bigtableNamedPatch is a REST update's body as its request message carries
@@ -1223,29 +1206,8 @@ func bigtableLogicalViewName(r *http.Request, view string) string {
 }
 
 func handleBigtableCreateLogicalView(w http.ResponseWriter, r *http.Request) {
-	requested := time.Now()
-	project, instance := sim.PathParam(r, "project"), sim.PathParam(r, "instance")
-	if _, ok := bigtableInstances.Get(bigtableInstanceName(project, instance)); !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
-		return
-	}
-	viewID := r.URL.Query().Get("logicalViewId")
-	if viewID == "" {
-		GCPError(w, http.StatusBadRequest, "logicalViewId is required", "INVALID_ARGUMENT")
-		return
-	}
-	body := bigtableReadResourceBody(w, r)
-	if body == nil {
-		return
-	}
-	original := map[string]any{"parent": bigtableInstanceName(project, instance), "logicalViewId": viewID, "logicalView": cloneAnyMap(body)}
-	name := bigtableLogicalViewName(r, viewID)
-	body["name"] = name
-	body["etag"] = gcpPolicyETag()
-	bigtableLogicalView.Put(name, body)
-	op := newBigtableAdminLRO(project, map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.LogicalView",
-		bigtableAdminMetadata("CreateLogicalViewMetadata", bigtableStartEndRequest(original, requested)))
-	sim.WriteJSON(w, http.StatusOK, op)
+	bigtableCreateView(w, r, bigtableLogicalView, bigtableLogicalViewName, "logicalView",
+		"type.googleapis.com/google.bigtable.admin.v2.LogicalView", "CreateLogicalViewMetadata")
 }
 
 // bigtableStartEndRequest are the fields of the metadata messages that echo
@@ -1271,25 +1233,8 @@ func handleBigtableGetLogicalView(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleBigtablePatchLogicalView(w http.ResponseWriter, r *http.Request) {
-	requested := time.Now()
-	name := bigtableLogicalViewName(r, sim.PathParam(r, "logicalView"))
-	body, ok := bigtableLogicalView.Get(name)
-	if !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "logical view %q not found", name)
-		return
-	}
-	patch := bigtableReadResourceBody(w, r)
-	if patch == nil {
-		return
-	}
-	bigtableApplyUpdateMask(body, patch, r.URL.Query().Get("updateMask"))
-	body["name"] = name
-	body["etag"] = gcpPolicyETag()
-	bigtableLogicalView.Put(name, body)
-	original := map[string]any{"logicalView": bigtableNamedPatch(patch, name), "updateMask": r.URL.Query().Get("updateMask")}
-	op := newBigtableAdminLRO(sim.PathParam(r, "project"), map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.LogicalView",
-		bigtableAdminMetadata("UpdateLogicalViewMetadata", bigtableStartEndRequest(original, requested)))
-	sim.WriteJSON(w, http.StatusOK, op)
+	bigtablePatchView(w, r, bigtableLogicalView, bigtableLogicalViewName(r, sim.PathParam(r, "logicalView")), "logical view", "logicalView",
+		"type.googleapis.com/google.bigtable.admin.v2.LogicalView", "UpdateLogicalViewMetadata", bigtableStartEndRequest)
 }
 
 func handleBigtableDeleteLogicalView(w http.ResponseWriter, r *http.Request) {
@@ -1315,29 +1260,8 @@ func bigtableMatViewName(r *http.Request, view string) string {
 }
 
 func handleBigtableCreateMatView(w http.ResponseWriter, r *http.Request) {
-	requested := time.Now()
-	project, instance := sim.PathParam(r, "project"), sim.PathParam(r, "instance")
-	if _, ok := bigtableInstances.Get(bigtableInstanceName(project, instance)); !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
-		return
-	}
-	viewID := r.URL.Query().Get("materializedViewId")
-	if viewID == "" {
-		GCPError(w, http.StatusBadRequest, "materializedViewId is required", "INVALID_ARGUMENT")
-		return
-	}
-	body := bigtableReadResourceBody(w, r)
-	if body == nil {
-		return
-	}
-	original := map[string]any{"parent": bigtableInstanceName(project, instance), "materializedViewId": viewID, "materializedView": cloneAnyMap(body)}
-	name := bigtableMatViewName(r, viewID)
-	body["name"] = name
-	body["etag"] = gcpPolicyETag()
-	bigtableMatView.Put(name, body)
-	op := newBigtableAdminLRO(project, map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.MaterializedView",
-		bigtableAdminMetadata("CreateMaterializedViewMetadata", bigtableStartEndRequest(original, requested)))
-	sim.WriteJSON(w, http.StatusOK, op)
+	bigtableCreateView(w, r, bigtableMatView, bigtableMatViewName, "materializedView",
+		"type.googleapis.com/google.bigtable.admin.v2.MaterializedView", "CreateMaterializedViewMetadata")
 }
 
 func handleBigtableListMatViews(w http.ResponseWriter, r *http.Request) {
@@ -1357,25 +1281,8 @@ func handleBigtableGetMatView(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleBigtablePatchMatView(w http.ResponseWriter, r *http.Request) {
-	requested := time.Now()
-	name := bigtableMatViewName(r, sim.PathParam(r, "matView"))
-	body, ok := bigtableMatView.Get(name)
-	if !ok {
-		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "materialized view %q not found", name)
-		return
-	}
-	patch := bigtableReadResourceBody(w, r)
-	if patch == nil {
-		return
-	}
-	bigtableApplyUpdateMask(body, patch, r.URL.Query().Get("updateMask"))
-	body["name"] = name
-	body["etag"] = gcpPolicyETag()
-	bigtableMatView.Put(name, body)
-	original := map[string]any{"materializedView": bigtableNamedPatch(patch, name), "updateMask": r.URL.Query().Get("updateMask")}
-	op := newBigtableAdminLRO(sim.PathParam(r, "project"), map[string]any(body), "type.googleapis.com/google.bigtable.admin.v2.MaterializedView",
-		bigtableAdminMetadata("UpdateMaterializedViewMetadata", bigtableStartEndRequest(original, requested)))
-	sim.WriteJSON(w, http.StatusOK, op)
+	bigtablePatchView(w, r, bigtableMatView, bigtableMatViewName(r, sim.PathParam(r, "matView")), "materialized view", "materializedView",
+		"type.googleapis.com/google.bigtable.admin.v2.MaterializedView", "UpdateMaterializedViewMetadata", bigtableStartEndRequest)
 }
 
 func handleBigtableDeleteMatView(w http.ResponseWriter, r *http.Request) {
@@ -1453,4 +1360,57 @@ func bigtableApplyUpdateMask(body, patch bigtableResource, mask string) {
 			body[root] = v
 		}
 	}
+}
+
+// bigtablePatchView applies a REST update to the view of store called name:
+// the fields the update mask names and a new etag, answered with a settled
+// operation whose metadata message is metadata, its times from times.
+func bigtablePatchView(w http.ResponseWriter, r *http.Request, store sim.Store[bigtableResource], name, noun, member, typeURL, metadata string, times func(any, time.Time) map[string]any) {
+	requested := time.Now()
+	body, ok := store.Get(name)
+	if !ok {
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "%s %q not found", noun, name)
+		return
+	}
+	patch := bigtableReadResourceBody(w, r)
+	if patch == nil {
+		return
+	}
+	bigtableApplyUpdateMask(body, patch, r.URL.Query().Get("updateMask"))
+	body["name"] = name
+	body["etag"] = gcpPolicyETag()
+	store.Put(name, body)
+	original := map[string]any{member: bigtableNamedPatch(patch, name), "updateMask": r.URL.Query().Get("updateMask")}
+	op := newBigtableAdminLRO(sim.PathParam(r, "project"), map[string]any(body), typeURL,
+		bigtableAdminMetadata(metadata, times(original, requested)))
+	sim.WriteJSON(w, http.StatusOK, op)
+}
+
+// bigtableCreateView creates a view of an instance in store, its ID in the
+// query parameter member+"Id", answered with a settled operation whose
+// metadata message is metadata.
+func bigtableCreateView(w http.ResponseWriter, r *http.Request, store sim.Store[bigtableResource], viewName func(*http.Request, string) string, member, typeURL, metadata string) {
+	requested := time.Now()
+	project, instance := sim.PathParam(r, "project"), sim.PathParam(r, "instance")
+	if _, ok := bigtableInstances.Get(bigtableInstanceName(project, instance)); !ok {
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "instance %q not found", instance)
+		return
+	}
+	viewID := r.URL.Query().Get(member + "Id")
+	if viewID == "" {
+		GCPError(w, http.StatusBadRequest, member+"Id is required", "INVALID_ARGUMENT")
+		return
+	}
+	body := bigtableReadResourceBody(w, r)
+	if body == nil {
+		return
+	}
+	original := map[string]any{"parent": bigtableInstanceName(project, instance), member + "Id": viewID, member: cloneAnyMap(body)}
+	name := viewName(r, viewID)
+	body["name"] = name
+	body["etag"] = gcpPolicyETag()
+	store.Put(name, body)
+	op := newBigtableAdminLRO(project, map[string]any(body), typeURL,
+		bigtableAdminMetadata(metadata, bigtableStartEndRequest(original, requested)))
+	sim.WriteJSON(w, http.StatusOK, op)
 }

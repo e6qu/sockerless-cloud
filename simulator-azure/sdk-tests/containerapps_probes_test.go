@@ -10,6 +10,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appcontainers/armappcontainers/v3"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -67,7 +68,7 @@ func awaitReplicaContainer(t *testing.T, rg, app, revision string, done func(*ar
 // sends its replica no requests.
 func TestSDK_ContainerAppsProbes_ReadinessTakesAReplicaOutOfIngress(t *testing.T) {
 	t.Parallel()
-	rg, name := uniqueName("sdk-aca-ready-rg"), uniqueName("acaready")
+	rg, name := uniquename.New("sdk-aca-ready-rg"), uniquename.New("acaready")
 	ensureRG(t, rg)
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -86,7 +87,7 @@ func TestSDK_ContainerAppsProbes_ReadinessTakesAReplicaOutOfIngress(t *testing.T
 // container serves again.
 func TestSDK_ContainerAppsProbes_LivenessRestartsTheContainer(t *testing.T) {
 	t.Parallel()
-	rg, name := uniqueName("sdk-aca-live-rg"), uniqueName("acalive")
+	rg, name := uniquename.New("sdk-aca-live-rg"), uniquename.New("acalive")
 	ensureRG(t, rg)
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -104,7 +105,7 @@ func TestSDK_ContainerAppsProbes_LivenessRestartsTheContainer(t *testing.T) {
 // an init container that fails fails the revision.
 func TestSDK_ContainerAppsProbes_InitContainersRunFirst(t *testing.T) {
 	t.Parallel()
-	rg, name := uniqueName("sdk-aca-init-rg"), uniqueName("acainit")
+	rg, name := uniquename.New("sdk-aca-init-rg"), uniquename.New("acainit")
 	ensureRG(t, rg)
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -134,7 +135,7 @@ func TestSDK_ContainerAppsProbes_InitContainersRunFirst(t *testing.T) {
 		Image:   to.Ptr("mirror.gcr.io/library/alpine:latest"),
 		Command: []*string{to.Ptr("sh"), to.Ptr("-c"), to.Ptr("exit 4")},
 	}}
-	failingName := uniqueName("acainitfail")
+	failingName := uniquename.New("acainitfail")
 	poller, err := client.BeginCreateOrUpdate(ctx, rg, failingName, failing, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -151,7 +152,7 @@ func TestSDK_ContainerAppsProbes_InitContainersRunFirst(t *testing.T) {
 // A container names each probe type once and gives each probe one handler.
 func TestSDK_ContainerAppsProbes_InvalidProbesAreRefused(t *testing.T) {
 	t.Parallel()
-	rg := uniqueName("sdk-aca-badprobe-rg")
+	rg := uniquename.New("sdk-aca-badprobe-rg")
 	ensureRG(t, rg)
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -168,7 +169,7 @@ func TestSDK_ContainerAppsProbes_InvalidProbesAreRefused(t *testing.T) {
 			SuccessThreshold: to.Ptr[int32](2),
 		}},
 	} {
-		_, err := client.BeginCreateOrUpdate(ctx, rg, uniqueName("acabadprobe"), healthApp(rg, "x", probes...), nil)
+		_, err := client.BeginCreateOrUpdate(ctx, rg, uniquename.New("acabadprobe"), healthApp(rg, "x", probes...), nil)
 		var respErr *azcore.ResponseError
 		require.True(t, errors.As(err, &respErr), "%s: %v", name, err)
 		assert.Equal(t, http.StatusBadRequest, respErr.StatusCode, name)

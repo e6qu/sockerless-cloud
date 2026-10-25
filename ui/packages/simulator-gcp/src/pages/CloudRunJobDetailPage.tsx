@@ -118,7 +118,7 @@ export function CloudRunJobDetailPage() {
           {job.error instanceof Error ? job.error.message : "The simulator did not respond."}
         </div>
         {deleting ? (
-          <DeleteJobDialog project={project} jobId={name} onClose={() => setDeleting(false)} onDeleted={() => navigate("/ui/cloudrun")} />
+          <DeleteJobDialog project={project} jobId={name} onClose={() => setDeleting(false)} onDeleted={() => navigate("/ui/run/jobs")} />
         ) : null}
         {running ? (
           <RunJobDialog
@@ -150,10 +150,8 @@ export function CloudRunJobDetailPage() {
 
   return (
     <>
-      <div className="gc-detail-back">
-        <Link to="/ui/cloudrun">‹ Cloud Run jobs</Link>
-      </div>
       <GcpPageHeader
+        backTo="/ui/run/jobs"
         title={shortName(name)}
         description="Cloud Run job"
         actions={headerActions}
@@ -214,7 +212,7 @@ export function CloudRunJobDetailPage() {
         />
       )}
       {deleting ? (
-        <DeleteJobDialog project={project} jobId={name} onClose={() => setDeleting(false)} onDeleted={() => navigate("/ui/cloudrun")} />
+        <DeleteJobDialog project={project} jobId={name} onClose={() => setDeleting(false)} onDeleted={() => navigate("/ui/run/jobs")} />
       ) : null}
       {running ? (
         <RunJobDialog

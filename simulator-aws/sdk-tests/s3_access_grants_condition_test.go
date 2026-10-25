@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3control"
 	s3ctypes "github.com/aws/aws-sdk-go-v2/service/s3control/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,7 +31,7 @@ func TestS3_AccessGrantsInstanceArnConditionKeyScopesTheGrant(t *testing.T) {
 	control := s3ControlClient()
 	admin := s3Client()
 	iamc := iamClient()
-	bucket := uniqueName("grants-condition-bucket")
+	bucket := uniquename.New("grants-condition-bucket")
 
 	_, err := admin.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
@@ -40,7 +41,7 @@ func TestS3_AccessGrantsInstanceArnConditionKeyScopesTheGrant(t *testing.T) {
 
 	// The location's role may read the object only when the request carries
 	// credentials this Access Grants instance issued.
-	roleName := uniqueName("s3-grants-condition-role")
+	roleName := uniquename.New("s3-grants-condition-role")
 	role, err := iamc.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName: aws.String(roleName),
 		AssumeRolePolicyDocument: aws.String(
@@ -140,7 +141,7 @@ func TestS3_AccessGrantTagsAreTheGrantsResourceTags(t *testing.T) {
 	iamc := iamClient()
 	account := aws.String(s3ObjectLambdaAccount)
 
-	roleName := uniqueName("s3-grants-tags-role")
+	roleName := uniquename.New("s3-grants-tags-role")
 	role, err := iamc.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName: aws.String(roleName),
 		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
@@ -159,7 +160,7 @@ func TestS3_AccessGrantTagsAreTheGrantsResourceTags(t *testing.T) {
 		_, _ = control.DeleteAccessGrantsInstance(ctx, &s3control.DeleteAccessGrantsInstanceInput{AccountId: account})
 	})
 	location, err := control.CreateAccessGrantsLocation(ctx, &s3control.CreateAccessGrantsLocationInput{
-		AccountId: account, LocationScope: aws.String("s3://" + uniqueName("grants-tags") + "/*"),
+		AccountId: account, LocationScope: aws.String("s3://" + uniquename.New("grants-tags") + "/*"),
 		IAMRoleArn: role.Role.Arn, Tags: tag("tier", "location")})
 	require.NoError(t, err)
 	t.Cleanup(func() {

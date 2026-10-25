@@ -5,7 +5,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -93,7 +92,7 @@ func elbv2ForwardToHealthyTarget(w http.ResponseWriter, r *http.Request, listene
 	idle := elbv2IdleTimeout(listener.LoadBalancerArn)
 	started := time.Now()
 	sim.DeclareWait(r.Context(), idle)
-	err = lbplane.Forward(w, r, lbplane.Upstream{
+	_ = lbplane.Serve(w, r, lbplane.Upstream{
 		Scheme:        scheme,
 		Address:       address,
 		Path:          r.URL.EscapedPath(),
@@ -112,28 +111,24 @@ func elbv2ForwardToHealthyTarget(w http.ResponseWriter, r *http.Request, listene
 		// does not validate these certificates."
 		SkipTargetVerification: true,
 		Admit:                  elbv2AdmitForwardedFlow(listener, targetGroup, target),
-	})
-	abortStartedForward(w, err)
-	switch {
-	case err == nil:
-	case errors.Is(err, lbplane.ErrNotAdmitted):
-		// A target its security group closes to the load balancer is one the
-		// load balancer cannot reach: the request finds no target in service.
+	}, elbv2ForwardAnswers)
+}
+
+var elbv2ForwardAnswers = lbplane.Answers{
+	// A target its security group closes to the load balancer is one the
+	// load balancer cannot reach: the request finds no target in service.
+	NotAdmitted: func(w http.ResponseWriter, _ error) {
 		http.Error(w, "no healthy targets", http.StatusServiceUnavailable)
-	case errors.Is(err, lbplane.ErrClientWentAway):
-		// Nothing reaches a client that has gone; the status records the
-		// abandoned request the way the load balancer access logs do.
-		w.WriteHeader(lbplane.StatusClientClosedRequest)
-	case errors.Is(err, lbplane.ErrIdleTimeout) && errors.As(err, new(*lbplane.SendError)):
-		// "HTTP 504: Gateway timeout ... The load balancer established a
-		// connection to the target but the target did not respond before the
-		// idle timeout period elapsed."
+	},
+	// "HTTP 504: Gateway timeout ... The load balancer established a
+	// connection to the target but the target did not respond before the
+	// idle timeout period elapsed."
+	Timeout: func(w http.ResponseWriter, _ error) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusGatewayTimeout)
 		_, _ = io.WriteString(w, elbv2GatewayTimeoutPage)
-	default:
-		http.Error(w, err.Error(), http.StatusBadGateway)
-	}
+	},
+	Failed: func(w http.ResponseWriter, err error) { http.Error(w, err.Error(), http.StatusBadGateway) },
 }
 
 const elbv2GatewayTimeoutPage = "<html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n</body>\r\n</html>\r\n"

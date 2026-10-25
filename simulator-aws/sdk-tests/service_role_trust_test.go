@@ -24,6 +24,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 	sfntypes "github.com/aws/aws-sdk-go-v2/service/sfn/types"
 	"github.com/aws/smithy-go"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,7 +34,7 @@ import (
 func untrustedRoles(t *testing.T) (otherService, absent string) {
 	t.Helper()
 	otherService = serviceRole(t, "ec2.amazonaws.com")
-	absent = otherService[:strings.LastIndex(otherService, "/")+1] + uniqueName("absent")
+	absent = otherService[:strings.LastIndex(otherService, "/")+1] + uniquename.New("absent")
 	return otherService, absent
 }
 
@@ -63,10 +64,10 @@ func TestLambda_RefusesAnExecutionRoleItCannotAssume_SDK(t *testing.T) {
 		return err
 	}
 	for _, role := range []string{otherService, absent} {
-		requireAWSError(t, create(uniqueName("fn-untrusted"), role), "InvalidParameterValueException", refusal)
+		requireAWSError(t, create(uniquename.New("fn-untrusted"), role), "InvalidParameterValueException", refusal)
 	}
 
-	name := uniqueName("fn-trusted")
+	name := uniquename.New("fn-trusted")
 	require.NoError(t, create(name, serviceRole(t, "lambda.amazonaws.com")))
 	t.Cleanup(func() {
 		_, _ = c.DeleteFunction(context.Background(), &lambda.DeleteFunctionInput{FunctionName: aws.String(name)})
@@ -102,11 +103,11 @@ func TestCodeBuild_RefusesAServiceRoleItCannotAssume_SDK(t *testing.T) {
 		return err
 	}
 	for _, role := range []string{otherService, absent} {
-		requireAWSError(t, create(uniqueName("cb-untrusted"), role), "InvalidInputException",
+		requireAWSError(t, create(uniquename.New("cb-untrusted"), role), "InvalidInputException",
 			"CodeBuild is not authorized to perform: sts:AssumeRole on "+role)
 	}
 
-	name := uniqueName("cb-trusted")
+	name := uniquename.New("cb-trusted")
 	require.NoError(t, create(name, serviceRole(t, "codebuild.amazonaws.com")))
 	t.Cleanup(func() {
 		_, _ = c.DeleteProject(context.Background(), &codebuild.DeleteProjectInput{Name: aws.String(name)})
@@ -125,7 +126,7 @@ func TestBatch_RefusesARoleECSTasksCannotAssume_SDK(t *testing.T) {
 		properties.Image = aws.String("mirror.gcr.io/library/alpine:3")
 		properties.Command = []string{"true"}
 		_, err := c.RegisterJobDefinition(ctx, &batch.RegisterJobDefinitionInput{
-			JobDefinitionName:   aws.String(uniqueName("batch-role-trust")),
+			JobDefinitionName:   aws.String(uniquename.New("batch-role-trust")),
 			Type:                batchtypes.JobDefinitionTypeContainer,
 			ContainerProperties: &properties,
 		})
@@ -154,12 +155,12 @@ func TestGlue_RefusesAJobRoleItCannotAssume_SDK(t *testing.T) {
 	}
 	otherServiceName := otherService[strings.LastIndex(otherService, "/")+1:]
 	for _, role := range []string{otherService, absent, otherServiceName} {
-		requireAWSError(t, create(uniqueName("glue-untrusted"), role), "InvalidInputException",
+		requireAWSError(t, create(uniquename.New("glue-untrusted"), role), "InvalidInputException",
 			"Role "+role+" should be given assume role permissions for Glue Service.")
 	}
 
 	trusted := serviceRole(t, "glue.amazonaws.com")
-	name := uniqueName("glue-trusted")
+	name := uniquename.New("glue-trusted")
 	require.NoError(t, create(name, trusted[strings.LastIndex(trusted, "/")+1:]))
 	t.Cleanup(func() { _, _ = c.DeleteJob(context.Background(), &glue.DeleteJobInput{JobName: aws.String(name)}) })
 	_, err := c.UpdateJob(ctx, &glue.UpdateJobInput{
@@ -175,14 +176,14 @@ func TestAmplify_RefusesARoleItCannotAssume_SDK(t *testing.T) {
 	t.Parallel()
 	c := amplifyClient()
 	otherService, absent := untrustedRoles(t)
-	_, err := c.CreateApp(ctx, &amplify.CreateAppInput{Name: aws.String(uniqueName("amp-untrusted")), ComputeRoleArn: aws.String(otherService)})
+	_, err := c.CreateApp(ctx, &amplify.CreateAppInput{Name: aws.String(uniquename.New("amp-untrusted")), ComputeRoleArn: aws.String(otherService)})
 	requireAWSError(t, err, "BadRequestException", "computeRoleArn "+otherService+" cannot be assumed by amplify.amazonaws.com")
-	_, err = c.CreateApp(ctx, &amplify.CreateAppInput{Name: aws.String(uniqueName("amp-untrusted")), IamServiceRoleArn: aws.String(absent)})
+	_, err = c.CreateApp(ctx, &amplify.CreateAppInput{Name: aws.String(uniquename.New("amp-untrusted")), IamServiceRoleArn: aws.String(absent)})
 	requireAWSError(t, err, "BadRequestException", "iamServiceRoleArn "+absent+" cannot be assumed by amplify.amazonaws.com")
 
 	compute := serviceRole(t, "amplify.amazonaws.com")
 	app, err := c.CreateApp(ctx, &amplify.CreateAppInput{
-		Name:              aws.String(uniqueName("amp-trusted")),
+		Name:              aws.String(uniquename.New("amp-trusted")),
 		ComputeRoleArn:    aws.String(compute),
 		IamServiceRoleArn: aws.String(serviceRole(t, "amplify.amazonaws.com")),
 	})
@@ -219,7 +220,7 @@ func TestBatch_ComputeEnvironmentWithAServiceRoleItCannotAssumeIsInvalid_SDK(t *
 		return out.ComputeEnvironments[0]
 	}
 	for _, role := range []string{otherService, absent, otherService[strings.LastIndex(otherService, "/")+1:]} {
-		name := uniqueName("batch-ce-untrusted")
+		name := uniquename.New("batch-ce-untrusted")
 		_, err := c.CreateComputeEnvironment(ctx, &batch.CreateComputeEnvironmentInput{
 			ComputeEnvironmentName: aws.String(name), Type: batchtypes.CETypeUnmanaged, ServiceRole: aws.String(role),
 		})
@@ -234,7 +235,7 @@ func TestBatch_ComputeEnvironmentWithAServiceRoleItCannotAssumeIsInvalid_SDK(t *
 			aws.ToString(ce.StatusReason))
 	}
 
-	name := uniqueName("batch-ce-trusted")
+	name := uniquename.New("batch-ce-trusted")
 	_, err := c.CreateComputeEnvironment(ctx, &batch.CreateComputeEnvironmentInput{
 		ComputeEnvironmentName: aws.String(name), Type: batchtypes.CETypeUnmanaged, ServiceRole: aws.String(otherService),
 	})
@@ -257,7 +258,7 @@ func TestCodeBuild_RefusesAServiceRoleOverrideItCannotAssume_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
 	otherService, absent := untrustedRoles(t)
-	name := uniqueName("cb-override")
+	name := uniquename.New("cb-override")
 	_, err := c.CreateProject(ctx, &codebuild.CreateProjectInput{
 		Name:      aws.String(name),
 		Source:    &cbtypes.ProjectSource{Type: cbtypes.SourceTypeNoSource, Buildspec: aws.String("version: 0.2")},
@@ -288,7 +289,7 @@ func TestCodeBuild_RefusesAFleetServiceRoleItCannotAssume_SDK(t *testing.T) {
 	otherService, absent := untrustedRoles(t)
 	create := func(role string) (*codebuild.CreateFleetOutput, error) {
 		return c.CreateFleet(ctx, &codebuild.CreateFleetInput{
-			Name:             aws.String(uniqueName("cb-fleet-role")),
+			Name:             aws.String(uniquename.New("cb-fleet-role")),
 			BaseCapacity:     aws.Int32(1),
 			ComputeType:      cbtypes.ComputeTypeBuildGeneral1Small,
 			EnvironmentType:  cbtypes.EnvironmentTypeLinuxContainer,
@@ -329,28 +330,28 @@ func TestGlue_RefusesARoleItCannotAssumeBeyondJobs_SDK(t *testing.T) {
 	targets := &gluetypes.CrawlerTargets{S3Targets: []gluetypes.S3Target{{Path: aws.String("s3://bucket/prefix")}}}
 	transform := func(role string) (*glue.CreateMLTransformOutput, error) {
 		return c.CreateMLTransform(ctx, &glue.CreateMLTransformInput{
-			Name:              aws.String(uniqueName("glue-mlt")),
+			Name:              aws.String(uniquename.New("glue-mlt")),
 			InputRecordTables: []gluetypes.GlueTable{{DatabaseName: aws.String("db"), TableName: aws.String("tbl")}},
 			Parameters:        &gluetypes.TransformParameters{TransformType: gluetypes.TransformTypeFindMatches},
 			Role:              aws.String(role),
 		})
 	}
 	for _, role := range []string{otherService, absent} {
-		_, err := c.CreateCrawler(ctx, &glue.CreateCrawlerInput{Name: aws.String(uniqueName("glue-crawler")), Role: aws.String(role), Targets: targets})
+		_, err := c.CreateCrawler(ctx, &glue.CreateCrawlerInput{Name: aws.String(uniquename.New("glue-crawler")), Role: aws.String(role), Targets: targets})
 		requireAWSError(t, err, "InvalidInputException", crawlerRefusal)
 		_, err = c.CreateSession(ctx, &glue.CreateSessionInput{
-			Id: aws.String(uniqueName("glue-session")), Role: aws.String(role),
+			Id: aws.String(uniquename.New("glue-session")), Role: aws.String(role),
 			Command: &gluetypes.SessionCommand{Name: aws.String("glueetl")},
 		})
 		requireAWSError(t, err, "InvalidInputException", jobRefusal(role))
 		_, err = transform(role)
 		requireAWSError(t, err, "InvalidInputException", "Unable to assume role "+role)
-		_, err = c.CreateDevEndpoint(ctx, &glue.CreateDevEndpointInput{EndpointName: aws.String(uniqueName("glue-dev")), RoleArn: aws.String(role)})
+		_, err = c.CreateDevEndpoint(ctx, &glue.CreateDevEndpointInput{EndpointName: aws.String(uniquename.New("glue-dev")), RoleArn: aws.String(role)})
 		requireAWSError(t, err, "InvalidInputException", jobRefusal(role))
 	}
 
 	trusted := serviceRole(t, "glue.amazonaws.com")
-	crawler := uniqueName("glue-crawler")
+	crawler := uniquename.New("glue-crawler")
 	_, err := c.CreateCrawler(ctx, &glue.CreateCrawlerInput{Name: aws.String(crawler), Role: aws.String(trusted), Targets: targets})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -378,7 +379,7 @@ func TestGlue_RefusesARunRoleItCannotAssume_SDK(t *testing.T) {
 	refusal := func(role string) string {
 		return "Role " + role + " should be given assume role permissions for Glue Service."
 	}
-	database, table, blueprint := uniqueName("glue-run-role"), "events", uniqueName("glue-run-role")
+	database, table, blueprint := uniquename.New("glue-run-role"), "events", uniquename.New("glue-run-role")
 	_, err := c.CreateDatabase(ctx, &glue.CreateDatabaseInput{DatabaseInput: &gluetypes.DatabaseInput{Name: aws.String(database)}})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -404,7 +405,7 @@ func TestGlue_RefusesARunRoleItCannotAssume_SDK(t *testing.T) {
 	}
 	for _, role := range []string{otherService, absent} {
 		_, err := c.StartDataQualityRulesetEvaluationRun(ctx, &glue.StartDataQualityRulesetEvaluationRunInput{
-			DataSource: source, Role: aws.String(role), RulesetNames: []string{uniqueName("glue-ruleset")},
+			DataSource: source, Role: aws.String(role), RulesetNames: []string{uniquename.New("glue-ruleset")},
 		})
 		requireAWSError(t, err, "InvalidInputException", refusal(role))
 		_, err = c.StartDataQualityRuleRecommendationRun(ctx, &glue.StartDataQualityRuleRecommendationRunInput{
@@ -453,7 +454,7 @@ func TestECS_RefusesToLaunchATaskWithARoleItCannotAssume_SDK(t *testing.T) {
 	t.Parallel()
 	c := ecsClient()
 	otherService, absent := untrustedRoles(t)
-	cluster := uniqueName("ecs-role-trust")
+	cluster := uniquename.New("ecs-role-trust")
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -463,7 +464,7 @@ func TestECS_RefusesToLaunchATaskWithARoleItCannotAssume_SDK(t *testing.T) {
 
 	register := func(taskRole, executionRole string) *string {
 		input := &ecs.RegisterTaskDefinitionInput{
-			Family:                  aws.String(uniqueName("ecs-role-trust")),
+			Family:                  aws.String(uniquename.New("ecs-role-trust")),
 			NetworkMode:             ecstypes.NetworkModeAwsvpc,
 			RequiresCompatibilities: []ecstypes.Compatibility{ecstypes.CompatibilityFargate},
 			Cpu:                     aws.String("256"),
@@ -532,14 +533,14 @@ func TestStepFunctions_RefusesAnExecutionRoleItCannotAssume_SDK(t *testing.T) {
 		})
 	}
 	for _, role := range []string{otherService, absent} {
-		_, err := create(uniqueName("sfn-untrusted"), role)
+		_, err := create(uniquename.New("sfn-untrusted"), role)
 		requireAWSError(t, err, "AccessDeniedException", statesRoleRefusal)
 		_, err = c.TestState(ctx, &sfn.TestStateInput{Definition: aws.String(`{"Type":"Pass","End":true}`), RoleArn: aws.String(role)})
 		requireAWSError(t, err, "AccessDeniedException", statesRoleRefusal)
 	}
 
 	trusted := serviceRole(t, "states.amazonaws.com")
-	created, err := create(uniqueName("sfn-trusted"), trusted)
+	created, err := create(uniquename.New("sfn-trusted"), trusted)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_, _ = c.DeleteStateMachine(context.Background(), &sfn.DeleteStateMachineInput{StateMachineArn: created.StateMachineArn})
@@ -555,10 +556,10 @@ func TestStepFunctions_RefusesAnExecutionRoleItCannotAssume_SDK(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, sfntypes.TestExecutionStatusSucceeded, tested.Status)
 
-	scopedName := uniqueName("sfn-scoped")
+	scopedName := uniquename.New("sfn-scoped")
 	iamC := iamClient()
 	scoped, err := iamC.CreateRole(ctx, &iam.CreateRoleInput{
-		RoleName: aws.String(uniqueName("states-scoped")),
+		RoleName: aws.String(uniquename.New("states-scoped")),
 		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
 			`"Principal":{"Service":"states.amazonaws.com"},"Action":"sts:AssumeRole",` +
 			`"Condition":{"ArnLike":{"aws:SourceArn":"arn:aws:states:*:` + strings.Split(trusted, ":")[4] +
@@ -568,7 +569,7 @@ func TestStepFunctions_RefusesAnExecutionRoleItCannotAssume_SDK(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = iamC.DeleteRole(context.Background(), &iam.DeleteRoleInput{RoleName: scoped.Role.RoleName})
 	})
-	_, err = create(uniqueName("sfn-unscoped"), aws.ToString(scoped.Role.Arn))
+	_, err = create(uniquename.New("sfn-unscoped"), aws.ToString(scoped.Role.Arn))
 	requireAWSError(t, err, "AccessDeniedException", statesRoleRefusal)
 	scopedMachine, err := create(scopedName, aws.ToString(scoped.Role.Arn))
 	require.NoError(t, err)
@@ -585,21 +586,21 @@ func TestScheduler_RefusesATargetRoleItCannotAssume_SDK(t *testing.T) {
 	t.Parallel()
 	c := schedulerClient()
 	otherService, absent := untrustedRoles(t)
-	queue := "arn:aws:sqs:us-east-1:" + strings.Split(otherService, ":")[4] + ":" + uniqueName("scheduler-trust")
+	queue := "arn:aws:sqs:us-east-1:" + strings.Split(otherService, ":")[4] + ":" + uniquename.New("scheduler-trust")
 	target := func(role string) *schedtypes.Target {
 		return &schedtypes.Target{Arn: aws.String(queue), RoleArn: aws.String(role), Input: aws.String("tick")}
 	}
 	window := &schedtypes.FlexibleTimeWindow{Mode: schedtypes.FlexibleTimeWindowModeOff}
 	for _, role := range []string{otherService, absent} {
 		_, err := c.CreateSchedule(ctx, &scheduler.CreateScheduleInput{
-			Name: aws.String(uniqueName("sched-untrusted")), ScheduleExpression: aws.String("rate(1 day)"),
+			Name: aws.String(uniquename.New("sched-untrusted")), ScheduleExpression: aws.String("rate(1 day)"),
 			FlexibleTimeWindow: window, Target: target(role),
 		})
 		requireAWSError(t, err, "ValidationException", schedulerRoleRefusal)
 	}
 
 	trusted := serviceRole(t, "scheduler.amazonaws.com")
-	name := uniqueName("sched-trusted")
+	name := uniquename.New("sched-trusted")
 	_, err := c.CreateSchedule(ctx, &scheduler.CreateScheduleInput{
 		Name: aws.String(name), ScheduleExpression: aws.String("rate(1 day)"),
 		FlexibleTimeWindow: window, Target: target(trusted),
@@ -628,7 +629,7 @@ func TestStepFunctions_TakesARoleTrustingItsRegionalPrincipal_SDK(t *testing.T) 
 	const definition = `{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}`
 	regional := serviceRole(t, "states.us-east-1.amazonaws.com")
 	created, err := c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
-		Name: aws.String(uniqueName("sfn-regional")), Definition: aws.String(definition), RoleArn: aws.String(regional),
+		Name: aws.String(uniquename.New("sfn-regional")), Definition: aws.String(definition), RoleArn: aws.String(regional),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -637,7 +638,7 @@ func TestStepFunctions_TakesARoleTrustingItsRegionalPrincipal_SDK(t *testing.T) 
 
 	elsewhere := serviceRole(t, "states.eu-west-1.amazonaws.com")
 	_, err = c.CreateStateMachine(ctx, &sfn.CreateStateMachineInput{
-		Name: aws.String(uniqueName("sfn-elsewhere")), Definition: aws.String(definition), RoleArn: aws.String(elsewhere),
+		Name: aws.String(uniquename.New("sfn-elsewhere")), Definition: aws.String(definition), RoleArn: aws.String(elsewhere),
 	})
 	requireAWSError(t, err, "AccessDeniedException", statesRoleRefusal)
 }

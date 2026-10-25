@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	"github.com/aws/aws-sdk-go-v2/service/rds/types"
 	"github.com/aws/smithy-go"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -84,7 +85,7 @@ func TestRDS_BlueGreenDeploymentSwitchesOver(t *testing.T) {
 			defer cancel()
 			f := rdsInstanceFixture{t: t, ctx: ctx, client: rdsClient(), family: engine}
 			c := f.client
-			blueID := uniqueName("sdk-bg-" + engine)
+			blueID := uniquename.New("sdk-bg-" + engine)
 			_, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 				DBInstanceIdentifier:  aws.String(blueID),
 				DBInstanceClass:       aws.String("db.t3.micro"),
@@ -106,7 +107,7 @@ func TestRDS_BlueGreenDeploymentSwitchesOver(t *testing.T) {
 
 			family := map[string]string{"mysql": "mysql8.0", "postgres": "postgres16"}[engine]
 			targetVersion := map[string]string{"mysql": "8.0.46", "postgres": "16.15"}[engine]
-			group := uniqueName("sdk-bg-green")
+			group := uniquename.New("sdk-bg-green")
 			_, err = c.CreateDBParameterGroup(ctx, &rds.CreateDBParameterGroupInput{
 				DBParameterGroupName: aws.String(group), DBParameterGroupFamily: aws.String(family), Description: aws.String("green"),
 			})
@@ -116,7 +117,7 @@ func TestRDS_BlueGreenDeploymentSwitchesOver(t *testing.T) {
 			})
 
 			created, err := c.CreateBlueGreenDeployment(ctx, &rds.CreateBlueGreenDeploymentInput{
-				BlueGreenDeploymentName:    aws.String(uniqueName("sdk-bg")),
+				BlueGreenDeploymentName:    aws.String(uniquename.New("sdk-bg")),
 				Source:                     blue.DBInstanceArn,
 				TargetEngineVersion:        aws.String(targetVersion),
 				TargetDBParameterGroupName: aws.String(group),
@@ -227,7 +228,7 @@ func TestRDS_BlueGreenDeploymentDeletion(t *testing.T) {
 		require.True(t, errors.As(err, &apiErr), "want an API error, got %v", err)
 		return apiErr.ErrorCode()
 	}
-	blueID := uniqueName("sdk-bg-delete")
+	blueID := uniquename.New("sdk-bg-delete")
 	blue := create(blueID, 1)
 	blueDB := f.connect(blueID)
 	blueDB.exec(t, `CREATE TABLE ledger (entry varchar(64) NOT NULL)`)
@@ -244,7 +245,7 @@ func TestRDS_BlueGreenDeploymentDeletion(t *testing.T) {
 		return aws.ToString(out.BlueGreenDeployment.BlueGreenDeploymentIdentifier), greenID
 	}
 
-	name := uniqueName("sdk-bg-first")
+	name := uniquename.New("sdk-bg-first")
 	first, firstGreen := deploy(name)
 	_, err := c.CreateBlueGreenDeployment(ctx, &rds.CreateBlueGreenDeploymentInput{
 		BlueGreenDeploymentName: aws.String(name), Source: blue.DBInstanceArn,
@@ -262,7 +263,7 @@ func TestRDS_BlueGreenDeploymentDeletion(t *testing.T) {
 		"DeleteTarget deletes the green instance")
 	assert.NotContains(t, rdsDescribeInstance(t, ctx, c, blueID).ReadReplicaDBInstanceIdentifiers, firstGreen)
 
-	second, secondGreen := deploy(uniqueName("sdk-bg-second"))
+	second, secondGreen := deploy(uniquename.New("sdk-bg-second"))
 	rdsAwaitBlueGreenStatus(t, ctx, c, second, "AVAILABLE")
 	_, err = c.DeleteBlueGreenDeployment(ctx, &rds.DeleteBlueGreenDeploymentInput{BlueGreenDeploymentIdentifier: aws.String(second)})
 	require.NoError(t, err)
@@ -275,12 +276,12 @@ func TestRDS_BlueGreenDeploymentDeletion(t *testing.T) {
 	assert.Equal(t, []string{"blue"}, blueDB.entries(t))
 
 	_, err = c.CreateBlueGreenDeployment(ctx, &rds.CreateBlueGreenDeploymentInput{
-		BlueGreenDeploymentName: aws.String(uniqueName("sdk-bg-group")), Source: blue.DBInstanceArn,
-		TargetDBParameterGroupName: aws.String(uniqueName("missing-group")),
+		BlueGreenDeploymentName: aws.String(uniquename.New("sdk-bg-group")), Source: blue.DBInstanceArn,
+		TargetDBParameterGroupName: aws.String(uniquename.New("missing-group")),
 	})
 	assert.Equal(t, "DBParameterGroupNotFound", errorCode(err))
 
-	unbacked := create(uniqueName("sdk-bg-unbacked"), 0)
+	unbacked := create(uniquename.New("sdk-bg-unbacked"), 0)
 	assert.True(t, aws.ToBool(unbacked.AutoMinorVersionUpgrade), "Amazon RDS upgrades minor versions by default")
 	modified, err := c.ModifyDBInstance(ctx, &rds.ModifyDBInstanceInput{
 		DBInstanceIdentifier: unbacked.DBInstanceIdentifier, AutoMinorVersionUpgrade: aws.Bool(false), ApplyImmediately: aws.Bool(true),
@@ -288,15 +289,15 @@ func TestRDS_BlueGreenDeploymentDeletion(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, aws.ToBool(modified.DBInstance.AutoMinorVersionUpgrade))
 	_, err = c.ModifyDBInstance(ctx, &rds.ModifyDBInstanceInput{
-		DBInstanceIdentifier: unbacked.DBInstanceIdentifier, DBParameterGroupName: aws.String(uniqueName("missing-group")),
+		DBInstanceIdentifier: unbacked.DBInstanceIdentifier, DBParameterGroupName: aws.String(uniquename.New("missing-group")),
 	})
 	assert.Equal(t, "DBParameterGroupNotFound", errorCode(err))
 	_, err = c.CreateBlueGreenDeployment(ctx, &rds.CreateBlueGreenDeploymentInput{
-		BlueGreenDeploymentName: aws.String(uniqueName("sdk-bg-unbacked")), Source: unbacked.DBInstanceArn,
+		BlueGreenDeploymentName: aws.String(uniquename.New("sdk-bg-unbacked")), Source: unbacked.DBInstanceArn,
 	})
 	assert.Equal(t, "SourceDatabaseNotSupportedFault", errorCode(err))
 
-	clusterID := uniqueName("sdk-bg-cluster")
+	clusterID := uniquename.New("sdk-bg-cluster")
 	cluster, err := c.CreateDBCluster(ctx, &rds.CreateDBClusterInput{
 		DBClusterIdentifier: aws.String(clusterID), Engine: aws.String("mysql"), MasterUsername: aws.String("admin"),
 		DBClusterInstanceClass: aws.String("db.m6gd.large"), AllocatedStorage: aws.Int32(100),
@@ -307,7 +308,7 @@ func TestRDS_BlueGreenDeploymentDeletion(t *testing.T) {
 			DBClusterIdentifier: aws.String(clusterID), SkipFinalSnapshot: aws.Bool(true)})
 	})
 	_, err = c.CreateBlueGreenDeployment(ctx, &rds.CreateBlueGreenDeploymentInput{
-		BlueGreenDeploymentName: aws.String(uniqueName("sdk-bg-cluster")), Source: cluster.DBCluster.DBClusterArn,
+		BlueGreenDeploymentName: aws.String(uniquename.New("sdk-bg-cluster")), Source: cluster.DBCluster.DBClusterArn,
 	})
 	assert.Equal(t, "SourceClusterNotSupportedFault", errorCode(err), "a Multi-AZ DB cluster has no blue/green deployments")
 }

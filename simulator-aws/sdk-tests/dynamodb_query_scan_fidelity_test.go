@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,8 +20,8 @@ import (
 //     silently dropped — the request field didn't exist).
 func TestDynamoDB_ScanLimitAndQueryFilter(t *testing.T) {
 	t.Parallel()
-	queryTable := uniqueName("qs-query")
-	scanTable := uniqueName("qs-scan")
+	queryTable := uniquename.New("qs-query")
+	scanTable := uniquename.New("qs-scan")
 	c := ddbClient()
 
 	// --- Scan: hash-only table, 4 items (sorted a,b,c,d), 2 match kind=x. ---

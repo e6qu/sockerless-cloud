@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"runtime"
 	"strconv"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/google/uuid"
 )
@@ -297,10 +297,7 @@ func batchWriteError(w http.ResponseWriter, status int, msg string) {
 	if status >= 500 {
 		code = "ServerException"
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Amzn-Errortype", code)
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(awsErrorBody("batch", code, msg))
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsRestJSON1, Model: "batch"}, status, code, msg, "")
 }
 
 func handleBatchCreateComputeEnvironment(w http.ResponseWriter, r *http.Request) {
@@ -312,7 +309,7 @@ func handleBatchCreateComputeEnvironment(w http.ResponseWriter, r *http.Request)
 		ServiceRole            string            `json:"serviceRole"`
 		Tags                   map[string]string `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -365,7 +362,7 @@ func handleBatchDescribeComputeEnvironments(w http.ResponseWriter, r *http.Reque
 // skipping names Batch does not hold, or every environment by name.
 func batchDescribeEnvironments[T any](w http.ResponseWriter, r *http.Request, listField string, store sim.Store[T], name func(T) string) {
 	var req map[string]json.RawMessage
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -408,7 +405,7 @@ func handleBatchUpdateComputeEnvironment(w http.ResponseWriter, r *http.Request)
 		ComputeResources   map[string]any `json:"computeResources"`
 		ServiceRole        string         `json:"serviceRole"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -444,7 +441,7 @@ func handleBatchDeleteComputeEnvironment(w http.ResponseWriter, r *http.Request)
 	var req struct {
 		ComputeEnvironment string `json:"computeEnvironment"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -465,7 +462,7 @@ func handleBatchCreateJobQueue(w http.ResponseWriter, r *http.Request) {
 		ComputeEnvironmentOrder []map[string]any  `json:"computeEnvironmentOrder"`
 		Tags                    map[string]string `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -517,7 +514,10 @@ func handleBatchDescribeJobQueues(w http.ResponseWriter, r *http.Request) {
 		MaxResults *int32   `json:"maxResults"`
 		NextToken  string   `json:"nextToken"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
 
 	var result []BatchJobQueue
 	key := func(item BatchJobQueue) string { return item.JobQueueName }
@@ -553,7 +553,7 @@ func handleBatchUpdateJobQueue(w http.ResponseWriter, r *http.Request) {
 		SchedulingPolicyArn     string           `json:"schedulingPolicyArn"`
 		ComputeEnvironmentOrder []map[string]any `json:"computeEnvironmentOrder"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -599,7 +599,7 @@ func handleBatchDeleteJobQueue(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		JobQueue string `json:"jobQueue"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -621,7 +621,7 @@ func handleBatchRegisterJobDefinition(w http.ResponseWriter, r *http.Request) {
 		SchedulingPriority  *int              `json:"schedulingPriority"`
 		Tags                map[string]string `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -692,7 +692,10 @@ func handleBatchDescribeJobDefinitions(w http.ResponseWriter, r *http.Request) {
 		MaxResults        *int32   `json:"maxResults"`
 		NextToken         string   `json:"nextToken"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
 
 	all := batchJobDefs.List()
 	var result []BatchJobDefinition
@@ -736,7 +739,7 @@ func handleBatchDeregisterJobDefinition(w http.ResponseWriter, r *http.Request) 
 	var req struct {
 		JobDefinition string `json:"jobDefinition"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -769,7 +772,7 @@ func handleBatchSubmitJob(w http.ResponseWriter, r *http.Request) {
 		Timeout       map[string]any       `json:"timeout"`
 		Tags          map[string]string    `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -884,7 +887,7 @@ func handleBatchDescribeJobs(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Jobs []string `json:"jobs"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -988,7 +991,7 @@ func handleBatchListJobs(w http.ResponseWriter, r *http.Request) {
 		MaxResults     *int32            `json:"maxResults"`
 		NextToken      string            `json:"nextToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1027,9 +1030,9 @@ func handleBatchListJobs(w http.ResponseWriter, r *http.Request) {
 			return job.ArrayJobID == "" && batchNameFromARN(job.JobQueue) == queueName
 		})
 	}
-	key := func(job BatchJob) string { return awsDescKey(awsIntKey(job.CreatedAt)) + "\x00" + job.JobID }
+	key := func(job BatchJob) string { return awsDescKey(listq.IntKey(job.CreatedAt)) + "\x00" + job.JobID }
 	if req.ArrayJobID != "" {
-		key = func(job BatchJob) string { return awsIntKey(int64(*job.ArrayProperties.Index)) }
+		key = func(job BatchJob) string { return listq.IntKey(int64(*job.ArrayProperties.Index)) }
 	}
 
 	// A filter lists jobs in every status, except that SHARE_IDENTIFIER
@@ -1080,7 +1083,7 @@ func handleBatchStopJob(w http.ResponseWriter, r *http.Request, stop func(id, re
 		JobID  string `json:"jobId"`
 		Reason string `json:"reason"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1107,7 +1110,7 @@ func handleBatchBulkTermination(w http.ResponseWriter, r *http.Request, exists f
 		Jobs   []string `json:"jobs"`
 		Reason string   `json:"reason"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1160,7 +1163,7 @@ func handleBatchCreateSchedulingPolicy(w http.ResponseWriter, r *http.Request) {
 		QuotaSharePolicy map[string]any    `json:"quotaSharePolicy"`
 		Tags             map[string]string `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1198,7 +1201,7 @@ func handleBatchDescribeSchedulingPolicies(w http.ResponseWriter, r *http.Reques
 	var req struct {
 		Arns []string `json:"arns"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1218,7 +1221,10 @@ func handleBatchListSchedulingPolicies(w http.ResponseWriter, r *http.Request) {
 		MaxResults *int32 `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
 
 	all := batchSchedPols.List()
 	result := make([]map[string]any, 0, len(all))
@@ -1242,7 +1248,7 @@ func handleBatchUpdateSchedulingPolicy(w http.ResponseWriter, r *http.Request) {
 		FairsharePolicy  map[string]any `json:"fairsharePolicy"`
 		QuotaSharePolicy map[string]any `json:"quotaSharePolicy"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1275,7 +1281,7 @@ func handleBatchDeleteSchedulingPolicy(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Arn string `json:"arn"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1307,7 +1313,7 @@ func handleBatchTagResource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Tags map[string]string `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1418,7 +1424,7 @@ func handleBatchCreateConsumableResource(w http.ResponseWriter, r *http.Request)
 		ResourceType           string            `json:"resourceType"`
 		Tags                   map[string]string `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1458,7 +1464,7 @@ func handleBatchDescribeConsumableResource(w http.ResponseWriter, r *http.Reques
 	var req struct {
 		ConsumableResource string `json:"consumableResource"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1485,7 +1491,10 @@ func handleBatchListConsumableResources(w http.ResponseWriter, r *http.Request) 
 		MaxResults *int32 `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
 
 	all := batchConsumableRes.List()
 	result := make([]map[string]any, 0, len(all))
@@ -1515,7 +1524,7 @@ func handleBatchUpdateConsumableResource(w http.ResponseWriter, r *http.Request)
 		Operation          string `json:"operation"`
 		Quantity           int64  `json:"quantity"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1550,7 +1559,7 @@ func handleBatchDeleteConsumableResource(w http.ResponseWriter, r *http.Request)
 	var req struct {
 		ConsumableResource string `json:"consumableResource"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1568,7 +1577,7 @@ func handleBatchListJobsByConsumableResource(w http.ResponseWriter, r *http.Requ
 		MaxResults         *int32 `json:"maxResults"`
 		NextToken          string `json:"nextToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1600,7 +1609,7 @@ func handleBatchCreateServiceEnvironment(w http.ResponseWriter, r *http.Request)
 		CapacityLimits         []map[string]any  `json:"capacityLimits"`
 		Tags                   map[string]string `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1655,7 +1664,7 @@ func handleBatchUpdateServiceEnvironment(w http.ResponseWriter, r *http.Request)
 		State              string           `json:"state"`
 		CapacityLimits     []map[string]any `json:"capacityLimits"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1686,7 +1695,7 @@ func handleBatchDeleteServiceEnvironment(w http.ResponseWriter, r *http.Request)
 	var req struct {
 		ServiceEnvironment string `json:"serviceEnvironment"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1709,7 +1718,7 @@ func handleBatchSubmitServiceJob(w http.ResponseWriter, r *http.Request) {
 		SchedulingPriority    int               `json:"schedulingPriority"`
 		Tags                  map[string]string `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1783,7 +1792,7 @@ func handleBatchDescribeServiceJob(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		JobID string `json:"jobId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1833,7 +1842,10 @@ func handleBatchListServiceJobs(w http.ResponseWriter, r *http.Request) {
 		MaxResults *int32 `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
 
 	all := batchServiceJobs.List()
 	var result []map[string]any
@@ -1872,7 +1884,7 @@ func handleBatchTerminateServiceJob(w http.ResponseWriter, r *http.Request) {
 		JobID  string `json:"jobId"`
 		Reason string `json:"reason"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1901,7 +1913,7 @@ func handleBatchUpdateServiceJob(w http.ResponseWriter, r *http.Request) {
 		JobID              string `json:"jobId"`
 		SchedulingPriority *int   `json:"schedulingPriority"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1935,7 +1947,7 @@ func handleBatchCreateQuotaShare(w http.ResponseWriter, r *http.Request) {
 		State                        string            `json:"state"`
 		Tags                         map[string]string `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1981,7 +1993,7 @@ func handleBatchDescribeQuotaShare(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		QuotaShareArn string `json:"quotaShareArn"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -2017,7 +2029,10 @@ func handleBatchListQuotaShares(w http.ResponseWriter, r *http.Request) {
 		MaxResults *int32 `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
 
 	all := batchQuotaShares.List()
 	result := make([]map[string]any, 0, len(all))
@@ -2060,7 +2075,7 @@ func handleBatchUpdateQuotaShare(w http.ResponseWriter, r *http.Request) {
 		PreemptionConfiguration      map[string]any   `json:"preemptionConfiguration"`
 		State                        string           `json:"state"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -2097,7 +2112,7 @@ func handleBatchDeleteQuotaShare(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		QuotaShareArn string `json:"quotaShareArn"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -2113,7 +2128,7 @@ func handleBatchGetJobQueueSnapshot(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		JobQueue string `json:"jobQueue"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		batchWriteError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}

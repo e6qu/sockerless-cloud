@@ -15,10 +15,14 @@ import (
 // and placementRun the one Cloud Run services, jobs, worker pools and
 // instances are, Cloud Functions among them, which run as Cloud Run
 // services. An instance's first container is placed and the others join it
-// as members of its namespace.
+// as members of its namespace. placementRedis places the nodes of
+// Memorystore for Redis instances and clusters, and placementCloudBuild the
+// steps of Cloud Build builds.
 var (
-	placementCompute = placement.Service{Name: "compute"}
-	placementRun     = placement.Service{Name: "run"}
+	placementCompute    = placement.Service{Name: "compute"}
+	placementRun        = placement.Service{Name: "run"}
+	placementRedis      = placement.Service{Name: "redis"}
+	placementCloudBuild = placement.Service{Name: "cloudbuild"}
 )
 
 // gcpPlacement maps services to the backend their workloads run on. It starts

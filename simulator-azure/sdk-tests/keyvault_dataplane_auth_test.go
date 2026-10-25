@@ -15,6 +15,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/keyvault/armkeyvault"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azkeys"
 	"github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -112,7 +113,7 @@ func kvErrorMessage(body map[string]any) (string, string) {
 // same challenge.
 func TestKeyVault_AuthChallenge(t *testing.T) {
 	t.Parallel()
-	vault := uniqueAlnumName("challengevault")
+	vault := uniquename.Alnum("challengevault")
 	createAuthTestVault(t, "kv-challenge-rg", vault, armkeyvault.VaultProperties{
 		AccessPolicies: []*armkeyvault.AccessPolicyEntry{{
 			TenantID:    to.Ptr(simTenantID),
@@ -177,7 +178,7 @@ func TestKeyVault_AuthChallenge(t *testing.T) {
 func TestKeyVault_AccessPoliciesAuthorizeEachOperation(t *testing.T) {
 	t.Parallel()
 	rg := "kv-policy-auth-rg"
-	vault := uniqueAlnumName("kvpolicyauth")
+	vault := uniquename.Alnum("kvpolicyauth")
 	policy := func(secrets ...armkeyvault.SecretPermissions) *armkeyvault.AccessPolicyEntry {
 		perms := make([]*armkeyvault.SecretPermissions, 0, len(secrets))
 		for i := range secrets {
@@ -265,7 +266,7 @@ func TestKeyVault_AccessPoliciesAuthorizeEachOperation(t *testing.T) {
 func TestKeyVault_RBACAuthorizesDataActions(t *testing.T) {
 	t.Parallel()
 	rg := "kv-rbac-auth-rg"
-	vault := uniqueAlnumName("kvrbacauth")
+	vault := uniquename.Alnum("kvrbacauth")
 	createAuthTestVault(t, rg, vault, armkeyvault.VaultProperties{
 		EnableRbacAuthorization: to.Ptr(true),
 		AccessPolicies: []*armkeyvault.AccessPolicyEntry{{
@@ -311,7 +312,7 @@ func TestKeyVault_RBACAuthorizesDataActions(t *testing.T) {
 	_, err = secrets.DeleteSecret(ctx, "alpha", nil)
 	requireKVForbidden(t, err, "ForbiddenByRbac", "Action: 'Microsoft.KeyVault/vaults/secrets/delete'")
 
-	scoped := uniqueAlnumName("kvrbacscope")
+	scoped := uniquename.Alnum("kvrbacscope")
 	createAuthTestVault(t, rg, scoped, armkeyvault.VaultProperties{EnableRbacAuthorization: to.Ptr(true)})
 	scopedID := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.KeyVault/vaults/" + scoped
 	setter := customRole("Secret setter "+scoped, []string{"Microsoft.KeyVault/vaults/secrets/setSecret/action"}, nil)
@@ -337,7 +338,7 @@ func TestKeyVault_RBACAuthorizesDataActions(t *testing.T) {
 func TestKeyVault_NetworkRulesRefuseOutsideAddresses(t *testing.T) {
 	t.Parallel()
 	rg := "kv-network-auth-rg"
-	vault := uniqueAlnumName("kvnetauth")
+	vault := uniquename.Alnum("kvnetauth")
 	vaults := createAuthTestVault(t, rg, vault, armkeyvault.VaultProperties{
 		AccessPolicies: []*armkeyvault.AccessPolicyEntry{{
 			TenantID:    to.Ptr(simTenantID),

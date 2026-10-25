@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -78,7 +79,7 @@ func TestRDS_AuroraClusterRestoresFromS3XtraBackup(t *testing.T) {
 	require.NoError(t, err)
 
 	iamc := iamClient()
-	roleName := uniqueName("rds-s3-import")
+	roleName := uniquename.New("rds-s3-import")
 	role, err := iamc.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName: aws.String(roleName),
 		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +

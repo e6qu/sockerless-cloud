@@ -61,7 +61,7 @@ The extractor reads the route out of a single string literal, so a registration 
 | `Action Kinesis_20131202.UpdateChannel` | ✓ `simulator-aws/kinesis_channels.go:51::handleKinesisUpdateChannel` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action Kinesis_20131202.DeleteChannel` | ✓ `simulator-aws/kinesis_channels.go:52::handleKinesisDeleteChannel` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `Action Kinesis_20131202.ListChannels` | ✓ `simulator-aws/kinesis_channels.go:53::handleKinesisListChannels` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `Action Kinesis_20131202.SubscribeToShard` | ✓ `simulator-aws/kinesis_streaming.go:19::handleKinesisSubscribeToShard` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `Action Kinesis_20131202.SubscribeToShard` | ✓ `simulator-aws/kinesis_streaming.go:20::handleKinesisSubscribeToShard` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

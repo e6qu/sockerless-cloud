@@ -306,7 +306,10 @@ func handleEBListApiDestinations(w http.ResponseWriter, r *http.Request) {
 		Limit         int    `json:"Limit"`
 		NextToken     string `json:"NextToken"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	dests := make([]EBApiDestination, 0)
 	for _, dest := range ebApiDest.List() {
 		if req.NamePrefix != "" && !strings.HasPrefix(dest.Name, req.NamePrefix) {
@@ -557,7 +560,10 @@ func handleEBListConnections(w http.ResponseWriter, r *http.Request) {
 		Limit           int    `json:"Limit"`
 		NextToken       string `json:"NextToken"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	conns := make([]EBConnection, 0)
 	for _, conn := range ebConnections.List() {
 		if req.NamePrefix != "" && !strings.HasPrefix(conn.Name, req.NamePrefix) {
@@ -799,7 +805,10 @@ func handleEBListEndpoints(w http.ResponseWriter, r *http.Request) {
 		MaxResults int    `json:"MaxResults"`
 		NextToken  string `json:"NextToken"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	endpoints := make([]EBEndpoint, 0)
 	for _, endpoint := range ebEndpoints.List() {
 		if req.NamePrefix != "" && !strings.HasPrefix(endpoint.Name, req.NamePrefix) {
@@ -1194,7 +1203,10 @@ func handleEBListEventSources(w http.ResponseWriter, r *http.Request) {
 		Limit      int    `json:"Limit"`
 		NextToken  string `json:"NextToken"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	seen := map[string]bool{}
 	sources := make([]EBPartnerEventSource, 0)
 	for _, s := range ebPartnerSources.List() {

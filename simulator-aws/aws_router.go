@@ -157,17 +157,13 @@ func (r *AWSQueryRouter) Handler(version, action string) (http.HandlerFunc, bool
 // bucket (version="") is consulted as a fallback.
 func (r *AWSQueryRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if err := req.ParseForm(); err != nil {
-		w.Header().Set("Content-Type", "text/xml")
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`<Response><Errors><Error><Code>MalformedInput</Code><Message>Could not parse form body</Message></Error></Errors></Response>`))
+		awsWriteError(w, awsErrorEnvelope{Protocol: awsEC2Query}, http.StatusBadRequest, "MalformedInput", "Could not parse form body", "")
 		return
 	}
 
 	action := req.FormValue("Action")
 	if action == "" {
-		w.Header().Set("Content-Type", "text/xml")
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`<Response><Errors><Error><Code>MissingAction</Code><Message>Action parameter is required</Message></Error></Errors></Response>`))
+		awsWriteError(w, awsErrorEnvelope{Protocol: awsEC2Query}, http.StatusBadRequest, "MissingAction", "Action parameter is required", "")
 		return
 	}
 
@@ -177,9 +173,5 @@ func (r *AWSQueryRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/xml")
-	w.WriteHeader(http.StatusBadRequest)
-	// XML-escape the reflected action — a value with <, &, or ]]> would
-	// otherwise produce malformed (or attacker-shaped) XML in the response.
-	_, _ = w.Write([]byte(`<Response><Errors><Error><Code>InvalidAction</Code><Message>The action ` + xmlEscape(action) + ` is not valid</Message></Error></Errors></Response>`))
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsEC2Query}, http.StatusBadRequest, "InvalidAction", "The action "+action+" is not valid", "")
 }

@@ -169,8 +169,7 @@ func registerCloudFrontFunctions(srv *sim.Server) {
 
 func handleCFCreateFunction(w http.ResponseWriter, r *http.Request) {
 	var req cfCreateFunctionRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode CreateFunctionRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "CreateFunctionRequest", &req) {
 		return
 	}
 	if req.Name == "" {
@@ -244,18 +243,11 @@ func handleCFUpdateFunction(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchFunctionExists", "The specified function does not exist.")
 		return
 	}
-	ifMatch := r.Header.Get("If-Match")
-	if ifMatch == "" {
-		cfWriteError(w, http.StatusBadRequest, "InvalidIfMatchVersion", "The If-Match header is required.")
-		return
-	}
-	if ifMatch != stored.ETag {
-		cfWriteError(w, http.StatusPreconditionFailed, "PreconditionFailed", "The If-Match version is missing or does not match the resource's current ETag.")
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	var req cfUpdateFunctionRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode UpdateFunctionRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "UpdateFunctionRequest", &req) {
 		return
 	}
 	newETag := cfETag()
@@ -280,13 +272,7 @@ func handleCFDeleteFunction(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchFunctionExists", "The specified function does not exist.")
 		return
 	}
-	ifMatch := r.Header.Get("If-Match")
-	if ifMatch == "" {
-		cfWriteError(w, http.StatusBadRequest, "InvalidIfMatchVersion", "The If-Match header is required.")
-		return
-	}
-	if ifMatch != stored.ETag {
-		cfWriteError(w, http.StatusPreconditionFailed, "PreconditionFailed", "The If-Match version is missing or does not match the resource's current ETag.")
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	cfFunctions.Delete(name)
@@ -300,13 +286,7 @@ func handleCFPublishFunction(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchFunctionExists", "The specified function does not exist.")
 		return
 	}
-	ifMatch := r.Header.Get("If-Match")
-	if ifMatch == "" {
-		cfWriteError(w, http.StatusBadRequest, "InvalidIfMatchVersion", "The If-Match header is required.")
-		return
-	}
-	if ifMatch != stored.ETag {
-		cfWriteError(w, http.StatusPreconditionFailed, "PreconditionFailed", "The If-Match version is missing or does not match the resource's current ETag.")
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	stored.Summary.Status = "UNASSOCIATED"
@@ -338,8 +318,7 @@ func handleCFCreateInvalidation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var batch CFInvalidationBatch
-	if err := xml.NewDecoder(r.Body).Decode(&batch); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode InvalidationBatch: "+err.Error())
+	if !cfDecodeXML(w, r, "InvalidationBatch", &batch) {
 		return
 	}
 	if batch.CallerReference == "" {

@@ -7,6 +7,7 @@ import (
 
 	run "cloud.google.com/go/run/apiv2"
 	"cloud.google.com/go/run/apiv2/runpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/option"
@@ -23,7 +24,7 @@ import (
 func TestSDK_CloudRun_RunJobOperationFollowsTheExecution(t *testing.T) {
 	t.Parallel()
 	jobsClient := newJobsClient(t)
-	jobID := uniqueName("sdk-run-job-follow")
+	jobID := uniquename.New("sdk-run-job-follow")
 	jobName := "projects/test-project/locations/us-central1/jobs/" + jobID
 
 	tailCtx, cancel := context.WithTimeout(ctx, jobLogWaitTimeout)

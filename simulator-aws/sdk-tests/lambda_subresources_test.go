@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +35,7 @@ func TestLambda_PublishVersion(t *testing.T) {
 	t.Parallel()
 	c := lambdaClient()
 	ctx := context.Background()
-	name := uniqueName("subres-publish")
+	name := uniquename.New("subres-publish")
 	lambdaCreateFn(t, c, name)
 
 	for i := 1; i <= 3; i++ {
@@ -66,7 +67,7 @@ func TestLambda_ListFunctions_FunctionVersionAll(t *testing.T) {
 	t.Parallel()
 	c := lambdaClient()
 	ctx := context.Background()
-	name := uniqueName("listfn-all-ver")
+	name := uniquename.New("listfn-all-ver")
 	lambdaCreateFn(t, c, name)
 
 	_, err := c.PublishVersion(ctx, &lambda.PublishVersionInput{FunctionName: aws.String(name)})
@@ -107,7 +108,7 @@ func TestLambda_AliasCRUD(t *testing.T) {
 	t.Parallel()
 	c := lambdaClient()
 	ctx := context.Background()
-	name := uniqueName("subres-alias")
+	name := uniquename.New("subres-alias")
 	lambdaCreateFn(t, c, name)
 
 	_, err := c.PublishVersion(ctx, &lambda.PublishVersionInput{FunctionName: aws.String(name)})
@@ -162,7 +163,7 @@ func TestLambda_AddRemovePermission(t *testing.T) {
 	t.Parallel()
 	c := lambdaClient()
 	ctx := context.Background()
-	name := uniqueName("subres-perm")
+	name := uniquename.New("subres-perm")
 	lambdaCreateFn(t, c, name)
 
 	_, err := c.AddPermission(ctx, &lambda.AddPermissionInput{
@@ -196,7 +197,7 @@ func TestLambda_FunctionUrlConfigCRUD(t *testing.T) {
 	t.Parallel()
 	c := lambdaClient()
 	ctx := context.Background()
-	name := uniqueName("subres-url")
+	name := uniquename.New("subres-url")
 	lambdaCreateFn(t, c, name)
 
 	created, err := c.CreateFunctionUrlConfig(ctx, &lambda.CreateFunctionUrlConfigInput{

@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -24,9 +23,7 @@ func registerNetworkMoreOps(srv *sim.Server) {
 		return azureLoadBalancerID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "loadBalancerName"))
 	}
 	nicID := func(r *http.Request) string {
-		return "/subscriptions/" + sim.PathParam(r, "subscriptionId") +
-			"/resourceGroups/" + sim.PathParam(r, "resourceGroupName") +
-			"/providers/Microsoft.Network/networkInterfaces/" + sim.PathParam(r, "networkInterfaceName")
+		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "networkInterfaces", sim.PathParam(r, "networkInterfaceName"))
 	}
 
 	// LoadBalancerNetworkInterfaces_List — the network interfaces whose IP
@@ -218,9 +215,7 @@ func registerNetworkMoreOps(srv *sim.Server) {
 	// a public IP. The sim does not model DDoS protection plans, so an IP is
 	// reported as not workload-protected.
 	srv.HandleFunc("POST "+armBase+"/publicIPAddresses/{publicIPName}/ddosProtectionStatus", func(w http.ResponseWriter, r *http.Request) {
-		id := "/subscriptions/" + sim.PathParam(r, "subscriptionId") +
-			"/resourceGroups/" + sim.PathParam(r, "resourceGroupName") +
-			"/providers/Microsoft.Network/publicIPAddresses/" + sim.PathParam(r, "publicIPName")
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "publicIPAddresses", sim.PathParam(r, "publicIPName"))
 		pip, ok := azurePublicIPs.Get(id)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Public IP address %q not found.", sim.PathParam(r, "publicIPName"))
@@ -236,11 +231,12 @@ func registerNetworkMoreOps(srv *sim.Server) {
 	// PublicIPAddresses_ReserveCloudServicePublicIpAddress — reserve the
 	// public IP for a cloud service. The sim returns the public IP resource.
 	srv.HandleFunc("POST "+armBase+"/publicIPAddresses/{publicIPName}/reserveCloudServicePublicIpAddress", func(w http.ResponseWriter, r *http.Request) {
-		id := "/subscriptions/" + sim.PathParam(r, "subscriptionId") +
-			"/resourceGroups/" + sim.PathParam(r, "resourceGroupName") +
-			"/providers/Microsoft.Network/publicIPAddresses/" + sim.PathParam(r, "publicIPName")
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "publicIPAddresses", sim.PathParam(r, "publicIPName"))
 		var body map[string]any
-		_ = sim.ReadJSON(r, &body)
+		if err := sim.ReadJSON(r, &body); err != nil {
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 		pip, ok := azurePublicIPs.Get(id)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Public IP address %q not found.", sim.PathParam(r, "publicIPName"))
@@ -252,11 +248,12 @@ func registerNetworkMoreOps(srv *sim.Server) {
 	// PublicIPAddresses_DisassociateCloudServiceReservedPublicIp — release a
 	// cloud-service reservation. No resource body in the terminal response.
 	srv.HandleFunc("POST "+armBase+"/publicIPAddresses/{publicIPName}/disassociateCloudServiceReservedPublicIp", func(w http.ResponseWriter, r *http.Request) {
-		id := "/subscriptions/" + sim.PathParam(r, "subscriptionId") +
-			"/resourceGroups/" + sim.PathParam(r, "resourceGroupName") +
-			"/providers/Microsoft.Network/publicIPAddresses/" + sim.PathParam(r, "publicIPName")
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "publicIPAddresses", sim.PathParam(r, "publicIPName"))
 		var body map[string]any
-		_ = sim.ReadJSON(r, &body)
+		if err := sim.ReadJSON(r, &body); err != nil {
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 		if _, ok := azurePublicIPs.Get(id); !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Public IP address %q not found.", sim.PathParam(r, "publicIPName"))
 			return
@@ -287,9 +284,7 @@ func registerNetworkMoreOps(srv *sim.Server) {
 	// operation is long-running with its final state via Location, so it
 	// answers 202 and the addresses are read from the Location poll.
 	srv.HandleFunc("POST "+armBase+"/virtualNetworks/{vnetName}/ddosProtectionStatus", func(w http.ResponseWriter, r *http.Request) {
-		vnetID := "/subscriptions/" + sim.PathParam(r, "subscriptionId") +
-			"/resourceGroups/" + sim.PathParam(r, "resourceGroupName") +
-			"/providers/Microsoft.Network/virtualNetworks/" + sim.PathParam(r, "vnetName")
+		vnetID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "virtualNetworks", sim.PathParam(r, "vnetName"))
 		subnetPrefix := vnetID + "/subnets/"
 		results := []map[string]any{}
 		for _, nic := range azureNICs.List() {
@@ -370,9 +365,7 @@ func azureSubnetExists(r *http.Request) bool {
 	if azureSubnets == nil {
 		return false
 	}
-	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s/subnets/%s",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"),
-		sim.PathParam(r, "vnetName"), sim.PathParam(r, "subnetName"))
+	id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "virtualNetworks", sim.PathParam(r, "vnetName"), "subnets", sim.PathParam(r, "subnetName"))
 	_, ok := azureSubnets.Get(id)
 	return ok
 }

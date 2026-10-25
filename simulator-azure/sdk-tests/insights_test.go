@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/applicationinsights/armapplicationinsights"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -89,7 +90,7 @@ func TestAppInsights_InstrumentationKeyStableOnUpsert(t *testing.T) {
 // , which this test would have caught.
 func TestAppInsights_BillingFeatures(t *testing.T) {
 	t.Parallel()
-	rgName, componentName := "insights-billing-rg", uniqueName("billing-component")
+	rgName, componentName := "insights-billing-rg", uniquename.New("billing-component")
 	ensureRG(t, rgName)
 
 	comps, err := armapplicationinsights.NewComponentsClient(subscriptionID, &fakeCredential{}, clientOpts())

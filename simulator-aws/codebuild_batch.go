@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,8 +12,11 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
+
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 // A batch build starts the builds its buildspec's batch section names
@@ -671,7 +673,7 @@ func cbApplyBatchOverrides(project CBProject, input cbStartBuildBatchInput) (CBP
 
 func handleCBStartBuildBatch(w http.ResponseWriter, r *http.Request) {
 	var req cbStartBuildBatchInput
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -757,7 +759,7 @@ func handleCBStopBuildBatch(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID string `json:"id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -792,7 +794,7 @@ func handleCBRetryBuildBatch(w http.ResponseWriter, r *http.Request) {
 		IdempotencyToken string `json:"idempotencyToken"`
 		RetryType        string `json:"retryType"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -857,7 +859,7 @@ func handleCBDeleteBuildBatch(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID string `json:"id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -905,7 +907,7 @@ func handleCBBatchGetBuildBatches(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		IDs []string `json:"ids"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -930,7 +932,7 @@ func handleCBListBuildBatches(w http.ResponseWriter, r *http.Request) {
 		MaxResults int    `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -944,7 +946,7 @@ func handleCBListBuildBatchesForProject(w http.ResponseWriter, r *http.Request) 
 		MaxResults  int    `json:"maxResults"`
 		NextToken   string `json:"nextToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -960,7 +962,7 @@ func cbWriteBuildBatchIDsPage(w http.ResponseWriter, all []CBBuildBatch, project
 	}
 	descending := !strings.EqualFold(sortOrder, "ASCENDING")
 	page, nextTok, pageOK := awsKeyPage(w, cbBadToken, batches, func(b CBBuildBatch) string {
-		return cbOrderKey(awsIntKey(b.Seq), descending)
+		return cbOrderKey(listq.IntKey(b.Seq), descending)
 	}, nextToken, maxResults, 100)
 	if !pageOK {
 		return

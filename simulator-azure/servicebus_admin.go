@@ -337,19 +337,19 @@ func sbAdminNamespaceID(namespace string) string {
 var sbNamespacesByName sim.GenerationIndex[SBNamespace]
 
 func sbAdminQueueID(namespace, queue string) string {
-	return sbAdminNamespaceID(namespace) + "/queues/" + queue
+	return armChildID(sbAdminNamespaceID(namespace), "queues", queue)
 }
 
 func sbAdminTopicID(namespace, topic string) string {
-	return sbAdminNamespaceID(namespace) + "/topics/" + topic
+	return armChildID(sbAdminNamespaceID(namespace), "topics", topic)
 }
 
 func sbAdminSubscriptionID(namespace, topic, sub string) string {
-	return sbAdminTopicID(namespace, topic) + "/subscriptions/" + sub
+	return armChildID(sbAdminTopicID(namespace, topic), "subscriptions", sub)
 }
 
 func sbAdminRuleID(namespace, topic, sub, rule string) string {
-	return sbAdminSubscriptionID(namespace, topic, sub) + "/rules/" + rule
+	return armChildID(sbAdminSubscriptionID(namespace, topic, sub), "rules", rule)
 }
 
 func handleSBAdminPutEntity(w http.ResponseWriter, r *http.Request, namespace, name string) {

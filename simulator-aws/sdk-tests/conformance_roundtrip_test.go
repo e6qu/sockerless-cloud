@@ -41,6 +41,7 @@ import (
 	sdtypes "github.com/aws/aws-sdk-go-v2/service/servicediscovery/types"
 	"github.com/aws/aws-sdk-go-v2/service/wafv2"
 	wafv2types "github.com/aws/aws-sdk-go-v2/service/wafv2/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -607,7 +608,7 @@ func TestConformanceCloudMapServiceNotFoundStatus(t *testing.T) {
 func TestConformanceWAFv2CreateWebACLDuplicate(t *testing.T) {
 	t.Parallel()
 	c := wafClient()
-	name := uniqueName("conf-dup-acl")
+	name := uniquename.New("conf-dup-acl")
 	visibility := &wafv2types.VisibilityConfig{
 		CloudWatchMetricsEnabled: true,
 		MetricName:               aws.String(name),

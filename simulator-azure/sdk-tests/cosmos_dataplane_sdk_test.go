@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -60,7 +61,7 @@ func newCosmosSDKClient(t *testing.T, endpoint, key, dial string) *azcosmos.Clie
 // global-endpoint-manager reads the account root on its first request).
 func TestCosmos_RealSDKDataPlane(t *testing.T) {
 	t.Parallel()
-	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
+	dataPlaneAccount := uniquename.Alnum("sdkdataplane")
 	client := cosmosSimClient(t, dataPlaneAccount)
 
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "sdkdb"}, nil)
@@ -175,7 +176,7 @@ func TestCosmos_RealSDKDataPlane(t *testing.T) {
 // origin to the console instead of a bare 404, without Cosmos losing the root.
 func TestCosmos_AccountRootServesOnlyCosmosClients(t *testing.T) {
 	t.Parallel()
-	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
+	dataPlaneAccount := uniquename.Alnum("sdkdataplane")
 	// A real Cosmos client: CreateDatabase drives account discovery first.
 	client := cosmosSimClient(t, dataPlaneAccount)
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "rootdiscoverydb"}, nil)

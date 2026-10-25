@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
-	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/msgq"
 )
 
@@ -42,7 +41,7 @@ func registerServiceBusDataPlane(srv *sim.Server) {
 	if err := sbMigrateQueues(srv.DB()); err != nil {
 		log.Fatalf("servicebus: %v", err)
 	}
-	sbRearmAvailability(time.Now())
+	sbArmStoredQueues()
 	srv.WrapHandler(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			host := r.Host
@@ -274,41 +273,22 @@ func handleSBReceive(w http.ResponseWriter, r *http.Request, namespace, path str
 // It returns nothing when the timeout ends or the caller goes away first.
 func sbAwaitReceive(ctx context.Context, namespace, path string, timeout time.Duration, peekLock bool) []msgq.Message[sbPayload] {
 	sim.DeclareWait(ctx, timeout)
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	for {
-		signal := sbEnqueueSignal(namespace, path)
-		if got, _ := sbReceive(namespace, path, "", 1, peekLock); len(got) > 0 {
-			return got
-		}
-		select {
-		case <-signal:
-		case <-timer.C:
-			return nil
-		case <-ctx.Done():
-			return nil
-		}
+	var got []msgq.Message[sbPayload]
+	if sbReceivers.Poll(ctx, sbQueueKey(namespace, path), time.Now().Add(timeout), func() bool {
+		got, _ = sbReceive(namespace, path, "", 1, peekLock)
+		return len(got) > 0
+	}) != nil {
+		return nil
 	}
+	return got
 }
 
-// sbRearmAvailability wakes the receivers of every stored entity at the
-// moment each of its scheduled or locked messages becomes receivable, which
-// the timers of the process that stored them no longer do.
-func sbRearmAvailability(now time.Time) {
+// sbArmStoredQueues arms the next change of every stored entity, so its AMQP
+// receivers are handed each scheduled or locked message when it becomes
+// receivable, which the timers of the process that stored them no longer do.
+func sbArmStoredQueues() {
 	for _, kv := range sbQueueDurable.ListPrefix("") {
-		namespace, path, ok := strings.Cut(kv.ID, "/")
-		if !ok {
-			continue
-		}
-		at := map[int64]bool{}
-		for _, m := range kv.Item.Queue.Messages {
-			if m.AvailableAt > now.UnixMilli() {
-				at[m.AvailableAt] = true
-			}
-		}
-		for ms := range at {
-			bg.AfterFunc(time.UnixMilli(ms).Sub(now), func() { sbNotifyReceivers(namespace, path) })
-		}
+		sbReceivers.Arm(kv.ID)
 	}
 }
 

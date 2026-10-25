@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/option"
@@ -91,7 +92,7 @@ func lroResponseName(t *testing.T, op *runv2.GoogleLongrunningOperation) string 
 func TestSDK_RunV2REST_WorkerPools_FullSurface(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
-	id := uniqueName("rest-wp-surface")
+	id := uniquename.New("rest-wp-surface")
 	name := crV2Parent + "/workerPools/" + id
 
 	// Create → LRO polled through operations.get.
@@ -187,7 +188,7 @@ func TestSDK_RunV2REST_WorkerPools_FullSurface(t *testing.T) {
 func TestSDK_RunV2REST_WorkerPools_IAMVerbs(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
-	id := uniqueName("rest-wp-iam")
+	id := uniquename.New("rest-wp-iam")
 	name := crV2Parent + "/workerPools/" + id
 
 	op, err := svc.Projects.Locations.WorkerPools.Create(crV2Parent, &runv2.GoogleCloudRunV2WorkerPool{
@@ -239,7 +240,7 @@ func TestSDK_RunV1REST_WorkerPools_IAMVerbs(t *testing.T) {
 	t.Parallel()
 	v2svc := newRunV2RESTService(t)
 	v1svc := newRunV1RESTService(t)
-	id := uniqueName("rest-wp-v1-iam")
+	id := uniquename.New("rest-wp-v1-iam")
 	v2Name := crV2Parent + "/workerPools/" + id
 	v1Name := crV2Parent + "/workerpools/" + id
 
@@ -289,7 +290,7 @@ func TestSDK_RunV1REST_WorkerPools_IAMVerbs(t *testing.T) {
 func TestSDK_RunV2REST_Instances_FullSurface(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
-	id := uniqueName("rest-inst-surface")
+	id := uniquename.New("rest-inst-surface")
 	name := crV2Parent + "/instances/" + id
 
 	op, err := svc.Projects.Locations.Instances.Create(crV2Parent, &runv2.GoogleCloudRunV2Instance{
@@ -370,7 +371,7 @@ func TestSDK_RunV2REST_Instances_FullSurface(t *testing.T) {
 func TestSDK_RunV2REST_Instances_IAMVerbs(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
-	id := uniqueName("rest-inst-iam")
+	id := uniquename.New("rest-inst-iam")
 	name := crV2Parent + "/instances/" + id
 
 	op, err := svc.Projects.Locations.Instances.Create(crV2Parent, &runv2.GoogleCloudRunV2Instance{
@@ -417,7 +418,7 @@ func TestSDK_RunV2REST_Instances_IAMVerbs(t *testing.T) {
 func TestSDK_RunV2REST_WorkerPool_FullBodyRoundTrip(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
-	id := uniqueName("rest-wp-full-body")
+	id := uniquename.New("rest-wp-full-body")
 	name := crV2Parent + "/workerPools/" + id
 
 	want := &runv2.GoogleCloudRunV2WorkerPool{
@@ -570,7 +571,7 @@ func TestSDK_RunV2REST_WorkerPool_FullBodyRoundTrip(t *testing.T) {
 func TestSDK_RunV2REST_Instance_FullBodyRoundTrip(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
-	id := uniqueName("rest-inst-full-body")
+	id := uniquename.New("rest-inst-full-body")
 	name := crV2Parent + "/instances/" + id
 
 	want := &runv2.GoogleCloudRunV2Instance{

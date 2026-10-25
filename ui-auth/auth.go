@@ -314,9 +314,14 @@ func (a *Auth) callback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "OIDC ID token validation failed", http.StatusForbidden)
 		return
 	}
-	if err := idToken.VerifyAccessToken(tokens.AccessToken); err != nil {
-		http.Error(w, "OIDC access token validation failed", http.StatusForbidden)
-		return
+	// OpenID Connect Core 3.1.3.6 makes at_hash optional in the authorization
+	// code flow, and Microsoft Entra ID omits it there; verify it only when the
+	// issuer sent one.
+	if idToken.AccessTokenHash != "" {
+		if err := idToken.VerifyAccessToken(tokens.AccessToken); err != nil {
+			http.Error(w, "OIDC access token validation failed", http.StatusForbidden)
+			return
+		}
 	}
 	var claims struct {
 		Nonce             string `json:"nonce"`

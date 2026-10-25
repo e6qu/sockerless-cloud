@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -14,7 +15,7 @@ import (
 // and describe-db-instances in us-east-1 does not.
 func TestRDSCLI_ReplicatedBackupRestoresInTheDestinationRegion(t *testing.T) {
 	t.Parallel()
-	sourceID := cliUniqueName("cli-region-src")
+	sourceID := uniquename.New("cli-region-src")
 	out := runCLI(t, awsCLI("rds", "create-db-instance",
 		"--db-instance-identifier", sourceID,
 		"--engine", "postgres",
@@ -57,7 +58,7 @@ func TestRDSCLI_ReplicatedBackupRestoresInTheDestinationRegion(t *testing.T) {
 		return len(listed.DBInstanceAutomatedBackups) == 1 && listed.DBInstanceAutomatedBackups[0].Status == "replicating"
 	}, 2*time.Minute, time.Second)
 
-	restoredID := cliUniqueName("cli-region-restored")
+	restoredID := uniquename.New("cli-region-restored")
 	var restored struct {
 		DBInstance struct {
 			DBInstanceArn    string `json:"DBInstanceArn"`

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	artifactregistry "google.golang.org/api/artifactregistry/v1"
@@ -275,7 +276,7 @@ func TestArtifactRegistry_AcceptedCredentialForms(t *testing.T) {
 	manifestURL := baseURL + "/v2/test-project/creds-repo/app/manifests/latest"
 
 	accessToken := strings.TrimPrefix(simBearerHeader(t), "Bearer ")
-	keyFile, _ := arServiceAccountKey(t, uniqueName("ar-dataplane-creds"))
+	keyFile, _ := arServiceAccountKey(t, uniquename.New("ar-dataplane-creds"))
 
 	for _, tc := range []struct {
 		name          string
@@ -308,8 +309,8 @@ func TestArtifactRegistry_RefusesAForgedServiceAccountKey(t *testing.T) {
 	arCreateRepository(t, "test-project", "us-central1", "forged-repo")
 	manifestURL := baseURL + "/v2/test-project/forged-repo/app/manifests/latest"
 
-	genuine, genuineFields := arServiceAccountKey(t, uniqueName("ar-dataplane-genuine"))
-	_, otherFields := arServiceAccountKey(t, uniqueName("ar-dataplane-other"))
+	genuine, genuineFields := arServiceAccountKey(t, uniquename.New("ar-dataplane-genuine"))
+	_, otherFields := arServiceAccountKey(t, uniquename.New("ar-dataplane-other"))
 
 	// The genuine file authenticates.
 	resp, body := arRawDo(t, http.MethodGet, manifestURL, arBasic("_json_key", string(genuine)), nil, "")

@@ -5,6 +5,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v5"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,9 +20,9 @@ import (
 // deployment slots a clone would leave behind decide whether it is partial.
 func TestSDK_WebApps_IsCloneable(t *testing.T) {
 	t.Parallel()
-	sdkCloneablePremiumName := uniqueName("sdk-cloneable-premium")
-	sdkCloneableBasicName := uniqueName("sdk-cloneable-basic")
-	rg := uniqueName("sdk-cloneable-rg")
+	sdkCloneablePremiumName := uniquename.New("sdk-cloneable-premium")
+	sdkCloneableBasicName := uniquename.New("sdk-cloneable-basic")
+	rg := uniquename.New("sdk-cloneable-rg")
 	ensureRG(t, rg)
 
 	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())

@@ -86,7 +86,7 @@ func registerComputeMore3(srv *sim.Server) {
 		}).register(srv)
 		registerComputeNetworkEndpointGroupMembers(srv, sc, store)
 	}
-	registerComputeNEGAggregated(srv, []sim.Store[map[string]any]{negGlobal, negRegion, negZone})
+	registerComputeMultiScopeAggregated(srv, "networkEndpointGroups", "compute#networkEndpointGroupAggregatedList", []sim.Store[map[string]any]{negGlobal, negRegion, negZone})
 
 	// FirewallPolicies — global + regional. The shared CRUD helper covers
 	// insert/get/list/delete/patch/aggregated; the association / rule /
@@ -94,7 +94,7 @@ func registerComputeMore3(srv *sim.Server) {
 	// wired by the dedicated register functions.
 	registerComputeFirewallPolicies(srv, cScopeGlobal, fpGlobal, true)
 	registerComputeFirewallPolicies(srv, cScopeRegion, fpRegion, false)
-	registerComputeFirewallPoliciesAggregated(srv, []sim.Store[map[string]any]{fpGlobal, fpRegion})
+	registerComputeMultiScopeAggregated(srv, "firewallPolicies", "compute#firewallPolicyAggregatedList", []sim.Store[map[string]any]{fpGlobal, fpRegion})
 	// Regional firewallPolicies also expose a getEffectiveFirewalls read.
 	registerComputeRegionEffectiveFirewalls(srv)
 
@@ -403,11 +403,10 @@ func registerComputeFirewallPolicies(srv *sim.Server, scope computeScopeKind, st
 	registerComputeIAMTriplet(srv, scope, "firewallPolicies", sim.MakeStore[map[string]any](srv.DB(), "compute_fp_iam_"+fmt.Sprint(scope)))
 }
 
-// registerComputeFirewallPoliciesAggregated wires the single
-// aggregatedList route for firewallPolicies, merging global and regional
-// stores.
-func registerComputeFirewallPoliciesAggregated(srv *sim.Server, stores []sim.Store[map[string]any]) {
-	srv.HandleFunc("GET /compute/v1/projects/{project}/aggregated/firewallPolicies", func(w http.ResponseWriter, r *http.Request) {
+// registerComputeMultiScopeAggregated wires the aggregatedList route of a
+// collection whose resources live in a store per scope, merging the stores.
+func registerComputeMultiScopeAggregated(srv *sim.Server, collection, kind string, stores []sim.Store[map[string]any]) {
+	srv.HandleFunc("GET /compute/v1/projects/{project}/aggregated/"+collection, func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
 		prefix := computeSelfLink(fmt.Sprintf("projects/%s/", project))
 		grouped := map[string]map[string]any{}
@@ -420,15 +419,15 @@ func registerComputeFirewallPoliciesAggregated(srv *sim.Server, stores []sim.Sto
 				key := computeScopeKeyFromRest(strings.TrimPrefix(sl, prefix))
 				entry, ok := grouped[key]
 				if !ok {
-					entry = map[string]any{"firewallPolicies": []map[string]any{}}
+					entry = map[string]any{collection: []map[string]any{}}
 					grouped[key] = entry
 				}
-				list, _ := entry["firewallPolicies"].([]map[string]any)
-				entry["firewallPolicies"] = append(list, m)
+				list, _ := entry[collection].([]map[string]any)
+				entry[collection] = append(list, m)
 			}
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"kind":  "compute#firewallPolicyAggregatedList",
+			"kind":  kind,
 			"id":    computeNumericID(),
 			"items": grouped,
 		})
@@ -445,38 +444,6 @@ func registerComputeRegionEffectiveFirewalls(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, map[string]any{
 			"kind":            "compute#firewallPoliciesListEffectiveFirewallsResponse",
 			"firewallPolicys": []map[string]any{},
-		})
-	})
-}
-
-// registerComputeNEGAggregated wires the single aggregatedList route for
-// networkEndpointGroups, merging entries across the global, regional, and
-// zonal stores (one route serves all scopes).
-func registerComputeNEGAggregated(srv *sim.Server, stores []sim.Store[map[string]any]) {
-	srv.HandleFunc("GET /compute/v1/projects/{project}/aggregated/networkEndpointGroups", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		prefix := computeSelfLink(fmt.Sprintf("projects/%s/", project))
-		grouped := map[string]map[string]any{}
-		for _, st := range stores {
-			for _, m := range st.Filter(func(m map[string]any) bool {
-				sl, _ := m["selfLink"].(string)
-				return strings.HasPrefix(sl, prefix)
-			}) {
-				sl, _ := m["selfLink"].(string)
-				key := computeScopeKeyFromRest(strings.TrimPrefix(sl, prefix))
-				entry, ok := grouped[key]
-				if !ok {
-					entry = map[string]any{"networkEndpointGroups": []map[string]any{}}
-					grouped[key] = entry
-				}
-				list, _ := entry["networkEndpointGroups"].([]map[string]any)
-				entry["networkEndpointGroups"] = append(list, m)
-			}
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{
-			"kind":  "compute#networkEndpointGroupAggregatedList",
-			"id":    computeNumericID(),
-			"items": grouped,
 		})
 	})
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/redis/armredis/v3"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -54,11 +55,11 @@ func validateMoveExpectingFailure(t *testing.T, srcRG, dstRG, resourceID string)
 // is bounded to the material listSecrets serves, which IS that header's value.
 func TestAzureResources_MoveAPIManagementService(t *testing.T) {
 	t.Parallel()
-	srcRG, dstRG := uniqueName("apim-move-src-rg"), uniqueName("apim-move-dst-rg")
+	srcRG, dstRG := uniquename.New("apim-move-src-rg"), uniquename.New("apim-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
 
-	service, subscription := uniqueName("sdk-apim-move-svc"), "sdk-consumer"
+	service, subscription := uniquename.New("sdk-apim-move-svc"), "sdk-consumer"
 	services, err := armapimanagement.NewServiceClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := services.BeginCreateOrUpdate(ctx, srcRG, service, armapimanagement.ServiceResource{
@@ -121,7 +122,7 @@ func TestAzureResources_MoveAPIManagementService(t *testing.T) {
 // embeds the resource ID — follows the move.
 func TestAzureResources_MoveLogicWorkflow(t *testing.T) {
 	t.Parallel()
-	srcRG, dstRG := uniqueName("logic-move-src-rg"), uniqueName("logic-move-dst-rg")
+	srcRG, dstRG := uniquename.New("logic-move-src-rg"), uniquename.New("logic-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
 
@@ -182,11 +183,11 @@ func TestAzureResources_MoveLogicWorkflow(t *testing.T) {
 // the move pins them: the connection string an application holds is unchanged.
 func TestAzureResources_MoveCosmosAccount(t *testing.T) {
 	t.Parallel()
-	srcRG, dstRG := uniqueName("cosmos-move-src-rg"), uniqueName("cosmos-move-dst-rg")
+	srcRG, dstRG := uniquename.New("cosmos-move-src-rg"), uniquename.New("cosmos-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
 
-	account := uniqueAlnumName("sdkcosmosmove")
+	account := uniquename.Alnum("sdkcosmosmove")
 	accounts, err := armcosmos.NewDatabaseAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	poller, err := accounts.BeginCreateOrUpdate(ctx, srcRG, account, armcosmos.DatabaseAccountCreateUpdateParameters{
@@ -251,11 +252,11 @@ func TestAzureResources_MoveCosmosAccount(t *testing.T) {
 // PartnerNamespaces client at all.
 func TestAzureResources_MoveEventGridSystemTopic(t *testing.T) {
 	t.Parallel()
-	srcRG, dstRG := uniqueName("eg-system-move-src-rg"), uniqueName("eg-system-move-dst-rg")
+	srcRG, dstRG := uniquename.New("eg-system-move-src-rg"), uniquename.New("eg-system-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
 
-	account, topic := uniqueAlnumName("sdkegsystem"), "sdk-eg-system-topic"
+	account, topic := uniquename.Alnum("sdkegsystem"), "sdk-eg-system-topic"
 	accounts, err := armstorage.NewAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	accountPoller, err := accounts.BeginCreate(ctx, srcRG, account, armstorage.AccountCreateParameters{
@@ -315,7 +316,7 @@ func TestAzureResources_MoveEventGridSystemTopic(t *testing.T) {
 // ID, and it does not move with it.
 func TestAzureResources_MoveVirtualNetworkRepointsReferrers(t *testing.T) {
 	t.Parallel()
-	srcRG, dstRG := uniqueName("vnet-move-src-rg"), uniqueName("vnet-move-dst-rg")
+	srcRG, dstRG := uniquename.New("vnet-move-src-rg"), uniquename.New("vnet-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
 
@@ -380,11 +381,11 @@ func TestAzureResources_MoveVirtualNetworkRepointsReferrers(t *testing.T) {
 // separate top-level cache that does not move with it.
 func TestAzureResources_MoveRedisCacheRepointsLinkedServer(t *testing.T) {
 	t.Parallel()
-	srcRG, dstRG := uniqueName("redis-link-move-src-rg"), uniqueName("redis-link-move-dst-rg")
+	srcRG, dstRG := uniquename.New("redis-link-move-src-rg"), uniquename.New("redis-link-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
 
-	primary, secondary := uniqueName("sdk-redis-link-primary"), uniqueName("sdk-redis-link-secondary")
+	primary, secondary := uniquename.New("sdk-redis-link-primary"), uniquename.New("sdk-redis-link-secondary")
 	caches, err := armredis.NewClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	ids := map[string]string{}
@@ -439,7 +440,7 @@ func TestAzureResources_MoveRedisCacheRepointsLinkedServer(t *testing.T) {
 // with the 409 a real move-validation failure reports.
 func TestAzureResources_MoveRefusesWhatAzureRefuses(t *testing.T) {
 	t.Parallel()
-	srcRG, dstRG := uniqueName("refuse-move-src-rg"), uniqueName("refuse-move-dst-rg")
+	srcRG, dstRG := uniquename.New("refuse-move-src-rg"), uniquename.New("refuse-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
 
@@ -517,7 +518,7 @@ func TestAzureContainerRegistry_ContentIsPerRegistry(t *testing.T) {
 // overwriting what is there.
 func TestAzureResources_MoveRefusesOccupiedDestination(t *testing.T) {
 	t.Parallel()
-	srcRG, occupiedRG := uniqueName("sdk-conflict-src-rg"), uniqueName("sdk-conflict-dst-rg")
+	srcRG, occupiedRG := uniquename.New("sdk-conflict-src-rg"), uniquename.New("sdk-conflict-dst-rg")
 	createResourceGroup(t, srcRG)
 	createResourceGroup(t, occupiedRG)
 

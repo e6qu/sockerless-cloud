@@ -41,7 +41,7 @@ Always ask "How does the real cloud service behave?" and implement that — use 
 
 ### Simulator architecture — cloud-slice principle
 
-1. **The simulator is a cloud slice.** `simulator-aws/` implements the subset of AWS's real public API surface that sockerless depends on, at cloud-API fidelity. It is *not* an emulation of a single product — there is no "Lambda simulator" or "ECS simulator" in isolation.
+1. **The simulator is a cloud slice.** `simulator-aws/` implements the subset of AWS's real public API surface this project chooses to serve, at cloud-API fidelity. It is *not* an emulation of a single product — there is no "Lambda simulator" or "ECS simulator" in isolation.
 2. **One simulator binary per cloud.** All AWS service slices live in `simulator-aws/` (single Go module, one `simulator-aws` binary, one shared `sim.Server` mux). Adding a new service slice = a new `registerX(srv)` call + handler file in the existing per-cloud binary. Never a new binary per product.
 3. **Cloud-API fidelity.** Match the real cloud's error shapes, response headers, async operation semantics, path templates, and HTTP status codes exactly. When the cloud's contract doesn't cover something, neither does the simulator.
 
@@ -95,7 +95,7 @@ Any fake, synthetic, hardcoded, or placeholder behavior is a **bug**, not a feat
 
 ## Releases — one tag per release, via release-please
 
-Releases are managed by **release-please** (`release-please-config.json`): Conventional Commits (`feat:` / `fix:` / `feat!:` …) on `main` accumulate into a release pull request; merging it creates exactly **one `vX.Y.Z` tag** and the GitHub Release. Never create per-module subdirectory tags and never a `latest`/floating tag. (The bootstrap `*/v0.1.0` module tags were deleted once v0.2.0 shipped; those module versions survive only in the Go module proxy cache, which keeps the sim modules' `require …/realexec v0.1.0` graph resolvable.)
+Releases are managed by **release-please** (`release-please-config.json`): Conventional Commits (`feat:` / `fix:` / `feat!:` …) on `main` accumulate into a release pull request; merging it creates exactly **one `vX.Y.Z` tag** and the GitHub Release. Never create per-module subdirectory tags and never a `latest`/floating tag.
 
 The `Release` workflow attaches every release artifact to that one tag:
 - simulator binaries for linux/darwin × amd64/arm64 with the consoles embedded (each built from `ui/` at the tag and embedded with `-tags console`),

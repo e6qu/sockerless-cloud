@@ -113,11 +113,7 @@ func snsXMLResponse(w http.ResponseWriter, op string, body string, requestID str
 }
 
 func snsErrorXML(w http.ResponseWriter, code, message string, status int, requestID string) {
-	w.Header().Set("Content-Type", "text/xml")
-	w.WriteHeader(status)
-	fmt.Fprintf(w,
-		`<ErrorResponse xmlns="http://sns.amazonaws.com/doc/2010-03-31/"><Error><Type>Sender</Type><Code>%s</Code><Message>%s</Message></Error><RequestId>%s</RequestId></ErrorResponse>`,
-		code, message, requestID)
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsQuery, Namespace: "http://sns.amazonaws.com/doc/2010-03-31/"}, status, code, message, requestID)
 }
 
 func handleSNSCreateTopic(w http.ResponseWriter, r *http.Request) {
@@ -672,178 +668,36 @@ func snsNotificationEnvelope(topicARN, msgID, subject, message string, attribute
 	return string(b)
 }
 
-// snsFanout delivers one published message to the topic's subscribers
-// in-process. Each delivery is gated by the TARGET resource's
-// resource-based policy under the AWS-service-initiated IAM context
-// (sns.amazonaws.com originating from the topic ARN): a target that
-// doesn't admit SNS is skipped, exactly as real AWS drops an
-// unauthorized delivery. SQS subscribers get the Notification envelope
-// enqueued; Lambda subscribers get a real in-process invoke with the
-// SNS event payload.
+// snsFanout delivers one published message to the topic's confirmed
+// subscriptions whose filter policy admits it. Each delivery is authorized
+// against the target's own policy as sns.amazonaws.com acting for the topic.
 func snsFanout(topicARN, msgID, subject, message string, attributes map[string]SQSMessageAttribute) {
-	published := snsDelivery{TopicARN: topicARN, MessageID: msgID, MessageMD5: snsMessageMD5(message), PublishedAt: time.Now()}
 	if topicName := snsTopicNameFromARN(topicARN); snsTopicStored(topicName) {
 		snsPutTopicMetric(topicName, "NumberOfMessagesPublished", 1, "Count")
 		snsPutTopicMetric(topicName, "PublishSize", float64(len(message)), "Bytes")
 	}
-	srcAccount := snsARNAccount(topicARN)
-	subs := snsSubscriptions.List()
-	matching := 0
-	for _, sub := range subs {
-		if sub.TopicARN == topicARN {
-			matching++
-		}
-	}
-	cwEvalLogger.Info().Str("topicARN", topicARN).Str("msgID", msgID).Int("totalSubscriptions", len(subs)).Int("matchingSubscriptions", matching).Msg("SNS fanout starting")
-	if matching == 0 {
-		cwEvalLogger.Info().Str("topicARN", topicARN).Str("msgID", msgID).Msg("SNS fanout found no subscriptions for topic")
-		return
-	}
-	for _, sub := range subs {
-		if sub.TopicARN != topicARN || !sub.Confirmed {
-			continue
-		}
-		if matched, metric := snsFilterOutcome(sub, message, attributes); !matched {
-			snsPutTopicMetric(snsTopicNameFromARN(topicARN), metric, 1, "Count")
-			if metric != "NumberOfNotificationsFilteredOut" {
-				snsPutTopicMetric(snsTopicNameFromARN(topicARN), "NumberOfNotificationsFilteredOut", 1, "Count")
-			}
-			continue
-		}
-		src := iamServiceSource{
-			Service:       "sns.amazonaws.com",
-			SourceArn:     topicARN,
-			SourceAccount: srcAccount,
-		}
-		cwEvalLogger.Info().Str("topicARN", topicARN).Str("msgID", msgID).Str("protocol", sub.Protocol).Str("endpoint", sub.Endpoint).Msg("SNS fanout delivering to subscription")
-		d := published
-		d.Protocol, d.Destination, d.Attempts = sub.Protocol, sub.Endpoint, 1
-		switch strings.ToLower(sub.Protocol) {
-		case "sqs":
-			snsRecordDelivery(snsDeliverToSQS(d, sub, subject, message, attributes, src))
-		case "lambda":
-			snsRecordDelivery(snsDeliverToLambda(d, subject, message, attributes, src))
-		case "http", "https":
-			snsDeliverHTTPNotification(sub, msgID, subject, message, attributes)
-		case "email", "email-json":
-			go snsDeliverEmailNotification(sub, msgID, subject, message, attributes)
-		case "firehose":
-			snsRecordDelivery(snsDeliverToFirehose(d, sub, subject, message, attributes))
-		default:
-			cwEvalLogger.Info().Str("topicARN", topicARN).Str("msgID", msgID).Str("protocol", sub.Protocol).Str("endpoint", sub.Endpoint).Msg("SNS fanout skipping unsupported subscription protocol")
-		}
-	}
+	result := snsTopicBus.Publish(topicARN, snsMessage{
+		TopicARN: topicARN, MessageID: msgID, Subject: subject, Message: message, Attributes: attributes, PublishedAt: time.Now(),
+	})
+	cwEvalLogger.Info().Str("topicARN", topicARN).Str("msgID", msgID).Int("subscriptions", result.Subscriptions).
+		Int("deliveries", result.Deliveries).Msg("SNS fanout")
 }
 
-func snsDeliverToFirehose(d snsDelivery, sub SNSSubscription, subject, message string, attributes map[string]SQSMessageAttribute) snsDelivery {
-	if err := iamValidateServiceRole(sub.Attributes["SubscriptionRoleArn"], "sns.amazonaws.com", map[string]string{
-		"firehose:PutRecord": sub.Endpoint,
-	}); err != nil {
-		cwEvalLogger.Error().Err(err).Str("firehoseARN", sub.Endpoint).Str("topicARN", d.TopicARN).
-			Msg("Amazon SNS cannot assume its Amazon Data Firehose delivery role")
-		d.StatusCode, d.ProviderResponse = http.StatusForbidden, snsProviderError("firehoseRequestId", "AccessDeniedException", err.Error())
-		return d
-	}
-	body := snsNotificationEnvelope(d.TopicARN, d.MessageID, subject, message, attributes)
-	if strings.EqualFold(sub.Attributes["RawMessageDelivery"], "true") {
-		body = message
-	}
-	recordID, err := firehosePutServiceRecord(sub.Endpoint, []byte(body))
-	if err != nil {
-		cwEvalLogger.Error().Err(err).Str("firehoseARN", sub.Endpoint).Str("topicARN", d.TopicARN).Msg("Amazon SNS to Amazon Data Firehose delivery failed")
-		d.StatusCode, d.ProviderResponse = http.StatusBadRequest, snsProviderError("firehoseRequestId", "ResourceNotFoundException", err.Error())
-		return d
-	}
-	response, _ := json.Marshal(map[string]string{"firehoseRequestId": sim.NewUUID(), "recordId": recordID})
-	d.Delivered, d.StatusCode, d.ProviderResponse = true, http.StatusOK, string(response)
-	return d
-}
-
-// snsDeliverToSQS enqueues the SNS Notification envelope into the
-// subscriber queue — but only when the queue's resource policy admits
-// sns:SendMessage from this topic. Endpoint is the queue ARN
-// (arn:aws:sqs:<region>:<account>:<queue-name>).
-func snsDeliverToSQS(d snsDelivery, sub SNSSubscription, subject, message string, attributes map[string]SQSMessageAttribute, src iamServiceSource) snsDelivery {
-	queueARN := sub.Endpoint
-	if !iamAuthorizeServiceDelivery(queueARN, "sqs:SendMessage", src) {
-		cwEvalLogger.Info().Str("queueARN", queueARN).Str("topicARN", d.TopicARN).Str("sourceService", src.Service).Msg("SNS to SQS delivery denied by resource policy")
-		d.StatusCode = http.StatusForbidden
-		d.ProviderResponse = snsProviderError("sqsRequestId", "AccessDenied", "Access to the resource "+queueARN+" is denied.")
-		return d
-	}
-	queueName := snsTopicNameFromARN(queueARN)
-	if _, ok := sqsQueues.Get(queueName); !ok {
-		cwEvalLogger.Info().Str("queueARN", queueARN).Str("queueName", queueName).Msg("SNS to SQS delivery target queue not found")
-		d.StatusCode = http.StatusBadRequest
-		d.ProviderResponse = snsProviderError("sqsRequestId", "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.")
-		return d
-	}
-	body := snsNotificationEnvelope(d.TopicARN, d.MessageID, subject, message, attributes)
-	var sqsAttributes map[string]SQSMessageAttribute
-	if strings.EqualFold(sub.Attributes["RawMessageDelivery"], "true") {
-		body = message
-		sqsAttributes = attributes
-	}
-	sent := sqsEnqueue(queueName, sqsSendEntry{MessageBody: body, MessageAttributes: sqsAttributes})
-	cwEvalLogger.Info().Str("queueARN", queueARN).Str("queueName", queueName).Str("topicARN", d.TopicARN).Str("msgID", d.MessageID).Msg("SNS to SQS delivery succeeded")
-	response, _ := json.Marshal(map[string]string{"sqsRequestId": sim.NewUUID(), "sqsMessageId": sent.MessageID})
-	d.Delivered, d.StatusCode, d.ProviderResponse = true, http.StatusOK, string(response)
-	return d
-}
-
-// snsDeliverToLambda performs a real in-process Lambda invoke with the
-// SNS event payload — but only when the function's resource policy
-// admits lambda:InvokeFunction from this topic. SNS→Lambda is an async
-// (Event) delivery, so the invoke runs in the background. Endpoint is
-// the function ARN (arn:aws:lambda:<region>:<account>:function:<name>).
-func snsDeliverToLambda(d snsDelivery, subject, message string, attributes map[string]SQSMessageAttribute, src iamServiceSource) snsDelivery {
-	functionARN := d.Destination
-	if !iamAuthorizeServiceDelivery(functionARN, "lambda:InvokeFunction", src) {
-		cwEvalLogger.Info().Str("functionARN", functionARN).Str("topicARN", d.TopicARN).Str("sourceService", src.Service).Msg("SNS to Lambda delivery denied by resource policy")
-		d.StatusCode = http.StatusForbidden
-		d.ProviderResponse = snsProviderError("lambdaRequestId", "AccessDeniedException",
-			"User: sns.amazonaws.com is not authorized to perform: lambda:InvokeFunction on resource: "+functionARN+
-				" because no resource-based policy allows the lambda:InvokeFunction action")
-		return d
-	}
-	fn, _, ok := lambdaResolveInvocationTarget(functionARN, "")
-	if !ok {
-		cwEvalLogger.Info().Str("functionARN", functionARN).Msg("SNS to Lambda delivery target function not found")
-		d.StatusCode = http.StatusNotFound
-		d.ProviderResponse = snsProviderError("lambdaRequestId", "ResourceNotFoundException", "Function not found: "+functionARN)
-		return d
-	}
-	payload := snsLambdaEventPayload(functionARN, d.TopicARN, d.MessageID, subject, message, attributes)
-	requestID := lambdaInvokeAsynchronously(fn, payload, lambdaAsyncQualifier(functionARN, ""))
-	cwEvalLogger.Info().Str("functionARN", functionARN).Str("functionName", fn.FunctionName).Str("topicARN", d.TopicARN).Str("msgID", d.MessageID).Msg("SNS to Lambda delivery initiated")
-	response, _ := json.Marshal(map[string]string{"lambdaRequestId": requestID})
-	d.Delivered, d.StatusCode, d.ProviderResponse = true, http.StatusAccepted, string(response)
-	return d
-}
-
-// snsLambdaEventPayload builds the SNS event a Lambda subscriber
-// receives — a Records array with one Sns record carrying the
-// Notification message — matching the real SNS→Lambda event shape.
-func snsLambdaEventPayload(functionARN, topicARN, msgID, subject, message string, attributes map[string]SQSMessageAttribute) []byte {
-	subscriptionARN := functionARN
-	for _, sub := range snsSubscriptions.List() {
-		if sub.TopicARN == topicARN && sub.Protocol == "lambda" && sub.Endpoint == functionARN {
-			subscriptionARN = sub.ARN
-			break
-		}
-	}
+// snsLambdaEventPayload builds the SNS event a Lambda subscriber receives: a
+// Records array with one Sns record carrying the Notification message.
+func snsLambdaEventPayload(subscriptionARN string, m snsMessage) []byte {
 	rec := map[string]any{
 		"EventSource":          "aws:sns",
 		"EventVersion":         "1.0",
 		"EventSubscriptionArn": subscriptionARN,
 		"Sns": map[string]any{
 			"Type":              "Notification",
-			"MessageId":         msgID,
-			"TopicArn":          topicARN,
-			"Subject":           subject,
-			"Message":           message,
+			"MessageId":         m.MessageID,
+			"TopicArn":          m.TopicARN,
+			"Subject":           m.Subject,
+			"Message":           m.Message,
 			"Timestamp":         time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
-			"MessageAttributes": snsMessageAttributesEnvelope(attributes),
+			"MessageAttributes": snsMessageAttributesEnvelope(m.Attributes),
 		},
 	}
 	out, _ := json.Marshal(map[string]any{"Records": []any{rec}})

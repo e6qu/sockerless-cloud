@@ -91,7 +91,7 @@ func registerTags(srv *sim.Server) {
 // handleTagsDefaultRoute serves the subscription- and resource-group-scope
 // tags/default routes, reconstructing the scope from the path parameters.
 func handleTagsDefaultRoute(w http.ResponseWriter, r *http.Request) {
-	scope := "/subscriptions/" + sim.PathParam(r, "subscriptionId")
+	scope := armSubscriptionID(sim.PathParam(r, "subscriptionId"))
 	if rg := sim.PathParam(r, "resourceGroupName"); rg != "" {
 		scope += "/resourceGroups/" + rg
 	}

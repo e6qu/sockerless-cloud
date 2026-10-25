@@ -1,37 +1,35 @@
 # WHAT WE DID
 
-The decisions behind the shape of this repository, kept so they need not be
-rediscovered. `CHANGELOG.md` dates each release, `BUGS.md` holds the open bugs
-(resolved ones live in git history), and `STATUS.md` is the snapshot.
+The decisions behind the shape of this repository and the lessons that stop
+them being relearned. `CHANGELOG.md` dates each release, `BUGS.md` holds the
+open bugs (resolved ones live in git history), `STATUS.md` is the snapshot and
+`PLAN.md` the roadmap.
 
 ## Origin
 
 The simulators came out of the sockerless monorepo as a fresh snapshot without
 history. The per-cloud directories became `simulator-{aws,gcp,azure}` so
 `go install` produces binaries with those names, and every module path moved
-to `github.com/e6qu/sockerless-cloud/*`, bringing the console packages, the
-vendored specifications with their surface tables and behavioural registries,
-the simulator scripts and hooks, and the simulator CI jobs.
+to `github.com/e6qu/sockerless-cloud/*`.
 
 The simulators are a general-purpose reimplementation of slices of the clouds,
-not a component of their first consumer. A simulator reads nothing from a
-consumer's conventions: no image path, app setting or header named after a
-consumer changes what it does (see Execution).
+not a component of their first consumer. No image path, app setting or header
+named after a consumer changes what a simulator does.
 
 ## The framework is one module
 
 Each simulator once carried its own `shared/` copy of the framework, and the
-copies drifted: fixes landed in one and never the others. The framework is the
-`sim` module, pinned by pseudo-version like `ui-auth`. What is a
-cloud's own stays in that cloud's module and reaches the framework through
-hooks: the error writers (`AWSError`, `S3ErrorXML`, `GCPError`, `AzureError`),
-the AWS JSON and Query routers, the sandbox profiles, the console coordinates
+copies drifted: fixes landed in one and never the others. The framework became
+the `sim` module, pinned by pseudo-version like `ui-auth`. What is a cloud's
+own stays in that cloud's module and reaches the framework through hooks: the
+error writers (`AWSError`, `S3ErrorXML`, `GCPError`, `AzureError`), the AWS
+JSON and Query routers, the sandbox profiles, the console coordinates
 (`ConsoleOptions`, through which Azure registers its Microsoft Entra
 federation broker), the request rewrites (Amazon S3's zonal virtual-hosted
 addressing and Azure Resource Manager's case folding, both
-`Config.RewriteRequest`), and the registry behaviours the three container
-registries disagree on (`BaseResponse`, `RefuseChunkedUpload`,
-`AdmitRepository`, `Scope`, `Authorize`). A Google Cloud method served over
+`Config.RewriteRequest`), and the registry behaviours the three registries
+disagree on (`BaseResponse`, `RefuseChunkedUpload`, `AdmitRepository`,
+`Scope`, `Authorize`, `HydrateManifest`). A Google Cloud method served over
 both REST and gRPC shares one implementation returning a gRPC status, which
 the REST handler writes through `GCPStatusError`.
 
@@ -43,4978 +41,1050 @@ pushed commit, push again — and the pin moves onto the merge commit
 afterwards, because a pin on a branch head stops resolving once the branch is
 deleted.
 
-## Mechanisms each simulator carried moved into sim
+`sim.Main` is the startup every binary runs, described by a `sim.Program`: the
+provider and default port, a `Configure` hook, the cloud's `Build`, and a
+`Start` for what serves beside the HTTP port, returning a stop that runs after
+the HTTP server shuts down. `sim.Main` binds the listeners before `Build` and
+hands the build the resolved callback address: a persistent simulator resumes
+its previous process's work during the build (Amazon ECS reconciles, Step
+Functions executions, Lambda invocations), and when the address became known
+only after the build, the sidecars memoized an empty port and every resumed
+task failed. `ConfigFromEnv` reads `SIM_<PROVIDER>_PORT` ahead of
+`SIM_LISTEN_ADDR`, so no binary rewrites a placeholder address.
 
-Mechanisms the three simulators each built alone live in cloud-neutral
-packages, with each cloud's wire shapes, error envelopes and names left in its
-own module:
+## Mechanisms the simulators share live in sim
 
-- `workloadhost` (the coordinates a workload dials back on, one policy for
-  moby, Podman and Docker Desktop), `bg` (counted background work, including
-  every Google Cloud and Azure goroutine), and `workload` (container groups
-  with sidecars in the main container's network, bootstrap POSTs, image
-  platforms, docker builds that interrupt on cancel).
-- `archive`: every zip and tar extraction goes through an `os.Root` with a
+Each mechanism the three simulators built alone moved into one cloud-neutral
+package, with wire shapes, error envelopes and names left in the cloud's
+module. What each move taught:
+
+- **`archive`**: every zip and tar extraction goes through an `os.Root` with a
   size limit; a string-prefix containment check let a sibling directory
   through.
-- `blobstore` and `sparse`: payload files written in one pass with their
-  digests, HTTP conditions, byte ranges and listing pages. Cloud Storage keeps
-  each generation's bytes in its own payload and mirrors only the live one into
-  the bucket directory a Cloud Run mount reads.
-- `simjwt` and `oidcfed`: one signing-key store and one cached, bounded
-  external-issuer verifier. AWS `GetWebIdentityToken` issues tokens signed
-  under a per-account issuer whose discovery document and JWKS the simulator
-  serves.
-- `listq`: list paging and filters. A page token the simulator never issued is
-  refused with the error each service declares. AWS's event-pattern grammar is
-  one matcher with the documented differences between Amazon SNS filter
-  policies and Amazon EventBridge patterns, and Lambda event-source mappings
-  apply their `FilterCriteria`.
-- `kvstore`: throughput buckets, ordered read-write locks, time-to-live
-  sweeping and change logs. Cosmos DB answers 429 with a retry-after on
-  provisioned throughput, expires items by time to live, serves both
-  change-feed modes and reads one key range per query; Azure Table storage
-  enforces If-Match and runs a batch under its partition's lock.
-- `msgq`, `streamlog`, `delivery` and `cron`: Amazon SQS, Pub/Sub, Azure
-  Service Bus and Queue Storage lease messages from one engine, so Pub/Sub
-  dead-letter and retry policies, Service Bus lock durations, delivery counts,
-  duplicate detection and AMQP peek-lock are enforced; Amazon Kinesis and Azure
-  Event Hubs append to one log with retention enforced. Push delivery for
-  Amazon SNS HTTP, EventBridge targets, Event Grid and Pub/Sub push retries and
-  dead-letters by each service's policy, and one cron evaluator fires
-  EventBridge scheduled rules and Scheduler schedules in their time zones,
-  Application Auto Scaling scheduled actions, Container Apps scheduled jobs and
-  Logic Apps recurrences.
-- `lbplane`: the load-balancer forwarders, health probes, health
-  tracking and TLS listeners are one data plane that never follows a target's
-  redirect and grades a probe by the cloud's own matcher.
-- `dbengine` with `pgwire` and `mysqlwire`: the managed relational database
-  data plane of Amazon RDS, Cloud SQL and Azure Database for PostgreSQL. The
-  MySQL relay logs into the engine as a client does: it answers an auth switch
-  to `mysql_native_password`, `caching_sha2_password` or `sha256_password`,
-  and, its link to the engine having no TLS, completes a full authentication by
-  requesting the engine's RSA public key and sending the password under
-  RSA-OAEP, so a refused login reaches the client as the engine's own 1045.
-- `simkms`: one AES-256-GCM seal and open, one RFC 5649 key wrap, and one
-  "create the service's key on first use" under the key store's `Upsert`.
-  AWS KMS, Cloud KMS (its framed, raw and imported encryption), Cloud SQL's
-  and Azure Database for PostgreSQL's credential sealing all use it. Each
-  cloud's ciphertext still begins with its own header — AWS KMS's `SK1` and
-  key id, Cloud KMS's version number — and ends in the nonce and sealed
-  bytes `Seal` returns, so a value sealed before the move still opens.
-- `logstore`: log entries stored one row each, keyed by scope and arrival
-  sequence, with a head row per scope. Amazon CloudWatch Logs streams moved
-  onto it from one row per stream that every append and every retention pass
-  rewrote whole. Retention goes by each event's own timestamp, so an event
-  written late with an old timestamp expires on that timestamp and leaves a gap
-  that reads step over. An upgrade moves the streams an earlier build stored
-  whole into the store once, keeping each event's timestamp, ingestion time
-  and arrival order.
-
-  Cloud Logging moved onto it with the storage model it was missing. Every
-  resource container has the `_Required` bucket (400 days, locked) and the
-  `_Default` bucket (30 days) and the sinks that route to them: audit
-  activity, system event and access transparency logs to `_Required`,
-  everything else to `_Default`, less what the exclusions API excludes. Sinks
-  route each entry at ingestion, and the store records which buckets took a
-  copy; an entry no bucket takes, or one stamped before a bucket's retention
-  or more than a day ahead, is discarded. Reads through a bucket or view see
-  that bucket's copies within its retention, `logs.delete` clears the
-  `_Default` bucket's copies only, and an hourly sweep deletes expired copies
-  and the entries no bucket holds. The 10,000-entry cap per log went with it.
-  The query language gained `log_id()` and `source()`, which the built-in
-  sinks' filters are written in.
-
-  Azure Monitor Logs moved onto it too. Each workspace table keeps its rows
-  for its own retention: a query reads the rows within the table's
-  interactive retention, which follows the workspace's unless the table sets
-  its own; rows past it stay in long-term retention until the table's total
-  retention, when an hourly sweep deletes them. A classic Application
-  Insights component keeps telemetry for its RetentionInDays, 90 days by
-  default. The 50,000-row cap per table went with it; a site's App Service
-  container log keeps its newest 50,000 lines.
-
-  Cloud Logging routing grew to the model the service documents. The
-  exclusions API reads and writes the `_Default` sink's own exclusions, and
-  names an exclusion by its client-assigned identifier. A sink routes to a
-  log bucket in any project, to another project whose own sinks then route
-  the entry, to a Pub/Sub topic (the LogEntry as JSON with its
-  `logging.googleapis.com/timestamp` attribute) or to Cloud Storage, in
-  hourly batches that each write a new shard of the hour's object. A folder
-  or organization sink with `includeChildren` sees its projects' entries, and
-  one with `interceptChildren` keeps a matching entry from every sink below it
-  but `_Required`. An organization's or folder's `disableDefaultSink` and
-  `defaultSinkConfig` shape the `_Default` sink of a project created under
-  it. Every log bucket has the `_AllLogs` view, and a `_Default` bucket the
-  `_Default` view. A sink update overwrites only the fields its `updateMask`
-  names, `destination,filter,includeChildren` when it names none, so
-  `gcloud logging sinks update --add-exclusion` keeps the destination.
-
-  The Google Cloud SDK tests that wait on a log through TailLogEntries open
-  the tail with `openReadyTail`, which also follows a marker log and rewrites
-  a marker until the tail streams it. A tail streams only what is ingested
-  after Cloud Logging reads its request, so a listing made before the tail
-  started could miss an entry that the tail's starting point then excluded.
-
-  List tokens that named an offset into the sorted list let a create or
-  delete made before the token between two calls repeat or skip an item on
-  the next page. `sim/listq` gained `KeyPage`, whose token names the last key
-  returned behind a marker byte, so a token it never issued still fails as
-  the service's invalid-token error. Every AWS and Azure list pages through
-  it: by the unique key the list sorts on, by position for a list kept in the
-  order it grew, and by request position for items a request names, so a
-  name given twice comes back twice.
+- **`blobstore`, `sparse`, `Server.Payloads`**: an object's contents are not
+  in its row, since a row is decoded whole on every read. A write is always a
+  new file, written before the row that names it; the replaced file is
+  released after, so a crash leaves at worst an unreferenced file the startup
+  sweep removes. A file belongs to exactly one row; a copy writes its own. A
+  server that does not persist records its temporary payload directories and
+  removes them when it stops; it once left over a thousand behind in a long
+  session.
+- **`simjwt`, `oidcfed`**: one signing-key store and one cached, bounded
+  external-issuer verifier.
+- **`listq`**: a page token the simulator never issued is refused with the
+  service's own error. Offset tokens let a create or delete between two page
+  reads repeat or skip an item, so every AWS and Azure list pages through
+  `KeyPage` (the last key returned behind a marker byte) and every Google
+  Cloud list resumes strictly after the last item's sort values under the
+  client's `orderBy` through `ColumnPage`, of which `KeyPage` is the
+  one-column case. A token carries those sort values as bytes: carried as a
+  string it lost non-UTF-8 keys, which Amplify's pagination test caught.
+  `IntKey` replaced the AWS and Azure copies of the integer key spelling.
+  BigQuery `tabledata.list` alone keeps a row-index token, because a table
+  only grows between truncations (BUG-3448 holds the truncation case).
+- **`kvstore`**: throughput token buckets, ordered read-write locks, TTL
+  sweeping and change logs, behind Cosmos DB, Azure Table storage and DynamoDB.
+  A requests-per-second limiter was rejected as a fake: provisioned
+  throughput spends the units the request consumes.
+- **`msgq`, `streamlog`, `delivery`, `cron`**: Amazon SQS, Pub/Sub, Azure
+  Service Bus, Queue Storage and Cloud Tasks lease from one queue engine;
+  Amazon Kinesis and Azure Event Hubs append to one partitioned log; push
+  delivery persists each attempt and resumes after a restart; one cron
+  evaluator fires EventBridge rules, EventBridge Scheduler schedules and Cloud
+  Scheduler jobs in their time zones, Application Auto Scaling scheduled
+  actions, Container Apps scheduled jobs and Logic Apps recurrences. `delivery.Post` keeps the receiver's answer, up to a mebibyte,
+  so Amazon SNS's delivery-status log records it as `providerResponse`.
+- **`lbplane`**: one load-balancer and front-end data plane that never follows
+  a target's redirect and grades a probe by the cloud's own matcher. A
+  forward that fails after the target's status reached the client says so
+  with `ErrAnswerStarted`; callers that inferred it from what the error was
+  not read a security-group refusal as a started answer, so three load
+  balancers sent 200 and cut the stream where they document a 502 or 503.
+- **`signals`**: one keyed change signal in place of nine hand-written
+  channel maps, with one rule a waiter follows — take the channel before
+  reading the state it guards — which its unit tests prove by racing a writer
+  against a waiter. `sim.Announcing` wraps a store so every write announces
+  itself.
+- **`Wildcard`**: one `*` matcher, with `?`, escapes and case folding as
+  options, behind five services' copies. Matchers whose syntax is
+  segment-aware or richer (`**`, classes, alternation) keep their own.
+- **`dbengine`** with `pgwire` and `mysqlwire`: the managed relational data
+  plane of Amazon RDS, Cloud SQL and Azure Database for PostgreSQL. The MySQL
+  relay answers an auth switch and, with no TLS to the engine, completes a full
+  authentication under the engine's RSA key, so a refused login reaches the
+  client as the engine's own 1045.
+- **`simkms`**: one AES-256-GCM seal, one RFC 5649 key wrap, and one
+  "create the service's key on first use" under the store's `Upsert`. Each
+  cloud's ciphertext keeps its own header and ends in the nonce and sealed
+  bytes, so values sealed before the move still open. An AWS owned key gets
+  its material under the store's lock, since two concurrent first uses once
+  sealed under different material.
+- **`logstore`**: log entries one row each, keyed by scope and arrival
+  sequence. CloudWatch Logs moved from one row per stream that every append
+  rewrote; Cloud Logging gained the `_Required` and `_Default` buckets, sinks,
+  exclusions, views and routing to other projects, Pub/Sub, Cloud Storage and
+  BigQuery; Azure Monitor Logs gained per-table retention. Retention goes by
+  each entry's own timestamp, and the per-log row caps went with the move.
+- **`dnsserver`**: one listener on UDP and TCP for every simulator; a cloud
+  hands it a `Catalog` of the zones a query can see given where it came from.
+  The package owns everything that is DNS rather than cloud.
+- **`sim/sidecar`, `ipam`, `netrules`, `placement`, `machine`, `vminstance`,
+  `nodeagent`, `fileshare`, `workload`, `replicas`, `revisions`**: see
+  Execution and The service libraries below.
 
 ## Fidelity rules that came from bugs
 
-A long-running control-plane call answers with the state it set, not the
-state its work has since reached: S3 Control's UpdateJobStatus answers Ready
-while the job it started runs on, and a caller that wants the end state polls
-for it. A capture is a resource of its own: CreateImage records the EBS
-snapshot its block device mapping names, DescribeSnapshots lists it,
-DeleteSnapshot refuses it while an image maps it, and it outlives the image.
-An endpoint's address belongs to its instance until the instance is deleted:
-`dbengine.ListenLoopback` keeps the loopback address it gave an identifier
-through a stop, so an instance created meanwhile takes an address of its
-own and the stopped one starts again on the endpoint it advertised; a delete
-releases it (`dbengine.ReleaseLoopback`). Every SDK harness builds the
-simulator it runs from the workspace; the installable graph is CI's gate.
+Each rule below was paid for by a bug; together they are the checklist a new
+handler is held to.
 
-- **An integration's configuration follows the model's rules.** AWS Glue takes
-  `IntegrationConfig.TargetNamespace` only for an Amazon S3 Tables table bucket
-  target, holds it to the namespace pattern without the reserved `aws` prefix,
-  and names it `zetl_` plus the integration ID when the request omits it.
-  `ModifyIntegration` merges `RefreshInterval` into the stored configuration
-  and refuses a change to any other member, the namespace included.
-- **A delivery leaves a record.** Amazon SNS topics take the
-  `<Protocol>SuccessFeedbackRoleArn` / `…SuccessFeedbackSampleRate` /
-  `…FailureFeedbackRoleArn` attributes for HTTP, Firehose, Lambda, SQS and
-  Application, validating the role ARN and the 0–100 rate. Through that role,
-  authorized like any service role, a Lambda, SQS, Firehose or HTTP/S
-  delivery writes the documented status entry to
-  `sns/<region>/<account>/<topic>` (sampled) or its `/Failure` group, and every
-  publish and delivery adds to the `AWS/SNS` metrics. A topic's `DisplayName`
-  defaults to empty, as in Amazon SNS, not to its name. A refused delivery had
-  left no trace, so a test had watched 500 ms for an invoke that must not
-  happen instead of waiting on the Failure entry.
-- **A served count is not proof a handler exists.** Google Cloud and Azure
-  hold every served operation to a route naming its literal path segments; the
-  routes that legitimately dispatch inside a handler are listed with the
-  reason. A multi-segment wildcard had counted Cloud Storage's per-object ACLs
-  as served while `objects.get` answered them.
+- **Answer with the state the call set, not the state its work reached.** S3
+  Control's UpdateJobStatus answers Ready while the job runs on; a caller that
+  wants the end state polls the status the service exposes.
+- **A capture is a resource of its own.** CreateImage records the EBS snapshot
+  its mapping names; DeleteSnapshot refuses it while an image maps it.
+- **An address belongs to its instance until the instance is deleted.**
+  `dbengine.ListenLoopback` keeps an identifier's loopback address through a
+  stop; a delete releases it.
+- **A delivery leaves a record.** A refused Amazon SNS delivery had left no
+  trace, so a test watched 500 ms for an invoke that must not happen; the
+  delivery-status log made the refusal observable.
+- **A served count is not proof a handler exists.** A multi-segment wildcard
+  counted Cloud Storage's per-object ACLs as served while `objects.get`
+  answered them; a served method must reach a route naming its literal path
+  segments.
 - **A status speaks the operation's own enum.** A CloudWatch Logs anomaly
-  detector reports only `AnomalyDetectorStatus` values: it starts
-  `INITIALIZING`, UpdateLogAnomalyDetector's required `enabled` pauses it to
-  `PAUSED` and restarts it to the status it held before the pause. It had
-  reported a restarted detector as `ENABLED`, which the enum lacks, and the CLI
-  suite's specification gate caught it once a parallel test listed the
-  detector.
-- **Mail honours a null MX.** AWS mail delivery refuses a domain whose only
-  MX record is `.` (RFC 7505). It had trimmed that record to an empty host and
-  dialled port 25 on the local machine, so an Amazon SNS confirmation for
-  `ops@example.com` landed in a parallel test's SMTP receiver.
-- **A method the specification drops leaves the simulator.** Cloud Storage's
-  Discovery document dropped the `channels` resource, so the simulator stopped
-  serving `channels.stop`, whose handler had answered 200 without stopping
-  anything.
-- **A resource group goes with what it holds.** Azure Resource Manager deletes
-  a group as a long-running operation (202, a Location under
-  `/subscriptions/{id}/operationresults/`) that deletes each resource through
-  its own provider, retrying those another resource still depends on, and
-  fails with `ResourceGroupDeletionBlocked` when some cannot go. The simulator
-  had answered 200 for any group, missing ones included, and left its
-  resources behind.
-- **A resource lives in a group that exists.** Azure Resource Manager answers a
-  request beneath a missing group with `404 ResourceGroupNotFound`, and a write
-  or action beneath a group whose delete is running with
-  `409 ResourceGroupBeingDeleted`, before any provider sees it; one middleware
-  reads the group store for every provider. The simulator had stored a
-  resource under any group name, and its tests created resources in groups
-  they never made.
-- **A presigned URL lives as long as it was signed for.** Amazon S3 refuses a
-  query-signed request past `X-Amz-Date` plus `X-Amz-Expires` with
-  `403 AccessDenied`, "Request has expired".
-- **A job's stdout log is its containers' output.** Cloud Run job executions
-  wrote "Container started" and an outcome line into `run.googleapis.com/stdout`
-  that no container printed. The log carries only what the containers print.
-- **A container log read that fails says so.** The live follow and the
-  post-exit drain report a failed read, and the drain retries without
-  duplicating a line, so a log that lost its tail shows why.
-- **An unserved operation declares itself** with a 501 naming what is missing;
-  the mux's 404 is indistinguishable from a missing resource.
+  detector reported `ENABLED`, which its enum lacks.
+- **Mail honours a null MX.** A trimmed `.` MX record dialled port 25 on the
+  local machine and landed an SNS confirmation in a parallel test's SMTP
+  receiver.
+- **A method the specification drops leaves the simulator**, as Cloud
+  Storage's `channels.stop` did, whose handler had answered 200 without
+  stopping anything.
+- **A resource group goes with what it holds, and a resource lives in a group
+  that exists.** Azure Resource Manager deletes a group as a long-running
+  operation through each resource's provider and answers a request beneath a
+  missing group `404 ResourceGroupNotFound` before any provider runs.
+- **A job's log is its containers' output.** Cloud Run executions once wrote
+  "Container started" lines no container printed.
+- **A log read that fails says so**, and a drain retries without duplicating
+  a line.
+- **An unserved operation declares itself** with a 501 naming what is
+  missing; the mux's 404 is indistinguishable from a missing resource.
 - **A registered operation is not an implemented one.**
   `scripts/classify-sim-handlers.go` marks handlers that answer without
-  reaching state, and the surface tables carry the marker. A ✓ means only that
-  a handler reaches state.
-- **An answer never invents the record it describes.** Every answer comes from
-  what the simulator holds, or is the service's refusal. A member the simulator
-  has no basis for is omitted rather than filled: an AWS Lambda REPORT line
-  carries the measured memory peak or no figure, and an error reply carries no
+  reaching state, and the surface tables carry the marker.
+- **An answer never invents the record it describes.** A member the simulator
+  has no basis for is omitted rather than filled; an error reply carries no
   tracking identifier the simulator would have to mint.
-- **Read the schema, not the floor comment.** Only a response whose *required*
-  content the simulator would have to invent is declined, and it declines by
-  naming what is missing. Published catalogues that can be read
-  deterministically are vendored — the Azure managed WAF rule sets, Google's
-  interconnect locations, the Cloud Armor expression sets — with source,
-  retrieval and counts locked by a test.
-- **A catalogue and a finding are different things.** A published set exists
-  whether or not anyone asks, so an empty answer is false; a risk or a
-  recommendation is something an analysis detected, so an empty collection is
-  true of a simulator that runs no analysis.
-- **Judge a route on every client.** The generated Go client sends
-  `softDeleted=true` and gcloud sends `softDeleted=True`, so query booleans go
-  through `strconv.ParseBool`. `docker push` sends a blob in one `PATCH` and
-  Podman sends it on the `PUT`, so Artifact Registry refuses the *second* write
-  into an upload session, which is the chunking Google names.
-- **Real clients decide what a document does not list.** A Discovery enum is
-  the best evidence until a real client contradicts it: Cloud Run's condition
-  `reason` is enum-typed but incomplete, and `gcloud run jobs executions
-  cancel` compares against the literal `Cancelled`. The validator leaves such
-  fields unjudged with the evidence beside it.
-- **The simulator is never stricter than the service.** Amazon S3 answers 204
-  to `PutBucketPolicy` where the model says 200, and three Smithy patterns
-  reject values AWS returns. Corrections live in
-  `specs/cloud-api/<cloud>/<document>.supplement.json`, each pinning the value
-  it replaces and its evidence. An Amazon ECR token works against any registry
-  the principal can reach and an Artifact Registry token's scope is not the
-  gate, so neither refusal exists here.
-- **The validators judge three dimensions**: unknown fields, a required member
-  a response omits, and, for AWS and Google Cloud, a value outside a declared
-  enum (Azure's `modelAsString` enums permit other values). Discovery documents
-  express required-ness only for requests, so
-  `TestRequestsMissingARequiredPropertyAreRefused` drives each insert with the
-  property removed and requires a refusal.
-- **An int64 field answers as a string.** Proto3 JSON reads an int64 from a
-  number or a string and writes a decimal string; a Cloud Build worker pool
-  stores `privatePoolV1Config.workerConfig.diskSizeGb` as the string and
-  refuses a non-integer.
-- **A workload's answer is not the cloud's.** The Azure validator skips a
-  response served on an App Service site's host, its SCM host, or a container
-  app's or revision's ingress FQDN: the body is what the workload wrote.
+- **Read the schema, not the floor comment.** Only a response whose required
+  content the simulator would have to invent is declined. Published catalogues
+  that can be read deterministically are vendored with source, retrieval and
+  counts locked by a test (Azure WAF rule sets, interconnect locations, Cloud
+  Armor expression sets, the AWS Price List's instance types, Elastic Load
+  Balancing hosted zones).
+- **A catalogue and a finding differ.** A published set exists whether or not
+  anyone asks, so an empty answer is false; a finding is something an analysis
+  detected, so an empty collection is true of a simulator that runs none.
+- **Judge a route on every client.** The Go client sends `softDeleted=true`
+  and gcloud `softDeleted=True`; `docker push` sends a blob in one `PATCH` and
+  Podman sends it on the `PUT`, so Artifact Registry refuses the *second*
+  write into a session, which is the chunking Google names.
+- **Real clients decide what a document does not list.** Cloud Run's
+  condition `reason` is enum-typed but incomplete; gcloud compares against
+  the literal `Cancelled`. The validator leaves such fields unjudged with the
+  evidence beside it.
+- **The simulator is never stricter than the service.** Corrections to a
+  model live in `specs/cloud-api/<cloud>/<document>.supplement.json`, each
+  pinning the value it replaces and its evidence.
+- **The validators judge three dimensions**: unknown fields, an omitted
+  required member, and a value outside a declared enum (Azure's
+  `modelAsString` enums permit others). Discovery expresses required-ness only
+  for requests, so a test drives each insert with a required property removed.
+- **Google Cloud wire types read back as Google writes them.** An int64 answers
+  as a decimal string; an enum the Go REST clients send as its proto number
+  maps to its name through one table-driven `protoEnum` (a number once read
+  back as `"2"`, and comparisons with `MANUAL` never matched).
+- **A workload's answer is not the cloud's.** The Azure validator skips
+  responses served on a site's host or a container app's ingress FQDN.
 - **An error shape is attested, never invented.** Where the service documents
-  a refusal but not its code — a resource move onto an occupied name — the
-  simulator carries the attested message with no leaf code. Each registry's
-  `/v2/` answer and challenge was captured from the service: ECR an empty body
-  with no content type and a Basic challenge, Artifact Registry `text/html`,
-  ACR `{}`.
-- **Two APIs onto one setting are one store.** Blob soft delete is one store
-  behind the ARM `deleteRetentionPolicy` and the data plane's service
-  properties. Cloud Run v1 is a projection over the v2 stores; every Google
-  Cloud service's gRPC and REST doors read one store, and a cross-door test
-  writes through one and observes through the other. Azure tags have one
-  holder per scope.
-- **A state and the event that explains it are one write.** An Amazon ECS
-  rollout's `COMPLETED` or `FAILED` and the event recording why go in one
-  write, and the scheduler state that decides it is read first so no second
-  store's lock is taken under the first.
+  a refusal but not its code, the simulator carries the attested message with
+  no leaf code. Each registry's `/v2/` answer and challenge was captured.
+- **Two APIs onto one setting are one store.** Blob soft delete behind ARM and
+  the data plane; Cloud Run v1 as a projection over the v2 stores; every
+  Google Cloud gRPC and REST door over one store, crossed by a test.
+- **A state and the event that explains it are one write.**
 - **A filter the simulator cannot evaluate is refused**, since an ignored
-  filter answers everything and reads as a result: the Azure resource list
-  refuses an unsupported `$filter` with `InvalidFilterInQueryString`, and a
-  malformed page token or cursor is refused rather than read as none.
-- **Optimistic concurrency is enforced where the document declares it.** An
-  omitted etag or `resourceVersion` is unconditional and a stale one answers
-  409 ABORTED; a supplied etag is checked before an update mask merges.
+  filter answers everything and reads as a result; a malformed page token or
+  cursor is refused rather than read as none.
+- **Optimistic concurrency holds the record until the write is done.** Of two
+  writers carrying one etag exactly one writes; Cloud IAM, Secret Manager,
+  Bigtable, Organization Policy and Spanner quorum changes each once let
+  both through.
 - **An asynchronous operation answers as its specification says.** An Azure
-  operation declared long-running with a 202 answers 202 and serves its result
-  through the `Location` poll (azcore's no-op poller for a synchronous answer
-  overwrites the client's pager with nil). A Compute Engine insert returns a
-  running operation and boots behind it on a context detached from the
-  request. Operations minted complete answer cancel as each service documents
-  for a finished operation.
+  operation declared long-running answers 202 and serves its result through
+  the `Location` poll (azcore's no-op poller overwrites a pager with nil on a
+  synchronous answer). Compute operations poll at
+  `locations/{location}/operations/{id}`; every other provider uses
+  `operationStatuses`.
 - **A stubbed external dependency fails loudly and names itself.** Amazon SNS
   SMS and mobile push say they need a carrier or Apple's and Google's hosts.
 - **A retention the service reports also bounds what the simulator holds.**
-  Sweepers delete stopped Amazon ECS tasks, temporary credentials and AWS WAF
-  sampled requests at their real lifetimes through `Store.Prune`, 500 rows at a
-  time; filtering them out of answers alone let a deployed simulator reach
-  21,409 task rows and 1.2 million credentials. Where deleting a record would
-  change an answer, the answer moves into what the client presents: a session
-  token carries its expiration under the simulator's key, so a pruned
-  credential is still refused as expired. CloudTrail event history keeps 90
-  days apart from each CloudTrail Lake event data store's copy, CloudWatch Logs
-  applies `retentionInDays`, and DynamoDB's TTL sweep consumes no write
-  capacity.
-- **A figure the service refreshes lazily comes from a cache.** DynamoDB's
-  DescribeTable counts and sizes come from a cache a background refresh updates
-  at most once a minute (DynamoDB refreshes them about every six hours). Hot
-  DynamoDB stores are `sim.MakeCachedStore`s, in memory with SQLite as the
-  durable copy.
-- **A request answers what the service answers at once.** Amazon ECS StopTask
-  returns the task with desired status STOPPED and stops the containers as
-  tracked background work.
+  Filtering expired rows out of answers alone let a deployment reach 21,409
+  task rows and 1.2 million credentials; sweepers delete through
+  `Store.Prune` 500 rows at a time. Where deleting would change an answer,
+  the answer moves into what the client presents: a session token carries its
+  expiration under the simulator's key.
+- **A figure the service refreshes lazily comes from a cache**, as DynamoDB's
+  DescribeTable counts do.
 - **A resource the service moves through transitional states moves through
-  them.** An Amazon Kinesis Data Streams consumer answers
-  RegisterStreamConsumer CREATING and DeregisterStreamConsumer DELETING and
-  settles as tracked background work, as a resharding stream passes through
-  UPDATING; SubscribeToShard refuses a consumer that is not ACTIVE. A Client
-  VPN endpoint's Cedar authorization policy passes through creating, updating
-  and deleting. DryRun on GetRecords, GetShardIterator, PutRecord and PutRecords
-  validates and answers `DryRunOperationException`.
-- **A delete the service refuses is refused.** Amazon ECR DeleteRepository
-  answers `RepositoryNotEmptyException` for a repository holding images unless
-  the request sets `force` (Terraform's `force_delete`).
-- **A NAT gateway route translates the subnets its route table governs now.**
-  The sources are recomputed on every association change — AssociateRouteTable,
-  DisassociateRouteTable, ReplaceRouteTableAssociation, CreateSubnet,
-  DeleteSubnet — and include the subnets the main route table governs
-  implicitly. The probe reads the source address a task's request arrives from,
-  since untranslated egress still reaches the host. DeleteRouteTable refuses
-  the main route table or one still associated with `DependencyViolation` and
-  withdraws its NAT translations when it succeeds.
+  them** (Kinesis consumers, Client VPN policies, resharding streams).
 - **Engine work never runs under a store's write lock.** An `Update` callback
   returns what to remove and the caller removes it afterwards.
 - **A trust policy is evaluated, and a federated identity verified, as AWS
-  does.** Assuming a role evaluates its trust policy with the condition keys
-  AWS documents for the caller — OpenID Connect claims under the provider's
-  name, the `saml:` attributes of a signed assertion — and a SAML response is
-  verified against the provider's metadata. Tests sign real tokens and
-  assertions (`testutil/samlidp`).
+  does**, against signed tokens and SAML assertions the tests mint
+  (`testutil/samlidp`).
 - **A request is authorized as the action AWS names, not as its operation.**
-  The two differ for 94 operations: a multipart upload is `s3:PutObject`, a
-  batch send `sqs:SendMessage`, a re-encrypt `kms:ReEncryptFrom` on one key and
-  `kms:ReEncryptTo` on the other. The unambiguous ones are generated from the
-  Service Reference; the rest resolve from the request, down to each key of a
-  batch delete and each statement of a PartiQL call.
-- **Condition keys are read as each service defines them.** AWS CodeBuild's
-  keys name the request member they read, so one resolver serves them; other
-  services register request-settled keys per service. A key is populated only
-  where AWS's definition fixes its value, so AWS Glue's Lake Formation keys and
-  `s3:JobSuspendedCause` stay absent. A key counts as built only where code
-  spells its whole name, or a table its populator writes under the service's
-  prefix names it; a bare word credits nothing.
-- **Each service's keys and tags are spelled as that service spells them.**
-  Amazon RDS declares `rds:db-tag/`, `rds:cluster-tag/` and nine more per
-  resource type and has no `rds:ResourceTag/`; IAM users and roles carry
-  `iam:ResourceTag/<k>` and its policies only `aws:ResourceTag/<k>`. A
-  request's tags are read from the member path each service's model serializes
-  — `Tags.Tag.N`, `Tags.member.N`, `TagSpecification.N.Tag.M`, a lower-case
-  `tags` list, `TagKey`/`TagValue`, or a map.
-- **A key that says who called is set only when someone else called.**
-  `kms:ViaService` and `kms:GrantIsForAWSResource` come from the
-  service-initiation the request carries, and a check a service runs on a
-  principal's behalf evaluates each action against that service's context.
-- **An S3 operation is authorized in the namespace AWS publishes it under** —
-  s3, s3express, s3-outposts or s3-object-lambda, each against its own
-  reference and ARN format.
-- **What the gate cannot resolve is named, with the reason.**
-  `TestIAM_DeclaredConditionKeysAreResolvedOrClassified` fails unless every
-  declared key is resolved or classified with what the simulator would have to
-  model first, and a classified key that becomes resolvable fails its own row.
-- **A key is proven per action, by the request a client sends.**
-  `TestIAMConditionKeyCoveragePerAction` renders every served operation from
-  its vendored Smithy model in its own protocol with every member filled,
-  classifies it with the gate's classifiers, builds the gate's context for each
-  action it is authorized as, and checks every key that action declares.
-  Resources whose state some keys report — tagged buckets, objects and access
-  points, a key behind an alias, a bounded role, a sized task definition, one
-  tagged resource of every type Elastic Load Balancing, Amazon ElastiCache, AWS
-  Systems Manager and AWS WAF tag, Amazon ECS capacity providers, container
-  instances and task sets, AWS Cloud Map namespaces and services — are created
-  through each service's API first. The pairs it does not build are listed in
-  `testdata/iam_condition_key_gaps.tsv` with a reason from a closed table, so a
-  new gap and a fixed one both fail. Resource tags resolve from the ARNs the
-  gate derives, and every create stores the tags it carries where
-  ListTagsForResource reads them.
-- **A key about a source is read from the source.** A daemon's size is its
-  daemon task definition's; a blue/green deployment's engine, name,
-  encryption, Multi-AZ placement and tags are those of the DB instance or
-  cluster it clones; a DB snapshot's `rds:BackupTarget` is its instance's; a
-  cluster restore's `rds:StorageSize` is its snapshot's or source cluster's. A
-  key that differs between entries of one request — the version each
-  DeleteObjects entry names — travels with that entry's authorization target.
-  GetAccessPoint authorizes `"*"`, as the reference says, and reports the tags
-  of the access point its path names. A web-identity or SAML session keeps the
-  provider claims AWS STS declares on sts:AssumeRole, and an AssumeRole it
-  signs carries them, so a chained role's trust policy can name the person
-  behind the first session. A probe whose member takes either of two resource
-  kinds is rendered once per kind.
-- **A function URL is served at its own host.**
-  `<url-id>.lambda-url.<region>.on.aws` reaches the function as a payload
-  format version 2.0 event whose result is the HTTP response. An AWS_IAM URL
-  verifies the lambda SigV4 signature and authorizes lambda:InvokeFunctionUrl
-  and lambda:InvokeFunction, the second with `lambda:InvokedViaFunctionUrl`; a
-  NONE URL admits whoever the resource-based policy admits, and AddPermission
-  writes the conditions its scoping members name. CORS preflights are answered
-  from the URL config without invoking the function.
-- **An ARN is minted in the Service Reference's format.** An AWS Glue
-  integration's ARN is `…:integration:<id>`, keyed by the id Glue assigns at
-  CreateIntegration, so a policy naming it matches the ARN the IAM gate
-  derives.
-- **A resource that exists implicitly is not minted on reference.** CloudWatch
-  supports one metrics dataset, `default`, which carries tags; any other
-  identifier is ResourceNotFoundException.
+  The two differ for 94 operations; the unambiguous ones are generated from the
+  Service Reference and the rest resolve from the request, down to each entry
+  of a batch.
+- **A key counts as built only where code writes its whole name.** A bare-word
+  scan credited nine keys nothing built; the measure reads Go string literals
+  through `go/ast` and credits only whole names, templated prefixes and the
+  tables a populator writes under one service prefix. A generated wire table
+  is never read as gate code.
+- **Each service spells its keys, tags and errors its own way.** Amazon RDS has
+  `rds:db-tag/` and no `rds:ResourceTag/`; tags are read from the member path
+  each model serializes; an AWS error carries the message member its model
+  declares, resolved per request.
+- **A key that says who called is set only when someone else called**
+  (`kms:ViaService`, `kms:GrantIsForAWSResource`).
+- **A key about a source is read from the source** (a daemon's task
+  definition, the DB instance a blue/green deployment clones).
+- **An ARN is minted in the Service Reference's format**, so a policy naming it
+  matches what the gate derives.
+- **A resource that exists implicitly is not minted on reference.**
 - **Maintenance may not end the service.** A persistence fault panics in a
-  handler, where net/http turns it into a 500. On a background goroutine a busy
-  or locked database ends the sweep, which resumes next pass; a corrupt row
-  still panics; `StartBackground` contains a panic in any worker.
-- **A stalled CLI call fails with the evidence.** `runCLI` runs every call
-  with `--debug` in a process group of its own, bounded by 60 s or the test's
-  deadline less 30 s; past the bound it reads the simulator's `/debug/inflight`
-  and goroutine profile on the suite's diagnostics port, kills the group, and
-  fails with both and the tail of the CLI's debug log. It never retries.
-- **A stopping simulator lets go of work in flight.** Amazon ECS lifecycle
-  steps, AWS Lambda event source mapping batches and asynchronous invocation
-  attempts return once the context `StartBackground` hands them is done, and
-  leave their work for the next process: an ECS stop stays stopping and
-  recovery finishes it, an interrupted start leaves the task PENDING with its
-  partial containers removed, an asynchronous attempt is rolled back and
-  retried, and an event source mapping's messages become visible again after
-  their visibility timeout. The task lifecycle lock is a channel so a step can
-  stop waiting for it.
-- **A request ends with the server.** The `http.Server`'s `BaseContext` is the
-  background context the signal handler cancels before `Shutdown`, so every
-  long-poll handler, which selects on its request's context, returns at once.
-  `StartContainerSyncContext` bounds the image pull and the create by its
-  caller's context, removes a container whose start it abandoned, and leaves
-  the started container's lifetime to its handle; an AWS Lambda execution
-  environment starts under its worker's context, so a shutdown stops an image
-  download. `TestSimulatorStopsWithLifecycleWorkInFlight_SDK` keeps a Live Tail
-  session, a synchronous Invoke and a StartSyncExecution on a Lambda task open
-  across SIGTERM and exits within 5 s.
-- **Work a request starts can outlive its caller but not the server.**
-  `sim.LifetimeContext` returns, from any request's context, the server's
-  background context; the outermost handler stores it on every request, and
-  `Server.RequestContext` gives the same to a request a service builds to call
-  a handler in-process. It panics for a context no server serves. Synchronous
-  AWS Lambda Invoke and InvokeWithResponseStream, Amazon S3 Object Lambda
-  transformations, S3 Batch Operations LambdaInvoke tasks, and Step Functions
-  StartSyncExecution and TestState run under it, and the Step Functions
-  interpreter aborts a synchronous execution when it ends. Amazon S3 event
-  notifications and Lambda function destinations invoke asynchronously,
-  through the same persisted dispatcher as an `Event` Invoke.
-- **Recorded executions run as server background work and stop with it.** A
-  Step Functions execution started by StartExecution, RedriveExecution, a
-  nested `states:startExecution` task, EventBridge, EventBridge Scheduler or
-  recovery, and an AWS Lambda durable execution's coordinator run under
-  `StartBackground` and invoke their functions under its context. When it
-  ends, the interpreter waits for the task in flight, records neither its
-  outcome nor a Catch transition, and leaves the execution `RUNNING` at its
-  checkpoint for the next process; a Parallel state waits for its other
-  branches first, and a Distributed Map leaves its item executions unrecorded.
-  An Amazon ECS task or AWS CodeBuild build a `.sync` task waits on keeps
-  running for the next process to resume waiting on.
-- **An Amazon S3 Batch Operations job runs after CreateJob answers.** CreateJob
-  stores the job `New`, and background workers move it through `Preparing`
-  (one task per manifest row), `Suspended` when it requires confirmation or
-  `Ready`, `Active`, and `Completing`, `Failing` or `Cancelling` into its final
-  status, writing the completion report. UpdateJobStatus confirms only a
-  `Suspended` job and cancels a running one between tasks. Each task's outcome
-  is recorded as it lands, and `s3RecoverBatchJobs` resumes after the last
-  one. A LambdaInvoke task sends the invocation schema's 1.0 or 2.0 event with
-  its user arguments and takes its outcome from the `results[]` entry for its
-  task — `Succeeded`, `PermanentFailure`, or `TemporaryFailure`, which redrives
-  the task after every other has run — with `treatMissingKeysAs` for a missing
-  entry. The completion report is `manifest.json` and one results CSV per task
-  status under `<prefix>/job-<id>/`. Tests wait on DescribeJob's status.
-- **A Batch Operations CSV manifest lists keys URL-encoded**, as the
-  S3BatchOperations_CSV_20180820 format requires: preparing a job decodes each
-  key as a form value (`+` to a space, as AWS Lambda Powertools'
-  `unquote_plus` does) and fails the job on a malformed escape. The
-  LambdaInvoke event's `s3Key` carries the key URL-encoded, and the task
-  invokes the function whether or not an object holds the key.
-- **An image pull says why it pulled.** `pullImage` writes a `[sim-pull]` line
-  when the held-image check fails, with the inspect error or the held and
-  wanted platforms, and one per throttled retry with the attempt, error and
-  backoff.
-- **A test drives the production write path.** Retention tests store through
-  the key RunTask uses, and a listing takes each object's key from the id it is
-  stored under rather than from a field a writer fills separately.
-- **A DynamoDB key orders as the service orders it.** Key values are encoded so
-  numbers sort by value and binary by bytes, joined by a byte no encoded
-  component contains (`dynamodb_keys.go`); a restore computes each item's key
-  from the target table's schema. Every secondary index keeps ordered entries
-  of its own (`dynamodb_index.go`), written only by the two functions that
-  write items, so an index query reads in index order, returns what the index
-  projects and resumes by the index's key. A page resumes after its start key's
-  position whether or not the item survives and carries a LastEvaluatedKey
-  whenever Limit is reached; a parallel scan's segment is a hash of the
-  partition key. A transaction prepares every write before applying any. A key
-  or item that does not fit the schema is refused in DynamoDB Local's words,
-  and the differential scenarios compare message and code.
-- **An archived S3 object stays archived.** A write's storage class is stored
-  and reported, an unknown one is `InvalidStorageClass`, and reading or copying
-  an unrestored GLACIER or DEEP_ARCHIVE object answers `InvalidObjectState` or
-  `ObjectNotInActiveTierError` until a restore, whose `Days` sets the expiry,
-  makes a temporary copy.
-- **An operation answers on every protocol its model declares.** The Go SDK,
-  and so Terraform, speaks only rpc-v2-cbor to Amazon CloudWatch; an operation
-  without a CBOR route is served from its JSON handler, converted both ways by
-  shapes generated from the vendored model, and a test fails on any model
-  operation no protocol serves.
+  handler, where net/http answers 500; on a background goroutine a busy
+  database ends the sweep, which resumes next pass.
+- **A stopping simulator lets go of work in flight, and a request ends with
+  the server.** Background steps return once their context is done and leave
+  their work for the next process; the server's `BaseContext` is cancelled
+  before `Shutdown`, so every long poll returns at once.
+  `sim.LifetimeContext` gives work a request starts the server's lifetime,
+  not the caller's.
+- **A create is decided when it is accepted.** The AWS SDK retries a request
+  its HTTP client stopped waiting for, and two provisionings of one Amazon RDS
+  identifier once ran initdb on one volume; every create and rename claims its
+  identifier before checking for the resource.
+- **A create abandoned mid-request leaves no container.** A create that fails
+  because its context ended removes whatever the engine made under the
+  workload's name.
+- **A test drives the production write path**, and a listing takes each key
+  from the id the object is stored under.
+- **An operation answers on every protocol its model declares.** The Go SDK
+  speaks only rpc-v2-cbor to Amazon CloudWatch; operations without a CBOR
+  route are served from their JSON handlers through generated shapes.
 - **An operation names a type that exists.** Every Google Cloud long-running
-  operation carries the metadata message its Discovery document or proto
-  `operation_info` declares; the operation constructor requires that builder,
-  so no service falls back to a type a gRPC client cannot decode. Each gets a
-  fresh name in its service's operations collection and a row in the
-  operations store, with `verb` and `target` filled, readable over REST and
-  gRPC.
-- **Each service spells its errors its own way.** An AWS error carries the
-  message member (`message` or `Message`) and, for Amazon EFS, the `ErrorCode`
-  member the serving service's Smithy model declares; a middleware resolves the
-  model from the request's target or signing name.
-- **A state change follows the work it names.** Amazon RDS instances and
-  clusters report `stopping` and `starting` until their engines have stopped or
-  started, and Application Gateway, target-pool and backend-service health
-  comes from probes that have run, reporting `Unknown` until a verdict.
-- **A restore writes a new object.** A restored Cloud Storage object gets a new
-  generation and metageneration 1, and its preconditions are judged against the
-  live object it replaces.
-- **A managed cluster runs what it says it runs.** An Aurora cluster runs one
-  PostgreSQL- or MySQL-compatible engine on its own volume behind writer,
-  reader and member endpoints that follow its members' states; Kinesis
-  reshards by real splits and merges; Application Auto Scaling acts on the
-  CloudWatch alarms it creates within the policy's cooldowns; EC2 application
-  status checks run on their own interval and thresholds.
-- **An event reaches its subscribers because something emitted it.** Cloud
-  Storage publishes JSON_API_V1 notifications for object writes, deletes and
-  metadata changes; Eventarc delivers Cloud Storage triggers from them as
-  binary-mode CloudEvents; Cloud Logging `entries:copy` copies the entries its
-  sinks routed to the bucket.
-- **An audited call writes its Cloud Audit Logs entry.** One middleware around
-  the route table and one gRPC unary interceptor audit the calls. Cloud
-  Storage keeps its own method names (`storage.buckets.create`,
-  `storage.setIamPermissions`) in a route table; RPC-defined APIs resolve a
-  REST call to its RPC through the `google.api.http` bindings of their
-  registered descriptors, so the entry names the RPC's full name and the API's
-  `google.api.default_host` and carries request and response as JSON with
-  `@type`. Compute Engine and Cloud DNS resolve through their embedded
-  Discovery documents: Compute Engine records `v1.` plus the method ID, the
-  resource from the operation's `targetLink` and the `compute#operation`; Cloud
-  DNS the method ID, the resource relative to the project and the request as
-  its `cloud.dns.api` message. Cloud Resource Manager v1 records `SetIamPolicy`
-  and `CreateProject`, and a `SetIamPolicy` entry carries the
-  `google.iam.v1.logging.AuditData` policy delta. Cloud KMS records simple
-  method names and IAM `google.iam.admin.v1.CreateServiceAccount`, naming a
-  service account by unique ID. The caller is the principal its access token
-  names. The permission in `authorizationInfo` comes from an explicit table
-  where a method checks one its name does not spell
-  (`cloudkms.cryptoKeyVersions.useToEncrypt`), otherwise from IAM's
-  `service.collection.verb` convention. A configuration change lands in
-  `cloudaudit.googleapis.com%2Factivity`; a read or data write lands in
-  `%2Fdata_access` only when the project's `auditConfigs` enable it, and
-  `setIamPolicy` changes `auditConfigs` only when its `updateMask` names them.
-  A long-running call writes entries marked `operation.first` and
-  `operation.last`, or one marked both when already done. When two APIs publish
-  the same path (Eventarc's and Cloud Build's regional triggers) the host
-  decides. A log filter crossing a repeated field compares each element. Eventarc
-  `google.cloud.audit.log.v1.written` triggers receive the matching entries of
-  their project and location (a global trigger every location's), filtered by
-  `serviceName`, `methodName` and `resourceName` (optionally a
-  `match-path-pattern`), as CloudEvents whose data is the `LogEntryData`.
-- **A subscription stays open as long as the cloud holds it.** Amazon Kinesis
-  Data Streams `SubscribeToShard` holds its event stream for the documented
-  five minutes (`sim.DeclareWait`), sends the backlog from the
-  `StartingPosition` and then one `SubscribeToShardEvent` each time a put,
-  reshard or deletion signals the shard, each with `ContinuationSequenceNumber`
-  and `MillisBehindLatest`. The event that drains a closed shard names its
-  `ChildShards` and ends the stream. A second call for the same consumer and
-  shard within five seconds fails with `ResourceInUseException`, and a later
-  one takes the subscription over; deregistering the consumer ends the stream
-  with `ResourceNotFoundException`. `DeleteStream` refuses a stream with
-  registered consumers unless `EnforceConsumerDeletion` is set, and consumers
-  carry their own tags.
-- **A revoked session stays revoked.** `workforcePools.subjects.revokeSessions`
-  records when a subject's sessions end, and every check of a simulator-minted
-  access token refuses one issued to that subject at or before that second.
-- **AMQP is a byte stream.** A WebSocket message or TCP read can end inside a
-  frame, so the Service Bus and Event Hubs connection carries unconsumed bytes
-  to the next read.
-- **A link receives only what its address names.** A management reply link
-  (`<entity>/$management`) never receives the entity's messages, and AMQP
-  credit is the receiver's delivery-count plus link-credit minus the sender's,
-  as AMQP 1.0 defines it.
-- **A REST receive waits for its `timeout`.** Service Bus Receive and Delete
-  and Peek-Lock wait up to the `timeout` query parameter (60 seconds when
-  absent) and answer 204 only when no message became receivable. The wait
-  wakes on the entity's arrival signal — a send, a scheduled message reaching
-  its time, an abandon, a lock running out — ends with the request, and
-  declares itself with `sim.DeclareWait`. A renewed lock re-arms the
-  lock-expiry wake-up, and a restarted simulator re-arms the wake-ups of the
-  scheduled and locked messages it loads.
-- **A Log Analytics query runs or is refused, never half-read.** A tokenizer
-  honours single, double, verbatim and obfuscated string literals; a typed
-  expression parser handles `and`, `or`, `not()`, parentheses, the comparison,
-  string, `in`/`in~`, `has_any`, `between` and `matches regex` operators, and
-  arithmetic over numbers, datetimes and timespans; the tabular operators are
-  `where`, `take`/`limit`, `project`, `project-away`, `project-rename`,
-  `extend` (each item sees the columns before it), `order by`/`sort by`, `top`,
-  `count`, `summarize` and `distinct`. Every expression is typed against the
-  schema before a row is read, so an unknown table, column or function, a type
-  mismatch, or an operator the engine does not run answers 400
-  `BadArgumentError` with a nested `SyntaxError` (`SYN0002`, with line,
-  position and token) or `SemanticError` — alone and per member of a `$batch`.
-  Application Insights tables have their own schemas. The request's `timespan`
-  bounds `TimeGenerated`. `dynamic` values work through `parse_json`/
-  `todynamic`, property and element access, `array_length` and `tostring`.
-- **A workspace reads only its own rows, and rows arrive only where something
-  names the workspace.** A workspace keeps its rows under its customer id; a
-  query names a workspace that exists (404 `WorkspaceNotFoundError` otherwise)
-  and resolves tables against it. Rows arrive by three routes: a Container Apps
-  environment whose `appLogsConfiguration` names the workspace writes container
-  output to `ContainerAppConsoleLogs_CL` and the platform's events (replica
-  events, a job execution's start, completion, failure and stop) to
-  `ContainerAppSystemLogs_CL`; a site connected to an Application Insights
-  component by `APPLICATIONINSIGHTS_CONNECTION_STRING` or
-  `APPINSIGHTS_INSTRUMENTATIONKEY` writes its container output to the
-  component's `AppTraces` (in the workspace a workspace-based component names,
-  or a classic component's own store), while `containerlogs` keeps every line;
-  a Logs Ingestion upload names a data collection rule by immutable id and a
-  stream it declares, and each data flow carrying the stream runs its
-  `transformKql` and writes to its `outputStream` table in each Log Analytics
-  destination. Data collection rules and endpoints are served, and a rule is
-  refused (`InvalidPayload`) when a destination workspace, output table or
-  endpoint is missing, the table is still classic, or the transform does not
-  bind or writes a column the table lacks. Workspace tables are served: the
-  Azure tables every workspace holds, custom `_CL` tables with a
-  `TimeGenerated` datetime column, retention and plan, and `migrate` of a
-  classic table. A resource-centric query reads a workspace, a component's
-  telemetry, or every workspace whose `_ResourceId` lies under the scope; an
-  Application Insights app-id query reads its component's rows. A component's
-  `AppId` is the id the data plane addresses it by and `ApplicationId` mirrors
-  its name.
+  operation carries the metadata message its document declares; the
+  constructor requires the builder.
+- **An event reaches its subscribers because something emitted it.**
+- **A subscription stays open as long as the cloud holds it** (Kinesis
+  `SubscribeToShard`'s five minutes, declared with `sim.DeclareWait`).
+- **AMQP is a byte stream**: a WebSocket message or TCP read can end inside a
+  frame. A management reply link never receives the entity's messages.
+- **A receive waits for its own event.** Service Bus REST receives, Pub/Sub
+  `Pull` and Amazon SQS long polls wake on the entity's change signal and on a
+  timer to the next moment the queue changes by itself; StreamingPull checks
+  its stream is open before it leases, so a nack racing the client's
+  cancellation cannot strand a message.
+- **A query runs or is refused, never half-read.** The Log Analytics engine
+  types every expression against the schema before reading a row; BigQuery
+  once ran DML against a temporary copy and reported success while changing
+  nothing, and once honoured one equality in WHERE.
 - **A proxy's bound comes from the resource, and idle is not a deadline.**
-  `lbplane` keeps `Upstream.Timeout` (a fixed end) apart from
-  `Upstream.IdleTimeout` (no byte moved either way for that long, upgraded
-  connections included), and `Upstream.Activity` lets the caller move its
-  `sim.DeclareWait` as bytes flow. The Application Load Balancer reads
-  `idle_timeout.timeout_seconds` (1 to 4000, default 60) per request and
-  answers its `504 Gateway Time-out` page past it; Container Apps ingress bounds
-  a request at the documented 240 seconds and answers Envoy's `504 upstream
-  request timeout`.
-- **A load balancer adds its own headers after the hop-by-hop ones are gone.**
-  Each data plane passes `lbplane.Upstream.RequestHeader`, which `Forward` runs
-  after removing the client's hop-by-hop headers, so a client naming
-  `X-Forwarded-For` in `Connection` strips only its own copy. Application
-  Gateway builds its header set itself because its rewrite rule set must see
-  the headers it inserts: it removes hop-by-hop headers with
-  `lbplane.RemoveHopByHopHeaders`, inserts its six, then rewrites. The
-  Application Load Balancer selects a listener by the port the client reached,
-  never by a client-sent `X-Forwarded-Proto`, and forwards that listener's own
-  protocol and port.
-- **Platform front ends add only the headers their documentation states.** The
-  Cloud Run, App Service and Container Apps front ends each pass a
-  `RequestHeader` builder holding exactly the headers its platform documents:
-  the Cloud Functions request-headers reference for Cloud Run, the App Service
-  language and TLS-binding guides (`X-Forwarded-Proto`, `X-AppService-Proto`,
-  `X-Forwarded-For` as `IP:port`), and the Container Apps ingress table.
-  Headers seen on the real platforms but undocumented — Cloud Run's
-  `traceparent` and `Forwarded`, the App Service server variables in a
-  commented-out table, anything from Amplify Hosting compute — stay out until a
-  source states them.
-- **Load balancer attributes belong to a type.** The defaults are built per
-  type from the LoadBalancerAttribute reference in the vendored Smithy model,
-  the keys a type reports are the keys it accepts, and an Application Load
-  Balancer's cross-zone load balancing, which the reference says "can't be
-  changed", refuses modification with `InvalidConfigurationRequest`.
-- **A Dedicated Host is its family's host in the Price List.**
-  `scripts/fetch-aws-ec2-instance-types.go` keeps the offer file's Dedicated
-  Host products beside its instance types: each family's vCPUs, physical cores
-  and `instanceCapacity-<size>` counts, verbatim. AllocateHosts reports those
-  cores and vCPUs and no socket count; a family the offer does not list gets
-  neither. DescribeHosts counts what is left after the instances placed on the
-  host. An instance carries its own Placement: RunInstances takes it from the
-  request or the launch template, ModifyInstancePlacement changes it,
-  DescribeInstances reports it in the subnet's Availability Zone, and a
-  placement on a host without room for the type is refused with
-  `InsufficientHostCapacity`.
-- **A scaling metric is one the simulator publishes.** Target tracking sets
-  the smallest whole capacity at which a metric moving in inverse proportion to
-  capacity meets the target. ALBRequestCountPerTarget alarms on the
-  `RequestCountPerTarget` the Application Load Balancer data plane publishes;
-  the proxy path only adds to a counter, since writing each request to
-  CloudWatch would read every metric stream per request. A predefined type
-  whose metric nothing in the simulator emits gets no alarm.
-- **A download URL addresses logs the workload wrote.** An AWS Glue Python
-  shell run writes to the CloudWatch Logs groups the AWS Glue model names, and
-  GetSystemLogsForJobRun and GetSystemLogsForSession store what those streams
-  hold as an object and answer a presigned URL to it.
-- **Every Elastic Load Balancing resource keeps its tags.** CreateListener and
-  CreateRule store their tags, and AddTags, RemoveTags, DescribeTags and the
-  IAM gate's `aws:ResourceTag/<k>` serve listeners, rules and trust stores as
-  they do load balancers and target groups. Tagging a missing resource answers
-  that type's not-found error and changes nothing. Elastic Load Balancing
-  resources are identified by 16 lowercase hexadecimal characters, as their
-  ARNs are in AWS.
-- **A page token proves where it came from.** Every listing tags the tokens it
-  issues and refuses one it never issued with the service's invalid-argument
-  error.
-- **A Google Cloud page token names a position, not an index.**
-  `paginateList`, `paginateListCompute` and the body-paged lists take each
-  list's sort keys, ending in one unique per item, and sort by the client's
-  `orderBy` terms and then those keys. A token carries the last returned
-  item's sort values and the next page resumes strictly after them, as
-  Cloud Storage's lists do, so a resource created or deleted between two page
-  reads neither repeats nor skips another. An offset token shifted under such
-  a change. The gRPC doors (Cloud KMS, Pub/Sub, Cloud Bigtable admin, Cloud
-  Logging's ListLogs) page through the same key continuation in its
-  writer-free form (`grpcKeyPage`), and so do the Cloud Run Admin API v1
-  Knative lists (`continue`), IAM `roles.list` and `queryGrantableRoles`
-  (default 300, maxima 1,000 and 2,000) and Cloud Logging `entries.list`,
-  which orders by timestamp and then insertId. BigQuery `tabledata.list` keeps
-  its row-index token: a table only grows between truncations, so a row's index
-  never moves while a client pages it.
-- **A location's operations belong to the service that started them.**
-  Google serves each service's `projects.locations.operations` collection from
-  its own host, and the simulator serves every one from one path per version,
-  so list and delete read the service from the Host and the operation's from
-  its metadata message's proto package (`gcpLocationOperationPackages`). A bare
-  address names no service and reaches every service publishing the collection
-  at that version; the Cloud Run Admin API's two versions share one collection,
-  and Cloud Logging's project-scope operations list there too.
-- **A create is decided when it is accepted.** Every Amazon RDS create and
-  restore handler claims its identifier (`rdsIdentifierClaims`) before it
-  checks for the resource and holds the claim until the resource is stored, so
-  a repeat answers DBInstanceAlreadyExists or DBClusterAlreadyExistsFault. The
-  AWS SDK retries a request its HTTP client stopped waiting for, and two
-  provisionings of one identifier ran initdb on one volume. A ModifyDBInstance
-  rename takes the same claim on its new identifier for the request, and the
-  rename that moves the record — at once or in the maintenance window — claims
-  it again, waiting while a create holds it, so a rename and a create never
-  land on one identifier. The Terraform
-  harness's SDK client has no overall timeout, as the SDKs' default client has
-  none.
-- **A service a project never enabled is DISABLED.** Service Usage's
-  services.get and services.batchGet answered ENABLED for any service nothing
-  had enabled, so a client that checks before calling never had to enable
-  anything. The Service state documents DISABLED as "explicitly disabled, or
-  has never been enabled", and the simulator answers that. A harness enables
-  the APIs it drives on the project it creates, through Service Usage, the way
-  a user prepares a new project: the gcloud suite runs `gcloud services
-  enable` after `gcloud projects create`, and its own Service Usage tests use
-  services of their own so a disable cannot reach what the suite drives.
+  `lbplane` keeps `Upstream.Timeout` apart from `Upstream.IdleTimeout`.
+- **A load balancer adds its own headers after the hop-by-hop ones are gone**,
+  and a platform front end adds only the headers its documentation states;
+  undocumented headers seen on the real platforms stay out (BUG-3422).
+- **A front end that loses its target mid-response closes the stream**, as a
+  streaming proxy does; a failure before the status reached the client gets
+  the front end's own error.
+- **A page token proves where it came from.**
+- **A location's operations belong to the service that started them**, read
+  from the Host, since Google serves each collection from its own host.
+- **A service a project never enabled is DISABLED.** Answering ENABLED for
+  everything meant no harness ever had to enable an API; harnesses now enable
+  what they drive on the project they create, as a user does.
+- **A project exists before anything lives in it.** Seeding the harnesses'
+  project was runner-aware special-casing; every harness creates its project
+  through `projects.create`, and each service refuses a missing project with
+  its own error.
+- **A workload's HTTP server reads the request before it answers.** An `nc -e`
+  handler that printed at accept made Go's transport see an unsolicited
+  response and answer 503.
 
 ## Execution
 
-Every workload runs as a real container on the engine the simulator started
-against; there is no host-process path, and `SIM_RUNTIME=process` is API-only.
-Each simulator's SDK suite scans its own module and `sim/` for `os/exec` and
-allows each sanctioned call by its exact expression, which may be a declaration
-that only types a value, as the reaper's detach helper does; an allowance whose
-expression no longer exists fails the scan, whether or not its file still
-imports `os/exec`. The node agent and guest programs run inside the agent
-container and its microVMs, so their calls are sanctioned by name.
-What a program starts beside the HTTP port stops after the workers return and
-before the database closes, so the virtual machines a non-persistent simulator
-releases on the way out still read their store. The guest init sets its own
-PATH from the workload's environment before it starts anything: the kernel
-starts init with none, and an exec of a relative command resolves there. It
-gives the workload the HOME a container runtime gives a process, its user's
-passwd entry, when the image set none, and hands each child its exit status
-from the one reaper init runs.
-A read of a workload's process that the simulator's own host refuses, an
-unprivileged process reading another identity's /proc, goes through a platform
+### Containers, engines and lifetimes
+
+Every workload is a real container (or a guest, below); there is no
+host-process path. Each SDK suite scans its module and `sim/` for `os/exec`
+and allows each sanctioned call by its exact expression; an allowance whose
+expression no longer exists fails the scan. Startup refuses to serve in any
+mode that executes workloads when no engine answers: a process that passes its
+health check and fails every workload in the background is worse than one
+that does not start. Each product's sandbox profile applies, and every
+profile refuses the host network and the engine socket.
+
+A workload's stop grace comes from the cloud's own setting (an ECS
+`stopTimeout`, Cloud Run's ten seconds, a Container App's
+`terminationGracePeriodSeconds`, App Service's
+`WEBSITES_CONTAINER_STOP_TIME_LIMIT`); services that publish none keep five
+seconds. An AWS Lambda timeout starts when the runtime first asks for work.
+
+The engine allocates every published loopback port and the simulator reads it
+back after each start; picking a free port first raced whatever bound it in
+between. A resumed container gets a new port, so adoption reads ports after
+resuming.
+
+A run's containers are collectable from their labels alone: a detached reaper
+collects its own run, the next simulator over the same state directory
+collects what a killed one left, and a concurrent suite's workloads are never
+touched. `SOCKERLESS_PARENT_PID` is explicit because a guessed `os.Getppid()`
+ended a `nohup`ed run when its shell closed; the watch waits on a pidfd on
+Linux and kqueue on macOS. A simulator binds its port before printing its
+banner, so `Listening on` means the port answers. Every container `sim`
+removes goes with `RemoveVolumes`, so the anonymous volumes an image declares
+go with it; `StopAndRemoveContainer` returns only once the engine has removed
+it. A container create whose name a dead simulator's container holds removes
+that container and retries, since a run that died before cleanup leaves
+names no live simulator drives.
+
+A product that reports what a workload consumed reads the engine's memory
+accounting, whose content depends on the host's cgroup version: on cgroup v1
+it carries the kernel's high-water mark (`max_usage`), on cgroup v2 only the
+current usage, since the Engine API leaves `max_usage` unset there and serves
+no `memory.peak`. The observer keeps the highest of its 50 ms one-shot readings
+and reads once more when the figure is asked for; an AWS Lambda REPORT that
+read only the polls lost Max Memory Used, or reported an early moment's usage,
+whenever the invocation ended before a poll landed after it. A handle's
+`StartedAt` is the instant the backend was asked to start the process, which
+the process can only follow: a duration counted from `Place`'s return is
+negative for a process that answers before that call returns.
+
+A read of a workload's process that the host refuses goes through a platform
 helper: the sidecar program joins the container's pid namespace with the one
-permission a read of /proc/<pid>/mem needs (`sidecar.ReadProcess`), writes
-the mapping table or the ELF core into a directory only the simulator
-mounted, and ends. App Service process modules and dumps read that way; the
-image itself is `sim/procimage`; its proof dumps a child that has said it
-runs, because Start returns when the kernel closes the exec pipe, which it
-does before it maps the new program, and a mapping table read then once held
-the stack alone. A Kudu command runs as the identity that owns
-the site's files on the host, so what it writes under /home the simulator
-later moves and deletes through the same VFS. The CI harness runs every suite
-as the runner, not root: it makes the engine's trust directory writable and
-opens the low ports, which the mail receivers on port 25 need.
+permission `/proc/<pid>/mem` needs (`sidecar.ReadProcess`). Its proof dumps a
+child that has said it runs, because `Start` returns when the exec pipe
+closes, before the new program is mapped.
 
-Two live engine networks over one range do not coexist on one engine, so a
-test's network takes a range no other test in its suite uses; the Auto Scaling
-group fixture counts its groups onto their own /16s, and a fixture that
-boots a machine names a range of its own. The AWS CLI suite's Amazon ECS
-tests used to probe the engine for a free /16 at each start: two tests
-starting in the same moment both found the same one, since neither had
-placed a task on it yet, and the probe hid two ranges from the checker that
-EC2 tests also named. Each names its /16 as a literal now, and the checker
-holds them apart.
-Startup refuses to serve in any mode that executes workloads when no engine
-answers: a process that passes its health check and fails every workload in
-the background is worse than one that does not start. Each cloud product's
-sandbox profile applies to its containers, and every profile refuses the host
-network and the engine socket.
+### Execution modes and the no-privilege rule
 
-A workload's stop grace comes from the cloud's own setting — an Amazon ECS
-container definition's `stopTimeout` (30 seconds unset), Cloud Run's ten
-seconds, a Container App template's `terminationGracePeriodSeconds`, App
-Service's `WEBSITES_CONTAINER_STOP_TIME_LIMIT`. Azure Container Instances and
-the managed-database engines keep five seconds because their clouds publish
-none. A stopping Amazon ECS task signals all its containers together, so it
-takes as long as its slowest container, and the awsvpc pause container stops
-only after the containers in its namespace have exited; a task start reports
-`pause-image` resolution apart from `pause-start`. An ECS container
-definition's `workingDirectory` reaches the engine, which creates it when the
-image lacks it, and an ExecuteCommand session inherits it. An AWS Lambda
-invocation's timeout starts when the runtime first asks for work, with Init
-bounded at ten seconds, as AWS documents.
+The simulators once ran workloads two ways: containers on engine networks,
+and a host-namespace tier of veths, `nftables` rules and in-process
+Firecracker guests needing `CAP_NET_ADMIN`, `CAP_SYS_ADMIN` and `/dev/kvm`,
+beside two helper containers that held privilege on the simulator's behalf (a
+`CAP_NET_ADMIN` container plumbing an ECS task's ENI address, a `--privileged`
+one attaching an EBS image to a loop device). The tier could not run in CI or
+on a developer machine, so everything behind it answered a refusal there, and
+the two network models diverged: one resolved through the engine, the other
+through the cloud's resolver.
 
-The engine allocates every loopback port a workload publishes, and the
-simulator reads the bound port from the container's inspection after each
-start (`ContainerHandle.PublishedPort`, `sim.PublishedHostPort`); picking a
-free port first raced anything that bound it in between. A stopped container
-holds no published port and a resumed one gets a new one, so adopting an
-engine left by an earlier process reads its ports after resuming it.
+The replacement, landed in one pull request so the tree never held both:
+three modes under one rule — the simulator holds no host privilege and a
+workload container holds no capability. Where a workload runs is a property
+of the service in the simulator's configuration (`SIM_PLACEMENT`), never
+something a cloud API or a workload sees. `lbplane`, `ipam` and `netrules`
+moved from the `realexec` module into `sim`, and `realexec` went. The
+privilege a cloud lets a workload ask for (`privileged`, `privilegedMode`) is
+not granted on the container backend; what then fails is a `BUGS.md` row a
+guest closes.
+
+### Networks, sidecars and the platform network
+
+A VPC, subnetwork or virtual network is an engine network over the resource's
+own CIDR, created at first attach (`sim.EnsureCloudNetwork`), and a workload's
+address is fixed at attach to the one its interface reports. A bridge network
+carries one subnet, so the engine refuses two live networks over one range;
+tests therefore name ranges no other test of their suite uses
+(`check-test-network-ranges.go`). The AWS CLI ECS tests once probed the engine
+for a free /16 at start: two tests in the same moment found the same one. An
+Azure virtual network with several prefixes is one engine network per prefix,
+since the bridge driver refuses several subnets; an engine network's name
+carries the simulator's workload scope so two simulators on one engine never
+share one.
+
+The same single subnet is why the sidecar does not sit at the clouds'
+link-local addresses: it sits at the address the cloud reserves for its
+resolver inside the range, every workload names it with `--dns`, and the
+metadata URL travels in the variable the SDKs honour. The sidecar forwards DNS
+to a per-network listener that attributes the query to that network — never
+to anything inside the message — and metadata to the simulator under a token
+minted at start; the trust middleware rewrites the remote address to the
+workload's and drops the header, so a workload cannot forge the sidecar.
+`sim.Main` opens a plain-HTTP callback listener when the API listener
+terminates TLS, because a scratch sidecar carries no trust store.
+
+The platform network — for workloads on no cloud network — is a user-defined
+/24 of 100.64.0.0/10 chosen by name, because Docker admits a fixed address only
+on a network whose subnet the user configured. Its lower half is the
+simulator's to lease (`sim.LeasePlatformAddress`) and the engine allocates
+from the upper half (`--ip-range`), so a workload on either backend takes an
+address no container can. A lease goes back only once the container that held
+it is gone: releasing it when a stop was requested handed the next job an
+address the engine still held.
+
+Each workload holds its role through its own service's channel: only an EC2
+instance reaches IMDS, Lambda and Amplify compute take sessions in their
+environment, and ECS tasks, CodeBuild builds, Batch jobs and Glue runs read
+the container credentials endpoint. The AWS SDKs accept a plain-HTTP full URI
+only on loopback or the endpoint's link-local address, so a URI naming the
+sidecar left every default credential chain empty; the container backend
+serves the endpoint on the workload's own `127.0.0.1:51679` through a
+forwarder that owns the workload's network namespace. The forwarder is placed
+first and the workload joins it, because placing it beside a running workload
+raced the SDK's first read and the engine cannot join a namespace before its
+owner runs.
+
+### Placement, node agents and guests
+
+Every launch path places through the placement table's backend and holds a
+`Handle` — wait, stop, cancel, exec, address, published port, console,
+capture — so the container and microVM implementations are interchangeable.
+Group-shaped workloads (Cloud Run instances, awsvpc tasks, Container Apps
+replicas and jobs, App Service sitecontainers) shared a namespace through the
+engine's `container:<id>` mode, so the placement table had nothing to say
+about them; `PlaceMember` gave the backend the group's shape.
+
+The node agent is the only container with a device: `/dev/kvm`,
+`/dev/net/tun` and `CAP_NET_ADMIN` inside its own namespace, where it bridges
+its interface, gives each guest a tap, and boots Firecracker guests from root
+filesystems built out of the same OCI images (`mkfs.ext4 -d`). Lessons from
+running it:
+
+- Firecracker's API server admits a handful of connections and answers 503
+  past that, so the agent's client closes its connection after each request.
+- A guest's API socket path is a digest of its ID, to stay within 107 bytes.
+- guestinit ended machines with a power-off, which halts a microVM's
+  processor and leaves it running for the hypervisor: every guest exit had
+  been the agent's fifteen-second backstop kill. guestinit reboots instead,
+  which `reboot=k` turns into the reset Firecracker exits on.
+- A member's image becomes an ext4 root of its own handed to one of the
+  guest's disk slots, which exist from boot because Firecracker takes a new
+  backing file for a drive it holds but no new drive; guestinit waits for the
+  kernel to see the new size, mounts and chroots into it.
+- Each guest process leads its own process group and reports its exit with
+  its line count, so a log reader ends exactly when the last line is out, and
+  guestinit holds the machine up until the agent has read the console.
+- A network the cloud deletes must be left by the agent first: the engine
+  removes no network a container is still on, and every ECS test on guests
+  hung in VPC cleanup until `MicroVMBackend.Leave` existed.
+- A guest has no bind mounts. The guest kernel carries one network
+  filesystem, the NFSv4 client, and no pure-Go server spoke NFSv4 read-write,
+  so `sim/fileshare` is one; engine volumes are served by a share container in
+  the agent's namespace, one per workload, gone with it.
+- A guest's further networks are interfaces it boots with
+  (`ContainerConfig.ExtraNetworks`), since Firecracker takes interfaces only
+  before boot.
+- A persistent simulator leaves the agent running and the next process adopts
+  it by label and attaches with the token from its environment; `Backend.Find`
+  lists workloads by label on both backends, so adoption never reaches around
+  the backend.
+
+Security groups, firewall rules and NSGs are enforced on the flows the
+simulator mediates through `lbplane`'s `Admit` hooks, and on guests at the tap
+through nftables bridge stages each cloud compiles and replaces on every rule
+change. Running the clouds' tests on guests found what the KVM proof could
+not: CreateVpc had never created the default security group, so everything
+joining it carried one empty stage that admits nothing; a transport rule with
+no port range rendered a bare keyword nftables rejects; an instance init that
+waited on `tee` held its ready marker for ever behind a daemon keeping the pipe
+open; an instance naming a subnetwork alone landed on the default network.
+
+NAT gateways are egress sidecars holding `CAP_NET_ADMIN` in their own
+namespace, redirecting TCP and UDP to a proxy that dials from the gateway's
+address. A datagram's original destination comes from the connection tracker,
+because `IP_RECVORIGDSTADDR` reports the rewritten one; a single-entry
+conntrack query hung under mdlayher/socket v0.6, found by bisecting the
+dependency bump, so the sidecar dumps its namespace's table instead.
+
+### VM instances and cloud-init
+
+`sim/machine` holds the lifecycle the three clouds each wrote: boot and wait
+for the init's ready marker, watch, stop keeping the disk, start, discard,
+adopt, capture and the console across boots, with each cloud's state names as
+hooks. Merging the copies fixed what they did differently: a failed start
+leaves an EC2 instance stopped with its disk, a Compute Engine stop during
+boot owns the status instead of unwinding the insert, an Azure guest that
+never becomes ready is stopped rather than left running, and the readiness
+polls and five-minute boot timers the clouds have no counterpart for went.
+
+An instance's init runs the image's cloud-init over the user data, rendered at
+placement into `/var/lib/cloud/instances/<id>/` so a new instance from a
+captured image runs its own user data while a restarted one keeps its
+semaphores. The guest library is POSIX sh and edits `/etc/passwd` and
+`/etc/shadow` itself, because Amazon Linux 2023 has no shadow-utils. Compute
+Engine's `startup-script` runs at every boot after cloud-init; the init honours
+systemd's SIGRTMIN+4 and busybox's SIGUSR2 so a guest's own poweroff ends it.
+The metadata services read the instance's current record; each cloud's
+metadata service answers its own workloads and nothing else, since an
+invented default machine answered every other caller.
+
+A VM's `/run` is volatile: each boot starts with an empty one
+(`SandboxProfile.VolatileRun` mounts a tmpfs, as the microVM guest init
+already did). On the root disk, the readiness marker, cloud-init's
+`result.json` and the per-boot status files survived a restart, so a rebooted
+instance reported ready before its second boot ran.
+
+## Services
 
 ### App Service and Azure Functions
 
-A site that names a container image runs it as App Service runs a Linux custom
-container. The image's ENTRYPOINT runs with `siteConfig.appCommandLine`
-(`az functionapp config set --startup-file`, Terraform's `app_command_line`)
-or a sitecontainer's `startUpCommand` as its command; the app settings and
-`PORT` are its environment; the front end forwards every request on one of the
-site's hostnames to the container's port — `WEBSITES_PORT`, else 80, or the
-main sitecontainer's `targetPort` — and passes the answer back untouched. A
-request starts the container when none runs, and Always On starts it without
-one; the start waits until the port accepts, the container exits, or
-`WEBSITES_CONTAINER_START_TIME_LIMIT` (230 seconds unset) passes, and fails
-with 503. A container that exits before it answers fails the start as having
-exited, with its exit code from the engine's wait, also when it stopped before
-the start read its published port. A restart, a configuration write and an app-settings write restart
-the container and keep its VNet integration; `PATCH config/web` merges onto
-the stored configuration. The simulator reads no setting named after a
-consumer.
+A site runs its image as App Service runs a Linux custom container, on
+`WEBSITES_PORT` (80 unset), started by a request or Always On and bounded by
+`WEBSITES_CONTAINER_START_TIME_LIMIT`. Built-in stacks run the platform's
+`mcr.microsoft.com/appsvc` images pinned to one build; a Linux `Node|22`
+function app runs the Azure Functions host with the platform environment
+without which the host neither runs in App Service mode nor writes keys.
+Function keys are written as the host writes them — ASP.NET Core Data
+Protection payloads and identifiable secrets with the `AzFu` signature — so
+the host reads what the ARM key operations wrote (BUG-3237 holds the rest).
 
-A Linux web app on a built-in stack runs the platform's image for it:
-`linuxFxVersion` `NODE|20-lts`, `NODE|22-lts` or `PYTHON|3.12` selects
-`mcr.microsoft.com/appsvc/node` or `appsvc/python`, pinned to one build, with
-`/home` mounted and `site/wwwroot` holding what MSDeploy and OneDeploy
-deployed, or the package a `WEBSITE_RUN_FROM_PACKAGE` URL names, read-only. The
-image's entrypoint runs Oryx: the startup command, else the detected app
-(`server.js`, a `start` script, `app.py` under gunicorn), else the platform's
-default page. The front end forwards to the port the image declares (8080 for
-Node, 8000 for Python) unless `WEBSITES_PORT` names one, and a deployment
-restarts the site. `webAppStacks` and `availableStacks` list exactly these
-stacks from the same table. A site created without a kind reports `app`, or
-`app,linux` on a reserved plan; every site reports `hostNameSslStates` with its
-Standard and Repository (SCM) hostnames. A site the simulator has nothing to
-run for answers 503 naming what it lacks.
-
-A Linux function app on `Node|22` runs the Azure Functions host
-(`mcr.microsoft.com/azure-functions/node:4.1054.250-4-node22-appservice`, the
-build the floating `4-node22-appservice` tag named) with the same `/home`
-layout: it loads the app from `site/wwwroot`, answers 401 for a function-level
-function without a key and 404 for a route no function declares. Every site's
-container gets the platform environment beside its app settings —
-`WEBSITE_SITE_NAME`, `WEBSITE_HOSTNAME`, `WEBSITE_RESOURCE_GROUP`, a fresh
-`WEBSITE_INSTANCE_ID` per start, and a per-site `WEBSITE_AUTH_ENCRYPTION_KEY` —
-without which the host neither runs in App Service mode nor writes keys. With
-`AzureWebJobsSecretStorageType=files` the host reads its keys from
-`/home/data/Functions/secrets`, and the ARM key operations read that store
-before answering and write it after changing a key. Otherwise the host uses its
-blob store, as `DefaultSecretManagerProvider` does: `azure-webjobs-secrets/
-<site>/host.json` and one `<function>.json` per function in the account
-`AzureWebJobsStorage` names. The ARM key operations read and write those blobs
-through the Blob service, refuse a connection string whose account is missing
-or whose key or SAS does not open it, and generate keys the host has not
-stored yet; a deleted function's blob stays. Values are encrypted as the host
-encrypts them: an ASP.NET Core Data Protection payload under purpose
-`function-secrets` and the empty key id, AES-256-CBC with HMAC-SHA256 keyed
-through SP800-108 over HMAC-SHA512, with the first of `AzureWebEncryptionKey`,
-`MACHINEKEY_DecryptionKey` or `WEBSITE_AUTH_ENCRYPTION_KEY`. Keys are the
-identifiable secrets the host generates (33 random bytes, the `AzFu` signature
-and a Marvin checksum), and `functions/admin/token` is signed with
-`WEBSITE_AUTH_ENCRYPTION_KEY`. The ARM functions list includes each
-`<function>/function.json` the content holds, with the HTTP trigger's invoke
-URL; `functionAppStacks` lists the stack, and a site PUT naming its plan by bare
-name records the plan's resource ID.
-
-A web app's SCM site serves Kudu. Its host — the Repository entry of
-`hostNameSslStates` that `az webapp deploy` and Terraform's `zip_deploy_file`
-send to — is the app's subdomain of the ARM request host (`<app>.scm.<host>`)
-or the `appServiceScm` template of `SIM_AZURE_ARM_EXTERNAL_DATA_PLANE_URLS_JSON`;
-a handler wrapper routes a request whose Host is an app's or slot's SCM
-hostname (or `<app>.scm.azurewebsites.net`) to that site's Kudu through a
-generation index, so every store read Kudu reaches answers from an index. Kudu
-admits the site's publishing credentials (`$<app>`, `$<app>__<slot>`) or the
-subscription's deployment user as basic auth while the stored scm basic
-publishing credentials policy allows it, and a Microsoft Entra token for Azure
-Resource Manager or App Service. `/api/zipdeploy` (KuduSync: files the last zip
-deployment wrote that the new package lacks are deleted) and
-`/api/publish?type=zip|war|jar|ear|lib|static|startup` (OneDeploy's targets,
-`path`, `clean`, `restart`) land the artifact through the placement the ARM
-OneDeploy and MSDeploy operations share, synchronously (200) or async (202 and
-a `Location` on `/api/deployments/latest`), behind a per-site lock that answers
-a concurrent deployment 409. Each deployment is a Kudu record (`/api/deployments`,
-`/latest`, `/{id}`, `/{id}/log`, legacy `/deployments`) that ARM's
-`/deployments` proxies, with a deploymentStatus going `BuildInProgress`,
-`RuntimeStarting`, then `RuntimeSuccessful` once the restarted site answers the
-warmup request, or `RuntimeFailed` naming why; the ARM MSDeploy and OneDeploy
-operations settle the same way (`BuildFailed` for a package that fails to
-land), and once the build ends the status stops naming the operation's
-Azure-AsyncOperation URL. `WEBSITE_RUN_FROM_PACKAGE=1` makes each zip
-deployment the whole of wwwroot, read-only. The CLI suite reaches the
-`.localhost` SCM host through an HTTPS proxy the test runs.
-
-Kudu's WebJobs API serves the webjob records the Microsoft.Web webjob resources
-read: `/api/webjobs`, `/api/triggeredwebjobs` and `/api/continuouswebjobs` in
-Kudu's spelling; a PUT places a job (a zip, or one run file named by
-`Content-Disposition`) under `App_Data/jobs` and rediscovers the site's jobs,
-and a DELETE removes it. A triggered run answers 202 with its history entry as
-`Location`, passes `arguments` on the command line and as
-`WEBJOBS_COMMAND_ARGUMENTS`, records `External - <user agent>` as its trigger,
-and answers 409 while the job runs or `WEBJOBS_STOPPED` is set; `settings`
-reads and writes `settings.job`; start and stop drive a continuous job's
-container. Advertised URLs carry the request's scheme. A triggered job whose
-`settings.job` names a six-field NCRONTAB `schedule` runs at each occurrence in
-`WEBSITE_TIME_ZONE`, with trigger `Schedule - <expression>`, skipping an
-occurrence while the job runs or `WEBJOBS_STOPPED` is set; a schedule that does
-not parse is the job's `error`, and like Kudu's the scheduler runs none it
-missed while down. Runs write Kudu's log files under `data/jobs`
-(`output_log.txt`, `error_log.txt`, `job_log.txt`, `job_scheduler.log`), which
-the job records name by VFS URL once they exist.
-
-The VFS (`/api/vfs`, and `/vfs` as Kudu's job log URLs spell it) reads, writes
-and deletes under `/home` with Kudu's semantics: a trailing slash addresses a
-directory, listed as JSON entries with `href` and `path`; the other spelling
-redirects with 307; a file's ETag derives from its write time and an overwrite
-or delete takes `If-Match`; a directory deletes only empty or with
-`recursive=true`. A change under `site/wwwroot` rediscovers webjobs, and a
-run-from-package app's wwwroot refuses writes. `/api/command` runs `sh -c` in
-the site's image with `/home` mounted, the app settings in its environment and
-the requested working directory, answers `Output`, `Error` and `ExitCode`, and
-kills a command silent for `SCM_COMMAND_IDLE_TIMEOUT` seconds. `/api/settings`
-merges Kudu's defaults, the settings written through it and the app settings,
-in that order of precedence. `/logstream` writes a welcome line, then each line
-the site's containers log, a quiet-minute line while nothing is logged, and
-ends after `SCM_LOGSTREAM_TIMEOUT`.
-
-Each deployment slot runs its own container as its app does, keyed by the
-slot: the front end routes the slot's hostname to it, its `/home`, containers
-and volumes go by `<app>__<slot>`, its container sees `WEBSITE_SITE_NAME` as the
-app's name and `WEBSITE_SLOT_NAME` as its own (`Production` for the app), a
-settings, configuration or storage-mount change restarts it, and deleting a
-slot or its app stops its container and removes its storage. A swap is a
-long-running operation exchanging what the two slots run: deployed content and
-everything in their file systems (deployment history, webjobs and runs, Kudu
-settings, `/home`), general settings and sitecontainers, and app settings,
-connection strings and storage mounts except those `slotconfignames` sticks to
-a slot and the `_EXTENSION_VERSION` settings, which stick unless every slot sets
-`WEBSITE_OVERRIDE_PRESERVE_DEFAULT_STICKY_SLOT_SETTINGS` to 0 or false. Each
-slot keeps its hostnames, publishing endpoints, Always On, scale, IP
-restriction, CORS, diagnostic-log, VNet and TLS settings. The destination
-starts on its new content before the swap succeeds; one that does not start
-swaps back and fails the operation. Both slots then report the swap in
-`slotSwapStatus`, which `azurerm_web_app_active_slot` waits on. Swap with
-preview: `applySlotConfig` gives the slot the target's sticky app settings and
-connection strings, keeps its own swappable ones, restarts it and reverts when
-it does not answer; `resetSlotConfig` on either slot restores the source's
-settings; the swap between the same two slots completes the preview, and a
-swap of any other pair is refused while one is pending. `slotsdiffs` lists each
-app setting, connection string and general setting the slots hold differently,
-a swappable one as `SettingsWillBeSwapped` at level `Information` and a slot
-setting as `SettingsWillNotBeSwapped` at level `Warning`.
-
-`/home` is one persistent share the app, Kudu and every instance mount: a
-deployment writes into it with KuduSync's manifest semantics and leaves files
-no deployment wrote, a restore replaces it and restarts the app, a swap
-exchanges the two slots' shares, and backups, snapshots, webjob discovery and
-the Functions host's function list read it. A new app or slot starts empty, and
-a deleted app's content stays for `restoreFromDeletedApp`. A custom container
-mounts the share when `WEBSITES_ENABLE_APP_SERVICE_STORAGE` is true.
-
-Each connection string reaches the container's environment — and a webjob's
-and the Kudu command's — under its type's prefix (`MYSQLCONNSTR_`,
-`SQLCONNSTR_`, `SQLAZURECONNSTR_`, `CUSTOMCONNSTR_`, `NOTIFICATIONHUBCONNSTR_`,
-`SERVICEBUSCONNSTR_`, `EVENTHUBCONNSTR_`, `APIHUBCONNSTR_`, `DOCDBCONNSTR_`,
-`REDISCACHECONNSTR_`, `POSTGRESQLCONNSTR_`); a write names a
-`ConnectionStringType` or is refused, a site PUT's `siteConfig.connectionStrings`
-sets them, and a change restarts the app or slot.
-
-A stopped app or slot runs nothing: `WebApps_Stop` tears down its container and
-stops its webjobs, nothing starts it again — a request, Always On, a swap's
-warm-up, a deployment, a webjob schedule — and its hostname answers App
-Service's 403 stopped-site page until `WebApps_Start` or an App Service
-Environment's resume. An update leaves a stopped app stopped, since `state` is
-read-only.
-
-An app or slot carries managed identities: `identity` on a site PUT or PATCH
-enables a system-assigned identity, registered in the directory for its
-lifetime, and attaches user-assigned identities by resource ID;
-`keyVaultReferenceIdentity` (SystemAssigned unless set) names the one the app
-reaches Key Vault as. A Key Vault reference — `SecretUri=…` or
-`VaultName=…;SecretName=…[;SecretVersion=…]`, in an app setting or connection
-string — resolves when that identity is attached and the vault grants it the
-secret: an Azure RBAC role assignment carrying
-`Microsoft.KeyVault/vaults/secrets/getSecret/action` at the secret, the vault
-or above (the Key Vault Administrator, Reader, Secrets Officer and Secrets User
-built-in roles carry their published permissions), or else an access policy
-with secret `get`; the secret, and a pinned version, must exist and be enabled
-and current. The container, webjobs and Kudu see the value; an unresolved
-reference reaches them as written, and `configreferences` reports why —
-`MSINotEnabled`, `VaultNotFound`, `AccessToKeyVaultDenied`, `SecretNotFound`,
-`SecretVersionNotFound`, `InvalidSyntax` or `OtherReasons` — with the
-`identityType` it tried.
-
-Configuring `sourcecontrols/web`, and each `WebApps_SyncRepository`, fetches the
-branch's head over HTTP or HTTPS and deploys its tree, without `.git`, into
-wwwroot with KuduSync's semantics, recorded under the commit's ID, author,
-author email and message; a failed fetch is recorded as a failed deployment
-while the app keeps what it ran. `siteConfig.scmType` is `None` until source
-control sets it (`ExternalGit`, or `GitHub`/`BitbucketGit` for continuous
-integration) and returns to `None` when it is removed, as
-`azurerm_app_service_source_control` reads; a sync without source control is
-refused.
+The SCM site serves Kudu at the app's SCM host, routed by a generation index
+so every read answers from an index. Deployment, WebJobs (with NCRONTAB
+schedules that, like Kudu's, run none missed while down), the VFS, the command
+API, settings and the log stream follow Kudu's controllers. The VFS once
+declared a growing file's stat size and copied the whole file, overrunning
+`Content-Length`; it stats the open file and copies exactly what it declared.
+Slots run their own containers and swap with sticky settings; `/home` is one
+persistent share the app, Kudu and every instance mount. Key Vault references
+resolve as the app's `keyVaultReferenceIdentity` under the vault's own
+authorization decision and are re-fetched every 24 hours.
 
 ### Cloud Run and Cloud Run functions
 
-A Cloud Run service is served at its own URL,
-`https://<service>-<hash>-<region>.a.run.app`, which `uri` and the Knative
-projection's `status.url` report. The front end dispatches on the Host header,
-so a client connects to the simulator's endpoint and names the service host.
-Every method and path goes to the ingress container on `ports[0].containerPort`
-(8080 unset, passed as `PORT`), bounded by the revision template's `timeout`
-(300 seconds unset), and the answer comes back untouched; the caller's bearer
-reaches the container with its JWT signature replaced by
-`SIGNATURE_REMOVED_BY_GOOGLE`. A service with `invokerIamDisabled`, or whose
-policy grants `run.routes.invoke` to `allUsers`, is public. Any other request
-carries a Google-signed ID token — in `X-Serverless-Authorization`, which
-leaves `Authorization` to the application, or in `Authorization` — whose
-audience is the service URL or a custom audience, and whose principal holds
-`run.routes.invoke` through the service's policy or one inherited from its
-project, folders and organization, conditions included. An access token, or an
-ID token for another audience, answers 401; a principal without the permission
-answers 403 with Google's front-end error page. The token endpoint's
-`id_token` for a JWT-bearer grant names the grant's `target_audience`, and the
-metadata server's identity token names only the requested audience, so a
-Google API answers either 401. Pub/Sub push and Eventarc deliver to a run.app
-endpoint through this front end, under the same check. `PostBootstrap` reads an
-error status as a failed invocation.
+A service is served at its own run.app URL behind a Google-signed ID token
+whose principal holds `run.routes.invoke`, conditions included; an access
+token answers 401. Probes and traffic go to the container's own address where
+the host can route to it, found from the host's interfaces rather than by
+connecting, because the engine's published port accepts before the workload
+listens (BUG-3242 holds hosts that cannot route). A Cloud Run function is the
+Cloud Run service CreateFunction creates, also served at its
+cloudfunctions.net URL.
 
-An instance takes traffic once its startup probes succeed: the configured
-`startupProbe` (`tcpSocket`, `httpGet` with 2xx–3xx success, or `grpc` health)
-with the API's defaults of a 1-second timeout, 10-second period and threshold
-3, or Cloud Run's default TCP probe on the container port (timeout and period
-240 seconds, threshold 1); sidecars that configure one are probed after it.
-Probes and traffic go to the container's own address wherever one of the host's
-interfaces is on the container's network, found from the host's interfaces
-rather than by connecting, because the engine's published loopback port
-accepts before the workload listens; a host that routes no container address
-uses that port. A probe that fails its threshold, or a container that exits
-first, fails the instance with 503.
+`RunJob` answers with an operation that stays running while the execution
+runs and completes from the execution's settle; `operations.wait` blocks on
+the signal `gcpFinishOperation` raises. A restarted simulator keeps every
+worker pool's and instance's workloads running, as Cloud Run's control plane
+never restarts what it runs, and adopts whole instances of the current template
+by label and template digest; adoption precedes the recovery that fails
+executions without a workload. A cancel records its condition before stopping
+instances, since a stop that settled first once marked a cancelled deploy
+failed. Structured JSON log lines become `jsonPayload` with the Logging
+agent's special fields lifted, through one builder for every sink.
 
-A Cloud Run function is served by the Cloud Run service CreateFunction creates
-for it. `serviceConfig.uri` reports the service's run.app URL and `url` the
-function's `https://<region>-<project>.cloudfunctions.net/<function>` URL; the
-cloudfunctions.net front end dispatches on the Host header, takes the function
-name off the path and hands the request to the same service, admitting an ID
-token for either URL. The service's IAM policy governs invocation on both, so
-`gcloud functions add-invoker-policy-binding` and `--allow-unauthenticated`
-write roles/run.invoker into it, and deleting the service deletes its policy.
-`timeoutSeconds`, environment variables and CPU become the service template's
-request timeout (60 seconds unset), environment and CPU limit, and an
-UpdateFunction changing `serviceConfig` rolls a new revision while `uri` and
-`service` survive. DeleteFunction deletes the service, its revisions and its
-instance.
+An instance is ready the moment its ingress container passes its startup
+probe, at the route read while that container ran; reading the route again
+after the probe turned a container that exited right after passing into a
+failed start instead of a ready instance's exit for the restart policy. A
+`CancelExecution` operation stays running until the execution's tasks have
+stopped and completes with the settled execution, kept apart from the
+`RunJob` operation that reports a cancellation as its error; done early, it
+let the execution's etag change after the caller read it. Every Knative list
+carries `metadata`, with `continue` only when more pages exist, because
+gcloud reads `metadata.continue_` without checking.
 
-Cloud Run's v2 `RunJob` answers with an operation that stays running while the
-execution runs, carrying the Execution as metadata as its `operation_info`
-declares; the execution's settle completes it once tasks, the job's reference
-and log lines are written — the Execution as response when every task
-succeeded, the failed `Completed` condition's message under
-FAILED_PRECONDITION, CANCELLED, or NOT_FOUND when the execution was deleted
-mid-run. Cancelling the operation cancels the execution, and a restart
-completes the operations of executions that settled without them. A job task
-starts its containers in `dependsOn` order: the first owns the network
-namespace, and each other starts once those it depends on have started and
-passed their startup probes; a failed probe fails the attempt naming it.
-gcloud's `--depends-on` arrives as the `run.googleapis.com/container-dependencies`
-template annotation, folded onto `dependsOn`. Deleting a job or execution stops
-what it runs, and cancelling a completed execution leaves it as it is. A job
-naming `startExecutionToken` or `runExecutionToken` (v2, or the Knative `spec`
-`gcloud run jobs replace` sends) starts `<job>-<token>` unless it exists and
-holds its create or update operation and `Ready` condition until that
-execution has started or completed; a failed execution fails both. A job name
-and token of 63 characters or more, or both tokens at once, are refused.
-`operations.wait` on REST and `WaitOperation` on gRPC block on the signal
-`gcpFinishOperation` raises, bounded by the request's `timeout` or the caller's
-connection.
+### Cloud Tasks and Cloud Scheduler
 
-Cloud Build's `CreateBuild`, its regional twin, `RetryBuild`, `ApproveBuild`,
-`RunBuildTrigger`, the trigger webhooks and Cloud Run's `builds:submit` record
-the build QUEUED and return its operation at once with a
-`BuildOperationMetadata`; the build runs in the background under its `timeout`
-(sixty minutes unset, ending TIMEOUT with DEADLINE_EXCEEDED), and the operation
-turns done once the build is terminal and its steps have stopped. Tests wait on
-the operation (`op.Wait`, `operations.wait`, `CreateBuildOperation(name).Wait`).
-
-A Cloud Build step whose builder is not `gcr.io/cloud-builders/docker` runs as
-a container of the builder image with the workspace at `/workspace`, in its
-`dir`, under its `entrypoint`, `args`, `env` and resolved `secretEnv`, pulled as
-the build's service account; a step that exits non-zero fails the build with
-its exit status and last twenty lines. The docker builder runs on the host's
-engine over the same directory, so a container step's files are in the next
-`docker build`'s context. A Cloud Storage source may be a zip archive or a
-gzipped tarball.
+Both are served from their vendored Discovery documents on the shared
+libraries, as the AWS and Azure counterparts were. A Cloud Tasks queue's
+tasks live in a `msgq` queue: the next attempt is the message's availability
+and a dispatch its lease for the dispatch deadline, so a simulator that stops
+mid-dispatch dispatches the task again once the lease lapses. Dispatches wake
+on the queue's signal and next-change timer — a schedule or retry time, a
+lapsed lease, the token bucket's next token — never on a ticker. A Cloud
+Scheduler job fires on `sim/cron` in its time zone and delivers through
+`sim/delivery`, which gained `Policy.BothLimits` because Cloud Scheduler
+retries until both `retryCount` and `maxRetryDuration` run out, and
+`Request.Method` because both services send the target's own method. The two
+share their Google retry backoff (doubling `maxDoublings` times, then linear,
+capped), their push authorization and their HTTP-status-to-code mapping.
+What no vendored page states is a `BUGS.md` row, not a guess written as
+fact.
 
 ### Image pulls and build services
 
-A workload host pulls its image as the cloud pulls it. The Cloud Run and Cloud
-Functions hosts present the project's Cloud Run service agent's token to
-Artifact Registry and Container Registry and nothing elsewhere. The Azure hosts
-pull with what the workload declared — a managed identity's identity token,
-exchanged through the registry's refresh-token grant, or a username and
-password — and nothing for an undeclared registry. The Lambda and Amazon ECS
-hosts resolve a pull-through-cache reference through its rule to the upstream
-and pull a reference to this simulator's own port from its ECR with an
-authorization token. An image held for another architecture is pulled for the
-one asked for rather than run under emulation. A pull asks the host first, as
-`docker run`'s "missing" policy does, and a registry's data-cap refusal is not
-retried.
+A workload host pulls its image as the cloud pulls it: Cloud Run presents its
+service agent only to Artifact Registry and Container Registry, Azure hosts
+pull with what the workload declared, the Lambda and ECS hosts resolve
+pull-through-cache references through ECR. A pull asks the host first, and a
+registry's data-cap refusal is not retried. Build services give their docker
+steps a Docker configuration built on the host's own whose credential helper
+answers the build's registries with the build identity's token; it names those
+registries outright, because the legacy `docker build` sends the daemon only
+the credentials of registries the configuration names. Every docker
+invocation interrupts on cancel and bounds the unwind with `WaitDelay`, since
+a killed CLI never tells buildkit to stop. ACR Tasks' `scheduleRun` answers
+200 with the run at once — the Azure CLI accepts nothing else — and runs it in
+the background; the run engine drives steps through the Engine API and keeps
+only `docker build` as a CLI call.
 
-Cloud Build, AWS CodeBuild and Azure Container Registry Tasks give their docker
-steps a Docker configuration built on the host's own (`sim.WriteDockerConfig`)
-whose credential helper answers the build's registries with the build
-identity's token and hands other registries to the host's helper; it names
-those registries outright, because the legacy `docker build` sends the daemon
-only the credentials of registries the configuration names. Every docker
-invocation a step makes interrupts on cancel and bounds the unwind with
-`WaitDelay`, since a killed CLI never tells buildkit to stop. A privileged
-CodeBuild environment gets the simulator's own engine, and its output streams
-to CloudWatch Logs.
+### Amazon ECS, EC2 and VPC placement
 
-ACR Tasks' `scheduleRun` records the Run Queued and answers 200 with it at once
-— the Azure CLI's client accepts nothing else, and the Go SDK's poller completes
-on a 200 naming no operation — and the build runs in the background, Queued →
-Running → Succeeded, Failed, Canceled, Timeout (DockerBuildRequest `timeout`,
-3600 seconds unset, 300 to 28800 accepted) or Error when the simulator stops
-under it; a restart ends the runs a previous process left. `Runs_Cancel`
-interrupts the docker steps and answers once the run reads Canceled. The run's
-log is a blob that grows while the build writes, serves ranged reads, and gains
-`Complete` metadata when the run ends, which `az acr build` streams until.
-All four run request types share that lifecycle. A FileTaskRunRequest, an
-EncodedTaskRunRequest and a TaskRunRequest of a task file run the ACR Tasks
-YAML as Azure/acr-builder reads it: Go templates over `{{.Run.*}}` (date as
-`20060102-150405z`) and `{{.Values.*}}` under `--set` and `--set-secret`, then
-from v1.1.0 the `$` aliases, custom ones and the documented image aliases, then
-`build`, `push` and `cmd` steps ordered by `when`, each with timeout, retries,
-repeat, start delay, environment and ignore-errors. Steps share the source in a
-run volume at `/workspace` on a run network where each step answers to its ID.
-A TaskRunRequest runs the Task's step with the request's file, context,
-arguments and values merged in. `listBuildSourceUploadUrl` hands out a SAS URL
-into storage the registry service owns (an account name no customer can hold),
-served by the Blob service's handlers; a relative `sourceLocation` resolves to
-that upload. A DockerBuildRequest places an image name without a registry in
-the run's registry. An agent pool runs as many runs as its `count`, the rest
-wait Queued, and `listQueueStatus` counts them. The run engine drives cmd and
-push steps through the Docker Engine API — network, volume, step containers
-under step-ID aliases, archive-endpoint seeding, cleanup at the run's end —
-presenting the run's identity token as registry credential; only `docker
-build` stays a CLI invocation. A step's output reaches the run log through a
-followed log stream opened at the container's start, and its exit code through
-a next-exit wait registered before the start.
+RunTask commits each task's declared memory and CPU against the simulator's
+own cgroup or machine, with in-flight reservations in the ledger so two
+concurrent RunTasks cannot both take the last slot. A task belongs to the
+deployment that started it by `startedBy`. An awsvpc task creates its
+interface at `RunTask`, so DeleteSubnet refuses while it holds it. The task
+metadata endpoint waits for its task's start to settle, because a container
+that read it at once found a 404. Express Mode and gateways build their load
+balancers, certificates and scaling through the services' APIs as the
+infrastructure role; writing straight into another service's store skipped
+that service's rules.
 
-### Amazon ECS, DynamoDB and VPC placement
-
-RunTask places a task only where it fits: it commits each placed task's
-declared memory and CPU against what the simulator's own cgroup, or the
-machine, can hold, and refuses with the service's `failures[]` shape before any
-ENI, volume or record exists. The ledger is the task store plus in-flight
-reservations, so two concurrent RunTasks cannot both take the last slot.
-
-A PROVISIONED DynamoDB table runs token buckets per table and per global
-secondary index, refilled at the provisioned rate with 300 seconds of burst,
-spending the units `ConsumedCapacity` computes; batches return throttled
-entries as unprocessed, and on-demand tables are never throttled. A
-requests-per-second limiter was rejected as a fake.
-
-VPC networks take their bridge subnet from a host-side pool rather than the
-VPC's CIDR, so two live VPCs sharing a CIDR coexist. The live networks are the
-allocator's only ledger, which makes a restart safe.
-A simulator resource records its owning process — hostname and pid — and a
-slice is reclaimed only from an owner on this host whose pid no process holds.
-
-A run's containers are collectable from their labels alone: a detached reaper
-collects its own run, the next simulator over the same state directory collects
-what a killed one left, and a concurrent suite's workloads are never touched.
-Every harness sets `SOCKERLESS_PARENT_PID`, and a simulator exits when that
-process is gone; the variable is explicit because a guessed `os.Getppid()`
-would end a `nohup`ed run when its shell closed. The parent-process watch and
-the container reaper wait on the parent's exit event — a pidfd on Linux, a
-kqueue `NOTE_EXIT` filter on macOS. A simulator binds its port before it prints
-its banner, so `Listening on` means the port answers, and the harnesses start
-it through `testutil/simready`, which returns on that line or fails when the
-process exits first.
-
-Every named volume a workload container mounts is created labelled with the
-simulator's run, and the reaper and the shutdown cleanup of a non-persistent
-simulator remove the run's volumes with its containers and networks.
-`EnsureDockerNetwork` returns the network a concurrent caller created first.
-Every container `sim` removes goes with `RemoveVolumes`, so the anonymous
-volumes its image declares (MySQL's `VOLUME /var/lib/mysql`, Redis's
-`VOLUME /data`) go with it while named volumes stay.
+Every service that takes a role refuses one IAM does not hold or whose trust
+policy does not admit the service (`iamServiceTrustedRole`), and tests that
+had passed invented role ARNs create real roles. A trust policy's `Service`
+principal matches the regional name as well as the global one.
 
 ### Managed databases
 
-Amazon RDS, Cloud SQL and Azure Database for PostgreSQL run real PostgreSQL,
-MySQL and MariaDB engines on named volumes, with readiness classified by
-SQLSTATE (57P03 is not ready, whatever the socket answers), credentials sealed
-under the simulator's own key service, and snapshots that capture the data.
+Amazon RDS, Cloud SQL and Azure Database for PostgreSQL run real engines on
+named volumes, readiness classified by SQLSTATE (57P03 is not ready whatever
+the socket answers). Lessons:
+
+- **A capture is crash-consistent.** `sim.SnapshotVolume` freezes every
+  container that mounts the volume writable through the cgroup freezer for the
+  length of a reflink copy; the Engine API refuses `exec` into a paused
+  container, so engine commands run under `sim.HoldThawed`.
+- **A MySQL base backup is stored recovered.** Crash recovery commits prepared
+  transactions only when run with the binary log, so the capture runs the
+  engine on the snapshot with its own arguments until it accepts connections
+  and shuts it down cleanly.
+- **Point-in-time restore replays the engine's own log**: PostgreSQL archive
+  recovery to `recovery_target_time`; MySQL, whose image ships no
+  `mysqlbinlog`, by cutting the binary log at the first transaction after the
+  time and applying it as a relay log; MariaDB by its GTID events, which date
+  in whole seconds.
+- **A deletion discards the engine** rather than stopping it, because the MySQL
+  entrypoint ignores SIGTERM while it initialises.
+- **IAM authentication on MySQL-family engines** needs a server plugin the
+  stock images lack, so the simulator ships `AWSAuthenticationPlugin` as C
+  with no C library dependency, compiled on the engine per ABI and loaded from
+  the data volume so snapshots carry it. PostgreSQL passwords other than the
+  master's are checked against `pg_authid` by a `DO` block with the values
+  passed as settings, never spliced into SQL.
+- **Parameter catalogs are the engines' own**, captured by
+  `scripts/capture-rds-parameter-catalogs.go`; PostgreSQL takes dynamic
+  parameters from a file, because a reload never overrides a command-line
+  setting.
+- **Every engine version runs its release's image**; a PostgreSQL major
+  upgrade needs `pg_upgrade` with both releases' binaries, which no official
+  image carries (BUG-3398).
+- **Replicas, Multi-AZ standbys and blue/green greens** are real engines on
+  the engines' own replication. Every PostgreSQL primary start resets
+  `synchronous_standby_names`, since the data directory carries it into
+  copies.
+- **Events come from a store wrapper** (`rdsObserve`) that sees every write,
+  so a status change records its event whichever code path makes it, with
+  the vendored event table's messages.
+
+Memorystore for Redis runs one Redis container per node. Settling waits on the
+engine, never a simulator timer: every node sends `CLUSTER MEET` to every
+other before the topology is read, since a node learns a peer's role only from
+a packet the peer sends. A cluster reshape moves slots with Redis Cluster's
+own commands.
+
+### Storage
+
+An object store's conditional write is one step: evaluation and store under
+one per-object lock (`sim.KeyedLocks`) at each service's single write path,
+because a client keeping its consistency in an object store relies on exactly
+one of two conditional writers winning. The object stores are
+`sim.PrefixStore`s, which have no whole-store read; the store-scan gate counts
+scans, not bytes, so the type is what keeps a listing to its prefix. Amazon S3
+keeps the current version in `s3Objects` and every other version apart, with
+one write path applying versioning and Object Lock. Buckets a service hands
+out presigned URLs into belong to an AWS-owned account, signed with a
+credential only the simulator process holds; kept in the caller's account they
+were listable and overwritable.
+
+A Cloud Run Cloud Storage volume writes back as Cloud Storage FUSE does
+without a FUSE file system: inotify events prompt a comparison with the
+simulator's view of each path, every change the simulator makes happens under
+one mutex, and a barrier makes each JSON API request wait for the events
+queued before it. Files open with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`
+(BUG-3084 holds the rest).
+
+A Cloud Storage bucket reports its `locationType` (multi-region,
+dual-region including the predefined pairs, or region), which a relocation
+updates, and an object written without a storage class takes the bucket's
+default.
+
+State a cloud derives with nobody calling — a future-dated Capacity
+Reservation becoming active — is derived on every read rather than stored,
+since a timer could be late. An Azure cross-resource-group move rewrites
+references by walking every tracked store, because a hand-kept list rots.
+
+### Authorization and identity
+
+AWS IAM derives each action's resources from the Service Reference's ARN
+formats; identifiers end at the next `/` except names AWS documents as paths.
+A create carrying tags is authorized twice, as itself and as the tagging
+action, from a generated table of 297 operations. The REST services' routes
+pass the gate through `awsRESTRoutes`, compiled from the Smithy `http` traits.
+Each condition key is resolved where the service documents its value or
+classified with a reason, and `TestIAMConditionKeyCoveragePerAction` renders
+every served operation from its model to prove it per action.
+
+Azure Key Vault authenticates and authorizes every request in Key Vault's
+order: token, network rules, then access policies or RBAC data actions, with
+App Service's reference resolution reusing the same decision. Managed
+identities get their own `IDENTITY_HEADER` per app, slot, container app or
+job.
+
+Google Cloud IAM answers `testIamPermissions` from the stored policy, with
+`cel-go` evaluating conditions against the attributes the IAM Conditions
+reference lists per resource type — a resource outside the reference supplies
+none, as on Google Cloud. A deleted service account lives in a store keyed by
+unique ID, because a new account may take the email during the window. A
+custom role once never granted, because the lookup used its id where the
+store keyed by full name.
 
-Every volume capture holds one crash-consistent point in time.
-`sim.SnapshotVolume` pauses each running container that mounts the source
-volume writable through the Docker Engine API's cgroup freezer for the length
-of a `cp -a --reflink=auto` (copy-on-write where the volume store allows it),
-then thaws it; a per-container hold count lets concurrent captures share the
-freeze, and `sim.AdoptContainer` thaws a container a dead process left frozen.
-The frozen engine keeps its connections, whose I/O waits out the copy. Amazon
-RDS instance and cluster snapshots, final snapshots, point-in-time clones and
-Azure Database for PostgreSQL flexible server backups all use it. The Docker
-Engine refuses `exec` into a paused container, so `dbengine.Instance.Exec` runs
-engine commands (password and user changes) under `sim.HoldThawed`, which
-waits for the last capture to thaw and keeps new captures off until the command
-ends.
-
-Each Amazon RDS volume is `sockerless-rds-<kind>_<identifier>` for an instance,
-cluster, snapshot or cluster snapshot; no identifier contains an underscore, so
-no two resources share a volume. An automated snapshot's volume name carries a
-dot where its identifier carries a colon. DeleteDBInstance and DeleteDBCluster
-with a final snapshot keep the resource `deleting` until capture and teardown
-finish; meanwhile its identifier answers `DBInstanceAlreadyExists` or
-`DBClusterAlreadyExistsFault` to a create and `InvalidDBInstanceState` or
-`InvalidDBClusterStateFault` to other actions. The teardown acts only while the
-record carries the resource ID it started for, and a restart resumes an
-unfinished capture, copy or deletion.
-
-A deletion discards the engine rather than stopping it
-(`dbengine.Instance.Discard`): an engine that has not yet accepted clients is
-killed at once, since the MySQL entrypoint ignores SIGTERM while it initialises
-and its directory goes with the resource. A stop keeps the grace. Every stop
-ends a start waiting on the engine at once. An engine that stops before it
-accepts clients is reported with its exit status and last 40 output lines, read
-from the container handle, whose Wait returns the exit to every caller.
-
-An Amazon RDS instance's log files are its engine's own output.
-`dbengine.Instance` hands the container's dated lines to a sink that stores them
-by hour under the instance's resource ID, so they outlive a stop, a reboot and a
-restart; an adopted container replays its output and the sink drops lines no
-later than its last. PostgreSQL gets `error/postgresql.log.YYYY-MM-DD-HH` per
-hour, kept 4320 minutes; MySQL and MariaDB get `error/mysql-error.log`, moved
-into `error/mysql-error-running.log` every five minutes, and hourly
-`error/mysql-error-running.log.N` kept 24 hours. DownloadDBLogFilePortion
-returns the most recent lines without a Marker and the lines after a byte-offset
-marker with one, at most 10,000 lines by default and 1 MB in any case.
-
-#### Aurora
-
-An Aurora cluster's reader endpoint (once a replica exists) and a reader
-instance's endpoint open read-only sessions in the engine itself: PostgreSQL's
-startup packet carries `default_transaction_read_only=on`, and MySQL sessions
-run `SET SESSION TRANSACTION READ ONLY` before the client sees its login.
-
-An Aurora DB cluster snapshot carries the cluster volume's data.
-CreateDBClusterSnapshot and the final snapshot answer `creating` and settle
-`available` once `sim.CaptureVolume` has copied the volume (`failed` with the
-copy's error otherwise); a final snapshot is captured before the engine stops.
-CopyDBClusterSnapshot answers `copying` and clones the volume;
-DeleteDBClusterSnapshot refuses one still being taken. The snapshot holds the
-cluster's sealed master credential and the engine's. RestoreDBClusterFromSnapshot
-and RestoreDBClusterToPointInTime record the new cluster `creating`, seed its
-volume in the background and land it `available` (`incompatible-restore` when
-the seed fails); every endpoint refuses clients until then. A restart resumes a
-capture, copy or seed.
-
-An Aurora cluster restores to any time in its window, kept as base backups and
-the engine's own log. Each base backup is an automated DB cluster snapshot
-`rds:<cluster>-<yyyy-mm-dd-hh-mm>`: the first when the engine first accepts
-clients, before the endpoint relays any client, and another at the start of
-every `PreferredBackupWindow` (validated as hh24:mi-hh24:mi). Aurora backs up
-whether or not a client connects, so `rdsTakeFirstClusterBackup` starts the
-engine in the background whenever an available cluster keeps automated backups
-and holds none — after a create, any restore, StartDBCluster, a backup-settings
-change and a restart. That start holds the backups' start lock, so a delete
-closes the engine and waits, a manual snapshot waits rather than capture an
-initialising data directory, and a master-password rotation waits for the
-engine to accept clients. Automated snapshots list as `SnapshotType`
-`automated` and refuse deletion. `EarliestRestorableTime` is the later of the
-oldest base backup and the start of `BackupRetentionPeriod`;
-`LatestRestorableTime` is now. Each backup run expires what the period no longer
-covers: older automated snapshots, base backup volumes superseded by the start
-of the period (unless a restore seeds from one), and the log before the oldest
-remaining base backup — `PURGE BINARY LOGS TO` for MySQL, whose engine runs with
-`binlog_expire_logs_seconds=0`, and for PostgreSQL every archived segment before
-the REDO WAL file `pg_controldata` reports.
-
-A capture freezes the engine, holding what a crash would leave. For MySQL the
-simulator reads the capture's newest binary log file and records the offset of
-the first transaction it does not hold whole, where the replay starts — true
-only of crash recovery run with the binary log, which commits prepared
-transactions whose XID the log holds. A server started without the binary log
-rolls those back, losing a row committed between its binary log write and its
-InnoDB commit. So the capture runs the engine on the snapshot volume with its
-own arguments, binary log included, until it accepts connections, and shuts it
-down cleanly before the snapshot turns available: a base backup is stored
-recovered.
-
-Aurora PostgreSQL runs with `archive_mode=on`, archiving every completed WAL
-segment into the cluster volume; Aurora MySQL's binary log is on by default.
-RestoreDBClusterToPointInTime with `RestoreToTime` refuses a time outside the
-window with `InvalidRestoreFault`, seeds from the newest base backup taken by
-then, and replays the source's log from its live volume. For PostgreSQL a helper
-copies the archive and `pg_wal` into the new volume's archive, `pg_waldump`
-lists commit and abort records, and the first start runs archive recovery with
-`recovery_target_time` (or to the end of the log when no transaction ended after
-the time), then promotes, with `hot_standby` off so it refuses clients with 57P03
-until it accepts writes. For MySQL, whose image ships no `mysqlbinlog`, the
-simulator reads the GTID events' immediate commit timestamps, cuts the binary
-log before the first transaction committed after the time, and a server on the
-new volume applies it as its relay log from the recorded offset with `START
-REPLICA SQL_THREAD UNTIL`, writing no binary log, driven by a user only its init
-file creates, which then sets the master password and is dropped.
-RestoreDBClusterFromSnapshot also takes a DB snapshot ARN: an RDS for PostgreSQL
-or RDS for MySQL instance's data directory becomes the cluster volume of an
-Aurora cluster of the same image, under the instance's master credential and
-database, which DB snapshots carry.
-
-RestoreDBClusterFromS3 creates an Aurora MySQL cluster from a Percona
-XtraBackup of MySQL 8.0. The bucket must exist and `S3IngestionRoleArn` must
-trust `rds.amazonaws.com` and allow `s3:ListBucket` on the bucket and
-`s3:GetObject` under `S3Prefix`, or the request is `InvalidS3BucketFault`; a 5.7
-source is `InvalidParameterCombination`. The cluster is `creating` while a
-background import copies the objects as that role and a
-`docker.io/percona/percona-xtrabackup:8.0` helper unpacks them (xbstream, tar or
-gzipped tar, whole or split into numbered parts, or plain files), runs
-`xtrabackup --prepare` and copies the backup into the volume; a MySQL helper
-with no network listener then creates or resets the master user with the
-request's password, gives root the same password and creates the database. The
-cluster lands `available`, or `migration-failed`.
-
-#### RDS DB instances
-
-An RDS for PostgreSQL, MySQL or MariaDB DB instance keeps automated backups
-through the machinery an Aurora cluster uses (`rds_backups.go`). It takes
-`BackupRetentionPeriod` (0 to 35, default 1) and `PreferredBackupWindow` from
-CreateDBInstance, ModifyDBInstance and the restores, keeps PostgreSQL's WAL
-archive or MySQL's binary log in its volume, takes an automated DB snapshot
-`rds:<instance>-<yyyy-mm-dd-hh-mm>` at each window's start, and expires what
-the period no longer covers. `rdsTakeFirstInstanceBackup` takes the first
-whether or not a client connects, whenever an available instance with backup
-retention holds no base backup. DeleteDBInstance, StopDBInstance and
-RebootDBInstance end such a start and wait; CreateDBSnapshot and a password
-change wait for it to finish.
-
-A DB instance reports the statuses RDS reports while coming up:
-CreateDBInstance and RestoreDBInstanceFromDBSnapshot answer `creating`,
-StartDBInstance `starting`, and `rdsFinishInstanceBringUp` starts the engine,
-turns the instance `backing-up` when the first automated snapshot's capture
-begins (`recordAutomatedSnapshot`) and lands it `available` once it is taken, or
-`failed`. An instance with no backup to take lands `available` at once. A
-restart resumes the bring-up. Until then ModifyDBInstance, CreateDBSnapshot,
-CreateDBInstanceReadReplica, PromoteReadReplica, SwitchoverReadReplica,
-RebootDBInstance and StopDBInstance answer `InvalidDBInstanceState`. The AWS
-CLI's waiter polls every 30 seconds, so CLI tests whose instance needs no
-backups create it with `--backup-retention-period 0`. DescribeDBSnapshots
-filters on `SnapshotType` and `DbiResourceId`, and DeleteDBSnapshot refuses an
-automated snapshot with `InvalidDBSnapshotState`.
-
-RestoreDBInstanceToPointInTime records the new instance `creating` and seeds it
-in the background — from the source's volume for `UseLatestRestorableTime`, or
-from the newest base backup with the source's log replayed for a `RestoreTime`.
-A time outside the window is `InvalidRestoreFault`, a source without retention
-`PointInTimeRestoreNotEnabled`, and an Aurora member is sent to the cluster
-restore. RestoreDBInstanceFromS3 imports a Percona XtraBackup into an RDS for
-MySQL instance through the cluster import. A failed restore lands
-`incompatible-restore`, an import `failed`; a seed a previous process left
-part-way starts again. DeleteDBInstance of a seeding instance with
-`SkipFinalSnapshot` tears it down once the seed ends and refuses a final
-snapshot. An Aurora DB instance reports its cluster's backup settings.
-
-DescribeDBInstanceAutomatedBackups reads a live instance's automated backup
-from the instance (`rds_automated_backups.go`): `creating` until its first
-automated snapshot, then `active` with its restore window. With
-`DeleteAutomatedBackups=false`, DeleteDBInstance and DeleteDBCluster copy the
-stopped volume into `sockerless-rds-auto-backup_<resource-id>` and keep a
-`retained` row with the base backups, automated snapshots and restore
-properties, its window ending at the deletion. RestoreDBInstanceToPointInTime
-restores one through `SourceDbiResourceId` or
-`SourceDBInstanceAutomatedBackupsArn`, RestoreDBClusterToPointInTime through
-`SourceDbClusterResourceId`. DeleteDBInstanceAutomatedBackup and
-DeleteDBClusterAutomatedBackup delete only a retained backup. A retained backup
-expires once its retention period has passed since the deletion, on a timer the
-next process re-arms. The listings filter on `status`, identifier and resource
-ID.
-
-Automated backups replicate to another Region as RDS does it:
-StartDBInstanceAutomatedBackupsReplication is called in the destination Region
-— the Region the request is signed for, refused when it is the simulator's own
-— and records a replicated automated backup (`rds_backup_replication.go`) whose
-ARN `auto-backup:ab-<id>` names the destination while `Region` keeps the
-source's. It copies every automated snapshot into
-`sockerless-rds-replicated-snapshot_*` and the log into
-`sockerless-rds-replicated-backup_<id>`, is `pending` until it holds a snapshot
-and `replicating` after, and expires copies by its own retention period. Only
-requests signed for its Region see it. StopDBInstanceAutomatedBackupsReplication,
-or the source's deletion, takes a last copy and leaves it `retained`. An
-instance restored from it is created in the simulator's own Region (BUG-3358).
-
-An RDS endpoint owns two logins: the master user's, under the password the
-control plane records, and IAM database authentication. Every other login
-reaches the engine (`rds_database_users.go`, `rdsEndpointLogins`). A
-MySQL-family relay logs in with the client's own user and password, so the
-engine's refusal reaches the client verbatim. A PostgreSQL engine trusts the
-relay, so a `DO` block run as the master user checks the password against the
-role's `pg_authid` verifier — MD5, or SCRAM-SHA-256 recomputed through
-PBKDF2-HMAC-SHA-256 — with user and password passed as session settings, never
-spliced into SQL. A role granted `rds_iam`, directly or through another role
-(the check walks `pg_auth_members`, since `pg_has_role` counts every role as
-granted to a superuser), signs in only with an IAM token whose `DBUser` names
-it. Every engine start gives PostgreSQL the `rds_iam` role and a MySQL-family
-master user the global privileges RDS grants, `CREATE USER` among them, and
-removes the image's remote `root`.
-
-On RDS for MySQL, RDS for MariaDB and Aurora MySQL an IAM token signs in the
-user its `DBUser` names only when that user was created `IDENTIFIED WITH
-AWSAuthenticationPlugin AS 'RDS'`. The stock images lack that plugin, so the
-simulator ships a real server plugin (`simulator-aws/rds_auth_plugin/`): C with
-no C library dependency, which the simulator embeds as source and the engine
-compiles with clang and ld.lld per engine ABI for its own architecture, without
-a stack protector, which would import from a C library. The engine loads
-plugins from `.sockerless-plugin` in its data volume (`--plugin-dir`, plus
-`--ignore-db-dirs` on MariaDB), so snapshots carry it; every start writes the
-build there by rename and installs the plugin unless loaded. The endpoint
-validates the token and relays it as the password, which the engine admits only
-for a user identified with the plugin; a password login of such a user never
-reaches the engine.
-
-A blue/green deployment of a DB instance is a real green environment.
-CreateBlueGreenDeployment answers PROVISIONING and records a green instance
-`<blue>-green-<six letters>` as a read replica of the blue one with the target
-engine version, class, storage and DB parameter group, seeded from a capture of
-the blue volume; its coming up settles the deployment AVAILABLE, or
-INVALID_CONFIGURATION, and it serves sessions read-only. DescribeDBInstances
-reports a named DB parameter group and AutoMinorVersionUpgrade (true unless
-turned off), and a missing group is refused. SwitchoverBlueGreenDeployment
-answers SWITCHOVER_IN_PROGRESS and, within SwitchoverTimeout, stops both
-engines, copies the blue volume to the `-old1` identifier's, and moves the green
-record onto the blue identifier, ARN and endpoint with the blue master
-credential and a fresh first automated backup; Source then names the `-old1`
-instance, which Terraform's `blue_green_update` deletes. The blue instance's
-read replicas move with it to `-old1`. A failed or timed-out switchover rolls
-back as SWITCHOVER_FAILED, and one a previous process left runs again.
-DeleteBlueGreenDeployment refuses DeleteTarget after a switchover, deletes the
-green instance with it before, and otherwise leaves it standalone and writable.
-A Multi-AZ or Aurora DB cluster source answers SourceClusterNotSupportedFault; a
-source without automated backups, a read replica or a cluster member
-SourceDatabaseNotSupportedFault.
-
-Every engine version runs that release's image. `rdsEngineVersions` lists
-PostgreSQL 17.11, 16.15 and 16.14, MySQL 8.0.46 and MariaDB 11.4.13 from
-`mirror.gcr.io`'s copy of Docker's official images, each with its DB parameter group
-family, so `SELECT version()` answers the EngineVersion DescribeDBInstances
-reports. DescribeDBEngineVersions lists exactly these with the upgrades the
-simulator performs. Any other version is InvalidParameterCombination ("Cannot
-find version 15.4 for postgres"), a major alone resolves to its newest, and a
-downgrade is refused. ModifyDBInstance with a newer version answers `upgrading`
-and starts the new release on the same volume; a PostgreSQL major upgrade needs
-`pg_upgrade` with both releases' binaries, which no official image carries, so it
-is refused (BUG-3398). Aurora clusters run the one release their row names. The
-default PostgreSQL version is 16.15. Every image is a literal in the source, so
-`base-images-for.sh` warms each in CI.
-
-An instance created without a DB parameter group is associated with its
-family's `default.<family>`, which ModifyDBParameterGroup, ResetDBParameterGroup
-and DeleteDBParameterGroup refuse with InvalidParameterValue; a group of another
-family is InvalidParameterCombination. DB cluster parameter groups default the
-same way (`default.aurora-postgresql16`). Each family's parameters are its
-engine's own: `scripts/capture-rds-parameter-catalogs.go` starts each family's
-newest image with the simulator's arguments and reads `pg_settings`,
-`information_schema.SYSTEM_VARIABLES` on MariaDB, or on MySQL 8.0 the
-Performance Schema variable tables, `mysqld --verbose --help` and a
-`SET GLOBAL v = @@GLOBAL.v` probe, into `rds_parameter_catalogs_vendored.json`;
-`TestRDSParameterCatalogImages` fails when a catalog's image drifts from
-`rdsEngineVersions`. A restart-applied setting is `static`, any other
-`dynamic`; a parameter is modifiable when the server takes it as an option,
-except the settings the simulator runs every engine with. ModifyDBParameterGroup
-refuses an unknown or unmodifiable parameter or a value outside AllowedValues
-(InvalidParameterValue), and `immediate` for a static parameter
-(InvalidParameterCombination). A MySQL-family engine takes its group's
-parameters as command-line options; PostgreSQL takes static ones as `-c` and
-dynamic ones from `rds_parameters.conf`, because a reload never overrides a
-command-line setting. A dynamic change applied immediately reaches running
-engines (`SET GLOBAL`, or a rewritten file and `pg_reload_conf()` waited on).
-While the parameters an engine started with differ from its group's,
-ParameterApplyStatus is `pending-reboot`, and any engine restart applies the
-group as it is then.
-
-ModifyDBInstance follows ApplyImmediately: without it, class, storage, engine
-version, backups on or off, MultiAZ, StorageType, Iops, StorageThroughput,
-AllocatedStorage, DBSubnetGroupName, OptionGroupName, CACertificateIdentifier and
-NewDBInstanceIdentifier wait in PendingModifiedValues until a `sim/bg` timer for
-the next PreferredMaintenanceWindow (or at once when the window is open with 30
-minutes left); a later ApplyImmediately request applies them with its own. A
-pending option group shows `pending-maintenance-apply` beside the current
-group's `pending-maintenance-removal`. Every instance has a maintenance window:
-the request's, checked for format, a 30-minute minimum and overlap with the
-backup window, or a random 30-minute window in the Region's 8-hour block. The
-storage members follow the reference's rules over the storage pending changes
-leave: io1 and io2 need Iops, gp2 and standard refuse it, StorageThroughput is
-gp3's alone, IOPS stay within 0.5 to 50 times the storage (1 to 50 on SQL
-Server), an IOPS increase needs AllocatedStorage, and an increase under a tenth
-rounds up to a tenth on the engines the reference names. An instance gets gp3
-(io1 with Iops), its version's `default:<engine>-<major>` option group, and the
-account's CA for new launches unless named. DBPortNumber applies at once,
-restarting the engine on the new port (`rdsRestartModifiedInstance`). A rename
-moves the record as it applies, then the volume (`sim.SnapshotVolume`), and
-read replicas, blue/green deployments and custom cluster endpoints follow the
-name while DbiResourceId stays. A CA change restarts the engine unless
-CertificateRotationRestart is false, and the endpoint presents a server
-certificate the instance's CA signs; each CA DescribeCertificates lists is a
-real CA with a KMS-sealed key whose thumbprint is the SHA-1 of its certificate.
-
-A read replica is a real replica. CreateDBInstanceReadReplica refuses a source
-without automated backups or in a DB cluster, answers `creating` and readies the
-source's engine: the root of the chain creates the `rdsrepladmin` user (password
-sealed), a PostgreSQL source admits its replication connections and keeps a
-physical replication slot per replica, and the source joins
-`sockerless-rds-replication-<source DbiResourceId>`, answering as `source`. The
-replica's volume is a frozen capture of the source's; a MySQL-family replica
-drops the server UUID, replicates from the end of the last whole transaction in
-the newest binary log, and runs with its own server ID and `read_only`; a
-PostgreSQL replica drops the copied slots and starts as a hot standby with
-`primary_conninfo` and `primary_slot_name`. It lands `available` once its engine
-reports replication running, serves sessions read-only, and reports the `read
-replication` status and the `AWS/RDS` ReplicaLag metric each minute from the
-engine's own status (read through the Docker Engine API's exec by
-`rdsEngineOutput`). It takes the source's master password and follows changes
-to it. A source with read replicas, and a replica, cannot be stopped.
-PromoteReadReplica answers `modifying`, ends replication (`RESET REPLICA ALL`
-and `read_only` off, or `pg_promote`), drops the slot and reopens writable;
-deleting a source promotes its replicas. SwitchoverReadReplica, an RDS for
-Oracle operation, refuses the engines the simulator runs; engines without a
-data plane keep record-only replicas.
-
-A Multi-AZ DB instance runs a real standby on
-`sockerless-rds-standby_<DbiResourceId>`, seeded through `rdsSeedReplicaVolume`
-(slot `<resource-id>-standby`), labelled `sockerless-rds-standby=<DbiResourceId>`
-so a rename keeps it. Replication is synchronous: the PostgreSQL primary lists
-`rds_multi_az_standby` in `synchronous_standby_names` once the standby streams,
-and MySQL and MariaDB run semisynchronous replication. The PostgreSQL standby
-runs `archive_mode=always` and the MariaDB standby `log_slave_updates`, so a
-promoted standby's log serves restores. Every PostgreSQL primary start resets
-`synchronous_standby_names`, since the data directory carries it into copies.
-CreateDBInstance with MultiAZ lands `available` once the standby replicates;
-ModifyDBInstance conversions hold the instance `modifying`; stop, start,
-upgrade and delete carry the standby along, and a standby that stops
-replicating is rebuilt. SecondaryAvailabilityZone is another of the `a`/`b`/`c`
-zones. RebootDBInstance with ForceFailover refuses a Single-AZ instance with
-InvalidDBInstanceState, answers `rebooting`, promotes the standby, moves its
-volume onto the instance's, swaps the zones and starts the endpoint's engine on
-it; a new standby is built in the old primary's zone, and an interrupted
-failover resumes. DescribeEvents reads recorded events (`rds_events`, kept 14
-days) over Duration, StartTime, EndTime and EventCategories: conversions record
-RDS-EVENT-0024/0025 and 0030/0029, failovers RDS-EVENT-0013/0015.
-
-RDS for MariaDB keeps automated backups and restores to a time as RDS for MySQL
-does, running with `--log-bin=binlog`. Its binary log differs: a GTID event
-(type 162) opens a transaction without a BEGIN, a standalone one wraps a single
-DDL or non-transactional statement, a transaction ends at its XID event or a
-`COMMIT` query, and the GTID event dates it in whole seconds, so a restore
-replays transactions dated before the restore time's second, as
-`mariadb-binlog --stop-datetime` does. The replay start and end stop before a
-transaction the log holds only in part. MariaDB's applier runs `CHANGE MASTER TO
-... MASTER_USE_GTID=no` and `START SLAVE SQL_THREAD UNTIL`, and the replay ends
-once the applier has executed up to the cut or moved past the copied logs.
-
-### Memorystore for Redis
-
-Memorystore for Redis instances and Memorystore for Redis Cluster clusters run a
-real Redis engine on the image `redisVersion` names (clusters run 7.2): one
-container per node on port 6379, on a Docker network every Memorystore engine
-shares, with node directories on one volume per resource. Volume, network and
-alias names hash the resource name with the simulator's workload scope, so two
-simulators never share them. A create settles only once every node answers and,
-for a cluster, slots are assigned and every replica has synchronised; a delete
-stops the nodes in parallel and removes the volume. The reported `host`,
-`readEndpoint` and discovery endpoint are per-resource loopback relays; cluster
-nodes announce their loopback endpoint as hostname
-(`cluster-preferred-endpoint-type hostname`), so a client follows redirections
-it can reach. AUTH is the engine's `requirepass`, whose value `getAuthString`
-returns, and an `authEnabled` update changes it live. A failover promotes a
-replica and moves the primary endpoint; a Basic Tier failover is
-FAILED_PRECONDITION. `LIMITED_DATA_LOSS` (the default) first reads the primary's
-`INFO replication` and fails with FAILED_PRECONDITION when the replica trails
-`master_repl_offset` by 30 MB or more or is not replicating; `FORCE_DATA_LOSS`
-promotes regardless. The Go REST client sends `dataProtectionMode` as the enum's
-number, which the simulator accepts beside its name. `replicaCount` and
-`readReplicasMode` updates reshape the running engine; a cluster `shardCount`
-update moves slots with Redis Cluster's own commands — `CLUSTER SETSLOT
-IMPORTING`/`MIGRATING`, `MIGRATE`, `CLUSTER SETSLOT NODE` — pipelined 512 at a
-time, or `del-node`s removed shards. A cluster from `gcsSource` or
-`managedBackupSource` loads each RDB into a standalone server in one node's
-container and moves keys with `redis-cli --cluster import`.
-
-Settling waits on the engine, never on a simulator timer: every node sends
-`CLUSTER MEET` to every other before the topology is read, since a node learns
-a peer's role only from a packet the peer sends; engines start with
-`repl-diskless-sync-delay 0`; what remains is Redis's own two-second hold of a
-new master in `cluster_state:fail`.
-
-`SERVER_AUTHENTICATION` transit encryption serves TLS from the relay (port 6378
-for an instance, 6379 for a cluster) with no plaintext listener. Each resource
-has its own server CA (a `SERVER_CA_MODE_GOOGLE_MANAGED_SHARED_CA` cluster uses
-the region's), reported in `serverCaCerts` or `getCertificateAuthority`, and
-every endpoint presents a certificate it signs for the dialed address. An
-`AUTH_MODE_IAM_AUTH` cluster's engine runs behind a credential only the
-simulator holds; the relay exchanges an AUTH (or HELLO with AUTH) password that
-is an access token for a principal holding `redis.clusters.connect` for that
-credential, and forwards any other unchanged. `AUTH_MODE_TOKEN_AUTH` runs each
-token-auth user as an engine ACL user whose passwords are its active tokens. A
-cluster's `aclPolicy` runs each rule as `ACL SETUSER <username> reset <rule>` on
-every node and removes other users but `default`, at create, attach, swap,
-detach, a rule revision and on nodes a reshape adds; `aclPolicyInfo`,
-`clusterAclPolicyAttachments` and `attachedClusters` report the running
-revision. A policy refuses deletion while a cluster runs it, and a `default`
-rule, duplicate username or unbalanced selector is INVALID_ARGUMENT. On an IAM
-cluster, a principal whose email is a rule's username connects as that policy
-user. A cluster with deletion protection refuses its delete.
-
-`persistenceConfig` is honoured: RDB snapshots are BGSAVEs on the reported
-schedule (`rdbSnapshotStartTime` plus whole `rdbSnapshotPeriod`s, reported as
-`rdbNextSnapshotTime`), the first taken at once when no start time is given. A
-cluster's AOF mode runs `appendonly yes` with the configured `appendfsync`. A
-node keeps its persistence files and `nodes.conf` across restarts. Export, import,
-upgrade and cluster backups move the engine's own RDB files through Cloud
-Storage. An API-only simulator runs no engine and its instances report no host.
-
-### Virtual machines
-
-A machine's disk outlives its guest, so a stopped machine can be generalized
-and captured, a deallocated one keeps its disk and a deleted one discards it.
-Stopping or terminating a pending Amazon EC2 instance cancels its boot. Every
-SDK test that launches instances terminates them when it ends.
-
-Compute Engine `instances.start`, `stop`, `suspend`, `resume`, `reset`,
-`startWithEncryptionKey` and `delete` answer at once with a RUNNING zone
-operation, move through STAGING, STOPPING or SUSPENDING, and do the work in the
-background. `reset` halts and reboots the guest while the instance reads
-RUNNING; a failed reboot leaves it TERMINATED. `delete` refuses an instance with
-`deletionProtection`. The operations' `wait` methods block on the signal
-`computeOpFinish` raises, bounded by the documented two minutes, and
-`zoneOperations.delete` and its siblings wake waiters. An Azure VM DELETE
-answers 202 with long-running-operation headers and `SimulateEviction` 204,
-both stopping the guest in the background; the machine leaving clears
-`properties.virtualMachine` on every interface it had attached.
-
-An Azure network interface leases an address per IP configuration, the
-primary's and each secondary's from the same subnet. A rewrite keeps kept
-configurations' addresses and releases dropped ones first; configurations in
-two subnets are `IpConfigurationsOnSameNicCannotUseDifferentSubnets`, and an
-address another interface holds `PrivateIPAddressInUse`. Secondary addresses
-are not configured inside a guest, since Azure's DHCP hands a guest only its
-primary; the Instance Metadata Service lists them all.
-
-Creating an Azure file share or a Cloud Storage bucket makes its empty host
-directory or fails the request, and a bucket reuses no files a deleted bucket of
-the same name left. Removing a Docker network the engine refuses because a
-container is attached waits for the disconnect event and retries. Deleting a
-Cloud DNS managed zone succeeds whatever still resolves through it; its Docker
-network goes in the background once the last container disconnects.
-
-### Scheduler, Auto Scaling and STS
-
-Every Amazon EventBridge Scheduler target call runs as the schedule's execution
-role, which must trust `scheduler.amazonaws.com` and allow the call; a denied
-call fails with `AccessDeniedException` and reaches the dead-letter queue. An
-EventBridge target goes through the bus's own PutEvents path. A universal target
-calls an awsJson or awsQuery action through the Step Functions AWS SDK
-dispatcher, checking every action and resource against the role. A call is
-authorized against the request it builds, so an Amazon ECS RunTask target
-reports its `ecs:cluster`, for Scheduler and EventBridge rules alike. Create and
-update reject values outside the model's ranges, and ListSchedules and
-ListScheduleGroups page. The IAM gate reads an Amazon SQS request's queue from a
-JSON body as well as from query parameters.
-
-An EC2 Auto Scaling instance refresh runs in the background, replacing instances
-in batches that keep MinHealthyPercentage in service (or launching ahead under
-MaxHealthyPercentage), waiting out each batch's instance warmup (the preference,
-else DefaultInstanceWarmup, else the health-check grace period), honouring
-checkpoints, bake time, SkipMatching and the Standby and scale-in-protected
-preferences, and moving the group onto its desired launch template on success.
-CancelInstanceRefresh stops one; RollbackInstanceRefresh reverses only one still
-under way. Groups take a launch template, and members report the version they
-launched from.
-
-GetCallerIdentity reports the signing identity's unique ID: a user's ID,
-`<role ID>:<session name>` for an assumed role, `<account>:<name>` for a
-federated user. A credential resolving to no identity fails with
-`InvalidClientTokenId` in GetCallerIdentity, GetWebIdentityToken and
-GetDelegatedAccessToken, and `InvalidAccessKeyId` in an Amazon S3 Express One
-Zone CreateSession. GetDelegatedAccessToken's credential acts as its caller.
-
-### Google Cloud media, Discovery and identity
-
-Artifact Registry stores uploaded files' bytes and serves them from
-`files.download`. Generic, Go module, KFP, Apt, Yum and GooGet uploads create the
-package, version and file from each format's metadata (a .deb control file, an
-RPM header, a `.pkgspec`, a module zip); `:import` publishes Cloud Storage
-objects the same way, reporting bad objects in `errors`. `exportArtifact`
-resolves a version through recorded package versions, and deleting a version,
-package or repository deletes its files. A Docker push records a File per
-manifest and referenced blob, named by digest; a shared layer belongs to the
-first image to push it and passes on deletion. `files.delete` refuses non-generic
-repositories, and `registryUri` follows gcloud's
-`LOCATION-FORMAT.pkg.dev/PROJECT/REPOSITORY`.
-
-Every resumable media path Discovery declares is served, and the conformance
-loader indexes `mediaUpload.protocols.resumable.path` beside the simple path. A
-session begins with `uploadType=resumable` on `/upload` (the Go client,
-googleapiclient) or `/resumable/upload` (apitools), answers 200 with the session
-URI in `Location`, and takes chunks under `Content-Range`, answering 308 with a
-`Range` — 200 with `X-Http-Status-Code-Override: 308` for a client sending
-`X-GUploader-No-308` — and the method's response on the last byte; `bytes */*`
-reports progress and DELETE cancels with 499. Sessions live in the store.
-`media_upload.go` serves Artifact Registry and BigQuery; Cloud Storage keeps its
-own sessions, staging bytes in the payload store, through the same helpers:
-`objects.insert` sessions on `/resumable/upload/storage/v1/b/{bucket}/o` echo
-the path and query they began on, refuse a chunk that would leave a gap, and
-answer later requests with the object's metadata. The vendor CLIs switch to the
-resumable protocol past 5 MiB, so `gcloud storage cp`, `gcloud artifacts generic
-upload`, `gcloud artifacts files upload` and `bq load` each have a test with a
-9 MiB payload.
-
-BigQuery load, copy and extract jobs run as real jobs: `jobs.insert` records
-PENDING and answers at once, and a goroutine moves the job to RUNNING, does the
-work and settles it DONE with statistics or an `errorResult`. A job writes its
-destination under the table's lock as one update, `jobs.cancel` and
-`jobTimeoutMs` stop it before it writes, a job ID cannot be reused, and a
-restart settles unfinished jobs. A load reads `sourceUris` from the Cloud
-Storage store (one `*` per URI), inflates gzip, and parses CSV with its own
-splitter (`quote`, `allowQuotedNewlines`, `encoding`, `nullMarkers`,
-`skipLeadingRows`, `fieldDelimiter`, `allowJaggedRows`) or newline-delimited JSON
-(`ignoreUnknownValues`), honouring `createDisposition`, `writeDisposition` and
-`maxBadRecords`; every cell converts to its column type, and a value the type
-cannot hold is a bad record. `autodetect` detects CSV and JSON schemas; AVRO
-loads use `hamba/avro` and PARQUET `parquet-go`. A copy writes one or more tables
-sharing a schema; an extract writes CSV, JSON, Avro or Parquet, compressed and
-sharded through a wildcard URI. `numBytes` uses BigQuery's logical size per type.
-Tests wait through `Job.Wait`. `bq` builds its client from BigQuery's Discovery
-document whenever its API root is not Google's, and BigQuery's REST errors carry
-the `errors[]` entry whose `notFound` reason `bq mk` reads.
-
-Every implemented API serves its own Discovery document at
-`GET /$discovery/rest?version=…` under its host, byte-identical to the vendored
-one (`simulator-gcp/discovery/`, copied by `scripts/fetch-gcp-discovery.sh`),
-indexed by `name` and version; regional and mTLS hosts reach the same document
-through `gcpServiceFromHost`. A bare address:port serves a version only one
-implemented API publishes, `v2` stays BigQuery's for `bq`, and `v1` answers 404.
-The Discovery service's directory is a capture of the real one
-(`simulator-gcp/discovery_directory_vendored.json`): the entries for the embedded
-documents verbatim, the ids each of `www.googleapis.com` and
-`discovery.googleapis.com` serves through `apis/{api}/{version}/rest` (neither
-serves every listed document), and each API's default version. Documents and the
-directory answer anonymously, as Google's do.
-`specs/cloud-api/gcp/discovery-v1.supplement.json` declares the `mtlsRootUrl` and
-`serviceVersion` the `RestDescription` schema predates.
-
-Eventarc and Cloud Build both publish `/v1/projects/{p}/locations/{l}/triggers`,
-and the host tells them apart; the harnesses reach each through its own host
-with an HTTP proxy that delivers to the simulator — gcloud through `HTTP_PROXY`,
-the Go SDK through its client's proxy. At a bare address a create resolves by
-Eventarc's required `triggerId` and a read by which service holds the trigger.
-
-A project has its Compute Engine default service account in IAM from the moment
-Cloud Resource Manager creates it (every API is enabled on a new project here),
-created once, so a deleted one stays deleted; its email names the project number,
-so the `-` wildcard resolves it.
-
-The GCE metadata server answers for the workload that asks: a Compute Engine
-instance by its private address, a Cloud Run
-container by its network namespace's address, read from the engine's container
-list and mapped through labels to its service, instance, job execution or worker
-pool. The project ID comes from the resource, the number from Cloud Resource
-Manager, and `default` is the account the resource runs as or the project's
-Compute Engine default service account. A key the workload does not hold answers
-404. A caller outside every workload is answered for the default project,
-`sockerless`.
-
-## Storage
-
-An object store's conditional write is one step. A client that keeps its
-consistency in an object store — a git server arbitrating a branch update, a
-lock file — relies on exactly one of two conditional writers winning. The
-evaluation and the store sit under one per-object lock (`sim.KeyedLocks`) at
-each service's single write path, so a handler added later cannot skip it,
-and unrelated writes stay concurrent. Cloud Storage generations are timestamps
-that never repeat.
-
-An object store is read by key or key prefix. The three object stores are
-`sim.PrefixStore`s, which have no `List` or `Filter`: a listing is a range on
-the primary key (`bucket/key`, `account/container/name`) that decodes only the
-rows under the prefix. The store-scan gate counts scans per request, not bytes
-per scan, so the type is what keeps a whole-store read off object stores. The
-in-memory and cached stores keep ids sorted on every write, so `ListPrefix` is
-a binary search and the run after it. DynamoDB reads a query's partition, or a
-scan's table, as such a range; Amazon ECR's DescribeImages reads the
-`<repository>:` range and Amazon ECS's task-definition listings the family's
-range from a cached store. Deleting an Amazon ECR repository deletes its images
-and manifests under `<repository>:`, its blobs and layers under `<repository>@`,
-and its policies, so a repository created again starts empty.
-
-The buckets a service hands out presigned URLs into — AWS Lambda's deployment
-packages, AWS Amplify's artifacts, AWS Glue's system logs, Elastic Load
-Balancing's trust store copies — belong to an AWS-owned account
-(`S3Bucket.Owner`), as AWS keeps them. Kept in the caller's account, they
-showed in ListBuckets and the caller could overwrite or delete what the
-service served. The S3 gate refuses every request into such a bucket that the
-service's own credential did not sign; that credential's secret is generated
-per process, so the presigned URLs the services mint are the only way in.
-
-An object's contents are not in its row, since a row is decoded whole on every
-read: `Server.Payloads` keeps contents in files the row references. A write is
-always a new file, written before the row that names it, and the replaced file
-is released after, so a crash leaves at worst an unreferenced file the startup
-sweep removes. A file belongs to exactly one row; a copy or snapshot writes its
-own.
-
-An Amazon S3 key's current object stays in `s3Objects`, so every listing,
-conditional write and service reading an object sees the latest version; every
-other version and delete marker lives in `s3ObjectVersions` under
-`<bucket>/<key>\x00<version id>`, the null version under `null`. A version
-records a sequence number from a clock that never repeats, ordering
-ListObjectVersions newest first and choosing the version a removal makes
-current. A version's tag set in `s3ObjectTags` moves with it. The single write
-path (`s3StoreObject`) applies the bucket's versioning state, so every writer
-versions alike, and the payload adoption at start keeps the contents every
-noncurrent version references.
-
-Amazon S3 Object Lock lives on the object version. Enablement is the bucket's
-stored `object-lock` configuration, written at CreateBucket with an enabled
-versioning configuration; PutBucketVersioning refuses to suspend it. The single
-write path applies the bucket's default retention to a version whose write
-asked for none. Protection is checked under the key's write lock in the version
-delete, so DeleteObject and each DeleteObjects entry are refused alike, and a
-delete without a version id only adds a delete marker, which Object Lock never
-refuses. A PutObject carrying Object Lock headers needs Content-MD5 or a
-checksum (the AWS SDK for Go v2 sends one only when its checksum calculation is
-`when_supported` or the input names an algorithm). s3:BypassGovernanceRetention
-authorizes against the object, per DeleteObjects entry.
-
-The S3 Smithy supplement declares GetObject's 206 Partial Content beside its
-200, since a ranged read — the Terraform `aws_s3_object` data source's —
-answers 206.
-
-An AWS owned KMS key (RDS, Amplify, CodeBuild, Firehose) gets its material on
-first use through `kmsEnsureKeyMaterial`, which checks and generates under the
-store's lock, so two concurrent first uses cannot seal under different
-material.
-
-An Elastic Load Balancing trust store reads its CA bundle and revocation lists
-from Amazon S3 at the call, through S3's own object and version lookup, and
-keeps the bytes it read. Its content locations are presigned URLs to that copy
-in a bucket Elastic Load Balancing writes, keyed by the content's digest, served
-on the endpoint the client called.
-
-Amazon EC2 instance-type facts come from the AWS Price List bulk offer file, the
-one machine-readable, unauthenticated publication of them; the EC2 Smithy model
-carries only the InstanceType enum. `scripts/fetch-aws-ec2-instance-types.go`
-streams the us-east-1 offer, keeps the Compute Instance products, fails when two
-products of one type disagree, and records the pinned offer URL and SHA-256.
-"<n> GiB" truncates to MiB, matching DescribeInstanceTypes for the legacy sizes
-the Price List rounds; the processor names the instruction set, since the offer
-says "64-bit" for both x86 and Arm. A fact the offer does not state stays absent,
-and a filter over one answers Unsupported.
-
-Amazon ECR's imageSizeInBytes counts the config blob with the layers and leaves
-the manifest document out, as the AWS CLI's own describe-images and
-batch-get-image examples settle (48318255 = four layers of 48315478 + a
-2777-byte config).
-
-A Cloud Storage bucket belongs to a project that exists. The insert resolves
-`project` through Cloud Resource Manager and stamps its number, and the service
-agent is named for the same number, because gcloud's `storage buckets
-notifications create` reads the bucket's `projectNumber`, grants that number's
-agent publish on the topic, and the insert checks it. gcloud and Terraform name
-the topic by its relative name, which the insert stores as the full
-`//pubsub.googleapis.com/` name.
-
-A project has one number, the one Cloud Resource Manager assigned. Cloud DNS,
-Cloud Build, Cloud Run's service agent, Compute Engine, BigQuery and Cloud
-Logging resolve the project through `crmProjectNumber` and name their identities
-for that number. A project that does not exist or is pending deletion is refused
-with each service's own error: 403 `PERMISSION_DENIED` for Cloud DNS, Cloud
-Build and Cloud Logging, 404 for Compute Engine and BigQuery. Compute Engine
-addresses a project by ID or number and keys it by ID. Tests create their
-projects in Cloud Resource Manager first. Cloud Resource Manager holds no
-project at startup but the deployment's own `sockerless`: the SDK, CLI,
-Terraform and bash harnesses create `test-project` through projects.create in
-their setup and read its project number back, as a user creates a project
-before working in it. Seeding the harnesses' project was runner-aware
-special-casing.
-
-`GET /v1/operations` is Service Usage's `operations.list` and lists only the
-operations Service Usage started — those carrying its
-`google.api.serviceusage.v1.OperationMetadata` — answered as
-`google.longrunning.Operation` (`name`, `metadata`, `done`, `error`,
-`response`). Its `operations.delete` reaches only those too. Every other
-service's operations stay in its own collection: a Cloud Storage bucket's
-under `/storage/v1/b/{bucket}/operations`, a location's under
-`projects/{p}/locations/{l}/operations`, Cloud Bigtable's under
-`operations/projects/{p}/operations`.
-
-### Cloud Run instances, worker pools and restarts
-
-A Cloud Run service instance starts its containers in
-`cloudRunContainerStartOrder`: the first owns the network namespace and
-publishes the ingress port, and the others start in the background once their
-dependencies have started and passed their startup probes. The ingress
-container always runs a startup probe (Cloud Run's default TCP probe when none
-is configured), and the request that started the instance waits for every
-probe. The Knative service surface folds `dependsOn` into the revision
-template's container-dependencies annotation and back.
-
-A worker pool runs its manual instance count (the minimum under automatic
-scaling), each instance a container group started by the job task's code
-(`startCloudRunContainerGroup`): `dependsOn` order, startup probes, Cloud Storage
-volume binds and write ingestion, and Cloud Run's ten-second stop grace. A
-changed template replaces every instance, a changed count starts or stops the
-difference, and an update or delete answers only once retired instances have
-stopped and their volume writes are objects. A Cloud Run instance runs through
-the service-instance path (`ensureCloudRunServiceInstance`) from creation,
-`instances.start` or an update until `instances.stop` or deletion. Worker pools
-log under `cloud_run_worker_pool` and instances under `cloud_run_instance`.
-gcloud's worker-pool `deploy`, `update` and `delete` speak Cloud Run v2 over
-gRPC, which the simulator does not serve (BUG-3341), so the CLI suite deploys
-over REST. The Go REST client sends `instanceSplitStatuses[].type` as the enum's
-number, which the simulator maps to its name.
-
-A worker pool's or instance's create, update and `instances.start` answer with
-an operation that is not done, and the resource reports `reconciling` and a
-`CONDITION_RECONCILING` `Ready` condition until every instance has passed its
-startup probes. The operation then completes with the resource and the pool's
-created revision becomes its ready revision; an instance that cannot start fails
-the operation with INTERNAL and the `Ready` condition with the same message, and
-the pool keeps its last ready revision. A pool whose scaling runs no instance
-settles before the call answers. Cancelling the operation stops the instances it
-was starting and fails `Ready` with `Cancelled`; deleting the resource aborts it.
-
-A Cloud Run instance whose container exits restarts as `restartPolicy` says:
-ON_FAILURE (default) after a non-zero exit, ALWAYS after any exit except a clean
-one of a multi-container instance, NEVER not at all. Cloud Run restarts a failing
-instance "up to 3 times sequentially" with no published delay, so the simulator
-restarts at once and fails the fourth exit. The record settles before the exit
-is logged, so a reader waiting on the log line finds the outcome recorded.
-
-A simulator restarted on its state directory keeps every stored worker pool's
-and every non-stopped, non-failed instance's workloads running, as Cloud Run's
-control plane never restarts what it runs. A persistent simulator leaves them
-running when it stops, and the next one adopts them (`cloudrun_adopt.go`):
-every container carries its instance's group label and a digest of its
-template, so adoption finds whole instances of the current template whose
-containers all run, attaches to them (`sim.AdoptContainer`, plus the
-namespace owner's log stream and ingress route), registers them, and removes
-every other container left for the resource; then only what is missing starts.
-For every stored service it adopts the instance running the current template
-and removes other revisions' and deleted services' containers. A job execution
-still running keeps its task's containers: the restarted simulator adopts them,
-arms what is left of the task's timeout from the execution's start, and settles
-from the main container's exit; only an execution whose containers are gone
-fails. Adoption precedes the recovery that fails executions without a workload,
-so both run at start-up. An adopted container's log stream replays its whole
-output, and the sink drops the lines up to the resource's newest Cloud Logging
-entry. Stopping an instance stops its containers before ending the owner's log
-stream and waits for it to drain, so stop-time output reaches Cloud Logging.
-
-A Cloud Run instance's `urls` are served by the Cloud Run front end as a
-service's URL is, behind the same invoker check (`run.routes.invoke` through
-the instance's own or an inherited policy, or `invokerIamDisabled`), with an ID
-token naming one of the instance's URLs. The Terraform provider has no Cloud
-Run instance resource.
-
-### Cloud Storage volume mounts
-
-A Cloud Run workload's Cloud Storage volume writes back as Cloud Storage FUSE
-does, without a FUSE file system. While a workload mounts a bucket writable, one
-inotify instance watches every directory of it, and events map onto Cloud
-Storage FUSE's object operations: a close after writing (`IN_CLOSE_WRITE` after
-`IN_MODIFY` or `IN_CREATE`) is a new generation, never each write; a `mkdir` is
-a placeholder object; an unlink, an `rmdir` or a rename out of the mount is a
-delete; a rename within it is a copy and a delete. Each write is conditioned on
-the generation the file held, keeps the object's metadata, takes a new file's
-content type from its extension and records `gcsfuse_mtime`. The simulator tells
-the workload's changes from its own by state, not by event: it keeps a view of
-what each path stands for (generation and inode), every change it makes and its
-record happen under one mutex, and its mirror of an API write is staged outside
-the bucket directories and renamed in, so a watch event only prompts a
-comparison with the view. `IN_EXCL_UNLINK` drops the close of a file an API
-write already replaced. Ingestion is asynchronous to the workload's close, so a
-barrier — closing a file of the simulator's own under the data root and waiting
-for that close to arrive through the same queue — makes every Cloud Storage
-JSON API request, and the end of a job task, wait for the events queued before
-it: the read-your-writes Cloud Storage FUSE gives by writing before `close`
-returns. Files open with `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS`, so a link a
-workload makes never reads a host file into a bucket. `only-dir` binds that
-directory of the bucket; the Knative v1 surface carries the options in the CSI
-`mountOptions` attribute; a volume of a missing bucket fails the workload's
-start. Linux only (BUG-3084).
-
-### Derived state
-
-A future-dated Capacity Reservation becomes active on its start date with nobody
-calling anything. Storing that transition would need a timer or a sweep that
-could be late, so the record holds what was asked for and the one accessor every
-read goes through derives the state as of now.
-
-An Azure cross-resource-group move repoints inbound references by walking every
-store a build creates (`sim.TrackedStores`), rewriting keys beneath the moved
-identifier and any string naming it at a resource-identifier boundary; a
-hand-maintained list would rot silently. Each moved family's credentials are
-pinned across the move, and Azure Container Registry content, scoped by the
-registry's resource identifier, re-keys in the same pass.
-
-## Authorization and authentication
-
-Every credential is verified: AWS requests by SigV4 against the principal's
-stored secret, from the header and from a presigned URL alike; Google Cloud and
-Microsoft Entra bearers against the simulator's own signing keys; the Azure
-Storage data plane's Shared Key and shared access signatures over the layouts
-Microsoft's own signers produce, each version's layout pinned by those signers;
-Cosmos DB's shared key through a middleware on every data-plane path, so a new
-route cannot skip it; Event Grid's key and SAS against its published format; and
-each container registry against the credentials its control plane mints, with
-its own challenge shape. Authorization reads at most 16 MiB of a request body
-and streams the rest to the handler.
-
-### AWS IAM
-
-IAM enforcement derives the resource an action authorizes against from the
-types AWS declares and the ARN format published beside each; operations that
-name no resource authorize against `"*"`, as AWS does, and a create authorizes
-against its type's wildcard. A resource-policy statement naming the caller
-grants; one matching only by account delegates to that account's IAM, which is
-what the default AWS KMS key policy means. The Amazon S3 control plane runs the
-same gate route by route, and a test crosses every route against the reference.
-
-An ARN format's identifiers end at the next `/`, except those AWS documents as
-names that may be paths — `SecretId`, `ParameterNameWithoutLeadingSlash`,
-`EntityPath` and every `…WithPath` — which end only at a `:`, so a grant scoped
-to a secret path prefix matches a create under it.
-
-A create that carries tags is authorized twice, as AWS does: as itself and as
-its service's tagging action, with `<service>:CreateAction` naming the create on
-the second check. `iamTagOnCreateActions` is generated: for every operation whose
-Service Reference entry authorizes an action annotated `IsTaggingOnly` beside one
-that is not, those tagging actions — 297 operations across 31 services, Amazon
-S3 excepted because it reads tagging from headers and control-plane documents.
-Tags are read in the shape each protocol sends them, Smithy RPC v2 CBOR
-included. The tagging check authorizes against the resource being created — for
-Amazon EC2 the wildcard of each tag specification's resource type — and reports
-no `aws:ResourceTag`. Where the create authorizes against a parent, the check
-names the type it mints under that parent with a wildcard identifier
-(`iamMintedResourceARNs`): CreateListener's `listener/app/<lb>/<id>/*`,
-CreateRule's `listener-rule/…/*`, RunTask and StartTask's `task/<cluster>/*`. AWS
-Lambda's CreateFunction authorizes and tags the `function:<name>` its body names,
-and the CloudWatch CBOR routes derive resources from the CBOR body as the JSON
-routes do, so PutMetricAlarm authorizes `alarm:<name>`. Session tags on an
-`AssumeRole` also need the trust policy to allow `sts:TagSession`.
-
-An AWS STS session keeps its tags on its temporary credential, with the
-transitive keys. `aws:PrincipalTag/<key>` reads the session's tags over its
-role's, a session tag replacing a role tag of the same key case-insensitively.
-An AssumeRole a session signs keeps that session's transitive tags, refuses a
-passed tag that would replace one, and needs sts:TagSession only for the tags
-the request passes. A SAML assertion's `PrincipalTag:<key>` attributes and a web
-identity token's `https://aws.amazon.com/tags` claim are session tags too,
-authorized as sts:TagSession with the federation context, so a statement can
-condition tagging on `saml:aud` and `aws:RequestTag/<key>`.
-
-A DeleteObjects entry is authorized as its own s3:DeleteObject or
-s3:DeleteObjectVersion. A refused entry is that entry's AccessDenied `<Error>` in
-the DeleteResult, Quiet mode included, and the rest are deleted; the gate hands
-the handler the refused entries on the request context.
-
-An Amazon S3 control-plane resource has one tag set, in `s3ControlResourceTags`
-under its ARN. The creates that take tags — CreateAccessGrantsInstance,
-CreateAccessGrantsLocation, CreateAccessGrant, CreateStorageLensGroup,
-CreateAccessPoint — write there, deletes remove it, and TagResource,
-ListTagsForResource and `aws:ResourceTag/<k>` read nothing else. TagResource on
-an Access Grants location or grant ARN requires that location or grant to exist.
-A Storage Lens configuration and a Batch Operations job keep their one tag set
-through their own tagging operations (PutStorageLensConfigurationTagging,
-PutJobTagging and their Get and Delete pairs), and the TagResource trio refuses
-their ARNs, since the Service Reference lists neither type for it.
-
-### Azure Key Vault and managed identities
-
-The Key Vault data plane authenticates and authorizes every request in Key
-Vault's order. The token must be simulator-signed, unexpired, issued for Key
-Vault (`https://vault.azure.net`, its application ID, or `https://<keyVaultDns>`
-for the cloud `/metadata/endpoints` describes, the audience a custom-cloud client
-such as Terraform's acquires) by the vault's tenant (`sts.windows.net/{tenant}/`
-or `login.microsoftonline.com/{tenant}/v2.0`); otherwise 401 `Unauthorized` with
-the `Bearer authorization="<authority>/<vault tenant>",
-resource="https://vault.azure.net"` challenge and the documented `AKV10000`,
-`AKV10022` and `AKV10032` messages. Network rules come next:
-`publicNetworkAccess: Disabled` refuses with 403 `ForbiddenByConnection`, and a
-`Deny` default action admits only an address an IP rule or a virtual network
-rule's subnet names, refusing with `ForbiddenByFirewall` and the address.
-Last, `kvDataPlaneOperation` maps each route to its documented access-policy
-permission and Azure RBAC data action, and `keyVaultGrants` decides under the
-vault's model: role assignments through the shared
-`dataActions`/`notDataActions` matcher at the object, the vault or above when
-`enableRbacAuthorization` is set, otherwise access policies in the vault's
-tenant, a compound identity's only for tokens its application obtained. Either
-may name a group the caller belongs to, directly or nested. A refusal is 403
-`Forbidden` with `AccessDenied` or `ForbiddenByRbac` and a message naming the
-caller as `appid=…;oid=…;iss=…`. App Service's Key Vault reference resolution
-uses the same decision. The Key Vault Administrator, Reader, Secrets Officer,
-Secrets User, Crypto Officer, Crypto User, Certificates Officer and Certificate
-User built-in roles carry their published permissions.
-
-Tests grant themselves vault access as an operator does: an access policy naming
-the object ID their token carries (`data.azurerm_client_config.current`, `az
-keyvault create`'s creator policy, `az keyvault set-policy`), or a role
-assignment on an Azure RBAC vault. A role assignment at a vault's scope does not
-move with the vault, so move tests grant at the destination group too. Microsoft
-Graph's `GET /me` answers an app-only token 400 "/me request is only valid with
-delegated authentication flow.", the OData `any`/`all` lambda serves
-`servicePrincipalNames/any(c:c eq '<appId>')`, and a service principal's
-`servicePrincipalNames` hold its appId. An AD FS authority (`<host>/adfs`, the
-CLI's custom-cloud login) issues tokens for the simulator's tenant.
-`keyVaultDns` in `/metadata/endpoints` is `vault.<suffix>`.
-
-An App Service app or slot with a managed identity gets its own
-`IDENTITY_HEADER` secret, issued on first start and bound to its resource ID,
-and the endpoint (`GET /msi/token`, api-version 2019-08-01) authenticates by it
-and mints the system-assigned identity's token — `oid` its principal, `appid`
-its client ID, `xms_mirid` the app's resource ID — or the user-assigned identity
-`client_id`, `principal_id`, `object_id` or `mi_res_id` selects, refusing one the
-app does not have with App Service's 400 "Unable to load the proper Managed
-Identity.". An app without an identity gets neither variable. The instance
-metadata service's token endpoint is a separate handler. The test workload's
-`container-command files-http` relays `GET /identity-token` to the endpoint, and
-every harness's simulator listens on every interface so an app reaches it.
-
-Container apps and Container Apps jobs carry managed identities through the
-same settling code: `identity` (common types v3, which spells
-`SystemAssigned,UserAssigned` and reports `{"type": "None"}`), a system-assigned
-principal registered under the resource's name, and user-assigned identities.
-A workload with an identity gets `IDENTITY_ENDPOINT` and its own
-`IDENTITY_HEADER`, which `/msi/token` resolves to the app, slot, container app or
-job it was issued to. A container app is stored before its replicas start, so a
-replica asking at once finds its identity. A secret naming a `keyVaultUrl` is
-read as the identity its `identity` names (`system` or an attached user-assigned
-identity), at the version the URL pins; an environment variable's `secretRef`
-carries the value, and a registry password reference reads the same values. A
-secret the identity cannot read fails the PUT or PATCH with 400 `Field
-'configuration.secrets' is invalid ... Unable to get value using Managed
-identity <identity> for secret <name>`, as does a `secretRef` naming no secret;
-a job execution that cannot read its secrets fails and logs why.
-
-App Service imports a Key Vault certificate as its first-party service
-principal, "Microsoft Azure App Service" (application ID
-`abfa0a7c-a6b6-4736-8310-5855508787cd`), which the directory holds in every
-tenant, authorized through the data plane's own decision; tests grant it with
-`az keyvault set-policy --spn <appId>`, a role assignment, or an
-`azurerm_key_vault_access_policy` whose object ID `azuread_service_principal`
-reads.
-
-`Vaults_UpdateAccessPolicy` addresses the policy of the same tenant, object and
-application IDs per permission category: `add` merges, `replace` sets, `remove`
-subtracts, and a policy left with no permissions goes; add and replace append a
-policy no entry matches, remove ignores it, and every other policy stays.
-`azurerm_key_vault_access_policy` relies on all three.
-
-A running app re-fetches its Key Vault references every 24 hours, as App Service
-caches them: each start records the values its containers got and schedules the
-re-fetch; unchanged values keep the app running, and a changed one — a rotated
-versionless secret, a disabled version, a revoked grant — restarts it on the new
-values, at once with Always On and on the next request otherwise. The vendored
-Microsoft.Web specification defines no operation that forces the re-fetch, so
-the simulator offers none.
-
-A sitecontainer's `environmentVariables` entry names an app setting whose value
-the container gets under the entry's name (empty when the setting does not
-exist), with a Key Vault reference resolved; the Azure CLI refuses a spec naming
-a missing setting, so the CLI test removes the setting afterwards.
-`inheritAppSettingsAndConnectionStrings`, true when unset, passes the app
-settings and connection strings to each sitecontainer as environment variables;
-the platform variables and `environmentVariables` apply either way. The Azure
-CLI's `--sitecontainers-spec-file` never sends the flag, so the CLI test sets it
-false through `az rest`; the test workload's `relay-local` mode relays to a
-sidecar's port over the shared loopback. The `azurerm` provider has no
-sitecontainer resource.
-
-### Front ends that lose their target mid-response
-
-Every front end — Container Apps ingress, App Service, Azure Load Balancer,
-Application Gateway, the Application Load Balancer, Amplify Hosting compute,
-the Cloud Run front end and the external Application Load Balancer — relays
-what the target sent and closes the client's stream unfinished when the forward
-fails after the target's status and headers reached the client, as a streaming
-proxy does; a failure before that gets the front end's own error. Each
-simulator decides this itself (`abortStartedForward`), since `lbplane.Forward`
-reports the failure and leaves the answer to the cloud's front end; Cloud Run
-removes an instance whose ingress container died before aborting the response.
-
-### Google Cloud IAM
-
-`testIamPermissions` answers from the stored policy resolved through the
-vendored curated roles and the held custom roles. A conditional binding grants
-only while its condition holds: `cel-go` compiles the Common Expression Language
-expression and evaluates it against `request.time` and the resource's `name`,
-`type` and `service`, and an expression that fails to compile or evaluate grants
-nothing. The Cloud Run front end's invoker check and `testIamPermissions` are one
-evaluation. A caller presenting no simulator-issued token is the account's
-operator, as a credential no IAM user registered is on AWS.
-`generateAccessToken` honours the requested lifetime up to one hour, or twelve
-where the Organization Policy constraint allows it, defaulting to deny.
-
-A deleted service account lives in its own store keyed by unique ID, because the
-live store is keyed by email and a new account may take that email during the
-30-day window; undelete is keyed by unique ID for the same reason, which is why
-gcloud sends nothing else. The window is IAM's 30 days measured against the
-clock at each delete and undelete, with no timer of the simulator's own.
-
-## Work that settles behind the request
-
-### Azure asynchronous work and Container Apps revisions
-
-Azure's asynchronous work answers the request and settles behind it. An Event
-Grid webhook subscription stays Creating until its endpoint echoes the
-validation code or someone opens the validation URL, and receives events only
-once it has Succeeded. A Logic Apps trigger answers 202 with the run id and runs
-the workflow in the background. Compute polls its operations at
-`locations/{location}/operations/{id}`, the shape armcompute's recordings show;
-every other provider uses `operationStatuses`. Cosmos DB mints hierarchical
-resource ids and accepts them in paths.
-
-A container app reports `eventStreamEndpoint`; its revisions list, read and
-restart through ContainerAppsRevisions, and their replicas — one per
-`minReplicas`, named `{revision}-{hash}-{suffix}` — through
-ContainerAppsRevisionReplicas, each container advertising its
-`logStreamEndpoint`. The streams sit on the event stream host outside the ARM
-path, take the token getAuthToken issued, and serve newline-delimited
-`{"TimeStamp","Log"}` lines (or text) with `tailLines` and `follow`: a console
-stream opens with the service's "Connecting to the container" lines, carries
-the container's output and ends when it exits; `eventstream` carries the app's
-system events (AssigningReplica, ContainerCreated, ContainerStarted,
-ContainerTerminated). The simulator keeps the newest 10 MiB of a container's
-output, the kubelet's default containerLogMaxSize.
-
-A container app keeps a revision history. A change to `properties.template`
-creates a revision — `{app}--{random 7}` first, then `{app}--0000001`,
-`--0000002`, or `{app}--{revisionSuffix}`, refused when the app already has it —
-with its own template, `createdTime` and replicas; a change to
-`properties.configuration` creates none. A Single-mode app deactivates every
-revision but its latest, a Multiple-mode app keeps them active, and inactive
-revisions report `lastActiveTime` and are removed oldest first beyond
-`maxInactiveRevisions` (100 unset). `ingress.traffic` (`latestRevision` 100
-unset; `az containerapp ingress traffic set` sends weights as strings) must name
-revisions the app has and add up to 100, reports as each revision's
-`trafficWeight`, and splits the requests the app's ingress FQDN receives; a
-revision answers on its own FQDN. ActivateRevision and DeactivateRevision start
-and stop a revision's replicas. Restart, activate and deactivate answer 200 with
-the JSON strings the service returns (`"Restart succeeded"`, `"Activate
-succeeded"`, `"Deactivate succeeded"`), captured from the Azure CLI's recorded
-tests.
-
-### Cloud Storage, Artifact Registry and Pub/Sub
-
-Cloud Storage answers a permission question from the caller's own grants: the
-project, bucket and object or managed-folder policies, and the bucket and object
-ACLs while uniform bucket-level access is off. It refuses to delete a bucket
-holding live objects, and a notification whose Pub/Sub topic is malformed,
-missing or closed to its service agent. Objects keep their custom contexts
-through every write, copy, rewrite and compose; `objects.list` filters on them
-and `objects.viewFullContext` reads one back. gcloud's `objects update
---clear-custom-contexts` sends an empty `custom` map, which a patch treats as no
-change (Google's Go client sends `contexts` as null to clear), so the CLI test
-removes contexts by name. Artifact Registry deletes cascade across both planes:
-a manifest DELETE over OCI removes its version, tags and image row, and a
-package or repository takes everything beneath it. The simulator's tokens carry
-Google's issuer, and its discovery document names that issuer with its own key
-and token URLs, so a relying party verifies them as it verifies Google's.
-
-A Pub/Sub `Pull`, over gRPC and REST, holds an empty subscription open unless
-the caller sets the deprecated but honoured `returnImmediately`, and answers
-with at most `maxMessages` once a message becomes deliverable, the server's
-bound passes, or the caller goes away. The wait wakes on the subscription's own
-signal — a publish, an ack, a nack or ack deadline change, a seek, the
-subscription's update, detachment or deletion — and on a timer set to the next
-moment the queue changes by itself (a lapsed ack deadline, the end of a retry
-backoff). `StreamingPull` waits on the same two things and checks its stream is
-still open before it leases, so a nack racing the client's cancellation cannot
-strand a redelivered message on a closed stream. Messages a failed send never
-delivered are released uncounted. The REST pull declares its bound with
-`sim.DeclareWait`; the gRPC listener sits outside `sim.InFlightMiddleware`.
-Suites that check a subscription is drained pull with `returnImmediately`.
-
-### AWS work that finishes later
+### Work that settles behind the request
 
 AWS work the services finish later finishes later in the simulator, gated on
-the real inputs. An EC2 instance stays pending until its VM boots, whether
-`RunInstances` or EC2 Auto Scaling launched it, and a launch lifecycle hook
-holds it in `Pending:Wait` until the hook's action completes or times out. EC2
-Auto Scaling answers a capacity change at once: members join Pending, each
-launch has an InProgress activity, and a background boot moves both on. An
-awsvpc ECS task creates its network interface at `RunTask`, so `DeleteSubnet`
-refuses while the task holds it, and DeleteSubnet ends the subnet's route table
-association. Amazon S3 checks each notification destination's resource policy
-at put time and sends the test event. `ImportSnapshot` and `ImportImage` read
-the disk image from S3 and convert RAW, VHD and VMDK into real snapshot data. A
-waiting SQS receive wakes on the send, delay or visibility change it waits for.
-ECS creates an awslogs log group only when the task definition asks for it.
+real inputs: an EC2 instance stays pending until its machine boots, Auto
+Scaling answers at once and boots behind, S3 Batch Operations jobs move
+through their statuses as background work and resume after a restart, AWS
+Batch schedules by fair share and decayed usage. Azure answers and settles
+behind (Event Grid validation handshakes, Logic Apps runs, Container Apps
+revision provisioning). Google Cloud's builds and BigQuery jobs record
+PENDING or QUEUED, answer at once and run behind their operation.
 
-AWS Batch answers `SubmitJob` at once and schedules the job behind it: RUNNABLE
-once evaluated, STARTING when an ENABLED compute environment of its queue with
-`maxvCpus` to spare placed it, RUNNING when its container started, and a
-terminal state when it exited; a job no environment can place waits in
-RUNNABLE. Each attempt runs a new container with the `AWS_BATCH_*` variables,
-logs to its own `/aws/batch/job` stream, and is recorded in `attempts`. The
-request's `retryStrategy` overrides the job definition's, `evaluateOnExit`
-conditions decide in order, and a terminated or timed-out attempt is never
-retried. An array job spawns `<parent>:<index>` children and settles once every
-child has. `CancelJob` stops jobs that have not started, `TerminateJob` started
-ones, both reaching an array's children. A job with `dependsOn` waits in PENDING
-until each dependency finished, becoming RUNNABLE when all succeeded and failing
-with `Dependent Job failed` otherwise, cascading down the chain; `N_TO_N` pairs
-array children by index and `SEQUENTIAL` runs child *i* after *i − 1*. A
-fair-share queue takes only jobs with a `shareIdentifier`, and a FIFO queue
-none; its scheduler places next the job of the share with the least weighted
-usage — the vCPUs the share holds plus their average over `shareDecaySeconds`
-under exponential decay, times `weightFactor`, matched by name or `*` prefix —
-then by `schedulingPriority` and arrival. `computeReservation` holds back
-(`computeReservation`/100)^active shares of `maxvCpus` for shares that hold none
-yet. Queues sharing a compute environment are served highest `priority` first.
-A queue's scheduling policy can be replaced but not added to a FIFO queue, and a
-policy in use cannot be deleted.
+Simulator code waits on the event a wait stands for: a workload's exit, the
+engine's removal of a container (`ContainerWait` with the `removed`
+condition, which `sim.WaitContainerRemoved` and `sim.RemoveVolumeSettled`
+use), a `sim/signals` change signal, a drained serial console. Where nothing
+raises an event, it polls the engine's own status on a short cadence and ends
+at once on the workload's exit: a port that starts listening (Amplify Hosting
+compute, App Service warm-up) and a replica's replication starting (Amazon RDS
+read replicas and Multi-AZ standbys, whose engines report it only in
+`SHOW REPLICA STATUS` and `pg_stat_wal_receiver`). The remaining tickers are
+cadences the clouds document.
+
+## The service libraries
+
+Stage 5 of the plan moved the mechanisms the clouds' compute, eventing and
+queueing services share into `sim`:
+
+- **Seams.** A service acting on another's behalf calls its API in-process
+  through `sim.Server.Call`, the whole chain a client's request takes, as the
+  service principal `sim.Caller` names or a session of the role, signed with
+  SigV4 as the SDKs sign. The verifier checks a stated payload hash against
+  the body, so a signature no longer survives a swapped payload. EventBridge,
+  Scheduler, Lambda's SQS pollers and destinations, Step Functions tasks and
+  `.sync` waits, CodeBuild batches, Eventarc and Event Grid dead letters all
+  act this way; Step Functions `.sync` wakes on the service's store writes and
+  confirms through the API rather than polling.
+- **`sim/machine`** (above).
+- **`sim/workload`, `sim/replicas`.** Groups start in `dependsOn` order behind
+  startup checks; a replica set keeps a count running, restarts or replaces
+  with back-off, and adopts after a restart. Cloud Run worker pools and service
+  revisions and Container Apps revisions run on it; a Container Apps replica
+  restarts in place keeping its name and address. A replica still starting
+  counts toward the set's count: `Scale` and `Raise` once counted only the
+  replicas the set held, so a Cloud Run service whose minimum and then manual
+  instance count changed while its first instances passed their startup
+  probes started extra instances and stopped them as surplus.
+- **`sim/revisions`.** A template's identity by content and the choice of a
+  revision by traffic weight, for Cloud Run (both surfaces, which once minted a
+  revision on every write) and Container Apps.
+- **`sim/msgq`'s waiter.** Amazon SQS, Pub/Sub and Service Bus each wrote the
+  same long poll: a per-queue signal plus a timer to the next moment the
+  queue changes by itself. `msgq.Waiter` is that algorithm once, and
+  `Queue.NextChange` names the moment. Service Bus's per-message timers became
+  the waiter's self-re-arming `Arm`. Dead-letter routing, sessions and
+  message moves stayed per cloud, since each is one cloud's concept.
+- **The host-routed front end.** `lbplane.HostRouter` claims a request by
+  its Host and asks the cloud's `Route` hook, a generation-index lookup, for
+  the handler; `lbplane.Serve` is the one forward with a front end's own
+  answers. A Lambda function URL routes to an invoke handler instead of a
+  forward. The probes moved with it: `replicas.Probes` runs startup,
+  liveness and readiness with the kubelet's semantics, and
+  `replicas.CrashLoopBackoff` holds the kubelet's back-off, since Cloud Run
+  documents no back-off of its own.
+- **`sim/eventbus`.** The fan-out loops were small and alike; the filter
+  dialects, input transformations, payloads and target calls were not, so
+  they stayed per cloud behind hooks. Amazon SNS delivers every protocol
+  through one dispatcher with the retry policy SNS documents for that kind of
+  endpoint, and a notification that fails for good reaches the
+  subscription's dead-letter queue. An EventBridge input transformation is
+  applied once, at publish, and stored with the delivery. A queue that owns
+  its retries — a Pub/Sub subscription, an Eventarc transport topic — is a
+  `Sink`, so push keeps sharing its retries with pull.
+- **`sim/jobrun`.** An execution of N tasks with parallelism, per-attempt and
+  per-task timeouts, retries, a completion policy, cancellation and
+  restart resume, with no store and no wire shape. Cloud Run jobs run one
+  container group per task attempt with the documented `CLOUD_RUN_*`
+  variables; Container Apps jobs run replicas until `replicaCompletionCount`
+  succeed and resume after a restart instead of staying Running for good.
+  Amazon ECS `RunTask` and AWS Batch kept their schedulers: ECS tasks are
+  independent with no execution, and Batch's RUNNABLE accounting would change
+  under the library's loop.
+- **`sim/funcrt`.** An AWS Lambda execution environment keeps its container,
+  Runtime API listener, address and log stream for its life, so a handler's
+  globals persist and sequential invocations share a stream. Its Init phase
+  runs from the container's `StartedAt` to the runtime's first Next request,
+  and the REPORT's Max Memory Used is the environment's peak read when the
+  invocation ends. A unit returns
+  to a concurrency limit only once its environment is idle again, so the next
+  invocation reuses it instead of starting another. AWS documents no idle
+  timeout, so an environment retires on an update, a delete, an alias change
+  or before its role session lapses, never on a timer. A throttled
+  asynchronous event retries under `delivery.Deferred`, which spends no
+  attempt. Azure Functions and Cloud Run functions stayed off the pool: the
+  first dispatches inside one long-lived host container, the second is
+  already `sim/replicas`.
+
+## Consoles
+
+The three consoles were rebuilt on their real consoles' patterns — the AWS
+Management Console's Console Home, Services menu, unified search, Region
+selector and per-service navigation; console.cloud.google.com's project
+picker, navigation menu, URL structure, filter bar and full-page creates; the
+Azure portal's top bar, browse and resource blades and create wizards — still reading only real cloud APIs. Decorative controls nothing
+backed (notification bells, support icons, a hardcoded "Service health"
+badge, "Not supported" product pages) went, because a control that does
+nothing is a fake. A console gap whose API the simulator does not serve is a
+`BUGS.md` row naming that API.
+
+- **Sign-in is a deployment's.** The AWS and Google Cloud browser suites
+  sign their operator in through simulator-azure's Microsoft Entra ID and
+  federate through the cloud's own primitive, provisioned by
+  `global-setup.ts` through the real APIs; the Google Cloud vitest tests that
+  mocked fetch for the rebuilt pages went in favour of browser flows. ui-auth verifies `at_hash` only when the
+  issuer sends one: OpenID Connect Core makes it optional in the code flow,
+  Entra omits it, and a console signing in through Entra got a 403 at the
+  callback.
+- **The signer is the SDK's.** The console's SigV4 signer sends
+  `x-amz-content-sha256` to Amazon S3 and builds the canonical query string
+  sorted and RFC 3986-encoded, as SigV4 defines it; without the header S3
+  cannot verify a request that has a body.
+- **Isolate the browser from the host's interfaces.** Chromium's Linux
+  network-change notifier treats every rtnetlink address message on its host
+  as an IP address change, with no switch to narrow it, and flushes its
+  socket pools with `ERR_NETWORK_CHANGED`, aborting every request still
+  waiting for a connection. The simulators' workloads add and remove engine
+  bridges throughout a run, so a `page.goto` failed at random. Chromium runs
+  under `unshare --user --map-root-user pasta --config-net --tcp-ns <ports>`
+  (`isolated-chromium.sh`): it sees only its loopback and a tap nothing
+  changes, and reaches the console and its identity provider on the host's
+  loopback at unchanged URLs. The leading user namespace lets pasta map UID 0
+  as root or not. Retrying or serialising the tests would have left the cause
+  in place.
+- **Stop the webServer with SIGTERM.** Playwright kills its webServer's
+  process group with SIGKILL by default, so the backend script's exit trap
+  never ran and every run leaked its simulator build and the simulators'
+  containers and networks; `gracefulShutdown` sends SIGTERM.
+- **Attach document-level shortcut listeners before paint.** The Alt+S and
+  "/" search shortcuts attach in `useLayoutEffect`, so a key pressed right
+  after load is never lost.
 
 ## Measurement and gates
 
 Every quality gate has been shown to fail on a planted violation of its own
-shape, and a gate whose scan set can go empty exits non-zero rather than green:
-two gates once scanned the monorepo's directories, found nothing, and hid two
-live slice-bounds panics.
+shape, and a gate whose scan set can go empty exits non-zero: two gates once
+scanned the monorepo's directories, found nothing, and hid two live
+slice-bounds panics. A floor counts only what it measures, and generators
+sort under `LC_ALL=C`.
 
-The coverage ratchets hold a served floor that may only rise and the declared
-total of every vendored document, so a re-vendor that adds a surface fails until
-it is served or declared, and a withdrawal is named in the floor comment. What a
-re-vendor adds is served wherever the document describes something the
-simulator already holds. A floor counts only what it measures. The AWS Glue
-model's data-quality V2 operations read the store the V1 reads use, so a ruleset
-evaluation run's result appears in `ListDataQualityResultsV2` beside the ones
-`PublishDataQualityResultV2` records. A published result keeps its dimensions,
-tags, descriptors, evaluation context and score. An evaluation run's score is
-its passed rules over all of its rules. A publish replayed with the same
-`ClientToken` names the first result, and the same token with another body is
-refused with `IdempotentParameterMismatchException`. The generators sort under
-`LC_ALL=C`, so a regenerated table comes out the same on every machine.
+Attribute a slow phase by measuring where the simulator runs, never by reading
+code. A duration says only "fast today", so concurrency fixes are proven by
+counting or by construction; a lock test whose broken lock blocks the test's
+own channel fails the same way on every run, where one bounded by a clock
+measures the machine. `RLock`/`Unlock` mismatches, which neither the compiler
+nor `go vet` sees, are held at zero by a gate.
 
-The store-scan gate holds request-path full-store reads at zero; a row indexed
-under every `/`-terminated prefix of its identifier answers a child listing and
-a cascading delete from one `GenerationIndex`. The lock gates hold read-only
-critical sections under exclusive locks, and `RLock`/`Unlock` mismatches —
-which neither the compiler nor `go vet` sees, and which kill the process — at
-zero. A section that only reads takes `RLock`; one that writes, or reads and
-then writes on what it read, takes `Lock` for the whole span. The fake-test
-gate decides nine shapes of can't-fail test from the syntax tree, and the
-dead-code gate judges the framework from the three programs that link it.
+The slow-request diagnostic reports a request only once it outlives the wait
+its handler declared (`sim.DeclareWait`, `sim.DeclareOpenEndedWait`); the
+framework holds no list of slow methods. `bg.Go` and `bg.AfterFunc` count
+background work and a drain (`bg.Await`) is a barrier that stops unfired
+timers and drops work requested while it runs, because reconciliation
+requests more whenever it moves a task; arming a timer holds a read lock a
+drain's write lock excludes.
 
-Attribute a slow phase by measuring it where the simulator runs, never by
-reading the code or the database header. Amazon ECS task-start phase marks
-travelled on the context, and `/debug/stores` reports each
-table's size. A duration says only "fast today", so concurrency fixes are proven
-by counting or by construction — items a query read, stripes an operation
-took, two readers that each wait inside the read lock for the other to arrive.
-A lock test that bounds a wait with a clock or sleeps to make an overlap likely
-measures the machine; one whose broken lock blocks the test's own channel
-fails the same way on every run.
+A re-vendored model can name operations newer than the pinned SDK; such an
+operation takes a scoped drift exemption citing its `BUGS.md` row, and a test
+fails once the row closes or the operation is served.
 
-The slow-request diagnostic (`sim.InFlightMiddleware`) reports a request only
-once it outlives the wait its handler declared by `SlowRequestThreshold`. A
-method that blocks by design names its bound on the request context:
-`sim.DeclareWait` for a long poll, an operation wait or a synchronous run under
-its configured timeout, `sim.DeclareOpenEndedWait` for a stream or a wait the
-caller left unbounded. An upgraded connection counts as open-ended by itself.
-The framework holds no list of such methods; each cloud's handler says what the
-cloud documents. The watcher reads an injected clock and the middleware waits
-for it before finishing a request, so its tests step time and a report cannot
-land after the request ended.
+## Testing discipline
 
-The race detector runs on every pull request over every module. `bg.Go` and
-`bg.AfterFunc` count goroutines and pending timers; a drain (`bg.Await`) is a
-barrier that stops unfired timers and drops work requested while it runs,
-because a reconciliation requests another whenever it moves a task.
-`bg.JoinedGo` counts work a caller waits on and never drops it. Finite work
-handed to `Server.StartBackground` registers with the drain (`bg.Handoff`);
-lifetime daemons do not, or the barrier would wait forever. Arming a timer or
-watch holds a read lock across its admission and its entry in the map a drain
-stops, and a drain takes the write lock to begin, so a timer armed as a drain
-starts is either stopped by it or refused.
+- **A test waits on the event it asserts**: the SDK's own waiters with short
+  delay bounds, `aws … wait`, long polls, Live Tail opened before history is
+  read, an operation's `Wait`, azcore's poller (`awaitARMOperation`) and
+  `az rest` driven through `azLongRunning`. A Cloud Run job that must be seen
+  running holds until the test writes a release object into a bucket it
+  mounts. The waits left are the cloud's own (BUG-3154).
+- **Count what you mean to count.** An ECS replacement of a stopped
+  replacement is the scheduler working; two in flight for one failed task is
+  the bug.
+- **Tests run in parallel** unless `serial-tests.txt` names why not, and name
+  their resources per run (`uniquename.New`, `uniquename.Alnum`: eight hex
+  digits from a per-process random start, distinct for every call); an account-wide
+  setting is restored at cleanup and never asserted by list length. Shared
+  account singletons (the Glue Data Catalog policy) are held by a package
+  mutex from put to delete.
+- **A boundary is asserted at a small parameterised limit**, a fuzz failure
+  becomes a seed, and a soak test sizes its pool to the machine.
+- **Drain `sim/bg` before swapping stores.** A test fixture that replaces
+  store globals calls `bg.Await` first and as its last cleanup: a Service Bus
+  scheduled-message timer armed by one test once fired into the next test's
+  stores. A unit test also passes alone and twice in one process; two failed
+  only after another test had set state up, or on their second run.
+- **A tool a suite needs is installed in `TestMain`**, never skipped: gcloud
+  with its `alpha` and `beta` tracks (installing a track on first use ate each
+  test's budget), `cbt`, the AWS CLI.
+- **Ports a suite hands out are picked together** (`testutil/freeports`),
+  below the ephemeral range when a restarted simulator must bind them again;
+  a DNS port comes from `freeports.TCPUDP`, free on both protocols on every
+  interface.
+- **A helper two suites need lives in `testutil`**, never as a copy per
+  suite: copies of the workload image builder drifted until only five of
+  seven built with `GOWORK=off`. What stays per suite is what sets one
+  cloud's environment (`runCLI`, `terraformCmd`).
+- **smithy-go's closed request body** answers `io.EOF` from `WriteTo`, and
+  net/http's extra read then closed connections under parallel event streams;
+  the AWS SDK suite hands the transport bodies without `io.WriterTo`
+  (BUG-3293).
+- **A failure prints its own lines.** `scripts/go-test-summary.sh` groups each
+  failing test's output under its `--- FAIL`; `runCLI` bounds every call,
+  reads the simulator's in-flight requests and goroutine profile past the
+  bound, and never retries.
+- **The Caddy HTTPS gateway** starts through `testutil/httpsgateway`, which
+  returns once Caddy's log reports every managed certificate cached
+  (`certificate obtained successfully` precedes caching); Caddy comes from a
+  pinned release, since Ubuntu's is too old and Caddy's apt repository answers
+  CI runners 402.
 
-A test waits on the event it asserts. The AWS suites use the SDK's own waiters
-with 250 ms to 2 s delay bounds instead of the published 5 to 60 s —
-`InstanceRunning`, `SnapshotCompleted`, `TasksStopped`, `ServicesStable` with an
-acceptor that needs the rollout COMPLETED, `VolumeDeleted`,
-`DBInstanceAvailable`, `DBSnapshotAvailable`, AlarmExists filtered by
-StateValue, TargetInService — and the CLI suite the matching `aws … wait`
-commands. Where no waiter exists they use a long poll, Cloud Map's GetOperation,
-or Live Tail opened before stored history is read; a queue that must stay empty
-is watched with one long poll for the window. An `aws <service> wait` call is
-bounded only by the test's deadline, since the waiter polls on its own delay (30
-seconds for Amazon RDS) and fails by itself. The SQS retention test sets a
-message's visibility timeout to end just after the retention deadline and then
-long-polls. Waiting for full steady state is preferred over checking a partial
-condition.
+## Smaller lessons by service
 
-A test that asserts on work the background can repeat counts what it means to
-count. The Amazon ECS scheduler test whose replacement task fails to start, as
-it must without a metadata callback, records each launch through a store
-wrapper with the replacements still in flight when it was made: a replacement
-of a stopped replacement is the scheduler doing its job, and two replacements
-in flight for one failed task is the bug. A property that read as "fast enough"
-is asserted as the work it costs: concurrent DynamoDB queries each take the item
-lock once and read only their partition, counted through `RWLocks.Acquired` and
-a counting item store, where a four-second budget measured the machine.
+- **Amazon ECS and AWS Cloud Map.** A Cloud Map DNS namespace owns a real
+  Route 53 hosted zone and tasks resolve through the VPC resolver; the
+  simulator writes no `/etc/hosts` block. Tests resolve the fully-qualified
+  name, because an awsvpc task's search domain is not the namespace and a bare
+  name does not resolve on AWS either. A test that deletes its subnet first
+  stops its own cluster's tasks and waits with `aws ecs wait tasks-stopped`.
+- **Amazon EC2.** A test acts on an instance only in the state the action
+  requires: EC2 refuses to reboot a pending instance, and an instant committed
+  sidecar image had hidden that race until the sidecar was built on the
+  engine. The SDK suite's ECS fixture gives every VPC a /20 of its own out of
+  400, since 25 /16s let two live VPCs share a range once more than 25 tests
+  ran at once.
+- **Amazon RDS.** The AWS CLI's waiter polls every 30 seconds, so CLI tests
+  whose instance needs no backups create it with `--backup-retention-period
+  0`. Amazon RDS events and Elastic Load Balancing's hosted zones and DNS names
+  come from vendored guide pages (`scripts/fetch-aws-doc.sh` pins the branch
+  an archived guide lives on, because its default branch deletes its pages).
+- **AWS Lambda.** The CLI tests create functions with the architecture of the
+  images `TestMain` builds, which match the host's. A reserved runtime
+  variable in a function configuration is refused with Lambda's own message. A background
+  worker starts the moment it is registered, so the event source pollers
+  start after every slice is registered and the role-session stores open
+  first of all: a mapping restored from an earlier process once polled
+  through a role-credential store that did not exist yet and panicked.
+- **Amazon SNS.** A new topic carries the owner-only `__default_policy_ID`
+  policy, and a topic's `DisplayName` defaults to empty, not to its name.
+- **Google Cloud hosts.** Eventarc and Cloud Build both publish
+  `/v1/projects/{p}/locations/{l}/triggers`, and the Host tells them apart;
+  harnesses reach each through its own host with an HTTP proxy that delivers
+  to the simulator. `bq` builds its client from BigQuery's Discovery document
+  and tunnels any proxy, so a bare address serves `v2` as BigQuery's
+  (BUG-3337). The gRPC door listens on the HTTP port plus two so the three
+  simulators' defaults coexist.
+- **gcloud.** The harness pins a release new enough to carry every command
+  group the suite drives; an older pin lacked `run worker-pools` and failed on
+  the client rather than the simulator. gcloud's worker-pool commands speak
+  Cloud Run v2 over gRPC, which the simulator does not serve (BUG-3341), so the
+  CLI suite deploys pools over REST.
+- **Cloud Logging tails.** A tail streams only what is ingested after Cloud
+  Logging reads its request, so tests open it with `openReadyTail`, which
+  rewrites a marker until the tail streams it. Cloud Logging's own
+  configuration calls write audit entries, so tests that read a whole bucket
+  set those aside.
+- **BigQuery.** Queries run in an in-memory SQLite copy of the tables they
+  name, with GoogleSQL rewritten onto SQLite and functions registered on the
+  connection; a cgo-based GoogleSQL engine would break the pure-Go build
+  (BUG-3477 holds the untranslated constructs). A SELECT item takes its type
+  from what it computes, so a comparison is BOOL and an alias naming a source
+  column no longer borrows its type.
+- **Azure Event Hubs.** `TestEventHubsSDK_StartPositions` runs alone: it
+  learns that its Latest receiver attached from azcore's process-wide log
+  listener, whose link line names no event hub, so another test's link once
+  read as its own.
+- **Azure Cosmos DB emulator.** It needs most of a two-core runner for minutes,
+  so it starts once from `TestMain`, its two oracle tests run serially before
+  the parallel phase in a shard of their own, and `TestMain` removes it
+  explicitly because `os.Exit` skips deferred removal.
+- **Azure Private DNS.** Auto-registration is a reconcile over links and
+  machines run after every relevant write, not a hook per event, and never
+  replaces a record set someone created.
+- **Container Apps.** A CLI test waits for a template change to provision
+  before splitting traffic with `latest`, which resolves to the latest ready
+  revision; splitting at once landed on the earlier revision on a slow runner.
+- **Lint.** From golangci-lint v2.15.0 errcheck counts a receive from an error
+  channel that drops the value; proxies signal completion on a channel of
+  their own instead.
+- **The mux overlap scanner** once treated `{$}` as a wildcard; it anchors a
+  pattern at its end and shadows nothing.
+- **The test-network range gate** counts a function as placing when it sends
+  the REST body keys (`vnetConfiguration`, `virtualNetworkSubnetId`) as well
+  as the SDK fields; a raw-request test was invisible to it and took a range
+  another test held.
 
-An Azure test that starts a long-running operation by hand waits as a client
-does: the SDK suites hand the raw response to azcore's poller
-(`awaitARMOperation`), and the CLI suites drive `az rest --debug` through
-`azLongRunning`, which answers a Location poll's 202 by waiting its Retry-After
-(`azLocationResult`). An effect is read once after its operation ends, never
-polled for. The Event Hubs Latest consumer sends its event once azeventhubs logs
-the completed receiver attach through azcore's log listener.
-
-Every simulator a test starts waits on the banner it prints after binding
-(`simready`). Every harness that fronts one with the Caddy HTTPS gateway starts
-Caddy through `testutil/httpsgateway`, which reads Caddy's JSON log — the http
-app names the certificates it manages, and certmagic's `tls.cache` logger, which
-the gateway's Caddyfile routes to standard error at debug level, reports each as
-it enters the cache handshakes read — and returns once every managed name is
-cached, then makes one health request; certmagic's `certificate obtained
-successfully` line precedes caching. The Caddyfile turns off Caddy's storage
-check and clean-up, since each gateway starts on an empty data directory and the
-clean-up raced the first issuance. Those options need Caddy 2.7, newer than
-Ubuntu 24.04's 2.6.2, and Caddy's apt repository answers CI runners 402, so CI
-and `Dockerfile.test` install a pinned release from GitHub against its published
-checksums (`scripts/install-caddy.sh`), which ends by adapting the Caddyfile so
-an incompatible Caddy fails the install step.
-
-A Cloud Run job that must be seen running runs `container-command log-until
-MESSAGE PATH`, holding until an object appears in a Cloud Storage bucket it
-mounts read-only, and the test writes that object once it has observed the
-running state. The waits that remain are the cloud's or the engine's own:
-Pub/Sub's ten-second minimum ack deadline, the five-second
-`busy-reply-threshold` before a Redis replica running a script answers BUSY, and
-Redis's two-second hold on a new cluster primary.
-
-Tests name their resources per run — `uniqueName`, and `uniqueAlnumName` for
-names that admit no hyphen or stop at 24 characters — so a repeated run against
-one simulator passes; a test that changes an account-wide setting (the Amazon
-EC2 default credit specification, the account's Amazon VPC encryption control)
-restores it at cleanup. A Cosmos DB test provisions its own account, and a test
-reading a subscription-wide listing picks out its own row.
-
-The SDK and CLI suites run their tests in parallel. Every top-level test in the
-six suites starts with `t.Parallel()`, or names itself in its suite's
-`serial-tests.txt` with the reason it cannot share the simulator: it changes an
-account-, project- or subscription-wide setting other tests read, reads an
-account-wide quota usage other tests change (Amazon RDS DescribeAccountAttributes),
-owns the account's one AWS Organizations organization, sets an organization
-policy every project inherits, sets an environment variable of the test process,
-restarts the simulator, listens on SMTP's fixed port 25, or rebinds a port it
-just released, which a parallel test's outbound connection can take. `scripts/check-parallel-tests.go`
-holds the suites to that in pre-commit and CI's build gates, and fails a listed
-test that no longer exists or already runs in parallel, and a parallel test that
-reaches `t.Setenv` or `t.Chdir` through any function of its suite. A parallel
-test names its resources apart from every other test's, globally unique names
-such as an Azure Container Registry's included, and never asserts the length of
-a whole account-wide list. The Google Cloud SDK suite sets
-`STORAGE_EMULATOR_HOST`, `BIGTABLE_EMULATOR_HOST` and `SPANNER_EMULATOR_HOST`
-once in `TestMain`; its Firestore and Pub/Sub gRPC clients take the simulator's
-address as their endpoint, because the Firestore REST client refuses to start
-while `FIRESTORE_EMULATOR_HOST` is set.
-
-Every SDK and CLI suite target runs `go test -v` through
-`scripts/go-test-summary.sh`, which ends a failed run with each failing test's
-own lines grouped under its `--- FAIL`, printed by
-`scripts/go-test-failure-summary.sh`. CI's AWS SDK step, which runs a
-pre-built test binary into a log file, ends a failed run with the same summary.
-A suite's output runs to megabytes and its parallel tests interleave, so the
-tail a CI log reader sees otherwise held a bare FAIL.
-
-The AWS SDK suite's clients hand the transport each request body without its
-`io.WriterTo` (`sdkHTTPClient`). smithy-go closes a request's body once the
-response arrives, and its closed body's `WriteTo` answers `io.EOF`. net/http
-flushes the headers of a body it cannot see the length of in memory, writes the
-body, then reads it once more for bytes past its Content-Length; a response
-that lands before that last read makes the read fail, and net/http closes the
-connection as a failed write while the caller still reads the response from
-it. Under parallel load an event stream (CloudWatch Logs Live Tail, Kinesis
-SubscribeToShard) then ended at its first event with "use of closed network
-connection", about one stream in forty when the streaming tests repeated
-together. A closed body's `Read` answers `io.EOF` too, which net/http takes for
-the end of the body.
-
-The gcloud suite installs the `alpha` and `beta` release tracks in `TestMain`
-when the CLI lacks them, and CI and `Dockerfile.test` install them with the CLI:
-gcloud installs a missing track on the first command that names it, inside that
-test's per-command budget and alongside every other parallel test doing the
-same. A test that cancels a Cloud Run execution to exercise its workload's
-SIGTERM handler waits for the workload's own log line, matched whole, because
-the job's log also holds lines the service writes before any container runs. A
-cancel that lands while an execution's containers are still starting stops the
-start and settles the execution cancelled, with no attempt failure recorded or
-logged.
-
-Cloud Storage's lists resume strictly after the last name (or access ID, or
-cache ID) a page returned, so a bucket created or deleted between two page reads
-moves no other bucket onto a second page or off every page. `buckets.list`
-requires `project`, lists only that project's buckets and honours `prefix`; a
-test walking a shared project's buckets lists its own under a prefix of its own.
-
-An Amazon ECS test that deletes its subnet first stops its own cluster's tasks
-in that subnet and waits with `aws ecs wait tasks-stopped`, scanning only its
-own cluster. A task that holds the subnet traps SIGTERM, so `StopTask` ends it at
-once.
-
-The AWS CLI tests create AWS Lambda functions with the architecture of the
-images `TestMain` builds, which match the host's.
-
-A test asserts a boundary at a small parameterised limit rather than by reaching
-the real one: the OCI body cap is a parameter tested at 64 KiB. A soak test's
-reader pool is sized to the machine and yields. A nightly fuzz failure becomes a
-seed, so ordinary `go test` catches the regression.
-
-`sim.SyncContainerHostEntries` rewrites a container's whole hosts file from what
-it read, so it holds a mutex across concurrent Cloud Map namespace syncs.
-
-Dependencies of every class — Go modules, Terraform providers, GitHub Actions,
-installed tools, the consoles' npm packages and digest-pinned container images —
-are held to their newest release past a 24-hour adoption quarantine.
-`ui/bunfig.toml` sets `install.minimumReleaseAge` to the same day, because caret
-ranges let the resolver pick versions the quarantine refuses. An exact provider
-pin is compared exactly, an unpinned provider is a failure, and every entry of a
-`required_providers` block is read. On a pull request, a drift byte-identical to
-`main`'s is reported rather than failed, since upstream moved under the branch.
-Every network lookup carries a deadline and fails naming what never answered. A
-deliberate hold names its cause and goes when the cause does. Resolving the
-module behind a workflow's `go install` path asks the module proxies alone,
-since `direct` would clone each non-module prefix.
-
-The quarantine's self-test (`scripts/test-latest-deps-quarantine.sh`) serves
-every registry from fixtures it writes: a Go module proxy over Go's `file://`
-protocol, with `proxy.golang.org` answering only checksum-pinned files, and a
-local HTTP server holding the Terraform registry's and the GitHub API's
-documents, answering an unknown credential with 401 as GitHub does. The check
-reads them through `GOPROXY`, `DEPS_TERRAFORM_REGISTRY_URL` and
-`DEPS_GITHUB_API_URL`. Every publication time is fixed except one Terraform
-release dated an hour before the run, and a listed version whose document
-carries no `published_at` fails the run by name. Reading `GOPROXY` runs with
-`GOTOOLCHAIN=local`, since `go env` would otherwise download a newer toolchain
-through the proxy a stalled run cannot reach.
-
-Digest-pinned images follow the same quarantine. `scripts/check-latest-deps.sh`
-finds every `mirror.gcr.io/...` reference spelling a tag and a digest, outside
-Markdown, and reads Docker Hub's tag API and `mirror.gcr.io`'s manifest. A pin
-fails when Docker Hub has served another digest for its tag for a day, when a
-newer release with the same variant and major version has been on Docker Hub for
-a day, or when the copy serves another digest than the pin; anything younger is
-held. A newer number Docker Hub stopped rebuilding before it last rebuilt the
-pinned tag, such as Ubuntu 24.10 beside 24.04, is an abandoned line.
-
-## Continuous integration
+## Continuous integration and dependencies
 
 Jobs are held to fifteen minutes; a timeout kill reports as "cancelled", which
-reads as infrastructure noise. The suites are sharded on measured time, with
-gates holding every test to exactly one shard; a shard may `skip` what another
-runs. Microsoft's Cosmos DB emulator needs most of a two-core runner for
-minutes to initialise, so the two Cosmos DB oracle tests run in a shard of
-their own. Each suite builds its simulator
-into `.build/<suite>/` and namespaces its images per suite.
-
-Base images are read out of the source by `scripts/base-images-for.sh` — which
-scans `sim/` for every simulator and reads digest references — and warmed from
-one cache entry per cloud keyed on the image set, because public registries
-throttle anonymous pulls, and the ECR Public Gallery, which serves the images AWS
-publishes, caps them by data volume, which no retry recovers from. Every suite
-takes a base image through `testutil/baseimage.Ensure`, which asks the host
-first; a pull that tests a simulator's own registry is the named exception. A
-reference spelling a tag and a digest is saved and found under the digest's
-local tag (`repo:sha256-<hex>`) by the warm script and
-`testutil/baseimage.LocalRef`. Warming is `continue-on-error`, because the point
-of use fails naming the image. Jobs never delete the shared Go caches and
-refresh the apt index only when a package is missing. In the AWS SDK shards one
-shard saves the Go cache after its pre-build and the rest only restore it, and
-each push to main saves every cloud's entry from the same builds, because a pull
-request restores only its own runs' caches and main's, and main's verification
-jobs skip a tree its pull request already passed; the build gates keep their
-own Go cache. Workflows reference as few external actions
-as possible, since the runner downloads every named action per job. A tool a
-suite needs — gcloud, `cbt`, the AWS CLI — is installed in `TestMain` with a few
-retries, never skipped. A Terraform harness stops when its simulator does not
-build.
-
-Every client-surface test is a Go harness CI runs, authenticating with a token
-minted by the simulator's token endpoint. The Google Cloud bash script that
-presented a literal bearer token ran in no job, so nothing saw the data plane
-refuse it; the CLI and SDK suites already covered what it did, and its
-`gcloud services enable` and `gcloud services list` moved into the CLI suite.
-
-Nothing CI builds or runs pulls from Docker Hub, which limits anonymous pulls
-per address. Docker's official images come from `mirror.gcr.io`, Google's
-public copy of Docker Hub, which serves them anonymously without that limit:
-the simulator images and `Dockerfile.test` build from it, BuildKit and the
-Dockerfile syntax image come from it, and a test's workload image names its
-`mirror.gcr.io/library/...` tag, each build image pinned to the index digest
-Docker Hub serves for the tag. The ECR Public Gallery's copy of the official
-images served them before; under CI's load it answered `toomanyrequests: Data
-limit exceeded`, failing every container-backed test at its pull, and copying
-the images into a registry the project owns would have made every pin update a
-refresh of the copy. The ECR Public Gallery still serves what AWS publishes
-there — the AWS Lambda base images, Amazon DynamoDB local and the AWS CodeBuild
-images — since those are the images the real services run. The AWS CLI image
-the Amazon ECS and AWS CodeBuild workloads run is a workload, not a service
-image, and comes from `mirror.gcr.io`'s copy of Amazon's own Docker Hub
-`amazon/aws-cli`: the SDK suite's first pull of it from the gallery hit the
-same data limit. A
-digest-pinned workload image is left out of warming because `docker load`
-restores none by digest. The images the simulators pull themselves follow the
-rule: the Container Apps Dapr sidecar, the Percona XtraBackup helper, the
-Memorystore for Redis engines, the Amazon RDS engines and the Amazon EBS
-volume-copy helper all come from `mirror.gcr.io`. The Google Cloud simulator
-presents a service account's token only to Artifact Registry and to Container
-Registry's four hosts (`gcr.io`, `us.gcr.io`, `eu.gcr.io`, `asia.gcr.io`), and
-pulls from `mirror.gcr.io` anonymously: the mirror belongs to no project and
-answers a token it cannot verify with 401.
-
-A differential oracle is pinned by its multi-platform index digest, and the
-harness refuses an image built for another architecture than the engine's. Its
-readiness wait is a wall-clock deadline with a single-attempt probe, and the
-container is kept until the test removes it, so a failure reports the last probe
-error, the container's state and its log. Microsoft's Cosmos DB emulator starts
-once for the Azure SDK suite, from `TestMain`, because two emulators on a
-two-core runner starve each other. The two tests that compare against it run
-serially, before the parallel phase, so the emulator initialises on a runner
-nothing else loads, and the last of them removes it before the parallel tests
-start; `TestMain` removes it explicitly as well, since `os.Exit` skips a
-deferred removal. Every Terraform harness runs `init -upgrade`
-against exactly pinned providers, a pre-commit hook holds `.tf` files to
-`terraform fmt`, and a suite's Lambda image declares the machine's architecture.
-The Google Cloud gRPC door listens on the HTTP port plus two (`:4569`), so the
-three simulators' defaults coexist.
-
-A push to `main` runs CI only when its tree has not already passed on its pull
-request. Branch protection makes a pull request current with `main` before it
-merges, so a squash merge commits the tree its head carried, and re-running
-every job per merge starved the account's runners. The first job
-(`scripts/ci-verified-on-pr.sh`) finds the merged pull request, compares trees
-and looks for a successful CI run on its head; when all hold, every other job
-skips and the run's verdict is that pull request's. A merge made before its CI
-finished, a push without a pull request, a tag push and any failed lookup run
-the full suite, and `!cancelled()` on every job keeps a failure of the check
-itself from skipping anything.
-
-Release pull requests run no CI: they change only `CHANGELOG.md` and
-`.release-please-manifest.json`, the Actions approval policy holds runs of pull
-requests opened by `github-actions[bot]`, and the owner keeps that policy strict
-so outside contributors cannot run CI; the owner merges them by bypass. The
-Release workflow ends in a reconciliation job
-(`scripts/verify-release-complete.sh`) that fails unless every expected asset
-and image index exists. The simulator images embed the console the
-`build-console` action builds before the image build, keep the Go caches in
-cache mounts and export no BuildKit cache, which only re-uploaded base
-layers. Manifest composition retries only a broken connection.
-
-Publishes are keyed per commit and never cancelled by a later merge; retention
-runs in its own workflow and spares anything younger than two hours, because a
-publish between its two per-architecture pushes looks like an abandoned remnant.
-The required-status-check manifest is compared against `main`'s live branch
-protection by a pre-push hook, since protection drifts without a commit. The
-daily specification refresh checks out the pull request it will land on before
-re-vendoring, so it measures drift against that branch's pins and lands as one
-commit.
-
-A workload container publishes every port the host reaches it on:
-`sim.HTTPContainerConfig.PublishPorts` is required, and `StartHTTPContainer`
-publishes each on loopback — an App Service site its `WEBSITES_PORT`, and a
-Cloud Run network-namespace owner the ingress port and every startup probe's
-port, for services and jobs alike.
-
-A Google provider release that adds a resource over an API the simulator already
-serves gets a fixture under `simulator-gcp/terraform-tests/fixtures/`, applied,
-read back and re-planned for drift by `applyFixture` and `requireNoDrift`, with
-only the endpoints that resource reaches.
-
-`scripts/check-repo-config-sane.sh` fails a commit whose checkout has acquired
-`core.bare = true` or a test fixture's identity — the corruption a `git config`
-run without `-C` in a linked worktree writes into the shared `.git/config`.
-Every `git config` this repository runs names its target with `-C`.
-
-`Dockerfile.test`, the shared harness image, is committed and un-ignored by name
-(`.gitignore` ignores `*.test`), with every toolchain pinned to a version and a
-digest, because the image decides what a test result means.
-
-Every CLI command the AWS and Azure bash scripts drove is driven by the Go CLI
-suites with assertions on what it answers, and the scripts are gone: no job ran
-them, and a script nothing runs reports nothing when it breaks.
-
-The console browser suites run fully parallel, with Playwright's default of one
-worker per two cores.
-
-Every workflow installs Go through `.github/actions/install-go`, a composite
-action that downloads the newest Go 1.26 toolchain from the Go module proxy with
-retries and, with `cache: 'true'`, caches the module and build caches keyed on
-the toolchain and every `go.sum`. `actions/setup-go` is gone: the runner fetched
-its archive from codeload.github.com before each job's first step, made a single
-attempt, and failed ten jobs of one run when codeload answered 404.
-`scripts/check-latest-deps.sh` holds the actions a local action uses to the same
-freshness rule as the workflows'.
-
-`sim/dnsserver` is the DNS listener every simulator answers its zones on. A
-cloud hands it a `Catalog`: the zones and the zone-less names a query can see,
-given the address it came from and the address it arrived at. The package owns
-the rest — one port on UDP and TCP, longest-zone matching, RFC 4592 wildcards
-under the closest encloser, CNAME chains across zones, delegations with glue,
-NXDOMAIN versus NODATA with the zone's SOA (its TTL the lesser of the SOA's TTL
-and MINIMUM), EDNS0 and truncation on UDP, forwarding zones, and recursion
-through upstreams that leave out the server itself and the addresses workload
-networks reach it at. The catalog attributes a query to the network it came
-from, which is how Route 53 tells which VPC asked: a private hosted zone
-answers only the VPCs it
-is associated with, ahead of a public zone of the same name, and an alias
-answers with its target's record set under its own name. The Azure listener
-serves the custom cloud's endpoint suffixes as wildcard zones, every Azure DNS
-public zone, and the names data planes register; Cloud DNS serves its public
-managed zones, and a new managed zone carries the NS and SOA record sets and
-the four `nameServers` Cloud DNS assigns.
-
-Every workload asks its own cloud's resolver through the sidecar of its
-network, at the address the cloud reserves for the resolver inside the
-network's range (`sim/sidecar`; the section on execution modes says why it is
-not the cloud's link-local address). Azure runs
-a resolver on every address for virtual networks on every start, beside the
-listener an operator binds at `SIM_AZURE_DNS_LISTEN_ADDR` (often loopback,
-which a workload cannot reach), both answering from one catalog that
-serves a private zone to the virtual networks it is linked to; Cloud DNS's catalog serves private zones to
-their visibility networks, forwarding zones through their target name servers
-on port 53, and peering zones from the zones their target network sees, one
-hop deep.
-
-Azure Private DNS auto-registration is a reconcile, not a hook per event:
-`azureReconcileAutoRegisteredRecords` derives every zone's registered A
-records from the links with registration enabled and the machines whose
-primary interface has an address in a linked network, and runs after every
-virtual machine, network interface and link write and after a machine boots.
-A record carries `isAutoRegistered`, the machine's computer name and a TTL of
-10, and never replaces a record set someone created. Cloud DNS answers a
-bound network's query from the most specific response-policy rule — an exact
-name over a wildcard, a longer wildcard over a shorter — ahead of every zone,
-a `bypassResponsePolicy` rule handing the name back; a DNS policy's
-alternative name servers become a root forwarding zone below the network's
-private zones, replacing Google's resolution and the public zones.
-
-Route 53 health checks probe. A background checker runs each endpoint check
-on its `RequestInterval` — HTTP and HTTPS (certificates unverified, redirects
-not followed, 2xx and 3xx passing), the string-match variants over the first
-5,120 bytes, and TCP — within a four-second connect and two-second response
-bound, flips the status after `FailureThreshold` consecutive disagreeing
-probes, honours `Inverted` and `Disabled`, and reports the latest probe and the
-latest failure from the simulator's Region. A calculated check counts its
-healthy children against `HealthThreshold`. The resolver chooses among a
-name's record sets by routing policy: failover answers the healthy primary or
-else the secondary, weighted draws one healthy set by weight, multivalue
-answers up to eight healthy sets, latency the querier's Region, IP-based the
-most specific CIDR location holding the querier's address, and geolocation
-its default; when no set is healthy, all count as healthy. Cloud DNS refuses
-to delete a zone that still holds records besides its apex NS and SOA, with
-`containerNotEmpty`.
-
-`sim.Main` is the startup every simulator binary runs, described by a
-`sim.Program`: the provider and its default port, a `Configure` hook that checks
-or records the resolved configuration, the cloud's `Build`, and a `Start` that
-starts what serves beside the HTTP port and returns the stop run after the HTTP
-server shuts down — Cloud DNS, the gRPC server and the serving-only clocks for
-Google Cloud; the Azure DNS listener and the raw Service Bus AMQP listener for
-Azure. A step that fails ends the process before it serves. `ConfigFromEnv` takes the default port and reads
-`SIM_<PROVIDER>_PORT` ahead of `SIM_LISTEN_ADDR`, so no binary rewrites a
-placeholder address. Azure Container Instances asks `sim.RequireContainerRuntime`
-whether it can run containers, from the runtime mode the server resolved once,
-instead of reading `SIM_RUNTIME` again; `sim.EnvOr` replaced each cloud's copy
-of the same environment helper.
-
-`TestEventHubsSDK_StartPositions` runs alone. It learns that its Latest
-receiver attached from azcore's process-wide log listener, and the link line
-names a connection and a link but no event hub. Another parallel test's
-partition-0 link once read as its own, so it published before its receiver
-attached and waited for an event that came before Latest.
-
-An AWS Cloud Map DNS namespace owns a real Route 53 hosted zone.
-CreatePrivateDnsNamespace creates a private zone associated with the
-namespace's VPC, and CreatePublicDnsNamespace creates a public one. Each zone
-carries the `servicediscovery.amazonaws.com` LinkedService and the SOA TTL
-the namespace sets, and DeleteNamespace deletes it. RegisterInstance,
-DeregisterInstance, UpdateService and the namespace updates rewrite the
-zone's records the way the Cloud Map reference states:
-- each instance gets one record set per DnsRecord type, under
-  `<service>.<namespace>`, with the instance ID as SetIdentifier, and a
-  multivalue answer or a weight of 1 by the service's routing policy;
-- an SRV record set's value is `1 1 <port> <instance>.<service>.<namespace>`,
-  and that target name gets its own A or AAAA record;
-- `AWS_ALIAS_DNS_NAME` writes an alias to the load balancer.
-Amazon ECS tasks resolve service names through the VPC resolver, which
-answers from that zone; the simulator writes no `/etc/hosts` block into a
-task. The ECS cross-task DNS tests resolve the fully-qualified name: an awsvpc
-task's search domain is not the namespace, so on AWS a bare service name does
-not resolve. UpdateService replaces a service's DnsRecords and keeps its
-routing policy.
-
-Cloud Logging sinks to a BigQuery dataset stream each entry they route into
-the table for its log. The table is named from the log ID, with each
-non-alphanumeric character as an underscore. By default the name carries the
-entry's UTC date, as in `syslog_20170523`. With
-`bigqueryOptions.usePartitionedTables` there is one table, partitioned by day
-on its `timestamp` column, and the sink reports
-`usesTimestampColumnPartitioning`, as the Discovery document says every new
-sink does. The table's columns are the entry's LogEntry fields:
-- `timestamp` and `receiveTimestamp` are TIMESTAMP;
-- payloads, labels and resources are RECORDs whose keys become BigQuery names;
-- Cloud Logging widens the schema as new payload fields arrive.
-Sinks keep `bigqueryOptions`, which the simulator used to drop, and an update
-mask can name it. Reading the exported rows back showed that BigQuery
-`jobs.query` ignores its SQL beyond FROM and one equality WHERE (BUG-3477).
-
-`scripts/check-latest-deps.sh` fails a run when the module proxy refuses a
-Go module's version listing. It used to skip such a module as if nothing newer
-existed, so on a full disk the check reported every module current; its
-self-test caught that.
-
-Amazon SNS topics now match the service in three ways:
-- A new topic carries the owner-only `__default_policy_ID` policy, which
-  Amazon SNS gives every topic. AddPermission and RemovePermission keep its
-  statement, and statements keep every field their author wrote. GetTopicAttributes
-  answers the service's default `EffectiveDeliveryPolicy`, filled in around
-  whatever DeliveryPolicy the topic sets. `terraform-tests/sns-delivery-status`
-  no longer spells out the default policy.
-- CreateTopic and SetTopicAttributes refuse attribute names the Smithy model
-  does not document, with InvalidParameter. SetTopicAttributes refuses a
-  DeliveryPolicy that is not JSON.
-- A filter policy that drops a message publishes
-  `NumberOfNotificationsFilteredOut` and the variant that names why. A
-  dead-letter redrive publishes `NumberOfNotificationsRedrivenToDlq` or
-  `NumberOfNotificationsFailedToRedriveToDlq`.
-`sim/delivery.Post` keeps the receiver's answer, up to a mebibyte, on the
-outcome and on the item as `LastResponse`. An HTTP/S subscription's delivery status
-log entry records that answer as `providerResponse`, on success and on
-failure alike, and the dispatcher's error only when no answer came.
-
-A workload's HTTP server in a test reads the request before it answers. The
-Cloud Run restart test's `nc -e` handler printed its response the moment
-`nc` accepted a connection. When those bytes reached the simulator's reverse
-proxy before it had written its request, Go's transport took them for an
-unsolicited response, dropped the connection and answered 503
-(`readLoopPeekFailLocked`). The handler now reads the request's headers
-first, as the Azure workload servers already did.
-
-BigQuery queries evaluate their SQL. `jobs.query` and query jobs load the
-tables a statement names into an in-memory SQLite database and run the
-statement there. Each column gets the SQLite type that compares the way
-BigQuery compares it: INT64, BOOL and TIMESTAMP (as epoch microseconds) are
-INTEGER, FLOAT64 is REAL, and a RECORD or REPEATED value is its JSON. The
-statement's table references are rewritten to the loaded copies, each
-aliased by its table name, and a query's `defaultDataset` qualifies a bare
-table name. A result column that names a source column keeps that column's
-type; any other column takes the type of the values SQLite computed for it.
-The previous query path answered every column of the one table in FROM and
-honoured only a single equality in WHERE. `tabledata.insertAll` now converts
-each row against the table's schema and stores the cell forms that
-`tabledata.list` and queries read. A row that does not convert is reported in
-`insertErrors`, and without `skipInvalidRows` it stops the request's other
-rows with reason `stopped`.
-
-The last two AWS and Azure lists that paged by position now page by a key.
-Amazon EFS tags (ListTagsForResource and the older DescribeTags) page by tag
-key, which is unique on a resource. An App Service Environment's stamp
-capacities page by their pool: multi-role pools come first, then worker pools
-in numeric order. Removing a tag or a pool between two calls therefore moves
-nothing else across the page boundary.
-
-An App Service site's docker log rotates by the site's file-system log
-settings, as App Service rotates its daily docker log files. Lines older
-than `httpLogs.fileSystem.retentionInDays` expire. Past `retentionInMb` the
-oldest days go first, then the oldest lines of the day still being written. A
-running byte count per site keeps the check off the store on each line.
-`PUT /config/logs` applies the new settings at once, and the production
-site's `GET /config/logs` now answers what PUT stored instead of the all-off
-default.
-
-A BigQuery query job writes its result to its `destinationTable` under its
-create and write dispositions, as the Discovery document defines them.
-WRITE_EMPTY, the query default, fails the job with `duplicate` when the table
-holds rows. WRITE_APPEND and WRITE_TRUNCATE_DATA keep the table's schema and
-fail with `invalid` when the result's schema differs; WRITE_TRUNCATE replaces
-both the rows and the schema. CREATE_NEVER fails with `notFound` when the
-table does not exist. The write is one atomic step under the table's lock. A
-failed query job finishes DONE with its `errorResult`, and `getQueryResults`
-answers that error with the HTTP status its reason maps to, which is how the
-client libraries learn of the failure.
-
-Every query job now reports `statistics.query.statementType`, which `bq
-query` reads before it prints a result. The query engine refuses any
-statement that does not begin with SELECT or WITH, and any job holding more
-than one statement. Before, it ran DML and DDL against its temporary copy of
-the tables and reported success while changing nothing.
-
-A BigQuery query's SELECT list item takes its type from what it computes. A
-bare column reference keeps the source column's type. A comparison or a
-logical expression (`=`, `<`, `AND`, `NOT`, `IS`, `IN`, `LIKE`, `BETWEEN`,
-`EXISTS` outside parentheses and CASE) is BOOL, and answers `true` or `false`
-where SQLite answers 1 or 0. Any other expression takes the type of its
-values. An alias that happens to name a source column no longer borrows that
-column's type.
-
-Cloud Map instance health now governs DNS answers. `UpdateInstanceCustomHealthStatus`
-records the requested status and applies it 30 seconds later, as the
-HealthCheckCustomConfig documentation describes. A request that restores the
-status in force cancels a change still waiting, and repeating a change does
-not restart or shorten the wait. A service with a `HealthCheckConfig` gets a
-Route 53 health check per instance with an IPv4 address. Each check probes the
-instance's address and `AWS_INSTANCE_PORT`, carries the
-`servicediscovery.amazonaws.com` `LinkedService`, and is attached to the
-instance's record sets. Re-registering the instance or updating the service
-replaces the check, and deregistering deletes it. The Route 53 resolver takes
-an instance's Cloud Map health into account for record sets in a zone Cloud
-Map owns, so an unhealthy instance drops out of the answer while a healthy
-one remains. Its record set stays in the zone. When every instance is
-unhealthy, all of them answer, as Route 53 does.
-
-Amazon RDS events now come from a vendored source. `scripts/fetch-aws-doc.sh`
-vendors a page of an archived AWS user guide's Markdown source, pinned to the
-commit that last touched the page. A `repo@branch` origin in SOURCES.md
-names the branch the freshness check asks about, because an archived guide's
-default branch deletes its pages. Two pages now ship vendored: the "Amazon RDS
-event categories and event messages" table and the EventBridge tutorial's
-captured event. Each event the simulator records carries the table's event
-ID, category and message. The Multi-AZ failover events had been worded from
-the table's notes column and now read "Multi-AZ instance failover started."
-and "Multi-AZ failover to standby complete - DNS propagation may take a few
-minutes.".
-
-A store wrapper (`rdsObserve`) sees every write to the DB instance and DB
-snapshot stores, so a status change records its event whichever code path
-makes it:
-- creation as an instance leaves `creating`;
-- backup start and finish around `backing-up`;
-- stop and start as they finish;
-- an instance class change;
-- deletion as the record goes;
-- a manual or automated snapshot's creation, and a manual snapshot's deletion.
-
-A rename or blue/green switchover moves a record to another identifier
-without creating or deleting it, so a write whose DbiResourceId another record
-still holds records nothing. RebootDBInstance records "DB instance
-restarted.", and ModifyDBParameterGroup records "Updated parameter ...". The
-creation event that DescribeEvents used to derive from InstanceCreateTime is
-gone, because the recorded event replaces it. Each DB instance event goes to
-the default event bus as an "RDS DB Instance Event" from `aws.rds`, with the
-tutorial's detail members. EventBridge's own PutEvents path and this one share
-`ebAcceptEvent`.
-
-A Route 53 `CLOUDWATCH_METRIC` health check follows its CloudWatch alarm. The
-check keeps the `AlarmIdentifier`, `InsufficientDataHealthStatus` and
-`RoutingControlArn` it was created or updated with, and reports the alarm it
-monitors as `CloudWatchAlarmConfiguration`. Its status is healthy while the
-alarm's effective state is OK and unhealthy while it is in ALARM. Otherwise it
-takes `InsufficientDataHealthStatus`, where `LastKnownStatus` is the status
-the alarm last decided, and healthy for a check that never had one. An alarm
-named in another Region has insufficient data, and `Inverted` flips the
-result. The status reads the alarm at query time, so a failover or
-health-checked answer moves as soon as the alarm does.
-
-A Route 53 alias to a load balancer answers the load balancer's address. The
-resolver answers each load balancer's DNS name with the address its stream,
-TLS and HTTPS listeners are bound at, with the 60-second TTL that the Elastic
-Load Balancing user guides give a load balancer's DNS record. An alias whose
-target lies outside every hosted zone takes the records of the resource that
-answers to that name, at the resource's TTL, as the Route 53 guide's page on
-alias records describes. Load balancer DNS names follow the guides' examples:
-an Application Load Balancer's is `<name>-<number>.<region>.elb.amazonaws.com`,
-prefixed `internal-` when internal, and a Network or Gateway Load Balancer's is
-`<name>-<id>.elb.<region>.amazonaws.com`, where the id is the one that ends its
-ARN. Tests resolve a load balancer's name through the resolver instead of
-assuming 127.0.0.1. The pages are vendored by `scripts/fetch-aws-doc.sh`,
-which pins the branch a guide's pages live on.
-
-A load balancer reports its own Region's canonical hosted zone. The zones come
-from the Terraform AWS provider's copy of the General Reference's Elastic Load
-Balancing endpoints table, which `scripts/fetch-aws-elb-hosted-zones.sh`
-vendors verbatim and turns into `elbv2_hosted_zones_vendored.go`, keyed by
-load balancer type and Region; a unit test holds the generated table to the
-vendored file. An Application and a Network Load Balancer each report their
-type's zone, and a load balancer the table names no zone for, such as a
-Gateway Load Balancer, reports none.
-
-Three CI flakes had causes in the simulators and the suites. Cancelling a
-Cloud Run worker pool's or instance's deploy stopped its instances before it
-recorded the cancellation, so the stopped start could settle the deploy as
-failed first, and the pool kept a failed Ready condition without the
-`Cancelled` reason. The cancel now records the condition, then stops the
-instances. Kudu's VFS stated a file, declared that size, then copied the whole
-file. A continuous WebJob's log grows while it is read, so the body overran its
-`Content-Length` and the client's next request on the connection read a broken
-response. The VFS now stats the open file and copies exactly the declared
-length. The DynamoDB Local oracle now comes from mirror.gcr.io's copy of
-Docker Hub's `amazon/dynamodb-local`, which serves the same pinned digest,
-because anonymous pulls from the ECR Public Gallery fail with
-`toomanyrequests` whenever the image cache misses.
-
-axe-core 4.14 checks that a link's accessible name contains its visible text.
-The Azure service menu's link to an unsupported service rendered its label and
-its "Not supported" badge with no space between them, so the visible text ran
-the two words together and missed the link's `aria-label`; a space now
-separates them.
-
-An Amazon ECS service reports `CPUUtilization` and `MemoryUtilization` under
-`AWS/ECS` with its `ClusterName` and `ServiceName`, as the Amazon ECS
-developer guide's CloudWatch metrics page describes. Every 15 seconds the
-simulator reads each running service task's containers from the container
-engine and records the service's CPU units in use over those its tasks reserve
-(the task size, else the containers' `cpu`) and its memory in use over the
-memory reserved (the task size, else each container's `memoryReservation` or
-`memory`). Each minute's samples reach CloudWatch together once the minute has
-closed, so a minute's `SampleCount` counts them. An Application Load Balancer
-reports its `RequestCount` and `RequestCountPerTarget` the same way: once per
-minute, as each minute that carried requests closes, which is the 60-second
-interval the Application Load Balancers guide states.
-
-Main warms the base-image archive the way it warms the simulator Go cache. A
-pull request restores only the caches it saved and those main saved, and main's
-verification jobs skip a tree its pull request already passed, so no archive
-existed for a new pull request: each of its jobs pulled every image again and
-spent minutes archiving the set, which ran the AWS race job past its 15-minute
-limit and sent ECR Public pulls into the anonymous throttle. The `warm base
-images` job, on each push to main, restores each cloud's archive and, when the
-image set changed, fetches what is missing and saves it under the set's key.
-
-## Execution modes and the no-privilege rule
-
-The simulators ran workloads two ways: containers on engine networks, and a
-host-namespace tier of veths, `nftables` rules and Firecracker guests that
-needed `CAP_NET_ADMIN`, `CAP_SYS_ADMIN` and `/dev/kvm` on the host, beside
-two helper containers that held privilege on the simulator's behalf — a
-`CAP_NET_ADMIN` container that plumbed an Amazon ECS task's elastic network
-interface address and a `--privileged` container that attached a managed EBS
-volume's image to a loop device. The tier could not run in CI or on a
-developer machine, so every resource behind it answered a refusal there, and
-the two network models diverged: a Docker-network workload resolved through
-the engine's resolver while a namespace workload resolved through the
-cloud's.
-
-`PLAN.md` replaced the two with three modes — embedded, embedded with node
-agents, distributed — under one rule: the simulator process holds no host
-privilege in any mode, and a workload container holds no capability. Where a
-workload runs is a property of the service, chosen in simulator configuration:
-compute services and managed engines run on containers by default and on
-Firecracker microVMs when configured, through one `sim` backend interface
-with a container implementation and a microVM implementation. A node agent, a
-container the engine grants `/dev/kvm`, is the only thing that boots guests
-or filters packets, and it runs only in the two modes that name it. A VPC is
-an engine network; the cloud's fixed resolver and metadata addresses are
-sidecars on a link-local subnet of each network; NAT is a sidecar proxy;
-security groups are enforced on the flows the simulator mediates, with the
-container-to-container gap recorded until a node agent closes it; a managed
-block volume on the container backend is an engine volume, its size bound a
-node agent's. The specifications in `specs/SIMULATOR_EXECUTION.md` and
-`specs/SIMULATOR_REAL_EXECUTION.md` state the contract, and stage 1 of
-`PLAN.md` removes the tier and the helpers in one pull request.
-
-### Stages 1 to 4 landed in one pull request
-
-The removal, the sidecars, the placement interface with the container backend
-and the node agent with the microVM backend landed together with the shared
-libraries, so the tree never held the old tier and the new model side by
-side. The `realexec` module is gone: `lbplane`, the address ledgers (`ipam`)
-and the rule parsers (`netrules`) moved under `sim`, where a cloud reaches
-them without a second support pin.
-
-A VPC, a Compute Engine subnetwork and an Azure virtual network are engine
-networks over the resource's own CIDR, created at the first attach
-(`sim.EnsureCloudNetwork`), and a workload's address is fixed at attach to the
-one its interface reports, so the cloud API and the engine never disagree. A
-bridge network carries one subnet, so the engine refuses two live networks
-over one range (Docker's `Pool overlaps`); the simulator reclaims a range
-whose owning simulator process is dead and otherwise answers the cloud's own
-error for the attach. That same single subnet is why the sidecar does not sit
-at the cloud's link-local addresses: it sits at the address the cloud reserves
-for its resolver inside the range (base plus two in a VPC and an Azure virtual
-network, the second-to-last address of a Compute Engine subnetwork), every
-workload names it with `--dns`, and the metadata URL travels in the variable
-the cloud's SDKs honour. A fixed link-local metadata address is a recorded gap.
-
-The sidecar is one static binary the engine compiles from the sources the
-simulator embeds (`sim.SidecarSource`), so no binary is committed and none can
-drift from its source. The sidecar forwards DNS to a per-network listener of the
-cloud's resolver, which attributes the query to that network and never to
-anything inside the message, and forwards metadata requests to the simulator
-with a token the simulator minted at start; the trust middleware verifies the
-token, rewrites the request's remote address to the workload's and drops the
-header, so a workload cannot forge the sidecar and the metadata handlers keep
-keying by address.
-
-Where a service's workloads run is the placement table (`SIM_PLACEMENT`,
-`service[:qualifier]=container|microvm`), read once at start into
-`sim/placement`. Every launch path places through the table's backend and
-holds a `Handle` — wait, cancel, exec, published port — so the container and
-microVM implementations are interchangeable behind one call. VM instances on
-the container backend are `sim/vminstance` workloads: the image comes from the
-cloud's own catalog (Amazon Linux 2023, Ubuntu 24.04 and Debian 12 by digest),
-a seeded init runs the instance's user data as a script, the container is
-kept on exit so stop and start keep the root disk, and an image captured from
-an instance is the committed container. Cloud-init YAML is a recorded gap.
-
-The node agent is the only container with a device: the binary starts it with
-`/dev/kvm`, `/dev/net/tun` and `CAP_NET_ADMIN` inside its own namespace, where
-it bridges its interface, gives each guest a tap, filters a guest's ingress
-with an nftables bridge-family rule set from the cloud's rules, and boots
-Firecracker guests from root filesystems it builds out of the same OCI images
-the container backend runs (`mkfs.ext4 -d` over the image export). The guest
-init speaks to the agent over vsock. The agent's API is authenticated with a
-token minted at start and listens only where the control plane reaches it. The
-proof is `make node-agent-test`, gated on the `kvm` build tag, and CI's
-node-agent job is the one job with KVM.
-
-Security groups, network security groups and firewall rules are enforced on
-the flows the simulator mediates through `lbplane`'s `Admit` hooks; traffic
-between two containers on one network is not filtered, and that gap closes
-only on the microVM backend, where the agent filters at the tap. A TCP proxy's
-hook is installed with `SetAdmit`, atomically, because a listener's security
-group changes while the proxy serves and the race detector caught the plain
-field.
-
-The platform network — the one every workload on no cloud network joins — is
-not an engine-managed network: Docker admits a fixed address only on a network
-whose subnet the user configured, and the sidecar and the node agent both need
-one. `sim.EnsurePlatformNetwork` takes a /24 of the RFC 6598 shared address
-space (100.64.0.0/10), chosen by the network's name and moved on collision, so
-two simulators on one engine each get their own and no cloud CIDR is shadowed.
-Every per-run network a cloud creates for a workload (an ACR Tasks run's
-`acb_default_network_<id>`) goes through the same call.
-
-Firecracker's API server admits a handful of connections and answers 503 "Too
-many open connections" past that, so the agent's client closes its connection
-after every request instead of leaving a keep-alive behind.
-
-Per cloud, the decisions that shaped the wiring. Route 53, Cloud DNS and Azure
-DNS attribute a query by the engine network its sidecar forwarded it from
-(`Query.Network`), and the per-record engine aliases and per-zone networks the
-clouds kept for resolution are gone: a Cloud Map service resolves through its
-namespace's hosted zone and the VPC's sidecar, an Azure site's names through
-the catalog. Host-callback metadata survives only for host-network-mode Amazon
-ECS tasks, which share the host's namespace. An Amazon EC2 instance's console
-is the engine's container log, fed by a wrapper that follows cloud-init's
-output log; `CreateImage` is a commit into `sockerless-sim-aws-ami/<id>:latest`;
-`ImageLocation` and an import's `Url` are OCI references; Run Command is
-`Handle.Exec`. An Application Load Balancer is seen by a target's security
-group as its own security groups and its subnets, and a Network Load Balancer
-without security groups as the client. Compute Engine's `startup-script` runs
-at every boot (`UserDataEveryBoot`) where cloud-init's user data runs once per
-instance; gcloud sends `zones/-/imageFamilyViews/<family>` and
-endpoint-override URLs as image references, both accepted; an instance insert
-creates the disk resources its `initializeParams` describe; Google's health
-check and proxy ranges must be allowed by a firewall rule, so the probes
-evaluate the rules from those sources. Azure Load Balancer keeps the client's
-source address for NSG evaluation while Application Gateway is seen as its
-own frontend; a VNet's engine network is named by the resource's id, since two
-VNets of one name in different resource groups collided on one name; a VNet
-integration change restarts the site as App Service does. Every cloud's tests
-give each instance its own network range, because the engine refuses two live
-networks over one range.
-
-### The microVM backend under the SDK suites
-
-CI's node-agent job proved the agent image, the guest boot from an OCI root
-filesystem and the vsock init, and nothing else ran on a guest until three
-SDK shards placed a service on the microVM backend: `ec2-microvm` in the AWS
-SDK job and `microvm` in the Compute Engine and Azure SDK jobs set
-`SIM_PLACEMENT` to `ec2=microvm`, `compute=microvm` and
-`virtualmachines=microvm` and run that cloud's instance tests, the same
-tests the container shards run, on the runner's KVM. A matrix entry with a
-`placement:` is a second run of its tests by design, so the shard-coverage
-gates keep it apart from the exactly-once partition and check only that its
-regex names tests that exist.
-
-What the shards needed, the backend interface now states for both backends.
-`Console` is everything a machine wrote since it was placed, across its
-stops: the engine keeps a container's, and the agent keeps a guest's, read
-from guestinit while the guest runs and held per boot, so `GetConsoleOutput`,
-`getSerialPortOutput` and boot diagnostics read the same console whichever
-backend runs the machine, and a handle follows the boot in progress alone.
-A guest's console lives in its own memory until the agent has read it, so
-guestinit holds the machine up after its workload ends until the agent,
-having followed `/logs` to the end, posts `/logs/read`: a process that prints
-and exits at once loses no line to the power-off.
-`Capture` stores a machine's filesystem as an engine image: a container
-commits, and a guest's root filesystem is exported from its ext4 image with
-`debugfs`, which reads it without a mount, and imported as an image of the
-engine's architecture. A running guest's filesystem is frozen for the read
-(`FIFREEZE` on `/`, which writes every dirty block and the whole journal out
-and holds writers until the thaw), which is the snapshot primitive the
-clouds' own image captures rest on. A guest's hosts file carries the entries
-a container gets from `--add-host`, with `host-gateway` resolved to the
-network's gateway, so `metadata.google.internal` and the engine host's name
-resolve on a guest as they do in a container.
-
-### A restarted simulator adopts its node agent and guests
-
-A persistent simulator leaves its workload containers running when it stops
-and adopts them by label when it starts again, and the microVM backend had no
-part in that: the stop hook ended the agent, and with it every guest, and
-`Adopt` refused. The agent now outlives a persistent stop as containers do,
-and the next process finds it by its labels (`nodeagent.Adopt`), reads the
-token the earlier process gave it from the container's environment, takes
-its networks from the container's endpoints, and attaches to the same API.
-Guests carry the workload's labels and this simulator's ownership labels, and
-`Backend.Find` lists workloads by label on both backends, the engine's
-containers or the agent's guests, so the clouds' adoption paths no longer
-reach around the backend to the engine. Amazon EC2's recovery moved from the
-simulator's build into its start hook, after the backends register, since a
-guest can only be found through the agent that holds it.
-
-### A guest takes members, and container groups place through the backend
-
-Every group-shaped workload — a Cloud Run instance's containers, an Amazon
-ECS awsvpc task's, a Container Apps replica's or job's with its Dapr
-sidecar, an App Service site's sitecontainers — shared a namespace through
-the engine's `container:<id>` network mode, through `workload.StartGroup`
-or a `NetworkMode` the cloud set itself, so the placement table had nothing
-to say about them and `SIM_PLACEMENT=run=microvm` changed nothing. The
-backend interface gained the group's shape: `PlaceMember` starts a workload
-beside a placed owner, in its network namespace, and a member names no
-network, address, alias, host entry or published port of its own. The
-container backend joins the member's container to the owner's namespace, as
-before. The microVM backend gives the owner's guest a member: the member's
-image becomes an ext4 root filesystem of its own, the agent hands it to one
-of the guest's disk slots — the slots exist from boot, and Firecracker takes
-a new backing file for a drive it holds — and asks guestinit, over the vsock
-control API, to run it. guestinit waits for the kernel to take the device's
-new size (a uevent announces it; the placeholder every slot boots with is one
-MiB, which no root filesystem fits), mounts it under `/run/sockerless/members`,
-binds `/proc`, `/sys`, `/dev` and the guest's resolver, hosts and hostname
-files into it, resolves the member's program on PATH inside that root and
-its user in that root's passwd file, and runs it chrooted there, as a
-container runtime prepares a container's root. The members share the guest's
-network namespace, so a member listening on localhost is reachable from the
-first process, and nothing else: a member's files are its own. Each process
-leads a process group of its own, and its exit ends the group, as a
-container ends when its first process does: a child it left behind would
-otherwise hold its output open, and the exit it keeps from being reported
-would keep the machine from powering off.
-
-A process of the guest is addressed by name — `init` for the first process,
-the member's name otherwise — in an exec, in a log read and in a stop. Each
-process reports its own exit over vsock, with how many lines it wrote, so the
-agent ends a reader of that process's lines exactly when the last one is out;
-the guest powers off once its first process and every member have ended, and
-a handle's `Wait` returns at its own process's exit, the owner's at the first
-process's (`ExitedAt`), while the machine runs on. A guest that is not kept
-is deleted once the machine has stopped, not when its first process exited.
-`Find` lists members beside their guests under `<guest>/<member>` IDs, which
-`Adopt` reads, so a restarted simulator takes a group back member by member
-on either backend. Handles gained `Stop` — the stop signal, the grace, then
-the kill, with `Wait` reporting the process's own exit, where `Cancel`
-reports the cancellation — which Cloud Run's job and worker-pool stops used
-to reach the engine for, and `Address`, the owner's address, which Cloud
-Run's probe and request routes used to read off the engine. Cloud Run's
-services, jobs, worker pools and instances and their adoption, Amazon ECS's
-awsvpc sidecars and its task recovery, Container Apps' groups and Dapr
-sidecar and App Service's sitecontainers all place through the backend now,
-and `workload.StartGroup` and `StartSidecars` are gone for `workload.Place`
-and `workload.PlaceMember`, which read the platform off the image for any
-backend. An awsvpc task's first container publishes every container's ports,
-since the task's namespace is one.
-
-A Cloud Run instance without VPC access sits on the platform network, where
-the engine assigned its container's address — an address a guest cannot
-take, since the engine does not know the guest. A platform network's /24 is
-split: the engine allocates from its upper half (`--ip-range`, the engine's
-own knob), and the simulator leases the lower half above the fixed addresses
-of its sidecars and node agent (`sim.LeasePlatformAddress`), pre-reserving
-what containers already hold on the network. Cloud Run's instances take a
-leased address whichever backend places them, and an adopted instance
-re-reserves the address its owner holds (`sim.ReservePlatformAddress`). A
-lease goes back once the container that held it is gone, never when it is
-told to stop: a job whose start failed used to release its address while its
-main container was still stopping over its grace, and the ledger, which
-hands out the lowest free address, gave the next job an address the engine
-still held. A lease also skips what the engine's view of the network still
-shows attached, so a removal that outlives the handle's exit cannot hand its
-address on either. A
-platform network an earlier release created without the split is recreated
-while nothing is attached to it, and refused with the fix named while
-something is. The node-agent KVM proof places a busybox member beside the
-arithmetic guest's first process, serving a seeded file on the guest's
-localhost, and checks that the first process reads it, that neither root
-sees the other's files, that the member's stop leaves the first process
-running, and that `Find` lists the member; CI's `run-microvm` SDK shard runs
-Cloud Run's multi-container tests with `SIM_PLACEMENT=run=microvm`.
-
-### Amazon ECS Fargate and Container Apps on guests
-
-Three more KVM shards followed the Cloud Run one. `ecs-microvm` and
-`ecs-services-microvm` set `SIM_PLACEMENT=ecs:FARGATE=microvm`, the
-launch-type qualifier the placement table reads, and run the Fargate awsvpc
-tests, the task tests and the service tests apart so each job fits its
-fifteen minutes: each task is one guest at its
-ENI's leased address with the other containers as members, and Elastic Load
-Balancing reaches a target at that address, since the Docker Desktop
-loopback mapping it looks for first names no container of a guest.
-`containerapps-microvm` runs the Container Apps replica and job tests, which
-needed what Cloud Run needed: an address the engine never allocates. Every
-Azure workload without a network interface resource of its own takes one
-through `azureWorkloadAddress` — the subnet's when it sits in a virtual
-network's subnet, else one leased from the lower half of the network it
-joins (the platform network, or a Container Apps environment's own) — and
-Container Apps replicas and jobs, Container Instances, App Service sites,
-Kudu commands and WebJobs all lease theirs now, released at exit.
-Container Apps ingress and App Service's site route, its plan's worker
-listing and its worker reboot read the workload's address off its handle
-rather than the engine, and a site's route accepts a guest's address alone
-where a container also offers its published loopback port.
-
-What a guest cannot do, the backend now says. `MicroVMBackend.Place` and
-`PlaceMember` refuse a workload with bind mounts (`ErrBindMounts`) instead
-of running it without them, which kept App Service — whose site, Kudu and
-WebJob containers mount the site's `/home` — off the microVM shards until
-the agent serves a file share to guests (BUG-3516); a site integrated into
-a virtual network also asks for a second interface a guest has not got
-(BUG-3517). The AWS SDK step streams its test log into the job's output as
-it is written, where it used to print the log only once the binary had
-exited, so a job the runner cancels at its limit still shows the test it was
-in.
-
-The agent leaves a network its cloud deletes. `DeleteVpc`, a subnetwork's
-deletion, a virtual network's and a Container Apps environment's removal
-take the engine network down, and the engine removes no network a container
-is still on: the removal waits on the next disconnect, and the node agent,
-joined to the network for its guests, never disconnected, so every Amazon
-ECS test on guests hung in its VPC's cleanup until the job's limit cancelled
-it. `Agent.Leave` (`MicroVMBackend.Leave`) has the agent dissolve the
-bridge it built for the network (`DELETE /v1/networks/{address}`) and takes
-the container off the network, and each cloud's network removal calls it
-ahead of the engine. A task reports stopped when its first process ends,
-and its guest's tap leaves the bridge a moment later with the machine, so
-the agent waits for the network's last tap as the engine waits for its last
-endpoint, as long as the request allows; the network the agent started on
-is never released. The wait then found a guest that never went: guestinit
-ended the machine with a power-off, which halts a microVM's processor and
-leaves the machine running for the hypervisor, so every guest exit had in
-fact been the agent's fifteen-second backstop kill — the stop tests on
-guests all took eighteen seconds — and a guest whose owner was stopped
-while a member still ran, where the agent returns without the backstop,
-stayed halted on its network for good. guestinit restarts the machine
-instead, which the kernel's `reboot=k` turns into the reset Firecracker
-exits on, and a guest now ends the moment its last process does. The KVM proof joins a second network,
-places a guest on it, leaves, has the engine remove the network at once,
-and does it all again over the same range, which a bridge left behind
-would have failed. The hang went undiagnosed because a guest shard's setup
-— six minutes of base images and the node agent image — left the Go
-deadline past the job's limit; those shards run under the shorter deadline
-their matrix rows name (`deadline`), and a failed SDK step dumps the
-simulator's requests in flight and goroutines
-(`scripts/dump-sim-diagnostics.sh`), since the simulator outlives the test
-binary's deadline panic.
-
-### File shares to guests
-
-A bind mount gives a container a host directory; a guest's filesystem is
-the disk built from its image, so a bind has to cross the network. The
-Firecracker CI kernel the agent boots carries one network filesystem, the
-NFSv4 client — no NFSv3, 9p, CIFS or FUSE — and no pure-Go server speaks
-NFSv4 read-write, so `sim/fileshare` is one: NFSv4.0 (RFC 7530) over TCP on
-one port, its ONC RPC and XDR by hand, AUTH_SYS with root squashing off,
-the compound operations a Linux client uses (lookup, open with every create
-mode, read, write, commit, readdir, rename, link, remove, setattr, access,
-readlink, byte-range locks with real conflicts, the client-id handshake),
-persistent filehandles of the export's index and the inode, stale once the
-file is gone, and exports of host directories read-write or read-only. The
-server runs inside the simulator process, which holds the directories, and
-listens on an ephemeral port every engine network's gateway reaches, so the
-backend turns each bind of a host directory into an export named by the
-path's hash and a mount the guest makes from its gateway (`GuestSpec.Mounts`,
-`MemberSpec.Mounts`); guestinit mounts them before the process starts, into
-a member's root for a member, read-only where the bind was. An engine
-volume — a sitecontainer's, an Amazon ECS task's managed EBS volume — lives
-where this process cannot read it, so a share container serves it: the
-sidecar program as `sidecar shares`, the same `sim/fileshare` server over
-the volumes the simulator binds under its `/exports`, started in the node
-agent's network namespace, where every guest reaches it at the agent's
-address on the guest's network, on a port the backend counts out above the
-agent's API port, one container per workload that binds a volume
-(`sidecar.StartShares`, `GuestState.AgentAddress`). It keeps the
-capabilities a server reading and writing the volumes' files as their
-owners needs and nothing else, and goes with the workload: once the
-guest's first process or the member has exited, before the handle reports
-it, so the cloud's removal of the volume finds it free, or at `Remove`
-for a guest kept after its exit; a container a previous process started
-is found by its label. A bind of one host file is an export whose root
-lists that entry alone (`fileshare.Export.Only`): nothing else at that
-root is looked up, made or removed, and guestinit mounts it out of the
-way and binds the file over the path (`Mount.File`). An Amazon ECS task
-definition volume with no configuration used to be an engine volume named
-by the volume's name, shared by every task that named it and never
-removed; it is the task's own ephemeral storage now, named by the task,
-shared by its containers and removed with it. The KVM proof places a
-guest with a bind and a read-only bind of one directory, reads what the
-host wrote, writes, makes a directory and renames across it from the
-guest, has the host read the result, and has the read-only mount refuse a
-write; the `web-microvm` shard runs App Service's site, Kudu, WebJobs,
-container log and slot tests on guests, whose `/home` the site, Kudu and
-the WebJobs now share through the server. A Kudu command on a guest showed
-the agent refusing a guest whose first process ended before the readiness
-ping: a process that ran and ended is a started guest, as a container that
-exits at once is a started container, so the start answers and the handle
-reports the exit. The same shard showed a plan's worker instance name
-breaking the document's `^[a-zA-Z0-9]+$` once a worker was a guest, whose
-placement identity carries hyphens: the instance name is now a hex digest
-of that identity, on either backend, in `listinstances`, the worker
-reboot lookup and the perf-counter samples alike.
-
-A workload's further networks are placement now. A site integrated into
-more than one virtual network used to have its container joined to each
-further network after it started (`sim.ConnectContainerToNetworkAt` on
-the container ID), which a guest has no equivalent of: Firecracker takes
-its interfaces before boot. `ContainerConfig.ExtraNetworks` names each
-further network and the address the workload takes there; the container
-backend joins them after the start, and the microVM backend gives the
-guest a tap on each network's bridge and an interface per network
-(`GuestSpec.ExtraNetworks`), which guestinit configures over rtnetlink —
-address and link up, no route out through it, so the default route stays
-on the first interface as a container's does. App Service leases the
-addresses ahead of the placement, under the workload's name, and the
-agent joins each further virtual network for a service on guests. The KVM
-proof boots a guest on two networks and has it reach the agent on both.
-
-### Filtering at the guest's tap
-
-Two containers on one engine network reach each other on every port, since
-filtering their traffic needs a capability no container holds; a guest's
-traffic passes the agent's bridge, where the agent programs an nftables
-bridge table per tap. A workload names what it may receive as stages
-(`ContainerConfig.Ingress`, `GuestSpec.Ingress`): a frame goes through
-each stage's chain in turn, where the first matching rule decides, an
-accept returns it to the next stage, nothing matched drops it, and a frame
-every stage returned is accepted; no stages admit everything, as a cloud
-with nothing attached does, and an empty stage admits nothing. ARP and the
-replies of connections the guest opened pass ahead of the stages. The
-microVM backend hands the stages to the agent at placement and replaces
-them on a running guest (`Handle.SetIngress`); the container backend and a
-member, which receives through its owner, answer `ErrNoIngressFilter`, and
-the clouds leave them as they are, the gap `BUGS.md` keeps for containers.
-
-Each cloud compiles what it already compiled for the flows the simulator
-mediates. Amazon EC2 instances and awsvpc tasks carry one stage of their
-security groups' ingress permissions, expanded to prefixes; a task run
-with no group joins the VPC's default group, as does an application load
-balancer created with none, and a load balancer's nodes are members of its
-groups at the address the simulator forwards from, the network's gateway,
-so a target's group admits the balancer as it does on AWS. A permission
-naming a group expands over the group's members, so a rule's change, a
-group's reassignment and a member's arrival or departure each reprogram
-every instance and task of the VPC (`ec2ReapplyIngress`). Compute Engine
-instances carry one stage of the network's ingress firewall rules that
-target them, in the engine's order, which the implied deny-ingress rule
-ends; a firewall's insert, patch, update or delete and an instance's tags
-reprogram every machine. Azure virtual machines carry one stage per
-network security group on their interface and their subnet, each ending in
-DenyAllInBound after the defaults; a group's, a rule's, an interface's or a
-subnet's write reprograms every machine, and a machine with no group
-receives everything. The KVM proof boots a server guest admitting port 80
-from the network and a neighbour that reaches 80 and not 81, admits 81 by
-replacing the rules, drops the neighbour through a second stage, and shows
-no stages admitting everything; the `ec2-microvm`, Compute Engine `microvm`
-and Azure `microvm` shards do the same through the clouds' APIs, with the
-neighbour's probe run through Systems Manager, a startup script read from
-the serial console and the custom script extension.
-
-The shards found three gaps the KVM proof could not. CreateVpc had never
-created the VPC's default security group, so an interface, a task or a
-load balancer joining it joined nothing and carried one empty stage, which
-admits nothing: every VPC now comes with its `default` group, admitting
-all traffic from its own members and sending anything, which a user can
-neither create under that reserved name nor delete, and which goes with the
-VPC. A transport rule with no port range rendered a bare protocol keyword
-nftables rejects (`ip protocol tcp tcp drop`), which an Azure deny rule
-over every port compiles to; the keyword now precedes only a port match.
-The instance init piped the user data through `tee` and waited for the
-pipe's end, so a daemon the script left behind, which keeps the pipe open,
-held the ready marker back for ever: the init now relays the output through
-a fifo and waits for the script's process alone, as cloud-init does, and
-the vminstance proof leaves a sleeper behind. Compute Engine's script
-runner reads a script's output to its end before it reports the exit, as
-google_metadata_script_runner does, so the Compute Engine shard's listeners
-close theirs. A `$` anchor in a shard's skip pattern reached make as the
-empty variable `$'` and unbalanced the quote; the patterns anchor at the
-start only. An instance inserted with an interface naming a subnetwork
-alone was put on the default network, so the firewall rules of the
-subnetwork's network never reached it and the implied deny dropped every
-frame; the interface is on its subnetwork's network, as Compute Engine
-derives it.
-
-### NAT gateways on guests
-
-A cloud's NAT gateway is an egress sidecar (`sidecar egress`) on the
-network, at the gateway's address, holding `CAP_NET_ADMIN` in its own
-namespace and nothing else: it programs an nftables nat prerouting chain
-through netlink (`google/nftables`, no `nft` binary in the scratch image)
-that redirects TCP and UDP from the sources it serves, bound for anything
-outside the local ranges, to its proxy, which opens each connection toward
-the destination from the gateway's own address. A redirected TCP
-connection's destination is read with `SO_ORIGINAL_DST`; a datagram's
-comes from the connection tracker (`ti-mo/conntrack`), queried by the
-reverse of the flow the redirect created, because `IP_RECVORIGDSTADDR`
-reports the address after the rewrite. Replies to a datagram go back
-through the socket the redirect delivered to, so the kernel restores the
-destination, and only from the destination the datagram went to, as a
-symmetric NAT admits them. The proxy applies the gateway's idle timeouts,
-reports every connection to the simulator under its token
-(`egress.ReportPath`: opened, established with the gateway's own port,
-closed with the bytes each way and why, and the open count each minute),
-and flushes the reports once the closes are in when it is stopped with
-its grace. `sim/sidecar`'s proof routes a busybox probe through the
-sidecar and shows the outside seeing the sidecar's address, UDP answered,
-and the reports.
-
-A workload names where its default route goes (`ContainerConfig.Gateway`:
-the network's gateway, an address on the network, or `sim.NoGateway`),
-and a handle changes it while the workload runs (`Handle.SetGateway`); the
-container backend and a member answer `ErrNoRouteControl`, the gap
-`BUGS.md` keeps for containers. The node agent boots a guest with the
-route in the kernel's `ip=` (an empty gateway is no route out) and
-replaces it on a running guest through guestinit, which speaks
-`RTM_NEWROUTE` and `RTM_DELROUTE` itself, since a guest image need not
-carry `ip`; the KVM proof places a guest with no route, routes it through
-a neighbour, back through the network's gateway, and nowhere.
-
-Amazon VPC: CreateNatGateway starts the gateway's sidecar at its private
-address on the VPC's network when the network is up, and the network
-brings it up otherwise; a subnet's route table (its association, else
-the VPC's main table) with 0.0.0.0/0 to a NAT gateway points its
-instances and awsvpc tasks at the gateway, to an internet gateway at the
-network's gateway, to a gateway that is gone at nothing; every route,
-association and NAT gateway write reprograms the VPC's running workloads
-(`ec2ReapplyRoutes`). The sidecar's reports are the `AWS/NATGateway`
-metrics under `NatGatewayId` (`ConnectionAttemptCount`,
-`ConnectionEstablishedCount`, the four byte metrics, `IdleTimeoutCount`,
-`ActiveConnectionCount`), and the gateway's idle timeout is the 350
-seconds NAT gateways keep an idle connection. Compute Engine: the first
-NAT of a Cloud Router in a subnetwork's region and network whose source
-ranges name it covers the subnetwork, and its sidecar sits at the address
-before the node agent's, which the ledger keeps; an instance with no
-external address on a covered subnetwork routes through it, with the NAT's
-`tcpEstablishedIdleTimeoutSec` and `udpIdleTimeoutSec`; a router write
-re-evaluates every subnetwork whose network is up; with `logConfig.enable`
-the NAT writes a `compute.googleapis.com/nat_flows` entry per connection
-under the `nat_gateway` resource, naming the connection, the endpoint and
-the VPC. Azure: a NAT gateway attached to subnets gets a sidecar at the
-last address of its first subnet, one Azure reserves, serving the attached
-subnets' ranges with the gateway's `idleTimeoutInMinutes` and Azure's
-four-minute UDP idle; a gateway or subnet write reapplies; the reports are
-the gateway's Azure Monitor metrics (`ByteCount` by direction,
-`SNATConnectionCount` by connection state, `TotalConnectionCount`,
-`DatapathAvailability`), which `Microsoft.Insights/metrics`,
-`metricDefinitions` and `metricNamespaces` under a NAT gateway list per
-time grain and aggregation from a metric store the clouds' data planes
-feed, and which the subscription-scoped `metricDefinitions` and `metrics`
-(GET, and POST with the query in the body) list over a region's gateways,
-one series per gateway carrying its `Microsoft.ResourceId`; the vendored
-2024-02-01 metrics document is served whole. The sidecar's report path
-carries the sidecar's minted token and no cloud credential, so Google
-Cloud's bearer check exempts it as it does the metadata server. Each cloud's
-guest shard proves it with an instance reaching a listener of the test's
-own outside the network, which sees the gateway and not the instance, and
-the gateway's metrics or logs counting the connection.
-
-### cloud-init on the instance images
-
-An instance's init runs its image's cloud-init over the user data the cloud
-hands it. The simulator renders the user data, at placement, into the files
-cloud-init's modules work from under `/var/lib/cloud/instances/<id>/`, with
-`/var/lib/cloud/instance` pointing at the current instance, so a new
-instance booted from a captured image runs its own user data afresh while a
-restarted one keeps its per-instance semaphores (`sem/config_<module>`). It
-reads user data the way cloud-init's processor does: a gzip stream is
-inflated, a MIME multipart message is split part by part with base64 parts
-decoded and later cloud-config parts merged over earlier ones, a `#!` part
-is a `scripts/part-NNN`, and any other part type is reported. A
-`#cloud-config` document is read as YAML 1.1 — an unquoted `0644` is octal,
-`yes` is true — key by key, so a malformed module is reported and the rest
-run. The guest library (`sim/vminstance/cloudinit.sh`, POSIX sh) runs the
-stages in order: `init` (bootcmd at every boot, write_files, groups and
-users, ssh keys), `modules:config` and `modules:final` (packages, deferred
-write_files, the scripts in sorted order with runcmd among them, the final
-message), writes `boot-finished` and `result.json`, and puts its output on
-the console and in `/var/log/cloud-init-output.log`. It decides from
-`/etc/os-release` which distribution carries cloud-init, at which build,
-with which default user and groups; an image with none, or Debian on Compute
-Engine, runs no cloud-init. The accounts module edits `/etc/passwd`,
-`/etc/group` and `/etc/shadow` itself, as useradd does, because Amazon Linux
-2023's image has no shadow-utils; root gets the datasource's keys behind
-cloud-init's `disable_root` options. Each cloud says what its datasource
-says: Amazon EC2 the instance id and the key pair's public key, which the
-metadata service now lists under `public-keys`; Compute Engine the numeric
-instance id and the `ssh-keys` entries for `ubuntu` or `cloudinit`, with
-the startup script now a separate every-boot step after cloud-init; Azure
-the `vmId`, the `adminUsername` as the default user and the
-`linuxConfiguration` keys. The EC2 console wrapper that tailed the log
-while the init's tee already relayed it is gone, so each line reaches the
-console once.
-
-EC2 key pairs carry the fingerprints the CreateKeyPair and ImportKeyPair
-references document — the SHA-1 digest of the DER-encoded private key for
-an RSA pair EC2 creates, the MD5 digest of the public key for an imported
-RSA key, the base64 SHA-256 digest of the public key for ED25519 — and
-CreateKeyPair makes an ED25519 key in OpenSSH format when asked.
-ImportKeyPair refuses material that is not an OpenSSH public key with
-`InvalidKey.Format`, every pair keeps its OpenSSH public key, which
-DescribeKeyPairs returns only with `IncludePublicKey`, and a named pair that
-does not exist answers `InvalidKeyPair.NotFound`.
-
-The test-network range gate counts a function as placing when it names the
-REST body keys a test sends itself (`vnetConfiguration`,
-`virtualNetworkSubnetId`) as well as the SDK fields: a Container Apps test
-that put its environment on a virtual network through raw requests was
-invisible to it, and a new test took the same range.
-
-### Each workload holds its role through its own service's channel
-
-The instance metadata service answers an EC2 instance and nothing else, from
-the instance's record as it stands: a request from an address no instance
-holds gets the service's 404 page, an IMDSv2 token is bound to the instance
-it was issued to and lives for the TTL asked (one second to six hours, else
-400; a forwarded token request is refused), and an instance whose AMI
-registers `ImdsSupport` v2.0 — every Amazon Linux 2023 AMI — requires
-tokens unless launched otherwise. The instance reads its id, type, AMI,
-address, host name, zone and region, its key pair, its tags when its
-metadata options allow them, its instance profile under `iam/info`, and
-sessions of the profile's role named for the instance; the identity
-document carries the account, region and launch time. The fixed instance
-id, the constant `sim-instance-role` credential and the `?region=` knob are
-gone, and the host-side metadata tests moved into an instance read through
-Run Command.
-
-No other workload is pointed at the instance metadata service. An AWS
-Lambda function takes its execution role's session, named for the
-function, in `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and
-`AWS_SESSION_TOKEN`, and a function configuration that sets a variable the
-runtime reserves is refused with Lambda's own message. Amplify compute takes
-the branch's or the app's compute role the same way. An Amazon ECS task, an
-AWS CodeBuild build or sandbox command, an AWS Batch job and an AWS Glue job
-run read theirs from the container credentials endpoint
-(`/v2/credentials/{id}`, named by `AWS_CONTAINER_CREDENTIALS_FULL_URI`),
-which serves the ID it handed the workload and nothing once the workload
-ends: a task's role in a session named for the task, a build's service role
-in `AWSCodeBuild-<build>`, a job's `jobRoleArn` in the attempt's task, a Glue
-job's role in `GlueJobRunnerSession`. Each holder is served one session
-until half its lifetime is left, and a sweep drops what holders that no
-longer run held. `StartBuild` honours `serviceRoleOverride`, and
-`RetryBuild` runs with the role and environment the retried build ran with.
-
-### A workload's own loopback serves its container credentials
-
-The AWS SDKs' container credential provider takes a plain-HTTP full URI only
-on a loopback address or the endpoint's link-local one (`169.254.170.2`,
-`169.254.170.23`), and a bridge network routes neither to the sidecar, so a
-URI naming the sidecar left every default credential chain in a task, a
-build, a job or a Glue job run with nothing; only a client that read the
-variable itself held the role. The container backend serves the endpoint
-on the workload's own loopback at `127.0.0.1:51679`, the address
-and port the Amazon ECS agent serves it on behind `169.254.170.2`.
-
-The sidecar binary's `forward` mode relays a loopback port to the network's
-sidecar byte for byte. It runs as the owner of the workload's network
-namespace: `placement.Forwarding`, which the container backend implements,
-places the forwarder first with every network setting the workload names
-(network, address, MAC, aliases, hosts, resolvers, hostname, published
-ports, extra networks), waits for it to report that it listens, and only
-then starts the workload joined to it. Placing the forwarder beside an
-already-running workload instead would race the workload's first read: an
-SDK that resolves credentials at start-up would find nothing listening, and
-the engine cannot join a namespace before its owner runs. The owner pattern
-is also how Amazon ECS builds an awsvpc task, around a pause container.
-
-The workload carries `sockerless-sim-forwarded-by` naming its forwarder, and
-the forwarder goes when the workload exits; the handle reports the exit only
-once the forwarder is gone, so a caller that removes the network next finds
-no endpoint left on it. A member placed beside the workload (the other
-containers of an awsvpc task) joins the forwarder's namespace directly and
-shares the loopback; each container of a bridge task has its own namespace
-and its own forwarder. The forwarder carries none of the workload's labels,
-so the services' own lookups by label never see it; a restarted simulator's
-`Adopt` reads the workload's label and takes the forwarder over with it,
-which Amazon ECS, AWS Batch and AWS CodeBuild do through the backend. The
-forwarder dials the sidecar's address per connection, so a sidecar the
-restarted simulator replaced at the same address keeps serving it. A
-published port reads through to the namespace owner, where the engine binds
-it, which kept the Elastic Load Balancing target lookup of awsvpc tasks
-working. The microVM backend and host-network tasks keep the sidecar or
-callback URI, recorded in BUG-3485.
-
-
-The SDK suite pulls the AWS Amplify managed build image before the tests
-run whenever a test that builds is selected, as it already pulled the images
-the Step Functions integrations run: a job's wait measures the job, and a
-cold pull of the several-hundred-megabyte image inside it timed the job out.
-
-### The plan's next stage became the service libraries
-
-Stage 5 of `PLAN.md` polishes the virtual machine, container, function,
-event-routing and queue services of the three clouds and extracts the
-mechanisms they share into cloud-neutral libraries: a target registry that
-replaces the services' calls into each other's package globals,
-`sim/machine`, `sim/revisions` and `sim/replicas`, `sim/jobrun`,
-`sim/funcrt`, the queue waiter in `sim/msgq`, `sim/eventbus` with its filter
-dialects, and one host-routed front end in `sim/lbplane`. Cloud Tasks and
-Cloud Scheduler join the Google Cloud slice on the queue and cron libraries.
-The distributed stage moved to 6.
-
-### Services reach each other through each other's APIs
-
-A service that acts on another's behalf calls that service's API in-process:
-`sim.Server.Call` serves the request through the whole chain a client's
-request takes — authentication, authorization, audit recording,
-specification validation — and `sim.Caller` on its context names the
-service principal it is made as, which only an in-process call can carry.
-
-Amazon EventBridge delivers to every target through the target's API:
-`SendMessage`, an `Event` invocation, `Publish` and CloudWatch Logs'
-`CreateLogStream` and `PutLogEvents` as events.amazonaws.com, admitted by the
-target's resource policy, and `StartExecution`, `RunTask`, `PutRecord`,
-`SubmitJob` and `PutEvents` as a session of the target's RoleArn, which the
-role's trust policy must let EventBridge assume. A rule now delivers to
-another event bus, PutEvents keeps an entry's `Time` and names a bus by ARN.
-EventBridge Scheduler calls the same APIs as the schedule's execution role
-and sends its dead letters with `SendMessage` as that role. AWS Lambda's
-Amazon SQS pollers long-poll `ReceiveMessage` and delete with
-`DeleteMessageBatch` as the function's execution role. A service principal
-calling a resource that does not exist gets the resource's own not-found
-answer before any policy is read.
-
-The simulator signs a role session's in-process request with SigV4 as the AWS
-SDKs do, and the verifier now checks a stated `X-Amz-Content-Sha256` against
-the body it has, so a signature no longer survives a swapped payload.
-CloudTrail records a role session as `AssumedRole` with its session issuer and
-an AWS service's own call as `AWSService`, each with `invokedBy`.
-
-Eventarc creates a trigger's transport topic and push subscription with the
-Pub/Sub API, puts a Cloud Storage trigger's notification configuration with
-the Cloud Storage API and publishes Cloud Audit Logs entries with
-`topics.publish`, all as its service agent; a trigger naming a topic that
-does not exist, or a Cloud Storage trigger whose bucket's service agent may
-not publish, is refused with that service's answer. Azure Event Grid writes a
-dead letter with Put Blob as a trusted Microsoft service.
-
-### One machine lifecycle for the three clouds' virtual machines
-
-`sim/machine` holds the virtual machine lifecycle the three simulators had
-each written: boot a machine on its placement backend and return once its
-init raised the ready marker, watch it for an exit of its own, stop it
-keeping its root disk, boot that disk again, discard it, release a detached
-disk, take running and kept machines over after a restart, capture the disk
-and read the console across boots. A stop cancels a boot in flight and waits
-for it, so a discard right after leaves nothing behind. Amazon EC2, Compute
-Engine and Azure virtual machines map their states onto it through hooks
-(booting, ready, down, guest shutdown, forgotten) and keep only their own
-state names and verbs.
-
-The move fixed what the copies did differently. A failed start leaves an EC2
-instance stopped with its disk, and a Compute Engine instance's start that
-fails no longer removes its disk. A stop during a Compute Engine boot ends the
-boot and owns the instance's status, so an insert or a start it interrupts no
-longer deletes or unwinds the instance. An Azure guest that never becomes
-ready is stopped and tracked instead of left running, and its OS disk is found
-by its label, so the `compute_virtual_machine_disks` ledger is gone. The
-readiness polls and the 5-minute boot timers Compute Engine and Azure had no
-counterpart for are gone: a boot ends when the guest is ready, when its init
-exits, or when a stop arrives.
-
-A workload's interface now carries the MAC address its cloud assigned it
-(`sim.ContainerConfig.MACAddress`, honoured by both placement backends): an
-EC2 elastic network interface's derived from its ID, which DescribeInstances,
-DescribeNetworkInterfaces and an Amazon ECS task's attachment report; Compute
-Engine's `42:01` and the interface's address; an Azure network interface's
-own. The instance metadata services read the instance's record as it is now
-and serve what they lacked: EC2's `mac`, `network/interfaces/macs/`,
-`security-groups`, `public-ipv4`, `public-hostname`, `block-device-mapping/`,
-`services/`, `reservation-id`, `ami-launch-index`, `instance-action` and
-`instance-life-cycle`; Compute Engine's `network-interfaces/` and the
-project's `attributes/`; and Azure's compute and network sections on their
-own paths. The Azure Instance Metadata Service answers a virtual machine and
-nothing else, as EC2's does, so the invented machine it answered every other
-caller with is gone, and its attested document names the machine's `vmId`.
-EC2 instances report their private DNS name under `ec2.internal` in us-east-1,
-their public DNS name, and each its own `amiLaunchIndex`, and the VPC's
-resolver answers both names. A Compute Engine access config that names no
-address gets an ephemeral external one, and the guest's script runner fetches
-`startup-script` from the metadata server at every boot, so a script set while
-the instance is stopped runs on its next start. The instance init runs a
-startup script by its interpreter line, as a guest does, rather than under
-`sh`.
-
-The pre-commit test gate matches a route with path parameters against a test
-path that fills them, so a tested parameterised route no longer needs an
-exemption.
-
-### Container groups and replica sets
-
-`sim/workload.StartGroup` starts a group of containers the way Cloud Run
-instances and tasks, Amazon ECS tasks and Container Apps replicas start
-theirs: in the order their `dependsOn` names, the first to start owning the
-network namespace the rest join, each starting once every container it
-depends on passed its startup check. A group that fails to start cancels
-every member it placed and reports when they have exited, so the caller
-releases the address or mount they held only then. Cloud Run's jobs, services
-and worker pools start their containers through it.
-
-`sim/replicas` keeps a count of replicas of one specification running: it
-starts the missing ones, stops the surplus newest first, restarts or replaces
-a replica whose main container exits while the restart policy allows, backing
-off as consecutive exits call for, retries a replacement that fails to start,
-takes over the replicas a restarted simulator finds, and picks a running
-replica in turn for a front end. A Cloud Run worker pool's instances are a
-replica set: an instance whose main container exits is replaced by a new
-instance after the back-off and logs `Container called exit(N).`, and a
-deploy that fails leaves the previous revision's instances running. A
-Container Apps revision's replicas are a replica set that restarts in place,
-as Kubernetes restarts a pod's containers: the replica keeps its name, its
-hostname and its address, and each container counts its restarts. A replica
-with ingress is ready once its main container listens on the target port, as
-the platform's default startup probe sees it. A write that leaves a
-revision's template as it was no longer restarts the revision's replicas,
-`stop` and `start` set and keep the app's `runningStatus`, the replicas of
-every active revision are taken over after a restart of a persistent
-simulator, before it serves, and ingress spreads requests across a
-revision's replicas. A replica's address is the pod's: a replica taken over
-after a restart holds the address it already had.
-
-`sim.StopAndRemoveContainer` returns once the engine has removed the
-container: when the container's own watcher was removing it already, the
-engine answered the second remove at once, and a caller could find the
-container's anonymous volumes still there.
-
-A Cloud Run instance whose container exits while a restart starts it counts
-the exit as one, logged and answered by the restart policy, rather than as a
-failed start.
-
-### Revisions and traffic
-
-`sim/revisions` holds what the revisioned container services share: a
-template's identity by content, and the choice of the revision a request
-goes to by traffic weight. A Cloud Run service deploys a revision only when
-its template changes, named after the service, its generation in five digits
-and three random characters, or as `template.revision` names it, and refuses
-a name the service already used. It sends each request to a revision by the
-traffic percents, serves a tagged target on `https://<tag>---<host>`,
-reports `trafficStatuses`, and refuses traffic that names a revision it does
-not have or does not add up to 100. Each revision runs its own instance from
-the revision's own containers, service account and timeout, its containers
-learn `K_SERVICE`, `K_REVISION` and `K_CONFIGURATION`, and the instance of a
-revision traffic no longer reaches stops. The Go REST clients send a traffic
-target's type as its proto number, which maps through the API's table. A
-Cloud Run functions service gets its first revision recorded. A Container
-Apps traffic entry with a label answers on `{app}---{label}`.
-
-A Container Apps write that creates a revision answers at once, the app
-`InProgress` and the revision `Provisioning`, and provisions the revision in
-the background under the write's operation: a revision whose replicas start
-turns `Provisioned` and becomes the app's latest ready revision, which takes
-the traffic a single-revision app or a `latestRevision` entry sends, and only
-then does the previous revision of a single-revision app deactivate. A revision
-whose replicas fail to start fails the operation with
-`ContainerAppOperationError`, turns `Failed`, and leaves the app `Failed` on
-the revision that was ready before. A PATCH that creates a revision answers
-202. Provisioning a restart interrupts fails, as its operation does.
-
-The scheduled specification refresh regenerates the AWS simulator's tables
-compiled from the vendored models and Service Reference
-(`scripts/gen-spec-derived.sh`: the CloudWatch CBOR shapes, the error message
-members, the Step Functions REST integrations and the IAM resource types) and
-commits them with the specifications, and one unit test holds each Go-generated
-table to its generator's output. The condition-key coverage tests read only
-hand-written gate code: a generated wire table spells request members, and
-reading it once counted `s3express:SessionMode` and
-`cloudwatch:AlarmTagsPropagationEnabled` as resolved when nothing set them. The
-gate now sets both: the mode a `CreateSession` asks for (`ReadWrite` when the
-request names none), and `ActionConfiguration.AlarmTagsPropagation.Enabled` on
-the three alarm writes over Query, JSON and CBOR.
-
-Amazon CloudWatch alarms of all three kinds store the `ActionConfiguration`
-they are written with and return it, with the alarm's `OKActions` and
-`InsufficientDataActions`, from every `DescribeAlarms` and
-`DescribeAlarmsForMetric` shape. Enabling `AlarmTagsPropagation` reads the
-alarm's tags, so the gate authorizes such a write against
-`cloudwatch:ListTagsForResource` on the alarm as well, as the model's
-documentation of `Enabled` requires. Query `PutCompositeAlarm` keeps the
-alarm's tags too.
-
-From golangci-lint v2.15.0, errcheck counts a receive from an error channel
-that drops the value as an unchecked error. A proxy that waits for either
-direction to end signals on a completion channel instead,
-`StopAndRemoveContainer` logs a removal that did not finish, and the
-simulator test harness reports the exit status a kill produced.
-
-A suite that hands several ports to the processes it starts picks them with
-`testutil/freeports.Pick`, which holds each port until it has found them all:
-choosing them one at a time released each before the next, so the system could
-return the same port twice, and the simulator and the HTTPS gateway's admin
-endpoint once both took one.
-
-The repository holds no built artifact. The consoles' `dist/` bundles left git:
-a `-tags console` build embeds the bundle `make <simulator>/embed` copies from
-`ui/`, which the `build-console` action runs before the release binaries, the
-release's console archives and both image workflows, and a plain build, the one
-`go install` and every test suite make, serves the bundle `SIM_CONSOLE_DIR`
-names or no console. The `noui` tag went with them, and `build-noui` became
-`build-api`. The network sidecar and Amazon RDS's `AWSAuthenticationPlugin`,
-once committed binaries held to their sources by rebuild gates, are built on
-the container engine from embedded sources by `sim.EnsureEngineBuild`, as the
-microVM node agent was: from digest-pinned bases, tagged by a digest of the
-build context so an engine builds each source version once, for the engine's
-own architecture. A build reaches the network as the engine's own builds do;
-the simulator forwards only `GOPROXY`, since a proxy on its loopback is out of
-a build container's reach, and puts the roots `SSL_CERT_FILE` names into the
-context, which a build stage appends to its CA store so a TLS-inspecting proxy
-does not break it.
-
-A test that restarts a simulator on the same state directory binds the same
-ports twice, so it picks them below the system's ephemeral range: a port from
-that range went to another connection while the first process was down, and
-the restarted simulator could not listen. A Cloud Run instance whose container
-exits as a restart finishes its startup probe exits rather than fails to
-start: the engine can report the container stopped before its exit reaches
-the instance, and the restart policy waits for that exit.
-
-A Cloud Run service revision runs its instances as a `sim/replicas` set. A
-request takes a place on an instance with room for it, at most the revision's
-`maxInstanceRequestConcurrency` at once (80 by default, 1 below one CPU); when
-none has room, the request starts another instance up to the revision's
-`maxInstanceCount` (100 by default), joining one already starting when that
-one has room for it. At the maximum, a request waits for a place for 3.5 times
-the revision's average startup time or 10 seconds, whichever is longer, and is
-then answered 429 "The request was aborted because there was no available
-instance." A revision the traffic reaches starts its `minInstanceCount`
-instances when it deploys. Instances scale in only when their revision stops
-taking traffic, since Cloud Run promises no idle time. An instance whose
-container exits is replaced with the worker pools' backoff. Each instance's
-output reaches Cloud Logging under its revision's full `cloud_run_revision`
-labels with its `instanceId`, stderr in its own log, and a restarted simulator
-adopts every instance of a routed revision back into its set. The Knative
-surface `gcloud run deploy` writes carries the same bounds: a template's
-`containerConcurrency` is the revision's request concurrency and its
-`autoscaling.knative.dev/minScale` and `maxScale` annotations its instance
-bounds, which the v2 template holds in `scaling` rather than as annotations.
-The node agent names each guest's directory by a digest of the guest's ID,
-so Firecracker's API socket stays within a Unix socket path's 107 bytes for
-an ID of any admitted length, and a Firecracker that exits before opening
-the socket fails the start with its own output at once. Cloud IAM holds a policy's etag check and its write
-under one lock, so of two setIamPolicy calls carrying one etag exactly one
-writes and the other is refused ABORTED, and a getIamPolicy that seeds the
-default policy cannot overwrite one set in between. Cloud SQL declares
-`workloadCaptures:stopReplay` unserved at the collection path the refreshed
-Cloud SQL Admin documents give it. The node agent's image build pulls its
-two base images through the simulator's throttle-aware puller before the
-build's `FROM` lines need them, and that puller's retries wait 2, 4, 8, 16 and
-32 seconds, outlasting a registry's per-minute quota.
-
-Amazon RDS DB capacity reservations reserved capacity for one DB instance
-class and engine in each Availability Zone named, active at once or scheduled
-until a future start date with a capacity commitment, and expired at their end
-date. A DB instance launched, restored, replicated or started with
-`DBCapacityReservationIdentifier` took a unit in each zone it ran in, a
-Multi-AZ instance one in each of two; a stop gave the unit back and kept the
-reservation unless it detached, and `ModifyDBInstance` moved an instance onto
-a reservation, or off reserved capacity, with a new class or Multi-AZ
-setting, holding the unit from acceptance. Available capacity was counted
-from the instances themselves, so it could not drift from what ran.
-ElastiCache serverless caches took a migration through `PrepareMigration`,
-`StartMigration`, `StopMigration` and `CompleteMigration` with the states
-and errors the model stated; the data sync itself waited on serverless
-caches running an engine.
-Amazon ECS served gateways: CreateGateway, DescribeGateway, ListGateways,
-UpdateGateway and DeleteGateway with the model's defaults, statuses and
-deletion protection; cluster associations that stay DISASSOCIATING until the
-cluster's last route through the gateway is gone; and gateway routes a
-service's `gatewayConnectors` decided on each deployment, connecting it to
-every associated gateway that matched its access types, VPC and Availability
-Zones. A route's work ran after the request as the gateway's infrastructure
-role, through the Elastic Load Balancing, Amazon EC2, AWS Certificate Manager
-and AWS WAF APIs: a shared Application Load Balancer with its security group
-and HTTPS listener for up to 25 routes, and per route a certificate for an
-`<id>.ecs.<region>.on.aws` hostname, a target group the service's tasks
-registered in, host-header and test-traffic listener rules, and an ingress
-rule in the service's security group. UpdateGateway applied its settings to
-every load balancer and reported `N/M load balancers updated`, with each
-failed call in `failures`; a service revision reported its
-`gatewayConnections`, and port mappings kept their `name` and `appProtocol`.
-AWS Lambda, AWS CodeBuild, AWS Batch, AWS Glue and AWS Amplify refused a
-role IAM did not hold. `iamServiceTrustedRole` looked a role up by its ARN,
-or by the bare name Glue accepts, and evaluated its trust policy for
-`sts:AssumeRole` by the service principal with the service-initiation keys
-of the resource being configured; `awsAssumeServiceRole` used it too. Lambda
-`CreateFunction` and `UpdateFunctionConfiguration` answered
-`InvalidParameterValueException` "The role defined for the function cannot be
-assumed by Lambda."; CodeBuild `CreateProject` and `UpdateProject`
-answered `InvalidInputException`; Batch `RegisterJobDefinition` checked
-`jobRoleArn` and `executionRoleArn` against `ecs-tasks.amazonaws.com` and
-answered `ClientException`; Glue `CreateJob` and `UpdateJob` answered
-`InvalidInputException`; Amplify `CreateApp`, `UpdateApp`, `CreateBranch`
-and `UpdateBranch` checked `computeRoleArn` and `iamServiceRoleArn` and
-answered `BadRequestException`. A role created a moment before qualified,
-since the simulator's IAM has no propagation delay. The SDK, CLI and
-Terraform tests that had passed invented role ARNs to these operations
-created real roles instead, through `serviceRole` (SDK), `cliServiceRole`
-(CLI), `persistentServiceRole` (a test's own restarted simulator) and
-`aws_iam_role` resources, and new tests proved each refusal for a role that
-did not exist and for one whose trust policy named another service.
-Amazon ECS refused, when it launched a task through `RunTask`, `StartTask`
-or a service's scheduler, a task role or execution role that
-`ecs-tasks.amazonaws.com` could not assume, from the task definition or the
-task's overrides, with the `ClientException` "ECS was unable to assume the
-role '<role>' that was provided for this task. …" that AWS re:Post's
-knowledge center quotes; the trust policy saw the task's ARN as
-`aws:SourceArn`. `RegisterTaskDefinition` checked nothing, as the Terraform
-AWS provider's lack of any propagation retry there implies, and a service's
-refused launch landed in its events. A task's container credentials served
-the overrides' task role when the overrides named one. The express gateway
-service's Terraform test created its execution and infrastructure roles.
-AWS Batch accepted a compute environment whose service role
-`batch.amazonaws.com` could not assume and left it `INVALID`, with the
-`CLIENT_ERROR - Not authorized to perform sts:AssumeRole …` reason the AWS
-Batch User Guide quotes, so its queues placed no jobs on it; it read a bare
-role name as a role without a path, and an update to a role it could assume
-made the environment `VALID`. Batch ARNs named the simulator's region and
-account. AWS CodeBuild `StartBuild` refused a `serviceRoleOverride` it could
-not assume as `CreateProject` refuses a service role. AWS Glue refused an
-untrusted role in `CreateCrawler` and `UpdateCrawler` ("Service is unable to
-assume provided role. Please verify role's TrustPolicy"),
-`CreateMLTransform` and `UpdateMLTransform` ("Unable to assume role <role>"),
-and `CreateSession` and `CreateDevEndpoint` (the job's message), each with
-the resource's ARN as `aws:SourceArn`.
-AWS Step Functions task states and EventBridge Scheduler universal targets
-called their services through `awsCall` as a session of the execution role,
-so the role's policies allowed and denied what a task or target did. An
-execution, a synchronous execution and `TestState` (which took its `roleArn`)
-carried the role and the state machine's ARN on their context; AWS Lambda
-invocations went through `Invoke`, Amazon SQS, Amazon EventBridge, Amazon ECS
-`RunTask`, AWS CodeBuild and nested `StartExecution` through their awsJson
-targets, Amazon SNS through its query API, and AWS SDK integrations through
-each protocol's request signed with the session, the REST ones included, which
-had been signed with the seeded administrator key. A role that allowed
-nothing failed the task with the service's `AccessDenied` error naming the
-assumed role; the Scheduler sent a refused universal target to its
-dead-letter queue. `awsCallResponse` returned the response headers a REST
-integration's output and Lambda's `X-Amz-Function-Error` need, and the
-scheduler's own CloudTrail recording of universal targets went away because
-the request chain recorded them. The tests whose state machines run tasks
-created roles allowing those tasks' actions.
-AWS Step Functions and EventBridge Scheduler refused a role IAM did not hold
-when it was configured, not only when a task or target first called a
-service. Step Functions `CreateStateMachine`, `UpdateStateMachine` and
-`TestState` checked the execution role through `iamServiceTrustedRole` for
-`states.amazonaws.com`, with the state machine's ARN as `aws:SourceArn`, and
-answered `AccessDeniedException` "Neither the global service principal
-states.amazonaws.com, or the regional one is authorized to assume the
-provided role.", the code the Terraform AWS provider retries
-`CreateStateMachine` on. Scheduler `CreateSchedule` and `UpdateSchedule`
-checked the target's `RoleArn` for `scheduler.amazonaws.com`, with the
-schedule's ARN as `aws:SourceArn`, and answered the `ValidationException`
-"The execution role you provide must allow AWS EventBridge Scheduler to
-assume the role." the provider retries both on; `UpdateSchedule`, a full
-replacement, required its `Target` and `FlexibleTimeWindow` as the model
-does. Every SDK, CLI, Terraform and in-package test that had given a state
-machine or a schedule an invented role created a real one trusted by the
-service, and new SDK and CLI tests proved each refusal.
-AWS CodeBuild `CreateFleet` and `UpdateFleet` refused a `fleetServiceRole`
-it could not assume, with the fleet's ARN as `aws:SourceArn`, and
-`StartBuildBatch` took the `serviceRoleOverride` it had ignored: it refused
-one CodeBuild could not assume, as `StartBuild` does, carried it as the
-batch's `serviceRole`, and ran the batch's workload as it. The container
-credentials endpoint served a batch build's workload while the batch ran;
-it had counted only a running build as a live holder, so a batch's workload
-had held no credentials at all. AWS Glue
-`StartDataQualityRulesetEvaluationRun` and
-`StartDataQualityRuleRecommendationRun` (with the table the data source
-names as `aws:SourceArn`), `CreateColumnStatisticsTaskSettings`,
-`UpdateColumnStatisticsTaskSettings` and `StartColumnStatisticsTaskRun`
-(with the table's ARN) and `StartBlueprintRun` (with the blueprint's)
-refused a role Glue could not assume in the job's
-`InvalidInputException`. Glue ARNs named the simulator's region and
-account. The SDK, CLI and in-package tests that had passed these operations
-invented roles created real ones, and new SDK and CLI tests proved each
-refusal, the acceptance of a trusted role, and a batch build whose command
-succeeded only as a session of its override role.
-
-The Knative Cloud Run surface carries a template's VPC egress as the
-`run.googleapis.com/vpc-access-connector`, `vpc-access-egress` and
-`network-interfaces` annotations, which the v1 create and replace paths
-project onto the v2 `vpcAccess` of a service's revision template and of a
-job's task template, and fold back when read, so a service or job created
-through the v1 surface runs on the VPC its annotations name.
-
-Compute Engine creates the `default` network of a project with the four
-ingress rules Google creates with it: `default-allow-internal` (TCP and UDP on
-every port and ICMP from `10.128.0.0/9`), `default-allow-ssh` (TCP 22),
-`default-allow-rdp` (TCP 3389) and `default-allow-icmp`, from anywhere, all at
-priority 65534. An Amazon EC2 instance keeps its
-`InstanceInitiatedShutdownBehavior` from `RunInstances` or its launch template
-and from `ModifyInstanceAttribute`, and `DescribeInstanceAttribute` reads it
-back; a guest that powers itself off stops the instance, or terminates it
-with its network interface and its delete-on-termination volumes when the
-attribute says `terminate`. The instance init honours the signals real init
-systems power off on, systemd's SIGRTMIN+4 and busybox init's SIGUSR2, so a
-guest's own poweroff ends it. `RunInstances` refuses an AMI that names no root
-filesystem `InvalidAMIID.Unavailable`, where the instance had launched and
-died, and `RegisterImage` refuses a root device mapping whose snapshot does
-not exist `InvalidSnapshot.NotFound`; the suites register AMIs over snapshots
-they create, and the instance type specification tests over the Amazon Linux
-AMI's root filesystem. The AWS SDK suite's Terraform provider mirror fetch runs with the host's
-proxy and CA bundle, so the suite runs from a host whose egress goes through a
-proxy. A container create whose name a container of a simulator process
-that is gone still holds removes that container and creates again, since the
-engine's names are the simulator's to give and a run that died before its
-cleanup leaves containers no live simulator drives. The simulator finds a
-digest-pinned image that a base-image archive restored under the tag that spells its
-digest (`repo:sha256-<hex>`, since `docker load` restores no repository
-digest), and starts the workload from it without asking the registry.
-`DescribeInstances` lists an instance's network interface only while the
-interface exists, so a terminated instance lists none, as on EC2. The containers of an
-Azure Container Instances group share the first container's network
-namespace, as the group model does: the first takes the group's address,
-the others join it, and they reach each other on localhost. The engine network realizing a
-Compute Engine subnetwork or an Azure virtual network takes the simulator's
-workload scope into its name, as the platform network does, so two
-simulators on one engine that hold the same subnetwork or virtual network
-realize it as two networks, each with its own sidecar; two of them over one
-range still cannot coexist on the engine (BUG-3482). An App Service classic
-virtual network connection that names a whole virtual network leases the
-site's address from the network's first subnet, so a network interface
-created later in that virtual network cannot lease the address the site
-holds.
-
-Every etag check holds the record it guards until its write is done: Secret
-Manager and Bigtable `SetIamPolicy` and their seeding `GetIamPolicy` share
-Cloud IAM's lock, and Bigtable memory layers, Organization Policy and
-capability configs hold their own, so of two writers carrying one etag
-exactly one writes. Spanner `changequorum` refuses ABORTED an etag its
-database's quorum info no longer carries and gives each change a fresh
-etag, where it had stored the caller's.
-
-CI fetches each set of base images once per run: the `warm-base-images` job
-runs on pull requests as on `main`, one leg per set the jobs restore (each
-cloud's, the support module's and the Amazon RDS blue/green stack's), and the
-jobs that run containers wait for it, so a cache entry the cache evicted is
-fetched by one job rather than by every job at once against a registry that
-throttles per minute. The lint job's limit (15 minutes) leaves room around
-its lint step's own, so a missed build cache no longer cancels it while it
-saves the cache after a lint that passed.
-
-The Amazon ECS task metadata endpoint waits for its task's start to settle
-before it answers, so a container that reads its metadata the moment it runs
-finds its task's containers rather than a 404. Compute Engine's
-`getSerialPortOutput` serves serial ports 1 to 4: the first carries the
-console, of which it keeps the last 1 MB and moves a `start` behind it up to
-the oldest byte kept, and the others carry nothing a container writes. Every
-App Service site path that takes the site instance's lock releases it
-through `defer`, so a panic in one cannot leave the site undeletable.
-
-Pub/Sub creates a topic, subscription or snapshot only in a project Cloud
-Resource Manager holds as active, over REST and gRPC alike, and a snapshot
-only of a subscription that exists. The SDK suite creates every project its
-Pub/Sub tests name through Cloud Resource Manager (`ensureProject`), and the
-in-package tests put theirs in place under IDs a project can have.
-
-A Container Apps container's `probes` run with Kubernetes' semantics: a
-startup probe, then a first passing readiness probe, makes the container
-started and ready, which a replica must be in every container for ingress
-to send it requests; a failing readiness probe takes the replica out of
-ingress until it passes again, and a failing liveness probe restarts the
-replica in place. The container ingress targets gets the platform's TCP
-probes on the target port for every type its template leaves unset. A
-replica runs its `initContainers` one after another on its address, each to a
-zero exit, before its containers start, reports them under `initContainers`
-and streams their logs; one that fails fails the revision.
-
-An Amazon ECS task belongs to the deployment that started it, by
-`startedBy`, so a forced deployment, or one that changes only the network,
-load balancers or volumes, replaces every task and the deployment it
-replaced drains out of the list.
-A deployment rolls within its bounds, stopping a previous task down to
-`minimumHealthyPercent` before it starts a replacement that `maximumPercent`
-leaves no room for. ListTasks filters on desired status RUNNING unless asked
-otherwise, as the API documents, and every Amazon ECS timestamp carries its
-milliseconds.
-The SDK suite's Amazon ECS fixture gives every VPC a /20 of its own out of
-400, where its 25 /16s let two live VPCs share a range once more than 25
-tests ran at once.
-
-A Cloud Run container reads its own instance id and
-`instance/region` from the metadata server.
-
-A restarted simulator that adopts a Cloud Run instance, revision instance,
-worker pool instance or job task with direct VPC egress holds the address
-the container keeps in the subnetwork's ledger, so the next workload on the
-subnetwork takes another address; an adopted workload without VPC egress
-holds its platform-network address as before.
-
-The Compute Engine metadata server answered the workloads Google Cloud runs
-and nothing else: a Compute Engine instance by its private address, and a
-Cloud Run container or a Cloud Build step by the address of its network
-namespace, the step as its build's service account in its build's project.
-A caller that was none of them got the 404 of an origin with no metadata
-server, as the EC2 and Azure metadata services answer, where it had read the
-default project's values; a residency probe of `/` from it reached the
-console. The SDK tests read the server from a Cloud Run service of a
-metadata-client test image, which runs the official Go metadata client and
-Application Default Credentials inside the container, and the gcloud test
-runs the suite's gcloud in a Cloud Run task's network namespace with the
-task's metadata coordinate; an instance's startup script reads its own id,
-zone, hostname and project. The residency probe of `/`, which a wrapper
-answers ahead of the chain that attributes a sidecar's request to its
-workload, attributes the probe itself, so Python's google-auth finds the
-metadata server from a workload. The Google Cloud CLI suite removes the
-gcloud release it installs when it ends, where each run had left one in the
-temporary directory.
-
-Every Compute Engine metadata answer carried an `ETag` naming its content,
-and a read with `wait_for_change=true` waited until the content differed
-from its `last_etag`, or from the content when it arrived without one,
-answering at once when it already did, with not found when the key went
-away, and with the content unchanged once `timeout_sec` passed. Writes to
-the instance and project stores woke the waiting reads, so a guest agent or
-the official Go client's `Subscribe` learnt of a `setMetadata` or
-`setCommonInstanceMetadata` without reading again.
-
-An Application Load Balancer listener evaluated its rules by priority, the
-default rule last, each rule meeting a request only when every condition did
-and a condition when any of its values did: host-header and http-header
-values without case and with `*` and `?` wildcards, path-pattern values with
-wildcards and case against the path alone, http-request-method exactly,
-query-string pairs without case with an optional key, and source-ip ranges
-against the client's own address. The first matching rule's actions ran in
-order: a forward to a target in service of its target groups, skipping one a
-weighted forward weighs 0; a fixed response with its status, content type and
-body; or a redirect whose location filled `#{protocol}`, `#{host}`,
-`#{port}`, `#{path}` and `#{query}` from the request. An Amazon ECS gateway
-route's `on.aws` hostname resolved to the load balancer carrying it, so its
-host-header rule routed requests naming it.
-
-A Container Apps revision scaled on its HTTP scale rule, or on the default
-one an app with ingress takes when its template names no rule, between its
-`minReplicas` (0 unless set) and `maxReplicas` (10 unless set). Every 15
-seconds the scaler took the requests of the past 15 seconds over 15 as the
-concurrency and sized the revision against the rule's `concurrentRequests`
-(10 unless set), scaling in, to zero when the minimum allowed, once the lower
-count had held for the `cooldownPeriod`. A request to a revision with no
-replica started one and waited for it to become ready. The template's
-`scale.rules` were stored and read back, where they had been dropped.
-
-Azure Container Registry refused a registry PUT for a name another registry
-held in any resource group or subscription, since the name is its login
-server's host name, where the simulator had stored a second registry under
-the same login server; the holder wrote its own registry again as before.
-
-RunInstances with a spot market, named on the call or in its launch
-template, launched a Spot Instance: the instance carried `instanceLifecycle`
-`spot` and the `spotInstanceRequestId` of the one-time (or persistent)
-request it fulfilled, which DescribeSpotInstanceRequests reported active and
-fulfilled at the call's maximum price, and the instance read `spot` from the
-metadata service's `instance-life-cycle`. Instances RequestSpotInstances
-launched carried the same.
-
-A Cloud Run service written through the Knative v1 surface, on its namespace
-path or its regional one, was created and updated as the v2 service it
-projects, so it deployed a revision under the v2 rules: only when the write
-changed the template, named `<service>-<generation in five digits>-<three
-random characters>` or by the template's own `metadata.name`, refused with
-`ALREADY_EXISTS` when that name was taken and checked against its traffic.
-The v1 surface had named every revision `<service>-<generation>` and minted
-one on every write. The template's `metadata.name` and `serviceAccountName`
-carried between the two surfaces, and a Knative revision record kept its
-identity across later writes. Worker pools, through either surface, took
-the same rules where every update had minted `<pool>-<generation>-abc`.
-
-The gcloud suite's own install and the test image pinned Google Cloud CLI
-590.0.0, the release CI's newest-build install was taking, where they had
-pinned 500.0.0 and 576.0.0: the older harness pin had no `run worker-pools`
-or `alpha run instances` group, so a run on a machine without gcloud failed
-on the client rather than on the simulator.
-
-Elastic Load Balancing refused DeleteLoadBalancer with `OperationNotPermitted`
-while `deletion_protection.enabled` was true, and DeleteTargetGroup with
-`ResourceInUse` while a listener's default actions or a rule's actions
-forwarded to the group, where both had gone through; a listener's deletion,
-direct or with its load balancer, took its rules with it, where they had
-stayed behind. A weighted forward divided requests among its target groups
-by weight, a group weighted 0 receiving none, where every request had gone to
-the first group with a healthy target.
-
-A Container Apps revision scaled on its Azure Queue rules: every polling
-interval, 30 seconds unless the scale named another, the scaler read each
-rule's queue through the Queue service's Get Queue Metadata, signed with the
-account key of the connection string the rule's `connection` secret held or
-carrying a token of the managed identity the rule named, and asked for one
-replica per `queueLength` messages, 5 unless the rule named another. The
-revision ran the most any of its HTTP and queue rules asked for, between its
-minimum and maximum, and scaled to zero once its queues emptied and the
-cooldown passed, where a queue rule had kept one replica running.
-
-A custom `azure-servicebus` scale rule scaled a Container Apps revision on
-the active messages of its queue, or of its topic's subscription: every
-polling interval the scaler read the entity's description from the
-namespace's management endpoint, with a Shared Access Signature the rule's
-connection string signed, and asked for one replica per `messageCount`, 5
-unless the rule named another.
-
-The Container Apps CLI revision test waited for its template change to
-provision before it split traffic with `latest`, which Container Apps
-resolves to the latest ready revision; it had sent the change and split the
-traffic at once, so on a slow runner the split landed on the earlier
-revision.
-
-A trust policy's `Service` principal named a service by its regional name in
-the simulator's Region, `states.us-east-1.amazonaws.com`, as well as by its
-global name, so AWS Step Functions and every other service whose role the
-simulator checks took a role that trusted the regional principal. AWS
-Systems Manager's cloud connector validation read the trust policy through
-the same evaluation, where it had searched the document's text for
-`ssm.amazonaws.com`.
-
-An HTTPS or TLS listener took its certificates from the listener's record at
-each handshake, so a certificate AddListenerCertificates or ModifyListener
-added reached a running listener, where it had presented the certificates it
-started with until it restarted. AWS Certificate Manager's `InUseBy` named
-the load balancers whose listeners present a certificate and the CloudFront
-distributions whose viewer certificate it is, and ListCertificates' `InUse`
-and DeleteCertificate's in-use refusal followed it, where `InUseBy` had
-always been empty.
-
-Azure Event Grid delivered to an event subscription's Storage queue, Service
-Bus queue or Service Bus topic destination, where only webhooks had received
-events: each event went as its own message through the destination's data
-plane, written in-process as the trusted Microsoft service Event Grid is,
-the event's JSON as the queue message's text and as the Service Bus
-message's body, retried and dead-lettered as a webhook delivery is. Service
-Bus admitted a trusted service's in-process call as Storage did.
-
-CreateLoadBalancer and SetSubnets held a load balancer to the subnet rules
-the Elastic Load Balancing model states for `Subnets` and `SubnetMappings`:
-one subnet per Availability Zone for every type, `InvalidConfigurationRequest`
-otherwise; an Application Load Balancer in at least two zones,
-`ValidationError` otherwise, where a Network or Gateway Load Balancer takes
-one; a subnet that does not exist `SubnetNotFound`. A dualstack load
-balancer, on create, SetSubnets or SetIpAddressType, took only subnets with
-an IPv6 CIDR block, `InvalidSubnet` otherwise; SetSubnets also applied the
-`IpAddressType` it names. The rules had been absent, so a single-zone
-Application Load Balancer came up and an Amazon ECS gateway route could not
-fail on its load balancer; now a dualstack gateway, the default, on the
-default VPC's IPv4-only subnets fails its route with
-`elasticloadbalancing:CreateLoadBalancer: InvalidSubnet`, passed through as
-the gateway documents its operation errors. AssociateSubnetCidrBlock gave the
-subnet its IPv6 block, which DescribeSubnets read back under the association
-ID that DisassociateSubnetCidrBlock removes, where the association had lived
-in a store the subnet never read. DescribeAvailabilityZones listed three
-zones with the zone IDs subnets carry, and the default VPC held a default
-subnet in each, so a gateway or Express service on the default VPC spans
-them; an Express service with no subnets takes all of them. Every test that
-built an Application Load Balancer in one zone gained a second subnet in a
-second zone, inside its existing VPC range.
-
-A re-vendored model can name operations the cloud released after the SDK the
-suites pin. Amazon EC2's transit gateway attachment NAT arrived in the model
-the same day as the aws-sdk-go-v2 release carrying it, which the adoption
-quarantine still held, so no SDK test could drive an implementation. Such an
-operation takes a scoped drift exemption whose reason is `BUGS.md <id>`, and
-`TestScopedDriftExemptionsCiteOpenBugs` holds the exemption to that row: it
-fails once the row closes while the operation is still unserved, and once the
-operation is served while the exemption remains.
-
-The network sidecar's image, built on the engine since it left git, costs a
-cold runner over a minute, longer than a suite's first workload waits. CI
-builds it, and the microVM node agent's image, with `scripts/ci-engine-image.sh`:
-a start step launches `make sidecar-image` or `make node-agent-image` in the
-background at the top of the job, holding a lock in `RUNNER_TEMP` until the
-build ends, and a wait step before the suites blocks on that lock. A test that
-acts on an instance waits for the state the action requires, as the AWS CLI's
-`ec2 wait instance-running` does before `reboot-instances`: Amazon EC2 refuses
-to reboot a pending instance, and the instant committed sidecar had hidden
-that race.
-
-An account has one AWS Glue Data Catalog resource policy, and two parallel
-tests in each of the SDK and CLI suites put, read and deleted it; one deleted
-the other's policy between its put and its read. The tests that touch it hold
-one package mutex from the put until the delete, and stay parallel otherwise.
-
-### Cloud Run structured logs and service-level scaling
-
-A line a Cloud Run service, worker pool, instance, job or Cloud Functions
-container writes that is a JSON object becomes the entry's `jsonPayload`, with
-the special fields the Logging agent's configuration page lists lifted onto
-the `LogEntry`: `severity` (a LogSeverity name, any case), `httpRequest`, the
-time fields in the documented order (`timestamp{seconds,nanos}`, then
-`timestampSeconds`/`timestampNanos`, then RFC 3339 `time`; the one used leaves
-the payload, the others stay), `logging.googleapis.com/insertId`, `/labels`
-(merged with the instance label), `/operation`, `/sourceLocation`, `/spanId`,
-`/trace` and `/trace_sampled`; `message` stays in the payload. Every entry
-carries the line's own timestamp and a `receiveTimestamp`, and a stderr line
-lands in `run.googleapis.com%2Fstderr`, where jobs had written every line to
-stdout. `LogEntry` gained `trace`, `spanId`, `traceSampled`, `sourceLocation`
-and `httpRequest` on REST and gRPC, so `trace=` and `jsonPayload.message=`
-filters and the BigQuery export see them. One builder, `cloudRunLogEntry`,
-serves every sink, and the adopted-container sink drops replays by
-`receiveTimestamp`.
-
-A service's `scaling` applies: its min, max and manual counts are divided
-among the revisions of the traffic split by percent, in the traffic list's
-order, the first-listed revisions taking the rounded-up values as the
-min-instances page's worked example shows, and a tag-only revision takes no
-share, since the page counts only revisions "part of a traffic split". The
-effective maximum is the smaller of the revision's own and the service share,
-the effective minimum the larger, capped at the maximum; under MANUAL a
-revision in the split runs exactly its share. An existing revision run
-rescales when its bounds change, so a scaling or traffic change without a new
-revision takes effect. The Knative v1 surface folds the Service-scoped
-`run.googleapis.com/minScale`, `maxScale`, `manualInstanceCount` and
-`scalingMode` annotations, so `gcloud run deploy --scaling=N` reaches the v2
-record. A Cloud Functions `serviceConfig`'s `minInstanceCount` and
-`maxInstanceCount` become the backing service template's scaling, and its
-`vpcConnector` and `vpcConnectorEgressSettings` the template's `vpcAccess`.
-
-Every reader of the operation stores (REST get, list, wait and cancel, the v2
-flat get, gRPC Get, Wait and List) goes through `gcpCurrentOperation`, which
-rebuilds a running RunJob operation's metadata from the execution record. A
-regional `CreateBuild`'s operation is named
-`projects/{p}/locations/{l}/operations/{buildId}` and served and cancelled on
-that collection; a global build keeps `operations/build/{p}/{id}`.
-
-The bug that had a Serverless VPC Access connector hide private zones from a
-`PRIVATE_RANGES_ONLY` workload rested on a wrong premise: the vendored
-private-networking page states that with a connector or Direct VPC egress all
-DNS queries go to the VPC's DNS server by default, so the simulator's
-resolution was kept.
-
-### Google documentation pages are vendored with a date pin
-
-Some behaviour the Discovery documents leave out is stated only on a
-documentation page. `scripts/fetch-gcp-doc.sh <path> <name>` fetches a
-docs.cloud.google.com page's article, converts it to Markdown with pandoc and
-vendors it under `specs/cloud-api/gcp/` with a `SOURCES.md` row pinned
-`modified<date>` at the page's "Last updated" footer;
-`check-spec-freshness.sh` compares that date with the live page and
-`refresh-drifted-specs.sh` re-fetches a drifted page; the pages share the one
-provenance table with the Discovery documents, told apart by their pin.
-
-### IAM Conditions follow the resource attribute reference
-
-`gcpIAMResourceNamed` had supplied `resource.name`, `resource.type` and
-`resource.service` for every policy, with types for a hand-picked few. The IAM
-Conditions resource attribute reference lists which resource types recognise
-the attributes and the name format of each, and states that other services
-recognise none; Cloud Run's access page adds that Cloud Run conditions read
-`request.host` and `request.path` only. The table is the reference's for every
-collection the simulator holds a policy for (BigQuery, Bigtable, Cloud KMS,
-Cloud Logging, Secret Manager, Spanner, Firestore, Compute Engine, Resource
-Manager), store-key prefixes are stripped to the reference's names, and
-resources outside the reference supply no attributes, so a condition on
-`resource.type` for a Cloud Run service evaluates false as it does on Google
-Cloud.
-
-`resource.matchTag`, `matchTagId`, `hasTagKey` and `hasTagKeyId` are CEL
-member functions on the condition's `resource` value, which carries the
-resource's effective tags: the bindings on the resource plus those on its
-project, folders and organization, the nearest binding winning per key, as the
-Resource Manager tags overview describes. `effectiveTags` and
-`effectiveTagBindingCollections` answer from the same inheritance. API
-Gateway's policy store keeps the binding condition it had dropped on write and
-serves the Go SDK's GET `:getIamPolicy`, and API Gateway and Cloud KMS
-evaluate conditions in `testIamPermissions`. A custom role had never granted
-its permissions, because the lookup used the role's id where the store keyed
-by full name, and a tag value's namespaced name had been its key's id.
-
-### Cloud Audit Logs read each service's audit-logging page
-
-The audit-logging pages of Cloud Run, BigQuery, Cloud SQL, Cloud Logging,
-Resource Manager, Service Usage, Serverless VPC Access, API Gateway and
-Dataflow are vendored and compiled by `scripts/gen-gcp-audit-methods.go` into
-`simulator-gcp/audit_methods_vendored.json`: the methodName, audit category
-and permissions each service records. A service the table covers writes an
-entry exactly for the methods its page lists; the proto-defined services join
-the one-platform list, and the Discovery-defined Cloud Run Admin v1, BigQuery,
-Cloud SQL and Dataflow resolve their Discovery method to the page's method
-name. Cloud Run's `RunJob` is a Data Access `DATA_WRITE` entry and
-`SubmitBuild` checks `cloudbuild.builds.create`, as the page states. Cloud
-Build's `CreateBuild`, Cloud SQL's operations and Resource Manager v1's
-`CreateProject` write the operation's last entry.
-
-### Virtual machine identities on the Instance Metadata Service
-
-A virtual machine carries its `VirtualMachineIdentity`, settled through the
-same `applyManagedIdentity` App Service and Container Apps use; a PATCH reads
-the user-assigned dictionary as Azure Resource Manager does, a null entry
-detaching. The IMDS token endpoint resolves the requesting machine from its
-address, requires `Metadata: true` (400 `bad_request_102`), mints for the
-machine's system-assigned identity or the user-assigned identity `client_id`,
-`object_id` or `msi_res_id` selects, and refuses any other identity or a
-caller that is no machine with 400 `invalid_request` "Identity not found", all
-in the swagger's `IdentityErrorResponse` body, the token response carrying the
-`IdentityTokenResponse` members. The simulator-wide identity went away:
-`SystemAssignedIdentities_GetByScope` answers the system-assigned identity of
-the resource its scope names, and 404 for a scope with none.
-
-### Client certificates through the front ends
-
-`sim.Config.TLSConfigForClient` is a cloud-neutral hook the listener passes as
-`GetConfigForClient`. The Azure simulator asks a client for a certificate when
-the SNI names a site with `clientCertEnabled` or a container app whose ingress
-`clientCertificateMode` is `accept` or `require`. Sites round-trip
-`clientCertEnabled`, `clientCertMode` and `clientCertExclusionPaths`, and
-container apps `clientCertificateMode`. App Service forwards the certificate
-as `X-ARR-ClientCert`, answers 403 to a Required site's request without one
-outside the exclusion paths, and forwards none for an excluded path; Container
-Apps ingress forwards `X-Forwarded-Client-Cert` as
-`Hash=…;Cert="…";Chain="…"`, drops a client-sent copy, and `ignore` drops the
-certificate, as the vendored Learn pages describe.
-
-### Kudu diagnostics
-
-The SCM site serves the zip API, `/api/dump` and `/dump`, `/api/logs/docker`
-and the process API over the same process reads Azure Resource Manager
-answers, from the vendored Kudu controllers. A site's container output lands
-in `/home/LogFiles/YYYY_MM_DD_<machine>_docker.log`, where the machine name is
-the instance name the container gets as its hostname, and
-`/logstream[/{path}]` follows the files under `LogFiles/{path}` at Kudu's
-Linux watcher cadence of 1.5 seconds.
-
-### Amazon RDS quota, subnet groups and license models
-
-Amazon RDS enforces the DBInstances quota of 40 under one lock. The count
-covers stored DB instances, instances still being provisioned, and the unused
-capacity of active DB capacity reservations, and every operation the model
-declares `InstanceQuotaExceeded` on refuses past it;
-ModifyDBCapacityReservation checks only increases, as the model states.
-DescribeAccountAttributes reports the same count. DB subnet groups resolve
-their subnets from Amazon EC2, refuse an unknown subnet or mixed VPCs with
-`InvalidSubnet` and fewer than two Availability Zones with
-`DBSubnetGroupDoesNotCoverEnoughAZs`, and report the subnets' own VPC and
-zones; an instance created in a group without a named zone takes the group's
-first zone, a Multi-AZ standby its second. DBInstance reports its
-LicenseModel, checked against the values the CreateDBInstance reference lists
-for the engine.
-
-### Systems Manager managed nodes, instance metadata and reverse lookups
-
-AWS Systems Manager registers a running Amazon EC2 instance as a managed node
-when its instance profile's role allows `ssm:UpdateInstanceInformation`, at
-boot and when the profile changes, and termination deregisters it. The node's
-platform comes from the instance's own `/etc/os-release`, replacing a
-hard-coded Ubuntu and agent version. SendCommand refuses an instance that is
-no online managed node with `InvalidInstanceId`, and
-DescribeInstanceInformation honours its filters and leaves out stopped and
-terminated instances. Instance metadata serves an interface's
-`ipv4-associations/`, and `HttpProtocolIpv6` round-trips. The Amazon-provided
-DNS server answers PTR records for interface and public addresses.
-
-### Amplify compute refreshes its role
-
-AWS Amplify Hosting compute containers had taken a one-shot environment
-session of the compute role, which expired an hour into a running compute.
-They are placed through `grantContainerCredentials` and the container
-backend's forwarded placement, so the compute's SDKs read the role from the
-container credentials endpoint on the compute's own loopback and refresh it
-there, and recovery adopts the compute and its forwarder.
-
-### Workload callbacks under TLS
-
-`sim.Main` binds the listeners before `Program.Build` and hands the build a
-`Config.CallbackListenAddr` resolved to the bound port; the server adopts the
-listeners and serves on them once `Program.Start` returns. When the API
-listener terminates TLS, `sim.Main` also opens a plain-HTTP callback listener
-at `Config.CallbackListenAddr` (`SIM_CALLBACK_LISTEN_ADDR`, a free port on
-every interface by default) that serves the same handler chain, so the sidecar
-trust middleware applies unchanged. The three simulators point their network
-sidecars, NAT egresses and metadata URLs at the callback address, because a
-sidecar's scratch image carries no trust store for the simulator's certificate
-and a workload's `IDENTITY_ENDPOINT` is plain HTTP. A simulator without TLS
-keeps its single listener.
-
-### One engine network per virtual network address prefix
-
-Docker's bridge driver refuses several subnets per network, so each IPv4
-prefix of an Azure virtual network's address space is an engine network of its
-own, the first named `sim-vnet-<name>` and each other that name with a digest
-of the prefix, each with a sidecar at its prefix's reserved resolver address
-and registered with the private DNS catalog. `azureSubnetNetwork` resolves a
-subnet to its prefix's network, and virtual machines, sites, Container Apps
-environments, container groups, NAT egresses and the node agent attach through
-it.
-
-### Azure Monitor diagnostic settings
-
-`Microsoft.Insights/diagnosticSettings` and `diagnosticSettingsCategories` are
-vendored and served on resource-group resources, with categories for sites,
-Container Apps environments and container apps taken from the vendored
-supported-logs pages, writes validated against them and the `allLogs` and
-`audit` groups, and at most five settings per resource. A setting enabling
-`AppServiceConsoleLogs` routes a site's console lines to that table of its
-workspace, and an environment whose logs destination is `azure-monitor` sends
-`ContainerAppConsoleLogs` and `ContainerAppSystemLogs` to the
-resource-specific tables, with the columns the vendored table reference pages
-list.
-
-### Container Apps scale-in
-
-The scaler waits out the 300-second scale-down stabilization window before
-scaling in between nonzero counts, and applies the cooldown period only to the
-step to zero, measured from the last time a rule asked for a replica, as the
-"Scale behavior" section of "Set scaling rules in Azure Container Apps"
-states.
-
-### GoogleSQL on the BigQuery engine
-
-The query engine rewrites GoogleSQL onto SQLite before running it: typed
-literals (TIMESTAMP, DATE, DATETIME, TIME, NUMERIC, JSON, INTERVAL), raw and
-bytes strings, EXTRACT, CAST and SAFE_CAST, the `SAFE.` prefix, array literals
-and subscripts with OFFSET, ORDINAL and their SAFE forms, IN UNNEST, field
-access into RECORD columns and UNNEST range variables, UNNEST WITH OFFSET as
-`json_each`, QUALIFY as a filtering outer query, and `SELECT *` expanded
-against the loaded schemas with EXCEPT and REPLACE. Functions registered on
-the connection cover the date, time and timestamp families with the FORMAT and
-PARSE format elements, the safe arithmetic, the array, regexp, string and JSON
-functions, FARM_FINGERPRINT, the digests and the aggregates SQLite lacks, each
-following its vendored reference page. A function's runtime error reports as
-itself rather than as a syntax error.
-
-INSERT, UPDATE, DELETE, MERGE and TRUNCATE TABLE run against the loaded table
-and write the result back, reporting `statementType`, `numDmlAffectedRows` and
-`dmlStats`; CREATE TABLE (with a column list or AS SELECT, OR REPLACE, IF NOT
-EXISTS, PARTITION BY, CLUSTER BY and OPTIONS), CREATE VIEW, ALTER TABLE ADD
-COLUMN and DROP run and report `ddlOperationPerformed` and `ddlTargetTable`. A
-multi-statement query runs each statement as a child job with `parentJobId`
-and `scriptStatistics`, with DECLARE, SET, IF and BEGIN…END. A query without a
-`destinationTable` writes its result to an anonymous table in the project's
-hidden dataset, which expires after 24 hours as "Writing query results"
-states. `jobs.query` reads the QueryRequest members the Discovery declares,
-and every rendered row honours `formatOptions.useInt64Timestamp` and
-`timestampOutputFormat`, with the Discovery's FLOAT64 seconds as the default;
-the simulator had rendered microseconds whatever the request asked. A query
-that leaves `useLegacySql` at its Discovery default of true answers 501,
-because the engine runs no legacy SQL.
-
-### BigQuery load, copy, extract and streaming options
-
-A load applies `timePartitioning`, `rangePartitioning` and `clustering` to the
-table it creates, `schemaUpdateOptions` on WRITE_APPEND and
-WRITE_TRUNCATE_DATA, `decimalTargetTypes`, and the CSV date, time and
-timestamp formats and `timeZone`. A copy runs `operationType` SNAPSHOT,
-RESTORE and CLONE as table types with `snapshotDefinition` and
-`cloneDefinition`, and honours `destinationExpirationTime`. Avro and Parquet
-extracts shard at the 1 GB limit, each shard a complete file. `insertAll`
-de-duplicates `insertId`s within the streaming page's one-minute window and
-streams a `templateSuffix` into an instance table created from the template's
-schema.
-
-### Express Mode and ECS roles act through the services' APIs
-
-Amazon ECS Express Mode creates its security groups and their rules, the
-Application Load Balancer, target group, HTTPS listener and host-header rule,
-the certificate, and the scalable target and target-tracking policy through
-Amazon EC2, Elastic Load Balancing, AWS Certificate Manager and Application
-Auto Scaling as the infrastructure role, through the client ECS gateways use,
-generalised as `ecsInfrastructureClient`. It had written each straight into
-the services' stores, so Elastic Load Balancing's subnet rules never reached
-it. A role ECS cannot assume is refused with `InvalidParameterException`; a
-refusal from a service lands on that managed resource as `FAILED` with the
-service's error as `statusReason`, and the resources depending on it are not
-attempted. DescribeServiceRevisions reports the resources as the model's
-`ECSManagedResources`. Up to 25 services with one network configuration share
-a load balancer, each reached through its own `<id>.ecs.<region>.on.aws`
-hostname with its own certificate and rule, and teardown goes through the same
-APIs.
-
-A task's `managedEBSVolume.roleArn` must be assumable by `ecs.amazonaws.com`,
-and the volume is created and deleted through Amazon EC2 as that role.
-CreateService's `role` is permitted only with a load balancer outside the
-awsvpc network mode, as the model states, must be assumable, and registers and
-deregisters the service's targets through Elastic Load Balancing as that role.
-Amazon EC2 answers a CreateVolume from a snapshot `creating` and fills the
-volume behind the response, and Elastic Load Balancing keeps a target group's
-`LoadBalancerArns` current as rules that forward to it change.
-
-### The IAM gate covers REST routes
-
-The call-time IAM gate had covered only Query and JSON protocol requests and
-three hand-mapped REST services. `scripts/generate-sfn-rest-integrations.go`
-compiles every operation's Smithy `http` trait into the `awsRESTRoutes` table,
-which names a REST request's operation from its method and path, and the REST
-routes of AWS Amplify, Amazon API Gateway, AWS Batch, Amazon EFS, EventBridge
-Scheduler, Amazon CloudFront and Route 53 pass the gate, their resources
-derived from path labels, query and document through the ARN formats of the
-vendored Service Reference documents. Each service refuses in its own model's
-shape: `AccessDeniedException` for Scheduler, Batch, EFS and API Gateway v2,
-`UnauthorizedException` for Amplify and API Gateway v1, `AccessDenied` for
-CloudFront and Route 53. A Scheduler universal target to a REST action, which
-already ran as the execution role, is now judged as it.
-
-### The REST services' declared condition keys
-
-Gating the REST services brought their declared condition keys into the
-measure, and each was resolved from the request where the service documents
-the value, or classified where it does not. The gate records the operation
-and labels a REST request's route names on the request, so
-`iamRequestWireOperation` and the populators read a REST operation as they
-read an X-Amz-Target or an Action parameter; the gate reads the body through
-that copy and hands the restored body back to the handler.
-
-- Route 53 writes `route53:ChangeResourceRecordSetsActions`, `…RecordTypes`
-  and `…NormalizedRecordNames` from the change batch, and `route53:VPCs` as
-  `VPCId=<vpc-id>,VPCRegion=<region>` on the six operations the Route 53
-  Developer Guide lists, in the forms its "Normalizing the Route 53 condition
-  key values" section prescribes: record names lowercased, without the
-  trailing dot, every other character as a three-digit octal escape.
-- AWS Batch authorizes a RegisterJobDefinition once per container, each with
-  that container's `batch:Image`, `Privileged`, `User`, `LogDriver`, awslogs
-  options or Amazon EKS keys, because the AWS Batch User Guide says it
-  "evaluates condition keys on each container". `batch:SchedulingPriority`
-  comes from SubmitServiceJob and UpdateServiceJob.
-- Amazon EFS writes `elasticfilesystem:Encrypted` from CreateFileSystem, and
-  gained its request-tag shape, so a create carrying tags is also authorized as
-  `elasticfilesystem:TagResource` with `elasticfilesystem:CreateAction` naming
-  the create. `AccessedViaMountTarget` is classified: it belongs to the
-  mount-time client actions, and the simulator bind-mounts a file system with
-  no NFS client authorization.
-- Amazon API Gateway's portal, portal product, product page and routing-rule
-  operations are authorized as the actions of their own names the Service
-  Reference's operation table maps them to — CreatePortal also as
-  `apigateway:GetPortalProduct` on the products it includes and as
-  `apigateway:POST` — with the `apigateway:Request/` keys from the request and
-  the routing rule's `apigateway:Resource/` keys from the stored rule. Every
-  other operation stays the HTTP-method action on its path.
-  `apigateway:Request/ProductRestEndpointPageEndpointPrefix` is classified: no
-  request member carries an endpoint prefix. The portal, product, page and
-  routing-rule ARNs carry the account, as the reference's formats do.
-
-### A declared key counts as built only where its whole name is written
-
-`TestIAM_DeclaredConditionKeysAreResolvedOrClassified` counted a key built
-when its bare name appeared anywhere in the package source and its service
-registered a populator, so a struct tag, a response field or a form parameter
-of the same word credited it, and nine keys no code built passed:
-`elasticfilesystem:AccessPointArn`, `events:PolicyName`, `s3:logType`,
-`s3express:LocationName`, `s3express:Permissions`, the two `s3express`
-encryption keys, `ssm:AccessRequestId` and `sts:AWSServiceName`. The scan
-reads the package's Go string literals through `go/ast`, leaves struct tags
-out, and credits a key only for a literal of its whole name or of a templated
-key's prefix, for an entry of a table a populator writes under one service
-prefix (`codeBuildConditionKeys`, the Amazon S3 header and query tables), or
-for the separator-led name the Amazon S3 namespaces compose. No credited key's
-literals all sit outside a write into a condition context.
-
-The stricter measure showed that a directory bucket's operations were
-authorized as s3 actions on the s3 ARN, so the s3express populator's
-CreateSession keys were never read. Directory-bucket operations are authorized
-in the s3express namespace on the bucket's s3express ARN, as the Amazon S3 User
-Guide's "Authenticating and authorizing requests" table lists them: the
-Regional operations as their own actions (an inventory delete as
-`PutInventoryConfiguration`), ListDirectoryBuckets as
-`ListAllMyDirectoryBuckets`, and CreateSession and the Zonal object operations
-as `s3express:CreateSession`, except that a Zonal request signed with a
-session is authorized by the session alone. A directory bucket's policy is held
-at its s3express ARN. CreateSession reads `s3express:SessionMode` and its two
-encryption headers, CreateBucket `s3express:LocationName`, and
-PutBucketInventoryConfiguration `s3express:InventoryAccessibleOptionalFields`.
-The other keys are classified, each with what the simulator would have to model.
-
-### IAM condition tag lookups and the mux overlap scanner
-
-IAM condition evaluation resolves a resource's effective tags on every
-request, so the tag binding and tag value lookups it makes are answered from
-generation indexes rather than by decoding each store. The route overlap
-scanner treated `{$}` as a wildcard and paired Cosmos DB's account root (`GET
-/{$}`) with Azure Resource Manager's by-ID route; `{$}` anchors a pattern at
-its end and shadows nothing, and the scanner now says so.
-
-### The egress sidecar reads a UDP flow's destination from a table dump
-
-The NAT egress sidecar learns where a redirected datagram was going from the
-connection tracker. ti-mo/conntrack v0.6.0 asks for that one entry with an
-acknowledged request, and under mdlayher/socket v0.6 and later the request
-never returns once the entry exists; the sidecar's single UDP read loop then
-stalled on the first datagram, so a guest's UDP never left through the gateway
-while its TCP did. Bisecting the dependency bump pinned it to the socket
-release, a probe outside the simulator reproduced it, and a dump of the table
-worked under every version. The sidecar now dumps the namespace's table, which
-holds only that gateway's flows, and picks the entry whose reply direction
-runs from its socket to the sender, keeping the current dependencies. The UDP
-path also reports each failure it had dropped silently: a receive error, a
-datagram without its original destination, a lookup that finds no entry, and a
-failed upstream read or reply.
-
-### Cloud Resource Manager Boundaries are declared
-
-The v3 Discovery refresh published Boundaries and BoundaryConfig on folders
-and organizations. They answer a declared 501 naming what is missing, because
-the Discovery document states neither how a Boundary provisions its Management
-Project nor when it becomes `ACTIVE`, and no client exposes them to test
-through; the coverage lock records the 28 new spellings as declared rather
-than served.
-
-### Elastic Load Balancing creates, subnet mappings and stickiness
-
-CreateLoadBalancer answers the existing load balancer for a repeated create
-with the same settings and refuses a differing one with
-`DuplicateLoadBalancerName`. A subnet mapping keeps its `AllocationId`,
-`PrivateIPv4Address`, `IPv6Address` and `SourceNatIpv6Prefix`, which
-CreateLoadBalancer, SetSubnets and DescribeLoadBalancers return as
-`LoadBalancerAddresses` and `SourceNatIpv6Prefixes`. A request naming both
-`Subnets` and `SubnetMappings`, an address member on anything but a Network
-Load Balancer, an unknown allocation and an address outside its subnet are
-refused. On the data plane, a weighted forward with target group stickiness
-sets the `AWSALBTG` cookie and keeps a client on its target group, and a
-target group with `lb_cookie` stickiness sets `AWSALB` and keeps a client on
-its target; both cookies carry an HMAC under a per-simulator key. An enabled
-stickiness without `DurationSeconds`, or outside 1 to 604800, is refused with
-`ValidationError`.
-
-### Amazon EC2 default subnets, zones and VPC IPv6 blocks
-
-The seeded default subnets are /20s carrying `defaultForAz` and their zone
-ids. CreateDefaultVpc creates a default subnet per zone, and
-CreateDefaultSubnet takes the next free /20 and refuses a second default
-subnet in a zone with `DefaultSubnetAlreadyExistsInAvailabilityZone` and the
-text the Amazon EC2 API Reference gives it; a default VPC with no free /20
-answers `InvalidSubnet.Conflict`. CreateSubnet refuses an unknown zone, naming
-only the parameter, a block outside the VPC's blocks and an overlapping one,
-and takes only a /64 of the VPC's IPv6 blocks. CreateVpc and
-AssociateVpcCidrBlock hold Amazon-provided /56 IPv6 blocks, which DescribeVpcs
-lists beside the secondary IPv4 associations, and DescribeAvailabilityZones
-honours `ZoneNames`, `ZoneIds` and its filters.
-
-### Lambda destinations, Step Functions waits and EventBridge targets act through service APIs
-
-AWS Lambda sends an asynchronous invocation's record to its Amazon SQS, Amazon
-SNS, AWS Lambda or Amazon EventBridge destination by calling that service's
-API as the function's execution role, so a role that may not deliver is
-refused as it would be in the cloud, and a refused delivery counts in
-`AWS/Lambda` `DestinationDeliveryFailures`. An AWS Step Functions `.sync`
-integration with Amazon ECS or AWS CodeBuild starts its work, reads it and
-stops it through the service's API as the execution role. Rather than reading
-the store on a timer, it sleeps until the service's store writes the task,
-build or batch, then confirms the state through the API; ECS tasks, CodeBuild
-builds and CodeBuild batches announce each write for this. Amazon EventBridge
-rules deliver to AWS CodeBuild with `StartBuild`, to Amazon Data Firehose with
-`PutRecord` and to Systems Manager Run Command with `SendCommand`, each as the
-target's role, and a Run Command target runs its document on the SSM managed
-node it names.
-
-### AWS CodeBuild batch builds and overrides, and Amazon RDS instances in their Region
-
-StartBuild and StartBuildBatch decode every member their input declares, apply
-each to the build as the project it runs (image, environment type, compute
-type, timeout, source location, type, auth and clone depth, buildspec, logs,
-cache, encryption key, artifacts, debug session and auto-retry limit) and
-report them back. An `idempotencyToken` answers the same build within five
-minutes. A batch build reads its buildspec's `batch` section (`build-list`,
-`build-graph` or `build-matrix`) as the vendored CodeBuild User Guide pages
-state, and starts, stops and retries each build through StartBuild, StopBuild
-and RetryBuild as its `buildBatchConfig` service role. It honours `depend-on`,
-`fast-fail`, `ignore-failure` and the project's batch restrictions, and
-reports `buildGroups`. Projects store `buildBatchConfig` and the other Project
-members CreateProject and UpdateProject receive. On Amazon RDS, a DB instance
-lives in the Region its creating request is signed for: its ARN and
-Availability Zone name that Region, and DescribeDBInstances and identifier
-lookups answer only there. A restore from a replicated automated backup
-creates its instance in the destination Region, and the `DBInstances` quota
-counts per Region.
-
-### CodeBuild builds from Step Functions keep their overrides
-
-Step Functions takes the CodeBuild integration's parameters in PascalCase
-(`EnvironmentVariablesOverride` entries carry `Name`, `Value` and `Type`) and
-now renames them to CodeBuild's camelCase members before calling StartBuild
-and the batch operations. CodeBuild reads its override entries by member name,
-so a build a state machine started had run without the environment variables
-it passed. A project whose source names no buildspec now reads `buildspec.yml`
-from the source root; StartBuild had refused the empty path as outside the
-source directory.
-
-### Dependencies bundled with the sweep
-
-The AWS Terraform stacks moved to hashicorp/aws 6.70.0, the Azure console to
-`@fluentui/react-components` 9.74.11, and the image pins to the digests Docker
-Hub and its mirror serve: `alpine:3.24`, `amazonlinux:2023` and
-`golang:1.27-alpine`, with the sidecar and node agent builders moving from
-`golang:1.27.2-alpine` to `golang:1.27.3-alpine`. Provider 6.70.0 still
-exposes no alarm `ActionConfiguration` and no Amazon ECS gateway resource.
-
-### Cloud Logging audits itself, and model-required members are always reported
-
-Cloud Logging's own configuration calls (CreateBucket, CreateView, CreateSink)
-write Admin Activity audit entries to the project's `_Required` bucket, as the
-service does, so the logging tests that read a whole project or bucket now set
-those audit entries aside and read only the entries they wrote. Amazon ECS
-`DescribeServiceRevisions` reports every Express ingress path's `endpoint`, a
-failed load balancer's `scheme` and a target group's `port`, `healthCheckPort`
-and `healthCheckPath` whether or not the resource was provisioned, as the
-model requires, and Systems Manager `ListNodes` leaves out a node's members it
-has no value for, as InstanceInformation already did. Azure's virtual machine
-metadata test gives its machine a system-assigned identity, since IMDS answers
-`identity/info` only for a machine that has one, and the App Service
-Environment recommendations test places its subnet inside its own virtual
-network. The Step Functions Terraform workflow's role holds the
-`ecs:DescribeTasks` and `ecs:StopTask` its `.sync` wait calls, and the
-conformance list covers the IMDS `ipv4-associations` routes.
-
-### A create abandoned mid-request leaves no container
-
-A machine discarded while its boot was still creating the container could
-leave that container behind: the boot's context ended after the engine had
-accepted the create, so the client returned the context's error and no
-identifier, and Discard had nothing to remove. A create that fails because its
-context ended now removes the container the engine may have made under the
-workload's name, as a failed start or seed already did.
-
-### A server that does not persist removes its payload stores
-
-A server without `Persist` kept each payload store (Amazon S3, Cloud Storage,
-Azure Blob Storage, Memorystore backups) in a fresh temporary directory and
-never removed it, so every unit-test server and every simulator run left its
-bytes in the system's temporary directory; a long session accumulated over a
-thousand. The server now records those directories and removes them when it
-stops, at the end of `Serve`'s shutdown after the database closes, and in
-`StopBackground`, which a server built without serving stops through.
-
-### Google Cloud enums sent as numbers read back as names
-
-The REST transport of Google's Go clients sends an enum as its proto number,
-and the API answers with its name. The simulator kept a number it received as
-its digits, so a Cloud Run service's `scalingMode`, `executionEnvironment` and
-`encryptionKeyRevocationAction`, an instance's `restartPolicy`, a condition's
-`state` and a function's `environment` read back as `"2"`, and code comparing
-`scalingMode` to `MANUAL` never matched one set through a Go client. Cloud
-Functions refused `vpcConnectorEgressSettings` and `ingressSettings` sent as
-numbers outright. One table-driven `protoEnum` type now maps each number
-through the enum's declared values, taken from the Go SDK's descriptors or the
-Discovery document's enum order, treats zero as unset and refuses a number the
-enum does not declare. Two SDK tests expected what no client would see:
-logadmin unescapes the `%2F` in a `LogName` it returns, and DeleteLog writes
-an Admin Activity audit entry, so the audit log is listed afterwards.
-
-### Two tests waited on the wrong moment
-
-The node agent's microVM test read from its member as soon as the member
-printed `member up`, which its shell does just before `exec httpd`, so on a
-slow runner the first read reached a port nothing listened on yet; busybox
-`httpd -f` announces nothing once it binds, so the guest now retries that port
-until it answers, for at most ten seconds. The structured Cloud Run log test
-stamped its line with a fixed January date that Cloud Logging's thirty-day
-retention discards, so the line never reached the tail; it now stamps the line
-a minute in the past.
-
-### A restarted simulator's resumed work knows the callback address
-
-The callback address had become known only after the build, when `sim.Main`
-bound the listeners, and the simulators recorded it in `Program.Start`. A
-persistent AWS simulator resumes its previous process's work during the build:
-Amazon ECS service reconciles, AWS Step Functions executions and AWS Lambda
-invocations start there, and one that reached a workload before `Start` saw an
-empty address. The network sidecars memoized `invalid simulator listen port
-""`, so every task the restarted service scheduler placed failed and the
-deployment never stabilized, and a resumed Step Functions Lambda task got the
-same error back as an unhandled function error and failed its execution.
-`sim.Main` now binds the listeners before `Program.Build` and passes the
-resolved address in the configuration the build receives, and the three
-simulators record it as their build begins.
+reads as infrastructure noise. Suites are sharded on measured cost with each
+test in exactly one shard; a matrix entry with a `placement:` is a deliberate
+second run. A push to `main` whose tree passed on its pull request skips the
+suites, because re-running every job per merge starved the account's runners.
+
+Nothing CI builds or runs pulls from Docker Hub: Docker's official images come
+from `mirror.gcr.io`, which serves them anonymously without Docker Hub's rate
+limit. The ECR Public Gallery's copy failed every container test with `Data
+limit exceeded` under load, and a copy in a registry the project owns would
+have made every pin update a refresh; the gallery still serves what AWS itself
+publishes there (Lambda base images, DynamoDB Local, CodeBuild images). Base
+images are read out of the source and fetched once per run by one job,
+because a cache miss in every job at once tripped per-minute throttles.
+`docker load` restores no repository digest, so a digest-pinned image is saved
+under the tag that spells its digest and found there.
+
+Release pull requests run no CI and the owner merges them. release-please tags
+the release pull request's merge commit; the Actions token cannot create a
+ref at a commit whose workflow files differ from the branch heads, so a
+workflow-changing merge landing before the release run stranded 2.4.1
+(BUG-3465). Publishes are keyed per commit and never cancelled; retention
+spares anything under two hours old, because a publish between its two
+per-architecture pushes looks abandoned. `actions/setup-go` went because the
+runner fetched it once per job from codeload with no retry; a local action
+downloads Go from the module proxy with retries.
+
+A CI cache needs a fallback key. The lint shards restored only an exact
+match, so every pin or dependency move linted `simulator-aws` cold, and a
+runner lost mid-lint saved nothing; each shard now keeps its own Go and
+golangci-lint cache and restores the newest older entry. The browser jobs
+install `passt` from the Ubuntu archive pool, checked against the signed
+index's SHA-256, and lift Ubuntu 24.04's AppArmor restriction on
+unprivileged user namespaces, which the runner image leaves in force.
+
+Dependencies of every class are held to their newest release past a 24-hour
+quarantine; `ui/bunfig.toml` sets the same minimum release age, because caret
+ranges let the resolver pick what the quarantine refuses. The check fails when
+the proxy refuses a version listing: it once skipped such a module as current
+and, on a full disk, reported everything current. Its self-test serves every
+registry from fixtures, and reading `GOPROXY` runs with `GOTOOLCHAIN=local`.
+`scripts/check-repo-config-sane.sh` exists because a `git config` run without
+`-C` in a linked worktree wrote a test fixture's identity into the shared
+`.git/config`.

@@ -4,7 +4,7 @@ import Input from "@cloudscape-design/components/input";
 import Textarea from "@cloudscape-design/components/textarea";
 import FormField from "@cloudscape-design/components/form-field";
 import SpaceBetween from "@cloudscape-design/components/space-between";
-import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsStatus, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsStatus, AwsRefreshButton, type AwsColumn } from "../console/index.js";
 import { formatTimestamp } from "../console/format.js";
 import {
   createSchedule,
@@ -92,7 +92,7 @@ function CreateGroupModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function SchedulerPage() {
+export function SchedulerPage({ view = "schedules" }: { view?: "schedules" | "groups" }) {
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
   const [creatingGroup, setCreatingGroup] = useState(false);
@@ -111,6 +111,7 @@ export function SchedulerPage() {
   });
   return (
     <>
+      {view === "schedules" && (
       <AwsResourceTable<Schedule>
         title="Schedules"
         description="EventBridge Scheduler schedules in this account and Region."
@@ -125,17 +126,18 @@ export function SchedulerPage() {
         errorTestId="scheduler-schedules-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton disabled={selected.length === 0 || state.isPending} onClick={() => state.mutate({ schedules: selected, enabled: true })}>Enable</AwsButton>
             <AwsButton disabled={selected.length === 0 || state.isPending} onClick={() => state.mutate({ schedules: selected, enabled: false })}>Disable</AwsButton>
             <AwsButton disabled={selected.length === 0 || remove.isPending} onClick={() => remove.mutate(selected, { onSuccess: clearSelection })}>Delete</AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>{isFetching ? "Refreshing…" : "Refresh"}</AwsButton>
             <AwsButton variant="primary" onClick={() => setCreating(true)}>Create schedule</AwsButton>
           </>
         )}
       />
+      )}
+      {view === "groups" && (
       <AwsResourceTable<ScheduleGroup>
         title="Schedule groups"
-        headingVariant="h2"
         description="The groups schedules are organized into."
         columns={groupColumns}
         queryKey={["scheduler-groups"]}
@@ -148,12 +150,13 @@ export function SchedulerPage() {
         errorTestId="scheduler-groups-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton disabled={selected.length === 0 || selected.some((group) => group.name === "default") || removeGroup.isPending} onClick={() => removeGroup.mutate(selected, { onSuccess: clearSelection })}>Delete</AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>{isFetching ? "Refreshing…" : "Refresh"}</AwsButton>
             <AwsButton variant="primary" onClick={() => setCreatingGroup(true)}>Create schedule group</AwsButton>
           </>
         )}
       />
+      )}
       {creating && <CreateScheduleModal onClose={() => setCreating(false)} />}
       {creatingGroup && <CreateGroupModal onClose={() => setCreatingGroup(false)} />}
     </>

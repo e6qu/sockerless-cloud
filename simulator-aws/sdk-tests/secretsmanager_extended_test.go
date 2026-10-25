@@ -1,22 +1,15 @@
 package aws_sdk_test
 
 import (
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	types "github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// smUniqueName returns a per-test unique secret name so the extended-op tests
-// don't collide with one another or with the lifecycle suite.
-func smUniqueName(prefix string) string {
-	return prefix + "-" + strings.ReplaceAll(time.Now().Format("150405.000000000"), ".", "-")
-}
 
 // smCreate creates a secret with a single value and registers a force-delete
 // cleanup. Returns the ARN.
@@ -39,7 +32,7 @@ func smCreate(t *testing.T, c *secretsmanager.Client, name, value string) string
 func TestSecretsManager_ResourcePolicyLifecycle(t *testing.T) {
 	t.Parallel()
 	c := smClient()
-	name := smUniqueName("rp")
+	name := uniquename.New("rp")
 	smCreate(t, c, name, "v1")
 
 	const policy = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::123456789012:root"},"Action":"secretsmanager:GetSecretValue","Resource":"*"}]}`
@@ -75,7 +68,7 @@ func TestSecretsManager_ResourcePolicyLifecycle(t *testing.T) {
 func TestSecretsManager_ValidateResourcePolicy(t *testing.T) {
 	t.Parallel()
 	c := smClient()
-	name := smUniqueName("vrp")
+	name := uniquename.New("vrp")
 	smCreate(t, c, name, "v1")
 
 	good, err := c.ValidateResourcePolicy(ctx, &secretsmanager.ValidateResourcePolicyInput{
@@ -99,7 +92,7 @@ func TestSecretsManager_ValidateResourcePolicy(t *testing.T) {
 func TestSecretsManager_DeleteRestore(t *testing.T) {
 	t.Parallel()
 	c := smClient()
-	name := smUniqueName("restore")
+	name := uniquename.New("restore")
 	smCreate(t, c, name, "v1")
 
 	// Soft-delete with a recovery window: the value can no longer be read.
@@ -138,7 +131,7 @@ func TestSecretsManager_DeleteRestore(t *testing.T) {
 func TestSecretsManager_RotateAndCancel(t *testing.T) {
 	t.Parallel()
 	c := smClient()
-	name := smUniqueName("rotate")
+	name := uniquename.New("rotate")
 	smCreate(t, c, name, "v1")
 
 	before, err := c.DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{SecretId: aws.String(name)})
@@ -179,8 +172,8 @@ func TestSecretsManager_RotateAndCancel(t *testing.T) {
 func TestSecretsManager_BatchGetSecretValue(t *testing.T) {
 	t.Parallel()
 	c := smClient()
-	n1 := smUniqueName("batch1")
-	n2 := smUniqueName("batch2")
+	n1 := uniquename.New("batch1")
+	n2 := uniquename.New("batch2")
 	smCreate(t, c, n1, "secret-one")
 	smCreate(t, c, n2, "secret-two")
 
@@ -212,7 +205,7 @@ func TestSecretsManager_BatchGetSecretValue(t *testing.T) {
 func TestSecretsManager_UpdateSecretVersionStage(t *testing.T) {
 	t.Parallel()
 	c := smClient()
-	name := smUniqueName("stage")
+	name := uniquename.New("stage")
 	smCreate(t, c, name, "v1")
 
 	v1, err := c.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{SecretId: aws.String(name)})
@@ -253,7 +246,7 @@ func TestSecretsManager_Replication(t *testing.T) {
 	}
 	west := regionalClient("us-west-2")
 	europe := regionalClient("eu-west-1")
-	name := smUniqueName("replica")
+	name := uniquename.New("replica")
 	smCreate(t, c, name, "v1")
 	smCreate(t, west, name, "destination-conflict")
 	t.Cleanup(func() {
@@ -356,7 +349,7 @@ func TestSecretsManager_CreateWithReplication(t *testing.T) {
 	replica := secretsmanager.NewFromConfig(config, func(options *secretsmanager.Options) {
 		options.BaseEndpoint = aws.String(baseURL)
 	})
-	name := smUniqueName("create-replica")
+	name := uniquename.New("create-replica")
 	_, err := primary.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
 		Name:         aws.String(name),
 		SecretString: aws.String("created-with-replica"),

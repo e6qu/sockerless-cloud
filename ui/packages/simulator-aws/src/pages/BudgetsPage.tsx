@@ -1,4 +1,4 @@
-import { AwsButton, AwsResourceTable, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsResourceTable, AwsRefreshButton, type AwsColumn } from "../console/index.js";
 import { fetchBudgets, type Budget } from "../api.js";
 
 // AWS Budgets — Budgets. DescribeBudgets on the real Budgets API. Budgets is
@@ -38,9 +38,7 @@ export function BudgetsPage() {
       tableTestId="budgets-table"
       errorTestId="budgets-error"
       actions={({ refetch, isFetching }) => (
-        <AwsButton onClick={refetch} disabled={isFetching}>
-          {isFetching ? "Refreshing…" : "Refresh"}
-        </AwsButton>
+        <AwsRefreshButton onClick={refetch} loading={isFetching} />
       )}
     />
   );

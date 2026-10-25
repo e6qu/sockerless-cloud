@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/kvstore"
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
@@ -111,7 +112,7 @@ func roleHolderIsLive(holder string) bool {
 func registerRoleCredentials(srv *sim.Server) {
 	roleHeldSessions = sim.MakeStore[roleHeldSession](srv.DB(), "role_held_sessions")
 	containerCredentialGrants = sim.MakeStore[containerCredentialGrant](srv.DB(), "container_credential_grants")
-	startStoreSweeper(srv, sweepRoleCredentials)
+	kvstore.StartSweeper(srv, "role credential expiry", storeSweepInterval, func(now time.Time) { sweepRoleCredentials(now) })
 
 	// The container credentials endpoint serves the session an ID was granted
 	// for, in the shape the AWS SDKs' container credential provider reads.
@@ -201,20 +202,25 @@ func grantContainerCredentialsAt(origin, holder, roleArn, sessionName string) ma
 	return map[string]string{"AWS_CONTAINER_CREDENTIALS_FULL_URI": origin + "/v2/credentials/" + id}
 }
 
-// roleEnvironmentCredentials is the environment that hands a holder a session
-// of roleArn directly, the way AWS Lambda gives a function its execution
-// role. A role IAM does not hold yields none.
-func roleEnvironmentCredentials(holder, roleArn, sessionName string) map[string]string {
+// roleEnvironmentCredentialsExpiring is the environment that hands a holder
+// a session of roleArn directly, the way AWS Lambda gives a function its
+// execution role, and the moment that session lapses. A role IAM does not
+// hold yields none, and a zero time.
+func roleEnvironmentCredentialsExpiring(holder, roleArn, sessionName string) (map[string]string, time.Time) {
 	role, ok := iamRoles.Get(iamRoleNameFromArn(roleArn))
 	if roleArn == "" || !ok {
-		return map[string]string{}
+		return map[string]string{}, time.Time{}
 	}
 	cred := roleSessionCredential(holder, role.RoleName, sessionName, time.Now().UTC())
+	expires, err := time.Parse(time.RFC3339, cred.Expiration)
+	if err != nil {
+		expires = time.Time{}
+	}
 	return map[string]string{
 		"AWS_ACCESS_KEY_ID":     cred.AccessKeyID,
 		"AWS_SECRET_ACCESS_KEY": cred.SecretAccessKey,
 		"AWS_SESSION_TOKEN":     cred.SessionToken,
-	}
+	}, expires
 }
 
 // revokeRoleCredentials ends what holder holds: its grants stop answering

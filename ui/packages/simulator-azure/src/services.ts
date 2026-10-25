@@ -40,6 +40,31 @@ export interface BladeSubResource {
   columns: BladeColumn[];
   emptyTitle: string;
   emptyDescription?: string;
+  /** The resource menu group the collection is listed under. */
+  group?: string;
+  /** Creates a child with `PUT {parentId}/{path}/{name}` and this body. */
+  create?: ChildCreateSpec;
+  /** Children delete with `DELETE {childId}`. */
+  deletable?: boolean;
+}
+
+export interface ChildCreateField {
+  id: string;
+  label: string;
+  /** Choices render a dropdown; without them the field is free text. */
+  options?: string[];
+  defaultValue: string;
+  info?: string;
+}
+
+export interface ChildCreateSpec {
+  /** The singular noun on the command ("+ Queue"). */
+  noun: string;
+  /** ARM's naming rule for the child, with the message the portal shows. */
+  namePattern: RegExp;
+  nameRule: string;
+  fields: ChildCreateField[];
+  body: (values: Record<string, string>) => unknown;
 }
 
 export interface BladeAction {
@@ -77,6 +102,31 @@ export interface ServiceBlade {
    *  does when two blades share one ARM resource type (App Service and
    *  Function Apps both read Microsoft.Web/sites and split it on `kind`). */
   filter?: (resource: ArmGenericResource) => boolean;
+  /** The `kind` segment of the browse route for a blade that narrows a
+   *  shared type (`browse/Microsoft.Web/sites/kind/functionapp`). */
+  browseKind?: string;
+}
+
+export const RESOURCE_GROUP_TYPE = "Microsoft.Resources/resourceGroups";
+
+/** The ARM resource type a blade lists. */
+export function bladeType(blade: ServiceBlade): string {
+  return blade.provider || RESOURCE_GROUP_TYPE;
+}
+
+/** The console route that browses a blade's resources. */
+export function browseRoute(blade: ServiceBlade): string {
+  if (!blade.provider) return "/ui/browse/resourcegroups";
+  return `/ui/browse/${blade.provider}${blade.browseKind ? `/kind/${blade.browseKind}` : ""}`;
+}
+
+/** The blade a resource opens on: its type, narrowed by kind where two blades
+ *  share one type. */
+export function bladeForResource(type: string, kind = ""): ServiceBlade | undefined {
+  const candidates = SERVICE_BLADES.filter((blade) => bladeType(blade).toLowerCase() === type.toLowerCase());
+  if (candidates.length <= 1) return candidates[0];
+  const probe = { kind } as ArmGenericResource;
+  return candidates.find((blade) => !blade.filter || blade.filter(probe)) ?? candidates[0];
 }
 
 /** Names a path inside the resource's own ARM `properties` object — the exact
@@ -96,6 +146,10 @@ const PROVISIONING: BladeColumn = {
 const SKU: BladeColumn = { id: "sku", header: "Pricing tier", read: (resource) => resource.sku.name ?? "" };
 const TYPE: BladeColumn = { id: "type", header: "Type", read: (resource) => resource.type };
 
+const SERVICE_BUS_ENTITY_NAME = /^[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,258}[A-Za-z0-9])?$/;
+const SERVICE_BUS_ENTITY_RULE =
+  "The name can contain only letters, numbers, periods, hyphens, underscores and slashes, and must start and end with a letter or number.";
+
 export const SERVICE_BLADES: ServiceBlade[] = [
   {
     slug: "resource-groups",
@@ -113,16 +167,6 @@ export const SERVICE_BLADES: ServiceBlade[] = [
       { id: "id", header: "Resource ID", read: (resource) => resource.id },
       LOCATION,
       PROVISIONING,
-    ],
-    subResources: [
-      {
-        path: "resources",
-        title: "Resources",
-        apiVersion: API_VERSION.resourceGroups,
-        columns: [NAME, TYPE, LOCATION],
-        emptyTitle: "No resources to display",
-        emptyDescription: "Resources created in this resource group appear here.",
-      },
     ],
     deleteWarning:
       "Deleting a resource group is permanent and deletes every resource inside it. This action can't be undone.",
@@ -598,6 +642,14 @@ export const SERVICE_BLADES: ServiceBlade[] = [
           { id: "nsg", header: "Network security group", read: prop("networkSecurityGroup.id") },
         ],
         emptyTitle: "No subnets to display",
+        deletable: true,
+        create: {
+          noun: "Subnet",
+          namePattern: /^[A-Za-z0-9][A-Za-z0-9_.-]{0,78}[A-Za-z0-9_]$|^[A-Za-z0-9]$/,
+          nameRule: "The name must begin with a letter or number, end with a letter, number or underscore, and may contain only letters, numbers, underscores, periods, or hyphens.",
+          fields: [{ id: "addressPrefix", label: "Subnet address range", defaultValue: "10.0.1.0/24" }],
+          body: (values) => ({ properties: { addressPrefix: values.addressPrefix } }),
+        },
       },
       {
         path: "virtualNetworkPeerings",
@@ -994,8 +1046,28 @@ export const SERVICE_BLADES: ServiceBlade[] = [
           { id: "status", header: "Status", read: prop("status") },
           { id: "active", header: "Active messages", read: prop("countDetails.activeMessageCount") },
           { id: "dlq", header: "Dead-letter messages", read: prop("countDetails.deadLetterMessageCount") },
+          { id: "maxSize", header: "Max size (MB)", read: prop("maxSizeInMegabytes") },
         ],
         emptyTitle: "No queues to display",
+        group: "Entities",
+        deletable: true,
+        create: {
+          noun: "Queue",
+          namePattern: SERVICE_BUS_ENTITY_NAME,
+          nameRule: SERVICE_BUS_ENTITY_RULE,
+          fields: [
+            { id: "maxSizeInMegabytes", label: "Max queue size", options: ["1024", "2048", "3072", "4096", "5120"], defaultValue: "1024", info: "Megabytes." },
+            { id: "maxDeliveryCount", label: "Max delivery count", defaultValue: "10" },
+            { id: "lockDuration", label: "Lock duration", defaultValue: "PT30S", info: "An ISO 8601 duration." },
+          ],
+          body: (values) => ({
+            properties: {
+              maxSizeInMegabytes: Number(values.maxSizeInMegabytes),
+              maxDeliveryCount: Number(values.maxDeliveryCount),
+              lockDuration: values.lockDuration,
+            },
+          }),
+        },
       },
       {
         path: "topics",
@@ -1007,6 +1079,17 @@ export const SERVICE_BLADES: ServiceBlade[] = [
           { id: "subscriptions", header: "Subscriptions", read: prop("subscriptionCount") },
         ],
         emptyTitle: "No topics to display",
+        group: "Entities",
+        deletable: true,
+        create: {
+          noun: "Topic",
+          namePattern: SERVICE_BUS_ENTITY_NAME,
+          nameRule: SERVICE_BUS_ENTITY_RULE,
+          fields: [
+            { id: "maxSizeInMegabytes", label: "Max topic size", options: ["1024", "2048", "3072", "4096", "5120"], defaultValue: "1024", info: "Megabytes." },
+          ],
+          body: (values) => ({ properties: { maxSizeInMegabytes: Number(values.maxSizeInMegabytes) } }),
+        },
       },
       {
         path: "authorizationRules",
@@ -1056,10 +1139,27 @@ export const SERVICE_BLADES: ServiceBlade[] = [
         columns: [
           NAME,
           { id: "partitions", header: "Partitions", read: prop("partitionCount") },
-          { id: "retention", header: "Retention (hours)", read: prop("messageRetentionInDays") },
+          { id: "retention", header: "Retention (days)", read: prop("messageRetentionInDays") },
           { id: "status", header: "Status", read: prop("status") },
         ],
         emptyTitle: "No event hubs to display",
+        group: "Entities",
+        deletable: true,
+        create: {
+          noun: "Event Hub",
+          namePattern: /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,254}[A-Za-z0-9])?$/,
+          nameRule: "The name can contain only letters, numbers, periods, hyphens and underscores, and must start and end with a letter or number.",
+          fields: [
+            { id: "partitionCount", label: "Partition count", options: ["1", "2", "4", "8", "16", "32"], defaultValue: "1" },
+            { id: "messageRetentionInDays", label: "Retention time (days)", defaultValue: "1" },
+          ],
+          body: (values) => ({
+            properties: {
+              partitionCount: Number(values.partitionCount),
+              messageRetentionInDays: Number(values.messageRetentionInDays),
+            },
+          }),
+        },
       },
       {
         path: "authorizationRules",
@@ -1383,8 +1483,201 @@ export const SERVICE_BLADES: ServiceBlade[] = [
       { id: "tenantId", header: "Directory (tenant) ID", read: prop("tenantId") },
       LOCATION,
     ],
+    subResources: [
+      {
+        path: "federatedIdentityCredentials",
+        title: "Federated credentials",
+        columns: [
+          NAME,
+          { id: "issuer", header: "Issuer", read: prop("issuer") },
+          { id: "subject", header: "Subject identifier", read: prop("subject") },
+          { id: "audiences", header: "Audience", read: prop("audiences") },
+        ],
+        emptyTitle: "No federated credentials to display",
+        emptyDescription: "Federated credentials let workloads outside Azure exchange their own tokens for this identity's.",
+      },
+    ],
     deleteWarning:
       "Deleting a user-assigned managed identity is permanent and revokes every role assignment granted to it. This action can't be undone.",
+  },
+  {
+    slug: "storage-accounts",
+    label: "Storage accounts",
+    kind: "Storage account",
+    detailKind: "Storage account",
+    noun: "storage accounts",
+    provider: "Microsoft.Storage/storageAccounts",
+    apiVersion: API_VERSION.storage,
+    testid: "storage",
+    columns: [
+      NAME,
+      { id: "kind", header: "Kind", read: (resource) => resource.kind },
+      LOCATION,
+      { id: "replication", header: "Replication", read: (resource) => resource.sku.name ?? "" },
+    ],
+    essentials: [
+      { id: "kind", header: "Account kind", read: (resource) => resource.kind },
+      { id: "replication", header: "Replication", read: (resource) => resource.sku.name ?? "" },
+      { id: "performance", header: "Performance", read: (resource) => resource.sku.tier ?? "" },
+      { id: "accessTier", header: "Access tier", read: prop("accessTier") },
+      { id: "blob", header: "Blob service", read: prop("primaryEndpoints.blob") },
+      { id: "httpsOnly", header: "Secure transfer required", read: prop("supportsHttpsTrafficOnly") },
+      PROVISIONING,
+      LOCATION,
+    ],
+    subResources: [
+      {
+        path: "fileServices/default/shares",
+        title: "File shares",
+        group: "Data storage",
+        columns: [
+          NAME,
+          { id: "quota", header: "Quota (GiB)", read: prop("shareQuota") },
+          { id: "tier", header: "Tier", read: prop("accessTier") },
+        ],
+        emptyTitle: "No file shares to display",
+        deletable: true,
+        create: {
+          noun: "File share",
+          namePattern: /^(?!.*--)[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/,
+          nameRule: "The name must be 3 to 63 lowercase letters, numbers or hyphens, start and end with a letter or number, and not hold two hyphens in a row.",
+          fields: [{ id: "shareQuota", label: "Quota (GiB)", defaultValue: "100" }],
+          body: (values) => ({ properties: { shareQuota: Number(values.shareQuota) } }),
+        },
+      },
+    ],
+    deleteWarning:
+      "Deleting a storage account is permanent and deletes every container, blob, file share, queue and table in it. This action can't be undone.",
+  },
+  {
+    slug: "container-registries",
+    label: "Container registries",
+    kind: "Container registry",
+    detailKind: "Container registry",
+    noun: "container registries",
+    provider: "Microsoft.ContainerRegistry/registries",
+    apiVersion: API_VERSION.registries,
+    testid: "acr",
+    columns: [NAME, LOCATION, SKU, { id: "loginServer", header: "Login server", read: prop("loginServer") }],
+    essentials: [
+      { id: "loginServer", header: "Login server", read: prop("loginServer") },
+      SKU,
+      { id: "adminUserEnabled", header: "Admin user", read: prop("adminUserEnabled") },
+      { id: "creationDate", header: "Creation date", read: prop("creationDate") },
+      PROVISIONING,
+      LOCATION,
+    ],
+    subResources: [
+      {
+        path: "webhooks",
+        title: "Webhooks",
+        group: "Services",
+        columns: [
+          NAME,
+          { id: "status", header: "Status", read: prop("status") },
+          { id: "actions", header: "Actions", read: prop("actions") },
+        ],
+        emptyTitle: "No webhooks to display",
+      },
+    ],
+    deleteWarning:
+      "Deleting a container registry is permanent and deletes every repository and image in it. This action can't be undone.",
+  },
+  {
+    slug: "function-apps",
+    label: "Function App",
+    kind: "Function App",
+    detailKind: "Function App",
+    noun: "function apps",
+    provider: "Microsoft.Web/sites",
+    browseKind: "functionapp",
+    apiVersion: API_VERSION.sites,
+    testid: "func",
+    filter: (resource) => resource.kind.toLowerCase().includes("functionapp"),
+    columns: [
+      NAME,
+      LOCATION,
+      { id: "state", header: "Status", read: prop("state") },
+      { id: "hostName", header: "URL", read: prop("defaultHostName") },
+    ],
+    essentials: [
+      { id: "state", header: "Status", read: prop("state") },
+      { id: "hostName", header: "Default domain", read: prop("defaultHostName") },
+      { id: "serverFarmId", header: "App Service plan", read: prop("serverFarmId") },
+      { id: "kind", header: "Operating system", read: (resource) => (resource.kind.includes("linux") ? "Linux" : "Windows") },
+      LOCATION,
+    ],
+    subResources: [
+      {
+        path: "functions",
+        title: "Functions",
+        group: "Functions",
+        columns: [
+          { id: "name", header: "Name", read: (resource) => resource.name.split("/").pop() ?? resource.name },
+          { id: "language", header: "Language", read: prop("language") },
+          { id: "disabled", header: "Disabled", read: prop("isDisabled") },
+        ],
+        emptyTitle: "No functions to display",
+        emptyDescription: "Functions deployed to this app appear here.",
+      },
+    ],
+    actions: [
+      { label: "Start", icon: "play", action: "start" },
+      { label: "Restart", icon: "refresh", action: "restart" },
+      { label: "Stop", icon: "stop", action: "stop" },
+    ],
+    deleteWarning:
+      "Deleting a function app is permanent and removes its functions, settings and deployment history. This action can't be undone.",
+  },
+  {
+    slug: "container-app-jobs",
+    label: "Container App Jobs",
+    kind: "Container App Job",
+    detailKind: "Container App Job",
+    noun: "jobs",
+    provider: "Microsoft.App/jobs",
+    apiVersion: API_VERSION.jobs,
+    testid: "cajob",
+    columns: [
+      NAME,
+      LOCATION,
+      { id: "trigger", header: "Trigger type", read: prop("configuration.triggerType") },
+      PROVISIONING,
+    ],
+    essentials: [
+      { id: "environment", header: "Container Apps environment", read: (resource) => containerAppEnvironmentName(resource) },
+      { id: "trigger", header: "Trigger type", read: prop("configuration.triggerType") },
+      { id: "cron", header: "Cron expression", read: prop("configuration.scheduleTriggerConfig.cronExpression") },
+      { id: "timeout", header: "Replica timeout (seconds)", read: prop("configuration.replicaTimeout") },
+      { id: "retry", header: "Replica retry limit", read: prop("configuration.replicaRetryLimit") },
+      PROVISIONING,
+      LOCATION,
+    ],
+    subResources: [
+      {
+        path: "executions",
+        title: "Execution history",
+        group: "Settings",
+        columns: [
+          NAME,
+          { id: "status", header: "Status", read: prop("status") },
+          { id: "startTime", header: "Started", read: prop("startTime") },
+          { id: "endTime", header: "Ended", read: prop("endTime") },
+        ],
+        emptyTitle: "No executions to display",
+        emptyDescription: "Run the job to start an execution.",
+      },
+      {
+        inline: (resource) => containerAppContainers(resource),
+        title: "Containers",
+        group: "Application",
+        columns: [NAME, { id: "image", header: "Image", read: prop("image") }],
+        emptyTitle: "No containers to display",
+      },
+    ],
+    actions: [{ label: "Run now", icon: "play", action: "start" }],
+    deleteWarning:
+      "Deleting a Container Apps job is permanent and removes its execution history. This action can't be undone.",
   },
 ];
 

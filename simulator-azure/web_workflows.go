@@ -347,7 +347,10 @@ func webWorkflowRegenerateAccessKey(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyType string `json:"keyType"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	slot := logicAccessKeySlot(req.KeyType)
 	if slot == "" {
 		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest,
@@ -389,7 +392,7 @@ func webWorkflowRunsList(w http.ResponseWriter, r *http.Request) {
 }
 
 func webWorkflowRunID(r *http.Request) string {
-	return webWorkflowID(r, sim.PathParam(r, "workflowName")) + "/runs/" + sim.PathParam(r, "runName")
+	return armChildID(webWorkflowID(r, sim.PathParam(r, "workflowName")), "runs", sim.PathParam(r, "runName"))
 }
 
 func webWorkflowRunsGet(w http.ResponseWriter, r *http.Request) {

@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	ecrtypes "github.com/aws/aws-sdk-go-v2/service/ecr/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -190,7 +191,7 @@ func TestECR_OCIDataPlane(t *testing.T) {
 // registries set it on all responses, not just the base ping).
 func TestECR_OCIManifestHeadMissing(t *testing.T) {
 	t.Parallel()
-	repo := uniqueName("shim/registry")
+	repo := uniquename.New("shim/registry")
 	ecrCreateRepository(t, repo)
 	const apiVersionHeader = "Docker-Distribution-Api-Version"
 

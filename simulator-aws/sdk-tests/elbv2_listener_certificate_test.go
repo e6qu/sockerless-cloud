@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,8 +19,8 @@ import (
 // dropped it, so the standard "read cert off the listener" pattern got nothing.
 func TestELBv2_HTTPSListenerCertificateRoundTrip(t *testing.T) {
 	t.Parallel()
-	tgName := uniqueName("https-lis-tg")
-	lbName := uniqueName("https-lis-lb")
+	tgName := uniquename.New("https-lis-tg")
+	lbName := uniquename.New("https-lis-lb")
 	ec2c := ec2Client()
 	vpc, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.74.0.0/16")})
 	require.NoError(t, err)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,9 +9,11 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
-	"github.com/e6qu/sockerless-cloud/sim/dbengine"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
 const msRedisInstanceType = "type.googleapis.com/google.cloud.redis.v1.Instance"
@@ -388,60 +391,101 @@ func msRedisClusterImportSources(gcs *MSRedisGcsBackupSource, managed *MSRedisMa
 	return nil, nil
 }
 
-// msRedisImportDirectory holds an RDB file while a cluster imports it.
-const msRedisImportDirectory = msRedisDataPath + "/import"
-
-// msRedisImportPort is where the server that serves an imported RDB file
-// listens, inside the container of the node that runs the import.
-const msRedisImportPort = 6380
+// msRedisImportDirectory holds the RDB file the import source serves.
+const msRedisImportDirectory = "/import"
 
 // ImportRDB loads an RDB file's keys into a running cluster: a standalone
-// redis-server inside one node's container loads the file, and redis-cli's
-// cluster import migrates each key to the shard that owns its slot.
+// redis-server placed beside the nodes loads the file, and redis-cli's
+// cluster import, run from one node, migrates each key to the shard that owns
+// its slot.
 func (p *msRedisPlane) ImportRDB(source msRedisImportSource) error {
 	via := p.nodeOrder()[0]
-	if err := p.writeFile(via, msRedisImportDirectory+"/source.rdb", source.Data); err != nil {
-		return err
-	}
 	ip, err := p.nodeIP(via)
 	if err != nil {
 		return err
 	}
 	password := p.currentPassword()
-	server := []string{"redis-server",
-		"--port", strconv.Itoa(msRedisImportPort), "--bind", "127.0.0.1",
-		"--dir", msRedisImportDirectory, "--dbfilename", "source.rdb",
-		"--save", "", "--appendonly", "no", "--daemonize", "yes",
+	from, stop, err := p.placeImportSource(source)
+	if err != nil {
+		return err
 	}
+	defer stop()
 	importArgs := []string{"redis-cli", "--cluster", "import", net.JoinHostPort(ip, strconv.Itoa(msRedisPort)),
-		"--cluster-from", "127.0.0.1:" + strconv.Itoa(msRedisImportPort), "--cluster-copy", "--cluster-replace"}
+		"--cluster-from", net.JoinHostPort(from, strconv.Itoa(msRedisPort)), "--cluster-copy", "--cluster-replace"}
 	var env []string
 	if password != "" {
-		server = append(server, "--requirepass", password)
 		importArgs = append(importArgs, "--cluster-from-pass", password)
 		env = append(env, "REDISCLI_AUTH="+password)
 	}
-	probe := "redis-cli -p " + strconv.Itoa(msRedisImportPort)
-	script := strings.Join([]string{
-		"set -e",
-		msRedisShellJoin(server),
-		"until " + probe + " ping 2>/dev/null | grep -q PONG; do sleep 0.1; done",
-		"status=0",
-		msRedisShellJoin(importArgs) + " || status=$?",
-		probe + " shutdown nosave >/dev/null 2>&1 || true",
-		"rm -rf " + msRedisImportDirectory,
-		"exit $status",
-	}, "\n")
-	if _, err := p.exec(via, []string{"/bin/sh", "-c", script}, env); err != nil {
+	if _, err := p.exec(via, importArgs, env); err != nil {
 		return msRedisOperationFailure(rpcInvalidArgument, "import %s: %v", source.Name, err)
 	}
 	return nil
 }
 
-func msRedisShellJoin(args []string) string {
-	quoted := make([]string, len(args))
-	for i, arg := range args {
-		quoted[i] = dbengine.ShellQuote(arg)
+// placeImportSource places a redis-server that serves source's RDB file on
+// the engines' network, and returns its address once it has loaded the file
+// and accepts clients, with the function that stops it.
+func (p *msRedisPlane) placeImportSource(source msRedisImportSource) (string, func(), error) {
+	backend, err := gcpPlacement.For(placementRedis)
+	if err != nil {
+		return "", nil, err
 	}
-	return strings.Join(quoted, " ")
+	p.mu.RLock()
+	image, dns, password := p.image, p.dns, p.password
+	p.mu.RUnlock()
+	command := []string{"redis-server",
+		"--port", strconv.Itoa(msRedisPort), "--bind", "0.0.0.0", "--protected-mode", "no",
+		"--dir", msRedisImportDirectory, "--dbfilename", "source.rdb",
+		"--save", "", "--appendonly", "no",
+	}
+	if password != "" {
+		command = append(command, "--requirepass", password)
+	}
+	labels := map[string]string{"sockerless-memorystore-import": "true"}
+	for key, value := range p.labels {
+		labels[key] = value
+	}
+	ready := make(chan struct{})
+	var once sync.Once
+	output := sim.FuncSink(func(line sim.LogLine) {
+		if strings.Contains(strings.ToLower(line.Text), "ready to accept connections") {
+			once.Do(func() { close(ready) })
+		}
+	})
+	handle, err := backend.Place(context.Background(), placement.Workload{
+		CancelGracePeriod: msRedisStopGrace,
+		Image:             image,
+		Architecture:      msRedisEnginePlatform,
+		Command:           command,
+		Labels:            labels,
+		Network:           msRedisNetworkName(),
+		DNS:               dns,
+		Seed:              []sim.SeedFile{{Path: msRedisImportDirectory + "/source.rdb", Data: source.Data}},
+		Sandbox:           SandboxCloudRun,
+	}, output)
+	if err != nil {
+		return "", nil, fmt.Errorf("place the import source: %w", err)
+	}
+	stop := func() {
+		handle.Cancel()
+		_ = handle.Wait()
+	}
+	timer := time.NewTimer(msRedisReadyBudget)
+	defer timer.Stop()
+	select {
+	case <-ready:
+	case <-handle.Exited():
+		result := handle.Wait()
+		return "", nil, msRedisOperationFailure(rpcInvalidArgument, "import %s: the RDB file did not load: redis-server exited with status %d", source.Name, result.ExitCode)
+	case <-timer.C:
+		stop()
+		return "", nil, fmt.Errorf("import %s: the source did not load the RDB file within %s", source.Name, msRedisReadyBudget)
+	}
+	address, err := handle.Address(context.Background())
+	if err != nil {
+		stop()
+		return "", nil, err
+	}
+	return address, stop, nil
 }

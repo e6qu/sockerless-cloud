@@ -8,6 +8,7 @@ import {
   awsRestXml,
   awsRestXmlDelete,
   awsRestXmlPut,
+  currentRegion,
 } from "./console/federation.js";
 
 // restJson issues an AWS REST-JSON request that carries a JSON body and reads a
@@ -1394,6 +1395,8 @@ export const fetchECRImages = async (repositoryName: string): Promise<ECRImage[]
 export interface S3Bucket {
   name: string;
   creationDate: string;
+  /** ListBuckets' BucketRegion. */
+  region: string;
 }
 
 export const fetchS3Buckets = async (): Promise<S3Bucket[]> => {
@@ -1401,15 +1404,44 @@ export const fetchS3Buckets = async (): Promise<S3Bucket[]> => {
   return Array.from(xml.getElementsByTagName("Bucket")).map((bucket) => ({
     name: bucket.getElementsByTagName("Name")[0]?.textContent ?? "",
     creationDate: bucket.getElementsByTagName("CreationDate")[0]?.textContent ?? "",
+    region: bucket.getElementsByTagName("BucketRegion")[0]?.textContent ?? "",
   }));
 };
 
-// CreateBucket — PUT /{bucket} with an empty body, the same request the real
-// console's "Create bucket" issues for a bucket in this console's own Region
-// (us-east-1 is the one Region CreateBucket rejects a LocationConstraint
-// for, so the console sends none rather than special-casing it).
+const s3ObjectPath = (bucketName: string, key: string) =>
+  `/${encodeURIComponent(bucketName)}/${key.split("/").map(encodeURIComponent).join("/")}`;
+
+// PutObject — PUT /{bucket}/{key} with the file's bytes as the body, the
+// request the real console's Upload issues for each file.
+export const putS3Object = async (bucketName: string, key: string, body: Uint8Array<ArrayBuffer>, contentType: string): Promise<void> => {
+  const response = await awsFetch({
+    service: "s3",
+    method: "PUT",
+    path: s3ObjectPath(bucketName, key),
+    headers: { "content-type": contentType || "application/octet-stream" },
+    body,
+  });
+  if (!response.ok) {
+    const xml = new DOMParser().parseFromString(await response.text(), "text/xml");
+    const code = elementText(xml, "Code");
+    throw new Error(code ? `${code}: ${elementText(xml, "Message")}` : `PutObject returned HTTP ${response.status}`);
+  }
+};
+
+export const deleteS3Object = async (bucketName: string, key: string): Promise<void> => {
+  await awsRestXmlDelete("s3", s3ObjectPath(bucketName, key));
+};
+
+// CreateBucket — PUT /{bucket}, creating the bucket in the console's Region.
+// us-east-1 is the one Region CreateBucket rejects a LocationConstraint for, so
+// the body names the Region everywhere else and is empty there.
 export const createS3Bucket = async (bucketName: string): Promise<void> => {
-  await awsRestXmlPut("s3", `/${encodeURIComponent(bucketName)}`);
+  const region = currentRegion();
+  const body =
+    region === "us-east-1"
+      ? ""
+      : `<CreateBucketConfiguration xmlns="${S3_XMLNS}"><LocationConstraint>${region}</LocationConstraint></CreateBucketConfiguration>`;
+  await awsRestXmlPut("s3", `/${encodeURIComponent(bucketName)}`, body);
 };
 
 // DeleteBucket only succeeds on an empty bucket — the same constraint the
@@ -5361,4 +5393,246 @@ export const fetchBudgets = async (): Promise<Budget[]> => {
     limitUnit: budget.BudgetLimit?.Unit ?? "",
     actualAmount: budget.CalculatedSpend?.ActualSpend?.Amount ?? "",
   }));
+};
+
+// ---------------------------------------------------------------------------
+// The Regions the header's Region selector lists — EC2 DescribeRegions, which
+// answers the Regions enabled for the account, the list the real console's
+// selector shows.
+// ---------------------------------------------------------------------------
+
+export interface EC2Region {
+  regionName: string;
+  optInStatus: string;
+}
+
+export const fetchEC2Regions = async (): Promise<EC2Region[]> => {
+  const xml = await awsQuery("ec2", EC2_VERSION, "DescribeRegions");
+  return xmlList(xml, "regionInfo").map((item) => ({
+    regionName: childText(item, "regionName"),
+    optInStatus: childText(item, "optInStatus"),
+  }));
+};
+
+// ---------------------------------------------------------------------------
+// Amazon EC2 key pairs — DescribeKeyPairs, CreateKeyPair, DeleteKeyPair.
+// ---------------------------------------------------------------------------
+
+export interface EC2KeyPair {
+  keyPairId: string;
+  keyName: string;
+  keyType: string;
+  keyFingerprint: string;
+  createTime: string;
+}
+
+export const fetchEC2KeyPairs = async (): Promise<EC2KeyPair[]> => {
+  const xml = await awsQuery("ec2", EC2_VERSION, "DescribeKeyPairs");
+  return xmlList(xml, "keySet").map((item) => ({
+    keyPairId: childText(item, "keyPairId"),
+    keyName: childText(item, "keyName"),
+    keyType: childText(item, "keyType"),
+    keyFingerprint: childText(item, "keyFingerprint"),
+    createTime: childText(item, "createTime"),
+  }));
+};
+
+export interface EC2CreatedKeyPair {
+  keyName: string;
+  keyPairId: string;
+  keyMaterial: string;
+}
+
+export const createEC2KeyPair = async (input: {
+  keyName: string;
+  keyType: "rsa" | "ed25519";
+  keyFormat: "pem" | "ppk";
+}): Promise<EC2CreatedKeyPair> => {
+  const xml = await awsQuery("ec2", EC2_VERSION, "CreateKeyPair", {
+    KeyName: input.keyName,
+    KeyType: input.keyType,
+    KeyFormat: input.keyFormat,
+  });
+  return {
+    keyName: elementText(xml, "keyName"),
+    keyPairId: elementText(xml, "keyPairId"),
+    keyMaterial: elementText(xml, "keyMaterial"),
+  };
+};
+
+export const deleteEC2KeyPair = async (keyPairId: string): Promise<void> => {
+  await awsQuery("ec2", EC2_VERSION, "DeleteKeyPair", { KeyPairId: keyPairId });
+};
+
+export const deleteEC2SecurityGroup = async (groupId: string): Promise<void> => {
+  await awsQuery("ec2", EC2_VERSION, "DeleteSecurityGroup", { GroupId: groupId });
+};
+
+// ---------------------------------------------------------------------------
+// AWS Identity and Access Management roles, policies, and identity providers.
+// IAM list operations page with Marker/IsTruncated, and the console reads every
+// page, the way the real console's tables fill.
+// ---------------------------------------------------------------------------
+
+async function iamListAll(action: string, params: Record<string, string>, container: string): Promise<Element[]> {
+  const members: Element[] = [];
+  let marker = "";
+  for (;;) {
+    const xml = await awsQuery("iam", IAM_VERSION, action, marker ? { ...params, Marker: marker } : params);
+    members.push(...xmlList(xml, container));
+    if (elementText(xml, "IsTruncated") !== "true") return members;
+    marker = elementText(xml, "Marker");
+    if (!marker) return members;
+  }
+}
+
+export interface IAMRole {
+  roleName: string;
+  roleId: string;
+  arn: string;
+  path: string;
+  createDate: string;
+  description: string;
+  maxSessionDuration: number;
+  assumeRolePolicyDocument: string;
+  lastUsedDate: string;
+}
+
+/** IAM returns policy documents URL-encoded; decode them with form-URL
+ * decoding, as the AWS SDKs' url.QueryUnescape does, so a `+` reads as a space. */
+const decodePolicyDocument = (encoded: string): string => (encoded ? decodeURIComponent(encoded.replace(/\+/g, " ")) : "");
+
+const iamRoleFromElement = (element: Element): IAMRole => {
+  const lastUsed = childElement(element, "RoleLastUsed");
+  const document = childText(element, "AssumeRolePolicyDocument");
+  return {
+    roleName: childText(element, "RoleName"),
+    roleId: childText(element, "RoleId"),
+    arn: childText(element, "Arn"),
+    path: childText(element, "Path"),
+    createDate: childText(element, "CreateDate"),
+    description: childText(element, "Description"),
+    maxSessionDuration: Number(childText(element, "MaxSessionDuration") || "3600"),
+    assumeRolePolicyDocument: decodePolicyDocument(document),
+    lastUsedDate: lastUsed ? childText(lastUsed, "LastUsedDate") : "",
+  };
+};
+
+export const fetchIAMRoles = async (): Promise<IAMRole[]> =>
+  (await iamListAll("ListRoles", {}, "Roles")).map(iamRoleFromElement);
+
+export const fetchIAMRole = async (roleName: string): Promise<IAMRole> => {
+  const xml = await awsQuery("iam", IAM_VERSION, "GetRole", { RoleName: roleName });
+  const role = xml.getElementsByTagName("Role")[0];
+  if (!role) throw new Error(`GetRole returned no Role element for ${roleName}`);
+  return iamRoleFromElement(role);
+};
+
+export interface IAMAttachedPolicy {
+  policyName: string;
+  policyArn: string;
+}
+
+export const fetchIAMAttachedRolePolicies = async (roleName: string): Promise<IAMAttachedPolicy[]> =>
+  (await iamListAll("ListAttachedRolePolicies", { RoleName: roleName }, "AttachedPolicies")).map((member) => ({
+    policyName: childText(member, "PolicyName"),
+    policyArn: childText(member, "PolicyArn"),
+  }));
+
+export const fetchIAMRoleInlinePolicyNames = async (roleName: string): Promise<string[]> =>
+  (await iamListAll("ListRolePolicies", { RoleName: roleName }, "PolicyNames")).map((member) => member.textContent ?? "");
+
+export interface CreateIAMRoleInput {
+  roleName: string;
+  description: string;
+  assumeRolePolicyDocument: string;
+  policyArns: string[];
+}
+
+// The console's Create role wizard issues CreateRole, then AttachRolePolicy
+// for every permissions policy the operator selected.
+export const createIAMRole = async (input: CreateIAMRoleInput): Promise<void> => {
+  const params: Record<string, string> = {
+    RoleName: input.roleName,
+    AssumeRolePolicyDocument: input.assumeRolePolicyDocument,
+  };
+  if (input.description) params.Description = input.description;
+  await awsQuery("iam", IAM_VERSION, "CreateRole", params);
+  for (const policyArn of input.policyArns) {
+    await awsQuery("iam", IAM_VERSION, "AttachRolePolicy", { RoleName: input.roleName, PolicyArn: policyArn });
+  }
+};
+
+// DeleteRole fails with DeleteConflict while policies remain, so the console
+// detaches managed policies and deletes inline ones first, as the real
+// console's Delete role does.
+export const deleteIAMRole = async (roleName: string): Promise<void> => {
+  for (const policy of await fetchIAMAttachedRolePolicies(roleName)) {
+    await awsQuery("iam", IAM_VERSION, "DetachRolePolicy", { RoleName: roleName, PolicyArn: policy.policyArn });
+  }
+  for (const policyName of await fetchIAMRoleInlinePolicyNames(roleName)) {
+    await awsQuery("iam", IAM_VERSION, "DeleteRolePolicy", { RoleName: roleName, PolicyName: policyName });
+  }
+  await awsQuery("iam", IAM_VERSION, "DeleteRole", { RoleName: roleName });
+};
+
+export interface IAMPolicy {
+  policyName: string;
+  policyId: string;
+  arn: string;
+  path: string;
+  description: string;
+  defaultVersionId: string;
+  attachmentCount: number;
+  createDate: string;
+  updateDate: string;
+}
+
+export const fetchIAMPolicies = async (): Promise<IAMPolicy[]> =>
+  (await iamListAll("ListPolicies", { Scope: "All" }, "Policies")).map((member) => ({
+    policyName: childText(member, "PolicyName"),
+    policyId: childText(member, "PolicyId"),
+    arn: childText(member, "Arn"),
+    path: childText(member, "Path"),
+    description: childText(member, "Description"),
+    defaultVersionId: childText(member, "DefaultVersionId"),
+    attachmentCount: Number(childText(member, "AttachmentCount") || "0"),
+    createDate: childText(member, "CreateDate"),
+    updateDate: childText(member, "UpdateDate"),
+  }));
+
+/** AWS managed policies live in the `aws` account partition of their ARN. */
+export const isAWSManagedPolicy = (arn: string): boolean => arn.split(":")[4] === "aws";
+
+export const createIAMPolicy = async (input: { policyName: string; description: string; document: string }): Promise<void> => {
+  const params: Record<string, string> = { PolicyName: input.policyName, PolicyDocument: input.document };
+  if (input.description) params.Description = input.description;
+  await awsQuery("iam", IAM_VERSION, "CreatePolicy", params);
+};
+
+export const deleteIAMPolicy = async (policyArn: string): Promise<void> => {
+  await awsQuery("iam", IAM_VERSION, "DeletePolicy", { PolicyArn: policyArn });
+};
+
+export interface IAMOpenIDConnectProvider {
+  arn: string;
+  url: string;
+  clientIds: string[];
+  createDate: string;
+}
+
+export const fetchIAMOpenIDConnectProviders = async (): Promise<IAMOpenIDConnectProvider[]> => {
+  const xml = await awsQuery("iam", IAM_VERSION, "ListOpenIDConnectProviders");
+  const arns = xmlList(xml, "OpenIDConnectProviderList").map((member) => childText(member, "Arn"));
+  return Promise.all(
+    arns.map(async (arn) => {
+      const detail = await awsQuery("iam", IAM_VERSION, "GetOpenIDConnectProvider", { OpenIDConnectProviderArn: arn });
+      return {
+        arn,
+        url: elementText(detail, "Url"),
+        clientIds: xmlList(detail, "ClientIDList").map((member) => member.textContent ?? ""),
+        createDate: elementText(detail, "CreateDate"),
+      };
+    }),
+  );
 };

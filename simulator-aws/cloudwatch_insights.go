@@ -114,7 +114,10 @@ func handleCWStopQuery(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		QueryID string `json:"queryId"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	if q, ok := cwQueries.Get(req.QueryID); ok {
 		q.Status = "Cancelled"
 		cwQueries.Put(q.QueryID, q)
@@ -127,7 +130,10 @@ func handleCWDescribeQueries(w http.ResponseWriter, r *http.Request) {
 		LogGroupName string `json:"logGroupName"`
 		Status       string `json:"status"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	out := make([]map[string]any, 0)
 	for _, q := range cwQueries.List() {
 		if req.LogGroupName != "" && !cwStrIn(req.LogGroupName, q.LogGroups) {

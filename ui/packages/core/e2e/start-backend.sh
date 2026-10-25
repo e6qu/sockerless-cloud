@@ -11,10 +11,13 @@
 #   SERVER_PACKAGE — repository-relative Go package directory to build
 #   SERVER_NAME    — binary name produced by SERVER_PACKAGE
 #   SIMULATOR_PACKAGE      — repository-relative simulator Go package
+#   SIMULATOR_BIN          — explicit immutable simulator binary coordinate
 #   SIMULATOR_NAME         — simulator binary name
 #   SIMULATOR_PORT         — simulator HTTP port
 #   SIMULATOR_GRPC_PORT    — simulator Cloud Logging gRPC port (GCP only)
-#   SIMULATOR_SETUP        — real cloud resources to provision for this backend
+#   SIMULATOR_SETUP        — real cloud resources to provision for this backend;
+#                            KEY=VALUE lines the case writes to
+#                            SIMULATOR_SETUP_OUTPUT configure the server
 #   SERVER_HELPER_PACKAGE  — repository-relative module containing a required helper
 #   SERVER_HELPER_COMMAND  — Go package to build inside SERVER_HELPER_PACKAGE
 #   SERVER_HELPER_NAME     — helper binary name
@@ -81,32 +84,47 @@ if [[ -n "${SIMULATOR_PACKAGE:-}" ]]; then
     exit 1
   fi
 
-  simulator_tmp="$(mktemp -d "${TMPDIR:-/tmp}/sockerless-e2e.XXXXXX")"
-  (
-    cd "$repo_root/$SIMULATOR_PACKAGE"
-    env CGO_ENABLED=0 go build -o "$simulator_tmp/$SIMULATOR_NAME" .
-  )
+  if [[ -n "${SIMULATOR_BIN:-}" ]]; then
+    simulator_bin="$SIMULATOR_BIN"
+  else
+    simulator_tmp="$(mktemp -d "${TMPDIR:-/tmp}/sockerless-e2e.XXXXXX")"
+    (
+      cd "$repo_root/$SIMULATOR_PACKAGE"
+      env CGO_ENABLED=0 go build -o "$simulator_tmp/$SIMULATOR_NAME" .
+    )
+    simulator_bin="$simulator_tmp/$SIMULATOR_NAME"
+  fi
 
+  # The console coordinates in this environment belong to the server under
+  # test; the simulator beside it serves no console of its own.
+  simulator_env=(env -u SIM_CONSOLE_DIR -u SIM_UI_OIDC_ISSUER -u SIM_UI_OIDC_CLIENT_ID -u SIM_UI_OIDC_CLIENT_SECRET
+    -u SIM_UI_PUBLIC_URL -u SIM_UI_SESSION_SECRET -u SIM_UI_INSECURE_COOKIES
+    SIM_LISTEN_ADDR=":${SIMULATOR_PORT}" SIM_RUNTIME=process SIM_LOG_LEVEL=warn)
+  while IFS= read -r name; do
+    simulator_env=("${simulator_env[0]}" -u "$name" "${simulator_env[@]:1}")
+  done < <(compgen -e | grep '^SOCKERLESS_CONSOLE_' || true)
   simulator_url="http://127.0.0.1:${SIMULATOR_PORT}"
   if [[ -n "${SIMULATOR_GRPC_PORT:-}" ]]; then
-    SIM_LISTEN_ADDR=":${SIMULATOR_PORT}" \
-      SIM_GCP_GRPC_PORT="${SIMULATOR_GRPC_PORT}" \
-      SIM_RUNTIME=process \
-      SIM_LOG_LEVEL=warn \
-      "$simulator_tmp/$SIMULATOR_NAME" &
+    "${simulator_env[@]}" SIM_GCP_GRPC_PORT="${SIMULATOR_GRPC_PORT}" "$simulator_bin" &
   else
-    SIM_LISTEN_ADDR=":${SIMULATOR_PORT}" \
-      SIM_RUNTIME=process \
-      SIM_LOG_LEVEL=warn \
-      "$simulator_tmp/$SIMULATOR_NAME" &
+    "${simulator_env[@]}" "$simulator_bin" &
   fi
   simulator_pid=$!
   wait_for_url "$simulator_url/health" "$SIMULATOR_NAME" "$simulator_pid"
 
   if [[ -n "${SIMULATOR_SETUP:-}" ]]; then
+    setup_output="$(mktemp "${TMPDIR:-/tmp}/sockerless-setup.XXXXXX")"
     SIMULATOR_URL="$simulator_url" \
       SIMULATOR_SETUP="$SIMULATOR_SETUP" \
+      SIMULATOR_SETUP_OUTPUT="$setup_output" \
       bash "$repo_root/ui/packages/core/e2e/setup-cloud.sh"
+    # A setup case writes the coordinates the cloud assigned while
+    # provisioning (an identity's client ID) as KEY=VALUE lines; the server
+    # under test is configured with them, as an operator configures it.
+    while IFS='=' read -r name value; do
+      [[ -n "$name" ]] && export "$name=$value"
+    done <"$setup_output"
+    rm -f "$setup_output"
   fi
 fi
 

@@ -374,7 +374,7 @@ func handleCosmosUpdateAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleCosmosListAccountsBySubscription(w http.ResponseWriter, r *http.Request) {
-	prefix := "/subscriptions/" + sim.PathParam(r, "subscriptionId") + "/"
+	prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 	all := cosmosAccounts.Filter(func(a CosmosAccount) bool { return strings.HasPrefix(a.ID, prefix) })
 	page, next, pageOK := armQueryPage(w, r, all, func(x CosmosAccount) string { return x.ID })
 	if !pageOK {
@@ -602,7 +602,7 @@ func handleCosmosLocationGet(w http.ResponseWriter, r *http.Request) {
 func cosmosLocationBody(sub, name string) map[string]any {
 	normalized := strings.ToLower(strings.ReplaceAll(name, " ", ""))
 	return map[string]any{
-		"id":   "/subscriptions/" + sub + "/providers/Microsoft.DocumentDB/locations/" + normalized,
+		"id":   armSubscriptionResourceID(sub, "Microsoft.DocumentDB", "locations", normalized),
 		"name": normalized,
 		"type": "Microsoft.DocumentDB/locations",
 		"properties": map[string]any{

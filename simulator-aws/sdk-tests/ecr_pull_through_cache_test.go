@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	ecrtypes "github.com/aws/aws-sdk-go-v2/service/ecr/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +29,7 @@ func TestECR_PullThroughCacheHydratesFromTheUpstreamRegistry(t *testing.T) {
 	client := ecrClient()
 	const upstreamImage = "public.ecr.aws/docker/library/alpine:3.21"
 	upstreamPath, tag, _ := strings.Cut(strings.TrimPrefix(upstreamImage, "public.ecr.aws/"), ":")
-	prefix := uniqueName("ecr-pub-cache")
+	prefix := uniquename.New("ecr-pub-cache")
 	repo := prefix + "/" + upstreamPath
 
 	_, err := client.CreatePullThroughCacheRule(ctx, &ecr.CreatePullThroughCacheRuleInput{

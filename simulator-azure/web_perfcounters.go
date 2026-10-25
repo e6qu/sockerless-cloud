@@ -61,13 +61,14 @@ func webListPerfMonCounters(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	site, _ := webResource(r)
-	containerID, running := webSiteInstanceContainer(site)
+	instance, running := webSiteInstanceContainer(site)
 	if !running {
 		// A site with nothing running is using nothing. An empty collection is
 		// the true reading; a zeroed set would claim a measurement was taken.
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": []any{}})
 		return
 	}
+	containerID := instance.ID()
 	stats, err := webContainerStats(containerID)
 	if err != nil {
 		webEngineFailure(w, err)

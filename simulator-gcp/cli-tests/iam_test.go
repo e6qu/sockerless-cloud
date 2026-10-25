@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -233,7 +234,7 @@ func TestIAMServiceAccountDisableEnableUpdateCLI(t *testing.T) {
 // the token endpoint with invalid_grant.
 func TestIAMServiceAccountKeysActivateCLI(t *testing.T) {
 	t.Parallel()
-	accountID := uniqueName("cli-keys-sa")
+	accountID := uniquename.New("cli-keys-sa")
 	email := accountID + "@" + project + ".iam.gserviceaccount.com"
 
 	runCLI(t, gcloudCLI("iam", "service-accounts", "create", accountID,

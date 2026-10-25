@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GcpResourceTable, GcpStatus, type GcpColumn } from "../console/index.js";
+import type { MenuEntry } from "../console/menu.js";
 import { GcpPageHeader } from "../console/GcpConsole.js";
 import { GcpDialog } from "../console/GcpDialog.js";
 import { GcpTabs } from "../console/GcpTabs.js";
@@ -33,7 +34,7 @@ const columns: GcpColumn<BigtableInstance>[] = [
     id: "name",
     header: "Instance ID",
     cell: (row) => (
-      <Link className="gc-cell-link" to={`/ui/bigtable/${shortName(row.name)}`}>
+      <Link className="gc-cell-link" to={`/ui/bigtable/instances/${shortName(row.name)}/overview`}>
         {shortName(row.name)}
       </Link>
     ),
@@ -182,40 +183,23 @@ export function BigtablePage() {
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["bigtable-instances", project] });
 
-  const columnsWithActions: GcpColumn<BigtableInstance>[] = [
-    ...columns,
-    {
-      id: "actions",
-      header: "Actions",
-      cell: (row) => {
-        const id = shortName(row.name);
-        return (
-          <span className="gc-row-actions">
-            <button
-              type="button"
-              className="gc-button-text"
-              data-testid={`bigtable-delete-${id}`}
-              aria-label={`Delete ${id}`}
-              onClick={() => setDeleting(id)}
-            >
-              Delete
-            </button>
-          </span>
-        );
-      },
-      value: () => "",
-    },
-  ];
+  const rowActions = (row: BigtableInstance): MenuEntry[] => {
+    const id = shortName(row.name);
+    return [
+      { label: "Delete", testId: `bigtable-delete-${id}`, onSelect: () => setDeleting(id) },
+    ];
+  };
 
   return (
     <>
       <GcpResourceTable<BigtableInstance>
-        title="Bigtable instances"
+        title="Instances"
         description="Bigtable is a fully managed, wide-column NoSQL database for large analytical and operational workloads."
         actions={[
           { label: "Create instance", icon: "add", primary: true, testId: "bigtable-create-instance", onSelect: () => setCreating(true) },
         ]}
-        columns={columnsWithActions}
+        columns={columns}
+        rowActions={rowActions}
         queryKey={["bigtable-instances", project]}
         queryFn={() => fetchBigtableInstances(project)}
         filterPlaceholder="Filter instances"
@@ -273,10 +257,8 @@ export function BigtableInstanceDetailPage() {
 
   return (
     <>
-      <div className="gc-detail-back">
-        <Link to="/ui/bigtable">‹ Bigtable instances</Link>
-      </div>
       <GcpPageHeader
+        backTo="/ui/bigtable/instances"
         title={name}
         description="Bigtable instance"
         actions={[{ label: "Delete", testId: "bigtable-instance-delete", onSelect: () => setDeleting(true) }]}
@@ -369,7 +351,7 @@ export function BigtableInstanceDetailPage() {
         <DeleteBigtableInstanceDialog
           name={name}
           onClose={() => setDeleting(false)}
-          onDeleted={() => navigate("/ui/bigtable")}
+          onDeleted={() => navigate("/ui/bigtable/instances")}
         />
       ) : null}
     </>

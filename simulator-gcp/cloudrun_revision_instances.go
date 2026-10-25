@@ -278,8 +278,10 @@ func newCloudRunRevisionRun(rev RevisionV2, specSig string, concurrency int) *cl
 	run.set = replicas.New(replicas.Spec{
 		NewID:   func() string { return sim.RandomHex(16) },
 		Restart: replicas.Always,
-		Backoff: cloudRunWorkerPoolRestartBackoff,
-		Settled: 10 * time.Minute,
+		// Cloud Run documents no restart back-off; its instances back off as the
+		// kubelet backs a crashing container off.
+		Backoff: replicas.CrashLoopBackoff,
+		Settled: replicas.CrashLoopSettled,
 		Start: func(ctx context.Context, id string) (*workload.Group, func(), error) {
 			began := time.Now()
 			sink := cloudRunRevisionLogSink(rev.Name, id)

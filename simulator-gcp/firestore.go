@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/signals"
 )
 
 // fsEnum is a Firestore enum field value: the canonical uppercase name the
@@ -167,10 +168,15 @@ type fsWrite struct {
 	CurrentDocument  *fsPrecondition      `json:"currentDocument,omitempty"`
 }
 
-var fsDocuments sim.Store[FSDocument]
+var (
+	fsDocuments sim.Store[FSDocument]
+	// fsDocumentChanges announces a document's name on every write of it,
+	// which wakes the Listen streams.
+	fsDocumentChanges = signals.New[string]()
+)
 
 func registerFirestore(srv *sim.Server) {
-	fsDocuments = sim.MakeStore[FSDocument](srv.DB(), "firestore_documents")
+	fsDocuments = sim.Announcing(sim.MakeStore[FSDocument](srv.DB(), "firestore_documents"), fsDocumentChanges)
 
 	fsTransactions = sim.MakeStore[fsTxn](srv.DB(), "firestore_transactions")
 
@@ -1470,13 +1476,7 @@ func handleFSDatabasesCollection(w http.ResponseWriter, r *http.Request) {
 func handleFSListDatabases(w http.ResponseWriter, r *http.Request) {
 	project := sim.PathParam(r, "project")
 	prefix := fmt.Sprintf("projects/%s/databases/", project)
-	dbs := fsDatabases.Filter(func(d fsResource) bool { return strings.HasPrefix(d.Name, prefix) })
-	sort.Slice(dbs, func(i, j int) bool { return dbs[i].Name < dbs[j].Name })
-	out := make([]map[string]any, 0, len(dbs))
-	for _, d := range dbs {
-		out = append(out, d.Body)
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"databases": out})
+	fsWriteBodies(w, fsDatabases, prefix, "databases")
 }
 
 func handleFSGetDatabase(w http.ResponseWriter, r *http.Request) {
@@ -1628,13 +1628,7 @@ func fsFieldName(project, database, cg, field string) string {
 func handleFSListFields(w http.ResponseWriter, r *http.Request) {
 	project, database, cg := sim.PathParam(r, "project"), sim.PathParam(r, "database"), sim.PathParam(r, "cg")
 	prefix := fmt.Sprintf("projects/%s/databases/%s/collectionGroups/%s/fields/", project, database, cg)
-	fields := fsFields.Filter(func(d fsResource) bool { return strings.HasPrefix(d.Name, prefix) })
-	sort.Slice(fields, func(i, j int) bool { return fields[i].Name < fields[j].Name })
-	out := make([]map[string]any, 0, len(fields))
-	for _, d := range fields {
-		out = append(out, d.Body)
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"fields": out})
+	fsWriteBodies(w, fsFields, prefix, "fields")
 }
 
 func handleFSGetField(w http.ResponseWriter, r *http.Request) {
@@ -1695,13 +1689,7 @@ func handleFSCreateBackupSchedule(w http.ResponseWriter, r *http.Request) {
 func handleFSListBackupSchedules(w http.ResponseWriter, r *http.Request) {
 	project, database := sim.PathParam(r, "project"), sim.PathParam(r, "database")
 	prefix := fmt.Sprintf("projects/%s/databases/%s/backupSchedules/", project, database)
-	bss := fsBackupSchedules.Filter(func(d fsResource) bool { return strings.HasPrefix(d.Name, prefix) })
-	sort.Slice(bss, func(i, j int) bool { return bss[i].Name < bss[j].Name })
-	out := make([]map[string]any, 0, len(bss))
-	for _, d := range bss {
-		out = append(out, d.Body)
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"backupSchedules": out})
+	fsWriteBodies(w, fsBackupSchedules, prefix, "backupSchedules")
 }
 
 func handleFSGetBackupSchedule(w http.ResponseWriter, r *http.Request) {
@@ -1751,13 +1739,7 @@ func fsBackupName(project, location, backup string) string {
 func handleFSListBackups(w http.ResponseWriter, r *http.Request) {
 	project, location := sim.PathParam(r, "project"), sim.PathParam(r, "location")
 	prefix := fmt.Sprintf("projects/%s/locations/%s/backups/", project, location)
-	bks := fsBackups.Filter(func(d fsResource) bool { return strings.HasPrefix(d.Name, prefix) })
-	sort.Slice(bks, func(i, j int) bool { return bks[i].Name < bks[j].Name })
-	out := make([]map[string]any, 0, len(bks))
-	for _, d := range bks {
-		out = append(out, d.Body)
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"backups": out})
+	fsWriteBodies(w, fsBackups, prefix, "backups")
 }
 
 func handleFSGetBackup(w http.ResponseWriter, r *http.Request) {
@@ -1806,13 +1788,7 @@ func handleFSUserCredsCollection(w http.ResponseWriter, r *http.Request) {
 func handleFSListUserCreds(w http.ResponseWriter, r *http.Request) {
 	project, database := sim.PathParam(r, "project"), sim.PathParam(r, "database")
 	prefix := fmt.Sprintf("projects/%s/databases/%s/userCreds/", project, database)
-	ucs := fsUserCreds.Filter(func(d fsResource) bool { return strings.HasPrefix(d.Name, prefix) })
-	sort.Slice(ucs, func(i, j int) bool { return ucs[i].Name < ucs[j].Name })
-	out := make([]map[string]any, 0, len(ucs))
-	for _, d := range ucs {
-		out = append(out, d.Body)
-	}
-	sim.WriteJSON(w, http.StatusOK, map[string]any{"userCreds": out})
+	fsWriteBodies(w, fsUserCreds, prefix, "userCreds")
 }
 
 func handleFSGetUserCreds(w http.ResponseWriter, r *http.Request) {
@@ -1913,4 +1889,16 @@ func handleFSCancelOperation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
+}
+
+// fsWriteBodies answers a list of the resources of store named under prefix,
+// in name order, under member.
+func fsWriteBodies(w http.ResponseWriter, store sim.Store[fsResource], prefix, member string) {
+	found := store.Filter(func(d fsResource) bool { return strings.HasPrefix(d.Name, prefix) })
+	sort.Slice(found, func(i, j int) bool { return found[i].Name < found[j].Name })
+	out := make([]map[string]any, 0, len(found))
+	for _, d := range found {
+		out = append(out, d.Body)
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{member: out})
 }

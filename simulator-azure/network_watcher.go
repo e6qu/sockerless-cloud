@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -155,8 +154,7 @@ func deleteNetworkWatcherChildren(_ context.Context, id string, _ NetworkWatcher
 
 // networkWatcherID composes the watcher id a request addresses.
 func networkWatcherID(r *http.Request) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkWatchers/%s",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "networkWatcherName"))
+	return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "networkWatchers", sim.PathParam(r, "networkWatcherName"))
 }
 
 // requireNetworkWatcher resolves the watcher a child or diagnostic request is
@@ -177,7 +175,7 @@ func requireNetworkWatcher(w http.ResponseWriter, r *http.Request) (NetworkWatch
 func registerNetworkWatcherFlowLogs(srv *sim.Server) {
 	base := azureNetworkArmBase() + "/networkWatchers/{networkWatcherName}/flowLogs"
 	flowLogID := func(r *http.Request) string {
-		return azureNetworkChildID(networkWatcherID(r), "flowLogs", sim.PathParam(r, "flowLogName"))
+		return armChildID(networkWatcherID(r), "flowLogs", sim.PathParam(r, "flowLogName"))
 	}
 
 	srv.HandleFunc("PUT "+base+"/{flowLogName}", func(w http.ResponseWriter, r *http.Request) {
@@ -316,7 +314,7 @@ func networkWatcherFlowLogForTarget(watcherID, targetID string) (NetworkWatcherF
 func registerNetworkWatcherConnectionMonitors(srv *sim.Server) {
 	base := azureNetworkArmBase() + "/networkWatchers/{networkWatcherName}/connectionMonitors"
 	monitorID := func(r *http.Request) string {
-		return azureNetworkChildID(networkWatcherID(r), "connectionMonitors", sim.PathParam(r, "connectionMonitorName"))
+		return armChildID(networkWatcherID(r), "connectionMonitors", sim.PathParam(r, "connectionMonitorName"))
 	}
 
 	srv.HandleFunc("PUT "+base+"/{connectionMonitorName}", func(w http.ResponseWriter, r *http.Request) {

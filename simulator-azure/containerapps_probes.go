@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -11,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 	"github.com/e6qu/sockerless-cloud/sim/placement"
+	"github.com/e6qu/sockerless-cloud/sim/replicas"
 )
 
 const (
@@ -157,22 +155,10 @@ func acaValidateProbes(t *ContainerAppTemplate) error {
 	return nil
 }
 
-// acaProbeClient sends HTTP probes as the kubelet does: straight to the
-// container, a redirect counting as success rather than being followed, and
-// an HTTPS probe not verifying the container's certificate.
-var acaProbeClient = &http.Client{
-	Transport: &http.Transport{
-		Proxy: nil,
-		//nolint:gosec // The kubelet does not verify a probe target's certificate.
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	},
-	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-}
-
-// check runs the probe once against the pod at address.
+// check runs the probe once against the pod at address as the kubelet does:
+// straight to the container, a redirect counting as success rather than being
+// followed, and an HTTPS probe not verifying the container's certificate.
 func (p acaProbe) check(ctx context.Context, address string) error {
-	ctx, cancel := context.WithTimeout(ctx, p.timeout)
-	defer cancel()
 	if p.tcp != nil {
 		host := p.tcp.Host
 		if host == "" {
@@ -188,94 +174,43 @@ func (p acaProbe) check(ctx context.Context, address string) error {
 	if scheme == "" {
 		scheme = "http"
 	}
-	path := p.http.Path
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		scheme+"://"+net.JoinHostPort(host, strconv.Itoa(int(p.http.Port)))+path, nil)
-	if err != nil {
-		return err
-	}
+	probe := lbplane.HTTPProbe{Scheme: scheme, Address: net.JoinHostPort(host, strconv.Itoa(int(p.http.Port))),
+		Path: p.http.Path, Header: http.Header{}, Timeout: p.timeout, Match: lbplane.StatusRange(200, 399)}
 	for _, h := range p.http.HTTPHeaders {
 		if strings.EqualFold(h.Name, "Host") {
-			req.Host = h.Value
+			probe.Host = h.Value
 			continue
 		}
-		req.Header.Add(h.Name, h.Value)
+		probe.Header.Add(h.Name, h.Value)
 	}
-	resp, err := acaProbeClient.Do(req)
-	if err != nil {
-		return err
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
-		return fmt.Errorf("HTTP probe answered %d", resp.StatusCode)
-	}
-	return nil
+	_, err := lbplane.ProbeHTTP(ctx, probe)
+	return err
 }
 
-var errACAContainerExited = errors.New("the container exited")
-
-// await runs the probe from its initial delay on its period until it has
-// passed its success threshold in a row, and fails once it has failed its
-// failure threshold in a row or the container exits.
-func (p acaProbe) await(ctx context.Context, member placement.Handle, address string) error {
-	wait := p.initialDelay
-	passed, failed := 0, 0
-	var last error
-	for {
-		select {
-		case <-member.Exited():
-			return errACAContainerExited
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(wait):
-		}
-		wait = p.period
-		if last = p.check(ctx, address); last == nil {
-			failed = 0
-			if passed++; passed >= p.successes {
-				return nil
-			}
-			continue
-		}
-		passed = 0
-		if failed++; failed >= p.failures {
-			return fmt.Errorf("%s probe failed %d times: %w", strings.ToLower(p.kind), failed, last)
-		}
+// runner is the probe as the replica's probe runner runs it against the pod
+// at address.
+func (p acaProbe) runner(address string) *replicas.Probe {
+	return &replicas.Probe{
+		Check:            func(ctx context.Context) error { return p.check(ctx, address) },
+		InitialDelay:     p.initialDelay,
+		Period:           p.period,
+		Timeout:          p.timeout,
+		FailureThreshold: p.failures,
+		SuccessThreshold: p.successes,
 	}
 }
 
-// watch runs the probe on its period for as long as the container runs,
-// calling fail once it has failed its failure threshold in a row after
-// passing, and pass once it has passed its success threshold in a row after
-// failing.
-func (p acaProbe) watch(member placement.Handle, address string, pass, fail func()) {
-	bg.Go(func() {
-		healthy := true
-		passed, failed := 0, 0
-		for {
-			select {
-			case <-member.Exited():
-				return
-			case <-time.After(p.period):
-			}
-			if p.check(context.Background(), address) == nil {
-				failed = 0
-				if passed++; !healthy && passed >= p.successes {
-					healthy = true
-					pass()
-				}
-				continue
-			}
-			passed = 0
-			if failed++; healthy && failed >= p.failures {
-				healthy = false
-				fail()
-			}
+// acaReplicaProbes are a container's probes run against the pod at address.
+func acaReplicaProbes(probes map[string]acaProbe, address string) replicas.Probes {
+	var out replicas.Probes
+	for kind, into := range map[string]**replicas.Probe{
+		acaProbeStartup: &out.Startup, acaProbeReadiness: &out.Readiness, acaProbeLiveness: &out.Liveness,
+	} {
+		if probe, ok := probes[kind]; ok {
+			*into = probe.runner(address)
 		}
-	})
+	}
+	return out
 }
 
 // startProbes runs a container's startup probe, then its readiness probe
@@ -283,6 +218,7 @@ func (p acaProbe) watch(member placement.Handle, address string, pass, fail func
 // ready; from there its readiness probe keeps its readiness current and its
 // liveness probe restarts the pod, through restart, once it fails.
 func (c *acaReplicaContainer) startProbes(ctx context.Context, probes map[string]acaProbe, member, owner placement.Handle, restart func()) error {
+	started := time.Now()
 	if len(probes) == 0 {
 		c.setReady(true)
 		return nil
@@ -291,32 +227,15 @@ func (c *acaReplicaContainer) startProbes(ctx context.Context, probes map[string
 	if err != nil {
 		select {
 		case <-member.Exited():
-			return fmt.Errorf("%w before its probes passed", errACAContainerExited)
+			return fmt.Errorf("%w before its probes passed", replicas.ErrExited)
 		default:
 		}
 		return fmt.Errorf("the pod has no address: %w", err)
 	}
-	if probe, ok := probes[acaProbeStartup]; ok {
-		if err := probe.await(ctx, member, address); err != nil {
-			return err
-		}
-	}
-	if probe, ok := probes[acaProbeReadiness]; ok {
-		if err := probe.await(ctx, member, address); err != nil {
-			return err
-		}
-	}
-	c.setReady(true)
-	c.watchProbes(probes, member, address, restart)
-	return nil
+	return acaReplicaProbes(probes, address).Run(ctx, started, member.Exited(), c.setReady, restart)
 }
 
 // watchProbes keeps a running container's readiness and liveness probes.
 func (c *acaReplicaContainer) watchProbes(probes map[string]acaProbe, member placement.Handle, address string, restart func()) {
-	if probe, ok := probes[acaProbeReadiness]; ok {
-		probe.watch(member, address, func() { c.setReady(true) }, func() { c.setReady(false) })
-	}
-	if probe, ok := probes[acaProbeLiveness]; ok {
-		probe.watch(member, address, func() {}, restart)
-	}
+	acaReplicaProbes(probes, address).Watch(member.Exited(), c.setReady, restart)
 }

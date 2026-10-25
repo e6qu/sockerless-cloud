@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,9 +17,9 @@ import (
 // reads back.
 func TestELBv2_TargetGroupFidelitySDK(t *testing.T) {
 	t.Parallel()
-	tcpHTTPTGName := uniqueName("tg-tcp-hhc")
-	tcpTGName := uniqueName("tg-tcp-fid")
-	httpTGName := uniqueName("tg-http-fid")
+	tcpHTTPTGName := uniquename.New("tg-tcp-hhc")
+	tcpTGName := uniquename.New("tg-tcp-fid")
+	httpTGName := uniquename.New("tg-http-fid")
 	c := elbv2Client()
 	vpc, err := ec2Client().CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.150.0.0/16")})
 	require.NoError(t, err)
@@ -79,7 +80,7 @@ func TestELBv2_TargetGroupFidelitySDK(t *testing.T) {
 // SetIpAddressType in-place update.
 func TestELBv2_LoadBalancerFidelitySDK(t *testing.T) {
 	t.Parallel()
-	lbName := uniqueName("nlb-fid")
+	lbName := uniquename.New("nlb-fid")
 	c := elbv2Client()
 	ec2c := ec2Client()
 	vpc, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{CidrBlock: aws.String("10.151.0.0/16")})

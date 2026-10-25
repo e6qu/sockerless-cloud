@@ -2,8 +2,6 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExecutionsTable, executionState } from "../pages/CloudRunJobDetailPage.js";
 import { ImagesTable } from "../pages/ARRepoDetailPage.js";
-import { ObjectsTable } from "../pages/GCSBucketDetailPage.js";
-import { LogEntryDetailDialog } from "../pages/LoggingPage.js";
 import { formatBytes, splitImageDigest } from "../console/format.js";
 
 afterEach(cleanup);
@@ -109,71 +107,5 @@ describe("formatBytes", () => {
   it("reports missing sizes as an em dash rather than blank or NaN", () => {
     expect(formatBytes(undefined)).toBe("—");
     expect(formatBytes("")).toBe("—");
-  });
-});
-
-describe("ObjectsTable", () => {
-  it("lists each object's size and content type", () => {
-    render(
-      <ObjectsTable
-        objects={[
-          {
-            name: "artifacts/build.tar.gz",
-            bucket: "runner-artifacts",
-            size: "1048576",
-            contentType: "application/gzip",
-            timeCreated: "2026-07-20T00:00:00Z",
-          },
-        ]}
-      />,
-    );
-    expect(screen.getByText("artifacts/build.tar.gz")).toBeDefined();
-    expect(screen.getByText("1.0 MB")).toBeDefined();
-    expect(screen.getByText("application/gzip")).toBeDefined();
-  });
-
-  it("explains an empty bucket instead of rendering a blank", () => {
-    render(<ObjectsTable objects={[]} />);
-    expect(screen.getByText("This bucket has no objects")).toBeDefined();
-  });
-});
-
-describe("LogEntryDetailDialog", () => {
-  it("expands a text-payload entry's full detail", () => {
-    const onClose = vi.fn();
-    render(
-      <LogEntryDetailDialog
-        entry={{
-          logName: "projects/sockerless/logs/run.googleapis.com%2Fstdout",
-          timestamp: "2026-07-20T00:00:00Z",
-          severity: "ERROR",
-          textPayload: "container exited with code 1",
-          insertId: "abc123",
-          resource: { type: "cloud_run_job", labels: { job_name: "runner" } },
-        }}
-        onClose={onClose}
-      />,
-    );
-    expect(screen.getByText("container exited with code 1")).toBeDefined();
-    expect(screen.getByText("abc123")).toBeDefined();
-    expect(screen.getByText("cloud_run_job")).toBeDefined();
-    expect(screen.getByText("runner")).toBeDefined();
-    fireEvent.click(screen.getByText("Close"));
-    expect(onClose).toHaveBeenCalled();
-  });
-
-  it("pretty-prints a JSON-payload entry", () => {
-    render(
-      <LogEntryDetailDialog
-        entry={{
-          logName: "projects/sockerless/logs/structured",
-          timestamp: "2026-07-20T00:00:00Z",
-          jsonPayload: { message: "build finished", exitCode: 0 },
-        }}
-        onClose={() => {}}
-      />,
-    );
-    const payload = screen.getByTestId("log-entry-payload");
-    expect(payload.textContent).toContain("\"message\": \"build finished\"");
   });
 });

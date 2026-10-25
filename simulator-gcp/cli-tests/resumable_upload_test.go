@@ -55,15 +55,16 @@ func bqCLI(args ...string) *exec.Cmd {
 func TestGCSCLI_ResumableUpload(t *testing.T) {
 	t.Parallel()
 	const bucket = "cli-resumable-bucket"
-	runCLI(t, gcloudCLI("storage", "buckets", "create", "gs://"+bucket, "--location=us"))
+	runCLI(t, gcloudCLI("storage", "buckets", "create", "gs://"+bucket, "--location=us", "--default-storage-class=NEARLINE"))
 	t.Cleanup(func() { runCLI(t, gcloudCLI("storage", "rm", "--recursive", "gs://"+bucket)) })
 	source, payload := writeResumablePayload(t, "large.bin")
 
 	runCLI(t, gcloudUploadCLI("storage", "cp", source, "gs://"+bucket+"/large.bin"))
 
 	sum := md5.Sum(payload)
-	described := runCLI(t, gcloudCLI("storage", "objects", "describe", "gs://"+bucket+"/large.bin", "--format=value(size,md5_hash)"))
-	assert.Equal(t, []string{fmt.Sprint(len(payload)), base64.StdEncoding.EncodeToString(sum[:])}, strings.Fields(described))
+	described := runCLI(t, gcloudCLI("storage", "objects", "describe", "gs://"+bucket+"/large.bin", "--format=value(size,md5_hash,storage_class)"))
+	assert.Equal(t, []string{fmt.Sprint(len(payload)), base64.StdEncoding.EncodeToString(sum[:]), "NEARLINE"}, strings.Fields(described),
+		"the object takes the bucket's default storage class")
 }
 
 // `gcloud artifacts generic upload` and `gcloud artifacts files upload` send a

@@ -20,6 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -94,7 +95,7 @@ func logStreamText(t *testing.T, group, stream string) string {
 func TestCodeBuild_BuildHoldsItsServiceRoleSession_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
-	name := uniqueName("cb-role-session")
+	name := uniquename.New("cb-role-session")
 	projectRole := createWorkloadRole(t, name, "codebuild.amazonaws.com")
 	overrideRole := createWorkloadRole(t, name+"-override", "codebuild.amazonaws.com")
 	_, err := c.CreateProject(ctx, &codebuild.CreateProjectInput{
@@ -148,7 +149,7 @@ func TestCodeBuild_BuildHoldsItsServiceRoleSession_SDK(t *testing.T) {
 func TestCodeBuild_BuildBatchRunsAsItsServiceRoleOverride_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
-	name := uniqueName("cb-batch-role")
+	name := uniquename.New("cb-batch-role")
 	projectRole := createWorkloadRole(t, name, "codebuild.amazonaws.com")
 	overrideRole := createWorkloadRole(t, name+"-override", "codebuild.amazonaws.com")
 	command := "aws sts get-caller-identity --query Arn --output text | grep -q 'assumed-role/" + name + "-override/'"
@@ -194,7 +195,7 @@ func TestCodeBuild_BuildBatchRunsAsItsServiceRoleOverride_SDK(t *testing.T) {
 func TestBatch_JobHoldsItsJobRoleSession_SDK(t *testing.T) {
 	t.Parallel()
 	c := batchClient()
-	name := uniqueName("batch-role-session")
+	name := uniquename.New("batch-role-session")
 	roleArn := createWorkloadRole(t, name, "ecs-tasks.amazonaws.com")
 	queue := createBatchQueue(t, c, name, batchtypes.CEStateEnabled, 4)
 	definition := registerBatchJobDefinition(t, c, &batch.RegisterJobDefinitionInput{
@@ -224,7 +225,7 @@ func TestGlue_JobRunHoldsItsRoleSession_SDK(t *testing.T) {
 	ensureGluePythonShellImage(t)
 	c := glueClient()
 	s3c := s3Client()
-	name := uniqueName("glue-role-session")
+	name := uniquename.New("glue-role-session")
 	roleArn := createWorkloadRole(t, name, "glue.amazonaws.com")
 	_, err := s3c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(name)})
 	require.NoError(t, err)

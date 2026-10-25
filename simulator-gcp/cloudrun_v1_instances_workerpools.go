@@ -425,16 +425,8 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 	srv.HandleFunc("GET /apis/run.googleapis.com/v1/namespaces/{namespace}/instances", func(w http.ResponseWriter, r *http.Request) {
 		namespace := sim.PathParam(r, "namespace")
 		prefix := fmt.Sprintf("projects/%s/locations/%s/instances/", namespace, cloudRunDefaultLocation)
-		selector := r.URL.Query().Get("labelSelector")
-		items := make([]CRInstance, 0)
-		for _, instance := range crv2Instances.Filter(func(i InstanceV2) bool { return strings.HasPrefix(i.Name, prefix) }) {
-			projected, ok := cloudRunV2InstanceToV1(instance)
-			if !ok || !knativeLabelSelectorMatches(selector, projected.Metadata.Labels) {
-				continue
-			}
-			items = append(items, projected)
-		}
-		page, next, ok := knativeListPage(w, r, items, gcpAsc(func(v CRInstance) string { return v.Metadata.Name }))
+		page, next, ok := knativeProjectedPage(w, r, crv2Instances, prefix, func(v InstanceV2) string { return v.Name }, cloudRunV2InstanceToV1,
+			func(v CRInstance) map[string]string { return v.Metadata.Labels }, func(v CRInstance) string { return v.Metadata.Name })
 		if !ok {
 			return
 		}
@@ -581,16 +573,8 @@ func registerCloudRunV1InstancesWorkerPools(srv *sim.Server) {
 	srv.HandleFunc("GET /apis/run.googleapis.com/v1/namespaces/{namespace}/workerpools", func(w http.ResponseWriter, r *http.Request) {
 		namespace := sim.PathParam(r, "namespace")
 		prefix := fmt.Sprintf("projects/%s/locations/%s/workerPools/", namespace, cloudRunDefaultLocation)
-		selector := r.URL.Query().Get("labelSelector")
-		items := make([]CRWorkerPool, 0)
-		for _, pool := range crv2WorkerPools.Filter(func(p WorkerPoolV2) bool { return strings.HasPrefix(p.Name, prefix) }) {
-			projected, ok := cloudRunV2WorkerPoolToV1(pool)
-			if !ok || !knativeLabelSelectorMatches(selector, projected.Metadata.Labels) {
-				continue
-			}
-			items = append(items, projected)
-		}
-		page, next, ok := knativeListPage(w, r, items, gcpAsc(func(v CRWorkerPool) string { return v.Metadata.Name }))
+		page, next, ok := knativeProjectedPage(w, r, crv2WorkerPools, prefix, func(v WorkerPoolV2) string { return v.Name }, cloudRunV2WorkerPoolToV1,
+			func(v CRWorkerPool) map[string]string { return v.Metadata.Labels }, func(v CRWorkerPool) string { return v.Metadata.Name })
 		if !ok {
 			return
 		}

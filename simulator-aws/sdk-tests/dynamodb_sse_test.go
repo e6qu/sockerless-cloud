@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -14,7 +15,7 @@ import (
 // server-side encryption reports the full SSEDescription on DescribeTable.
 func TestDynamoDB_SSEDescriptionRoundTrip(t *testing.T) {
 	t.Parallel()
-	table := uniqueName("sse-table")
+	table := uniquename.New("sse-table")
 	c := ddbClient()
 	keyArn := "arn:aws:kms:us-east-1:123456789012:key/test-key"
 	_, err := c.CreateTable(ctx, &dynamodb.CreateTableInput{

@@ -41,7 +41,7 @@ type auditPending struct {
 func auditLogMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hostname := lbplane.Hostname(r.Host)
-		if isCloudRunHost(r.Host) || strings.HasSuffix(hostname, ".cloudfunctions.net") {
+		if isCloudRunHost(r.Host) || strings.HasSuffix(hostname, cloudFunctionsDomain) {
 			next.ServeHTTP(w, r)
 			return
 		}

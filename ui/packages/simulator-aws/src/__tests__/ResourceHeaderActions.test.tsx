@@ -6,6 +6,7 @@ import { ECSTasksPage, isStoppable } from "../pages/ECSTasksPage.js";
 import { LambdaFunctionsPage } from "../pages/LambdaFunctionsPage.js";
 import { ECRReposPage } from "../pages/ECRReposPage.js";
 import { S3BucketsPage } from "../pages/S3BucketsPage.js";
+import { S3CreateBucketPage } from "../pages/S3CreateBucketPage.js";
 import { LogGroupsPage } from "../pages/LogGroupsPage.js";
 import type { ECSTask } from "../api.js";
 
@@ -240,6 +241,7 @@ describe("LambdaFunctionsPage", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: `Select ${functionName}` }));
     fireEvent.click(screen.getByTestId("lambda-delete-function"));
     const dialog = await screen.findByRole("dialog", { name: `Delete ${functionName}?` });
+    fireEvent.change(within(dialog).getByTestId("lambda-delete-function-confirm-input"), { target: { value: "confirm" } });
     fireEvent.click(within(dialog).getByTestId("lambda-delete-function-confirm"));
 
     await waitFor(() => expect(deleteCalled).toBe("DELETE"));
@@ -387,6 +389,7 @@ describe("ECRReposPage", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: `Select ${repoName}` }));
     fireEvent.click(screen.getByTestId("ecr-delete-repo"));
     const dialog = await screen.findByRole("dialog", { name: `Delete ${repoName}?` });
+    fireEvent.change(within(dialog).getByTestId("ecr-delete-repo-confirm-input"), { target: { value: "delete" } });
     fireEvent.click(within(dialog).getByTestId("ecr-delete-repo-confirm"));
 
     await waitFor(() => expect(sentBody).not.toBeNull());
@@ -423,80 +426,68 @@ describe("ECRReposPage", () => {
 
 describe("S3BucketsPage", () => {
   const bucketName = "my-bucket";
+  const listed = `<ListAllMyBucketsResult><Buckets><Bucket><Name>${bucketName}</Name><CreationDate>2026-01-01T00:00:00.000Z</CreationDate><BucketRegion>us-east-1</BucketRegion></Bucket></Buckets></ListAllMyBucketsResult>`;
 
-  it("creates a bucket through the real CreateBucket operation and shows it once the list refreshes", async () => {
-    let created: { method?: string; url: string } | null = null;
-    let listedAfterCreate = false;
-    installFetch([
-      {
-        when: (url, init) => url === "/" && (init?.method ?? "GET") === "GET",
-        respond: () => {
-          if (!created) return xmlResponse(`<ListAllMyBucketsResult><Buckets></Buckets></ListAllMyBucketsResult>`);
-          listedAfterCreate = true;
-          return xmlResponse(
-            `<ListAllMyBucketsResult><Buckets><Bucket><Name>${bucketName}</Name><CreationDate>2026-01-01T00:00:00.000Z</CreationDate></Bucket></Buckets></ListAllMyBucketsResult>`,
-          );
-        },
-      },
-      {
-        when: (url, init) => url === `/${bucketName}` && init?.method === "PUT",
-        respond: (init) => {
-          created = { method: init?.method, url: `/${bucketName}` };
-          return new Response(null, { status: 200, headers: { Location: `/${bucketName}` } });
-        },
-      },
-    ]);
-    renderWithQuery(<S3BucketsPage />);
-    await screen.findByText("No buckets");
-
-    fireEvent.click(screen.getByTestId("s3-create-bucket"));
-    const dialog = await screen.findByRole("dialog", { name: "Create bucket" });
-    expect((within(dialog).getByTestId("s3-create-bucket-submit") as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.change(within(dialog).getByTestId("s3-bucket-name-input"), { target: { value: bucketName } });
-    expect((within(dialog).getByTestId("s3-create-bucket-submit") as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(within(dialog).getByTestId("s3-create-bucket-submit"));
-
-    await waitFor(() => expect(created).not.toBeNull());
-    expect(created!.method).toBe("PUT");
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    await waitFor(() => expect(listedAfterCreate).toBe(true));
-    expect(await screen.findByText(bucketName)).toBeTruthy();
-  });
-
-  it("surfaces S3's BucketAlreadyOwnedByYou error rather than closing the create dialog", async () => {
+  it("opens the Create bucket page from the header action", async () => {
     installFetch([
       {
         when: (url, init) => url === "/" && (init?.method ?? "GET") === "GET",
         respond: () => xmlResponse(`<ListAllMyBucketsResult><Buckets></Buckets></ListAllMyBucketsResult>`),
       },
+    ]);
+    renderWithNavigation("/ui/s3", <S3BucketsPage />, "/ui/s3/create");
+    await screen.findByText("No buckets");
+    fireEvent.click(screen.getByTestId("s3-create-bucket"));
+    expect(await screen.findByTestId("landed-on-detail")).toBeTruthy();
+  });
+
+  it("creates a bucket through the real CreateBucket operation and returns to the list", async () => {
+    let created: string | null = null;
+    installFetch([
+      {
+        when: (url, init) => url === `/${bucketName}` && init?.method === "PUT",
+        respond: (init) => {
+          created = typeof init?.body === "string" ? init.body : "";
+          return new Response(null, { status: 200, headers: { Location: `/${bucketName}` } });
+        },
+      },
+    ]);
+    renderWithNavigation("/ui/s3/create", <S3CreateBucketPage />, "/ui/s3");
+    fireEvent.change(screen.getByTestId("s3-bucket-name-input"), { target: { value: bucketName } });
+    fireEvent.click(screen.getByTestId("s3-create-bucket-submit"));
+    await waitFor(() => expect(created).not.toBeNull());
+    // us-east-1 is the one Region CreateBucket takes no LocationConstraint for.
+    expect(created).toBe("");
+    expect(await screen.findByTestId("landed-on-detail")).toBeTruthy();
+  });
+
+  it("surfaces S3's BucketAlreadyOwnedByYou error and stays on the create page", async () => {
+    installFetch([
       {
         when: (url, init) => url === `/${bucketName}` && init?.method === "PUT",
         respond: () =>
           xmlError("BucketAlreadyOwnedByYou", "Your previous request to create the named bucket succeeded", 409),
       },
     ]);
-    renderWithQuery(<S3BucketsPage />);
-    await screen.findByText("No buckets");
+    renderWithNavigation("/ui/s3/create", <S3CreateBucketPage />, "/ui/s3");
+    fireEvent.change(screen.getByTestId("s3-bucket-name-input"), { target: { value: bucketName } });
+    fireEvent.click(screen.getByTestId("s3-create-bucket-submit"));
+    expect((await screen.findAllByText(/BucketAlreadyOwnedByYou/)).length).toBeGreaterThan(0);
+    expect(screen.queryByTestId("landed-on-detail")).toBeNull();
+  });
 
-    fireEvent.click(screen.getByTestId("s3-create-bucket"));
-    const dialog = await screen.findByRole("dialog", { name: "Create bucket" });
-    fireEvent.change(within(dialog).getByTestId("s3-bucket-name-input"), { target: { value: bucketName } });
-    fireEvent.click(within(dialog).getByTestId("s3-create-bucket-submit"));
-
-    const alert = await within(dialog).findByRole("alert");
-    expect(alert.textContent).toContain("BucketAlreadyOwnedByYou");
-    expect(screen.getByRole("dialog")).toBeTruthy();
+  it("refuses an invalid bucket name before any request goes out", async () => {
+    installFetch([]);
+    renderWithNavigation("/ui/s3/create", <S3CreateBucketPage />, "/ui/s3");
+    fireEvent.change(screen.getByTestId("s3-bucket-name-input"), { target: { value: "Not_Valid" } });
+    fireEvent.click(screen.getByTestId("s3-create-bucket-submit"));
+    expect(await screen.findByText(/Bucket name must be 3 to 63 characters/)).toBeTruthy();
+    expect(mockFetch).not.toHaveBeenCalledWith(expect.stringContaining("Not_Valid"), expect.anything());
   });
 
   it("surfaces S3's BucketNotEmpty error rather than closing the dialog", async () => {
     installFetch([
-      {
-        when: (url, init) => url === "/" && (init?.method ?? "GET") === "GET",
-        respond: () =>
-          xmlResponse(
-            `<ListAllMyBucketsResult><Buckets><Bucket><Name>${bucketName}</Name><CreationDate>2026-01-01T00:00:00.000Z</CreationDate></Bucket></Buckets></ListAllMyBucketsResult>`,
-          ),
-      },
+      { when: (url, init) => url === "/" && (init?.method ?? "GET") === "GET", respond: () => xmlResponse(listed) },
       {
         when: (url, init) => url === `/${bucketName}` && init?.method === "DELETE",
         respond: () => xmlError("BucketNotEmpty", "The bucket you tried to delete is not empty", 409),
@@ -504,34 +495,27 @@ describe("S3BucketsPage", () => {
     ]);
     renderWithQuery(<S3BucketsPage />);
     await screen.findByText(bucketName);
-    expect((screen.getByTestId("s3-view-bucket") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("s3-delete-bucket") as HTMLButtonElement).disabled).toBe(true);
 
-    fireEvent.click(screen.getByRole("checkbox", { name: `Select ${bucketName}` }));
+    fireEvent.click(screen.getByRole("radio", { name: `Select ${bucketName}` }));
     fireEvent.click(screen.getByTestId("s3-delete-bucket"));
-    const dialog = await screen.findByRole("dialog", { name: `Delete ${bucketName}?` });
-    fireEvent.click(within(dialog).getByTestId("s3-delete-bucket-confirm"));
+    const dialog = await screen.findByRole("dialog", { name: "Delete bucket" });
+    const confirm = within(dialog).getByTestId("s3-delete-bucket-confirm") as HTMLButtonElement;
+    // Delete stays disabled until the operator types the bucket name.
+    expect(confirm.disabled).toBe(true);
+    fireEvent.change(within(dialog).getByTestId("s3-delete-bucket-confirm-input"), { target: { value: bucketName } });
+    expect(confirm.disabled).toBe(false);
+    fireEvent.click(confirm);
 
     const alert = await within(dialog).findByRole("alert");
     expect(alert.textContent).toContain("BucketNotEmpty");
-    // The failed delete never dismisses the confirmation.
     expect(screen.getByRole("dialog")).toBeTruthy();
   });
 
-  it("enables View details once a bucket is selected and navigates to its detail route", async () => {
-    installFetch([
-      {
-        when: (url, init) => url === "/" && (init?.method ?? "GET") === "GET",
-        respond: () =>
-          xmlResponse(
-            `<ListAllMyBucketsResult><Buckets><Bucket><Name>${bucketName}</Name><CreationDate>2026-01-01T00:00:00.000Z</CreationDate></Bucket></Buckets></ListAllMyBucketsResult>`,
-          ),
-      },
-    ]);
+  it("links each bucket name to its detail route", async () => {
+    installFetch([{ when: (url, init) => url === "/" && (init?.method ?? "GET") === "GET", respond: () => xmlResponse(listed) }]);
     renderWithNavigation("/ui/s3", <S3BucketsPage />, "/ui/s3/:name");
-    await screen.findByText(bucketName);
-
-    fireEvent.click(screen.getByRole("checkbox", { name: `Select ${bucketName}` }));
-    fireEvent.click(screen.getByTestId("s3-view-bucket"));
+    fireEvent.click(await screen.findByRole("link", { name: bucketName }));
     expect(await screen.findByTestId("landed-on-detail")).toBeTruthy();
   });
 });

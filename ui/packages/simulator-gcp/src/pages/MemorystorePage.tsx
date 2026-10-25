@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GcpResourceTable, GcpStatus, type GcpColumn } from "../console/index.js";
+import type { MenuEntry } from "../console/menu.js";
 import { GcpPageHeader } from "../console/GcpConsole.js";
 import { GcpDialog } from "../console/GcpDialog.js";
 import { shortName, formatTimestamp } from "../console/format.js";
@@ -23,7 +24,7 @@ const columns: GcpColumn<RedisInstance>[] = [
     id: "name",
     header: "Instance ID",
     cell: (row) => (
-      <Link className="gc-cell-link" to={`/ui/memorystore/${shortName(row.name)}`}>
+      <Link className="gc-cell-link" to={`/ui/memorystore/redis/instances/${shortName(row.name)}/details`}>
         {shortName(row.name)}
       </Link>
     ),
@@ -177,40 +178,23 @@ export function MemorystorePage() {
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["redis-instances", project] });
 
-  const columnsWithActions: GcpColumn<RedisInstance>[] = [
-    ...columns,
-    {
-      id: "actions",
-      header: "Actions",
-      cell: (row) => {
-        const id = shortName(row.name);
-        return (
-          <span className="gc-row-actions">
-            <button
-              type="button"
-              className="gc-button-text"
-              data-testid={`memorystore-delete-${id}`}
-              aria-label={`Delete ${id}`}
-              onClick={() => setDeleting(id)}
-            >
-              Delete
-            </button>
-          </span>
-        );
-      },
-      value: () => "",
-    },
-  ];
+  const rowActions = (row: RedisInstance): MenuEntry[] => {
+    const id = shortName(row.name);
+    return [
+      { label: "Delete", testId: `memorystore-delete-${id}`, onSelect: () => setDeleting(id) },
+    ];
+  };
 
   return (
     <>
       <GcpResourceTable<RedisInstance>
-        title="Memorystore for Redis"
+        title="Redis instances"
         description={`Memorystore for Redis is a fully managed in-memory data store. Showing instances in ${CONSOLE_REGION}.`}
         actions={[
           { label: "Create instance", icon: "add", primary: true, testId: "memorystore-create-instance", onSelect: () => setCreating(true) },
         ]}
-        columns={columnsWithActions}
+        columns={columns}
+        rowActions={rowActions}
         queryKey={["redis-instances", project]}
         queryFn={() => fetchRedisInstances(project)}
         filterPlaceholder="Filter instances"
@@ -257,10 +241,8 @@ export function MemorystoreInstanceDetailPage() {
 
   return (
     <>
-      <div className="gc-detail-back">
-        <Link to="/ui/memorystore">‹ Memorystore for Redis</Link>
-      </div>
       <GcpPageHeader
+        backTo="/ui/memorystore/redis/instances"
         title={name}
         description="Memorystore for Redis instance"
         onRefresh={() => void instance.refetch()}

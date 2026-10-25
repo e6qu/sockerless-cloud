@@ -257,20 +257,7 @@ func registerCloudBuild(srv *sim.Server) {
 	srv.HandleFunc("DELETE /v1/projects/{project}/triggers/{trigger}", handleDeleteBuildTrigger)
 
 	// ListBuilds: GET /v1/projects/{project}/builds
-	srv.HandleFunc("GET /v1/projects/{project}/builds", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		builds := cbBuilds.Filter(func(b Build) bool { return b.ProjectID == project })
-		sort.Slice(builds, func(i, j int) bool { return builds[i].CreateTime > builds[j].CreateTime })
-		page, next, ok := paginateList(w, r, builds, gcpDesc(func(b Build) string { return b.CreateTime }), gcpAsc(func(b Build) string { return b.ID }))
-		if !ok {
-			return
-		}
-		resp := map[string]any{"builds": page}
-		if next != "" {
-			resp["nextPageToken"] = next
-		}
-		sim.WriteJSON(w, http.StatusOK, resp)
-	})
+	srv.HandleFunc("GET /v1/projects/{project}/builds", handleListBuilds)
 
 	// GetBuild: GET /v1/projects/{project}/builds/{id}
 	srv.HandleFunc("GET /v1/projects/{project}/builds/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -327,20 +314,7 @@ func registerCloudBuild(srv *sim.Server) {
 	srv.HandleFunc("GET /v1/operations/{operation...}", handleCloudBuildGetOperation)
 
 	// Regional builds (read-only mirror of the global build endpoints).
-	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/builds", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		builds := cbBuilds.Filter(func(b Build) bool { return b.ProjectID == project })
-		sort.Slice(builds, func(i, j int) bool { return builds[i].CreateTime > builds[j].CreateTime })
-		page, next, ok := paginateList(w, r, builds, gcpDesc(func(b Build) string { return b.CreateTime }), gcpAsc(func(b Build) string { return b.ID }))
-		if !ok {
-			return
-		}
-		resp := map[string]any{"builds": page}
-		if next != "" {
-			resp["nextPageToken"] = next
-		}
-		sim.WriteJSON(w, http.StatusOK, resp)
-	})
+	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/builds", handleListBuilds)
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/builds/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := sim.PathParam(r, "id")
 		build, ok := cbBuilds.Get(id)
@@ -949,7 +923,7 @@ func executeCancellableBuild(ctx context.Context, b Build) Build {
 	})
 	// The build's operation is done once its record is terminal and its
 	// steps have stopped; whoever waits on the operation learns of it here.
-	defer gcpOperationSignalDone(cbBuildOperation(b.ProjectID, b).Name)
+	defer gcpOperationDone.Announce(cbBuildOperation(b.ProjectID, b).Name)
 	if cancelledFirst {
 		stored, _ := cbBuilds.Get(b.ID)
 		return stored
@@ -1328,7 +1302,11 @@ func runContainerStep(ctx context.Context, b Build, workDir string, step *BuildS
 		Sandbox:      SandboxCloudBuild,
 	}
 	netw.apply(&cfg)
-	handle, err := sim.StartContainerSyncContext(ctx, cfg, output)
+	backend, err := gcpPlacement.For(placementCloudBuild)
+	if err != nil {
+		return err
+	}
+	handle, err := backend.Place(ctx, cfg, output)
 	if err != nil {
 		return err
 	}
@@ -1382,4 +1360,21 @@ func (o *cloudBuildStepOutput) tail() string {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return strings.TrimSpace(strings.Join(o.lines, "\n"))
+}
+
+// handleListBuilds lists a project's builds, newest first; the regional
+// method reads the same builds.
+func handleListBuilds(w http.ResponseWriter, r *http.Request) {
+	project := sim.PathParam(r, "project")
+	builds := cbBuilds.Filter(func(b Build) bool { return b.ProjectID == project })
+	sort.Slice(builds, func(i, j int) bool { return builds[i].CreateTime > builds[j].CreateTime })
+	page, next, ok := paginateList(w, r, builds, gcpDesc(func(b Build) string { return b.CreateTime }), gcpAsc(func(b Build) string { return b.ID }))
+	if !ok {
+		return
+	}
+	resp := map[string]any{"builds": page}
+	if next != "" {
+		resp["nextPageToken"] = next
+	}
+	sim.WriteJSON(w, http.StatusOK, resp)
 }

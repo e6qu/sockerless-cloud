@@ -2,14 +2,12 @@ package main
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"strings"
 	"time"
 
-	dockerclient "github.com/moby/moby/client"
-
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
 // The site's PHP error-logging flag, read from the PHP the site is running.
@@ -34,30 +32,13 @@ type webPHPDirectives struct {
 }
 
 // webReadPHPDirectives runs PHP's own configuration dump inside the site's
-// container and returns the directives it reports. The second result is false
-// when the container has no PHP to ask.
-func webReadPHPDirectives(containerID string, wanted ...string) (map[string]webPHPDirectives, bool) {
-	cli := sim.DockerClient()
-	if cli == nil {
-		return nil, false
-	}
+// workload and returns the directives it reports. The second result is false
+// when the workload has no PHP to ask.
+func webReadPHPDirectives(instance placement.Handle, wanted ...string) (map[string]webPHPDirectives, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-
-	created, err := cli.ExecCreate(ctx, containerID, dockerclient.ExecCreateOptions{
-		Cmd: []string{"php", "-i"}, AttachStdout: true, AttachStderr: true,
-	})
-	if err != nil {
-		return nil, false
-	}
-	attached, err := cli.ExecAttach(ctx, created.ID, dockerclient.ExecAttachOptions{})
-	if err != nil {
-		return nil, false
-	}
-	output, _ := io.ReadAll(attached.Reader)
-	attached.Close()
-	inspected, err := cli.ExecInspect(ctx, created.ID, dockerclient.ExecInspectOptions{})
-	if err != nil || inspected.ExitCode != 0 {
+	result, err := instance.Exec(ctx, []string{"php", "-i"})
+	if err != nil || result.ExitCode != 0 {
 		// A container without PHP answers "executable file not found"; there is
 		// no PHP worker to report a setting for.
 		return nil, false
@@ -68,7 +49,7 @@ func webReadPHPDirectives(containerID string, wanted ...string) (map[string]webP
 		want[name] = true
 	}
 	out := map[string]webPHPDirectives{}
-	for _, line := range strings.Split(string(output), "\n") {
+	for _, line := range strings.Split(result.Stdout, "\n") {
 		// php -i prints "directive => local value => master value"; a directive
 		// with one value prints it once.
 		parts := strings.Split(line, "=>")
@@ -95,11 +76,11 @@ func webReadPHPDirectives(containerID string, wanted ...string) (map[string]webP
 // webGetSitePhpErrorLogFlag answers WebApps_GetSitePhpErrorLogFlag and its slot
 // spelling.
 func webGetSitePhpErrorLogFlag(w http.ResponseWriter, r *http.Request) {
-	containerID, ok := webRequireInstance(w, r)
+	instance, ok := webRequireInstance(w, r)
 	if !ok {
 		return
 	}
-	directives, hasPHP := webReadPHPDirectives(containerID, "log_errors", "log_errors_max_len")
+	directives, hasPHP := webReadPHPDirectives(instance, "log_errors", "log_errors_max_len")
 	if !hasPHP {
 		AzureErrorf(w, "NotImplemented", http.StatusNotImplemented,
 			"WebApps_GetSitePhpErrorLogFlag is not implemented for this site: the flag "+

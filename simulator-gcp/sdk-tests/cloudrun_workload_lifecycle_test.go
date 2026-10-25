@@ -10,6 +10,7 @@ import (
 
 	run "cloud.google.com/go/run/apiv2"
 	"cloud.google.com/go/run/apiv2/runpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/option"
@@ -39,7 +40,7 @@ func TestSDK_CloudRun_WorkerPoolDeployWaitsForItsInstances(t *testing.T) {
 	parent := "projects/test-project/locations/us-central1"
 	count := int32(1)
 
-	missingID := uniqueName("sdk-wp-missing-image")
+	missingID := uniquename.New("sdk-wp-missing-image")
 	op, err := pools.CreateWorkerPool(ctx, &runpb.CreateWorkerPoolRequest{
 		Parent:       parent,
 		WorkerPoolId: missingID,
@@ -68,7 +69,7 @@ func TestSDK_CloudRun_WorkerPoolDeployWaitsForItsInstances(t *testing.T) {
 	assert.Contains(t, failed.TerminalCondition.Message, "is not ready and cannot serve traffic")
 	assert.Empty(t, failed.LatestReadyRevision, "a pool that never became ready has no ready revision")
 
-	probedID := uniqueName("sdk-wp-probe-fails")
+	probedID := uniquename.New("sdk-wp-probe-fails")
 	op, err = pools.CreateWorkerPool(ctx, &runpb.CreateWorkerPoolRequest{
 		Parent:       parent,
 		WorkerPoolId: probedID,
@@ -98,7 +99,7 @@ func TestSDK_CloudRun_WorkerPoolDeployWaitsForItsInstances(t *testing.T) {
 	require.Error(t, err, "a pool whose instance fails its startup probe does not deploy")
 	assert.Contains(t, err.Error(), "startup probe")
 
-	readyID := uniqueName("sdk-wp-ready")
+	readyID := uniquename.New("sdk-wp-ready")
 	op, err = pools.CreateWorkerPool(ctx, &runpb.CreateWorkerPoolRequest{
 		Parent:       parent,
 		WorkerPoolId: readyID,
@@ -145,7 +146,7 @@ func TestSDK_CloudRun_WorkerPoolDeployCancel(t *testing.T) {
 	pools := newWorkerPoolsClient(t)
 	parent := "projects/test-project/locations/us-central1"
 	count := int32(1)
-	id := uniqueName("sdk-wp-cancel")
+	id := uniquename.New("sdk-wp-cancel")
 	op, err := pools.CreateWorkerPool(ctx, &runpb.CreateWorkerPoolRequest{
 		Parent:       parent,
 		WorkerPoolId: id,
@@ -205,7 +206,7 @@ func TestSDK_CloudRun_InstanceRestartPolicy(t *testing.T) {
 	instances := newInstancesClient(t)
 	parent := "projects/test-project/locations/us-central1"
 
-	failingID := uniqueName("sdk-inst-on-failure")
+	failingID := uniquename.New("sdk-inst-on-failure")
 	op, err := instances.CreateInstance(ctx, &runpb.CreateInstanceRequest{
 		Parent:     parent,
 		InstanceId: failingID,
@@ -237,7 +238,7 @@ func TestSDK_CloudRun_InstanceRestartPolicy(t *testing.T) {
 	// The Go client's Instance message carries no restartPolicy; the
 	// Discovery client sends it.
 	rest := newRunV2RESTService(t)
-	neverID := uniqueName("sdk-inst-never")
+	neverID := uniquename.New("sdk-inst-never")
 	restOp, err := rest.Projects.Locations.Instances.Create(parent, &runv2.GoogleCloudRunV2Instance{
 		RestartPolicy: "NEVER",
 		Containers: []*runv2.GoogleCloudRunV2Container{{
@@ -457,7 +458,7 @@ func TestSDK_CloudRun_WorkerPoolReplacesAnInstanceThatExits(t *testing.T) {
 	t.Parallel()
 	pools := newWorkerPoolsClient(t)
 	parent := "projects/test-project/locations/us-central1"
-	id := uniqueName("sdk-wp-exits")
+	id := uniquename.New("sdk-wp-exits")
 	name := parent + "/workerPools/" + id
 	createOp, err := pools.CreateWorkerPool(ctx, &runpb.CreateWorkerPoolRequest{
 		Parent:       parent,

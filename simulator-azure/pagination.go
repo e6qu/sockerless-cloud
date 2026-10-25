@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
@@ -49,7 +50,7 @@ func armPage[T any](w http.ResponseWriter, r *http.Request, items []T, key func(
 func armSeqPage[T any](w http.ResponseWriter, r *http.Request, items []T) ([]T, string, bool) {
 	keyed := make([]azureKeyed[T], len(items))
 	for i, item := range items {
-		keyed[i] = azureKeyed[T]{azureIntKey(int64(i)), item}
+		keyed[i] = azureKeyed[T]{listq.IntKey(int64(i)), item}
 	}
 	return armKeyedPage(w, r, keyed)
 }
@@ -94,11 +95,6 @@ func azurePage[T any](w http.ResponseWriter, r *http.Request, keyed []azureKeyed
 	return out, next, true
 }
 
-// azureIntKey spells n so that string order matches numeric order.
-func azureIntKey(n int64) string {
-	return fmt.Sprintf("%020d", uint64(n)^(1<<63))
-}
-
 // azureNameIDKey orders by name, then by resource ID, for a list whose names
 // repeat across the resource groups it spans.
 func azureNameIDKey(name, id string) string {
@@ -109,11 +105,7 @@ func azureNameIDKey(name, id string) string {
 func armNextLink(r *http.Request, skipToken string) string {
 	q := r.URL.Query()
 	q.Set("$skiptoken", skipToken)
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	return fmt.Sprintf("%s://%s%s?%s", scheme, r.Host, r.URL.Path, q.Encode())
+	return fmt.Sprintf("%s://%s%s?%s", azureRequestScheme(r), r.Host, r.URL.Path, q.Encode())
 }
 
 // acrCatalogPage reads n and last from r (Docker Registry v2 pagination).
@@ -152,5 +144,29 @@ func acrCatalogPage(r *http.Request, repos []string) ([]string, string) {
 // creation time, then by the position the version was appended at, which
 // separates versions created within the same second.
 func kvVersionOrder(created int64, appended int) string {
-	return azureIntKey(created) + azureIntKey(int64(appended))
+	return listq.IntKey(created) + listq.IntKey(int64(appended))
+}
+
+// kvWriteDeletedPage answers a page of the items deleted reports as deleted,
+// each rendered as its deleted bundle.
+func kvWriteDeletedPage[T any](w http.ResponseWriter, r *http.Request, items []T, deleted func(T) bool, name func(T) string, bundle func(T) map[string]any) {
+	matching := []T{}
+	for _, item := range items {
+		if deleted(item) {
+			matching = append(matching, item)
+		}
+	}
+	recs, next, pageOK := kvPage(w, r, matching, name)
+	if !pageOK {
+		return
+	}
+	page := make([]map[string]any, 0, len(recs))
+	for _, rec := range recs {
+		page = append(page, bundle(rec))
+	}
+	out := map[string]any{"value": page}
+	if next != "" {
+		out["nextLink"] = kvNextLink(r, next)
+	}
+	sim.WriteJSON(w, http.StatusOK, out)
 }

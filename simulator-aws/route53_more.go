@@ -255,25 +255,18 @@ func handleR53DeleteReusableDelegationSet(w http.ResponseWriter, r *http.Request
 }
 
 func handleR53ListReusableDelegationSets(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	maxItems := 100
-	if raw := q.Get("maxitems"); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed >= 1 && parsed <= 100 {
-			maxItems = parsed
-		}
-	}
 	items := []R53ReusableDelegationSet{}
 	for _, sd := range r53DelegationSets.List() {
 		items = append(items, sd.Set)
 	}
-	page, next, pageOK := awsKeyPage(w, r53BadToken, items, func(it R53ReusableDelegationSet) string { return it.Id }, q.Get("marker"), maxItems, 0)
+	page, next, maxItems, pageOK := r53MarkerPage(w, r, items, func(it R53ReusableDelegationSet) string { return it.Id }, 100)
 	if !pageOK {
 		return
 	}
 	r53WriteXML(w, http.StatusOK, R53ListReusableDelegationSetsResponse{
 		Xmlns:          r53Namespace,
 		DelegationSets: page,
-		Marker:         q.Get("marker"),
+		Marker:         r.URL.Query().Get("marker"),
 		IsTruncated:    next != "",
 		NextMarker:     next,
 		MaxItems:       strconv.Itoa(maxItems),

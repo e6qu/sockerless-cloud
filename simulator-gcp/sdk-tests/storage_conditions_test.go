@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iam/v1"
@@ -50,7 +51,7 @@ func requirePreconditionFailed(t *testing.T, err error, what string) {
 
 func TestGCS_GenerationPreconditions(t *testing.T) {
 	t.Parallel()
-	bucketPreconditionsBucket := uniqueName("preconditions-bucket")
+	bucketPreconditionsBucket := uniquename.New("preconditions-bucket")
 	client := storageClient(t)
 	defer client.Close()
 	bucket := client.Bucket(bucketPreconditionsBucket)
@@ -97,7 +98,7 @@ func TestGCS_GenerationPreconditions(t *testing.T) {
 // one step, so exactly one writer of each round succeeds.
 func TestGCS_ConditionalWritesArbitrate(t *testing.T) {
 	t.Parallel()
-	bucketArbitrateBucket := uniqueName("arbitrate-bucket")
+	bucketArbitrateBucket := uniquename.New("arbitrate-bucket")
 	client := storageClient(t)
 	defer client.Close()
 	bucket := client.Bucket(bucketArbitrateBucket)
@@ -155,7 +156,7 @@ func TestGCS_ConditionalWritesArbitrate(t *testing.T) {
 // in the headers of the read itself.
 func TestGCS_RangedReadCarriesTheObjectsDescription(t *testing.T) {
 	t.Parallel()
-	bucketRangedReadBucket := uniqueName("ranged-read-bucket")
+	bucketRangedReadBucket := uniquename.New("ranged-read-bucket")
 	client := storageClient(t)
 	defer client.Close()
 	bucket := client.Bucket(bucketRangedReadBucket)
@@ -182,7 +183,7 @@ func TestGCS_RangedReadCarriesTheObjectsDescription(t *testing.T) {
 // credential but the URL.
 func TestGCS_V4SignedURLReadsWithoutCredentials(t *testing.T) {
 	t.Parallel()
-	bucketSignedUrlBucket := uniqueName("signed-url-bucket")
+	bucketSignedUrlBucket := uniquename.New("signed-url-bucket")
 	client := storageClient(t)
 	defer client.Close()
 	bucket := client.Bucket(bucketSignedUrlBucket)
@@ -265,7 +266,7 @@ func TestGCS_V4SignedURLReadsWithoutCredentials(t *testing.T) {
 // and reads each call's answer back by its Content-ID.
 func TestGCS_BatchDeletesAnswerEachCall(t *testing.T) {
 	t.Parallel()
-	bucketBatchBucket := uniqueName("batch-bucket")
+	bucketBatchBucket := uniquename.New("batch-bucket")
 	client := storageClient(t)
 	defer client.Close()
 	bucket := client.Bucket(bucketBatchBucket)

@@ -7,39 +7,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sync"
 	"time"
 
 	sim "github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/signals"
 )
 
-// gcpOperationWaiters holds, per unfinished operation a client waits on, the
-// channel closed when the operation reaches done: gcpFinishOperation for
-// long-running operations, computeOpFinish for Compute Engine operations.
-var gcpOperationWaiters = struct {
-	sync.Mutex
-	done map[string]chan struct{}
-}{done: map[string]chan struct{}{}}
-
-func gcpOperationDoneSignal(name string) <-chan struct{} {
-	gcpOperationWaiters.Lock()
-	defer gcpOperationWaiters.Unlock()
-	ch, ok := gcpOperationWaiters.done[name]
-	if !ok {
-		ch = make(chan struct{})
-		gcpOperationWaiters.done[name] = ch
-	}
-	return ch
-}
-
-func gcpOperationSignalDone(name string) {
-	gcpOperationWaiters.Lock()
-	defer gcpOperationWaiters.Unlock()
-	if ch, ok := gcpOperationWaiters.done[name]; ok {
-		close(ch)
-		delete(gcpOperationWaiters.done, name)
-	}
-}
+// gcpOperationDone announces an operation's name when it reaches done:
+// gcpFinishOperation for long-running operations, computeOpFinish for Compute
+// Engine operations.
+var gcpOperationDone = signals.New[string]()
 
 // gcpFinishOperation completes an unfinished operation in crOperations: settle
 // fills in the result, the record turns done, and every WaitOperation blocked
@@ -55,7 +32,7 @@ func gcpFinishOperation(name string, settle func(*Operation)) {
 		settle(op)
 		op.Done = true
 	})
-	gcpOperationSignalDone(name)
+	gcpOperationDone.Announce(name)
 }
 
 // gcpAwaitOperation implements google.longrunning.Operations.WaitOperation: it
@@ -69,12 +46,10 @@ func gcpAwaitOperation(ctx context.Context, name string, timeout time.Duration) 
 	} else {
 		sim.DeclareOpenEndedWait(ctx)
 	}
-	// Subscribe before reading, so a finish between the read and the wait
-	// still wakes it.
-	done := gcpOperationDoneSignal(name)
+	done := gcpOperationDone.Changed(name)
 	op, ok := gcpLookupOperation(name)
 	if !ok || op.Done {
-		gcpOperationSignalDone(name)
+		gcpOperationDone.Announce(name)
 		return op, ok
 	}
 	var expired <-chan time.Time

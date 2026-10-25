@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -104,7 +103,7 @@ func paginateListParam[T any](w http.ResponseWriter, r *http.Request, items []T,
 		GCPError(w, http.StatusBadRequest, "invalid orderBy: "+err.Error(), "INVALID_ARGUMENT")
 		return nil, "", false
 	}
-	var columns []gcpPageColumn
+	var columns []listq.Column
 	if len(order) > 0 {
 		docs := make([]listq.Doc, len(items))
 		for i, item := range items {
@@ -115,7 +114,7 @@ func paginateListParam[T any](w http.ResponseWriter, r *http.Request, items []T,
 		}
 		for _, term := range order {
 			path := term.Path
-			columns = append(columns, gcpPageColumn{cmp: listq.CompareOrdered, desc: term.Desc, value: func(i int) string {
+			columns = append(columns, listq.Column{Compare: listq.CompareOrdered, Desc: term.Desc, Value: func(i int) string {
 				value, _ := listq.Field(docs[i], path, ".")
 				return value
 			}})
@@ -138,9 +137,6 @@ func gcpPageSizeParam(w http.ResponseWriter, r *http.Request, param string) (int
 	return n, true
 }
 
-// gcpPageTag marks a page token as one this simulator issued.
-const gcpPageTag = "after\x00"
-
 // gcpKeyPage pages items in the order keys give. A request naming no size gets
 // def items; one naming more than max gets max. Zero leaves either unbounded.
 func gcpKeyPage[T any](w http.ResponseWriter, items []T, keys []gcpSortKey[T], token string, size, def, max int) ([]T, string, bool) {
@@ -148,34 +144,24 @@ func gcpKeyPage[T any](w http.ResponseWriter, items []T, keys []gcpSortKey[T], t
 }
 
 // gcpKeyPageOf is gcpKeyPage for a caller that answers errors itself, such as
-// a gRPC method: it returns errGCPPageToken for a token it never issued.
+// a gRPC method: it returns listq.ErrBadToken for a token it never issued.
 func gcpKeyPageOf[T any](items []T, keys []gcpSortKey[T], token string, size, def, max int) ([]T, string, error) {
-	return gcpColumnPageOf(items, gcpKeyColumns(items, keys), token, size, def, max)
+	return listq.ColumnPage(items, gcpKeyColumns(items, keys), token, size, def, max)
 }
 
-// gcpPageColumn is one term of a list's order over the items by index.
-type gcpPageColumn struct {
-	value func(i int) string
-	cmp   func(a, b string) int
-	desc  bool
-}
-
-func gcpKeyColumns[T any](items []T, keys []gcpSortKey[T]) []gcpPageColumn {
-	columns := make([]gcpPageColumn, len(keys))
+func gcpKeyColumns[T any](items []T, keys []gcpSortKey[T]) []listq.Column {
+	columns := make([]listq.Column, len(keys))
 	for k, key := range keys {
-		columns[k] = gcpPageColumn{cmp: key.cmp, desc: key.desc, value: func(i int) string { return key.value(items[i]) }}
+		columns[k] = listq.Column{Compare: key.cmp, Desc: key.desc, Value: func(i int) string { return key.value(items[i]) }}
 	}
 	return columns
 }
 
-// errGCPPageToken is a page token no list of this simulator issued.
-var errGCPPageToken = errors.New("page token was not issued by this list")
-
-// gcpColumnPage writes INVALID_ARGUMENT for a token gcpColumnPageOf refuses.
-func gcpColumnPage[T any](w http.ResponseWriter, items []T, columns []gcpPageColumn, token string, size, def, max int) ([]T, string, bool) {
-	page, next, err := gcpColumnPageOf(items, columns, token, size, def, max)
+// gcpColumnPage writes INVALID_ARGUMENT for a token listq.ColumnPage refuses.
+func gcpColumnPage[T any](w http.ResponseWriter, items []T, columns []listq.Column, token string, size, def, max int) ([]T, string, bool) {
+	page, next, err := listq.ColumnPage(items, columns, token, size, def, max)
 	switch {
-	case errors.Is(err, errGCPPageToken):
+	case errors.Is(err, listq.ErrBadToken):
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid pageToken %q", token)
 		return nil, "", false
 	case err != nil:
@@ -183,66 +169,6 @@ func gcpColumnPage[T any](w http.ResponseWriter, items []T, columns []gcpPageCol
 		return nil, "", false
 	}
 	return page, next, true
-}
-
-// gcpColumnPageOf pages items in the order columns give. The token carries the
-// sort values of the last item a page returned, and the next page resumes
-// strictly after them, so an item created or deleted between two reads moves
-// no other item across a page boundary.
-func gcpColumnPageOf[T any](items []T, columns []gcpPageColumn, token string, size, def, max int) ([]T, string, error) {
-	if size == 0 {
-		size = def
-	}
-	if max > 0 && (size == 0 || size > max) {
-		size = max
-	}
-	rows := make([][]string, len(items))
-	for i := range items {
-		rows[i] = make([]string, len(columns))
-		for c, column := range columns {
-			rows[i][c] = column.value(i)
-		}
-	}
-	compare := func(a, b []string) int {
-		for c, column := range columns {
-			order := column.cmp(a[c], b[c])
-			if column.desc {
-				order = -order
-			}
-			if order != 0 {
-				return order
-			}
-		}
-		return 0
-	}
-	index := make([]int, len(items))
-	for i := range index {
-		index[i] = i
-	}
-	sort.SliceStable(index, func(i, j int) bool { return compare(rows[index[i]], rows[index[j]]) < 0 })
-	start := 0
-	if token != "" {
-		after, ok := gcpPageMarker(token, len(columns))
-		if !ok {
-			return nil, "", errGCPPageToken
-		}
-		start = sort.Search(len(index), func(i int) bool { return compare(rows[index[i]], after) > 0 })
-	}
-	end := len(index)
-	next := ""
-	if size > 0 && start+size < end {
-		end = start + size
-		encoded, err := json.Marshal(rows[index[end-1]])
-		if err != nil {
-			return nil, "", err
-		}
-		next = base64.RawURLEncoding.EncodeToString(append([]byte(gcpPageTag), encoded...))
-	}
-	page := make([]T, 0, end-start)
-	for _, i := range index[start:end] {
-		page = append(page, items[i])
-	}
-	return page, next, nil
 }
 
 // grpcKeyPage pages a gRPC list in the order keys give, answering
@@ -253,36 +179,12 @@ func grpcKeyPage[T any](items []T, pageSize int32, pageToken string, first gcpSo
 	}
 	page, next, err := gcpKeyPageOf(items, append([]gcpSortKey[T]{first}, rest...), pageToken, int(pageSize), 0, 0)
 	switch {
-	case errors.Is(err, errGCPPageToken):
+	case errors.Is(err, listq.ErrBadToken):
 		return nil, "", status.Errorf(codes.InvalidArgument, "invalid page_token %q", pageToken)
 	case err != nil:
 		return nil, "", status.Error(codes.Internal, err.Error())
 	}
 	return page, next, nil
-}
-
-func gcpPageMarker(token string, terms int) ([]string, bool) {
-	decoded, err := base64.RawURLEncoding.DecodeString(token)
-	if err != nil {
-		return nil, false
-	}
-	body, ok := strings.CutPrefix(string(decoded), gcpPageTag)
-	if !ok {
-		return nil, false
-	}
-	var after []string
-	if json.Unmarshal([]byte(body), &after) != nil || len(after) != terms {
-		return nil, false
-	}
-	return after, true
-}
-
-func sortCloudRunJobs(items []Job) {
-	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-}
-
-func sortCloudRunServices(items []ServiceV2) {
-	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
 }
 
 func sortCloudRunExecutions(items []Execution) {
@@ -348,4 +250,16 @@ func gcpResourceOperationMetadata(response map[string]any) map[string]any {
 
 func gcpPolicyETag() string {
 	return base64.StdEncoding.EncodeToString([]byte(sim.NewUUID()))
+}
+
+// gcpProtoList is the resources of store named under prefix, in name order,
+// each converted by toProto: a gRPC list the API does not page.
+func gcpProtoList[T, P any](store sim.Store[T], prefix string, name func(T) string, toProto func(T) P) []P {
+	found := store.Filter(func(v T) bool { return strings.HasPrefix(name(v), prefix) })
+	sort.Slice(found, func(i, j int) bool { return name(found[i]) < name(found[j]) })
+	out := make([]P, 0, len(found))
+	for _, v := range found {
+		out = append(out, toProto(v))
+	}
+	return out
 }

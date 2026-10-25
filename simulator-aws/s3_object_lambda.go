@@ -180,13 +180,7 @@ var s3ObjectLambdaAccessPointRoutes = []s3ControlRoute{
 // wraps its errors in. The S3 data plane uses a bare Error document instead,
 // which is what s3ObjectLambdaError writes.
 func s3ControlError(w http.ResponseWriter, code, message string, status int) {
-	w.Header().Set("Content-Type", "application/xml")
-	w.WriteHeader(status)
-	_ = xml.NewEncoder(w).Encode(struct {
-		XMLName xml.Name `xml:"ErrorResponse"`
-		Code    string   `xml:"Error>Code"`
-		Message string   `xml:"Error>Message"`
-	}{Code: code, Message: message})
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsRestXML}, status, code, message, "")
 }
 
 // ── Standard access points ───────────────────────────────────────────────
@@ -755,7 +749,7 @@ func s3ObjectLambdaGetObject(w http.ResponseWriter, r *http.Request, olap S3Obje
 	invokeErr := make(chan error, 1)
 	lifetime := sim.LifetimeContext(r.Context())
 	go func() {
-		out, unhandled, _, _ := invokeLambdaViaRuntimeAPI(lifetime, fn, payload)
+		out, unhandled, _ := invokeLambdaViaRuntimeAPI(lifetime, fn, payload)
 		if unhandled {
 			invokeErr <- fmt.Errorf("the transformation function failed: %s", strings.TrimSpace(string(out)))
 			return

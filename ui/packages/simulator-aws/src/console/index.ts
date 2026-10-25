@@ -3,12 +3,15 @@ export {
   AwsButton,
   AwsContainer,
   AwsCopyButton,
+  AwsCopyableText,
+  AwsDeleteModal,
   AwsEmptyState,
   AwsErrorAlert,
   AwsKeyValue,
   AwsModal,
   AwsNotSupportedBadge,
   AwsPageHeader,
+  AwsRefreshButton,
   AwsRowLink,
   AwsStatus,
   type AwsStatusKind,
@@ -23,4 +26,5 @@ export {
   removedKeys,
   type KeyValueRow,
 } from "./forms.js";
-export { findNavService } from "./serviceCatalog.js";
+export { errorText, useNotify } from "./notifications.js";
+export { findService } from "./serviceCatalog.js";

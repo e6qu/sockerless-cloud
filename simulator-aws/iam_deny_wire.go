@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"net/http"
 )
 
@@ -52,9 +51,7 @@ func iamDenyMessageKey(service string) string {
 // iamWriteJSONDeny writes an awsJson access-denied response under the member
 // name the service's own model declares.
 func iamWriteJSONDeny(w http.ResponseWriter, service, code, message string) {
-	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
-	w.WriteHeader(http.StatusForbidden)
-	_ = json.NewEncoder(w).Encode(map[string]string{
+	awsWriteJSONErrorBody(w, awsJSON11, http.StatusForbidden, code, map[string]string{
 		"__type":                   code,
 		iamDenyMessageKey(service): message,
 	})

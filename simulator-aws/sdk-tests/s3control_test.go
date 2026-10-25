@@ -20,6 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3control"
 	s3ctypes "github.com/aws/aws-sdk-go-v2/service/s3control/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -784,9 +785,9 @@ func s3BatchLambdaJob(t *testing.T, name string, keys []string, invoke *s3ctypes
 	sc := s3ControlClient()
 	s3c := s3Client()
 	lc := lambdaClient()
-	bucket := uniqueName(name)
-	functionName := uniqueName(name + "-fn")
-	roleArn := s3ControlRole(t, uniqueName(name+"-role"))
+	bucket := uniquename.New(name)
+	functionName := uniquename.New(name + "-fn")
+	roleArn := s3ControlRole(t, uniquename.New(name+"-role"))
 
 	function, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName:  aws.String(functionName),
@@ -817,7 +818,7 @@ func s3BatchLambdaJob(t *testing.T, name string, keys []string, invoke *s3ctypes
 
 	created, err := sc.CreateJob(ctx, &s3control.CreateJobInput{
 		AccountId:          aws.String(s3ObjectLambdaAccount),
-		ClientRequestToken: aws.String(uniqueName(name + "-token")),
+		ClientRequestToken: aws.String(uniquename.New(name + "-token")),
 		Priority:           aws.Int32(10),
 		RoleArn:            aws.String(roleArn),
 		Operation:          &s3ctypes.JobOperation{LambdaInvoke: invoke},
@@ -876,8 +877,8 @@ func TestS3Control_BatchJobURLEncodedKeys(t *testing.T) {
 	t.Parallel()
 	sc := s3ControlClient()
 	s3c := s3Client()
-	bucket := uniqueName("batch-encoded-keys")
-	roleArn := s3ControlRole(t, uniqueName("batch-encoded-role"))
+	bucket := uniquename.New("batch-encoded-keys")
+	roleArn := s3ControlRole(t, uniquename.New("batch-encoded-role"))
 	_, err := s3c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 	listed := map[string]string{
@@ -902,7 +903,7 @@ func TestS3Control_BatchJobURLEncodedKeys(t *testing.T) {
 
 	created, err := sc.CreateJob(ctx, &s3control.CreateJobInput{
 		AccountId:          aws.String(s3ObjectLambdaAccount),
-		ClientRequestToken: aws.String(uniqueName("batch-encoded-token")),
+		ClientRequestToken: aws.String(uniquename.New("batch-encoded-token")),
 		Priority:           aws.Int32(10),
 		RoleArn:            aws.String(roleArn),
 		Operation: &s3ctypes.JobOperation{
@@ -1017,8 +1018,8 @@ func TestS3Control_BatchJobCancelledBeforeConfirmation(t *testing.T) {
 	t.Parallel()
 	sc := s3ControlClient()
 	s3c := s3Client()
-	bucket := uniqueName("batch-cancel")
-	roleArn := s3ControlRole(t, uniqueName("batch-cancel-role"))
+	bucket := uniquename.New("batch-cancel")
+	roleArn := s3ControlRole(t, uniquename.New("batch-cancel-role"))
 	_, err := s3c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 	_, err = s3c.PutObject(ctx, &s3.PutObjectInput{
@@ -1029,7 +1030,7 @@ func TestS3Control_BatchJobCancelledBeforeConfirmation(t *testing.T) {
 	require.NoError(t, err)
 	created, err := sc.CreateJob(ctx, &s3control.CreateJobInput{
 		AccountId:            aws.String(s3ObjectLambdaAccount),
-		ClientRequestToken:   aws.String(uniqueName("batch-cancel-token")),
+		ClientRequestToken:   aws.String(uniquename.New("batch-cancel-token")),
 		Priority:             aws.Int32(1),
 		RoleArn:              aws.String(roleArn),
 		ConfirmationRequired: aws.Bool(true),

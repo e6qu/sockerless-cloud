@@ -156,19 +156,16 @@ func handleApplicationGatewayDataPlane(w http.ResponseWriter, r *http.Request, g
 		http.Error(w, "no healthy backend servers in pool "+target.pool.Name, http.StatusBadGateway)
 		return
 	}
-	err := applicationGatewayForward(w, r, *target.settings, target.rewrite, server, applicationGatewaySourceAddress(gw))
-	abortStartedForward(w, err)
-	switch {
-	case err == nil:
-	case errors.Is(err, lbplane.ErrClientWentAway):
-		w.WriteHeader(lbplane.StatusClientClosedRequest)
-	case errors.Is(err, lbplane.ErrNotAdmitted):
-		// A backend the gateway cannot reach is a 502, as the real gateway
-		// answers when the backend's network security group drops its flow.
+	_ = applicationGatewayForward(w, r, *target.settings, target.rewrite, server, applicationGatewaySourceAddress(gw))
+}
+
+var applicationGatewayAnswers = lbplane.Answers{
+	// A backend the gateway cannot reach is a 502, as the real gateway
+	// answers when the backend's network security group drops its flow.
+	NotAdmitted: func(w http.ResponseWriter, err error) {
 		http.Error(w, "the backend's network security groups do not admit the gateway: "+err.Error(), http.StatusBadGateway)
-	default:
-		http.Error(w, err.Error(), http.StatusBadGateway)
-	}
+	},
+	Failed: func(w http.ResponseWriter, err error) { http.Error(w, err.Error(), http.StatusBadGateway) },
 }
 
 // applicationGatewayListenerForRequest picks the HTTP listener the request
@@ -883,7 +880,7 @@ func applicationGatewayForward(w http.ResponseWriter, r *http.Request, settings 
 		}
 	}
 	sim.DeclareWait(r.Context(), up.Timeout)
-	return lbplane.Forward(w, r, up)
+	return lbplane.Serve(w, r, up, applicationGatewayAnswers)
 }
 
 // applicationGatewayAddForwardedHeaders inserts the six headers Application

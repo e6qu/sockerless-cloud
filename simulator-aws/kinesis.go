@@ -721,7 +721,7 @@ func kinesisAppendRecord(streamName, streamARN string, data []byte, partitionKey
 	now := time.Now()
 	kinesisTrim(stream, shardID, now)
 	rec := kinesisLog.Append(partition, now, kinesisRecord{Data: data, PartitionKey: partitionKey, ExplicitHashKey: explicitHashKey})[0]
-	kinesisNotify(kinesisShardSignalKey(partition))
+	kinesisSignals.Announce(kinesisShardSignalKey(partition))
 	return shardID, kinesisSequenceNumber(rec.Seq), nil
 }
 
@@ -1434,7 +1434,7 @@ func kinesisDryRunSucceeded(w http.ResponseWriter) {
 func kinesisDeleteConsumer(consumer KinesisConsumer) {
 	kinesisConsumers.Delete(kinesisConsumerKey(consumer.ConsumerARN))
 	iamDeleteResourcePolicy(consumer.ConsumerARN)
-	kinesisNotify(kinesisConsumerSignalKey(consumer.ConsumerARN))
+	kinesisSignals.Announce(kinesisConsumerSignalKey(consumer.ConsumerARN))
 }
 
 // kinesisResolveConsumer locates a consumer either by its ARN (preferred) or by

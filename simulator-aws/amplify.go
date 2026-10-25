@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -385,10 +384,7 @@ func amplifyWriteJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func amplifyWriteError(w http.ResponseWriter, status int, code, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Amzn-Errortype", code)
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(awsErrorBody("amplify", code, msg))
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsRestJSON1, Model: "amplify"}, status, code, msg, "")
 }
 
 // amplifyPageQuery parses the restJson1 ?nextToken=&maxResults= pagination
@@ -542,7 +538,7 @@ func amplifyCanAssumeRoles(w http.ResponseWriter, appID string, roles [][2]strin
 
 func handleAmplifyCreateApp(w http.ResponseWriter, r *http.Request) {
 	var req amplifyCreateAppReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		amplifyWriteError(w, http.StatusBadRequest, "BadRequestException", "could not decode: "+err.Error())
 		return
 	}
@@ -712,7 +708,7 @@ func handleAmplifyUpdateApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req amplifyUpdateAppReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		amplifyWriteError(w, http.StatusBadRequest, "BadRequestException", "could not decode: "+err.Error())
 		return
 	}
@@ -898,7 +894,7 @@ func handleAmplifyCreateBranch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req amplifyCreateBranchReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		amplifyWriteError(w, http.StatusBadRequest, "BadRequestException", "could not decode: "+err.Error())
 		return
 	}
@@ -1007,7 +1003,7 @@ func handleAmplifyUpdateBranch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req amplifyUpdateBranchReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		amplifyWriteError(w, http.StatusBadRequest, "BadRequestException", "could not decode: "+err.Error())
 		return
 	}
@@ -1148,7 +1144,7 @@ func handleAmplifyCreateWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req amplifyCreateWebhookReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		amplifyWriteError(w, http.StatusBadRequest, "BadRequestException", "could not decode: "+err.Error())
 		return
 	}
@@ -1199,7 +1195,7 @@ func handleAmplifyUpdateWebhook(w http.ResponseWriter, r *http.Request) {
 		BranchName  *string `json:"branchName"`
 		Description *string `json:"description"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		amplifyWriteError(w, http.StatusBadRequest, "BadRequestException", "could not decode: "+err.Error())
 		return
 	}
@@ -1274,7 +1270,7 @@ func handleAmplifyStartJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req amplifyStartJobReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		amplifyWriteError(w, http.StatusBadRequest, "BadRequestException", "could not decode: "+err.Error())
 		return
 	}
@@ -1847,7 +1843,7 @@ func handleAmplifyGenerateAccessLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req amplifyGenerateAccessLogsReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		amplifyWriteError(w, http.StatusBadRequest, "BadRequestException", "could not decode body: "+err.Error())
 		return
 	}
@@ -1902,7 +1898,7 @@ func handleAmplifyCreateDeployment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req amplifyCreateDeploymentReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		amplifyWriteError(w, http.StatusBadRequest, "BadRequestException", "could not decode body: "+err.Error())
 		return
 	}
@@ -1951,7 +1947,7 @@ func handleAmplifyStartDeployment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req amplifyStartDeploymentReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		amplifyWriteError(w, http.StatusBadRequest, "BadRequestException", "could not decode body: "+err.Error())
 		return
 	}
@@ -2157,7 +2153,7 @@ func handleAmplifyTagResource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Tags map[string]string `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		amplifyWriteError(w, http.StatusBadRequest, "BadRequestException", "could not decode: "+err.Error())
 		return
 	}

@@ -97,8 +97,7 @@ func registerManagedIdentity(srv *sim.Server) {
 			return
 		}
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ManagedIdentity/userAssignedIdentities/%s",
-			sub, rg, identityName)
+		resourceID := armResourceID(sub, rg, "Microsoft.ManagedIdentity", "userAssignedIdentities", identityName)
 
 		identity := UserAssignedIdentity{
 			ID:       resourceID,
@@ -145,8 +144,7 @@ func registerManagedIdentity(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		identityName := sim.PathParam(r, "identityName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ManagedIdentity/userAssignedIdentities/%s",
-			sub, rg, identityName)
+		resourceID := armResourceID(sub, rg, "Microsoft.ManagedIdentity", "userAssignedIdentities", identityName)
 
 		identity, ok := identities.Get(resourceID)
 		if !ok {
@@ -186,8 +184,7 @@ func registerManagedIdentity(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		identityName := sim.PathParam(r, "identityName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ManagedIdentity/userAssignedIdentities/%s",
-			sub, rg, identityName)
+		resourceID := armResourceID(sub, rg, "Microsoft.ManagedIdentity", "userAssignedIdentities", identityName)
 
 		if existing, ok := identities.Get(resourceID); ok {
 			entraUnregisterServicePrincipal(existing.Properties.PrincipalId)
@@ -198,8 +195,7 @@ func registerManagedIdentity(srv *sim.Server) {
 }
 
 func userAssignedIdentityID(sub, rg, name string) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ManagedIdentity/userAssignedIdentities/%s",
-		sub, rg, name)
+	return armResourceID(sub, rg, "Microsoft.ManagedIdentity", "userAssignedIdentities", name)
 }
 
 func handleManagedIdentityUpdate(w http.ResponseWriter, r *http.Request) {
@@ -235,7 +231,7 @@ func handleManagedIdentityUpdate(w http.ResponseWriter, r *http.Request) {
 func handleManagedIdentityListByRG(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ManagedIdentity/userAssignedIdentities/", sub, rg)
+	prefix := armResourceID(sub, rg, "Microsoft.ManagedIdentity", "userAssignedIdentities") + "/"
 	out := azureManagedIdentities.Filter(func(i UserAssignedIdentity) bool {
 		return strings.HasPrefix(i.ID, prefix)
 	})
@@ -247,7 +243,7 @@ func handleManagedIdentityListByRG(w http.ResponseWriter, r *http.Request) {
 
 func handleManagedIdentityListBySub(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
-	prefix := fmt.Sprintf("/subscriptions/%s/", sub)
+	prefix := armSubscriptionID(sub) + "/"
 	out := azureManagedIdentities.Filter(func(i UserAssignedIdentity) bool {
 		return strings.HasPrefix(i.ID, prefix)
 	})
@@ -258,7 +254,7 @@ func handleManagedIdentityListBySub(w http.ResponseWriter, r *http.Request) {
 }
 
 func federatedCredentialID(sub, rg, identity, fic string) string {
-	return userAssignedIdentityID(sub, rg, identity) + "/federatedIdentityCredentials/" + fic
+	return armChildID(userAssignedIdentityID(sub, rg, identity), "federatedIdentityCredentials", fic)
 }
 
 func handleFederatedCredentialPut(w http.ResponseWriter, r *http.Request) {

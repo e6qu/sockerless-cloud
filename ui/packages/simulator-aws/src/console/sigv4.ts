@@ -15,15 +15,21 @@ export interface SignedRequestInput {
   service: string;
   region: string;
   headers?: Record<string, string>;
-  body?: string;
+  body?: string | Uint8Array<ArrayBuffer>;
   credentials: AwsCredentials;
 }
 
 const encoder = new TextEncoder();
 
-async function sha256Hex(data: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(data));
+async function sha256Hex(data: string | Uint8Array<ArrayBuffer>): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", typeof data === "string" ? encoder.encode(data) : data);
   return hex(new Uint8Array(digest));
+}
+
+/** SigV4's URI encoding: RFC 3986 unreserved characters stay, everything else
+ * is percent-encoded, including the !'()* that encodeURIComponent leaves. */
+function rfc3986(value: string): string {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
 function hex(bytes: Uint8Array): string {
@@ -56,16 +62,25 @@ export async function signedFetch(input: SignedRequestInput): Promise<Response> 
     host: url.host,
     "x-amz-date": amzDate,
     "x-amz-security-token": input.credentials.sessionToken,
+    // Amazon S3 requires the payload hash as a signed header on every SigV4
+    // request; without it S3 cannot verify a request that carries a body.
+    ...(input.service === "s3" ? { "x-amz-content-sha256": payloadHash } : {}),
     ...Object.fromEntries(Object.entries(input.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v])),
   };
   const signedHeaderNames = Object.keys(headers).sort();
   const canonicalHeaders = signedHeaderNames.map((name) => `${name}:${headers[name].trim()}\n`).join("");
   const signedHeaders = signedHeaderNames.join(";");
 
+  const canonicalQuery = Array.from(url.searchParams.entries())
+    .map(([name, value]) => [rfc3986(name), rfc3986(value)])
+    .sort(([a, x], [b, y]) => (a === b ? (x < y ? -1 : x > y ? 1 : 0) : a < b ? -1 : 1))
+    .map(([name, value]) => `${name}=${value}`)
+    .join("&");
+
   const canonicalRequest = [
     input.method,
     url.pathname || "/",
-    url.searchParams.toString(),
+    canonicalQuery,
     canonicalHeaders,
     signedHeaders,
     payloadHash,

@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -12,14 +13,11 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
-
-// lambdaProcessHandles tracks running Lambda containers for cancellation.
-var lambdaProcessHandles sync.Map // map[requestID]placement.Handle
 
 // Lambda types
 
@@ -343,24 +341,28 @@ func lambdaInvocationHasQualifier(identifier, queryQualifier string) bool {
 	return strings.Contains(identifier, ":")
 }
 
-func registerLambda(srv *sim.Server, startBackgroundPollers bool) {
+func registerLambda(srv *sim.Server) {
 	// Invoke is a CloudTrail DATA event (excluded from LookupEvents); the
 	// function-management ops are management events.
 	cloudTrailDeclareDataEvents("lambda.amazonaws.com", "Invoke")
-	lambdaFunctions = sim.MakeStore[LambdaFunction](srv.DB(), "lambda_functions")
+	lambdaFunctions = sim.Announcing(sim.MakeStore[LambdaFunction](srv.DB(), "lambda_functions"), lambdaFunctionChanges)
 	lambdaConcurrency = sim.MakeStore[int](srv.DB(), "lambda_concurrency")
 	registerLambdaAsyncInvocations(srv)
 	lambdaVersions = sim.MakeStore[[]LambdaVersion](srv.DB(), "lambda_versions")
 	lambdaAliases = sim.MakeStore[map[string]LambdaAlias](srv.DB(), "lambda_aliases")
 	lambdaPolicies = sim.MakeStore[[]LambdaPolicyStatement](srv.DB(), "lambda_policies")
 	lambdaURLConfigs = sim.MakeStore[LambdaFunctionUrlConfig](srv.DB(), "lambda_url_configs")
-	lambdaESMs = sim.MakeStore[LambdaEventSourceMapping](srv.DB(), "lambda_event_source_mappings")
+	lambdaESMs = sim.Announcing(sim.MakeStore[LambdaEventSourceMapping](srv.DB(), "lambda_event_source_mappings"), lambdaESMChanges)
 	lambdaLayers = sim.MakeStore[[]LambdaLayerVersion](srv.DB(), "lambda_layers")
 	lambdaESMLogger = srv.Logger()
 	lambdaBackgroundServer = srv
-	if startBackgroundPollers {
-		startLambdaEventSourcePollers(srv)
-	}
+	lambdaEnvironments.reset()
+	srv.StartBackground("AWS Lambda execution environment shutdown", func(ctx context.Context) {
+		<-ctx.Done()
+		lambdaEnvironments.retireAll()
+	})
+	lambdaESMShards = sim.MakeStore[lambdaESMShardState](srv.DB(), "lambda_event_source_mapping_shards")
+	lambdaESMTags = sim.MakeStore[map[string]string](srv.DB(), "lambda_event_source_mapping_tags")
 
 	mux := srv
 
@@ -620,7 +622,11 @@ func handleLambdaCreateFunction(w http.ResponseWriter, r *http.Request) {
 	}
 	lambdaFunctions.Put(req.FunctionName, fn)
 	if req.Publish {
-		publishLambdaVersion(req.FunctionName, "", fn)
+		// With Publish, CreateFunction answers with the configuration of the
+		// version it published, Version "1".
+		published := publishLambdaVersion(req.FunctionName, "", fn)
+		sim.WriteJSON(w, http.StatusCreated, lambdaConfigurationFromVersion(published))
+		return
 	}
 
 	sim.WriteJSON(w, http.StatusCreated, lambdaConfiguration(fn))
@@ -860,6 +866,8 @@ func handleLambdaDeleteFunction(w http.ResponseWriter, r *http.Request) {
 				"Function version not found: %s:%s", lambdaArn(name), qualifier)
 			return
 		}
+		lambdaPCs.Delete(name + ":" + qualifier)
+		lambdaEnvironments.reconcile(name)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -889,6 +897,7 @@ func handleLambdaDeleteFunction(w http.ResponseWriter, r *http.Request) {
 			lambdaPCs.Delete(name + ":" + config.Qualifier)
 		}
 	}
+	lambdaEnvironments.reconcile(name)
 	for _, config := range lambdaRTMs.List() {
 		if config.FunctionName == name {
 			lambdaRTMs.Delete(name + ":" + config.Qualifier)
@@ -1166,9 +1175,9 @@ func handleLambdaInvoke(w http.ResponseWriter, r *http.Request) {
 		} else {
 			sim.DeclareWait(r.Context(), lambdaInvokeWaitLimit(fn))
 			var serviceErr *lambdaServiceError
-			responseBody, unhandled, _, serviceErr = invokeLambdaViaRuntimeAPI(sim.LifetimeContext(r.Context()), fn, payload)
+			responseBody, unhandled, serviceErr = invokeLambdaViaRuntimeAPI(sim.LifetimeContext(r.Context()), fn, payload)
 			if serviceErr != nil {
-				AWSError(w, serviceErr.Code, serviceErr.Message, http.StatusBadGateway)
+				lambdaWriteServiceError(w, serviceErr)
 				return
 			}
 		}
@@ -1212,7 +1221,7 @@ func handleLambdaListFunctions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	page, next, pageOK := awsKeyPage(w, lambdaBadToken, all, func(l listed) string {
-		return l.config.FunctionName + "\x00" + awsIntKey(int64(l.pos))
+		return l.config.FunctionName + "\x00" + listq.IntKey(int64(l.pos))
 	}, marker, maxItems, 50)
 	if !pageOK {
 		return
@@ -1264,8 +1273,39 @@ func lambdaConfigurationFromVersion(v LambdaVersion) lambdaFunctionConfiguration
 	}
 }
 
+// lambdaESMUUIDFromARN is the mapping an event source mapping ARN names.
+func lambdaESMUUIDFromARN(arn string) (string, bool) {
+	_, uuid, found := strings.Cut(arn, ":event-source-mapping:")
+	return uuid, found
+}
+
+// lambdaUpdateESMTags changes an event source mapping's tags, reporting false
+// when the mapping does not exist.
+func lambdaUpdateESMTags(w http.ResponseWriter, uuid string, change func(tags map[string]string)) bool {
+	if _, ok := lambdaESMs.Get(uuid); !ok {
+		AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+			"Event source mapping not found: %s", uuid)
+		return false
+	}
+	lambdaESMTags.Upsert(uuid, func(tags *map[string]string) {
+		if *tags == nil {
+			*tags = map[string]string{}
+		}
+		change(*tags)
+	})
+	return true
+}
+
 func handleLambdaListTags(w http.ResponseWriter, r *http.Request) {
 	arn := r.PathValue("arn")
+	if uuid, ok := lambdaESMUUIDFromARN(arn); ok {
+		if !lambdaUpdateESMTags(w, uuid, func(map[string]string) {}) {
+			return
+		}
+		tags, _ := lambdaESMTags.Get(uuid)
+		sim.WriteJSON(w, http.StatusOK, map[string]any{"Tags": tags})
+		return
+	}
 	// Extract function name from ARN
 	name := arn
 	if strings.Contains(arn, ":function:") {
@@ -1317,6 +1357,16 @@ func (s *lambdaLogSink) WriteLog(line sim.LogLine) {
 // (the sim's lambdaArn helper hardcodes 123456789012).
 func handleLambdaUntagResource(w http.ResponseWriter, r *http.Request) {
 	arn := r.PathValue("arn")
+	if uuid, ok := lambdaESMUUIDFromARN(arn); ok {
+		if lambdaUpdateESMTags(w, uuid, func(tags map[string]string) {
+			for _, k := range r.URL.Query()["tagKeys"] {
+				delete(tags, k)
+			}
+		}) {
+			w.WriteHeader(http.StatusNoContent)
+		}
+		return
+	}
 	name := arn
 	if strings.Contains(arn, ":function:") {
 		parts := strings.SplitN(arn, ":function:", 2)
@@ -1360,6 +1410,16 @@ func handleLambdaTagResource(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AWSError(w, "InvalidParameterValueException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if uuid, ok := lambdaESMUUIDFromARN(arn); ok {
+		if lambdaUpdateESMTags(w, uuid, func(tags map[string]string) {
+			for k, v := range req.Tags {
+				tags[k] = v
+			}
+		}) {
+			w.WriteHeader(http.StatusNoContent)
+		}
 		return
 	}
 

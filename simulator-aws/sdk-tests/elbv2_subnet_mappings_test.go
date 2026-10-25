@@ -9,6 +9,7 @@ import (
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,14 +35,14 @@ func TestELBv2_SubnetMappings(t *testing.T) {
 	allocationID := aws.ToString(eip.AllocationId)
 
 	_, err = elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
-		Name: aws.String(uniqueName("map-both")), Type: elbtypes.LoadBalancerTypeEnumNetwork,
+		Name: aws.String(uniquename.New("map-both")), Type: elbtypes.LoadBalancerTypeEnumNetwork,
 		Subnets:        []string{subnets[0]},
 		SubnetMappings: []elbtypes.SubnetMapping{{SubnetId: aws.String(subnets[1])}},
 	})
 	requireELBv2Error(t, err, "InvalidConfigurationRequest", "but not both")
 
 	_, err = elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
-		Name: aws.String(uniqueName("map-alb")), Type: elbtypes.LoadBalancerTypeEnumApplication,
+		Name: aws.String(uniquename.New("map-alb")), Type: elbtypes.LoadBalancerTypeEnumApplication,
 		SubnetMappings: []elbtypes.SubnetMapping{
 			{SubnetId: aws.String(subnets[0]), AllocationId: aws.String(allocationID)},
 			{SubnetId: aws.String(subnets[1])},
@@ -50,27 +51,27 @@ func TestELBv2_SubnetMappings(t *testing.T) {
 	requireELBv2Error(t, err, "InvalidConfigurationRequest", "AllocationId")
 
 	_, err = elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
-		Name: aws.String(uniqueName("map-unknown")), Type: elbtypes.LoadBalancerTypeEnumNetwork,
+		Name: aws.String(uniquename.New("map-unknown")), Type: elbtypes.LoadBalancerTypeEnumNetwork,
 		SubnetMappings: []elbtypes.SubnetMapping{{SubnetId: aws.String(subnets[0]), AllocationId: aws.String("eipalloc-0000000000000000f")}},
 	})
 	var notFound *elbtypes.AllocationIdNotFoundException
 	require.ErrorAs(t, err, &notFound)
 
 	_, err = elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
-		Name: aws.String(uniqueName("map-outside")), Type: elbtypes.LoadBalancerTypeEnumNetwork, Scheme: elbtypes.LoadBalancerSchemeEnumInternal,
+		Name: aws.String(uniquename.New("map-outside")), Type: elbtypes.LoadBalancerTypeEnumNetwork, Scheme: elbtypes.LoadBalancerSchemeEnumInternal,
 		SubnetMappings: []elbtypes.SubnetMapping{{SubnetId: aws.String(subnets[0]), PrivateIPv4Address: aws.String("10.22.2.10")}},
 	})
 	requireELBv2Error(t, err, "InvalidConfigurationRequest", "PrivateIPv4Address")
 
 	_, err = elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
-		Name: aws.String(uniqueName("map-ipv6-outside")), Type: elbtypes.LoadBalancerTypeEnumNetwork, IpAddressType: elbtypes.IpAddressTypeDualstack,
+		Name: aws.String(uniquename.New("map-ipv6-outside")), Type: elbtypes.LoadBalancerTypeEnumNetwork, IpAddressType: elbtypes.IpAddressTypeDualstack,
 		SubnetMappings: []elbtypes.SubnetMapping{{SubnetId: aws.String(subnets[0]), IPv6Address: aws.String("2001:db8::10")}},
 	})
 	requireELBv2Error(t, err, "InvalidConfigurationRequest", "IPv6Address")
 
 	// An internet-facing Network Load Balancer takes one Elastic IP address
 	// per subnet and reports its address under the subnet.
-	name := uniqueName("map-nlb")
+	name := uniquename.New("map-nlb")
 	created, err := elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
 		Name: aws.String(name), Type: elbtypes.LoadBalancerTypeEnumNetwork,
 		SubnetMappings: []elbtypes.SubnetMapping{{SubnetId: aws.String(subnets[0]), AllocationId: aws.String(allocationID)}},

@@ -7,6 +7,7 @@ import (
 
 	"cloud.google.com/go/run/apiv2/runpb"
 	"cloud.google.com/go/storage"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	runv2 "google.golang.org/api/run/v2"
@@ -74,13 +75,13 @@ func TestSDK_CloudRun_WorkerPoolRunsItsInstances(t *testing.T) {
 	t.Parallel()
 	client := storageClient(t)
 	defer client.Close()
-	bucketName := uniqueName("sdk-run-wp-volume")
+	bucketName := uniquename.New("sdk-run-wp-volume")
 	bucket := client.Bucket(bucketName)
 	require.NoError(t, bucket.Create(ctx, "test-project", nil))
 
 	pools := newWorkerPoolsClient(t)
 	parent := "projects/test-project/locations/us-central1"
-	id := uniqueName("sdk-wp-run")
+	id := uniquename.New("sdk-wp-run")
 	name := parent + "/workerPools/" + id
 	createOp, err := pools.CreateWorkerPool(ctx, &runpb.CreateWorkerPoolRequest{
 		Parent:       parent,
@@ -153,13 +154,13 @@ func TestSDK_CloudRun_InstanceRunsItsContainers(t *testing.T) {
 	t.Parallel()
 	client := storageClient(t)
 	defer client.Close()
-	bucketName := uniqueName("sdk-run-inst-volume")
+	bucketName := uniquename.New("sdk-run-inst-volume")
 	bucket := client.Bucket(bucketName)
 	require.NoError(t, bucket.Create(ctx, "test-project", nil))
 
 	instances := newInstancesClient(t)
 	parent := "projects/test-project/locations/us-central1"
-	id := uniqueName("sdk-inst-run")
+	id := uniquename.New("sdk-inst-run")
 	name := parent + "/instances/" + id
 	createOp, err := instances.CreateInstance(ctx, &runpb.CreateInstanceRequest{
 		Parent:     parent,

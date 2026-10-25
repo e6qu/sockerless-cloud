@@ -1,9 +1,7 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"strconv"
 
 	"net/http"
 	"net/url"
@@ -31,25 +29,9 @@ const (
 type trafficAllocationType string
 
 func (e *trafficAllocationType) UnmarshalJSON(data []byte) error {
-	if len(data) == 0 || string(data) == "null" {
-		*e = ""
-		return nil
-	}
-	if data[0] == '"' {
-		var s string
-		if err := json.Unmarshal(data, &s); err != nil {
-			return err
-		}
-		*e = trafficAllocationType(s)
-		return nil
-	}
-	n, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 32)
+	name, err := protoEnumNameOf(data, runpb.TrafficTargetAllocationType_name, "traffic target allocation type", "unknown traffic target allocation type")
 	if err != nil {
-		return fmt.Errorf("traffic target allocation type %s: %w", data, err)
-	}
-	name, ok := runpb.TrafficTargetAllocationType_name[int32(n)]
-	if !ok {
-		return fmt.Errorf("unknown traffic target allocation type %s", data)
+		return err
 	}
 	*e = trafficAllocationType(name)
 	return nil

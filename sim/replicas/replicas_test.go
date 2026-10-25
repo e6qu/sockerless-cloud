@@ -328,3 +328,45 @@ func TestAFailedAddLeavesRoom(t *testing.T) {
 		t.Fatalf("failed starts left the count at %d", want)
 	}
 }
+
+// A count raised while a replica is still starting counts that replica: it
+// starts only the replicas the new count adds, not a second one in place of
+// the one under way, which would run and then be stopped as surplus.
+func TestAScaleDuringAStartCountsTheStartingReplica(t *testing.T) {
+	set := newSet(t, "sleep 300", Always, Hooks{})
+	start := set.spec.Start
+	var mu sync.Mutex
+	var started []string
+	arrived := make(chan struct{})
+	release := make(chan struct{})
+	set.spec.Start = func(ctx context.Context, id string) (*workload.Group, func(), error) {
+		mu.Lock()
+		started = append(started, id)
+		first := len(started) == 1
+		mu.Unlock()
+		if first {
+			close(arrived)
+			<-release
+		}
+		return start(ctx, id)
+	}
+	ctx := context.Background()
+	firstScale := make(chan error, 1)
+	go func() { firstScale <- set.Scale(ctx, 1) }()
+	<-arrived
+	if err := set.Scale(ctx, 2); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	if err := <-firstScale; err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(started) != 2 {
+		t.Fatalf("scaling to 2 while the first replica started started %d replicas %v, want 2", len(started), started)
+	}
+	if got := len(set.Replicas()); got != 2 {
+		t.Fatalf("%d replicas run, want 2", got)
+	}
+}

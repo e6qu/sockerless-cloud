@@ -14,6 +14,7 @@ import (
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,7 +27,7 @@ import (
 func TestS3_ServiceOwnedBucketsStayOutOfTheCallersAccount(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
-	fnName := uniqueName("svc-owned-bucket-fn")
+	fnName := uniquename.New("svc-owned-bucket-fn")
 	deployment := lambdaDeploymentZip(t)
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName: aws.String(fnName),

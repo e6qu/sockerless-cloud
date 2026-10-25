@@ -116,7 +116,7 @@ func registerContainerInstances(srv *sim.Server) {
 }
 
 func aciContainerGroupID(sub, rg, name string) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerInstance/containerGroups/%s", sub, rg, name)
+	return armResourceID(sub, rg, "Microsoft.ContainerInstance", "containerGroups", name)
 }
 
 func aciRuntimeKey(groupID, containerName string) string {
@@ -214,13 +214,13 @@ func handleACIContainerGroupDelete(w http.ResponseWriter, r *http.Request) {
 func handleACIContainerGroupListByRG(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rg := sim.PathParam(r, "resourceGroupName")
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerInstance/containerGroups/", sub, rg)
+	prefix := armResourceID(sub, rg, "Microsoft.ContainerInstance", "containerGroups") + "/"
 	writeACIContainerGroupList(w, prefix)
 }
 
 func handleACIContainerGroupListBySubscription(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/", sub)
+	prefix := armSubscriptionID(sub) + "/resourceGroups/"
 	writeACIContainerGroupList(w, prefix)
 }
 
@@ -468,7 +468,7 @@ func handleACIOperationsList(w http.ResponseWriter, _ *http.Request) {
 func handleACILocationUsages(w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	location := sim.PathParam(r, "location")
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/", sub)
+	prefix := armSubscriptionID(sub) + "/resourceGroups/"
 	groupCount := int32(0)
 	var cores float64
 	for _, group := range aciContainerGroups.Filter(func(group ACIContainerGroup) bool {
@@ -479,7 +479,7 @@ func handleACILocationUsages(w http.ResponseWriter, r *http.Request) {
 	}
 	usage := func(name string, current, limit int32) map[string]any {
 		return map[string]any{
-			"id":           fmt.Sprintf("/subscriptions/%s/providers/Microsoft.ContainerInstance/locations/%s/usages/%s", sub, location, name),
+			"id":           armSubscriptionResourceID(sub, "Microsoft.ContainerInstance", "locations", location, "usages", name),
 			"unit":         "Count",
 			"currentValue": current,
 			"limit":        limit,
@@ -664,8 +664,7 @@ func handleACIContainerAttachSession(w http.ResponseWriter, r *http.Request) {
 func handleACISubnetServiceAssociationLinkDelete(w http.ResponseWriter, r *http.Request) {
 	subnetName := sim.PathParam(r, "subnetName")
 	vnetName := sim.PathParam(r, "virtualNetworkName")
-	id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s/subnets/%s",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), vnetName, subnetName)
+	id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "virtualNetworks", vnetName, "subnets", subnetName)
 	if azureSubnets == nil {
 		AzureError(w, "ResourceNotFound", "No virtual networks exist.", http.StatusNotFound)
 		return

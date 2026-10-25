@@ -3,6 +3,7 @@ package gcp_sdk_test
 import (
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	run "google.golang.org/api/run/v1"
@@ -264,7 +265,7 @@ func TestCloudRunV1_DomainMappingsList_LabelSelectorAndPaging(t *testing.T) {
 func TestSDK_RunV2REST_Job_RunEtagOptimisticConcurrency(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
-	id := uniqueName("etag-job")
+	id := uniquename.New("etag-job")
 	name := crV2Parent + "/jobs/" + id
 
 	body := func(image string) *runv2.GoogleCloudRunV2Job {

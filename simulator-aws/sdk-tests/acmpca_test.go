@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/acmpca"
 	pcatypes "github.com/aws/aws-sdk-go-v2/service/acmpca/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +28,7 @@ func acmpcaClient() *acmpca.Client {
 
 func activateRootPrivateCA(t *testing.T, name string) string {
 	t.Helper()
-	token := uniqueName("pca")
+	token := uniquename.New("pca")
 	client := acmpcaClient()
 	created, err := client.CreateCertificateAuthority(ctx, &acmpca.CreateCertificateAuthorityInput{
 		CertificateAuthorityType: pcatypes.CertificateAuthorityTypeRoot,
@@ -177,7 +178,7 @@ func TestPrivateCA_CompleteLifecycleAndACMIntegration(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	bucket := uniqueName("sdk-private-ca-audit")
+	bucket := uniquename.New("sdk-private-ca-audit")
 	s3c := s3Client()
 	_, err = s3c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)

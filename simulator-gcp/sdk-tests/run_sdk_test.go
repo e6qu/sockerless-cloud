@@ -10,6 +10,7 @@ import (
 	"cloud.google.com/go/logging/logadmin"
 	run "cloud.google.com/go/run/apiv2"
 	"cloud.google.com/go/run/apiv2/runpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
@@ -56,7 +57,7 @@ func newExecutionsClient(t *testing.T) *run.ExecutionsClient {
 func TestSDK_CloudRun_CreateJob(t *testing.T) {
 	t.Parallel()
 	client := newJobsClient(t)
-	jobID := uniqueName("sdk-create-job")
+	jobID := uniquename.New("sdk-create-job")
 
 	op, err := client.CreateJob(ctx, &runpb.CreateJobRequest{
 		Parent: "projects/test-project/locations/us-central1",
@@ -90,7 +91,7 @@ func TestSDK_CloudRun_CreateJob(t *testing.T) {
 func TestSDK_CloudRun_CreateJob_OperationsPersisted(t *testing.T) {
 	t.Parallel()
 	client := newJobsClient(t)
-	jobID := uniqueName("sdk-ops-persist-job")
+	jobID := uniquename.New("sdk-ops-persist-job")
 
 	op, err := client.CreateJob(ctx, &runpb.CreateJobRequest{
 		Parent: "projects/test-project/locations/us-central1",
@@ -126,7 +127,7 @@ func TestSDK_CloudRun_CreateJob_OperationsPersisted(t *testing.T) {
 func TestSDK_CloudRun_RunJob(t *testing.T) {
 	t.Parallel()
 	jobsClient := newJobsClient(t)
-	jobID := uniqueName("sdk-run-job")
+	jobID := uniquename.New("sdk-run-job")
 
 	// Create job first
 	createOp, err := jobsClient.CreateJob(ctx, &runpb.CreateJobRequest{
@@ -173,7 +174,7 @@ func TestSDK_CloudRun_RunJob(t *testing.T) {
 func TestSDK_CloudRun_RunJob_MultiContainerSharesLocalhost(t *testing.T) {
 	t.Parallel()
 	jobsClient := newJobsClient(t)
-	jobID := uniqueName("sdk-run-job-sidecar")
+	jobID := uniquename.New("sdk-run-job-sidecar")
 
 	createOp, err := jobsClient.CreateJob(ctx, &runpb.CreateJobRequest{
 		Parent: "projects/test-project/locations/us-central1",
@@ -232,7 +233,7 @@ func TestSDK_CloudRun_GetExecution(t *testing.T) {
 	t.Parallel()
 	jobsClient := newJobsClient(t)
 	execClient := newExecutionsClient(t)
-	jobID := uniqueName("sdk-getexec-job")
+	jobID := uniquename.New("sdk-getexec-job")
 
 	// Create and run job
 	createOp, err := jobsClient.CreateJob(ctx, &runpb.CreateJobRequest{
@@ -274,7 +275,7 @@ func TestSDK_CloudRun_CancelExecution(t *testing.T) {
 	t.Parallel()
 	jobsClient := newJobsClient(t)
 	execClient := newExecutionsClient(t)
-	jobID := uniqueName("sdk-cancel-job")
+	jobID := uniquename.New("sdk-cancel-job")
 	const marker = "sdk-cancel-marker"
 
 	// The container announces itself on stdout and then holds until it is
@@ -340,7 +341,7 @@ func TestSDK_CloudRun_CancelExecution(t *testing.T) {
 func TestSDK_CloudRun_DeleteJob(t *testing.T) {
 	t.Parallel()
 	client := newJobsClient(t)
-	jobID := uniqueName("sdk-delete-job")
+	jobID := uniquename.New("sdk-delete-job")
 
 	// Create job
 	createOp, err := client.CreateJob(ctx, &runpb.CreateJobRequest{
@@ -375,7 +376,7 @@ func TestSDK_CloudRun_ListJobs(t *testing.T) {
 	t.Parallel()
 	client := newJobsClient(t)
 
-	nameA, nameB := uniqueName("sdk-list-job-a"), uniqueName("sdk-list-job-b")
+	nameA, nameB := uniquename.New("sdk-list-job-a"), uniquename.New("sdk-list-job-b")
 	for _, id := range []string{nameA, nameB} {
 		op, err := client.CreateJob(ctx, &runpb.CreateJobRequest{
 			Parent: "projects/test-project/locations/us-central1",
@@ -430,7 +431,7 @@ func TestSDK_CloudRun_ListJobsPaginationAndEmptyWireShape(t *testing.T) {
 	client := newJobsClient(t)
 	parent := "projects/test-project/locations/us-east1"
 
-	for _, id := range []string{uniqueName("sdk-page-job-a"), uniqueName("sdk-page-job-b")} {
+	for _, id := range []string{uniquename.New("sdk-page-job-a"), uniquename.New("sdk-page-job-b")} {
 		op, err := client.CreateJob(ctx, &runpb.CreateJobRequest{
 			Parent: parent,
 			JobId:  id,

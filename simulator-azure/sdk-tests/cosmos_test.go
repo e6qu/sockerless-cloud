@@ -10,6 +10,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/cosmos/armcosmos"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,7 +19,7 @@ func TestAzureCosmosDB_ARMAndDataPlaneLifecycle(t *testing.T) {
 	t.Parallel()
 	sub := "00000000-0000-0000-0000-000000000000"
 	rg := "test-rg-3fd8"
-	account := uniqueName("sdkcosmos")
+	account := uniquename.New("sdkcosmos")
 	ensureRGIn(t, sub, rg)
 	armBase := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.DocumentDB/databaseAccounts/%s", sub, rg, account)
 

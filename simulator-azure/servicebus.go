@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -263,11 +262,11 @@ func registerServiceBus(srv *sim.Server) {
 }
 
 func sbNamespaceID(sub, rg, name string) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ServiceBus/namespaces/%s", sub, rg, name)
+	return armResourceID(sub, rg, "Microsoft.ServiceBus", "namespaces", name)
 }
 
 func sbNetworkRuleSetID(sub, rg, name string) string {
-	return sbNamespaceID(sub, rg, name) + "/networkRuleSets/default"
+	return armChildID(sbNamespaceID(sub, rg, name), "networkRuleSets", "default")
 }
 
 func handleSBCreateNamespace(w http.ResponseWriter, r *http.Request) {
@@ -424,7 +423,7 @@ func handleSBUpdateNamespace(w http.ResponseWriter, r *http.Request) {
 // handleSBListNamespacesBySub lists every namespace in the subscription
 // (the subscription-scoped list, no resource group filter).
 func handleSBListNamespacesBySub(w http.ResponseWriter, r *http.Request) {
-	prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+	prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 	all := sbNamespaces.List()
 	out := make([]SBNamespace, 0, len(all))
 	for _, n := range all {
@@ -436,8 +435,7 @@ func handleSBListNamespacesBySub(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSBListNamespacesByRG(w http.ResponseWriter, r *http.Request) {
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ServiceBus/namespaces/",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
+	prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.ServiceBus", "namespaces") + "/"
 	all := sbNamespaces.List()
 	out := make([]SBNamespace, 0, len(all))
 	for _, n := range all {
@@ -512,27 +510,15 @@ func handleSBListNamespaceNetworkRuleSets(w http.ResponseWriter, r *http.Request
 }
 
 func sbDisasterRecoveryID(sub, rg, name, alias string) string {
-	return sbNamespaceID(sub, rg, name) + "/disasterRecoveryConfigs/" + alias
+	return armChildID(sbNamespaceID(sub, rg, name), "disasterRecoveryConfigs", alias)
 }
 
 func sbMigrationConfigID(sub, rg, name, config string) string {
-	return sbNamespaceID(sub, rg, name) + "/migrationConfigurations/" + config
+	return armChildID(sbNamespaceID(sub, rg, name), "migrationConfigurations", config)
 }
 
 func handleSBListDisasterRecoveryConfigs(w http.ResponseWriter, r *http.Request) {
-	if _, ok := sbNamespaces.Get(sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))); !ok {
-		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
-		return
-	}
-	prefix := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) + "/disasterRecoveryConfigs/"
-	all := sbDRConfigs.List()
-	out := make([]SBDisasterRecovery, 0, len(all))
-	for _, dr := range all {
-		if strings.HasPrefix(dr.ID, prefix) {
-			out = append(out, dr)
-		}
-	}
-	writeSBPagedList(w, r, out, func(x SBDisasterRecovery) string { return x.ID })
+	sbListNamespaceChildren(w, r, sbDRConfigs, "disasterRecoveryConfigs")
 }
 
 func handleSBGetDisasterRecoveryConfig(w http.ResponseWriter, r *http.Request) {
@@ -546,36 +532,14 @@ func handleSBGetDisasterRecoveryConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSBPutDisasterRecoveryConfig(w http.ResponseWriter, r *http.Request) {
-	sub, rg, name, alias := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "alias")
-	if _, ok := sbNamespaces.Get(sbNamespaceID(sub, rg, name)); !ok {
-		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
-		return
-	}
-	var req SBDisasterRecovery
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
-		return
-	}
-	id := sbDisasterRecoveryID(sub, rg, name, alias)
-	props := map[string]any{
-		"provisioningState":                 "Succeeded",
-		"role":                              "Primary",
-		"pendingReplicationOperationsCount": 0,
-	}
-	if v, ok := req.Properties["partnerNamespace"]; ok {
-		props["partnerNamespace"] = v
-	}
-	if v, ok := req.Properties["alternateName"]; ok {
-		props["alternateName"] = v
-	}
-	dr := SBDisasterRecovery{
-		ID:         id,
-		Name:       alias,
-		Type:       "Microsoft.ServiceBus/namespaces/disasterRecoveryConfigs",
-		Properties: props,
-	}
-	sbDRConfigs.Put(id, dr)
-	sim.WriteJSON(w, http.StatusOK, dr)
+	sbPutNamespaceChild(w, r, sbDRConfigs, "disasterRecoveryConfigs", "alias", "Microsoft.ServiceBus/namespaces/disasterRecoveryConfigs",
+		func(requested map[string]any) map[string]any {
+			return sbCopyKeys(map[string]any{
+				"provisioningState":                 "Succeeded",
+				"role":                              "Primary",
+				"pendingReplicationOperationsCount": 0,
+			}, requested, "partnerNamespace", "alternateName")
+		})
 }
 
 func handleSBDeleteDisasterRecoveryConfig(w http.ResponseWriter, r *http.Request) {
@@ -680,19 +644,26 @@ func handleSBListDRAuthorizationRuleKeys(w http.ResponseWriter, r *http.Request)
 }
 
 func handleSBListMigrationConfigurations(w http.ResponseWriter, r *http.Request) {
-	if _, ok := sbNamespaces.Get(sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))); !ok {
+	sbListNamespaceChildren(w, r, sbMigrations, "migrationConfigurations")
+}
+
+// sbListNamespaceChildren answers a page of the request's namespace's children
+// in collection, refusing a namespace that does not exist.
+func sbListNamespaceChildren[T sbEntityShape](w http.ResponseWriter, r *http.Request, store sim.Store[T], collection string) {
+	parent := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
+	if _, ok := sbNamespaces.Get(parent); !ok {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
 		return
 	}
-	prefix := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name")) + "/migrationConfigurations/"
-	all := sbMigrations.List()
-	out := make([]SBMigrationConfig, 0, len(all))
-	for _, mc := range all {
-		if strings.HasPrefix(mc.ID, prefix) {
-			out = append(out, mc)
+	prefix := armChildID(parent, collection) + "/"
+	all := store.List()
+	out := make([]T, 0, len(all))
+	for _, child := range all {
+		if strings.HasPrefix(sbEntity(child).ID, prefix) {
+			out = append(out, child)
 		}
 	}
-	writeSBPagedList(w, r, out, func(x SBMigrationConfig) string { return x.ID })
+	writeSBPagedList(w, r, out, func(x T) string { return sbEntity(x).ID })
 }
 
 func handleSBGetMigrationConfiguration(w http.ResponseWriter, r *http.Request) {
@@ -706,36 +677,71 @@ func handleSBGetMigrationConfiguration(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSBPutMigrationConfiguration(w http.ResponseWriter, r *http.Request) {
-	sub, rg, name, config := sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"), sim.PathParam(r, "config")
-	if _, ok := sbNamespaces.Get(sbNamespaceID(sub, rg, name)); !ok {
+	sbPutNamespaceChild(w, r, sbMigrations, "migrationConfigurations", "config", "Microsoft.ServiceBus/namespaces/migrationConfigurations",
+		func(requested map[string]any) map[string]any {
+			return sbCopyKeys(map[string]any{
+				"provisioningState":                 "Succeeded",
+				"migrationState":                    "Active",
+				"pendingReplicationOperationsCount": 0,
+			}, requested, "targetNamespace", "postMigrationName")
+		})
+}
+
+// sbEntity is the wire shape Service Bus gives queues, topics, disaster
+// recovery configurations and migration configurations.
+type sbEntity struct {
+	ID         string         `json:"id"`
+	Name       string         `json:"name"`
+	Type       string         `json:"type"`
+	Properties map[string]any `json:"properties,omitempty"`
+}
+
+type sbEntityShape interface {
+	~struct {
+		ID         string         `json:"id"`
+		Name       string         `json:"name"`
+		Type       string         `json:"type"`
+		Properties map[string]any `json:"properties,omitempty"`
+	}
+}
+
+// sbPutNamespaceChild creates or replaces the child of the request's namespace
+// that nameParam names in collection, with the properties properties makes of
+// the ones the request carries.
+func sbPutNamespaceChild[T sbEntityShape](w http.ResponseWriter, r *http.Request, store sim.Store[T], collection, nameParam, resourceType string, properties func(requested map[string]any) map[string]any) {
+	parent := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
+	if _, ok := sbNamespaces.Get(parent); !ok {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
 		return
 	}
-	var req SBMigrationConfig
+	var req T
 	if err := sim.ReadJSON(r, &req); err != nil {
 		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
-	id := sbMigrationConfigID(sub, rg, name, config)
-	props := map[string]any{
-		"provisioningState":                 "Succeeded",
-		"migrationState":                    "Active",
-		"pendingReplicationOperationsCount": 0,
+	name := sim.PathParam(r, nameParam)
+	id := armChildID(parent, collection, name)
+	entity := T(sbEntity{ID: id, Name: name, Type: resourceType, Properties: properties(sbEntity(req).Properties)})
+	store.Put(id, entity)
+	sim.WriteJSON(w, http.StatusOK, entity)
+}
+
+// sbOverlay writes the requested properties over defaults.
+func sbOverlay(defaults, requested map[string]any) map[string]any {
+	for k, v := range requested {
+		defaults[k] = v
 	}
-	if v, ok := req.Properties["targetNamespace"]; ok {
-		props["targetNamespace"] = v
+	return defaults
+}
+
+// sbCopyKeys copies the named requested properties into props.
+func sbCopyKeys(props, requested map[string]any, keys ...string) map[string]any {
+	for _, k := range keys {
+		if v, ok := requested[k]; ok {
+			props[k] = v
+		}
 	}
-	if v, ok := req.Properties["postMigrationName"]; ok {
-		props["postMigrationName"] = v
-	}
-	mc := SBMigrationConfig{
-		ID:         id,
-		Name:       config,
-		Type:       "Microsoft.ServiceBus/namespaces/migrationConfigurations",
-		Properties: props,
-	}
-	sbMigrations.Put(id, mc)
-	sim.WriteJSON(w, http.StatusOK, mc)
+	return props
 }
 
 func handleSBDeleteMigrationConfiguration(w http.ResponseWriter, r *http.Request) {
@@ -771,7 +777,7 @@ func handleSBRevertMigration(w http.ResponseWriter, r *http.Request) {
 // sbPrivateEndpointConnectionID returns the resource ID of a private
 // endpoint connection on a namespace.
 func sbPrivateEndpointConnectionID(sub, rg, name, pec string) string {
-	return sbNamespaceID(sub, rg, name) + "/privateEndpointConnections/" + pec
+	return armChildID(sbNamespaceID(sub, rg, name), "privateEndpointConnections", pec)
 }
 
 func handleSBListPrivateEndpointConnections(w http.ResponseWriter, r *http.Request) {
@@ -890,29 +896,8 @@ func applySBNetworkRuleSetDefaults(props map[string]any) {
 }
 
 func handleSBCreateQueue(w http.ResponseWriter, r *http.Request) {
-	parent := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
-	if _, ok := sbNamespaces.Get(parent); !ok {
-		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
-		return
-	}
-	qName := sim.PathParam(r, "queue")
-	var req SBQueue
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
-		return
-	}
-	id := parent + "/queues/" + qName
-	q := SBQueue{
-		ID: id, Name: qName, Type: "Microsoft.ServiceBus/namespaces/queues",
-		Properties: sbDefaultQueueProperties(),
-	}
-	if req.Properties != nil {
-		for k, v := range req.Properties {
-			q.Properties[k] = v
-		}
-	}
-	sbQueues.Put(id, q)
-	sim.WriteJSON(w, http.StatusOK, q)
+	sbPutNamespaceChild(w, r, sbQueues, "queues", "queue", "Microsoft.ServiceBus/namespaces/queues",
+		func(requested map[string]any) map[string]any { return sbOverlay(sbDefaultQueueProperties(), requested) })
 }
 
 func handleSBGetQueue(w http.ResponseWriter, r *http.Request) {
@@ -951,29 +936,8 @@ func handleSBListQueues(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleSBCreateTopic(w http.ResponseWriter, r *http.Request) {
-	parent := sbNamespaceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
-	if _, ok := sbNamespaces.Get(parent); !ok {
-		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "namespace not found")
-		return
-	}
-	tName := sim.PathParam(r, "topic")
-	var req SBTopic
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
-		return
-	}
-	id := parent + "/topics/" + tName
-	t := SBTopic{
-		ID: id, Name: tName, Type: "Microsoft.ServiceBus/namespaces/topics",
-		Properties: sbDefaultTopicProperties(),
-	}
-	if req.Properties != nil {
-		for k, v := range req.Properties {
-			t.Properties[k] = v
-		}
-	}
-	sbTopics.Put(id, t)
-	sim.WriteJSON(w, http.StatusOK, t)
+	sbPutNamespaceChild(w, r, sbTopics, "topics", "topic", "Microsoft.ServiceBus/namespaces/topics",
+		func(requested map[string]any) map[string]any { return sbOverlay(sbDefaultTopicProperties(), requested) })
 }
 
 func handleSBGetTopic(w http.ResponseWriter, r *http.Request) {
@@ -1243,7 +1207,10 @@ func sbAuthRuleRegenerateKeys(scope string) http.HandlerFunc {
 			KeyType string `json:"keyType"`
 			Key     string `json:"key"`
 		}
-		_ = sim.ReadJSON(r, &req)
+		if err := sim.ReadJSON(r, &req); err != nil {
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 		switch req.KeyType {
 		case "PrimaryKey":
 			azureBumpKeyGen(id, "primary", req.Key)

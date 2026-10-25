@@ -8,6 +8,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v5"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +18,7 @@ import (
 // and X-Forwarded-Proto and X-AppService-Proto name the client's protocol.
 func TestSDK_WebApps_ForwardedRequestHeaders(t *testing.T) {
 	t.Parallel()
-	rg, name := uniqueName("sdk-web-xff-rg"), uniqueName("sdk-web-xff")
+	rg, name := uniquename.New("sdk-web-xff-rg"), uniquename.New("sdk-web-xff")
 	ensureRG(t, rg)
 	plans, err := armappservice.NewPlansClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)

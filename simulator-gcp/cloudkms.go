@@ -306,22 +306,7 @@ func registerCloudKMS(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
 		prefix := kmsKeyRingName(project, location, "")
-		var all []kmsKeyRing
-		for _, kr := range kmsKeyRings.List() {
-			if strings.HasPrefix(kr.Name, prefix) {
-				all = append(all, kr)
-			}
-		}
-		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		page, next, ok := paginateList(w, r, all, gcpAsc(func(v kmsKeyRing) string { return v.Name }))
-		if !ok {
-			return
-		}
-		resp := map[string]any{"keyRings": page, "totalSize": len(all)}
-		if next != "" {
-			resp["nextPageToken"] = next
-		}
-		sim.WriteJSON(w, http.StatusOK, resp)
+		kmsWriteList(w, r, kmsKeyRings, prefix, "keyRings", func(v kmsKeyRing) string { return v.Name })
 	})
 
 	// GetKeyRing: GET .../keyRings/{keyRing}. Also fans in the GET colon-verb
@@ -922,22 +907,7 @@ func kmsRegisterImportJobs(srv *sim.Server) {
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/keyRings/{keyRing}/importJobs", func(w http.ResponseWriter, r *http.Request) {
 		ringName := kmsKeyRingName(sim.PathParam(r, "project"), sim.PathParam(r, "location"), sim.PathParam(r, "keyRing"))
 		prefix := ringName + "/importJobs/"
-		var all []kmsImportJob
-		for _, j := range kmsImportJobs.List() {
-			if strings.HasPrefix(j.Name, prefix) {
-				all = append(all, j)
-			}
-		}
-		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		page, next, ok := paginateList(w, r, all, gcpAsc(func(v kmsImportJob) string { return v.Name }))
-		if !ok {
-			return
-		}
-		resp := map[string]any{"importJobs": page, "totalSize": len(all)}
-		if next != "" {
-			resp["nextPageToken"] = next
-		}
-		sim.WriteJSON(w, http.StatusOK, resp)
+		kmsWriteList(w, r, kmsImportJobs, prefix, "importJobs", func(v kmsImportJob) string { return v.Name })
 	})
 
 	// GetImportJob / GetIamPolicy: GET .../importJobs/{importJobAction}
@@ -1016,22 +986,7 @@ func kmsRegisterEkm(srv *sim.Server) {
 	// ListEkmConnections: GET .../ekmConnections
 	srv.HandleFunc("GET /v1/projects/{project}/locations/{location}/ekmConnections", func(w http.ResponseWriter, r *http.Request) {
 		prefix := kmsLocationName(r) + "/ekmConnections/"
-		var all []kmsEkmConnection
-		for _, c := range kmsEkmConnections.List() {
-			if strings.HasPrefix(c.Name, prefix) {
-				all = append(all, c)
-			}
-		}
-		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		page, next, ok := paginateList(w, r, all, gcpAsc(func(v kmsEkmConnection) string { return v.Name }))
-		if !ok {
-			return
-		}
-		resp := map[string]any{"ekmConnections": page, "totalSize": len(all)}
-		if next != "" {
-			resp["nextPageToken"] = next
-		}
-		sim.WriteJSON(w, http.StatusOK, resp)
+		kmsWriteList(w, r, kmsEkmConnections, prefix, "ekmConnections", func(v kmsEkmConnection) string { return v.Name })
 	})
 
 	// GetEkmConnection / GetIamPolicy / VerifyConnectivity:
@@ -1395,22 +1350,7 @@ func kmsRegisterSingleTenantHsm(srv *sim.Server) {
 
 	srv.HandleFunc("GET "+instancePrefix, func(w http.ResponseWriter, r *http.Request) {
 		prefix := kmsLocationName(r) + "/singleTenantHsmInstances/"
-		var all []kmsSingleTenantHsmInstance
-		for _, inst := range kmsHsmInstances.List() {
-			if strings.HasPrefix(inst.Name, prefix) {
-				all = append(all, inst)
-			}
-		}
-		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		page, next, ok := paginateList(w, r, all, gcpAsc(func(v kmsSingleTenantHsmInstance) string { return v.Name }))
-		if !ok {
-			return
-		}
-		resp := map[string]any{"singleTenantHsmInstances": page, "totalSize": len(all)}
-		if next != "" {
-			resp["nextPageToken"] = next
-		}
-		sim.WriteJSON(w, http.StatusOK, resp)
+		kmsWriteList(w, r, kmsHsmInstances, prefix, "singleTenantHsmInstances", func(v kmsSingleTenantHsmInstance) string { return v.Name })
 	})
 
 	srv.HandleFunc("GET "+instancePrefix+"/{instance}", func(w http.ResponseWriter, r *http.Request) {
@@ -1443,22 +1383,7 @@ func kmsRegisterSingleTenantHsm(srv *sim.Server) {
 
 	srv.HandleFunc("GET "+instancePrefix+"/{instance}/proposals", func(w http.ResponseWriter, r *http.Request) {
 		prefix := kmsLocationName(r) + "/singleTenantHsmInstances/" + sim.PathParam(r, "instance") + "/proposals/"
-		var all []kmsHsmProposal
-		for _, p := range kmsHsmProposals.List() {
-			if strings.HasPrefix(p.Name, prefix) {
-				all = append(all, p)
-			}
-		}
-		sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
-		page, next, ok := paginateList(w, r, all, gcpAsc(func(v kmsHsmProposal) string { return v.Name }))
-		if !ok {
-			return
-		}
-		resp := map[string]any{"proposals": page, "totalSize": len(all)}
-		if next != "" {
-			resp["nextPageToken"] = next
-		}
-		sim.WriteJSON(w, http.StatusOK, resp)
+		kmsWriteList(w, r, kmsHsmProposals, prefix, "proposals", func(v kmsHsmProposal) string { return v.Name })
 	})
 
 	// GetProposal / DeleteProposal: GET|DELETE .../proposals/{proposal}
@@ -2984,4 +2909,25 @@ func kmsHandleShowEffectiveKajEnrollmentConfig(w http.ResponseWriter, project st
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"softwareConfig": off(), "hardwareConfig": off(), "externalConfig": off(),
 	})
+}
+
+// kmsWriteList answers a list method: the resources of store named under
+// prefix, paged in name order under member, with the total the list holds.
+func kmsWriteList[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], prefix, member string, name func(T) string) {
+	var all []T
+	for _, v := range store.List() {
+		if strings.HasPrefix(name(v), prefix) {
+			all = append(all, v)
+		}
+	}
+	sort.Slice(all, func(i, j int) bool { return name(all[i]) < name(all[j]) })
+	page, next, ok := paginateList(w, r, all, gcpAsc(name))
+	if !ok {
+		return
+	}
+	resp := map[string]any{member: page, "totalSize": len(all)}
+	if next != "" {
+		resp["nextPageToken"] = next
+	}
+	sim.WriteJSON(w, http.StatusOK, resp)
 }

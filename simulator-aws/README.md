@@ -148,9 +148,11 @@ names, owners and descriptions AWS reports — beside the account's own.
 `RunInstances` refuses an AMI that does not exist and an instance type of
 another architecture.
 
-- **User data** that starts with `#!` runs once as root, with its output on
-  the console (`GetConsoleOutput`) and in `/var/log/cloud-init-output.log`;
-  `#cloud-config` user data is not interpreted (`BUGS.md`).
+- **User data** runs under the AMI's cloud-init: `#cloud-config` modules in
+  their stages and frequencies, `#!` scripts, gzip and MIME multipart, with the
+  key pair's key on the default user. Its output reaches the console
+  (`GetConsoleOutput`) and `/var/log/cloud-init-output.log`; the modules not
+  yet run are listed in `BUGS.md`.
 - **Lifecycle**: `pending` while the machine boots and `running` once its
   init is ready; `StopInstances` keeps the root disk (`stopping`, `stopped`)
   and `StartInstances` boots it again; `TerminateInstances` discards it
@@ -291,8 +293,9 @@ password rotation, and persistence operations against all three real engines.
 
 AWS Step Functions Task states support optimized Amazon ECS `RunTask`
 request/response, `.sync`, and callback-token integrations, plus the optimized
-AWS CodeBuild build and build-batch operations. Synchronous workflows poll the
-actual service resources, propagate terminal failures, and stop work they
+AWS CodeBuild build and build-batch operations, each called through the
+service's API as the execution role. Synchronous workflows wait on the actual
+service resources, propagate terminal failures, and stop work they
 started when the caller aborts the execution. CodeBuild clones private Git sources
 with encrypted imported or AWS Secrets Manager credentials and executes the
 checked-in build specification inside the project's exact configured image;
@@ -386,10 +389,10 @@ Open simulator bugs live in [BUGS.md](../BUGS.md).
 ## What's out of scope
 
 - **Edge propagation** — a CloudFront distribution or invalidation takes effect when its call returns, so it reports `Deployed` or `Completed` at once; real CloudFront spends minutes `InProgress`.
-- **Multi-region routing** — sim is single-region (defaults to `us-east-1`). Cross-region replication / failover is not modelled.
+- **Multi-region deployments** — the simulator serves one home Region (`us-east-1` by default). Amazon RDS DB instances live in the Region their creating request is signed for and replicate automated backups across Regions; other services keep one Region.
 - **Cost / billing surfaces** — `cur`, `pricing` and `cost-explorer` are absent; AWS Budgets is served.
 - **Outbound delivery to carriers and push services** — Amazon SNS SMS and mobile push need a telecommunications carrier or Apple's and Google's hosts, which no AWS API provisions; those publishes fail naming the missing dependency.
 
-A stopped Amazon ECS task's containers get SIGTERM and then SIGKILL after each container definition's `stopTimeout` (30 seconds when unset). Route 53 serves the zones it holds over UDP and TCP on `SIM_DNS_PORT` (a kernel-chosen port when unset; workload namespaces are redirected to it), a private hosted zone only to the VPCs it is associated with, and recurses for other names through `SIM_DNS_UPSTREAM` or the host's resolvers, a DNS-validated ACM certificate is issued once its validation CNAME is present in Route 53, WAFv2 web ACLs are evaluated against the traffic of the resources they are associated with, and every request is SigV4-verified against the principal's stored secret.
+A stopped Amazon ECS task's containers get SIGTERM and then SIGKILL after each container definition's `stopTimeout` (30 seconds when unset). Route 53 serves the zones it holds over UDP and TCP on `SIM_DNS_PORT` (a kernel-chosen port when unset; workloads reach it through their network's sidecar), a private hosted zone only to the VPCs it is associated with, and recurses for other names through `SIM_DNS_UPSTREAM` or the host's resolvers, a DNS-validated ACM certificate is issued once its validation CNAME is present in Route 53, WAFv2 web ACLs are evaluated against the traffic of the resources they are associated with, and every request is SigV4-verified against the principal's stored secret.
 
 See also: [API_SPEC.md](API_SPEC.md).

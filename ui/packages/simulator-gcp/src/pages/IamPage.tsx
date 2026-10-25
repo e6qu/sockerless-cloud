@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GcpPageHeader } from "../console/GcpConsole.js";
 import { GcpDialog } from "../console/GcpDialog.js";
-import { GcpTabs } from "../console/GcpTabs.js";
-import { SubResourceTable } from "./SubResourceTable.js";
+import { GcpResourceTable, ResourceTableView } from "../console/GcpTable.js";
+import { useOperations } from "../console/notifications.js";
 import {
   fetchIamRoles,
   fetchProjectIamPolicy,
@@ -76,13 +76,18 @@ export function GrantAccessDialog({
   const { project } = useProject();
   const [member, setMember] = useState("");
   const [role, setRole] = useState(roles[0]?.name ?? "roles/viewer");
+  const { track } = useOperations();
   const save = useMutation({
-    mutationFn: () => setProjectIamPolicy(project, addBinding(policy, member, role)),
+    mutationFn: () =>
+      track("Update the project allow policy", () => setProjectIamPolicy(project, addBinding(policy, member, role)), "Updated the project allow policy"),
     onSuccess: onSaved,
   });
   // A principal is written as "<type>:<identifier>" — user:, serviceAccount:,
   // group:, domain: or the allUsers / allAuthenticatedUsers specials.
-  const valid = /^(user|serviceAccount|group|domain):\S+$/.test(member) || /^all(AuthenticatedUsers|Users)$/.test(member);
+  const valid =
+    /^(user|serviceAccount|group|domain):\S+$/.test(member) ||
+    /^principal(Set)?:\/\/iam\.googleapis\.com\/\S+$/.test(member) ||
+    /^all(AuthenticatedUsers|Users)$/.test(member);
   return (
     <GcpDialog title="Grant access" testId="iam-grant-dialog" onClose={onClose}>
       <label className="gc-field">
@@ -131,26 +136,36 @@ export function GrantAccessDialog({
 
 export function RemoveAccessDialog({
   policy,
-  grant,
+  grants,
   onClose,
   onSaved,
 }: {
   policy: IamPolicy;
-  grant: IamGrant;
+  grants: IamGrant[];
   onClose: () => void;
   onSaved: () => void;
 }) {
   const { project } = useProject();
+  const { track } = useOperations();
   const save = useMutation({
-    mutationFn: () => setProjectIamPolicy(project, removeBinding(policy, grant.member, grant.role)),
+    mutationFn: () =>
+      track(
+        "Update the project allow policy",
+        () => setProjectIamPolicy(project, grants.reduce((next, grant) => removeBinding(next, grant.member, grant.role), policy)),
+        "Updated the project allow policy",
+      ),
     onSuccess: onSaved,
   });
   return (
     <GcpDialog title="Remove access?" testId="iam-remove-dialog" onClose={onClose}>
-      <p>
-        Removing <strong>{grant.role}</strong> from <strong>{grant.member}</strong> revokes the access that
-        role grants on this project.
-      </p>
+      <p>These roles are removed, revoking the access they grant on this project:</p>
+      <ul className="gc-dialog-list">
+        {grants.map((grant) => (
+          <li key={`${grant.member} ${grant.role}`}>
+            <strong>{grant.role}</strong> from {grant.member}
+          </li>
+        ))}
+      </ul>
       {save.isError ? (
         <div className="gc-message gc-message-error" role="alert">
           <strong>Couldn't save the policy.</strong>{" "}
@@ -173,35 +188,68 @@ export function RemoveAccessDialog({
   );
 }
 
+
+// The principal type the IAM page's Type column names, from the member prefix.
+export function principalType(member: string): string {
+  const prefix = member.split(":")[0];
+  switch (prefix) {
+    case "user":
+      return "User";
+    case "serviceAccount":
+      return "Service account";
+    case "group":
+      return "Group";
+    case "domain":
+      return "Domain";
+    case "principal":
+    case "principalSet":
+      return "Workforce identity";
+    default:
+      return member.startsWith("all") ? "Public" : prefix;
+  }
+}
+
+interface PrincipalRow {
+  member: string;
+  roles: string[];
+}
+
+interface RoleRow {
+  role: string;
+  members: string[];
+}
+
 export function IamPage() {
   const { project } = useProject();
   const queryClient = useQueryClient();
+  const [view, setView] = useState<"principals" | "roles">("principals");
   const [granting, setGranting] = useState(false);
-  const [removing, setRemoving] = useState<IamGrant | null>(null);
-
+  const [removing, setRemoving] = useState<IamGrant[] | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const policy = useQuery({ queryKey: ["iam-policy", project], queryFn: () => fetchProjectIamPolicy(project) });
   const roles = useQuery({ queryKey: ["iam-roles"], queryFn: fetchIamRoles });
-  const grants = useQuery({
-    queryKey: ["iam-policy", project],
-    queryFn: () => fetchProjectIamPolicy(project),
-    select: flattenBindings,
-  });
-
+  const grants = flattenBindings(policy.data);
+  const roleTitle = (role: string) => roles.data?.find((candidate) => candidate.name === role)?.title ?? role;
+  const principals: PrincipalRow[] = Array.from(new Set(grants.map((grant) => grant.member))).map((member) => ({
+    member,
+    roles: grants.filter((grant) => grant.member === member).map((grant) => grant.role),
+  }));
+  const byRole: RoleRow[] = (policy.data?.bindings ?? []).map((binding) => ({ role: binding.role, members: binding.members ?? [] }));
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["iam-policy", project] });
+  const selectedGrants = grants.filter((grant) => selected.has(grant.member));
 
   return (
     <>
       <GcpPageHeader
         title="IAM"
-        description="Identity and Access Management controls who has what access on this project. A principal is granted a role, and the role carries the permissions."
         actions={[
+          { label: "Grant access", icon: "person", testId: "iam-grant-access", disabled: !policy.data, onSelect: () => setGranting(true) },
           {
-            label: "Grant access",
-            icon: "add",
-            primary: true,
-            testId: "iam-grant-access",
-            disabled: !policy.data,
-            onSelect: () => setGranting(true),
+            label: "Remove access",
+            icon: "delete",
+            testId: "iam-remove-access",
+            disabled: selectedGrants.length === 0,
+            onSelect: () => setRemoving(selectedGrants),
           },
         ]}
         onRefresh={() => {
@@ -210,63 +258,84 @@ export function IamPage() {
         }}
         refreshing={policy.isFetching || roles.isFetching}
       />
-      <GcpTabs
-        label="IAM"
-        tabs={[
-          {
-            id: "permissions",
-            label: "Permissions",
-            content: (
-              <SubResourceTable<IamGrant>
-                query={grants}
-                testId="iam-grants-table"
-                noun="the allow policy"
-                emptyHeadline="This project's allow policy has no grants"
-                emptyDescription="Grant a principal a role to give it access to this project."
-                rowKey={(row) => `${row.member}|${row.role}`}
-                columns={[
-                  { header: "Principal", cell: (row) => row.member },
-                  { header: "Role", cell: (row) => row.role },
-                  {
-                    header: "Actions",
-                    cell: (row) => (
-                      <button
-                        type="button"
-                        className="gc-button-text"
-                        data-testid={`iam-remove-${row.member}-${row.role}`}
-                        aria-label={`Remove ${row.role} from ${row.member}`}
-                        onClick={() => setRemoving(row)}
-                      >
-                        Remove
-                      </button>
-                    ),
-                  },
-                ]}
-              />
-            ),
-          },
-          {
-            id: "roles",
-            label: "Roles",
-            content: (
-              <SubResourceTable<IamRole>
-                query={roles}
-                testId="iam-roles-table"
-                noun="roles"
-                emptyHeadline="No roles are available"
-                emptyDescription="Predefined roles published by Google Cloud appear here."
-                rowKey={(row) => row.name}
-                columns={[
-                  { header: "Role", cell: (row) => row.title ?? row.name },
-                  { header: "Role name", cell: (row) => row.name },
-                  { header: "Description", cell: (row) => row.description ?? "—" },
-                  { header: "Launch stage", cell: (row) => row.stage ?? "—" },
-                ]}
-              />
-            ),
-          },
-        ]}
-      />
+      <h2 className="gc-section-title">Permissions for project “{project}”</h2>
+      <p className="gc-tab-intro">These permissions affect this project and all of its resources.</p>
+      <div role="tablist" aria-label="View" className="gc-tablist">
+        {(["principals", "roles"] as const).map((id) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={view === id}
+            className={view === id ? "gc-tab gc-tab-active" : "gc-tab"}
+            onClick={() => setView(id)}
+          >
+            {id === "principals" ? "View by principals" : "View by roles"}
+          </button>
+        ))}
+      </div>
+      {view === "principals" ? (
+        <ResourceTableView<PrincipalRow>
+          rows={policy.data ? principals : undefined}
+          isLoading={policy.isLoading}
+          error={policy.error}
+          tableId="iam-grants-table"
+          resourceNoun="principals"
+          rowKey={(row) => row.member}
+          selectable
+          selected={selected}
+          onSelectedChange={setSelected}
+          columns={[
+            { id: "type", header: "Type", cell: (row) => principalType(row.member), value: (row) => principalType(row.member) },
+            { id: "principal", header: "Principal", cell: (row) => row.member, value: (row) => row.member },
+            {
+              id: "role",
+              header: "Role",
+              cell: (row) => (
+                <ul className="gc-cell-list">
+                  {row.roles.map((role) => (
+                    <li key={role}>{roleTitle(role)}</li>
+                  ))}
+                </ul>
+              ),
+              value: (row) => row.roles.map(roleTitle).join(" "),
+            },
+          ]}
+          rowActions={(row) =>
+            row.roles.map((role) => ({
+              label: `Remove ${roleTitle(role)}`,
+              onSelect: () => setRemoving([{ member: row.member, role }]),
+            }))
+          }
+          empty={{ headline: "No principals", description: "Grant a principal a role to give it access to this project." }}
+        />
+      ) : (
+        <ResourceTableView<RoleRow>
+          rows={policy.data ? byRole : undefined}
+          isLoading={policy.isLoading}
+          error={policy.error}
+          tableId="iam-roles-view-table"
+          resourceNoun="roles"
+          rowKey={(row) => row.role}
+          columns={[
+            { id: "role", header: "Role", cell: (row) => roleTitle(row.role), value: (row) => roleTitle(row.role) },
+            { id: "name", header: "Role name", cell: (row) => row.role, value: (row) => row.role },
+            {
+              id: "principals",
+              header: "Principals",
+              cell: (row) => (
+                <ul className="gc-cell-list">
+                  {row.members.map((member) => (
+                    <li key={member}>{member}</li>
+                  ))}
+                </ul>
+              ),
+              value: (row) => row.members.join(" "),
+            },
+          ]}
+          empty={{ headline: "No roles granted", description: "Roles granted on this project appear here." }}
+        />
+      )}
       {granting && policy.data ? (
         <GrantAccessDialog
           policy={policy.data}
@@ -281,14 +350,47 @@ export function IamPage() {
       {removing && policy.data ? (
         <RemoveAccessDialog
           policy={policy.data}
-          grant={removing}
+          grants={removing}
           onClose={() => setRemoving(null)}
           onSaved={() => {
             setRemoving(null);
+            setSelected(new Set());
             refresh();
           }}
         />
       ) : null}
     </>
+  );
+}
+
+export function IamRolesPage() {
+  return (
+    <GcpResourceTable<IamRole>
+      title="Roles"
+      columns={[
+        { id: "title", header: "Title", cell: (row) => row.title ?? row.name, value: (row) => row.title ?? row.name },
+        { id: "id", header: "ID", cell: (row) => row.name, value: (row) => row.name },
+        {
+          id: "stage",
+          header: "Status",
+          cell: (row) => (row.stage ? row.stage.charAt(0) + row.stage.slice(1).toLowerCase() : "—"),
+          value: (row) => row.stage ?? "",
+        },
+        { id: "description", header: "Description", cell: (row) => row.description ?? "—", value: (row) => row.description ?? "" },
+        {
+          id: "permissions",
+          header: "Permissions",
+          cell: (row) => (row.includedPermissions ? String(row.includedPermissions.length) : "—"),
+          value: (row) => String(row.includedPermissions?.length ?? ""),
+          defaultHidden: true,
+        },
+      ]}
+      queryKey={["iam-roles"]}
+      queryFn={fetchIamRoles}
+      resourceNoun="roles"
+      testId="iam-roles-table"
+      empty={{ headline: "No roles", description: "Predefined roles published by Google Cloud appear here." }}
+      rowKey={(row) => row.name}
+    />
   );
 }

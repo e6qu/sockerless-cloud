@@ -9,6 +9,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appcontainers/armappcontainers/v3"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -48,7 +49,7 @@ func replicaNames(replicas []*armappcontainers.Replica) []string {
 // running as they were.
 func TestSDK_ContainerAppsReplicas_AnUnchangedTemplateKeepsTheReplicas(t *testing.T) {
 	t.Parallel()
-	rg, name := uniqueName("sdk-aca-keep-rg"), uniqueName("acakeep")
+	rg, name := uniquename.New("sdk-aca-keep-rg"), uniquename.New("acakeep")
 	ensureRG(t, rg)
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -75,7 +76,7 @@ func TestSDK_ContainerAppsReplicas_AnUnchangedTemplateKeepsTheReplicas(t *testin
 // replica, under its name, and counts the container's restarts.
 func TestSDK_ContainerAppsReplicas_AnExitedContainerRestartsInPlace(t *testing.T) {
 	t.Parallel()
-	rg, name := uniqueName("sdk-aca-restart-rg"), uniqueName("acarestart")
+	rg, name := uniquename.New("sdk-aca-restart-rg"), uniquename.New("acarestart")
 	ensureRG(t, rg)
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -120,7 +121,7 @@ func TestSDK_ContainerAppsReplicas_AnExitedContainerRestartsInPlace(t *testing.T
 // answers as the pod it is, whose hostname is the replica's name.
 func TestSDK_ContainerAppsReplicas_IngressSpreadsAcrossReplicas(t *testing.T) {
 	t.Parallel()
-	rg, name := uniqueName("sdk-aca-spread-rg"), uniqueName("acaspread")
+	rg, name := uniquename.New("sdk-aca-spread-rg"), uniquename.New("acaspread")
 	ensureRG(t, rg)
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -156,7 +157,7 @@ func TestSDK_ContainerAppsReplicas_ReplicasSurviveASimulatorRestart(t *testing.T
 	cmd := startPersistentAzureSimulatorOn(t, "docker", stateDir, port)
 	t.Cleanup(func() { _ = shutdownAzureSimulator(cmd) })
 
-	rg, name := uniqueName("sdk-aca-adopt-rg"), uniqueName("acaadopt")
+	rg, name := uniquename.New("sdk-aca-adopt-rg"), uniquename.New("acaadopt")
 	bearer, err := fetchAccessTokenFrom(endpoint, "test-client-id", "test-client-secret", "https://management.azure.com/.default")
 	require.NoError(t, err)
 	resp := restartRawReq(t, "PUT", endpoint, "/subscriptions/"+subscriptionID+"/resourceGroups/"+rg+"?api-version=2023-07-01",

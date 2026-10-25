@@ -18,29 +18,29 @@ import (
 // registerAppServiceFrontEnd implements the App Service front end: a request
 // whose Host is one of an app's or a deployment slot's hostnames goes to that
 // app's or slot's own container on its port, verbatim, after the container is
-// started if none is running. The simulator serves every site on its one
-// endpoint, so it dispatches on the Host header, as Container Apps ingress
-// does. A stopped site answers App Service's stopped-site page, and a site the
-// simulator has nothing to run for answers 503 naming what it lacks.
+// started if none is running. A stopped site answers App Service's
+// stopped-site page, and a site the simulator has nothing to run for answers
+// 503 naming what it lacks.
 func registerAppServiceFrontEnd(srv *sim.Server) {
-	srv.WrapHandler(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			site, ok := appServiceSiteByHost(r.Host)
+	srv.WrapHandler(lbplane.HostRouter{
+		Route: func(_ *http.Request, host string) (http.Handler, bool) {
+			site, ok := appServiceSiteByHost(host)
 			if !ok {
-				next.ServeHTTP(w, r)
-				return
+				return nil, false
 			}
-			if siteStopped(&site) {
-				writeStoppedSitePage(w)
-				return
-			}
-			if !siteRunsContainer(&site) {
-				AzureErrorf(w, "ServiceUnavailable", http.StatusServiceUnavailable, "%v", siteImageMissing(&site))
-				return
-			}
-			serveSiteRequest(w, r, &site)
-		})
-	})
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if siteStopped(&site) {
+					writeStoppedSitePage(w)
+					return
+				}
+				if !siteRunsContainer(&site) {
+					AzureErrorf(w, "ServiceUnavailable", http.StatusServiceUnavailable, "%v", siteImageMissing(&site))
+					return
+				}
+				serveSiteRequest(w, r, &site)
+			}), true
+		},
+	}.Wrap)
 }
 
 // appServiceSitesByHost and appServiceSlotsByHost index apps and deployment
@@ -55,10 +55,7 @@ var (
 // appServiceSiteByHost returns the app or deployment slot a request's Host
 // header addresses.
 func appServiceSiteByHost(host string) (Site, bool) {
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	host = lbplane.Hostname(host)
 	if host == "" || azfSites == nil {
 		return Site{}, false
 	}
@@ -105,22 +102,18 @@ func serveSiteRequest(w http.ResponseWriter, r *http.Request, site *Site) {
 		AzureErrorf(w, "ServiceUnavailable", http.StatusServiceUnavailable, "%v", err)
 		return
 	}
-	err = lbplane.Forward(w, r, lbplane.Upstream{
+	_ = lbplane.Serve(w, r, lbplane.Upstream{
 		Scheme:        "http",
 		Address:       address,
 		Path:          r.URL.EscapedPath(),
 		RawQuery:      r.URL.RawQuery,
 		RequestHeader: appServiceForwardedHeaders(r, site),
 		Timeout:       azureFunctionsHTTPRequestLimit,
+	}, lbplane.Answers{
+		Failed: func(w http.ResponseWriter, err error) {
+			AzureErrorf(w, "BadGateway", http.StatusBadGateway, "site %q: %v", site.Name, err)
+		},
 	})
-	abortStartedForward(w, err)
-	switch {
-	case err == nil:
-	case errors.Is(err, lbplane.ErrClientWentAway):
-		w.WriteHeader(lbplane.StatusClientClosedRequest)
-	default:
-		AzureErrorf(w, "BadGateway", http.StatusBadGateway, "site %q: %v", site.Name, err)
-	}
 }
 
 // appServiceForwardedHeaders adds the headers App Service's front end, which
@@ -130,10 +123,7 @@ func serveSiteRequest(w http.ResponseWriter, r *http.Request, site *Site) {
 // and the client certificate as X-ARR-ClientCert when the site asks for one.
 func appServiceForwardedHeaders(r *http.Request, site *Site) func(http.Header) {
 	client := r.RemoteAddr
-	proto := "http"
-	if r.TLS != nil {
-		proto = "https"
-	}
+	proto := lbplane.ClientProto(r)
 	clientCert := appServiceClientCertHeader(r, site)
 	return func(h http.Header) {
 		lbplane.AppendToHeaderList(h, "X-Forwarded-For", ", ", client)

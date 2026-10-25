@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,7 +38,7 @@ func s3ExpressBucketInput(bucket, zone string) *s3.CreateBucketInput {
 func TestS3_DirectoryBucketOperationsAreAuthorizedAsS3Express(t *testing.T) {
 	t.Parallel()
 	admin := s3ExpressClient()
-	base := strings.ToLower(uniqueName("sim-auth"))
+	base := strings.ToLower(uniquename.New("sim-auth"))
 	bucket := base + "--use1-az4--x-s3"
 
 	creator := s3ExpressRoleClient(t, "s3express-create",

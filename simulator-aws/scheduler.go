@@ -152,10 +152,7 @@ func scheduleKey(group, name string) string { return group + "/" + name }
 // schedulerError writes a restJson1 typed error: the SDK reads the exception
 // shape from the X-Amzn-Errortype header and the human message from the body.
 func schedulerError(w http.ResponseWriter, errType string, status int, format string, args ...any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Amzn-Errortype", errType)
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"Message": fmt.Sprintf(format, args...)})
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsRestJSON1, Model: "scheduler"}, status, errType, fmt.Sprintf(format, args...), "")
 }
 
 // scheduleGroupParam returns the group name from a query param, defaulting to

@@ -17,6 +17,7 @@ import (
 	"cloud.google.com/go/redis/apiv1/redispb"
 	rediscluster "cloud.google.com/go/redis/cluster/apiv1"
 	"cloud.google.com/go/redis/cluster/apiv1/clusterpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	goredis "github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -419,7 +420,7 @@ func TestMemorystoreRedis_ClusterImportSources(t *testing.T) {
 	requireShards(t, fromBackup, goredis.ClusterOptions{}, 3, 0)
 	requireKeys(t, clusterClient(t, fromBackup, goredis.ClusterOptions{}), "imported", 100)
 
-	bucket := uniqueName("redis-import")
+	bucket := uniquename.New("redis-import")
 	requireProject(t, project)
 	require.NoError(t, gcs.Bucket(bucket).Create(ctx, project, nil))
 	op, err = svc.Projects.Locations.BackupCollections.Backups.Export(backupName, &redis.ExportBackupRequest{GcsBucket: bucket}).Do()

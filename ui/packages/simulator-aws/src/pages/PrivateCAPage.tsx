@@ -11,6 +11,7 @@ import {
   AwsResourceTable,
   AwsStatus,
   type AwsColumn,
+  AwsRefreshButton,
 } from "../console/index.js";
 import { formatEpoch } from "../console/format.js";
 import {
@@ -157,6 +158,7 @@ export function PrivateCAPage() {
         errorTestId="private-ca-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton
               disabled={selected.length === 0 || mutate.isPending}
               onClick={() => mutate.mutate({ authorities: selected, action: "enable" })}
@@ -183,9 +185,6 @@ export function PrivateCAPage() {
               )}
             >
               Delete
-            </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
             </AwsButton>
             <AwsButton variant="primary" onClick={() => setCreating(true)}>Create CA</AwsButton>
           </>

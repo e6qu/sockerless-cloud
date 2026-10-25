@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -282,7 +283,7 @@ func TestServiceUsageCLI_OperationsCancel(t *testing.T) {
 // and not the project create Cloud Resource Manager started.
 func TestServiceUsageCLI_OperationsList(t *testing.T) {
 	t.Parallel()
-	projectID := uniqueName("su-ops-list")
+	projectID := uniquename.New("su-ops-list")
 	runCLI(t, gcloudCLI("projects", "create", projectID, "--organization="+cliOrganizationID, "--format=json"))
 	out := httpDoJSON(t, "POST",
 		fmt.Sprintf("%s/v1/projects/%s/services/pubsub.googleapis.com:enable", baseURL, projectID), `{}`)

@@ -7,8 +7,6 @@ import (
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
-	"github.com/e6qu/sockerless-cloud/sim/sidecar"
-	"github.com/e6qu/sockerless-cloud/sim/sidecar/egress"
 )
 
 // vnetNameFromSubnetID extracts the VNet name from a subnet resource ID
@@ -264,6 +262,9 @@ func registerNetwork(srv *sim.Server) {
 	azureVnets = vnets
 	azureSubnets = subnets
 	azureNSGs = nsgs
+	azureVNetPeerings = sim.MakeStore[VirtualNetworkPeering](srv.DB(), "network_vnet_peerings")
+	azureLBInboundNatRules = sim.MakeStore[LoadBalancerChild](srv.DB(), "network_lb_inbound_nat_rules")
+	azureNICTapConfigs = sim.MakeStore[InterfaceTapConfiguration](srv.DB(), "network_nic_tap_configs")
 	// The Microsoft.Network move hooks read their stores through accessors at
 	// request time, so all of them register here even though the stores they
 	// read are assigned across several register functions.
@@ -271,576 +272,9 @@ func registerNetwork(srv *sim.Server) {
 
 	const armBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Network"
 
-	srv.HandleFunc("PUT "+armBase+"/virtualNetworks/{vnetName}", func(w http.ResponseWriter, r *http.Request) {
-		sub := sim.PathParam(r, "subscriptionId")
-		rg := sim.PathParam(r, "resourceGroupName")
-		vnetName := sim.PathParam(r, "vnetName")
-
-		var req VirtualNetwork
-		if err := sim.ReadJSON(r, &req); err != nil {
-			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s",
-			sub, rg, vnetName)
-
-		privateEndpointVNetPolicies := req.Properties.PrivateEndpointVNetPolicies
-		if privateEndpointVNetPolicies == "" {
-			privateEndpointVNetPolicies = "Disabled"
-		}
-
-		vnet := VirtualNetwork{
-			ID:       resourceID,
-			Name:     vnetName,
-			Type:     "Microsoft.Network/virtualNetworks",
-			Location: req.Location,
-			Tags:     req.Tags,
-			Properties: VNetProperties{
-				AddressSpace:                req.Properties.AddressSpace,
-				PrivateEndpointVNetPolicies: privateEndpointVNetPolicies,
-				ProvisioningState:           "Succeeded",
-			},
-		}
-
-		vnets.Put(resourceID, vnet)
-
-		// Subnets declared inline are created exactly as their standalone PUTs
-		// create them — real Azure does, and `az network vnet create
-		// --subnet-name` depends on it.
-		for _, inline := range req.Properties.Subnets {
-			if inline.Name == "" {
-				AzureError(w, "InvalidRequestContent",
-					"A subnet declared on a virtual network must carry a name.", http.StatusBadRequest)
-				return
-			}
-			built := azureBuildSubnet(resourceID+"/subnets/"+inline.Name, inline.Name, inline)
-			if code, message, status := azureMaterializeSubnet(built); code != "" {
-				AzureError(w, code, message, status)
-				return
-			}
-		}
-
-		azureReapplyNAT()
-
-		// The response embeds every subnet the network holds, inline-declared
-		// and pre-existing alike.
-		subnetList := subnets.Filter(func(s Subnet) bool {
-			return strings.HasPrefix(s.ID, resourceID+"/subnets/")
-		})
-		vnet.Properties.Subnets = append(vnet.Properties.Subnets, subnetList...)
-		vnets.Put(resourceID, vnet)
-
-		// go-azure-sdk expects 200 for sync creates
-		sim.WriteJSON(w, http.StatusOK, vnet)
-	})
-
-	srv.HandleFunc("GET "+armBase+"/virtualNetworks/{vnetName}", func(w http.ResponseWriter, r *http.Request) {
-		sub := sim.PathParam(r, "subscriptionId")
-		rg := sim.PathParam(r, "resourceGroupName")
-		vnetName := sim.PathParam(r, "vnetName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s",
-			sub, rg, vnetName)
-
-		vnet, ok := vnets.Get(resourceID)
-		if !ok {
-			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
-				"The Resource 'Microsoft.Network/virtualNetworks/%s' under resource group '%s' was not found.", vnetName, rg)
-			return
-		}
-
-		// Refresh subnet refs
-		vnet.Properties.Subnets = nil
-		subnetList := subnets.Filter(func(s Subnet) bool {
-			return strings.HasPrefix(s.ID, resourceID+"/subnets/")
-		})
-		vnet.Properties.Subnets = append(vnet.Properties.Subnets, subnetList...)
-
-		sim.WriteJSON(w, http.StatusOK, vnet)
-	})
-
-	srv.HandleFunc("DELETE "+armBase+"/virtualNetworks/{vnetName}", func(w http.ResponseWriter, r *http.Request) {
-		sub := sim.PathParam(r, "subscriptionId")
-		rg := sim.PathParam(r, "resourceGroupName")
-		vnetName := sim.PathParam(r, "vnetName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s",
-			sub, rg, vnetName)
-
-		// The engine refuses to remove a network a container is still
-		// attached to, which is Azure's own refusal of a network still in use.
-		if err := azureRemoveVNetNetwork(r.Context(), resourceID); err != nil {
-			AzureErrorf(w, "InUseSubnetCannotBeDeleted", http.StatusBadRequest,
-				"Virtual network %s is in use and cannot be deleted. In order to delete the virtual network, delete all the resources within it: %v", resourceID, err)
-			return
-		}
-		vnets.Delete(resourceID)
-		subnetList := subnets.Filter(func(s Subnet) bool {
-			return strings.HasPrefix(s.ID, resourceID+"/subnets/")
-		})
-		for _, s := range subnetList {
-			subnets.Delete(s.ID)
-			azureForgetSubnetLedger(s.ID)
-		}
-		w.WriteHeader(http.StatusOK)
-	})
-
-	srv.HandleFunc("PUT "+armBase+"/virtualNetworks/{vnetName}/subnets/{subnetName}", func(w http.ResponseWriter, r *http.Request) {
-		sub := sim.PathParam(r, "subscriptionId")
-		rg := sim.PathParam(r, "resourceGroupName")
-		vnetName := sim.PathParam(r, "vnetName")
-		subnetName := sim.PathParam(r, "subnetName")
-
-		var req Subnet
-		if err := sim.ReadJSON(r, &req); err != nil {
-			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s/subnets/%s",
-			sub, rg, vnetName, subnetName)
-
-		// A subnet is a child of its virtual network: Azure rejects the write
-		// with the parent's ResourceNotFound.
-		vnetID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s",
-			sub, rg, vnetName)
-		if _, ok := vnets.Get(vnetID); !ok {
-			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
-				"The Resource 'Microsoft.Network/virtualNetworks/%s' under resource group '%s' was not found.", vnetName, rg)
-			return
-		}
-
-		sn := azureBuildSubnet(resourceID, subnetName, req)
-		if code, message, status := azureMaterializeSubnet(sn); code != "" {
-			AzureError(w, code, message, status)
-			return
-		}
-		azureReapplyNAT()
-
-		// go-azure-sdk expects 200 for sync creates
-		sim.WriteJSON(w, http.StatusOK, sn)
-	})
-
-	srv.HandleFunc("GET "+armBase+"/virtualNetworks/{vnetName}/subnets/{subnetName}", func(w http.ResponseWriter, r *http.Request) {
-		sub := sim.PathParam(r, "subscriptionId")
-		rg := sim.PathParam(r, "resourceGroupName")
-		vnetName := sim.PathParam(r, "vnetName")
-		subnetName := sim.PathParam(r, "subnetName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s/subnets/%s",
-			sub, rg, vnetName, subnetName)
-
-		sn, ok := subnets.Get(resourceID)
-		if !ok {
-			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
-				"The Resource 'subnets/%s' under virtualNetworks '%s' was not found.", subnetName, vnetName)
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, sn)
-	})
-
-	srv.HandleFunc("DELETE "+armBase+"/virtualNetworks/{vnetName}/subnets/{subnetName}", func(w http.ResponseWriter, r *http.Request) {
-		sub := sim.PathParam(r, "subscriptionId")
-		rg := sim.PathParam(r, "resourceGroupName")
-		vnetName := sim.PathParam(r, "vnetName")
-		subnetName := sim.PathParam(r, "subnetName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s/subnets/%s",
-			sub, rg, vnetName, subnetName)
-
-		subnets.Delete(resourceID)
-		azureForgetSubnetLedger(resourceID)
-		w.WriteHeader(http.StatusOK)
-	})
-
-	srv.HandleFunc("PUT "+armBase+"/networkSecurityGroups/{nsgName}", func(w http.ResponseWriter, r *http.Request) {
-		sub := sim.PathParam(r, "subscriptionId")
-		rg := sim.PathParam(r, "resourceGroupName")
-		nsgName := sim.PathParam(r, "nsgName")
-
-		var req NetworkSecurityGroup
-		if err := sim.ReadJSON(r, &req); err != nil {
-			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s",
-			sub, rg, nsgName)
-
-		for _, rule := range req.Properties.SecurityRules {
-			if port := azureInvalidSecurityRulePort(rule.Properties); port != "" {
-				azureWriteInvalidPortRange(w, port)
-				return
-			}
-		}
-		// Set IDs on security rules
-		for i := range req.Properties.SecurityRules {
-			req.Properties.SecurityRules[i].ID = fmt.Sprintf("%s/securityRules/%s", resourceID, req.Properties.SecurityRules[i].Name)
-			req.Properties.SecurityRules[i].Type = "Microsoft.Network/networkSecurityGroups/securityRules"
-			req.Properties.SecurityRules[i].Properties.ProvisioningState = "Succeeded"
-		}
-
-		nsg := NetworkSecurityGroup{
-			ID:       resourceID,
-			Name:     nsgName,
-			Type:     "Microsoft.Network/networkSecurityGroups",
-			Location: req.Location,
-			Tags:     req.Tags,
-			Properties: NSGProperties{
-				SecurityRules:     req.Properties.SecurityRules,
-				ProvisioningState: "Succeeded",
-			},
-		}
-		nsgs.Put(resourceID, nsg)
-		azureReapplyIngress()
-
-		// go-azure-sdk expects 200 for sync creates
-		sim.WriteJSON(w, http.StatusOK, nsg)
-	})
-
-	srv.HandleFunc("GET "+armBase+"/networkSecurityGroups/{nsgName}", func(w http.ResponseWriter, r *http.Request) {
-		sub := sim.PathParam(r, "subscriptionId")
-		rg := sim.PathParam(r, "resourceGroupName")
-		nsgName := sim.PathParam(r, "nsgName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s",
-			sub, rg, nsgName)
-
-		nsg, ok := nsgs.Get(resourceID)
-		if !ok {
-			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
-				"The Resource 'Microsoft.Network/networkSecurityGroups/%s' under resource group '%s' was not found.", nsgName, rg)
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, nsg)
-	})
-
-	srv.HandleFunc("DELETE "+armBase+"/networkSecurityGroups/{nsgName}", func(w http.ResponseWriter, r *http.Request) {
-		sub := sim.PathParam(r, "subscriptionId")
-		rg := sim.PathParam(r, "resourceGroupName")
-		nsgName := sim.PathParam(r, "nsgName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s",
-			sub, rg, nsgName)
-
-		nsgs.Delete(resourceID)
-		azureReapplyIngress()
-		w.WriteHeader(http.StatusOK)
-	})
-
-	// This is handled via the subnet PUT endpoint above (networkSecurityGroup property on subnet).
-	// The azurerm_subnet_network_security_group_association resource just PUTs the subnet
-	// with the networkSecurityGroup reference set.
-
-	// The NSG handlers above let callers embed SecurityRules in the
-	// NSG body, but armnetwork.SecurityRulesClient CRUDs each rule
-	// via its sub-resource path. Expose those so the backend can use
-	// the per-rule client.
-
-	// PUT rule
-	srv.HandleFunc("PUT "+armBase+"/networkSecurityGroups/{nsgName}/securityRules/{ruleName}",
-		func(w http.ResponseWriter, r *http.Request) {
-			sub := sim.PathParam(r, "subscriptionId")
-			rg := sim.PathParam(r, "resourceGroupName")
-			nsgName := sim.PathParam(r, "nsgName")
-			ruleName := sim.PathParam(r, "ruleName")
-			nsgID := fmt.Sprintf(
-				"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s",
-				sub, rg, nsgName)
-			ruleID := fmt.Sprintf("%s/securityRules/%s", nsgID, ruleName)
-
-			nsg, ok := nsgs.Get(nsgID)
-			if !ok {
-				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
-					"The Resource 'Microsoft.Network/networkSecurityGroups/%s' under resource group '%s' was not found.",
-					nsgName, rg)
-				return
-			}
-
-			var req SecurityRule
-			if err := sim.ReadJSON(r, &req); err != nil {
-				AzureError(w, "InvalidRequestContent",
-					"Failed to parse request body: "+err.Error(), http.StatusBadRequest)
-				return
-			}
-			if port := azureInvalidSecurityRulePort(req.Properties); port != "" {
-				azureWriteInvalidPortRange(w, port)
-				return
-			}
-			req.ID = ruleID
-			req.Name = ruleName
-			req.Type = "Microsoft.Network/networkSecurityGroups/securityRules"
-			req.Properties.ProvisioningState = "Succeeded"
-
-			// Real Azure rejects duplicate priorities within an NSG +
-			// direction (a rule cannot share a (Priority, Direction)
-			// pair with another rule on the same NSG). The error code
-			// is `SecurityRuleParameterPriorityAlreadyTaken`. Match
-			// that contract so terraform configurations and SDK callers
-			// see the real validation flow instead of a silent overwrite.
-			for _, existing := range nsg.Properties.SecurityRules {
-				if existing.Name == ruleName {
-					continue
-				}
-				if existing.Properties.Priority == req.Properties.Priority &&
-					strings.EqualFold(existing.Properties.Direction, req.Properties.Direction) {
-					AzureErrorf(w, "SecurityRuleParameterPriorityAlreadyTaken",
-						http.StatusBadRequest,
-						"Priority %d is already in use for direction %s by rule %q in NSG %q",
-						req.Properties.Priority, req.Properties.Direction, existing.Name, nsgName)
-					return
-				}
-			}
-
-			// Upsert inside NSG.Properties.SecurityRules so GET NSG stays consistent.
-			found := false
-			for i := range nsg.Properties.SecurityRules {
-				if nsg.Properties.SecurityRules[i].Name == ruleName {
-					nsg.Properties.SecurityRules[i] = req
-					found = true
-					break
-				}
-			}
-			if !found {
-				nsg.Properties.SecurityRules = append(nsg.Properties.SecurityRules, req)
-			}
-			nsgs.Put(nsgID, nsg)
-			azureReapplyIngress()
-
-			sim.WriteJSON(w, http.StatusOK, req)
-		})
-
-	// GET rule
-	srv.HandleFunc("GET "+armBase+"/networkSecurityGroups/{nsgName}/securityRules/{ruleName}",
-		func(w http.ResponseWriter, r *http.Request) {
-			sub := sim.PathParam(r, "subscriptionId")
-			rg := sim.PathParam(r, "resourceGroupName")
-			nsgName := sim.PathParam(r, "nsgName")
-			ruleName := sim.PathParam(r, "ruleName")
-			nsgID := fmt.Sprintf(
-				"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s",
-				sub, rg, nsgName)
-
-			nsg, ok := nsgs.Get(nsgID)
-			if !ok {
-				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
-					"NSG '%s' not found in resource group '%s'.", nsgName, rg)
-				return
-			}
-			for _, rule := range nsg.Properties.SecurityRules {
-				if rule.Name == ruleName {
-					sim.WriteJSON(w, http.StatusOK, rule)
-					return
-				}
-			}
-			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
-				"Security rule '%s' not found in NSG '%s'.", ruleName, nsgName)
-		})
-
-	// DELETE rule
-	srv.HandleFunc("DELETE "+armBase+"/networkSecurityGroups/{nsgName}/securityRules/{ruleName}",
-		func(w http.ResponseWriter, r *http.Request) {
-			sub := sim.PathParam(r, "subscriptionId")
-			rg := sim.PathParam(r, "resourceGroupName")
-			nsgName := sim.PathParam(r, "nsgName")
-			ruleName := sim.PathParam(r, "ruleName")
-			nsgID := fmt.Sprintf(
-				"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s",
-				sub, rg, nsgName)
-
-			nsg, ok := nsgs.Get(nsgID)
-			if !ok {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			filtered := nsg.Properties.SecurityRules[:0]
-			for _, rule := range nsg.Properties.SecurityRules {
-				if rule.Name != ruleName {
-					filtered = append(filtered, rule)
-				}
-			}
-			nsg.Properties.SecurityRules = filtered
-			nsgs.Put(nsgID, nsg)
-			azureReapplyIngress()
-			w.WriteHeader(http.StatusOK)
-		})
-
-	// LIST rules
-	srv.HandleFunc("GET "+armBase+"/networkSecurityGroups/{nsgName}/securityRules",
-		func(w http.ResponseWriter, r *http.Request) {
-			sub := sim.PathParam(r, "subscriptionId")
-			rg := sim.PathParam(r, "resourceGroupName")
-			nsgName := sim.PathParam(r, "nsgName")
-			nsgID := fmt.Sprintf(
-				"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s",
-				sub, rg, nsgName)
-
-			nsg, ok := nsgs.Get(nsgID)
-			if !ok {
-				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
-					"NSG '%s' not found.", nsgName)
-				return
-			}
-			sim.WriteJSON(w, http.StatusOK, map[string]any{
-				"value": nsg.Properties.SecurityRules,
-			})
-		})
-
-	// Real Azure: `Microsoft.Network/natGateways` provides outbound
-	// connectivity for subnets that need explicit egress; route tables
-	// (`Microsoft.Network/routeTables`) override default-route behavior.
-	// Serverless egress — an Azure Container Apps app with VNet integration
-	// reaching the Internet — is provisioned as a NAT gateway; without these
-	// handlers, terraform's `azurerm_nat_gateway` and `azurerm_route_table`
-	// 404. Field set covers what the SDK round-trips on Get/List.
-	natGateways := sim.MakeStore[NatGateway](srv.DB(), "nat_gateways")
-	routeTables := sim.MakeStore[RouteTable](srv.DB(), "route_tables")
-	azureNatGateways = natGateways
-	azureRouteTables = routeTables
-	azureVNetPeerings = sim.MakeStore[VirtualNetworkPeering](srv.DB(), "network_vnet_peerings")
-	azureLBInboundNatRules = sim.MakeStore[LoadBalancerChild](srv.DB(), "network_lb_inbound_nat_rules")
-	azureNICTapConfigs = sim.MakeStore[InterfaceTapConfiguration](srv.DB(), "network_nic_tap_configs")
-
-	srv.HandleFunc("POST "+egress.ReportPath, sidecar.EgressReports(azureTakeNATEgressReport))
-	srv.HandleFunc("PUT "+armBase+"/natGateways/{name}", func(w http.ResponseWriter, r *http.Request) {
-		sub := sim.PathParam(r, "subscriptionId")
-		rg := sim.PathParam(r, "resourceGroupName")
-		name := sim.PathParam(r, "name")
-		var req NatGateway
-		if err := sim.ReadJSON(r, &req); err != nil {
-			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
-			return
-		}
-		resourceID := fmt.Sprintf(
-			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/natGateways/%s",
-			sub, rg, name)
-		gw := NatGateway{
-			ID:       resourceID,
-			Name:     name,
-			Type:     "Microsoft.Network/natGateways",
-			Location: req.Location,
-			Tags:     req.Tags,
-			Sku:      req.Sku,
-			Properties: NatGatewayProps{
-				IdleTimeoutInMinutes: req.Properties.IdleTimeoutInMinutes,
-				PublicIPAddresses:    req.Properties.PublicIPAddresses,
-				PublicIPPrefixes:     req.Properties.PublicIPPrefixes,
-				Subnets:              req.Properties.Subnets,
-				ProvisioningState:    "Succeeded",
-			},
-		}
-		if gw.Properties.IdleTimeoutInMinutes == 0 {
-			gw.Properties.IdleTimeoutInMinutes = 4 // real Azure default
-		}
-		if gw.Sku == nil {
-			gw.Sku = &SkuName{Name: "Standard"}
-		}
-		natGateways.Put(resourceID, gw)
-		for _, ref := range gw.Properties.Subnets {
-			// Persist the subnet→NAT-gateway association atomically so the
-			// subnet's own Get and azureSubnetsForNatGateway both observe it.
-			azureSubnets.Update(ref.ID, func(sn *Subnet) {
-				sn.Properties.NatGateway = &SubResource{ID: gw.ID}
-			})
-		}
-		azureReapplyNAT()
-		sim.WriteJSON(w, http.StatusOK, gw)
-	})
-
-	srv.HandleFunc("GET "+armBase+"/natGateways/{name}", func(w http.ResponseWriter, r *http.Request) {
-		sub := sim.PathParam(r, "subscriptionId")
-		rg := sim.PathParam(r, "resourceGroupName")
-		name := sim.PathParam(r, "name")
-		resourceID := fmt.Sprintf(
-			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/natGateways/%s",
-			sub, rg, name)
-		gw, ok := natGateways.Get(resourceID)
-		if !ok {
-			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
-				"NAT gateway %q not found.", name)
-			return
-		}
-		gw.Properties.Subnets = azureSubnetsForNatGateway(gw.ID)
-		sim.WriteJSON(w, http.StatusOK, gw)
-	})
-
-	srv.HandleFunc("GET "+armBase+"/natGateways", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/natGateways/",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
-		items := natGateways.Filter(func(gw NatGateway) bool {
-			return strings.HasPrefix(gw.ID, prefix)
-		})
-		if items == nil {
-			items = []NatGateway{}
-		}
-		for i := range items {
-			items[i].Properties.Subnets = azureSubnetsForNatGateway(items[i].ID)
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": items})
-	})
-
-	srv.HandleFunc("DELETE "+armBase+"/natGateways/{name}", func(w http.ResponseWriter, r *http.Request) {
-		sub := sim.PathParam(r, "subscriptionId")
-		rg := sim.PathParam(r, "resourceGroupName")
-		name := sim.PathParam(r, "name")
-		resourceID := fmt.Sprintf(
-			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/natGateways/%s",
-			sub, rg, name)
-		natGateways.Delete(resourceID)
-		azureRemoveNATGatewayEgress(resourceID)
-		azureReapplyRoutes()
-		w.WriteHeader(http.StatusOK)
-	})
-
-	srv.HandleFunc("PUT "+armBase+"/routeTables/{name}", func(w http.ResponseWriter, r *http.Request) {
-		sub := sim.PathParam(r, "subscriptionId")
-		rg := sim.PathParam(r, "resourceGroupName")
-		name := sim.PathParam(r, "name")
-		var req RouteTable
-		if err := sim.ReadJSON(r, &req); err != nil {
-			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "invalid request body: %v", err)
-			return
-		}
-		resourceID := fmt.Sprintf(
-			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/routeTables/%s",
-			sub, rg, name)
-		rt := RouteTable{
-			ID:       resourceID,
-			Name:     name,
-			Type:     "Microsoft.Network/routeTables",
-			Location: req.Location,
-			Tags:     req.Tags,
-			Properties: RouteTableProps{
-				DisableBgpRoutePropagation: req.Properties.DisableBgpRoutePropagation,
-				Routes:                     normalizeRouteEntries(resourceID, req.Properties.Routes),
-				ProvisioningState:          "Succeeded",
-			},
-		}
-		routeTables.Put(resourceID, rt)
-		sim.WriteJSON(w, http.StatusOK, rt)
-	})
-
-	srv.HandleFunc("GET "+armBase+"/routeTables/{name}", func(w http.ResponseWriter, r *http.Request) {
-		sub := sim.PathParam(r, "subscriptionId")
-		rg := sim.PathParam(r, "resourceGroupName")
-		name := sim.PathParam(r, "name")
-		resourceID := fmt.Sprintf(
-			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/routeTables/%s",
-			sub, rg, name)
-		rt, ok := routeTables.Get(resourceID)
-		if !ok {
-			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
-				"Route table %q not found.", name)
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, rt)
-	})
-
-	srv.HandleFunc("DELETE "+armBase+"/routeTables/{name}", func(w http.ResponseWriter, r *http.Request) {
-		sub := sim.PathParam(r, "subscriptionId")
-		rg := sim.PathParam(r, "resourceGroupName")
-		name := sim.PathParam(r, "name")
-		resourceID := fmt.Sprintf(
-			"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/routeTables/%s",
-			sub, rg, name)
-		routeTables.Delete(resourceID)
-		w.WriteHeader(http.StatusOK)
-	})
+	registerVirtualNetworks(srv, armBase, vnets, subnets)
+	registerNetworkSecurityGroups(srv, armBase, nsgs)
+	registerNATGatewaysAndRouteTables(srv, armBase)
 
 	// Subscription-wide list-all, resource-group list, and UpdateTags
 	// (PATCH) for every top-level Microsoft.Network resource; the
@@ -921,8 +355,7 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 	subBase := azureNetworkSubBase()
 
 	rgPrefix := func(r *http.Request, resourceType string) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/%s/",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), resourceType)
+		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", resourceType) + "/"
 	}
 
 	srv.HandleFunc("GET "+armBase+"/virtualNetworks", func(w http.ResponseWriter, r *http.Request) {
@@ -930,12 +363,11 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 		azureWriteList(w, azureRefreshedVnets(prefix))
 	})
 	srv.HandleFunc("GET "+subBase+"/virtualNetworks", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		azureWriteList(w, azureRefreshedVnets(prefix))
 	})
 	srv.HandleFunc("PATCH "+armBase+"/virtualNetworks/{vnetName}", func(w http.ResponseWriter, r *http.Request) {
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "vnetName"))
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "virtualNetworks", sim.PathParam(r, "vnetName"))
 		if !azureApplyTagsPatch(w, r, func(set map[string]string) bool {
 			return azureVnets.Update(id, func(v *VirtualNetwork) { v.Tags = set })
 		}) {
@@ -951,12 +383,11 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 		azureWriteList(w, azureNSGs.Filter(func(n NetworkSecurityGroup) bool { return strings.HasPrefix(n.ID, prefix) }))
 	})
 	srv.HandleFunc("GET "+subBase+"/networkSecurityGroups", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		azureWriteList(w, azureNSGs.Filter(func(n NetworkSecurityGroup) bool { return strings.HasPrefix(n.ID, prefix) }))
 	})
 	srv.HandleFunc("PATCH "+armBase+"/networkSecurityGroups/{nsgName}", func(w http.ResponseWriter, r *http.Request) {
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "nsgName"))
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "networkSecurityGroups", sim.PathParam(r, "nsgName"))
 		if !azureApplyTagsPatch(w, r, func(set map[string]string) bool {
 			return azureNSGs.Update(id, func(n *NetworkSecurityGroup) { n.Tags = set })
 		}) {
@@ -971,12 +402,11 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 		azureWriteList(w, azureRouteTables.Filter(func(rt RouteTable) bool { return strings.HasPrefix(rt.ID, prefix) }))
 	})
 	srv.HandleFunc("GET "+subBase+"/routeTables", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		azureWriteList(w, azureRouteTables.Filter(func(rt RouteTable) bool { return strings.HasPrefix(rt.ID, prefix) }))
 	})
 	srv.HandleFunc("PATCH "+armBase+"/routeTables/{name}", func(w http.ResponseWriter, r *http.Request) {
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/routeTables/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "routeTables", sim.PathParam(r, "name"))
 		if !azureApplyTagsPatch(w, r, func(set map[string]string) bool {
 			return azureRouteTables.Update(id, func(rt *RouteTable) { rt.Tags = set })
 		}) {
@@ -987,7 +417,7 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET "+subBase+"/natGateways", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		items := azureNatGateways.Filter(func(gw NatGateway) bool { return strings.HasPrefix(gw.ID, prefix) })
 		for i := range items {
 			items[i].Properties.Subnets = azureSubnetsForNatGateway(items[i].ID)
@@ -995,8 +425,7 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 		azureWriteList(w, items)
 	})
 	srv.HandleFunc("PATCH "+armBase+"/natGateways/{name}", func(w http.ResponseWriter, r *http.Request) {
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/natGateways/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "natGateways", sim.PathParam(r, "name"))
 		if !azureApplyTagsPatch(w, r, func(set map[string]string) bool {
 			return azureNatGateways.Update(id, func(gw *NatGateway) { gw.Tags = set })
 		}) {
@@ -1008,7 +437,7 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET "+subBase+"/loadBalancers", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		azureWriteList(w, azureLBs.Filter(func(lb LoadBalancer) bool { return strings.HasPrefix(lb.ID, prefix) }))
 	})
 	srv.HandleFunc("PATCH "+armBase+"/loadBalancers/{loadBalancerName}", func(w http.ResponseWriter, r *http.Request) {
@@ -1023,12 +452,11 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET "+subBase+"/networkInterfaces", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		azureWriteList(w, azureNICs.Filter(func(n NetworkInterface) bool { return strings.HasPrefix(n.ID, prefix) }))
 	})
 	srv.HandleFunc("PATCH "+armBase+"/networkInterfaces/{networkInterfaceName}", func(w http.ResponseWriter, r *http.Request) {
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkInterfaces/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "networkInterfaceName"))
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "networkInterfaces", sim.PathParam(r, "networkInterfaceName"))
 		if !azureApplyTagsPatch(w, r, func(set map[string]string) bool {
 			return azureNICs.Update(id, func(n *NetworkInterface) { n.Tags = set })
 		}) {
@@ -1039,12 +467,11 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET "+subBase+"/publicIPAddresses", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		azureWriteList(w, azurePublicIPs.Filter(func(p PublicIPAddress) bool { return strings.HasPrefix(p.ID, prefix) }))
 	})
 	srv.HandleFunc("PATCH "+armBase+"/publicIPAddresses/{publicIPName}", func(w http.ResponseWriter, r *http.Request) {
-		id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/publicIPAddresses/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "publicIPName"))
+		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "publicIPAddresses", sim.PathParam(r, "publicIPName"))
 		if !azureApplyTagsPatch(w, r, func(set map[string]string) bool {
 			return azurePublicIPs.Update(id, func(p *PublicIPAddress) { p.Tags = set })
 		}) {
@@ -1055,7 +482,7 @@ func registerNetworkListsAndTags(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET "+subBase+"/publicIPPrefixes", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		azureWriteList(w, azurePublicIPPrefixes.Filter(func(p PublicIPPrefix) bool { return strings.HasPrefix(p.ID, prefix) }))
 	})
 	srv.HandleFunc("PATCH "+armBase+"/publicIPPrefixes/{publicIPPrefixName}", func(w http.ResponseWriter, r *http.Request) {
@@ -1107,8 +534,7 @@ func registerVirtualNetworkSubResources(srv *sim.Server) {
 
 	// Subnets list.
 	srv.HandleFunc("GET "+armBase+"/virtualNetworks/{vnetName}/subnets", func(w http.ResponseWriter, r *http.Request) {
-		vnetID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "vnetName"))
+		vnetID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "virtualNetworks", sim.PathParam(r, "vnetName"))
 		azureWriteList(w, azureSubnets.Filter(func(s Subnet) bool { return strings.HasPrefix(s.ID, vnetID+"/subnets/") }))
 	})
 
@@ -1122,8 +548,7 @@ func registerVirtualNetworkSubResources(srv *sim.Server) {
 
 	// Virtual-network peerings.
 	peeringID := func(r *http.Request) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s/virtualNetworkPeerings/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "vnetName"), sim.PathParam(r, "peeringName"))
+		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "virtualNetworks", sim.PathParam(r, "vnetName"), "virtualNetworkPeerings", sim.PathParam(r, "peeringName"))
 	}
 	srv.HandleFunc("PUT "+armBase+"/virtualNetworks/{vnetName}/virtualNetworkPeerings/{peeringName}", func(w http.ResponseWriter, r *http.Request) {
 		var req VirtualNetworkPeering
@@ -1158,8 +583,7 @@ func registerVirtualNetworkSubResources(srv *sim.Server) {
 		w.WriteHeader(http.StatusOK)
 	})
 	srv.HandleFunc("GET "+armBase+"/virtualNetworks/{vnetName}/virtualNetworkPeerings", func(w http.ResponseWriter, r *http.Request) {
-		vnetID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/virtualNetworks/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "vnetName"))
+		vnetID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "virtualNetworks", sim.PathParam(r, "vnetName"))
 		azureWriteList(w, azureVNetPeerings.Filter(func(p VirtualNetworkPeering) bool { return strings.HasPrefix(p.ID, vnetID+"/virtualNetworkPeerings/") }))
 	})
 
@@ -1194,8 +618,7 @@ func registerVirtualNetworkSubResources(srv *sim.Server) {
 func registerNSGDefaultRules(srv *sim.Server) {
 	armBase := azureNetworkArmBase()
 	srv.HandleFunc("GET "+armBase+"/networkSecurityGroups/{nsgName}/defaultSecurityRules", func(w http.ResponseWriter, r *http.Request) {
-		nsgID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "nsgName"))
+		nsgID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "networkSecurityGroups", sim.PathParam(r, "nsgName"))
 		if _, ok := azureNSGs.Get(nsgID); !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "NSG %q not found.", sim.PathParam(r, "nsgName"))
 			return
@@ -1203,8 +626,7 @@ func registerNSGDefaultRules(srv *sim.Server) {
 		azureWriteList(w, azureDefaultSecurityRules(nsgID))
 	})
 	srv.HandleFunc("GET "+armBase+"/networkSecurityGroups/{nsgName}/defaultSecurityRules/{defaultSecurityRuleName}", func(w http.ResponseWriter, r *http.Request) {
-		nsgID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkSecurityGroups/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "nsgName"))
+		nsgID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "networkSecurityGroups", sim.PathParam(r, "nsgName"))
 		want := sim.PathParam(r, "defaultSecurityRuleName")
 		for _, rule := range azureDefaultSecurityRules(nsgID) {
 			if strings.EqualFold(rule.Name, want) {
@@ -1350,8 +772,7 @@ func registerLoadBalancerSubResources(srv *sim.Server) {
 func registerNetworkInterfaceSubResources(srv *sim.Server) {
 	armBase := azureNetworkArmBase()
 	nicID := func(r *http.Request) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkInterfaces/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "networkInterfaceName"))
+		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "networkInterfaces", sim.PathParam(r, "networkInterfaceName"))
 	}
 
 	srv.HandleFunc("GET "+armBase+"/networkInterfaces/{networkInterfaceName}/ipConfigurations", func(w http.ResponseWriter, r *http.Request) {
@@ -1438,8 +859,7 @@ func registerNetworkInterfaceSubResources(srv *sim.Server) {
 func registerRouteTableRoutes(srv *sim.Server) {
 	armBase := azureNetworkArmBase()
 	tableID := func(r *http.Request) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/routeTables/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "routeTableName"))
+		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "routeTables", sim.PathParam(r, "routeTableName"))
 	}
 	srv.HandleFunc("PUT "+armBase+"/routeTables/{routeTableName}/routes/{routeName}", func(w http.ResponseWriter, r *http.Request) {
 		id := tableID(r)

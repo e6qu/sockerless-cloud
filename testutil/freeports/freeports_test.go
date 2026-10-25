@@ -32,3 +32,20 @@ func TestPickRefusesZero(t *testing.T) {
 		t.Fatal("Pick(0) returned no error")
 	}
 }
+
+func TestTCPUDPIsBindableOnBothProtocols(t *testing.T) {
+	port, err := TCPUDP()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tcpListener, err := net.Listen("tcp", ":"+strconv.Itoa(port))
+	if err != nil {
+		t.Fatalf("port %d is not free on TCP: %v", port, err)
+	}
+	defer tcpListener.Close()
+	udpListener, err := net.ListenPacket("udp", ":"+strconv.Itoa(port))
+	if err != nil {
+		t.Fatalf("port %d is not free on UDP beside TCP: %v", port, err)
+	}
+	_ = udpListener.Close()
+}

@@ -55,8 +55,7 @@ var (
 const mhsmDefaultSoftDeleteDays = 90
 
 func deletedManagedHSMID(sub, location, name string) string {
-	return fmt.Sprintf("/subscriptions/%s/providers/Microsoft.KeyVault/locations/%s/deletedManagedHSMs/%s",
-		sub, location, name)
+	return armSubscriptionResourceID(sub, "Microsoft.KeyVault", "locations", location, "deletedManagedHSMs", name)
 }
 
 // mhsmSoftDelete records the retirement of a pool that carried soft delete.
@@ -90,7 +89,7 @@ func registerManagedHSMTail(srv *sim.Server, armBase string) {
 
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.KeyVault/deletedManagedHSMs",
 		func(w http.ResponseWriter, r *http.Request) {
-			prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+			prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 			all := deletedManagedHSMs.Filter(func(d DeletedManagedHSM) bool {
 				return strings.HasPrefix(d.ID, prefix)
 			})
@@ -131,9 +130,7 @@ func registerManagedHSMTail(srv *sim.Server, armBase string) {
 			deletedManagedHSMs.Delete(id)
 			// 202 with a Location the client polls, the same documented LRO
 			// form the deleted-vault purge uses.
-			operationPath := fmt.Sprintf(
-				"/subscriptions/%s/providers/Microsoft.KeyVault/locations/%s/deletedManagedHSMs/%s/purge/operation",
-				sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "location"), sim.PathParam(r, "name"))
+			operationPath := armSubscriptionResourceID(sim.PathParam(r, "subscriptionId"), "Microsoft.KeyVault", "locations", sim.PathParam(r, "location"), "deletedManagedHSMs", sim.PathParam(r, "name"), "purge", "operation")
 			w.Header().Set("Location", azureRequestScheme(r)+"://"+r.Host+operationPath+
 				"?api-version="+r.URL.Query().Get("api-version"))
 			w.WriteHeader(http.StatusAccepted)

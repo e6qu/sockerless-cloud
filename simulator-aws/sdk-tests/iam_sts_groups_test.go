@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	smithy "github.com/aws/smithy-go"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +29,7 @@ func errCodeOf(err error) string {
 func TestSTS_AssumeRoleEnforcement(t *testing.T) {
 	t.Parallel()
 	admin := iamClient()
-	role := uniqueName("sts-enf-role")
+	role := uniquename.New("sts-enf-role")
 
 	_, err := admin.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName: aws.String(role),
@@ -76,7 +77,7 @@ func TestSTS_AssumeRoleEnforcement(t *testing.T) {
 func TestIAM_GroupInheritanceEnforcement(t *testing.T) {
 	t.Parallel()
 	admin := iamClient()
-	user, group := uniqueName("grp-user"), uniqueName("describe-group")
+	user, group := uniquename.New("grp-user"), uniquename.New("describe-group")
 
 	_, err := admin.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
@@ -111,9 +112,9 @@ func TestIAM_GroupInheritanceEnforcement(t *testing.T) {
 // user whose identity policy is broader than the boundary.
 func TestIAM_PermissionBoundaryEnforcement(t *testing.T) {
 	t.Parallel()
-	boundaryPolicy := uniqueName("describe-boundary")
+	boundaryPolicy := uniquename.New("describe-boundary")
 	admin := iamClient()
-	user := uniqueName("boundary-user")
+	user := uniquename.New("boundary-user")
 
 	_, err := admin.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)

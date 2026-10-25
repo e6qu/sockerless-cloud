@@ -12,6 +12,7 @@ import (
 	cbtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/e6qu/sockerless-cloud/testutil/githttp"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -320,7 +321,7 @@ phases:
 func TestCodeBuild_ListBuildsSortOrder_SDK(t *testing.T) {
 	t.Parallel()
 	c := codebuildClient()
-	proj := uniqueName("cb-sortorder-project")
+	proj := uniquename.New("cb-sortorder-project")
 	_, err := c.CreateProject(ctx, &codebuild.CreateProjectInput{
 		Name:        aws.String(proj),
 		Source:      &cbtypes.ProjectSource{Type: cbtypes.SourceTypeNoSource, Buildspec: aws.String("version: 0.2\nphases:\n  build:\n    commands:\n      - printf ok\n")},

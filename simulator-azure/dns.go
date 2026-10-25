@@ -157,8 +157,7 @@ func registerPrivateDNS(srv *sim.Server) {
 			location = "global"
 		}
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateDnsZones/%s",
-			sub, rg, zoneName)
+		resourceID := armResourceID(sub, rg, "Microsoft.Network", "privateDnsZones", zoneName)
 
 		_, exists := zones.Get(resourceID)
 
@@ -224,7 +223,7 @@ func registerPrivateDNS(srv *sim.Server) {
 	srv.HandleFunc("GET "+armBase+"/privateDnsZones", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateDnsZones/", sub, rg)
+		prefix := armResourceID(sub, rg, "Microsoft.Network", "privateDnsZones") + "/"
 		all := zones.Filter(func(z PrivateDnsZone) bool {
 			return strings.HasPrefix(z.ID, prefix)
 		})
@@ -245,8 +244,7 @@ func registerPrivateDNS(srv *sim.Server) {
 		rg := sim.PathParam(r, "resourceGroupName")
 		zoneName := sim.PathParam(r, "zoneName")
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateDnsZones/%s",
-			sub, rg, zoneName)
+		resourceID := armResourceID(sub, rg, "Microsoft.Network", "privateDnsZones", zoneName)
 
 		zone, ok := zones.Get(resourceID)
 		if !ok {
@@ -264,8 +262,7 @@ func registerPrivateDNS(srv *sim.Server) {
 		rg := sim.PathParam(r, "resourceGroupName")
 		zoneName := sim.PathParam(r, "zoneName")
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateDnsZones/%s",
-			sub, rg, zoneName)
+		resourceID := armResourceID(sub, rg, "Microsoft.Network", "privateDnsZones", zoneName)
 
 		if zones.Delete(resourceID) {
 			// Clean up associated record sets
@@ -288,8 +285,7 @@ func registerPrivateDNS(srv *sim.Server) {
 		zoneName := sim.PathParam(r, "zoneName")
 		recordName := sim.PathParam(r, "recordName")
 
-		recordID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateDnsZones/%s/SOA/%s",
-			sub, rg, zoneName, recordName)
+		recordID := armResourceID(sub, rg, "Microsoft.Network", "privateDnsZones", zoneName, "SOA", recordName)
 
 		rs, ok := recordSets.Get(recordID)
 		if !ok {
@@ -309,8 +305,7 @@ func registerPrivateDNS(srv *sim.Server) {
 		recordName := sim.PathParam(r, "recordName")
 
 		// Verify zone exists
-		zoneID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateDnsZones/%s",
-			sub, rg, zoneName)
+		zoneID := armResourceID(sub, rg, "Microsoft.Network", "privateDnsZones", zoneName)
 		if _, ok := zones.Get(zoneID); !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Network/privateDnsZones/%s' under resource group '%s' was not found.", zoneName, rg)
@@ -365,8 +360,7 @@ func registerPrivateDNS(srv *sim.Server) {
 		zoneName := sim.PathParam(r, "zoneName")
 		recordName := sim.PathParam(r, "recordName")
 
-		recordID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateDnsZones/%s/A/%s",
-			sub, rg, zoneName, recordName)
+		recordID := armResourceID(sub, rg, "Microsoft.Network", "privateDnsZones", zoneName, "A", recordName)
 
 		rs, ok := recordSets.Get(recordID)
 		if !ok {
@@ -385,8 +379,7 @@ func registerPrivateDNS(srv *sim.Server) {
 		zoneName := sim.PathParam(r, "zoneName")
 		recordName := sim.PathParam(r, "recordName")
 
-		zoneID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateDnsZones/%s",
-			sub, rg, zoneName)
+		zoneID := armResourceID(sub, rg, "Microsoft.Network", "privateDnsZones", zoneName)
 		recordID := fmt.Sprintf("%s/A/%s", zoneID, recordName)
 
 		if recordSets.Delete(recordID) {
@@ -409,8 +402,7 @@ func registerPrivateDNS(srv *sim.Server) {
 		rg := sim.PathParam(r, "resourceGroupName")
 		zoneName := sim.PathParam(r, "zoneName")
 
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateDnsZones/%s/A/",
-			sub, rg, zoneName)
+		prefix := armResourceID(sub, rg, "Microsoft.Network", "privateDnsZones", zoneName, "A") + "/"
 
 		filtered := recordSets.Filter(func(rs RecordSet) bool {
 			return strings.HasPrefix(rs.ID, prefix)
@@ -436,9 +428,7 @@ func registerPrivateDNS(srv *sim.Server) {
 				rg := sim.PathParam(r, "resourceGroupName")
 				zoneName := sim.PathParam(r, "zoneName")
 				recordName := sim.PathParam(r, "recordName")
-				zoneID := fmt.Sprintf(
-					"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateDnsZones/%s",
-					sub, rg, zoneName)
+				zoneID := armResourceID(sub, rg, "Microsoft.Network", "privateDnsZones", zoneName)
 				if _, ok := zones.Get(zoneID); !ok {
 					AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 						"Zone %q not found in resource group %q", zoneName, rg)
@@ -490,9 +480,7 @@ func registerPrivateDNS(srv *sim.Server) {
 				rg := sim.PathParam(r, "resourceGroupName")
 				zoneName := sim.PathParam(r, "zoneName")
 				recordName := sim.PathParam(r, "recordName")
-				recordID := fmt.Sprintf(
-					"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateDnsZones/%s/%s/%s",
-					sub, rg, zoneName, recordType, recordName)
+				recordID := armResourceID(sub, rg, "Microsoft.Network", "privateDnsZones", zoneName, recordType, recordName)
 				rs, ok := recordSets.Get(recordID)
 				if !ok {
 					AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -510,9 +498,7 @@ func registerPrivateDNS(srv *sim.Server) {
 				rg := sim.PathParam(r, "resourceGroupName")
 				zoneName := sim.PathParam(r, "zoneName")
 				recordName := sim.PathParam(r, "recordName")
-				zoneID := fmt.Sprintf(
-					"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateDnsZones/%s",
-					sub, rg, zoneName)
+				zoneID := armResourceID(sub, rg, "Microsoft.Network", "privateDnsZones", zoneName)
 				recordID := fmt.Sprintf("%s/%s/%s", zoneID, recordType, recordName)
 				if recordSets.Delete(recordID) {
 					zones.Update(zoneID, func(z *PrivateDnsZone) {
@@ -533,9 +519,7 @@ func registerPrivateDNS(srv *sim.Server) {
 				sub := sim.PathParam(r, "subscriptionId")
 				rg := sim.PathParam(r, "resourceGroupName")
 				zoneName := sim.PathParam(r, "zoneName")
-				prefix := fmt.Sprintf(
-					"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateDnsZones/%s/%s/",
-					sub, rg, zoneName, recordType)
+				prefix := armResourceID(sub, rg, "Microsoft.Network", "privateDnsZones", zoneName, recordType) + "/"
 				filtered := recordSets.Filter(func(rs RecordSet) bool {
 					return strings.HasPrefix(rs.ID, prefix)
 				})
@@ -559,8 +543,7 @@ func registerPrivateDNS(srv *sim.Server) {
 			return
 		}
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateDnsZones/%s/virtualNetworkLinks/%s",
-			sub, rg, zoneName, linkName)
+		resourceID := armResourceID(sub, rg, "Microsoft.Network", "privateDnsZones", zoneName, "virtualNetworkLinks", linkName)
 
 		link := VNetLink{
 			ID:       resourceID,
@@ -587,8 +570,7 @@ func registerPrivateDNS(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		zoneName := sim.PathParam(r, "zoneName")
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateDnsZones/%s/virtualNetworkLinks/",
-			sub, rg, zoneName)
+		prefix := armResourceID(sub, rg, "Microsoft.Network", "privateDnsZones", zoneName, "virtualNetworkLinks") + "/"
 		filtered := vnetLinks.Filter(func(link VNetLink) bool {
 			return strings.HasPrefix(link.ID, prefix)
 		})
@@ -601,8 +583,7 @@ func registerPrivateDNS(srv *sim.Server) {
 		rg := sim.PathParam(r, "resourceGroupName")
 		zoneName := sim.PathParam(r, "zoneName")
 		linkName := sim.PathParam(r, "linkName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateDnsZones/%s/virtualNetworkLinks/%s",
-			sub, rg, zoneName, linkName)
+		resourceID := armResourceID(sub, rg, "Microsoft.Network", "privateDnsZones", zoneName, "virtualNetworkLinks", linkName)
 
 		link, ok := vnetLinks.Get(resourceID)
 		if !ok {
@@ -619,8 +600,7 @@ func registerPrivateDNS(srv *sim.Server) {
 		rg := sim.PathParam(r, "resourceGroupName")
 		zoneName := sim.PathParam(r, "zoneName")
 		linkName := sim.PathParam(r, "linkName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateDnsZones/%s/virtualNetworkLinks/%s",
-			sub, rg, zoneName, linkName)
+		resourceID := armResourceID(sub, rg, "Microsoft.Network", "privateDnsZones", zoneName, "virtualNetworkLinks", linkName)
 
 		vnetLinks.Delete(resourceID)
 		azureReconcileAutoRegisteredRecords()

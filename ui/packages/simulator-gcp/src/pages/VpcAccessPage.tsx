@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { GcpResourceTable, GcpStatus, type GcpColumn } from "../console/index.js";
+import type { MenuEntry } from "../console/menu.js";
 import { GcpDialog } from "../console/GcpDialog.js";
 import { shortName } from "../console/format.js";
 import {
@@ -86,37 +87,20 @@ export function VpcAccessPage() {
   const queryClient = useQueryClient();
   const [deleting, setDeleting] = useState<string | null>(null);
 
-  const columnsWithActions: GcpColumn<VpcAccessConnector>[] = [
-    ...columns,
-    {
-      id: "actions",
-      header: "Actions",
-      cell: (row) => {
-        const id = shortName(row.name);
-        return (
-          <span className="gc-row-actions">
-            <button
-              type="button"
-              className="gc-button-text"
-              data-testid={`vpcaccess-delete-${id}`}
-              aria-label={`Delete ${id}`}
-              onClick={() => setDeleting(id)}
-            >
-              Delete
-            </button>
-          </span>
-        );
-      },
-      value: () => "",
-    },
-  ];
+  const rowActions = (row: VpcAccessConnector): MenuEntry[] => {
+    const id = shortName(row.name);
+    return [
+      { label: "Delete", testId: `vpcaccess-delete-${id}`, onSelect: () => setDeleting(id) },
+    ];
+  };
 
   return (
     <>
       <GcpResourceTable<VpcAccessConnector>
-        title="Serverless VPC Access"
+        title="Serverless VPC access"
         description={`Serverless VPC Access connectors let Cloud Run, Cloud Run functions and App Engine reach resources inside a VPC network. Showing connectors in ${CONSOLE_REGION}.`}
-        columns={columnsWithActions}
+        columns={columns}
+        rowActions={rowActions}
         queryKey={["vpc-connectors", project]}
         queryFn={() => fetchVpcConnectors(project)}
         filterPlaceholder="Filter connectors"

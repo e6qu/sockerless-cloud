@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -394,7 +393,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 			return
 		}
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/containerApps/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "containerApps", name)
 		existing, exists := apps.Get(resourceID)
 		if exists && existing.Properties.ProvisioningState == "Deleting" {
 			AzureErrorf(w, "Conflict", http.StatusConflict,
@@ -479,7 +478,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "appName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/containerApps/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "containerApps", name)
 		app, ok := apps.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -493,7 +492,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 	srv.HandleFunc("GET "+basePath+"/containerApps", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/containerApps/", sub, rg)
+		prefix := armResourceID(sub, rg, "Microsoft.App", "containerApps") + "/"
 		all := apps.Filter(func(a ContainerApp) bool {
 			return strings.HasPrefix(a.ID, prefix)
 		})
@@ -518,7 +517,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "appName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/containerApps/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "containerApps", name)
 		app, ok := apps.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -543,7 +542,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "appName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/containerApps/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "containerApps", name)
 		app, ok := apps.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -570,7 +569,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 	// subscription-wide list alongside the resource-group-scoped one.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.App/containerApps", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
-		prefix := fmt.Sprintf("/subscriptions/%s/", sub)
+		prefix := armSubscriptionID(sub) + "/"
 		all := apps.Filter(func(a ContainerApp) bool {
 			return strings.HasPrefix(a.ID, prefix) && strings.Contains(a.ID, "/providers/Microsoft.App/containerApps/")
 		})
@@ -591,7 +590,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "appName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/containerApps/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "containerApps", name)
 		app, ok := apps.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -604,11 +603,12 @@ func registerContainerAppsApps(srv *sim.Server) {
 			return
 		}
 
-		patch, err := io.ReadAll(r.Body)
-		if err != nil {
-			AzureError(w, "InvalidRequestContent", "Failed to read request body: "+err.Error(), http.StatusBadRequest)
+		var patch json.RawMessage
+		if err := sim.ReadJSON(r, &patch); err != nil {
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+		var err error
 		prior := app
 		var patchIdentity struct {
 			Identity *SiteIdentity `json:"identity"`
@@ -659,7 +659,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "appName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/containerApps/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "containerApps", name)
 		app, ok := apps.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -681,7 +681,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "appName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/containerApps/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "containerApps", name)
 		app, ok := apps.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -701,7 +701,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "appName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/containerApps/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "containerApps", name)
 		app, ok := apps.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -730,7 +730,7 @@ func registerContainerAppsApps(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "appName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.App/containerApps/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.App", "containerApps", name)
 		if _, ok := apps.Get(resourceID); !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.App/containerApps/%s' under resource group '%s' was not found.", name, rg)

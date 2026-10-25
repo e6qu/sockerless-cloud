@@ -70,12 +70,10 @@ func registerPrivateEndpointDNSZoneGroups(srv *sim.Server) {
 	base := armBase + "/privateEndpoints/{privateEndpointName}/privateDnsZoneGroups"
 
 	endpointID := func(r *http.Request) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/privateEndpoints/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"),
-			sim.PathParam(r, "privateEndpointName"))
+		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "privateEndpoints", sim.PathParam(r, "privateEndpointName"))
 	}
 	groupID := func(r *http.Request) string {
-		return azureNetworkChildID(endpointID(r), "privateDnsZoneGroups", sim.PathParam(r, "privateDnsZoneGroupName"))
+		return armChildID(endpointID(r), "privateDnsZoneGroups", sim.PathParam(r, "privateDnsZoneGroupName"))
 	}
 
 	srv.HandleFunc("PUT "+base+"/{privateDnsZoneGroupName}", func(w http.ResponseWriter, r *http.Request) {

@@ -1,13 +1,13 @@
 package main
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 // Budgets shapes. AWS Budgets speaks awsJson1.1 over POST / with the
@@ -97,14 +97,11 @@ func budgetsNowEpoch() float64 {
 }
 
 func budgetsError(w http.ResponseWriter, code, message string, status int) {
-	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
-	w.Header().Set("X-Amzn-Errortype", code)
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(awsErrorBody("budgets", code, message))
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsJSON11, Model: "budgets"}, status, code, message, "")
 }
 
 func budgetsRead(w http.ResponseWriter, r *http.Request, out any) bool {
-	if err := json.NewDecoder(r.Body).Decode(out); err != nil {
+	if err := sim.ReadJSON(r, out); err != nil {
 		budgetsError(w, "InvalidParameterException", "invalid JSON request: "+err.Error(), http.StatusBadRequest)
 		return false
 	}
@@ -379,33 +376,18 @@ func handleBudgetsDescribeBudgets(w http.ResponseWriter, r *http.Request) {
 	if req.AccountId == "" {
 		req.AccountId = awsAccountID()
 	}
-	all := budgetsStore.List()
-	total := len(all)
-	pageSize := int(req.MaxResults)
-	if pageSize <= 0 {
-		pageSize = 100
+	page, next, err := listq.TokenPage(listq.Decimal.Strictly(), budgetsStore.List(), req.NextToken, int(req.MaxResults), 100, 0)
+	if err != nil {
+		budgetsError(w, "InvalidNextTokenException", "Invalid NextToken", http.StatusBadRequest)
+		return
 	}
-	offset := 0
-	if req.NextToken != "" {
-		n, err := strconv.Atoi(req.NextToken)
-		if err != nil || n < 0 || n > total {
-			budgetsError(w, "InvalidNextTokenException", "Invalid NextToken", http.StatusBadRequest)
-			return
-		}
-		offset = n
-	}
-	end := offset + pageSize
-	if end > total {
-		end = total
-	}
-	page := all[offset:end]
 	budgets := make([]map[string]any, 0, len(page))
 	for _, e := range page {
 		budgets = append(budgets, budgetsBudgetToWire(e.Budget))
 	}
 	resp := map[string]any{"Budgets": budgets}
-	if end < total {
-		resp["NextToken"] = strconv.Itoa(end)
+	if next != "" {
+		resp["NextToken"] = next
 	}
 	writeAWSJSON(w, http.StatusOK, resp)
 }
@@ -461,33 +443,18 @@ func handleBudgetsDescribeNotificationsForBudget(w http.ResponseWriter, r *http.
 	if !ok {
 		return
 	}
-	all := entry.Notifications
-	total := len(all)
-	pageSize := int(req.MaxResults)
-	if pageSize <= 0 {
-		pageSize = 100
+	page, next, err := listq.TokenPage(listq.Decimal.Strictly(), entry.Notifications, req.NextToken, int(req.MaxResults), 100, 0)
+	if err != nil {
+		budgetsError(w, "InvalidNextTokenException", "Invalid NextToken", http.StatusBadRequest)
+		return
 	}
-	offset := 0
-	if req.NextToken != "" {
-		n, err := strconv.Atoi(req.NextToken)
-		if err != nil || n < 0 || n > total {
-			budgetsError(w, "InvalidNextTokenException", "Invalid NextToken", http.StatusBadRequest)
-			return
-		}
-		offset = n
-	}
-	end := offset + pageSize
-	if end > total {
-		end = total
-	}
-	page := all[offset:end]
 	notifs := make([]map[string]any, 0, len(page))
 	for _, n := range page {
 		notifs = append(notifs, budgetsNotificationToWire(n))
 	}
 	resp := map[string]any{"Notifications": notifs}
-	if end < total {
-		resp["NextToken"] = strconv.Itoa(end)
+	if next != "" {
+		resp["NextToken"] = next
 	}
 	writeAWSJSON(w, http.StatusOK, resp)
 }
@@ -599,33 +566,18 @@ func handleBudgetsDescribeSubscribersForNotification(w http.ResponseWriter, r *h
 		return
 	}
 	key := budgetsNotificationKey(*req.Notification)
-	all := entry.Subscribers[key]
-	total := len(all)
-	pageSize := int(req.MaxResults)
-	if pageSize <= 0 {
-		pageSize = 100
+	page, next, err := listq.TokenPage(listq.Decimal.Strictly(), entry.Subscribers[key], req.NextToken, int(req.MaxResults), 100, 0)
+	if err != nil {
+		budgetsError(w, "InvalidNextTokenException", "Invalid NextToken", http.StatusBadRequest)
+		return
 	}
-	offset := 0
-	if req.NextToken != "" {
-		n, err := strconv.Atoi(req.NextToken)
-		if err != nil || n < 0 || n > total {
-			budgetsError(w, "InvalidNextTokenException", "Invalid NextToken", http.StatusBadRequest)
-			return
-		}
-		offset = n
-	}
-	end := offset + pageSize
-	if end > total {
-		end = total
-	}
-	page := all[offset:end]
 	subs := make([]map[string]any, 0, len(page))
 	for _, s := range page {
 		subs = append(subs, budgetsSubscriberToWire(s))
 	}
 	resp := map[string]any{"Subscribers": subs}
-	if end < total {
-		resp["NextToken"] = strconv.Itoa(end)
+	if next != "" {
+		resp["NextToken"] = next
 	}
 	writeAWSJSON(w, http.StatusOK, resp)
 }

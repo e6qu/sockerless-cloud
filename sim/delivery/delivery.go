@@ -26,11 +26,19 @@ type Outcome struct {
 	Status int
 	// Response is the body the receiver answered with, up to a mebibyte.
 	Response []byte
+	// Defer, when positive, retries the delivery after that wait without
+	// counting the attempt against MaxAttempts: a cloud that retries a
+	// throttled delivery until its age runs out, apart from the retries its
+	// policy grants for failures.
+	Defer time.Duration
 }
 
-func Delivered() Outcome                   { return Outcome{} }
-func Retryable(err error) Outcome          { return Outcome{Err: err, Retry: true} }
-func Permanent(err error) Outcome          { return Outcome{Err: err} }
+func Delivered() Outcome          { return Outcome{} }
+func Retryable(err error) Outcome { return Outcome{Err: err, Retry: true} }
+func Permanent(err error) Outcome { return Outcome{Err: err} }
+func Deferred(err error, wait time.Duration) Outcome {
+	return Outcome{Err: err, Retry: true, Defer: max(wait, time.Nanosecond)}
+}
 func (o Outcome) OK() bool                 { return o.Err == nil }
 func (o Outcome) WithStatus(s int) Outcome { o.Status = s; return o }
 func errorText(err error) string {
@@ -44,14 +52,33 @@ func errorText(err error) string {
 type Policy struct {
 	// MaxAttempts counts the first attempt; zero is unbounded.
 	MaxAttempts int
-	// MaxAge is measured from submission and checked before every attempt;
-	// zero is unbounded.
+	// MaxAge is measured from submission and checked before every attempt
+	// (after every failure under BothLimits); zero is unbounded.
 	MaxAge time.Duration
 	// Backoff is the wait before retry n (1 for the first retry).
 	Backoff func(retry int) time.Duration
 	// MinWait is a floor the failed attempt's answer sets on that wait, for a
 	// cloud that waits longer after some answers than its schedule says.
 	MinWait func(last Outcome) time.Duration
+	// BothLimits retries a failed delivery until MaxAttempts and MaxAge are
+	// both reached, for a cloud whose retries stop only then; a zero limit
+	// counts as reached. Without it, either limit ends the delivery.
+	BothLimits bool
+}
+
+// exhausted reports whether a delivery that failed on its latest attempt has
+// no retry left, and which limit ended it.
+func (p Policy) exhausted(attempts int, age time.Duration) (Reason, bool) {
+	attemptsUsed := p.MaxAttempts > 0 && attempts >= p.MaxAttempts
+	if !p.BothLimits {
+		return AttemptsExhausted, attemptsUsed
+	}
+	attemptsUsed = attemptsUsed || p.MaxAttempts == 0
+	ageUsed := p.MaxAge == 0 || age >= p.MaxAge
+	if p.MaxAge > 0 && ageUsed {
+		return AgeExceeded, attemptsUsed
+	}
+	return AttemptsExhausted, attemptsUsed && ageUsed
 }
 
 // Reason says how a delivery ended.
@@ -175,7 +202,7 @@ func (d *Dispatcher[T]) run(id string) {
 		return
 	}
 	policy := d.handler.Policy(item.Payload)
-	if policy.MaxAge > 0 && d.now().Sub(item.EnqueuedAt) > policy.MaxAge {
+	if !policy.BothLimits && policy.MaxAge > 0 && d.now().Sub(item.EnqueuedAt) > policy.MaxAge {
 		d.finish(item, AgeExceeded)
 		return
 	}
@@ -193,6 +220,20 @@ func (d *Dispatcher[T]) run(id string) {
 	item.LastError = errorText(outcome.Err)
 	item.LastStatus = outcome.Status
 	item.LastResponse = string(outcome.Response)
+	if outcome.Defer > 0 && !outcome.OK() {
+		item.Attempts--
+		if policy.MaxAge > 0 && d.now().Add(outcome.Defer).Sub(item.EnqueuedAt) > policy.MaxAge {
+			d.finish(item, AgeExceeded)
+			return
+		}
+		item.NextAttemptAt = d.now().UTC().Add(outcome.Defer)
+		if _, still := d.store.Get(id); !still {
+			return
+		}
+		d.store.Put(id, item)
+		d.schedule(id, item.NextAttemptAt)
+		return
+	}
 	switch {
 	case outcome.OK():
 		d.finish(item, Succeeded)
@@ -200,8 +241,9 @@ func (d *Dispatcher[T]) run(id string) {
 	case !outcome.Retry:
 		d.finish(item, Rejected)
 		return
-	case policy.MaxAttempts > 0 && item.Attempts >= policy.MaxAttempts:
-		d.finish(item, AttemptsExhausted)
+	}
+	if reason, done := policy.exhausted(item.Attempts, d.now().Sub(item.EnqueuedAt)); done {
+		d.finish(item, reason)
 		return
 	}
 	var wait time.Duration

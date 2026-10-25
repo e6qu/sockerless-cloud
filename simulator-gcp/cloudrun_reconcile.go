@@ -231,14 +231,12 @@ func cloudRunInstanceStopped(inst InstanceV2) bool {
 // process ran until it stopped: it adopts the containers that process left
 // running, starts what is missing, and removes what no longer belongs to a
 // running instance. Reconciliations it left unfinished settle as they start.
-// It adopts the instance serving each service and the containers of every
-// running job execution the same way, and fails the executions whose
-// containers did not survive.
+// It adopts the instance serving each service the same way, and resumes every
+// running job execution on the containers its tasks left.
 func resumeCloudRunWorkloads() {
 	adoptCloudRunServiceInstances()
 	if crjExecutions != nil {
-		adoptCloudRunJobExecutions()
-		recoverCloudRunJobExecutions(crjJobs, crjExecutions, crjTasks)
+		resumeCloudRunJobExecutions()
 		recoverCloudRunJobRunOperations()
 		recoverCloudRunJobExecutionTokens()
 	}

@@ -8,6 +8,7 @@ import (
 	iampb "cloud.google.com/go/iam/apiv1/iampb"
 	run "cloud.google.com/go/run/apiv2"
 	"cloud.google.com/go/run/apiv2/runpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
@@ -57,7 +58,7 @@ func TestSDK_CloudRunV2_ServiceRevisions_RoundTrip(t *testing.T) {
 	services := newServicesClient(t)
 	revisions := newRevisionsClient(t)
 	parent := "projects/test-project/locations/us-central1"
-	id := uniqueName("v2-svc-revs")
+	id := uniquename.New("v2-svc-revs")
 	createV2Service(t, services, parent, id)
 
 	servicePath := parent + "/services/" + id
@@ -97,7 +98,7 @@ func TestSDK_CloudRunV2_ServiceIAM_RoundTrip(t *testing.T) {
 	t.Parallel()
 	services := newServicesClient(t)
 	parent := "projects/test-project/locations/us-central1"
-	id := uniqueName("v2-svc-iam")
+	id := uniquename.New("v2-svc-iam")
 	createV2Service(t, services, parent, id)
 	resource := parent + "/services/" + id
 
@@ -144,7 +145,7 @@ func TestSDK_CloudRunV2_Operations_DeleteAndWait(t *testing.T) {
 	t.Parallel()
 	services := newServicesClient(t)
 	parent := "projects/test-project-ops/locations/us-central1"
-	id := uniqueName("v2-svc-ops")
+	id := uniquename.New("v2-svc-ops")
 	createV2Service(t, services, parent, id)
 
 	// The create wrote an LRO under crOperations; list it (served by the

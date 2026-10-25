@@ -81,10 +81,7 @@ func registerNetworkWatcherPacketCaptures(srv *sim.Server) {
 }
 
 func packetCaptureID(r *http.Request) string {
-	return fmt.Sprintf(
-		"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkWatchers/%s/packetCaptures/%s",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"),
-		sim.PathParam(r, "networkWatcherName"), sim.PathParam(r, "packetCaptureName"))
+	return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "networkWatchers", sim.PathParam(r, "networkWatcherName"), "packetCaptures", sim.PathParam(r, "packetCaptureName"))
 }
 
 // packetCaptureTarget names why a capture of the target cannot start: the
@@ -158,10 +155,7 @@ func handlePacketCaptureGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func handlePacketCaptureList(w http.ResponseWriter, r *http.Request) {
-	prefix := fmt.Sprintf(
-		"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/networkWatchers/%s/packetCaptures/",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"),
-		sim.PathParam(r, "networkWatcherName"))
+	prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "networkWatchers", sim.PathParam(r, "networkWatcherName"), "packetCaptures") + "/"
 	rows := azurePacketCaptures.Filter(func(c AzurePacketCapture) bool {
 		return strings.HasPrefix(c.ID, prefix)
 	})

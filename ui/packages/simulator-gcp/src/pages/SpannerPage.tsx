@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GcpResourceTable, GcpStatus, type GcpColumn } from "../console/index.js";
+import type { MenuEntry } from "../console/menu.js";
 import { GcpPageHeader } from "../console/GcpConsole.js";
 import { GcpDialog } from "../console/GcpDialog.js";
 import { GcpTabs } from "../console/GcpTabs.js";
@@ -27,7 +28,7 @@ const columns: GcpColumn<SpannerInstance>[] = [
     id: "name",
     header: "Instance ID",
     cell: (row) => (
-      <Link className="gc-cell-link" to={`/ui/spanner/${shortName(row.name)}`}>
+      <Link className="gc-cell-link" to={`/ui/spanner/instances/${shortName(row.name)}/details/databases`}>
         {shortName(row.name)}
       </Link>
     ),
@@ -182,40 +183,23 @@ export function SpannerPage() {
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["spanner-instances", project] });
 
-  const columnsWithActions: GcpColumn<SpannerInstance>[] = [
-    ...columns,
-    {
-      id: "actions",
-      header: "Actions",
-      cell: (row) => {
-        const id = shortName(row.name);
-        return (
-          <span className="gc-row-actions">
-            <button
-              type="button"
-              className="gc-button-text"
-              data-testid={`spanner-delete-${id}`}
-              aria-label={`Delete ${id}`}
-              onClick={() => setDeleting(id)}
-            >
-              Delete
-            </button>
-          </span>
-        );
-      },
-      value: () => "",
-    },
-  ];
+  const rowActions = (row: SpannerInstance): MenuEntry[] => {
+    const id = shortName(row.name);
+    return [
+      { label: "Delete", testId: `spanner-delete-${id}`, onSelect: () => setDeleting(id) },
+    ];
+  };
 
   return (
     <>
       <GcpResourceTable<SpannerInstance>
-        title="Spanner instances"
+        title="Instances"
         description="Spanner is a fully managed relational database with unlimited scale, strong consistency and up to 99.999% availability."
         actions={[
           { label: "Create instance", icon: "add", primary: true, testId: "spanner-create-instance", onSelect: () => setCreating(true) },
         ]}
-        columns={columnsWithActions}
+        columns={columns}
+        rowActions={rowActions}
         queryKey={["spanner-instances", project]}
         queryFn={() => fetchSpannerInstances(project)}
         filterPlaceholder="Filter instances"
@@ -269,10 +253,8 @@ export function SpannerInstanceDetailPage() {
 
   return (
     <>
-      <div className="gc-detail-back">
-        <Link to="/ui/spanner">‹ Spanner instances</Link>
-      </div>
       <GcpPageHeader
+        backTo="/ui/spanner/instances"
         title={name}
         description="Spanner instance"
         actions={[{ label: "Delete", testId: "spanner-instance-delete", onSelect: () => setDeleting(true) }]}
@@ -340,7 +322,7 @@ export function SpannerInstanceDetailPage() {
         <DeleteSpannerInstanceDialog
           name={name}
           onClose={() => setDeleting(false)}
-          onDeleted={() => navigate("/ui/spanner")}
+          onDeleted={() => navigate("/ui/spanner/instances")}
         />
       ) : null}
     </>

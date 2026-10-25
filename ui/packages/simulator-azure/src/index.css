@@ -1,7 +1,5 @@
 @import "tailwindcss";
 @import "@sockerless/ui-core/styles";
-/* The portal shell owns the whole viewport; see portal/tokens.css. */
-@import "./portal/tokens.css";
 @import "./portal/portal.css";
 
 /* Per-app accent — see ui/packages/core/src/styles/tokens.css for the

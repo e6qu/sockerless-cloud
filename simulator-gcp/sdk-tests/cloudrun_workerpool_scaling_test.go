@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	runv2 "google.golang.org/api/run/v2"
@@ -25,7 +26,7 @@ import (
 
 func TestSDK_RunV2_WorkerPoolAutomaticScaling(t *testing.T) {
 	t.Parallel()
-	id := uniqueName("sdk-wp-autoscaling")
+	id := uniquename.New("sdk-wp-autoscaling")
 	base := "/v2/projects/" + crV2Project + "/locations/" + crV2Location + "/workerPools"
 
 	status, body := gcpDataPlaneRequest(t, http.MethodPost, "", base+"?workerPoolId="+id, `{

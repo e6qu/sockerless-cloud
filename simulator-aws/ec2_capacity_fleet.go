@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -681,32 +683,8 @@ func ec2CapResFleetFieldsXML(crf EC2CapacityReservationFleet) string {
 }
 
 func handleDescribeCapacityReservationFleets(w http.ResponseWriter, r *http.Request) {
-	ids := ec2ParamList(r, "CapacityReservationFleetId")
-	results := make([]EC2CapacityReservationFleet, 0)
-	if len(ids) > 0 {
-		for _, id := range ids {
-			crf, ok := ec2CapacityReservationFleets.Get(id)
-			if !ok {
-				ec2ErrorXML(w, "InvalidCapacityReservationFleetId.NotFound", fmt.Sprintf("The Capacity Reservation Fleet ID %q does not exist", id), http.StatusBadRequest)
-				return
-			}
-			results = append(results, crf)
-		}
-	} else {
-		results = append(results, ec2CapacityReservationFleets.List()...)
-	}
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].CapacityReservationFleetId < results[j].CapacityReservationFleetId
-	})
-	var items strings.Builder
-	for _, crf := range results {
-		items.WriteString("<item>")
-		items.WriteString(ec2CapResFleetFieldsXML(crf))
-		items.WriteString("</item>")
-	}
-	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DescribeCapacityReservationFleetsResponse %s><requestId>%s</requestId><capacityReservationFleetSet>%s</capacityReservationFleetSet></DescribeCapacityReservationFleetsResponse>`,
-		ec2Xmlns(), sim.NewUUID(), items.String())
+	ec2DescribeEach(w, r, ec2CapacityReservationFleets, "CapacityReservationFleetId", "InvalidCapacityReservationFleetId.NotFound", "The Capacity Reservation Fleet ID %q does not exist",
+		func(it EC2CapacityReservationFleet) string { return it.CapacityReservationFleetId }, ec2CapResFleetFieldsXML, "DescribeCapacityReservationFleets", "capacityReservationFleetSet")
 }
 
 func handleModifyCapacityReservationFleet(w http.ResponseWriter, r *http.Request) {
@@ -890,30 +868,8 @@ func ec2FleetFieldsXML(fleet EC2Fleet) string {
 }
 
 func handleDescribeFleets(w http.ResponseWriter, r *http.Request) {
-	ids := ec2ParamList(r, "FleetId")
-	results := make([]EC2Fleet, 0)
-	if len(ids) > 0 {
-		for _, id := range ids {
-			f, ok := ec2Fleets.Get(id)
-			if !ok {
-				ec2ErrorXML(w, "InvalidFleetId.NotFound", fmt.Sprintf("The fleet ID %q does not exist", id), http.StatusBadRequest)
-				return
-			}
-			results = append(results, f)
-		}
-	} else {
-		results = append(results, ec2Fleets.List()...)
-	}
-	sort.Slice(results, func(i, j int) bool { return results[i].FleetId < results[j].FleetId })
-	var items strings.Builder
-	for _, f := range results {
-		items.WriteString("<item>")
-		items.WriteString(ec2FleetFieldsXML(f))
-		items.WriteString("</item>")
-	}
-	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DescribeFleetsResponse %s><requestId>%s</requestId><fleetSet>%s</fleetSet></DescribeFleetsResponse>`,
-		ec2Xmlns(), sim.NewUUID(), items.String())
+	ec2DescribeEach(w, r, ec2Fleets, "FleetId", "InvalidFleetId.NotFound", "The fleet ID %q does not exist",
+		func(it EC2Fleet) string { return it.FleetId }, ec2FleetFieldsXML, "DescribeFleets", "fleetSet")
 }
 
 func handleDescribeFleetInstances(w http.ResponseWriter, r *http.Request) {
@@ -979,12 +935,7 @@ func handleDeleteFleets(w http.ResponseWriter, r *http.Request) {
 		newState := "deleted-running"
 		if terminate {
 			newState = "deleted-terminating"
-			for _, iid := range f.InstanceIds {
-				if inst, ok := ec2Instances.Get(iid); ok {
-					inst.State = "shutting-down"
-					ec2Instances.Put(iid, inst)
-				}
-			}
+			ec2TerminateFleetInstances(r.Context(), f.InstanceIds)
 		}
 		f.FleetState = newState
 		ec2Fleets.Put(id, f)
@@ -1321,12 +1272,7 @@ func handleCancelSpotFleetRequests(w http.ResponseWriter, r *http.Request) {
 		newState := "cancelled_running"
 		if terminate {
 			newState = "cancelled_terminating"
-			for _, iid := range sfr.InstanceIds {
-				if inst, ok := ec2Instances.Get(iid); ok {
-					inst.State = "shutting-down"
-					ec2Instances.Put(iid, inst)
-				}
-			}
+			ec2TerminateFleetInstances(r.Context(), sfr.InstanceIds)
 		}
 		sfr.SpotFleetRequestState = newState
 		ec2SpotFleetRequests.Put(id, sfr)
@@ -1466,30 +1412,8 @@ func ec2ScheduledInstanceXML(si EC2ScheduledInstance) string {
 }
 
 func handleDescribeScheduledInstances(w http.ResponseWriter, r *http.Request) {
-	ids := ec2ParamList(r, "ScheduledInstanceId")
-	results := make([]EC2ScheduledInstance, 0)
-	if len(ids) > 0 {
-		for _, id := range ids {
-			si, ok := ec2ScheduledInstances.Get(id)
-			if !ok {
-				ec2ErrorXML(w, "InvalidScheduledInstance", fmt.Sprintf("The scheduled instance ID %q does not exist", id), http.StatusBadRequest)
-				return
-			}
-			results = append(results, si)
-		}
-	} else {
-		results = append(results, ec2ScheduledInstances.List()...)
-	}
-	sort.Slice(results, func(i, j int) bool { return results[i].ScheduledInstanceId < results[j].ScheduledInstanceId })
-	var items strings.Builder
-	for _, si := range results {
-		items.WriteString("<item>")
-		items.WriteString(ec2ScheduledInstanceXML(si))
-		items.WriteString("</item>")
-	}
-	w.Header().Set("Content-Type", "text/xml")
-	fmt.Fprintf(w, `<DescribeScheduledInstancesResponse %s><requestId>%s</requestId><scheduledInstanceSet>%s</scheduledInstanceSet></DescribeScheduledInstancesResponse>`,
-		ec2Xmlns(), sim.NewUUID(), items.String())
+	ec2DescribeEach(w, r, ec2ScheduledInstances, "ScheduledInstanceId", "InvalidScheduledInstance", "The scheduled instance ID %q does not exist",
+		func(it EC2ScheduledInstance) string { return it.ScheduledInstanceId }, ec2ScheduledInstanceXML, "DescribeScheduledInstances", "scheduledInstanceSet")
 }
 
 func handleRunScheduledInstances(w http.ResponseWriter, r *http.Request) {
@@ -1671,4 +1595,18 @@ func ec2LTMarketType(lt EC2LaunchTemplateData) string {
 		return ""
 	}
 	return lt.InstanceMarketOptions.MarketType
+}
+
+// ec2TerminateFleetInstances terminates the instances a deleted fleet launched,
+// as TerminateInstances does.
+func ec2TerminateFleetInstances(ctx context.Context, instanceIDs []string) {
+	for _, id := range instanceIDs {
+		inst, ok := ec2Instances.Get(id)
+		if !ok || inst.State == "terminated" || inst.State == "shutting-down" {
+			continue
+		}
+		if err := ec2HaltInstance(ctx, id, "terminated"); err != nil {
+			fmt.Fprintf(os.Stderr, "[sim-ec2] terminate fleet instance %s: %v\n", id, err)
+		}
+	}
 }

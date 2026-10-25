@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,7 +22,7 @@ import (
 // — wired in cosmos_throughput.go.
 func TestCosmos_ThroughputOffers(t *testing.T) {
 	t.Parallel()
-	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
+	dataPlaneAccount := uniquename.Alnum("sdkdataplane")
 	client := cosmosSimClient(t, dataPlaneAccount)
 
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "thrudb"}, nil)
@@ -80,7 +81,7 @@ func TestCosmos_ThroughputOffers(t *testing.T) {
 // ReplaceThroughput key off the database `_rid`).
 func TestCosmos_DatabaseThroughputOffers(t *testing.T) {
 	t.Parallel()
-	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
+	dataPlaneAccount := uniquename.Alnum("sdkdataplane")
 	client := cosmosSimClient(t, dataPlaneAccount)
 	dbThroughput := azcosmos.NewManualThroughputProperties(400)
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "thrudb2"},
@@ -111,7 +112,7 @@ func TestCosmos_DatabaseThroughputOffers(t *testing.T) {
 // in cosmos_throughput.go (writes ~5x reads).
 func TestCosmos_RequestCharge(t *testing.T) {
 	t.Parallel()
-	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
+	dataPlaneAccount := uniquename.Alnum("sdkdataplane")
 	client := cosmosSimClient(t, dataPlaneAccount)
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "rudb"}, nil)
 	require.NoError(t, err)

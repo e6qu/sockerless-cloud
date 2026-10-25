@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	run "google.golang.org/api/run/v1"
@@ -40,7 +41,7 @@ func waitCloudRunV1ExecutionDone(t *testing.T, svc *run.APIService, executionID 
 func TestCloudRunV1_JobsLifecycle(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	id := uniqueName("v1-knative-job")
+	id := uniquename.New("v1-knative-job")
 	parent := "namespaces/" + cloudRunV1Namespace
 
 	created, err := svc.Namespaces.Jobs.Create(parent, &run.Job{
@@ -124,7 +125,7 @@ func TestCloudRunV1_JobsLifecycle(t *testing.T) {
 func TestCloudRunV1_JobRunPropagatesNonZeroExit(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	id := uniqueName("v1-run-failing-job")
+	id := uniquename.New("v1-run-failing-job")
 	parent := "namespaces/" + cloudRunV1Namespace
 
 	_, err := svc.Namespaces.Jobs.Create(parent, &run.Job{
@@ -282,7 +283,7 @@ func conditionReasons(conditions []*run.GoogleCloudRunV1Condition) []string {
 func TestCloudRunV1_JobRunOverrides(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	id := uniqueName("v1-overrides-job")
+	id := uniquename.New("v1-overrides-job")
 	parent := "namespaces/" + cloudRunV1Namespace
 
 	_, err := svc.Namespaces.Jobs.Create(parent, &run.Job{
@@ -335,7 +336,7 @@ func TestCloudRunV1_JobRunOverrides(t *testing.T) {
 func TestCloudRunV1_JobsDryRun(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	id := uniqueName("v1-dryrun-job")
+	id := uniquename.New("v1-dryrun-job")
 	parent := "namespaces/" + cloudRunV1Namespace
 	body := &run.Job{
 		Metadata: &run.ObjectMeta{Name: id},
@@ -362,7 +363,7 @@ func TestCloudRunV1_JobsDryRun(t *testing.T) {
 func TestCloudRunV1_ExecutionDeleteRemovesItsTasks(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	jobID := uniqueName("v1-exec-delete-job")
+	jobID := uniquename.New("v1-exec-delete-job")
 	execName := createAndRunJobWithImageAndCommand(t, jobID, simWorkloadImage, []string{"true"}, "30s").Execution
 	executionID := execName[strings.LastIndex(execName, "/")+1:]
 	parent := "namespaces/" + cloudRunV1Namespace
@@ -388,7 +389,7 @@ func TestCloudRunV1_ExecutionDeleteRemovesItsTasks(t *testing.T) {
 // start a container.
 func TestCloudRunV2_JobSetIamPolicyDoesNotRunTheJob(t *testing.T) {
 	t.Parallel()
-	id := uniqueName("v2-iam-not-run")
+	id := uniquename.New("v2-iam-not-run")
 	createCloudRunV2JobLRO(t, id)
 	base := fmt.Sprintf("%s/v2/projects/%s/locations/us-central1/jobs/%s", baseURL, cloudRunV1Namespace, id)
 
@@ -417,7 +418,7 @@ func TestCloudRunV2_JobSetIamPolicyDoesNotRunTheJob(t *testing.T) {
 // execution and reports no resource it did not create.
 func TestCloudRunV2_JobRunValidateOnly(t *testing.T) {
 	t.Parallel()
-	id := uniqueName("v2-run-validate-only")
+	id := uniquename.New("v2-run-validate-only")
 	createCloudRunV2JobLRO(t, id)
 	base := fmt.Sprintf("%s/v2/projects/%s/locations/us-central1/jobs/%s", baseURL, cloudRunV1Namespace, id)
 

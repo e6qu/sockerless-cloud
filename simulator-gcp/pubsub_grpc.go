@@ -428,64 +428,28 @@ func (s *pubsubPublisherGRPC) GetTopic(_ context.Context, req *pspb.GetTopicRequ
 }
 
 func (s *pubsubPublisherGRPC) ListTopics(_ context.Context, req *pspb.ListTopicsRequest) (*pspb.ListTopicsResponse, error) {
-	project := psNormalizeProject(req.GetProject())
-	prefix := fmt.Sprintf("projects/%s/topics/", project)
-	var all []PSTopic
-	for _, t := range psTopics.List() {
-		if strings.HasPrefix(t.Name, prefix) {
-			all = append(all, t)
-		}
-	}
-	page, next, err := grpcKeyPage(all, req.GetPageSize(), req.GetPageToken(), gcpAsc(func(v PSTopic) string { return v.Name }))
+	page, next, err := psGRPCPage(psTopics, fmt.Sprintf("projects/%s/topics/", psNormalizeProject(req.GetProject())),
+		func(v PSTopic) string { return v.Name }, req.GetPageSize(), req.GetPageToken(), psTopicToProto)
 	if err != nil {
 		return nil, err
 	}
-	resp := &pspb.ListTopicsResponse{Topics: make([]*pspb.Topic, 0, len(page))}
-	for _, t := range page {
-		resp.Topics = append(resp.Topics, psTopicToProto(t))
-	}
-	resp.NextPageToken = next
-	return resp, nil
+	return &pspb.ListTopicsResponse{Topics: page, NextPageToken: next}, nil
 }
 
 func (s *pubsubPublisherGRPC) ListTopicSubscriptions(_ context.Context, req *pspb.ListTopicSubscriptionsRequest) (*pspb.ListTopicSubscriptionsResponse, error) {
-	tName := req.GetTopic()
-	if _, ok := psTopics.Get(tName); !ok {
-		return nil, status.Errorf(codes.NotFound, "Resource not found (resource=%s)", tName)
-	}
-	var names []string
-	for _, sub := range psSubscriptions.List() {
-		if sub.Topic == tName {
-			names = append(names, sub.Name)
-		}
-	}
-	page, next, err := grpcKeyPage(names, req.GetPageSize(), req.GetPageToken(), gcpAsc(func(name string) string { return name }))
+	page, next, err := psTopicAttachedPage(req.GetTopic(), psSubscriptions, func(v PSSubscription) (string, string) { return v.Topic, v.Name }, req.GetPageSize(), req.GetPageToken())
 	if err != nil {
 		return nil, err
 	}
-	resp := &pspb.ListTopicSubscriptionsResponse{Subscriptions: page}
-	resp.NextPageToken = next
-	return resp, nil
+	return &pspb.ListTopicSubscriptionsResponse{Subscriptions: page, NextPageToken: next}, nil
 }
 
 func (s *pubsubPublisherGRPC) ListTopicSnapshots(_ context.Context, req *pspb.ListTopicSnapshotsRequest) (*pspb.ListTopicSnapshotsResponse, error) {
-	tName := req.GetTopic()
-	if _, ok := psTopics.Get(tName); !ok {
-		return nil, status.Errorf(codes.NotFound, "Resource not found (resource=%s)", tName)
-	}
-	var names []string
-	for _, snap := range psSnapshots.List() {
-		if snap.Topic == tName {
-			names = append(names, snap.Name)
-		}
-	}
-	page, next, err := grpcKeyPage(names, req.GetPageSize(), req.GetPageToken(), gcpAsc(func(name string) string { return name }))
+	page, next, err := psTopicAttachedPage(req.GetTopic(), psSnapshots, func(v PSSnapshot) (string, string) { return v.Topic, v.Name }, req.GetPageSize(), req.GetPageToken())
 	if err != nil {
 		return nil, err
 	}
-	resp := &pspb.ListTopicSnapshotsResponse{Snapshots: page}
-	resp.NextPageToken = next
-	return resp, nil
+	return &pspb.ListTopicSnapshotsResponse{Snapshots: page, NextPageToken: next}, nil
 }
 
 func (s *pubsubPublisherGRPC) DeleteTopic(_ context.Context, req *pspb.DeleteTopicRequest) (*emptypb.Empty, error) {
@@ -603,24 +567,12 @@ func (s *pubsubSubscriberGRPC) UpdateSubscription(_ context.Context, req *pspb.U
 }
 
 func (s *pubsubSubscriberGRPC) ListSubscriptions(_ context.Context, req *pspb.ListSubscriptionsRequest) (*pspb.ListSubscriptionsResponse, error) {
-	project := psNormalizeProject(req.GetProject())
-	prefix := fmt.Sprintf("projects/%s/subscriptions/", project)
-	var all []PSSubscription
-	for _, sub := range psSubscriptions.List() {
-		if strings.HasPrefix(sub.Name, prefix) {
-			all = append(all, sub)
-		}
-	}
-	page, next, err := grpcKeyPage(all, req.GetPageSize(), req.GetPageToken(), gcpAsc(func(v PSSubscription) string { return v.Name }))
+	page, next, err := psGRPCPage(psSubscriptions, fmt.Sprintf("projects/%s/subscriptions/", psNormalizeProject(req.GetProject())),
+		func(v PSSubscription) string { return v.Name }, req.GetPageSize(), req.GetPageToken(), psSubscriptionToProto)
 	if err != nil {
 		return nil, err
 	}
-	resp := &pspb.ListSubscriptionsResponse{Subscriptions: make([]*pspb.Subscription, 0, len(page))}
-	for _, sub := range page {
-		resp.Subscriptions = append(resp.Subscriptions, psSubscriptionToProto(sub))
-	}
-	resp.NextPageToken = next
-	return resp, nil
+	return &pspb.ListSubscriptionsResponse{Subscriptions: page, NextPageToken: next}, nil
 }
 
 func (s *pubsubSubscriberGRPC) DeleteSubscription(_ context.Context, req *pspb.DeleteSubscriptionRequest) (*emptypb.Empty, error) {
@@ -674,7 +626,7 @@ func (s *pubsubSubscriberGRPC) ModifyPushConfig(_ context.Context, req *pspb.Mod
 		}
 	}
 	psSubscriptions.Update(sub, func(s *PSSubscription) { s.PushConfig = rest })
-	psWakePush()
+	psSignalSubscription(sub)
 	return &emptypb.Empty{}, nil
 }
 
@@ -721,19 +673,20 @@ func (s *pubsubSubscriberGRPC) StreamingPull(stream pspb.Subscriber_StreamingPul
 	}
 
 	// Reader loop: applies acks and modacks embedded in client messages, and
-	// signals shutdown when the stream closes.
-	clientErr := make(chan error, 1)
+	// ends the stream with the error that closed the client's side.
+	ctx, closeStream := context.WithCancelCause(ctx)
+	defer closeStream(nil)
 	bg.JoinedGo(func() {
-		clientErr <- psStreamingPullReadLoop(stream, subName)
+		closeStream(psStreamingPullReadLoop(stream, subName))
 	})
 
 	for {
 		// A select that finds both the client's cancellation and an arrival
 		// ready picks either, so check the stream before leasing into it.
-		if err := ctx.Err(); err != nil {
-			return err
+		if ctx.Err() != nil {
+			return context.Cause(ctx)
 		}
-		arrival := psSubscriptionSignal(subName)
+		arrival := psArrivals.Changed(subName)
 		// Count messages currently inflight for this subscription so flow control
 		// is honoured — the client will not ack faster than its handlers run, so
 		// capping outstanding delivery prevents flooding it.
@@ -759,22 +712,8 @@ func (s *pubsubSubscriberGRPC) StreamingPull(stream pspb.Subscriber_StreamingPul
 				}
 			}
 		}
-		var lapse <-chan time.Time
-		stop := func() bool { return false }
-		if next, ok := psNextQueueChange(subName, time.Now()); ok {
-			timer := time.NewTimer(time.Until(next))
-			lapse, stop = timer.C, timer.Stop
-		}
-		select {
-		case <-ctx.Done():
-			stop()
-			return ctx.Err()
-		case e := <-clientErr:
-			stop()
-			return e
-		case <-arrival:
-			stop()
-		case <-lapse:
+		if psArrivals.Wait(ctx, subName, arrival, time.Time{}) != nil {
+			return context.Cause(ctx)
 		}
 	}
 }
@@ -919,24 +858,12 @@ func (s *pubsubSubscriberGRPC) UpdateSnapshot(_ context.Context, req *pspb.Updat
 }
 
 func (s *pubsubSubscriberGRPC) ListSnapshots(_ context.Context, req *pspb.ListSnapshotsRequest) (*pspb.ListSnapshotsResponse, error) {
-	project := psNormalizeProject(req.GetProject())
-	prefix := fmt.Sprintf("projects/%s/snapshots/", project)
-	var all []PSSnapshot
-	for _, snap := range psSnapshots.List() {
-		if strings.HasPrefix(snap.Name, prefix) {
-			all = append(all, snap)
-		}
-	}
-	page, next, err := grpcKeyPage(all, req.GetPageSize(), req.GetPageToken(), gcpAsc(func(v PSSnapshot) string { return v.Name }))
+	page, next, err := psGRPCPage(psSnapshots, fmt.Sprintf("projects/%s/snapshots/", psNormalizeProject(req.GetProject())),
+		func(v PSSnapshot) string { return v.Name }, req.GetPageSize(), req.GetPageToken(), psSnapshotToProto)
 	if err != nil {
 		return nil, err
 	}
-	resp := &pspb.ListSnapshotsResponse{Snapshots: make([]*pspb.Snapshot, 0, len(page))}
-	for _, snap := range page {
-		resp.Snapshots = append(resp.Snapshots, psSnapshotToProto(snap))
-	}
-	resp.NextPageToken = next
-	return resp, nil
+	return &pspb.ListSnapshotsResponse{Snapshots: page, NextPageToken: next}, nil
 }
 
 func (s *pubsubSubscriberGRPC) DeleteSnapshot(_ context.Context, req *pspb.DeleteSnapshotRequest) (*emptypb.Empty, error) {
@@ -1153,4 +1080,39 @@ func psNormalizeProject(s string) string {
 		s = s[:i]
 	}
 	return s
+}
+
+// psGRPCPage pages the resources of store named under prefix in name order,
+// each converted by toProto.
+func psGRPCPage[T, P any](store sim.Store[T], prefix string, name func(T) string, pageSize int32, token string, toProto func(T) P) ([]P, string, error) {
+	var all []T
+	for _, v := range store.List() {
+		if strings.HasPrefix(name(v), prefix) {
+			all = append(all, v)
+		}
+	}
+	page, next, err := grpcKeyPage(all, pageSize, token, gcpAsc(name))
+	if err != nil {
+		return nil, "", err
+	}
+	out := make([]P, 0, len(page))
+	for _, v := range page {
+		out = append(out, toProto(v))
+	}
+	return out, next, nil
+}
+
+// psTopicAttachedPage pages the names of the resources of store attached to
+// topic, which ref reads with each resource's name, in name order.
+func psTopicAttachedPage[T any](topic string, store sim.Store[T], ref func(T) (topic, name string), pageSize int32, token string) ([]string, string, error) {
+	if _, ok := psTopics.Get(topic); !ok {
+		return nil, "", status.Errorf(codes.NotFound, "Resource not found (resource=%s)", topic)
+	}
+	var names []string
+	for _, v := range store.List() {
+		if t, name := ref(v); t == topic {
+			names = append(names, name)
+		}
+	}
+	return grpcKeyPage(names, pageSize, token, gcpAsc(func(name string) string { return name }))
 }

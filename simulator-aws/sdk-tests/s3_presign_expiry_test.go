@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +35,7 @@ func (s signedAt) PresignHTTP(ctx context.Context, credentials aws.Credentials, 
 // after.
 func TestS3_PresignedURLExpires(t *testing.T) {
 	t.Parallel()
-	bucket := uniqueName("s3-presign-expiry")
+	bucket := uniquename.New("s3-presign-expiry")
 	sc := s3Client()
 	_, err := sc.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)

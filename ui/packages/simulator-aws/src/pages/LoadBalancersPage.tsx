@@ -1,4 +1,4 @@
-import { AwsButton, AwsResourceTable, AwsStatus, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsResourceTable, AwsStatus, AwsRefreshButton, type AwsColumn } from "../console/index.js";
 import { fetchLoadBalancers, fetchTargetGroups, type LoadBalancer, type TargetGroup } from "../api.js";
 
 // Elastic Load Balancing — Load balancers and Target groups, the two resources
@@ -34,9 +34,10 @@ const targetGroupColumns: AwsColumn<TargetGroup>[] = [
   },
 ];
 
-export function LoadBalancersPage() {
+export function LoadBalancersPage({ view = "load-balancers" }: { view?: "load-balancers" | "target-groups" }) {
   return (
     <>
+      {view === "load-balancers" && (
       <AwsResourceTable<LoadBalancer>
         title="Load balancers"
         description="Application, Network, and Gateway Load Balancers in this account and Region."
@@ -50,14 +51,13 @@ export function LoadBalancersPage() {
         tableTestId="elb-load-balancers-table"
         errorTestId="elb-load-balancers-error"
         actions={({ refetch, isFetching }) => (
-          <AwsButton onClick={refetch} disabled={isFetching}>
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </AwsButton>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
         )}
       />
+      )}
+      {view === "target-groups" && (
       <AwsResourceTable<TargetGroup>
         title="Target groups"
-        headingVariant="h2"
         description="The target groups listeners forward to."
         columns={targetGroupColumns}
         queryKey={["elb-target-groups"]}
@@ -69,11 +69,10 @@ export function LoadBalancersPage() {
         tableTestId="elb-target-groups-table"
         errorTestId="elb-target-groups-error"
         actions={({ refetch, isFetching }) => (
-          <AwsButton onClick={refetch} disabled={isFetching}>
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </AwsButton>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
         )}
       />
+      )}
     </>
   );
 }

@@ -37,7 +37,7 @@ var (
 func handleResourceGroupDelete(srv *sim.Server, w http.ResponseWriter, r *http.Request) {
 	sub := sim.PathParam(r, "subscriptionId")
 	rgName := sim.PathParam(r, "resourceGroupName")
-	groupID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", sub, rgName)
+	groupID := armResourceGroupID(sub, rgName)
 	apiVersion := r.URL.Query().Get("api-version")
 
 	azureResourceGroupDeletesMu.Lock()
@@ -189,7 +189,10 @@ func followAzureProviderOperation(ctx context.Context, srv *sim.Server, accepted
 	opID := target.Path[strings.LastIndex(target.Path, "/")+1:]
 	lifetime := sim.LifetimeContext(ctx)
 	for {
-		settled := azureAsyncOperationSettled(opID)
+		settled := azureAsyncOpChanges.Changed(opID)
+		if _, ours := azureAsyncOps.Get(opID); !ours {
+			settled = nil
+		}
 		poll := serveAzureInternal(ctx, srv, http.MethodGet, target, host)
 		if statusPoll {
 			if poll.Code != http.StatusOK {
@@ -221,8 +224,8 @@ func followAzureProviderOperation(ctx context.Context, srv *sim.Server, accepted
 		}
 		var retry <-chan time.Time
 		if settled == nil {
-			// The provider runs no background work this process can wait on,
-			// so poll on the cadence its Retry-After asks for.
+			// The provider tracks the operation in a store of its own, so
+			// poll on the cadence its Retry-After asks for.
 			retryAfter, err := strconv.Atoi(poll.Header().Get("Retry-After"))
 			if err != nil || retryAfter < 1 {
 				retryAfter = 1

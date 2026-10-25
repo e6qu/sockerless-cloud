@@ -3,6 +3,7 @@ package gcp_sdk_test
 import (
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/compute/v1"
@@ -308,7 +309,7 @@ func TestCompute3_Routers_Update_RoutePolicies(t *testing.T) {
 func TestCompute3_Snapshots_IAM(t *testing.T) {
 	t.Parallel()
 	svc := computeService(t)
-	name := uniqueName("sdk-snap-iam")
+	name := uniquename.New("sdk-snap-iam")
 	_, err := svc.Snapshots.Insert(more3Project, &compute.Snapshot{Name: name}).Do()
 	require.NoError(t, err)
 

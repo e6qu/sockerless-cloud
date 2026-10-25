@@ -188,6 +188,8 @@ func TestStackProductionShape(t *testing.T) {
 		"Lambda function URL must use AWS's regional lambda-url host shape")
 	require.JSONEq(t, `{"source":"terraform"}`, outputs.must(t, "lambda_invocation_result"),
 		"Lambda Terraform invocation must round-trip through the Runtime API handler")
+	require.Equal(t, "5", outputs.must(t, "lambda_reserved_concurrent_executions"),
+		"reserved_concurrent_executions must read back through GetFunctionConcurrency")
 	require.Equal(t, outputs.must(t, "eventbridge_queue_arn"), outputs.must(t, "lambda_event_invoke_config_destination"),
 		"aws_lambda_function_event_invoke_config must read its Amazon SQS destination back through GetFunctionEventInvokeConfig")
 

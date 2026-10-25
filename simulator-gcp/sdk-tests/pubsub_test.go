@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	pubsubpb "cloud.google.com/go/pubsub/apiv1/pubsubpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/googleapi"
@@ -314,7 +315,7 @@ func TestPubSub_SubscriptionListPagination(t *testing.T) {
 // does not hold, over both transports.
 func TestPubSub_RefusesAProjectThatDoesNotExist(t *testing.T) {
 	t.Parallel()
-	missing := uniqueName("ps-no-such-project")
+	missing := uniquename.New("ps-no-such-project")
 	svc, err := pubsub.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 	name := "projects/" + missing + "/topics/orphan"

@@ -9,6 +9,7 @@ import (
 
 	"cloud.google.com/go/pubsub"
 	pubsubpb "cloud.google.com/go/pubsub/apiv1/pubsubpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
@@ -532,7 +533,7 @@ func psPullAll(t *testing.T, sc pubsubpb.SubscriberClient, sub string, count int
 func TestPubSubGRPC_ListRefusesAMalformedPage(t *testing.T) {
 	t.Parallel()
 	pub, _ := psRawClient(t)
-	project := "projects/" + uniqueName("ps-grpc-paging")
+	project := "projects/" + uniquename.New("ps-grpc-paging")
 	ensureProject(t, strings.TrimPrefix(project, "projects/"))
 	for _, id := range []string{"a", "b", "c"} {
 		_, err := pub.CreateTopic(ctx, &pubsubpb.Topic{Name: project + "/topics/" + id})

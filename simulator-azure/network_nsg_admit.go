@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/e6qu/sockerless-cloud/sim"
 	"net"
 	"net/netip"
 	"strings"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 
 	"github.com/e6qu/sockerless-cloud/sim/netrules"
 )

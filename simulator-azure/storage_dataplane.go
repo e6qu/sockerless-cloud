@@ -1336,7 +1336,7 @@ func handleTableCreate(w http.ResponseWriter, r *http.Request, account string) {
 	var body struct {
 		TableName string `json:"TableName"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := azureReadRequiredJSON(r, &body); err != nil {
 		writeTableODataError(w, "InvalidInput", err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -1446,7 +1446,7 @@ func handleEntityInsert(w http.ResponseWriter, r *http.Request, account, table s
 		return
 	}
 	var props map[string]json.RawMessage
-	if err := json.NewDecoder(r.Body).Decode(&props); err != nil {
+	if err := azureReadRequiredJSON(r, &props); err != nil {
 		writeTableODataError(w, "InvalidInput", err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -1515,7 +1515,7 @@ func handleEntityUpsert(w http.ResponseWriter, r *http.Request, account, table, 
 		return
 	}
 	var props map[string]json.RawMessage
-	if err := json.NewDecoder(r.Body).Decode(&props); err != nil {
+	if err := azureReadRequiredJSON(r, &props); err != nil {
 		writeTableODataError(w, "InvalidInput", err.Error(), http.StatusBadRequest)
 		return
 	}

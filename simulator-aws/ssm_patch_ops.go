@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 // SSM Patch Manager patch-group + patch-read surface, OpsMetadata,
@@ -833,7 +834,7 @@ func handleSSMGetParameterHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows := ssmSyncParameterVersions(cur)
-	page, next, pageOK := awsKeyPage(w, ssmBadToken, rows, func(it SSMParameterVersionRow) string { return awsIntKey(it.Version) }, req.NextToken, req.MaxResults, 50)
+	page, next, pageOK := awsKeyPage(w, ssmBadToken, rows, func(it SSMParameterVersionRow) string { return listq.IntKey(it.Version) }, req.NextToken, req.MaxResults, 50)
 	if !pageOK {
 		return
 	}

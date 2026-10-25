@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run dupl (Go copy-paste detector) on the cloud simulator sources.
-# Threshold: 200 tokens (irreducible structural HTTP-handler clones below this
+# Threshold: 150 tokens (irreducible structural HTTP-handler clones below this
 # — one threshold for every simulator). Each simulator (aws/gcp/azure) is scanned
 # over its top-level handwritten, non-test Go files (the cloud-API handler
 # surface). Generated tables are compile/conformance-tested and intentionally
@@ -25,14 +25,14 @@ ROOT=$(git rev-parse --show-toplevel)
 fail=0
 for cloud in aws gcp azure; do
   dir="$ROOT/simulator-$cloud"
-  out=$(find "$dir" -maxdepth 1 -name "*.go" ! -name "*_test.go" ! -name "*_gen.go" -type f | sort | "$DUPL" -t 200 -files 2>&1)
+  out=$(find "$dir" -maxdepth 1 -name "*.go" ! -name "*_test.go" ! -name "*_gen.go" -type f | sort | "$DUPL" -t 150 -files 2>&1)
   count=$(echo "$out" | grep -c "^found" || true)
   if [[ "$count" -gt 0 ]]; then
-    echo "FAIL: simulator-$cloud dupl found $count clone group(s) above threshold (200 tokens):" >&2
+    echo "FAIL: simulator-$cloud dupl found $count clone group(s) above threshold (150 tokens):" >&2
     echo "$out" >&2
     fail=1
   else
-    echo "simulators-dupl: $cloud OK (threshold: 200 tokens)"
+    echo "simulators-dupl: $cloud OK (threshold: 150 tokens)"
   fi
 done
 exit "$fail"

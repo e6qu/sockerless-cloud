@@ -6,6 +6,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,9 +17,9 @@ import (
 // and AttachUserPolicy/ListAttachedUserPolicies/DetachUserPolicy.
 func TestIAM_UserLifecycle(t *testing.T) {
 	t.Parallel()
-	managedPolicy := uniqueName("managed-lifecycle")
+	managedPolicy := uniquename.New("managed-lifecycle")
 	c := iamClient()
-	user := uniqueName("lifecycle-user")
+	user := uniquename.New("lifecycle-user")
 
 	created, err := c.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)

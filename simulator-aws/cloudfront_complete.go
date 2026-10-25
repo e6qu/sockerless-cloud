@@ -200,8 +200,7 @@ func registerCloudFrontComplete(srv *sim.Server) {
 
 func handleCFCreateConnectionFunction(w http.ResponseWriter, r *http.Request) {
 	var req cfCreateConnectionFunctionRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode CreateConnectionFunctionRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "CreateConnectionFunctionRequest", &req) {
 		return
 	}
 	if req.Name == "" {
@@ -299,8 +298,7 @@ func handleCFUpdateConnectionFunction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req cfUpdateConnectionFunctionRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode UpdateConnectionFunctionRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "UpdateConnectionFunctionRequest", &req) {
 		return
 	}
 	newETag := cfETag()
@@ -358,8 +356,7 @@ func handleCFTestConnectionFunction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req cfTestConnectionFunctionRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode TestConnectionFunctionRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "TestConnectionFunctionRequest", &req) {
 		return
 	}
 	if len(req.ConnectionObject) == 0 {
@@ -431,18 +428,11 @@ func handleCFTestFunction(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchFunctionExists", "The specified function does not exist.")
 		return
 	}
-	ifMatch := r.Header.Get("If-Match")
-	if ifMatch == "" {
-		cfWriteError(w, http.StatusBadRequest, "InvalidIfMatchVersion", "The If-Match header is required.")
-		return
-	}
-	if ifMatch != stored.ETag {
-		cfWriteError(w, http.StatusPreconditionFailed, "PreconditionFailed", "The If-Match version is missing or does not match the resource's current ETag.")
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	var req cfTestFunctionRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode TestFunctionRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "TestFunctionRequest", &req) {
 		return
 	}
 	if len(req.EventObject) == 0 {
@@ -474,8 +464,8 @@ func cfConnectionRequireIfMatch(r *http.Request, current string) string {
 
 func cfWriteConnectionIfMatchError(w http.ResponseWriter, msg string) {
 	if msg == "missing" {
-		cfWriteError(w, http.StatusBadRequest, "InvalidIfMatchVersion", "The If-Match header is required.")
+		cfWriteIfMatchError(w, "InvalidIfMatchVersion")
 		return
 	}
-	cfWriteError(w, http.StatusPreconditionFailed, "PreconditionFailed", "The If-Match version is missing or does not match the resource's current ETag.")
+	cfWriteIfMatchError(w, "PreconditionFailed")
 }

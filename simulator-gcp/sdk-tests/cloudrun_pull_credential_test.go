@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -48,7 +49,7 @@ func TestCloudRun_JobPullsItsImageFromArtifactRegistryAsTheServiceAgent(t *testi
 	resp, body := arRawDo(t, http.MethodGet, fmt.Sprintf("%s/v2/%s/docker-hub/library/alpine/manifests/3.20", baseURL, project), "", nil, "")
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode, body)
 
-	run := createAndRunJobInProject(t, project, uniqueName("ar-pull-job"), image, []string{"echo", "pulled as the service agent"}, "60s")
+	run := createAndRunJobInProject(t, project, uniquename.New("ar-pull-job"), image, []string{"echo", "pulled as the service agent"}, "60s")
 	execution, err := waitJobRun(t, run)
 	require.NoError(t, err, "execution: %v", execution)
 	assert.Equal(t, float64(1), execution["succeededCount"], "execution: %v", execution)

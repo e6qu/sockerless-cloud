@@ -28,8 +28,7 @@ const webPlanBase = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGro
 // webPlanID is the canonical (lowercase serverfarms segment) plan resource id
 // for the addressed request — the spelling appserviceplan.go stores plans under.
 func webPlanID(r *http.Request) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/serverfarms/%s",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "planName"))
+	return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "serverfarms", sim.PathParam(r, "planName"))
 }
 
 // canonicalServerFarmID rewrites the serverFarms path segment (either casing

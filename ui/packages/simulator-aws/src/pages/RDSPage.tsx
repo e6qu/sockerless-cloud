@@ -5,7 +5,7 @@ import FormField from "@cloudscape-design/components/form-field";
 import Input from "@cloudscape-design/components/input";
 import Select from "@cloudscape-design/components/select";
 import SpaceBetween from "@cloudscape-design/components/space-between";
-import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsStatus, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsStatus, AwsRefreshButton, type AwsColumn } from "../console/index.js";
 import {
   createRDSInstance,
   deleteRDSInstance,
@@ -319,6 +319,7 @@ export function RDSPage() {
         errorTestId="rds-instances-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton
               data-testid="rds-connect-instance"
               disabled={selected.length !== 1 || !selected[0].endpointAddress}
@@ -340,9 +341,6 @@ export function RDSPage() {
             >
               Delete
             </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
-            </AwsButton>
             <AwsButton variant="primary" data-testid="rds-create-instance" onClick={() => setCreating(true)}>
               Create database
             </AwsButton>
@@ -363,9 +361,7 @@ export function RDSPage() {
         tableTestId="rds-clusters-table"
         errorTestId="rds-clusters-error"
         actions={({ refetch, isFetching }) => (
-          <AwsButton onClick={refetch} disabled={isFetching}>
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </AwsButton>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
         )}
       />
       {deleting && (

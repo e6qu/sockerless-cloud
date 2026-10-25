@@ -18,7 +18,7 @@
 #
 # Every simulator is installable straight from this repository:
 #
-#   go install github.com/e6qu/sockerless-cloud/simulator-aws@latest
+#   go install github.com/e6qu/sockerless-cloud/simulator-aws@<release-commit>
 
 include make/help.mk
 include make/colors.mk

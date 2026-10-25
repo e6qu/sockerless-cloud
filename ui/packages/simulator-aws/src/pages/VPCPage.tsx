@@ -14,6 +14,7 @@ import {
   AwsStatus,
   type AwsColumn,
   type AwsStatusKind,
+  AwsRefreshButton,
 } from "../console/index.js";
 import {
   fetchEC2AccountVpcEncryptionControl,
@@ -198,6 +199,7 @@ export function VPCPage() {
         errorTestId="vpc-error"
         actions={({ selected, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton data-testid="vpc-account-encryption-open" onClick={() => setShowAccountEncryption(true)}>
               Account encryption controls
             </AwsButton>
@@ -207,9 +209,6 @@ export function VPCPage() {
               onClick={() => navigate(`/ui/vpc/${encodeURIComponent(selected[0].vpcId)}`)}
             >
               View details
-            </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
             </AwsButton>
           </>
         )}

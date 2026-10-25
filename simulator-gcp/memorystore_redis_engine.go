@@ -1,12 +1,12 @@
 package main
 
 import (
-	"archive/tar"
 	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -21,19 +21,18 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/moby/moby/api/pkg/stdcopy"
-	dockerclient "github.com/moby/moby/client"
-
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/dbengine"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
+	"github.com/e6qu/sockerless-cloud/sim/signals"
 )
 
 // The Memorystore for Redis data plane.
 //
-// An instance or cluster is a real Redis engine: one container per node, each
-// a redis-server listening on Redis's port 6379, on a Docker network every
-// Memorystore engine of this simulator shares, and published on a host
-// loopback port. The endpoints the API reports are listeners this process owns
+// An instance or cluster is a real Redis engine: one workload per node, placed
+// on the backend the redis service is configured onto, each a redis-server
+// listening on Redis's port 6379, on an engine network every Memorystore
+// engine of this simulator shares, and published on a host loopback port. The endpoints the API reports are listeners this process owns
 // on loopback addresses of their own, relaying bytes to the node behind them:
 // an instance's host and readEndpoint, a cluster's discovery endpoint, and each
 // cluster node at the address it announces as its hostname. Instance replicas
@@ -53,8 +52,6 @@ const (
 	msRedisTLSPort         = 6378
 	msRedisDataPath        = "/data"
 	msRedisReadyBudget     = 10 * time.Minute
-	msRedisLivenessEvery   = 2 * time.Second
-	msRedisProbeInterval   = 100 * time.Millisecond
 	msRedisStopGrace       = 5 * time.Second
 	msRedisRemovalTimeout  = 30 * time.Second
 	msRedisCommandDeadline = 2 * time.Minute
@@ -164,9 +161,29 @@ type msRedisPlaneSpec struct {
 type msRedisNode struct {
 	index    int
 	announce string
-	handle   *sim.ContainerHandle
+	handle   placement.Handle
+	output   *msRedisNodeOutput
 	hostPort int
 	ip       string
+	// seed is a dataset the node loads at its next start.
+	seed []byte
+}
+
+// msRedisNodeOutput reads what a node's redis-server writes: each line
+// announces the node on its plane's changes, and the line redis-server writes
+// once its dataset is loaded and it accepts clients marks it ready. Every
+// supported version spells that line with "ready to accept connections".
+type msRedisNodeOutput struct {
+	changes *signals.Keyed[int]
+	node    int
+	ready   atomic.Bool
+}
+
+func (o *msRedisNodeOutput) WriteLog(line sim.LogLine) {
+	if strings.Contains(strings.ToLower(line.Text), "ready to accept connections") {
+		o.ready.Store(true)
+	}
+	o.changes.Announce(o.node)
 }
 
 type msRedisPlane struct {
@@ -207,6 +224,11 @@ type msRedisPlane struct {
 	opMu sync.Mutex
 
 	readCursor atomic.Uint64
+
+	// changes announces a node each time its engine writes a line;
+	// redis-server logs every change of its replication link and of the
+	// cluster's state.
+	changes signals.Keyed[int]
 }
 
 var msRedisPlanes sync.Map // resource name -> *msRedisPlane
@@ -497,14 +519,14 @@ func (p *msRedisPlane) nodeAddress(node int) (string, error) {
 	return net.JoinHostPort("127.0.0.1", strconv.Itoa(n.hostPort)), nil
 }
 
-func (p *msRedisPlane) containerID(node int) (string, error) {
+func (p *msRedisPlane) workload(node int) (placement.Handle, *msRedisNodeOutput, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	n, ok := p.nodes[node]
 	if !ok || n.handle == nil {
-		return "", fmt.Errorf("node %d of the Redis engine is not running", node)
+		return nil, nil, fmt.Errorf("node %d of the Redis engine is not running", node)
 	}
-	return n.handle.ContainerID, nil
+	return n.handle, n.output, nil
 }
 
 func (p *msRedisPlane) nodeIP(node int) (string, error) {
@@ -599,7 +621,19 @@ func (p *msRedisPlane) startNode(node int) error {
 	for key, value := range p.labels {
 		labels[key] = value
 	}
-	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
+	backend, err := gcpPlacement.For(placementRedis)
+	if err != nil {
+		return fmt.Errorf("start node %d of the Redis engine: %w", node, err)
+	}
+	p.mu.Lock()
+	var seed []sim.SeedFile
+	if n, ok := p.nodes[node]; ok && n.seed != nil {
+		seed = []sim.SeedFile{{Path: msRedisNodeDir(node) + "/dump.rdb", Data: n.seed}}
+		n.seed = nil
+	}
+	p.mu.Unlock()
+	output := p.nodeOutput(node)
+	handle, err := backend.Place(context.Background(), placement.Workload{
 		CancelGracePeriod: msRedisStopGrace,
 		Image:             image,
 		Architecture:      msRedisEnginePlatform,
@@ -610,12 +644,13 @@ func (p *msRedisPlane) startNode(node int) error {
 		Network:           network,
 		NetworkAliases:    []string{p.alias(node)},
 		DNS:               dns,
+		Seed:              seed,
 		Sandbox:           SandboxCloudRun,
-	}, sim.NoopSink{})
+	}, output)
 	if err != nil {
 		return fmt.Errorf("start node %d of the Redis engine: %w", node, err)
 	}
-	if err := p.attachNode(node, handle); err != nil {
+	if err := p.attachNode(node, handle, output); err != nil {
 		handle.Cancel()
 		_ = handle.Wait()
 		return fmt.Errorf("start node %d of the Redis engine: %w", node, err)
@@ -623,14 +658,20 @@ func (p *msRedisPlane) startNode(node int) error {
 	return nil
 }
 
-func (p *msRedisPlane) attachNode(node int, handle *sim.ContainerHandle) error {
-	hostPort, err := handle.PublishedPort(context.Background(), msRedisPort)
+func (p *msRedisPlane) nodeOutput(node int) *msRedisNodeOutput {
+	return &msRedisNodeOutput{changes: &p.changes, node: node}
+}
+
+func (p *msRedisPlane) attachNode(node int, handle placement.Handle, output *msRedisNodeOutput) error {
+	ctx, cancel := context.WithTimeout(context.Background(), msRedisCommandDeadline)
+	defer cancel()
+	hostPort, err := handle.PublishedPort(ctx, msRedisPort)
 	if err != nil {
 		return err
 	}
-	ip := sim.ContainerIPv4(handle.ContainerID)
-	if ip == "" {
-		return fmt.Errorf("container %s has no network address", handle.ContainerID)
+	ip, err := handle.Address(ctx)
+	if err != nil {
+		return err
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -638,15 +679,16 @@ func (p *msRedisPlane) attachNode(node int, handle *sim.ContainerHandle) error {
 	if !ok {
 		return fmt.Errorf("node %d is not part of the engine", node)
 	}
-	n.handle, n.hostPort, n.ip = handle, hostPort, ip
+	n.handle, n.output, n.hostPort, n.ip = handle, output, hostPort, ip
 	return nil
 }
 
-// awaitNode waits until the node answers PING with its dataset loaded. A node
-// still loading a snapshot answers LOADING; one whose container stopped never
-// will, so the wait ends there instead of at the budget.
+// awaitNode waits until the node logs that it accepts clients, which
+// redis-server does once its dataset is loaded, and then confirms that it
+// answers PING. A node whose workload exits never will, so the wait ends
+// there instead of at the budget.
 func (p *msRedisPlane) awaitNode(node int) error {
-	containerID, err := p.containerID(node)
+	handle, output, err := p.workload(node)
 	if err != nil {
 		return err
 	}
@@ -654,22 +696,103 @@ func (p *msRedisPlane) awaitNode(node int) error {
 	if err != nil {
 		return err
 	}
-	deadline := time.Now().Add(msRedisReadyBudget)
-	nextLiveness := time.Now().Add(msRedisLivenessEvery)
-	for !msRedisAnswers(address, p.currentPassword()) {
-		now := time.Now()
-		if !now.Before(nextLiveness) {
-			if !sim.ContainerRunning(containerID) {
-				return fmt.Errorf("node %d of the Redis engine stopped before accepting connections: container %s is not running", node, containerID)
-			}
-			nextLiveness = now.Add(msRedisLivenessEvery)
+	ctx, cancel := msRedisWaitContext(handle, msRedisReadyBudget)
+	defer cancel(nil)
+	if err := p.changes.Await(ctx, node, output.ready.Load); err != nil {
+		if errors.Is(context.Cause(ctx), errMSRedisNodeExited) {
+			result := handle.Wait()
+			return fmt.Errorf("node %d of the Redis engine stopped before accepting connections: workload %s exited with status %d (%v)", node, handle.ID(), result.ExitCode, result.Error)
 		}
-		if !now.Before(deadline) {
-			return fmt.Errorf("node %d of the Redis engine did not become ready within %s", node, msRedisReadyBudget)
-		}
-		time.Sleep(msRedisProbeInterval)
+		return fmt.Errorf("node %d of the Redis engine did not become ready within %s", node, msRedisReadyBudget)
+	}
+	if !msRedisAnswers(address, p.currentPassword()) {
+		return fmt.Errorf("node %d of the Redis engine logged that it accepts connections but does not answer PING at %s", node, address)
 	}
 	return nil
+}
+
+var errMSRedisNodeExited = errors.New("the node's workload exited")
+
+// msRedisWaitContext ends after budget, or once the node's workload exits,
+// with errMSRedisNodeExited as its cause.
+func msRedisWaitContext(handle placement.Handle, budget time.Duration) (context.Context, context.CancelCauseFunc) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	ctx, stop := context.WithTimeout(ctx, budget)
+	go func() {
+		select {
+		case <-handle.Exited():
+			cancel(errMSRedisNodeExited)
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, func(cause error) {
+		stop()
+		cancel(cause)
+	}
+}
+
+// awaitEngine reads a node's state with satisfied until it reports true,
+// again each time the node writes a line and, when cron is set, once per
+// cron period as well. It gives up after msRedisCommandDeadline or once the
+// node's workload exits.
+func (p *msRedisPlane) awaitEngine(node int, cron bool, satisfied func() (bool, error)) error {
+	handle, _, err := p.workload(node)
+	if err != nil {
+		return err
+	}
+	var period time.Duration
+	if cron {
+		if period, err = p.cronPeriod(node); err != nil {
+			return err
+		}
+	}
+	ctx, cancel := msRedisWaitContext(handle, msRedisCommandDeadline)
+	defer cancel(nil)
+	for {
+		changed := p.changes.Changed(node)
+		ok, err := satisfied()
+		if err != nil || ok {
+			return err
+		}
+		var tick <-chan time.Time
+		var timer *time.Timer
+		if cron {
+			timer = time.NewTimer(period)
+			tick = timer.C
+		}
+		select {
+		case <-changed:
+		case <-tick:
+		case <-ctx.Done():
+		}
+		if timer != nil {
+			timer.Stop()
+		}
+		if ctx.Err() != nil {
+			if errors.Is(context.Cause(ctx), errMSRedisNodeExited) {
+				return fmt.Errorf("node %d of the Redis engine stopped", node)
+			}
+			return fmt.Errorf("not settled within %s", msRedisCommandDeadline)
+		}
+	}
+}
+
+// cronPeriod is how often the node runs its background tasks: once per
+// period of its hz, which INFO reports as it currently applies. A cluster
+// node pings its peers and acts on what they gossip from those tasks, and
+// reports nothing when a peer's view changes, so a wait on the cluster's
+// view rereads it at this period.
+func (p *msRedisPlane) cronPeriod(node int) (time.Duration, error) {
+	reply, err := p.command(node, "INFO", "server")
+	if err != nil {
+		return 0, err
+	}
+	text, _ := reply.(string)
+	hz, err := strconv.Atoi(msRedisParseInfo(text)["hz"])
+	if err != nil || hz <= 0 {
+		return 0, fmt.Errorf("node %d reports no hz in INFO server", node)
+	}
+	return time.Second / time.Duration(hz), nil
 }
 
 func (p *msRedisPlane) currentPassword() string {
@@ -736,22 +859,22 @@ func (p *msRedisPlane) awaitSynchronised(node int) error {
 	return nil
 }
 
+// awaitInfo waits until an INFO section of node satisfies a condition that
+// only changes with a line the node logs: a replication link coming up or
+// going down, or a synchronisation finishing.
 func (p *msRedisPlane) awaitInfo(node int, section string, satisfied func(map[string]string) bool) error {
-	deadline := time.Now().Add(msRedisCommandDeadline)
-	for {
+	err := p.awaitEngine(node, false, func() (bool, error) {
 		reply, err := p.command(node, "INFO", section)
 		if err != nil {
-			return err
+			return false, err
 		}
 		text, _ := reply.(string)
-		if satisfied(msRedisParseInfo(text)) {
-			return nil
-		}
-		if !time.Now().Before(deadline) {
-			return fmt.Errorf("INFO %s did not settle within %s", section, msRedisCommandDeadline)
-		}
-		time.Sleep(msRedisProbeInterval)
+		return satisfied(msRedisParseInfo(text)), nil
+	})
+	if err != nil {
+		return fmt.Errorf("INFO %s: %w", section, err)
 	}
+	return nil
 }
 
 func msRedisParseInfo(text string) map[string]string {
@@ -851,19 +974,15 @@ func (p *msRedisPlane) nodeID(node int) (string, error) {
 // follow makes node a replica of the primary with primaryID, once node has
 // learned of that primary through the cluster bus.
 func (p *msRedisPlane) follow(node int, primaryID string) error {
-	deadline := time.Now().Add(msRedisCommandDeadline)
-	for {
+	if err := p.awaitEngine(node, true, func() (bool, error) {
 		view, err := p.clusterView(node)
 		if err != nil {
-			return err
+			return false, err
 		}
-		if known, ok := view.byID(primaryID); ok && known.primary() {
-			break
-		}
-		if !time.Now().Before(deadline) {
-			return fmt.Errorf("node %d did not learn of primary %s within %s", node, primaryID, msRedisCommandDeadline)
-		}
-		time.Sleep(msRedisProbeInterval)
+		known, ok := view.byID(primaryID)
+		return ok && known.primary(), nil
+	}); err != nil {
+		return fmt.Errorf("node %d did not learn of primary %s: %w", node, primaryID, err)
 	}
 	_, err := p.command(node, "CLUSTER", "REPLICATE", primaryID)
 	return err
@@ -885,30 +1004,31 @@ func (p *msRedisPlane) awaitClusterState(shards, replicas int) error {
 	want := strconv.Itoa(len(order))
 	var followers []int
 	for _, node := range order {
-		deadline := time.Now().Add(msRedisCommandDeadline)
-		for {
+		var info map[string]string
+		var primaries, replicaCount int
+		err := p.awaitEngine(node, true, func() (bool, error) {
 			reply, err := p.command(node, "CLUSTER", "INFO")
 			if err != nil {
-				return err
+				return false, err
 			}
-			info := msRedisParseInfo(fmt.Sprint(reply))
+			info = msRedisParseInfo(fmt.Sprint(reply))
 			view, err := p.clusterView(node)
 			if err != nil {
-				return err
+				return false, err
 			}
-			primaries, replicaCount := view.countRoles()
+			primaries, replicaCount = view.countRoles()
 			if info["cluster_state"] == "ok" && info["cluster_known_nodes"] == want &&
 				primaries == shards && replicaCount == shards*replicas && view.hostnamesKnown() {
 				if self, ok := view.self(); ok && !self.primary() {
 					followers = append(followers, node)
 				}
-				break
+				return true, nil
 			}
-			if !time.Now().Before(deadline) {
-				return fmt.Errorf("node %d reported cluster_state %q with %s known nodes, %d primaries and %d replicas after %s",
-					node, info["cluster_state"], info["cluster_known_nodes"], primaries, replicaCount, msRedisCommandDeadline)
-			}
-			time.Sleep(msRedisProbeInterval)
+			return false, nil
+		})
+		if err != nil {
+			return fmt.Errorf("node %d reported cluster_state %q with %s known nodes, %d primaries and %d replicas: %w",
+				node, info["cluster_state"], info["cluster_known_nodes"], primaries, replicaCount, err)
 		}
 	}
 	for _, node := range followers {
@@ -1138,13 +1258,10 @@ func (p *msRedisPlane) Restart(rdb []byte, image string) error {
 		return err
 	}
 	primary := p.Primary()
-	path := msRedisNodeDir(primary) + "/dump.rdb"
-	if rdb != nil {
-		if err := p.writeFile(primary, path, rdb); err != nil {
+	if rdb == nil {
+		if _, err := p.command(primary, "SAVE"); err != nil {
 			return err
 		}
-	} else if _, err := p.command(primary, "SAVE"); err != nil {
-		return err
 	}
 	if image != "" {
 		p.mu.Lock()
@@ -1153,6 +1270,13 @@ func (p *msRedisPlane) Restart(rdb []byte, image string) error {
 	}
 	if err := p.Stop(); err != nil {
 		return err
+	}
+	if rdb != nil {
+		p.mu.Lock()
+		if n, ok := p.nodes[primary]; ok {
+			n.seed = rdb
+		}
+		p.mu.Unlock()
 	}
 	return p.Ensure()
 }
@@ -1217,100 +1341,54 @@ func (p *msRedisPlane) SetPassword(password string) error {
 	return nil
 }
 
+// readFile reads a file of a node. A workload's command output reaches this
+// process as text on every placement backend, so the file travels
+// base64-encoded.
 func (p *msRedisPlane) readFile(node int, path string) ([]byte, error) {
-	containerID, err := p.containerID(node)
-	if err != nil {
-		return nil, err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), msRedisCommandDeadline)
-	defer cancel()
-	copied, err := sim.DockerClient().CopyFromContainer(ctx, containerID, dockerclient.CopyFromContainerOptions{SourcePath: path})
+	encoded, err := p.exec(node, []string{"base64", path}, nil)
 	if err != nil {
 		return nil, fmt.Errorf("read %s from the Redis engine: %w", path, err)
 	}
-	defer copied.Content.Close()
-	archive := tar.NewReader(copied.Content)
-	for {
-		header, err := archive.Next()
-		if err != nil {
-			return nil, fmt.Errorf("read %s from the Redis engine: %w", path, err)
-		}
-		if header.Typeflag == tar.TypeReg {
-			return io.ReadAll(archive)
-		}
-	}
-}
-
-func (p *msRedisPlane) writeFile(node int, path string, data []byte) error {
-	containerID, err := p.containerID(node)
+	data, err := base64.StdEncoding.DecodeString(strings.Join(strings.Fields(encoded), ""))
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("read %s from the Redis engine: %w", path, err)
 	}
-	dir, file := path[:strings.LastIndex(path, "/")], path[strings.LastIndex(path, "/")+1:]
-	if _, err := p.exec(node, []string{"mkdir", "-p", dir}, nil); err != nil {
-		return err
-	}
-	var archive bytes.Buffer
-	writer := tar.NewWriter(&archive)
-	if err := writer.WriteHeader(&tar.Header{Name: file, Mode: 0o644, Size: int64(len(data)), Typeflag: tar.TypeReg}); err != nil {
-		return err
-	}
-	if _, err := writer.Write(data); err != nil {
-		return err
-	}
-	if err := writer.Close(); err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), msRedisCommandDeadline)
-	defer cancel()
-	if _, err := sim.DockerClient().CopyToContainer(ctx, containerID, dockerclient.CopyToContainerOptions{
-		DestinationPath: dir, Content: &archive,
-	}); err != nil {
-		return fmt.Errorf("write %s into the Redis engine: %w", path, err)
-	}
-	return nil
+	return data, nil
 }
 
-// exec runs a command in a node's container and returns its output.
+// exec runs a command in a node's workload and returns what it wrote to its
+// standard output. env sets variables for the command alone.
 func (p *msRedisPlane) exec(node int, command []string, env []string) (string, error) {
-	containerID, err := p.containerID(node)
+	handle, _, err := p.workload(node)
 	if err != nil {
 		return "", err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), msRedisReshardDeadline)
 	defer cancel()
-	docker := sim.DockerClient()
-	created, err := docker.ExecCreate(ctx, containerID, dockerclient.ExecCreateOptions{
-		Cmd: command, Env: env, AttachStdout: true, AttachStderr: true,
-	})
+	name := command[0]
+	if len(env) > 0 {
+		command = append(append([]string{"env"}, env...), command...)
+	}
+	result, err := handle.Exec(ctx, command)
 	if err != nil {
-		return "", fmt.Errorf("create engine command: %w", err)
+		return "", fmt.Errorf("run %s on node %d of the Redis engine: %w", name, node, err)
 	}
-	attached, err := docker.ExecAttach(ctx, created.ID, dockerclient.ExecAttachOptions{})
-	if err != nil {
-		return "", fmt.Errorf("attach engine command: %w", err)
+	if result.ExitCode != 0 {
+		return result.Stdout, fmt.Errorf("%s exited %d: %s", name, result.ExitCode, strings.TrimSpace(result.Stdout+result.Stderr))
 	}
-	var output bytes.Buffer
-	_, readErr := stdcopy.StdCopy(&output, &output, attached.Reader)
-	attached.Close()
-	if readErr != nil {
-		return "", fmt.Errorf("read engine command output: %w", readErr)
-	}
-	inspected, err := docker.ExecInspect(ctx, created.ID, dockerclient.ExecInspectOptions{})
-	if err != nil {
-		return "", fmt.Errorf("inspect engine command: %w", err)
-	}
-	if inspected.ExitCode != 0 {
-		return output.String(), fmt.Errorf("%s exited %d: %s", command[0], inspected.ExitCode, strings.TrimSpace(output.String()))
-	}
-	return output.String(), nil
+	return result.Stdout, nil
 }
 
-// Adopt picks up the node containers an earlier control-plane process left
-// for this resource. A node whose container stopped starts afresh at the next
+// Adopt picks up the node workloads an earlier control-plane process left
+// for this resource. A node whose workload stopped starts afresh at the next
 // Ensure, from the configuration the resource has now.
 func (p *msRedisPlane) Adopt() error {
-	existing, err := sim.FindExistingContainers(p.labels)
+	backend, err := gcpPlacement.For(placementRedis)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	existing, err := backend.Find(ctx, p.labels)
 	if err != nil {
 		return err
 	}
@@ -1320,19 +1398,20 @@ func (p *msRedisPlane) Adopt() error {
 		_, known := p.nodes[node]
 		p.mu.RUnlock()
 		if err != nil || !known || !found.Running {
-			if err := sim.RemoveExistingContainer(found.ID); err != nil {
-				return fmt.Errorf("remove Redis engine container %s: %w", found.ID, err)
+			if err := backend.Remove(ctx, found.ID); err != nil {
+				return fmt.Errorf("remove Redis engine workload %s: %w", found.ID, err)
 			}
 			continue
 		}
-		handle, err := sim.AdoptContainer(found.ID, sim.ContainerConfig{CancelGracePeriod: msRedisStopGrace}, sim.NoopSink{})
+		output := p.nodeOutput(node)
+		handle, err := backend.Adopt(ctx, found.ID, placement.Workload{CancelGracePeriod: msRedisStopGrace}, output)
 		if err != nil {
 			return err
 		}
-		if err := p.attachNode(node, handle); err != nil {
+		if err := p.attachNode(node, handle, output); err != nil {
 			handle.Cancel()
 			_ = handle.Wait()
-			return fmt.Errorf("adopt the Redis engine container %s: %w", found.ID, err)
+			return fmt.Errorf("adopt the Redis engine workload %s: %w", found.ID, err)
 		}
 	}
 	return nil
@@ -1363,10 +1442,10 @@ func (p *msRedisPlane) stopEngine() error {
 
 func (p *msRedisPlane) stopNode(node int) error {
 	p.mu.Lock()
-	var handle *sim.ContainerHandle
+	var handle placement.Handle
 	if n, ok := p.nodes[node]; ok {
 		handle = n.handle
-		n.handle, n.hostPort, n.ip = nil, 0, ""
+		n.handle, n.output, n.hostPort, n.ip = nil, nil, 0, ""
 	}
 	p.mu.Unlock()
 	if handle == nil {
@@ -1374,7 +1453,16 @@ func (p *msRedisPlane) stopNode(node int) error {
 	}
 	handle.Cancel()
 	_ = handle.Wait()
-	return sim.WaitContainerRemoved(handle.ContainerID, msRedisRemovalTimeout)
+	backend, err := gcpPlacement.For(placementRedis)
+	if err != nil {
+		return err
+	}
+	// The workload's teardown removes it as it exits but reports no failure;
+	// Remove reports one, and finds nothing to do once the workload is gone,
+	// so the volume is free when Stop returns.
+	ctx, cancel := context.WithTimeout(context.Background(), msRedisRemovalTimeout)
+	defer cancel()
+	return backend.Remove(ctx, handle.ID())
 }
 
 // Close stops accepting clients, stops snapshots and stops the engine; the

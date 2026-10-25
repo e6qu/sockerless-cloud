@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/scratchimage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	compute "google.golang.org/api/compute/v1"
@@ -19,7 +20,7 @@ import (
 // debianFamily is the Debian 12 image family that matches the engine's
 // architecture, which is what an instance booted on a container backend runs.
 func debianFamily() string {
-	if nativeDockerPlatform() == "linux/arm64" {
+	if scratchimage.NativePlatform() == "linux/arm64" {
 		return "debian-12-arm64"
 	}
 	return "debian-12"

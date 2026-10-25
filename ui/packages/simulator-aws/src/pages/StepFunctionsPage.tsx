@@ -13,6 +13,8 @@ import {
   AwsResourceTable,
   AwsRowLink,
   type AwsColumn,
+  AwsRefreshButton,
+  AwsDeleteModal,
 } from "../console/index.js";
 import { formatEpoch } from "../console/format.js";
 import {
@@ -180,22 +182,13 @@ export function DeleteStateMachinesModal({
     },
   });
   return (
-    <AwsModal
+    <AwsDeleteModal
       title={machines.length === 1 ? `Delete ${machines[0].name}?` : `Delete ${machines.length} state machines?`}
+      confirmationText="delete"
       onDismiss={onClose}
-      footer={
-        <>
-          <AwsButton onClick={onClose}>Cancel</AwsButton>
-          <AwsButton
-            variant="primary"
-            data-testid="sfn-delete-state-machine-confirm"
-            disabled={remove.isPending}
-            onClick={() => remove.mutate()}
-          >
-            {remove.isPending ? "Deleting…" : "Delete"}
-          </AwsButton>
-        </>
-      }
+      onDelete={() => remove.mutate()}
+      pending={remove.isPending}
+      testIdPrefix="sfn-delete-state-machine"
     >
       <p>Step Functions marks a state machine for deletion and removes it once its running executions have finished.</p>
       <ul>
@@ -211,7 +204,7 @@ export function DeleteStateMachinesModal({
           {remove.error instanceof Error ? remove.error.message : "The request failed."}
         </AwsErrorAlert>
       )}
-    </AwsModal>
+    </AwsDeleteModal>
   );
 }
 
@@ -235,6 +228,7 @@ export function StepFunctionsPage() {
         errorTestId="sfn-state-machines-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton
               data-testid="sfn-view-state-machine"
               disabled={selected.length !== 1}
@@ -248,9 +242,6 @@ export function StepFunctionsPage() {
               onClick={() => setDeleting({ machines: selected, clearSelection })}
             >
               Delete
-            </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
             </AwsButton>
             <AwsButton variant="primary" data-testid="sfn-create-state-machine" onClick={() => setCreating(true)}>
               Create state machine

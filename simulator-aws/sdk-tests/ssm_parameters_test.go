@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -226,7 +227,7 @@ func TestSSMParameter_ListTagsForResource(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
 
-	paramName := uniqueName("/tag-test/list-tags")
+	paramName := uniquename.New("/tag-test/list-tags")
 	_, err := c.PutParameter(ctx, &ssm.PutParameterInput{
 		Name:  aws.String(paramName),
 		Type:  ssmtypes.ParameterTypeString,

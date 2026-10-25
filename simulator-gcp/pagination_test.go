@@ -11,6 +11,7 @@ import (
 
 	kmspb "cloud.google.com/go/kms/apiv1/kmspb"
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -172,8 +173,8 @@ func TestCloudKMSListRejectsForeignToken(t *testing.T) {
 
 func TestCloudLoggingListRejectsForeignToken(t *testing.T) {
 	useLoggingMemoryStores(t)
-	if _, _, err := listLogEntries("", nil, 1, "bogus", ""); !errors.Is(err, errGCPPageToken) {
-		t.Fatalf("got %v, want errGCPPageToken", err)
+	if _, _, err := listLogEntries("", nil, 1, "bogus", ""); !errors.Is(err, listq.ErrBadToken) {
+		t.Fatalf("got %v, want listq.ErrBadToken", err)
 	}
 }
 

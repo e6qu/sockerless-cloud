@@ -8,18 +8,19 @@ import (
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/servicediscovery"
 	sdtypes "github.com/aws/aws-sdk-go-v2/service/servicediscovery/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestECS_ARecordServiceRegistryRejectsPort(t *testing.T) {
 	t.Parallel()
-	invalidService := uniqueName("invalid-a-record-registry")
-	validService := uniqueName("valid-a-record-registry")
-	family := uniqueName("a-record-registry-task")
+	invalidService := uniquename.New("invalid-a-record-registry")
+	validService := uniquename.New("valid-a-record-registry")
+	family := uniquename.New("a-record-registry-task")
 	ecsClient := ecsClient()
 	cloudMapClient := cmClient()
-	cluster := uniqueName("a-record-registry-cluster")
+	cluster := uniquename.New("a-record-registry-cluster")
 	_, err := ecsClient.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = ecsClient.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)}) })
@@ -36,7 +37,7 @@ func TestECS_ARecordServiceRegistryRejectsPort(t *testing.T) {
 	require.NoError(t, err)
 
 	namespace, err := cloudMapClient.CreatePrivateDnsNamespace(ctx, &servicediscovery.CreatePrivateDnsNamespaceInput{
-		Name: aws.String(uniqueName("a-record-registry") + ".local"),
+		Name: aws.String(uniquename.New("a-record-registry") + ".local"),
 		Vpc:  aws.String("vpc-a-record-registry"),
 	})
 	require.NoError(t, err)
@@ -133,10 +134,10 @@ func TestECS_CapacityProviderLifecycle(t *testing.T) {
 // aws_ecs_task_set blue/green primitive on an EXTERNAL-controller service.
 func TestECS_TaskSetLifecycle(t *testing.T) {
 	t.Parallel()
-	family := uniqueName("ts-task")
-	serviceName := uniqueName("ts-svc")
+	family := uniquename.New("ts-task")
+	serviceName := uniquename.New("ts-svc")
 	c := ecsClient()
-	cluster := uniqueName("ts-cluster")
+	cluster := uniquename.New("ts-cluster")
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = c.DeleteCluster(ctx, &ecs.DeleteClusterInput{Cluster: aws.String(cluster)}) })

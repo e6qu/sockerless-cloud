@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 // AWS Glue connection metadata APIs can address the native Data Catalog
@@ -109,36 +111,20 @@ func handleGlueListEntities(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(entities, func(i, j int) bool {
 		return glueBusinessStringField(entities[i], "EntityName") < glueBusinessStringField(entities[j], "EntityName")
 	})
-	start, err := glueEntityTokenOffset(req.NextToken)
+	page, next, err := listq.OffsetPage(entities, req.NextToken, 0, glueEntityPageSize, 0)
 	if err != nil {
-		glueWriteError(w, "InvalidInputException", err.Error())
+		glueWriteError(w, "InvalidInputException", "invalid NextToken")
 		return
 	}
-	if start > len(entities) {
-		start = len(entities)
-	}
-	const pageSize = 100
-	end := start + pageSize
-	if end > len(entities) {
-		end = len(entities)
-	}
-	response := map[string]any{"Entities": entities[start:end]}
-	if end < len(entities) {
-		response["NextToken"] = strconv.Itoa(end)
+	response := map[string]any{"Entities": page}
+	if next != "" {
+		response["NextToken"] = next
 	}
 	glueWriteJSON(w, http.StatusOK, response)
 }
 
-func glueEntityTokenOffset(token string) (int, error) {
-	if token == "" {
-		return 0, nil
-	}
-	offset, err := strconv.Atoi(token)
-	if err != nil || offset < 0 {
-		return 0, fmt.Errorf("invalid NextToken")
-	}
-	return offset, nil
-}
+// glueEntityPageSize is the page ListEntities and DescribeEntity return.
+const glueEntityPageSize = 100
 
 func glueResolveNativeEntity(identifier string) (GlueTable, bool) {
 	normalized := strings.NewReplacer("/", ".", "::", ".").Replace(identifier)
@@ -176,22 +162,14 @@ func handleGlueDescribeEntity(w http.ResponseWriter, r *http.Request) {
 		}
 		fields = glueEntityFields(table)
 	}
-	start, err := glueEntityTokenOffset(req.NextToken)
+	page, next, err := listq.OffsetPage(fields, req.NextToken, 0, glueEntityPageSize, 0)
 	if err != nil {
-		glueWriteError(w, "InvalidInputException", err.Error())
+		glueWriteError(w, "InvalidInputException", "invalid NextToken")
 		return
 	}
-	if start > len(fields) {
-		start = len(fields)
-	}
-	const pageSize = 100
-	end := start + pageSize
-	if end > len(fields) {
-		end = len(fields)
-	}
-	response := map[string]any{"Fields": fields[start:end]}
-	if end < len(fields) {
-		response["NextToken"] = strconv.Itoa(end)
+	response := map[string]any{"Fields": page}
+	if next != "" {
+		response["NextToken"] = next
 	}
 	glueWriteJSON(w, http.StatusOK, response)
 }
@@ -440,26 +418,18 @@ func handleGlueGetEntityRecords(w http.ResponseWriter, r *http.Request) {
 	}
 	records = glueEntityFilterRecords(records, req.FilterPredicate)
 	glueEntitySortRecords(records, req.OrderBy)
-	start, err := glueEntityTokenOffset(req.NextToken)
+	page, next, err := listq.OffsetPage(records, req.NextToken, int(req.Limit), 0, 0)
 	if err != nil {
-		glueWriteError(w, "InvalidInputException", err.Error())
+		glueWriteError(w, "InvalidInputException", "invalid NextToken")
 		return
 	}
-	if start > len(records) {
-		start = len(records)
-	}
-	limit := int(req.Limit)
-	end := start + limit
-	if end > len(records) {
-		end = len(records)
-	}
-	selected := make([]map[string]any, 0, end-start)
-	for _, record := range records[start:end] {
+	selected := make([]map[string]any, 0, len(page))
+	for _, record := range page {
 		selected = append(selected, glueEntitySelectFields(record, req.SelectedFields))
 	}
 	response := map[string]any{"Records": selected}
-	if end < len(records) {
-		response["NextToken"] = strconv.Itoa(end)
+	if next != "" {
+		response["NextToken"] = next
 	}
 	glueWriteJSON(w, http.StatusOK, response)
 }

@@ -20,6 +20,7 @@ import (
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,13 +33,13 @@ import (
 // driving ECS UpdateService — the runner-platform autoscaling flow end-to-end.
 func TestAppScaling_TargetTrackingScalesECSService(t *testing.T) {
 	t.Parallel()
-	family := uniqueName("as-track-task")
+	family := uniquename.New("as-track-task")
 	ecsC := ecsClient()
 	cwC := cloudwatchClient()
 	asC := appAutoScalingClient()
 
-	cluster := uniqueName("as-track-cluster")
-	svcName := uniqueName("as-track-svc")
+	cluster := uniquename.New("as-track-cluster")
+	svcName := uniquename.New("as-track-svc")
 	resourceID := "service/" + cluster + "/" + svcName
 	const (
 		ns   = aastypes.ServiceNamespaceEcs
@@ -268,9 +269,9 @@ func TestAppScaling_ALBRequestCountPerTargetTracksTheLoadBalancer(t *testing.T) 
 	require.NoError(t, err)
 	waitForELBv2TargetHealth(t, tgArn, target, elbtypes.TargetHealthStateEnumHealthy)
 
-	family := uniqueName("as-rcpt-task")
-	cluster := uniqueName("as-rcpt-cluster")
-	svcName := uniqueName("as-rcpt-svc")
+	family := uniquename.New("as-rcpt-task")
+	cluster := uniquename.New("as-rcpt-cluster")
+	svcName := uniquename.New("as-rcpt-svc")
 	resourceID := "service/" + cluster + "/" + svcName
 	const (
 		ns  = aastypes.ServiceNamespaceEcs

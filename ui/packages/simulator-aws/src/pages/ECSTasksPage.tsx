@@ -14,6 +14,7 @@ import {
   AwsRowLink,
   AwsStatus,
   type AwsColumn,
+  AwsRefreshButton,
 } from "../console/index.js";
 import {
   fetchECSClusters,
@@ -24,7 +25,6 @@ import {
   stopECSTask,
   type ECSTask,
 } from "../api.js";
-import { ECSServicesPage } from "./ECSServicesPage.js";
 
 function shortName(arn: string): string {
   const slash = arn.lastIndexOf("/");
@@ -320,6 +320,7 @@ export function ECSTasksPage() {
           tableTestId="ecs-tasks-table"
           actions={({ selected, clearSelection, refetch, isFetching }) => (
             <>
+              <AwsRefreshButton onClick={refetch} loading={isFetching} />
               <AwsButton
                 data-testid="ecs-view-task"
                 disabled={selected.length !== 1}
@@ -334,16 +335,13 @@ export function ECSTasksPage() {
               >
                 Stop
               </AwsButton>
-              <AwsButton onClick={refetch} disabled={isFetching}>
-                {isFetching ? "Refreshing…" : "Refresh"}
-              </AwsButton>
               <AwsButton variant="primary" data-testid="ecs-run-task" onClick={() => setRunning(true)}>
                 Run new task
               </AwsButton>
             </>
           )}
         />
-        <ECSServicesPage />
+
       </SpaceBetween>
       {running && <RunTaskModal onClose={() => setRunning(false)} />}
       {stopping && (

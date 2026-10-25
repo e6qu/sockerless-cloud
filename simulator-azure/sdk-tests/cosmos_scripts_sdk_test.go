@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -75,7 +76,7 @@ func cosmosScriptDecode(t *testing.T, resp *http.Response) map[string]any {
 // /udfs, and /triggers (the contract-hook route tokens).
 func TestCosmosScripts_CRUD(t *testing.T) {
 	t.Parallel()
-	account := uniqueAlnumName("sdkcosmosscripts")
+	account := uniquename.Alnum("sdkcosmosscripts")
 	base := "/dbs/sdb/colls/people"
 
 	// Sproc create.
@@ -152,7 +153,7 @@ func TestCosmosScripts_CRUD(t *testing.T) {
 // CRUD route token already covered.
 func TestCosmosSproc_ExecuteCreatesDocument(t *testing.T) {
 	t.Parallel()
-	account := uniqueAlnumName("sdkcosmossprocexec")
+	account := uniquename.Alnum("sdkcosmossprocexec")
 	base := "/dbs/xdb/colls/items"
 
 	// Declare the collection with a partition key so the execution is partition-scoped.
@@ -186,7 +187,7 @@ func TestCosmosSproc_ExecuteCreatesDocument(t *testing.T) {
 // REAL partition document count and a bulk-delete sproc REALLY removes them.
 func TestCosmosSproc_ExecuteCountAndBulkDelete(t *testing.T) {
 	t.Parallel()
-	account := uniqueAlnumName("sdkcosmossproccount")
+	account := uniquename.Alnum("sdkcosmossproccount")
 	base := "/dbs/cdb/colls/log"
 
 	resp := cosmosScript(t, "POST", account, "/dbs/cdb/colls",
@@ -234,7 +235,7 @@ func TestCosmosSproc_ExecuteCountAndBulkDelete(t *testing.T) {
 // success.
 func TestCosmosSproc_UninterpretableBodyFailsLoud(t *testing.T) {
 	t.Parallel()
-	account := uniqueAlnumName("sdkcosmossprocfail")
+	account := uniquename.Alnum("sdkcosmossprocfail")
 	base := "/dbs/fdb/colls/c"
 
 	resp := cosmosScript(t, "POST", account, "/dbs/fdb/colls",
@@ -260,7 +261,7 @@ func TestCosmosSproc_UninterpretableBodyFailsLoud(t *testing.T) {
 // literal field on the request body).
 func TestCosmosTrigger_PreTriggerMutatesDocument(t *testing.T) {
 	t.Parallel()
-	account := uniqueAlnumName("sdkcosmostrigger")
+	account := uniquename.Alnum("sdkcosmostrigger")
 	base := "/dbs/tdb/colls/orders"
 
 	resp := cosmosScript(t, "POST", account, "/dbs/tdb/colls",

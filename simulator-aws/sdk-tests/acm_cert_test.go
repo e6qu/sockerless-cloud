@@ -13,6 +13,7 @@ import (
 	acmtypes "github.com/aws/aws-sdk-go-v2/service/acm/types"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	r53types "github.com/aws/aws-sdk-go-v2/service/route53/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,8 +28,8 @@ func TestACMIssuedCertHasPEMMaterial(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	domain := uniqueName("api") + ".example.test"
-	san := uniqueName("www") + ".example.test"
+	domain := uniquename.New("api") + ".example.test"
+	san := uniquename.New("www") + ".example.test"
 	reqOut, err := acmC.RequestCertificate(ctx, &acm.RequestCertificateInput{
 		DomainName:              aws.String(domain),
 		ValidationMethod:        acmtypes.ValidationMethodDns,

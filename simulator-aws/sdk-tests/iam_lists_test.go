@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -14,7 +15,7 @@ import (
 // created with tags is enumerable and its tags read back.
 func TestIAM_ListRolesAndTags(t *testing.T) {
 	t.Parallel()
-	roleName := uniqueName("eddsim-list-role")
+	roleName := uniquename.New("eddsim-list-role")
 	c := iamClient()
 	_, err := c.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName:                 aws.String(roleName),
@@ -44,7 +45,7 @@ func TestIAM_ListRolesAndTags(t *testing.T) {
 // ListPolicyTags.
 func TestIAM_ListPolicyVersionsAndTags(t *testing.T) {
 	t.Parallel()
-	policyName := uniqueName("list-versions-policy")
+	policyName := uniquename.New("list-versions-policy")
 	c := iamClient()
 	created, err := c.CreatePolicy(ctx, &iam.CreatePolicyInput{
 		PolicyName:     aws.String(policyName),

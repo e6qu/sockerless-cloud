@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Input from "@cloudscape-design/components/input";
 import FormField from "@cloudscape-design/components/form-field";
 import Select from "@cloudscape-design/components/select";
-import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsRowLink, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsRowLink, AwsRefreshButton, type AwsColumn } from "../console/index.js";
 import { formatBytes, formatEpoch, formatRetention } from "../console/format.js";
 import {
   createCWLogGroup,
@@ -298,6 +298,7 @@ export function LogGroupsPage() {
         tableTestId="log-groups-table"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton data-testid="logs-storage-tier" onClick={() => setEditingStorageTier(true)}>
               Account storage
             </AwsButton>
@@ -321,9 +322,6 @@ export function LogGroupsPage() {
               onClick={() => setDeleting({ groups: selected, clearSelection })}
             >
               Delete
-            </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
             </AwsButton>
             <AwsButton variant="primary" data-testid="logs-create-log-group" onClick={() => setCreating(true)}>
               Create log group

@@ -53,10 +53,10 @@ func registerWebRecommendations(srv *sim.Server) {
 		webWriteRecommendations(w)
 	})
 	srv.HandleFunc("POST "+sub+"/reset", func(w http.ResponseWriter, r *http.Request) {
-		webResetRecommendationFilters(w, "/subscriptions/"+sim.PathParam(r, "subscriptionId"))
+		webResetRecommendationFilters(w, armSubscriptionID(sim.PathParam(r, "subscriptionId")))
 	})
 	srv.HandleFunc("POST "+sub+"/{ruleName}/disable", func(w http.ResponseWriter, r *http.Request) {
-		webDisableRecommendationRule(w, "/subscriptions/"+sim.PathParam(r, "subscriptionId"),
+		webDisableRecommendationRule(w, armSubscriptionID(sim.PathParam(r, "subscriptionId")),
 			sim.PathParam(r, "ruleName"))
 	})
 

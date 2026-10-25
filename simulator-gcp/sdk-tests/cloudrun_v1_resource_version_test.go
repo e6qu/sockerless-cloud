@@ -3,6 +3,7 @@ package gcp_sdk_test
 import (
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	run "google.golang.org/api/run/v1"
@@ -36,7 +37,7 @@ func requireRunV1Conflict(t *testing.T, err error) {
 func TestCloudRunV1_Service_ResourceVersionOptimisticConcurrency(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	id := uniqueName("rv-knative-service")
+	id := uniquename.New("rv-knative-service")
 	parent := "namespaces/" + cloudRunV1Namespace
 	name := parent + "/services/" + id
 
@@ -92,7 +93,7 @@ func TestCloudRunV1_Service_ResourceVersionTracksV2Writes(t *testing.T) {
 	t.Parallel()
 	v1 := newRunV1(t)
 	v2 := newRunV2RESTService(t)
-	id := uniqueName("rv-cross-version-service")
+	id := uniquename.New("rv-cross-version-service")
 	parent := "namespaces/" + cloudRunV1Namespace
 	name := parent + "/services/" + id
 
@@ -144,7 +145,7 @@ func TestCloudRunV1_Service_ResourceVersionTracksV2Writes(t *testing.T) {
 func TestCloudRunV1_RegionalService_ResourceVersionOptimisticConcurrency(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	id := uniqueName("rv-regional-service")
+	id := uniquename.New("rv-regional-service")
 	parent := "projects/" + cloudRunV1Namespace + "/locations/us-central1"
 	name := parent + "/services/" + id
 
@@ -179,7 +180,7 @@ func TestCloudRunV1_RegionalService_ResourceVersionOptimisticConcurrency(t *test
 func TestCloudRunV1_Job_ResourceVersionOptimisticConcurrency(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	id := uniqueName("rv-knative-job")
+	id := uniquename.New("rv-knative-job")
 	parent := "namespaces/" + cloudRunV1Namespace
 	name := parent + "/jobs/" + id
 
@@ -222,7 +223,7 @@ func TestCloudRunV1_Job_ResourceVersionOptimisticConcurrency(t *testing.T) {
 func TestCloudRunV1_Instance_ResourceVersionOptimisticConcurrency(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	id := uniqueName("rv-knative-instance")
+	id := uniquename.New("rv-knative-instance")
 	parent := "namespaces/" + cloudRunV1Namespace
 	name := parent + "/instances/" + id
 
@@ -253,7 +254,7 @@ func TestCloudRunV1_Instance_ResourceVersionOptimisticConcurrency(t *testing.T) 
 func TestCloudRunV1_WorkerPool_ResourceVersionOptimisticConcurrency(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	id := uniqueName("rv-knative-workerpool")
+	id := uniquename.New("rv-knative-workerpool")
 	parent := "namespaces/" + cloudRunV1Namespace
 	name := parent + "/workerpools/" + id
 

@@ -13,6 +13,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +23,7 @@ import (
 // queries, while an item whose own ttl is -1 never expires.
 func TestCosmos_TimeToLiveExpiresItems(t *testing.T) {
 	t.Parallel()
-	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
+	dataPlaneAccount := uniquename.Alnum("sdkdataplane")
 	client := cosmosSimClient(t, dataPlaneAccount)
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "ttldb"}, nil)
 	require.NoError(t, err)
@@ -75,7 +76,7 @@ func TestCosmos_TimeToLiveExpiresItems(t *testing.T) {
 // larger than the budget through.
 func TestCosmos_ProvisionedThroughputThrottles(t *testing.T) {
 	t.Parallel()
-	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
+	dataPlaneAccount := uniquename.Alnum("sdkdataplane")
 	client := cosmosSimClient(t, dataPlaneAccount)
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "throttledb"}, nil)
 	require.NoError(t, err)
@@ -124,7 +125,7 @@ func TestCosmos_ProvisionedThroughputThrottles(t *testing.T) {
 // latest-version feed shows only surviving items once.
 func TestCosmos_AllVersionsAndDeletesChangeFeed(t *testing.T) {
 	t.Parallel()
-	account := uniqueAlnumName("sdkcosmosavad")
+	account := uniquename.Alnum("sdkcosmosavad")
 	cosmosAccountKey(t, account)
 	status, body := cosmosARM(t, baseURL, http.MethodPut, cosmosAccountPath(account),
 		`{"location":"eastus","kind":"GlobalDocumentDB","properties":{"databaseAccountOfferType":"Standard","backupPolicy":{"type":"Continuous"}}}`)
@@ -208,7 +209,7 @@ func cosmosChangeFeedPageIn(t *testing.T, account, coll, continuation string) ([
 // and holds replace to its ETag and to the item existing.
 func TestCosmos_ItemVerbsHonourETagsAndExistence(t *testing.T) {
 	t.Parallel()
-	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
+	dataPlaneAccount := uniquename.Alnum("sdkdataplane")
 	client := cosmosSimClient(t, dataPlaneAccount)
 	_, err := client.CreateDatabase(ctx, azcosmos.DatabaseProperties{ID: "verbdb"}, nil)
 	require.NoError(t, err)

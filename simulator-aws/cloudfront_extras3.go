@@ -526,8 +526,7 @@ func handleCFCopyDistribution(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchDistribution", "The specified distribution does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, src.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, src.ETag) {
 		return
 	}
 	var body struct {
@@ -535,8 +534,7 @@ func handleCFCopyDistribution(w http.ResponseWriter, r *http.Request) {
 		CallerReference string   `xml:"CallerReference"`
 		Enabled         *bool    `xml:"Enabled"`
 	}
-	if err := xml.NewDecoder(r.Body).Decode(&body); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode CopyDistributionRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "CopyDistributionRequest", &body) {
 		return
 	}
 	staging := strings.EqualFold(r.Header.Get("Staging"), "true")
@@ -569,8 +567,7 @@ func handleCFPromoteStagingConfig(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchDistribution", "The specified distribution does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	stagingID := r.URL.Query().Get("StagingDistributionId")
@@ -592,8 +589,7 @@ func handleCFPromoteStagingConfig(w http.ResponseWriter, r *http.Request) {
 
 func handleCFCreateTenant(w http.ResponseWriter, r *http.Request) {
 	var req CFDistributionTenantCreateRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode CreateDistributionTenantRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "CreateDistributionTenantRequest", &req) {
 		return
 	}
 	if req.Name == "" || req.DistributionId == "" {
@@ -661,13 +657,11 @@ func handleCFUpdateTenant(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "EntityNotFound", "The distribution tenant does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	var req CFDistributionTenantUpdateRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode UpdateDistributionTenantRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "UpdateDistributionTenantRequest", &req) {
 		return
 	}
 	if req.DistributionId != "" {
@@ -698,8 +692,7 @@ func handleCFDeleteTenant(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "EntityNotFound", "The distribution tenant does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	cfTenants.Delete(id)
@@ -761,13 +754,11 @@ func handleCFAssociateTenantWebACL(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "EntityNotFound", "The distribution tenant does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	var body CFAssociateWebACLBody
-	if err := xml.NewDecoder(r.Body).Decode(&body); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode request: "+err.Error())
+	if !cfDecodeXML(w, r, "request", &body) {
 		return
 	}
 	newETag := cfETag()
@@ -785,8 +776,7 @@ func handleCFDisassociateTenantWebACL(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "EntityNotFound", "The distribution tenant does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	newETag := cfETag()
@@ -804,8 +794,7 @@ func handleCFCreateTenantInvalidation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var batch CFInvalidationBatch
-	if err := xml.NewDecoder(r.Body).Decode(&batch); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode InvalidationBatch: "+err.Error())
+	if !cfDecodeXML(w, r, "InvalidationBatch", &batch) {
 		return
 	}
 	batch.Xmlns = ""
@@ -856,8 +845,7 @@ func handleCFListTenantInvalidations(w http.ResponseWriter, r *http.Request) {
 
 func handleCFCreateConnectionGroup(w http.ResponseWriter, r *http.Request) {
 	var req CFConnectionGroupCreateRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode CreateConnectionGroupRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "CreateConnectionGroupRequest", &req) {
 		return
 	}
 	if req.Name == "" {
@@ -924,13 +912,11 @@ func handleCFUpdateConnectionGroup(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "EntityNotFound", "The connection group does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	var req CFConnectionGroupUpdateRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode UpdateConnectionGroupRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "UpdateConnectionGroupRequest", &req) {
 		return
 	}
 	if req.Ipv6Enabled != nil {
@@ -958,8 +944,7 @@ func handleCFDeleteConnectionGroup(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "EntityNotFound", "The connection group does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	cfConnectionGroups.Delete(id)
@@ -989,8 +974,7 @@ func handleCFListConnectionGroups(w http.ResponseWriter, _ *http.Request) {
 
 func handleCFCreateTrustStore(w http.ResponseWriter, r *http.Request) {
 	var req CFTrustStoreCreateRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode CreateTrustStoreRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "CreateTrustStoreRequest", &req) {
 		return
 	}
 	if req.Name == "" {
@@ -1036,13 +1020,11 @@ func handleCFUpdateTrustStore(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "EntityNotFound", "The trust store does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	var req CFTrustStoreUpdateRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode UpdateTrustStoreRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "UpdateTrustStoreRequest", &req) {
 		return
 	}
 	if hdr := r.Header.Get("UseClientCertificateOCSPEndpoint"); hdr != "" {
@@ -1064,8 +1046,7 @@ func handleCFDeleteTrustStore(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "EntityNotFound", "The trust store does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	cfTrustStores.Delete(id)
@@ -1098,8 +1079,7 @@ func handleCFListDistributionsByTrustStore(w http.ResponseWriter, r *http.Reques
 
 func handleCFGetResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	var req CFGetResourcePolicyRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode GetResourcePolicyRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "GetResourcePolicyRequest", &req) {
 		return
 	}
 	stored, ok := cfResourcePolicies.Get(req.ResourceArn)
@@ -1116,8 +1096,7 @@ func handleCFGetResourcePolicy(w http.ResponseWriter, r *http.Request) {
 
 func handleCFPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	var req CFPutResourcePolicyRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode PutResourcePolicyRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "PutResourcePolicyRequest", &req) {
 		return
 	}
 	if req.ResourceArn == "" {
@@ -1130,8 +1109,7 @@ func handleCFPutResourcePolicy(w http.ResponseWriter, r *http.Request) {
 
 func handleCFDeleteResourcePolicy(w http.ResponseWriter, r *http.Request) {
 	var req CFDeleteResourcePolicyRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode DeleteResourcePolicyRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "DeleteResourcePolicyRequest", &req) {
 		return
 	}
 	if _, ok := cfResourcePolicies.Get(req.ResourceArn); !ok {
@@ -1149,13 +1127,11 @@ func handleCFAssociateDistributionWebACL(w http.ResponseWriter, r *http.Request)
 		cfWriteError(w, http.StatusNotFound, "NoSuchDistribution", "The specified distribution does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	var body CFAssociateWebACLBody
-	if err := xml.NewDecoder(r.Body).Decode(&body); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode request: "+err.Error())
+	if !cfDecodeXML(w, r, "request", &body) {
 		return
 	}
 	stored.Distribution.DistributionConfig.WebACLId = body.WebACLArn
@@ -1174,8 +1150,7 @@ func handleCFDisassociateDistributionWebACL(w http.ResponseWriter, r *http.Reque
 		cfWriteError(w, http.StatusNotFound, "NoSuchDistribution", "The specified distribution does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	stored.Distribution.DistributionConfig.WebACLId = ""
@@ -1265,8 +1240,7 @@ func handleCFListDomainConflicts(w http.ResponseWriter, r *http.Request) {
 
 func handleCFUpdateDomainAssociation(w http.ResponseWriter, r *http.Request) {
 	var req CFUpdateDomainAssociationRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode UpdateDomainAssociationRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "UpdateDomainAssociationRequest", &req) {
 		return
 	}
 	resourceID := req.TargetResource.DistributionId
@@ -1280,8 +1254,7 @@ func handleCFUpdateDomainAssociation(w http.ResponseWriter, r *http.Request) {
 
 func handleCFVerifyDnsConfiguration(w http.ResponseWriter, r *http.Request) {
 	var req CFVerifyDnsConfigurationRequest
-	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode VerifyDnsConfigurationRequest: "+err.Error())
+	if !cfDecodeXML(w, r, "VerifyDnsConfigurationRequest", &req) {
 		return
 	}
 	cfWriteXML(w, http.StatusOK, CFVerifyDnsConfigurationResult{
@@ -1500,8 +1473,7 @@ func handleCFUpdateAnycastIpList(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "EntityNotFound", "The Anycast IP list does not exist.")
 		return
 	}
-	if msg := cfRequireIfMatch(r, stored.ETag); msg != "" {
-		cfWriteIfMatchError(w, msg)
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	var req struct {

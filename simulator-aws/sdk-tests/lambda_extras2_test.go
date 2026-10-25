@@ -75,11 +75,9 @@ func TestLambda_ProvisionedConcurrency(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), aws.ToInt32(put.RequestedProvisionedConcurrentExecutions))
 
-	got, err := lc.GetProvisionedConcurrencyConfig(ctx, &lambda.GetProvisionedConcurrencyConfigInput{
-		FunctionName: aws.String(fn),
-		Qualifier:    aws.String(ver),
-	})
-	require.NoError(t, err)
+	assert.Equal(t, lambdatypes.ProvisionedConcurrencyStatusEnumInProgress, put.Status)
+
+	got := awaitProvisionedConcurrency(t, lc, fn, ver)
 	assert.Equal(t, int32(2), aws.ToInt32(got.AllocatedProvisionedConcurrentExecutions))
 
 	lst, err := lc.ListProvisionedConcurrencyConfigs(ctx, &lambda.ListProvisionedConcurrencyConfigsInput{

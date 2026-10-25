@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // Topology changes on a running engine. An instance gains or loses replicas
@@ -147,20 +146,17 @@ func (p *msRedisPlane) awaitKnown(slotMap bool) error {
 }
 
 func (p *msRedisPlane) awaitClusterInfo(node int, satisfied func(map[string]string) bool) error {
-	deadline := time.Now().Add(msRedisCommandDeadline)
-	for {
+	err := p.awaitEngine(node, true, func() (bool, error) {
 		reply, err := p.command(node, "CLUSTER", "INFO")
 		if err != nil {
-			return err
+			return false, err
 		}
-		if satisfied(msRedisParseInfo(fmt.Sprint(reply))) {
-			return nil
-		}
-		if !time.Now().Before(deadline) {
-			return fmt.Errorf("CLUSTER INFO did not settle within %s", msRedisCommandDeadline)
-		}
-		time.Sleep(msRedisProbeInterval)
+		return satisfied(msRedisParseInfo(fmt.Sprint(reply))), nil
+	})
+	if err != nil {
+		return fmt.Errorf("CLUSTER INFO: %w", err)
 	}
+	return nil
 }
 
 // clusterManager runs one redis-cli --cluster subcommand from via's container
@@ -317,26 +313,24 @@ func (p *msRedisPlane) addReplicas(want map[string]int) error {
 // awaitDrained waits until via sees no slot on the primaries a shrink
 // removes, which the cluster manager's del-node requires of each.
 func (p *msRedisPlane) awaitDrained(via int, removed []int, ids map[int]string) error {
-	deadline := time.Now().Add(msRedisCommandDeadline)
-	for {
+	var owning []string
+	err := p.awaitEngine(via, true, func() (bool, error) {
 		view, err := p.clusterView(via)
 		if err != nil {
-			return err
+			return false, err
 		}
-		var owning []string
+		owning = owning[:0]
 		for _, node := range removed {
 			if entry, ok := view.byID(ids[node]); ok && len(entry.Slots) > 0 {
 				owning = append(owning, fmt.Sprintf("node %d (%s)", node, strings.Join(entry.Slots, " ")))
 			}
 		}
-		if len(owning) == 0 {
-			return nil
-		}
-		if !time.Now().Before(deadline) {
-			return fmt.Errorf("%s still own slots after the rebalance", strings.Join(owning, ", "))
-		}
-		time.Sleep(msRedisProbeInterval)
+		return len(owning) == 0, nil
+	})
+	if err != nil {
+		return fmt.Errorf("%s still own slots after the rebalance: %w", strings.Join(owning, ", "), err)
 	}
+	return nil
 }
 
 // SetReadEndpoint starts or stops serving an instance's read endpoint and

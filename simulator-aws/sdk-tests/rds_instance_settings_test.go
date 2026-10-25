@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	"github.com/aws/aws-sdk-go-v2/service/rds/types"
 	"github.com/aws/smithy-go"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -65,7 +66,7 @@ func TestRDS_ModifyDBInstanceStorageGroupsAndCertificate(t *testing.T) {
 	defer cancel()
 	c := rdsClient()
 	f := rdsInstanceFixture{t: t, ctx: ctx, client: c, family: "postgres"}
-	subnetGroup := uniqueName("sdk-settings-subnets")
+	subnetGroup := uniquename.New("sdk-settings-subnets")
 	_, subnets := createECSTestVPCSubnets(t, subnetGroup, 2)
 	_, err := c.CreateDBSubnetGroup(ctx, &rds.CreateDBSubnetGroupInput{
 		DBSubnetGroupName:        aws.String(subnetGroup),
@@ -73,20 +74,20 @@ func TestRDS_ModifyDBInstanceStorageGroupsAndCertificate(t *testing.T) {
 		SubnetIds:                subnets,
 	})
 	require.NoError(t, err)
-	optionGroup := uniqueName("sdk-settings-options")
+	optionGroup := uniquename.New("sdk-settings-options")
 	_, err = c.CreateOptionGroup(ctx, &rds.CreateOptionGroupInput{
 		OptionGroupName: aws.String(optionGroup), EngineName: aws.String("postgres"),
 		MajorEngineVersion: aws.String("16"), OptionGroupDescription: aws.String("instance settings"),
 	})
 	require.NoError(t, err)
-	mysqlOptions := uniqueName("sdk-settings-mysql-options")
+	mysqlOptions := uniquename.New("sdk-settings-mysql-options")
 	_, err = c.CreateOptionGroup(ctx, &rds.CreateOptionGroupInput{
 		OptionGroupName: aws.String(mysqlOptions), EngineName: aws.String("mysql"),
 		MajorEngineVersion: aws.String("8.0"), OptionGroupDescription: aws.String("another engine"),
 	})
 	require.NoError(t, err)
 
-	id := uniqueName("sdk-settings")
+	id := uniquename.New("sdk-settings")
 	created, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier:  aws.String(id),
 		DBInstanceClass:       aws.String("db.t3.micro"),
@@ -242,9 +243,9 @@ func TestRDS_ModifyDBInstanceMovesThePortAndRenames(t *testing.T) {
 	defer cancel()
 	c := rdsClient()
 	f := rdsInstanceFixture{t: t, ctx: ctx, client: c, family: "postgres"}
-	id := uniqueName("sdk-rename")
-	newID := uniqueName("sdk-renamed")
-	other := uniqueName("sdk-rename-other")
+	id := uniquename.New("sdk-rename")
+	newID := uniquename.New("sdk-renamed")
+	other := uniquename.New("sdk-rename-other")
 	for _, instanceID := range []string{id, other} {
 		_, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 			DBInstanceIdentifier:  aws.String(instanceID),

@@ -13,6 +13,7 @@ import (
 	vkit "cloud.google.com/go/logging/apiv2"
 	"cloud.google.com/go/logging/logadmin"
 	"cloud.google.com/go/run/apiv2/runpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
@@ -138,7 +139,7 @@ func TestCloudFunctions_InvokerAuthentication(t *testing.T) {
 	code, _, _ = invokeService(t, "", fn.Url, http.MethodGet, "/"+functionID, "")
 	assert.Equal(t, http.StatusForbidden, code)
 
-	email := createServiceAccount(t, "test-project", uniqueName("gcf-invoker"))
+	email := createServiceAccount(t, "test-project", uniquename.New("gcf-invoker"))
 	member := "serviceAccount:" + email
 	code, _, body := invokeService(t, idTokenFor(t, email, fn.Url), fn.Url, http.MethodGet, "/"+functionID, "")
 	assert.Equal(t, http.StatusForbidden, code, "a principal without roles/run.invoker on the service: body=%q", body)

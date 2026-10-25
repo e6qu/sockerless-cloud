@@ -524,31 +524,8 @@ func ec2RIModFieldsXML(mod EC2ReservedInstancesModification) string {
 }
 
 func handleDescribeReservedInstancesModifications(w http.ResponseWriter, r *http.Request) {
-	ids := ec2ParamList(r, "ReservedInstancesModificationId")
-	results := make([]EC2ReservedInstancesModification, 0)
-	if len(ids) > 0 {
-		for _, id := range ids {
-			mod, ok := ec2ReservedInstancesModifications.Get(id)
-			if !ok {
-				ec2ErrorXML(w, "InvalidParameterValue", fmt.Sprintf("The Reserved Instances modification ID %q does not exist", id), http.StatusBadRequest)
-				return
-			}
-			results = append(results, mod)
-		}
-	} else {
-		results = append(results, ec2ReservedInstancesModifications.List()...)
-	}
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].ReservedInstancesModificationId < results[j].ReservedInstancesModificationId
-	})
-	var items strings.Builder
-	for _, mod := range results {
-		items.WriteString("<item>")
-		items.WriteString(ec2RIModFieldsXML(mod))
-		items.WriteString("</item>")
-	}
-	ec2WriteResponse(w, "DescribeReservedInstancesModifications",
-		fmt.Sprintf("<reservedInstancesModificationsSet>%s</reservedInstancesModificationsSet>", items.String()))
+	ec2DescribeEach(w, r, ec2ReservedInstancesModifications, "ReservedInstancesModificationId", "InvalidParameterValue", "The Reserved Instances modification ID %q does not exist",
+		func(it EC2ReservedInstancesModification) string { return it.ReservedInstancesModificationId }, ec2RIModFieldsXML, "DescribeReservedInstancesModifications", "reservedInstancesModificationsSet")
 }
 
 func ec2RIListingFieldsXML(l EC2ReservedInstancesListing) string {
@@ -996,31 +973,10 @@ func ec2CapResCancellationQuoteXML(q EC2CapacityReservationCancellationQuote) st
 }
 
 func handleDescribeCapacityReservationCancellationQuotes(w http.ResponseWriter, r *http.Request) {
-	ids := ec2ParamList(r, "CapacityReservationCancellationQuoteId")
-	results := make([]EC2CapacityReservationCancellationQuote, 0)
-	if len(ids) > 0 {
-		for _, id := range ids {
-			q, ok := ec2CapResCancellationQuotes.Get(id)
-			if !ok {
-				ec2ErrorXML(w, "InvalidParameterValue", fmt.Sprintf("The cancellation quote ID %q does not exist", id), http.StatusBadRequest)
-				return
-			}
-			results = append(results, q)
-		}
-	} else {
-		results = append(results, ec2CapResCancellationQuotes.List()...)
-	}
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].CapacityReservationCancellationQuoteId < results[j].CapacityReservationCancellationQuoteId
-	})
-	var items strings.Builder
-	for _, q := range results {
-		items.WriteString("<item>")
-		items.WriteString(ec2CapResCancellationQuoteXML(q))
-		items.WriteString("</item>")
-	}
-	ec2WriteResponse(w, "DescribeCapacityReservationCancellationQuotes",
-		fmt.Sprintf("<capacityReservationCancellationQuoteSet>%s</capacityReservationCancellationQuoteSet>", items.String()))
+	ec2DescribeEach(w, r, ec2CapResCancellationQuotes, "CapacityReservationCancellationQuoteId", "InvalidParameterValue", "The cancellation quote ID %q does not exist",
+		func(it EC2CapacityReservationCancellationQuote) string {
+			return it.CapacityReservationCancellationQuoteId
+		}, ec2CapResCancellationQuoteXML, "DescribeCapacityReservationCancellationQuotes", "capacityReservationCancellationQuoteSet")
 }
 
 // ec2CapacityBlockOffering describes one entry of the deterministic Capacity
@@ -1176,29 +1132,8 @@ func handlePurchaseCapacityBlock(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDescribeCapacityBlocks(w http.ResponseWriter, r *http.Request) {
-	ids := ec2ParamList(r, "CapacityBlockId")
-	results := make([]EC2CapacityBlock, 0)
-	if len(ids) > 0 {
-		for _, id := range ids {
-			cb, ok := ec2CapacityBlocks.Get(id)
-			if !ok {
-				ec2ErrorXML(w, "InvalidParameterValue", fmt.Sprintf("The Capacity Block ID %q does not exist", id), http.StatusBadRequest)
-				return
-			}
-			results = append(results, cb)
-		}
-	} else {
-		results = append(results, ec2CapacityBlocks.List()...)
-	}
-	sort.Slice(results, func(i, j int) bool { return results[i].CapacityBlockId < results[j].CapacityBlockId })
-	var items strings.Builder
-	for _, cb := range results {
-		items.WriteString("<item>")
-		items.WriteString(ec2CapacityBlockFieldsXML(cb))
-		items.WriteString("</item>")
-	}
-	ec2WriteResponse(w, "DescribeCapacityBlocks",
-		fmt.Sprintf("<capacityBlockSet>%s</capacityBlockSet>", items.String()))
+	ec2DescribeEach(w, r, ec2CapacityBlocks, "CapacityBlockId", "InvalidParameterValue", "The Capacity Block ID %q does not exist",
+		func(it EC2CapacityBlock) string { return it.CapacityBlockId }, ec2CapacityBlockFieldsXML, "DescribeCapacityBlocks", "capacityBlockSet")
 }
 
 func handleDescribeCapacityBlockStatus(w http.ResponseWriter, r *http.Request) {

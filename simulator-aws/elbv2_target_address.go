@@ -1,13 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strconv"
 	"strings"
 	"sync"
-
-	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 func elbv2TargetAddress(tg ELBv2TargetGroup, target ELBv2TargetDescription) (string, error) {
@@ -131,14 +130,16 @@ func ecsPublishedTargetPort(privateIP string, containerPort int, vpcID string) (
 				continue
 			}
 		}
-		containers, err := sim.FindExistingContainers(map[string]string{
-			"sockerless-sim-task": eni.taskID,
-		})
-		if err != nil {
-			return 0, false
+		held, ok := ecsProcessHandles.Load(eni.taskID)
+		if !ok {
+			continue
 		}
-		for _, container := range containers {
-			if port := container.PublishedPorts[containerPort]; port > 0 {
+		processes, ok := held.(*ecsTaskProcesses)
+		if !ok {
+			panic("Amazon ECS task process registry contained a non-process value")
+		}
+		for _, handle := range processes.Handles {
+			if port, err := handle.PublishedPort(context.Background(), containerPort); err == nil && port > 0 {
 				return port, true
 			}
 		}

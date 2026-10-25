@@ -150,15 +150,15 @@ func registerEventHubs(srv *sim.Server) {
 }
 
 func ehNamespaceID(sub, rg, name string) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.EventHub/namespaces/%s", sub, rg, name)
+	return armResourceID(sub, rg, "Microsoft.EventHub", "namespaces", name)
 }
 
 func ehEventHubID(sub, rg, ns, hub string) string {
-	return ehNamespaceID(sub, rg, ns) + "/eventhubs/" + hub
+	return armChildID(ehNamespaceID(sub, rg, ns), "eventhubs", hub)
 }
 
 func ehConsumerGroupID(sub, rg, ns, hub, group string) string {
-	return ehEventHubID(sub, rg, ns, hub) + "/consumerGroups/" + group
+	return armChildID(ehEventHubID(sub, rg, ns, hub), "consumerGroups", group)
 }
 
 func handleEHCreateNamespace(w http.ResponseWriter, r *http.Request) {
@@ -268,8 +268,7 @@ func handleEHDeleteNamespace(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleEHListNamespacesByRG(w http.ResponseWriter, r *http.Request) {
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.EventHub/namespaces/",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
+	prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.EventHub", "namespaces") + "/"
 	var out []EHNamespace
 	for _, n := range ehNamespaces.List() {
 		if strings.HasPrefix(n.ID, prefix) {
@@ -381,7 +380,7 @@ func handleEHUpdateNamespace(w http.ResponseWriter, r *http.Request) {
 // handleEHListNamespacesBySub lists every Event Hubs namespace in the
 // subscription.
 func handleEHListNamespacesBySub(w http.ResponseWriter, r *http.Request) {
-	prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+	prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 	var out []EHNamespace
 	for _, n := range ehNamespaces.List() {
 		if strings.HasPrefix(n.ID, prefix) {
@@ -396,7 +395,7 @@ func handleEHListNamespacesBySub(w http.ResponseWriter, r *http.Request) {
 }
 
 func ehPrivateEndpointConnectionID(sub, rg, name, pec string) string {
-	return ehNamespaceID(sub, rg, name) + "/privateEndpointConnections/" + pec
+	return armChildID(ehNamespaceID(sub, rg, name), "privateEndpointConnections", pec)
 }
 
 func handleEHListPrivateEndpointConnections(w http.ResponseWriter, r *http.Request) {
@@ -897,7 +896,10 @@ func ehAuthRuleRegenerateKeys(scope string) http.HandlerFunc {
 			KeyType string `json:"keyType"`
 			Key     string `json:"key"`
 		}
-		_ = sim.ReadJSON(r, &req)
+		if err := sim.ReadJSON(r, &req); err != nil {
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 		switch req.KeyType {
 		case "PrimaryKey":
 			azureBumpKeyGen(ruleID, "primary", req.Key)

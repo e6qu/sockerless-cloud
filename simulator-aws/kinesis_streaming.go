@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/signals"
 )
 
 // SubscribeToShard is an awsJson1.1 request whose response is an AWS event
@@ -34,34 +35,11 @@ const (
 	kinesisEventMaxBytes   = 10 << 20
 )
 
-// kinesisSignals wakes held SubscribeToShard streams. A key maps to a channel
-// that kinesisNotify closes when what it names changed: "shard:<partition>"
-// when a record lands in the shard or the shard closes or goes away,
-// "consumer:<ARN>" when the consumer is deregistered.
-var kinesisSignals = struct {
-	mu sync.Mutex
-	ch map[string]chan struct{}
-}{ch: map[string]chan struct{}{}}
-
-func kinesisWatch(key string) <-chan struct{} {
-	kinesisSignals.mu.Lock()
-	defer kinesisSignals.mu.Unlock()
-	c, ok := kinesisSignals.ch[key]
-	if !ok {
-		c = make(chan struct{})
-		kinesisSignals.ch[key] = c
-	}
-	return c
-}
-
-func kinesisNotify(key string) {
-	kinesisSignals.mu.Lock()
-	defer kinesisSignals.mu.Unlock()
-	if c, ok := kinesisSignals.ch[key]; ok {
-		close(c)
-		delete(kinesisSignals.ch, key)
-	}
-}
+// kinesisSignals wakes held SubscribeToShard streams. Kinesis Data Streams
+// announces "shard:<partition>" when a record lands in the shard or the shard
+// closes or goes away, and "consumer:<ARN>" when the consumer is
+// deregistered.
+var kinesisSignals = signals.New[string]()
 
 func kinesisShardSignalKey(partition string) string { return "shard:" + partition }
 
@@ -70,7 +48,7 @@ func kinesisConsumerSignalKey(consumerARN string) string { return "consumer:" + 
 // kinesisNotifyStream wakes the subscriptions to every shard of a stream.
 func kinesisNotifyStream(stream KinesisStream) {
 	for _, shard := range stream.Shards {
-		kinesisNotify(kinesisShardSignalKey(kinesisShardRecordKey(stream.StreamName, shard.ShardId)))
+		kinesisSignals.Announce(kinesisShardSignalKey(kinesisShardRecordKey(stream.StreamName, shard.ShardId)))
 	}
 }
 
@@ -201,12 +179,12 @@ func handleKinesisSubscribeToShard(w http.ResponseWriter, r *http.Request) {
 	sim.DeclareWait(r.Context(), kinesisSubscriptionLifetime)
 	expiry := time.NewTimer(kinesisSubscriptionLifetime)
 	defer expiry.Stop()
-	deregistered := kinesisWatch(kinesisConsumerSignalKey(req.ConsumerARN))
+	deregistered := kinesisSignals.Changed(kinesisConsumerSignalKey(req.ConsumerARN))
 	partition := kinesisShardRecordKey(stream.StreamName, req.ShardId)
 	next := start
 	first := true
 	for {
-		grew := kinesisWatch(kinesisShardSignalKey(partition))
+		grew := kinesisSignals.Changed(kinesisShardSignalKey(partition))
 		if _, ok := kinesisConsumers.Get(kinesisConsumerKey(req.ConsumerARN)); !ok {
 			send(kinesisEventStreamException("ResourceNotFoundException",
 				"Consumer "+req.ConsumerARN+" not found."))

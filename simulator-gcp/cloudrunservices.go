@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -26,25 +27,9 @@ import (
 type launchStageString string
 
 func (e *launchStageString) UnmarshalJSON(data []byte) error {
-	if len(data) == 0 || string(data) == "null" {
-		*e = ""
-		return nil
-	}
-	if data[0] == '"' {
-		var s string
-		if err := json.Unmarshal(data, &s); err != nil {
-			return err
-		}
-		*e = launchStageString(s)
-		return nil
-	}
-	n, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 32)
+	name, err := protoEnumNameOf(data, apipb.LaunchStage_name, "launch stage", "unknown launch stage enum")
 	if err != nil {
-		return fmt.Errorf("launch stage %s: %w", data, err)
-	}
-	name, ok := apipb.LaunchStage_name[int32(n)]
-	if !ok {
-		return fmt.Errorf("unknown launch stage enum %s", data)
+		return err
 	}
 	*e = launchStageString(name)
 	return nil
@@ -336,10 +321,7 @@ type cloudRunServiceInstance struct {
 	// Cloud Storage volumes once its containers have stopped.
 	releaseMounts func()
 
-	mu sync.Mutex
-	// owner is the container that owns the instance's network namespace, the
-	// first to start, and publishes the ingress port.
-	owner   placement.Handle
+	mu      sync.Mutex
 	ingress placement.Handle
 	handles []placement.Handle
 	// group is the instance's containers once they all started.
@@ -360,12 +342,9 @@ func (inst *cloudRunServiceInstance) awaitReady(ctx context.Context) (string, er
 
 // placed records a container the instance placed, or cancels it when the
 // instance stopped while it started.
-func (inst *cloudRunServiceInstance) placed(owner bool, ingress bool, h placement.Handle) {
+func (inst *cloudRunServiceInstance) placed(ingress bool, h placement.Handle) {
 	inst.mu.Lock()
 	defer inst.mu.Unlock()
-	if owner {
-		inst.owner = h
-	}
 	if ingress {
 		inst.ingress = h
 	}
@@ -416,7 +395,7 @@ func ensureCloudRunServiceInstance(ctx context.Context, name, serviceID string, 
 // in the background, in dependsOn order; awaitReady waits for them.
 func startCloudRunServiceInstance(ctx context.Context, name, serviceID, instanceID string, vpc *VpcAccess, containers []Container, volumes []Volume, sink sim.LogSink) (*cloudRunServiceInstance, error) {
 	specSig := serviceContainersSignature(containers, volumes)
-	order, err := cloudRunContainerStartOrder(containers)
+	_, err := cloudRunContainerStartOrder(containers)
 	if err != nil {
 		return nil, err
 	}
@@ -525,9 +504,30 @@ func startCloudRunServiceInstance(ctx context.Context, name, serviceID, instance
 	// instance sits on and the hosts file the metadata server's name
 	// resolves in. The ingress container always runs its startup probe,
 	// Cloud Run's default TCP probe when it configures none.
-	owner := order[0]
 	ingressPort := cloudRunContainerPort(containers[0])
-	members[0].Startup = cloudRunMemberStartup(containers[0])
+	// The instance is ready, at the address its ingress port answers on, once
+	// the ingress container passes its startup probe: the route is read while
+	// the container runs, since one that exits right after its probe passed is
+	// a ready instance's exit, which no later read of its route could tell from
+	// a failed start.
+	ingressStartup := cloudRunMemberStartup(containers[0])
+	var ingressAddress string
+	members[0].Startup = func(ctx context.Context, member, owner placement.Handle) error {
+		address, err := cloudRunContainerRoute(ctx, owner, ingressPort)
+		if err != nil {
+			select {
+			case <-member.Exited():
+				return errors.New("failed its startup probe: the container exited before its startup probe succeeded")
+			default:
+			}
+			return err
+		}
+		if err := ingressStartup(ctx, member, owner); err != nil {
+			return err
+		}
+		ingressAddress = address
+		return nil
+	}
 	bg.Go(func() {
 		defer close(inst.ready)
 		group, err := workload.StartGroup(lifeCtx, backend, members, workload.StartOptions{
@@ -536,17 +536,16 @@ func startCloudRunServiceInstance(ctx context.Context, name, serviceID, instance
 				netw.apply(cfg)
 				cfg.PublishPorts = cloudRunNamespacePorts(containers, true)
 			},
-			Placed: func(i int, h placement.Handle) { inst.placed(i == owner, i == 0, h) },
+			Placed: func(i int, h placement.Handle) { inst.placed(i == 0, h) },
 		})
 		if err != nil {
 			inst.startErr = err
 			return
 		}
 		inst.mu.Lock()
-		ownerHandle := inst.owner
 		inst.group = group
 		inst.mu.Unlock()
-		inst.address, inst.startErr = cloudRunContainerRoute(lifeCtx, ownerHandle, ingressPort)
+		inst.address = ingressAddress
 	})
 	return inst, nil
 }
@@ -959,22 +958,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
 		prefix := fmt.Sprintf("projects/%s/locations/%s/services/", project, location)
-		result := services.Filter(func(s ServiceV2) bool {
-			return strings.HasPrefix(s.Name, prefix)
-		})
-		if result == nil {
-			result = []ServiceV2{}
-		}
-		sortCloudRunServices(result)
-		page, next, ok := paginateList(w, r, result, gcpAsc(func(s ServiceV2) string { return s.Name }))
-		if !ok {
-			return
-		}
-		resp := map[string]any{"services": page}
-		if next != "" {
-			resp["nextPageToken"] = next
-		}
-		sim.WriteJSON(w, http.StatusOK, resp)
+		gcpWritePage(w, r, services, prefix, "services", func(s ServiceV2) string { return s.Name })
 	})
 
 	// DeleteService: DELETE /v2/projects/{project}/locations/{location}/services/{service}
@@ -1068,20 +1052,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		location := sim.PathParam(r, "location")
 		serviceID := sim.PathParam(r, "service")
 		prefix := fmt.Sprintf("projects/%s/locations/%s/services/%s/revisions/", project, location, serviceID)
-		result := revisionStore.Filter(func(rev RevisionV2) bool { return strings.HasPrefix(rev.Name, prefix) })
-		if result == nil {
-			result = []RevisionV2{}
-		}
-		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-		page, next, ok := paginateList(w, r, result, gcpAsc(func(v RevisionV2) string { return v.Name }))
-		if !ok {
-			return
-		}
-		resp := map[string]any{"revisions": page}
-		if next != "" {
-			resp["nextPageToken"] = next
-		}
-		sim.WriteJSON(w, http.StatusOK, resp)
+		gcpWritePage(w, r, revisionStore, prefix, "revisions", func(v RevisionV2) string { return v.Name })
 	})
 	srv.HandleFunc("DELETE /v2/projects/{project}/locations/{location}/services/{service}/revisions/{revision}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
@@ -1089,17 +1060,7 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 		serviceID := sim.PathParam(r, "service")
 		revisionID := sim.PathParam(r, "revision")
 		name := fmt.Sprintf("projects/%s/locations/%s/services/%s/revisions/%s", project, location, serviceID, revisionID)
-		rev, ok := revisionStore.Get(name)
-		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "revision %q not found", name)
-			return
-		}
-		if !cloudRunEtagOK(w, "revision", rev.Name, rev.Etag, r.URL.Query().Get("etag")) {
-			return
-		}
-		revisionStore.Delete(name)
-		lro := cloudRunLRO(project, location, rev, "type.googleapis.com/google.cloud.run.v2.Revision")
-		sim.WriteJSON(w, http.StatusOK, lro)
+		cloudRunDeleteRevision(w, r, revisionStore, project, location, name)
 	})
 
 	// getIamPolicy rides the GET service handler's colon-split above.
@@ -1173,4 +1134,19 @@ func registerCloudRunServicesV2(srv *sim.Server) {
 	srv.HandleFunc("POST /v1/projects/{project}/locations/{location}/operations/{opAction}", operationVerb)
 
 	registerCloudRunFrontEnd(srv)
+}
+
+// cloudRunDeleteRevision answers the delete of the revision of store called
+// name, held to the etag the request names.
+func cloudRunDeleteRevision(w http.ResponseWriter, r *http.Request, store sim.Store[RevisionV2], project, location, name string) {
+	rev, ok := store.Get(name)
+	if !ok {
+		GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "revision %q not found", name)
+		return
+	}
+	if !cloudRunEtagOK(w, "revision", rev.Name, rev.Etag, r.URL.Query().Get("etag")) {
+		return
+	}
+	store.Delete(name)
+	sim.WriteJSON(w, http.StatusOK, cloudRunLRO(project, location, rev, "type.googleapis.com/google.cloud.run.v2.Revision"))
 }

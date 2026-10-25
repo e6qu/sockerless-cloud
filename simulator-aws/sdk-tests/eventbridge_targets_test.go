@@ -27,6 +27,7 @@ import (
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -80,7 +81,7 @@ func putEventBridgeEvent(t *testing.T, source, detail string) {
 func TestEventBridge_ECSTargetRunsTheTask_SDK(t *testing.T) {
 	t.Parallel()
 	ecsC := ecsClient()
-	cluster, rule := uniqueName("eb-target-cluster"), uniqueName("eb-ecs-target")
+	cluster, rule := uniquename.New("eb-target-cluster"), uniquename.New("eb-ecs-target")
 	created, err := ecsC.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	definition, err := ecsC.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
@@ -304,7 +305,7 @@ func TestScheduler_TargetFailureGoesToTheDeadLetterQueue_SDK(t *testing.T) {
 func TestEventBridge_CodeBuildTargetStartsTheBuild_SDK(t *testing.T) {
 	t.Parallel()
 	cb := codebuildClient()
-	project, rule := uniqueName("eb-codebuild-target"), uniqueName("eb-codebuild-target")
+	project, rule := uniquename.New("eb-codebuild-target"), uniquename.New("eb-codebuild-target")
 	created, err := cb.CreateProject(ctx, &codebuild.CreateProjectInput{
 		Name: aws.String(project),
 		Source: &cbtypes.ProjectSource{
@@ -320,7 +321,7 @@ func TestEventBridge_CodeBuildTargetStartsTheBuild_SDK(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = cb.DeleteProject(ctx, &codebuild.DeleteProjectInput{Name: aws.String(project)}) })
-	role := createServiceRole(t, uniqueName("eb-codebuild-target-role"), "events.amazonaws.com", "codebuild:StartBuild")
+	role := createServiceRole(t, uniquename.New("eb-codebuild-target-role"), "events.amazonaws.com", "codebuild:StartBuild")
 	putEventBridgeTarget(t, rule, ebtypes.Target{
 		Id: aws.String("build"), Arn: created.Project.Arn, RoleArn: aws.String(role),
 		Input: aws.String(`{"environmentVariablesOverride":[{"name":"EVENT_SOURCE","value":"from-eventbridge","type":"PLAINTEXT"}]}`),
@@ -358,8 +359,8 @@ func TestEventBridge_CodeBuildTargetStartsTheBuild_SDK(t *testing.T) {
 func TestEventBridge_FirehoseTargetPutsTheRecord_SDK(t *testing.T) {
 	t.Parallel()
 	streamARN, bucket := createImmediateFirehose(t, "eb-firehose-target")
-	rule := uniqueName("eb-firehose-target")
-	role := createServiceRole(t, uniqueName("eb-firehose-target-role"), "events.amazonaws.com", "firehose:PutRecord")
+	rule := uniquename.New("eb-firehose-target")
+	role := createServiceRole(t, uniquename.New("eb-firehose-target-role"), "events.amazonaws.com", "firehose:PutRecord")
 	putEventBridgeTarget(t, rule, ebtypes.Target{Id: aws.String("stream"), Arn: aws.String(streamARN), RoleArn: aws.String(role)})
 	putEventBridgeEvent(t, rule, `{"id":4}`)
 
@@ -384,8 +385,8 @@ func TestEventBridge_RunCommandTargetSendsTheCommand_SDK(t *testing.T) {
 	t.Parallel()
 	ec2API, ssmAPI := ec2Client(), ssmClient()
 	instanceID := launchSSMManagedInstanceFor(t, ec2API, "10.8.0.0/16")
-	rule := uniqueName("eb-run-command-target")
-	role := createServiceRole(t, uniqueName("eb-run-command-role"), "events.amazonaws.com", "ssm:SendCommand")
+	rule := uniquename.New("eb-run-command-target")
+	role := createServiceRole(t, uniquename.New("eb-run-command-role"), "events.amazonaws.com", "ssm:SendCommand")
 	putEventBridgeTarget(t, rule, ebtypes.Target{
 		Id: aws.String("command"), Arn: aws.String("arn:aws:ssm:us-east-1:123456789012:document/AWS-RunShellScript"), RoleArn: aws.String(role),
 		Input: aws.String(`{"commands":["echo from-eventbridge"]}`),

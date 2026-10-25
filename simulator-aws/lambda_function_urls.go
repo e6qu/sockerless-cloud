@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/lbplane"
 )
 
 // AWS Lambda function URLs. Each URL config is served at the host its
@@ -20,38 +21,38 @@ import (
 // a payload format version 2.0 event, the function runs, and its result
 // becomes the HTTP response.
 
+// lambdaFunctionURLDomain is the domain every function URL's host is under.
+const lambdaFunctionURLDomain = ".on.aws"
+
 // lambdaFunctionURLMaxPayload is the largest request or response body a
 // function URL carries in buffered mode.
 const lambdaFunctionURLMaxPayload = 6 * 1024 * 1024
 
 // lambdaFunctionURLInvoker serves the requests a function URL host receives.
-// The middleware claims a request by its host alone; authorizing and running
+// The front end claims a request by its host alone; authorizing and running
 // the function is the cost of that request, as it is of an Invoke call.
 type lambdaFunctionURLInvoker struct{}
 
 func registerLambdaFunctionURLDataPlane(srv *sim.Server) {
 	var invoker lambdaFunctionURLInvoker
-	srv.WrapHandler(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if name, config, ok := lambdaFunctionURLForHost(r.Host); ok {
-				invoker.serve(w, r, name, config)
-				return
+	srv.WrapHandler(lbplane.HostRouter{
+		Domains: []string{lambdaFunctionURLDomain},
+		Route: func(_ *http.Request, hostname string) (http.Handler, bool) {
+			name, config, ok := lambdaFunctionURLForHost(hostname)
+			if !ok {
+				return nil, false
 			}
-			next.ServeHTTP(w, r)
-		})
-	})
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { invoker.serve(w, r, name, config) }), true
+		},
+	}.Wrap)
 }
 
 var lambdaURLConfigsByHost sim.GenerationIndex[LambdaFunctionUrlConfig]
 
 // lambdaFunctionURLForHost finds the function whose URL config names host.
 func lambdaFunctionURLForHost(host string) (string, LambdaFunctionUrlConfig, bool) {
-	hostname := host
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		hostname = h
-	}
-	hostname = strings.TrimSuffix(strings.ToLower(hostname), ".")
-	if !strings.Contains(hostname, ".lambda-url.") {
+	hostname := lbplane.Hostname(host)
+	if !strings.Contains(hostname, ".lambda-url.") || !strings.HasSuffix(hostname, lambdaFunctionURLDomain) {
 		return "", LambdaFunctionUrlConfig{}, false
 	}
 	config, ok := lambdaURLConfigsByHost.Lookup(lambdaURLConfigs, hostname, func(c LambdaFunctionUrlConfig) []string {
@@ -59,7 +60,7 @@ func lambdaFunctionURLForHost(host string) (string, LambdaFunctionUrlConfig, boo
 		if err != nil {
 			return nil
 		}
-		return []string{strings.ToLower(parsed.Hostname())}
+		return []string{lbplane.Hostname(parsed.Host)}
 	})
 	if !ok {
 		return "", LambdaFunctionUrlConfig{}, false
@@ -191,9 +192,13 @@ func (lambdaFunctionURLInvoker) serve(w http.ResponseWriter, r *http.Request, na
 		return
 	}
 	sim.DeclareWait(r.Context(), lambdaInvokeWaitLimit(fn))
-	result, unhandled, _, _ := invokeLambdaViaRuntimeAPI(sim.LifetimeContext(r.Context()), fn, payload)
+	result, unhandled, serviceErr := invokeLambdaViaRuntimeAPI(sim.LifetimeContext(r.Context()), fn, payload)
 	if cors != nil {
 		cors.decorate(w, r)
+	}
+	if serviceErr != nil && serviceErr.Status == http.StatusTooManyRequests {
+		lambdaFunctionURLError(w, http.StatusTooManyRequests, serviceErr.Code, serviceErr.Message)
+		return
 	}
 	if unhandled {
 		lambdaFunctionURLError(w, http.StatusBadGateway, "", "Internal Server Error")

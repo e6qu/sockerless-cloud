@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/netrules"
@@ -60,6 +61,11 @@ type Handle interface {
 	Wait() sim.ProcessResult
 	// Exited closes once the workload has exited.
 	Exited() <-chan struct{}
+	// StartedAt is the moment the backend asked for the workload's process
+	// to start, on this process's clock: the process starts after it. A
+	// workload adopted from an earlier simulator process reports the start
+	// its backend recorded.
+	StartedAt() time.Time
 	// Cancel stops the workload, within the grace its Workload named, and
 	// Wait reports the cancellation rather than an exit of the workload's
 	// own.

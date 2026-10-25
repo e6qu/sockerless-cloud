@@ -1,24 +1,34 @@
 import { useParams } from "react-router";
-import { AwsEmptyState, AwsNotSupportedBadge, AwsPageHeader, findNavService } from "../console/index.js";
+import Container from "@cloudscape-design/components/container";
+import Link from "@cloudscape-design/components/link";
+import SpaceBetween from "@cloudscape-design/components/space-between";
+import { AwsEmptyState, AwsNotSupportedBadge, AwsPageHeader, findService } from "../console/index.js";
 
 /**
- * The real AWS console lists every service in its catalog, whether or not
- * this simulator implements it. Following a service sockerless has not built
- * a page for lands here: an honest statement of the gap, named against the
- * same catalog the side navigation renders from, rather than a broken route
- * or a page that silently pretends to be the real thing.
+ * A service AWS offers that this console has no pages for. The Services menu
+ * still lists it under its real category; following it lands here, on a plain
+ * statement of what the console does not cover, rather than on a broken route.
  */
 export function NotSupportedServicePage() {
   const { service = "" } = useParams();
-  const entry = findNavService(service);
-  const label = entry?.label ?? service;
+  const entry = findService(service);
+  const name = entry?.name ?? service;
   return (
-    <>
-      <AwsPageHeader title={label} actions={<AwsNotSupportedBadge serviceName={label} />} />
-      <AwsEmptyState
-        title="This service is not implemented by the Sockerless simulator."
-        description={`${label} is part of the real AWS service catalog. Sockerless has not built a simulator or backend for it, so there is no page here to show — the navigation still lists it, honestly marked, alongside the services sockerless does implement.`}
-      />
-    </>
+    <SpaceBetween size="l">
+      <AwsPageHeader title={name} description={entry?.description} actions={<AwsNotSupportedBadge serviceName={name} />} />
+      <Container>
+        <AwsEmptyState
+          title="This console has no page for this service"
+          description={`${name} is part of the AWS service catalog, and this console does not include pages for it.`}
+          action={
+            entry ? (
+              <Link href={entry.docs} external>
+                {name} documentation
+              </Link>
+            ) : undefined
+          }
+        />
+      </Container>
+    </SpaceBetween>
   );
 }

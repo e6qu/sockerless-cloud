@@ -6,6 +6,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/operationalinsights/armoperationalinsights/v2"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +18,7 @@ func TestMonitor_QueryReadsWithinTheTableRetention(t *testing.T) {
 	t.Parallel()
 	p := newLogsPipeline(t, "monitor-retention-rg", "Retained_CL", "Job", "Log")
 	now := time.Now().UTC()
-	job := uniqueName("retained")
+	job := uniquename.New("retained")
 	p.upload(t, []map[string]any{
 		{"TimeGenerated": now.Add(-40 * 24 * time.Hour).Format(time.RFC3339), "Job": job, "Log": "forty days"},
 		{"TimeGenerated": now.Add(-time.Minute).Format(time.RFC3339), "Job": job, "Log": "fresh"},

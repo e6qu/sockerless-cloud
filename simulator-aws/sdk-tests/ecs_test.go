@@ -15,6 +15,7 @@ import (
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -242,7 +243,7 @@ func TestECS_TagsAndListOps(t *testing.T) {
 func TestECS_RegisterTaskDefinition(t *testing.T) {
 	t.Parallel()
 	client := ecsClient()
-	family := uniqueName("test-task")
+	family := uniquename.New("test-task")
 	out, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
 		Family: aws.String(family),
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
@@ -960,7 +961,7 @@ var ecsVolumeInfrastructureActions = []string{
 // volume actions.
 func createECSVolumeInfrastructureRole(t *testing.T) string {
 	t.Helper()
-	return createServiceRole(t, uniqueName("ecs-volumes"), "ecs.amazonaws.com", ecsVolumeInfrastructureActions...)
+	return createServiceRole(t, uniquename.New("ecs-volumes"), "ecs.amazonaws.com", ecsVolumeInfrastructureActions...)
 }
 
 func createECSTestSubnet(t *testing.T, name string) string {
@@ -1326,7 +1327,7 @@ func TestECS_TaskFailsWhenAwslogsGroupIsMissing(t *testing.T) {
 
 func TestECS_TaskLogsToCloudWatch(t *testing.T) {
 	t.Parallel()
-	logGroup := uniqueName("/ecs/exec-logs")
+	logGroup := uniquename.New("/ecs/exec-logs")
 	client, clusterName, taskArn := ecsRunTaskHelper(t, "exec-logs", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),
@@ -1397,7 +1398,7 @@ func TestECS_TaskLogsToCloudWatch(t *testing.T) {
 // already delivered.
 func TestECS_RunningTaskStreamsLogsLive(t *testing.T) {
 	t.Parallel()
-	logGroup := uniqueName("/ecs/live-logs")
+	logGroup := uniquename.New("/ecs/live-logs")
 	client, cluster, taskArn := ecsRunTaskHelper(t, "live-logs", ecstypes.ContainerDefinition{
 		StopTimeout: aws.Int32(2),
 		Name:        aws.String("app"),
@@ -1598,9 +1599,9 @@ func TestECS_TagResource_RejectsStoppedTask(t *testing.T) {
 
 func TestECS_ListTasks_Pagination(t *testing.T) {
 	t.Parallel()
-	family := uniqueName("pag-family")
+	family := uniquename.New("pag-family")
 	client := ecsClient()
-	cluster := uniqueName("pag-cluster")
+	cluster := uniquename.New("pag-cluster")
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -1669,9 +1670,9 @@ func TestECS_RunTask_ClusterNotFound_ErrorClassification(t *testing.T) {
 // AWS which supports both filter dimensions.
 func TestECS_ListTasks_StartedByAndServiceFilters(t *testing.T) {
 	t.Parallel()
-	family := uniqueName("listtasks-filters-td")
+	family := uniquename.New("listtasks-filters-td")
 	client := ecsClient()
-	cluster := uniqueName("listtasks-filters")
+	cluster := uniquename.New("listtasks-filters")
 	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -1730,13 +1731,13 @@ func TestECS_ListTasks_StartedByAndServiceFilters(t *testing.T) {
 // against.
 func TestECS_EveryTaggableResourceTypeRoundTripsItsTags(t *testing.T) {
 	t.Parallel()
-	daemonName := uniqueName("taggable-types-daemon")
-	daemonFamily := uniqueName("taggable-types-daemon-task")
-	family := uniqueName("taggable-types-task")
-	serviceName := uniqueName("taggable-types-service")
-	providerName := uniqueName("taggable-types-provider")
+	daemonName := uniquename.New("taggable-types-daemon")
+	daemonFamily := uniquename.New("taggable-types-daemon-task")
+	family := uniquename.New("taggable-types-task")
+	serviceName := uniquename.New("taggable-types-service")
+	providerName := uniquename.New("taggable-types-provider")
 	c := ecsClient()
-	cluster := uniqueName("taggable-types-cluster")
+	cluster := uniquename.New("taggable-types-cluster")
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -2183,10 +2184,10 @@ func TestECS_DestructiveCallsRefuseWhatAWSRefuses(t *testing.T) {
 // the deployment's own state.
 func TestECS_DeploymentLifecycleHookHoldsTheDeployment(t *testing.T) {
 	t.Parallel()
-	family := uniqueName("lifecycle-hook-task")
-	serviceName := uniqueName("lifecycle-hook-service")
+	family := uniquename.New("lifecycle-hook-task")
+	serviceName := uniquename.New("lifecycle-hook-service")
 	c := ecsClient()
-	cluster := uniqueName("lifecycle-hook-cluster")
+	cluster := uniquename.New("lifecycle-hook-cluster")
 	_, err := c.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	t.Cleanup(func() {

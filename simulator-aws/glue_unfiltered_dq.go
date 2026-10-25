@@ -1,8 +1,6 @@
 package main
 
 import (
-	"encoding/json"
-	"io"
 	"net/http"
 	"sync"
 
@@ -87,7 +85,7 @@ func handleGlueGetUnfilteredTableMetadata(w http.ResponseWriter, r *http.Request
 		DatabaseName string `json:"DatabaseName"`
 		Name         string `json:"Name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -110,7 +108,7 @@ func handleGlueGetUnfilteredPartitionMetadata(w http.ResponseWriter, r *http.Req
 		TableName       string   `json:"TableName"`
 		PartitionValues []string `json:"PartitionValues"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -139,7 +137,7 @@ func handleGlueGetUnfilteredPartitionsMetadata(w http.ResponseWriter, r *http.Re
 		NextToken    string `json:"NextToken"`
 		MaxResults   *int   `json:"MaxResults"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -187,7 +185,7 @@ func handleGlueBatchPutDataQualityStatisticAnnotation(w http.ResponseWriter, r *
 		} `json:"InclusionAnnotations"`
 		ClientToken string `json:"ClientToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -235,7 +233,7 @@ func handleGluePutDataQualityProfileAnnotation(w http.ResponseWriter, r *http.Re
 		ProfileId           string `json:"ProfileId"`
 		InclusionAnnotation string `json:"InclusionAnnotation"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -265,7 +263,7 @@ func handleGlueListDataQualityStatisticAnnotations(w http.ResponseWriter, r *htt
 		NextToken   string `json:"NextToken"`
 		MaxResults  *int   `json:"MaxResults"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}

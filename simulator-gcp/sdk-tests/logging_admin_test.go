@@ -14,6 +14,7 @@ import (
 
 	"cloud.google.com/go/logging"
 	"cloud.google.com/go/storage"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/googleapi"
@@ -455,7 +456,7 @@ func TestLogging_EntriesTail(t *testing.T) {
 	t.Parallel()
 	writeClient, err := newLoggingWriteClient(t)
 	require.NoError(t, err)
-	logID := uniqueName("tail-test")
+	logID := uniquename.New("tail-test")
 	logName := "projects/test-project/logs/" + logID
 	logger := writeClient.Logger(logID)
 	require.NoError(t, logger.LogSync(ctx, logging.Entry{Payload: "tail backlog", Severity: logging.Error}))

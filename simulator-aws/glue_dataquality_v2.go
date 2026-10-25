@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"io"
 	"net/http"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -41,7 +40,7 @@ type gluePublishDataQualityResultV2Request struct {
 
 func handleGluePublishDataQualityResultV2(w http.ResponseWriter, r *http.Request) {
 	var req gluePublishDataQualityResultV2Request
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -194,7 +193,7 @@ func handleGlueGetDataQualityResultV2(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ResultId string `json:"ResultId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -214,7 +213,7 @@ func handleGlueBatchGetDataQualityResultV2(w http.ResponseWriter, r *http.Reques
 	var req struct {
 		ResultIds []string `json:"ResultIds"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -256,7 +255,7 @@ func handleGlueListDataQualityResultsV2(w http.ResponseWriter, r *http.Request) 
 		NextToken  string `json:"NextToken"`
 		MaxResults *int   `json:"MaxResults"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
@@ -25,6 +26,7 @@ import (
 	r53types "github.com/aws/aws-sdk-go-v2/service/route53/types"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -155,7 +157,7 @@ func cwLogsClient() *cloudwatchlogs.Client {
 
 func TestLambda_FunctionConfigurationOmitsCodeAndTags(t *testing.T) {
 	t.Parallel()
-	rawFn := uniqueName("raw-shape-fn")
+	rawFn := uniquename.New("raw-shape-fn")
 	lc := lambdaClient()
 	fnName := "shape-fn"
 	deployment := lambdaDeploymentZip(t)
@@ -477,17 +479,18 @@ func TestLambda_InvokeContainerCrash(t *testing.T) {
 	cw.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(logGroupName)})
 }
 
-// TestLambda_RuntimeAPILogsToCloudWatch verifies the simulator still
-// injects START/END/REPORT log lines + captures the handler's stderr
-// under the Runtime API path. The handler writes a log line to
-// stderr describing the invocation; it should appear in the
-// function's CloudWatch log stream.
+// TestLambda_RuntimeAPILogsToCloudWatch verifies the simulator writes
+// START/END/REPORT for an invocation and ingests what the handler writes to
+// stderr into the function's log group. The execution environment outlives
+// the invocation, so its output reaches CloudWatch Logs as it is written, not
+// when the invocation returns; a Live Tail session waits for it.
 func TestLambda_RuntimeAPILogsToCloudWatch(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
 	cw := cwLogsClient()
 
 	fnName := "logs-fn"
+	logGroupName := "/aws/lambda/" + fnName
 
 	_, err := lc.CreateFunction(ctx, &lambda.CreateFunctionInput{
 		FunctionName:  aws.String(fnName),
@@ -498,6 +501,18 @@ func TestLambda_RuntimeAPILogsToCloudWatch(t *testing.T) {
 	})
 	require.NoError(t, err)
 	defer lc.DeleteFunction(ctx, &lambda.DeleteFunctionInput{FunctionName: aws.String(fnName)})
+	_, err = cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(logGroupName)})
+	require.NoError(t, err)
+	defer cw.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(logGroupName)})
+
+	tail, err := cwLogsStreamClient().StartLiveTail(ctx, &cloudwatchlogs.StartLiveTailInput{
+		LogGroupIdentifiers: []string{logGroupName},
+	})
+	require.NoError(t, err)
+	stream := tail.GetStream()
+	defer stream.Close()
+	_, ok := (<-stream.Events()).(*cwltypes.StartLiveTailResponseStreamMemberSessionStart)
+	require.True(t, ok, "the Live Tail session opens with sessionStart")
 
 	_, err = lc.Invoke(ctx, &lambda.InvokeInput{
 		FunctionName: aws.String(fnName),
@@ -505,41 +520,38 @@ func TestLambda_RuntimeAPILogsToCloudWatch(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	logGroupName := "/aws/lambda/" + fnName
 	events, err := cw.FilterLogEvents(ctx, &cloudwatchlogs.FilterLogEventsInput{
 		LogGroupName: aws.String(logGroupName),
 	})
 	require.NoError(t, err)
-	require.NotEmpty(t, events.Events)
-
 	var messages []string
 	for _, e := range events.Events {
 		messages = append(messages, *e.Message)
 	}
-	hasStart, hasEnd, hasReport, hasHandlerLog := false, false, false, false
-	for _, m := range messages {
-		if strings.Contains(m, "START RequestId:") {
-			hasStart = true
-		}
-		if strings.Contains(m, "END RequestId:") {
-			hasEnd = true
-		}
-		if strings.Contains(m, "REPORT RequestId:") {
-			hasReport = true
-		}
-		if strings.Contains(m, "lambda-runtime-handler: polling") {
-			hasHandlerLog = true
+	joined := strings.Join(messages, "\n")
+	assert.Contains(t, joined, "START RequestId:")
+	assert.Contains(t, joined, "END RequestId:")
+	assert.Contains(t, joined, "REPORT RequestId:")
+
+	deadline := time.After(time.Minute)
+	for handlerLogged := strings.Contains(joined, "lambda-runtime-handler: polling"); !handlerLogged; {
+		select {
+		case event, open := <-stream.Events():
+			require.True(t, open, "the Live Tail session ended before the handler's output arrived: %v", stream.Err())
+			if update, ok := event.(*cwltypes.StartLiveTailResponseStreamMemberSessionUpdate); ok {
+				for _, result := range update.Value.SessionResults {
+					handlerLogged = handlerLogged || strings.Contains(aws.ToString(result.Message), "lambda-runtime-handler: polling")
+				}
+			}
+		case <-deadline:
+			t.Fatal("the handler's stderr never reached CloudWatch Logs")
 		}
 	}
-	assert.True(t, hasStart, "should have START log entry")
-	assert.True(t, hasEnd, "should have END log entry")
-	assert.True(t, hasReport, "should have REPORT log entry")
-	assert.True(t, hasHandlerLog, "should capture handler's stderr in CloudWatch: %v", messages)
-
-	cw.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(logGroupName)})
 }
 
-func TestLambda_MultipleInvokesCreateMultipleStreams(t *testing.T) {
+// Sequential invocations run in one execution environment, which writes one
+// log stream: Lambda names the stream for the environment, not the request.
+func TestLambda_SequentialInvokesShareTheEnvironmentsStream(t *testing.T) {
 	t.Parallel()
 	lc := lambdaClient()
 	cw := cwLogsClient()
@@ -564,12 +576,11 @@ func TestLambda_MultipleInvokesCreateMultipleStreams(t *testing.T) {
 	_, err = lc.Invoke(ctx, &lambda.InvokeInput{FunctionName: aws.String(fnName)})
 	require.NoError(t, err)
 
-	// Should have 2 streams (each invoke creates a new one)
 	streams, err := cw.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{
 		LogGroupName: aws.String(logGroupName),
 	})
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(streams.LogStreams), 2, "expected at least 2 log streams")
+	assert.Len(t, streams.LogStreams, 1, "the second invocation reuses the first one's execution environment and its stream")
 
 	// With Descending=true + Limit=1, we should get only the most recent stream
 	latest, err := cw.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{

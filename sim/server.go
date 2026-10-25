@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/sim/bg"
 	uiauth "github.com/e6qu/sockerless-cloud/ui-auth"
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -683,18 +684,37 @@ func (s *Server) Serve() error {
 	started := time.Now()
 	s.stopBackground()
 	s.logger.Info().Dur("took", time.Since(started)).Msg("shutdown: background workers returned")
+	// One-shot work a request or a loop handed to package bg (a job's
+	// attempt starting, a timer's callback) writes the stores when it ends,
+	// so the database closes only once that work has finished. Work that
+	// waits on something slower than the stop window (a node agent, an image
+	// pull) leaves the database open for the process exit instead: SQLite's
+	// write-ahead log keeps every committed write, and a write after a close
+	// would panic the simulator on its way out.
+	started = time.Now()
+	drained := bg.AwaitWithin(shutdownDrainWindow)
+	s.logger.Info().Dur("took", time.Since(started)).Bool("drained", drained).Msg("shutdown: background work drained")
 	if s.stop != nil {
 		started = time.Now()
 		err = errors.Join(err, s.stop(context.Background()))
 		s.logger.Info().Dur("took", time.Since(started)).Msg("shutdown: listeners stopped")
 	}
-	started = time.Now()
-	closeErr := CloseDB(s.db)
-	s.logger.Info().Dur("took", time.Since(started)).Msg("shutdown: database closed")
-	s.db = nil
+	var closeErr error
+	if drained {
+		started = time.Now()
+		closeErr = CloseDB(s.db)
+		s.logger.Info().Dur("took", time.Since(started)).Msg("shutdown: database closed")
+		s.db = nil
+	} else {
+		s.logger.Warn().Msg("shutdown: background work still running; the database stays open for the process exit")
+	}
 	s.removeEphemeralPayloads()
 	return errors.Join(err, closeErr)
 }
+
+// shutdownDrainWindow bounds how long a shutdown waits for background work,
+// inside the stop windows the harnesses and service managers give a simulator.
+const shutdownDrainWindow = 5 * time.Second
 
 // tlsConfig is the listener's TLS configuration: its certificate, and the
 // per-connection hook when the cloud set one.

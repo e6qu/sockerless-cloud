@@ -55,7 +55,7 @@ type CRTaskTemplateSpec struct {
 type CRTaskSpec struct {
 	Containers         []CRContainer `json:"containers,omitempty"`
 	Volumes            []CRVolume    `json:"volumes,omitempty"`
-	MaxRetries         int32         `json:"maxRetries,omitempty"`
+	MaxRetries         *int32        `json:"maxRetries,omitempty"`
 	TimeoutSeconds     string        `json:"timeoutSeconds,omitempty"`
 	ServiceAccountName string        `json:"serviceAccountName,omitempty"`
 }
@@ -425,6 +425,7 @@ func cloudRunV2ExecutionToV1(execution Execution) (CRExecution, bool) {
 			SucceededCount:     execution.SucceededCount,
 			FailedCount:        execution.FailedCount,
 			CancelledCount:     execution.CancelledCount,
+			RetriedCount:       execution.RetriedCount,
 			Conditions:         cloudRunV2ConditionsToV1(execution.Conditions),
 		},
 	}, true
@@ -476,7 +477,7 @@ func cloudRunV2TaskToV1(task Task) (CRTask, bool) {
 		Spec: &CRTaskSpec{
 			Containers:         containers,
 			Volumes:            cloudRunV2VolumesToV1(task.Volumes),
-			MaxRetries:         task.MaxRetries,
+			MaxRetries:         &task.MaxRetries,
 			TimeoutSeconds:     cloudRunDurationToSeconds(task.Timeout),
 			ServiceAccountName: task.ServiceAccount,
 		},

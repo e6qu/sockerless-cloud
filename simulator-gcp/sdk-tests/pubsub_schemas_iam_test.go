@@ -3,6 +3,7 @@ package gcp_sdk_test
 import (
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	pubsub "google.golang.org/api/pubsub/v1"
@@ -20,7 +21,7 @@ func TestPubSub_SchemaLifecycle(t *testing.T) {
 	svc := pubsubService(t)
 	const project = "schema-project"
 	parent := "projects/" + project
-	schemaID := uniqueName("avro-schema")
+	schemaID := uniquename.New("avro-schema")
 	schemaName := parent + "/schemas/" + schemaID
 
 	created, err := svc.Projects.Schemas.Create(parent, &pubsub.Schema{
@@ -144,7 +145,7 @@ func TestPubSub_SchemaValidate(t *testing.T) {
 	require.NoError(t, err, "validateMessage accepts an ad-hoc schema + message")
 
 	// validateMessage against a named schema.
-	namedID := uniqueName("named-for-validate")
+	namedID := uniquename.New("named-for-validate")
 	named := parent + "/schemas/" + namedID
 	_, err = svc.Projects.Schemas.Create(parent, &pubsub.Schema{Type: "AVRO", Definition: avroDef}).
 		SchemaId(namedID).Do()
@@ -190,7 +191,7 @@ func TestPubSub_SchemaIAM(t *testing.T) {
 	svc := pubsubService(t)
 	const project = "schema-iam-project"
 	parent := "projects/" + project
-	schemaID := uniqueName("iam-schema")
+	schemaID := uniquename.New("iam-schema")
 	name := parent + "/schemas/" + schemaID
 	_, err := svc.Projects.Schemas.Create(parent, &pubsub.Schema{Type: "AVRO", Definition: avroDef}).
 		SchemaId(schemaID).Do()
@@ -215,9 +216,9 @@ func TestPubSub_ResourceIAM(t *testing.T) {
 	const project = "ps-iam-project"
 	ensureProject(t, project)
 	parent := "projects/" + project
-	topic := parent + "/topics/" + uniqueName("iam-topic")
-	sub := parent + "/subscriptions/" + uniqueName("iam-sub")
-	snap := parent + "/snapshots/" + uniqueName("iam-snap")
+	topic := parent + "/topics/" + uniquename.New("iam-topic")
+	sub := parent + "/subscriptions/" + uniquename.New("iam-sub")
+	snap := parent + "/snapshots/" + uniquename.New("iam-snap")
 
 	_, err := svc.Projects.Topics.Create(topic, &pubsub.Topic{}).Do()
 	require.NoError(t, err)
@@ -313,9 +314,9 @@ func TestPubSub_TopicSubCollections(t *testing.T) {
 	const project = "ps-subcoll-project"
 	ensureProject(t, project)
 	parent := "projects/" + project
-	topic := parent + "/topics/" + uniqueName("subcoll-topic")
-	sub := parent + "/subscriptions/" + uniqueName("subcoll-sub")
-	snap := parent + "/snapshots/" + uniqueName("subcoll-snap")
+	topic := parent + "/topics/" + uniquename.New("subcoll-topic")
+	sub := parent + "/subscriptions/" + uniquename.New("subcoll-sub")
+	snap := parent + "/snapshots/" + uniquename.New("subcoll-snap")
 
 	_, err := svc.Projects.Topics.Create(topic, &pubsub.Topic{}).Do()
 	require.NoError(t, err)
@@ -341,8 +342,8 @@ func TestPubSub_ModifyPushConfigAndDetach(t *testing.T) {
 	const project = "ps-detach-project"
 	ensureProject(t, project)
 	parent := "projects/" + project
-	topic := parent + "/topics/" + uniqueName("detach-topic")
-	sub := parent + "/subscriptions/" + uniqueName("detach-sub")
+	topic := parent + "/topics/" + uniquename.New("detach-topic")
+	sub := parent + "/subscriptions/" + uniquename.New("detach-sub")
 
 	_, err := svc.Projects.Topics.Create(topic, &pubsub.Topic{}).Do()
 	require.NoError(t, err)
@@ -380,9 +381,9 @@ func TestPubSub_SnapshotPatch(t *testing.T) {
 	const project = "ps-snappatch-project"
 	ensureProject(t, project)
 	parent := "projects/" + project
-	topic := parent + "/topics/" + uniqueName("snappatch-topic")
-	sub := parent + "/subscriptions/" + uniqueName("snappatch-sub")
-	snap := parent + "/snapshots/" + uniqueName("snappatch-snap")
+	topic := parent + "/topics/" + uniquename.New("snappatch-topic")
+	sub := parent + "/subscriptions/" + uniquename.New("snappatch-sub")
+	snap := parent + "/snapshots/" + uniquename.New("snappatch-snap")
 
 	_, err := svc.Projects.Topics.Create(topic, &pubsub.Topic{}).Do()
 	require.NoError(t, err)

@@ -1,14 +1,13 @@
 package main
 
 import (
-	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/kvstore"
 	"github.com/e6qu/sockerless-cloud/sim/logstore"
 )
 
@@ -122,18 +121,7 @@ func registerAzureMonitor(srv *sim.Server) {
 	if err := monitorMigrateRows(srv.DB()); err != nil {
 		log.Fatalf("azure monitor logs: %v", err)
 	}
-	srv.StartBackground("azure monitor logs retention sweep", func(ctx context.Context) {
-		ticker := time.NewTicker(monitorRetentionSweepInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case now := <-ticker.C:
-				monitorSweepRetention(now)
-			}
-		}
-	})
+	kvstore.StartSweeper(srv, "azure monitor logs retention sweep", monitorRetentionSweepInterval, func(now time.Time) { monitorSweepRetention(now) })
 
 	// Subscription-scoped list of soft-deleted workspaces. Real Azure
 	// keeps deleted workspaces recoverable for 14 days; terraform-
@@ -169,7 +157,7 @@ func registerAzureMonitor(srv *sim.Server) {
 			return
 		}
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.OperationalInsights/workspaces/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.OperationalInsights", "workspaces", name)
 		customerID := sim.NewUUID()
 
 		boolTrue := true
@@ -218,7 +206,7 @@ func registerAzureMonitor(srv *sim.Server) {
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "workspaceName")
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.OperationalInsights/workspaces/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.OperationalInsights", "workspaces", name)
 
 		ws, ok := workspaces.Get(resourceID)
 		if !ok {
@@ -257,7 +245,7 @@ func registerAzureMonitor(srv *sim.Server) {
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "workspaceName")
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.OperationalInsights/workspaces/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.OperationalInsights", "workspaces", name)
 
 		ws, ok := workspaces.Get(resourceID)
 		if !ok {
@@ -275,7 +263,7 @@ func registerAzureMonitor(srv *sim.Server) {
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "workspaceName")
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.OperationalInsights/workspaces/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.OperationalInsights", "workspaces", name)
 
 		if _, ok := workspaces.Get(resourceID); !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -299,7 +287,7 @@ func registerAzureMonitor(srv *sim.Server) {
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "workspaceName")
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.OperationalInsights/workspaces/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.OperationalInsights", "workspaces", name)
 
 		if ws, ok := workspaces.Get(resourceID); ok {
 			dropWorkspaceLogs(ws)
@@ -317,7 +305,7 @@ func registerAzureMonitor(srv *sim.Server) {
 	// (findWorkspaceResourceIDFromCustomerID); without this list the read
 	// can't recover the workspace id and plans to re-add it every refresh.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.OperationalInsights/workspaces", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 		items := workspaces.Filter(func(ws Workspace) bool { return strings.HasPrefix(ws.ID, prefix) })
 		if items == nil {
 			items = []Workspace{}
@@ -327,8 +315,7 @@ func registerAzureMonitor(srv *sim.Server) {
 
 	// GET - Resource-group-scoped workspace list (ListByResourceGroup).
 	srv.HandleFunc("GET "+armBase+"/workspaces", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.OperationalInsights/workspaces/",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
+		prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.OperationalInsights", "workspaces") + "/"
 		items := workspaces.Filter(func(ws Workspace) bool { return strings.HasPrefix(ws.ID, prefix) })
 		if items == nil {
 			items = []Workspace{}

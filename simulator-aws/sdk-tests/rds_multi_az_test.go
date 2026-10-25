@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	"github.com/aws/aws-sdk-go-v2/service/rds/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -46,7 +47,7 @@ func TestRDS_MultiAZFailoverPromotesTheStandby(t *testing.T) {
 			defer cancel()
 			f := rdsInstanceFixture{t: t, ctx: ctx, client: rdsClient(), family: engine}
 			c := f.client
-			id := uniqueName("sdk-maz-" + engine)
+			id := uniquename.New("sdk-maz-" + engine)
 			_, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 				DBInstanceIdentifier: aws.String(id),
 				DBInstanceClass:      aws.String("db.t3.micro"),

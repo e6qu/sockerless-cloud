@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,7 +27,7 @@ import (
 func TestCloudWatch_PutMetricDataIsScopedByItsNamespaceCondition(t *testing.T) {
 	t.Parallel()
 	iamc := iamClient()
-	user := uniqueName("cw-namespace-writer")
+	user := uniquename.New("cw-namespace-writer")
 
 	_, err := iamc.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)

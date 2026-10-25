@@ -14,7 +14,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -22,6 +21,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/testutil/baseimage"
+	"github.com/e6qu/sockerless-cloud/testutil/scratchimage"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
 )
 
@@ -101,7 +101,7 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to build simulator: %v\n%s", err, out)
 	}
 
-	workloadPlatform := nativeDockerPlatform()
+	workloadPlatform := scratchimage.NativePlatform()
 
 	// Tagged for this suite alone: a container image tag is a single global
 	// name in the one engine the machine runs, and every cloud's suite builds
@@ -109,18 +109,24 @@ func TestMain(m *testing.M) {
 	// at once clobber each other's image mid-run.
 	evalDir, _ := filepath.Abs("../../testdata/eval-arithmetic")
 	evalImageName = "sockerless-eval-arithmetic:azure-cli"
-	buildGoScratchImage(evalImageName, evalDir, "eval-arithmetic", workloadPlatform)
+	if err := scratchimage.Build(evalImageName, evalDir, "eval-arithmetic", workloadPlatform, ""); err != nil {
+		log.Fatal(err)
+	}
 
 	commandDir, _ := filepath.Abs("../../testdata/container-command")
 	commandImageName = "sockerless-container-command:azure-cli"
-	buildGoScratchImage(commandImageName, commandDir, "container-command", workloadPlatform)
+	if err := scratchimage.Build(commandImageName, commandDir, "container-command", workloadPlatform, ""); err != nil {
+		log.Fatal(err)
+	}
 
 	// The long-lived HTTP bootstrap an always-on App Service site keeps
 	// running, so a site's instance and process table can be read from a
 	// container that is still there when the read arrives.
 	probeDir, _ := filepath.Abs("../../testdata/http-localhost-probe")
 	httpProbeImageName = "sockerless-http-localhost-probe:azure-cli"
-	buildGoScratchImage(httpProbeImageName, probeDir, "http-localhost-probe", workloadPlatform)
+	if err := scratchimage.Build(httpProbeImageName, probeDir, "http-localhost-probe", workloadPlatform, ""); err != nil {
+		log.Fatal(err)
+	}
 
 	// Find free port
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -388,55 +394,6 @@ func parseJSON(t *testing.T, data string, target any) {
 	t.Helper()
 	if err := json.Unmarshal([]byte(data), target); err != nil {
 		t.Fatalf("Failed to parse JSON: %v\nData: %s", err, data)
-	}
-}
-
-func nativeDockerPlatform() string {
-	return "linux/" + runtime.GOARCH
-}
-
-func buildGoScratchImage(imageName, sourceDir, binaryName, platform string) {
-	buildDir, err := os.MkdirTemp("", "sockerless-azure-image-*")
-	if err != nil {
-		log.Fatalf("Failed to create image build dir: %v", err)
-	}
-	defer os.RemoveAll(buildDir)
-
-	binaryPath := filepath.Join(buildDir, binaryName)
-	build := exec.Command("go", "build", "-o", binaryPath, ".")
-	build.Dir = sourceDir
-	build.Env = append(os.Environ(),
-		"CGO_ENABLED=0",
-		"GOWORK=off",
-		"GOOS=linux",
-		"GOARCH="+runtime.GOARCH,
-	)
-	if out, err := build.CombinedOutput(); err != nil {
-		log.Fatalf("Failed to build %s workload binary: %v\n%s", binaryName, err, out)
-	}
-
-	dockerfile := fmt.Sprintf(`FROM scratch
-COPY %s /usr/local/bin/%s
-ENTRYPOINT ["/usr/local/bin/%s"]
-`, binaryName, binaryName, binaryName)
-	// On a docker-container buildx driver (the default on many dev machines),
-	// `docker build -t` leaves the image in the build cache only — never the
-	// daemon store — so the sim's container start cannot find it and answers
-	// "No such image" for a workload this function reported building.
-	// `docker buildx build --load` materializes it into the daemon store. The
-	// legacy builder writes to the store natively and rejects the buildx-only
-	// `--load`, so it is omitted there.
-	var args []string
-	if exec.Command("docker", "buildx", "version").Run() == nil {
-		args = []string{"buildx", "build", "--load"}
-	} else {
-		args = []string{"build"}
-	}
-	args = append(args, "--platform", platform, "-t", imageName, "-f", "-", buildDir)
-	dockerBuild := exec.Command("docker", args...)
-	dockerBuild.Stdin = strings.NewReader(dockerfile)
-	if out, err := dockerBuild.CombinedOutput(); err != nil {
-		log.Fatalf("Failed to build %s Docker image: %v\n%s", imageName, err, out)
 	}
 }
 

@@ -3,6 +3,7 @@ package gcp_sdk_test
 import (
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	runv2 "google.golang.org/api/run/v2"
@@ -111,7 +112,7 @@ func assertProbedContainer(t *testing.T, got *runv2.GoogleCloudRunV2Container) {
 func TestSDK_RunV2REST_Job_ProbesAndEnvValueSource(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
-	id := uniqueName("probe-job")
+	id := uniquename.New("probe-job")
 	name := crV2Parent + "/jobs/" + id
 
 	op, err := svc.Projects.Locations.Jobs.Create(crV2Parent, &runv2.GoogleCloudRunV2Job{
@@ -152,7 +153,7 @@ func TestSDK_RunV2REST_Job_ProbesAndEnvValueSource(t *testing.T) {
 func TestSDK_RunV2REST_Service_ProbesAndEnvValueSource(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
-	id := uniqueName("probe-svc")
+	id := uniquename.New("probe-svc")
 	name := crV2Parent + "/services/" + id
 
 	op, err := svc.Projects.Locations.Services.Create(crV2Parent, &runv2.GoogleCloudRunV2Service{
@@ -191,7 +192,7 @@ func TestSDK_RunV2REST_Service_ProbesAndEnvValueSource(t *testing.T) {
 func TestSDK_RunV2REST_WorkerPool_ProbesAndEnvValueSource(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
-	id := uniqueName("probe-wp")
+	id := uniquename.New("probe-wp")
 	name := crV2Parent + "/workerPools/" + id
 
 	op, err := svc.Projects.Locations.WorkerPools.Create(crV2Parent, &runv2.GoogleCloudRunV2WorkerPool{
@@ -224,7 +225,7 @@ func TestSDK_RunV2REST_WorkerPool_ProbesAndEnvValueSource(t *testing.T) {
 func TestSDK_RunV2REST_Instance_ProbesAndEnvValueSource(t *testing.T) {
 	t.Parallel()
 	svc := newRunV2RESTService(t)
-	id := uniqueName("probe-inst")
+	id := uniquename.New("probe-inst")
 	name := crV2Parent + "/instances/" + id
 
 	op, err := svc.Projects.Locations.Instances.Create(crV2Parent, &runv2.GoogleCloudRunV2Instance{

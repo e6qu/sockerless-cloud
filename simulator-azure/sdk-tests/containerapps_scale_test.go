@@ -9,6 +9,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appcontainers/armappcontainers/v3"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/servicebus/armservicebus"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +20,7 @@ import (
 // to zero. The rule reads back as written.
 func TestSDK_ContainerAppsScale_HTTPRuleScalesFromAndToZero(t *testing.T) {
 	t.Parallel()
-	rg, name := uniqueName("sdk-aca-scale-rg"), uniqueName("acascale")
+	rg, name := uniquename.New("sdk-aca-scale-rg"), uniquename.New("acascale")
 	ensureRG(t, rg)
 	client, err := armappcontainers.NewContainerAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -63,9 +64,9 @@ func TestSDK_ContainerAppsScale_HTTPRuleScalesFromAndToZero(t *testing.T) {
 // the queue is empty and the cooldown has passed.
 func TestSDK_ContainerAppsScale_QueueRuleFollowsTheQueueLength(t *testing.T) {
 	t.Parallel()
-	rg, name := uniqueName("sdk-aca-qscale-rg"), uniqueName("acaqscale")
+	rg, name := uniquename.New("sdk-aca-qscale-rg"), uniquename.New("acaqscale")
 	ensureRG(t, rg)
-	account := uniqueAlnumName("acaqscale")
+	account := uniquename.Alnum("acaqscale")
 	key := storageAccountPrimaryKey(account)
 	require.NotEmpty(t, key)
 	queues := queueSDKService(t, account)
@@ -130,9 +131,9 @@ func TestSDK_ContainerAppsScale_QueueRuleFollowsTheQueueLength(t *testing.T) {
 // replica per messageCount of them, and none once they are received.
 func TestSDK_ContainerAppsScale_ServiceBusRuleFollowsActiveMessages(t *testing.T) {
 	t.Parallel()
-	rg, name := uniqueName("sdk-aca-sbscale-rg"), uniqueName("acasbscale")
+	rg, name := uniquename.New("sdk-aca-sbscale-rg"), uniquename.New("acasbscale")
 	ensureRG(t, rg)
-	namespace := uniqueName("acasbscale")
+	namespace := uniquename.New("acasbscale")
 	key := serviceBusNamespaceKey(t, namespace)
 	queues, err := armservicebus.NewQueuesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)

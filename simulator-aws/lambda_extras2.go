@@ -234,9 +234,9 @@ func handleLambdaListFunctionEventInvokeConfigs(w http.ResponseWriter, r *http.R
 
 // Provisioned concurrency config
 
-// LambdaProvisionedConcurrency mirrors the per-qualifier provisioned
-// concurrency config. Real Lambda reports READY once allocation completes; the
-// sim allocates synchronously so requested == available == allocated.
+// LambdaProvisionedConcurrency is a provisioned concurrency configuration of
+// an alias or version. Where its environments stand is read from the
+// version's pool (lambdaProvisionedState), not stored.
 type LambdaProvisionedConcurrency struct {
 	FunctionName string `json:"FunctionName"`
 	Qualifier    string `json:"Qualifier"`
@@ -248,12 +248,16 @@ type LambdaProvisionedConcurrency struct {
 var lambdaPCs sim.Store[LambdaProvisionedConcurrency]
 
 func lambdaProvisionedConcurrencyBody(pc LambdaProvisionedConcurrency, includeArn bool) map[string]any {
+	status, allocated, available, reason := lambdaProvisionedState(pc)
 	out := map[string]any{
 		"RequestedProvisionedConcurrentExecutions": pc.Requested,
-		"AvailableProvisionedConcurrentExecutions": pc.Requested,
-		"AllocatedProvisionedConcurrentExecutions": pc.Requested,
-		"Status":       "READY",
+		"AvailableProvisionedConcurrentExecutions": available,
+		"AllocatedProvisionedConcurrentExecutions": allocated,
+		"Status":       status,
 		"LastModified": pc.LastModified,
+	}
+	if reason != "" {
+		out["StatusReason"] = reason
 	}
 	if includeArn {
 		out["FunctionArn"] = lambdaEICArn(pc.FunctionName, pc.Qualifier)
@@ -269,12 +273,20 @@ func handleLambdaPutProvisionedConcurrencyConfig(w http.ResponseWriter, r *http.
 		return
 	}
 	qualifier := r.URL.Query().Get("Qualifier")
-	if qualifier == "" {
-		// Real Lambda rejects provisioned concurrency on the unpublished
-		// $LATEST version — a qualifier is required.
+	if qualifier == "" || qualifier == "$LATEST" {
+		// "You cannot use provisioned concurrency with the $LATEST version of
+		// any function."
 		AWSError(w, "InvalidParameterValueException",
-			"Qualifier is required for provisioned concurrency", http.StatusBadRequest)
+			"Provisioned Concurrency Configs cannot be applied to unpublished function versions.", http.StatusBadRequest)
 		return
+	}
+	aliases, _ := lambdaAliases.Get(name)
+	if _, isAlias := aliases[qualifier]; !isAlias {
+		if _, isVersion := lambdaFunctionVersion(name, qualifier); !isVersion {
+			AWSErrorf(w, "ResourceNotFoundException", http.StatusNotFound,
+				"Function not found: %s:%s", lambdaArn(name), qualifier)
+			return
+		}
 	}
 	var req struct {
 		ProvisionedConcurrentExecutions *int `json:"ProvisionedConcurrentExecutions"`
@@ -289,15 +301,59 @@ func handleLambdaPutProvisionedConcurrencyConfig(w http.ResponseWriter, r *http.
 			http.StatusBadRequest)
 		return
 	}
+	requested := *req.ProvisionedConcurrentExecutions
+	others := 0
+	for _, pc := range lambdaPCs.List() {
+		if pc.FunctionName == name && pc.Qualifier != qualifier {
+			others += pc.Requested
+		}
+	}
+	// "The maximum provisioned concurrency you can assign to a specific
+	// function version is the function's reserved concurrency minus the
+	// provisioned concurrency on other function versions." Without reserved
+	// concurrency the bound is the account's: "You can configure up to the
+	// Unreserved account concurrency in your account, minus 100."
+	if reserved, has := lambdaConcurrency.Get(name); has {
+		if others+requested > reserved {
+			AWSError(w, "InvalidParameterValueException",
+				"Requested Provisioned Concurrency should not be greater than the reservedConcurrentExecution for function",
+				http.StatusBadRequest)
+			return
+		}
+	} else if limit := lambdaUnreservedConcurrency() - lambdaMinimumUnreservedConcurrency - lambdaUnreservedProvisioned(name); others+requested > limit {
+		AWSErrorf(w, "InvalidParameterValueException", http.StatusBadRequest,
+			"Requested Provisioned Concurrency exceeds the account's unreserved concurrency minus %d (%d available)",
+			lambdaMinimumUnreservedConcurrency, limit)
+		return
+	}
 	pc := LambdaProvisionedConcurrency{
 		FunctionName: name,
 		Qualifier:    qualifier,
-		Requested:    *req.ProvisionedConcurrentExecutions,
+		Requested:    requested,
 		LastModified: time.Now().UTC().Format(time.RFC3339),
 	}
 	lambdaPCs.Put(name+":"+qualifier, pc)
-	// PutProvisionedConcurrencyConfig returns 202 (the config is being set up).
+	lambdaEnvironments.reconcile(name)
+	// PutProvisionedConcurrencyConfig answers 202: the environments are being
+	// allocated, and Status reads IN_PROGRESS until they all have
+	// initialised.
 	sim.WriteJSON(w, http.StatusAccepted, lambdaProvisionedConcurrencyBody(pc, false))
+}
+
+// lambdaUnreservedProvisioned is the provisioned concurrency configured on
+// the functions other than except that reserve none, which the account's
+// unreserved concurrency holds.
+func lambdaUnreservedProvisioned(except string) int {
+	total := 0
+	for _, pc := range lambdaPCs.List() {
+		if pc.FunctionName == except {
+			continue
+		}
+		if _, reserved := lambdaConcurrency.Get(pc.FunctionName); !reserved {
+			total += pc.Requested
+		}
+	}
+	return total
 }
 
 func handleLambdaGetProvisionedConcurrencyConfig(w http.ResponseWriter, r *http.Request) {
@@ -346,6 +402,7 @@ func handleLambdaDeleteProvisionedConcurrencyConfig(w http.ResponseWriter, r *ht
 	}
 	qualifier := r.URL.Query().Get("Qualifier")
 	lambdaPCs.Delete(name + ":" + qualifier)
+	lambdaEnvironments.reconcile(name)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -640,8 +697,8 @@ func handleLambdaGetAccountSettings(w http.ResponseWriter, _ *http.Request) {
 			"TotalCodeSize":                  int64(80530636800),
 			"CodeSizeUnzipped":               int64(lambdaUnzippedCodeLimit),
 			"CodeSizeZipped":                 int64(52428800),
-			"ConcurrentExecutions":           1000,
-			"UnreservedConcurrentExecutions": 1000,
+			"ConcurrentExecutions":           lambdaAccountConcurrency,
+			"UnreservedConcurrentExecutions": lambdaUnreservedConcurrency(),
 		},
 		"AccountUsage": map[string]any{
 			"TotalCodeSize": totalCodeSize,

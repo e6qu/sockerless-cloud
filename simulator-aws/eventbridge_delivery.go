@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -10,13 +11,22 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/cron"
 	"github.com/e6qu/sockerless-cloud/sim/delivery"
+	"github.com/e6qu/sockerless-cloud/sim/eventbus"
 )
 
-// ebTargetDelivery is one event Amazon EventBridge owes one rule target.
+// ebTargetDelivery is one event Amazon EventBridge owes one rule target. Body
+// is the event after the target's input transformation.
 type ebTargetDelivery struct {
 	RuleArn string
 	Target  EBTarget
 	Record  EBEventRecord
+	Body    string
+}
+
+// ebRoute is one target of one rule: what an event on a bus fans out to.
+type ebRoute struct {
+	Rule   EBRule
+	Target EBTarget
 }
 
 // ebTargetError is a failed target invocation with the error code EventBridge
@@ -28,23 +38,73 @@ type ebTargetError struct {
 
 func (e ebTargetError) Error() string { return e.Code + ": " + e.Message }
 
-var ebTargetDeliveries *delivery.Dispatcher[ebTargetDelivery]
+var ebBus *eventbus.Bus[EBEventRecord, ebRoute, ebTargetDelivery]
 
 func registerEventBridgeDelivery(srv *sim.Server) {
 	store := sim.MakeStore[delivery.Item[ebTargetDelivery]](srv.DB(), "eventbridge_target_deliveries")
-	ebTargetDeliveries = delivery.New(srv, "EventBridge target deliveries", store, delivery.Handler[ebTargetDelivery]{
-		Policy: func(d ebTargetDelivery) delivery.Policy { return ebTargetRetryPolicy(d.Target) },
-		Attempt: func(ctx context.Context, item *delivery.Item[ebTargetDelivery]) delivery.Outcome {
-			return ebAttemptTarget(ctx, item.Payload)
+	if err := ebMigrateTargetDeliveryBodies(srv.DB(), store); err != nil {
+		panic(err)
+	}
+	ebBus = eventbus.New(srv, eventbus.Config[EBEventRecord, ebRoute, ebTargetDelivery]{
+		Subscriptions: ebBusRoutes,
+		Admits: func(route ebRoute, record EBEventRecord) bool {
+			return route.Rule.EventPattern != "" && ebEventPatternMatches(route.Rule.EventPattern, ebBuildEvent(record))
 		},
-		Finish: ebFinishTargetDelivery,
+		Transform: func(route ebRoute, records []EBEventRecord) (ebTargetDelivery, bool) {
+			record := records[0]
+			return ebTargetDelivery{RuleArn: route.Rule.Arn, Target: route.Target, Record: record, Body: ebApplyInput(route.Target, record)}, true
+		},
+		Archive: archiveEBEvent,
+		Delivery: &eventbus.Delivery[ebTargetDelivery]{
+			Name:   "EventBridge target deliveries",
+			Store:  store,
+			Policy: func(d ebTargetDelivery) delivery.Policy { return ebTargetRetryPolicy(d.Target) },
+			Attempt: func(ctx context.Context, item *delivery.Item[ebTargetDelivery]) delivery.Outcome {
+				return ebAttemptTarget(ctx, item.Payload)
+			},
+			Inline:     func(ebTargetDelivery) bool { return true },
+			DeadLetter: ebDeadLetterTargetDelivery,
+		},
 	})
-	ebTargetDeliveries.Resume()
+	ebBus.Resume()
 
 	rules, targets := ebRules, ebTargets
 	records := sim.MakeStore[cron.Record](srv.DB(), "eventbridge_rule_schedules")
 	cron.NewTicker(records, func() []cron.Entry { return ebScheduledRuleEntries(rules, targets) }).
 		Start(srv, "EventBridge scheduled rules", time.Second)
+}
+
+// ebMigrateTargetDeliveryBodies applies the target's input transformation to
+// the pending deliveries an earlier build persisted without it.
+func ebMigrateTargetDeliveryBodies(db *sql.DB, store sim.Store[delivery.Item[ebTargetDelivery]]) error {
+	return sim.Migrate(db, "eventbridge_target_deliveries/body", func() error {
+		for _, item := range store.List() {
+			item.Payload.Body = ebApplyInput(item.Payload.Target, item.Payload.Record)
+			store.Put(item.ID, item)
+		}
+		return nil
+	})
+}
+
+// ebBusRoutes lists every target of every enabled rule on bus.
+func ebBusRoutes(bus string) []ebRoute {
+	var routes []ebRoute
+	for _, rule := range ebRules.List() {
+		if rule.EventBusName != bus || rule.State == "DISABLED" {
+			continue
+		}
+		routes = append(routes, ebRuleRoutes(rule, ebTargets)...)
+	}
+	return routes
+}
+
+func ebRuleRoutes(rule EBRule, targets sim.Store[[]EBTarget]) []ebRoute {
+	ruleTargets, _ := targets.Get(ebRuleKey(rule.EventBusName, rule.Name))
+	routes := make([]ebRoute, 0, len(ruleTargets))
+	for _, target := range ruleTargets {
+		routes = append(routes, ebRoute{Rule: rule, Target: target})
+	}
+	return routes
 }
 
 // ebTargetRetryPolicy reads the target's RetryPolicy: MaximumRetryAttempts
@@ -72,18 +132,13 @@ func ebTargetRetryPolicy(target EBTarget) delivery.Policy {
 	}
 }
 
-func ebSubmitTargetDelivery(ruleArn string, target EBTarget, record EBEventRecord) {
-	ebTargetDeliveries.SubmitAttempted(sim.NewUUID(), ebTargetDelivery{RuleArn: ruleArn, Target: target, Record: record})
-}
-
 // ebAttemptTarget delivers one event to one target through the target
 // service's API, on the rule's behalf. A refusal the target service answers
 // with, such as a resource policy that does not admit events.amazonaws.com or
 // a target that does not exist, fails without retry, as EventBridge treats
 // both; throttling and server errors are retried.
 func ebAttemptTarget(ctx context.Context, d ebTargetDelivery) delivery.Outcome {
-	target := d.Target
-	body := ebApplyInput(target, d.Record)
+	target, body := d.Target, d.Body
 	switch {
 	case strings.HasPrefix(target.Arn, "arn:aws:sqs:"):
 		return ebSendToQueue(ctx, d.RuleArn, target, d.Record, body)
@@ -116,12 +171,9 @@ func ebAttemptTarget(ctx context.Context, d ebTargetDelivery) delivery.Outcome {
 	}
 }
 
-// ebFinishTargetDelivery sends an event the target never accepted to the
+// ebDeadLetterTargetDelivery sends an event the target never accepted to the
 // target's DeadLetterConfig queue with the attributes EventBridge documents.
-func ebFinishTargetDelivery(item delivery.Item[ebTargetDelivery], reason delivery.Reason) {
-	if reason == delivery.Succeeded {
-		return
-	}
+func ebDeadLetterTargetDelivery(item delivery.Item[ebTargetDelivery], reason delivery.Reason) {
 	d := item.Payload
 	var dlq struct {
 		Arn string `json:"Arn"`
@@ -197,10 +249,7 @@ func ebScheduledRuleEntries(rules sim.Store[EBRule], targets sim.Store[[]EBTarge
 					Time:       scheduled.Unix(),
 					Resources:  []string{rule.Arn},
 				}
-				ruleTargets, _ := targets.Get(key)
-				for _, target := range ruleTargets {
-					ebSubmitTargetDelivery(rule.Arn, target, record)
-				}
+				ebBus.DeliverTo(ebRuleRoutes(rule, targets), record)
 			},
 		})
 	}

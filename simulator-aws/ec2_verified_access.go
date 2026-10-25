@@ -650,29 +650,14 @@ func handleGetVerifiedAccessGroupPolicy(w http.ResponseWriter, r *http.Request) 
 
 func handleModifyVerifiedAccessGroupPolicy(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("VerifiedAccessGroupId")
-	g, ok := ec2VaGroups.Get(id)
+	item, ok := ec2VaGroups.Get(id)
 	if !ok {
 		ec2ErrorXML(w, "InvalidVerifiedAccessGroupId.NotFound", fmt.Sprintf("The Verified Access group ID '%s' does not exist", id), http.StatusBadRequest)
 		return
 	}
-	if v := r.FormValue("PolicyDocument"); v != "" {
-		g.PolicyDocument = v
-	}
-	if v := r.FormValue("PolicyEnabled"); v != "" {
-		g.PolicyEnabled = v == "true"
-	}
-	g.LastUpdatedTime = ec2NowRFC3339Milli()
-	ec2VaGroups.Put(id, g)
-	w.Header().Set("Content-Type", "text/xml")
-	var b strings.Builder
-	fmt.Fprintf(&b, "<policyEnabled>%t</policyEnabled>", g.PolicyEnabled)
-	if g.PolicyDocument != "" {
-		fmt.Fprintf(&b, "<policyDocument>%s</policyDocument>", xmlEscape(g.PolicyDocument))
-	}
-	fmt.Fprintf(w, `<ModifyVerifiedAccessGroupPolicyResponse %s>
-  <requestId>%s</requestId>
-  %s
-</ModifyVerifiedAccessGroupPolicyResponse>`, ec2Xmlns(), sim.NewUUID(), b.String())
+	ec2ApplyVerifiedAccessPolicy(r, &item.PolicyDocument, &item.PolicyEnabled, &item.LastUpdatedTime)
+	ec2VaGroups.Put(id, item)
+	ec2WriteVerifiedAccessPolicy(w, "ModifyVerifiedAccessGroupPolicy", item.PolicyDocument, item.PolicyEnabled)
 }
 
 func vaEndpointBodyXML(e EC2VerifiedAccessEndpoint) string {
@@ -852,29 +837,14 @@ func handleGetVerifiedAccessEndpointPolicy(w http.ResponseWriter, r *http.Reques
 
 func handleModifyVerifiedAccessEndpointPolicy(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("VerifiedAccessEndpointId")
-	e, ok := ec2VaEndpoints.Get(id)
+	item, ok := ec2VaEndpoints.Get(id)
 	if !ok {
 		ec2ErrorXML(w, "InvalidVerifiedAccessEndpointId.NotFound", fmt.Sprintf("The Verified Access endpoint ID '%s' does not exist", id), http.StatusBadRequest)
 		return
 	}
-	if v := r.FormValue("PolicyDocument"); v != "" {
-		e.PolicyDocument = v
-	}
-	if v := r.FormValue("PolicyEnabled"); v != "" {
-		e.PolicyEnabled = v == "true"
-	}
-	e.LastUpdatedTime = ec2NowRFC3339Milli()
-	ec2VaEndpoints.Put(id, e)
-	w.Header().Set("Content-Type", "text/xml")
-	var b strings.Builder
-	fmt.Fprintf(&b, "<policyEnabled>%t</policyEnabled>", e.PolicyEnabled)
-	if e.PolicyDocument != "" {
-		fmt.Fprintf(&b, "<policyDocument>%s</policyDocument>", xmlEscape(e.PolicyDocument))
-	}
-	fmt.Fprintf(w, `<ModifyVerifiedAccessEndpointPolicyResponse %s>
-  <requestId>%s</requestId>
-  %s
-</ModifyVerifiedAccessEndpointPolicyResponse>`, ec2Xmlns(), sim.NewUUID(), b.String())
+	ec2ApplyVerifiedAccessPolicy(r, &item.PolicyDocument, &item.PolicyEnabled, &item.LastUpdatedTime)
+	ec2VaEndpoints.Put(id, item)
+	ec2WriteVerifiedAccessPolicy(w, "ModifyVerifiedAccessEndpointPolicy", item.PolicyDocument, item.PolicyEnabled)
 }
 
 func handleGetVerifiedAccessEndpointTargets(w http.ResponseWriter, r *http.Request) {
@@ -1498,4 +1468,29 @@ func handleDeleteTrafficMirrorSession(w http.ResponseWriter, r *http.Request) {
   <requestId>%s</requestId>
   <trafficMirrorSessionId>%s</trafficMirrorSessionId>
 </DeleteTrafficMirrorSessionResponse>`, ec2Xmlns(), sim.NewUUID(), id)
+}
+
+// ec2ApplyVerifiedAccessPolicy applies the request's PolicyDocument and
+// PolicyEnabled to a Verified Access group or endpoint.
+func ec2ApplyVerifiedAccessPolicy(r *http.Request, document *string, enabled *bool, updated *string) {
+	if v := r.FormValue("PolicyDocument"); v != "" {
+		*document = v
+	}
+	if v := r.FormValue("PolicyEnabled"); v != "" {
+		*enabled = v == "true"
+	}
+	*updated = ec2NowRFC3339Milli()
+}
+
+func ec2WriteVerifiedAccessPolicy(w http.ResponseWriter, action, document string, enabled bool) {
+	w.Header().Set("Content-Type", "text/xml")
+	var b strings.Builder
+	fmt.Fprintf(&b, "<policyEnabled>%t</policyEnabled>", enabled)
+	if document != "" {
+		fmt.Fprintf(&b, "<policyDocument>%s</policyDocument>", xmlEscape(document))
+	}
+	fmt.Fprintf(w, `<%sResponse %s>
+  <requestId>%s</requestId>
+  %s
+</%sResponse>`, action, ec2Xmlns(), sim.NewUUID(), b.String(), action)
 }

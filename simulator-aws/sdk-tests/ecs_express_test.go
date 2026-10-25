@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,7 +32,7 @@ func expressCreateCluster(t *testing.T, c *ecs.Client, name string) string {
 // allowed those services.
 func createECSExpressInfrastructureRole(t *testing.T, name string) string {
 	t.Helper()
-	return createServiceRole(t, uniqueName(name), "ecs.amazonaws.com",
+	return createServiceRole(t, uniquename.New(name), "ecs.amazonaws.com",
 		"elasticloadbalancing:*", "ec2:*", "acm:*", "application-autoscaling:*")
 }
 

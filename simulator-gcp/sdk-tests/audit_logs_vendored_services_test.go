@@ -8,6 +8,7 @@ import (
 
 	"cloud.google.com/go/logging"
 	"cloud.google.com/go/logging/logadmin"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	apigateway "google.golang.org/api/apigateway/v1"
@@ -57,7 +58,7 @@ func TestAuditLogs_LoggingServiceUsageAPIGatewayResourceManager(t *testing.T) {
 	t.Parallel()
 	const project = "test-project"
 
-	sinkName := uniqueName("audit-sink")
+	sinkName := uniquename.New("audit-sink")
 	_, err := loggingRESTService(t).Projects.Sinks.Create("projects/"+project, &loggingrpc.LogSink{
 		Name: sinkName, Destination: "storage.googleapis.com/" + sinkName,
 	}).Do()
@@ -71,7 +72,7 @@ func TestAuditLogs_LoggingServiceUsageAPIGatewayResourceManager(t *testing.T) {
 	assert.Equal(t, "type.googleapis.com/google.logging.v2.CreateSinkRequest", payload.GetRequest().GetFields()["@type"].GetStringValue())
 	assert.Equal(t, "audited_resource", entry.Resource.GetType())
 
-	suProject := uniqueName("audit-su")
+	suProject := uniquename.New("audit-su")
 	requireProject(t, suProject)
 	const enabled = "pubsub.googleapis.com"
 	op, err := serviceUsageService(t).Services.Enable("projects/"+suProject+"/services/"+enabled, &serviceusage.EnableServiceRequest{}).Do()
@@ -84,7 +85,7 @@ func TestAuditLogs_LoggingServiceUsageAPIGatewayResourceManager(t *testing.T) {
 	assert.Equal(t, "serviceusage.googleapis.com", entry.Operation.GetProducer())
 	assert.True(t, entry.Operation.GetFirst())
 
-	apiID := uniqueName("audit-api")
+	apiID := uniquename.New("audit-api")
 	gateways := apigatewayService(t)
 	apiOp, err := gateways.Projects.Locations.Apis.Create("projects/"+project+"/locations/global", &apigateway.ApigatewayApi{DisplayName: "audit"}).ApiId(apiID).Do()
 	require.NoError(t, err)
@@ -99,7 +100,7 @@ func TestAuditLogs_LoggingServiceUsageAPIGatewayResourceManager(t *testing.T) {
 	assert.True(t, entry.Operation.GetFirst())
 
 	tags := crmV3Service(t)
-	keyOp, err := tags.TagKeys.Create(&crm.TagKey{Parent: "projects/" + project, ShortName: uniqueName("audit")}).Do()
+	keyOp, err := tags.TagKeys.Create(&crm.TagKey{Parent: "projects/" + project, ShortName: uniquename.New("audit")}).Do()
 	require.NoError(t, err)
 	tagKey := crmOpResourceName(t, keyOp)
 	t.Cleanup(func() { _, _ = tags.TagKeys.Delete(tagKey).Do() })
@@ -124,7 +125,7 @@ func TestAuditLogs_BigQueryCloudSQLCloudRunV1(t *testing.T) {
 	t.Parallel()
 	const project = "test-project"
 
-	dataset := "audit_ds_" + uniqueName("")[1:]
+	dataset := "audit_ds_" + uniquename.New("")[1:]
 	bq := bqService(t)
 	_, err := bq.Datasets.Insert(project, &bigquery.Dataset{
 		DatasetReference: &bigquery.DatasetReference{ProjectId: project, DatasetId: dataset},
@@ -139,7 +140,7 @@ func TestAuditLogs_BigQueryCloudSQLCloudRunV1(t *testing.T) {
 	assert.Equal(t, dataset, entry.Resource.GetLabels()["dataset_id"])
 
 	sql := sqlAdminService(t)
-	instance := uniqueName("audit-sql")
+	instance := uniquename.New("audit-sql")
 	insertOp, err := sql.Instances.Insert(project, &sqladmin.DatabaseInstance{
 		Name: instance, Region: "us-central1", DatabaseVersion: "POSTGRES_15", RootPassword: "RootPassword-123!",
 	}).Do()
@@ -157,7 +158,7 @@ func TestAuditLogs_BigQueryCloudSQLCloudRunV1(t *testing.T) {
 	assert.True(t, entry.Operation.GetFirst() && entry.Operation.GetLast(), "the operation was done when the call answered")
 
 	jobs := newRunV1(t)
-	jobID := uniqueName("audit-v1-job")
+	jobID := uniquename.New("audit-v1-job")
 	_, err = jobs.Namespaces.Jobs.Create("namespaces/"+project, &run.Job{
 		Metadata: &run.ObjectMeta{Name: jobID},
 		Spec: &run.JobSpec{Template: &run.ExecutionTemplateSpec{Spec: &run.ExecutionSpec{
@@ -182,7 +183,7 @@ func TestAuditLogs_BigQueryCloudSQLCloudRunV1(t *testing.T) {
 func TestAuditLogs_OperationLastEntries(t *testing.T) {
 	t.Parallel()
 
-	projectID := uniqueName("audit-create")
+	projectID := uniquename.New("audit-create")
 	op, err := crmService(t).Projects.Create(&crmv1.Project{ProjectId: projectID}).Do()
 	require.NoError(t, err)
 	entry, payload := auditActivityEntryIn(t, projectID, "CreateProject", "projects/"+projectID)

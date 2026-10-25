@@ -305,8 +305,7 @@ func registerDataCollectionRules(srv *sim.Server) {
 	dataCollectionRules = sim.MakeStore[DataCollectionRule](srv.DB(), "monitor_data_collection_rules")
 	const base = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Insights/dataCollectionRules"
 	ruleID := func(r *http.Request) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Insights/dataCollectionRules/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "dataCollectionRuleName"))
+		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Insights", "dataCollectionRules", sim.PathParam(r, "dataCollectionRuleName"))
 	}
 	notFound := func(w http.ResponseWriter, r *http.Request) {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -371,30 +370,10 @@ func registerDataCollectionRules(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("PATCH "+base+"/{dataCollectionRuleName}", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Tags     map[string]string `json:"tags"`
-			Identity json.RawMessage   `json:"identity"`
-		}
-		if err := sim.ReadJSON(r, &req); err != nil {
-			AzureError(w, "InvalidPayload", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		var out DataCollectionRule
-		ok := dataCollectionRules.Update(ruleID(r), func(rule *DataCollectionRule) {
-			if req.Tags != nil {
-				rule.Tags = req.Tags
-			}
-			if len(req.Identity) > 0 {
-				rule.Identity = req.Identity
-			}
-			rule.Etag = `"` + sim.NewUUID() + `"`
-			out = *rule
-		})
-		if !ok {
-			notFound(w, r)
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, wire(r, out))
+		monitorPatchTagsAndIdentity(w, r, dataCollectionRules, ruleID(r), notFound, wire,
+			func(rule *DataCollectionRule) (*map[string]string, *json.RawMessage, *string) {
+				return &rule.Tags, &rule.Identity, &rule.Etag
+			})
 	})
 
 	srv.HandleFunc("DELETE "+base+"/{dataCollectionRuleName}", func(w http.ResponseWriter, r *http.Request) {
@@ -406,23 +385,13 @@ func registerDataCollectionRules(srv *sim.Server) {
 	})
 
 	list := func(w http.ResponseWriter, r *http.Request, prefix string) {
-		prefix = strings.ToLower(prefix)
-		rules := dataCollectionRules.Filter(func(rule DataCollectionRule) bool {
-			return strings.HasPrefix(strings.ToLower(rule.ID), prefix)
-		})
-		sort.Slice(rules, func(i, j int) bool { return rules[i].ID < rules[j].ID })
-		out := make([]DataCollectionRule, 0, len(rules))
-		for _, rule := range rules {
-			out = append(out, wire(r, rule))
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
+		monitorListUnder(w, r, dataCollectionRules, prefix, func(rule DataCollectionRule) string { return rule.ID }, wire)
 	}
 	srv.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
-		list(w, r, fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Insights/dataCollectionRules/",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName")))
+		list(w, r, armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Insights", "dataCollectionRules")+"/")
 	})
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Insights/dataCollectionRules", func(w http.ResponseWriter, r *http.Request) {
-		list(w, r, fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId")))
+		list(w, r, armSubscriptionID(sim.PathParam(r, "subscriptionId"))+"/")
 	})
 
 	srv.HandleFunc("POST /dataCollectionRules/{ruleId}/streams/{stream}", handleLogsIngestionUpload)
@@ -455,8 +424,7 @@ func dataCollectionEndpointByID(id string) (DataCollectionEndpoint, bool) {
 	if len(parts) != 8 || !strings.EqualFold(parts[6], "dataCollectionEndpoints") {
 		return DataCollectionEndpoint{}, false
 	}
-	return dataCollectionEndpoints.Get(fmt.Sprintf(
-		"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Insights/dataCollectionEndpoints/%s", parts[1], parts[3], parts[7]))
+	return dataCollectionEndpoints.Get(armResourceID(parts[1], parts[3], "Microsoft.Insights", "dataCollectionEndpoints", parts[7]))
 }
 
 // logsIngestionMaxBody is the API's limit on one call's body.
@@ -692,8 +660,7 @@ func registerDataCollectionEndpoints(srv *sim.Server) {
 	dataCollectionEndpoints = sim.MakeStore[DataCollectionEndpoint](srv.DB(), "monitor_data_collection_endpoints")
 	const base = "/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Insights/dataCollectionEndpoints"
 	endpointID := func(r *http.Request) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Insights/dataCollectionEndpoints/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "dataCollectionEndpointName"))
+		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Insights", "dataCollectionEndpoints", sim.PathParam(r, "dataCollectionEndpointName"))
 	}
 	notFound := func(w http.ResponseWriter, r *http.Request) {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -757,30 +724,10 @@ func registerDataCollectionEndpoints(srv *sim.Server) {
 		sim.WriteJSON(w, http.StatusOK, wire(r, dce))
 	})
 	srv.HandleFunc("PATCH "+base+"/{dataCollectionEndpointName}", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Tags     map[string]string `json:"tags"`
-			Identity json.RawMessage   `json:"identity"`
-		}
-		if err := sim.ReadJSON(r, &req); err != nil {
-			AzureError(w, "InvalidPayload", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		var out DataCollectionEndpoint
-		ok := dataCollectionEndpoints.Update(endpointID(r), func(dce *DataCollectionEndpoint) {
-			if req.Tags != nil {
-				dce.Tags = req.Tags
-			}
-			if len(req.Identity) > 0 {
-				dce.Identity = req.Identity
-			}
-			dce.Etag = `"` + sim.NewUUID() + `"`
-			out = *dce
-		})
-		if !ok {
-			notFound(w, r)
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, wire(r, out))
+		monitorPatchTagsAndIdentity(w, r, dataCollectionEndpoints, endpointID(r), notFound, wire,
+			func(dce *DataCollectionEndpoint) (*map[string]string, *json.RawMessage, *string) {
+				return &dce.Tags, &dce.Identity, &dce.Etag
+			})
 	})
 	srv.HandleFunc("DELETE "+base+"/{dataCollectionEndpointName}", func(w http.ResponseWriter, r *http.Request) {
 		if dataCollectionEndpoints.Delete(endpointID(r)) {
@@ -790,22 +737,61 @@ func registerDataCollectionEndpoints(srv *sim.Server) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	list := func(w http.ResponseWriter, r *http.Request, prefix string) {
-		prefix = strings.ToLower(prefix)
-		dces := dataCollectionEndpoints.Filter(func(dce DataCollectionEndpoint) bool {
-			return strings.HasPrefix(strings.ToLower(dce.ID), prefix)
-		})
-		sort.Slice(dces, func(i, j int) bool { return dces[i].ID < dces[j].ID })
-		out := make([]DataCollectionEndpoint, 0, len(dces))
-		for _, dce := range dces {
-			out = append(out, wire(r, dce))
-		}
-		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
+		monitorListUnder(w, r, dataCollectionEndpoints, prefix, func(dce DataCollectionEndpoint) string { return dce.ID }, wire)
 	}
 	srv.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
-		list(w, r, fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Insights/dataCollectionEndpoints/",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName")))
+		list(w, r, armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Insights", "dataCollectionEndpoints")+"/")
 	})
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Insights/dataCollectionEndpoints", func(w http.ResponseWriter, r *http.Request) {
-		list(w, r, fmt.Sprintf("/subscriptions/%s/", sim.PathParam(r, "subscriptionId")))
+		list(w, r, armSubscriptionID(sim.PathParam(r, "subscriptionId"))+"/")
 	})
+}
+
+// monitorPatchTagsAndIdentity applies the PATCH a data collection rule or
+// endpoint takes, which carries only its tags and managed identity, gives the
+// resource a new etag and answers with the result. fields locates the three
+// members in a stored resource.
+func monitorPatchTagsAndIdentity[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], id string,
+	notFound func(http.ResponseWriter, *http.Request), wire func(*http.Request, T) T,
+	fields func(*T) (*map[string]string, *json.RawMessage, *string)) {
+	var req struct {
+		Tags     map[string]string `json:"tags"`
+		Identity json.RawMessage   `json:"identity"`
+	}
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AzureError(w, "InvalidPayload", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	var out T
+	ok := store.Update(id, func(res *T) {
+		tags, identity, etag := fields(res)
+		if req.Tags != nil {
+			*tags = req.Tags
+		}
+		if len(req.Identity) > 0 {
+			*identity = req.Identity
+		}
+		*etag = `"` + sim.NewUUID() + `"`
+		out = *res
+	})
+	if !ok {
+		notFound(w, r)
+		return
+	}
+	sim.WriteJSON(w, http.StatusOK, wire(r, out))
+}
+
+// monitorListUnder answers every resource whose ID starts with prefix, matched
+// regardless of case as Azure Resource Manager matches IDs, in ID order.
+func monitorListUnder[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], prefix string, id func(T) string, wire func(*http.Request, T) T) {
+	prefix = strings.ToLower(prefix)
+	items := store.Filter(func(res T) bool {
+		return strings.HasPrefix(strings.ToLower(id(res)), prefix)
+	})
+	sort.Slice(items, func(i, j int) bool { return id(items[i]) < id(items[j]) })
+	out := make([]T, 0, len(items))
+	for _, res := range items {
+		out = append(out, wire(r, res))
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": out})
 }

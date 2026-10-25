@@ -130,7 +130,7 @@ func jobContainerName(executionName string) string {
 	if len(last) > 12 {
 		last = last[:12]
 	}
-	return "sockerless-sim-gcp-job-" + last
+	return "sockerless-sim-gcp-job-" + last + "-0-0"
 }
 
 func containerIP(t *testing.T, name string) string {

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
@@ -187,24 +186,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 	// GetWorkerPool (the {workerPool} wildcard also carries the GET-side
 	// `{workerPool}:getIamPolicy` verb).
 	srv.HandleFunc("GET /v2/projects/{project}/locations/{location}/workerPools/{workerPool}", func(w http.ResponseWriter, r *http.Request) {
-		project := sim.PathParam(r, "project")
-		location := sim.PathParam(r, "location")
-		poolParam := sim.PathParam(r, "workerPool")
-		if id, action, found := strings.Cut(poolParam, ":"); found {
-			if action == "getIamPolicy" {
-				workerPoolIAM(w, r, pools, project, location, id, action)
-				return
-			}
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "unknown action %q on worker pool %q", action, id)
-			return
-		}
-		name := fmt.Sprintf("projects/%s/locations/%s/workerPools/%s", project, location, poolParam)
-		pool, ok := pools.Get(name)
-		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "worker pool %q not found", name)
-			return
-		}
-		sim.WriteJSON(w, http.StatusOK, pool)
+		cloudRunGetWithIAM(w, r, pools, "workerPool", "workerPools", "worker pool", workerPoolIAM)
 	})
 
 	// ListWorkerPools
@@ -212,20 +194,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
 		prefix := fmt.Sprintf("projects/%s/locations/%s/workerPools/", project, location)
-		result := pools.Filter(func(p WorkerPoolV2) bool { return strings.HasPrefix(p.Name, prefix) })
-		if result == nil {
-			result = []WorkerPoolV2{}
-		}
-		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-		page, next, ok := paginateList(w, r, result, gcpAsc(func(v WorkerPoolV2) string { return v.Name }))
-		if !ok {
-			return
-		}
-		resp := map[string]any{"workerPools": page}
-		if next != "" {
-			resp["nextPageToken"] = next
-		}
-		sim.WriteJSON(w, http.StatusOK, resp)
+		gcpWritePage(w, r, pools, prefix, "workerPools", func(v WorkerPoolV2) string { return v.Name })
 	})
 
 	// UpdateWorkerPool (PATCH, honoring updateMask).
@@ -316,20 +285,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		location := sim.PathParam(r, "location")
 		poolID := sim.PathParam(r, "workerPool")
 		prefix := fmt.Sprintf("projects/%s/locations/%s/workerPools/%s/revisions/", project, location, poolID)
-		result := revisions.Filter(func(rev RevisionV2) bool { return strings.HasPrefix(rev.Name, prefix) })
-		if result == nil {
-			result = []RevisionV2{}
-		}
-		sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-		page, next, ok := paginateList(w, r, result, gcpAsc(func(v RevisionV2) string { return v.Name }))
-		if !ok {
-			return
-		}
-		resp := map[string]any{"revisions": page}
-		if next != "" {
-			resp["nextPageToken"] = next
-		}
-		sim.WriteJSON(w, http.StatusOK, resp)
+		gcpWritePage(w, r, revisions, prefix, "revisions", func(v RevisionV2) string { return v.Name })
 	})
 	srv.HandleFunc("DELETE /v2/projects/{project}/locations/{location}/workerPools/{workerPool}/revisions/{revision}", func(w http.ResponseWriter, r *http.Request) {
 		project := sim.PathParam(r, "project")
@@ -337,17 +293,7 @@ func registerCloudRunWorkerPoolsV2(srv *sim.Server) {
 		poolID := sim.PathParam(r, "workerPool")
 		revisionID := sim.PathParam(r, "revision")
 		name := fmt.Sprintf("projects/%s/locations/%s/workerPools/%s/revisions/%s", project, location, poolID, revisionID)
-		rev, ok := revisions.Get(name)
-		if !ok {
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND", "revision %q not found", name)
-			return
-		}
-		if !cloudRunEtagOK(w, "revision", rev.Name, rev.Etag, r.URL.Query().Get("etag")) {
-			return
-		}
-		revisions.Delete(name)
-		lro := cloudRunLRO(project, location, rev, "type.googleapis.com/google.cloud.run.v2.Revision")
-		sim.WriteJSON(w, http.StatusOK, lro)
+		cloudRunDeleteRevision(w, r, revisions, project, location, name)
 	})
 
 	// getIamPolicy rides the GET handler's colon-split above.

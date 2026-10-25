@@ -74,7 +74,7 @@ type graphBody struct {
 func graphDecodeBody(r *http.Request) (graphBody, error) {
 	out := graphBody{Props: map[string]json.RawMessage{}, Binds: map[string][]string{}}
 	raw := map[string]json.RawMessage{}
-	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+	if err := azureReadRequiredJSON(r, &raw); err != nil {
 		if err == io.EOF {
 			return out, nil
 		}
@@ -404,7 +404,7 @@ func handleGraphAddOwnerRef(w http.ResponseWriter, r *http.Request, objectID str
 	var req struct {
 		ODataID string `json:"@odata.id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := azureReadRequiredJSON(r, &req); err != nil {
 		AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -504,7 +504,7 @@ func handleGraphSetManagerRef(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ODataID string `json:"@odata.id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := azureReadRequiredJSON(r, &req); err != nil {
 		AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}

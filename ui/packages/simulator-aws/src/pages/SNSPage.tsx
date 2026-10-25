@@ -5,7 +5,7 @@ import FormField from "@cloudscape-design/components/form-field";
 import Textarea from "@cloudscape-design/components/textarea";
 import Select from "@cloudscape-design/components/select";
 import SpaceBetween from "@cloudscape-design/components/space-between";
-import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsRefreshButton, type AwsColumn, AwsDeleteModal } from "../console/index.js";
 import {
   createSNSTopic,
   deleteSNSTopic,
@@ -111,22 +111,13 @@ function DeleteTopicsModal({
     },
   });
   return (
-    <AwsModal
+    <AwsDeleteModal
       title={topics.length === 1 ? `Delete ${topics[0].name}?` : `Delete ${topics.length} topics?`}
+      confirmationText="delete me"
       onDismiss={onClose}
-      footer={
-        <>
-          <AwsButton onClick={onClose}>Cancel</AwsButton>
-          <AwsButton
-            variant="primary"
-            data-testid="sns-delete-topic-confirm"
-            disabled={remove.isPending}
-            onClick={() => remove.mutate()}
-          >
-            {remove.isPending ? "Deleting…" : "Delete"}
-          </AwsButton>
-        </>
-      }
+      onDelete={() => remove.mutate()}
+      pending={remove.isPending}
+      testIdPrefix="sns-delete-topic"
     >
       <p>Deleting a topic also deletes every subscription attached to it.</p>
       <ul>
@@ -142,7 +133,7 @@ function DeleteTopicsModal({
           {remove.error instanceof Error ? remove.error.message : "The request failed."}
         </AwsErrorAlert>
       )}
-    </AwsModal>
+    </AwsDeleteModal>
   );
 }
 
@@ -247,7 +238,7 @@ function ManageTopicModal({ topic, onClose }: { topic: SNSTopic; onClose: () => 
   );
 }
 
-export function SNSPage() {
+export function SNSPage({ view = "topics" }: { view?: "topics" | "subscriptions" }) {
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<{ topics: SNSTopic[]; clearSelection: () => void } | null>(null);
@@ -260,6 +251,7 @@ export function SNSPage() {
   });
   return (
     <>
+      {view === "topics" && (
       <AwsResourceTable<SNSTopic>
         title="Topics"
         description="Amazon SNS topics in this account and Region."
@@ -274,6 +266,7 @@ export function SNSPage() {
         errorTestId="sns-topics-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton disabled={selected.length !== 1} onClick={() => setManaging(selected[0] ?? null)}>
               Publish and subscribe
             </AwsButton>
@@ -284,18 +277,16 @@ export function SNSPage() {
             >
               Delete
             </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
-            </AwsButton>
             <AwsButton variant="primary" data-testid="sns-create-topic" onClick={() => setCreating(true)}>
               Create topic
             </AwsButton>
           </>
         )}
       />
+      )}
+      {view === "subscriptions" && (
       <AwsResourceTable<SNSSubscription>
         title="Subscriptions"
-        headingVariant="h2"
         description="The endpoints subscribed to topics in this account and Region."
         columns={subscriptionColumns}
         queryKey={["sns-subscriptions"]}
@@ -308,18 +299,17 @@ export function SNSPage() {
         errorTestId="sns-subscriptions-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton
               disabled={selected.length === 0 || unsubscribe.isPending}
               onClick={() => unsubscribe.mutate(selected, { onSuccess: clearSelection })}
             >
               Delete subscription
             </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
-            </AwsButton>
           </>
         )}
       />
+      )}
       {creating && <CreateTopicModal onClose={() => setCreating(false)} />}
       {managing && <ManageTopicModal topic={managing} onClose={() => setManaging(null)} />}
       {deleting && (

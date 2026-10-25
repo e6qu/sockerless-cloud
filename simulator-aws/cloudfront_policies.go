@@ -307,8 +307,7 @@ func registerCloudFrontPolicies(srv *sim.Server) {
 
 func handleCFCreateCachePolicy(w http.ResponseWriter, r *http.Request) {
 	var cfg CFCachePolicyConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode CachePolicyConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "CachePolicyConfig", &cfg) {
 		return
 	}
 	if cfg.Name == "" {
@@ -361,18 +360,11 @@ func handleCFUpdateCachePolicy(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchCachePolicy", "The specified cache policy does not exist.")
 		return
 	}
-	ifMatch := r.Header.Get("If-Match")
-	if ifMatch == "" {
-		cfWriteError(w, http.StatusBadRequest, "InvalidIfMatchVersion", "The If-Match header is required.")
-		return
-	}
-	if ifMatch != stored.ETag {
-		cfWriteError(w, http.StatusPreconditionFailed, "PreconditionFailed", "The If-Match version is missing or does not match the resource's current ETag.")
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	var cfg CFCachePolicyConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode CachePolicyConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "CachePolicyConfig", &cfg) {
 		return
 	}
 	cfg.Xmlns = ""
@@ -392,13 +384,7 @@ func handleCFDeleteCachePolicy(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchCachePolicy", "The specified cache policy does not exist.")
 		return
 	}
-	ifMatch := r.Header.Get("If-Match")
-	if ifMatch == "" {
-		cfWriteError(w, http.StatusBadRequest, "InvalidIfMatchVersion", "The If-Match header is required.")
-		return
-	}
-	if ifMatch != stored.ETag {
-		cfWriteError(w, http.StatusPreconditionFailed, "PreconditionFailed", "The If-Match version is missing or does not match the resource's current ETag.")
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	cfCachePolicies.Delete(id)
@@ -421,8 +407,7 @@ func handleCFListCachePolicies(w http.ResponseWriter, r *http.Request) {
 
 func handleCFCreateORP(w http.ResponseWriter, r *http.Request) {
 	var cfg CFOriginRequestPolicyConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode OriginRequestPolicyConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "OriginRequestPolicyConfig", &cfg) {
 		return
 	}
 	if cfg.Name == "" {
@@ -475,18 +460,11 @@ func handleCFUpdateORP(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchOriginRequestPolicy", "The specified origin request policy does not exist.")
 		return
 	}
-	ifMatch := r.Header.Get("If-Match")
-	if ifMatch == "" {
-		cfWriteError(w, http.StatusBadRequest, "InvalidIfMatchVersion", "The If-Match header is required.")
-		return
-	}
-	if ifMatch != stored.ETag {
-		cfWriteError(w, http.StatusPreconditionFailed, "PreconditionFailed", "The If-Match version is missing or does not match the resource's current ETag.")
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	var cfg CFOriginRequestPolicyConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode OriginRequestPolicyConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "OriginRequestPolicyConfig", &cfg) {
 		return
 	}
 	cfg.Xmlns = ""
@@ -506,13 +484,7 @@ func handleCFDeleteORP(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchOriginRequestPolicy", "The specified origin request policy does not exist.")
 		return
 	}
-	ifMatch := r.Header.Get("If-Match")
-	if ifMatch == "" {
-		cfWriteError(w, http.StatusBadRequest, "InvalidIfMatchVersion", "The If-Match header is required.")
-		return
-	}
-	if ifMatch != stored.ETag {
-		cfWriteError(w, http.StatusPreconditionFailed, "PreconditionFailed", "The If-Match version is missing or does not match the resource's current ETag.")
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	cfOriginRequestPolicies.Delete(id)
@@ -535,8 +507,7 @@ func handleCFListORPs(w http.ResponseWriter, r *http.Request) {
 
 func handleCFCreateRHP(w http.ResponseWriter, r *http.Request) {
 	var cfg CFResponseHeadersPolicyConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode ResponseHeadersPolicyConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "ResponseHeadersPolicyConfig", &cfg) {
 		return
 	}
 	if cfg.Name == "" {
@@ -589,18 +560,11 @@ func handleCFUpdateRHP(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchResponseHeadersPolicy", "The specified response headers policy does not exist.")
 		return
 	}
-	ifMatch := r.Header.Get("If-Match")
-	if ifMatch == "" {
-		cfWriteError(w, http.StatusBadRequest, "InvalidIfMatchVersion", "The If-Match header is required.")
-		return
-	}
-	if ifMatch != stored.ETag {
-		cfWriteError(w, http.StatusPreconditionFailed, "PreconditionFailed", "The If-Match version is missing or does not match the resource's current ETag.")
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	var cfg CFResponseHeadersPolicyConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode ResponseHeadersPolicyConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "ResponseHeadersPolicyConfig", &cfg) {
 		return
 	}
 	cfg.Xmlns = ""
@@ -620,13 +584,7 @@ func handleCFDeleteRHP(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchResponseHeadersPolicy", "The specified response headers policy does not exist.")
 		return
 	}
-	ifMatch := r.Header.Get("If-Match")
-	if ifMatch == "" {
-		cfWriteError(w, http.StatusBadRequest, "InvalidIfMatchVersion", "The If-Match header is required.")
-		return
-	}
-	if ifMatch != stored.ETag {
-		cfWriteError(w, http.StatusPreconditionFailed, "PreconditionFailed", "The If-Match version is missing or does not match the resource's current ETag.")
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	cfResponseHeadersPolicies.Delete(id)

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/cloudresourcemanager/v1"
@@ -1082,7 +1083,7 @@ func TestIAMCredentials_GenerateAccessTokenHonoursTheRequestedLifetime(t *testin
 	credSvc := iamCredentialsService(t)
 
 	created, err := iamSvc.Projects.ServiceAccounts.Create("projects/test-project",
-		&iam.CreateServiceAccountRequest{AccountId: uniqueName("lifetime-sa")}).Do()
+		&iam.CreateServiceAccountRequest{AccountId: uniquename.New("lifetime-sa")}).Do()
 	require.NoError(t, err)
 
 	scope := []string{"https://www.googleapis.com/auth/cloud-platform"}
@@ -1136,7 +1137,7 @@ func TestIAMCredentials_GenerateAccessTokenRefusesAnOverLongLifetime(t *testing.
 	credSvc := iamCredentialsService(t)
 
 	created, err := iamSvc.Projects.ServiceAccounts.Create("projects/test-project",
-		&iam.CreateServiceAccountRequest{AccountId: uniqueName("overlong-sa")}).Do()
+		&iam.CreateServiceAccountRequest{AccountId: uniquename.New("overlong-sa")}).Do()
 	require.NoError(t, err)
 
 	scope := []string{"https://www.googleapis.com/auth/cloud-platform"}

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 // Cloud Run Admin v1 (Knative) surface for the Cloud Run Jobs family:
@@ -125,7 +126,7 @@ func knativeListPage[T any](w http.ResponseWriter, r *http.Request, items []T, f
 	token := r.URL.Query().Get("continue")
 	page, next, err := gcpKeyPageOf(items, append([]gcpSortKey[T]{first}, rest...), token, size, 0, 0)
 	switch {
-	case errors.Is(err, errGCPPageToken):
+	case errors.Is(err, listq.ErrBadToken):
 		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid continue token %q", token)
 		return nil, "", false
 	case err != nil:
@@ -135,12 +136,11 @@ func knativeListPage[T any](w http.ResponseWriter, r *http.Request, items []T, f
 	return page, next, true
 }
 
-// knativeListMeta returns the list envelope's metadata for a continue token,
-// or nil when the page is the whole collection.
+// knativeListMeta returns the list envelope's metadata, which carries the
+// continue token of a page that is not the last. Every list carries it:
+// `gcloud run jobs executions tasks list` reads metadata.continue off the
+// response without checking for the metadata first.
 func knativeListMeta(next string) *CRListMeta {
-	if next == "" {
-		return nil
-	}
 	return &CRListMeta{Continue: next}
 }
 
@@ -217,14 +217,7 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 			{Type: "ConfigurationsReady", State: "CONDITION_SUCCEEDED", LastTransitionTime: now},
 			{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: now},
 		}
-		if job.Template != nil {
-			if job.Template.Parallelism == 0 {
-				job.Template.Parallelism = 1
-			}
-			if job.Template.TaskCount == 0 {
-				job.Template.TaskCount = 1
-			}
-		}
+		cloudRunJobTemplateDefaults(job.Template)
 		job.Etag = sim.NewUUID()
 		holdCloudRunJobForExecutionToken(&job, now)
 		if !dryRun {
@@ -247,18 +240,9 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET /apis/run.googleapis.com/v1/namespaces/{namespace}/jobs", func(w http.ResponseWriter, r *http.Request) {
-		namespace := sim.PathParam(r, "namespace")
-		prefix := cloudRunV1JobsPrefix(namespace)
-		selector := r.URL.Query().Get("labelSelector")
-		items := make([]CRJob, 0)
-		for _, job := range crjJobs.Filter(func(j Job) bool { return strings.HasPrefix(j.Name, prefix) }) {
-			projected, ok := cloudRunV2JobToV1(job)
-			if !ok || !knativeLabelSelectorMatches(selector, projected.Metadata.Labels) {
-				continue
-			}
-			items = append(items, projected)
-		}
-		page, next, ok := knativeListPage(w, r, items, gcpAsc(func(v CRJob) string { return v.Metadata.Name }))
+		page, next, ok := knativeProjectedPage(w, r, crjJobs, cloudRunV1JobsPrefix(sim.PathParam(r, "namespace")),
+			func(j Job) string { return j.Name }, cloudRunV2JobToV1,
+			func(v CRJob) map[string]string { return v.Metadata.Labels }, func(v CRJob) string { return v.Metadata.Name })
 		if !ok {
 			return
 		}
@@ -312,14 +296,7 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 			{Type: "ConfigurationsReady", State: "CONDITION_SUCCEEDED", LastTransitionTime: update.UpdateTime},
 			{Type: "Ready", State: "CONDITION_SUCCEEDED", LastTransitionTime: update.UpdateTime},
 		}
-		if update.Template != nil {
-			if update.Template.Parallelism == 0 {
-				update.Template.Parallelism = 1
-			}
-			if update.Template.TaskCount == 0 {
-				update.Template.TaskCount = 1
-			}
-		}
+		cloudRunJobTemplateDefaults(update.Template)
 		update.Etag = sim.NewUUID()
 		holdCloudRunJobForExecutionToken(&update, update.UpdateTime)
 		if !dryRun {
@@ -399,20 +376,9 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 	})
 
 	srv.HandleFunc("GET /apis/run.googleapis.com/v1/namespaces/{namespace}/executions", func(w http.ResponseWriter, r *http.Request) {
-		namespace := sim.PathParam(r, "namespace")
-		prefix := cloudRunV1JobsPrefix(namespace)
-		selector := r.URL.Query().Get("labelSelector")
-		items := make([]CRExecution, 0)
-		for _, execution := range crjExecutions.Filter(func(e Execution) bool {
-			return strings.HasPrefix(e.Name, prefix)
-		}) {
-			projected, ok := cloudRunV2ExecutionToV1(execution)
-			if !ok || !knativeLabelSelectorMatches(selector, projected.Metadata.Labels) {
-				continue
-			}
-			items = append(items, projected)
-		}
-		page, next, ok := knativeListPage(w, r, items, gcpAsc(func(v CRExecution) string { return v.Metadata.Name }))
+		page, next, ok := knativeProjectedPage(w, r, crjExecutions, cloudRunV1JobsPrefix(sim.PathParam(r, "namespace")),
+			func(e Execution) string { return e.Name }, cloudRunV2ExecutionToV1,
+			func(v CRExecution) map[string]string { return v.Metadata.Labels }, func(v CRExecution) string { return v.Metadata.Name })
 		if !ok {
 			return
 		}
@@ -528,6 +494,11 @@ func registerCloudRunV1Jobs(srv *sim.Server) {
 		project := sim.PathParam(r, "project")
 		location := sim.PathParam(r, "location")
 		id, action, found := strings.Cut(sim.PathParam(r, "jobAction"), ":")
+		if !found && gcpServiceFromHost(r) != gcpServiceCloudRun {
+			// Cloud Scheduler's jobs.get shares the URI; it has no GET verb.
+			handleCSGetJob(w, r, id)
+			return
+		}
 		if !found || action != "getIamPolicy" {
 			// getIamPolicy is the whole of the Cloud Run Admin v1 jobs GET
 			// surface: anything else on that path is a method
@@ -589,4 +560,21 @@ func cloudRunV1JobIAM(w http.ResponseWriter, r *http.Request, project, location,
 		return
 	}
 	handleResourceIAM(w, r, gcpResourceIAMStore(), name, action)
+}
+
+// knativeProjectedPage pages the resources of store named under prefix, each
+// projected onto its Knative form and kept when the request's labelSelector
+// matches its labels, in the order name gives.
+func knativeProjectedPage[S, V any](w http.ResponseWriter, r *http.Request, store sim.Store[S], prefix string, storedName func(S) string,
+	project func(S) (V, bool), labels func(V) map[string]string, name func(V) string) ([]V, string, bool) {
+	selector := r.URL.Query().Get("labelSelector")
+	items := make([]V, 0)
+	for _, stored := range store.Filter(func(v S) bool { return strings.HasPrefix(storedName(v), prefix) }) {
+		projected, ok := project(stored)
+		if !ok || !knativeLabelSelectorMatches(selector, labels(projected)) {
+			continue
+		}
+		items = append(items, projected)
+	}
+	return knativeListPage(w, r, items, gcpAsc(name))
 }

@@ -22,7 +22,11 @@
 #
 # Diff scoping: only NEWLY-ADDED ('+') Register/RegisterVersioned/HandleFunc
 # lines in the diff are enforced. The hundreds of pre-existing HandleFunc routes
-# are grandfathered — they are never retroactively required to grow tests.
+# are grandfathered — they are never retroactively required to grow tests. A
+# line the same change also removes, with the same operation or the same
+# "<METHOD> <path>" token, in the same cloud's production files, is an existing
+# registration that moved (a file split) or whose handler changed, not a new
+# one, and is not enforced either.
 #
 # Usage:
 #   scripts/check-simulator-tests.sh           # check staged changes
@@ -140,8 +144,12 @@ for cloud in aws gcp azure; do
         # shellcheck disable=SC2086
         git diff "$staged_range" -- $prod_files 2>/dev/null \
             | grep -E '^\+[^+]' > "$added_dir/prod-$cloud" || true
+        # shellcheck disable=SC2086
+        git diff "$staged_range" -- $prod_files 2>/dev/null \
+            | grep -E '^-[^-]' > "$added_dir/removed-$cloud" || true
     else
         : > "$added_dir/prod-$cloud"
+        : > "$added_dir/removed-$cloud"
     fi
     test_files=$(get_tests_for_cloud "$cloud")
     if [[ -n "$test_files" ]]; then
@@ -174,6 +182,20 @@ route_to_cloud() {
             echo "$cloud"; return
         fi
     done
+}
+
+# A registration moved when the change removes the same op, or the same exact
+# route token, from the same cloud's production files.
+op_moved() {
+    local escaped_op
+    escaped_op="$(regex_escape "$1")"
+    grep -qE "(r\.Register\s*\(\s*\"${escaped_op}\")|(r\.RegisterVersioned\s*\(\s*[^,]+\s*,\s*\"${escaped_op}\")" "$added_dir/removed-$2"
+}
+
+route_moved() {
+    local escaped
+    escaped="$(regex_escape "$1")"
+    grep -qE "(srv|mux)\.HandleFunc\s*\(\s*\"${escaped}\"" "$added_dir/removed-$2"
 }
 
 # An op is "referenced" only in a real call/assertion context on an added test
@@ -335,6 +357,8 @@ for op in $newly_registered; do
         fail=1; continue
     fi
 
+    op_moved "$op" "$cloud" && continue
+
     exempt_file="simulator-${cloud}/tests-exempt.txt"
     if [[ -f "$exempt_file" ]] && grep -qxF "$op" "$exempt_file"; then continue; fi
 
@@ -358,6 +382,8 @@ while IFS= read -r route; do
         echo "[simulator-tests] FAIL: HandleFunc route \"$route\" — could not determine its cloud. Routes must not slip silently." >&2
         fail=1; continue
     fi
+
+    route_moved "$route" "$cloud" && continue
 
     exempt_file="simulator-${cloud}/tests-exempt.txt"
     if [[ -f "$exempt_file" ]] && grep -qxF "$route" "$exempt_file"; then continue; fi

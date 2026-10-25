@@ -1,12 +1,5 @@
 # Changelog
 
-## [2.4.1](https://github.com/e6qu/sockerless-cloud/compare/v2.4.0...v2.4.1) (2026-10-11)
-
-
-### Bug Fixes
-
-* adopt the AWS SDK batch and recover MySQL base backups with the binary log ([#282](https://github.com/e6qu/sockerless-cloud/issues/282)) ([5bd3571](https://github.com/e6qu/sockerless-cloud/commit/5bd3571ee98b7c0ac9f2d768ad4c4244b7506a7e))
-
 ## [2.4.0](https://github.com/e6qu/sockerless-cloud/compare/v2.3.0...v2.4.0) (2026-10-11)
 
 

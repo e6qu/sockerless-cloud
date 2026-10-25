@@ -2,7 +2,6 @@ package main
 
 import (
 	"cmp"
-	"encoding/json"
 	"net/http"
 	"slices"
 	"strings"
@@ -73,7 +72,7 @@ func handleGlueGetSystemLogsForJobRun(w http.ResponseWriter, r *http.Request) {
 		JobName string `json:"JobName"`
 		RunId   string `json:"RunId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -97,7 +96,7 @@ func handleGlueGetSystemLogsForSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Id string `json:"Id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}

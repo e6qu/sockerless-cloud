@@ -10,6 +10,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -42,12 +43,12 @@ func TestResourceGroup_Delete(t *testing.T) {
 	identities, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	group := uniqueName("sdk-del-rg")
+	group := uniquename.New("sdk-del-rg")
 	_, err = client.CreateOrUpdate(ctx, group, armresources.ResourceGroup{
 		Location: ptrStr("westus"),
 	}, nil)
 	require.NoError(t, err)
-	identity := uniqueName("sdk-del-uai")
+	identity := uniquename.New("sdk-del-uai")
 	_, err = identities.CreateOrUpdate(ctx, group, identity, armmsi.Identity{Location: ptrStr("westus")}, nil)
 	require.NoError(t, err)
 
@@ -78,7 +79,7 @@ func TestResourceGroup_DeleteMissingGroup(t *testing.T) {
 	client, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 
-	_, err = client.BeginDelete(ctx, uniqueName("sdk-never-rg"), nil)
+	_, err = client.BeginDelete(ctx, uniquename.New("sdk-never-rg"), nil)
 	var missing *azcore.ResponseError
 	require.ErrorAs(t, err, &missing)
 	assert.Equal(t, http.StatusNotFound, missing.StatusCode)
@@ -91,7 +92,7 @@ func TestResourceGroup_MissingGroupRefusesItsResources(t *testing.T) {
 	t.Parallel()
 	identities, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
-	group := uniqueName("sdk-never-rg")
+	group := uniquename.New("sdk-never-rg")
 
 	_, err = identities.CreateOrUpdate(ctx, group, "orphan", armmsi.Identity{Location: ptrStr("eastus")}, nil)
 	var refused *azcore.ResponseError

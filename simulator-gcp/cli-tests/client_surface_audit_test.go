@@ -11,13 +11,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestCLI_IAMServiceAccounts(t *testing.T) {
 	t.Parallel()
-	account := uniqueName("cli-surface-sa")
+	account := uniquename.New("cli-surface-sa")
 	email := account + "@test-project.iam.gserviceaccount.com"
 	out := runCLI(t, gcloudCLI("iam", "service-accounts", "create", account,
 		"--display-name=CLI Audit SA",

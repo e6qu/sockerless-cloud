@@ -17,6 +17,7 @@ import {
   AwsStatus,
   type AwsColumn,
   type AwsStatusKind,
+  AwsRefreshButton,
 } from "../console/index.js";
 import { AwsApiError } from "../console/federation.js";
 import { formatEpoch } from "../console/format.js";
@@ -428,6 +429,7 @@ export function OrganizationsPage() {
         errorTestId="org-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton
               data-testid="org-remove-account"
               disabled={selected.length === 0}
@@ -441,9 +443,6 @@ export function OrganizationsPage() {
               onClick={() => setAction({ kind: "close", accounts: selected, clearSelection })}
             >
               Close
-            </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
             </AwsButton>
             <AwsButton variant="primary" data-testid="org-add-account" onClick={() => setAdding(true)}>
               Add an AWS account

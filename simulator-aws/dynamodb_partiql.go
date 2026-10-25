@@ -27,6 +27,7 @@ import (
 	"strings"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
 // registerDDBPartiQL mounts the three PartiQL operations on the shared awsJson
@@ -1152,17 +1153,13 @@ func pqlExecSelect(t DDBTable, st *partiQLStmt, limit int, nextToken string) (*p
 		pqlSortItems(matched, st.OrderByKey, st.OrderDesc)
 	}
 
-	// NextToken pagination: an opaque base64 of the next start offset. Limit caps
-	// the page size.
-	start := pqlDecodeNextToken(nextToken)
-	if start < 0 || start > len(matched) {
-		start = 0
+	page, next, err := listq.TokenPage(pqlNextTokens, matched, nextToken, limit, 0, 0)
+	if err != nil {
+		return nil, pqlErrf("ValidationException", "Invalid NextToken")
 	}
-	page := matched[start:]
 	res := &pqlResult{}
-	if limit > 0 && len(page) > limit {
-		page = page[:limit]
-		res.NextToken = pqlEncodeNextToken(start + limit)
+	if next != "" {
+		res.NextToken = next
 		// LastEvaluatedKey mirrors NextToken's stopping point: the primary key of
 		// the last item on this page (real DynamoDB returns both for a truncated
 		// SELECT page).
@@ -1439,31 +1436,29 @@ func pqlResolveKeyFromWhere(t DDBTable, where partiQLExpr) (map[string]any, *pql
 	return key, nil
 }
 
-// pqlDecodeNextToken decodes the opaque base64 NextToken cursor into a start
-// offset; an empty/invalid token yields 0.
-func pqlDecodeNextToken(tok string) int {
-	if tok == "" {
-		return 0
-	}
-	raw, err := base64.StdEncoding.DecodeString(tok)
-	if err != nil {
-		return 0
-	}
-	var v struct {
-		Offset int `json:"o"`
-	}
-	if err := json.Unmarshal(raw, &v); err != nil {
-		return 0
-	}
-	return v.Offset
+// pqlNextTokens spells an ExecuteStatement NextToken: the next page's offset
+// into the statement's matches, as base64 JSON.
+var pqlNextTokens = listq.Tokens{
+	Encode: func(offset int) string {
+		raw, _ := json.Marshal(pqlNextToken{Offset: offset})
+		return base64.StdEncoding.EncodeToString(raw)
+	},
+	Decode: func(token string) (int, bool) {
+		raw, err := base64.StdEncoding.DecodeString(token)
+		if err != nil {
+			return 0, false
+		}
+		var v pqlNextToken
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return 0, false
+		}
+		return v.Offset, true
+	},
+	Strict: true,
 }
 
-// pqlEncodeNextToken encodes a start offset into the opaque base64 cursor.
-func pqlEncodeNextToken(offset int) string {
-	raw, _ := json.Marshal(struct {
-		Offset int `json:"o"`
-	}{Offset: offset})
-	return base64.StdEncoding.EncodeToString(raw)
+type pqlNextToken struct {
+	Offset int `json:"o"`
 }
 
 // ── handlers ─────────────────────────────────────────────────────────────────

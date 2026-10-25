@@ -8,6 +8,7 @@ require (
 	cloud.google.com/go/bigquery v1.86.0
 	cloud.google.com/go/bigtable v1.58.0
 	cloud.google.com/go/cloudbuild v1.36.0
+	cloud.google.com/go/cloudtasks v1.21.0
 	cloud.google.com/go/eventarc v1.27.0
 	cloud.google.com/go/firestore v1.29.0
 	cloud.google.com/go/functions v1.27.0
@@ -17,6 +18,7 @@ require (
 	cloud.google.com/go/redis v1.28.0
 	cloud.google.com/go/resourcemanager v1.18.0
 	cloud.google.com/go/run v1.24.0
+	cloud.google.com/go/scheduler v1.18.0
 	cloud.google.com/go/secretmanager v1.23.0
 	cloud.google.com/go/storage v1.70.0
 	github.com/e6qu/sockerless-cloud/testutil v0.1.0

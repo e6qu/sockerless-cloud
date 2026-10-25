@@ -5,6 +5,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -14,7 +15,7 @@ import (
 func TestCloudWatchLogs_KmsKey(t *testing.T) {
 	t.Parallel()
 	c := cwLogsClient()
-	name := uniqueName("/probe/kms-test")
+	name := uniquename.New("/probe/kms-test")
 	kms1 := "arn:aws:kms:us-east-1:123456789012:key/d8ce7e2f-fc3e-4b45-0ff0-7d4b53ff3a40"
 
 	_, err := c.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{

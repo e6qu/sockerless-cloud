@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -203,8 +202,7 @@ func registerDiagnosticSettings(srv *sim.Server) {
 	sort.Strings(types)
 	for _, resourceType := range types {
 		registerDiagnosticSettingRoutes(srv, resourceGroup+"/providers/"+resourceType+"/{resourceName}", func(r *http.Request) (string, string, diagnosticCategories, bool) {
-			resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/%s/%s",
-				sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), resourceType, sim.PathParam(r, "resourceName"))
+			resourceID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), resourceType, sim.PathParam(r, "resourceName"))
 			categories, known := azureDiagnosticCategoriesOf(resourceType)
 			return resourceID, resourceType, categories, known
 		})
@@ -215,17 +213,16 @@ func registerDiagnosticSettings(srv *sim.Server) {
 		if canonical, ok := azureDiagnosticResourceTypes[strings.ToLower(resourceType)]; ok {
 			resourceType = canonical
 		}
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/%s/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), resourceType, name)
+		resourceID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), resourceType, name)
 		categories, known := azureDiagnosticCategoriesOf(resourceType)
 		return resourceID, resourceType, categories, known
 	})
 	registerDiagnosticSettingRoutes(srv, resourceGroup, func(r *http.Request) (string, string, diagnosticCategories, bool) {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s", sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName")),
+		return armResourceGroupID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName")),
 			"Microsoft.Resources/resourceGroups", diagnosticCategories{}, false
 	})
 	registerDiagnosticSettingRoutes(srv, subscription, func(r *http.Request) (string, string, diagnosticCategories, bool) {
-		return "/subscriptions/" + sim.PathParam(r, "subscriptionId"), "Microsoft.Resources/subscriptions", diagnosticCategories{}, false
+		return armSubscriptionID(sim.PathParam(r, "subscriptionId")), "Microsoft.Resources/subscriptions", diagnosticCategories{}, false
 	})
 }
 

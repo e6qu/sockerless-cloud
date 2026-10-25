@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/elasticache"
 	ectypes "github.com/aws/aws-sdk-go-v2/service/elasticache/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +18,7 @@ func TestElastiCache_Snapshots(t *testing.T) {
 	c := ecClient()
 	ctx := t.Context()
 
-	clusterID := uniqueName("snap-src-cluster")
+	clusterID := uniquename.New("snap-src-cluster")
 	_, err := c.CreateCacheCluster(ctx, &elasticache.CreateCacheClusterInput{
 		CacheClusterId: aws.String(clusterID),
 		Engine:         aws.String("redis"),
@@ -31,7 +32,7 @@ func TestElastiCache_Snapshots(t *testing.T) {
 		})
 	})
 
-	snapName := uniqueName("snap-one")
+	snapName := uniquename.New("snap-one")
 	snap, err := c.CreateSnapshot(ctx, &elasticache.CreateSnapshotInput{
 		SnapshotName:   aws.String(snapName),
 		CacheClusterId: aws.String(clusterID),
@@ -52,7 +53,7 @@ func TestElastiCache_Snapshots(t *testing.T) {
 	require.Len(t, desc.Snapshots, 1)
 	assert.Equal(t, "redis", aws.ToString(desc.Snapshots[0].Engine))
 
-	copyName := uniqueName("snap-copy")
+	copyName := uniquename.New("snap-copy")
 	cp, err := c.CopySnapshot(ctx, &elasticache.CopySnapshotInput{
 		SourceSnapshotName: aws.String(snapName),
 		TargetSnapshotName: aws.String(copyName),
@@ -150,7 +151,7 @@ func TestElastiCache_ParameterDetail(t *testing.T) {
 	c := ecClient()
 	ctx := t.Context()
 
-	pgName := uniqueName("param-detail-group")
+	pgName := uniquename.New("param-detail-group")
 	_, err := c.CreateCacheParameterGroup(ctx, &elasticache.CreateCacheParameterGroupInput{
 		CacheParameterGroupName:   aws.String(pgName),
 		CacheParameterGroupFamily: aws.String("redis7"),
@@ -214,7 +215,7 @@ func TestElastiCache_DescribeReadOnly(t *testing.T) {
 	c := ecClient()
 	ctx := t.Context()
 
-	clusterID := uniqueName("evt-cluster")
+	clusterID := uniquename.New("evt-cluster")
 	_, err := c.CreateCacheCluster(ctx, &elasticache.CreateCacheClusterInput{
 		CacheClusterId: aws.String(clusterID),
 		Engine:         aws.String("redis"),

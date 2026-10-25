@@ -446,20 +446,8 @@ func appASDescribePage[T any](
 }
 
 func handleAppASDescribeScalingPolicies(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		PolicyNames       []string `json:"PolicyNames"`
-		ServiceNamespace  string   `json:"ServiceNamespace"`
-		ResourceId        string   `json:"ResourceId"`
-		ScalableDimension string   `json:"ScalableDimension"`
-		MaxResults        *int32   `json:"MaxResults"`
-		NextToken         string   `json:"NextToken"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.ServiceNamespace == "" {
-		AWSError(w, "ValidationException", "ServiceNamespace is required", http.StatusBadRequest)
+	req, ok := appASReadDescribeRequest(w, r)
+	if !ok {
 		return
 	}
 	wantNames := map[string]bool{}
@@ -468,10 +456,10 @@ func handleAppASDescribeScalingPolicies(w http.ResponseWriter, r *http.Request) 
 	}
 	appASDescribePage(w, appScalingPolicies, "ScalingPolicies",
 		req.ServiceNamespace, req.ResourceId, req.ScalableDimension, wantNames, req.MaxResults, req.NextToken,
-		func(p AppScalingPolicy) string { return p.PolicyName },
-		func(p AppScalingPolicy) string { return p.ServiceNamespace },
-		func(p AppScalingPolicy) string { return p.ResourceId },
-		func(p AppScalingPolicy) string { return p.ScalableDimension },
+		func(it AppScalingPolicy) string { return it.PolicyName },
+		func(it AppScalingPolicy) string { return it.ServiceNamespace },
+		func(it AppScalingPolicy) string { return it.ResourceId },
+		func(it AppScalingPolicy) string { return it.ScalableDimension },
 		scalingPolicyToJSON)
 }
 
@@ -670,20 +658,8 @@ func handleAppASDeleteScheduledAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleAppASDescribeScheduledActions(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ScheduledActionNames []string `json:"ScheduledActionNames"`
-		ServiceNamespace     string   `json:"ServiceNamespace"`
-		ResourceId           string   `json:"ResourceId"`
-		ScalableDimension    string   `json:"ScalableDimension"`
-		MaxResults           *int32   `json:"MaxResults"`
-		NextToken            string   `json:"NextToken"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.ServiceNamespace == "" {
-		AWSError(w, "ValidationException", "ServiceNamespace is required", http.StatusBadRequest)
+	req, ok := appASReadDescribeRequest(w, r)
+	if !ok {
 		return
 	}
 	wantNames := map[string]bool{}
@@ -692,10 +668,10 @@ func handleAppASDescribeScheduledActions(w http.ResponseWriter, r *http.Request)
 	}
 	appASDescribePage(w, appScheduledActions, "ScheduledActions",
 		req.ServiceNamespace, req.ResourceId, req.ScalableDimension, wantNames, req.MaxResults, req.NextToken,
-		func(a AppScheduledAction) string { return a.ScheduledActionName },
-		func(a AppScheduledAction) string { return a.ServiceNamespace },
-		func(a AppScheduledAction) string { return a.ResourceId },
-		func(a AppScheduledAction) string { return a.ScalableDimension },
+		func(it AppScheduledAction) string { return it.ScheduledActionName },
+		func(it AppScheduledAction) string { return it.ServiceNamespace },
+		func(it AppScheduledAction) string { return it.ResourceId },
+		func(it AppScheduledAction) string { return it.ScalableDimension },
 		scheduledActionToJSON)
 }
 
@@ -828,4 +804,29 @@ func handleAppASGetPredictiveScalingForecast(w http.ResponseWriter, r *http.Requ
 		},
 		"UpdateTime": float64(time.Now().Unix()),
 	})
+}
+
+// appASDescribeRequest is the request of DescribeScalingPolicies and
+// DescribeScheduledActions, each naming its own resources.
+type appASDescribeRequest struct {
+	PolicyNames          []string `json:"PolicyNames"`
+	ScheduledActionNames []string `json:"ScheduledActionNames"`
+	ServiceNamespace     string   `json:"ServiceNamespace"`
+	ResourceId           string   `json:"ResourceId"`
+	ScalableDimension    string   `json:"ScalableDimension"`
+	MaxResults           *int32   `json:"MaxResults"`
+	NextToken            string   `json:"NextToken"`
+}
+
+func appASReadDescribeRequest(w http.ResponseWriter, r *http.Request) (appASDescribeRequest, bool) {
+	var req appASDescribeRequest
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		return req, false
+	}
+	if req.ServiceNamespace == "" {
+		AWSError(w, "ValidationException", "ServiceNamespace is required", http.StatusBadRequest)
+		return req, false
+	}
+	return req, true
 }

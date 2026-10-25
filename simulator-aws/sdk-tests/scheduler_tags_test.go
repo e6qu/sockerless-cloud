@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/scheduler"
 	schedtypes "github.com/aws/aws-sdk-go-v2/service/scheduler/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +18,7 @@ import (
 func TestScheduler_ScheduleGroupTags(t *testing.T) {
 	t.Parallel()
 	c := schedulerClient()
-	group := uniqueName("tagged-group")
+	group := uniquename.New("tagged-group")
 
 	createOut, err := c.CreateScheduleGroup(ctx, &scheduler.CreateScheduleGroupInput{
 		Name: aws.String(group),

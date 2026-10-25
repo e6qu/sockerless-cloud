@@ -124,25 +124,39 @@ func CaptureVolume(ctx context.Context, src, dst, tag string) error {
 	return nil
 }
 
-// RemoveVolumeSettled removes a volume, retrying for up to 30 seconds while
-// the engine still tears down the container that held it: a container's
-// removal completes on a goroutine its handle's Wait does not cover. A volume
-// that stays is logged under "[sim-<tag>]".
+// RemoveVolumeSettled removes a volume, waiting up to 30 seconds for the
+// engine to remove the containers that still hold it: a container's removal
+// completes on a goroutine its handle's Wait does not cover. A volume that
+// stays is logged under "[sim-<tag>]".
 func RemoveVolumeSettled(name, tag string) {
 	if RequireContainerRuntime("removing volume "+name) != nil || !VolumeExists(name) {
 		return
 	}
-	deadline := time.Now().Add(30 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	for {
 		err := RemoveVolume(name)
 		if err == nil || !VolumeExists(name) {
 			return
 		}
-		if !time.Now().Before(deadline) {
-			fmt.Fprintf(os.Stderr, "[sim-%s] volume %s was not removed: %v\n", tag, name, err)
+		holders, listErr := dockerClient.ContainerList(ctx, client.ContainerListOptions{
+			All:     true,
+			Filters: client.Filters{}.Add("volume", name),
+		})
+		if listErr != nil || len(holders.Items) == 0 || ctx.Err() != nil {
+			fmt.Fprintf(os.Stderr, "[sim-%s] volume %s was not removed: %v\n", tag, name, errors.Join(err, listErr, ctx.Err()))
 			return
 		}
-		time.Sleep(200 * time.Millisecond)
+		for _, holder := range holders.Items {
+			removed := dockerClient.ContainerWait(ctx, holder.ID, client.ContainerWaitOptions{Condition: container.WaitConditionRemoved})
+			select {
+			case <-removed.Result:
+			case waitErr := <-removed.Error:
+				if waitErr != nil && !containerNotFoundError(waitErr) && ctx.Err() == nil {
+					fmt.Fprintf(os.Stderr, "[sim-%s] wait for container %s holding volume %s: %v\n", tag, holder.ID, name, waitErr)
+				}
+			}
+		}
 	}
 }
 

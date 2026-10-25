@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	crm "google.golang.org/api/cloudresourcemanager/v3"
@@ -23,10 +24,10 @@ func TestLogging_AggregatedSinkAndDefaultSinkExclusions_SDK(t *testing.T) {
 	op, err := crmSvc.Folders.Create(&crm.Folder{DisplayName: "logging-routing", Parent: "organizations/123456789012"}).Do()
 	require.NoError(t, err)
 	folder := crmOpResourceName(t, op)
-	project := uniqueName("log-child")
+	project := uniquename.New("log-child")
 	_, err = crmSvc.Projects.Create(&crm.Project{ProjectId: project, Parent: folder}).Do()
 	require.NoError(t, err)
-	central := uniqueName("log-central")
+	central := uniquename.New("log-central")
 	requireProject(t, central)
 	bucket := "projects/" + central + "/locations/global/buckets/errors"
 	_, err = svc.Projects.Locations.Buckets.Create("projects/"+central+"/locations/global", &loggingrpc.LogBucket{}).BucketId("errors").Do()

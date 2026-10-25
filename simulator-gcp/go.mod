@@ -8,6 +8,7 @@ require (
 	cloud.google.com/go/artifactregistry v1.28.0
 	cloud.google.com/go/bigtable v1.58.0
 	cloud.google.com/go/cloudbuild v1.36.0
+	cloud.google.com/go/cloudtasks v1.21.0
 	cloud.google.com/go/eventarc v1.27.0
 	cloud.google.com/go/firestore v1.29.0
 	cloud.google.com/go/functions v1.27.0
@@ -19,6 +20,7 @@ require (
 	cloud.google.com/go/redis v1.28.0
 	cloud.google.com/go/resourcemanager v1.18.0
 	cloud.google.com/go/run v1.24.0
+	cloud.google.com/go/scheduler v1.18.0
 	cloud.google.com/go/secretmanager v1.23.0
 	cloud.google.com/go/serviceusage v1.16.0
 	cloud.google.com/go/spanner v1.96.1
@@ -26,12 +28,11 @@ require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da
 	github.com/distribution/reference v0.6.0
-	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261024145951-9c0a057ddb46
-	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261015114713-b9f0cc68a078
+	github.com/e6qu/sockerless-cloud/sim v0.0.0-20261025151349-a6ecdf422df8
+	github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261024204221-18c159cbeb4a
 	github.com/hamba/avro/v2 v2.31.0
 	github.com/klauspost/compress v1.20.3
 	github.com/miekg/dns v1.1.73
-	github.com/moby/moby/api v1.56.1
 	github.com/moby/moby/client v0.6.2
 	github.com/parquet-go/parquet-go v0.32.0
 	github.com/stretchr/testify v1.12.1
@@ -71,6 +72,7 @@ require (
 	github.com/mattn/go-colorable v0.1.16 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
+	github.com/moby/moby/api v1.56.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect

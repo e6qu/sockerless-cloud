@@ -34,7 +34,7 @@ to:
 |---|---|
 | `sim` | the framework the three simulators are built on |
 | `ui-auth` | the consoles' OpenID Connect session layer and the application-monitoring endpoint |
-| `testutil` | test-only helpers: base-image acquisition (`baseimage`), a git HTTP server (`githttp`), registry trust material (`registrytrust`) and a SAML identity provider (`samlidp`) |
+| `testutil` | test-only helpers: simulator readiness (`simready`), port picking (`freeports`), base-image acquisition (`baseimage`), the Caddy HTTPS gateway (`httpsgateway`), a git HTTP server (`githttp`), registry trust material (`registrytrust`) and a SAML identity provider (`samlidp`) |
 
 ### UI packages (4)
 
@@ -70,7 +70,7 @@ Optional targets, where they mean something:
 
 | Target | Applies to | What it does |
 |---|---|---|
-| `embed` | simulators | Copy `ui/packages/<name>/dist` into the module's committed `dist/`. |
+| `embed` | simulators | Copy `ui/packages/<name>/dist` into the module's ignored `dist/`, which a `-tags console` build embeds. |
 | `run` | simulators | Run the binary in the foreground on its default port. |
 | `dev` | simulators | Run the Go server without the console beside the Vite dev server. |
 | `race-test` | simulators, `sim` | The unit tests under the race detector (needs cgo). |
@@ -136,7 +136,9 @@ The top-level Makefile has three jobs:
   in every leaf.
 
 Cross-cutting harnesses stay at the top level because they span modules or
-external tools: `docker-test` and `docker-test-build`.
+external tools: `docker-test` and `docker-test-build`, and the engine-built
+images `sidecar-image`, `node-agent-image` and the KVM proof
+`node-agent-test`.
 
 ## Operational checks
 

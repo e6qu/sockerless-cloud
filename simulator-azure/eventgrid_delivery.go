@@ -12,6 +12,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/delivery"
+	"github.com/e6qu/sockerless-cloud/sim/eventbus"
 )
 
 // eventGridDelivery is one batch of events Event Grid owes one event
@@ -28,7 +29,7 @@ type eventGridDelivery struct {
 	DeadLetter  bool
 }
 
-var eventGridDeliveries *delivery.Dispatcher[eventGridDelivery]
+var eventGridBus *eventbus.Bus[json.RawMessage, EventGridEventSubscription, eventGridDelivery]
 
 // eventGridRetrySchedule is the wait Event Grid documents before each retry,
 // the last step repeating until the event's time to live runs out.
@@ -37,19 +38,33 @@ var eventGridRetrySchedule = delivery.Steps(10*time.Second, 30*time.Second, time
 
 func registerEventGridDelivery(srv *sim.Server) {
 	store := sim.MakeStore[delivery.Item[eventGridDelivery]](srv.DB(), "eventgrid_deliveries")
-	eventGridDeliveries = delivery.New(srv, "Event Grid deliveries", store, delivery.Handler[eventGridDelivery]{
-		Policy: func(d eventGridDelivery) delivery.Policy {
-			return delivery.Policy{
-				MaxAttempts: d.MaxAttempts,
-				MaxAge:      d.TimeToLive,
-				Backoff:     eventGridRetrySchedule,
-				MinWait:     eventGridStatusWait,
-			}
+	eventGridBus = eventbus.New(srv, eventbus.Config[json.RawMessage, EventGridEventSubscription, eventGridDelivery]{
+		Subscriptions: func(scopeID string) []EventGridEventSubscription {
+			return eventGridSubscriptionsByTopic.LookupAll(eventGridSubscriptions, scopeID, eventGridSubscriptionTopics)
 		},
-		Attempt: eventGridAttempt,
-		Finish:  eventGridFinish,
+		Admits: func(es EventGridEventSubscription, event json.RawMessage) bool {
+			_, endpoint := eventGridDestination(es)
+			return endpoint != "" && es.Properties["provisioningState"] == "Succeeded" && eventGridFilterAdmits(es, event)
+		},
+		Batch:     eventGridBatchLimits,
+		Size:      func(event json.RawMessage) int { return len(event) },
+		Transform: eventGridPrepare,
+		Delivery: &eventbus.Delivery[eventGridDelivery]{
+			Name:  "Event Grid deliveries",
+			Store: store,
+			Policy: func(d eventGridDelivery) delivery.Policy {
+				return delivery.Policy{
+					MaxAttempts: d.MaxAttempts,
+					MaxAge:      d.TimeToLive,
+					Backoff:     eventGridRetrySchedule,
+					MinWait:     eventGridStatusWait,
+				}
+			},
+			Attempt:    eventGridAttempt,
+			DeadLetter: eventGridDeadLetter,
+		},
 	})
-	eventGridDeliveries.Resume()
+	eventGridBus.Resume()
 }
 
 // eventGridStatusWait is the longer wait Event Grid holds after some answers.
@@ -102,80 +117,57 @@ func eventGridAttempt(ctx context.Context, item *delivery.Item[eventGridDelivery
 	return delivery.Post(ctx, delivery.Request{URL: d.Endpoint, Header: header, Body: body, Timeout: 30 * time.Second}, classify)
 }
 
-// eventGridSubmit queues the events of one publish for every provisioned
-// subscription of scopeID whose filter admits them, in batches of the subscription's
-// maxEventsPerBatch (default 1) and preferredBatchSizeInKilobytes (default 64).
+// eventGridSubmit delivers the events of one publish to every provisioned
+// subscription of scopeID whose filter admits them.
 func eventGridSubmit(scopeID string, events []json.RawMessage) {
-	now := time.Now().UTC()
-	for _, es := range eventGridSubscriptionsByTopic.LookupAll(eventGridSubscriptions, scopeID, eventGridSubscriptionTopics) {
-		kind, endpoint := eventGridDestination(es)
-		if endpoint == "" || es.Properties["provisioningState"] != "Succeeded" {
-			continue
-		}
-		var admitted []json.RawMessage
-		for _, event := range events {
-			if eventGridFilterAdmits(es, event) {
-				admitted = append(admitted, event)
-			}
-		}
-		batches := eventGridBatches(es, admitted)
-		if kind != eventGridWebHook {
-			batches = batches[:0]
-			for _, event := range admitted {
-				batches = append(batches, []json.RawMessage{event})
-			}
-		}
-		for _, batch := range batches {
-			d := eventGridDelivery{
-				SubscriptionID: es.ID,
-				Destination:    kind,
-				Endpoint:       endpoint,
-				Events:         batch,
-				PublishedAt:    now,
-				MaxAttempts:    30,
-				TimeToLive:     24 * time.Hour,
-				DeadLetter:     eventGridDeadLetterTarget(es) != nil,
-			}
-			if retry, ok := es.Properties["retryPolicy"].(map[string]any); ok {
-				if n, ok := retry["maxDeliveryAttempts"].(float64); ok && n > 0 {
-					d.MaxAttempts = int(n)
-				}
-				if n, ok := retry["eventTimeToLiveInMinutes"].(float64); ok && n > 0 {
-					d.TimeToLive = time.Duration(n) * time.Minute
-				}
-			}
-			eventGridDeliveries.Submit(sim.NewUUID(), d)
-		}
-	}
+	eventGridBus.Publish(scopeID, events...)
 }
 
-func eventGridBatches(es EventGridEventSubscription, events []json.RawMessage) [][]json.RawMessage {
-	maxEvents, maxBytes := 1, 64*1024
+// eventGridPrepare is one delivery of a batch under the subscription's
+// retryPolicy: maxDeliveryAttempts (default 30) and eventTimeToLiveInMinutes
+// (default 1440).
+func eventGridPrepare(es EventGridEventSubscription, events []json.RawMessage) (eventGridDelivery, bool) {
+	kind, endpoint := eventGridDestination(es)
+	d := eventGridDelivery{
+		SubscriptionID: es.ID,
+		Destination:    kind,
+		Endpoint:       endpoint,
+		Events:         events,
+		PublishedAt:    time.Now().UTC(),
+		MaxAttempts:    30,
+		TimeToLive:     24 * time.Hour,
+		DeadLetter:     eventGridDeadLetterTarget(es) != nil,
+	}
+	if retry, ok := es.Properties["retryPolicy"].(map[string]any); ok {
+		if n, ok := retry["maxDeliveryAttempts"].(float64); ok && n > 0 {
+			d.MaxAttempts = int(n)
+		}
+		if n, ok := retry["eventTimeToLiveInMinutes"].(float64); ok && n > 0 {
+			d.TimeToLive = time.Duration(n) * time.Minute
+		}
+	}
+	return d, true
+}
+
+// eventGridBatchLimits reads a webhook's maxEventsPerBatch (default 1) and
+// preferredBatchSizeInKilobytes (default 64); every other destination takes
+// one event per delivery.
+func eventGridBatchLimits(es EventGridEventSubscription) eventbus.Limits {
+	limits := eventbus.Limits{MaxEvents: 1, MaxBytes: 64 * 1024}
+	if kind, _ := eventGridDestination(es); kind != eventGridWebHook {
+		return limits
+	}
 	if dest, ok := es.Properties["destination"].(map[string]any); ok {
 		if props, ok := dest["properties"].(map[string]any); ok {
 			if n, ok := props["maxEventsPerBatch"].(float64); ok && n > 0 {
-				maxEvents = int(n)
+				limits.MaxEvents = int(n)
 			}
 			if n, ok := props["preferredBatchSizeInKilobytes"].(float64); ok && n > 0 {
-				maxBytes = int(n) * 1024
+				limits.MaxBytes = int(n) * 1024
 			}
 		}
 	}
-	var batches [][]json.RawMessage
-	var current []json.RawMessage
-	size := 0
-	for _, event := range events {
-		if len(current) > 0 && (len(current) == maxEvents || size+len(event) > maxBytes) {
-			batches = append(batches, current)
-			current, size = nil, 0
-		}
-		current = append(current, event)
-		size += len(event)
-	}
-	if len(current) > 0 {
-		batches = append(batches, current)
-	}
-	return batches
+	return limits
 }
 
 // eventGridFilterAdmits applies an event subscription's filter:
@@ -286,14 +278,11 @@ func eventGridDeliveryOutcome(status int) string {
 	return "GenericError"
 }
 
-// eventGridFinish writes an undelivered batch to the subscription's
+// eventGridDeadLetter writes an undelivered batch to the subscription's
 // dead-letter container as
 // <TOPIC>/<SUBSCRIPTION>/<yyyy>/<MM>/<dd>/<HH>/<guid>.json, each event carrying
 // why and how it was dead-lettered.
-func eventGridFinish(item delivery.Item[eventGridDelivery], reason delivery.Reason) {
-	if reason == delivery.Succeeded {
-		return
-	}
+func eventGridDeadLetter(item delivery.Item[eventGridDelivery], reason delivery.Reason) {
 	d := item.Payload
 	es, ok := eventGridSubscriptions.Get(d.SubscriptionID)
 	if !ok {

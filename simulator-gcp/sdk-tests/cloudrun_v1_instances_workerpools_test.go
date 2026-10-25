@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	run "google.golang.org/api/run/v1"
@@ -41,7 +42,7 @@ func getCloudRunV2JSON(t *testing.T, path string) map[string]any {
 func TestCloudRunV1_InstancesLifecycle(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	id := uniqueName("v1-knative-instance")
+	id := uniquename.New("v1-knative-instance")
 	parent := "namespaces/" + cloudRunV1Namespace
 
 	created, err := svc.Namespaces.Instances.Create(parent, &run.Instance{
@@ -124,7 +125,7 @@ func TestCloudRunV1_InstancesLifecycle(t *testing.T) {
 func TestCloudRunV1_InstancesDryRun(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	id := uniqueName("v1-dryrun-instance")
+	id := uniquename.New("v1-dryrun-instance")
 	parent := "namespaces/" + cloudRunV1Namespace
 
 	created, err := svc.Namespaces.Instances.Create(parent, &run.Instance{
@@ -147,7 +148,7 @@ func TestCloudRunV1_InstancesDryRun(t *testing.T) {
 func TestCloudRunV1_WorkerPoolsLifecycle(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	id := uniqueName("v1-knative-pool")
+	id := uniquename.New("v1-knative-pool")
 	parent := "namespaces/" + cloudRunV1Namespace
 
 	created, err := svc.Namespaces.Workerpools.Create(parent, &run.WorkerPool{
@@ -228,7 +229,7 @@ func TestCloudRunV1_WorkerPoolsLifecycle(t *testing.T) {
 func TestCloudRunV1_WorkerPoolFromV2IsVisible(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	id := uniqueName("v2-then-v1-pool")
+	id := uniquename.New("v2-then-v1-pool")
 	body := `{"template":{"containers":[{"image":"gcr.io/test-project/v2pool"}]},"labels":{"origin":"v2"}}`
 	req, err := http.NewRequestWithContext(ctx, "POST",
 		fmt.Sprintf("%s/v2/projects/%s/locations/us-central1/workerPools?workerPoolId=%s", baseURL, cloudRunV1Namespace, id),

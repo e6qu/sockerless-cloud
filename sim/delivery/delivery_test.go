@@ -132,6 +132,34 @@ func TestDispatcherEndsOnExhaustionRejectionAndAge(t *testing.T) {
 	}
 }
 
+func TestPolicyBothLimitsRetriesUntilEachLimitIsReached(t *testing.T) {
+	cases := []struct {
+		name     string
+		policy   Policy
+		attempts int
+		age      time.Duration
+		reason   Reason
+		done     bool
+	}{
+		{"either: attempts", Policy{MaxAttempts: 2, MaxAge: time.Hour}, 2, time.Second, AttemptsExhausted, true},
+		{"either: retry", Policy{MaxAttempts: 2}, 1, time.Hour, AttemptsExhausted, false},
+		{"both: no limits ends at once", Policy{BothLimits: true}, 1, 0, AttemptsExhausted, true},
+		{"both: count alone", Policy{MaxAttempts: 3, BothLimits: true}, 2, time.Hour, AttemptsExhausted, false},
+		{"both: count reached", Policy{MaxAttempts: 3, BothLimits: true}, 3, 0, AttemptsExhausted, true},
+		{"both: age alone", Policy{MaxAttempts: 1, MaxAge: time.Minute, BothLimits: true}, 5, time.Second, AgeExceeded, false},
+		{"both: age reached", Policy{MaxAttempts: 1, MaxAge: time.Minute, BothLimits: true}, 5, time.Minute, AgeExceeded, true},
+		{"both: age reached, count left", Policy{MaxAttempts: 4, MaxAge: time.Minute, BothLimits: true}, 2, time.Hour, AgeExceeded, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			reason, done := c.policy.exhausted(c.attempts, c.age)
+			if done != c.done || (done && reason != c.reason) {
+				t.Fatalf("exhausted(%d, %v) = %s, %v; want %s, %v", c.attempts, c.age, reason, done, c.reason, c.done)
+			}
+		})
+	}
+}
+
 func TestDispatcherResumesPersistedDeliveries(t *testing.T) {
 	store := sim.NewStateStore[Item[payload]]()
 	store.Put("carried", Item[payload]{
@@ -174,9 +202,9 @@ func TestDispatcherStopKeepsAnInterruptedDeliveryForTheNextStart(t *testing.T) {
 }
 
 func TestPostClassifiesTheReceiversAnswer(t *testing.T) {
-	var gotHeader string
+	var gotHeader, gotMethod string
 	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotHeader = r.Header.Get("X-Test")
+		gotHeader, gotMethod = r.Header.Get("X-Test"), r.Method
 		switch r.URL.Path {
 		case "/ok":
 			w.WriteHeader(http.StatusAccepted)
@@ -202,8 +230,11 @@ func TestPostClassifiesTheReceiversAnswer(t *testing.T) {
 	}
 	ctx := context.Background()
 	header := http.Header{"X-Test": {"yes"}}
-	if out := Post(ctx, Request{URL: receiver.URL + "/ok", Header: header}, classify); !out.OK() || out.Status != 202 || gotHeader != "yes" || string(out.Response) != "queued" {
-		t.Errorf("ok: %+v header %q", out, gotHeader)
+	if out := Post(ctx, Request{URL: receiver.URL + "/ok", Header: header}, classify); !out.OK() || out.Status != 202 || gotHeader != "yes" || gotMethod != http.MethodPost || string(out.Response) != "queued" {
+		t.Errorf("ok: %+v header %q method %q", out, gotHeader, gotMethod)
+	}
+	if out := Post(ctx, Request{Method: http.MethodPut, URL: receiver.URL + "/ok"}, classify); !out.OK() || gotMethod != http.MethodPut {
+		t.Errorf("put: %+v method %q", out, gotMethod)
 	}
 	if out := Post(ctx, Request{URL: receiver.URL + "/bad"}, classify); out.OK() || out.Retry || out.Status != 400 || string(out.Response) != "no such channel" {
 		t.Errorf("bad: %+v", out)
@@ -251,5 +282,44 @@ func TestSubmitAttemptedMakesTheFirstAttemptBeforeReturning(t *testing.T) {
 	case <-retried:
 	case <-time.After(10 * time.Second):
 		t.Fatal("the retry never ran")
+	}
+}
+
+func TestDeferredAttemptsDoNotCountAgainstMaxAttempts(t *testing.T) {
+	srv := newServer(t)
+	done := make(chan finished, 1)
+	var attempts atomic.Int32
+	store := sim.NewStateStore[Item[payload]]()
+	d := New(srv, "test deliveries", store, Handler[payload]{
+		Policy: func(payload) Policy { return Policy{MaxAttempts: 1} },
+		Attempt: func(_ context.Context, item *Item[payload]) Outcome {
+			if attempts.Add(1) <= 3 {
+				return Deferred(errors.New("throttled"), time.Millisecond)
+			}
+			return Delivered()
+		},
+		Finish: func(item Item[payload], reason Reason) { done <- finished{item, reason} },
+	})
+	d.Submit("one", payload{Body: "hello"})
+	f := waitFinished(t, done)
+	if f.reason != Succeeded || f.item.Attempts != 1 || attempts.Load() != 4 {
+		t.Fatalf("finished %s after %d counted attempts and %d made, want Succeeded after 1 counted of 4", f.reason, f.item.Attempts, attempts.Load())
+	}
+}
+
+func TestDeferredDeliveryEndsWhenItsAgeRunsOut(t *testing.T) {
+	srv := newServer(t)
+	done := make(chan finished, 1)
+	store := sim.NewStateStore[Item[payload]]()
+	d := New(srv, "test deliveries", store, Handler[payload]{
+		Policy: func(payload) Policy { return Policy{MaxAttempts: 3, MaxAge: time.Minute} },
+		Attempt: func(context.Context, *Item[payload]) Outcome {
+			return Deferred(errors.New("throttled"), 2*time.Minute)
+		},
+		Finish: func(item Item[payload], reason Reason) { done <- finished{item, reason} },
+	})
+	d.Submit("one", payload{Body: "hello"})
+	if f := waitFinished(t, done); f.reason != AgeExceeded {
+		t.Fatalf("a delivery deferred past its age finished %s", f.reason)
 	}
 }

@@ -68,30 +68,41 @@ func interconnectLocationResource(project string, entry map[string]any) map[stri
 func registerComputeInterconnectLocations(srv *sim.Server) {
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/interconnectLocations",
 		func(w http.ResponseWriter, r *http.Request) {
-			project := sim.PathParam(r, "project")
-			catalog := interconnectLocations()
-			items := make([]any, 0, len(catalog.Locations))
-			for _, entry := range catalog.Locations {
-				items = append(items, interconnectLocationResource(project, entry))
-			}
-			sim.WriteJSON(w, http.StatusOK, map[string]any{
-				"kind":     "compute#interconnectLocationList",
-				"id":       "projects/" + project + "/global/interconnectLocations",
-				"selfLink": "https://compute.googleapis.com/compute/v1/projects/" + project + "/global/interconnectLocations",
-				"items":    items,
-			})
+			interconnectCatalogList(w, r, "interconnectLocations", "compute#interconnectLocationList", interconnectLocations().Locations, interconnectLocationResource)
 		})
 
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/interconnectLocations/{location}",
 		func(w http.ResponseWriter, r *http.Request) {
-			project, name := sim.PathParam(r, "project"), sim.PathParam(r, "location")
-			for _, entry := range interconnectLocations().Locations {
-				if entry["name"] == name {
-					sim.WriteJSON(w, http.StatusOK, interconnectLocationResource(project, entry))
-					return
-				}
-			}
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
-				"The resource 'projects/%s/global/interconnectLocations/%s' was not found", project, name)
+			interconnectCatalogGet(w, r, "interconnectLocations", interconnectLocations().Locations, interconnectLocationResource)
 		})
+}
+
+// interconnectCatalogList answers the list of a published Interconnect
+// catalog, each entry rendered for the project by resource.
+func interconnectCatalogList(w http.ResponseWriter, r *http.Request, collection, kind string, entries []map[string]any, resource func(project string, entry map[string]any) map[string]any) {
+	project := sim.PathParam(r, "project")
+	items := make([]any, 0, len(entries))
+	for _, entry := range entries {
+		items = append(items, resource(project, entry))
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{
+		"kind":     kind,
+		"id":       "projects/" + project + "/global/" + collection,
+		"selfLink": "https://compute.googleapis.com/compute/v1/projects/" + project + "/global/" + collection,
+		"items":    items,
+	})
+}
+
+// interconnectCatalogGet answers the read of one entry of a published
+// Interconnect catalog by the name its location path segment carries.
+func interconnectCatalogGet(w http.ResponseWriter, r *http.Request, collection string, entries []map[string]any, resource func(project string, entry map[string]any) map[string]any) {
+	project, name := sim.PathParam(r, "project"), sim.PathParam(r, "location")
+	for _, entry := range entries {
+		if entry["name"] == name {
+			sim.WriteJSON(w, http.StatusOK, resource(project, entry))
+			return
+		}
+	}
+	GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
+		"The resource 'projects/%s/global/%s/%s' was not found", project, collection, name)
 }

@@ -268,10 +268,11 @@ describe("S3 bucket versioning and tagging", () => {
       },
     ]);
     renderDetail(<S3BucketDetailPage />, "name", name);
+    fireEvent.click(await screen.findByRole("tab", { name: "Properties" }));
     await screen.findByTestId("s3-bucket-summary");
 
     fireEvent.click(screen.getByTestId("s3-bucket-edit-versioning"));
-    const dialog = await screen.findByRole("dialog", { name: "Edit bucket versioning" });
+    const dialog = await screen.findByRole("dialog", { name: "Edit Bucket Versioning" });
     fireEvent.click(within(dialog).getByRole("checkbox"));
     fireEvent.click(within(dialog).getByTestId("s3-versioning-save"));
 
@@ -299,10 +300,11 @@ describe("S3 bucket versioning and tagging", () => {
       },
     ]);
     renderDetail(<S3BucketDetailPage />, "name", name);
+    fireEvent.click(await screen.findByRole("tab", { name: "Properties" }));
     await screen.findByTestId("s3-bucket-summary");
 
     fireEvent.click(screen.getByTestId("s3-bucket-manage-tags"));
-    const dialog = await screen.findByRole("dialog", { name: "Manage bucket tags" });
+    const dialog = await screen.findByRole("dialog", { name: "Edit bucket tags" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Add tag" }));
     fireEvent.change(within(dialog).getByTestId("s3-bucket-tag-key-0"), { target: { value: "owner" } });
     fireEvent.change(within(dialog).getByTestId("s3-bucket-tag-value-0"), { target: { value: "team" } });

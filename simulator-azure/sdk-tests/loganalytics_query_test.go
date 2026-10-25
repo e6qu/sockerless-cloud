@@ -13,6 +13,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/monitor/azquery"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -45,7 +46,7 @@ func logsClientOpts() *azquery.LogsClientOptions {
 func TestLogAnalytics_QueryWorkspaceSDK(t *testing.T) {
 	t.Parallel()
 	p := newLogsPipeline(t, "la-azquery-rg", "SimJobs_CL", "Job", "Log")
-	azqueryjobName := uniqueName("azqueryjob")
+	azqueryjobName := uniquename.New("azqueryjob")
 	ts := time.Now().UTC().Format(time.RFC3339)
 	p.upload(t, []map[string]any{{"TimeGenerated": ts, "Job": azqueryjobName, "Log": "hello from azquery"}})
 
@@ -66,7 +67,7 @@ func TestLogAnalytics_QueryWorkspaceSDK(t *testing.T) {
 func TestLogAnalytics_QueryBatchSDK(t *testing.T) {
 	t.Parallel()
 	p := newLogsPipeline(t, "la-batch-rg", "SimJobs_CL", "Job", "Log")
-	batchjobName := uniqueName("batchjob")
+	batchjobName := uniquename.New("batchjob")
 	ts := time.Now().UTC().Format(time.RFC3339)
 	p.upload(t, []map[string]any{{"TimeGenerated": ts, "Job": batchjobName, "Log": "batch line"}})
 
@@ -97,7 +98,7 @@ func TestLogAnalytics_QueryBatchSDK(t *testing.T) {
 func TestLogAnalytics_QueryBooleanOperatorsSDK(t *testing.T) {
 	t.Parallel()
 	p := newLogsPipeline(t, "la-and-or-rg", "SimTraces_CL", "AppRoleName", "Message")
-	role := uniqueName("azquery-and-or-role")
+	role := uniquename.New("azquery-and-or-role")
 	ts := time.Now().UTC().Format(time.RFC3339)
 	p.upload(t, []map[string]any{
 		{"TimeGenerated": ts, "Message": "alpha | beta", "AppRoleName": role},

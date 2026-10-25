@@ -10,6 +10,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,7 +24,7 @@ func TestRDS_AuroraModifyClusterRotatesPasswordAndMovesPort(t *testing.T) {
 	testContext, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	c := rdsClient()
-	clusterID := uniqueName("sdk-aurora-modify")
+	clusterID := uniquename.New("sdk-aurora-modify")
 	instanceID := clusterID + "-1"
 	const (
 		username = "dbadmin"

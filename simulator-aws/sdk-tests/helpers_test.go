@@ -20,7 +20,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,6 +33,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/smithy-go/middleware"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
+	"github.com/e6qu/sockerless-cloud/testutil/freeports"
+	"github.com/e6qu/sockerless-cloud/testutil/scratchimage"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 )
 
 func lambdaNodeDeploymentZip(t *testing.T, responseExpression string) []byte {
@@ -134,36 +136,6 @@ func signRawSigV4JSON(t *testing.T, req *http.Request, service string, body []by
 	signRawSigV4(t, req, service, hex.EncodeToString(sum[:]))
 }
 
-// freeTCPUDPPort returns one numeric port that was simultaneously available
-// on both protocols. Route 53 binds its configured DNS coordinate on TCP and
-// UDP, so selecting a UDP-only ephemeral port can collide with another
-// simulator's HTTP listener.
-func freeTCPUDPPort() (int, error) {
-	const attempts = 100
-	for attempt := 0; attempt < attempts; attempt++ {
-		tcpListener, err := net.Listen("tcp", ":0")
-		if err != nil {
-			return 0, err
-		}
-		port := tcpListener.Addr().(*net.TCPAddr).Port
-		udpListener, udpErr := net.ListenPacket("udp", fmt.Sprintf(":%d", port))
-		if udpErr != nil {
-			_ = tcpListener.Close()
-			continue
-		}
-		tcpCloseErr := tcpListener.Close()
-		udpCloseErr := udpListener.Close()
-		if tcpCloseErr != nil {
-			return 0, tcpCloseErr
-		}
-		if udpCloseErr != nil {
-			return 0, udpCloseErr
-		}
-		return port, nil
-	}
-	return 0, fmt.Errorf("could not find a port available on both TCP and UDP after %d attempts", attempts)
-}
-
 // freeSimulatorPortPair reserves a simulator's HTTP coordinate and its Route 53
 // DNS coordinate as a pair that cannot be the same port.
 //
@@ -181,7 +153,7 @@ func freeSimulatorPortPair() (httpPort int, dnsPort int, err error) {
 		return 0, 0, err
 	}
 	httpPort = holder.Addr().(*net.TCPAddr).Port
-	dnsPort, dnsErr := freeTCPUDPPort()
+	dnsPort, dnsErr := freeports.TCPUDP()
 	closeErr := holder.Close()
 	if dnsErr != nil {
 		return 0, 0, dnsErr
@@ -418,19 +390,25 @@ func TestMain(m *testing.M) {
 		}
 	}
 
-	workloadPlatform := nativeDockerPlatform()
+	workloadPlatform := scratchimage.NativePlatform()
 
 	evalDir, _ := filepath.Abs("../../testdata/eval-arithmetic")
 	evalImageName = "sockerless-eval-arithmetic:aws-sdk"
-	buildGoScratchImage(evalImageName, evalDir, "eval-arithmetic", workloadPlatform)
+	if err := scratchimage.Build(evalImageName, evalDir, "eval-arithmetic", workloadPlatform, ""); err != nil {
+		log.Fatal(err)
+	}
 
 	lambdaHandlerDir, _ := filepath.Abs("../../testdata/lambda-runtime-handler")
 	lambdaHandlerImageName = "sockerless-lambda-runtime-handler:aws-sdk"
-	buildGoScratchImage(lambdaHandlerImageName, lambdaHandlerDir, "lambda-runtime-handler", workloadPlatform)
+	if err := scratchimage.Build(lambdaHandlerImageName, lambdaHandlerDir, "lambda-runtime-handler", workloadPlatform, ""); err != nil {
+		log.Fatal(err)
+	}
 
 	containerCommandDir, _ := filepath.Abs("../../testdata/container-command")
 	containerCommandImage = "sockerless-container-command:aws-sdk"
-	buildGoScratchImage(containerCommandImage, containerCommandDir, "container-command", workloadPlatform)
+	if err := scratchimage.Build(containerCommandImage, containerCommandDir, "container-command", workloadPlatform, ""); err != nil {
+		log.Fatal(err)
+	}
 
 	// Pre-pull busybox up front (with retry) — it is the workload image for
 	// many ECS tests. Pulling
@@ -514,10 +492,6 @@ func shutdownSimulator(cmd *exec.Cmd) error {
 		<-done
 		return errors.New("simulator did not stop within 15 seconds")
 	}
-}
-
-func nativeDockerPlatform() string {
-	return "linux/" + runtime.GOARCH
 }
 
 // pullImageWithRetry pulls a public image up front with bounded exponential
@@ -674,49 +648,6 @@ func testRunSelects(name string) bool {
 	return selected
 }
 
-func buildGoScratchImage(imageName, sourceDir, binaryName, platform string) {
-	buildDir, err := os.MkdirTemp("", "sockerless-aws-image-*")
-	if err != nil {
-		log.Fatalf("Failed to create image build dir: %v", err)
-	}
-	defer os.RemoveAll(buildDir)
-
-	binaryPath := filepath.Join(buildDir, binaryName)
-	build := exec.Command("go", "build", "-o", binaryPath, ".")
-	build.Dir = sourceDir
-	build.Env = append(os.Environ(),
-		"CGO_ENABLED=0",
-		"GOOS=linux",
-		"GOARCH="+runtime.GOARCH,
-	)
-	if out, err := build.CombinedOutput(); err != nil {
-		log.Fatalf("Failed to build %s binary: %v\n%s", binaryName, err, out)
-	}
-
-	dockerfile := fmt.Sprintf(`FROM scratch
-COPY %s /usr/local/bin/%s
-ENTRYPOINT ["/usr/local/bin/%s"]
-`, binaryName, binaryName, binaryName)
-	// On a docker-container buildx driver (the default on many dev machines),
-	// `docker build -t` leaves the image in the build cache only — never the
-	// daemon store — so the sim's container start can't find it. `docker buildx
-	// build --load` materializes it into the daemon store. The legacy builder
-	// builds into the store natively and rejects the buildx-only `--load`, so
-	// omit it there.
-	var args []string
-	if exec.Command("docker", "buildx", "version").Run() == nil {
-		args = []string{"buildx", "build", "--load"}
-	} else {
-		args = []string{"build"}
-	}
-	args = append(args, "--platform", platform, "-t", imageName, "-f", "-", buildDir)
-	dockerBuild := exec.Command("docker", args...)
-	dockerBuild.Stdin = strings.NewReader(dockerfile)
-	if out, err := dockerBuild.CombinedOutput(); err != nil {
-		log.Fatalf("Failed to build %s Docker image: %v\n%s", binaryName, err, out)
-	}
-}
-
 // gluePythonShellImage is the interpreter an AWS Glue Python shell job run
 // executes in — the image the simulator's job runner starts a container from.
 const gluePythonShellImage = "mirror.gcr.io/library/python:3.9"
@@ -753,31 +684,23 @@ func nativeLambdaArchitectures() []lambdatypes.Architecture {
 	return []lambdatypes.Architecture{lambdatypes.ArchitectureX8664}
 }
 
-var uniqueNameSequence atomic.Int64
-
-// uniqueName suffixes prefix with a lowercase alphanumeric id unique to this
-// run, so a test run again against the same simulator names new resources.
-func uniqueName(prefix string) string {
-	return prefix + "-" + strconv.FormatInt(time.Now().UnixNano(), 36) + strconv.FormatInt(uniqueNameSequence.Add(1), 36)
-}
-
 // serviceRole creates a uniquely named role whose trust policy lets the
 // service principal assume it, deleted when the test ends.
 func serviceRole(t *testing.T, principal string) string {
 	t.Helper()
-	return createWorkloadRole(t, uniqueName(strings.SplitN(principal, ".", 2)[0]), principal)
+	return createWorkloadRole(t, uniquename.New(strings.SplitN(principal, ".", 2)[0]), principal)
 }
 
 // statesRole creates a uniquely named role AWS Step Functions may assume,
 // allowed actions on every resource, deleted when the test ends.
 func statesRole(t *testing.T, actions ...string) string {
 	t.Helper()
-	return createServiceRole(t, uniqueName("states"), "states.amazonaws.com", actions...)
+	return createServiceRole(t, uniquename.New("states"), "states.amazonaws.com", actions...)
 }
 
 // lambdaRole creates a uniquely named execution role AWS Lambda may assume,
 // allowed actions on every resource, deleted when the test ends.
 func lambdaRole(t *testing.T, actions ...string) string {
 	t.Helper()
-	return createServiceRole(t, uniqueName("lambda"), "lambda.amazonaws.com", actions...)
+	return createServiceRole(t, uniquename.New("lambda"), "lambda.amazonaws.com", actions...)
 }

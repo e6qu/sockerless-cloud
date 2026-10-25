@@ -277,9 +277,9 @@ func emitAuditCall(rec auditRecord) {
 		end.operation = &LogEntryOperation{ID: op.id, Producer: rec.serviceName, Last: true}
 		emitAuditLog(end)
 	}
-	signal := gcpOperationDoneSignal(op.id)
+	signal := gcpOperationDone.Changed(op.id)
 	if _, _, done := op.settled(); done {
-		gcpOperationSignalDone(op.id)
+		gcpOperationDone.Announce(op.id)
 		last()
 		return
 	}

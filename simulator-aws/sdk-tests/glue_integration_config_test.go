@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/glue"
 	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -35,30 +36,30 @@ func TestGlue_IntegrationTargetNamespace_SDK(t *testing.T) {
 		return out, err
 	}
 
-	named, err := create(uniqueName("glue-ns-named"), tableBucket, &gluetypes.IntegrationConfig{TargetNamespace: aws.String("orders_replica")})
+	named, err := create(uniquename.New("glue-ns-named"), tableBucket, &gluetypes.IntegrationConfig{TargetNamespace: aws.String("orders_replica")})
 	require.NoError(t, err)
 	assert.Equal(t, "orders_replica", aws.ToString(named.IntegrationConfig.TargetNamespace))
 
-	defaulted, err := create(uniqueName("glue-ns-default"), tableBucket, nil)
+	defaulted, err := create(uniquename.New("glue-ns-default"), tableBucket, nil)
 	require.NoError(t, err)
 	arn := aws.ToString(defaulted.IntegrationArn)
 	id := arn[strings.LastIndex(arn, ":")+1:]
 	require.NotNil(t, defaulted.IntegrationConfig)
 	assert.Equal(t, "zetl_"+strings.ReplaceAll(id, "-", "_"), aws.ToString(defaulted.IntegrationConfig.TargetNamespace))
 
-	plain, err := create(uniqueName("glue-ns-catalog"), "arn:aws:glue:us-east-1:123456789012:catalog", nil)
+	plain, err := create(uniquename.New("glue-ns-catalog"), "arn:aws:glue:us-east-1:123456789012:catalog", nil)
 	require.NoError(t, err)
 	assert.True(t, plain.IntegrationConfig == nil || plain.IntegrationConfig.TargetNamespace == nil,
 		"a target other than a table bucket gets no namespace")
 
 	var invalidInput *gluetypes.InvalidInputException
-	_, err = create(uniqueName("glue-ns-wrong-target"), "arn:aws:glue:us-east-1:123456789012:catalog",
+	_, err = create(uniquename.New("glue-ns-wrong-target"), "arn:aws:glue:us-east-1:123456789012:catalog",
 		&gluetypes.IntegrationConfig{TargetNamespace: aws.String("orders")})
 	require.True(t, errors.As(err, &invalidInput), "a namespace for a target other than a table bucket is refused, got %v", err)
-	_, err = create(uniqueName("glue-ns-reserved"), tableBucket, &gluetypes.IntegrationConfig{TargetNamespace: aws.String("aws_orders")})
+	_, err = create(uniquename.New("glue-ns-reserved"), tableBucket, &gluetypes.IntegrationConfig{TargetNamespace: aws.String("aws_orders")})
 	require.True(t, errors.As(err, &invalidInput), "the reserved aws prefix is refused, got %v", err)
 	var validation *gluetypes.ValidationException
-	_, err = create(uniqueName("glue-ns-pattern"), tableBucket, &gluetypes.IntegrationConfig{TargetNamespace: aws.String("_Orders")})
+	_, err = create(uniquename.New("glue-ns-pattern"), tableBucket, &gluetypes.IntegrationConfig{TargetNamespace: aws.String("_Orders")})
 	require.True(t, errors.As(err, &validation), "a name outside the pattern is refused, got %v", err)
 
 	_, err = c.ModifyIntegration(ctx, &glue.ModifyIntegrationInput{
@@ -74,7 +75,7 @@ func TestGlue_ModifyIntegrationRefreshInterval_SDK(t *testing.T) {
 	t.Parallel()
 	c := glueClient()
 	created, err := c.CreateIntegration(ctx, &glue.CreateIntegrationInput{
-		IntegrationName: aws.String(uniqueName("glue-refresh")),
+		IntegrationName: aws.String(uniquename.New("glue-refresh")),
 		SourceArn:       aws.String("arn:aws:rds:us-east-1:123456789012:db:source"),
 		TargetArn:       aws.String("arn:aws:glue:us-east-1:123456789012:catalog"),
 		IntegrationConfig: &gluetypes.IntegrationConfig{

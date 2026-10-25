@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -95,9 +96,9 @@ func TestEC2_SubnetFiltersSDK(t *testing.T) {
 		require.NoError(t, err)
 		return aws.ToString(out.Subnet.SubnetId)
 	}
-	prod := uniqueName("prod")
+	prod := uniquename.New("prod")
 	a := mk("10.96.1.0/24", "us-east-1a", prod)
-	_ = mk("10.96.2.0/24", "us-east-1b", uniqueName("dev"))
+	_ = mk("10.96.2.0/24", "us-east-1b", uniquename.New("dev"))
 
 	byTag, err := c.DescribeSubnets(ctx, &ec2.DescribeSubnetsInput{
 		Filters: []types.Filter{{Name: aws.String("tag:env"), Values: []string{prod}}},

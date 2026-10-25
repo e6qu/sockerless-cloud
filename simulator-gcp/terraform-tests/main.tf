@@ -6,11 +6,11 @@ terraform {
     }
     google = {
       source  = "hashicorp/google"
-      version = "8.8.0"
+      version = "8.8.1"
     }
     google-beta = {
       source  = "hashicorp/google-beta"
-      version = "8.8.0"
+      version = "8.8.1"
     }
     random = {
       source  = "hashicorp/random"
@@ -1280,6 +1280,10 @@ output "api_gateway_gateway_id" {
 
 output "storage_bucket_url" {
   value = google_storage_bucket.tf_bucket.url
+}
+
+output "storage_object_storage_class" {
+  value = google_storage_bucket_object.tf_artifact.storage_class
 }
 
 output "logging_project_sink_id" {

@@ -8,6 +8,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armcontainerregistry"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,12 +18,12 @@ import (
 // can write its own registry again.
 func TestACR_RegistryNameIsUniqueAcrossResourceGroups(t *testing.T) {
 	t.Parallel()
-	first, second := uniqueName("acr-unique-a"), uniqueName("acr-unique-b")
+	first, second := uniquename.New("acr-unique-a"), uniquename.New("acr-unique-b")
 	ensureRG(t, first)
 	ensureRG(t, second)
 	client, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
-	name := uniqueAlnumName("acrunique")
+	name := uniquename.Alnum("acrunique")
 	registry := armcontainerregistry.Registry{
 		Location: to.Ptr("eastus"),
 		SKU:      &armcontainerregistry.SKU{Name: to.Ptr(armcontainerregistry.SKUNameBasic)},

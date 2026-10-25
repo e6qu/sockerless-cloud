@@ -3,6 +3,8 @@ package main
 import (
 	"net/http"
 	"strings"
+
+	"github.com/e6qu/sockerless-cloud/sim"
 )
 
 // Tagging for every Amazon ECS resource type AWS declares taggable.
@@ -176,4 +178,119 @@ func ecsRejectTaggingAStoppedTask(resourceArn string) *ecsTagFault {
 // client's error handling switches on.
 func ecsWriteTagFault(w http.ResponseWriter, fault *ecsTagFault) {
 	AWSError(w, fault.code, fault.message, http.StatusBadRequest)
+}
+
+// handleECSTagResource implements `AmazonEC2ContainerServiceV20141113.TagResource`.
+// `mergeECSTagsByKey` adds new tags + overwrites existing keys;
+// missing tags persist. Real ECS rejects TagResource on STOPPED
+// tasks; we mirror that behaviour so the recovery.go "skip STOPPED"
+// logic exercises the same gate.
+func handleECSTagResource(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ResourceArn string   `json:"resourceArn"`
+		Tags        []ECSTag `json:"tags"`
+	}
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.ResourceArn == "" {
+		AWSError(w, "InvalidParameterException", "resourceArn is required", http.StatusBadRequest)
+		return
+	}
+	if fault := ecsRejectTaggingAStoppedTask(req.ResourceArn); fault != nil {
+		ecsWriteTagFault(w, fault)
+		return
+	}
+	target, fault := ecsResolveTaggable(req.ResourceArn)
+	if fault != nil {
+		ecsWriteTagFault(w, fault)
+		return
+	}
+	target.replace(mergeECSTagsByKey(target.tags, req.Tags))
+	sim.WriteJSON(w, http.StatusOK, map[string]any{})
+}
+
+// handleECSUntagResource implements `AmazonEC2ContainerServiceV20141113.UntagResource`.
+// Companion to TagResource; removes the named tags. Same STOPPED-task
+// rejection rule.
+func handleECSUntagResource(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ResourceArn string   `json:"resourceArn"`
+		TagKeys     []string `json:"tagKeys"`
+	}
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.ResourceArn == "" || len(req.TagKeys) == 0 {
+		AWSError(w, "InvalidParameterException", "resourceArn and tagKeys are required", http.StatusBadRequest)
+		return
+	}
+	if fault := ecsRejectTaggingAStoppedTask(req.ResourceArn); fault != nil {
+		ecsWriteTagFault(w, fault)
+		return
+	}
+	target, fault := ecsResolveTaggable(req.ResourceArn)
+	if fault != nil {
+		ecsWriteTagFault(w, fault)
+		return
+	}
+	drop := make(map[string]struct{}, len(req.TagKeys))
+	for _, key := range req.TagKeys {
+		drop[key] = struct{}{}
+	}
+	// Built fresh rather than filtered in place: the slice belongs to the
+	// stored record, and writing through it would edit the store's own copy
+	// before the replace decides to.
+	kept := make([]ECSTag, 0, len(target.tags))
+	for _, tag := range target.tags {
+		if _, gone := drop[tag.Key]; gone {
+			continue
+		}
+		kept = append(kept, tag)
+	}
+	target.replace(kept)
+	sim.WriteJSON(w, http.StatusOK, map[string]any{})
+}
+
+// mergeECSTagsByKey combines `existing` with `incoming`: any key
+// present in both is overwritten by the `incoming` value (matching
+// real ECS TagResource semantics — "If existing tags on a resource
+// are not specified in the request parameters, they aren't changed").
+func mergeECSTagsByKey(existing, incoming []ECSTag) []ECSTag {
+	byKey := make(map[string]ECSTag, len(existing)+len(incoming))
+	for _, t := range existing {
+		byKey[t.Key] = t
+	}
+	for _, t := range incoming {
+		byKey[t.Key] = t
+	}
+	out := make([]ECSTag, 0, len(byKey))
+	for _, t := range byKey {
+		out = append(out, t)
+	}
+	return out
+}
+
+func handleECSListTagsForResource(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ResourceArn string `json:"resourceArn"`
+	}
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSErrorf(w, "InvalidParameterValue", http.StatusBadRequest, "invalid request body: %v", err)
+		return
+	}
+	// Resolved through the same function TagResource uses, so a type cannot be
+	// taggable and then invisible here.
+	target, fault := ecsResolveTaggable(req.ResourceArn)
+	if fault != nil {
+		ecsWriteTagFault(w, fault)
+		return
+	}
+	tags := target.tags
+	if tags == nil {
+		tags = []ECSTag{}
+	}
+	sim.WriteJSON(w, http.StatusOK, map[string]any{"tags": tags})
 }

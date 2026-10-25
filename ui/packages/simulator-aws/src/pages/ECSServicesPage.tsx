@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router";
-import { AwsButton, AwsResourceTable, AwsStatus, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsResourceTable, AwsStatus, AwsRefreshButton, type AwsColumn } from "../console/index.js";
 import { fetchECSServices, type ECSService } from "../api.js";
 
 function shortName(arn: string): string {
@@ -70,6 +70,7 @@ export function ECSServicesPage() {
       tableTestId="ecs-services-table"
       actions={({ selected, refetch, isFetching }) => (
         <>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
           <AwsButton
             data-testid="ecs-view-service"
             disabled={selected.length !== 1}
@@ -81,9 +82,6 @@ export function ECSServicesPage() {
             }}
           >
             View service
-          </AwsButton>
-          <AwsButton onClick={refetch} disabled={isFetching}>
-            {isFetching ? "Refreshing…" : "Refresh"}
           </AwsButton>
         </>
       )}

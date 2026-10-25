@@ -8,6 +8,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/admin"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,8 +18,8 @@ import (
 // out reaches a receiver once its time comes.
 func TestServiceBus_AMQPSDKScheduleAndCancel(t *testing.T) {
 	t.Parallel()
-	namespace := uniqueName("sdk-amqp-schedule")
-	queue := uniqueName("schedq")
+	namespace := uniquename.New("sdk-amqp-schedule")
+	queue := uniquename.New("schedq")
 	adminClient := sbAdminClient(t, namespace)
 	_, err := adminClient.CreateQueue(ctx, queue, nil)
 	require.NoError(t, err)
@@ -65,8 +66,8 @@ func TestServiceBus_AMQPSDKScheduleAndCancel(t *testing.T) {
 // lock of a session already accepted.
 func TestServiceBus_AMQPSDKSessions(t *testing.T) {
 	t.Parallel()
-	namespace := uniqueName("sdk-amqp-sessions")
-	queue := uniqueName("sessionq")
+	namespace := uniquename.New("sdk-amqp-sessions")
+	queue := uniquename.New("sessionq")
 	adminClient := sbAdminClient(t, namespace)
 	_, err := adminClient.CreateQueue(ctx, queue, &admin.CreateQueueOptions{
 		Properties: &admin.QueueProperties{RequiresSession: to.Ptr(true)},

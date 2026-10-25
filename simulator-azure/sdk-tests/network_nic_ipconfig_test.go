@@ -9,6 +9,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v8"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -40,7 +41,7 @@ func nicAddresses(nic armnetwork.Interface) map[string]string {
 // the subnet refuses an address another interface holds.
 func TestNetwork_InterfaceSecondaryIPConfigurations(t *testing.T) {
 	t.Parallel()
-	rg, vnet, nicName, otherName := uniqueName("ipcfg-rg"), uniqueName("ipcfg-vnet"), uniqueName("ipcfg-nic"), uniqueName("ipcfg-other")
+	rg, vnet, nicName, otherName := uniquename.New("ipcfg-rg"), uniquename.New("ipcfg-vnet"), uniquename.New("ipcfg-nic"), uniquename.New("ipcfg-other")
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, rg, armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)

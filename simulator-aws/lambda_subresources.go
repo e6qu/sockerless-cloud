@@ -403,6 +403,7 @@ func handleLambdaUpdateAlias(w http.ResponseWriter, r *http.Request) {
 	a.RevisionId = sim.NewUUID()
 	as[aliasName] = a
 	lambdaAliases.Put(name, as)
+	lambdaEnvironments.reconcile(name)
 	sim.WriteJSON(w, http.StatusOK, a)
 }
 
@@ -420,6 +421,8 @@ func handleLambdaDeleteAlias(w http.ResponseWriter, r *http.Request) {
 	}
 	delete(as, aliasName)
 	lambdaAliases.Put(name, as)
+	lambdaPCs.Delete(name + ":" + aliasName)
+	lambdaEnvironments.reconcile(name)
 	w.WriteHeader(http.StatusNoContent)
 }
 

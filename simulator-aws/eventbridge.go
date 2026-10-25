@@ -284,7 +284,10 @@ func handleEBDescribeEventBus(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"Name"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	bus, ok := ebGetBus(req.Name)
 	if !ok {
 		AWSError(w, "ResourceNotFoundException", "Event bus does not exist", http.StatusNotFound)
@@ -299,7 +302,10 @@ func handleEBListEventBuses(w http.ResponseWriter, r *http.Request) {
 		Limit      int    `json:"Limit"`
 		NextToken  string `json:"NextToken"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	_, _ = ebGetBus("default")
 	buses := make([]EBEventBus, 0)
 	for _, bus := range ebBuses.List() {
@@ -582,7 +588,10 @@ func handleEBListRules(w http.ResponseWriter, r *http.Request) {
 		Limit        int    `json:"Limit"`
 		NextToken    string `json:"NextToken"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	bus := ebBusName(req.EventBusName)
 	rules := make([]EBRule, 0)
 	for _, rule := range ebRules.List() {
@@ -943,8 +952,7 @@ func ebAcceptEvent(bus, source, detailType, detail string, resources []string, a
 	events, _ := ebEvents.Get(bus)
 	events = append(events, record)
 	ebEvents.Put(bus, events)
-	archiveEBEvent(bus, record)
-	deliverEBEvent(bus, record)
+	ebBus.Publish(bus, record)
 	return record.ID
 }
 
@@ -1004,22 +1012,6 @@ func ebApplyRetention(events []EBEventRecord, retentionDays *int32) []EBEventRec
 		return events[len(events)-ebMaxArchivedEvents:]
 	}
 	return events
-}
-
-func deliverEBEvent(bus string, record EBEventRecord) {
-	event := ebBuildEvent(record)
-	for _, rule := range ebRules.List() {
-		if rule.EventBusName != bus || rule.State == "DISABLED" {
-			continue
-		}
-		if rule.EventPattern != "" && !ebEventPatternMatches(rule.EventPattern, event) {
-			continue
-		}
-		targets, _ := ebTargets.Get(ebRuleKey(rule.EventBusName, rule.Name))
-		for _, target := range targets {
-			ebSubmitTargetDelivery(rule.Arn, target, record)
-		}
-	}
 }
 
 // ebBuildEvent assembles the full EventBridge event object that rule and
@@ -1374,7 +1366,7 @@ func handleEBStartReplay(w http.ResponseWriter, r *http.Request) {
 		Destination:           req.Destination,
 	}
 	if arn, _ := req.Destination["Arn"].(string); arn != "" {
-		replayArchivedEvents(archive, arn)
+		replayArchivedEvents(archive, replay)
 	}
 	ebReplays.Put(replay.ReplayName, replay)
 	writeEBJSON(w, http.StatusOK, map[string]any{
@@ -1550,14 +1542,32 @@ func ebArchiveByARN(arn string) (EBArchive, bool) {
 	return EBArchive{}, false
 }
 
-func replayArchivedEvents(archive EBArchive, destinationBusArn string) {
-	bus, ok := ebBusByARN(destinationBusArn)
+// replayArchivedEvents delivers the archived events of the replay's time
+// window to the destination bus's rules, or to the rules its FilterArns name.
+func replayArchivedEvents(archive EBArchive, replay EBReplay) {
+	arn, _ := replay.Destination["Arn"].(string)
+	bus, ok := ebBusByARN(arn)
 	if !ok {
 		return
 	}
+	var events []EBEventRecord
 	for _, event := range archive.ArchivedEvents {
-		deliverEBEvent(bus.Name, event)
+		if event.Time >= replay.EventStartTime && event.Time <= replay.EventEndTime {
+			events = append(events, event)
+		}
 	}
+	rules := map[string]bool{}
+	filterArns, _ := replay.Destination["FilterArns"].([]any)
+	for _, filterArn := range filterArns {
+		if s, ok := filterArn.(string); ok {
+			rules[s] = true
+		}
+	}
+	var only func(ebRoute) bool
+	if len(rules) > 0 {
+		only = func(route ebRoute) bool { return rules[route.Rule.Arn] }
+	}
+	ebBus.Replay(bus.Name, events, only)
 }
 
 func handleEBTagResource(w http.ResponseWriter, r *http.Request) {

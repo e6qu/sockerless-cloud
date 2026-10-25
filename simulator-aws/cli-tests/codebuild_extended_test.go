@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -38,7 +39,7 @@ func cbCLICreateProject(t *testing.T, name, buildspec string) {
 // build-list batch starts a build per task and reports each in buildGroups.
 func TestCodeBuildCLI_BuildBatches(t *testing.T) {
 	t.Parallel()
-	proj := cliUniqueName("cb-cli-batch")
+	proj := uniquename.New("cb-cli-batch")
 	batchRole := cliServiceRole(t, "codebuild.amazonaws.com")
 	batchRoleName := batchRole[strings.LastIndex(batchRole, "/")+1:]
 	runCLI(t, awsCLI("iam", "put-role-policy", "--role-name", batchRoleName, "--policy-name", "batch", "--policy-document",
@@ -137,7 +138,7 @@ func TestCodeBuildCLI_BuildBatches(t *testing.T) {
 // project's busybox image has no /etc/os-release and Alpine's has.
 func TestCodeBuildCLI_StartBuildImageOverride(t *testing.T) {
 	t.Parallel()
-	proj := cliUniqueName("cb-cli-image")
+	proj := uniquename.New("cb-cli-image")
 	runCLI(t, awsCLI("codebuild", "create-project",
 		"--name", proj,
 		"--source", `{"type":"NO_SOURCE","buildspec":"version: 0.2\nphases:\n  build:\n    commands:\n      - cat /etc/os-release\n"}`,

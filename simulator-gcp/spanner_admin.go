@@ -122,22 +122,7 @@ func handleSpannerInstanceConfigOperationAction(w http.ResponseWriter, r *http.R
 // prefix, newest name last, honoring the standard filter/pageSize/pageToken
 // list parameters.
 func handleSpannerListOperationsUnder(w http.ResponseWriter, r *http.Request, prefix string) {
-	out := crOperations.Filter(func(op Operation) bool { return strings.HasPrefix(op.Name, prefix) })
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	listed, listOK := gcpApplyListParams(w, r, out)
-	if !listOK {
-		return
-	}
-	out = listed
-	page, next, ok := paginateList(w, r, out, gcpAsc(func(v Operation) string { return v.Name }))
-	if !ok {
-		return
-	}
-	body := map[string]any{"operations": page}
-	if next != "" {
-		body["nextPageToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, body)
+	gcpWriteList(w, r, crOperations, prefix, "operations", func(v Operation) string { return v.Name })
 }
 
 // handleSpannerListInstanceScopedOperations serves the instance's own
@@ -555,22 +540,7 @@ func spannerInstancePartitionResponse(partition spannerInstancePartition) map[st
 
 func handleSpannerListInstancePartitions(w http.ResponseWriter, r *http.Request, instance string) {
 	prefix := spannerInstanceName(sim.PathParam(r, "project"), instance) + "/instancePartitions/"
-	out := spannerInstancePartitions.Filter(func(p spannerInstancePartition) bool { return strings.HasPrefix(p.Name, prefix) })
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	listed, listOK := gcpApplyListParams(w, r, out)
-	if !listOK {
-		return
-	}
-	out = listed
-	page, next, ok := paginateList(w, r, out, gcpAsc(func(v spannerInstancePartition) string { return v.Name }))
-	if !ok {
-		return
-	}
-	body := map[string]any{"instancePartitions": page}
-	if next != "" {
-		body["nextPageToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, body)
+	gcpWriteList(w, r, spannerInstancePartitions, prefix, "instancePartitions", func(v spannerInstancePartition) string { return v.Name })
 }
 
 func handleSpannerGetInstancePartition(w http.ResponseWriter, r *http.Request, instance, partition string) {

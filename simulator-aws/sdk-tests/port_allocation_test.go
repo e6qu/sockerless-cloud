@@ -41,16 +41,3 @@ func TestFreeSimulatorPortPairIsSimultaneouslyBindable(t *testing.T) {
 		require.NoError(t, dnsUDP.Close())
 	}
 }
-
-func TestFreeTCPUDPPortSupportsRoute53DualProtocolBind(t *testing.T) {
-	port, err := freeTCPUDPPort()
-	require.NoError(t, err)
-
-	tcpListener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, tcpListener.Close()) })
-
-	udpListener, err := net.ListenPacket("udp", fmt.Sprintf(":%d", port))
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, udpListener.Close()) })
-}

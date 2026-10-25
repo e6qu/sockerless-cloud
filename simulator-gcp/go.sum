@@ -10,6 +10,8 @@ cloud.google.com/go/bigtable v1.58.0 h1:fkf7bI0DBkKN85uRrfEEpkbufSc48b4PVIZCRud3
 cloud.google.com/go/bigtable v1.58.0/go.mod h1:fZ/QM3mBog9JYJ5KV1z2xqv2+vfHGvoazGJllGQClds=
 cloud.google.com/go/cloudbuild v1.36.0 h1:MqlyiKjtiIquUYhfrIIKqGaWmCJUeuOH4Y1oc4EXNjw=
 cloud.google.com/go/cloudbuild v1.36.0/go.mod h1:l61dO9wnjSWD2HZMMTXwxL5bWKBhN/yXaDaHCX5+stY=
+cloud.google.com/go/cloudtasks v1.21.0 h1:9/hJzEQwxHO3LAnRQZq4CoBgLRunU58jSIgYA0JM2ww=
+cloud.google.com/go/cloudtasks v1.21.0/go.mod h1:HKiAjy/Q855vfmbInJn7i1DxQ0vbyUgoKva6Q51m7eA=
 cloud.google.com/go/eventarc v1.27.0 h1:dve+ZOgwOGE+P6MRGkODL/TKGteUzEE+gUR681Wxo6Y=
 cloud.google.com/go/eventarc v1.27.0/go.mod h1:eenfm/uqhb42N5R4QaPjJ1TAkNaHVmwcg4DNyOqr328=
 cloud.google.com/go/firestore v1.29.0 h1:fplxMS69zAV4PWnRV9iWtqjsMSYOCpAa4LA8Tb1JaVw=
@@ -34,6 +36,8 @@ cloud.google.com/go/resourcemanager v1.18.0 h1:mcWSOOT7zh/elr0mF4DYyOsCUJctVlaUw
 cloud.google.com/go/resourcemanager v1.18.0/go.mod h1:1zfRgos5yRuyjX4n4eEm7XCUo9Gy2slBOKR9RSz3vKI=
 cloud.google.com/go/run v1.24.0 h1:U+FDzsuXzQ0c00jefNdbkUEBtlk3oMm9rwcjDOcO3kI=
 cloud.google.com/go/run v1.24.0/go.mod h1:8wDvtMy/0c0PyRK+LXgcAshEvw8tcHdiQUNy/zHbTrs=
+cloud.google.com/go/scheduler v1.18.0 h1:/24zt3qHIz15Id+h+i3Ptey9HOi8+693tRs/ztJEO60=
+cloud.google.com/go/scheduler v1.18.0/go.mod h1:QTiBBdE7VmTUVjxWGRFUV0A8fAsg1WJG79QIcS+dY84=
 cloud.google.com/go/secretmanager v1.23.0 h1:tUmPWfKapcrCsLXdJQIokbJamK5leTGAyxVhPXG1x90=
 cloud.google.com/go/secretmanager v1.23.0/go.mod h1:xDP/NNLKgQGGKcOenNnflIPW49MBj5w1EcakXjRLZHg=
 cloud.google.com/go/serviceusage v1.16.0 h1:6o2mbBd9u9qRPHcsLK5ud15w9btMxZ1QzhdItS99fkI=
@@ -76,10 +80,10 @@ github.com/docker/go-units v0.5.0 h1:69rxXcBk27SvSaaxTtLh/8llcHD8vYHT7WSdRZ/jvr4
 github.com/docker/go-units v0.5.0/go.mod h1:fgPhTUdO+D/Jk86RDLlptpiXQzgHJF7gydDDbaIK4Dk=
 github.com/dustin/go-humanize v1.1.0 h1:dbKTrvD0klcbBV/h4AWJdMuZogJACoMlvWIWZ5b2xWg=
 github.com/dustin/go-humanize v1.1.0/go.mod h1:hc1CvRkJMsgxqjmjMQF3QNRAZBwY8AXBAzKYoSX9sFI=
-github.com/e6qu/sockerless-cloud/sim v0.0.0-20261024145951-9c0a057ddb46 h1:OH2EYfujKTkm8hTWqvdqFSSE9E+Fhm/FXiBe/9xxl4o=
-github.com/e6qu/sockerless-cloud/sim v0.0.0-20261024145951-9c0a057ddb46/go.mod h1:opft7htruCTUvhisyGJDGV+VIOsZ9SvjdW/ZCVOkUIU=
-github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261015114713-b9f0cc68a078 h1:y/lbSXTSb+2kNgvLO7yeIytI3Y/caK8CEXASXFgOGAs=
-github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261015114713-b9f0cc68a078/go.mod h1:40g2Tr7iYURL01fHLQEFddpfNpIamO7UUdAuKqaJ2v8=
+github.com/e6qu/sockerless-cloud/sim v0.0.0-20261025151349-a6ecdf422df8 h1:WtyG622dZob1ZqFMOz6CgGpShrVruzYSbKLfTT9qjSs=
+github.com/e6qu/sockerless-cloud/sim v0.0.0-20261025151349-a6ecdf422df8/go.mod h1:NmvfGZhlmjYctM7mwWiin/L6kAS7S9yXpZzylOa/0TY=
+github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261024204221-18c159cbeb4a h1:B5ekiI6P5qFA1oiieNbQ+5Ncn81T2fwd3xjgpBx7QUI=
+github.com/e6qu/sockerless-cloud/ui-auth v0.0.0-20261024204221-18c159cbeb4a/go.mod h1:40g2Tr7iYURL01fHLQEFddpfNpIamO7UUdAuKqaJ2v8=
 github.com/felixge/httpsnoop v1.1.0 h1:3YtUj32ZZkqZtt3sZZsClsymw/QDuVfpNhoA31zeORc=
 github.com/felixge/httpsnoop v1.1.0/go.mod h1:Zqxgdd+1Rkcz8euOqdr7lqgCRJztwr5hp9vDSi5UZCE=
 github.com/go-jose/go-jose/v4 v4.1.6 h1:sNRkftxFJxwsILiQukqp5z83QBSmntVwmgRY7AqBDO4=

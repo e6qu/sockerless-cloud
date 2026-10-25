@@ -419,19 +419,6 @@ type CFOriginAccessControlSummary struct {
 	OriginAccessControlOriginType string `xml:"OriginAccessControlOriginType"`
 }
 
-type CFErrorResponse struct {
-	XMLName   xml.Name `xml:"ErrorResponse"`
-	Xmlns     string   `xml:"xmlns,attr,omitempty"`
-	Error     CFError  `xml:"Error"`
-	RequestId string   `xml:"RequestId"`
-}
-
-type CFError struct {
-	Type    string `xml:"Type,omitempty"`
-	Code    string `xml:"Code"`
-	Message string `xml:"Message"`
-}
-
 // cfStoredDistribution holds a Distribution with its current ETag. ETag
 // changes on every Update; If-Match on Update/Delete must match the
 // current value. Tags travel alongside the distribution but live in a
@@ -548,11 +535,7 @@ func cfWriteXML(w http.ResponseWriter, status int, v any) {
 }
 
 func cfWriteError(w http.ResponseWriter, status int, code, msg string) {
-	cfWriteXML(w, status, CFErrorResponse{
-		Xmlns:     cfNamespace,
-		Error:     CFError{Type: "Sender", Code: code, Message: msg},
-		RequestId: cfRandomID("REQ"),
-	})
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsRestXML, Namespace: cfNamespace}, status, code, msg, "")
 }
 
 func registerCloudFront(srv *sim.Server) {
@@ -636,15 +619,13 @@ func handleCFCreateDistribution(w http.ResponseWriter, r *http.Request) {
 	var tags []CFTag
 	if withTags {
 		var wrap CFDistributionConfigWithTags
-		if err := xml.NewDecoder(r.Body).Decode(&wrap); err != nil {
-			cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode DistributionConfigWithTags: "+err.Error())
+		if !cfDecodeXML(w, r, "DistributionConfigWithTags", &wrap) {
 			return
 		}
 		cfg = wrap.DistributionConfig
 		tags = wrap.Tags.Items
 	} else {
-		if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-			cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode DistributionConfig: "+err.Error())
+		if !cfDecodeXML(w, r, "DistributionConfig", &cfg) {
 			return
 		}
 	}
@@ -717,18 +698,11 @@ func handleCFUpdateDistribution(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchDistribution", "The specified distribution does not exist.")
 		return
 	}
-	ifMatch := r.Header.Get("If-Match")
-	if ifMatch == "" {
-		cfWriteError(w, http.StatusBadRequest, "InvalidIfMatchVersion", "The If-Match header is required.")
-		return
-	}
-	if ifMatch != stored.ETag {
-		cfWriteError(w, http.StatusPreconditionFailed, "PreconditionFailed", "The If-Match version is missing or does not match the resource's current ETag.")
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	var cfg CFDistributionConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode DistributionConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "DistributionConfig", &cfg) {
 		return
 	}
 	if msg := cfValidateViewerCertificate(cfg.ViewerCertificate); msg != "" {
@@ -753,13 +727,7 @@ func handleCFDeleteDistribution(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchDistribution", "The specified distribution does not exist.")
 		return
 	}
-	ifMatch := r.Header.Get("If-Match")
-	if ifMatch == "" {
-		cfWriteError(w, http.StatusBadRequest, "InvalidIfMatchVersion", "The If-Match header is required.")
-		return
-	}
-	if ifMatch != stored.ETag {
-		cfWriteError(w, http.StatusPreconditionFailed, "PreconditionFailed", "The If-Match version is missing or does not match the resource's current ETag.")
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	if stored.Distribution.DistributionConfig.Enabled {
@@ -818,8 +786,7 @@ func handleCFListDistributions(w http.ResponseWriter, r *http.Request) {
 
 func handleCFCreateOAC(w http.ResponseWriter, r *http.Request) {
 	var cfg CFOriginAccessControlConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode OriginAccessControlConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "OriginAccessControlConfig", &cfg) {
 		return
 	}
 	if cfg.Name == "" {
@@ -885,18 +852,11 @@ func handleCFUpdateOAC(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchOriginAccessControl", "The specified origin access control does not exist.")
 		return
 	}
-	ifMatch := r.Header.Get("If-Match")
-	if ifMatch == "" {
-		cfWriteError(w, http.StatusBadRequest, "InvalidIfMatchVersion", "The If-Match header is required.")
-		return
-	}
-	if ifMatch != stored.ETag {
-		cfWriteError(w, http.StatusPreconditionFailed, "PreconditionFailed", "The If-Match version is missing or does not match the resource's current ETag.")
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	var cfg CFOriginAccessControlConfig
-	if err := xml.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode OriginAccessControlConfig: "+err.Error())
+	if !cfDecodeXML(w, r, "OriginAccessControlConfig", &cfg) {
 		return
 	}
 	cfg.Xmlns = ""
@@ -915,13 +875,7 @@ func handleCFDeleteOAC(w http.ResponseWriter, r *http.Request) {
 		cfWriteError(w, http.StatusNotFound, "NoSuchOriginAccessControl", "The specified origin access control does not exist.")
 		return
 	}
-	ifMatch := r.Header.Get("If-Match")
-	if ifMatch == "" {
-		cfWriteError(w, http.StatusBadRequest, "InvalidIfMatchVersion", "The If-Match header is required.")
-		return
-	}
-	if ifMatch != stored.ETag {
-		cfWriteError(w, http.StatusPreconditionFailed, "PreconditionFailed", "The If-Match version is missing or does not match the resource's current ETag.")
+	if !cfIfMatches(w, r, stored.ETag) {
 		return
 	}
 	cfOriginAccessControls.Delete(id)
@@ -1040,67 +994,25 @@ func handleCFTagDispatch(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleCFTagResource(w http.ResponseWriter, r *http.Request) {
-	arn := r.URL.Query().Get("Resource")
 	var body struct {
 		XMLName xml.Name `xml:"Tags"`
 		Items   []CFTag  `xml:"Items>Tag"`
 	}
-	if err := xml.NewDecoder(r.Body).Decode(&body); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode Tags: "+err.Error())
+	if !cfDecodeXML(w, r, "Tags", &body) {
 		return
 	}
-	if fname := cfFunctionNameFromARN(arn); fname != "" {
-		stored, ok := cfFunctions.Get(fname)
-		if !ok {
-			cfWriteError(w, http.StatusNotFound, "NoSuchResource", "The specified resource does not exist.")
-			return
-		}
-		stored.Tags = cfMergeTags(stored.Tags, body.Items)
-		cfFunctions.Put(fname, stored)
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	id := cfDistributionIDFromARN(arn)
-	stored, ok := cfDistributions.Get(id)
-	if !ok {
-		cfWriteError(w, http.StatusNotFound, "NoSuchResource", "The specified resource does not exist.")
-		return
-	}
-	stored.Tags = cfMergeTags(stored.Tags, body.Items)
-	cfDistributions.Put(id, stored)
-	w.WriteHeader(http.StatusNoContent)
+	cfRetag(w, r.URL.Query().Get("Resource"), func(tags []CFTag) []CFTag { return cfMergeTags(tags, body.Items) })
 }
 
 func handleCFUntagResource(w http.ResponseWriter, r *http.Request) {
-	arn := r.URL.Query().Get("Resource")
 	var body struct {
 		XMLName xml.Name `xml:"TagKeys"`
 		Items   []string `xml:"Items>Key"`
 	}
-	if err := xml.NewDecoder(r.Body).Decode(&body); err != nil {
-		cfWriteError(w, http.StatusBadRequest, "MalformedXML", "Could not decode TagKeys: "+err.Error())
+	if !cfDecodeXML(w, r, "TagKeys", &body) {
 		return
 	}
-	if fname := cfFunctionNameFromARN(arn); fname != "" {
-		stored, ok := cfFunctions.Get(fname)
-		if !ok {
-			cfWriteError(w, http.StatusNotFound, "NoSuchResource", "The specified resource does not exist.")
-			return
-		}
-		stored.Tags = cfDropTags(stored.Tags, body.Items)
-		cfFunctions.Put(fname, stored)
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	id := cfDistributionIDFromARN(arn)
-	stored, ok := cfDistributions.Get(id)
-	if !ok {
-		cfWriteError(w, http.StatusNotFound, "NoSuchResource", "The specified resource does not exist.")
-		return
-	}
-	stored.Tags = cfDropTags(stored.Tags, body.Items)
-	cfDistributions.Put(id, stored)
-	w.WriteHeader(http.StatusNoContent)
+	cfRetag(w, r.URL.Query().Get("Resource"), func(tags []CFTag) []CFTag { return cfDropTags(tags, body.Items) })
 }
 
 func handleCFListOACs(w http.ResponseWriter, r *http.Request) {
@@ -1123,4 +1035,29 @@ func handleCFListOACs(w http.ResponseWriter, r *http.Request) {
 		Items:    items,
 	}
 	cfWriteXML(w, http.StatusOK, list)
+}
+
+// cfRetag replaces the tags of the function or distribution arn names with
+// what retag makes of them.
+func cfRetag(w http.ResponseWriter, arn string, retag func([]CFTag) []CFTag) {
+	if fname := cfFunctionNameFromARN(arn); fname != "" {
+		stored, ok := cfFunctions.Get(fname)
+		if !ok {
+			cfWriteError(w, http.StatusNotFound, "NoSuchResource", "The specified resource does not exist.")
+			return
+		}
+		stored.Tags = retag(stored.Tags)
+		cfFunctions.Put(fname, stored)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	id := cfDistributionIDFromARN(arn)
+	stored, ok := cfDistributions.Get(id)
+	if !ok {
+		cfWriteError(w, http.StatusNotFound, "NoSuchResource", "The specified resource does not exist.")
+		return
+	}
+	stored.Tags = retag(stored.Tags)
+	cfDistributions.Put(id, stored)
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/batch"
 	batchtypes "github.com/aws/aws-sdk-go-v2/service/batch/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -124,7 +125,7 @@ func TestBatch_JobQueue_SDK(t *testing.T) {
 
 func TestBatch_JobDefinition_SDK(t *testing.T) {
 	t.Parallel()
-	jdName := uniqueName("batch-sdk-jd")
+	jdName := uniquename.New("batch-sdk-jd")
 	c := batchClient()
 
 	reg, err := c.RegisterJobDefinition(ctx, &batch.RegisterJobDefinitionInput{

@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,7 +33,9 @@ func TestSSM_OpsItemLifecycle(t *testing.T) {
 	require.NotNil(t, created.OpsItemId)
 	id := *created.OpsItemId
 	assert.Regexp(t, `^oi-[0-9a-f]{12}$`, id)
-	assert.NotEmpty(t, *created.OpsItemArn)
+	identity, err := stsClient().GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:ssm:us-east-1:"+*identity.Account+":opsitem/"+id, *created.OpsItemArn)
 
 	// Get it back.
 	got, err := c.GetOpsItem(ctx, &ssm.GetOpsItemInput{OpsItemId: aws.String(id)})
@@ -43,6 +46,8 @@ func TestSSM_OpsItemLifecycle(t *testing.T) {
 	assert.Equal(t, int32(2), *got.OpsItem.Priority)
 	assert.Equal(t, "1", *got.OpsItem.Version)
 	require.Contains(t, got.OpsItem.OperationalData, "/aws/resources")
+	assert.Equal(t, *identity.Arn, *got.OpsItem.CreatedBy, "the creator is the identity that signed the create")
+	assert.Equal(t, *identity.Arn, *got.OpsItem.LastModifiedBy)
 
 	// DescribeOpsItems includes it.
 	desc, err := c.DescribeOpsItems(ctx, &ssm.DescribeOpsItemsInput{})
@@ -67,6 +72,7 @@ func TestSSM_OpsItemLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ssmtypes.OpsItemStatusResolved, got2.OpsItem.Status)
 	assert.Equal(t, "2", *got2.OpsItem.Version)
+	assert.Equal(t, *identity.Arn, *got2.OpsItem.LastModifiedBy, "an update records the identity that signed it")
 
 	// Associate a related item.
 	assoc, err := c.AssociateOpsItemRelatedItem(ctx, &ssm.AssociateOpsItemRelatedItemInput{

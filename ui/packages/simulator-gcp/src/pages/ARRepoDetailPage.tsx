@@ -71,7 +71,7 @@ export function ARRepoDetailPage() {
   // settles — the same way the list page's "Create repository" action
   // doesn't wait on a successful list read. Editing prefills the form from the
   // loaded resource, so its action appears once the read succeeds.
-  const deleteAction = [{ label: "Delete", testId: "ar-repo-delete", onSelect: () => setDeleting(true) }];
+  const deleteAction = [{ label: "Delete", icon: "delete" as const, testId: "ar-repo-delete", onSelect: () => setDeleting(true) }];
   const headerActions = repo.data
     ? [{ label: "Edit", icon: "edit" as const, testId: "ar-repo-edit", onSelect: () => setEditing(true) }, ...deleteAction]
     : deleteAction;
@@ -87,9 +87,9 @@ export function ARRepoDetailPage() {
         {deleting ? (
           <DeleteRepoDialog
             project={project}
-            repositoryId={name}
+            repositoryIds={[name]}
             onClose={() => setDeleting(false)}
-            onDeleted={() => navigate("/ui/ar")}
+            onDeleted={() => navigate("/ui/artifacts")}
           />
         ) : null}
       </>
@@ -101,10 +101,8 @@ export function ARRepoDetailPage() {
 
   return (
     <>
-      <div className="gc-detail-back">
-        <Link to="/ui/ar">‹ Artifact Registry</Link>
-      </div>
       <GcpPageHeader
+        backTo="/ui/artifacts"
         title={shortName(name)}
         description="Artifact Registry repository"
         actions={headerActions}
@@ -174,9 +172,9 @@ export function ARRepoDetailPage() {
       {deleting ? (
         <DeleteRepoDialog
           project={project}
-          repositoryId={name}
+          repositoryIds={[name]}
           onClose={() => setDeleting(false)}
-          onDeleted={() => navigate("/ui/ar")}
+          onDeleted={() => navigate("/ui/artifacts")}
         />
       ) : null}
       {editing && data ? (

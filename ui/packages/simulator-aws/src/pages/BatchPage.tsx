@@ -7,6 +7,7 @@ import {
   AwsResourceTable,
   AwsStatus,
   type AwsColumn,
+  AwsRefreshButton,
 } from "../console/index.js";
 import { formatEpoch } from "../console/format.js";
 import {
@@ -120,10 +121,11 @@ function TerminateJobsModal({ jobs, onClose, clearSelection }: {
   );
 }
 
-export function BatchPage() {
+export function BatchPage({ view = "jobs" }: { view?: "jobs" | "job-queues" | "job-definitions" | "compute-environments" }) {
   const [terminating, setTerminating] = useState<{ jobs: BatchJob[]; clearSelection: () => void } | null>(null);
   return (
     <>
+      {view === "jobs" && (
       <AwsResourceTable<BatchJob>
         title="Jobs"
         description="AWS Batch jobs across every job queue and lifecycle state in this account and Region."
@@ -139,21 +141,20 @@ export function BatchPage() {
         errorTestId="batch-jobs-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton
               disabled={selected.length === 0 || selected.every((job) => job.status === "SUCCEEDED" || job.status === "FAILED")}
               onClick={() => setTerminating({ jobs: selected, clearSelection })}
             >
               Terminate
             </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
-            </AwsButton>
           </>
         )}
       />
+      )}
+      {view === "job-queues" && (
       <AwsResourceTable<BatchJobQueue>
         title="Job queues"
-        headingVariant="h2"
         description="AWS Batch job queues in this account and Region."
         columns={queueColumns}
         queryKey={["batch-job-queues"]}
@@ -165,12 +166,13 @@ export function BatchPage() {
         tableTestId="batch-job-queues-table"
         errorTestId="batch-job-queues-error"
         actions={({ refetch, isFetching }) => (
-          <AwsButton onClick={refetch} disabled={isFetching}>{isFetching ? "Refreshing…" : "Refresh"}</AwsButton>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
         )}
       />
+      )}
+      {view === "job-definitions" && (
       <AwsResourceTable<BatchJobDefinition>
         title="Job definitions"
-        headingVariant="h2"
         description="Registered AWS Batch job definitions and their container resources."
         columns={definitionColumns}
         queryKey={["batch-job-definitions"]}
@@ -182,12 +184,13 @@ export function BatchPage() {
         tableTestId="batch-job-definitions-table"
         errorTestId="batch-job-definitions-error"
         actions={({ refetch, isFetching }) => (
-          <AwsButton onClick={refetch} disabled={isFetching}>{isFetching ? "Refreshing…" : "Refresh"}</AwsButton>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
         )}
       />
+      )}
+      {view === "compute-environments" && (
       <AwsResourceTable<BatchComputeEnvironment>
         title="Compute environments"
-        headingVariant="h2"
         description="The compute environments job queues dispatch to."
         columns={environmentColumns}
         queryKey={["batch-compute-environments"]}
@@ -199,9 +202,10 @@ export function BatchPage() {
         tableTestId="batch-compute-environments-table"
         errorTestId="batch-compute-environments-error"
         actions={({ refetch, isFetching }) => (
-          <AwsButton onClick={refetch} disabled={isFetching}>{isFetching ? "Refreshing…" : "Refresh"}</AwsButton>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
         )}
       />
+      )}
       {terminating && (
         <TerminateJobsModal
           jobs={terminating.jobs}

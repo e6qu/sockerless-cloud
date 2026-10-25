@@ -302,8 +302,7 @@ const staticSitesPattern = webProvider + "/staticSites/{name}"
 const webSubscriptionProvider = "/subscriptions/{subscriptionId}/providers/Microsoft.Web"
 
 func staticSiteARMID(r *http.Request) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/staticSites/%s",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
+	return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "staticSites", sim.PathParam(r, "name"))
 }
 
 // staticSiteOr404 loads the addressed static site, writing the canonical ARM
@@ -318,17 +317,13 @@ func staticSiteOr404(w http.ResponseWriter, r *http.Request) (StaticSiteResource
 	return ss, true
 }
 
-func staticSiteBuildARMID(r *http.Request) string {
-	return staticSiteARMID(r) + "/builds/" + sim.PathParam(r, "environmentName")
-}
-
 // staticSiteBuildOr404 loads the addressed build, writing the canonical ARM
 // 404 when either the site or the build environment does not exist.
 func staticSiteBuildOr404(w http.ResponseWriter, r *http.Request) (StaticSiteBuildARMResource, bool) {
 	if _, ok := staticSiteOr404(w, r); !ok {
 		return StaticSiteBuildARMResource{}, false
 	}
-	b, ok := webStaticSiteBuilds.Get(staticSiteBuildARMID(r))
+	b, ok := webStaticSiteBuilds.Get(armChildID(staticSiteARMID(r), "builds", sim.PathParam(r, "environmentName")))
 	if !ok {
 		AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 			"The Resource 'Microsoft.Web/staticSites/%s/builds/%s' was not found.",
@@ -507,15 +502,14 @@ func staticSiteCollection(filter func(StaticSiteResource) bool) map[string]any {
 }
 
 func handleStaticSitesListBySubscription(w http.ResponseWriter, r *http.Request) {
-	prefix := "/subscriptions/" + sim.PathParam(r, "subscriptionId") + "/"
+	prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/"
 	sim.WriteJSON(w, http.StatusOK, staticSiteCollection(func(s StaticSiteResource) bool {
 		return strings.HasPrefix(s.ID, prefix)
 	}))
 }
 
 func handleStaticSitesListByResourceGroup(w http.ResponseWriter, r *http.Request) {
-	prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/staticSites/",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
+	prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "staticSites") + "/"
 	sim.WriteJSON(w, http.StatusOK, staticSiteCollection(func(s StaticSiteResource) bool {
 		return strings.HasPrefix(s.ID, prefix)
 	}))
@@ -932,7 +926,7 @@ func handleStaticSiteBuildDelete(w http.ResponseWriter, r *http.Request) {
 			http.StatusBadRequest)
 		return
 	}
-	id := staticSiteBuildARMID(r)
+	id := armChildID(staticSiteARMID(r), "builds", sim.PathParam(r, "environmentName"))
 	if !webStaticSiteBuilds.Delete(id) {
 		w.WriteHeader(http.StatusNoContent)
 		return

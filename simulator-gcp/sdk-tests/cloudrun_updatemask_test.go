@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +21,7 @@ func TestCloudRun_UpdateServiceHonorsUpdateMask(t *testing.T) {
 	t.Parallel()
 	parent := "projects/test-project/locations/us-central1"
 	base := baseURL + "/v2/" + parent + "/services"
-	sid := uniqueName("mask-svc")
+	sid := uniquename.New("mask-svc")
 
 	doJSON := func(method, url, body string) (*http.Response, []byte) {
 		var r io.Reader
@@ -75,7 +76,7 @@ func TestCloudRun_UpdateServiceSubPathMask(t *testing.T) {
 	t.Parallel()
 	parent := "projects/test-project/locations/us-central1"
 	base := baseURL + "/v2/" + parent + "/services"
-	sid := uniqueName("subpath-mask-svc")
+	sid := uniquename.New("subpath-mask-svc")
 
 	doJSON := func(method, url, body string) (*http.Response, []byte) {
 		var r io.Reader
@@ -145,7 +146,7 @@ func TestCloudRun_UpdateServiceRejectsUnknownMaskPath(t *testing.T) {
 	t.Parallel()
 	parent := "projects/test-project/locations/us-central1"
 	base := baseURL + "/v2/" + parent + "/services"
-	sid := uniqueName("badmask-svc")
+	sid := uniquename.New("badmask-svc")
 
 	doJSON := func(method, url, body string) (*http.Response, []byte) {
 		var r io.Reader
@@ -205,7 +206,7 @@ func TestCloudRun_UpdateServiceTemplateFieldMask(t *testing.T) {
 	t.Parallel()
 	parent := "projects/test-project/locations/us-central1"
 	base := baseURL + "/v2/" + parent + "/services"
-	sid := uniqueName("tmpl-sa-svc")
+	sid := uniquename.New("tmpl-sa-svc")
 
 	doJSON := func(method, url, body string) (*http.Response, []byte) {
 		var r io.Reader

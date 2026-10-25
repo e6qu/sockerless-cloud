@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/bigquery"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
@@ -73,7 +74,7 @@ func TestBigQuery_LoadCopyExtractThroughCloudStorage(t *testing.T) {
 	gcs := storageClient(t)
 	defer gcs.Close()
 
-	bucketName := uniqueName("bq-jobs")
+	bucketName := uniquename.New("bq-jobs")
 	bucket := gcs.Bucket(bucketName)
 	requireProject(t, project)
 	require.NoError(t, bucket.Create(ctx, project, nil))
@@ -87,7 +88,7 @@ func TestBigQuery_LoadCopyExtractThroughCloudStorage(t *testing.T) {
 		require.NoError(t, w.Close())
 	}
 
-	dataset := client.Dataset(strings.ReplaceAll(uniqueName("ds_jobs"), "-", "_"))
+	dataset := client.Dataset(strings.ReplaceAll(uniquename.New("ds_jobs"), "-", "_"))
 	require.NoError(t, dataset.Create(ctx, nil))
 
 	source := bigquery.NewGCSReference("gs://" + bucketName + "/people/part-*")

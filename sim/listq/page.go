@@ -7,9 +7,12 @@ package listq
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 // ErrBadToken reports a page token the list operation never issued.
@@ -101,34 +104,115 @@ func TokenPage[T any](t Tokens, items []T, token string, size, def, max int) (pa
 	return page, next, nil
 }
 
-// KeyPage pages items, sorted ascending by key, with a token that names the
-// last key a page returned rather than an offset, so an item created or
-// deleted before that key between two calls neither repeats nor skips one
-// after it. An empty token starts at the first item; any other token must be
-// one KeyPage issued. size, def and max combine as in Window.
-//
-// The token carries a marker byte ahead of the key, so a token another
-// paginator issued, or one a caller made up, fails as ErrBadToken instead of
-// reading as a key.
+// KeyPage pages items in ascending order of key, which names each item
+// uniquely: ColumnPage with key as its one column.
 func KeyPage[T any](items []T, key func(T) string, token string, size, def, max int) (page []T, next string, err error) {
+	return ColumnPage(items, []Column{{Value: func(i int) string { return key(items[i]) }}}, token, size, def, max)
+}
+
+// Column is one term of a list's order: the value item i sorts by, how two
+// values compare (as text when Compare is nil), and whether the term runs
+// descending.
+type Column struct {
+	Value   func(i int) string
+	Compare func(a, b string) int
+	Desc    bool
+}
+
+func (c Column) compare(a, b string) int {
+	order := strings.Compare(a, b)
+	if c.Compare != nil {
+		order = c.Compare(a, b)
+	}
+	if c.Desc {
+		return -order
+	}
+	return order
+}
+
+// ColumnPage pages items in the order columns give, the last column naming
+// each item uniquely, with a token that carries the sort values of the last
+// item a page returned rather than an offset: the next page resumes strictly
+// after them, so an item created or deleted between two calls moves no other
+// item across a page boundary. An empty token starts at the first item; any
+// other token must be one ColumnPage issued for as many columns, or the call
+// answers ErrBadToken. size, def and max combine as in Window.
+func ColumnPage[T any](items []T, columns []Column, token string, size, def, max int) (page []T, next string, err error) {
+	rows := make([][]string, len(items))
+	for i := range items {
+		rows[i] = make([]string, len(columns))
+		for c, column := range columns {
+			rows[i][c] = column.Value(i)
+		}
+	}
+	compare := func(a, b []string) int {
+		for c, column := range columns {
+			if order := column.compare(a[c], b[c]); order != 0 {
+				return order
+			}
+		}
+		return 0
+	}
+	index := make([]int, len(items))
+	for i := range index {
+		index[i] = i
+	}
+	sort.SliceStable(index, func(i, j int) bool { return compare(rows[index[i]], rows[index[j]]) < 0 })
 	start := 0
 	if token != "" {
-		raw, decodeErr := base64.RawURLEncoding.DecodeString(token)
-		if decodeErr != nil || len(raw) < 2 || raw[0] != keyTokenMarker {
+		after, ok := columnMarker(token, len(columns))
+		if !ok {
 			return nil, "", ErrBadToken
 		}
-		after := string(raw[1:])
-		start = sort.Search(len(items), func(i int) bool { return key(items[i]) > after })
+		start = sort.Search(len(index), func(i int) bool { return compare(rows[index[i]], after) > 0 })
 	}
-	_, end, _, _ := Window(Decimal, len(items)-start, "", size, def, max)
-	page = items[start : start+end]
-	if start+end < len(items) && len(page) > 0 {
-		next = base64.RawURLEncoding.EncodeToString(append([]byte{keyTokenMarker}, key(page[len(page)-1])...))
+	_, end, _, _ := Window(Decimal, len(index)-start, "", size, def, max)
+	end += start
+	if end < len(index) && end > start {
+		// The values travel as bytes, since a key spelled for its order, such
+		// as one inverted for a descending term, need not be valid UTF-8.
+		last := make([][]byte, len(columns))
+		for c, value := range rows[index[end-1]] {
+			last[c] = []byte(value)
+		}
+		encoded, err := json.Marshal(last)
+		if err != nil {
+			return nil, "", err
+		}
+		next = base64.RawURLEncoding.EncodeToString(append([]byte(columnTokenTag), encoded...))
 	}
-	if page == nil {
-		page = []T{}
+	page = make([]T, 0, end-start)
+	for _, i := range index[start:end] {
+		page = append(page, items[i])
 	}
 	return page, next, nil
 }
 
-const keyTokenMarker = 0x6b
+// columnTokenTag marks a token as one ColumnPage issued.
+const columnTokenTag = "after\x00"
+
+func columnMarker(token string, terms int) ([]string, bool) {
+	decoded, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return nil, false
+	}
+	body, ok := strings.CutPrefix(string(decoded), columnTokenTag)
+	if !ok {
+		return nil, false
+	}
+	var values [][]byte
+	if json.Unmarshal([]byte(body), &values) != nil || len(values) != terms {
+		return nil, false
+	}
+	after := make([]string, terms)
+	for c, value := range values {
+		after[c] = string(value)
+	}
+	return after, true
+}
+
+// IntKey spells n so that string order matches numeric order, for a key or
+// column whose values are integers.
+func IntKey(n int64) string {
+	return fmt.Sprintf("%020d", uint64(n)^(1<<63))
+}

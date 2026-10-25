@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -12,7 +13,7 @@ import (
 func cliUntrustedRoles(t *testing.T) (otherService, absent string) {
 	t.Helper()
 	otherService = cliServiceRole(t, "ec2.amazonaws.com")
-	absent = otherService[:strings.LastIndex(otherService, "/")+1] + cliUniqueName("absent")
+	absent = otherService[:strings.LastIndex(otherService, "/")+1] + uniquename.New("absent")
 	return otherService, absent
 }
 
@@ -28,12 +29,12 @@ func TestLambda_RefusesAnExecutionRoleItCannotAssume_CLI(t *testing.T) {
 	otherService, absent := cliUntrustedRoles(t)
 	for _, role := range []string{otherService, absent} {
 		out := runCLIExpectError(t, awsCLI("lambda", "create-function",
-			"--function-name", cliUniqueName("cli-fn-untrusted"), "--runtime", "nodejs20.x",
+			"--function-name", uniquename.New("cli-fn-untrusted"), "--runtime", "nodejs20.x",
 			"--role", role, "--handler", "index.handler", "--zip-file", "fileb://"+zipPath))
 		assertCLIRefusal(t, out, "InvalidParameterValueException", "The role defined for the function cannot be assumed by Lambda.")
 	}
 
-	name := cliUniqueName("cli-fn-trusted")
+	name := uniquename.New("cli-fn-trusted")
 	runCLI(t, awsCLI("lambda", "create-function", "--function-name", name, "--runtime", "nodejs20.x",
 		"--role", cliServiceRole(t, "lambda.amazonaws.com"), "--handler", "index.handler", "--zip-file", "fileb://"+zipPath))
 	t.Cleanup(func() { _ = awsCLI("lambda", "delete-function", "--function-name", name).Run() })
@@ -52,11 +53,11 @@ func TestCodeBuild_RefusesAServiceRoleItCannotAssume_CLI(t *testing.T) {
 			"--service-role", role}
 	}
 	for _, role := range []string{otherService, absent} {
-		out := runCLIExpectError(t, awsCLI(create(cliUniqueName("cli-cb-untrusted"), role)...))
+		out := runCLIExpectError(t, awsCLI(create(uniquename.New("cli-cb-untrusted"), role)...))
 		assertCLIRefusal(t, out, "InvalidInputException", "CodeBuild is not authorized to perform: sts:AssumeRole on "+role)
 	}
 
-	name := cliUniqueName("cli-cb-trusted")
+	name := uniquename.New("cli-cb-trusted")
 	runCLI(t, awsCLI(create(name, cliServiceRole(t, "codebuild.amazonaws.com"))...))
 	t.Cleanup(func() { _ = awsCLI("codebuild", "delete-project", "--name", name).Run() })
 	out := runCLIExpectError(t, awsCLI("codebuild", "update-project", "--name", name, "--service-role", otherService))
@@ -67,7 +68,7 @@ func TestBatch_RefusesARoleECSTasksCannotAssume_CLI(t *testing.T) {
 	t.Parallel()
 	otherService, absent := cliUntrustedRoles(t)
 	register := func(roles string) []string {
-		return []string{"batch", "register-job-definition", "--job-definition-name", cliUniqueName("cli-batch-role-trust"),
+		return []string{"batch", "register-job-definition", "--job-definition-name", uniquename.New("cli-batch-role-trust"),
 			"--type", "container",
 			"--container-properties", `{"image":"mirror.gcr.io/library/alpine:3","command":["true"]` + roles + `}`}
 	}
@@ -83,12 +84,12 @@ func TestGlue_RefusesAJobRoleItCannotAssume_CLI(t *testing.T) {
 	otherService, absent := cliUntrustedRoles(t)
 	command := `{"Name":"glueetl","ScriptLocation":"s3://bucket/script.py"}`
 	for _, role := range []string{otherService, absent} {
-		out := runCLIExpectError(t, awsCLI("glue", "create-job", "--name", cliUniqueName("cli-glue-untrusted"),
+		out := runCLIExpectError(t, awsCLI("glue", "create-job", "--name", uniquename.New("cli-glue-untrusted"),
 			"--role", role, "--command", command))
 		assertCLIRefusal(t, out, "InvalidInputException", "Role "+role+" should be given assume role permissions for Glue Service.")
 	}
 
-	name := cliUniqueName("cli-glue-trusted")
+	name := uniquename.New("cli-glue-trusted")
 	runCLI(t, awsCLI("glue", "create-job", "--name", name, "--role", cliServiceRole(t, "glue.amazonaws.com"), "--command", command))
 	t.Cleanup(func() { _ = awsCLI("glue", "delete-job", "--job-name", name).Run() })
 	out := runCLIExpectError(t, awsCLI("glue", "update-job", "--job-name", name,
@@ -99,10 +100,10 @@ func TestGlue_RefusesAJobRoleItCannotAssume_CLI(t *testing.T) {
 func TestAmplify_RefusesARoleItCannotAssume_CLI(t *testing.T) {
 	t.Parallel()
 	otherService, absent := cliUntrustedRoles(t)
-	out := runCLIExpectError(t, awsCLI("amplify", "create-app", "--name", cliUniqueName("cli-amp-untrusted"),
+	out := runCLIExpectError(t, awsCLI("amplify", "create-app", "--name", uniquename.New("cli-amp-untrusted"),
 		"--compute-role-arn", otherService))
 	assertCLIRefusal(t, out, "BadRequestException", "computeRoleArn "+otherService+" cannot be assumed by amplify.amazonaws.com")
-	out = runCLIExpectError(t, awsCLI("amplify", "create-app", "--name", cliUniqueName("cli-amp-untrusted"),
+	out = runCLIExpectError(t, awsCLI("amplify", "create-app", "--name", uniquename.New("cli-amp-untrusted"),
 		"--iam-service-role-arn", absent))
 	assertCLIRefusal(t, out, "BadRequestException", "iamServiceRoleArn "+absent+" cannot be assumed by amplify.amazonaws.com")
 
@@ -111,7 +112,7 @@ func TestAmplify_RefusesARoleItCannotAssume_CLI(t *testing.T) {
 			AppID string `json:"appId"`
 		} `json:"app"`
 	}
-	parseJSON(t, runCLI(t, awsCLI("amplify", "create-app", "--name", cliUniqueName("cli-amp-trusted"),
+	parseJSON(t, runCLI(t, awsCLI("amplify", "create-app", "--name", uniquename.New("cli-amp-trusted"),
 		"--compute-role-arn", cliServiceRole(t, "amplify.amazonaws.com"), "--output", "json")), &created)
 	t.Cleanup(func() { _ = awsCLI("amplify", "delete-app", "--app-id", created.App.AppID).Run() })
 	out = runCLIExpectError(t, awsCLI("amplify", "update-app", "--app-id", created.App.AppID, "--compute-role-arn", otherService))
@@ -124,7 +125,7 @@ func TestAmplify_RefusesARoleItCannotAssume_CLI(t *testing.T) {
 func TestBatch_ComputeEnvironmentWithAServiceRoleItCannotAssumeIsInvalid_CLI(t *testing.T) {
 	t.Parallel()
 	otherService, _ := cliUntrustedRoles(t)
-	name := cliUniqueName("cli-batch-ce-untrusted")
+	name := uniquename.New("cli-batch-ce-untrusted")
 	runCLI(t, awsCLI("batch", "create-compute-environment", "--compute-environment-name", name,
 		"--type", "UNMANAGED", "--service-role", otherService))
 	t.Cleanup(func() { _ = awsCLI("batch", "delete-compute-environment", "--compute-environment", name).Run() })
@@ -142,7 +143,7 @@ func TestBatch_ComputeEnvironmentWithAServiceRoleItCannotAssumeIsInvalid_CLI(t *
 func TestCodeBuild_RefusesAServiceRoleOverrideItCannotAssume_CLI(t *testing.T) {
 	t.Parallel()
 	otherService, absent := cliUntrustedRoles(t)
-	name := cliUniqueName("cli-cb-override")
+	name := uniquename.New("cli-cb-override")
 	runCLI(t, awsCLI("codebuild", "create-project", "--name", name,
 		"--source", `{"type":"NO_SOURCE","buildspec":"version: 0.2"}`,
 		"--artifacts", `{"type":"NO_ARTIFACTS"}`,
@@ -161,7 +162,7 @@ func TestCodeBuild_RefusesAFleetServiceRoleItCannotAssume_CLI(t *testing.T) {
 	t.Parallel()
 	otherService, absent := cliUntrustedRoles(t)
 	create := func(role string) []string {
-		return []string{"codebuild", "create-fleet", "--name", cliUniqueName("cli-cb-fleet-role"), "--base-capacity", "1",
+		return []string{"codebuild", "create-fleet", "--name", uniquename.New("cli-cb-fleet-role"), "--base-capacity", "1",
 			"--compute-type", "BUILD_GENERAL1_SMALL", "--environment-type", "LINUX_CONTAINER", "--fleet-service-role", role}
 	}
 	for _, role := range []string{otherService, absent} {
@@ -187,26 +188,26 @@ func TestGlue_RefusesARoleItCannotAssumeBeyondJobs_CLI(t *testing.T) {
 	}
 	targets := `{"S3Targets":[{"Path":"s3://bucket/prefix"}]}`
 	transform := func(role string) []string {
-		return []string{"glue", "create-ml-transform", "--name", cliUniqueName("cli-glue-mlt"),
+		return []string{"glue", "create-ml-transform", "--name", uniquename.New("cli-glue-mlt"),
 			"--input-record-tables", `[{"DatabaseName":"db","TableName":"tbl"}]`,
 			"--parameters", `{"TransformType":"FIND_MATCHES"}`, "--role", role}
 	}
 	for _, role := range []string{otherService, absent} {
-		out := runCLIExpectError(t, awsCLI("glue", "create-crawler", "--name", cliUniqueName("cli-glue-crawler"),
+		out := runCLIExpectError(t, awsCLI("glue", "create-crawler", "--name", uniquename.New("cli-glue-crawler"),
 			"--role", role, "--targets", targets))
 		assertCLIRefusal(t, out, "InvalidInputException", crawlerRefusal)
-		out = runCLIExpectError(t, awsCLI("glue", "create-session", "--id", cliUniqueName("cli-glue-session"),
+		out = runCLIExpectError(t, awsCLI("glue", "create-session", "--id", uniquename.New("cli-glue-session"),
 			"--role", role, "--command", `{"Name":"glueetl"}`))
 		assertCLIRefusal(t, out, "InvalidInputException", jobRefusal(role))
 		out = runCLIExpectError(t, awsCLI(transform(role)...))
 		assertCLIRefusal(t, out, "InvalidInputException", "Unable to assume role "+role)
-		out = runCLIExpectError(t, awsCLI("glue", "create-dev-endpoint", "--endpoint-name", cliUniqueName("cli-glue-dev"),
+		out = runCLIExpectError(t, awsCLI("glue", "create-dev-endpoint", "--endpoint-name", uniquename.New("cli-glue-dev"),
 			"--role-arn", role))
 		assertCLIRefusal(t, out, "InvalidInputException", jobRefusal(role))
 	}
 
 	trusted := cliServiceRole(t, "glue.amazonaws.com")
-	crawler := cliUniqueName("cli-glue-crawler")
+	crawler := uniquename.New("cli-glue-crawler")
 	runCLI(t, awsCLI("glue", "create-crawler", "--name", crawler, "--role", trusted, "--targets", targets))
 	t.Cleanup(func() { _ = awsCLI("glue", "delete-crawler", "--name", crawler).Run() })
 	out := runCLIExpectError(t, awsCLI("glue", "update-crawler", "--name", crawler, "--role", otherService))
@@ -224,7 +225,7 @@ func TestGlue_RefusesARunRoleItCannotAssume_CLI(t *testing.T) {
 	refusal := func(role string) string {
 		return "Role " + role + " should be given assume role permissions for Glue Service."
 	}
-	database, table, blueprint := cliUniqueName("cli-glue-run-role"), "events", cliUniqueName("cli-glue-run-role")
+	database, table, blueprint := uniquename.New("cli-glue-run-role"), "events", uniquename.New("cli-glue-run-role")
 	runCLI(t, awsCLI("glue", "create-database", "--database-input", `{"Name":"`+database+`"}`))
 	t.Cleanup(func() { _ = awsCLI("glue", "delete-database", "--name", database).Run() })
 	runCLI(t, awsCLI("glue", "create-table", "--database-name", database, "--table-input", `{"Name":"`+table+`"}`))
@@ -236,7 +237,7 @@ func TestGlue_RefusesARunRoleItCannotAssume_CLI(t *testing.T) {
 	tableArgs := []string{"--database-name", database, "--table-name", table}
 	for _, role := range []string{otherService, absent} {
 		out := runCLIExpectError(t, awsCLI("glue", "start-data-quality-ruleset-evaluation-run", "--data-source", source,
-			"--role", role, "--ruleset-names", cliUniqueName("cli-glue-ruleset")))
+			"--role", role, "--ruleset-names", uniquename.New("cli-glue-ruleset")))
 		assertCLIRefusal(t, out, "InvalidInputException", refusal(role))
 		out = runCLIExpectError(t, awsCLI("glue", "start-data-quality-rule-recommendation-run", "--data-source", source, "--role", role))
 		assertCLIRefusal(t, out, "InvalidInputException", refusal(role))
@@ -263,13 +264,13 @@ func TestGlue_RefusesARunRoleItCannotAssume_CLI(t *testing.T) {
 func TestECS_RefusesToLaunchATaskWithARoleItCannotAssume_CLI(t *testing.T) {
 	t.Parallel()
 	otherService, absent := cliUntrustedRoles(t)
-	cluster := cliUniqueName("cli-ecs-role-trust")
+	cluster := uniquename.New("cli-ecs-role-trust")
 	runCLI(t, awsCLI("ecs", "create-cluster", "--cluster-name", cluster))
 	t.Cleanup(func() { _ = awsCLI("ecs", "delete-cluster", "--cluster", cluster).Run() })
 	subnetID := createCLIECSTestSubnet(t, cluster, "10.163.0.0/16")
 
 	register := func(roles ...string) string {
-		args := []string{"ecs", "register-task-definition", "--family", cliUniqueName("cli-ecs-role-trust"),
+		args := []string{"ecs", "register-task-definition", "--family", uniquename.New("cli-ecs-role-trust"),
 			"--requires-compatibilities", "FARGATE", "--network-mode", "awsvpc", "--cpu", "256", "--memory", "512",
 			"--container-definitions", `[{"name":"app","image":"mirror.gcr.io/library/alpine:3.21","command":["true"],"stopTimeout":2}]`,
 			"--query", "taskDefinition.taskDefinitionArn", "--output", "text"}
@@ -308,14 +309,14 @@ func TestSFN_RefusesAnExecutionRoleItCannotAssume_CLI(t *testing.T) {
 	}
 	syncEndpoint := sfnSyncEndpoint(t)
 	for _, role := range []string{otherService, absent} {
-		out := runCLIExpectError(t, awsCLI(create(cliUniqueName("cli-sfn-untrusted"), role)...))
+		out := runCLIExpectError(t, awsCLI(create(uniquename.New("cli-sfn-untrusted"), role)...))
 		assertCLIRefusal(t, out, "AccessDeniedException", refusal)
 		out = runCLIExpectError(t, awsCLIHostPrefixed("stepfunctions", "test-state",
 			"--definition", `{"Type":"Pass","End":true}`, "--role-arn", role, "--endpoint-url", syncEndpoint))
 		assertCLIRefusal(t, out, "AccessDeniedException", refusal)
 	}
 
-	machine := strings.TrimSpace(runCLI(t, awsCLI(create(cliUniqueName("cli-sfn-trusted"), cliServiceRole(t, "states.amazonaws.com"))...)))
+	machine := strings.TrimSpace(runCLI(t, awsCLI(create(uniquename.New("cli-sfn-trusted"), cliServiceRole(t, "states.amazonaws.com"))...)))
 	t.Cleanup(func() { _ = awsCLI("stepfunctions", "delete-state-machine", "--state-machine-arn", machine).Run() })
 	out := runCLIExpectError(t, awsCLI("stepfunctions", "update-state-machine", "--state-machine-arn", machine, "--role-arn", otherService))
 	assertCLIRefusal(t, out, "AccessDeniedException", refusal)
@@ -325,17 +326,17 @@ func TestScheduler_RefusesATargetRoleItCannotAssume_CLI(t *testing.T) {
 	t.Parallel()
 	otherService, absent := cliUntrustedRoles(t)
 	const refusal = "The execution role you provide must allow AWS EventBridge Scheduler to assume the role."
-	queue := "arn:aws:sqs:us-east-1:" + strings.Split(otherService, ":")[4] + ":" + cliUniqueName("cli-sched-trust")
+	queue := "arn:aws:sqs:us-east-1:" + strings.Split(otherService, ":")[4] + ":" + uniquename.New("cli-sched-trust")
 	schedule := func(operation, name, expression, role string) []string {
 		return []string{"scheduler", operation, "--name", name, "--schedule-expression", expression,
 			"--flexible-time-window", `{"Mode":"OFF"}`, "--target", `{"Arn":"` + queue + `","RoleArn":"` + role + `","Input":"tick"}`}
 	}
 	for _, role := range []string{otherService, absent} {
-		out := runCLIExpectError(t, awsCLI(schedule("create-schedule", cliUniqueName("cli-sched-untrusted"), "rate(1 day)", role)...))
+		out := runCLIExpectError(t, awsCLI(schedule("create-schedule", uniquename.New("cli-sched-untrusted"), "rate(1 day)", role)...))
 		assertCLIRefusal(t, out, "ValidationException", refusal)
 	}
 
-	name := cliUniqueName("cli-sched-trusted")
+	name := uniquename.New("cli-sched-trusted")
 	runCLI(t, awsCLI(schedule("create-schedule", name, "rate(1 day)", cliServiceRole(t, "scheduler.amazonaws.com"))...))
 	t.Cleanup(func() { _ = awsCLI("scheduler", "delete-schedule", "--name", name).Run() })
 	out := runCLIExpectError(t, awsCLI(schedule("update-schedule", name, "rate(2 days)", otherService)...))

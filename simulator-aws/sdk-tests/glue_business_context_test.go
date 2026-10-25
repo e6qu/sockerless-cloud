@@ -12,6 +12,7 @@ import (
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/glue"
 	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -239,10 +240,10 @@ func TestGlueBusinessContextLifecycle_SDK(t *testing.T) {
 
 func TestGlueEntityRecordsAndBatchEvaluationRuns_SDK(t *testing.T) {
 	t.Parallel()
-	rulesetName := uniqueName("business-context-rules")
-	databaseName := uniqueName("business_entities")
-	connectionName := uniqueName("glue-dynamodb-connection")
-	tableName := uniqueName("glue-business-entities")
+	rulesetName := uniquename.New("business-context-rules")
+	databaseName := uniquename.New("business_entities")
+	connectionName := uniquename.New("glue-dynamodb-connection")
+	tableName := uniquename.New("glue-business-entities")
 	client := glueClient()
 	dynamoDBClient := ddbClient()
 

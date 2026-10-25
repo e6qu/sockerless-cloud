@@ -336,7 +336,10 @@ func handleCWDescribeQueryDefinitions(w http.ResponseWriter, r *http.Request) {
 		QueryDefinitionNamePrefix string `json:"queryDefinitionNamePrefix"`
 		QueryLanguage             string `json:"queryLanguage"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	defs := cwQueryDefinitions.Filter(func(d CWQueryDefinition) bool {
 		if req.QueryDefinitionNamePrefix != "" && !strings.HasPrefix(d.Name, req.QueryDefinitionNamePrefix) {
 			return false
@@ -449,7 +452,10 @@ func handleCWDescribeDestinations(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		DestinationNamePrefix string `json:"DestinationNamePrefix"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	dests := cwDestinations.Filter(func(d CWDestination) bool {
 		if req.DestinationNamePrefix != "" && !strings.HasPrefix(d.DestinationName, req.DestinationNamePrefix) {
 			return false
@@ -864,7 +870,10 @@ func handleCWListLogAnomalyDetectors(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		FilterLogGroupArn string `json:"filterLogGroupArn"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	detectors := cwLogAnomalyDetectors.Filter(func(d CWLogAnomalyDetector) bool {
 		if req.FilterLogGroupArn == "" {
 			return true
@@ -942,7 +951,10 @@ func handleCWDescribeIndexPolicies(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		LogGroupIdentifiers []string `json:"logGroupIdentifiers"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	wanted := map[string]bool{}
 	for _, id := range req.LogGroupIdentifiers {
 		wanted[id] = true

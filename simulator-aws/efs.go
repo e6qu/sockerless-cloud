@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -116,10 +115,7 @@ func efsRootDirectoryPath(rd *EFSRootDirectory) string {
 // X-Amzn-ErrorType header, and every EFS error shape carries its code in the
 // ErrorCode member beside its Message.
 func efsError(w http.ResponseWriter, code, message string, status int) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Amzn-ErrorType", code)
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(awsErrorBody("efs", code, message))
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsRestJSON1, Model: "efs"}, status, code, message, "")
 }
 
 func efsErrorf(w http.ResponseWriter, code string, status int, format string, args ...any) {

@@ -167,7 +167,7 @@ func newSSMOpsItemID() string {
 }
 
 func ssmOpsItemArn(id string) string {
-	return fmt.Sprintf("arn:aws:ssm:us-east-1:123456789012:opsitem/%s", id)
+	return fmt.Sprintf("arn:aws:ssm:%s:%s:opsitem/%s", awsRegion(), awsAccountID(), id)
 }
 
 func ssmOpsDataWire(d map[string]SSMOpsItemDataVal) map[string]any {
@@ -332,9 +332,9 @@ func handleSSMCreateOpsItem(w http.ResponseWriter, r *http.Request) {
 		Category:         req.Category,
 		Severity:         req.Severity,
 		Version:          "1",
-		CreatedBy:        "arn:aws:iam::123456789012:user/sockerless",
+		CreatedBy:        awsCallerArn(r),
 		CreatedTime:      now,
-		LastModifiedBy:   "arn:aws:iam::123456789012:user/sockerless",
+		LastModifiedBy:   awsCallerArn(r),
 		LastModifiedTime: now,
 		OperationalData:  req.OperationalData.toModel(),
 	}
@@ -347,7 +347,7 @@ func handleSSMCreateOpsItem(w http.ResponseWriter, r *http.Request) {
 	ssmOpsItems.Put(o.OpsItemId, o)
 	ssmTagOnCreate("OpsItem", o.OpsItemId, req.Tags)
 
-	ssmRecordOpsItemEvent(o.OpsItemId, "OpsCenter", "OpsItem Create", "Created OpsItem")
+	ssmRecordOpsItemEvent(o.OpsItemId, "OpsCenter", "OpsItem Create", "Created OpsItem", o.CreatedBy)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"OpsItemId":  o.OpsItemId,
 		"OpsItemArn": o.OpsItemArn,
@@ -458,10 +458,11 @@ func handleSSMUpdateOpsItem(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	o.Version = ssmBumpVersion(o.Version)
+	o.LastModifiedBy = awsCallerArn(r)
 	o.LastModifiedTime = float64(time.Now().Unix())
 	ssmOpsItems.Put(o.OpsItemId, o)
 
-	ssmRecordOpsItemEvent(o.OpsItemId, "OpsCenter", "OpsItem Update", "Updated OpsItem")
+	ssmRecordOpsItemEvent(o.OpsItemId, "OpsCenter", "OpsItem Update", "Updated OpsItem", o.LastModifiedBy)
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
@@ -472,31 +473,7 @@ func ssmBumpVersion(v string) string {
 }
 
 func handleSSMDescribeOpsItems(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		NextToken  string `json:"NextToken"`
-		MaxResults int    `json:"MaxResults"`
-	}
-	if err := sim.ReadJSON(r, &req); err != nil {
-		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
-		return
-	}
-	all := ssmOpsItems.List()
-	if all == nil {
-		all = []SSMOpsItem{}
-	}
-	page, next, pageOK := awsKeyPage(w, ssmBadToken, all, func(it SSMOpsItem) string { return it.OpsItemId }, req.NextToken, req.MaxResults, 50)
-	if !pageOK {
-		return
-	}
-	out := make([]map[string]any, 0, len(page))
-	for _, o := range page {
-		out = append(out, ssmOpsItemSummaryWire(o))
-	}
-	resp := map[string]any{"OpsItemSummaries": out}
-	if next != "" {
-		resp["NextToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
+	ssmDescribePage(w, r, ssmOpsItems, func(it SSMOpsItem) string { return it.OpsItemId }, ssmOpsItemSummaryWire, "OpsItemSummaries")
 }
 
 func handleSSMAssociateOpsItemRelatedItem(w http.ResponseWriter, r *http.Request) {
@@ -522,9 +499,9 @@ func handleSSMAssociateOpsItemRelatedItem(w http.ResponseWriter, r *http.Request
 		AssociationType:  req.AssociationType,
 		ResourceType:     req.ResourceType,
 		ResourceUri:      req.ResourceUri,
-		CreatedBy:        "arn:aws:iam::123456789012:user/sockerless",
+		CreatedBy:        awsCallerArn(r),
 		CreatedTime:      now,
-		LastModifiedBy:   "arn:aws:iam::123456789012:user/sockerless",
+		LastModifiedBy:   awsCallerArn(r),
 		LastModifiedTime: now,
 	}
 	ssmOpsItemRelated.Put(rel.AssociationId, rel)
@@ -550,14 +527,14 @@ func handleSSMDisassociateOpsItemRelatedItem(w http.ResponseWriter, r *http.Requ
 	sim.WriteJSON(w, http.StatusOK, map[string]any{})
 }
 
-func ssmRecordOpsItemEvent(opsItemID, source, detailType, detail string) {
+func ssmRecordOpsItemEvent(opsItemID, source, detailType, detail, createdBy string) {
 	ev := SSMOpsItemEvent{
 		OpsItemId:   opsItemID,
 		EventId:     uuid.New().String(),
 		Source:      source,
 		DetailType:  detailType,
 		Detail:      detail,
-		CreatedBy:   "arn:aws:iam::123456789012:user/sockerless",
+		CreatedBy:   createdBy,
 		CreatedTime: float64(time.Now().Unix()),
 	}
 	ssmOpsItemEvents.Put(ev.EventId, ev)
@@ -1279,7 +1256,7 @@ func handleSSMStartSession(w http.ResponseWriter, r *http.Request) {
 		Status:       "Connected",
 		StartDate:    float64(time.Now().Unix()),
 		DocumentName: req.DocumentName,
-		Owner:        "arn:aws:iam::123456789012:user/sockerless",
+		Owner:        awsCallerArn(r),
 		Reason:       req.Reason,
 		TokenValue:   ssmTokenValue(),
 	}

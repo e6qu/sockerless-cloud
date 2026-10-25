@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -216,7 +215,7 @@ func azureSubscriptionView(sub string) (displayName, state, tenantID string) {
 func azureSubscriptionObject(sub string) map[string]any {
 	displayName, state, tenantID := azureSubscriptionView(sub)
 	return map[string]any{
-		"id":             "/subscriptions/" + sub,
+		"id":             armSubscriptionID(sub),
 		"subscriptionId": sub,
 		"tenantId":       tenantID,
 		"displayName":    displayName,
@@ -241,7 +240,7 @@ func azureLocations(sub string) []map[string]any {
 	out := make([]map[string]any, 0, len(regions))
 	for _, rg := range regions {
 		out = append(out, map[string]any{
-			"id":                  fmt.Sprintf("/subscriptions/%s/locations/%s", sub, rg.name),
+			"id":                  armChildID(armSubscriptionID(sub), "locations", rg.name),
 			"subscriptionId":      sub,
 			"name":                rg.name,
 			"displayName":         rg.display,

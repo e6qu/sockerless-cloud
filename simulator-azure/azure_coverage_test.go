@@ -129,6 +129,7 @@ var azureDeclaredOperationTotals = map[string]int{
 	"operationalinsights-arm-workspaces-2020-08-01":                   8,
 	"operationalinsights-arm-tables-2022-10-01":                       7,
 	"monitor-arm-datacollection-2024-03-11":                           18,
+	"monitor-arm-activitylogs-2015-04-01":                             1,
 	"monitor-arm-metrics-2024-02-01":                                  6,
 	"monitor-arm-diagnosticssettings-2021-05-01-preview":              4,
 	"monitor-arm-diagnosticssettingscategories-2017-05-01-preview":    2,
@@ -346,6 +347,9 @@ var azureMethodFloor = map[string]int{
 	// Data collection endpoints and rules; the six association operations are
 	// a declared 501, as the simulator runs no Azure Monitor Agent.
 	"monitor-arm-datacollection-2024-03-11": 12,
+	// The subscription Activity Log, which the simulator records from every
+	// Azure Resource Manager write and action it serves.
+	"monitor-arm-activitylogs-2015-04-01": 1,
 	// Azure Monitor platform metrics, served for NAT gateways, whose data
 	// plane records them: the resource's metric definitions, metric
 	// namespaces and metrics, and the subscription-scoped definitions and

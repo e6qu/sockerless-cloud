@@ -6,6 +6,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/servicebus/armservicebus"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,7 +19,7 @@ func TestServiceBusARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 	t.Parallel()
 	rg := "sb-msg-rg"
 	ensureRG(t, rg)
-	ns := uniqueName("sdk-sb-msg-ns")
+	ns := uniquename.New("sdk-sb-msg-ns")
 
 	clientFactory, err := armservicebus.NewClientFactory(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
@@ -111,7 +112,7 @@ func TestServiceBusARM_SDKNamespaceLifecycleAndMessagingSurfaces(t *testing.T) {
 
 	// Disaster recovery configuration lifecycle.
 	drClient := clientFactory.NewDisasterRecoveryConfigsClient()
-	partner := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.ServiceBus/namespaces/" + uniqueName("sdk-sb-msg-secondary")
+	partner := "/subscriptions/" + subscriptionID + "/resourceGroups/" + rg + "/providers/Microsoft.ServiceBus/namespaces/" + uniquename.New("sdk-sb-msg-secondary")
 	dr, err := drClient.CreateOrUpdate(ctx, rg, ns, "sdkdr", armservicebus.ArmDisasterRecovery{
 		Properties: &armservicebus.ArmDisasterRecoveryProperties{
 			PartnerNamespace: to.Ptr(partner),

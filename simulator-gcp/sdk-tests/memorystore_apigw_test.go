@@ -3,6 +3,7 @@ package gcp_sdk_test
 import (
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	apigateway "google.golang.org/api/apigateway/v1"
@@ -229,7 +230,7 @@ func TestMemorystoreRedis_BackupCollections(t *testing.T) {
 
 	gcs := storageClient(t)
 	t.Cleanup(func() { gcs.Close() })
-	exportBucket := uniqueName("sim-backups")
+	exportBucket := uniquename.New("sim-backups")
 	require.NoError(t, gcs.Bucket(exportBucket).Create(ctx, "test-project", nil))
 	expOp, err := svc.Projects.Locations.BackupCollections.Backups.Export(backupName, &redis.ExportBackupRequest{
 		GcsBucket: exportBucket,

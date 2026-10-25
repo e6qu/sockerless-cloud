@@ -179,7 +179,7 @@ func registerACR(srv *sim.Server) {
 			return
 		}
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerRegistry/registries/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.ContainerRegistry", "registries", name)
 
 		// A registry's name is its login server's host name, which Azure
 		// keeps unique across every subscription.
@@ -257,7 +257,7 @@ func registerACR(srv *sim.Server) {
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "registryName")
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerRegistry/registries/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.ContainerRegistry", "registries", name)
 
 		reg, ok := registries.Get(resourceID)
 		if !ok {
@@ -272,8 +272,7 @@ func registerACR(srv *sim.Server) {
 	// GET - List registries by resource group
 	// (armcontainerregistry.RegistriesClient.NewListByResourceGroupPager, az acr list).
 	srv.HandleFunc("GET "+armBase+"/registries", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerRegistry/registries/",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"))
+		prefix := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.ContainerRegistry", "registries") + "/"
 		writeACRRegistryList(w, r, registries, func(reg Registry) bool {
 			return strings.HasPrefix(reg.ID, prefix)
 		})
@@ -282,7 +281,7 @@ func registerACR(srv *sim.Server) {
 	// GET - List registries by subscription
 	// (armcontainerregistry.RegistriesClient.NewListPager, az acr list).
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.ContainerRegistry/registries", func(w http.ResponseWriter, r *http.Request) {
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/", sim.PathParam(r, "subscriptionId"))
+		prefix := armSubscriptionID(sim.PathParam(r, "subscriptionId")) + "/resourceGroups/"
 		writeACRRegistryList(w, r, registries, func(reg Registry) bool {
 			return strings.HasPrefix(reg.ID, prefix)
 		})
@@ -295,7 +294,7 @@ func registerACR(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "registryName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerRegistry/registries/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.ContainerRegistry", "registries", name)
 		reg, ok := registries.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -317,7 +316,7 @@ func registerACR(srv *sim.Server) {
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "registryName")
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerRegistry/registries/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.ContainerRegistry", "registries", name)
 
 		if registries.Delete(resourceID) {
 			acrDropCredentialKeyGens(resourceID)
@@ -342,8 +341,7 @@ func registerACR(srv *sim.Server) {
 			regName := sim.PathParam(r, "registryName")
 			ruleName := sim.PathParam(r, "cacheRuleName")
 
-			regID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerRegistry/registries/%s",
-				sub, rg, regName)
+			regID := armResourceID(sub, rg, "Microsoft.ContainerRegistry", "registries", regName)
 			if _, ok := registries.Get(regID); !ok {
 				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 					"Registry '%s' under resource group '%s' was not found.", regName, rg)
@@ -389,8 +387,7 @@ func registerACR(srv *sim.Server) {
 			regName := sim.PathParam(r, "registryName")
 			ruleName := sim.PathParam(r, "cacheRuleName")
 
-			ruleID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerRegistry/registries/%s/cacheRules/%s",
-				sub, rg, regName, ruleName)
+			ruleID := armResourceID(sub, rg, "Microsoft.ContainerRegistry", "registries", regName, "cacheRules", ruleName)
 			rule, ok := cacheRules.Get(ruleID)
 			if !ok {
 				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -407,8 +404,7 @@ func registerACR(srv *sim.Server) {
 			rg := sim.PathParam(r, "resourceGroupName")
 			regName := sim.PathParam(r, "registryName")
 
-			regPrefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerRegistry/registries/%s/cacheRules/",
-				sub, rg, regName)
+			regPrefix := armResourceID(sub, rg, "Microsoft.ContainerRegistry", "registries", regName, "cacheRules") + "/"
 			matched := cacheRules.Filter(func(cr ACRCacheRule) bool {
 				return strings.HasPrefix(cr.ID, regPrefix)
 			})
@@ -428,8 +424,7 @@ func registerACR(srv *sim.Server) {
 			regName := sim.PathParam(r, "registryName")
 			ruleName := sim.PathParam(r, "cacheRuleName")
 
-			ruleID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerRegistry/registries/%s/cacheRules/%s",
-				sub, rg, regName, ruleName)
+			ruleID := armResourceID(sub, rg, "Microsoft.ContainerRegistry", "registries", regName, "cacheRules", ruleName)
 			cacheRules.Delete(ruleID)
 			w.WriteHeader(http.StatusNoContent)
 		})
@@ -441,8 +436,7 @@ func registerACR(srv *sim.Server) {
 			rg := sim.PathParam(r, "resourceGroupName")
 			regName := sim.PathParam(r, "registryName")
 			ruleName := sim.PathParam(r, "cacheRuleName")
-			ruleID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerRegistry/registries/%s/cacheRules/%s",
-				sub, rg, regName, ruleName)
+			ruleID := armResourceID(sub, rg, "Microsoft.ContainerRegistry", "registries", regName, "cacheRules", ruleName)
 			if _, ok := cacheRules.Get(ruleID); !ok {
 				AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 					"Cache rule '%s' under registry '%s' was not found.", ruleName, regName)
@@ -854,8 +848,7 @@ type acrChildKind struct {
 // acrRegistryID returns the registry ARM resource ID for the request and
 // whether that registry exists in the store.
 func acrRegistryID(r *http.Request) (string, bool) {
-	regID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ContainerRegistry/registries/%s",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "registryName"))
+	regID := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.ContainerRegistry", "registries", sim.PathParam(r, "registryName"))
 	_, ok := acrRegistries.Get(regID)
 	return regID, ok
 }
@@ -1414,7 +1407,10 @@ func registerACRRegistryActions(srv *sim.Server, registries sim.Store[Registry])
 		var req struct {
 			Name string `json:"name"`
 		}
-		_ = sim.ReadJSON(r, &req)
+		if err := sim.ReadJSON(r, &req); err != nil {
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 		if req.Name != "password" && req.Name != "password2" {
 			AzureErrorf(w, "InvalidParameter", http.StatusBadRequest,
 				"The value '%s' is not valid for parameter 'name'. Expected 'password' or 'password2'.", req.Name)

@@ -75,6 +75,8 @@ var gcpDeclaredMethodTotals = map[string]int{
 	"cloudresourcemanager-v1": 76,
 	"cloudresourcemanager-v2": 24,
 	"cloudresourcemanager-v3": 184,
+	"cloudscheduler-v1":       32,
+	"cloudtasks-v2":           48,
 	"cloudrun-v1":             152,
 	"cloudrun-v2":             119,
 	"compute-v1":              2036,
@@ -328,6 +330,19 @@ var gcpMethodFloor = map[string]int{
 	"apigateway-v1":     60,
 	"iamcredentials-v1": 14,
 	"vpcaccess-v1":      16,
+	// Cloud Scheduler: the jobs collection, and the locations and operations
+	// collections the v1 surface shares. getCmekConfig and updateCmekConfig
+	// answer a declared 501 in cloudscheduler.go: no job is encrypted with a
+	// customer-managed key here.
+	"cloudscheduler-v1": 28,
+	// Cloud Tasks: queues, tasks, the batch verbs and the locations and
+	// operations collections the v2 surface shares. getCmekConfig and
+	// updateCmekConfig answer a declared 501 (no queue is encrypted with a
+	// customer-managed key here), and so does tasks.buffer, whose request body
+	// binding — raw bytes, as the guide's curl example sends, or a
+	// BufferTaskRequest, as the generated clients send — no vendored source
+	// settles.
+	"cloudtasks-v2": 42,
 	// Cloud Logging: every documented method is served. locations.get shares
 	// its URI shape with Cloud Run's locations/{location}:exportProjectMetadata,
 	// because a wildcard segment matches one carrying a colon; the handler

@@ -26,6 +26,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventgrid/armeventgrid"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -219,7 +220,7 @@ func sbSequenceNumber(t *testing.T, resp *http.Response) int64 {
 
 func TestAzureServiceStateSurvivesSimulatorRestart_SDK(t *testing.T) {
 	t.Parallel()
-	dataPlaneAccount := uniqueAlnumName("sdkdataplane")
+	dataPlaneAccount := uniquename.Alnum("sdkdataplane")
 	stateDir := t.TempDir()
 	port := freeAzureSimPort(t)
 	endpoint := fmt.Sprintf("http://127.0.0.1:%d", port)

@@ -1,4 +1,4 @@
-import { AwsButton, AwsResourceTable, AwsStatus, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsResourceTable, AwsStatus, AwsRefreshButton, type AwsColumn } from "../console/index.js";
 import { formatEpoch } from "../console/format.js";
 import { fetchKinesisStreams, type KinesisStream } from "../api.js";
 
@@ -45,9 +45,7 @@ export function KinesisPage() {
       tableTestId="kinesis-table"
       errorTestId="kinesis-error"
       actions={({ refetch, isFetching }) => (
-        <AwsButton onClick={refetch} disabled={isFetching}>
-          {isFetching ? "Refreshing…" : "Refresh"}
-        </AwsButton>
+        <AwsRefreshButton onClick={refetch} loading={isFetching} />
       )}
     />
   );

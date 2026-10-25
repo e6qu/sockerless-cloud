@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"net/http"
@@ -21,13 +20,7 @@ import (
 // called in-process with its own recorder, or a data plane that is not a Smithy
 // API — has no model to consult and carries both spellings.
 func AWSError(w http.ResponseWriter, code string, message string, statusCode int) {
-	body := map[string]string{"__type": code, "message": message, "Message": message}
-	if model, ok := awsErrorModelOf(w); ok {
-		body = awsErrorBody(model, code, message)
-	}
-	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(body)
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsJSON11}, statusCode, code, message, "")
 }
 
 // awsErrorModels holds, for each response writer a request is being served

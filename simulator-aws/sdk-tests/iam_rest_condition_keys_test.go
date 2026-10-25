@@ -12,6 +12,7 @@ import (
 	efstypes "github.com/aws/aws-sdk-go-v2/service/efs/types"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	r53types "github.com/aws/aws-sdk-go-v2/service/route53/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,9 +22,9 @@ import (
 func TestIAM_Route53ChangeBatchConditionKeys_SDK(t *testing.T) {
 	t.Parallel()
 	r53 := route53Client()
-	zoneName := uniqueName("rrset-cond") + ".example."
+	zoneName := uniquename.New("rrset-cond") + ".example."
 	zone, err := r53.CreateHostedZone(ctx, &route53.CreateHostedZoneInput{
-		Name: aws.String(zoneName), CallerReference: aws.String(uniqueName("rrset-cond")),
+		Name: aws.String(zoneName), CallerReference: aws.String(uniquename.New("rrset-cond")),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = r53.DeleteHostedZone(ctx, &route53.DeleteHostedZoneInput{Id: zone.HostedZone.Id}) })
@@ -73,7 +74,7 @@ func TestIAM_BatchJobDefinitionConditionKeys_SDK(t *testing.T) {
 		func(o *batch.Options) { o.BaseEndpoint = aws.String(baseURL) })
 	register := func(privileged bool) (*batch.RegisterJobDefinitionOutput, error) {
 		return role.RegisterJobDefinition(ctx, &batch.RegisterJobDefinitionInput{
-			JobDefinitionName: aws.String(uniqueName("batch-cond")),
+			JobDefinitionName: aws.String(uniquename.New("batch-cond")),
 			Type:              batchtypes.JobDefinitionTypeContainer,
 			ContainerProperties: &batchtypes.ContainerProperties{
 				Image: aws.String(containerCommandImage), Privileged: aws.Bool(privileged),
@@ -102,7 +103,7 @@ func TestIAM_EFSCreateFileSystemConditionKeys_SDK(t *testing.T) {
 		func(o *efs.Options) { o.BaseEndpoint = aws.String(baseURL) })
 	create := func(client *efs.Client, encrypted bool, tags []efstypes.Tag) error {
 		out, err := client.CreateFileSystem(ctx, &efs.CreateFileSystemInput{
-			CreationToken: aws.String(uniqueName("efs-cond")), Encrypted: aws.Bool(encrypted), Tags: tags,
+			CreationToken: aws.String(uniquename.New("efs-cond")), Encrypted: aws.Bool(encrypted), Tags: tags,
 		})
 		if err == nil {
 			t.Cleanup(func() {

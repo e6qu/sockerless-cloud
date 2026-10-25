@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router";
-import { AwsButton, AwsResourceTable, AwsRowLink, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsResourceTable, AwsRowLink, AwsRefreshButton, type AwsColumn } from "../console/index.js";
 import { fetchRoute53HostedZones, type Route53HostedZone } from "../api.js";
 
 // Amazon Route 53 — Hosted zones. ListHostedZones on the real Route 53 REST-XML
@@ -45,15 +45,13 @@ export function Route53Page() {
       errorTestId="route53-error"
       actions={({ selected, refetch, isFetching }) => (
         <>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
           <AwsButton
             data-testid="route53-view-hosted-zone"
             disabled={selected.length !== 1}
             onClick={() => navigate(`/ui/route53/${encodeURIComponent(selected[0].id)}`)}
           >
             View details
-          </AwsButton>
-          <AwsButton onClick={refetch} disabled={isFetching}>
-            {isFetching ? "Refreshing…" : "Refresh"}
           </AwsButton>
         </>
       )}

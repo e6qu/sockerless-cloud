@@ -9,6 +9,7 @@ import (
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -30,11 +31,11 @@ func TestIAM_ResourceARN_DynamoDB(t *testing.T) {
 		})
 		require.NoError(t, err)
 	}
-	scopedTable, otherTable := uniqueName("scoped-table"), uniqueName("other-table")
+	scopedTable, otherTable := uniquename.New("scoped-table"), uniquename.New("other-table")
 	mkTable(scopedTable)
 	mkTable(otherTable)
 
-	user := uniqueName("ddb-scoped-user")
+	user := uniquename.New("ddb-scoped-user")
 	_, err := admin.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
 	defer admin.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)})
@@ -81,11 +82,11 @@ func TestIAM_ResourceARN_DynamoDBTransactionsAndBatches(t *testing.T) {
 		})
 		require.NoError(t, err)
 	}
-	scopedTable, otherTable := uniqueName("txn-scoped-table"), uniqueName("txn-other-table")
+	scopedTable, otherTable := uniquename.New("txn-scoped-table"), uniquename.New("txn-other-table")
 	mkTable(scopedTable)
 	mkTable(otherTable)
 
-	user := uniqueName("ddb-txn-scoped-user")
+	user := uniquename.New("ddb-txn-scoped-user")
 	_, err := admin.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
 	defer admin.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)})
@@ -165,13 +166,13 @@ func TestIAM_ResourceARN_ECR(t *testing.T) {
 	admin := iamClient()
 	ecrAdmin := ecrClient()
 
-	scopedNS, otherNS := uniqueName("scoped-ns"), uniqueName("other-ns")
+	scopedNS, otherNS := uniquename.New("scoped-ns"), uniquename.New("other-ns")
 	for _, name := range []string{scopedNS + "/control-plane", scopedNS + "/golden/omnibus", otherNS + "/control-plane"} {
 		_, err := ecrAdmin.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(name)})
 		require.NoError(t, err)
 	}
 
-	user := uniqueName("ecr-scoped-user")
+	user := uniquename.New("ecr-scoped-user")
 	_, err := admin.CreateUser(ctx, &iam.CreateUserInput{UserName: aws.String(user)})
 	require.NoError(t, err)
 	defer admin.DeleteUser(ctx, &iam.DeleteUserInput{UserName: aws.String(user)})

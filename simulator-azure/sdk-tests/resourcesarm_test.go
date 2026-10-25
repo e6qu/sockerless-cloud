@@ -11,6 +11,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v5"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -129,7 +130,7 @@ func TestAzureResources_ResourceGroupUpdateAndExport(t *testing.T) {
 
 func TestAzureResources_MoveResources(t *testing.T) {
 	t.Parallel()
-	srcRG, dstRG := uniqueName("move-src-rg"), uniqueName("move-dst-rg")
+	srcRG, dstRG := uniquename.New("move-src-rg"), uniquename.New("move-dst-rg")
 	rgClient, err := armresources.NewResourceGroupsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
 	_, err = rgClient.CreateOrUpdate(ctx, srcRG, armresources.ResourceGroup{Location: to.Ptr("eastus")}, nil)
@@ -189,11 +190,11 @@ func TestAzureResources_MoveResources(t *testing.T) {
 // ResourceMoveNotSupported.
 func TestAzureResources_MoveStorageAccountAndMixedBatch(t *testing.T) {
 	t.Parallel()
-	srcRG, dstRG := uniqueName("move-mixed-src-rg"), uniqueName("move-mixed-dst-rg")
+	srcRG, dstRG := uniquename.New("move-mixed-src-rg"), uniquename.New("move-mixed-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
 
-	account := uniqueAlnumName("movemixed")
+	account := uniquename.Alnum("movemixed")
 	accounts := createStorageAccountForARM(t, srcRG, account)
 
 	// A container created through the Azure Resource Manager plane, with real

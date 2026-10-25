@@ -82,6 +82,7 @@ func startAzureListeners(_ *sim.Server, cfg sim.Config) (func(context.Context) e
 	}
 	azureAdoptVMWorkloads(ctx)
 	adoptACAAppReplicas(ctx)
+	resumeACAJobExecutions(ctx)
 	if amqpAddr := os.Getenv("SIM_SERVICEBUS_AMQP_LISTEN_ADDR"); amqpAddr != "" {
 		certFile := sim.EnvOr("SIM_SERVICEBUS_AMQP_TLS_CERT", cfg.TLSCert)
 		keyFile := sim.EnvOr("SIM_SERVICEBUS_AMQP_TLS_KEY", cfg.TLSKey)
@@ -127,6 +128,8 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 	}
 	azureServer = srv
 
+	// The Activity Log records the operations that pass every check below.
+	srv.WrapHandler(AzureActivityLogMiddleware)
 	// ARM refuses a request beneath a missing or deleting resource group only
 	// after it has authenticated the request and checked its api-version.
 	srv.WrapHandler(AzureResourceGroupScopeMiddleware)
@@ -156,13 +159,6 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 	// the mux to avoid route conflicts with ACR's /v2/{path...}).
 	srv.WrapHandler(AzureAuthMiddleware)
 
-	// CORS is outermost: a browser's preflight OPTIONS request for Azure
-	// Resource Manager or Microsoft Graph must be answered before the ARM
-	// bearer and api-version middlewares run, exactly as real Azure's edge
-	// answers a preflight ahead of the resource provider's own auth check —
-	// the request carries neither a bearer token nor api-version by design.
-	srv.WrapHandler(AzureCORSMiddleware)
-
 	// Register Azure service routes
 	// Entra registers first: it initializes the directory stores (and the
 	// token-issuance state) that later registrations write at register
@@ -172,6 +168,7 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 	// Monitor must be registered before Container Apps and Functions to
 	// initialize the monitorLogs store their log injection uses.
 	registerAzureMonitor(srv)
+	registerActivityLog(srv)
 	registerContainerApps(srv)
 	registerContainerAppsApps(srv)
 	registerContainerAppsIngress(srv)
@@ -241,6 +238,11 @@ func buildSimulatorWithUI(cfg sim.Config, includeUI bool) (*sim.Server, error) {
 			return nil, err
 		}
 	}
+
+	// Wrap CORS around every slice's dispatcher: Azure's edge answers a
+	// browser's preflight before the bearer and api-version checks, and every
+	// response a dispatcher writes carries the access-control headers.
+	srv.WrapHandler(AzureCORSMiddleware)
 
 	// Runtime wire-shape validation (armed only when
 	// SOCKERLESS_SPEC_VALIDATE is set; see spec_validator.go). Wrapped

@@ -5,6 +5,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,8 +19,8 @@ const iamPermDoc = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Acti
 
 func TestIAM_RoleManagedPolicyAttachDetach(t *testing.T) {
 	t.Parallel()
-	policyName := uniqueName("cov-attach-pol")
-	roleName := uniqueName("cov-attach-role")
+	policyName := uniquename.New("cov-attach-pol")
+	roleName := uniquename.New("cov-attach-role")
 	c := iamClient()
 	_, err := c.CreateRole(ctx, &iam.CreateRoleInput{RoleName: aws.String(roleName), AssumeRolePolicyDocument: aws.String(iamTrustDoc)})
 	require.NoError(t, err)
@@ -50,7 +51,7 @@ func TestIAM_RoleManagedPolicyAttachDetach(t *testing.T) {
 
 func TestIAM_RoleInlinePolicyLifecycle(t *testing.T) {
 	t.Parallel()
-	roleName := uniqueName("cov-inline-role")
+	roleName := uniquename.New("cov-inline-role")
 	c := iamClient()
 	_, err := c.CreateRole(ctx, &iam.CreateRoleInput{RoleName: aws.String(roleName), AssumeRolePolicyDocument: aws.String(iamTrustDoc)})
 	require.NoError(t, err)
@@ -70,7 +71,7 @@ func TestIAM_RoleInlinePolicyLifecycle(t *testing.T) {
 
 func TestIAM_UpdateAssumeRolePolicy(t *testing.T) {
 	t.Parallel()
-	roleName := uniqueName("cov-trust-role")
+	roleName := uniquename.New("cov-trust-role")
 	c := iamClient()
 	_, err := c.CreateRole(ctx, &iam.CreateRoleInput{RoleName: aws.String(roleName), AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[]}`)})
 	require.NoError(t, err)
@@ -83,7 +84,7 @@ func TestIAM_UpdateAssumeRolePolicy(t *testing.T) {
 
 func TestIAM_ListInstanceProfiles(t *testing.T) {
 	t.Parallel()
-	profileName := uniqueName("cov-profile")
+	profileName := uniquename.New("cov-profile")
 	c := iamClient()
 	_, err := c.CreateInstanceProfile(ctx, &iam.CreateInstanceProfileInput{InstanceProfileName: aws.String(profileName)})
 	require.NoError(t, err)

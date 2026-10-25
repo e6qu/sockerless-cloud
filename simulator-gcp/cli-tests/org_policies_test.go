@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -58,7 +59,7 @@ type cliOrgPolicy struct {
 
 func TestOrgPoliciesProjectScopeCLI(t *testing.T) {
 	t.Parallel()
-	projectID := uniqueName("cli-orgpol")
+	projectID := uniquename.New("cli-orgpol")
 	runCLI(t, gcloudCLI("projects", "create", projectID,
 		"--organization="+cliOrganizationID, "--format=json"))
 

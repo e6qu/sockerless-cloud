@@ -26,6 +26,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/dns/armdns"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/keyvault/armkeyvault"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
@@ -371,10 +372,10 @@ func TestSDK_WebCertificates_KeyVaultSourced(t *testing.T) {
 
 func TestSDK_WebApps_HostnameTruth(t *testing.T) {
 	t.Parallel()
-	s4HostSiteName := uniqueName("s4-host-site")
-	s4HostOtherName := uniqueName("s4-host-other")
-	zone := uniqueName("stage4-zone") + ".test"
-	rg := uniqueName("stage4-host-rg")
+	s4HostSiteName := uniquename.New("s4-host-site")
+	s4HostOtherName := uniquename.New("s4-host-other")
+	zone := uniquename.New("stage4-zone") + ".test"
+	rg := uniquename.New("stage4-host-rg")
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "s4-host-plan")
 
@@ -575,9 +576,9 @@ func TestSDK_WebApps_ConfigSnapshotsAndRecover(t *testing.T) {
 
 func TestSDK_WebApps_ContainerLogs(t *testing.T) {
 	t.Parallel()
-	s4LogsQuietName := uniqueName("s4-logs-quiet")
-	rg := uniqueName("stage4-logs-rg")
-	name := uniqueName("s4-logs-site")
+	s4LogsQuietName := uniquename.New("s4-logs-quiet")
+	rg := uniquename.New("stage4-logs-rg")
+	name := uniquename.New("s4-logs-site")
 	azureCreateContainerSite(t, rg, name, commandImageName, "serve 80 hello-from-stage4", nil)
 	t.Cleanup(func() { azureDeleteSite(rg, name) })
 
@@ -620,7 +621,7 @@ func TestSDK_WebApps_ContainerLogs(t *testing.T) {
 	assert.Equal(t, logText, zipped, "zip content is the same retained log text")
 
 	// A site whose container never ran has no log content: 204.
-	quietRG := uniqueName("stage4-logs-quiet-rg")
+	quietRG := uniquename.New("stage4-logs-quiet-rg")
 	azureCreateContainerSite(t, quietRG, s4LogsQuietName, commandImageName, "serve 80 quiet", nil)
 	t.Cleanup(func() { azureDeleteSite(quietRG, s4LogsQuietName) })
 	quiet, err := client.GetWebSiteContainerLogs(ctx, quietRG, s4LogsQuietName, nil)
@@ -753,8 +754,8 @@ func TestSDK_Web_ProviderAndGlobalSingletons(t *testing.T) {
 
 func TestSDK_Web_MoveResources(t *testing.T) {
 	t.Parallel()
-	s4MoveSiteName := uniqueName("s4-move-site")
-	srcRG, dstRG := uniqueName("stage4-move-src-rg"), uniqueName("stage4-move-dst-rg")
+	s4MoveSiteName := uniquename.New("s4-move-site")
+	srcRG, dstRG := uniquename.New("stage4-move-src-rg"), uniquename.New("stage4-move-dst-rg")
 	ensureRG(t, srcRG)
 	ensureRG(t, dstRG)
 	planID := webMoreEnsurePlan(t, srcRG, "s4-move-plan")

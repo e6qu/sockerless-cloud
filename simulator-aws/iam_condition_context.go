@@ -385,6 +385,13 @@ func iamPopulateServiceConditionKeys(r *http.Request, action string, body []byte
 		}
 	}
 
+	iamPopulateNamedResourceKeys(r, service, name, body, ctx)
+}
+
+// iamPopulateNamedResourceKeys adds the condition keys a request settles
+// about the resource it names: the policy, function, rule, document or
+// transfer it is about.
+func iamPopulateNamedResourceKeys(r *http.Request, service, name string, body []byte, ctx map[string][]string) {
 	// iam:PolicyARN is the managed policy a request attaches or detaches, which
 	// is how an administrator delegates policy attachment for one policy only.
 	if service == "iam" {

@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -15,7 +16,7 @@ import (
 // default) and ModifyLaunchTemplate moves the default version.
 func TestEC2_LaunchTemplateVersions(t *testing.T) {
 	t.Parallel()
-	ltName := uniqueName("lt-versions")
+	ltName := uniquename.New("lt-versions")
 	client := ec2Client()
 
 	created, err := client.CreateLaunchTemplate(ctx, &ec2.CreateLaunchTemplateInput{

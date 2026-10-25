@@ -14,13 +14,14 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 	snstypes "github.com/aws/aws-sdk-go-v2/service/sns/types"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func snsFeedbackRole(t *testing.T) string {
 	t.Helper()
-	return createServiceRole(t, uniqueName("sns-feedback"), "sns.amazonaws.com",
+	return createServiceRole(t, uniquename.New("sns-feedback"), "sns.amazonaws.com",
 		"logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents", "logs:PutMetricFilter", "logs:PutRetentionPolicy")
 }
 
@@ -49,7 +50,7 @@ func TestSNS_DeliveryStatusAttributesRoundTripAndValidate(t *testing.T) {
 	role := snsFeedbackRole(t)
 
 	topic, err := snsC.CreateTopic(ctx, &sns.CreateTopicInput{
-		Name: aws.String(uniqueName("sns-feedback-attrs")),
+		Name: aws.String(uniquename.New("sns-feedback-attrs")),
 		Attributes: map[string]string{
 			"SQSSuccessFeedbackRoleArn":    role,
 			"SQSSuccessFeedbackSampleRate": "40",
@@ -93,7 +94,7 @@ func TestSNS_DeliveryStatusAttributesRoundTripAndValidate(t *testing.T) {
 		require.True(t, errors.As(err, &invalid), "%s=%s: %v", name, value, err)
 	}
 	_, err = snsC.CreateTopic(ctx, &sns.CreateTopicInput{
-		Name:       aws.String(uniqueName("sns-feedback-bad")),
+		Name:       aws.String(uniquename.New("sns-feedback-bad")),
 		Attributes: map[string]string{"SQSSuccessFeedbackSampleRate": "-1"},
 	})
 	var invalid *snstypes.InvalidParameterException
@@ -119,7 +120,7 @@ func TestSNS_SQSDeliveryStatusLogsAndMetrics(t *testing.T) {
 	logs := cwLogsClient()
 	role := snsFeedbackRole(t)
 
-	topicName := uniqueName("sns-status-sqs")
+	topicName := uniquename.New("sns-status-sqs")
 	topic, err := snsC.CreateTopic(ctx, &sns.CreateTopicInput{
 		Name: aws.String(topicName),
 		Attributes: map[string]string{
@@ -139,13 +140,13 @@ func TestSNS_SQSDeliveryStatusLogsAndMetrics(t *testing.T) {
 		}
 	})
 
-	admitted, err := sqsC.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(uniqueName("sns-status-ok"))})
+	admitted, err := sqsC.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(uniquename.New("sns-status-ok"))})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = sqsC.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: admitted.QueueUrl}) })
 	admittedARN := queueARNOf(t, sqsC, admitted.QueueUrl)
 	setQueuePolicyAllowingSNS(t, sqsC, aws.ToString(admitted.QueueUrl), admittedARN, topicARN)
 
-	refused, err := sqsC.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(uniqueName("sns-status-deny"))})
+	refused, err := sqsC.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(uniquename.New("sns-status-deny"))})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = sqsC.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: refused.QueueUrl}) })
 	refusedARN := queueARNOf(t, sqsC, refused.QueueUrl)

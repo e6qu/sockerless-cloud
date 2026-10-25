@@ -136,3 +136,13 @@ func TestSandboxPreservesExistingUser(t *testing.T) {
 		t.Errorf("User overridden to %q, want preserved", cc.User)
 	}
 }
+
+func TestSandboxVolatileRunMountsATmpfs(t *testing.T) {
+	hc := &container.HostConfig{}
+	if err := (SandboxProfile{VolatileRun: true}).Apply(hc, &container.Config{}); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := hc.Tmpfs["/run"]; !ok || got != "mode=755" {
+		t.Errorf("Tmpfs[/run] = %q %v, want mode=755", got, ok)
+	}
+}

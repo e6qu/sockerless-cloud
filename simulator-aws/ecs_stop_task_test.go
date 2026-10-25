@@ -281,3 +281,76 @@ func TestRecoverECSTasksFinishesAStopThatWasInProgress(t *testing.T) {
 			instance.RunningTasksCount, instance.PendingTasksCount)
 	}
 }
+
+// A pending task the previous process left is resumed under its lifecycle
+// lock, as a live start is. Without it, a StopTask that landed while the resume
+// was starting containers could take the handles and record the task STOPPED,
+// and the resume then reported it RUNNING with no containers.
+func TestResumedPendingTaskWaitsForItsLifecycleLock(t *testing.T) {
+	bg.Await()
+	ecsBackgroundServer = nil
+	ecsTaskDefinitions = sim.MakeStore[ECSTaskDefinition](nil, "ecs_task_definitions")
+	ecsTasks = sim.MakeStore[ECSTask](nil, "ecs_tasks")
+	ecsContainerInstances = sim.MakeStore[ECSContainerInstance](nil, "ecs_container_instances")
+	ec2Volumes = sim.MakeStore[EC2Volume](nil, "ec2_volumes")
+
+	definition := ECSTaskDefinition{
+		TaskDefinitionArn:    ecsArn("task-definition", "resume:1"),
+		Family:               "resume",
+		Revision:             1,
+		ContainerDefinitions: []ECSContainerDefinition{{Name: "app"}},
+		Status:               "ACTIVE",
+	}
+	ecsTaskDefinitions.Put("resume:1", definition)
+	instanceKey := ecsContainerInstanceKey("resume-cluster", "instance-1")
+	instanceArn := ecsArn("container-instance", "resume-cluster/instance-1")
+	ecsContainerInstances.Put(instanceKey, ECSContainerInstance{
+		ContainerInstanceArn: instanceArn,
+		ClusterName:          "resume-cluster",
+		PendingTasksCount:    1,
+	})
+	taskID := sim.NewUUID()
+	ecsTasks.Put(taskID, ECSTask{
+		TaskArn:              ecsArn("task", "resume-cluster/"+taskID),
+		ClusterArn:           ecsArn("cluster", "resume-cluster"),
+		TaskDefinitionArn:    definition.TaskDefinitionArn,
+		LastStatus:           ECSTaskStatusProvisioning,
+		DesiredStatus:        ECSTaskStatusRunning,
+		ContainerInstanceArn: instanceArn,
+		Containers:           []ECSTaskContainer{{Name: "app", LastStatus: "PENDING"}},
+	})
+
+	lifecycle := ecsTaskLifecycleLock(taskID)
+	lifecycle.Lock()
+	if err := recoverECSTasksWithContainerFinder(func(ECSTask, map[string]string) ([]placement.Existing, error) {
+		return nil, nil
+	}); err != nil {
+		lifecycle.Unlock()
+		t.Fatalf("recover ECS tasks: %v", err)
+	}
+	accepted, ok := stopECSTask(taskID, "stopped during the resume", "UserInitiated")
+	if !ok || accepted.DesiredStatus != ECSTaskStatusStopped || accepted.LastStatus != ECSTaskStatusProvisioning {
+		lifecycle.Unlock()
+		t.Fatalf("StopTask on a task whose resume waits for the lifecycle lock = %+v, want PROVISIONING asked to stop", accepted)
+	}
+	lifecycle.Unlock()
+	awaitECSTaskStop(t, taskID)
+	bg.Await()
+
+	task, ok := ecsTasks.Get(taskID)
+	if !ok {
+		t.Fatal("task missing after the stop finished")
+	}
+	if task.LastStatus != ECSTaskStatusStopped || task.StopCode != "UserInitiated" ||
+		task.StoppedReason != "stopped during the resume" {
+		t.Fatalf("task = %s %s %q, want STOPPED by the user's request", task.LastStatus, task.StopCode, task.StoppedReason)
+	}
+	if _, running := ecsProcessHandles.Load(taskID); running {
+		t.Fatal("the resume stored container handles for a task asked to stop")
+	}
+	instance, _ := ecsContainerInstances.Get(instanceKey)
+	if instance.PendingTasksCount != 0 || instance.RunningTasksCount != 0 {
+		t.Fatalf("container instance counts = pending %d running %d, want 0 and 0",
+			instance.PendingTasksCount, instance.RunningTasksCount)
+	}
+}

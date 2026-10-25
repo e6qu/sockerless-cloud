@@ -95,14 +95,16 @@ func registerOperations(srv *sim.Server) {
 // versions spell one collection of operation records.
 var gcpLocationOperationPackages = map[string]map[string][]string{
 	"v1": {
-		"apigateway": {"google.cloud.apigateway.v1"},
-		"eventarc":   {"google.cloud.eventarc.v1"},
-		"redis":      {"google.cloud.redis.v1", "google.cloud.redis.cluster.v1"},
-		"run":        {"google.cloud.run.v1", "google.cloud.run.v2"},
-		"vpcaccess":  {"google.cloud.vpcaccess.v1"},
+		"apigateway":     {"google.cloud.apigateway.v1"},
+		"eventarc":       {"google.cloud.eventarc.v1"},
+		"redis":          {"google.cloud.redis.v1", "google.cloud.redis.cluster.v1"},
+		"run":            {"google.cloud.run.v1", "google.cloud.run.v2"},
+		"vpcaccess":      {"google.cloud.vpcaccess.v1"},
+		"cloudscheduler": {"google.cloud.scheduler.v1"},
 	},
 	"v2": {
 		"cloudfunctions": {"google.cloud.functions.v2"},
+		"cloudtasks":     {"google.cloud.tasks.v2"},
 		"logging":        {"google.logging.v2"},
 		"run":            {"google.cloud.run.v1", "google.cloud.run.v2"},
 	},

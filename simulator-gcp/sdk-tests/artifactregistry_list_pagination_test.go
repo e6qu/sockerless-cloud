@@ -6,6 +6,7 @@ import (
 	artifactregistry "google.golang.org/api/artifactregistry/v1"
 	"google.golang.org/api/option"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,7 +19,7 @@ func TestArtifactRegistry_ListRepositoriesPagination(t *testing.T) {
 	svc, err := artifactregistry.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
 
-	parent := "projects/" + uniqueName("ar-page-project") + "/locations/us-central1"
+	parent := "projects/" + uniquename.New("ar-page-project") + "/locations/us-central1"
 	for _, id := range []string{"repo-a", "repo-b", "repo-c"} {
 		_, err = svc.Projects.Locations.Repositories.Create(parent, &artifactregistry.Repository{
 			Format: "DOCKER",

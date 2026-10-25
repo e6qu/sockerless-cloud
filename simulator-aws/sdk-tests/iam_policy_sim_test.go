@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -90,7 +91,7 @@ func TestIAM_SimulateCustomPolicy(t *testing.T) {
 func TestIAM_SimulatePrincipalPolicy(t *testing.T) {
 	t.Parallel()
 	client := iamClient()
-	roleName := uniqueName("sim-princ-role")
+	roleName := uniquename.New("sim-princ-role")
 	_, err := client.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName:                 aws.String(roleName),
 		AssumeRolePolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[]}`),

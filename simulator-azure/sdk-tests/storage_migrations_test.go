@@ -7,6 +7,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storage/armstorage"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/service"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +26,7 @@ import (
 // migration turns the namespace on.
 func TestSDK_StorageAccount_Migrations(t *testing.T) {
 	t.Parallel()
-	rg, account := "storage-migration-rg", uniqueAlnumName("storagemigration")
+	rg, account := "storage-migration-rg", uniquename.Alnum("storagemigration")
 	createStorageAccountForARM(t, rg, account)
 
 	accounts, err := armstorage.NewAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())
@@ -118,7 +119,7 @@ func TestSDK_StorageAccount_Migrations(t *testing.T) {
 // restores to — and leaves everything else where it is.
 func TestSDK_StorageAccount_RestoreBlobRanges(t *testing.T) {
 	t.Parallel()
-	rg, account := "storage-restore-rg", uniqueAlnumName("storagerestore")
+	rg, account := "storage-restore-rg", uniquename.Alnum("storagerestore")
 	createStorageAccountForARM(t, rg, account)
 
 	accounts, err := armstorage.NewAccountsClient(subscriptionID, &fakeCredential{}, clientOpts())

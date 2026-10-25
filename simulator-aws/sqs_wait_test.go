@@ -30,7 +30,7 @@ func sqsLongPollReceive(t *testing.T, url string, wait int) chan []map[string]an
 func TestSQSSendSignalsWaitingReceive(t *testing.T) {
 	sqsTestStore(t)
 	url := sqsMustCreate(t, "signal-q", nil)
-	arrival := sqsQueueSignal("signal-q")
+	arrival := sqsArrivals.Changed("signal-q")
 	select {
 	case <-arrival:
 		t.Fatal("the queue signalled before anything was sent")

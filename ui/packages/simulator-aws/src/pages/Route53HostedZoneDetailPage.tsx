@@ -9,6 +9,7 @@ import {
   AwsPageHeader,
   AwsResourceTable,
   type AwsColumn,
+  AwsRefreshButton,
 } from "../console/index.js";
 import { fetchRoute53HostedZones, fetchRoute53RecordSets, type Route53RecordSet } from "../api.js";
 
@@ -77,9 +78,7 @@ export function Route53HostedZoneDetailPage() {
         tableTestId="route53-records-table"
         errorTestId="route53-records-error"
         actions={({ refetch, isFetching }) => (
-          <AwsButton onClick={refetch} disabled={isFetching}>
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </AwsButton>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
         )}
       />
     </>

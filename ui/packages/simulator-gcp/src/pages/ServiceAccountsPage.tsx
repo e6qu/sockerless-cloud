@@ -170,7 +170,7 @@ export function ServiceAccountsPage() {
       id: "email",
       header: "Email",
       cell: (row) => (
-        <Link className="gc-cell-link" data-testid={`sa-row-${row.email}`} to={`/ui/serviceaccounts/${row.email}`}>
+        <Link className="gc-cell-link" data-testid={`sa-row-${row.email}`} to={`/ui/iam-admin/serviceaccounts/details/${row.email}`}>
           {row.email}
         </Link>
       ),
@@ -189,22 +189,6 @@ export function ServiceAccountsPage() {
       cell: (row) => row.description || "—",
       value: (row) => row.description ?? "",
     },
-    {
-      id: "actions",
-      header: "Actions",
-      cell: (row) => (
-        <button
-          type="button"
-          className="gc-button-text"
-          data-testid={`sa-delete-${row.email}`}
-          aria-label={`Delete ${row.email}`}
-          onClick={() => setDeleting(row.email)}
-        >
-          Delete
-        </button>
-      ),
-      value: () => "",
-    },
   ];
 
   return (
@@ -212,8 +196,10 @@ export function ServiceAccountsPage() {
       <GcpResourceTable<ServiceAccount>
         title="Service accounts"
         description={`Service accounts for project "${project}". A service account represents a non-human identity; keys created for it authenticate the Google Cloud CLI and SDKs.`}
-        actions={[{ label: "Create service account", icon: "add", primary: true, onSelect: () => setCreating(true) }]}
+        actions={[{ label: "Create service account", icon: "add", onSelect: () => setCreating(true) }]}
         columns={columns}
+        rowActions={(row) => [{ label: "Delete", testId: `sa-delete-${row.email}`, onSelect: () => setDeleting(row.email) }]}
+        rowLabel={(row) => row.email}
         queryKey={serviceAccountsQueryKey(project)}
         queryFn={() => fetchServiceAccounts(project)}
         filterPlaceholder="Filter service accounts"

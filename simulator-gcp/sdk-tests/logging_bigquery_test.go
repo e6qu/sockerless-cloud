@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
@@ -18,7 +19,7 @@ import (
 func TestLogging_SinkToBigQueryStreamsEntries(t *testing.T) {
 	t.Parallel()
 	svc := loggingRESTService(t)
-	project := uniqueName("log-bq")
+	project := uniquename.New("log-bq")
 	requireProject(t, project)
 	bq := bqClient(t, project)
 	require.NoError(t, bq.Dataset("dated").Create(ctx, &bigquery.DatasetMetadata{}))

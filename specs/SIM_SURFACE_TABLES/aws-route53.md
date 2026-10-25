@@ -17,18 +17,18 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /2013-04-01/hostedzone` | ✓ `simulator-aws/route53.go:327::handleR53CreateHostedZone` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2013-04-01/hostedzone` | ✓ `simulator-aws/route53.go:328::handleR53ListHostedZones` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2013-04-01/hostedzonesbyname` | ✓ `simulator-aws/route53.go:329::handleR53ListHostedZonesByName` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2013-04-01/hostedzone/{id}` | ✓ `simulator-aws/route53.go:330::handleR53GetHostedZone` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /2013-04-01/hostedzone/{id}` | ✓ `simulator-aws/route53.go:331::handleR53DeleteHostedZone` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /2013-04-01/hostedzone/{id}/rrset` | ✓ `simulator-aws/route53.go:332::handleR53ChangeRRSets` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /2013-04-01/hostedzone/{id}/rrset/` | ✓ `simulator-aws/route53.go:333::handleR53ChangeRRSets` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2013-04-01/hostedzone/{id}/rrset` | ✓ `simulator-aws/route53.go:334::handleR53ListRRSets` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2013-04-01/hostedzone/{id}/rrset/` | ✓ `simulator-aws/route53.go:335::handleR53ListRRSets` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2013-04-01/change/{id}` | ✓ `simulator-aws/route53.go:336::handleR53GetChange` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2013-04-01/tags/{resourceType}/{resourceId}` | ✓ `simulator-aws/route53.go:339::handleR53ListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /2013-04-01/tags/{resourceType}/{resourceId}` | ✓ `simulator-aws/route53.go:340::handleR53ChangeTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /2013-04-01/hostedzone` | ✓ `simulator-aws/route53.go:310::handleR53CreateHostedZone` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2013-04-01/hostedzone` | ✓ `simulator-aws/route53.go:311::handleR53ListHostedZones` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2013-04-01/hostedzonesbyname` | ✓ `simulator-aws/route53.go:312::handleR53ListHostedZonesByName` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2013-04-01/hostedzone/{id}` | ✓ `simulator-aws/route53.go:313::handleR53GetHostedZone` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /2013-04-01/hostedzone/{id}` | ✓ `simulator-aws/route53.go:314::handleR53DeleteHostedZone` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /2013-04-01/hostedzone/{id}/rrset` | ✓ `simulator-aws/route53.go:315::handleR53ChangeRRSets` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /2013-04-01/hostedzone/{id}/rrset/` | ✓ `simulator-aws/route53.go:316::handleR53ChangeRRSets` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2013-04-01/hostedzone/{id}/rrset` | ✓ `simulator-aws/route53.go:317::handleR53ListRRSets` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2013-04-01/hostedzone/{id}/rrset/` | ✓ `simulator-aws/route53.go:318::handleR53ListRRSets` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2013-04-01/change/{id}` | ✓ `simulator-aws/route53.go:319::handleR53GetChange` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2013-04-01/tags/{resourceType}/{resourceId}` | ✓ `simulator-aws/route53.go:322::handleR53ListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /2013-04-01/tags/{resourceType}/{resourceId}` | ✓ `simulator-aws/route53.go:323::handleR53ChangeTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

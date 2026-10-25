@@ -8,6 +8,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/admin"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,8 +30,8 @@ func sbReceiveOne(t *testing.T, receiver *azservicebus.Receiver) *azservicebus.R
 // dead-letter carries its reason there.
 func TestServiceBus_AMQPPeekLockSettlement(t *testing.T) {
 	t.Parallel()
-	namespace := uniqueName("sdk-amqp-peeklock")
-	queue := uniqueName("locked")
+	namespace := uniquename.New("sdk-amqp-peeklock")
+	queue := uniquename.New("locked")
 	adminClient := sbAdminClient(t, namespace)
 	_, err := adminClient.CreateQueue(ctx, queue, &admin.CreateQueueOptions{Properties: &admin.QueueProperties{
 		LockDuration:     to.Ptr("PT20S"),
@@ -93,8 +94,8 @@ func TestServiceBus_AMQPPeekLockSettlement(t *testing.T) {
 // detection accepts one message per MessageId inside its history window.
 func TestServiceBus_DuplicateDetection(t *testing.T) {
 	t.Parallel()
-	namespace := uniqueName("sdk-amqp-dedup")
-	queue := uniqueName("dedup")
+	namespace := uniquename.New("sdk-amqp-dedup")
+	queue := uniquename.New("dedup")
 	adminClient := sbAdminClient(t, namespace)
 	_, err := adminClient.CreateQueue(ctx, queue, &admin.CreateQueueOptions{Properties: &admin.QueueProperties{
 		RequiresDuplicateDetection:          to.Ptr(true),

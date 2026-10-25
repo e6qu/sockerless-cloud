@@ -129,6 +129,9 @@ type Set struct {
 	mu       sync.Mutex
 	want     int
 	replicas []*Replica
+	// starting counts the replicas being started, which the set holds only
+	// once they run but which already count toward want.
+	starting int
 	next     int
 	closed   bool
 	// crashes counts the replacements in a row whose replica exited before
@@ -155,13 +158,13 @@ func (s *Set) Scale(ctx context.Context, n int) error {
 		return ErrClosed
 	}
 	s.want = n
-	missing := n - len(s.replicas)
 	var surplus []*Replica
-	if missing < 0 {
+	if len(s.replicas) > n {
 		sort.SliceStable(s.replicas, func(i, j int) bool { return s.replicas[i].created.Before(s.replicas[j].created) })
 		surplus = append(surplus, s.replicas[n:]...)
 		s.replicas = s.replicas[:n]
 	}
+	missing := s.reserve()
 	s.mu.Unlock()
 	for _, r := range surplus {
 		s.stop(r)
@@ -189,7 +192,7 @@ func (s *Set) Raise(ctx context.Context, n int) error {
 		return nil
 	}
 	s.want = n
-	missing := n - len(s.replicas)
+	missing := s.reserve()
 	s.mu.Unlock()
 	return s.startMissing(ctx, missing)
 }
@@ -208,6 +211,7 @@ func (s *Set) Add(ctx context.Context, limit int) (*Replica, error) {
 		return nil, nil
 	}
 	s.want++
+	s.starting++
 	s.mu.Unlock()
 	r, err := s.startOne(ctx)
 	if err != nil {
@@ -218,8 +222,19 @@ func (s *Set) Add(ctx context.Context, limit int) (*Replica, error) {
 	return r, err
 }
 
-// startMissing starts missing replicas at once and returns once they run, or
-// with the first start's error.
+// reserve marks as starting the replicas the set wants beyond those it holds
+// or is already starting, and returns how many; s.mu is held.
+func (s *Set) reserve() int {
+	missing := s.want - len(s.replicas) - s.starting
+	if missing <= 0 {
+		return 0
+	}
+	s.starting += missing
+	return missing
+}
+
+// startMissing starts missing replicas, already reserved, at once and returns
+// once they run, or with the first start's error.
 func (s *Set) startMissing(ctx context.Context, missing int) error {
 	if missing <= 0 {
 		return nil
@@ -246,12 +261,16 @@ func (s *Set) newReplica(id string, group *workload.Group, started time.Time, re
 		group: group, release: release, started: started}
 }
 
-// startOne starts a replica and adds it to the set, unless the set no longer
-// wants it by the time it runs, and returns the replica it kept.
+// startOne starts a replica the caller reserved and adds it to the set,
+// unless the set no longer wants it by the time it runs, and returns the
+// replica it kept.
 func (s *Set) startOne(ctx context.Context) (*Replica, error) {
 	id := s.spec.NewID()
 	group, release, err := s.spec.Start(ctx, id)
 	if err != nil {
+		s.mu.Lock()
+		s.starting--
+		s.mu.Unlock()
 		if s.hooks.Failed != nil {
 			s.hooks.Failed(id, err)
 		}
@@ -259,7 +278,8 @@ func (s *Set) startOne(ctx context.Context) (*Replica, error) {
 	}
 	r := s.newReplica(id, group, time.Now(), release)
 	s.mu.Lock()
-	keep := s.short()
+	s.starting--
+	keep := !s.closed && len(s.replicas) < s.want
 	if keep {
 		s.replicas = append(s.replicas, r)
 	}
@@ -275,8 +295,9 @@ func (s *Set) startOne(ctx context.Context) (*Replica, error) {
 	return r, nil
 }
 
-// short reports whether the set wants another replica; s.mu is held.
-func (s *Set) short() bool { return !s.closed && len(s.replicas) < s.want }
+// short reports whether the set wants another replica beyond those it holds
+// and those starting; s.mu is held.
+func (s *Set) short() bool { return !s.closed && len(s.replicas)+s.starting < s.want }
 
 // Adopt takes over a replica a previous simulator process started, as the
 // set's own, and watches it from here on.
@@ -441,6 +462,9 @@ func (s *Set) replace(crashes int) {
 		}
 		s.mu.Lock()
 		wanted := s.short()
+		if wanted {
+			s.starting++
+		}
 		s.mu.Unlock()
 		if !wanted {
 			return

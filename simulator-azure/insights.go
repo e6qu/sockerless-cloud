@@ -119,7 +119,7 @@ func registerApplicationInsights(srv *sim.Server) {
 			return
 		}
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Insights/components/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Insights", "components", name)
 
 		kind := req.Kind
 		if kind == "" {
@@ -199,7 +199,7 @@ func registerApplicationInsights(srv *sim.Server) {
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "componentName")
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Insights/components/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Insights", "components", name)
 
 		comp, ok := components.Get(resourceID)
 		if !ok {
@@ -217,7 +217,7 @@ func registerApplicationInsights(srv *sim.Server) {
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "componentName")
 
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Insights/components/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Insights", "components", name)
 
 		if components.Delete(resourceID) {
 			w.WriteHeader(http.StatusOK)
@@ -231,7 +231,7 @@ func registerApplicationInsights(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "componentName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Insights/components/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Insights", "components", name)
 		comp, ok := components.Get(resourceID)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
@@ -257,7 +257,7 @@ func registerApplicationInsights(srv *sim.Server) {
 	srv.HandleFunc("GET "+armBase+"/components", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Insights/components/", sub, rg)
+		prefix := armResourceID(sub, rg, "Microsoft.Insights", "components") + "/"
 		out := components.Filter(func(c AppInsightsComponent) bool {
 			return strings.HasPrefix(c.ID, prefix)
 		})
@@ -270,7 +270,7 @@ func registerApplicationInsights(srv *sim.Server) {
 	// GET - List components in the subscription (ComponentsClient.NewListPager).
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Insights/components", func(w http.ResponseWriter, r *http.Request) {
 		sub := sim.PathParam(r, "subscriptionId")
-		prefix := fmt.Sprintf("/subscriptions/%s/resourceGroups/", sub)
+		prefix := armSubscriptionID(sub) + "/resourceGroups/"
 		out := components.Filter(func(c AppInsightsComponent) bool {
 			return strings.HasPrefix(c.ID, prefix)
 		})
@@ -288,7 +288,7 @@ func registerApplicationInsights(srv *sim.Server) {
 		sub := sim.PathParam(r, "subscriptionId")
 		rg := sim.PathParam(r, "resourceGroupName")
 		name := sim.PathParam(r, "componentName")
-		resourceID := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Insights/components/%s", sub, rg, name)
+		resourceID := armResourceID(sub, rg, "Microsoft.Insights", "components", name)
 		if _, ok := components.Get(resourceID); !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound,
 				"The Resource 'Microsoft.Insights/components/%s' under resource group '%s' was not found.", name, rg)
@@ -338,8 +338,7 @@ func registerApplicationInsights(srv *sim.Server) {
 		CurrentBillingFeatures: []string{"Basic"},
 	}
 	billingKey := func(r *http.Request) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Insights/components/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "componentName"))
+		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Insights", "components", sim.PathParam(r, "componentName"))
 	}
 	registerInsightsFeatures(srv, armBase, billing, defaultBilling, billingKey)
 

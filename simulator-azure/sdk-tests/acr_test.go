@@ -9,6 +9,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/containers/azcontainerregistry"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerregistry/armcontainerregistry"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -312,7 +313,7 @@ func nopSeekCloser(r io.ReadSeeker) io.ReadSeekCloser { return nopSeekCloserT{r}
 // create is the thing that tells it the name was taken.
 func TestACR_NameAvailabilityAnswersFromTheRegistriesThatExist(t *testing.T) {
 	t.Parallel()
-	rgName, registryName := "acr-namecheck-rg", uniqueAlnumName("namecheckregistry")
+	rgName, registryName := "acr-namecheck-rg", uniquename.Alnum("namecheckregistry")
 	ensureRG(t, rgName)
 
 	client, err := armcontainerregistry.NewRegistriesClient(subscriptionID, &fakeCredential{}, clientOpts())

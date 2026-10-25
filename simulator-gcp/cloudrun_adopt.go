@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
-	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/workload"
 )
@@ -32,6 +31,8 @@ const (
 
 	cloudRunTaskExecutionLabel = "sockerless-sim-execution"
 	cloudRunTaskContainerLabel = "sockerless-sim-execution-container"
+	cloudRunTaskIndexLabel     = "sockerless-sim-task-index"
+	cloudRunTaskAttemptLabel   = "sockerless-sim-task-attempt"
 
 	cloudRunWorkerPoolLabel = "sockerless-sim-worker-pool"
 )
@@ -378,7 +379,6 @@ func adoptCloudRunInstanceContainers(name, specSig string, containers []Containe
 	}
 	_, stop := context.WithCancel(context.Background())
 	inst := &cloudRunServiceInstance{
-		owner:         owner,
 		specSig:       specSig,
 		stop:          stop,
 		ready:         make(chan struct{}),
@@ -466,120 +466,4 @@ func adoptCloudRunServiceInstanceGroup(name, groupID string, group []placement.E
 		inst.releaseMounts()
 	})
 	return true
-}
-
-// adoptCloudRunJobExecutions takes over the containers of every execution an
-// earlier process left running, so the execution runs on to its outcome
-// under this process, and removes the containers of executions that no
-// longer run.
-func adoptCloudRunJobExecutions() {
-	if !sim.HasPersistentWorkloadIdentity() || sim.RequireContainerRuntime("adopting Cloud Run job executions") != nil {
-		return
-	}
-	backend, err := gcpPlacement.For(placementRun)
-	if err != nil {
-		log.Printf("Cloud Run jobs: list the containers an earlier process left: %v", err)
-		return
-	}
-	found, err := backend.Find(context.Background(), map[string]string{cloudRunTaskExecutionLabel: ""})
-	if err != nil {
-		log.Printf("Cloud Run jobs: list the containers an earlier process left: %v", err)
-		return
-	}
-	byExecution := map[string][]placement.Existing{}
-	var names []string
-	for _, c := range found {
-		name := c.Labels[cloudRunTaskExecutionLabel]
-		if _, seen := byExecution[name]; !seen {
-			names = append(names, name)
-		}
-		byExecution[name] = append(byExecution[name], c)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		group := byExecution[name]
-		if err := adoptCloudRunJobExecution(name, group); err != nil {
-			log.Printf("Cloud Run execution %s: %v", name, err)
-			removeCloudRunContainers(name, group)
-		}
-	}
-}
-
-// adoptCloudRunJobExecution resumes the execution name on the containers
-// group holds, under the timeout its task template set, counted from the
-// execution's start. A task that exited while no process watched it settles
-// from its container's exit code.
-func adoptCloudRunJobExecution(name string, group []placement.Existing) error {
-	exec, ok := crjExecutions.Get(name)
-	if !ok || exec.RunningCount == 0 || exec.CompletionTime != "" || exec.CancelledCount > 0 {
-		return fmt.Errorf("the execution no longer runs")
-	}
-	if exec.Template == nil || len(exec.Template.Containers) == 0 || len(group) != len(exec.Template.Containers) {
-		return fmt.Errorf("the containers do not run the execution's task template")
-	}
-	byName := make(map[string]placement.Existing, len(group))
-	for _, c := range group {
-		byName[c.Labels[cloudRunTaskContainerLabel]] = c
-	}
-	containers := exec.Template.Containers
-	for _, c := range containers {
-		if _, ok := byName[c.Name]; !ok {
-			return fmt.Errorf("no container runs %q", c.Name)
-		}
-	}
-	started, err := time.Parse(time.RFC3339Nano, exec.StartTime)
-	if err != nil {
-		return fmt.Errorf("read the execution's start time %q: %w", exec.StartTime, err)
-	}
-	remaining := cloudRunTaskTimeout(exec.Template) - time.Since(started)
-	writable, err := cloudRunWritableBuckets(containers, exec.Template.Volumes)
-	if err != nil {
-		return err
-	}
-	releaseMounts, err := gcsAcquireMounts(writable)
-	if err != nil {
-		return err
-	}
-	project, jobID := resourceProject(name), exec.Job
-	sink := newCloudRunAdoptedLogSink(&crjLogSink{project: project, jobName: jobID}, project, cloudRunJobLogResource(jobID), nil)
-	handles := make([]placement.Handle, 0, len(containers))
-	for i, c := range containers {
-		config := sim.ContainerConfig{CancelGracePeriod: cloudRunStopGrace}
-		if i == 0 && remaining > 0 {
-			config.Timeout = remaining
-		}
-		handle, err := adoptCloudRunContainer(byName[c.Name].ID, config, sink)
-		if err != nil {
-			for _, h := range handles {
-				h.Cancel()
-			}
-			releaseMounts()
-			return fmt.Errorf("adopt container %s: %w", byName[c.Name].ID, err)
-		}
-		handles = append(handles, handle)
-	}
-	releaseAddress, err := gcpReserveAdoptedAddress(context.Background(), handles[0], name, exec.Template.VpcAccess)
-	if err != nil {
-		for _, h := range handles {
-			h.Cancel()
-		}
-		releaseMounts()
-		return err
-	}
-	mounts := releaseMounts
-	releaseMounts = func() {
-		mounts()
-		releaseAddress()
-	}
-	workloads := &workload.Group{Main: handles[0], Sidecars: handles[1:]}
-	// recoverCloudRunJobExecutions fails every running execution without a
-	// handle once adoption returns.
-	crjProcessHandles.Store(name, workloads)
-	bg.Go(func() {
-		if remaining <= 0 {
-			stopCloudRunExecutionWorkload(workloads)
-		}
-		concludeCloudRunJobExecution(name, exec.TaskCount, project, jobID, awaitCloudRunJobExecution(name, workloads, releaseMounts))
-	})
-	return nil
 }

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GcpResourceTable, type GcpColumn } from "../console/index.js";
+import type { MenuEntry } from "../console/menu.js";
 import { GcpPageHeader } from "../console/GcpConsole.js";
 import { GcpDialog } from "../console/GcpDialog.js";
 import { GcpTabs } from "../console/GcpTabs.js";
@@ -27,7 +28,7 @@ const columns: GcpColumn<DnsManagedZone>[] = [
     id: "name",
     header: "Zone name",
     cell: (row) => (
-      <Link className="gc-cell-link" to={`/ui/dns/${row.name}`}>
+      <Link className="gc-cell-link" to={`/ui/net-services/dns/zones/${row.name}/details`}>
         {row.name}
       </Link>
     ),
@@ -166,27 +167,11 @@ export function CloudDnsPage() {
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["dns-zones", project] });
 
-  const columnsWithActions: GcpColumn<DnsManagedZone>[] = [
-    ...columns,
-    {
-      id: "actions",
-      header: "Actions",
-      cell: (row) => (
-        <span className="gc-row-actions">
-          <button
-            type="button"
-            className="gc-button-text"
-            data-testid={`dns-delete-${row.name}`}
-            aria-label={`Delete ${row.name}`}
-            onClick={() => setDeleting(row.name)}
-          >
-            Delete
-          </button>
-        </span>
-      ),
-      value: () => "",
-    },
-  ];
+  const rowActions = (row: DnsManagedZone): MenuEntry[] => {
+    return [
+      { label: "Delete", testId: `dns-delete-${row.name}`, onSelect: () => setDeleting(row.name) },
+    ];
+  };
 
   return (
     <>
@@ -196,7 +181,8 @@ export function CloudDnsPage() {
         actions={[
           { label: "Create zone", icon: "add", primary: true, testId: "dns-create-zone", onSelect: () => setCreating(true) },
         ]}
-        columns={columnsWithActions}
+        columns={columns}
+        rowActions={rowActions}
         queryKey={["dns-zones", project]}
         queryFn={() => fetchDnsZones(project)}
         filterPlaceholder="Filter zones"
@@ -247,10 +233,8 @@ export function CloudDnsZoneDetailPage() {
 
   return (
     <>
-      <div className="gc-detail-back">
-        <Link to="/ui/dns">‹ Cloud DNS</Link>
-      </div>
       <GcpPageHeader
+        backTo="/ui/net-services/dns/zones"
         title={name}
         description="Cloud DNS managed zone"
         actions={[{ label: "Delete", testId: "dns-zone-delete", onSelect: () => setDeleting(true) }]}
@@ -316,7 +300,7 @@ export function CloudDnsZoneDetailPage() {
         />
       )}
       {deleting ? (
-        <DeleteZoneDialog name={name} onClose={() => setDeleting(false)} onDeleted={() => navigate("/ui/dns")} />
+        <DeleteZoneDialog name={name} onClose={() => setDeleting(false)} onDeleted={() => navigate("/ui/net-services/dns/zones")} />
       ) : null}
     </>
   );

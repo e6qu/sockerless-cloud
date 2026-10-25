@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	ecrtypes "github.com/aws/aws-sdk-go-v2/service/ecr/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +35,7 @@ func ecrPutTestImage(t *testing.T, client *ecr.Client, repo, tag string) string 
 func TestECR_ImageTagMutabilityAndScanningConfig(t *testing.T) {
 	t.Parallel()
 	client := ecrClient()
-	repo := uniqueName("ecr-config-repo")
+	repo := uniquename.New("ecr-config-repo")
 	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
 		RepositoryName: aws.String(repo),
 	})
@@ -98,7 +99,7 @@ func TestECR_ImageScan(t *testing.T) {
 func TestECR_LifecyclePolicyPreview(t *testing.T) {
 	t.Parallel()
 	client := ecrClient()
-	repo := uniqueName("ecr-lifecycle-preview-repo")
+	repo := uniquename.New("ecr-lifecycle-preview-repo")
 	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
 		RepositoryName: aws.String(repo),
 	})

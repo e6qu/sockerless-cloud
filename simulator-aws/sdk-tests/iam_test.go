@@ -5,6 +5,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +18,7 @@ func iamClient() *iam.Client {
 
 func TestIAM_CreateRole(t *testing.T) {
 	t.Parallel()
-	roleName := uniqueName("test-role")
+	roleName := uniquename.New("test-role")
 	client := iamClient()
 	policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
 
@@ -32,7 +33,7 @@ func TestIAM_CreateRole(t *testing.T) {
 
 func TestIAM_GetRole(t *testing.T) {
 	t.Parallel()
-	roleName := uniqueName("get-role")
+	roleName := uniquename.New("get-role")
 	client := iamClient()
 	policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
 
@@ -51,7 +52,7 @@ func TestIAM_GetRole(t *testing.T) {
 
 func TestIAM_PutRolePolicy(t *testing.T) {
 	t.Parallel()
-	roleName := uniqueName("policy-role")
+	roleName := uniquename.New("policy-role")
 	client := iamClient()
 	assumePolicy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
 

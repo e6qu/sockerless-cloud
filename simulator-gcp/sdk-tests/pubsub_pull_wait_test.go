@@ -6,6 +6,7 @@ import (
 
 	vkit "cloud.google.com/go/pubsub/apiv1"
 	pubsubpb "cloud.google.com/go/pubsub/apiv1/pubsubpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/option"
@@ -45,8 +46,8 @@ func TestPubSub_GRPC_PullWaitsForPublish(t *testing.T) {
 	t.Parallel()
 	pub, sub := psGapicClients(t)
 	ensureProject(t, "ps-pull-wait")
-	topic := "projects/ps-pull-wait/topics/" + uniqueName("wait-topic")
-	subName := "projects/ps-pull-wait/subscriptions/" + uniqueName("wait-sub")
+	topic := "projects/ps-pull-wait/topics/" + uniquename.New("wait-topic")
+	subName := "projects/ps-pull-wait/subscriptions/" + uniquename.New("wait-sub")
 	_, err := pub.CreateTopic(ctx, &pubsubpb.Topic{Name: topic})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = pub.DeleteTopic(ctx, &pubsubpb.DeleteTopicRequest{Topic: topic}) })
@@ -87,8 +88,8 @@ func TestPubSub_GRPC_PullWaitsForNack(t *testing.T) {
 	t.Parallel()
 	pub, sub := psGapicClients(t)
 	ensureProject(t, "ps-pull-wait")
-	topic := "projects/ps-pull-wait/topics/" + uniqueName("nack-topic")
-	subName := "projects/ps-pull-wait/subscriptions/" + uniqueName("nack-sub")
+	topic := "projects/ps-pull-wait/topics/" + uniquename.New("nack-topic")
+	subName := "projects/ps-pull-wait/subscriptions/" + uniquename.New("nack-sub")
 	_, err := pub.CreateTopic(ctx, &pubsubpb.Topic{Name: topic})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = pub.DeleteTopic(ctx, &pubsubpb.DeleteTopicRequest{Topic: topic}) })
@@ -127,8 +128,8 @@ func TestPubSub_REST_PullWaitsForPublish(t *testing.T) {
 	t.Parallel()
 	svc := pubsubService(t)
 	ensureProject(t, "ps-pull-wait")
-	topic := "projects/ps-pull-wait/topics/" + uniqueName("rest-wait-topic")
-	subName := "projects/ps-pull-wait/subscriptions/" + uniqueName("rest-wait-sub")
+	topic := "projects/ps-pull-wait/topics/" + uniquename.New("rest-wait-topic")
+	subName := "projects/ps-pull-wait/subscriptions/" + uniquename.New("rest-wait-sub")
 	_, err := svc.Projects.Topics.Create(topic, &pubsub.Topic{}).Do()
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = svc.Projects.Topics.Delete(topic).Do() })

@@ -7,6 +7,7 @@ import (
 
 	artifactregistry "google.golang.org/api/artifactregistry/v1"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,7 +24,7 @@ func TestArtifactRegistry_PrewarmedArtifactLifecycle(t *testing.T) {
 	t.Parallel()
 	svc := arAdminService(t)
 	parent := "projects/ar-prewarm/locations/us-central1"
-	repoID := uniqueName("prewarm-repo")
+	repoID := uniquename.New("prewarm-repo")
 	repoName := parent + "/repositories/" + repoID
 
 	_, err := svc.Projects.Locations.Repositories.Create(parent, &artifactregistry.Repository{Format: "DOCKER"}).
@@ -99,7 +100,7 @@ func TestArtifactRegistry_PrewarmDefaultsToTheRepositoryLocation(t *testing.T) {
 	t.Parallel()
 	svc := arAdminService(t)
 	parent := "projects/ar-prewarm-default/locations/europe-west1"
-	repoID := uniqueName("dflt-repo")
+	repoID := uniquename.New("dflt-repo")
 	repoName := parent + "/repositories/" + repoID
 
 	_, err := svc.Projects.Locations.Repositories.Create(parent, &artifactregistry.Repository{Format: "DOCKER"}).
@@ -125,7 +126,7 @@ func TestArtifactRegistry_PrewarmRejectsWhatItCannotSelect(t *testing.T) {
 	t.Parallel()
 	svc := arAdminService(t)
 	parent := "projects/ar-prewarm-bad/locations/us-central1"
-	repoID := uniqueName("bad-repo")
+	repoID := uniquename.New("bad-repo")
 	repoName := parent + "/repositories/" + repoID
 
 	_, err := svc.Projects.Locations.Repositories.Create(parent, &artifactregistry.Repository{Format: "DOCKER"}).
@@ -169,7 +170,7 @@ func TestArtifactRegistry_RepositoryIAMStillWorksBesideTheCustomVerbs(t *testing
 	t.Parallel()
 	svc := arAdminService(t)
 	parent := "projects/ar-verb-share/locations/us-central1"
-	repoID := uniqueName("share-repo")
+	repoID := uniquename.New("share-repo")
 	repoName := parent + "/repositories/" + repoID
 
 	_, err := svc.Projects.Locations.Repositories.Create(parent, &artifactregistry.Repository{Format: "DOCKER"}).

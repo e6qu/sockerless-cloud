@@ -5,11 +5,20 @@ export function shortName(name: string): string {
   return parts[parts.length - 1] || name;
 }
 
-/** RFC 3339 create timestamps render as a readable local date-time. */
+const TIMESTAMP_FORMAT = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+});
+
+/** An RFC 3339 timestamp the way the console prints one: "Oct 24, 2026, 11:07:33 PM", local time. */
 export function formatTimestamp(value: string): string {
   if (!value) return "—";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? value : TIMESTAMP_FORMAT.format(date);
 }
 
 /** The JSON APIs (Cloud Storage `size`, Artifact Registry file `sizeBytes`)

@@ -8,6 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -68,10 +69,10 @@ func TestRDS_EngineVersionsRunTheirOwnRelease(t *testing.T) {
 			BackupRetentionPeriod: aws.Int32(0),
 		})
 	}
-	_, err = create(uniqueName("sdk-version-unoffered"), "15.4")
+	_, err = create(uniquename.New("sdk-version-unoffered"), "15.4")
 	assertAWSAPIErrorCode(t, err, "InvalidParameterCombination")
 
-	id := uniqueName("sdk-version-pg")
+	id := uniquename.New("sdk-version-pg")
 	created, err := create(id, "16.14")
 	require.NoError(t, err)
 	f.cleanup(id)
@@ -99,13 +100,13 @@ func TestRDS_EngineVersionsRunTheirOwnRelease(t *testing.T) {
 	})
 	assertAWSAPIErrorCode(t, err, "InvalidParameterCombination")
 
-	majorID := uniqueName("sdk-version-major")
+	majorID := uniquename.New("sdk-version-major")
 	major, err := create(majorID, "16")
 	require.NoError(t, err)
 	f.cleanup(majorID)
 	assert.Equal(t, "16.15", aws.ToString(major.DBInstance.EngineVersion), "a major version alone names its newest version")
 
-	seventeenID := uniqueName("sdk-version-17")
+	seventeenID := uniquename.New("sdk-version-17")
 	seventeen, err := create(seventeenID, "17")
 	require.NoError(t, err)
 	f.cleanup(seventeenID)
@@ -115,7 +116,7 @@ func TestRDS_EngineVersionsRunTheirOwnRelease(t *testing.T) {
 	assert.Equal(t, "17.11", rdsServerVersion(t, f.connect(seventeenID)), "the instance runs PostgreSQL 17.11")
 
 	mysql := rdsInstanceFixture{t: t, ctx: ctx, client: c, family: "mysql"}
-	mysqlID := uniqueName("sdk-version-mysql")
+	mysqlID := uniquename.New("sdk-version-mysql")
 	_, err = c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier:  aws.String(mysqlID),
 		DBInstanceClass:       aws.String("db.t3.micro"),
@@ -140,7 +141,7 @@ func TestRDS_DefaultDBParameterGroup(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	c := rdsClient()
-	id := uniqueName("sdk-default-group")
+	id := uniquename.New("sdk-default-group")
 	created, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier:  aws.String(id),
 		DBInstanceClass:       aws.String("db.t3.micro"),

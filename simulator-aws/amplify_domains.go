@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/md5"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -242,7 +241,7 @@ func handleAmplifyCreateDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req amplifyCreateDomainReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		amplifyWriteError(w, http.StatusBadRequest, "BadRequestException", "could not decode: "+err.Error())
 		return
 	}
@@ -292,7 +291,7 @@ func handleAmplifyUpdateDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req amplifyCreateDomainReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		amplifyWriteError(w, http.StatusBadRequest, "BadRequestException", "could not decode: "+err.Error())
 		return
 	}
@@ -365,7 +364,7 @@ func handleAmplifyCreateBackend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req amplifyCreateBackendReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		amplifyWriteError(w, http.StatusBadRequest, "BadRequestException", "could not decode: "+err.Error())
 		return
 	}

@@ -240,8 +240,7 @@ func registerWebCertificates(srv *sim.Server) {
 	webSiteCertificates = sim.MakeStore[WebCertificate](srv.DB(), "web_site_certificates")
 
 	certID := func(r *http.Request) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/certificates/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "name"))
+		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "certificates", sim.PathParam(r, "name"))
 	}
 	writeList := func(w http.ResponseWriter, prefix string) {
 		out := webCertificates.Filter(func(c WebCertificate) bool { return strings.HasPrefix(c.ID, prefix) })
@@ -254,13 +253,12 @@ func registerWebCertificates(srv *sim.Server) {
 
 	// Certificates_List — every certificate in the subscription.
 	srv.HandleFunc("GET /subscriptions/{subscriptionId}/providers/Microsoft.Web/certificates", func(w http.ResponseWriter, r *http.Request) {
-		writeList(w, "/subscriptions/"+sim.PathParam(r, "subscriptionId")+"/")
+		writeList(w, armSubscriptionID(sim.PathParam(r, "subscriptionId"))+"/")
 	})
 
 	// Certificates_ListByResourceGroup.
 	srv.HandleFunc("GET "+webProvider+"/certificates", func(w http.ResponseWriter, r *http.Request) {
-		writeList(w, fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/certificates/",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName")))
+		writeList(w, armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Web", "certificates")+"/")
 	})
 
 	// Certificates_Get.

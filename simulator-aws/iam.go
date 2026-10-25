@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/signals"
 )
 
 type IAMRole struct {
@@ -65,14 +66,17 @@ var (
 	iamAttachedPolicies sim.Store[IAMAttachedPolicy]
 	iamPolicies         sim.Store[IAMPolicy]
 	iamInstanceProfiles sim.Store[IAMInstanceProfile]
+	// iamChanges announces every write to a role or a policy, any of which
+	// can change what a role's session is allowed.
+	iamChanges = signals.New[string]()
 )
 
 func registerIAM(r *AWSQueryRouter, srv *sim.Server) {
 	registerIAMAccountProperties(r, srv)
-	iamRoles = sim.MakeStore[IAMRole](srv.DB(), "iam_roles")
-	iamRolePolicies = sim.MakeStore[IAMRolePolicy](srv.DB(), "iam_role_policies")
-	iamAttachedPolicies = sim.MakeStore[IAMAttachedPolicy](srv.DB(), "iam_attached_policies")
-	iamPolicies = sim.MakeStore[IAMPolicy](srv.DB(), "iam_policies")
+	iamRoles = sim.Announcing(sim.MakeStore[IAMRole](srv.DB(), "iam_roles"), iamChanges)
+	iamRolePolicies = sim.Announcing(sim.MakeStore[IAMRolePolicy](srv.DB(), "iam_role_policies"), iamChanges)
+	iamAttachedPolicies = sim.Announcing(sim.MakeStore[IAMAttachedPolicy](srv.DB(), "iam_attached_policies"), iamChanges)
+	iamPolicies = sim.Announcing(sim.MakeStore[IAMPolicy](srv.DB(), "iam_policies"), iamChanges)
 	iamInstanceProfiles = sim.MakeStore[IAMInstanceProfile](srv.DB(), "iam_instance_profiles")
 
 	r.Register("CreateRole", handleIAMCreateRole)
@@ -280,12 +284,7 @@ func iamEmptyResultXML(w http.ResponseWriter, op string) {
 }
 
 func iamErrorXML(w http.ResponseWriter, code string, message string, statusCode int) {
-	w.Header().Set("Content-Type", "text/xml")
-	w.WriteHeader(statusCode)
-	fmt.Fprintf(w, `<ErrorResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
-  <Error><Type>Sender</Type><Code>%s</Code><Message>%s</Message></Error>
-  <RequestId>%s</RequestId>
-</ErrorResponse>`, code, message, sim.NewUUID())
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsQuery, Namespace: "https://iam.amazonaws.com/doc/2010-05-08/"}, statusCode, code, message, "")
 }
 
 func handleIAMGetRole(w http.ResponseWriter, r *http.Request) {

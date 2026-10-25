@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	"github.com/aws/aws-sdk-go-v2/service/rds/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -93,7 +94,7 @@ func TestRDS_DBParameterGroupsConfigureTheEngine(t *testing.T) {
 	assert.Equal(t, "static", aws.ToString(defaults["max_connections"].ApplyType))
 	assert.False(t, aws.ToBool(defaults["server_version"].IsModifiable))
 
-	group := uniqueName("sdk-pg-params")
+	group := uniquename.New("sdk-pg-params")
 	_, err := c.CreateDBParameterGroup(ctx, &rds.CreateDBParameterGroupInput{
 		DBParameterGroupName: aws.String(group), DBParameterGroupFamily: aws.String("postgres16"), Description: aws.String("engine parameters"),
 	})
@@ -123,7 +124,7 @@ func TestRDS_DBParameterGroupsConfigureTheEngine(t *testing.T) {
 	assert.Equal(t, types.ApplyMethodPendingReboot, set["max_connections"].ApplyMethod)
 
 	f := rdsInstanceFixture{t: t, ctx: ctx, client: c, family: "postgres"}
-	id := uniqueName("sdk-pg-params")
+	id := uniquename.New("sdk-pg-params")
 	_, err = c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier:  aws.String(id),
 		DBInstanceClass:       aws.String("db.t3.micro"),
@@ -178,7 +179,7 @@ func TestRDS_DBParameterGroupsConfigureTheMySQLEngine(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	c := rdsClient()
-	group := uniqueName("sdk-mysql-params")
+	group := uniquename.New("sdk-mysql-params")
 	_, err := c.CreateDBParameterGroup(ctx, &rds.CreateDBParameterGroupInput{
 		DBParameterGroupName: aws.String(group), DBParameterGroupFamily: aws.String("mysql8.0"), Description: aws.String("engine parameters"),
 	})
@@ -193,7 +194,7 @@ func TestRDS_DBParameterGroupsConfigureTheMySQLEngine(t *testing.T) {
 	require.NoError(t, err)
 
 	f := rdsInstanceFixture{t: t, ctx: ctx, client: c, family: "mysql"}
-	id := uniqueName("sdk-mysql-params")
+	id := uniquename.New("sdk-mysql-params")
 	_, err = c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier:  aws.String(id),
 		DBInstanceClass:       aws.String("db.t3.micro"),
@@ -243,7 +244,7 @@ func TestRDS_DBInstanceModificationsWaitForTheMaintenanceWindow(t *testing.T) {
 	defer cancel()
 	c := rdsClient()
 	f := rdsInstanceFixture{t: t, ctx: ctx, client: c, family: "postgres"}
-	id := uniqueName("sdk-pending")
+	id := uniquename.New("sdk-pending")
 	created, err := c.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier:  aws.String(id),
 		DBInstanceClass:       aws.String("db.t3.micro"),

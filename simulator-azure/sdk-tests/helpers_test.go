@@ -20,10 +20,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -35,6 +33,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	azruntime "github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
+	"github.com/e6qu/sockerless-cloud/testutil/freeports"
+	"github.com/e6qu/sockerless-cloud/testutil/scratchimage"
 	"github.com/stretchr/testify/require"
 )
 
@@ -228,7 +228,7 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Failed to build simulator: %v\n%s", err, out)
 	}
 
-	workloadPlatform := nativeDockerPlatform()
+	workloadPlatform := scratchimage.NativePlatform()
 
 	// The workload images are tagged for this suite alone. A container image
 	// tag is a single global name in the one engine the machine runs, and every
@@ -238,18 +238,25 @@ func TestMain(m *testing.M) {
 	// own TestMain built.
 	evalDir, _ := filepath.Abs("../../testdata/eval-arithmetic")
 	evalImageName = "sockerless-eval-arithmetic:azure-sdk"
-	buildGoScratchImage(evalImageName, evalDir, "eval-arithmetic", workloadPlatform)
+	if err := scratchimage.Build(evalImageName, evalDir, "eval-arithmetic", workloadPlatform, ""); err != nil {
+		log.Fatal(err)
+	}
 
 	probeDir, _ := filepath.Abs("../../testdata/http-localhost-probe")
 	httpProbeImageName = "sockerless-http-localhost-probe:azure-sdk"
-	buildGoScratchImage(httpProbeImageName, probeDir, "http-localhost-probe", workloadPlatform)
+	if err := scratchimage.Build(httpProbeImageName, probeDir, "http-localhost-probe", workloadPlatform, ""); err != nil {
+		log.Fatal(err)
+	}
 
 	commandDir, _ := filepath.Abs("../../testdata/container-command")
 	commandImageName = "sockerless-container-command:azure-sdk"
-	buildGoScratchImage(commandImageName, commandDir, "container-command", workloadPlatform)
+	if err := scratchimage.Build(commandImageName, commandDir, "container-command", workloadPlatform, ""); err != nil {
+		log.Fatal(err)
+	}
 	servingImageName = "sockerless-container-command-serving:azure-sdk"
-	buildGoScratchImageWithCmd(servingImageName, commandDir, "container-command", workloadPlatform,
-		`["serve", "80", "from-image-cmd"]`)
+	if err := scratchimage.Build(servingImageName, commandDir, "container-command", workloadPlatform, `["serve", "80", "from-image-cmd"]`); err != nil {
+		log.Fatal(err)
+	}
 
 	// The flexible-server data plane boots a real engine from this image at
 	// first connection. Pulling it inside the timed test made a live registry
@@ -292,7 +299,7 @@ func TestMain(m *testing.M) {
 	// The simulator serves the DNS front on UDP and TCP at one port, so the
 	// port must be free on both: a port the kernel picks for UDP alone is
 	// often a TCP port some connection already holds.
-	dnsPort, err := freeTCPUDPPort()
+	dnsPort, err := freeports.TCPUDP()
 	if err != nil {
 		log.Fatalf("Failed to find free DNS port: %v", err)
 	}
@@ -477,63 +484,6 @@ func writeServiceBusAMQPCert(dir string) (string, string) {
 	return certPath, keyPath
 }
 
-func nativeDockerPlatform() string {
-	return "linux/" + runtime.GOARCH
-}
-
-func buildGoScratchImage(imageName, sourceDir, binaryName, platform string) {
-	buildGoScratchImageWithCmd(imageName, sourceDir, binaryName, platform, "")
-}
-
-// buildGoScratchImageWithCmd builds the image buildGoScratchImage does, with
-// cmd — a JSON array, or empty for none — as the image's CMD.
-func buildGoScratchImageWithCmd(imageName, sourceDir, binaryName, platform, cmd string) {
-	buildDir, err := os.MkdirTemp("", "sockerless-azure-image-*")
-	if err != nil {
-		log.Fatalf("Failed to create image build dir: %v", err)
-	}
-	defer os.RemoveAll(buildDir)
-
-	binaryPath := filepath.Join(buildDir, binaryName)
-	build := exec.Command("go", "build", "-o", binaryPath, ".")
-	build.Dir = sourceDir
-	build.Env = append(os.Environ(),
-		"CGO_ENABLED=0",
-		"GOWORK=off",
-		"GOOS=linux",
-		"GOARCH="+runtime.GOARCH,
-	)
-	if out, err := build.CombinedOutput(); err != nil {
-		log.Fatalf("Failed to build %s workload binary: %v\n%s", binaryName, err, out)
-	}
-
-	dockerfile := fmt.Sprintf(`FROM scratch
-COPY %s /usr/local/bin/%s
-ENTRYPOINT ["/usr/local/bin/%s"]
-`, binaryName, binaryName, binaryName)
-	if cmd != "" {
-		dockerfile += "CMD " + cmd + "\n"
-	}
-	// On a docker-container buildx driver (the default on many dev machines),
-	// `docker build -t` leaves the image in the build cache only — never the
-	// daemon store — so the sim's container start can't find it. `docker buildx
-	// build --load` materializes it into the daemon store. The legacy builder
-	// builds into the store natively and rejects the buildx-only `--load`, so
-	// omit it there.
-	var args []string
-	if exec.Command("docker", "buildx", "version").Run() == nil {
-		args = []string{"buildx", "build", "--load"}
-	} else {
-		args = []string{"build"}
-	}
-	args = append(args, "--platform", platform, "-t", imageName, "-f", "-", buildDir)
-	dockerBuild := exec.Command("docker", args...)
-	dockerBuild.Stdin = strings.NewReader(dockerfile)
-	if out, err := dockerBuild.CombinedOutput(); err != nil {
-		log.Fatalf("Failed to build %s Docker image: %v\n%s", imageName, err, out)
-	}
-}
-
 // pullImageBeforeRun fetches a public image before m.Run so a transient
 // registry failure surfaces here as a clear pull error, not as a workload
 // that "failed to start" inside a timed test.
@@ -571,40 +521,4 @@ func testRunSelects(name string) bool {
 		return false
 	}
 	return run == "" || matches("run", run)
-}
-
-var uniqueNameSequence atomic.Int64
-
-// uniqueName suffixes prefix with a lowercase alphanumeric id unique to this
-// run, so a test run again against the same simulator names new resources.
-func uniqueName(prefix string) string {
-	return prefix + "-" + strconv.FormatInt(time.Now().UnixNano(), 36) + strconv.FormatInt(uniqueNameSequence.Add(1), 36)
-}
-
-// uniqueAlnumName suffixes prefix with eight lowercase alphanumerics, for the
-// resources whose names admit no hyphen or run to only 24 characters: storage
-// accounts, key vaults, container registries.
-func uniqueAlnumName(prefix string) string {
-	id := strconv.FormatInt(time.Now().UnixNano()+uniqueNameSequence.Add(1), 36)
-	return prefix + id[len(id)-8:]
-}
-
-// freeTCPUDPPort reserves a loopback port free on TCP and UDP alike.
-func freeTCPUDPPort() (int, error) {
-	const attempts = 100
-	for range attempts {
-		tcpListener, err := net.Listen("tcp4", "127.0.0.1:0")
-		if err != nil {
-			return 0, err
-		}
-		port := tcpListener.Addr().(*net.TCPAddr).Port
-		udpListener, udpErr := net.ListenPacket("udp4", fmt.Sprintf("127.0.0.1:%d", port))
-		_ = tcpListener.Close()
-		if udpErr != nil {
-			continue
-		}
-		_ = udpListener.Close()
-		return port, nil
-	}
-	return 0, fmt.Errorf("could not find a port available on both TCP and UDP after %d attempts", attempts)
 }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -92,7 +91,7 @@ func registerNetworkServiceEndpointPolicies(srv *sim.Server) {
 }
 
 func normalizeServiceEndpointPolicyDefinition(policyID string, def *ServiceEndpointPolicyDefinition) {
-	def.ID = azureNetworkChildID(policyID, "serviceEndpointPolicyDefinitions", def.Name)
+	def.ID = armChildID(policyID, "serviceEndpointPolicyDefinitions", def.Name)
 	def.Type = azureServiceEndpointPolicyDefinitionType
 	def.Etag = azureNetworkEtag()
 	def.Properties.ProvisioningState = "Succeeded"
@@ -122,9 +121,7 @@ func registerServiceEndpointPolicyDefinitions(srv *sim.Server) {
 	base := armBase + "/serviceEndpointPolicies/{serviceEndpointPolicyName}/serviceEndpointPolicyDefinitions"
 
 	policyID := func(r *http.Request) string {
-		return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/serviceEndpointPolicies/%s",
-			sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"),
-			sim.PathParam(r, "serviceEndpointPolicyName"))
+		return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "serviceEndpointPolicies", sim.PathParam(r, "serviceEndpointPolicyName"))
 	}
 
 	srv.HandleFunc("PUT "+base+"/{serviceEndpointPolicyDefinitionName}", func(w http.ResponseWriter, r *http.Request) {

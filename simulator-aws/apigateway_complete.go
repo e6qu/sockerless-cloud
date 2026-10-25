@@ -877,7 +877,10 @@ func handleAPIGWTestInvokeMethod(w http.ResponseWriter, r *http.Request) {
 		Body                string            `json:"body"`
 		Headers             map[string]string `json:"headers"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "BadRequestException", err.Error(), http.StatusBadRequest)
+		return
+	}
 	now := time.Now().UTC().Format("Mon Jan 02 15:04:05 UTC 2006")
 	log := fmt.Sprintf("Execution log for request test-invoke-request\n%s : Starting execution for request: test-invoke-request\n%s : HTTP Method: %s, Resource Path: %s\n%s : Method completed with status: 200\n",
 		now, now, m.HttpMethod, req.PathWithQueryString, now)

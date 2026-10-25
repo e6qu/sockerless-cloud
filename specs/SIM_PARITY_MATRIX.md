@@ -88,6 +88,8 @@ lives.
 | `gcp-cloudresourcemanager` | [`gcp-cloudresourcemanager`](SIM_SURFACE_TABLES/gcp-cloudresourcemanager.md) | [`gcp-cloudresourcemanager`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-cloudresourcemanager_folders_v2` | [`gcp-cloudresourcemanager_folders_v2`](SIM_SURFACE_TABLES/gcp-cloudresourcemanager_folders_v2.md) | [`gcp-cloudresourcemanager_folders_v2`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-cloudrun` | [`gcp-cloudrun`](SIM_SURFACE_TABLES/gcp-cloudrun.md) | [`gcp-cloudrun`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-cloudscheduler` | [`gcp-cloudscheduler`](SIM_SURFACE_TABLES/gcp-cloudscheduler.md) | [`gcp-cloudscheduler`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `gcp-cloudtasks` | [`gcp-cloudtasks`](SIM_SURFACE_TABLES/gcp-cloudtasks.md) | [`gcp-cloudtasks`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-compute` | [`gcp-compute`](SIM_SURFACE_TABLES/gcp-compute.md) | [`gcp-compute`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-compute_bulk_verbs` | [`gcp-compute_bulk_verbs`](SIM_SURFACE_TABLES/gcp-compute_bulk_verbs.md) | [`gcp-compute_bulk_verbs`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `gcp-compute_catalogs` | [`gcp-compute_catalogs`](SIM_SURFACE_TABLES/gcp-compute_catalogs.md) | [`gcp-compute_catalogs`](SIM_TEST_COVERAGE_MATRIX.md) |
@@ -143,6 +145,7 @@ lives.
 | `azure-acr` | [`azure-acr`](SIM_SURFACE_TABLES/azure-acr.md) | [`azure-acr`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-acr_dataplane_properties` | [`azure-acr_dataplane_properties`](SIM_SURFACE_TABLES/azure-acr_dataplane_properties.md) | [`azure-acr_dataplane_properties`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-acr_tasks` | [`azure-acr_tasks`](SIM_SURFACE_TABLES/azure-acr_tasks.md) | [`azure-acr_tasks`](SIM_TEST_COVERAGE_MATRIX.md) |
+| `azure-activitylog` | [`azure-activitylog`](SIM_SURFACE_TABLES/azure-activitylog.md) | [`azure-activitylog`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-apim` | [`azure-apim`](SIM_SURFACE_TABLES/azure-apim.md) | [`azure-apim`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-appserviceplan` | [`azure-appserviceplan`](SIM_SURFACE_TABLES/azure-appserviceplan.md) | [`azure-appserviceplan`](SIM_TEST_COVERAGE_MATRIX.md) |
 | `azure-azure_dns` | [`azure-azure_dns`](SIM_SURFACE_TABLES/azure-azure_dns.md) | [`azure-azure_dns`](SIM_TEST_COVERAGE_MATRIX.md) |

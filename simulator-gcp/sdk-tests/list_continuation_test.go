@@ -14,6 +14,7 @@ import (
 	"cloud.google.com/go/kms/apiv1/kmspb"
 	longrunningpb "cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"cloud.google.com/go/pubsub/apiv1/pubsubpb"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/require"
 	iam "google.golang.org/api/iam/v1"
 	"google.golang.org/api/iterator"
@@ -71,7 +72,7 @@ var continuationLetters = [8]string{"a", "b", "c", "d", "e", "f", "h", "j"}
 func TestCloudKMSGRPC_ListKeyRingsResumesAfterTheLastKeyRingReturned(t *testing.T) {
 	t.Parallel()
 	client := newKMSGRPCClient(t)
-	parent := "projects/" + uniqueName("kms-continuation") + "/locations/global"
+	parent := "projects/" + uniquename.New("kms-continuation") + "/locations/global"
 	requireContinuation(t, continuationList{
 		put: func(t *testing.T, id string) {
 			_, err := client.CreateKeyRing(ctx, &kmspb.CreateKeyRingRequest{Parent: parent, KeyRingId: id, KeyRing: &kmspb.KeyRing{}})
@@ -93,7 +94,7 @@ func TestCloudKMSGRPC_ListKeyRingsResumesAfterTheLastKeyRingReturned(t *testing.
 func TestPubSubGRPC_ListTopicsResumesAfterTheLastTopicReturned(t *testing.T) {
 	t.Parallel()
 	pub, _ := psRawClient(t)
-	project := "projects/" + uniqueName("ps-continuation")
+	project := "projects/" + uniquename.New("ps-continuation")
 	ensureProject(t, strings.TrimPrefix(project, "projects/"))
 	requireContinuation(t, continuationList{
 		put: func(t *testing.T, id string) {
@@ -119,7 +120,7 @@ func TestPubSubGRPC_ListTopicsResumesAfterTheLastTopicReturned(t *testing.T) {
 func TestCloudRunV1_JobsListResumesAfterTheLastJobReturned(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	parent := "namespaces/" + uniqueName("run-v1-continuation")
+	parent := "namespaces/" + uniquename.New("run-v1-continuation")
 	requireContinuation(t, continuationList{
 		put: func(t *testing.T, id string) {
 			_, err := svc.Namespaces.Jobs.Create(parent, &run.Job{
@@ -155,7 +156,7 @@ func TestCloudRunV1_JobsListResumesAfterTheLastJobReturned(t *testing.T) {
 func TestIAM_CustomRolesListResumesAfterTheLastRoleReturned(t *testing.T) {
 	t.Parallel()
 	svc := iamService(t)
-	parent := "projects/" + uniqueName("iam-continuation")
+	parent := "projects/" + uniquename.New("iam-continuation")
 	requireContinuation(t, continuationList{
 		put: func(t *testing.T, id string) {
 			_, err := svc.Projects.Roles.Create(parent, &iam.CreateRoleRequest{
@@ -186,7 +187,7 @@ func TestLogging_EntriesListResumesAfterTheLastEntryReturned(t *testing.T) {
 	t.Parallel()
 	svc, err := logging.NewService(ctx, option.WithEndpoint(baseURL), option.WithTokenSource(simTokenSource()))
 	require.NoError(t, err)
-	logName := "projects/" + harnessProject + "/logs/" + uniqueName("continuation")
+	logName := "projects/" + harnessProject + "/logs/" + uniquename.New("continuation")
 	written := time.Now().UTC().Truncate(time.Minute).Add(-time.Hour)
 	requireContinuation(t, continuationList{
 		put: func(t *testing.T, second string) {
@@ -225,7 +226,7 @@ func TestOperations_LocationCollectionsListTheirOwnServicesOperations(t *testing
 	t.Parallel()
 	const parent = "projects/" + harnessProject + "/locations/us-central1"
 	eventarcSvc := eventarcClient(t)
-	busID := uniqueName("ops-scope-bus")
+	busID := uniquename.New("ops-scope-bus")
 	createBus, err := eventarcSvc.CreateMessageBus(ctx, &eventarcpb.CreateMessageBusRequest{
 		Parent: parent, MessageBusId: busID, MessageBus: &eventarcpb.MessageBus{},
 	})
@@ -241,7 +242,7 @@ func TestOperations_LocationCollectionsListTheirOwnServicesOperations(t *testing
 
 	vpcSvc, err := vpcaccess.NewService(ctx, serviceHostOptions("vpcaccess.googleapis.com")...)
 	require.NoError(t, err)
-	connectorID := uniqueName("ops-scope")
+	connectorID := uniquename.New("ops-scope")
 	connectorOp, err := vpcSvc.Projects.Locations.Connectors.Create(parent, &vpcaccess.Connector{
 		Network: "default", IpCidrRange: "10.8.48.0/28", MachineType: "e2-micro", MinInstances: 2, MaxInstances: 3,
 	}).ConnectorId(connectorID).Do()
@@ -281,7 +282,7 @@ func TestOperations_LocationCollectionsListTheirOwnServicesOperations(t *testing
 
 	runREST, err := runv2.NewService(ctx, serviceHostOptions("run.googleapis.com")...)
 	require.NoError(t, err)
-	jobID := uniqueName("ops-scope-job")
+	jobID := uniquename.New("ops-scope-job")
 	jobOp, err := runREST.Projects.Locations.Jobs.Create(parent, &runv2.GoogleCloudRunV2Job{
 		Template: &runv2.GoogleCloudRunV2ExecutionTemplate{Template: &runv2.GoogleCloudRunV2TaskTemplate{
 			Containers: []*runv2.GoogleCloudRunV2Container{{Image: "mirror.gcr.io/library/alpine:latest"}},

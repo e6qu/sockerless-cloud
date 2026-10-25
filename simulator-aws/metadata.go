@@ -27,7 +27,6 @@ func registerHostMetadata(srv *sim.Server) {
 	// token the simulator minted for it.
 	srv.HandleFunc("POST "+egress.ReportPath, sidecar.EgressReports(ec2TakeNatEgressReport))
 	registerEC2IMDS(srv)
-	registerRoleCredentials(srv)
 
 	// ECS task metadata v4. Real ECS sets ECS_CONTAINER_METADATA_URI_V4
 	// to a per-task local URL like http://169.254.170.2/v4/<id>; tasks reach

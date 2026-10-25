@@ -29,7 +29,7 @@ func webReadProcess(ctx context.Context, containerID string, hostPID int, what s
 
 // webGetProcessDump answers WebApps_GetProcessDump and its three siblings.
 func webGetProcessDump(w http.ResponseWriter, r *http.Request) {
-	proc, containerID, ok := webResolveProcess(w, r)
+	proc, instance, ok := webResolveProcess(w, r)
 	if !ok {
 		return
 	}
@@ -44,7 +44,7 @@ func webGetProcessDump(w http.ResponseWriter, r *http.Request) {
 	// The body is the image itself, so nothing may be written before it is
 	// known to be producible — an error after the first byte would be a
 	// truncated core the caller cannot tell from a complete one.
-	core, err := webReadProcess(r.Context(), containerID, proc.PID, "core")
+	core, err := webReadProcess(r.Context(), instance.ID(), proc.PID, "core")
 	if err != nil {
 		AzureErrorf(w, "InternalServerError", http.StatusInternalServerError,
 			"%s: read the process's memory image: %v", webProcessDumpOperation(r), err)

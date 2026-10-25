@@ -19,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/smithy-go"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,8 +37,8 @@ func errCode(t *testing.T, err error) string {
 // create a second resource.
 func TestELBv2_DuplicateNames(t *testing.T) {
 	t.Parallel()
-	tgName := uniqueName("dup-tg")
-	lbName := uniqueName("dup-lb")
+	tgName := uniquename.New("dup-tg")
+	lbName := uniquename.New("dup-lb")
 	c := elbv2Client()
 	_, subnets := elbv2FidVPCSubnets(t, "10.166.0.0/16", "10.166.1.0/24", "10.166.2.0/24")
 	created, err := c.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
@@ -80,7 +81,7 @@ func TestELBv2_DuplicateNames(t *testing.T) {
 // HostedZoneAlreadyExists, the idempotency key Terraform relies on for retries.
 func TestRoute53_CallerReferenceIdempotency(t *testing.T) {
 	t.Parallel()
-	callerRef := uniqueName("audit-ref")
+	callerRef := uniquename.New("audit-ref")
 	c := r53Client()
 	_, err := c.CreateHostedZone(ctx, &route53.CreateHostedZoneInput{
 		Name:            aws.String("audit-example.com"),

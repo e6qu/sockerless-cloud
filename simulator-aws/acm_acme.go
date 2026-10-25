@@ -222,7 +222,7 @@ func acmAcmeEndpointID(arn string) string {
 }
 
 func acmDecodeJSON(w http.ResponseWriter, r *http.Request, out any) bool {
-	if err := json.NewDecoder(r.Body).Decode(out); err != nil {
+	if err := sim.ReadJSON(r, out); err != nil {
 		acmWriteError(w, "ValidationException", "could not decode request: "+err.Error())
 		return false
 	}
@@ -643,33 +643,8 @@ func handleACMGetAcmeExternalAccountBindingCredentials(w http.ResponseWriter, r 
 }
 
 func handleACMListAcmeExternalAccountBindings(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		AcmeEndpointArn string `json:"AcmeEndpointArn"`
-		MaxResults      int    `json:"MaxResults"`
-		NextToken       string `json:"NextToken"`
-	}
-	if !acmDecodeJSON(w, r, &req) {
-		return
-	}
-	if _, ok := acmAcmeEndpoints.Get(req.AcmeEndpointArn); !ok {
-		acmResourceNotFound(w, req.AcmeEndpointArn)
-		return
-	}
-	all := make([]acmAcmeExternalAccountBinding, 0)
-	for _, binding := range acmAcmeBindings.List() {
-		if binding.AcmeEndpointArn == req.AcmeEndpointArn {
-			all = append(all, binding)
-		}
-	}
-	page, next, pageOK := awsKeyPage(w, acmBadToken, all, func(it acmAcmeExternalAccountBinding) string { return it.AcmeExternalAccountBindingArn }, req.NextToken, req.MaxResults, 0)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"ExternalAccountBindings": page}
-	if next != "" {
-		resp["NextToken"] = next
-	}
-	acmWriteJSON(w, http.StatusOK, resp)
+	acmListForEndpoint(w, r, acmAcmeBindings, func(it acmAcmeExternalAccountBinding) string { return it.AcmeEndpointArn },
+		func(it acmAcmeExternalAccountBinding) string { return it.AcmeExternalAccountBindingArn }, "ExternalAccountBindings")
 }
 
 func handleACMRevokeAcmeExternalAccountBinding(w http.ResponseWriter, r *http.Request) {
@@ -727,33 +702,8 @@ func handleACMDescribeAcmeAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleACMListAcmeAccounts(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		AcmeEndpointArn string `json:"AcmeEndpointArn"`
-		MaxResults      int    `json:"MaxResults"`
-		NextToken       string `json:"NextToken"`
-	}
-	if !acmDecodeJSON(w, r, &req) {
-		return
-	}
-	if _, ok := acmAcmeEndpoints.Get(req.AcmeEndpointArn); !ok {
-		acmResourceNotFound(w, req.AcmeEndpointArn)
-		return
-	}
-	all := make([]acmAcmeAccount, 0)
-	for _, account := range acmAcmeAccounts.List() {
-		if account.AcmeEndpointArn == req.AcmeEndpointArn {
-			all = append(all, account)
-		}
-	}
-	page, next, pageOK := awsKeyPage(w, acmBadToken, all, func(it acmAcmeAccount) string { return it.AccountURL }, req.NextToken, req.MaxResults, 0)
-	if !pageOK {
-		return
-	}
-	resp := map[string]any{"AcmeAccounts": page}
-	if next != "" {
-		resp["NextToken"] = next
-	}
-	acmWriteJSON(w, http.StatusOK, resp)
+	acmListForEndpoint(w, r, acmAcmeAccounts, func(it acmAcmeAccount) string { return it.AcmeEndpointArn },
+		func(it acmAcmeAccount) string { return it.AccountURL }, "AcmeAccounts")
 }
 
 func handleACMRevokeAcmeAccount(w http.ResponseWriter, r *http.Request) {
@@ -911,7 +861,7 @@ type acmJWSProtected struct {
 
 func acmVerifyJWS(r *http.Request, endpointArn string, requireJWK, allowEither bool) (acmJWS, []byte, acmAcmeAccount, json.RawMessage, error) {
 	var envelope acmJWS
-	if err := json.NewDecoder(r.Body).Decode(&envelope); err != nil {
+	if err := sim.ReadJSON(r, &envelope); err != nil {
 		return envelope, nil, acmAcmeAccount{}, nil, fmt.Errorf("invalid JWS: %w", err)
 	}
 	protectedBytes, err := base64.RawURLEncoding.DecodeString(envelope.Protected)
@@ -1667,4 +1617,36 @@ func acmCertificateDERKeys(stored acmStoredCert) []string {
 		return nil
 	}
 	return []string{acmCertificateDERKey(block.Bytes)}
+}
+
+// acmListForEndpoint answers a List call with the resources of store that
+// belong to the ACME endpoint the request names, a NextToken page at a time.
+func acmListForEndpoint[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], endpoint, key func(T) string, field string) {
+	var req struct {
+		AcmeEndpointArn string `json:"AcmeEndpointArn"`
+		MaxResults      int    `json:"MaxResults"`
+		NextToken       string `json:"NextToken"`
+	}
+	if !acmDecodeJSON(w, r, &req) {
+		return
+	}
+	if _, ok := acmAcmeEndpoints.Get(req.AcmeEndpointArn); !ok {
+		acmResourceNotFound(w, req.AcmeEndpointArn)
+		return
+	}
+	all := make([]T, 0)
+	for _, item := range store.List() {
+		if endpoint(item) == req.AcmeEndpointArn {
+			all = append(all, item)
+		}
+	}
+	page, next, pageOK := awsKeyPage(w, acmBadToken, all, key, req.NextToken, req.MaxResults, 0)
+	if !pageOK {
+		return
+	}
+	resp := map[string]any{field: page}
+	if next != "" {
+		resp["NextToken"] = next
+	}
+	acmWriteJSON(w, http.StatusOK, resp)
 }

@@ -362,18 +362,7 @@ func crmCreateLien(w http.ResponseWriter, r *http.Request) {
 
 // crmListLiens serves liens.list for both API versions.
 func crmListLiens(w http.ResponseWriter, r *http.Request) {
-	parent := r.URL.Query().Get("parent")
-	rows := crmLiens.Filter(func(l CRMLien) bool { return parent == "" || l.Parent == parent })
-	sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
-	page, next, ok := paginateList(w, r, rows, gcpAsc(func(v CRMLien) string { return v.Name }))
-	if !ok {
-		return
-	}
-	resp := map[string]any{"liens": page}
-	if next != "" {
-		resp["nextPageToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
+	crmWriteChildren(w, r, crmLiens, "liens", func(v CRMLien) (string, string) { return v.Parent, v.Name })
 }
 
 // crmGetLien serves liens.get for both API versions.
@@ -778,21 +767,8 @@ func registerCloudResourceManagerV1(srv *sim.Server, projectPolicies, resourcePo
 		sim.WriteJSON(w, http.StatusOK, crmV1Organization(org))
 	})
 	srv.HandleFunc("POST /v1/organizations:search", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Filter    string `json:"filter"`
-			PageSize  int    `json:"pageSize"`
-			PageToken string `json:"pageToken"`
-		}
-		if err := sim.ReadJSON(r, &req); err != nil {
-			GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
-			return
-		}
-		rows := crmOrganizations.Filter(func(o CRMOrganization) bool { return crmOrganizationMatch(o, req.Filter) })
-		out := make([]crmV1OrganizationMsg, 0, len(rows))
-		for _, o := range rows {
-			out = append(out, crmV1Organization(o))
-		}
-		crmWriteSearchPage(w, "organizations", out, gcpAsc(func(o crmV1OrganizationMsg) string { return o.Name }), req.PageSize, req.PageToken)
+		crmSearch(w, r, crmOrganizations, "organizations", func(req crmSearchRequest) string { return req.Filter },
+			crmOrganizationMatch, crmV1Organization, func(o crmV1OrganizationMsg) string { return o.Name })
 	})
 	srv.HandleFunc("POST /v1/organizations/{orgAction}", func(w http.ResponseWriter, r *http.Request) {
 		idAction := sim.PathParam(r, "orgAction")
@@ -840,4 +816,57 @@ func registerCloudResourceManagerV1(srv *sim.Server, projectPolicies, resourcePo
 		}
 		sim.WriteJSON(w, http.StatusOK, billingProjectInfo(p.ProjectId))
 	})
+}
+
+// crmWriteChildren answers a list method that takes a parent: the resources
+// of store under the parent the query names, or every one when it names
+// none, paged in name order under member. ref reads a resource's parent and
+// name.
+func crmWriteChildren[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], member string, ref func(T) (parent, name string)) {
+	parent := r.URL.Query().Get("parent")
+	name := func(v T) string {
+		_, n := ref(v)
+		return n
+	}
+	rows := store.Filter(func(v T) bool {
+		p, _ := ref(v)
+		return parent == "" || p == parent
+	})
+	sort.Slice(rows, func(i, j int) bool { return name(rows[i]) < name(rows[j]) })
+	page, next, ok := paginateList(w, r, rows, gcpAsc(name))
+	if !ok {
+		return
+	}
+	resp := map[string]any{member: page}
+	if next != "" {
+		resp["nextPageToken"] = next
+	}
+	sim.WriteJSON(w, http.StatusOK, resp)
+}
+
+// crmSearchRequest is the body of the v1 and v2 search methods; v1 spells
+// its expression filter and v2 query.
+type crmSearchRequest struct {
+	Filter    string `json:"filter"`
+	Query     string `json:"query"`
+	PageSize  int    `json:"pageSize"`
+	PageToken string `json:"pageToken"`
+}
+
+// crmSearch answers a search method: the resources of store that match the
+// expression the request carries, each converted to the version's message,
+// paged in name order under member.
+func crmSearch[S, M any](w http.ResponseWriter, r *http.Request, store sim.Store[S], member string, expression func(crmSearchRequest) string,
+	match func(S, string) bool, convert func(S) M, name func(M) string) {
+	var req crmSearchRequest
+	if err := sim.ReadJSON(r, &req); err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid request body: %v", err)
+		return
+	}
+	rows := store.Filter(func(v S) bool { return match(v, expression(req)) })
+	out := make([]M, 0, len(rows))
+	for _, v := range rows {
+		out = append(out, convert(v))
+	}
+	crmWriteSearchPage(w, member, out, gcpAsc(name), req.PageSize, req.PageToken)
 }

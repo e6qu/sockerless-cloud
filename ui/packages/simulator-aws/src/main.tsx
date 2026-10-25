@@ -3,8 +3,9 @@ import { createRoot } from "react-dom/client";
 import { Navigate, Route } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AwsApp } from "./console/index.js";
-import { OverviewPage } from "./pages/OverviewPage.js";
+import { ConsoleHomePage } from "./pages/ConsoleHomePage.js";
 import { ECSTasksPage } from "./pages/ECSTasksPage.js";
+import { ECSServicesPage } from "./pages/ECSServicesPage.js";
 import { ECSTaskDetailPage } from "./pages/ECSTaskDetailPage.js";
 import { ECSServiceDetailPage } from "./pages/ECSServiceDetailPage.js";
 import { LambdaFunctionsPage } from "./pages/LambdaFunctionsPage.js";
@@ -12,15 +13,25 @@ import { LambdaFunctionDetailPage } from "./pages/LambdaFunctionDetailPage.js";
 import { ECRReposPage } from "./pages/ECRReposPage.js";
 import { ECRRepositoryDetailPage } from "./pages/ECRRepositoryDetailPage.js";
 import { S3BucketsPage } from "./pages/S3BucketsPage.js";
+import { S3CreateBucketPage } from "./pages/S3CreateBucketPage.js";
 import { S3BucketDetailPage } from "./pages/S3BucketDetailPage.js";
 import { LogGroupsPage } from "./pages/LogGroupsPage.js";
 import { LogGroupDetailPage } from "./pages/LogGroupDetailPage.js";
 import { IAMUsersPage } from "./pages/IAMUsersPage.js";
 import { IAMUserSecurityCredentialsPage } from "./pages/IAMUserSecurityCredentialsPage.js";
+import { IAMCreateRolePage, IAMRoleDetailPage, IAMRolesPage } from "./pages/IAMRolesPages.js";
+import { IAMCreatePolicyPage, IAMIdentityProvidersPage, IAMPoliciesPage } from "./pages/IAMPoliciesPages.js";
 import { OrganizationsPage } from "./pages/OrganizationsPage.js";
 import { OrgAccountDetailPage } from "./pages/OrgAccountDetailPage.js";
 import { EC2InstancesPage } from "./pages/EC2InstancesPage.js";
 import { EC2InstanceDetailPage } from "./pages/EC2InstanceDetailPage.js";
+import {
+  EC2CreateKeyPairPage,
+  EC2DashboardPage,
+  EC2KeyPairsPage,
+  EC2SecurityGroupsPage,
+  EC2VolumesPage,
+} from "./pages/EC2Pages.js";
 import { AutoScalingGroupsPage } from "./pages/AutoScalingGroupsPage.js";
 import { BatchPage } from "./pages/BatchPage.js";
 import { EFSFileSystemsPage } from "./pages/EFSFileSystemsPage.js";
@@ -69,26 +80,32 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <AwsApp>
-        <Route path="/ui/" element={<OverviewPage />} />
-        <Route path="/ui/ecs" element={<ECSTasksPage />} />
-        <Route path="/ui/ecs/services/:cluster/:serviceName" element={<ECSServiceDetailPage />} />
-        <Route path="/ui/ecs/:taskArn" element={<ECSTaskDetailPage />} />
+        <Route path="/ui/" element={<ConsoleHomePage />} />
+        <Route path="/ui/ec2/home" element={<EC2DashboardPage />} />
+        <Route path="/ui/ec2" element={<EC2InstancesPage />} />
+        <Route path="/ui/ec2/volumes" element={<EC2VolumesPage />} />
+        <Route path="/ui/ec2/security-groups" element={<EC2SecurityGroupsPage />} />
+        <Route path="/ui/ec2/key-pairs" element={<EC2KeyPairsPage />} />
+        <Route path="/ui/ec2/key-pairs/create" element={<EC2CreateKeyPairPage />} />
+        <Route path="/ui/ec2/:instanceId" element={<EC2InstanceDetailPage />} />
+        <Route path="/ui/elb" element={<LoadBalancersPage />} />
+        <Route path="/ui/elb/target-groups" element={<LoadBalancersPage view="target-groups" />} />
+        <Route path="/ui/autoscaling" element={<AutoScalingGroupsPage />} />
         <Route path="/ui/lambda" element={<LambdaFunctionsPage />} />
         <Route path="/ui/lambda/:name" element={<LambdaFunctionDetailPage />} />
+        <Route path="/ui/batch" element={<BatchPage />} />
+        <Route path="/ui/batch/job-queues" element={<BatchPage view="job-queues" />} />
+        <Route path="/ui/batch/job-definitions" element={<BatchPage view="job-definitions" />} />
+        <Route path="/ui/batch/compute-environments" element={<BatchPage view="compute-environments" />} />
+        <Route path="/ui/ecs" element={<ECSTasksPage />} />
+        <Route path="/ui/ecs/services" element={<ECSServicesPage />} />
+        <Route path="/ui/ecs/services/:cluster/:serviceName" element={<ECSServiceDetailPage />} />
+        <Route path="/ui/ecs/:taskArn" element={<ECSTaskDetailPage />} />
         <Route path="/ui/ecr" element={<ECRReposPage />} />
         <Route path="/ui/ecr/:name" element={<ECRRepositoryDetailPage />} />
         <Route path="/ui/s3" element={<S3BucketsPage />} />
+        <Route path="/ui/s3/create" element={<S3CreateBucketPage />} />
         <Route path="/ui/s3/:name" element={<S3BucketDetailPage />} />
-        <Route path="/ui/logs" element={<LogGroupsPage />} />
-        <Route path="/ui/logs/:name" element={<LogGroupDetailPage />} />
-        <Route path="/ui/organizations" element={<OrganizationsPage />} />
-        <Route path="/ui/organizations/accounts/:accountId" element={<OrgAccountDetailPage />} />
-        <Route path="/ui/iam" element={<IAMUsersPage />} />
-        <Route path="/ui/iam/users/:userName" element={<IAMUserSecurityCredentialsPage />} />
-        <Route path="/ui/ec2" element={<EC2InstancesPage />} />
-        <Route path="/ui/ec2/:instanceId" element={<EC2InstanceDetailPage />} />
-        <Route path="/ui/autoscaling" element={<AutoScalingGroupsPage />} />
-        <Route path="/ui/batch" element={<BatchPage />} />
         <Route path="/ui/efs" element={<EFSFileSystemsPage />} />
         <Route path="/ui/efs/:fileSystemId" element={<EFSFileSystemDetailPage />} />
         <Route path="/ui/rds" element={<RDSPage />} />
@@ -101,17 +118,22 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/ui/route53" element={<Route53Page />} />
         <Route path="/ui/route53/:hostedZoneId" element={<Route53HostedZoneDetailPage />} />
         <Route path="/ui/apigateway" element={<APIGatewayPage />} />
-        <Route path="/ui/elb" element={<LoadBalancersPage />} />
         <Route path="/ui/cloudmap" element={<CloudMapPage />} />
+        <Route path="/ui/cloudmap/services" element={<CloudMapPage view="services" />} />
         <Route path="/ui/codebuild" element={<CodeBuildPage />} />
+        <Route path="/ui/codebuild/history" element={<CodeBuildPage view="history" />} />
         <Route path="/ui/amplify" element={<AmplifyPage />} />
         <Route path="/ui/kinesis" element={<KinesisPage />} />
         <Route path="/ui/firehose" element={<FirehosePage />} />
         <Route path="/ui/glue" element={<GluePage />} />
+        <Route path="/ui/glue/jobs" element={<GluePage view="jobs" />} />
         <Route path="/ui/sns" element={<SNSPage />} />
+        <Route path="/ui/sns/subscriptions" element={<SNSPage view="subscriptions" />} />
         <Route path="/ui/sqs" element={<SQSPage />} />
         <Route path="/ui/eventbridge" element={<EventBridgePage />} />
+        <Route path="/ui/eventbridge/event-buses" element={<EventBridgePage view="event-buses" />} />
         <Route path="/ui/scheduler" element={<SchedulerPage />} />
+        <Route path="/ui/scheduler/groups" element={<SchedulerPage view="groups" />} />
         <Route path="/ui/stepfunctions" element={<StepFunctionsPage />} />
         <Route
           path="/ui/stepfunctions/:stateMachineArn/executions/:executionArn"
@@ -119,16 +141,33 @@ createRoot(document.getElementById("root")!).render(
         />
         <Route path="/ui/stepfunctions/:stateMachineArn" element={<StateMachineDetailPage />} />
         <Route path="/ui/cloudwatch" element={<CloudWatchPage />} />
+        <Route path="/ui/cloudwatch/dashboards" element={<CloudWatchPage view="dashboards" />} />
+        <Route path="/ui/logs" element={<LogGroupsPage />} />
+        <Route path="/ui/logs/:name" element={<LogGroupDetailPage />} />
         <Route path="/ui/cloudtrail" element={<CloudTrailPage />} />
+        <Route path="/ui/cloudtrail/trails" element={<CloudTrailPage view="trails" />} />
+        <Route path="/ui/organizations" element={<OrganizationsPage />} />
+        <Route path="/ui/organizations/accounts/:accountId" element={<OrgAccountDetailPage />} />
         <Route path="/ui/ssm" element={<SystemsManagerPage />} />
+        <Route path="/ui/ssm/documents" element={<SystemsManagerPage view="documents" />} />
+        <Route path="/ui/iam" element={<IAMUsersPage />} />
+        <Route path="/ui/iam/users/:userName" element={<IAMUserSecurityCredentialsPage />} />
+        <Route path="/ui/iam/roles" element={<IAMRolesPage />} />
+        <Route path="/ui/iam/roles/create" element={<IAMCreateRolePage />} />
+        <Route path="/ui/iam/roles/:roleName" element={<IAMRoleDetailPage />} />
+        <Route path="/ui/iam/policies" element={<IAMPoliciesPage />} />
+        <Route path="/ui/iam/policies/create" element={<IAMCreatePolicyPage />} />
+        <Route path="/ui/iam/identity-providers" element={<IAMIdentityProvidersPage />} />
         <Route path="/ui/secretsmanager" element={<SecretsManagerPage />} />
         <Route path="/ui/kms" element={<KMSKeysPage />} />
         <Route path="/ui/acm" element={<ACMCertificatesPage />} />
+        <Route path="/ui/acm/acme-endpoints" element={<ACMCertificatesPage view="acme" />} />
         <Route path="/ui/private-ca" element={<PrivateCAPage />} />
         <Route path="/ui/waf" element={<WAFPage />} />
+        <Route path="/ui/waf/ip-sets" element={<WAFPage view="ip-sets" />} />
         <Route path="/ui/budgets" element={<BudgetsPage />} />
         <Route path="/ui/not-supported/:service" element={<NotSupportedServicePage />} />
-        {/* Any other path lands on the overview rather than an empty shell:
+        {/* Any other path lands on Console Home rather than an empty shell:
             a mistyped or stale deep link must never render a blank console. */}
         <Route path="*" element={<Navigate to="/ui/" replace />} />
       </AwsApp>

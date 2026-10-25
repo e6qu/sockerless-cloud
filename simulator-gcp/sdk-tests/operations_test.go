@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	serviceusage "google.golang.org/api/serviceusage/v1"
@@ -51,7 +52,7 @@ func TestGCP_Operations_List(t *testing.T) {
 		require.NoError(t, err)
 		enabled[op.Name] = true
 	}
-	jobOp := gcpCreateJobOperation(t, "us-central1", uniqueName("ops-list-job"))
+	jobOp := gcpCreateJobOperation(t, "us-central1", uniquename.New("ops-list-job"))
 
 	listed := serviceUsageOperations(t, svc.Operations.List())
 	for name := range enabled {

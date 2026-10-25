@@ -7,6 +7,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/servicebus/armservicebus"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -15,7 +16,7 @@ func TestServiceBusARM_SDKNetworkRuleSetsAndAdjunctReads(t *testing.T) {
 	t.Parallel()
 	rg := "sb-sdk-rg"
 	ensureRG(t, rg)
-	ns := uniqueName("sdk-servicebus-ns")
+	ns := uniquename.New("sdk-servicebus-ns")
 
 	clientFactory, err := armservicebus.NewClientFactory(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)

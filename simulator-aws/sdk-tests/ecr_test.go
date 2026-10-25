@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	ecrtypes "github.com/aws/aws-sdk-go-v2/service/ecr/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,7 +24,7 @@ func ecrClient() *ecr.Client {
 
 func TestECR_CreateRepository(t *testing.T) {
 	t.Parallel()
-	repo := uniqueName("test-repo")
+	repo := uniquename.New("test-repo")
 	client := ecrClient()
 	out, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
 		RepositoryName: aws.String(repo),
@@ -35,7 +36,7 @@ func TestECR_CreateRepository(t *testing.T) {
 
 func TestECR_DescribeRepositories(t *testing.T) {
 	t.Parallel()
-	repo := uniqueName("describe-repo")
+	repo := uniquename.New("describe-repo")
 	client := ecrClient()
 
 	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
@@ -87,7 +88,7 @@ func TestECR_GetAuthorizationToken(t *testing.T) {
 
 func TestECR_PutImageDigestIsContentAddressed(t *testing.T) {
 	t.Parallel()
-	repo := uniqueName("content-digest-repo")
+	repo := uniquename.New("content-digest-repo")
 	client := ecrClient()
 	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
 		RepositoryName: aws.String(repo),
@@ -121,7 +122,7 @@ func TestECR_PutImageDigestIsContentAddressed(t *testing.T) {
 // aws_ecr_pull_through_cache_rule both take.
 func TestECR_PullThroughCacheCreate(t *testing.T) {
 	t.Parallel()
-	prefix := uniqueName("docker-hub")
+	prefix := uniquename.New("docker-hub")
 	client := ecrClient()
 	out, err := client.CreatePullThroughCacheRule(ctx, &ecr.CreatePullThroughCacheRuleInput{
 		EcrRepositoryPrefix: aws.String(prefix),
@@ -137,7 +138,7 @@ func TestECR_PullThroughCacheCreate(t *testing.T) {
 // returns the same error shape AWS does when a prefix is reused.
 func TestECR_PullThroughCacheCreateAlreadyExists(t *testing.T) {
 	t.Parallel()
-	prefix := uniqueName("already-exists")
+	prefix := uniquename.New("already-exists")
 	client := ecrClient()
 	_, err := client.CreatePullThroughCacheRule(ctx, &ecr.CreatePullThroughCacheRuleInput{
 		EcrRepositoryPrefix: aws.String(prefix),
@@ -159,7 +160,7 @@ func TestECR_PullThroughCacheCreateAlreadyExists(t *testing.T) {
 // paths both round-trip.
 func TestECR_PullThroughCacheDescribe(t *testing.T) {
 	t.Parallel()
-	prefix := uniqueName("describe-ptc")
+	prefix := uniquename.New("describe-ptc")
 	client := ecrClient()
 	_, err := client.CreatePullThroughCacheRule(ctx, &ecr.CreatePullThroughCacheRuleInput{
 		EcrRepositoryPrefix: aws.String(prefix),
@@ -219,7 +220,7 @@ func TestECR_PullThroughCacheDelete(t *testing.T) {
 
 func TestECR_LifecyclePolicy(t *testing.T) {
 	t.Parallel()
-	repo := uniqueName("lifecycle-repo")
+	repo := uniquename.New("lifecycle-repo")
 	client := ecrClient()
 
 	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
@@ -277,7 +278,7 @@ func TestECR_DescribeRepositories_Pagination(t *testing.T) {
 // force is set.
 func TestECR_DeleteRepositoryRefusesANonEmptyRepositoryWithoutForce(t *testing.T) {
 	t.Parallel()
-	repo := uniqueName("not-empty-repo")
+	repo := uniquename.New("not-empty-repo")
 	client := ecrClient()
 	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)
@@ -310,7 +311,7 @@ func TestECR_DeleteRepositoryRefusesANonEmptyRepositoryWithoutForce(t *testing.T
 // repository whose images were all removed: an empty repository needs no force.
 func TestECR_DeleteRepositoryDeletesAnEmptyRepositoryWithoutForce(t *testing.T) {
 	t.Parallel()
-	repo := uniqueName("emptied-repo")
+	repo := uniquename.New("emptied-repo")
 	client := ecrClient()
 	_, err := client.CreateRepository(ctx, &ecr.CreateRepositoryInput{RepositoryName: aws.String(repo)})
 	require.NoError(t, err)

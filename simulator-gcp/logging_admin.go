@@ -724,17 +724,7 @@ func handleLoggingListViews(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	prefix := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket") + "/views/"
-	items := logViews.Filter(func(v LogView) bool { return strings.HasPrefix(v.Name, prefix) })
-	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	page, next, ok := paginateList(w, r, items, gcpAsc(func(v LogView) string { return v.Name }))
-	if !ok {
-		return
-	}
-	resp := map[string]any{"views": page}
-	if next != "" {
-		resp["nextPageToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
+	gcpWritePage(w, r, logViews, prefix, "views", func(v LogView) string { return v.Name })
 }
 
 func handleLoggingGetView(w http.ResponseWriter, r *http.Request) {
@@ -860,17 +850,7 @@ func handleLoggingCreateLink(w http.ResponseWriter, r *http.Request) {
 
 func handleLoggingListLinks(w http.ResponseWriter, r *http.Request) {
 	prefix := loggingLocationParent(r) + "/buckets/" + sim.PathParam(r, "bucket") + "/links/"
-	items := logLinks.Filter(func(l LogLink) bool { return strings.HasPrefix(l.Name, prefix) })
-	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	page, next, ok := paginateList(w, r, items, gcpAsc(func(v LogLink) string { return v.Name }))
-	if !ok {
-		return
-	}
-	resp := map[string]any{"links": page}
-	if next != "" {
-		resp["nextPageToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
+	gcpWritePage(w, r, logLinks, prefix, "links", func(v LogLink) string { return v.Name })
 }
 
 func handleLoggingGetLink(w http.ResponseWriter, r *http.Request) {
@@ -896,39 +876,14 @@ func handleLoggingDeleteLink(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLoggingCreateSavedQuery(w http.ResponseWriter, r *http.Request) {
-	parent := loggingLocationParent(r)
-	id := r.URL.Query().Get("savedQueryId")
-	var q SavedQuery
-	if err := sim.ReadJSON(r, &q); err != nil {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid savedQuery: %v", err)
-		return
-	}
-	if id == "" {
-		id = lastSegment(q.Name)
-	}
-	if id == "" {
-		id = sim.NewUUID()
-	}
-	q.Name = parent + "/savedQueries/" + id
-	now := nowTimestamp()
-	q.CreateTime, q.UpdateTime = now, now
-	logSavedQueries.Put(q.Name, q)
-	sim.WriteJSON(w, http.StatusOK, q)
+	loggingCreateNamed(w, r, logSavedQueries, "savedQueryId", "savedQuery", "savedQueries", func(v *SavedQuery) (*string, *string, *string) {
+		return &v.Name, &v.CreateTime, &v.UpdateTime
+	})
 }
 
 func handleLoggingListSavedQueries(w http.ResponseWriter, r *http.Request) {
 	prefix := loggingLocationParent(r) + "/savedQueries/"
-	items := logSavedQueries.Filter(func(q SavedQuery) bool { return strings.HasPrefix(q.Name, prefix) })
-	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	page, next, ok := paginateList(w, r, items, gcpAsc(func(v SavedQuery) string { return v.Name }))
-	if !ok {
-		return
-	}
-	resp := map[string]any{"savedQueries": page}
-	if next != "" {
-		resp["nextPageToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
+	gcpWritePage(w, r, logSavedQueries, prefix, "savedQueries", func(v SavedQuery) string { return v.Name })
 }
 
 func handleLoggingGetSavedQuery(w http.ResponseWriter, r *http.Request) {
@@ -986,39 +941,14 @@ func handleLoggingListRecentQueries(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLoggingCreateLogScope(w http.ResponseWriter, r *http.Request) {
-	parent := loggingLocationParent(r)
-	id := r.URL.Query().Get("logScopeId")
-	var ls LogScope
-	if err := sim.ReadJSON(r, &ls); err != nil {
-		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid logScope: %v", err)
-		return
-	}
-	if id == "" {
-		id = lastSegment(ls.Name)
-	}
-	if id == "" {
-		id = sim.NewUUID()
-	}
-	ls.Name = parent + "/logScopes/" + id
-	now := nowTimestamp()
-	ls.CreateTime, ls.UpdateTime = now, now
-	logScopes.Put(ls.Name, ls)
-	sim.WriteJSON(w, http.StatusOK, ls)
+	loggingCreateNamed(w, r, logScopes, "logScopeId", "logScope", "logScopes", func(v *LogScope) (*string, *string, *string) {
+		return &v.Name, &v.CreateTime, &v.UpdateTime
+	})
 }
 
 func handleLoggingListLogScopes(w http.ResponseWriter, r *http.Request) {
 	prefix := loggingLocationParent(r) + "/logScopes/"
-	items := logScopes.Filter(func(l LogScope) bool { return strings.HasPrefix(l.Name, prefix) })
-	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	page, next, ok := paginateList(w, r, items, gcpAsc(func(v LogScope) string { return v.Name }))
-	if !ok {
-		return
-	}
-	resp := map[string]any{"logScopes": page}
-	if next != "" {
-		resp["nextPageToken"] = next
-	}
-	sim.WriteJSON(w, http.StatusOK, resp)
+	gcpWritePage(w, r, logScopes, prefix, "logScopes", func(v LogScope) string { return v.Name })
 }
 
 func handleLoggingGetLogScope(w http.ResponseWriter, r *http.Request) {
@@ -1453,4 +1383,30 @@ func anyToMap(v any) map[string]any {
 		out = map[string]any{}
 	}
 	return out
+}
+
+// loggingCreateNamed answers the create of a location's resource of store,
+// named by the query parameter param, else by the name the body carries,
+// else by a fresh ID. fields reaches the resource's name and times.
+func loggingCreateNamed[T any](w http.ResponseWriter, r *http.Request, store sim.Store[T], param, what, collection string,
+	fields func(*T) (name, createTime, updateTime *string)) {
+	parent := loggingLocationParent(r)
+	id := r.URL.Query().Get(param)
+	var v T
+	if err := sim.ReadJSON(r, &v); err != nil {
+		GCPErrorf(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid %s: %v", what, err)
+		return
+	}
+	name, createTime, updateTime := fields(&v)
+	if id == "" {
+		id = lastSegment(*name)
+	}
+	if id == "" {
+		id = sim.NewUUID()
+	}
+	*name = parent + "/" + collection + "/" + id
+	now := nowTimestamp()
+	*createTime, *updateTime = now, now
+	store.Put(*name, v)
+	sim.WriteJSON(w, http.StatusOK, v)
 }

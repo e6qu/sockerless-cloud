@@ -33,6 +33,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appcontainers/armappcontainers/v3"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v5"
 	"github.com/e6qu/sockerless-cloud/testutil/simready"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -196,7 +197,7 @@ func frontEndOverTLS(t *testing.T, certPath, port, host, path string, clientCert
 // request without one through.
 func TestSDK_WebApps_ClientCertificates(t *testing.T) {
 	t.Parallel()
-	siteName := uniqueName("sdk-mtls-app")
+	siteName := uniquename.New("sdk-mtls-app")
 	host := siteName + ".azurewebsites.net"
 	dir := t.TempDir()
 	certPath, keyPath := writeTLSCertForHosts(t, dir, []string{"localhost", host})
@@ -309,7 +310,7 @@ func ensureRGOver(t *testing.T, client *http.Client, armBase, rg string) {
 // handshake; ignore drops the certificate.
 func TestSDK_ContainerAppsIngress_ClientCertificates(t *testing.T) {
 	t.Parallel()
-	appName := uniqueName("acamtls")
+	appName := uniquename.New("acamtls")
 	dir := t.TempDir()
 	certPath, keyPath := writeTLSCertForHosts(t, dir, []string{"localhost", "*.internal.sim-env.localhost"})
 	port := startTLSWorkloadSimulator(t, certPath, keyPath)

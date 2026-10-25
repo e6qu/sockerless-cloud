@@ -18,6 +18,7 @@ import (
 
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 	"github.com/e6qu/sockerless-cloud/sim/workloadhost"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -184,6 +185,10 @@ func amplifyRealBuildPlan(app AmplifyApp, br AmplifyBranch) (spec string, repo s
 	}
 	return spec, repo, true
 }
+
+// amplifyBuildBackend places build containers, which write the build's
+// artifacts back into the host workspace bound into them.
+var amplifyBuildBackend placement.Backend = placement.ContainerBackend{}
 
 var (
 	amplifyBuildMu      sync.Mutex
@@ -436,7 +441,7 @@ func amplifyRunRealBuild(appID, branch, jobID, urlBase, repo, specText string, e
 		finishStep("BUILD", buildLog, AmplifyJobStatusFailed)
 		return AmplifyJobStatusFailed
 	}
-	handle, err := sim.StartContainerSyncContext(context.Background(), sim.ContainerConfig{
+	handle, err := amplifyBuildBackend.Place(context.Background(), sim.ContainerConfig{
 		Image:        amplifyBuildImage(),
 		Architecture: "linux/amd64",
 		Command:      []string{"/bin/sh", "-c", script.String()},

@@ -36,11 +36,11 @@ func expectRuntimeAPIError(t *testing.T, name string, recorder *httptest.Respons
 // AWS service error with __type and message.
 func TestLambdaRuntimeAPIAnswersWithItsOwnErrorShape(t *testing.T) {
 	inv := &lambdaInvocation{
-		RequestID:   "8476a536-e9f4-11e8-9739-2dfe598c3fcd",
-		initialized: make(chan struct{}),
-		done:        make(chan struct{}),
+		RequestID: "8476a536-e9f4-11e8-9739-2dfe598c3fcd",
+		done:      make(chan struct{}),
+		ended:     make(chan struct{}),
 	}
-	sidecar := &runtimeAPISidecar{inv: inv}
+	sidecar := &runtimeAPISidecar{current: inv, initFailed: make(chan struct{})}
 
 	for name, handler := range map[string]http.HandlerFunc{"response": sidecar.handleResponse, "error": sidecar.handleInvocationError} {
 		expectRuntimeAPIError(t, name+" for another request ID",

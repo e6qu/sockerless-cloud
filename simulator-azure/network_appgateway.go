@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -839,7 +838,7 @@ func applicationGatewayStamp[T any, PT interface {
 	for i := range items {
 		item := PT(&items[i])
 		head := item.child()
-		head.ID = azureNetworkChildID(gatewayID, collection, head.Name)
+		head.ID = armChildID(gatewayID, collection, head.Name)
 		head.Type = azureAppGatewayType + "/" + collection
 		head.Etag = azureNetworkEtag()
 		if ready != nil {
@@ -1062,7 +1061,7 @@ func applicationGatewayStoredFrontendAddress(gw ApplicationGateway, frontendName
 // because Azure does not surface the gateway's own interfaces — only the
 // address they hold, on the frontend configuration itself.
 func applicationGatewayFrontendNICID(gatewayID, frontendName string) string {
-	return azureNetworkChildID(gatewayID, "frontendIPConfigurations", frontendName) + "/networkInterface"
+	return armChildID(armChildID(gatewayID, "frontendIPConfigurations", frontendName), "networkInterface")
 }
 
 // applicationGatewaySkuTier is the tier a SKU name implies when the request
@@ -1280,7 +1279,7 @@ func registerApplicationGatewayPrivateLink(srv *sim.Server) {
 		for _, plc := range gw.Properties.PrivateLinkConfigurations {
 			resources = append(resources, ApplicationGatewayPrivateLinkResource{
 				applicationGatewayChild: applicationGatewayChild{
-					ID:   azureNetworkChildID(gw.ID, "privateLinkResources", plc.Name),
+					ID:   armChildID(gw.ID, "privateLinkResources", plc.Name),
 					Name: plc.Name,
 					Type: azureAppGatewayType + "/privateLinkResources",
 					Etag: azureNetworkEtag(),
@@ -1300,7 +1299,7 @@ func registerApplicationGatewayPrivateLink(srv *sim.Server) {
 
 	connBase := base + "/privateEndpointConnections"
 	connID := func(r *http.Request) string {
-		return azureNetworkChildID(applicationGatewayID(r), "privateEndpointConnections", sim.PathParam(r, "connectionName"))
+		return armChildID(applicationGatewayID(r), "privateEndpointConnections", sim.PathParam(r, "connectionName"))
 	}
 
 	srv.HandleFunc("GET "+connBase, func(w http.ResponseWriter, r *http.Request) {
@@ -1374,6 +1373,5 @@ func applicationGatewayPrivateLinkMembers(gw ApplicationGateway, plc Application
 }
 
 func applicationGatewayID(r *http.Request) string {
-	return fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Network/applicationGateways/%s",
-		sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), sim.PathParam(r, "applicationGatewayName"))
+	return armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "applicationGateways", sim.PathParam(r, "applicationGatewayName"))
 }

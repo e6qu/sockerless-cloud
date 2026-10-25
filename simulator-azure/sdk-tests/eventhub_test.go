@@ -9,6 +9,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +18,7 @@ func TestEventHubsSDK_ARMAndAMQPRoundTrip(t *testing.T) {
 	t.Parallel()
 	rg := "eh-sdk-rg"
 	ensureRG(t, rg)
-	ns := uniqueName("sdk-eventhub-ns")
+	ns := uniquename.New("sdk-eventhub-ns")
 	hub := "sdkhub"
 	group := "sdkcg"
 

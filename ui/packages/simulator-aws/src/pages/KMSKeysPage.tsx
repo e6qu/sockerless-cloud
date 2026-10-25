@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Input from "@cloudscape-design/components/input";
 import FormField from "@cloudscape-design/components/form-field";
-import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsStatus, type AwsColumn } from "../console/index.js";
+import { AwsButton, AwsErrorAlert, AwsModal, AwsResourceTable, AwsStatus, AwsRefreshButton, type AwsColumn } from "../console/index.js";
 import { formatEpoch } from "../console/format.js";
 import { createKMSKey, fetchKMSKeys, scheduleKMSKeyDeletion, setKMSKeyEnabled, type KMSKey } from "../api.js";
 
@@ -178,6 +178,7 @@ export function KMSKeysPage() {
         errorTestId="kms-error"
         actions={({ selected, clearSelection, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton
               data-testid="kms-enable-key"
               disabled={selected.length === 0 || setEnabled.isPending}
@@ -198,9 +199,6 @@ export function KMSKeysPage() {
               onClick={() => setDeleting({ keys: selected, clearSelection })}
             >
               Schedule key deletion
-            </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
             </AwsButton>
             <AwsButton variant="primary" data-testid="kms-create-key" onClick={() => setCreating(true)}>
               Create key

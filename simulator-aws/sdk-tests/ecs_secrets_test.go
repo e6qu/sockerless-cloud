@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,8 +20,8 @@ import (
 // indistinguishable from a plain `environment` entry to the container.
 func TestECS_TaskDefinitionSecretsInjected(t *testing.T) {
 	t.Parallel()
-	family := uniqueName("ecs-secrets")
-	secretName := uniqueName("ecs/inject-secret")
+	family := uniquename.New("ecs-secrets")
+	secretName := uniquename.New("ecs/inject-secret")
 	client := ecsClient()
 	sm := smClient()
 	cw := cwLogsClient()
@@ -34,12 +35,12 @@ func TestECS_TaskDefinitionSecretsInjected(t *testing.T) {
 	secretArn := aws.ToString(created.ARN)
 	require.NotEmpty(t, secretArn)
 
-	cluster := uniqueName("ecs-secrets-cluster")
+	cluster := uniquename.New("ecs-secrets-cluster")
 	_, err = client.CreateCluster(ctx, &ecs.CreateClusterInput{ClusterName: aws.String(cluster)})
 	require.NoError(t, err)
 	subnetID := createECSTestSubnet(t, "secrets")
 
-	logGroup := uniqueName("/ecs/secrets-inject")
+	logGroup := uniquename.New("/ecs/secrets-inject")
 	_, _ = cw.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: aws.String(logGroup)})
 	t.Cleanup(func() {
 		_, _ = cw.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(logGroup)})

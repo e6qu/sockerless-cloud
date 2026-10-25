@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,7 +32,7 @@ func elbv2FidVPCSubnets(t *testing.T, cidr string, subnetCidrs ...string) (strin
 
 func elbv2FidTargetGroup(t *testing.T, elb *elbv2.Client, vpcID, name string) string {
 	t.Helper()
-	name = uniqueName(name)
+	name = uniquename.New(name)
 	tg, err := elb.CreateTargetGroup(ctx, &elbv2.CreateTargetGroupInput{
 		Name: aws.String(name), Protocol: elbtypes.ProtocolEnumHttp, Port: aws.Int32(80),
 		VpcId: aws.String(vpcID), TargetType: elbtypes.TargetTypeEnumIp,
@@ -42,7 +43,7 @@ func elbv2FidTargetGroup(t *testing.T, elb *elbv2.Client, vpcID, name string) st
 
 func elbv2FidLoadBalancer(t *testing.T, elb *elbv2.Client, subnets []string, name string, lbType elbtypes.LoadBalancerTypeEnum) string {
 	t.Helper()
-	name = uniqueName(name)
+	name = uniquename.New(name)
 	lb, err := elb.CreateLoadBalancer(ctx, &elbv2.CreateLoadBalancerInput{
 		Name: aws.String(name), Type: lbType, Subnets: subnets,
 	})

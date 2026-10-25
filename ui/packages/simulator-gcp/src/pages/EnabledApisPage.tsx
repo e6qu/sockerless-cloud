@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { GcpResourceTable, GcpStatus, type GcpColumn } from "../console/index.js";
+import type { MenuEntry } from "../console/menu.js";
 import { GcpDialog } from "../console/GcpDialog.js";
 import { shortName } from "../console/format.js";
 import { disableService, enableService, fetchEnabledServices, waitArOperation, type EnabledService } from "../api.js";
@@ -119,29 +120,12 @@ export function EnabledApisPage() {
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["enabled-services", project] });
 
-  const columnsWithActions: GcpColumn<EnabledService>[] = [
-    ...columns,
+  const rowActions = (row: EnabledService): MenuEntry[] => [
     {
-      id: "actions",
-      header: "Actions",
-      cell: (row) => {
-        const id = shortName(row.name);
-        return (
-          <span className="gc-row-actions">
-            <button
-              type="button"
-              className="gc-button-text"
-              data-testid={`apis-disable-${id}`}
-              aria-label={`Disable ${id}`}
-              disabled={row.state !== "ENABLED"}
-              onClick={() => setDisabling(id)}
-            >
-              Disable
-            </button>
-          </span>
-        );
-      },
-      value: () => "",
+      label: "Disable",
+      testId: `apis-disable-${shortName(row.name)}`,
+      disabled: row.state !== "ENABLED",
+      onSelect: () => setDisabling(shortName(row.name)),
     },
   ];
 
@@ -153,7 +137,8 @@ export function EnabledApisPage() {
         actions={[
           { label: "Enable APIs and services", icon: "add", primary: true, testId: "apis-enable", onSelect: () => setEnabling(true) },
         ]}
-        columns={columnsWithActions}
+        columns={columns}
+        rowActions={rowActions}
         queryKey={["enabled-services", project]}
         queryFn={() => fetchEnabledServices(project)}
         filterPlaceholder="Filter APIs"

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -260,7 +261,7 @@ func TestSFN_ExecutionLifecycle_CLI(t *testing.T) {
 
 func TestSFN_TasksActAsTheExecutionRole_CLI(t *testing.T) {
 	t.Parallel()
-	queueURL := strings.TrimSpace(runCLI(t, awsCLI("sqs", "create-queue", "--queue-name", cliUniqueName("cli-sfn-role-queue"),
+	queueURL := strings.TrimSpace(runCLI(t, awsCLI("sqs", "create-queue", "--queue-name", uniquename.New("cli-sfn-role-queue"),
 		"--query", "QueueUrl", "--output", "text")))
 	t.Cleanup(func() { _ = awsCLI("sqs", "delete-queue", "--queue-url", queueURL).Run() })
 	definition, err := json.Marshal(map[string]any{
@@ -273,7 +274,7 @@ func TestSFN_TasksActAsTheExecutionRole_CLI(t *testing.T) {
 	require.NoError(t, err)
 	endpoint := sfnSyncEndpoint(t)
 	run := func(role string) (status, errorName, cause string) {
-		name := cliUniqueName("cli-sfn-role")
+		name := uniquename.New("cli-sfn-role")
 		arn := strings.TrimSpace(runCLI(t, awsCLI("stepfunctions", "create-state-machine", "--name", name, "--type", "EXPRESS",
 			"--definition", string(definition), "--role-arn", role, "--query", "stateMachineArn", "--output", "text")))
 		t.Cleanup(func() { _ = awsCLI("stepfunctions", "delete-state-machine", "--state-machine-arn", arn).Run() })

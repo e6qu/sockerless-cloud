@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -61,7 +62,7 @@ func gcsObjectMetadataRaw(t *testing.T, bucket, object string) map[string]any {
 // mediaLink with https://, matching real GCS (HTTPS-only).
 func TestGCS_EmittedURLsHTTPS(t *testing.T) {
 	t.Parallel()
-	bucket := uniqueName("https-bucket")
+	bucket := uniquename.New("https-bucket")
 	gcsRESTCreate(t, bucket)
 
 	uploadReq, _ := http.NewRequest("POST",
@@ -98,7 +99,7 @@ func TestGCS_EmittedURLsHTTPS(t *testing.T) {
 //	PUT /upload/storage/v1/b/{bucket}/o
 func TestGCS_ResumableUpload(t *testing.T) {
 	t.Parallel()
-	bucket := uniqueName("resumable-bucket")
+	bucket := uniquename.New("resumable-bucket")
 	gcsRESTCreate(t, bucket)
 
 	initBody := strings.NewReader(`{"name":"resumable-obj","contentType":"text/plain"}`)
@@ -159,7 +160,7 @@ func TestGCS_ResumableUpload(t *testing.T) {
 // (the form the Go SDK uses when Object.Name is set on the struct).
 func TestGCS_MultipartUploadBodyName(t *testing.T) {
 	t.Parallel()
-	bucket := uniqueName("multipart-bucket")
+	bucket := uniquename.New("multipart-bucket")
 	gcsRESTCreate(t, bucket)
 
 	boundary := "BB"
@@ -194,7 +195,7 @@ func TestGCS_MultipartUploadBodyName(t *testing.T) {
 // TestGCS_ObjectsCompose exercises POST /storage/v1/b/{bucket}/o/{name}/compose.
 func TestGCS_ObjectsCompose(t *testing.T) {
 	t.Parallel()
-	bucket := uniqueName("compose-bucket")
+	bucket := uniquename.New("compose-bucket")
 	gcsRESTCreate(t, bucket)
 
 	for _, p := range []struct{ name, body string }{
@@ -239,7 +240,7 @@ func TestGCS_ObjectsCompose(t *testing.T) {
 
 func TestGCS_ObjectMetadataCRC32CAndGeneration(t *testing.T) {
 	t.Parallel()
-	bucket := uniqueName("metadata-shape-bucket")
+	bucket := uniquename.New("metadata-shape-bucket")
 	gcsRESTCreate(t, bucket)
 
 	var generations []int64
@@ -276,7 +277,7 @@ func TestGCS_ObjectMetadataCRC32CAndGeneration(t *testing.T) {
 
 func TestGCS_BucketIAMPolicyShape(t *testing.T) {
 	t.Parallel()
-	bucket := uniqueName("iam-policy-shape-bucket")
+	bucket := uniquename.New("iam-policy-shape-bucket")
 	gcsRESTCreate(t, bucket)
 
 	req, _ := http.NewRequest("GET", baseURL+"/storage/v1/b/"+bucket+"/iam", nil)
@@ -326,7 +327,7 @@ func bucketIAMSet(t *testing.T, bucket string, policy map[string]any) int {
 // stable across reads.
 func TestGCS_BucketIAMEtagConflict(t *testing.T) {
 	t.Parallel()
-	bucket := uniqueName("iam-etag-bucket")
+	bucket := uniquename.New("iam-etag-bucket")
 	gcsRESTCreate(t, bucket)
 
 	p1 := bucketIAMGet(t, bucket)
@@ -366,7 +367,7 @@ func TestGCS_BucketIAMEtagConflict(t *testing.T) {
 // member with 400 INVALID_ARGUMENT.
 func TestGCS_BucketIAMInvalidMember(t *testing.T) {
 	t.Parallel()
-	bucket := uniqueName("iam-bad-member-bucket")
+	bucket := uniquename.New("iam-bad-member-bucket")
 	gcsRESTCreate(t, bucket)
 
 	code := bucketIAMSet(t, bucket, map[string]any{
@@ -379,7 +380,7 @@ func TestGCS_BucketIAMInvalidMember(t *testing.T) {
 
 func TestGCS_ObjectsCopyToAndSortedPrefixes(t *testing.T) {
 	t.Parallel()
-	bucket := uniqueName("copyto-bucket")
+	bucket := uniquename.New("copyto-bucket")
 	gcsRESTCreate(t, bucket)
 
 	for _, p := range []struct{ name, body string }{
@@ -472,7 +473,7 @@ func TestGCS_ObjectsCopyToAndSortedPrefixes(t *testing.T) {
 
 func TestGCS_ObjectMetadataValidation(t *testing.T) {
 	t.Parallel()
-	bucket := uniqueName("metadata-validation-bucket")
+	bucket := uniquename.New("metadata-validation-bucket")
 	gcsRESTCreate(t, bucket)
 
 	uploadReq, _ := http.NewRequest("POST",
@@ -629,7 +630,7 @@ func TestGCS_ListBuckets_Pagination(t *testing.T) {
 	t.Parallel()
 	// Other tests create and delete buckets in the same project meanwhile, so
 	// the walk lists only this test's own, under a prefix of its own.
-	prefix := uniqueName("pag-bucket")
+	prefix := uniquename.New("pag-bucket")
 	names := []string{prefix + "-a", prefix + "-b", prefix + "-c"}
 	for _, n := range names {
 		gcsRESTCreate(t, n)
@@ -652,7 +653,7 @@ func TestGCS_ListBuckets_Pagination(t *testing.T) {
 
 func TestGCS_ListObjects_Pagination(t *testing.T) {
 	t.Parallel()
-	bucket := uniqueName("pag-obj-bucket")
+	bucket := uniquename.New("pag-obj-bucket")
 	gcsRESTCreate(t, bucket)
 	t.Cleanup(func() { gcsRESTDelete(t, "/storage/v1/b/"+bucket) })
 

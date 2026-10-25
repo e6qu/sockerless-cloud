@@ -1,222 +1,197 @@
-import { SERVICE_BLADES } from "./services.js";
+import { SERVICE_BLADES, browseRoute, bladeType, type ServiceBlade } from "./services.js";
+import type { AzureIconName } from "./portal/icons.js";
 
-// The service catalog the portal's left-hand service menu is built from —
-// grouped the way the real Azure portal's "All services" page groups its
-// catalog (General, Compute, Containers, Storage, Databases, Networking,
-// Integration, Monitoring + management, Identity, Microsoft Entra ID,
-// Security, DevOps). Every group and every service name is a real Azure
-// category and a real Azure service; what differs from the real portal is
-// coverage, not naming.
-//
-// `supported` is a claim about this simulator, so it is derived rather than
-// asserted: a service is supported exactly when the simulator serves the
-// Azure Resource Manager operations a blade needs — a subscription-wide List
-// to populate the blade, a Get to open a resource, and (where the real portal
-// offers them) the sub-resource Lists, lifecycle action POSTs, tags PATCH and
-// DELETE. Those services carry a blade descriptor in services.ts and this
-// catalog takes their entries straight from it, so the menu can never claim a
-// service the portal doesn't actually serve, nor mark one unsupported that it
-// does. A service marked `supported: false` is one the simulator genuinely
-// does not implement — no resource provider, no routes — and it routes to the
-// shared "not implemented" page at a slug derived from its name, so the item
-// stays a genuine, keyboard-reachable link rather than a dead end that looks
-// clickable but isn't.
+// The services the console serves, as the portal's All services page,
+// portal menu and global search list them: each with its All services
+// category, its description, its icon, and the route that opens it. Every
+// entry opens a page backed by real Azure APIs; a service the console has no
+// page for is not listed.
 
-export interface CatalogItem {
+export const CATEGORIES = [
+  "General",
+  "Compute",
+  "Containers",
+  "Databases",
+  "Identity",
+  "Integration",
+  "Management and governance",
+  "Monitor",
+  "Networking",
+  "Security",
+  "Storage",
+  "Web",
+] as const;
+
+export type Category = (typeof CATEGORIES)[number];
+
+export interface PortalService {
+  id: string;
   label: string;
-  to: string;
-  /** The Azure Resource Manager resource-type display name Essentials leads
-   *  with — "Virtual machine", "Storage account", and so on. */
-  kind: string;
-  supported: boolean;
+  description: string;
+  category: Category;
+  icon: AzureIconName;
+  color: string;
+  route: string;
+  /** The ARM resource type the service browses, when it browses one. */
+  type?: string;
+  keywords: string[];
 }
 
-export interface CatalogGroup {
-  label: string;
-  items: CatalogItem[];
+interface Presentation {
+  description: string;
+  category: Category;
+  icon: AzureIconName;
+  color: string;
+  keywords?: string[];
 }
 
-function slug(label: string): string {
-  return label
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-}
-
-function unsupported(label: string, kind: string): CatalogItem {
-  return { label, to: `/ui/not-supported/${slug(label)}`, kind, supported: false };
-}
-
-// The blades whose pages are hand-written rather than descriptor-driven —
-// each reads its own real ARM (or Microsoft Graph, or Log Analytics) surface
-// and carries flows a generic blade has no shape for: the subscription alias
-// API, the Container Apps job run history, the Function App settings and
-// deployed functions, the Container Registry data-plane catalog, the storage
-// account's blob browser, the Kusto log query, and the app-registration
-// credential minting.
-const HAND_WRITTEN: Record<string, CatalogItem> = {
-  Subscriptions: { label: "Subscriptions", to: "/ui/subscriptions", kind: "Subscription", supported: true },
-  "Function Apps": { label: "Function Apps", to: "/ui/functions", kind: "Function App", supported: true },
-  // Microsoft.App/jobs — Container Apps' run-to-completion resource type, the
-  // real Azure name for it being "Container App job". The route stays
-  // /ui/container-apps: it predates this label and other suites navigate to
-  // it directly. Microsoft.App/containerApps (the always-on resource type
-  // "Container Apps" itself names) has its own descriptor-driven blade below.
-  "Container App jobs": {
-    label: "Container App jobs",
-    to: "/ui/container-apps",
-    kind: "Container Apps job",
-    supported: true,
-  },
-  "Container registries": {
-    label: "Container registries",
-    to: "/ui/acr",
-    kind: "Container registry",
-    supported: true,
-  },
-  "Storage accounts": { label: "Storage accounts", to: "/ui/storage", kind: "Storage account", supported: true },
-  Logs: { label: "Logs", to: "/ui/monitor", kind: "Log Analytics workspace", supported: true },
-  "App registrations": {
-    label: "App registrations",
-    to: "/ui/entra/app-registrations",
-    kind: "Microsoft Entra ID",
-    supported: true,
-  },
+const BLADE_PRESENTATION: Record<string, Presentation> = {
+  "resource-groups": { description: "Organize and manage Azure resources as a group.", category: "General", icon: "resource_group", color: "#0f6cbd", keywords: ["rg"] },
+  "virtual-machines": { description: "Create Linux and Windows virtual machines in seconds.", category: "Compute", icon: "virtual_machine", color: "#0f6cbd", keywords: ["vm", "compute"] },
+  "app-service": { description: "Build, deploy and scale web apps and APIs.", category: "Web", icon: "app_service", color: "#0f6cbd", keywords: ["web app", "website"] },
+  "app-service-plans": { description: "Define the compute that runs your App Service apps.", category: "Web", icon: "app_service_plan", color: "#5c2e91" },
+  "function-apps": { description: "Run event-driven code without managing infrastructure.", category: "Compute", icon: "function_app", color: "#a4262c", keywords: ["functions", "serverless"] },
+  "container-instances": { description: "Run containers on demand in a serverless environment.", category: "Containers", icon: "container_instance", color: "#005b70", keywords: ["aci"] },
+  containerapps: { description: "Run serverless containerized applications and microservices.", category: "Containers", icon: "container_app", color: "#5c2e91", keywords: ["aca"] },
+  "container-app-jobs": { description: "Run containerized tasks that start, run for a while, and exit.", category: "Containers", icon: "container_app", color: "#8764b8", keywords: ["jobs"] },
+  "container-app-environments": { description: "Host container apps and jobs in a secure boundary.", category: "Containers", icon: "environment", color: "#4f6bed" },
+  "container-registries": { description: "Store and manage container images and artifacts.", category: "Containers", icon: "container_registry", color: "#0078d4", keywords: ["acr", "docker"] },
+  "cosmos-db": { description: "A globally distributed, multi-model database service.", category: "Databases", icon: "cosmos", color: "#005b70", keywords: ["cosmos", "nosql"] },
+  postgresql: { description: "A fully managed PostgreSQL database service.", category: "Databases", icon: "database", color: "#0f548c", keywords: ["postgres"] },
+  redis: { description: "A fully managed in-memory cache built on Redis.", category: "Databases", icon: "database", color: "#a4262c", keywords: ["cache"] },
+  "virtual-networks": { description: "Create private networks for your Azure resources.", category: "Networking", icon: "virtual_network", color: "#107c10", keywords: ["vnet"] },
+  "load-balancers": { description: "Distribute traffic across your applications.", category: "Networking", icon: "load_balancer", color: "#107c10", keywords: ["lb"] },
+  "network-security-groups": { description: "Filter network traffic to and from Azure resources.", category: "Networking", icon: "nsg", color: "#0f6cbd", keywords: ["nsg", "firewall"] },
+  "public-ip-addresses": { description: "Reserve public IP addresses for your resources.", category: "Networking", icon: "public_ip", color: "#107c10", keywords: ["pip"] },
+  "network-interfaces": { description: "Connect virtual machines to virtual networks.", category: "Networking", icon: "network_interface", color: "#107c10", keywords: ["nic"] },
+  "route-tables": { description: "Control how network traffic is routed.", category: "Networking", icon: "virtual_network", color: "#0b6a0b" },
+  "nat-gateways": { description: "Give private subnets outbound internet connectivity.", category: "Networking", icon: "public_ip", color: "#0b6a0b", keywords: ["nat"] },
+  "dns-zones": { description: "Host your DNS domains in Azure.", category: "Networking", icon: "dns", color: "#005b70", keywords: ["dns"] },
+  "private-dns-zones": { description: "Resolve names inside your virtual networks.", category: "Networking", icon: "dns", color: "#004e8c", keywords: ["dns"] },
+  "key-vaults": { description: "Safeguard cryptographic keys and other secrets.", category: "Security", icon: "key_vault", color: "#986f0b", keywords: ["kv", "secrets"] },
+  "service-bus": { description: "Connect applications with reliable cloud messaging.", category: "Integration", icon: "service_bus", color: "#0f6cbd", keywords: ["queue", "topic", "messaging"] },
+  "event-hubs": { description: "Stream millions of events per second.", category: "Integration", icon: "event_hubs", color: "#0f548c", keywords: ["streaming", "kafka"] },
+  "event-grid-topics": { description: "Route events from custom sources with Event Grid.", category: "Integration", icon: "event_grid", color: "#0078d4", keywords: ["event grid"] },
+  "event-grid-domains": { description: "Manage many Event Grid topics as one domain.", category: "Integration", icon: "event_grid", color: "#005a9e", keywords: ["event grid"] },
+  "event-grid-system-topics": { description: "Subscribe to events Azure services publish.", category: "Integration", icon: "event_grid", color: "#004578", keywords: ["event grid"] },
+  "api-management": { description: "Publish, secure and analyze APIs.", category: "Integration", icon: "api_management", color: "#5c2e91", keywords: ["apim"] },
+  "logic-apps": { description: "Automate workflows that connect apps and data.", category: "Integration", icon: "logic_app", color: "#0f6cbd", keywords: ["workflow"] },
+  "application-insights": { description: "Monitor the performance and usage of your apps.", category: "Monitor", icon: "monitor", color: "#5c2e91", keywords: ["app insights", "apm"] },
+  "log-analytics": { description: "Collect and analyze log data with Kusto queries.", category: "Monitor", icon: "monitor", color: "#0f548c", keywords: ["workspace", "logs"] },
+  "managed-identities": { description: "Give Azure resources an identity in Microsoft Entra ID.", category: "Identity", icon: "identity", color: "#986f0b", keywords: ["msi", "identity"] },
+  "storage-accounts": { description: "Durable, highly available and scalable cloud storage.", category: "Storage", icon: "storage", color: "#0f548c", keywords: ["blob", "file", "storage"] },
 };
 
-// bladed pulls a descriptor-driven service into the catalog by its label, so
-// the menu entry and the blade can never drift apart.
-function bladed(label: string): CatalogItem {
-  const blade = SERVICE_BLADES.find((candidate) => candidate.label === label);
-  if (!blade) {
-    throw new Error(`catalog references "${label}", which has no service blade in services.ts`);
-  }
-  return { label: blade.label, to: `/ui/${blade.slug}`, kind: blade.kind, supported: true };
+function bladeService(blade: ServiceBlade): PortalService {
+  const presentation = BLADE_PRESENTATION[blade.slug];
+  if (!presentation) throw new Error(`no presentation for service blade ${blade.slug}`);
+  return {
+    id: blade.slug,
+    label: blade.label,
+    description: presentation.description,
+    category: presentation.category,
+    icon: presentation.icon,
+    color: presentation.color,
+    route: browseRoute(blade),
+    type: bladeType(blade),
+    keywords: presentation.keywords ?? [],
+  };
 }
 
-function handWritten(label: string): CatalogItem {
-  const item = HAND_WRITTEN[label];
-  if (!item) {
-    throw new Error(`catalog references "${label}", which has no hand-written page`);
-  }
-  return item;
-}
-
-export const SERVICE_CATALOG: CatalogGroup[] = [
+const VIEW_SERVICES: PortalService[] = [
   {
-    label: "General",
-    items: [
-      handWritten("Subscriptions"),
-      bladed("Resource groups"),
-      // Microsoft.Management is served only far enough to register a resource
-      // provider against a management group; the management-group hierarchy
-      // itself (create, list, move a subscription) has no routes.
-      unsupported("Management groups", "Management group"),
-    ],
+    id: "subscriptions",
+    label: "Subscriptions",
+    description: "Manage the subscriptions your resources are billed to.",
+    category: "General",
+    icon: "subscription",
+    color: "#986f0b",
+    route: "/ui/browse/subscriptions",
+    keywords: ["billing"],
   },
   {
-    label: "Compute",
-    items: [
-      bladed("Virtual machines"),
-      bladed("App Service"),
-      bladed("App Service plans"),
-      handWritten("Function Apps"),
-    ],
+    id: "all-resources",
+    label: "All resources",
+    description: "Browse every resource in the subscriptions you can reach.",
+    category: "General",
+    icon: "apps",
+    color: "#107c10",
+    route: "/ui/browse/all",
+    keywords: ["resources"],
   },
   {
-    label: "Containers",
-    items: [
-      bladed("Container Apps"),
-      handWritten("Container App jobs"),
-      bladed("Container Apps environments"),
-      // Microsoft.ContainerService has no routes in this simulator.
-      unsupported("Azure Kubernetes Service", "Azure Kubernetes Service (AKS) cluster"),
-      bladed("Container instances"),
-      handWritten("Container registries"),
-    ],
-  },
-  {
-    label: "Storage",
-    items: [handWritten("Storage accounts")],
-  },
-  {
-    label: "Databases",
-    items: [
-      // Microsoft.Sql has no routes in this simulator.
-      unsupported("Azure SQL", "SQL database"),
-      bladed("Azure Cosmos DB"),
-      bladed("Azure Database for PostgreSQL"),
-      bladed("Azure Cache for Redis"),
-    ],
-  },
-  {
-    label: "Networking",
-    items: [
-      bladed("Virtual networks"),
-      bladed("Load balancers"),
-      bladed("Network security groups"),
-      bladed("Public IP addresses"),
-      bladed("Network interfaces"),
-      bladed("Route tables"),
-      bladed("NAT gateways"),
-      bladed("DNS zones"),
-      bladed("Private DNS zones"),
-      // Microsoft.Cdn has no routes in this simulator.
-      unsupported("Front Door and CDN profiles", "Front Door and CDN profile"),
-    ],
-  },
-  {
-    label: "Integration",
-    items: [
-      bladed("Service Bus"),
-      bladed("Event Hubs"),
-      bladed("Event Grid topics"),
-      bladed("Event Grid domains"),
-      bladed("Event Grid system topics"),
-      bladed("API Management services"),
-      bladed("Logic apps"),
-    ],
-  },
-  {
-    label: "Monitoring + management",
-    items: [
-      handWritten("Logs"),
-      bladed("Log Analytics workspaces"),
-      bladed("Application Insights"),
-      // Microsoft.CostManagement / Microsoft.Billing have no routes in this
-      // simulator.
-      unsupported("Cost Management + Billing", "Billing account"),
-    ],
-  },
-  {
-    label: "Identity",
-    items: [bladed("Managed Identities")],
-  },
-  {
+    id: "entra",
     label: "Microsoft Entra ID",
-    items: [handWritten("App registrations")],
+    description: "Manage your directory's users, groups and applications.",
+    category: "Identity",
+    icon: "entra",
+    color: "#0078d4",
+    route: "/ui/entra",
+    keywords: ["aad", "azure active directory", "directory"],
   },
   {
-    label: "Security",
-    items: [
-      bladed("Key vaults"),
-      // Microsoft.Security has no routes in this simulator.
-      unsupported("Microsoft Defender for Cloud", "Security posture"),
-    ],
+    id: "app-registrations",
+    label: "App registrations",
+    description: "Register applications to sign in with Microsoft Entra ID.",
+    category: "Identity",
+    icon: "entra",
+    color: "#005a9e",
+    route: "/ui/entra/app-registrations",
+    keywords: ["application", "client secret"],
   },
   {
-    label: "DevOps",
-    items: [
-      // Azure DevOps is not an Azure Resource Manager service at all; it has
-      // its own dev.azure.com API surface, none of which this simulator
-      // serves.
-      unsupported("Azure DevOps organizations", "Azure DevOps organization"),
-    ],
+    id: "monitor",
+    label: "Monitor",
+    description: "Collect and analyze telemetry from your resources.",
+    category: "Monitor",
+    icon: "monitor",
+    color: "#0078d4",
+    route: "/ui/monitor",
+    keywords: ["azure monitor", "logs", "activity log"],
   },
 ];
 
-const BY_TO = new Map<string, CatalogItem>(SERVICE_CATALOG.flatMap((group) => group.items).map((item) => [item.to, item]));
+export const SERVICES: PortalService[] = [...VIEW_SERVICES, ...SERVICE_BLADES.map(bladeService)];
 
-export function catalogItemForPath(pathname: string): CatalogItem | undefined {
-  return BY_TO.get(pathname);
+export const SERVICE_BY_ID = new Map(SERVICES.map((service) => [service.id, service]));
+
+export function serviceById(id: string): PortalService {
+  const service = SERVICE_BY_ID.get(id);
+  if (!service) throw new Error(`unknown service ${id}`);
+  return service;
+}
+
+/** The services the portal pins under Favorites until the operator changes
+ *  them, in the portal's own default order. */
+export const DEFAULT_FAVORITES = [
+  "all-resources",
+  "resource-groups",
+  "app-service",
+  "function-apps",
+  "cosmos-db",
+  "virtual-machines",
+  "load-balancers",
+  "storage-accounts",
+  "virtual-networks",
+  "entra",
+  "monitor",
+];
+
+/** The services on Home's Azure services row, after "Create a resource". */
+export const HOME_SERVICES = [
+  "virtual-machines",
+  "storage-accounts",
+  "app-service",
+  "function-apps",
+  "containerapps",
+  "key-vaults",
+  "service-bus",
+  "resource-groups",
+  "subscriptions",
+];
+
+export function matchesService(service: PortalService, needle: string): boolean {
+  const query = needle.trim().toLowerCase();
+  if (!query) return true;
+  return [service.label, service.description, ...service.keywords].some((text) => text.toLowerCase().includes(query));
 }

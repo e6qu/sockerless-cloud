@@ -26,8 +26,19 @@ From this directory:
   `dist/`.
 - `bunx turbo run typecheck` / `test` — TypeScript + vitest across the
   workspace.
-- `cd packages/simulator-aws && bun run test:e2e` — Playwright browser suite
-  (builds the backing simulator binary via the `core/e2e` harness).
+- `cd packages/simulator-aws && bun run test:e2e` (or `simulator-gcp`) —
+  Playwright browser suite (builds the backing simulator binary via the
+  `core/e2e` harness, plus `simulator-azure`, whose Microsoft Entra ID signs the
+  console's operator in; the AWS console federates it with
+  AssumeRoleWithWebIdentity, the Google Cloud console with Workforce Identity
+  Federation). `SERVER_BIN` and `SIMULATOR_BIN` name prebuilt binaries instead.
+  On Linux the harness runs Chromium in a network namespace of its own
+  (`core/e2e/isolated-chromium.sh`), because Chromium aborts in-flight requests
+  with `ERR_NETWORK_CHANGED` on every address change of the host's interfaces,
+  and the simulators' workloads add and remove engine bridges throughout the
+  run. That needs `pasta` (`scripts/install-passt.sh` installs the pinned
+  package) and unprivileged user namespaces; on Ubuntu 24.04 run
+  `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`.
 
 To embed a rebuilt console into its simulator binary, from the repo root:
 

@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -15,8 +16,8 @@ import (
 // CRUD (host-header routing) plus ModifyListener changing the default action.
 func TestELBv2_ListenerRulesAndModifyListener(t *testing.T) {
 	t.Parallel()
-	tgName := uniqueName("rule-tg")
-	lbName := uniqueName("rule-lb")
+	tgName := uniquename.New("rule-tg")
+	lbName := uniquename.New("rule-lb")
 	ec2c := ec2Client()
 	elb := elbv2Client()
 

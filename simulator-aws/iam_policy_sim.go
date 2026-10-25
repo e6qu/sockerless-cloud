@@ -247,31 +247,10 @@ func parseIAMPolicy(s string) (iamPolicyDoc, error) {
 	return doc, nil
 }
 
-// iamGlobMatch matches an IAM pattern (with `*` and `?`) against value.
+// iamGlobMatch matches an IAM pattern, in which * stands for any run of
+// characters and ? for one, against value.
 func iamGlobMatch(pattern, value string) bool {
-	// Classic two-pointer glob with backtracking on `*`.
-	var p, v, star, mark int
-	star = -1
-	for v < len(value) {
-		if p < len(pattern) && (pattern[p] == '?' || pattern[p] == value[v]) {
-			p++
-			v++
-		} else if p < len(pattern) && pattern[p] == '*' {
-			star = p
-			mark = v
-			p++
-		} else if star != -1 {
-			p = star + 1
-			mark++
-			v = mark
-		} else {
-			return false
-		}
-	}
-	for p < len(pattern) && pattern[p] == '*' {
-		p++
-	}
-	return p == len(pattern)
+	return sim.Wildcard{AnyOne: true}.Match(pattern, value)
 }
 
 func iamActionMatches(stmt iamStatement, action string) bool {

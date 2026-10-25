@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/storage"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
@@ -83,7 +84,7 @@ func TestGCS_ObjectContextsWriteUpdateAndView(t *testing.T) {
 	t.Parallel()
 	client := storageClient(t)
 	defer client.Close()
-	bucket := uniqueName("contexts-bucket")
+	bucket := uniquename.New("contexts-bucket")
 	require.NoError(t, client.Bucket(bucket).Create(ctx, "test-project", nil))
 	obj := client.Bucket(bucket).Object("dir/report.txt")
 
@@ -139,7 +140,7 @@ func TestGCS_ObjectContextsCopyAndCompose(t *testing.T) {
 	t.Parallel()
 	client := storageClient(t)
 	defer client.Close()
-	bucket := uniqueName("contexts-copy-bucket")
+	bucket := uniquename.New("contexts-copy-bucket")
 	b := client.Bucket(bucket)
 	require.NoError(t, b.Create(ctx, "test-project", nil))
 	writeWithContexts(t, b.Object("src-0"), map[string]string{"key_0": "val_0"})
@@ -175,7 +176,7 @@ func TestGCS_ListObjectsFilteredByContexts(t *testing.T) {
 	t.Parallel()
 	client := storageClient(t)
 	defer client.Close()
-	bucket := uniqueName("contexts-list-bucket")
+	bucket := uniquename.New("contexts-list-bucket")
 	b := client.Bucket(bucket)
 	require.NoError(t, b.Create(ctx, "test-project", nil))
 	writeWithContexts(t, b.Object("ctx1"), map[string]string{"keyA": "valueA", "keyB": "valueB", "key-unicode-á": "value-unicode-é"})

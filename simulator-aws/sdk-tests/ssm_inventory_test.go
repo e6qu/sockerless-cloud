@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -316,7 +317,7 @@ func TestSSM_InstanceInformation(t *testing.T) {
 func TestSSM_DocumentPermission(t *testing.T) {
 	t.Parallel()
 	c := ssmClient()
-	name := uniqueName("sockerless-perm-doc-sdk")
+	name := uniquename.New("sockerless-perm-doc-sdk")
 	content := `{"schemaVersion":"2.2","mainSteps":[{"action":"aws:runShellScript","name":"s","inputs":{"runCommand":["echo hi"]}}]}`
 
 	_, err := c.CreateDocument(ctx, &ssm.CreateDocumentInput{

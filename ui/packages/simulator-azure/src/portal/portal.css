@@ -1,20 +1,973 @@
-/* Microsoft Azure portal layout residue — see tokens.css for why so little
- * is left here. Colours, typography, borders, and every component's own
- * surface now come from real Fluent components and their tokens
- * (AzurePortal.tsx's `useAzureStyles`); this file only resets the shell to
- * fill the viewport, which has to apply outside/around any single Fluent
- * component's own styling. */
+/* Azure portal layout on Fluent 2: the colours, type ramp and radii read
+ * Fluent's own tokens, which FluentProvider publishes as CSS variables. The
+ * font stack is Fluent's (Segoe UI first), and no font file is vendored. */
 
 .azure {
   min-height: 100vh;
   width: 100%;
+  font-family: var(--fontFamilyBase);
+  font-size: var(--fontSizeBase300);
+  color: var(--colorNeutralForeground1);
+  background: var(--colorNeutralBackground2);
 }
 
-/* The "Not supported" badge sits beside a service label in the narrow service
- * menu. Fluent's Badge wraps its text by default, so a two-word label broke
- * onto two lines and collided with the service name; it must stay on one line
- * and keep its width when the label beside it is long enough to truncate. */
-.az-badge-unsupported {
+.az-shell {
+  display: grid;
+  grid-template-rows: 40px 1fr;
+}
+
+.az-main {
+  min-width: 0;
+  outline: none;
+}
+
+/* Header */
+.az-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 4px 0 0;
+  background: #0078d4;
+  color: #ffffff;
+}
+.dark .az-header {
+  background: #1b1a19;
+  border-bottom: 1px solid var(--colorNeutralStroke2);
+}
+.dark .az-header-button:hover,
+.dark .az-account:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.az-header-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.az-header-button:hover {
+  background: rgba(0, 0, 0, 0.24);
+}
+.az-header-button:focus-visible,
+.az-account:focus-visible,
+.az-wordmark:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: -2px;
+}
+.az-header-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+.az-wordmark {
+  color: inherit;
+  text-decoration: none;
+  font-size: 15px;
+  font-weight: 600;
   white-space: nowrap;
+  padding: 0 8px;
+}
+.az-header-controls {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
+.az-search {
+  position: relative;
+  flex: 1;
+  max-width: 640px;
+  margin: 0 auto;
+}
+.az-search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--borderRadiusMedium);
+  background: var(--colorNeutralBackground1);
+  color: var(--colorNeutralForeground2);
+  border: 1px solid transparent;
+}
+.az-search-box:focus-within {
+  border-color: var(--colorCompoundBrandStroke);
+}
+.az-search-box input {
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--colorNeutralForeground1);
+  font: inherit;
+  min-width: 0;
+}
+.az-search-box input::placeholder {
+  color: var(--colorNeutralForeground3);
+}
+.az-search-results {
+  position: absolute;
+  top: 34px;
+  left: 0;
+  right: 0;
+  max-height: 70vh;
+  overflow: auto;
+  background: var(--colorNeutralBackground1);
+  color: var(--colorNeutralForeground1);
+  border-radius: var(--borderRadiusMedium);
+  box-shadow: var(--shadow16);
+  padding: 4px 0;
+}
+.az-search-group {
+  padding: 8px 16px 4px;
+  font-size: var(--fontSizeBase200);
+  font-weight: 600;
+  color: var(--colorNeutralForeground2);
+}
+.az-search-status:empty {
+  padding: 0;
+}
+.az-search-option {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 16px;
+  cursor: pointer;
+}
+.az-search-option-active {
+  background: var(--colorNeutralBackground1Hover);
+}
+.az-search-detail {
+  color: var(--colorNeutralForeground2);
+  font-size: var(--fontSizeBase200);
+}
+.az-search-status {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 16px;
+  color: var(--colorNeutralForeground2);
+}
+
+.az-account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: right;
+}
+.az-account:hover {
+  background: rgba(0, 0, 0, 0.24);
+}
+.az-account-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+.az-account-name {
+  font-size: 13px;
+}
+.az-account-directory {
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+.az-account-card {
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.az-account-card-head,
+.az-account-card-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.az-account-card-body {
+  justify-content: flex-start;
+}
+.az-account-tenant,
+.az-account-federation {
+  color: var(--colorNeutralForeground2);
+  overflow-wrap: anywhere;
+}
+
+/* Panes and portal menu */
+.az-pane-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.az-pane-empty {
+  padding: 24px 0;
+  color: var(--colorNeutralForeground2);
+}
+.az-notification-list,
+.az-help-list,
+.az-portal-menu {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.az-notification {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--colorNeutralStroke2);
+}
+.az-notification-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.az-notification-title {
+  flex: 1;
+}
+.az-notification-time {
+  color: var(--colorNeutralForeground3);
+  margin-top: 4px;
+}
+.az-help-list li {
+  padding: 6px 0;
+}
+.az-help-list a {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.az-portal-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 4px;
+  border: 0;
+  border-radius: var(--borderRadiusMedium);
+  background: transparent;
+  color: var(--colorNeutralForeground1);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.az-portal-menu-item:hover {
+  background: var(--colorNeutralBackground1Hover);
+}
+.az-portal-menu-heading {
+  display: block;
+  margin: 16px 4px 4px;
+  color: var(--colorNeutralForeground2);
+}
+
+.az-service-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  border-radius: var(--borderRadiusMedium);
+  color: #ffffff;
+}
+
+/* Blade */
+.az-blade {
+  padding: 8px 24px 32px;
+  background: var(--colorNeutralBackground1);
+  min-height: calc(100vh - 40px);
+  box-sizing: border-box;
+}
+.az-breadcrumb ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0 8px;
+  font-size: var(--fontSizeBase200);
+}
+.az-breadcrumb a {
+  color: var(--colorBrandForegroundLink);
+  text-decoration: none;
+}
+.az-breadcrumb a:hover {
+  text-decoration: underline;
+}
+.az-breadcrumb-sep {
+  display: inline-flex;
+  color: var(--colorNeutralForeground3);
+}
+.az-blade-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.az-blade-titles {
+  min-width: 0;
+}
+.az-blade-title-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.az-blade-title {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.az-blade-subtitle {
+  color: var(--colorNeutralForeground2);
+}
+
+.az-command-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--colorNeutralStroke2);
+  margin-bottom: 12px;
+}
+.az-command-row .az-command-bar {
+  border-bottom: 0;
+  margin-bottom: 0;
+}
+.az-command-bar {
+  flex-wrap: wrap;
+  padding: 0;
+  border-bottom: 1px solid var(--colorNeutralStroke2);
+  margin-bottom: 12px;
+}
+
+/* Service menu and resource layout */
+.az-resource-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 0;
+  border-top: 1px solid var(--colorNeutralStroke2);
+  margin: 0 -24px;
+}
+.az-resource-content {
+  padding: 8px 24px;
+  min-width: 0;
+}
+.az-service-menu {
+  border-right: 1px solid var(--colorNeutralStroke2);
+  padding: 8px 0;
+  min-height: 60vh;
+}
+.az-service-menu-search {
+  width: calc(100% - 16px);
+  margin: 0 8px 8px;
+}
+.az-menu-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.az-menu-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 12px 6px 16px;
+  border: 0;
+  border-left: 3px solid transparent;
+  background: transparent;
+  color: var(--colorNeutralForeground1);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.az-menu-link:hover {
+  background: var(--colorNeutralBackground1Hover);
+}
+.az-menu-link-active {
+  background: var(--colorNeutralBackground1Selected);
+  border-left-color: var(--colorCompoundBrandStroke);
+  font-weight: 600;
+}
+.az-menu-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--colorNeutralForeground1);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.az-menu-group .az-menu-link {
+  padding-left: 28px;
+}
+
+/* Essentials */
+.az-essentials {
+  border-bottom: 1px solid var(--colorNeutralStroke2);
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+}
+.az-essentials-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.az-essentials-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--colorNeutralForeground1);
+  font: inherit;
+  font-weight: 600;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.az-essentials-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 48px;
+}
+.az-essentials-column {
+  margin: 0;
+}
+.az-essentials-pair {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: 8px;
+  padding: 3px 0;
+  font-size: var(--fontSizeBase200);
+}
+.az-essentials-pair dt {
+  color: var(--colorNeutralForeground2);
+}
+.az-essentials-pair dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.az-essentials-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.az-tag-chip {
+  padding: 0 6px;
+  border-radius: var(--borderRadiusMedium);
+  background: var(--colorNeutralBackground3);
+}
+
+/* Browse grid */
+.az-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.az-filter-text {
+  width: 280px;
+  max-width: 100%;
+  margin-bottom: 8px;
+}
+.az-filters .az-filter-text {
+  margin-bottom: 0;
+}
+.az-pill {
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--colorNeutralBackground3);
+  color: var(--colorNeutralForeground1);
+  font: inherit;
+  font-size: var(--fontSizeBase200);
+  cursor: pointer;
+}
+.az-pill:hover {
+  background: var(--colorNeutralBackground3Hover);
+}
+.az-pill-op {
+  color: var(--colorNeutralForeground2);
+}
+.az-pill-surface {
+  min-width: 220px;
+}
+.az-pill-options {
+  display: flex;
+  flex-direction: column;
+  max-height: 260px;
+  overflow: auto;
+  margin-top: 8px;
+}
+.az-records {
+  color: var(--colorNeutralForeground2);
+  margin: 4px 0 8px;
+}
+.az-grid-wrap {
+  overflow-x: auto;
+}
+.az-grid {
+  min-width: 600px;
+}
+.az-grid-select {
+  width: 40px;
+}
+.az-grid a,
+.az-grid-name {
+  color: var(--colorBrandForegroundLink);
+  text-decoration: none;
+}
+.az-grid a:hover {
+  text-decoration: underline;
+}
+.az-paging {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+.az-page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.az-page-size .fui-Dropdown {
+  min-width: 80px;
+}
+.az-column-choices {
+  display: flex;
+  flex-direction: column;
+}
+.az-delete-list {
+  margin: 8px 0;
+}
+
+.az-empty {
+  padding: 32px 12px;
+  text-align: center;
+  color: var(--colorNeutralForeground2);
+}
+.az-empty p {
+  margin: 4px 0;
+}
+.az-message {
+  margin: 8px 0;
+}
+.az-message a {
+  text-decoration: underline;
+}
+.az-section {
+  margin-bottom: 16px;
+}
+.az-subnav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.az-file-input {
+  display: none;
+}
+
+/* Home */
+.az-home {
+  padding: 24px 32px 48px;
+  background: var(--colorNeutralBackground1);
+  min-height: calc(100vh - 40px);
+  box-sizing: border-box;
+}
+.az-home-section {
+  margin-bottom: 32px;
+  max-width: 1200px;
+}
+.az-home-section h2 {
+  margin: 0 0 12px;
+}
+.az-home-services {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.az-home-service {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 96px;
+  padding: 8px 4px;
+  text-align: center;
+  font-size: var(--fontSizeBase200);
+  color: var(--colorNeutralForeground1);
+  text-decoration: none;
+  border-radius: var(--borderRadiusMedium);
+}
+.az-home-service:hover {
+  background: var(--colorNeutralBackground1Hover);
+}
+.az-home-create,
+.az-home-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  color: var(--colorBrandForeground1);
+}
+.az-home-empty {
+  padding: 24px 0;
+}
+.az-home-favorites,
+.az-home-navigate {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 32px;
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+}
+.az-home-favorites a,
+.az-home-navigate a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--colorNeutralForeground1);
+  text-decoration: none;
+}
+.az-home-favorites a:hover,
+.az-home-navigate a:hover {
+  text-decoration: underline;
+}
+.az-home-see-all {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--colorBrandForegroundLink);
+}
+
+/* All services and Create a resource */
+.az-allservices {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 24px;
+}
+.az-allservices-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.az-allservices-heading {
+  margin: 16px 0 8px;
+}
+.az-service-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.az-service-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: var(--borderRadiusMedium);
+}
+.az-service-card-link {
+  display: flex;
+  gap: 12px;
+  flex: 1;
+  color: var(--colorNeutralForeground1);
+  text-decoration: none;
+  min-width: 0;
+}
+.az-service-card-link:hover .az-service-card-name {
+  text-decoration: underline;
+}
+.az-service-card-text {
+  display: flex;
+  flex-direction: column;
+}
+.az-service-card-name {
+  font-weight: 600;
+}
+.az-service-card-description {
+  font-size: var(--fontSizeBase200);
+  color: var(--colorNeutralForeground2);
+}
+.az-offers {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.az-offer {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: var(--borderRadiusMedium);
+}
+.az-offer-text a {
+  color: var(--colorBrandForegroundLink);
+}
+
+/* Wizard and forms */
+.az-wizard {
+  max-width: 1000px;
+}
+.az-wizard-body {
+  padding: 16px 0 96px;
+}
+.az-wizard-footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid var(--colorNeutralStroke2);
+  background: var(--colorNeutralBackground1);
+}
+.az-form-section {
+  margin-bottom: 24px;
+}
+.az-form-section h2 {
+  margin: 0 0 8px;
+}
+.az-form-help {
+  color: var(--colorNeutralForeground2);
+  margin-bottom: 12px;
+  max-width: 80ch;
+}
+.az-form-field {
+  margin: 8px 0;
+  grid-template-columns: 240px minmax(0, 480px) !important;
+}
+.az-form-indent {
+  padding-left: 24px;
+}
+.az-rg-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+.az-rg-picker > .fui-Dropdown,
+.az-rg-picker > .fui-Input {
+  width: 100%;
+}
+.az-tab-error {
+  color: var(--colorPaletteRedForeground1);
+}
+.az-error-text {
+  color: var(--colorPaletteRedForeground1);
+}
+.az-review {
+  margin: 12px 0;
+}
+.az-review-row {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--colorNeutralStroke3);
+}
+.az-review-row dt {
+  color: var(--colorNeutralForeground2);
+}
+.az-review-row dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.az-tags-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+.az-tags-row {
+  display: grid;
+  grid-template-columns: 240px 12px 240px 32px;
+  align-items: center;
+  gap: 8px;
+}
+.az-tags-head {
+  font-weight: 600;
+}
+.az-form-actions,
+.az-deployment-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.az-drawer-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.az-member-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: var(--borderRadiusMedium);
+  padding: 4px;
+}
+.az-dialog-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Deployment */
+.az-deployment-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0 16px;
+}
+.az-deployment-head svg {
+  color: var(--colorPaletteGreenForeground1);
+}
+.az-deployment-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 48px;
+  margin: 0 0 16px;
+  font-size: var(--fontSizeBase200);
+}
+.az-deployment-facts div {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+}
+.az-deployment-facts dt {
+  color: var(--colorNeutralForeground2);
+}
+.az-deployment-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* JSON, logs */
+.az-json-surface {
+  max-width: 900px;
+  width: 90vw;
+}
+.az-json {
+  max-height: 60vh;
+  overflow: auto;
+  padding: 12px;
+  border-radius: var(--borderRadiusMedium);
+  background: var(--colorNeutralBackground3);
+  font-family: var(--fontFamilyMonospace);
+  font-size: var(--fontSizeBase200);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.az-logs-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.az-kql {
+  width: 100%;
+  font-family: var(--fontFamilyMonospace);
+}
+.az-monitor-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  list-style: none;
+  padding: 0;
+}
+.az-monitor-cards li {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--colorNeutralStroke2);
+  border-radius: var(--borderRadiusMedium);
+}
+.az-principal {
+  display: block;
+}
+
+/* The shared operator styles give every native text input a border and
+ * padding of their own; inside Fluent's Input and Textarea the control draws
+ * those, so the native element takes Fluent's look instead. */
+.azure .fui-Input__input,
+.azure .fui-Textarea__textarea,
+.azure .az-search-box input {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  font-size: inherit;
+  padding: 0 var(--spacingHorizontalXXS);
+}
+.azure .fui-Textarea__textarea {
+  padding: var(--spacingVerticalSNudge) var(--spacingHorizontalMNudge);
+}
+.azure .fui-Input__input:focus-visible,
+.azure .fui-Textarea__textarea:focus-visible,
+.azure .az-search-box input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.az-blade-body a:not([class]),
+.az-home a:not([class]) {
+  color: var(--colorBrandForegroundLink);
+  text-decoration: none;
+}
+.az-blade-body a:not([class]):hover,
+.az-home a:not([class]):hover,
+.az-blade-body .az-message a:not([class]) {
+  text-decoration: underline;
+}
+
+@media (max-width: 760px) {
+  .az-resource-layout,
+  .az-allservices {
+    grid-template-columns: 1fr;
+  }
+  .az-service-menu {
+    min-height: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--colorNeutralStroke2);
+  }
+  .az-essentials-grid,
+  .az-deployment-facts {
+    grid-template-columns: 1fr;
+  }
+  .az-account-text {
+    display: none;
+  }
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	run "google.golang.org/api/run/v1"
@@ -60,7 +61,7 @@ func createCloudRunV2JobLRO(t *testing.T, jobID string) string {
 func TestCloudRunV1_ExecutionAndTaskProjection(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	jobID := uniqueName("v1-proj-job")
+	jobID := uniquename.New("v1-proj-job")
 	execName := createAndRunJobWithImageAndCommand(t, jobID, simWorkloadImage, []string{"true"}, "30s").Execution
 	execID := execName[strings.LastIndex(execName, "/")+1:]
 
@@ -144,7 +145,7 @@ func TestCloudRunV1_ExecutionAndTaskNotFound(t *testing.T) {
 func TestCloudRunV1_ExecutionsListPaging(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	jobID := uniqueName("v1-paging-job")
+	jobID := uniquename.New("v1-paging-job")
 	first := createAndRunJobWithImageAndCommand(t, jobID, simWorkloadImage, []string{"true"}, "30s").Execution
 	require.NotEmpty(t, first)
 	runURL := fmt.Sprintf("%s/v2/projects/%s/locations/us-central1/jobs/%s:run", baseURL, cloudRunV1Namespace, jobID)
@@ -176,7 +177,7 @@ func TestCloudRunV1_ExecutionsListPaging(t *testing.T) {
 func TestCloudRunV1_OperationsWait(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	opName := createCloudRunV2JobLRO(t, uniqueName("v1-wait-job"))
+	opName := createCloudRunV2JobLRO(t, uniquename.New("v1-wait-job"))
 
 	waited, err := svc.Projects.Locations.Operations.Wait(opName, &run.GoogleLongrunningWaitOperationRequest{}).Do()
 	require.NoError(t, err)
@@ -195,7 +196,7 @@ func TestCloudRunV1_OperationsWait(t *testing.T) {
 func TestCloudRunV1_JobsGetIamPolicy(t *testing.T) {
 	t.Parallel()
 	svc := newRunV1(t)
-	jobID := uniqueName("v1-iam-job")
+	jobID := uniquename.New("v1-iam-job")
 	createCloudRunV2JobLRO(t, jobID)
 	resource := fmt.Sprintf("projects/%s/locations/us-central1/jobs/%s", cloudRunV1Namespace, jobID)
 

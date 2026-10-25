@@ -11,13 +11,14 @@ import (
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func queueArnAndURL(t *testing.T, sqsClient *sqs.Client, name string) (url, arn string) {
 	t.Helper()
-	name = uniqueName(name)
+	name = uniquename.New(name)
 	create, err := sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(name)})
 	require.NoError(t, err)
 	url = aws.ToString(create.QueueUrl)
@@ -58,7 +59,7 @@ func TestS3_EventNotification_SQSDelivery(t *testing.T) {
 	s3c := s3Client()
 	sqsc := sqsClient()
 
-	bucket := uniqueName("evt-notify-bucket")
+	bucket := uniquename.New("evt-notify-bucket")
 	_, err := s3c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 	bucketArn := "arn:aws:s3:::" + bucket

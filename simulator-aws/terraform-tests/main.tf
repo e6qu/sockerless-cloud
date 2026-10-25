@@ -1794,6 +1794,9 @@ output "lambda_function_url" {
 output "lambda_invocation_result" {
   value = data.aws_lambda_invocation.tf_lambda_echo.result
 }
+output "lambda_reserved_concurrent_executions" {
+  value = tostring(aws_lambda_function.tf_lambda.reserved_concurrent_executions)
+}
 output "amplify_app_arn" {
   value = aws_amplify_app.tf_amplify.arn
 }

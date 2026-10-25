@@ -60,30 +60,11 @@ func interconnectRemoteLocationResource(project string, entry map[string]any) ma
 func registerComputeInterconnectRemoteLocations(srv *sim.Server) {
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/interconnectRemoteLocations",
 		func(w http.ResponseWriter, r *http.Request) {
-			project := sim.PathParam(r, "project")
-			catalog := interconnectRemoteLocations()
-			items := make([]any, 0, len(catalog.RemoteLocations))
-			for _, entry := range catalog.RemoteLocations {
-				items = append(items, interconnectRemoteLocationResource(project, entry))
-			}
-			sim.WriteJSON(w, http.StatusOK, map[string]any{
-				"kind":     "compute#interconnectRemoteLocationList",
-				"id":       "projects/" + project + "/global/interconnectRemoteLocations",
-				"selfLink": "https://compute.googleapis.com/compute/v1/projects/" + project + "/global/interconnectRemoteLocations",
-				"items":    items,
-			})
+			interconnectCatalogList(w, r, "interconnectRemoteLocations", "compute#interconnectRemoteLocationList", interconnectRemoteLocations().RemoteLocations, interconnectRemoteLocationResource)
 		})
 
 	srv.HandleFunc("GET /compute/v1/projects/{project}/global/interconnectRemoteLocations/{location}",
 		func(w http.ResponseWriter, r *http.Request) {
-			project, name := sim.PathParam(r, "project"), sim.PathParam(r, "location")
-			for _, entry := range interconnectRemoteLocations().RemoteLocations {
-				if entry["name"] == name {
-					sim.WriteJSON(w, http.StatusOK, interconnectRemoteLocationResource(project, entry))
-					return
-				}
-			}
-			GCPErrorf(w, http.StatusNotFound, "NOT_FOUND",
-				"The resource 'projects/%s/global/interconnectRemoteLocations/%s' was not found", project, name)
+			interconnectCatalogGet(w, r, "interconnectRemoteLocations", interconnectRemoteLocations().RemoteLocations, interconnectRemoteLocationResource)
 		})
 }

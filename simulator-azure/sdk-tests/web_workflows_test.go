@@ -8,6 +8,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/appservice/armappservice/v5"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -151,13 +152,13 @@ func TestSDK_WebWorkflows_DeployAndEnvelopes(t *testing.T) {
 
 func TestSDK_WebWorkflows_HostruntimeBridge(t *testing.T) {
 	t.Parallel()
-	rg := uniqueName("webwf-runtime-rg")
+	rg := uniquename.New("webwf-runtime-rg")
 	ensureRG(t, rg)
 	planID := webMoreEnsurePlan(t, rg, "webwf-rt-plan")
 
 	webApps, err := armappservice.NewWebAppsClient(subscriptionID, &fakeCredential{}, clientOpts())
 	require.NoError(t, err)
-	name := uniqueName("webwf-rt-site")
+	name := uniquename.New("webwf-rt-site")
 	webMoreCreateSite(t, webApps, rg, name, planID)
 	webWorkflowsDeploy(t, webApps, rg, name)
 

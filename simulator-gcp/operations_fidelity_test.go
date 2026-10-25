@@ -346,17 +346,19 @@ func TestIAMOperationMetadataTypes(t *testing.T) {
 	srv := buildOperationsTestSimulator(t)
 	const host = "iam.googleapis.com"
 	const pools = "/v1/projects/p/locations/global/workloadIdentityPools"
+	// The pool outlives the test, so each run of it names its own.
+	pool := "meta-pool-" + sim.NewUUID()[:8]
 
-	op := gcpHostOK(t, srv, host, http.MethodPost, pools+"?workloadIdentityPoolId=meta-pool", `{}`)
+	op := gcpHostOK(t, srv, host, http.MethodPost, pools+"?workloadIdentityPoolId="+pool, `{}`)
 	metadata, _ := op["metadata"].(map[string]any)
 	if len(metadata) != 1 || metadata["@type"] != "type.googleapis.com/google.iam.v1.WorkloadIdentityPoolOperationMetadata" {
 		t.Fatalf("pool metadata = %v", metadata)
 	}
 
-	op = gcpHostOK(t, srv, host, http.MethodPost, pools+"/meta-pool/providers?workloadIdentityPoolProviderId=meta-provider",
+	op = gcpHostOK(t, srv, host, http.MethodPost, pools+"/"+pool+"/providers?workloadIdentityPoolProviderId=meta-provider",
 		`{"oidc":{"issuerUri":"https://issuer.example.com"}}`)
 	metadata, _ = op["metadata"].(map[string]any)
-	provider := "projects/p/locations/global/workloadIdentityPools/meta-pool/providers/meta-provider"
+	provider := "projects/p/locations/global/workloadIdentityPools/" + pool + "/providers/meta-provider"
 	if metadata["@type"] != "type.googleapis.com/google.iam.v1.OperationMetadata" || metadata["verb"] != "create" || metadata["target"] != provider {
 		t.Fatalf("provider metadata = %v", metadata)
 	}
@@ -367,7 +369,7 @@ func TestIAMOperationMetadataTypes(t *testing.T) {
 		}
 	}
 
-	op = gcpHostOK(t, srv, host, http.MethodDelete, pools+"/meta-pool/providers/meta-provider", ``)
+	op = gcpHostOK(t, srv, host, http.MethodDelete, pools+"/"+pool+"/providers/meta-provider", ``)
 	if metadata, _ = op["metadata"].(map[string]any); metadata["verb"] != "delete" || metadata["target"] != provider {
 		t.Fatalf("provider delete metadata = %v", metadata)
 	}

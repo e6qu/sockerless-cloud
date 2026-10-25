@@ -225,10 +225,8 @@ export function ServiceAccountDetailPage() {
   const data = account.data;
   return (
     <>
-      <div className="gc-detail-back">
-        <Link to="/ui/serviceaccounts">‹ Service accounts</Link>
-      </div>
       <GcpPageHeader
+        backTo="/ui/iam-admin/serviceaccounts"
         title={email}
         description="Service account"
         onRefresh={() => {

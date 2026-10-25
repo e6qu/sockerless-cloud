@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"sort"
 	"strconv"
@@ -15,6 +14,7 @@ import (
 	mobyclient "github.com/moby/moby/client"
 
 	"github.com/e6qu/sockerless-cloud/sim"
+	"github.com/e6qu/sockerless-cloud/sim/placement"
 )
 
 // App Service instances and processes, read from the site's live workload
@@ -86,16 +86,20 @@ type webThread struct {
 	ElapsedSecs int64
 }
 
-// webSiteInstanceContainer resolves the live workload container backing a site
-// or slot. The second result is false when the site has no running container,
-// which is the state a stopped site is in.
-func webSiteInstanceContainer(site Site) (string, bool) {
-	inst := azfInstanceFor(site.Name)
-	id, _ := inst.running()
-	if id == "" || !sim.ContainerRunning(id) {
-		return "", false
+// webSiteInstanceContainer resolves the live workload backing a site or slot.
+// The second result is false when the site has no running workload, which is
+// the state a stopped site is in.
+func webSiteInstanceContainer(site Site) (placement.Handle, bool) {
+	_, handle := azfInstanceFor(site.Name).running()
+	if handle == nil {
+		return nil, false
 	}
-	return id, true
+	select {
+	case <-handle.Exited():
+		return nil, false
+	default:
+		return handle, true
+	}
 }
 
 // webContainerTop reads one `ps` projection for a container through the
@@ -437,8 +441,8 @@ func registerWebProcesses(both func(string, string, http.HandlerFunc)) {
 		site, _ := webResource(r)
 		base := webResourceID(r)
 		values := []map[string]any{}
-		if containerID, ok := webSiteInstanceContainer(site); ok {
-			values = append(values, webInstanceDoc(base, containerID, true, nil))
+		if instance, ok := webSiteInstanceContainer(site); ok {
+			values = append(values, webInstanceDoc(base, instance.ID(), true, nil))
 		}
 		sim.WriteJSON(w, http.StatusOK, map[string]any{"value": values})
 	})
@@ -446,10 +450,11 @@ func registerWebProcesses(both func(string, string, http.HandlerFunc)) {
 	// WebApps_GetInstanceInfo[Slot] — one instance, carrying the container
 	// engine's live resource-usage statistics.
 	both("GET", "/instances/{instanceId}", func(w http.ResponseWriter, r *http.Request) {
-		containerID, ok := webRequireInstance(w, r)
+		instance, ok := webRequireInstance(w, r)
 		if !ok {
 			return
 		}
+		containerID := instance.ID()
 		stats, err := webContainerStats(containerID)
 		if err != nil {
 			webEngineFailure(w, err)
@@ -492,16 +497,16 @@ func registerWebProcesses(both func(string, string, http.HandlerFunc)) {
 // webRequireInstance resolves the site's live container and checks it against
 // the instance the request addresses, writing the ARM 404 when either the site
 // or the instance is not there.
-func webRequireInstance(w http.ResponseWriter, r *http.Request) (string, bool) {
-	containerID, running, ok := webResolveInstance(w, r)
+func webRequireInstance(w http.ResponseWriter, r *http.Request) (placement.Handle, bool) {
+	instance, running, ok := webResolveInstance(w, r)
 	if !ok {
-		return "", false
+		return nil, false
 	}
 	if !running {
 		webInstanceNotFound(w, r)
-		return "", false
+		return nil, false
 	}
-	return containerID, true
+	return instance, true
 }
 
 // webResolveInstance resolves the site addressed by the request and its live
@@ -509,16 +514,16 @@ func webRequireInstance(w http.ResponseWriter, r *http.Request) (string, bool) {
 // container, or when the request names an instance that is not the running
 // one; the third is false only when the site itself does not exist, in which
 // case the ARM 404 has already been written.
-func webResolveInstance(w http.ResponseWriter, r *http.Request) (string, bool, bool) {
+func webResolveInstance(w http.ResponseWriter, r *http.Request) (placement.Handle, bool, bool) {
 	if webMissing(w, r) {
-		return "", false, false
+		return nil, false, false
 	}
 	site, _ := webResource(r)
-	containerID, running := webSiteInstanceContainer(site)
-	if requested := sim.PathParam(r, "instanceId"); requested != "" && requested != containerID {
-		return "", false, true
+	instance, running := webSiteInstanceContainer(site)
+	if requested := sim.PathParam(r, "instanceId"); requested != "" && (!running || requested != instance.ID()) {
+		return nil, false, true
 	}
-	return containerID, running, true
+	return instance, running, true
 }
 
 func webInstanceNotFound(w http.ResponseWriter, r *http.Request) {
@@ -530,20 +535,20 @@ func webInstanceNotFound(w http.ResponseWriter, r *http.Request) {
 // webSiteProcesses resolves the site's instance and reads its process table.
 // A site whose container is not running has an empty process table rather than
 // an error, which is what a collection read of a stopped site answers.
-func webSiteProcesses(w http.ResponseWriter, r *http.Request) (string, []webProcess, bool) {
-	containerID, running, ok := webResolveInstance(w, r)
+func webSiteProcesses(w http.ResponseWriter, r *http.Request) (placement.Handle, []webProcess, bool) {
+	instance, running, ok := webResolveInstance(w, r)
 	if !ok {
-		return "", nil, false
+		return nil, nil, false
 	}
 	if !running {
-		return "", nil, true
+		return nil, nil, true
 	}
-	procs, err := webProcessTable(containerID)
+	procs, err := webProcessTable(instance.ID())
 	if err != nil {
 		webEngineFailure(w, err)
-		return "", nil, false
+		return nil, nil, false
 	}
-	return containerID, procs, true
+	return instance, procs, true
 }
 
 // webInstanceSegment is the instance identifier the request addressed, or ""
@@ -552,11 +557,11 @@ func webSiteProcesses(w http.ResponseWriter, r *http.Request) (string, []webProc
 func webInstanceSegment(r *http.Request) string { return sim.PathParam(r, "instanceId") }
 
 func webListProcesses(w http.ResponseWriter, r *http.Request) {
-	containerID, procs, ok := webSiteProcesses(w, r)
+	instance, procs, ok := webSiteProcesses(w, r)
 	if !ok {
 		return
 	}
-	if containerID == "" && webInstanceSegment(r) != "" {
+	if instance == nil && webInstanceSegment(r) != "" {
 		webInstanceNotFound(w, r)
 		return
 	}
@@ -571,11 +576,11 @@ func webListProcesses(w http.ResponseWriter, r *http.Request) {
 }
 
 func webGetProcess(w http.ResponseWriter, r *http.Request) {
-	containerID, procs, ok := webSiteProcesses(w, r)
+	instance, procs, ok := webSiteProcesses(w, r)
 	if !ok {
 		return
 	}
-	if containerID == "" && webInstanceSegment(r) != "" {
+	if instance == nil && webInstanceSegment(r) != "" {
 		webInstanceNotFound(w, r)
 		return
 	}
@@ -596,11 +601,11 @@ func webGetProcess(w http.ResponseWriter, r *http.Request) {
 }
 
 func webListProcessThreads(w http.ResponseWriter, r *http.Request) {
-	containerID, procs, ok := webSiteProcesses(w, r)
+	instance, procs, ok := webSiteProcesses(w, r)
 	if !ok {
 		return
 	}
-	if containerID == "" && webInstanceSegment(r) != "" {
+	if instance == nil && webInstanceSegment(r) != "" {
 		webInstanceNotFound(w, r)
 		return
 	}
@@ -620,7 +625,7 @@ func webListProcessThreads(w http.ResponseWriter, r *http.Request) {
 		webProcessNotFound(w, r, pid)
 		return
 	}
-	threads, err := webThreadTable(containerID)
+	threads, err := webThreadTable(instance.ID())
 	if err != nil {
 		webEngineFailure(w, err)
 		return
@@ -648,11 +653,11 @@ func webProcessNotFound(w http.ResponseWriter, r *http.Request, pid int) {
 // the process table the reads beside it return comes from the container, so a
 // process killed here is gone from them afterwards.
 func webDeleteProcess(w http.ResponseWriter, r *http.Request) {
-	containerID, procs, ok := webSiteProcesses(w, r)
+	instance, procs, ok := webSiteProcesses(w, r)
 	if !ok {
 		return
 	}
-	if containerID == "" {
+	if instance == nil {
 		webInstanceNotFound(w, r)
 		return
 	}
@@ -672,45 +677,30 @@ func webDeleteProcess(w http.ResponseWriter, r *http.Request) {
 		webProcessNotFound(w, r, pid)
 		return
 	}
-	if err := webKillContainerProcess(containerID, pid); err != nil {
+	if err := webKillContainerProcess(instance, pid); err != nil {
 		webEngineFailure(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// webKillContainerProcess sends the process a TERM inside the container it runs
-// in. The engine has no kill-one-process call, so it is done the way an
-// operator would: by running kill in the container.
-func webKillContainerProcess(containerID string, pid int) error {
-	cli := sim.DockerClient()
-	if cli == nil {
-		return fmt.Errorf("no container engine is available to signal the site's process")
-	}
+// webKillContainerProcess sends the process a TERM inside the workload it runs
+// in. No backend kills one process, so it is done the way an operator would:
+// by running kill in the workload.
+func webKillContainerProcess(instance placement.Handle, pid int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	created, err := cli.ExecCreate(ctx, containerID, mobyclient.ExecCreateOptions{
-		Cmd: []string{"kill", "-TERM", strconv.Itoa(pid)}, AttachStderr: true,
-	})
-	if err != nil {
-		return err
-	}
-	attached, err := cli.ExecAttach(ctx, created.ID, mobyclient.ExecAttachOptions{})
-	if err != nil {
-		return err
-	}
-	defer attached.Close()
-	_, _ = io.Copy(io.Discard, attached.Reader)
-	return nil
+	_, err := instance.Exec(ctx, []string{"kill", "-TERM", strconv.Itoa(pid)})
+	return err
 }
 
 // webListProcessModules reports the modules a process has loaded.
 func webListProcessModules(w http.ResponseWriter, r *http.Request) {
-	proc, containerID, ok := webResolveProcess(w, r)
+	proc, instance, ok := webResolveProcess(w, r)
 	if !ok {
 		return
 	}
-	modules, readable, err := webProcessModules(r.Context(), containerID, proc)
+	modules, readable, err := webProcessModules(r.Context(), instance.ID(), proc)
 	if !readable {
 		webProcessModulesUnreadable(w, "WebApps_ListProcessModules")
 		return
@@ -727,11 +717,11 @@ func webListProcessModules(w http.ResponseWriter, r *http.Request) {
 
 // webGetProcessModule reports one module by the address it is mapped at.
 func webGetProcessModule(w http.ResponseWriter, r *http.Request) {
-	proc, containerID, ok := webResolveProcess(w, r)
+	proc, instance, ok := webResolveProcess(w, r)
 	if !ok {
 		return
 	}
-	modules, readable, err := webProcessModules(r.Context(), containerID, proc)
+	modules, readable, err := webProcessModules(r.Context(), instance.ID(), proc)
 	if !readable {
 		webProcessModulesUnreadable(w, "WebApps_GetProcessModule")
 		return
@@ -758,27 +748,27 @@ func webGetProcessModule(w http.ResponseWriter, r *http.Request) {
 }
 
 // webResolveProcess finds the process a request names in the site's container.
-func webResolveProcess(w http.ResponseWriter, r *http.Request) (webProcess, string, bool) {
-	containerID, procs, ok := webSiteProcesses(w, r)
+func webResolveProcess(w http.ResponseWriter, r *http.Request) (webProcess, placement.Handle, bool) {
+	instance, procs, ok := webSiteProcesses(w, r)
 	if !ok {
-		return webProcess{}, "", false
+		return webProcess{}, nil, false
 	}
-	if containerID == "" {
+	if instance == nil {
 		webInstanceNotFound(w, r)
-		return webProcess{}, "", false
+		return webProcess{}, nil, false
 	}
 	pid, err := strconv.Atoi(sim.PathParam(r, "processId"))
 	if err != nil {
 		AzureError(w, "BadRequest", "The process identifier must be a number.", http.StatusBadRequest)
-		return webProcess{}, "", false
+		return webProcess{}, nil, false
 	}
 	for _, proc := range procs {
 		if proc.PID == pid {
-			return proc, containerID, true
+			return proc, instance, true
 		}
 	}
 	webProcessNotFound(w, r, pid)
-	return webProcess{}, "", false
+	return webProcess{}, nil, false
 }
 
 // webProcessModuleDocs renders the modules of a process. The executable a

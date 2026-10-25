@@ -9,6 +9,7 @@ import {
   AwsModal,
   AwsResourceTable,
   type AwsColumn,
+  AwsRefreshButton,
 } from "../console/index.js";
 import { formatEpoch } from "../console/format.js";
 import {
@@ -164,11 +165,12 @@ function DeleteGlossaryModal({ glossary, onClose }: { glossary: GlueGlossary; on
   );
 }
 
-export function GluePage() {
+export function GluePage({ view = "catalog" }: { view?: "catalog" | "jobs" }) {
   const [createGlossary, setCreateGlossary] = useState(false);
   const [deleteGlossary, setDeleteGlossary] = useState<GlueGlossary | null>(null);
   return (
     <>
+      {view === "catalog" && (
       <AwsResourceTable<GlueDatabase>
         title="Databases"
         description="AWS Glue Data Catalog databases in this account and Region."
@@ -182,14 +184,13 @@ export function GluePage() {
         tableTestId="glue-databases-table"
         errorTestId="glue-databases-error"
         actions={({ refetch, isFetching }) => (
-          <AwsButton onClick={refetch} disabled={isFetching}>
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </AwsButton>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
         )}
       />
+      )}
+      {view === "jobs" && (
       <AwsResourceTable<GlueJob>
         title="ETL jobs"
-        headingVariant="h2"
         description="AWS Glue extract, transform, and load jobs."
         columns={jobColumns}
         queryKey={["glue-jobs"]}
@@ -201,11 +202,11 @@ export function GluePage() {
         tableTestId="glue-jobs-table"
         errorTestId="glue-jobs-error"
         actions={({ refetch, isFetching }) => (
-          <AwsButton onClick={refetch} disabled={isFetching}>
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </AwsButton>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
         )}
       />
+      )}
+      {view === "catalog" && (
       <AwsResourceTable<GlueGlossary>
         title="Business glossaries"
         headingVariant="h2"
@@ -221,6 +222,7 @@ export function GluePage() {
         errorTestId="glue-glossaries-error"
         actions={({ selected, refetch, isFetching }) => (
           <>
+            <AwsRefreshButton onClick={refetch} loading={isFetching} />
             <AwsButton data-testid="glue-create-glossary" onClick={() => setCreateGlossary(true)}>
               Create glossary
             </AwsButton>
@@ -231,12 +233,11 @@ export function GluePage() {
             >
               Delete
             </AwsButton>
-            <AwsButton onClick={refetch} disabled={isFetching}>
-              {isFetching ? "Refreshing…" : "Refresh"}
-            </AwsButton>
           </>
         )}
       />
+      )}
+      {view === "catalog" && (
       <AwsResourceTable<GlueAssetType>
         title="Asset types"
         headingVariant="h2"
@@ -251,11 +252,10 @@ export function GluePage() {
         tableTestId="glue-asset-types-table"
         errorTestId="glue-asset-types-error"
         actions={({ refetch, isFetching }) => (
-          <AwsButton onClick={refetch} disabled={isFetching}>
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </AwsButton>
+          <AwsRefreshButton onClick={refetch} loading={isFetching} />
         )}
       />
+      )}
       {createGlossary && <CreateGlossaryModal onClose={() => setCreateGlossary(false)} />}
       {deleteGlossary && (
         <DeleteGlossaryModal glossary={deleteGlossary} onClose={() => setDeleteGlossary(null)} />

@@ -16,6 +16,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/admin"
 	"github.com/coder/websocket"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -44,8 +45,8 @@ func sbReq(t *testing.T, method, namespace, path string, body []byte, headers ma
 // SendMessage → ReceiveAndDelete flow with real status codes.
 func TestServiceBus_QueueRESTRoundTrip(t *testing.T) {
 	t.Parallel()
-	ns := uniqueName("ns1")
-	queue := uniqueName("myqueue")
+	ns := uniquename.New("ns1")
+	queue := uniquename.New("myqueue")
 
 	// SendMessage must return 201, not 200.
 	resp := sbReq(t, "POST", ns, "/"+queue+"/messages", []byte("hello sb body"),
@@ -81,8 +82,8 @@ func TestServiceBus_QueueRESTRoundTrip(t *testing.T) {
 // guarantees in real Service Bus).
 func TestServiceBus_PeekLockComplete(t *testing.T) {
 	t.Parallel()
-	ns := uniqueName("ns2")
-	queue := uniqueName("lockqueue")
+	ns := uniquename.New("ns2")
+	queue := uniquename.New("lockqueue")
 
 	// Send a message.
 	resp := sbReq(t, "POST", ns, "/"+queue+"/messages", []byte("locked body"), nil)
@@ -144,8 +145,8 @@ func TestServiceBus_PeekLockComplete(t *testing.T) {
 // /{topic}/subscriptions/{sub}/messages/head.
 func TestServiceBus_TopicSubscriptionRoundTrip(t *testing.T) {
 	t.Parallel()
-	ns := uniqueName("ns3")
-	topic := uniqueName("mytopic")
+	ns := uniquename.New("ns3")
+	topic := uniquename.New("mytopic")
 	sub := "mysub"
 
 	// Send to topic.
@@ -271,7 +272,7 @@ func sbRawAMQPClient(t *testing.T, namespace string) *azservicebus.Client {
 
 func TestServiceBus_AMQPSDKQueueSendReceive(t *testing.T) {
 	t.Parallel()
-	client := sbAMQPClient(t, uniqueName("sdk-amqp-data"))
+	client := sbAMQPClient(t, uniquename.New("sdk-amqp-data"))
 	t.Cleanup(func() { _ = client.Close(context.Background()) })
 
 	sender, err := client.NewSender("amqpqueue", nil)
@@ -302,8 +303,8 @@ func TestServiceBus_AMQPSDKQueueSendReceive(t *testing.T) {
 
 func TestServiceBus_AMQPSDKTopicSubscriptionSendReceive(t *testing.T) {
 	t.Parallel()
-	namespace := uniqueName("sdk-amqp-topic")
-	topic := uniqueName("amqptopic")
+	namespace := uniquename.New("sdk-amqp-topic")
+	topic := uniquename.New("amqptopic")
 	sub := "sub1"
 	adminClient := sbAdminClient(t, namespace)
 	_, err := adminClient.CreateTopic(ctx, topic, nil)
@@ -342,7 +343,7 @@ func TestServiceBus_AMQPSDKTopicSubscriptionSendReceive(t *testing.T) {
 
 func TestServiceBus_RawAMQPSDKQueueSendReceive(t *testing.T) {
 	t.Parallel()
-	client := sbRawAMQPClient(t, uniqueName("sdk-raw-amqp-data"))
+	client := sbRawAMQPClient(t, uniquename.New("sdk-raw-amqp-data"))
 	t.Cleanup(func() { _ = client.Close(context.Background()) })
 
 	sender, err := client.NewSender("rawamqpqueue", nil)
@@ -373,8 +374,8 @@ func TestServiceBus_RawAMQPSDKQueueSendReceive(t *testing.T) {
 
 func TestServiceBus_RawAMQPSDKTopicSubscriptionSendReceive(t *testing.T) {
 	t.Parallel()
-	namespace := uniqueName("sdk-raw-amqp-topic")
-	topic := uniqueName("rawamqptopic")
+	namespace := uniquename.New("sdk-raw-amqp-topic")
+	topic := uniquename.New("rawamqptopic")
 	sub := "sub1"
 	adminClient := sbAdminClient(t, namespace)
 	_, err := adminClient.CreateTopic(ctx, topic, nil)
@@ -417,8 +418,8 @@ func TestServiceBus_RawAMQPSDKTopicSubscriptionSendReceive(t *testing.T) {
 // beside it.
 func TestServiceBus_AMQPSDKSubscriptionReceiverOnItsOwnClient(t *testing.T) {
 	t.Parallel()
-	namespace := uniqueName("sdk-amqp-sub-own")
-	topic := uniqueName("owntopic")
+	namespace := uniquename.New("sdk-amqp-sub-own")
+	topic := uniquename.New("owntopic")
 	sub := "sub1"
 	adminClient := sbAdminClient(t, namespace)
 	_, err := adminClient.CreateTopic(ctx, topic, nil)

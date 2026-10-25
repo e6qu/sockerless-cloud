@@ -17,20 +17,20 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /2020-05-31/distribution` | ✓ `simulator-aws/cloudfront.go:567::handleCFCreateDistribution` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2020-05-31/distribution` | ✓ `simulator-aws/cloudfront.go:568::handleCFListDistributions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2020-05-31/distribution/{id}` | ✓ `simulator-aws/cloudfront.go:569::handleCFGetDistribution` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2020-05-31/distribution/{id}/config` | ✓ `simulator-aws/cloudfront.go:570::handleCFGetDistributionConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /2020-05-31/distribution/{id}/config` | ✓ `simulator-aws/cloudfront.go:571::handleCFUpdateDistribution` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /2020-05-31/distribution/{id}` | ✓ `simulator-aws/cloudfront.go:572::handleCFDeleteDistribution` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2020-05-31/tagging` | ✓ `simulator-aws/cloudfront.go:575::handleCFListTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /2020-05-31/tagging` | ✓ `simulator-aws/cloudfront.go:576::handleCFTagDispatch` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /2020-05-31/origin-access-control` | ✓ `simulator-aws/cloudfront.go:604::handleCFCreateOAC` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2020-05-31/origin-access-control` | ✓ `simulator-aws/cloudfront.go:605::handleCFListOACs` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2020-05-31/origin-access-control/{id}` | ✓ `simulator-aws/cloudfront.go:606::handleCFGetOAC` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2020-05-31/origin-access-control/{id}/config` | ✓ `simulator-aws/cloudfront.go:607::handleCFGetOACConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /2020-05-31/origin-access-control/{id}/config` | ✓ `simulator-aws/cloudfront.go:608::handleCFUpdateOAC` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /2020-05-31/origin-access-control/{id}` | ✓ `simulator-aws/cloudfront.go:609::handleCFDeleteOAC` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /2020-05-31/distribution` | ✓ `simulator-aws/cloudfront.go:550::handleCFCreateDistribution` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2020-05-31/distribution` | ✓ `simulator-aws/cloudfront.go:551::handleCFListDistributions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2020-05-31/distribution/{id}` | ✓ `simulator-aws/cloudfront.go:552::handleCFGetDistribution` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2020-05-31/distribution/{id}/config` | ✓ `simulator-aws/cloudfront.go:553::handleCFGetDistributionConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /2020-05-31/distribution/{id}/config` | ✓ `simulator-aws/cloudfront.go:554::handleCFUpdateDistribution` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /2020-05-31/distribution/{id}` | ✓ `simulator-aws/cloudfront.go:555::handleCFDeleteDistribution` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2020-05-31/tagging` | ✓ `simulator-aws/cloudfront.go:558::handleCFListTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /2020-05-31/tagging` | ✓ `simulator-aws/cloudfront.go:559::handleCFTagDispatch` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /2020-05-31/origin-access-control` | ✓ `simulator-aws/cloudfront.go:587::handleCFCreateOAC` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2020-05-31/origin-access-control` | ✓ `simulator-aws/cloudfront.go:588::handleCFListOACs` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2020-05-31/origin-access-control/{id}` | ✓ `simulator-aws/cloudfront.go:589::handleCFGetOAC` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2020-05-31/origin-access-control/{id}/config` | ✓ `simulator-aws/cloudfront.go:590::handleCFGetOACConfig` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /2020-05-31/origin-access-control/{id}/config` | ✓ `simulator-aws/cloudfront.go:591::handleCFUpdateOAC` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /2020-05-31/origin-access-control/{id}` | ✓ `simulator-aws/cloudfront.go:592::handleCFDeleteOAC` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `POST /2020-05-31/function` | ✓ `simulator-aws/cloudfront_functions.go:156::handleCFCreateFunction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /2020-05-31/function` | ✓ `simulator-aws/cloudfront_functions.go:157::handleCFListFunctions` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 | `GET /2020-05-31/function/{name}/describe` | ✓ `simulator-aws/cloudfront_functions.go:158::handleCFDescribeFunction` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |

@@ -11,6 +11,11 @@ import (
 // reach the simulator. Canonicalize to the casing the routes register; the
 // server runs this on every request before routing (sim.Config.RewriteRequest).
 func azureNormalizeRequestPath(r *http.Request) {
+	// Only Azure Resource Manager matches paths case-insensitively. A blob
+	// name, a console route or a Graph path keeps the casing its client sent.
+	if lower := strings.ToLower(r.URL.Path); !strings.HasPrefix(lower, "/subscriptions/") && !strings.HasPrefix(lower, "/providers/") {
+		return
+	}
 	// Resource-type and provider segments map to canonical mixed case.
 	// Action and sub-resource verbs map to lowercase, because clients vary
 	// (`appSettings` from terraform-provider-azurerm, `appsettings` from

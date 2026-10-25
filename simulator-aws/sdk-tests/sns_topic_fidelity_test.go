@@ -15,6 +15,7 @@ import (
 	snstypes "github.com/aws/aws-sdk-go-v2/service/sns/types"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/smithy-go"
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,7 +25,7 @@ import (
 func TestSNS_NewTopicDefaults(t *testing.T) {
 	t.Parallel()
 	snsC := snsClient()
-	topic, err := snsC.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String(uniqueName("sns-defaults"))})
+	topic, err := snsC.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String(uniquename.New("sns-defaults"))})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = snsC.DeleteTopic(ctx, &sns.DeleteTopicInput{TopicArn: topic.TopicArn}) })
 	attrs, err := snsC.GetTopicAttributes(ctx, &sns.GetTopicAttributesInput{TopicArn: topic.TopicArn})
@@ -67,14 +68,14 @@ func TestSNS_UnknownTopicAttributeIsRefused(t *testing.T) {
 	t.Parallel()
 	snsC := snsClient()
 	_, err := snsC.CreateTopic(ctx, &sns.CreateTopicInput{
-		Name:       aws.String(uniqueName("sns-bad-attr")),
+		Name:       aws.String(uniquename.New("sns-bad-attr")),
 		Attributes: map[string]string{"DisplayNmae": "typo"},
 	})
 	var apiErr smithy.APIError
 	require.True(t, errors.As(err, &apiErr), "CreateTopic with an unknown attribute: %v", err)
 	assert.Equal(t, "InvalidParameter", apiErr.ErrorCode())
 
-	topic, err := snsC.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String(uniqueName("sns-typo"))})
+	topic, err := snsC.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String(uniquename.New("sns-typo"))})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = snsC.DeleteTopic(ctx, &sns.DeleteTopicInput{TopicArn: topic.TopicArn}) })
 	_, err = snsC.SetTopicAttributes(ctx, &sns.SetTopicAttributesInput{
@@ -92,7 +93,7 @@ func TestSNS_FilteredOutMetrics(t *testing.T) {
 	t.Parallel()
 	snsC, sqsC := snsClient(), sqsClient()
 	since := time.Now().UTC().Add(-time.Minute)
-	topicName := uniqueName("sns-filtered")
+	topicName := uniquename.New("sns-filtered")
 	topic, err := snsC.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String(topicName)})
 	require.NoError(t, err)
 	topicARN := aws.ToString(topic.TopicArn)
@@ -100,7 +101,7 @@ func TestSNS_FilteredOutMetrics(t *testing.T) {
 
 	subscribe := func(scope, policy string) {
 		t.Helper()
-		queue, err := sqsC.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(uniqueName("sns-filter-q"))})
+		queue, err := sqsC.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(uniquename.New("sns-filter-q"))})
 		require.NoError(t, err)
 		t.Cleanup(func() { _, _ = sqsC.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: queue.QueueUrl}) })
 		queueARN := queueARNOf(t, sqsC, queue.QueueUrl)
@@ -160,7 +161,7 @@ func TestSNS_HTTPRefusalIsLoggedAndRedriven(t *testing.T) {
 
 	since := time.Now().UTC().Add(-time.Minute)
 	role := snsFeedbackRole(t)
-	topicName := uniqueName("sns-http-refused")
+	topicName := uniquename.New("sns-http-refused")
 	topic, err := snsC.CreateTopic(ctx, &sns.CreateTopicInput{
 		Name:       aws.String(topicName),
 		Attributes: map[string]string{"HTTPFailureFeedbackRoleArn": role},
@@ -173,7 +174,7 @@ func TestSNS_HTTPRefusalIsLoggedAndRedriven(t *testing.T) {
 		_, _ = logs.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: aws.String(failureGroup)})
 	})
 
-	dlq, err := sqsC.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(uniqueName("sns-http-dlq"))})
+	dlq, err := sqsC.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(uniquename.New("sns-http-dlq"))})
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = sqsC.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: dlq.QueueUrl}) })
 	dlqARN := queueARNOf(t, sqsC, dlq.QueueUrl)

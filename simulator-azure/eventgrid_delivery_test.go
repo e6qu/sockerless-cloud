@@ -13,6 +13,7 @@ import (
 	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/bg"
 	"github.com/e6qu/sockerless-cloud/sim/delivery"
+	"github.com/e6qu/sockerless-cloud/sim/eventbus"
 )
 
 type eventGridHook struct {
@@ -161,7 +162,8 @@ func TestEventGridBatchesUpToMaxEventsPerBatch(t *testing.T) {
 	}}}
 	small := json.RawMessage(`{"id":"x"}`)
 	big := json.RawMessage(`{"id":"` + strings.Repeat("y", 1100) + `"}`)
-	batches := eventGridBatches(es, []json.RawMessage{small, small, small, big, small})
+	batches := eventbus.Batches([]json.RawMessage{small, small, small, big, small}, eventGridBatchLimits(es),
+		func(event json.RawMessage) int { return len(event) })
 	var sizes []int
 	for _, b := range batches {
 		sizes = append(sizes, len(b))

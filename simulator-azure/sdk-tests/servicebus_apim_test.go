@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/e6qu/sockerless-cloud/testutil/uniquename"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +18,7 @@ func TestAzureServiceBus_ARMLifecycle(t *testing.T) {
 	t.Parallel()
 	sub := "00000000-0000-0000-0000-000000000000"
 	rg := "test-rg-cea0"
-	ns := uniqueName("lifecycle-sb")
+	ns := uniquename.New("lifecycle-sb")
 	ensureRGIn(t, sub, rg)
 	nsPath := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.ServiceBus/namespaces/%s", sub, rg, ns)
 

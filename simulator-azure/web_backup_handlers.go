@@ -74,7 +74,7 @@ type deletedAppRestoreRequestBody struct {
 
 // webBackupID resolves the addressed backup item's store key.
 func webBackupID(r *http.Request) string {
-	return webResourceID(r) + "/backups/" + sim.PathParam(r, "backupId")
+	return armChildID(webResourceID(r), "backups", sim.PathParam(r, "backupId"))
 }
 
 // webNextBackupID picks the next backup id for a site. BackupItemProperties.id

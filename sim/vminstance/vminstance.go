@@ -101,6 +101,7 @@ const ReadyPath = "/run/sockerless-instance-ready"
 var Sandbox = sim.SandboxProfile{
 	CapDrop:          []string{"ALL"},
 	CapAdd:           []string{"CHOWN", "DAC_OVERRIDE", "FOWNER", "FSETID", "KILL", "SETGID", "SETUID", "SETPCAP", "NET_BIND_SERVICE", "SYS_CHROOT", "SETFCAP", "NET_RAW", "AUDIT_WRITE", "MKNOD"},
+	VolatileRun:      true,
 	DenyDockerSocket: true,
 	DenyHostNetwork:  true,
 }

@@ -1,7 +1,9 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ProjectProvider, useProject } from "../console/project.js";
-import { NewProjectForm, ProjectPickerList } from "../console/ProjectPicker.js";
+import { MemoryRouter, useLocation } from "react-router";
+import { ProjectProvider, recentProjects, useProject } from "../console/project.js";
+import { ProjectPickerList } from "../console/ProjectPicker.js";
+import { NewProjectForm, deriveProjectId } from "../pages/CreateProjectPage.js";
 import type { CrmProject } from "../api.js";
 
 // Without vitest globals, Testing Library's automatic between-test cleanup
@@ -16,37 +18,47 @@ const PROJECTS: CrmProject[] = [
   { name: "projects/584739201746", projectId: "payments-prod", displayName: "Payments", state: "ACTIVE" },
 ];
 
-describe("ProjectProvider", () => {
-  function Probe() {
-    const { project, setProject } = useProject();
-    return (
+function Probe() {
+  const { project, setProject } = useProject();
+  const location = useLocation();
+  return (
+    <>
       <button type="button" data-testid="probe" onClick={() => setProject("payments-prod")}>
         {project}
       </button>
-    );
-  }
+      <span data-testid="location">{`${location.pathname}${location.search}`}</span>
+    </>
+  );
+}
 
-  it("defaults to the deployment's default project and persists a switch", () => {
-    render(
+function renderAt(path: string) {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
       <ProjectProvider>
         <Probe />
-      </ProjectProvider>,
-    );
-    const probe = screen.getByTestId("probe");
-    expect(probe.textContent).toBe("sockerless");
-    fireEvent.click(probe);
-    expect(probe.textContent).toBe("payments-prod");
-    expect(window.localStorage.getItem("gcp-console-project")).toBe("payments-prod");
+      </ProjectProvider>
+    </MemoryRouter>,
+  );
+}
+
+describe("ProjectProvider", () => {
+  it("puts the deployment's default project on a URL that names none", () => {
+    renderAt("/ui/storage/browser");
+    expect(screen.getByTestId("probe").textContent).toBe("sockerless");
+    expect(screen.getByTestId("location").textContent).toBe("/ui/storage/browser?project=sockerless");
   });
 
-  it("restores the persisted selection on the next mount", () => {
-    window.localStorage.setItem("gcp-console-project", "payments-prod");
-    render(
-      <ProjectProvider>
-        <Probe />
-      </ProjectProvider>,
-    );
+  it("reads the project the URL names and remembers it as recent", () => {
+    renderAt("/ui/storage/browser?project=payments-prod");
     expect(screen.getByTestId("probe").textContent).toBe("payments-prod");
+    expect(recentProjects()).toEqual(["payments-prod"]);
+  });
+
+  it("switches the project on the URL and keeps the page", () => {
+    renderAt("/ui/run?project=sockerless");
+    fireEvent.click(screen.getByTestId("probe"));
+    expect(screen.getByTestId("location").textContent).toBe("/ui/run?project=payments-prod");
+    expect(window.localStorage.getItem("gcp-console-project")).toBe("payments-prod");
   });
 });
 
@@ -55,8 +67,8 @@ describe("ProjectPickerList", () => {
     const onSelect = vi.fn();
     render(<ProjectPickerList projects={PROJECTS} current="sockerless" filter="" onSelect={onSelect} />);
     const current = screen.getByTestId("project-row-sockerless");
-    expect(current.className).toContain("gc-picker-row-current");
-    expect(current.textContent).toContain("123456789012");
+    expect(current.getAttribute("aria-current")).toBe("true");
+    expect(screen.getByText("123456789012")).toBeDefined();
     fireEvent.click(screen.getByTestId("project-row-payments-prod"));
     expect(onSelect).toHaveBeenCalledWith("payments-prod");
   });
@@ -75,7 +87,7 @@ describe("ProjectPickerList", () => {
 describe("NewProjectForm", () => {
   it("derives the project ID from the typed name and submits both", () => {
     const onCreate = vi.fn();
-    render(<NewProjectForm creating={false} error={null} onBack={() => {}} onCreate={onCreate} />);
+    render(<NewProjectForm creating={false} error={null} onCancel={() => {}} onCreate={onCreate} />);
     fireEvent.change(screen.getByTestId("project-create-name"), { target: { value: "My New Project" } });
     expect((screen.getByTestId("project-create-id") as HTMLInputElement).value).toBe("my-new-project");
     fireEvent.click(screen.getByTestId("project-create-submit"));
@@ -83,22 +95,17 @@ describe("NewProjectForm", () => {
   });
 
   it("refuses an ID outside the Resource Manager contract", () => {
-    const onCreate = vi.fn();
-    render(<NewProjectForm creating={false} error={null} onBack={() => {}} onCreate={onCreate} />);
+    render(<NewProjectForm creating={false} error={null} onCancel={() => {}} onCreate={() => {}} />);
     fireEvent.change(screen.getByTestId("project-create-id"), { target: { value: "ab" } });
-    const submit = screen.getByTestId("project-create-submit") as HTMLButtonElement;
-    expect(submit.disabled).toBe(true);
+    expect((screen.getByTestId("project-create-submit") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("shows the operation progressing while the create runs and its failure loudly", () => {
-    const { rerender } = render(
-      <NewProjectForm creating error={null} onBack={() => {}} onCreate={() => {}} />,
-    );
-    expect(screen.getByTestId("project-create-progress")).toBeDefined();
-    expect((screen.getByTestId("project-create-submit") as HTMLButtonElement).disabled).toBe(true);
-    rerender(
-      <NewProjectForm creating={false} error="Requested entity already exists" onBack={() => {}} onCreate={() => {}} />,
-    );
+  it("reports the API's failure", () => {
+    render(<NewProjectForm creating={false} error="Requested entity already exists" onCancel={() => {}} onCreate={() => {}} />);
     expect(screen.getByRole("alert").textContent).toContain("Requested entity already exists");
+  });
+
+  it("derives IDs the way the real page does", () => {
+    expect(deriveProjectId("  Payments  Prod!! ")).toBe("payments-prod");
   });
 });
