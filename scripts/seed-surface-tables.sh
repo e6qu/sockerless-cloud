@@ -99,7 +99,7 @@ table_for_file() {
     azure:blob|azure:files|azure:storage_dataplane) echo "azure-storage" ;;
     azure:containerapps|azure:containerapps_apps|azure:containerappsenv) echo "azure-containerapps" ;;
     azure:servicebus|azure:servicebus_dataplane) echo "azure-servicebus" ;;
-    azure:insights|azure:monitor) echo "azure-monitor" ;;
+    azure:insights|azure:insights_features|azure:monitor|azure:monitor_shared_keys) echo "azure-monitor" ;;
     azure:subscription|azure:subscription_alias) echo "azure-subscription" ;;
     azure:cosmos*) echo "azure-cosmos" ;;
     azure:entra*) echo "azure-entra" ;;
@@ -107,7 +107,9 @@ table_for_file() {
     azure:logicapps*) echo "azure-logicapps" ;;
     azure:postgres*) echo "azure-postgresql-flexible-server" ;;
     azure:resourcesarm) echo "azure-resources" ;;
-    azure:storagearm) echo "azure-storage" ;;
+    azure:storagearm|azure:storagearm_*|azure:storage_migrations) echo "azure-storage" ;;
+    azure:keyvault_vaults) echo "azure-keyvault" ;;
+    azure:network_vnets|azure:network_nsgs|azure:network_nat_route_tables) echo "azure-network" ;;
     azure:web*) echo "azure-functions" ;;
     gcp:cloudrun|gcp:cloudrunjobs|gcp:cloudrunservices) echo "gcp-cloudrun" ;;
     gcp:cloudrun*) echo "gcp-cloudrun" ;;

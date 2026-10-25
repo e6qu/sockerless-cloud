@@ -61,9 +61,16 @@ type pkg struct {
 	files []*ast.File
 	// consts holds package-level string constants that routes are built from.
 	consts map[string]string
-	// callSites maps a function name to the argument lists it is called with,
-	// so a route composed from a parameter resolves to what callers pass.
-	callSites map[string][][]ast.Expr
+	// callSites maps a function name to the calls made to it, so a route
+	// composed from a parameter resolves to what callers pass.
+	callSites map[string][]callSite
+}
+
+// callSite is one call's arguments and the function that makes it, whose
+// constants an argument may name.
+type callSite struct {
+	args   []ast.Expr
+	caller *ast.FuncDecl
 }
 
 func main() {
@@ -91,7 +98,7 @@ func load(root string) (*pkg, error) {
 		fset:      token.NewFileSet(),
 		funcs:     map[string]*ast.FuncDecl{},
 		consts:    map[string]string{},
-		callSites: map[string][][]ast.Expr{},
+		callSites: map[string][]callSite{},
 	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -125,14 +132,17 @@ func load(root string) (*pkg, error) {
 	// Index call sites once the package is parsed, so a registrar called from
 	// another file resolves.
 	for _, file := range p.files {
-		ast.Inspect(file, func(n ast.Node) bool {
-			if call, ok := n.(*ast.CallExpr); ok {
-				if ident, ok := call.Fun.(*ast.Ident); ok {
-					p.callSites[ident.Name] = append(p.callSites[ident.Name], call.Args)
+		for _, decl := range file.Decls {
+			caller, _ := decl.(*ast.FuncDecl)
+			ast.Inspect(decl, func(n ast.Node) bool {
+				if call, ok := n.(*ast.CallExpr); ok {
+					if ident, ok := call.Fun.(*ast.Ident); ok {
+						p.callSites[ident.Name] = append(p.callSites[ident.Name], callSite{call.Args, caller})
+					}
 				}
-			}
-			return true
-		})
+				return true
+			})
+		}
 	}
 	return p, nil
 }
@@ -406,8 +416,9 @@ func (p *pkg) evalString(expr ast.Expr, bindings map[string][]string) []string {
 	return nil
 }
 
-// paramLiterals maps each string parameter of a function to the literal values
-// its callers pass.
+// paramLiterals maps each string parameter of a function to the values its
+// callers pass: a literal, or a constant of the caller or the package, which a
+// registrar that hands one path prefix to several topic registrars names.
 func (p *pkg) paramLiterals(fn *ast.FuncDecl) map[string][]string {
 	bindings := map[string][]string{}
 	if fn == nil || fn.Type.Params == nil {
@@ -424,20 +435,25 @@ func (p *pkg) paramLiterals(fn *ast.FuncDecl) map[string][]string {
 	}
 	for name, at := range index {
 		seen := map[string]bool{}
-		for _, args := range p.callSites[fn.Name.Name] {
-			if at >= len(args) {
+		for _, site := range p.callSites[fn.Name.Name] {
+			if at >= len(site.args) {
 				continue
 			}
-			lit, ok := args[at].(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
+			var callerConsts map[string][]string
+			if _, isIdent := site.args[at].(*ast.Ident); isIdent {
+				callerConsts = map[string][]string{}
+				for constName, value := range p.localConsts(site.caller, nil) {
+					callerConsts[constName] = []string{value}
+				}
+			} else if lit, ok := site.args[at].(*ast.BasicLit); !ok || lit.Kind != token.STRING {
 				continue
 			}
-			value, err := strconv.Unquote(lit.Value)
-			if err != nil || seen[value] {
+			values := p.evalString(site.args[at], callerConsts)
+			if len(values) != 1 || seen[values[0]] {
 				continue
 			}
-			seen[value] = true
-			bindings[name] = append(bindings[name], value)
+			seen[values[0]] = true
+			bindings[name] = append(bindings[name], values[0])
 		}
 	}
 	return bindings
