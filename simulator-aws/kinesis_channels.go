@@ -332,7 +332,10 @@ func handleKinesisListChannels(w http.ResponseWriter, r *http.Request) {
 			StreamARN string `json:"StreamARN"`
 		} `json:"StreamFilter"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "InvalidArgumentException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	wanted := map[string]bool{}
 	for _, f := range req.StreamFilter {
 		wanted[f.StreamARN] = true

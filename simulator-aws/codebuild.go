@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -411,10 +410,7 @@ func cbWriteJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func cbWriteError(w http.ResponseWriter, code string, msg string) {
-	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
-	w.Header().Set("X-Amzn-Errortype", code)
-	w.WriteHeader(http.StatusBadRequest)
-	_ = json.NewEncoder(w).Encode(awsErrorBody("codebuild", code, msg))
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsJSON11, Model: "codebuild"}, http.StatusBadRequest, code, msg, "")
 }
 
 // cbCanAssumeRole writes CodeBuild's refusal of a role that names no role or
@@ -441,7 +437,7 @@ func handleCBCreateProject(w http.ResponseWriter, r *http.Request) {
 		LogsConfig   map[string]any `json:"logsConfig"`
 		cbProjectSettings
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -504,7 +500,7 @@ func handleCBBatchGetProjects(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Names []string `json:"names"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -540,7 +536,7 @@ func handleCBListProjects(w http.ResponseWriter, r *http.Request) {
 		SortOrder string `json:"sortOrder"`
 		NextToken string `json:"nextToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -573,7 +569,7 @@ func handleCBUpdateProject(w http.ResponseWriter, r *http.Request) {
 		ServiceRole string         `json:"serviceRole"`
 		cbProjectSettings
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -617,7 +613,7 @@ func handleCBDeleteProject(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -631,7 +627,7 @@ func handleCBDeleteProject(w http.ResponseWriter, r *http.Request) {
 
 func handleCBStartBuild(w http.ResponseWriter, r *http.Request) {
 	var req cbStartBuildInput
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -762,7 +758,7 @@ func handleCBStopBuild(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID string `json:"id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -806,7 +802,7 @@ func handleCBRetryBuild(w http.ResponseWriter, r *http.Request) {
 		ID               string `json:"id"`
 		IdempotencyToken string `json:"idempotencyToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1374,7 +1370,7 @@ func handleCBBatchGetBuilds(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		IDs []string `json:"ids"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1406,7 +1402,7 @@ func handleCBListBuildsForProject(w http.ResponseWriter, r *http.Request) {
 		SortOrder   string `json:"sortOrder"`
 		NextToken   string `json:"nextToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1434,7 +1430,7 @@ func handleCBListBuilds(w http.ResponseWriter, r *http.Request) {
 		SortOrder string `json:"sortOrder"`
 		NextToken string `json:"nextToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1484,7 +1480,7 @@ func handleCBCreateReportGroup(w http.ResponseWriter, r *http.Request) {
 		ExportConfig map[string]any `json:"exportConfig"`
 		Tags         []CBTag        `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1526,7 +1522,7 @@ func handleCBUpdateReportGroup(w http.ResponseWriter, r *http.Request) {
 		ExportConfig map[string]any `json:"exportConfig"`
 		Tags         []CBTag        `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1555,7 +1551,7 @@ func handleCBDeleteReportGroup(w http.ResponseWriter, r *http.Request) {
 		Arn           string `json:"arn"`
 		DeleteReports bool   `json:"deleteReports"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1581,7 +1577,7 @@ func handleCBListReportGroups(w http.ResponseWriter, r *http.Request) {
 		MaxResults int    `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1607,7 +1603,7 @@ func handleCBBatchGetReportGroups(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ReportGroupArns []string `json:"reportGroupArns"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1639,7 +1635,7 @@ func handleCBListReports(w http.ResponseWriter, r *http.Request) {
 		MaxResults int    `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1653,7 +1649,7 @@ func handleCBListReportsForReportGroup(w http.ResponseWriter, r *http.Request) {
 		MaxResults     int    `json:"maxResults"`
 		NextToken      string `json:"nextToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1696,7 +1692,7 @@ func handleCBBatchGetReports(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ReportArns []string `json:"reportArns"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1730,7 +1726,7 @@ func handleCBImportSourceCredentials(w http.ResponseWriter, r *http.Request) {
 		AuthType        string `json:"authType"`
 		ShouldOverwrite *bool  `json:"shouldOverwrite"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1794,7 +1790,7 @@ func handleCBDeleteSourceCredentials(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Arn string `json:"arn"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		cbWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}

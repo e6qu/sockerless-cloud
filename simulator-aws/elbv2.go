@@ -254,11 +254,7 @@ func elbv2XMLResponse(w http.ResponseWriter, op string, body string, requestID s
 }
 
 func elbv2ErrorXML(w http.ResponseWriter, code, message string, status int, requestID string) {
-	w.Header().Set("Content-Type", "text/xml")
-	w.WriteHeader(status)
-	fmt.Fprintf(w,
-		`<ErrorResponse xmlns="http://elasticloadbalancing.amazonaws.com/doc/2015-12-01/"><Error><Type>Sender</Type><Code>%s</Code><Message>%s</Message></Error><RequestId>%s</RequestId></ErrorResponse>`,
-		xmlEscape(code), xmlEscape(message), xmlEscape(requestID))
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsQuery, Namespace: "http://elasticloadbalancing.amazonaws.com/doc/2015-12-01/"}, status, code, message, requestID)
 }
 
 func handleELBv2CreateLoadBalancer(w http.ResponseWriter, r *http.Request) {

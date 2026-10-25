@@ -284,12 +284,7 @@ func iamEmptyResultXML(w http.ResponseWriter, op string) {
 }
 
 func iamErrorXML(w http.ResponseWriter, code string, message string, statusCode int) {
-	w.Header().Set("Content-Type", "text/xml")
-	w.WriteHeader(statusCode)
-	fmt.Fprintf(w, `<ErrorResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/">
-  <Error><Type>Sender</Type><Code>%s</Code><Message>%s</Message></Error>
-  <RequestId>%s</RequestId>
-</ErrorResponse>`, code, message, sim.NewUUID())
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsQuery, Namespace: "https://iam.amazonaws.com/doc/2010-05-08/"}, statusCode, code, message, "")
 }
 
 func handleIAMGetRole(w http.ResponseWriter, r *http.Request) {

@@ -292,11 +292,7 @@ func ecXMLResponse(w http.ResponseWriter, op string, body string, requestID stri
 }
 
 func ecErrorXML(w http.ResponseWriter, code, message string, status int, requestID string) {
-	w.Header().Set("Content-Type", "text/xml")
-	w.WriteHeader(status)
-	fmt.Fprintf(w,
-		`<ErrorResponse xmlns="http://elasticache.amazonaws.com/doc/2015-02-02/"><Error><Type>Sender</Type><Code>%s</Code><Message>%s</Message></Error><RequestId>%s</RequestId></ErrorResponse>`,
-		code, message, requestID)
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsQuery, Namespace: "http://elasticache.amazonaws.com/doc/2015-02-02/"}, status, code, message, requestID)
 }
 
 func renderECCluster(c ECCluster) string {

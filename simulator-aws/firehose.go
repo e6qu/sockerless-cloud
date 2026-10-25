@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"path"
@@ -829,7 +828,7 @@ func handleFirehoseUpdateDestination(w http.ResponseWriter, r *http.Request) {
 		ExtendedS3DestinationUpdate    *firehoseS3Create `json:"ExtendedS3DestinationUpdate"`
 		S3DestinationUpdate            *firehoseS3Create `json:"S3DestinationUpdate"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		firehoseError(w, "InvalidArgumentException", "The request body could not be parsed.")
 		return
 	}

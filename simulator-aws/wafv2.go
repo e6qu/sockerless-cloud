@@ -230,9 +230,7 @@ func wafWriteJSON(w http.ResponseWriter, v any) {
 }
 
 func wafWriteError(w http.ResponseWriter, code, msg string) {
-	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
-	w.WriteHeader(http.StatusBadRequest)
-	_ = json.NewEncoder(w).Encode(awsErrorBody("wafv2", code, msg))
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsJSON11, Model: "wafv2"}, http.StatusBadRequest, code, msg, "")
 }
 
 func wafWriteDuplicate(w http.ResponseWriter, kind, name string) {
@@ -379,7 +377,7 @@ func wafValidateName(w http.ResponseWriter, name string) bool {
 
 func handleWAFCreateWebACL(w http.ResponseWriter, r *http.Request) {
 	var req wafCreateWebACLReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -428,7 +426,7 @@ type wafGetReq struct {
 
 func handleWAFGetWebACL(w http.ResponseWriter, r *http.Request) {
 	var req wafGetReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -462,7 +460,7 @@ type wafUpdateWebACLReq struct {
 
 func handleWAFUpdateWebACL(w http.ResponseWriter, r *http.Request) {
 	var req wafUpdateWebACLReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -501,7 +499,7 @@ type wafDeleteReq struct {
 
 func handleWAFDeleteWebACL(w http.ResponseWriter, r *http.Request) {
 	var req wafDeleteReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -547,7 +545,7 @@ type wafListReq struct {
 
 func handleWAFListWebACLs(w http.ResponseWriter, r *http.Request) {
 	var req wafListReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -586,7 +584,7 @@ type wafAssocReq struct {
 
 func handleWAFAssociateWebACL(w http.ResponseWriter, r *http.Request) {
 	var req wafAssocReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -644,7 +642,7 @@ type wafDisassocReq struct {
 
 func handleWAFDisassociateWebACL(w http.ResponseWriter, r *http.Request) {
 	var req wafDisassocReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -665,7 +663,7 @@ func handleWAFDisassociateWebACL(w http.ResponseWriter, r *http.Request) {
 
 func handleWAFGetWebACLForResource(w http.ResponseWriter, r *http.Request) {
 	var req wafDisassocReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -705,7 +703,7 @@ type wafListResourcesReq struct {
 
 func handleWAFListResourcesForWebACL(w http.ResponseWriter, r *http.Request) {
 	var req wafListResourcesReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -729,7 +727,7 @@ type wafCreateIPSetReq struct {
 
 func handleWAFCreateIPSet(w http.ResponseWriter, r *http.Request) {
 	var req wafCreateIPSetReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -766,7 +764,7 @@ func handleWAFCreateIPSet(w http.ResponseWriter, r *http.Request) {
 
 func handleWAFGetIPSet(w http.ResponseWriter, r *http.Request) {
 	var req wafGetReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -789,7 +787,7 @@ type wafUpdateIPSetReq struct {
 
 func handleWAFUpdateIPSet(w http.ResponseWriter, r *http.Request) {
 	var req wafUpdateIPSetReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -815,7 +813,7 @@ func handleWAFUpdateIPSet(w http.ResponseWriter, r *http.Request) {
 
 func handleWAFDeleteIPSet(w http.ResponseWriter, r *http.Request) {
 	var req wafDeleteReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -835,7 +833,7 @@ func handleWAFDeleteIPSet(w http.ResponseWriter, r *http.Request) {
 
 func handleWAFListIPSets(w http.ResponseWriter, r *http.Request) {
 	var req wafListReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -880,7 +878,7 @@ type wafCreateRuleGroupReq struct {
 
 func handleWAFCreateRuleGroup(w http.ResponseWriter, r *http.Request) {
 	var req wafCreateRuleGroupReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -917,7 +915,7 @@ func handleWAFCreateRuleGroup(w http.ResponseWriter, r *http.Request) {
 
 func handleWAFGetRuleGroup(w http.ResponseWriter, r *http.Request) {
 	var req wafGetReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -988,7 +986,7 @@ func readBodyJSON(r interface{ Read([]byte) (int, error) }) ([]byte, error) {
 
 func handleWAFDeleteRuleGroup(w http.ResponseWriter, r *http.Request) {
 	var req wafDeleteReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -1008,7 +1006,7 @@ func handleWAFDeleteRuleGroup(w http.ResponseWriter, r *http.Request) {
 
 func handleWAFListRuleGroups(w http.ResponseWriter, r *http.Request) {
 	var req wafListReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -1047,7 +1045,7 @@ type wafCreateRegexReq struct {
 
 func handleWAFCreateRegexSet(w http.ResponseWriter, r *http.Request) {
 	var req wafCreateRegexReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -1080,7 +1078,7 @@ func handleWAFCreateRegexSet(w http.ResponseWriter, r *http.Request) {
 
 func handleWAFGetRegexSet(w http.ResponseWriter, r *http.Request) {
 	var req wafGetReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -1103,7 +1101,7 @@ type wafUpdateRegexReq struct {
 
 func handleWAFUpdateRegexSet(w http.ResponseWriter, r *http.Request) {
 	var req wafUpdateRegexReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -1126,7 +1124,7 @@ func handleWAFUpdateRegexSet(w http.ResponseWriter, r *http.Request) {
 
 func handleWAFDeleteRegexSet(w http.ResponseWriter, r *http.Request) {
 	var req wafDeleteReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -1146,7 +1144,7 @@ func handleWAFDeleteRegexSet(w http.ResponseWriter, r *http.Request) {
 
 func handleWAFListRegexSets(w http.ResponseWriter, r *http.Request) {
 	var req wafListReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -1238,7 +1236,7 @@ type wafTagReq struct {
 
 func handleWAFTagResource(w http.ResponseWriter, r *http.Request) {
 	var req wafTagReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -1269,7 +1267,7 @@ type wafUntagReq struct {
 
 func handleWAFUntagResource(w http.ResponseWriter, r *http.Request) {
 	var req wafUntagReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -1298,7 +1296,7 @@ type wafListTagsReq struct {
 
 func handleWAFListTagsForResource(w http.ResponseWriter, r *http.Request) {
 	var req wafListTagsReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -1346,7 +1344,7 @@ type wafPutLoggingReq struct {
 
 func handleWAFPutLoggingConfiguration(w http.ResponseWriter, r *http.Request) {
 	var req wafPutLoggingReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -1388,7 +1386,7 @@ type wafGetLoggingReq struct {
 
 func handleWAFGetLoggingConfiguration(w http.ResponseWriter, r *http.Request) {
 	var req wafGetLoggingReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -1402,7 +1400,7 @@ func handleWAFGetLoggingConfiguration(w http.ResponseWriter, r *http.Request) {
 
 func handleWAFDeleteLoggingConfiguration(w http.ResponseWriter, r *http.Request) {
 	var req wafGetLoggingReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -1416,7 +1414,7 @@ func handleWAFDeleteLoggingConfiguration(w http.ResponseWriter, r *http.Request)
 
 func handleWAFListLoggingConfigurations(w http.ResponseWriter, r *http.Request) {
 	var req wafListReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -1595,7 +1593,7 @@ type wafGetSampledRequestsReq struct {
 
 func handleWAFGetSampledRequests(w http.ResponseWriter, r *http.Request) {
 	var req wafGetSampledRequestsReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -1698,7 +1696,7 @@ func wafValidateRevenueRequest(w http.ResponseWriter, request wafRevenueRequest)
 
 func handleWAFGetRevenueStatistics(w http.ResponseWriter, r *http.Request) {
 	var request wafRevenueRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	if err := sim.ReadJSON(r, &request); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -1721,7 +1719,7 @@ func handleWAFGetRevenueStatistics(w http.ResponseWriter, r *http.Request) {
 
 func handleWAFGetRevenueStatisticsSummary(w http.ResponseWriter, r *http.Request) {
 	var request wafRevenueRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	if err := sim.ReadJSON(r, &request); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -1742,7 +1740,7 @@ func handleWAFGetRevenueStatisticsSummary(w http.ResponseWriter, r *http.Request
 
 func handleWAFGetRevenueStatisticsTimeSeries(w http.ResponseWriter, r *http.Request) {
 	var request wafRevenueRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	if err := sim.ReadJSON(r, &request); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -1766,7 +1764,7 @@ func handleWAFGetRevenueStatisticsTimeSeries(w http.ResponseWriter, r *http.Requ
 
 func handleWAFListSettlementRecords(w http.ResponseWriter, r *http.Request) {
 	var request wafRevenueRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	if err := sim.ReadJSON(r, &request); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -1797,7 +1795,7 @@ type wafCreateAPIKeyReq struct {
 
 func handleWAFCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	var req wafCreateAPIKeyReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -1828,7 +1826,7 @@ type wafAPIKeyReq struct {
 
 func handleWAFDeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 	var req wafAPIKeyReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -1843,7 +1841,7 @@ func handleWAFDeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 
 func handleWAFListAPIKeys(w http.ResponseWriter, r *http.Request) {
 	var req wafListReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -1883,7 +1881,7 @@ func handleWAFListAPIKeys(w http.ResponseWriter, r *http.Request) {
 
 func handleWAFGetDecryptedAPIKey(w http.ResponseWriter, r *http.Request) {
 	var req wafAPIKeyReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -2002,7 +2000,7 @@ type wafCheckCapacityReq struct {
 
 func handleWAFCheckCapacity(w http.ResponseWriter, r *http.Request) {
 	var req wafCheckCapacityReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -2086,7 +2084,7 @@ type wafDescribeManagedRuleGroupReq struct {
 
 func handleWAFDescribeManagedRuleGroup(w http.ResponseWriter, r *http.Request) {
 	var req wafDescribeManagedRuleGroupReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -2149,7 +2147,7 @@ type wafDescribeAllManagedProductsReq struct {
 
 func handleWAFDescribeAllManagedProducts(w http.ResponseWriter, r *http.Request) {
 	var req wafDescribeAllManagedProductsReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -2167,7 +2165,7 @@ type wafDescribeManagedProductsByVendorReq struct {
 
 func handleWAFDescribeManagedProductsByVendor(w http.ResponseWriter, r *http.Request) {
 	var req wafDescribeManagedProductsByVendorReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -2182,7 +2180,7 @@ func handleWAFDescribeManagedProductsByVendor(w http.ResponseWriter, r *http.Req
 
 func handleWAFListAvailableManagedRuleGroups(w http.ResponseWriter, r *http.Request) {
 	var req wafListReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -2220,7 +2218,7 @@ type wafListManagedVersionsReq struct {
 
 func handleWAFListAvailableManagedRuleGroupVersions(w http.ResponseWriter, r *http.Request) {
 	var req wafListManagedVersionsReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -2315,7 +2313,7 @@ type wafGetManagedRuleSetReq struct {
 
 func handleWAFGetManagedRuleSet(w http.ResponseWriter, r *http.Request) {
 	var req wafGetManagedRuleSetReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -2332,7 +2330,7 @@ func handleWAFGetManagedRuleSet(w http.ResponseWriter, r *http.Request) {
 
 func handleWAFListManagedRuleSets(w http.ResponseWriter, r *http.Request) {
 	var req wafListReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -2379,7 +2377,7 @@ type wafPutManagedRuleSetVersionsReq struct {
 
 func handleWAFPutManagedRuleSetVersions(w http.ResponseWriter, r *http.Request) {
 	var req wafPutManagedRuleSetVersionsReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -2442,7 +2440,7 @@ type wafUpdateManagedRuleSetExpiryReq struct {
 
 func handleWAFUpdateManagedRuleSetVersionExpiryDate(w http.ResponseWriter, r *http.Request) {
 	var req wafUpdateManagedRuleSetExpiryReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -2495,7 +2493,7 @@ type wafPutPermissionPolicyReq struct {
 
 func handleWAFPutPermissionPolicy(w http.ResponseWriter, r *http.Request) {
 	var req wafPutPermissionPolicyReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -2529,7 +2527,7 @@ type wafResourceArnReq struct {
 
 func handleWAFGetPermissionPolicy(w http.ResponseWriter, r *http.Request) {
 	var req wafResourceArnReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -2543,7 +2541,7 @@ func handleWAFGetPermissionPolicy(w http.ResponseWriter, r *http.Request) {
 
 func handleWAFDeletePermissionPolicy(w http.ResponseWriter, r *http.Request) {
 	var req wafResourceArnReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -2587,7 +2585,7 @@ type wafMobileSdkReleaseReq struct {
 
 func handleWAFGenerateMobileSdkReleaseUrl(w http.ResponseWriter, r *http.Request) {
 	var req wafMobileSdkReleaseReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -2602,7 +2600,7 @@ func handleWAFGenerateMobileSdkReleaseUrl(w http.ResponseWriter, r *http.Request
 
 func handleWAFGetMobileSdkRelease(w http.ResponseWriter, r *http.Request) {
 	var req wafMobileSdkReleaseReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -2629,7 +2627,7 @@ type wafListMobileSdkReleasesReq struct {
 
 func handleWAFListMobileSdkReleases(w http.ResponseWriter, r *http.Request) {
 	var req wafListMobileSdkReleasesReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -2662,7 +2660,7 @@ type wafDeleteFMRuleGroupsReq struct {
 
 func handleWAFDeleteFirewallManagerRuleGroups(w http.ResponseWriter, r *http.Request) {
 	var req wafDeleteFMRuleGroupsReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -2701,7 +2699,7 @@ type wafGetRateBasedKeysReq struct {
 
 func handleWAFGetRateBasedStatementManagedKeys(w http.ResponseWriter, r *http.Request) {
 	var req wafGetRateBasedKeysReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}
@@ -2747,7 +2745,7 @@ type wafGetTopPathStatsReq struct {
 
 func handleWAFGetTopPathStatisticsByTraffic(w http.ResponseWriter, r *http.Request) {
 	var req wafGetTopPathStatsReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		wafWriteError(w, "WAFInvalidParameterException", "could not decode: "+err.Error())
 		return
 	}

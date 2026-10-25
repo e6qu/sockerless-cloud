@@ -174,10 +174,7 @@ func sfnWriteError(w http.ResponseWriter, code string, msg string) {
 }
 
 func sfnWriteErrorStatus(w http.ResponseWriter, status int, code string, msg string) {
-	w.Header().Set("Content-Type", "application/x-amz-json-1.0")
-	w.Header().Set("X-Amzn-Errortype", code)
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(awsErrorBody("sfn", code, msg))
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsJSON10, Model: "sfn"}, status, code, msg, "")
 }
 
 // sfnCanAssumeRole writes Step Functions' refusal of an execution role that
@@ -205,7 +202,7 @@ func handleSFNCreateStateMachine(w http.ResponseWriter, r *http.Request) {
 		TracingConfiguration    map[string]any `json:"tracingConfiguration"`
 		EncryptionConfiguration map[string]any `json:"encryptionConfiguration"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -294,7 +291,7 @@ func handleSFNDescribeStateMachine(w http.ResponseWriter, r *http.Request) {
 		StateMachineArn string `json:"stateMachineArn"`
 		IncludedData    string `json:"includedData"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -363,7 +360,10 @@ func handleSFNListStateMachines(w http.ResponseWriter, r *http.Request) {
 		MaxResults *int   `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		sfnWriteError(w, "InvalidRequest", "invalid JSON")
+		return
+	}
 
 	all := sfnStateMachines.List()
 	maxR := 0
@@ -395,7 +395,7 @@ func handleSFNDeleteStateMachine(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		StateMachineArn string `json:"stateMachineArn"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -419,7 +419,7 @@ func handleSFNUpdateStateMachine(w http.ResponseWriter, r *http.Request) {
 		TracingConfiguration    map[string]any `json:"tracingConfiguration"`
 		EncryptionConfiguration map[string]any `json:"encryptionConfiguration"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -477,7 +477,7 @@ func handleSFNTagResource(w http.ResponseWriter, r *http.Request) {
 		ResourceArn string   `json:"resourceArn"`
 		Tags        []SFNTag `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -511,7 +511,7 @@ func handleSFNUntagResource(w http.ResponseWriter, r *http.Request) {
 		ResourceArn string   `json:"resourceArn"`
 		TagKeys     []string `json:"tagKeys"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -544,7 +544,7 @@ func handleSFNListTagsForResource(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ResourceArn string `json:"resourceArn"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -578,7 +578,7 @@ func handleSFNListStateMachineVersions(w http.ResponseWriter, r *http.Request) {
 		MaxResults      *int   `json:"maxResults"`
 		NextToken       string `json:"nextToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -619,7 +619,7 @@ func handleSFNValidateStateMachineDefinition(w http.ResponseWriter, r *http.Requ
 	var req struct {
 		Definition string `json:"definition"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -646,7 +646,7 @@ func handleSFNStartExecution(w http.ResponseWriter, r *http.Request) {
 		Input           string `json:"input"`
 		TraceHeader     string `json:"traceHeader"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -1492,7 +1492,7 @@ func handleSFNDescribeExecution(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ExecutionArn string `json:"executionArn"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -1565,7 +1565,7 @@ func handleSFNGetExecutionHistory(w http.ResponseWriter, r *http.Request) {
 		NextToken            string `json:"nextToken"`
 		ReverseOrder         bool   `json:"reverseOrder"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -1607,7 +1607,7 @@ func handleSFNListExecutions(w http.ResponseWriter, r *http.Request) {
 		MaxResults      *int   `json:"maxResults"`
 		NextToken       string `json:"nextToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -1692,7 +1692,7 @@ func handleSFNStopExecution(w http.ResponseWriter, r *http.Request) {
 		Error        string `json:"error"`
 		Cause        string `json:"cause"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -1809,7 +1809,7 @@ func handleSFNCreateActivity(w http.ResponseWriter, r *http.Request) {
 		Name string   `json:"name"`
 		Tags []SFNTag `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -1848,7 +1848,7 @@ func handleSFNDeleteActivity(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ActivityArn string `json:"activityArn"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -1862,7 +1862,7 @@ func handleSFNDescribeActivity(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ActivityArn string `json:"activityArn"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -1883,7 +1883,10 @@ func handleSFNListActivities(w http.ResponseWriter, r *http.Request) {
 		MaxResults *int   `json:"maxResults"`
 		NextToken  string `json:"nextToken"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		sfnWriteError(w, "InvalidRequest", "invalid JSON")
+		return
+	}
 
 	all := sfnActivities.List()
 	maxR := 0
@@ -1919,7 +1922,7 @@ func handleSFNGetActivityTask(w http.ResponseWriter, r *http.Request) {
 		ActivityArn string `json:"activityArn"`
 		WorkerName  string `json:"workerName"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -1964,7 +1967,7 @@ func handleSFNSendTaskSuccess(w http.ResponseWriter, r *http.Request) {
 		TaskToken string `json:"taskToken"`
 		Output    string `json:"output"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -1991,7 +1994,7 @@ func handleSFNSendTaskFailure(w http.ResponseWriter, r *http.Request) {
 		Error     string `json:"error"`
 		Cause     string `json:"cause"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -2013,7 +2016,7 @@ func handleSFNSendTaskHeartbeat(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TaskToken string `json:"taskToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -2116,7 +2119,7 @@ func handleSFNPublishStateMachineVersion(w http.ResponseWriter, r *http.Request)
 		Description     string `json:"description"`
 		RevisionId      string `json:"revisionId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -2140,7 +2143,7 @@ func handleSFNDeleteStateMachineVersion(w http.ResponseWriter, r *http.Request) 
 	var req struct {
 		StateMachineVersionArn string `json:"stateMachineVersionArn"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -2189,7 +2192,7 @@ func handleSFNCreateStateMachineAlias(w http.ResponseWriter, r *http.Request) {
 		Description          string             `json:"description"`
 		RoutingConfiguration []SFNRoutingConfig `json:"routingConfiguration"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -2249,7 +2252,7 @@ func handleSFNDescribeStateMachineAlias(w http.ResponseWriter, r *http.Request) 
 	var req struct {
 		StateMachineAliasArn string `json:"stateMachineAliasArn"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -2274,7 +2277,7 @@ func handleSFNListStateMachineAliases(w http.ResponseWriter, r *http.Request) {
 		MaxResults      *int   `json:"maxResults"`
 		NextToken       string `json:"nextToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -2332,7 +2335,7 @@ func handleSFNUpdateStateMachineAlias(w http.ResponseWriter, r *http.Request) {
 		Description          *string            `json:"description"`
 		RoutingConfiguration []SFNRoutingConfig `json:"routingConfiguration"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -2416,7 +2419,7 @@ func handleSFNDeleteStateMachineAlias(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		StateMachineAliasArn string `json:"stateMachineAliasArn"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -2436,7 +2439,7 @@ func handleSFNDescribeStateMachineForExecution(w http.ResponseWriter, r *http.Re
 		ExecutionArn string `json:"executionArn"`
 		IncludedData string `json:"includedData"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -2469,7 +2472,7 @@ func handleSFNRedriveExecution(w http.ResponseWriter, r *http.Request) {
 		ExecutionArn string `json:"executionArn"`
 		ClientToken  string `json:"clientToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -2572,7 +2575,7 @@ func handleSFNDescribeMapRun(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		MapRunArn string `json:"mapRunArn"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -2627,7 +2630,7 @@ func handleSFNListMapRuns(w http.ResponseWriter, r *http.Request) {
 		MaxResults   *int   `json:"maxResults"`
 		NextToken    string `json:"nextToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -2672,7 +2675,7 @@ func handleSFNUpdateMapRun(w http.ResponseWriter, r *http.Request) {
 		ToleratedFailurePercentage *float64 `json:"toleratedFailurePercentage"`
 		ToleratedFailureCount      *int     `json:"toleratedFailureCount"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -2712,7 +2715,7 @@ func handleSFNTestState(w http.ResponseWriter, r *http.Request) {
 		Context    string          `json:"context"`
 		Mock       json.RawMessage `json:"mock"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}
@@ -2850,7 +2853,7 @@ func handleSFNStartSyncExecution(w http.ResponseWriter, r *http.Request) {
 		Input           string `json:"input"`
 		TraceHeader     string `json:"traceHeader"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		sfnWriteError(w, "InvalidRequest", "invalid JSON")
 		return
 	}

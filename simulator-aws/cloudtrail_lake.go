@@ -293,7 +293,9 @@ func handleCloudTrailListEventDataStores(w http.ResponseWriter, r *http.Request)
 		MaxResults int
 		NextToken  string
 	}
-	_ = readAWSJSONAllowEmpty(r, &req)
+	if !readAWSJSON(w, r, &req) {
+		return
+	}
 	list := make([]map[string]any, 0)
 	for _, eds := range cloudTrailEventDataStores.List() {
 		list = append(list, map[string]any{
@@ -744,7 +746,9 @@ func handleCloudTrailListQueries(w http.ResponseWriter, r *http.Request) {
 		EventDataStore string
 		QueryStatus    string
 	}
-	_ = readAWSJSONAllowEmpty(r, &req)
+	if !readAWSJSON(w, r, &req) {
+		return
+	}
 	var storeARN string
 	if req.EventDataStore != "" {
 		eds, ok := findCloudTrailEDS(req.EventDataStore)
@@ -826,7 +830,9 @@ func handleCloudTrailListInsightsData(w http.ResponseWriter, r *http.Request) {
 		InsightSource string
 		DataType      string
 	}
-	_ = readAWSJSONAllowEmpty(r, &req)
+	if !readAWSJSON(w, r, &req) {
+		return
+	}
 	writeAWSJSON(w, http.StatusOK, map[string]any{"Events": []map[string]any{}})
 }
 
@@ -932,7 +938,9 @@ func handleCloudTrailListDashboards(w http.ResponseWriter, r *http.Request) {
 		NamePrefix string
 		Type       string
 	}
-	_ = readAWSJSONAllowEmpty(r, &req)
+	if !readAWSJSON(w, r, &req) {
+		return
+	}
 	out := make([]map[string]any, 0)
 	for _, dash := range cloudTrailDashboards.List() {
 		if req.NamePrefix != "" && !strings.HasPrefix(dash.Name, req.NamePrefix) {
@@ -1143,7 +1151,9 @@ func handleCloudTrailListImports(w http.ResponseWriter, r *http.Request) {
 		ImportStatus string
 		Destination  string
 	}
-	_ = readAWSJSONAllowEmpty(r, &req)
+	if !readAWSJSON(w, r, &req) {
+		return
+	}
 	out := make([]map[string]any, 0)
 	for _, imp := range cloudTrailImports.List() {
 		if req.ImportStatus != "" && imp.ImportStatus != req.ImportStatus {
@@ -1377,7 +1387,9 @@ func handleCloudTrailListPublicKeys(w http.ResponseWriter, r *http.Request) {
 		StartTime *float64
 		EndTime   *float64
 	}
-	_ = readAWSJSONAllowEmpty(r, &req)
+	if !readAWSJSON(w, r, &req) {
+		return
+	}
 	// CloudTrail digest-signing public keys are an account-level static set. The
 	// sim does not sign digest files, so it advertises no keys (a real, empty
 	// result) rather than a fabricated key.

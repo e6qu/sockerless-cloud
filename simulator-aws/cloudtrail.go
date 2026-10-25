@@ -258,7 +258,9 @@ func handleCloudTrailDescribeTrails(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TrailNameList []string
 	}
-	_ = readAWSJSONAllowEmpty(r, &req)
+	if !readAWSJSON(w, r, &req) {
+		return
+	}
 	trails := make([]map[string]any, 0)
 	if len(req.TrailNameList) > 0 {
 		for _, name := range req.TrailNameList {
@@ -370,7 +372,9 @@ func handleCloudTrailLookupEvents(w http.ResponseWriter, r *http.Request) {
 		StartTime        *float64
 		EndTime          *float64
 	}
-	_ = readAWSJSONAllowEmpty(r, &req)
+	if !readAWSJSON(w, r, &req) {
+		return
+	}
 	for _, attr := range req.LookupAttributes {
 		if !cloudTrailValidLookupKeys[attr.AttributeKey] {
 			cloudTrailError(w, "InvalidLookupAttributesException",
@@ -529,7 +533,9 @@ func handleCloudTrailListTrails(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		NextToken string
 	}
-	_ = readAWSJSONAllowEmpty(r, &req)
+	if !readAWSJSON(w, r, &req) {
+		return
+	}
 	trails := make([]map[string]any, 0)
 	for _, trail := range cloudTrailTrails.List() {
 		trails = append(trails, map[string]any{
@@ -650,7 +656,9 @@ func handleCloudTrailListChannels(w http.ResponseWriter, r *http.Request) {
 		MaxResults int
 		NextToken  string
 	}
-	_ = readAWSJSONAllowEmpty(r, &req)
+	if !readAWSJSON(w, r, &req) {
+		return
+	}
 	channels := make([]map[string]any, 0)
 	for _, ch := range cloudTrailChannels.List() {
 		channels = append(channels, map[string]any{
@@ -1503,22 +1511,11 @@ func cloudTrailEpochSeconds(value string) float64 {
 }
 
 func readAWSJSON(w http.ResponseWriter, r *http.Request, out any) bool {
-	if err := json.NewDecoder(r.Body).Decode(out); err != nil {
+	if err := sim.ReadJSON(r, out); err != nil {
 		cloudTrailError(w, "InvalidRequestException", "invalid JSON request: "+err.Error(), http.StatusBadRequest)
 		return false
 	}
 	return true
-}
-
-func readAWSJSONAllowEmpty(r *http.Request, out any) error {
-	if r.Body == nil {
-		return nil
-	}
-	err := json.NewDecoder(r.Body).Decode(out)
-	if err != nil && err.Error() == "EOF" {
-		return nil
-	}
-	return err
 }
 
 func writeAWSJSON(w http.ResponseWriter, status int, body any) {
@@ -1528,8 +1525,5 @@ func writeAWSJSON(w http.ResponseWriter, status int, body any) {
 }
 
 func cloudTrailError(w http.ResponseWriter, code, message string, status int) {
-	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
-	w.Header().Set("X-Amzn-Errortype", code)
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(awsErrorBody("cloudtrail", code, message))
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsJSON11, Model: "cloudtrail"}, status, code, message, "")
 }

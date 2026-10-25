@@ -113,11 +113,7 @@ func snsXMLResponse(w http.ResponseWriter, op string, body string, requestID str
 }
 
 func snsErrorXML(w http.ResponseWriter, code, message string, status int, requestID string) {
-	w.Header().Set("Content-Type", "text/xml")
-	w.WriteHeader(status)
-	fmt.Fprintf(w,
-		`<ErrorResponse xmlns="http://sns.amazonaws.com/doc/2010-03-31/"><Error><Type>Sender</Type><Code>%s</Code><Message>%s</Message></Error><RequestId>%s</RequestId></ErrorResponse>`,
-		code, message, requestID)
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsQuery, Namespace: "http://sns.amazonaws.com/doc/2010-03-31/"}, status, code, message, requestID)
 }
 
 func handleSNSCreateTopic(w http.ResponseWriter, r *http.Request) {

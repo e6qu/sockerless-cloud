@@ -17,38 +17,38 @@ The extractor reads the route out of a single string literal, so a registration 
 
 | Op (verb + path) | sim handler | sdk-test | tf-test | paged-shape verified | notes |
 |---|---|---|---|---|---|
-| `POST /2015-02-01/file-systems` | ✓ `simulator-aws/efs.go:293::handleEFSCreateFileSystem` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2015-02-01/file-systems` | ✓ `simulator-aws/efs.go:294::handleEFSDescribeFileSystems` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /2015-02-01/file-systems/{id}` | ✓ `simulator-aws/efs.go:295::handleEFSUpdateFileSystem` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /2015-02-01/file-systems/{id}/protection` | ✓ `simulator-aws/efs.go:296::handleEFSUpdateFileSystemProtection` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /2015-02-01/file-systems/{id}` | ✓ `simulator-aws/efs.go:297::handleEFSDeleteFileSystem` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /2015-02-01/file-systems/{id}/lifecycle-configuration` | ✓ `simulator-aws/efs.go:298::handleEFSPutLifecycleConfiguration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2015-02-01/file-systems/{id}/lifecycle-configuration` | ✓ `simulator-aws/efs.go:299::handleEFSDescribeLifecycleConfiguration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /2015-02-01/mount-targets` | ✓ `simulator-aws/efs.go:301::handleEFSCreateMountTarget` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2015-02-01/mount-targets` | ✓ `simulator-aws/efs.go:302::handleEFSDescribeMountTargets` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2015-02-01/mount-targets/{id}/security-groups` | ✓ `simulator-aws/efs.go:303::handleEFSDescribeMountTargetSecurityGroups` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /2015-02-01/mount-targets/{id}/security-groups` | ✓ `simulator-aws/efs.go:304::handleEFSModifyMountTargetSecurityGroups` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /2015-02-01/mount-targets/{id}` | ✓ `simulator-aws/efs.go:305::handleEFSDeleteMountTarget` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /2015-02-01/access-points` | ✓ `simulator-aws/efs.go:307::handleEFSCreateAccessPoint` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2015-02-01/access-points` | ✓ `simulator-aws/efs.go:308::handleEFSDescribeAccessPoints` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /2015-02-01/access-points/{id}` | ✓ `simulator-aws/efs.go:309::handleEFSDeleteAccessPoint` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /2015-02-01/file-systems/{id}/policy` | ✓ `simulator-aws/efs.go:312::handleEFSPutFileSystemPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2015-02-01/file-systems/{id}/policy` | ✓ `simulator-aws/efs.go:313::handleEFSDescribeFileSystemPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /2015-02-01/file-systems/{id}/policy` | ✓ `simulator-aws/efs.go:314::handleEFSDeleteFileSystemPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /2015-02-01/file-systems/{id}/backup-policy` | ✓ `simulator-aws/efs.go:317::handleEFSPutBackupPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2015-02-01/file-systems/{id}/backup-policy` | ✓ `simulator-aws/efs.go:318::handleEFSDescribeBackupPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2015-02-01/file-systems/replication-configurations` | ✓ `simulator-aws/efs.go:322::handleEFSDescribeReplicationConfigurations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /2015-02-01/file-systems/{id}/replication-configuration` | ✓ `simulator-aws/efs.go:323::handleEFSCreateReplicationConfiguration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /2015-02-01/file-systems/{id}/replication-configuration` | ✓ `simulator-aws/efs.go:324::handleEFSDeleteReplicationConfiguration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `PUT /2015-02-01/account-preferences` | ✓ `simulator-aws/efs.go:327::handleEFSPutAccountPreferences` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2015-02-01/account-preferences` | ✓ `simulator-aws/efs.go:328::handleEFSDescribeAccountPreferences` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /2015-02-01/resource-tags/{id}` | ✓ `simulator-aws/efs.go:332::handleEFSTagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2015-02-01/resource-tags/{id}` | ✓ `simulator-aws/efs.go:333::handleEFSListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `DELETE /2015-02-01/resource-tags/{id}` | ✓ `simulator-aws/efs.go:334::handleEFSUntagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /2015-02-01/create-tags/{id}` | ✓ `simulator-aws/efs.go:337::handleEFSCreateTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2015-02-01/tags/{id}` | ✓ `simulator-aws/efs.go:338::handleEFSDescribeTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `GET /2015-02-01/tags/{id}/` | ✓ `simulator-aws/efs.go:339::handleEFSDescribeTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
-| `POST /2015-02-01/delete-tags/{id}` | ✓ `simulator-aws/efs.go:340::handleEFSDeleteTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /2015-02-01/file-systems` | ✓ `simulator-aws/efs.go:289::handleEFSCreateFileSystem` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2015-02-01/file-systems` | ✓ `simulator-aws/efs.go:290::handleEFSDescribeFileSystems` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /2015-02-01/file-systems/{id}` | ✓ `simulator-aws/efs.go:291::handleEFSUpdateFileSystem` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /2015-02-01/file-systems/{id}/protection` | ✓ `simulator-aws/efs.go:292::handleEFSUpdateFileSystemProtection` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /2015-02-01/file-systems/{id}` | ✓ `simulator-aws/efs.go:293::handleEFSDeleteFileSystem` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /2015-02-01/file-systems/{id}/lifecycle-configuration` | ✓ `simulator-aws/efs.go:294::handleEFSPutLifecycleConfiguration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2015-02-01/file-systems/{id}/lifecycle-configuration` | ✓ `simulator-aws/efs.go:295::handleEFSDescribeLifecycleConfiguration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /2015-02-01/mount-targets` | ✓ `simulator-aws/efs.go:297::handleEFSCreateMountTarget` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2015-02-01/mount-targets` | ✓ `simulator-aws/efs.go:298::handleEFSDescribeMountTargets` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2015-02-01/mount-targets/{id}/security-groups` | ✓ `simulator-aws/efs.go:299::handleEFSDescribeMountTargetSecurityGroups` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /2015-02-01/mount-targets/{id}/security-groups` | ✓ `simulator-aws/efs.go:300::handleEFSModifyMountTargetSecurityGroups` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /2015-02-01/mount-targets/{id}` | ✓ `simulator-aws/efs.go:301::handleEFSDeleteMountTarget` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /2015-02-01/access-points` | ✓ `simulator-aws/efs.go:303::handleEFSCreateAccessPoint` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2015-02-01/access-points` | ✓ `simulator-aws/efs.go:304::handleEFSDescribeAccessPoints` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /2015-02-01/access-points/{id}` | ✓ `simulator-aws/efs.go:305::handleEFSDeleteAccessPoint` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /2015-02-01/file-systems/{id}/policy` | ✓ `simulator-aws/efs.go:308::handleEFSPutFileSystemPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2015-02-01/file-systems/{id}/policy` | ✓ `simulator-aws/efs.go:309::handleEFSDescribeFileSystemPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /2015-02-01/file-systems/{id}/policy` | ✓ `simulator-aws/efs.go:310::handleEFSDeleteFileSystemPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /2015-02-01/file-systems/{id}/backup-policy` | ✓ `simulator-aws/efs.go:313::handleEFSPutBackupPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2015-02-01/file-systems/{id}/backup-policy` | ✓ `simulator-aws/efs.go:314::handleEFSDescribeBackupPolicy` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2015-02-01/file-systems/replication-configurations` | ✓ `simulator-aws/efs.go:318::handleEFSDescribeReplicationConfigurations` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /2015-02-01/file-systems/{id}/replication-configuration` | ✓ `simulator-aws/efs.go:319::handleEFSCreateReplicationConfiguration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /2015-02-01/file-systems/{id}/replication-configuration` | ✓ `simulator-aws/efs.go:320::handleEFSDeleteReplicationConfiguration` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `PUT /2015-02-01/account-preferences` | ✓ `simulator-aws/efs.go:323::handleEFSPutAccountPreferences` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2015-02-01/account-preferences` | ✓ `simulator-aws/efs.go:324::handleEFSDescribeAccountPreferences` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /2015-02-01/resource-tags/{id}` | ✓ `simulator-aws/efs.go:328::handleEFSTagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2015-02-01/resource-tags/{id}` | ✓ `simulator-aws/efs.go:329::handleEFSListTagsForResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `DELETE /2015-02-01/resource-tags/{id}` | ✓ `simulator-aws/efs.go:330::handleEFSUntagResource` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /2015-02-01/create-tags/{id}` | ✓ `simulator-aws/efs.go:333::handleEFSCreateTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2015-02-01/tags/{id}` | ✓ `simulator-aws/efs.go:334::handleEFSDescribeTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `GET /2015-02-01/tags/{id}/` | ✓ `simulator-aws/efs.go:335::handleEFSDescribeTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
+| `POST /2015-02-01/delete-tags/{id}` | ✓ `simulator-aws/efs.go:336::handleEFSDeleteTags` | ✓ (direct; see coverage matrix) | ✓ (direct; see coverage matrix) | n/a | |
 
 ## Coverage status
 

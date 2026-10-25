@@ -222,7 +222,7 @@ func acmAcmeEndpointID(arn string) string {
 }
 
 func acmDecodeJSON(w http.ResponseWriter, r *http.Request, out any) bool {
-	if err := json.NewDecoder(r.Body).Decode(out); err != nil {
+	if err := sim.ReadJSON(r, out); err != nil {
 		acmWriteError(w, "ValidationException", "could not decode request: "+err.Error())
 		return false
 	}
@@ -911,7 +911,7 @@ type acmJWSProtected struct {
 
 func acmVerifyJWS(r *http.Request, endpointArn string, requireJWK, allowEither bool) (acmJWS, []byte, acmAcmeAccount, json.RawMessage, error) {
 	var envelope acmJWS
-	if err := json.NewDecoder(r.Body).Decode(&envelope); err != nil {
+	if err := sim.ReadJSON(r, &envelope); err != nil {
 		return envelope, nil, acmAcmeAccount{}, nil, fmt.Errorf("invalid JWS: %w", err)
 	}
 	protectedBytes, err := base64.RawURLEncoding.DecodeString(envelope.Protected)

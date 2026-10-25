@@ -234,7 +234,10 @@ func handleCWListIntegrations(w http.ResponseWriter, r *http.Request) {
 		IntegrationStatus     string `json:"integrationStatus"`
 		IntegrationType       string `json:"integrationType"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	summaries := []map[string]any{}
 	for _, integ := range cwIntegrations.List() {
 		if req.IntegrationNamePrefix != "" && !strings.HasPrefix(integ.IntegrationName, req.IntegrationNamePrefix) {
@@ -386,7 +389,10 @@ func handleCWDescribeLookupTables(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		LookupTableNamePrefix string `json:"lookupTableNamePrefix"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	tables := []map[string]any{}
 	for _, lt := range cwLookupTables.List() {
 		if req.LookupTableNamePrefix != "" && !strings.HasPrefix(lt.LookupTableName, req.LookupTableNamePrefix) {
@@ -623,7 +629,10 @@ func handleCWListScheduledQueries(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		State string `json:"state"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	queries := []map[string]any{}
 	for _, sq := range cwScheduledQ.List() {
 		if req.State != "" && sq.State != req.State {
@@ -872,7 +881,10 @@ func handleCWDescribeImportTasks(w http.ResponseWriter, r *http.Request) {
 		ImportSourceArn string `json:"importSourceArn"`
 		ImportStatus    string `json:"importStatus"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	imports := []map[string]any{}
 	for _, t := range cwImportTasks.List() {
 		if req.ImportId != "" && t.ImportId != req.ImportId {
@@ -1072,7 +1084,10 @@ func handleCWListAnomalies(w http.ResponseWriter, r *http.Request) {
 		AnomalyDetectorArn string `json:"anomalyDetectorArn"`
 		SuppressionState   string `json:"suppressionState"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	if req.AnomalyDetectorArn != "" {
 		if _, ok := cwLogAnomalyDetectors.Get(req.AnomalyDetectorArn); !ok {
 			AWSErrorf(w, "ResourceNotFoundException", http.StatusBadRequest,
@@ -1159,7 +1174,10 @@ func handleCWListLogGroups(w http.ResponseWriter, r *http.Request) {
 		LogGroupNamePattern string `json:"logGroupNamePattern"`
 		LogGroupClass       string `json:"logGroupClass"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	groups := []map[string]any{}
 	for _, lg := range cwLogGroups.List() {
 		if req.LogGroupNamePattern != "" && !strings.Contains(lg.LogGroupName, req.LogGroupNamePattern) {
@@ -1184,7 +1202,10 @@ func handleCWListAggregateLogGroupSummaries(w http.ResponseWriter, r *http.Reque
 		LogGroupClass       string `json:"logGroupClass"`
 		GroupBy             string `json:"groupBy"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "InvalidParameterException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	// Aggregate summaries group log groups by data source. With no data-source
 	// integrations configured, there are no aggregate summaries — honestly empty.
 	sim.WriteJSON(w, http.StatusOK, map[string]any{

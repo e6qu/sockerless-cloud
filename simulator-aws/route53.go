@@ -201,19 +201,6 @@ type R53DeleteHostedZoneResponse struct {
 	ChangeInfo R53ChangeInfo `xml:"ChangeInfo"`
 }
 
-type R53ErrorResponse struct {
-	XMLName   xml.Name `xml:"ErrorResponse"`
-	Xmlns     string   `xml:"xmlns,attr,omitempty"`
-	Error     R53Error `xml:"Error"`
-	RequestId string   `xml:"RequestId"`
-}
-
-type R53Error struct {
-	Type    string `xml:"Type,omitempty"`
-	Code    string `xml:"Code"`
-	Message string `xml:"Message"`
-}
-
 type r53StoredZone struct {
 	Zone    R53HostedZone
 	Records []R53ResourceRecordSet // keyed by (Name, Type, SetIdentifier)
@@ -309,11 +296,7 @@ func r53WriteXML(w http.ResponseWriter, status int, v any) {
 }
 
 func r53WriteError(w http.ResponseWriter, status int, code, msg string) {
-	r53WriteXML(w, status, R53ErrorResponse{
-		Xmlns:     r53Namespace,
-		Error:     R53Error{Type: "Sender", Code: code, Message: msg},
-		RequestId: r53ChangeID(),
-	})
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsRestXML, Namespace: r53Namespace}, status, code, msg, "")
 }
 
 func registerRoute53(srv *sim.Server, startDataPlane bool) {

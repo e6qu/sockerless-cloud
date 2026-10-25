@@ -284,7 +284,10 @@ func handleEBDescribeEventBus(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"Name"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	bus, ok := ebGetBus(req.Name)
 	if !ok {
 		AWSError(w, "ResourceNotFoundException", "Event bus does not exist", http.StatusNotFound)
@@ -299,7 +302,10 @@ func handleEBListEventBuses(w http.ResponseWriter, r *http.Request) {
 		Limit      int    `json:"Limit"`
 		NextToken  string `json:"NextToken"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	_, _ = ebGetBus("default")
 	buses := make([]EBEventBus, 0)
 	for _, bus := range ebBuses.List() {
@@ -582,7 +588,10 @@ func handleEBListRules(w http.ResponseWriter, r *http.Request) {
 		Limit        int    `json:"Limit"`
 		NextToken    string `json:"NextToken"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AWSError(w, "ValidationException", "Invalid request body", http.StatusBadRequest)
+		return
+	}
 	bus := ebBusName(req.EventBusName)
 	rules := make([]EBRule, 0)
 	for _, rule := range ebRules.List() {

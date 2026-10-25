@@ -21,7 +21,10 @@ import (
 // SAME `cwMetrics` store and the SAME period-bucketing + statistic helpers, so
 // data pushed via either protocol reads back through either.
 
-const cwQueryXmlns = `xmlns="http://monitoring.amazonaws.com/doc/2010-08-01/"`
+const (
+	cwQueryNamespace = "http://monitoring.amazonaws.com/doc/2010-08-01/"
+	cwQueryXmlns     = `xmlns="` + cwQueryNamespace + `"`
+)
 
 func registerCloudWatchMetricsQuery(r *AWSQueryRouter) {
 	r.Register("PutMetricData", handleCWQueryPutMetricData)
@@ -207,8 +210,5 @@ func cwFormatFloat(f float64) string {
 }
 
 func cwQueryError(w http.ResponseWriter, code, message string) {
-	w.Header().Set("Content-Type", "text/xml")
-	w.WriteHeader(http.StatusBadRequest)
-	fmt.Fprintf(w, `<ErrorResponse %s><Error><Type>Sender</Type><Code>%s</Code><Message>%s</Message></Error><RequestId>%s</RequestId></ErrorResponse>`,
-		cwQueryXmlns, code, xmlEscape(message), sim.NewUUID())
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsQuery, Namespace: cwQueryNamespace}, http.StatusBadRequest, code, message, "")
 }

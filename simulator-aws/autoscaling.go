@@ -1561,8 +1561,5 @@ func asResponse(w http.ResponseWriter, action, body string) {
 }
 
 func asError(w http.ResponseWriter, code, message string, status int) {
-	w.Header().Set("Content-Type", "text/xml")
-	w.WriteHeader(status)
-	fmt.Fprintf(w, `<ErrorResponse xmlns="https://autoscaling.amazonaws.com/doc/2011-01-01/"><Error><Type>Sender</Type><Code>%s</Code><Message>%s</Message></Error><RequestId>%s</RequestId></ErrorResponse>`,
-		code, xmlEscape(message), sim.NewUUID())
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsQuery, Namespace: "https://autoscaling.amazonaws.com/doc/2011-01-01/"}, status, code, message, "")
 }

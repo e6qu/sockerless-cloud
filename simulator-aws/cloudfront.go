@@ -419,19 +419,6 @@ type CFOriginAccessControlSummary struct {
 	OriginAccessControlOriginType string `xml:"OriginAccessControlOriginType"`
 }
 
-type CFErrorResponse struct {
-	XMLName   xml.Name `xml:"ErrorResponse"`
-	Xmlns     string   `xml:"xmlns,attr,omitempty"`
-	Error     CFError  `xml:"Error"`
-	RequestId string   `xml:"RequestId"`
-}
-
-type CFError struct {
-	Type    string `xml:"Type,omitempty"`
-	Code    string `xml:"Code"`
-	Message string `xml:"Message"`
-}
-
 // cfStoredDistribution holds a Distribution with its current ETag. ETag
 // changes on every Update; If-Match on Update/Delete must match the
 // current value. Tags travel alongside the distribution but live in a
@@ -548,11 +535,7 @@ func cfWriteXML(w http.ResponseWriter, status int, v any) {
 }
 
 func cfWriteError(w http.ResponseWriter, status int, code, msg string) {
-	cfWriteXML(w, status, CFErrorResponse{
-		Xmlns:     cfNamespace,
-		Error:     CFError{Type: "Sender", Code: code, Message: msg},
-		RequestId: cfRandomID("REQ"),
-	})
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsRestXML, Namespace: cfNamespace}, status, code, msg, "")
 }
 
 func registerCloudFront(srv *sim.Server) {

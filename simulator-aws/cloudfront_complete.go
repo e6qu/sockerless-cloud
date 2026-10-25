@@ -474,8 +474,8 @@ func cfConnectionRequireIfMatch(r *http.Request, current string) string {
 
 func cfWriteConnectionIfMatchError(w http.ResponseWriter, msg string) {
 	if msg == "missing" {
-		cfWriteError(w, http.StatusBadRequest, "InvalidIfMatchVersion", "The If-Match header is required.")
+		cfWriteIfMatchError(w, "InvalidIfMatchVersion")
 		return
 	}
-	cfWriteError(w, http.StatusPreconditionFailed, "PreconditionFailed", "The If-Match version is missing or does not match the resource's current ETag.")
+	cfWriteIfMatchError(w, "PreconditionFailed")
 }

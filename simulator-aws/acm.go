@@ -333,7 +333,7 @@ func acmSetResourceTags(arn string, tags []acmTag) bool {
 
 func handleACMTagResource(w http.ResponseWriter, r *http.Request) {
 	var req acmResourceTagReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		acmWriteError(w, "ValidationException", "could not decode request: "+err.Error())
 		return
 	}
@@ -368,7 +368,7 @@ func handleACMTagResource(w http.ResponseWriter, r *http.Request) {
 
 func handleACMUntagResource(w http.ResponseWriter, r *http.Request) {
 	var req acmResourceTagReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		acmWriteError(w, "ValidationException", "could not decode request: "+err.Error())
 		return
 	}
@@ -393,7 +393,7 @@ func handleACMUntagResource(w http.ResponseWriter, r *http.Request) {
 
 func handleACMListTagsForResource(w http.ResponseWriter, r *http.Request) {
 	var req acmResourceTagReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		acmWriteError(w, "ValidationException", "could not decode request: "+err.Error())
 		return
 	}
@@ -424,7 +424,7 @@ var acmAccountConfiguration sim.Store[acmAccountConfig]
 // certificate. It does not return the private key.
 func handleACMGetCertificate(w http.ResponseWriter, r *http.Request) {
 	var req acmCertARNReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		acmWriteError(w, "InvalidParameterValueException", "could not decode request: "+err.Error())
 		return
 	}
@@ -461,7 +461,7 @@ func handleACMExportCertificate(w http.ResponseWriter, r *http.Request) {
 		CertificateArn string `json:"CertificateArn"`
 		Passphrase     []byte `json:"Passphrase"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		acmWriteError(w, "InvalidParameterValueException", "could not decode request: "+err.Error())
 		return
 	}
@@ -514,7 +514,7 @@ func handleACMRevokeCertificate(w http.ResponseWriter, r *http.Request) {
 		CertificateArn   string `json:"CertificateArn"`
 		RevocationReason string `json:"RevocationReason"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		acmWriteError(w, "InvalidParameterValueException", "could not decode request: "+err.Error())
 		return
 	}
@@ -566,7 +566,7 @@ func handleACMPutAccountConfiguration(w http.ResponseWriter, r *http.Request) {
 		} `json:"ExpiryEvents"`
 		IdempotencyToken string `json:"IdempotencyToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		acmWriteError(w, "InvalidParameterValueException", "could not decode request: "+err.Error())
 		return
 	}
@@ -595,7 +595,7 @@ func handleACMSearchCertificates(w http.ResponseWriter, r *http.Request) {
 		MaxResults      int                 `json:"MaxResults"`
 		NextToken       string              `json:"NextToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		acmWriteError(w, "InvalidParameterValueException", "could not decode request: "+err.Error())
 		return
 	}
@@ -713,7 +713,7 @@ func acmWriteJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func acmWriteError(w http.ResponseWriter, code, msg string) {
-	acmWriteJSON(w, http.StatusBadRequest, awsErrorBody("acm", code, msg))
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsJSON11, Model: "acm"}, http.StatusBadRequest, code, msg, "")
 }
 
 type acmRequestCertificateReq struct {
@@ -730,7 +730,7 @@ type acmRequestCertificateReq struct {
 
 func handleACMRequestCertificate(w http.ResponseWriter, r *http.Request) {
 	var req acmRequestCertificateReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		acmWriteError(w, "InvalidParameterValueException", "could not decode request: "+err.Error())
 		return
 	}
@@ -870,7 +870,7 @@ type acmCertARNReq struct {
 
 func handleACMDescribeCertificate(w http.ResponseWriter, r *http.Request) {
 	var req acmCertARNReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		acmWriteError(w, "InvalidParameterValueException", "could not decode request: "+err.Error())
 		return
 	}
@@ -1060,7 +1060,7 @@ func acmDNSRecordMatches(name, value string) bool {
 
 func handleACMDeleteCertificate(w http.ResponseWriter, r *http.Request) {
 	var req acmCertARNReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		acmWriteError(w, "InvalidParameterValueException", "could not decode request: "+err.Error())
 		return
 	}
@@ -1096,7 +1096,7 @@ func handleACMListCertificates(w http.ResponseWriter, r *http.Request) {
 	}
 	// Body is optional for ListCertificates; an empty body is tolerated, but a
 	// malformed body is rejected rather than silently treated as no filter.
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		acmWriteError(w, "InvalidParameterValueException", "could not decode request: "+err.Error())
 		return
 	}
@@ -1140,7 +1140,7 @@ type acmTagReq struct {
 
 func handleACMAddTags(w http.ResponseWriter, r *http.Request) {
 	var req acmTagReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		acmWriteError(w, "InvalidParameterValueException", "could not decode request: "+err.Error())
 		return
 	}
@@ -1173,7 +1173,7 @@ type acmRemoveTagsReq struct {
 
 func handleACMRemoveTags(w http.ResponseWriter, r *http.Request) {
 	var req acmRemoveTagsReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		acmWriteError(w, "InvalidParameterValueException", "could not decode request: "+err.Error())
 		return
 	}
@@ -1200,7 +1200,7 @@ func handleACMRemoveTags(w http.ResponseWriter, r *http.Request) {
 
 func handleACMListTags(w http.ResponseWriter, r *http.Request) {
 	var req acmCertARNReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		acmWriteError(w, "InvalidParameterValueException", "could not decode request: "+err.Error())
 		return
 	}
@@ -1226,7 +1226,7 @@ type acmImportCertificateReq struct {
 
 func handleACMImportCertificate(w http.ResponseWriter, r *http.Request) {
 	var req acmImportCertificateReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		acmWriteError(w, "InvalidParameterValueException", "could not decode request: "+err.Error())
 		return
 	}
@@ -1399,7 +1399,7 @@ type acmUpdateOptionsReq struct {
 
 func handleACMUpdateOptions(w http.ResponseWriter, r *http.Request) {
 	var req acmUpdateOptionsReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		acmWriteError(w, "InvalidParameterValueException", "could not decode request: "+err.Error())
 		return
 	}
@@ -1420,7 +1420,7 @@ func handleACMResendValidationEmail(w http.ResponseWriter, r *http.Request) {
 		Domain           string `json:"Domain"`
 		ValidationDomain string `json:"ValidationDomain"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		acmWriteError(w, "InvalidParameterValueException", "could not decode request: "+err.Error())
 		return
 	}
@@ -1453,7 +1453,7 @@ func handleACMResendValidationEmail(w http.ResponseWriter, r *http.Request) {
 
 func handleACMRenewCertificate(w http.ResponseWriter, r *http.Request) {
 	var req acmCertARNReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		acmWriteError(w, "InvalidParameterValueException", "could not decode request: "+err.Error())
 		return
 	}
@@ -1516,7 +1516,7 @@ func handleACMListCertificateDomainValidations(w http.ResponseWriter, r *http.Re
 		MaxItems       int    `json:"MaxItems"`
 		NextToken      string `json:"NextToken"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		acmWriteError(w, "InvalidParameterValueException", "could not decode request: "+err.Error())
 		return
 	}

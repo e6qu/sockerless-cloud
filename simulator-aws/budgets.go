@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -98,14 +97,11 @@ func budgetsNowEpoch() float64 {
 }
 
 func budgetsError(w http.ResponseWriter, code, message string, status int) {
-	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
-	w.Header().Set("X-Amzn-Errortype", code)
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(awsErrorBody("budgets", code, message))
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsJSON11, Model: "budgets"}, status, code, message, "")
 }
 
 func budgetsRead(w http.ResponseWriter, r *http.Request, out any) bool {
-	if err := json.NewDecoder(r.Body).Decode(out); err != nil {
+	if err := sim.ReadJSON(r, out); err != nil {
 		budgetsError(w, "InvalidParameterException", "invalid JSON request: "+err.Error(), http.StatusBadRequest)
 		return false
 	}

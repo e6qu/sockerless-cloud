@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"sort"
 	"strconv"
@@ -145,7 +144,7 @@ func registerGlueEntityOperations(r *AWSRouter) {
 }
 
 func glueDecodeBusinessRequest(w http.ResponseWriter, r *http.Request, dst any) bool {
-	if err := json.NewDecoder(r.Body).Decode(dst); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, dst); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return false
 	}

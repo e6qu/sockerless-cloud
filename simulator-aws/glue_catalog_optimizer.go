@@ -1,9 +1,7 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -178,7 +176,7 @@ func handleGlueCreateCatalog(w http.ResponseWriter, r *http.Request) {
 		} `json:"CatalogInput"`
 		Tags map[string]string `json:"Tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -215,7 +213,7 @@ func handleGlueGetCatalog(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		CatalogId string `json:"CatalogId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -233,7 +231,7 @@ func handleGlueGetCatalogs(w http.ResponseWriter, r *http.Request) {
 		NextToken       string `json:"NextToken"`
 		MaxResults      *int   `json:"MaxResults"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -267,7 +265,7 @@ func handleGlueUpdateCatalog(w http.ResponseWriter, r *http.Request) {
 			CatalogProperties map[string]any    `json:"CatalogProperties"`
 		} `json:"CatalogInput"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -297,7 +295,7 @@ func handleGlueDeleteCatalog(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		CatalogId string `json:"CatalogId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -351,7 +349,7 @@ func handleGlueCreateTableOptimizer(w http.ResponseWriter, r *http.Request) {
 		Type                        string                   `json:"Type"`
 		TableOptimizerConfiguration GlueTableOptimizerConfig `json:"TableOptimizerConfiguration"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -386,7 +384,7 @@ func handleGlueGetTableOptimizer(w http.ResponseWriter, r *http.Request) {
 		TableName    string `json:"TableName"`
 		Type         string `json:"Type"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -412,7 +410,7 @@ func handleGlueBatchGetTableOptimizer(w http.ResponseWriter, r *http.Request) {
 			Type         string `json:"type"`
 		} `json:"Entries"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -458,7 +456,7 @@ func handleGlueUpdateTableOptimizer(w http.ResponseWriter, r *http.Request) {
 		Type                        string                   `json:"Type"`
 		TableOptimizerConfiguration GlueTableOptimizerConfig `json:"TableOptimizerConfiguration"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -484,7 +482,7 @@ func handleGlueDeleteTableOptimizer(w http.ResponseWriter, r *http.Request) {
 		TableName    string `json:"TableName"`
 		Type         string `json:"Type"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -510,7 +508,7 @@ func handleGlueListTableOptimizerRuns(w http.ResponseWriter, r *http.Request) {
 		NextToken    string `json:"NextToken"`
 		MaxResults   *int   `json:"MaxResults"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -543,7 +541,7 @@ func handleGlueBatchGetCrawlers(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		CrawlerNames []string `json:"CrawlerNames"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -570,7 +568,7 @@ func handleGlueBatchGetJobs(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		JobNames []string `json:"JobNames"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -597,7 +595,7 @@ func handleGlueBatchGetTriggers(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TriggerNames []string `json:"TriggerNames"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -624,7 +622,7 @@ func handleGlueBatchGetWorkflows(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Names []string `json:"Names"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -654,7 +652,7 @@ func handleGlueBatchGetCustomEntityTypes(w http.ResponseWriter, r *http.Request)
 	var req struct {
 		Names []string `json:"Names"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -670,7 +668,7 @@ func handleGlueBatchDeleteConnection(w http.ResponseWriter, r *http.Request) {
 		CatalogId          string   `json:"CatalogId"`
 		ConnectionNameList []string `json:"ConnectionNameList"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -711,7 +709,7 @@ func handleGlueBatchUpdatePartition(w http.ResponseWriter, r *http.Request) {
 			PartitionInput     gluePartitionInput `json:"PartitionInput"`
 		} `json:"Entries"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -795,7 +793,7 @@ func handleGlueCreateIntegration(w http.ResponseWriter, r *http.Request) {
 		IntegrationConfig           map[string]any    `json:"IntegrationConfig"`
 		Tags                        []map[string]any  `json:"Tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -842,7 +840,7 @@ func handleGlueDescribeIntegrations(w http.ResponseWriter, r *http.Request) {
 		Marker                string `json:"Marker"`
 		MaxRecords            *int   `json:"MaxRecords"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -886,7 +884,7 @@ func handleGlueModifyIntegration(w http.ResponseWriter, r *http.Request) {
 		IntegrationName       string         `json:"IntegrationName"`
 		IntegrationConfig     map[string]any `json:"IntegrationConfig"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -921,7 +919,7 @@ func handleGlueDeleteIntegration(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		IntegrationIdentifier string `json:"IntegrationIdentifier"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -960,7 +958,7 @@ func handleGlueDescribeInboundIntegrations(w http.ResponseWriter, r *http.Reques
 		Marker     string `json:"Marker"`
 		MaxRecords *int   `json:"MaxRecords"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1003,7 +1001,7 @@ func handleGlueCreateIntegrationResourceProperty(w http.ResponseWriter, r *http.
 		SourceProcessingProperties map[string]any `json:"SourceProcessingProperties"`
 		TargetProcessingProperties map[string]any `json:"TargetProcessingProperties"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1029,7 +1027,7 @@ func handleGlueGetIntegrationResourceProperty(w http.ResponseWriter, r *http.Req
 	var req struct {
 		ResourceArn string `json:"ResourceArn"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1047,7 +1045,7 @@ func handleGlueUpdateIntegrationResourceProperty(w http.ResponseWriter, r *http.
 		SourceProcessingProperties map[string]any `json:"SourceProcessingProperties"`
 		TargetProcessingProperties map[string]any `json:"TargetProcessingProperties"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1074,7 +1072,7 @@ func handleGlueDeleteIntegrationResourceProperty(w http.ResponseWriter, r *http.
 	var req struct {
 		ResourceArn string `json:"ResourceArn"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1095,7 +1093,7 @@ func handleGlueListIntegrationResourceProperties(w http.ResponseWriter, r *http.
 		Marker     string `json:"Marker"`
 		MaxRecords *int   `json:"MaxRecords"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1153,7 +1151,7 @@ func handleGlueListIntegrationTableProperties(w http.ResponseWriter, r *http.Req
 			Values []string `json:"Values"`
 		} `json:"Filters"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1220,7 +1218,7 @@ func handleGlueCreateIntegrationTableProperties(w http.ResponseWriter, r *http.R
 		SourceTableConfig map[string]any `json:"SourceTableConfig"`
 		TargetTableConfig map[string]any `json:"TargetTableConfig"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1246,7 +1244,7 @@ func handleGlueGetIntegrationTableProperties(w http.ResponseWriter, r *http.Requ
 		ResourceArn string `json:"ResourceArn"`
 		TableName   string `json:"TableName"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1275,7 +1273,7 @@ func handleGlueUpdateIntegrationTableProperties(w http.ResponseWriter, r *http.R
 		SourceTableConfig map[string]any `json:"SourceTableConfig"`
 		TargetTableConfig map[string]any `json:"TargetTableConfig"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}
@@ -1304,7 +1302,7 @@ func handleGlueDeleteIntegrationTableProperties(w http.ResponseWriter, r *http.R
 		ResourceArn string `json:"ResourceArn"`
 		TableName   string `json:"TableName"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		glueWriteError(w, "InvalidInputException", "invalid JSON")
 		return
 	}

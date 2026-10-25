@@ -3310,10 +3310,7 @@ func ec2ParamList(r *http.Request, prefix string) []string {
 }
 
 func ec2ErrorXML(w http.ResponseWriter, code, message string, status int) {
-	w.Header().Set("Content-Type", "text/xml")
-	w.WriteHeader(status)
-	fmt.Fprintf(w, `<Response><Errors><Error><Code>%s</Code><Message>%s</Message></Error></Errors><RequestID>%s</RequestID></Response>`,
-		xmlEscape(code), xmlEscape(message), sim.NewUUID())
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsEC2Query}, status, code, message, "")
 }
 
 func ec2Filters(r *http.Request) map[string][]string {

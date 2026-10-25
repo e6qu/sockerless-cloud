@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/url"
 	"slices"
@@ -393,10 +392,7 @@ func restWriteJSONDeny(model string) func(http.ResponseWriter, *http.Request, st
 }
 
 func restWriteJSONError(w http.ResponseWriter, model, code string, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Amzn-Errortype", code)
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(awsErrorBody(model, code, message))
+	awsWriteError(w, awsErrorEnvelope{Protocol: awsRestJSON1, Model: model}, status, code, message, "")
 }
 
 // AWS Amplify declares UnauthorizedException, 401, for an operation that
