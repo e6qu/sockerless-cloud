@@ -338,7 +338,7 @@ func cbAdoptBuildWorkload(
 	timeout time.Duration,
 	complete func(string, int, string),
 ) (bool, error) {
-	existing, err := sim.FindExistingContainers(map[string]string{
+	existing, err := cbEnvironmentBackend.Find(context.Background(), map[string]string{
 		"sockerless-codebuild-build": id,
 	})
 	if err != nil {

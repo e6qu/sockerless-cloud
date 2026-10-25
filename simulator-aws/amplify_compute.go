@@ -151,7 +151,7 @@ func recoverAmplifyComputeInstances() error {
 	if !sim.HasPersistentWorkloadIdentity() {
 		return nil
 	}
-	existing, err := sim.FindExistingContainers(map[string]string{"sockerless-amplify-compute": ""})
+	existing, err := amplifyComputeBackend.Find(context.Background(), map[string]string{"sockerless-amplify-compute": ""})
 	if err != nil {
 		return fmt.Errorf("find AWS Amplify Hosting compute containers: %w", err)
 	}
@@ -196,7 +196,7 @@ func recoverAmplifyComputeInstances() error {
 			handle.Cancel()
 			return fmt.Errorf("adopt AWS Amplify Hosting compute container %s: %w", workload.ID, err)
 		}
-		if err := amplifyWaitForPort(hostPort, 60*time.Second); err != nil {
+		if err := amplifyWaitForPort(handle, hostPort, 60*time.Second); err != nil {
 			handle.Cancel()
 			return fmt.Errorf("AWS Amplify Hosting compute container %s did not resume: %w", workload.ID, err)
 		}
@@ -326,7 +326,7 @@ func amplifyEnsureCompute(app AmplifyApp, br AmplifyBranch, content *amplifyHost
 		_ = os.RemoveAll(bundleDir)
 		return 0, fmt.Errorf("start compute container: %w", err)
 	}
-	if err := amplifyWaitForPort(hostPort, 60*time.Second); err != nil {
+	if err := amplifyWaitForPort(handle, hostPort, 60*time.Second); err != nil {
 		handle.Cancel()
 		revokeRoleCredentials(holder)
 		_ = os.RemoveAll(bundleDir)
@@ -366,13 +366,15 @@ func amplifyExtractBundle(files map[string][]byte) (string, error) {
 	return dir, nil
 }
 
-// amplifyWaitForPort blocks until the compute server answers an HTTP
-// request (bounded cold-start health wait before the first proxy). A bare
-// TCP accept is not enough: Podman's gvproxy binds the published host port
-// immediately and resets connections until the container backend listens,
-// so the wait requires actual response bytes from the entrypoint.
-func amplifyWaitForPort(port int, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
+// amplifyWaitForPort blocks until the compute server answers an HTTP request,
+// the workload exits, or timeout passes. A bare TCP accept is not enough:
+// Podman's gvproxy binds the published host port immediately and resets
+// connections until the container backend listens, so the wait requires
+// actual response bytes from the entrypoint. A port that starts listening
+// raises no event, so a refused probe is retried every 100 ms.
+func amplifyWaitForPort(handle placement.Handle, port int, timeout time.Duration) error {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
 	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	probe := func() error {
 		conn, err := net.DialTimeout("tcp", address, time.Second)
@@ -390,15 +392,20 @@ func amplifyWaitForPort(port int, timeout time.Duration) error {
 		}
 		return nil
 	}
+	retry := time.NewTicker(100 * time.Millisecond)
+	defer retry.Stop()
 	for {
 		err := probe()
 		if err == nil {
 			return nil
 		}
-		if time.Now().After(deadline) {
+		select {
+		case <-handle.Exited():
+			return fmt.Errorf("the compute container exited: %w", err)
+		case <-deadline.C:
 			return err
+		case <-retry.C:
 		}
-		time.Sleep(100 * time.Millisecond)
 	}
 }
 

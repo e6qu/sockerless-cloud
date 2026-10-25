@@ -1099,7 +1099,11 @@ func batchRecoverAttemptLocked(job BatchJob) error {
 		return fmt.Errorf("job %s is %s with no attempt in flight", job.JobID, job.Status)
 	}
 	number := job.Running.Number
-	existing, err := sim.FindExistingContainers(batchAttemptLabels(job.JobID, number))
+	backend, err := awsPlacement.For(placement.Service{Name: "batch"})
+	if err != nil {
+		return err
+	}
+	existing, err := backend.Find(context.Background(), batchAttemptLabels(job.JobID, number))
 	if err != nil {
 		return fmt.Errorf("find job %s attempt %d container: %w", job.JobID, number, err)
 	}
@@ -1115,10 +1119,6 @@ func batchRecoverAttemptLocked(job BatchJob) error {
 	}
 	batchCEInUse[job.Running.ComputeEnvironment] += job.VCPUs
 	cfg := *job.ExecutionConfig
-	backend, err := awsPlacement.For(placement.Service{Name: "batch"})
-	if err != nil {
-		return err
-	}
 	handle, err := backend.Adopt(context.Background(), existing[0].ID, cfg, batchAttemptSink(*job.Running))
 	if err != nil {
 		return fmt.Errorf("adopt job %s container: %w", job.JobID, err)

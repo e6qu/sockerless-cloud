@@ -514,21 +514,19 @@ func stopECSTaskProcesses(ctx context.Context, p *ecsTaskProcesses) {
 	// stops the wait, not the stop: the backend has the signal and kills the
 	// container on its own schedule.
 	var stopping sync.WaitGroup
-	for name, h := range p.Handles {
+	for _, h := range p.Handles {
 		if h == nil {
 			continue
 		}
 		stopping.Add(1)
-		go func(h placement.Handle, grace time.Duration) {
+		go func(h placement.Handle) {
 			defer stopping.Done()
 			h.Cancel()
-			waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second+grace)
-			defer cancel()
 			select {
 			case <-h.Exited():
-			case <-waitCtx.Done():
+			case <-ctx.Done():
 			}
-		}(h, p.StopGrace[name])
+		}(h)
 	}
 	stopping.Wait()
 }
@@ -576,8 +574,9 @@ func cleanupECSTaskProcesses(ctx context.Context, taskID string, p *ecsTaskProce
 		}
 		select {
 		case <-handle.Exited():
-		case <-time.After(5 * time.Second):
-			fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: container %s is still being removed\n", taskID, handle.ID())
+		case <-ctx.Done():
+			fmt.Fprintf(os.Stderr, "[sim-ecs] task %s: container %s is still being removed; the next process's recovery finishes it\n", taskID, handle.ID())
+			return
 		}
 	}
 	if err := sim.RemoveVolumesNamed(ecsTaskVolumePrefix(taskID)); err != nil {
