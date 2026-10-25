@@ -202,9 +202,9 @@ func TestDispatcherStopKeepsAnInterruptedDeliveryForTheNextStart(t *testing.T) {
 }
 
 func TestPostClassifiesTheReceiversAnswer(t *testing.T) {
-	var gotHeader string
+	var gotHeader, gotMethod string
 	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotHeader = r.Header.Get("X-Test")
+		gotHeader, gotMethod = r.Header.Get("X-Test"), r.Method
 		switch r.URL.Path {
 		case "/ok":
 			w.WriteHeader(http.StatusAccepted)
@@ -230,8 +230,11 @@ func TestPostClassifiesTheReceiversAnswer(t *testing.T) {
 	}
 	ctx := context.Background()
 	header := http.Header{"X-Test": {"yes"}}
-	if out := Post(ctx, Request{URL: receiver.URL + "/ok", Header: header}, classify); !out.OK() || out.Status != 202 || gotHeader != "yes" || string(out.Response) != "queued" {
-		t.Errorf("ok: %+v header %q", out, gotHeader)
+	if out := Post(ctx, Request{URL: receiver.URL + "/ok", Header: header}, classify); !out.OK() || out.Status != 202 || gotHeader != "yes" || gotMethod != http.MethodPost || string(out.Response) != "queued" {
+		t.Errorf("ok: %+v header %q method %q", out, gotHeader, gotMethod)
+	}
+	if out := Post(ctx, Request{Method: http.MethodPut, URL: receiver.URL + "/ok"}, classify); !out.OK() || gotMethod != http.MethodPut {
+		t.Errorf("put: %+v method %q", out, gotMethod)
 	}
 	if out := Post(ctx, Request{URL: receiver.URL + "/bad"}, classify); out.OK() || out.Retry || out.Status != 400 || string(out.Response) != "no such channel" {
 		t.Errorf("bad: %+v", out)
