@@ -141,7 +141,7 @@ func handleKVSetSecret(w http.ResponseWriter, r *http.Request, vault, name strin
 		ContentType string              `json:"contentType,omitempty"`
 		Attributes  *kvSecretAttrsPatch `json:"attributes,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := azureReadRequiredJSON(r, &body); err != nil {
 		AzureError(w, "InvalidRequest",
 			"Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
@@ -235,7 +235,7 @@ func handleKVPatchSecret(w http.ResponseWriter, r *http.Request, vault, name, ve
 		ContentType *string             `json:"contentType,omitempty"`
 		Attributes  *kvSecretAttrsPatch `json:"attributes,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := azureReadRequiredJSON(r, &body); err != nil {
 		AzureError(w, "InvalidRequest",
 			"Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -308,15 +309,16 @@ func handleACRScheduleRun(w http.ResponseWriter, r *http.Request) {
 	rg := sim.PathParam(r, "resourceGroupName")
 	registry := sim.PathParam(r, "registryName")
 
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		AzureError(w, "InvalidRequestContent", "failed to read run request: "+err.Error(), http.StatusBadRequest)
-		return
-	}
+	var body json.RawMessage
+	bodyErr := sim.ReadJSON(r, &body)
 	regID, _ := acrRegistryID(r)
 	reg, ok := acrRegistries.Get(regID)
 	if !ok {
 		AzureError(w, "ResourceNotFound", fmt.Sprintf("The Resource 'Microsoft.ContainerRegistry/registries/%s' under resource group '%s' was not found.", registry, rg), http.StatusNotFound)
+		return
+	}
+	if bodyErr != nil {
+		AzureError(w, "InvalidRequestContent", "failed to parse run request: "+bodyErr.Error(), http.StatusBadRequest)
 		return
 	}
 	spec, rerr := acrDecodeRunRequest(body, reg)

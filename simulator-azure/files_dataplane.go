@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
-	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -773,7 +772,7 @@ func handleFilesCreatePermission(w http.ResponseWriter, r *http.Request, account
 		Permission string `json:"permission"`
 		Format     string `json:"format"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := sim.ReadJSON(r, &body); err != nil {
 		writeStorageError(w, "InvalidInput",
 			"One of the request inputs is not valid.", http.StatusBadRequest)
 		return

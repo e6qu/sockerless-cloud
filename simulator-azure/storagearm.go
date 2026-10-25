@@ -554,7 +554,10 @@ func handleStorageRegenerateKey(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		KeyName string `json:"keyName"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	// AccountRegenerateKeyParameters names one of the two access keys; kerb1 /
 	// kerb2 exist only on accounts with Azure AD DS authentication, which the
 	// simulator does not model.
@@ -714,7 +717,10 @@ func handleStorageContainerUpdate(w http.ResponseWriter, r *http.Request) {
 			Metadata     map[string]string `json:"metadata"`
 		} `json:"properties"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	azBlobContainers.Update(c.ID, func(stored *BlobContainer) {
 		if req.Properties.PublicAccess != "" {
 			stored.Properties.PublicAccess = req.Properties.PublicAccess
@@ -736,7 +742,10 @@ func handleStorageContainerSetLegalHold(w http.ResponseWriter, r *http.Request) 
 	var req struct {
 		Tags []string `json:"tags"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	azBlobContainers.Update(c.ID, func(stored *BlobContainer) { stored.Properties.HasLegalHold = len(req.Tags) > 0 })
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"hasLegalHold": len(req.Tags) > 0,
@@ -752,7 +761,10 @@ func handleStorageContainerClearLegalHold(w http.ResponseWriter, r *http.Request
 	var req struct {
 		Tags []string `json:"tags"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	azBlobContainers.Update(c.ID, func(stored *BlobContainer) { stored.Properties.HasLegalHold = false })
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"hasLegalHold": false,
@@ -770,7 +782,10 @@ func handleStorageContainerLease(w http.ResponseWriter, r *http.Request) {
 		ProposedLeaseID string `json:"proposedLeaseId"`
 		LeaseID         string `json:"leaseId"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	resp := map[string]any{}
 	switch req.Action {
 	case "Break":
@@ -961,7 +976,10 @@ func handleStorageFileShareUpdate(w http.ResponseWriter, r *http.Request) {
 			Metadata   map[string]string `json:"metadata"`
 		} `json:"properties"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	azFileShares.Update(share.ID, func(stored *FileShare) {
 		if req.Properties.ShareQuota != 0 {
 			stored.Properties.ShareQuota = req.Properties.ShareQuota
@@ -996,7 +1014,10 @@ func handleStorageFileShareLease(w http.ResponseWriter, r *http.Request) {
 		ProposedLeaseID string `json:"proposedLeaseId"`
 		LeaseID         string `json:"leaseId"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	resp := map[string]any{}
 	if req.Action == "Break" {
 		resp["leaseTimeSeconds"] = "0"

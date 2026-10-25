@@ -233,7 +233,10 @@ func registerNetworkMoreOps(srv *sim.Server) {
 	srv.HandleFunc("POST "+armBase+"/publicIPAddresses/{publicIPName}/reserveCloudServicePublicIpAddress", func(w http.ResponseWriter, r *http.Request) {
 		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "publicIPAddresses", sim.PathParam(r, "publicIPName"))
 		var body map[string]any
-		_ = sim.ReadJSON(r, &body)
+		if err := sim.ReadJSON(r, &body); err != nil {
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 		pip, ok := azurePublicIPs.Get(id)
 		if !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Public IP address %q not found.", sim.PathParam(r, "publicIPName"))
@@ -247,7 +250,10 @@ func registerNetworkMoreOps(srv *sim.Server) {
 	srv.HandleFunc("POST "+armBase+"/publicIPAddresses/{publicIPName}/disassociateCloudServiceReservedPublicIp", func(w http.ResponseWriter, r *http.Request) {
 		id := armResourceID(sim.PathParam(r, "subscriptionId"), sim.PathParam(r, "resourceGroupName"), "Microsoft.Network", "publicIPAddresses", sim.PathParam(r, "publicIPName"))
 		var body map[string]any
-		_ = sim.ReadJSON(r, &body)
+		if err := sim.ReadJSON(r, &body); err != nil {
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 		if _, ok := azurePublicIPs.Get(id); !ok {
 			AzureErrorf(w, "ResourceNotFound", http.StatusNotFound, "Public IP address %q not found.", sim.PathParam(r, "publicIPName"))
 			return

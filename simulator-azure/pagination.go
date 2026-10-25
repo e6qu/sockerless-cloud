@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/e6qu/sockerless-cloud/sim"
 	"github.com/e6qu/sockerless-cloud/sim/listq"
 )
 
@@ -144,4 +145,28 @@ func acrCatalogPage(r *http.Request, repos []string) ([]string, string) {
 // separates versions created within the same second.
 func kvVersionOrder(created int64, appended int) string {
 	return listq.IntKey(created) + listq.IntKey(int64(appended))
+}
+
+// kvWriteDeletedPage answers a page of the items deleted reports as deleted,
+// each rendered as its deleted bundle.
+func kvWriteDeletedPage[T any](w http.ResponseWriter, r *http.Request, items []T, deleted func(T) bool, name func(T) string, bundle func(T) map[string]any) {
+	matching := []T{}
+	for _, item := range items {
+		if deleted(item) {
+			matching = append(matching, item)
+		}
+	}
+	recs, next, pageOK := kvPage(w, r, matching, name)
+	if !pageOK {
+		return
+	}
+	page := make([]map[string]any, 0, len(recs))
+	for _, rec := range recs {
+		page = append(page, bundle(rec))
+	}
+	out := map[string]any{"value": page}
+	if next != "" {
+		out["nextLink"] = kvNextLink(r, next)
+	}
+	sim.WriteJSON(w, http.StatusOK, out)
 }

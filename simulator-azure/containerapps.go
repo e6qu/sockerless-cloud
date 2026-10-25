@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -379,11 +378,12 @@ func registerContainerApps(srv *sim.Server) {
 				"The Resource 'Microsoft.App/jobs/%s' under resource group '%s' was not found.", name, rg)
 			return
 		}
-		patch, err := io.ReadAll(r.Body)
-		if err != nil {
-			AzureError(w, "InvalidRequestContent", "Failed to read request body: "+err.Error(), http.StatusBadRequest)
+		var patch json.RawMessage
+		if err := sim.ReadJSON(r, &patch); err != nil {
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+		var err error
 		prior := job
 		var patchIdentity struct {
 			Identity *SiteIdentity `json:"identity"`

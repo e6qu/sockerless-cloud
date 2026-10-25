@@ -166,7 +166,7 @@ func handleCosmosOffersQuery(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Query string `json:"query"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := azureReadRequiredJSON(r, &req); err != nil {
 		cosmosDataError(w, "BadRequest", "invalid offers query body", http.StatusBadRequest)
 		return
 	}

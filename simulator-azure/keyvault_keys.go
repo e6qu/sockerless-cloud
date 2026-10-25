@@ -182,7 +182,7 @@ func handleKVCreateKey(w http.ResponseWriter, r *http.Request, vault, name strin
 		Attributes *KeyVaultAttrs    `json:"attributes,omitempty"`
 		Tags       map[string]string `json:"tags,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := azureReadRequiredJSON(r, &body); err != nil {
 		AzureError(w, "InvalidRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -237,7 +237,7 @@ func handleKVImportKey(w http.ResponseWriter, r *http.Request, vault, name strin
 		Attributes *KeyVaultAttrs    `json:"attributes,omitempty"`
 		Tags       map[string]string `json:"tags,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := azureReadRequiredJSON(r, &body); err != nil {
 		AzureError(w, "InvalidRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -365,7 +365,7 @@ func handleKVUpdateKey(w http.ResponseWriter, r *http.Request, vault, name, vers
 		KeyOps     []string          `json:"key_ops,omitempty"`
 		Tags       map[string]string `json:"tags,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := azureReadRequiredJSON(r, &body); err != nil {
 		AzureError(w, "InvalidRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -424,25 +424,8 @@ func handleKVGetDeletedKey(w http.ResponseWriter, r *http.Request, vault, name s
 }
 
 func handleKVListDeletedKeys(w http.ResponseWriter, r *http.Request, vault string) {
-	deleted := []kvKeyStored{}
-	for _, rec := range keyVaultKeysIn(vault) {
-		if rec.isDeleted() {
-			deleted = append(deleted, rec)
-		}
-	}
-	recs, next, pageOK := kvPage(w, r, deleted, func(k kvKeyStored) string { return k.Name })
-	if !pageOK {
-		return
-	}
-	page := make([]map[string]any, 0, len(recs))
-	for _, rec := range recs {
-		page = append(page, deletedKeyBundle(rec))
-	}
-	out := map[string]any{"value": page}
-	if next != "" {
-		out["nextLink"] = kvNextLink(r, next)
-	}
-	sim.WriteJSON(w, http.StatusOK, out)
+	kvWriteDeletedPage(w, r, keyVaultKeysIn(vault), kvKeyStored.isDeleted,
+		func(k kvKeyStored) string { return k.Name }, deletedKeyBundle)
 }
 
 func handleKVPurgeDeletedKey(w http.ResponseWriter, r *http.Request, vault, name string) {
@@ -758,7 +741,7 @@ func handleKVUpdateKeyRotationPolicy(w http.ResponseWriter, r *http.Request, vau
 		LifetimeActions []map[string]any `json:"lifetimeActions"`
 		Attributes      map[string]any   `json:"attributes"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := azureReadRequiredJSON(r, &body); err != nil {
 		AzureError(w, "BadParameter", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}

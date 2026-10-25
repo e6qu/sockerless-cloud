@@ -4,8 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -353,9 +353,9 @@ func registerContainerAppEnvironment(srv *sim.Server) {
 				"Managed environment '%s' not found.", envName)
 			return
 		}
-		patch, err := io.ReadAll(r.Body)
-		if err != nil {
-			AzureError(w, "InvalidRequestContent", "Failed to read request body: "+err.Error(), http.StatusBadRequest)
+		var patch json.RawMessage
+		if err := sim.ReadJSON(r, &patch); err != nil {
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		// Merge over the ARM wire shape so sockerless-internal wiring (the

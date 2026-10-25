@@ -1407,7 +1407,10 @@ func registerACRRegistryActions(srv *sim.Server, registries sim.Store[Registry])
 		var req struct {
 			Name string `json:"name"`
 		}
-		_ = sim.ReadJSON(r, &req)
+		if err := sim.ReadJSON(r, &req); err != nil {
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 		if req.Name != "password" && req.Name != "password2" {
 			AzureErrorf(w, "InvalidParameter", http.StatusBadRequest,
 				"The value '%s' is not valid for parameter 'name'. Expected 'password' or 'password2'.", req.Name)

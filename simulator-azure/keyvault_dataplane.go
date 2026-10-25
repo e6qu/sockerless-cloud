@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -250,7 +249,7 @@ func readKVBackupBlob(r *http.Request) ([]byte, error) {
 	var body struct {
 		Value string `json:"value"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := azureReadRequiredJSON(r, &body); err != nil {
 		return nil, err
 	}
 	if body.Value == "" {

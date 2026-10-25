@@ -896,7 +896,10 @@ func ehAuthRuleRegenerateKeys(scope string) http.HandlerFunc {
 			KeyType string `json:"keyType"`
 			Key     string `json:"key"`
 		}
-		_ = sim.ReadJSON(r, &req)
+		if err := sim.ReadJSON(r, &req); err != nil {
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 		switch req.KeyType {
 		case "PrimaryKey":
 			azureBumpKeyGen(ruleID, "primary", req.Key)

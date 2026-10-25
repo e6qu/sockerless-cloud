@@ -1216,7 +1216,7 @@ func handleCosmosDataQueryDocs(w http.ResponseWriter, r *http.Request) {
 		Query      string           `json:"query"`
 		Parameters []map[string]any `json:"parameters,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := azureReadRequiredJSON(r, &req); err != nil {
 		cosmosDataError(w, "BadRequest", "invalid query body", http.StatusBadRequest)
 		return
 	}

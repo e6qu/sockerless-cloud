@@ -9,7 +9,6 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -40,7 +39,7 @@ func handleKVGetRandomBytes(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Count *int `json:"count"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := azureReadRequiredJSON(r, &body); err != nil {
 		AzureError(w, "BadParameter", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -98,9 +97,13 @@ func handleKVCryptoKey(w http.ResponseWriter, r *http.Request, vault, name, vers
 	case "verify":
 		handleKVRSAKeyVerify(w, r, privateKey)
 	case "encrypt", "wrapkey":
-		handleKVRSAKeyEncrypt(w, r, keyVersion, &privateKey.PublicKey)
+		handleKVRSAKeyTransform(w, r, keyVersion, func(alg string, value []byte) ([]byte, error) {
+			return rsaEncrypt(alg, &privateKey.PublicKey, value)
+		})
 	case "decrypt", "unwrapkey":
-		handleKVRSAKeyDecrypt(w, r, keyVersion, privateKey)
+		handleKVRSAKeyTransform(w, r, keyVersion, func(alg string, value []byte) ([]byte, error) {
+			return rsaDecrypt(alg, privateKey, value)
+		})
 	default:
 		AzureError(w, "MethodNotAllowed", "Method not supported", http.StatusMethodNotAllowed)
 	}
@@ -111,7 +114,7 @@ func handleKVRSAKeySign(w http.ResponseWriter, r *http.Request, version kvKeyVer
 		Algorithm string `json:"alg"`
 		Value     string `json:"value"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := azureReadRequiredJSON(r, &body); err != nil {
 		AzureError(w, "InvalidRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -144,7 +147,7 @@ func handleKVRSAKeyVerify(w http.ResponseWriter, r *http.Request, privateKey *rs
 		Digest    string `json:"digest"`
 		Signature string `json:"value"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := azureReadRequiredJSON(r, &body); err != nil {
 		AzureError(w, "InvalidRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -171,48 +174,28 @@ func handleKVRSAKeyVerify(w http.ResponseWriter, r *http.Request, privateKey *rs
 	sim.WriteJSON(w, http.StatusOK, map[string]any{"value": err == nil})
 }
 
-func handleKVRSAKeyEncrypt(w http.ResponseWriter, r *http.Request, version kvKeyVersion, publicKey *rsa.PublicKey) {
+// handleKVRSAKeyTransform answers encrypt and decrypt: transform turns the
+// request's value into the result under the request's algorithm.
+func handleKVRSAKeyTransform(w http.ResponseWriter, r *http.Request, version kvKeyVersion, transform func(alg string, value []byte) ([]byte, error)) {
 	var body struct {
 		Algorithm string `json:"alg"`
 		Value     string `json:"value"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := azureReadRequiredJSON(r, &body); err != nil {
 		AzureError(w, "InvalidRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
-	plain, err := decodeKVURLBytes(body.Value)
+	value, err := decodeKVURLBytes(body.Value)
 	if err != nil {
 		AzureError(w, "BadParameter", "invalid value: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	ciphertext, err := rsaEncrypt(body.Algorithm, publicKey, plain)
+	result, err := transform(body.Algorithm, value)
 	if err != nil {
 		AzureError(w, "BadParameter", err.Error(), http.StatusBadRequest)
 		return
 	}
-	writeKVOperationResult(w, version.ID, ciphertext)
-}
-
-func handleKVRSAKeyDecrypt(w http.ResponseWriter, r *http.Request, version kvKeyVersion, privateKey *rsa.PrivateKey) {
-	var body struct {
-		Algorithm string `json:"alg"`
-		Value     string `json:"value"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		AzureError(w, "InvalidRequest", err.Error(), http.StatusBadRequest)
-		return
-	}
-	ciphertext, err := decodeKVURLBytes(body.Value)
-	if err != nil {
-		AzureError(w, "BadParameter", "invalid value: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	plain, err := rsaDecrypt(body.Algorithm, privateKey, ciphertext)
-	if err != nil {
-		AzureError(w, "BadParameter", err.Error(), http.StatusBadRequest)
-		return
-	}
-	writeKVOperationResult(w, version.ID, plain)
+	writeKVOperationResult(w, version.ID, result)
 }
 
 func publicJWK(in map[string]any) map[string]any {

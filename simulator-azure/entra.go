@@ -5,9 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -527,7 +525,7 @@ func handleGraphAddGroupMemberRef(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ODataID string `json:"@odata.id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := azureReadRequiredJSON(r, &req); err != nil {
 		AzureError(w, "Request_BadRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -760,32 +758,26 @@ func handleGraphUserMemberOf(w http.ResponseWriter, r *http.Request) {
 // surface. Real URL base: https://graph.microsoft.com/v1.0/applications
 func registerEntraApplications(srv *sim.Server) {
 	entraApplicationStore = sim.MakeStore[EntraApplication](srv.DB(), "entra_applications")
+	registerEntraApplicationRoutes(srv, "/v1.0")
+	registerEntraApplicationRoutes(srv, "/beta")
+}
 
-	srv.HandleFunc("POST /v1.0/applications", handleGraphCreateApplication)
-	srv.HandleFunc("POST /beta/applications", handleGraphCreateApplication)
-	srv.HandleFunc("GET /v1.0/applications", handleGraphListApplications)
-	srv.HandleFunc("GET /beta/applications", handleGraphListApplications)
-	srv.HandleFunc("GET /v1.0/applications/{appObjectId}", handleGraphGetApplication)
-	srv.HandleFunc("GET /beta/applications/{appObjectId}", handleGraphGetApplication)
-	srv.HandleFunc("PATCH /v1.0/applications/{appObjectId}", handleGraphUpdateApplication)
-	srv.HandleFunc("PATCH /beta/applications/{appObjectId}", handleGraphUpdateApplication)
-	srv.HandleFunc("DELETE /v1.0/applications/{appObjectId}", handleGraphDeleteApplication)
-	srv.HandleFunc("DELETE /beta/applications/{appObjectId}", handleGraphDeleteApplication)
+func registerEntraApplicationRoutes(srv *sim.Server, version string) {
+	srv.HandleFunc("POST "+version+"/applications", handleGraphCreateApplication)
+	srv.HandleFunc("GET "+version+"/applications", handleGraphListApplications)
+	srv.HandleFunc("GET "+version+"/applications/{appObjectId}", handleGraphGetApplication)
+	srv.HandleFunc("PATCH "+version+"/applications/{appObjectId}", handleGraphUpdateApplication)
+	srv.HandleFunc("DELETE "+version+"/applications/{appObjectId}", handleGraphDeleteApplication)
 
 	// Client secrets live on the application object — the Certificates &
 	// secrets blade of a real app registration calls exactly this route, and
 	// the minted secret is what the v2.0 client_credentials grant validates.
-	srv.HandleFunc("POST /v1.0/applications/{appObjectId}/addPassword", handleGraphApplicationAddPassword)
-	srv.HandleFunc("POST /beta/applications/{appObjectId}/addPassword", handleGraphApplicationAddPassword)
-	srv.HandleFunc("POST /v1.0/applications/{appObjectId}/removePassword", handleGraphApplicationRemovePassword)
-	srv.HandleFunc("POST /beta/applications/{appObjectId}/removePassword", handleGraphApplicationRemovePassword)
+	srv.HandleFunc("POST "+version+"/applications/{appObjectId}/addPassword", handleGraphApplicationAddPassword)
+	srv.HandleFunc("POST "+version+"/applications/{appObjectId}/removePassword", handleGraphApplicationRemovePassword)
 
-	srv.HandleFunc("GET /v1.0/applications/{appObjectId}/owners", handleGraphListApplicationOwners)
-	srv.HandleFunc("GET /beta/applications/{appObjectId}/owners", handleGraphListApplicationOwners)
-	srv.HandleFunc("POST /v1.0/applications/{appObjectId}/owners/$ref", handleGraphAddApplicationOwnerRef)
-	srv.HandleFunc("POST /beta/applications/{appObjectId}/owners/$ref", handleGraphAddApplicationOwnerRef)
-	srv.HandleFunc("DELETE /v1.0/applications/{appObjectId}/owners/{ownerId}/$ref", handleGraphRemoveApplicationOwnerRef)
-	srv.HandleFunc("DELETE /beta/applications/{appObjectId}/owners/{ownerId}/$ref", handleGraphRemoveApplicationOwnerRef)
+	srv.HandleFunc("GET "+version+"/applications/{appObjectId}/owners", handleGraphListApplicationOwners)
+	srv.HandleFunc("POST "+version+"/applications/{appObjectId}/owners/$ref", handleGraphAddApplicationOwnerRef)
+	srv.HandleFunc("DELETE "+version+"/applications/{appObjectId}/owners/{ownerId}/$ref", handleGraphRemoveApplicationOwnerRef)
 }
 
 // entraApplicationDoc renders an application registration in Graph's wire shape.
@@ -947,29 +939,23 @@ func handleGraphRemoveApplicationOwnerRef(w http.ResponseWriter, r *http.Request
 // surface. Real URL base: https://graph.microsoft.com/v1.0/servicePrincipals
 func registerEntraServicePrincipals(srv *sim.Server) {
 	entraServicePrincipalStore = sim.MakeStore[EntraServicePrincipal](srv.DB(), "entra_service_principals")
+	registerEntraServicePrincipalRoutes(srv, "/v1.0")
+	registerEntraServicePrincipalRoutes(srv, "/beta")
+}
 
-	srv.HandleFunc("POST /v1.0/servicePrincipals", handleGraphCreateServicePrincipal)
-	srv.HandleFunc("POST /beta/servicePrincipals", handleGraphCreateServicePrincipal)
-	srv.HandleFunc("GET /v1.0/servicePrincipals", handleGraphListServicePrincipals)
-	srv.HandleFunc("GET /beta/servicePrincipals", handleGraphListServicePrincipals)
-	srv.HandleFunc("GET /v1.0/servicePrincipals/{spId}", handleGraphGetServicePrincipal)
-	srv.HandleFunc("GET /beta/servicePrincipals/{spId}", handleGraphGetServicePrincipal)
-	srv.HandleFunc("PATCH /v1.0/servicePrincipals/{spId}", handleGraphUpdateServicePrincipal)
-	srv.HandleFunc("PATCH /beta/servicePrincipals/{spId}", handleGraphUpdateServicePrincipal)
-	srv.HandleFunc("DELETE /v1.0/servicePrincipals/{spId}", handleGraphDeleteServicePrincipal)
-	srv.HandleFunc("DELETE /beta/servicePrincipals/{spId}", handleGraphDeleteServicePrincipal)
+func registerEntraServicePrincipalRoutes(srv *sim.Server, version string) {
+	srv.HandleFunc("POST "+version+"/servicePrincipals", handleGraphCreateServicePrincipal)
+	srv.HandleFunc("GET "+version+"/servicePrincipals", handleGraphListServicePrincipals)
+	srv.HandleFunc("GET "+version+"/servicePrincipals/{spId}", handleGraphGetServicePrincipal)
+	srv.HandleFunc("PATCH "+version+"/servicePrincipals/{spId}", handleGraphUpdateServicePrincipal)
+	srv.HandleFunc("DELETE "+version+"/servicePrincipals/{spId}", handleGraphDeleteServicePrincipal)
 
-	srv.HandleFunc("POST /v1.0/servicePrincipals/{spId}/addPassword", handleGraphServicePrincipalAddPassword)
-	srv.HandleFunc("POST /beta/servicePrincipals/{spId}/addPassword", handleGraphServicePrincipalAddPassword)
-	srv.HandleFunc("POST /v1.0/servicePrincipals/{spId}/removePassword", handleGraphServicePrincipalRemovePassword)
-	srv.HandleFunc("POST /beta/servicePrincipals/{spId}/removePassword", handleGraphServicePrincipalRemovePassword)
+	srv.HandleFunc("POST "+version+"/servicePrincipals/{spId}/addPassword", handleGraphServicePrincipalAddPassword)
+	srv.HandleFunc("POST "+version+"/servicePrincipals/{spId}/removePassword", handleGraphServicePrincipalRemovePassword)
 
-	srv.HandleFunc("GET /v1.0/servicePrincipals/{spId}/owners", handleGraphListServicePrincipalOwners)
-	srv.HandleFunc("GET /beta/servicePrincipals/{spId}/owners", handleGraphListServicePrincipalOwners)
-	srv.HandleFunc("POST /v1.0/servicePrincipals/{spId}/owners/$ref", handleGraphAddServicePrincipalOwnerRef)
-	srv.HandleFunc("POST /beta/servicePrincipals/{spId}/owners/$ref", handleGraphAddServicePrincipalOwnerRef)
-	srv.HandleFunc("DELETE /v1.0/servicePrincipals/{spId}/owners/{ownerId}/$ref", handleGraphRemoveServicePrincipalOwnerRef)
-	srv.HandleFunc("DELETE /beta/servicePrincipals/{spId}/owners/{ownerId}/$ref", handleGraphRemoveServicePrincipalOwnerRef)
+	srv.HandleFunc("GET "+version+"/servicePrincipals/{spId}/owners", handleGraphListServicePrincipalOwners)
+	srv.HandleFunc("POST "+version+"/servicePrincipals/{spId}/owners/$ref", handleGraphAddServicePrincipalOwnerRef)
+	srv.HandleFunc("DELETE "+version+"/servicePrincipals/{spId}/owners/{ownerId}/$ref", handleGraphRemoveServicePrincipalOwnerRef)
 }
 
 // entraServicePrincipalDoc renders a service principal in Graph's wire shape.
@@ -1192,7 +1178,7 @@ func entraParseAddPassword(w http.ResponseWriter, r *http.Request) (EntraPasswor
 			EndDateTime   string `json:"endDateTime"`
 		} `json:"passwordCredential"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		AzureError(w, "Request_BadRequest", "invalid request body", http.StatusBadRequest)
 		return EntraPasswordCredential{}, false
 	}
@@ -1225,7 +1211,7 @@ func entraParseRemovePassword(w http.ResponseWriter, r *http.Request) (string, b
 	var req struct {
 		KeyID string `json:"keyId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.KeyID == "" {
+	if err := azureReadRequiredJSON(r, &req); err != nil || req.KeyID == "" {
 		AzureError(w, "Request_BadRequest", "keyId is required", http.StatusBadRequest)
 		return "", false
 	}

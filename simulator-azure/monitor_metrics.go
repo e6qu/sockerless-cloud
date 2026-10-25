@@ -1,10 +1,7 @@
 package main
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -202,7 +199,7 @@ func registerMonitorMetrics(srv *sim.Server) {
 	srv.HandleFunc("POST "+subBase+"/metrics", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		if err := sim.ReadJSON(r, &body); err != nil {
 			AzureErrorf(w, "BadRequest", http.StatusBadRequest, "The request body is not valid JSON: %v", err)
 			return
 		}

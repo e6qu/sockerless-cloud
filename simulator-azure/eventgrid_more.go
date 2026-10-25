@@ -140,7 +140,7 @@ func eventGridUpdateARMResource(w http.ResponseWriter, r *http.Request, store si
 		return
 	}
 	var req EventGridTopic
-	if err := sim.ReadJSON(r, &req); err != nil && r.ContentLength != 0 {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
@@ -186,7 +186,10 @@ func eventGridRegenerateKeyResponse(w http.ResponseWriter, r *http.Request, stor
 	var req struct {
 		KeyName string `json:"keyName"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	rotated := req.KeyName
 	if rotated != "key1" && rotated != "key2" {
 		rotated = "key1"
@@ -223,7 +226,7 @@ func handleEventGridUpdateEventSubscription(w http.ResponseWriter, r *http.Reque
 	// level (not wrapped in "properties"); merge each provided field into the
 	// stored subscription's properties.
 	var patch map[string]any
-	if err := sim.ReadJSON(r, &patch); err != nil && r.ContentLength != 0 {
+	if err := sim.ReadJSON(r, &patch); err != nil {
 		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}
@@ -510,7 +513,7 @@ func handleEventGridPutPrivateEndpointConnection(w http.ResponseWriter, r *http.
 		return
 	}
 	var req EventGridTopic
-	if err := sim.ReadJSON(r, &req); err != nil && r.ContentLength != 0 {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}

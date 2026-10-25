@@ -517,7 +517,7 @@ func eventGridCreateARMResource(w http.ResponseWriter, r *http.Request, store si
 // and what a client polling the create reads.
 func eventGridCreateARMResourceStatus(w http.ResponseWriter, r *http.Request, store sim.Store[EventGridTopic], id, name, resourceType string, status int, mutate func(map[string]any)) {
 	var req EventGridTopic
-	if err := sim.ReadJSON(r, &req); err != nil && r.ContentLength != 0 {
+	if err := sim.ReadJSON(r, &req); err != nil {
 		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest, "invalid request body: %v", err)
 		return
 	}

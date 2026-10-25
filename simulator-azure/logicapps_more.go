@@ -458,7 +458,10 @@ func handleLogicWorkflowRegenerateAccessKey(w http.ResponseWriter, r *http.Reque
 	var req struct {
 		KeyType string `json:"keyType"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	slot := logicAccessKeySlot(req.KeyType)
 	if slot == "" {
 		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest,
@@ -492,7 +495,10 @@ func handleLogicWorkflowMove(w http.ResponseWriter, r *http.Request) {
 	var ref struct {
 		ID string `json:"id"`
 	}
-	_ = sim.ReadJSON(r, &ref)
+	if err := sim.ReadJSON(r, &ref); err != nil {
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	sub := sim.PathParam(r, "subscriptionId")
 	opID := issueAzureAsyncOperation(func() {
 		if ref.ID == "" || ref.ID == id {
@@ -694,7 +700,10 @@ func handleLogicTriggerSetState(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Source map[string]any `json:"source"`
 	}
-	_ = sim.ReadJSON(r, &body)
+	if err := sim.ReadJSON(r, &body); err != nil {
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -959,7 +968,10 @@ func handleLogicIntegrationAccountRegenerateAccessKey(w http.ResponseWriter, r *
 	var req struct {
 		KeyType string `json:"keyType"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	slot := logicAccessKeySlot(req.KeyType)
 	if slot == "" {
 		AzureErrorf(w, "InvalidRequestContent", http.StatusBadRequest,
@@ -1141,7 +1153,10 @@ func handleLogicServiceEnvNetworkHealth(w http.ResponseWriter, r *http.Request) 
 func handleLogicServiceEnvManagedApiPut(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Path
 	var req LogicResource
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	props := map[string]any{}
 	for k, v := range req.Properties {
 		props[k] = v

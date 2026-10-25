@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -604,11 +603,12 @@ func registerContainerAppsApps(srv *sim.Server) {
 			return
 		}
 
-		patch, err := io.ReadAll(r.Body)
-		if err != nil {
-			AzureError(w, "InvalidRequestContent", "Failed to read request body: "+err.Error(), http.StatusBadRequest)
+		var patch json.RawMessage
+		if err := sim.ReadJSON(r, &patch); err != nil {
+			AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+		var err error
 		prior := app
 		var patchIdentity struct {
 			Identity *SiteIdentity `json:"identity"`

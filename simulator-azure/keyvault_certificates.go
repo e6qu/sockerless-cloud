@@ -9,8 +9,6 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
-	"io"
 	"math/big"
 	"net/http"
 	"sort"
@@ -325,7 +323,7 @@ func handleKVCreateCertificate(w http.ResponseWriter, r *http.Request, vault, na
 		PreserveCertOrder *bool             `json:"preserveCertOrder,omitempty"`
 		Tags              map[string]string `json:"tags,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := sim.ReadJSON(r, &body); err != nil {
 		AzureError(w, "InvalidRequest",
 			"Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
@@ -380,7 +378,7 @@ func handleKVImportCertificate(w http.ResponseWriter, r *http.Request, vault, na
 		PreserveCertOrder        *bool             `json:"preserveCertOrder,omitempty"`
 		Tags                     map[string]string `json:"tags,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := azureReadRequiredJSON(r, &body); err != nil {
 		AzureError(w, "InvalidRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -408,7 +406,7 @@ func handleKVMergeCertificate(w http.ResponseWriter, r *http.Request, vault, nam
 		Attributes       *KeyVaultAttrs    `json:"attributes,omitempty"`
 		Tags             map[string]string `json:"tags,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := azureReadRequiredJSON(r, &body); err != nil {
 		AzureError(w, "InvalidRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -527,7 +525,7 @@ func handleKVUpdateCertificate(w http.ResponseWriter, r *http.Request, vault, na
 		Attributes *KeyVaultAttrs    `json:"attributes,omitempty"`
 		Tags       map[string]string `json:"tags,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := azureReadRequiredJSON(r, &body); err != nil {
 		AzureError(w, "InvalidRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -572,7 +570,7 @@ func handleKVUpdateCertificateOperation(w http.ResponseWriter, r *http.Request, 
 	var body struct {
 		CancellationRequested *bool `json:"cancellation_requested,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	if err := sim.ReadJSON(r, &body); err != nil {
 		AzureError(w, "InvalidRequest", err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -626,25 +624,8 @@ func handleKVGetDeletedCertificate(w http.ResponseWriter, r *http.Request, vault
 }
 
 func handleKVListDeletedCertificates(w http.ResponseWriter, r *http.Request, vault string) {
-	deleted := []kvCertStored{}
-	for _, rec := range keyVaultCertificatesIn(vault) {
-		if rec.isDeleted() {
-			deleted = append(deleted, rec)
-		}
-	}
-	recs, next, pageOK := kvPage(w, r, deleted, func(c kvCertStored) string { return c.Name })
-	if !pageOK {
-		return
-	}
-	page := make([]map[string]any, 0, len(recs))
-	for _, rec := range recs {
-		page = append(page, deletedCertificateBundle(rec))
-	}
-	out := map[string]any{"value": page}
-	if next != "" {
-		out["nextLink"] = kvNextLink(r, next)
-	}
-	sim.WriteJSON(w, http.StatusOK, out)
+	kvWriteDeletedPage(w, r, keyVaultCertificatesIn(vault), kvCertStored.isDeleted,
+		func(c kvCertStored) string { return c.Name }, deletedCertificateBundle)
 }
 
 func handleKVPurgeDeletedCertificate(w http.ResponseWriter, r *http.Request, vault, name string) {
@@ -771,7 +752,7 @@ func handleKVSetCertificateContacts(w http.ResponseWriter, r *http.Request, vaul
 	var body struct {
 		Contacts []kvCertContact `json:"contacts"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := azureReadRequiredJSON(r, &body); err != nil {
 		AzureError(w, "BadParameter", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -868,7 +849,7 @@ func handleKVSetCertificateIssuer(w http.ResponseWriter, r *http.Request, vault,
 		OrgDetails  map[string]any       `json:"org_details,omitempty"`
 		Attributes  *kvIssuerAttributes  `json:"attributes,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := azureReadRequiredJSON(r, &body); err != nil {
 		AzureError(w, "BadParameter", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -911,7 +892,7 @@ func handleKVUpdateCertificateIssuer(w http.ResponseWriter, r *http.Request, vau
 		OrgDetails  map[string]any       `json:"org_details,omitempty"`
 		Attributes  *kvIssuerAttributes  `json:"attributes,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := azureReadRequiredJSON(r, &body); err != nil {
 		AzureError(w, "BadParameter", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -1016,7 +997,7 @@ func handleKVUpdateCertificatePolicy(w http.ResponseWriter, r *http.Request, vau
 		return
 	}
 	var patch kvCertPolicy
-	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+	if err := azureReadRequiredJSON(r, &patch); err != nil {
 		AzureError(w, "BadParameter", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}

@@ -170,7 +170,7 @@ func acrAttributesFor(key string) acrWriteableAttributes {
 // caller left out keeps the value it had, which is what a PATCH means.
 func acrApplyAttributes(w http.ResponseWriter, r *http.Request, key string) (acrWriteableAttributes, bool) {
 	var body acrWriteableAttributes
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := azureReadRequiredJSON(r, &body); err != nil {
 		sim.WriteJSON(w, http.StatusBadRequest, map[string]any{
 			"errors": []any{map[string]any{
 				"code": "INVALID_REQUEST", "message": "invalid request body: " + err.Error(),

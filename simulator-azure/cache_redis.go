@@ -430,7 +430,10 @@ func handleRedisForceReboot(w http.ResponseWriter, r *http.Request) {
 		ShardID    *int32  `json:"shardId,omitempty"`
 		Ports      []int32 `json:"ports,omitempty"`
 	}
-	_ = sim.ReadJSON(r, &req)
+	if err := sim.ReadJSON(r, &req); err != nil {
+		AzureError(w, "InvalidRequestContent", "Failed to parse request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 	sim.WriteJSON(w, http.StatusOK, map[string]any{
 		"message": "Reboot operation has been initiated on the requested Redis node(s).",
 	})
